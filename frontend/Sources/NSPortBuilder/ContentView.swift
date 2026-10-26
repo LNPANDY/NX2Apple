@@ -628,16 +628,34 @@ final class BuildModel: ObservableObject {
         }
         let py = pythonPath.isEmpty ? "/usr/bin/python3" : pythonPath
 
-        // One folder when everything lives together; otherwise a staging folder of symlinks.
+        // One folder when everything lives together; otherwise a staging folder of symlinks. A folder
+        // that holds other games too (a ROMs folder with one file per game) is staged as well: the
+        // script takes one game per folder and refuses one with several ("more than one game in the
+        // folder"), even when only the base game was picked.
         let baseDir = (basePath as NSString).deletingLastPathComponent
         let allPaths = [basePath, updatePath] + dlcPaths
         let dirs = Set(allPaths.filter { !$0.isEmpty }.map { ($0 as NSString).deletingLastPathComponent })
+        let picked = Set(allPaths.filter { !$0.isEmpty }.map { ($0 as NSString).lastPathComponent })
+        let unpicked = ((try? FileManager.default.contentsOfDirectory(atPath: baseDir)) ?? []).filter {
+            ["nsp", "xci", "nsz", "xcz"].contains(($0 as NSString).pathExtension.lowercased()) && !picked.contains($0)
+        }
+        // Staged, the folder's own update and add-on content would be left behind, where the script
+        // used to find them unpicked: bring along those whose file name carries this game's title ID
+        // (base + 0x800 the update, unless one was picked; base + 0x1000 + n add-on content).
+        var staged = allPaths
+        if let base = Self.titleID((basePath as NSString).lastPathComponent) {
+            for f in unpicked {
+                guard let tid = Self.titleID(f), tid > base else { continue }
+                let d = tid - base
+                if (d == 0x800 && updatePath.isEmpty) || (d >= 0x1000 && d < 0x2000) { staged.append(baseDir + "/" + f) }
+            }
+        }
         var inputDir = baseDir
-        if dirs.count > 1 {
+        if dirs.count > 1 || !unpicked.isEmpty {
             let tmp = NSTemporaryDirectory() + "nsport-\(UUID().uuidString.prefix(8))"
             try? FileManager.default.createDirectory(atPath: tmp, withIntermediateDirectories: true)
             var linked = 0
-            for f in allPaths where !f.isEmpty {
+            for f in staged where !f.isEmpty {
                 let dst = tmp + "/" + (f as NSString).lastPathComponent
                 if (try? FileManager.default.createSymbolicLink(atPath: dst, withDestinationPath: f)) != nil { linked += 1 }
             }
@@ -775,6 +793,111 @@ final class BuildModel: ObservableObject {
         running = false
         done = ok
         doneNote = note
+        if ok { installAfterBuild() }
+    }
+
+    // MARK: Install on a device
+
+    /// scripts/install_ios.py signs the IPA with this Mac's development certificate, installs it over
+    /// the cable and copies the romfs archive into the app's Documents. Nothing about the account is
+    /// kept here but the team the user picked; the script reads the certificate and the device itself.
+    struct Device: Identifiable, Hashable { let id: String; let name: String; let model: String }
+    struct Identity: Identifiable, Hashable { var id: String { team }; let team: String; let name: String }
+    @Published var devices: [Device] = []
+    @Published var identities: [Identity] = []
+    @Published var deviceID = UserDefaults.standard.string(forKey: "installDevice") ?? "" {
+        didSet { UserDefaults.standard.set(deviceID, forKey: "installDevice") }
+    }
+    @Published var team = UserDefaults.standard.string(forKey: "installTeam") ?? "" {
+        didSet { UserDefaults.standard.set(team, forKey: "installTeam") }
+    }
+    @Published var autoInstall = UserDefaults.standard.object(forKey: "autoInstall") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(autoInstall, forKey: "autoInstall") }
+    }
+    @Published var installing = false
+    @Published var devicesChecked = false
+
+    var hasInstaller: Bool { FileManager.default.fileExists(atPath: repoPath + "/scripts/install_ios.py") }
+    var canInstall: Bool {
+        hasInstaller && !running && devices.contains { $0.id == deviceID } && FileManager.default.fileExists(atPath: ipaPath)
+            && (identities.count <= 1 || identities.contains { $0.team == team })
+    }
+
+    func refreshDevices() {
+        guard hasInstaller else { return }
+        let py = pythonPath.isEmpty ? "/usr/bin/python3" : pythonPath, script = repoPath + "/scripts/install_ios.py"
+        DispatchQueue.global(qos: .userInitiated).async {
+            let p = Process(); p.executableURL = URL(fileURLWithPath: py); p.arguments = [script, "--list"]
+            p.environment = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "HOME": NSHomeDirectory()]
+            let out = Pipe(); p.standardOutput = out; p.standardError = Pipe(); p.standardInput = FileHandle.nullDevice
+            var devs: [Device] = [], ids: [Identity] = []
+            if (try? p.run()) != nil {
+                let data = out.fileHandleForReading.readDataToEndOfFile(); p.waitUntilExit()
+                if let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                    for d in j["devices"] as? [[String: Any]] ?? [] where d["paired"] as? Bool ?? false {
+                        devs.append(Device(id: d["udid"] as? String ?? "", name: d["name"] as? String ?? "", model: d["model"] as? String ?? ""))
+                    }
+                    var seen = Set<String>()
+                    for i in j["identities"] as? [[String: Any]] ?? [] {
+                        let t = i["team"] as? String ?? ""
+                        if seen.insert(t).inserted { ids.append(Identity(team: t, name: i["name"] as? String ?? t)) }
+                    }
+                }
+            }
+            DispatchQueue.main.async {
+                self.devices = devs; self.identities = ids; self.devicesChecked = true
+                if !devs.contains(where: { $0.id == self.deviceID }) { self.deviceID = devs.count == 1 ? devs[0].id : "" }
+                if !ids.contains(where: { $0.team == self.team }) { self.team = ids.count == 1 ? ids[0].team : "" }
+            }
+        }
+    }
+
+    private func installAfterBuild() {
+        if autoInstall, target == "ios", canInstall { startInstall() }
+    }
+
+    func startInstall() {
+        guard canInstall else { return }
+        let dev = devices.first { $0.id == deviceID }?.name ?? deviceID
+        running = true; installing = true
+        doneNote = String(format: t("inst.running"), dev)
+        stages.removeAll { $0.id > 2000 }
+        var args = [repoPath + "/scripts/install_ios.py", ipaPath, "--device", deviceID, "--progress", "lines", "--first-stage", "2001"]
+        if !archivePath.isEmpty { args += ["--romfs", archivePath] }
+        if !team.isEmpty { args += ["--team", team] }
+        let py = pythonPath.isEmpty ? "/usr/bin/python3" : pythonPath
+        say(String(format: t("msg.running"), py) + " " + args.joined(separator: " "))
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: py)
+        p.arguments = args
+        p.currentDirectoryURL = URL(fileURLWithPath: repoPath)
+        p.environment = ["PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+                         "USER": NSUserName(), "HOME": NSHomeDirectory(), "LANG": "en_US.UTF-8"]
+        Self.inOwnGroup(p, python: py)   // Stop ends devicectl and xcodebuild with it
+        let pipe = Pipe()
+        p.standardOutput = pipe; p.standardError = pipe
+        pipe.fileHandleForReading.readabilityHandler = { [weak self] h in
+            let d = h.availableData
+            guard !d.isEmpty, let s = String(data: d, encoding: .utf8) else { return }
+            DispatchQueue.main.async { self?.ingest(s) }
+        }
+        p.terminationHandler = { [weak self] st in Self.untrack(st); DispatchQueue.main.async {
+            guard let self else { return }
+            self.flushLines()
+            self.running = false; self.installing = false
+            if self.stopping {
+                self.stopping = false
+                self.doneNote = self.t("msg.stopped")
+            } else if st.terminationStatus == 0 {
+                self.doneNote = String(format: self.t("inst.done"), dev)
+            } else {
+                if let i = self.stages.lastIndex(where: { $0.id > 2000 && $0.state == .running }) { self.stages[i].state = .failed }
+                let why = self.logTail.components(separatedBy: "\n").last { $0.hasPrefix("[RED] ") }.map { String($0.dropFirst(6)) }
+                self.doneNote = String(format: self.t("inst.failed"), why ?? String(format: self.t("msg.exitCode"), st.terminationStatus))
+            }
+        }}
+        proc = p
+        do { try p.run(); Self.track(p) } catch { running = false; installing = false; doneNote = String(format: t("inst.failed"), error.localizedDescription) }
     }
 
     /// (file count, bytes) of a RomFS tree — the reuse fingerprint's content part.
@@ -1071,6 +1194,7 @@ final class BuildModel: ObservableObject {
             self.done = succeeded
             if cancelled { self.resetProgress() }
             self.doneNote = cancelled ? self.t("msg.stopped") : (succeeded ? self.t("msg.done") : self.t("msg.archiveIpaOnly"))
+            if succeeded && !cancelled { self.installAfterBuild() }
         }}
         proc = p
         do { try p.run(); Self.track(p) } catch {
@@ -1145,6 +1269,34 @@ final class BuildModel: ObservableObject {
 
     nonisolated static func importsOK(_ py: String) -> Bool { runOK(py, ["-c", importProbe]) }
 
+    /// The architecture this Mac runs natively. An Intel Homebrew under /usr/local on an Apple
+    /// silicon Mac has an x86_64-only Python that runs under Rosetta, and every child it starts
+    /// prefers the x86_64 slice too: the shader translator's apphost (a universal binary) then
+    /// looks for an x86_64 .NET, finds only the arm64 one, prints nothing, and the build stops at
+    /// the iOS shader step with "xlate_source: lock … / actual" (empty). Such an interpreter is
+    /// never picked, and a venv made from one is made again from a native one.
+    nonisolated static let nativeArch: String = {
+        var v: Int32 = 0; var n = MemoryLayout<Int32>.size
+        return sysctlbyname("hw.optional.arm64", &v, &n, nil, 0) == 0 && v == 1 ? "arm64" : "x86_64"
+    }()
+
+    /// platform.machine() of an interpreter: "x86_64" for one under Rosetta. nil when it cannot run.
+    nonisolated static func pythonArch(_ path: String) -> String? {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: path)
+        p.arguments = ["-c", "import platform; print(platform.machine())"]
+        let pipe = Pipe()
+        p.standardOutput = pipe; p.standardError = Pipe()
+        p.standardInput = FileHandle.nullDevice
+        guard (try? p.run()) != nil else { return nil }
+        p.waitUntilExit()
+        guard p.terminationStatus == 0 else { return nil }
+        let out = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        return out.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    nonisolated static func isNative(_ py: String) -> Bool { pythonArch(py) == nativeArch }
+
     /// backports.zstd declares Python < 3.14, so it is only installed where it is needed.
     /// nsz is always installed: NSZ / XCZ dumps are accepted by the pipeline now, and a player who
     /// downloads one should not have to run pip by hand (it is a few hundred KB).
@@ -1174,6 +1326,12 @@ final class BuildModel: ObservableObject {
             return p.terminationStatus == 0
         }
         let vpy = venvPython()
+        if FileManager.default.isExecutableFile(atPath: vpy) && !isNative(vpy) {
+            log += "\(vpy) is \(pythonArch(vpy) ?? "?"), not \(nativeArch): making the venv again\n"
+            try? FileManager.default.removeItem(atPath: venvDir)
+        }
+        // The base must be native too, and it cannot be the venv's own interpreter (just removed)
+        let base = (base != vpy && isNative(base)) ? base : (nativeBase() ?? base)
         if !FileManager.default.isExecutableFile(atPath: vpy) {
             log += "$ \(base) -m venv \(venvDir)\n"
             try? FileManager.default.createDirectory(atPath: (venvDir as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
@@ -1202,9 +1360,38 @@ final class BuildModel: ObservableObject {
         return (a, b)
     }
 
-    /// Every python3 on this Mac, newest-looking first, each tried for a usable version and the
-    /// packages. Returns the one to build with, plus why the others were rejected for the message.
+    /// Every native python3 on this Mac, newest-looking first, each tried for a usable version and
+    /// the packages. Returns the one to build with, plus why the others were rejected for the message.
     nonisolated static func findPython() -> (path: String, ok: Bool) {
+        var seen = Set<String>()
+        var fallback: (String, (Int, Int))? = nil   // newest with an acceptable version but no packages
+        for c in pythonCandidates() where !c.isEmpty && seen.insert(c).inserted {
+            guard FileManager.default.isExecutableFile(atPath: c), let v = pythonVersion(c) else { continue }
+            guard v >= minPython, isNative(c) else { continue }
+            if importsOK(c) { return (c, true) }
+            if fallback == nil || v > fallback!.1 { fallback = (c, v) }
+        }
+        // No system interpreter has the packages: the venv (existing, or created by 安装) is next.
+        let vpy = venvPython()
+        if FileManager.default.isExecutableFile(atPath: vpy) {
+            if importsOK(vpy) && isNative(vpy) { return (vpy, true) }
+            return (vpy, false)   // incomplete, or under Rosetta: 安装 finishes or remakes it
+        }
+        return (fallback?.0 ?? vpy, false)
+    }
+
+    /// The newest native interpreter new enough to make the venv from, packages or not.
+    nonisolated static func nativeBase() -> String? {
+        var seen = Set<String>(), best: (String, (Int, Int))? = nil
+        for c in pythonCandidates() where !c.isEmpty && c != venvPython() && seen.insert(c).inserted {
+            guard FileManager.default.isExecutableFile(atPath: c), let v = pythonVersion(c), v >= minPython, isNative(c) else { continue }
+            if best == nil || v > best!.1 { best = (c, v) }
+        }
+        return best?.0
+    }
+
+    /// Every python3 on this Mac, newest-looking first.
+    nonisolated static func pythonCandidates() -> [String] {
         var cands: [String] = []
         let fw = "/Library/Frameworks/Python.framework/Versions"
         if let vers = try? FileManager.default.contentsOfDirectory(atPath: fw) {
@@ -1224,21 +1411,7 @@ final class BuildModel: ObservableObject {
             let out = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
             cands += out.split(separator: "\n").map(String.init)
         }
-        var seen = Set<String>()
-        var fallback: (String, (Int, Int))? = nil   // newest with an acceptable version but no packages
-        for c in cands where !c.isEmpty && seen.insert(c).inserted {
-            guard FileManager.default.isExecutableFile(atPath: c), let v = pythonVersion(c) else { continue }
-            guard v >= minPython else { continue }
-            if importsOK(c) { return (c, true) }
-            if fallback == nil || v > fallback!.1 { fallback = (c, v) }
-        }
-        // No system interpreter has the packages: the venv (existing, or created by 安装) is next.
-        let vpy = venvPython()
-        if FileManager.default.isExecutableFile(atPath: vpy) {
-            if importsOK(vpy) { return (vpy, true) }
-            return (vpy, false)   // exists but incomplete: 安装 finishes it
-        }
-        return (fallback?.0 ?? vpy, false)
+        return cands
     }
 
     /// The runtime root of a dotnet installation, parsed from `dotnet --list-runtimes`. It cannot
@@ -1352,6 +1525,8 @@ final class BuildModel: ObservableObject {
         // A too-old interpreter is a different problem from a missing package: say which one it is,
         // because the fix differs (install a newer Python vs pip install into this one).
         let pyDetail = pyOK ? py
+            : (pythonArch(py).map { $0 != nativeArch } ?? false)
+                ? "dep.python.rosetta:\(py)"
             : (pythonVersion(py).map { $0 >= minPython } ?? false)
                 ? "dep.python.missing:\(py) (\(pyVer))"
                 : "dep.python.old:\(pyVer):\(minPython.0).\(minPython.1)"
@@ -1556,6 +1731,7 @@ struct BuilderView: View {
         }
         files.disabled(m.running)
         target
+        if m.target != "mac-app" && m.hasInstaller { installGroup }
         action
         outcome
         progress
@@ -1687,8 +1863,43 @@ struct BuilderView: View {
                 row("RomFS", detail: m.shortPath(m.archivePath), dot: LauncherPalette.ready, help: m.archivePath) {
                     Button(m.t("install.reveal")) { reveal(m.archivePath) }
                 }
+                if m.hasInstaller {
+                    divider
+                    row(m.t("inst.title"), detail: m.devices.first { $0.id == m.deviceID }?.name ?? m.t("inst.pick")) {
+                        Button(m.t("inst.now")) { m.startInstall() }.disabled(!m.canInstall)
+                    }
+                }
             }
         }
+    }
+
+    /// Sign and install on a connected iPhone / iPad (scripts/install_ios.py): after the build, or with Install now.
+    private var installGroup: some View {
+        group(m.t("inst.title"), footnote: m.devicesChecked && m.identities.isEmpty ? m.t("inst.noCert") : m.t("inst.note")) {
+            row(m.t("inst.auto"), detail: m.devices.isEmpty ? m.t(m.devicesChecked ? "inst.noDevice" : "inst.looking") : "") {
+                Toggle("", isOn: $m.autoInstall).toggleStyle(LauncherSwitchStyle()).labelsHidden().disabled(m.running)
+            }
+            divider
+            row(m.t("inst.device")) {
+                if !m.devices.isEmpty {
+                    Picker("", selection: $m.deviceID) {
+                        if !m.devices.contains(where: { $0.id == m.deviceID }) { Text(m.t("inst.pick")).tag("") }
+                        ForEach(m.devices) { d in Text(d.model.isEmpty ? d.name : "\(d.name) · \(d.model)").tag(d.id) }
+                    }.labelsHidden().frame(maxWidth: 260).disabled(m.running)
+                }
+                Button(m.t("inst.refresh")) { m.refreshDevices() }.disabled(m.running)
+            }
+            if m.identities.count > 1 {
+                divider
+                row(m.t("inst.team"), help: m.t("inst.teamTip")) {
+                    Picker("", selection: $m.team) {
+                        if !m.identities.contains(where: { $0.team == m.team }) { Text(m.t("inst.pickTeam")).tag("") }
+                        ForEach(m.identities) { i in Text("\(i.team) · \(i.name)").tag(i.team) }
+                    }.labelsHidden().frame(maxWidth: 260).disabled(m.running)
+                }
+            }
+        }
+        .onAppear { if !m.devicesChecked { m.refreshDevices() } }
     }
 
     private func guideRow(_ s: String) -> some View {

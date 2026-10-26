@@ -28,8 +28,30 @@ when the script reports one. Stop waits for the child process to exit before
 allowing another build.
 
 A completed Mac build appears in the collection automatically and can be started
-with **Play**. An iPhone build offers its IPA and the existing sideloading and
-RomFS-copy instructions. This app does not install anything on an iPhone.
+with **Play**. An iPhone build offers its IPA and the sideloading and RomFS-copy
+instructions, or installs it itself (below).
+
+## Install on a device
+
+With **iPhone / iPad** chosen, **Install on a device** can sign and install the
+build on a connected iPhone or iPad when it finishes, or later with **Install now**.
+`scripts/install_ios.py` does the work, and runs from a terminal too:
+`python3 scripts/install_ios.py <app.ipa> --romfs <romfs folder> [--device …] [--team …]`.
+
+- It signs with this Mac's own Apple Development certificate. The provisioning
+  profile comes from Xcode's automatic signing (a throwaway project built once
+  for the device), with the increased memory limit when the team can have it, so
+  Xcode must be signed in to that team. Nothing about the account is stored but
+  the team picked in the window.
+- It installs over the cable with `devicectl` and copies the `romfs/` archive into
+  the app's `Documents/romfs`: only the files whose SHA-1 changed, the index last,
+  every size checked.
+- The save, the learned pipelines and the launcher's settings are copied to the
+  Mac first (`~/Library/Application Support/NS Port Builder/device-backups/`) and
+  put back if the install emptied the app's data.
+- App IDs are unique across Apple: when `org.nxnative.<title ID>` already belongs
+  to another developer team, the app is signed as a team-specific variant of it,
+  the same one every time.
 
 ## Your games folder
 
