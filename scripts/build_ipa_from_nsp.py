@@ -1909,6 +1909,11 @@ def main(args=None):
     keys = Path(os.path.expanduser(args.keys or PROD_KEYS or ask('path of prod.keys: ', 'prod.keys (-k)'))).resolve()
     if not nsp_dir.is_dir(): raise BuildError(f'not a folder: {nsp_dir}')
     if not keys.is_file(): raise BuildError(f'no such file: {keys}')
+    # An Intel Python (an Intel Homebrew under /usr/local) runs under Rosetta on an Apple silicon Mac, and its children prefer the
+    # x86_64 slice: the shader translator's universal apphost then wants an x86_64 .NET, finds the arm64 one, prints nothing, and
+    # the build stops at the iOS shader step with "xlate_source: lock … / actual" (empty). Say so here instead
+    if sys.platform == 'darwin' and subprocess.run(['sysctl', '-n', 'sysctl.proc_translated'], capture_output=True, text=True).stdout.strip() == '1':
+        raise BuildError(f'{sys.executable} is an Intel Python running under Rosetta; run the build with a native arm64 Python (e.g. /usr/bin/python3 or Homebrew in /opt/homebrew)')
     sys.path.insert(0, str(repo / 'dm/games')); import game as gamemod   # game profiles
     global pg; import profile_guess as pg   # dm/games: a provisional profile's keys from the game files and from the heap check
     sys.path.insert(0, str(repo / 'dm/tools')); global nacp; import nacp   # the game name in the NSP's control data
