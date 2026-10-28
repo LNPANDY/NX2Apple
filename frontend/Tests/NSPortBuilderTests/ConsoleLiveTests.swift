@@ -462,4 +462,35 @@ import SwiftUI
         XCTAssertEqual(driver.state.controllers.map(\.name), ["DUALSHOCK 4 Wireless Controller", "GamePad-1"])
         XCTAssertEqual(driver.state.controllers.map(\.connecting), [false, true], "the unreported device keeps its placeholder")
     }
+
+    /// GameController can give a controller its battery object a moment after the connect: not wired at first, then 65 percent.
+    func testBatteryObjectArrivingLateIsNotWired() {
+        var clock = Date()
+        var list = [ConsolePadSnapshot(id: "ds4", name: "DUALSHOCK 4 Wireless Controller", category: "DualShock 4", playerIndex: nil, battery: nil, hasBattery: false)]
+        let driver = LiveConsoleDriver(library: GameLibrary(file: temporary.appendingPathComponent("library.json")),
+                                       controls: ControlLayout(defaults: UserDefaults(suiteName: "ConsoleLiveTests-" + UUID().uuidString)!),
+                                       repo: { "" }, lang: { .en }, labels: { $0 }, pads: { list }, artwork: { _, _ in nil }, observeSystem: false, now: { clock })
+        XCTAssertEqual(driver.state.controllers.first?.wired, false, "no battery object at the first read is not enough to call it wired")
+        XCTAssertNil(driver.state.controllers.first?.battery)
+        clock = clock.addingTimeInterval(2)
+        list[0].hasBattery = true; list[0].battery = 0.65   // the object is there on the 2 second read
+        driver.refreshControllers(announce: false)
+        XCTAssertEqual(driver.state.controllers.first?.batteryPercent, 65)
+        XCTAssertEqual(driver.state.controllers.first?.wired, false)
+    }
+
+    func testStillNoBatteryObjectAfterSeveralSecondsMeansWired() {
+        var clock = Date()
+        let list = [ConsolePadSnapshot(id: "usb", name: "GamePad-1", category: nil, playerIndex: nil, battery: nil, hasBattery: false)]
+        let driver = LiveConsoleDriver(library: GameLibrary(file: temporary.appendingPathComponent("library.json")),
+                                       controls: ControlLayout(defaults: UserDefaults(suiteName: "ConsoleLiveTests-" + UUID().uuidString)!),
+                                       repo: { "" }, lang: { .en }, labels: { $0 }, pads: { list }, artwork: { _, _ in nil }, observeSystem: false, now: { clock })
+        XCTAssertEqual(driver.state.controllers.first?.wired, false)
+        clock = clock.addingTimeInterval(3)
+        driver.refreshControllers(announce: false)
+        XCTAssertEqual(driver.state.controllers.first?.wired, false)
+        clock = clock.addingTimeInterval(4)
+        driver.refreshControllers(announce: false)
+        XCTAssertEqual(driver.state.controllers.first?.wired, true, "missing for more than six seconds: powered by its cable")
+    }
 }

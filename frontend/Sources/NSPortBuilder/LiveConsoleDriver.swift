@@ -68,6 +68,11 @@ struct ConsolePadSnapshot: Equatable {
     private let launch: (LibraryGame, [String: String], @escaping (Int32?, Error?) -> Void) -> Void
     private let artwork: (LibraryGame, String) -> NSImage?
     private let startingTimeout: TimeInterval
+    private let now: () -> Date
+    /// When a controller was first seen without a battery object. GameController can hand one over a moment after the connect, so
+    /// "wired" is only decided after the object has been missing for several reads.
+    private var noBatterySince: [String: Date] = [:]
+    static let wiredAfter: TimeInterval = 6
     private var cancellables = Set<AnyCancellable>()
     private var observers: [NSObjectProtocol] = []
     private var refreshQueued = false
@@ -82,7 +87,8 @@ struct ConsolePadSnapshot: Equatable {
     init(library: GameLibrary, controls: ControlLayout, repo: @escaping () -> String, lang: @escaping () -> Lang, labels: @escaping (String) -> String,
          pads: (() -> [ConsolePadSnapshot])? = nil,
          launch: ((LibraryGame, [String: String], @escaping (Int32?, Error?) -> Void) -> Void)? = nil,
-         artwork: ((LibraryGame, String) -> NSImage?)? = nil, startingTimeout: TimeInterval = 20, observeSystem: Bool = true, watchHardware: Bool = true) {
+         artwork: ((LibraryGame, String) -> NSImage?)? = nil, startingTimeout: TimeInterval = 20, observeSystem: Bool = true, watchHardware: Bool = true, now: @escaping () -> Date = Date.init) {
+        self.now = now
         self.library = library; self.controls = controls; self.repo = repo; self.lang = lang; self.labels = labels
         self.startingTimeout = startingTimeout
         self.pads = pads ?? { [] }
@@ -94,6 +100,7 @@ struct ConsolePadSnapshot: Equatable {
         controls.$padMerge.sink { [weak self] merged in self?.state.padMerge = merged }.store(in: &cancellables)
         refresh()
         refreshControllers(announce: false)
+        if observeSystem { scheduleBatteryRereads() }   // a controller there at launch may not have its battery yet either
         guard observeSystem else { return }
         if watchHardware { hidWatcher = HIDControllerWatcher { [weak self] event in MainActor.assumeIsolated { self?.hidEvent(event) } } }
         let center = NotificationCenter.default
@@ -471,7 +478,7 @@ struct ConsolePadSnapshot: Equatable {
     /// Right after a connect GameController may still report 0 or an unknown battery (a Bluetooth reconnect): read it again soon.
     private func scheduleBatteryRereads() {
         Task { [weak self] in
-            for seconds in [2.0, 5.0] {
+            for seconds in [2.0, 3.0, 3.0] {   // reads at 2, 5 and 8 seconds, then the 20 second tick
                 try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
                 self?.refreshControllers(announce: false)
             }
@@ -522,11 +529,20 @@ struct ConsolePadSnapshot: Equatable {
                     return ConsolePadSnapshot.batteryReading(level: Double(b.batteryLevel), state: state)
                 }
                 let index = c.playerIndex.rawValue
+                Self.hidLog.debug("battery read \(id, privacy: .public) \(c.vendorName ?? c.productCategory, privacy: .public): object \(c.battery != nil), level \(c.battery.map { Double($0.batteryLevel) } ?? -1), state \(c.battery.map { "\($0.batteryState.rawValue)" } ?? "none", privacy: .public)")
                 return ConsolePadSnapshot(id: id, name: c.vendorName ?? c.productCategory, category: c.productCategory,
                                           playerIndex: (0...3).contains(index) ? index + 1 : nil, battery: reading?.level,
                                           charging: reading?.charging ?? false, canIdentify: !Self.identifyActions(c).isEmpty, hasBattery: c.battery != nil)
             }
         }
+        for i in snapshots.indices {
+            let id = snapshots[i].id
+            if snapshots[i].hasBattery { noBatterySince[id] = nil; continue }
+            let since = noBatterySince[id] ?? now()
+            noBatterySince[id] = since
+            if now().timeIntervalSince(since) < Self.wiredAfter { snapshots[i].hasBattery = true }   // too early to call it wired: unknown for now
+        }
+        noBatterySince = noBatterySince.filter { key, _ in snapshots.contains { $0.id == key } }
         presence.expire()
         snapshots = snapshots.filter { !presence.isHidden($0.name) }   // unplugged according to the hardware, GameController not told yet
         let live = Set(snapshots.map(\.id))
