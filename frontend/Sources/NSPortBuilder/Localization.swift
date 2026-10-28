@@ -442,6 +442,9 @@ enum L10n {
         "dep.openAppStore": ("打开 App Store", "Open App Store"),
 
         "dep.xcode": ("Xcode + iOS SDK", "Xcode + iOS SDK"),
+        "dep.xcode.notSelected": ("Xcode 已安装，但 xcode-select 还指向 CommandLineTools——点「修复」会切换到 Xcode 并完成首次启动（会要管理员密码）。",
+                                   "Xcode is installed, but xcode-select still points at CommandLineTools — Fix switches to Xcode and finishes its first launch (asks for your admin password)."),
+        "dep.xcode.fix": ("修复", "Fix"),
         "dep.xcode.hint": ("App Store 安装（Beta 版也行，用 xcode-select 指向它），约 12 GB",
                            "from the App Store (a beta works too — point xcode-select at it), about 12 GB"),
         "dep.xcode.noSDK": ("Xcode 已装，但 iOS SDK 未下载（Xcode 15 起 iOS 平台是单独下载的）",

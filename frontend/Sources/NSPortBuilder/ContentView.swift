@@ -1837,6 +1837,7 @@ final class BuildModel: ObservableObject {
         var detail = ""
         var lastError = ""   // the tool's own first error line after a failed install (brew's, pip's)
         var fixHint = ""     // an L10n key: what to type or click, chosen from that line
+        var actionLabel = "" // an L10n key for the button when the action is not a plain install ("Fix")
         let installCmd: [String]      // run via bash; empty = manual (Xcode from the App Store)
     }
 
@@ -2063,21 +2064,56 @@ final class BuildModel: ObservableObject {
     /// Whether the selected developer directory exists (`xcode-select -p`), which is the same
     /// source of truth xcodebuild and xcrun use — so an Xcode beta, a custom location, or a
     /// Command Line Tools-only setup is reported for what it is instead of "no Xcode".
-    nonisolated static func developerDirExists() -> Bool {
+    nonisolated static func developerDir() -> String? {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/xcode-select")
         p.arguments = ["-p"]
         let pipe = Pipe()
         p.standardOutput = pipe
         p.standardError = FileHandle.nullDevice
-        do { try p.run() } catch { return false }
+        do { try p.run() } catch { return nil }
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         p.waitUntilExit()
         guard p.terminationStatus == 0,
               let dir = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !dir.isEmpty else { return false }
+              !dir.isEmpty else { return nil }
         var isDir: ObjCBool = false
-        return FileManager.default.fileExists(atPath: dir, isDirectory: &isDir) && isDir.boolValue
+        return FileManager.default.fileExists(atPath: dir, isDirectory: &isDir) && isDir.boolValue ? dir : nil
+    }
+
+    nonisolated static func developerDirExists() -> Bool { developerDir() != nil }
+
+    /// An Xcode.app that is installed but not selected: an App Store download arrives as
+    /// /Applications/Xcode.app and stays unused until someone opens it or points xcode-select at
+    /// it, so `xcode-select -p` keeps saying CommandLineTools and xcodebuild fails later.
+    nonisolated static func installedXcode() -> String? {
+        for app in ["/Applications/Xcode.app", "/Applications/Xcode-beta.app"]
+        where FileManager.default.isExecutableFile(atPath: app + "/Contents/Developer/usr/bin/xcodebuild") {
+            return app
+        }
+        let apps = (try? FileManager.default.contentsOfDirectory(atPath: "/Applications")) ?? []
+        for name in apps.sorted() where name.hasPrefix("Xcode") && name.hasSuffix(".app") {
+            let app = "/Applications/" + name
+            if FileManager.default.isExecutableFile(atPath: app + "/Contents/Developer/usr/bin/xcodebuild") { return app }
+        }
+        return nil
+    }
+
+    /// What the Xcode row is looking at: the selected developer directory, the Xcode that is only
+    /// installed, and whether the iOS SDK answers. Pure, so the four cases are tested.
+    enum XcodeState: Equatable {
+        case ready
+        case noIOSSDK(selected: String)              // Xcode selected, its iOS platform not downloaded
+        case commandLineToolsOnly(xcode: String)     // Xcode.app installed, xcode-select still on the CLT
+        case notInstalled
+    }
+
+    nonisolated static func xcodeState(selected: String?, xcodeApp: String?, iosSDK: Bool) -> XcodeState {
+        if let selected, selected.contains(".app/Contents/Developer") {
+            return iosSDK ? .ready : .noIOSSDK(selected: selected)
+        }
+        if let xcodeApp { return .commandLineToolsOnly(xcode: xcodeApp) }
+        return iosSDK ? .ready : .notInstalled   // a CLT whose xcrun does answer the SDK is usable
     }
 
     nonisolated static func detectDepsSync() -> [Dep] {
@@ -2088,15 +2124,28 @@ final class BuildModel: ObservableObject {
         // xcodebuild. Ask for the SDK version itself — that is the check that matches the name.
         // And ask xcode-select where Xcode is, not a fixed path: a beta lives at
         // /Applications/Xcode-beta.app and the hard-coded check called that "no Xcode" (#21).
-        let xcodePresent = Self.developerDirExists()
-            && FileManager.default.isExecutableFile(atPath: "/usr/bin/xcodebuild")
-        let iosSDK = xcodePresent && runOK("/usr/bin/xcrun", ["--sdk", "iphoneos", "--show-sdk-version"])
-        out.append(Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint",
-                       present: iosSDK,
-                       detail: iosSDK ? "" : (xcodePresent ? "dep.xcode.noSDK" : ""),
-                       installCmd: iosSDK ? [] : (xcodePresent
-                            ? ["/usr/bin/xcodebuild", "-downloadPlatform", "iOS"]
-                            : [])))
+        let selected = Self.developerDir()
+        let xcodeApp = Self.installedXcode()
+        let iosSDK = runOK("/usr/bin/xcrun", ["--sdk", "iphoneos", "--show-sdk-version"])
+        switch Self.xcodeState(selected: selected, xcodeApp: xcodeApp, iosSDK: iosSDK) {
+        case .ready:
+            out.append(Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint", present: true, installCmd: []))
+        case .noIOSSDK:
+            out.append(Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint", present: false,
+                           detail: "dep.xcode.noSDK",
+                           installCmd: ["/usr/bin/xcodebuild", "-downloadPlatform", "iOS"]))
+        case .commandLineToolsOnly(let xcode):
+            // One admin prompt runs both steps: switch the toolchain, then let Xcode finish its
+            // first launch (license and components) - a fresh App Store download has neither.
+            let script = "xcode-select -s '" + xcode + "/Contents/Developer' && xcodebuild -runFirstLaunch"
+            let apple = "do shell script \"" + script.replacingOccurrences(of: "\"", with: "\\\"") + "\" with administrator privileges"
+            out.append(Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint", present: false,
+                           detail: "dep.xcode.notSelected",
+                           actionLabel: "dep.xcode.fix",
+                           installCmd: ["/usr/bin/osascript", "-e", apple]))
+        case .notInstalled:
+            out.append(Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint", present: false, installCmd: []))
+        }
 
         let mt = runOK("/usr/bin/xcrun", ["-sdk", "macosx", "metal", "--version"])
         out.append(Dep(id: "metal", name: "dep.metal", hint: "dep.metal.hint",
@@ -2863,7 +2912,7 @@ struct BuilderView: View {
                                 ProgressView().controlSize(.small)
                                 Text(m.t("dep.installing")).font(.manrope(12)).foregroundStyle(LauncherPalette.building)
                             } else if !d.present {
-                                Button(d.installCmd.isEmpty ? m.t("dep.openAppStore") : m.t("dep.install")) { m.installDep(d) }
+                                Button(d.actionLabel.isEmpty ? (d.installCmd.isEmpty ? m.t("dep.openAppStore") : m.t("dep.install")) : m.t(d.actionLabel)) { m.installDep(d) }
                             }
                         }
                         // Why the last install failed, and what to do about it: the tool's own
