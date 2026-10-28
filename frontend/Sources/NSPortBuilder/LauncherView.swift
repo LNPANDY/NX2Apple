@@ -49,6 +49,8 @@ struct ContentView: View {
     @StateObject private var row = RowScroller()
     @StateObject private var toolsAge: ToolsAge
     @State private var buildCommit = ""   // the checkout's commit when the running build started (ToolsAge)
+    @State private var signatureExpiry: [UUID: Date] = [:]   // installed apps' provisioning-profile expiry, per game
+    @State private var resignNote: String?   // the last re-sign's outcome, shown under the hero's expiry line
     private var performStartupChecks: Bool
     private let onRunSetup: (() -> Void)?   // Settings' "Run setup again"; the root view supplies it
     private let qaManage: (open: Bool, ring: Bool)   // visual QA: the Manage menu open at launch, with the controller's focus ring or without
@@ -159,6 +161,7 @@ struct ContentView: View {
                 manageOpenFor = library.selected?.id
             }
             refreshArtwork()
+            readSignatures()
             if performStartupChecks { library.discover(); fetchArtwork(); m.refreshDevices(); checkTools() }
             if performStartupChecks {
                 m.checkDeps()
@@ -175,11 +178,13 @@ struct ContentView: View {
         }
         .onChange(of: library.games) { _ in
             refreshArtwork()
+            readSignatures()
             if performStartupChecks { fetchArtwork() }
         }
         .onChange(of: m.repoPath) { _ in refreshArtwork(); if performStartupChecks { checkTools() } }
         // A clone, pull or update check has finished (the automatic pull at launch among them): the checkout may have moved
         .onReceive(m.$repoBusy.removeDuplicates().dropFirst()) { busy in if !busy && performStartupChecks { checkTools() } }
+        .onChange(of: library.selectedID) { _ in resignNote = nil }   // the last re-sign's note belongs to its game
         .onReceive(m.$running.removeDuplicates()) { running in
             if running && activeBuildID == nil { activeBuildID = library.rememberInputs(m) }
             if running && activeBuildID != nil {   // the tools this build runs: a pull waits for the build (pullRepo, autoPull)
@@ -451,6 +456,32 @@ struct ContentView: View {
                         .anchorPreference(key: ManageAnchorKey.self, value: .bounds) { $0 }
                         .padTarget("hero.manage", scope: "main", radius: 12) { manageOpenFor = game.id }
                 }
+                // A free Apple ID's provisioning profile lasts 7 days. Say when this app's runs out, and offer the
+                // re-sign at any time: renewing early (before a trip, say) is as valid as renewing just in time.
+                if game.onDevice {
+                    HStack(spacing: 10) {
+                        Image(systemName: "checkmark.seal").font(.system(size: 12))
+                            .foregroundStyle(LauncherPalette.cream.opacity(0.7))
+                        Text(signatureExpiry[game.id].map { AppSignature.describe($0, m.t) } ?? m.t("dev.expiryUnknown"))
+                            .font(.manrope(12.5))
+                            .foregroundStyle(signatureExpiry[game.id].map { AppSignature.isUrgent($0) } == true
+                                             ? LauncherPalette.building : .secondary)
+                        Button { resign(game) } label: {
+                            Text(m.t("dev.resign")).font(.manrope(12, .semibold))
+                                .foregroundStyle(LauncherPalette.cream)
+                                .padding(.horizontal, 10).padding(.vertical, 4)
+                                .overlay(Capsule().strokeBorder(LauncherPalette.cream.opacity(0.35)))
+                                .contentShape(Capsule())
+                        }
+                        .buttonStyle(.plain).disabled(m.running)
+                        .help(m.t("dev.resignHelp"))
+                        .padTarget("hero.resign", scope: "main", radius: 12) { if !m.running { resign(game) } }
+                    }
+                }
+                if let resignNote {
+                    Text(resignNote).font(.manrope(12)).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             .padding(.horizontal, 34).padding(.bottom, 34)
         }
@@ -556,6 +587,14 @@ struct ContentView: View {
                 Text("· " + m.t(prominent ? "library.olderTools" : "library.olderToolsShort"))
                     .font(.manrope(prominent ? 13 : 12)).foregroundStyle(.secondary).lineLimit(1)
                     .help(m.t("library.olderToolsHelp"))
+            }
+            // A free Apple ID's profile lasts 7 days: the card says when it runs out, the hero offers to renew it.
+            if !building, let expiry = signatureExpiry[game.id] {
+                Text("· " + AppSignature.short(expiry, m.t))
+                    .font(.manrope(prominent ? 13 : 12))
+                    .foregroundStyle(AppSignature.isUrgent(expiry) ? LauncherPalette.building : .secondary)
+                    .lineLimit(1)
+                    .help(AppSignature.describe(expiry, m.t))
             }
         }
         .accessibilityElement(children: .combine)
@@ -726,10 +765,12 @@ struct ContentView: View {
     private func manageItems(_ game: LibraryGame) -> [ManageItem] {
         ManageItem.list(game: game, labels: m.t, running: m.running, olderTools: toolsAge.older.contains(game.id), activeBuildID: activeBuildID,
                         hasBuildFolder: BuildFolder.location(for: game) != nil,
+                        hasLog: GameLog.latest(titleID: game.titleID, appPath: game.appPath) != nil,
                         actions: ManageActions(
                             rebuild: { configureBuild(game) }, options: { optionsFor = game.id }, saves: { savesFor = game.id },
                             changeArtwork: { chooseArtwork(game) }, resetArtwork: { library.setArtwork("", for: game.id) },
                             reveal: { if let path = game.revealTarget { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) } },
+                            showLog: { if let log = GameLog.latest(titleID: game.titleID, appPath: game.appPath) { GameLog.show(log) } },
                             freeSpace: { freeSpaceFor = game.id }, remove: { removing = game }))
     }
 
@@ -769,6 +810,27 @@ struct ContentView: View {
                 }
             }
         } catch { launchError = error.localizedDescription }
+    }
+
+    /// The installed apps' profile expiries, read in the background: `security cms` per app, so not in a view body.
+    private func readSignatures() {
+        let apps = library.games.filter(\.onDevice).map { ($0.id, $0.iosAppPath) }
+        guard !apps.isEmpty else { signatureExpiry = [:]; return }
+        DispatchQueue.global(qos: .utility).async {
+            var found: [UUID: Date] = [:]
+            for (id, path) in apps { if let date = AppSignature.expiration(ofApp: path) { found[id] = date } }
+            DispatchQueue.main.async { signatureExpiry = found }
+        }
+    }
+
+    /// Sign the installed app again for another 7 days (a free Apple ID's profile), then install it: the game's code
+    /// is not rebuilt, and its Documents stay.
+    private func resign(_ game: LibraryGame) {
+        resignNote = nil
+        m.resignOnDevice(app: game.iosAppPath, device: game.installedDevice) {
+            resignNote = m.doneNote
+            signatureExpiry[game.id] = AppSignature.expiration(ofApp: game.iosAppPath)
+        }
     }
 
     private func recordBuild() {

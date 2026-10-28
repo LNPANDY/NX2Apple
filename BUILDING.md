@@ -4,7 +4,7 @@ The launcher (see the [README](README.md)) runs the same scripts a terminal does
 
 ## Get the tools
 
-This is the command-line route the launcher drives for you; the build is upstream's. Follow upstream's [README](https://github.com/seedds/nxnative) to install Xcode, Homebrew tools and the Python packages, then pack an IPA.
+This is the command-line route the launcher drives for you. The build is upstream's. Follow upstream's [README](https://github.com/seedds/nxnative) to install Xcode, Homebrew tools and the Python packages, then pack an IPA.
 
 ```bash
 git clone https://github.com/<you>/NX2Apple.git
@@ -31,7 +31,7 @@ homebrew tool reads this format. It is **not** tied to a specific game: one `pro
 any of your games. The only requirement is that the file contains keys for the key generation
 (firmware era) the game was packaged with — a current dump covers every retail game.
 
-Where to put it is up to you; you pass the path with `-k`:
+Where to put it is up to you. You pass the path with `-k`:
 
 ```bash
 # any layout works, e.g.
@@ -45,7 +45,7 @@ python3 scripts/build_ipa_from_nsp.py ~/Games/Hades2 -k ~/keys/prod.keys
 ```
 
 How keys are dumped is documented across the Switch homebrew community (Lockpick_RCM from a
-hacked console is the usual route); this repository does not cover that step and ships none of
+hacked console is the usual route). This repository does not cover that step and ships none of
 it. Two practical notes from real dumps:
 
 - **Malformed lines.** Some dumpers emit lines whose hex value has the wrong length (33 bad
@@ -56,11 +56,11 @@ it. Two practical notes from real dumps:
   both decrypt fine as long as `prod.keys` is reasonably current — verified here with a base
   game on generation 15 and its update on 16, using a keys file that only reached 15.
 
-`backports.zstd` is needed for Tears of the Kingdom's zstd dictionaries; other games do not use it.
+`backports.zstd` is needed for Tears of the Kingdom's zstd dictionaries. Other games do not use it.
 
 ## Build the IPA
 
-The main build script packs a **slim IPA by default** (no RomFS inside; the app reads the game's data from its folder on the device, `Documents/games/<id>/`), so the build above already produced it. To re-pack just the package later:
+The main build script packs a **slim IPA by default** (no RomFS inside, as the app reads the game's data from its folder on the device, `Documents/games/<id>/`), so the build above already produced it. To re-pack just the package later:
 
 ```bash
 GAME=<title id> W=<work dir> PATCHED=<patched dir> \
