@@ -70,8 +70,6 @@ struct ConsoleController: Identifiable, Equatable {
     var charging = false
     /// Whether Identify can do anything on this controller (a player light, a light bar or a rumble). Hidden when it cannot.
     var canIdentify = true
-    /// No battery object at all: a controller like that is powered by its cable.
-    var wired = false
     var batteryPercent: Int? { battery.map { Int((min(max($0.isFinite ? $0 : 0, 0), 1) * 100).rounded()) } }
 }
 

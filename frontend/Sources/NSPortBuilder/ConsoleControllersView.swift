@@ -88,6 +88,8 @@ struct BatteryIcon: View {
     }
 }
 
+/// The battery as far as it is known: a level with its percentage, a bolt while charging. When the controller reports nothing usable
+/// (no battery object yet, or 0 with an unknown state) nothing is drawn at all.
 struct ConsoleBattery: View {
     let controller: ConsoleController
     let lang: Lang
@@ -105,12 +107,6 @@ struct ConsoleBattery: View {
         } else if controller.charging {
             HStack(spacing: 5) { BatteryIcon(level: nil, charging: true, height: compact ? 10 : 13) }
                 .accessibilityElement(children: .ignore).accessibilityLabel(L10n.string("console.charging", lang))
-        } else if controller.wired {   // no battery object: the cable is its power
-            Image(systemName: "powerplug").font(.system(size: compact ? 11 : 15, weight: .medium)).foregroundStyle(.white.opacity(0.7))
-                .accessibilityElement(children: .ignore).accessibilityLabel(L10n.string("console.wired", lang)).help(L10n.string("console.wired", lang))
-        } else if controller.kind != .keyboard {   // a battery that reports no level (yet): the outline alone, no percentage
-            BatteryIcon(level: nil, height: compact ? 10 : 13)
-                .accessibilityElement(children: .ignore).accessibilityLabel(L10n.string("console.batteryUnknown", lang))
         }
     }
 }
@@ -264,9 +260,7 @@ struct ConsoleToastView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(controller.name).font(.manrope(compact ? 18 : 23, .semibold))
                     do { Text(t(controller.kind.labelKey) + " \u{00b7} " + playerLabel(controller)).font(.manrope(compact ? 14 : 17)).foregroundStyle(.secondary) }
-                    if controller.wired { HStack(spacing: 6) { ConsoleBattery(controller: controller, lang: lang); Text(t("console.wired")).font(.manrope(13)).foregroundStyle(.secondary) } }
-                    else if controller.battery == nil { Text(t("console.batteryUnknown")).font(.manrope(13)).foregroundStyle(.secondary) }
-                    else { ConsoleBattery(controller: controller, lang: lang) }
+                    ConsoleBattery(controller: controller, lang: lang)
                     if controller.charging { Text(t("console.charging")).font(.manrope(13)).foregroundStyle(.secondary) }
                 }
                 Spacer(minLength: 0)

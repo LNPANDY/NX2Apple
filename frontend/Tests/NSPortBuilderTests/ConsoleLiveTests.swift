@@ -357,16 +357,6 @@ import SwiftUI
         XCTAssertEqual(driver.state.controllers.map(\.player), [1, 2])
     }
 
-    func testNoBatteryObjectMeansWired() {
-        var pad = ConsolePadSnapshot(id: "w", name: "Wired pad", category: "Generic", playerIndex: 1, battery: nil, hasBattery: false)
-        XCTAssertTrue(pad.controller.wired, "no battery object: powered by its cable")
-        XCTAssertNil(pad.controller.battery)
-        pad.hasBattery = true
-        XCTAssertFalse(pad.controller.wired, "a battery object with an unknown state is the neutral outline, not a cable")
-        var keyboard = ConsolePadSnapshot(id: "k", name: "Keyboard", category: nil, playerIndex: 1, hasBattery: false)
-        keyboard.category = "keyboard"
-        XCTAssertNotNil(L10n.table["console.wired"])
-    }
 
     // MARK: Hardware placeholders and reconnects
 
@@ -406,51 +396,20 @@ import SwiftUI
 
 
 
-    /// GameController can give a controller its battery object a moment after the connect: not wired at first, then 65 percent.
-    func testBatteryObjectArrivingLateIsNotWired() {
-        var clock = Date()
-        var list = [ConsolePadSnapshot(id: "ds4", name: "DUALSHOCK 4 Wireless Controller", category: "DualShock 4", playerIndex: nil, battery: nil, hasBattery: false)]
-        let driver = LiveConsoleDriver(library: GameLibrary(file: temporary.appendingPathComponent("library.json")),
-                                       controls: ControlLayout(defaults: UserDefaults(suiteName: "ConsoleLiveTests-" + UUID().uuidString)!),
-                                       repo: { "" }, lang: { .en }, labels: { $0 }, pads: { list }, artwork: { _, _ in nil }, observeSystem: false, now: { clock })
-        XCTAssertEqual(driver.state.controllers.first?.wired, false, "no battery object at the first read is not enough to call it wired")
-        XCTAssertNil(driver.state.controllers.first?.battery)
-        clock = clock.addingTimeInterval(2)
-        list[0].hasBattery = true; list[0].battery = 0.65   // the object is there on the 2 second read
-        driver.refreshControllers(announce: false)
-        XCTAssertEqual(driver.state.controllers.first?.batteryPercent, 65)
-        XCTAssertEqual(driver.state.controllers.first?.wired, false)
-    }
 
-    func testStillNoBatteryObjectAfterSeveralSecondsMeansWired() {
-        var clock = Date()
-        let list = [ConsolePadSnapshot(id: "usb", name: "GamePad-1", category: nil, playerIndex: nil, battery: nil, hasBattery: false)]
-        let driver = LiveConsoleDriver(library: GameLibrary(file: temporary.appendingPathComponent("library.json")),
-                                       controls: ControlLayout(defaults: UserDefaults(suiteName: "ConsoleLiveTests-" + UUID().uuidString)!),
-                                       repo: { "" }, lang: { .en }, labels: { $0 }, pads: { list }, artwork: { _, _ in nil }, observeSystem: false, now: { clock })
-        XCTAssertEqual(driver.state.controllers.first?.wired, false)
-        clock = clock.addingTimeInterval(3)
-        driver.refreshControllers(announce: false)
-        XCTAssertEqual(driver.state.controllers.first?.wired, false)
-        clock = clock.addingTimeInterval(4)
-        driver.refreshControllers(announce: false)
-        XCTAssertEqual(driver.state.controllers.first?.wired, true, "missing for more than six seconds: powered by its cable")
-    }
 
     /// The Xbox and DualShock 4 together: both listed from the start with their own player, each with its own battery. One is unplugged
     /// and plugged in again (a new instance) while the other stays, and neither loses its battery or player.
     func testTwoControllersTogetherAndOneReconnects() {
-        var clock = Date()
-        var list = [ConsolePadSnapshot(id: "ds4", name: "DUALSHOCK 4 Wireless Controller", category: "DualShock 4", playerIndex: nil, battery: nil, hasBattery: false),
+        var list = [ConsolePadSnapshot(id: "ds4", name: "DUALSHOCK 4 Wireless Controller", category: "DualShock 4", playerIndex: nil, battery: nil),
                     ConsolePadSnapshot(id: "xbox", name: "Xbox Wireless Controller", category: "Xbox One", playerIndex: nil, battery: 0.8)]
         let driver = LiveConsoleDriver(library: GameLibrary(file: temporary.appendingPathComponent("library.json")),
                                        controls: ControlLayout(defaults: UserDefaults(suiteName: "ConsoleLiveTests-" + UUID().uuidString)!),
-                                       repo: { "" }, lang: { .en }, labels: { $0 }, pads: { list }, artwork: { _, _ in nil }, observeSystem: false, now: { clock })
+                                       repo: { "" }, lang: { .en }, labels: { $0 }, pads: { list }, artwork: { _, _ in nil }, observeSystem: false)
         XCTAssertEqual(driver.state.controllers.map(\.id), ["ds4", "xbox"], "both appear together")
         XCTAssertEqual(driver.state.controllers.map(\.player), [1, 2])
-        XCTAssertEqual(driver.state.controllers.map(\.wired), [false, false], "no battery object at 0 s is not wired yet")
-        clock = clock.addingTimeInterval(2)
-        list[0].hasBattery = true; list[0].battery = 0.65   // the DualShock's battery arrives on the 2 second read
+        XCTAssertEqual(driver.state.controllers.map(\.batteryPercent), [nil, 80], "nothing usable for the first one yet")
+        list[0].battery = 0.65   // the DualShock's battery arrives on the 2 second read
         driver.refreshControllers(announce: false)
         XCTAssertEqual(driver.state.controllers.map(\.batteryPercent), [65, 80])
         // the DualShock goes away and comes back as a new instance, the Xbox stays
@@ -483,5 +442,38 @@ import SwiftUI
         driver.refreshControllers(announce: false)
         XCTAssertTrue(driver.state.controllers.isEmpty)
         XCTAssertFalse(FileManager.default.fileExists(atPath: sources.appendingPathComponent("HIDControllerWatcher.swift").path))
+    }
+
+    func testNothingIsShownWithoutAUsableBatteryReading() {
+        // unknown or 0 with an unknown state, and no battery object: no level, no percentage
+        for reading in [ConsolePadSnapshot.batteryReading(level: 0, state: .unknown), ConsolePadSnapshot.batteryReading(level: 0.4, state: .unknown)] {
+            XCTAssertNil(reading.level)
+            XCTAssertFalse(reading.charging)
+        }
+        let none = ConsolePadSnapshot(id: "a", name: "Pad", category: nil, playerIndex: 1, battery: nil).controller
+        XCTAssertNil(none.batteryPercent, "ConsoleBattery draws nothing for this")
+        XCTAssertFalse(none.charging)
+        let known = ConsolePadSnapshot(id: "b", name: "Pad", category: nil, playerIndex: 1, battery: 0.65).controller
+        XCTAssertEqual(known.batteryPercent, 65)
+    }
+
+    /// A fake battery object whose key-value observable properties change: the list follows without waiting for a read.
+    @objc final class FakeBattery: NSObject {
+        @objc dynamic var batteryLevel: Float = 0
+        @objc dynamic var batteryState: Int = 0
+    }
+
+    func testBatteryChangesArriveThroughKeyValueObserving() async throws {
+        let fake = FakeBattery()
+        let driver = liveDriver { [ConsolePadSnapshot(id: "ds4", name: "DUALSHOCK 4 Wireless Controller", category: "DualShock 4", playerIndex: nil,
+                                                      battery: fake.batteryState == 1 ? Double(fake.batteryLevel) : nil)] }
+        driver.watchBattery(id: "ds4", object: fake)
+        XCTAssertNil(driver.state.controllers.first?.battery)
+        fake.batteryState = 1; fake.batteryLevel = 0.64
+        for _ in 0..<50 where driver.state.controllers.first?.batteryPercent != 64 { try await Task.sleep(nanoseconds: 20_000_000) }
+        XCTAssertEqual(driver.state.controllers.first?.batteryPercent, 64, "published from the KVO change, not a timer")
+        fake.batteryLevel = 0.62
+        for _ in 0..<50 where driver.state.controllers.first?.batteryPercent != 62 { try await Task.sleep(nanoseconds: 20_000_000) }
+        XCTAssertEqual(driver.state.controllers.first?.batteryPercent, 62)
     }
 }

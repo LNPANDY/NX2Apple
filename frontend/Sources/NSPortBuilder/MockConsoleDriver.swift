@@ -43,7 +43,7 @@ import SwiftUI
         snapshot.isPreview = true
         if scenario == .controllers {
             snapshot.controllers += [.init(id: "pad.2", name: t("console.demoController2"), player: 2),
-                                     .init(id: "pad.3", name: t("console.demoController3"), player: nil, wired: true)]
+                                     .init(id: "pad.3", name: t("console.demoController3"), player: nil)]
             snapshot.openControllers(); snapshot.assigningPlayer = 3
         }
         if scenario == .controllersMixed {

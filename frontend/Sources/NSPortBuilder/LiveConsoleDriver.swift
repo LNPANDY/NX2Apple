@@ -25,8 +25,6 @@ struct ConsolePadSnapshot: Equatable {
     var battery: Double?
     var charging = false
     var canIdentify = true
-    /// Whether GameController gives the controller a battery object at all. Without one it can only be powered by its cable.
-    var hasBattery = true
 
     /// The level to show, or nil when the controller has not really reported one. GameController gives 0 with an unknown state for a
     /// DualShock 4 over Bluetooth and before the first report, and some pads over USB report no battery or an unknown one: those are
@@ -48,7 +46,7 @@ struct ConsolePadSnapshot: Equatable {
         else if family == .nintendo { kind = .fullSize }
         else if family == .xbox { kind = .xbox }
         else { kind = .gamepad }
-        return ConsoleController(id: id, name: name, player: playerIndex, kind: kind, battery: battery, charging: charging, canIdentify: canIdentify, wired: !hasBattery && kind != .keyboard)
+        return ConsoleController(id: id, name: name, player: playerIndex, kind: kind, battery: battery, charging: charging, canIdentify: canIdentify)
     }
 }
 
@@ -68,11 +66,6 @@ struct ConsolePadSnapshot: Equatable {
     private let launch: (LibraryGame, [String: String], @escaping (Int32?, Error?) -> Void) -> Void
     private let artwork: (LibraryGame, String) -> NSImage?
     private let startingTimeout: TimeInterval
-    private let now: () -> Date
-    /// When a controller was first seen without a battery object. GameController can hand one over a moment after the connect, so
-    /// "wired" is only decided after the object has been missing for several reads.
-    private var noBatterySince: [String: Date] = [:]
-    static let wiredAfter: TimeInterval = 4.5   // the 5 second read is the one that decides
     private var cancellables = Set<AnyCancellable>()
     private var observers: [NSObjectProtocol] = []
     private var refreshQueued = false
@@ -87,8 +80,7 @@ struct ConsolePadSnapshot: Equatable {
     init(library: GameLibrary, controls: ControlLayout, repo: @escaping () -> String, lang: @escaping () -> Lang, labels: @escaping (String) -> String,
          pads: (() -> [ConsolePadSnapshot])? = nil,
          launch: ((LibraryGame, [String: String], @escaping (Int32?, Error?) -> Void) -> Void)? = nil,
-         artwork: ((LibraryGame, String) -> NSImage?)? = nil, startingTimeout: TimeInterval = 20, observeSystem: Bool = true, now: @escaping () -> Date = Date.init) {
-        self.now = now
+         artwork: ((LibraryGame, String) -> NSImage?)? = nil, startingTimeout: TimeInterval = 20, observeSystem: Bool = true) {
         self.library = library; self.controls = controls; self.repo = repo; self.lang = lang; self.labels = labels
         self.startingTimeout = startingTimeout
         self.pads = pads ?? { [] }
@@ -430,6 +422,16 @@ struct ConsolePadSnapshot: Equatable {
 
     private static let hidLog = Logger(subsystem: "NX2Apple", category: "console.controllers")
     private var remembered: [String: Int] = [:]
+    private var batteryWatchers: [String: (object: ObjectIdentifier, watcher: KeyValueWatcher)] = [:]
+
+    /// A battery's level and state are key-value observable: a change refreshes the list at once instead of waiting for the next read.
+    func watchBattery(id: String, object: NSObject) {
+        if batteryWatchers[id]?.object == ObjectIdentifier(object) { return }
+        let watcher = KeyValueWatcher(object: object, keys: ["batteryLevel", "batteryState"]) { [weak self] in
+            DispatchQueue.main.async { MainActor.assumeIsolated { self?.refreshControllers(announce: false) } }
+        }
+        batteryWatchers[id] = (ObjectIdentifier(object), watcher)
+    }
 
     private func stamp() -> String { String(format: "%.3f", Date().timeIntervalSince1970) }
 
@@ -466,6 +468,7 @@ struct ConsolePadSnapshot: Equatable {
         if state.identifyingControllerID == id { identifyTask?.cancel(); state.identifyingControllerID = nil }
         devices[id] = nil
         overrides[id] = nil
+        batteryWatchers[id] = nil
         Self.hidLog.debug("torn down \(id, privacy: .public)")
     }
 
@@ -488,6 +491,7 @@ struct ConsolePadSnapshot: Equatable {
             snapshots = all.compactMap { c in   // every controller, whatever its vendor or profile, read fresh from its own instance
                 let id = String(UInt(bitPattern: ObjectIdentifier(c).hashValue), radix: 16)
                 devices[id] = c
+                if let battery = c.battery { watchBattery(id: id, object: battery) }
                 let reading = c.battery.map { b -> (level: Double?, charging: Bool) in
                     let state: PadBatteryState = b.batteryState == .charging ? .charging : b.batteryState == .full ? .full : b.batteryState == .discharging ? .discharging : .unknown
                     return ConsolePadSnapshot.batteryReading(level: Double(b.batteryLevel), state: state)
@@ -496,18 +500,11 @@ struct ConsolePadSnapshot: Equatable {
                 Self.hidLog.debug("battery read \(id, privacy: .public) \(c.vendorName ?? c.productCategory, privacy: .public): object \(c.battery != nil), level \(c.battery.map { Double($0.batteryLevel) } ?? -1), state \(c.battery.map { "\($0.batteryState.rawValue)" } ?? "none", privacy: .public)")
                 return ConsolePadSnapshot(id: id, name: c.vendorName ?? c.productCategory, category: c.productCategory,
                                           playerIndex: (0...3).contains(index) ? index + 1 : nil, battery: reading?.level,
-                                          charging: reading?.charging ?? false, canIdentify: !Self.identifyActions(c).isEmpty, hasBattery: c.battery != nil)
+                                          charging: reading?.charging ?? false, canIdentify: !Self.identifyActions(c).isEmpty)
             }
         }
-        for i in snapshots.indices {
-            let id = snapshots[i].id
-            if snapshots[i].hasBattery { noBatterySince[id] = nil; continue }
-            let since = noBatterySince[id] ?? now()
-            noBatterySince[id] = since
-            if now().timeIntervalSince(since) < Self.wiredAfter { snapshots[i].hasBattery = true }   // too early to call it wired: unknown for now
-        }
-        noBatterySince = noBatterySince.filter { key, _ in snapshots.contains { $0.id == key } }
         let live = Set(snapshots.map(\.id))
+        batteryWatchers = batteryWatchers.filter { live.contains($0.key) || !devicePads }
         overrides = overrides.filter { live.contains($0.key) }
         snapshots = snapshots.map { snap in
             guard let chosen = overrides[snap.id] else { return snap }
@@ -543,4 +540,18 @@ struct ConsolePadSnapshot: Equatable {
             self?.state.identifyingControllerID = nil
         }
     }
+}
+
+/// Calls `handler` whenever one of the object's key-value observable properties changes.
+final class KeyValueWatcher: NSObject {
+    private let object: NSObject   // held, so it cannot go away while observed
+    private let keys: [String]
+    private let handler: () -> Void
+    init(object: NSObject, keys: [String], handler: @escaping () -> Void) {
+        self.object = object; self.keys = keys; self.handler = handler
+        super.init()
+        for key in keys { object.addObserver(self, forKeyPath: key, options: [], context: nil) }
+    }
+    override func observeValue(forKeyPath keyPath: String?, of object: Any?, change: [NSKeyValueChangeKey: Any]?, context: UnsafeMutableRawPointer?) { handler() }
+    deinit { for key in keys { object.removeObserver(self, forKeyPath: key) } }
 }
