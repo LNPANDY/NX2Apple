@@ -136,7 +136,7 @@ enum ConsoleInput {
                                     .accessibilityAddTraits(.isHeader)
                                 HStack(spacing: 12) {
                                     Text(String(format: t("console.version"), game.version)).monospacedDigit().lineLimit(1)
-                                        .foregroundStyle(.white.opacity(0.6)).frame(width: compact ? 118 : 176, alignment: .leading)   // fixed, so the badges stay put
+                                        .foregroundStyle(.white.opacity(0.6)).frame(width: compact ? 116 : 150, alignment: .leading)   // fixed, so the badges stay put
                                     ForEach(game.platforms, id: \.self) { platform in
                                         Text(t(platform.labelKey)).font(.manrope(compact ? 13 : 17, .semibold))
                                             .padding(.horizontal, 12).padding(.vertical, 5)

@@ -43,13 +43,17 @@ struct ConsoleGlyphs: Equatable {
             }
         }
         var keyCap: String {
-            switch self { case .activate: return "Return"; case .back: return "Esc"; case .options: return "O"; case .controllers: return "Y" }
+            switch self { case .activate: return "return"; case .back: return "escape"; case .options: return "O"; case .controllers: return "Y" }
+        }
+        /// Keys drawn as an SF Symbol in their cap (Return, Escape) instead of a word.
+        var keySymbol: Bool {
+            switch self { case .activate, .back: return true; case .options, .controllers: return false }
         }
         var letter: String {
             switch self { case .activate: return "A"; case .back: return "B"; case .options: return "+"; case .controllers: return "Y" }
         }
     }
-    enum Glyph: Equatable { case symbol(String), key(String), letter(String) }
+    enum Glyph: Equatable { case symbol(String), key(String), keySymbol(String), letter(String) }
 
     var family: Family
     /// SF Symbols names the controller itself reports for its elements.
@@ -59,7 +63,7 @@ struct ConsoleGlyphs: Equatable {
     static let neutral = ConsoleGlyphs(family: .neutral)
 
     func glyph(for role: Role) -> Glyph {
-        if family == .keyboard { return .key(role.keyCap) }
+        if family == .keyboard { return role.keySymbol ? .keySymbol(role.keyCap) : .key(role.keyCap) }
         if let name = reported[role.element] ?? Self.table(family)[role.element] { return .symbol(name) }
         return .letter(role.letter)
     }
@@ -100,11 +104,20 @@ struct ConsoleGlyphView: View {
         case .symbol(let name):
             Image(systemName: name).font(.system(size: size, weight: .medium)).accessibilityHidden(true)
         case .key(let cap):
-            Text(cap).font(.manrope(size * 0.62, .bold)).padding(.horizontal, size * 0.3).frame(minWidth: size, minHeight: size)
-                .overlay(RoundedRectangle(cornerRadius: size * 0.28).strokeBorder(.white.opacity(0.5), lineWidth: 1.5)).accessibilityHidden(true)
+            keyCap { Text(cap).font(.manrope(size * 0.62, .bold)) }
+        case .keySymbol(let name):
+            keyCap { Image(systemName: name).font(.system(size: size * 0.6, weight: .bold)) }
         case .letter(let letter):
             Text(letter).font(.manrope(size * 0.62, .bold)).frame(width: size, height: size)
                 .overlay(Circle().strokeBorder(.white.opacity(0.5), lineWidth: 1.5)).accessibilityHidden(true)
         }
+    }
+}
+
+extension ConsoleGlyphView {
+    /// Every keyboard cap has the same height, weight and outline, whatever it holds.
+    private func keyCap<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        content().frame(minWidth: size * 0.75).padding(.horizontal, size * 0.22).frame(height: size * 1.15)
+            .overlay(RoundedRectangle(cornerRadius: size * 0.28).strokeBorder(.white.opacity(0.5), lineWidth: 1.5)).accessibilityHidden(true)
     }
 }

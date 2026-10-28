@@ -94,7 +94,7 @@ final class ConsolePadTests: XCTestCase {
         NSApplication.shared.setActivationPolicy(.accessory)
         let repo = BuildModel.findRepo()
         for (sizeName, width, height) in [("1920", CGFloat(1920), CGFloat(1080)), ("compact", 390, 844)] {
-            for (name, scenario, family) in [("home", MockConsoleDriver.Scenario.full, ConsoleGlyphs.Family.xbox), ("home-dualsense", .full, .playStation),
+            for (name, scenario, family) in [("home", MockConsoleDriver.Scenario.full, ConsoleGlyphs.Family.xbox), ("home-dualsense", .full, .playStation), ("home-keyboard", .full, .keyboard),
                                              ("controllers", .controllersMixed, .xbox), ("options", .full, .xbox), ("empty", .empty, .xbox), ("starting", .starting, .xbox)] {
                 let driver = MockConsoleDriver(scenario: scenario, lang: .en, animated: false, artworkRepo: repo.isEmpty ? nil : repo)
                 if name == "options" { driver.openOptions("demo.0") }
@@ -148,9 +148,11 @@ final class ConsolePadTests: XCTestCase {
         XCTAssertEqual(reported.glyph(for: .back), .symbol("b.circle"), "an element it does not report uses the family table")
         XCTAssertEqual(ConsoleGlyphs.neutral.glyph(for: .activate), .letter("A"))
         XCTAssertEqual(ConsoleGlyphs.neutral.glyph(for: .options), .letter("+"))
-        XCTAssertEqual(ConsoleGlyphs.keyboard.glyph(for: .activate), .key("Return"))
-        XCTAssertEqual(ConsoleGlyphs.keyboard.glyph(for: .back), .key("Esc"))
-        XCTAssertEqual(ConsoleGlyphs(family: .keyboard, reported: [.a: "x"]).glyph(for: .activate), .key("Return"))
+        XCTAssertEqual(ConsoleGlyphs.keyboard.glyph(for: .activate), .keySymbol("return"))
+        XCTAssertEqual(ConsoleGlyphs.keyboard.glyph(for: .back), .keySymbol("escape"))
+        XCTAssertEqual(ConsoleGlyphs.keyboard.glyph(for: .options), .key("O"))
+        XCTAssertEqual(ConsoleGlyphs.keyboard.glyph(for: .controllers), .key("Y"))
+        XCTAssertEqual(ConsoleGlyphs(family: .keyboard, reported: [.a: "x"]).glyph(for: .activate), .keySymbol("return"))
     }
 
     /// One mapping serves every family: GameController reports Xbox and PlayStation buttons by position (A is the bottom button,
