@@ -95,9 +95,10 @@ final class ConsolePadTests: XCTestCase {
         let repo = BuildModel.findRepo()
         for (sizeName, width, height) in [("1920", CGFloat(1920), CGFloat(1080)), ("compact", 390, 844)] {
             for (name, scenario, family) in [("home", MockConsoleDriver.Scenario.full, ConsoleGlyphs.Family.xbox), ("home-dualsense", .full, .playStation), ("home-keyboard", .full, .keyboard),
-                                             ("controllers", .controllersMixed, .xbox), ("options", .full, .xbox), ("empty", .empty, .xbox), ("starting", .starting, .xbox)] {
+                                             ("controllers", .controllersMixed, .xbox), ("home-4pads", .controllersMixed, .xbox), ("options", .full, .xbox), ("empty", .empty, .xbox), ("starting", .starting, .xbox)] {
                 let driver = MockConsoleDriver(scenario: scenario, lang: .en, animated: false, artworkRepo: repo.isEmpty ? nil : repo)
                 if name == "options" { driver.openOptions("demo.0") }
+                if name == "home-4pads" { driver.back() }
                 let host = NSHostingView(rootView: ConsoleView(driver: driver, lang: .en, glyphs: .init(family: family)).transaction { $0.disablesAnimations = true }.frame(width: width, height: height))
                 let window = NSWindow(contentRect: NSRect(x: -10000, y: 0, width: width, height: height), styleMask: [.borderless], backing: .buffered, defer: false)
                 window.isReleasedWhenClosed = false

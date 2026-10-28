@@ -186,7 +186,11 @@ struct ConsoleState {
     func back()
     func exitToDesktop()
     func returnFromGame()
+    /// A press from a controller: true when the driver used it (player assignment), so it does not also navigate.
+    func consumePress(controllerID: String, isBack: Bool) -> Bool
 }
+
+extension ConsoleDriver { func consumePress(controllerID: String, isBack: Bool) -> Bool { false } }
 
 /// Shared choice/range/toggle stepping for mouse, d-pad and keyboard. No settings store is touched.
 enum ConsoleOption {

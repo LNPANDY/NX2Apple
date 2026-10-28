@@ -17,7 +17,7 @@ enum ConsoleInput {
         case .b: self = .back
         case .plus, .x: self = .options
         case .y: self = .controllers
-        case .l, .r, .home: return nil
+        case .l, .r, .select: return nil   // Select does nothing in console mode (B goes back)
         }
     }
 }
@@ -90,8 +90,9 @@ enum ConsoleInput {
         .onReceive(inputs, perform: handle)
         .onChange(of: scope) { _ in resetFocus() }
         .onChange(of: state.exited) { exited in if exited, let onExit { onExit() } else { resetFocus() } }
-        .onAppear { gamepad.perform = { [self] action in if let input = ConsoleInput(action) { glyphs = .current(); handle(input) } }; resetFocus() }
-        .onDisappear { gamepad.perform = { _ in } }
+        .onAppear { gamepad.capture = { [driver] id, action in driver.consumePress(controllerID: id, isBack: action == .b) }
+            gamepad.perform = { [self] action in if let input = ConsoleInput(action) { glyphs = .current(); handle(input) } }; resetFocus() }
+        .onDisappear { gamepad.perform = { _ in }; gamepad.capture = nil }
         .onChange(of: pad.focused) { id in
             if let id, id.hasPrefix("console.game.") { driver.focus(String(id.dropFirst("console.game.".count))) }
         }
@@ -161,7 +162,7 @@ enum ConsoleInput {
                     .padding(.bottom, 24)
                 }
             }
-            if !state.games.isEmpty { hintBar(compact: compact).padding(.horizontal, inset).padding(.bottom, compact ? 20 : 32) }
+            if !state.games.isEmpty { hintBar(compact: compact, width: size.width).padding(.horizontal, inset).padding(.bottom, compact ? 20 : 32) }
         }
         .padScope("console", pad)
     }
@@ -170,9 +171,7 @@ enum ConsoleInput {
     /// Its height never changes, so a controller arriving or leaving moves nothing below it.
     private func topBar(compact: Bool) -> some View {
         HStack(spacing: compact ? 12 : 20) {
-            Spacer(minLength: 0)
             ConsoleControllerChips(controllers: state.controllers, merged: state.padMerge, lang: lang, compact: compact) { driver.openControllers() }
-                .frame(maxWidth: CGFloat(max(1, state.controllers.count)) * (compact ? 120 : 150))
             Text(state.time, style: .time).font(.manrope(compact ? 17 : 22, .medium)).monospacedDigit()
                 .foregroundStyle(.white.opacity(0.65)).fixedSize()
         }
@@ -227,7 +226,7 @@ enum ConsoleInput {
         }
     }
 
-    private func hintBar(compact: Bool) -> some View {
+    private func hintBar(compact: Bool, width: CGFloat) -> some View {
         let items = {
             Group {
                 hint(.activate, "console.play", "console.play", primary: true, compact: compact) { if let id = state.focusedGame?.id { driver.play(id) } }
@@ -243,7 +242,7 @@ enum ConsoleInput {
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 2), spacing: 12) { items() }
             } else {
                 // inline glyph and label, the group centered as a whole with even spacing, the active one a cream pill
-                HStack(spacing: 44) { items() }.frame(maxWidth: .infinity)
+                HStack(spacing: min(width * 0.12, 220)) { items() }.frame(maxWidth: .infinity)   // wide gaps, the group centered as a unit
             }
         }
     }

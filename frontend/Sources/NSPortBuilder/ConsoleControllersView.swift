@@ -26,6 +26,7 @@ import Combine
     func back() { base.back() }
     func exitToDesktop() { base.exitToDesktop() }
     func returnFromGame() { base.returnFromGame() }
+    func consumePress(controllerID: String, isBack: Bool) -> Bool { base.consumePress(controllerID: controllerID, isBack: isBack) }
 }
 
 /// The battery drawn as the iOS status bar does: an outline with a nub and a fill exactly as wide as the level, red at 20 percent
@@ -43,27 +44,45 @@ struct BatteryIcon: View {
     }
     static func isLow(_ level: Double?) -> Bool { level.map { fillFraction($0) <= 0.2 } ?? false }
 
+    /// Every rectangle of the icon, in points, snapped to the half point (whole pixels at 2x). The outline is stroked inside its
+    /// frame, the fill area is that frame inset by the stroke and a 1 point gap, and the fill is that area times the level, so the
+    /// fill can never leave the body.
+    struct Geometry: Equatable {
+        var outer: CGRect, inner: CGRect, fill: CGRect, nub: CGRect
+        var outerRadius: CGFloat, innerRadius: CGFloat
+        var size: CGSize
+    }
+    static func geometry(height: CGFloat, level: Double?) -> Geometry {
+        func snap(_ v: CGFloat) -> CGFloat { (v * 2).rounded() / 2 }
+        let h = snap(height), w = snap(height * 2), stroke: CGFloat = 1, gap: CGFloat = 1, nubWidth: CGFloat = 1.5
+        let outer = CGRect(x: 0, y: 0, width: w, height: h)
+        let inset = stroke + gap
+        let inner = outer.insetBy(dx: inset, dy: inset)
+        let fill = CGRect(x: inner.minX, y: inner.minY, width: snap(inner.width * fillFraction(level)), height: inner.height)
+        let nubHeight = snap(h * 0.36)
+        let nub = CGRect(x: w + 1, y: snap((h - nubHeight) / 2), width: nubWidth, height: nubHeight)
+        let radius = snap(h * 0.3)
+        return Geometry(outer: outer, inner: inner, fill: fill, nub: nub, outerRadius: radius, innerRadius: max(0, radius - inset),
+                        size: CGSize(width: nub.maxX, height: h))
+    }
+
     var body: some View {
-        let width = height * 2.0, line: CGFloat = 1, inset: CGFloat = 1.5
-        HStack(spacing: 1) {
-            ZStack(alignment: .leading) {
-                RoundedRectangle(cornerRadius: height * 0.3).strokeBorder(.white.opacity(level == nil ? 0.3 : 0.55), lineWidth: line)
-                if level != nil {
-                    GeometryReader { g in
-                        RoundedRectangle(cornerRadius: height * 0.18)
-                            .fill(Self.isLow(level) && !charging ? Color.red : (charging ? LauncherPalette.ready : Color.white.opacity(0.9)))
-                            .frame(width: max(0, (g.size.width - 2 * inset) * Self.fillFraction(level)), height: g.size.height - 2 * inset)
-                            .offset(x: inset, y: inset)
-                    }
-                }
-                if charging {
-                    Image(systemName: "bolt.fill").font(.system(size: height * 0.62, weight: .bold)).foregroundStyle(.black.opacity(0.75))
-                        .frame(maxWidth: .infinity)
-                }
+        let g = Self.geometry(height: height, level: level)
+        let line = Color.white.opacity(level == nil ? 0.3 : 0.55)
+        ZStack(alignment: .topLeading) {
+            RoundedRectangle(cornerRadius: g.outerRadius).strokeBorder(line, lineWidth: 1).frame(width: g.outer.width, height: g.outer.height)
+            if level != nil {
+                RoundedRectangle(cornerRadius: g.innerRadius)
+                    .fill(Self.isLow(level) && !charging ? Color.red : (charging ? LauncherPalette.ready : Color.white.opacity(0.9)))
+                    .frame(width: g.fill.width, height: g.fill.height).offset(x: g.fill.minX, y: g.fill.minY)
             }
-            .frame(width: width, height: height)
-            Capsule().fill(.white.opacity(level == nil ? 0.3 : 0.55)).frame(width: 1.5, height: height * 0.36)
+            if charging {
+                Image(systemName: "bolt.fill").font(.system(size: height * 0.62, weight: .bold)).foregroundStyle(.black.opacity(0.75))
+                    .frame(width: g.outer.width, height: g.outer.height)
+            }
+            Capsule().fill(line).frame(width: g.nub.width, height: g.nub.height).offset(x: g.nub.minX, y: g.nub.minY)
         }
+        .frame(width: g.size.width, height: g.size.height, alignment: .topLeading)
         .accessibilityHidden(true)
     }
 }
@@ -103,34 +122,42 @@ struct ConsoleControllerChips: View {
     @EnvironmentObject private var pad: PadFocus
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private func t(_ key: String) -> String { L10n.string(key, lang) }
-    var body: some View {
-        ScrollViewReader { proxy in
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                if controllers.isEmpty {
-                    chip(id: "empty", label: t("console.noControllers")) {
-                        Label(t("console.controllers"), systemImage: "gamecontroller")
+    private var row: some View {
+        HStack(spacing: 8) {
+            if controllers.isEmpty {
+                chip(id: "empty", label: t("console.noControllers")) {
+                    Label(t("console.controllers"), systemImage: "gamecontroller")
+                }
+            }
+            ForEach(controllers) { controller in
+                chip(id: controller.id, label: controller.name + ", " + t(controller.kind.labelKey) + ", " + ((merged ? 1 : controller.player).map { String(format: t("console.player"), $0) } ?? t("console.unassigned")) + (controller.batteryPercent.map { ", " + String(format: t(controller.charging ? "console.batteryCharging" : "console.batteryLevel"), $0) } ?? "")) {
+                    HStack(spacing: compact ? 5 : 8) {
+                        Image(systemName: controller.kind.symbol).accessibilityHidden(true)
+                        Text((merged ? 1 : controller.player).map { String(format: t("console.playerShort"), $0) } ?? "\u{2014}")   // the full "Unassigned" is in the Controllers list
+                        ConsoleBattery(controller: controller, lang: lang, compact: compact)
                     }
                 }
-                ForEach(controllers) { controller in
-                    chip(id: controller.id, label: controller.name + ", " + t(controller.kind.labelKey) + ", " + ((merged ? 1 : controller.player).map { String(format: t("console.player"), $0) } ?? t("console.unassigned")) + (controller.batteryPercent.map { ", " + String(format: t(controller.charging ? "console.batteryCharging" : "console.batteryLevel"), $0) } ?? "")) {
-                        HStack(spacing: compact ? 5 : 8) {
-                            Image(systemName: controller.kind.symbol).accessibilityHidden(true)
-                            Text((merged ? 1 : controller.player).map { String(format: t("console.playerShort"), $0) } ?? "\u{2014}")   // the full "Unassigned" is in the Controllers list
-                            ConsoleBattery(controller: controller, lang: lang, compact: compact)
+            }
+        }
+        .padding(5)
+    }
+
+    /// The chips take their own width (nothing is cut off) and sit at the trailing edge. Only when there are more than the row has
+    /// room for does it scroll sideways.
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            row.fixedSize().frame(maxWidth: .infinity, alignment: .trailing)
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal, showsIndicators: false) { row }
+                    .mask(HStack(spacing: 0) { Rectangle(); LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing).frame(width: 18) })   // an overflowing row fades out instead of ending in a cut
+                    .onChange(of: pad.focused) { id in
+                        if let id, id.hasPrefix(scope + ".chip.") {
+                            withAnimation(.easeOut(duration: reduceMotion ? 0 : 0.18)) { proxy.scrollTo(id, anchor: .center) }
                         }
                     }
-                }
             }
-            .padding(5)
         }
         .frame(height: compact ? 40 : 52)
-        .onChange(of: pad.focused) { id in
-            if let id, id.hasPrefix(scope + ".chip.") {
-                withAnimation(.easeOut(duration: reduceMotion ? 0 : 0.18)) { proxy.scrollTo(id, anchor: .center) }
-            }
-        }
-        }
     }
     private func chip<C: View>(id: String, label: String, @ViewBuilder content: () -> C) -> some View {
         Button(action: openControllers) {
@@ -178,7 +205,7 @@ struct ConsoleToastView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
-                    action(id: "merge", label: t("console.playerMode"), value: t(state.padMerge ? "console.mergeAll" : "console.mergeEach"), symbol: "person.2", adjust: { _ in driver.setPadMerge(!state.padMerge) }) { driver.setPadMerge(!state.padMerge) }
+                    mergeToggle
                     Text(t("console.controllerNote")).font(.manrope(compact ? 17 : 22)).foregroundStyle(.secondary)
                     HStack(spacing: 12) {
                         ForEach(1...4, id: \.self) { player in
@@ -206,6 +233,26 @@ struct ConsoleToastView: View {
             }
         }
     }
+    /// "All controllers are player 1" as a switch with its state spelled out.
+    private var mergeToggle: some View {
+        let flip = { driver.setPadMerge(!state.padMerge) }
+        return Button(action: flip) {
+            HStack(spacing: 14) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Label(t("console.mergeAll"), systemImage: "person.2").font(.manrope(compact ? 16 : 18, .semibold))
+                    Text(t(state.padMerge ? "console.on" : "console.off")).font(.manrope(compact ? 16 : 20)).foregroundStyle(state.padMerge ? LauncherPalette.cream : .secondary)
+                }
+                Spacer(minLength: 8)
+                Toggle("", isOn: Binding(get: { state.padMerge }, set: { _ in flip() })).labelsHidden().toggleStyle(LauncherSwitchStyle()).allowsHitTesting(false)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading).padding(14)
+            .background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 10)).contentShape(RoundedRectangle(cornerRadius: 10))
+        }
+        .buttonStyle(.plain)
+        .padTarget("console.controller.merge", scope: scope, radius: 10, activate: flip, adjust: { _ in flip() })
+        .accessibilityLabel(t("console.mergeAll")).accessibilityValue(t(state.padMerge ? "console.on" : "console.off"))
+    }
+
     private func row(_ controller: ConsoleController) -> some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack(spacing: 16) {

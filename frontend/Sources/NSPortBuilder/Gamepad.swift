@@ -1,5 +1,6 @@
 import AppKit
 import GameController
+import os
 
 /// A game controller drives the launcher, so a Mac on a TV needs no keyboard (PadFocus moves the focus). The buttons are
 /// named by what is printed on them, which is how GameController reports them (see `face`): the A button activates, B goes
@@ -10,16 +11,15 @@ import GameController
 /// started is in front then, and GameController gives a controller's input to the app in front, so the launcher never
 /// acts behind a running game.
 final class LauncherGamepad: ObservableObject {
-    enum Action: Equatable { case left, right, up, down, a, b, x, y, l, r, plus, home }
+    enum Action: Equatable { case left, right, up, down, a, b, x, y, l, r, plus, select }
 
     @Published private(set) var connected = false
-    /// "Home button opens console mode" (Settings, Controls). On by default.
-    static let homeKey = "homeOpensConsole"
-    static var homeOpensConsole: Bool { UserDefaults.standard.object(forKey: homeKey) as? Bool ?? true }
-    /// Whether the controller's Home button (PlayStation, Xbox guide, Nintendo Home) goes to the launcher instead of the system.
-    /// Only while the launcher is the front app: a game it started is in front then and gets the button for itself.
-    static func capturesHome(enabled: Bool, appIsActive: Bool) -> Bool { enabled && appIsActive }
+    /// `select` is the Select-type button (DualShock Share, DualSense Create, Xbox View, Nintendo Minus): GameController's
+    /// `buttonOptions`. The system does not claim it, so it always reaches the app. The desktop launcher opens console mode with it.
     var perform: (Action) -> Void = { _ in }
+    /// Sees every press with the controller it came from before it navigates. Returning true consumes it (the Controllers sheet uses
+    /// this to give the next press to the player being assigned).
+    var capture: ((String, Action) -> Bool)?
     /// The GameController button an action reads, in one place (the glyphs of the console mode follow it). GameController names
     /// the face buttons by label: buttonA is the bottom of Apple's diamond (GCExtendedGamepad.h), which is A on an Xbox
     /// controller and the cross on a DualSense, and a Nintendo-layout controller reports the button printed A (on the right) as
@@ -34,59 +34,73 @@ final class LauncherGamepad: ObservableObject {
         default: return nil
         }
     }
-    private var held: Set<String> = []   // edges, not levels: one press, one action
+    /// One press, one action, per controller: a button held on one controller never hides the same button on another.
+    struct Edges {
+        private var held: Set<String> = []
+        /// What changed for `controller` given the state of its buttons: pressed and released actions.
+        mutating func changes(controller: String, state: [(String, Bool, Action)]) -> (pressed: [Action], released: [Action]) {
+            var pressed: [Action] = [], released: [Action] = []
+            for (key, down, action) in state {
+                let id = controller + "/" + key
+                if down, !held.contains(id) { held.insert(id); pressed.append(action) }
+                else if !down, held.contains(id) { held.remove(id); released.append(action) }
+            }
+            return (pressed, released)
+        }
+    }
+    private var edges = Edges()
     private var observers: [NSObjectProtocol] = []
     private var repeatTimer: Timer?
     private var repeating: Action?
+    private static let log = Logger(subsystem: "NX2Apple", category: "console.controllers")
 
     init() {
         let center = NotificationCenter.default
         observers = [NSNotification.Name.GCControllerDidConnect, .GCControllerDidDisconnect].map {
-            center.addObserver(forName: $0, object: nil, queue: .main) { [weak self] _ in self?.attach() }
-        }
-        observers += [NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification].map {
-            center.addObserver(forName: $0, object: nil, queue: .main) { [weak self] _ in self?.applyHomeCapture() }
+            center.addObserver(forName: $0, object: nil, queue: .main) { [weak self] note in
+                if let pad = note.object as? GCController {
+                    Self.log.debug("\(note.name.rawValue, privacy: .public): vendor \(pad.vendorName ?? "?", privacy: .public), category \(pad.productCategory, privacy: .public), extendedGamepad \(pad.extendedGamepad != nil), attached \(pad.isAttachedToDevice)")
+                }
+                self?.attach()
+            }
         }
         attach()
     }
 
     deinit { observers.forEach(NotificationCenter.default.removeObserver); repeatTimer?.invalidate() }
 
+    /// Every controller GameController lists, wired or wireless, whatever its vendor, drives the launcher: each gets a handler on its
+    /// physical input profile (an extended gamepad is one, so are the simpler ones).
     private func attach() {
-        let pads = GCController.controllers().compactMap(\.extendedGamepad)
+        let pads = GCController.controllers()
         connected = !pads.isEmpty
-        for pad in pads { pad.valueChangedHandler = { [weak self] pad, _ in self?.read(pad) } }
-        applyHomeCapture()
-    }
-
-    /// The Home button reaches the app (`.alwaysReceive`) while the launcher is in front and the setting is on, else the system keeps it.
-    func applyHomeCapture() {
-        let capture = Self.capturesHome(enabled: Self.homeOpensConsole, appIsActive: NSApp?.isActive ?? false)
-        for pad in GCController.controllers().compactMap(\.extendedGamepad) {
-            pad.buttonHome?.preferredSystemGestureState = capture ? .alwaysReceive : .enabled
+        for pad in pads {
+            let id = String(UInt(bitPattern: ObjectIdentifier(pad).hashValue), radix: 16)
+            pad.physicalInputProfile.valueDidChangeHandler = { [weak self] profile, _ in self?.read(profile, controller: id) }
         }
     }
 
-    private func read(_ pad: GCExtendedGamepad) {
-        let x = pad.dpad.xAxis.value != 0 ? pad.dpad.xAxis.value : pad.leftThumbstick.xAxis.value
-        let y = pad.dpad.yAxis.value != 0 ? pad.dpad.yAxis.value : pad.leftThumbstick.yAxis.value
+    private func read(_ pad: GCPhysicalInputProfile, controller: String) {
+        func button(_ name: String) -> Bool { pad.buttons[name]?.isPressed ?? false }
+        let dpad = pad.dpads[GCInputDirectionPad], stick = pad.dpads[GCInputLeftThumbstick]
+        let x = (dpad?.xAxis.value ?? 0) != 0 ? dpad!.xAxis.value : (stick?.xAxis.value ?? 0)
+        let y = (dpad?.yAxis.value ?? 0) != 0 ? dpad!.yAxis.value : (stick?.yAxis.value ?? 0)
         let state: [(String, Bool, Action)] = [
             ("left", x < -0.5, .left), ("right", x > 0.5, .right), ("up", y > 0.5, .up), ("down", y < -0.5, .down),
-            ("a", pad.buttonA.isPressed, .a), ("b", pad.buttonB.isPressed, .b),   // by label, see `face`
-            ("x", pad.buttonX.isPressed, .x), ("y", pad.buttonY.isPressed, .y),
-            ("l", pad.leftShoulder.isPressed, .l), ("r", pad.rightShoulder.isPressed, .r),
-            ("plus", pad.buttonMenu.isPressed, .plus), ("home", pad.buttonHome?.isPressed ?? false, .home),   // the console mode's options; the desktop ignores it
+            ("a", button(GCInputButtonA), .a), ("b", button(GCInputButtonB), .b),   // by label, see `face`
+            ("x", button(GCInputButtonX), .x), ("y", button(GCInputButtonY), .y),
+            ("l", button(GCInputLeftShoulder), .l), ("r", button(GCInputRightShoulder), .r),
+            ("plus", button(GCInputButtonMenu), .plus), ("select", button(GCInputButtonOptions), .select),
         ]
-        for (key, down, action) in state {
-            if down, !held.contains(key) {
-                held.insert(key)
-                DispatchQueue.main.async { self.fire(action) }
-                if [.left, .right, .up, .down].contains(action) { DispatchQueue.main.async { self.startRepeat(action) } }
-            } else if !down, held.contains(key) {
-                held.remove(key)
-                DispatchQueue.main.async { if self.repeating == action { self.stopRepeat() } }
+        let (pressed, released) = edges.changes(controller: controller, state: state)
+        for action in pressed {
+            DispatchQueue.main.async {
+                if NSApp.isActive, let capture = self.capture, capture(controller, action) { return }
+                self.fire(action)
+                if [.left, .right, .up, .down].contains(action) { self.startRepeat(action) }
             }
         }
+        for action in released { DispatchQueue.main.async { if self.repeating == action { self.stopRepeat() } } }
     }
 
     private func fire(_ action: Action) { if NSApp.isActive { perform(action) } }

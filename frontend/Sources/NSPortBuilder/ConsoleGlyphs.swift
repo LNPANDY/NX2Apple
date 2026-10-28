@@ -22,19 +22,19 @@ struct ConsoleGlyphs: Equatable {
         }
     }
     /// A button as GameController names it.
-    enum Element: Hashable { case a, b, x, y, menu, home }
+    enum Element: Hashable { case a, b, x, y, menu, select }
     enum Role {
         case activate, back, options, controllers
         /// The desktop launcher's own: X opens a game's launch options and Y its Manage menu (LauncherView.padAction).
         case launchOptions, manage
-        /// The controller's Home button (PlayStation, guide, Home): console mode.
-        case home
+        /// The Select-type button (Share, Create, View, Minus): opens console mode from the desktop.
+        case select
         var element: Element {
             switch self {
             case .activate: return Self.element(of: .a)
             case .back: return Self.element(of: .b)
             case .options: return .menu
-            case .home: return .home
+            case .select: return .select
             case .controllers, .manage: return Self.element(of: .y)
             case .launchOptions: return Self.element(of: .x)
             }
@@ -49,14 +49,14 @@ struct ConsoleGlyphs: Equatable {
             }
         }
         var keyCap: String {
-            switch self { case .activate: return "return"; case .back: return "escape"; case .options, .launchOptions: return "O"; case .controllers, .manage: return "Y"; case .home: return "\u{2325}\u{2318}K" }
+            switch self { case .activate: return "return"; case .back: return "escape"; case .options, .launchOptions: return "O"; case .controllers, .manage: return "Y"; case .select: return "\u{2325}\u{2318}K" }
         }
         /// Keys drawn as an SF Symbol in their cap (Return, Escape) instead of a word.
         var keySymbol: Bool {
             switch self { case .activate, .back: return true; default: return false }
         }
         var letter: String {
-            switch self { case .activate: return "A"; case .back: return "B"; case .options: return "+"; case .launchOptions: return "X"; case .controllers, .manage: return "Y"; case .home: return "H" }
+            switch self { case .activate: return "A"; case .back: return "B"; case .options: return "+"; case .launchOptions: return "X"; case .controllers, .manage: return "Y"; case .select: return "\u{2212}" }
         }
     }
     enum Glyph: Equatable { case symbol(String), key(String), keySymbol(String), letter(String) }
@@ -77,11 +77,11 @@ struct ConsoleGlyphs: Equatable {
     /// What a family's elements are printed with, for a controller that reports no symbol of its own.
     static func table(_ family: Family) -> [Element: String] {
         switch family {
-        case .xbox: return [.a: "a.circle", .b: "b.circle", .x: "x.circle", .y: "y.circle", .menu: "line.3.horizontal.circle", .home: "house.circle"]
-        case .playStation: return [.a: "xmark.circle", .b: "circle.circle", .x: "square.circle", .y: "triangle.circle", .menu: "line.3.horizontal.circle", .home: "house.circle"]
-        case .nintendo: return [.a: "a.circle", .b: "b.circle", .x: "x.circle", .y: "y.circle", .menu: "plus.circle", .home: "house.circle"]
+        case .xbox: return [.a: "a.circle", .b: "b.circle", .x: "x.circle", .y: "y.circle", .menu: "line.3.horizontal.circle", .select: "minus.circle"]
+        case .playStation: return [.a: "xmark.circle", .b: "circle.circle", .x: "square.circle", .y: "triangle.circle", .menu: "line.3.horizontal.circle", .select: "minus.circle"]
+        case .nintendo: return [.a: "a.circle", .b: "b.circle", .x: "x.circle", .y: "y.circle", .menu: "plus.circle", .select: "minus.circle"]
         case .keyboard: return [:]
-        case .neutral: return [.home: "house.circle"]
+        case .neutral: return [.select: "minus.circle"]
         }
     }
 
@@ -92,8 +92,8 @@ struct ConsoleGlyphs: Equatable {
         if let pad = controller.extendedGamepad {
             let elements: [(Element, GCControllerButtonInput)] = [(.a, pad.buttonA), (.b, pad.buttonB), (.x, pad.buttonX), (.y, pad.buttonY), (.menu, pad.buttonMenu)]
             for (element, button) in elements { if let name = button.sfSymbolsName { reported[element] = name } }
-            // The Home button reports a brand logo on some controllers: ours is a neutral house
-            if let name = pad.buttonHome?.sfSymbolsName, !name.lowercased().contains("logo") { reported[.home] = name }
+            // The system's own symbol for the Select-type button, whatever the controller calls it
+            if let name = pad.buttonOptions?.sfSymbolsName { reported[.select] = name }
         }
     }
 
@@ -110,7 +110,9 @@ struct ConsoleGlyphView: View {
     var size: CGFloat = 22
     var body: some View {
         switch glyph {
-        case .symbol(let name):
+        case .symbol(let requested):
+            // a symbol this macOS does not have draws nothing: a plain circle stands in
+            let name = NSImage(systemSymbolName: requested, accessibilityDescription: nil) == nil ? "circle" : requested
             Image(systemName: name).font(.system(size: size, weight: .medium)).accessibilityHidden(true)
         case .key(let cap):
             keyCap { Text(cap).font(.manrope(size * 0.62, .bold)) }

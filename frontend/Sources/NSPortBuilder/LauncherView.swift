@@ -151,6 +151,7 @@ struct ContentView: View {
         .frame(minWidth: 900, idealWidth: 1280, minHeight: 680, idealHeight: 900)
         .onAppear {
             gamepad.perform = padAction
+            gamepad.capture = { [consoleDriver] id, action in consoleDriver.consumePress(controllerID: id, isBack: action == .b) }
             if performStartupChecks { library.migrateLaunchOptions() }
             if qaManage.open {
                 if qaManage.ring { padFocus.show(default: nil) }
@@ -610,9 +611,7 @@ struct ContentView: View {
                         HStack(spacing: 18) {
                             padHint(.activate, m.t("pad.play")); padHint(.launchOptions, m.t("pad.options")); padHint(.back, m.t("pad.back"))
                             padHint(.manage, m.t("pad.manage"))
-                            if enterConsole != nil, LauncherGamepad.homeOpensConsole { padHint(.home, m.t("console.entry")) }
-                            Image(systemName: "gamecontroller").foregroundStyle(.secondary)
-                            if let enterConsole { ConsoleEntryButton(lang: m.lang, compact: false, enterConsole: enterConsole) }
+                            if enterConsole != nil { padHint(.select, m.t("console.entry")) }
                         }
                     }
                 }
@@ -661,8 +660,8 @@ struct ContentView: View {
     /// then the D-pad moves it (PadFocus), A activates, B closes a sheet or goes back to the library, X opens the selected
     /// game's launch options, L and R switch the pages.
     private func padAction(_ action: LauncherGamepad.Action) {
-        if action == .home {   // the controller's Home button, while the launcher is in front: console mode, like a console's guide button
-            if let enterConsole, LauncherGamepad.homeOpensConsole { consolePrompt = false; enterConsole() }
+        if action == .select {   // the controller's Select-type button opens console mode
+            if let enterConsole { consolePrompt = false; enterConsole() }
             return
         }
         if consolePrompt {
@@ -715,7 +714,7 @@ struct ContentView: View {
             guard !sheetOpen, let at = LauncherPage.allCases.firstIndex(of: page) else { return }
             let pages = LauncherPage.allCases
             page = pages[(at + (action == .l ? pages.count - 1 : 1)) % pages.count]
-        case .y, .plus, .home:   // Y is the Manage menu: ManagePad.route opened it above
+        case .y, .plus, .select:   // Y is the Manage menu: ManagePad.route opened it above
             return
         case .b:
             return

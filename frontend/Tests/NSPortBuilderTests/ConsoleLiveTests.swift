@@ -220,8 +220,14 @@ import SwiftUI
         let charging = ConsolePadSnapshot.batteryReading(level: 0.4, state: .charging)
         XCTAssertEqual(charging.level, 0.4)
         XCTAssertTrue(charging.charging)
-        XCTAssertNil(ConsolePadSnapshot.batteryReading(level: 0, state: .charging).level)
-        XCTAssertEqual(ConsolePadSnapshot.batteryReading(level: 0, state: .full).level, 1)
+        XCTAssertEqual(ConsolePadSnapshot.batteryReading(level: 0, state: .charging).level, 0, "charging reports its real level, even a low one")
+        let full = ConsolePadSnapshot.batteryReading(level: 0, state: .full)
+        XCTAssertEqual(full.level, 1, "full: the full battery")
+        XCTAssertTrue(full.charging, "with the bolt")
+        let topped = ConsolePadSnapshot.batteryReading(level: 1.0, state: .charging)
+        XCTAssertEqual(topped.level, 1)
+        XCTAssertTrue(topped.charging)
+        XCTAssertNil(ConsolePadSnapshot.batteryReading(level: 1, state: .unknown).level, "no guess of full for a pad that reports no state")
         let pad = ConsolePadSnapshot(id: "a", name: "DUALSHOCK 4", category: "DualShock 4", playerIndex: 1, battery: nil).controller
         XCTAssertNil(pad.battery)
         XCTAssertNil(pad.batteryPercent, "no percentage, so no red 0%")
@@ -238,13 +244,116 @@ import SwiftUI
         XCTAssertFalse(pad.controller.canIdentify)
     }
 
-    func testHomeButtonIsCapturedOnlyWhileTheLauncherIsInFront() {
-        XCTAssertTrue(LauncherGamepad.capturesHome(enabled: true, appIsActive: true))
-        XCTAssertFalse(LauncherGamepad.capturesHome(enabled: true, appIsActive: false), "a game in front keeps its own Home button")
-        XCTAssertFalse(LauncherGamepad.capturesHome(enabled: false, appIsActive: true))
-        XCTAssertNil(ConsoleInput(.home), "in console mode Home does nothing special")
-        XCTAssertEqual(ConsoleGlyphs(family: .xbox).glyph(for: .home), .symbol("house.circle"), "no brand logo")
-        XCTAssertEqual(ConsoleGlyphs(family: .playStation, reported: [.home: "house.fill"]).glyph(for: .home), .symbol("house.fill"))
-        XCTAssertEqual(ConsoleGlyphs.neutral.glyph(for: .home), .symbol("house.circle"))
+    func testSelectButtonGlyphAndInput() {
+        XCTAssertNil(ConsoleInput(.select), "in console mode Select does nothing special")
+        XCTAssertEqual(ConsoleGlyphs.Role.select.element, .select)
+        XCTAssertEqual(ConsoleGlyphs(family: .playStation, reported: [.select: "square.and.arrow.up"]).glyph(for: .select), .symbol("square.and.arrow.up"), "the controller's own symbol")
+        for family in [ConsoleGlyphs.Family.xbox, .playStation, .nintendo, .neutral] {
+            XCTAssertEqual(ConsoleGlyphs(family: family).glyph(for: .select), .symbol("minus.circle"), "\(family) reporting nothing")
+        }
+        XCTAssertEqual(ConsoleGlyphs.keyboard.glyph(for: .select), .key("\u{2325}\u{2318}K"))
+    }
+
+    /// Two fake controllers connecting one after the other: each is published as soon as the connect notification arrives and takes
+    /// the next free player, in connection order.
+    func testConnectNotificationPublishesTheNewControllerAtOnce() async throws {
+        var current = [ConsolePadSnapshot(id: "first", name: "First", category: "DualShock 4", playerIndex: nil)]
+        let library = GameLibrary(file: temporary.appendingPathComponent("library.json"))
+        let driver = LiveConsoleDriver(library: library, controls: ControlLayout(defaults: UserDefaults(suiteName: "ConsoleLiveTests-" + UUID().uuidString)!),
+                                       repo: { "" }, lang: { .en }, labels: { $0 }, pads: { current }, artwork: { _, _ in nil }, observeSystem: true)
+        XCTAssertEqual(driver.state.controllers.map(\.id), ["first"])
+        XCTAssertEqual(driver.state.controllers.map(\.player), [1])
+        current.append(ConsolePadSnapshot(id: "second", name: "Second", category: "Wired", playerIndex: nil))
+        NotificationCenter.default.post(name: .GCControllerDidConnect, object: nil)
+        for _ in 0..<50 where driver.state.controllers.count < 2 { try await Task.sleep(nanoseconds: 20_000_000) }
+        XCTAssertEqual(driver.state.controllers.map(\.id), ["first", "second"], "published at once, not at the next tick")
+        XCTAssertEqual(driver.state.controllers.map(\.player), [1, 2])
+        current.removeFirst()
+        NotificationCenter.default.post(name: .GCControllerDidDisconnect, object: nil)
+        for _ in 0..<50 where driver.state.controllers.count > 1 { try await Task.sleep(nanoseconds: 20_000_000) }
+        XCTAssertEqual(driver.state.controllers.map(\.id), ["second"])
+    }
+
+    func testInputFromASecondControllerIsNotHiddenByTheFirst() {
+        var edges = LauncherGamepad.Edges()
+        XCTAssertEqual(edges.changes(controller: "one", state: [("a", true, .a)]).pressed, [.a])
+        XCTAssertEqual(edges.changes(controller: "one", state: [("a", true, .a)]).pressed, [], "held on the same controller: no repeat")
+        XCTAssertEqual(edges.changes(controller: "two", state: [("a", true, .a)]).pressed, [.a], "the same button on another controller still counts")
+        XCTAssertEqual(edges.changes(controller: "one", state: [("a", false, .a)]).released, [.a])
+        XCTAssertEqual(edges.changes(controller: "two", state: [("select", true, .select)]).pressed, [.select])
+    }
+
+    func testBatteryFillStaysInsideTheOutline() {
+        for height: CGFloat in [10, 12, 13, 16] {
+            for level in [0, 0.12, 0.65, 1.0] as [Double] {
+                let g = BatteryIcon.geometry(height: height, level: level)
+                XCTAssertTrue(g.inner.contains(g.fill) || g.fill.width == 0, "height \(height) level \(level): \(g.fill) in \(g.inner)")
+                XCTAssertTrue(g.outer.contains(g.inner))
+                XCTAssertEqual(g.inner.minX - g.outer.minX, 2, "the stroke and a 1 point gap on every side")
+                XCTAssertEqual(g.outer.maxY - g.inner.maxY, 2)
+                XCTAssertEqual(g.fill.minX, g.inner.minX, "leading-aligned")
+                XCTAssertLessThanOrEqual(g.fill.width, g.inner.width)
+                XCTAssertGreaterThanOrEqual(g.nub.minX, g.outer.maxX, "the nub sits outside the body, to the right")
+                XCTAssertEqual(g.innerRadius, max(0, g.outerRadius - 2))
+                XCTAssertEqual(g.fill.width * 2, (g.fill.width * 2).rounded(), "snapped to whole pixels at 2x")
+            }
+        }
+        let half = BatteryIcon.geometry(height: 12, level: 0.5)
+        XCTAssertEqual(half.fill.width, (half.inner.width * 0.5 * 2).rounded() / 2)
+        XCTAssertEqual(BatteryIcon.geometry(height: 12, level: nil).fill.width, 0)
+    }
+
+    // MARK: Player assignment
+
+    private func twoPadDriver(merge: Bool) -> (LiveConsoleDriver, ControlLayout) {
+        let layout = ControlLayout(defaults: UserDefaults(suiteName: "ConsoleLiveTests-" + UUID().uuidString)!)
+        layout.padMerge = merge
+        let pads = [ConsolePadSnapshot(id: "xbox", name: "Xbox Wireless Controller", category: "Xbox One", playerIndex: nil),
+                    ConsolePadSnapshot(id: "ds4", name: "DUALSHOCK 4", category: "DualShock 4", playerIndex: nil)]
+        let driver = LiveConsoleDriver(library: GameLibrary(file: temporary.appendingPathComponent("library.json")), controls: layout, repo: { "" }, lang: { .en },
+                                       labels: { $0 }, pads: { pads }, artwork: { _, _ in nil }, observeSystem: false)
+        driver.captureSeconds = 0.2
+        driver.openControllers()
+        return (driver, layout)
+    }
+
+    func testPickingAPlayerTurnsMergeOffAndTheNextPressAssignsIt() {
+        let (driver, layout) = twoPadDriver(merge: true)
+        XCTAssertEqual(driver.state.controllers.map(\.player), [1, 2], "assigned on connect whatever the merge")
+        driver.requestPlayer(2)
+        XCTAssertFalse(layout.padMerge, "merge is switched off by choosing a player")
+        XCTAssertFalse(driver.state.padMerge)
+        XCTAssertEqual(driver.state.toast?.message, "Each controller is now its own player.")
+        XCTAssertEqual(driver.state.assigningPlayer, 2)
+        // a press from the first controller: taken as the answer, never used to navigate
+        XCTAssertTrue(driver.consumePress(controllerID: "xbox", isBack: false))
+        XCTAssertEqual(driver.state.controllers.map(\.player), [2, 1], "the pressed one is P2, the holder of P2 got the freed P1")
+        XCTAssertNil(driver.state.assigningPlayer, "capture ended")
+        XCTAssertEqual(driver.state.toast?.message, "Xbox Wireless Controller is player 2")
+        XCTAssertFalse(driver.consumePress(controllerID: "ds4", isBack: false), "no capture any more: the press navigates")
+    }
+
+    func testBackCancelsAssignmentAndPressesFromTheOtherControllerAreIgnoredForARow() {
+        let (driver, _) = twoPadDriver(merge: false)
+        driver.requestPlayer(3)
+        XCTAssertTrue(driver.consumePress(controllerID: "ds4", isBack: true))
+        XCTAssertNil(driver.state.assigningPlayer)
+        XCTAssertEqual(driver.state.controllers.map(\.player), [1, 2], "nothing changed")
+        driver.requestAssignment(controllerID: "ds4")
+        XCTAssertTrue(driver.consumePress(controllerID: "xbox", isBack: false), "taken but ignored: the row chose the other controller")
+        XCTAssertEqual(driver.state.controllers.map(\.player), [1, 2])
+        XCTAssertNotNil(driver.state.assigningPlayer)
+        XCTAssertTrue(driver.consumePress(controllerID: "ds4", isBack: false))
+        XCTAssertEqual(driver.state.controllers.first { $0.id == "ds4" }?.player, 2, "the row's own player")
+    }
+
+    func testAssignmentTimesOut() async throws {
+        let (driver, _) = twoPadDriver(merge: false)
+        driver.requestPlayer(4)
+        XCTAssertNotNil(driver.state.assigningPlayer)
+        for _ in 0..<50 where driver.state.assigningPlayer != nil { try await Task.sleep(nanoseconds: 20_000_000) }
+        XCTAssertNil(driver.state.assigningPlayer)
+        XCTAssertEqual(driver.state.toast?.message, "No button was pressed. Choose a player to try again.")
+        XCTAssertEqual(driver.state.controllers.map(\.player), [1, 2])
     }
 }

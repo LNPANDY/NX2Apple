@@ -27,12 +27,13 @@ struct ConsolePadSnapshot: Equatable {
     var canIdentify = true
 
     /// The level to show, or nil when the controller has not really reported one. GameController gives 0 with an unknown state for a
-    /// DualShock 4 over Bluetooth, before the first report and while wired, so 0 counts only when the state says it is discharging.
+    /// DualShock 4 over Bluetooth and before the first report, and some pads over USB report no battery or an unknown one: those are
+    /// never guessed (no number, outline only). Charging and full are real states, shown with the bolt.
     static func batteryReading(level: Double, state: PadBatteryState) -> (level: Double?, charging: Bool) {
         switch state {
         case .unknown: return (nil, false)
-        case .charging: return (level.isFinite && level > 0 ? level : nil, true)
-        case .full: return (1, false)
+        case .charging: return (level.isFinite ? min(max(level, 0), 1) : nil, true)   // the real level, with the bolt
+        case .full: return (1, true)   // plugged in and full: the full battery with the bolt
         case .discharging: return (level.isFinite ? min(max(level, 0), 1) : nil, false)
         }
     }
@@ -277,21 +278,75 @@ struct ConsolePadSnapshot: Equatable {
     // MARK: Controllers
 
     func openControllers() { state.openControllers() }
+
+    private var overrides: [String: Int] = [:]   // player chosen by hand per controller id, 0 for none
+    private var assignTimeout: Task<Void, Never>?
+
+    /// Picking a player turns "all controllers are player 1" off: a per-player choice means nothing while it is on.
+    private func leaveMergeForAssignment() {
+        guard state.padMerge else { return }
+        controls.padMerge = false
+        state.padMerge = false
+        showToast(t("console.mergeOff"))
+    }
+
+    /// The next press from any controller is taken as the answer, for 8 seconds.
+    private func startCapture() {
+        assignTimeout?.cancel()
+        assignTimeout = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64((self?.captureSeconds ?? 8) * 1_000_000_000))
+            guard !Task.isCancelled, let self, self.state.assigningPlayer != nil else { return }
+            self.cancelCapture()
+            self.showToast(self.t("console.assignTimeout"))
+        }
+    }
+    var captureSeconds: TimeInterval = 8
+
+    private func cancelCapture() {
+        assignTimeout?.cancel()
+        state.assigningPlayer = nil
+        state.assigningControllerID = nil
+    }
+
     func requestPlayer(_ player: Int) {
         guard state.presentedSheet == .controllers, (1...4).contains(player) else { return }
+        leaveMergeForAssignment()
         state.assigningPlayer = player
+        startCapture()
     }
     func requestAssignment(controllerID: String) {
         guard state.presentedSheet == .controllers, let c = state.controllers.first(where: { $0.id == controllerID }) else { return }
+        leaveMergeForAssignment()
         state.assigningControllerID = controllerID
         state.assigningPlayer = state.assigningPlayer ?? c.player ?? 1
+        startCapture()
     }
+
+    /// While a player is being assigned, the next button press is the answer: it goes to the controller it came from and is not
+    /// used to navigate. B on the controller that is assigning cancels. Presses from the other controller while one is chosen by
+    /// hand are taken and ignored.
+    func consumePress(controllerID: String, isBack: Bool) -> Bool {
+        guard let player = state.assigningPlayer, state.presentedSheet == .controllers else { return false }
+        if let target = state.assigningControllerID, target != controllerID { return true }
+        if isBack { cancelCapture(); showToast(t("console.assignCancelled")); return true }
+        assignPlayer(controllerID: controllerID, player: player)
+        return true
+    }
+
+    /// The controller takes the player. Whoever held that player gets the number this controller had (or the next free one), and the
+    /// controller's own player lights follow.
     func assignPlayer(controllerID: String, player: Int) {
-        state.assignPlayer(controller: controllerID, player: player)
-        guard let pad = devices[controllerID] else { return }
-        for other in devices.values where other !== pad && other.playerIndex.rawValue == player - 1 { other.playerIndex = .indexUnset }
-        pad.playerIndex = GCControllerPlayerIndex(rawValue: player - 1) ?? .indexUnset
+        guard (1...4).contains(player), let pad = state.controllers.first(where: { $0.id == controllerID }) else { return }
+        let old = pad.player
+        if let holder = state.controllers.first(where: { $0.player == player && $0.id != controllerID }) { overrides[holder.id] = old ?? 0 }
+        overrides[controllerID] = player
+        state.assigningPlayer = nil; state.assigningControllerID = nil
+        assignTimeout?.cancel()
+        for (id, value) in overrides {
+            devices[id]?.playerIndex = value == 0 ? .indexUnset : (GCControllerPlayerIndex(rawValue: value - 1) ?? .indexUnset)
+        }
         refreshControllers(announce: false)
+        showToast(String(format: t("console.assignedTo"), pad.name, player))
     }
     func setPadMerge(_ enabled: Bool) { controls.padMerge = enabled }
 
@@ -360,9 +415,16 @@ struct ConsolePadSnapshot: Equatable {
         }
     }
 
+    /// A controller connected or disconnected: the list is rebuilt and published at once (not at the next battery tick), then the toast.
+    /// The notification's own controller is added when GameController's list does not have it yet, and left out when it still has it
+    /// on a disconnect, so a wired controller shows up the moment it is plugged in.
     func padsChanged(connected: Bool, note: Notification) {
-        refreshControllers(announce: false)
-        guard let pad = note.object as? GCController else { return }
+        let pad = note.object as? GCController
+        if let pad {
+            Self.log.debug("\(connected ? "connect" : "disconnect"): vendor \(pad.vendorName ?? "?", privacy: .public), category \(pad.productCategory, privacy: .public), extendedGamepad \(pad.extendedGamepad != nil)")
+        }
+        refreshControllers(announce: false, including: connected ? pad : nil, excluding: connected ? nil : pad)
+        guard let pad else { return }
         let name = pad.vendorName ?? pad.productCategory
         guard connected else { showToast(String(format: t("console.disconnected"), name)); return }
         let id = String(UInt(bitPattern: ObjectIdentifier(pad).hashValue), radix: 16)
@@ -371,12 +433,13 @@ struct ConsolePadSnapshot: Equatable {
         } else { showToast(t("console.noFreePlayer"), glyph: ConsoleGlyphs.current().glyph(for: .controllers)) }
     }
 
-    func refreshControllers(announce: Bool) {
+    func refreshControllers(announce: Bool, including: GCController? = nil, excluding: GCController? = nil) {
         var snapshots = pads()
         if devicePads {
             devices = [:]
-            snapshots = GCController.controllers().compactMap { c in
-                guard c.extendedGamepad != nil else { return nil }
+            var all = GCController.controllers().filter { $0 !== excluding }
+            if let including, !all.contains(where: { $0 === including }) { all.append(including) }
+            snapshots = all.compactMap { c in   // every controller, whatever its vendor or profile
                 let id = String(UInt(bitPattern: ObjectIdentifier(c).hashValue), radix: 16)
                 devices[id] = c
                 let reading = c.battery.map { b -> (level: Double?, charging: Bool) in
@@ -388,6 +451,13 @@ struct ConsolePadSnapshot: Equatable {
                                           playerIndex: (0...3).contains(index) ? index + 1 : nil, battery: reading?.level,
                                           charging: reading?.charging ?? false, canIdentify: !Self.identifyActions(c).isEmpty)
             }
+        }
+        let live = Set(snapshots.map(\.id))
+        overrides = overrides.filter { live.contains($0.key) }
+        snapshots = snapshots.map { snap in
+            guard let chosen = overrides[snap.id] else { return snap }
+            var s = snap; s.playerIndex = chosen == 0 ? nil : chosen
+            return s
         }
         let assigned = Self.autoAssigned(snapshots)
         for (before, after) in zip(snapshots, assigned) where before.playerIndex != after.playerIndex {

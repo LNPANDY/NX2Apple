@@ -45,11 +45,11 @@ struct ConsoleConnectionPrompt: View {
             VStack(alignment: .leading, spacing: 14) {
                 Label(t("console.connectionTitle"), systemImage: "gamecontroller").font(.manrope(22, .bold))
                 Text(t("console.connectionNote")).font(.manrope(14)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                if LauncherGamepad.homeOpensConsole {   // how to come back to this any time
+                do {   // how to switch from the desktop any time
                     HStack(spacing: 6) {
-                        Text(t("console.promptHomeBefore"))
-                        ConsoleGlyphView(glyph: glyphs.glyph(for: .home), size: 16)
-                        Text(t("console.promptHomeAfter"))
+                        Text(t("console.promptSelectBefore"))
+                        ConsoleGlyphView(glyph: glyphs.glyph(for: .select), size: 16)
+                        Text(t("console.promptSelectAfter"))
                     }.font(.manrope(14)).foregroundStyle(.secondary)
                 }
                 // one row, macOS order: the way out on the left of the main choice, both of the launcher's standard size
