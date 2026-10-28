@@ -31,10 +31,10 @@ while IFS= read -r -d '' f; do
     out=$(otool -L "$f" 2>/dev/null | tail -n +2 | awk '{print $1}' | grep -v -x -F "$f" | grep -v -e '^/usr/lib/' -e '^/System/Library/' -e '^@rpath/' -e '^@loader_path/' -e '^@executable_path/') || true
     [ -z "$out" ] || { bad "${f#$RES/} links: $(echo "$out" | tr '\n' ' ')"; links=1; }
     min=$(otool -l "$f" 2>/dev/null | awk '/minos/{print $2; exit}')
-    [ -z "$min" ] || [ "$(printf '%s\n13.0\n' "$min" | sort -V | tail -1)" = 13.0 ] || { bad "${f#$RES/} needs macOS $min (the app runs from 13.0)"; links=1; }
+    [ -z "$min" ] || [ "$(printf '%s\n26.6\n' "$min" | sort -V | tail -1)" = 26.6 ] || { bad "${f#$RES/} needs macOS $min (the app runs from 26.6)"; links=1; }
     otool -L "$f" 2>/dev/null | grep -q -e '/opt/homebrew' -e '/usr/local' && { bad "${f#$RES/} links into Homebrew"; links=1; }
 done < <(find "$RES/tools" "$RES/python" -type f -print0)
-[ "$links" = 0 ] && ok "no Mach-O file links outside the system or the bundle, and none needs macOS later than 13.0"
+[ "$links" = 0 ] && ok "no Mach-O file links outside the system or the bundle, and none needs macOS later than 26.6"
 
 if [ "${2:-}" = "--sign" ] && [ -d "$APP/Contents" ]; then
     codesign --force --deep --sign - "$APP" 2>&1 | tail -3

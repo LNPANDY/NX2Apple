@@ -98,7 +98,7 @@ NVN-on-Metal、各游戏的 profile 都是上游的工作，本 fork 自动跟�
 3. **选好游戏文件** —— 本体、更新包、DLC 和 `prod.keys`，分开选或一个文件夹全选。
 4. **按构建**，然后照它给出的三步装到手机。
 
-> 环境要求：Apple Silicon Mac + macOS 26.6+、装了 iOS SDK 的 [Xcode](https://apps.apple.com/app/xcode/id497799835) 27.1、Python 3.9+、.NET SDK 10。
+> 环境要求：Apple Silicon Mac + macOS 26.6 或更新、Xcode 27.1（打 iPhone 版还需要 Xcode 的 iOS 平台）。App 自带构建工具和 Python，不需要装 Homebrew 和 Python；.NET SDK 10 仍由 App 帮你安装。
 > App 的依赖面板会逐项检测，能装的直接装。游戏文件和 `prod.keys` 需要你自己的——本仓库不含任何数据。
 
 ---

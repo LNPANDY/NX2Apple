@@ -208,7 +208,7 @@ or double-click `nxnative.app` in this folder (ad-hoc signed; rebuild it with `s
 and copy the binary into `Contents/MacOS/`). The app's settings and library stay under the folder name it
 had before the rename, `~/Library/Application Support/NS Port Builder/`.
 
-SwiftUI, macOS 13+.
+SwiftUI, macOS 26.6+ (what the project supports; Xcode 27.1, Apple silicon).
 
 ### Why the dependency check does not use `which`
 
@@ -227,7 +227,7 @@ The release app (`NX2Apple.app`) carries `zstd`, `glslangValidator`, `spirv-cros
 `Contents/Resources/tools/bin`) and a relocatable CPython 3.13 with `lz4 capstone fonttools
 backports.zstd nsz` (`Contents/Resources/python`), so a player needs no Homebrew and no Python.
 `tools/bundle_tools.sh` fills them in during the release workflow (pinned versions and sha256 of the
-sources, built for macOS 13 with static libraries; the Python packages come from
+sources, built for macOS 26.6 with static libraries; the Python packages come from
 `tools/bundled-python-requirements.txt`) and `tools/check_bundle.sh` runs each tool from the bundle
 with a clean PATH. The dependency check (`BundledTools.swift`) prefers them to Homebrew's and shows
 "bundled"; the build's PATH starts with them. Under `swift run`, or in a build without the bundle,

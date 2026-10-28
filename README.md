@@ -105,9 +105,11 @@ follows upstream automatically. What it adds:
 3. **Pick your game files** — base game, update, DLC and `prod.keys`, separately or as one folder.
 4. **Press build**, then follow the three install steps it prints.
 
-> Requirements: an Apple Silicon Mac on macOS 26.6+, [Xcode](https://apps.apple.com/app/xcode/id497799835) 27.1 with the iOS SDK, Python 3.9+, .NET SDK 10.
-> The app's dependency panel detects each of these and installs what it can. Your own game files and
-> `prod.keys` — nothing is bundled.
+> Requirements: an Apple Silicon Mac on macOS 26.6 or later and Xcode 27.1 (an iPhone build also needs
+> Xcode's iOS platform). The app carries its own build tools and Python, so no Homebrew and no Python
+> install; .NET SDK 10 is the one tool it still installs for you. The app's dependency panel detects
+> each requirement and installs what it can. Your own game files and `prod.keys` — nothing of a game
+> is bundled.
 
 ---
 

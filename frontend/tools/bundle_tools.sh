@@ -8,9 +8,10 @@
 #
 # Usage: bundle_tools.sh <Resources folder> [work folder]   (the work folder keeps the downloads and the builds; default: a temporary one)
 #
-# Why not Homebrew's bottles: a bottle is built for the macOS it is poured on (the bottles of 2026 say minos 15 or later, and this app runs
-# from macOS 13), and it links its siblings from /opt/homebrew (zstd: libzstd, liblzma, liblz4; glslang: libglslang, SPIRV-Tools). The tools
-# are built here from pinned, checksummed source with MACOSX_DEPLOYMENT_TARGET=13.0 and static libraries, so each is one file that links
+# Why not Homebrew's bottles: the app's floor is macOS 26.6 (what the project supports), which the current bottles would now meet, but they
+# still link their siblings from /opt/homebrew (zstd: libzstd, liblzma, liblz4; glslang: libglslang, SPIRV-Tools), so each would need its
+# dylibs copied and its load paths rewritten, and a bottle is pinned only by a registry digest. The tools
+# are built here from pinned, checksummed source with MACOSX_DEPLOYMENT_TARGET=26.6 and static libraries, so each is one file that links
 # only /usr/lib/libSystem and libc++ (otool -L; check_bundle.sh verifies it). xcodegen is the project's own release zip (Swift on the
 # system's libswift*), checked against its pinned sha256.
 #
@@ -44,7 +45,7 @@ WORK=${2:-$(mktemp -d -t bundle-tools)}
 mkdir -p "$RES" "$WORK/dl"
 RES=$(cd "$RES" && pwd); WORK=$(cd "$WORK" && pwd)
 JOBS=$(sysctl -n hw.ncpu)
-export MACOSX_DEPLOYMENT_TARGET=13.0
+export MACOSX_DEPLOYMENT_TARGET=26.6
 
 [ "$(uname -m)" = arm64 ] || { echo "[RED] this builds the arm64 app: run it on an Apple-silicon Mac" >&2; exit 1; }
 
@@ -74,7 +75,7 @@ cp "$WORK/zstd/LICENSE" "$LIC/zstd-LICENSE-BSD"; cp "$WORK/zstd/COPYING" "$LIC/z
 echo "== glslang $GLSLANG_VERSION"
 unpack "$(fetch "$GLSLANG_URL" "$GLSLANG_SHA256")" "$WORK/glslang"
 cmake -S "$WORK/glslang" -B "$WORK/glslang-build" -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DENABLE_OPT=OFF -DBUILD_EXTERNAL=OFF \
-    -DENABLE_CTEST=OFF -DGLSLANG_TESTS=OFF -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 \
+    -DENABLE_CTEST=OFF -DGLSLANG_TESTS=OFF -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=26.6 \
     -DCMAKE_EXE_LINKER_FLAGS='-Wl,-S,-x' > "$WORK/glslang.log" 2>&1 \
   && cmake --build "$WORK/glslang-build" --target glslang-standalone -j "$JOBS" >> "$WORK/glslang.log" 2>&1 || { tail -30 "$WORK/glslang.log"; exit 1; }
 cp -L "$WORK/glslang-build/StandAlone/glslang" "$BIN/glslangValidator"   # glslang's own name for it is a link to the same program
@@ -84,7 +85,7 @@ cp "$WORK/glslang/LICENSE.txt" "$LIC/glslang-LICENSE.txt"
 echo "== spirv-cross $SPIRV_CROSS_TAG"
 unpack "$(fetch "$SPIRV_CROSS_URL" "$SPIRV_CROSS_SHA256")" "$WORK/spirv-cross"
 cmake -S "$WORK/spirv-cross" -B "$WORK/spirv-cross-build" -DCMAKE_BUILD_TYPE=Release -DSPIRV_CROSS_ENABLE_TESTS=OFF -DSPIRV_CROSS_SKIP_INSTALL=ON \
-    -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 -DCMAKE_EXE_LINKER_FLAGS='-Wl,-S,-x' > "$WORK/spirv-cross.log" 2>&1 \
+    -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=26.6 -DCMAKE_EXE_LINKER_FLAGS='-Wl,-S,-x' > "$WORK/spirv-cross.log" 2>&1 \
   && cmake --build "$WORK/spirv-cross-build" --target spirv-cross -j "$JOBS" >> "$WORK/spirv-cross.log" 2>&1 || { tail -30 "$WORK/spirv-cross.log"; exit 1; }
 cp "$WORK/spirv-cross-build/spirv-cross" "$BIN/spirv-cross"
 cp "$WORK/spirv-cross/LICENSE" "$LIC/spirv-cross-LICENSE"
