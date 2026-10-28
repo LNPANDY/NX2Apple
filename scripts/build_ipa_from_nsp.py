@@ -18,7 +18,7 @@
 # Uses only three things: this repository, a folder holding one game's NSPs (the base game, with or without an update; DLC NSPs, when present, are packed too and unlock the add-on content already in the game), and prod.keys.
 #   The newest version in the folder is packed. A version the profile registers (with every version in its shader_versions in the folder) is built from the profile as it is; any other
 #   version (the base game alone, another update) from a profile derived from it in <id>_build/profile: the same settings, and the version's own shaders (derive_profile).
-# Every intermediate file is under <id>_build/ in the NSP folder: nsp/ (NSZ / XCZ files converted to NSP / XCI with nsz -D, kept for the next build; pip install nsz), extract/ (the extracted game files, kept for the next build unless KEEP_EXTRACTED / --no-keep-extracted), aoc/ (one RomFS image per DLC index), tools/ (nx_extract, and the Mac host for a run-time shader capture), patched_*/, shader/ (shader package and caches, kept so the next build is fast), logs/ (each step's full output), tmp/, ipa/. The finished IPA also goes to the NSP folder by default.
+# Every intermediate file is under <id>_build/ in the NSP folder: nsp/ (NSZ / XCZ files converted to NSP / XCI with nsz -D, kept for the next build; pip install nsz), extract/ (the extracted game files, kept for the next build unless KEEP_EXTRACTED / --no-keep-extracted), aoc/ (one RomFS image per DLC index), tools/ (nx_extract, and the Mac host for a run-time shader capture), patched_*/, shader/ (shader package and caches, kept so the next build is fast), resume.json (what each step finished: its products' stamp and the inputs it read, so the next run skips a finished step even when one of its fingerprints drifts), logs/ (each step's full output), tmp/, ipa/. The finished IPA also goes to the NSP folder by default.
 # The DLC, the rewrite, the shader split and the iOS (or Vulkan) shaders are reused when all their inputs are as at their last successful run (the game files, the tools, the profile, Xcode and the in-repo spirv-cross: fingerprint() keys beside their output);
 #   the iOS shaders' inputs are the shader package's content and the chain's own tools, so a split that runs again and writes the same package leaves them reused.
 #   The chain version header dm/gfx/nvn/dmsh_chain.h (one version for every game) is written again when a chain change was committed without it (chain_header: it follows from the source alone),
@@ -814,6 +814,95 @@ def reused(keyfile, key):   # the note the stage's last successful run wrote bes
     return note.strip() if k == key else None
 
 
+# ---- Resume: a step's products, verified instead of its inputs re-hashed ----
+def _stat_of(p):   # (files, bytes, newest mtime_ns, digest of the small files) for a file or a folder; None when absent
+    p = Path(p)
+    try: st = p.stat()
+    except OSError: return None
+    if p.is_file():
+        h = ''
+        if st.st_size <= 32 * 2**20:
+            try: h = hashlib.sha256(p.read_bytes()).hexdigest()
+            except OSError: h = ''
+        return (1, st.st_size, st.st_mtime_ns, h)
+    total = sum(len(names) for _, _, names in os.walk(p))   # names only, no stat per file: quick even for 157,000 shader libraries
+    if total > 4000:   # too many to stat one by one on every run: the folder's own mtime and the file count stand for them
+        return (total, 0, st.st_mtime_ns, '')   # a file added, removed or renamed changes both; one rewritten in place is caught by the step's own key when its inputs change
+    n = b = 0; newest = st.st_mtime_ns; hs = []
+    for dirpath, _, names in os.walk(p):
+        for f in names:
+            try: s = os.stat(os.path.join(dirpath, f), follow_symlinks=False)
+            except OSError: continue
+            n += 1; b += s.st_size; newest = max(newest, s.st_mtime_ns)
+            if n <= 64 and s.st_size <= 2**20:   # the first small files carry a content digest, so a same-size edit is caught
+                try: hs.append(hashlib.sha256(Path(dirpath, f).read_bytes()).hexdigest())
+                except OSError: pass
+    return (n, b, newest, hashlib.sha256(''.join(sorted(hs)).encode()).hexdigest() if hs else '')
+
+
+def stamp(paths):   # a step's product identity: path, file count, bytes, newest mtime, digest of the small files
+    return [[str(p)] + list(_stat_of(p) or (None, None, None, None)) for p in paths]
+
+
+class Resume:
+    """What each step left behind, in <work>/resume.json: the stamp of its products and the identity of the inputs it read.
+    A step whose products are all there, unchanged, and whose inputs are unchanged is skipped at once — without hashing a
+    profile table, a whole RomFS tree or the tool sources again — so a build resumes where it stopped instead of recomputing
+    tens of minutes of shaders because one of those fingerprints drifted. A product missing or changed, or an input changed,
+    runs the step again (its own fingerprint checks still apply then). Only the orchestrator writes this file."""
+    def __init__(self, work):
+        self.path = Path(work) / 'resume.json'
+        try: self.data = json.loads(self.path.read_text())
+        except (OSError, ValueError): self.data = {}
+        if not isinstance(self.data, dict): self.data = {}
+
+    def entry(self, step): return self.data.get(step) or {}
+
+    def ok(self, step, products, inputs):   # True: every product is as it was, and the inputs did not change
+        e = self.entry(step)
+        return bool(e) and e.get('products') == stamp(products) and e.get('inputs') == inputs
+
+    def note(self, step): return self.entry(step).get('note', '')
+
+    def extra(self, step, key, default=None): return self.entry(step).get(key, default)
+
+    def record(self, step, products, inputs, note='', **extra):
+        self.data[step] = {'products': stamp(products), 'inputs': inputs, 'note': note,
+                           'at': time.strftime('%Y-%m-%d %H:%M:%S'), **extra}
+        try:
+            tmp = self.path.with_name(self.path.name + '.tmp')
+            tmp.write_text(json.dumps(self.data, indent=1, ensure_ascii=False))
+            os.replace(tmp, self.path)
+        except OSError: pass
+
+
+def _ready(paths):   # every product exists and holds something (the seed's only check: their content cannot be known from here)
+    for p in paths:
+        p = Path(p)
+        if not p.exists(): return False
+        if p.is_dir():
+            try:
+                if not any(p.iterdir()): return False
+            except OSError: return False
+        elif p.stat().st_size == 0: return False
+    return True
+
+
+def _seed(resume, step, products, inputs, note='seeded from the products on disk', **extra):   # a build that stopped before this version knew resume.json: record what it left, once, after checking it is there
+    resume.record(step, products, inputs, note, **extra)
+    say(f'[NOTE] resume: {step} recorded as done from the products already in the build folder (--resume-seed)')
+    return True
+
+
+def _key_note(kf):   # the note a step's last run wrote beside its key ("73,496 shaders"), '' when there is none
+    try: return (kf.read_text(errors='replace').splitlines() + [''])[1].strip()
+    except OSError: return ''
+
+
+RESUME = None   # set by main() once the work folder is known (None: no resume, every step runs)
+SEED = False    # --resume-seed: record the products already in the work folder as done (Resume)
+
+
 def tool_files(repo):   # what the shader stages run: dm/gfx/tools' scripts and the lock of the translator's fingerprints, the profile reader, the iOS compile convention, the NSO reader
     return sorted((repo / 'dm/gfx/tools').glob('*.py')) + [repo / p for p in ('dm/gfx/tools/dmsh_chain.lock', 'dm/games/game.py', 'dm/ios/tools/ios_metal.py', 'dm/tools/romfs.py')]
 
@@ -1414,6 +1503,16 @@ def split_shaders(py, repo, roms, mains, pkg, env, logs, g, provisional=False, o
     names = ('shader_map.tsv', 'shader_facts.tsv', 'shader_pairs.tsv')
     PROG.stage('shader split', step='checking the inputs')   # then a spinner: shader_split.py writes the package and the tables only at the end
     kf = pkg.with_name(pkg.name + '.key')
+    # Resume: the package and (a provisional profile) the tables it wrote are this step's products. Checked before the
+    # input fingerprint is hashed, which reads the tool sources, every profile table and the whole RomFS: while they are
+    # unchanged the split is done, whatever the fingerprint would have said.
+    guard = stamp(list(roms) + list(mains) + list(dlc_roms) + [g.table('game.tsv')]) + [bool(provisional), bool(oodle)]
+    products = [pkg, g.dir] if provisional else [pkg]
+    done = RESUME is not None and (RESUME.ok('shader split', products, guard)
+                                   or (SEED and _ready(products) and _seed(RESUME, 'shader split', products, guard, _key_note(kf) or 'seeded from the products on disk')))
+    if done:
+        PROG.end(f'{RESUME.note("shader split")}, reused (products verified)')
+        return RESUME.extra('shader split', 'pkg_key') or package_key(pkg)
     inputs = [('files', tool_files(repo)), bool(provisional)] + [x for r, m in zip(roms, mains) for x in
         (('files', [m]), ('stat' if provisional else 'tree', r),
          ('stat', r.parent / 'glslc_capture') if provisional else ('files', sorted((r.parent / 'glslc_capture').glob('*.glslc'))),
@@ -1466,6 +1565,8 @@ def split_shaders(py, repo, roms, mains, pkg, env, logs, g, provisional=False, o
     if key:   # an own profile's tables are outputs too; the next split checks the profile after they were written
         key = fingerprint(*inputs, ('files', profile_files(g)))
         kf.write_text(f'{key}\n{note}\n')
+    if RESUME is not None:   # the products as they are now (a provisional split just wrote its tables into the profile)
+        RESUME.record('shader split', products, guard, note, pkg_key=package_key(pkg) if key else None)
     if provisional and dlckey: dlckf.write_text(f'{dlckey}\nDLC-only shader content\n')
     else: rmtree(dlckf)
     PROG.end(note)
@@ -1550,6 +1651,16 @@ def build_shaders(py, repo, sh, xlate, env, logs, g, pkg_key=None, mac=False):
     libs, kf, kmac = out / f'b-{chain}', ios / f'b-{chain}.key', sh / f'mac-b-{chain}.key'
     pso_pairs = g.table('pso_pairs.tsv')
     if not pso_pairs.is_file(): pso_pairs = sh / 'pso_pairs.tsv'   # the split's copy is a shader input too (vs_pad)
+    # Resume: the libraries are the products (a full dmsh_build.py run is hours of Metal compiles). Checked before the
+    # fingerprint, which stats the translator, hashes the chain's sources and the profile: the libraries stand while the
+    # package, the chain and the pairs table are as they were when they were built.
+    guard = stamp([sh / 'pkg', pso_pairs]) + [chain, str(mac)]
+    step = 'iOS shaders' if not mac else 'Mac shaders'
+    done = RESUME is not None and (RESUME.ok(step, [libs], guard)
+                                   or (SEED and next(libs.glob('*_b.metallib'), None) is not None and _seed(RESUME, step, [libs], guard, _key_note(kf) or 'seeded from the products on disk')))
+    if done:
+        PROG.end(f'{RESUME.note(step)}, reused (products verified)')
+        return out
     if pkg_key:
         PROG.set(step='checking the inputs')
         key = fingerprint(pkg_key, ('files', chain_files(repo)), ('stat', xlate.parent), ('files', profile_files(g)), ('files', [pso_pairs]), *toolchain(repo, env), str(xlate),
@@ -1586,6 +1697,7 @@ def build_shaders(py, repo, sh, xlate, env, logs, g, pkg_key=None, mac=False):
     shader_regressions(py, repo, sh / 'cache', chain, logs)   # before the key: a stopped build is checked again on the next run
     if key:
         for k in (kmac,) if mac else (kf, kmac): k.write_text(f'{key}\n{note}\n')
+    if RESUME is not None: RESUME.record('iOS shaders' if not mac else 'Mac shaders', [libs], guard, note)
     return out
 
 
@@ -1885,7 +1997,9 @@ def parse_args(argv):
                     'pack the app without them instead of stopping')
     ap.add_argument('--allow-other-metal', action='store_true', help='an NVN game: build its shaders with this Mac\'s Metal compiler when it is not the one they were tested with '
                     '(dm/gfx/tools/dmsh_chain.lock, Xcode 27.1) instead of stopping; such shaders can render wrong pictures')
-    ap.add_argument('--profile-out', help='where the provisional profile goes (default: <NSP folder>/<title ID>_build/profile)')
+    ap.add_argument('--profile-out', help='where the provisional profile goes (default: <build folder>/profile, so the next run reuses it instead of surveying again)')
+    ap.add_argument('--resume-seed', action='store_true', help='record the products already in the build folder (shader package, iOS shader libraries, Xcode project) as finished, '
+                    'after checking each is there, so this run skips them: for a build that stopped at signing before the work folder had a resume.json')
     ap.add_argument('--provisional', action='store_true', help='build from a provisional profile even when dm/games has one for the game (tests the guesses)')
     ap.add_argument('--no-heap-check', action='store_true', help='a provisional profile: skip the heap check on the Mac (the alias / heap split stays a guess)')
     ap.add_argument('--progress', choices=('auto', 'bar', 'lines', 'json', 'off'), help='stage lines on the console: bar = one line per stage, redrawn in place; lines = a plain line every BEAT seconds; json = newline-delimited JSON events (no prompts); off = only each stage\'s start and end '
@@ -1983,7 +2097,18 @@ def main(args=None):
         missing = [m for m in ('lz4.block', 'capstone') if not _importable(m)]
         if missing: raise BuildError(f'the current Python ({sys.executable}) is missing modules: {", ".join(missing)}')
         if not shutil.which('dotnet', path=env['PATH']): raise BuildError('dotnet not found (.NET SDK 10)')
-        pdir = Path(os.path.expanduser(args.profile_out or PROFILE_OUT)).resolve() if (args.profile_out or PROFILE_OUT) else nsp_dir / f'{app:016X}_build' / 'profile'
+        # The provisional profile goes in the build folder, not beside the NSPs: the GUI hands this script a temporary
+        # staging folder (symbolic links to NSPs from several folders) and deletes it after a build, so a profile there is
+        # lost and every build surveyed again — new tables, every shader split again. --profile-out still wins.
+        if args.profile_out or PROFILE_OUT: pdir = Path(os.path.expanduser(args.profile_out or PROFILE_OUT)).resolve()
+        else:
+            pdir = (Path(os.path.expanduser(args.work_dir)).resolve() if args.work_dir else nsp_dir / f'{app:016X}_build') / 'profile'
+            legacy = nsp_dir / f'{app:016X}_build' / 'profile' / f'{app:016X}'
+            if not (pdir / f'{app:016X}').exists() and legacy.is_dir():   # a profile from before this change: copied, not moved
+                try:
+                    shutil.copytree(legacy, pdir / f'{app:016X}')
+                    say(f'the provisional profile moved into the build folder: {pdir / f"{app:016X}"} (copied from {legacy})')
+                except OSError: pass
         if not (args.survey_only or SURVEY_ONLY): rmtree(derived_key(pdir / f'{app:016X}'))
         if (pdir / f'{app:016X}' / 'game.tsv').exists() and not (args.survey_only or SURVEY_ONLY):
             say(f'no game profile for {app:016X}: reusing the provisional profile from the last run (delete it to survey again)')
@@ -2016,6 +2141,8 @@ def main(args=None):
         if derived: say(f'{derived}: packing {pkg_ver} from a profile derived from it')
     versions = [pkg_ver] if derived else need + ([pkg_ver] if pkg_ver not in need else [])
     work = Path(os.path.expanduser(args.work_dir)).resolve() if args.work_dir else nsp_dir / f'{g.id}_build'   # the folder holding the NSPs by default; --work-dir puts the build elsewhere
+    global RESUME, SEED   # the resume manifest of this work folder: what the last run finished (Resume)
+    RESUME = Resume(work); SEED = bool(args.resume_seed)
     # out_ipa reads `work`, so `work` must be assigned first (upstream's order had them the other
     # way round; the --work-dir patch moved `work` up here and this line had to follow it).
     out_ipa = Path(os.path.expanduser(args.out or OUT_IPA)).resolve() if (args.out or OUT_IPA) else work.parent / g.get('ipa')   # by default next to the NSPs and <id>_build/
@@ -2179,11 +2306,25 @@ def main(args=None):
     if gfx == 'nvn': say(f'pipeline archive: {"none, the device builds the bases on its first start if it takes the Metal 4 path (--gpu g18p builds one)" if gpus == "none" else gpus + " (made on this Mac with metal-tt; --gpu none leaves it out)"}')
     if show_fps: say('frame-rate counter: on (DM_SHOW_FPS=0 in the app\'s Documents/env.txt turns it off)')
     if prepare_xcode:
+        # Resume: the generated project is the product. Its inputs are the files it reads (the RomFS image, the rewritten
+        # modules, the iOS libraries, the DLC image) and the settings that go into it, not the whole build's fingerprints.
+        guard = stamp([p for p in (rfs.source(game), patched, ios, aoc) if p]) + [app_name, bundle_id, team_id, lang, app_version or '', g.id, gpus, bool(show_fps)]
+        done = RESUME is not None and (RESUME.ok('prepare Xcode', [project.parent], guard)
+                                       or (SEED and (project / 'project.pbxproj').is_file() and _seed(RESUME, 'prepare Xcode', [project.parent], guard)))
+        if done:
+            PROG.stage('prepare Xcode'); PROG.end('reused (products verified)')
+            say(f'ready: {workspace}')
+            say(f'game project: {project} (unchanged since the last successful run)')
+            say(f'Xcode derived data: {work / "xcode-derived-data"}')
+            say('choose the game scheme in Xcode, select your Team and iPhone or iPad, then Run (Release)')
+            report_profile_status(g, reg, pkg_ver, derived, provisional, 'Xcode project')
+            return
         PROG.stage('prepare Xcode')
         run(['bash', repo / 'dm/ios/tools/build_ipa.sh', '--prepare-xcode'], logs / 'prepare_xcode.log', env=ipa_env)
         try: xcode_projects.register_project(workspace, project, app_name, workspace.with_name(workspace.stem + '-derived-data'))
         except ValueError as e: raise BuildError(str(e)) from e
         PROG.end()
+        if RESUME is not None: RESUME.record('prepare Xcode', [project.parent], guard, 'Xcode project')
         rmtree(work / 'tmp')
         say(f'ready: {workspace}')
         say(f'game project: {project}')
