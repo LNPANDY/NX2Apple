@@ -426,6 +426,7 @@ enum L10n {
         "dep.probe.metal.hint": ("验证 metal.exe 能产出 metallib",
                                  "checks that metal.exe produces a metallib"),
         "dep.optionalMissing": ("可选，未安装", "optional, not installed"),
+        "dep.bundled": ("随 App 附带", "bundled"),
         "dep.glslang": ("brew: glslang", "brew: glslang"),
         "dep.glslang.hint": ("编译 OpenGL 游戏的着色器；打包脚本的环境检查要求它", "compiles OpenGL games' shaders; the NSP script's environment check requires it"),
         "dep.installTimeout": ("安装超时（30 分钟）——网络太慢或卡住了",

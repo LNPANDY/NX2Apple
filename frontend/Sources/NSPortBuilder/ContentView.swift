@@ -360,6 +360,12 @@ final class BuildModel: ObservableObject {
         ["PATH": "/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin", "HOME": NSHomeDirectory()]
     }
 
+    /// The PATH of the processes that run the build, installing packages and writing the RomFS image: the bundled tools in front of
+    /// `base` (BundledTools.swift), which is Homebrew's folders and the system's. One place, so that no environment forgets the bundle.
+    nonisolated static func toolPath(_ base: String = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin") -> String {
+        BundledTools.path(base)
+    }
+
     /// Run a command with all output captured (no streaming; fetch / rev-list / pull print little).
     nonisolated static func runQuiet(_ args: [String], env: [String: String]) -> (ok: Bool, out: String) {
         let p = Process()
@@ -1068,7 +1074,7 @@ final class BuildModel: ObservableObject {
         if compressed, !Self.runOK(py, ["-c", "import nsz"]) {
             say(t("msg.installingNsz"))
             let r = Self.runCaptured([py, "-m", "pip", "install", "nsz"],
-                                     env: ["PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin",
+                                     env: ["PATH": Self.toolPath(),
                                            "HOME": NSHomeDirectory()]) { line in
                 DispatchQueue.main.async { self.append(line + "\n") }
             }
@@ -1124,13 +1130,16 @@ final class BuildModel: ObservableObject {
         // (NuGet-Migrations) under $TMPDIR/.dotnet/shm, and with no TMPDIR it stats "" and dies with
         // 'NuGet-Migrations' + lstat("") == ENOENT before any project is read. NSTemporaryDirectory()
         // is the per-user temp folder whether or not the app's own environment carries one.
-        var denv: [String: String] = ["PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        var denv: [String: String] = ["PATH": Self.toolPath("/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"),
                                       "USER": NSUserName(), "HOME": NSHomeDirectory(), "LANG": "en_US.UTF-8",
                                       "TMPDIR": NSTemporaryDirectory()]
         if let droot = Self.dotnetRoot(for: dotnetPath.isEmpty ? "dotnet" : dotnetPath) {
             denv["DOTNET_ROOT"] = droot   // both variables carry the same root, as the apphost checks the arch-specific one first
             denv["DOTNET_ROOT_ARM64"] = droot
         }
+        // The bundled Python lives inside the signed app: a .pyc written there would change what the signature seals
+        // (the packages are compiled at bundle time).
+        if py == BundledTools.python() { denv["PYTHONDONTWRITEBYTECODE"] = "1" }
         p.environment = denv
         Self.inOwnGroup(p, python: py)
         let pipe = Pipe()
@@ -1563,7 +1572,7 @@ final class BuildModel: ObservableObject {
         p.executableURL = URL(fileURLWithPath: pythonPath.isEmpty ? "/usr/bin/python3" : pythonPath)
         // dest/romfs.img: one file, which main.m's per-game lookup takes before any folder.
         p.arguments = [repoPath + "/" + Self.romfsImageTool, "--reuse", romfs, dest + "/romfs.img"]
-        p.environment = ["PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin", "PYTHONPATH": repoPath + "/dm/tools"]
+        p.environment = ["PATH": Self.toolPath("/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin"), "PYTHONPATH": repoPath + "/dm/tools"]
         Self.inOwnGroup(p, python: p.executableURL!.path)
         let pipe = Pipe(); p.standardOutput = pipe; p.standardError = pipe
         pipe.fileHandleForReading.readabilityHandler = { [weak self] h in
@@ -1923,7 +1932,7 @@ final class BuildModel: ObservableObject {
             let p = Process(); p.executableURL = URL(fileURLWithPath: exe); p.arguments = args
             let out = Pipe(), err = Pipe()
             p.standardOutput = out; p.standardError = err; p.standardInput = FileHandle.nullDevice
-            p.environment = ["PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin", "HOME": NSHomeDirectory()]
+            p.environment = ["PATH": toolPath(), "HOME": NSHomeDirectory()]
             do { try p.run() } catch { log += "could not start \(exe): \(error.localizedDescription)\n"; return false }
             // both pipes are drained on this thread (before waitUntilExit, so the child cannot
             // block on a full pipe), and the log string keeps a single owner
@@ -1965,7 +1974,12 @@ final class BuildModel: ObservableObject {
 
     /// Every python3 on this Mac, newest-looking first, each tried for a usable version and the
     /// packages. Returns the one to build with, plus why the others were rejected for the message.
-    nonisolated static func findPython() -> (path: String, ok: Bool) {
+    nonisolated static func findPython(resources: URL? = BundledTools.resources) -> (path: String, ok: Bool) {
+        // The release app's own Python (BundledTools.swift) has every package and is the one the build is tested with: it wins over
+        // any Python on this Mac and needs no venv. One that does not run (a damaged copy) falls through to the search below.
+        if let bundled = BundledTools.python(in: resources), pythonVersion(bundled).map({ $0 >= minPython }) == true, importsOK(bundled) {
+            return (bundled, true)
+        }
         var cands: [String] = []
         let fw = "/Library/Frameworks/Python.framework/Versions"
         if let vers = try? FileManager.default.contentsOfDirectory(atPath: fw) {
@@ -2078,6 +2092,28 @@ final class BuildModel: ObservableObject {
         return FileManager.default.fileExists(atPath: dir, isDirectory: &isDir) && isDir.boolValue
     }
 
+    /// The rows for the build tools (xcodegen, zstd, spirv-cross, glslangValidator) and the Homebrew row they may need.
+    /// A tool the app carries counts as present and says "bundled"; otherwise Homebrew's copy counts (`installed` answers
+    /// a binary name with its path in a Homebrew folder, or nil). The Homebrew row appears only when some tool is neither
+    /// bundled nor installed (with a bundle; with none the row stays, as before): it is the way to get that one.
+    nonisolated static func toolDeps(resources: URL?, installed: (String) -> String?, brew: String?) -> [Dep] {
+        var rows: [Dep] = []
+        var needsBrew = false, anyBundled = false
+        for (pkg, binary, key) in brewDeps {
+            let bundled = BundledTools.tool(binary, in: resources) != nil
+            let path = bundled ? nil : installed(binary)
+            if !bundled && path == nil { needsBrew = true }
+            if bundled { anyBundled = true }
+            rows.append(Dep(id: "brew:" + pkg, name: key, hint: key + ".hint", present: bundled || path != nil,
+                            detail: bundled ? "dep.bundled" : (path ?? ""),
+                            installCmd: [(brew ?? "/opt/homebrew/bin/brew"), "install", pkg]))
+        }
+        guard needsBrew || !anyBundled else { return rows }   // without a bundle the row is always there, as it was
+        return [Dep(id: "brew", name: "dep.brew", hint: "dep.brew.hint", present: brew != nil,
+                    installCmd: ["/bin/bash", "-c",
+                      "NONINTERACTIVE=1 /bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""])] + rows
+    }
+
     nonisolated static func detectDepsSync() -> [Dep] {
         var out: [Dep] = []
 
@@ -2100,16 +2136,9 @@ final class BuildModel: ObservableObject {
         out.append(Dep(id: "metal", name: "dep.metal", hint: "dep.metal.hint",
                        present: mt, installCmd: ["xcodebuild", "-downloadComponent", "MetalToolchain"]))
 
-        let brew = firstExisting(["/opt/homebrew/bin/brew", "/usr/local/bin/brew"])
-        out.append(Dep(id: "brew", name: "dep.brew", hint: "dep.brew.hint", present: brew != nil,
-                       installCmd: ["/bin/bash", "-c",
-                         "NONINTERACTIVE=1 /bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""]))
-        for (pkg, binary, key) in brewDeps {
-            let path = firstExisting(["/opt/homebrew/bin/\(binary)", "/usr/local/bin/\(binary)"])
-            out.append(Dep(id: "brew:" + pkg, name: key, hint: key + ".hint", present: path != nil,
-                           detail: path ?? "",
-                           installCmd: [(brew ?? "/opt/homebrew/bin/brew"), "install", pkg]))
-        }
+        out += toolDeps(resources: BundledTools.resources,
+                        installed: { firstExisting(["/opt/homebrew/bin/\($0)", "/usr/local/bin/\($0)"]) },
+                        brew: firstExisting(["/opt/homebrew/bin/brew", "/usr/local/bin/brew"]))
 
         let (dn, dnOK) = findDotnet()
         out.append(Dep(id: "dotnet", name: "dep.dotnet", hint: "dep.dotnet.hint",
@@ -2124,7 +2153,7 @@ final class BuildModel: ObservableObject {
         // A version we cannot read means no interpreter ran at all (py is then the venv
         // that does not exist yet), which is not the same as one that is too old.
         let minVer = "\(minPython.0).\(minPython.1)"
-        let pyDetail = pyOK ? py
+        let pyDetail = pyOK ? (py == BundledTools.python() ? "dep.bundled" : py)
             : pythonVersion(py).map { $0 >= minPython
                 ? "dep.python.missing:\(py) (\(pyVer))"
                 : "dep.python.old:\(pyVer):\(minVer)" }
