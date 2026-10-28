@@ -436,6 +436,88 @@ final class LibraryTests: XCTestCase {
         XCTAssertTrue(try String(contentsOf: calls, encoding: .utf8).contains("devicectl device process launch --device 00008150-AAAA org.nxnative.test"))
     }
 
+    /// A deleted app comes back without unpacking, signing or packing anything again: the signed app already in
+    /// derived data is installed as it is, and the device keeps the game data (the bundle ID does not change).
+    @MainActor func testReinstallInstallsTheSignedAppWithoutBuildingAgain() throws {
+        let (model, _, calls, _) = try runInstallFlow(transfer: true)
+        let app = model.installedAppPath
+        let buildsBefore = try String(contentsOf: calls, encoding: .utf8).split(separator: "\n").filter { $0.hasPrefix("xcodebuild") }.count
+        let done = expectation(description: "Reinstalled")
+        model.reinstallOnDevice { done.fulfill() }
+        wait(for: [done], timeout: 20)
+        let log = try String(contentsOf: calls, encoding: .utf8).split(separator: "\n").map(String.init)
+        XCTAssertEqual(log.filter { $0.hasPrefix("devicectl device install app") }.count, 2)
+        XCTAssertEqual(log.last { $0.hasPrefix("devicectl device install app") }, "devicectl device install app --device 00008150-AAAA \(app)")
+        XCTAssertEqual(log.filter { $0.hasPrefix("xcodebuild") }.count, buildsBefore)   // no second build
+        XCTAssertEqual(log.filter { $0.hasPrefix("romfs_image") }.count, 1)              // the game files are not re-packed
+        XCTAssertEqual(model.stages.last?.id, 1004)
+        XCTAssertEqual(model.stages.last?.state, .done)
+        XCTAssertEqual(model.doneNote, String(format: model.t("dev.reinstalled"), "iPhone"))
+        XCTAssertFalse(model.running)
+    }
+
+    /// The saved package is an ordinary IPA — Payload/DmIOS.app/… at the archive's root, no __MACOSX — so a
+    /// sideloader or another Mac installs it while the signature lasts, without building the game again.
+    @MainActor func testSaveIPAWritesAnOrdinaryPayloadArchive() throws {
+        let (model, _, _, _) = try runInstallFlow(transfer: true)
+        XCTAssertEqual(model.defaultIPAName(), "DmIOS.ipa")
+        let ipa = temporary.appendingPathComponent("Test Game.ipa")
+        let saved = expectation(description: "Saved the IPA")
+        model.saveIPA(to: ipa) { saved.fulfill() }
+        wait(for: [saved], timeout: 30)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: ipa.path))
+        let unzip = Process(), out = Pipe()
+        unzip.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
+        unzip.arguments = ["-l", ipa.path]
+        unzip.standardOutput = out
+        try unzip.run(); unzip.waitUntilExit()
+        let listing = String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        XCTAssertEqual(unzip.terminationStatus, 0, listing)
+        XCTAssertTrue(listing.contains("Payload/DmIOS.app/Info.plist"), listing)
+        XCTAssertFalse(listing.contains("__MACOSX"), listing)
+        XCTAssertEqual(model.doneNote, String(format: model.t("dev.savedIPA"), model.shortPath(ipa.path)))
+        XCTAssertFalse(model.running)
+    }
+
+    /// Both actions name what is missing instead of doing nothing, and a failed reinstall is a note on the installed
+    /// app, not a failed build (the app is still on the device).
+    @MainActor func testReinstallAndSaveReportAMissingSignedApp() throws {
+        let (model, _, _, _) = try runInstallFlow(transfer: true)
+        try FileManager.default.removeItem(atPath: model.installedAppPath)
+        var reported = expectation(description: "Reinstall says what is missing")
+        model.reinstallOnDevice { reported.fulfill() }
+        wait(for: [reported], timeout: 10)
+        XCTAssertEqual(model.doneNote, String(format: model.t("dev.reinstallMissing"), model.shortPath(model.installedAppPath)))
+        XCTAssertTrue(model.done)
+        reported = expectation(description: "Save says what is missing")
+        let ipa = temporary.appendingPathComponent("missing.ipa")
+        model.saveIPA(to: ipa) { reported.fulfill() }
+        wait(for: [reported], timeout: 10)
+        XCTAssertEqual(model.doneNote, String(format: model.t("dev.saveNeedsApp"), model.shortPath(model.installedAppPath)))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: ipa.path))
+    }
+
+    /// The save panel's name comes from the app, with the separators a game name can carry replaced: a slash would make
+    /// a subfolder, a colon shows as a folder in Finder.
+    @MainActor func testTheIPANameComesFromTheDisplayNameWithoutPathSeparators() throws {
+        let app = temporary.appendingPathComponent("DmIOS.app")
+        try FileManager.default.createDirectory(at: app, withIntermediateDirectories: true)
+        let info: [String: Any] = ["CFBundleDisplayName": "Zelda: Echoes/of Wisdom"]
+        try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
+            .write(to: app.appendingPathComponent("Info.plist"))
+        let model = BuildModel()
+        model.installedAppPath = app.path
+        XCTAssertEqual(model.defaultIPAName(), "Zelda_ Echoes_of Wisdom.ipa")
+    }
+
+    /// The two commands the actions build: a plain devicectl install of the cached app, and ditto's Payload archive.
+    func testTheReinstallAndIPARecipes() {
+        XCTAssertEqual(BuildModel.reinstallCommand(xcrun: "/x", device: "D", app: "/a/DmIOS.app"),
+                       ["/x", "devicectl", "device", "install", "app", "--device", "D", "/a/DmIOS.app"])
+        XCTAssertEqual(BuildModel.ipaCommand(payload: "/t/Payload", ipa: "/o/Game.ipa"),
+                       ["/usr/bin/ditto", "-c", "-k", "--norsrc", "--keepParent", "/t/Payload", "/o/Game.ipa"])
+    }
+
     func testCorruptLibraryIsReportedWithoutOverwritingIt() throws {
         let file = temporary.appendingPathComponent("library.json")
         let data = Data("broken JSON".utf8)

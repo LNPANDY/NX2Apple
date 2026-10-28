@@ -1705,11 +1705,93 @@ final class BuildModel: ObservableObject {
         }
     }
 
-    private func finishInstall(_ failure: String?) {
+    private func finishInstall(_ failure: String?, note: String? = nil) {
         running = false
         done = failure == nil
-        doneNote = failure ?? String(format: t("dev.installed"), deviceName(installDevice))
+        doneNote = failure ?? note ?? String(format: t("dev.installed"), deviceName(installDevice))
         cleanupStaging()
+    }
+
+    /// Reinstall the signed app that is already in derived data, without unpacking, signing or packing again: the
+    /// device keeps the app's Documents (game data and saves), as the bundle ID does not change. A reinstall that
+    /// fails on an expired signature says so in devicectl's words; signing again is not this button's job.
+    func reinstallOnDevice(then: (() -> Void)? = nil) {
+        let device = installedOn, app = installedAppPath
+        guard !device.isEmpty, !app.isEmpty else { then?(); return }
+        guard FileManager.default.fileExists(atPath: app) else {
+            doneNote = String(format: t("dev.reinstallMissing"), shortPath(app))
+            then?(); return
+        }
+        running = true
+        runTool(id: 1004, name: String(format: t("dev.reinstallStage"), deviceName(device)),
+                Self.reinstallCommand(xcrun: xcrunPath, device: device, app: app), step: Self.installStep) { error in
+            if let error {
+                // The app is still on the device: a failed reinstall is a note, not a failed build
+                self.running = false
+                self.doneNote = String(format: self.t("dev.reinstallFailed"), error)
+            } else {
+                self.finishInstall(nil, note: String(format: self.t("dev.reinstalled"), self.deviceName(device)))
+            }
+            then?()
+        }
+    }
+
+    nonisolated static func reinstallCommand(xcrun: String, device: String, app: String) -> [String] {
+        [xcrun, "devicectl", "device", "install", "app", "--device", device, app]
+    }
+
+    /// Ask where to write the .ipa, then pack the signed app there.
+    func saveIPAPanel() {
+        let p = NSSavePanel()
+        p.title = t("dev.saveIPATitle")
+        p.allowedFileTypes = ["ipa"]
+        p.nameFieldStringValue = defaultIPAName()
+        p.canCreateDirectories = true
+        guard p.runModal() == .OK, let url = p.url else { return }
+        saveIPA(to: url)
+    }
+
+    /// The signed app as an .ipa (Payload/<name>.app, the layout iOS and the sideloaders install): useful while the
+    /// signature lasts, and the thing to re-sign when it expires. The game data is not in it — it stays in the app's
+    /// Documents (romfs.img), as a normal iOS build has it.
+    func saveIPA(to url: URL, then: (() -> Void)? = nil) {
+        let app = installedAppPath, fm = FileManager.default
+        guard !app.isEmpty, fm.fileExists(atPath: app) else {
+            doneNote = String(format: t("dev.saveNeedsApp"), shortPath(app))
+            then?(); return
+        }
+        let stage = fm.temporaryDirectory.appendingPathComponent("nspb-ipa-" + UUID().uuidString)
+        let payload = stage.appendingPathComponent("Payload")
+        do {
+            try fm.createDirectory(at: payload, withIntermediateDirectories: true)
+            try fm.copyItem(atPath: app, toPath: payload.appendingPathComponent((app as NSString).lastPathComponent).path)
+        } catch {
+            try? fm.removeItem(at: stage)
+            doneNote = String(format: t("dev.saveFailed"), error.localizedDescription)
+            then?(); return
+        }
+        running = true
+        runTool(id: 1005, name: t("dev.saveStage"), Self.ipaCommand(payload: payload.path, ipa: url.path), step: { _ in nil }) { error in
+            try? fm.removeItem(at: stage)
+            self.running = false
+            self.doneNote = error.map { String(format: self.t("dev.saveFailed"), $0) }
+                ?? String(format: self.t("dev.savedIPA"), self.shortPath(url.path))
+            then?()
+        }
+    }
+
+    /// ditto writes the archive the way Finder's "compress" does; the IPA's root must be Payload/, and --norsrc keeps
+    /// __MACOSX out (the signature itself lives in _CodeSignature inside the app).
+    nonisolated static func ipaCommand(payload: String, ipa: String) -> [String] {
+        ["/usr/bin/ditto", "-c", "-k", "--norsrc", "--keepParent", payload, ipa]
+    }
+
+    /// The name the save panel offers: the app's display name, so two games' IPAs do not collide. A slash or colon in a
+    /// game's name would split the file name or show as a folder in Finder.
+    func defaultIPAName() -> String {
+        let plist = NSDictionary(contentsOfFile: installedAppPath + "/Info.plist")
+        let name = (plist?["CFBundleDisplayName"] as? String) ?? (plist?["CFBundleExecutable"] as? String) ?? "DmIOS"
+        return name.replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: ":", with: "_") + ".ipa"
     }
 
     /// The game's folder (romfs.img, aoc/) into the installed app's Documents, where main.m looks for this game's files first.
@@ -2505,6 +2587,18 @@ struct BuilderView: View {
                 row(m.t("dev.installedNote"), dot: LauncherPalette.ready) {
                     Button(String(format: m.t("dev.open"), m.deviceName(m.installedOn))) {
                         m.openOnDevice(udid: m.installedOn, app: m.installedAppPath) { error in if let error { m.doneNote = error } }
+                    }
+                    Button(m.t("dev.reinstall")) { m.reinstallOnDevice() }
+                        .disabled(m.running)
+                }
+                // The signed app stays in derived data; keeping it as an .ipa means a sideloader (or another Mac)
+                // can install it without building the game again, while the signature lasts.
+                if !m.installedAppPath.isEmpty {
+                    divider
+                    row(m.t("dev.signedApp"), detail: m.shortPath(m.installedAppPath), dot: LauncherPalette.ready, help: m.installedAppPath) {
+                        Button(m.t("install.reveal")) { reveal(m.installedAppPath) }
+                        Button(m.t("dev.saveIPA")) { m.saveIPAPanel() }
+                            .disabled(m.running)
                     }
                 }
                 // The game files were copied (or, after a skipped transfer, await a manual copy — a
