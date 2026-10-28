@@ -9,7 +9,7 @@ every start and rebuilt 3,852 pipeline pairs before the first frame.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 
-Upstream-Status: pending
+Upstream-Status: forwarded seedds/nxnative#580
 Reason: Luigi's Mansion 3 sets depth mode near = 0: the profile key lets the bundled pipeline archive match
 Issue: LNPANDY/NX2Apple#123
 
