@@ -352,20 +352,23 @@ struct ContentView: View {
                            startPoint: .top, endPoint: .bottom)
             LinearGradient(colors: [.black.opacity(0.24), .clear], startPoint: .leading, endPoint: .trailing)
             VStack(alignment: .leading, spacing: 14) {
-                HStack(spacing: 14) {
-                    status(game, prominent: true)
-                    if toolsAge.older.contains(game.id) && !(m.running && activeBuildID == game.id) {
-                        Button { configureBuild(game) } label: {
-                            Label(m.t("library.rebuildShort"), systemImage: "arrow.clockwise")
-                                .font(.manrope(12, .semibold)).foregroundStyle(LauncherPalette.cream)
-                                .padding(.horizontal, 10).padding(.vertical, 4)
-                                .overlay(Capsule().strokeBorder(LauncherPalette.cream.opacity(0.35)))
-                                .contentShape(Capsule())
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 14) {
+                        status(game, prominent: true)
+                        if toolsAge.older.contains(game.id) && !(m.running && activeBuildID == game.id) {
+                            Button { configureBuild(game) } label: {
+                                Label(m.t("library.rebuildShort"), systemImage: "arrow.clockwise")
+                                    .font(.manrope(12, .semibold)).foregroundStyle(LauncherPalette.cream)
+                                    .padding(.horizontal, 10).padding(.vertical, 4)
+                                    .overlay(Capsule().strokeBorder(LauncherPalette.cream.opacity(0.35)))
+                                    .contentShape(Capsule())
+                            }
+                            .buttonStyle(.plain).disabled(m.running || game.inputs["base", default: []].isEmpty)
+                            .help(m.t("library.olderToolsHelp"))
+                            .padTarget("hero.rebuild", scope: "main", radius: 12) { if !m.running { configureBuild(game) } }
                         }
-                        .buttonStyle(.plain).disabled(m.running || game.inputs["base", default: []].isEmpty)
-                        .help(m.t("library.olderToolsHelp"))
-                        .padTarget("hero.rebuild", scope: "main", radius: 12) { if !m.running { configureBuild(game) } }
                     }
+                    statusNotes(game, prominent: true)
                 }
                 Text(game.name).font(.manrope(min(68, width * 0.052), .heavy))
                     .tracking(-1.6).lineLimit(2).shadow(color: .black.opacity(0.25), radius: 12)
@@ -434,7 +437,10 @@ struct ContentView: View {
                                         .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(
                                             game.id == library.selectedID ? LauncherPalette.cream : .clear, lineWidth: 2))
                                         Text(game.name).font(.manrope(16, .semibold)).lineLimit(1)
-                                        status(game)
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            status(game)
+                                            statusNotes(game, prominent: false)
+                                        }
                                         Capsule().fill(game.id == library.selectedID ? LauncherPalette.cream : .clear)
                                             .frame(height: 3).padding(.top, 4)
                                     }
@@ -489,35 +495,48 @@ struct ContentView: View {
 
     private func status(_ game: LibraryGame, prominent: Bool = false) -> some View {
         let building = m.running && activeBuildID == game.id
-        let color = building ? LauncherPalette.building : ((game.isReady || game.hasIOSBuild) ? LauncherPalette.ready : LauncherPalette.unbuilt)
-        let key = building ? "library.building" : (game.isReady ? "library.ready" : (game.hasIOSBuild ? "library.readyIOS" : "library.notBuilt"))
+        // An install record is a state of its own: the build folder can be gone while the phone (or a saved IPA)
+        // can still put the game back, so "not built yet" would be wrong for it.
+        let installed = !game.installedDevice.isEmpty
+        let color = building ? LauncherPalette.building
+            : ((game.isReady || game.hasIOSBuild) ? LauncherPalette.ready : (installed ? LauncherPalette.ready : LauncherPalette.unbuilt))
+        let key = building ? "library.building" : (game.isReady ? "library.ready"
+            : (game.hasIOSBuild ? "library.readyIOS" : (installed ? "library.installedRecord" : "library.notBuilt")))
         return HStack(spacing: 7) {
             Circle().fill(color).frame(width: prominent ? 9 : 7, height: prominent ? 9 : 7)
             Text(prominent ? m.t(key).uppercased() : m.t(key))
                 .font(prominent ? .manrope(12, .bold) : .manrope(13, .medium))
                 .tracking(prominent ? 1.3 : 0)   // the eyebrow: the same face, in tracked capitals
                 .foregroundStyle(color)
-            if !building && toolsAge.older.contains(game.id) {   // a quiet note beside the status, not a warning
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    /// The quiet notes that follow a status ("· tool update available · signature 3 days · not on the phone"): their
+    /// own rows, since one line truncates all of them as soon as two apply.
+    @ViewBuilder private func statusNotes(_ game: LibraryGame, prominent: Bool) -> some View {
+        let building = m.running && activeBuildID == game.id
+        if !building {
+            if toolsAge.older.contains(game.id) {   // a quiet note beside the status, not a warning
                 Text("· " + m.t(prominent ? "library.olderTools" : "library.olderToolsShort"))
                     .font(.manrope(prominent ? 13 : 12)).foregroundStyle(.secondary).lineLimit(1)
                     .help(m.t("library.olderToolsHelp"))
             }
             // A free Apple ID's profile lasts 7 days: the card says when it runs out, the hero offers to renew it.
-            if !building, let expiry = signatureExpiry[game.id] {
+            if let expiry = signatureExpiry[game.id] {
                 Text("· " + AppSignature.short(expiry, m.t))
                     .font(.manrope(prominent ? 13 : 12))
                     .foregroundStyle(AppSignature.isUrgent(expiry) ? LauncherPalette.building : .secondary)
                     .lineLimit(1)
                     .help(AppSignature.describe(expiry, m.t))
             }
-            // The phone was read (or the app is gone from the cached path): say whether it still has the game.
-            if !building, isOnPhone(game) == false {
+            // The phone was read and the game is not on it: the one note that is a warning.
+            if isOnPhone(game) == false {
                 Text("· " + String(format: m.t("dev.notOnDeviceShort"), m.deviceName(game.installedDevice)))
                     .font(.manrope(prominent ? 13 : 12)).foregroundStyle(LauncherPalette.building).lineLimit(1)
                     .help(String(format: m.t("dev.notOnDevice"), m.deviceName(game.installedDevice)))
             }
         }
-        .accessibilityElement(children: .combine)
     }
 
     private var activityBar: some View {

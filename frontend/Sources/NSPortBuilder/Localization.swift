@@ -303,6 +303,7 @@ enum L10n {
         "library.ready": ("\u{53ef}\u{5728} Mac \u{4e0a}\u{8fd0}\u{884c}", "Ready on Mac"),
         "library.building": ("\u{6b63}\u{5728}\u{6784}\u{5efa}", "Building"),
         "library.notBuilt": ("\u{5c1a}\u{672a}\u{6784}\u{5efa}", "Not built yet"),
+        "library.installedRecord": ("已安装过，可重装", "Installed before, can be reinstalled"),
         "library.play": ("\u{5f00}\u{59cb}\u{6e38}\u{620f}", "Play"),
         "library.olderTools": ("用旧版构建工具构建", "Built with older tools"),
         "library.olderToolsShort": ("工具较旧", "Older tools"),
