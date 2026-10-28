@@ -80,7 +80,8 @@ struct ConsolePadSnapshot: Equatable {
     init(library: GameLibrary, controls: ControlLayout, repo: @escaping () -> String, lang: @escaping () -> Lang, labels: @escaping (String) -> String,
          pads: (() -> [ConsolePadSnapshot])? = nil,
          launch: ((LibraryGame, [String: String], @escaping (Int32?, Error?) -> Void) -> Void)? = nil,
-         artwork: ((LibraryGame, String) -> NSImage?)? = nil, startingTimeout: TimeInterval = 20, observeSystem: Bool = true) {
+         artwork: ((LibraryGame, String) -> NSImage?)? = nil, startingTimeout: TimeInterval = 20, observeSystem: Bool = true, playerOutput: ((String, Int) -> Void)? = nil) {
+        self.sendPlayerOutput = playerOutput
         self.library = library; self.controls = controls; self.repo = repo; self.lang = lang; self.labels = labels
         self.startingTimeout = startingTimeout
         self.pads = pads ?? { [] }
@@ -92,6 +93,7 @@ struct ConsolePadSnapshot: Equatable {
         controls.$padMerge.sink { [weak self] merged in self?.state.padMerge = merged }.store(in: &cancellables)
         refresh()
         refreshControllers(announce: false)
+        announced = Set(state.controllers.map(\.id))   // controllers there at launch are not announced again by a repeated notification
         if observeSystem { scheduleBatteryRereads() }   // a controller there at launch may not have its battery yet either
         guard observeSystem else { return }
         let center = NotificationCenter.default
@@ -422,6 +424,50 @@ struct ConsolePadSnapshot: Equatable {
 
     private static let hidLog = Logger(subsystem: "NX2Apple", category: "console.controllers")
     private var remembered: [String: Int] = [:]
+    /// The player each controller was last told about (player lights and light bar), so the output is sent once per assignment.
+    private var primedPlayer: [String: Int] = [:]
+    /// Writes the player to a controller: its player lights and, when it has one, its light bar. Tests replace it.
+    var sendPlayerOutput: ((String, Int) -> Void)?
+
+    /// A calm colour per player for the light bar: blue, red, green, amber.
+    static func playerLightColor(_ player: Int) -> (red: Float, green: Float, blue: Float) {
+        switch player {
+        case 1: return (0.25, 0.55, 1.0)
+        case 2: return (1.0, 0.35, 0.35)
+        case 3: return (0.3, 0.85, 0.5)
+        default: return (1.0, 0.75, 0.3)
+        }
+    }
+
+    /// A DualShock 4 over Bluetooth (and the pads that copy it) only sends the report that carries its battery after the host has
+    /// sent it an output report, so every connected controller is sent one harmless one: its player. It also shows the player on the
+    /// controller. The battery is read again shortly after (and the key-value observer catches it). No rumble.
+    private func primeOutputs(_ pads: [ConsolePadSnapshot]) {
+        primedPlayer = primedPlayer.filter { key, _ in pads.contains { $0.id == key } }
+        var sent = false
+        for pad in pads {
+            guard let player = pad.playerIndex, primedPlayer[pad.id] != player else { continue }
+            primedPlayer[pad.id] = player
+            sent = true
+            if let sendPlayerOutput { sendPlayerOutput(pad.id, player); continue }
+            guard let device = devices[pad.id] else { continue }
+            device.playerIndex = GCControllerPlayerIndex(rawValue: player - 1) ?? .indexUnset
+            if let light = device.light {
+                let c = Self.playerLightColor(player)
+                light.color = GCColor(red: c.red, green: c.green, blue: c.blue)
+            }
+            Self.hidLog.debug("player output to \(pad.name, privacy: .public): player \(player), light bar \(device.light != nil)")
+        }
+        if sent {
+            Task { [weak self] in
+                for seconds in [0.5, 1.5] {
+                    try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                    self?.refreshControllers(announce: false)
+                }
+            }
+        }
+    }
+
     private var batteryWatchers: [String: (object: ObjectIdentifier, watcher: KeyValueWatcher)] = [:]
 
     /// A battery's level and state are key-value observable: a change refreshes the list at once instead of waiting for the next read.
@@ -445,15 +491,27 @@ struct ConsolePadSnapshot: Equatable {
             Self.hidLog.debug("\(connected ? "connect" : "disconnect") \(self.stamp(), privacy: .public): vendor \(pad.vendorName ?? "?", privacy: .public), category \(pad.productCategory, privacy: .public), extendedGamepad \(pad.extendedGamepad != nil), battery \(pad.battery != nil)")
             if !connected { tearDown(pad) }
         }
-        let name = pad.map { $0.vendorName ?? $0.productCategory } ?? ""
-        controllerListChanged(connectedName: connected ? name : nil, disconnectedName: connected ? nil : name, including: connected ? pad : nil, excluding: connected ? nil : pad)
-        guard pad != nil else { return }
-        guard connected else { showToast(String(format: t("console.disconnected"), name)); return }
-        let id = pad.map { String(UInt(bitPattern: ObjectIdentifier($0).hashValue), radix: 16) } ?? ""
+        guard let pad else { controllerListChanged(connectedName: nil, disconnectedName: nil); return }
+        let id = String(UInt(bitPattern: ObjectIdentifier(pad).hashValue), radix: 16)
+        handleConnection(id: id, name: pad.vendorName ?? pad.productCategory, connected: connected, including: connected ? pad : nil, excluding: connected ? nil : pad)
+    }
+
+    private var announced = Set<String>()
+
+    /// One connect or disconnect of one controller instance. GameController posts the notification two or three times for a single
+    /// connect (and twice for a disconnect), so the list is rebuilt every time (harmless, it is keyed by instance) but the toast, the
+    /// battery re-reads and the rest only happen on the first. Returns whether this was the first.
+    @discardableResult
+    func handleConnection(id: String, name: String, connected: Bool, including: GCController? = nil, excluding: GCController? = nil) -> Bool {
+        let first = connected ? announced.insert(id).inserted : announced.remove(id) != nil
+        controllerListChanged(connectedName: connected ? name : nil, disconnectedName: connected ? nil : name, including: including, excluding: excluding)
+        guard first else { Self.hidLog.debug("repeated \(connected ? "connect" : "disconnect") for \(id, privacy: .public) ignored"); return false }
+        guard connected else { showToast(String(format: t("console.disconnected"), name)); return true }
         if let player = state.padMerge ? 1 : state.controllers.first(where: { $0.id == id })?.player {
             showToast(String(format: t("console.connected"), name, player))
         } else { showToast(t("console.noFreePlayer"), glyph: ConsoleGlyphs.current().glyph(for: .controllers)) }
         scheduleBatteryRereads()
+        return true
     }
 
     /// The part of a connect or disconnect that does not need a GCController, so tests can drive it.
@@ -469,6 +527,7 @@ struct ConsolePadSnapshot: Equatable {
         devices[id] = nil
         overrides[id] = nil
         batteryWatchers[id] = nil
+        primedPlayer[id] = nil
         Self.hidLog.debug("torn down \(id, privacy: .public)")
     }
 
@@ -516,6 +575,7 @@ struct ConsolePadSnapshot: Equatable {
             devices[new.id]?.playerIndex = GCControllerPlayerIndex(rawValue: (new.playerIndex ?? 1) - 1) ?? .indexUnset
         }
         for pad in assigned { if let p = pad.playerIndex { remembered[Self.memoryKey(pad)] = p } }
+        primeOutputs(assigned)
         let list = assigned.map(\.controller)
         if list != state.controllers {
             Self.hidLog.debug("publish \(list.count) controllers at \(self.stamp(), privacy: .public): \(list.map { "\($0.name)" }.joined(separator: ", "), privacy: .public)")

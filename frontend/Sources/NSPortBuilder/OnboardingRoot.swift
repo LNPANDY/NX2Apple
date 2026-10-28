@@ -27,13 +27,18 @@ struct RootView: View {
             case .onboarding:
                 if let driver { OnboardingView(driver: driver, lang: model.lang, gamepad: gamepad) }
             case .launcher:
-                if console.active {
-                    ConsoleView(driver: shared.console, lang: model.lang, onExit: { console.exit(); shared.console.returnFromGame() })
-                        .onAppear { shared.console.reloadCovers() }
-                } else {
-                    ContentView(model: model, library: library, onRunSetup: runSetupAgain, enterConsole: { console.enter() },
-                                controllerDriver: AnyConsoleDriver(shared.console), controls: shared.controls)
+                ZStack {
+                    if console.active {
+                        ConsoleView(driver: shared.console, lang: model.lang, onExit: { console.exit(); shared.console.returnFromGame() })
+                            .onAppear { shared.console.reloadCovers() }
+                            .transition(CalmTransition.console)
+                    } else {
+                        ContentView(model: model, library: library, onRunSetup: runSetupAgain, enterConsole: { console.enter() },
+                                    controllerDriver: AnyConsoleDriver(shared.console), controls: shared.controls)
+                            .transition(CalmTransition.desktop)
+                    }
                 }
+                .animation(.easeInOut(duration: CalmTransition.reduceMotion ? 0.25 : ConsoleCoordinator.transitionSeconds), value: console.active)
             }
         }
         .background(LauncherPalette.background)

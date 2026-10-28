@@ -137,22 +137,26 @@ import SwiftUI
         XCTAssertNotNil(driver.state.toast, "a Bluetooth controller cannot be dropped by an app: the toast says where")
     }
 
-    func testEnteringAndLeavingConsoleModeRestoresTheWindow() {
+    func testEnteringAndLeavingConsoleModeRestoresTheWindowInOrder() async throws {
         var calls: [Bool] = []
+        var finishEntering: (() -> Void)?
         let window = NSWindow(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: true)
-        let coordinator = ConsoleCoordinator(window: { window }, setFullScreen: { _, on in calls.append(on) })
+        let coordinator = ConsoleCoordinator(window: { window }, setFullScreen: { _, on, done in calls.append(on); if on { finishEntering = done } else { done() } }, fadeSeconds: 0.05)
         coordinator.enter()
         XCTAssertFalse(coordinator.active, "not while the guided setup shows")
         coordinator.available = true
         coordinator.enter()
-        XCTAssertTrue(coordinator.active)
-        XCTAssertEqual(calls, [true])
+        XCTAssertEqual(calls, [true], "the window starts going full screen")
+        XCTAssertFalse(coordinator.active, "the console fades in only after the window finished")
         coordinator.enter()
         XCTAssertEqual(calls, [true], "entering twice does nothing")
-        coordinator.exit()
-        XCTAssertFalse(coordinator.active)
-        coordinator.toggle()
+        finishEntering?()
         XCTAssertTrue(coordinator.active)
+        coordinator.exit()
+        XCTAssertFalse(coordinator.active, "the console fades out first")
+        XCTAssertEqual(calls, [true], "the window has not left full screen yet")
+        try await Task.sleep(nanoseconds: 150_000_000)
+        coordinator.toggle()
     }
 
     func testControllerPromptOncePerSessionAndSetting() {
@@ -475,5 +479,53 @@ import SwiftUI
         fake.batteryLevel = 0.62
         for _ in 0..<50 where driver.state.controllers.first?.batteryPercent != 62 { try await Task.sleep(nanoseconds: 20_000_000) }
         XCTAssertEqual(driver.state.controllers.first?.batteryPercent, 62)
+    }
+
+    /// The pad reports no battery until the host sends it an output (the DS4 Bluetooth protocol): the driver sends the player once per
+    /// assignment right after connecting, and the battery is known on the next read.
+    func testPlayerOutputOnConnectMakesTheBatteryAppear() async throws {
+        var wroteOutput = false
+        var sent: [(String, Int)] = []
+        let driver = LiveConsoleDriver(library: GameLibrary(file: temporary.appendingPathComponent("library.json")),
+                                       controls: ControlLayout(defaults: UserDefaults(suiteName: "ConsoleLiveTests-" + UUID().uuidString)!),
+                                       repo: { "" }, lang: { .en }, labels: { $0 },
+                                       pads: { [ConsolePadSnapshot(id: "g7", name: "DUALSHOCK 4 Wireless Controller", category: "DualShock 4", playerIndex: nil, battery: wroteOutput ? 0.72 : nil)] },
+                                       artwork: { _, _ in nil }, observeSystem: false,
+                                       playerOutput: { id, player in sent.append((id, player)); wroteOutput = true })   // the fake pad only reports a battery after an output
+        XCTAssertEqual(sent.map(\.1), [1], "the player is written once, right on connect")
+        XCTAssertNil(driver.state.controllers.first?.battery, "unknown until the output has been sent")
+        for _ in 0..<80 where driver.state.controllers.first?.batteryPercent != 72 { try await Task.sleep(nanoseconds: 25_000_000) }
+        XCTAssertEqual(driver.state.controllers.first?.batteryPercent, 72, "known on the read after the output")
+        driver.refreshControllers(announce: false)
+        XCTAssertEqual(sent.count, 1, "not sent again for the same assignment")
+        XCTAssertEqual(LiveConsoleDriver.playerLightColor(1).blue, 1.0)
+        XCTAssertNotEqual(LiveConsoleDriver.playerLightColor(2).red, LiveConsoleDriver.playerLightColor(3).red)
+    }
+
+    /// GameController posts the connect notification two or three times for one connect, and the disconnect twice: one entry, one
+    /// toast, one set of light writes, one reassignment.
+    func testRepeatedConnectAndDisconnectNotificationsAreIdempotent() {
+        var list: [ConsolePadSnapshot] = []
+        var writes: [(String, Int)] = []
+        let driver = LiveConsoleDriver(library: GameLibrary(file: temporary.appendingPathComponent("library.json")),
+                                       controls: ControlLayout(defaults: UserDefaults(suiteName: "ConsoleLiveTests-" + UUID().uuidString)!),
+                                       repo: { "" }, lang: { .en }, labels: { $0 }, pads: { list }, artwork: { _, _ in nil }, observeSystem: false,
+                                       playerOutput: { writes.append(($0, $1)) })
+        list = [ConsolePadSnapshot(id: "pad", name: "DUALSHOCK 4 Wireless Controller", category: "DualShock 4", playerIndex: nil)]
+        XCTAssertTrue(driver.handleConnection(id: "pad", name: "DUALSHOCK 4 Wireless Controller", connected: true), "the first connect counts")
+        let toast = driver.state.toast
+        XCTAssertNotNil(toast)
+        XCTAssertFalse(driver.handleConnection(id: "pad", name: "DUALSHOCK 4 Wireless Controller", connected: true))
+        XCTAssertFalse(driver.handleConnection(id: "pad", name: "DUALSHOCK 4 Wireless Controller", connected: true))
+        XCTAssertEqual(driver.state.toast, toast, "no second toast")
+        XCTAssertEqual(driver.state.controllers.map(\.id), ["pad"], "one entry")
+        XCTAssertEqual(driver.state.controllers.map(\.player), [1], "assigned once")
+        XCTAssertEqual(writes.count, 1, "one light and player write")
+        list = []
+        XCTAssertTrue(driver.handleConnection(id: "pad", name: "DUALSHOCK 4 Wireless Controller", connected: false))
+        let gone = driver.state.toast
+        XCTAssertFalse(driver.handleConnection(id: "pad", name: "DUALSHOCK 4 Wireless Controller", connected: false))
+        XCTAssertEqual(driver.state.toast, gone, "no second disconnect toast")
+        XCTAssertTrue(driver.state.controllers.isEmpty)
     }
 }
