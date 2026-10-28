@@ -28,7 +28,7 @@ jobs:
       - name: Fetch upstream
         run: |
           git remote add upstream https://github.com/seedds/nxnative.git
-          git fetch upstream main --depth=1 || git fetch upstream main
+          git fetch upstream main   # whole history: the dry run below needs the last sync base (.upstream-ref), not only the tip
 
       - name: Health check
         id: check
@@ -55,7 +55,10 @@ jobs:
 
             echo
             echo "=== patcher consistency ==="
-            python3 scripts/sync_upstream.py --old "$NEW" --new "$NEW" --skip-build 2>&1 | tail -40
+            # The dry run uses the real base, as the sync workflow does (--old "$NEW" made every file upstream added since
+            # the last sync read as a fork edit). Without .upstream-ref it falls back to $NEW, as the sync does.
+            BASE=$LAST; [ "$BASE" != none ] || BASE=$NEW
+            python3 scripts/sync_upstream.py --old "$BASE" --new "$NEW" --skip-build 2>&1 | tail -40
           } 2>&1 | tee check.log
 
       - name: Host build and unit tests
