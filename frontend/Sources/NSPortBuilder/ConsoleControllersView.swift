@@ -196,7 +196,10 @@ struct DesktopControllerChips: View {
 struct ConsoleToastView: View {
     let toast: ConsoleToast
     var body: some View {
-        Label(toast.message, systemImage: "gamecontroller")
+        HStack(spacing: 10) {
+            Label(toast.message, systemImage: "gamecontroller")
+            if let glyph = toast.glyph { ConsoleGlyphView(glyph: glyph, size: 20) }
+        }
             .font(.manrope(17, .semibold)).padding(.horizontal, 22).padding(.vertical, 15)
             .background(LauncherPalette.surface, in: Capsule())
             .overlay(Capsule().strokeBorder(.white.opacity(0.15)))

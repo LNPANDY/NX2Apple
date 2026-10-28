@@ -26,7 +26,7 @@ final class ConsoleTests: XCTestCase {
     }
 
     @MainActor func testPlayExplainsEachUnavailableStatus() {
-        for (id, key) in [("demo.3", "console.needsBuild"), ("demo.5", "console.needsData"), ("demo.7", "console.broken")] {
+        for (id, key) in [("demo.3", "console.needsBuild"), ("demo.5", "console.needsData"), ("demo.7", "console.broken"), ("demo.9", "console.iphoneOnlyNote")] {
             let driver = MockConsoleDriver(animated: false)
             driver.focus(id)
             driver.play(id)
@@ -182,7 +182,7 @@ final class ConsoleTests: XCTestCase {
                 XCTAssertNotEqual(L10n.string(key, lang), key)
             }
         }
-        for status in [ConsoleGame.Status.ready, .needsBuild, .needsData, .broken("")] {
+        for status in [ConsoleGame.Status.ready, .needsBuild, .needsData, .iphoneOnly, .broken("")] {
             XCTAssertNotNil(L10n.table[status.labelKey])
             if let key = status.explanationKey { XCTAssertNotNil(L10n.table[key]) }
         }

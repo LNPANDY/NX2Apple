@@ -139,8 +139,8 @@ enum ConsoleInput {
                                     .tracking(-1.6).lineLimit(2).fixedSize(horizontal: false, vertical: true)
                                     .accessibilityAddTraits(.isHeader)
                                 HStack(spacing: 12) {
-                                    Text(String(format: t("console.version"), game.version)).monospacedDigit().lineLimit(1)
-                                        .foregroundStyle(.white.opacity(0.6)).frame(width: compact ? 116 : 150, alignment: .leading)   // fixed, so the badges stay put
+                                    if !game.version.isEmpty { Text(String(format: t("console.version"), game.version)).monospacedDigit().lineLimit(1)
+                                        .foregroundStyle(.white.opacity(0.6)).frame(width: compact ? 116 : 150, alignment: .leading) }   // fixed, so the badges stay put
                                     ForEach(game.platforms, id: \.self) { platform in
                                         Text(t(platform.labelKey)).font(.manrope(compact ? 13 : 17, .semibold))
                                             .padding(.horizontal, 12).padding(.vertical, 5)
@@ -151,7 +151,7 @@ enum ConsoleInput {
                             }
                             .id(game.id).transition(.opacity)
                             }
-                            .animation(.easeInOut(duration: 0.15), value: game.id)
+                            .animation(.easeInOut(duration: 0.12), value: game.id)
                             .padding(.horizontal, inset)
                             .frame(height: compact ? 175 : 100 + 2.4 * min(64, size.width / 24), alignment: .bottomLeading)
                         }
@@ -214,23 +214,36 @@ enum ConsoleInput {
             .onPreferenceChange(ConsoleTileFramesKey.self) { tileFrames = $0 }
             .padding(.horizontal, inset - 8)   // the scroll area is the page margin, so tiles clip there and the title lines up with the first tile
             .onChange(of: state.focusedGame?.id) { id in
-                // a new focus replaces the running scroll, it does not queue
-                if let id { withAnimation(.easeInOut(duration: reduceMotion ? 0 : 0.25)) { proxy.scrollTo("console.game." + id, anchor: .center) } }
+                // The ring moves across the visible tiles. The row scrolls only when the focused tile would leave the visible area, by
+                // the least that brings it inside, and a new focus replaces the running scroll (held repeats do not queue).
+                guard let id else { return }
+                let tile = "console.game." + id
+                guard let frame = tileFrames[id] else { proxy.scrollTo(tile, anchor: .center); return }
+                let rowWidth = size.width - 2 * (inset - 8)
+                let anchor: UnitPoint? = frame.minX < 8 ? .leading : (frame.maxX > rowWidth - 8 ? .trailing : nil)
+                if let anchor { withAnimation(.easeOut(duration: reduceMotion ? 0 : 0.2)) { proxy.scrollTo(tile, anchor: anchor) } }
             }
             .onAppear { if let id = state.focusedGame?.id { proxy.scrollTo("console.game." + id, anchor: .center) } }
         }
     }
 
     private func hintBar(compact: Bool) -> some View {
-        // Equal-width slots between the page margins, every item the same pill and centered in its slot (two by two when compact).
-        let columns = Array(repeating: GridItem(.flexible(), spacing: compact ? 12 : 20), count: compact ? 2 : 4)
-        return VStack(spacing: 20) {
-            Rectangle().fill(.white.opacity(0.10)).frame(height: 1)
-            LazyVGrid(columns: columns, spacing: compact ? 12 : 16) {
+        let items = {
+            Group {
                 hint(.activate, "console.play", "console.play", primary: true, compact: compact) { if let id = state.focusedGame?.id { driver.play(id) } }
                 hint(.options, "console.options", "console.options", compact: compact) { if let id = state.focusedGame?.id { driver.openOptions(id) } }
                 hint(.controllers, "console.controllers", "console.controllers", compact: compact) { driver.openControllers() }
                 hint(.back, "console.desktop", "console.desktop", compact: compact) { driver.exitToDesktop() }
+            }
+        }
+        return VStack(spacing: 20) {
+            Rectangle().fill(.white.opacity(0.10)).frame(height: 1)
+            if compact {
+                // equal pills, two by two
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 2), spacing: 12) { items() }
+            } else {
+                // inline glyph and label, the group centered as a whole with even spacing, the active one a cream pill
+                HStack(spacing: 44) { items() }.frame(maxWidth: .infinity)
             }
         }
     }
@@ -239,9 +252,9 @@ enum ConsoleInput {
         Button(action: action) {
             HStack(alignment: .center, spacing: 10) { ConsoleGlyphView(glyph: glyphs.glyph(for: role), size: compact ? 20 : 24); Text(t(key)).lineLimit(1).minimumScaleFactor(0.8) }
                 .font(.manrope(compact ? 15 : 20, .semibold))
-                .padding(.horizontal, 12).frame(maxWidth: .infinity, minHeight: 48)
+                .padding(.horizontal, compact ? 12 : (primary ? 20 : 8)).frame(maxWidth: compact ? .infinity : nil, minHeight: 48)
                 .foregroundStyle(primary ? LauncherPalette.background : .white.opacity(0.8))
-                .background(primary ? LauncherPalette.cream : .white.opacity(0.07), in: Capsule())
+                .background(primary ? LauncherPalette.cream : (compact ? .white.opacity(0.07) : .clear), in: Capsule())
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain).padTarget(id, scope: "console", radius: 28, activate: action)
@@ -396,7 +409,7 @@ enum ConsoleInput {
         switch sheet {
         case .controllers: return "console.controllers"
         case .options: return "console.options"
-        case .explanation: return "console.setup"
+        case .explanation: return "console.explanationTitle"
         }
     }
     private func resetFocus() {

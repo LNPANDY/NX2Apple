@@ -33,7 +33,7 @@ import SwiftUI
                         artwork: artworkRepo.flatMap { repo in
                             GameLibrary.artwork(for: LibraryGame(titleID: String(format: "%016X", index), name: title), repo: repo, banners: noBanners)
                         }.map { Image(nsImage: $0) },   // nil: the view draws a placeholder cover from the title
-                        status: index == 3 ? .needsBuild : index == 5 ? .needsData : index == 7 ? .broken(t("console.demoBroken")) : .ready,
+                        status: index == 3 ? .needsBuild : index == 5 ? .needsData : index == 7 ? .broken(t("console.demoBroken")) : index == 9 ? .iphoneOnly : .ready,
                         settings: settings)
         }
         var snapshot = ConsoleState(games: scenario == .empty ? [] : scenario == .few ? Array(games.prefix(2)) : games,

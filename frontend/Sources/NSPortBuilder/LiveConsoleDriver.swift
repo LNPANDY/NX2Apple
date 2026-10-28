@@ -115,6 +115,7 @@ struct ConsolePadSnapshot: Equatable {
 
     static func status(of game: LibraryGame, brokenMessage: String) -> ConsoleGame.Status {
         if game.isReady { return .ready }
+        if game.hasIOSBuild || game.onDevice { return .iphoneOnly }   // built for iPhone: this Mac cannot play it until it is built for Mac
         if !game.appPath.isEmpty { return .broken(brokenMessage) }   // an app is recorded but is not a complete game app
         return game.inputs.values.contains { !$0.isEmpty } ? .needsBuild : .needsData
     }
@@ -136,12 +137,43 @@ struct ConsolePadSnapshot: Equatable {
                            status: Self.status(of: game, brokenMessage: t("console.broken")), settings: settings, values: values)
     }
 
-    /// The app's version as its Info.plist states it; empty for a game that has no app yet.
+    private var versions: [String: String] = [:]
+
+    /// The version of the build the library knows: the Mac app's Info.plist (pack_app.py writes CFBundleShortVersionString), else the
+    /// iPhone app's, else the one inside the IPA. Empty only when none of them states one.
     private func version(of game: LibraryGame) -> String {
-        let plist = URL(fileURLWithPath: game.appPath).appendingPathComponent("Contents/Info.plist")
-        guard let data = try? Data(contentsOf: plist),
-              let info = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any] else { return "" }
-        return info["CFBundleShortVersionString"] as? String ?? ""
+        for path in [game.appPath, game.iosAppPath, game.ipaPath] where !path.isEmpty {
+            if let cached = versions[path] { if !cached.isEmpty { return cached }; continue }
+            let found = Self.version(at: path)
+            versions[path] = found
+            if !found.isEmpty { return found }
+        }
+        return ""
+    }
+
+    /// The display version in a build: a .app (Contents/Info.plist), an iOS .app (Info.plist) or an IPA (Payload/*.app/Info.plist).
+    static func version(at path: String) -> String {
+        let url = URL(fileURLWithPath: path)
+        if url.pathExtension.lowercased() == "ipa" {
+            let process = Process(), pipe = Pipe()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
+            process.arguments = ["-p", path, "Payload/*.app/Info.plist"]
+            process.standardOutput = pipe; process.standardError = FileHandle.nullDevice
+            guard (try? process.run()) != nil else { return "" }
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            return version(plist: data)
+        }
+        for relative in ["Contents/Info.plist", "Info.plist"] {
+            if let data = try? Data(contentsOf: url.appendingPathComponent(relative)) { let v = version(plist: data); if !v.isEmpty { return v } }
+        }
+        return ""
+    }
+
+    static func version(plist data: Data) -> String {
+        guard let info = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any] else { return "" }
+        let v = (info["CFBundleShortVersionString"] as? String) ?? (info["CFBundleVersion"] as? String) ?? ""
+        return v.trimmingCharacters(in: .whitespaces)
     }
 
     /// Covers through the launcher's own lookup, decoded once per image path.
@@ -257,14 +289,26 @@ struct ConsolePadSnapshot: Equatable {
     /// macOS offers apps no way to drop a Bluetooth controller, so this says where to do it instead.
     func disconnect(controllerID: String) { showToast(t("console.disconnectHint")) }
 
+    /// Controllers that have no player take the next free one, in the order they are listed, as a console does. A fifth has none.
+    static func autoAssigned(_ pads: [ConsolePadSnapshot]) -> [ConsolePadSnapshot] {
+        var used = Set(pads.compactMap(\.playerIndex))
+        return pads.map { pad in
+            guard pad.playerIndex == nil, let free = (1...4).first(where: { !used.contains($0) }) else { return pad }
+            used.insert(free)
+            var assigned = pad; assigned.playerIndex = free
+            return assigned
+        }
+    }
+
     func padsChanged(connected: Bool, note: Notification) {
         refreshControllers(announce: false)
         guard let pad = note.object as? GCController else { return }
         let name = pad.vendorName ?? pad.productCategory
-        let player = state.padMerge ? 1 : state.controllers.first { $0.name == name }?.player
-        if connected {
-            showToast(player.map { String(format: t("console.connected"), name, $0) } ?? String(format: t("console.connectedUnassigned"), name))
-        } else { showToast(String(format: t("console.disconnected"), name)) }
+        guard connected else { showToast(String(format: t("console.disconnected"), name)); return }
+        let id = String(UInt(bitPattern: ObjectIdentifier(pad).hashValue), radix: 16)
+        if let player = state.padMerge ? 1 : state.controllers.first(where: { $0.id == id })?.player {
+            showToast(String(format: t("console.connected"), name, player))
+        } else { showToast(t("console.noFreePlayer"), glyph: ConsoleGlyphs.current().glyph(for: .controllers)) }
     }
 
     func refreshControllers(announce: Bool) {
@@ -282,7 +326,11 @@ struct ConsolePadSnapshot: Equatable {
                                           charging: c.battery.map { $0.batteryState == .charging } ?? false)
             }
         }
-        state.controllers = snapshots.map(\.controller)
+        let assigned = Self.autoAssigned(snapshots)
+        for (before, after) in zip(snapshots, assigned) where before.playerIndex != after.playerIndex {
+            devices[after.id]?.playerIndex = GCControllerPlayerIndex(rawValue: (after.playerIndex ?? 1) - 1) ?? .indexUnset
+        }
+        state.controllers = assigned.map(\.controller)
     }
 
     // MARK: Navigation
@@ -292,9 +340,9 @@ struct ConsolePadSnapshot: Equatable {
     func exitToDesktop() { state.exitToDesktop() }
     func returnFromGame() { state.returnFromGame() }
 
-    private func showToast(_ message: String) {
+    private func showToast(_ message: String, glyph: ConsoleGlyphs.Glyph? = nil) {
         toastTask?.cancel()
-        state.toast = ConsoleToast(message: message)
+        state.toast = ConsoleToast(glyph: glyph, message: message)
         toastTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 3_000_000_000)
             guard !Task.isCancelled else { return }

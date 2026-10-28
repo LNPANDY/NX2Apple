@@ -5,11 +5,13 @@ import Combine
 /// controller names and a clock value; none of these types inspects a library or a controller device.
 struct ConsoleGame: Identifiable {
     enum Status: Equatable {
-        case ready, needsBuild, needsData, broken(String)
+        case ready, needsBuild, needsData, iphoneOnly, broken(String)
         var labelKey: String {
             switch self {
             case .ready: return "console.ready"
-            case .needsBuild, .needsData: return "console.setup"
+            case .needsBuild: return "console.notBuilt"
+            case .needsData: return "console.needsDataBadge"
+            case .iphoneOnly: return "console.iphoneOnly"
             case .broken: return "console.unavailable"
             }
         }
@@ -18,6 +20,7 @@ struct ConsoleGame: Identifiable {
             case .ready: return nil
             case .needsBuild: return "console.needsBuild"
             case .needsData: return "console.needsData"
+            case .iphoneOnly: return "console.iphoneOnlyNote"
             case .broken: return "console.broken"
             }
         }
@@ -70,6 +73,8 @@ struct ConsoleController: Identifiable, Equatable {
 
 struct ConsoleToast: Equatable, Identifiable {
     var id = UUID()
+    /// A button glyph shown after the message (the controller in use), for a toast that names a button.
+    var glyph: ConsoleGlyphs.Glyph? = nil
     /// Already localized by the driver, using console connection/identification keys.
     var message: String
 }

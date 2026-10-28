@@ -173,4 +173,42 @@ import SwiftUI
         XCTAssertFalse(BatteryIcon.isLow(0.21))
         XCTAssertFalse(BatteryIcon.isLow(nil))
     }
+
+    func testPlayersAreAssignedAutomaticallyInOrder() {
+        func pad(_ id: String, _ player: Int?) -> ConsolePadSnapshot { ConsolePadSnapshot(id: id, name: id, category: nil, playerIndex: player) }
+        let result = LiveConsoleDriver.autoAssigned([pad("a", nil), pad("b", 1), pad("c", nil), pad("d", nil)])
+        XCTAssertEqual(result.map(\.playerIndex), [2, 1, 3, 4], "the next free players, never one already taken")
+        let full = LiveConsoleDriver.autoAssigned([pad("a", 1), pad("b", 2), pad("c", 3), pad("d", 4), pad("e", nil)])
+        XCTAssertNil(full.last?.playerIndex, "a fifth controller has no free player")
+        XCTAssertEqual(LiveConsoleDriver.autoAssigned([pad("a", 3)]).map(\.playerIndex), [3], "an assigned one keeps its player")
+    }
+
+    func testDriverListsFakeControllersWithPlayers() throws {
+        let pads = [ConsolePadSnapshot(id: "a", name: "Pad", category: "Xbox One", playerIndex: nil)]
+        let (driver, _, _) = try makeDriver(pads: pads)
+        XCTAssertEqual(driver.state.controllers.first?.player, 1, "never shown as unassigned")
+    }
+
+    func testIPhoneOnlyAndNotBuiltStatuses() throws {
+        var ios = LibraryGame(titleID: titleID, name: "A")
+        ios.iosAppPath = temporary.path   // any folder with an Info.plist counts as an iOS app
+        try Data([0]).write(to: temporary.appendingPathComponent("Info.plist"))
+        XCTAssertEqual(LiveConsoleDriver.status(of: ios, brokenMessage: "x"), .iphoneOnly)
+        XCTAssertEqual(LiveConsoleDriver.platforms(of: ios), [.iphone])
+        XCTAssertEqual(LiveConsoleDriver.status(of: LibraryGame(titleID: titleID, name: "B"), brokenMessage: "x"), .needsData)
+        XCTAssertEqual(ConsoleGame.Status.iphoneOnly.labelKey, "console.iphoneOnly")
+        XCTAssertEqual(ConsoleGame.Status.needsBuild.labelKey, "console.notBuilt")
+        XCTAssertEqual(ConsoleGame.Status.needsData.labelKey, "console.needsDataBadge")
+    }
+
+    func testVersionFromMacAppIOSAppAndPlist() throws {
+        XCTAssertEqual(LiveConsoleDriver.version(plist: try PropertyListSerialization.data(fromPropertyList: ["CFBundleShortVersionString": "1.2.3"], format: .xml, options: 0)), "1.2.3")
+        XCTAssertEqual(LiveConsoleDriver.version(plist: try PropertyListSerialization.data(fromPropertyList: ["CFBundleVersion": "7"], format: .xml, options: 0)), "7")
+        XCTAssertEqual(LiveConsoleDriver.version(plist: Data([0])), "")
+        let ios = temporary.appendingPathComponent("ios.app")
+        try FileManager.default.createDirectory(at: ios, withIntermediateDirectories: true)
+        try PropertyListSerialization.data(fromPropertyList: ["CFBundleShortVersionString": "2.0.1"], format: .xml, options: 0).write(to: ios.appendingPathComponent("Info.plist"))
+        XCTAssertEqual(LiveConsoleDriver.version(at: ios.path), "2.0.1")
+        XCTAssertEqual(LiveConsoleDriver.version(at: temporary.appendingPathComponent("none.app").path), "")
+    }
 }
