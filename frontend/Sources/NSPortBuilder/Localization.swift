@@ -132,6 +132,7 @@ enum L10n {
         "dev.expiryShort": ("签名剩 %d 天", "%d days of signature left"),
         "dev.expiryTodayShort": ("签名今天到期", "signature expires today"),
         "dev.expiryExpiredShort": ("签名已过期", "signature expired"),
+        "dev.expiryUnknown": ("签名到期：未知（仍可续签）", "Signature expiry: unknown (re-signing is still offered)"),
         "dev.resign": ("续签", "Re-sign"),
         "dev.resignHelp": ("用缓存工程重新签名并安装：不重新编译游戏，App 数据（存档、游戏数据）保留", "Sign and install again from the cached project: no rebuild, and the app's data (saves, game data) is kept"),
         "dev.resignStage": ("续签并安装到 %@", "Re-signing for %@"),

@@ -382,25 +382,26 @@ struct ContentView: View {
                         .anchorPreference(key: ManageAnchorKey.self, value: .bounds) { $0 }
                         .padTarget("hero.manage", scope: "main", radius: 12) { manageOpenFor = game.id }
                 }
-                // A free Apple ID's provisioning profile lasts 7 days: say when this app's runs out, and renew it here.
-                if game.onDevice, let expiry = signatureExpiry[game.id] {
+                // A free Apple ID's provisioning profile lasts 7 days. Say when this app's runs out, and offer the
+                // re-sign at any time: renewing early (before a trip, say) is as valid as renewing just in time.
+                if game.onDevice {
                     HStack(spacing: 10) {
                         Image(systemName: "checkmark.seal").font(.system(size: 12))
                             .foregroundStyle(LauncherPalette.cream.opacity(0.7))
-                        Text(AppSignature.describe(expiry, m.t)).font(.manrope(12.5))
-                            .foregroundStyle(AppSignature.isUrgent(expiry) ? LauncherPalette.building : .secondary)
-                        if AppSignature.isUrgent(expiry) {
-                            Button { resign(game) } label: {
-                                Text(m.t("dev.resign")).font(.manrope(12, .semibold))
-                                    .foregroundStyle(LauncherPalette.cream)
-                                    .padding(.horizontal, 10).padding(.vertical, 4)
-                                    .overlay(Capsule().strokeBorder(LauncherPalette.cream.opacity(0.35)))
-                                    .contentShape(Capsule())
-                            }
-                            .buttonStyle(.plain).disabled(m.running)
-                            .help(m.t("dev.resignHelp"))
-                            .padTarget("hero.resign", scope: "main", radius: 12) { if !m.running { resign(game) } }
+                        Text(signatureExpiry[game.id].map { AppSignature.describe($0, m.t) } ?? m.t("dev.expiryUnknown"))
+                            .font(.manrope(12.5))
+                            .foregroundStyle(signatureExpiry[game.id].map { AppSignature.isUrgent($0) } == true
+                                             ? LauncherPalette.building : .secondary)
+                        Button { resign(game) } label: {
+                            Text(m.t("dev.resign")).font(.manrope(12, .semibold))
+                                .foregroundStyle(LauncherPalette.cream)
+                                .padding(.horizontal, 10).padding(.vertical, 4)
+                                .overlay(Capsule().strokeBorder(LauncherPalette.cream.opacity(0.35)))
+                                .contentShape(Capsule())
                         }
+                        .buttonStyle(.plain).disabled(m.running)
+                        .help(m.t("dev.resignHelp"))
+                        .padTarget("hero.resign", scope: "main", radius: 12) { if !m.running { resign(game) } }
                     }
                 }
                 if let resignNote {
