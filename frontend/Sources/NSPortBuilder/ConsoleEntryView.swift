@@ -48,6 +48,7 @@ struct ConsoleConnectionPrompt: View {
             .padding(24)
         }
         .padScope("console.entry", pad)
+        .environment(\.padRingStyle, .hug)
         .background(ConsoleKeyboardInput { input in
             pad.show(default: "console.entry.enter")
             switch input {

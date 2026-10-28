@@ -81,6 +81,7 @@ enum ConsoleInput {
         .tint(LauncherPalette.cream)
         .preferredColorScheme(.dark)
         .environmentObject(pad)
+        .environment(\.padRingStyle, .hug)
         .background(ConsoleKeyboardInput(perform: { input in glyphs = .keyboard; handle(input) }).frame(width: 0, height: 0))
         .onReceive(inputs, perform: handle)
         .onChange(of: scope) { _ in resetFocus() }
@@ -90,14 +91,14 @@ enum ConsoleInput {
         .onChange(of: pad.focused) { id in
             if let id, id.hasPrefix("console.game.") { driver.focus(String(id.dropFirst("console.game.".count))) }
         }
-        .animation(.easeOut(duration: 0.22), value: state.focusedGame?.id)
         .animation(.easeOut(duration: 0.18), value: state.presentedSheet)
         .animation(.easeOut(duration: 0.18), value: state.toast?.id)
         .animation(.easeOut(duration: 0.22), value: state.startingGameID)
     }
 
     private func backdrop(size: CGSize) -> some View {
-        ZStack {
+        let starting = state.startingGame != nil   // the cover fills the window, soft and darkened (a static blur: Reduce Motion changes nothing here)
+        return ZStack {
             LauncherPalette.background
             if let game = state.startingGame ?? state.focusedGame {
                 Group {
@@ -105,10 +106,12 @@ enum ConsoleInput {
                     else { LinearGradient(colors: ConsolePlaceholder.colors(for: game.title), startPoint: .topLeading, endPoint: .bottomTrailing) }
                 }
                 .frame(width: size.width, height: size.height)
-                .blur(radius: 70).drawingGroup().opacity(0.30).id(game.id).transition(.opacity)
+                .blur(radius: starting ? 36 : 70).drawingGroup().opacity(starting ? 1 : 0.30).id(game.id).transition(.opacity)
             }
-            LinearGradient(colors: [.black.opacity(0.10), LauncherPalette.background.opacity(0.95)], startPoint: .top, endPoint: .bottom)
+            if starting { Color.black.opacity(0.32) }   // a scrim keeps the Starting text readable on any cover
+            if !starting { LinearGradient(colors: [.black.opacity(0.10), LauncherPalette.background.opacity(0.95)], startPoint: .top, endPoint: .bottom) }
         }
+        .animation(.easeInOut(duration: reduceMotion ? 0.01 : 0.38), value: (state.startingGame ?? state.focusedGame)?.id)   // the art cross-fades, slowly and softly
         .clipped().ignoresSafeArea().accessibilityHidden(true)
     }
 
@@ -122,6 +125,9 @@ enum ConsoleInput {
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(alignment: .leading, spacing: compact || size.height < 900 ? 24 : 32) {
                         if let game = state.focusedGame {
+                            // A fixed-height slot: the old and the new title overlap and cross-fade in place (0.15 s), so nothing slides
+                            // and the row below never moves, whatever the title's length.
+                            ZStack(alignment: .bottomLeading) {
                             VStack(alignment: .leading, spacing: compact ? 14 : 20) {
                                 Text(t("console.library")).font(.manrope(compact ? 14 : 18, .semibold))
                                     .tracking(2).foregroundStyle(LauncherPalette.cream.opacity(0.75))
@@ -129,7 +135,8 @@ enum ConsoleInput {
                                     .tracking(-1.6).lineLimit(2).fixedSize(horizontal: false, vertical: true)
                                     .accessibilityAddTraits(.isHeader)
                                 HStack(spacing: 12) {
-                                    Text(String(format: t("console.version"), game.version)).foregroundStyle(.white.opacity(0.6))
+                                    Text(String(format: t("console.version"), game.version)).monospacedDigit().lineLimit(1)
+                                        .foregroundStyle(.white.opacity(0.6)).frame(width: compact ? 118 : 176, alignment: .leading)   // fixed, so the badges stay put
                                     ForEach(game.platforms, id: \.self) { platform in
                                         Text(t(platform.labelKey)).font(.manrope(compact ? 13 : 17, .semibold))
                                             .padding(.horizontal, 12).padding(.vertical, 5)
@@ -138,8 +145,11 @@ enum ConsoleInput {
                                 }
                                 .font(.manrope(compact ? 14 : 18))
                             }
+                            .id(game.id).transition(.opacity)
+                            }
+                            .animation(.easeInOut(duration: 0.15), value: game.id)
                             .padding(.horizontal, inset)
-                            .frame(minHeight: compact ? 165 : size.height < 900 ? 140 : 195, alignment: .bottomLeading)
+                            .frame(height: compact ? 175 : 100 + 2.4 * min(64, size.width / 24), alignment: .bottomLeading)
                         }
                         gameRow(size: size, compact: compact, inset: inset)
                     }
@@ -159,7 +169,6 @@ enum ConsoleInput {
             Spacer(minLength: 0)
             ConsoleControllerChips(controllers: state.controllers, merged: state.padMerge, lang: lang, compact: compact) { driver.openControllers() }
                 .frame(maxWidth: CGFloat(max(1, state.controllers.count)) * (compact ? 120 : 150))
-            ConsoleGlyphView(glyph: glyphs.glyph(for: .controllers), size: compact ? 18 : 22).foregroundStyle(.white.opacity(0.6))   // the button that opens the Controllers sheet
             Text(state.time, style: .time).font(.manrope(compact ? 17 : 22, .medium)).monospacedDigit()
                 .foregroundStyle(.white.opacity(0.65)).fixedSize()
         }
@@ -167,7 +176,7 @@ enum ConsoleInput {
     }
 
     private func gameRow(size: CGSize, compact: Bool, inset: CGFloat) -> some View {
-        let width: CGFloat = compact ? size.width - 70 : min(470, size.width * 0.32)
+        let width: CGFloat = compact ? size.width - inset * 2 - 16 : min(470, size.width * 0.32)
         return ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(alignment: .top, spacing: compact ? 22 : 28) {
@@ -177,19 +186,22 @@ enum ConsoleInput {
                             ConsoleGameTile(game: game, selected: selected, compact: compact, lang: lang)
                                 .frame(width: width)
                                 .scaleEffect(selected && !reduceMotion ? 1.025 : 1)
+                                .animation(.easeOut(duration: 0.15), value: selected)
                                 .contentShape(RoundedRectangle(cornerRadius: 18))
                         }
                         .buttonStyle(.plain)
-                        .padTarget("console.game." + game.id, scope: "console", radius: 18, activate: { driver.play(game.id) })
+                        .padTarget("console.game." + game.id, scope: "console", radius: 16, activate: { driver.play(game.id) })
                         .accessibilityLabel(game.title + ", " + t(game.status.labelKey))
                         .accessibilityHint(t("console.playHint"))
                         .accessibilityAddTraits(selected ? .isSelected : [])
                     }
                 }
-                .padding(.horizontal, inset).padding(.vertical, 12)
+                .padding(.horizontal, 8).padding(.vertical, 12)   // room for the focused tile's small scale inside the clip
             }
+            .padding(.horizontal, inset - 8)   // the scroll area is the page margin, so tiles clip there and the title lines up with the first tile
             .onChange(of: state.focusedGame?.id) { id in
-                if let id { withAnimation(.easeOut(duration: reduceMotion ? 0 : 0.22)) { proxy.scrollTo("console.game." + id, anchor: .center) } }
+                // a new focus replaces the running scroll, it does not queue
+                if let id { withAnimation(.easeInOut(duration: reduceMotion ? 0 : 0.25)) { proxy.scrollTo("console.game." + id, anchor: .center) } }
             }
             .onAppear { if let id = state.focusedGame?.id { proxy.scrollTo("console.game." + id, anchor: .center) } }
         }

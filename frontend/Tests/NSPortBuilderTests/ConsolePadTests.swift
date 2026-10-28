@@ -95,7 +95,7 @@ final class ConsolePadTests: XCTestCase {
         let repo = BuildModel.findRepo()
         for (sizeName, width, height) in [("1920", CGFloat(1920), CGFloat(1080)), ("compact", 390, 844)] {
             for (name, scenario, family) in [("home", MockConsoleDriver.Scenario.full, ConsoleGlyphs.Family.xbox), ("home-dualsense", .full, .playStation),
-                                             ("controllers", .controllersMixed, .xbox), ("options", .full, .xbox), ("empty", .empty, .xbox)] {
+                                             ("controllers", .controllersMixed, .xbox), ("options", .full, .xbox), ("empty", .empty, .xbox), ("starting", .starting, .xbox)] {
                 let driver = MockConsoleDriver(scenario: scenario, lang: .en, animated: false, artworkRepo: repo.isEmpty ? nil : repo)
                 if name == "options" { driver.openOptions("demo.0") }
                 let host = NSHostingView(rootView: ConsoleView(driver: driver, lang: .en, glyphs: .init(family: family)).transaction { $0.disablesAnimations = true }.frame(width: width, height: height))
@@ -121,33 +121,55 @@ final class ConsolePadTests: XCTestCase {
         for (category, family) in cases { XCTAssertEqual(ConsoleGlyphs.Family(category: category), family, category ?? "nil") }
     }
 
-    /// Actions resolve to the physical buttons Gamepad.swift reads (east confirms, south backs out, menu opens options, west opens
-    /// Controllers), then to what the controller prints there.
+    /// Actions resolve to GameController's elements (A confirms, B backs out, Y opens Controllers, menu opens options), then to
+    /// what the controller prints there. On a DualSense A is the cross, B the circle and Y the triangle.
     func testGlyphsFollowTheControllerInUse() {
-        XCTAssertEqual(ConsoleGlyphs.Role.activate.element, .east)
-        XCTAssertEqual(ConsoleGlyphs.Role.back.element, .south)
+        XCTAssertEqual(ConsoleGlyphs.Role.activate.element, .a)
+        XCTAssertEqual(ConsoleGlyphs.Role.back.element, .b)
         XCTAssertEqual(ConsoleGlyphs.Role.options.element, .menu)
-        XCTAssertEqual(ConsoleGlyphs.Role.controllers.element, .west)
+        XCTAssertEqual(ConsoleGlyphs.Role.controllers.element, .y)
         let xbox = ConsoleGlyphs(family: .xbox)
-        XCTAssertEqual(xbox.glyph(for: .activate), .symbol("b.circle"), "Xbox: the east button reads B")
-        XCTAssertEqual(xbox.glyph(for: .back), .symbol("a.circle"))
+        XCTAssertEqual(xbox.glyph(for: .activate), .symbol("a.circle"))
+        XCTAssertEqual(xbox.glyph(for: .back), .symbol("b.circle"))
+        XCTAssertEqual(xbox.glyph(for: .controllers), .symbol("y.circle"))
         let ps = ConsoleGlyphs(family: .playStation)
-        XCTAssertEqual(ps.glyph(for: .activate), .symbol("circle.circle"))
-        XCTAssertEqual(ps.glyph(for: .back), .symbol("xmark.circle"))
-        XCTAssertEqual(ps.glyph(for: .controllers), .symbol("square.circle"))
+        XCTAssertEqual(ps.glyph(for: .activate), .symbol("xmark.circle"), "Play is the cross")
+        XCTAssertEqual(ps.glyph(for: .back), .symbol("circle.circle"), "Back is the circle")
+        XCTAssertEqual(ps.glyph(for: .controllers), .symbol("triangle.circle"), "Controllers is the triangle")
         let nintendo = ConsoleGlyphs(family: .nintendo)
         XCTAssertEqual(nintendo.glyph(for: .activate), .symbol("a.circle"))
+        XCTAssertEqual(nintendo.glyph(for: .controllers), .symbol("y.circle"))
         XCTAssertEqual(nintendo.glyph(for: .options), .symbol("plus.circle"))
     }
 
     func testReportedSymbolWinsAndFallbacksAreNeutral() {
-        let reported = ConsoleGlyphs(family: .xbox, reported: [.east: "custom.symbol"])
+        let reported = ConsoleGlyphs(family: .xbox, reported: [.a: "custom.symbol"])
         XCTAssertEqual(reported.glyph(for: .activate), .symbol("custom.symbol"))
-        XCTAssertEqual(reported.glyph(for: .back), .symbol("a.circle"), "an element it does not report uses the family table")
+        XCTAssertEqual(reported.glyph(for: .back), .symbol("b.circle"), "an element it does not report uses the family table")
         XCTAssertEqual(ConsoleGlyphs.neutral.glyph(for: .activate), .letter("A"))
         XCTAssertEqual(ConsoleGlyphs.neutral.glyph(for: .options), .letter("+"))
         XCTAssertEqual(ConsoleGlyphs.keyboard.glyph(for: .activate), .key("Return"))
         XCTAssertEqual(ConsoleGlyphs.keyboard.glyph(for: .back), .key("Esc"))
-        XCTAssertEqual(ConsoleGlyphs(family: .keyboard, reported: [.east: "x"]).glyph(for: .activate), .key("Return"))
+        XCTAssertEqual(ConsoleGlyphs(family: .keyboard, reported: [.a: "x"]).glyph(for: .activate), .key("Return"))
+    }
+
+    /// One mapping serves every family: GameController reports Xbox and PlayStation buttons by position (A is the bottom button,
+    /// the cross) and a Nintendo-layout controller by its printed label (A on the right). The glyph is that same element.
+    func testConfirmAndBackFollowTheLabelOnEveryFamily() {
+        XCTAssertEqual(LauncherGamepad.face(for: .a), .a)
+        XCTAssertEqual(LauncherGamepad.face(for: .b), .b)
+        XCTAssertEqual(LauncherGamepad.face(for: .x), .x)
+        XCTAssertEqual(LauncherGamepad.face(for: .y), .y)
+        XCTAssertNil(LauncherGamepad.face(for: .left))
+        XCTAssertNil(LauncherGamepad.face(for: .l))
+        for family in [ConsoleGlyphs.Family.xbox, .playStation, .nintendo] {
+            let glyphs = ConsoleGlyphs(family: family)
+            guard case .symbol(let confirm) = glyphs.glyph(for: .activate), case .symbol(let back) = glyphs.glyph(for: .back) else { return XCTFail("\(family)") }
+            XCTAssertEqual(confirm, ConsoleGlyphs.table(family)[.a], "\(family)")
+            XCTAssertEqual(back, ConsoleGlyphs.table(family)[.b], "\(family)")
+        }
+        // Nintendo layout: Play shows A and Back shows B (not B and A)
+        XCTAssertEqual(ConsoleGlyphs(family: .nintendo).glyph(for: .activate), .symbol("a.circle"))
+        XCTAssertEqual(ConsoleGlyphs(family: .nintendo).glyph(for: .back), .symbol("b.circle"))
     }
 }

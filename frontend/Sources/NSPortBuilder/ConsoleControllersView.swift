@@ -139,7 +139,7 @@ struct ConsoleToastView: View {
                             }
                             .buttonStyle(.plain).accessibilityLabel(String(format: t("console.player"), player))
                             .accessibilityAddTraits(state.assigningPlayer == player ? .isSelected : [])
-                            .padTarget("console.player.\(player)", scope: scope, activate: { driver.requestPlayer(player) })
+                            .padTarget("console.player.\(player)", scope: scope, radius: 12, activate: { driver.requestPlayer(player) })
                         }
                     }
                     if let player = state.assigningPlayer {
@@ -168,11 +168,11 @@ struct ConsoleToastView: View {
                 }
                 Spacer(minLength: 0)
             }
-            let layout = compact ? AnyLayout(VStackLayout(alignment: .leading, spacing: 10)) : AnyLayout(HStackLayout(spacing: 10))
-            layout {
-                action(id: controller.id + ".identify", label: t(state.identifyingControllerID == controller.id ? "console.identifying" : "console.identify"), symbol: "wave.3.right") { driver.identify(controllerID: controller.id) }
-                action(id: controller.id + ".assign", label: t("console.assign"), symbol: "person.crop.circle.badge.plus") { driver.requestAssignment(controllerID: controller.id) }
-                action(id: controller.id + ".disconnect", label: t("console.disconnect"), symbol: "xmark.circle") { driver.disconnect(controllerID: controller.id) }
+            // Three equal tiles: the icon above a label that wraps between words only (and shrinks a little rather than break a word).
+            HStack(spacing: 10) {
+                tile(id: controller.id + ".identify", label: t(state.identifyingControllerID == controller.id ? "console.identifying" : "console.identify"), symbol: "wave.3.right") { driver.identify(controllerID: controller.id) }
+                tile(id: controller.id + ".assign", label: t("console.assign"), symbol: "person.crop.circle.badge.plus") { driver.requestAssignment(controllerID: controller.id) }
+                tile(id: controller.id + ".disconnect", label: t("console.disconnect"), symbol: "xmark.circle") { driver.disconnect(controllerID: controller.id) }
             }
             if state.isPreview, state.assigningPlayer != nil, state.assigningControllerID == nil || state.assigningControllerID == controller.id {
                 action(id: controller.id + ".press", label: t("console.mockPress"), symbol: "hand.tap") {
@@ -181,6 +181,20 @@ struct ConsoleToastView: View {
             }
         }
         .padding(20).background(LauncherPalette.surface, in: RoundedRectangle(cornerRadius: 16))
+    }
+    private func tile(id: String, label: String, symbol: String, perform: @escaping () -> Void) -> some View {
+        Button(action: perform) {
+            VStack(spacing: 8) {
+                Image(systemName: symbol).font(.system(size: compact ? 20 : 24)).accessibilityHidden(true)
+                Text(label).font(.manrope(compact ? 14 : 17, .semibold)).multilineTextAlignment(.center)
+                    .lineLimit(2).minimumScaleFactor(0.7).fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, minHeight: compact ? 88 : 96).padding(.horizontal, 6)
+            .background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 10)).contentShape(RoundedRectangle(cornerRadius: 10))
+        }
+        .buttonStyle(.plain)
+        .padTarget("console.controller." + id, scope: scope, radius: 10, activate: perform)
+        .accessibilityLabel(label)
     }
     private func action(id: String, label: String, value: String? = nil, symbol: String, adjust: ((Int) -> Void)? = nil, perform: @escaping () -> Void) -> some View {
         Button(action: perform) {
@@ -209,12 +223,13 @@ struct ConsoleToastView: View {
                 Spacer()
                 Button(action: close) { Image(systemName: "xmark").frame(width: 48, height: 48) }
                     .buttonStyle(.plain).accessibilityLabel(L10n.string("console.close", lang))
-                    .padTarget("console.sheet.close", scope: "console.controllers", activate: close)
+                    .padTarget("console.sheet.close", scope: "console.controllers", radius: 24, activate: close)
             }.padding(24)
             ConsoleControllerList(driver: driver, lang: lang, compact: true)
         }
         .frame(minWidth: 360, idealWidth: 580, maxWidth: 580, minHeight: 600, idealHeight: 720, maxHeight: 720).background(LauncherPalette.background).preferredColorScheme(.dark)
         .foregroundStyle(.white).padScope("console.controllers", pad)
+        .environment(\.padRingStyle, .hug)
         .onAppear { pad.scope = "console.controllers"; pad.focused = "console.controller.merge" }
         .overlay(alignment: .bottom) { if let toast = driver.state.toast { ConsoleToastView(toast: toast) } }
         .background(ConsoleKeyboardInput { input in

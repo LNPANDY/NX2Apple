@@ -1,12 +1,13 @@
 import GameController
 import SwiftUI
 
-/// The button glyphs the console mode shows, for the input used last. The launcher's controller navigation is by position
-/// (Gamepad.swift: Action.a is GameController's buttonB, the east face button, Action.b is buttonA at the south, Y is buttonX at
-/// the west, and + is buttonMenu), so each action resolves to a physical element and the glyph is whatever that element is
-/// printed with on the controller: Apple's per-element `sfSymbolsName`, a per-family table when the controller reports none, a
-/// key cap for the keyboard, and our own neutral letter when nothing is known. The Controls page's layout (By label, #70) only
-/// changes what a game receives (DM_PAD_MAP), never what the launcher's menus do, so it does not move these glyphs. No logos.
+/// The button glyphs the console mode shows, for the input used last. The launcher reads the face buttons by label
+/// (`LauncherGamepad.face`): Play is GameController's buttonA, Back is buttonB, Controllers is buttonY and options is
+/// buttonMenu. GameController documents the diamond as A at the bottom, B right, X left, Y top (GCExtendedGamepad.h), so on a
+/// DualSense A is the cross, B the circle, X the square and Y the triangle. The glyph is the element's own `sfSymbolsName`
+/// (input remapping included), a per-family table when it reports none, a key cap for the keyboard, and our own neutral letter
+/// when nothing is known. The Controls page's layout (By label) only changes what a game receives (DM_PAD_MAP), so it does not
+/// move these glyphs. No logos.
 struct ConsoleGlyphs: Equatable {
     enum Family: Equatable {
         case xbox, playStation, nintendo, keyboard, neutral
@@ -20,16 +21,25 @@ struct ConsoleGlyphs: Equatable {
             else { self = .neutral }
         }
     }
-    /// A physical button, by position.
-    enum Element: Hashable { case east, south, west, north, menu }
+    /// A button as GameController names it.
+    enum Element: Hashable { case a, b, x, y, menu }
     enum Role {
         case activate, back, options, controllers
         var element: Element {
             switch self {
-            case .activate: return .east
-            case .back: return .south
+            case .activate: return Self.element(of: .a)
+            case .back: return Self.element(of: .b)
             case .options: return .menu
-            case .controllers: return .west
+            case .controllers: return Self.element(of: .y)
+            }
+        }
+        /// The element that performs a launcher action, taken from the one mapping Gamepad.swift reads, so glyph and button cannot differ.
+        private static func element(of action: LauncherGamepad.Action) -> Element {
+            switch LauncherGamepad.face(for: action) {
+            case .a?: return .a
+            case .b?: return .b
+            case .x?: return .x
+            case .y?, nil: return .y
             }
         }
         var keyCap: String {
@@ -57,9 +67,9 @@ struct ConsoleGlyphs: Equatable {
     /// What a family's elements are printed with, for a controller that reports no symbol of its own.
     static func table(_ family: Family) -> [Element: String] {
         switch family {
-        case .xbox: return [.east: "b.circle", .south: "a.circle", .west: "x.circle", .north: "y.circle", .menu: "line.3.horizontal.circle"]
-        case .playStation: return [.east: "circle.circle", .south: "xmark.circle", .west: "square.circle", .north: "triangle.circle", .menu: "line.3.horizontal.circle"]
-        case .nintendo: return [.east: "a.circle", .south: "b.circle", .west: "y.circle", .north: "x.circle", .menu: "plus.circle"]
+        case .xbox: return [.a: "a.circle", .b: "b.circle", .x: "x.circle", .y: "y.circle", .menu: "line.3.horizontal.circle"]
+        case .playStation: return [.a: "xmark.circle", .b: "circle.circle", .x: "square.circle", .y: "triangle.circle", .menu: "line.3.horizontal.circle"]
+        case .nintendo: return [.a: "a.circle", .b: "b.circle", .x: "x.circle", .y: "y.circle", .menu: "plus.circle"]
         case .keyboard, .neutral: return [:]
         }
     }
@@ -69,7 +79,7 @@ struct ConsoleGlyphs: Equatable {
     init(controller: GCController) {
         family = Family(category: controller.productCategory)
         if let pad = controller.extendedGamepad {
-            let elements: [(Element, GCControllerButtonInput)] = [(.east, pad.buttonB), (.south, pad.buttonA), (.west, pad.buttonX), (.north, pad.buttonY), (.menu, pad.buttonMenu)]
+            let elements: [(Element, GCControllerButtonInput)] = [(.a, pad.buttonA), (.b, pad.buttonB), (.x, pad.buttonX), (.y, pad.buttonY), (.menu, pad.buttonMenu)]
             for (element, button) in elements { if let name = button.sfSymbolsName { reported[element] = name } }
         }
     }
