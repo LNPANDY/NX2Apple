@@ -26,13 +26,17 @@ enum ConsoleInput {
     @ObservedObject var driver: Driver
     var lang: Lang = .initial()
     var inputs: AnyPublisher<ConsoleInput, Never> = Empty().eraseToAnyPublisher()
+    /// Set by the real launcher: leaving the mode calls it instead of showing the preview's "Back on desktop" screen.
+    var onExit: (() -> Void)?
     @StateObject private var pad = PadFocus()
     @StateObject private var gamepad: LauncherGamepad
+    @State private var tileFrames: [String: CGRect] = [:]
     /// The glyph set follows the input used last: a controller's own buttons, or key caps after the keyboard.
     @State private var glyphs: ConsoleGlyphs
 
     /// `gamepad` is the one the root view owns (the controller has a single handler, so two would fight); without one the view makes its own.
-    init(driver: Driver, lang: Lang = .initial(), inputs: AnyPublisher<ConsoleInput, Never> = Empty().eraseToAnyPublisher(), gamepad: LauncherGamepad? = nil, glyphs: ConsoleGlyphs? = nil) {
+    init(driver: Driver, lang: Lang = .initial(), inputs: AnyPublisher<ConsoleInput, Never> = Empty().eraseToAnyPublisher(), gamepad: LauncherGamepad? = nil, glyphs: ConsoleGlyphs? = nil, onExit: (() -> Void)? = nil) {
+        self.onExit = onExit
         _glyphs = State(initialValue: glyphs ?? .current())
         self.driver = driver
         self.lang = lang
@@ -85,7 +89,7 @@ enum ConsoleInput {
         .background(ConsoleKeyboardInput(perform: { input in glyphs = .keyboard; handle(input) }).frame(width: 0, height: 0))
         .onReceive(inputs, perform: handle)
         .onChange(of: scope) { _ in resetFocus() }
-        .onChange(of: state.exited) { _ in resetFocus() }
+        .onChange(of: state.exited) { exited in if exited, let onExit { onExit() } else { resetFocus() } }
         .onAppear { gamepad.perform = { [self] action in if let input = ConsoleInput(action) { glyphs = .current(); handle(input) } }; resetFocus() }
         .onDisappear { gamepad.perform = { _ in } }
         .onChange(of: pad.focused) { id in
@@ -175,6 +179,12 @@ enum ConsoleInput {
         .frame(height: compact ? 40 : 52)
     }
 
+    /// A caption shows only while its tile is fully inside the row, so a clipped tile never leaves a fragment of text at the margin.
+    private func tileVisible(_ id: String, rowWidth: CGFloat) -> Bool {
+        guard let frame = tileFrames[id] else { return true }
+        return frame.minX >= -1 && frame.maxX <= rowWidth + 1
+    }
+
     private func gameRow(size: CGSize, compact: Bool, inset: CGFloat) -> some View {
         let width: CGFloat = compact ? size.width - inset * 2 - 16 : min(470, size.width * 0.32)
         return ScrollViewReader { proxy in
@@ -183,14 +193,16 @@ enum ConsoleInput {
                     ForEach(state.games) { game in
                         let selected = state.focusedGame?.id == game.id
                         Button { driver.focus(game.id); driver.play(game.id) } label: {
-                            ConsoleGameTile(game: game, selected: selected, compact: compact, lang: lang)
+                            ConsoleGameTile(game: game, selected: selected, compact: compact, lang: lang, captionVisible: tileVisible(game.id, rowWidth: size.width - 2 * (inset - 8)))
                                 .frame(width: width)
-                                .scaleEffect(selected && !reduceMotion ? 1.025 : 1)
-                                .animation(.easeOut(duration: 0.15), value: selected)
-                                .contentShape(RoundedRectangle(cornerRadius: 18))
+                                .contentShape(RoundedRectangle(cornerRadius: 16))
                         }
                         .buttonStyle(.plain)
                         .padTarget("console.game." + game.id, scope: "console", radius: 16, activate: { driver.play(game.id) })
+                        // the focus scale is applied to the button with its ring, so the ring frames the image flush at any scale
+                        .scaleEffect(selected && !reduceMotion ? 1.025 : 1)
+                        .animation(.easeOut(duration: 0.15), value: selected)
+                        .background(GeometryReader { g in Color.clear.preference(key: ConsoleTileFramesKey.self, value: [game.id: g.frame(in: .named("console.row"))]) })
                         .accessibilityLabel(game.title + ", " + t(game.status.labelKey))
                         .accessibilityHint(t("console.playHint"))
                         .accessibilityAddTraits(selected ? .isSelected : [])
@@ -198,6 +210,8 @@ enum ConsoleInput {
                 }
                 .padding(.horizontal, 8).padding(.vertical, 12)   // room for the focused tile's small scale inside the clip
             }
+            .coordinateSpace(name: "console.row")
+            .onPreferenceChange(ConsoleTileFramesKey.self) { tileFrames = $0 }
             .padding(.horizontal, inset - 8)   // the scroll area is the page margin, so tiles clip there and the title lines up with the first tile
             .onChange(of: state.focusedGame?.id) { id in
                 // a new focus replaces the running scroll, it does not queue
@@ -208,10 +222,11 @@ enum ConsoleInput {
     }
 
     private func hintBar(compact: Bool) -> some View {
-        let columns = compact ? [GridItem(.flexible()), GridItem(.flexible())] : Array(repeating: GridItem(.flexible(), alignment: .leading), count: 4)
+        // Equal-width slots between the page margins, every item the same pill and centered in its slot (two by two when compact).
+        let columns = Array(repeating: GridItem(.flexible(), spacing: compact ? 12 : 20), count: compact ? 2 : 4)
         return VStack(spacing: 20) {
             Rectangle().fill(.white.opacity(0.10)).frame(height: 1)
-            LazyVGrid(columns: columns, alignment: .leading, spacing: 16) {
+            LazyVGrid(columns: columns, spacing: compact ? 12 : 16) {
                 hint(.activate, "console.play", "console.play", primary: true, compact: compact) { if let id = state.focusedGame?.id { driver.play(id) } }
                 hint(.options, "console.options", "console.options", compact: compact) { if let id = state.focusedGame?.id { driver.openOptions(id) } }
                 hint(.controllers, "console.controllers", "console.controllers", compact: compact) { driver.openControllers() }
@@ -222,11 +237,11 @@ enum ConsoleInput {
 
     private func hint(_ role: ConsoleGlyphs.Role, _ key: String, _ id: String, primary: Bool = false, compact: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack(spacing: 10) { ConsoleGlyphView(glyph: glyphs.glyph(for: role), size: compact ? 20 : 24); Text(t(key)) }
+            HStack(alignment: .center, spacing: 10) { ConsoleGlyphView(glyph: glyphs.glyph(for: role), size: compact ? 20 : 24); Text(t(key)).lineLimit(1).minimumScaleFactor(0.8) }
                 .font(.manrope(compact ? 15 : 20, .semibold))
-                .padding(.horizontal, primary ? 20 : 4).frame(minHeight: 48)
+                .padding(.horizontal, 12).frame(maxWidth: .infinity, minHeight: 48)
                 .foregroundStyle(primary ? LauncherPalette.background : .white.opacity(0.8))
-                .background(primary ? LauncherPalette.cream : .clear, in: Capsule())
+                .background(primary ? LauncherPalette.cream : .white.opacity(0.07), in: Capsule())
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain).padTarget(id, scope: "console", radius: 28, activate: action)
@@ -335,8 +350,7 @@ enum ConsoleInput {
 
     private func starting(_ game: ConsoleGame, compact: Bool) -> some View {
         VStack(spacing: 30) {
-            ConsoleArtwork(image: game.artwork, title: game.title).aspectRatio(1.8, contentMode: .fit).frame(maxWidth: compact ? 320 : 680)
-                .clipShape(RoundedRectangle(cornerRadius: 22)).accessibilityHidden(true)
+            // The only image is the blurred cover behind (backdrop). The text and the bar sit in the middle of the screen.
             Text(String(format: t("console.starting"), game.title)).font(.manrope(compact ? 30 : 48, .bold))
                 .multilineTextAlignment(.center).accessibilityAddTraits(.isHeader)
             VStack(spacing: 16) {
@@ -449,11 +463,17 @@ struct ConsoleArtwork: View {
     }
 }
 
+private struct ConsoleTileFramesKey: PreferenceKey {
+    static var defaultValue: [String: CGRect] = [:]
+    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) { value.merge(nextValue()) { _, new in new } }
+}
+
 struct ConsoleGameTile: View {
     let game: ConsoleGame
     let selected: Bool
     let compact: Bool
     let lang: Lang
+    var captionVisible = true
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             ConsoleArtwork(image: game.artwork, title: game.title).aspectRatio(1.8, contentMode: .fit)
@@ -469,7 +489,7 @@ struct ConsoleGameTile: View {
             // The focused game's name is the big title above, so its tile shows the image alone (the row is top-aligned, so
             // nothing else moves). The others keep a small, muted caption.
             if !selected {
-                Text(game.title).font(.manrope(compact ? 14 : 17, .medium)).lineLimit(1)
+                Text(game.title).opacity(captionVisible ? 1 : 0).font(.manrope(compact ? 14 : 17, .medium)).lineLimit(1)
                     .foregroundStyle(.white.opacity(0.5)).padding(.horizontal, 4).accessibilityHidden(true)
             }
         }

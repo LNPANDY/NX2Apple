@@ -25,12 +25,15 @@ struct ConsoleGlyphs: Equatable {
     enum Element: Hashable { case a, b, x, y, menu }
     enum Role {
         case activate, back, options, controllers
+        /// The desktop launcher's own: X opens a game's launch options and Y its Manage menu (LauncherView.padAction).
+        case launchOptions, manage
         var element: Element {
             switch self {
             case .activate: return Self.element(of: .a)
             case .back: return Self.element(of: .b)
             case .options: return .menu
-            case .controllers: return Self.element(of: .y)
+            case .controllers, .manage: return Self.element(of: .y)
+            case .launchOptions: return Self.element(of: .x)
             }
         }
         /// The element that performs a launcher action, taken from the one mapping Gamepad.swift reads, so glyph and button cannot differ.
@@ -43,14 +46,14 @@ struct ConsoleGlyphs: Equatable {
             }
         }
         var keyCap: String {
-            switch self { case .activate: return "return"; case .back: return "escape"; case .options: return "O"; case .controllers: return "Y" }
+            switch self { case .activate: return "return"; case .back: return "escape"; case .options, .launchOptions: return "O"; case .controllers, .manage: return "Y" }
         }
         /// Keys drawn as an SF Symbol in their cap (Return, Escape) instead of a word.
         var keySymbol: Bool {
-            switch self { case .activate, .back: return true; case .options, .controllers: return false }
+            switch self { case .activate, .back: return true; default: return false }
         }
         var letter: String {
-            switch self { case .activate: return "A"; case .back: return "B"; case .options: return "+"; case .controllers: return "Y" }
+            switch self { case .activate: return "A"; case .back: return "B"; case .options: return "+"; case .launchOptions: return "X"; case .controllers, .manage: return "Y" }
         }
     }
     enum Glyph: Equatable { case symbol(String), key(String), keySymbol(String), letter(String) }

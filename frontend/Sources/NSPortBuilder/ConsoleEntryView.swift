@@ -8,8 +8,8 @@ struct ConsoleEntryButton: View {
     var body: some View {
         Button(action: enterConsole) {
             Group {
-                if compact { Image(systemName: "tv") }
-                else { Label(L10n.string("console.entry", lang), systemImage: "tv") }
+                if compact { Image(systemName: "gamecontroller") }
+                else { Label(L10n.string("console.entry", lang), systemImage: "gamecontroller") }
             }
                 .font(.manrope(13, .semibold)).padding(.horizontal, 12).padding(.vertical, 8)
                 .background(.white.opacity(0.07), in: Capsule()).contentShape(Capsule())

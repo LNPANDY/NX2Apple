@@ -57,9 +57,9 @@ struct ContentView: View {
     init(model: BuildModel? = nil, library: GameLibrary? = nil, initialPage: LauncherPage = .library,
          activeBuildID: UUID? = nil, performStartupChecks: Bool = true, search: String? = nil, olderTools: Set<UUID> = [],
          manageOpen: Bool = false, padRing: Bool = false, onRunSetup: (() -> Void)? = nil,
-         enterConsole: (() -> Void)? = nil, controllerDriver: AnyConsoleDriver? = nil) {
+         enterConsole: (() -> Void)? = nil, controllerDriver: AnyConsoleDriver? = nil, controls sharedControls: ControlLayout? = nil) {
         self.onRunSetup = onRunSetup
-        let layout = ControlLayout()
+        let layout = sharedControls ?? ControlLayout()
         _controls = StateObject(wrappedValue: layout)
         _consoleDriver = StateObject(wrappedValue: controllerDriver ?? AnyConsoleDriver(LauncherControllerDriver(layout: layout)))
         injectedDriver = controllerDriver != nil
@@ -103,7 +103,12 @@ struct ContentView: View {
                 ConsoleConnectionPrompt(lang: m.lang, enterConsole: { consolePrompt = false; enterConsole() }, dismissPrompt: { consolePrompt = false })
             }
         }
-        .onChange(of: gamepad.connected) { connected in if connected, enterConsole != nil { consolePrompt = true } }
+        .onChange(of: gamepad.connected) { connected in
+            if connected, enterConsole != nil, ConsolePrompt.shouldShow(enabled: ConsolePrompt.enabled, shown: ConsolePrompt.shownThisSession) {
+                ConsolePrompt.didShow()
+                consolePrompt = true
+            }
+        }
         .onChange(of: consoleDriver.state.padMerge) { merged in if injectedDriver { controls.padMerge = merged } }
         .onChange(of: consolePrompt) { open in
             padFocus.scope = open ? "console.entry" : currentPadScope
@@ -234,6 +239,11 @@ struct ContentView: View {
     /// The controller strip appears with the first controller the driver reports (none yet outside the preview).
     private var showsControllers: Bool { !consoleDriver.state.controllers.isEmpty }
 
+    @ViewBuilder private func navLabel(_ destination: LauncherPage, compact: Bool) -> some View {
+        if compact { Image(systemName: destination.symbol).accessibilityLabel(m.t("nav." + destination.rawValue)) }
+        else { Label(m.t("nav." + destination.rawValue), systemImage: destination.symbol) }
+    }
+
     private var topBar: some View {
         GeometryReader { geometry in
             let compact = (enterConsole != nil || showsControllers) && (geometry.size.width < 1100 || (searching && geometry.size.width < 1400))
@@ -250,11 +260,11 @@ struct ContentView: View {
                     .padding(.trailing, compact ? 16 : 34)
                     ForEach(LauncherPage.allCases, id: \.self) { destination in
                         Button { page = destination } label: {
-                            Group {
-                                if compact { Image(systemName: destination.symbol).accessibilityLabel(m.t("nav." + destination.rawValue)) }
-                                else { Label(m.t("nav." + destination.rawValue), systemImage: destination.symbol) }
+                            // The selected tab is bold. The bold text also sizes the (hidden) slot, so a tab never changes width as the selection moves.
+                            ZStack {
+                                navLabel(destination, compact: compact).font(.manrope(15, .bold)).hidden()
+                                navLabel(destination, compact: compact).font(.manrope(15, page == destination ? .bold : .medium))
                             }
-                                .font(.manrope(15, page == destination ? .bold : .medium))
                                 .padding(.horizontal, compact ? 14 : 18).padding(.vertical, 10)
                                 .background(page == destination ? Color.white.opacity(0.10) : .clear,
                                             in: RoundedRectangle(cornerRadius: 9))
@@ -609,8 +619,8 @@ struct ContentView: View {
                     if gamepad.connected {
                         // The buttons a controller has here, named as the game names them (A on the right)
                         HStack(spacing: 18) {
-                            padHint("A", m.t("pad.play")); padHint("X", m.t("pad.options")); padHint("B", m.t("pad.back"))
-                            padHint("Y", m.t("pad.manage"))
+                            padHint(.activate, m.t("pad.play")); padHint(.launchOptions, m.t("pad.options")); padHint(.back, m.t("pad.back"))
+                            padHint(.manage, m.t("pad.manage"))
                             Image(systemName: "gamecontroller").foregroundStyle(.secondary)
                         }
                     }
@@ -620,10 +630,11 @@ struct ContentView: View {
         }
     }
 
-    private func padHint(_ button: String, _ label: String) -> some View {
+    /// A pad hint shows the glyph of the controller connected (the same ConsoleGlyphs the console mode uses), so it names the button
+    /// that really performs the action on a DualSense, an Xbox or a Nintendo-layout controller.
+    private func padHint(_ role: ConsoleGlyphs.Role, _ label: String) -> some View {
         HStack(spacing: 7) {
-            Text(button).font(.manrope(11, .bold)).foregroundStyle(.black)
-                .frame(width: 20, height: 20).background(LauncherPalette.cream.opacity(0.9), in: Circle())
+            ConsoleGlyphView(glyph: ConsoleGlyphs.current().glyph(for: role), size: 18).foregroundStyle(LauncherPalette.cream)
             Text(label).font(.manrope(13)).foregroundStyle(.secondary)
         }
     }
@@ -754,12 +765,7 @@ struct ContentView: View {
             // The launch options; the app's launcher (dm/mac/launcher.c) keeps a variable that is already set.
             // The keyboard and controller layout (Settings → Controls) goes to every game; a build whose host does not read it plays with the default keys.
             // They stay launch overrides (the environment) for now: DM_KEYMAP and DM_PAD_MAP become saved choices only when seedds/nxnative#386 merges.
-            library.migrateLaunchOptions()
-            let settings = LaunchSetting.forMac(app: game.appPath, titleID: game.titleID, repo: m.repoPath, labels: m.t) ?? []
-            let mods = GameMod.list(in: GameMod.folder(for: game, library: library.folder), titleID: game.titleID)
-            let environment = game.startEnvironment(controls: controls.environment, settings: settings, mods: mods,
-                                                  store: SavedChoices(app: game.appPath, titleID: game.titleID),
-                                                  appReadsStore: SavedChoices.appReadsStore(app: game.appPath))
+            let environment = GameStart.environment(for: game, library: library, controls: controls, repo: m.repoPath, labels: m.t)   // GameStart.swift: the console mode starts games with the same
             if !environment.isEmpty { configuration.environment = environment }
             NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: game.appPath), configuration: configuration) { _, error in
                 DispatchQueue.main.async {

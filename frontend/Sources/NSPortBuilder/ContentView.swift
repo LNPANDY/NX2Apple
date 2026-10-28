@@ -2420,6 +2420,7 @@ struct BuilderView: View {
     var onRunSetup: (() -> Void)?   // the guided first-run setup, again (nil where there is none)
     var controlChanges = 0
     var padMerge: Binding<Bool> = .constant(false)   // "All controllers are player 1" (ControlLayout.padMerge)
+    @AppStorage(ConsolePrompt.defaultsKey) private var consolePromptOn = true   // ConsoleCoordinator.swift
     @AppStorage(BuildNotice.defaultsKey) private var notifyBuilds = true   // BuildNotifications.swift
     @State private var extrasOpen = false
     @State private var logOpen = false
@@ -2862,6 +2863,11 @@ struct BuilderView: View {
             row(m.t("console.mergeAll"), detail: m.t("console.mergeNote")) {
                 Toggle("", isOn: padMerge).labelsHidden().toggleStyle(LauncherSwitchStyle())
                     .padTarget("set.padMerge", scope: "main") { padMerge.wrappedValue.toggle() }
+            }
+            divider
+            row(m.t("console.promptSetting"), detail: m.t("console.promptSettingNote")) {
+                Toggle("", isOn: $consolePromptOn).labelsHidden().toggleStyle(LauncherSwitchStyle())
+                    .padTarget("set.consolePrompt", scope: "main") { consolePromptOn.toggle() }
             }
         }
         tools

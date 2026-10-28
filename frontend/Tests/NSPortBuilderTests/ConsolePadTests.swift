@@ -174,4 +174,34 @@ final class ConsolePadTests: XCTestCase {
         XCTAssertEqual(ConsoleGlyphs(family: .nintendo).glyph(for: .activate), .symbol("a.circle"))
         XCTAssertEqual(ConsoleGlyphs(family: .nintendo).glyph(for: .back), .symbol("b.circle"))
     }
+
+    /// Opt-in: the desktop top bar with the entry button and the controller strip, and the connect prompt.
+    @MainActor func testCaptureDesktopEntry() throws {
+        guard let directory = ProcessInfo.processInfo.environment["NX_CONSOLE_SHOTS_DIR"] else { throw XCTSkip("Set NX_CONSOLE_SHOTS_DIR") }
+        let output = URL(fileURLWithPath: directory)
+        try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+        NSApplication.shared.setActivationPolicy(.accessory)
+        func shot(_ view: AnyView, _ name: String, _ width: CGFloat, _ height: CGFloat) throws {
+            // a titled window, as the launcher's own screenshots use: the launcher draws under its transparent title bar
+            let host = NSHostingView(rootView: view)
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: height), styleMask: [.titled], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.contentView = host
+            window.orderFront(nil)
+            RunLoop.main.run(until: Date().addingTimeInterval(1.0))
+            host.layoutSubtreeIfNeeded()
+            let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+            host.cacheDisplay(in: host.bounds, to: rep)
+            try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: output.appendingPathComponent(name + ".png"))
+            window.orderOut(nil); window.contentView = nil; window.close()
+        }
+        let driver = MockConsoleDriver(scenario: .controllersMixed, lang: .en, animated: false)
+        driver.back()
+        let library = GameLibrary(file: output.appendingPathComponent("unused-library.json"))
+        for width: CGFloat in [1280, 900] {
+            try shot(AnyView(ContentView(model: BuildModel(), library: library, performStartupChecks: false, enterConsole: {}, controllerDriver: AnyConsoleDriver(driver))),
+                     "desktop-entry-\(Int(width))", width, 560)
+        }
+        try shot(AnyView(ConsoleConnectionPrompt(lang: .en, enterConsole: {}, dismissPrompt: {}).environmentObject(PadFocus()).preferredColorScheme(.dark)), "prompt-1280", 1280, 720)
+    }
 }

@@ -28,18 +28,63 @@ import Combine
     func returnFromGame() { base.returnFromGame() }
 }
 
+/// The battery drawn as the iOS status bar does: an outline with a nub and a fill exactly as wide as the level, red at 20 percent
+/// or less, a bolt over it while charging, the outline alone when the level is unknown.
+struct BatteryIcon: View {
+    /// 0...1, nil when the controller reports none.
+    let level: Double?
+    var charging = false
+    var height: CGFloat = 12
+
+    /// The fill's share of the inner width: the level, clamped to 0...1 (a non-finite level counts as empty).
+    static func fillFraction(_ level: Double?) -> Double {
+        guard let level, level.isFinite else { return 0 }
+        return min(max(level, 0), 1)
+    }
+    static func isLow(_ level: Double?) -> Bool { level.map { fillFraction($0) <= 0.2 } ?? false }
+
+    var body: some View {
+        let width = height * 2.0, line: CGFloat = 1, inset: CGFloat = 1.5
+        HStack(spacing: 1) {
+            ZStack(alignment: .leading) {
+                RoundedRectangle(cornerRadius: height * 0.3).strokeBorder(.white.opacity(level == nil ? 0.3 : 0.55), lineWidth: line)
+                if level != nil {
+                    GeometryReader { g in
+                        RoundedRectangle(cornerRadius: height * 0.18)
+                            .fill(Self.isLow(level) && !charging ? Color.red : (charging ? LauncherPalette.ready : Color.white.opacity(0.9)))
+                            .frame(width: max(0, (g.size.width - 2 * inset) * Self.fillFraction(level)), height: g.size.height - 2 * inset)
+                            .offset(x: inset, y: inset)
+                    }
+                }
+                if charging {
+                    Image(systemName: "bolt.fill").font(.system(size: height * 0.62, weight: .bold)).foregroundStyle(.black.opacity(0.75))
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            .frame(width: width, height: height)
+            Capsule().fill(.white.opacity(level == nil ? 0.3 : 0.55)).frame(width: 1.5, height: height * 0.36)
+        }
+        .accessibilityHidden(true)
+    }
+}
+
 struct ConsoleBattery: View {
     let controller: ConsoleController
     let lang: Lang
     var compact = false
     var body: some View {
         if let percent = controller.batteryPercent {
-            Label(String(format: L10n.string("console.batteryPercent", lang), percent), systemImage: controller.charging ? "battery.100percent.bolt" : percent <= 20 ? "battery.25percent" : percent <= 50 ? "battery.50percent" : "battery.100percent")
-                .font(.manrope(compact ? 11 : 16, .medium))
-                .foregroundStyle(percent <= 20 && !controller.charging ? LauncherPalette.building : .white.opacity(0.7))
-                .accessibilityLabel(String(format: L10n.string(controller.charging ? "console.batteryCharging" : "console.batteryLevel", lang), percent))
+            HStack(spacing: 5) {
+                BatteryIcon(level: controller.battery, charging: controller.charging, height: compact ? 10 : 13)
+                Text(String(format: L10n.string("console.batteryPercent", lang), percent))
+            }
+            .font(.manrope(compact ? 11 : 16, .medium))
+            .foregroundStyle(BatteryIcon.isLow(controller.battery) && !controller.charging ? Color.red : .white.opacity(0.7))
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(String(format: L10n.string(controller.charging ? "console.batteryCharging" : "console.batteryLevel", lang), percent))
         } else if controller.charging {
-            Image(systemName: "bolt.fill").accessibilityLabel(L10n.string("console.charging", lang))
+            HStack(spacing: 5) { BatteryIcon(level: nil, charging: true, height: compact ? 10 : 13) }
+                .accessibilityElement(children: .ignore).accessibilityLabel(L10n.string("console.charging", lang))
         }
     }
 }
