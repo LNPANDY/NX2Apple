@@ -275,6 +275,10 @@ struct ContentView: View {
                         .padTarget("tab." + destination.rawValue, scope: "main") { page = destination }
                     }
                     Spacer(minLength: 8)
+                    if showsControllers {
+                        DesktopControllerChips(controllers: consoleDriver.state.controllers, merged: consoleDriver.state.padMerge, lang: m.lang,
+                                               barWidth: geometry.size.width, compactBar: compact) { controllerSheet = true }
+                    }
                     if let enterConsole { ConsoleEntryButton(lang: m.lang, compact: compact, enterConsole: enterConsole) }
                     searchField
                     Button { newBuild() } label: {
@@ -294,16 +298,9 @@ struct ContentView: View {
                 .padding(.leading, 90).padding(.trailing, 24)
                 .frame(height: 64)
                 .background(TitlebarDoubleClick())   // an empty part of the bar acts as the title bar does
-                if showsControllers { HStack {
-                    Spacer(minLength: 0)
-                    ConsoleControllerChips(controllers: consoleDriver.state.controllers, merged: consoleDriver.state.padMerge, lang: m.lang,
-                                           compact: true, scope: "main") { controllerSheet = true }
-                        .frame(width: min(geometry.size.width - 114, max(120, CGFloat(consoleDriver.state.controllers.count) * 116)))
-                }
-                .padding(.leading, 90).padding(.trailing, 24) }
             }
         }
-        .frame(height: showsControllers ? 104 : 64)
+        .frame(height: 64)
     }
 
 

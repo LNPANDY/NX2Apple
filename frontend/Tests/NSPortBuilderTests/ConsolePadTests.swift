@@ -195,13 +195,31 @@ final class ConsolePadTests: XCTestCase {
             try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: output.appendingPathComponent(name + ".png"))
             window.orderOut(nil); window.contentView = nil; window.close()
         }
-        let driver = MockConsoleDriver(scenario: .controllersMixed, lang: .en, animated: false)
-        driver.back()
+        ConsolePrompt.didShow()   // the desktop shots must not show the prompt a connected controller would raise
         let library = GameLibrary(file: output.appendingPathComponent("unused-library.json"))
-        for width: CGFloat in [1280, 900] {
-            try shot(AnyView(ContentView(model: BuildModel(), library: library, performStartupChecks: false, enterConsole: {}, controllerDriver: AnyConsoleDriver(driver))),
-                     "desktop-entry-\(Int(width))", width, 560)
+        for (name, scenario) in [("1", MockConsoleDriver.Scenario.full), ("3", .controllersMixed)] {
+            let driver = MockConsoleDriver(scenario: scenario, lang: .en, animated: false)
+            driver.back()
+            for width: CGFloat in [1280, 900] {
+                try shot(AnyView(ContentView(model: BuildModel(), library: library, performStartupChecks: false, enterConsole: {}, controllerDriver: AnyConsoleDriver(driver))),
+                         "desktop-\(name)c-\(Int(width))", width, 720)
+            }
         }
-        try shot(AnyView(ConsoleConnectionPrompt(lang: .en, enterConsole: {}, dismissPrompt: {}).environmentObject(PadFocus()).preferredColorScheme(.dark)), "prompt-1280", 1280, 720)
+        for lang in [Lang.en, .zh] {
+            try shot(AnyView(ConsoleConnectionPrompt(lang: lang, enterConsole: {}, dismissPrompt: {}).environmentObject(PadFocus()).preferredColorScheme(.dark)), "prompt-\(lang.rawValue)", 900, 500)
+        }
+    }
+
+    func testChipStripFitsTheBar() {
+        // plenty of room: every chip with its battery
+        XCTAssertEqual(DesktopControllerChips.layout(count: 3, barWidth: 1400, compactBar: false).visible, 3)
+        XCTAssertTrue(DesktopControllerChips.layout(count: 3, barWidth: 1400, compactBar: false).showsBattery)
+        // a narrow bar: no battery, and the rest folds into one "+N" chip, at least one controller stays
+        let narrow = DesktopControllerChips.layout(count: 4, barWidth: 800, compactBar: true)
+        XCTAssertFalse(narrow.showsBattery)
+        XCTAssertGreaterThanOrEqual(narrow.visible, 1)
+        XCTAssertLessThan(narrow.visible, 4)
+        XCTAssertEqual(DesktopControllerChips.layout(count: 1, barWidth: 700, compactBar: true).visible, 1)
+        XCTAssertEqual(DesktopControllerChips.layout(count: 0, barWidth: 700, compactBar: true).visible, 0)
     }
 }

@@ -19,31 +19,52 @@ struct ConsoleEntryButton: View {
     }
 }
 
+/// The cream button of a dialog: the launcher's secondary button's size and radius, filled.
+struct LauncherPrimaryButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.manrope(13, .bold)).lineLimit(1)
+            .padding(.horizontal, 15).padding(.vertical, 9)
+            .background(LauncherPalette.cream.opacity(configuration.isPressed ? 0.8 : 1), in: RoundedRectangle(cornerRadius: 9))
+            .foregroundStyle(LauncherPalette.background)
+            .contentShape(RoundedRectangle(cornerRadius: 9))
+    }
+}
+
 struct ConsoleConnectionPrompt: View {
     let lang: Lang
     let enterConsole: () -> Void
     let dismissPrompt: () -> Void
     @EnvironmentObject private var pad: PadFocus
+    @AppStorage(ConsolePrompt.defaultsKey) private var promptOn = true   // the same switch as Settings
     private func t(_ key: String) -> String { L10n.string(key, lang) }
+    private var glyphs: ConsoleGlyphs { .current() }
     var body: some View {
         ZStack {
             Color.black.opacity(0.65)
-            VStack(alignment: .leading, spacing: 20) {
-                Label(t("console.connectionTitle"), systemImage: "gamecontroller").font(.manrope(26, .bold))
-                Text(t("console.connectionNote")).font(.manrope(18)).foregroundStyle(.secondary)
-                VStack(alignment: .leading, spacing: 16) {
-                    Button(t("console.later"), action: dismissPrompt).buttonStyle(LauncherSecondaryButtonStyle())
-                        .keyboardShortcut(.cancelAction)
-                        .padTarget("console.entry.later", scope: "console.entry", activate: dismissPrompt)
-                    Button(action: enterConsole) {
-                        Text(t("console.entry")).font(.manrope(17, .bold)).foregroundStyle(LauncherPalette.background)
-                            .padding(.horizontal, 24).padding(.vertical, 14).background(LauncherPalette.cream, in: Capsule())
+            VStack(alignment: .leading, spacing: 14) {
+                Label(t("console.connectionTitle"), systemImage: "gamecontroller").font(.manrope(22, .bold))
+                Text(t("console.connectionNote")).font(.manrope(14)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                // one row, macOS order: the way out on the left of the main choice, both of the launcher's standard size
+                HStack(spacing: 10) {
+                    Toggle(t("console.promptNever"), isOn: Binding(get: { !promptOn }, set: { promptOn = !$0 }))
+                        .toggleStyle(.checkbox).font(.manrope(12)).foregroundStyle(.secondary)
+                        .padTarget("console.entry.never", scope: "console.entry", radius: 6, activate: { promptOn.toggle() })
+                    Spacer(minLength: 12)
+                    Button(action: dismissPrompt) {
+                        HStack(spacing: 7) { ConsoleGlyphView(glyph: glyphs.glyph(for: .back), size: 15); Text(t("console.later")) }
                     }
-                    .buttonStyle(.plain).keyboardShortcut(.defaultAction)
-                    .padTarget("console.entry.enter", scope: "console.entry", radius: 30, activate: enterConsole)
+                    .buttonStyle(LauncherSecondaryButtonStyle()).keyboardShortcut(.cancelAction)
+                    .padTarget("console.entry.later", scope: "console.entry", activate: dismissPrompt)
+                    Button(action: enterConsole) {
+                        HStack(spacing: 7) { ConsoleGlyphView(glyph: glyphs.glyph(for: .activate), size: 15).foregroundStyle(LauncherPalette.background); Text(t("console.entry")) }
+                    }
+                    .buttonStyle(LauncherPrimaryButtonStyle()).keyboardShortcut(.defaultAction)
+                    .padTarget("console.entry.enter", scope: "console.entry", activate: enterConsole)
                 }
+                .padding(.top, 6)
             }
-            .padding(36).frame(maxWidth: 530).background(LauncherPalette.surface, in: RoundedRectangle(cornerRadius: 22))
+            .padding(26).frame(maxWidth: 560).background(LauncherPalette.surface, in: RoundedRectangle(cornerRadius: 22))
             .overlay(RoundedRectangle(cornerRadius: 22).strokeBorder(.white.opacity(0.10)))
             .padding(24)
         }

@@ -153,6 +153,7 @@ enum L10n {
         "console.promptSetting": ("\u{63d2}\u{5165}\u{624b}\u{67c4}\u{65f6}\u{63d0}\u{793a}\u{8fdb}\u{5165}\u{4e3b}\u{673a}\u{6a21}\u{5f0f}", "Offer console mode when a controller connects"),
         "console.promptSettingNote": ("\u{6bcf}\u{6b21}\u{542f}\u{52a8}\u{6700}\u{591a}\u{63d0}\u{793a}\u{4e00}\u{6b21}\u{3002}", "At most once each time the launcher starts."),
         "console.menuLeave": ("\u{9000}\u{51fa}\u{4e3b}\u{673a}\u{6a21}\u{5f0f}", "Leave Console Mode"),
+        "console.promptNever": ("\u{4e0d}\u{518d}\u{63d0}\u{793a}", "Don\u{2019}t ask again"),
         "console.mergeEach": ("\u{6bcf}\u{4e2a}\u{624b}\u{67c4}\u{5bf9}\u{5e94}\u{4e00}\u{4f4d}\u{73a9}\u{5bb6}", "Each controller is its own player"),
         "console.mockPress": ("\u{6a21}\u{62df}\u{6309}\u{4e0b}\u{6309}\u{94ae}", "Simulate a button press"),
         "console.connectedUnassigned": ("%@ \u{5df2}\u{8fde}\u{63a5}", "%@ connected"),
