@@ -16,3 +16,4 @@ fork-docs
 ref-hle-hid-d2r
 fork-patches-stamp
 nsp-dotnet-root-verify
+games-md-gallery

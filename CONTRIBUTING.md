@@ -1,6 +1,6 @@
 # Contributing
 
-Issues and pull requests are welcome. NX2Apple is the launcher (`frontend/`, `frontend-qt/`) and the glue around the [nxnative](https://github.com/seedds/nxnative) engine, which is vendored here as upstream plus a queue of patches, and bumped to upstream's latest every day. [AGENTS.md](AGENTS.md) describes the engine.
+Issues and pull requests are welcome. NX2Apple is the launcher (`frontend/`, `frontend-qt/`) and the glue around the [nxnative](https://github.com/seedds/nxnative) engine, which is vendored here as upstream plus a queue of patches, and bumped to upstream's latest every day. [AGENTS.md](AGENTS.md) describes the engine. Building by hand from a terminal (tools, `prod.keys`, the IPA) is on its own page: [BUILDING.md](BUILDING.md).
 
 ## Reporting a problem
 
@@ -16,6 +16,21 @@ Game problems, build problems and launcher problems each have an issue form (`.g
 Pick a form: **Game problem**, **Build problem** or **Launcher problem or idea**. Each asks for what the problem is traced with: the game, its title ID and versions, the target, the device and OS, the NX2Apple version, **Settings > Copy diagnostics**, and the log (a game's log, or the Build log on the Builds page). A report without them gets a request for them first. Where a game's log is: a Mac game in a library folder writes `log/<title ID>.log` beside its app, otherwise `~/Library/Logs/nxnative/<title ID>.log`; on an iPhone or iPad it is `log.txt` in the Files app.
 
 **Never attach keys, game files or anything extracted from a game.** Logs, screenshots, title IDs and build IDs are fine.
+
+## Helping with games
+
+Each new game needs its own bring-up: a profile (build IDs, memory layout, texture slots), a shader
+reader if it packs them in a form we do not read, and patch points. **Two ways to help, both
+useful:**
+
+- **Report a game that works** — if you got a title outside the verified list running, open an issue
+  with the title ID, the update version, and what you did. It becomes a profile others can use.
+- **Send the shaders that are missing** — if a game runs but stutters on first use of an effect, its
+  shader variants are missing from the map. The host can dump what it cannot find
+  (`DM_NVN_SHDUMP=<dir>`); attach those and we add them to `shader_map.tsv` for everyone.
+
+Issues with a full `Documents/log.txt` get looked at first — that log usually names the exact
+missing piece.
 
 ## A pull request
 
