@@ -221,6 +221,13 @@ and picks the first interpreter that can really import
 `lz4 capstone fontTools backports.zstd`. That same interpreter then runs the
 build.
 
+The interpreters uv installs (`uv python install`) count as well: they live in
+`~/.local/share/uv/python` (or `UV_PYTHON_INSTALL_DIR`) with shims in
+`~/.local/bin`, neither of which a GUI launch's PATH contains, and a uv user
+often has no Homebrew and no python.org framework at all. When no interpreter is
+found, **Install** creates the app's venv from the newest one that does run at
+3.12 or newer rather than from the venv path it is about to create.
+
 ## Language
 
 The interface follows the system language at every launch: any Chinese variant

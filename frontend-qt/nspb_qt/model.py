@@ -202,7 +202,7 @@ class Model(QObject):
         """
         if py_ok:
             return Dep('python', 'dep.python', 'dep.python.hint', DepState.OK, py)
-        if py_ver and pu._ver_tuple(py_ver) >= (3, 9):
+        if py_ver and pu._ver_tuple(py_ver) >= pu.MIN_PYTHON:
             return Dep('python', 'dep.python', 'dep.python.hint', DepState.MISSING,
                        f'dep.python.missing:{py} ({py_ver})',
                        install=[py, '-m', 'pip', 'install', 'lz4', 'capstone', 'fonttools',
@@ -754,6 +754,13 @@ class Model(QObject):
         """Create or reuse the app's venv and install the build packages into it."""
         vpy = pu.venv_python()
         if not Path(vpy).is_file():
+            # The panel's last resort is /usr/bin/python3 (3.9) or the venv path itself, and
+            # neither can run `-m venv`: the row used to stay red however often Install ran.
+            base = pu.venv_base(base)
+            if base is None:
+                self.log(f'no Python {pu.MIN_PYTHON[0]}.{pu.MIN_PYTHON[1]} or newer to create '
+                         f'{pu.venv_dir()} from\n')
+                return False
             vdir = pu.venv_dir()
             vdir.parent.mkdir(parents=True, exist_ok=True)
             self.log(f'$ {base} -m venv {vdir}\n')

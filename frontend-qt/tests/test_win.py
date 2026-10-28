@@ -1211,6 +1211,89 @@ class PythonInstallTest(unittest.TestCase):
             self.assertEqual(py, str(fake / 'python.exe'))
             self.assertFalse(ok)      # the packages are not installed in it (yet)
 
+    def test_python_candidates_include_uvs_managed_interpreters(self) -> None:
+        """`uv python install` keeps its Pythons outside every location the app used to probe.
+
+        Reported from a Mac whose only 3.12 was uv's: `uv` had the packages, the panel said no
+        interpreter was found. A GUI launch's PATH has neither uv's store nor ~/.local/bin.
+        """
+        from nspb_qt import platform_util as pu
+        with tempfile.TemporaryDirectory() as td:
+            store = Path(td) / 'python'
+            exe = store / 'cpython-3.12.13-macos-aarch64-none' / 'bin' / 'python3.12'
+            exe.parent.mkdir(parents=True)
+            exe.write_text('#!/bin/sh\n')
+            exe.chmod(0o755)
+            shim = Path(td) / '.local' / 'bin' / 'python3'
+            shim.parent.mkdir(parents=True)
+            shim.write_text('#!/bin/sh\n')
+            with mock.patch.object(pu, 'IS_WIN', False), \
+                    mock.patch.dict(os.environ, {'UV_PYTHON_INSTALL_DIR': str(store), 'HOME': td}):
+                cands = pu.uv_pythons()
+            self.assertIn(str(exe), cands, "uv's store holds the real interpreter")
+            self.assertIn(str(shim), cands, "uv links a python3 shim in ~/.local/bin")
+
+    def test_find_python_takes_a_uv_interpreter_when_it_is_the_only_one(self) -> None:
+        """The room's report: uv had a 3.12 with the packages and the panel still found nothing."""
+        from nspb_qt import platform_util as pu
+        with tempfile.TemporaryDirectory() as td:
+            store = Path(td) / 'python'
+            exe = store / 'cpython-3.12.13-macos-aarch64-none' / 'bin' / 'python3.12'
+            exe.parent.mkdir(parents=True)
+            exe.write_text('#!/bin/sh\n')
+            exe.chmod(0o755)
+            with mock.patch.object(pu, 'IS_WIN', False), \
+                    mock.patch.object(pu, 'venv_python', return_value=str(Path(td) / 'no-venv')), \
+                    mock.patch.object(pu, '_which', return_value=None), \
+                    mock.patch.object(pu, '_python_version', return_value='3.12.13'), \
+                    mock.patch.object(pu, '_runs', return_value=True), \
+                    mock.patch.object(pu.Path, 'is_file', lambda self: str(self) == str(exe)), \
+                    mock.patch.dict(os.environ, {'UV_PYTHON_INSTALL_DIR': str(store)}):
+                py, ok, ver = pu.find_python()
+            self.assertEqual(py, str(exe))
+            self.assertTrue(ok)
+            self.assertEqual(ver, '3.12.13')
+
+    def test_find_python_prefers_the_newest_interpreter_that_has_the_packages(self) -> None:
+        """A 3.9 with the packages must not win over a 3.12: the script needs 3.12.
+
+        Apple's /usr/bin/python3 is 3.9 and sits above uv's store in the candidate list, so the
+        old first-match-wins loop picked the one interpreter that cannot run the build.
+        """
+        from nspb_qt import platform_util as pu
+        with tempfile.TemporaryDirectory() as td:
+            old = Path(td) / 'python3.9'
+            new = Path(td) / 'python3.12'
+            for p in (old, new):
+                p.write_text('x')
+            versions = {str(old): '3.9', str(new): '3.12.13'}
+            with mock.patch.object(pu, 'python_candidates', return_value=[str(old), str(new)]), \
+                    mock.patch.object(pu, '_python_version', side_effect=lambda p: versions[p]), \
+                    mock.patch.object(pu, '_runs', return_value=True):
+                py, ok, ver = pu.find_python()
+            self.assertEqual((py, ok), (str(new), True))
+            self.assertEqual(ver, '3.12.13')
+
+    def test_venv_base_is_never_the_venv_it_has_to_create(self) -> None:
+        """The row's Install used to run `-m venv` on a path that does not exist yet."""
+        from nspb_qt import platform_util as pu
+        with tempfile.TemporaryDirectory() as td:
+            wanted = str(Path(td) / 'no-venv' / 'bin' / 'python3')
+            real = Path(td) / 'python3.12'
+            real.write_text('x')
+            real.chmod(0o755)
+            with mock.patch.object(pu, 'python_candidates', return_value=[wanted, str(real)]), \
+                    mock.patch.object(pu, '_python_version', return_value='3.12.13'):
+                self.assertEqual(pu.venv_base(wanted), str(real))
+                self.assertEqual(pu.venv_base(str(real)), str(real))
+
+    def test_venv_base_reports_no_interpreter_instead_of_a_broken_base(self) -> None:
+        from nspb_qt import platform_util as pu
+        with tempfile.TemporaryDirectory() as td:
+            wanted = str(Path(td) / 'no-venv' / 'bin' / 'python3')
+            with mock.patch.object(pu, 'python_candidates', return_value=[wanted]):
+                self.assertIsNone(pu.venv_base(wanted))
+
 
 class XcodeBetaTest(unittest.TestCase):
     """Xcode detection asks xcode-select, not a fixed /Applications/Xcode.app path.

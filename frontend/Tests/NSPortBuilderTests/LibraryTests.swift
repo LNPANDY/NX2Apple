@@ -1036,6 +1036,63 @@ final class LibraryTests: XCTestCase {
         }
     }
 
+    /// A uv-managed Python sits outside every location the app probed, and a GUI launch's PATH
+    /// hides ~/.local/bin: uv had a working 3.12 with the packages and the panel still said
+    /// "No Python 3.12 or newer found".
+    func testUvManagedPythonsAreCandidates() throws {
+        let oldShim = BuildModel.uvShimDir, oldRoot = BuildModel.uvPythonRoot
+        defer { BuildModel.uvShimDir = oldShim; BuildModel.uvPythonRoot = oldRoot }
+        let shim = temporary.appendingPathComponent("local/bin")
+        let root = temporary.appendingPathComponent("uv/python")
+        let store = root.appendingPathComponent("cpython-3.12.13-macos-aarch64-none/bin")
+        for dir in [shim, store] {
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
+        // uv links python3 / python3.12 shims in ~/.local/bin; the store holds the real binary.
+        for dir in [shim, store] {
+            for name in ["python3", "python3.12"] {
+                try Data("#!/bin/sh\n".utf8).write(to: dir.appendingPathComponent(name))
+            }
+        }
+        BuildModel.uvShimDir = shim.path
+        BuildModel.uvPythonRoot = root.path
+        let cands = BuildModel.pythonCandidates()
+        XCTAssertTrue(cands.contains(shim.appendingPathComponent("python3").path),
+                      "the uv shim must be probed: a GUI launch's PATH does not contain ~/.local/bin")
+        XCTAssertTrue(cands.contains(shim.appendingPathComponent("python3.12").path))
+        XCTAssertTrue(cands.contains(store.appendingPathComponent("python3.12").path),
+                      "uv's store holds the interpreter itself, not only the shim")
+    }
+
+    /// The panel hands makeVenv() the venv path it hopes to create when findPython() found no
+    /// interpreter. That cannot be a base: `-m venv` on it could not even start, so the Python
+    /// row stayed red however often 安装 was pressed.
+    func testVenvBaseIsNeverTheVenvItHasToCreate() throws {
+        let oldShim = BuildModel.uvShimDir, oldRoot = BuildModel.uvPythonRoot, oldVenv = BuildModel.venvDir
+        defer {
+            BuildModel.uvShimDir = oldShim
+            BuildModel.uvPythonRoot = oldRoot
+            BuildModel.venvDir = oldVenv
+        }
+        let shim = temporary.appendingPathComponent("bin")
+        try FileManager.default.createDirectory(at: shim, withIntermediateDirectories: true)
+        // A stand-in interpreter: only its version and its exit status are asked for here.
+        let interp = shim.appendingPathComponent("python3.12")
+        try Data("#!/bin/sh\n[ \"$1\" = -c ] && echo 3.12\nexit 0\n".utf8).write(to: interp)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: interp.path)
+        BuildModel.uvShimDir = shim.path
+        BuildModel.uvPythonRoot = temporary.appendingPathComponent("no-uv").path
+        BuildModel.venvDir = temporary.appendingPathComponent("no-venv").path
+
+        let wanted = BuildModel.venvPython()      // findPython()'s last resort, and what the panel passes
+        let base = try XCTUnwrap(BuildModel.venvBase(preferred: wanted), "a usable interpreter must be found")
+        XCTAssertNotEqual(base, wanted, "the venv cannot be the base it is created from")
+        let v = try XCTUnwrap(BuildModel.pythonVersion(base))
+        XCTAssertTrue(v.0 > BuildModel.minPython.0 || (v.0 == BuildModel.minPython.0 && v.1 >= BuildModel.minPython.1))
+        XCTAssertEqual(BuildModel.venvBase(preferred: interp.path), interp.path,
+                       "an interpreter that does run at the required version is kept as given")
+    }
+
     /// Issue #73: the extraction writes RomFS.img now, not a RomFS folder. The archive step looked
     /// only for the folder, so every build ended with "archive skipped" after a successful build.
     /// This drives BuildModel.extractedVersion — the function the archive step calls — rather than

@@ -1893,6 +1893,18 @@ final class BuildModel: ObservableObject {
 
     nonisolated static func venvPython() -> String { venvDir + "/bin/python3" }
 
+    /// Where uv keeps the Pythons it installs (`uv python install`): the shims in `~/.local/bin`
+    /// and the store the real binaries live in, which `UV_PYTHON_INSTALL_DIR` moves. A uv user
+    /// often has neither python.org's framework nor Homebrew, and a GUI launch's PATH is
+    /// /usr/bin:/bin:/usr/sbin:/sbin, so neither `which` nor the locations below see them: a
+    /// working uv Python 3.12 was reported as "No Python 3.12 or newer found". Injectable so a
+    /// test can point them at a scratch tree.
+    nonisolated static var uvShimDir = NSHomeDirectory() + "/.local/bin"
+    nonisolated static var uvPythonRoot: String = {
+        let dir = ProcessInfo.processInfo.environment["UV_PYTHON_INSTALL_DIR"] ?? ""
+        return dir.isEmpty ? NSHomeDirectory() + "/.local/share/uv/python" : dir
+    }()
+
     nonisolated static func importsOK(_ py: String) -> Bool { runOK(py, ["-c", importProbe]) }
 
     /// backports.zstd declares Python < 3.14, so it is only installed where it is needed.
@@ -1925,9 +1937,16 @@ final class BuildModel: ObservableObject {
         }
         let vpy = venvPython()
         if !FileManager.default.isExecutableFile(atPath: vpy) {
-            log += "$ \(base) -m venv \(venvDir)\n"
+            // findPython() returns the venv path it hopes to create when no interpreter was
+            // found, and the panel hands that to this function. It cannot be a base: `-m venv`
+            // failed with "could not start …" and the Python row never recovered.
+            guard let interp = venvBase(preferred: base) else {
+                return (false, log + "no Python \(minPython.0).\(minPython.1) or newer to create \(venvDir) from\n")
+            }
+            if interp != base { log += "\(base) is not a usable interpreter; using \(interp)\n" }
+            log += "$ \(interp) -m venv \(venvDir)\n"
             try? FileManager.default.createDirectory(atPath: (venvDir as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
-            guard run(base, ["-m", "venv", venvDir]) else { return (false, log + "venv creation failed\n") }
+            guard run(interp, ["-m", "venv", venvDir]) else { return (false, log + "venv creation failed\n") }
         }
         let pkgs = pipPackages(pythonVersion(vpy) ?? minPython).joined(separator: " ")
         log += "$ \(vpy) -m pip install \(pkgs)\n"
@@ -1952,9 +1971,47 @@ final class BuildModel: ObservableObject {
         return (a, b)
     }
 
-    /// Every python3 on this Mac, newest-looking first, each tried for a usable version and the
-    /// packages. Returns the one to build with, plus why the others were rejected for the message.
-    nonisolated static func findPython() -> (path: String, ok: Bool) {
+    /// The interpreter to create the venv from. `preferred` is what the panel picked; when
+    /// findPython() found nothing that is the venv path it hopes to create, which cannot be a
+    /// base (see makeVenv). So a base that does not run at the required version falls back to
+    /// the newest candidate that does. nil when this Mac has no such interpreter at all.
+    nonisolated static func venvBase(preferred: String) -> String? {
+        if FileManager.default.isExecutableFile(atPath: preferred),
+           let v = pythonVersion(preferred), v >= minPython {
+            return preferred
+        }
+        return pythonCandidates().first {
+            FileManager.default.isExecutableFile(atPath: $0)
+                && (pythonVersion($0).map { $0 >= minPython } ?? false)
+        }
+    }
+
+    /// The `python3` / `python3.x` names in a directory, newest version first.
+    nonisolated static func pythonNames(in dir: String, matching pattern: String) -> [String] {
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: dir)) ?? []
+        return names.filter { $0.range(of: pattern, options: .regularExpression) != nil }
+            .sorted { $0.compare($1, options: .numeric) == .orderedDescending }
+    }
+
+    /// uv's managed Pythons: the shims in `uvShimDir` and every install under `uvPythonRoot`
+    /// (`cpython-3.12.13-macos-aarch64-none/bin/python3.12`). A uv user often has neither
+    /// python.org's framework nor Homebrew, and a GUI launch's PATH does not contain
+    /// `~/.local/bin`, so nothing else on this Mac finds them.
+    nonisolated static func uvPythonCandidates() -> [String] {
+        var out = pythonNames(in: uvShimDir, matching: #"^python3(\.\d+)?$"#).map { uvShimDir + "/" + $0 }
+        let installs = (try? FileManager.default.contentsOfDirectory(atPath: uvPythonRoot)) ?? []
+        for d in installs.sorted(by: { $0.compare($1, options: .numeric) == .orderedDescending }) {
+            let bin = uvPythonRoot + "/" + d + "/bin"
+            out += pythonNames(in: bin, matching: #"^python3(\.\d+)?$"#).map { bin + "/" + $0 }
+        }
+        return out
+    }
+
+    /// Every interpreter a build could run under, best first: python.org's framework, Homebrew,
+    /// /usr/local, uv's store, then whatever `which` can see. Probed by hand because a GUI app
+    /// does not inherit the shell's PATH — the same reason .NET (in ~/.dotnet) used to show as
+    /// missing while a terminal saw it.
+    nonisolated static func pythonCandidates() -> [String] {
         var cands: [String] = []
         let fw = "/Library/Frameworks/Python.framework/Versions"
         if let vers = try? FileManager.default.contentsOfDirectory(atPath: fw) {
@@ -1966,11 +2023,9 @@ final class BuildModel: ObservableObject {
         // Homebrew's python@3.x is always python3.x, but the bare python3 link exists only for
         // the formula that is linked: a 3.12 beside an unlinked default would go unseen.
         for dir in ["/opt/homebrew/bin", "/usr/local/bin"] {
-            let names = (try? FileManager.default.contentsOfDirectory(atPath: dir)) ?? []
-            cands += names.filter { $0.range(of: #"^python3\.\d+$"#, options: .regularExpression) != nil }
-                .sorted { $0.compare($1, options: .numeric) == .orderedDescending }
-                .map { dir + "/" + $0 }
+            cands += pythonNames(in: dir, matching: #"^python3\.\d+$"#).map { dir + "/" + $0 }
         }
+        cands += uvPythonCandidates()
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/which")
         p.arguments = ["-a", "python3"]
@@ -1982,9 +2037,15 @@ final class BuildModel: ObservableObject {
             let out = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
             cands += out.split(separator: "\n").map(String.init)
         }
+        return cands
+    }
+
+    /// Every python3 on this Mac, newest-looking first, each tried for a usable version and the
+    /// packages. Returns the one to build with, plus why the others were rejected for the message.
+    nonisolated static func findPython() -> (path: String, ok: Bool) {
         var seen = Set<String>()
         var fallback: (String, (Int, Int))? = nil   // newest with an acceptable version but no packages
-        for c in cands where !c.isEmpty && seen.insert(c).inserted {
+        for c in pythonCandidates() where !c.isEmpty && seen.insert(c).inserted {
             guard FileManager.default.isExecutableFile(atPath: c), let v = pythonVersion(c) else { continue }
             guard v >= minPython else { continue }
             if importsOK(c) { return (c, true) }
