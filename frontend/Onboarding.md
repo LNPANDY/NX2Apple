@@ -63,7 +63,7 @@ Persist the current step and selections before handling `skipForLater`; inject t
 
 ## NVN hints
 
-NVN games' shaders need the Metal compiler of Xcode 27.1, which needs macOS 26.6. `OnboardingState.osTooOldForNVN` (macOS below 26.6, from `OnboardingEnvironment.osVersion`) adds a calm note to Welcome; `xcodeTooOldForNVN` (the probe's `xcodebuild -version` below 27.1; an unreadable version never counts) adds a secondary line in the Xcode card. Neither gates anything: other games build with an older Xcode.
+NVN games' shaders need the Metal compiler of Xcode 27.1, which needs macOS 26.6. `OnboardingState.osTooOldForNVN` (macOS below 26.6, from `OnboardingEnvironment.osVersion`) adds a calm note to Welcome, and `xcodeTooOldForNVN` (the probe's `xcodebuild -version` below 27.1, where an unreadable version never counts) adds a secondary line in the Xcode card. Neither gates anything: other games build with an older Xcode.
 
 ## Presentation choices
 
