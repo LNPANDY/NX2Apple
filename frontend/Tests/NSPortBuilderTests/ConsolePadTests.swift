@@ -197,29 +197,13 @@ final class ConsolePadTests: XCTestCase {
         }
         ConsolePrompt.didShow()   // the desktop shots must not show the prompt a connected controller would raise
         let library = GameLibrary(file: output.appendingPathComponent("unused-library.json"))
-        for (name, scenario) in [("1", MockConsoleDriver.Scenario.full), ("3", .controllersMixed)] {
-            let driver = MockConsoleDriver(scenario: scenario, lang: .en, animated: false)
-            driver.back()
-            for width: CGFloat in [1280, 900] {
-                try shot(AnyView(ContentView(model: BuildModel(), library: library, performStartupChecks: false, enterConsole: {}, controllerDriver: AnyConsoleDriver(driver))),
-                         "desktop-\(name)c-\(Int(width))", width, 720)
-            }
+        // the bottom right shows the Home hint and the Console mode button while a controller is connected (this Mac's, when one is)
+        for width: CGFloat in [1280, 900] {
+            try shot(AnyView(ContentView(model: BuildModel(), library: library, performStartupChecks: false, enterConsole: {})), "desktop-bar-\(Int(width))", width, 720)
         }
         for lang in [Lang.en, .zh] {
             try shot(AnyView(ConsoleConnectionPrompt(lang: lang, enterConsole: {}, dismissPrompt: {}).environmentObject(PadFocus()).preferredColorScheme(.dark)), "prompt-\(lang.rawValue)", 900, 500)
         }
     }
 
-    func testChipStripFitsTheBar() {
-        // plenty of room: every chip with its battery
-        XCTAssertEqual(DesktopControllerChips.layout(count: 3, barWidth: 1400, compactBar: false).visible, 3)
-        XCTAssertTrue(DesktopControllerChips.layout(count: 3, barWidth: 1400, compactBar: false).showsBattery)
-        // a narrow bar: no battery, and the rest folds into one "+N" chip, at least one controller stays
-        let narrow = DesktopControllerChips.layout(count: 4, barWidth: 800, compactBar: true)
-        XCTAssertFalse(narrow.showsBattery)
-        XCTAssertGreaterThanOrEqual(narrow.visible, 1)
-        XCTAssertLessThan(narrow.visible, 4)
-        XCTAssertEqual(DesktopControllerChips.layout(count: 1, barWidth: 700, compactBar: true).visible, 1)
-        XCTAssertEqual(DesktopControllerChips.layout(count: 0, barWidth: 700, compactBar: true).visible, 0)
-    }
 }

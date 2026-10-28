@@ -10,9 +10,15 @@ import GameController
 /// started is in front then, and GameController gives a controller's input to the app in front, so the launcher never
 /// acts behind a running game.
 final class LauncherGamepad: ObservableObject {
-    enum Action: Equatable { case left, right, up, down, a, b, x, y, l, r, plus }
+    enum Action: Equatable { case left, right, up, down, a, b, x, y, l, r, plus, home }
 
     @Published private(set) var connected = false
+    /// "Home button opens console mode" (Settings, Controls). On by default.
+    static let homeKey = "homeOpensConsole"
+    static var homeOpensConsole: Bool { UserDefaults.standard.object(forKey: homeKey) as? Bool ?? true }
+    /// Whether the controller's Home button (PlayStation, Xbox guide, Nintendo Home) goes to the launcher instead of the system.
+    /// Only while the launcher is the front app: a game it started is in front then and gets the button for itself.
+    static func capturesHome(enabled: Bool, appIsActive: Bool) -> Bool { enabled && appIsActive }
     var perform: (Action) -> Void = { _ in }
     /// The GameController button an action reads, in one place (the glyphs of the console mode follow it). GameController names
     /// the face buttons by label: buttonA is the bottom of Apple's diamond (GCExtendedGamepad.h), which is A on an Xbox
@@ -38,6 +44,9 @@ final class LauncherGamepad: ObservableObject {
         observers = [NSNotification.Name.GCControllerDidConnect, .GCControllerDidDisconnect].map {
             center.addObserver(forName: $0, object: nil, queue: .main) { [weak self] _ in self?.attach() }
         }
+        observers += [NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification].map {
+            center.addObserver(forName: $0, object: nil, queue: .main) { [weak self] _ in self?.applyHomeCapture() }
+        }
         attach()
     }
 
@@ -47,6 +56,15 @@ final class LauncherGamepad: ObservableObject {
         let pads = GCController.controllers().compactMap(\.extendedGamepad)
         connected = !pads.isEmpty
         for pad in pads { pad.valueChangedHandler = { [weak self] pad, _ in self?.read(pad) } }
+        applyHomeCapture()
+    }
+
+    /// The Home button reaches the app (`.alwaysReceive`) while the launcher is in front and the setting is on, else the system keeps it.
+    func applyHomeCapture() {
+        let capture = Self.capturesHome(enabled: Self.homeOpensConsole, appIsActive: NSApp?.isActive ?? false)
+        for pad in GCController.controllers().compactMap(\.extendedGamepad) {
+            pad.buttonHome?.preferredSystemGestureState = capture ? .alwaysReceive : .enabled
+        }
     }
 
     private func read(_ pad: GCExtendedGamepad) {
@@ -57,7 +75,7 @@ final class LauncherGamepad: ObservableObject {
             ("a", pad.buttonA.isPressed, .a), ("b", pad.buttonB.isPressed, .b),   // by label, see `face`
             ("x", pad.buttonX.isPressed, .x), ("y", pad.buttonY.isPressed, .y),
             ("l", pad.leftShoulder.isPressed, .l), ("r", pad.rightShoulder.isPressed, .r),
-            ("plus", pad.buttonMenu.isPressed, .plus),   // the console mode's options; the desktop ignores it
+            ("plus", pad.buttonMenu.isPressed, .plus), ("home", pad.buttonHome?.isPressed ?? false, .home),   // the console mode's options; the desktop ignores it
         ]
         for (key, down, action) in state {
             if down, !held.contains(key) {

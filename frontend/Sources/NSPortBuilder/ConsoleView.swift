@@ -17,7 +17,7 @@ enum ConsoleInput {
         case .b: self = .back
         case .plus, .x: self = .options
         case .y: self = .controllers
-        case .l, .r: return nil
+        case .l, .r, .home: return nil
         }
     }
 }

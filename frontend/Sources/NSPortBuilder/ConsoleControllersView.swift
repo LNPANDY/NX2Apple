@@ -85,6 +85,9 @@ struct ConsoleBattery: View {
         } else if controller.charging {
             HStack(spacing: 5) { BatteryIcon(level: nil, charging: true, height: compact ? 10 : 13) }
                 .accessibilityElement(children: .ignore).accessibilityLabel(L10n.string("console.charging", lang))
+        } else if controller.kind != .keyboard {   // a level not reported (yet): the outline alone, no percentage
+            BatteryIcon(level: nil, height: compact ? 10 : 13)
+                .accessibilityElement(children: .ignore).accessibilityLabel(L10n.string("console.batteryUnknown", lang))
         }
     }
 }
@@ -139,57 +142,6 @@ struct ConsoleControllerChips: View {
         .accessibilityLabel(label)
         .accessibilityHint(t("console.controllers"))
         .padTarget(scope + ".chip." + id, scope: scope, radius: 24, activate: openControllers)
-    }
-}
-
-/// The controller strip of the desktop top bar: one row, never clipped. When the bar is short of room it drops the battery and
-/// shows the first controllers followed by a "+N" chip. Everything opens the Controllers sheet.
-struct DesktopControllerChips: View {
-    let controllers: [ConsoleController]
-    let merged: Bool
-    let lang: Lang
-    let barWidth: CGFloat
-    let compactBar: Bool
-    let openControllers: () -> Void
-    @EnvironmentObject private var pad: PadFocus
-
-    /// How many chips fit in a top bar of this width, and whether each can show its battery. The rest of the bar (logo, tabs, entry
-    /// button, search, build button) takes about 900 points with labelled tabs and 640 with icons.
-    static func layout(count: Int, barWidth: CGFloat, compactBar: Bool) -> (visible: Int, showsBattery: Bool) {
-        let available = barWidth - (compactBar ? 640 : 900)
-        let perChip: CGFloat = compactBar ? 62 : 122
-        let fit = max(1, Int(available / perChip))
-        guard count > fit else { return (count, !compactBar) }
-        return (max(1, fit - 1), false)
-    }
-
-    private func t(_ key: String) -> String { L10n.string(key, lang) }
-    var body: some View {
-        let layout = Self.layout(count: controllers.count, barWidth: barWidth, compactBar: compactBar)
-        HStack(spacing: 6) {
-            ForEach(controllers.prefix(layout.visible)) { controller in
-                let player = merged ? 1 : controller.player
-                chip(id: controller.id, label: controller.name + ", " + t(controller.kind.labelKey) + ", " + (player.map { String(format: t("console.player"), $0) } ?? t("console.unassigned"))) {
-                    HStack(spacing: 5) {
-                        Image(systemName: controller.kind.symbol).accessibilityHidden(true)
-                        Text(player.map { String(format: t("console.playerShort"), $0) } ?? "\u{2014}")
-                        if layout.showsBattery { ConsoleBattery(controller: controller, lang: lang, compact: true) }
-                    }
-                }
-            }
-            if controllers.count > layout.visible {
-                chip(id: "more", label: t("console.controllers")) { Text("+\(controllers.count - layout.visible)") }
-            }
-        }
-        .fixedSize()
-    }
-    private func chip<C: View>(id: String, label: String, @ViewBuilder content: () -> C) -> some View {
-        Button(action: openControllers) {
-            content().font(.manrope(12, .semibold)).padding(.horizontal, 10).frame(height: 30)
-                .background(.white.opacity(0.075), in: Capsule()).contentShape(Capsule())
-        }
-        .buttonStyle(.plain).accessibilityLabel(label).accessibilityHint(t("console.controllers"))
-        .padTarget("main.chip." + id, scope: "main", radius: 24, activate: openControllers)
     }
 }
 
@@ -269,7 +221,7 @@ struct ConsoleToastView: View {
             }
             // Three equal tiles: the icon above a label that wraps between words only (and shrinks a little rather than break a word).
             HStack(spacing: 10) {
-                tile(id: controller.id + ".identify", label: t(state.identifyingControllerID == controller.id ? "console.identifying" : "console.identify"), symbol: "wave.3.right") { driver.identify(controllerID: controller.id) }
+                if controller.canIdentify { tile(id: controller.id + ".identify", label: t(state.identifyingControllerID == controller.id ? "console.identifying" : "console.identify"), symbol: "wave.3.right") { driver.identify(controllerID: controller.id) } }
                 tile(id: controller.id + ".assign", label: t("console.assign"), symbol: "person.crop.circle.badge.plus") { driver.requestAssignment(controllerID: controller.id) }
                 tile(id: controller.id + ".disconnect", label: t("console.disconnect"), symbol: "xmark.circle") { driver.disconnect(controllerID: controller.id) }
             }

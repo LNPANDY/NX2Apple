@@ -126,7 +126,7 @@ struct ContentView: View {
             } else {
                 BuilderView(m: m, library: library, settings: page == .settings, onViewGame: { page = .library },
                             onOpenSettings: { page = .settings }, onChooseLibraryFolder: chooseLibraryFolder,
-                            onOpenControls: { controlsOpen = true }, onRunSetup: onRunSetup, controlChanges: controls.changeCount,
+                            onOpenControls: { controlsOpen = true }, onOpenControllers: { controllerSheet = true }, onRunSetup: onRunSetup, controlChanges: controls.changeCount,
                             padMerge: Binding(get: { controls.padMerge }, set: { setPadMerge($0) }))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -236,9 +236,6 @@ struct ContentView: View {
         }
     }
 
-    /// The controller strip appears with the first controller the driver reports (none yet outside the preview).
-    private var showsControllers: Bool { !consoleDriver.state.controllers.isEmpty }
-
     @ViewBuilder private func navLabel(_ destination: LauncherPage, compact: Bool) -> some View {
         if compact { Image(systemName: destination.symbol).accessibilityLabel(m.t("nav." + destination.rawValue)) }
         else { Label(m.t("nav." + destination.rawValue), systemImage: destination.symbol) }
@@ -246,7 +243,7 @@ struct ContentView: View {
 
     private var topBar: some View {
         GeometryReader { geometry in
-            let compact = (enterConsole != nil || showsControllers) && (geometry.size.width < 1100 || (searching && geometry.size.width < 1400))
+            let compact = false   // the bar holds the tabs, search and Build game only, as before the console mode
             VStack(spacing: 0) {
                 HStack(spacing: 6) {
                     // The project is NX2Apple (the user's call: what this fork produces is NX2Apple);
@@ -275,11 +272,6 @@ struct ContentView: View {
                         .padTarget("tab." + destination.rawValue, scope: "main") { page = destination }
                     }
                     Spacer(minLength: 8)
-                    if showsControllers {
-                        DesktopControllerChips(controllers: consoleDriver.state.controllers, merged: consoleDriver.state.padMerge, lang: m.lang,
-                                               barWidth: geometry.size.width, compactBar: compact) { controllerSheet = true }
-                    }
-                    if let enterConsole { ConsoleEntryButton(lang: m.lang, compact: compact, enterConsole: enterConsole) }
                     searchField
                     Button { newBuild() } label: {
                         Group {
@@ -618,7 +610,9 @@ struct ContentView: View {
                         HStack(spacing: 18) {
                             padHint(.activate, m.t("pad.play")); padHint(.launchOptions, m.t("pad.options")); padHint(.back, m.t("pad.back"))
                             padHint(.manage, m.t("pad.manage"))
+                            if enterConsole != nil, LauncherGamepad.homeOpensConsole { padHint(.home, m.t("console.entry")) }
                             Image(systemName: "gamecontroller").foregroundStyle(.secondary)
+                            if let enterConsole { ConsoleEntryButton(lang: m.lang, compact: false, enterConsole: enterConsole) }
                         }
                     }
                 }
@@ -667,6 +661,10 @@ struct ContentView: View {
     /// then the D-pad moves it (PadFocus), A activates, B closes a sheet or goes back to the library, X opens the selected
     /// game's launch options, L and R switch the pages.
     private func padAction(_ action: LauncherGamepad.Action) {
+        if action == .home {   // the controller's Home button, while the launcher is in front: console mode, like a console's guide button
+            if let enterConsole, LauncherGamepad.homeOpensConsole { consolePrompt = false; enterConsole() }
+            return
+        }
         if consolePrompt {
             switch action {
             case .b: consolePrompt = false
@@ -717,7 +715,7 @@ struct ContentView: View {
             guard !sheetOpen, let at = LauncherPage.allCases.firstIndex(of: page) else { return }
             let pages = LauncherPage.allCases
             page = pages[(at + (action == .l ? pages.count - 1 : 1)) % pages.count]
-        case .y, .plus:   // Y is the Manage menu: ManagePad.route opened it above
+        case .y, .plus, .home:   // Y is the Manage menu: ManagePad.route opened it above
             return
         case .b:
             return

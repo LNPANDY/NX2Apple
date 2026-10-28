@@ -211,4 +211,40 @@ import SwiftUI
         XCTAssertEqual(LiveConsoleDriver.version(at: ios.path), "2.0.1")
         XCTAssertEqual(LiveConsoleDriver.version(at: temporary.appendingPathComponent("none.app").path), "")
     }
+
+    func testBatteryReadingTreatsAnUnreportedLevelAsUnknown() {
+        XCTAssertNil(ConsolePadSnapshot.batteryReading(level: 0, state: .unknown).level, "a DualShock 4 over Bluetooth: 0 with an unknown state")
+        XCTAssertNil(ConsolePadSnapshot.batteryReading(level: 0.5, state: .unknown).level)
+        XCTAssertEqual(ConsolePadSnapshot.batteryReading(level: 0.12, state: .discharging).level, 0.12)
+        XCTAssertEqual(ConsolePadSnapshot.batteryReading(level: 0, state: .discharging).level, 0, "an explicit empty battery is real")
+        let charging = ConsolePadSnapshot.batteryReading(level: 0.4, state: .charging)
+        XCTAssertEqual(charging.level, 0.4)
+        XCTAssertTrue(charging.charging)
+        XCTAssertNil(ConsolePadSnapshot.batteryReading(level: 0, state: .charging).level)
+        XCTAssertEqual(ConsolePadSnapshot.batteryReading(level: 0, state: .full).level, 1)
+        let pad = ConsolePadSnapshot(id: "a", name: "DUALSHOCK 4", category: "DualShock 4", playerIndex: 1, battery: nil).controller
+        XCTAssertNil(pad.battery)
+        XCTAssertNil(pad.batteryPercent, "no percentage, so no red 0%")
+    }
+
+    func testIdentifyUsesWhatTheControllerHasInOrder() {
+        XCTAssertEqual(IdentifyPlan.actions(playerLights: true, lightBar: true, rumble: true), [.playerLights, .lightBar, .rumble])
+        XCTAssertEqual(IdentifyPlan.actions(playerLights: false, lightBar: true, rumble: true), [.lightBar, .rumble], "a DualShock 4: light bar and rumble")
+        XCTAssertEqual(IdentifyPlan.actions(playerLights: false, lightBar: false, rumble: true), [.rumble])
+        XCTAssertEqual(IdentifyPlan.actions(playerLights: false, lightBar: false, rumble: false), [], "nothing to do: the button is hidden")
+        var pad = ConsolePadSnapshot(id: "a", name: "x", category: nil, playerIndex: 1)
+        XCTAssertTrue(pad.controller.canIdentify)
+        pad.canIdentify = false
+        XCTAssertFalse(pad.controller.canIdentify)
+    }
+
+    func testHomeButtonIsCapturedOnlyWhileTheLauncherIsInFront() {
+        XCTAssertTrue(LauncherGamepad.capturesHome(enabled: true, appIsActive: true))
+        XCTAssertFalse(LauncherGamepad.capturesHome(enabled: true, appIsActive: false), "a game in front keeps its own Home button")
+        XCTAssertFalse(LauncherGamepad.capturesHome(enabled: false, appIsActive: true))
+        XCTAssertNil(ConsoleInput(.home), "in console mode Home does nothing special")
+        XCTAssertEqual(ConsoleGlyphs(family: .xbox).glyph(for: .home), .symbol("house.circle"), "no brand logo")
+        XCTAssertEqual(ConsoleGlyphs(family: .playStation, reported: [.home: "house.fill"]).glyph(for: .home), .symbol("house.fill"))
+        XCTAssertEqual(ConsoleGlyphs.neutral.glyph(for: .home), .symbol("house.circle"))
+    }
 }

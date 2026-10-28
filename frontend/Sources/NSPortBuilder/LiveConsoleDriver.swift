@@ -3,8 +3,20 @@ import Combine
 import AppKit
 import GameController
 import CoreHaptics
+import os
 
 /// A controller as GameController reports it, reduced to what the console mode shows. Tests build these instead of hardware.
+/// What a controller reports about its battery.
+enum PadBatteryState: Equatable { case unknown, discharging, charging, full }
+
+/// What Identify can use on a controller, in the order it is tried: the player lights, the light bar, a rumble.
+struct IdentifyPlan: Equatable {
+    enum Action: Equatable { case playerLights, lightBar, rumble }
+    static func actions(playerLights: Bool, lightBar: Bool, rumble: Bool) -> [Action] {
+        (playerLights ? [.playerLights] : []) + (lightBar ? [.lightBar] : []) + (rumble ? [.rumble] : [])
+    }
+}
+
 struct ConsolePadSnapshot: Equatable {
     var id: String
     var name: String
@@ -12,6 +24,18 @@ struct ConsolePadSnapshot: Equatable {
     var playerIndex: Int?   // 1...4, nil when unset
     var battery: Double?
     var charging = false
+    var canIdentify = true
+
+    /// The level to show, or nil when the controller has not really reported one. GameController gives 0 with an unknown state for a
+    /// DualShock 4 over Bluetooth, before the first report and while wired, so 0 counts only when the state says it is discharging.
+    static func batteryReading(level: Double, state: PadBatteryState) -> (level: Double?, charging: Bool) {
+        switch state {
+        case .unknown: return (nil, false)
+        case .charging: return (level.isFinite && level > 0 ? level : nil, true)
+        case .full: return (1, false)
+        case .discharging: return (level.isFinite ? min(max(level, 0), 1) : nil, false)
+        }
+    }
 
     var controller: ConsoleController {
         let family = ConsoleGlyphs.Family(category: category)
@@ -21,7 +45,7 @@ struct ConsolePadSnapshot: Equatable {
         else if family == .nintendo { kind = .fullSize }
         else if family == .xbox { kind = .xbox }
         else { kind = .gamepad }
-        return ConsoleController(id: id, name: name, player: playerIndex, kind: kind, battery: battery, charging: charging)
+        return ConsoleController(id: id, name: name, player: playerIndex, kind: kind, battery: battery, charging: charging, canIdentify: canIdentify)
     }
 }
 
@@ -85,7 +109,7 @@ struct ConsolePadSnapshot: Equatable {
         observers.append(center.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.gameWindowAppeared() }
         })
-        clock = Timer.scheduledTimer(withTimeInterval: 20, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.state.time = Date() } }
+        clock = Timer.scheduledTimer(withTimeInterval: 20, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.state.time = Date(); self?.refreshControllers(announce: false) } }   // the battery has no change callback: it is read again each tick
     }
     private var devicePads = false
 
@@ -271,19 +295,55 @@ struct ConsolePadSnapshot: Equatable {
     }
     func setPadMerge(_ enabled: Bool) { controls.padMerge = enabled }
 
-    /// A short rumble when the controller has haptics, nothing otherwise (and never an error).
+    /// What this controller can do for Identify. The player lights have no capability flag in GameController, so any gamepad counts.
+    static func identifyActions(_ c: GCController) -> [IdentifyPlan.Action] {
+        IdentifyPlan.actions(playerLights: c.extendedGamepad != nil, lightBar: c.light != nil, rumble: c.haptics != nil)
+    }
+
+    private static let log = Logger(subsystem: "NX2Apple", category: "console.identify")
+    private var identifyEngines: [String: CHHapticEngine] = [:]   // kept alive: an engine that is released stops its pattern
+    private var identifyTask: Task<Void, Never>?
+
+    /// Everything the controller has: its player lights step through 1 to 4, the light bar pulses, it rumbles. The assigned player
+    /// and the light's colour are restored after.
     func identify(controllerID: String) {
         guard let c = state.controllers.first(where: { $0.id == controllerID }) else { return }
         state.identifyingControllerID = controllerID
         showToast(String(format: t("console.identifyingName"), c.name))
-        guard let engine = devices[controllerID]?.haptics?.createEngine(withLocality: .default) else { return }
+        guard let pad = devices[controllerID] else { return }
+        let actions = Self.identifyActions(pad)
+        Self.log.debug("identify \(c.name, privacy: .public): \(actions.map { "\($0)" }.joined(separator: ","), privacy: .public)")
+        identifyTask?.cancel()
+        identifyTask = Task { [weak self] in
+            let player = pad.playerIndex
+            let color = pad.light?.color
+            if actions.contains(.rumble) { self?.rumble(pad, id: controllerID) }
+            for step in 0..<8 {
+                guard !Task.isCancelled else { break }
+                if actions.contains(.playerLights) { pad.playerIndex = GCControllerPlayerIndex(rawValue: step % 4) ?? .indexUnset }
+                if actions.contains(.lightBar) { pad.light?.color = step % 2 == 0 ? GCColor(red: 1, green: 0.1, blue: 0.9) : GCColor(red: 0.1, green: 0.9, blue: 1) }
+                try? await Task.sleep(nanoseconds: 140_000_000)
+            }
+            pad.playerIndex = player
+            if let color { pad.light?.color = color }
+        }
+    }
+
+    private func rumble(_ pad: GCController, id: String) {
+        guard let haptics = pad.haptics else { Self.log.debug("identify: no haptics on this controller"); return }
+        let localities: [GCHapticsLocality] = [.default, .all, .handles, .leftHandle, .rightHandle]
+        guard let engine = localities.lazy.compactMap({ haptics.createEngine(withLocality: $0) }).first else {
+            Self.log.debug("identify: haptics exist but no engine could be created (supported localities: \(haptics.supportedLocalities.map(\.rawValue).joined(separator: ","), privacy: .public))")
+            return
+        }
+        identifyEngines[id] = engine
         do {
             try engine.start()
-            let events = [CHHapticEvent(eventType: .hapticContinuous, parameters: [CHHapticEventParameter(parameterID: .hapticIntensity, value: 0.8),
-                                                                                  CHHapticEventParameter(parameterID: .hapticSharpness, value: 0.5)],
-                                        relativeTime: 0, duration: 0.45)]
-            try engine.makePlayer(with: CHHapticPattern(events: events, parameters: [])).start(atTime: 0)
-        } catch { /* no rumble on this controller: the toast is the answer */ }
+            let events = [CHHapticEvent(eventType: .hapticContinuous, parameters: [CHHapticEventParameter(parameterID: .hapticIntensity, value: 1),
+                                                                                  CHHapticEventParameter(parameterID: .hapticSharpness, value: 0.6)],
+                                        relativeTime: 0, duration: 0.9)]
+            try engine.makePlayer(with: CHHapticPattern(events: events, parameters: [])).start(atTime: CHHapticTimeImmediate)
+        } catch { Self.log.debug("identify: rumble failed: \(error.localizedDescription, privacy: .public)") }
     }
 
     /// macOS offers apps no way to drop a Bluetooth controller, so this says where to do it instead.
@@ -319,11 +379,14 @@ struct ConsolePadSnapshot: Equatable {
                 guard c.extendedGamepad != nil else { return nil }
                 let id = String(UInt(bitPattern: ObjectIdentifier(c).hashValue), radix: 16)
                 devices[id] = c
-                let level = c.battery.map { Double($0.batteryLevel) }
+                let reading = c.battery.map { b -> (level: Double?, charging: Bool) in
+                    let state: PadBatteryState = b.batteryState == .charging ? .charging : b.batteryState == .full ? .full : b.batteryState == .discharging ? .discharging : .unknown
+                    return ConsolePadSnapshot.batteryReading(level: Double(b.batteryLevel), state: state)
+                }
                 let index = c.playerIndex.rawValue
                 return ConsolePadSnapshot(id: id, name: c.vendorName ?? c.productCategory, category: c.productCategory,
-                                          playerIndex: (0...3).contains(index) ? index + 1 : nil, battery: level,
-                                          charging: c.battery.map { $0.batteryState == .charging } ?? false)
+                                          playerIndex: (0...3).contains(index) ? index + 1 : nil, battery: reading?.level,
+                                          charging: reading?.charging ?? false, canIdentify: !Self.identifyActions(c).isEmpty)
             }
         }
         let assigned = Self.autoAssigned(snapshots)
