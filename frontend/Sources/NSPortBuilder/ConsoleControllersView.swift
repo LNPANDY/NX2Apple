@@ -175,7 +175,7 @@ struct ConsoleToastView: View {
                 action(id: controller.id + ".disconnect", label: t("console.disconnect"), symbol: "xmark.circle") { driver.disconnect(controllerID: controller.id) }
             }
             if state.isPreview, state.assigningPlayer != nil, state.assigningControllerID == nil || state.assigningControllerID == controller.id {
-                action(id: controller.id + ".press", label: t("console.mockPress"), symbol: "a.circle") {
+                action(id: controller.id + ".press", label: t("console.mockPress"), symbol: "hand.tap") {
                     driver.assignPlayer(controllerID: controller.id, player: state.assigningPlayer ?? 1)
                 }
             }

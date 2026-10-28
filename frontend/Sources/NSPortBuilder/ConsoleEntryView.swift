@@ -65,9 +65,9 @@ struct ConsoleConnectionPrompt: View {
     }
 }
 
-/// The demo is isolated from ContentView: no BuildModel, library discovery, controller adapter or process is made.
+/// The demo reads covers from the repository's docs/images (BuildModel.findRepo, as the launcher does) and is otherwise isolated from ContentView: no BuildModel, library discovery, controller adapter or process is made.
 @MainActor struct ConsoleDemoView: View {
     @StateObject private var driver: MockConsoleDriver
-    init(scenario: MockConsoleDriver.Scenario) { _driver = StateObject(wrappedValue: MockConsoleDriver(scenario: scenario)) }
+    init(scenario: MockConsoleDriver.Scenario) { _driver = StateObject(wrappedValue: MockConsoleDriver(scenario: scenario, artworkRepo: Optional(BuildModel.findRepo()).flatMap { $0.isEmpty ? nil : $0 })) }
     var body: some View { ConsoleView(driver: driver).frame(minWidth: 360, minHeight: 600) }
 }

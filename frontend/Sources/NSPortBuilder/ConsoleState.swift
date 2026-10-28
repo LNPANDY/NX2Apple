@@ -50,13 +50,13 @@ struct ConsoleController: Identifiable, Equatable {
     var id: String
     var name: String
     var player: Int?
-    enum Kind: String, CaseIterable { case gamepad, pro, joyCon, xbox, keyboard
+    enum Kind: String, CaseIterable { case gamepad, fullSize, paired, xbox, keyboard
         var labelKey: String { "console.kind." + rawValue }
         var symbol: String {
             switch self {
             case .gamepad: return "gamecontroller"
-            case .pro: return "gamecontroller.fill"
-            case .joyCon: return "rectangle.split.2x1"
+            case .fullSize: return "gamecontroller.fill"
+            case .paired: return "rectangle.split.2x1"
             case .xbox: return "circle.grid.cross"
             case .keyboard: return "keyboard"
             }
@@ -161,7 +161,7 @@ struct ConsoleState {
 }
 
 /// Main-actor intents form the entire I/O seam. A real driver owns launching, persistence, hardware
-/// and returning to the desktop. B/Escape is `back`; the future Home-button adapter calls `returnFromGame`.
+/// and returning to the desktop. B/Escape is `back`; the future controller-guide-button adapter calls `returnFromGame`.
 @MainActor protocol ConsoleDriver: ObservableObject {
     var state: ConsoleState { get }
     func focus(_ gameID: String)

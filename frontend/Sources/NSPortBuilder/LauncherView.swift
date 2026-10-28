@@ -28,7 +28,8 @@ struct ContentView: View {
     @State private var search = ""
     @State private var searching = false
     @State private var consolePrompt = false
-    private let enterConsole: () -> Void
+    private let enterConsole: (() -> Void)?   // nil until the console mode is wired: no entry button, no prompt
+    private let injectedDriver: Bool
     @StateObject private var consoleDriver: AnyConsoleDriver
     @State private var controllerSheet = false
     @FocusState private var searchFocused: Bool
@@ -42,7 +43,7 @@ struct ContentView: View {
     @State private var controlsOpen = false
     @State private var savesFor: UUID?   // the game whose Saves sheet is open (SaveTransfer.swift)
     @State private var manageOpenFor: UUID?   // the game whose Manage menu is open (ManageMenu.swift)
-    @StateObject private var controls = ControlLayout()
+    @StateObject private var controls: ControlLayout
     @StateObject private var gamepad = LauncherGamepad()
     @StateObject private var padFocus = PadFocus()
     @StateObject private var row = RowScroller()
@@ -56,9 +57,12 @@ struct ContentView: View {
     init(model: BuildModel? = nil, library: GameLibrary? = nil, initialPage: LauncherPage = .library,
          activeBuildID: UUID? = nil, performStartupChecks: Bool = true, search: String? = nil, olderTools: Set<UUID> = [],
          manageOpen: Bool = false, padRing: Bool = false, onRunSetup: (() -> Void)? = nil,
-         enterConsole: @escaping () -> Void = {}, controllerDriver: AnyConsoleDriver? = nil) {
+         enterConsole: (() -> Void)? = nil, controllerDriver: AnyConsoleDriver? = nil) {
         self.onRunSetup = onRunSetup
-        _consoleDriver = StateObject(wrappedValue: controllerDriver ?? AnyConsoleDriver(MockConsoleDriver(state: ConsoleState())))
+        let layout = ControlLayout()
+        _controls = StateObject(wrappedValue: layout)
+        _consoleDriver = StateObject(wrappedValue: controllerDriver ?? AnyConsoleDriver(LauncherControllerDriver(layout: layout)))
+        injectedDriver = controllerDriver != nil
         self.enterConsole = enterConsole
         qaManage = (manageOpen, padRing)
         if let search { _search = State(initialValue: search); _searching = State(initialValue: true) }   // visual QA: the bar with its field open
@@ -68,6 +72,12 @@ struct ContentView: View {
         _page = State(initialValue: initialPage)
         _activeBuildID = State(initialValue: activeBuildID)
         self.performStartupChecks = performStartupChecks
+    }
+
+    /// "All controllers are player 1": saved here, passed to games as DM_PAD_MERGE, shown in the Controllers sheet too.
+    private func setPadMerge(_ on: Bool) {
+        controls.padMerge = on
+        if injectedDriver { consoleDriver.setPadMerge(on) }
     }
 
     private var filteredGames: [LibraryGame] {
@@ -89,11 +99,12 @@ struct ContentView: View {
             else if consoleDriver.state.presentedSheet == .controllers { consoleDriver.back() }
         }
         .overlay {
-            if consolePrompt {
+            if consolePrompt, let enterConsole {
                 ConsoleConnectionPrompt(lang: m.lang, enterConsole: { consolePrompt = false; enterConsole() }, dismissPrompt: { consolePrompt = false })
             }
         }
-        .onChange(of: gamepad.connected) { connected in if connected { consolePrompt = true } }
+        .onChange(of: gamepad.connected) { connected in if connected, enterConsole != nil { consolePrompt = true } }
+        .onChange(of: consoleDriver.state.padMerge) { merged in if injectedDriver { controls.padMerge = merged } }
         .onChange(of: consolePrompt) { open in
             padFocus.scope = open ? "console.entry" : currentPadScope
             if open { padFocus.focused = "console.entry.enter" }
@@ -110,7 +121,8 @@ struct ContentView: View {
             } else {
                 BuilderView(m: m, library: library, settings: page == .settings, onViewGame: { page = .library },
                             onOpenSettings: { page = .settings }, onChooseLibraryFolder: chooseLibraryFolder,
-                            onOpenControls: { controlsOpen = true }, onRunSetup: onRunSetup, controlChanges: controls.changeCount)
+                            onOpenControls: { controlsOpen = true }, onRunSetup: onRunSetup, controlChanges: controls.changeCount,
+                            padMerge: Binding(get: { controls.padMerge }, set: { setPadMerge($0) }))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             if m.running || page == .library { activityBar }
@@ -219,9 +231,12 @@ struct ContentView: View {
         }
     }
 
+    /// The controller strip appears with the first controller the driver reports (none yet outside the preview).
+    private var showsControllers: Bool { !consoleDriver.state.controllers.isEmpty }
+
     private var topBar: some View {
         GeometryReader { geometry in
-            let compact = geometry.size.width < 1100 || (searching && geometry.size.width < 1400)
+            let compact = (enterConsole != nil || showsControllers) && (geometry.size.width < 1100 || (searching && geometry.size.width < 1400))
             VStack(spacing: 0) {
                 HStack(spacing: 6) {
                     // The project is NX2Apple (the user's call: what this fork produces is NX2Apple);
@@ -250,7 +265,7 @@ struct ContentView: View {
                         .padTarget("tab." + destination.rawValue, scope: "main") { page = destination }
                     }
                     Spacer(minLength: 8)
-                    ConsoleEntryButton(lang: m.lang, compact: compact, enterConsole: enterConsole)
+                    if let enterConsole { ConsoleEntryButton(lang: m.lang, compact: compact, enterConsole: enterConsole) }
                     searchField
                     Button { newBuild() } label: {
                         Group {
@@ -269,16 +284,16 @@ struct ContentView: View {
                 .padding(.leading, 90).padding(.trailing, 24)
                 .frame(height: 64)
                 .background(TitlebarDoubleClick())   // an empty part of the bar acts as the title bar does
-                HStack {
+                if showsControllers { HStack {
                     Spacer(minLength: 0)
                     ConsoleControllerChips(controllers: consoleDriver.state.controllers, merged: consoleDriver.state.padMerge, lang: m.lang,
                                            compact: true, scope: "main") { controllerSheet = true }
                         .frame(width: min(geometry.size.width - 114, max(120, CGFloat(consoleDriver.state.controllers.count) * 116)))
                 }
-                .padding(.leading, 90).padding(.trailing, 24)
+                .padding(.leading, 90).padding(.trailing, 24) }
             }
         }
-        .frame(height: 104)
+        .frame(height: showsControllers ? 104 : 64)
     }
 
 
@@ -694,7 +709,7 @@ struct ContentView: View {
             guard !sheetOpen, let at = LauncherPage.allCases.firstIndex(of: page) else { return }
             let pages = LauncherPage.allCases
             page = pages[(at + (action == .l ? pages.count - 1 : 1)) % pages.count]
-        case .y:   // the Manage menu: ManagePad.route opened it above
+        case .y, .plus:   // Y is the Manage menu: ManagePad.route opened it above
             return
         case .b:
             return

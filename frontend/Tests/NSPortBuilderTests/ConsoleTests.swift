@@ -7,7 +7,7 @@ final class ConsoleTests: XCTestCase {
     @MainActor func testScenariosAndBoundedFocus() {
         let driver = MockConsoleDriver(animated: false)
         XCTAssertEqual(driver.state.games.count, 12)
-        XCTAssertTrue(driver.state.games.allSatisfy { $0.artwork != nil }, "Every preview game must have bundled artwork")
+        XCTAssertTrue(driver.state.games.allSatisfy { $0.artwork == nil }, "Without a repository the covers are generated placeholders, never bundled artwork")
         driver.focus("demo.2")
         XCTAssertEqual(driver.state.focusedGameID, "demo.2")
         driver.focus("missing")
@@ -131,7 +131,7 @@ final class ConsoleTests: XCTestCase {
     @MainActor func testMixedControllersActionsMergeAndToasts() {
         let driver = MockConsoleDriver(scenario: .controllersMixed, lang: .en, animated: false)
         XCTAssertFalse(driver.state.padMerge)
-        XCTAssertEqual(driver.state.controllers.map(\.kind), [.pro, .xbox, .keyboard, .joyCon])
+        XCTAssertEqual(driver.state.controllers.map(\.kind), [.fullSize, .xbox, .keyboard, .paired])
         XCTAssertEqual(driver.state.controllers[1].batteryPercent, 12)
         XCTAssertNil(driver.state.controllers[2].batteryPercent)
         XCTAssertTrue(driver.state.controllers[3].charging)

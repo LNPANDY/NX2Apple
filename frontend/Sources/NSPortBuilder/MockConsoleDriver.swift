@@ -9,7 +9,9 @@ import SwiftUI
     private var animated = true
 
     init(state: ConsoleState, lang: Lang = .initial(), animated: Bool = true) { self.state = state; self.lang = lang; self.animated = animated }
-    convenience init(scenario: Scenario = .full, lang: Lang = .initial(), animated: Bool = true) {
+    /// `artworkRepo`: a repository checkout whose docs/images supply covers, found the way the desktop launcher finds a game's
+    /// artwork (`GameLibrary.artwork`). Nil (tests) or a title without an image gets the generated placeholder.
+    convenience init(scenario: Scenario = .full, lang: Lang = .initial(), animated: Bool = true, artworkRepo: String? = nil) {
         func t(_ key: String) -> String { L10n.string(key, lang) }
         let settings = [
             LaunchSetting(env: "DM_RENDER_SCALE", kind: "range", label: t("console.resolution"), note: "", def: "1", section: nil,
@@ -23,11 +25,14 @@ import SwiftUI
             LaunchSetting(env: "DM_RUMBLE", kind: "toggle", label: t("console.rumble"), note: "", def: "1", section: nil,
                           options: nil, min: nil, max: nil, step: nil, on: nil, off: nil)
         ]
-        // Packaged preview artwork; no title database, library, file path or network access.
+        // Library-style titles. Covers come from the launcher's own artwork lookup in the repo copy (nothing is bundled or downloaded).
         let titles = ["Hollow Knight: Silksong", "Celeste", "Hades", "Sea of Stars", "Portal", "Balatro", "Animal Well", "Cuphead", "Stardew Valley", "Return of the Obra Dinn", "Blasphemous", "Hades II"]
+        let noBanners = FileManager.default.temporaryDirectory.appendingPathComponent("console-demo-no-banners")   // the demo ids are invented: no eShop banner to find
         let games = titles.enumerated().map { index, title in
             ConsoleGame(id: "demo.\(index)", title: title, version: "1.0.\(index % 3)", platforms: index % 3 == 1 ? [.mac] : [.mac, .iphone],
-                        artwork: Bundle.module.image(forResource: "ConsoleCover\(index).jpg").map { Image(nsImage: $0) },
+                        artwork: artworkRepo.flatMap { repo in
+                            GameLibrary.artwork(for: LibraryGame(titleID: String(format: "%016X", index), name: title), repo: repo, banners: noBanners)
+                        }.map { Image(nsImage: $0) },   // nil: the view draws a placeholder cover from the title
                         status: index == 3 ? .needsBuild : index == 5 ? .needsData : index == 7 ? .broken(t("console.demoBroken")) : .ready,
                         settings: settings)
         }
@@ -43,10 +48,10 @@ import SwiftUI
         }
         if scenario == .controllersMixed {
             snapshot.controllers = [
-                .init(id: "pad.1", name: t("console.demoController2"), player: 1, kind: .pro, battery: 0.76),
+                .init(id: "pad.1", name: t("console.demoController2"), player: 1, kind: .fullSize, battery: 0.76),
                 .init(id: "pad.2", name: t("console.demoXbox"), player: 2, kind: .xbox, battery: 0.12),
                 .init(id: "keyboard", name: t("console.demoKeyboard"), player: 3, kind: .keyboard),
-                .init(id: "pad.4", name: t("console.demoPaired"), player: 4, kind: .joyCon, battery: 0.48, charging: true)
+                .init(id: "pad.4", name: t("console.demoPaired"), player: 4, kind: .paired, battery: 0.48, charging: true)
             ]
             snapshot.openControllers()
         }

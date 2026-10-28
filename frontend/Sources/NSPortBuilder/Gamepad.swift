@@ -8,7 +8,7 @@ import GameController
 /// started is in front then, and GameController gives a controller's input to the app in front, so the launcher never
 /// acts behind a running game.
 final class LauncherGamepad: ObservableObject {
-    enum Action: Equatable { case left, right, up, down, a, b, x, y, l, r }
+    enum Action: Equatable { case left, right, up, down, a, b, x, y, l, r, plus }
 
     @Published private(set) var connected = false
     var perform: (Action) -> Void = { _ in }
@@ -41,6 +41,7 @@ final class LauncherGamepad: ObservableObject {
             ("a", pad.buttonB.isPressed, .a), ("b", pad.buttonA.isPressed, .b),   // by position: right A, bottom B, top X, left Y
             ("x", pad.buttonY.isPressed, .x), ("y", pad.buttonX.isPressed, .y),
             ("l", pad.leftShoulder.isPressed, .l), ("r", pad.rightShoulder.isPressed, .r),
+            ("plus", pad.buttonMenu.isPressed, .plus),   // the console mode's options; the desktop ignores it
         ]
         for (key, down, action) in state {
             if down, !held.contains(key) {

@@ -2,13 +2,43 @@ import SwiftUI
 import Combine
 
 /// Semantic inputs from a future controller adapter; the view does not discover hardware.
-enum ConsoleInput { case left, right, up, down, activate, back, options, controllers }
+enum ConsoleInput {
+    case left, right, up, down, activate, back, options, controllers
+
+    /// The launcher's controller path (Gamepad.swift) in console terms: the D-pad and left stick move, A activates, B backs out,
+    /// + and X open game options, Y opens Controllers. L and R are not used.
+    init?(_ action: LauncherGamepad.Action) {
+        switch action {
+        case .left: self = .left
+        case .right: self = .right
+        case .up: self = .up
+        case .down: self = .down
+        case .a: self = .activate
+        case .b: self = .back
+        case .plus, .x: self = .options
+        case .y: self = .controllers
+        case .l, .r: return nil
+        }
+    }
+}
 
 @MainActor struct ConsoleView<Driver: ConsoleDriver>: View {
     @ObservedObject var driver: Driver
     var lang: Lang = .initial()
     var inputs: AnyPublisher<ConsoleInput, Never> = Empty().eraseToAnyPublisher()
     @StateObject private var pad = PadFocus()
+    @StateObject private var gamepad: LauncherGamepad
+    /// The glyph set follows the input used last: a controller's own buttons, or key caps after the keyboard.
+    @State private var glyphs: ConsoleGlyphs
+
+    /// `gamepad` is the one the root view owns (the controller has a single handler, so two would fight); without one the view makes its own.
+    init(driver: Driver, lang: Lang = .initial(), inputs: AnyPublisher<ConsoleInput, Never> = Empty().eraseToAnyPublisher(), gamepad: LauncherGamepad? = nil, glyphs: ConsoleGlyphs? = nil) {
+        _glyphs = State(initialValue: glyphs ?? .current())
+        self.driver = driver
+        self.lang = lang
+        self.inputs = inputs
+        _gamepad = StateObject(wrappedValue: gamepad ?? LauncherGamepad())
+    }
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var state: ConsoleState { driver.state }
@@ -51,11 +81,12 @@ enum ConsoleInput { case left, right, up, down, activate, back, options, control
         .tint(LauncherPalette.cream)
         .preferredColorScheme(.dark)
         .environmentObject(pad)
-        .background(ConsoleKeyboardInput(perform: handle).frame(width: 0, height: 0))
+        .background(ConsoleKeyboardInput(perform: { input in glyphs = .keyboard; handle(input) }).frame(width: 0, height: 0))
         .onReceive(inputs, perform: handle)
         .onChange(of: scope) { _ in resetFocus() }
         .onChange(of: state.exited) { _ in resetFocus() }
-        .onAppear { resetFocus() }
+        .onAppear { gamepad.perform = { [self] action in if let input = ConsoleInput(action) { glyphs = .current(); handle(input) } }; resetFocus() }
+        .onDisappear { gamepad.perform = { _ in } }
         .onChange(of: pad.focused) { id in
             if let id, id.hasPrefix("console.game.") { driver.focus(String(id.dropFirst("console.game.".count))) }
         }
@@ -68,9 +99,13 @@ enum ConsoleInput { case left, right, up, down, activate, back, options, control
     private func backdrop(size: CGSize) -> some View {
         ZStack {
             LauncherPalette.background
-            if let game = state.startingGame ?? state.focusedGame, let image = game.artwork {
-                image.resizable().scaledToFill().frame(width: size.width, height: size.height)
-                    .blur(radius: 70).drawingGroup().opacity(0.30).id(game.id).transition(.opacity)
+            if let game = state.startingGame ?? state.focusedGame {
+                Group {
+                    if let image = game.artwork { image.resizable().scaledToFill() }
+                    else { LinearGradient(colors: ConsolePlaceholder.colors(for: game.title), startPoint: .topLeading, endPoint: .bottomTrailing) }
+                }
+                .frame(width: size.width, height: size.height)
+                .blur(radius: 70).drawingGroup().opacity(0.30).id(game.id).transition(.opacity)
             }
             LinearGradient(colors: [.black.opacity(0.10), LauncherPalette.background.opacity(0.95)], startPoint: .top, endPoint: .bottom)
         }
@@ -117,18 +152,18 @@ enum ConsoleInput { case left, right, up, down, activate, back, options, control
         .padScope("console", pad)
     }
 
+    /// One fixed-height status row: the controller chips (scrolling sideways inside their own group) to the left of the clock.
+    /// Its height never changes, so a controller arriving or leaving moves nothing below it.
     private func topBar(compact: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 20) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(t("console.brand")).font(.manrope(compact ? 24 : 30, .bold)).tracking(-1)
-                    .foregroundStyle(LauncherPalette.cream)
-                Spacer()
-                Text(state.time, style: .time).font(.manrope(compact ? 17 : 22, .medium)).monospacedDigit()
-                    .foregroundStyle(.white.opacity(0.65))
-            }
+        HStack(spacing: compact ? 12 : 20) {
+            Spacer(minLength: 0)
             ConsoleControllerChips(controllers: state.controllers, merged: state.padMerge, lang: lang, compact: compact) { driver.openControllers() }
-
+                .frame(maxWidth: CGFloat(max(1, state.controllers.count)) * (compact ? 120 : 150))
+            ConsoleGlyphView(glyph: glyphs.glyph(for: .controllers), size: compact ? 18 : 22).foregroundStyle(.white.opacity(0.6))   // the button that opens the Controllers sheet
+            Text(state.time, style: .time).font(.manrope(compact ? 17 : 22, .medium)).monospacedDigit()
+                .foregroundStyle(.white.opacity(0.65)).fixedSize()
         }
+        .frame(height: compact ? 40 : 52)
     }
 
     private func gameRow(size: CGSize, compact: Bool, inset: CGFloat) -> some View {
@@ -165,17 +200,18 @@ enum ConsoleInput { case left, right, up, down, activate, back, options, control
         return VStack(spacing: 20) {
             Rectangle().fill(.white.opacity(0.10)).frame(height: 1)
             LazyVGrid(columns: columns, alignment: .leading, spacing: 16) {
-                hint("a.circle", "console.play", "console.play", primary: true, compact: compact) { if let id = state.focusedGame?.id { driver.play(id) } }
-                hint("plus.circle", "console.options", "console.options", compact: compact) { if let id = state.focusedGame?.id { driver.openOptions(id) } }
-                hint("y.circle", "console.controllers", "console.controllers", compact: compact) { driver.openControllers() }
-                hint("b.circle", "console.desktop", "console.desktop", compact: compact) { driver.exitToDesktop() }
+                hint(.activate, "console.play", "console.play", primary: true, compact: compact) { if let id = state.focusedGame?.id { driver.play(id) } }
+                hint(.options, "console.options", "console.options", compact: compact) { if let id = state.focusedGame?.id { driver.openOptions(id) } }
+                hint(.controllers, "console.controllers", "console.controllers", compact: compact) { driver.openControllers() }
+                hint(.back, "console.desktop", "console.desktop", compact: compact) { driver.exitToDesktop() }
             }
         }
     }
 
-    private func hint(_ symbol: String, _ key: String, _ id: String, primary: Bool = false, compact: Bool, action: @escaping () -> Void) -> some View {
+    private func hint(_ role: ConsoleGlyphs.Role, _ key: String, _ id: String, primary: Bool = false, compact: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Label(t(key), systemImage: symbol).font(.manrope(compact ? 15 : 20, .semibold))
+            HStack(spacing: 10) { ConsoleGlyphView(glyph: glyphs.glyph(for: role), size: compact ? 20 : 24); Text(t(key)) }
+                .font(.manrope(compact ? 15 : 20, .semibold))
                 .padding(.horizontal, primary ? 20 : 4).frame(minHeight: 48)
                 .foregroundStyle(primary ? LauncherPalette.background : .white.opacity(0.8))
                 .background(primary ? LauncherPalette.cream : .clear, in: Capsule())
@@ -287,7 +323,7 @@ enum ConsoleInput { case left, right, up, down, activate, back, options, control
 
     private func starting(_ game: ConsoleGame, compact: Bool) -> some View {
         VStack(spacing: 30) {
-            ConsoleArtwork(image: game.artwork).aspectRatio(1.8, contentMode: .fit).frame(maxWidth: compact ? 320 : 680)
+            ConsoleArtwork(image: game.artwork, title: game.title).aspectRatio(1.8, contentMode: .fit).frame(maxWidth: compact ? 320 : 680)
                 .clipShape(RoundedRectangle(cornerRadius: 22)).accessibilityHidden(true)
             Text(String(format: t("console.starting"), game.title)).font(.manrope(compact ? 30 : 48, .bold))
                 .multilineTextAlignment(.center).accessibilityAddTraits(.isHeader)
@@ -370,12 +406,33 @@ enum ConsoleInput { case left, right, up, down, activate, back, options, control
 }
 
 /// Reusable 1.8:1 presentation; nil artwork uses the same quiet surface as the desktop library.
+/// A cover drawn from the title alone, in the launcher's palette: a dark gradient tinted by one of its accents, and the name.
+/// Nothing is loaded or bundled. The same title always gets the same colors.
+enum ConsolePlaceholder {
+    static func colors(for title: String) -> [Color] {
+        let accents = [LauncherPalette.cream, LauncherPalette.ready, LauncherPalette.building, LauncherPalette.unbuilt]
+        let seed = title.unicodeScalars.reduce(5381) { ($0 &* 33) &+ Int($1.value) }
+        let accent = accents[abs(seed) % accents.count]
+        return [accent.opacity(0.42), LauncherPalette.surface, LauncherPalette.background]
+    }
+}
+
 struct ConsoleArtwork: View {
     let image: Image?
+    var title = ""
     var body: some View {
         GeometryReader { geometry in
             if let image { image.resizable().scaledToFill().frame(width: geometry.size.width, height: geometry.size.height).clipped() }
-            else { LauncherPalette.surface.overlay { Image(systemName: "gamecontroller").font(.system(size: 50)).foregroundStyle(.secondary) } }
+            else {
+                ZStack(alignment: .bottomLeading) {
+                    LinearGradient(colors: ConsolePlaceholder.colors(for: title), startPoint: .topLeading, endPoint: .bottomTrailing)
+                    if title.isEmpty { Image(systemName: "gamecontroller").font(.system(size: 50)).foregroundStyle(.secondary) }
+                    else {
+                        Text(title).font(.manrope(max(14, geometry.size.width / 11), .bold)).foregroundStyle(LauncherPalette.cream.opacity(0.9))
+                            .lineLimit(3).minimumScaleFactor(0.6).padding(geometry.size.width / 18)
+                    }
+                }
+            }
         }
     }
 }
@@ -386,8 +443,8 @@ struct ConsoleGameTile: View {
     let compact: Bool
     let lang: Lang
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            ConsoleArtwork(image: game.artwork).aspectRatio(1.8, contentMode: .fit)
+        VStack(alignment: .leading, spacing: 12) {
+            ConsoleArtwork(image: game.artwork, title: game.title).aspectRatio(1.8, contentMode: .fit)
                 .overlay(alignment: .bottomLeading) {
                     if game.status != .ready {
                         Text(L10n.string(game.status.labelKey, lang)).font(.manrope(compact ? 14 : 18, .semibold))
@@ -397,9 +454,12 @@ struct ConsoleGameTile: View {
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 16))
                 .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(.white.opacity(0.12), lineWidth: 1))
-            Text(game.title).font(.manrope(compact ? 18 : 23, .semibold)).lineLimit(2)
-                .foregroundStyle(selected ? .white : .white.opacity(0.6)).padding(.horizontal, 16).padding(.bottom, 16)
+            // The focused game's name is the big title above, so its tile shows the image alone (the row is top-aligned, so
+            // nothing else moves). The others keep a small, muted caption.
+            if !selected {
+                Text(game.title).font(.manrope(compact ? 14 : 17, .medium)).lineLimit(1)
+                    .foregroundStyle(.white.opacity(0.5)).padding(.horizontal, 4).accessibilityHidden(true)
+            }
         }
-        .background(LauncherPalette.surface.opacity(0.65), in: RoundedRectangle(cornerRadius: 18))
     }
 }
