@@ -2104,7 +2104,9 @@ final class BuildModel: ObservableObject {
             let path = bundled ? nil : installed(binary)
             if !bundled && path == nil { needsBrew = true }
             if bundled { anyBundled = true }
-            rows.append(Dep(id: "brew:" + pkg, name: key, hint: key + ".hint", present: bundled || path != nil,
+            // A bundled tool is named by the tool; "brew: …" says where a Homebrew copy comes from, so it stays for the rows that
+            // refer to one (installed there, or missing with the install button)
+            rows.append(Dep(id: "brew:" + pkg, name: bundled ? "dep.tool." + binary : key, hint: key + ".hint", present: bundled || path != nil,
                             detail: bundled ? "dep.bundled" : (path ?? ""),
                             installCmd: [(brew ?? "/opt/homebrew/bin/brew"), "install", pkg]))
         }

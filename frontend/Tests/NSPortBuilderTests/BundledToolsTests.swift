@@ -104,6 +104,10 @@ final class BundledToolsTests: XCTestCase {
         XCTAssertNil(rows.first { $0.id == "brew" }, "nothing needs Homebrew")
         XCTAssertEqual(rows.count, BuildModel.brewDeps.count)
         XCTAssertTrue(rows.allSatisfy { $0.present && $0.detail == "dep.bundled" })
+        XCTAssertEqual(rows.map { $0.name }, BuildModel.brewDeps.map { "dep.tool." + $0.binary }, "named by the tool, not \"brew: …\"")
+        for (_, binary, _) in BuildModel.brewDeps {
+            for lang in [Lang.en, .zh] { XCTAssertEqual(L10n.string("dep.tool." + binary, lang), binary) }
+        }
     }
 
     func testBundledWinsOverHomebrews() throws {
@@ -121,6 +125,8 @@ final class BundledToolsTests: XCTestCase {
         XCTAssertFalse(rows.first!.present)
         XCTAssertEqual(row(rows, "spirv-cross")?.present, false)
         XCTAssertEqual(row(rows, "zstd")?.detail, "dep.bundled")
+        XCTAssertEqual(row(rows, "zstd")?.name, "dep.tool.zstd")
+        XCTAssertEqual(row(rows, "spirv-cross")?.name, "dep.spirv", "missing: the Homebrew row keeps its label")
     }
 
     func testAMissingBundledToolFallsBackToHomebrewsCopy() throws {
@@ -130,6 +136,7 @@ final class BundledToolsTests: XCTestCase {
                                        brew: "/opt/homebrew/bin/brew")
         XCTAssertEqual(row(rows, "xcodegen")?.detail, "/opt/homebrew/bin/xcodegen")
         XCTAssertEqual(row(rows, "xcodegen")?.present, true)
+        XCTAssertEqual(row(rows, "xcodegen")?.name, "dep.xcodegen", "a Homebrew copy keeps the Homebrew label")
         XCTAssertNil(rows.first { $0.id == "brew" }, "every tool is bundled or installed")
     }
 
