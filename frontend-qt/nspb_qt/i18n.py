@@ -14,7 +14,7 @@ class Lang(Enum):
 
     @property
     def other(self) -> 'Lang':
-        return Lang.EN if self is not Lang.EN else Lang.ZH
+        return {Lang.ZH: Lang.EN, Lang.EN: Lang.SV, Lang.SV: Lang.ZH}[self]
 
     @property
     def toggle_label(self) -> str:
