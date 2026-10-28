@@ -5,7 +5,12 @@ struct NSPortBuilderApp: App {
     @NSApplicationDelegateAdaptor private var delegate: AppDelegate
 
     var body: some Scene {
-        WindowGroup("NX2Apple") { ContentView() }
+        WindowGroup("NX2Apple") {
+            if let name = ProcessInfo.processInfo.environment["NSPB_ONBOARDING_DEMO"],
+               let scenario = MockOnboardingDriver.Scenario(rawValue: name) {
+                OnboardingDemoHost(scenario: scenario)
+            } else { RootView() }
+        }
             .windowStyle(.hiddenTitleBar)
             .defaultSize(width: 1280, height: 900)
             .windowResizability(.automatic)

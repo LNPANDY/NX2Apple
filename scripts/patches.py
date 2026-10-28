@@ -17,6 +17,8 @@ Subcommands (Python 3.9+, stdlib and git):
                         Upstream-Status, and leave the conflict in a worktree for a human. --dry changes nothing and
                         reports every patch that would conflict
   export <commit|range> turn local commits on the vendored tree into patches with the header template
+  absorb [paths...]     fold changes made directly to vendored files into the patch that already touches each file (a new
+                        file goes to a patch only when the choice is unambiguous, else name it with --into), then run check
   status                a table of the patches: Upstream-Status, Reason, age
   check                 the headers are valid, no patch touches the shader chain, the series applies to the pinned ref and
                         reproduces the vendored tree of the checkout byte for byte (after
@@ -269,6 +271,27 @@ def install(root, wt, patches):
     (root / FORK_PATCHES).write_text(fork_patch_list(patches))
 
 
+def fix_hint(diff, patches):
+    """What a failing author runs. diff = the lines of diff_trees (plus the fork_patches.txt line)."""
+    gen = {o for o, _ in GENERATED}
+    paths = [m.group(1) for l in diff for m in [re.search(r': (\S+)$', l)] if m and not l.rstrip().endswith('(run patches.py apply)')]
+    absorbable = [p for p in paths if p not in gen]
+    lines = ['']
+    for l in diff:
+        m = re.search(r': (\S+)$', l)
+        if not m or l.rstrip().endswith('(run patches.py apply)'): continue
+        f = m.group(1)
+        if f in gen: lines.append(f'{f} is generated: run `python3 scripts/patches.py apply`')
+        else: lines.append(f'{f} differs from pin+patches: run `python3 scripts/patches.py absorb {f}` and commit patches/')
+    if absorbable:
+        lines.append('To fold all of them at once: `python3 scripts/patches.py absorb`, then commit patches/ (and dm/fork_patches.txt if it changed).')
+        lines.append('A new file goes to the patch that owns its folder; if that is ambiguous, absorb stops and asks for `--into <patch>` (see `scripts/patches.py status`).')
+        lines.append('A change that deserves its own patch (new Upstream-Status, Reason, Issue): commit it, then `python3 scripts/patches.py export <commit>`. See patches/README.md.')
+    else:
+        lines.append('Run `python3 scripts/patches.py apply` to rewrite the generated files, then commit. See patches/README.md.')
+    return '\n'.join(lines)
+
+
 # ---- subcommands ----
 
 def cmd_check(a):
@@ -304,7 +327,7 @@ def cmd_check(a):
     if diff:
         say(f'patch queue: the vendored tree is not upstream {sha[:12]} plus the series ({len(diff)} differences):')
         say('\n'.join(diff[:40]) + ('\n  ...' if len(diff) > 40 else ''))
-        say('A fix to a vendored file belongs in a patch: commit it, then `scripts/patches.py export <commit>` (patches/README.md).')
+        say(fix_hint(diff, patches))
         return 1
     say(f'patch queue: ok. {len(patches)} patches apply to upstream {sha[:12]} and give the committed vendored tree ({len(want)} files)')
     return 0
@@ -447,6 +470,88 @@ def cmd_export(a):
     return 0
 
 
+def resolve_patch(patches, spec):
+    hits = [i for i, p in enumerate(patches) if spec in (p.name, p.file) or p.file.startswith(spec + '-')]
+    if len(hits) != 1: raise Fail(f'--into {spec}: {"no such patch" if not hits else "ambiguous"} (patches.py status lists them)')
+    return hits[0]
+
+
+def owner_of(path, patches, into):
+    """Index of the patch that takes a changed file, or a reason string. A file some patch touches goes to the last one that
+    does (later patches then apply on top of it unchanged); a file no patch touches goes to the one patch that touches files
+    in its nearest folder, if there is exactly one."""
+    if into is not None: return into
+    own = [i for i, p in enumerate(patches) if path in p.files]
+    if own: return own[-1]
+    d = os.path.dirname(path)
+    while d:
+        near = sorted({i for i, p in enumerate(patches) if any(os.path.dirname(f) == d for f in p.files)})
+        if len(near) == 1: return near[0]
+        if near: return 'ambiguous: patches ' + ', '.join(patches[i].name for i in near) + f' all touch {d}/'
+        d = os.path.dirname(d)
+    return 'no patch touches its folder'
+
+
+def cmd_absorb(a):
+    root = a.root
+    patches = load(root)
+    sha = resolve((root / '.upstream-ref').read_text().strip(), root)
+    into = resolve_patch(patches, a.into) if a.into else None
+    gen = {o for o, _ in GENERATED}
+    with Scratch(root, sha, a.tmp) as s:
+        applied, landed, conflicts = apply_series(s.dir, patches)
+        if conflicts or landed: raise Fail('the series does not apply cleanly to the pin; run `patches.py check` first')
+        generate(s.dir)
+        want = tree_files(s.dir)
+    have = local_files(root)
+    changed = [p for p in sorted(set(want) | set(have)) if want.get(p) != have.get(p)]
+    sel = []
+    for x in a.paths:
+        rel = os.path.relpath(os.path.realpath(x), root).replace(os.sep, '/')
+        if rel == '..' or rel.startswith('../'): raise Fail(f'{x} is outside the checkout')
+        sel.append('' if rel == '.' else rel)
+    if '' in sel: sel = []   # "." is the whole tree
+    if sel: changed = [p for p in changed if any(p == x or p.startswith(x + '/') for x in sel)]
+    changed = [p for p in changed if p not in gen]
+    if not changed:
+        say('absorb: nothing to fold in (the vendored files match pin + series)')
+        return cmd_check(a)
+    chain = chain_hits(changed, root)
+    if chain: raise Fail(f'{", ".join(chain)}: patches must not change the shader chain or the tool pins (patches/README.md, Patch policy)')
+    plan, unclear = {}, []
+    for f in changed:
+        o = owner_of(f, patches, into)
+        if isinstance(o, str): unclear.append(f'  {f}: {o}')
+        else: plan.setdefault(o, []).append(f)
+    if unclear:
+        raise Fail('cannot tell which patch takes:\n' + '\n'.join(unclear) + '\nname it with `absorb --into <patch> <paths>` (patches.py status lists the patches)')
+    ident = ('-c', 'user.name=patches.py', '-c', 'user.email=patches@localhost', '-c', 'commit.gpgsign=false', '-c', 'core.autocrlf=false')
+    with Scratch(root, sha, a.tmp) as s:
+        wt, new = s.dir, {}
+        for i, p in enumerate(patches):
+            before = git('rev-parse', 'HEAD^{tree}', cwd=wt).stdout
+            r = am(wt, p)
+            if r.returncode:
+                raise Fail(f'{p.file} no longer applies after absorbing into an earlier patch ({(r.stderr or r.stdout).strip()[-300:]}); name a later patch with --into')
+            if git('rev-parse', 'HEAD^{tree}', cwd=wt).stdout == before:
+                raise Fail(f'{p.file} would be empty after absorbing into an earlier patch (its change is already there); name that patch with --into. No patch was changed')
+            if i not in plan: continue
+            for f in plan[i]:
+                if f in have:
+                    (wt / f).parent.mkdir(parents=True, exist_ok=True)
+                    (wt / f).write_bytes((root / f).read_bytes()); (wt / f).chmod(0o755 if have[f][0] == '100755' else 0o644)
+                    git('add', '--', f, cwd=wt)
+                else: git('rm', '-q', '-f', '--', f, cwd=wt)
+            git(*ident, 'commit', '-q', '--amend', '--no-edit', '--allow-empty', cwd=wt)
+            if git('diff', '--quiet', 'HEAD^', 'HEAD', cwd=wt, check=False).returncode == 0:
+                raise Fail(f'absorbing {", ".join(plan[i])} would leave {p.file} empty (a full revert of that patch); delete the patch and its line in patches/series instead. No patch was changed')
+            new[i] = git('format-patch', '--binary', '--zero-commit', '--no-signature', '--no-numbered', '--stdout', '-1', 'HEAD', cwd=wt, binary=True).stdout
+    for i, text in new.items():
+        patches[i].path.write_bytes(text)
+        say(f'{patches[i].file}: absorbed ' + ', '.join(plan[i]))
+    return cmd_check(a)
+
+
 def cmd_status(a):
     patches = load(a.root)
     rows = [('patch', 'upstream status', 'reason', 'age')]
@@ -474,6 +579,9 @@ def main(argv=None):
     s = sub.add_parser('refresh'); s.add_argument('worktree'); s.add_argument('--to', required=True); s.set_defaults(f=cmd_refresh)
     s = sub.add_parser('export'); s.add_argument('rev', help='a commit or a range')
     s.add_argument('--status', default='pending'); s.add_argument('--reason', default='TODO: why the fork carries this'); s.add_argument('--issue', default='TODO: LNPANDY/NX2Apple#<n>'); s.set_defaults(f=cmd_export)
+    s = sub.add_parser('absorb', help='fold direct edits of vendored files into the patches that touch them')
+    s.add_argument('paths', nargs='*', help='files or folders to fold in (default: every difference)')
+    s.add_argument('--into', help='the patch that takes new files no patch touches yet (name or number)'); s.set_defaults(f=cmd_absorb)
     sub.add_parser('status').set_defaults(f=cmd_status)
     sub.add_parser('check').set_defaults(f=cmd_check)
     a = ap.parse_args(argv)

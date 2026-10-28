@@ -1,7 +1,7 @@
 """The repository's own Markdown stays navigable: every relative link and #anchor resolves (GitHub's heading anchors), every game profile has its note
 (dm/games/<id>/README.md) and a row in the games table of dm/games/README.md, the symptom index (docs/agents/symptoms.md) is the one dm/tools/docs_symptoms.py writes from
 docs/reference, the patch index (docs/agents/game-patches.md) is the one dm/tools/docs_patches.py writes from the patch files, host tables and profiles, and the entry points stay short: AGENTS.md at most 1,500 words, each numbered guide in docs/agents at most 6,000 (a new finding goes into a game note or a
-reference, not into these), and README's games gallery is the one dm/tools/docs_gallery.py writes from docs/images/gallery.tsv. Third-party trees are left out. No game files needed."""
+reference, not into these), and GAMES.md's games gallery is the one dm/tools/docs_gallery.py writes from docs/images/gallery.tsv. Third-party trees are left out. No game files needed."""
 from pathlib import Path
 import re
 import subprocess
@@ -95,7 +95,7 @@ class PatchIndex(unittest.TestCase):
 
 class Gallery(unittest.TestCase):
     def test_gallery_is_current(self):
-        self.assertEqual(docs_gallery.OUT.read_text(encoding='utf-8'), docs_gallery.readme(), 'README.md: the gallery is out of date: run dm/tools/docs_gallery.py')
+        self.assertEqual(docs_gallery.OUT.read_text(encoding='utf-8'), docs_gallery.readme(), 'GAMES.md: the gallery is out of date: run dm/tools/docs_gallery.py')
 
     def test_plain_text_captions_and_unknown_size(self):
         image = docs_gallery.rows()[0][0]

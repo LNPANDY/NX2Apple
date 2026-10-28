@@ -928,19 +928,6 @@ def extracted(log):   # (files, bytes) from the summary lines nx_extract wrote t
     return (sum(int(n) for n, _ in rows), int(sum(float(mb) for _, mb in rows) * 2**20)) if rows else None
 
 
-def prune_intermediate_extracts(dirs, versions, pkg_ver):
-    """Every extracted version but the packed one: each holds a complete extra copy of the game (one
-    merged RomFS image per version), and only the packed version's files are reused by the next
-    build — when its inputs change, the intermediates are extracted again anyway (the packed version
-    is merged from them). The shader captures above still read them, so they are dropped only once
-    the build is done. A game without an update extracts one version and this deletes nothing."""
-    spare = [dirs[v] for v in versions if v != pkg_ver and dirs[v].is_dir()]
-    if not spare: return
-    say('deleting the intermediate extractions, one full copy of the game each (the packed version keeps its files): '
-        + ', '.join(d.name for d in spare))
-    for d in spare: rmtree(d)
-
-
 def extract(nx, keys, ex, name, base, upd, cmp_dir, logs, g):   # the build IDs are checked by the caller (build_mismatch)
     dst, marker, log = ex / name, g.get('romfs_marker'), logs / f'extract_{name}.log'
     try: reusable = (dst / 'ExeFS' / 'main').exists() and (dst / 'RomFS.img').is_file() and not (dst / 'RomFS').exists() and (rfs.source(dst) / marker).exists()
@@ -2414,7 +2401,6 @@ def main(args=None):
         mac_app(py, repo, out_ipa, app, work, game, patched, host, font, ios, aoc, gfx, lang, g, app_name, app_version, bundle_id, icon, args.mac_sign or MAC_SIGN, env, logs, env_file,
                 (args.gpu or PSO_GPUS).strip())
         rmtree(work / 'tmp')
-        prune_intermediate_extracts(dirs, versions, pkg_ver)
         say(f'done: {out_ipa} ({tree_size(out_ipa)[1] / 2**30:.1f} GB); '
             f'open it from Finder. Its save is in ~/Library/Application Support/nxnative/{app:016X}/, its log in ~/Library/Logs/nxnative/{app:016X}.log')
         report_profile_status(g, reg, pkg_ver, derived, provisional, 'Mac app', patched)
@@ -2423,7 +2409,6 @@ def main(args=None):
         host, font = mac_host(py, repo, work, env, logs, g)
         cmd = mac_run(work, game, patched, host, font, ios, aoc, gfx, lang, env, logs, g, env_file)
         rmtree(work / 'tmp')
-        prune_intermediate_extracts(dirs, versions, pkg_ver)
         say(f'done: the game runs on the Mac with this command (its save in {work / "run/save"}, kept from run to run; DM_WINDOW=1 opens a window, DM_AUDIO=1 plays sound):')
         PROG.say(cmd)
         report_profile_status(g, reg, pkg_ver, derived, provisional, 'Mac build', patched)
@@ -2454,7 +2439,6 @@ def main(args=None):
         except ValueError as e: raise BuildError(str(e)) from e
         PROG.end()
         rmtree(work / 'tmp')
-        prune_intermediate_extracts(dirs, versions, pkg_ver)
         say(f'ready: {workspace}')
         say(f'game project: {project}')
         say(f'Xcode derived data: {work / "xcode-derived-data"}')
@@ -2470,8 +2454,6 @@ def main(args=None):
     rmtree(work / 'tmp')
     if not keep:
         say(f'deleting the extracted game files: {ex}'); rmtree(ex)
-    else:
-        prune_intermediate_extracts(dirs, versions, pkg_ver)
     say(f'done: {out_ipa} ({out_ipa.stat().st_size / 2**30:.1f} GB)')
     if separate: say_push_romfs(rfs.source(game), bundle_id)
     report_profile_status(g, reg, pkg_ver, derived, provisional, patched=patched)

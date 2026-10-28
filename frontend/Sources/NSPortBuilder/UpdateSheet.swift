@@ -41,6 +41,11 @@ struct UpdateSheet: View {
             }
             .frame(maxHeight: 340)
 
+            if let blocked = m.appUpdateBlocked {
+                Text(blocked).font(.manrope(12.5)).foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 28).padding(.bottom, 12)
+            }
             Divider().opacity(0.3)
             HStack(spacing: 12) {
                 if let u = update {
@@ -54,8 +59,8 @@ struct UpdateSheet: View {
                 Button {
                     // Automatic mode has already downloaded and staged the release, so the action is
                     // to swap it in now; otherwise this downloads, verifies and installs as before.
-                    if m.appStaged != nil { m.installStagedUpdate(relaunch: true) } else { m.performAppUpdate() }
-                    dismiss()
+                    // The sheet stays up while it downloads, so a refusal (a macOS too old for the release) is seen here.
+                    if m.appStaged != nil { m.installStagedUpdate(relaunch: true); dismiss() } else { m.performAppUpdate() }
                 } label: {
                     Text(m.t(m.appStaged != nil ? "app.restartNow" : "update.now"))
                         .font(.manrope(13.5, .bold)).foregroundStyle(.black)

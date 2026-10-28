@@ -52,6 +52,40 @@ its screen:
    lines appeared, the app died before logging: send the crash report instead (Settings → Privacy
    & Security → Analytics Data → `DmProbe-*.ips`).
 
+## Result: FEASIBLE (device run, 2026-10-26)
+
+Run on an iPhone (iOS **27.0.1**, sideloaded IPA; probe built 2026-10-27). The full log:
+
+```text
+---- DmProbe run 2026-10-26 19:51:50 +0000 (probe built Oct 27 2026 03:48:01) ----
+bundle:      /private/var/containers/Bundle/Application/62C345BC-…/DmProbe.app
+executable:  /private/var/containers/Bundle/Application/62C345BC-…/DmProbe.app/DmProbe
+iOS:         27.0.1 (iPhone)
+framework file …/DmProbe.app/Frameworks/Probe.framework/Probe: present
+dlopen("@executable_path/Frameworks/Probe.framework/Probe", RTLD_NOW)
+  -> handle 0x66951e70
+dlsym(handle, "probe_answer")
+  -> probe_answer at 0x102878000 in …/Frameworks/Probe.framework/Probe (image base 0x102874000)
+  -> probe_answer() = 42
+RESULT: FEASIBLE - dlopen("@executable_path/Frameworks/Probe.framework/Probe") succeeded and probe_answer() = 42: a sideloaded app can load and call code in a framework inside its own bundle (route C is viable)
+```
+
+So the gate is passed: on a stock, non-jailbroken iPhone, after the sideloader re-signed the app
+and every nested framework, iOS loads the nested framework from `@executable_path/Frameworks/`,
+resolves a symbol in it and executes it. Route C is viable in principle.
+
+**What this still does not prove** (design doc §R1, and the reasons are different):
+- a framework carrying the game's working set — the many `__DM*W` sections (up to 255 per image),
+  tens of MB of `__TEXT` — loads and executes like this one-function probe;
+- the launcher's `vm_remap` of the game image's signed `__TEXT` into an anonymous address
+  (copy = FALSE) is accepted for a sideloaded, re-signed framework;
+- `getsectiondata` on a *dylib* header (the probe only used `dlsym`/`dladdr`);
+- loading a framework that was re-signed by a free Apple ID and installed through a different
+  sideloader than the probe's.
+
+The next step is the first milestone of the plan on [#123](https://github.com/LNPANDY/NX2Apple/issues/123):
+one real game as a framework, in a shell app, on a device.
+
 ## Reading the result
 
 | Last line of probe-log.txt | Meaning |

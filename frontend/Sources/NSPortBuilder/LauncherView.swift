@@ -45,12 +45,14 @@ struct ContentView: View {
     @StateObject private var toolsAge: ToolsAge
     @State private var buildCommit = ""   // the checkout's commit when the running build started (ToolsAge)
     private var performStartupChecks: Bool
+    private let onRunSetup: (() -> Void)?   // Settings' "Run setup again"; the root view supplies it
     private let qaManage: (open: Bool, ring: Bool)   // visual QA: the Manage menu open at launch, with the controller's focus ring or without
     @Environment(\.scenePhase) private var scenePhase
 
     init(model: BuildModel? = nil, library: GameLibrary? = nil, initialPage: LauncherPage = .library,
          activeBuildID: UUID? = nil, performStartupChecks: Bool = true, search: String? = nil, olderTools: Set<UUID> = [],
-         manageOpen: Bool = false, padRing: Bool = false) {
+         manageOpen: Bool = false, padRing: Bool = false, onRunSetup: (() -> Void)? = nil) {
+        self.onRunSetup = onRunSetup
         qaManage = (manageOpen, padRing)
         if let search { _search = State(initialValue: search); _searching = State(initialValue: true) }   // visual QA: the bar with its field open
         _toolsAge = StateObject(wrappedValue: ToolsAge(older: olderTools))   // visual QA: games marked without a checkout to compare
@@ -74,7 +76,7 @@ struct ContentView: View {
             } else {
                 BuilderView(m: m, library: library, settings: page == .settings, onViewGame: { page = .library },
                             onOpenSettings: { page = .settings }, onChooseLibraryFolder: chooseLibraryFolder,
-                            onOpenControls: { controlsOpen = true }, controlChanges: controls.changeCount)
+                            onOpenControls: { controlsOpen = true }, onRunSetup: onRunSetup, controlChanges: controls.changeCount)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             if m.running || page == .library { activityBar }

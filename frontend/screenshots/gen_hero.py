@@ -20,10 +20,10 @@ CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 
 
 def repo_numbers() -> tuple[int, int]:
-    """(game profiles, verified on an iPhone): the dm/games/0100… folders, and README.md's games
+    """(game profiles, verified on an iPhone): the dm/games/0100… folders, and GAMES.md's games
     table rows that say they were verified."""
     games = sum(1 for d in (REPO / 'dm/games').iterdir() if d.is_dir() and d.name.startswith('0100'))
-    readme = (REPO / 'README.md').read_text(encoding='utf-8')
+    readme = (REPO / 'GAMES.md').read_text(encoding='utf-8')
     verified = sum(1 for ln in readme.splitlines()
                    if ln.startswith('| ') and ln.count('`') >= 2
                    and ('**Verified here**' in ln or 'Verified —' in ln))

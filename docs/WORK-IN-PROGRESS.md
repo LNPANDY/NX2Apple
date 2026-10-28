@@ -60,7 +60,7 @@ Ordered by value per week. See `docs/ROADMAP.md` for the reasoning.
 | C4 | **Settings capability gating** (`requires` + `defaultAtFps` from AnySwitch) | 1–2 wks | Polish; needs `settings.tsv` schema change |
 | C5 | **Universal launcher architecture B** (4–8 games per IPA) | 3–4 wks | Blocked on: NRO-style module packing for non-NRO modules (`loader.c map_image`), and on deciding whether 4–8 games is worth it |
 | C6 | **Multiplayer (LAN / lan-play / wireless)** | 2–3 wks for one game | Protocol documented in `docs/MULTIPLAYER.md`; needs BSD socket layer + virtual network + per-game `ldn` mapping. Untested: iOS multicast entitlement on a sideloaded IPA |
-| C7 | **Launcher architecture C** (`dlopen` per-game framework) | large | Needs a `dlopen` feasibility experiment first, per the investigation |
+| C7 | **Launcher architecture C** (`dlopen` per-game framework) | large | Feasibility experiment **passed** on a device (iOS 27.0.1, sideloaded: `dlopen` of a nested framework + `dlsym` + call, docs/probe-dlopen.md); next is one real game as a framework in a shell app |
 | C8 | **Pikmin 4 / Yoshi / other fork profiles** | days each | Cherriable from forks once their PRs land upstream |
 
 ## D. Blocked on upstream

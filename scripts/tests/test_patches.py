@@ -71,7 +71,7 @@ class ApplyAndCheck(Fixture):
     def test_a_hand_edit_of_a_vendored_file_fails_check_and_apply_restores_it(self):
         self.w('dm/b.c', 'b1\nb2 edited\n')
         out = self.run_tool('check', expect=1)
-        self.assertIn('dm/b.c', out); self.assertIn('patches.py export', out)
+        self.assertIn('dm/b.c', out); self.assertIn('run `python3 scripts/patches.py absorb dm/b.c` and commit patches/', out)
         self.run_tool('apply')
         self.assertEqual((self.r / 'dm/b.c').read_text(), 'b1\nb2\n')
         self.run_tool('check')
@@ -136,6 +136,108 @@ class Bump(Fixture):
         self.assertEqual((self.r / 'dm/a.c').read_text().splitlines()[1], 'line2 fork')
         self.run_tool('check')
         git(self.r, 'worktree', 'remove', '--force', wt)
+
+
+class Absorb(Fixture):
+    def export_second(self):
+        """A second patch, on dm/b.c, so that dm/ has two owners."""
+        self.w('dm/b.c', 'b1\nb2 fork\n'); git(self.r, 'add', '-A'); git(self.r, 'commit', '-q', '-m', 'Fork b2')
+        self.run_tool('export', 'HEAD', '--reason', 'r', '--issue', 'LNPANDY/NX2Apple#2')
+        git(self.r, 'add', '-A'); git(self.r, 'commit', '-q', '-m', 'patches 2')
+
+    def test_an_edit_of_a_file_a_patch_touches_goes_into_that_patch(self):
+        self.w('dm/a.c', 'line1\nline2 fork\nline3\nline4\nline5\nline6\nline7 more\n')
+        self.run_tool('check', expect=1)
+        out = self.run_tool('absorb')
+        self.assertIn('absorbed dm/a.c', out); self.assertIn('patch queue: ok', out)
+        self.assertIn('+line7 more', self.patch.read_text())
+        self.assertIn('Reason: the fork needs line 2', self.patch.read_text())   # the header survives
+        self.run_tool('check')
+
+    def test_absorb_works_on_a_committed_edit_too(self):
+        self.w('dm/a.c', 'line1\nline2 fork\nline3\nline4\nline5\nline6\nline7 more\n'); git(self.r, 'add', '-A'); git(self.r, 'commit', '-q', '-m', 'direct')
+        self.run_tool('check', expect=1)
+        self.run_tool('absorb', 'dm/a.c')
+        self.run_tool('check')
+
+    def test_a_file_goes_to_the_last_patch_that_touches_it(self):
+        self.export_second()
+        self.w('dm/b.c', 'b1\nb2 fork\nb3\n')
+        self.run_tool('absorb')
+        self.assertIn('+b3', (self.r / 'patches/0002-fork-b2.patch').read_text())
+        self.assertNotIn('+b3', self.patch.read_text())
+
+    def test_a_new_file_next_to_a_patched_one_goes_to_its_patch(self):
+        self.w('dm/new.c', 'n\n')
+        self.assertIn('dm/new.c', self.run_tool('absorb'))
+        self.assertIn('+++ b/dm/new.c', self.patch.read_text())
+        self.run_tool('check')
+
+    def test_a_new_file_in_an_untouched_folder_stops_and_asks_for_into(self):
+        self.w('docs/y.md', 'y\n')
+        out = self.run_tool('absorb', expect=2)
+        self.assertIn('docs/y.md', out); self.assertIn('--into <patch>', out)
+        self.assertNotIn('docs/y.md', self.patch.read_text())   # nothing was written
+        self.run_tool('absorb', '--into', 'make-line-2-the-fork-s', 'docs/y.md')
+        self.assertIn('+++ b/docs/y.md', self.patch.read_text())
+        self.run_tool('check')
+
+    def test_a_new_file_in_a_folder_two_patches_touch_is_ambiguous(self):
+        self.export_second()
+        self.w('dm/c.c', 'c\n')
+        out = self.run_tool('absorb', expect=2)
+        self.assertIn('ambiguous', out); self.assertIn('fork-b2', out); self.assertIn('make-line-2-the-fork-s', out)
+        self.run_tool('absorb', '--into', 'fork-b2', 'dm/c.c')
+        self.assertIn('+++ b/dm/c.c', (self.r / 'patches/0002-fork-b2.patch').read_text())
+
+    def test_paths_limit_what_is_folded_in(self):
+        self.w('dm/a.c', 'line1\nline2 fork\nline3\nline4\nline5\nline6\nline7 more\n'); self.w('dm/b.c', 'b1\nb2 edited\n')
+        out = self.run_tool('absorb', 'dm/a.c', expect=1)   # dm/b.c is still a difference, so the closing check fails
+        self.assertIn('absorbed dm/a.c', out); self.assertNotIn('absorbed dm/b.c', out)
+        self.assertIn('absorb dm/b.c', out)
+
+    def test_a_deleted_file_is_removed_by_its_patch(self):
+        self.w('dm/new.c', 'n\n'); self.run_tool('absorb')
+        (self.r / 'dm/new.c').unlink()
+        self.run_tool('absorb')
+        self.assertNotIn('dm/new.c', self.patch.read_text())
+        self.run_tool('check')
+
+    def test_nothing_to_absorb_just_checks(self):
+        self.assertIn('nothing to fold in', self.run_tool('absorb'))
+
+    def test_selectors_are_normalised_and_dot_is_the_whole_tree(self):
+        self.w('dm/a.c', 'line1\nline2 fork\nline3\nline4\nline5\nline6\nline7 one\n'); self.w('dm/new.c', 'n\n')
+        self.assertIn('absorbed dm/a.c', self.run_tool('absorb', './dm/a.c', expect=1))      # dm/new.c is still a difference
+        self.assertIn('absorbed dm/new.c', self.run_tool('absorb', str(self.r / 'dm') + '/'))   # absolute, trailing slash
+        self.w('dm/b.c', 'b1\nb2 edited\n')
+        self.assertIn('absorbed dm/b.c', self.run_tool('absorb', '.'))
+        self.assertIn('outside the checkout', self.run_tool('absorb', '../elsewhere', expect=2))
+
+    def test_the_check_hint_lists_the_whole_tree_command_without_truncation(self):
+        for n in range(8): self.w(f'dm/n{n}.c', 'n\n')
+        out = self.run_tool('check', expect=1)
+        self.assertNotIn('...', out)
+        self.assertIn('`python3 scripts/patches.py absorb`', out)
+
+    def test_a_full_revert_that_empties_a_patch_is_refused_and_changes_nothing(self):
+        self.w('dm/a.c', 'line1\nline2\nline3\nline4\nline5\nline6\nline7\n')
+        before = self.patch.read_text()
+        out = self.run_tool('absorb', expect=2)
+        self.assertIn('would leave', out); self.assertIn('empty', out)
+        self.assertEqual(self.patch.read_text(), before)
+
+    def test_into_that_makes_a_later_patch_empty_is_refused_before_writing(self):
+        self.export_second()          # 0002 sets b2 to "b2 fork"; putting dm/b.c into 0001 makes 0002 a no-op or a conflict
+        self.w('dm/b.c', 'b1\nb2 fork\nb3\n')
+        before = {f.name: f.read_text() for f in (self.r / 'patches').glob('*.patch')}
+        out = self.run_tool('absorb', '--into', 'make-line-2-the-fork-s', 'dm/b.c', expect=2)
+        self.assertTrue('would be empty' in out or 'no longer applies' in out, out)
+        self.assertEqual(before, {f.name: f.read_text() for f in (self.r / 'patches').glob('*.patch')})
+
+    def test_the_shader_chain_is_refused(self):
+        self.w('dm/gfx/nvn/dmsh_chain.h', 'x\n')
+        self.assertIn('shader chain', self.run_tool('absorb', expect=2))
 
 
 class Export(Fixture):

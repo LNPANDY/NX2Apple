@@ -106,7 +106,11 @@ final class BuildModel: ObservableObject {
     /// --platform mac-app). A Mac app is a different output of the same pipeline, not a
     /// different pipeline: same extraction, rewrite and shaders, then dm/mac/pack_app.py.
     @Published var target = (UserDefaults.standard.string(forKey: "buildTarget") ?? "ios") {
-        didSet { UserDefaults.standard.set(target, forKey: "buildTarget") }
+        didSet {
+            UserDefaults.standard.set(target, forKey: "buildTarget")
+            // A Mac-only setup needs no iOS SDK for a Mac build, but does for an iPhone one (needsIOSPlatform)
+            if oldValue != target, UserDefaults.standard.string(forKey: OnboardingDefaults.platform) == "mac" { checkDeps() }
+        }
     }
     /// Decode BC-compressed textures on the CPU. Only relevant for GPUs without BC support
     /// (A15/A16 and older): on a device that has it the GPU path is always better, so the switch
@@ -360,6 +364,12 @@ final class BuildModel: ObservableObject {
         ["PATH": "/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin", "HOME": NSHomeDirectory()]
     }
 
+    /// The PATH of the processes that run the build, installing packages and writing the RomFS image: the bundled tools in front of
+    /// `base` (BundledTools.swift), which is Homebrew's folders and the system's. One place, so that no environment forgets the bundle.
+    nonisolated static func toolPath(_ base: String = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin", python: String? = nil) -> String {
+        BundledTools.path(base, python: python)
+    }
+
     /// Run a command with all output captured (no streaming; fetch / rev-list / pull print little).
     nonisolated static func runQuiet(_ args: [String], env: [String: String]) -> (ok: Bool, out: String) {
         let p = Process()
@@ -598,6 +608,8 @@ final class BuildModel: ObservableObject {
     /// updates, so a user learns what changed before deciding, not after downloading.
     @Published var showUpdateSheet = false
     @Published var appStatus = ""
+    /// Set when the last update attempt was refused (a release this macOS cannot open, a bad download); the update sheet shows it.
+    @Published var appUpdateBlocked: String?
     /// Download a new release by itself and install it when the app quits (Settings; on by default). Off, the
     /// Update button in Settings works as before: download, swap in, relaunch.
     @Published var autoUpdateApp = UserDefaults.standard.object(forKey: "autoUpdateApp") as? Bool ?? true {
@@ -706,6 +718,7 @@ final class BuildModel: ObservableObject {
     func stageAppUpdate(_ release: AppUpdate.Release, automatic: Bool, then: ((AppUpdate.Staged) -> Void)? = nil) {
         guard !appBusy, appInstallability == .ok, let url = URL(string: release.url) else { return }
         appBusy = true
+        appUpdateBlocked = nil
         appStatus = String(format: t(automatic ? "app.staging" : "app.downloading"), release.tag)
         let expectedID = Bundle.main.bundleIdentifier ?? ""
         DispatchQueue.global().async {
@@ -719,16 +732,35 @@ final class BuildModel: ObservableObject {
                     self.installAtQuit()
                     then?(staged)
                 case .failure(let why):
-                    self.appStatus = String(format: self.t(why.rawValue), release.tag)
+                    if case .needsNewerMacOS(let min) = why {
+                        // Nothing was installed: the running version stays, and says why
+                        let now = AppUpdate.describe(ProcessInfo.processInfo.operatingSystemVersion)
+                        self.appStatus = String(format: self.t(why.key), release.tag, min, now)
+                    } else {
+                        self.appStatus = String(format: self.t(why.key), release.tag)
+                    }
+                    self.appUpdateBlocked = self.appStatus
                 }
             }
         }
     }
 
     /// Why staging stopped: each case is the localization key of its message (a format with the release's tag).
-    enum StageFailure: String, Error {
-        case network = "app.stageNetFail", noDigest = "app.noDigest", mismatch = "app.digestMismatch"
-        case unpack = "app.unpackFail", notOurApp = "app.notOurApp"
+    enum StageFailure: Error, Equatable {
+        case network, noDigest, mismatch, unpack, notOurApp
+        /// The release's LSMinimumSystemVersion is above the running macOS (the string is that minimum).
+        case needsNewerMacOS(String)
+
+        var key: String {
+            switch self {
+            case .network: return "app.stageNetFail"
+            case .noDigest: return "app.noDigest"
+            case .mismatch: return "app.digestMismatch"
+            case .unpack: return "app.unpackFail"
+            case .notOurApp: return "app.notOurApp"
+            case .needsNewerMacOS: return "app.needsNewerMacOS"
+            }
+        }
     }
 
     /// The background part of staging, in a folder of its own in the temporary directory (emptied first).
@@ -751,7 +783,8 @@ final class BuildModel: ObservableObject {
 
     /// A downloaded zip to a staged app: its digest first, then unzip (ditto, as the release was packed), then the app inside.
     nonisolated static func stage(zip: URL, release: AppUpdate.Release, in root: URL, expectedID: String,
-                                  requireDigest: Bool) -> Result<AppUpdate.Staged, StageFailure> {
+                                  requireDigest: Bool,
+                                  runningOS: OperatingSystemVersion = ProcessInfo.processInfo.operatingSystemVersion) -> Result<AppUpdate.Staged, StageFailure> {
         let fm = FileManager.default
         switch AppUpdate.checkDigest(zip, expected: release.digest) {
         case .match: break
@@ -774,6 +807,11 @@ final class BuildModel: ObservableObject {
         if AppUpdate.bundleProblem(app, expectedID: expectedID, tag: release.tag) != nil {
             try? fm.removeItem(at: dir)
             return .failure(.notOurApp)
+        }
+        // Not a release this Mac cannot open: it would replace a launcher that works with an app that will not start
+        if let min = AppUpdate.minimumOSAbove(runningOS, app: app) {
+            try? fm.removeItem(at: dir)
+            return .failure(.needsNewerMacOS(min))
         }
         return .success(AppUpdate.Staged(release: release, app: app))
     }
@@ -851,7 +889,7 @@ final class BuildModel: ObservableObject {
     var dlcPaths: [String] { slot("dlc").paths }
 
     func slot(_ id: String) -> Slot { slots.first { $0.id == id } ?? slots[0] }
-    private func updateSlot(_ id: String, _ body: (inout Slot) -> Void) {
+    func updateSlot(_ id: String, _ body: (inout Slot) -> Void) {
         if let i = slots.firstIndex(where: { $0.id == id }) { body(&slots[i]) }
     }
 
@@ -1068,8 +1106,8 @@ final class BuildModel: ObservableObject {
         if compressed, !Self.runOK(py, ["-c", "import nsz"]) {
             say(t("msg.installingNsz"))
             let r = Self.runCaptured([py, "-m", "pip", "install", "nsz"],
-                                     env: ["PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin",
-                                           "HOME": NSHomeDirectory()]) { line in
+                                     env: ["PATH": Self.toolPath(python: py),
+                                           "HOME": NSHomeDirectory()].merging(BundledTools.environment(for: py)) { $1 }) { line in
                 DispatchQueue.main.async { self.append(line + "\n") }
             }
             if !r {
@@ -1124,13 +1162,16 @@ final class BuildModel: ObservableObject {
         // (NuGet-Migrations) under $TMPDIR/.dotnet/shm, and with no TMPDIR it stats "" and dies with
         // 'NuGet-Migrations' + lstat("") == ENOENT before any project is read. NSTemporaryDirectory()
         // is the per-user temp folder whether or not the app's own environment carries one.
-        var denv: [String: String] = ["PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        var denv: [String: String] = ["PATH": Self.toolPath("/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin", python: py),
                                       "USER": NSUserName(), "HOME": NSHomeDirectory(), "LANG": "en_US.UTF-8",
                                       "TMPDIR": NSTemporaryDirectory()]
         if let droot = Self.dotnetRoot(for: dotnetPath.isEmpty ? "dotnet" : dotnetPath) {
             denv["DOTNET_ROOT"] = droot   // both variables carry the same root, as the apphost checks the arch-specific one first
             denv["DOTNET_ROOT_ARM64"] = droot
         }
+        // The bundled Python lives inside the signed app: a .pyc written there would change what the signature seals
+        // (the packages are compiled at bundle time), and a user site must not shadow its pinned packages.
+        denv.merge(BundledTools.environment(for: py)) { $1 }
         p.environment = denv
         Self.inOwnGroup(p, python: py)
         let pipe = Pipe()
@@ -1563,7 +1604,9 @@ final class BuildModel: ObservableObject {
         p.executableURL = URL(fileURLWithPath: pythonPath.isEmpty ? "/usr/bin/python3" : pythonPath)
         // dest/romfs.img: one file, which main.m's per-game lookup takes before any folder.
         p.arguments = [repoPath + "/" + Self.romfsImageTool, "--reuse", romfs, dest + "/romfs.img"]
-        p.environment = ["PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin", "PYTHONPATH": repoPath + "/dm/tools"]
+        let romfsPy = p.executableURL!.path
+        p.environment = ["PATH": Self.toolPath("/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin", python: romfsPy), "PYTHONPATH": repoPath + "/dm/tools"]
+            .merging(BundledTools.environment(for: romfsPy)) { $1 }
         Self.inOwnGroup(p, python: p.executableURL!.path)
         let pipe = Pipe(); p.standardOutput = pipe; p.standardError = pipe
         pipe.fileHandleForReading.readabilityHandler = { [weak self] h in
@@ -1835,6 +1878,9 @@ final class BuildModel: ObservableObject {
         var present: Bool
         var installing = false
         var detail = ""
+        var lastError = ""   // the tool's own first error line after a failed install (brew's, pip's)
+        var fixHint = ""     // an L10n key: what to type or click, chosen from that line
+        var actionLabel = "" // an L10n key for the button when the action is not a plain install ("Fix")
         let installCmd: [String]      // run via bash; empty = manual (Xcode from the App Store)
     }
 
@@ -1916,7 +1962,9 @@ final class BuildModel: ObservableObject {
         return dir.isEmpty ? NSHomeDirectory() + "/.local/share/uv/python" : dir
     }()
 
-    nonisolated static func importsOK(_ py: String) -> Bool { runOK(py, ["-c", importProbe]) }
+    nonisolated static func importsOK(_ py: String) -> Bool {
+        runOK(py, ["-c", importProbe], env: ProcessInfo.processInfo.environment.merging(BundledTools.environment(for: py)) { $1 })
+    }
 
     /// backports.zstd declares Python < 3.14, so it is only installed where it is needed.
     /// nsz is always installed: NSZ / XCZ dumps are accepted by the pipeline now, and a player who
@@ -1935,7 +1983,7 @@ final class BuildModel: ObservableObject {
             let p = Process(); p.executableURL = URL(fileURLWithPath: exe); p.arguments = args
             let out = Pipe(), err = Pipe()
             p.standardOutput = out; p.standardError = err; p.standardInput = FileHandle.nullDevice
-            p.environment = ["PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin", "HOME": NSHomeDirectory()]
+            p.environment = ["PATH": toolPath(python: base), "HOME": NSHomeDirectory()].merging(BundledTools.environment(for: base)) { $1 }
             do { try p.run() } catch { log += "could not start \(exe): \(error.localizedDescription)\n"; return false }
             // both pipes are drained on this thread (before waitUntilExit, so the child cannot
             // block on a full pipe), and the log string keeps a single owner
@@ -1970,6 +2018,7 @@ final class BuildModel: ObservableObject {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: path)
         p.arguments = ["-c", "import sys; print('%d.%d' % sys.version_info[:2])"]
+        p.environment = ProcessInfo.processInfo.environment.merging(BundledTools.environment(for: path)) { $1 }
         let pipe = Pipe()
         p.standardOutput = pipe; p.standardError = Pipe()
         p.standardInput = FileHandle.nullDevice
@@ -2053,7 +2102,13 @@ final class BuildModel: ObservableObject {
 
     /// Every python3 on this Mac, newest-looking first, each tried for a usable version and the
     /// packages. Returns the one to build with, plus why the others were rejected for the message.
-    nonisolated static func findPython() -> (path: String, ok: Bool) {
+    nonisolated static func findPython(resources: URL? = BundledTools.resources) -> (path: String, ok: Bool) {
+        // The release app's own Python (BundledTools.swift) has every package and is the one the build is tested with: it wins over
+        // any Python on this Mac and needs no venv. One that does not run (a damaged copy) falls through to the search below
+        // (uv's Pythons, the other candidates, then the venv).
+        if let bundled = BundledTools.python(in: resources), pythonVersion(bundled).map({ $0 >= minPython }) == true, importsOK(bundled) {
+            return (bundled, true)
+        }
         var seen = Set<String>()
         var fallback: (String, (Int, Int))? = nil   // newest with an acceptable version but no packages
         for c in pythonCandidates() where !c.isEmpty && seen.insert(c).inserted {
@@ -2122,24 +2177,96 @@ final class BuildModel: ObservableObject {
     /// Whether the selected developer directory exists (`xcode-select -p`), which is the same
     /// source of truth xcodebuild and xcrun use — so an Xcode beta, a custom location, or a
     /// Command Line Tools-only setup is reported for what it is instead of "no Xcode".
-    nonisolated static func developerDirExists() -> Bool {
+    nonisolated static func developerDir() -> String? {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/xcode-select")
         p.arguments = ["-p"]
         let pipe = Pipe()
         p.standardOutput = pipe
         p.standardError = FileHandle.nullDevice
-        do { try p.run() } catch { return false }
+        do { try p.run() } catch { return nil }
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         p.waitUntilExit()
         guard p.terminationStatus == 0,
               let dir = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !dir.isEmpty else { return false }
+              !dir.isEmpty else { return nil }
         var isDir: ObjCBool = false
-        return FileManager.default.fileExists(atPath: dir, isDirectory: &isDir) && isDir.boolValue
+        return FileManager.default.fileExists(atPath: dir, isDirectory: &isDir) && isDir.boolValue ? dir : nil
     }
 
-    nonisolated static func detectDepsSync() -> [Dep] {
+    nonisolated static func developerDirExists() -> Bool { developerDir() != nil }
+
+    /// An Xcode.app that is installed but not selected: an App Store download arrives as
+    /// /Applications/Xcode.app and stays unused until someone opens it or points xcode-select at
+    /// it, so `xcode-select -p` keeps saying CommandLineTools and xcodebuild fails later.
+    nonisolated static func installedXcode() -> String? {
+        for app in ["/Applications/Xcode.app", "/Applications/Xcode-beta.app"]
+        where FileManager.default.isExecutableFile(atPath: app + "/Contents/Developer/usr/bin/xcodebuild") {
+            return app
+        }
+        let apps = (try? FileManager.default.contentsOfDirectory(atPath: "/Applications")) ?? []
+        for name in apps.sorted() where name.hasPrefix("Xcode") && name.hasSuffix(".app") {
+            let app = "/Applications/" + name
+            if FileManager.default.isExecutableFile(atPath: app + "/Contents/Developer/usr/bin/xcodebuild") { return app }
+        }
+        return nil
+    }
+
+    /// What the Xcode row is looking at: the selected developer directory, the Xcode that is only
+    /// installed, and whether the iOS SDK answers. Pure, so the four cases are tested.
+    enum XcodeState: Equatable {
+        case ready
+        case noIOSSDK(selected: String)              // Xcode selected, its iOS platform not downloaded
+        case commandLineToolsOnly(xcode: String)     // Xcode.app installed, xcode-select still on the CLT
+        case notInstalled
+    }
+
+    nonisolated static func xcodeState(selected: String?, xcodeApp: String?, iosSDK: Bool) -> XcodeState {
+        if let selected, selected.contains(".app/Contents/Developer") {
+            return iosSDK ? .ready : .noIOSSDK(selected: selected)
+        }
+        if let xcodeApp { return .commandLineToolsOnly(xcode: xcodeApp) }
+        return iosSDK ? .ready : .notInstalled   // a CLT whose xcrun does answer the SDK is usable
+    }
+
+    /// The commands that fetch Xcode's two downloadable parts; the setup panel and the guided setup run the same ones.
+    nonisolated static let metalToolchainCmd = ["/usr/bin/xcodebuild", "-downloadComponent", "MetalToolchain"]
+    nonisolated static let iosPlatformCmd = ["/usr/bin/xcodebuild", "-downloadPlatform", "iOS"]
+
+    /// Whether the xcode row asks for the iOS SDK. Always, as before, unless the guided setup stored a Mac-only choice
+    /// and builds are for the Mac: upstream no longer needs the iOS SDK for a Mac build (c464cb24).
+    nonisolated static func needsIOSPlatform(defaults: UserDefaults = .standard) -> Bool {
+        if OnboardingDefaults.sessionPlatform == "mac" { return false }   // a forced run's choice, not stored yet
+        guard defaults.string(forKey: OnboardingDefaults.platform) == "mac" else { return true }
+        return (defaults.string(forKey: "buildTarget") ?? "ios") != "mac-app"
+    }
+
+
+    /// The rows for the build tools (xcodegen, zstd, spirv-cross, glslangValidator) and the Homebrew row they may need.
+    /// A tool the app carries counts as present and says "bundled"; otherwise Homebrew's copy counts (`installed` answers
+    /// a binary name with its path in a Homebrew folder, or nil). The Homebrew row appears only when some tool is neither
+    /// bundled nor installed (with a bundle; with none the row stays, as before): it is the way to get that one.
+    nonisolated static func toolDeps(resources: URL?, installed: (String) -> String?, brew: String?) -> [Dep] {
+        var rows: [Dep] = []
+        var needsBrew = false, anyBundled = false
+        for (pkg, binary, key) in brewDeps {
+            let bundled = BundledTools.tool(binary, in: resources) != nil
+            let path = bundled ? nil : installed(binary)
+            if !bundled && path == nil { needsBrew = true }
+            if bundled { anyBundled = true }
+            // A bundled tool is named by the tool; "brew: …" says where a Homebrew copy comes from, so it stays for the rows that
+            // refer to one (installed there, or missing with the install button)
+            rows.append(Dep(id: "brew:" + pkg, name: bundled ? "dep.tool." + binary : key, hint: key + ".hint", present: bundled || path != nil,
+                            detail: bundled ? "dep.bundled" : (path ?? ""),
+                            installCmd: [(brew ?? "/opt/homebrew/bin/brew"), "install", pkg]))
+        }
+        guard needsBrew || !anyBundled else { return rows }   // without a bundle the row is always there, as it was
+        return [Dep(id: "brew", name: "dep.brew", hint: "dep.brew.hint", present: brew != nil,
+                    installCmd: ["/bin/bash", "-c",
+                      "NONINTERACTIVE=1 /bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""])] + rows
+    }
+
+    nonisolated static func detectDepsSync(needsIOS: Bool = BuildModel.needsIOSPlatform()) -> [Dep] {
         var out: [Dep] = []
 
         // Xcode.app alone is not enough: since Xcode 15 the iOS platform ships as a separate
@@ -2147,30 +2274,36 @@ final class BuildModel: ObservableObject {
         // xcodebuild. Ask for the SDK version itself — that is the check that matches the name.
         // And ask xcode-select where Xcode is, not a fixed path: a beta lives at
         // /Applications/Xcode-beta.app and the hard-coded check called that "no Xcode" (#21).
-        let xcodePresent = Self.developerDirExists()
-            && FileManager.default.isExecutableFile(atPath: "/usr/bin/xcodebuild")
-        let iosSDK = xcodePresent && runOK("/usr/bin/xcrun", ["--sdk", "iphoneos", "--show-sdk-version"])
-        out.append(Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint",
-                       present: iosSDK,
-                       detail: iosSDK ? "" : (xcodePresent ? "dep.xcode.noSDK" : ""),
-                       installCmd: iosSDK ? [] : (xcodePresent
-                            ? ["/usr/bin/xcodebuild", "-downloadPlatform", "iOS"]
-                            : [])))
+        let selected = Self.developerDir()
+        let xcodeApp = Self.installedXcode()
+        let sdkenv = runOK("/usr/bin/xcrun", ["--sdk", "iphoneos", "--show-sdk-version"])
+        // A Mac-only setup does not need the iOS platform (onboarding's platform choice, #120); a
+        // Mac build still needs a selected Xcode, so the CommandLineTools state is reported either way.
+        switch Self.xcodeState(selected: selected, xcodeApp: xcodeApp, iosSDK: !needsIOS || sdkenv) {
+        case .ready:
+            out.append(Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint", present: true, installCmd: []))
+        case .noIOSSDK:
+            out.append(Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint", present: false,
+                           detail: "dep.xcode.noSDK", installCmd: iosPlatformCmd))
+        case .commandLineToolsOnly(let xcode):
+            // One admin prompt runs both steps: switch the toolchain, then let Xcode finish its
+            // first launch (license and components) - a fresh App Store download has neither.
+            let script = "xcode-select -s '" + xcode + "/Contents/Developer' && xcodebuild -runFirstLaunch"
+            let apple = "do shell script \"" + script.replacingOccurrences(of: "\"", with: "\\\"") + "\" with administrator privileges"
+            out.append(Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint", present: false,
+                           detail: "dep.xcode.notSelected", actionLabel: "dep.xcode.fix",
+                           installCmd: ["/usr/bin/osascript", "-e", apple]))
+        case .notInstalled:
+            out.append(Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint", present: false, installCmd: []))
+        }
 
         let mt = runOK("/usr/bin/xcrun", ["-sdk", "macosx", "metal", "--version"])
         out.append(Dep(id: "metal", name: "dep.metal", hint: "dep.metal.hint",
-                       present: mt, installCmd: ["xcodebuild", "-downloadComponent", "MetalToolchain"]))
+                       present: mt, installCmd: metalToolchainCmd))
 
-        let brew = firstExisting(["/opt/homebrew/bin/brew", "/usr/local/bin/brew"])
-        out.append(Dep(id: "brew", name: "dep.brew", hint: "dep.brew.hint", present: brew != nil,
-                       installCmd: ["/bin/bash", "-c",
-                         "NONINTERACTIVE=1 /bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""]))
-        for (pkg, binary, key) in brewDeps {
-            let path = firstExisting(["/opt/homebrew/bin/\(binary)", "/usr/local/bin/\(binary)"])
-            out.append(Dep(id: "brew:" + pkg, name: key, hint: key + ".hint", present: path != nil,
-                           detail: path ?? "",
-                           installCmd: [(brew ?? "/opt/homebrew/bin/brew"), "install", pkg]))
-        }
+        out += toolDeps(resources: BundledTools.resources,
+                        installed: { firstExisting(["/opt/homebrew/bin/\($0)", "/usr/local/bin/\($0)"]) },
+                        brew: firstExisting(["/opt/homebrew/bin/brew", "/usr/local/bin/brew"]))
 
         let (dn, dnOK) = findDotnet()
         out.append(Dep(id: "dotnet", name: "dep.dotnet", hint: "dep.dotnet.hint",
@@ -2185,7 +2318,7 @@ final class BuildModel: ObservableObject {
         // A version we cannot read means no interpreter ran at all (py is then the venv
         // that does not exist yet), which is not the same as one that is too old.
         let minVer = "\(minPython.0).\(minPython.1)"
-        let pyDetail = pyOK ? py
+        let pyDetail = pyOK ? (py == BundledTools.python() ? "dep.bundled" : py)
             : pythonVersion(py).map { $0 >= minPython
                 ? "dep.python.missing:\(py) (\(pyVer))"
                 : "dep.python.old:\(pyVer):\(minVer)" }
@@ -2225,7 +2358,11 @@ final class BuildModel: ObservableObject {
         out += "date: \(ISO8601DateFormatter().string(from: Date()))\n"
         out += "HOME: \(NSHomeDirectory())\n"
         out += "PATH: \(ProcessInfo.processInfo.environment["PATH"] ?? "(unset)")\n"
-        out += "python candidates:\n"
+        let chosen = findPython()
+        let bundled = BundledTools.python()
+        out += "python chosen: \(chosen.path) (\(chosen.ok ? "ok" : "not usable")\(chosen.path == bundled ? ", bundled with the app" : ""))\n"
+        out += "bundled python: \(bundled ?? "(none: not the release app)")\n"
+        out += "python candidates (after the bundled one, in search order):\n"
         for c in pythonCandidates() { out += "  \(c)\n" }
         out += "rows:\n"
         for d in deps { out += "  \(d.id): \(d.present ? "ok" : "MISSING") \(d.detail)\n" }
@@ -2249,18 +2386,66 @@ final class BuildModel: ObservableObject {
                 DispatchQueue.main.async { self.append("\n--- 安装输出 ---\n" + r.log) }
                 ok = r.ok
             } else {
+                let collected = LineBox()
                 ok = Self.runCaptured(["/bin/bash", "-c",
                      cmd.map { $0.contains(" ") ? "'" + $0 + "'" : $0 }.joined(separator: " ")],
                      env: ["PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
                            "HOME": NSHomeDirectory(), "NONINTERACTIVE": "1", "USER": NSUserName()])
-                { line in DispatchQueue.main.async { self.append(line + "\n") } }
+                { line in
+                    collected.append(line)
+                    DispatchQueue.main.async { self.append(line + "\n") }
+                }
+                let (error, fix) = Self.failureInfo(collected.lines)
+                DispatchQueue.main.async {
+                    if let j = self.deps.firstIndex(where: { $0.id == dep.id }) {
+                        self.deps[j].lastError = ok ? "" : error
+                        self.deps[j].fixHint = ok ? "" : fix
+                    }
+                }
             }
             DispatchQueue.main.async {
                 if let j = self.deps.firstIndex(where: { $0.id == dep.id }) { self.deps[j].installing = false }
+                if ok, let j = self.deps.firstIndex(where: { $0.id == dep.id }) { self.deps[j].lastError = ""; self.deps[j].fixHint = "" }
                 if !ok { self.doneNote = String(format: self.t("dep.install.fail"), self.t(dep.name)) }
                 self.checkDeps()
             }
         }
+    }
+
+    /// The line a failed install should show, and the fix to offer beside it.
+    ///
+    /// A GUI user sees a spinner turn back into a button; the reason (brew refusing a directory it
+    /// does not own is the common one) lived only in the log. Prefer the tool's own `Error:` line,
+    /// and map the few causes we can name to the exact command.
+    nonisolated static func failureInfo(_ lines: [String]) -> (error: String, fix: String) {
+        let meaningful = lines.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        let error = meaningful.first { $0.hasPrefix("Error:") }
+            ?? meaningful.first { $0.lowercased().contains("error") }
+            ?? meaningful.last ?? ""
+        let lower = lines.joined(separator: "\n").lowercased()
+        let fix: String
+        if lower.contains("/opt/homebrew is not writable") || lower.contains("permission denied @ dir_initialize")
+            || lower.contains("/usr/local is not writable") {
+            fix = "dep.fix.brewOwner"
+        } else if lower.contains("command not found") || lower.contains("brew: not found") {
+            fix = "dep.fix.brewMissing"
+        } else if lower.contains("agreeing to the xcode license") || lower.contains("xcode license") {
+            fix = "dep.fix.xcodeLicense"
+        } else if lower.contains("could not resolve host") || lower.contains("failed to download")
+            || lower.contains("operation timed out") {
+            fix = "dep.fix.network"
+        } else {
+            fix = "dep.fix.log"
+        }
+        return (error, fix)
+    }
+
+    /// The output lines seen so far, from the pipe's threads and read on the main queue.
+    final class LineBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var box: [String] = []
+        func append(_ l: String) { lock.lock(); box.append(l); lock.unlock() }
+        var lines: [String] { lock.lock(); defer { lock.unlock() }; return box }
     }
 
     /// Run a command, streaming its output line by line to `line`. Returns success.
@@ -2319,6 +2504,7 @@ struct BuilderView: View {
     var onOpenSettings: () -> Void = {}
     var onChooseLibraryFolder: () -> Void = {}
     var onOpenControls: () -> Void = {}
+    var onRunSetup: (() -> Void)?   // the guided first-run setup, again (nil where there is none)
     var controlChanges = 0
     @AppStorage(BuildNotice.defaultsKey) private var notifyBuilds = true   // BuildNotifications.swift
     @State private var extrasOpen = false
@@ -2784,6 +2970,13 @@ struct BuilderView: View {
                     .padTarget("set.notify", scope: "main") { notifyBuilds.toggle() }
             }
             divider
+            if let onRunSetup {
+                row(m.t("settings.setup"), detail: m.t("settings.setupNote")) {
+                    Button(m.t("settings.setupBtn"), action: onRunSetup)
+                        .padTarget("set.setup", scope: "main") { onRunSetup() }
+                }
+                divider
+            }
             row("NX2Apple", detail: String(format: m.t("app.version"), BuildModel.appVersion),
                 dot: m.appStaged != nil ? LauncherPalette.ready : nil) {
                 if m.appBusy { ProgressView().controlSize(.small) }
@@ -2888,13 +3081,29 @@ struct BuilderView: View {
             if m.depsOpen {
                 ForEach(m.deps, id: \.id) { d in
                     divider
-                    row(m.t(d.name), detail: m.shortPath(m.depDetail(d)), dot: d.present ? LauncherPalette.ready : LauncherPalette.building,
-                        help: m.t(d.hint)) {
-                        if d.installing {
-                            ProgressView().controlSize(.small)
-                            Text(m.t("dep.installing")).font(.manrope(12)).foregroundStyle(LauncherPalette.building)
-                        } else if !d.present {
-                            Button(d.installCmd.isEmpty ? m.t("dep.openAppStore") : m.t("dep.install")) { m.installDep(d) }
+                    VStack(alignment: .leading, spacing: 0) {
+                        row(m.t(d.name), detail: m.shortPath(m.depDetail(d)), dot: d.present ? LauncherPalette.ready : LauncherPalette.building,
+                            help: m.t(d.hint)) {
+                            if d.installing {
+                                ProgressView().controlSize(.small)
+                                Text(m.t("dep.installing")).font(.manrope(12)).foregroundStyle(LauncherPalette.building)
+                            } else if !d.present {
+                                Button(d.actionLabel.isEmpty ? (d.installCmd.isEmpty ? m.t("dep.openAppStore") : m.t("dep.install")) : m.t(d.actionLabel)) { m.installDep(d) }
+                            }
+                        }
+                        // Why the last install failed, and what to do about it: the tool's own
+                        // error line under the row, the fix (a command or a place to look) below it.
+                        if !d.lastError.isEmpty {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(d.lastError).font(.mono(11)).foregroundStyle(LauncherPalette.building)
+                                    .lineLimit(3).help(d.lastError)
+                                if !d.fixHint.isEmpty {
+                                    Text(m.t(d.fixHint)).font(.manrope(11.5)).foregroundStyle(.secondary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                            }
+                            .padding(.leading, 37).padding(.trailing, 18).padding(.bottom, 11)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
                 }

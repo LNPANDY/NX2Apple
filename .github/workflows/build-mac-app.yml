@@ -8,13 +8,20 @@
 # "up to date" — a silent failure of the update path for every existing install. Copies from before
 # the app was renamed (NS Port Builder) look for NS-Port-Builder-macOS-arm64.zip, so that one goes up too.
 #
+# The app also carries its build tools (zstd, glslangValidator, spirv-cross, xcodegen) and a Python with the packages the build scripts import,
+# so a player installs neither Homebrew nor Python (frontend/tools/bundle_tools.sh builds them from pinned, checksummed sources; check_bundle.sh
+# runs each from the assembled bundle with a clean PATH, checks the load paths and the signature).
+#
 #   - push a tag vX.Y.Z  → builds and attaches the app to that release
 #   - workflow_dispatch  → artifact only
+#   - a pull request that touches frontend/ or this file → artifact only, so a change to the bundle is tested before a release needs it
 name: Build nxnative (native macOS)
 
 on:
   push:
     tags: ['v*']
+  pull_request:
+    paths: ['frontend/**', '.github/workflows/build-mac-app.yml']
   workflow_dispatch:
 
 permissions:
@@ -63,6 +70,9 @@ jobs:
           mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
           cp .build/release/NSPortBuilder "$APP/Contents/MacOS/NSPortBuilder"
           cp AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+          # The build tools and the Python go into Resources before the bundle is signed (bundle_tools.sh signs each nested Mach-O file
+          # itself: --deep below does not reach code that sits in Resources).
+          tools/bundle_tools.sh "$APP/Contents/Resources" "$RUNNER_TEMP/bundle-tools-work"
           V="${{ steps.ver.outputs.version }}"
           cat > "$APP/Contents/Info.plist" <<PLIST
           <?xml version="1.0" encoding="UTF-8"?>
@@ -86,8 +96,18 @@ jobs:
           # Ad-hoc: the app is distributed as a zip and the user right-clicks → Open once, which is
           # what the README says. A real Developer ID would need a certificate this repo has none of.
           codesign --force --deep --sign - "$APP"
-          codesign -v "$APP"
+          codesign -v --deep --strict "$APP"
           plutil -p "$APP/Contents/Info.plist" | grep -i version
+
+      - name: Check the bundled tools from the assembled bundle
+        working-directory: frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          # zstd, glslangValidator, spirv-cross and xcodegen run by their bundle paths with a PATH of /usr/bin:/bin; the Python imports
+          # lz4, capstone, fontTools and nsz; no Mach-O file links into /opt/homebrew; the signature verifies.
+          tools/check_bundle.sh NX2Apple.app
+          codesign -v --deep --strict NX2Apple.app
 
       - name: Package
         working-directory: frontend
@@ -111,6 +131,7 @@ jobs:
             (cd "legacy-$legacy" && ditto -c -k --keepParent "$legacy.app" "../${zname}-macOS-arm64.zip")
           done
           ls -la *.zip
+          du -sh "$APP/Contents/Resources/tools" "$APP/Contents/Resources/python"
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

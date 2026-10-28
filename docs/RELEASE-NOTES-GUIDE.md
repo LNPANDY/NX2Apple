@@ -75,7 +75,7 @@ changing the template means checking that sheet's tests too.
 
 ## Where the text comes from
 
-- `README.md` and `README.zh-CN.md` share an update-history table; a release row goes in both, the
+- `CHANGELOG.md` and `CHANGELOG.zh-CN.md` share an update-history table; a release row goes in both, the
   English one first (it is the canonical project history), then translated.
 - The release body itself is written once, in both languages, and is what `gh release edit
   --notes-file` takes. Keep the file in `/tmp` while working; the release is the record.

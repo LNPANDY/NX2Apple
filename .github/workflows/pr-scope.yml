@@ -29,4 +29,8 @@ jobs:
           git remote add seedds https://github.com/seedds/nxnative.git
           git fetch --no-tags seedds "$(cat .upstream-ref)"
       - name: The series reproduces the vendored tree
-        run: python3 scripts/patches.py check
+        run: |
+          python3 scripts/patches.py check || {
+            echo "::error title=Patch queue::Patch queue out of sync: vendored files differ from pin + patches. Fix: python3 scripts/patches.py absorb <the files listed above> (a new file may need --into <patch>), then commit patches/. See patches/README.md."
+            exit 1
+          }

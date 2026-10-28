@@ -1,5 +1,8 @@
 blank_issues_enabled: false
 contact_links:
+  - name: Questions and ideas
+    url: https://github.com/LNPANDY/NX2Apple/discussions
+    about: Ask how something works in Q&A, or suggest and talk over an idea in Ideas. Bugs stay as issues, with the forms here.
   - name: The engine and game compatibility (seedds/nxnative)
     url: https://github.com/seedds/nxnative/issues
     about: NX2Apple packs and starts games with the nxnative engine. Go there for how the engine itself works, for porting a new game or for a rendering fault you have traced into it; for a game that fails on your Mac or iPhone, use the Game problem form here first.
