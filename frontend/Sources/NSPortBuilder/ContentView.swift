@@ -604,6 +604,8 @@ final class BuildModel: ObservableObject {
     /// updates, so a user learns what changed before deciding, not after downloading.
     @Published var showUpdateSheet = false
     @Published var appStatus = ""
+    /// Set when the last update attempt was refused (a release this macOS cannot open, a bad download); the update sheet shows it.
+    @Published var appUpdateBlocked: String?
     /// Download a new release by itself and install it when the app quits (Settings; on by default). Off, the
     /// Update button in Settings works as before: download, swap in, relaunch.
     @Published var autoUpdateApp = UserDefaults.standard.object(forKey: "autoUpdateApp") as? Bool ?? true {
@@ -712,6 +714,7 @@ final class BuildModel: ObservableObject {
     func stageAppUpdate(_ release: AppUpdate.Release, automatic: Bool, then: ((AppUpdate.Staged) -> Void)? = nil) {
         guard !appBusy, appInstallability == .ok, let url = URL(string: release.url) else { return }
         appBusy = true
+        appUpdateBlocked = nil
         appStatus = String(format: t(automatic ? "app.staging" : "app.downloading"), release.tag)
         let expectedID = Bundle.main.bundleIdentifier ?? ""
         DispatchQueue.global().async {
@@ -725,16 +728,35 @@ final class BuildModel: ObservableObject {
                     self.installAtQuit()
                     then?(staged)
                 case .failure(let why):
-                    self.appStatus = String(format: self.t(why.rawValue), release.tag)
+                    if case .needsNewerMacOS(let min) = why {
+                        // Nothing was installed: the running version stays, and says why
+                        let now = AppUpdate.describe(ProcessInfo.processInfo.operatingSystemVersion)
+                        self.appStatus = String(format: self.t(why.key), release.tag, min, now)
+                    } else {
+                        self.appStatus = String(format: self.t(why.key), release.tag)
+                    }
+                    self.appUpdateBlocked = self.appStatus
                 }
             }
         }
     }
 
     /// Why staging stopped: each case is the localization key of its message (a format with the release's tag).
-    enum StageFailure: String, Error {
-        case network = "app.stageNetFail", noDigest = "app.noDigest", mismatch = "app.digestMismatch"
-        case unpack = "app.unpackFail", notOurApp = "app.notOurApp"
+    enum StageFailure: Error, Equatable {
+        case network, noDigest, mismatch, unpack, notOurApp
+        /// The release's LSMinimumSystemVersion is above the running macOS (the string is that minimum).
+        case needsNewerMacOS(String)
+
+        var key: String {
+            switch self {
+            case .network: return "app.stageNetFail"
+            case .noDigest: return "app.noDigest"
+            case .mismatch: return "app.digestMismatch"
+            case .unpack: return "app.unpackFail"
+            case .notOurApp: return "app.notOurApp"
+            case .needsNewerMacOS: return "app.needsNewerMacOS"
+            }
+        }
     }
 
     /// The background part of staging, in a folder of its own in the temporary directory (emptied first).
@@ -757,7 +779,8 @@ final class BuildModel: ObservableObject {
 
     /// A downloaded zip to a staged app: its digest first, then unzip (ditto, as the release was packed), then the app inside.
     nonisolated static func stage(zip: URL, release: AppUpdate.Release, in root: URL, expectedID: String,
-                                  requireDigest: Bool) -> Result<AppUpdate.Staged, StageFailure> {
+                                  requireDigest: Bool,
+                                  runningOS: OperatingSystemVersion = ProcessInfo.processInfo.operatingSystemVersion) -> Result<AppUpdate.Staged, StageFailure> {
         let fm = FileManager.default
         switch AppUpdate.checkDigest(zip, expected: release.digest) {
         case .match: break
@@ -780,6 +803,11 @@ final class BuildModel: ObservableObject {
         if AppUpdate.bundleProblem(app, expectedID: expectedID, tag: release.tag) != nil {
             try? fm.removeItem(at: dir)
             return .failure(.notOurApp)
+        }
+        // Not a release this Mac cannot open: it would replace a launcher that works with an app that will not start
+        if let min = AppUpdate.minimumOSAbove(runningOS, app: app) {
+            try? fm.removeItem(at: dir)
+            return .failure(.needsNewerMacOS(min))
         }
         return .success(AppUpdate.Staged(release: release, app: app))
     }

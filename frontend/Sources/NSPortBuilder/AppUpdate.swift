@@ -76,6 +76,36 @@ enum AppUpdate {
         return nil
     }
 
+    // ---- What the running macOS can open ----
+
+    /// "26.6" or "26.6.1" as an OS version; nil for anything else.
+    static func parseOSVersion(_ s: String) -> OperatingSystemVersion? {
+        let n = s.trimmingCharacters(in: .whitespaces).split(separator: ".", omittingEmptySubsequences: false).map { Int($0) }
+        guard (1...3).contains(n.count), n.allSatisfy({ $0 != nil && $0! >= 0 }) else { return nil }
+        return OperatingSystemVersion(majorVersion: n[0]!, minorVersion: n.count > 1 ? n[1]! : 0, patchVersion: n.count > 2 ? n[2]! : 0)
+    }
+
+    /// `a` is older than `b`, field by field (major, minor, patch).
+    static func isOlder(_ a: OperatingSystemVersion, than b: OperatingSystemVersion) -> Bool {
+        (a.majorVersion, a.minorVersion, a.patchVersion) < (b.majorVersion, b.minorVersion, b.patchVersion)
+    }
+
+    static func describe(_ v: OperatingSystemVersion) -> String {
+        v.patchVersion == 0 ? "\(v.majorVersion).\(v.minorVersion)" : "\(v.majorVersion).\(v.minorVersion).\(v.patchVersion)"
+    }
+
+    /// The staged app's `LSMinimumSystemVersion`, as written ("26.6"), when it is above `running`: the release cannot be
+    /// opened on this Mac, so it must not replace the launcher that can. nil when it opens here, or names no minimum
+    /// (macOS then applies none) or one that cannot be read (the release workflow writes it; an unreadable value is
+    /// not a reason to keep a Mac from updating).
+    static func minimumOSAbove(_ running: OperatingSystemVersion, app: URL) -> String? {
+        guard let data = try? Data(contentsOf: app.appendingPathComponent("Contents/Info.plist")),
+              let info = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+              let text = info["LSMinimumSystemVersion"] as? String, let min = parseOSVersion(text)
+        else { return nil }
+        return isOlder(running, than: min) ? describe(min) : nil
+    }
+
     // ---- What may replace itself ----
 
     enum Installability: Equatable {

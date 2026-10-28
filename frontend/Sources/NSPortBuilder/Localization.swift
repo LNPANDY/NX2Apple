@@ -288,6 +288,7 @@ enum L10n {
         "app.digestMismatch": ("%@ 的下载与校验值不符，已丢弃", "The download of %@ did not match its checksum and was discarded"),
         "app.unpackFail": ("%@ 的下载无法解压，已丢弃", "The download of %@ could not be unpacked and was discarded"),
         "app.notOurApp": ("%@ 的下载不是 NX2Apple，已丢弃", "The download of %@ is not an NX2Apple app and was discarded"),
+        "app.needsNewerMacOS": ("NX2Apple %@ 需要 macOS %@，这台 Mac 是 %@。没有安装，继续使用当前版本", "NX2Apple %@ needs macOS %@ and this Mac has %@. It was not installed; you keep the current version"),
         "app.devBuild": ("%@ 已发布。这个启动器是从仓库构建的，不会替换自己", "%@ is out. This launcher was built from the repository and does not replace itself"),
         "app.readOnly": ("%@ 已发布，但 App 无法在当前位置替换自己——请把它移到「应用程序」文件夹", "%@ is out, but the app cannot replace itself where it is — move it to Applications"),
         "app.auto": ("自动安装更新", "Install updates automatically"),
