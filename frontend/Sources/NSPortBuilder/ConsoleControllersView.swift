@@ -75,6 +75,7 @@ struct BatteryIcon: View {
                 RoundedRectangle(cornerRadius: g.innerRadius)
                     .fill(Self.isLow(level) && !charging ? Color.red : (charging ? LauncherPalette.ready : Color.white.opacity(0.9)))
                     .frame(width: g.fill.width, height: g.fill.height).offset(x: g.fill.minX, y: g.fill.minY)
+                    .animation(.easeInOut(duration: 0.6), value: g.fill.width)   // a charging level grows smoothly between reads
             }
             if charging {
                 Image(systemName: "bolt.fill").font(.system(size: height * 0.62, weight: .bold)).foregroundStyle(.black.opacity(0.75))
@@ -104,7 +105,10 @@ struct ConsoleBattery: View {
         } else if controller.charging {
             HStack(spacing: 5) { BatteryIcon(level: nil, charging: true, height: compact ? 10 : 13) }
                 .accessibilityElement(children: .ignore).accessibilityLabel(L10n.string("console.charging", lang))
-        } else if controller.kind != .keyboard {   // a level not reported (yet): the outline alone, no percentage
+        } else if controller.wired {   // no battery object: the cable is its power
+            Image(systemName: "powerplug").font(.system(size: compact ? 11 : 15, weight: .medium)).foregroundStyle(.white.opacity(0.7))
+                .accessibilityElement(children: .ignore).accessibilityLabel(L10n.string("console.wired", lang)).help(L10n.string("console.wired", lang))
+        } else if controller.kind != .keyboard {   // a battery that reports no level (yet): the outline alone, no percentage
             BatteryIcon(level: nil, height: compact ? 10 : 13)
                 .accessibilityElement(children: .ignore).accessibilityLabel(L10n.string("console.batteryUnknown", lang))
         }
@@ -133,8 +137,8 @@ struct ConsoleControllerChips: View {
                 chip(id: controller.id, label: controller.name + ", " + t(controller.kind.labelKey) + ", " + ((merged ? 1 : controller.player).map { String(format: t("console.player"), $0) } ?? t("console.unassigned")) + (controller.batteryPercent.map { ", " + String(format: t(controller.charging ? "console.batteryCharging" : "console.batteryLevel"), $0) } ?? "")) {
                     HStack(spacing: compact ? 5 : 8) {
                         Image(systemName: controller.kind.symbol).accessibilityHidden(true)
-                        Text((merged ? 1 : controller.player).map { String(format: t("console.playerShort"), $0) } ?? "\u{2014}")   // the full "Unassigned" is in the Controllers list
-                        ConsoleBattery(controller: controller, lang: lang, compact: compact)
+                        if controller.connecting { Text("\u{2026}") } else { Text((merged ? 1 : controller.player).map { String(format: t("console.playerShort"), $0) } ?? "\u{2014}") }   // the full "Unassigned" is in the Controllers list
+                        if !controller.connecting { ConsoleBattery(controller: controller, lang: lang, compact: compact) }
                     }
                 }
             }
@@ -259,19 +263,22 @@ struct ConsoleToastView: View {
                 Image(systemName: controller.kind.symbol).font(.system(size: compact ? 26 : 34)).frame(width: 42).accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 6) {
                     Text(controller.name).font(.manrope(compact ? 18 : 23, .semibold))
-                    Text(t(controller.kind.labelKey) + " · " + playerLabel(controller)).font(.manrope(compact ? 14 : 17)).foregroundStyle(.secondary)
-                    if controller.battery == nil { Text(t("console.batteryUnknown")).font(.manrope(13)).foregroundStyle(.secondary) }
+                    if controller.connecting { Text(t("console.connecting")).font(.manrope(compact ? 14 : 17)).foregroundStyle(.secondary) }
+                    else { Text(t(controller.kind.labelKey) + " \u{00b7} " + playerLabel(controller)).font(.manrope(compact ? 14 : 17)).foregroundStyle(.secondary) }
+                    if controller.connecting {}
+                    else if controller.wired { HStack(spacing: 6) { ConsoleBattery(controller: controller, lang: lang); Text(t("console.wired")).font(.manrope(13)).foregroundStyle(.secondary) } }
+                    else if controller.battery == nil { Text(t("console.batteryUnknown")).font(.manrope(13)).foregroundStyle(.secondary) }
                     else { ConsoleBattery(controller: controller, lang: lang) }
                     if controller.charging { Text(t("console.charging")).font(.manrope(13)).foregroundStyle(.secondary) }
                 }
                 Spacer(minLength: 0)
             }
             // Three equal tiles: the icon above a label that wraps between words only (and shrinks a little rather than break a word).
-            HStack(spacing: 10) {
+            if !controller.connecting { HStack(spacing: 10) {
                 if controller.canIdentify { tile(id: controller.id + ".identify", label: t(state.identifyingControllerID == controller.id ? "console.identifying" : "console.identify"), symbol: "wave.3.right") { driver.identify(controllerID: controller.id) } }
                 tile(id: controller.id + ".assign", label: t("console.assign"), symbol: "person.crop.circle.badge.plus") { driver.requestAssignment(controllerID: controller.id) }
                 tile(id: controller.id + ".disconnect", label: t("console.disconnect"), symbol: "xmark.circle") { driver.disconnect(controllerID: controller.id) }
-            }
+            } }
             if state.isPreview, state.assigningPlayer != nil, state.assigningControllerID == nil || state.assigningControllerID == controller.id {
                 action(id: controller.id + ".press", label: t("console.mockPress"), symbol: "hand.tap") {
                     driver.assignPlayer(controllerID: controller.id, player: state.assigningPlayer ?? 1)

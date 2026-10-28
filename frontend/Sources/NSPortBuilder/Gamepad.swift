@@ -37,6 +37,7 @@ final class LauncherGamepad: ObservableObject {
     /// One press, one action, per controller: a button held on one controller never hides the same button on another.
     struct Edges {
         private var held: Set<String> = []
+        mutating func reset(controller: String) { held = held.filter { !$0.hasPrefix(controller + "/") } }
         /// What changed for `controller` given the state of its buttons: pressed and released actions.
         mutating func changes(controller: String, state: [(String, Bool, Action)]) -> (pressed: [Action], released: [Action]) {
             var pressed: [Action] = [], released: [Action] = []
@@ -59,6 +60,10 @@ final class LauncherGamepad: ObservableObject {
         observers = [NSNotification.Name.GCControllerDidConnect, .GCControllerDidDisconnect].map {
             center.addObserver(forName: $0, object: nil, queue: .main) { [weak self] note in
                 if let pad = note.object as? GCController {
+                    if note.name == .GCControllerDidDisconnect {   // nothing of the old instance is kept
+                        pad.physicalInputProfile.valueDidChangeHandler = nil
+                        self?.edges.reset(controller: String(UInt(bitPattern: ObjectIdentifier(pad).hashValue), radix: 16))
+                    }
                     Self.log.debug("\(note.name.rawValue, privacy: .public): vendor \(pad.vendorName ?? "?", privacy: .public), category \(pad.productCategory, privacy: .public), extendedGamepad \(pad.extendedGamepad != nil), attached \(pad.isAttachedToDevice)")
                 }
                 self?.attach()
