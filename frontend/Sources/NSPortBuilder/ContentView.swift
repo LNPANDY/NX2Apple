@@ -3013,14 +3013,15 @@ struct BuilderView: View {
         tools
         group(m.t("section.app"), footnote: m.appStatus) {
             // The interface language: the device default unless someone picks one here. Stored as
-            // "" (follow), "zh" or "en" so a later system-language change still applies.
+            // "" (follow), "zh", "en" or "sv" so a later system-language change still applies.
             row(m.t("settings.language"),
-                detail: Lang.saved.map { $0 == .zh ? m.t("settings.language.zh") : m.t("settings.language.en") }
+                detail: Lang.saved.map { m.t("settings.language.\($0.rawValue)") }
                     ?? m.t("settings.language.system"), dot: LauncherPalette.ready, help: "") {
                 // The launcher's own list (as in Launch options), drawn like the buttons beside it and as wide
                 LauncherMenuPicker(options: [(value: "", label: m.t("settings.language.system")),
                                              (value: "zh", label: m.t("settings.language.zh")),
-                                             (value: "en", label: m.t("settings.language.en"))],
+                                             (value: "en", label: m.t("settings.language.en")),
+                                             (value: "sv", label: m.t("settings.language.sv"))],
                                    selection: Lang.saved.map { $0.rawValue } ?? "", fill: true, buttonLike: true) { v in
                     Lang.saved = v.isEmpty ? nil : Lang(rawValue: v)
                     m.lang = Lang.initial()
@@ -3069,7 +3070,7 @@ struct BuilderView: View {
 
     /// The interface language one step on (a controller's left / right on the language list).
     private func cycleLanguage(_ by: Int) {
-        let values = ["", "zh", "en"]
+        let values = ["", "zh", "en", "sv"]
         let at = values.firstIndex(of: Lang.saved.map { $0.rawValue } ?? "") ?? 0
         let v = values[(at + by + values.count) % values.count]
         Lang.saved = v.isEmpty ? nil : Lang(rawValue: v)
