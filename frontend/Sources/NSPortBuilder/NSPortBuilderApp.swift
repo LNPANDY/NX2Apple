@@ -9,6 +9,8 @@ struct NSPortBuilderApp: App {
             if let name = ProcessInfo.processInfo.environment["NSPB_ONBOARDING_DEMO"],
                let scenario = MockOnboardingDriver.Scenario(rawValue: name) {
                 OnboardingDemoHost(scenario: scenario)
+            } else if let scenario = ProcessInfo.processInfo.environment["NSPB_CONSOLE_DEMO"].flatMap(MockConsoleDriver.Scenario.init(rawValue:)) {
+                ConsoleDemoView(scenario: scenario)
             } else { RootView() }
         }
             .windowStyle(.hiddenTitleBar)

@@ -5,7 +5,7 @@ let package = Package(
     name: "NSPortBuilder",
     platforms: [.macOS(.v13)],
     targets: [
-        .executableTarget(name: "NSPortBuilder", path: "Sources/NSPortBuilder"),
+        .executableTarget(name: "NSPortBuilder", path: "Sources/NSPortBuilder", resources: [.process("Resources")]),
         .testTarget(name: "NSPortBuilderTests", dependencies: ["NSPortBuilder"])
     ]
 )

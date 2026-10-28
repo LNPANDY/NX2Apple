@@ -27,6 +27,10 @@ struct ContentView: View {
     @State private var page: LauncherPage = .library
     @State private var search = ""
     @State private var searching = false
+    @State private var consolePrompt = false
+    private let enterConsole: () -> Void
+    @StateObject private var consoleDriver: AnyConsoleDriver
+    @State private var controllerSheet = false
     @FocusState private var searchFocused: Bool
     @State private var artwork: [UUID: NSImage] = [:]
     @State private var activeBuildID: UUID?
@@ -51,8 +55,11 @@ struct ContentView: View {
 
     init(model: BuildModel? = nil, library: GameLibrary? = nil, initialPage: LauncherPage = .library,
          activeBuildID: UUID? = nil, performStartupChecks: Bool = true, search: String? = nil, olderTools: Set<UUID> = [],
-         manageOpen: Bool = false, padRing: Bool = false, onRunSetup: (() -> Void)? = nil) {
+         manageOpen: Bool = false, padRing: Bool = false, onRunSetup: (() -> Void)? = nil,
+         enterConsole: @escaping () -> Void = {}, controllerDriver: AnyConsoleDriver? = nil) {
         self.onRunSetup = onRunSetup
+        _consoleDriver = StateObject(wrappedValue: controllerDriver ?? AnyConsoleDriver(MockConsoleDriver(state: ConsoleState())))
+        self.enterConsole = enterConsole
         qaManage = (manageOpen, padRing)
         if let search { _search = State(initialValue: search); _searching = State(initialValue: true) }   // visual QA: the bar with its field open
         _toolsAge = StateObject(wrappedValue: ToolsAge(older: olderTools))   // visual QA: games marked without a checkout to compare
@@ -68,6 +75,33 @@ struct ContentView: View {
     }
 
     var body: some View {
+        launcherBody
+        .overlay(alignment: .top) {
+            if !controllerSheet, let toast = consoleDriver.state.toast { ConsoleToastView(toast: toast) }
+        }
+        .sheet(isPresented: $controllerSheet) {
+            ConsoleControllersSheet(driver: consoleDriver, lang: m.lang, close: { controllerSheet = false; consoleDriver.back() })
+                .environmentObject(padFocus)
+        }
+        .onChange(of: controllerSheet) { open in
+            padFocus.scope = open ? "console.controllers" : currentPadScope
+            if open { consoleDriver.openControllers(); padFocus.focused = "console.controller.merge" }
+            else if consoleDriver.state.presentedSheet == .controllers { consoleDriver.back() }
+        }
+        .overlay {
+            if consolePrompt {
+                ConsoleConnectionPrompt(lang: m.lang, enterConsole: { consolePrompt = false; enterConsole() }, dismissPrompt: { consolePrompt = false })
+            }
+        }
+        .onChange(of: gamepad.connected) { connected in if connected { consolePrompt = true } }
+        .onChange(of: consolePrompt) { open in
+            padFocus.scope = open ? "console.entry" : currentPadScope
+            if open { padFocus.focused = "console.entry.enter" }
+        }
+        .environmentObject(padFocus)
+    }
+
+    private var launcherBody: some View {
         VStack(spacing: 0) {
             topBar
             Divider().opacity(0.3)
@@ -186,45 +220,67 @@ struct ContentView: View {
     }
 
     private var topBar: some View {
-        HStack(spacing: 6) {
-            // The project is NX2Apple (the user's call: what this fork produces is NX2Apple);
-            // "by nxnative" credits the engine it stands on, which the sketch kept.
-            VStack(alignment: .leading, spacing: -2) {
-                Text("NX2Apple").font(.manrope(27, .bold)).tracking(-0.8)
-                Text("— by nxnative").font(.manrope(10.5, .medium))
-                    .foregroundStyle(LauncherPalette.unbuilt).tracking(0.2)
-            }
-            .padding(.trailing, 34)
-            ForEach(LauncherPage.allCases, id: \.self) { destination in
-                Button { page = destination } label: {
-                    Label(m.t("nav." + destination.rawValue), systemImage: destination.symbol)
-                        .font(.manrope(15, page == destination ? .bold : .medium))
-                        .padding(.horizontal, 18).padding(.vertical, 10)
-                        .background(page == destination ? Color.white.opacity(0.10) : .clear,
-                                    in: RoundedRectangle(cornerRadius: 9))
-                        .contentShape(RoundedRectangle(cornerRadius: 9))   // the whole pill takes the click, not only its text
+        GeometryReader { geometry in
+            let compact = geometry.size.width < 1100 || (searching && geometry.size.width < 1400)
+            VStack(spacing: 0) {
+                HStack(spacing: 6) {
+                    // The project is NX2Apple (the user's call: what this fork produces is NX2Apple);
+                    // "by nxnative" credits the engine it stands on, which the sketch kept.
+                    VStack(alignment: .leading, spacing: -2) {
+                        Text("NX2Apple").font(.manrope(27, .bold)).tracking(-0.8)
+                        Text("— by nxnative").font(.manrope(10.5, .medium))
+                            .foregroundStyle(LauncherPalette.unbuilt).tracking(0.2)
+                    }
+                    .fixedSize(horizontal: true, vertical: false)
+                    .padding(.trailing, compact ? 16 : 34)
+                    ForEach(LauncherPage.allCases, id: \.self) { destination in
+                        Button { page = destination } label: {
+                            Group {
+                                if compact { Image(systemName: destination.symbol).accessibilityLabel(m.t("nav." + destination.rawValue)) }
+                                else { Label(m.t("nav." + destination.rawValue), systemImage: destination.symbol) }
+                            }
+                                .font(.manrope(15, page == destination ? .bold : .medium))
+                                .padding(.horizontal, compact ? 14 : 18).padding(.vertical, 10)
+                                .background(page == destination ? Color.white.opacity(0.10) : .clear,
+                                            in: RoundedRectangle(cornerRadius: 9))
+                                .contentShape(RoundedRectangle(cornerRadius: 9))   // the whole pill takes the click, not only its text
+                        }
+                        .buttonStyle(.plain).help(m.t("nav." + destination.rawValue))
+                        .accessibilityAddTraits(page == destination ? .isSelected : [])
+                        .padTarget("tab." + destination.rawValue, scope: "main") { page = destination }
+                    }
+                    Spacer(minLength: 8)
+                    ConsoleEntryButton(lang: m.lang, compact: compact, enterConsole: enterConsole)
+                    searchField
+                    Button { newBuild() } label: {
+                        Group {
+                            if compact { Image(systemName: "plus").accessibilityLabel(m.t("library.newBuild")) }
+                            else { Label(m.t("library.newBuild"), systemImage: "plus") }
+                        }
+                            .padding(.horizontal, 12).padding(.vertical, 8)
+                            .background(Color.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 8))
+                            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.white.opacity(0.1)))
+                            .contentShape(RoundedRectangle(cornerRadius: 8))
+                    }
+                    .buttonStyle(.plain).disabled(m.running).help(m.t("library.newBuild")).accessibilityLabel(m.t("library.newBuild"))
+                    .padTarget("top.build", scope: "main", radius: 8) { if !m.running { newBuild() } }
+                    .padding(.leading, 12)
                 }
-                .buttonStyle(.plain)
-                .accessibilityAddTraits(page == destination ? .isSelected : [])
-                .padTarget("tab." + destination.rawValue, scope: "main") { page = destination }
+                .padding(.leading, 90).padding(.trailing, 24)
+                .frame(height: 64)
+                .background(TitlebarDoubleClick())   // an empty part of the bar acts as the title bar does
+                HStack {
+                    Spacer(minLength: 0)
+                    ConsoleControllerChips(controllers: consoleDriver.state.controllers, merged: consoleDriver.state.padMerge, lang: m.lang,
+                                           compact: true, scope: "main") { controllerSheet = true }
+                        .frame(width: min(geometry.size.width - 114, max(120, CGFloat(consoleDriver.state.controllers.count) * 116)))
+                }
+                .padding(.leading, 90).padding(.trailing, 24)
             }
-            Spacer(minLength: 8)
-            searchField
-            Button { newBuild() } label: {
-                Label(m.t("library.newBuild"), systemImage: "plus")
-                    .padding(.horizontal, 12).padding(.vertical, 8)
-                    .background(Color.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 8))
-                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.white.opacity(0.1)))
-                    .contentShape(RoundedRectangle(cornerRadius: 8))
-            }
-            .buttonStyle(.plain).disabled(m.running)
-            .padTarget("top.build", scope: "main", radius: 8) { if !m.running { newBuild() } }
-            .padding(.leading, 12)
         }
-        .padding(.leading, 90).padding(.trailing, 24)
-        .frame(height: 64)
-        .background(TitlebarDoubleClick())   // an empty part of the bar acts as the title bar does
+        .frame(height: 104)
     }
+
 
     /// The magnifier opens into a search field in the bar itself; Esc, or leaving it empty, closes it again.
     private var searchField: some View {
@@ -588,7 +644,19 @@ struct ContentView: View {
     /// then the D-pad moves it (PadFocus), A activates, B closes a sheet or goes back to the library, X opens the selected
     /// game's launch options, L and R switch the pages.
     private func padAction(_ action: LauncherGamepad.Action) {
-        let sheetOpen = optionsFor != nil || controlsOpen || savesFor != nil || freeSpaceFor != nil
+        if consolePrompt {
+            switch action {
+            case .b: consolePrompt = false
+            case .a: padFocus.activate()
+            case .left: padFocus.horizontal(-1)
+            case .right: padFocus.horizontal(1)
+            case .up: padFocus.move(dx: 0, dy: -1)
+            case .down: padFocus.move(dx: 0, dy: 1)
+            default: break
+            }
+            return
+        }
+        let sheetOpen = controllerSheet || optionsFor != nil || controlsOpen || savesFor != nil || freeSpaceFor != nil
         switch ManagePad.route(action, menuOpen: manageOpenFor != nil, sheetOpen: sheetOpen, hasGame: library.selected != nil && page == .library) {
         case .close: manageOpenFor = nil; return
         case .swallow: return
@@ -599,6 +667,7 @@ struct ContentView: View {
             return
         case .pass: break
         }
+        if action == .b, controllerSheet { controllerSheet = false; return }
         if action == .b, savesFor != nil { savesFor = nil; return }
         // The Free space sheet: B closes it, the D-pad and A work in it, X, L and R do nothing behind it
         if freeSpaceFor != nil && [.b, .x, .l, .r].contains(action) { if action == .b { freeSpaceFor = nil }; return }
@@ -647,7 +716,7 @@ struct ContentView: View {
 
     /// The scope a controller acts in when no menu is open: the innermost sheet, else the window.
     private var currentPadScope: String {
-        savesFor != nil ? "saves" : freeSpaceFor != nil ? "free" : optionsFor != nil ? "launch" : controlsOpen ? "controls" : "main"
+        controllerSheet ? "console.controllers" : savesFor != nil ? "saves" : freeSpaceFor != nil ? "free" : optionsFor != nil ? "launch" : controlsOpen ? "controls" : "main"
     }
 
     /// The space the collection row keeps around its cards for the focus ring (PadFocus draws it 4 pt outside a target).
