@@ -221,6 +221,19 @@ and picks the first interpreter that can really import
 `lz4 capstone fontTools backports.zstd`. That same interpreter then runs the
 build.
 
+### The bundled build tools and Python
+
+The release app (`NX2Apple.app`) carries `zstd`, `glslangValidator`, `spirv-cross`, `xcodegen` (in
+`Contents/Resources/tools/bin`) and a relocatable CPython 3.13 with `lz4 capstone fonttools
+backports.zstd nsz` (`Contents/Resources/python`), so a player needs no Homebrew and no Python.
+`tools/bundle_tools.sh` fills them in during the release workflow (pinned versions and sha256 of the
+sources, built for macOS 13 with static libraries; the Python packages come from
+`tools/bundled-python-requirements.txt`) and `tools/check_bundle.sh` runs each tool from the bundle
+with a clean PATH. The dependency check (`BundledTools.swift`) prefers them to Homebrew's and shows
+"bundled"; the build's PATH starts with them. Under `swift run`, or in a build without the bundle,
+nothing changes: Homebrew's tools, a system Python or the launcher's venv. To try the bundle by hand:
+`tools/bundle_tools.sh <folder> <work folder>`, then `tools/check_bundle.sh <folder>`.
+
 ## Language
 
 The interface follows the system language at every launch: any Chinese variant

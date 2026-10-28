@@ -69,6 +69,7 @@ NX2Apple 用你自己导出的游戏文件，在你的 Mac 和 iPhone 上运行 
    结束时会给出装到手机的三步。
 
 在终端里手动构建见 [BUILDING.zh-CN.md](BUILDING.zh-CN.md)。
+ origin/main
 
 ## 游玩
 

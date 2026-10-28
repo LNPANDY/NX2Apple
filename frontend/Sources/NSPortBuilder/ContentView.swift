@@ -364,6 +364,12 @@ final class BuildModel: ObservableObject {
         ["PATH": "/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin", "HOME": NSHomeDirectory()]
     }
 
+    /// The PATH of the processes that run the build, installing packages and writing the RomFS image: the bundled tools in front of
+    /// `base` (BundledTools.swift), which is Homebrew's folders and the system's. One place, so that no environment forgets the bundle.
+    nonisolated static func toolPath(_ base: String = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin", python: String? = nil) -> String {
+        BundledTools.path(base, python: python)
+    }
+
     /// Run a command with all output captured (no streaming; fetch / rev-list / pull print little).
     nonisolated static func runQuiet(_ args: [String], env: [String: String]) -> (ok: Bool, out: String) {
         let p = Process()
@@ -602,6 +608,8 @@ final class BuildModel: ObservableObject {
     /// updates, so a user learns what changed before deciding, not after downloading.
     @Published var showUpdateSheet = false
     @Published var appStatus = ""
+    /// Set when the last update attempt was refused (a release this macOS cannot open, a bad download); the update sheet shows it.
+    @Published var appUpdateBlocked: String?
     /// Download a new release by itself and install it when the app quits (Settings; on by default). Off, the
     /// Update button in Settings works as before: download, swap in, relaunch.
     @Published var autoUpdateApp = UserDefaults.standard.object(forKey: "autoUpdateApp") as? Bool ?? true {
@@ -710,6 +718,7 @@ final class BuildModel: ObservableObject {
     func stageAppUpdate(_ release: AppUpdate.Release, automatic: Bool, then: ((AppUpdate.Staged) -> Void)? = nil) {
         guard !appBusy, appInstallability == .ok, let url = URL(string: release.url) else { return }
         appBusy = true
+        appUpdateBlocked = nil
         appStatus = String(format: t(automatic ? "app.staging" : "app.downloading"), release.tag)
         let expectedID = Bundle.main.bundleIdentifier ?? ""
         DispatchQueue.global().async {
@@ -723,16 +732,35 @@ final class BuildModel: ObservableObject {
                     self.installAtQuit()
                     then?(staged)
                 case .failure(let why):
-                    self.appStatus = String(format: self.t(why.rawValue), release.tag)
+                    if case .needsNewerMacOS(let min) = why {
+                        // Nothing was installed: the running version stays, and says why
+                        let now = AppUpdate.describe(ProcessInfo.processInfo.operatingSystemVersion)
+                        self.appStatus = String(format: self.t(why.key), release.tag, min, now)
+                    } else {
+                        self.appStatus = String(format: self.t(why.key), release.tag)
+                    }
+                    self.appUpdateBlocked = self.appStatus
                 }
             }
         }
     }
 
     /// Why staging stopped: each case is the localization key of its message (a format with the release's tag).
-    enum StageFailure: String, Error {
-        case network = "app.stageNetFail", noDigest = "app.noDigest", mismatch = "app.digestMismatch"
-        case unpack = "app.unpackFail", notOurApp = "app.notOurApp"
+    enum StageFailure: Error, Equatable {
+        case network, noDigest, mismatch, unpack, notOurApp
+        /// The release's LSMinimumSystemVersion is above the running macOS (the string is that minimum).
+        case needsNewerMacOS(String)
+
+        var key: String {
+            switch self {
+            case .network: return "app.stageNetFail"
+            case .noDigest: return "app.noDigest"
+            case .mismatch: return "app.digestMismatch"
+            case .unpack: return "app.unpackFail"
+            case .notOurApp: return "app.notOurApp"
+            case .needsNewerMacOS: return "app.needsNewerMacOS"
+            }
+        }
     }
 
     /// The background part of staging, in a folder of its own in the temporary directory (emptied first).
@@ -755,7 +783,8 @@ final class BuildModel: ObservableObject {
 
     /// A downloaded zip to a staged app: its digest first, then unzip (ditto, as the release was packed), then the app inside.
     nonisolated static func stage(zip: URL, release: AppUpdate.Release, in root: URL, expectedID: String,
-                                  requireDigest: Bool) -> Result<AppUpdate.Staged, StageFailure> {
+                                  requireDigest: Bool,
+                                  runningOS: OperatingSystemVersion = ProcessInfo.processInfo.operatingSystemVersion) -> Result<AppUpdate.Staged, StageFailure> {
         let fm = FileManager.default
         switch AppUpdate.checkDigest(zip, expected: release.digest) {
         case .match: break
@@ -778,6 +807,11 @@ final class BuildModel: ObservableObject {
         if AppUpdate.bundleProblem(app, expectedID: expectedID, tag: release.tag) != nil {
             try? fm.removeItem(at: dir)
             return .failure(.notOurApp)
+        }
+        // Not a release this Mac cannot open: it would replace a launcher that works with an app that will not start
+        if let min = AppUpdate.minimumOSAbove(runningOS, app: app) {
+            try? fm.removeItem(at: dir)
+            return .failure(.needsNewerMacOS(min))
         }
         return .success(AppUpdate.Staged(release: release, app: app))
     }
@@ -1072,8 +1106,8 @@ final class BuildModel: ObservableObject {
         if compressed, !Self.runOK(py, ["-c", "import nsz"]) {
             say(t("msg.installingNsz"))
             let r = Self.runCaptured([py, "-m", "pip", "install", "nsz"],
-                                     env: ["PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin",
-                                           "HOME": NSHomeDirectory()]) { line in
+                                     env: ["PATH": Self.toolPath(python: py),
+                                           "HOME": NSHomeDirectory()].merging(BundledTools.environment(for: py)) { $1 }) { line in
                 DispatchQueue.main.async { self.append(line + "\n") }
             }
             if !r {
@@ -1128,13 +1162,16 @@ final class BuildModel: ObservableObject {
         // (NuGet-Migrations) under $TMPDIR/.dotnet/shm, and with no TMPDIR it stats "" and dies with
         // 'NuGet-Migrations' + lstat("") == ENOENT before any project is read. NSTemporaryDirectory()
         // is the per-user temp folder whether or not the app's own environment carries one.
-        var denv: [String: String] = ["PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        var denv: [String: String] = ["PATH": Self.toolPath("/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin", python: py),
                                       "USER": NSUserName(), "HOME": NSHomeDirectory(), "LANG": "en_US.UTF-8",
                                       "TMPDIR": NSTemporaryDirectory()]
         if let droot = Self.dotnetRoot(for: dotnetPath.isEmpty ? "dotnet" : dotnetPath) {
             denv["DOTNET_ROOT"] = droot   // both variables carry the same root, as the apphost checks the arch-specific one first
             denv["DOTNET_ROOT_ARM64"] = droot
         }
+        // The bundled Python lives inside the signed app: a .pyc written there would change what the signature seals
+        // (the packages are compiled at bundle time), and a user site must not shadow its pinned packages.
+        denv.merge(BundledTools.environment(for: py)) { $1 }
         p.environment = denv
         Self.inOwnGroup(p, python: py)
         let pipe = Pipe()
@@ -1567,7 +1604,9 @@ final class BuildModel: ObservableObject {
         p.executableURL = URL(fileURLWithPath: pythonPath.isEmpty ? "/usr/bin/python3" : pythonPath)
         // dest/romfs.img: one file, which main.m's per-game lookup takes before any folder.
         p.arguments = [repoPath + "/" + Self.romfsImageTool, "--reuse", romfs, dest + "/romfs.img"]
-        p.environment = ["PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin", "PYTHONPATH": repoPath + "/dm/tools"]
+        let romfsPy = p.executableURL!.path
+        p.environment = ["PATH": Self.toolPath("/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin", python: romfsPy), "PYTHONPATH": repoPath + "/dm/tools"]
+            .merging(BundledTools.environment(for: romfsPy)) { $1 }
         Self.inOwnGroup(p, python: p.executableURL!.path)
         let pipe = Pipe(); p.standardOutput = pipe; p.standardError = pipe
         pipe.fileHandleForReading.readabilityHandler = { [weak self] h in
@@ -1709,11 +1748,93 @@ final class BuildModel: ObservableObject {
         }
     }
 
-    private func finishInstall(_ failure: String?) {
+    private func finishInstall(_ failure: String?, note: String? = nil) {
         running = false
         done = failure == nil
-        doneNote = failure ?? String(format: t("dev.installed"), deviceName(installDevice))
+        doneNote = failure ?? note ?? String(format: t("dev.installed"), deviceName(installDevice))
         cleanupStaging()
+    }
+
+    /// Reinstall the signed app that is already in derived data, without unpacking, signing or packing again: the
+    /// device keeps the app's Documents (game data and saves), as the bundle ID does not change. A reinstall that
+    /// fails on an expired signature says so in devicectl's words; signing again is not this button's job.
+    func reinstallOnDevice(then: (() -> Void)? = nil) {
+        let device = installedOn, app = installedAppPath
+        guard !device.isEmpty, !app.isEmpty else { then?(); return }
+        guard FileManager.default.fileExists(atPath: app) else {
+            doneNote = String(format: t("dev.reinstallMissing"), shortPath(app))
+            then?(); return
+        }
+        running = true
+        runTool(id: 1004, name: String(format: t("dev.reinstallStage"), deviceName(device)),
+                Self.reinstallCommand(xcrun: xcrunPath, device: device, app: app), step: Self.installStep) { error in
+            if let error {
+                // The app is still on the device: a failed reinstall is a note, not a failed build
+                self.running = false
+                self.doneNote = String(format: self.t("dev.reinstallFailed"), error)
+            } else {
+                self.finishInstall(nil, note: String(format: self.t("dev.reinstalled"), self.deviceName(device)))
+            }
+            then?()
+        }
+    }
+
+    nonisolated static func reinstallCommand(xcrun: String, device: String, app: String) -> [String] {
+        [xcrun, "devicectl", "device", "install", "app", "--device", device, app]
+    }
+
+    /// Ask where to write the .ipa, then pack the signed app there.
+    func saveIPAPanel() {
+        let p = NSSavePanel()
+        p.title = t("dev.saveIPATitle")
+        p.allowedFileTypes = ["ipa"]
+        p.nameFieldStringValue = defaultIPAName()
+        p.canCreateDirectories = true
+        guard p.runModal() == .OK, let url = p.url else { return }
+        saveIPA(to: url)
+    }
+
+    /// The signed app as an .ipa (Payload/<name>.app, the layout iOS and the sideloaders install): useful while the
+    /// signature lasts, and the thing to re-sign when it expires. The game data is not in it — it stays in the app's
+    /// Documents (romfs.img), as a normal iOS build has it.
+    func saveIPA(to url: URL, then: (() -> Void)? = nil) {
+        let app = installedAppPath, fm = FileManager.default
+        guard !app.isEmpty, fm.fileExists(atPath: app) else {
+            doneNote = String(format: t("dev.saveNeedsApp"), shortPath(app))
+            then?(); return
+        }
+        let stage = fm.temporaryDirectory.appendingPathComponent("nspb-ipa-" + UUID().uuidString)
+        let payload = stage.appendingPathComponent("Payload")
+        do {
+            try fm.createDirectory(at: payload, withIntermediateDirectories: true)
+            try fm.copyItem(atPath: app, toPath: payload.appendingPathComponent((app as NSString).lastPathComponent).path)
+        } catch {
+            try? fm.removeItem(at: stage)
+            doneNote = String(format: t("dev.saveFailed"), error.localizedDescription)
+            then?(); return
+        }
+        running = true
+        runTool(id: 1005, name: t("dev.saveStage"), Self.ipaCommand(payload: payload.path, ipa: url.path), step: { _ in nil }) { error in
+            try? fm.removeItem(at: stage)
+            self.running = false
+            self.doneNote = error.map { String(format: self.t("dev.saveFailed"), $0) }
+                ?? String(format: self.t("dev.savedIPA"), self.shortPath(url.path))
+            then?()
+        }
+    }
+
+    /// ditto writes the archive the way Finder's "compress" does; the IPA's root must be Payload/, and --norsrc keeps
+    /// __MACOSX out (the signature itself lives in _CodeSignature inside the app).
+    nonisolated static func ipaCommand(payload: String, ipa: String) -> [String] {
+        ["/usr/bin/ditto", "-c", "-k", "--norsrc", "--keepParent", payload, ipa]
+    }
+
+    /// The name the save panel offers: the app's display name, so two games' IPAs do not collide. A slash or colon in a
+    /// game's name would split the file name or show as a folder in Finder.
+    func defaultIPAName() -> String {
+        let plist = NSDictionary(contentsOfFile: installedAppPath + "/Info.plist")
+        let name = (plist?["CFBundleDisplayName"] as? String) ?? (plist?["CFBundleExecutable"] as? String) ?? "DmIOS"
+        return name.replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: ":", with: "_") + ".ipa"
     }
 
     /// The game's folder (romfs.img, aoc/) into the installed app's Documents, where main.m looks for this game's files first.
@@ -1911,7 +2032,9 @@ final class BuildModel: ObservableObject {
 
     nonisolated static func venvPython() -> String { venvDir + "/bin/python3" }
 
-    nonisolated static func importsOK(_ py: String) -> Bool { runOK(py, ["-c", importProbe]) }
+    nonisolated static func importsOK(_ py: String) -> Bool {
+        runOK(py, ["-c", importProbe], env: ProcessInfo.processInfo.environment.merging(BundledTools.environment(for: py)) { $1 })
+    }
 
     /// backports.zstd declares Python < 3.14, so it is only installed where it is needed.
     /// nsz is always installed: NSZ / XCZ dumps are accepted by the pipeline now, and a player who
@@ -1930,7 +2053,7 @@ final class BuildModel: ObservableObject {
             let p = Process(); p.executableURL = URL(fileURLWithPath: exe); p.arguments = args
             let out = Pipe(), err = Pipe()
             p.standardOutput = out; p.standardError = err; p.standardInput = FileHandle.nullDevice
-            p.environment = ["PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin", "HOME": NSHomeDirectory()]
+            p.environment = ["PATH": toolPath(python: base), "HOME": NSHomeDirectory()].merging(BundledTools.environment(for: base)) { $1 }
             do { try p.run() } catch { log += "could not start \(exe): \(error.localizedDescription)\n"; return false }
             // both pipes are drained on this thread (before waitUntilExit, so the child cannot
             // block on a full pipe), and the log string keeps a single owner
@@ -1958,6 +2081,7 @@ final class BuildModel: ObservableObject {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: path)
         p.arguments = ["-c", "import sys; print('%d.%d' % sys.version_info[:2])"]
+        p.environment = ProcessInfo.processInfo.environment.merging(BundledTools.environment(for: path)) { $1 }
         let pipe = Pipe()
         p.standardOutput = pipe; p.standardError = Pipe()
         p.standardInput = FileHandle.nullDevice
@@ -1972,7 +2096,12 @@ final class BuildModel: ObservableObject {
 
     /// Every python3 on this Mac, newest-looking first, each tried for a usable version and the
     /// packages. Returns the one to build with, plus why the others were rejected for the message.
-    nonisolated static func findPython() -> (path: String, ok: Bool) {
+    nonisolated static func findPython(resources: URL? = BundledTools.resources) -> (path: String, ok: Bool) {
+        // The release app's own Python (BundledTools.swift) has every package and is the one the build is tested with: it wins over
+        // any Python on this Mac and needs no venv. One that does not run (a damaged copy) falls through to the search below.
+        if let bundled = BundledTools.python(in: resources), pythonVersion(bundled).map({ $0 >= minPython }) == true, importsOK(bundled) {
+            return (bundled, true)
+        }
         var cands: [String] = []
         let fw = "/Library/Frameworks/Python.framework/Versions"
         if let vers = try? FileManager.default.contentsOfDirectory(atPath: fw) {
@@ -2132,6 +2261,31 @@ final class BuildModel: ObservableObject {
         return (defaults.string(forKey: "buildTarget") ?? "ios") != "mac-app"
     }
 
+
+    /// The rows for the build tools (xcodegen, zstd, spirv-cross, glslangValidator) and the Homebrew row they may need.
+    /// A tool the app carries counts as present and says "bundled"; otherwise Homebrew's copy counts (`installed` answers
+    /// a binary name with its path in a Homebrew folder, or nil). The Homebrew row appears only when some tool is neither
+    /// bundled nor installed (with a bundle; with none the row stays, as before): it is the way to get that one.
+    nonisolated static func toolDeps(resources: URL?, installed: (String) -> String?, brew: String?) -> [Dep] {
+        var rows: [Dep] = []
+        var needsBrew = false, anyBundled = false
+        for (pkg, binary, key) in brewDeps {
+            let bundled = BundledTools.tool(binary, in: resources) != nil
+            let path = bundled ? nil : installed(binary)
+            if !bundled && path == nil { needsBrew = true }
+            if bundled { anyBundled = true }
+            // A bundled tool is named by the tool; "brew: …" says where a Homebrew copy comes from, so it stays for the rows that
+            // refer to one (installed there, or missing with the install button)
+            rows.append(Dep(id: "brew:" + pkg, name: bundled ? "dep.tool." + binary : key, hint: key + ".hint", present: bundled || path != nil,
+                            detail: bundled ? "dep.bundled" : (path ?? ""),
+                            installCmd: [(brew ?? "/opt/homebrew/bin/brew"), "install", pkg]))
+        }
+        guard needsBrew || !anyBundled else { return rows }   // without a bundle the row is always there, as it was
+        return [Dep(id: "brew", name: "dep.brew", hint: "dep.brew.hint", present: brew != nil,
+                    installCmd: ["/bin/bash", "-c",
+                      "NONINTERACTIVE=1 /bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""])] + rows
+    }
+
     nonisolated static func detectDepsSync(needsIOS: Bool = BuildModel.needsIOSPlatform()) -> [Dep] {
         var out: [Dep] = []
 
@@ -2167,16 +2321,9 @@ final class BuildModel: ObservableObject {
         out.append(Dep(id: "metal", name: "dep.metal", hint: "dep.metal.hint",
                        present: mt, installCmd: metalToolchainCmd))
 
-        let brew = firstExisting(["/opt/homebrew/bin/brew", "/usr/local/bin/brew"])
-        out.append(Dep(id: "brew", name: "dep.brew", hint: "dep.brew.hint", present: brew != nil,
-                       installCmd: ["/bin/bash", "-c",
-                         "NONINTERACTIVE=1 /bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""]))
-        for (pkg, binary, key) in brewDeps {
-            let path = firstExisting(["/opt/homebrew/bin/\(binary)", "/usr/local/bin/\(binary)"])
-            out.append(Dep(id: "brew:" + pkg, name: key, hint: key + ".hint", present: path != nil,
-                           detail: path ?? "",
-                           installCmd: [(brew ?? "/opt/homebrew/bin/brew"), "install", pkg]))
-        }
+        out += toolDeps(resources: BundledTools.resources,
+                        installed: { firstExisting(["/opt/homebrew/bin/\($0)", "/usr/local/bin/\($0)"]) },
+                        brew: firstExisting(["/opt/homebrew/bin/brew", "/usr/local/bin/brew"]))
 
         let (dn, dnOK) = findDotnet()
         out.append(Dep(id: "dotnet", name: "dep.dotnet", hint: "dep.dotnet.hint",
@@ -2191,7 +2338,7 @@ final class BuildModel: ObservableObject {
         // A version we cannot read means no interpreter ran at all (py is then the venv
         // that does not exist yet), which is not the same as one that is too old.
         let minVer = "\(minPython.0).\(minPython.1)"
-        let pyDetail = pyOK ? py
+        let pyDetail = pyOK ? (py == BundledTools.python() ? "dep.bundled" : py)
             : pythonVersion(py).map { $0 >= minPython
                 ? "dep.python.missing:\(py) (\(pyVer))"
                 : "dep.python.old:\(pyVer):\(minVer)" }
@@ -2621,6 +2768,18 @@ struct BuilderView: View {
                 row(m.t("dev.installedNote"), dot: LauncherPalette.ready) {
                     Button(String(format: m.t("dev.open"), m.deviceName(m.installedOn))) {
                         m.openOnDevice(udid: m.installedOn, app: m.installedAppPath) { error in if let error { m.doneNote = error } }
+                    }
+                    Button(m.t("dev.reinstall")) { m.reinstallOnDevice() }
+                        .disabled(m.running)
+                }
+                // The signed app stays in derived data; keeping it as an .ipa means a sideloader (or another Mac)
+                // can install it without building the game again, while the signature lasts.
+                if !m.installedAppPath.isEmpty {
+                    divider
+                    row(m.t("dev.signedApp"), detail: m.shortPath(m.installedAppPath), dot: LauncherPalette.ready, help: m.installedAppPath) {
+                        Button(m.t("install.reveal")) { reveal(m.installedAppPath) }
+                        Button(m.t("dev.saveIPA")) { m.saveIPAPanel() }
+                            .disabled(m.running)
                     }
                 }
                 // The game files were copied (or, after a skipped transfer, await a manual copy — a

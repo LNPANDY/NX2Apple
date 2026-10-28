@@ -75,6 +75,7 @@ Homebrew tools) and installs what it can with one click.
    steps to put the app on the phone.
 
 Building by hand from a terminal is in [BUILDING.md](BUILDING.md).
+ origin/main
 
 ## How to play
 

@@ -19,15 +19,16 @@ final class AppUpdateTests: XCTestCase {
     /// A launcher bundle as the release workflow assembles it.
     @discardableResult
     private func makeApp(_ name: String = "NX2Apple", in dir: URL? = nil, id: String? = nil, version: String = "0.4.8",
-                         executable: Bool = true, marker: String = "new") throws -> URL {
+                         executable: Bool = true, marker: String = "new", minOS: String? = nil) throws -> URL {
         let app = (dir ?? temporary).appendingPathComponent(name + ".app")
         let macOS = app.appendingPathComponent("Contents/MacOS")
         try FileManager.default.createDirectory(at: macOS, withIntermediateDirectories: true)
         let exe = macOS.appendingPathComponent("NSPortBuilder")
         try Data(marker.utf8).write(to: exe)
         try FileManager.default.setAttributes([.posixPermissions: executable ? 0o755 : 0o644], ofItemAtPath: exe.path)
-        let info: [String: Any] = ["CFBundleIdentifier": id ?? bundleID, "CFBundleExecutable": "NSPortBuilder",
+        var info: [String: Any] = ["CFBundleIdentifier": id ?? bundleID, "CFBundleExecutable": "NSPortBuilder",
                                    "CFBundleShortVersionString": version, "CFBundlePackageType": "APPL"]
+        if let minOS { info["LSMinimumSystemVersion"] = minOS }
         try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
             .write(to: app.appendingPathComponent("Contents/Info.plist"))
         return app
@@ -88,6 +89,52 @@ final class AppUpdateTests: XCTestCase {
         XCTAssertEqual(AppUpdate.bundleProblem(try makeApp("NoExe", executable: false), expectedID: bundleID, tag: "v0.4.8"), .noExecutable)
         XCTAssertEqual(AppUpdate.bundleProblem(good, expectedID: bundleID, tag: "v0.4.9"), .wrongVersion)
         XCTAssertEqual(AppUpdate.bundleProblem(temporary.appendingPathComponent("Missing.app"), expectedID: bundleID, tag: "v0.4.8"), .noInfo)
+    }
+
+    private func os(_ major: Int, _ minor: Int, _ patch: Int = 0) -> OperatingSystemVersion {
+        OperatingSystemVersion(majorVersion: major, minorVersion: minor, patchVersion: patch)
+    }
+
+    func testOSVersionComparison() throws {
+        XCTAssertEqual(AppUpdate.parseOSVersion("26.6")?.minorVersion, 6)
+        XCTAssertEqual(AppUpdate.parseOSVersion("26")?.minorVersion, 0)
+        XCTAssertEqual(AppUpdate.parseOSVersion("26.6.1")?.patchVersion, 1)
+        XCTAssertNil(AppUpdate.parseOSVersion(""))
+        XCTAssertNil(AppUpdate.parseOSVersion("26.x"))
+        XCTAssertNil(AppUpdate.parseOSVersion("1.2.3.4"))
+        XCTAssertTrue(AppUpdate.isOlder(os(26, 5, 9), than: os(26, 6)))
+        XCTAssertTrue(AppUpdate.isOlder(os(15, 9), than: os(26, 0)))
+        XCTAssertTrue(AppUpdate.isOlder(os(26, 6), than: os(26, 6, 1)))
+        XCTAssertFalse(AppUpdate.isOlder(os(26, 6), than: os(26, 6)))
+        XCTAssertFalse(AppUpdate.isOlder(os(27, 0), than: os(26, 6)))   // minor 0 < 6 must not count when the major is higher
+        XCTAssertEqual(AppUpdate.describe(os(26, 6)), "26.6")
+        XCTAssertEqual(AppUpdate.describe(os(26, 6, 1)), "26.6.1")
+    }
+
+    func testMinimumOSDecidesWhetherAReleaseMayBeInstalled() throws {
+        let needs266 = try makeApp("Needs", minOS: "26.6")
+        XCTAssertEqual(AppUpdate.minimumOSAbove(os(15, 5), app: needs266), "26.6")
+        XCTAssertEqual(AppUpdate.minimumOSAbove(os(26, 5, 3), app: needs266), "26.6")
+        XCTAssertNil(AppUpdate.minimumOSAbove(os(26, 6), app: needs266))
+        XCTAssertNil(AppUpdate.minimumOSAbove(os(27, 0), app: needs266))
+        XCTAssertNil(AppUpdate.minimumOSAbove(os(13, 0), app: try makeApp("None")))                  // no minimum written
+        XCTAssertNil(AppUpdate.minimumOSAbove(os(13, 0), app: try makeApp("Junk", minOS: "later")))  // unreadable: not a reason to refuse
+    }
+
+    func testStagingRefusesAReleaseThisMacCannotOpen() throws {
+        let source = temporary.appendingPathComponent("source-os", isDirectory: true)
+        let archive = try zip(try makeApp(in: source, minOS: "26.6"))
+        let release = AppUpdate.Release(tag: "v0.4.8", url: "https://example.invalid/a.zip", digest: try digest(archive))
+        func attempt(_ running: OperatingSystemVersion) throws -> Result<AppUpdate.Staged, BuildModel.StageFailure> {
+            let copy = temporary.appendingPathComponent("copy-" + UUID().uuidString + ".zip")
+            try FileManager.default.copyItem(at: archive, to: copy)
+            let root = temporary.appendingPathComponent("stage-" + UUID().uuidString, isDirectory: true)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            return BuildModel.stage(zip: copy, release: release, in: root, expectedID: bundleID, requireDigest: true, runningOS: running)
+        }
+        XCTAssertEqual(try attempt(os(15, 5)).failure, .needsNewerMacOS("26.6"))
+        XCTAssertEqual(BuildModel.StageFailure.needsNewerMacOS("26.6").key, "app.needsNewerMacOS")
+        XCTAssertNil(try attempt(os(26, 6)).failure)
     }
 
     func testStagingVerifiesDigestAndBundle() throws {

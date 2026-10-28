@@ -1,0 +1,15 @@
+# The Python packages bundled into the launcher (bundle_tools.sh installs them with --only-binary into the bundled CPython).
+# The first five are what BuildModel.pipPackages names (BundledToolsTests keeps them equal); backports.zstd is for Python before 3.14 and
+# the bundled one is 3.13. The rest are what nsz needs, pinned as resolved on 2026-10-28 (pip freeze of a clean install).
+backports.zstd==1.8.0
+capstone==5.0.9
+fonttools==4.68.0
+lz4==4.4.5
+nsz==5.0.0
+blessed==1.52.0
+enlighten==1.14.1
+jinxed==2.1.0
+prefixed==0.9.0
+pycryptodome==4.2.0
+wcwidth==0.9.4
+zstandard==0.25.0
