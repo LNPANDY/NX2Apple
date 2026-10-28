@@ -3,7 +3,7 @@
 #include "../nvn/nvn_mtl.m"
 void *front_metal_layer(void) { return NULL; }
 module_t *module_of(const void *p) { (void)p; return NULL; }
-module_t g_mod[MAX_MOD]; int g_nmod;
+module_t *g_mod; int g_nmod;
 void svc_thread_dump(void) {}
 uint64_t now_ns(void) { return bp_now(); }
 static int checks, failed;
@@ -41,6 +41,19 @@ static int checks, failed;
     if (block) block((id)self, _value);
 }
 @end
+// A draw pass answers only the render encoder's timestamp selector, an upload encoder only the compute one: a stamp sent to the wrong kind throws, as Metal 4's encoders do.
+@interface ProfileRender : NSObject
+@property int stamps; @property NSUInteger last;
+@end
+@implementation ProfileRender
+- (void)writeTimestampWithGranularity:(MTL4TimestampGranularity)g afterStage:(MTLRenderStages)s intoHeap:(id)h atIndex:(NSUInteger)i { (void)g; (void)s; (void)h; _stamps++; _last = i; }
+@end
+@interface ProfileCompute : NSObject
+@property int stamps;
+@end
+@implementation ProfileCompute
+- (void)writeTimestampWithGranularity:(MTL4TimestampGranularity)g intoHeap:(id)h atIndex:(NSUInteger)i { (void)g; (void)h; (void)i; _stamps++; }
+@end
 
 int main(void) { @autoreleasepool {
     ProfileHeap *heap = [ProfileHeap new]; ProfileEvent *event = [ProfileEvent new];
@@ -65,5 +78,12 @@ int main(void) { @autoreleasepool {
     atomic_store(&g_cur_frame, 5); gp_begin(nil, 'C', nil); gp_end(nil); g_fence = 50;
     atomic_store(&g_cur_frame, 6); gp_begin(nil, 'C', nil); [event complete];
     CHECK(event.registrations == 4 && heap.resolutions == 4, "sparse and consecutive selection both report per frame");
+    // An upload flush ending its own encoder inside a profiled draw pass (#531) leaves the pass's label alone; the pass's own end still stamps it.
+    ProfileRender *pass = [ProfileRender new]; ProfileCompute *upload = [ProfileCompute new];
+    atomic_store(&g_cur_frame, 7); gp_begin(nil, 'C', nil); CHECK(g_gp_state == 0, "the frame after a report reopens the heap");
+    atomic_store(&g_cur_frame, 10); gp_begin(pass, 'R', nil); int k = g_gp_cur;
+    @try { gp_end(upload); } @catch (NSException *x) { CHECK(0, "another queue's encoder got the open pass's timestamp"); }
+    CHECK(upload.stamps == 0 && g_gp_cur == k, "another queue's encoder does not close the open pass");
+    gp_end(pass); CHECK(pass.stamps == 2 && pass.last == 2 * (NSUInteger)k + 1 && g_gp_cur < 0, "the pass's own end writes its end stamp");
     printf("t_gpuprof: %d checks, %d failed\n", checks, failed); return failed != 0;
 } }

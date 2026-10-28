@@ -1,0 +1,20 @@
+# Applied in this order onto the commit in ../.upstream-ref with git am -3. See README.md.
+0001-runtime-profile.patch
+0002-romfsarc.patch
+0003-ios-game-data-folder.patch
+0004-ios-slim-ipa.patch
+0005-nsp-dotnet-home.patch
+0006-nsp-chain-changed-note.patch
+0007-nsp-work-dir.patch
+0008-bc-cpu-decode.patch
+0009-mac-keymap.patch
+0010-mac-library-folder.patch
+0011-hades2-update-profile.patch
+0012-env-switches-verify.patch
+0013-touchpad-geometry.patch
+0014-ios-probe.patch
+0015-fork-docs.patch
+0016-ref-hle-hid-d2r.patch
+0017-fork-patches-stamp.patch
+0018-nsp-dotnet-root-verify.patch
+0019-nsp-prune-intermediate-extracts.patch

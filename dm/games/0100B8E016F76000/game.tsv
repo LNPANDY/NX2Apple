@@ -1,0 +1,50 @@
+# NieR:Automata 1.0.3 (v131072), Asian release (title 0100B8E016F76000): the global profile 010056B015FE8000 with this release's main build.
+# Format: see dm/games/README.md; bring-up evidence and status: README.md.
+
+# ---- Identity ----
+title_id	0100B8E016F76000
+program_id	0100B8E016F76000
+
+# ---- App ----
+name	NieR:Automata The End of YoRHa Edition
+ipa	NieRAutomata.ipa
+app_category	public.app-category.action-games
+# Movement and aiming/camera use both sticks.
+pad_layout	full
+
+# ---- Versions ----
+build	v131072	1.0.3	main=98397a10419894652f372d4dc1b6fc2c	subsdk0=be1ee79a9968a35a6b63fc8f1036a6d4	sdk=e8cdceb1e77a8465fe20f21928e8d296
+package	v131072
+shader_versions	v131072
+
+# ---- Files ----
+# every module main imports from
+modules	main subsdk0 sdk
+romfs_marker	data014.cpk
+zip_store	.bnk:.cpk:.usm:.wem:.wsp:.metallib
+
+# ---- Memory ----
+# the NPDM declares 16 MB of system resource (virtual address memory) and main never sets a heap: a 5 GB block with a 4.375 GB alias region, where the game maps its memory itself
+mem_reserve	0x140000000
+mem_alias	0x118000000
+mem_stack	0x10000000
+app_pool	0xCD500000
+# the NPDM declares 16 MB of system resource
+sys_resource	0x1000000
+
+# ---- Rendering ----
+# The native clock measures elapsed time; dynamic-resolution thresholds target 60 fps in patches.py.
+present_interval	display
+fps_target	60
+# The renderer subtracts two raw timestamp reports to measure its GPU cost.
+gpu_timestamps	segment
+# The game fills texture storage on the CPU and publishes it with mapped-range flushes.
+tex_flush_upload	on
+# Some title backgrounds are filled after initialization without an NVN flush.
+tex_dirty_upload	on
+# filter09 samples its own HDR attachment through a separate texture slot.
+feedback_snap	fd2c47b73f0e7e24
+
+# ---- Shader split ----
+shader_groups	/Enlighten/=enlighten /movie/=movie /sound/=sound /movie_logo/=movielogo
+shader_note	NieR:Automata The End of YoRHa Edition shaders

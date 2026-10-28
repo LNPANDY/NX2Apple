@@ -140,3 +140,6 @@ def frame_step(ctx):
     fs_put(0xd5d80, [B(0xd5d80, start)], 'dynamic resolution only at render scale 1.0')
 
 FRAME_STEP = {'277178b7dba1b6d4949a84778d4abc58': frame_step}
+
+# Whether a general rule could replace these patches (dm/tools/docs_patches.py lists it in docs/agents/game-patches.md)
+GENERALIZE = "No for the hook sites (the game's own timing object). The translator's rule for one of its vertex shaders (Program.cs VertexCounterLowering) might become a general lowering of subgroup ballots in vertex shaders"

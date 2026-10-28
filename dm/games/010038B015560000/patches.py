@@ -13,3 +13,6 @@ CUTS = {
     (0x12558, '36fc1814', 'fdffff17', 'job pool wake: b SignalEvent → b 0x1254c (ldr x0,[x0]; b SignalEvent)'),
   ],
 }
+
+# Whether a general rule could replace these patches (dm/tools/docs_patches.py lists it in docs/agents/game-patches.md)
+GENERALIZE = "No: a lost wake-up in the game's own job pool, not a host or SDK difference"

@@ -25,13 +25,18 @@ esac
 echo 'Copy game resources (the first build copies the complete game; later builds sync changes)'
 mkdir -p "$APP/msl/$DM_RESOURCE_MSLDIR"
 # DM_COPY_ROMFS=NO: the game files stay out of the app (main.m takes Documents/romfs first, copied there once): a reinstall then sends the code and shaders, not the whole game
-if [ "${DM_COPY_ROMFS:-YES}" = NO ]; then rm -rf "$APP/romfs" "$APP/romfs.img"
+if [ "${DM_COPY_ROMFS:-YES}" = NO ]; then
+    rm -rf "$APP/romfs" "$APP/romfs.img" "$APP/romfs.id"
+    # the image's identity (dm/host/romfs_identity.h): main.m uses only a Documents/romfs.img that matches it; a RomFS folder has none yet (push_romfs.sh packs it), so no identity is written for it
+    if [ -f "$DM_RESOURCE_ROMFS" ]; then
+        python3 -I "$resource_dm/tools/romfs_image.py" --identity "$DM_RESOURCE_ROMFS" "${DM_RESOURCE_TITLE:-}" "${DM_RESOURCE_VERSION:-}" "${DM_RESOURCE_BUILD:-}" > "$APP/romfs.id" || die "identity of $DM_RESOURCE_ROMFS"
+    fi
 elif [ -f "$DM_RESOURCE_ROMFS" ]; then
     /usr/bin/rsync -a -- "$DM_RESOURCE_ROMFS" "$APP/romfs.img"
-    rm -rf "$APP/romfs"
+    rm -rf "$APP/romfs"; rm -f "$APP/romfs.id"
 else
     mkdir -p "$APP/romfs"; /usr/bin/rsync -a --delete -- "$DM_RESOURCE_ROMFS/" "$APP/romfs/"
-    rm -f "$APP/romfs.img"
+    rm -f "$APP/romfs.img" "$APP/romfs.id"
 fi
 /usr/bin/rsync -a --delete -- "$DM_RESOURCE_SHADERS/" "$APP/msl/$DM_RESOURCE_MSLDIR/"
 for old in "$APP/msl/"*; do

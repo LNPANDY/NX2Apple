@@ -77,6 +77,15 @@ class ReadImage(unittest.TestCase):
         (self.src / 'new').write_text('new entry'); romfs_image.pack(self.src, self.image)
         self.assertEqual((self.virtual / 'new').read_text(), 'new entry')
 
+    @unittest.skipUnless(shutil.which('zstd'), 'zstd command required')
+    def test_zstd_file_inside_an_image(self):
+        # Mario Wonder's .zs files: the zstd command cannot open a path inside the image, so unzs feeds it the bytes.
+        with patch.dict(os.environ, DM_GAME='010020D01AD24000'):
+            import shader_split
+        (self.src / 'data/table.byml.zs').write_bytes(subprocess.run(['zstd', '-c', '-q'], input=self.data, capture_output=True, check=True).stdout)
+        romfs_image.pack(self.src, self.image)
+        self.assertEqual(shader_split.unzs(str(self.virtual / 'data/table.byml.zs')), self.data)
+
     def test_ipa_packer_keeps_image_as_one_file_and_reuses_it(self):
         out = self.root / 'game.ipa'
         cmd = [sys.executable, str(REPO / 'dm/ios/tools/pack_ipa.py'), str(out), f'Payload/Game.app/romfs.img={self.image}']

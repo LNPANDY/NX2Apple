@@ -189,7 +189,7 @@ final class SavedChoicesTests: XCTestCase {
     }
 
     /// dm/mac/launcher.c's saved_accepted, line for line: one of the rule's values, else a number from min to max.
-    private static func launcherCAccepts(_ rule: [String: Any], _ v: String) -> Bool {
+    static func launcherCAccepts(_ rule: [String: Any], _ v: String) -> Bool {
         if let values = rule["values"] as? [String] { return values.contains(v) }
         guard let lo = rule["min"] as? Double, let hi = rule["max"] as? Double else { return false }
         return v.withCString { c -> Bool in

@@ -4,6 +4,14 @@ Guest threads, their synchronization and how the host schedules them. Each entry
 
 ## Thread creation and cores
 
+### Publishing a new thread's scheduler fields
+
+- **Symptom:** TSan reports `thread_main` writing `host_work` while `thr_runnable` reads it during a same-core yield (`t_notify_sched`, issue #411).
+- **Cause:** `CreateThread` had already linked the object into `g_all`, but its pthread initialized `host_work`, the Mach port and QoS without the scheduler lock `G`. `StartThread` could make the object runnable before those writes completed.
+- **Fix:** initialize those shared fields and read the starting priority under `G`. `CreateThread` publishes the pthread handle and registry link together after `pthread_create` returns, rather than letting that call write a published field. The initial main thread obtains its QoS before publication; the priority getter/setter and deferred QoS updates also hold `G`. Readers keep the same lock, with no added startup wait, timeout or game rule.
+- **Check:** the real start/exit and native-wait paths in `t_notify_sched`, both preemption modes, run under TSan with the `thr_runnable` suppression removed. The unsuppressed original reported the startup race. Changing priority before start and consuming the deferred update at a real gate also exposed the unlocked priority setter; the extended test covers that path with `DM_QOS_MAP=1`.
+- **Found on:** host unit tests; no particular game's hang was attributed to this race.
+
 ### Starting a higher-priority thread on the caller's core
 
 - **Symptom:** a parent returns from `StartThread` before a newly runnable higher-priority child pinned to its core finishes its work (deterministic regression, not attributed to a game failure).
@@ -87,6 +95,14 @@ Guest threads, their synchronization and how the host schedules them. Each entry
 - **Cause:** Horizon 18 added a 64-bit "wait if equal" arbitration type, which SDK 19 exports as `nn::os::WaitForAddress(const long*, long)`; the host used to fall into its 32-bit "wait if less than" test.
 - **Fix:** type 3 compares the 64-bit value (`hle_thread.c`).
 - **Found on:** [Pokémon Legends: Z-A](../../dm/games/0100F43008C44000/README.md) (SDK 19.3.11): Z-A does not call it, but the SDK has it.
+
+### Unity's stream buffer handshake loses a wake-up on Apple cores
+
+- **Symptom:** boot stops before or soon after the first frame with the CPU at 0% and every guest thread waiting on a condition variable: the main thread in `nn::os::AcquireSemaphore` after posting a command to `UnityGfxDeviceWorker`, the worker in `AcquireSemaphore` too, one condition wait after it (`wait #` one higher); 3 of 5 Mac runs, at random points.
+- **Cause:** a memory-order race in the game's code, not a host bug. Unity 2018.4's `ThreadedStreamBuffer` (the ring buffer every Unity worker thread is fed through) wakes a sleeping side with a Dekker handshake: the reader that finds nothing sets "reader sleeping" with a store-release and loads the write position again before sleeping on its semaphore; a writer stores the write position with a store-release and then checks that flag (and the mirror pair for a writer short of space). The second access of each side is a plain `ldr`, and AArch64 lets a plain load complete before an earlier store-release is visible, so both sides can read the old value and neither signals. The Switch's Cortex-A57 allows it too, but Apple cores hit it within seconds.
+- **Fix:** a per-build cut turns each of those loads into a load-acquire (`ldar`), which a store-release before it orders after the store (eight sites in that build's `patches.py`); 14 of 14 runs boot and keep presenting.
+- **Found on:** [FINAL FANTASY CRYSTAL CHRONICLES Remastered Edition](../../dm/games/0100CE4010AAC000/README.md) 1.0.0 and 1.0.3 (Unity 2018.4.2f1, SDK 8.2.1; its `patches.py`: 1.0.0 `main+0x1e425b0` and the stream functions after it, the same sites +0x25380 in 1.0.3).
+- **Check:** another Unity title that stops this way: look for `stlr` followed by a plain `ldr` of the other word in its `ThreadedStreamBuffer` (the functions around the `AcquireSemaphore` the worker waits in).
 
 ### Late PhysX task destructor after the unlock
 

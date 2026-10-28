@@ -1,0 +1,9 @@
+# Fresh game through the skipped opening movie into the King Crustip tutorial.
+save	new
+keys	12:A,14:A,16:A,18:A,22:Plus,24:A,28:A*9/0.8,38:X
+secs	65
+quick	65
+reach	1200@55
+window	45	15
+shots	46,58
+hang	20

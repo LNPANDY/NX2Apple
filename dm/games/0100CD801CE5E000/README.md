@@ -1,6 +1,6 @@
 # Balatro (`0100CD801CE5E000`)
 
-Update 1.1.3 (v851968), SDK 18.3.2. LÖVE 11.4 ("Mysterious Mysteries", love-nx) with LuaJIT 2.1.0-beta3 in its interpreter and SDL: the game is Lua source in the RomFS (`main.lua`, `game.lua`, `engine/`, `functions/`), its pictures PNG, its sound Ogg Vorbis through OpenAL Soft on the audio renderer. It renders with **OpenGL**, not NVN: NVIDIA's desktop GL 4.5 through EGL, which the host implements on Metal (`dm/gfx/gl/hle_gl.m`) on the core profile's paths. Modules `main` and `sdk`; `sdk` is the same build as Absolum 1.1.1's ([0100A83022A22000](../0100A83022A22000/README.md)). `subsdk0` (NVIDIA's OpenGL driver) and `subsdk1` (NVIDIA's Vulkan driver) are never loaded. Plays on the iPhone (IPA about 82 MB), by touch in handheld mode.
+Update 1.1.3 (v851968), SDK 18.3.2. LÖVE 11.4 ("Mysterious Mysteries", love-nx) with LuaJIT 2.1.0-beta3 in its interpreter and SDL: the game is Lua source in the RomFS (`main.lua`, `game.lua`, `engine/`, `functions/`), its pictures PNG, its sound Ogg Vorbis through OpenAL Soft on the audio renderer. It renders with **OpenGL**, not NVN: NVIDIA's desktop GL 4.5 through EGL, which the host implements on Metal (`dm/gfx/gl/hle_gl.m`) on the core profile's paths. Modules `main` and `sdk`; `sdk` is the same build as Absolum's ([0100A83022A22000](../0100A83022A22000/README.md)). `subsdk0` (NVIDIA's OpenGL driver) and `subsdk1` (NVIDIA's Vulkan driver) are never loaded. Plays on the iPhone (IPA about 82 MB), by touch in handheld mode.
 
 On the Mac: the intro, the title, a new run by touch and the tutorial's first steps, at 60 fps with sound; about 0.65 GB resident and 0.2 GB of Metal allocations, flat over three minutes in a run.
 
@@ -13,7 +13,7 @@ On the Mac: the intro, the title, a new run by touch and the tutorial's first st
 | [`gl_capture.tsv`](gl_capture.tsv) | profile | the 35 shaders LÖVE puts together at run time, which no game file holds; the NSP script captures them on the Mac; see [Shaders](#shaders) |
 | `modules main sdk` | `game.tsv` | `subsdk0` / `subsdk1` are NVIDIA's OpenGL and Vulkan drivers, which program the GPU through NvRm: never loaded, the GL layer answers `main`'s EGL imports |
 | `sys_resource 0x0`; `mem_reserve 0xf0000000`, `mem_alias 0x10000000`, `mem_stack 0x10000000`, `app_pool 0xCD500000` | `game.tsv` | no system resource, so no virtual address memory: `nninitStartup` gives its malloc a heap of the pool − used memory, which it maps only as it touches it; `main`'s 264 MB bss counts as used memory |
-| Node area cut and 1 GB → 32 MB region alignment | `dm/tools/sdk_patches.py`, `sdk` build `f118ae1c…` | registered for Absolum 1.1.1, whose `sdk` build this is; the entry does not name Balatro |
+| Node area cut and 1 GB → 32 MB region alignment | `dm/tools/sdk_patches.py`, `sdk` build `f118ae1c…` | registered for Absolum, whose `sdk` build this is; the entry does not name Balatro |
 | No NVN shader tables | `game.tsv` `shader_note` | no NVN shaders: `gl_shaders.py` writes the GL library and its table, not the profile |
 
 ## Rendering (OpenGL)

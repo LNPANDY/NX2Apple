@@ -9,9 +9,11 @@
 uint64_t g_t0_ns;   // process start time from host main.c (used by hle_nvn's per-frame @t_s); unit test stub
 void *front_metal_layer(void) { return NULL; }
 module_t *module_of(const void *p) { (void)p; return NULL; }
-module_t g_mod[MAX_MOD]; int g_nmod;
+module_t *g_mod; int g_nmod;
 void svc_thread_dump(void) {}
 uint64_t now_ns(void) { return bp_now(); }
+static int g_layer_crop[4];   // what the vi layer crop (hle_vi.c) answers: x, y, w, h, all 0 = none
+void dm_vi_layer_crop(int c[4]) { memcpy(c, g_layer_crop, sizeof g_layer_crop); }
 #ifdef CROP_LEGACY_HEADER
 #include CROP_LEGACY_HEADER
 #define ENCODE legacy_present_encode
@@ -195,5 +197,19 @@ int main(void) { @autoreleasepool {
     EXPECT("real QueuePresent: the frame's crop copy does not change with the window",1,saved);
 #endif
     mtl_present_wait(tk);mtl_present_test_stall(0);
+#ifndef CROP_LEGACY_HEADER
+    {   // A window without a crop of its own presents by the vi layer crop (Link's Awakening in handheld mode: 1280x720 of its 1920x1080 window textures, cropped through vi::SetLayerCrop)
+        int none[4]={0},lay[4]={0,4,4,4},over[4]={0,0,16,16},lc[4];
+        memset(g_layer_crop,0,sizeof g_layer_crop);EXPECT("no window or layer crop: the whole texture",1,present_crop(none,8,8,lc)==none);
+        memcpy(g_layer_crop,lay,sizeof lay);const int *r=present_crop(none,8,8,lc);EXPECT("no window crop: the layer crop",1,r==lc&&!memcmp(lc,lay,sizeof lay));
+        EXPECT("the window's own crop wins over the layer crop",1,present_crop(br,8,8,lc)==br);
+        memcpy(g_layer_crop,over,sizeof over);EXPECT("a layer crop larger than the texture: the whole texture",1,present_crop(none,8,8,lc)==none);
+        memcpy(g_layer_crop,lay,sizeof lay);win_t w2={.ntex=1};w2.tex[0]=(NVNtexture *)&tex;
+        mtl_present_test_stall(100000000);present(NULL,(NVNwindow *)&w2,0);uint64_t t2=w2.ticket[0];memset(g_layer_crop,0,sizeof g_layer_crop);
+        pthread_mutex_lock(&g_pq_mu);if(!t2)t2=g_pq_in;int got=memcmp(g_pq[(t2-1)%PQ].crop,lay,sizeof lay)==0;pthread_mutex_unlock(&g_pq_mu);
+        EXPECT("real QueuePresent: a window without a crop queues the layer crop",1,got);
+        mtl_present_wait(t2);mtl_present_test_stall(0);
+    }
+#endif
     printf("== %d checks, %d failed ==\n",cases,failed);return failed!=0;
 } }

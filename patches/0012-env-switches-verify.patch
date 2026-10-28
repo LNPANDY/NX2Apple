@@ -1,0 +1,114 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: v0lumehi <aljic.zijad@googlemail.com>
+Date: Wed, 28 Oct 2026 13:33:55 +0100
+Subject: [PATCH] env_switches.py --verify: every DM_* a text names must be a
+ real switch
+
+Plus two lines in docs/agents/README.md.
+
+Upstream-Status: pending
+Reason: env_switches.py --verify checks a draft for DM_* names that are not real switches; the agent guide says to run it
+Issue: LNPANDY/NX2Apple#123
+---
+ dm/tools/env_switches.py            | 30 +++++++++++++++++++++++++++++
+ dm/tools/tests/test_env_switches.py | 23 +++++++++++++++++++++-
+ docs/agents/README.md               |  2 ++
+ 3 files changed, 54 insertions(+), 1 deletion(-)
+
+diff --git a/dm/tools/env_switches.py b/dm/tools/env_switches.py
+index 29dc91dc..8606f369 100644
+--- a/dm/tools/env_switches.py
++++ b/dm/tools/env_switches.py
+@@ -72,7 +72,37 @@ def rows():
+     return HEAD + ''.join(out), bad, unread
+ 
+ 
++def verify_texts(paths):
++    """Every DM_* name these files mention must be one the sources read (docs/env_switches.tsv), or a
++    family a row documents: DM_PROF_<key> builds its name at run time, so no row can exist per member
++    and the table names the family instead. A name ending in _ is a family prefix itself.
++
++    Written after two replies in one day recommended DM_LOG_UEMALLOC and DM_NVN_ALIAS_TRACE, neither
++    of which exists: a name recalled from memory rather than read out of the table. Run this over a
++    draft before posting it.
++    """
++    known, family = set(), set()
++    if TABLE.exists():
++        for l in TABLE.read_text().split('\n'):
++            f = l.split('\t')
++            if not f or not f[0].startswith('DM_'): continue
++            known.add(f[0])
++            for m in re.finditer(r'(' + NAME + r')_[<*]', '\t'.join(f[1:])):
++                family.add(m.group(1))
++    bad = []
++    for p in paths:
++        for n in sorted(set(re.findall(NAME, Path(p).read_text(encoding='utf-8', errors='replace')))):
++            if n.endswith('_'): continue                    # a family prefix itself ("DM_NVN_*")
++            if n not in known and not any(k.startswith(n + '_') for k in known) and n not in family:
++                bad.append((p, n))                          # unknown, and no row starts with it
++    return bad, len(known)
++
+ if __name__ == '__main__':
++    if sys.argv[1:2] == ['--verify']:
++        problems, known = verify_texts(sys.argv[2:])
++        for p, n in problems: print(f'{p}: {n} is not a switch the sources read')
++        print(f'{len(problems)} unknown name(s) against {known} known switches')
++        raise SystemExit(1 if problems else 0)
+     text, bad, unread = rows()
+     if unread: print('quoted in the docs but read nowhere (check that each mention says it was removed): ' + ' '.join(unread))
+     if sys.argv[1:] == ['--check']:
+diff --git a/dm/tools/tests/test_env_switches.py b/dm/tools/tests/test_env_switches.py
+index 604494c9..e6a5ac1e 100644
+--- a/dm/tools/tests/test_env_switches.py
++++ b/dm/tools/tests/test_env_switches.py
+@@ -1,8 +1,12 @@
+ """docs/env_switches.tsv lists every DM_* switch the code reads, each with a class and a meaning (dm/tools/env_switches.py writes it; class and meaning are kept by hand).
+-A switch the code reads that the table does not list, a row for a switch nothing reads any more, or a row without a meaning fails here."""
++A switch the code reads that the table does not list, a row for a switch nothing reads any more, or a row without a meaning fails here.
++
++`--verify <file>...` checks a text instead: every DM_* it names must be a real switch. It exists because two replies wrote DM_LOG_UEMALLOC and DM_NVN_ALIAS_TRACE from memory in
++one day, and neither is a switch — a reader who trusts them wastes a run and learns nothing."""
+ from pathlib import Path
+ import subprocess
+ import sys
++import tempfile
+ import unittest
+ 
+ REPO = Path(__file__).resolve().parents[3]
+@@ -13,6 +17,23 @@ class EnvSwitches(unittest.TestCase):
+         r = subprocess.run([sys.executable, str(REPO / 'dm/tools/env_switches.py'), '--check'], cwd=REPO, capture_output=True, text=True)
+         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+ 
++    def test_verify_accepts_a_real_switch_and_rejects_an_invented_one(self):
++        with tempfile.TemporaryDirectory() as d:
++            good = Path(d, 'good.md'); good.write_text('Set `DM_IMPORTS=1` to see the imports.\n')
++            r = subprocess.run([sys.executable, str(REPO / 'dm/tools/env_switches.py'), '--verify', str(good)], cwd=REPO, capture_output=True, text=True)
++            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
++
++            bad = Path(d, 'bad.md'); bad.write_text('Set `DM_LOG_UEMALLOC=1` to see the allocations.\n')
++            r = subprocess.run([sys.executable, str(REPO / 'dm/tools/env_switches.py'), '--verify', str(bad)], cwd=REPO, capture_output=True, text=True)
++            self.assertEqual(r.returncode, 1, 'an invented switch must fail the check')
++            self.assertIn('DM_LOG_UEMALLOC', r.stdout)
++
++    def test_verify_ignores_a_prefix_and_a_family(self):
++        with tempfile.TemporaryDirectory() as d:
++            f = Path(d, 'prefixes.md'); f.write_text('`DM_PROF_<key>` overrides; `DM_NVN_*` are the graphics ones; `DM_MEMSTAT` is real.\n')
++            r = subprocess.run([sys.executable, str(REPO / 'dm/tools/env_switches.py'), '--verify', str(f)], cwd=REPO, capture_output=True, text=True)
++            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
++
+ 
+ if __name__ == '__main__':
+     unittest.main()
+diff --git a/docs/agents/README.md b/docs/agents/README.md
+index 9e31a212..10c6222c 100644
+--- a/docs/agents/README.md
++++ b/docs/agents/README.md
+@@ -23,6 +23,8 @@ Everything here was learned on Diablo II: Resurrected (SDK ~12, NVN 53, the orig
+ - **One repository, one profile per title.** nxnative (first called smbw-mobile) started as a copy of d2r-mobile's generic parts. Title- or SDK-specific constants live in the game profile `dm/games/<id>/` ([dm/games/README.md](../../dm/games/README.md)). That covers program ID, known builds, modules, address-space partition, NVN driver tables, the shader tables and the app identity. The code reads the profile through `game_profile.h` (host) or `dm/games/game.py` (tools). Behaviour that fits only one title's code is gated by that title's build ID (`dm_main_build()`), never left on for every title. Some things are still built into the translator: the texture / sampler handle bases and the depth mode (see [04](04-graphics.md)). `dmsh_build.py` refuses a profile whose bases differ from the translator's.
+ - **Write code comments in English**, and start log lines that mark something unimplemented or wrong with `[RED] `.
+ - **Test where it runs.** The Mac host (`dm/host/dmhost`) is the development loop; the iOS app reuses the same host and graphics code. Never claim something works on iOS without running it there.
++- **A test that has not failed is not evidence.** A fix's test must fail before the fix and pass after it; run it both ways, or at least confirm it is collected and that its assertion touches the changed behaviour. Three failures in two days, all of them mine: a test appended *after* the class's closing brace (XCTest never collected it — the suite reported the same count before and after it existed, and I read that as a pass); `assertIn('TEXT_LO = segs[0][1]', src)`, a string match that stays green while the module raises `NameError` on import; and a release-notes splitter whose two failing cases only appeared once the test existed. A green suite is a claim about the code only if the test would have been red.
++- **A switch you recommend exists.** Before naming a `DM_*` in a reply, an issue body or a PR, check it against `docs/env_switches.tsv` (generated from the sources): `python3 dm/tools/env_switches.py --verify draft.md` fails on every name that is neither a row nor a documented family. Two replies written from memory in one day told reporters to set `DM_LOG_UEMALLOC` and `DM_NVN_ALIAS_TRACE`, neither of which exists; they wasted a run each and learned nothing.
+ 
+ ## Checklist for a new title
+ 

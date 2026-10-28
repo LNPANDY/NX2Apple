@@ -35,7 +35,7 @@
 #        uepak.py job <RomFS> <main NSO> <work dir> [<Mac host> <rewritten modules>]   the shader code archives of every pak, and an Oodle job of their Oodle-compressed shaders (LZ4 ones
 #                                                                       decoded at once); IoStore shader libraries (UE 5.6) decoded at once through the game's Oodle in the host (OodleHost)
 #        uepak.py finish <work dir> <out dir>                           after the host has run the job: the archives with every shader decoded
-import ctypes, json, os, struct, sys
+import ctypes, json, os, re, struct, sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../tools'))
 from romfs import os, open
 
@@ -106,15 +106,10 @@ def city64(s):
     return _h16((_h16(v[0], w[0]) + (y ^ (y >> 47)) * _K1 + z) & _M, (_h16(v[1], w[1]) + x) & _M)
 
 def nso_image(path):
-    """A decompressed NSO image and its (read-only start, data end)"""
-    import lz4.block
-    d = open(path, 'rb').read()
-    flags = struct.unpack_from('<I', d, 0xc)[0]; segs = [struct.unpack_from('<III', d, 0x10 + i * 0x10) for i in range(3)]; csz = struct.unpack_from('<III', d, 0x60)
-    img = bytearray(segs[2][1] + segs[2][2])
-    for i, (fo, mo, sz) in enumerate(segs):
-        raw = d[fo:fo + csz[i]]
-        img[mo:mo + sz] = lz4.block.decompress(raw, uncompressed_size=sz) if flags >> i & 1 else raw
-    return bytes(img), segs[1][1], segs[2][1] + segs[2][2]
+    """A decompressed NSO image (dm/tools/nso.py) and its (read-only start, data end); nso.Error (a ValueError) on a damaged file"""
+    import nso
+    with open(path, 'rb') as f: m = nso.load(f.read(), path)
+    return bytes(m.image), m.segments[1][0], len(m.image)
 
 class OodleHost:
     """The game's own OodleLZ_Decompress in the Mac host's tool mode (DM_OODLE_SERVE, dm/host/hle_oodle.c: served before the SDK starts, so no boot), called as decode(compressed, raw length).
@@ -300,7 +295,6 @@ class Toc:
         nseeds = struct.unpack_from('<I', b, 84)[0] if self.version >= 4 else 0
         self.part_size = struct.unpack_from('<Q', b, 88)[0] if self.version >= 3 and nparts > 1 else 1 << 64
         nover = struct.unpack_from('<I', b, 96)[0] if self.version >= 5 else 0
-        if self.encrypted and not key: raise ValueError(f'{path}: the container is encrypted and no key was given')
         o = hsz; self.ids = [b[o + 12 * i:o + 12 * i + 12] for i in range(n)]; o += 12 * n
         self.ranges = [(int.from_bytes(b[o + 10 * i:o + 10 * i + 5], 'big'), int.from_bytes(b[o + 10 * i + 5:o + 10 * i + 10], 'big')) for i in range(n)]; o += 10 * n + 4 * nseeds + 4 * nover
         self.blocks = []
@@ -318,6 +312,8 @@ class Toc:
         return self.files[part]
     def read(self, i, decode=None):
         """Chunk i's bytes; Oodle blocks need decode(block bytes, raw length) → bytes (the game's own decoder, OodleHost)"""
+        # TOC metadata is unencrypted. Check the selected chunk here: a patch can replace an encrypted library or refer to an encrypted group-only container.
+        if self.encrypted and not self.key: raise ValueError(f'{self.path}: the container is encrypted and no key was given')
         off, ln = self.ranges[i]; first = off // self.block_size; out = []
         for k in range(first, (off + ln - 1) // self.block_size + 1 if ln else first):
             at, size, raw, m = self.blocks[k]; f = self.ucas(at // self.part_size); f.seek(at % self.part_size)
@@ -342,12 +338,13 @@ def io_library_name(toc, i, names):
         if city64(n[len('ShaderArchive-'):].lower().encode('utf-16-le')).to_bytes(8, 'little') == h: return n
     return f'ShaderArchive-IoStore-{h.hex()}'
 
-def io_archive(toc, i, decode):
+def io_archive(toc, i, decode, chunk=None):
     """An IoStore shader library (Unreal Engine 5: FIoStoreShaderCodeArchive) as a version 2 shader code archive with every shader decoded, the form the shader tools read.
     The library chunk: u32 version (1), shader map hashes (20 bytes each), shader hashes (20 each), the shader groups' chunk IDs (12 each), shader map entries {u32 first index, u32 shader count},
     shader entries (u64: frequency in bits 0-3, group in 4-33, offset in the group's decoded bytes from bit 34), group entries {u32 first index, u32 shader count, u32 raw size, u32 stored size},
     shader indices (u32): each a u32 count and its elements. Each group is one ShaderCode chunk holding its shaders end to end, Oodle-compressed as a whole when its stored size is below its raw
-    size (FINAL FANTASY RESONANCE: 5,919 groups of 74,244 shaders); a shader runs to the next shader's offset in its group, or to the group's end"""
+    size (FINAL FANTASY RESONANCE: 5,919 groups of 74,244 shaders); a shader runs to the next shader's offset in its group, or to the group's end. chunk(chunk ID) → (container, index) looks a
+    group up in every container under the RomFS: a patch container's library lists the groups it did not change from the base container's"""
     r = R(toc.read(i, decode))
     if r.take('<I') != 1: raise ValueError(f'{toc.path}: shader library chunk {i} is not version 1')
     maph = r.raw(20 * r.take('<I')); nsh = r.take('<I'); shh = r.raw(20 * nsh)
@@ -359,8 +356,9 @@ def io_archive(toc, i, decode):
     if r.o != len(r.b) or n != nsh or len(gids) != len(groups): raise ValueError(f'{toc.path}: shader library chunk {i} does not parse')
     code = [None] * n
     for g, (gid, (first, cnt, raw, stored)) in enumerate(zip(gids, groups)):
-        if gid not in toc.index: raise ValueError(f'{toc.path}: shader group {g} has no chunk')
-        d = toc.read(toc.index[gid], decode)
+        owner = chunk(gid) if chunk else (toc, toc.index.get(gid))
+        if not owner or owner[1] is None: raise ValueError(f'{toc.path}: shader group {g} ({gid.hex()}) is in no container under the RomFS')
+        d = owner[0].read(owner[1], decode)
         if len(d) != stored: raise ValueError(f'{toc.path}: shader group {g} is {len(d)} bytes, its entry says {stored}')
         if stored < raw: d = decode(d, raw)
         mine = sorted(((ents[s] >> 34, s) for s in idx[first:first + cnt]))
@@ -375,16 +373,27 @@ def io_archive(toc, i, decode):
     out += struct.pack('<I', 0) + struct.pack(f'<I{len(idx)}I', len(idx), *idx)
     return bytes(out) + b''.join(code)
 
-def io_shader_tocs(romfs):
-    """The IoStore containers under the RomFS that hold Unreal Engine 5 shader libraries"""
+def mount_order(path):
+    """A container's place in the mount stack: the game's container first, then the numbered patch chunks in order. A chunk ID that two containers both have resolves to the later container, as in
+    the engine: the update's Glow-Switch_0_P.utoc (LEGO Horizon Adventures) carries the shader libraries' full tables with the base container's Glow-Switch.utoc, and lists the groups it did not
+    change with that container's chunk IDs"""
+    m = re.search(r'(?:_(\d+))?_P\.utoc$', os.path.basename(path), re.IGNORECASE)
+    return (1, int(m.group(1) or 0), path) if m else (0, 0, path)
+
+def io_tocs(romfs):
+    """Every IoStore container under the RomFS, in mount order (mount_order): the base game's, then its patch chunks. A shader library's groups may live in any of them. TOC metadata needs no
+    key; Toc.read refuses encrypted data when a selected library or group would have to be read"""
     out = []
     for dp, _, fs in os.walk(romfs):
         for f in fs:
             if not f.endswith('.utoc'): continue
-            try:
-                if Toc(os.path.join(dp, f), b'\0' * 32).of_type(IO_SHADER_LIBRARY): out.append(os.path.join(dp, f))
+            try: out.append(Toc(os.path.join(dp, f)))
             except (OSError, ValueError, struct.error): pass
-    return sorted(out)
+    return sorted(out, key=lambda t: mount_order(t.path))
+
+def io_shader_tocs(romfs):
+    """The IoStore containers under the RomFS that hold Unreal Engine 5 shader libraries"""
+    return [t.path for t in io_tocs(romfs) if t.of_type(IO_SHADER_LIBRARY)]
 
 def archive_names(romfs):
     """The shader code archive names ("ShaderArchive-<library>-<format>") the RomFS's manifests list (Unreal's Manifest_UFSFiles_<platform>.txt)"""
@@ -429,15 +438,22 @@ def job(romfs, main_nso, work, decode=None):
     Oodle-compressed, two layers, so they need decode (OodleHost: the game's decoder over a pipe) rather than the job"""
     os.makedirs(os.path.join(work, 'archives'), exist_ok=True)
     img, lo, hi = nso_image(main_nso); key = None; listing, recs = [], []
-    tocs = io_shader_tocs(romfs)
-    if tocs and not decode: raise ValueError(f'{tocs[0]}: IoStore shader libraries need the game\'s decoder (decode)')
+    tocs = io_tocs(romfs)
+    libs = [t for t in tocs if t.of_type(IO_SHADER_LIBRARY)]
+    if libs and not decode: raise ValueError(f'{libs[0].path}: IoStore shader libraries need the game\'s decoder (decode)')
     names = archive_names(romfs)
-    for tp in tocs:
-        t = Toc(tp)
+    # Chunk ID → (container, index), newest container first: a patch container's library lists the shader groups it did not change with the base container's chunk IDs
+    chunk = {}
+    for t in reversed(tocs):
+        for k, c in enumerate(t.ids): chunk.setdefault(c, (t, k))
+    seen = set()
+    for t in reversed(tocs):
         for i in t.of_type(IO_SHADER_LIBRARY):
-            name = io_library_name(t, i, names) + '.ushaderbytecode'; b = io_archive(t, i, decode)
+            if t.ids[i] in seen: continue   # a library the patch container replaces: its chunk ID is the same, and its tables are the current ones
+            seen.add(t.ids[i])
+            name = io_library_name(t, i, names) + '.ushaderbytecode'; b = io_archive(t, i, decode, chunk.get)
             open(os.path.join(work, 'archives', name), 'wb').write(b)
-            listing.append(dict(name=name, pak=os.path.relpath(tp, romfs), path=f'chunk {t.ids[i].hex()}', shaders=len(archive(b)['shaders']), compressed=0, compression='IoStore, decoded'))
+            listing.append(dict(name=name, pak=os.path.relpath(t.path, romfs), path=f'chunk {t.ids[i].hex()}', shaders=len(archive(b)['shaders']), compressed=0, compression='IoStore, decoded'))
     for pak in unreal_paks(romfs, inline=False):
         with open(pak, 'rb') as f: enc = footer(f)[0]
         if enc and key is None:
@@ -490,24 +506,27 @@ def lslg(s):
     return s[4:6].decode('latin1'), s[k:k + nctl], s[c:c + ncode]
 
 if __name__ == '__main__':
-    cmd = sys.argv[1] if len(sys.argv) > 1 else ''
-    if cmd == 'list':
-        img, lo, hi = nso_image(sys.argv[3])
-        with open(sys.argv[2], 'rb') as f: enc = footer(f)[0]
-        p = Pak(sys.argv[2], find_key(img, lo, hi, sys.argv[2]) if enc else None)
-        with open(sys.argv[4], 'w') as f:
-            f.write('path\traw\tstored\tmethod\tencrypted\tblocks\n')
-            for path in sorted(p.files):
-                e = p.entry(path); f.write(f"{path}\t{e['raw']}\t{e['size']}\t{e['method'] or 'none'}\t{e['encrypted']}\t{len(e['blocks'])}\n")
-        used = sorted({p.entry(x)['method'] for x in p.files} - {''})
-        print(f'pak version {p.version}, mount {p.mount}, {len(p.files)} files, compression {used}')
-    elif cmd == 'job':
-        dec = OodleHost(*sys.argv[5:7]) if len(sys.argv) > 6 else None
-        try: listing, n = job(*sys.argv[2:5], decode=dec)
-        finally:
-            if dec: dec.close()
-        for x in listing: print(f"{x['name']}: {x['shaders']} shaders, {x['compressed']} compressed")
-        print(f'{n} records in {os.path.join(sys.argv[4], "oodle.job")}')
-    elif cmd == 'finish':
-        print('decoded:', ', '.join(finish(*sys.argv[2:4])))
-    else: sys.exit(__doc__ or 'usage: uepak.py list | job | finish (see the header)')
+    import nso
+    try:
+        cmd = sys.argv[1] if len(sys.argv) > 1 else ''
+        if cmd == 'list':
+            img, lo, hi = nso_image(sys.argv[3])
+            with open(sys.argv[2], 'rb') as f: enc = footer(f)[0]
+            p = Pak(sys.argv[2], find_key(img, lo, hi, sys.argv[2]) if enc else None)
+            with open(sys.argv[4], 'w') as f:
+                f.write('path\traw\tstored\tmethod\tencrypted\tblocks\n')
+                for path in sorted(p.files):
+                    e = p.entry(path); f.write(f"{path}\t{e['raw']}\t{e['size']}\t{e['method'] or 'none'}\t{e['encrypted']}\t{len(e['blocks'])}\n")
+            used = sorted({p.entry(x)['method'] for x in p.files} - {''})
+            print(f'pak version {p.version}, mount {p.mount}, {len(p.files)} files, compression {used}')
+        elif cmd == 'job':
+            dec = OodleHost(*sys.argv[5:7]) if len(sys.argv) > 6 else None
+            try: listing, n = job(*sys.argv[2:5], decode=dec)
+            finally:
+                if dec: dec.close()
+            for x in listing: print(f"{x['name']}: {x['shaders']} shaders, {x['compressed']} compressed")
+            print(f'{n} records in {os.path.join(sys.argv[4], "oodle.job")}')
+        elif cmd == 'finish':
+            print('decoded:', ', '.join(finish(*sys.argv[2:4])))
+        else: sys.exit(__doc__ or 'usage: uepak.py list | job | finish (see the header)')
+    except nso.Error as e: sys.exit(f'[RED] {e}')   # a damaged main

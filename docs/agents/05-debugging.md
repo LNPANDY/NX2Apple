@@ -145,6 +145,10 @@ Instruments' Metal Resource Events didn't record this process from the command l
 
 See [04](04-graphics.md) section 7. Notes: pass dumps are large and may contain non-UTF-8 bytes; filter with `LC_ALL=C grep -a "\[pass\] F600 " | grep -av " o cmd"`. A Python one-liner with PIL (the dm venv has it) gives mean colour and non-black share of each dumped PNG, which is quicker than opening 20 images.
 
+## Replaying one frame
+
+To check a change to the replay layer on a frame without playing to it, or to tell a replay bug from a recording one: capture the frame with `DM_NVN_CAPTURE` and replay it with `dm/gfx/tests/nvn_replay` ([development.md](../development.md#frame-capture-and-replay)). Replays of an unchanged tree can differ from each other and from the live frame in a few pixels, so measure that noise with `--repeat` first and judge a change with `--max-pixels` set just above it.
+
 ## On-device diagnostics (iOS)
 
 The phone runs an unsigned IPA the user sideloads; nothing is attached to a debugger. The loop is: build an IPA with switches, the user plays and sends `Documents/log.txt` (the previous launch is `log.prev.txt`), read it, repeat.

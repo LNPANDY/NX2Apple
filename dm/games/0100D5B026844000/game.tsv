@@ -1,0 +1,41 @@
+# Game profile of Silver Pines 1.0.0 (Unity 6000.3.15f1 IL2CPP with the Universal Render Pipeline, FMOD, SDK 21.4.7, NVN).
+# Format: see dm/games/README.md; bring-up and measurements in README.md beside this file.
+
+# ---- Identity ----
+title_id	0100D5B026844000
+program_id	0100D5B026844000
+
+# ---- App ----
+name	Silver Pines
+ipa	SilverPines.ipa
+app_category	public.app-category.adventure-games
+
+# ---- Versions ----
+build	v0	1.0.0	main=91046036f8850de3ec306056fcc6ba12	subsdk0=92a5f1a1e8d50e4d05b2212f564bf226	sdk=ab3835b2a37b1916e296f27e82dd4e36
+package	v0
+shader_versions	v0
+
+# ---- Files ----
+# every module main imports from
+modules	main subsdk0 sdk
+romfs_marker	Data/StreamingAssets/Master.assets.bank
+zip_store	.assets:.bank:.bin:.bundle:.dat:.png:.resource:.ress:.metallib
+
+# ---- Memory ----
+# Virtual address memory: the NPDM declares 16 MB of system resource and main never sets a heap, so a 5 GB block with a 4.375 GB alias region, where the game maps
+# its memory itself. The surveyed values held: about 2.1 GB resident and 1 GB of Metal allocations in the motel street (README.md)
+mem_reserve	0x140000000
+mem_alias	0x118000000
+mem_stack	0x10000000
+app_pool	0xCD500000
+# the NPDM declares 16 MB of system resource
+sys_resource	0x1000000
+
+# ---- Graphics ----
+# The game calls nvnDeviceSetDepthMode(near=0), so its vertex shaders use the main0_z entries; the pipeline bases made before it runs (the Mac app's archive,
+# the Mac prebuild) are made for that mode. Without it the Mac app's 1 GB archive was made for near = -w and the first start rebuilt all 27,834 pairs (README.md)
+depth_mode	zero
+
+# ---- Shader split ----
+shader_groups	/Data/=data
+shader_note	Silver Pines shaders

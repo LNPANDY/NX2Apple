@@ -82,6 +82,13 @@ class Json(unittest.TestCase):
         self.assertTrue('out' in es[3]['msg'] and 'err' in es[3]['msg'])
 
 class Cli(unittest.TestCase):
+    def test_argument_error_precedes_json_mode(self):
+        r = subprocess.run([sys.executable, '-B', str(SCRIPT), '--progress', 'json', '--invalid-option'],
+                           capture_output=True, text=True, timeout=30)
+        self.assertEqual((r.returncode, r.stdout), (2, ''))
+        self.assertIn('usage:', r.stderr)
+        self.assertIn('unrecognized arguments: --invalid-option', r.stderr)
+
     def test_json_error(self):
         with tempfile.TemporaryDirectory() as tmp:
             r = subprocess.run([sys.executable, '-B', str(SCRIPT), '--progress', 'json', str(Path(tmp) / 'missing'), '-k', str(Path(tmp) / 'keys')],

@@ -705,8 +705,8 @@ final class LibraryTests: XCTestCase {
         model.slots[0].paths = []
         library.selectedID = library.games.first?.id
         func capture(_ name: String, width: CGFloat = 1440, height: CGFloat = 1024, page: LauncherPage = .library, activeID: UUID? = nil, empty: Bool = false,
-                     search: String? = nil, older: Set<UUID> = [], manageOpen: Bool = false, padRing: Bool = false) throws {
-            let store = empty ? GameLibrary(file: temporary.appendingPathComponent("empty.json")) : library
+                     search: String? = nil, older: Set<UUID> = [], manageOpen: Bool = false, padRing: Bool = false, only: GameLibrary? = nil) throws {
+            let store = only ?? (empty ? GameLibrary(file: temporary.appendingPathComponent("empty.json")) : library)
             let view = ContentView(model: model, library: store, initialPage: page, activeBuildID: activeID, performStartupChecks: false, search: search,
                                    olderTools: older, manageOpen: manageOpen, padRing: padRing)
             let host = NSHostingView(rootView: view)
@@ -774,6 +774,15 @@ final class LibraryTests: XCTestCase {
         model.slots[0].paths = []
         try capture("library-older-tools", older: [library.games[0].id, library.games[1].id])
         try capture("library-older-tools-small", width: 900, height: 680, older: [library.games[0].id, library.games[1].id])
+        do {   // a game with an IPA but no Mac app: Build is the primary button, Reveal in Finder shows the IPA
+            let ipa = temporary.appendingPathComponent("Metroid Dread.ipa")
+            try Data([0]).write(to: ipa)
+            let ipaOnly = LibraryGame(titleID: "010093801237C000", name: "Metroid Dread", ipaPath: ipa.path)
+            let file = temporary.appendingPathComponent("ipa-only.json")
+            try JSONEncoder().encode([ipaOnly]).write(to: file)
+            try capture("library-ipa-only", only: GameLibrary(file: file))
+            try capture("manage-menu-ipa-only", manageOpen: true, only: GameLibrary(file: file))
+        }
         // An iPhone build with a paired device and a team (example values)
         let previousTarget = model.target
         model.target = "ios"

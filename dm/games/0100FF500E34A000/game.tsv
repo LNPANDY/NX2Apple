@@ -1,0 +1,36 @@
+# Xenoblade Chronicles: Definitive Edition 1.1.2 (SDK 9.3.1, Monolith engine, NVN).
+# See README.md for the measured bring-up and validation status.
+
+# ---- Identity ----
+title_id	0100FF500E34A000
+program_id	0100FF500E34A000
+
+# ---- App ----
+name	Xenoblade Chronicles: Definitive Edition
+ipa	XenobladeChroniclesDefinitiveEdition.ipa
+app_category	public.app-category.role-playing-games
+pad_layout	full
+
+# ---- Versions ----
+build	v196608	1.1.2	main=92c78bb3dcbbc3f7a3caf601d7b85f7a	subsdk0=5a7ada8dd7447c10aa244944f64d0aff	sdk=ad3fdfbd62a5f4b082d385ffe420d440
+package	v196608
+shader_versions	v196608
+
+# ---- Files ----
+# every module main imports from
+modules	main subsdk0 sdk
+romfs_marker	sound/jp.pck
+zip_store	.bnk:.pcbeb:.pck:.pcsmt:.webm:.wifnt:.wiidcm:.wishp:.wismda:.wismhd:.wismt:.metallib
+
+# ---- Memory ----
+# Startup requests a 0xC9400000-byte heap; the reservation leaves 3328 MB for it.
+mem_reserve	0x100000000
+mem_alias	0x10000000
+mem_stack	0x10000000
+app_pool	0xCD500000
+# The NPDM declares no system resource; virtual address memory is disabled.
+sys_resource	0x0
+
+# ---- Shader split ----
+shader_groups	/chr/=chr /menu/=menu /eff/=eff /script/=script /bdat/=bdat /cs/=cs /map/=map /monolib/=monolib /sound/=sound /movie/=movie /param/=param /config/=config
+shader_note	Xenoblade Chronicles: Definitive Edition shaders

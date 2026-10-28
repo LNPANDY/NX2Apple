@@ -1870,6 +1870,17 @@ final class BuildModel: ObservableObject {
     /// the script with a message the user could not act on (issue #53).
     nonisolated static let minPython = (3, 12)
 
+    /// The Homebrew formulae the dependency check offers, with the localization key of each row. The repo-root
+    /// Brewfile lists the same formulae (BrewfileTests keeps the two equal).
+    /// `binary` is the file the formula puts in the Homebrew bin folder (glslang installs glslangValidator, which the
+    /// NSP script's environment check requires).
+    nonisolated static let brewDeps: [(formula: String, binary: String, key: String)] = [
+        ("xcodegen", "xcodegen", "dep.xcodegen"),
+        ("zstd", "zstd", "dep.zstd"),
+        ("spirv-cross", "spirv-cross", "dep.spirv"),
+        ("glslang", "glslangValidator", "dep.glslang"),
+    ]
+
     /// The interpreter probe: lz4 / capstone / fontTools always, and zstd from either source —
     /// `compression.zstd` is built in from Python 3.14 and `backports.zstd` (which declares
     /// Python < 3.14) is the only option before that. Requiring the backport unconditionally
@@ -2154,8 +2165,8 @@ final class BuildModel: ObservableObject {
         out.append(Dep(id: "brew", name: "dep.brew", hint: "dep.brew.hint", present: brew != nil,
                        installCmd: ["/bin/bash", "-c",
                          "NONINTERACTIVE=1 /bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""]))
-        for (pkg, key) in [("xcodegen", "dep.xcodegen"), ("zstd", "dep.zstd"), ("spirv-cross", "dep.spirv")] {
-            let path = firstExisting(["/opt/homebrew/bin/\(pkg)", "/usr/local/bin/\(pkg)"])
+        for (pkg, binary, key) in brewDeps {
+            let path = firstExisting(["/opt/homebrew/bin/\(binary)", "/usr/local/bin/\(binary)"])
             out.append(Dep(id: "brew:" + pkg, name: key, hint: key + ".hint", present: path != nil,
                            detail: path ?? "",
                            installCmd: [(brew ?? "/opt/homebrew/bin/brew"), "install", pkg]))

@@ -21,7 +21,7 @@ void *guest_sym(const char *name) {
     CHECK(!strcmp(name, "_ZN2nn6fontll18ScalableFontEngine8LoadFontEPcPKvjj"), "original symbol lookup");
     return missing ? NULL : original;
 }
-module_t g_mod[MAX_MOD];
+module_t *g_mod;
 int g_nmod;
 uint64_t g_t0_ns;
 uint64_t now_ns(void) { return 0; }

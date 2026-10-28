@@ -9,7 +9,7 @@
 uint64_t g_t0_ns;
 void *front_metal_layer(void) { return NULL; }
 module_t *module_of(const void *p) { (void)p; return NULL; }
-module_t g_mod[MAX_MOD]; int g_nmod;
+module_t *g_mod; int g_nmod;
 void svc_thread_dump(void) {}
 uint64_t now_ns(void) { return bp_now(); }
 static int cases, failed;
@@ -29,6 +29,37 @@ static int cases, failed;
 }
 - (id)forwardingTargetForSelector:(SEL)selector { (void)selector; return _device; }
 @end
+
+// A texture in a sparse virtual pool takes its content from what the pool's page table maps (nvn_sparse_copy), unmapped pages as 0. ReadTexels reads it there on whatever thread asks:
+// Tears of the Kingdom reads such textures on its own threads (bake::ModuleMgr), and resolving the host texture there uploaded it outside the submit thread (up_owner_check aborted, #471)
+typedef struct { const NVNtexture *t; const NVNcopyRegion *r; uint8_t *dst; } read_job;
+static void *read_on_thread(void *p) { read_job *j = p; h_nvnTextureReadTexels(j->t, NULL, j->r, j->dst); return NULL; }
+static void sparse_reads(const NVNcopyRegion *region, const uint8_t expected[4]) {
+    size_t len = 4 * (size_t)getpagesize();
+    uint8_t *phys = mmap(NULL, len, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0); if (phys == MAP_FAILED) abort();
+    pool_t physical, sparse; pool_builder_t pb = {.mem=phys, .size=len, .flags=0x24};
+    EXPECT("physical pool init", 1, h_nvnMemoryPoolInitialize((NVNmemoryPool *)&physical, (const NVNmemoryPoolBuilder *)&pb));
+    pb = (pool_builder_t){.size=DM_GAME_APP_POOL + 4 * len, .flags=NVN_MEMORY_POOL_FLAGS_VIRTUAL};   // larger than the application pool: sparse
+    EXPECT("sparse pool init", 1, h_nvnMemoryPoolInitialize((NVNmemoryPool *)&sparse, (const NVNmemoryPoolBuilder *)&pb));
+    map_req map = {.phys=(NVNmemoryPool *)&physical, .size=len};   // [0, len) mapped, the rest not
+    EXPECT("sparse mapping", 1, h_nvnMemoryPoolMapVirtual((NVNmemoryPool *)&sparse, 1, (const NVNmappingRequest *)&map));
+    EXPECT("pool reads through its page table", 1, nvn_sparse_pool(&sparse));
+    for (size_t i = 0; i < len / 4; i++) memcpy(phys + i * 4, expected, 4);   // every texel the same, whatever the block-linear order
+    NVNtextureBuilder tb; NVNtexture mapped, unmapped; h_nvnTextureBuilderSetDefaults(&tb); h_nvnTextureBuilderSetWidth(&tb, 8);
+    h_nvnTextureBuilderSetHeight(&tb, 4); h_nvnTextureBuilderSetFormat(&tb, NVN_FORMAT_RGBA8);
+    h_nvnTextureBuilderSetStorage(&tb, (const NVNmemoryPool *)&sparse, 0); EXPECT("mapped sparse texture init", 1, h_nvnTextureInitialize(&mapped, &tb));
+    h_nvnTextureBuilderSetStorage(&tb, (const NVNmemoryPool *)&sparse, 2 * len); EXPECT("unmapped sparse texture init", 1, h_nvnTextureInitialize(&unmapped, &tb));
+    static const uint8_t zero[4];
+    for (int other = 1; other >= 0; other--) for (int m = 0; m < 2; m++) {   // a game thread first (the texture not resolved yet), then the submit thread (this one: mtl_sub_begin ran here)
+        uint8_t cpu[128]; memset(cpu, 0xEE, sizeof cpu); read_job j = {m ? &unmapped : &mapped, region, cpu};
+        if (other) { pthread_t th; pthread_create(&th, NULL, read_on_thread, &j); pthread_join(th, NULL); } else read_on_thread(&j);
+        int bad = 0; for (int i = 0; i < 32; i++) bad += memcmp(cpu + i * 4, m ? zero : expected, 4) != 0;
+        char name[128]; snprintf(name, sizeof name, "sparse texture, %s pages, ReadTexels on %s thread, 32 literal pixels", m ? "unmapped" : "mapped", other ? "a game" : "the submit");
+        EXPECT(name, 0, bad);
+    }
+    h_nvnTextureFinalize(&unmapped); h_nvnTextureFinalize(&mapped);
+    h_nvnMemoryPoolFinalize((NVNmemoryPool *)&sparse); h_nvnMemoryPoolFinalize((NVNmemoryPool *)&physical); munmap(phys, len);
+}
 
 int main(void) { @autoreleasepool {
     mtl_init();
@@ -109,5 +140,6 @@ int main(void) { @autoreleasepool {
     EXPECT("copy from a packaged texture the GPU cleared -> read back, 32 literal pixels", 0, bad);
     h_nvnTextureFinalize(&pk6); h_nvnTextureFinalize(&pk5); h_nvnTextureFinalize(&pk3); h_nvnTextureFinalize(&pk7); h_nvnTextureFinalize(&pk4); h_nvnTextureFinalize(&pk2);
     h_nvnTextureFinalize(&pk); h_nvnTextureFinalize(&tex); nvn_dirty_remove_range(mem); mtl_pool_del(mem); free(mem);
+    sparse_reads(&region, expected);
     printf("READBACK cases=%d failed=%d\n", cases, failed); return failed != 0;
 } }

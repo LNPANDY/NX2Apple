@@ -1,0 +1,51 @@
+# FINAL FANTASY RESONANCE, Asian release (0100B8A026F14000): the Korean / Chinese release of the game the registered JP profile (dm/games/0100606026F12000) covers.
+# The same Unreal Engine 5.6.1 build at the same offsets (hle_uemalloc.c, patches.py), so the values and comments here follow the JP profile; the shader tables are this build's own.
+# Started from the NSP script's provisional profile (dm/games/profile_guess.py) and brought up on the Mac (docs/agents); format: see dm/games/README.md
+
+# ---- Identity ----
+title_id	0100B8A026F14000
+program_id	0100B8A026F14000
+
+# ---- App ----
+name	FINAL FANTASY RESONANCE (Asian release)
+ipa	FinalFantasyResonanceAsia.ipa
+app_category	public.app-category.games
+
+# ---- Versions ----
+build	v65536	1.0.1	main=b7f965b9d7227db8e29f04e84ea7331b	subsdk0=ab62fe8edd07a6a293f885d54359e559	sdk=0023a1b06130cd795f7bc4613772af0a
+package	v65536
+shader_versions	v65536
+
+# ---- Files ----
+# every module main imports from
+modules	main subsdk0 sdk
+romfs_marker	FFRS/Content/Paks/FFRS-Switch.ucas
+zip_store	.pak:.ttf:.txt:.ucas:.utoc:.metallib
+
+# ---- Graphics ----
+# 60 fps (30 on the Switch): the host writes rhi.SyncInterval 1 whenever the game sets it back (hle_fpslock.c), as the registered JP profile (dm/games/0100606026F12000)
+fps_target	60
+
+# ---- Memory ----
+# Unreal Engine 5.6.1: the allocator is replaced by the host's (hle_uemalloc.c layout UE5_6; the constructor call cut in patches.py) and the engine region capped at 4064 MB,
+# as the registered JP profile: a 4064 MB region in the 5 GB guest block (256 MB in front + 4.375 GB alias region + 256 MB stack region + 128 MB heap region)
+game_args	-SwitchVirtualAddressSpaceSize=4064
+mem_reserve	0x140000000
+mem_alias	0x118000000
+mem_stack	0x10000000
+app_pool	0xCD500000
+# the NPDM declares 20 MB of system resource
+sys_resource	0x1400000
+
+# ---- Input ----
+# A 3D field whose camera the right stick tilts and turns: the 3D pad layout. It plays docked (1920x1080)
+pad_layout	full
+
+# ---- NVN ----
+# 2,077 vertex shaders (Unreal's particle vertex factories) pick one of several c2 table slots at run time (as the registered JP profile)
+tex_dyn_slots	on
+
+# ---- Shader split ----
+# the decoded shader code archives: the engine's global shaders and the game's material shaders
+shader_groups	ShaderArchive-Global-=global ShaderArchive-=game
+shader_note	FINAL FANTASY RESONANCE shaders

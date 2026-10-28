@@ -1,0 +1,12 @@
+# Boot smoke route for scripts/regress.py (docs/development.md, The regression harness): key <TAB> value
+# The save made right after the difficulty prompt (the note's Mac routes): the title shows Continue from about 10 s, the A presses at 26 and 30 s take it, and Kirby stands
+# on the beach from about 45 s (idle animations only); 30 fps, about 950 frames by 60 s on a busy Mac. Run it with --env DM_AUDIO=1: with the silent sink the game crashes
+# after Continue in about 2 boots of 3 (the note's Audio section, open)
+save	saves/beach
+keys	26:A,30:A
+secs	100
+quick	70
+reach	700@60
+window	50	40
+shots	55,68,95
+hang	20

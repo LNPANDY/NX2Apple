@@ -1,0 +1,40 @@
+# Game profile of FINAL FANTASY CRYSTAL CHRONICLES Remastered Edition (Switch, update 1.0.3 = v196608 over the base cartridge). Plays on the Mac (boot, title, intro, field and dungeon play)
+# Format: see dm/games/README.md
+# Unity 2018.4.2f1 IL2CPP with FMOD, SDK 8.2.1; subsdk0 is the movie module. Started from the provisional profile of build_ipa_from_nsp.py (the keys below are its static guesses, kept
+# because they boot and play); notes, the fixes it needed and what is open: README.md. patches.py holds the ThreadedStreamBuffer memory-order cuts for the registered 1.0.3 main; the note records the 1.0.0 sites.
+# Game logic counts frames: keep the default present interval (30 fps); DM_PRESENT_INTERVAL=display makes it run twice as fast.
+
+# ---- Identity ----
+title_id	0100CE4010AAC000
+program_id	0100CE4010AAC000
+
+# ---- App ----
+name	FINAL FANTASY CRYSTAL CHRONICLES Remastered Edition
+ipa	FinalFantasyCrystalChroniclesRemasteredEdition.ipa
+app_category	public.app-category.games
+
+# ---- Versions ----
+build	v196608	1.0.3	main=e1d8b399b787ae4186bc974403a82d97	subsdk0=60c6edbbfcebd4176cc301d5d9cb5a6f	sdk=5fd4f531c1195e9e5510c9e73f22cd39
+package	v196608
+shader_versions	v196608
+
+# ---- Files ----
+# every module main imports from
+modules	main subsdk0 sdk
+romfs_marker	Data/StreamingAssets/Videos/TitleCredit_Int_High.mp4
+zip_store	.assets:.dat:.fr:.gr:.it:.mp4:.ress:.sp:.us:.metallib
+
+# ---- Memory ----
+# the NPDM declares 16 MB of system resource (virtual address memory) and main sets a heap: a 5 GB block with a large alias region; the heap check sizes the heap region from the heap the game asks for
+mem_reserve	0x140000000
+mem_alias	0x118000000
+mem_stack	0x10000000
+app_pool	0xCD500000
+# the NPDM declares 16 MB of system resource
+sys_resource	0x1000000
+
+# ---- Shader split ----
+shader_groups	/Data/=data
+shader_note	FINAL FANTASY CRYSTAL CHRONICLES Remastered Edition shaders (Unity Shader objects and the TextAsset shader.switch.vfxsb)
+
+# heap check: 2026-10-25, no heap set

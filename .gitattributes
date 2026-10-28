@@ -1,0 +1,3 @@
+# The games gallery's table (dm/tools/docs_gallery.py writes README.md's gallery from it): a new game is a row at its end. README.md itself is not merged this way; after a
+# conflict in its gallery, run docs_gallery.py. test_docs fails on a game in the table twice
+docs/images/gallery.tsv merge=union

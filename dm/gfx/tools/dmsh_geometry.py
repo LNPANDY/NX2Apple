@@ -3,7 +3,9 @@
 VS capture records are 144 words: position 0, point size 4, clip distances
 5..12, layer 13, viewport 14, reserved 15, generic attributes 16..143.
 This matches ResourceReservations.FillGeometryInputMap. Capture uses the native
-vertex fetch, including its instance divisors and format conversions.
+vertex fetch, including its instance divisors and format conversions. The host
+gives the capture a slot per word (-1: not stored) and a record stride: the full
+map in order, or only the words a lean kernel reads (lean).
 """
 import re
 import struct
@@ -91,6 +93,25 @@ def capture(src):
             pro += f'    uint {name} = {found.group(1)};\n'
         else:
             params += (', ' if params else '') + f'uint {name} [[{semantic}]]'
+    stores = [(k, f'as_type<uint>({e})') for k, e in output_words(src).items()]
+    params += f', constant dm_geometry_capture& dm_gs [[buffer({CAPTURE_SLOT})]]'
+    pro += ('    uint4 dm_ci = dm_gs.info; device uint* dm_capture = dm_gs.dst;\n'
+            '    if (dm_vid - dm_ci.x >= dm_ci.y || dm_iid - dm_ci.z >= dm_ci.w) return;\n'
+            '    device uint* dm_p = dm_capture + ((ulong(dm_iid - dm_ci.z) * dm_ci.y + dm_vid - dm_ci.x) * dm_gs.stride);\n')
+    # Missing attributes hold what the normal vertex builder gives them: (0, 0, 0, 1), point size 1.
+    # Each word is written once, through its slot.
+    words = {k: '0x3f800000u' if k in (3, 4) or (k >= 19 and k % 4 == 3) else '0u' for k in range(WORDS)}
+    words.update(stores)
+    epilogue = '{ ' + ' '.join(f'dm_cw(dm_gs, dm_p, {k}, {v});' for k, v in words.items()) + ' return; }'
+    if 'return out;' not in body:
+        raise ValueError('geometry capture: missing return')
+    return (f'\nstruct dm_geometry_capture {{ device uint* dst; uint4 info; uint stride; short slot[{WORDS}]; }};\n'
+            'static inline void dm_cw(constant dm_geometry_capture& g, device uint* p, uint k, uint v) { short s = g.slot[k]; if (s >= 0) p[s] = v; }\n'
+            'vertex void main0_gs(' + params + ')\n{\n' + pro + body.replace('return out;', epilogue))
+
+
+def output_words(src):
+    """The capture words a vertex shader writes: {word: expression over out} (the 144-word map above)."""
     st = re.search(r'struct main0_out\s*\{(.*?)\};', src, re.S)
     if not st:
         raise ValueError('geometry capture: missing output struct')
@@ -103,39 +124,28 @@ def capture(src):
         if v:
             if int(v[3]) >= 32:
                 raise ValueError('geometry capture: attribute outside Maxwell map')
-            stores += [f'dm_p[{16 + int(v[3]) * 4 + c}] = as_type<uint>(out.{v[2]}.{s});' for c, s in enumerate('xyzw')]
+            stores += [(16 + int(v[3]) * 4 + c, f'out.{v[2]}.{s}') for c, s in enumerate('xyzw')]
             continue
         v = re.fullmatch(r'float4 (\w+) \[\[position(?:, invariant)?\]\];', line)
         if v:
-            stores += [f'dm_p[{c}] = as_type<uint>(out.{v[1]}.{s});' for c, s in enumerate('xyzw')]
+            stores += [(c, f'out.{v[1]}.{s}') for c, s in enumerate('xyzw')]
             continue
         v = re.fullmatch(r'(float|uint|int) (\w+) \[\[(point_size|render_target_array_index|viewport_array_index)\]\];', line)
         if v:
             offset = {'point_size': 4, 'render_target_array_index': 13, 'viewport_array_index': 14}[v[3]]
-            stores.append(f'dm_p[{offset}] = as_type<uint>(out.{v[2]});')
+            stores.append((offset, f'out.{v[2]}'))
             continue
         # spirv-cross writes the array size after the attribute (float gl_ClipDistance [[clip_distance]] [8]; Luigi's Mansion 3's vertex shaders)
         v = re.fullmatch(r'float (\w+)(?:\[(\d+)\])? \[\[clip_distance\]\](?: \[(\d+)\])?;', line)
         if v and (v[2] or v[3]) and int(v[2] or v[3]) <= 8:
-            stores += [f'dm_p[{5 + c}] = as_type<uint>(out.{v[1]}[{c}]);' for c in range(int(v[2] or v[3]))]
+            stores += [(5 + c, f'out.{v[1]}[{c}]') for c in range(int(v[2] or v[3]))]
             continue
         v = re.fullmatch(r'float (\w+) \[\[user\(clip(\d)\)\]\];', line)   # the same distances again as varyings for the pixel stage (gl_ClipDistance_0 [[user(clip0)]])
         if v:
-            stores.append(f'dm_p[{5 + int(v[2])}] = as_type<uint>(out.{v[1]});')
+            stores.append((5 + int(v[2]), f'out.{v[1]}'))
             continue
         raise ValueError('geometry capture: unknown output ' + line)
-    params += f', constant dm_geometry_capture& dm_gs [[buffer({CAPTURE_SLOT})]]'
-    pro += (f'    uint4 dm_ci = dm_gs.info; device uint* dm_capture = dm_gs.dst;\n'
-            f'    if (dm_vid - dm_ci.x >= dm_ci.y || dm_iid - dm_ci.z >= dm_ci.w) return;\n'
-            f'    device uint* dm_p = dm_capture + ((ulong(dm_iid - dm_ci.z) * dm_ci.y + dm_vid - dm_ci.x) * {WORDS});\n')
-    # Initialize missing attributes exactly as the normal vertex builder does.
-    epilogue = ('{ for (uint dm_k = 0; dm_k < 144; ++dm_k) dm_p[dm_k] = 0; '
-                'dm_p[3] = dm_p[4] = 0x3f800000u; '
-                'for (uint dm_k = 19; dm_k < 144; dm_k += 4) dm_p[dm_k] = 0x3f800000u; '
-                + ' '.join(stores) + ' return; }')
-    if 'return out;' not in body:
-        raise ValueError('geometry capture: missing return')
-    return '\nstruct dm_geometry_capture { device uint* dst; uint4 info; };\nvertex void main0_gs(' + params + ')\n{\n' + pro + body.replace('return out;', epilogue)
+    return dict(stores)
 
 
 def flatten_sets(path):
@@ -201,3 +211,104 @@ def capture_input(src):
     if n != 1:
         raise ValueError('unknown geometry capture-input declaration')
     return lowered
+
+
+def passthrough(code):
+    """SPH word 0 bit 24 (GpPassthrough): NV passthrough geometry. Per-vertex attributes
+    reach the rasterizer unchanged; the shader only decides per primitive (viewport mask)
+    and may write storage."""
+    return len(code) >= 4 and bool(struct.unpack_from('<I', code)[0] >> 24 & 1)
+
+
+MASK_WORD = 5   # the viewport mask's word in an output vertex (reader: dm_gs_viewport_mask)
+_DEF = re.compile(r'^\s*(?:int|uint|float|bool) (_\d+) = (.+);$')
+_PURE = re.compile(r'atomic|Subgroup|simd_|\+\+|--|[^=!<>]=[^=]')
+
+
+def lean(src, out_stride):
+    """A passthrough kernel without its copy of the vertex: only the viewport mask is
+    written, one word per output vertex, and only the capture words it still reads are
+    loaded, from a record of len(reads) words in that order. Returns (source, reads).
+
+    The rasterizer then draws the game's own vertex shader through the kernel's
+    indices (nvn_geometry.inc). Input reads and output stores must be the generated
+    literal offsets; anything else raises ValueError and the full kernel is kept.
+    """
+    lines = src.split('\n')
+    defs = {}
+    for i, ln in enumerate(lines):
+        m = _DEF.match(ln)
+        if m: defs.setdefault(m[1], (i, m[2]))
+    def base(var, stride):   # var = _X * stride -> _X
+        m = re.fullmatch(r'(_\d+) \* ' + str(stride), defs.get(var, (0, ''))[1])
+        return m[1] if m else None
+    def offset(var, stride):   # var = _B + K with _B = _X * stride (or var itself) -> (_B, K)
+        e = defs.get(var, (0, ''))[1]
+        m = re.fullmatch(r'(_\d+) \+ (\d+)', e)
+        if m and base(m[1], stride): return m[1], int(m[2])
+        if base(var, stride): return var, 0
+        return None, None
+    store = re.compile(r'^\s*\(\*spvDescriptorSet0\.geometry_vb_output\)\._m0\[(_\d+)\] = (_\d+);$')
+    kept = 0
+    for i, ln in enumerate(lines):
+        if 'geometry_vb_output' not in ln or ln.strip().startswith('device '): continue
+        m = store.match(ln)
+        if not m: raise ValueError('lean geometry: unknown output store')
+        b, k = offset(m[1], out_stride)
+        if b is None: raise ValueError('lean geometry: unknown output store')
+        if k != MASK_WORD: lines[i] = ''; continue
+        j, _ = defs[m[1]]
+        lines[j] = re.sub(r'= .+;$', f'= {base(b, out_stride)};', lines[j]); kept += 1
+    if not kept: raise ValueError('lean geometry: no viewport mask store')
+    # Remove what only fed the removed stores: unused pure definitions, and local array
+    # elements written at a literal index and never read.
+    decl = re.compile(r'^\s*spvUnsafeArray<\w+, \d+> (_\d+);$')
+    arrays = {m[1] for m in map(decl.match, lines) if m}
+    for a in list(arrays):
+        if re.search(r'\b' + a + r'\b(?!\[\d+\])', '\n'.join(l for l in lines if not decl.match(l))):
+            arrays.discard(a)   # used whole or at a computed index: keep every element
+    token = re.compile(r'_\d+(?:\[\d+\])?')
+    target: list[str | None] = [None] * len(lines)   # what a removable line defines, else None
+    rvalues = [()] * len(lines)
+    uses, writers = {}, {}
+    body = next((i for i, ln in enumerate(lines) if re.match(r'^kernel void main0\(', ln)), None)
+    if body is None: raise ValueError('lean geometry: no kernel entry')
+    for i, ln in enumerate(lines):
+        if i <= body: continue   # type names (struct _22) are not uses of a variable _22
+        m = _DEF.match(ln)
+        a = None if m else re.match(r'^\s*(_\d+)\[(\d+)\] = (.+);$', ln)
+        if m and not _PURE.search(m[2]): target[i], expr = m[1], m[2]
+        elif a and a[1] in arrays and not _PURE.search(a[3]): target[i], expr = f'{a[1]}[{a[2]}]', a[3]
+        else: expr = ln
+        rvalues[i] = tuple(t for t in token.findall(expr) if not (t.split('[')[0] in arrays and '[' not in t))
+        for t in rvalues[i]: uses[t] = uses.get(t, 0) + 1
+        if target[i]: writers.setdefault(target[i], []).append(i)
+    work = [i for i, t in enumerate(target) if t and not uses.get(t)]
+    while work:
+        i = work.pop()
+        if not lines[i]: continue
+        lines[i] = ''
+        for t in rvalues[i]:
+            uses[t] -= 1
+            if not uses[t]: work += writers.get(t, [])
+    # The remaining capture reads: literal words of the 144-word record, renumbered.
+    text = '\n'.join(lines)
+    if text.count('vertex_output') != len(re.findall(r'= \(\*spvDescriptorSet0\.vertex_output\)\._m0\[_\d+\];', text)) + 1:
+        raise ValueError('lean geometry: unknown capture read')
+    found = []
+    for n in re.findall(r'= \(\*spvDescriptorSet0\.vertex_output\)\._m0\[(_\d+)\];', text):
+        b, k = offset(n, WORDS)
+        if b is None: raise ValueError('lean geometry: computed capture read')
+        found.append((n, b, k))
+    reads = sorted({k for _, _, k in found})
+    slot = {k: i for i, k in enumerate(reads)}
+    bases = {b for _, b, _ in found}
+    for b in bases:   # each record base must serve only these reads
+        if len(re.findall(r'\b' + b + r'\b', text)) - 1 > sum(1 for n, bb, _ in found if bb == b):
+            raise ValueError('lean geometry: record base used elsewhere')
+    for n, b, k in found:
+        if n != b:
+            j, _ = defs[n]; lines[j] = re.sub(r'\+ \d+;$', f'+ {slot[k]};', lines[j])
+    for b in bases:
+        j, _ = defs[b]; lines[j] = re.sub(r'\* 144;$', f'* {max(len(reads), 1)};', lines[j])
+    return '\n'.join(l for l in lines if l != '' or True), reads

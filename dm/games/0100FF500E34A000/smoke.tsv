@@ -1,0 +1,9 @@
+# Fresh title screen; the same frame-based A press used during Mac bring-up.
+save	new
+keys	f900:A
+secs	45
+quick	45
+reach	1200@44
+window	32	10
+shots	40,43
+hang	20

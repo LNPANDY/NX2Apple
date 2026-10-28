@@ -67,7 +67,7 @@ class ScanFile(unittest.TestCase):
     def test_split_goes_on(self):   # the whole split: the unreadable archive is reported once more at the end, the tables are written and the split exits 0
         rom = self.tmp / 'RomFS'; (rom / 'sub').mkdir(parents=True)
         (rom / 'sub/a.dict').write_bytes(index(5, 2)[:0x28]); (rom / 'sub/a.data').write_bytes(bytes(64)); (rom / 'b.bin').write_bytes(b'no shaders')
-        main = self.tmp / 'main'; main.write_bytes(bytes(0x100))   # an NSO header of three empty segments
+        main = self.tmp / 'main'; main.write_bytes(b'NSO0' + bytes(0xfc))   # an NSO header of three empty segments
         out = [self.tmp / n for n in ('pkg', 'map.tsv', 'facts.tsv', 'pairs.tsv', 'pso.tsv')]
         r = subprocess.run([sys.executable, REPO / 'dm/gfx/tools/shader_split.py', rom, main, *out], capture_output=True, text=True,
                            env=dict(os.environ, DM_GAME='01007BB017812000', J='2'))

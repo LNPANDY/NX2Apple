@@ -1,0 +1,40 @@
+# Game profile of Unicorn Overlord, Asian release (Korean, Chinese), base game v0 + update 1.05 = v262144, SDK 16.2.4: the western profile 010069401ADB8000 with this release's title ID and main build; its note explains the keys
+
+# ---- Identity ----
+title_id	010054B01AD92000
+program_id	010054B01AD92000
+
+# ---- App ----
+# Game name: only a label for profile listings and the Mac window title; the iOS app name is the game name in the base NSP, and the bundle ID comes from the base game title ID (build_ipa.sh / NSP script)
+name	Unicorn Overlord (Asia)
+ipa	UnicornOverlordAsia.ipa
+app_category	public.app-category.role-playing-games
+
+# ---- Versions ----
+# only the merged 1.05 copy is extracted; the base game's own build IDs are added when needed
+build	v262144	1.05	main=9c3116f0333ea157526612d17354b375	sdk=12f161039300861f1054371f0e36b8c9
+package	v262144
+shader_versions	v262144
+
+# ---- Files ----
+# load order as on Horizon: main, sdk (no subsdk: the game has no movie module)
+modules	main sdk
+romfs_marker	Unicorn.CPK
+zip_store	.CPK:.metallib
+
+# ---- Memory ----
+# The NPDM declares no system resource (META +0x14 = 0): the game uses SetHeapSize with pool − used, as 13 Sentinels does. main's bss is 30 MB; the rewritten modules are 92 MB (mem_used).
+# Block = 256 MB in front + 256 MB alias region + 256 MB stack region + 3.25 GB heap region = 4 GB; the heap is 3.12 GB. On the Mac about 3.0 GB is resident in the opening story scene
+mem_reserve	0x100000000
+mem_alias	0x10000000
+mem_stack	0x10000000
+app_pool	0xCD500000
+# the rewritten modules are larger than the default 64 MB of used memory
+mem_used	0x5c00000
+# The engine cuts ring heaps out of a memory pool at 64 KB GPU alignment, and the pool's storage comes from malloc: allocations of 64 KB or more are 64 KB aligned (hle_os.c);
+# without it a thread's ring heap keeps base 0 and the game writes to 0x268 right after the title screen
+alloc_big_align	on
+
+# ---- Shader split (shader_split.py: GLSLC outputs in main, each a single-stage program; the program bound per draw combines a vertex and a pixel shader) ----
+shader_groups	/=romfs
+shader_note	Unicorn Overlord shaders

@@ -4,7 +4,7 @@ void front_save_failed(int err) { g_nfail++; g_lasterr = err; }
 
 // the loader's module table (dm.h): the unit test has no modules, so the table is empty
 #include "../dm.h"
-module_t g_mod[MAX_MOD];
+module_t *g_mod;
 int g_nmod;
 // the guest address space (hle_svc.c): the unit test has none, so every stack is a host stack and the big-stack takeovers run on it directly (hle_bigstack.c)
 #include <stdint.h>

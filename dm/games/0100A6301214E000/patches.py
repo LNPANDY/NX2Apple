@@ -12,3 +12,6 @@ CUTS = {
     (0x32f92d4, 'f303002a', '33008052', 'QualitySettings.set_vSyncCount wrapper: argument mov w19,w0 → mov w19,#1 (the 60 fps path of the game itself)'),
   ],
 }
+
+# Whether a general rule could replace these patches (dm/tools/docs_patches.py lists it in docs/agents/game-patches.md)
+GENERALIZE = "No: Unity's vSyncCount setter held at 1 is right only because this game's logic steps by that count"

@@ -31,3 +31,6 @@ MATCH_CUTS = {'main': [
     {'name': limiter, 'size': 172, 'fingerprints': ['8fda590c2f6df29ae21230a600452979e26c0972dcb738cec24130239aef1346'],
      'cuts': [(104, '087c149be9e301b2291191f2087dc99b14fd45d3', '087c149b890780520809c99a9f060071f403889a', limiter + ' (as v0 main+0x43e1a8)')]},
 ]}
+
+# Whether a general rule could replace these patches (dm/tools/docs_patches.py lists it in docs/agents/game-patches.md)
+GENERALIZE = "Already function-matched over its two builds (MATCH_CUTS). The limiter is KTGL's frame end; other KTGL games' frame ends are not checked for the same code"

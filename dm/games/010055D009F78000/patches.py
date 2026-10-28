@@ -33,3 +33,6 @@ CUTS = {
     (0x50f8f4, '08514bbd', '1f2003d5', 'render thread wait timeout: ldr s8,[x8,#0xb50] → nop (moved up)'),
   ],
 }
+
+# Whether a general rule could replace these patches (dm/tools/docs_patches.py lists it in docs/agents/game-patches.md)
+GENERALIZE = "Partly: the interval tables, the flag and the render-wait timeout are the game's own. The frame-limiter wait (YieldThread until the tick passes) could become a general rewriter rule beside the spin-wait rewrite: a loop of yields and tick reads slept out to its deadline"

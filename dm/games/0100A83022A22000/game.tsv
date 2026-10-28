@@ -1,4 +1,4 @@
-# Game profile of Absolum (Switch, base game v0 + update 1.1.1 = v393216). Plays on the Mac and on the iPhone
+# Game profile of Absolum (Switch, base game v0 + update 1.1.2 = v458752). Plays on the Mac and on the iPhone
 # Format: see dm/games/README.md
 # FNA (XNA 4 reimplemented in C#) compiled with .NET NativeAOT (NativeAOT-NX), SDL3, FNA3D's NVN driver (FNA3D_Driver_NVN.cpp), Wwise, SDK 18.3.2.
 # The shaders are GLSLC outputs in rom:/shaders.nx.bin; the effects (.xnb) carry D3D9 bytecode that MOJOSHADER parses for the parameters. Epic Online Services comes as an NRO (nro/EOSSDK-Switch-Shipping.nro)
@@ -15,8 +15,9 @@ app_category	public.app-category.action-games
 
 # ---- Versions ----
 build	v393216	1.1.1	main=916f5b8d61baa16d0939404ea047e129	subsdk2=ca1378cdd05a63438ef12ee7fbd5ca9c	sdk=f118ae1c2e7728471aaf1a0d58484968
-package	v393216
-shader_versions	v393216
+build	v458752	1.1.2	main=f2d7d0e177d1e60c33678a9a57ba2056	subsdk2=ca1378cdd05a63438ef12ee7fbd5ca9c	sdk=f118ae1c2e7728471aaf1a0d58484968
+package	v458752
+shader_versions	v458752
 
 # ---- Files ----
 # load order as on Horizon: main, subsdk*, sdk (subsdk2 = NintendoSDK_movie, for FNA3D's video player). Not loaded: subsdk0 (NVIDIA's Vulkan driver) and subsdk1 (NVIDIA's OpenGL driver):
@@ -28,8 +29,8 @@ zip_store	.bin:.bnk:.dat:.mp4:.nro:.otf:.metallib
 # ---- Memory ----
 # The NPDM declares 16 MB of system resource (virtual address memory), and main never calls SetMemoryHeapSize: everything lives in address regions of the alias region.
 # Measured with a 64 GB alias region from boot into the first level (probes on VammManager::AllocateAddressRegion's success path sdk+0x13bf8c, x21 size / x22 address, and the MapPhysicalMemory log):
-#   - malloc's StandardAllocator, 40 GB of address space (main+0x28bff4); 2.19 GB used, 1.75 GB of it FNA3D's GPU heap (FNA3D_CreateDevice). patches.py cuts the region to 2.5 GB;
-#   - the .NET GC's region range: 5 × its hard limit, 768 MB (75% of the 1 GB its GetPhysicalMemoryLimit, main+0x28bffc, returns), i.e. 3.75 GB. game_env below sets 1.5 GB, which the GC
+#   - malloc's StandardAllocator, 40 GB of address space (main+0x28c084; 1.1.1 main+0x28bff4); 2.19 GB used, 1.75 GB of it FNA3D's GPU heap (FNA3D_CreateDevice). stdalloc_cap below gives it 2.5 GB;
+#   - the .NET GC's region range: 5 × its hard limit, 768 MB (75% of the 1 GB its GetPhysicalMemoryLimit, main+0x28c08c; 1.1.1 main+0x28bffc, returns), i.e. 3.75 GB. game_env below sets 1.5 GB, which the GC
 #     uses from both ends (756 MB from the start, 748 MB from the end, 718 MB mapped into the first level);
 #   - a few small regions (bookkeeping, thread-local blocks), under 5 MB.
 # With the sdk cuts (node area 62 MB, 32 MB alignment for large regions) they take about 4.1 GB of the 4.375 GB alias region in Engage's 5 GB block (256 MB in front + 4.375 GB alias region
@@ -40,6 +41,9 @@ mem_stack	0x10000000
 app_pool	0xCD500000
 # The .NET runtime takes its settings from the environment (NativeAOT: getenv("DOTNET_…"), hex values); the GC's region range is 1.5 GB instead of 5 × its hard limit (hle_os.c game_env)
 game_env	DOTNET_GCRegionRange=60000000
+# malloc's StandardAllocator over 40 GB gets 2.5 GB on builds without the main cut (hle_svc.c, the host's StandardAllocator cap): the GC's 1.5 GB region comes after it, more than the
+# 256 MB the default leaves. With main 1.1.1 rewritten without its cut: 2.5 GB and the GC region at alias +2.59 GB, frame 3,900 in 75 s; the default 4.06 GB aborts at sdk+0x13a684
+stdalloc_cap	0xa0000000
 
 # ---- Shader split (shader_split.py: GLSLC outputs in shaders.nx.bin) ----
 shader_groups	/shaders.nx.bin=fna /data/=data

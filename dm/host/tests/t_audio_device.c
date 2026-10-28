@@ -2,6 +2,7 @@
 // including synchronous format notifications from a buffer write and device removal during disposal. No hardware needed.
 #include <AudioToolbox/AudioToolbox.h>
 #include <assert.h>
+#include <stddef.h>
 #include <time.h>
 
 static AudioComponent mock_find(AudioComponent, const AudioComponentDescription *);
@@ -35,6 +36,7 @@ static struct {
     OSStatus init_error;
 } unit;
 static AudioUnit fake_au(void) { return (AudioUnit)&unit; }
+static int check_open_publication;
 static void changed(AudioUnitPropertyID id, AudioUnitScope scope, AudioUnitElement el) {
     AudioUnitPropertyListenerProc cb = id == kAudioOutputUnitProperty_CurrentDevice ? unit.device_listener : unit.format_listener;
     if (cb) cb(&unit, fake_au(), id, scope, el);
@@ -43,6 +45,13 @@ static AudioComponent mock_find(AudioComponent c, const AudioComponentDescriptio
     (void)c; assert(d->componentSubType == kAudioUnitSubType_DefaultOutput); return (AudioComponent)&unit;
 }
 static OSStatus mock_new(AudioComponent c, AudioComponentInstance *au) {
+    if (check_open_publication) {
+        // Lifecycle/watchdog readers must never find the output while its unit is being constructed.
+        aout *pending = (aout *)((char *)au - offsetof(aout, au));
+        pthread_mutex_lock(&g_aos_lock);
+        for (int i = 0; i < AOMAX; i++) assert(g_aos[i] != pending);
+        pthread_mutex_unlock(&g_aos_lock);
+    }
     (void)c; assert(!unit.device_listener && !unit.format_listener); *au = fake_au(); return noErr;
 }
 static OSStatus mock_get(AudioUnit au, AudioUnitPropertyID id, AudioUnitScope scope, AudioUnitElement el, void *data, UInt32 *size) {
@@ -114,7 +123,9 @@ int main(void) {
     setenv("DM_AUDIO", "1", 1); unsetenv("DM_DBG_AU_FRAMES");
     unit.device = 1; unit.rate = 48000; unit.range = (AudioValueRange){15, 4096}; unit.frames = 512;
     uint32_t out[16] = {0}; uint8_t prm[16]; h_au_InitParam(prm);
+    check_open_publication = 1;
     assert(h_au_OpenDef0(out, prm) == RES_OK);
+    check_open_publication = 0;
     assert(unit.frames == 240 && unit.writes == 1 && unit.input_formats == 1 && unit.device_listener && unit.format_listener);
 
     unit.device = 2; unit.rate = 44100; unit.frames = 512;

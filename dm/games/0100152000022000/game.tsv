@@ -1,4 +1,4 @@
-# Game profile of Mario Kart 8 Deluxe (Switch, update 4.0.0 = v1441792). Plays on the iPhone and the Mac (boot, the title screen's demo race, the Mii pick, the menus, Grand Prix races at 60 fps with sound)
+# Game profile of Mario Kart 8 Deluxe (Switch, updates 4.0.0 = v1441792 and 4.0.1 = v1507328). Plays on the iPhone and the Mac (boot, the title screen's demo race, the Mii pick, the menus, Grand Prix races at 60 fps with sound)
 # Format: see dm/games/README.md
 # Nintendo's sead / agl / gsys engine with NintendoWare (G3d, Ui2d, Vfx, Atk) and Pia networking, on SDK 4.4.0, the oldest SDK so far (DARK SOULS: REMASTERED is 4.5.0), NVN;
 # subsdk0 is the SDK's movie library (the menus' H.264 previews). RomFS is mostly Yaz0-compressed SARC (.szs), BFRES models and BNTX textures, which the game reads itself.
@@ -20,10 +20,11 @@ app_category	public.app-category.racing-games
 render_cond	on
 
 # ---- Versions ----
-# only the merged 4.0.0 copy is extracted; the base game's own build IDs are added when needed
+# both merged update copies are extracted; the base game's own build IDs are added when needed
 build	v1441792	4.0.0	main=2c336a9bcf79c3040ce506cdd391b578	subsdk0=d9de423efc1512328c3c05378c7cb031	sdk=ba520906609c503227871a314a94fb5f
-package	v1441792
-shader_versions	v1441792
+build	v1507328	4.0.1	main=158c0c7399aabd7bf83795c2ef3484c7	subsdk0=d9de423efc1512328c3c05378c7cb031	sdk=ba520906609c503227871a314a94fb5f
+package	v1507328
+shader_versions	v1441792 v1507328
 
 # ---- Files ----
 # every module main imports from

@@ -6,7 +6,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 
-module_t g_mod[MAX_MOD];
+module_t *g_mod;
 int g_nmod;
 module_t *module_of(const void *p) { (void)p; return NULL; }
 void crash_install(void);

@@ -40,7 +40,7 @@ static int test_sleep(const struct timespec *ts, struct timespec *left) {
 #undef nanosleep
 
 struct dm_flags g_flag;
-module_t g_mod[MAX_MOD];
+module_t *g_mod;
 int g_nmod;
 uint64_t g_t0_ns;
 __thread _Atomic int dm_host_work;

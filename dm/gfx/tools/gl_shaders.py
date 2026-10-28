@@ -38,13 +38,11 @@ def text_of(b):
     return b[:z] if z >= 0 else b
 
 def nso_strings(path):
-    """'#version <number>' strings of an NSO's read-only segment (lz4 segments, as dm/tools/nso.py decompresses them); a main that links glslang (Balatro's LÖVE) also has its messages that
-    start with '#version:'"""
-    import lz4.block, struct
-    d = open(path, 'rb').read()
-    flags = struct.unpack_from('<I', d, 0xc)[0]; fo, mo, sz = struct.unpack_from('<III', d, 0x20); csz = struct.unpack_from('<I', d, 0x64)[0]
-    img = d[fo:fo + csz]
-    if flags >> 1 & 1: img = lz4.block.decompress(img, uncompressed_size=sz)
+    """'#version <number>' strings of an NSO's read-only segment (dm/tools/nso.py); a main that links glslang (Balatro's LÖVE) also has its messages that start with '#version:'.
+    nso.Error (a ValueError) on a damaged file"""
+    import nso
+    with open(path, 'rb') as f: m = nso.load(f.read(), path)
+    (mo, sz) = m.segments[1]; img = bytes(m.image[mo:mo + sz])
     return [text_of(img[m.start():m.start() + 0x10000]) for m in re.finditer(rb'(?:^|(?<=\0))#version [0-9]', img)]
 
 def sources(roots):
@@ -204,4 +202,7 @@ def main():
             open(os.path.join(d, 'gl_shaders.tsv'), 'w').write('\n'.join(tsv) + '\n')
             print(f'{sdk}: {len(seen)} shaders ({sum(1 for v in seen.values() if v[0] == "vert")} vertex) → {lib}' + (f'; {len(failed)} failed' if failed else ''))
 
-if __name__ == '__main__': main()
+if __name__ == '__main__':
+    import nso
+    try: main()
+    except nso.Error as e: red(str(e))   # a damaged main

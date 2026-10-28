@@ -259,7 +259,7 @@ int main(void) {
         CHECK(h_fs_OpenFile(&io.h, "alias:/a", MODE_WRITE) == RES_OK, "open alias for overlapping I/O");
         CHECK(h_fs_SetFileSize(io.h, 3) == RES_OK, "truncate A before overlapping I/O");
         pthread_mutex_lock(&io_lock);
-        block_fd = (int)io.h; block_op = op; block_entered = block_release = 0;
+        block_fd = (int)FH_IN(io.h); block_op = op; block_entered = block_release = 0;
         pthread_mutex_unlock(&io_lock);
         pthread_t writer, committer;
         if (pthread_create(&writer, NULL, blocked_save_io, &io)) return 2;

@@ -53,6 +53,7 @@ Status: on the Mac, the boot, the title (a VP9 movie behind the logo), the main 
 
 - The work folder's `run/ctlrun.sh <run>` starts a run with `DM_CTL`, `run/see.sh <shot> <wait> <presses…>` presses and takes a screenshot, `run/mash.sh` presses A in rounds.
 - The title is up about 25 s into a boot: A (main menu), A (Story), A (the save file), A (Load). From a fresh save, A (Story) shows the auto-save notice; then the number of players and the creature activity level start the opening.
+- `smoke.tsv` (for `scripts/regress.py`) starts from a save in the Olimar prologue, kept as `saves/prologue` in the NSP folder: A every 3 s goes through the cutscenes and their dialogue, and Olimar stands on Moss in play from about 130 s.
 
 ## Found on this game
 

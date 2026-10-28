@@ -125,7 +125,11 @@ struct Diagnostics {
         let en = { (key: String) in L10n.string(key, .en) }
         var detail = d.detail
         if let colon = detail.firstIndex(of: ":"), !detail.hasPrefix("/"), L10n.table[String(detail[..<colon])] != nil {
-            detail = String(format: en(String(detail[..<colon])), String(detail[detail.index(after: colon)...]))
+            // The remainder carries one argument per ":"-separated part, as the UI's depDetail
+            // reads it: passing it whole left every format after the first %@ with "(null)"
+            // ("install one (brew install python@(null))" in a copied diagnostics block).
+            let args = detail[detail.index(after: colon)...].components(separatedBy: ":").map { $0 as CVarArg }
+            detail = String(format: en(String(detail[..<colon])), arguments: args)
         } else if L10n.table[detail] != nil {
             detail = en(detail)
         }

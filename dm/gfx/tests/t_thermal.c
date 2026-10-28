@@ -16,7 +16,7 @@ uint64_t now_ns(void) { return atomic_load(&test_now); }
 int dm_thermal_now(void) { atomic_fetch_add(&thermal_reads, 1); return atomic_load(&test_thermal); }
 void *front_metal_layer(void) { return NULL; }
 module_t *module_of(const void *p) { (void)p; return NULL; }
-module_t g_mod[MAX_MOD]; int g_nmod;
+module_t *g_mod; int g_nmod;
 void svc_thread_dump(void) {}
 
 static int checks, failed;

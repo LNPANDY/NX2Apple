@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/seedds/nxnative/blob/main/docs/launcher.schema.json",
+  "title": "launcher.json",
+  "description": "A built app's settings list (dm/launcher.json in an IPA's app, Contents/Resources/dm/launcher.json in a Mac app), written by dm/games/settings.py from dm/games/settings.tsv. docs/frontends.md describes the fields. Schema 1 grows only by optional fields: a reader ignores fields it does not know, and a field keeps its meaning.",
+  "type": "object",
+  "required": ["game", "settings"],
+  "properties": {
+    "schema": {"description": "The list's version; a list without it is schema 1 written before the field existed.", "type": "integer", "const": 1},
+    "game": {"description": "The base game's title ID.", "type": "string", "pattern": "^[0-9A-F]{16}$"},
+    "settings": {"type": "array", "items": {"$ref": "#/$defs/setting"}}
+  },
+  "$defs": {
+    "size": {"description": "[width, height] in pixels.", "type": "array", "items": {"type": "integer"}, "minItems": 2, "maxItems": 2},
+    "setting": {
+      "type": "object",
+      "required": ["env", "kind", "section", "label", "note", "default"],
+      "properties": {
+        "env": {"description": "The environment switch the setting sets.", "type": "string", "pattern": "^DM_[A-Z0-9_]+$"},
+        "kind": {"enum": ["choice", "range", "toggle"]},
+        "section": {"description": "The heading it goes under (Game, Controls and Performance today); sections and rows come in the order to show them. A reader draws a section it does not know like the others, under its name.", "type": "string"},
+        "label": {"type": "string"},
+        "note": {"description": "The line under the label; empty for most settings.", "type": "string"},
+        "default": {"description": "The tested default for this app's platform, with profile defaults resolved.", "type": "string"},
+        "options": {"description": "choice: [value, label] pairs.", "type": "array", "items": {"type": "array", "items": {"type": "string"}, "minItems": 2, "maxItems": 2}},
+        "min": {"description": "range: the lowest value.", "type": "number"},
+        "max": {"description": "range: the highest value.", "type": "number"},
+        "step": {"description": "range: the step between values.", "type": "number"},
+        "on": {"description": "toggle: the value the switch takes when on.", "type": "string"},
+        "off": {"description": "toggle: the value the switch takes when off.", "type": "string"},
+        "base": {"description": "Render scale only: the 3D views' size the scale multiplies, docked and handheld, from the game's profile; absent for most games.", "type": "object", "required": ["docked", "handheld"],
+                 "properties": {"docked": {"$ref": "#/$defs/size"}, "handheld": {"$ref": "#/$defs/size"}}},
+        "level": {"description": "basic: a setting a front end shows first. Without it, the front end decides.", "const": "basic"},
+        "needs": {"description": "<VAR>=<value>: a sub-setting, drawn only while the row that sets <VAR> has that value. A row naming a variable this list does not have stays drawn.", "type": "string", "pattern": "^DM_[A-Z0-9_]+=[^;=]+$"}
+      },
+      "allOf": [
+        {"if": {"properties": {"kind": {"const": "choice"}}}, "then": {"required": ["options"]}},
+        {"if": {"properties": {"kind": {"const": "range"}}}, "then": {"required": ["min", "max", "step"]}},
+        {"if": {"properties": {"kind": {"const": "toggle"}}}, "then": {"required": ["on", "off"]}}
+      ]
+    }
+  }
+}

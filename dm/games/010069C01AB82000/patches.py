@@ -16,3 +16,6 @@ OBS = {
         (0x1f2f644, 21, 'aa1303e0', 'GCreateMalloc: x19 is the allocator object; install the host vtable before use; orig mov x0, x19'),
     ],
 }
+
+# Whether a general rule could replace these patches (dm/tools/docs_patches.py lists it in docs/agents/game-patches.md)
+GENERALIZE = 'Yes, as one rule for the six Unreal games here (OCTOPATH TRAVELER 0 and II, FINAL FANTASY RESONANCE, SHIN MEGAMI TENSEI V: Vengeance, DRAGON QUEST VII Reimagined, Pikmin 4): find GCreateMalloc and the FMallocBinned3 constructor by function fingerprint per engine version, and the frame cvars by their registered names at run time, so a new build needs no row in hle_uemalloc.c or hle_fpslock.c'

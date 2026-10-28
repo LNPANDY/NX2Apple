@@ -42,7 +42,6 @@ enum L10n {
     /// key: (Chinese, English)
     static let table: [String: (zh: String, en: String)] = [
         "library.readyIOS": ("\u{53ef}\u{7528}\u{4e8e} iPhone", "Ready for iPhone"),
-        "library.showIOS": ("\u{663e}\u{793a} iPhone \u{6784}\u{5efa}", "Show iPhone build"),
         "library.stopping": ("\u{6b63}\u{5728}\u{505c}\u{6b62}…", "Stopping…"),
         "build.setup": ("\u{5b8c}\u{6210}\u{8bbe}\u{7f6e}", "Finish setup"),
         "library.chooseFolder": ("\u{6e38}\u{620f}\u{6587}\u{4ef6}\u{5939}\u{2026}", "Change folder…"),
@@ -427,8 +426,8 @@ enum L10n {
         "dep.probe.metal.hint": ("验证 metal.exe 能产出 metallib",
                                  "checks that metal.exe produces a metallib"),
         "dep.optionalMissing": ("可选，未安装", "optional, not installed"),
-        "dep.glslang": ("glslangValidator（可选）", "glslangValidator (optional)"),
-        "dep.glslang.hint": ("仅 OpenGL 游戏需要", "only needed for OpenGL games"),
+        "dep.glslang": ("brew: glslang", "brew: glslang"),
+        "dep.glslang.hint": ("编译 OpenGL 游戏的着色器；打包脚本的环境检查要求它", "compiles OpenGL games' shaders; the NSP script's environment check requires it"),
         "dep.installTimeout": ("安装超时（30 分钟）——网络太慢或卡住了",
                                   "Install timed out (30 minutes) — the network is slow or stuck"),
         "dep.installAll": ("一键安装全部缺失项", "Install all missing"),

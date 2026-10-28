@@ -1,4 +1,5 @@
 """The NSP heap probe must still understand real dispatcher diagnostics."""
+import os
 import subprocess
 import sys
 import unittest
@@ -11,7 +12,7 @@ from profile_guess import heap_signals
 
 class MemoryProfileTests(unittest.TestCase):
     def test_dispatcher_logs(self):
-        result = subprocess.run([str(HERE / 'build/t_svc_memory'), '--heap-probe'],
+        result = subprocess.run([str(HERE / os.environ.get('DM_TEST_BUILD', 'build') / 't_svc_memory'), '--heap-probe'],
                                 capture_output=True, text=True, check=True)
         signals = heap_signals(result.stderr, {
             'mem_reserve': '0x140000000', 'mem_stack': '0x10000000',

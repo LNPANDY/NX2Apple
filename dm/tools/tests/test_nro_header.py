@@ -1,59 +1,47 @@
-"""An NRO's header is not code (GitHub issue #14).
-
-An NRO's text segment starts at offset 0 with the file's own header in it: Hades' EOSSDK-Switch-Shipping.nro has text
-{0x0, 0xa41000} in its segment table and NRO0 at +0x10. Scanning it from 0 read the header's build ID as instructions and
-reported `44 ldr x18, #0xfffffffffff40370` on Final Fantasy X/X-2 HD Remaster. The segment table cannot give the bound
-(it says 0): the earlier TEXT_LO = segs[0][1] form kept scanning the header, and used TEXT_LO before defining it, which
-stopped every rewrite with a NameError.
-
-patch_nso.py's code_start() is 0x80 for an NRO and 0 for an NSO, and code_ranges() starts no code range before it; both
-scans (the x18 words and the rewrite sites) walk those ranges. This is seedds/nxnative#397, carried by patch_patch_nso in
-scripts/sync_upstream.py until it is upstream (its own test there is test_nro_code_start.py). The functions are taken
-from patch_nso.py itself, which runs as a script.
-"""
-import ast
+"""NRO metadata must survive the real rewriter even when a build ID decodes as x18 instructions."""
+import os
 from pathlib import Path
 import struct
+import subprocess
+import sys
+import tempfile
 import unittest
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))   # its sibling test module, also when the file runs alone (python -m unittest <file>, as CI does)
+from test_nso_match import image, RET   # noqa: E402
+
 TOOLS = Path(__file__).resolve().parents[1]
-SOURCE = (TOOLS / 'patch_nso.py').read_text(encoding='utf-8')
-scope = {}
-exec(compile(ast.Module(body=[n for n in ast.parse(SOURCE).body if isinstance(n, ast.FunctionDef) and n.name in ('code_start', 'code_ranges')],
-                        type_ignores=[]), str(TOOLS / 'patch_nso.py'), 'exec'), scope)
-code_start, code_ranges = scope['code_start'], scope['code_ranges']
-
-LDR_X18 = 0x58000000 | (0x7ff40370 >> 2 & 0x7ffff) << 5 | 18   # a literal load into x18: what the build ID's bytes read as
 
 
-def nro(text_size=0x1000):
-    """A synthetic NRO's first 0x80 bytes, laid out as Hades' EOS NRO is: text at offset 0 with the header inside it"""
-    h = bytearray(0x80)
-    h[0x10:0x14] = b'NRO0'
-    struct.pack_into('<II', h, 0x20, 0, text_size)   # text {offset, size}
-    struct.pack_into('<I', h, 0x44, LDR_X18)   # inside the build ID
-    return bytes(h)
+class NroHeader(unittest.TestCase):
+    def test_header_preserved_and_text_rewritten(self):
+        self.check_rewrite(0x80, 0x58ff0012)   # literal ldr x18, outside the module
+
+    def test_function_before_first_fde_cannot_reenter_header(self):
+        # The linear scans alone are not enough: func_of must also start after the header.
+        # Otherwise its br x18 looks like an unrecognized jump table during function analysis.
+        self.check_rewrite(0x100, 0xd61f0240)   # br x18
+
+    def check_rewrite(self, first_fde, header_word):
+        # A real function starts immediately after the NRO header. Both it and the build ID name x18.
+        raw = image({first_fde: [0xaa0003f2, RET]})
+        struct.pack_into('<II', raw, 0x80, 0xaa0003f2, RET)   # mov x18, x0; ret, with or without an FDE
+        raw[0x1100:0x111c] = raw[0x20:0x3c]
+        struct.pack_into('<I', raw, 4, 0x1100)
+        struct.pack_into('<ii', raw, 0x1110, 0x3000 - 0x1100, 0x3014 - 0x1100)
+        raw[0x10:0x14] = b'NRO0'
+        struct.pack_into('<I', raw, 0x18, len(raw))
+        struct.pack_into('<6I', raw, 0x20, 0, 0x1000, 0x1000, 0x2000, 0x3000, 0x1000)
+        struct.pack_into('<I', raw, 0x38, 0)
+        struct.pack_into('<I', raw, 0x44, header_word)
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / 'input.nro'; src.write_bytes(raw)
+            env = os.environ | {'DM_GAME': '010015100B514000'}
+            run = subprocess.run([sys.executable, str(TOOLS / 'patch_nso.py'), str(src), tmp, 'nro0'], env=env, capture_output=True, text=True)
+            self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+            patched = (Path(tmp) / 'nro0.patched.bin').read_bytes()
+            self.assertEqual(patched[:0x80], raw[:0x80])
+            self.assertNotEqual(patched[0x80:0x84], raw[0x80:0x84])
 
 
-class CodeStart(unittest.TestCase):
-    def test_an_nro_s_header_is_outside_every_code_range(self):
-        d = nro()
-        self.assertEqual(struct.unpack_from('<II', d, 0x20)[0], 0, 'the segment table says 0, so it cannot bound the scan')
-        self.assertEqual(code_start(d), 0x80)
-        ranges = code_ranges([(0x400, 0x500)], 0x1000, code_start(d))
-        self.assertEqual(ranges, [(0x80, 0x400), (0x500, 0x1000)])
-        self.assertFalse(any(s <= 0x44 < e for s, e in ranges))
-
-    def test_an_nso_keeps_its_ranges(self):
-        self.assertEqual(code_start(b'NSO0' + bytes(0x7c)), 0)
-        self.assertEqual(code_ranges([(0x400, 0x500)], 0x1000), [(0, 0x400), (0x500, 0x1000)])
-
-    def test_the_bounds_are_defined_before_the_scan_uses_them(self):
-        """The NameError: each name the scan reads is assigned above its first use"""
-        for name, use in (('CODE_START', 'starts = sorted('), ('CODE_RANGES', 'x18 = set().union(')):
-            self.assertLess(SOURCE.index(f'{name} = '), SOURCE.index(use), name)
-        self.assertNotIn('TEXT_LO', SOURCE)
-
-
-if __name__ == '__main__':
-    unittest.main()
+if __name__ == '__main__': unittest.main()

@@ -21,10 +21,11 @@
 #undef CAMetalDisplayLink
 static uint64_t test_now;
 int test_focus = 1;
+int test_fullscreen;
 uint64_t test_focus_since;
 void *front_metal_layer(void) { return NULL; }
 module_t *module_of(const void *p) { (void)p; return NULL; }
-module_t g_mod[MAX_MOD]; int g_nmod;
+module_t *g_mod; int g_nmod;
 void svc_thread_dump(void) {}
 uint64_t now_ns(void) { return test_now; }
 static int checks, failed;
@@ -88,6 +89,19 @@ static void lifecycle(void) {
     CHECK("rescue invalidates the link before releasing the layer", link.invalidated && !g_link && !g_link_owns_layer);
     g_link_started = 0;
 }
+static void latency(void) {   // frame latency 1 in a window, 2 in fullscreen, DM_PRESENT_LATENCY in both; a new link takes the current one as link_main does
+    reset(); test_fullscreen = 0; g_present_latency = 0;
+    SilentDisplayLink *link = [SilentDisplayLink new]; link.preferredFrameLatency = link_latency();
+    g_link = link; g_link_started = 1;
+    link_sync(); CHECK("a window keeps frame latency 1", link.preferredFrameLatency == 1);
+    test_fullscreen = 1; link_sync(); CHECK("entering fullscreen sets frame latency 2", link.preferredFrameLatency == 2);
+    test_fullscreen = 0; link_sync(); CHECK("leaving fullscreen sets frame latency 1 again", link.preferredFrameLatency == 1);
+    test_fullscreen = 1; link = [SilentDisplayLink new]; link.preferredFrameLatency = link_latency(); g_link = link;
+    link_sync(); CHECK("a link created in fullscreen keeps frame latency 2", link.preferredFrameLatency == 2);
+    g_present_latency = 3; link_sync(); CHECK("DM_PRESENT_LATENCY wins in fullscreen", link.preferredFrameLatency == 3);
+    test_fullscreen = 0; link_sync(); CHECK("DM_PRESENT_LATENCY wins in a window", link.preferredFrameLatency == 3);
+    g_present_latency = 0; test_fullscreen = 0; link_sync(); g_link = nil; g_link_started = 0;
+}
 static void metal_lifecycle(void) {
     id<MTLDevice> device = MTLCreateSystemDefaultDevice();
     CHECK("Metal device available", device != nil); if (!device) return;
@@ -106,7 +120,7 @@ static void metal_lifecycle(void) {
 int main(int argc, char **argv) { @autoreleasepool {
     alarm(10); setbuf(stdout, NULL);
     if (argc > 2 || (argc == 2 && strcmp(argv[1], "--metal"))) return 2;
-    thresholds(); backoff(); settings(); lifecycle();
+    thresholds(); backoff(); settings(); lifecycle(); latency();
     if (argc == 2) metal_lifecycle();
     printf("present rescue: %d checks, %d failed\n", checks, failed); return failed != 0;
 } }

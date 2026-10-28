@@ -1,0 +1,11 @@
+# Boot smoke route for scripts/regress.py (docs/development.md, The regression harness): key <TAB> value
+# The save at the "Look Around" hint on the Cap Kingdom's ship (the note's Mac routes): the presses at frames 1,000 and 1,300 take the title and the file, and Mario stands on the
+# deck from about 40 s with Cappy circling him and the hint's video in the corner. No stick input: scripted holds barely turn the camera there
+save	saves/look_around
+keys	f1000:A,f1300:A
+secs	110
+quick	75
+reach	2400@60
+window	60	40
+shots	70,95
+hang	20

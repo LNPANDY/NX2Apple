@@ -1,6 +1,43 @@
 // Run the actual serial-queue adapter with fake engines: no controller, actuator or app is opened.
-#import "../haptics_apple.m"
+#import <Foundation/Foundation.h>
 #include <assert.h>
+#include <time.h>
+
+static int test_clock_gettime(clockid_t clock, struct timespec *t);
+static dispatch_time_t test_dispatch_time(dispatch_time_t when, int64_t delta);
+static void test_dispatch_after(dispatch_time_t when, dispatch_queue_t target, dispatch_block_t block);
+// dispatch_after need not submit its block before a sleep followed by dispatch_sync ends.
+// Keep the real serial queue, but advance the adapter's clock and deliver its timers explicitly.
+#define clock_gettime test_clock_gettime
+#define dispatch_time test_dispatch_time
+#define dispatch_after test_dispatch_after
+#import "../haptics_apple.m"
+#undef clock_gettime
+#undef dispatch_time
+#undef dispatch_after
+
+@interface TestTimer : NSObject
+@property dispatch_time_t deadline;
+@property(copy) dispatch_block_t block;
+@end
+@implementation TestTimer
+@end
+static uint64_t testTime = 100 * NSEC_PER_SEC;
+static NSMutableArray<TestTimer *> *timers;   // owned by the adapter's serial queue, like its engines
+static int test_clock_gettime(clockid_t clock, struct timespec *t) {
+    assert(clock == CLOCK_MONOTONIC);
+    t->tv_sec = testTime / NSEC_PER_SEC; t->tv_nsec = testTime % NSEC_PER_SEC;
+    return 0;
+}
+static dispatch_time_t test_dispatch_time(dispatch_time_t when, int64_t delta) {
+    assert(when == DISPATCH_TIME_NOW && delta >= 0);
+    return testTime + delta;
+}
+static void test_dispatch_after(dispatch_time_t when, dispatch_queue_t target, dispatch_block_t block) {
+    assert(target == queue && dispatch_get_specific(&queue));
+    TestTimer *timer = [TestTimer new]; timer.deadline = when; timer.block = block;
+    [timers addObject:timer];
+}
 
 @interface TestPlayer : NSObject
 @property BOOL loopEnabled, isMuted;
@@ -97,6 +134,22 @@
 @implementation TestController
 @end
 static void drain(void) { dispatch_sync(queue, ^{}); dispatch_sync(queue, ^{}); }
+static void advance(NSTimeInterval seconds) {
+    uint64_t end = testTime + (uint64_t)llround(seconds * NSEC_PER_SEC);
+    for (;;) {
+        __block BOOL fired = NO;
+        dispatch_sync(queue, ^{
+            TestTimer *next = nil;
+            for (TestTimer *timer in timers)
+                if (timer.deadline <= end && (!next || timer.deadline < next.deadline)) next = timer;
+            if (!next) { testTime = end; return; }
+            testTime = next.deadline; [timers removeObject:next];
+            next.block(); fired = YES;
+        });
+        drain();   // a callback may enqueue an epoch change or another output snapshot
+        if (!fired) return;
+    }
+}
 static void expire_retries(void) {
     dispatch_sync(queue, ^{ for (DmRumbleChannel *c in channels[0]) c.retryAfter = 0; });
 }
@@ -108,6 +161,7 @@ static int made;   // engines the test factories made
 int main(void) { @autoreleasepool {
     queue = dispatch_queue_create("test.rumble", DISPATCH_QUEUE_SERIAL);
     dispatch_queue_set_specific(queue, &queue, &queue, NULL);
+    timers = [NSMutableArray new];
     dm_haptics_init(apply, 1); drain();
     TestEngine *left = [TestEngine new], *right = [TestEngine new];
     dispatch_sync(queue, ^{
@@ -122,7 +176,7 @@ int main(void) { @autoreleasepool {
     assert(left.testPlayer.levels.lastObject.floatValue == 0 && right.testPlayer.levels.lastObject.floatValue == 0);
     assert(left.testPlayer.levels.count == 2);   // short pulse ends immediately, without a minimum duration
     send_pair(0.4, 0.5);
-    usleep(1100000); drain();
+    advance(1.1);
     assert(left.testPlayer.levels.lastObject.floatValue == 0.4f && left.testPlayer.stops == 0);   // old idle timer cannot stop a new effect
     assert(left.starts == 1);   // reused player; no per-frame engine restart
     dm_haptic_state stale = {0, dm_haptics_epoch(0), {{1, 160, 0, 320}, {1, 160, 0, 320}}};
@@ -139,7 +193,9 @@ int main(void) { @autoreleasepool {
     assert(dm_haptics_actual(0, 0).amplitude_low == 0);   // failed output is cleared, so a fresh identical send may retry
     left.fail = NO; expire_retries(); send_pair(0.8, 0.8);
     assert(left.testPlayer.levels.lastObject.floatValue == 0.8f);
-    send_pair(0, 0); usleep(1100000); drain();
+    send_pair(0, 0); advance(0.99);
+    assert(left.testPlayer.stops == 0);   // idle release must not run early
+    advance(0.01);
     assert(left.testPlayer.stops == 1);   // idle hardware eventually released
     int engines = made; starts = left.starts; send_pair(0.7, 0.7);
     assert(made == engines && left.starts == starts + 1 && left.testPlayer.levels.lastObject.floatValue == 0.7f);   // the released engine is restarted, not made again
@@ -180,9 +236,9 @@ int main(void) { @autoreleasepool {
     assert(dm_haptics_actual(0, 0).amplitude_low == 0.6f);
     send_pair(0.2, 0); drain();
     assert(pe.plainPlayers == 1 && pe.testPlayer.levels.lastObject.floatValue == 0.2f);
-    usleep(1100000); drain();
+    advance(1.1);
     int pulses = pe.plainPlayers; assert(pulses >= 3);   // renewed while the effect lasts
-    send_pair(0, 0); usleep(1700000); drain();
+    send_pair(0, 0); advance(1.7);
     assert(pe.plainPlayers == pulses && pe.testPlayer.levels.lastObject.floatValue == 0);   // silent: no new pulse
     assert(pe.stops == 1 && pe.testPlayer.stops == 0);   // the engine stopped after the last pulse, which was not cut
     send_pair(0.5, 0); drain();

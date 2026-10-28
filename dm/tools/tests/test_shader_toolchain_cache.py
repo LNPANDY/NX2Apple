@@ -36,13 +36,13 @@ class ShaderCache(unittest.TestCase):
         root = Path(self.tmp.name)
         self.ns: dict[str, Any] = dict(hashlib=hashlib, os=os, json=json, re=re, threading=threading,
                        subprocess=subprocess, dmsh_chain=dmsh_chain, SPIRV_CROSS='converter',
-                       XC=['--msl'], MAC_RECORD='mac flags', IOSOUT=None,
+                       XC=['--msl'], MAC_RECORD='mac flags', IOSOUT=None, TARGETS={'mac'},
                        ios_metal=types.SimpleNamespace(RECORD='ios flags'), METAL_FP='tested Metal and SDK',
                        FACTS={}, MAP_ROWS={}, MAP_CONFLICT_ROWS={}, CODE_FP='source', PROFILE_ROWS=b'', PAIRS={},
                        BF_WANT=set(), BF_STATS=collections.Counter(), CAS=str(root / 'cas'), out=str(root / 'out'),
                        CHAIN='test-chain', clone=shutil.copyfile, shader_rule_source=lambda name: b'')
         (root / 'out').mkdir()
-        names = {'tool_fingerprint', 'shader_key', 'cache_path', 'cache_outputs', 'restore_cache',
+        names = {'tool_fingerprint', 'shader_key', 'cache_path', 'cache_outputs', 'restore_cache', 'publish_cache', 'atomic_json', 'cache_meta_path',
                  'bf_digest', 'bf_cache_root', 'bf_cache_restore'}
         tree = ast.parse((TOOLS / 'dmsh_build.py').read_text())
         nodes: list[ast.stmt] = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in names]
@@ -59,6 +59,7 @@ class ShaderCache(unittest.TestCase):
             with self.subTest(ios=ios):
                 ios_dir = Path(self.tmp.name) / 'ios'
                 self.ns['IOSOUT'] = str(ios_dir) if ios else None
+                self.ns['TARGETS'] = {'mac', 'ios'} if ios else {'mac'}
                 if ios: ios_dir.mkdir(exist_ok=True)
                 self.ns['METAL_FP'] = 'override Metal and SDK'
                 old = self.digest()
@@ -66,6 +67,8 @@ class ShaderCache(unittest.TestCase):
                     d = Path(self.ns['cache_path'](old)) / target; d.mkdir(parents=True, exist_ok=True)
                     (d / 'key_b.metallib').write_bytes(b'untested compiled library')
                     (d / 'key_b.json').write_text('{}')
+                    if target == 'mac': (d / 'key_b.metal').write_text('MSL')
+                self.assertTrue(self.ns['restore_cache']('key', old))
                 self.ns['METAL_FP'] = 'tested Metal and SDK'
                 self.assertFalse(self.ns['restore_cache']('key', self.digest()))
 
@@ -80,6 +83,90 @@ class ShaderCache(unittest.TestCase):
 
     def test_unchanged_compiler_reuses_key(self):
         self.assertEqual(self.digest(), self.digest())
+
+    def test_ios_cache_restores_analysis_files_and_geometry_without_mac_libraries(self):
+        self.ns.update(TARGETS={'ios'}, IOSOUT=str(Path(self.tmp.name) / 'ios'))
+        mac, ios = Path(self.ns['out']), Path(self.ns['IOSOUT']); ios.mkdir()
+        # Geometry's side outputs are restored; vertex and fragment side libraries are regenerated from the base MSL.
+        expected = {}
+        for suffix in ('_b', '_bg0', '_bg1', '_bg2', '_bg3', '_bg4', '_bgv', '_bl0', '_bl1', '_bl3'):
+            for d, extensions in ((mac, ('.metal', '.json')), (ios, ('.metallib', '.json'))):
+                for ext in extensions:
+                    p = d / ('key' + suffix + ext)
+                    p.write_text(json.dumps({'chain': 'test-chain', 'stage': 'gs'}, indent=1) if ext == '.json' else suffix + ext)
+                    expected[p] = p.read_bytes()
+        self.ns['publish_cache']('key', 'digest', 'rule', 'source')
+        for p in expected: p.unlink()
+        self.assertTrue(self.ns['restore_cache']('key', 'digest'))
+        self.assertEqual({p: p.read_bytes() for p in expected}, expected)
+        self.assertEqual(list(mac.glob('*.metallib')), [])
+        # A later dual-target run needs the missing Mac libraries, rather than accepting analysis files as a Mac hit.
+        self.ns['TARGETS'] = {'mac', 'ios'}
+        self.assertFalse(self.ns['restore_cache']('key', 'digest'))
+
+    def test_cache_without_analysis_source_is_a_miss(self):
+        self.ns.update(TARGETS={'ios'}, IOSOUT=str(Path(self.tmp.name) / 'ios'))
+        root = Path(self.ns['cache_path']('digest'))
+        for label in ('mac', 'ios'):
+            (root / label).mkdir(parents=True)
+            (root / label / 'key_b.json').write_text('{}')
+        (root / 'ios/key_b.metallib').write_bytes(b'library')
+        self.assertFalse(self.ns['restore_cache']('key', 'digest'))
+
+    def test_dual_target_cache_restores_only_requested_ios_libraries(self):
+        root = Path(self.ns['cache_path']('digest'))
+        for label in ('mac', 'ios'):
+            (root / label).mkdir(parents=True)
+            (root / label / 'key_b.json').write_text('{}')
+            (root / label / 'key_b.metallib').write_bytes(label.encode())
+        (root / 'mac/key_b.metal').write_text('MSL')
+        self.ns.update(TARGETS={'ios'}, IOSOUT=str(Path(self.tmp.name) / 'ios'))
+        Path(self.ns['IOSOUT']).mkdir()
+        self.assertTrue(self.ns['restore_cache']('key', 'digest'))
+        self.assertEqual((Path(self.ns['out']) / 'key_b.metal').read_text(), 'MSL')
+        self.assertFalse((Path(self.ns['out']) / 'key_b.metallib').exists())
+
+
+class TargetSelection(unittest.TestCase):
+    def test_mesh_compiles_only_requested_targets(self):
+        tree = ast.parse((TOOLS / 'dmsh_build.py').read_text())
+        function = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'mesh_finish')
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td); ios = root / 'ios'; ios.mkdir()
+            (root / 'vertex_b.metal').write_text('vertex source')
+            (root / 'geometry_bl3.metal').write_text('geometry source')
+            (root / 'geometry_bl3.json').write_text(json.dumps({'geometry': {'capture_reads': [36]}}))
+            for targets in ({'mac'}, {'ios'}, {'mac', 'ios'}):
+                with self.subTest(targets=targets):
+                    compile_target = mock.Mock()
+                    compose = mock.Mock(return_value='mesh source')
+                    ns: dict[str, Any] = dict(os=os, json=json, subprocess=subprocess, out=td, w=td, TARGETS=targets,
+                              IOSOUT=str(ios) if 'ios' in targets else None, MESH_STATS=collections.Counter(),
+                              MTL=types.SimpleNamespace(compile=compile_target), dmsh_mesh=types.SimpleNamespace(compose=compose))
+                    exec(compile(ast.Module(body=[function], type_ignores=[]), '<mesh targets>', 'exec'), ns)
+                    ns['mesh_finish'](('vertex', 'geometry'))
+                    compose.assert_called_once_with('vertex source', 'geometry source', [36])
+                    self.assertEqual([call.args[0] for call in compile_target.call_args_list], [t for t in ('mac', 'ios') if t in targets])
+                    self.assertEqual(ns['MESH_STATS']['built'], 1)
+
+    def selection(self, env):
+        tree = ast.parse((TOOLS / 'dmsh_build.py').read_text())
+        start = next(i for i, n in enumerate(tree.body) if isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == 'IOSOUT' for t in n.targets))
+        end = next(i for i, n in enumerate(tree.body) if i > start and isinstance(n, ast.If) and isinstance(n.test, ast.Name) and n.test.id == 'IOSOUT')
+        ns = dict(os=os, sys=sys)
+        with mock.patch.dict(os.environ, env, clear=True):
+            exec(compile(ast.Module(body=tree.body[start:end], type_ignores=[]), '<target selection>', 'exec'), ns)
+        return ns['TARGETS'], ns['IOSOUT']
+
+    def test_defaults_and_explicit_targets(self):
+        for env, targets, ios in (({}, {'mac'}, None), ({'IOSOUT': 'phone'}, {'mac', 'ios'}, 'phone'),
+                                  ({'DMSH_TARGETS': 'mac', 'IOSOUT': 'phone'}, {'mac'}, None),
+                                  ({'DMSH_TARGETS': 'ios', 'IOSOUT': 'phone'}, {'ios'}, 'phone')):
+            with self.subTest(env=env): self.assertEqual(self.selection(env), (targets, ios))
+
+    def test_invalid_targets(self):
+        for env in ({'DMSH_TARGETS': 'ios'}, {'DMSH_TARGETS': 'other'}, {'DMSH_TARGETS': ', '}):
+            with self.subTest(env=env), self.assertRaises(SystemExit): self.selection(env)
 
 
 class StageCache(unittest.TestCase):
@@ -142,6 +229,13 @@ class MetalPrefill(unittest.TestCase):
         (self.old / 'key2_b.metallib').write_bytes(b'TESTED MSL 2')
         self.cache.fill(str(self.old))
         self.assertEqual(self.cache.stats['mac', 'filled'], 3)
+
+    def test_unrequested_target_is_not_sample_compiled(self):
+        self.earlier_libraries(self.cache.ident['mac'].hex())
+        with mock.patch.object(self.cache, '_compile') as compile_sample:
+            self.cache.fill(str(self.old), targets={'ios'})
+        compile_sample.assert_not_called()
+        self.assertEqual(self.cache.stats['mac', 'filled'], 0)
 
     def test_legacy_cache_entries_cannot_restore_misclassified_libraries(self):
         src = b'MSL'; msl = self.root / 'shader.metal'; msl.write_bytes(src)

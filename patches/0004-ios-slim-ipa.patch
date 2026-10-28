@@ -1,0 +1,112 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: v0lumehi <aljic.zijad@googlemail.com>
+Date: Wed, 28 Oct 2026 13:33:53 +0100
+Subject: [PATCH] build_ipa.sh: slim package by default (DM_FULL_ROMFS=1 packs
+ the game data)
+
+Maps the RomFS and add-on content into the IPA only with DM_FULL_ROMFS; the app reads them from Documents/games/<id>/.
+
+The unsigned-IPA tests (test_ipa_unsigned.py, test_profile_pack.py) start from the slim default and check DM_FULL_ROMFS=1 for the packed form (LNPANDY/NX2Apple#137).
+
+Upstream-Status: fork-only (upstream has the opt-in DM_COPY_ROMFS=NO since 32ae3b11; the fork's slim default differs)
+Reason: Default slim IPA: the RomFS and aoc/ stay out unless DM_FULL_ROMFS=1 (a full package of a large game is many GB and iOS refuses it). Upstream took the opt-out DM_COPY_ROMFS=NO and kept the full package as its default
+Issue: LNPANDY/NX2Apple#123
+---
+ dm/ios/tests/test_ipa_unsigned.py | 13 +++++++++----
+ dm/ios/tests/test_profile_pack.py |  3 ++-
+ dm/ios/tools/build_ipa.sh         |  9 ++++++++-
+ docs/env_switches.tsv             |  1 +
+ 4 files changed, 20 insertions(+), 6 deletions(-)
+
+diff --git a/dm/ios/tests/test_ipa_unsigned.py b/dm/ios/tests/test_ipa_unsigned.py
+index 028d5067..42086883 100644
+--- a/dm/ios/tests/test_ipa_unsigned.py
++++ b/dm/ios/tests/test_ipa_unsigned.py
+@@ -54,8 +54,13 @@ class UnsignedIpaTests(unittest.TestCase):
+                 if identity is not None: identity.append((archive.read('Payload/DmIOS.app/romfs.id').decode() if 'Payload/DmIOS.app/romfs.id' in archive.namelist() else None, (root / 'RomFS.img').read_bytes() if image else None))
+                 return set(archive.namelist())
+ 
+-    def test_game_files_are_packed_by_default(self):
++    def test_game_files_are_not_packed_by_default(self):
++        # The fork ships a slim IPA by default: the app reads Documents/games/<id>/ (the fork patch ios-slim-ipa).
+         names = self.pack()
++        self.assertFalse([n for n in names if '/romfs' in n or '/aoc' in n])
++
++    def test_full_romfs_packs_the_game_files(self):
++        names = self.pack(DM_FULL_ROMFS='1')
+         self.assertIn('Payload/DmIOS.app/romfs/marker', names)
+         self.assertIn('Payload/DmIOS.app/aoc/0/file', names)
+ 
+@@ -64,7 +69,7 @@ class UnsignedIpaTests(unittest.TestCase):
+         self.assertFalse([n for n in names if '/romfs' in n])
+         self.assertIn('Payload/DmIOS.app/executable', names)
+         self.assertIn('Payload/DmIOS.app/msl/b-fixture/fixture_b.metallib', names)
+-        self.assertIn('Payload/DmIOS.app/aoc/0/file', names)   # add-on content has no place outside the app yet
++        self.assertFalse([n for n in names if '/aoc' in n], 'the fork copies add-on content beside the game data')
+ 
+     def test_slim_ipa_of_an_image_carries_its_identity_and_the_default_does_not(self):
+         got = []
+@@ -76,8 +81,8 @@ class UnsignedIpaTests(unittest.TestCase):
+         with tempfile.NamedTemporaryFile() as f:
+             f.write(data); f.flush(); self.assertTrue(romfs_image.same_identity(line, romfs_image.identity(f.name)))
+         got = []
+-        names = self.pack(image=True, identity=got)   # bundle: exactly as before
+-        self.assertIn('Payload/DmIOS.app/romfs.img', names); self.assertNotIn('Payload/DmIOS.app/romfs.id', names); self.assertIsNone(got[0][0])
++        names = self.pack(image=True, identity=got)   # the fork's default: the image stays out, its identity goes in
++        self.assertNotIn('Payload/DmIOS.app/romfs.img', names); self.assertIn('Payload/DmIOS.app/romfs.id', names); self.assertIsNotNone(got[0][0])
+ 
+     def test_slim_ipa_of_a_folder_has_no_identity(self):
+         self.assertNotIn('Payload/DmIOS.app/romfs.id', self.pack(DM_COPY_ROMFS='NO'))
+diff --git a/dm/ios/tests/test_profile_pack.py b/dm/ios/tests/test_profile_pack.py
+index 40db2b76..0407560d 100644
+--- a/dm/ios/tests/test_profile_pack.py
++++ b/dm/ios/tests/test_profile_pack.py
+@@ -53,7 +53,8 @@ class ProfilePackTests(unittest.TestCase):
+                     self.assertEqual(prefix + 'fixture_bp.metallib' in names, included)
+                     for name in ('fixture_b.metallib', 'fixture_bv.metallib', 'fixture_b.json'):
+                         self.assertIn(prefix + name, names)
+-                    self.assertEqual(archive.read('Payload/DmIOS.app/romfs/marker'), b'romfs')
++                    # the fork's slim package: the RomFS stays out of the IPA (DM_FULL_ROMFS=1 packs it)
++                    self.assertFalse(any(n.startswith('Payload/DmIOS.app/romfs') for n in names))
+                     self.assertEqual('Payload/DmIOS.app/pso/prebuilt.tsv' in names, with_pso)
+ 
+ 
+diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
+index e2c174d1..3d8f5c73 100755
+--- a/dm/ios/tools/build_ipa.sh
++++ b/dm/ios/tools/build_ipa.sh
+@@ -174,6 +174,9 @@ if [ -n "${DM_ENTITLEMENTS-default}" ]; then
+ fi
+ P=Payload/DmIOS.app
+ MAPS=()
++# The fork packs the slim IPA by default (upstream: DM_COPY_ROMFS=NO): DM_FULL_ROMFS=1 or DM_COPY_ROMFS=YES packs the
++# game files into the package, which for a large game is many GB and iOS refuses to install it (PackageExtractionFailed)
++[ -n "${DM_COPY_ROMFS:-}" ] || { [ -n "${DM_FULL_ROMFS:-}" ] && DM_COPY_ROMFS=YES || DM_COPY_ROMFS=NO; }
+ if [ "${DM_COPY_ROMFS:-YES}" = NO ]; then
+   t "no game files in the IPA (DM_COPY_ROMFS=NO): the app takes Documents/romfs.img (scripts/push_romfs.sh)"
+   # The image's identity (dm/host/romfs_identity.h) goes into the app as romfs.id: main.m then uses only a Documents/romfs.img with the same size and index hash, and says so when it is another version or missing.
+@@ -183,7 +186,11 @@ if [ "${DM_COPY_ROMFS:-YES}" = NO ]; then
+     MAPS=("$P/romfs.id=$O/romfs.id"); t "game files identity: $(cat "$O/romfs.id")"
+   fi
+ elif [ -f "$ROMFS" ]; then MAPS=("$P/romfs.img=$ROMFS"); else MAPS=("$P/romfs=$ROMFS"); fi
+-if [ -n "$AOC" ] && [ -d "$AOC" ]; then MAPS+=("$P/aoc=$AOC"); t "add-on content: $(ls "$AOC" | tr '\n' ' ')"; fi
++if [ "$DM_COPY_ROMFS" != NO ] && [ -n "$AOC" ] && [ -d "$AOC" ]; then
++  MAPS+=("$P/aoc=$AOC"); t "add-on content packed into the IPA: $(ls "$AOC" | tr '\n' ' ')"
++elif [ -n "$AOC" ] && [ -d "$AOC" ]; then
++  t "add-on content alongside the game data (DM_FULL_ROMFS=1 packs it): $(ls "$AOC" | tr '\n' ' ')"
++fi
+ if [ -n "${PSO:-}" ]; then MAPS+=("$P/pso=$PSO"); fi
+ MAPS+=("$P/msl/$MSLDIR=$MSL_IOS/$MSLDIR" "$P=$APP")
+ t "pack IPA (already-compressed game files stored, everything else deflated)"
+diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
+index b427084e..4b731480 100644
+--- a/docs/env_switches.tsv
++++ b/docs/env_switches.tsv
+@@ -36,6 +36,7 @@ DM_FS	diagnostic	When set, logs file opens, paths not found or not mounted, and
+ DM_FSLOG	diagnostic	`=<file>` writes one TSV line per ReadFile: seconds since boot, guest path, offset, length and guest buffer address
+ DM_FSLOG_HASH	diagnostic	With `DM_FSLOG`, adds a column with the FNV-1a 64 hash of the bytes read
+ DM_FULLSCREEN	player	`1` (any value but `0`) starts the Mac window in fullscreen; `0` or unset, a window. The Mac settings window's Display mode
++DM_FULL_ROMFS	diagnostic	`=1` in `build_ipa.sh` packs the game data into the IPA as it did before the slim package; the default leaves it in `Documents/games/<id>/` (`romfs.img`, `aoc/<index>.img`) and the DLC beside it. Only for small games — a full package of a large one is many GB and iOS refuses it (`PackageExtractionFailed`)
+ DM_GAME	switch	Selects the game profile (a title ID under `dm/games` or `DM_GAMES_DIR`) for the Python tools and the rewriter; there is no default
+ DM_GAMES_DIR	path	Profile folders outside the repository, separated by `:`, searched after `dm/games`; the NSP script points it at a provisional or derived profile
+ DM_GAMES_FIRST	switch	`=1` searches `DM_GAMES_DIR` before `dm/games`, so a provisional or derived profile wins over the game's own (the NSP script's `--provisional`)

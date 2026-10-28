@@ -48,6 +48,28 @@ static size_t build(int sdk, int ncmd) {
     return (size_t)(q - list);
 }
 
+static void test_headers(void) {
+    const int sdks[] = {4, 6, 16, 21};
+    for (size_t i = 0; i < sizeof sdks / sizeof *sdks; i++) {
+        _Alignas(8) uint8_t aligned[0x40], wire[0x41]; uint8_t *q = wire + 1;
+        int sdk = sdks[i], id = sdk == 21 ? 0x14 : 0x10;
+        g_hdr6 = sdk <= 6; g_hdr21 = sdk == 21;
+        put(aligned, sdk, id, sizeof aligned); memcpy(q, aligned, sizeof aligned);
+        assert(cmd_size(q) == sizeof aligned && cmd_id(q) == id && cmd_on(q));
+        assert(cmd_ok(q, q + sizeof aligned));
+        // Header and body truncation must fail before any field or next-command read.
+        for (size_t n = 0; n < sizeof aligned; n++) assert(!cmd_ok(q, q + n));
+        const int16_t invalid[] = {0, -1, 4, 0x41};
+        for (size_t n = 0; n < sizeof invalid / sizeof *invalid; n++) {
+            memcpy(q + (sdk == 21 ? 2 : sdk <= 6 ? 4 : 6), invalid + n, sizeof *invalid);
+            assert(!cmd_ok(q, q + sizeof aligned));
+        }
+    }
+    g_hdr6 = g_hdr21 = 0;
+    int16_t out[FRAME_MAX * 2];
+    for (size_t n = 0; n < 0x20; n++) assert(capture(list, n, out) == 0);
+}
+
 static void test(int sdk, int incomplete) {
     // render_once starts with ID 0x14 for SDK 20+ (the Span version of GenerateCommand), 0x13 otherwise.
     g_sink_id = sdk == 21 ? 0x14 : 0x13;
@@ -78,6 +100,7 @@ static void test(int sdk, int incomplete) {
 }
 
 int main(void) {
+    test_headers();
     const int sdks[] = {4, 6, 16, 21};
     for (size_t i = 0; i < sizeof sdks / sizeof *sdks; i++) for (int incomplete = 0; incomplete <= 1; incomplete++) {
         // Each renderer format starts in a fresh process, including capture's one-time layout and sink detection.
@@ -86,6 +109,6 @@ int main(void) {
         int status; assert(waitpid(pid, &status, 0) == pid);
         assert(WIFEXITED(status) && WEXITSTATUS(status) == 0);
     }
-    puts("audren layout: SDK 4/6/16/21 stereo PCM, valid-first and recovery after empty/incomplete startup lists passed");
+    puts("audren layout: unaligned and truncated headers, SDK 4/6/16/21 stereo PCM and empty/incomplete startup recovery passed");
     return 0;
 }

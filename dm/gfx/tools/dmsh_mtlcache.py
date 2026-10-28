@@ -75,7 +75,7 @@ class Cache:
             if not same: return f'a fresh compile of {stem}.metal differs from its library'
         return None
 
-    def fill(self, mac_dir, ios_dir=None):
+    def fill(self, mac_dir, ios_dir=None, targets=None):
         """Takes the libraries of an earlier build: mac_dir = its Mac b-<chain>/ folder, ios_dir = the iOS folder of the same chain (or None). Returns the lines to print"""
         stamp_file = os.path.join(self.root, 'filled.json')
         try: stamps = json.load(open(stamp_file))
@@ -83,6 +83,7 @@ class Cache:
         names = set(os.listdir(mac_dir)); stems = sorted(n[:-6] for n in names if n.endswith('_b.metal'))
         todo, notes = {}, []
         for target, d in (('mac', mac_dir), ('ios', ios_dir)):
+            if targets is not None and target not in targets: continue   # checking an earlier build compiles samples too
             if target not in self.targets or not d or not os.path.isdir(d): continue
             libs = names if d == mac_dir else set(os.listdir(d))
             have = [s for s in stems if s + '.metallib' in libs]; key = self.ident[target].hex() + ':' + os.path.realpath(d)

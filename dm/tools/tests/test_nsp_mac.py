@@ -1,5 +1,5 @@
 """NSP script Mac-only build (scripts/build_ipa_from_nsp.py --platform mac): the shader steps build only the Mac's libraries, each output keeps its own reuse key, a Mac-only build is
-reused after an iOS build (which builds the Mac's too) and an iOS build is not reused after a Mac-only one, neither key without the Mac libraries' stamp (inputs.tsv, which the one
+rebuilt after an iOS-only NVN build and an iOS build is not reused after a Mac-only one, neither key without the Mac outputs' stamp (inputs.tsv, which the one
 chain version's c1_full.tsv / cb_extent.tsv name); the run command's environment file is read as the iOS app reads it.
 No game files, keys or Xcode needed (temporary files only in a temporary folder)."""
 import importlib.util
@@ -36,8 +36,12 @@ class Base(unittest.TestCase):
             log.write_text('macosx: 3 shaders\n' + ('iphoneos: 3 shaders\n' if '--ios' in a else ''))
         elif tool == 'own_compilers.py':   # a full dmsh_build.py run: the libraries, their stamp, and the profile's tables naming it
             outs = [self.sh / 'cache'] + ([Path(env['IOSOUT'])] if 'IOSOUT' in env else [])
+            targets = (env or {}).get('DMSH_TARGETS', 'mac').split(',')
             for o in outs:
-                (o / f'b-{CHAIN}').mkdir(parents=True, exist_ok=True); (o / f'b-{CHAIN}' / 'k_b.metallib').write_bytes(b'lib')
+                d = o / f'b-{CHAIN}'; shutil.rmtree(d, ignore_errors=True); d.mkdir(parents=True)
+                target = 'mac' if o == self.sh / 'cache' else 'ios'
+                if target in targets: (d / 'k_b.metallib').write_bytes(b'lib')
+                if target == 'mac': (d / 'k_b.metal').write_text('MSL'); (d / 'k_b.json').write_text('{}')
                 (o / f'b-{CHAIN}' / 'inputs.tsv').write_text(f'# stamp\ngame\t0100535012974000\ninputs\t{INPUTS}\n')
             for n in ('c1_full.tsv', 'cb_extent.tsv'): (self.tmp / n).write_text(f'# chain b-{CHAIN} inputs {INPUTS} 2026-10-23T00:00:00+00:00\n')
             log.write_text('shaders 1: ok 1\n')
@@ -92,8 +96,20 @@ class Nvn(Base):
     def test_mac_after_ios(self):
         self.assertEqual(self.build(False), self.sh / 'ios')
         self.assertEqual(self.ran[0][1]['IOSOUT'], str(self.sh / 'ios'))
-        (self.sh / f'mac-b-{CHAIN}.key').unlink()   # an iOS build from before Mac-only builds
+        self.assertEqual(self.ran[0][1]['DMSH_TARGETS'], 'ios')
+        self.assertFalse((self.sh / f'mac-b-{CHAIN}.key').exists())
+        self.assertFalse(list((self.sh / 'cache').glob('b-*/*.metallib')))
+        self.assertEqual(self.build(True), self.sh / 'cache'); self.assertEqual(len(self.ran), 1)
+        self.assertEqual(self.ran[0][1]['DMSH_TARGETS'], 'mac')
         self.assertEqual(self.build(True), self.sh / 'cache'); self.assertEqual(self.ran, [])
+
+    def test_ios_repeat_reuses_its_target(self):
+        self.build(False)
+        self.assertEqual(self.build(False), self.sh / 'ios'); self.assertEqual(self.ran, [])
+
+    def test_return_to_mac_after_ios_rebuilds_removed_mac_libraries(self):
+        self.build(True); self.build(False)
+        self.assertEqual(self.build(True), self.sh / 'cache'); self.assertEqual(len(self.ran), 1)
 
     def test_ios_after_mac(self):
         self.build(True)

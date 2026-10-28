@@ -2,7 +2,7 @@
 #include "../nvn/nvn_mtl.m"
 void *front_metal_layer(void) { return NULL; }
 module_t *module_of(const void *p) { (void)p; return NULL; }
-module_t g_mod[MAX_MOD]; int g_nmod;
+module_t *g_mod; int g_nmod;
 void svc_thread_dump(void) {}
 uint64_t now_ns(void) { return bp_now(); }
 static int checks, failed;
@@ -96,6 +96,25 @@ static void cpu_read_proofs(void) {
     pend_reset();g_sbw_over=1;EXPECT("converted stream unknown GPU write",1,geo_conversion_hazard(vs));
     pend_reset();memset(g_gw,0,sizeof g_gw);state_reset();
 }
+static void index_cache_contract(void) {
+    if(!geo_ix_on())return;
+    uint32_t raw[]={10,11,12},map[]={0,1,2},ids[]={10,11,12};
+    geo_ix_key key={.address=(uint64_t)raw,.count=3,.type=2,.prim=4};
+    geo_ix_put(&key,raw,sizeof raw,10,12,3,map,3,ids,3);
+    geo_ix_ent *e=geo_ix_get(&key,raw,sizeof raw);EXPECT("unchanged indices reuse preparation",1,e!=NULL);
+    if(e){EXPECT("cached primitive order",0,memcmp(e->data+sizeof raw,map,sizeof map));EXPECT("cached unique capture IDs",0,memcmp(e->data+sizeof raw+sizeof map,ids,sizeof ids));}
+    geo_ix_key other=key;other.prim=5;EXPECT("topology is part of cache key",1,geo_ix_get(&other,raw,sizeof raw)==NULL);
+    other=key;other.restart=1;EXPECT("restart enable is part of cache key",1,geo_ix_get(&other,raw,sizeof raw)==NULL);
+    other=key;other.restart_index=11;EXPECT("restart marker is part of cache key",1,geo_ix_get(&other,raw,sizeof raw)==NULL);
+    other=key;other.type=1;EXPECT("index size is part of cache key",1,geo_ix_get(&other,raw,sizeof raw)==NULL);
+    other=key;other.count=2;EXPECT("index count is part of cache key",1,geo_ix_get(&other,raw,sizeof raw)==NULL);
+    raw[1]=99;EXPECT("CPU edit invalidates exact-byte reuse",1,geo_ix_get(&key,raw,sizeof raw)==NULL);
+    for(unsigned i=0;i<GEO_IX_ENTRIES+2;i++){other=key;other.address=i+1;geo_ix_put(&other,raw,sizeof raw,10,99,3,map,3,ids,3);}
+    EXPECT("entry budget is bounded",GEO_IX_ENTRIES,g_geo_ix.n);EXPECT("byte budget is bounded",1,g_geo_ix_bytes<=GEO_IX_BYTES);
+    other=key;other.address=1;EXPECT("oldest preparation is evicted",1,geo_ix_get(&other,raw,sizeof raw)==NULL);
+    other.address=GEO_IX_ENTRIES+2;EXPECT("newest preparation is retained",1,geo_ix_get(&other,raw,sizeof raw)!=NULL);
+    while(g_geo_ix_last)geo_ix_drop(g_geo_ix_last);EXPECT("eviction releases all accounted bytes",0,g_geo_ix_bytes);
+}
 static void pack_test(void) {
     id<MTLLibrary> l=library(@(k_nvn_geo_pack_msl)); NSError *e=nil;
     id<MTLComputePipelineState> p[3]; const char *fn[3]={"geo_pack_count","geo_pack_scan","geo_pack_write"};
@@ -108,7 +127,8 @@ static void pack_test(void) {
         nvn_geo_pack_job j={b.gpuAddress,b.gpuAddress+512,b.gpuAddress+1024,3,8,t==0?7:t==1?6:1,100,b.gpuAddress+3072};
         memcpy((char*)b.contents+2048,&j,sizeof j);
         mtl_sub_begin();
-        id<MTL4ComputeCommandEncoder> en=enc_c_begin(NULL);geo_pack_encode(en,p,b.gpuAddress+2048,3);enc_c_end(en);
+        for(int i=0;i<3;i++) { id<MTL4ComputeCommandEncoder> en=enc_c_begin(NULL); enc_c_pso(en,p[i]);enc_c_args(en,b.gpuAddress+2048,0);
+            enc_c_dispatch(en,MTLSizeMake(1,1,1),MTLSizeMake(i==1?128:64,1,1));enc_c_end(en); }
         finish();
         uint32_t *args=(uint32_t*)((char*)b.contents+1024);
         EXPECT("compacted index count",t==0?15:t==1?18:13,args[0]);
@@ -116,7 +136,66 @@ static void pack_test(void) {
         if(!t) EXPECT("strip order across empty invocations",0,memcmp((char*)b.contents+512,want,sizeof want));
         EXPECT("output bound sentinel",0xcccccccc,((uint32_t*)((char*)b.contents+512))[args[0]]);
     }
+    // Five scan blocks, including a partial final block, empty invocations,
+    // restarts inside a group and both full and truncated output capacities.
+    enum { GROUPS=257, STRIDE=8 };
+    id<MTLBuffer> large=[g_dev newBufferWithLength:98304 options:MTLResourceStorageModeShared];res_add(large);
+    for(int t=0;t<3;t++)for(int limited=0;limited<2;limited++) {
+        memset(large.contents,0xcc,large.length);
+        uint32_t *src=large.contents,reference[GROUPS*STRIDE*3];size_t n=0;
+        for(unsigned g=0;g<GROUPS;g++) {
+            for(unsigned i=0;i<STRIDE;i++)src[g*STRIDE+i]=i<g%8&&i!=3?g*STRIDE+i:UINT32_MAX;
+            size_t k=nvn_geo_assemble(t==0?5:t==1?3:0,src+g*STRIDE,STRIDE,1,UINT32_MAX,reference+n,GROUPS*STRIDE*3-n);
+            if(k==SIZE_MAX)abort();n+=k;
+        }
+        unsigned capacity=limited?37:(unsigned)n+10,width=t==0?3:t==1?2:1;
+        unsigned expected=n<=capacity?(unsigned)n:capacity-capacity%width;
+        nvn_geo_pack_job j={large.gpuAddress,large.gpuAddress+16384,large.gpuAddress+65536,GROUPS,STRIDE,t==0?7:t==1?6:1,capacity,large.gpuAddress+73728};
+        memcpy((char*)large.contents+81920,&j,sizeof j);mtl_sub_begin();
+        for(int i=0;i<3;i++) {id<MTL4ComputeCommandEncoder> en=enc_c_begin(NULL);enc_c_pso(en,p[i]);enc_c_args(en,large.gpuAddress+81920,0);
+            enc_c_dispatch(en,MTLSizeMake(i==1?1:(GROUPS+63)/64,1,1),MTLSizeMake(i==1?128:64,1,1));enc_c_end(en);}
+        finish();uint32_t *args=(uint32_t*)((char*)large.contents+65536),*dst=(uint32_t*)((char*)large.contents+16384);
+        EXPECT("blocked scan count and capacity",expected,args[0]);
+        EXPECT("blocked scan preserves hardware index order",0,memcmp(dst,reference,expected*4));
+        EXPECT("blocked scan does not overrun output",0xcccccccc,dst[expected]);
+        EXPECT("partial block counts stay within scratch",0xcccccccc,((uint32_t*)((char*)large.contents+73728))[GROUPS+(GROUPS+63)/64]);
+    }
 }
+static void fast_pack_test(void) {
+    id<MTLLibrary> lib=library(@(k_nvn_geo_pack_msl));NSError *error=nil;
+    id<MTLComputePipelineState> small=[g_dev newComputePipelineStateWithFunction:[lib newFunctionWithName:@"geo_pack_small"] error:&error];
+    id<MTLComputePipelineState> scan=[g_dev newComputePipelineStateWithFunction:[lib newFunctionWithName:@"geo_pack_scan"] error:&error];
+    EXPECT("fused compaction pipeline",1,small!=nil);EXPECT("parallel scan pipeline",1,scan!=nil);if(!small||!scan)abort();
+    id<MTLBuffer> b=[g_dev newBufferWithLength:131072 options:MTLResourceStorageModeShared];res_add(b);
+    const unsigned sizes[]={0,1,31,32,63,64,65,127,128,129,257,1023,1024};
+    for(unsigned test=0;test<sizeof sizes/sizeof *sizes;test++)for(int kind=0;kind<3;kind++)for(int limited=0;limited<2;limited++) {
+        unsigned groups=sizes[test],width=kind==0?1:kind==1?2:3,topology=kind==0?1:kind==1?6:7;
+        memset(b.contents,0xcc,b.length);uint32_t *src=b.contents,reference[24576];size_t n=0;
+        for(unsigned g=0;g<groups;g++) {
+            for(unsigned k=0;k<8;k++)src[g*8+k]=k<g%9&&k!=3?g*8+k:UINT32_MAX;
+            n+=nvn_geo_assemble(kind==0?0:kind==1?3:5,src+g*8,8,1,UINT32_MAX,reference+n,24576-n);
+        }
+        unsigned capacity=limited?37:(unsigned)n+11,expected=MIN((unsigned)n,capacity-capacity%width);
+        nvn_geo_pack_job job={b.gpuAddress,b.gpuAddress+32768,b.gpuAddress+98304,groups,8,topology,capacity,b.gpuAddress+100352};
+        memcpy((char*)b.contents+102400,&job,sizeof job);mtl_sub_begin();id<MTL4ComputeCommandEncoder> ce=enc_c_begin(NULL);enc_c_pso(ce,small);enc_c_args(ce,b.gpuAddress+102400,0);enc_c_dispatch(ce,MTLSizeMake(1,1,1),MTLSizeMake(128,1,1));enc_c_end(ce);finish();
+        uint32_t *dst=(uint32_t*)((char*)b.contents+32768),*args=(uint32_t*)((char*)b.contents+98304);
+        EXPECT("fused count includes complete primitives only",expected,args[0]);EXPECT("fused order matches CPU assembly",0,memcmp(dst,reference,expected*4));
+        EXPECT("fused output bound sentinel",0xcccccccc,dst[expected]);EXPECT("fused indirect instance count",1,args[1]);
+        EXPECT("fused indirect offsets stay zero",0,args[2]|args[3]|args[4]);EXPECT("fused compaction does not use global scratch",0xcccccccc,*(uint32_t*)((char*)b.contents+100352));
+    }
+    // More block totals than GPU lanes, with uneven chunks and clipping.
+    enum { BLOCKS=16387,GROUPS=BLOCKS*64-19 };
+    id<MTLBuffer> big=[g_dev newBufferWithLength:(GROUPS+BLOCKS+128)*4u options:MTLResourceStorageModeShared];res_add(big);
+    for(int kind=0;kind<3;kind++)for(int limited=0;limited<2;limited++) {
+        memset(big.contents,0xcc,big.length);uint32_t *tot=(uint32_t*)big.contents+GROUPS;uint32_t reference[BLOCKS],sum=0;
+        for(unsigned k=0;k<BLOCKS;k++){reference[k]=sum;tot[k]=(k%17)*(kind+1);sum+=tot[k];}
+        nvn_geo_pack_job job={0,0,b.gpuAddress+98304,GROUPS,8,kind==0?1:kind==1?6:7,limited?37:sum+7,big.gpuAddress};memcpy((char*)b.contents+102400,&job,sizeof job);
+        mtl_sub_begin();id<MTL4ComputeCommandEncoder> ce=enc_c_begin(NULL);enc_c_pso(ce,scan);enc_c_args(ce,b.gpuAddress+102400,0);enc_c_dispatch(ce,MTLSizeMake(1,1,1),MTLSizeMake(128,1,1));enc_c_end(ce);finish();
+        EXPECT("parallel chunk prefix matches literal CPU scan",0,memcmp(tot,reference,sizeof reference));
+        EXPECT("parallel scan bound sentinel",0xcccccccc,tot[BLOCKS]);unsigned w=kind+1;EXPECT("parallel scan indirect count",limited?37-37%w:sum,*(uint32_t*)((char*)b.contents+98304));
+    }
+}
+
 static void pack_dependency_test(uint32_t groups) {
     // A GPU producer and all three production compaction dispatches share one
     // encoder. Compare every output and offset with an independent CPU list.
@@ -128,7 +207,7 @@ static void pack_dependency_test(uint32_t groups) {
     for(int i=0;i<3;i++){pack[i]=[g_dev newComputePipelineStateWithFunction:[lib newFunctionWithName:@(names[i])] error:&error];if(!pack[i])abort();}
     id<MTLComputePipelineState> producer=[g_dev newComputePipelineStateWithFunction:[lib newFunctionWithName:@"produce"] error:&error];if(!producer)abort();
     size_t raw_bytes=(size_t)groups*32,packed_off=(raw_bytes+259)&~255ull,packed_bytes=(size_t)groups*24;
-    size_t count_off=(packed_off+packed_bytes+259)&~255ull,args_off=(count_off+(size_t)groups*4+259)&~255ull,job_off=args_off+256,emit_off=job_off+256;
+    size_t count_off=(packed_off+packed_bytes+259)&~255ull,args_off=(count_off+((size_t)groups+(groups+63)/64)*4+259)&~255ull,job_off=args_off+256,emit_off=job_off+256;
     id<MTLBuffer> b=[g_dev newBufferWithLength:emit_off+256 options:MTLResourceStorageModeShared];res_add(b);
     const uint32_t topology[]={1,6,7},width[]={1,2,3},per[]={4,6,6},order[3][6]={{0,1,2,3},{0,1,1,2,2,3},{0,1,2,2,1,3}};
     uint32_t *want=malloc(packed_bytes?packed_bytes:4),*offsets=malloc(groups?(size_t)groups*4:4);if(!want||!offsets)abort();
@@ -146,10 +225,11 @@ static void pack_dependency_test(uint32_t groups) {
             uint32_t *raw=b.contents,*packed=(uint32_t*)((char*)b.contents+packed_off),*counts=(uint32_t*)((char*)b.contents+count_off),*args=(uint32_t*)((char*)b.contents+args_off);
             EXPECT("parallel compaction count",written,args[0]);EXPECT("parallel compaction instance count",1,args[1]);
             EXPECT("parallel compaction complete ordered output",0,memcmp(packed,want,(size_t)written*4));
-            EXPECT("parallel prefix offsets for every group",0,memcmp(counts,offsets,(size_t)groups*4));
+            int mismatch=0;for(uint32_t g=0;g<groups;g++)mismatch+=counts[g]+counts[groups+g/64]!=offsets[g];
+            EXPECT("parallel prefix offsets for every group",0,mismatch);
             EXPECT("GPU producer allocation canary",0xcccccccc,raw[(size_t)groups*8]);
             EXPECT("parallel compaction output canary",0xcccccccc,packed[written]);
-            EXPECT("parallel prefix allocation canary",0xcccccccc,counts[groups]);
+            EXPECT("parallel prefix allocation canary",0xcccccccc,counts[groups+(groups+63)/64]);
             EXPECT("parallel indirect args canary",0xcccccccc,args[5]);
         }
     }
@@ -158,33 +238,33 @@ static void pack_dependency_test(uint32_t groups) {
 static void scan_edges(void) {
     id<MTLLibrary> lib=library(@(k_nvn_geo_pack_msl));NSError *error=nil;
     id<MTLComputePipelineState> scan=[g_dev newComputePipelineStateWithFunction:[lib newFunctionWithName:@"geo_pack_scan"] error:&error];if(!scan)abort();
-    id<MTLBuffer> b=[g_dev newBufferWithLength:32768 options:MTLResourceStorageModeShared];res_add(b);
+    id<MTLBuffer> b=[g_dev newBufferWithLength:1048576 options:MTLResourceStorageModeShared];res_add(b);
     const uint32_t sizes[]={0,1,2,31,32,33,63,64,65,255,256,257,1023},threads[]={1,32,192,256};uint32_t want[1023];
     for(int sz=0;sz<13;sz++)for(int nt=0;nt<4;nt++) {
-        uint32_t groups=sizes[sz],sum=0;memset(b.contents,0xcc,b.length);uint32_t *counts=b.contents;
-        for(uint32_t g=0;g<groups;g++){want[g]=sum;counts[g]=g%5?g%4:0;sum+=counts[g];}
-        nvn_geo_pack_job job={0,0,b.gpuAddress+16384,groups,0,7,37,b.gpuAddress};memcpy((char*)b.contents+16640,&job,sizeof job);
-        mtl_sub_begin();id<MTL4ComputeCommandEncoder> ce=enc_c_begin(NULL);enc_c_pso(ce,scan);enc_c_args(ce,b.gpuAddress+16640,0);
+        uint32_t blocks=sizes[sz],groups=blocks*64,sum=0;memset(b.contents,0xcc,b.length);uint32_t *counts=b.contents;
+        for(uint32_t g=0;g<blocks;g++){want[g]=sum;counts[groups+g]=g%5?g%4:0;sum+=counts[groups+g];}
+        nvn_geo_pack_job job={0,0,b.gpuAddress+524288,groups,0,7,37,b.gpuAddress};memcpy((char*)b.contents+524544,&job,sizeof job);
+        mtl_sub_begin();id<MTL4ComputeCommandEncoder> ce=enc_c_begin(NULL);enc_c_pso(ce,scan);enc_c_args(ce,b.gpuAddress+524544,0);
         enc_c_dispatch(ce,MTLSizeMake(1,1,1),MTLSizeMake(threads[nt],1,1));enc_c_end(ce);finish();
-        uint32_t *args=(uint32_t*)((char*)b.contents+16384);
-        EXPECT("scan edge complete offsets",0,memcmp(counts,want,(size_t)groups*4));
-        EXPECT("scan edge capacity count",sum<=37?sum:36,args[0]);EXPECT("scan edge counts canary",0xcccccccc,counts[groups]);
+        uint32_t *args=(uint32_t*)((char*)b.contents+524288);
+        EXPECT("scan edge complete offsets",0,memcmp(counts+groups,want,(size_t)blocks*4));
+        EXPECT("scan edge capacity count",sum<=37?sum:36,args[0]);EXPECT("scan edge counts canary",0xcccccccc,counts[groups+blocks]);
         EXPECT("scan edge args canary",0xcccccccc,args[5]);
     }
     // Large invalid totals must not wrap back into the writable output range.
-    memset(b.contents,0xcc,b.length);uint32_t *counts=b.contents;counts[0]=UINT32_MAX-5;counts[1]=10;counts[2]=100;
-    nvn_geo_pack_job job={0,0,b.gpuAddress+16384,3,0,7,64,b.gpuAddress};memcpy((char*)b.contents+16640,&job,sizeof job);
-    mtl_sub_begin();id<MTL4ComputeCommandEncoder> ce=enc_c_begin(NULL);enc_c_pso(ce,scan);enc_c_args(ce,b.gpuAddress+16640,0);
+    memset(b.contents,0xcc,b.length);uint32_t *counts=b.contents;counts[192]=UINT32_MAX-5;counts[193]=10;counts[194]=100;
+    nvn_geo_pack_job job={0,0,b.gpuAddress+524288,192,0,7,64,b.gpuAddress};memcpy((char*)b.contents+524544,&job,sizeof job);
+    mtl_sub_begin();id<MTL4ComputeCommandEncoder> ce=enc_c_begin(NULL);enc_c_pso(ce,scan);enc_c_args(ce,b.gpuAddress+524544,0);
     enc_c_dispatch(ce,MTLSizeMake(1,1,1),MTLSizeMake(256,1,1));enc_c_end(ce);finish();
-    uint32_t *args=(uint32_t*)((char*)b.contents+16384);
-    EXPECT("overflow prefix first",0,counts[0]);EXPECT("overflow prefix second",UINT32_MAX-5,counts[1]);EXPECT("overflow prefix saturates",UINT32_MAX,counts[2]);
-    EXPECT("overflow total stays capacity bounded",63,args[0]);EXPECT("overflow scan counts canary",0xcccccccc,counts[3]);
+    uint32_t *args=(uint32_t*)((char*)b.contents+524288);
+    EXPECT("overflow prefix first",0,counts[192]);EXPECT("overflow prefix second",UINT32_MAX-5,counts[193]);EXPECT("overflow prefix saturates",UINT32_MAX,counts[194]);
+    EXPECT("overflow total stays capacity bounded",63,args[0]);EXPECT("overflow scan counts canary",0xcccccccc,counts[195]);
     // Exercise the production write bound with an offset whose addition used
     // to wrap. All output bytes must remain untouched.
     id<MTLComputePipelineState> write=[g_dev newComputePipelineStateWithFunction:[lib newFunctionWithName:@"geo_pack_write"] error:&error];if(!write)abort();
-    uint32_t *raw=(uint32_t*)((char*)b.contents+4096);raw[0]=0;raw[1]=1;raw[2]=2;counts[0]=UINT32_MAX-1;
-    job=(nvn_geo_pack_job){b.gpuAddress+4096,b.gpuAddress+8192,b.gpuAddress+16384,1,3,7,8,b.gpuAddress};memcpy((char*)b.contents+16640,&job,sizeof job);
-    mtl_sub_begin();ce=enc_c_begin(NULL);enc_c_pso(ce,write);enc_c_args(ce,b.gpuAddress+16640,0);
+    uint32_t *raw=(uint32_t*)((char*)b.contents+4096);raw[0]=0;raw[1]=1;raw[2]=2;counts[0]=UINT32_MAX-1;counts[1]=0;
+    job=(nvn_geo_pack_job){b.gpuAddress+4096,b.gpuAddress+8192,b.gpuAddress+524288,1,3,7,8,b.gpuAddress};memcpy((char*)b.contents+524544,&job,sizeof job);
+    mtl_sub_begin();ce=enc_c_begin(NULL);enc_c_pso(ce,write);enc_c_args(ce,b.gpuAddress+524544,0);
     enc_c_dispatch(ce,MTLSizeMake(1,1,1),MTLSizeMake(64,1,1));enc_c_end(ce);finish();
     uint32_t *output=(uint32_t*)((char*)b.contents+8192);for(int i=0;i<9;i++)EXPECT("overflow offset never writes output",0xcccccccc,output[i]);
 }
@@ -222,6 +302,9 @@ static void passthrough_bounds(NSArray *layouts) {
 }
 static NvShader *shader(id<MTLLibrary> l, NSString *name, int stage, const int *helpers, int n) {
     NvShader *s=[NvShader new];s->stage=stage;s->fn=[l newFunctionWithName:name];s->rf.nb=n;
+    // Synthetic functions must have distinct content identities too: pipeline caches
+    // key on shader content, not the transient MTLLibrary object address.
+    static uint64_t identity=0x7000000000000000ull;snprintf(s->key,sizeof s->key,"%016llx_b",(unsigned long long)++identity);
     if(n) {s->ae=[s->fn newArgumentEncoderWithBufferIndex:0];s->arg_len=s->ae.encodedLength;}
     for(int i=0;i<n;i++)s->rf.b[i]=(nvn_rbind){.kind=NVN_RB_GEOMETRY,.reg=helpers[i],.aid=i};
     return s;
@@ -399,7 +482,7 @@ static void replay(int mode) {
             for(NvArena *a in g_sub_arenas)if(g_vconv[i].gpu>=a->gpu&&g_vconv[i].gpu+4<=a->gpu+a->buf.length)memcpy(&first,(char*)a->buf.contents+g_vconv[i].gpu-a->gpu,4);
         EXPECT("CPU conversion sees the queued GPU write",1,first==17);
     }
-    id<MTLBuffer> b=[g_dev newBufferWithLength:4096 options:MTLResourceStorageModeShared];
+    id<MTLBuffer> b=[g_dev newBufferWithLength:4096 options:MTLResourceStorageModeShared];res_add(b);
     uint32_t *args=NULL;id<MTLBuffer> argsBuffer;
     for(NvArena *a in g_sub_arenas)if(g_geo_args>=a->gpu&&g_geo_args+20<=a->gpu+a->buf.length){argsBuffer=a->buf;args=(uint32_t*)((char*)argsBuffer.contents+g_geo_args-a->gpu);}
     [blit() copyFromTexture:tex_mtl(&target) sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(0,0,0) sourceSize:MTLSizeMake(32,32,1) toBuffer:b destinationOffset:0 destinationBytesPerRow:128 destinationBytesPerImage:4096];finish();
@@ -407,6 +490,125 @@ static void replay(int mode) {
     int red=0;uint8_t *px=b.contents;for(int i=0;i<1024;i++)if(px[i*4]>200)red++;
     EXPECT("expanded quads rasterized",kind==6?288:216,red);
     EXPECT("each instance has independent capture and output",1,px[(24*32+4)*4]>200);
+    res_remove(b);
+    mtl_tex_release(&target);
+    mtl_pool_del(commands);mtl_drain();free(commands);
+}
+// Optional real-game fixtures stay outside the repository. The supplied directory
+// is a dmsh_build result for the current chain, containing these three GS keys.
+static void replay_local(int mode) {
+    id<MTLLibrary> l=library(@"#include <metal_stdlib>\nusing namespace metal;\n"
+        "struct C {device float *dst;uint4 info;};\n"
+        "vertex void capture(uint v[[vertex_id]],uint i[[instance_id]],constant C&c[[buffer(13)]]) {uint n=v-c.info.x,inst=i-c.info.z;device float*p=c.dst+(inst*c.info.y+n)*144; p[0]=float(n);p[1]=float(inst);p[2]=0;p[3]=1;}\n"
+        "vertex float4 unused(uint v[[vertex_id]]) {return float4(0,0,0,1);}\n"
+        "struct G{device const float*in[[id(0)]];device float4*out[[id(1)]];device uint*ix[[id(2)]];constant uint4*info[[id(3)]];device const uint*map[[id(4)]];device uint*ssbo[[id(5)]];};\n"
+        "kernel void geometry(constant G&g[[buffer(0)]],uint3 t[[thread_position_in_grid]]) {if(t.x>=g.info[1].x||t.y>=g.info[0].y)return;if(!t.x&&!t.y&&!t.z)g.ssbo[0]=uint(g.in[0]*4+1);uint k=(t.y*g.info[1].x+t.x)*2+t.z;uint v=g.map[t.x];float2 q=float2(g.in[(t.y*g.info[0].x+v)*144],g.in[(t.y*g.info[0].x+v)*144+1]);float2 a=q*0.5-0.9;float2 d[4]={float2(0),float2(.4,0),float2(0,.4),float2(.4)};for(uint n=0;n<4;n++){g.out[k*4+n]=float4(a+d[n],0,1);g.ix[k*5+n]=k*4+n;}g.ix[k*5+4]=0xffffffffu;}\n"
+        "struct V{device const float4*p[[id(0)]];};vertex float4 reader(uint v[[vertex_id]],constant V&a[[buffer(0)]]){return a.p[v];}\n"
+        "vertex float4 cover(uint v[[vertex_id]]){float2 p[3]={float2(-1,-1),float2(3,-1),float2(-1,3)};return float4(p[v],.5,1);}\n"
+        "fragment float4 red(){return float4(1,0,0,1);}\n");
+    int helpers[]={0,1,2,3,4}, rh[]={1};
+    NvProg *pr=[NvProg new];pr->sh[0]=shader(l,@"unused",0,NULL,0);pr->sh[0]->geo_fn=[l newFunctionWithName:@"capture"];
+    pr->sh[1]=shader(l,@"red",1,NULL,0);pr->sh[2]=shader(l,@"geometry",2,helpers,5);
+    NvShader *gs=pr->sh[2];gs->rf.b[gs->rf.nb++]=(nvn_rbind){.kind=NVN_RB_SBUFP,.reg=0,.aid=5,.rw=1};gs->ae=[gs->fn newArgumentEncoderWithBufferIndex:0];gs->arg_len=gs->ae.encodedLength;
+    strcpy(gs->key,"123456789abcdef0_b");gs->geo_vertices=4;gs->geo_invocations=2;gs->geo_output=7;gs->geo_stride=4;gs->geo_index_stride=5;
+    g_shcache=[NSMutableDictionary dictionary];g_shcache[@"123456789abcdef0_bg0"]=gs;g_shcache[@"123456789abcdef0_bgv"]=shader(l,@"reader",0,rh,1);
+    static NSMutableArray *keep;if(!keep)keep=[NSMutableArray array];[keep addObject:pr];[keep addObject:g_shcache[@"123456789abcdef0_bgv"]];
+    static prog_t cp[18];cp[mode].serial=18700+mode;serial_put(cp[mode].serial,pr);
+    tex_t target={.magic=MAGIC('T','E','X',0),.serial=18800+mode};target.d.width=target.d.height=32;target.d.depth=target.d.samples=target.d.levels=1;target.d.target=NVN_TEXTURE_TARGET_2D;target.d.format=NVN_FORMAT_RGBA8;
+    tex_t depth=target;depth.serial=18900+mode;depth.d.format=NVN_FORMAT_DEPTH32F;
+    if(mode==14)depth.d.width=64;
+    uint8_t *commands; if(posix_memalign((void**)&commands,getpagesize(),65536))abort();memset(commands,0,65536);mtl_pool_add(commands,65536);
+    size_t used=0;
+    #define EMIT(OP,X) do {size_t z=(8+sizeof(X)+7)&~7ull;op_hdr h={OP,(uint32_t)z};memcpy(commands+used,&h,8);memcpy(commands+used+8,&(X),sizeof(X));used+=z;}while(0)
+    p_set_rt rt={.n=1};rt.color[0]=&target;if(mode>=11)rt.depth=&depth;EMIT(OP_SET_RT,rt);
+    p_viewports vp={.n=1};vp.v[0][2]=vp.v[0][3]=32;EMIT(OP_VIEWPORTS,vp);p_scissor sc={0,0,32,32};EMIT(OP_SCISSOR,sc);
+    p_clear_color cl={.index=0,.mask=15,.rgba={0,0,0,1}};EMIT(OP_CLEAR_COLOR,cl);
+    if(mode>=11) {
+        p_clear_ds clear={.depth=1,.depth_mask=1};EMIT(OP_CLEAR_DS,clear);
+        ds_st ds={.dt=1,.dw=1,.df=NVN_DEPTH_FUNC_LESS};p_bind_state state={.kind=5};memcpy(state.bytes,&ds,sizeof ds);EMIT(OP_BIND_STATE,state);
+        chmask_st mask={.mask=mode==15?1:0};state.kind=2;memcpy(state.bytes,&mask,sizeof mask);EMIT(OP_BIND_STATE,state);
+    }
+    p_bind_program bp={&cp[mode],7};EMIT(OP_BIND_PROGRAM,bp);
+    p_bind_buf storage={.stage=2,.index=0,.addr=(uint64_t)(commands+24576),.size=4};EMIT(OP_BIND_SSBO,storage);
+    p_draw d={.prim=0,.first=7,.count=mode==6?9000:3,.instances=2,.base_instance=5};
+    if((mode>=1&&mode<=3)||mode==5||mode>=7) {
+        int type=mode>=7||mode==5?1:mode-1;uint32_t ix[]={mode==10?80:12,10,UINT32_MAX,11,mode==10?80:12,10};
+        int index_count=mode>=9?6:4;
+        for(int i=0;i<index_count;i++)memcpy(commands+8192+(i<<type),ix+i,1<<type);
+        if(mode==7||mode==8) {
+            memcpy(commands+32768,commands+8192,8); memset(commands+8192,0,8);
+            if(mode==7) { struct {uint64_t src,dst,n;} copy={(uint64_t)(commands+32768),(uint64_t)(commands+8192),8};EMIT(OP_COPY_B2B,copy); }
+        }
+        p_prim_restart restart={1,UINT32_MAX};EMIT(OP_PRIM_RESTART,restart);
+        p_draw_idx di={.prim=0,.itype=type,.count=index_count,.instances=2,.base_vertex=-3,.base_instance=5,.ibuf=(uint64_t)(commands+8192)};
+        if(mode==5){uint32_t args[]={4,2,0,(uint32_t)-3,5};memcpy(commands+16384,args,sizeof args);di.ind=(uint64_t)(commands+16384);}
+        if(mode==16||mode==17){
+            p_bind_buf sb0={.stage=2,.index=0,.addr=(uint64_t)(commands+24576),.size=4},sb1={.stage=2,.index=0,.addr=(uint64_t)(commands+24580),.size=4};
+            uint64_t query=NVN_COUNTER_TYPE_SAMPLES_PASSED;
+            if(mode==17)EMIT(OP_RESET_COUNTER,query);
+            EMIT(OP_BIND_SSBO,sb0);di.count=mode==17?6:2;EMIT(OP_DRAW_IDX,di);
+            if(mode==17){
+                struct{uint64_t type,addr;} report={query,(uint64_t)(commands+30000)};EMIT(OP_REPORT_COUNTER,report);
+                struct{uint64_t addr;uint32_t mode,value;} event={(uint64_t)(commands+30100),0,77};EMIT(OP_SIGNAL_EVENT,event);
+                EMIT(OP_RESET_COUNTER,query);
+            }
+            EMIT(OP_BIND_SSBO,sb1);if(mode==16)di.ibuf=(uint64_t)(commands+8192+(1<<type));di.count=mode==17?6:3;EMIT(OP_DRAW_IDX,di);
+            if(mode==17){struct{uint64_t type,addr;} report={query,(uint64_t)(commands+30016)};EMIT(OP_REPORT_COUNTER,report);}
+        }
+        else EMIT(OP_DRAW_IDX,di);
+    } else {
+        if(mode==4){uint32_t args[]={3,2,7,5};memcpy(commands+16384,args,sizeof args);d.ind=(uint64_t)(commands+16384);}
+        EMIT(OP_DRAW,d);
+    }
+    if(mode==12||mode==16||mode==17) {
+        NvProg *plain=[NvProg new];plain->sh[0]=shader(l,@"cover",0,NULL,0);plain->sh[1]=pr->sh[1];[keep addObject:plain];
+        static prog_t pc={.serial=19000};serial_put(pc.serial,plain);p_bind_program bp2={&pc,7};EMIT(OP_BIND_PROGRAM,bp2);
+        chmask_st mask={.mask=15};p_bind_state st={.kind=2};memcpy(st.bytes,&mask,sizeof mask);EMIT(OP_BIND_STATE,st);
+        p_draw cover={.prim=4,.count=3,.instances=1};EMIT(OP_DRAW,cover);
+    }
+    op_hdr end={OP_END,8};memcpy(commands+used,&end,8);
+    #undef EMIT
+    state_reset();memset(&R,0,sizeof R);
+    if(mode==8) { mtl_sub_begin();mtl_sub_copy((uint64_t)(commands+32768),(uint64_t)(commands+8192),8);mtl_sub_commit(); }
+    uint64_t waits=g_mdi_waits,omits=g_geo_color_omits,passes=g_stat_pass;
+    uint64_t small_before=g_geo_pack_small,large_before=g_geo_pack_large;
+    int full=g_geo_full_colors;if(mode>=11)g_geo_full_colors=mode==13;
+    mtl_sub_begin();uint64_t h=(uint64_t)commands;mtl_sub_index(&h,1);mtl_exec(commands);
+    if(mode==0||mode==6){int use_small=mode==0&&!geo_pack_legacy();EXPECT("production draw selects bounded fused path",use_small,g_geo_pack_small-small_before);EXPECT("production large draw retains multi-stage path",!use_small,g_geo_pack_large-large_before);}
+    if(mode>=11)EXPECT("only bounded masked geometry omits color",mode>=16?2:mode==11||mode==12?1:0,g_geo_color_omits-omits);
+    if(mode>=16) { const char *policy=getenv("DM_NVN_GEOMETRY_WAIT"); if(!(policy&&!strcmp(policy,"always"))) { int split=mode==17&&!geo_query_run();EXPECT("geometry run batches consecutive draws",split?1:2,g_geo_nrun); EXPECT("geometry run shares depth pass before cover pass",split?4:3,g_stat_pass-passes); } }
+    g_geo_full_colors=full;
+    if((mode>=1&&mode<=3)||mode>=9) { const char *policy=getenv("DM_NVN_GEOMETRY_WAIT"); EXPECT("static index reads avoid GPU drain",policy&&!strcmp(policy,"always")?(mode>=16?2:1):0,g_mdi_waits-waits); }
+    if(mode==7) EXPECT("GPU-copied indices retain drain",1,g_mdi_waits-waits);
+    id<MTLBuffer> b=[g_dev newBufferWithLength:4096 options:MTLResourceStorageModeShared];res_add(b);
+    uint32_t *args=NULL;id<MTLBuffer> argsBuffer;
+    for(NvArena *a in g_sub_arenas)if(g_geo_args>=a->gpu&&g_geo_args+20<=a->gpu+a->buf.length){argsBuffer=a->buf;args=(uint32_t*)((char*)argsBuffer.contents+g_geo_args-a->gpu);}
+    [blit() copyFromTexture:tex_mtl(&target) sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(0,0,0) sourceSize:MTLSizeMake(32,32,1) toBuffer:b destinationOffset:0 destinationBytesPerRow:128 destinationBytesPerImage:4096];
+    id<MTLBuffer> db;
+    if(mode>=11){db=[g_dev newBufferWithLength:4096 options:MTLResourceStorageModeShared];res_add(db);[blit() copyFromTexture:tex_mtl(&depth) sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(0,0,0) sourceSize:MTLSizeMake(32,32,1) toBuffer:db destinationOffset:0 destinationBytesPerRow:128 destinationBytesPerImage:4096];}finish();
+    EXPECT("two GS invocations per input primitive",mode==6?216000:mode==16?48:mode>=9?120:72,args?args[0]:0);
+    int red=0;uint8_t *px=b.contents;for(int i=0;i<1024;i++)if(px[i*4]>200)red++;
+    EXPECT("expanded quads rasterized",mode==6?288:mode==10?144:mode==12||mode>=16?808:mode>=11&&mode!=15?0:216,red);
+    EXPECT("each instance has independent capture and output",mode>=11&&mode!=15?0:1,px[(24*32+4)*4]>200);
+    if(mode>=11){int near=0;float *z=db.contents;for(int i=0;i<1024;i++)near+=z[i]<.25f;EXPECT("masked geometry retains exact depth coverage",216,near);}
+    if(mode==16){EXPECT("first draw in geometry run writes its own stage-2 SSBO",1,*(uint32_t*)(commands+24576));EXPECT("second draw in geometry run writes its own stage-2 SSBO",1,*(uint32_t*)(commands+24580));}
+    if(mode==17){EXPECT("first geometry query counts only visible raster samples",216,*(uint64_t*)(commands+30000));EXPECT("reset query excludes preceding draw and rejects hidden geometry",0,*(uint64_t*)(commands+30016));EXPECT("query event retains completion value",77,*(uint32_t*)(commands+30100));}
+    if(mode==9)for(int step=0;step<3;step++){
+        // Same recorded draw: unchanged, then CPU-edited, then restored through
+        // a GPU buffer copy. The literal pixel coverage differs on the edit.
+        uint64_t hits=g_geo_ix_hits,misses=g_geo_ix_misses,waits0=g_mdi_waits;
+        if(step==1){uint16_t value=80;dm_guest_write_prepare(commands+8192,12);memcpy(commands+8192,&value,2);memcpy(commands+8200,&value,2);}
+        if(step==2){uint16_t original[]={12,10,65535,11,12,10};dm_guest_write_prepare(commands+32768,12);memcpy(commands+32768,original,12);}
+        state_reset();memset(&R,0,sizeof R);mtl_sub_begin();if(step==2)mtl_sub_copy((uint64_t)(commands+32768),(uint64_t)(commands+8192),12);
+        mtl_sub_index(&h,1);mtl_exec(commands);
+        [blit() copyFromTexture:tex_mtl(&target) sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(0,0,0) sourceSize:MTLSizeMake(32,32,1) toBuffer:b destinationOffset:0 destinationBytesPerRow:128 destinationBytesPerImage:4096];finish();
+        int count=0;uint8_t *p=b.contents;for(int i=0;i<1024;i++)count+=p[i*4]>200;
+        EXPECT("warm/edit/GPU-copy geometry pixel oracle",step==1?144:216,count);
+        if(geo_ix_on()){EXPECT("only unchanged source reuses cached preparation",step==0?1:0,g_geo_ix_hits-hits);EXPECT("edits rebuild prepared indices",step==0?0:1,g_geo_ix_misses-misses);}
+        const char *policy=getenv("DM_NVN_GEOMETRY_WAIT");EXPECT("GPU source write still drains before cache validation",step==2|| (policy&&!strcmp(policy,"always"))?1:0,g_mdi_waits-waits0);
+    }
+    res_remove(b);if(db)res_remove(db);
+    mtl_tex_release(&target);if(mode>=11)mtl_tex_release(&depth);
     mtl_pool_del(commands);mtl_drain();free(commands);
 }
 // Optional real-game fixtures stay outside the repository. The supplied directory
@@ -420,7 +622,9 @@ static void translated(const char *directory) {
     if(vs&&vs->geo_fn) {
         for(int v=0;v<3;v++)for(int c=0;c<7;c++)uniforms[v*7+c]=(v*7+c)*.03125f;
         id<MTLBuffer> b=[g_dev newBufferWithLength:4096 options:MTLResourceStorageModeShared];res_add(b);memset(b.contents,0xcc,4096);
-        uint64_t head[2]={b.gpuAddress,0};uint32_t info[4]={1,2,5,2};memcpy((char*)b.contents+3072,head,16);memcpy((char*)b.contents+3088,info,16);
+        nvn_geo_capture capture = {b.gpuAddress, 0, {1, 2, 5, 2}, GEO_CAPTURE_WORDS, {0}};
+        for (int k = 0; k < GEO_CAPTURE_WORDS; k++) capture.slot[k] = (int16_t)k;
+        memcpy((char *)b.contents + 3072, &capture, sizeof capture);
         state_reset();S.ssbo[0][0]=(p_bind_buf){.stage=0,.index=0,.addr=(uint64_t)uniforms,.size=65536};
         mtl_sub_begin();MTL4RenderPassDescriptor *d=[MTL4RenderPassDescriptor new];d.renderTargetWidth=d.renderTargetHeight=d.defaultRasterSampleCount=1;
         id<MTL4RenderCommandEncoder> en=enc_r_begin(d);enc_r_pso(en,geo_capture_pso(vs));args_dirty_all();encode_args(en,vs,0,1);enc_r_vbuf(en,13,b.gpuAddress+3072);
@@ -473,8 +677,9 @@ static void translated(const char *directory) {
     mtl_pool_del(uniforms);mtl_drain();free(uniforms);
 }
 int main(int argc,char **argv) {@autoreleasepool {
-    setvbuf(stdout,NULL,_IONBF,0);assembly();capture_indices();mtl_init();storage_buffers();cpu_read_proofs();pack_test();
-    scan_edges();pack_dependency_test(3);pack_dependency_test(257);pack_dependency_test(129032);for(int mode=0;mode<18;mode++)replay(mode);
+
+    setvbuf(stdout,NULL,_IONBF,0);assembly();capture_indices();index_cache_contract();mtl_init();storage_buffers();cpu_read_proofs();pack_test();fast_pack_test();
+    scan_edges();pack_dependency_test(3);pack_dependency_test(257);pack_dependency_test(129032);for(int mode=0;mode<18;mode++)replay(mode);for(int mode=0;mode<18;mode++)replay_local(mode);
     if(argc>2&&!strcmp(argv[1],"--passthrough-layouts")) {
         NSData *data=[NSData dataWithContentsOfFile:@(argv[2])];NSArray *layouts=data?[NSJSONSerialization JSONObjectWithData:data options:0 error:nil]:nil;
         passthrough_bounds(layouts);

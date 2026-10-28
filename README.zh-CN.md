@@ -98,7 +98,7 @@ NVN-on-Metal、各游戏的 profile 都是上游的工作，本 fork 自动跟�
 3. **选好游戏文件** —— 本体、更新包、DLC 和 `prod.keys`，分开选或一个文件夹全选。
 4. **按构建**，然后照它给出的三步装到手机。
 
-> 环境要求：Apple Silicon Mac + macOS 13+、装了 iOS SDK 的 Xcode、Python 3.9+、.NET SDK 10。
+> 环境要求：Apple Silicon Mac + macOS 26.6+、装了 iOS SDK 的 [Xcode](https://apps.apple.com/app/xcode/id497799835) 27.1、Python 3.9+、.NET SDK 10。
 > App 的依赖面板会逐项检测，能装的直接装。游戏文件和 `prod.keys` 需要你自己的——本仓库不含任何数据。
 
 ---
@@ -244,12 +244,13 @@ cd frontend && swift run          # 或直接双击 frontend/nxnative.app
 
 ## 跟随上游更新
 
-一个定时的 GitHub Actions 工作流（`.github/workflows/sync-upstream.yml`，每天 21:30 UTC，也可手动
-触发）跟随 [seedds/nxnative](https://github.com/seedds/nxnative)：通过 `scripts/sync_upstream.py`
-把本 fork 的特性重新应用到上游新树上，并做验证（全部脚本按 Python 3.9 解析、`bash -n`、归档读取
-测试、macOS 宿主编译），通过即提交推送；补丁对不上时开一个 issue 并附日志，不推送。本仓库是独立
-新建的仓库而非真正的 fork，GitHub 自带的「Sync fork」用不了；上次同步的上游提交记录在
-`.upstream-ref`。
+引擎（`dm/`、`scripts/`、`docs/`、`ref/`、`AGENTS.md`）就是 [seedds/nxnative](https://github.com/seedds/nxnative)
+在 `.upstream-ref` 所记提交上的内容，再加 [`patches/`](patches/README.md) 里的一组补丁：每项改动一个
+`git format-patch` 文件，写明本 fork 为什么带着它、它在上游处于什么状态。定时的 GitHub Actions 工作流
+（`.github/workflows/sync-upstream.yml`，每天 21:30 UTC，也可手动触发）用 `scripts/patches.py bump`
+移动基准提交，以三方合并重新应用补丁，丢掉上游已采纳的补丁，做验证（补丁队列检查、测试、macOS
+宿主编译），然后在 `sync/upstream` 分支上开一个 pull request；某个补丁对不上时，开一个点名该补丁的
+issue。不会向 `main` 直接推送。`scripts/patches.py status` 列出本 fork 带着的全部补丁。
 
 ## 使用方法
 
@@ -261,9 +262,10 @@ Homebrew 工具和 Python 包，然后打 IPA。
 ```bash
 git clone https://github.com/<you>/NX2Apple.git
 cd NX2Apple
-brew install xcodegen zstd spirv-cross glslang   # glslang: OpenGL (LÖVE) games only
-brew install --cask dotnet-sdk
-python3 -m pip install lz4 capstone fonttools backports.zstd
+brew bundle --file=Brewfile                       # xcodegen, zstd, spirv-cross, glslang（打包脚本会检查它）, .NET SDK
+python3 -m venv .venv                             # Homebrew 的 Python 不允许全局 pip 安装（PEP 668）
+.venv/bin/python -m pip install lz4 capstone fonttools nsz "backports.zstd; python_version < '3.14'"
+source .venv/bin/activate                         # 之后的 python3 即 venv 的（每个新终端都要执行）
 ```
 
 `backports.zstd` 是《王国之泪》的 zstd 字典需要的；其他游戏用不到。
@@ -374,6 +376,11 @@ DM_FPS_TARGET=30       # 限帧（省电；默认用 profile 的 fps_target）
 DM_OPMODE=0            # 掌机模式：720p 渲染而不是底座的 1080p
 ```
 
+**Mac 上**，启动器的「启动选项」面板有同样的选项（游戏语言、帧率、主机模式等），按游戏保存，重新构建后仍然保留。
+面板里没有的设置，或想固定某项，可以写一个 `env.txt`，格式相同（`DM_LANG=zh-Hans`），放在两处之一：
+`~/Library/Application Support/nxnative/<title ID>/env.txt` 优先，重新构建后仍在；
+`<App>.app/Contents/Resources/dm/env.txt` 是 App 自带的。在加入语言选项之前构建的 App 需要重新构建一次才有该项。
+
 **存档和日志**在「文件」App 里该 App 名字下：`save/` 和 `log.txt`。出问题时把 `log.txt`
 发出来（上一次运行的是 `log.prev.txt`）。新场景第一次出现时短促卡顿是正常的：App 会为它
 编译一次图形并记住。
@@ -449,16 +456,20 @@ shader 表、每个游戏各自的开关；本 fork 在此基础上加了 RomFS 
 | 蔚蓝 | `01002B30028F6000` | 1.4.1.1 (v589824) | 有 profile，未在手机上验证 |
 | 高级战争 1+2 重制版 | `0100300012F2A000` | 无（v0） | 上游报告 iPhone 可玩 |
 | 马力欧 + 疯狂兔子 星愿 | `0100317013770000` | 1.6.2225577 (v393216) | 有 profile，未在手机上验证 |
+| Return of the Obra Dinn | `010032E00E6E2000` | 1.0.1 (v65536) | 有 profile，未在手机上验证 |
 | 太阁立志传 V DX | `0100346017304000` | 1.1.1 (v131072) | 上游报告 iPhone 触屏可玩 |
 | 大逆转裁判 1&2 成步堂龙之介的冒险 | `010036E00FB20000` | 无（v0） | 上游报告 iPhone 可玩 |
 | 最终幻想 战略版 伊瓦利斯战记 | `010038B015560000` | 1.4.0 (v393216) | 有 profile，未在手机上验证 |
 | 十三机兵防卫圈 | `01003FC01670C000` | 1.10 (v65536) | 上游报告 iPhone 可玩 |
+| Blasphemous 2 | `010040801A4C8000` | 1.0.8 (v524288) | 有 profile，未在手机上验证 |
+| 13 Sentinels: Aegis Rim (Japan) | `010045C014650000` | 无（v0） | 有 profile，未在手机上验证 |
 | 猎天使魔女 3 | `01004A4010FEA000` | 1.2.0 (v131072) | 上游报告 iPhone 可玩 |
 | 黑暗之魂 重制版 | `01004AB00A260000` | 1.0.3 (v196608) | 有 profile，未在手机上验证 |
 | 星之卡比 探索发现 | `01004D300C5AE000` | 1.1.0 (v65536) | 有 profile，未在手机上验证 |
 | 怪物火车 2 | `010051701FB46000` | 1.1.1 (v131072) | 上游报告 iPhone 可玩 |
 | 歧路旅人 0 | `01005270232F2000` | 1.0.5 (v327680) | 有 profile，未在手机上验证 |
 | 哈迪斯 | `0100535012974000` | 1.0.38233 (v589824) | 上游报告 iPhone 可玩 |
+| Unicorn Overlord (Asia) | `010054B01AD92000` | 1.05 (v262144) | 有 profile，未在手机上验证 |
 | 火焰纹章 风花雪月 | `010055D009F78000` | 1.2.0 (v327680) | 上游报告 iPhone 可玩 |
 | 尼尔 自动人形 寄叶终结版 | `010056B015FE8000` | 1.0.3 (v131072) | 上游报告 iPhone 可玩 |
 | 歧路旅人 | `010057D006492000` | 1.0.5 (v327680) | 有 profile，未在手机上验证 |
@@ -466,7 +477,10 @@ shader 表、每个游戏各自的开关；本 fork 在此基础上加了 RomFS 
 | 耀西的手工世界 | `01006000040C2000` | 1.0.1 (v65536) | 有 profile，未在手机上验证 |
 | 最终幻想 共鸣 | `0100606026F12000` | 1.0.1 (v65536) | 上游报告 iPhone 可玩 |
 | 脑锻炼 大人的 Nintendo Switch 训练 | `0100620012D6E000` | 1.2.0 (v131072) | 有 profile，未在手机上验证 |
+| Persona 4 Golden | `010062B01525C000` | 1.0.2 (v131072) | 有 profile，未在手机上验证 |
+| Mario + Rabbids Kingdom Battle | `010067300059A000` | 1.9.589692 (v589824) | 有 profile，未在手机上验证 |
 | 圣兽之王 | `010069401ADB8000` | 1.05 (v262144) | 有 profile，未在手机上验证 |
+| Blasphemous | `0100698009C6E000` | 1.0.8 (v524288) | 有 profile，未在手机上验证 |
 | 真·女神转生 V Vengeance | `010069C01AB82000` | 1.0.3 (v196608) | 上游报告 iPhone 可玩 |
 | 任天堂明星大乱斗 特别版 | `01006A800016E000` | 13.0.5 (v2031616) | 上游报告 iPhone 可玩 |
 | 塞尔达传说 织梦岛 | `01006BB00C6F0000` | 1.1.0 (v131072) | 上游报告 iPhone 可玩 |
@@ -492,6 +506,7 @@ shader 表、每个游戏各自的开关；本 fork 在此基础上加了 RomFS 
 | 大金刚国度 归乡 HD | `01009D901BC56000` | 1.1.0 (v65536) | 有 profile，未在手机上验证 |
 | 哈迪斯 II | `0100A00019DE0000` | 1.0.137848 (v1) | **本 fork 已验证** —— 构建、安装、在 iPhone 上运行；33 个文件的归档 |
 | 歧路旅人 II | `0100A3501946E000` | 1.1.1 (v131072) | 上游报告 iPhone 可玩 |
+| Pokémon Scarlet | `0100A3D008C5C000` | 无（v0） | 有 profile，未在手机上验证 |
 | 茶杯头 | `0100A5C00D162000` | 1.3.7 (v655360) | 有 profile，未在手机上验证 |
 | 火焰纹章 结合 | `0100A6301214E000` | 2.0.0 (v327680) | 上游报告 iPhone 可玩 |
 | Absolum | `0100A83022A22000` | 1.1.1 (v393216) | 有 profile，未在手机上验证 |
@@ -499,20 +514,27 @@ shader 表、每个游戏各自的开关；本 fork 在此基础上加了 RomFS 
 | 宝可梦 剑 | `0100ABF008968000` | 1.3.2 (v458752) | 上游报告 iPhone 可玩 |
 | 怪物猎人 崛起 | `0100B04011742000` | 16.0.2 (v2228224) | 有 profile，未在手机上验证 |
 | 皮克敏 4 | `0100B7C00933A000` | 1.1.1 (v262144) | 上游报告 iPhone 可玩 |
+| FINAL FANTASY RESONANCE (Asian release) | `0100B8A026F14000` | 1.0.1 (v65536) | 有 profile，未在手机上验证 |
+| NieR:Automata The End of YoRHa Edition | `0100B8E016F76000` | 1.0.3 (v131072) | 有 profile，未在手机上验证 |
 | 马力欧 VS 大金刚 | `0100B99019412000` | 1.0.1 (v65536) | 上游报告 iPhone 可玩 |
+| FINAL FANTASY X/X-2 HD Remaster | `0100BC300CB48000` | 无（v0） | 有 profile，未在手机上验证 |
 | 凯瑟琳 浓郁口感 | `0100BF00112C0000` | 1.0.1a (v131072) | 有 profile，未在手机上验证 |
 | 大金刚国度 热带冻结 | `0100C1F0051B6000` | 1.0.2 (v131072) | 有 profile，未在手机上验证 |
 | 三国志 8 REMAKE | `0100C2A01A730000` | 1.1.3 (v851968) | 上游报告 iPhone 可玩（需手柄） |
 | 小丑牌 | `0100CD801CE5E000` | 1.1.3 (v851968) | 上游报告 iPhone 可玩 |
+| FINAL FANTASY CRYSTAL CHRONICLES Remastered Edition | `0100CE4010AAC000` | 1.0.3 (v196608) | 有 profile，未在手机上验证 |
+| Silver Pines | `0100D5B026844000` | 无（v0） | 有 profile，未在手机上验证 |
 | 节奏天国 Groove | `0100D9F01D474000` | 无（v0） | 有 profile，未在手机上验证 |
 | 路易吉洋馆 3 | `0100DCA0064A6000` | 1.4.0 (v327680) | 上游报告 iPhone 可玩 |
 | Patrick's Parabox | `0100E44016C22000` | 1.0.1 (v65536) | 有 profile，未在手机上验证 |
 | 星露谷物语 | `0100E65002BB8000` | 1.6.15.13 (v1310720) | 上游报告 iPhone 可玩 |
+| Xenoblade Chronicles 2 | `0100E95004038000` | 2.1.0 (v983040) | 有 profile，未在手机上验证 |
 | 纸片马力欧 千年之门 | `0100ECD018EBE000` | 1.0.1 (v65536) | 有 profile，未在手机上验证 |
 | 塞尔达传说 王国之泪 | `0100F2C0115B6000` | 1.4.3 (v720896) | **本 fork 已验证** —— 构建、安装、在 iPhone 上运行；304,243 个文件归档成 127 片，逐字节校验通过 |
 | 宝可梦传说 Z-A | `0100F43008C44000` | 2.0.2 (v393216) | 有 profile，未在手机上验证 |
 | 脑力记忆训练学院 | `0100F5D01DA3A000` | 无（v0） | 有 profile，未在手机上验证 |
 | 超级马力欧 银河 2 | `0100FD8022DAA000` | 1.4.0 (v393216) | 有 profile，未在手机上验证 |
+| Xenoblade Chronicles: Definitive Edition | `0100FF500E34A000` | 1.1.2 (v196608) | 有 profile，未在手机上验证 |
 
 「本 fork 已验证」表示完整走通了整条链路：构建、装到 iPhone、运行，归档还逐字节比对过源文件。
 「上游报告 iPhone 可玩」是上游项目的结果，本 fork 未重新测试。只有 profile 不保证游戏能启动——

@@ -1,0 +1,370 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: v0lumehi <aljic.zijad@googlemail.com>
+Date: Wed, 28 Oct 2026 13:33:55 +0100
+Subject: [PATCH] Virtual-pad geometry and its test
+
+touchpad_geometry.h and t_touchpad_geometry.c.
+
+Upstream-Status: fork-only
+Reason: Virtual-pad geometry used by tests only; a fork experiment without a hook in the host
+Issue: LNPANDY/NX2Apple#123
+---
+ dm/host/tests/Makefile              |   5 +-
+ dm/host/tests/t_touchpad_geometry.c | 131 ++++++++++++++++++++
+ dm/host/touchpad_geometry.h         | 179 ++++++++++++++++++++++++++++
+ 3 files changed, 314 insertions(+), 1 deletion(-)
+ create mode 100644 dm/host/tests/t_touchpad_geometry.c
+ create mode 100644 dm/host/touchpad_geometry.h
+
+diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
+index 0b651aa9..26bc1eac 100644
+--- a/dm/host/tests/Makefile
++++ b/dm/host/tests/Makefile
+@@ -12,7 +12,7 @@ QUIET = $(if $(strip $(SAN)),,2>/dev/null)
+ GINC = $(if $(strip $(GAME)),-I../gen/$(GAME) -I../../games/$(GAME),$(error GAME is not set: make GAME=<base game title ID>: $(shell python3 ../../games/game.py list | awk -F'\t' '{printf "%s (%s)  ", $$1, $$3}')))
+ $(B)/t_fs $(B)/t_fs_case $(B)/t_fs_commit_list $(B)/t_fs_commit_list_tsan: ../romfs_image.h
+ GAME_H = ../gen/$(GAME)/game_profile.h
+-run: $(B)/t_motion $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture $(B)/t_oe $(B)/t_fs $(B)/t_fs_commit_list $(B)/t_thread_leak $(B)/t_fs_case $(B)/t_audio $(B)/t_audio_spsc $(B)/t_swkbd $(B)/t_altstack $(B)/t_condvar $(B)/t_condvar_old $(B)/t_pctl $(B)/t_time $(B)/t_shared_font $(B)/t_vorbis $(B)/t_vorbis_divides $(B)/t_hid $(B)/t_input_map $(B)/t_launcher_contract $(B)/t_haptics $(B)/t_haptics_apple
++run: $(B)/t_motion $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture $(B)/t_oe $(B)/t_fs $(B)/t_fs_commit_list $(B)/t_thread_leak $(B)/t_fs_case $(B)/t_audio $(B)/t_audio_spsc $(B)/t_swkbd $(B)/t_altstack $(B)/t_condvar $(B)/t_condvar_old $(B)/t_pctl $(B)/t_time $(B)/t_shared_font $(B)/t_vorbis $(B)/t_vorbis_divides $(B)/t_hid $(B)/t_input_map $(B)/t_launcher_contract $(B)/t_haptics $(B)/t_haptics_apple $(B)/t_touchpad_geometry
+ 	$(B)/t_heap_size
+ 	$(B)/t_touch
+ 	$(B)/t_gesture
+@@ -48,6 +48,7 @@ run: $(B)/t_motion $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture $(B)/t_oe $(B)/t
+ 	$(B)/t_launcher_contract
+ 	$(B)/t_haptics
+ 	$(B)/t_haptics_apple
++	$(B)/t_touchpad_geometry
+ 	$(B)/t_nro
+ 	$(B)/t_symbols
+ run: $(B)/t_nro
+@@ -148,6 +149,8 @@ $(B)/t_hid_tsan: t_hid.c ../hle_hid.c ../motion_fusion.h ../hle_haptics.c ../hle
+ 	$(CLANG) -O1 -g -fsanitize=thread -Wall -Werror -Wno-unused-function -I.. $(GINC) -o $@ t_hid.c ../hle_haptics.c
+ $(B)/t_haptics: t_haptics.c ../hle_haptics.c ../hle_haptics.h ../dm_input.h | $(B)
+ 	$(CLANG) -O1 -g -Wall -Werror -I.. -o $@ t_haptics.c ../hle_haptics.c
++$(B)/t_touchpad_geometry: t_touchpad_geometry.c ../touchpad_geometry.h ../dm_input.h | $(B)
++	$(CLANG) -O1 -Wall -I.. $(GINC) -o $@ t_touchpad_geometry.c
+ $(B)/t_haptics_apple: t_haptics_apple.m ../haptics_apple.m ../haptics_apple.h ../hle_haptics.c ../hle_haptics.h | $(B)
+ 	$(CLANG) -O1 -g -fobjc-arc -Wall -Werror -I.. -o $@ t_haptics_apple.m ../hle_haptics.c -framework Cocoa -framework GameController -framework CoreHaptics -framework IOKit
+ $(B)/t_time: t_time.c ../hle_time.c ../hle.h ../dm.h $(GAME_H) | $(B)
+diff --git a/dm/host/tests/t_touchpad_geometry.c b/dm/host/tests/t_touchpad_geometry.c
+new file mode 100644
+index 00000000..bad6c625
+--- /dev/null
++++ b/dm/host/tests/t_touchpad_geometry.c
+@@ -0,0 +1,131 @@
++#include "../touchpad_geometry.h"
++#include <assert.h>
++#include <math.h>
++#include <stdio.h>
++
++static void nearf(float actual, float expected, float tolerance) {
++    assert(fabsf(actual - expected) <= tolerance);
++}
++
++static void test_layout(float width, float height, float expected_u) {
++    float u = dm_touchpad_u(height);
++    nearf(u, expected_u, 0.0001f);
++
++    dm_touchpad_point face = dm_touchpad_face_center(width, height, 0, 0, 0, 0);
++    dm_touchpad_point stick = dm_touchpad_stick_home(width, height, 0, 0, 0, 0);
++    dm_touchpad_point dpad = dm_touchpad_dpad_center(width, height, 0, 0, 0, 0);
++    nearf(face.x, width - DM_TP_FACE_X * u, 0.001f);
++    nearf(face.y, height - DM_TP_PAD_Y * u, 0.001f);
++    nearf(stick.x, DM_TP_STICK_X * u, 0.001f);
++    nearf(stick.y, height - DM_TP_PAD_Y * u, 0.001f);
++    nearf(dpad.x, DM_TP_LOW_X * u, 0.001f);
++    nearf(dpad.y, height - DM_TP_LOW_Y * u, 0.001f);
++
++    dm_touchpad_point a = dm_touchpad_face_button(width, height, 0, 0, 0, 0, 0);
++    dm_touchpad_point b = dm_touchpad_face_button(width, height, 0, 0, 0, 0, 1);
++    dm_touchpad_point x = dm_touchpad_face_button(width, height, 0, 0, 0, 0, 2);
++    dm_touchpad_point y = dm_touchpad_face_button(width, height, 0, 0, 0, 0, 3);
++    float gap = DM_TP_FACE_GAP * u;
++    nearf(a.x - face.x, gap, 0.001f); nearf(a.y, face.y, 0.001f);
++    nearf(b.y - face.y, gap, 0.001f); nearf(b.x, face.x, 0.001f);
++    nearf(x.y - face.y, -gap, 0.001f); nearf(x.x, face.x, 0.001f);
++    nearf(y.x - face.x, -gap, 0.001f); nearf(y.y, face.y, 0.001f);
++}
++
++static void test_directional_ownership(void) {
++    const float cx = 400, cy = 300, gap = 50, radius = 33.75f;
++    assert(dm_touchpad_face_buttons(cx + gap, cy, cx, cy, gap, radius) & DM_BTN_A);
++    assert(dm_touchpad_face_buttons(cx, cy + gap, cx, cy, gap, radius) & DM_BTN_B);
++    assert(dm_touchpad_face_buttons(cx, cy - gap, cx, cy, gap, radius) & DM_BTN_X);
++    assert(dm_touchpad_face_buttons(cx - gap, cy, cx, cy, gap, radius) & DM_BTN_Y);
++
++    const float r = 48;
++    assert(dm_touchpad_dpad_buttons(cx + r, cy, cx, cy, r) == DM_BTN_RIGHT);
++    assert(dm_touchpad_dpad_buttons(cx, cy - r, cx, cy, r) == DM_BTN_UP);
++    assert(dm_touchpad_dpad_buttons(cx - r, cy, cx, cy, r) == DM_BTN_LEFT);
++    assert(dm_touchpad_dpad_buttons(cx, cy + r, cx, cy, r) == DM_BTN_DOWN);
++    assert(dm_touchpad_dpad_buttons(cx + r, cy - r, cx, cy, r) == (DM_BTN_RIGHT | DM_BTN_UP));
++    assert(dm_touchpad_dpad_buttons(cx, cy, cx, cy, r) == 0); // native centre dead region
++}
++
++static void test_stick_shaping(void) {
++    const float r = 77;
++    int32_t x, y;
++    dm_touchpad_stick_axis(r * 0.05f, 0, r, 0, &x, &y);
++    assert(x == 0 && y == 0); // dead zone
++
++    dm_touchpad_stick_axis(r * 0.45f, 0, r, 0, &x, &y);
++    assert(x >= 16383 && x <= 16384 && y == 0); // half of full travel after dead-zone remap
++
++    dm_touchpad_stick_axis(0, -r, r, 0, &x, &y);
++    assert(x == 0 && y == DM_STICK_MAX);
++    dm_touchpad_stick_axis(-r, 0, r, 0, &x, &y);
++    assert(x == -DM_STICK_MAX && y == 0);
++
++    dm_touchpad_stick_axis(r * 0.1f, 0, r, 1, &x, &y);
++    assert(x == DM_STICK_MAX && y == 0); // legacy full-tilt right-stick mode
++}
++
++static void test_safe_insets_and_resize(void) {
++    dm_touchpad_rect safe = dm_touchpad_safe_rect(844, 390, 42, 0, 42, 21);
++    nearf(safe.x, 42, 0.001f); nearf(safe.y, 0, 0.001f);
++    nearf(safe.width, 760, 0.001f); nearf(safe.height, 369, 0.001f);
++
++    dm_touchpad_rect corner = dm_touchpad_corner_rect(844, 390, 42, 0, 42, 21);
++    nearf(corner.x, 21, 0.001f); nearf(corner.width, 802, 0.001f);
++    nearf(corner.height, 369, 0.001f);
++    dm_touchpad_point face = dm_touchpad_face_center(844, 390, 42, 0, 42, 21);
++    dm_touchpad_point stick = dm_touchpad_stick_home(844, 390, 42, 0, 42, 21);
++    float u = 390.0f / 430.0f;
++    nearf(face.x, 21 + 802 - DM_TP_FACE_X * u, 0.001f);
++    nearf(stick.x, 21 + DM_TP_STICK_X * u, 0.001f);
++
++    // 16:9 and 21:10 both cap control size at 1.3; a short resized window scales down.
++    test_layout(1920, 1080, 1.3f);
++    test_layout(1680, 800, 1.3f);
++    test_layout(1280, 430, 1.0f);
++}
++
++static void test_botw_right_cluster_and_camera_tap(void) {
++    for (int i = 0; i < 2; i++) {
++        float w = i ? 1920.0f : 844.0f, h = i ? 1080.0f : 390.0f;
++        float u = dm_touchpad_u(h);
++        dm_touchpad_point face = dm_touchpad_face_center(w,h,0,0,0,0);
++        dm_touchpad_point r = dm_touchpad_right_shoulder(w,h,0,0,0,0,0);
++        dm_touchpad_point zr = dm_touchpad_right_shoulder(w,h,0,0,0,0,1);
++        dm_touchpad_point x = dm_touchpad_face_button(w,h,0,0,0,0,2);
++        nearf(r.y,zr.y,0.001f);
++        nearf(zr.x-r.x,(DM_TP_ZL_R*2+DM_TP_SHOULDER_GAP)*u,0.001f);
++        assert(r.y + DM_TP_ZL_R*u < x.y - DM_TP_FACE_R*u);
++        assert(zr.x + DM_TP_ZL_R*u < w);
++        float xgr = DM_TP_FACE_R * u * 1.25f;
++        float shoulder_hit = DM_TP_ZL_R * u * DM_TP_SHOULDER_HIT_SCALE;
++        assert(hypotf(r.x-x.x,r.y-x.y) > shoulder_hit+xgr);
++        assert(hypotf(zr.x-x.x,zr.y-x.y) > shoulder_hit+xgr);
++        assert(face.y > 0);
++
++        float slop = DM_TP_LOOK_TAP_SLOP*u;
++        assert(!dm_touchpad_look_dragged(400,200,400+slop*.5f,200,slop));
++        assert(dm_touchpad_look_dragged(400,200,400+slop*1.1f,200,slop));
++        // A drag that returns to its start is still classified as a drag by the caller's sticky flag.
++        int dragged = dm_touchpad_look_dragged(400,200,400+slop*1.1f,200,slop);
++        assert(dragged);
++        assert(dm_touchpad_look_tap(.2f,0));
++        assert(!dm_touchpad_look_tap(.36f,0));
++        assert(!dm_touchpad_look_tap(.1f,1));
++        assert(dm_touchpad_look_double_tap(10000000.08,10000000.28,100,100,101,102,u));
++        assert(!dm_touchpad_look_double_tap(10000000.08,10000000.48,100,100,101,102,u));
++        assert(!dm_touchpad_look_double_tap(10000000.08,10000000.28,100,100,100+49*u,102,u));
++        dragged |= dm_touchpad_look_dragged(400,200,400,200,slop);
++        assert(dragged);
++    }
++}
++
++int main(void) {
++    test_directional_ownership();
++    test_stick_shaping();
++    test_safe_insets_and_resize();
++    test_botw_right_cluster_and_camera_tap();
++    puts("touchpad geometry: direction ownership, layout, and stick shaping passed");
++    return 0;
++}
+diff --git a/dm/host/touchpad_geometry.h b/dm/host/touchpad_geometry.h
+new file mode 100644
+index 00000000..affbb2d1
+--- /dev/null
++++ b/dm/host/touchpad_geometry.h
+@@ -0,0 +1,179 @@
++// Shared virtual-pad geometry for the UIKit controls and the opt-in Mac preview.
++#pragma once
++#include <math.h>
++
++typedef struct { float x, y; } dm_touchpad_point;
++typedef struct { float x, y, width, height; } dm_touchpad_rect;
++
++#include "dm_input.h"
++
++#define DM_TP_ZL_X 44.0f
++#define DM_TP_ZL_Y 40.0f
++#define DM_TP_ZL_R 26.0f
++#define DM_TP_L_X 44.0f
++#define DM_TP_L_Y 108.0f
++#define DM_TP_L_R 24.0f
++#define DM_TP_DROP_TIP 1.45f
++#define DM_TP_CORNER_IN 0.5f
++#define DM_TP_FACE_X 81.0f
++#define DM_TP_PAD_Y 82.0f
++#define DM_TP_FACE_GAP 50.0f
++#define DM_TP_FACE_R 27.0f
++#define DM_TP_PILL_DX 52.0f
++#define DM_TP_PILL_Y 22.0f
++#define DM_TP_PILL_W 50.0f
++#define DM_TP_PILL_H 28.0f
++#define DM_TP_SWAP_R 15.0f
++#define DM_TP_STICK_X 81.0f
++#define DM_TP_STICK_R 77.0f
++#define DM_TP_KNOB_R 30.0f
++#define DM_TP_STICK_GRAB 1.4f
++#define DM_TP_LSWIPE (1.0f / 3.0f)
++#define DM_TP_FULL 0.8f
++#define DM_TP_DEAD 0.1f
++#define DM_TP_LOW_X 231.0f
++#define DM_TP_LOW_Y 64.0f
++#define DM_TP_DPAD_R 48.0f
++#define DM_TP_ARM_W 17.0f
++#define DM_TP_ARM_IN 11.0f
++#define DM_TP_DPAD_GRAB 1.3f
++#define DM_TP_RSTICK_R 60.0f
++#define DM_TP_RSWIPE (1.0f / 2.0f)
++#define DM_TP_CLICK_X 102.0f
++#define DM_TP_CLICK_R 17.0f
++#define DM_TP_LOOK_TAP_SLOP 12.0f
++#define DM_TP_LOOK_TAP_MAX_SECONDS 0.35f
++#define DM_TP_LOOK_DOUBLE_TAP_INTERVAL 0.35f
++#define DM_TP_LOOK_DOUBLE_TAP_DISTANCE 48.0f
++#define DM_TP_SHOULDER_GAP 8.0f
++#define DM_TP_SHOULDER_HIT_SCALE 1.0f
++
++static inline float dm_touchpad_u(float height) {
++    float u = height / 430.0f;
++    return u < 1.3f ? u : 1.3f;
++}
++
++// safe insets and result use top-left coordinates, as UIKit does. AppKit
++// callers convert their bottom-left mouse coordinates at the view boundary.
++static inline dm_touchpad_rect dm_touchpad_corner_rect(float width, float height,
++                                                        float left, float top,
++                                                        float right, float bottom) {
++    return (dm_touchpad_rect){left * .5f, top, width - (left + right) * .5f,
++                              height - top - bottom};
++}
++
++static inline dm_touchpad_rect dm_touchpad_safe_rect(float width, float height,
++                                                      float left, float top,
++                                                      float right, float bottom) {
++    return (dm_touchpad_rect){left, top, width - left - right, height - top - bottom};
++}
++
++static inline dm_touchpad_point dm_touchpad_face_center(float width, float height,
++                                                         float left, float top,
++                                                         float right, float bottom) {
++    dm_touchpad_rect c = dm_touchpad_corner_rect(width, height, left, top, right, bottom);
++    float u = dm_touchpad_u(height);
++    return (dm_touchpad_point){c.x + c.width - DM_TP_FACE_X * u,
++                               c.y + c.height - DM_TP_PAD_Y * u};
++}
++
++// R and ZR sit together just above the face cluster on BOTW's virtual pad.
++static inline dm_touchpad_point dm_touchpad_right_shoulder(float width, float height,
++                                                            float left, float top,
++                                                            float right, float bottom,
++                                                            int zr) {
++    dm_touchpad_point face = dm_touchpad_face_center(width, height, left, top, right, bottom);
++    float u = dm_touchpad_u(height);
++    float half = (DM_TP_ZL_R + DM_TP_SHOULDER_GAP * .5f) * u;
++    float y = face.y - (DM_TP_FACE_GAP + DM_TP_FACE_R + DM_TP_ZL_R + 18.0f) * u;
++    return (dm_touchpad_point){face.x + (zr ? half : -half), y};
++}
++
++static inline int dm_touchpad_look_dragged(float down_x, float down_y,
++                                          float x, float y, float slop) {
++    float dx = x - down_x, dy = y - down_y;
++    return dx * dx + dy * dy > slop * slop;
++}
++static inline int dm_touchpad_look_tap(float duration, int dragged) {
++    return !dragged && duration >= 0.0f && duration <= DM_TP_LOOK_TAP_MAX_SECONDS;
++}
++static inline int dm_touchpad_look_double_tap(double first_time, double second_time,
++                                               float first_x, float first_y,
++                                               float second_x, float second_y,
++                                               float u) {
++    float dx = second_x - first_x, dy = second_y - first_y;
++    double dt = second_time - first_time;
++    float limit = DM_TP_LOOK_DOUBLE_TAP_DISTANCE * u;
++    return dt >= 0.0f && dt <= DM_TP_LOOK_DOUBLE_TAP_INTERVAL && dx*dx + dy*dy <= limit*limit;
++}
++
++static inline dm_touchpad_point dm_touchpad_stick_home(float width, float height,
++                                                        float left, float top,
++                                                        float right, float bottom) {
++    dm_touchpad_rect c = dm_touchpad_corner_rect(width, height, left, top, right, bottom);
++    float u = dm_touchpad_u(height);
++    return (dm_touchpad_point){c.x + DM_TP_STICK_X * u,
++                               c.y + c.height - DM_TP_PAD_Y * u};
++}
++
++static inline dm_touchpad_point dm_touchpad_dpad_center(float width, float height,
++                                                         float left, float top,
++                                                         float right, float bottom) {
++    dm_touchpad_rect c = dm_touchpad_corner_rect(width, height, left, top, right, bottom);
++    float u = dm_touchpad_u(height);
++    return (dm_touchpad_point){c.x + DM_TP_LOW_X * u,
++                               c.y + c.height - DM_TP_LOW_Y * u};
++}
++
++static inline dm_touchpad_point dm_touchpad_face_button(float width, float height,
++                                                         float left, float top,
++                                                         float right, float bottom,
++                                                         int button) {
++    dm_touchpad_point c = dm_touchpad_face_center(width, height, left, top, right, bottom);
++    float g = DM_TP_FACE_GAP * dm_touchpad_u(height);
++    switch (button) {
++        case 0: c.x += g; break; // A
++        case 1: c.y += g; break; // B
++        case 2: c.y -= g; break; // X
++        default: c.x -= g; break; // Y
++    }
++    return c;
++}
++
++static inline uint64_t dm_touchpad_face_buttons(float x, float y, float center_x,
++                                                float center_y, float gap, float radius) {
++    uint64_t bits = 0;
++    for (int b = 0; b < 4; b++) {
++        dm_touchpad_point c = {center_x, center_y};
++        if (b == 0) c.x += gap;
++        else if (b == 1) c.y += gap;
++        else if (b == 2) c.y -= gap;
++        else c.x -= gap;
++        float dx = x - c.x, dy = y - c.y;
++        if (dx * dx + dy * dy <= radius * radius) bits |= 1ull << b;
++    }
++    return bits;
++}
++
++static inline uint64_t dm_touchpad_dpad_buttons(float x, float y, float center_x,
++                                                float center_y, float radius) {
++    float dx = x - center_x, dy = y - center_y;
++    if (hypotf(dx, dy) < radius * .25f) return 0;
++    float a = atan2f(-dy, dx) * (180.0f / 3.14159265358979323846f);
++    uint64_t bits = 0;
++    if (a > -67.5f && a < 67.5f) bits |= DM_BTN_RIGHT;
++    if (a > 22.5f && a < 157.5f) bits |= DM_BTN_UP;
++    if (a > 112.5f || a < -112.5f) bits |= DM_BTN_LEFT;
++    if (a < -22.5f && a > -157.5f) bits |= DM_BTN_DOWN;
++    return bits;
++}
++
++static inline void dm_touchpad_stick_axis(float dx, float dy, float radius,
++                                         int full_tilt, int32_t *x, int32_t *y) {
++    float d = hypotf(dx, dy), dead = radius * DM_TP_DEAD;
++    if (d <= (full_tilt ? 0.0f : dead) || radius <= 0.0f) { *x = *y = 0; return; }
++    float magnitude = (full_tilt ? 1.0f : fminf((d - dead) / (radius * DM_TP_FULL - dead), 1.0f)) / d;
++    *x = (int32_t)lrintf(dx * magnitude * DM_STICK_MAX);
++    *y = (int32_t)lrintf(-dy * magnitude * DM_STICK_MAX);
++}
++

@@ -4,7 +4,13 @@
 #include <malloc/malloc.h>
 void crash_thread_init(void);
 static void *body(void *a) { crash_thread_init(); crash_thread_init(); return a; }
+#if defined(__has_feature) && __has_feature(address_sanitizer)
+#include <sanitizer/allocator_interface.h>
+// ASan's malloc zone statistics do not go down on free (make asan): its allocator counts the live bytes instead
+static size_t inuse(void) { return __sanitizer_get_current_allocated_bytes(); }
+#else
 static size_t inuse(void) { malloc_statistics_t st; malloc_zone_statistics(NULL, &st); return st.size_in_use; }
+#endif
 int main(void) {
     size_t before = inuse();
     for (int i = 0; i < 2000; i++) { pthread_t t; pthread_create(&t, 0, body, 0); pthread_join(t, 0); }

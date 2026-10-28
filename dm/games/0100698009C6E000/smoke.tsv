@@ -1,0 +1,8 @@
+# Fresh save to the stationary title screen; opening gameplay is checked separately.
+save	new
+secs	40
+quick	35
+reach	1200@30
+window	25	10
+shots	30,33
+hang	20

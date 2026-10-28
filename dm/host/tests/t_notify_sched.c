@@ -26,6 +26,12 @@ void dm_gfx_suspend(int on) { (void)on; }
 static void timeout(int sig) { (void)sig; const char message[] = "[RED] notification scheduler test timed out\n"; write(2, message, sizeof message - 1); _exit(99); }
 static void notify(uint64_t unused) {
     (void)unused;
+    // Exercise the real gate's deferred QoS update after a priority change before StartThread.
+    uint64_t regs[32] = {0}; thr_svc_enter(regs, 0); thr_svc_leave();
+    pthread_mutex_lock(&G);
+    assert(cur()->host_work == &dm_host_work && cur()->mport == pthread_mach_thread_np(pthread_self()));
+    assert(!atomic_load(&cur()->qos_pending));
+    pthread_mutex_unlock(&G);
     message=h_oe_PopMsg();
     atomic_store(&resumed, 1);
     while (!atomic_load(&finish)) sched_yield();
@@ -59,6 +65,10 @@ int main(int argc, char **argv) {
     assert(svc_thread(0x08, r) && r[0] == 0);
     uint32_t handle = (uint32_t)r[1];
     pthread_mutex_lock(&G); notifier = h_get(handle, O_THREAD); pthread_mutex_unlock(&G);
+    r[0] = handle; r[1] = 26;
+    assert(svc_thread(0x0D, r) && r[0] == 0);
+    r[1] = handle;
+    assert(svc_thread(0x0C, r) && r[0] == 0 && r[1] == 26);
     r[0] = handle;
     // Unpatched PopNotificationMessage strands this StartThread handoff: the
     // notifier sleeps in the HLE while still counted as runnable on core 0.
@@ -85,6 +95,6 @@ int main(int argc, char **argv) {
     assert(svc_thread(0x18, r) && r[0] == 0);
     assert(message==15);
     r[0] = handle; assert(svc_thread(0x16, r) && r[0] == 0);
-    puts("real thread start/exit, native wait, spurious wake, runnable restoration and notification delivery passed");
+    puts("real thread registration, deferred QoS, start/exit, native wait and notification delivery passed");
     return 0;
 }

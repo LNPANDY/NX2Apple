@@ -7,7 +7,7 @@
 ## Checked
 
 <!-- Delete what does not apply. Say what was not checked too. -->
-- Tests: <!-- `cd frontend && swift test`; frontend-qt tests if you changed it; for scripts/sync_upstream.py, the sync run on a scratch checkout -->
+- Tests: <!-- `cd frontend && swift test`; frontend-qt tests if you changed it; `python3 scripts/patches.py check` when `patches/` or a vendored path changed -->
 - Visual QA: <!-- `NX_LAUNCHER_CAPTURE_DIR=<dir> swift test` captures the views, for a UI change -->
 - Run on a device or Mac: <!-- what was built, played or installed, with title ID and version; chip and OS -->
 
@@ -17,5 +17,5 @@
 
 ## Scope
 
-- [ ] No vendored file (`dm/`, `scripts/`, `docs/`, `ref/`, `AGENTS.md`) is edited, or it goes through a sync patcher or upstream first (`pr-scope`)
+- [ ] No vendored file (`dm/`, `scripts/`, `docs/`, `ref/`, `AGENTS.md`) is edited directly: a change there is a patch in `patches/` (`scripts/patches.py export`; `patches.py check` passes), with its `Upstream-Status`
 - [ ] No keys, game files or data extracted from a game in the change or the attachments

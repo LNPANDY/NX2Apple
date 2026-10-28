@@ -1,0 +1,1332 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: v0lumehi <aljic.zijad@googlemail.com>
+Date: Wed, 28 Oct 2026 13:33:55 +0100
+Subject: [PATCH] iOS probe app for dlopen experiments
+
+dm/ios/probe and docs/probe-dlopen.md.
+
+Upstream-Status: fork-only
+Reason: dlopen probe app (an experiment) and its write-up; not upstream material
+Issue: LNPANDY/NX2Apple#123
+---
+ dm/ios/probe/.gitignore                       |   2 +
+ .../probe/DmProbe.xcodeproj/project.pbxproj   | 422 ++++++++++++++++++
+ .../contents.xcworkspacedata                  |   7 +
+ .../UserInterfaceState.xcuserstate            | Bin 0 -> 17187 bytes
+ .../xcshareddata/xcschemes/DmProbe.xcscheme   | 101 +++++
+ dm/ios/probe/build_probe.sh                   | 112 +++++
+ dm/ios/probe/probe-Info.plist                 |  37 ++
+ dm/ios/probe/probe-framework-Info.plist       |  24 +
+ dm/ios/probe/project.yml                      |  59 +++
+ dm/ios/probe/src/probe.c                      |   6 +
+ dm/ios/probe/src/probe_main.m                 | 159 +++++++
+ docs/probe-dlopen.md                          |  92 ++++
+ 12 files changed, 1021 insertions(+)
+ create mode 100644 dm/ios/probe/.gitignore
+ create mode 100644 dm/ios/probe/DmProbe.xcodeproj/project.pbxproj
+ create mode 100644 dm/ios/probe/DmProbe.xcodeproj/project.xcworkspace/contents.xcworkspacedata
+ create mode 100644 dm/ios/probe/DmProbe.xcodeproj/project.xcworkspace/xcuserdata/hejie.xcuserdatad/UserInterfaceState.xcuserstate
+ create mode 100644 dm/ios/probe/DmProbe.xcodeproj/xcshareddata/xcschemes/DmProbe.xcscheme
+ create mode 100755 dm/ios/probe/build_probe.sh
+ create mode 100644 dm/ios/probe/probe-Info.plist
+ create mode 100644 dm/ios/probe/probe-framework-Info.plist
+ create mode 100644 dm/ios/probe/project.yml
+ create mode 100644 dm/ios/probe/src/probe.c
+ create mode 100644 dm/ios/probe/src/probe_main.m
+ create mode 100644 docs/probe-dlopen.md
+
+diff --git a/dm/ios/probe/.gitignore b/dm/ios/probe/.gitignore
+new file mode 100644
+index 00000000..a8ad17b6
+--- /dev/null
++++ b/dm/ios/probe/.gitignore
+@@ -0,0 +1,2 @@
++# The build_probe.sh staging tree and the IPA self-check extraction (rebuild with build_probe.sh)
++build/
+diff --git a/dm/ios/probe/DmProbe.xcodeproj/project.pbxproj b/dm/ios/probe/DmProbe.xcodeproj/project.pbxproj
+new file mode 100644
+index 00000000..bdc31f0c
+--- /dev/null
++++ b/dm/ios/probe/DmProbe.xcodeproj/project.pbxproj
+@@ -0,0 +1,422 @@
++// !$*UTF8*$!
++{
++	archiveVersion = 1;
++	classes = {
++	};
++	objectVersion = 77;
++	objects = {
++
++/* Begin PBXBuildFile section */
++		2013F6CD064EE80DD5843D45 /* Probe.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = FE4AE6108123D746C5393ED7 /* Probe.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
++		418AA9F224215885616DF281 /* probe.c in Sources */ = {isa = PBXBuildFile; fileRef = 9D35A9F8119FFBEE2C503AAD /* probe.c */; };
++		7A77ECBDCAD18AF9F0479F18 /* Probe.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = FE4AE6108123D746C5393ED7 /* Probe.framework */; };
++		E87D64C1AB95AA2BE70D72EF /* probe_main.m in Sources */ = {isa = PBXBuildFile; fileRef = FB06C46F0E8AB6B859924E6A /* probe_main.m */; };
++/* End PBXBuildFile section */
++
++/* Begin PBXContainerItemProxy section */
++		FF0604D39539FFF1AF62F0FC /* PBXContainerItemProxy */ = {
++			isa = PBXContainerItemProxy;
++			containerPortal = 665957B2F37792FAF81F0760 /* Project object */;
++			proxyType = 1;
++			remoteGlobalIDString = 5A4AE636FE4AFD6115D14AF3;
++			remoteInfo = Probe;
++		};
++/* End PBXContainerItemProxy section */
++
++/* Begin PBXCopyFilesBuildPhase section */
++		0B5D80247451CC6CD1A2E376 /* Embed Frameworks */ = {
++			isa = PBXCopyFilesBuildPhase;
++			buildActionMask = 2147483647;
++			dstPath = "";
++			dstSubfolderSpec = 10;
++			files = (
++				2013F6CD064EE80DD5843D45 /* Probe.framework in Embed Frameworks */,
++			);
++			name = "Embed Frameworks";
++			runOnlyForDeploymentPostprocessing = 0;
++		};
++/* End PBXCopyFilesBuildPhase section */
++
++/* Begin PBXFileReference section */
++		43150F93F9204EF615D94F11 /* DmProbe.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DmProbe.app; sourceTree = BUILT_PRODUCTS_DIR; };
++		9D35A9F8119FFBEE2C503AAD /* probe.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = probe.c; sourceTree = "<group>"; };
++		FB06C46F0E8AB6B859924E6A /* probe_main.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = probe_main.m; sourceTree = "<group>"; };
++		FE4AE6108123D746C5393ED7 /* Probe.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Probe.framework; sourceTree = BUILT_PRODUCTS_DIR; };
++/* End PBXFileReference section */
++
++/* Begin PBXFrameworksBuildPhase section */
++		3A942D989AEB0836E1497A36 /* Frameworks */ = {
++			isa = PBXFrameworksBuildPhase;
++			buildActionMask = 2147483647;
++			files = (
++				7A77ECBDCAD18AF9F0479F18 /* Probe.framework in Frameworks */,
++			);
++			runOnlyForDeploymentPostprocessing = 0;
++		};
++/* End PBXFrameworksBuildPhase section */
++
++/* Begin PBXGroup section */
++		667940E40ADC709A064A55E0 /* src */ = {
++			isa = PBXGroup;
++			children = (
++				FB06C46F0E8AB6B859924E6A /* probe_main.m */,
++				9D35A9F8119FFBEE2C503AAD /* probe.c */,
++			);
++			path = src;
++			sourceTree = "<group>";
++		};
++		CA160661865E290DF4649052 = {
++			isa = PBXGroup;
++			children = (
++				667940E40ADC709A064A55E0 /* src */,
++				DDB49E56DB02F4E7561FE966 /* Products */,
++			);
++			sourceTree = "<group>";
++		};
++		DDB49E56DB02F4E7561FE966 /* Products */ = {
++			isa = PBXGroup;
++			children = (
++				43150F93F9204EF615D94F11 /* DmProbe.app */,
++				FE4AE6108123D746C5393ED7 /* Probe.framework */,
++			);
++			name = Products;
++			sourceTree = "<group>";
++		};
++/* End PBXGroup section */
++
++/* Begin PBXNativeTarget section */
++		27BF26B4447D8FE4545DC557 /* DmProbe */ = {
++			isa = PBXNativeTarget;
++			buildConfigurationList = FB9912A086081F2D19165946 /* Build configuration list for PBXNativeTarget "DmProbe" */;
++			buildPhases = (
++				FACD769F731E7788343A6BD1 /* Sources */,
++				3A942D989AEB0836E1497A36 /* Frameworks */,
++				0B5D80247451CC6CD1A2E376 /* Embed Frameworks */,
++			);
++			buildRules = (
++			);
++			dependencies = (
++				365E35C0C35C86A7263A02CE /* PBXTargetDependency */,
++			);
++			name = DmProbe;
++			packageProductDependencies = (
++			);
++			productName = DmProbe;
++			productReference = 43150F93F9204EF615D94F11 /* DmProbe.app */;
++			productType = "com.apple.product-type.application";
++		};
++		5A4AE636FE4AFD6115D14AF3 /* Probe */ = {
++			isa = PBXNativeTarget;
++			buildConfigurationList = F5FB4A1AE609544F88E06253 /* Build configuration list for PBXNativeTarget "Probe" */;
++			buildPhases = (
++				63BB0B3F31A174CB8E640B2E /* Sources */,
++			);
++			buildRules = (
++			);
++			dependencies = (
++			);
++			name = Probe;
++			packageProductDependencies = (
++			);
++			productName = Probe;
++			productReference = FE4AE6108123D746C5393ED7 /* Probe.framework */;
++			productType = "com.apple.product-type.framework";
++		};
++/* End PBXNativeTarget section */
++
++/* Begin PBXProject section */
++		665957B2F37792FAF81F0760 /* Project object */ = {
++			isa = PBXProject;
++			attributes = {
++				BuildIndependentTargetsInParallel = YES;
++				LastUpgradeCheck = 2710;
++			};
++			buildConfigurationList = 9ED6CC584E2C401AB7102CFC /* Build configuration list for PBXProject "DmProbe" */;
++			developmentRegion = en;
++			hasScannedForEncodings = 0;
++			knownRegions = (
++				Base,
++				en,
++			);
++			mainGroup = CA160661865E290DF4649052;
++			minimizedProjectReferenceProxies = 1;
++			preferredProjectObjectVersion = 77;
++			productRefGroup = DDB49E56DB02F4E7561FE966 /* Products */;
++			projectDirPath = "";
++			projectRoot = "";
++			targets = (
++				27BF26B4447D8FE4545DC557 /* DmProbe */,
++				5A4AE636FE4AFD6115D14AF3 /* Probe */,
++			);
++		};
++/* End PBXProject section */
++
++/* Begin PBXSourcesBuildPhase section */
++		63BB0B3F31A174CB8E640B2E /* Sources */ = {
++			isa = PBXSourcesBuildPhase;
++			buildActionMask = 2147483647;
++			files = (
++				418AA9F224215885616DF281 /* probe.c in Sources */,
++			);
++			runOnlyForDeploymentPostprocessing = 0;
++		};
++		FACD769F731E7788343A6BD1 /* Sources */ = {
++			isa = PBXSourcesBuildPhase;
++			buildActionMask = 2147483647;
++			files = (
++				E87D64C1AB95AA2BE70D72EF /* probe_main.m in Sources */,
++			);
++			runOnlyForDeploymentPostprocessing = 0;
++		};
++/* End PBXSourcesBuildPhase section */
++
++/* Begin PBXTargetDependency section */
++		365E35C0C35C86A7263A02CE /* PBXTargetDependency */ = {
++			isa = PBXTargetDependency;
++			target = 5A4AE636FE4AFD6115D14AF3 /* Probe */;
++			targetProxy = FF0604D39539FFF1AF62F0FC /* PBXContainerItemProxy */;
++		};
++/* End PBXTargetDependency section */
++
++/* Begin XCBuildConfiguration section */
++		010EAC4E2D1CD340BE7A9DE8 /* Debug */ = {
++			isa = XCBuildConfiguration;
++			buildSettings = {
++				ALWAYS_SEARCH_USER_PATHS = NO;
++				CLANG_ANALYZER_NONNULL = YES;
++				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
++				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
++				CLANG_CXX_LIBRARY = "libc++";
++				CLANG_ENABLE_MODULES = YES;
++				CLANG_ENABLE_OBJC_ARC = YES;
++				CLANG_ENABLE_OBJC_WEAK = YES;
++				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
++				CLANG_WARN_BOOL_CONVERSION = YES;
++				CLANG_WARN_COMMA = YES;
++				CLANG_WARN_CONSTANT_CONVERSION = YES;
++				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
++				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
++				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
++				CLANG_WARN_EMPTY_BODY = YES;
++				CLANG_WARN_ENUM_CONVERSION = YES;
++				CLANG_WARN_INFINITE_RECURSION = YES;
++				CLANG_WARN_INT_CONVERSION = YES;
++				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
++				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
++				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
++				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
++				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
++				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
++				CLANG_WARN_STRICT_PROTOTYPES = YES;
++				CLANG_WARN_SUSPICIOUS_MOVE = YES;
++				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
++				CLANG_WARN_UNREACHABLE_CODE = YES;
++				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
++				COPY_PHASE_STRIP = NO;
++				DEBUG_INFORMATION_FORMAT = dwarf;
++				ENABLE_STRICT_OBJC_MSGSEND = YES;
++				ENABLE_TESTABILITY = YES;
++				ENABLE_USER_SCRIPT_SANDBOXING = YES;
++				GCC_C_LANGUAGE_STANDARD = gnu11;
++				GCC_DYNAMIC_NO_PIC = NO;
++				GCC_NO_COMMON_BLOCKS = YES;
++				GCC_OPTIMIZATION_LEVEL = 0;
++				GCC_PREPROCESSOR_DEFINITIONS = (
++					"$(inherited)",
++					"DEBUG=1",
++				);
++				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
++				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
++				GCC_WARN_UNDECLARED_SELECTOR = YES;
++				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
++				GCC_WARN_UNUSED_FUNCTION = YES;
++				GCC_WARN_UNUSED_VARIABLE = YES;
++				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
++				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
++				MTL_FAST_MATH = YES;
++				ONLY_ACTIVE_ARCH = YES;
++				PRODUCT_NAME = "$(TARGET_NAME)";
++				SDKROOT = iphoneos;
++				STRING_CATALOG_GENERATE_SYMBOLS = YES;
++				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
++				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
++				SWIFT_VERSION = 5.0;
++			};
++			name = Debug;
++		};
++		1508495D03C30DBD9F3DD3AF /* Release */ = {
++			isa = XCBuildConfiguration;
++			buildSettings = {
++				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
++				CODE_SIGN_IDENTITY = "iPhone Developer";
++				DEVELOPMENT_TEAM = MG2FF22535;
++				INFOPLIST_FILE = "probe-Info.plist";
++				LD_RUNPATH_SEARCH_PATHS = (
++					"$(inherited)",
++					"@executable_path/Frameworks",
++				);
++				PRODUCT_BUNDLE_IDENTIFIER = org.nxnative.probe.DmProbe;
++				SDKROOT = iphoneos;
++				TARGETED_DEVICE_FAMILY = "1,2";
++			};
++			name = Release;
++		};
++		436BA009D88C3728FD6251AD /* Debug */ = {
++			isa = XCBuildConfiguration;
++			buildSettings = {
++				CODE_SIGN_IDENTITY = "";
++				CURRENT_PROJECT_VERSION = 1;
++				DEFINES_MODULE = NO;
++				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = MG2FF22535;
++				"DEVELOPMENT_TEAM[sdk=macosx*]" = MG2FF22535;
++				DYLIB_COMPATIBILITY_VERSION = 1;
++				DYLIB_CURRENT_VERSION = 1;
++				DYLIB_INSTALL_NAME_BASE = "@rpath";
++				INFOPLIST_FILE = "probe-framework-Info.plist";
++				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
++				LD_RUNPATH_SEARCH_PATHS = (
++					"$(inherited)",
++					"@executable_path/Frameworks",
++				);
++				PRODUCT_BUNDLE_IDENTIFIER = org.nxnative.probe.Probe;
++				SDKROOT = iphoneos;
++				SKIP_INSTALL = YES;
++				TARGETED_DEVICE_FAMILY = "1,2";
++				VERSIONING_SYSTEM = "apple-generic";
++			};
++			name = Debug;
++		};
++		4728C346B0C8082A2E1ECA2F /* Release */ = {
++			isa = XCBuildConfiguration;
++			buildSettings = {
++				ALWAYS_SEARCH_USER_PATHS = NO;
++				CLANG_ANALYZER_NONNULL = YES;
++				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
++				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
++				CLANG_CXX_LIBRARY = "libc++";
++				CLANG_ENABLE_MODULES = YES;
++				CLANG_ENABLE_OBJC_ARC = YES;
++				CLANG_ENABLE_OBJC_WEAK = YES;
++				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
++				CLANG_WARN_BOOL_CONVERSION = YES;
++				CLANG_WARN_COMMA = YES;
++				CLANG_WARN_CONSTANT_CONVERSION = YES;
++				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
++				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
++				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
++				CLANG_WARN_EMPTY_BODY = YES;
++				CLANG_WARN_ENUM_CONVERSION = YES;
++				CLANG_WARN_INFINITE_RECURSION = YES;
++				CLANG_WARN_INT_CONVERSION = YES;
++				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
++				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
++				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
++				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
++				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
++				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
++				CLANG_WARN_STRICT_PROTOTYPES = YES;
++				CLANG_WARN_SUSPICIOUS_MOVE = YES;
++				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
++				CLANG_WARN_UNREACHABLE_CODE = YES;
++				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
++				COPY_PHASE_STRIP = NO;
++				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
++				ENABLE_NS_ASSERTIONS = NO;
++				ENABLE_STRICT_OBJC_MSGSEND = YES;
++				ENABLE_USER_SCRIPT_SANDBOXING = YES;
++				GCC_C_LANGUAGE_STANDARD = gnu11;
++				GCC_NO_COMMON_BLOCKS = YES;
++				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
++				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
++				GCC_WARN_UNDECLARED_SELECTOR = YES;
++				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
++				GCC_WARN_UNUSED_FUNCTION = YES;
++				GCC_WARN_UNUSED_VARIABLE = YES;
++				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
++				MTL_ENABLE_DEBUG_INFO = NO;
++				MTL_FAST_MATH = YES;
++				PRODUCT_NAME = "$(TARGET_NAME)";
++				SDKROOT = iphoneos;
++				STRING_CATALOG_GENERATE_SYMBOLS = YES;
++				SWIFT_COMPILATION_MODE = wholemodule;
++				SWIFT_OPTIMIZATION_LEVEL = "-O";
++				SWIFT_VERSION = 5.0;
++			};
++			name = Release;
++		};
++		AAD8C8C6848A779F972D00C7 /* Release */ = {
++			isa = XCBuildConfiguration;
++			buildSettings = {
++				CODE_SIGN_IDENTITY = "";
++				CURRENT_PROJECT_VERSION = 1;
++				DEFINES_MODULE = NO;
++				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = MG2FF22535;
++				"DEVELOPMENT_TEAM[sdk=macosx*]" = MG2FF22535;
++				DYLIB_COMPATIBILITY_VERSION = 1;
++				DYLIB_CURRENT_VERSION = 1;
++				DYLIB_INSTALL_NAME_BASE = "@rpath";
++				INFOPLIST_FILE = "probe-framework-Info.plist";
++				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
++				LD_RUNPATH_SEARCH_PATHS = (
++					"$(inherited)",
++					"@executable_path/Frameworks",
++				);
++				PRODUCT_BUNDLE_IDENTIFIER = org.nxnative.probe.Probe;
++				SDKROOT = iphoneos;
++				SKIP_INSTALL = YES;
++				TARGETED_DEVICE_FAMILY = "1,2";
++				VERSIONING_SYSTEM = "apple-generic";
++			};
++			name = Release;
++		};
++		EBEA79193042D912ABBE4EF2 /* Debug */ = {
++			isa = XCBuildConfiguration;
++			buildSettings = {
++				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
++				CODE_SIGN_IDENTITY = "iPhone Developer";
++				DEVELOPMENT_TEAM = MG2FF22535;
++				INFOPLIST_FILE = "probe-Info.plist";
++				LD_RUNPATH_SEARCH_PATHS = (
++					"$(inherited)",
++					"@executable_path/Frameworks",
++				);
++				PRODUCT_BUNDLE_IDENTIFIER = org.nxnative.probe.DmProbe;
++				SDKROOT = iphoneos;
++				TARGETED_DEVICE_FAMILY = "1,2";
++			};
++			name = Debug;
++		};
++/* End XCBuildConfiguration section */
++
++/* Begin XCConfigurationList section */
++		9ED6CC584E2C401AB7102CFC /* Build configuration list for PBXProject "DmProbe" */ = {
++			isa = XCConfigurationList;
++			buildConfigurations = (
++				010EAC4E2D1CD340BE7A9DE8 /* Debug */,
++				4728C346B0C8082A2E1ECA2F /* Release */,
++			);
++			defaultConfigurationIsVisible = 0;
++			defaultConfigurationName = Debug;
++		};
++		F5FB4A1AE609544F88E06253 /* Build configuration list for PBXNativeTarget "Probe" */ = {
++			isa = XCConfigurationList;
++			buildConfigurations = (
++				436BA009D88C3728FD6251AD /* Debug */,
++				AAD8C8C6848A779F972D00C7 /* Release */,
++			);
++			defaultConfigurationIsVisible = 0;
++			defaultConfigurationName = Debug;
++		};
++		FB9912A086081F2D19165946 /* Build configuration list for PBXNativeTarget "DmProbe" */ = {
++			isa = XCConfigurationList;
++			buildConfigurations = (
++				EBEA79193042D912ABBE4EF2 /* Debug */,
++				1508495D03C30DBD9F3DD3AF /* Release */,
++			);
++			defaultConfigurationIsVisible = 0;
++			defaultConfigurationName = Debug;
++		};
++/* End XCConfigurationList section */
++	};
++	rootObject = 665957B2F37792FAF81F0760 /* Project object */;
++}
+diff --git a/dm/ios/probe/DmProbe.xcodeproj/project.xcworkspace/contents.xcworkspacedata b/dm/ios/probe/DmProbe.xcodeproj/project.xcworkspace/contents.xcworkspacedata
+new file mode 100644
+index 00000000..919434a6
+--- /dev/null
++++ b/dm/ios/probe/DmProbe.xcodeproj/project.xcworkspace/contents.xcworkspacedata
+@@ -0,0 +1,7 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<Workspace
++   version = "1.0">
++   <FileRef
++      location = "self:">
++   </FileRef>
++</Workspace>
+diff --git a/dm/ios/probe/DmProbe.xcodeproj/project.xcworkspace/xcuserdata/hejie.xcuserdatad/UserInterfaceState.xcuserstate b/dm/ios/probe/DmProbe.xcodeproj/project.xcworkspace/xcuserdata/hejie.xcuserdatad/UserInterfaceState.xcuserstate
+new file mode 100644
+index 0000000000000000000000000000000000000000..b4b8eee3079089ab00aeeb8b1af12260972466d5
+GIT binary patch
+literal 17187
+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
+JCxmjW{||(!%boxL
+
+literal 0
+HcmV?d00001
+
+diff --git a/dm/ios/probe/DmProbe.xcodeproj/xcshareddata/xcschemes/DmProbe.xcscheme b/dm/ios/probe/DmProbe.xcodeproj/xcshareddata/xcschemes/DmProbe.xcscheme
+new file mode 100644
+index 00000000..ee38f971
+--- /dev/null
++++ b/dm/ios/probe/DmProbe.xcodeproj/xcshareddata/xcschemes/DmProbe.xcscheme
+@@ -0,0 +1,101 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<Scheme
++   LastUpgradeVersion = "2710"
++   version = "1.3">
++   <BuildAction
++      parallelizeBuildables = "YES"
++      buildImplicitDependencies = "YES">
++      <BuildActionEntries>
++         <BuildActionEntry
++            buildForTesting = "YES"
++            buildForRunning = "YES"
++            buildForProfiling = "YES"
++            buildForArchiving = "YES"
++            buildForAnalyzing = "YES">
++            <BuildableReference
++               BuildableIdentifier = "primary"
++               BlueprintIdentifier = "27BF26B4447D8FE4545DC557"
++               BuildableName = "DmProbe.app"
++               BlueprintName = "DmProbe"
++               ReferencedContainer = "container:DmProbe.xcodeproj">
++            </BuildableReference>
++         </BuildActionEntry>
++         <BuildActionEntry
++            buildForTesting = "YES"
++            buildForRunning = "YES"
++            buildForProfiling = "YES"
++            buildForArchiving = "YES"
++            buildForAnalyzing = "YES">
++            <BuildableReference
++               BuildableIdentifier = "primary"
++               BlueprintIdentifier = "5A4AE636FE4AFD6115D14AF3"
++               BuildableName = "Probe.framework"
++               BlueprintName = "Probe"
++               ReferencedContainer = "container:DmProbe.xcodeproj">
++            </BuildableReference>
++         </BuildActionEntry>
++      </BuildActionEntries>
++   </BuildAction>
++   <TestAction
++      buildConfiguration = "Debug"
++      selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
++      selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
++      shouldUseLaunchSchemeArgsEnv = "YES">
++      <MacroExpansion>
++         <BuildableReference
++            BuildableIdentifier = "primary"
++            BlueprintIdentifier = "27BF26B4447D8FE4545DC557"
++            BuildableName = "DmProbe.app"
++            BlueprintName = "DmProbe"
++            ReferencedContainer = "container:DmProbe.xcodeproj">
++         </BuildableReference>
++      </MacroExpansion>
++      <Testables>
++      </Testables>
++   </TestAction>
++   <LaunchAction
++      buildConfiguration = "Debug"
++      selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
++      selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
++      launchStyle = "0"
++      useCustomWorkingDirectory = "NO"
++      ignoresPersistentStateOnLaunch = "NO"
++      debugDocumentVersioning = "YES"
++      debugServiceExtension = "internal"
++      allowLocationSimulation = "YES">
++      <BuildableProductRunnable
++         runnableDebuggingMode = "0">
++         <BuildableReference
++            BuildableIdentifier = "primary"
++            BlueprintIdentifier = "27BF26B4447D8FE4545DC557"
++            BuildableName = "DmProbe.app"
++            BlueprintName = "DmProbe"
++            ReferencedContainer = "container:DmProbe.xcodeproj">
++         </BuildableReference>
++      </BuildableProductRunnable>
++   </LaunchAction>
++   <ProfileAction
++      buildConfiguration = "Release"
++      shouldUseLaunchSchemeArgsEnv = "YES"
++      savedToolIdentifier = ""
++      useCustomWorkingDirectory = "NO"
++      debugDocumentVersioning = "YES">
++      <BuildableProductRunnable
++         runnableDebuggingMode = "0">
++         <BuildableReference
++            BuildableIdentifier = "primary"
++            BlueprintIdentifier = "27BF26B4447D8FE4545DC557"
++            BuildableName = "DmProbe.app"
++            BlueprintName = "DmProbe"
++            ReferencedContainer = "container:DmProbe.xcodeproj">
++         </BuildableReference>
++      </BuildableProductRunnable>
++   </ProfileAction>
++   <AnalyzeAction
++      buildConfiguration = "Debug">
++   </AnalyzeAction>
++   <ArchiveAction
++      buildConfiguration = "Release"
++      revealArchiveInOrganizer = "YES">
++   </ArchiveAction>
++</Scheme>
+diff --git a/dm/ios/probe/build_probe.sh b/dm/ios/probe/build_probe.sh
+new file mode 100755
+index 00000000..593d7922
+--- /dev/null
++++ b/dm/ios/probe/build_probe.sh
+@@ -0,0 +1,112 @@
++#!/bin/bash
++# Build the dlopen probe (docs/probe-dlopen.md) into an ad-hoc signed IPA with plain clang and
++# hand-written Info.plists, no Xcode project: DmProbe.app tries to dlopen the Probe.framework beside
++# its own executable and to call probe_answer() in it, logging every step to Documents/probe-log.txt
++# on the phone (also shown on the screen). The sideloader (AltStore / Sideloadly / i4Tools) re-signs
++# the app and the nested framework on install; the ad-hoc signature here is the placeholder the repo
++# ships in every IPA (the same order build_ipa.sh uses: nested code first, then the bundle).
++# Usage: dm/ios/probe/build_probe.sh [out.ipa]   (default: <repo>/probe-out/DmProbe.ipa)
++# Self-checks: codesign verifies the framework and the app inside the build tree and again inside the
++# extracted IPA; the load commands carry the rpath and the install name; the deployment target is 26.0;
++# both binaries are arm64; both Info.plists lint.
++set -u
++cd "$(dirname "$0")" || exit 1
++P=$PWD; REPO=$(cd ../../.. && pwd)
++t() { echo "[$(date +%T)] $*"; }; die() { t "FAIL: $*"; exit 1; }
++OUT=${1:-$REPO/probe-out/DmProbe.ipa}
++APP=build/pkg/Payload/DmProbe.app
++TARGET=arm64-apple-ios26.0
++
++rm -rf build/pkg && mkdir -p "$APP/Frameworks/Probe.framework" || die "mkdir $APP"
++
++t "compile Probe.framework (arm64 iOS, install_name @rpath/Probe.framework/Probe)"
++xcrun -sdk iphoneos clang -arch arm64 -target "$TARGET" -Oz -Wall -dynamiclib \
++  -install_name @rpath/Probe.framework/Probe \
++  src/probe.c -o "$APP/Frameworks/Probe.framework/Probe" || die "clang Probe.framework"
++
++t "compile the DmProbe shell app (rpath @executable_path/Frameworks)"
++xcrun -sdk iphoneos clang -arch arm64 -target "$TARGET" -O2 -Wall -fobjc-arc \
++  -framework Foundation -framework UIKit \
++  -Wl,-rpath,@executable_path/Frameworks \
++  src/probe_main.m -o "$APP/DmProbe" || die "clang DmProbe"
++
++cat > "$APP/Frameworks/Probe.framework/Info.plist" <<'EOF'
++<?xml version="1.0" encoding="UTF-8"?>
++<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
++<plist version="1.0">
++<dict>
++	<key>CFBundleExecutable</key><string>Probe</string>
++	<key>CFBundleIdentifier</key><string>org.nxnative.DmProbe.Probe</string>
++	<key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
++	<key>CFBundleName</key><string>Probe</string>
++	<key>CFBundlePackageType</key><string>FMWK</string>
++	<key>CFBundleShortVersionString</key><string>1.0</string>
++	<key>CFBundleVersion</key><string>1</string>
++	<key>MinimumOSVersion</key><string>26.0</string>
++</dict>
++</plist>
++EOF
++
++# UIFileSharingEnabled: the Files app shows Documents/, so probe-log.txt can be read and shared
++# on the phone; LSSupportsOpeningDocumentsInPlace opens it in place. No icons: a blank home-screen
++# icon is fine for a probe (the repo's unsigned IPAs have none either).
++cat > "$APP/Info.plist" <<'EOF'
++<?xml version="1.0" encoding="UTF-8"?>
++<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
++<plist version="1.0">
++<dict>
++	<key>CFBundleDevelopmentRegion</key><string>en</string>
++	<key>CFBundleDisplayName</key><string>DmProbe</string>
++	<key>CFBundleExecutable</key><string>DmProbe</string>
++	<key>CFBundleIdentifier</key><string>org.nxnative.DmProbe</string>
++	<key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
++	<key>CFBundleName</key><string>DmProbe</string>
++	<key>CFBundlePackageType</key><string>APPL</string>
++	<key>CFBundleShortVersionString</key><string>1.0</string>
++	<key>CFBundleSupportedPlatforms</key><array><string>iPhoneOS</string></array>
++	<key>CFBundleVersion</key><string>1</string>
++	<key>LSRequiresIPhoneOS</key><true/>
++	<key>LSSupportsOpeningDocumentsInPlace</key><true/>
++	<key>MinimumOSVersion</key><string>26.0</string>
++	<key>UIFileSharingEnabled</key><true/>
++	<key>UILaunchScreen</key><dict/>
++	<key>UIRequiredDeviceCapabilities</key><array><string>arm64</string></array>
++	<key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string></array>
++</dict>
++</plist>
++EOF
++
++t "ad-hoc sign (nested framework first, then the bundle)"
++xattr -cr "$APP" 2>/dev/null   # Finder information or resource forks on copied files: codesign refuses them
++codesign --force --sign - "$APP/Frameworks/Probe.framework" || die "codesign Probe.framework"
++codesign --force --sign - "$APP" || die "codesign DmProbe.app"
++
++t "self-check the built bundle"
++codesign -vvv --verify --strict "$APP/Frameworks/Probe.framework" >/dev/null || die "verify the framework signature"
++codesign -vvv --verify --strict "$APP" >/dev/null || die "verify the app signature (covers the nested framework)"
++[ -z "$(codesign -d --entitlements :- "$APP" 2>/dev/null)" ] || die "the probe embeds no entitlements, yet its signature carries some"
++plutil -lint "$APP/Info.plist" "$APP/Frameworks/Probe.framework/Info.plist" >/dev/null || die "plutil"
++lipo -info "$APP/DmProbe" "$APP/Frameworks/Probe.framework/Probe" | sed 's/^/  /'
++otool -l "$APP/Frameworks/Probe.framework/Probe" | grep -A3 LC_ID_DYLIB | sed 's/^/  /'
++otool -l "$APP/DmProbe" | grep -A3 LC_RPATH | sed 's/^/  /'
++otool -l "$APP/DmProbe" | grep -A4 LC_BUILD_VERSION | sed 's/^/  /'
++grep -qx '@executable_path/Frameworks' <(otool -l "$APP/DmProbe" | awk '/LC_RPATH/,/^$/{print $2}') || die "no LC_RPATH @executable_path/Frameworks in DmProbe"
++grep -qx '@rpath/Probe.framework/Probe' <(otool -l "$APP/Frameworks/Probe.framework/Probe" | awk '/LC_ID_DYLIB/,/^$/{print $2}') || die "Probe.framework has the wrong install name"
++grep -q 'minos 26.0' <(otool -l "$APP/DmProbe"; otool -l "$APP/Frameworks/Probe.framework/Probe") || die "deployment target is not 26.0"
++[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Info.plist")" = DmProbe ] || die "CFBundleExecutable"
++[ "$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$APP/Info.plist")" = 26.0 ] || die "MinimumOSVersion"
++
++t "pack the IPA (dm/ios/tools/pack_ipa.py)"
++mkdir -p "$(dirname "$OUT")" || die "mkdir $(dirname "$OUT")"
++rm -f "$OUT" "$OUT.idx"
++python3 "$REPO/dm/ios/tools/pack_ipa.py" "$OUT" "Payload/DmProbe.app=$PWD/$APP" || die "pack_ipa"
++
++t "self-check the packed IPA"
++X=build/check && rm -rf "$X" && mkdir -p "$X" || die "mkdir $X"
++unzip -q "$OUT" -d "$X" || die "unzip $OUT"
++codesign -vvv --verify --strict "$X/Payload/DmProbe.app" >/dev/null || die "verify the extracted app"
++codesign -vvv --verify --strict "$X/Payload/DmProbe.app/Frameworks/Probe.framework" >/dev/null || die "verify the extracted framework"
++codesign -d -vvv "$X/Payload/DmProbe.app" 2>&1 | grep -E 'Identifier|Format|CDHash|TeamIdentifier' | sed 's/^/  /'
++
++t "IPA: $OUT ($(du -h "$OUT" | cut -f1 | tr -d ' '))"
++t "ready: sideload it (AltStore / Sideloadly / i4Tools), open DmProbe, read Documents/probe-log.txt; docs/probe-dlopen.md explains the results"
+diff --git a/dm/ios/probe/probe-Info.plist b/dm/ios/probe/probe-Info.plist
+new file mode 100644
+index 00000000..affd7571
+--- /dev/null
++++ b/dm/ios/probe/probe-Info.plist
+@@ -0,0 +1,37 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
++<plist version="1.0">
++<dict>
++	<key>CFBundleDevelopmentRegion</key>
++	<string>$(DEVELOPMENT_LANGUAGE)</string>
++	<key>CFBundleDisplayName</key>
++	<string>DmProbe</string>
++	<key>CFBundleExecutable</key>
++	<string>$(EXECUTABLE_NAME)</string>
++	<key>CFBundleIdentifier</key>
++	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
++	<key>CFBundleInfoDictionaryVersion</key>
++	<string>6.0</string>
++	<key>CFBundleName</key>
++	<string>$(PRODUCT_NAME)</string>
++	<key>CFBundlePackageType</key>
++	<string>APPL</string>
++	<key>CFBundleShortVersionString</key>
++	<string>1.0</string>
++	<key>CFBundleVersion</key>
++	<string>1</string>
++	<key>LSSupportsOpeningDocumentsInPlace</key>
++	<true/>
++	<key>UIFileSharingEnabled</key>
++	<true/>
++	<key>UILaunchScreen</key>
++	<dict/>
++	<key>UISupportedInterfaceOrientations</key>
++	<array>
++		<string>UIInterfaceOrientationPortrait</string>
++		<string>UIInterfaceOrientationLandscapeLeft</string>
++		<string>UIInterfaceOrientationLandscapeRight</string>
++		<string>UIInterfaceOrientationPortraitUpsideDown</string>
++	</array>
++</dict>
++</plist>
+diff --git a/dm/ios/probe/probe-framework-Info.plist b/dm/ios/probe/probe-framework-Info.plist
+new file mode 100644
+index 00000000..db711b14
+--- /dev/null
++++ b/dm/ios/probe/probe-framework-Info.plist
+@@ -0,0 +1,24 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
++<plist version="1.0">
++<dict>
++	<key>CFBundleDevelopmentRegion</key>
++	<string>$(DEVELOPMENT_LANGUAGE)</string>
++	<key>CFBundleDisplayName</key>
++	<string>Probe</string>
++	<key>CFBundleExecutable</key>
++	<string>$(EXECUTABLE_NAME)</string>
++	<key>CFBundleIdentifier</key>
++	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
++	<key>CFBundleInfoDictionaryVersion</key>
++	<string>6.0</string>
++	<key>CFBundleName</key>
++	<string>$(PRODUCT_NAME)</string>
++	<key>CFBundlePackageType</key>
++	<string>FMWK</string>
++	<key>CFBundleShortVersionString</key>
++	<string>1.0</string>
++	<key>CFBundleVersion</key>
++	<string>1</string>
++</dict>
++</plist>
+diff --git a/dm/ios/probe/project.yml b/dm/ios/probe/project.yml
+new file mode 100644
+index 00000000..3d711419
+--- /dev/null
++++ b/dm/ios/probe/project.yml
+@@ -0,0 +1,59 @@
++# The dlopen probe as an Xcode project: the most reliable way to get it onto a device when the
++# sideloaders' Apple authentication is throttled (AltStore HTTP 503, 爱思助手 "wrong password"
++# behind two-factor) — Xcode signs with the user's own Apple ID and installs over USB itself.
++#   xcodegen generate -s project.yml   (or open the generated DmProbe.xcodeproj)
++# Then in Xcode: select DmProbe target → Signing & Capabilities → Team = your Apple ID → Run.
++name: DmProbe
++options:
++  bundleIdPrefix: org.nxnative.probe
++  deploymentTarget:
++    iOS: "26.0"   # same floor as the game host: Metal 4
++targets:
++  DmProbe:
++    type: application
++    platform: iOS
++    sources:
++      - path: src/probe_main.m
++    # Embed the framework into DmProbe.app/Frameworks/ — the probe's dlopen targets
++    # @executable_path/Frameworks/Probe.framework, so without this the app reports a FALSE
++    # "BLOCKED: no such file" (the framework would be built but never shipped inside the bundle).
++    dependencies:
++      - target: Probe
++        embed: true
++        codeSign: true
++    info:
++      path: probe-Info.plist
++      properties:
++        CFBundleDisplayName: DmProbe
++        CFBundleShortVersionString: "1.0"
++        CFBundleVersion: "1"
++        UILaunchScreen: {}                # an empty launch screen: silences the storyboard warning
++        UIFileSharingEnabled: true        # Documents/probe-log.txt visible in the Files app
++        LSSupportsOpeningDocumentsInPlace: true
++        # all four orientations: iOS 26 deprecated UIRequiresFullScreen, and a probe that writes
++        # its verdict to a file does not care how it is held
++        UISupportedInterfaceOrientations:
++          - UIInterfaceOrientationPortrait
++          - UIInterfaceOrientationLandscapeLeft
++          - UIInterfaceOrientationLandscapeRight
++          - UIInterfaceOrientationPortraitUpsideDown
++  Probe:
++    type: framework
++    platform: iOS
++    sources:
++      - path: src/probe.c
++    settings:
++      base:
++        # a pure-C payload dlsym'd by name needs no module map; without an umbrella header the
++        # DEFINES_MODULE default only produces a warning
++        DEFINES_MODULE: NO
++    info:
++      path: probe-framework-Info.plist
++      properties:
++        CFBundleDisplayName: Probe
++schemes:
++  DmProbe:
++    build:
++      targets:
++        DmProbe: all
++        Probe: all
+diff --git a/dm/ios/probe/src/probe.c b/dm/ios/probe/src/probe.c
+new file mode 100644
+index 00000000..77a15c6b
+--- /dev/null
++++ b/dm/ios/probe/src/probe.c
+@@ -0,0 +1,6 @@
++// Probe.framework: the payload of the dlopen probe (docs/probe-dlopen.md). One C function with a
++// known answer: the shell app dlsyms it in the framework it loaded and calls it, so a 42 back
++// proves the call went through the bundle framework and not somewhere else. Deliberately free of
++// every dependency: no Foundation, no libSystem calls beyond the C library, nothing that could
++// make the load fail for a reason other than the one under test.
++int probe_answer(void) { return 42; }
+diff --git a/dm/ios/probe/src/probe_main.m b/dm/ios/probe/src/probe_main.m
+new file mode 100644
+index 00000000..ea28aa90
+--- /dev/null
++++ b/dm/ios/probe/src/probe_main.m
+@@ -0,0 +1,159 @@
++// probe_main.m: the shell of the dlopen probe (docs/probe-dlopen.md). Answers one question for the
++// launcher architecture C (docs/ROADMAP.md section 6): can a sideloaded IPA dlopen a dynamic
++// framework that ships inside its own bundle (DmProbe.app/Frameworks/Probe.framework) and call a
++// function in it, on a stock device, outside the jailbreak and the App Store review?
++// At launch it appends every step to Documents/probe-log.txt (visible in the Files app:
++// UIFileSharingEnabled in Info.plist), shows the verdict on screen, and stays open. The last log
++// line is the verdict: "RESULT: FEASIBLE ..." or "RESULT: BLOCKED ...".
++// Built with plain clang and a hand-written Info.plist by build_probe.sh, no Xcode project.
++#import <Foundation/Foundation.h>
++#import <UIKit/UIKit.h>
++#import <dlfcn.h>
++#include <stdarg.h>
++#include <stdio.h>
++#include <sys/stat.h>
++
++static FILE *g_log;      // Documents/probe-log.txt, opened at the top of main
++static NSMutableString *g_screen;   // the verdict, also shown on the app's screen
++
++static void logf_(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
++static void logf_(const char *fmt, ...) {
++    if (!g_log) return;
++    va_list ap;
++    va_start(ap, fmt);
++    vfprintf(g_log, fmt, ap);
++    va_end(ap);
++    fputc('\n', g_log);
++    fflush(g_log);   // every line survives even if the process dies later
++}
++
++// One dlopen attempt: logs the form and dlerror()'s verbatim text, returns the handle (NULL on failure)
++static void *try_open(const char *form) {
++    logf_("dlopen(\"%s\", RTLD_NOW)", form);
++    dlerror();   // clear stale state so the next dlerror is this attempt's
++    void *h = dlopen(form, RTLD_NOW);
++    if (h) logf_("  -> handle %p", h);
++    else {
++        const char *e = dlerror();
++        logf_("  -> NULL, dlerror: %s", e ? e : "(no dlerror text)");
++    }
++    return h;
++}
++
++static NSMutableString *run_probe(void) {
++    NSBundle *bundle = [NSBundle mainBundle];
++    NSString *bundlePath = bundle.bundlePath ?: @"?";
++    NSString *execPath = bundle.executablePath ?: @"?";
++    logf_("bundle:      %s", bundlePath.fileSystemRepresentation ?: "?");
++    logf_("executable:  %s", execPath.fileSystemRepresentation ?: "?");
++    logf_("iOS:         %s (%s)", [UIDevice currentDevice].systemVersion.UTF8String ?: "?",
++          [UIDevice currentDevice].model.UTF8String ?: "?");
++
++    NSMutableString *screen = [NSMutableString stringWithFormat:@"DmProbe dlopen probe (iOS %@)\n\n",
++                               [UIDevice currentDevice].systemVersion];
++
++    // The framework must physically be in the bundle, beside the executable's Frameworks/ folder
++    NSString *fwPath = [bundlePath stringByAppendingPathComponent:@"Frameworks/Probe.framework/Probe"];
++    struct stat st = {0};
++    BOOL present = stat(fwPath.fileSystemRepresentation, &st) == 0;
++    logf_("framework file %s: %s", fwPath.fileSystemRepresentation, present ? "present" : "MISSING");
++    [screen appendFormat:@"framework file: %@\n\n", present ? @"present" : @"MISSING"];
++
++    // The forms to try, in order. The first two are the ones a launcher would use; the rest narrow
++    // down the failure if both are refused (absolute sandbox path, cwd-relative, bare name)
++    NSArray<NSString *> *forms = @[
++        @"@executable_path/Frameworks/Probe.framework/Probe",
++        @"@rpath/Probe.framework/Probe",
++        fwPath,                       // the absolute sandbox path of the same file
++        @"Probe.framework/Probe",     // relative: dyld resolves it from the current directory (/)
++        @"Probe",                     // bare name: dyld's fallback search paths only
++    ];
++    void *handle = NULL;
++    NSString *okForm = nil;
++    for (NSString *form in forms) {
++        void *h = try_open(form.UTF8String);
++        if (h) { handle = h; okForm = form; break; }
++    }
++    if (!handle) {
++        logf_("RESULT: BLOCKED - every dlopen form failed (see the dlerror lines above)");
++        [screen appendString:@"every dlopen form failed\n\nRESULT: BLOCKED\n(see Documents/probe-log.txt for the dlerror texts)"];
++        return screen;
++    }
++
++    // The framework loaded: take the C function out of it and call it
++    logf_("dlsym(handle, \"probe_answer\")");
++    dlerror();
++    void *sym = dlsym(handle, "probe_answer");
++    const char *se = dlerror();
++    if (se || !sym) {
++        logf_("  -> failed: %s", se ? se : "NULL result");
++        logf_("RESULT: BLOCKED - the framework loaded (dlopen \"%s\") but dlsym failed: %s",
++              okForm.UTF8String, se ? se : "NULL result");
++        [screen appendFormat:@"dlopen OK via %@\ndlsym failed: %s\n\nRESULT: BLOCKED", okForm, se ? se : "NULL result"];
++        return screen;
++    }
++    int (*fn)(void) = (int (*)(void))sym;
++    int answer = fn();
++    Dl_info info = {0};
++    const char *from = dladdr(sym, &info) && info.dli_fname ? info.dli_fname : "(dladdr found no image)";
++    logf_("  -> probe_answer at %p in %s (image base %p)", sym, from, info.dli_fbase);
++    logf_("  -> probe_answer() = %d", answer);
++    if (answer == 42) {
++        logf_("RESULT: FEASIBLE - dlopen(\"%s\") succeeded and probe_answer() = 42: a sideloaded app can load and call code in a framework inside its own bundle (route C is viable)",
++              okForm.UTF8String);
++        [screen appendFormat:@"dlopen OK via %@\nprobe_answer() = 42\n\nRESULT: FEASIBLE\n\nfull log: Documents/probe-log.txt", okForm];
++    } else {
++        logf_("RESULT: BLOCKED - dlopen and dlsym succeeded but probe_answer() returned %d, not 42", answer);
++        [screen appendFormat:@"dlopen OK via %@, but probe_answer() = %d (wanted 42)\n\nRESULT: BLOCKED", okForm, answer];
++    }
++    return screen;
++}
++
++@interface ProbeDelegate : NSObject <UIApplicationDelegate>
++@property (nonatomic, strong) UIWindow *window;
++@end
++
++@implementation ProbeDelegate
++// The probe keeps the legacy UIApplication lifecycle (no scene manifest, no scene delegate): a
++// deprecated-but-supported path, which keeps this file one screen long. The deprecations it pulls
++// in (mainScreen, initWithFrame:) are silenced here on purpose.
++#pragma clang diagnostic push
++#pragma clang diagnostic ignored "-Wdeprecated-declarations"
++- (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
++    UIWindow *w = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
++    UILabel *l = [[UILabel alloc] initWithFrame:w.bounds];
++    l.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
++    l.numberOfLines = 0;
++    l.font = [UIFont fontWithName:@"Menlo" size:14] ?: [UIFont monospacedSystemFontOfSize:14 weight:UIFontWeightRegular];
++    l.text = g_screen ?: @"DmProbe";
++    l.textAlignment = NSTextAlignmentCenter;
++    l.backgroundColor = UIColor.systemBackgroundColor;
++    w.backgroundColor = UIColor.systemBackgroundColor;
++    w.rootViewController = [[UIViewController alloc] init];
++    w.rootViewController.view.backgroundColor = UIColor.systemBackgroundColor;
++    [w.rootViewController.view addSubview:l];
++    [w makeKeyAndVisible];
++    self.window = w;
++    return YES;
++}
++#pragma clang diagnostic pop
++@end
++
++int main(int argc, char *argv[]) {
++    @autoreleasepool {
++        // Documents/probe-log.txt: the Files app shows this folder (UIFileSharingEnabled), so the
++        // user can read and share the log without a computer. Appended, so past runs stay.
++        NSString *docs = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
++        NSString *logPath = [docs stringByAppendingPathComponent:@"probe-log.txt"];
++        g_log = fopen(logPath.fileSystemRepresentation, "a");
++        if (g_log)
++            fprintf(g_log, "\n---- DmProbe run %s (probe built %s %s) ----\n",
++                    [[NSDate date] description].UTF8String, __DATE__, __TIME__);
++        g_screen = run_probe();
++        if (!g_log) { g_screen = [g_screen mutableCopy]; [g_screen appendString:@"\n\n(the log file could not be opened)"]; }
++        if (g_log) { fclose(g_log); g_log = NULL; }
++        // Stay open on the verdict: a probe that exits at once looks like a crash on the phone
++        UIApplicationMain(argc, argv, nil, NSStringFromClass([ProbeDelegate class]));
++    }
++    return 0;
++}
+diff --git a/docs/probe-dlopen.md b/docs/probe-dlopen.md
+new file mode 100644
+index 00000000..625759c0
+--- /dev/null
++++ b/docs/probe-dlopen.md
+@@ -0,0 +1,92 @@
++# dlopen probe — the route C gate
++
++Route C of the universal launcher (shell app + one signed framework per game, `dlopen`ed at
++runtime) is listed in [ROADMAP.md](ROADMAP.md#6-universal-launcher--proven-feasible-bounded-by-apples-rules)
++as unvalidated, gated on exactly this experiment. The question: **on a stock, non-jailbroken
++iPhone, can a sideloaded IPA — installed outside the App Store review with AltStore, Sideloadly or
++i4Tools (爱思助手) — `dlopen` a dynamic framework inside its own bundle and call functions in it?**
++
++Every app with dynamic frameworks loads nested code from its own bundle at launch, so the
++mechanism exists; what this probe proves is that it survives the sideloaded conditions, where a
++free-provisioning signature replaces the ad-hoc one at install time and re-signs the app and every
++nested framework. If `dlopen` refuses such code, route C is dead on stock devices and the dlerror
++texts are the evidence for upstream; if it works, route C stands.
++
++## What ships
++
++`probe-out/DmProbe.ipa`, built by `dm/ios/probe/build_probe.sh` (plain `clang` and hand-written
++Info.plists, no Xcode project):
++
++```
++Payload/DmProbe.app/
++  DmProbe                              the shell: runs the probe at launch, then stays open
++  Frameworks/Probe.framework/Probe     one C function, probe_answer() → 42 (src/probe.c)
++```
++
++At launch the shell appends one line per step to `Documents/probe-log.txt` and shows the verdict on
++its screen:
++
++1. the bundle and executable paths, the iOS version, and whether the framework file is present;
++2. `dlopen` attempts in order, each with its handle or its `dlerror()` text verbatim:
++   `@executable_path/Frameworks/Probe.framework/Probe`, then `@rpath/Probe.framework/Probe`, the
++   absolute sandbox path of the same file, the relative `Probe.framework/Probe`, and the bare
++   `Probe` (the last two are expected to fail; their texts tell us how far dyld got);
++3. on the first success: `dlsym` of `probe_answer`, a call (42 expected), and `dladdr` naming the
++   image the symbol came from;
++4. the last line is the verdict: `RESULT: FEASIBLE ...` or `RESULT: BLOCKED ...` plus the reason.
++
++## Installing and reading the result
++
++1. Sideload `DmProbe.ipa` with any of: AltStore (send the file to the phone, open it with
++   AltStore, or use AltServer's *Sideload .ipa* on the computer), Sideloadly (connect the iPhone,
++   drag the IPA in, enter the Apple ID, Start), or i4Tools (爱思助手: 应用游戏 → install a local
++   IPA). The IPA is unsigned-but-ad-hoc on purpose: the sideloader re-signs it with the user's
++   Apple ID, exactly like every game IPA this repository ships.
++2. The first install from a given Apple ID needs Settings → General → VPN & Device Management →
++   trust the certificate. A free Apple ID re-signs every 7 days; a one-shot probe does not mind.
++3. Open DmProbe and wait two seconds. The result is on the screen and in the file:
++   **Files app → On My iPhone → DmProbe → probe-log.txt** (`UIFileSharingEnabled` in the app's
++   Info.plist makes Documents visible there; runs append, so nothing is lost).
++4. Send the log back by sharing it from the Files app (long-press → Share → AirDrop / Mail /
++   WeChat), or from i4Tools' app-file browser (DmProbe → Documents → probe-log.txt). If no new
++   lines appeared, the app died before logging: send the crash report instead (Settings → Privacy
++   & Security → Analytics Data → `DmProbe-*.ips`).
++
++## Reading the result
++
++| Last line of probe-log.txt | Meaning |
++|---|---|
++| `RESULT: FEASIBLE - dlopen("@executable_path/Frameworks/Probe.framework/Probe") succeeded and probe_answer() = 42` | Route C is viable: a sideloaded app loads and calls code in a framework inside its own bundle. Proceed with the launcher shell + per-game frameworks. |
++| `RESULT: BLOCKED - ... no suitable image found ... (no such file)` | The framework is not in the installed bundle: the sideloader stripped it or the layout broke. Record the sideloader and version; fix the packaging before concluding anything about `dlopen`. |
++| `RESULT: BLOCKED - ... code signature ... not valid` / `not signed` / `no Team ID` | The nested framework's signature was rejected: the sideloader failed to re-sign it, or iOS refuses its signature. Record the exact text and sideloader; retry with another sideloader (or an `ldid`-signed IPA) before treating it as a platform refusal. |
++| `RESULT: BLOCKED - ...` with any other `dlerror` text | Record the text verbatim with the device model, iOS version and sideloader; the attempt lines above it show which forms were tried. |
++
++The failing fallbacks (relative and bare-name forms) always log `no suitable image found` texts —
++that is their expected outcome, not a verdict; the verdict uses only whether some form loaded.
++
++## What it does not prove
++
++- **App Store review rules** (a policy question, not a technique one): irrelevant to sideloaded
++  distribution, which is how this project ships.
++- **Loading code that is not in the signed bundle** (streaming game payloads from disk — the
++  original ROADMAP blocker): still expected to be blocked; route C compiles each game's modules
++  into its framework at packaging time, inside the signed bundle.
++- **JIT, or anything about the game modules themselves**: the rewriter's output needs much more
++  than one C function; this probe only opens the door the launcher would walk through.
++
++The build was self-checked on the Mac only (`codesign -vvv --verify --strict` on the framework,
++the app, and the app extracted from the packed IPA again; `otool` load commands: the app's
++`LC_RPATH @executable_path/Frameworks`, the framework's install name `@rpath/Probe.framework/Probe`,
++`minos 26.0`; `lipo` arm64; `plutil` on both Info.plists; `ldid` is not installed on this machine,
++so codesign only). The device run is the user's step.
++
++## Building it again
++
++```
++dm/ios/probe/build_probe.sh [out.ipa]      # default: probe-out/DmProbe.ipa
++```
++
++compiles both binaries with `xcrun -sdk iphoneos clang` (arm64, deployment target iOS 26.0), writes
++the two Info.plists, ad-hoc signs the framework first and the bundle second (the same placeholder
++order `build_ipa.sh` uses — the sideloader replaces both signatures), packs with
++`dm/ios/tools/pack_ipa.py`, and re-verifies the extracted IPA before printing the path.

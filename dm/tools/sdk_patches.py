@@ -1,6 +1,16 @@
 # The rewriter's patches of Nintendo SDK module builds (sdk), which several games can ship: dm/tools/patch_nso.py applies those of a module's NSO build ID, whatever the game.
 # A patch of a game's own module (main) goes in its profile's patches.py (dm/games/<id>/patches.py). CUTS as described in patch_nso.py ("Registered patches")
 CUTS = {
+  # Kingdom Battle 1.9.589692, SDK 4.4.0: the older VammManager reserves a
+  # full 1 GB node area (constructor +0x93dd8, occupied range +0x93e98).
+  # Snowdrop's compact 3 GB region follows its small metadata reservation;
+  # 1 GB placement alignment still cannot fit it in the iPhone guest block.
+  # Platform-limit cuts: 64 MB node area and 32 MB large-region alignment.
+  '9de92bad67c4150268943ab4843ace65': [
+    (0x93dfc, 'e9030232', '0980a052', 'VammManager node area limit: 1 GB to 64 MB'),
+    (0x93e8c, 'ea030232', '0a80a052', 'VammManager occupied node area: 1 GB to 64 MB'),
+    (0x93fe0, 'ea030232', '0a40a052', 'AllocateAddressRegion: align regions of 1 GB and more to 32 MB'),
+  ],
   # Xenoblade Chronicles 3 2.2.1, SDK 12.3.9: the same AddressRegionManager
   # constructor and size-class alignment as Engage's SDK 12.3.7. Its cut 4 GB
   # malloc reservation must fit the 4.375 GB alias region on iOS.
@@ -64,9 +74,15 @@ CUTS = {
   # AI: THE SOMNIUM FILES - nirvanA Initiative 1.0.2 (v131072) sdk (SDK 13.3.5, Unity 2020.3.30f1): the same node area cut. nninitStartup (main+0x493300) calls
   # StandardAllocator::Initialize(nullptr, pool − used) with virtual address memory, as Patrick's Parabox. The constructor is at sdk+0x37c130 (limit = alias start + 0x3fe00000 at +0x28,
   # a unit heap of 0x30-byte nodes, the area then registered as occupied at +0x37c1dc)
+  # Pokémon Scarlet 1.0.0 shares this SDK. Its 12 GB allocator reservation is
+  # reduced to 4 GB in its profile's patches.py. Even with the node-area cut,
+  # 1 GB placement alignment makes that region fail with 0x1803 in the compact
+  # guest block. Platform workaround: use 32 MB alignment for large regions,
+  # as for the equivalent SDK build below; allocation sizes and guards stay intact.
   '3644a6760469451cabc99f00c540acc2': [
     (0x37c140, '08fca752', '087ca052', 'AddressRegionManager constructor: node area limit mov w8,#0x3fe00000 → mov w8,#0x3e00000'),
     (0x37c1dc, '09fca752', '097ca052', 'AddressRegionManager constructor: length of the node area registered as an occupied region mov w9,#0x3fe00000 → mov w9,#0x3e00000'),
+    (0x37c33c, '0a00a852', '0a40a052', 'AllocateAddressRegion: alignment of regions of 1 GB and more mov w10,#0x40000000 → mov w10,#0x2000000 (32 MB, as from 32 MB up)'),
   ],
   # Mario + Rabbids Sparks of Hope 1.6.2225577 (SDK 13.3.5): the same constructor
   # and placement code as nirvanA Initiative above. Snowdrop reserves a small
@@ -117,7 +133,7 @@ CUTS = {
     (0x13be4c, '08fca752', '087ca052', 'AddressRegionManager constructor: node area limit mov w8,#0x3fe00000 → mov w8,#0x3e00000'),
     (0x13bee0, '09fca752', '097ca052', 'AddressRegionManager constructor: length of the node area registered as an occupied region mov w9,#0x3fe00000 → mov w9,#0x3e00000'),
   ],
-  # Absolum 1.1.1 (v393216) sdk (SDK 18.3.2; the AddressRegionManager at the offsets of Galaxy's SDK 18.3.5 build): the same node area cut, and regions of 1 GB and more aligned to 32 MB
+  # Absolum's sdk (SDK 18.3.2, the same build in 1.1.1 v393216 and 1.1.2 v458752; the AddressRegionManager at the offsets of Galaxy's SDK 18.3.5 build): the same node area cut, and regions of 1 GB and more aligned to 32 MB
   # instead of 1 GB. VammManager::AllocateAddressRegion (sdk+0x13bfd0) aligns a region by its size: 64 KB under 2 MB, 2 MB under 4 MB, 4 MB under 32 MB, 32 MB under 1 GB, else 1 GB
   # (+0x13c03c), and places it first-fit after the regions already there. Absolum's two large regions (main's malloc, and the .NET GC's region range from the game_env) are both over 1 GB, with a 4 KB
   # region between them, so the alignment lost up to 1 GB before each one (measured with a 64 GB alias region: 0.6 GB before malloc's at that run's alias base, 1 GB before the GC's), which
@@ -198,3 +214,48 @@ CUTS = {
     (0x34622c, '09fca752', '097ca052', 'AddressRegionManager constructor: length of the node area registered as an occupied region mov w9,#0x3fe00000 → mov w9,#0x3e00000'),
   ],
 }
+
+# SDK-wide function patches (dm/tools/nso_match.py): the two fixes above that hold for any game on an iPhone's small address space, for every game's sdk of a build with no CUTS that
+# its profile was not brought up on (patch_nso.py "Registered patches"), so a new game or a new version of one gets them without a cut for its build. The Switch's alias region is
+# 64 GB, where neither matters; the host's is about 4.4 GB:
+# - the AddressRegionManager constructor's node area: 0x3fe00000 (about 1 GB) at the start of the alias region → 0x3e00000 (62 MB, about 1.35 million 0x30-byte nodes; a few hundred
+#   regions are live in measurements). Both instructions change together: the limit, and the length registered as an occupied region.
+# - VammManager::AllocateAddressRegion's alignment of regions of 1 GB and more: 1 GB → 32 MB, what the SDK gives regions from 32 MB up (SDK 19 and 20 have no 1 GB class). With 1 GB a
+#   region of 1 GB or more lost up to 1 GB of the alias region before it (Absolum, Paper Mario, Smash, Pokémon Scarlet); nothing in the SDK or the games measured reads the alignment.
+# One rule per reviewed implementation: a function size and cut offsets, with the fingerprints of every registered build that has them (the same body, other callees). Each was
+# taken from that build's CUTS above and resolves to exactly the registered cuts there; on the 36 sdk builds on the game drives each rule matched once or not at all (2026-10-28).
+# Older SDKs (Fire Emblem: Three Houses, Bayonetta, Donkey Kong Country: Tropical Freeze, Xenoblade Chronicles 2, Yoshi's Crafted World) have other implementations, not reviewed.
+# Sea of Stars' 2 MB alignment of every large class is that game's own (its CUTS)
+node_area, alignment = 'AddressRegionManager node area 1 GB → 62 MB', 'AllocateAddressRegion: regions of 1 GB and more aligned to 32 MB'
+def mov(old, value):   # the original mov / orr of a constant, as the registered reasons name it (its destination register: the word's low 5 bits)
+    rd = int(old[:2], 16) & 31
+    return f'orr w{rd},wzr,#{value:#x}' if int(old[6:8], 16) == 0x32 else f'mov w{rd},#{value:#x}'
+def node(size, fingerprints, limit, limit_old, limit_new, occupied, occupied_old, occupied_new):
+    return {'name': node_area, 'size': size, 'fingerprints': fingerprints, 'cuts': [
+        (limit, limit_old, limit_new, f'AddressRegionManager constructor: node area limit {mov(limit_old, 0x3fe00000)} → {mov(limit_new, 0x3e00000)}'),
+        (occupied, occupied_old, occupied_new,
+         f'AddressRegionManager constructor: length of the node area registered as an occupied region {mov(occupied_old, 0x3fe00000)} → {mov(occupied_new, 0x3e00000)}')]}
+def align(size, fingerprints, at, old):
+    return {'name': alignment, 'size': size, 'fingerprints': fingerprints, 'cuts': [
+        (at, old, '0a40a052', f'AllocateAddressRegion: alignment of regions of 1 GB and more {mov(old, 0x40000000)} → mov w10,#0x2000000 (32 MB, as from 32 MB up)')]}
+MATCH_CUTS = {'sdk': [
+    # SDK 7.3.2 (DRAGON QUEST XI S), 8.2.1 (Super Smash Bros. Ultimate)
+    node(276, ['5c81bb821d119d00ffcda6c3a4f1b827fc08c084fa53995e3a6262b5bf37cded'], 0x10, 'e9230b32', '097ca052', 0xb0, 'e9230b32', '097ca052'),
+    # SDK 10.4.1 (Advance Wars 1+2), 10.4.8 (Pikmin 4)
+    node(272, ['6fe2b1b95eced45e081611b786a8ff80b656bdcad6bd58082ee3264f5163ec44'], 0x10, 'e8230b32', '087ca052', 0xac, 'e9230b32', '097ca052'),
+    # SDK 11.4.3 (Pokémon Brilliant Diamond), 12.3.2 (OCTOPATH TRAVELER II), 12.3.9 (Xenoblade Chronicles 3), 13.3.5 (Mario + Rabbids Sparks of Hope)
+    node(272, ['3ab9bc1471da6658c861c809d8aa43b3be34fd78a65f7136cb346e442a52968b', '14660c33f9b064a429405d34d1ab0d1b8fd3867d5b335e2831afb59c2a399746'],
+         0x10, '08fca752', '087ca052', 0xac, '09fca752', '097ca052'),
+    # SDK 15.3.2 (Paper Mario: The Thousand-Year Door), 16.2.0 (Sea of Stars), 16.2.4 (Brain Memory Training Academy), 17.5.3 (Ace Attorney Investigations Collection),
+    # 18.3.2 (Absolum), 18.3.5 (Super Mario Galaxy)
+    node(240, ['cd7fb0efd387e5676d349376acf368b706116e089c30485f2d33970d9fb23145', 'd16909674e7f982f2fe1c765f7cd366341c2aaa9eb56a28c52a48d3c1057a126',
+               '3549234b3e27a013791bbd834b5ff7dd501a5826c4216c80961bd996eef556ea'], 0x10, '08fca752', '087ca052', 0xa4, '09fca752', '097ca052'),
+    # SDK 19.3.11 (Pokémon Legends: Z-A), 19.3.13 (Octopath Traveler 0), 20.5.19 (BALL x PIT), 20.5.22 (Tears of the Kingdom)
+    node(244, ['b02f0514e2cc25a65261ec23cefa9a1fe7b244b3db741f183deb334935541eee'], 0x10, '08fca752', '087ca052', 0x7c, '09fca752', '097ca052'),
+    # SDK 7.3.2 (DRAGON QUEST XI S), 8.2.1 (Super Smash Bros. Ultimate), 10.4.1 (Advance Wars 1+2), 10.4.8 (Pikmin 4)
+    align(352, ['006abd214d94c93386735550cee4fe7708bc1f0d1812663123cfa3b9611f1533', '42167e4d3c710e11937e45a9e420fdd0ed9a410386c17da4d1d896b847d3b0d6'], 0x6c, 'ea030232'),
+    # SDK 12.3.9 (Xenoblade Chronicles 3), 13.3.5 (Mario + Rabbids Sparks of Hope), 15.3.2 (Paper Mario: The Thousand-Year Door)
+    align(352, ['4bec18d9a1f8c73408e95b54d971b2ae87ccb5451b185e3378c05801ad03fa39', '57ad718ebd4e8ebf49a3199c62e1ba2002867df5d124cfee6b4d30aeffee0b8d'], 0x6c, '0a00a852'),
+    # SDK 16.2.0 (Sea of Stars), 18.3.2 (Absolum)
+    align(388, ['bb9debe722dc0807c947365b7acfb1aa84f82af125e981f31b1d02b44d8032c8', '58845d068f4e828c39e03f66fbe03487387404183b0bcc14068eb45b571d2c02'], 0x6c, '0a00a852'),
+]}

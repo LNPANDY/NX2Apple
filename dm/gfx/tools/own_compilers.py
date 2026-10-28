@@ -3,7 +3,7 @@
 # the translator (dmsh_xlate_bin), bundled SPIRV-Cross and Metal compilers (macOS and iOS) must match the lock. Issue #242 reported corruption with an untested Metal compiler;
 # its role remains unconfirmed. Another Metal compiler stops the build with installation instructions unless DM_ALLOW_OTHER_METAL=1 (the NSP script's --allow-other-metal).
 # The override reports the actual compiler, leaves the lock and chain version unchanged, and uses separate shader and variant cache entries keyed by that compiler and its SDK.
-# A missing tool, another translator or another SPIRV-Cross always fails. On the maintainer's Mac dmsh_build.py keeps the strict check. This wrapper is not part of the chain version.
+# A missing tool, another translator or another SPIRV-Cross always fails (a missing iOS compiler only when the build compiles for iOS). On the maintainer's Mac dmsh_build.py keeps the strict check. This wrapper is not part of the chain version.
 # Usage: own_compilers.py <dmsh_build.py arguments>   (the environment as for dmsh_build.py)
 #        own_compilers.py --check-metal              only the Metal compiler check: exit 1 with the message when it would stop the build (the NSP script runs it before its shader steps)
 import os, re, sys, runpy, subprocess
@@ -39,12 +39,15 @@ def check_metal():   # --check-metal: the stop message, '' when the build may go
     metal = other_metal()
     return other_metal_message(metal) if metal and not allowed() else ''
 
+def ios_target():   # as dmsh_build.py picks its targets: a Mac-only build (the NSP script's --platform mac / mac-app) compiles nothing for iOS
+    return 'ios' in (os.environ.get('DMSH_TARGETS') or ('mac,ios' if os.environ.get('IOSOUT') else 'mac')).split(',')
+
 def check_tools():
     bad, own = [], []
     for b in strict():
         m = OWN.fullmatch(b)
         if m: own.append((m[1], m[2], m[3]))   # (lock key, tested, actual)
-        else: bad.append(b)
+        elif not (b.startswith('metal_iphoneos: ') and b.endswith(' / actual missing') and not ios_target()): bad.append(b)   # a Mac without the iOS platform
     if bad: return bad
     metal = own
     if metal and not allowed(): sys.exit(other_metal_message(metal))

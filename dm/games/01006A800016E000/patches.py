@@ -21,3 +21,21 @@ CUTS = {
     (0x37caf68, 'e91361b2', '2900c0d2', 'node pool bound: region end mov x9,#0xf80000000 → mov x9,#0x100000000'),
   ],
 }
+# The same 11 cuts for builds without registered CUTS (dm/tools/nso_match.py), as one patch of the four functions they lie in, which applies whole or not at all: a region cut in
+# some of them and not the others would put the node pool outside the region or let the bound checks pass it. Each function is found by its fingerprint and its direct callees':
+# the constructor (main+0x37c9a20, 472 bytes: the size, the node pool's place and top check, the first bound and the first free range) and the three functions with a region-end
+# bound (main+0x37c9c00, 536 bytes; main+0x37ca180, 1,328 bytes; main+0x37caf10, 788 bytes). The base game 1.0.0 (v0, main fd471eb4…) has the same allocator, its 62 GB constant
+# at five of these sites (main+0x27f869c, +0x27f86d4, +0x27f8868, +0x27f9108, +0x27f9c80), but none of the four functions is the same code (GitHub issue #375: 13.0.1 not checked)
+region = 'engine region 62 GB → 4 GB (11 instructions in four functions)'
+def _function(start, size, fingerprint):
+    return {'size': size, 'fingerprints': [fingerprint], 'cuts': [(off - start, old, new, f'{why} (as 13.0.5 main+{off:#x})')
+                                                                  for off, old, new, why in CUTS['21450c647b8c5940ed5b68218ea128fd'] if start <= off < start + size]}
+MATCH_CUTS = {'main': [{'name': region, 'functions': [
+    _function(0x37c9a20, 472, '96d9585e1be0b5ad1a975ae94df0b9e5540467bbd4f646fe7b4eb7abb6ba89fc'),
+    _function(0x37c9c00, 536, '6a1ad9e4dcca89cdb736dddc23b8cb7640ce06dce95ce497362749cb75b43e61'),
+    _function(0x37ca180, 1328, '6248aa2f59006b37f9af1690691000914210a3482e3a0defef56460c042cc43f'),
+    _function(0x37caf10, 788, '846ba936f6b9870853808ed82d482ce0e104aa7ef300c692d79ca7d4837dd07b'),
+]}]}
+
+# Whether a general rule could replace these patches (dm/tools/docs_patches.py lists it in docs/agents/game-patches.md)
+GENERALIZE = "Already function-matched for builds of the same code (MATCH_CUTS); the 62 GB region is the engine's own, so no general rule"

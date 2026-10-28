@@ -6,7 +6,7 @@ uint64_t resolve_import(module_t *m, const char *name);
 int hle_implements(const char *name);
 void *front_metal_layer(void) { return NULL; }
 module_t *module_of(const void *p) { (void)p; return NULL; }
-module_t g_mod[MAX_MOD]; int g_nmod;
+module_t *g_mod; int g_nmod;
 struct dm_flags g_flag;
 void svc_thread_dump(void) {}
 void dm_vi_layer_size(int *w, int *h) { *w = *h = 0; }

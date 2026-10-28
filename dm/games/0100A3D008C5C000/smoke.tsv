@@ -1,0 +1,9 @@
+# The fixed save is made just after getting up in the opening bedroom; see README.md.
+save	0100A3D008C5C000-work/smoke-save
+keys	f300:A*5/150
+secs	180
+quick	90
+reach	1200@90
+window	100	60
+shots	100,150
+hang	30

@@ -1,0 +1,12 @@
+# Fresh save: skip the opening movie, start a new game and advance the dialogue
+# into the first Velvet Room scene. No navigation, so the route is the same in
+# every run; the scene is a dialogue over a 3D room.
+save	new
+keys	f840:Plus,f1080:A,f1440:A*24/240
+secs	120
+quick	75
+reach	4200@110
+window	95	20
+shots	100,115
+hang	20
+prebuild	off

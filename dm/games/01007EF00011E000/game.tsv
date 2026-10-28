@@ -10,6 +10,8 @@ program_id	01007EF00011E000
 # ---- App ----
 # Game name: only a label for profile listings and the Mac window title; the iOS app name is the game name in the base NSP, and the bundle ID comes from the base game title ID (build_ipa.sh / NSP script)
 name	The Legend of Zelda: Breath of the Wild
+# The 3D views' base size, docked then handheld (README.md, Render scale): what DM_RENDER_SCALE scales, shown in pixels by a front end
+render_base	1600x900 1280x720
 ipa	ZeldaBreathOfTheWild.ipa
 app_category	public.app-category.adventure-games
 # the virtual gamepad starts in the 3D layout (D-pad, right stick, L3 / R3): the right stick turns the camera

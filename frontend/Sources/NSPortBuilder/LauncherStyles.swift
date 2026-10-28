@@ -16,6 +16,52 @@ struct LauncherWindowChrome: NSViewRepresentable {
     func updateNSView(_ nsView: NSView, context: Context) {}
 }
 
+/// What a double-click on the title bar does, as System Settings → Desktop & Dock sets it.
+enum TitlebarAction: Equatable {
+    case zoom, minimize, none
+
+    /// `AppleActionOnDoubleClick` ("Maximize", "Fill", "Minimize", "None") wins; the older `AppleMiniaturizeOnDoubleClick` bool is read only
+    /// without it; with neither, macOS's default (zoom).
+    static func resolve(actionSetting: String?, miniaturizeFlag: Bool?) -> TitlebarAction {
+        if let value = actionSetting?.trimmingCharacters(in: .whitespaces).lowercased(), !value.isEmpty {
+            switch value {
+            case "minimize": return .minimize
+            case "none", "do nothing", "nothing": return .none
+            default: return .zoom   // Maximize, Fill, or a value a later macOS adds
+            }
+        }
+        return miniaturizeFlag == true ? .minimize : .zoom
+    }
+
+    static var current: TitlebarAction {
+        let d = UserDefaults.standard   // the global domain is searched too
+        return resolve(actionSetting: d.string(forKey: "AppleActionOnDoubleClick"),
+                       miniaturizeFlag: d.object(forKey: "AppleMiniaturizeOnDoubleClick") as? Bool)
+    }
+
+    func perform(on window: NSWindow?) {
+        switch self {
+        case .zoom: window?.zoom(nil)   // fills the screen, traffic lights kept; a second one restores
+        case .minimize: window?.miniaturize(nil)
+        case .none: break
+        }
+    }
+}
+
+/// Sits behind the top bar. Controls above it keep their clicks; on an empty part a double-click does the title bar's action
+/// and a single press drags the window (the view takes the mouse-down, so it starts the drag itself).
+struct TitlebarDoubleClick: NSViewRepresentable {
+    final class DragView: NSView {
+        override var mouseDownCanMoveWindow: Bool { false }
+        override func mouseDown(with event: NSEvent) {
+            if event.clickCount == 2 { TitlebarAction.current.perform(on: window) }
+            else { window?.performDrag(with: event) }
+        }
+    }
+    func makeNSView(context: Context) -> NSView { DragView() }
+    func updateNSView(_ nsView: NSView, context: Context) {}
+}
+
 struct LauncherSecondaryButtonStyle: ButtonStyle {
     /// Text and border in this colour (the build bar's Stop); plain white otherwise.
     var accent: Color? = nil

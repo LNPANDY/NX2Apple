@@ -1,72 +1,32 @@
-# Guard the sync: fail a PR that edits a vendored file outside the fork's protection.
+# Guard the patch queue: fail a PR that edits a vendored file without a patch.
 #
-# The sync takes dm/, scripts/, docs/, AGENTS.md and ref/ from upstream file by file. Three kinds
-# of file keep the fork's changes: OURS (fork-only files), PATCHED (carriers whose patcher
-# re-applies them), and fork-only paths the sync never takes (frontend/, frontend-qt/,
-# .github/workflows/). A PR that edits any other vendored file will be silently reverted the next
-# time upstream touches it — issue #29 (v0lumehi reading the sync script) is what made this a
-# check instead of a note in CONTRIBUTING.
-#
-# What a PR author sees on failure: the list of files at risk, and the two ways out (propose the
-# change upstream first, or ask a maintainer to add a patcher entry).
+# dm/, scripts/, docs/, ref/ and AGENTS.md are upstream (seedds/nxnative, pinned in .upstream-ref) plus the patches in
+# patches/. A PR that edits one of those files directly would be reverted by the next bump, so `scripts/patches.py check`
+# (the series applied to the pin must give the committed tree) fails it. What a PR author sees: the files that differ, and the
+# way out (commit the change, `scripts/patches.py export <commit>`, fill in the header; patches/README.md).
+# A sync PR (branch sync/upstream-*) is checked too, on purpose: it must reproduce its own tree. The old per-file guard
+# and its skip for sync branches are gone with the anchor patchers.
+# The same check is a job in tests.yml; this one starts on the vendored paths only, and says so in its own name.
 name: PR scope (sync safety)
 
 on:
   pull_request:
-    paths: ['dm/**', 'scripts/**', 'docs/**', 'ref/**', 'AGENTS.md']
+    paths: ['dm/**', 'scripts/**', 'docs/**', 'ref/**', 'AGENTS.md', 'patches/**', '.upstream-ref']
 
 permissions:
   contents: read
 
 jobs:
   check:
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0   # the merge base of the PR and its base, for the three-dot diff below
-
-      - name: Files the sync protects or never overwrites
-        id: known
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Fetch the pinned upstream commit
         run: |
-          python3 - <<'PY' >> "$GITHUB_OUTPUT"
-          import sys
-          sys.path.insert(0, 'scripts')
-          import sync_upstream as su
-          ours = sorted(su.OURS)
-          patched = sorted(su.PATCHED)
-          print(f'ours={",".join(ours)}')
-          print(f'patched={",".join(patched)}')
-          PY
-
-      - name: Check the PR's changed files
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          OURS: ${{ steps.known.outputs.ours }}
-          PATCHED: ${{ steps.known.outputs.patched }}
-        run: |
-          # changed files = base...head, minus deletions (nothing to protect there)
-          BASE="${{ github.event.pull_request.base.sha }}"
-          HEAD="${{ github.event.pull_request.head.sha }}"
-          git fetch --no-tags origin "$BASE" "$HEAD" 2>/dev/null || true
-          # Three dots: the PR's own changes since it left the base (the checkout keeps the history for the merge base). Two dots
-          # compared the base's tip with the PR's head, so every commit main gained after the PR branched counted as the PR's
-          CHANGED=$(git diff --name-only --diff-filter=d "$BASE"..."$HEAD" | sort -u)
-          at_risk=""
-          for f in $CHANGED; do
-            case "$f" in
-              frontend/*|frontend-qt/*|.github/*) continue ;;          # fork-only, never taken from upstream
-            esac
-            case ",$OURS," in *",$f,"*) continue ;; esac
-            case ",$PATCHED," in *",$f,"*) continue ;; esac
-            at_risk="$at_risk$f\n"
-          done
-          if [ -n "$at_risk" ]; then
-            echo "::error::These vendored files would be reverted by the next sync (they are not in OURS or PATCHED):"
-            echo -e "$at_risk"
-            echo ""
-            echo "Send the change to seedds/nxnative first (it comes back with the daily sync), or ask a"
-            echo "maintainer to add a patcher entry in scripts/sync_upstream.py for it."
-            exit 1
-          fi
-          echo "PR touches no unprotected vendored files."
+          git remote add seedds https://github.com/seedds/nxnative.git
+          git fetch --no-tags seedds "$(cat .upstream-ref)"
+      - name: The series reproduces the vendored tree
+        run: python3 scripts/patches.py check

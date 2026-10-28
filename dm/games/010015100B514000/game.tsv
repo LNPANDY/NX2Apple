@@ -12,6 +12,8 @@ program_id	010015100B514000
 name	Super Mario Bros. Wonder
 ipa	SMBWMobile.ipa
 app_category	public.app-category.action-games
+# full-screen post passes (agl's 22a61cb1ec732aef, the game's own a7e5c6fd501cf21f; the same keys in v0 and 1.2.1) that sample their own RG11B10F attachment: black and green 16x16 blocks without the snapshot (Apple M6, Apple M1)
+feedback_snap	a7e5c6fd501cf21f 22a61cb1ec732aef
 
 # ---- Versions ----
 # build <version> <display version> <module>=<build ID>...: the NSP script accepts only these builds (fixed addresses do not hold on other builds); the host reports the display version by main's build ID

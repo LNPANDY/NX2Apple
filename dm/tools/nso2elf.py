@@ -4,25 +4,15 @@ Usage: nso2elf.py <module.nso> <out.elf>
 Keeps the NSO memory layout (vaddr = offset in the loaded image): text R-X, rodata R, data+bss RW,
 plus PT_DYNAMIC (located through MOD0) so dynsym imports/exports and RELA relocations are recovered,
 and PT_GNU_EH_FRAME (eh_frame_hdr from MOD0) as a function-start hint. No section headers."""
-import struct, sys
-import lz4.block
+import os, struct, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import nso
 
 PAGE = 0x1000; HDR = 0x1000                     # file offset of image byte 0; keeps p_offset == p_vaddr (mod PAGE)
 
 def load(path):
-    d = open(path, 'rb').read()
-    if d[:4] != b'NSO0': sys.exit('not an NSO: ' + path)
-    flags = struct.unpack_from('<I', d, 0xc)[0]
-    segs = [struct.unpack_from('<III', d, 0x10 + i * 0x10) for i in range(3)]     # (file off, mem off, size)
-    csz = struct.unpack_from('<III', d, 0x60)
-    bss = struct.unpack_from('<I', d, 0x3c)[0]
-    img = bytearray(segs[2][1] + segs[2][2])
-    for i, (fo, mo, sz) in enumerate(segs):
-        raw = d[fo:fo + csz[i]]
-        if flags >> i & 1: raw = lz4.block.decompress(raw, uncompressed_size=sz)
-        if len(raw) != sz: sys.exit('segment %d size mismatch' % i)
-        img[mo:mo + sz] = raw
-    return bytes(img), [(mo, sz) for _, mo, sz in segs], bss, d[0x40:0x60]
+    m = nso.cli_read(path)
+    return bytes(m.image), list(m.segments), m.bss, m.build_id
 
 def main():
     src, dst = sys.argv[1:3]

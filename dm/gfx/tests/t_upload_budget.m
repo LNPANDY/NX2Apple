@@ -5,7 +5,7 @@ uint64_t g_t0_ns;
 int dm_guest_as_contains(uintptr_t address) { (void)address; return 0; }
 void *front_metal_layer(void) { return NULL; }
 module_t *module_of(const void *p) { (void)p; return NULL; }
-module_t g_mod[MAX_MOD]; int g_nmod;
+module_t *g_mod; int g_nmod;
 void svc_thread_dump(void) {}
 uint64_t now_ns(void) { return bp_now(); }
 static int checks, fails;
@@ -50,7 +50,10 @@ int main(void) { @autoreleasepool {
     up_flush(); rec_publish(); up_wait_zero(&g_up_pending, WS_DIAG);
     size_t idle = live_bytes(buffers);
     CHECK(peak <= (512u << 20), "streaming burst staging stays within 512 MiB");
-    CHECK(idle <= (96u << 20), "only three reusable staging blocks survive upload completion before the rendering fence");
+    // Demand reuse retains a primary and one bounded overflow block per slot.
+    // Everything beyond those six blocks must retire before the rendering fence.
+    CHECK(idle <= (up_reuse() ? (192u << 20) : (96u << 20)),
+          "completed uploads retain only the bounded slot staging cache");
     m4_end(encoder);
     uint64_t fence = mtl_sub_commit();
     CHECK(mtl_wait(fence, 5000000000ull), "rendering submission completes");

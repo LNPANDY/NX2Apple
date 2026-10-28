@@ -12,6 +12,8 @@ docs/*	-	documentation
 dm/tools/tests/*	-	tool tests
 dm/gfx/tests/*	-	graphics tests
 dm/host/tests/*	-	host tests
+dm/gfx/tex/tests/*	-	CPU texture tests
+dm/sanitizers/*	-	test sanitizer configuration
 dm/ios/tests/*	-	iOS tests
 .github/*	-	CI
 dm/games/*/README.md	-	a game's note
@@ -80,6 +82,7 @@ dm/gfx/tools/pso_offline.py	present:pipeline_prebuild	the offline pipeline archi
 dm/gfx/tools/c1_guard.py	shader:stage:*	the c1 guard table
 dm/gfx/tools/cb_extent.py	shader:stage:*	the uniform read extents
 dm/gfx/tools/shader_split.py	shader:stage:*	the shader tables (after a split)
+dm/gfx/tools/unityfs.py	shader:stage:*	the Unity serialized shader reader (after a split)
 dm/tools/patch_nso.py	*:*	the rewriter: every game's code
 dm/tools/nso_*.py	*:*	the rewriter: every game's code
 dm/tools/sdk_patches.py	*:*	the SDK modules' patches (by build ID)
@@ -90,10 +93,14 @@ dm/tools/nx_extract/*	*:*	NSP extraction: every game's resource inputs
 dm/mac/launcher.c	*:*	Mac app resource discovery and host launch
 dm/mac/pack_app.py	*:*	Mac app packaging: every game's bundled resources
 dm/gfx/tools/cpk.py	shader:stage:*	CRI archive input to shader scanning
+dm/gfx/tools/vbf.py	shader:stage:*	Virtuos archive input to shader scanning
+dm/gfx/tools/dmsh_mesh.py	shader:stage:gs	passthrough geometry composed into a mesh shader
+dm/host/hle_fpslock.c	present:*	build-gated engine frame limits and dynamic resolution
 dm/gfx/tools/mvgl.py	api:gl	MVGL archive input to OpenGL shader scanning
 dm/gfx/tools/smash_arc.py	*:*	Smash archive input to shader and NRO scanning
 dm/gfx/tools/uepak.py	shader:stage:*	Unreal archive input to shader scanning
 dm/host/romfs_image.h	hle:*fs*	RomFS image index validation shared by mounts and iOS startup
+dm/host/romfs_identity.h	*:*	RomFS identity checks at iOS startup for every game's separate deployment
 dm/host/hle_fs.c	hle:*fs*	filesystem mounts, paths and file operations
 dm/host/Makefile	*:*	the shared host build
 dm/host/hle_thread.c	svc:*	threads and synchronization
@@ -104,5 +111,11 @@ dm/host/loader.c	*:*	module loading
 dm/host/hle.c	hle:*	the HLE tables
 dm/host/front_mac.m	present:*	the Mac front end
 dm/host/input_map.h	present:*	the Mac front end's key and controller button map
+dm/host/dm_input.h	hle:*hid*	the shared input interface
+dm/host/motion_apple.h	hle:*SixAxisSensor*	controller motion supplied by GameController
+dm/host/motion_fusion.h	hle:*SixAxisSensor*	six-axis motion mapping and orientation
+dm/host/motion_pro.h	hle:*SixAxisSensor*	passive Switch Pro Controller IMU decoder
+dm/host/motion_pro_mac.h	hle:*SixAxisSensor*	Mac Pro Controller raw motion transport and routing
 dm/host/front.h	present:*	the front end
 dm/ios/*	*:*	the iOS app
+dm/third_party/ryujinx/src/Ryujinx.Graphics.Shader/Translation/Transforms/GeometryToCompute.cs	shader:stage:gs	geometry compute input and output lowering

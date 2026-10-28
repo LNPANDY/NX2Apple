@@ -786,3 +786,6 @@ sites = [
     (0x9abe8c, '2a050071', 0x14018c46, '[rumble] rumble channel count +0x90: b stub 0xa0efa4 -> rh_w9 (was subs w10, w9, #1)'),
     (0x9abf40, '29050011', 0x14018c02, '[up] pad auto-repeat count +0x30: b cave 0xa0ef48 (was add w9, w9, #1)'),
 ]
+
+# Whether a general rule could replace these patches (dm/tools/docs_patches.py lists it in docs/agents/game-patches.md)
+GENERALIZE = "No: the game's own clock and timers (a community 60 fps mod on the host's frame step)"

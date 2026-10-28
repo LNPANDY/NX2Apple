@@ -2,7 +2,7 @@
 
 Update 1.10 (v65536) over the base game, SDK 11.4.3. Vanillaware's own engine on NVN. Modules `main`, `subsdk0` (NintendoSDK_movie 11.4.3) and `sdk`; `sdk` and `subsdk0` are byte-identical to Metroid Dread's ([010093801237C000](../010093801237C000/README.md)). Playable on the iPhone; on the Mac a new game gets through the prologue into the first battle.
 
-The Asian release (Japanese, Korean, Chinese) has its own title ID and `main` build, and its own profile: [01008D7016438000](../01008D7016438000/README.md).
+The Asian release (Japanese, Korean, Chinese) has its own title ID and `main` build, and its own profile: [01008D7016438000](../01008D7016438000/README.md). The Japanese eShop release (Japanese only) has its own title ID, SDK (10.8.2) and builds of every module, and its own profile: [010045C014650000](../010045C014650000/README.md).
 
 ## What it needs
 

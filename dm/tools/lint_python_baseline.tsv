@@ -10,12 +10,11 @@ pyright	dm/gfx/tools/cb_extent.py	reportOptionalOperand	1	Operator "<" not suppo
 pyright	dm/gfx/tools/dmsh_build.py	reportArgumentType	1	Argument of type "str | None" cannot be assigned to parameter "file" of type "FileDescriptorOrPath" in function "open" Type "str | None" is not assignable to type "FileDescriptorOrPath" Type "None" is not assignable to type "FileDescriptorOrPath" "None" is not assignable to "int" "None" is not assignable to "str" "None" is not assignable to "bytes" "None" is incompatible with protocol "PathLike[str]" "__fspath__" is not present "None" is incompatible with protocol "PathLike[bytes]" ...
 pyright	dm/gfx/tools/dmsh_build.py	reportArgumentType	3	Argument of type "str | None" cannot be assigned to parameter "a" of type "BytesPath" in function "join" Type "str | None" is not assignable to type "BytesPath" Type "str" is not assignable to type "BytesPath" "str" is not assignable to "bytes" "str" is incompatible with protocol "PathLike[bytes]" "__fspath__" is not present
 pyright	dm/gfx/tools/dmsh_build.py	reportAttributeAccessIssue	1	Cannot access attribute "items" for class "str" Attribute "items" is unknown
-pyright	dm/gfx/tools/dmsh_build.py	reportAttributeAccessIssue	1	Cannot access attribute "lineno" for class "AST" Attribute "lineno" is unknown
 pyright	dm/gfx/tools/dmsh_build.py	reportCallIssue	1	No overloads for "open" match the provided arguments
 pyright	dm/gfx/tools/dmsh_build.py	reportCallIssue	3	No overloads for "join" match the provided arguments
 pyright	dm/gfx/tools/dmsh_build.py	reportGeneralTypeIssues	2	"None" is not iterable "__iter__" method not defined
 pyright	dm/gfx/tools/dmsh_build.py	reportOperatorIssue	1	Operator "+" not supported for types "Literal[128]" and "int | None" Operator "+" not supported for types "Literal[128]" and "None" when expected type is "int | Unknown"
-pyright	dm/gfx/tools/dmsh_build.py	reportOptionalMemberAccess	4	"group" is not a known attribute of "None"
+pyright	dm/gfx/tools/dmsh_build.py	reportOptionalMemberAccess	3	"group" is not a known attribute of "None"
 pyright	dm/gfx/tools/dmsh_build.py	reportOptionalSubscript	13	Object of type "None" is not subscriptable
 pyright	dm/gfx/tools/gl_shaders.py	reportArgumentType	1	Argument of type "list[str]" cannot be assigned to parameter "iterable" of type "Iterable[LiteralString]" in function "join" "list[str]" is not assignable to "Iterable[LiteralString]" Type parameter "_T_co@Iterable" is covariant, but "str" is not a subtype of "LiteralString" "str" is not assignable to "LiteralString"
 pyright	dm/gfx/tools/gl_shaders.py	reportCallIssue	1	No overloads for "join" match the provided arguments
@@ -97,13 +96,11 @@ pyright	dm/tools/patch_nso.py	reportArgumentType	4	Argument of type "str | None"
 pyright	dm/tools/patch_nso.py	reportCallIssue	4	No overloads for "fullmatch" match the provided arguments
 pyright	dm/tools/patch_nso.py	reportIndexIssue	3	"__getitem__" method not defined on type "set[Unknown]"
 pyright	dm/tools/patch_nso.py	reportOptionalMemberAccess	1	"exec_module" is not a known attribute of "None"
-pyright	dm/tools/patch_nso.py	reportOptionalMemberAccess	1	"group" is not a known attribute of "None"
 pyright	dm/tools/patch_nso.py	reportOptionalMemberAccess	1	"groups" is not a known attribute of "None"
 pyright	dm/tools/patch_nso.py	reportOptionalMemberAccess	1	"loader" is not a known attribute of "None"
 pyright	dm/tools/patch_nso.py	reportOptionalMemberAccess	1	"op_str" is not a known attribute of "None"
 pyright	dm/tools/patch_nso.py	reportOptionalMemberAccess	1	"replace" is not a known attribute of "None"
 pyright	dm/tools/patch_nso.py	reportOptionalOperand	2	Operator "+" not supported for "None"
-pyright	dm/tools/patch_nso.py	reportOptionalOperand	2	Operator "<=" not supported for "None"
 pyright	dm/tools/patch_nso.py	reportOptionalSubscript	3	Object of type "None" is not subscriptable
 pyright	dm/tools/patch_nso.py	reportWildcardImportFromLibrary	1	Wildcard import from a library not allowed
 pyright	dm/tools/sdis.py	reportWildcardImportFromLibrary	1	Wildcard import from a library not allowed
@@ -171,7 +168,6 @@ pyright	dm/tools/tests/test_nsp_incremental.py	reportArgumentType	1	Argument of 
 pyright	dm/tools/tests/test_nsp_incremental.py	reportArgumentType	1	Argument of type "int | str | tuple[str, str]" cannot be assigned to parameter "ver" of type "str" in function "derive" Type "int | str | tuple[str, str]" is not assignable to type "str" "int" is not assignable to "str"
 pyright	dm/tools/tests/test_nsp_incremental.py	reportAttributeAccessIssue	1	Cannot assign to attribute "nacp" for class "ModuleType" Attribute "nacp" is unknown
 pyright	dm/tools/tests/test_nsp_incremental.py	reportAttributeAccessIssue	1	Cannot assign to attribute "pg" for class "ModuleType" Attribute "pg" is unknown
-pyright	dm/tools/tests/test_nsp_incremental.py	reportOptionalCall	2	Object of type "None" cannot be called
 pyright	dm/tools/tests/test_nsp_incremental.py	reportOptionalMemberAccess	1	"exec_module" is not a known attribute of "None"
 pyright	dm/tools/tests/test_nsp_incremental.py	reportOptionalMemberAccess	1	"loader" is not a known attribute of "None"
 pyright	dm/tools/tests/test_nsp_mac.py	reportArgumentType	1	Argument of type "ModuleSpec | None" cannot be assigned to parameter "spec" of type "ModuleSpec" in function "module_from_spec" Type "ModuleSpec | None" is not assignable to type "ModuleSpec" "None" is not assignable to "ModuleSpec"

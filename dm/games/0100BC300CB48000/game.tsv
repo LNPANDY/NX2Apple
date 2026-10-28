@@ -1,0 +1,40 @@
+# FINAL FANTASY X/X-2 HD Remaster 1.0.0, SDK 5.4.0. Virtuos PhyreEngine and FMOD.
+# Mac validation and shared host fixes: README.md beside this profile.
+# ---- Identity ----
+title_id	0100BC300CB48000
+program_id	0100BC300CB48000
+
+# ---- App ----
+name	FINAL FANTASY X/X-2 HD Remaster
+ipa	FinalFantasyXX2HdRemaster.ipa
+app_category	public.app-category.games
+
+# ---- Versions ----
+build	v0	1.0.0	main=1ce9f39ddb8a1a93d95309c346e66d9d	subsdk0=41097c438a36afd2e879fa6f5e0f0850	sdk=26ffb122262ca25e4c016c0af2f92a29
+package	v0
+shader_versions	v0
+
+# ---- Files ----
+romfs_marker	data/FFX_Data.vbf
+zip_store	.dat:.ini:.mp4:.otf:.phyre:.ttc:.ttf:.vbf:.metallib
+
+# ---- Memory ----
+# main sets a heap of at most the pool − 64 MB: a 3328 MB heap region
+mem_reserve	0x100000000
+mem_alias	0x10000000
+mem_stack	0x10000000
+app_pool	0xCD500000
+# the NPDM declares no system resource: IsVirtualAddressMemoryEnabled is false, as on Horizon
+sys_resource	0x0
+
+# ---- Shader split ----
+shader_groups	/.nrr/=nrr /nro/=nro /FFX_Data/=ffxdata /pause_menu/=pausemenu /Version_config/=versionconfig /FFX-2_Data/=ffx2data /data/=data /copyright/=copyright /popup_message/=popupmessage
+shader_note	Phyre NVN effects (base game and DLC)
+
+# ---- Modules ----
+# the NROs the game loads at run time import from subsdk0 (NintendoSDK_movie), which main does not
+modules	main subsdk0 sdk
+
+# ---- After the rewrite ----
+# used memory for the current rewritten modules, at least the default 64 MB
+mem_used	0x8000000

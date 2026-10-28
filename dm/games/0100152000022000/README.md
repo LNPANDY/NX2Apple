@@ -1,6 +1,8 @@
 # Mario Kart 8 Deluxe (`0100152000022000`)
 
-Update 4.0.0 (v1441792) over the base game, SDK 4.4.0, the oldest SDK until [Bayonetta 2](../01007960049A0000/README.md)'s 3.6.0. Nintendo's sead / agl / gsys engine with NintendoWare (G3d, Ui2d, Vfx, Atk) and Pia networking, on NVN. Modules `main`, `subsdk0` (the SDK's movie library: the menus' H.264 previews) and `sdk`. RomFS is mostly Yaz0-compressed SARC (`.szs`), BFRES models and BNTX textures, which the game reads itself. Plays on the iPhone (A20 Pro): 60 fps docked with about 6 ms of GPU time a frame, a 2.4 GB footprint with 3.7 GB of headroom, no audio underruns. Mii heads draw nothing (no firmware); see [Miis](#miis).
+Updates 4.0.0 (v1441792) and 4.0.1 (v1507328) over the base game, SDK 4.4.0, the oldest SDK until [Bayonetta 2](../01007960049A0000/README.md)'s 3.6.0. Nintendo's sead / agl / gsys engine with NintendoWare (G3d, Ui2d, Vfx, Atk) and Pia networking, on NVN. Modules `main`, `subsdk0` (the SDK's movie library: the menus' H.264 previews) and `sdk`. RomFS is mostly Yaz0-compressed SARC (`.szs`), BFRES models and BNTX textures, which the game reads itself. Plays on the iPhone (A20 Pro): 60 fps docked with about 6 ms of GPU time a frame, a 2.4 GB footprint with 3.7 GB of headroom, no audio underruns. Mii heads draw nothing (no firmware); see [Miis](#miis).
+
+The 4.0.1 build has the same `subsdk0` and `sdk` build IDs as 4.0.0 and a different `main` build ID. This profile has no build-specific function patches. [A 4.0.1 iPhone report](https://github.com/seedds/nxnative/issues/281) covers the title, menus and a complete three-lap Grand Prix race after the shared notification-wait fix. A second 4.0.1 build from current upstream, with Booster Course DLC and a derived profile, completed a full race on an iPhone 15 Pro Max (iOS 27.0.1) and on a Mac. The registered profile's combined shader tables and Mac build passed shader and pipeline prebuild checks; gameplay on a build made from this registered profile has not yet been tested. A build from the registered profile needs both update NSPs in the input folder.
 
 Brought up on the Mac from 4.0.0: boot, the title with its demo race, the Mii pick, the menus (their movie previews play), a 50cc Grand Prix race at Mario Kart Stadium to its results, and a second boot that loads the save. 60 fps (p50 16.7 ms), sound; about 2.4 GB resident and 1.26 GB of Metal allocations in the race, flat over minutes.
 
@@ -43,7 +45,7 @@ The game builds Mii heads from the console's MiiModel system data, starting at b
 
 ## Files and shaders
 
-- 29,650 shaders (12,529 vertex, 17,092 pixel, 28 compute, 1 geometry): BNSH in the courses' and objects' `.bfsha` / `.bfres` archives inside the `.szs` SARCs (courses, objects, karts, drivers), the effects' `.ptcl`, the layouts, agl's two BAHS sharcb and 37 in `main`; 18,747 variation pairs.
+- 29,785 shaders across 4.0.0 and 4.0.1 (12,579 vertex, 17,177 pixel, 28 compute, 1 geometry): BNSH in the courses' and objects' `.bfsha` / `.bfres` archives inside the `.szs` SARCs (courses, objects, karts, drivers), the effects' `.ptcl`, the layouts, agl's two BAHS sharcb and `main`; 19,012 variation pairs.
 - The NSP script's Mac-only build (`--platform mac`) saves about 30,000 iOS shader compiles and the 12 GB IPA for this game ([development.md, A Mac-only build for development](../../../docs/development.md#a-mac-only-build-for-development)). The player README gives the IPA as about 11.9 GB.
 
 ## Rewriter
@@ -58,8 +60,11 @@ The game builds Mii heads from the console's MiiModel system data, starting at b
 
 ## Found on this game
 
+- **Resolved in the sanitizer audit:** [Unaligned command headers during layout probing](../../../docs/reference/audio.md#unaligned-command-headers-during-layout-probing), reproduced with the SDK 4 command-list fixture.
+
 - **Audio layout detection after incomplete startup lists (resolved):** [Incomplete startup lists must not select the command layout](../../../docs/reference/audio.md#incomplete-startup-lists-must-not-select-the-command-layout).
 - **Rumble on a DualShock 4-style controller (resolved, Mac):** a GameSir Cyclone takes the [DualShock 4 effects report](../../../docs/reference/services.md#dualshock-4-rumble-through-its-effects-report). The game holds its low band at 0.1–0.4 all race long, which rotating motors play as constant rumble; `DM_RUMBLE_MIN=0.45` leaves crashes and drifts ([low levels on rotating motors](../../../docs/reference/services.md#controller-haptic-engines-without-advanced-players), open).
+- **Fullscreen slowdown to 15 frames a second on an M4's ProMotion screen (#348, closed into #347):** the display link skipped refreshes at frame latency 1; latency 2 in fullscreen is the workaround: [Frame latency 2 for the display link in fullscreen](../../../docs/reference/frame-rate.md#frame-latency-2-for-the-display-link-in-fullscreen). Measured on TotK; not yet checked on this game.
 - **Save-write failure isolation (resolved; host regression):** the separate device and account saves make this game a relevant two-save case. Failure state, recovery and commit synchronization now belong to each backing transaction: [Save-write failures stay with their backing transaction](../../../docs/reference/services.md#save-write-failures-stay-with-their-backing-transaction).
 
 General host changes first needed here; each applies to every game:

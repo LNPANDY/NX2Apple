@@ -1,0 +1,36 @@
+# Xenoblade Chronicles 2 2.1.0 (SDK 3.5.0, Monolith engine, NVN).
+# See README.md for the measured bring-up status.
+
+# ---- Identity ----
+title_id	0100E95004038000
+program_id	0100E95004038000
+
+# ---- App ----
+name	Xenoblade Chronicles 2
+ipa	XenobladeChronicles2.ipa
+app_category	public.app-category.role-playing-games
+pad_layout	full
+
+# ---- Versions ----
+build	v983040	2.1.0	main=f77f1559371c0ec6d50e78774ac59d95	subsdk0=2201bb705408ef610e9aac23195011d1	sdk=867b345248124ef3d70e3202e221e978
+package	v983040
+shader_versions	v983040
+
+# ---- Files ----
+# every module main imports from
+modules	main subsdk0 sdk
+romfs_marker	bf2.ard
+zip_store	.ard:.arh:.webm:.metallib
+
+# ---- Memory ----
+# Startup requests a 0xC9400000-byte heap; the reservation leaves 3328 MB for it.
+mem_reserve	0x100000000
+mem_alias	0x10000000
+mem_stack	0x10000000
+app_pool	0xCD500000
+# The NPDM declares no system resource; virtual address memory is disabled.
+sys_resource	0x0
+
+# ---- Shader split ----
+shader_groups	/stream/=stream
+shader_note	Xenoblade Chronicles 2 shaders

@@ -120,7 +120,61 @@ def read_index(img):   # for tests and checks: {guest path: (is dir, offset, siz
     return out
 
 
+ID_MAGIC = 'DMROMFSID1'
+_FNV_OFFSET, _FNV_PRIME, _MASK = 0xcbf29ce484222325, 0x100000001b3, (1 << 64) - 1
+
+
+def _clean(text):   # one token of the identity line: no spaces, no newlines
+    return ''.join(c if c.isalnum() or c in '._-+' else '_' for c in str(text)) or '-'
+
+
+def identity(img, title='', version='', build=''):
+    """The identity line of a complete image (dm/host/romfs_identity.h defines the format and the C reader): its size and an FNV-1a 64 hash of its header and index
+    (the file data is not read, so a 14 GB image takes a moment). Raises ValueError for a cut off or invalid image."""
+    size = os.path.getsize(img)
+    with open(img, 'rb') as f:
+        head = f.read(HEAD.size)
+        if len(head) != HEAD.size: raise ValueError(f'not a RomFS image: {img}')
+        magic, ioff, isz, _ = HEAD.unpack(head)
+        if magic != MAGIC or ioff < HEAD.size or ioff > size or isz != size - ioff: raise ValueError(f'incomplete or invalid RomFS image: {img}')
+        h, rest = _FNV_OFFSET, b''
+        f.seek(ioff)
+        def mix(h, data):
+            for w in struct.unpack(f'<{len(data) // 8}Q', data): h = ((h ^ w) * _FNV_PRIME) & _MASK
+            return h
+        h = mix(h, head)
+        left = isz
+        while left:
+            chunk = f.read(min(left, 8 << 20))
+            if not chunk: raise ValueError(f'incomplete RomFS image: {img}')
+            left -= len(chunk)
+            chunk = rest + chunk
+            keep = len(chunk) % 8 if left else 0
+            rest = chunk[len(chunk) - keep:]; chunk = chunk[:len(chunk) - keep]
+            if not left and len(chunk) % 8: chunk += b'\0' * (8 - len(chunk) % 8)
+            h = mix(h, chunk)
+    return f'{ID_MAGIC} title={_clean(title)} version={_clean(version)} build={_clean(build)} size={size} index={h:016x}'
+
+
+def parse_identity(text):   # {field: value} of an identity line; size is an int
+    parts = text.split()
+    if not parts or parts[0] != ID_MAGIC: raise ValueError('not an identity line')
+    d = dict(p.split('=', 1) for p in parts[1:] if '=' in p)
+    if 'size' not in d or 'index' not in d: raise ValueError('identity line without size or index')
+    d['size'] = int(d['size']); return d
+
+
+def same_identity(a, b):   # two lines name the same image when size and index agree (title, version and build only describe it)
+    x, y = parse_identity(a), parse_identity(b)
+    return (x['size'], x['index']) == (y['size'], y['index'])
+
+
 if __name__ == '__main__':
+    import sys
+    if sys.argv[1:2] == ['--identity']:   # romfs_image.py --identity IMAGE [TITLE [VERSION [BUILD]]]: the identity line of IMAGE
+        try: print(identity(*sys.argv[2:6]))
+        except (OSError, ValueError, TypeError) as e: sys.exit(f'[RED] {e}')
+        sys.exit(0)
     ap = argparse.ArgumentParser(description='Pack a RomFS folder into an indexed image')
     ap.add_argument('--reuse', action='store_true', help='keep the image only while its source tree, packer and image are unchanged')
     ap.add_argument('source'); ap.add_argument('image')

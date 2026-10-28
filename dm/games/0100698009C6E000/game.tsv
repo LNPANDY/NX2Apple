@@ -1,0 +1,39 @@
+# Blasphemous (Switch, update 1.0.8 = v524288). Opening gameplay tested on the Mac.
+# Format: see dm/games/README.md
+# Unity 2017.4.28f1 IL2CPP, FMOD, SDK 8.3.1, NVN. subsdk0 is NintendoSDK_movie.
+
+# ---- Identity ----
+title_id	0100698009C6E000
+program_id	0100698009C6E000
+
+# ---- App ----
+name	Blasphemous
+ipa	Blasphemous.ipa
+app_category	public.app-category.games
+
+# ---- Versions ----
+build	v524288	1.0.8	main=ab67af56a9d98348817e8b12c5af3ea1	subsdk0=a4b620d9c140a4ac6e010251afd5cb11	sdk=86a2afd863c99062d666226a9e7aa764
+package	v524288
+shader_versions	v524288
+
+# ---- Files ----
+modules	main subsdk0 sdk
+romfs_marker	Data/resources.assets.resS
+zip_store	.bank:.dat:.mp4:.resource:.ress:.txt:.metallib
+
+# ---- Memory ----
+# No NPDM system resource: Unity allocates from a heap of pool minus used memory.
+# 256 MB in front + 256 MB alias + 256 MB stack + 3.25 GB heap.
+mem_reserve	0x100000000
+mem_alias	0x10000000
+mem_stack	0x10000000
+app_pool	0xCD500000
+sys_resource	0x0
+# The rewritten modules exceed the default 64 MB; the packing script computes 112 MB.
+mem_used	0x7000000
+
+# ---- Shader split ----
+# The game sets near=0 at startup; offline pipeline bases must use that depth variant.
+depth_mode	zero
+shader_groups	/Data/=data
+shader_note	Blasphemous shaders

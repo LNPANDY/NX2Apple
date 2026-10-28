@@ -21,3 +21,6 @@ CUTS = {
         (0x12418e8, '2800c0f2', '4800a4f2', 'first arena stored capacity: 512 MB + 128 KB'),
     ],
 }
+
+# Whether a general rule could replace these patches (dm/tools/docs_patches.py lists it in docs/agents/game-patches.md)
+GENERALIZE = "No: Monolith's own allocator reservation; the cause, an iPhone's address space, cannot be fixed in the host"

@@ -20,6 +20,9 @@ concurrency:
 
 env:
   GAME: 010015100B514000   # Super Mario Bros. Wonder: the profile the host and gfx tests are built for (any profile does; the tests are about code, not the game)
+  # One toolchain everywhere (upstream's dm/tools/tests/test_ci_toolchain.py keeps the name in step
+  # with README and the NSP script): the xcode-27 image is GitHub-hosted, arm64, macOS 27 + Xcode 27.1.
+  DEVELOPER_DIR: /Applications/Xcode_27.1.app/Contents/Developer
 
 defaults:
   run:
@@ -29,7 +32,7 @@ defaults:
 jobs:
   host-tests:
     name: Host unit tests and CPU-only gfx tests
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -77,7 +80,7 @@ jobs:
 
   tool-tests:
     name: Tool tests
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -120,30 +123,36 @@ jobs:
           path: logs
           retention-days: 7
 
-  sync-patchers:
-    name: Sync patchers against seedds main (issue #92)
+  patch-queue:
+    name: Patch queue (check, dry bump against seedds main, issue #123)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.14'
-      # The patchers of scripts/sync_upstream.py are run on the files of seedds/nxnative main (the remote the fork syncs from) and of the last sync base
-      # (.upstream-ref): one that no longer fits, or whose marker upstream's own text satisfies, fails here before a sync stops or drops fork code silently.
-      - name: Fetch seedds main and the last sync base
+      # scripts/patches.py check: the series applies to the pinned upstream (.upstream-ref) and reproduces the committed vendored tree. A vendored
+      # file edited without a patch, a patch whose header is incomplete and a patch that touches the shader chain fail here. The dry bump to
+      # seedds main only reports (the nightly sync opens the PR or the issue); it lists the patches that would conflict.
+      - name: Fetch seedds main and the pinned base
         run: |
           git remote add seedds https://github.com/seedds/nxnative.git
-          git fetch --no-tags --depth=1 seedds main
-          git fetch --no-tags --depth=1 seedds "$(cat .upstream-ref)"
-      - name: Patcher tests
-        run: python -m unittest -v scripts/tests/test_sync_patchers.py
+          git fetch --no-tags seedds main
+          git fetch --no-tags seedds "$(cat .upstream-ref)"
+      - name: Patch queue check
+        run: python scripts/patches.py check
+      - name: Patch queue tests
+        run: python -m unittest -v scripts/tests/test_patches.py
+      - name: Dry bump to seedds main (report only)
+        run: python scripts/patches.py bump --dry --to "$(git rev-parse seedds/main)" || true
 
   build:
     name: Build check (Mac host, gfx tests, iOS sources)
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -177,7 +186,7 @@ jobs:
 
   launcher:
     name: Mac launcher (frontend, swift test)
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -202,7 +211,7 @@ jobs:
 
   launcher-qt:
     name: Qt front end (frontend-qt tests)
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -217,7 +226,7 @@ jobs:
 
   ios-build:
     name: Unsigned iOS app (synthetic modules, Swift and link)
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

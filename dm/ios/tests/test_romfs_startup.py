@@ -10,6 +10,7 @@ REPO = Path(__file__).resolve().parents[3]
 spec = importlib.util.spec_from_file_location('romfs_image', REPO / 'dm/tools/romfs_image.py')
 assert spec is not None and spec.loader is not None
 image = importlib.util.module_from_spec(spec); spec.loader.exec_module(image)
+import shutil
 
 
 @unittest.skipUnless(sys.platform == 'darwin', 'Foundation required')
@@ -21,7 +22,7 @@ class Startup(unittest.TestCase):
         main = (REPO / 'dm/ios/Sources/main.m').read_text()
         locator = main[main.index('static int romfs_image_complete'):main.index('// Boot prerequisites')]
         source = root / 'locator.m'
-        source.write_text('#import <Foundation/Foundation.h>\n#include <stdio.h>\n#include "romfs_image.h"\n'
+        source.write_text('#import <Foundation/Foundation.h>\n#include <stdio.h>\n#include "romfs_image.h"\n#include "romfs_identity.h"\n'
                           'static NSString *fixture_doc, *fixture_tmp, *fixture_bundle;\n#define DM_GAME_ROMFS_MARKER "marker"\n'
                           'typedef struct { const char *id, *romfs_marker; } fixture_profile;   /* the fork reads both from the runtime profile */\nstatic const fixture_profile *dm_profile(void) { static const fixture_profile p = {"0100000000000000", "marker"}; return &p; }\n'
                           '@interface FixtureBundle : NSObject\n+ (instancetype)mainBundle;\n- (NSString *)resourcePath;\n@end\n'
@@ -71,6 +72,32 @@ class Startup(unittest.TestCase):
             folder = doc / 'romfs'; folder.mkdir(); (folder / 'marker').touch()
             self.assertEqual(locate(), str(folder))
             image.pack(source, doc / 'romfs.img'); self.assertEqual(locate(), str(doc / 'romfs.img'))
+
+    def test_slim_build_uses_only_the_image_it_was_built_for(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); doc = root / 'Documents'; doc.mkdir()
+            tmp = root / 'temp'; tmp.mkdir(); bundle = root / 'App'; bundle.mkdir()
+            wanted, other = root / 'wanted', root / 'other'
+            for folder, name in ((wanted, 'a'), (other, 'b')): folder.mkdir(); (folder / 'marker').write_text('x'); (folder / name).write_text(name * 100)
+            image.pack(wanted, root / 'wanted.img'); image.pack(other, root / 'other.img')
+            (bundle / 'romfs.id').write_text(image.identity(root / 'wanted.img', 'T', '1.0', 'v0') + '\n')
+            def locate():
+                return subprocess.run([str(self.locator), str(doc), str(tmp), str(bundle)], capture_output=True, text=True)
+            self.assertEqual(locate().returncode, 1)   # slim build, no image yet
+            shutil.copy(root / 'other.img', doc / 'romfs.img')
+            result = locate(); self.assertEqual(result.returncode, 1, result.stdout)   # another version: never used
+            self.assertIn('[RED]', result.stderr)
+            folder = doc / 'romfs'; folder.mkdir(); (folder / 'marker').touch()
+            result = locate()
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), str(folder))   # a rejected image preserves the existing folder fallback
+            self.assertIn('[RED]', result.stderr)
+            self.assertTrue(folder.is_dir()); self.assertEqual(list(tmp.iterdir()), [])
+            shutil.copy(root / 'wanted.img', doc / 'romfs.img')
+            result = locate(); self.assertEqual(result.returncode, 0, result.stderr); self.assertEqual(result.stdout.strip(), str(doc / 'romfs.img'))
+            (bundle / 'romfs.id').unlink()   # the default build has no identity: any complete image
+            shutil.copy(root / 'other.img', doc / 'romfs.img')
+            self.assertEqual(locate().stdout.strip(), str(doc / 'romfs.img'))
 
     def test_the_location_the_player_picked_wins_over_everything(self):
         """The Files-app pick (DataBookmark): an image, a folder holding one, or a plain tree."""

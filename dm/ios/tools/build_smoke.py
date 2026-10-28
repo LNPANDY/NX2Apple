@@ -55,7 +55,7 @@ def main():
                DM_BUNDLE_ID='org.nxnative.ci', DM_DISPLAY_NAME='CI build fixture',
                DM_APP_VERSION='1.0', DM_APP_CATEGORY=profile.get('app_category'),
                DM_TEAM_ID='', DM_SCHEME_NAME='DmIOS', DM_APPICON='',
-               DM_SHOW_FPS='NO', DM_LANG='en-US')
+               DM_SHOW_FPS='NO', DM_LANG='en-US', DM_FORK_PATCHES='')
 
     def run(*command, capture=False):
         return subprocess.run([str(c) for c in command], cwd=project, env=env,

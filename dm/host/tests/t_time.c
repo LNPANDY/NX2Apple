@@ -1,5 +1,5 @@
 // Clock snapshot arithmetic (hle_time.c, from PR #36): CalculateSpanBetween and CalculateStandardUserSystemClockDifferenceByUser looked up by their mangled names in the real swforce
-// registrations, run on snapshots made by the host's own CreateWithStandardSystemClock and on edited copies
+// registrations, run on both host snapshot entries and on edited copies
 #include "../hle_time.c"
 #include <mach-o/getsect.h>
 
@@ -29,10 +29,14 @@ int main(void) {
     setenv("TZ", "UTC", 1); tzset();
     CHECK(snap(a) == RES_OK, "snapshot a");
     CHECK(a[0xcd] == 1, "standard snapshot type is 1");
-    // The adjustable clock is the same data from host time with type 2; the guard bytes prove the
-    // entry writes exactly the 0xd0 bytes a ClockSnapshot has (PR #26's test).
+    // Both entries must stay inside the SDK's 0xd0-byte buffer, including the type near its end.
     uint8_t guarded[0xf0]; memset(guarded, 0xa5, sizeof guarded);
     uint8_t *adjustable = guarded + 0x10;
+    CHECK(snap(adjustable) == RES_OK, "standard snapshot in guarded buffer");
+    int standard_guards_ok = 1;
+    for (int i = 0; i < 0x10; i++) standard_guards_ok &= guarded[i] == 0xa5 && guarded[0xe0 + i] == 0xa5;
+    CHECK(standard_guards_ok, "standard snapshot writes only its 0xd0 bytes");
+    memset(guarded, 0xa5, sizeof guarded);
     CHECK(adj_snap(adjustable) == RES_OK, "adjustable snapshot");
     int guards_ok = 1;
     for (int i = 0; i < 0x10; i++) guards_ok &= guarded[i] == 0xa5 && guarded[0xe0 + i] == 0xa5;
@@ -47,6 +51,9 @@ int main(void) {
           "offline snapshot has no network clock context or time");
     CHECK(!memcmp(a + 0x98, adjustable + 0x98, 16), "both snapshots use the same steady clock source");
     CHECK(udiff(a, adjustable) == 0, "changing snapshot type does not report a user clock change");
+    CHECK(!strcmp((const char *)adjustable + 0xa8, "UTC"), "adjustable snapshot carries the host time zone");
+    memcpy(b, a, sizeof b); b[0xcd] = 2;
+    CHECK(span(&ts, a, b) == RES_OK && ts == 0, "changing only the type leaves the elapsed span at zero");
     unsetenv("DM_FIXED_TIME");
     CHECK(span(&ts, a, a) == RES_OK && ts == 0, "span of a snapshot with itself is 0");
     memcpy(b, a, sizeof b); put64(b, 0x90, get64(a, 0x90) + 90);   // b: 90 s of steady clock later

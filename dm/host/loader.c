@@ -6,14 +6,15 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <limits.h>
 #include <mach-o/getsect.h>
 #include <mach-o/ldsyms.h>
 #include "hle.h"
 
-module_t g_mod[MAX_MOD];
+module_t *g_mod;
 int g_nmod;
 // Stable module addresses live in g_mod; lookup order follows activation, including unload/reload.
-static module_t *g_loaded[MAX_MOD]; static int g_nloaded;
+static module_t **g_loaded; static int g_nloaded, g_mod_capacity;
 static pthread_rwlock_t g_modules_mu = PTHREAD_RWLOCK_INITIALIZER;
 pthread_key_t g_key18, g_keytls, g_keytlr, g_keygate;
 enum { KEY_K18, KEY_KTLS, KEY_KTLR, KEY_KGATE, KEY_N };
@@ -349,11 +350,31 @@ int nro_refused(const uint8_t sha256[32]) {
     for (int i = 0; i < g_nrefused && i < 16; i++) if (!memcmp(g_refused[i], sha256, 32)) return 1;
     return 0;
 }
-static void preload_nros(const char *dir) {
-    char path[1024], line[512]; snprintf(path, sizeof path, "%s/nro.tsv", dir);
+static FILE *open_nros(const char *dir) {
+    char path[1024]; snprintf(path, sizeof path, "%s/nro.tsv", dir);
     const char *off = getenv("DM_NRO");
-    if (off && !atoi(off)) { LOG("NRO: loading off (DM_NRO=0): every LoadModule fails"); return; }
-    FILE *f = fopen(path, "r");
+    if (off && !atoi(off)) { LOG("NRO: loading off (DM_NRO=0): every LoadModule fails"); return NULL; }
+    return fopen(path, "r");
+}
+// Final Fantasy X/X-2 registers 1,432 NROs, exceeding the old 128-slot array before nnMain. Size both tables from the actual manifest before any module pointer escapes;
+// never realloc them, since nn::ro handles and the activation list retain module_t pointers. Refused SDK rows need no slot.
+static void allocate_modules(int n, FILE *nros) {
+    char line[512], name[16];
+    if (n <= 0) die("no modules to load");
+    if (nros) {
+        while (fgets(line, sizeof line, nros)) {
+            if (line[0] == '#' || sscanf(line, "%15s", name) != 1 || !strcmp(name, "refused")) continue;
+            if (n == INT_MAX) die("too many modules");
+            n++;
+        }
+        if (ferror(nros) || fseek(nros, 0, SEEK_SET)) die("cannot read NRO manifest");
+    }
+    g_mod_capacity = n;
+    g_mod = calloc((size_t)n, sizeof *g_mod); g_loaded = calloc((size_t)n, sizeof *g_loaded);
+    if (!g_mod || !g_loaded) die("cannot allocate %d module slots", n);
+}
+static void preload_nros(const char *dir, FILE *f) {
+    char path[1024], line[512]; snprintf(path, sizeof path, "%s/nro.tsv", dir);
     if (!f) return;
     int n0 = g_nmod; size_t data = 0;
     while (fgets(line, sizeof line, f)) {
@@ -364,18 +385,19 @@ static void preload_nros(const char *dir) {
             if (g_nrefused < (int)(sizeof g_refused / sizeof *g_refused)) for (int k = 0; k < 32; k++) sscanf(hex + 2 * k, "%2hhx", &g_refused[g_nrefused][k]);
             g_nrefused++; continue;
         }
-        if (g_nmod >= MAX_MOD) die("%s: more NROs than module slots (MAX_MOD %d)", path, MAX_MOD);
+        if (g_nmod >= g_mod_capacity) die("%s: NRO manifest grew while loading", path);
         module_t *m = &g_mod[g_nmod];
         strlcpy(m->name, name, sizeof m->name); m->nro = 1; m->nro_size = size;
         for (int k = 0; k < 32; k++) sscanf(hex + 2 * k, "%2hhx", &m->sha256[k]);
         read_layout(m, dir); map_image(m, dir); parse_dynamic(m); register_gates(m, dir);
-        m->pristine_len = m->key_page_off - m->data_off;
-        if (!(m->pristine = malloc(m->pristine_len))) die("%s: pristine data copy", m->name);
-        memcpy(m->pristine, m->base + m->data_off, m->pristine_len); data += m->pristine_len;
+        // The NRO header gives initialized data separately from bss. Keep only those bytes: bss is known zero before the first load, even for FFX's 925 MB static heap.
+        m->pristine_len = *(const uint32_t *)(m->base + 0x34);
+        if (*(const uint32_t *)(m->base + 0x30) != m->data_off || m->pristine_len > m->key_page_off - m->data_off) die("%s: NRO data layout mismatch", m->name);
+        data += m->pristine_len;
         g_nmod++;
     }
     fclose(f);
-    LOG("NRO: %d modules mapped (%s), loaded when the game asks; data and bss kept as rewritten %.1f MB", g_nmod - n0, path, data / 1048576.0);
+    LOG("NRO: %d modules mapped (%s), loaded when the game asks; initialized data %.1f MB, snapshotted on first load", g_nmod - n0, path, data / 1048576.0);
 }
 
 module_t *nro_find(const uint8_t sha256[32]) {
@@ -403,7 +425,15 @@ static unsigned rebind(module_t *k, module_t *nm, int load) {
 
 void nro_load(module_t *m) {
     pthread_rwlock_wrlock(&g_modules_mu);
-    if (m->loads) memcpy(m->base + m->data_off, m->pristine, m->pristine_len);
+    // No guest code can modify an inactive NRO before its first load. Copy here, before relocation/init: eagerly copying FFX/X-2's 1,432 modules committed 5.8 GB of mostly unused bss.
+    if (!m->pristine) {
+        if (!(m->pristine = malloc(m->pristine_len ? m->pristine_len : 1))) die("%s: pristine data copy", m->name);
+        memcpy(m->pristine, m->base + m->data_off, m->pristine_len);
+    }
+    if (m->loads) {
+        memcpy(m->base + m->data_off, m->pristine, m->pristine_len);
+        memset(m->base + m->data_off + m->pristine_len, 0, m->key_page_off - m->data_off - m->pristine_len);
+    }
     m->loads++; m->loaded = 1; g_loaded[g_nloaded++] = m;
     relocate(m);
     unsigned n = 0;
@@ -414,7 +444,7 @@ void nro_load(module_t *m) {
 
 void nro_unload(module_t *m) {
     pthread_rwlock_wrlock(&g_modules_mu);
-    m->loaded = 0;
+    if (!svc_nro_deactivate(m)) die("NRO %s: cannot unload while a mapped stack borrows its data", m->name);
     for (int i = 0; i < g_nloaded; i++) if (g_loaded[i] == m) { memmove(g_loaded + i, g_loaded + i + 1, (size_t)(--g_nloaded - i) * sizeof *g_loaded); break; }
     unsigned n = 0;
     for (int i = 0; i < g_nmod; i++) if (g_mod[i].loaded) n += rebind(&g_mod[i], m, 0);
@@ -568,6 +598,8 @@ void load_modules(const char *dir, const char **names, int n) {
     // Map everything and parse the symbol tables first, then relocate all at once (cross-module symbols must all be in place first)
     // DM_BOOTPROF: breakdown of ① host loading (milliseconds), to set the upper bound for ③ pre-relocation / mmap
     uint64_t t0 = now_ns(), tm = 0, tp = 0, tg = 0, tr = 0, t;
+    FILE *nros = open_nros(dir);
+    allocate_modules(n, nros);
     for (int i = 0; i < n; i++) {
         module_t *m = &g_mod[i];
         strlcpy(m->name, names[i], sizeof m->name);
@@ -586,7 +618,7 @@ void load_modules(const char *dir, const char **names, int n) {
     force_init();
     t = now_ns(); for (int i = 0; i < g_nmod; i++) relocate(&g_mod[i]); tr = now_ns() - t;
     force_check();
-    preload_nros(dir);   // mapped now, relocated when the game loads them (hle_ro.c)
+    preload_nros(dir, nros);   // mapped now, relocated when the game loads them (hle_ro.c)
     { void hlecount_seal(void); hlecount_seal(); }   // DM_HLECOUNT: relocation done, seal the counting stub pages as read-only executable
     if (getenv("DM_SYMCHECK")) LOG("DM_SYMCHECK: %lu symbol lookups at load time, hash and linear disagree %lu", g_symchk_n, g_symchk_bad);
     if (g_flag.bootprof) LOG("① breakdown: mapping (read + copy + seal pages) %.1f ms, dynamic section parsing %.1f ms, gate registration %.1f ms, relocation + forced takeover %.1f ms, total %.1f ms",

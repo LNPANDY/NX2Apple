@@ -26,7 +26,7 @@ static int test_pthread_cond_timedwait(pthread_cond_t *, pthread_mutex_t *, cons
 #undef g_ft
 void *front_metal_layer(void) { return NULL; }
 module_t *module_of(const void *p) { (void)p; return NULL; }
-module_t g_mod[MAX_MOD]; int g_nmod;
+module_t *g_mod; int g_nmod;
 void svc_thread_dump(void) {}
 uint64_t now_ns(void) { return bp_now(); }
 static int checks, failed;
@@ -63,6 +63,8 @@ static void acquire_ticks(int hz, int display, int interval, double want, const 
 }
 int main(void) { @autoreleasepool {
     setenv("DM_RT", "0", 1); setenv("DM_PRESENT_SNAP", "0", 1);
+    // Test uncapped display pacing independently of the selected game's default.
+    setenv("DM_FPS_TARGET", "0", 1);
     g_dm_present_link = 2; g_link = (CAMetalDisplayLink *)[NSObject new];   // a link is "on" while the object is set; nothing calls it here
     CHECK(mtl_link_active(), "the link counts as active");
     g_link_mode = 2;
@@ -78,6 +80,13 @@ int main(void) { @autoreleasepool {
     acquire_ticks(120, 0, 2, 4, "game mode keeps interval 2 in 60 Hz vsyncs");
     acquire_ticks(60, 1, 2, 2, "display 60 Hz ignores the game's interval");
     acquire_ticks(240, 1, 1, 1, "a rate above the link's waits one tick");
+    setenv("DM_FPS_TARGET", "30", 1); g_present_cap = -1;
+    acquire_ticks(120, 1, 1, 4, "native 30 fps cap waits four 120 Hz ticks");
+    CHECK(nvn_game_fps() == 30, "native 30 fps cap configures the display link");
+    setenv("DM_FPS_TARGET", "60", 1); g_present_cap = -1;
+    acquire_ticks(120, 1, 1, 2, "native 60 fps cap waits two 120 Hz ticks");
+    CHECK(nvn_game_fps() == 60, "native 60 fps cap configures the display link");
+    setenv("DM_FPS_TARGET", "0", 1); g_present_cap = -1;
     _Alignas(8) float state[10] = {60}; dm_fps_state = (uint8_t *)state;   // include the fixed-step flag at +0x24 read by rt_period_ns
     acquire_ticks(120, 1, 1, 2, "the 60 fps frame step keeps 60 Hz vsyncs");
     state[0] = 30;

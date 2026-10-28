@@ -11,15 +11,22 @@ body:
     id: step
     attributes:
       label: Which step failed
+      description: The stage the Builds page shows in red, or the last stage line in the Build log.
       options:
         - The key check, before the build
-        - Extracting the game (NSP / NSZ / XCI)
-        - Packing the RomFS
-        - Shaders
-        - Building the app or IPA
+        - Decompress NSZ, or build the extract tool
+        - Extract the game (NSP / XCI, update, DLC)
+        - Rewrite (the game's code)
+        - Shader capture or shader split
+        - Mac shaders or iOS shaders
+        - Mac host (building the Mac player)
+        - Pipeline prebuild or Pipeline archive
+        - Prepare Xcode, app build or IPA pack
+        - Mac app (packing the app)
         - Install to an iPhone or iPad (Xcode, devicectl)
         - Updating the build tools
         - Something else
+        - Not sure
     validations:
       required: true
   - type: textarea
@@ -81,6 +88,14 @@ body:
       placeholder: MacBook Pro M2 Max, macOS 26.1
     validations:
       required: true
+  - type: input
+    id: fork-patches
+    attributes:
+      label: Fork patches line
+      description: "The patches your build carries beyond upstream's engine: the first line of the game app's log (`fork patches: ...`), or the contents of `dm/fork_patches.txt` in the NX2Apple folder you built from. Optional."
+      placeholder: "fork patches: runtime-profile, romfsarc, ..."
+    validations:
+      required: false
   - type: checkboxes
     id: no-game-files
     attributes:

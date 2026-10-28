@@ -6,7 +6,7 @@ Update 1.3.1 (v327680) over the base game, SDK 18.3.5. The Wii game (codename Co
 
 | Setting | Where | Why |
 |---|---|---|
-| `op_mode handheld` | [`game.tsv`](game.tsv) | the pointer (star bits, menus, the file select) is the touch screen in handheld mode; docked it is the Joy-Con gyro, which the host does not have. See [Input](#input) |
+| `op_mode handheld` | [`game.tsv`](game.tsv) | the pointer (star bits, menus, the file select) is the touch screen in handheld mode; docked it uses the controller gyro. See [Input](#input) |
 | `pad_layout full` | `game.tsv` | the 3D gamepad layout |
 | `modules main subsdk0 sdk` | `game.tsv` | `subsdk1`–`subsdk4` are replaced by the host's Vulkan layer |
 | 1 GB block: `mem_reserve 0x40000000`, `mem_alias 0x10000000`, `mem_stack 0x10000000`, `app_pool 0xCD500000` | `game.tsv` | the game never calls `SetHeapSize`; its memory is `main`'s bss. See [Memory](#memory) |
@@ -50,7 +50,8 @@ Update 1.3.1 (v327680) over the base game, SDK 18.3.5. The Wii game (codename Co
 
 ## Input
 
-- Docked, Galaxy's pointer is the Joy-Con gyro, which the host does not have; handheld, it is the touch screen. `op_mode handheld` starts it in handheld mode (720p).
+- Docked, Galaxy's pointer uses the controller gyro; handheld, it is the touch screen. `op_mode handheld` starts it in handheld mode (720p). `DM_OPMODE=1` selects docked mode for gyro input.
+- **Reported working, original PR #296:** JustWoody tested 1.3.1's docked pointer with a genuine Pro Controller over Bluetooth on an M3 Pro, macOS 27, using passive HID reports; GameController's motion was all zero. The reader now feeds the shared motion core ([Pro Controller fallback](../../../docs/reference/services.md#switch-pro-controller-advertises-motion-but-sends-zeroes)); that rework has automated tests only, with live sensitivity, axes, sample order and reconnect testing still open. The profile keeps its handheld default.
 - On the iPhone, touches no gamepad control takes go to the game's touch screen: in the 3D layout, those outside the right third of the screen, which is the right stick; all of them while a controller is connected. On the Mac the mouse is a finger, and `DM_KEYS` taps with `T<x>x<y>` (normalized picture coordinates).
 
 ## Services
@@ -76,6 +77,7 @@ General host changes first needed here; each applies to every game:
 - **Sleeps under 20 µs take the yield back-off** (`sleep_precise`, `hle_thread.c`): [Sleeps under 20 µs take the yield path](../../../docs/reference/threads.md#sleeps-under-20-µs-take-the-yield-path).
 - **SDK 18's `InitializeTouchScreen(int, int)`** hooked: [SDK calls that open a system service through sm](../../../docs/reference/services.md#sdk-calls-that-open-a-system-service-through-sm).
 - **`op_mode`** (the operation mode at start, `DM_OPMODE`): [dm/games/README.md, Keys](../README.md#keys).
+- **Pro Controller motion absent from GameController on the Mac:** [Switch Pro Controller advertises motion but sends zeroes](../../../docs/reference/services.md#switch-pro-controller-advertises-motion-but-sends-zeroes).
 
 ## Open
 

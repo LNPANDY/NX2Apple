@@ -19,7 +19,7 @@ static _Noreturn void heap_abort(void);
 #undef abort
 #undef mprotect
 
-module_t g_mod[MAX_MOD];
+module_t *g_mod;
 int g_nmod;
 struct dm_flags g_flag;
 void hlecount_svc(int num) { (void)num; }
@@ -32,6 +32,8 @@ uint64_t dm_entropy64(void) { return 0; }
 int thr_limit_used(void) { return 0; }
 int dm_ue_heap_owns(uint64_t a, uint64_t n) { (void)a; (void)n; return 0; } // No Unreal allocator is installed in this fixture.
 void dm_guest_write_prepare(void *addr, size_t size) { (void)addr; (void)size; }
+// This fixture calls the SVC dispatcher directly, without rewritten guest gates.
+void gate_obs_set(int id, void (*fn)(uint64_t *, int)) { (void)id; (void)fn; }
 
 static size_t page, old_size, requested;
 static int calls, injected_error, last_prot;

@@ -99,7 +99,10 @@ final class DiagnosticsTests: XCTestCase {
                                     detail: "dep.python.old:3.9:3.12", installCmd: [])
         let row = Diagnostics.dependency(python)
         XCTAssertEqual(row.name, L10n.string("dep.python", .en))
-        XCTAssertEqual(row.detail, String(format: L10n.string("dep.python.old", .en), "3.9:3.12"))
+        // One argument per ":"-separated part: the report names both versions ("3.9" and "3.12");
+        // passing the remainder whole printed "3.9:3.12" for the first %@ and "(null)" for the second.
+        XCTAssertEqual(row.detail, String(format: L10n.string("dep.python.old", .en), "3.9", "3.12"))
+        XCTAssertFalse(row.detail.contains("(null)"))
         let zstd = BuildModel.Dep(id: "brew:zstd", name: "dep.zstd", hint: "dep.zstd.hint", present: true, detail: "/opt/homebrew/bin/zstd", installCmd: [])
         XCTAssertEqual(Diagnostics.dependency(zstd).detail, "/opt/homebrew/bin/zstd")
     }

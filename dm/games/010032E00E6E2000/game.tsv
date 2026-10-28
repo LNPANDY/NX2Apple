@@ -1,0 +1,40 @@
+# Return of the Obra Dinn 1.0.1 (v65536), Unity 2017.4.28f1 IL2CPP / FMOD, SDK 8.2.0.
+# Generated shader tables and measured rewrite allocation; no game-specific cuts.
+
+# ---- Identity ----
+title_id	010032E00E6E2000
+program_id	010032E00E6E2000
+
+# ---- App ----
+name	Return of the Obra Dinn
+ipa	ReturnOfTheObraDinn.ipa
+app_category	public.app-category.adventure-games
+pad_layout	full
+
+# ---- Versions ----
+build	v65536	1.0.1	main=9e93a6566aaa27418dd2435d8d5dffe5	subsdk0=8df876f80ce4ceee62360b31405c452f	sdk=3ae34e689d7a35f13cbf42bfd672af8b
+package	v65536
+shader_versions	v65536
+
+# ---- Files ----
+# every module main imports from
+modules	main subsdk0 sdk
+romfs_marker	Data/sharedassets1.assets
+zip_store	.assets:.dat:.png:.resource:.ress:.metallib
+
+# ---- Memory ----
+# main sets a heap of at most the pool − 64 MB: a 3328 MB heap region
+mem_reserve	0x100000000
+mem_alias	0x10000000
+mem_stack	0x10000000
+app_pool	0xCD500000
+# the NPDM declares 0 MB of system resource: IsVirtualAddressMemoryEnabled is false, as on Horizon (Big Brain Academy: Brain vs. Brain sets a heap only then)
+sys_resource	0x0
+
+# ---- Shader split ----
+shader_groups	/Data/=data
+shader_note	Return of the Obra Dinn shaders
+
+# ---- After the rewrite ----
+# used memory for the current rewritten modules, at least the default 64 MB
+mem_used	0x4600000

@@ -32,3 +32,6 @@ layout_*.tsv
 # in the tree, and it stayed until 2026-10-27)
 frontend/*.zip
 frontend/NX2Apple.app/
+
+# the virtual environment the README creates for the Python packages
+.venv/

@@ -4,6 +4,8 @@ Update 1.0.10 (v655360), SDK 20.5.7, on NVN (46 BNSH shaders). Modules `main` an
 
 On the Mac: the opening rooms at 60 fps with movement, jumping and audio; item pickup and pause menus work. One repeat run recovered from an AudioUnit startup timeout through the existing audio restart path.
 
+**Regression recording checked (2026-10-28):** a full `regress.py check --record` against `337186cf3ce7` passed on an Apple M4 Pro, macOS 27.2 / Xcode 27.1, and wrote the [last green record](validated.tsv). Both 100-second runs reached the opening room at 60 fps, all 46 shaders and their MSL stayed unchanged, screenshots matched within tolerance, and neither run logged a `[RED]` line. Both used `DM_PRESENT_LINK=0` to control the window-occlusion effect described below. One game covers the harness's recording path; this change does not alter the host or shader chain.
+
 ## What it needs
 
 | Setting | Where | Why |

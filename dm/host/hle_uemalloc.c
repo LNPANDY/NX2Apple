@@ -45,6 +45,8 @@ static const struct { const char *build, *what; int layout; uint64_t obj, vtable
     { "0a4f14a5c12f470a4d3168a8f2ae6005", "SHIN MEGAMI TENSEI V: Vengeance 1.0.3", UE4_27, 0, 0x5a7f0a8, 0x1f2f63c },
     // FINAL FANTASY RESONANCE 1.0.1: the FMallocBinned3 object (main+0x77c6210, bss), its vtable (main+0x67df800, 32 slots), the cut constructor call (main+0x137f0)
     { "84e182f72ee1da4f477804bd05b54c15", "FINAL FANTASY RESONANCE 1.0.1", UE5_6, 0x77c6210, 0x67df800, 0x137f0 },
+    // Asian release: object, 32-slot vtable and constructor cut verified on this main build (PRs #126 and #304).
+    { "b7f965b9d7227db8e29f04e84ea7331b", "FINAL FANTASY RESONANCE 1.0.1 (Asian release)", UE5_6, 0x77c6210, 0x67df800, 0x137f0 },
 };
 enum { NSLOT = 32 };
 
@@ -92,7 +94,8 @@ static void *g_vt[NSLOT];
 static const char *g_what;
 
 // Observation gate OBS_UE_MALLOC: the allocator object GCreateMalloc just made (x19), before anything calls it
-static void obj_made(const uint64_t *regs) {
+static void obj_made(uint64_t *regs, int param) {
+    (void)param;
     *(void **)(uintptr_t)regs[19] = g_vt;
     static int once; if (!once++) LOG("%s: Unreal's allocator (FMallocBinned3, made at run time at %#llx) runs on a host malloc zone", g_what, (unsigned long long)regs[19]);
 }

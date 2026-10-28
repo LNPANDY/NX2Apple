@@ -200,6 +200,12 @@ PPtr<Shader>: int m_FileID; SInt64 m_PathID
 PPtr<Texture>: int m_FileID; SInt64 m_PathID
 Shader: string m_Name; SerializedShader m_ParsedForm; vector<data:unsigned int> platforms; vector<data:unsigned int> offsets; vector<data:unsigned int> compressedLengths; vector<data:unsigned int> decompressedLengths; vector<data:UInt8> compressedBlob; vector<data:PPtr<Shader>> m_Dependencies; map<data:pair(string,PPtr<Texture>)>~ m_NonModifiableTextures; bool! m_ShaderIsBaked
 '''
+# Unity 2017.4.28f1 (Return of the Obra Dinn): the same layout except for these two absent fields, checked against
+# AssetRipper's TypeTreeDumps StructsDump/release/2017.4.28f1.dump. The built-in resources strip their trees and no bundle
+# supplies this hash. The instancing flag itself takes the alignment formerly carried by the following flag.
+SHADER_2017_4 = SHADER_2018_3.replace('bool m_HasInstancingVariant; bool! m_HasProceduralInstancingVariant',
+                                      'bool! m_HasInstancingVariant').replace(
+    '; map<data:pair(string,PPtr<Texture>)>~ m_NonModifiableTextures', '')
 # The Unity 2022.3 ComputeShader (Monster Train 2, Unity 2022.3.54f1: 12 in Data/sharedassets2.assets, which carries no type trees, and no bundle has one), from Unity 2022.3.54f1's type tree
 # as AssetRipper's TypeTreeDumps records it (StructsDump/release/2022.3.54f1.dump). Each kernel variant's code is a program code of one stage, compute (the layout of a Shader's subprogram code)
 COMPUTE_2022_3 = '''ComputeShaderResource: string name; string generatedName; int bindPoint; int samplerBindPoint; int texDimension
@@ -211,6 +217,14 @@ ComputeShaderCB: string name; int byteSize; vector<data:ComputeShaderParam> para
 ComputeShaderPlatformVariant: int targetRenderer; int targetLevel; vector<data:ComputeShaderKernelParent> kernels; vector<data:ComputeShaderCB> constantBuffers; bool! resourcesResolved
 ComputeShader: string m_Name; vector<data:ComputeShaderPlatformVariant> variants
 '''
+# Unity 2021.3.18f1 (Shin chan: Shiro and the Coal Town, PR #440): checked against all 144 nodes and alignment flags
+# of AssetRipper's StructsDump/release/2021.3.18f1.dump. Code is bytes in both layouts; 2021.3 stores keyword variants
+# in a map and uses a staticvector for threadGroupSize. Keep resourcesResolved aligned between platform variants.
+COMPUTE_2021_3 = COMPUTE_2022_3.replace(
+    'vector<data:ComputeShaderKernel> uniqueVariants; vector<data:pair(string,unsigned int)> variantIndices',
+    'map<data:pair(string,ComputeShaderKernel)>~ variantMap').replace(
+    '; vector<data:string> dynamicKeywords', '').replace(
+    'vector<data:unsigned int>~ threadGroupSize', 'staticvector<data:unsigned int>~ threadGroupSize')
 # Unity 2019.4.27f1's release tree (AssetRipper TypeTreeDumps, StructsDump/release/2019.4.27f1.dump): kernels hold code directly, without keyword variants or requirements.
 # Pokemon Brilliant Diamond's stripped built-ins use this hash; their GPU skinning dispatch needs these kernels. Checked against the dump's nodes and alignment flags.
 COMPUTE_2019_4 = '''ComputeShaderResource: string name; string generatedName; int bindPoint; int samplerBindPoint; int texDimension
@@ -221,13 +235,21 @@ ComputeShaderCB: string name; int byteSize; vector<data:ComputeShaderParam> para
 ComputeShaderVariant: int targetRenderer; int targetLevel; vector<data:ComputeShaderKernel> kernels; vector<data:ComputeShaderCB> constantBuffers; bool! resourcesResolved
 ComputeShader: string m_Name; vector<data:ComputeShaderVariant> variants
 '''
+# Unity 2017.4.28f1's release tree (AssetRipper TypeTreeDumps, StructsDump/release/2017.4.28f1.dump, class 72):
+# resources hold a ComputeBufferCounter instead of the later sampler / dimension fields; kernels already hold code directly.
+# Return of the Obra Dinn's stripped built-ins use this hash; its internalskinning object (12 kernels) reads to its exact end.
+COMPUTE_2017_4 = COMPUTE_2019_4.replace('int samplerBindPoint; int texDimension', 'ComputeBufferCounter counter') + \
+    'ComputeBufferCounter: int bindpoint; int offset\n'
 CLASS_COMPUTE_SHADER = 72
 KNOWN_TREES = {(CLASS_SHADER, bytes.fromhex('ea424a5fc1e48db62144df956f9e1005')): ('Shader', SHADER_2022_3),
                (CLASS_SHADER, bytes.fromhex('2ec7223dce3af4232b14ae1441bd7999')): ('Shader', SHADER_6000_0),
                (CLASS_SHADER, bytes.fromhex('a30e3dcf6c6d25153d6f64e5e41caf4e')): ('Shader', SHADER_2020_3),
                (CLASS_SHADER, bytes.fromhex('8db760073e1392061e4a36995f0735af')): ('Shader', SHADER_2018_3),
+               (CLASS_SHADER, bytes.fromhex('266d53113fa30d2b858f2768f92eaa14')): ('Shader', SHADER_2017_4),
                (CLASS_COMPUTE_SHADER, bytes.fromhex('bfdf63ab0ce84d5a2c765ee560d90fe7')): ('ComputeShader', COMPUTE_2022_3),
-               (CLASS_COMPUTE_SHADER, bytes.fromhex('1a95529ac2eb1a97cd9d2a4356bd722f')): ('ComputeShader', COMPUTE_2019_4)}
+               (CLASS_COMPUTE_SHADER, bytes.fromhex('abd9135b8ce83d043fef4e9ec7f53366')): ('ComputeShader', COMPUTE_2021_3),
+               (CLASS_COMPUTE_SHADER, bytes.fromhex('1a95529ac2eb1a97cd9d2a4356bd722f')): ('ComputeShader', COMPUTE_2019_4),
+               (CLASS_COMPUTE_SHADER, bytes.fromhex('20291e020d10074c35d8286f5191593f')): ('ComputeShader', COMPUTE_2017_4)}
 
 def _split_top(s, sep):   # s split at sep outside <> and ()
     out, depth, cur = [], 0, ''

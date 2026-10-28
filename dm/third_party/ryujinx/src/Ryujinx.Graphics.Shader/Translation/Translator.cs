@@ -209,6 +209,13 @@ namespace Ryujinx.Graphics.Shader.Translation
                 InitializeVertexOutputs(context);
             }
 
+            // An emulated passthrough geometry shader draws its primitive unless it writes a viewport mask of 0 (EmitterContext.PrepareForReturn): until it writes one, all viewports
+            if (stage == ShaderStage.Geometry && context.TranslatorContext.Definitions.GpPassthrough && context.TranslatorContext.UsesViewportMask &&
+                !gpuAccessor.QueryHostSupportsGeometryShaderPassthrough() && gpuAccessor.QueryHostSupportsViewportMask())
+            {
+                context.Store(StorageKind.Output, IoVariable.ViewportMask, null, Const(0), Const(-1));
+            }
+
             UInt128 usedAttributes = context.TranslatorContext.AttributeUsage.NextInputAttributesComponents;
             while (usedAttributes != UInt128.Zero)
             {

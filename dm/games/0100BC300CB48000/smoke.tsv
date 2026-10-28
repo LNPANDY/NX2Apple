@@ -1,0 +1,10 @@
+# Fresh save: collection launcher into FFX's opening 3D scene.
+# Deliberately short; combat and later areas need separate validation.
+save	new
+keys	16:A,22:A,28:A,34:A,40:A,46:A,52:A
+secs	75
+quick	75
+reach	1500@65
+window	60	10
+shots	60,70
+hang	20

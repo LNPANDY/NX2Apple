@@ -85,18 +85,18 @@ def fde_ranges(img):
     return sorted(out)
 
 
-def data_blocks(img, text_end, md, lo=0):
-    """Sorted [(start, end)] of the data blocks in text [lo, text_end) (see the module docstring).
-    md: a capstone AArch64 disassembler. lo is the text segment's offset inside img: 0 for an NSO,
-    0x80 for an NRO, whose file starts with a header (GitHub issue #14 — without it the header's
-    build ID was read as instructions)."""
-    gaps, last = [], lo
+def data_blocks(img, text_end, md):
+    """Sorted [(start, end)] of the data blocks in text [0, text_end) (see the module docstring). md: a capstone AArch64 disassembler"""
+    # An NRO's text includes its header: the build ID at +0x40 is arbitrary bytes, not instructions. FFX/X-2's magic_0898_2015.nro has a literal ldr x18 there.
+    # Keep the entry branch and MOD0 pointer (+0..+8), but never scan the reserved word or NRO0 header (+8..+0x80), even when this gap is shorter than DATA_MIN.
+    nro = img[0x10:0x14] == b'NRO0'
+    gaps, last = [], 0x80 if nro else 0
     for s, e in fde_ranges(img):
         if s >= text_end: break
         if s > last: gaps.append((last, s))
         last = max(last, e)
     if last < text_end: gaps.append((last, text_end))
-    out = []
+    out = [(8, 0x80)] if nro else []
     for s, e in gaps:
         s, e = (s + 3) & ~3, e & ~3
         if e - s < DATA_MIN: continue
@@ -110,17 +110,25 @@ if __name__ == '__main__':
     from capstone import Cs, CS_ARCH_ARM64, CS_MODE_ARM
     p = sys.argv[1]; raw = open(p, 'rb').read()
     if raw[:4] == b'NSO0':
-        import lz4.block
-        flags = struct.unpack_from('<I', raw, 0xc)[0]
-        segs = [struct.unpack_from('<III', raw, 0x10 + i * 0x10) for i in range(3)]
-        csz = struct.unpack_from('<III', raw, 0x60)
-        img = bytearray(segs[2][1] + segs[2][2])
-        for i, (fo, mo, sz) in enumerate(segs):
-            seg = raw[fo:fo + csz[i]]
-            img[mo:mo + sz] = lz4.block.decompress(seg, uncompressed_size=sz) if flags >> i & 1 else seg
-        text_end = segs[0][2]
+        import nso
+        try: m = nso.load(raw, p)
+        except nso.Error as e: sys.exit(f'[RED] {e}')
+        img, text_end = m.image, m.text_end
     else:
         img = raw; text_end = int(sys.argv[2], 0)
     blocks = data_blocks(img, text_end, Cs(CS_ARCH_ARM64, CS_MODE_ARM))
     print(f'{p}: {len(blocks)} data blocks in text, {sum(e - s for s, e in blocks)} bytes')
     for s, e in blocks: print(f'  {s:#x}..{e:#x} ({e - s} bytes)')
+
+
+def out_store(img, start, size, md):
+    """(offset, register) of the one store through a function's second argument, an out pointer (x1, copied once in the prologue: mov xB, x1 ... str xA, [xB]):
+    where the SDK's VammManager::AllocateAddressRegion hands the new region's address back (patch_nso.py "Address regions"). ValueError when that shape is not there"""
+    import re
+    ins = list(md.disasm(bytes(img[start:start + size]), start))
+    out = [i for i in ins[:16] if i.mnemonic == 'mov' and re.fullmatch(r'x\d+, x1', i.op_str)]
+    if len(out) != 1: raise ValueError('no single copy of the out pointer in the prologue')
+    xb = out[0].op_str.split(',')[0]
+    st = [i for i in ins if i.mnemonic == 'str' and re.fullmatch(rf'x\d+, \[{xb}\]', i.op_str)]
+    if len(st) != 1: raise ValueError(f'{len(st)} stores through the out pointer')
+    return st[0].address, int(st[0].op_str.split(',')[0][1:])

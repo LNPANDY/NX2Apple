@@ -1,0 +1,10 @@
+# Initial-settings save, New Game, Hikari (R L L L), battlefield and first attack.
+# The save fixture contains settings only, before selecting a traveler.
+save	saves/hikari-settings
+keys	40:A,60:A,80:A,95:R,97:L,99:L,101:L,106:A,110:A,130:A*140/1,274:B,278:LUp~3,282:A,284:A,288:LUp~3,292:A,294:A,298:LUp~3,302:A,304:A,308:LUp~3,312:A,314:A,318:LUp~3,322:A,324:A,328:LUp~3,332:A,334:A,340:B,342:A*8/1,352:B,380:A,382:A
+secs	440
+quick	140
+reach	12000@400
+window	400	25
+shots	405,425
+hang	30

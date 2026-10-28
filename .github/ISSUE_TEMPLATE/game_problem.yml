@@ -94,6 +94,14 @@ body:
         - iPhone or iPad: `log.txt` in the Files app, under the app's name (the run before is `log.prev.txt`).
     validations:
       required: true
+  - type: input
+    id: fork-patches
+    attributes:
+      label: Fork patches line
+      description: "The first line of the game's log (`fork patches: ...`): the patches this build carries beyond upstream's engine. Optional, but it says whether a report belongs here or with seedds/nxnative."
+      placeholder: "fork patches: runtime-profile, romfsarc, ..."
+    validations:
+      required: false
   - type: textarea
     id: performance
     attributes:

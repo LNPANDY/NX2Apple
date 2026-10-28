@@ -35,10 +35,13 @@ sys_resource	0x1000000
 # ---- Rendering ----
 # The native clock measures elapsed time; dynamic-resolution thresholds target 60 fps in patches.py.
 present_interval	display
+fps_target	60
 # The renderer subtracts two raw timestamp reports to measure its GPU cost.
 gpu_timestamps	segment
 # The game fills texture storage on the CPU and publishes it with mapped-range flushes.
 tex_flush_upload	on
+# Some title backgrounds are filled after initialization without an NVN flush.
+tex_dirty_upload	on
 # filter09 samples its own HDR attachment through a separate texture slot.
 feedback_snap	fd2c47b73f0e7e24
 

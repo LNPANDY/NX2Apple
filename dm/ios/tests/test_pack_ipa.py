@@ -148,7 +148,10 @@ class PackIpa(unittest.TestCase):
         self.assertEqual(self.kept, 0); self.assertEqual(self.reused, 6); self.same_as_fresh()
 
     def test_symlink_and_folder_headers(self):
-        self.run_pack(); (self.app / 'sub/link').unlink(); os.symlink('../exe', self.app / 'sub/link')
+        self.run_pack(); parent = (self.app / 'sub').stat()
+        (self.app / 'sub/link').unlink(); os.symlink('../exe', self.app / 'sub/link')
+        # Isolate the symlink header change even when relinking crosses a ZIP timestamp tick.
+        os.utime(self.app / 'sub', ns=(parent.st_atime_ns, parent.st_mtime_ns))
         self.run_pack(); self.assertEqual(self.kept, self.offset('sub/link')); self.same_as_fresh()
         os.utime(self.app / 'sub', (time.time() - 7200,) * 2)
         self.run_pack(); self.assertEqual(self.kept, self.offset('sub/')); self.same_as_fresh()

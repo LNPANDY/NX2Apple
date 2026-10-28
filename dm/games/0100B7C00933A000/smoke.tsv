@@ -1,0 +1,11 @@
+# Boot smoke route for scripts/regress.py (docs/development.md, The regression harness): key <TAB> value
+# The save in the Olimar prologue (the note's Mac routes): the presses at 25-34 s take the title, Story, the file and Load; the A presses every 3 s from 40 to 133 s go through the
+# opening cutscenes and their dialogue, and Olimar stands on Moss in play from about 130 s (a timed hint line comes up at about 190 s); 30 fps, about 3,300 frames by 120 s
+save	saves/prologue
+keys	25:A,28:A,31:A,34:A,40:A*32/3
+secs	185
+quick	100
+reach	2000@90
+window	140	40
+shots	145,160,175
+hang	20

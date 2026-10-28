@@ -1,68 +1,12 @@
 // Launcher: the settings screen shown before the game starts (front_ios.m dm_show_launcher). Its settings come from the app's dm/launcher.json, which build_ipa.sh writes for this game
 // from dm/games/settings.tsv (dm/games/settings.py): each sets an environment variable the host reads when the game starts. A variable an env file set (Documents/env.txt, the bundle's
-// dm/env.txt; main.m lists them in DM_ENV_FILE_KEYS) is shown but kept. All settings share one screen, grouped by section. Choices that differ from the game's default are kept
-// in UserDefaults; Reset to tested defaults forgets them. DM_LAUNCHER=0 in Documents/env.txt starts the game at once, as an app without launcher.json does
+// dm/env.txt; main.m lists them in DM_ENV_FILE_KEYS) is shown but kept. All settings share one screen, grouped by section (rows: LauncherRow.swift). Choices that differ from the game's default are kept
+// in UserDefaults; Reset to tested defaults shows the defaults, and Play then forgets them. DM_LAUNCHER=0 in Documents/env.txt starts the game at once with the saved choices; DM_SAVED_CHOICES=0 ignores them (and keeps them)
 import SwiftUI
 import UIKit
 import os
 
 private func info(_ key: String) -> Any? { Bundle.main.object(forInfoDictionaryKey: key) }
-
-private extension LauncherModel {
-    func binding(_ s: Setting) -> Binding<String> { Binding(get: { self.values[s.env] ?? s.def }, set: { self.values[s.env] = $0 }) }
-}
-
-private struct SettingRow: View {
-    let s: Setting
-    @ObservedObject var m: LauncherModel
-
-    private var locked: Bool { m.fromFile.contains(s.env) }
-    private var note: String {
-        locked ? (s.note.isEmpty ? "" : s.note + " · ") + "Set by an env file" : s.note
-    }
-    private var rangeValue: Binding<Double> {
-        Binding(get: { Double(m.values[s.env] ?? s.def) ?? s.max ?? 1 },
-                set: { m.values[s.env] = String(format: "%.2f", $0) })
-    }
-    private var percentage: String { "\(Int((rangeValue.wrappedValue * 100).rounded())) %" }
-
-    private var settingLabel: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(s.label)
-            if !note.isEmpty { Text(note).font(.footnote).foregroundStyle(.secondary) }
-        }
-    }
-
-    var body: some View {
-        Group {
-            switch s.kind {
-            case "choice":
-                Picker(selection: m.binding(s)) {
-                    ForEach(s.options ?? [], id: \.[0]) { Text($0[1]).tag($0[0]) }
-                } label: {
-                    settingLabel
-                }
-                .pickerStyle(.menu)
-            case "range":
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        settingLabel
-                        Spacer()
-                        Text(percentage).monospacedDigit().foregroundStyle(.secondary)
-                    }
-                    Slider(value: rangeValue, in: (s.min ?? 0)...(s.max ?? 1), step: s.step ?? 0.05)
-                        .accessibilityLabel(s.label)
-                        .accessibilityValue(percentage)
-                }
-            default:
-                Toggle(isOn: Binding(get: { (m.values[s.env] ?? s.def) == s.onValue }, set: { m.values[s.env] = $0 ? s.onValue : s.offValue })) {
-                    settingLabel
-                }
-            }
-        }
-        .disabled(locked)
-    }
-}
 
 /// Where this game's data comes from, and a picker to change it.
 ///
@@ -175,8 +119,11 @@ private struct LauncherView: View {
                 .frame(width: geometry.size.width / 3, height: geometry.size.height)
                 List {
                     ForEach(m.sections, id: \.self) { section in
-                        Section(section) {
-                            ForEach(m.settings.filter { $0.sectionTitle == section }) { SettingRow(s: $0, m: m) }
+                        let rows = m.rows(in: section)
+                        if !rows.isEmpty {
+                            Section(section) {
+                                ForEach(rows) { SettingRow(s: $0, m: m) }
+                            }
                         }
                     }
                     Section {
@@ -224,9 +171,9 @@ private struct LauncherView: View {
 // Shows the launcher over the root view controller and calls done once the settings are in the environment; false (done is not called) when there is no launcher
 @_cdecl("dm_show_launcher")
 public func dmShowLauncher(_ viewController: UnsafeMutableRawPointer, _ done: @convention(c) () -> Void) -> Bool {
-    if ProcessInfo.processInfo.environment["DM_LAUNCHER"] == "0" { fputs("launcher: off (DM_LAUNCHER=0)\n", stderr); return false }
     guard let url = Bundle.main.resourceURL?.appendingPathComponent("dm/launcher.json"), let data = try? Data(contentsOf: url) else { return false }
     guard let file = try? JSONDecoder().decode(SettingsFile.self, from: data), !file.settings.isEmpty else { fputs("[RED] launcher: dm/launcher.json cannot be read; starting the game\n", stderr); return false }
+    if ProcessInfo.processInfo.environment["DM_LAUNCHER"] == "0" { fputs("launcher: off (DM_LAUNCHER=0)\n", stderr); LauncherModel(file.settings).applySaved(); return false }
     let parent = Unmanaged<UIViewController>.fromOpaque(viewController).takeUnretainedValue()
     let model = LauncherModel(file.settings)
     var host: UIViewController?

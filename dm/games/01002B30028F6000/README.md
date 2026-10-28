@@ -23,6 +23,7 @@ No `pad_layout`: the virtual gamepad starts in the 2D layout (the default).
 - **Current:** 26 (20 pixel, 6 vertex) in MonoGame effects (MGFX version 8): the 13 XNB files in `Content/Effects` and SpriteBatch's built-in effect in `main`, read by `shader_split.py` (`mgfx_effect`). No other file and no GLSLC output holds shaders. Every binding decodes, with Mario's binding layout.
 - The XNB files are platform `S`, uncompressed, read by `EffectReader`; each holds one MGFX effect. In `main`, four bytes `MGFX` count only when version 8 and a control section follow.
 - 10 of the 13 effects have no vertex shader: SpriteBatch binds its own and the effect's pass only replaces the pixel shader. Vertex and pixel shaders therefore combine across effects, and they are paired as single-stage programs.
+- **Resolved (PR #275 review):** all 26 shaders produce byte-identical Mac and iOS metallibs with target selection and with the preceding dual-target builder. Sources, reflection (apart from the chain version), `c1_full.tsv` and `cb_extent.tsv` agree too. Repeated builds of either target and returning to iOS after Mac restore all 26 shaders without new Metal compiles; dual-target builds and iOS cache reuse after them preserve the same outputs.
 
 ## Input
 
@@ -37,6 +38,7 @@ No `pad_layout`: the virtual gamepad starts in the 2D layout (the default).
 General host changes first needed here; each applies to every game:
 
 - **MonoGame effects** (MGFX) in XNB files and in `main` (`mgfx_effect` in `shader_split.py`): [MGFX effects in MonoGame XNB files](../../../docs/reference/shaders.md#mgfx-effects-in-monogame-xnb-files).
+- **Resolved:** iOS-only shader cache hits must also restore Mac analysis files: [Target selection keeps the shader analysis files in the cache](../../../docs/reference/shaders.md#target-selection-keeps-the-shader-analysis-files-in-the-cache).
 
 ## Open
 

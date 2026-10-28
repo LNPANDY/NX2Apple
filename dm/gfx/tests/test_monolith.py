@@ -2,6 +2,7 @@
 from pathlib import Path
 import struct
 import sys
+import tempfile
 import unittest
 import zlib
 
@@ -41,6 +42,22 @@ def program(stages, extra=0):
 
 
 class MonolithTests(unittest.TestCase):
+    def test_loose_containers_reach_the_archive_decoder(self):
+        data, controls, codes = program(['vs', 'ps'])
+        packed = zlib.compress(data, level=0)
+        xbc = struct.pack('<4s4I28s', b'xbc1', 1, len(data), len(packed), 0, b'loose') + packed
+        cmp = struct.pack('<8s2I', b'cmp\0zlib', len(packed), len(data)) + packed
+        expected = {split.skey(c, k) for c, k in zip(controls, codes)}
+        with tempfile.TemporaryDirectory() as tmp:
+            for body in (data, xbc, b'DRSM' + bytes(60) + xbc + xbc, cmp):
+                with self.subTest(magic=body[:4]):
+                    path = Path(tmp) / 'resource.bin'   # detection uses the header, not the suffix
+                    path.write_bytes(body)
+                    _, keys, pairs, extra = split.scan_file((str(path), 'resource.bin'))
+                    self.assertEqual(set(keys), expected)
+                    self.assertEqual(pairs, {(split.skey(controls[0], codes[0]), split.skey(controls[1], codes[1]))})
+                    self.assertEqual(extra, {})
+
     def test_text_controls_advance_at_eight_byte_alignment(self):
         data, ctls, codes = program(['vs', 'ps'], extra=13)
         out = split.hcps_shaders(data, 0, '/test')

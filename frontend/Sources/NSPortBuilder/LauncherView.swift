@@ -221,6 +221,7 @@ struct ContentView: View {
         }
         .padding(.leading, 90).padding(.trailing, 24)
         .frame(height: 64)
+        .background(TitlebarDoubleClick())   // an empty part of the bar acts as the title bar does
     }
 
     /// The magnifier opens into a search field in the bar itself; Esc, or leaving it empty, closes it again.
@@ -349,10 +350,10 @@ struct ContentView: View {
                     .tracking(-1.6).lineLimit(2).shadow(color: .black.opacity(0.25), radius: 12)
                 HStack(spacing: 18) {
                     Button { primaryAction(game) } label: {
-                        Label(game.isReady ? m.t("library.play")
-                                : (game.onDevice ? String(format: m.t("dev.open"), m.deviceName(game.installedDevice))
-                                   : m.t(game.hasIOSBuild ? "library.showIOS" : "library.newBuild")),
-                              systemImage: game.isReady ? "play.fill" : (game.hasIOSBuild ? "iphone" : "hammer.fill"))
+                        Label(game.primary == .play ? m.t("library.play")
+                                : (game.primary == .openOnDevice ? String(format: m.t("dev.open"), m.deviceName(game.installedDevice))
+                                   : m.t("library.newBuild")),
+                              systemImage: game.primary == .play ? "play.fill" : (game.primary == .openOnDevice ? "iphone" : "hammer.fill"))
                             .font(.manrope(18, .bold))
                             .foregroundStyle(.black).padding(.horizontal, 30).padding(.vertical, 14)
                             .frame(minWidth: 164)
@@ -636,7 +637,7 @@ struct ContentView: View {
                         actions: ManageActions(
                             rebuild: { configureBuild(game) }, options: { optionsFor = game.id }, saves: { savesFor = game.id },
                             changeArtwork: { chooseArtwork(game) }, resetArtwork: { library.setArtwork("", for: game.id) },
-                            reveal: { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: game.appPath)]) },
+                            reveal: { if let path = game.revealTarget { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) } },
                             freeSpace: { freeSpaceFor = game.id }, remove: { removing = game }))
     }
 
@@ -657,10 +658,6 @@ struct ContentView: View {
                 launching = false
                 if let error { launchError = error }
             }
-            return
-        }
-        if !game.isReady && game.hasIOSBuild {
-            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: game.ipaPath)])
             return
         }
         guard game.isReady else { configureBuild(game); return }

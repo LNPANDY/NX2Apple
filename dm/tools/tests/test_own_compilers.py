@@ -63,6 +63,13 @@ class CheckTools(unittest.TestCase):
             got, out = self.check(bad)
             self.assertEqual(got, want); self.assertEqual(out, '')
 
+    def test_missing_ios_compiler_fails_only_for_ios(self):   # a Mac-only build (DMSH_TARGETS=mac) on a Mac without Xcode's iOS platform
+        missing = mismatch('metal_iphoneos', 'missing')
+        for targets, want in (('mac', []), ('mac,ios', [missing]), ('ios', [missing])):
+            with self.subTest(targets=targets), mock.patch.dict(os.environ, {'DMSH_TARGETS': targets}):
+                self.assertEqual(self.check([missing])[0], want)
+        with mock.patch.dict(os.environ, {'DMSH_TARGETS': 'mac'}): self.assertEqual(self.check([mismatch('metal_macosx', 'missing')])[0], [mismatch('metal_macosx', 'missing')])
+
     def test_check_metal(self):   # --check-metal, as the NSP script runs it: the message when it would stop, '' otherwise
         for actual, allow, stops in ((LOCKED['metal_macosx'], False, False), (OTHER, False, True), (OTHER, True, False), ('missing', False, False)):
             env = {k: v for k, v in os.environ.items() if k != own_compilers.ALLOW}

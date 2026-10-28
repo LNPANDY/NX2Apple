@@ -41,7 +41,7 @@ def builds_of(g):   # {build ID: module name} of a profile's build rows (a profi
 
 class Registry(unittest.TestCase):
     def test_no_build_claimed_twice(self):
-        for kind in ('CUTS', 'OBS', 'FRAME_STEP'):
+        for kind in ('CUTS', 'OBS', 'FRAME_STEP', 'CAPABILITIES'):
             seen = {}
             for p, m in MODS.items():
                 for bid in getattr(m, kind, {}):
@@ -58,24 +58,40 @@ class Registry(unittest.TestCase):
                     self.assertTrue(isinstance(off, int) and isinstance(oid, int) and HEX.match(word) and len(word) == 8 and why, f'{p} {bid} {off:#x}')
             for bid, fn in getattr(m, 'FRAME_STEP', {}).items():
                 self.assertTrue(callable(fn), f'{p} {bid}')
-            self.assertFalse({k for k in vars(m) if k.isupper() and k not in ('CUTS', 'OBS', 'FRAME_STEP', 'MATCH_CUTS')} - set(dir(__import__('nso_asm'))),
+            for bid, names in getattr(m, 'CAPABILITIES', {}).items():
+                self.assertRegex(bid, r'^[0-9a-f]{32}$')
+                self.assertEqual(len(names), len(set(names)))
+                for name in names: self.assertRegex(name, r'^[A-Z][A-Z0-9_]*$')
+            self.assertFalse({k for k in vars(m) if k.isupper() and k not in ('CUTS', 'OBS', 'FRAME_STEP', 'CAPABILITIES', 'MATCH_CUTS', 'GENERALIZE')} - set(dir(__import__('nso_asm'))),
                              f'{p}: a table patch_nso.py does not read')
+            self.assertIsInstance(getattr(m, 'GENERALIZE', ''), str, f'{p}: GENERALIZE is a note (docs/agents/game-patches.md)')
 
     def test_function_match_rules(self):
         from nso_match import validate
         for p, m in MODS.items():
             for module, rules in getattr(m, 'MATCH_CUTS', {}).items():
-                self.assertEqual(p.name, 'patches.py')
-                self.assertIn(module, game.load(p.parent.name).words('modules'))
-                self.assertNotEqual(module, 'sdk', 'SDK fixes belong in sdk_patches.py, keyed by build ID')
+                if p.name == 'sdk_patches.py':   # SDK-wide: Nintendo's sdk module of any game
+                    self.assertEqual(module, 'sdk')
+                else:
+                    self.assertEqual(p.name, 'patches.py')
+                    self.assertIn(module, game.load(p.parent.name).words('modules'))
+                    self.assertNotEqual(module, 'sdk', 'SDK fixes belong in sdk_patches.py, for every game')
                 self.assertTrue(rules)
                 for rule in rules: validate(rule)
 
+    def test_sdk_wide_rules_restate_registered_cuts(self):
+        # every SDK-wide cut is one of the registered SDK cuts, the same bytes, at some build's function-relative offset (the rules were taken from them)
+        m = MODS[REPO / 'dm/tools/sdk_patches.py']
+        registered = {(old, new) for cuts in m.CUTS.values() for _, old, new, _ in cuts}
+        for rule in m.MATCH_CUTS['sdk']:
+            for delta, old, new, why in rule['cuts']:
+                self.assertIn((old, new), registered, why)
+
     def test_game_files_name_their_own_builds(self):
         for p, m in MODS.items():
-            if p.name != 'patches.py': continue
+            if p.name != 'patches.py' or not (p.parent / 'game.tsv').is_file(): continue
             own = builds_of(p.parent.name)
-            for kind in ('CUTS', 'OBS', 'FRAME_STEP'):
+            for kind in ('CUTS', 'OBS', 'FRAME_STEP', 'CAPABILITIES'):
                 for bid in getattr(m, kind, {}):
                     self.assertIn(bid, own, f'{p}: {kind} of {bid}, which is no build of profile {p.parent.name}')
                     self.assertNotEqual(own[bid], 'sdk', f'{p}: {bid} is an sdk build; its patches go in dm/tools/sdk_patches.py')

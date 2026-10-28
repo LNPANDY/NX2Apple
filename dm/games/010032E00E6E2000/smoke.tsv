@@ -1,0 +1,10 @@
+# Fresh save through the opening into the stationary rowing-boat scene.
+# No navigation: the route checks the initial 3D scene, audio-independent boot and shader coverage.
+save	new
+keys	10:A,12:A,18:A,21:A,24:A,27:A
+secs	110
+quick	100
+reach	1800@95
+window	80	20
+shots	85,95
+hang	20

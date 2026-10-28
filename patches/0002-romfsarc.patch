@@ -1,0 +1,1106 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: v0lumehi <aljic.zijad@googlemail.com>
+Date: Wed, 28 Oct 2026 13:33:53 +0100
+Subject: [PATCH] ROMFSARC: read RomFS shard archives
+
+A synthetic @romfsarc: host path, an archive MountRom, archive file handles, and directory snapshots from the index,
+plus the reader (romfs_arc.c) and its packer (romfs_arc.py).
+
+Upstream-Status: fork-only
+Reason: Legacy ROMFSARC shard archives (Tears of the Kingdom, 300k files) that players already made; upstream reads DMROMFS1 images instead. Kept so existing archives keep loading; retire when none are left
+Issue: LNPANDY/NX2Apple#123
+---
+ dm/host/Makefile            |   2 +-
+ dm/host/hle_fs.c            | 140 ++++++++++++++++++-
+ dm/host/romfs_arc.c         | 228 ++++++++++++++++++++++++++++++
+ dm/host/romfs_arc.h         | 100 +++++++++++++
+ dm/host/tests/Makefile      |  12 +-
+ dm/host/tests/t_romfs_arc.c |  87 ++++++++++++
+ dm/tools/romfs_arc.py       | 270 ++++++++++++++++++++++++++++++++++++
+ docs/ROMFS_ARCHIVE.md       |  95 +++++++++++++
+ 8 files changed, 924 insertions(+), 10 deletions(-)
+ create mode 100644 dm/host/romfs_arc.c
+ create mode 100644 dm/host/romfs_arc.h
+ create mode 100644 dm/host/tests/t_romfs_arc.c
+ create mode 100644 dm/tools/romfs_arc.py
+ create mode 100644 docs/ROMFS_ARCHIVE.md
+
+diff --git a/dm/host/Makefile b/dm/host/Makefile
+index 410b6ce4..2baa234b 100644
+--- a/dm/host/Makefile
++++ b/dm/host/Makefile
+@@ -16,7 +16,7 @@ endif
+ GAME_H = gen/$(GAME)/game_profile.h
+ CFLAGS=-O1 -g -Wall -Wno-unused-function
+ # Service-layer takeover hle_*.c files are included by wildcard: adding a file does not touch this line (avoids merge conflicts)
+-SRC=main.c loader.c hle.c crash.c probe.c thread.c memstat.m haptics_apple.m $(sort $(wildcard hle_*.c)) front_mac.m entry.S
++SRC=main.c loader.c hle.c romfs_arc.c crash.c probe.c thread.c memstat.m haptics_apple.m $(sort $(wildcard hle_*.c)) front_mac.m entry.S
+ # NVN null device + nn::vi + the Vulkan layer (dm/gfx/)
+ # Sources under dm/gfx, dm/gfx/nvn, dm/gfx/tex, dm/gfx/vk and dm/gfx/gl are included by wildcard (tests/ and metal/ do not go into the host): adding a file does not touch this line
+ GFX=$(sort $(wildcard ../gfx/*.c ../gfx/nvn/*.c ../gfx/nvn/*.m ../gfx/nvn/*.S ../gfx/tex/*.c ../gfx/tex/*.m ../gfx/vk/*.m ../gfx/gl/*.m))
+diff --git a/dm/host/hle_fs.c b/dm/host/hle_fs.c
+index 035dbc04..643306f9 100644
+--- a/dm/host/hle_fs.c
++++ b/dm/host/hle_fs.c
+@@ -7,6 +7,7 @@
+ #include "hle.h"
+ #include <mach/mach.h>
+ #include "front.h"
++#include "romfs_arc.h"
+ #include <dirent.h>
+ #include <errno.h>
+ #include <fcntl.h>
+@@ -382,6 +383,28 @@ static int host_path_ex(const char *p, char *out, size_t n, int *ro, int create)
+         char normed[1024]; const char *rest = c + 1;
+         if (strstr(rest, "/.")) { if (!norm_rest(rest, normed, sizeof normed)) return 0; rest = normed; }   // only paths with "." components are normalized; the rest walk component by component as before
+         if (g_mnt[i].overlay[0] && !create) return rom_overlay_path(&g_mnt[i], rest, out, n);
++        // Archive mount: the RomFS tree lives inside a ROMFSARC archive, so the host path is a
++        // synthetic "@romfsarc:<guest path>" that the file calls below route to romfs_arc.c. Matched
++        // by the mount directory (romfsarc_open recorded the base it actually opened), because the
++        // mount name differs between games (rom, content).
++        if (romfsarc_active() && g_mnt[i].ro && !create && g_mnt[i].dir[0] && !strcmp(g_mnt[i].dir, g_arc_base)) {
++            // Fold runs of '/' the way the directory walk below does: the archive index stores one
++            // separator per level, and a game may ask for "data:/bin/appli/icon_sick//bin/x.arc"
++            // (Pokemon Sword's Bag: the doubled slash missed the lookup and the game then
++            // dereferenced the null it got back — PR #9).
++            char folded[1024]; const char *r = rest;
++            if (strstr(rest, "//")) {
++                size_t o = 0; int slash = 0;
++                for (const char *q = rest; *q; q++) {
++                    if (*q == '/') { if (slash) continue; slash = 1; } else slash = 0;
++                    if (o + 1 >= sizeof folded) { errno = ENAMETOOLONG; return 0; }
++                    folded[o++] = *q;
++                }
++                folded[o] = 0; r = folded;
++            }
++            if (snprintf(out, n, ROMFSARC_SYNTH_PREFIX "%s", r) >= (int)n) { errno = ENAMETOOLONG; return 0; }
++            return 1;
++        }
+         strlcpy(out, g_mnt[i].dir, n);
+         while (*rest) {
+             while (*rest == '/') rest++;
+@@ -426,9 +449,22 @@ static Result err_res(const char *op, const char *path) {
+ 
+ // ---------- Mount ----------
+ HLE_FORCE("_ZN2nn2fs22QueryMountRomCacheSizeEPm", "fsp-srv; rom reads the host directory directly, the cache gets only the minimum size", Result, h_fs_QueryRomCache, size_t *out) { *out = 0x1000; return RES_OK; }
+-HLE_FORCE("_ZN2nn2fs8MountRomEPKcPvm", "fsp-srv; rom → host RomFS directory", Result, h_fs_MountRom, const char *name, void *cache, size_t sz) {
++HLE_FORCE("_ZN2nn2fs8MountRomEPKcPvm", "fsp-srv; rom → host RomFS directory (or a ROMFSARC archive)", Result, h_fs_MountRom, const char *name, void *cache, size_t sz) {
+     (void)cache; (void)sz; char b[1024];
+-    Result r = mount(name, envdir("DM_ROMFS", "romfs", b, sizeof b), 1);
++    const char *dir = envdir("DM_ROMFS", "romfs", b, sizeof b);
++    // Archive mount: romfsarc_open tries <dir>.idx, <dir>/romfs.idx and <dir>/romfs/romfs.idx, so the
++    // player may copy the shards either beside the folder or into Documents/romfs/ itself.
++    romfsarc_hdr h;
++    if (romfsarc_open(dir, &h) == 0) {
++        // Mount the resolved archive base (romfsarc_open recorded the one that worked in g_arc_base).
++        // host_path_ex compares the mount directory against it.
++        Result r = mount(name, g_arc_base, 1);
++        if (r != RES_OK) { romfsarc_close(); return r; }
++        LOG("fs rom: archive %s (%llu files, %llu dirs, %u shards, tree hash %016llx)", g_arc_base,
++            (unsigned long long)h.file_count, (unsigned long long)h.dir_count, h.shard_count, (unsigned long long)h.tree_hash);
++        return RES_OK;
++    }
++    Result r = mount(name, dir, 1);
+     if (r == RES_OK && getenv("DM_ROMFS_OVERLAY")) {
+         PATH_LOCK();
+         for (int i = 0; i < g_nmnt; i++) if (!strcmp(g_mnt[i].name, name)) {
+@@ -708,6 +744,43 @@ HLE_FORCE("_ZN2nn2fs14CommitSaveDataEPKc", "fsp-srv; same as Commit (SDK 11's ol
+ HLE_FORCE("_ZN2nn2fs7UnmountEPKc", "fsp-srv; the mount table is permanent, unmounting is a no-op", void, h_fs_Unmount, const char *name) { (void)name; }
+ 
+ // ---------- Files ----------
++// ---------- Archive-backed file handles ----------
++// An archive file has no host fd. It gets a handle number from a private table, and every operation
++// on it (ReadFile, GetFileSize, CloseFile) checks the table first. Handle numbers are distinct from
++// fds: real handles are fds (>= 3 in practice), archive handles are tagged by index into g_arc[].
++// Like every host handle they reach the guest through FH_OUT (shifted left by 4, 16-byte aligned) and come back
++// through FH_IN, so the tag sits at bit 57: below IMG_H's bit 58, and it still fits after the shift.
++typedef struct { uint32_t shard; uint64_t off, size; int used; } archandle;
++#define MAX_ARCH 4096
++static archandle g_arc[MAX_ARCH];
++static uint64_t g_arch_gen;   // bumped on open/close so a stale handle never hits a recycled slot
++static uint64_t arc_new(uint32_t shard, uint64_t off, uint64_t size) {
++    for (int i = 0; i < MAX_ARCH; i++) if (!g_arc[i].used) {
++        g_arc[i].used = 1; g_arc[i].shard = shard; g_arc[i].off = off; g_arc[i].size = size;
++        return ((uint64_t)1 << 57) | ((g_arch_gen & 0xffffff) << 32) | (uint32_t)i;
++    }
++    return 0;
++}
++static int arc_get(uint64_t h, archandle **out) {
++    if ((h >> 57) != 1) return 0;
++    uint32_t i = (uint32_t)h;
++    if (i >= MAX_ARCH || !g_arc[i].used) return 0;
++    if ((uint32_t)((h >> 32) & 0xffffff) != (uint32_t)(g_arch_gen & 0xffffff)) return 0;
++    *out = &g_arc[i]; return 1;
++}
++static void arc_free(uint64_t h) {
++    archandle *a; if (arc_get(h, &a)) a->used = 0;
++}
++static const char *arc_rel(const char *hp) {
++    const char *rel = ROMFSARC_SYNTH_REL(hp);
++    while (*rel == '/') rel++;
++    return rel;
++}
++static int arc_file(const char *hp, uint32_t *shard, uint64_t *off, uint64_t *size) {
++    return romfsarc_stat_file(arc_rel(hp), shard, off, size);
++}
++static int arc_dir(const char *hp) { return romfsarc_is_dir(arc_rel(hp)); }
++static void arc_norm(const char *hp, char *rel, size_t n) { strlcpy(rel, arc_rel(hp), n); }
+ HLE_FORCE("_ZN2nn2fs8OpenFileEPNS0_10FileHandleEPKci", "fsp-srv → open(2)", Result, h_fs_OpenFile, uint64_t *out, const char *path, int mode) {
+     int mi; int64_t k;
+     if (img_path(path, &mi, &k)) {
+@@ -720,6 +793,15 @@ HLE_FORCE("_ZN2nn2fs8OpenFileEPNS0_10FileHandleEPKci", "fsp-srv → open(2)", Re
+     }
+     HP(path);
+     if (mode & (MODE_WRITE | MODE_APPEND)) RW();
++    if (ROMFSARC_IS_SYNTH(hp)) {   // archive entry: no fd, the handle carries shard/offset/size
++        uint32_t shard; uint64_t off, size;
++        if (!arc_file(hp, &shard, &off, &size)) { errno = ENOENT; return err_res("open", hp); }
++        uint64_t ah = arc_new(shard, off, size);
++        if (!ah) { errno = EMFILE; return err_res("open", hp); }
++        *out = FH_OUT(ah);
++        if (g_flag.fs) LOG("fs open %s mode=%d → archive handle (shard %u off %llu size %llu)", path, mode, shard, (unsigned long long)off, (unsigned long long)size);
++        return RES_OK;
++    }
+     int fd = open(hp, (mode & (MODE_WRITE | MODE_APPEND)) ? ((mode & MODE_READ) ? O_RDWR : O_WRONLY) : O_RDONLY);
+     if (fd < 0) return err_res("open", hp);
+     struct stat st; fstat(fd, &st);
+@@ -743,6 +825,20 @@ HLE_FORCE("_ZN2nn2fs8ReadFileEPmNS0_10FileHandleElPvm", "fsp-srv → pread(2)",
+         sz = off < 0 || (uint64_t)off >= x->b ? 0 : (size_t)(x->b - off) < sz ? (size_t)(x->b - off) : sz;
+     }
+     dm_guest_write_prepare(buf, sz);   // The destination may be a texture pool page write-protected by the graphics layer: a kernel write to a read-only page returns EFAULT instead of page-faulting, so unprotect and mark dirty first
++    archandle *ah;
++    if (arc_get(h, &ah)) {   // archive entry: clamp to the file, read from its shard
++        if (off < 0) { *out = 0; return RES_FAIL; }
++        uint64_t avail = (uint64_t)off < ah->size ? ah->size - (uint64_t)off : 0;
++        size_t want = sz < avail ? sz : (size_t)avail;
++        if (want) { ssize_t r = romfsarc_pread(ah->shard, ah->off + (uint64_t)off, buf, want);
++            if (r < 0) return err_res("pread (archive)", "handle"); got = (size_t)r; }
++        *out = got;
++        if (g_flag.fs) { static uint64_t n, bytes, next_b = 64 << 20; static pthread_mutex_t m = PTHREAD_MUTEX_INITIALIZER;
++            pthread_mutex_lock(&m); n++; bytes += got;
++            if (bytes >= next_b || n % 1000 == 0) { LOG("fs read total: %llu reads %.1f MiB (this one: archive offset %lld length %#zx)", n, bytes / 1048576.0, (long long)off, got); if (bytes >= next_b) next_b += 64 << 20; }
++            pthread_mutex_unlock(&m); }
++        return RES_OK;
++    }
+     while (got < sz) {
+         ssize_t r = pread(fd, (uint8_t *)buf + got, sz - got, base + off + got);
+         if (r < 0) { if (errno == EINTR) continue;
+@@ -799,6 +895,7 @@ HLE_FORCE("_ZN2nn2fs9WriteFileENS0_10FileHandleElPKvmRKNS0_11WriteOptionE", "fsp
+ }
+ HLE_FORCE("_ZN2nn2fs11GetFileSizeEPlNS0_10FileHandleE", "fsp-srv → fstat(2)", Result, h_fs_GetFileSize, int64_t *out, uint64_t h) { h = FH_IN(h);
+     if (!h) return RES_FAIL;
++    archandle *ah; if (arc_get(h, &ah)) { *out = (int64_t)ah->size; return RES_OK; }
+     if (IMG_H(h)) { *out = (int64_t)g_mnt[IMG_M(h)].img->e[IMG_K(h)].b; return RES_OK; }
+     struct stat st; if (fstat((int)h, &st)) return err_res("fstat", "fd");
+     *out = st.st_size; return RES_OK;
+@@ -815,6 +912,7 @@ HLE_FORCE("_ZN2nn2fs11SetFileSizeENS0_10FileHandleEl", "fsp-srv → ftruncate(2)
+ HLE_FORCE("_ZN2nn2fs9FlushFileENS0_10FileHandleE", "fsp-srv; host writes are already in the page cache, flushing is a no-op", Result, h_fs_FlushFile, uint64_t h) { (void)h; return RES_OK; }
+ HLE_FORCE("_ZN2nn2fs9CloseFileENS0_10FileHandleE", "fsp-srv → close(2)", void, h_fs_CloseFile, uint64_t h) { h = FH_IN(h);
+     if (!h || IMG_H(h)) return;   // the null handle after a failed open (see ReadFile): do not touch fd 0; an image entry holds no descriptor
++    if ((h >> 57) == 1) { arc_free(h); return; }   // archive entry: nothing to close
+     g_fmode[(int)h & 0xffff] = 0; atomic_store(&g_ftxn[(int)h & 0xffff], 0);
+     close((int)h); }
+ HLE_FORCE("_ZN2nn2fs15GetFileOpenModeENS0_10FileHandleE", "fsp-srv; the open mode is recorded by the host", int, h_fs_GetFileOpenMode, uint64_t h) { h = FH_IN(h); return IMG_H(h) ? MODE_READ : g_fmode[(int)h & 0xffff]; }
+@@ -898,12 +996,39 @@ HLE_FORCE("_ZN2nn2fs12GetEntryTypeEPNS0_18DirectoryEntryTypeEPKc", "fsp-srv →
+     int mi; int64_t k;
+     if (img_path(path, &mi, &k)) { if (k < 0) return err_res("stat", path); *out = g_mnt[mi].img->e[k].type ? ENT_FILE : ENT_DIR; return RES_OK; }
+     HP(path); struct stat st;
++    if (ROMFSARC_IS_SYNTH(hp)) {   // archive entry or directory, from the index
++        const char *rel = arc_rel(hp);   // the index stores paths without a leading slash (abe35a3)
++        uint32_t sh; uint64_t of, szf;
++        if (romfsarc_stat_file(rel, &sh, &of, &szf)) { *out = ENT_FILE; return RES_OK; }
++        if (romfsarc_is_dir(rel)) { *out = ENT_DIR; return RES_OK; }
++        errno = ENOENT; return err_res("stat", hp);
++    }
+     if (stat(hp, &st)) return err_res("stat", hp);
+     *out = S_ISDIR(st.st_mode) ? ENT_DIR : ENT_FILE; return RES_OK;
+ }
+ 
+ // ---------- Directories ----------
+ typedef struct { DIR *d; char path[1024]; DIR *od; char opath[1024]; DirectoryEntry *snap; int64_t nsnap, psnap; int mode; } dirh_t;
++
++// An archive directory has no host DIR: its entries come from the index, copied into the same
++// snapshot list the overlay mount uses, so ReadDirectory has one path for both.
++static void arc_snapshot(dirh_t *h, const char *hp) {
++    char rel[1024]; arc_norm(hp, rel, sizeof rel);
++    int n = romfsarc_count(rel);
++    if (n <= 0) return;
++    romfsarc_ent *ents = malloc((size_t)n * sizeof *ents);
++    if (!ents) die("archive directory snapshot allocation failed");
++    int got = romfsarc_list(rel, ents, n);
++    if (got <= 0) { free(ents); return; }
++    h->snap = calloc((size_t)got, sizeof *h->snap); h->nsnap = got;
++    if (!h->snap) die("archive directory snapshot allocation failed");
++    for (int i = 0; i < got; i++) {
++        strlcpy(h->snap[i].name, ents[i].name, sizeof h->snap[i].name);
++        h->snap[i].type = ents[i].is_dir ? ENT_DIR : ENT_FILE;
++        h->snap[i].size = ents[i].is_dir ? 0 : ents[i].size;
++    }
++    free(ents);
++}
+ static void dir_snapshot(dirh_t *h, const mount_t *m, const char *rest) {
+     char fwd[1024]; rest = fwd_slashes(rest, fwd, sizeof fwd);
+     char *roots = strdup(m->overlay);
+@@ -965,7 +1090,15 @@ HLE_FORCE("_ZN2nn2fs13OpenDirectoryEPNS0_15DirectoryHandleEPKci", "fsp-srv → o
+         }
+         *out = (uint64_t)h; return RES_OK;
+     }
+-    HP(path); DIR *d = opendir(hp);
++    HP(path);
++    if (ROMFSARC_IS_SYNTH(hp)) {   // archive directory: no host DIR, only the snapshot
++        if (!arc_dir(hp)) { errno = ENOTDIR; return err_res("opendir", hp); }
++        dirh_t *ah = calloc(1, sizeof *ah); if (!ah) die("directory handle allocation failed");
++        strlcpy(ah->path, hp, sizeof ah->path); ah->mode = mode;
++        arc_snapshot(ah, hp);
++        *out = (uint64_t)ah; return RES_OK;
++    }
++    DIR *d = opendir(hp);
+     if (!d) return err_res("opendir", hp);
+     dirh_t *h = calloc(1, sizeof *h); h->d = d; strlcpy(h->path, hp, sizeof h->path); h->mode = mode;
+     const char *c = strchr(path, ':');
+@@ -978,6 +1111,7 @@ HLE_FORCE("_ZN2nn2fs13ReadDirectoryEPlPNS0_14DirectoryEntryENS0_15DirectoryHandl
+     if (!hh) { *count = 0; return RES_FAIL; }
+     PATH_LOCK(); dirh_t *h = (dirh_t *)hh; int64_t n = 0; struct dirent *e;
+     if (h->snap) { while (n < max && h->psnap < h->nsnap) { DirectoryEntry *src = &h->snap[h->psnap++]; if (!(h->mode & (src->type == ENT_DIR ? DIRMODE_DIR : DIRMODE_FILE))) continue; ents[n++] = *src; } *count = n; return RES_OK; }
++    if (!h->d) { *count = 0; return RES_OK; }   // an archive directory that turned out empty (no snapshot, no host DIR)
+     int dfd = dirfd(h->d);
+     while (n < max && (e = readdir(h->d))) {
+         if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..")) continue;
+diff --git a/dm/host/romfs_arc.c b/dm/host/romfs_arc.c
+new file mode 100644
+index 00000000..d76681d1
+--- /dev/null
++++ b/dm/host/romfs_arc.c
+@@ -0,0 +1,228 @@
++// RomFS archive reader: see romfs_arc.h for the on-disk format.
++#include "romfs_arc.h"
++#include <errno.h>
++#include <fcntl.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <sys/mman.h>
++#include <sys/stat.h>
++#include <unistd.h>
++#include <pthread.h>
++
++typedef struct {
++    uint32_t name_off, shard;
++    uint64_t off, size;
++    uint32_t mode, res;
++} filerec;
++
++typedef struct {
++    uint32_t name_off, first_child, child_count, res;
++} dirrec;
++
++static struct {
++    int open;
++    void *idx;            // mmap of the index file
++    size_t idx_size;
++    romfsarc_hdr hdr;
++    const char *pool;
++    const filerec *files;
++    const dirrec *dirs;
++    const uint32_t *children;
++    char base[1024];
++    int shard_fd[256];
++    char shard_path[256][1024];
++    pthread_mutex_t lock;
++} A = { .shard_fd = { [0 ... 255] = -1 }, .lock = PTHREAD_MUTEX_INITIALIZER };
++
++static uint64_t rd64(const void *p) { uint64_t v; memcpy(&v, p, 8); return v; }
++static uint32_t rd32(const void *p) { uint32_t v; memcpy(&v, p, 4); return v; }
++
++char g_arc_base[1024];   // the archive's base path, matched against mount directories by hle_fs.c
++
++static const char *fname(const filerec *f) { return A.pool + f->name_off; }
++static const char *dname(const dirrec *d) { return A.pool + d->name_off; }
++
++// Binary search the file table by path. Returns the record or NULL.
++static const filerec *find_file(const char *rel) {
++    uint64_t lo = 0, hi = A.hdr.file_count;
++    while (lo < hi) {
++        uint64_t mid = lo + (hi - lo) / 2;
++        int c = strcmp(fname(&A.files[mid]), rel);
++        if (c == 0) return &A.files[mid];
++        if (c < 0) lo = mid + 1; else hi = mid;
++    }
++    return NULL;
++}
++
++// Binary search the directory table by path. Returns the record or NULL.
++// A trailing slash names the same directory, as it does for opendir(3) on the plain tree: Bayonetta 3 opens "movie/" at boot,
++// and without this the archive said the movie folder did not exist, so the game never started its opening movie on iOS.
++static const dirrec *find_dir(const char *rel) {
++    char trimmed[1024]; size_t n = strlen(rel);
++    if (n && rel[n - 1] == '/' && n < sizeof trimmed) {
++        while (n && rel[n - 1] == '/') n--;
++        memcpy(trimmed, rel, n); trimmed[n] = 0; rel = trimmed;
++    }
++    uint64_t lo = 0, hi = A.hdr.dir_count;
++    while (lo < hi) {
++        uint64_t mid = lo + (hi - lo) / 2;
++        int c = strcmp(dname(&A.dirs[mid]), rel);
++        if (c == 0) return &A.dirs[mid];
++        if (c < 0) lo = mid + 1; else hi = mid;
++    }
++    return NULL;
++}
++
++// Open and validate one index file. Returns the mapping (and its size) or MAP_FAILED.
++static void *map_index(const char *path, size_t *size) {
++    int fd = open(path, O_RDONLY);
++    if (fd < 0) return MAP_FAILED;
++    struct stat st;
++    if (fstat(fd, &st)) { close(fd); errno = EIO; return MAP_FAILED; }
++    if ((size_t)st.st_size < ROMFSARC_HDR) { close(fd); errno = EINVAL; return MAP_FAILED; }
++    void *m = mmap(NULL, (size_t)st.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
++    close(fd);
++    if (m == MAP_FAILED) return MAP_FAILED;
++    const uint8_t *b = m;
++    if (memcmp(b, ROMFSARC_MAGIC, 8) || rd32(b + 8) != ROMFSARC_VERSION) {
++        munmap(m, (size_t)st.st_size); errno = EINVAL; return MAP_FAILED;
++    }
++    *size = (size_t)st.st_size;
++    return m;
++}
++
++int romfsarc_open(const char *base, romfsarc_hdr *out) {
++    // The base is where the shards live, without the ".idx". Callers pass either the base itself
++    // (DM_ROMFS=/games/totk/romfs with romfs.idx beside it) or a directory that holds the archive
++    // (DM_ROMFS=Documents/romfs with Documents/romfs/romfs.idx inside, which is what the iOS app
++    // sets). Try both, and a base that already carries the .idx suffix.
++    char cand[4][1200];
++    char stripped[1200];
++    strlcpy(stripped, base, sizeof stripped);
++    size_t sl = strlen(stripped);
++    if (sl > 4 && !strcmp(stripped + sl - 4, ".idx")) stripped[sl - 4] = 0;
++    snprintf(cand[0], sizeof cand[0], "%s.idx", stripped);          // <base>.idx
++    snprintf(cand[1], sizeof cand[1], "%s/romfs.idx", stripped);    // <base>/romfs.idx
++    snprintf(cand[2], sizeof cand[2], "%s/romfs/romfs.idx", stripped);  // one more level (a bundle-style layout)
++    cand[3][0] = 0;
++    void *m = MAP_FAILED; size_t sz = 0; char used[1200] = "";
++    for (int i = 0; i < 3; i++) {
++        m = map_index(cand[i], &sz);
++        if (m != MAP_FAILED) { strlcpy(used, cand[i], sizeof used); break; }
++    }
++    if (m == MAP_FAILED) return -1;
++    // The resolved base is the index path minus ".idx": shard paths are built from it
++    size_t ul = strlen(used); if (ul > 4) used[ul - 4] = 0;
++    const uint8_t *b = m;
++    romfsarc_hdr h;
++    h.shard_count = rd32(b + 12);
++    h.file_count = rd64(b + 24);
++    h.dir_count = rd64(b + 32);
++    h.tree_hash = rd64(b + 56);
++    if (h.shard_count == 0 || h.shard_count > 256) { munmap(m, sz); errno = EINVAL; return -1; }
++    uint64_t pool_sz = rd64(b + 40);
++    uint64_t need = ROMFSARC_HDR + pool_sz + h.file_count * ROMFSARC_FILEREC + h.dir_count * ROMFSARC_DIRREC;
++    // The child list follows the directory table; its length is implied by the last directory's range,
++    // so the file only has to be at least as long as the three tables above.
++    if (need > (uint64_t)sz) { munmap(m, sz); errno = EINVAL; return -1; }
++    pthread_mutex_lock(&A.lock);
++    A.open = 1; A.idx = m; A.idx_size = sz; A.hdr = h;
++    A.pool = (const char *)(b + ROMFSARC_HDR);
++    A.files = (const filerec *)(b + ROMFSARC_HDR + pool_sz);
++    A.dirs = (const dirrec *)((const uint8_t *)A.files + h.file_count * ROMFSARC_FILEREC);
++    A.children = (const uint32_t *)((const uint8_t *)A.dirs + h.dir_count * ROMFSARC_DIRREC);
++    for (int i = 0; i < 256; i++) { A.shard_fd[i] = -1; A.shard_path[i][0] = 0; }
++    // Shards are named after the index file's own base, so <dir>/romfs.idx pairs with <dir>/romfs.00
++    strlcpy(A.base, used, sizeof A.base);
++    strlcpy(g_arc_base, used, sizeof g_arc_base);
++    pthread_mutex_unlock(&A.lock);
++    if (out) *out = h;
++    return 0;
++}
++
++int romfsarc_active(void) { return A.open; }
++
++int romfsarc_stat_file(const char *rel, uint32_t *shard, uint64_t *off, uint64_t *size) {
++    if (!A.open) return 0;
++    const filerec *f = find_file(rel);
++    if (!f) return 0;
++    if (shard) *shard = f->shard;
++    if (off) *off = f->off;
++    if (size) *size = f->size;
++    return 1;
++}
++
++int romfsarc_is_dir(const char *rel) {
++    if (!A.open) return 0;
++    return find_dir(rel) != NULL;
++}
++
++static int shard_fd(uint32_t i) {
++    if (i >= A.hdr.shard_count) { errno = EINVAL; return -1; }
++    if (A.shard_fd[i] >= 0) return A.shard_fd[i];
++    pthread_mutex_lock(&A.lock);
++    if (A.shard_fd[i] < 0) {
++        char p[1024];
++        if (snprintf(p, sizeof p, "%s.%02u", A.base, i) < (int)sizeof p) {
++            int fd = open(p, O_RDONLY);
++            if (fd >= 0) { A.shard_fd[i] = fd; strlcpy(A.shard_path[i], p, sizeof A.shard_path[i]); }
++        }
++    }
++    int fd = A.shard_fd[i];
++    pthread_mutex_unlock(&A.lock);
++    return fd;
++}
++
++ssize_t romfsarc_pread(uint32_t shard, uint64_t off, void *buf, size_t n) {
++    int fd = shard_fd(shard);
++    if (fd < 0) return -1;
++    size_t done = 0;
++    while (done < n) {
++        ssize_t r = pread(fd, (uint8_t *)buf + done, n - done, (off_t)(off + done));
++        if (r < 0) { if (errno == EINTR) continue; return -1; }
++        if (r == 0) break;
++        done += (size_t)r;
++    }
++    return (ssize_t)done;
++}
++
++int romfsarc_list(const char *rel, romfsarc_ent *out, int max) {
++    if (!A.open) return -1;
++    const dirrec *d = find_dir(rel);
++    if (!d) return -1;
++    int n = 0;
++    for (uint32_t i = 0; i < d->child_count && n < max; i++) {
++        uint32_t tag = A.children[d->first_child + i];
++        romfsarc_ent *e = &out[n];
++        if (tag & ROMFSARC_CHILD_DIR) {
++            const dirrec *c = &A.dirs[tag & ~ROMFSARC_CHILD_DIR];
++            // The directory table stores full paths; a child list entry carries only the leaf name
++            const char *full = dname(c), *leaf = strrchr(full, '/');
++            strlcpy(e->name, leaf ? leaf + 1 : full, sizeof e->name);
++            e->is_dir = 1; e->size = 0;
++        } else {
++            const filerec *c = &A.files[tag];
++            // The file table stores full paths; a child list entry carries only the leaf name
++            const char *full = fname(c), *leaf = strrchr(full, '/');
++            strlcpy(e->name, leaf ? leaf + 1 : full, sizeof e->name);
++            e->is_dir = 0; e->size = (int64_t)c->size;
++        }
++        n++;
++    }
++    return n;
++}
++
++int romfsarc_count(const char *rel) {
++    if (!A.open) return -1;
++    const dirrec *d = find_dir(rel);
++    return d ? (int)d->child_count : -1;
++}
++
++void romfsarc_close(void) {
++    pthread_mutex_lock(&A.lock);
++    for (int i = 0; i < 256; i++) if (A.shard_fd[i] >= 0) { close(A.shard_fd[i]); A.shard_fd[i] = -1; }
++    if (A.idx) { munmap(A.idx, A.idx_size); A.idx = NULL; }
++    A.open = 0;
++    pthread_mutex_unlock(&A.lock);
++}
+diff --git a/dm/host/romfs_arc.h b/dm/host/romfs_arc.h
+new file mode 100644
+index 00000000..c4a25b48
+--- /dev/null
++++ b/dm/host/romfs_arc.h
+@@ -0,0 +1,100 @@
++// RomFS archive (ROMFSARC): a whole RomFS tree in one index file plus a few hundred shard files.
++//
++// Why: a RomFS like Tears of the Kingdom's is 300,000 files. Copying that into an App's Documents
++// takes hours over the Files app / Finder, and a 16 GB IPA with that many entries does not install
++// (PackageExtractionFailed). Packing the tree into ~100 shard files makes both a single copy.
++//
++// Layout (all integers little-endian):
++//   <base>.idx   header, name pool, file table, directory table
++//   <base>.<NN>  shard NN: the files' bytes back to back, in file-table order
++//
++// Header (64 bytes):
++//   0x00  char     magic[8]      "ROMFSARC"
++//   0x08  uint32   version       1
++//   0x0c  uint32   shard_count
++//   0x10  uint64   index_size    size of this index file
++//   0x18  uint64   file_count
++//   0x20  uint64   dir_count
++//   0x28  uint64   name_pool_size
++//   0x30  uint64   reserved
++//   0x38  uint64   tree_hash      FNV-1a over (path, size) of every file, sorted: a cheap identity check
++//
++// File table: file_count records of 32 bytes, sorted by path (the name pool offset points at the
++//             NUL-terminated relative path, '/'-separated, no leading slash):
++//   0x00  uint32   name_off
++//   0x04  uint32   shard
++//   0x08  uint64   offset_in_shard
++//   0x10  uint64   size
++//   0x18  uint32   mode           0777 bits (the executable bit matters for nothing in RomFS, kept for fidelity)
++//   0x1c  uint32   reserved
++//
++// Directory table: dir_count records of 16 bytes, sorted by path ("" = the root):
++//   0x00  uint32   name_off
++//   0x04  uint32   first_child   index into the child list
++//   0x08  uint32   child_count
++//   0x0c  uint32   reserved
++// Child list: uint32 file-table / directory-table indices, each tagged: bit 31 set = a directory.
++//            Children of one directory are contiguous and sorted by name.
++//
++// Path lookup is a binary search over the sorted tables; directory listing walks one child range.
++// Case sensitivity: Horizon paths are case-sensitive and the archive is built from a case-sensitive
++// walk, so the host looks names up exactly (the existing dir_index/case-alias machinery is not used
++// for archive mounts).
++#ifndef DM_ROMFS_ARC_H
++#define DM_ROMFS_ARC_H
++
++#include <stdint.h>
++#include <stddef.h>
++#include <sys/types.h>
++
++#define ROMFSARC_MAGIC "ROMFSARC"
++#define ROMFSARC_VERSION 1u
++#define ROMFSARC_HDR 64
++#define ROMFSARC_FILEREC 32
++#define ROMFSARC_DIRREC 16
++#define ROMFSARC_CHILD_DIR 0x80000000u
++
++// Synthetic host path prefix for archive-backed entries (see host_path_ex in hle_fs.c). A path that
++// starts with this marker is not a real file: the fs layer routes it to the archive instead.
++#define ROMFSARC_SYNTH_PREFIX "@romfsarc:"
++#define ROMFSARC_IS_SYNTH(p) (!strncmp((p), ROMFSARC_SYNTH_PREFIX, sizeof ROMFSARC_SYNTH_PREFIX - 1))
++#define ROMFSARC_SYNTH_REL(p) ((p) + sizeof ROMFSARC_SYNTH_PREFIX - 1)
++
++typedef struct {
++    uint32_t shard_count;
++    uint64_t file_count, dir_count;
++    uint64_t tree_hash;
++} romfsarc_hdr;
++
++// Open the index at <base>.idx. Returns 0 on success, -1 with errno set on failure.
++// Keeps the index mapped; shards are opened lazily and cached.
++int romfsarc_open(const char *base, romfsarc_hdr *out);
++
++// Whether an archive is open (the fs layer then routes lookups here instead of the host tree).
++int romfsarc_active(void);
++
++// The base path the archive was opened from (without ".idx"): the fs layer matches mount
++// directories against it, so the mount name ("rom", "content", …) does not matter.
++extern char g_arc_base[];
++
++// Resolve a guest path (no leading slash, "" = root) to a file. On success fills the shard index,
++// offset and size; returns 1. Returns 0 when the path is not a file (missing or a directory).
++int romfsarc_stat_file(const char *rel, uint32_t *shard, uint64_t *off, uint64_t *size);
++
++// Whether the path names a directory ("" = root): 1 yes, 0 no.
++int romfsarc_is_dir(const char *rel);
++
++// Read from an open archive file. Same semantics as pread.
++ssize_t romfsarc_pread(uint32_t shard, uint64_t off, void *buf, size_t n);
++
++// Directory listing: write the entries of directory <rel> ("" = root) into the caller's array.
++// Each entry gets its name and type; files also get their size. Returns the number written, or -1.
++typedef struct { char name[0x301]; int is_dir; int64_t size; } romfsarc_ent;
++int romfsarc_list(const char *rel, romfsarc_ent *out, int max);
++
++// Number of entries in a directory (unfiltered), or -1.
++int romfsarc_count(const char *rel);
++
++void romfsarc_close(void);
++
++#endif
+diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
+index cecd380f..36e32768 100644
+--- a/dm/host/tests/Makefile
++++ b/dm/host/tests/Makefile
+@@ -92,17 +92,17 @@ $(B)/t_gesture: t_gesture.c ../hle_touch.c ../front.h ../dm.h $(GAME_H) | $(B)
+ 	$(CLANG) -O1 -Wall -Wno-unused-function -I.. $(GINC) -o $@ t_gesture.c ../hle_touch.c
+ $(B)/t_thread_leak: t_thread_leak.c ../thread.c ../dm.h $(GAME_H) | $(B)
+ 	$(CLANG) -O1 -Wno-unused-function -I.. $(GINC) -o $@ t_thread_leak.c
+-$(B)/t_fs: t_fs.c t_fs_stub.c ../hle_fs.c ../hle_bigstack.c ../hle.h ../dm.h $(GAME_H) ../hle_profile.c ../hle_profile.h | $(B)
+-	$(CLANG) -O1 -Wno-unused-function -I.. $(GINC) -o $@ t_fs.c t_fs_stub.c ../hle_bigstack.c ../hle_profile.c
+-$(B)/t_fs_commit_list: t_fs_commit_list.c t_fs_stub.c ../hle_fs.c ../hle_bigstack.c ../hle.h ../dm.h $(GAME_H) ../hle_profile.c ../hle_profile.h | $(B)
+-	$(CLANG) -O1 -Wall -Wno-unused-function -I.. $(GINC) -o $@ t_fs_commit_list.c t_fs_stub.c ../hle_bigstack.c ../hle_profile.c
++$(B)/t_fs: t_fs.c t_fs_stub.c ../hle_fs.c ../hle_bigstack.c ../romfs_arc.c ../hle.h ../dm.h $(GAME_H) ../hle_profile.c ../hle_profile.h | $(B)
++	$(CLANG) -O1 -Wno-unused-function -I.. $(GINC) -o $@ t_fs.c t_fs_stub.c ../hle_bigstack.c ../romfs_arc.c ../hle_profile.c
++$(B)/t_fs_commit_list: t_fs_commit_list.c t_fs_stub.c ../hle_fs.c ../hle_bigstack.c ../romfs_arc.c ../hle.h ../dm.h $(GAME_H) ../hle_profile.c ../hle_profile.h | $(B)
++	$(CLANG) -O1 -Wall -Wno-unused-function -I.. $(GINC) -o $@ t_fs_commit_list.c t_fs_stub.c ../hle_bigstack.c ../romfs_arc.c ../hle_profile.c
+ $(B)/t_fs_commit_list_tsan: t_fs_commit_list.c t_fs_stub.c ../hle_fs.c ../hle_bigstack.c ../hle.h ../dm.h $(GAME_H) | $(B)
+ 	$(CLANG) -O1 -g -fsanitize=thread -Wall -Wno-unused-function -I.. $(GINC) -o $@ t_fs_commit_list.c t_fs_stub.c ../hle_bigstack.c ../hle_profile.c
+ .PHONY: fs-tsan
+ fs-tsan: $(B)/t_fs_commit_list_tsan
+ 	TMPDIR="$(abspath $(B))" $(B)/t_fs_commit_list_tsan
+-$(B)/t_fs_case: t_fs_case.c ../hle_fs.c ../hle_bigstack.c ../hle.h ../dm.h $(GAME_H) ../hle_profile.c ../hle_profile.h | $(B)
+-	$(CLANG) -O1 -Wno-unused-function -I.. $(GINC) -o $@ t_fs_case.c ../hle_bigstack.c ../hle_profile.c
++$(B)/t_fs_case: t_fs_case.c ../hle_fs.c ../hle_bigstack.c ../romfs_arc.c ../hle.h ../dm.h $(GAME_H) ../hle_profile.c ../hle_profile.h | $(B)
++	$(CLANG) -O1 -Wno-unused-function -I.. $(GINC) -o $@ t_fs_case.c ../hle_bigstack.c ../romfs_arc.c ../hle_profile.c
+ $(B)/t_audio: t_audio.c ../hle_audio.c ../hle.h ../dm.h $(GAME_H) | $(B)
+ 	$(CLANG) -O1 -Wno-unused-function -I.. $(GINC) -o $@ t_audio.c -framework AudioToolbox
+ $(B)/t_audio_spsc: t_audio_spsc.c ../hle_audio.c ../hle.h ../dm.h $(GAME_H) | $(B)
+diff --git a/dm/host/tests/t_romfs_arc.c b/dm/host/tests/t_romfs_arc.c
+new file mode 100644
+index 00000000..3f675332
+--- /dev/null
++++ b/dm/host/tests/t_romfs_arc.c
+@@ -0,0 +1,87 @@
++// Test romfs_arc.c against a packed archive: path lookup, partial reads, directory listing.
++// Build: clang -I dm/host -o /tmp/t_romfs_arc dm/host/tests/t_romfs_arc.c dm/host/romfs_arc.c
++#include "romfs_arc.h"
++#include <stdio.h>
++#include <string.h>
++#include <stdlib.h>
++
++static int fails;
++#define CHECK(cond, ...) do { if (!(cond)) { printf("FAIL: "); printf(__VA_ARGS__); printf("\n"); fails++; } } while (0)
++
++int main(int argc, char **argv) {
++    if (argc < 2) { printf("usage: %s <base>\n", argv[0]); return 2; }
++    romfsarc_hdr h;
++    if (romfsarc_open(argv[1], &h)) { perror("romfsarc_open"); return 2; }
++    printf("opened: %llu files, %llu dirs, %u shards, hash %016llx\n",
++           (unsigned long long)h.file_count, (unsigned long long)h.dir_count, h.shard_count,
++           (unsigned long long)h.tree_hash);
++    CHECK(romfsarc_active(), "active after open");
++    CHECK(h.file_count > 0 && h.dir_count > 0 && h.shard_count > 0, "header counts");
++
++    // Every file: stat it, read it whole, and read it in two halves at an offset
++    romfsarc_ent *ents = calloc(4096, sizeof *ents);
++    char path[1024] = "";
++    int listed = romfsarc_list("", ents, 4096);
++    CHECK(listed > 0, "root has entries, got %d", listed);
++    CHECK(listed == romfsarc_count(""), "list and count agree at the root: %d vs %d", listed, romfsarc_count(""));
++
++    // Walk the tree breadth first and check every file's bytes against a direct read of its shard
++    size_t dcap = 1024;
++    char **dirs = calloc(dcap, sizeof *dirs);
++    int nd = 0;
++    dirs[nd++] = strdup("");
++    int checked = 0;
++    while (nd) {
++        char *d = dirs[--nd];
++        int n = romfsarc_count(d);
++        CHECK(n >= 0, "count of '%s'", d);
++        romfsarc_ent *e = calloc((size_t)(n > 0 ? n : 1), sizeof *e);
++        int got = romfsarc_list(d, e, n);
++        CHECK(got == n, "list '%s': %d vs %d", d, got, n);
++        for (int i = 0; i < got; i++) {
++            char rel[1024];
++            snprintf(rel, sizeof rel, "%s%s%s", d, *d ? "/" : "", e[i].name);
++            if (e[i].is_dir) {
++                CHECK(romfsarc_is_dir(rel), "is_dir '%s'", rel);
++                CHECK(!romfsarc_stat_file(rel, NULL, NULL, NULL), "dir is not a file: '%s'", rel);
++                char slash[1024]; snprintf(slash, sizeof slash, "%s/", rel);   // a trailing slash names the same directory (Bayonetta 3 opens "movie/")
++                CHECK(romfsarc_is_dir(slash) && romfsarc_count(slash) == romfsarc_count(rel), "trailing slash '%s'", slash);
++                if ((size_t)nd == dcap) { dcap *= 2; dirs = realloc(dirs, dcap * sizeof *dirs); }
++                dirs[nd++] = strdup(rel);
++            } else {
++                uint32_t shard; uint64_t off, size;
++                CHECK(romfsarc_stat_file(rel, &shard, &off, &size), "stat '%s'", rel);
++                CHECK((int64_t)size == e[i].size, "size '%s': %llu vs %lld", rel,
++                      (unsigned long long)size, (long long)e[i].size);
++                char *buf = malloc(size ? size : 1);
++                ssize_t r = romfsarc_pread(shard, off, buf, size);
++                CHECK(r == (ssize_t)size, "read '%s': %zd vs %llu", rel, r, (unsigned long long)size);
++                // A read past this file's end lands in the next file's bytes: the archive is a flat
++                // container, so the reader must not fabricate zeros. The fs layer clamps to the file
++                // size (see h_fs_ReadFile), so this only checks the reader does not fail outright.
++                char extra[16];
++                ssize_t r2 = romfsarc_pread(shard, off + size, extra, sizeof extra);
++                CHECK(r2 >= 0, "read past end of '%s' errored: %zd", rel, r2);
++                free(buf);
++                checked++;
++            }
++        }
++        free(e);
++    }
++    CHECK(checked == (int)h.file_count, "walked %d files, header says %llu", checked, (unsigned long long)h.file_count);
++
++    // Missing paths
++    CHECK(!romfsarc_stat_file("nope/nothing", NULL, NULL, NULL), "missing file is not found");
++    CHECK(!romfsarc_is_dir("nope"), "missing dir is not a dir");
++    CHECK(romfsarc_list("nope", ents, 4) < 0, "list of a missing dir fails");
++
++    // Root itself is a directory, and the empty path is not a file
++    CHECK(romfsarc_is_dir(""), "root is a dir");
++    CHECK(!romfsarc_stat_file("", NULL, NULL, NULL), "root is not a file");
++
++    romfsarc_close();
++    CHECK(!romfsarc_active(), "closed");
++    free(ents);
++    printf(fails ? "%d FAILURES\n" : "all checks passed (%d files)\n", fails ? fails : checked);
++    return fails ? 1 : 0;
++}
+diff --git a/dm/tools/romfs_arc.py b/dm/tools/romfs_arc.py
+new file mode 100644
+index 00000000..000cb4c8
+--- /dev/null
++++ b/dm/tools/romfs_arc.py
+@@ -0,0 +1,270 @@
++#!/usr/bin/env python3
++"""Pack a RomFS tree into a ROMFSARC archive (one index file + N shard files).
++
++Why: Tears of the Kingdom's RomFS is 304,000 files. Copying that into an App's Documents takes
++hours, and a 16 GB IPA with that many entries fails to install on iOS (PackageExtractionFailed).
++An archive is ~120 files instead, so one copy moves it.
++
++Shard layout: files are grouped by their top-level directory (so one shard holds one kind of
++content), then split so that no shard passes --shard-mib. Files are written in path order within
++a shard; a shard never mixes content from different top-level directories unless that directory
++alone exceeds the limit.
++
++Usage:
++  romfs_arc.py pack <romfs dir> <output base> [--shard-mib 200]
++  romfs_arc.py list <base> [path]          # debug: list a directory
++  romfs_arc.py verify <base> <romfs dir>   # compare every file's bytes against the source tree
++
++Format: see dm/host/romfs_arc.h.
++"""
++import argparse
++import collections
++import os
++import struct
++import sys
++
++MAGIC = b"ROMFSARC"
++VERSION = 1
++HDR = 64
++FILEREC = 32
++DIRREC = 16
++CHILD_DIR = 0x80000000
++
++
++def fnv1a(data, h=0xCBF29CE484222325):
++    for b in data:
++        h = ((h ^ b) * 0x100000001B3) & 0xFFFFFFFFFFFFFFFF
++    return h
++
++
++def walk(root):
++    """Every file and directory under root, as (relpath, size) / relpath. Relpaths use '/' and have
++    no leading slash; the root itself is ''. Symlinks are followed (RomFS has none in the games
++    seen so far); anything that is neither a file nor a directory is an error."""
++    files, dirs = [], [""]
++    for dp, dn, fn in os.walk(root):
++        rel_dir = os.path.relpath(dp, root).replace(os.sep, "/")
++        if rel_dir == ".":
++            rel_dir = ""
++        dn.sort()
++        for d in dn:
++            dirs.append(f"{rel_dir}/{d}" if rel_dir else d)
++        for f in sorted(fn):
++            p = os.path.join(dp, f)
++            try:
++                st = os.stat(p)
++            except OSError as e:
++                sys.exit(f"[RED] cannot stat {p}: {e}")
++            files.append((f"{rel_dir}/{f}" if rel_dir else f, st.st_size))
++    files.sort(key=lambda x: x[0])
++    dirs.sort()
++    return files, dirs
++
++
++def plan_shards(files, shard_bytes):
++    """Assign every file a shard. Files are grouped by top-level directory, keeping the walk order
++    (path order) inside a group; a group is cut into shards of at most shard_bytes."""
++    by_top = collections.OrderedDict()
++    for rel, size in files:
++        top = rel.split("/", 1)[0]
++        by_top.setdefault(top, []).append((rel, size))
++    # Big groups first, so the shard count stays close to the size total / shard_bytes
++    order = sorted(by_top.items(), key=lambda kv: -sum(s for _, s in kv[1]))
++    assign, shard = {}, 0
++    for top, items in order:
++        cur = 0
++        for rel, size in items:
++            if cur and cur + size > shard_bytes:
++                shard += 1
++                cur = 0
++            assign[rel] = (shard, cur)
++            cur += size
++        shard += 1
++    return assign, shard
++
++
++def pack(romfs, base, shard_mib):
++    shard_bytes = shard_mib << 20
++    files, dirs = walk(romfs)
++    total = sum(s for _, s in files)
++    print(f"pack: {len(files):,} files, {len(dirs):,} directories, {total / 2**30:.2f} GiB", flush=True)
++    assign, nshard = plan_shards(files, shard_bytes)
++    print(f"pack: {nshard} shards of at most {shard_mib} MiB", flush=True)
++
++    # Shard files: written in path order within each shard
++    per_shard = collections.defaultdict(list)
++    for rel, size in files:
++        per_shard[assign[rel][0]].append((rel, size))
++    os.makedirs(os.path.dirname(base) or ".", exist_ok=True)
++    written = 0
++    for i in range(nshard):
++        path = f"{base}.{i:02d}"
++        with open(path, "wb") as out:
++            for rel, size in sorted(per_shard[i]):
++                with open(os.path.join(romfs, rel), "rb") as f:
++                    left = size
++                    while left:
++                        buf = f.read(min(left, 1 << 22))
++                        if not buf:
++                            sys.exit(f"[RED] {rel}: file shrank while packing")
++                        out.write(buf)
++                        left -= len(buf)
++                written += size
++        print(f"\r  shard {i + 1}/{nshard}: {os.path.getsize(path) / 2**20:.0f} MiB", end="", flush=True)
++    print(f"\n  wrote {written / 2**30:.2f} GiB in {nshard} shards", flush=True)
++
++    # Name pool
++    pool = bytearray()
++    name_off = {}
++
++    def intern(s):
++        if s not in name_off:
++            name_off[s] = len(pool)
++            pool.extend(s.encode("utf-8") + b"\0")
++        return name_off[s]
++
++    for rel, _ in files:
++        intern(rel)
++    for d in dirs:
++        intern(d)
++
++    # File table (sorted by path, same order as `files`)
++    file_idx = {}
++    ftab = bytearray()
++    for n, (rel, size) in enumerate(files):
++        file_idx[rel] = n
++        shard, off = assign[rel]
++        ftab += struct.pack("<IIQQII", intern(rel), shard, off, size, 0o644, 0)
++
++    # Directory table + child list. A directory's children are its immediate files and directories,
++    # sorted by name, contiguous in the child list.
++    dir_idx = {d: n for n, d in enumerate(dirs)}
++    children_of = collections.defaultdict(list)
++    for rel, _ in files:
++        parent, _, name = rel.rpartition("/")
++        children_of[parent].append((name, file_idx[rel]))
++    for d in dirs:
++        for sub in dirs:
++            if sub and sub.rpartition("/")[0] == d and sub != d:
++                # Only the leaf name goes in the child list; the directory's own path is in its record
++                children_of[d].append((sub.rpartition("/")[2], dir_idx[sub] | CHILD_DIR))
++
++    dtab = bytearray()
++    child_list = []
++    for d in dirs:
++        kids = sorted(children_of[d])
++        first = len(child_list)
++        child_list.extend(tag for _, tag in kids)
++        dtab += struct.pack("<IIII", intern(d), first, len(kids), 0)
++
++    tree = bytearray()
++    for rel, size in files:
++        tree += f"{rel}\0{size}\0".encode()
++    tree_hash = fnv1a(tree)
++
++    idx_path = f"{base}.idx"
++    with open(idx_path, "wb") as out:
++        out.write(struct.pack("<8sIIQQQQQQ", MAGIC, VERSION, nshard, 0, len(files), len(dirs),
++                              len(pool), 0, tree_hash))
++        out.write(pool)
++        out.write(ftab)
++        out.write(dtab)
++        out.write(struct.pack(f"<{len(child_list)}I", *child_list) if child_list else b"")
++    print(f"pack: index {os.path.getsize(idx_path) / 2**20:.1f} MiB ({len(pool) / 2**20:.1f} MiB names, "
++          f"{len(files):,} files, {len(dirs):,} directories), tree hash {tree_hash:016x}", flush=True)
++    print(f"pack: total {nshard + 1} files", flush=True)
++
++
++def load(base):
++    with open(f"{base}.idx", "rb") as f:
++        b = f.read()
++    magic, ver, nshard, _pad, nfiles, ndirs, pool_sz, _r, tree_hash = struct.unpack_from("<8sIIQQQQQQ", b, 0)
++    if magic != MAGIC or ver != VERSION:
++        sys.exit("[RED] not a ROMFSARC index")
++    pool = b[HDR:HDR + pool_sz]
++    off = HDR + pool_sz
++    files = []
++    for i in range(nfiles):
++        name_off, shard, foff, size, mode, _ = struct.unpack_from("<IIQQII", b, off + i * FILEREC)
++        name = pool[name_off:pool.index(b"\0", name_off)].decode()
++        files.append((name, shard, foff, size))
++    off += nfiles * FILEREC
++    dirs = []
++    for i in range(ndirs):
++        name_off, first, count, _ = struct.unpack_from("<IIII", b, off + i * DIRREC)
++        name = pool[name_off:pool.index(b"\0", name_off)].decode()
++        dirs.append((name, first, count))
++    off += ndirs * DIRREC
++    kids = struct.unpack_from(f"<{len(b) - off >> 2}I", b, off) if len(b) > off else ()
++    return dict(nshard=nshard, files=files, dirs=dirs, kids=kids, tree_hash=tree_hash)
++
++
++def cmd_list(base, path):
++    a = load(base)
++    target = path.strip("/")
++    d = next((x for x in a["dirs"] if x[0] == target), None)
++    if not d:
++        sys.exit(f"[RED] no such directory: {target or '/'}")
++    _, first, count = d
++    print(f"{target or '/'}: {count} entries")
++    for k in a["kids"][first:first + count]:
++        if k & CHILD_DIR:
++            print(f"  d  {a['dirs'][k & ~CHILD_DIR][0].rpartition('/')[2]}/")
++        else:
++            name, shard, off, size = a["files"][k]
++            print(f"  f  {name.rpartition('/')[2]:50} {size:12,}  shard {shard:3} off {off:,}")
++
++
++def cmd_verify(base, romfs):
++    a = load(base)
++    print(f"verify: {len(a['files']):,} files")
++    bad = 0
++    for n, (rel, shard, off, size) in enumerate(a["files"]):
++        src = os.path.join(romfs, rel)
++        try:
++            with open(src, "rb") as f:
++                want = f.read()
++        except OSError as e:
++            print(f"[RED] missing source {rel}: {e}")
++            bad += 1
++            continue
++        if len(want) != size:
++            print(f"[RED] size mismatch {rel}: source {len(want)} archive {size}")
++            bad += 1
++            continue
++        with open(f"{base}.{shard:02d}", "rb") as f:
++            f.seek(off)
++            got = f.read(size)
++        if got != want:
++            print(f"[RED] content mismatch {rel}")
++            bad += 1
++        if (n + 1) % 20000 == 0:
++            print(f"  {n + 1:,}/{len(a['files']):,}", flush=True)
++    print(f"verify: {'OK' if not bad else f'{bad} problems'}")
++    return 1 if bad else 0
++
++
++def main():
++    ap = argparse.ArgumentParser(description="Pack a RomFS tree into a ROMFSARC archive")
++    sub = ap.add_subparsers(dest="cmd", required=True)
++    p = sub.add_parser("pack")
++    p.add_argument("romfs")
++    p.add_argument("base")
++    p.add_argument("--shard-mib", type=int, default=200)
++    l = sub.add_parser("list")
++    l.add_argument("base")
++    l.add_argument("path", nargs="?", default="")
++    v = sub.add_parser("verify")
++    v.add_argument("base")
++    v.add_argument("romfs")
++    a = ap.parse_args()
++    if a.cmd == "pack":
++        pack(a.romfs, a.base, a.shard_mib)
++    elif a.cmd == "list":
++        cmd_list(a.base, a.path)
++    else:
++        sys.exit(cmd_verify(a.base, a.romfs))
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/docs/ROMFS_ARCHIVE.md b/docs/ROMFS_ARCHIVE.md
+new file mode 100644
+index 00000000..44bc93f2
+--- /dev/null
++++ b/docs/ROMFS_ARCHIVE.md
+@@ -0,0 +1,95 @@
++# RomFS archive (ROMFSARC)
++
++A whole RomFS tree packed into one index file plus ~100 shard files, so a game whose RomFS is
++hundreds of thousands of files can be copied to a phone as one folder instead of a directory tree.
++
++## Why
++
++Tears of the Kingdom's RomFS is 304,243 files / 15.9 GiB. Two problems follow:
++
++- **The IPA does not install.** A 16.6 GB IPA with 372,660 entries fails on iOS with
++  `PackageExtractionFailed (Could not extract archive)`. The install daemon's extractor gives up:
++  one directory holds 75,941 files and the ZIP64 central directory starts at 17.8 GB.
++- **Copying the tree is slow.** The Files app and Finder both do one round trip per file; 304,243
++  small files take hours and often break partway.
++
++Packing the tree into 127 files makes the copy one operation of ~16 GB and lets the IPA stay small.
++
++## Using it
++
++### 1. Pack the game files
++
++```bash
++python3 dm/tools/romfs_arc.py pack <RomFS dir> <output base> --shard-mib 200
++```
++
++`<RomFS dir>` is the directory `nx_extract` wrote (the one holding `Pack/`, `Banc/`, `Sound/`, …).
++`<output base>` is a path prefix: the tool writes `<base>.idx` and `<base>.00`, `<base>.01`, ….
++Files are grouped by top-level directory and cut so no shard passes `--shard-mib`, so one shard
++holds one kind of content and no shard is unreasonably large.
++
++For TotK at 200 MiB per shard: 126 shards + 1 index = **127 files**.
++
++### 2. Copy it to the phone
++
++Put the whole set in the app's `Documents/romfs/`, keeping the base name:
++
++```
++Documents/romfs/romfs.idx
++Documents/romfs/romfs.00
++...
++Documents/romfs/romfs.125
++```
++
++The app looks for `romfs.idx` first (`dm/ios/Sources/main.m`, `romfs_locate`); a plain directory
++tree is still accepted when there is no index.
++
++### 3. Build the app without the RomFS
++
++```bash
++DM_NO_ROMFS=1 GAME=<title id> W=... PATCHED=... ROMFS=... MSL_IOS=... \
++  dm/ios/tools/build_ipa.sh out.ipa
++```
++
++The package then holds only the app, the shader libraries and the tables (~750 MB for TotK), and
++the game files come from `Documents/romfs/` at run time.
++
++## Checking an archive
++
++```bash
++python3 dm/tools/romfs_arc.py list   <base> [path]     # list one directory
++python3 dm/tools/romfs_arc.py verify <base> <RomFS>    # compare every file's bytes with the source
++```
++
++`verify` reads all 304,243 files of TotK's archive in about a minute and prints `verify: OK`.
++
++## Format
++
++See `dm/host/romfs_arc.h` for the byte layout. In short: a 64-byte header, a NUL-separated name
++pool, a file table sorted by path (32 bytes each), a directory table (16 bytes each) and a child
++list. Path lookup is a binary search; a directory listing walks one contiguous child range.
++
++The reader (`dm/host/romfs_arc.c`) maps the index with `mmap` and opens shards lazily, keeping up
++to 256 descriptors. Reads go straight to `pread` on the shard, so the page cache still works.
++
++## How the fs layer uses it
++
++`hle_fs.c` keeps its normal path handling. When an archive is open, `host_path_ex` returns a
++synthetic path (`@romfsarc:<guest path>`) for entries on the archive mount instead of a host file
++path; `OpenFile`, `GetEntryType`, `OpenDirectory` and the directory calls recognise that prefix and
++route to `romfs_arc.c`. File handles for archive entries are marked with bit 63 so they never
++collide with real fds, and `ReadFile` clamps to the file size (a shard is a flat container, so a
++read past the end would otherwise return the next file's bytes).
++
++The mount is recognised by its **directory**, not its name: titles differ (`rom` for most games,
++`content` for Tears of the Kingdom).
++
++## Limitations
++
++- **Read-only.** Writes go to the save/temp mounts as before; the archive is never written.
++- **Case-sensitive lookup.** The archive stores the names exactly as the source tree had them, so
++  the case-insensitive alias machinery the host uses for APFS directories is bypassed.
++- **Symlinks are followed at pack time.** No supported game's RomFS has any.
++- **The index is held in memory.** 28 MB for TotK (17.9 MB of it names); the shards are not.
++- **No dedup or compression.** Shards are the source bytes verbatim, so `verify` is a plain
++  comparison and a repack is deterministic.

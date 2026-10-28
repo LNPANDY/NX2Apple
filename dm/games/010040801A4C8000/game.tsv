@@ -1,0 +1,39 @@
+# Blasphemous 2 (Switch, update 1.0.8 = v524288). Opening gameplay tested on the Mac.
+# Format: see dm/games/README.md
+# Unity 2021.3.20f1 IL2CPP, FMOD, SDK 15.3.2, NVN. subsdk0 is NintendoSDK_movie.
+
+# ---- Identity ----
+title_id	010040801A4C8000
+program_id	010040801A4C8000
+
+# ---- App ----
+name	Blasphemous 2
+ipa	Blasphemous2.ipa
+app_category	public.app-category.games
+
+# ---- Versions ----
+build	v524288	1.0.8	main=040ad650120b583a3dbfe70750c58b4b	subsdk0=368f01d5cb42f06cd125dc739d036719	sdk=8618895246b420329b77746b960a66ab
+package	v524288
+shader_versions	v524288
+
+# ---- Files ----
+modules	main subsdk0 sdk
+romfs_marker	Data/globalgamemanagers
+zip_store	.bundle:.dat:.json:.png:.ress:.metallib
+
+# ---- Memory ----
+# NPDM: 16 MB of system resource, virtual address memory. No heap is set in the Mac check.
+# With the hardware pool, StandardAllocator and Unity's own regions reach +4.26 GB of the
+# 4.375 GB alias region during startup. The 1 GB pool leaves room for Unity's separate regions,
+# as in the other Unity profiles. The SDK-wide node-area and size-class alignment patches apply.
+sys_resource	0x1000000
+mem_reserve	0x140000000
+mem_alias	0x118000000
+mem_stack	0x10000000
+app_pool	0x40000000
+
+# ---- Shader split ----
+# Unity Shader objects in the player's serialized files and Addressables bundles, plus
+# the player's eleven GLSLC outputs in main. All sources live under Data/.
+shader_groups	/Data/=data
+shader_note	Blasphemous 2 shaders

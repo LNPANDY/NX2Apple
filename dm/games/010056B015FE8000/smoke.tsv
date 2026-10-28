@@ -1,0 +1,11 @@
+# Easy save created immediately before Start Game, with auto-control chips.
+# Save fixture: create a new game, confirm name/difficulty/chips, then copy the committed save.
+# Both revisions load their own copy and run the opening formation and ocean flight.
+save	saves/opening-flight
+keys	40:A,45:A,50:A,52:Left,53:A,60:A
+secs	220
+quick	120
+reach	3000@100
+window	140	60
+shots	100,180
+hang	20

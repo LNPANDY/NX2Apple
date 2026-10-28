@@ -2,9 +2,9 @@
 # purpose — that workflow can fail silently (its own issue step needs a permission it may not have),
 # so this one reports on the state of the tree rather than on a sync attempt:
 #   - the last sync is recent (catches a schedule that stopped firing, or a run that died early)
-#   - the patchers still reproduce the tree (catches a source fix without its patcher entry)
+#   - the patch queue reproduces the vendored tree (catches a vendored edit without its patch) and shows which patches a bump to upstream main would conflict on
 #   - the host builds and the host unit tests pass (catches a fork change that broke a test rule)
-#   - upstream has not moved without a sync (catches a failed sync that left no issue)
+#   - upstream has not moved without a sync (catches a failed sync that left no issue or PR)
 # A problem opens an issue with the log; a clean run just succeeds. No push, ever.
 name: Daily health check
 
@@ -23,12 +23,12 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0   # the patcher check compares against upstream/main
+          fetch-depth: 0   # the patch queue applies onto the pinned upstream commit
 
       - name: Fetch upstream
         run: |
-          git remote add upstream https://github.com/seedds/nxnative.git
-          git fetch upstream main --depth=1 || git fetch upstream main
+          git remote add seedds https://github.com/seedds/nxnative.git
+          git fetch --no-tags seedds main
 
       - name: Health check
         id: check
@@ -46,16 +46,22 @@ jobs:
 
             echo
             echo "=== upstream drift ==="
-            NEW=$(git rev-parse upstream/main)
-            echo "upstream/main: $NEW"
+            NEW=$(git rev-parse seedds/main)
+            echo "seedds/main: $NEW"
             if [ "$LAST" != none ] && [ "$LAST" != "$NEW" ]; then
               BEHIND=$(git rev-list --count "$LAST..$NEW" 2>/dev/null || echo '?')
               echo "commits upstream since the last sync: $BEHIND"
             fi
 
             echo
-            echo "=== patcher consistency ==="
-            python3 scripts/sync_upstream.py --old "$NEW" --new "$NEW" --skip-build 2>&1 | tail -40
+            echo "=== patch queue (check: the series reproduces the vendored tree) ==="
+            python3 scripts/patches.py check 2>&1 | tail -40
+            CHECK_RC=${PIPESTATUS[0]}
+            echo
+            echo "=== patch queue (dry bump to seedds/main: which patches would conflict) ==="
+            python3 scripts/patches.py bump --dry --to "$NEW" 2>&1 | tail -80 || true
+            [ "$CHECK_RC" -eq 0 ] || echo "PROBLEM: patches.py check failed"
+            [ "$CHECK_RC" -eq 0 ]   # the group's status: a failed check fails the step (the dry bump only reports)
           } 2>&1 | tee check.log
 
       - name: Host build and unit tests
@@ -85,5 +91,5 @@ jobs:
           $(tail -60 check.log 2>/dev/null || echo 'see the workflow log')
           \`\`\`
 
-          Common causes: a fork source change without its patcher entry (patcher drift), a test rule that no longer links a new dependency, or a sync that has not run for over two days." \
+          Common causes: a vendored file edited without its patch (patches/README.md), a test rule that no longer links a new dependency, or a sync that has not run for over two days." \
             || echo "issue creation failed; the log is in the workflow run"

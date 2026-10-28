@@ -1,0 +1,40 @@
+# Mario + Rabbids Kingdom Battle 1.9.589692 (v589824), Snowdrop on NVN, SDK 4.4.0.
+# See README.md for the measured allocator layout and build-gated platform cuts.
+
+# ---- Identity ----
+title_id	010067300059A000
+program_id	010067300059A000
+
+# ---- App ----
+name	Mario + Rabbids Kingdom Battle
+ipa	MarioRabbidsKingdomBattle.ipa
+app_category	public.app-category.games
+
+# ---- Versions ----
+build	v589824	1.9.589692	main=3b39e0c06b8841f1baf0ea4d54286bfe	subsdk0=3758eb95355911f578cd54846e006a5a	sdk=9de92bad67c4150268943ab4843ace65
+package	v589824
+shader_versions	v589824
+
+# ---- Files ----
+# every module main imports from
+modules	main subsdk0 sdk
+romfs_marker	moria/sdf/nx/data/sdf-B-1052.sdfdata
+zip_store	.sdfdata:.sdftoc:.metallib
+
+# ---- Memory ----
+# Snowdrop's compact 3 GB address region, SDK node area and 100 MB C-library heap fit this 5 GB guest block.
+mem_reserve	0x140000000
+mem_alias	0x118000000
+mem_stack	0x10000000
+app_pool	0xCD500000
+# the NPDM declares 16 MB of system resource
+sys_resource	0x1000000
+
+# ---- Shader split ----
+shader_groups	/moria/=moria
+shader_note	Mario + Rabbids Kingdom Battle shaders
+
+# The game sets NVN depth mode near=0 before loading its shaders.
+depth_mode	zero
+# Movement and camera use both sticks.
+pad_layout	full

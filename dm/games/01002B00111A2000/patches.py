@@ -92,3 +92,6 @@ def frame_step(ctx):
     fs_put(0x166dc60, [B(0x166dc60, start)], 'KIDS frame task: the frame-rate object\'s steps × its fps × vsyncs per update / 60 (state page target fps; 0 = as the game sets them)')
 
 FRAME_STEP = {'c3cf52bf2b05d7310884971b50bcccb8': frame_step}
+
+# Whether a general rule could replace these patches (dm/tools/docs_patches.py lists it in docs/agents/game-patches.md)
+GENERALIZE = "No: the stubs hook the game's own KIDS frame task and frame-rate block; only the host's frame-step state page is shared. Fire Emblem: Three Houses and Taiko Risshiden V DX run on KTGL too, with other frame code"

@@ -8,11 +8,18 @@
 #        python3 scripts/regress.py chain    [--baseline REV] [--candidate REV|worktree] [--games ID,...]          (the static checks only, no game runs)
 #        python3 scripts/regress.py usage    [--rev REV] [--games ID,...] [--write]                            (a game's usage manifest, dm/games/<id>/usage.tsv: dm/tools/usage.py)
 #        python3 scripts/regress.py impact   <base>..<head> | <commit>                                         (the games whose manifests hold what the change touches)
-#        python3 scripts/regress.py list                                                                       (the games found, their routes and stored baselines)
+#        python3 scripts/regress.py list                                                                       (the games found, their routes, stored baselines and last green chain)
+#   check / baseline --record: for each repository profile with status PASS or CHANGED and successful boot runs (no run_failures, even known ones) write dm/games/<id>/validated.tsv of
+#   this checkout: the chain it was last green on, one row per mode (quick, full), the latest of each. `key <TAB> value` rows under a comment header; the value is `field=value` words:
+#     quick <TAB> chain=157e1b96c8da commit=4f2a9c01d3+dirty date=2026-10-27 machine=Mac14,6 macos=26.1
+#   chain = DMSH_CHAIN of the candidate (dm/gfx/nvn/dmsh_chain.h; for `baseline`, of the revision recorded), commit = its short SHA (+dirty: uncommitted changes in the worktree), date = UTC day,
+#   machine / macos = report.json's machine. No game data, paths, keys or hashes of game content. A red game keeps its row (it shows the last green chain), a game without a route or a run with
+#   --no-smoke writes nothing. Derived build profiles do not validate repository profiles. Without --record nothing in dm/games changes. `list` prints the rows and whether the chain is the current one.
+#   The report is saved before recording, so a metadata write failure leaves the test evidence intact. Commit the file with the pull request.
 #   REV: any git revision of this repository; worktree = this checkout as it is, uncommitted and untracked files included. check: baseline = the merge base of HEAD and main,
 #   candidate = worktree; baseline: --rev main. Each revision is checked out once into <root>/trees/<id> (git worktree), and the chain, host and rewriter come from there.
-#   --root (REGRESS_ROOT, default /Volumes/NX/harness): source trees and public reports; game-derived files stay in <NSP folder>/<id>-work/regress/.
-#   --games-dir (REGRESS_GAMES, default /Volumes/NX/games): the NSP folders "<name> [<title ID>]", each with the
+#   --root (REGRESS_ROOT; no default, required except for impact): source trees and public reports; game-derived files stay in <NSP folder>/<id>-work/regress/.
+#   --games-dir (REGRESS_GAMES; no default, required except for impact): the NSP folders "<name> [<title ID>]", each with the
 #   <id>_build of scripts/build_ipa_from_nsp.py --platform mac. A game takes part when it has that build and, for the runs, a route dm/games/<id>/smoke.tsv (read from this checkout).
 #   REGRESS_SKIP=ID,...: games left out unless --games names them (a game another agent works on).
 #   --lock FILE (DM_MEASURE_LOCK): the measuring lock bench.py --lock shares, held only while a game runs.
@@ -69,10 +76,11 @@ def load_module(name, path):   # a module from a file (another script, or a tool
 bench = load_module('bench', REPO / 'scripts/bench.py')
 shader_regressions = load_module('shader_regressions', REPO / 'dm/gfx/tools/shader_regressions.py')
 usage = load_module('usage', REPO / 'dm/tools/usage.py')   # usage manifests and change impact (regress.py usage / impact)
-ROOT = Path(os.environ.get('REGRESS_ROOT', '/Volumes/NX/harness'))
-GAMES = Path(os.environ.get('REGRESS_GAMES', '/Volumes/NX/games'))
+# Where they are depends on the machine (a drive with room for the trees and the games' NSP folders): set with --root / --games-dir or REGRESS_ROOT / REGRESS_GAMES, checked in main
+ROOT = Path(os.environ.get('REGRESS_ROOT', ''))
+GAMES = Path(os.environ.get('REGRESS_GAMES', ''))
 HOST_DIRS = ('dm/host', 'dm/gfx', 'dm/gfx/nvn', 'dm/gfx/nvn/include', 'dm/gfx/tex', 'dm/gfx/vk', 'dm/gfx/gl')   # as build_ipa_from_nsp.py: the host's sources and headers
-REWRITER = ('dm/tools/patch_nso.py', 'dm/tools/nso_code.py', 'dm/tools/nso_asm.py', 'dm/tools/nso_match.py', 'dm/tools/sdk_patches.py')
+REWRITER = ('dm/tools/patch_nso.py', 'dm/tools/nso.py', 'dm/tools/nso_code.py', 'dm/tools/nso_asm.py', 'dm/tools/nso_match.py', 'dm/tools/sdk_patches.py')
 HEAVY_EXE = {'clang', 'make', 'xcodebuild', 'ld', 'ld64', 'swift-frontend', 'dotnet', 'metal', 'metal-tt', 'air-tt', 'applegpu-nt', 'dmsh_xlate', 'spirv-cross'}   # jobs that skew a measurement
 HEAVY_PY = r'(dmsh_build|shader_split|own_compilers|patch_nso|vk_shaders)\.py'   # (the shared measuring rule)
 # Tolerances, from runs of one revision against itself (docs/development.md, The regression harness)
@@ -82,6 +90,52 @@ TOL = {'fps_pct': 10.0, 'p99_pct': 30.0, 'p99_ms': 4.0, 'footprint_pct': 15.0, '
 
 class HarnessError(Exception):
     pass
+
+
+VALIDATED = 'validated.tsv'
+VALIDATED_HEAD = ('# The chain this game was last green on in scripts/regress.py check / baseline --record (one row per mode, the latest of each). Written by the harness, committed with the pull request.\n'
+                  '# mode <TAB> chain=<DMSH_CHAIN> commit=<short SHA>[+dirty] date=<UTC day> machine=<model> macos=<version>. No game data.\n')
+GREEN = ('PASS', 'CHANGED')   # the statuses of a game that did not get worse (finish: no regression exit for them)
+
+
+def chain_version(root=None):   # DMSH_CHAIN of a checkout (dm/gfx/nvn/dmsh_chain.h)
+    m = re.search(r'#define\s+DMSH_CHAIN\s+"([^"]+)"', (Path(root or REPO) / 'dm/gfx/nvn/dmsh_chain.h').read_text())
+    return m.group(1) if m else None
+
+
+def read_validated(f):   # {mode: {field: value}}
+    out = {}
+    if Path(f).is_file():
+        for line in Path(f).read_text().splitlines():
+            if not line.strip() or line.startswith('#') or '\t' not in line: continue
+            mode, val = line.split('\t', 1)
+            out[mode] = dict(w.split('=', 1) for w in val.split() if '=' in w)
+    return out
+
+
+def record_validated(a, rep, tree, games):
+    """--record: a game that is green after a boot run gets its row for the report's mode in dm/games/<id>/validated.tsv of this checkout; every other game keeps what it had"""
+    mode = rep.get('mode')
+    if not getattr(a, 'record', False) or mode not in ('quick', 'full'): return []
+    v, hw = chain_version(tree.path), rep.get('machine') or {}
+    row = {'chain': v, 'commit': tree.commit[:10] + ('+dirty' if tree.dirty else ''), 'date': datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d'),
+           'machine': (hw.get('model') or 'unknown').replace(' ', '_'), 'macos': (hw.get('macos') or 'unknown').replace(' ', '_')}
+    written = []
+    profiles = {g.id for g in games if not g.derived}
+    for gid, gr in rep['games'].items():
+        d = REPO / 'dm/games' / gid
+        sm = gr.get('smoke') or {}
+        runs = sm.get('candidate' if rep['command'] == 'check' else 'baseline') or []
+        # PASS means no new regression: a crash or missed frame shared with the baseline is still a failed boot.
+        if gr['status'] not in GREEN or not runs or any(run_failures(r, sm['route']) for r in runs): continue
+        if gid not in profiles or not d.is_dir(): continue
+        rows = read_validated(d / VALIDATED); rows[mode] = row
+        try:
+            (d / VALIDATED).write_text(VALIDATED_HEAD + ''.join(f'{m}\t' + ' '.join(f'{k}={x}' for k, x in rows[m].items()) + '\n' for m in ('quick', 'full') if m in rows))
+        except OSError as e:
+            raise HarnessError(f'{gid}: could not record {VALIDATED} (the regression report was saved): {e}') from e
+        written.append(gid); say(f'  {gid}: recorded green on chain {v} ({mode}) in dm/games/{gid}/{VALIDATED}')
+    return written
 
 
 def say(msg):
@@ -193,9 +247,9 @@ class Game:
 
     def profile_dir(self, tree):
         src = (self.build / 'profile' if self.derived else tree.path / 'dm/games') / self.id
-        key = digest(sorted(p for p in src.glob('*') if p.is_file()))[:16]
+        key = digest(sorted(p for p in src.glob('*') if p.is_file() and p.name != VALIDATED))[:16]   # validated.tsv records a result about the profile, it is not an input of it
         dst = game_root(self) / 'profiles' / key / self.id
-        if not (dst / 'game.tsv').is_file(): shutil.copytree(src, dst)
+        if not (dst / 'game.tsv').is_file(): shutil.copytree(src, dst, ignore=shutil.ignore_patterns(VALIDATED))
         return dst
 
     def shader_roots(self):
@@ -489,6 +543,12 @@ def modules_for(tree, g, rewrite, jobs):
     dst = game_root(g) / 'patched' / key / g.patched.name
     if (dst / '.done').is_file(): return dst, key
     mods = g.env(tree)
+    if not g.derived:
+        # Registered builds rewrite with this revision's original profile. The
+        # shader-table copy also contains patches.py; exposing both registers
+        # each build's cuts twice. Provisional profiles still need their path.
+        mods.pop('DM_GAMES_DIR', None)
+        mods.pop('DM_GAMES_FIRST', None)
     names = tree.py(f"import sys; sys.path.insert(0, 'dm/games'); import game; print(' '.join(game.load({g.id!r}).words('modules')))", mods).split()
     src = {m: g.build / 'extract' / g.ver / 'ExeFS' / m for m in names}
     nro = g.build / f'nro_{g.ver}' / 'nro.tsv'
@@ -838,9 +898,13 @@ def run_failures(r, route):
 def smoke_diff(base, cand, route):
     """→ (status reasons by level, known failures, diff numbers)"""
     newfail, regress, changed, known = [], [], [], []
-    bf = set(x for r in base for x in run_failures(r, route)); cf_ = [x for r in cand for x in run_failures(r, route)]
+    # a failure is matched by its kind: the numbers in its parentheses are each run's own (the reach's max frame, a hang's second, the prebuild's pairs), so one the
+    # baseline had too stays known (Pikmin 4's route missed its reach in every baseline run, "(max 4797)", and in a candidate run, "(max 4774)"); the words stay, so a crash
+    # with another signal ("(SIGSEGV)" against "(SIGABRT)") or an exit with another status is new
+    kind = lambda x: re.sub(r'\(([^)]*)\)', lambda m: '(' + re.sub(r'(?<!exit )(?<![\w-])-?\d+(\.\d+)?(?![\w])', '#', m.group(1)) + ')', x)
+    bf = set(kind(x) for r in base for x in run_failures(r, route)); cf_ = [x for r in cand for x in run_failures(r, route)]
     for x in dict.fromkeys(cf_):
-        (known if x in bf else newfail).append(x)
+        (known if kind(x) in bf else newfail).append(x)
     d = {}
     bred = set().union(*[r.get('red', {}).keys() for r in base]) if base else set()
     nr = collections.Counter()
@@ -964,7 +1028,9 @@ def cmd_baseline(a):
         except HarnessError as e:
             gr['status'] = 'ERROR'; gr['reasons'].append(str(e)); say(f'  {g.id}: [RED] {e}')
         say(f'  {g.id}: {gr["status"]} ' + '; '.join(gr['reasons']))
-    return finish(rep, a)
+    result = finish(rep, a)
+    record_validated(a, rep, tree, games)
+    return result
 
 
 def cmd_check(a, smoke=True):
@@ -1022,7 +1088,9 @@ def cmd_check(a, smoke=True):
         gr['status'] = worst(*[k for k, v in levels.items() if v]) if any(levels.values()) else 'PASS'
         gr['reasons'] = [f'{k}: {x}' for k in LEVELS for x in levels.get(k, [])]
         say(f'  {g.id}: {gr["status"]}' + (' — ' + '; '.join(gr['reasons']) if gr['reasons'] else ''))
-    return finish(rep, a)
+    result = finish(rep, a)
+    record_validated(a, rep, cand, games)
+    return result
 
 
 def cmd_usage(a):
@@ -1085,7 +1153,7 @@ def cmd_impact(a):
     L += ['', '### Why', ''] + [f'- `{p}` ← {w}' for p, w in r['patterns']] + [f'- `{k}:{n}` ← {w}' for k, n, w in r['names'][:30]] + (['- … more entry points'] if len(r['names']) > 30 else [])
     if r['unmapped']: L += ['', 'Changed files no rule maps (add them to dm/tools/impact_map.tsv): ' + ', '.join(f'`{f}`' for f in r['unmapped'])]
     md = '\n'.join(L) + '\n'
-    out = Path(a.out) if a.out else ROOT / 'reports' / f'{datetime.datetime.now():%Y%m%d-%H%M%S}-impact' if ROOT.is_dir() else None   # without a harness root, the report is only printed
+    out = Path(a.out) if a.out else ROOT / 'reports' / f'{datetime.datetime.now():%Y%m%d-%H%M%S}-impact' if a.root and ROOT.is_dir() else None   # without a harness root, the report is only printed
     if out:
         out.mkdir(parents=True, exist_ok=True)
         (out / 'impact.json').write_text(json.dumps({'schema': 'nxnative-impact/1', 'range': rng, **r}, indent=1, default=list)); (out / 'impact.md').write_text(md)
@@ -1171,18 +1239,24 @@ def report_md(rep):
     return '\n'.join(L) + '\n'
 
 
+def validated_text(gid):   # the last green chain per mode, and whether it is the current one
+    rows, cur = read_validated(REPO / 'dm/games' / gid / VALIDATED), chain_version()
+    return '; '.join(f"{m} chain {r.get('chain', '?')} ({'current' if r.get('chain') == cur else 'old, now ' + str(cur)}) {r.get('date', '?')} {r.get('commit', '?')}" for m, r in rows.items()) or 'never recorded'
+
+
 def cmd_list(a):
     for g in find_games():
         r = g.route()
         bl = sorted(p.parent.name + '/' + p.stem for p in (game_root(g) / 'baselines').glob('*/smoke-*.json'))
-        say(f'{g.id}  {g.name}  {g.kind}  build {g.ver}  route: {"yes" if r else "no (dm/games/" + g.id + "/smoke.tsv)"}  baselines: {", ".join(bl) or "none"}')
+        say(f'{g.id}  {g.name}  {g.kind}  build {g.ver}  route: {"yes" if r else "no (dm/games/" + g.id + "/smoke.tsv)"}  baselines: {", ".join(bl) or "none"}  green: {validated_text(g.id)}')
     return 0
 
 
 def main():
     global ROOT, GAMES
     ap = argparse.ArgumentParser(description='Regression harness: chain diff, interface check and boot smoke over the local games (see the comment at the top of this file).')
-    ap.add_argument('--root', default=str(ROOT)); ap.add_argument('--games-dir', default=str(GAMES))
+    ap.add_argument('--root', default=os.environ.get('REGRESS_ROOT', ''), help='source trees and reports (REGRESS_ROOT); before the command')
+    ap.add_argument('--games-dir', default=os.environ.get('REGRESS_GAMES', ''), help='the NSP folders with their Mac builds (REGRESS_GAMES); before the command')
     sub = ap.add_subparsers(dest='cmd', required=True)
     def common(p, smoke=True):
         p.add_argument('--games', help='title IDs, comma-separated (default: every game with a Mac build, and for the runs a smoke route)')
@@ -1193,6 +1267,7 @@ def main():
         if smoke:
             p.add_argument('--quick', action='store_true', help='the chain checks and a short boot (the route\'s quick seconds, no prebuild)')
             p.add_argument('--no-smoke', action='store_true', help='no game runs')
+            p.add_argument('--record', action='store_true', help='write dm/games/<id>/validated.tsv for each game that is green after a boot run (chain, commit, mode, date, machine)')
             p.add_argument('--runs', type=int, default=1, help='runs per revision (default 1)')
             p.add_argument('--wait-idle', type=float, default=900, help='seconds to wait for other builds to end before a run (default 900)')
             p.add_argument('--rewrite', action='store_true', help='rewrite the modules with each revision\'s rewriter (default only when the rewriters differ)')
@@ -1210,6 +1285,9 @@ def main():
     p.add_argument('--all', action='store_true', help='list the games without a manifest too'); p.add_argument('--out')
     sub.add_parser('list', help='the games, routes and baselines')
     a = ap.parse_args()
+    missing = [o for o, v in (('--root (REGRESS_ROOT)', a.root), ('--games-dir (REGRESS_GAMES)', a.games_dir)) if not v]
+    if missing and a.cmd != 'impact': ap.error(f'set {" and ".join(missing)}: where the harness keeps its trees and reports, and the folder of the games\' NSP folders, for example '
+                         f'regress.py --root <drive>/harness --games-dir <drive>/nsp {a.cmd} ... (the options go before the command)')
     ROOT, GAMES = Path(a.root), Path(a.games_dir)
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))   # a stop runs the finally blocks: a game or a shader build in its own process group is stopped too
     try:

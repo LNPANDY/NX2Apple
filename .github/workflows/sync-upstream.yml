@@ -1,8 +1,12 @@
-# Daily: follow upstream seedds/nxnative. The fork is a fresh repository (no shared git
-# history), so GitHub's own "Sync fork" does not apply; scripts/sync_upstream.py is the
-# sync instead — upstream's tree, the fork's features re-applied, then verification
-# (Python 3.9 parse, bash -n, the archive reader test, a macOS host build). Success is
-# committed and pushed; a failure opens an issue and pushes nothing.
+# Daily: follow upstream seedds/nxnative as a patch queue (issue #123, patches/README.md). The vendored
+# paths are upstream at a pinned commit (.upstream-ref) plus the patches in patches/; scripts/patches.py
+# bump moves the pin, re-applies the series, drops the patches that landed upstream, and leaves the rest
+# for review. Nothing is pushed to main (it is protected): the result is a pull request from the branch
+# sync/upstream-<short sha> (or, when a patch no longer applies, an issue naming it).
+#
+# A PR opened with the default GITHUB_TOKEN does not start other workflows (GitHub's rule), so this job
+# runs the checks itself before it opens the PR. A repository secret SYNC_TOKEN (a fine-grained token
+# with contents, pull requests and issues write) makes the PR start tests.yml as well.
 name: Sync upstream
 
 on:
@@ -12,51 +16,96 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
   issues: write
 
 jobs:
   sync:
     runs-on: macos-latest   # the host build needs clang + macOS headers
+    env:
+      GH_TOKEN: ${{ secrets.SYNC_TOKEN || secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0   # the pinned upstream commit's blobs come from seedds below; the fork's own history is small
+          token: ${{ secrets.SYNC_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Fetch upstream
         run: |
-          git remote add upstream https://github.com/seedds/nxnative.git
-          git fetch upstream main
+          git remote add seedds https://github.com/seedds/nxnative.git
+          git fetch --no-tags seedds main
+          echo "NEW=$(git rev-parse seedds/main)" >> "$GITHUB_ENV"
+          echo "OLD=$(cat .upstream-ref)" >> "$GITHUB_ENV"
 
-      - name: Sync (and verify)
-        id: sync
+      - name: Bump the pin and re-apply the patches
+        id: bump
         run: |
-          LAST=$(cat .upstream-ref 2>/dev/null || true)
-          NEW=$(git rev-parse upstream/main)
-          echo "new=$NEW" >> "$GITHUB_OUTPUT"
-          if [ "$LAST" = "$NEW" ]; then echo "Already at $NEW"; exit 0; fi
-          python3 scripts/sync_upstream.py --old "${LAST:-$NEW}" --new "$NEW" 2>&1 | tee sync.log
-          exit ${PIPESTATUS[0]}
+          if [ "$OLD" = "$NEW" ]; then echo "Already at $NEW"; echo "changed=no" >> "$GITHUB_OUTPUT"; exit 0; fi
+          set +e
+          python3 scripts/patches.py bump --to "$NEW" 2>&1 | tee bump.log
+          rc=${PIPESTATUS[0]}
+          if [ $rc -eq 0 ]; then echo "changed=yes" >> "$GITHUB_OUTPUT"
+          elif [ $rc -eq 1 ]; then echo "changed=conflict" >> "$GITHUB_OUTPUT"
+          else echo "changed=error" >> "$GITHUB_OUTPUT"; exit $rc; fi
 
-      - name: Commit and push
-        if: success() && steps.sync.outcome == 'success'
+      - name: Check the patch queue
+        if: steps.bump.outputs.changed == 'yes'
+        run: |
+          python3 scripts/patches.py check
+          python3 -m unittest discover scripts/tests
+          # every .py parses on the Python this fork supports as its floor, the iOS build script survives bash -n
+          python3 -m compileall -q scripts dm/tools dm/games dm/mac > /dev/null
+          bash -n dm/ios/tools/build_ipa.sh
+          GAME=$(ls dm/games | grep '^0100' | head -1)
+          make -C dm/host GAME=$GAME dmhost -j4 2>&1 | tail -20
+
+      - name: Commit to a sync branch and open a pull request
+        if: steps.bump.outputs.changed == 'yes'
+        # main is protected (a pull request is required, force pushes and deletions are
+        # blocked, and the rules apply to everyone including the owner and this bot), so the
+        # sync result goes to a branch and a PR instead of straight to main. A person merges it.
+        # -R, because gh would otherwise resolve the target repository from the remotes
+        # (daily-health.yml has the full note).
         run: |
           git config user.name "sync-bot"
           git config user.email "actions@users.noreply.github.com"
-          git rev-parse upstream/main > .upstream-ref
-          git add -A
-          git diff --cached --quiet || git commit -m "Sync upstream $(git rev-parse --short upstream/main)"
-          git push
+          SHORT=${NEW:0:7}
+          git add -A patches .upstream-ref dm scripts docs ref AGENTS.md
+          if git diff --cached --quiet; then echo "nothing to sync"; exit 0; fi
+          git checkout -b "sync/upstream-$SHORT"
+          git commit -m "Sync upstream $SHORT"
+          git push -u origin "sync/upstream-$SHORT"
+          {
+            echo "The patch queue re-applied on upstream \`${NEW:0:12}\` (was \`${OLD:0:12}\`): every patch applied, and \`scripts/patches.py check\`, the tests and a macOS host build passed. Merging brings seedds/nxnative to \`$NEW\`."
+            echo
+            echo "Upstream: https://github.com/seedds/nxnative/compare/${OLD:0:12}...${NEW:0:12}"
+            echo
+            echo '```'
+            tail -40 bump.log
+            echo '```'
+            echo
+            echo "Patches listed under dropped landed upstream; their files are deleted from patches/. \`scripts/patches.py status\` lists what is still carried."
+          } > body.md
+          gh pr create -R "${{ github.repository }}" --base main --head "sync/upstream-$SHORT" \
+            --title "Sync upstream $SHORT" --body-file body.md || echo "PR creation failed; the branch is pushed"
 
-      - name: Open an issue when the sync fails
-        if: failure()
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        # -R, because the `upstream` remote added above makes gh resolve the target repository as
-        # seedds/nxnative, where this token cannot write (daily-health.yml has the full note).
+
+      - name: Open an issue when a patch conflicts
+        if: steps.bump.outputs.changed == 'conflict' || failure()
         run: |
-          NEW=$(git rev-parse upstream/main 2>/dev/null || echo '?')
-          tail -40 sync.log > sync-tail.log 2>/dev/null || echo "see the workflow log" > sync-tail.log
-          gh issue create -R "${{ github.repository }}" --title "Upstream sync failed at ${NEW:0:7}" \
-            --body "The scheduled sync could not re-apply the fork's patches or verify the build. The tree is untouched on main; run scripts/sync_upstream.py locally to see the full picture.
-
-          \`\`\`
-          $(tail -40 sync.log 2>/dev/null)
-          \`\`\`" || echo "issue creation failed; the log is in sync.log"
+          tail -60 bump.log > tail.log 2>/dev/null || echo "see the workflow log" > tail.log
+          TITLE="Upstream sync blocked at ${NEW:0:7}"
+          {
+            echo "The nightly bump to \`${NEW:0:12}\` stopped at a patch that no longer applies. main is untouched. Whoever owns the patch refreshes it:"
+            echo "run \`scripts/patches.py bump --to ${NEW:0:12}\` locally, resolve the conflict in the worktree it names, \`git am --continue\`, then \`scripts/patches.py refresh <worktree> --to ${NEW:0:12}\` (patches/README.md)."
+            echo
+            echo '```'
+            cat tail.log
+            echo '```'
+          } > issue.md
+          N=$(gh issue list -R "${{ github.repository }}" --state open --search "Upstream sync blocked in:title" --json number --jq '.[0].number // empty')
+          if [ -n "$N" ]; then
+            gh issue edit "$N" -R "${{ github.repository }}" --title "$TITLE" --body-file issue.md
+          else
+            gh issue create -R "${{ github.repository }}" --title "$TITLE" --body-file issue.md || echo "issue creation failed; the log is in the workflow run"
+          fi

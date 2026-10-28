@@ -1,0 +1,38 @@
+# Retained from PR #289 (1842ed09); the uint output also supplied by PR #304 (3b32d7d6).
+# Hand-written facts the machine code cannot give (merged over the generated table by shader_split.py): the texture type of the handles the shaders read from a
+# constant buffer (a texture list) and of the images they write.  Without an answer the translator assumes 2D and the host then finds a type mismatch at run time.
+0647a88c955fcc6e	{"tex":{"128":"buffer","129":"buffer"}}
+120e6fbdf2cb9516	{"img":{"0":"buffer"}}
+1300ca45ddca3566	{"tex":{"130":"buffer","131":"buffer","132":"buffer","133":"buffer","134":"buffer"}}
+19274e72bf8f5d0d	{"tex":{"128":"buffer","129":"buffer","130":"buffer","131":"buffer","132":"buffer","133":"buffer"}}
+1a970a5d8e09b226	{"tex":{"128":"buffer","129":"buffer","130":"buffer","131":"buffer","132":"buffer","133":"buffer"}}
+1bbd4f87bfa7cdf5	{"tex":{"129":"buffer","130":"buffer","131":"buffer","132":"buffer"}}
+1ed69167e3f8e347	{"tex":{"128":"buffer","129":"buffer","130":"buffer","131":"buffer"}}
+26591729966941d6	{"tex":{"128":"buffer","129":"buffer","130":"buffer"}}
+2ae92981ae60d21f	{"tex":{"128":"buffer","129":"buffer","130":"buffer"}}
+2dbe8d55b3702839	{"tex":{"128":"buffer","129":"buffer"}}
+41b20b5f09269ad8	{"img":{"0":"buffer","1":"buffer","2":"buffer"},"tex":{"128":"buffer","129":"buffer","130":"buffer"}}
+4b77884416903035	{"tex":{"128":"buffer","129":"buffer","130":"buffer"}}
+51778d65c7f8b457	{"tex":{"128":"buffer","129":"buffer","130":"buffer","131":"buffer","132":"buffer","133":"buffer"}}
+544e80ec57b3a10b	{"img":{"0":"buffer","1":"buffer"},"tex":{"128":"buffer","129":"buffer"}}
+5854663e6002c250	{"img":{"0":"buffer"},"tex":{"128":"buffer"}}
+5d2ef77fed020547	{"tex":{"128":"buffer","129":"buffer","130":"buffer","131":"buffer","132":"buffer","133":"buffer"}}
+64005e47d9e08250	{"tex":{"128":"buffer","129":"buffer","130":"buffer"}}
+6a4e114179eda634	{"tex":{"130":"buffer","131":"buffer","132":"buffer","133":"buffer"}}
+6dadf815b0eaec52	{"img":{"0":"buffer"}}
+70eb4102a6b42ce5	{"tex":{"129":"buffer","130":"buffer","131":"buffer"}}
+732a01adb7d659b2	{"tex":{"128":"buffer"}}
+812650f2ed1cba0d	{"img":{"0":"buffer"}}
+98dee7b8a8eb9f9f	{"img":{"0":"buffer","1":"buffer"},"tex":{"128":"buffer","129":"buffer","130":"buffer"}}
+a0a24a464b0006f4	{"img":{"0":"buffer"}}
+a960d729840ecac2	{"img":{"0":"buffer"}}
+b37b185efd89db7f	{"tex":{"128":"buffer","129":"buffer","130":"buffer"}}
+bb3615c8b5248329	{"tex":{"128":"buffer","129":"buffer","130":"buffer"}}
+bd0c385cb99a8e2c	{"tex":{"128":"buffer","129":"buffer"}}
+c0a487a5afca4bb9	{"img":{"0":"buffer"},"tex":{"128":"buffer"}}
+c254eaa40e0c4f1e	{"fout":{"0":"uint"}}
+c55d54c8f41b1520	{"tex":{"130":"buffer","131":"buffer","132":"buffer","133":"buffer","134":"buffer","135":"buffer"}}
+e486541c2d07e22b	{"tex":{"128":"buffer"}}
+e9167e494d8581fc	{"tex":{"129":"buffer"}}
+f3c5ced35cb619d0	{"img":{"0":"buffer","1":"buffer","2":"buffer"},"tex":{"128":"buffer","129":"buffer","130":"buffer","131":"buffer"}}
+fb570ef861debd17	{"tex":{"130":"buffer","131":"buffer","132":"buffer","133":"buffer"}}

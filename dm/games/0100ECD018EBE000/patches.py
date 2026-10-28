@@ -2,11 +2,7 @@
 # CUTS, OBS and FRAME_STEP as described there ("Registered patches"). Patches of Nintendo SDK module builds are in dm/tools/sdk_patches.py
 from nso_asm import ADRP, B
 CUTS = {
-  # Paper Mario: The Thousand-Year Door 1.0.1 (v65536) main: nninitStartup (main+0x3136b8, the game's malloc) initializes its StandardAllocator with virtual address memory over 62 GB of
-  # address space (StandardAllocator::Initialize(nullptr, 0xf80000000, false), main+0x3136e8), which the Switch's 64 GB alias region holds and an iPhone's single 6 GB reservation cannot;
-  # it then cuts its 256 MB, 16 MB and 1 MB allocators out of it. The pool (3.2 GB) bounds what it maps, so 4 GB of address space, as Pokémon Legends: Z-A's, holds it
   '0effe4af1dec3a7966b934d4a7c3d2bf': [
-    (0x3136e8, 'e21361b2', '2200c0d2', 'StandardAllocator::Initialize(nullptr, size): address space mov x2,#0xf80000000 → mov x2,#0x100000000 (62 GB → 4 GB)'),
     # 60 fps (30 on the Switch). Every frame main+0x2e7750 measures the time since the last one (oe::GetProgramTotalActiveTime), rounds it to 60 Hz vsyncs and clamps it to [2, cap]
     # (a step above cap + 10 counts as 2); the base clock (time object +0x20, main+0x2e753c) then advances by that step, the field and battle clocks by it times their scale, and game
     # seconds by step / 60. Timers, fades, animation and the scripts' frame counts follow the clocks. With the floor at 2 a frame shown every vsync still stepped two vsyncs, and
@@ -37,3 +33,6 @@ def frame_step(ctx):
     fs_put(0x2e77f8, [B(0x2e77f8, start)], 'frame step: the base clock steps by the host\'s vsyncs (state page target fps; 0 = the game\'s measured step)')
 
 FRAME_STEP = {'0effe4af1dec3a7966b934d4a7c3d2bf': frame_step}
+
+# Whether a general rule could replace these patches (dm/tools/docs_patches.py lists it in docs/agents/game-patches.md)
+GENERALIZE = "No: the game's own clock floor and step"

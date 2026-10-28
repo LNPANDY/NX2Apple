@@ -44,6 +44,7 @@ targets:
         LSApplicationCategoryType: ${DM_APP_CATEGORY}   # game profile app_category
         DMShowFPS: ${DM_SHOW_FPS}           # YES = the frame-rate counter is on (front_ios.m; set by build_ipa.sh)
         DMLanguage: ${DM_LANG}              # the game language code (main.m sets DM_LANG from it; set by build_ipa.sh)
+        DMForkPatches: ${DM_FORK_PATCHES}   # the fork's patches this build carries (dm/fork_patches.txt, written by scripts/patches.py; set by build_ipa.sh)
         LSSupportsGameMode: true
         GCSupportsControllerUserInteraction: true   # Physical controllers (GameController)
         GCSupportedGameControllers:
