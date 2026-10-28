@@ -100,6 +100,13 @@ final class BuildModel: ObservableObject {
     @Published var logTail = ""
     @Published var done = false
     @Published var doneNote = ""
+    /// What the NSP script stopped on, when it is one of the known early stops (BuildFailure.swift). nil for a build that
+    /// succeeded, is running, or failed some other way (the note then shows the last line of the log, as it always did).
+    @Published var failure: BuildFailure?
+    /// "Build anyway" asked for this stop and waiting for the confirmation dialog.
+    @Published var confirmingOverride: BuildFailureKind?
+    /// The one-off `--allow-*` of a confirmed "Build anyway": taken by the next build and never stored.
+    private(set) var armedOverride: BuildFailureKind?
     @Published var ipaPath = ""      // captured from the script's "output IPA:" line
     @Published var macAppPath = ""   // --platform mac-app: the .app this build produced
     /// 'ios' = an IPA for an iPhone; 'mac-app' = a double-clickable Mac app (upstream's
@@ -1024,6 +1031,8 @@ final class BuildModel: ObservableObject {
         guard !running else { return }
         stopping = false
         running = true; done = false; doneNote = ""; stages = []; logTail = ""; lineBuf = ""; chainNoteShown = false
+        failure = nil; confirmingOverride = nil
+        let override = takeOverrideFlag()   // for this build only: the next one asks again
         installedOn = ""; installedAppPath = ""; bundleID = ""
         guard repoOK else {
             fail(repoPath.isEmpty ? t("msg.repoInvalidEmpty") : String(format: t("msg.repoInvalid"), shortPath(repoPath)))
@@ -1147,6 +1156,8 @@ final class BuildModel: ObservableObject {
         // The archive step packs whatever folder the build reported; without --work-dir that is the
         // script's default, which is the same workDir unless a separate output folder was chosen.
         effectiveWorkDir = hasWorkDir ? workDir : (inputDir as NSString).appendingPathComponent(tidHex + "_build")
+        args = BuildFailureClassifier.arguments(args, adding: override)
+        if let override { say(String(format: t("fail.override.note"), override)) }
         say(String(format: t("msg.running"), py) + " " + args.joined(separator: " "))
         lastBuildCommand = [py] + args
 
@@ -1218,6 +1229,7 @@ final class BuildModel: ObservableObject {
                     if let i = self.stages.lastIndex(where: { $0.state == .running }) {
                         self.stages[i].state = .failed
                         self.stages[i].detail = String(format: self.t("msg.exitCode"), status.terminationStatus)
+                        self.noteFailure()
                     } else {
                         // The last real line says more than the exit code alone, and the message
                         // points at the log: "Build failed (exit code 1)" with nothing else sent a
@@ -1226,6 +1238,7 @@ final class BuildModel: ObservableObject {
                         if let last = Self.lastMeaningfulLine(self.logTail) {
                             self.doneNote = String(format: self.t("msg.buildFailedReason"), last)
                         }
+                        self.noteFailure()
                     }
                     self.cleanupStaging()
                 }
@@ -1245,6 +1258,62 @@ final class BuildModel: ObservableObject {
         running = false
         done = ok
         doneNote = note
+    }
+
+    /// A failed build's log read for the script's known early stops: the card under the build button then says what
+    /// happened and what to do. An unknown stop leaves the note (the last line of the log) as it is.
+    func noteFailure() {
+        let f = BuildFailureClassifier.classify(logTail)
+        guard f.kind != .unknown else { failure = nil; return }
+        failure = f
+        doneNote = failureWhat(f)
+    }
+
+    /// The first sentence of a failure's hint (it names the game of a 32-bit program when the message does).
+    func failureWhat(_ f: BuildFailure) -> String {
+        if f.kind == .a32Program, let name = f.gameName { return String(format: t("fail.a32Program.whatNamed"), name) }
+        return t(f.kind.whatKey)
+    }
+
+    /// "Build anyway": asks first. Nothing is armed until `confirmBuildAnyway`.
+    func requestBuildAnyway() {
+        guard !running, let kind = failure?.kind, kind.overrideFlag != nil else { return }
+        confirmingOverride = kind
+    }
+
+    func cancelBuildAnyway() { confirmingOverride = nil }
+
+    func confirmBuildAnyway() {
+        guard let kind = confirmingOverride else { return }
+        confirmingOverride = nil
+        armedOverride = kind
+        startBuild()
+    }
+
+    /// The flag the next build runs with, once: the arm is cleared here, so a later build never inherits it.
+    func takeOverrideFlag() -> String? {
+        defer { armedOverride = nil }
+        return armedOverride?.overrideFlag
+    }
+
+    /// The card's fix buttons run the dependency rows' own commands (the same installDep as Settings).
+    func fixBuildFailure(_ kind: BuildFailureKind) {
+        switch kind {
+        case .translator:
+            if let d = deps.first(where: { $0.id == "dotnet" }) { installDep(d) }
+        case .iosSDK:
+            installDep(Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint", present: false, installCmd: Self.iosPlatformCmd))
+        case .cltSelected:
+            if let xcode = Self.installedXcode() {
+                installDep(Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint", present: false, installCmd: Self.selectXcodeCmd(xcode)))
+            }
+        default: break
+        }
+    }
+
+    /// Whether the card's fix button is already running its command.
+    func fixBusy(_ kind: BuildFailureKind) -> Bool {
+        deps.first { $0.id == (kind == .translator ? "dotnet" : "xcode") }?.installing ?? false
     }
 
     /// (file count, bytes) of a RomFS tree — the reuse fingerprint's content part.
@@ -1881,6 +1950,7 @@ final class BuildModel: ObservableObject {
         var lastError = ""   // the tool's own first error line after a failed install (brew's, pip's)
         var fixHint = ""     // an L10n key: what to type or click, chosen from that line
         var actionLabel = "" // an L10n key for the button when the action is not a plain install ("Fix")
+        var warning = false  // present, but with a caveat the row's error and hint lines explain (the Metal compiler is not the tested one)
         let installCmd: [String]      // run via bash; empty = manual (Xcode from the App Store)
     }
 
@@ -2171,6 +2241,14 @@ final class BuildModel: ObservableObject {
     nonisolated static let metalToolchainCmd = ["/usr/bin/xcodebuild", "-downloadComponent", "MetalToolchain"]
     nonisolated static let iosPlatformCmd = ["/usr/bin/xcodebuild", "-downloadPlatform", "iOS"]
 
+    /// One admin prompt runs both steps: switch the toolchain to this Xcode, then let it finish its first launch (license and
+    /// components) - a fresh App Store download has neither. The Xcode row and the failure card run the same command.
+    nonisolated static func selectXcodeCmd(_ xcode: String) -> [String] {
+        let script = "xcode-select -s '" + xcode + "/Contents/Developer' && xcodebuild -runFirstLaunch"
+        let apple = "do shell script \"" + script.replacingOccurrences(of: "\"", with: "\\\"") + "\" with administrator privileges"
+        return ["/usr/bin/osascript", "-e", apple]
+    }
+
     /// Whether the xcode row asks for the iOS SDK. Always, as before, unless the guided setup stored a Mac-only choice
     /// and builds are for the Mac: upstream no longer needs the iOS SDK for a Mac build (c464cb24).
     nonisolated static func needsIOSPlatform(defaults: UserDefaults = .standard) -> Bool {
@@ -2204,7 +2282,34 @@ final class BuildModel: ObservableObject {
                       "NONINTERACTIVE=1 /bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""])] + rows
     }
 
-    nonisolated static func detectDepsSync(needsIOS: Bool = BuildModel.needsIOSPlatform()) -> [Dep] {
+    /// First line of a tool's output (the Metal compiler's version line), nil when it does not run or says nothing.
+    nonisolated static func firstOutputLine(_ tool: String, _ args: [String]) -> String? {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: tool)
+        p.arguments = args
+        let out = Pipe()
+        p.standardOutput = out; p.standardError = Pipe(); p.standardInput = FileHandle.nullDevice
+        do { try p.run() } catch { return nil }
+        let data = out.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        guard p.terminationStatus == 0 else { return nil }
+        return String(decoding: data, as: UTF8.self).split(separator: "\n", omittingEmptySubsequences: true).first.map(String.init)
+    }
+
+    /// The Metal toolchain row. A compiler that does not run is the missing-toolchain row with its install button. One that differs from the
+    /// lock's pin is a warning and not a blocker: the row stays present, and its error and hint lines (the install failures' fields) say that
+    /// NVN games will stop. Pure over its inputs, so tests give it version strings.
+    nonisolated static func metalDep(runs: Bool, lock: String?, now: [String: String?], needsIOS: Bool) -> Dep {
+        var dep = Dep(id: "metal", name: "dep.metal", hint: "dep.metal.hint", present: runs, installCmd: metalToolchainCmd)
+        guard runs, let lock, let m = MetalPin.mismatches(lock: lock, now: now, iOS: needsIOS).first else { return dep }
+        dep.warning = true
+        dep.detail = "dep.metal.other:" + m.now + ":" + m.pinned
+        dep.lastError = "metal_" + m.sdk + ": " + m.now
+        dep.fixHint = "dep.fix.metalPin"
+        return dep
+    }
+
+    nonisolated static func detectDepsSync(needsIOS: Bool = BuildModel.needsIOSPlatform(), repo: String = "") -> [Dep] {
         var out: [Dep] = []
 
         // Xcode.app alone is not enough: since Xcode 15 the iOS platform ships as a separate
@@ -2224,20 +2329,17 @@ final class BuildModel: ObservableObject {
             out.append(Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint", present: false,
                            detail: "dep.xcode.noSDK", installCmd: iosPlatformCmd))
         case .commandLineToolsOnly(let xcode):
-            // One admin prompt runs both steps: switch the toolchain, then let Xcode finish its
-            // first launch (license and components) - a fresh App Store download has neither.
-            let script = "xcode-select -s '" + xcode + "/Contents/Developer' && xcodebuild -runFirstLaunch"
-            let apple = "do shell script \"" + script.replacingOccurrences(of: "\"", with: "\\\"") + "\" with administrator privileges"
             out.append(Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint", present: false,
                            detail: "dep.xcode.notSelected", actionLabel: "dep.xcode.fix",
-                           installCmd: ["/usr/bin/osascript", "-e", apple]))
+                           installCmd: selectXcodeCmd(xcode)))
         case .notInstalled:
             out.append(Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint", present: false, installCmd: []))
         }
 
-        let mt = runOK("/usr/bin/xcrun", ["-sdk", "macosx", "metal", "--version"])
-        out.append(Dep(id: "metal", name: "dep.metal", hint: "dep.metal.hint",
-                       present: mt, installCmd: metalToolchainCmd))
+        let macMetal = firstOutputLine("/usr/bin/xcrun", ["-sdk", "macosx", "metal", "--version"])
+        let lock = repo.isEmpty ? nil : try? String(contentsOfFile: repo + "/" + MetalPin.lockPath, encoding: .utf8)
+        let iosMetal = needsIOS && lock != nil ? firstOutputLine("/usr/bin/xcrun", ["-sdk", "iphoneos", "metal", "--version"]) : nil
+        out.append(metalDep(runs: macMetal != nil, lock: lock, now: ["macosx": macMetal, "iphoneos": iosMetal], needsIOS: needsIOS))
 
         out += toolDeps(resources: BundledTools.resources,
                         installed: { firstExisting(["/opt/homebrew/bin/\($0)", "/usr/local/bin/\($0)"]) },
@@ -2270,7 +2372,7 @@ final class BuildModel: ObservableObject {
     func checkDeps() {
         depsChecked = false
         DispatchQueue.global(qos: .userInitiated).async {
-            let d = Self.detectDepsSync()
+            let d = Self.detectDepsSync(repo: self.repoPath)
             let (py, _) = Self.findPython()
             let (dn, _) = Self.findDotnet()
             DispatchQueue.main.async {
@@ -2532,6 +2634,7 @@ struct BuilderView: View {
         if m.target != "mac-app" { install.disabled(m.running) }
         logPanel
         action
+        BuildFailureCard(m: m)
         outcome
         progress
     }
@@ -2995,7 +3098,7 @@ struct BuilderView: View {
                 ForEach(m.deps, id: \.id) { d in
                     divider
                     VStack(alignment: .leading, spacing: 0) {
-                        row(m.t(d.name), detail: m.shortPath(m.depDetail(d)), dot: d.present ? LauncherPalette.ready : LauncherPalette.building,
+                        row(m.t(d.name), detail: m.shortPath(m.depDetail(d)), dot: d.present && !d.warning ? LauncherPalette.ready : LauncherPalette.building,
                             help: m.t(d.hint)) {
                             if d.installing {
                                 ProgressView().controlSize(.small)
