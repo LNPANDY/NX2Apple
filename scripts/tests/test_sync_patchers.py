@@ -100,7 +100,10 @@ class PatchersOnUpstream(unittest.TestCase):
         original = show(self.ref, su.TESTS_MK)
         out = quiet(su.PATCHERS[su.TESTS_MK], original)
         spelling = '$(CLANG)' if '$(CLANG)' in original else 'clang'
-        added = [l for l in out.splitlines() if l not in original.splitlines() and l.startswith('\t') and 'clang' in l.lower()]
+        # a line the patcher only appended to keeps the spelling upstream gave it (upstream's own t_resolution rule says `clang`)
+        orig = [l for l in original.splitlines() if l.startswith('\t')]
+        added = [l for l in out.splitlines() if l not in original.splitlines() and l.startswith('\t') and 'clang' in l.lower()
+                 and not any(l.startswith(o) for o in orig)]
         self.assertTrue(added)
         for l in added:
             self.assertTrue(l.startswith('\t' + spelling + ' '), l)

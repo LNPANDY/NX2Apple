@@ -55,15 +55,13 @@ OURS = {'dm/host/romfs_arc.c', 'dm/host/romfs_arc.h', 'dm/tools/romfs_arc.py',
         'dm/ios/ENTITLEMENTS.md',
         # This script: fork-only, so a PR that changes it is not a vendored edit (pr-scope reads OURS)
         'scripts/sync_upstream.py', 'scripts/tests/test_sync_patchers.py',   # and its test (issue #92)
-        # The NRO bound's tests (issue #14): fork-only, beside nso_code.py's lo bound
-        'dm/tools/tests/test_nro_header.py',
         # The Files-app game-data pick (bookmark of the chosen folder): fork-only, upstream has no such path
         'dm/ios/Sources/DataBookmark.m', 'dm/ios/Sources/DataBookmark.h'}
 # Vendored files that carry fork patches: taken fresh from upstream, then patched below.
 PATCHED = ('dm/host/hle_fs.c', 'dm/host/Makefile', 'dm/host/tests/Makefile', 'dm/ios/tools/build_ipa.sh',
            'scripts/build_ipa_from_nsp.py',
            'dm/ios/Sources/main.m', 'dm/gfx/nvn/nvn_mtl.m', 'dm/host/dm.h',
-           'dm/ios/tests/test_romfs_startup.py', 'dm/ios/tests/test_profile_pack.py', 'docs/env_switches.tsv', 'dm/host/front_mac.m', 'dm/tools/patch_nso.py', 'dm/games/0100A00019DE0000/game.tsv',
+           'dm/ios/tests/test_romfs_startup.py', 'dm/ios/tests/test_profile_pack.py', 'docs/env_switches.tsv', 'dm/host/front_mac.m', 'dm/games/0100A00019DE0000/game.tsv',
            # hand edits until issue #92, now patchers (see "Fork edits that had no protection" below)
            'dm/mac/launcher.c',
            'dm/host/hle_svc.c',
@@ -179,6 +177,8 @@ def patch_hle_fs(t):
 // An archive file has no host fd. It gets a handle number from a private table, and every operation
 // on it (ReadFile, GetFileSize, CloseFile) checks the table first. Handle numbers are distinct from
 // fds: real handles are fds (>= 3 in practice), archive handles are tagged by index into g_arc[].
+// Like every host handle they reach the guest through FH_OUT (shifted left by 4, 16-byte aligned) and come back
+// through FH_IN, so the tag sits at bit 57: below IMG_H's bit 58, and it still fits after the shift.
 typedef struct { uint32_t shard; uint64_t off, size; int used; } archandle;
 #define MAX_ARCH 4096
 static archandle g_arc[MAX_ARCH];
@@ -186,15 +186,15 @@ static uint64_t g_arch_gen;   // bumped on open/close so a stale handle never hi
 static uint64_t arc_new(uint32_t shard, uint64_t off, uint64_t size) {
     for (int i = 0; i < MAX_ARCH; i++) if (!g_arc[i].used) {
         g_arc[i].used = 1; g_arc[i].shard = shard; g_arc[i].off = off; g_arc[i].size = size;
-        return ((uint64_t)1 << 63) | ((g_arch_gen & 0x7fffffff) << 32) | (uint32_t)i;
+        return ((uint64_t)1 << 57) | ((g_arch_gen & 0xffffff) << 32) | (uint32_t)i;
     }
     return 0;
 }
 static int arc_get(uint64_t h, archandle **out) {
-    if (!(h >> 63)) return 0;
+    if ((h >> 57) != 1) return 0;
     uint32_t i = (uint32_t)h;
     if (i >= MAX_ARCH || !g_arc[i].used) return 0;
-    if ((uint32_t)((h >> 32) & 0x7fffffff) != (uint32_t)(g_arch_gen & 0x7fffffff)) return 0;
+    if ((uint32_t)((h >> 32) & 0xffffff) != (uint32_t)(g_arch_gen & 0xffffff)) return 0;
     *out = &g_arc[i]; return 1;
 }
 static void arc_free(uint64_t h) {
@@ -222,7 +222,7 @@ HLE_FORCE("_ZN2nn2fs8OpenFileEPNS0_10FileHandleEPKci", "fsp-srv → open(2)", Re
         if (!arc_file(hp, &shard, &off, &size)) { errno = ENOENT; return err_res("open", hp); }
         uint64_t ah = arc_new(shard, off, size);
         if (!ah) { errno = EMFILE; return err_res("open", hp); }
-        *out = ah;
+        *out = FH_OUT(ah);
         if (g_flag.fs) LOG("fs open %s mode=%d → archive handle (shard %u off %llu size %llu)", path, mode, shard, (unsigned long long)off, (unsigned long long)size);
         return RES_OK;
     }
@@ -259,17 +259,17 @@ HLE_FORCE("_ZN2nn2fs8OpenFileEPNS0_10FileHandleEPKci", "fsp-srv → open(2)", Re
     }
     while (got < sz) {''')]))
     P.append(('GetFileSize', 'ah->size; return RES_OK', [(
-        '''HLE_FORCE("_ZN2nn2fs11GetFileSizeEPlNS0_10FileHandleE", "fsp-srv → fstat(2)", Result, h_fs_GetFileSize, int64_t *out, uint64_t h) {
+        '''HLE_FORCE("_ZN2nn2fs11GetFileSizeEPlNS0_10FileHandleE", "fsp-srv → fstat(2)", Result, h_fs_GetFileSize, int64_t *out, uint64_t h) { h = FH_IN(h);
     if (!h) return RES_FAIL;''',
-        '''HLE_FORCE("_ZN2nn2fs11GetFileSizeEPlNS0_10FileHandleE", "fsp-srv → fstat(2)", Result, h_fs_GetFileSize, int64_t *out, uint64_t h) {
+        '''HLE_FORCE("_ZN2nn2fs11GetFileSizeEPlNS0_10FileHandleE", "fsp-srv → fstat(2)", Result, h_fs_GetFileSize, int64_t *out, uint64_t h) { h = FH_IN(h);
     if (!h) return RES_FAIL;
     archandle *ah; if (arc_get(h, &ah)) { *out = (int64_t)ah->size; return RES_OK; }''')]))
     P.append(('CloseFile', 'arc_free(h)', [(
-        '''HLE_FORCE("_ZN2nn2fs9CloseFileENS0_10FileHandleE", "fsp-srv → close(2)", void, h_fs_CloseFile, uint64_t h) {
+        '''HLE_FORCE("_ZN2nn2fs9CloseFileENS0_10FileHandleE", "fsp-srv → close(2)", void, h_fs_CloseFile, uint64_t h) { h = FH_IN(h);
     if (!h || IMG_H(h)) return;   // the null handle after a failed open (see ReadFile): do not touch fd 0; an image entry holds no descriptor''',
-        '''HLE_FORCE("_ZN2nn2fs9CloseFileENS0_10FileHandleE", "fsp-srv → close(2)", void, h_fs_CloseFile, uint64_t h) {
+        '''HLE_FORCE("_ZN2nn2fs9CloseFileENS0_10FileHandleE", "fsp-srv → close(2)", void, h_fs_CloseFile, uint64_t h) { h = FH_IN(h);
     if (!h || IMG_H(h)) return;   // the null handle after a failed open (see ReadFile): do not touch fd 0; an image entry holds no descriptor
-    if (h >> 63) { arc_free(h); return; }   // archive entry: nothing to close''')]))
+    if ((h >> 57) == 1) { arc_free(h); return; }   // archive entry: nothing to close''')]))
     P.append(('GetEntryType', 'romfsarc_stat_file(rel', [(
         '''HLE_FORCE("_ZN2nn2fs12GetEntryTypeEPNS0_18DirectoryEntryTypeEPKc", "fsp-srv → stat(2)", Result, h_fs_GetEntryType, int32_t *out, const char *path) {
     int mi; int64_t k;
@@ -315,6 +315,12 @@ HLE_FORCE("_ZN2nn2fs8OpenFileEPNS0_10FileHandleEPKci", "fsp-srv → open(2)", Re
         '''    dirh_t *h = (dirh_t *)hh; closedir(h->d); if (h->od) closedir(h->od); free(h->snap); free(h);''',
         '''    dirh_t *h = (dirh_t *)hh; if (h->d) closedir(h->d); if (h->od) closedir(h->od); free(h->snap); free(h);''')]))
 
+    if '#define FH_IN(' not in t:
+        # before seedds/nxnative#513 the host handle reached the guest as it was; FH_OUT / FH_IN are the identity there, so the
+        # patches below (written for the shifted handles) apply to both forms. The tag of an archive handle is bit 57 either way.
+        t = t.replace('#define IMG_K(h) ((uint32_t)(h))\n', '#define IMG_K(h) ((uint32_t)(h))\n#define FH_OUT(h) ((uint64_t)(h))\n#define FH_IN(h) ((uint64_t)(h))\n', 1)
+        for head in ('h_fs_GetFileSize, int64_t *out, uint64_t h) {', 'h_fs_CloseFile, uint64_t h) {'):
+            t = t.replace(head, head + ' h = FH_IN(h);', 1)
     for name, marker, pairs in P:
         if marker in t:
             skip(f'hle_fs.c {name} (already patched)'); continue
@@ -487,7 +493,38 @@ if [ "$PREPARE_XCODE" != YES ] && [ -n "${DM_ENTITLEMENTS-default}" ]; then
 fi
 '''
 
+def patch_build_ipa_copy_romfs(t):
+    """The fork's slim IPA by default, on top of upstream's DM_COPY_ROMFS (seedds/nxnative#478, #493).
+
+    Upstream now has what the fork carried by hand: an IPA without the game files (DM_COPY_ROMFS=NO, with the
+    image's identity as romfs.id) and the ad-hoc signature that carries the Increased Memory Limit entitlement. So the
+    entitlements patch is not applied to such a file. What stays the fork's is the default: the fork packs the slim
+    IPA unless DM_FULL_ROMFS=1 (or DM_COPY_ROMFS=YES) says otherwise, and then also leaves the add-on content out
+    of the package (the host mounts Documents/games/<id>/aoc/<index>.img). The prepared Xcode project keeps upstream's
+    default: the script has exited by then.
+    """
+    if 'DM_FULL_ROMFS' in t: return skip('build_ipa.sh slim default (already patched)')
+    old = '''MAPS=()
+if [ "${DM_COPY_ROMFS:-YES}" = NO ]; then
+'''
+    if old not in t: fail('dm/ios/tools/build_ipa.sh: DM_COPY_ROMFS anchor missing (upstream moved the MAPS block)')
+    t = t.replace(old, '''MAPS=()
+# The fork packs the slim IPA by default (upstream: DM_COPY_ROMFS=NO): DM_FULL_ROMFS=1 or DM_COPY_ROMFS=YES packs the
+# game files into the package, which for a large game is many GB and iOS refuses to install it (PackageExtractionFailed)
+[ -n "${DM_COPY_ROMFS:-}" ] || { [ -n "${DM_FULL_ROMFS:-}" ] && DM_COPY_ROMFS=YES || DM_COPY_ROMFS=NO; }
+if [ "${DM_COPY_ROMFS:-YES}" = NO ]; then
+''', 1)
+    done('build_ipa.sh slim default', None)
+    old_aoc = '''if [ -n "$AOC" ] && [ -d "$AOC" ]; then MAPS+=("$P/aoc=$AOC"); t "add-on content: $(ls "$AOC" | tr '\\n' ' ')"; fi'''
+    if old_aoc not in t: fail('dm/ios/tools/build_ipa.sh: add-on content mapping anchor missing')
+    return done('build_ipa.sh add-on content beside the slim game data', t.replace(old_aoc, '''if [ "$DM_COPY_ROMFS" != NO ] && [ -n "$AOC" ] && [ -d "$AOC" ]; then
+  MAPS+=("$P/aoc=$AOC"); t "add-on content packed into the IPA: $(ls "$AOC" | tr '\\n' ' ')"
+elif [ -n "$AOC" ] && [ -d "$AOC" ]; then
+  t "add-on content alongside the game data (DM_FULL_ROMFS=1 packs it): $(ls "$AOC" | tr '\\n' ' ')"
+fi''', 1))
+
 def patch_build_ipa(t):
+    if 'DM_COPY_ROMFS' in t: return patch_build_ipa_copy_romfs(t)
     if 'placeholder signature' in t: return skip('build_ipa.sh entitlements (already patched)')
     old = '''APP=$DD/Build/Products/Release-iphoneos/DmIOS.app
 [ -n "$APP" ] && [ -d "$APP" ] || die "no built app"; t "app: $APP"
@@ -647,9 +684,9 @@ def patch_nsp(t):
             del env['DOTNET_ROOT']; os.environ.pop('DOTNET_ROOT', None)
             say('DOTNET_ROOT: removed (none verified — the apphost searches its default locations)')
 """)]))
-    P.append(('pwd import', 'import ast, collections, ctypes, getpass, pwd', [(
-        "import ast, collections, ctypes, getpass, hashlib, importlib.util, json, os, re, shlex, shutil, struct, subprocess, sys, tempfile, threading, time, types",
-        "import ast, collections, ctypes, getpass, pwd, hashlib, importlib.util, json, os, re, shlex, shutil, struct, subprocess, sys, tempfile, threading, time, types")]))
+    # upstream added errno to this line (seedds/nxnative#493), so the anchor is the stable head and the tail of the import
+    imp = re.search(r'^import ast, collections, ctypes, (errno, )?getpass, (hashlib, importlib\.util, .*)$', t, re.M)
+    P.append(('pwd import', 'getpass, pwd', [(imp.group(0), imp.group(0).replace('getpass, ', 'getpass, pwd, ', 1))] if imp else [("import ast, collections, ctypes, getpass, hashlib, ... (the script's import line)", '')]))
     # HOME can be missing or empty under a GUI launch (issue #10): .NET's first-run configure then
     # builds a mutex path from "" and dies with NuGet-Migrations + lstat("") before reading a project.
     P.append(('HOME fallback', 'DOTNET_CLI_HOME', [(
@@ -690,14 +727,19 @@ def patch_nsp(t):
         "            continue   # an AppleDouble file: macOS writes one beside every real file on exFAT/FAT drives, and its name carries the same [title ID] — counting it made the one real update NSP read as two, and both were then left out (the report's Hades II build)\n"
         "        if p.stat().st_size == 0:   # an empty file left by an incomplete download")]))
     # An external work folder (an exFAT USB drive, the report's own setup) can report entries
-    # during shutil.rmtree's walk that vanish by their unlink — FileNotFoundError mid-delete — and
-    # the partially deleted folder then breaks the copytree right after. "Make this path gone" is
-    # the contract, so ENOENT passes and everything else gets one retry.
-    P.append(('rmtree exfat', '_rmtree_enoent', [(
-        """def rmtree(p):
+    # during shutil.rmtree's walk that vanish by their unlink; upstream's rmtree() lets ENOENT pass
+    # through its onexc hook (the fork's own onerror form of this was taken over by it). onexc exists
+    # from Python 3.12 only and the fork's floor is 3.9: older Pythons get the same hook as onerror.
+    if 'def _gone(' in t:
+        P.append(('rmtree 3.9', "sys.version_info >= (3, 12) else {'onerror'", [(
+            "    elif p.exists(): shutil.rmtree(p, onexc=_gone)",
+            "    elif p.exists(): shutil.rmtree(p, **({'onexc': _gone} if sys.version_info >= (3, 12) else {'onerror': lambda f, q, e: _gone(f, q, e[1])}))")]))
+    else:   # the last sync base: upstream had no such hook yet, the fork's own form of it
+        P.append(('rmtree exfat', '_rmtree_enoent', [(
+            """def rmtree(p):
     if p.is_symlink() or p.is_file(): p.unlink()
     elif p.exists(): shutil.rmtree(p)""",
-        """def _rmtree_enoent(func, p, exc):
+            """def _rmtree_enoent(func, p, exc):
     if isinstance(exc[1], FileNotFoundError): return   # already gone: the goal is achieved
     time.sleep(0.2); func(p)                           # one retry: exFAT directory-cache races clear
 
@@ -968,6 +1010,14 @@ MAIN_M_NODATA_FN = '// DM_ROMFS plus the save/temp folders that follow its locat
 MAIN_M_NODATA_BOOT = ('    NSString *romfs = romfs_locate();\n    if (!romfs) { fprintf(stderr, "boot: game files not found (Documents/romfs.img, Documents/romfs or <App>/romfs)\\n"); return 0; }\n    fprintf(stderr, "boot: game files %s\\n", romfs.fileSystemRepresentation);\n    setenv("DM_ROMFS", romfs.fileSystemRepresentation, 0);\n    // Saves and scratch space: Documents/games/<id>/{save,temp} when the per-game layout is in use\n    // (so two games in one app never share a save folder), else the old Documents/{save,temp}. An\n    // env file still wins — DM_SAVE/DM_TEMP set there are already in the environment and\n    // setenv(..., 0) leaves them alone.\n    NSString *gdir = game_dir_for(dm_profile()->id);\n    // Tie the data folder to where the game files actually came from: if romfs_locate fell back to\n    // Documents/romfs, the saves must stay beside it (a game folder without romfs is not in use).\n    BOOL per_game = [romfs hasPrefix:gdir];\n    NSString *save_dir = per_game ? [gdir stringByAppendingPathComponent:@"save"] : [doc stringByAppendingPathComponent:@"save"];\n    NSString *temp_dir = per_game ? [gdir stringByAppendingPathComponent:@"temp"] : [doc stringByAppendingPathComponent:@"temp"];\n    for (NSString *d in @[save_dir, temp_dir]) [fm createDirectoryAtPath:d withIntermediateDirectories:YES attributes:nil error:nil];\n    setenv("DM_SAVE", save_dir.fileSystemRepresentation, 0);\n    setenv("DM_TEMP", temp_dir.fileSystemRepresentation, 0);\n    if (per_game) fprintf(stderr, "boot: per-game data folder %s\\n", gdir.fileSystemRepresentation);\n',
 '    // No game data yet is not fatal: the launcher comes up all the same, and its Game data section\n    // is where a location gets picked; dm_locate_game_data() looks again when Play is pressed.\n    NSString *gdir = game_dir_for(dm_profile()->id);\n    NSString *romfs = romfs_locate();\n    BOOL per_game = [romfs hasPrefix:gdir];   // messaging nil is NO here: no data means the shared layout\n    if (!set_data_env(romfs, NO)) fprintf(stderr, "boot: no game data yet (Documents/romfs.img, Documents/romfs or <App>/romfs); the launcher asks for it\\n");\n')
 
+def _identity(s):
+    """The fork's main.m texts with upstream's romfs.id check (seedds/nxnative#493) in them: Documents/romfs.img must carry
+    the identity the build asks for, and a boot without game data says why when it does not"""
+    s = s.replace('    if (romfs_image_complete(img)) {', '    if (romfs_image_complete(img) && romfs_identity_accepts(img)) {')
+    s = s.replace('if (!romfs) { fprintf(stderr, "boot: game files not found', 'if (!romfs) { romfs_identity_report(doc); fprintf(stderr, "boot: game files not found')
+    return s.replace('if (!set_data_env(romfs, NO)) fprintf(stderr, "boot: no game data yet (Documents/romfs.img, Documents/romfs or <App>/romfs); the launcher asks for it\\n");',
+                     'if (!set_data_env(romfs, NO)) { if (!romfs) romfs_identity_report(doc);   // a slim build says why its romfs.img was not used\n        fprintf(stderr, "boot: no game data yet (Documents/romfs.img, Documents/romfs or <App>/romfs); the launcher asks for it\\n"); }')
+
 def patch_main_m(t):
     """romfs_locate + the per-game data layout in dm/ios/Sources/main.m.
 
@@ -1010,6 +1060,8 @@ def patch_main_m(t):
         ('set_data_env', ('// Boot prerequisites (done before', MAIN_M_NODATA_FN + '// Boot prerequisites (done before')),
         ('no game data at boot', (boot_old, boot_new)),
     ]
+    if 'static void romfs_identity_report' in t:   # upstream's slim-IPA identity check (#493): the fork's text carries it through
+        P = [(n, (_identity(o), _identity(w))) for n, (o, w) in P]
     for name, (old, new) in P:
         if new in t:
             skip(f'main.m {name} (already patched)')
@@ -1019,37 +1071,6 @@ def patch_main_m(t):
                  'or the environment block)')
         t = t.replace(old, new, 1)
         done(f'main.m {name}')
-    return t
-
-def patch_patch_nso(t):
-    """The NRO header skip in dm/tools/patch_nso.py (issue #14), as sent upstream in seedds/nxnative#397.
-
-    An NRO's text segment starts at offset 0 with the file's own header in it (Hades' EOSSDK-Switch-Shipping.nro: text
-    {0x0, 0xa41000}), so scanning it from 0 read the header's build ID as instructions ("44 ldr x18, #0xfffffffffff40370" on
-    Final Fantasy X/X-2 HD Remaster). code_start() is 0x80 for an NRO and 0 for an NSO; code_ranges() starts no code range
-    before it. The segment table cannot give the bound (it says 0): the TEXT_LO = segs[0][1] form this patcher applied
-    before kept scanning the header, and it used TEXT_LO in the site bound 13 lines before defining it, so every rewrite
-    stopped with a NameError. When #397 is merged upstream, every hunk is found applied and this patcher can go.
-    """
-    if 'def code_start(d):' in t and 'TEXT_LO' not in t: return skip('patch_nso.py NRO header (already patched)')
-    P = [
-        ('code_start and code_ranges', "src, outdir, NAME = sys.argv[1], sys.argv[2], sys.argv[3]\nd = open(src, 'rb').read()\n",
-         'def code_start(d):\n    """Where the code in the text segment starts: 0x80 in an NRO, 0 in an NSO. An NRO\'s text segment begins at file and memory\n    offset 0 with the file\'s own header in it (the start word, the MOD0 offset, NRO0 at +0x10, the segment table at +0x20, the\n    build ID at +0x40), so scanning it from 0 read the header as instructions: the build ID decoded as "ldr x18, #…" and stopped\n    Final Fantasy X/X-2 HD Remaster\'s rewrite (GitHub issue LNPANDY/NX2Apple#14). An NSO\'s text holds code from 0."""\n    return 0x80 if d[0x10:0x14] == b\'NRO0\' else 0\n\ndef code_ranges(data_blocks, text_end, start=0):\n    """The text\'s code ranges: the gaps between its data blocks (nso_code.data_blocks), none of them before `start` (code_start)"""\n    gaps = zip([0] + [e for _, e in data_blocks], [s for s, _ in data_blocks] + [text_end])\n    return [(max(s, start), e) for s, e in gaps if e > max(s, start)]\n\nsrc, outdir, NAME = sys.argv[1], sys.argv[2], sys.argv[3]\nd = open(src, \'rb\').read()\nCODE_START = code_start(d)\n'),
-        ('site starts bound', 'starts = sorted(x for x in starts if x < TEXT_END)',
-         'starts = sorted(x for x in starts if CODE_START <= x < TEXT_END)'),
-        ('code ranges', 'CODE_RANGES = list(zip([0] + [e for _, e in DATA_BLOCKS], [s for s, _ in DATA_BLOCKS] + [TEXT_END]))',
-         'CODE_RANGES = code_ranges(DATA_BLOCKS, TEXT_END, CODE_START)'),
-    ]
-    for name, old, new in P:
-        if new in t:
-            skip(f'patch_nso.py {name} (already patched)')
-            continue
-        if old not in t:
-            fail(f'dm/tools/patch_nso.py: patch "{name}" anchor missing (upstream reworked the text '
-                 'scan; merge the NRO header skip by hand, or take seedds/nxnative#397 if it is merged)')
-            continue
-        t = t.replace(old, new, 1)
-        done(f'patch_nso.py {name}')
     return t
 
 def patch_front_mac(t):
@@ -1707,9 +1728,15 @@ patch_game_py = anchored('dm/games/game.py', [
 # Fork edits to vendored files that the sync replaces with upstream's version on purpose. The
 # unprotected-edit check (check_unprotected) accepts a file listed here.
 DROPPED = {
-    # data_blocks(img, text_end, md, lo=0): a leftover of the first form of the NRO fix (TEXT_LO); patch_nso.py's
-    # code_start()/code_ranges() replaced it and nothing passes `lo`, so upstream's data_blocks is the right one.
-    'dm/tools/nso_code.py': 'dead edit: the NRO bound lives in patch_nso.py (patch_patch_nso), nothing passes lo',
+    # The NRO header skip (issue LNPANDY/NX2Apple#14, FINAL FANTASY X/X-2 HD Remaster) was a fork patcher on patch_nso.py
+    # (sent upstream as seedds/nxnative#397, closed as superseded) and a data_blocks(..., lo=0) edit of nso_code.py. Upstream
+    # fixed it itself in 3e77816c, 7e0f5971 and 337186cf: nso_code.data_blocks() starts after the 0x80-byte NRO header and
+    # reports the header past its first two words as a data block, so CODE_RANGES holds no code before 0x80 and the scans
+    # (func_of included) cannot enter it; dm/tools/tests/test_nro_header.py is upstream's own test. The fork's versions of
+    # all three files are dropped, upstream's win.
+    'dm/tools/nso_code.py': 'upstream has its own NRO header bound (3e77816c): data_blocks() excludes the header',
+    'dm/tools/patch_nso.py': 'upstream has its own NRO header bound (3e77816c); the fork patcher (code_start/code_ranges) is gone',
+    'dm/tools/tests/test_nro_header.py': "upstream's test of its own NRO header bound (3e77816c, 7e0f5971, 337186cf)",
     # CreateWithAdjustableSystemClock and the snapshot type bytes (PR #26) were OURS until issue #92; upstream has
     # them since 4d2dc7db (#385, same function names, same behaviour), so the sync takes upstream's files again.
     'dm/host/hle_time.c': 'the fork-only parts landed upstream as 4d2dc7db (#385)',
@@ -1746,7 +1773,6 @@ MARKERS = {
     'dm/games/0100A00019DE0000/game.tsv': 'build	v1	1.0.137848',
     'dm/host/dm.h': 'hle_profile.h',
     'dm/host/front_mac.m': 'DM_KEYMAP',
-    'dm/tools/patch_nso.py': 'def code_start(d):',
     'dm/ios/tests/test_romfs_startup.py': 'fixture_profile',
     'dm/ios/tests/test_profile_pack.py': 'slim package',
     'docs/env_switches.tsv': 'DM_FULL_ROMFS\t',
@@ -1780,7 +1806,6 @@ PATCHERS = {
     'dm/games/0100A00019DE0000/game.tsv': patch_hades2,
     'dm/host/dm.h': patch_dm_h,
     'dm/host/front_mac.m': patch_front_mac,
-    'dm/tools/patch_nso.py': patch_patch_nso,
     'dm/ios/tests/test_romfs_startup.py': patch_test_romfs_startup,
     'dm/ios/tests/test_profile_pack.py': patch_test_profile_pack,
     'docs/env_switches.tsv': patch_env_switches,
