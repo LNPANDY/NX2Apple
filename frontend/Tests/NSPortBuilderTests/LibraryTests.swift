@@ -367,7 +367,7 @@ final class LibraryTests: XCTestCase {
                 print('error: "iOS Team Provisioning Profile" cannot be registered to your development team', flush=True)
                 sys.exit(1)
             app = pathlib.Path(a[a.index('-derivedDataPath') + 1]) / 'Build/Products/Release-iphoneos/DmIOS.app'
-            app.mkdir(parents=True)
+            app.mkdir(parents=True, exist_ok=True)   # a re-sign rebuilds over the app the install left there
             with (app / 'Info.plist').open('wb') as f: plistlib.dump({'CFBundleIdentifier': 'org.nxnative.test'}, f)
             print('CodeSign ' + str(app), flush=True)
         elif a[:3] == ['devicectl', 'device', 'install']:
@@ -516,6 +516,52 @@ final class LibraryTests: XCTestCase {
                        ["/x", "devicectl", "device", "install", "app", "--device", "D", "/a/DmIOS.app"])
         XCTAssertEqual(BuildModel.ipaCommand(payload: "/t/Payload", ipa: "/o/Game.ipa"),
                        ["/usr/bin/ditto", "-c", "-k", "--norsrc", "--keepParent", "/t/Payload", "/o/Game.ipa"])
+    }
+
+    /// A re-sign is the install's xcodebuild line (same project, derived data, team) plus the installed app's own bundle
+    /// ID, so Xcode reuses the compiled game and the device keeps the app's Documents; then the app is installed again,
+    /// with no second romfs pack.
+    @MainActor func testResignSignsAgainAndInstallsWithoutRepacking() throws {
+        let (model, _, calls, _) = try runInstallFlow(transfer: true)
+        let app = model.installedAppPath
+        let done = expectation(description: "Re-signed")
+        model.resignOnDevice(app: app, device: "00008150-AAAA") { done.fulfill() }
+        wait(for: [done], timeout: 30)
+        let log = try String(contentsOf: calls, encoding: .utf8).split(separator: "\n").map(String.init)
+        let resign = try XCTUnwrap(log.last { $0.hasPrefix("xcodebuild -project") })
+        for part in ["-derivedDataPath \(temporary.path)/\(titleID)_build/xcode-derived-data", "-allowProvisioningUpdates",
+                     "DEVELOPMENT_TEAM=TEAM123456", "DM_COPY_ROMFS=NO", "PRODUCT_BUNDLE_IDENTIFIER=org.nxnative.test", "build"] {
+            XCTAssertTrue(resign.contains(part), part)
+        }
+        XCTAssertEqual(log.filter { $0.hasPrefix("xcodebuild -project") }.count, 3)   // the install's two signs, then this one
+        XCTAssertEqual(log.filter { $0.hasPrefix("romfs_image") }.count, 1)            // the game files are not packed again
+        XCTAssertEqual(log.last { $0.hasPrefix("devicectl device install app") },
+                       "devicectl device install app --device 00008150-AAAA \(app)")
+        XCTAssertEqual(model.doneNote, String(format: model.t("dev.resigned"), "iPhone"))
+        XCTAssertFalse(model.running)
+    }
+
+    /// A re-sign that cannot work says what to do: a missing cached project, or no signing team chosen.
+    @MainActor func testResignReportsAMissingProjectOrTeam() throws {
+        let (model, _, _, _) = try runInstallFlow(transfer: true)
+        let savedTeam = UserDefaults.standard.string(forKey: "signingTeam")
+        defer { UserDefaults.standard.set(savedTeam, forKey: "signingTeam") }
+        // An app with a bundle ID but no project beside it: the cached build was moved or removed.
+        let orphan = temporary.appendingPathComponent("orphan/xcode-derived-data/Build/Products/Release-iphoneos/DmIOS.app")
+        try FileManager.default.createDirectory(at: orphan, withIntermediateDirectories: true)
+        try PropertyListSerialization.data(fromPropertyList: ["CFBundleIdentifier": bundleID], format: .xml, options: 0)
+            .write(to: orphan.appendingPathComponent("Info.plist"))
+        var reported = expectation(description: "Missing project reported")
+        model.resignOnDevice(app: orphan.path, device: "00008150-AAAA") { reported.fulfill() }
+        wait(for: [reported], timeout: 10)
+        XCTAssertEqual(model.doneNote, String(format: model.t("dev.resignNoProject"),
+                                             model.shortPath(temporary.path + "/orphan/xcode/DmIOS.xcodeproj")))
+        model.signingTeam = ""
+        reported = expectation(description: "Missing team reported")
+        model.resignOnDevice(app: model.installedAppPath, device: "00008150-AAAA") { reported.fulfill() }
+        wait(for: [reported], timeout: 10)
+        XCTAssertEqual(model.doneNote, model.t("dev.resignNoTeam"))
+        XCTAssertFalse(model.running)
     }
 
     func testCorruptLibraryIsReportedWithoutOverwritingIt() throws {

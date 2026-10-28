@@ -1740,6 +1740,76 @@ final class BuildModel: ObservableObject {
         [xcrun, "devicectl", "device", "install", "app", "--device", device, app]
     }
 
+    /// Renew an installed app's signature (a free Apple ID's profile lasts 7 days). The same xcodebuild parameters as
+    /// the install, run on the cached project and derived data: Xcode reuses the compiled products and only signs
+    /// again, then devicectl installs the app over itself. PRODUCT_BUNDLE_IDENTIFIER is the installed app's own, so the
+    /// device keeps that app's Documents (game data, saves); a retry under another identifier would lose them.
+    func resignOnDevice(app: String, device: String, then: (() -> Void)? = nil) {
+        guard !device.isEmpty, !app.isEmpty else { then?(); return }
+        guard !signingTeam.isEmpty else {
+            doneNote = t("dev.resignNoTeam")
+            then?(); return
+        }
+        guard let bundle = NSDictionary(contentsOfFile: app + "/Info.plist")?["CFBundleIdentifier"] as? String else {
+            doneNote = String(format: t("dev.noProject"), shortPath(app + "/Info.plist"))
+            then?(); return
+        }
+        guard let paths = Self.buildPaths(ofApp: app), FileManager.default.fileExists(atPath: paths.project) else {
+            doneNote = String(format: t("dev.resignNoProject"), shortPath(Self.buildPaths(ofApp: app)?.project ?? app))
+            then?(); return
+        }
+        let xcrun = xcrunPath, team = signingTeam, name = deviceName(device)
+        DispatchQueue.global(qos: .userInitiated).async {
+            let scheme = Self.scheme(of: paths.project, xcrun: xcrun)
+            DispatchQueue.main.async {
+                guard let scheme else {
+                    self.doneNote = String(format: self.t("dev.noProject"), self.shortPath(paths.project))
+                    then?(); return
+                }
+                self.running = true
+                self.runTool(id: 1006, name: String(format: self.t("dev.resignStage"), name),
+                             Self.resignCommand(xcrun: xcrun, project: paths.project, scheme: scheme, device: device,
+                                                derived: paths.derived, team: team, bundle: bundle), step: Self.xcodeStep) { error in
+                    if let error, !error.isEmpty {
+                        self.running = false
+                        self.doneNote = String(format: self.t("dev.resignFailed"), error)
+                        then?(); return
+                    }
+                    self.runTool(id: 1007, name: String(format: self.t("dev.installStage"), name),
+                                 Self.reinstallCommand(xcrun: xcrun, device: device, app: app), step: Self.installStep) { installError in
+                        self.running = false
+                        if let installError {
+                            self.doneNote = String(format: self.t("dev.installFailed"), installError)
+                        } else {
+                            self.installedOn = device
+                            self.installedAppPath = app
+                            self.doneNote = String(format: self.t("dev.resigned"), name)
+                        }
+                        then?()
+                    }
+                }
+            }
+        }
+    }
+
+    /// The xcodebuild parameters of a re-sign: signAndInstall's, plus the installed app's own identifier. The same
+    /// derived data is what keeps Xcode from rebuilding the game's code.
+    nonisolated static func resignCommand(xcrun: String, project: String, scheme: String, device: String, derived: String,
+                                          team: String, bundle: String) -> [String] {
+        [xcrun, "xcodebuild", "-project", project, "-scheme", scheme, "-configuration", "Release",
+         "-destination", "id=\(device)", "-derivedDataPath", derived, "-allowProvisioningUpdates",
+         "DEVELOPMENT_TEAM=\(team)", "DM_COPY_ROMFS=NO", "PRODUCT_BUNDLE_IDENTIFIER=\(bundle)", "build"]
+    }
+
+    /// The cached project and derived data an installed app came from, from the app's own path
+    /// (<work>/xcode-derived-data/Build/Products/Release-iphoneos/DmIOS.app): a re-sign must run there to reuse them.
+    nonisolated static func buildPaths(ofApp app: String) -> (project: String, derived: String)? {
+        guard let marker = app.range(of: "/Build/Products/") else { return nil }
+        let derived = String(app[..<marker.lowerBound])
+        let work = (derived as NSString).deletingLastPathComponent
+        return (work + "/xcode/DmIOS.xcodeproj", derived)
+    }
+
     /// Ask where to write the .ipa, then pack the signed app there.
     func saveIPAPanel() {
         let p = NSSavePanel()
