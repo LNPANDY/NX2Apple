@@ -35,6 +35,20 @@ final class ManageMenuTests: XCTestCase {
                         hasBuildFolder: folder, actions: actions)
     }
 
+    /// Reinstall is offered once a game is recorded on a device, also when the cached app is gone (the record is what
+    /// counts); it follows Build again and is off while that game builds.
+    func testAReinstallRowShowsOnlyForAnInstalledGame() throws {
+        var game = try readyGame()
+        XCTAssertFalse(items(game).map(\.id).contains("reinstall"), "never installed: nothing to reinstall")
+        game.installedDevice = "00008150-AAAA"
+        game.iosAppPath = ""   // the build folder was cleaned: the row must stay reachable
+        let list = items(game)
+        XCTAssertEqual(Array(list.map(\.id).prefix(2)), ["rebuild", "reinstall"])
+        XCTAssertEqual(list[1].title, L10n.string("dev.reinstall", .en))
+        XCTAssertTrue(list[1].enabled)
+        XCTAssertFalse(items(game, running: true)[1].enabled)
+    }
+
     func testAReadyGameHasEveryRowInTheOldOrderAndRemoveLastInRed() throws {
         var game = try readyGame()
         game.artworkPath = "/art.png"

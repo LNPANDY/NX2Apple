@@ -4,6 +4,7 @@ import SwiftUI
 /// reach into the launcher's state.
 struct ManageActions {
     var rebuild: () -> Void = {}
+    var reinstall: () -> Void = {}
     var options: () -> Void = {}
     var saves: () -> Void = {}
     var changeArtwork: () -> Void = {}
@@ -29,6 +30,13 @@ struct ManageItem: Identifiable {
                      hasBuildFolder: Bool, actions a: ManageActions) -> [ManageItem] {
         var items = [ManageItem(id: "rebuild", symbol: "arrow.clockwise", title: t(olderTools ? "library.rebuild" : "library.buildAgain"),
                                 enabled: !running && !game.inputs["base", default: []].isEmpty, run: a.rebuild)]
+        // A game installed on a device can go back to it without building: the build's app, or an IPA, is what a phone
+        // needs. Offered even when the cached app is gone (installedDevice is the record that counts), so the picker path
+        // below is reachable.
+        if !game.installedDevice.isEmpty {
+            items.append(.init(id: "reinstall", symbol: "square.and.arrow.down", title: t("dev.reinstall"),
+                               enabled: !running && game.id != activeBuildID, run: a.reinstall))
+        }
         if game.isReady { items.append(.init(id: "options", symbol: "slider.horizontal.3", title: t("launch.title"), run: a.options)) }
         items.append(.init(id: "saves", symbol: "tray.and.arrow.down", title: t("saves.menu"), run: a.saves))
         items.append(.init(id: "artwork", symbol: "photo", title: t("library.changeArtwork"), run: a.changeArtwork))

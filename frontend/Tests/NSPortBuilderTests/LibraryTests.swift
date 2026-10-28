@@ -371,6 +371,7 @@ final class LibraryTests: XCTestCase {
             with (app / 'Info.plist').open('wb') as f: plistlib.dump({'CFBundleIdentifier': 'org.nxnative.test'}, f)
             print('CodeSign ' + str(app), flush=True)
         elif a[:3] == ['devicectl', 'device', 'install']:
+            open('\(calls.path)', 'a').write('install-app-exists ' + str(pathlib.Path(a[-1]).exists()) + '\\n')
             print('45%', flush=True); print('App installed', flush=True)
         elif a[:4] == ['devicectl', 'device', 'copy', 'to']:
             print('60%', flush=True); print('Copied', flush=True)
@@ -487,7 +488,7 @@ final class LibraryTests: XCTestCase {
         var reported = expectation(description: "Reinstall says what is missing")
         model.reinstallOnDevice { reported.fulfill() }
         wait(for: [reported], timeout: 10)
-        XCTAssertEqual(model.doneNote, String(format: model.t("dev.reinstallMissing"), model.shortPath(model.installedAppPath)))
+        XCTAssertEqual(model.doneNote, model.t("dev.reinstallNoMaterial"))
         XCTAssertTrue(model.done)
         reported = expectation(description: "Save says what is missing")
         let ipa = temporary.appendingPathComponent("missing.ipa")
@@ -562,6 +563,84 @@ final class LibraryTests: XCTestCase {
         wait(for: [reported], timeout: 10)
         XCTAssertEqual(model.doneNote, model.t("dev.resignNoTeam"))
         XCTAssertFalse(model.running)
+    }
+
+    /// With the build's app gone, a reinstall takes the IPA: Payload/*.app is unpacked to a temporary folder, that app is
+    /// installed, and the folder is removed — the package a sideloader would also take.
+    @MainActor func testReinstallFromASavedIPAZipsToPayloadAndInstallsIt() throws {
+        let (model, _, calls, _) = try runInstallFlow(transfer: true)
+        let cached = model.installedAppPath
+        // A saved IPA of the app the fixture's xcodebuild made (Payload/DmIOS.app at the archive's root).
+        let payload = temporary.appendingPathComponent("pkg/Payload")
+        try FileManager.default.createDirectory(at: payload, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(atPath: cached, toPath: payload.appendingPathComponent("DmIOS.app").path)
+        let ipa = temporary.appendingPathComponent("Saved.ipa")
+        let ditto = Process()
+        ditto.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
+        ditto.arguments = ["-c", "-k", "--norsrc", "--keepParent", payload.path, ipa.path]
+        try ditto.run(); ditto.waitUntilExit()
+        XCTAssertEqual(ditto.terminationStatus, 0)
+        try FileManager.default.removeItem(atPath: cached)   // derived data cleaned: the IPA is all that is left
+        let done = expectation(description: "Installed from the IPA")
+        model.reinstallOnDevice(app: "", ipa: ipa.path, device: "00008150-AAAA") { done.fulfill() }
+        wait(for: [done], timeout: 30)
+        let log = try String(contentsOf: calls, encoding: .utf8).split(separator: "\n").map(String.init)
+        XCTAssertTrue(log.contains("install-app-exists True"), "the unpacked app must exist when devicectl gets it")
+        let install = try XCTUnwrap(log.last { $0.hasPrefix("devicectl device install app") })
+        let installed = String(install.split(separator: " ").last!)
+        XCTAssertTrue(installed.hasSuffix("/Payload/DmIOS.app"), installed)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: installed), "the unpacked copy is removed once installed")
+        XCTAssertEqual(model.lastInstalledBundleID, "org.nxnative.test")
+        XCTAssertEqual(model.doneNote, String(format: model.t("dev.installedFromIPA"), "iPhone"))
+        XCTAssertEqual(model.installedOn, "00008150-AAAA")
+        XCTAssertFalse(model.running)
+    }
+
+    /// A cleaned build folder forgets the cached app, not where the game was installed: the phone may still have it, and
+    /// the reinstall row (with an IPA or the picker) must stay reachable. A saved IPA that is gone is forgotten.
+    func testACleanedBuildFolderKeepsTheInstallRecord() throws {
+        var game = LibraryGame(titleID: titleID, name: "Hades")
+        game.iosAppPath = temporary.appendingPathComponent("gone/DmIOS.app").path
+        game.installedDevice = "UDID"
+        game.installedBundleID = "org.nxnative.test"
+        game.savedIPAPath = temporary.appendingPathComponent("gone/Saved.ipa").path
+        let library = try loadedLibrary([game])
+        library.pruneMissingPaths()
+        XCTAssertEqual(library.games[0].iosAppPath, "")
+        XCTAssertEqual(library.games[0].installedDevice, "UDID", "the install record outlives the cached app")
+        XCTAssertEqual(library.games[0].installedBundleID, "org.nxnative.test")
+        XCTAssertEqual(library.games[0].savedIPAPath, "", "a saved IPA that is gone cannot be installed")
+    }
+
+    func testTheLibraryRemembersSavedIPAsAndInstalledBundles() throws {
+        let game = LibraryGame(titleID: titleID, name: "Hades")
+        let file = temporary.appendingPathComponent("library-remember.json")
+        try writeLibrary([game], to: file)
+        let library = GameLibrary(file: file)
+        let saved = temporary.appendingPathComponent("Saved.ipa")
+        try Data([0]).write(to: saved)   // a real file: a load prunes remembered paths that are gone
+        library.recordSavedIPA(saved.path, for: game.id)
+        library.recordInstalledBundleID("org.nxnative.teamvariant", for: game.id)
+        XCTAssertEqual(library.games[0].savedIPAPath, saved.path)
+        XCTAssertEqual(library.games[0].installedBundleID, "org.nxnative.teamvariant")
+        library.recordInstalledBundleID("", for: game.id)   // an empty identifier is no information
+        XCTAssertEqual(library.games[0].installedBundleID, "org.nxnative.teamvariant")
+        // And through the file: the next launch sees both.
+        let reloaded = GameLibrary(file: file)
+        XCTAssertEqual(reloaded.games[0].savedIPAPath, saved.path)
+        XCTAssertEqual(reloaded.games[0].installedBundleID, "org.nxnative.teamvariant")
+    }
+
+    /// A library JSON with exactly these games; the format the app writes (Snapshot).
+    private func writeLibrary(_ games: [LibraryGame], to file: URL) throws {
+        struct Snapshot: Encodable { let games: [LibraryGame]; let folder: String }
+        try JSONEncoder().encode(Snapshot(games: games, folder: "")).write(to: file)
+    }
+
+    private func loadedLibrary(_ games: [LibraryGame]) throws -> GameLibrary {
+        let file = temporary.appendingPathComponent("library-\(UUID().uuidString).json")
+        try writeLibrary(games, to: file)
+        return GameLibrary(file: file)
     }
 
     func testCorruptLibraryIsReportedWithoutOverwritingIt() throws {

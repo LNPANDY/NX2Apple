@@ -17,6 +17,11 @@ struct LibraryGame: Codable, Identifiable, Equatable {
     var mods: [String] = []   // the mods (folder names in the game's mods folder) switched on
     var iosAppPath = ""
     var installedDevice = ""
+    /// The bundle identifier the app was installed under (the team variant included): what `devicectl device info apps`
+    /// is matched against to tell whether the game is still on the phone, also after the cached app is gone.
+    var installedBundleID = ""
+    /// An IPA the player saved with Save IPA…: what a reinstall falls back to when the build's own app is gone.
+    var savedIPAPath = ""
     /// The repository checkout's commit the last finished build used (ToolsAge); empty for a build from before it was recorded.
     var toolsCommit = ""
 
@@ -32,8 +37,10 @@ struct LibraryGame: Codable, Identifiable, Equatable {
     var hasIPA: Bool { !ipaPath.isEmpty && FileManager.default.fileExists(atPath: ipaPath) }
     var hasIOSApp: Bool { !iosAppPath.isEmpty && FileManager.default.fileExists(atPath: iosAppPath + "/Info.plist") }
 
-    /// What the hero's primary button does: play the Mac app, open the installed iPhone app, else build (an IPA alone is not a reason to show anything else).
-    enum Primary: Equatable { case play, openOnDevice, build }
+    /// What the hero's primary button does: play the Mac app, open the installed iPhone app, reinstall one the device no
+    /// longer has, else build. `LibraryGame.primary` is the part that needs nothing but this record; the launcher adds
+    /// `.reinstall` when the phone says the app is gone (it is the one that asked the phone).
+    enum Primary: Equatable { case play, openOnDevice, reinstall, build }
     var primary: Primary { isReady ? .play : (onDevice ? .openOnDevice : .build) }
 
     /// What "Reveal in Finder" shows: the Mac app if it exists, else the IPA, else the iOS app; nil when none does (the item is hidden).
@@ -62,6 +69,8 @@ extension LibraryGame {
         mods = try c.decodeIfPresent([String].self, forKey: .mods) ?? []
         iosAppPath = try c.decodeIfPresent(String.self, forKey: .iosAppPath) ?? ""
         installedDevice = try c.decodeIfPresent(String.self, forKey: .installedDevice) ?? ""
+        installedBundleID = try c.decodeIfPresent(String.self, forKey: .installedBundleID) ?? ""
+        savedIPAPath = try c.decodeIfPresent(String.self, forKey: .savedIPAPath) ?? ""
         toolsCommit = try c.decodeIfPresent(String.self, forKey: .toolsCommit) ?? ""
     }
 }
@@ -282,7 +291,10 @@ final class GameLibrary: ObservableObject {
             let game = games[index]
             if gone(game.appPath) { games[index].appPath = ""; changed = true }
             if gone(game.ipaPath) { games[index].ipaPath = ""; changed = true }
-            if gone(game.iosAppPath, plist: true) { games[index].iosAppPath = ""; games[index].installedDevice = ""; changed = true }
+            // The cached app going (derived data cleaned, the build folder moved) does not forget where the game was
+            // installed: the phone may still have it, and a reinstall can use the saved IPA or one the player picks.
+            if gone(game.iosAppPath, plist: true) { games[index].iosAppPath = ""; changed = true }
+            if gone(game.savedIPAPath) { games[index].savedIPAPath = ""; changed = true }
         }
         if changed { save() }
     }
@@ -448,8 +460,34 @@ final class GameLibrary: ObservableObject {
         // What this build made; an earlier build's IPA or installed app stays when this one made none
         if !ipa.isEmpty { game.ipaPath = ipa }
         if !archive.isEmpty { game.archivePath = archive }
-        if !app.isEmpty { game.iosAppPath = app; game.installedDevice = device }
+        if !app.isEmpty {
+            game.iosAppPath = app; game.installedDevice = device
+            // What the phone's app list is matched against, also after the cached app is deleted.
+            if let bundle = NSDictionary(contentsOfFile: app + "/Info.plist")?["CFBundleIdentifier"] as? String {
+                game.installedBundleID = bundle
+            }
+        }
         game.toolsCommit = commit
+        upsert(game)
+    }
+
+    /// An IPA the player saved, or picked for a reinstall: remembered per game so the next reinstall needs no picker.
+    func recordSavedIPA(_ path: String, for gameID: UUID) {
+        guard var game = games.first(where: { $0.id == gameID }) else { return }
+        game.savedIPAPath = path
+        upsert(game)
+    }
+
+    /// The same, from the app the save came from (the builder card knows the app, not the library row).
+    func recordSavedIPA(_ path: String, forInstalledApp app: String) {
+        guard !app.isEmpty, let game = games.first(where: { $0.iosAppPath == app }) else { return }
+        recordSavedIPA(path, for: game.id)
+    }
+
+    /// The bundle identifier an install used, recorded when the install came from an IPA (no cached app to read it from).
+    func recordInstalledBundleID(_ bundle: String, for gameID: UUID) {
+        guard var game = games.first(where: { $0.id == gameID }), !bundle.isEmpty else { return }
+        game.installedBundleID = bundle
         upsert(game)
     }
 

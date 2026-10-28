@@ -45,7 +45,7 @@ struct ContentView: View {
     @StateObject private var toolsAge: ToolsAge
     @State private var buildCommit = ""   // the checkout's commit when the running build started (ToolsAge)
     @State private var signatureExpiry: [UUID: Date] = [:]   // installed apps' provisioning-profile expiry, per game
-    @State private var resignNote: String?   // the last re-sign's outcome, shown under the hero's expiry line
+    @State private var deviceNote: String?   // the last reinstall/re-sign outcome, shown under the hero's device line
     private var performStartupChecks: Bool
     private let onRunSetup: (() -> Void)?   // Settings' "Run setup again"; the root view supplies it
     private let qaManage: (open: Bool, ring: Bool)   // visual QA: the Manage menu open at launch, with the controller's focus ring or without
@@ -69,7 +69,9 @@ struct ContentView: View {
         library.games.filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) }
     }
 
-    var body: some View {
+    /// The window's content; the modifier chain in `body` stays short enough for the type checker (this file's hero and
+    /// menu builders are large).
+    private var pageShell: some View {
         VStack(spacing: 0) {
             topBar
             Divider().opacity(0.3)
@@ -83,6 +85,10 @@ struct ContentView: View {
             }
             if m.running || page == .library { activityBar }
         }
+    }
+
+    var body: some View {
+        pageShell
         .padScope("main", padFocus)
         .environmentObject(padFocus)
         .manageMenuOverlay(items: manageOpenFor.flatMap { id in library.games.first { $0.id == id } }.map(manageItems),
@@ -109,6 +115,7 @@ struct ContentView: View {
             }
             refreshArtwork()
             readSignatures()
+            m.onIPASaved = { path in library.recordSavedIPA(path, forInstalledApp: m.installedAppPath) }
             if performStartupChecks { library.discover(); fetchArtwork(); m.refreshDevices(); checkTools() }
             if performStartupChecks {
                 m.checkDeps()
@@ -126,12 +133,17 @@ struct ContentView: View {
         .onChange(of: library.games) { _ in
             refreshArtwork()
             readSignatures()
+            m.onIPASaved = { path in library.recordSavedIPA(path, forInstalledApp: m.installedAppPath) }
             if performStartupChecks { fetchArtwork() }
         }
         .onChange(of: m.repoPath) { _ in refreshArtwork(); if performStartupChecks { checkTools() } }
         // A clone, pull or update check has finished (the automatic pull at launch among them): the checkout may have moved
         .onReceive(m.$repoBusy.removeDuplicates().dropFirst()) { busy in if !busy && performStartupChecks { checkTools() } }
-        .onChange(of: library.selectedID) { _ in resignNote = nil }   // the last re-sign's note belongs to its game
+        .onChange(of: library.selectedID) { _ in
+            deviceNote = nil   // the last reinstall's note belongs to its game
+            m.refreshInstalledApps()
+        }
+        // The paired devices arrived or changed: ask each which apps it still has (the library's "on the phone" state).
         .onReceive(m.$running.removeDuplicates()) { running in
             if running && activeBuildID == nil { activeBuildID = library.rememberInputs(m) }
             if running && activeBuildID != nil {   // the tools this build runs: a pull waits for the build (pullRepo, autoPull)
@@ -152,6 +164,8 @@ struct ContentView: View {
         .onReceive(m.$done.removeDuplicates()) { done in
             if done { DispatchQueue.main.async { recordBuild() } }
         }
+        // The paired devices arrived or changed: ask each which apps it still has (the library's "on the phone" state).
+        .onReceive(m.$devices.removeDuplicates()) { _ in m.refreshInstalledApps(force: true) }
         .onChange(of: scenePhase) { phase in
             if phase == .active { library.objectWillChange.send() }
         }
@@ -357,10 +371,7 @@ struct ContentView: View {
                     .tracking(-1.6).lineLimit(2).shadow(color: .black.opacity(0.25), radius: 12)
                 HStack(spacing: 18) {
                     Button { primaryAction(game) } label: {
-                        Label(game.primary == .play ? m.t("library.play")
-                                : (game.primary == .openOnDevice ? String(format: m.t("dev.open"), m.deviceName(game.installedDevice))
-                                   : m.t("library.newBuild")),
-                              systemImage: game.primary == .play ? "play.fill" : (game.primary == .openOnDevice ? "iphone" : "hammer.fill"))
+                        Label(primaryTitle(game), systemImage: primarySymbol(game))
                             .font(.manrope(18, .bold))
                             .foregroundStyle(.black).padding(.horizontal, 30).padding(.vertical, 14)
                             .frame(minWidth: 164)
@@ -384,32 +395,7 @@ struct ContentView: View {
                         .anchorPreference(key: ManageAnchorKey.self, value: .bounds) { $0 }
                         .padTarget("hero.manage", scope: "main", radius: 12) { manageOpenFor = game.id }
                 }
-                // A free Apple ID's provisioning profile lasts 7 days. Say when this app's runs out, and offer the
-                // re-sign at any time: renewing early (before a trip, say) is as valid as renewing just in time.
-                if game.onDevice {
-                    HStack(spacing: 10) {
-                        Image(systemName: "checkmark.seal").font(.system(size: 12))
-                            .foregroundStyle(LauncherPalette.cream.opacity(0.7))
-                        Text(signatureExpiry[game.id].map { AppSignature.describe($0, m.t) } ?? m.t("dev.expiryUnknown"))
-                            .font(.manrope(12.5))
-                            .foregroundStyle(signatureExpiry[game.id].map { AppSignature.isUrgent($0) } == true
-                                             ? LauncherPalette.building : .secondary)
-                        Button { resign(game) } label: {
-                            Text(m.t("dev.resign")).font(.manrope(12, .semibold))
-                                .foregroundStyle(LauncherPalette.cream)
-                                .padding(.horizontal, 10).padding(.vertical, 4)
-                                .overlay(Capsule().strokeBorder(LauncherPalette.cream.opacity(0.35)))
-                                .contentShape(Capsule())
-                        }
-                        .buttonStyle(.plain).disabled(m.running)
-                        .help(m.t("dev.resignHelp"))
-                        .padTarget("hero.resign", scope: "main", radius: 12) { if !m.running { resign(game) } }
-                    }
-                }
-                if let resignNote {
-                    Text(resignNote).font(.manrope(12)).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+                deviceLines(game)
             }
             .padding(.horizontal, 34).padding(.bottom, 34)
         }
@@ -523,6 +509,12 @@ struct ContentView: View {
                     .foregroundStyle(AppSignature.isUrgent(expiry) ? LauncherPalette.building : .secondary)
                     .lineLimit(1)
                     .help(AppSignature.describe(expiry, m.t))
+            }
+            // The phone was read (or the app is gone from the cached path): say whether it still has the game.
+            if !building, isOnPhone(game) == false {
+                Text("· " + String(format: m.t("dev.notOnDeviceShort"), m.deviceName(game.installedDevice)))
+                    .font(.manrope(prominent ? 13 : 12)).foregroundStyle(LauncherPalette.building).lineLimit(1)
+                    .help(String(format: m.t("dev.notOnDevice"), m.deviceName(game.installedDevice)))
             }
         }
         .accessibilityElement(children: .combine)
@@ -676,7 +668,8 @@ struct ContentView: View {
         ManageItem.list(game: game, labels: m.t, running: m.running, olderTools: toolsAge.older.contains(game.id), activeBuildID: activeBuildID,
                         hasBuildFolder: BuildFolder.location(for: game) != nil,
                         actions: ManageActions(
-                            rebuild: { configureBuild(game) }, options: { optionsFor = game.id }, saves: { savesFor = game.id },
+                            rebuild: { configureBuild(game) }, reinstall: { reinstall(game) },
+                            options: { optionsFor = game.id }, saves: { savesFor = game.id },
                             changeArtwork: { chooseArtwork(game) }, resetArtwork: { library.setArtwork("", for: game.id) },
                             reveal: { if let path = game.revealTarget { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) } },
                             freeSpace: { freeSpaceFor = game.id }, remove: { removing = game }))
@@ -693,15 +686,21 @@ struct ContentView: View {
     static let ringRoom: CGFloat = 6
 
     private func primaryAction(_ game: LibraryGame) {
-        if !game.isReady && game.onDevice {   // installed on a device: start it there
+        switch primary(game) {
+        case .openOnDevice:   // on the phone (or recorded there): start it there, with the recorded bundle for a cached app that is gone
             launching = true
-            m.openOnDevice(udid: game.installedDevice, app: game.iosAppPath) { error in
+            m.openOnDevice(udid: game.installedDevice, app: game.iosAppPath, bundle: bundleID(of: game)) { error in
                 launching = false
                 if let error { launchError = error }
             }
             return
+        case .reinstall:
+            reinstall(game)
+            return
+        case .play: break   // the Mac app: below
+        case .build:
+            guard game.isReady else { configureBuild(game); return }
         }
-        guard game.isReady else { configureBuild(game); return }
         do {
             _ = try MacGameBundle.read(URL(fileURLWithPath: game.appPath))
             launching = true
@@ -725,6 +724,122 @@ struct ContentView: View {
         } catch { launchError = error.localizedDescription }
     }
 
+    /// The primary button, corrected by what the phone says: a game the player deleted there offers to go back, not to
+    /// open. Until the phone has been read (or when the read failed) the local record decides, as before.
+    private func primary(_ game: LibraryGame) -> LibraryGame.Primary {
+        guard !game.isReady else { return .play }
+        guard !game.installedDevice.isEmpty else { return .build }
+        switch isOnPhone(game) {
+        case .some(true): return .openOnDevice
+        case .some(false): return .reinstall
+        case .none: return game.onDevice ? .openOnDevice : .reinstall
+        }
+    }
+
+    /// Under the hero's buttons: the signature's expiry with Re-sign, and — when the phone says so — that the game is
+    /// not on it any more, with Reinstall. Keyed on the install record, not the cached app: both outlive the app.
+    @ViewBuilder private func deviceLines(_ game: LibraryGame) -> some View {
+        if !game.installedDevice.isEmpty {
+            HStack(spacing: 10) {
+                Image(systemName: "checkmark.seal").font(.system(size: 12))
+                    .foregroundStyle(LauncherPalette.cream.opacity(0.7))
+                Text(signatureExpiry[game.id].map { AppSignature.describe($0, m.t) } ?? m.t("dev.expiryUnknown"))
+                    .font(.manrope(12.5))
+                    .foregroundStyle(signatureExpiry[game.id].map { AppSignature.isUrgent($0) } == true
+                                     ? LauncherPalette.building : .secondary)
+                pill(m.t("dev.resign"), help: m.t("dev.resignHelp"), pad: "hero.resign") { resign(game) }
+            }
+            if isOnPhone(game) == false {
+                HStack(spacing: 10) {
+                    Image(systemName: "iphone.slash").font(.system(size: 12))
+                        .foregroundStyle(LauncherPalette.building)
+                    Text(String(format: m.t("dev.notOnDevice"), m.deviceName(game.installedDevice)))
+                        .font(.manrope(12.5)).foregroundStyle(LauncherPalette.building)
+                    pill(m.t("dev.reinstall"), help: m.t("dev.reinstallHelp"), pad: "hero.reinstall") { reinstall(game) }
+                }
+            }
+        }
+        if let deviceNote {
+            Text(deviceNote).font(.manrope(12)).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// The small outlined button the device lines use (Re-sign, Reinstall).
+    private func pill(_ title: String, help: String, pad: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title).font(.manrope(12, .semibold))
+                .foregroundStyle(LauncherPalette.cream)
+                .padding(.horizontal, 10).padding(.vertical, 4)
+                .overlay(Capsule().strokeBorder(LauncherPalette.cream.opacity(0.35)))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain).disabled(m.running).help(help)
+        .padTarget(pad, scope: "main", radius: 12) { if !m.running { action() } }
+    }
+
+    private func primaryTitle(_ game: LibraryGame) -> String {
+        switch primary(game) {
+        case .play: return m.t("library.play")
+        case .openOnDevice: return String(format: m.t("dev.open"), m.deviceName(game.installedDevice))
+        case .reinstall: return String(format: m.t("dev.reinstallTo"), m.deviceName(game.installedDevice))
+        case .build: return m.t("library.newBuild")
+        }
+    }
+
+    private func primarySymbol(_ game: LibraryGame) -> String {
+        switch primary(game) {
+        case .play: return "play.fill"
+        case .openOnDevice: return "iphone"
+        case .reinstall: return "square.and.arrow.down"
+        case .build: return "hammer.fill"
+        }
+    }
+
+    /// The bundle identifier the phone's app list is matched against: the one the install used, else the cached app's,
+    /// else the launcher's default for the title (an install that predates the record).
+    private func bundleID(of game: LibraryGame) -> String {
+        if !game.installedBundleID.isEmpty { return game.installedBundleID }
+        if let id = NSDictionary(contentsOfFile: game.iosAppPath + "/Info.plist")?["CFBundleIdentifier"] as? String { return id }
+        return "org.nxnative." + game.titleID.lowercased()
+    }
+
+    /// Whether the phone still has the game: nil when it has not been read.
+    private func isOnPhone(_ game: LibraryGame) -> Bool? {
+        guard !game.installedDevice.isEmpty else { return nil }
+        return m.isOnDevice(bundle: bundleID(of: game), device: game.installedDevice)
+    }
+
+    /// Put a game back on its device without building: the app the build left, else the IPA the player saved, else one
+    /// they pick (most reinstalls happen long after the build, when derived data may be gone).
+    private func reinstall(_ game: LibraryGame) {
+        deviceNote = nil
+        let device = game.installedDevice
+        switch BuildModel.installMaterial(app: game.iosAppPath, ipa: game.savedIPAPath) {
+        case .none:
+            let panel = NSOpenPanel()
+            panel.canChooseFiles = true
+            panel.canChooseDirectories = false
+            panel.allowsMultipleSelection = false
+            panel.allowedFileTypes = ["ipa"]
+            panel.title = m.t("dev.chooseIPATitle")
+            panel.message = m.t("dev.chooseIPAMessage")
+            guard panel.runModal() == .OK, let url = panel.url else { return }
+            library.recordSavedIPA(url.path, for: game.id)   // next time needs no picker
+            m.reinstallOnDevice(app: "", ipa: url.path, device: device) {
+                deviceNote = m.doneNote
+                if !m.lastInstalledBundleID.isEmpty { library.recordInstalledBundleID(m.lastInstalledBundleID, for: game.id) }
+            }
+        case .app(let app):
+            m.reinstallOnDevice(app: app, ipa: game.savedIPAPath, device: device) { deviceNote = m.doneNote }
+        case .ipa(let ipa):
+            m.reinstallOnDevice(app: "", ipa: ipa, device: device) {
+                deviceNote = m.doneNote
+                if !m.lastInstalledBundleID.isEmpty { library.recordInstalledBundleID(m.lastInstalledBundleID, for: game.id) }
+            }
+        }
+    }
+
     /// The installed apps' profile expiries, read in the background: `security cms` per app, so not in a view body.
     private func readSignatures() {
         let apps = library.games.filter(\.onDevice).map { ($0.id, $0.iosAppPath) }
@@ -739,9 +854,9 @@ struct ContentView: View {
     /// Sign the installed app again for another 7 days (a free Apple ID's profile), then install it: the game's code
     /// is not rebuilt, and its Documents stay.
     private func resign(_ game: LibraryGame) {
-        resignNote = nil
+        deviceNote = nil
         m.resignOnDevice(app: game.iosAppPath, device: game.installedDevice) {
-            resignNote = m.doneNote
+            deviceNote = m.doneNote
             signatureExpiry[game.id] = AppSignature.expiration(ofApp: game.iosAppPath)
         }
     }

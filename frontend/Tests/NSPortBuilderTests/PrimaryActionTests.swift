@@ -76,7 +76,8 @@ final class PrimaryActionTests: XCTestCase {
         let a = try XCTUnwrap(library.games.first { $0.name == "Kept" }), b = try XCTUnwrap(library.games.first { $0.name == "Stale" })
         XCTAssertEqual(a.appPath, app.path)
         XCTAssertEqual(a.ipaPath, ipa.path)
-        XCTAssertEqual([b.appPath, b.ipaPath, b.iosAppPath, b.installedDevice], ["", "", "", ""])
+        XCTAssertEqual([b.appPath, b.ipaPath, b.iosAppPath, b.installedDevice], ["", "", "", "UDID"],
+                       "the cached app is forgotten; where the game was installed is not (the phone may still have it)")
         // saved: a fresh load sees the cleared entry too, and the entries are kept
         let again = GameLibrary(file: file)
         XCTAssertEqual(again.games.first { $0.name == "Stale" }?.appPath, "")

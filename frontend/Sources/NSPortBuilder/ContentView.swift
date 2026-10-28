@@ -141,6 +141,14 @@ final class BuildModel: ObservableObject {
     }
     @Published var installedOn = ""       // the device the last build went to (its UDID)
     @Published var installedAppPath = ""  // the signed app that went there
+    @Published var lastInstalledBundleID = ""   // the identifier the last install used (an IPA install has no app path to read)
+    /// UDID → the bundle identifiers the device reports (devicectl device info apps). Absent = not read yet, or the read
+    /// failed: the UI then claims nothing about what the phone has.
+    @Published var deviceApps: [String: Set<String>] = [:]
+    private var deviceAppsReadAt: [String: Date] = [:]
+    private var deviceAppsBusy: Set<String> = []
+    /// Called with the path after Save IPA… wrote a package: the library remembers it for a later reinstall.
+    var onIPASaved: ((String) -> Void)?
     @Published var transferAsk = false    // the transfer-the-game-files question is up: USB from the Mac is slow, so copying is the player's call
     private var transferHandler: ((Bool) -> Void)?
 
@@ -173,6 +181,58 @@ final class BuildModel: ObservableObject {
                 if !teams.contains(where: { $0.id == self.signingTeam }) { self.signingTeam = teams.first?.id ?? "" }
             }
         }
+    }
+
+    /// Ask each paired device which apps it still has (`devicectl device info apps`): a library row must not claim a
+    /// game the player deleted on the phone is "on" it. Read again after every install and, for a selected game, when
+    /// the last read is older than a minute; a failed read (device gone, locked) leaves the previous answer.
+    func refreshInstalledApps(force: Bool = false) {
+        let xcrun = xcrunPath
+        for device in devices.map(\.id) where !device.isEmpty {
+            if deviceAppsBusy.contains(device) { continue }
+            if !force, let at = deviceAppsReadAt[device], Date().timeIntervalSince(at) < 60 { continue }
+            deviceAppsBusy.insert(device)
+            DispatchQueue.global(qos: .utility).async {
+                let p = Process(), out = Pipe()
+                p.executableURL = URL(fileURLWithPath: xcrun)
+                p.arguments = Self.installedAppsArguments(device: device)
+                p.standardOutput = out
+                p.standardError = FileHandle.nullDevice
+                var ids: Set<String>?
+                if (try? p.run()) != nil {
+                    let data = out.fileHandleForReading.readDataToEndOfFile()
+                    p.waitUntilExit()
+                    if p.terminationStatus == 0 { ids = Self.installedBundleIDs(fromDeviceInfoAppsJSON: data) }
+                }
+                DispatchQueue.main.async {
+                    self.deviceAppsBusy.remove(device)
+                    if let ids {
+                        self.deviceApps[device] = ids
+                        self.deviceAppsReadAt[device] = Date()
+                    }
+                }
+            }
+        }
+    }
+
+    /// Whether the device has that app now: nil when the device has not been read, so the UI claims nothing.
+    func isOnDevice(bundle: String, device: String) -> Bool? {
+        guard !bundle.isEmpty, let ids = deviceApps[device] else { return nil }
+        return ids.contains(bundle)
+    }
+
+    nonisolated static func installedAppsArguments(device: String) -> [String] {
+        ["devicectl", "device", "info", "apps", "--device", device, "--json-output", "-"]
+    }
+
+    /// `devicectl device info apps --json-output -`'s result.apps[].bundleIdentifier. By default the tool lists the
+    /// developer apps (what a launcher install makes) and not the device's built-in ones. nil = not that JSON (the
+    /// caller keeps the previous answer); an empty set is a real answer (no developer apps on it).
+    nonisolated static func installedBundleIDs(fromDeviceInfoAppsJSON data: Data) -> Set<String>? {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let result = root["result"] as? [String: Any],
+              let apps = result["apps"] as? [[String: Any]] else { return nil }
+        return Set(apps.compactMap { $0["bundleIdentifier"] as? String })
     }
 
     @Published var deps: [Dep] = []
@@ -1755,16 +1815,41 @@ final class BuildModel: ObservableObject {
         cleanupStaging()
     }
 
-    /// Reinstall the signed app that is already in derived data, without unpacking, signing or packing again: the
-    /// device keeps the app's Documents (game data and saves), as the bundle ID does not change. A reinstall that
-    /// fails on an expired signature says so in devicectl's words; signing again is not this button's job.
-    func reinstallOnDevice(then: (() -> Void)? = nil) {
-        let device = installedOn, app = installedAppPath
-        guard !device.isEmpty, !app.isEmpty else { then?(); return }
-        guard FileManager.default.fileExists(atPath: app) else {
-            doneNote = String(format: t("dev.reinstallMissing"), shortPath(app))
+    /// What a reinstall can install: the app the last build left beside the game, else an IPA (the one the player saved
+    /// with Save IPA…, or one they pick), else nothing.
+    enum InstallMaterial: Equatable {
+        case app(String)
+        case ipa(String)
+        case none
+    }
+
+    nonisolated static func installMaterial(app: String, ipa: String) -> InstallMaterial {
+        if !app.isEmpty, FileManager.default.fileExists(atPath: app + "/Info.plist") { return .app(app) }
+        if !ipa.isEmpty, FileManager.default.fileExists(atPath: ipa) { return .ipa(ipa) }
+        return .none
+    }
+
+    /// Reinstall the signed app from the last build, without unpacking, signing or packing again: the device keeps the
+    /// app's Documents (game data and saves), as the bundle ID does not change. With no app beside the game the IPA is
+    /// unpacked and its Payload/*.app installed (the same package a sideloader would take). A reinstall that fails on an
+    /// expired signature says so in devicectl's words; signing again is not this button's job.
+    func reinstallOnDevice(app: String? = nil, ipa: String? = nil, device: String? = nil, then: (() -> Void)? = nil) {
+        let device = device ?? installedOn
+        let app = app ?? installedAppPath
+        guard !device.isEmpty else { then?(); return }
+        switch Self.installMaterial(app: app, ipa: ipa ?? "") {
+        case .none:
+            doneNote = t("dev.reinstallNoMaterial")
             then?(); return
+        case .app(let path):
+            installPrepared(app: path, device: device, then: then)
+        case .ipa(let path):
+            unpackAndInstall(ipa: path, device: device, then: then)
         }
+    }
+
+    /// devicectl installs the app it is given; the caller has already decided what that is.
+    private func installPrepared(app: String, device: String, then: (() -> Void)? = nil) {
         running = true
         runTool(id: 1004, name: String(format: t("dev.reinstallStage"), deviceName(device)),
                 Self.reinstallCommand(xcrun: xcrunPath, device: device, app: app), step: Self.installStep) { error in
@@ -1773,10 +1858,63 @@ final class BuildModel: ObservableObject {
                 self.running = false
                 self.doneNote = String(format: self.t("dev.reinstallFailed"), error)
             } else {
+                self.recordInstalledApp(app: app, device: device)
                 self.finishInstall(nil, note: String(format: self.t("dev.reinstalled"), self.deviceName(device)))
             }
             then?()
         }
+    }
+
+    /// An IPA as the phone takes it: Payload/<name>.app unpacked to a temporary folder, that app installed, the folder
+    /// removed. The package's signature is the one it was saved with (a sideloader would replace it the same way).
+    private func unpackAndInstall(ipa: String, device: String, then: (() -> Void)? = nil) {
+        let stage = FileManager.default.temporaryDirectory.appendingPathComponent("nspb-reinstall-" + UUID().uuidString)
+        running = true
+        runTool(id: 1008, name: t("dev.unpackStage"), ["/usr/bin/ditto", "-x", "-k", ipa, stage.path], step: { _ in nil }) { error in
+            if let error {
+                try? FileManager.default.removeItem(at: stage)
+                self.running = false
+                self.doneNote = String(format: self.t("dev.reinstallFailed"), error)
+                then?(); return
+            }
+            let payload = stage.appendingPathComponent("Payload")
+            let apps = ((try? FileManager.default.contentsOfDirectory(at: payload, includingPropertiesForKeys: nil)) ?? [])
+                .filter { $0.pathExtension == "app" }
+            guard let app = apps.first else {
+                try? FileManager.default.removeItem(at: stage)
+                self.running = false
+                self.doneNote = String(format: self.t("dev.reinstallFailed"), self.t("dev.ipaNoPayload"))
+                then?(); return
+            }
+            self.runTool(id: 1004, name: String(format: self.t("dev.reinstallStage"), self.deviceName(device)),
+                         Self.reinstallCommand(xcrun: self.xcrunPath, device: device, app: app.path), step: Self.installStep) { installError in
+                // The bundle id is read while the unpacked app is still there: it is what the phone's list is matched against.
+                let bundle = NSDictionary(contentsOfFile: app.path + "/Info.plist")?["CFBundleIdentifier"] as? String ?? ""
+                try? FileManager.default.removeItem(at: stage)
+                self.running = false
+                if let installError {
+                    self.doneNote = String(format: self.t("dev.reinstallFailed"), installError)
+                } else {
+                    self.lastInstalledBundleID = bundle
+                    self.installedOn = device
+                    self.doneNote = String(format: self.t("dev.installedFromIPA"), self.deviceName(device))
+                    self.refreshInstalledApps(force: true)
+                }
+                then?()
+            }
+        }
+    }
+
+    /// What a finished install means for the library and the phone's app list: the bundle it went in as, and a fresh
+    /// read of what the device has now. `app` is nil when the app lived in a temporary folder (an IPA install): there is
+    /// no local app to keep pointing at.
+    private func recordInstalledApp(app: String?, device: String) {
+        installedOn = device
+        if let app {
+            installedAppPath = app
+            lastInstalledBundleID = NSDictionary(contentsOfFile: app + "/Info.plist")?["CFBundleIdentifier"] as? String ?? ""
+        }
+        refreshInstalledApps(force: true)
     }
 
     nonisolated static func reinstallCommand(xcrun: String, device: String, app: String) -> [String] {
@@ -1887,8 +2025,12 @@ final class BuildModel: ObservableObject {
         runTool(id: 1005, name: t("dev.saveStage"), Self.ipaCommand(payload: payload.path, ipa: url.path), step: { _ in nil }) { error in
             try? fm.removeItem(at: stage)
             self.running = false
-            self.doneNote = error.map { String(format: self.t("dev.saveFailed"), $0) }
-                ?? String(format: self.t("dev.savedIPA"), self.shortPath(url.path))
+            if let error {
+                self.doneNote = String(format: self.t("dev.saveFailed"), error)
+            } else {
+                self.doneNote = String(format: self.t("dev.savedIPA"), self.shortPath(url.path))
+                self.onIPASaved?(url.path)   // the library remembers it: a reinstall after the cached app is gone uses it
+            }
             then?()
         }
     }
@@ -2000,15 +2142,17 @@ final class BuildModel: ObservableObject {
         do { try p.run(); Self.track(p) } catch { then(error.localizedDescription) }
     }
 
-    /// Start the game on the device it was installed on.
-    func openOnDevice(udid: String, app: String, completion: @escaping (String?) -> Void) {
+    /// Start the game on the device it was installed on. `bundle` is passed by callers that recorded the identifier (a
+    /// library row whose cached app can be gone); otherwise it comes from the app's Info.plist.
+    func openOnDevice(udid: String, app: String, bundle: String = "", completion: @escaping (String?) -> Void) {
         let info = NSDictionary(contentsOfFile: app + "/Info.plist")
-        guard let bundle = info?["CFBundleIdentifier"] as? String else { return completion(String(format: t("dev.noProject"), shortPath(app))) }
+        let id = bundle.isEmpty ? (info?["CFBundleIdentifier"] as? String ?? "") : bundle
+        guard !id.isEmpty else { return completion(String(format: t("dev.noProject"), shortPath(app))) }
         let xcrun = xcrunPath
         DispatchQueue.global(qos: .userInitiated).async {
             let p = Process(), out = Pipe()
             p.executableURL = URL(fileURLWithPath: xcrun)
-            p.arguments = ["devicectl", "device", "process", "launch", "--device", udid, bundle]
+            p.arguments = ["devicectl", "device", "process", "launch", "--device", udid, id]
             p.standardOutput = out; p.standardError = out
             var message: String?
             do {
@@ -2838,6 +2982,22 @@ struct BuilderView: View {
                 row(m.t("dev.installedNote"), dot: LauncherPalette.ready) {
                     Button(String(format: m.t("dev.open"), m.deviceName(m.installedOn))) {
                         m.openOnDevice(udid: m.installedOn, app: m.installedAppPath) { error in if let error { m.doneNote = error } }
+                    }
+                    Button(m.t("dev.reinstall")) {
+                        // The library knows the IPA the player saved, if the build's app is gone by now.
+                        let game = library.games.first { !$0.iosAppPath.isEmpty && $0.iosAppPath == m.installedAppPath }
+                        m.reinstallOnDevice(app: m.installedAppPath, ipa: game?.savedIPAPath ?? "", device: m.installedOn)
+                    }
+                        .disabled(m.running)
+                }
+                // The signed app stays in derived data; keeping it as an .ipa means a sideloader (or another Mac)
+                // can install it without building the game again, while the signature lasts.
+                if !m.installedAppPath.isEmpty {
+                    divider
+                    row(m.t("dev.signedApp"), detail: m.shortPath(m.installedAppPath), dot: LauncherPalette.ready, help: m.installedAppPath) {
+                        Button(m.t("install.reveal")) { reveal(m.installedAppPath) }
+                        Button(m.t("dev.saveIPA")) { m.saveIPAPanel() }
+                            .disabled(m.running)
                     }
                 }
                 // The game files were copied (or, after a skipped transfer, await a manual copy — a
