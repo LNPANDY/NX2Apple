@@ -45,6 +45,12 @@ check; this session's last build command and the last 50 lines of its log. The h
 folder is shown as `~`, a log line holding key material (`name = <hex>`, as in
 `prod.keys`) keeps only its name, and no environment variables are included.
 
+Every dependency check also writes `deps-check.txt` beside `library.json`
+(`~/Library/Application Support/NS Port Builder/`): each row's verdict, the
+interpreter paths that were tried, and the `HOME` and `PATH` the panel ran with.
+That is the file to attach when the panel and the terminal disagree — a Finder
+launch gives the app a different PATH from the shell's.
+
 A completed Mac build appears in the collection automatically and can be started
 with **Play**. An iPhone build, by default, offers its unsigned IPA and the
 sideloading and RomFS-copy instructions.

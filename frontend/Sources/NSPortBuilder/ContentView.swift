@@ -2189,6 +2189,7 @@ final class BuildModel: ObservableObject {
         depsChecked = false
         DispatchQueue.global(qos: .userInitiated).async {
             let d = Self.detectDepsSync()
+            Self.writeDepsReport(d)
             let (py, _) = Self.findPython()
             let (dn, _) = Self.findDotnet()
             DispatchQueue.main.async {
@@ -2198,6 +2199,26 @@ final class BuildModel: ObservableObject {
                 self.depsChecked = true
             }
         }
+    }
+
+    /// Write what the panel just decided beside library.json (`deps-check.txt`).
+    ///
+    /// The panel is the only place those verdicts appear, so "it says Python is missing" cannot be
+    /// checked afterwards: the interpreter that was tried, and the environment a Finder launch
+    /// gives the app (its PATH is /usr/bin:/bin:/usr/sbin:/sbin, unlike the terminal's), are both
+    /// invisible in a bug report. This file has them — paths and versions only, never key material.
+    nonisolated static func writeDepsReport(_ deps: [Dep]) {
+        let dir = (venvDir as NSString).deletingLastPathComponent
+        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        var out = "NX2Apple \(appVersion) dependency check\n"
+        out += "date: \(ISO8601DateFormatter().string(from: Date()))\n"
+        out += "HOME: \(NSHomeDirectory())\n"
+        out += "PATH: \(ProcessInfo.processInfo.environment["PATH"] ?? "(unset)")\n"
+        out += "python candidates:\n"
+        for c in pythonCandidates() { out += "  \(c)\n" }
+        out += "rows:\n"
+        for d in deps { out += "  \(d.id): \(d.present ? "ok" : "MISSING") \(d.detail)\n" }
+        try? out.write(toFile: dir + "/deps-check.txt", atomically: true, encoding: .utf8)
     }
 
     func installDep(_ dep: Dep) {
