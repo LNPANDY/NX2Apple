@@ -61,7 +61,7 @@ OURS = {'dm/host/romfs_arc.c', 'dm/host/romfs_arc.h', 'dm/tools/romfs_arc.py',
         # fork-only files upstream has no such path for (checked against seedds main 062cd06e), so
         # a PR editing them is not an unprotected vendored edit.
         'docs/ROADMAP.md', 'docs/WORK-IN-PROGRESS.md', 'docs/launcher-c-design.md',
-        'docs/probe-dlopen.md', 'docs/RELEASE_NOTES.md',
+        'docs/launcher-c-plan.md', 'docs/probe-dlopen.md', 'docs/RELEASE_NOTES.md',
         'docs/RELEASE-NOTES-GUIDE.md', 'docs/badges/games.json', 'docs/badges/verified.json'}
 # Vendored files that carry fork patches: taken fresh from upstream, then patched below.
 PATCHED = ('dm/host/hle_fs.c', 'dm/host/Makefile', 'dm/host/tests/Makefile', 'dm/ios/tools/build_ipa.sh',
