@@ -469,4 +469,19 @@ import SwiftUI
         driver.refreshControllers(announce: false)
         XCTAssertEqual(driver.state.controllers.first { $0.id == "ds4-again" }?.batteryPercent, 64)
     }
+
+    /// Controller entries come from GameController instances only: no IOKit or HID source can add a phantom entry (a second HID
+    /// interface of one pad once showed up as "GamePad-1"), and with no controllers the list stays empty.
+    func testOnlyGameControllerInstancesProduceControllerEntries() throws {
+        let sources = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/NSPortBuilder")
+        for name in ["LiveConsoleDriver.swift", "Gamepad.swift", "ConsoleState.swift", "ConsoleControllersView.swift"] {
+            let text = try String(contentsOf: sources.appendingPathComponent(name), encoding: .utf8)
+            for forbidden in ["IOKit", "IOHID", "IOService"] { XCTAssertFalse(text.contains(forbidden), "\(name) uses \(forbidden)") }
+        }
+        let driver = liveDriver { [] }
+        driver.refreshControllers(announce: false)
+        XCTAssertTrue(driver.state.controllers.isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: sources.appendingPathComponent("HIDControllerWatcher.swift").path))
+    }
 }
