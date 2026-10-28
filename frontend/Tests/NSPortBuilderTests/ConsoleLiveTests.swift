@@ -260,7 +260,7 @@ import SwiftUI
         var current = [ConsolePadSnapshot(id: "first", name: "First", category: "DualShock 4", playerIndex: nil)]
         let library = GameLibrary(file: temporary.appendingPathComponent("library.json"))
         let driver = LiveConsoleDriver(library: library, controls: ControlLayout(defaults: UserDefaults(suiteName: "ConsoleLiveTests-" + UUID().uuidString)!),
-                                       repo: { "" }, lang: { .en }, labels: { $0 }, pads: { current }, artwork: { _, _ in nil }, observeSystem: true, watchHardware: false)
+                                       repo: { "" }, lang: { .en }, labels: { $0 }, pads: { current }, artwork: { _, _ in nil }, observeSystem: true)
         XCTAssertEqual(driver.state.controllers.map(\.id), ["first"])
         XCTAssertEqual(driver.state.controllers.map(\.player), [1])
         current.append(ConsolePadSnapshot(id: "second", name: "Second", category: "Wired", playerIndex: nil))
@@ -376,46 +376,8 @@ import SwiftUI
                           repo: { "" }, lang: { .en }, labels: { $0 }, pads: pads, artwork: { _, _ in nil }, observeSystem: false)
     }
 
-    func testPlaceholderFromThePlugInUntilGameControllerReports() {
-        var list: [ConsolePadSnapshot] = []
-        let driver = liveDriver { list }
-        driver.hidEvent(.init(kind: .attach, id: 7, name: "Wireless Controller"))
-        XCTAssertEqual(driver.state.controllers.map(\.connecting), [true], "a Connecting chip from the hardware attach")
-        XCTAssertEqual(driver.state.controllers.first?.name, "Wireless Controller")
-        list = [ConsolePadSnapshot(id: "gc1", name: "DUALSHOCK 4 Wireless Controller", category: "DualShock 4", playerIndex: nil)]
-        driver.controllerListChanged(connectedName: "DUALSHOCK 4 Wireless Controller", disconnectedName: nil)
-        XCTAssertEqual(driver.state.controllers.map(\.connecting), [false], "replaced by the real controller")
-        XCTAssertEqual(driver.state.controllers.map(\.player), [1])
-    }
 
-    func testPlaceholderIsRemovedOnUnplugAndGameControllerLateDisconnectIsHandled() {
-        var list: [ConsolePadSnapshot] = []
-        let driver = liveDriver { list }
-        driver.hidEvent(.init(kind: .attach, id: 1, name: "Pad"))
-        driver.hidEvent(.init(kind: .detach, id: 1, name: "Pad"))
-        XCTAssertTrue(driver.state.controllers.isEmpty, "unplugged before GameController ever reported it")
-        // a real one that the hardware drops first: hidden at once, GameController lets go later
-        list = [ConsolePadSnapshot(id: "gc1", name: "Pad", category: nil, playerIndex: nil)]
-        driver.controllerListChanged(connectedName: "Pad", disconnectedName: nil)
-        XCTAssertEqual(driver.state.controllers.count, 1)
-        driver.hidEvent(.init(kind: .detach, id: 2, name: "Pad"))
-        XCTAssertTrue(driver.state.controllers.isEmpty, "removed on the hardware detach, before GameController's disconnect")
-        list = []
-        driver.controllerListChanged(connectedName: nil, disconnectedName: "Pad")
-        XCTAssertTrue(driver.state.controllers.isEmpty)
-    }
 
-    func testPresenceExpiresAfterTenSecondsAndMatchesNamesLoosely() {
-        var presence = HIDPresence()
-        let start = Date()
-        presence.attached(id: 1, name: "Wireless Controller", at: start)
-        presence.expire(now: start.addingTimeInterval(9))
-        XCTAssertEqual(presence.pending.count, 1)
-        presence.expire(now: start.addingTimeInterval(10.5))
-        XCTAssertTrue(presence.pending.isEmpty, "GameController never reported it")
-        XCTAssertTrue(HIDPresence.matches("DUALSHOCK 4 Wireless Controller", "Wireless Controller"))
-        XCTAssertFalse(HIDPresence.matches("Xbox Wireless Controller", ""))
-    }
 
     /// Connect, disconnect, connect the same controller again as a new instance: it is listed again with its player, and the battery
     /// comes from the new instance (unknown first, then the real level).
@@ -442,26 +404,7 @@ import SwiftUI
         XCTAssertEqual(driver.state.controllers.first { $0.id == "second" }?.batteryPercent, 64, "the next read picks up the real level")
     }
 
-    func testNoPlaceholderForAControllerGameControllerAlreadyListsAtLaunch() {
-        let list = [ConsolePadSnapshot(id: "gc", name: "DUALSHOCK 4 Wireless Controller", category: "DualShock 4", playerIndex: nil)]
-        let driver = liveDriver { list }
-        driver.refreshControllers(announce: false)
-        driver.hidEvent(.init(kind: .attach, id: 1, name: "DUALSHOCK 4 Wireless Controller"))
-        XCTAssertEqual(driver.state.controllers.map(\.connecting), [false], "its hardware attach at launch adds nothing")
-        driver.hidEvent(.init(kind: .attach, id: 2, name: "GamePad-1"))
-        XCTAssertEqual(driver.state.controllers.map(\.connecting), [false, true], "a device GameController has not reported shows as connecting")
-    }
 
-    func testAnotherDevicesPlaceholderSurvivesAControllerAppearing() {
-        var list: [ConsolePadSnapshot] = []
-        let driver = liveDriver { list }
-        driver.hidEvent(.init(kind: .attach, id: 1, name: "GamePad-1"))
-        driver.hidEvent(.init(kind: .attach, id: 2, name: "DUALSHOCK 4 Wireless Controller"))
-        list = [ConsolePadSnapshot(id: "gc", name: "DUALSHOCK 4 Wireless Controller", category: "DualShock 4", playerIndex: nil)]
-        driver.controllerListChanged(connectedName: "DUALSHOCK 4 Wireless Controller", disconnectedName: nil)
-        XCTAssertEqual(driver.state.controllers.map(\.name), ["DUALSHOCK 4 Wireless Controller", "GamePad-1"])
-        XCTAssertEqual(driver.state.controllers.map(\.connecting), [false, true], "the unreported device keeps its placeholder")
-    }
 
     /// GameController can give a controller its battery object a moment after the connect: not wired at first, then 65 percent.
     func testBatteryObjectArrivingLateIsNotWired() {
@@ -492,5 +435,38 @@ import SwiftUI
         clock = clock.addingTimeInterval(4)
         driver.refreshControllers(announce: false)
         XCTAssertEqual(driver.state.controllers.first?.wired, true, "missing for more than six seconds: powered by its cable")
+    }
+
+    /// The Xbox and DualShock 4 together: both listed from the start with their own player, each with its own battery. One is unplugged
+    /// and plugged in again (a new instance) while the other stays, and neither loses its battery or player.
+    func testTwoControllersTogetherAndOneReconnects() {
+        var clock = Date()
+        var list = [ConsolePadSnapshot(id: "ds4", name: "DUALSHOCK 4 Wireless Controller", category: "DualShock 4", playerIndex: nil, battery: nil, hasBattery: false),
+                    ConsolePadSnapshot(id: "xbox", name: "Xbox Wireless Controller", category: "Xbox One", playerIndex: nil, battery: 0.8)]
+        let driver = LiveConsoleDriver(library: GameLibrary(file: temporary.appendingPathComponent("library.json")),
+                                       controls: ControlLayout(defaults: UserDefaults(suiteName: "ConsoleLiveTests-" + UUID().uuidString)!),
+                                       repo: { "" }, lang: { .en }, labels: { $0 }, pads: { list }, artwork: { _, _ in nil }, observeSystem: false, now: { clock })
+        XCTAssertEqual(driver.state.controllers.map(\.id), ["ds4", "xbox"], "both appear together")
+        XCTAssertEqual(driver.state.controllers.map(\.player), [1, 2])
+        XCTAssertEqual(driver.state.controllers.map(\.wired), [false, false], "no battery object at 0 s is not wired yet")
+        clock = clock.addingTimeInterval(2)
+        list[0].hasBattery = true; list[0].battery = 0.65   // the DualShock's battery arrives on the 2 second read
+        driver.refreshControllers(announce: false)
+        XCTAssertEqual(driver.state.controllers.map(\.batteryPercent), [65, 80])
+        // the DualShock goes away and comes back as a new instance, the Xbox stays
+        let xbox = list[1]
+        list = [xbox]
+        driver.controllerListChanged(connectedName: nil, disconnectedName: "DUALSHOCK 4 Wireless Controller")
+        XCTAssertEqual(driver.state.controllers.map(\.id), ["xbox"])
+        XCTAssertEqual(driver.state.controllers.first?.batteryPercent, 80, "the other controller is untouched")
+        list = [ConsolePadSnapshot(id: "ds4-again", name: "DUALSHOCK 4 Wireless Controller", category: "DualShock 4", playerIndex: nil, battery: nil), xbox]
+        driver.controllerListChanged(connectedName: "DUALSHOCK 4 Wireless Controller", disconnectedName: nil)
+        XCTAssertEqual(Set(driver.state.controllers.map(\.id)), ["ds4-again", "xbox"], "both listed again")
+        XCTAssertEqual(driver.state.controllers.first { $0.id == "ds4-again" }?.player, 1, "its old player is back")
+        XCTAssertNil(driver.state.controllers.first { $0.id == "ds4-again" }?.battery, "nothing carried over from the old instance")
+        XCTAssertEqual(driver.state.controllers.first { $0.id == "xbox" }?.batteryPercent, 80)
+        list[0].battery = 0.64
+        driver.refreshControllers(announce: false)
+        XCTAssertEqual(driver.state.controllers.first { $0.id == "ds4-again" }?.batteryPercent, 64)
     }
 }

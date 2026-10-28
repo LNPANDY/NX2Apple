@@ -57,7 +57,8 @@ struct ContentView: View {
     init(model: BuildModel? = nil, library: GameLibrary? = nil, initialPage: LauncherPage = .library,
          activeBuildID: UUID? = nil, performStartupChecks: Bool = true, search: String? = nil, olderTools: Set<UUID> = [],
          manageOpen: Bool = false, padRing: Bool = false, onRunSetup: (() -> Void)? = nil,
-         enterConsole: (() -> Void)? = nil, controllerDriver: AnyConsoleDriver? = nil, controls sharedControls: ControlLayout? = nil) {
+         enterConsole: (() -> Void)? = nil, controllerDriver: AnyConsoleDriver? = nil, controls sharedControls: ControlLayout? = nil, qaPrompt: Bool = false) {
+        _consolePrompt = State(initialValue: qaPrompt)   // visual QA: the connect prompt open at launch
         self.onRunSetup = onRunSetup
         let layout = sharedControls ?? ControlLayout()
         _controls = StateObject(wrappedValue: layout)

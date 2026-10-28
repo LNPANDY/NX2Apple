@@ -170,7 +170,6 @@ enum L10n {
         "console.assignCancelled": ("\u{5df2}\u{53d6}\u{6d88}\u{5206}\u{914d}\u{73a9}\u{5bb6}\u{3002}", "Player assignment cancelled."),
         "console.assignTimeout": ("\u{6ca1}\u{6709}\u{6309}\u{952e}\u{3002}\u{8bf7}\u{91cd}\u{65b0}\u{9009}\u{62e9}\u{73a9}\u{5bb6}\u{518d}\u{8bd5}\u{4e00}\u{6b21}\u{3002}", "No button was pressed. Choose a player to try again."),
         "console.wired": ("\u{6709}\u{7ebf}\u{8fde}\u{63a5}", "Wired"),
-        "console.connecting": ("\u{6b63}\u{5728}\u{8fde}\u{63a5}\u{2026}", "Connecting\u{2026}"),
         "console.mergeEach": ("\u{6bcf}\u{4e2a}\u{624b}\u{67c4}\u{5bf9}\u{5e94}\u{4e00}\u{4f4d}\u{73a9}\u{5bb6}", "Each controller is its own player"),
         "console.mockPress": ("\u{6a21}\u{62df}\u{6309}\u{4e0b}\u{6309}\u{94ae}", "Simulate a button press"),
         "console.connectedUnassigned": ("%@ \u{5df2}\u{8fde}\u{63a5}", "%@ connected"),

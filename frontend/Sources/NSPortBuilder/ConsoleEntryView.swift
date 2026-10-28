@@ -41,7 +41,7 @@ struct ConsoleConnectionPrompt: View {
     private var glyphs: ConsoleGlyphs { .current() }
     var body: some View {
         ZStack {
-            Color.black.opacity(0.65)
+            Color.black.opacity(0.65).ignoresSafeArea()   // the whole window, the area behind the hidden title bar too
             VStack(alignment: .leading, spacing: 14) {
                 Label(t("console.connectionTitle"), systemImage: "gamecontroller").font(.manrope(22, .bold))
                 Text(t("console.connectionNote")).font(.manrope(14)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)

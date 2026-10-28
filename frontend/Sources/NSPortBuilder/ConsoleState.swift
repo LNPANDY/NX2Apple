@@ -72,8 +72,6 @@ struct ConsoleController: Identifiable, Equatable {
     var canIdentify = true
     /// No battery object at all: a controller like that is powered by its cable.
     var wired = false
-    /// Plugged in or switched on according to the hardware, not yet reported by GameController.
-    var connecting = false
     var batteryPercent: Int? { battery.map { Int((min(max($0.isFinite ? $0 : 0, 0), 1) * 100).rounded()) } }
 }
 

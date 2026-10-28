@@ -202,6 +202,7 @@ final class ConsolePadTests: XCTestCase {
         for width: CGFloat in [1280, 900] {
             try shot(AnyView(ContentView(model: BuildModel(), library: library, performStartupChecks: false, enterConsole: {})), "desktop-bar-\(Int(width))", width, 720)
         }
+        try shot(AnyView(ContentView(model: BuildModel(), library: library, performStartupChecks: false, enterConsole: {}, qaPrompt: true)), "prompt-windowed", 1000, 720)
         for lang in [Lang.en, .zh] {
             try shot(AnyView(ConsoleConnectionPrompt(lang: lang, enterConsole: {}, dismissPrompt: {}).environmentObject(PadFocus()).preferredColorScheme(.dark)), "prompt-\(lang.rawValue)", 900, 500)
         }

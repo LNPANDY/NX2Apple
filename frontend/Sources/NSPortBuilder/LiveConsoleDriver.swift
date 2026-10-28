@@ -72,7 +72,7 @@ struct ConsolePadSnapshot: Equatable {
     /// When a controller was first seen without a battery object. GameController can hand one over a moment after the connect, so
     /// "wired" is only decided after the object has been missing for several reads.
     private var noBatterySince: [String: Date] = [:]
-    static let wiredAfter: TimeInterval = 6
+    static let wiredAfter: TimeInterval = 4.5   // the 5 second read is the one that decides
     private var cancellables = Set<AnyCancellable>()
     private var observers: [NSObjectProtocol] = []
     private var refreshQueued = false
@@ -87,7 +87,7 @@ struct ConsolePadSnapshot: Equatable {
     init(library: GameLibrary, controls: ControlLayout, repo: @escaping () -> String, lang: @escaping () -> Lang, labels: @escaping (String) -> String,
          pads: (() -> [ConsolePadSnapshot])? = nil,
          launch: ((LibraryGame, [String: String], @escaping (Int32?, Error?) -> Void) -> Void)? = nil,
-         artwork: ((LibraryGame, String) -> NSImage?)? = nil, startingTimeout: TimeInterval = 20, observeSystem: Bool = true, watchHardware: Bool = true, now: @escaping () -> Date = Date.init) {
+         artwork: ((LibraryGame, String) -> NSImage?)? = nil, startingTimeout: TimeInterval = 20, observeSystem: Bool = true, now: @escaping () -> Date = Date.init) {
         self.now = now
         self.library = library; self.controls = controls; self.repo = repo; self.lang = lang; self.labels = labels
         self.startingTimeout = startingTimeout
@@ -102,7 +102,6 @@ struct ConsolePadSnapshot: Equatable {
         refreshControllers(announce: false)
         if observeSystem { scheduleBatteryRereads() }   // a controller there at launch may not have its battery yet either
         guard observeSystem else { return }
-        if watchHardware { hidWatcher = HIDControllerWatcher { [weak self] event in MainActor.assumeIsolated { self?.hidEvent(event) } } }
         let center = NotificationCenter.default
         observers = [
             center.addObserver(forName: .GCControllerDidConnect, object: nil, queue: .main) { [weak self] note in
@@ -430,10 +429,7 @@ struct ConsolePadSnapshot: Equatable {
     static func memoryKey(_ pad: ConsolePadSnapshot) -> String { pad.name + "|" + (pad.category ?? "") }
 
     private static let hidLog = Logger(subsystem: "NX2Apple", category: "console.controllers")
-    private var presence = HIDPresence()
-    private var hidWatcher: HIDControllerWatcher?
     private var remembered: [String: Int] = [:]
-    private var pollTask: Task<Void, Never>?
 
     private func stamp() -> String { String(format: "%.3f", Date().timeIntervalSince1970) }
 
@@ -460,8 +456,6 @@ struct ConsolePadSnapshot: Equatable {
 
     /// The part of a connect or disconnect that does not need a GCController, so tests can drive it.
     func controllerListChanged(connectedName: String?, disconnectedName: String?, including: GCController? = nil, excluding: GCController? = nil) {
-        if let connectedName { presence.gcConnected(name: connectedName) }
-        if let disconnectedName { presence.gcDisconnected(name: disconnectedName) }
         refreshControllers(announce: false, including: including, excluding: excluding)
     }
 
@@ -478,44 +472,14 @@ struct ConsolePadSnapshot: Equatable {
     /// Right after a connect GameController may still report 0 or an unknown battery (a Bluetooth reconnect): read it again soon.
     private func scheduleBatteryRereads() {
         Task { [weak self] in
-            for seconds in [2.0, 3.0, 3.0] {   // reads at 2, 5 and 8 seconds, then the 20 second tick
+            for seconds in [2.0, 3.0] {   // reads at 2 and 5 seconds after a connect, then the 20 second tick
                 try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
                 self?.refreshControllers(announce: false)
             }
         }
     }
 
-    // MARK: Hardware (IOKit registry) events
-
-    func hidEvent(_ event: HIDControllerWatcher.Event) {
-        Self.hidLog.debug("hid \(event.kind == .attach ? "attach" : "detach", privacy: .public) \(event.name, privacy: .public) at \(self.stamp(), privacy: .public)")
-        switch event.kind {
-        case .attach:
-            // GameController already lists it (a controller there at launch): no placeholder
-            if state.controllers.contains(where: { !$0.connecting && HIDPresence.matches($0.name, event.name) }) {
-                Self.hidLog.debug("hid attach \(event.name, privacy: .public): already listed by GameController")
-            } else { presence.attached(id: event.id, name: event.name); watchForGameController() }
-        case .detach: presence.detached(id: event.id, name: event.name)
-        }
-        refreshControllers(announce: false)
-    }
-
-    /// GameController can lag the hardware by seconds, and has been seen missing a re-plug: after a plug-in, look at its list every half
-    /// second for ten seconds, and drop the placeholder when the time is up.
-    private func watchForGameController() {
-        pollTask?.cancel()
-        pollTask = Task { [weak self] in
-            for _ in 0..<21 {
-                try? await Task.sleep(nanoseconds: 500_000_000)
-                guard !Task.isCancelled, let self else { return }
-                self.refreshControllers(announce: false)
-                if self.presence.pending.isEmpty { return }
-            }
-        }
-    }
-
     func refreshControllers(announce: Bool, including: GCController? = nil, excluding: GCController? = nil) {
-        let before = Set(state.controllers.filter { !$0.connecting }.map(\.id))
         var snapshots = pads()
         if devicePads {
             devices = [:]
@@ -543,8 +507,6 @@ struct ConsolePadSnapshot: Equatable {
             if now().timeIntervalSince(since) < Self.wiredAfter { snapshots[i].hasBattery = true }   // too early to call it wired: unknown for now
         }
         noBatterySince = noBatterySince.filter { key, _ in snapshots.contains { $0.id == key } }
-        presence.expire()
-        snapshots = snapshots.filter { !presence.isHidden($0.name) }   // unplugged according to the hardware, GameController not told yet
         let live = Set(snapshots.map(\.id))
         overrides = overrides.filter { live.contains($0.key) }
         snapshots = snapshots.map { snap in
@@ -557,12 +519,9 @@ struct ConsolePadSnapshot: Equatable {
             devices[new.id]?.playerIndex = GCControllerPlayerIndex(rawValue: (new.playerIndex ?? 1) - 1) ?? .indexUnset
         }
         for pad in assigned { if let p = pad.playerIndex { remembered[Self.memoryKey(pad)] = p } }
-        // a controller GameController reports that the hardware watch has a placeholder for replaces it (also without a notification)
-        for pad in assigned where !before.contains(pad.id) { presence.gcConnected(name: pad.name, orOldest: false) }
-        var list = assigned.map(\.controller)
-        for p in presence.pending { list.append(ConsoleController(id: "hid." + String(p.id), name: p.name.isEmpty ? t("console.connecting") : p.name, player: nil, kind: .gamepad, canIdentify: false, connecting: true)) }
+        let list = assigned.map(\.controller)
         if list != state.controllers {
-            Self.hidLog.debug("publish \(list.count) controllers at \(self.stamp(), privacy: .public): \(list.map { "\($0.name)\($0.connecting ? " (connecting)" : "")" }.joined(separator: ", "), privacy: .public)")
+            Self.hidLog.debug("publish \(list.count) controllers at \(self.stamp(), privacy: .public): \(list.map { "\($0.name)" }.joined(separator: ", "), privacy: .public)")
             state.controllers = list
         }
     }
