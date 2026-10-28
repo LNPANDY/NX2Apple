@@ -56,7 +56,13 @@ OURS = {'dm/host/romfs_arc.c', 'dm/host/romfs_arc.h', 'dm/tools/romfs_arc.py',
         # This script: fork-only, so a PR that changes it is not a vendored edit (pr-scope reads OURS)
         'scripts/sync_upstream.py', 'scripts/tests/test_sync_patchers.py',   # and its test (issue #92)
         # The Files-app game-data pick (bookmark of the chosen folder): fork-only, upstream has no such path
-        'dm/ios/Sources/DataBookmark.m', 'dm/ios/Sources/DataBookmark.h'}
+        'dm/ios/Sources/DataBookmark.m', 'dm/ios/Sources/DataBookmark.h',
+        # The fork's own planning, probe and release documents, and the badges their READMEs read:
+        # fork-only files upstream has no such path for (checked against seedds main 062cd06e), so
+        # a PR editing them is not an unprotected vendored edit.
+        'docs/ROADMAP.md', 'docs/WORK-IN-PROGRESS.md', 'docs/launcher-c-design.md',
+        'docs/probe-dlopen.md', 'docs/RELEASE_NOTES.md',
+        'docs/RELEASE-NOTES-GUIDE.md', 'docs/badges/games.json', 'docs/badges/verified.json'}
 # Vendored files that carry fork patches: taken fresh from upstream, then patched below.
 PATCHED = ('dm/host/hle_fs.c', 'dm/host/Makefile', 'dm/host/tests/Makefile', 'dm/ios/tools/build_ipa.sh',
            'scripts/build_ipa_from_nsp.py',
