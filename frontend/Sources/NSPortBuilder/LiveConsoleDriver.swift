@@ -222,6 +222,7 @@ struct ConsolePadSnapshot: Equatable {
         state.play(gameID)
         guard state.startingGameID == gameID, let game = library.games.first(where: { $0.id.uuidString == gameID }) else { return }
         let environment = GameStart.environment(for: game, library: library, controls: controls, repo: repo(), labels: labels)
+            .merging(FrameTimes.recordingEnvironment(for: game, library: library.folder)) { $1 }   // a frame-time recording, as the desktop Play adds (FrameTimes.swift)
         state.starting = .preparing
         launch(game, environment) { [weak self] pid, error in
             DispatchQueue.main.async {
