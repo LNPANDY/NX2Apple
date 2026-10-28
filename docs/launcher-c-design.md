@@ -231,11 +231,11 @@ section，无任何报错（第二个游戏的代码消失了）*，NRO 式"3 �
 - **游戏列表** = 扫描两个来源后按 title id 连接：
   1. **代码**：`Bundle.main/Frameworks/*.framework`，读每个 framework `Resources/game.manifest.json`
      （构建时生成，第 3.2 节），运行期用 `getsectiondata`/段存在性做交叉校验（防 manifest 与段不一致）。
-     不建议扫 `romfs.idx` 当列表依据——romfs 是用户可移动的数据（外置盘是计划能力：romfs_arc.c 按分片
+     不建议扫数据文件当列表依据——romfs 是用户可移动的数据（外置盘是计划能力：当时设想按分片
      pread，天然支持外部路径，但今天 `main.m romfs_locate` 只查 per-game/Documents/bundle 三处，
      文件夹选择器是待办，ROADMAP:129-132），代码在不在 bundle 里才是"装没装"。
   2. **数据**：`Documents/games/*/`，"这个目录是不是一个游戏的文件"的判定已经存在：
-     `main.m:19-28 romfs_dir_ok`（有 `romfs.idx` 或 profile 的 `romfs_marker` 路径即算）。
+     `main.m:19-28 romfs_dir_ok`（有 profile 的 `romfs_marker` 路径即算；旧的 `romfs.idx` 分片归档已不再读取）。
   - 列表状态：代码+数据 = 可玩，只有代码 = 提示"把 romfs 放进 Files"，只有数据 = 灰显"IPA 里没有这个游戏
     的 framework（需要重签安装）"——这条提示就是 2.2 结论的用户可见面。
 - **存档隔离**：已经有了。`Documents/games/<id>/{save,temp}`，`main.m:95-104`：

@@ -61,6 +61,8 @@ private struct GameDataSection: View {
         picked = dm_picked_data_path(&stale) ?? ""
         if stale.boolValue && picked.isEmpty {
             note = "The location you picked before is no longer readable (the app was signed differently). Please choose it again."
+        } else if note.isEmpty, let old = dm_old_archive_message() {
+            note = String(cString: old)
         }
     }
 }

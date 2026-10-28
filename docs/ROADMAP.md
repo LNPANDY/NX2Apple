@@ -7,7 +7,7 @@ week of work. Sources are named so each claim can be re-checked.
 ## 1. Touch look and native aspect — the one capability we do not have
 
 **From [devinhurry/touch-the-wild](https://github.com/devinhurry/touch-the-wild)** (not in
-upstream's tree: `hle_look.c`, `touchpad_geometry.h`, `hle_botw_touchhud.c`, `hle_aspect.c`
+upstream's tree: `hle_look.c`, `touchpad_geometry.h` (once carried here as an experiment, since dropped), `hle_botw_touchhud.c`, `hle_aspect.c`
 all verified absent from seedds/nxnative).
 
 Today the only way to turn the camera on a phone is holding a virtual right stick, which turns
@@ -127,9 +127,8 @@ saves and logs) and enables the runtime-profile work that was already done. Do A
 if 4–8 games in one app is worth it, and C needs a `dlopen` experiment before any commitment.
 
 External storage on iOS: `UIDocumentPickerViewController` for the folder, persist a security-
-scoped bookmark in UserDefaults, store the ROMFSARC index and shards there. `romfs_arc.c`
-already `pread`s per shard, so an external path works unchanged —
-`main.m romfs_locate` only checks `Documents/romfs` and `<App>/romfs` today.
+scoped bookmark in UserDefaults, store the picked location there (done: `romfs.img` is read from any
+security-scoped path, `dm_picked_data_path`; the shard-archive reader this note first assumed is gone).
 
 ## Safety note from the fork survey
 

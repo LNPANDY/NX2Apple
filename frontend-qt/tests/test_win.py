@@ -347,7 +347,7 @@ class HostSourcesTest(unittest.TestCase):
         files, incs = build_app.host_sources(self.repo, self.gen)
         names = {p.name for p in files}
         # from SRC=
-        for must in ('loader.c', 'hle.c', 'romfs_arc.c', 'crash.c', 'probe.c', 'thread.c',
+        for must in ('loader.c', 'hle.c', 'crash.c', 'probe.c', 'thread.c',
                      'memstat.m', 'haptics_apple.m', 'entry.S', 'main.c'):
             self.assertIn(must, names, f'{must} missing from the host source list')
         # Mac-only sources are dropped
@@ -375,7 +375,7 @@ class HostSourcesTest(unittest.TestCase):
             (fake / 'dm/host').mkdir(parents=True)
             makefile = (self.repo / 'dm/host/Makefile').read_text(encoding='utf-8')
             (fake / 'dm/host/Makefile').write_text(
-                makefile.replace('romfs_arc.c ', 'romfs_arc.c newfile.c '), encoding='utf-8')
+                makefile.replace('crash.c ', 'crash.c newfile.c '), encoding='utf-8')
             with self.assertRaises(SystemExit) as ctx:
                 build_app.host_sources(fake, self.gen)
             # host_sources() reports through build_app.die(), which raises SystemExit(1); the

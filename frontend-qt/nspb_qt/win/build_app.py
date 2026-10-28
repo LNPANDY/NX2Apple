@@ -82,7 +82,7 @@ def py(*args, env=None, capture=True) -> str:
 #: Makefile's wildcards are the only place the source list is maintained: if upstream adds a
 #: file to either line, silently missing it here would produce a link error or a subtly
 #: incomplete host.
-WANT_SRC = ('SRC=main.c loader.c hle.c romfs_arc.c crash.c probe.c thread.c save_sync.c memstat.m '
+WANT_SRC = ('SRC=main.c loader.c hle.c crash.c probe.c thread.c save_sync.c memstat.m '
             'haptics_apple.m $(sort $(wildcard hle_*.c)) front_mac.m entry.S')
 WANT_GFX = ('GFX=$(sort $(wildcard ../gfx/*.c ../gfx/nvn/*.c ../gfx/nvn/*.m ../gfx/nvn/*.S '
             '../gfx/tex/*.c ../gfx/tex/*.m ../gfx/vk/*.m ../gfx/gl/*.m))')
@@ -111,7 +111,7 @@ def host_sources(repo: Path, game_h_dir: Path) -> tuple[list[Path], list[Path]]:
             die(f'dm/host/Makefile changed ({what}= line): update host_sources() in '
                 f'frontend-qt/nspb_qt/win/build_app.py to match')
 
-    src = [host / n for n in 'main.c loader.c hle.c romfs_arc.c crash.c probe.c thread.c save_sync.c '
+    src = [host / n for n in 'main.c loader.c hle.c crash.c probe.c thread.c save_sync.c '
                             'memstat.m haptics_apple.m'.split()]
     src += sorted(host.glob('hle_*.c'), key=lambda p: p.name)
     src += [host / 'front_mac.m', host / 'entry.S']

@@ -12,7 +12,6 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Upstream-Status: forwarded seedds/nxnative#580
 Reason: Luigi's Mansion 3 sets depth mode near = 0: the profile key lets the bundled pipeline archive match
 Issue: LNPANDY/NX2Apple#123
-
 ---
  dm/games/0100DCA0064A6000/README.md | 2 ++
  dm/games/0100DCA0064A6000/game.tsv  | 3 +++
@@ -20,7 +19,7 @@ Issue: LNPANDY/NX2Apple#123
  3 files changed, 6 insertions(+), 1 deletion(-)
 
 diff --git a/dm/games/0100DCA0064A6000/README.md b/dm/games/0100DCA0064A6000/README.md
-index 361d3ba..87328bc 100644
+index 361d3baf..87328bcb 100644
 --- a/dm/games/0100DCA0064A6000/README.md
 +++ b/dm/games/0100DCA0064A6000/README.md
 @@ -34,6 +34,8 @@ No `patches.py`.
@@ -33,7 +32,7 @@ index 361d3ba..87328bc 100644
  - **Current: shadow cascades from an array of driver-table handles** (586 pixel shaders: `array<texture2d_array<float>, 32> fp_t2das_cb2_0`, `shaders with a binding whose slot was not decoded 588`), indexed by (0x80 + a cascade offset) ÷ 8 over the driver table c2 (`c2_array`).
  - **Resolved: the boot aborted in Metal's pipeline validation** (`MTLPixelFormatDepth16Unorm is not color renderable`): a 1024×1024 D16 texture (a shadow) is drawn through an R16 view. Such a pass now draws into a colour shadow of the same pixel size, copied in before and back after the pass (`shrt_block`; D16 and D32F; not D24S8).
 diff --git a/dm/games/0100DCA0064A6000/game.tsv b/dm/games/0100DCA0064A6000/game.tsv
-index 2003f56..8b95071 100644
+index 2003f565..8b95071b 100644
 --- a/dm/games/0100DCA0064A6000/game.tsv
 +++ b/dm/games/0100DCA0064A6000/game.tsv
 @@ -50,3 +50,6 @@ pad_layout	full
@@ -44,10 +43,10 @@ index 2003f56..8b95071 100644
 +# (dm/gfx/tools/pso_offline.py). Without it the Mac prebuild made near = -w bases, the host refused the bundled archive and rebuilt 3,852 pairs at every start
 +depth_mode	zero
 diff --git a/dm/games/README.md b/dm/games/README.md
-index 3228057..a8315ac 100644
+index d5bedb71..7c3c8618 100644
 --- a/dm/games/README.md
 +++ b/dm/games/README.md
-@@ -166,7 +166,7 @@ One row per profile; the notes are each profile's `README.md`.
+@@ -173,7 +173,7 @@ One row per profile; the notes are each profile's `README.md`.
  | `alloc_big_align` | `on` / `off` (the default): `nn::mem::StandardAllocator::Allocate` aligns blocks of 64 KB or more to 64 KB (`hle_os.c`). Vanillaware's engine (13 Sentinels: Aegis Rim, Unicorn Overlord) takes a memory pool's storage from malloc and cuts ring heaps out of it at 64 KB alignment relative to the pool's GPU address. On the Switch that address is big-page aligned; the host's is the CPU address, only 4 KB aligned, so the last ring heap does not fit and keeps base 0, and the game writes through a null pointer (13 Sentinels entering its first battle, Unicorn Overlord past the title screen) |
  | `shared_font` | Optional, decided by the game files without it (the SDK version the host reads from the `sdk` module, `loader.c` `dm_sdk_major`, and `main`'s imports, `dm_main_imports`): what the shared-font address points at. `bfttf` (SDK 11 and later, when `main` imports `ScalableFontEngineHelper::Decode`) = the 8-byte BFTTF header (with the "already decoded" marker) followed by the TTF, which Mario passes to `Decode`; `ttf` = the TTF itself, which SDK 10 and older games hand straight to `ScalableFontEngine::LoadFont` (Super Mario 3D World + Bowser's Fury: with the header the engine fails with error 403 and the game crashes looking up a glyph; Odyssey, Link's Awakening, Age of Calamity and Three Houses alike) and Unity's player to FreeType (Patrick's Parabox: with the header its Japanese, Korean and Chinese text drew nothing). No profile sets it |
  | `device_api` | Optional, decided by the SDK version without it: the NVN API version `major.minor` that `nvnDeviceGetInteger` reports, 55.15 for SDK 11 and later (what Mario requires) and 53.313 for SDK 10 and older (`hle_nvn.c` `nvn_api`). Games check it and skip creating their device on a mismatch: Super Mario 3D World + Bowser's Fury (SDK 10) requires major 53 and minor ≥ 313. No profile sets it. `DM_NVN_API` overrides. Not part of the shader chain version (only `shader_*` keys are) |
