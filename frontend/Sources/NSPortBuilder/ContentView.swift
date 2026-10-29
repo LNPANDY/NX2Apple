@@ -1240,9 +1240,8 @@ final class BuildModel: ObservableObject {
                 }
             }
         }
-        pipe.fileHandleForReading.readabilityHandler = { [weak self] h in
-            let d = h.availableData
-            guard !d.isEmpty, let s = String(data: d, encoding: .utf8) else { return }
+        PipeReader.attach(to: pipe.fileHandleForReading) { [weak self] d in
+            guard let s = String(data: d, encoding: .utf8) else { return }
             DispatchQueue.main.async { self?.ingest(s) }
         }
         proc = p
@@ -1674,9 +1673,8 @@ final class BuildModel: ObservableObject {
             .merging(BundledTools.environment(for: romfsPy)) { $1 }
         Self.inOwnGroup(p, python: p.executableURL!.path)
         let pipe = Pipe(); p.standardOutput = pipe; p.standardError = pipe
-        pipe.fileHandleForReading.readabilityHandler = { [weak self] h in
-            let d = h.availableData
-            guard !d.isEmpty, let s = String(data: d, encoding: .utf8) else { return }
+        PipeReader.attach(to: pipe.fileHandleForReading) { [weak self] d in
+            guard let s = String(data: d, encoding: .utf8) else { return }
             DispatchQueue.main.async { self?.append(s) }
         }
         p.terminationHandler = { [weak self] st in Self.untrack(st); DispatchQueue.main.async {
@@ -2026,9 +2024,8 @@ final class BuildModel: ObservableObject {
         Self.inOwnGroup(p, python: pythonPath.isEmpty ? "/usr/bin/python3" : pythonPath)
         let pipe = Pipe(); p.standardOutput = pipe; p.standardError = pipe
         var buffer = "", lastError = ""
-        pipe.fileHandleForReading.readabilityHandler = { [weak self] h in
-            let d = h.availableData
-            guard !d.isEmpty, let chunk = String(data: d, encoding: .utf8) else { return }
+        PipeReader.attach(to: pipe.fileHandleForReading) { [weak self] d in
+            guard let chunk = String(data: d, encoding: .utf8) else { return }
             DispatchQueue.main.async {
                 guard let self else { return }
                 buffer += chunk
@@ -2708,8 +2705,8 @@ final class BuildModel: ObservableObject {
         p.standardOutput = out; p.standardError = err; p.standardInput = FileHandle.nullDevice
         do { try p.run() } catch { line("could not start \(args[0]): \(error.localizedDescription)"); return false }
         for h in [out.fileHandleForReading, err.fileHandleForReading] {
-            h.readabilityHandler = { hd in
-                if let s = String(data: hd.availableData, encoding: .utf8) {
+            PipeReader.attach(to: h) { d in
+                if let s = String(data: d, encoding: .utf8) {
                     for l in s.split(separator: "\n") { line(String(l)) }
                 }
             }
