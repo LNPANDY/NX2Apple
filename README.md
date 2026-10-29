@@ -181,6 +181,8 @@ All of the engine work is other people's. This repository adds the launcher and 
 
 `dm/third_party` ships other projects with their licenses ([list](dm/third_party/README.md)).
 
+[LICENSE](LICENSE) is the plain MIT text with the copyright lines of seedds (nxnative), jhaizhou (d2r-mobile) and LNPANDY with the NX2Apple contributors. [NOTICE](NOTICE) says where the code comes from and which part LNPANDY wrote.
+
 ## Legal
 
 **What this project is.** A build tool for games you already own. It reads dumps you made of your
