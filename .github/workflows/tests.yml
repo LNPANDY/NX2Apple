@@ -3,6 +3,8 @@
 # Tests that need no game files, keys or GPU. GitHub's macOS runners are virtual Macs without Metal 4 (issue #112), so the tests that go through mtl_init
 # (t_nvn, t_mip_extent, t_rt_range and the rest of dm/gfx/tests' run list) stay local: run `make -C dm/gfx/tests GAME=<id> run` on an Apple-silicon Mac.
 # `profile_guess.py --check` stays local too: it compares the guesses with the extractions of the games (it needs their files).
+# The engine jobs run in engine/: seedds/nxnative at .upstream-ref plus patches/, made by `tools/engine.py sync` (issue #214). While the
+# repository still commits the same tree (step 1 of #214), the patch-queue job checks that both are equal.
 name: tests
 
 on:
@@ -34,10 +36,16 @@ jobs:
     name: Host unit tests and CPU-only gfx tests
     runs-on: xcode-27
     timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: engine
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Engine (tools/engine.py sync, issue #214)
+        working-directory: .
+        run: python3 tools/engine.py sync
       - name: Host unit tests (dm/host/tests)
         run: |
           mkdir -p logs
@@ -75,17 +83,23 @@ jobs:
         if: failure()
         with:
           name: logs-host-tests
-          path: logs
+          path: engine/logs
           retention-days: 7
 
   tool-tests:
     name: Tool tests
     runs-on: xcode-27
     timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: engine
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Engine (tools/engine.py sync, issue #214)
+        working-directory: .
+        run: python3 tools/engine.py sync
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.14'
@@ -106,7 +120,7 @@ jobs:
       - name: Run the test files
         env:
           DM_GAME: ${{ env.GAME }}   # test_tbdr_budget runs a tool that needs a profile
-          DMSH_TEST_XLATE: ${{ github.workspace }}/dm/gfx/tools/dmsh_xlate_bin/dmsh_xlate
+          DMSH_TEST_XLATE: ${{ github.workspace }}/engine/dm/gfx/tools/dmsh_xlate_bin/dmsh_xlate
         run: |
           mkdir -p logs
           failed=0
@@ -120,48 +134,51 @@ jobs:
         if: failure()
         with:
           name: logs-tool-tests
-          path: logs
+          path: engine/logs
           retention-days: 7
 
   patch-queue:
-    name: Patch queue (check, dry bump against seedds main, issue #123)
+    name: Patch queue (series applies to the pin, committed tree matches, dry bump against seedds main, issues #123 and #214)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          fetch-depth: 0
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.14'
-      # scripts/patches.py check: the series applies to the pinned upstream (.upstream-ref) and reproduces the committed vendored tree. A vendored
-      # file edited without a patch, a patch whose header is incomplete and a patch that touches the shader chain fail here. The dry bump to
-      # seedds main only reports (the nightly sync opens the PR or the issue); it lists the patches that would conflict.
-      - name: Fetch seedds main and the pinned base
-        run: |
-          git remote add seedds https://github.com/seedds/nxnative.git
-          git fetch --no-tags seedds main
-          git fetch --no-tags seedds "$(cat .upstream-ref)"
+      # tools/engine.py check --tree: the headers are complete, no patch touches the shader chain or the generated files, the series applies
+      # cleanly to the pinned upstream (.upstream-ref) with no empty patch, and, while the repository still commits the vendored tree (step 1
+      # of #214), that tree equals pin + series. engine.py fetches the pinned commit itself. The dry bump to seedds main only reports (the
+      # nightly sync opens the PR or the issue); it lists the patches that would conflict.
       - name: Patch queue check
         run: |
-          python scripts/patches.py check || {
-            echo "::error title=Patch queue::Patch queue out of sync: vendored files differ from pin + patches. Fix: python3 scripts/patches.py absorb <the files listed above> (a new file may need --into <patch>), then commit patches/. See patches/README.md."
+          python tools/engine.py check --tree || {
+            echo "::error title=Patch queue::The series does not apply to the pin, or the committed vendored tree differs from pin + patches. Fix: work in engine/ (python3 tools/engine.py sync), commit there, python3 tools/engine.py export, or fold a direct edit with python3 tools/patches.py absorb <files>. See patches/README.md."
             exit 1
           }
-      - name: Patch queue tests
-        run: python -m unittest -v scripts/tests/test_patches.py
+      - name: Install ripgrep (the engine/ search test)
+        run: sudo apt-get install -y -qq ripgrep > /dev/null
+      - name: Patch tool tests
+        run: python -m unittest -v tools/tests/test_patches.py tools/tests/test_engine.py
       - name: Dry bump to seedds main (report only)
-        run: python scripts/patches.py bump --dry --to "$(git rev-parse seedds/main)" || true
+        run: python tools/engine.py bump --dry --to main || true
 
   build:
     name: Build check (Mac host, gfx tests, iOS sources)
     runs-on: xcode-27
     timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: engine
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Engine (tools/engine.py sync, issue #214)
+        working-directory: .
+        run: python3 tools/engine.py sync
       - name: Mac host for three profiles (Vulkan, NVN, OpenGL)
         run: |
           mkdir -p logs
@@ -185,7 +202,7 @@ jobs:
         if: failure()
         with:
           name: logs-build
-          path: logs
+          path: engine/logs
           retention-days: 7
 
   launcher:
@@ -255,10 +272,16 @@ jobs:
     name: Unsigned iOS app (synthetic modules, Swift and link)
     runs-on: xcode-27
     timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: engine
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Engine (tools/engine.py sync, issue #214)
+        working-directory: .
+        run: python3 tools/engine.py sync
       - name: Install XcodeGen
         run: command -v xcodegen || brew install xcodegen
       - name: Build the production iOS project with synthetic inputs
@@ -269,5 +292,5 @@ jobs:
         if: failure()
         with:
           name: logs-ios-build
-          path: logs
+          path: engine/logs
           retention-days: 7

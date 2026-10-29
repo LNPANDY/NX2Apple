@@ -54,24 +54,26 @@ jobs:
             fi
 
             echo
-            echo "=== patch queue (check: the series reproduces the vendored tree) ==="
-            python3 scripts/patches.py check 2>&1 | tail -40
+            echo "=== patch queue (check: the series applies to the pin and reproduces the committed vendored tree) ==="
+            python3 tools/engine.py check --tree 2>&1 | tail -40
             CHECK_RC=${PIPESTATUS[0]}
             echo
             echo "=== patch queue (dry bump to seedds/main: which patches would conflict) ==="
-            python3 scripts/patches.py bump --dry --to "$NEW" 2>&1 | tail -80 || true
-            [ "$CHECK_RC" -eq 0 ] || echo "PROBLEM: patches.py check failed"
+            python3 tools/engine.py bump --dry --to "$NEW" 2>&1 | tail -80 || true
+            [ "$CHECK_RC" -eq 0 ] || echo "PROBLEM: engine.py check failed"
             [ "$CHECK_RC" -eq 0 ]   # the group's status: a failed check fails the step (the dry bump only reports)
           } 2>&1 | tee check.log
 
       - name: Host build and unit tests
         run: |
           set -o pipefail
-          GAME=$(ls dm/games | grep '^0100' | head -1)
+          echo "=== engine (tools/engine.py sync, issue #214) ===" | tee -a check.log
+          python3 tools/engine.py sync 2>&1 | tail -5 | tee -a check.log
+          GAME=$(ls engine/dm/games | grep '^0100' | head -1)
           echo "=== host build ($GAME) ===" | tee -a check.log
-          make -C dm/host GAME=$GAME dmhost -j4 2>&1 | tail -20 | tee -a check.log
+          make -C engine/dm/host GAME=$GAME dmhost -j4 2>&1 | tail -20 | tee -a check.log
           echo "=== host unit tests ===" | tee -a check.log
-          make -C dm/host/tests GAME=$GAME run -j4 2>&1 | tail -30 | tee -a check.log
+          make -C engine/dm/host/tests GAME=$GAME run -j4 2>&1 | tail -30 | tee -a check.log
 
       - name: Report a problem
         if: failure()

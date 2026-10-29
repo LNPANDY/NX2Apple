@@ -8,7 +8,7 @@
 # "up to date" — a silent failure of the update path for every existing install. Copies from before
 # the app was renamed (NS Port Builder) look for NS-Port-Builder-macOS-arm64.zip, so that one goes up too.
 #
-# The app also carries its build tools (zstd, glslangValidator, spirv-cross, xcodegen) and a Python with the packages the build scripts import,
+# The app also carries the pinned engine as a seed for `tools/engine.py sync` (Resources/engine.git, issue #214), and its build tools (zstd, glslangValidator, spirv-cross, xcodegen) and a Python with the packages the build scripts import,
 # so a player installs neither Homebrew nor Python (frontend/tools/bundle_tools.sh builds them from pinned, checksummed sources; check_bundle.sh
 # runs each from the assembled bundle with a clean PATH, checks the load paths and the signature).
 #
@@ -21,7 +21,7 @@ on:
   push:
     tags: ['v*']
   pull_request:
-    paths: ['frontend/**', '.github/workflows/build-mac-app.yml']
+    paths: ['frontend/**', 'tools/engine.py', '.github/workflows/build-mac-app.yml']
   workflow_dispatch:
 
 permissions:
@@ -73,6 +73,18 @@ jobs:
           # The build tools and the Python go into Resources before the bundle is signed (bundle_tools.sh signs each nested Mach-O file
           # itself: --deep below does not reach code that sits in Resources).
           tools/bundle_tools.sh "$APP/Contents/Resources" "$RUNNER_TEMP/bundle-tools-work"
+          # The engine (issue #214): the pinned seedds/nxnative commit as a bare one-commit repository, about 80 MB. The launcher passes
+          # it to `tools/engine.py sync --seed`, so the player's checkout builds engine/ without a download while its pin is this one,
+          # and fetches only what changed once the pin moved. The patches come from the checkout, so they always match its pin.
+          python3 ../tools/engine.py sync
+          SEED="$APP/Contents/Resources/engine.git"
+          PIN=$(cat ../.upstream-ref)
+          git init -q --bare "$SEED"
+          git -C "$SEED" fetch -q --no-tags --depth 1 "file://$PWD/../engine" "$PIN"
+          git -C "$SEED" update-ref refs/heads/main "$PIN"
+          git -C "$SEED" symbolic-ref HEAD refs/heads/main
+          rm -rf "$SEED/hooks"
+          du -sh "$SEED"
           V="${{ steps.ver.outputs.version }}"
           cat > "$APP/Contents/Info.plist" <<PLIST
           <?xml version="1.0" encoding="UTF-8"?>

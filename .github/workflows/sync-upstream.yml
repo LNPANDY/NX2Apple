@@ -1,7 +1,10 @@
 # Daily: follow upstream seedds/nxnative as a patch queue (issue #123, patches/README.md). The vendored
-# paths are upstream at a pinned commit (.upstream-ref) plus the patches in patches/; scripts/patches.py
+# paths are upstream at a pinned commit (.upstream-ref) plus the patches in patches/; tools/patches.py
 # bump moves the pin, re-applies the series, drops the patches that landed upstream, and leaves the rest
-# for review. Nothing is pushed to main (it is protected): the result is a pull request from the branch
+# for review. While the repository still commits the vendored tree (step 1 of issue #214), the bump
+# rewrites it too; in step 2 this becomes `tools/engine.py bump`, and the PR touches only .upstream-ref
+# and patches/. The checks run on engine/ (tools/engine.py sync) either way.
+# Nothing is pushed to main (it is protected): the result is a pull request from the branch
 # sync/upstream-<short sha> (or, when a patch no longer applies, an issue naming it).
 #
 # A PR opened with the default GITHUB_TOKEN does not start other workflows (GitHub's rule), so this job
@@ -42,7 +45,7 @@ jobs:
         run: |
           if [ "$OLD" = "$NEW" ]; then echo "Already at $NEW"; echo "changed=no" >> "$GITHUB_OUTPUT"; exit 0; fi
           set +e
-          python3 scripts/patches.py bump --to "$NEW" 2>&1 | tee bump.log
+          python3 tools/patches.py bump --to "$NEW" 2>&1 | tee bump.log
           rc=${PIPESTATUS[0]}
           if [ $rc -eq 0 ]; then echo "changed=yes" >> "$GITHUB_OUTPUT"
           elif [ $rc -eq 1 ]; then echo "changed=conflict" >> "$GITHUB_OUTPUT"
@@ -51,13 +54,14 @@ jobs:
       - name: Check the patch queue
         if: steps.bump.outputs.changed == 'yes'
         run: |
-          python3 scripts/patches.py check
-          python3 -m unittest discover scripts/tests
+          python3 tools/engine.py check --tree
+          python3 -m unittest discover tools/tests
+          python3 tools/engine.py sync
           # every .py parses on the Python this fork supports as its floor, the iOS build script survives bash -n
-          python3 -m compileall -q scripts dm/tools dm/games dm/mac > /dev/null
-          bash -n dm/ios/tools/build_ipa.sh
-          GAME=$(ls dm/games | grep '^0100' | head -1)
-          make -C dm/host GAME=$GAME dmhost -j4 2>&1 | tail -20
+          python3 -m compileall -q engine/scripts engine/dm/tools engine/dm/games engine/dm/mac > /dev/null
+          bash -n engine/dm/ios/tools/build_ipa.sh
+          GAME=$(ls engine/dm/games | grep '^0100' | head -1)
+          make -C engine/dm/host GAME=$GAME dmhost -j4 2>&1 | tail -20
 
       - name: Commit to a sync branch and open a pull request
         if: steps.bump.outputs.changed == 'yes'
@@ -76,7 +80,7 @@ jobs:
           git commit -m "Sync upstream $SHORT"
           git push -u origin "sync/upstream-$SHORT"
           {
-            echo "The patch queue re-applied on upstream \`${NEW:0:12}\` (was \`${OLD:0:12}\`): every patch applied, and \`scripts/patches.py check\`, the tests and a macOS host build passed. Merging brings seedds/nxnative to \`$NEW\`."
+            echo "The patch queue re-applied on upstream \`${NEW:0:12}\` (was \`${OLD:0:12}\`): every patch applied, and \`tools/engine.py check --tree\`, the tests and a macOS host build passed. Merging brings seedds/nxnative to \`$NEW\`."
             echo
             echo "Upstream: https://github.com/seedds/nxnative/compare/${OLD:0:12}...${NEW:0:12}"
             echo
@@ -84,7 +88,7 @@ jobs:
             tail -40 bump.log
             echo '```'
             echo
-            echo "Patches listed under dropped landed upstream; their files are deleted from patches/. \`scripts/patches.py status\` lists what is still carried."
+            echo "Patches listed under dropped landed upstream; their files are deleted from patches/. \`tools/engine.py status\` lists what is still carried."
           } > body.md
           gh pr create -R "${{ github.repository }}" --base main --head "sync/upstream-$SHORT" \
             --title "Sync upstream $SHORT" --body-file body.md || echo "PR creation failed; the branch is pushed"
@@ -97,7 +101,7 @@ jobs:
           TITLE="Upstream sync blocked at ${NEW:0:7}"
           {
             echo "The nightly bump to \`${NEW:0:12}\` stopped at a patch that no longer applies. main is untouched. Whoever owns the patch refreshes it:"
-            echo "run \`scripts/patches.py bump --to ${NEW:0:12}\` locally, resolve the conflict in the worktree it names, \`git am --continue\`, then \`scripts/patches.py refresh <worktree> --to ${NEW:0:12}\` (patches/README.md)."
+            echo "run \`tools/patches.py bump --to ${NEW:0:12}\` locally, resolve the conflict in the worktree it names, \`git am --continue\`, then \`tools/patches.py refresh <worktree> --to ${NEW:0:12}\` (patches/README.md)."
             echo
             echo '```'
             cat tail.log
