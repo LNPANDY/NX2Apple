@@ -1,12 +1,12 @@
 // Saves through a cloud folder (iCloud Drive), so the Mac app and the iPhone app of one game play on from the same save. Off unless DM_SAVE_SYNC names the folder
-// (each app's launcher sets the folder the player chose in its Cloud saves: dm/mac/launcher.c from the Mac settings window, DataBookmark.m on the iPhone; "icloud" is iCloud Drive/NX2Apple Saves).
+// (each app's launcher sets the folder the player chose in its Cloud saves: dm/mac/launcher.c from the Mac settings window, CloudSaves.m on the iPhone; "icloud" is iCloud Drive/nxnative Saves).
 // The folder holds one file per game, <folder>/<title ID>/save.dmsync (a folder named after the title ID is taken as the game's own): the committed save (DM_SAVE and DM_SAVE_device) packed into one file. iCloud replaces a file as a
 // whole but syncs a folder file by file, and a save that is half one device's and half the other's is worse than either.
 // When: the cloud's copy comes in at the game's first save mount (hle_fs.c, before the work directory is cloned from the committed save); the committed save goes out a few
 // seconds after a Commit, on a thread of its own (the game never waits), when the iPhone app goes to the background, and from the Mac launcher once the host has exited.
 // Which way: <DM_SAVE>.sync keeps the hash of the save last known to be the same here and in the cloud. Only the cloud's changed: it comes in; only this one changed: it goes out;
 // both changed (played on both without syncing in between, or the first sync of a device that has a save of its own): the newer one wins and the other is kept.
-// Every save this replaces, here or in the cloud, is kept first in <DM_SAVE>-backups/<date> <side> (the folder the Mac front end's Saves sheet opens).
+// Every save this replaces, here or in the cloud, is kept first in <DM_SAVE>-backups/<date> <side>; the newest 10 of each side stay.
 #pragma once
 #include <stdint.h>
 

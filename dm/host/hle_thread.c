@@ -267,7 +267,9 @@ static void lock_acquire_for(thr_t *t, uint64_t addr, uint32_t tag) {
 extern void dm_thread_enter(uint64_t entry, uint64_t arg, uint64_t sp);   // entry.S
 uint32_t (*dm_thread_tick_fn)(void);   // Gets the current game tick; registered when diag.c initializes (unit tests do not register it, the tick number is recorded as 0)
 void crash_thread_init(void);
-void guest_thread_init(void);   // thread.c: the single place that sets the per-thread TSD slots (gate, x18, TLS, TLR)
+void guest_thread_init(void);   // thread.c: the single place that sets the per-thread TSD slots (x18, TLS, TLR)
+void guest_thread_set_id(uint64_t id);   // thread.c: the thread's ID in its TLR
+void guest_gate_stack(int own_stack);   // thread.c: the thread's gate slot and the stack its SVCs run on
 // Switch priority → QoS class (DM_QOS_MAP=1; off by default until a phone A/B shows it saves power without dropping frames). Otherwise every guest thread runs at user-interactive
 // whatever its priority, and the performance controller keeps all of them on fast cores at high clocks. Bands: priority <= e1 (the main thread is 44) user-interactive, <= e2 user-initiated,
 // above that utility; DM_QOS_EDGES=e1,e2 moves them (default 44,59). Read once in svc_thread_main_init, before any other guest thread exists
@@ -300,7 +302,8 @@ static void *thread_main(void *p) {
     t->mport = pthread_mach_thread_np(pthread_self()); t->host_work = &dm_host_work;
     pthread_mutex_unlock(&G);
     crash_thread_init();
-    guest_thread_init();
+    guest_thread_init(); guest_thread_set_id(t->id);
+    guest_gate_stack(1);   // the guest runs on its own stack from dm_thread_enter on: this pthread's stack below this frame is where its SVCs run
     pthread_mutex_lock(&G); while (!t->started) pthread_cond_wait(&t->cv, &G); pthread_mutex_unlock(&G);
     { char nb[48], hn[64]; snprintf(hn, sizeof hn, "%#x %s", t->handle, thr_name(t, nb, sizeof nb)); pthread_setname_np(hn); }   // the guest's name (set before StartThread) for sample / Instruments
     dm_thread_enter(t->entry, t->arg, t->stack_top);   // Does not return: the guest must exit through ExitThread
@@ -382,10 +385,10 @@ _Static_assert(sizeof(hz_ctx_t) == 0x320, "ThreadContext");
 static void ctx_fill(const thr_t *t, hz_ctx_t *o) {   // holding G, t is stopped
     memset(o, 0, sizeof *o);
     const uint64_t *r = atomic_load(&t->svc_regs);
-    if (r) {   // gate frame: x0..x30 at +0, q0..q31 at +256, nzcv / fpsr / fpcr at +768 / +776 / +784; the stack top before the gate = frame + 800
+    if (r) {   // gate frame: x0..x30 at +0, q0..q31 at +256, nzcv / fpsr / fpcr at +768 / +776 / +784, the gate block's sp at +792 (the guest's sp before the gate block's push less 16)
         for (int i = 0; i < 29; i++) o->r[i] = r[i];
         o->r[18] = t->svc_x18;   // the gate frame's x18 is the host's (see on_pause_sig)
-        o->fp = r[29]; o->lr = r[30]; o->sp = (uint64_t)r + 800; o->pc = t->svc_pc; o->pstate = (uint32_t)r[96];
+        o->fp = r[29]; o->lr = r[30]; o->sp = r[99]; o->pc = t->svc_pc; o->pstate = (uint32_t)r[96];
         memcpy(o->v, r + 32, sizeof o->v); o->fpsr = (uint32_t)r[97]; o->fpcr = (uint32_t)r[98];
     } else if (t->ctx_ok) {
         memcpy(o->r, t->ctx_x, sizeof o->r); o->fp = t->ctx_fp; o->lr = t->ctx_lr; o->sp = t->ctx_sp; o->pc = t->ctx_pc; o->pstate = t->ctx_pstate;
@@ -489,6 +492,7 @@ uint32_t svc_thread_main_init(void) {
     pthread_get_qos_class_np(pthread_self(), &qc, &rp); t->qos = (uint32_t)qc;
     pthread_mutex_lock(&G); t->handle = h_new(O_THREAD, t); t->id = g_next_id++; t->all = g_all; g_all = t; pthread_mutex_unlock(&G);
     pthread_setspecific(g_keythr, t);
+    guest_thread_set_id(t->id);   // main.c ran guest_thread_init before this, and no guest code has run yet
     pthread_setname_np("0x1001 main thread");
     LOG("main guest thread QoS %#x (priority %d)", t->qos, t->prio);
     return t->handle;
@@ -653,11 +657,11 @@ void svc_thread_dump(void) {
         if (have_raw) { char hx[200]; int q = 0; for (int i = 0; i < 64; i += 4) q += snprintf(hx + q, sizeof hx - q, "%08x ", *(uint32_t *)(raw + i));
                         fprintf(stderr, "[dm]   %#x waited-for object, 64 bytes from %#llx: %s\n", t->handle, t->waddr & ~0xfull, hx); }
         // A thread in an SVC: the guest code that called it, from its stack. Engines built without frame pointers (Batman: Arkham Knight's Unreal Engine 3) leave the frame-pointer backtrace
-        // at the SVC wrapper, so the words above the gate's register frame that point into a module are listed, nearest first, with x19-x28. regs + 800 holds the x29 / x30 the gate block
-        // pushed (x30 = the return address into the wrapper's caller, which the backtrace skips: the wrappers are leaf functions), the guest stack at the SVC follows at regs + 816.
+        // at the SVC wrapper, so the words of its stack that point into a module are listed, nearest first, with x19-x28. The gate block's sp (regs[99]) holds the x29 / x30 the block
+        // pushed (x30 = the return address into the wrapper's caller, which the backtrace skips: the wrappers are leaf functions), the guest stack at the SVC follows at +16.
         // Read page by page up to the first unreadable one: a thread waiting near its stack top (a shallow worker) has PROT_NONE stack region above it, and one read would fail whole
         uint64_t *sr = atomic_load(&t->svc_regs);
-        if (sr && t->wkind) { uint64_t stk[160]; size_t got = 0; vm_address_t sa = (vm_address_t)((uint8_t *)sr + 800);
+        if (sr && t->wkind) { uint64_t stk[160]; size_t got = 0; vm_address_t sa = (vm_address_t)sr[99];
             while (got < sizeof stk) { vm_size_t n = sizeof stk - got, g4 = 0, room = vm_page_size - ((sa + got) & (vm_page_size - 1)); if (n > room) n = room;
                 if (vm_read_overwrite(mach_task_self(), sa + got, n, (vm_address_t)((uint8_t *)stk + got), &g4) || g4 != n) break;
                 got += n; }

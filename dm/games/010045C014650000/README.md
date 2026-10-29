@@ -22,9 +22,9 @@ No `patches.py`, no `sdk_patches.py` cut for its `sdk` build (`0617f669…`), no
 
 - The control data lists only Japanese, so the host picks `ja` whatever the Mac's preferred languages are (log: `language: ja (macOS preferred …; game supports ja)`).
 - A new game has no voice-language menu (the western release asks for one): after the logos the prologue's opening plays. Pressing A every 3 s reaches the first battle (the Destruction autosave, Area 0-1, Wave 1) at about two minutes of play time, then its action menu; A on the first action and A on the target win the wave, and the story goes on to a classroom scene.
-- Measured on an M2 Pro (2026-10-26) with the window in front: 1× frame time p50 16.67 ms, GPU p50 2–5 ms per frame in battle; 2× (`DM_UPSCALE=2`) GPU p50 about 6 ms and p95 at most 10.3 ms; about 2.2 GB resident; no red line; no audio underrun except right after a test screenshot (a 4K `shot` is a 0.5 s frame).
+- Measured on an M2 Pro (2026-10-26) with the window in front: 1× frame time p50 16.67 ms, GPU p50 2–5 ms per frame in battle; a run noted as 2× GPU p50 about 6 ms and p95 at most 10.3 ms, but it set DM_UPSCALE=2, which no host build has ever read, so what made it 2× is unknown ([Open](#open)); about 2.2 GB resident; no red line; no audio underrun except right after a test screenshot (a 4K `shot` is a 0.5 s frame).
 - With another app in front during a scripted run (`DM_CTL`, which does not pause the game), the game is told it is out of focus and draws at about 27 fps (frame time p50 about 37 ms): judge the frame rate only with the window in front.
-- At 2× the battle opens with the map scanned in: buildings edged in red, then digital stripes across it, and within a few seconds the map renders cleanly. Most likely the game's own transition; see [Open](#open).
+- In that 2× run the battle opens with the map scanned in: buildings edged in red, then digital stripes across it, and within a few seconds the map renders cleanly. Most likely the game's own transition; see [Open](#open).
 
 ## Found on this game
 
@@ -35,4 +35,4 @@ Nothing: no host change was needed.
 - Not tested on the iPhone.
 - `pso_manifest.tsv` is not recorded yet (no prewarm).
 - Only the base game 1.00 was packed.
-- Whether the red edges and stripes at the start of a battle also show at 1× (which would make them the game's transition, not an upscaling fault) was not captured.
+- The 2× run: which setting it used (it set DM_UPSCALE=2, which nothing reads), and whether the red edges and stripes at the start of a battle also show at 1× (which would make them the game's transition, not an upscaling fault), were not captured.

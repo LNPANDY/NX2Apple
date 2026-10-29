@@ -38,6 +38,7 @@ No `pad_layout`: the virtual gamepad starts in the 2D layout (the default).
 General host changes first needed here; each applies to every game:
 
 - **MonoGame effects** (MGFX) in XNB files and in `main` (`mgfx_effect` in `shader_split.py`): [MGFX effects in MonoGame XNB files](../../../docs/reference/shaders.md#mgfx-effects-in-monogame-xnb-files).
+- **Capstone 5 pinned:** packing with Capstone 6 installed stopped in `patch_nso.py` with `CS_ARCH_ARM64` undefined: [Capstone API version](../../../docs/reference/rewriter.md#capstone-api-version).
 - **Resolved:** iOS-only shader cache hits must also restore Mac analysis files: [Target selection keeps the shader analysis files in the cache](../../../docs/reference/shaders.md#target-selection-keeps-the-shader-analysis-files-in-the-cache).
 
 ## Open

@@ -40,6 +40,8 @@ app_pool	0xCD500000
 # ---- NVN ----
 # 61 vertex shaders pick one of several c2 table slots at run time (separate texture slots 0-10, samplers 0-4), which the translator cannot trace to one slot: slot indices in c2, the bound slots in its arrays
 tex_dyn_slots	on
+# the NVN depth mode the game sets (nvnDeviceSetDepthMode near = 0): the pipeline archive made offline holds the main0_z vertex entries (dm/gfx/tools/pso_offline.py)
+depth_mode	zero
 
 # ---- Shader split ----
 # The decoded shader code archives: the engine's global shaders and the game's material shaders

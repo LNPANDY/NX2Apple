@@ -1,5 +1,6 @@
 // Real Metal readback: cached stream bindings survive helper overwrites, encoder/submit changes and pool replacement.
 // Byte-aligned streams preserve their bytes and GPU write ordering (Arkham Knight's Scaleform streams sit at addresses 2 mod 4).
+// A draw that reads past a stream's bound size reads zeros there, not the pool's next bytes (Super Mario Odyssey's 9-vertex draw from a 3-vertex stream).
 #include "../nvn/nvn_mtl.m"
 uint64_t g_t0_ns;
 int dm_guest_as_contains(uintptr_t address) { (void)address; return 0; }   // Tests use host-thread stacks.
@@ -11,27 +12,28 @@ uint64_t now_ns(void) { return bp_now(); }
 static int checks, failed;
 #define EXPECT(name, want, got) do { uint64_t w = (want), g = (got); checks++; if (w != g) { fprintf(stderr, "%s: expected %llu, got %llu\n", name, (unsigned long long)w, (unsigned long long)g); failed++; } } while (0)
 
-static id<MTLRenderPipelineState> pipeline(void) {
+static id<MTLRenderPipelineState> pipeline(NSString *fn) {   // v: the first word of streams 0, 14, 15 and the zero buffer; w: words 0, 3, 6 and 8 of stream 0 (vertices 0-2 of 12 bytes)
     NSError *err = nil;
     id<MTLLibrary> lib = [g_dev newLibraryWithSource:@"#include <metal_stdlib>\nusing namespace metal;\n"
         "vertex void v(const device uint *a[[buffer(16)]], const device uint *b[[buffer(14)]],"
         "const device uint *c[[buffer(15)]], const device uint *z[[buffer(30)]], device uint4 *o[[buffer(8)]])"
-        "{ *o=uint4(*a,*b,*c,*z); }" options:nil error:&err];
+        "{ *o=uint4(*a,*b,*c,*z); }\n"
+        "vertex void w(const device uint *a[[buffer(16)]], device uint4 *o[[buffer(8)]]) { *o=uint4(a[0],a[3],a[6],a[8]); }" options:nil error:&err];
     if (!lib) { fprintf(stderr, "%s\n", err.localizedDescription.UTF8String); abort(); }
     MTLRenderPipelineDescriptor *d = [MTLRenderPipelineDescriptor new];
-    d.vertexFunction = [lib newFunctionWithName:@"v"]; d.rasterizationEnabled = NO;
+    d.vertexFunction = [lib newFunctionWithName:fn]; d.rasterizationEnabled = NO;
     id<MTLRenderPipelineState> ps = [g_dev newRenderPipelineStateWithDescriptor:d error:&err];
     if (!ps) { fprintf(stderr, "%s\n", err.localizedDescription.UTF8String); abort(); }
     return ps;
 }
-static id<MTL4RenderCommandEncoder> encoder(id<MTLRenderPipelineState> ps) {
-    vbuf_prepare();
+static id<MTL4RenderCommandEncoder> encoder_prepared(id<MTLRenderPipelineState> ps) {   // after the caller's vbuf_prepare
     ubd_land_compute();
     if (g_blit) { enc_b_end(g_blit); g_blit = nil; }
     MTL4RenderPassDescriptor *d = [MTL4RenderPassDescriptor new];
     d.renderTargetWidth = d.renderTargetHeight = d.defaultRasterSampleCount = 1;
     id<MTL4RenderCommandEncoder> en = enc_r_begin(d); enc_r_pso(en, ps); return en;
 }
+static id<MTL4RenderCommandEncoder> encoder(id<MTLRenderPipelineState> ps) { vbuf_prepare(NULL, NULL, NULL); return encoder_prepared(ps); }
 static void capture(id<MTL4RenderCommandEncoder> en, id<MTLBuffer> out, unsigned row) {
     enc_r_vbuf(en, TF_SLOT, out.gpuAddress + row * 16); enc_r_draw(en, MTLPrimitiveTypePoint, 0, 1);
 }
@@ -40,7 +42,7 @@ static void finish(void) {
     EXPECT("no GPU error", 0, mtl_last_commit_error());
 }
 int main(void) { @autoreleasepool {
-    mtl_init(); id<MTLRenderPipelineState> ps = pipeline();
+    mtl_init(); id<MTLRenderPipelineState> ps = pipeline(@"v"), tail = pipeline(@"w");
     size_t size = (size_t)getpagesize(); uint32_t *mem;
     if (posix_memalign((void **)&mem, size, size)) abort();
     memset(mem, 0, size); mem[0] = 11; mem[1] = 22; mem[2] = 33; mem[3] = 99;
@@ -147,6 +149,37 @@ int main(void) { @autoreleasepool {
         EXPECT("stream 15 readback", 33, pixels[row * 4 + 2]);
         EXPECT("zero buffer readback", 0, pixels[row * 4 + 3]);
     }
+    // A 3-vertex draw of 12-byte RGB32F elements from a stream bound with 12 bytes: vertices 1 and 2 read zeros, though the pool holds other words there,
+    // through the vertex table and the pulling layout alike; a draw inside the range binds the stream itself
+    uint32_t *tri = mem + 128; for (int i = 0; i < 9; i++) tri[i] = 0x1000u + (uint32_t)i;
+    nvn_refl rf; memset(&rf, 0, sizeof rf); rf.nv = 1; rf.v[0].nvn = 0;
+    S.nattr = 1; S.attr[0] = (va_st){.fmt = 0x22, .offset = 0, .stream = 0}; S.stream[0].stride = 12; S.stream[0].divisor = 0;
+    S.vbuf[0].address = (uint64_t)tri; S.vbuf[0].size = 12;
+    p_draw dw = {.prim = 4, .first = 0, .count = 3, .instances = 1};
+    mtl_sub_begin(); copies = g_vbuf_copies; vbuf_prepare(&rf, &dw, NULL);
+    EXPECT("bytes the draw reads past the bound size", 36, g_vbuf_need[0]);
+    en = encoder_prepared(tail); bind_vbufs(en); capture(en, out, 22);
+    pull_layout L; pull_layout_fill(&L);
+    EXPECT("pulling layout reads the padded copy", g_vt_addr[VB_SLOT(0)] & ~3ull, L.s[0].base);
+    enc_r_end(en); finish();
+    EXPECT("padded stream copied once", 1, g_vbuf_copies - copies);
+    EXPECT("vertex 0 inside the bound range", 0x1000u, ((const uint32_t *)out.contents)[22 * 4]);
+    EXPECT("vertex 1 past the bound range reads zero", 0, ((const uint32_t *)out.contents)[22 * 4 + 1]);
+    EXPECT("vertex 2 past the bound range reads zero", 0, ((const uint32_t *)out.contents)[22 * 4 + 2]);
+    EXPECT("vertex 2's last word reads zero", 0, ((const uint32_t *)out.contents)[22 * 4 + 3]);
+    dw.count = 1; mtl_sub_begin(); copies = g_vbuf_copies; vbuf_prepare(&rf, &dw, NULL);
+    EXPECT("a draw inside the bound range needs no copy", 0, g_vbuf_need[0]);
+    en = encoder_prepared(tail); bind_vbufs(en); capture(en, out, 23); enc_r_end(en); finish();
+    EXPECT("in-range stream bound as it is", 0, g_vbuf_copies - copies);
+    EXPECT("in-range stream reads the pool", 0x1003u, ((const uint32_t *)out.contents)[23 * 4 + 1]);
+    S.stream[0].divisor = 1; p_draw inst = {.prim = 4, .first = 0, .count = 1, .instances = 2, .base_instance = 1};
+    vbuf_prepare(&rf, &inst, NULL); EXPECT("per-instance stream: base instance + last instance", 36, g_vbuf_need[0]);
+    p_draw_idx ix = {.prim = 4, .itype = 1, .count = 3, .instances = 2, .base_instance = 0, .ibuf = (uint64_t)mem};
+    vbuf_prepare(&rf, NULL, &ix); EXPECT("indexed draw: per-instance stream bounded", 24, g_vbuf_need[0]);
+    S.stream[0].divisor = 0; vbuf_prepare(&rf, NULL, &ix); EXPECT("indexed draw: per-vertex stream not scanned", 0, g_vbuf_need[0]);
+    dw.count = 3; dw.ind = (uint64_t)mem; vbuf_prepare(&rf, &dw, NULL); EXPECT("indirect draw: not known on the CPU", 0, g_vbuf_need[0]);
+    S.stream[0].stride = 0; dw.ind = 0; S.vbuf[0].size = 8; vbuf_prepare(&rf, &dw, NULL); EXPECT("stride 0: one element", 12, g_vbuf_need[0]);
+    S.nattr = 0; S.stream[0].stride = 0; vbuf_prepare(NULL, NULL, NULL);
     // CPU-only binding microbenchmark, after GPU validation; reports overhead, not game frame time.
     for (int mode = 0; mode < 2; mode++) {
         g_vbuf_cache = mode; bind_vbufs(nil); uint64_t start = bp_now(), r = g_vbuf_resolve, w = g_vbuf_set;

@@ -7,15 +7,15 @@
 # Usage: own_compilers.py <dmsh_build.py arguments>   (the environment as for dmsh_build.py)
 #        own_compilers.py --check-metal              only the Metal compiler check: exit 1 with the message when it would stop the build (the NSP script runs it before its shader steps)
 import os, re, sys, runpy, subprocess
-HERE = os.path.dirname(os.path.abspath(__file__)); sys.path.insert(0, HERE); import dmsh_chain
+HERE = os.path.dirname(os.path.abspath(__file__)); sys.path.insert(0, HERE); import dmsh_chain, tool_lock
 OWN = re.compile(r'(metal_macosx|metal_iphoneos): lock (.*) / actual (?!missing$)(.*)')   # a missing compiler still stops the build
 ALLOW = 'DM_ALLOW_OTHER_METAL'
 XCODE = 'Xcode 27.1 (macOS 26.6 or later)'   # the Xcode whose Metal compiler dmsh_chain.lock records; README.md names it too
-strict = dmsh_chain.check_tools
+strict = tool_lock.check_tools
 
 def allowed(): return os.environ.get(ALLOW) == '1'
 
-def metal_version(sdk):   # as dmsh_chain.tools_now records it: the first line of metal --version, 'missing' without one
+def metal_version(sdk):   # as tool_lock.tools_now records it: the first line of metal --version, 'missing' without one
     r = subprocess.run(['xcrun', '-sdk', sdk, 'metal', '--version'], capture_output=True, text=True)
     return (r.stdout.splitlines() or ['missing'])[0]
 
@@ -60,6 +60,6 @@ if __name__ == '__main__':
         msg = check_metal()
         if msg: print(msg)
         sys.exit(1 if msg else 0)
-    dmsh_chain.check_tools = check_tools   # dmsh_build.py imports the same module object and calls it through the module
+    tool_lock.check_tools = check_tools   # dmsh_build.py imports the same module object and calls it through the module
     sys.argv = [os.path.join(HERE, 'dmsh_build.py'), *sys.argv[1:]]
     runpy.run_path(sys.argv[0], run_name='__main__')

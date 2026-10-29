@@ -194,6 +194,8 @@ static void read_layout(module_t *m, const char *dir) {
         if (!strcmp(key, "PATCH_OFF")) m->patch_off = strtoll(line + 2 + strlen(key), NULL, 16);   // may be negative (patch area before the base)
         else if (!strcmp(key, "IMAGE_SIZE")) m->image_size = v;
         else if (!strcmp(key, "FILE_IMAGE_LEN")) m->file_image_len = v;
+        else if (!strcmp(key, "BACK_OFF")) m->back_off = v;
+        else if (!strcmp(key, "BACK_LEN")) m->back_len = v;
         else if (!strcmp(key, "KEY_PAGE_OFF")) m->key_page_off = v;
         else if (!strcmp(key, "KEY_PAGE_SIZE")) m->key_page_size = v;
         else if (!strcmp(key, "TEXT_END")) m->text_end = v;
@@ -213,6 +215,9 @@ static void read_layout(module_t *m, const char *dir) {
         die("%s: the output comes from an old rewriter; rewrite the modules again with dm/tools/patch_nso.py", path);
     if (m->patch_off < 0 && (!m->image_size || !m->file_image_len || m->file_image_len % 0x4000 || m->patch_off % 0x4000 || m->key_page_off + m->key_page_size > m->image_size))
         die("%s: patch area before the base, but IMAGE_SIZE / FILE_IMAGE_LEN missing or wrong", path);
+    if ((m->back_off || m->back_len) && (m->patch_off >= 0 || !m->back_len || m->back_off % 0x4000 || m->back_len % 0x4000 || m->back_off < m->key_page_off + m->key_page_size
+                                         || m->back_off + m->back_len != m->image_size))
+        die("%s: back patch area, but BACK_OFF / BACK_LEN missing or wrong", path);
 }
 
 // Frame step state (the page after the key page, read-write; layout in patch_nso.py FRAME_STEP): the rewriter's stubs step the game by the host's whole vsyncs capped at this
@@ -535,6 +540,12 @@ static void map_image(module_t *m, const char *dir) {
     if (m->nro) { if (!nro_pieces(m->name, &x0, &z0, &w, &zw, &x1, &z1)) die("NRO %s: not in the embedded NRO table (__DATA,__dm_nro_tab)", m->name); }
     else { x0 = getsectiondata(IMAGE_MH, "__TEXT", sx0, &z0); w = getsectiondata(IMAGE_MH, dm, "__img", &zw); x1 = getsectiondata(IMAGE_MH, "__TEXT", sx1, &z1); }
     if (!x0 || !w || !x1) die("embedded sections %s / %s / %s missing", sx0, dm, sx1);
+    // The back patch area (patch_nso.py TWO) is a fourth section, __dm<name>x2; NROs never have one (nro_pieces holds three pieces)
+    unsigned long z2 = 0; const uint8_t *x2 = NULL;
+    if (m->back_len) {
+        char sx2[17]; snprintf(sx2, sizeof sx2, "__dm%sx2", m->name);
+        if (m->nro || !(x2 = getsectiondata(IMAGE_MH, "__TEXT", sx2, &z2)) || z2 != m->back_len || ((uintptr_t)x2 & 0x3FFF)) die("embedded back patch area %s missing or wrong", sx2);
+    }
     // Patch area before the base (patch_off < 0): W ends at the end of data (FILE_IMAGE_LEN); bss and the key page are zero pages from vm_allocate and are not in the executable
     int front = m->patch_off < 0;
     if (z0 + zw != (front ? m->file_image_len : (uint64_t)m->patch_off) || (z0 & 0x3FFF) || (zw & 0x3FFF) || (z1 & 0x3FFF) || ((uintptr_t)x0 & 0x3FFF) || ((uintptr_t)w & 0x3FFF) || ((uintptr_t)x1 & 0x3FFF))
@@ -550,6 +561,7 @@ static void map_image(module_t *m, const char *dir) {
     // A module with nothing to rewrite has an empty patch area (87 of Super Smash Bros. Ultimate's 98 NROs: no x18, SVC or TLS register use); vm_remap refuses 0 bytes
     // (KERN_INVALID_ARGUMENT), which stopped the app at launch on an iPhone at the first such NRO (found in PR #94)
     if (z1) remap_at(m, base + m->patch_off, x1, z1, FALSE, VM_PROT_READ | VM_PROT_EXECUTE);
+    if (z2) remap_at(m, base + m->back_off, x2, z2, FALSE, VM_PROT_READ | VM_PROT_EXECUTE);
     m->base = (uint8_t *)base; install_key_page(m);
 }
 #else
@@ -569,14 +581,17 @@ static void map_image(module_t *m, const char *dir) {
     size_t sz; uint8_t *raw = slurp(path, &sz);
     if (m->patch_off < 0) {
         // Patch area before the base: file = the first part of the image (text + ro + data) + patch area; bss and the key page are anonymous zero pages. The gap from the patch area's end to the base is left inaccessible (PROT_NONE)
-        uint64_t pre = (uint64_t)-m->patch_off, fl = m->file_image_len;
-        if (sz < fl) die("%s is shorter than FILE_IMAGE_LEN %#llx", path, (unsigned long long)fl);
-        m->size = m->image_size; m->patch_len = (sz - fl + 0x3FFF) & ~0x3FFFull;
+        // With a back patch area (patch_nso.py TWO) the file ends with it, BACK_LEN bytes, copied to BACK_OFF in the image
+        uint64_t pre = (uint64_t)-m->patch_off, fl = m->file_image_len, bl = m->back_len;
+        if (sz < fl + bl) die("%s is shorter than FILE_IMAGE_LEN %#llx + BACK_LEN %#llx", path, (unsigned long long)fl, (unsigned long long)bl);
+        m->size = m->image_size; m->patch_len = (sz - bl - fl + 0x3FFF) & ~0x3FFFull;
         if (m->patch_len > pre) die("%s patch area of %#llx bytes does not fit in the %#llx before the base", path, (unsigned long long)m->patch_len, (unsigned long long)pre);
         uint8_t *a = mmap(NULL, pre + m->size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
         if (a == MAP_FAILED) die("%s mmap %#llx", m->name, (unsigned long long)(pre + m->size));
         m->base = a + pre;
-        memcpy(m->base, raw, fl); memcpy(a, raw + fl, sz - fl); free(raw); install_key_page(m);
+        memcpy(m->base, raw, fl); memcpy(a, raw + fl, sz - bl - fl); if (bl) memcpy(m->base + m->back_off, raw + sz - bl, bl);
+        free(raw); install_key_page(m);
+        if (bl && mprotect(m->base + m->back_off, bl, PROT_READ | PROT_EXEC)) die("%s mprotect back patch", m->name);
         uint64_t rx = (m->text_end + 0x3FFF) & ~0x3FFFull;
         if (mprotect(m->base, rx, PROT_READ | PROT_EXEC)) die("%s mprotect text", m->name);
         if (mprotect(a, m->patch_len, PROT_READ | PROT_EXEC)) die("%s mprotect patch", m->name);

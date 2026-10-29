@@ -1,0 +1,35 @@
+# SteamWorld Heist II (Thunderful's own engine), SDK 17.5.6, NVN.
+# Started from the NSP script's provisional profile; brought up on the Mac with no change to it (README.md).
+
+# ---- Identity ----
+title_id	010089C01E9CA000
+program_id	010089C01E9CA000
+
+# ---- App ----
+name	SteamWorld Heist II
+ipa	SteamWorldHeistII.ipa
+app_category	public.app-category.strategy-games
+
+# ---- Versions ----
+build	v262144	1.5.1	main=c05f42851f168030c15689cdbfac742c	subsdk0=540b08ec046f39a50014ed6cd9117eb9	sdk=38873c89d24e5d11020e8d0aafe51cab
+package	v262144
+shader_versions	v262144
+
+# ---- Files ----
+# every module main imports from
+modules	main subsdk0 sdk
+romfs_marker	Core/Movies/intro.webm
+zip_store	.ktx:.ogg:.pak:.webm:.metallib
+
+# ---- Memory ----
+# main sets a heap of at most the pool − 64 MB: a 3328 MB heap region
+mem_reserve	0x100000000
+mem_alias	0x10000000
+mem_stack	0x10000000
+app_pool	0xCD500000
+# the NPDM declares 0 MB of system resource: IsVirtualAddressMemoryEnabled is false, as on Horizon (Big Brain Academy: Brain vs. Brain sets a heap only then)
+sys_resource	0x0
+
+# ---- Shader split ----
+shader_groups	/Core/=core
+shader_note	SteamWorld Heist II shaders

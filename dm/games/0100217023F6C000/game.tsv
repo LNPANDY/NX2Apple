@@ -1,0 +1,48 @@
+# Game profile of Well Dweller (Switch, base game 1.0.0). Plays on the Mac from the language list through the title screen, the intro credits, the
+# story pages and into the first room with its dialog, at 60 fps, with sound (see README.md)
+# Format: see dm/games/README.md
+# GameMaker Studio 2: a native runner (main, 57.4 MB of text) whose game data is in the RomFS as game.win (FORM/GEN8, 229 MB) beside three
+# audiogroup*.dat banks and an options.ini naming the LLVM-Switch target. It renders with NVIDIA's desktop OpenGL through EGL: main imports nine
+# EGL functions and takes every GL call from eglGetProcAddress, which the host's GL layer answers on Metal (dm/gfx/gl/hle_gl.m, GL 3.2), so
+# NVIDIA's GL driver (subsdk0) is never loaded. SDK 22.2.0
+# The shaders are GLSL ES 1.00 that the runner writes at run time, one variant per pipeline, in no game file: the NSP script captures them by
+# booting the game on the Mac (gl_capture.tsv lists all 93) and dm/gfx/tools/gl_shaders.py translates them offline; the host finds each by hash
+
+# ---- Identity ----
+title_id	0100217023F6C000
+program_id	0100217023F6C000
+
+# ---- App ----
+name	Well Dweller
+ipa	WellDweller.ipa
+app_category	public.app-category.games
+
+# ---- Versions ----
+build	v0	1.0.0	main=c66955cb8eb7c48507ab69c7d8b0dde9	subsdk1=bc030a2c67ad37b2fb03b9c19bcdb2d6	sdk=fed212d6e0963706f9f4b16ea5d65879
+package	v0
+shader_versions	v0
+
+# ---- Files ----
+# main imports the EGL functions only, so NVIDIA's GL driver (subsdk0, NintendoSDK_OpenGL) stays unloaded; subsdk1 is the movie player
+modules	main subsdk1 sdk
+romfs_marker	audiogroup_music.dat
+# game.win is the runner's data file and .dat the audio banks; neither compresses
+zip_store	.dat:.png:.win:.metallib
+
+# ---- Memory ----
+# nninitStartup asks for a heap of the pool less the used memory, 3.10 GB, mapped as it is touched
+mem_reserve	0x100000000
+mem_alias	0x10000000
+mem_stack	0x10000000
+app_pool	0xCD500000
+# the NPDM declares no system resource, so IsVirtualAddressMemoryEnabled is false, as on hardware
+sys_resource	0x0
+
+# ---- Shader split ----
+# no NVN shaders: the profile's NVN tables stay empty and the GL library comes from gl_shaders.py (gl_capture.tsv)
+shader_groups	/=romfs
+shader_note	Well Dweller's shaders, all written by GameMaker's runner at run time: captured on the Mac, translated by gl_shaders.py, no NVN tables
+
+# ---- After the rewrite ----
+# used memory for the current rewritten modules, at least the default 64 MB
+mem_used	0x6a00000

@@ -1,7 +1,7 @@
 // Texture storage against shapes the original NVN driver gives (digitalhivehub ran Tears of the Kingdom's driver under emulation, nxnative PR #11; MacNativeGames 3c482a7):
 // cube array depth counts layer-faces, packaged byte 0 = block height (low nibble) and block depth (high nibble), linear storage (LINEAR or LINEAR_RENDER_TARGET alone)
-// counts pixel rows, also for BC. pkg is byte 0 + 1 (0 = automatic), as nvn_texdesc stores it. The driver's MINIMAL_LAYOUT shapes (flag 0x200) are not here: nvn_tex.c
-// does not implement that flag. The sparse (flag 0x20) shapes are block heights read off a game's guest bytes instead: a sparse texture at least one 64 KB tile wide and high
+// counts pixel rows, also for BC. pkg is byte 0 + 1 (0 = automatic), as nvn_texdesc stores it. The MINIMAL_LAYOUT shapes (flag 0x200) are the driver's from PR #11's t_tex,
+// the array and packaged ones from TotK 1.2.1's driver (sdk b9046c31, GitHub issue #183): automatic blocks only when they add no padding to the layer, else 1 GOB. The sparse (flag 0x20) shapes are block heights read off a game's guest bytes instead: a sparse texture at least one 64 KB tile wide and high
 // takes its tile's block height (384x384 DXT5, 1350x270 BGRA8), a smaller one keeps the automatic one (192x160 DXT5 and 384x384 DXT1, Yoshi's Crafted World)
 #include <stdio.h>
 #include "../nvn/nvn_tex.h"
@@ -17,6 +17,15 @@ static const shape_t driver[] = {
     {"linear RT RGBA8 260x260 stride 1152",         1, 0x25, 0x40, 260, 260, 1, 1, 1152, 0,  299520, 299520, 0, 128, 0, 0},
     {"linear RT RGBA8 1x1 stride 128",              1, 0x25, 0x40, 1, 1, 1, 1, 128, 0,       128, 128, 0, 128, 0, 0},
     {"linear BC1 64x64 stride 128",                 1, 0x42, 0x10, 64, 64, 1, 1, 128, 0,     8192, 8192, 0, 32, 0, 0},
+    {"minimal RG8 260x260, 9 levels",               1, 0x0d, 0x200, 260, 260, 1, 9, 0, 0,   214528, 214528, 152064, 512, 0, 0},
+    {"minimal RGB565 320x320 (Depths)",             1, 0x3c, 0x200, 320, 320, 1, 1, 0, 0,   204800, 204800, 0, 512, 0, 0},
+    {"minimal RGB5A1 320x320 (Depths)",             1, 0x3b, 0x200, 320, 320, 1, 1, 0, 0,   204800, 204800, 0, 512, 0, 0},
+    {"minimal RGBA8 64x128, no padding: automatic", 1, 0x25, 0x200, 64, 128, 1, 1, 0, 0,    32768, 32768, 0, 512, 4, 0},
+    {"minimal R8 8x1920, 11 levels",                1, 0x01, 0x200, 8, 1920, 1, 11, 0, 0,   246784, 246784, 122880, 512, 0, 0},
+    {"minimal 3D RGBA8 64x64x8: automatic",         2, 0x25, 0x200, 64, 64, 8, 1, 0, 0,     131072, 131072, 0, 512, 0, 3},
+    {"minimal 3D RGBA8 64x64x9",                    2, 0x25, 0x200, 64, 64, 9, 1, 0, 0,     147456, 147456, 0, 512, 0, 0},
+    {"minimal 2D array RGBA8 64x64x3, 7 levels",    4, 0x25, 0x200, 64, 64, 3, 7, 0, 0,     70656, 23552, 16384, 512, 0, 0},
+    {"minimal RGB565 320x320, packaged byte 0x04",  1, 0x3c, 0x200, 320, 320, 1, 1, 0, 5,   245760, 245760, 0, 512, 4, 0},
     {"sparse DXT5 192x160, under a tile",           1, 0x48, 0x20, 192, 160, 1, 1, 0, 0,     0x10000, 0x10000, 0, 0x10000, 2, 0},
     {"sparse DXT1 384x384, narrower than a tile",   1, 0x45, 0x20, 384, 384, 1, 1, 0, 0,     0x20000, 0x20000, 0, 0x10000, 4, 0},
     {"sparse DXT5 384x384, a tile wide",            1, 0x48, 0x20, 384, 384, 1, 1, 0, 0,     0x40000, 0x40000, 0, 0x10000, 3, 0},

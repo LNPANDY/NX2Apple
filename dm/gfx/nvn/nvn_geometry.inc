@@ -130,11 +130,11 @@ static void vertex_dump(NvShader *vs, const p_draw *dw, const p_draw_idx *di) {
     nvn_geo_capture gc = {info[0], 0, {(uint32_t)lo, (uint32_t)span, (uint32_t)info[3], 1}, GEO_CAPTURE_WORDS, {0}};
     for (int k = 0; k < GEO_CAPTURE_WORDS; k++) gc.slot[k] = (int16_t)k;   // every word, in order
     memcpy((uint8_t *)output.contents + offset, &gc, sizeof gc);
-    vbuf_prepare();
+    p_draw range = {.first = (int32_t)lo, .count = (int32_t)span, .instances = 1, .base_instance = (int32_t)(info[3] & UINT32_MAX)};
+    vbuf_prepare(&vs->rf, &range, NULL);   // the vertices the capture reads: streams it reads past get zeros there (vbuf_need)
     if (g_blit) { enc_b_end(g_blit); g_blit = nil; }
     MTL4RenderPassDescriptor *rd = [MTL4RenderPassDescriptor new]; rd.renderTargetWidth = rd.renderTargetHeight = rd.defaultRasterSampleCount = 1;
     id<MTL4RenderCommandEncoder> en = enc_r_begin(rd); enc_r_pso(en, ps); bind_vbufs(en);
-    p_draw range = {.first = (int32_t)lo, .count = (int32_t)span, .instances = 1, .base_instance = (int32_t)(info[3] & UINT32_MAX)};
     vconv_bind(en, vs, 1, &range, NULL); args_dirty_all(); encode_args(en, vs, 0, 1); enc_r_vbuf(en, 13, gpu);
     enc_r_draw_instanced(en, MTLPrimitiveTypePoint, lo, span, 1, (uint32_t)info[3]); enc_r_end(en);
     mdi_wait();
@@ -637,12 +637,13 @@ static int geo_prep(NvProg *pr, const p_draw *dw0, const p_draw_idx *di0, geo_jo
         if (b->kind == NVN_RB_SBUFP && b->rw && b->reg < 16 && S.ssbo[2][b->reg].addr)
             sbw_note(S.ssbo[2][b->reg].addr, S.ssbo[2][b->reg].size, SBW_GPU);
     }
-    if (may_wait) vbuf_prepare();
+    if (may_wait) vbuf_prepare(NULL, NULL, NULL);   // the run's captures bind later (geo_capture_one), so their streams are not bounded by their draws' ranges
     return 1;
 }
 static void geo_capture_one(id<MTL4RenderCommandEncoder> re, const geo_job *j) {
     if (!j->capture_words) return;
     g_draw_binst = j->first_instance;
+    memset(g_vbuf_need, 0, sizeof g_vbuf_need);   // a later draw's bounds do not apply here (geo_prepare)
     enc_r_pso(re, j->capture); bind_vbufs(re);
     vconv_bind(re, j->vs, 1, &j->vertex_range, NULL);
     args_dirty_all(); encode_args(re, j->vs, 0, 1); enc_r_vbuf(re, 13, j->capture_info);

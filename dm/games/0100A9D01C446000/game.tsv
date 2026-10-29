@@ -30,6 +30,10 @@ zip_store	.pak:.ttf:.ucas:.usm:.utoc:.metallib
 # rhi.SyncInterval 1 into its console variables (hle_fpslock.c), so the game asks for present interval 1 itself. Unreal steps the game by the time that really passed.
 # DM_FPS_TARGET=30 (Documents/env.txt on the iPhone) keeps the game's 30 and saves power
 fps_target	60
+# Texture streaming pool: the Switch device profile sets r.Streaming.PoolSize=200 (SwitchDeviceProfiles.ini [Switch], docked and handheld; [WindowsNoEditor] in DefaultDeviceProfiles.ini
+# sets 1000), and past it the streamer drops the top mips of what is in view: textures and lightmaps blurry a second after an area loads (GitHub issue #589). The host raises it to the
+# game's own Windows value on the Mac (hle_uecvar.c); on iOS only DM_UE_TEXTURE_POOL turns it on
+ue_texture_pool	1000
 
 # ---- Memory ----
 # Unreal Engine 4.27: nninitStartup (main+0xe89fa4) needs virtual address memory, sets a 6 MB heap for the C library's malloc and reserves one address region for the engine

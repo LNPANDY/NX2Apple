@@ -4,17 +4,19 @@
 #include "hle.h"
 #include <mach/mach.h>
 
-// What a field holds: the frame rate as a float or int32, vsyncs per frame (60 / frame rate) as an int32, or the frame time in milliseconds as a float. Copies: consecutive copies of the value
-// (Unreal keeps one for the game thread, one for the render thread). A row with no pointer (ptr_off 0) has its field at main + field: a constant in main's read-only data, which the loader
+// What a field holds: the frame rate as a float, double or int32, vsyncs per frame (60 / frame rate) as an int32, or the frame time in milliseconds as a float. Copies: consecutive copies of the
+// value (Unreal keeps one for the game thread, one for the render thread). A row with no pointer (ptr_off 0) has its field at main + field: a constant in main's read-only data, which the loader
 // leaves writable (the image's data block on iOS too, loader.c map_image).
 // At 60 a frame time gets MS_MARGIN less than the vsync: such a limiter counts from the frame's start, and the work after it (the GPU fence wait, the next frame's start) adds to the
 // period, so frames at exactly 16.667 ms came 0.11 ms late each on the Mac (59.6 fps, every 150th frame shown two vsyncs). Slightly shorter, the host's present pacing sets the pace
 // (the acquire waits): Luigi's Mansion 3's display interval p99 18.69 → 16.67 ms, 60.0 fps. Not at 30: with present_interval display the presents follow every vsync and hold no
 // frame for two, so a shorter time showed some frames for one (30.4 fps); 30 writes the game's own 33.333 ms
-enum { FPS_F32, VSYNCS_I32, MS_F32, FPS_I32 };
+// Also: a frame time in ticks as a uint32 (scale / frame rate: 19,200,000 for the Switch's 19.2 MHz system tick), a frame step in seconds as a float (1 / frame rate), and a mode
+// switch an engine reads before it takes those fields at all (written 1 at any target)
+enum { FPS_F32, VSYNCS_I32, MS_F32, FPS_I32, TICKS_U32, SECS_F32, MODE_U32, FPS_F64 };
 #define MS_MARGIN 0.5f
 static float ms_want(int fps) { return 1000.0f / (float)fps - (fps == 60 ? MS_MARGIN : 0); }
-static const struct { const char *build, *what; uint64_t ptr_off; uint32_t field; uint8_t kind, copies; } k_locks[] = {
+static const struct { const char *build, *what; uint64_t ptr_off; uint32_t field; uint8_t kind, copies; uint32_t scale; } k_locks[] = {
     // Pokemon Brilliant Diamond 1.3.0: Unity's Application.targetFrameRate. Its icall registration (main+0xe34e60) resolves to main+0xdc8e70 -> +0x5fa640,
     // which stores w0 at main+0x4afc868; the getter at +0x5fa630 reads the same int32. The game sets 30 when entering the field; display pacing alone does not remove that cap.
     { "94ceae325c205c4b9d6f7235552f28fd", "Unity targetFrameRate", 0, 0x4afc868, FPS_I32, 1 },
@@ -60,6 +62,21 @@ static const struct { const char *build, *what; uint64_t ptr_off; uint32_t field
     // started; the limiter (main+0x7a3e70) runs jobs or sleeps until 33.333 ms have passed, the float at main+0x13c94dc (read only there, at main+0x7a3ea8 and main+0x7a3f18), and the game
     // steps by the time that really passed. The game asks for present interval 2 too, which the profile's present_interval display ignores; both are needed
     { "79e5950ffa85acf63e28c9aec051eac2", "NLG frame limiter target", 0, 0x13c94dc, MS_F32, 1 },
+    // Need for Speed: Hot Pursuit Remastered 1.0.3: Criterion's frame timing. A uint32 in main's bss (main+0xf0043c) selects the engine's 60 fps mode, in which it takes its frame time from
+    // the timer object at [main+0xed96a8]: +0x30 the frame in system ticks (19.2 MHz, 640,000 at 30 fps) and +0x28 a tenth of it; the game's own step, at [main+0xeffc60] +0x30 (2D) and +0x50
+    // (3D), is a float of seconds per frame. Its limiter, a spin on the system tick at main+0x483588..+0x4835a4, is cut by the rewriter (patches.py). From masagrator's FPSLocker config for this
+    // build (FPSLocker-Warehouse, patches/010029B0118E8000/799D1061182C1302.yaml; the frame-time instruction found by theboy181)
+    { "799d1061182c1302e08e706b84ce76e5", "Criterion 60 fps mode", 0, 0xf0043c, MODE_U32, 1, 0 },
+    { "799d1061182c1302e08e706b84ce76e5", "Criterion frame ticks", 0xed96a8, 0x30, TICKS_U32, 1, 19200000 },
+    { "799d1061182c1302e08e706b84ce76e5", "Criterion frame ticks / 10", 0xed96a8, 0x28, TICKS_U32, 1, 1920000 },
+    { "799d1061182c1302e08e706b84ce76e5", "Criterion 2D game step", 0xeffc60, 0x30, SECS_F32, 1, 0 },
+    { "799d1061182c1302e08e706b84ce76e5", "Criterion 3D game step", 0xeffc60, 0x50, SECS_F32, 1, 0 },
+    // EA SPORTS FC 27 1.8d.310c: the game's frame regulator, an object at [main+0xda20e38] (its constructor, main+0x99e80c8, sets 60.0). Its tick (main+0x99ea580) waits until
+    // 1 / [+0x8] seconds have passed since the last frame; [+0x10] is the rate it reports. main+0x5d501c0 sets both to 30.0 whenever GameRenderSettings.Enable is 1 (fmov v1.2d, #30.0;
+    // stur q1, [x9, #8]), a constant of the Switch build, so it is written here. The simulation's own rate is Frostbite's SimulationTimeSettings, set below by name: on a build without
+    // this row the game keeps 30 fps at the right speed (the simulation at 60 and the regulator at 30: match clock as at 30). The game asks for present interval 2
+    // (BaseDisplaySettings.PresentInterval), which the profile's present_interval display ignores
+    { "a48c0de3bc353efa0e4d359bde05ef24", "FIFA frame regulator", 0xda20e38, 0x8, FPS_F64, 2, 0 },
 };
 #define NLOCKS ((int)(sizeof k_locks / sizeof k_locks[0]))
 
@@ -120,6 +137,77 @@ static void dynamic_resolution_tick(void) {
     }
 }
 
+// Frostbite's simulation rate, found by name (no fixed addresses, so it holds across a game's updates). Frostbite reflects its settings classes: a class record (its name, then at
+// +0x40 its field list) and per field a record of 0x20 bytes (name, hash, offset at +0x10, type). SimulationTimeSettings' ForceSimRate (int32) and MaxSimFps (float) cap the
+// simulation's ticks a second: 30 in EA SPORTS FC 27, whose frames then cannot go faster than 30 whatever paces them. A static constructor registers the class: it stores the record's
+// address into its type info (adrp / add of the record, then str into the type info just made by adrp / add), and the code that reads the settings asks the settings registry for the
+// instance with that type info in x1 and a cache word in x2 (adrp / add each, then bl), which keeps the instance's address. The instance holds its type info at +8, which checks the cache.
+// Both fields are written each frame they differ (the game may load its settings again), like the frame limits above
+static struct { int n; uint8_t *base; uint64_t ti, cache[8]; int ncache; uint32_t off_rate, off_max; } fb;
+static int fb_name_at(uint8_t *base, uint64_t size, uint64_t p, const char *want) {   // p, a relocated pointer, points into the module at the string want
+    uint64_t b = (uint64_t)(uintptr_t)base; size_t n = strlen(want);
+    return p >= b && p - b + n + 1 <= size && !memcmp((const void *)(uintptr_t)p, want, n + 1);
+}
+static int64_t fb_pair(const uint32_t *t, uint64_t i, int reg) {   // the target of adrp / add into reg at words i, i + 1, or -1 (module offsets: the text sits at offset 0)
+    uint32_t w = t[i], x = t[i + 1];
+    if ((w & 0x9F000000u) != 0x90000000u || (int)(w & 31) != reg || (x & 0xFFC00000u) != 0x91000000u || (x & 31) != (uint32_t)reg || ((x >> 5) & 31) != (uint32_t)reg) return -1;
+    int64_t imm = (int64_t)(((w >> 29) & 3) | (((w >> 5) & 0x7FFFF) << 2)); if (imm & (1 << 20)) imm -= 1 << 21;
+    return (int64_t)((i * 4) & ~0xfffull) + imm * 4096 + ((x >> 10) & 0xfff);
+}
+static void fb_find(void) {
+    module_t *m = NULL; for (int i = 0; i < g_nmod; i++) if (!strcmp(g_mod[i].name, "main")) m = &g_mod[i];
+    if (!m || !m->text_end || !m->ro_off || m->ro_off >= m->size) return;
+    static const char cls[] = "SimulationTimeSettings";
+    uint8_t *base = m->base, *ro = base + m->ro_off; uint64_t size = m->back_off ? m->back_off : m->size, b = (uint64_t)(uintptr_t)base;
+    const uint8_t *s = memmem(ro, (size_t)(size - m->ro_off), "\0SimulationTimeSettings\0", sizeof cls + 1); if (!s) return;   // not Frostbite
+    uint64_t name = (uint64_t)(uintptr_t)(s + 1), rec = 0;
+    for (uint64_t o = (m->ro_off + 7) & ~7ull; o + 0x48 <= size && !rec; o += 8) {
+        if (*(uint64_t *)(base + o) != name) continue;
+        uint64_t fl = *(uint64_t *)(base + o + 0x40); if (fl < b || fl - b + 0x20 > size) continue;
+        for (uint64_t f = fl - b; f + 0x20 <= size; f += 0x20) {   // the field list ends where a name stops being one
+            uint64_t fn = *(uint64_t *)(base + f); if (fn < b || fn - b >= size) break;
+            uint32_t off = *(uint32_t *)(base + f + 0x10);
+            if (fb_name_at(base, size, fn, "ForceSimRate")) fb.off_rate = off;
+            else if (fb_name_at(base, size, fn, "MaxSimFps")) fb.off_max = off;
+        }
+        if (fb.off_rate && fb.off_max) rec = o;
+    }
+    if (!rec) { LOG("[RED] main: Frostbite's %s found, but not its ForceSimRate and MaxSimFps fields; leaving the simulation rate", cls); return; }
+    const uint32_t *t = (const uint32_t *)base; uint64_t nw = m->text_end / 4;
+    for (uint64_t i = 0; i + 3 < nw && !fb.ti; i++) {   // the registration: adrp / add xR = record, str xR, [xT] with xT = the type info from an adrp / add just before
+        int r = (int)(t[i] & 31); if (fb_pair(t, i, r) != (int64_t)rec) continue;
+        uint32_t st = t[i + 2]; if ((st & 0xFFFFFC00u) != 0xF9000000u || (int)(st & 31) != r) continue;   // str xR, [xT] (no offset)
+        int xt = (int)((st >> 5) & 31);
+        for (uint64_t k = i >= 6 ? i - 6 : 0; k < i; k++) { int64_t ti = fb_pair(t, k, xt); if (ti > 0) fb.ti = (uint64_t)ti; }
+    }
+    if (!fb.ti) { LOG("[RED] main: Frostbite's %s: its type info was not found; leaving the simulation rate", cls); return; }
+    for (uint64_t i = 8; i + 12 < nw && fb.ncache < 8; i++) {   // the readers: adrp / add x1 = type info, adrp / add x2 = cache word, near each other before a bl
+        if (fb_pair(t, i, 1) != (int64_t)fb.ti) continue;
+        for (uint64_t k = i - 8; k < i + 10; k++) {
+            int64_t c = fb_pair(t, k, 2); if (c <= 0 || (uint64_t)c + 8 > m->size) continue;
+            int known = 0; for (int j = 0; j < fb.ncache; j++) known |= fb.cache[j] == (uint64_t)c;
+            if (!known) fb.cache[fb.ncache++] = (uint64_t)c;
+            break;
+        }
+    }
+    if (!fb.ncache) { LOG("[RED] main: Frostbite's %s: no settings lookup found; leaving the simulation rate", cls); return; }
+    fb.base = base; fb.n = 1;
+    LOG("main: Frostbite %s at main+%#llx (ForceSimRate +%#x, MaxSimFps +%#x), type info main+%#llx, %d instance caches", cls, (unsigned long long)rec, fb.off_rate, fb.off_max,
+        (unsigned long long)fb.ti, fb.ncache);
+}
+static void fb_tick(int target, const char *src) {
+    static int nlog; uint64_t ti = (uint64_t)(uintptr_t)(fb.base + fb.ti);
+    for (int j = 0; j < fb.ncache; j++) {
+        uint64_t inst = 0, tinfo = 0; int32_t rate; float max;
+        if (!rd((uint64_t)(uintptr_t)(fb.base + fb.cache[j]), &inst, sizeof inst) || !inst || !rd(inst + 8, &tinfo, sizeof tinfo) || tinfo != ti) continue;   // not made yet, or another word
+        if (!rd(inst + fb.off_rate, &rate, sizeof rate) || !rd(inst + fb.off_max, &max, sizeof max)) return;
+        if (rate != target) { int32_t *p = (int32_t *)(uintptr_t)(inst + fb.off_rate); dm_guest_write_prepare(p, sizeof *p); __atomic_store_n(p, target, __ATOMIC_RELAXED); }
+        if (max != (float)target) { float w = (float)target, *p = (float *)(uintptr_t)(inst + fb.off_max); dm_guest_write_prepare(p, sizeof *p); __atomic_store_n((uint32_t *)p, *(uint32_t *)&w, __ATOMIC_RELAXED); }
+        if ((rate != target || max != (float)target) && nlog < 8) { nlog++; LOG("main: Frostbite simulation rate ForceSimRate %d, MaxSimFps %g → %d (%s)", rate, max, target, src); }
+        return;
+    }
+}
+
 void dm_fps_lock_tick(void) {
     dynamic_resolution_tick();   // separate from the FPS cap
     static int state = -2, rows[NLOCKS], nrow, nlog[NLOCKS], target, nier; static uint8_t *base; static const char *src; static uint32_t display;
@@ -131,10 +219,11 @@ void dm_fps_lock_tick(void) {
             for (int k = 0; k < (int)(sizeof k_nier_dr / sizeof *k_nier_dr); k++) if (!strcmp(g_mod[i].build_id, k_nier_dr[k].build)) { base = g_mod[i].base; nier = 2; display = k_nier_dr[k].display; }
             for (int k = 0; k < NLOCKS; k++) if (!strcmp(g_mod[i].build_id, k_locks[k].build)) { rows[nrow++] = k; base = g_mod[i].base; }
         }
-        if (!nrow && !nier) return;
+        fb_find(); if (!nrow && !nier && !fb.n) return;
         const char *e = getenv("DM_FPS_TARGET"); int t = e ? atoi(e) : dm_profile()->fps_target; src = e ? "DM_FPS_TARGET" : "game profile fps_target";
         if (t != 0 && t != 30 && t != 60) { LOG("[RED] DM_FPS_TARGET=%s: must be 0, 30 or 60; leaving the game's frame limit", e); t = 0; }
-        if (!t) { for (int r = 0; r < nrow; r++) LOG("main: %s left as the game sets it (%s)", k_locks[rows[r]].what, src); if (nier) LOG("main: NieR frame interval left as the game sets it (%s)", src); return; }
+        if (!t) { for (int r = 0; r < nrow; r++) LOG("main: %s left as the game sets it (%s)", k_locks[rows[r]].what, src); if (nier) LOG("main: NieR frame interval left as the game sets it (%s)", src);
+                  if (fb.n) LOG("main: Frostbite simulation rate left as the game sets it (%s)", src); return; }
         target = t; state = 0;
     }
     if (nier == 1) {
@@ -180,9 +269,21 @@ void dm_fps_lock_tick(void) {
             }
         }
     }
+    if (fb.n) fb_tick(target, src);
     for (int r = 0; r < nrow; r++) {
         int k = rows[r]; uint64_t obj = (uint64_t)(uintptr_t)base;
         if (k_locks[k].ptr_off && (!rd((uint64_t)(uintptr_t)(base + k_locks[k].ptr_off), &obj, sizeof obj) || !obj)) continue;   // not created yet
+        if (k_locks[k].kind == FPS_F64) {
+            for (int c = 0; c < k_locks[k].copies; c++) {
+                uint64_t a = obj + k_locks[k].field + 8 * (uint64_t)c; double cur, want = target;
+                if (!rd(a, &cur, sizeof cur)) break;
+                if (cur == want || !(cur >= 10 && cur <= 120)) continue;   // already set, or not set yet
+                double *p = (double *)(uintptr_t)a;
+                dm_guest_write_prepare(p, sizeof *p); __atomic_store_n((uint64_t *)p, *(uint64_t *)&want, __ATOMIC_RELAXED);
+                if (nlog[k] < 8) { nlog[k]++; LOG("main: %s%s %g → %d fps (%s)", k_locks[k].what, k_locks[k].copies > 1 ? (c ? " (reported rate)" : " (target)") : "", cur, target, src); }
+            }
+            continue;
+        }
         for (int c = 0; c < k_locks[k].copies; c++) {
             uint64_t a = obj + k_locks[k].field + 4 * (uint64_t)c; uint32_t cur, want; char was[16];
             if (!rd(a, &cur, sizeof cur)) break;
@@ -190,6 +291,18 @@ void dm_fps_lock_tick(void) {
                 int ms = k_locks[k].kind == MS_F32; float f, w = ms ? ms_want(target) : (float)target; memcpy(&f, &cur, sizeof f); memcpy(&want, &w, sizeof want);
                 if (cur == want || !(ms ? f >= 8 && f <= 100 : f >= 10 && f <= 120)) continue;   // already set, or not set yet (RE Engine: 6000 at boot; Unreal: 0 = no limit until the config sets it)
                 snprintf(was, sizeof was, ms ? "%.3f ms" : "%g", f);
+            } else if (k_locks[k].kind == SECS_F32) {
+                float f, w = 1.0f / (float)target; memcpy(&f, &cur, sizeof f); memcpy(&want, &w, sizeof want);
+                if (cur == want || !(f >= 1.0f / 120 && f <= 0.1f)) continue;   // not set yet (0 before the game's first frame)
+                snprintf(was, sizeof was, "%.5f s", f);
+            } else if (k_locks[k].kind == TICKS_U32) {
+                want = k_locks[k].scale / (uint32_t)target;
+                if (cur == want || cur < k_locks[k].scale / 120 || cur > k_locks[k].scale / 10) continue;
+                snprintf(was, sizeof was, "%u", cur);
+            } else if (k_locks[k].kind == MODE_U32) {
+                want = 1;
+                if (cur) continue;   // already 1, or not this switch: 0 is the engine's default
+                snprintf(was, sizeof was, "%u", cur);
             } else {
                 int fps = k_locks[k].kind == FPS_I32;
                 want = fps ? (uint32_t)target : 60 / (uint32_t)target;
@@ -200,6 +313,9 @@ void dm_fps_lock_tick(void) {
             dm_guest_write_prepare(p, sizeof *p); __atomic_store_n(p, want, __ATOMIC_RELAXED);
             if (nlog[k] < 8) { nlog[k]++; char now[24];
                 if (k_locks[k].kind == MS_F32) snprintf(now, sizeof now, "%.3f ms (%d fps)", ms_want(target), target);
+                else if (k_locks[k].kind == SECS_F32) snprintf(now, sizeof now, "%.5f s (%d fps)", 1.0 / target, target);
+                else if (k_locks[k].kind == TICKS_U32) snprintf(now, sizeof now, "%u (%d fps)", want, target);
+                else if (k_locks[k].kind == MODE_U32) snprintf(now, sizeof now, "1 (%d fps)", target);
                 else snprintf(now, sizeof now, "%u%s", k_locks[k].kind == FPS_F32 ? (unsigned)target : want, k_locks[k].kind == FPS_F32 || k_locks[k].kind == FPS_I32 ? " fps" : " vsyncs");
                 LOG("main: %s%s %s → %s (%s)", k_locks[k].what, k_locks[k].copies > 1 ? (c ? " (render thread)" : " (game thread)") : "", was, now, src); }
         }

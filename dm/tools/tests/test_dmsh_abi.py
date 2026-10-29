@@ -124,6 +124,10 @@ class Host(unittest.TestCase):
                       (REPO / 'dm/gfx/tools/dmsh_xlate/Program.cs').read_text())
         assert m, 'Program.cs c2 layout line not found'
         self.assertEqual([int(x, 0) for x in m.groups()], [abi.C2_TEX, abi.C2_IMG, abi.C2_IMG_SLOTS, abi.C2_SEPTEX, abi.SEPTEX_SLOT0, abi.C2_SAMP])
+        m = re.search(r'const int C2HandleWords = \(SampBase \+ 8 \* (\d+)\) / 8;', (REPO / 'dm/gfx/tools/dmsh_xlate/Program.cs').read_text())
+        assert m, 'Program.cs C2HandleWords line not found'
+        self.assertEqual(int(m.group(1)), abi.C2_SEP_SLOTS)
+        self.assertEqual(abi.C2_ROW, 8)
 
 
 class Ratchet(unittest.TestCase):

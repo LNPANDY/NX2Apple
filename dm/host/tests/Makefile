@@ -26,6 +26,7 @@ run: $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture 
 	$(B)/t_audio
 	$(B)/t_audio_spsc
 	$(B)/t_fpslock
+	$(B)/t_uecvar
 	$(B)/t_audren_work
 	$(B)/t_audren_layout
 	$(B)/t_swkbd
@@ -107,7 +108,7 @@ $(B)/t_fs: t_fs.c t_fs_stub.c ../hle_fs.c ../save_sync.c ../save_sync.h ../hle_b
 	$(CLANG) -O1 -Wno-unused-function -I.. $(GINC) -o $@ t_fs.c t_fs_stub.c ../hle_bigstack.c ../save_sync.c ../hle_profile.c
 $(B)/t_fs_commit_list: t_fs_commit_list.c t_fs_stub.c ../hle_fs.c ../save_sync.c ../save_sync.h ../hle_bigstack.c ../hle.h ../dm.h $(GAME_H) ../hle_profile.c ../hle_profile.h | $(B)
 	$(CLANG) -O1 -Wall -Wno-unused-function -I.. $(GINC) -o $@ t_fs_commit_list.c t_fs_stub.c ../hle_bigstack.c ../save_sync.c ../hle_profile.c
-$(B)/t_fs_commit_list_tsan: t_fs_commit_list.c t_fs_stub.c ../hle_fs.c ../save_sync.c ../save_sync.h ../hle_bigstack.c ../hle.h ../dm.h $(GAME_H) | $(B)
+$(B)/t_fs_commit_list_tsan: t_fs_commit_list.c t_fs_stub.c ../hle_fs.c ../save_sync.c ../save_sync.h ../hle_bigstack.c ../hle.h ../dm.h $(GAME_H) ../hle_profile.c ../hle_profile.h | $(B)
 	$(CLANG) -O1 -g -fsanitize=thread -Wall -Wno-unused-function -I.. $(GINC) -o $@ t_fs_commit_list.c t_fs_stub.c ../hle_bigstack.c ../save_sync.c ../hle_profile.c
 .PHONY: fs-tsan
 fs-tsan: $(B)/t_fs_commit_list_tsan
@@ -135,6 +136,9 @@ $(B)/t_audio_spsc_tsan: t_audio_spsc.c ../hle_audio.c ../hle.h ../dm.h $(GAME_H)
 run: $(B)/t_fpslock
 $(B)/t_fpslock: t_fpslock.c ../hle_fpslock.c ../hle.h ../dm.h $(GAME_H) | $(B)
 	$(CLANG) -O1 -g -Wno-unused-function $(GINC) -o $@ t_fpslock.c ../hle_profile.c
+run: $(B)/t_uecvar
+$(B)/t_uecvar: t_uecvar.c ../hle_uecvar.c ../hle.h ../dm.h $(GAME_H) | $(B)
+	$(CLANG) -O1 -g -Wno-unused-function $(GINC) -o $@ t_uecvar.c
 $(B)/t_swkbd: t_swkbd.c ../hle_swkbd.c ../hle.h ../dm.h $(GAME_H) | $(B)
 	$(CLANG) -O1 -Wno-unused-function -I.. $(GINC) -o $@ t_swkbd.c ../hle_swkbd.c
 $(B)/t_altstack: t_altstack.c t_altstack_stub.c ../crash.c ../dm.h $(GAME_H) | $(B)

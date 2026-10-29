@@ -1,0 +1,43 @@
+# Game profile of Subnautica (Switch, update 1.23.83358 = v458752)
+# Format: see dm/games/README.md
+# Unity 2019.4.36f1 (IL2CPP) with FMOD, SDK 13.3.5: the engine, sdk and movie module of Subnautica: Below Zero (010014C011146000), whose sdk already carries the
+# node-area and region-alignment cuts.
+# The shaders are Unity's Shader and ComputeShader objects in the player's serialized files and the bundles in StreamingAssets/aa/Switch, read by unityfs.py with
+# Unity 2019.4's layouts
+
+# ---- Identity ----
+title_id	0100429011144000
+program_id	0100429011144000
+
+# ---- App ----
+# Game name: only a label for profile listings and the Mac window title; the iOS app name is the game name in the base NSP, and the bundle ID comes from the base game title ID (build_ipa.sh / NSP script)
+name	Subnautica
+ipa	Subnautica.ipa
+app_category	public.app-category.adventure-games
+# first-person 3D: the right stick looks around
+pad_layout	full
+
+# ---- Versions ----
+build	v458752	1.23.83358	main=b3db5a1edaf8454f8cd52b31dc82fb02	subsdk0=d0f13015e5badf2243d60a2bc9b978dd	sdk=3644a6760469451cabc99f00c540acc2
+package	v458752
+shader_versions	v458752
+
+# ---- Files ----
+# load order as on Horizon: main, subsdk*, sdk (subsdk0 = NintendoSDK_movie)
+modules	main subsdk0 sdk
+romfs_marker	Data/StreamingAssets/music.bank
+zip_store	.bank:.bundle:.dat:.json:.ress:.metallib
+
+# ---- Memory ----
+# The NPDM declares 8 MB of system resource, so IsVirtualAddressMemoryEnabled is true: nninitStartup hands application pool − used memory to StandardAllocator as
+# virtual address memory and never sets a heap. Below Zero's layout: a 1 GB pool and the 5 GB block (256 MB in front + 4.375 GB alias region + 256 MB stack region
+# + 128 MB heap region)
+sys_resource	0x800000
+mem_reserve	0x140000000
+mem_alias	0x118000000
+mem_stack	0x10000000
+app_pool	0x40000000
+
+# ---- Shader split ----
+shader_groups	/Data/=data
+shader_note	Subnautica shaders

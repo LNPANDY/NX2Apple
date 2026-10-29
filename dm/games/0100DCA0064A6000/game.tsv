@@ -50,6 +50,5 @@ pad_layout	full
 # ---- Shader split ----
 shader_groups	/init.dict=init
 shader_note	Luigi's Mansion 3 shaders
-# the NVN depth mode the game sets (nvnDeviceSetDepthMode near = 0, '[nvn] depth mode near=0' in the log): the pipeline archive made offline holds the main0_z vertex entries
-# (dm/gfx/tools/pso_offline.py). Without it the Mac prebuild made near = -w bases, the host refused the bundled archive and rebuilt 3,852 pairs at every start
+# the NVN depth mode the game sets (nvnDeviceSetDepthMode near = 0): the pipeline archive made offline holds the main0_z vertex entries (dm/gfx/tools/pso_offline.py)
 depth_mode	zero

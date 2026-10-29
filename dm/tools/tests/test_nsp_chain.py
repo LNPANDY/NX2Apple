@@ -1,8 +1,10 @@
 """NSP script chain files (scripts/build_ipa_from_nsp.py chain_header, chain_tables): the one chain version header (dm/gfx/nvn/dmsh_chain.h) is written again when stale and left
 alone when current, and the committed one is current; only the c1 / uniform extent tables that are missing (they are not committed) or do not name the library's stamp (its chain version
-and profile inputs) are made (GitHub issue #78), none without a stamped library, and no step's reuse key counts them; no game files, keys or Xcode needed (temporary files only in a
+and profile inputs) are made (GitHub issue #78), none without a stamped library, and no step's reuse key counts them; the tools that make them read only the shader build's outputs
+(an exFAT drive's AppleDouble `._<name>` beside each, PR #555); no game files, keys or Xcode needed (temporary files only in a
 temporary folder)."""
 import importlib.util
+import json
 import os
 from pathlib import Path
 import shutil
@@ -117,6 +119,20 @@ class Tables(Base):
     def test_not_profile_inputs(self):   # the steps' reuse keys leave out what the iOS shader step makes, and the rewriter's patches (the rewrite step's own key)
         for n in ('game.tsv', 'shader_map.tsv', 'c1_full.tsv', 'cb_extent.tsv', 'patches.py'): (self.tmp / n).write_text('')
         self.assertEqual([p.name for p in nsp.profile_files(types.SimpleNamespace(dir=self.tmp))], ['game.tsv', 'shader_map.tsv'])
+
+
+class TableTools(unittest.TestCase):
+    def test_appledouble_files_are_not_shaders(self):   # macOS writes a binary ._<name> beside each file on an exFAT / FAT drive; c1_guard.py read ._<key>_b.metal as UTF-8 and stopped
+        lib = Path(tempfile.mkdtemp()) / 'b-0123456789ab'; lib.mkdir(); self.addCleanup(shutil.rmtree, lib.parent)
+        key = '00112233aabbccdd'
+        (lib / f'{key}_b.metal').write_text('fragment float4 main0(constant cb& fp_c1) { int _5 = in.v; return (fp_c1)._m0[_5]; }\n')
+        (lib / f'{key}_b.json').write_text(json.dumps({'bindings': [{'kind': 'cbuf', 'reg': 0, 'msl_name': 'fp_c1'}]}))
+        for n in (f'{key}_b.metal', f'{key}_b.json', 'inputs.tsv'): (lib / ('._' + n)).write_bytes(b'\0\x05\x16\x07\0\x02\0\0' + b'\xa0' * 4088)   # not UTF-8, not JSON
+        for tool, table in (('c1_guard.py', 'c1_full.tsv'), ('cb_extent.py', 'cb_extent.tsv')):
+            with self.subTest(tool=tool):
+                r = subprocess.run([sys.executable, REPO / 'dm/gfx/tools' / tool, lib, lib.parent / table], capture_output=True, text=True)
+                self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual((lib.parent / 'c1_full.tsv').read_text().splitlines()[1:], [key])   # the shader itself is still checked
 
 
 if __name__ == '__main__':

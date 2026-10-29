@@ -222,8 +222,12 @@ static Result mount_ex(const char *name, const char *dir, int ro, int txn) {
     } else strlcpy(g_mnt[g_nmnt].dir, dir, sizeof g_mnt[0].dir);
     g_mnt[g_nmnt].img = NULL;
     struct stat ist;
-    if (ro && !txn && !stat(dir, &ist) && S_ISREG(ist.st_mode)) {   // a RomFS image file in place of a folder
-        if (!(g_mnt[g_nmnt].img = img_open(dir))) die("the game files %s are not a complete RomFS image", dir);
+    if (ro && !txn) {   // game files: a RomFS folder, or a RomFS image file in its place
+        // A path that is neither is a stale or mistyped one (an old run command still naming the RomFS folder a rebuild replaced with RomFS.img): stop here, not at the game's
+        // first failed read (Echoes of Wisdom crashed 0.3 s after nnMain, GitHub issue #615). Add-on content and system data check their own paths before they mount
+        if (stat(dir, &ist) || !(S_ISDIR(ist.st_mode) || S_ISREG(ist.st_mode)))
+            die("the game files %s (%s:) are missing: neither a folder nor a RomFS image (the rom mount is DM_ROMFS, or $DM_ROOT/romfs when DM_ROMFS is unset)", dir, name);
+        if (S_ISREG(ist.st_mode) && !(g_mnt[g_nmnt].img = img_open(dir))) die("the game files %s are not a complete RomFS image", dir);
     }
     g_nmnt++;
     pthread_mutex_unlock(&g_lock);
@@ -597,7 +601,7 @@ HLE_FORCE("_ZN2nn2fs13MountSaveDataEPKcRKNS_7account3UidE", "fsp-srv; save data 
     const char *d = getenv("DM_SAVE");
     if (!d) die("DM_SAVE is not set: point it at a writable copy of a save directory");
     char dd[1024]; strlcpy(dd, d, sizeof dd); size_t L = strlen(dd); while (L > 1 && dd[L - 1] == '/') dd[--L] = 0;   // strip trailing slashes (.work / .new are appended at the same level)
-    save_sync_mount(dd, dm_profile()->id);   // DM_SAVE_SYNC: the cloud's save comes in before the work directory is cloned from the committed one (save_sync.h)
+    save_sync_mount(dd, DM_GAME_ID);   // DM_SAVE_SYNC: the cloud's save comes in before the work directory is cloned from the committed one (save_sync.h)
     return mount_ex(name, dd, 0, 1);
 }
 // Device save data: one save for the console instead of one per user. Animal Crossing: New Horizons keeps its island there (3.0.3's main mounts no account save data at all); the host
@@ -610,7 +614,7 @@ HLE_FORCE("_ZN2nn2fs19MountDeviceSaveDataEPKc", "fsp-srv; device save data → t
     const char *d = getenv("DM_SAVE");
     if (!d) die("DM_SAVE is not set: point it at a writable copy of a save directory");
     char dd[1024]; strlcpy(dd, d, sizeof dd); size_t L = strlen(dd); while (L > 1 && dd[L - 1] == '/') dd[--L] = 0;
-    save_sync_mount(dd, dm_profile()->id);   // the cloud's save holds both, so it comes in at whichever of the two mounts first
+    save_sync_mount(dd, DM_GAME_ID);   // the cloud's save holds both, so it comes in at whichever of the two mounts first
     strlcat(dd, "_device", sizeof dd);
     return mount_ex(name, dd, 0, 1);
 }

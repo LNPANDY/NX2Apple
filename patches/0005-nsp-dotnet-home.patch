@@ -14,19 +14,19 @@ Issue: LNPANDY/NX2Apple#10
  1 file changed, 19 insertions(+), 1 deletion(-)
 
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index 675151d8..99f9aa95 100755
+index f92106d5..c027ba91 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
 @@ -29,7 +29,7 @@
  # unless ALLOW_OTHER_METAL / --allow-other-metal. Issue #242 reported corruption with another compiler; the cause is still unconfirmed.
- # Python 3.12+ is required for bounded archive mappings inside images. The Python running this file needs lz4, capstone and fonttools (and backports.zstd before Python 3.14); also needed: Xcode, xcodegen, .NET SDK 10, zstd. SPIRV-Cross is the in-repo build. A first run takes 2 (Metroid Dread) to 10 minutes (Breath of the Wild: 5 of them the shader split), longer when shader libraries must be compiled; a repeat run with unchanged inputs takes about 20 s (Metroid Dread), mostly packing the IPA. Key values are never printed.
+ # Python 3.12+ is required for bounded archive mappings inside images. The Python running this file needs lz4, capstone 5.x and fonttools (and backports.zstd before Python 3.14); also needed: Xcode, xcodegen, .NET SDK 10, zstd. SPIRV-Cross is the in-repo build. A first run takes 2 (Metroid Dread) to 10 minutes (Breath of the Wild: 5 of them the shader split), longer when shader libraries must be compiled; a repeat run with unchanged inputs takes about 20 s (Metroid Dread), mostly packing the IPA. Key values are never printed.
  # The console shows one line per stage ([k/n] stage, with a bar, done/total, percent, elapsed time and ETA where the work can be counted); the tools' own output goes only to logs/ (PROGRESS / --progress). --progress json writes newline-delimited JSON events to stdout.
 -import ast, collections, ctypes, errno, getpass, hashlib, importlib.util, json, os, re, shlex, shutil, struct, subprocess, sys, tempfile, threading, time, types
 +import ast, collections, ctypes, errno, getpass, pwd, hashlib, importlib.util, json, os, re, shlex, shutil, struct, subprocess, sys, tempfile, threading, time, types
  from pathlib import Path
  sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "dm/tools"))
  import romfs as rfs
-@@ -2174,6 +2174,24 @@ def main(args=None):
+@@ -2202,6 +2202,24 @@ def main(args=None):
      if not want_lang: raise BuildError(f'unknown game language {lang_in!r}; give one of {language_list([c for c, _ in nacp.LANGUAGES])}, by code or by name')
      env = dict(os.environ, PATH=os.pathsep.join(TOOL_PATHS + [os.environ.get('PATH', '/usr/bin:/bin:/usr/sbin:/sbin')]))
      env.setdefault('USER', getpass.getuser())   # xcodegen fails without USER (Couldn't find current username)

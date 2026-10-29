@@ -1,12 +1,14 @@
 # Boot smoke route for scripts/regress.py (docs/development.md, The regression harness): key <TAB> value
-# The Zora's Domain save of bench.tsv: the title screen's Continue and the load prompt take the A presses at 20-32 s; on a cold start (new libraries, a busy Mac) the scene is up
-# at about 50 s with its banner until about 57 s, warm at about 35 s. Link stands until 72 s, then walks and turns the camera (bench.tsv zora-pan, 17 s later) and stands from about 100 s.
-# No screenshot after the walk: the frame step follows real time, so where the walk ends moves from run to run (a 33-bit dHash difference between two runs of one revision)
-save	saves/zora
-keys	20:A*4/4,72:RRight~5,79:LUp~4,85:RLeft~5,92:LUp~3,97:RRight~3
+# The outdoors save (saves/outdoors in the NSP folder; the earlier Zora's Domain save is gone): the title screen's Continue and the load prompt take the A and B presses by
+# frame 1700 (about 33 s with the prebuild); Link then stands in a field before a cliff from about 50 s, grass and trees moving in the wind (3 to 8 dHash bits between screenshots
+# 10 s apart). Frames: 2000 at about 40 s, 3000 at 57 s, 6000 at 107 s (M4 Pro, 2026-10-29, window on screen; a covered window runs at 20 fps, see frame-rate.md).
+# capture: the frame regress.py capture records for regress.py replay (Link standing; replays differ in up to about 150 pixels, the game's note, Open)
+save	saves/outdoors
+keys	f300:A,f500:A,f700:A,f900:A,f1100:B,f1300:A,f1500:A,f1700:A
 secs	110
 quick	70
-reach	2200@60
+reach	2500@60
 window	58	50
-shots	62,68
+shots	60,80
 hang	20
+capture	5000

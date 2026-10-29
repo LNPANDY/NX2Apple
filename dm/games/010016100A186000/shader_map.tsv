@@ -1,0 +1,28 @@
+# kind: evidence  SteamWorld Heist: Ultimate Edition shaders (provisional profile) (BNSH / BAHS in RomFS + main) → control section + code area keys (dm/gfx/tools/shader_split.py)
+# column 5 records where each key first appears; no PC shader pairing supplied
+package	index	stage	dm_ctl_sha16	source
+vs_bundle.bin	0	vertex	29c4a90a91ce1c51	/Bundle/data01.impak/Shaders/BasicEffect_Color.bnsh#BNSH@0x0#var0
+ps_bundle.bin	0	pixel	428e6f5b967fd666	/Bundle/data01.impak/Shaders/BasicEffect_Color.bnsh#BNSH@0x0#var0
+ps_bundle.bin	1	pixel	1c73801374d9f7a2	/Bundle/data01.impak/Shaders/BasicEffect_ColorTexture.bnsh#BNSH@0x0#var0
+vs_bundle.bin	1	vertex	db5dca2d69ef5e3b	/Bundle/data01.impak/Shaders/BasicEffect_ColorTexture.bnsh#BNSH@0x0#var0
+ps_bundle.bin	2	pixel	b1e74669496c8aea	/Bundle/data01.impak/Shaders/ColorTextureBloomBlend.bnsh#BNSH@0x0#var0
+ps_bundle.bin	3	pixel	b75b0ba9cae0541b	/Bundle/data01.impak/Shaders/ColorTextureBlur.bnsh#BNSH@0x0#var0
+ps_bundle.bin	4	pixel	f272fb227578d223	/Bundle/data01.impak/Shaders/ColorTextureGamma.bnsh#BNSH@0x0#var0
+ps_bundle.bin	5	pixel	c01bf654f4d12262	/Bundle/data01.impak/Shaders/ColorTextureOverlay.bnsh#BNSH@0x0#var0
+vs_bundle.bin	2	vertex	ebca150f7cc735b3	/Bundle/data01.impak/Shaders/ColorTextureOverlay.bnsh#BNSH@0x0#var0
+ps_bundle.bin	6	pixel	5e7d498f5018ab87	/Bundle/data01.impak/Shaders/ColorTextureOverlayFakeNearest.bnsh#BNSH@0x0#var0
+ps_bundle.bin	7	pixel	04229d34f45acbe2	/Bundle/data01.impak/Shaders/ColorTextureRescaleColor.bnsh#BNSH@0x0#var0
+ps_bundle.bin	8	pixel	7e433bfb19f552a0	/Bundle/data01.impak/Shaders/LightOverlayEffect.bnsh#BNSH@0x0#var0
+vs_bundle.bin	3	vertex	97fca885e3b69911	/Bundle/data01.impak/Shaders/LightOverlayEffect.bnsh#BNSH@0x0#var0
+vs_bundle.bin	4	vertex	1f4d79000bf56b4c	/Bundle/data01.impak/Shaders/LightOverlayEffect2.bnsh#BNSH@0x0#var0
+ps_bundle.bin	9	pixel	a7eab6a199d3b3db	/Bundle/data01.impak/Shaders/LightOverlayEffect2.bnsh#BNSH@0x0#var0
+ps_bundle.bin	10	pixel	3776108835c82bb2	/Bundle/data01.impak/Shaders/LightOverlayEffect2AO.bnsh#BNSH@0x0#var0
+vs_bundle.bin	5	vertex	60b40f323145088b	/Bundle/data01.impak/Shaders/LightOverlayEffect2AO.bnsh#BNSH@0x0#var0
+ps_bundle.bin	11	pixel	7ef4dcfd2c045d69	/Bundle/data01.impak/Shaders/LightOverlayEffect2AT.bnsh#BNSH@0x0#var0
+vs_bundle.bin	6	vertex	b57a414ab3613608	/Bundle/data01.impak/Shaders/LightOverlayEffect2WriteDepth.bnsh#BNSH@0x0#var0
+ps_bundle.bin	12	pixel	e7e6cfe49cfbc881	/Bundle/data01.impak/Shaders/LightOverlayEffect2WriteDepth.bnsh#BNSH@0x0#var0
+ps_bundle.bin	13	pixel	4be22334ed049ea0	/Bundle/data01.impak/Shaders/LightOverlayEffectAO.bnsh#BNSH@0x0#var0
+vs_bundle.bin	7	vertex	845309292f220c65	/Bundle/data01.impak/Shaders/LightOverlayEffectAO.bnsh#BNSH@0x0#var0
+vs_bundle.bin	8	vertex	f32e9f5c361864b6	/Bundle/data01.impak/Shaders/LightOverlayEffectAT.bnsh#BNSH@0x0#var0
+ps_bundle.bin	14	pixel	3cc4f25e5f99ab19	/Bundle/data01.impak/Shaders/LightOverlayEffectWriteDepth.bnsh#BNSH@0x0#var0
+vs_bundle.bin	9	vertex	d4c1d9bce7e535c3	/Bundle/data01.impak/Shaders/LightOverlayEffectWriteDepth.bnsh#BNSH@0x0#var0

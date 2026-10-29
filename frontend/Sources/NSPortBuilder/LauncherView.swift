@@ -156,7 +156,7 @@ struct ContentView: View {
         .onAppear {
             gamepad.perform = padAction
             gamepad.capture = { [consoleDriver] id, action in consoleDriver.consumePress(controllerID: id, isBack: action == .b) }
-            if performStartupChecks { library.migrateLaunchOptions() }
+            if performStartupChecks { library.migrateLaunchOptions(); CloudSavesMigration.run() }
             if qaManage.open {
                 if qaManage.ring { padFocus.show(default: nil) }
                 manageOpenFor = library.selected?.id

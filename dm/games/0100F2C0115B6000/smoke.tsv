@@ -1,6 +1,7 @@
 # Boot smoke route for scripts/regress.py (docs/development.md, The regression harness): key <TAB> value
 # The build's own save (<id>_build/run/save): the title screen's Continue and the load prompt take the A presses at 20-40 s, the cave beneath Hyrule Castle is up at about 38 s
 # (its banner until about 45 s); Link then stands with Zelda walking ahead
+# capture: the frame regress.py capture records for regress.py replay (Link stands in the cave, after the banner)
 save	run
 keys	20:A*6/4
 secs	95
@@ -9,3 +10,4 @@ reach	1400@45
 window	46	44
 shots	50,57,90
 hang	20
+capture	2400

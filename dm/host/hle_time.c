@@ -40,6 +40,13 @@ static int h_time_timespec(int64_t *ts) {
 }
 HLE_FORCE("_ZN2nn4time41GetStandardUserSystemClockCurrentTimespecEP8timespec", "C library real-time clock from the user clock → host real time", int, h_time_StdTimespec, int64_t *ts) { return h_time_timespec(ts); }
 HLE_FORCE("_ZN2nn4time43GetAdjustableUserSystemClockCurrentTimespecEP8timespec", "C library real-time clock from the adjustable user clock → host real time", int, h_time_AdjTimespec, int64_t *ts) { return h_time_timespec(ts); }
+// The C library's monotonic clock (SDK 22): musl's clock_gettime dispatches CLOCK_MONOTONIC to the steady clock through an ifunc over this symbol, whose SDK implementation asks the time service's
+// shared memory, which the host never maps. Unbound, the call fails and std::chrono::steady_clock::now() throws std::system_error: Well Dweller reached that at its first frame timer read (sdk+0x5f2e58
+// → std::terminate). The host's monotonic clock is the steady clock here, so clock_gettime and the steadiness agree
+static int h_time_mono_timespec(int64_t *ts) {
+    struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); ts[0] = t.tv_sec; ts[1] = t.tv_nsec; return 0;
+}
+HLE_FORCE("_ZN2nn4time37GetStandardSteadyClockCurrentTimespecEP8timespec", "C library monotonic clock from the steady clock → host monotonic time", int, h_time_MonoTimespec, int64_t *ts) { return h_time_mono_timespec(ts); }
 // User clock context (0x20 bytes: s64 offset + the steady time point it was made at; user time = offset + a steady time point of the same source ID, the snapshot below fills its +0x00 the same way).
 // The SDK reads it from the time service's shared memory, which the host never opens: it returns 0x74 and writes nothing. Unity's DateTime.UtcNow (Engage main+0x4ad40c; Ace Attorney Investigations
 // 1&2 per PR #14) then never starts its clock and reads 0001-01-01. Unity takes its time from GetCurrentTime plus system ticks and only compares the context to notice the clock being set, so like a
