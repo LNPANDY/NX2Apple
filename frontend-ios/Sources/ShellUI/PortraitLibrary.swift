@@ -15,6 +15,9 @@ struct PortraitLibrary: View {
     let openSettings: () -> Void
     let openControllers: () -> Void
     @Binding var position: ScrollPosition
+    @State private var rowID: String?
+    /// Set while the row itself chose the game, so it does not scroll under the finger.
+    @State private var rowSelecting = false
     @Environment(\.shellFocus) private var focus
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -22,25 +25,21 @@ struct PortraitLibrary: View {
     /// A short screen (the folded foldable is about 1.4:1) gets a smaller hero and smaller covers, so the hero,
     /// the row and Play all fit without scrolling.
     private var short: Bool { size.height + topInset < 700 }
-    private var heroHeight: CGFloat {
-        let tall = size.height + topInset
-        return twoPanes ? min(size.width * 0.95, tall * 0.5) : min(size.width * 1.02, tall * (short ? 0.44 : 0.52))
-    }
-    /// Whole covers and a third of the next one: the row shows it scrolls, and the edge cuts through a cover,
-    /// never through a name or a status.
+    /// Whole cards only, the gap as wide as the margin: the next card starts exactly at the screen edge, so the edge
+    /// falls between cards and never through a name or a status. Long names end in an ellipsis inside their card.
     private var coverSize: CGFloat {
-        let target: CGFloat = typeSize.isAccessibilitySize ? 170 : short ? 100 : 128
-        let available = size.width - 24
-        let whole = max(1, ((available + 16) / (target + 16)).rounded(.down))
-        return available / (whole + 0.34) - 16
+        let target: CGFloat = typeSize.isAccessibilitySize ? 300 : short ? 140 : 160
+        let available = size.width - 48
+        let count = max(1, ((available + 24) / (target + 24)).rounded(.down))
+        return (available - (count - 1) * 24) / count
     }
 
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    HeroView(game: selected.game, height: heroHeight, topInset: topInset,
-                             titleSize: twoPanes ? 36 : short ? 28 : 34) {
+                    HeroView(game: selected.game, width: size.width, topInset: topInset,
+                             titleSize: twoPanes ? 34 : short ? 26 : 32) {
                         if twoPanes {
                             Button { primary(selected) } label: {
                                 Label(selected.game.state.actionTitle, systemImage: selected.game.state.actionSymbol)
@@ -75,22 +74,26 @@ struct PortraitLibrary: View {
         VStack(alignment: .leading, spacing: 14) {
             SectionHeading(title: ShellStrings.text("Your games"), trailing: "\(games.count)").padding(.horizontal, 24)
             if twoPanes {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 116, maximum: 180), spacing: 18, alignment: .top)],
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 170, maximum: 260), spacing: 18, alignment: .top)],
                           alignment: .leading, spacing: 24) {
                     ForEach(games) { tile($0) }
                 }.padding(.horizontal, 24)
             } else {
                 ScrollView(.horizontal) {
                     // Not lazy: every cover is a focus target, so the D-pad can reach the ones still off screen.
-                    HStack(alignment: .top, spacing: 16) {
+                    HStack(alignment: .top, spacing: 24) {
                         ForEach(games) { tile($0).frame(width: coverSize) }
-                    }.scrollTargetLayout().padding(.horizontal, 24).padding(.vertical, 6)
+                    }.scrollTargetLayout().padding(.vertical, 6)
                 }
+                .contentMargins(.horizontal, 24, for: .scrollContent)
                 .scrollIndicators(.hidden)
                 .scrollTargetBehavior(.viewAligned)
-                .mask {
-                    LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.92),
-                                           .init(color: .black.opacity(0), location: 1)], startPoint: .leading, endPoint: .trailing)
+                .scrollPosition(id: $rowID, anchor: .leading)
+                // A game chosen elsewhere (at launch, in Recently played, after a fold) comes into view.
+                .onAppear { rowID = selected.id }
+                .onChange(of: selected.id) { _, id in
+                    guard !rowSelecting else { rowSelecting = false; return }
+                    withAnimation(reduceMotion ? nil : .smooth(duration: 0.3)) { rowID = id }
                 }
                 .padding(.vertical, -6)
             }
@@ -99,7 +102,7 @@ struct PortraitLibrary: View {
 
     private func tile(_ detail: GameDetail) -> some View {
         let chosen = detail.id == selected.id
-        return Button { select(detail.id) } label: {
+        return Button { rowSelecting = !chosen; select(detail.id) } label: {
             VStack(alignment: .leading, spacing: 0) {
                 CoverView(game: detail.game)
                     .shellTarget("lib.tile.\(detail.id)") { primary(detail) }
@@ -126,7 +129,7 @@ struct PortraitLibrary: View {
                 ForEach(recent) { detail in
                     Button { select(detail.id) } label: {
                         HStack(spacing: 14) {
-                            CoverView(game: detail.game, radius: 8).frame(width: 44, height: 44)
+                            CoverView(game: detail.game, radius: 6).frame(width: 78, height: 44)
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(detail.game.title).shellText(15, .semibold).multilineTextAlignment(.leading)
                                 Text(detail.game.recentlyPlayed ?? "").shellText(12.5).foregroundStyle(.white.opacity(0.5))
@@ -139,7 +142,7 @@ struct PortraitLibrary: View {
                     .buttonStyle(.plain)
                     .shellTarget("lib.recent.\(detail.id)") { select(detail.id) }
                     .id("lib.recent.\(detail.id)")
-                    if detail.id != recent.last?.id { Rectangle().fill(ShellPalette.hairline).frame(height: 1).padding(.leading, 58) }
+                    if detail.id != recent.last?.id { Rectangle().fill(ShellPalette.hairline).frame(height: 1).padding(.leading, 92) }
                 }
             }.padding(.horizontal, 24)
         }
@@ -170,21 +173,22 @@ struct PortraitLibrary: View {
     }
 }
 
-/// The chosen game's art edge to edge, darkened toward the type, with the state, the title and what to do next.
+/// The chosen game's banner, whole and edge to edge at the top, flowing into a blurred copy of itself where the
+/// state, the title and what to do next sit. The banner's own logo and the shell's title never overlap.
 struct HeroView<Accessory: View>: View {
     let game: GameTile
-    let height: CGFloat
+    let width: CGFloat
     let topInset: CGFloat
     var titleSize: CGFloat = 34
     @ViewBuilder let accessory: () -> Accessory
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
+        let bannerHeight = width * 9 / 16
         VStack(alignment: .leading, spacing: 10) {
             StatusLabel(state: game.state, prominent: true)
             Text(game.title).shellText(titleSize, .heavy, relativeTo: .largeTitle).tracking(-titleSize * 0.03)
                 .lineLimit(3).minimumScaleFactor(0.75).fixedSize(horizontal: false, vertical: true)
-                .shadow(color: .black.opacity(0.35), radius: 14)
                 .accessibilityAddTraits(.isHeader).accessibilityIdentifier("hero.title")
             if !meta.isEmpty {
                 Text(meta).shellText(13).foregroundStyle(.white.opacity(0.62))
@@ -195,34 +199,36 @@ struct HeroView<Accessory: View>: View {
             }
             accessory()
         }
-        .padding(.horizontal, 24).padding(.top, topInset + 64).padding(.bottom, 14)
-        .frame(maxWidth: .infinity, minHeight: height, alignment: .bottomLeading)
+        .padding(.horizontal, 24)
+        .padding(.top, max(topInset, bannerHeight - 26))
+        .padding(.bottom, 18)
+        .frame(maxWidth: .infinity, alignment: .bottomLeading)
         .background {
-            ZStack {
-                // Key art is made to sit behind a title. An icon carries its own lettering, which must not compete
-                // with the shell's title: it is softened, enlarged and darkened further.
-                ArtView(art: game.heroArt ?? game.cover, title: game.title, seed: game.id, lettering: false)
-                    .blur(radius: iconOnly ? 14 : 0, opaque: true)
-                    .scaleEffect(iconOnly ? 1.15 : 1)
-                    .overlay { if iconOnly { Color.black.opacity(0.22) } }
-                    .id(game.id).transition(.opacity)
-                // Clear only in the upper part: the type below must win over whatever lettering the art has.
-                LinearGradient(stops: [.init(color: .black.opacity(0.55), location: 0),
-                                       .init(color: .clear, location: 0.2),
-                                       .init(color: .clear, location: 0.32),
-                                       .init(color: .black.opacity(0.55), location: 0.58),
-                                       .init(color: ShellPalette.background.opacity(0.94), location: 0.82),
-                                       .init(color: ShellPalette.background, location: 1)],
+            ZStack(alignment: .top) {
+                ArtView(game: game, backdrop: true)
+                    .scaleEffect(1.4)
+                    .blur(radius: 50, opaque: true)
+                    .saturation(1.2)
+                    .overlay(Color.black.opacity(0.35))
+                ArtView(game: game, lettering: false)
+                    .frame(width: width, height: bannerHeight)
+                    .mask {
+                        LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.72),
+                                               .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom)
+                    }
+                LinearGradient(stops: [.init(color: .black.opacity(0.45), location: 0),
+                                       .init(color: .clear, location: min(0.3, (topInset + 40) / max(1, bannerHeight * 2)))],
                                startPoint: .top, endPoint: .bottom)
-                LinearGradient(colors: [.black.opacity(0.28), .clear], startPoint: .leading, endPoint: .trailing)
+                // The blurred colour settles into the page at the bottom edge.
+                LinearGradient(stops: [.init(color: .clear, location: 0.55), .init(color: ShellPalette.background, location: 1)],
+                               startPoint: .top, endPoint: .bottom)
             }
+            .id(game.id).transition(.opacity)
             .animation(reduceMotion ? .linear(duration: 0.15) : .easeInOut(duration: 0.35), value: game.id)
             .accessibilityHidden(true)
         }
         .clipped()
     }
-
-    private var iconOnly: Bool { game.heroArt == nil && game.cover != nil }
 
     private var meta: String {
         [game.subtitle, game.recentlyPlayed ?? ""].filter { !$0.isEmpty }.joined(separator: "  ·  ")

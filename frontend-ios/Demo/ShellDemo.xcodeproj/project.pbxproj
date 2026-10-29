@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		2861C1407044359116FE0A66 /* ShellCaptureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8694319745E3759D50772855 /* ShellCaptureTests.swift */; };
+		2EEF6A8F9A7D58C09181EAB5 /* RealArt.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF911DEE5C19B0D069418726 /* RealArt.swift */; };
 		3E143B39E0F97A669D2F6EFF /* ShellAdditionalTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF3DBBE6BC067DDD34E3560C /* ShellAdditionalTests.swift */; };
 		44E0EBFDB9557A0C8BB741BE /* ShellUI in Frameworks */ = {isa = PBXBuildFile; productRef = 7F6858A53523100F9E10590E /* ShellUI */; };
 		4749F987D74B27CAA0E02480 /* ShellDemoApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59E0A7AE45425C5BA9689FE4 /* ShellDemoApp.swift */; };
@@ -40,6 +41,7 @@
 		CEB77983EFFD9EA46FE3DFDF /* ShellDemoUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = ShellDemoUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		D1591481D38DDC20A1A9B215 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		DF3DBBE6BC067DDD34E3560C /* ShellAdditionalTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellAdditionalTests.swift; sourceTree = "<group>"; };
+		FF911DEE5C19B0D069418726 /* RealArt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RealArt.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -66,6 +68,7 @@
 			isa = PBXGroup;
 			children = (
 				779E0E026682ED6CDDF647C6 /* DemoControllerInput.swift */,
+				FF911DEE5C19B0D069418726 /* RealArt.swift */,
 				39DB78D11BCF59879A3712F5 /* SampleArt.swift */,
 				CBE23919FFDC3D06EF0D3065 /* SampleData.swift */,
 				59E0A7AE45425C5BA9689FE4 /* ShellDemoApp.swift */,
@@ -208,6 +211,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				E305EAC2B52CE23FC907C7C7 /* DemoControllerInput.swift in Sources */,
+				2EEF6A8F9A7D58C09181EAB5 /* RealArt.swift in Sources */,
 				D94D715334EE4F5E0CCBA788 /* SampleArt.swift in Sources */,
 				E71FEFEAE303CA4343BBDE2E /* SampleData.swift in Sources */,
 				4749F987D74B27CAA0E02480 /* ShellDemoApp.swift in Sources */,

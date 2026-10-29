@@ -23,8 +23,8 @@ xcodebuild -project frontend-ios/Demo/ShellDemo.xcodeproj -scheme ShellDemo \
 
 All boundary types are in `Sources/ShellUI/ShellInputs.swift` and `ShellArtwork.swift`:
 
-- `GameTile` and `GameDetail`: title, a short subtitle, the cover, optional wider hero art, state, recent-play text, settings, game-data source, cloud saves and additional content.
-- `Artwork`: a picture decoded once by the host, from the NACP icon's bytes (`Artwork(id:data:)`) or a `CGImage`. The views draw it and make their blurred backdrops from a small copy. Without one, a calm placeholder is drawn from the title.
+- `GameTile` and `GameDetail`: title, a short subtitle, the 16:9 banner, the optional square icon, state, recent-play text, settings, game-data source, cloud saves and additional content.
+- `Artwork`: a picture decoded once by the host, from file bytes (`Artwork(id:data:)`) or a `CGImage`. The banner is the game's 16:9 key art, the eShop banner the Mac launcher caches per title ID. Covers, Cover Flow cards and the hero all use it. Without a banner the square NACP icon is shown whole inside the 16:9 card on a blurred copy of itself, never stretched. Without either, a calm placeholder is drawn from the title.
 - `GameState`: playable, needs game data, needs an app update, or broken with a reason.
 - `SettingSection`, `SettingRow`, `SettingKind`, `SettingOption`: ordered toggle, choice and range rows with string values, as in launcher.json. The caller resolves dependencies, defaults and locked rows (`enabled`).
 - `ControllerInfo`: a connected controller, its player and an optional battery level.
@@ -49,18 +49,20 @@ Only the available size decides, never the device model, idiom or orientation (`
 
 | Size | Layout |
 | --- | --- |
-| Compact, taller than wide (iPhone portrait, a folded foldable, Split View) | One column: the chosen game's art as a full-bleed hero with the title over it, a row of covers, recently played, Play and settings at the bottom for the thumb. Settings push over the library. |
-| Regular width and height, not wide (iPad portrait, an unfolded foldable held like a book) | Two panes: the same library with a cover grid and Play in the hero, settings inline beside it. |
-| Wider than tall (iPhone and iPad landscape, an unfolded foldable on its side) | Cover Flow over the blurred cover. Settings open as a panel on the right (regular) or over the library (compact). |
+| Compact, taller than wide (iPhone portrait, a folded foldable, Split View) | One column: the chosen game's banner edge to edge at the top, flowing into its blurred colour where the title sits, a row of wide cards, recently played, Play and settings at the bottom for the thumb. Settings push over the library. |
+| Regular width and height, not wide (iPad portrait, an unfolded foldable held like a book) | Two panes: the same library with a grid of wide cards and Play in the hero, settings inline beside it. |
+| Wider than tall (iPhone and iPad landscape, an unfolded foldable on its side) | Cover Flow over the blurred banner, wide cards in a calm deck. Settings open as a panel on the right (regular) or over the library (compact). |
 
 The settings pane is one view in one place for every layout, so the selected game, open settings and both scroll positions survive a fold, a rotation or a Stage Manager resize.
 
-Controller first: the D-pad and stick move a cream focus ring, A activates, B backs out, X opens settings, Y opens controllers. In Cover Flow, left and right move the carousel by one cover and the focused cover is always the middle one. Keyboard arrows, Return and Escape take the same path. Touch and pointer use ordinary controls.
+Controller first: the D-pad and stick move a cream focus ring, A activates, B backs out, X opens settings, Y opens controllers. In Cover Flow, left and right move the carousel by one card and the focused card is always the middle one. Keyboard arrows, Return and Escape take the same path. Touch and pointer use ordinary controls.
 
 Manrope and its SIL OFL licence are bundled and registered at runtime, with the system font as fallback. Reduce Motion turns the Cover Flow tilt and the slides into plain crossfades. Shell strings are in `Resources/Localizable.xcstrings`.
 
 ## Demo
 
-Seven fictional games with their own drawn cover art (`Sources/ShellDemo/SampleArt.swift`, rendered to images at launch so the views get them exactly as real icons). Launch arguments: `--screen library|settings|needs-data|needs-update|broken|empty|controllers|controllers-empty|focus`, `--games <n>`, `--select <id>`, `--input-test` (on-screen controller buttons) and `--fold-test` (the foldable stand-in: the running shell in a frame that switches between a 1.4:1 folded size and a larger unfolded one).
+Seven sample games. With `--real-art` the demo reads real Switch art at runtime from where the Mac launcher keeps it: the banner cache in the host's `~/Library/Application Support/NS Port Builder/artwork/<TITLEID>.jpg` and this checkout's `docs/images`, which the Simulator can read. `--art-dir <folder>` (repeatable) names other folders. A sample entry whose art is found becomes that real game (name and title ID in `SampleData.swift`). Without the files every entry stays fictional, with a square icon drawn in `SampleArt.swift`, so the demo and its tests work on any machine. No picture is part of this package, and `.gitignore` keeps them out.
 
-`UITests/` checks navigation, controller input, setting edits, rotation and the fold. `ShellCaptureTests` captures every screen. With `TEST_RUNNER_SHOT_DIR` set it also writes the PNGs to that folder.
+Other launch arguments: `--screen library|settings|needs-data|needs-update|broken|empty|controllers|controllers-empty|focus`, `--games <n>`, `--select <id>`, `--input-test` (on-screen controller buttons) and `--fold-test` (the foldable stand-in: the running shell in a frame that switches between a 1.4:1 folded size and a larger unfolded one, `--unfolded` to start open).
+
+`UITests/` checks navigation, controller input, setting edits, rotation and the fold. `ShellCaptureTests` captures every screen. With `TEST_RUNNER_SHOT_DIR` set it also writes the PNGs to that folder, and `TEST_RUNNER_SHOT_REAL_ART=1` launches the demo with `--real-art`.

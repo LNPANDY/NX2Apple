@@ -13,13 +13,19 @@ func demoText(_ key: String.LocalizationValue) -> String {
 @MainActor enum SampleData {
     static var games: [GameDetail] {
         let tiles: [GameTile] = [
-            GameTile(id: "orbit", title: "Orbit Valley", subtitle: demoText("Version 1.4.0"), cover: SampleArt.cover("orbit"), heroArt: SampleArt.keyArt("orbit"), recentlyPlayed: demoText("Played today")),
-            GameTile(id: "tide", title: "The Quiet Tide", subtitle: demoText("Version 2.0.1"), cover: SampleArt.cover("tide"), heroArt: SampleArt.keyArt("tide"), recentlyPlayed: demoText("Played yesterday")),
-            GameTile(id: "paper", title: "Paper Trails", subtitle: demoText("Version 1.0.0"), cover: SampleArt.cover("paper"), heroArt: SampleArt.keyArt("paper"), state: .needsGameData),
-            GameTile(id: "moon", title: "Moonlit Express", subtitle: demoText("Version 3.1.0"), cover: SampleArt.cover("moon"), heroArt: SampleArt.keyArt("moon"), state: .needsAppUpdate),
-            GameTile(id: "wild", title: "Wild Gardens", subtitle: demoText("Version 1.2.0"), cover: SampleArt.cover("wild"), heroArt: SampleArt.keyArt("wild"), state: .broken(reason: demoText("This game's bundled files could not be verified. Rebuild the app to restore them."))),
-            GameTile(id: "drift", title: "Drift Atlas", subtitle: demoText("Version 1.1.0"), cover: SampleArt.cover("drift"), heroArt: SampleArt.keyArt("drift")),
-            GameTile(id: "amber", title: "Amber Hours", subtitle: demoText("Version 1.0.2"), cover: SampleArt.cover("amber"))
+            SampleArt.tile("orbit", title: "Orbit Valley", version: "1.4.0", real: RealTitle("The Legend of Zelda: Breath of the Wild", "01007EF00011E000", "zelda-breath-of-the-wild.jpg"),
+                           recentlyPlayed: demoText("Played today")),
+            SampleArt.tile("tide", title: "The Quiet Tide", version: "2.0.1", real: RealTitle("Hades", "0100535012974000", "hades.jpg"),
+                           recentlyPlayed: demoText("Played yesterday")),
+            SampleArt.tile("paper", title: "Paper Trails", version: "1.0.0", real: RealTitle("The Legend of Zelda: Tears of the Kingdom", "0100F2C0115B6000", "zelda-tears-of-the-kingdom.jpg"),
+                           state: .needsGameData),
+            SampleArt.tile("moon", title: "Moonlit Express", version: "3.1.0", real: RealTitle("Super Smash Bros. Ultimate", "01006A800016E000", "super-smash-bros-ultimate.jpg"),
+                           state: .needsAppUpdate),
+            SampleArt.tile("wild", title: "Wild Gardens", version: "1.2.0", real: RealTitle("Batman: Arkham Knight", "0100ACD0163D0000", "batman-arkham-knight.jpg"),
+                           state: .broken(reason: demoText("This game's bundled files could not be verified. Rebuild the app to restore them."))),
+            SampleArt.tile("drift", title: "Drift Atlas", version: "1.1.0", real: RealTitle("Celeste", "01002B30028F6000", "celeste.jpg")),
+            // Always fictional: the icon-only fallback, a square icon inside a wide card.
+            SampleArt.tile("amber", title: "Amber Hours", version: "1.0.2", real: nil)
         ]
         return tiles.map { tile in
             GameDetail(game: tile, sections: [

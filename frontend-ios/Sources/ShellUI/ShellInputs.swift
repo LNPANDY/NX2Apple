@@ -13,20 +13,20 @@ public struct GameTile: Identifiable, Equatable, Sendable {
     public var title: String
     /// One short line under the title, such as the version.
     public var subtitle: String
-    /// The square cover, normally the game's NACP icon. Nil draws a calm placeholder from the title.
-    public var cover: Artwork?
-    /// Wider key art for the hero, when the game data has some. Nil uses the cover.
-    public var heroArt: Artwork?
+    /// The game's 16:9 key art, such as its eShop banner. Covers, Cover Flow cards and the hero all use it.
+    public var banner: Artwork?
+    /// The square NACP icon. Only a fallback without a banner: shown whole inside a 16:9 card, never stretched.
+    public var icon: Artwork?
     public var state: GameState
     /// Already localized, such as "Played today". Nil leaves the game out of Recently played.
     public var recentlyPlayed: String?
-    public init(id: String, title: String, subtitle: String = "", cover: Artwork? = nil, heroArt: Artwork? = nil,
+    public init(id: String, title: String, subtitle: String = "", banner: Artwork? = nil, icon: Artwork? = nil,
                 state: GameState = .playable, recentlyPlayed: String? = nil) {
         self.id = id
         self.title = title
         self.subtitle = subtitle
-        self.cover = cover
-        self.heroArt = heroArt
+        self.banner = banner
+        self.icon = icon
         self.state = state
         self.recentlyPlayed = recentlyPlayed
     }

@@ -139,24 +139,51 @@ struct CreamToggleStyle: ToggleStyle {
     }
 }
 
-/// A game's picture filling whatever frame it gets, or the placeholder when there is none.
+/// A game's picture filling whatever frame it gets: the banner, else the icon whole on a blurred copy of itself,
+/// else the placeholder.
 struct ArtView: View {
-    let art: Artwork?
-    let title: String
-    let seed: String
+    let game: GameTile
     /// Draw from the small copy, for a backdrop that is blurred anyway.
     var backdrop = false
     /// The placeholder's lettering. Off where the title is set beside the art already, as in the hero.
     var lettering = true
     var body: some View {
         Color.clear.overlay {
-            if let art {
-                Image(decorative: backdrop ? art.thumbnail : art.image, scale: 1)
+            if let banner = game.banner {
+                Image(decorative: backdrop ? banner.thumbnail : banner.image, scale: 1)
                     .resizable().interpolation(backdrop ? .medium : .high).scaledToFill()
+            } else if let icon = game.icon {
+                if backdrop {
+                    Image(decorative: icon.thumbnail, scale: 1).resizable().scaledToFill()
+                } else {
+                    IconCard(icon: icon)
+                }
             } else {
-                PlaceholderArt(title: title, seed: seed, lettering: lettering && !backdrop)
+                PlaceholderArt(title: game.title, seed: game.id, lettering: lettering && !backdrop)
             }
         }.clipped()
+    }
+}
+
+/// A square icon in a wide frame: whole and sharp in the middle, on a blurred and darkened copy of itself.
+private struct IconCard: View {
+    let icon: Artwork
+    var body: some View {
+        GeometryReader { geometry in
+            let side = min(geometry.size.height * 0.74, geometry.size.width * 0.74)
+            ZStack {
+                Image(decorative: icon.thumbnail, scale: 1).resizable().interpolation(.medium).scaledToFill()
+                    .frame(width: geometry.size.width, height: geometry.size.height)
+                    .blur(radius: max(8, geometry.size.height * 0.14), opaque: true)
+                    .saturation(1.15)
+                    .overlay(Color.black.opacity(0.3))
+                Image(decorative: icon.image, scale: 1).resizable().interpolation(.high).scaledToFit()
+                    .frame(width: side, height: side)
+                    .clipShape(RoundedRectangle(cornerRadius: side * 0.1))
+                    .shadow(color: .black.opacity(0.35), radius: side * 0.06, y: side * 0.03)
+            }
+            .frame(width: geometry.size.width, height: geometry.size.height)
+        }
     }
 }
 
@@ -176,26 +203,26 @@ struct PlaceholderArt: View {
                                         Color(hue: hue, saturation: 0.55, brightness: 0.13)],
                                startPoint: .topTrailing, endPoint: .bottomLeading)
                 Circle().fill(Color(hue: hue, saturation: 0.30, brightness: 0.62).opacity(0.30))
-                    .frame(width: side * 0.95, height: side * 0.95)
-                    .position(x: geometry.size.width * 0.78, y: geometry.size.height * 0.24)
+                    .frame(width: side * 1.1, height: side * 1.1)
+                    .position(x: geometry.size.width * 0.8, y: geometry.size.height * 0.22)
                 if lettering {
-                    Text(title).font(ShellFonts.fixed(max(9, side * 0.12), weight: .heavy)).tracking(-side * 0.003)
+                    Text(title).font(ShellFonts.fixed(max(9, side * 0.16), weight: .heavy)).tracking(-side * 0.004)
                         .foregroundStyle(ShellPalette.cream.opacity(0.92))
-                        .lineLimit(3).minimumScaleFactor(0.5).multilineTextAlignment(.leading)
-                        .padding(side * 0.09)
+                        .lineLimit(2).minimumScaleFactor(0.5).multilineTextAlignment(.leading)
+                        .padding(side * 0.11)
                 }
             }
         }
     }
 }
 
-/// A square cover with the hairline every picture gets, so dark art keeps its edge on the dark page.
+/// A 16:9 card with the hairline every picture gets, so dark art keeps its edge on the dark page.
 struct CoverView: View {
     let game: GameTile
-    var radius: CGFloat = 12
+    var radius: CGFloat = 10
     var body: some View {
-        ArtView(art: game.cover, title: game.title, seed: game.id)
-            .aspectRatio(1, contentMode: .fit)
+        ArtView(game: game)
+            .aspectRatio(16 / 9, contentMode: .fit)
             .clipShape(RoundedRectangle(cornerRadius: radius))
             .overlay(RoundedRectangle(cornerRadius: radius).strokeBorder(.white.opacity(0.10)))
             .accessibilityHidden(true)
