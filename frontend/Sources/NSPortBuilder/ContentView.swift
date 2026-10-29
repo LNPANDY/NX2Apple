@@ -135,6 +135,8 @@ final class BuildModel: ObservableObject {
         didSet { UserDefaults.standard.set(bcOnCPU, forKey: "bcOnCPU") }
     }
     @Published var archivePath = ""  // the romfs folder the pack wrote
+    @Published var gameDataNote = ""  // what the install did about the game data (GameDataInstall.swift)
+    var gameDataImage = ""            // the extraction's RomFS.img of a --romfs separate build that goes to a device, else ""
     /// Where this build's folder actually is: --work-dir when the checkout has it, else the script's
     /// default under the input folder (issue #5 — an upstream checkout has no --work-dir).
     var effectiveWorkDir = ""
@@ -1138,7 +1140,7 @@ final class BuildModel: ObservableObject {
         running = true; done = false; doneNote = ""; stages = []; logTail = ""; lineBuf = ""; chainNoteShown = false
         failure = nil; confirmingOverride = nil
         let override = takeOverrideFlag()   // for this build only: the next one asks again
-        installedOn = ""; installedAppPath = ""; bundleID = ""
+        installedOn = ""; installedAppPath = ""; bundleID = ""; gameDataNote = ""
         guard repoOK else {
             fail(repoPath.isEmpty ? t("msg.repoInvalidEmpty") : String(format: t("msg.repoInvalid"), shortPath(repoPath)))
             return
@@ -1242,6 +1244,7 @@ final class BuildModel: ObservableObject {
         }
         if hasWorkDir { args += ["--work-dir", workDir] }
         let macApp = target == "mac-app"
+        if !macApp { args += GameDataInstall.romfsArguments(bundled: false, supported: GameDataInstall.repoSupportsRomfsSeparate(repoPath)) }
         if macApp {
             // -o names the .app; the RomFS goes inside it, so the archive step is skipped below.
             args += ["--platform", "mac-app"]
@@ -1322,7 +1325,14 @@ final class BuildModel: ObservableObject {
                         self.cleanupStaging()
                     } else if self.installsDirectly {
                         // The same archive as for sideloading, then the app without the game files, then the archive into its Documents
-                        self.packArchive(workDir: self.effectiveWorkDir) { self.signAndInstall(archive: $0) }
+                        if let image = GameDataInstall.image(inWork: self.effectiveWorkDir) {
+                            self.gameDataImage = image
+                            self.archivePath = (image as NSString).deletingLastPathComponent
+                            self.signAndInstall(archive: self.archivePath)
+                        } else {
+                            self.gameDataImage = ""
+                            self.packArchive(workDir: self.effectiveWorkDir) { self.signAndInstall(archive: $0) }
+                        }
                     } else {
                         self.packArchive(workDir: self.effectiveWorkDir)   // keeps running=true until the archive is done
                     }
@@ -1534,7 +1544,7 @@ final class BuildModel: ObservableObject {
         return nil
     }
 
-    private func say(_ s: String) { append(s + "\n") }
+    func say(_ s: String) { append(s + "\n") }
     private func append(_ s: String) {
         logTail += s
         if logTail.count > 12000 { logTail = String(logTail.suffix(9000)) }
@@ -1901,6 +1911,9 @@ final class BuildModel: ObservableObject {
                 return self.finishInstall(String(format: self.t("dev.noProject"), self.shortPath(app + "/Info.plist")))
             }
             let tid = Self.titleID(self.basePath).map { String(format: "%016llX", $0) } ?? "game"
+            if !self.gameDataImage.isEmpty {
+                return self.installGameData(app: app, bundle: bundle, device: device, xcrun: xcrun, image: self.gameDataImage)
+            }
             // Copying the game files over USB is the slowest part of an install and the player may
             // rather hand the data to the device themselves (a fast external drive in Files), so it
             // is their call. Without game files there is nothing to ask about.
@@ -1977,7 +1990,7 @@ final class BuildModel: ObservableObject {
         }
     }
 
-    private func finishInstall(_ failure: String?, note: String? = nil) {
+    func finishInstall(_ failure: String?, note: String? = nil) {
         running = false
         done = failure == nil
         doneNote = failure ?? note ?? String(format: t("dev.installed"), deviceName(installDevice))
@@ -2172,7 +2185,7 @@ final class BuildModel: ObservableObject {
 
     /// One of Xcode's tools as a stage of the build: in its own process group (Stop ends it), its output in the log,
     /// its progress in the stage. `then` gets nil on success, else the last error line.
-    private func runTool(id: Int, name: String, _ command: [String], step: @escaping (String) -> (detail: String, percent: Double?)?,
+    func runTool(id: Int, name: String, _ command: [String], step: @escaping (String) -> (detail: String, percent: Double?)?,
                          then: @escaping (String?) -> Void) {
         // A stage that runs again (the team-variant signing retry uses the same id) keeps its row:
         // a second row with that id would never see an update again — every lookup takes the first
@@ -3254,6 +3267,7 @@ struct BuilderView: View {
                         Button(m.t("install.reveal")) { reveal(m.archivePath) }
                     }
                 }
+                if !m.gameDataNote.isEmpty { divider; row(m.gameDataNote, dot: LauncherPalette.ready) { EmptyView() } }
             }
         } else if m.done && m.target != "mac-app" {
             group(m.t("install.title")) {
