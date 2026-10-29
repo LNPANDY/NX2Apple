@@ -12,7 +12,7 @@ Tests in test_nsp_mac.py: two old chains are removed and the current one stays, 
 
 Upstream-Status: forwarded seedds/nxnative#682
 Reason: a build folder grows by about 2 GB per game with each upstream chain change until upstream merges it
-Issue: LNPANDY/NX2Apple#230
+Issue: LNPANDY/NX2Apple#231
 
 ---
  dm/games/01007EF00011E000/README.md |  1 +
