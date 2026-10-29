@@ -26,7 +26,7 @@ def dynsyms(img):
         if s: out.append((s, shndx != 0, info >> 4))
     return out
 
-def defined(img):   # {name: (offset, size)} of the module's defined dynamic symbols; {} without a symbol table (New Super Mario Bros. U Deluxe's sdk has none)
+def defined(img):   # {name: (offset, size)} of the module's defined dynamic symbols; {} without a symbol table it can read (New Super Mario Bros. U Deluxe's sdk: a 32-bit module, whose dynamic table has 8-byte entries)
     try:
         mod0 = struct.unpack_from('<I', img, 4)[0]
         if img[mod0:mod0 + 4] != b'MOD0': return {}

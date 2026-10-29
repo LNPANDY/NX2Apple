@@ -96,6 +96,11 @@ class Regress(unittest.TestCase):
         a = regress.normalize_red('[dm] [RED] shader 0a91af5bef8578e2: 12 bindings at 0x1f00 in /Volumes/NX/games/x [y]/b')
         b = regress.normalize_red('[dm] [RED] shader 1b91af5bef8578e3: 7 bindings at 0x2000 in /tmp/z')
         self.assertEqual(a, b)
+        # Scarlet: one red line, its register zero in one run ("x1=0") and not in the other ("x1=0x1")
+        a = regress.normalize_red('[dm] [RED] NVN unimplemented function called: nvnCommandBufferSetConservativeRasterDilate (x0=0x7f3c2a10 x1=0 x2=0x3)')
+        b = regress.normalize_red('[dm] [RED] NVN unimplemented function called: nvnCommandBufferSetConservativeRasterDilate (x0=0x7f3c2a10 x1=0x1 x2=0x3)')
+        self.assertEqual(a, b)
+        self.assertEqual(regress.red_kind(a.replace('x#=#', 'x#=0x#')), a)   # a kind stored in an older baseline
 
     def test_routes(self):   # every profile's smoke.tsv reads
         for f in (REPO / 'dm/games').glob('*/smoke.tsv'):

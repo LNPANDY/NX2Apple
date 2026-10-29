@@ -37,7 +37,7 @@ def _uleb(img, o):
 
 
 def fde_table(img):
-    """[(function start, FDE offset)] from the eh_frame_hdr binary search table; empty when the module has no valid eh_frame_hdr (New Super Mario Bros. U Deluxe's MOD0 points elsewhere)"""
+    """[(function start, FDE offset)] from the eh_frame_hdr binary search table; empty when the module has no valid eh_frame_hdr (New Super Mario Bros. U Deluxe: a 32-bit module)"""
     ehs, ehe = eh_frame_hdr(img)
     if ehe - ehs < 12 or img[ehs] != 1 or img[ehs + 3] in (0xFF, 0): return []
     _, penc, cenc, tenc = img[ehs:ehs + 4]

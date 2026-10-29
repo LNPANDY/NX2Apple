@@ -1,0 +1,47 @@
+# Game profile of Cult of the Lamb (Switch, update 1.5.28 = v1966080). Plays on the Mac
+# Format: see dm/games/README.md; bring-up and measurements in README.md beside this file
+# Unity 2022.3.62f3 (IL2CPP) with FMOD, SDK 19.3.14; subsdk0 is the movie module (the Devolver logo and the intro movies are MP4s in StreamingAssets).
+# The shaders are Unity's Shader and ComputeShader objects in the player's serialized files and the StreamingAssets bundles, read by unityfs.py (53,548), and the player's 11 GLSLC outputs in main.
+# The game asks for present interval 1 and runs at 60 fps
+
+# ---- Identity ----
+title_id	01002E7016C46000
+program_id	01002E7016C46000
+
+# ---- App ----
+# Game name: only a label for profile listings and the Mac window title; the iOS app name is the game name in the base NSP, and the bundle ID comes from the base game title ID (build_ipa.sh / NSP script)
+name	Cult of the Lamb
+ipa	CultOfTheLamb.ipa
+app_category	public.app-category.games
+
+# ---- Versions ----
+build	v1966080	1.5.28	main=316a4d4881a9f1e077a07262e917917c	subsdk0=b94b22a35b112945c8a43e9c40a93821	sdk=871fb219c95d507fd5b45f667d51f9c1
+package	v1966080
+shader_versions	v1966080
+
+# ---- Files ----
+# load order as on Horizon: main, subsdk*, sdk (subsdk0 = NintendoSDK_movie)
+modules	main subsdk0 sdk
+romfs_marker	Data/resources.resource
+zip_store	.assets:.bank:.bundle:.dat:.json:.mp4:.png:.resource:.ress:.metallib
+
+# ---- Memory ----
+# The NPDM declares 16 MB of system resource, so IsVirtualAddressMemoryEnabled is true: nninitStartup hands application pool − used memory to StandardAllocator as one address
+# region (main+0xb7e45c) and never calls SetMemoryHeapSize. The node area cut for this sdk build (dm/tools/sdk_patches.py) shrinks the AddressRegionManager's node area to 62 MB.
+# The layout of Ace Attorney Investigations Collection and Monster Train 2: a 1 GB pool and the 5 GB block (256 MB in front + 4.375 GB alias region + 256 MB stack region + 128 MB heap region).
+# With the hardware pool (3.2 GB) StandardAllocator's 3.14 GB region left Unity's own regions about 1.2 GB: the alias region reached +4.25 GB 25 s after boot, the title drew only its
+# clear colour, and the first movie crashed in Unity's ALLOC_DEFAULT_THREAD allocator (a write at NULL + 0xffffe0, main+0x6f86ec). With 1 GB: +3.51 GB in the first fight, 1.75 GB mapped
+sys_resource	0x1000000
+mem_reserve	0x140000000
+mem_alias	0x118000000
+mem_stack	0x10000000
+app_pool	0x40000000
+
+# ---- Graphics ----
+# The game calls nvnDeviceSetDepthMode(near = 0), so its vertex shaders use the main0_z entries; the pipeline bases made before it runs are made for that mode
+depth_mode	zero
+
+# ---- Shader split (shader_split.py; Unity Shader and ComputeShader objects, read by unityfs.py) ----
+# everything is under Data/: the player's serialized files and the StreamingAssets bundles
+shader_groups	/Data/=data
+shader_note	Cult of the Lamb shaders

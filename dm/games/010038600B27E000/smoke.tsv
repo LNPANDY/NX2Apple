@@ -1,0 +1,9 @@
+# Fresh save through the title, Story and Normal Mode into The Rippling Walls, where the Kid lies in bed until the stick moves: screenshots only while he lies still.
+save	new
+keys	24:A,28:A,32:A
+secs	90
+quick	80
+reach	3000@70
+window	62	25
+shots	70,78
+hang	20
