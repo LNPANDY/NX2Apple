@@ -68,12 +68,44 @@ def uv_pythons() -> list[str]:
     return out
 
 
+def version_manager_pythons() -> list[str]:
+    """The interpreters mise and asdf manage (issue #113).
+
+    mise keeps its installs in `~/.local/share/mise` (`MISE_DATA_DIR`) with shims in `shims/`,
+    asdf in `~/.asdf` (`ASDF_DATA_DIR`). A GUI process's PATH has neither. asdf's shims are
+    scripts that need `asdf` on the PATH, so only its installs are probed. Not on Windows.
+    """
+    if IS_WIN:
+        return []
+    # The interpreter itself, not `python3-config` and friends that share the folder.
+    name_re = re.compile(r'^python3(\.\d+)?$')
+
+    def newest_first(paths) -> list:
+        return sorted(paths, key=lambda n: [int(x) if x.isdigit() else 0
+                                            for x in re.split(r'(\d+)', Path(n).name)], reverse=True)
+
+    def named(d: Path) -> list[str]:
+        if not d.is_dir():
+            return []
+        return newest_first(str(p) for p in d.iterdir() if name_re.match(p.name))
+
+    home = Path.home()
+    mise = Path(os.environ.get('MISE_DATA_DIR') or home / '.local' / 'share' / 'mise')
+    asdf = Path(os.environ.get('ASDF_DATA_DIR') or home / '.asdf')
+    out: list[str] = []
+    for root in (mise / 'installs' / 'python', asdf / 'installs' / 'python'):
+        if root.is_dir():
+            for install in newest_first(root.iterdir()):
+                out += named(install / 'bin')
+    return out + named(mise / 'shims')
+
+
 def python_candidates(extra_candidates: list[str] | None = None) -> list[str]:
     """Every interpreter a build could run under, best first.
 
     The app's own venv, then whatever the caller passes (the interpreter the app installed for
     itself, which a machine with no system Python is exactly the one that has to be found again),
-    then the platform's usual installs, uv's store, and last what `which` can see — which, in a
+    then the platform's usual installs, uv's store, mise and asdf, and last what `which` can see — which, in a
     GUI launch, is next to nothing.
     """
     cands: list[str] = [venv_python()] + [c for c in (extra_candidates or []) if c]
@@ -90,6 +122,7 @@ def python_candidates(extra_candidates: list[str] | None = None) -> list[str]:
                 cands.append(f'{fw}/{v}/bin/python3')
         cands += ['/opt/homebrew/bin/python3', '/usr/local/bin/python3', '/usr/bin/python3']
         cands += uv_pythons()
+        cands += version_manager_pythons()
     if w := _which('python3' if not IS_WIN else 'python'):
         cands.append(w)
     return cands
@@ -112,12 +145,15 @@ def find_python(extra_candidates: list[str] | None = None) -> tuple[str, bool, s
 
     ready: tuple[str, str] | None = None     # newest that already has the packages
     fallback: tuple[str, str] | None = None  # newest that runs at all: 安装 finishes it
+    old_venv: tuple[str, str] | None = None  # the app's venv when it is below the floor
     seen: set[str] = set()
     for c in python_candidates(extra_candidates):
         if not c or c in seen or not Path(c).is_file():
             continue
         seen.add(c)
         ver = _python_version(c)
+        if ver and _ver_tuple(ver) < MIN_PYTHON and c == venv_python():
+            old_venv = (c, ver)
         if not ver or _ver_tuple(ver) < MIN_PYTHON:
             continue
         if _runs(c, ['-c', probe]):
@@ -129,6 +165,8 @@ def find_python(extra_candidates: list[str] | None = None) -> tuple[str, bool, s
         return (ready[0], True, ready[1])
     if fallback:
         return (fallback[0], False, fallback[1])
+    if old_venv:
+        return (old_venv[0], False, old_venv[1])   # the row says which version is too old
     return ('python' if IS_WIN else '/usr/bin/python3', False, '')
 
 
