@@ -193,7 +193,9 @@ class PackageCheckTests(unittest.TestCase):
                     'package.details', 'package.choose'):
             match = re.search(r'"' + re.escape(key) + r'": \("([^"]*)", "([^"]*)"\)', swift)
             self.assertIsNotNone(match, key)
-            self.assertEqual(TABLE[key], match.groups())
+            swedish = re.search(r'"' + re.escape(key) + r'": "([^"]*)",', swift)
+            self.assertIsNotNone(swedish, key)
+            self.assertEqual(TABLE[key], match.groups() + swedish.groups())
 
 
 @unittest.skipIf(QApplication is None, 'PySide6 is not installed')
