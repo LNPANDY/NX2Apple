@@ -476,7 +476,9 @@ def main(argv: list[str] | None = None) -> int:
     for m in mods:
         if not ((patched / f'{m}.patched.bin').exists() and (patched / f'{m}.fixups.tsv').exists()):
             die(f'no rewritten module {patched}/{m} (the rewrite step must run first)')
-    if not (romfs / marker).exists():
+    sys.path.insert(0, str(repo / 'dm' / 'tools'))
+    from romfs import Path as RomFSPath
+    if not (RomFSPath(romfs) / marker).exists():
         die(f'no RomFS at {romfs} (missing {marker})')
 
     name = env.get('DM_DISPLAY_NAME') or ''
@@ -667,7 +669,8 @@ def main(argv: list[str] | None = None) -> int:
         t('add-on content: ' + ' '.join(sorted(p.name for p in aoc.iterdir())))
     full = bool(env.get('DM_FULL_ROMFS'))
     if full:
-        maps.append(f'Payload/DmIOS.app/romfs={romfs}')
+        resource = 'romfs.img' if romfs.is_file() else 'romfs'
+        maps.append(f'Payload/DmIOS.app/{resource}={romfs}')
         t('packing the full IPA with the RomFS (only sensible for small games)')
     else:
         t('packing a slim IPA without the RomFS (the game files come from Documents/romfs)')
@@ -677,7 +680,7 @@ def main(argv: list[str] | None = None) -> int:
     if store:
         pack += ['--store', ':'.join(store.split(':'))]
     pack += ['--skip', 'Payload/DmIOS.app/msl', '--skip', 'Payload/DmIOS.app/aoc',
-             '--skip', 'Payload/DmIOS.app/romfs', *maps]
+             '--skip', 'Payload/DmIOS.app/romfs', '--skip', 'Payload/DmIOS.app/romfs.img', *maps]
     r = subprocess.run(pack, capture_output=True, text=True, errors='replace')
     if r.returncode:
         print(((r.stdout or '') + (r.stderr or ''))[-3000:], file=sys.stderr)

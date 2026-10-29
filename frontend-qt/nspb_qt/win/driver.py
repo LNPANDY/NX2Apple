@@ -228,7 +228,7 @@ def patch(mod: ModuleType, repo: Path, *, j: int | None = None) -> None:
     mod.heap_check = heap_check
 
     # ---------------------------------------------------------------- the shader cache key
-    def toolchain_probe():
+    def toolchain_probe(repo_=None, env=None):
         """What the shader-stage cache keys record as "the compilers".
 
         Upstream records `xcodebuild -version` and `spirv-cross --revision`. Here the Metal
