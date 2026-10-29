@@ -15,6 +15,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from c1_guard import Interval, definitions_of, known   # noqa: E402
+import dmsh_abi as abi   # noqa: E402
 import dmsh_chain   # noqa: E402
 
 MAX = 65536
@@ -24,7 +25,7 @@ def extents(source, bindings):
     """{reg: bytes} for the cbuf bindings whose every read is a proven index into _m0"""
     out, definitions = {}, None
     for b in bindings:
-        if b.get("kind") != "cbuf" or "reg" not in b: continue
+        if b.get("kind") != abi.KIND_CBUF or "reg" not in b: continue
         name = b["msl_name"]
         uses = len(re.findall(r"\b" + re.escape(name) + r"\b", source))
         reads = re.findall(r"\(\*spvDescriptorSet0\." + re.escape(name) + r"\)\._m0\[([^\]]+)\]", source)
@@ -50,7 +51,7 @@ def unwritten(source, bindings):
     writable (device, not const device), so the host takes a binding as written unless the table lists it"""
     out = []
     for b in bindings:
-        if b.get("kind") != "sbuf" or "reg" not in b: continue
+        if b.get("kind") != abi.KIND_SBUF or "reg" not in b: continue
         name = "spvDescriptorSet0." + b["msl_name"]; ok = True
         for m in re.finditer(r"\(\*" + re.escape(name) + r"\b", source):
             j = m.end()
@@ -72,7 +73,7 @@ def row(path):
     """The table line for one shader's reflection json, or None"""
     try:
         with open(path, encoding="utf-8") as stream: bindings = json.load(stream).get("bindings") or []
-        if not any(b.get("kind") in ("cbuf", "sbuf") for b in bindings): return None
+        if not any(b.get("kind") in (abi.KIND_CBUF, abi.KIND_SBUF) for b in bindings): return None
         with open(path[:-5] + ".metal", encoding="utf-8") as stream: source = stream.read()
     except (OSError, ValueError):
         return None

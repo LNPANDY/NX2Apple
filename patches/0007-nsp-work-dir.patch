@@ -14,10 +14,10 @@ Issue: LNPANDY/NX2Apple#123
  1 file changed, 5 insertions(+), 2 deletions(-)
 
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index a963998b..5d973e24 100755
+index 16cfd4f2..d0dae5ba 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
-@@ -2062,6 +2062,7 @@ def parse_args(argv):
+@@ -2067,6 +2067,7 @@ def parse_args(argv):
      ap.add_argument('-l', '--language', help='game language, a code or a name: ja, fr, de, es, it, nl, pt, ru, ko, zh-Hans, zh-Hant, en-GB, fr-CA, es-419, pt-BR, Japanese, ... (default: the LANGUAGE setting, else English); '
                      'it must be one the game supports, which the console lists')
      ap.add_argument('--keep-extracted', action=argparse.BooleanOptionalAction, help='keep the extracted game files after the IPA is built, for the next build (default: the KEEP_EXTRACTED setting, on)')
@@ -25,7 +25,7 @@ index a963998b..5d973e24 100755
      ap.add_argument('--env-file', help='environment switches for a diagnostic build (one KEY=VALUE per line)')
      ap.add_argument('--gpu', help='NVN games: GPU architectures the app gets its pipeline archive for, made on this Mac with metal-tt, comma-separated: g18p (A19 / A19 Pro), or the name a device\'s log gives when the app has no archive for its GPU; '
                      'none = no archive, the device builds the bases on its first start (default: the PSO_GPUS setting; when that is empty, g18p for a game whose profile sets pso_mtl4 on, else none). '
-@@ -2238,10 +2239,12 @@ def main(args=None):
+@@ -2243,10 +2244,12 @@ def main(args=None):
          if alias and not derived: derived = f'title {app:016X} is not game profile {g.id}\'s title {g.title_id:016X}'
          if derived: say(f'{derived}: packing {pkg_ver} from a profile derived from it')
      versions = [pkg_ver] if derived else need + ([pkg_ver] if pkg_ver not in need else [])

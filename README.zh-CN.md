@@ -159,6 +159,8 @@ iPhone 上在「文件」App 里该 App 名字下：`save/` 和 `log.txt`（上�
 
 `dm/third_party` 里随附了其他项目及其许可证（[列表](dm/third_party/README.md)）。
 
+[LICENSE](LICENSE) 是标准 MIT 文本，版权行为 seedds（nxnative）、jhaizhou（d2r-mobile）以及 LNPANDY 和 NX2Apple 贡献者。[NOTICE](NOTICE) 说明代码的来源，以及哪一部分由 LNPANDY 编写。
+
 ## 法律
 
 **本项目是什么。** 一个为你**已拥有**的游戏做构建的工具。它读取你在自己机器上从自己的卡带和购买中

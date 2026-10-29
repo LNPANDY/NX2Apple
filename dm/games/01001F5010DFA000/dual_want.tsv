@@ -1,0 +1,3 @@
+# Pixel shaders a pipeline blends with their output 1 as the second source (dual-source blending): dmsh_build.py gives each a dual-source entry point (fs_dual). Rows: shader key, noted by the host with DM_NVN_DUAL_WANT
+f4f36a03b0c6691d
+ff45da02e225f961

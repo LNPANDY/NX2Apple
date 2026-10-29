@@ -605,7 +605,7 @@ final class BuildModel: ObservableObject {
     // The rules (what is verified, which copies replace themselves, never during a build) are in AppUpdate.swift.
 
     /// Bump together with each release tag; the update check compares it with the latest release.
-    static let appVersion = "0.5.0"
+    static let appVersion = "0.6.0"
     /// The update checkAppUpdate found: the tag, the asset to download, its digest, and the release
     /// notes the sheet shows. The notes are why the sheet exists — "update available" alone told a
     /// user nothing about what they would get.
@@ -1817,11 +1817,163 @@ final class BuildModel: ObservableObject {
         }
     }
 
-    private func finishInstall(_ failure: String?) {
+    private func finishInstall(_ failure: String?, note: String? = nil) {
         running = false
         done = failure == nil
-        doneNote = failure ?? String(format: t("dev.installed"), deviceName(installDevice))
+        doneNote = failure ?? note ?? String(format: t("dev.installed"), deviceName(installDevice))
         cleanupStaging()
+    }
+
+    /// Reinstall the signed app that is already in derived data, without unpacking, signing or packing again: the
+    /// device keeps the app's Documents (game data and saves), as the bundle ID does not change. A reinstall that
+    /// fails on an expired signature says so in devicectl's words; signing again is not this button's job.
+    func reinstallOnDevice(then: (() -> Void)? = nil) {
+        let device = installedOn, app = installedAppPath
+        guard !device.isEmpty, !app.isEmpty else { then?(); return }
+        guard FileManager.default.fileExists(atPath: app) else {
+            doneNote = String(format: t("dev.reinstallMissing"), shortPath(app))
+            then?(); return
+        }
+        running = true
+        runTool(id: 1004, name: String(format: t("dev.reinstallStage"), deviceName(device)),
+                Self.reinstallCommand(xcrun: xcrunPath, device: device, app: app), step: Self.installStep) { error in
+            if let error {
+                // The app is still on the device: a failed reinstall is a note, not a failed build
+                self.running = false
+                self.doneNote = String(format: self.t("dev.reinstallFailed"), error)
+            } else {
+                self.finishInstall(nil, note: String(format: self.t("dev.reinstalled"), self.deviceName(device)))
+            }
+            then?()
+        }
+    }
+
+    nonisolated static func reinstallCommand(xcrun: String, device: String, app: String) -> [String] {
+        [xcrun, "devicectl", "device", "install", "app", "--device", device, app]
+    }
+
+    /// Renew an installed app's signature (a free Apple ID's profile lasts 7 days). The same xcodebuild parameters as
+    /// the install, run on the cached project and derived data: Xcode reuses the compiled products and only signs
+    /// again, then devicectl installs the app over itself. PRODUCT_BUNDLE_IDENTIFIER is the installed app's own, so the
+    /// device keeps that app's Documents (game data, saves); a retry under another identifier would lose them.
+    func resignOnDevice(app: String, device: String, then: (() -> Void)? = nil) {
+        guard !device.isEmpty, !app.isEmpty else { then?(); return }
+        guard !signingTeam.isEmpty else {
+            doneNote = t("dev.resignNoTeam")
+            then?(); return
+        }
+        guard let bundle = NSDictionary(contentsOfFile: app + "/Info.plist")?["CFBundleIdentifier"] as? String else {
+            doneNote = String(format: t("dev.noProject"), shortPath(app + "/Info.plist"))
+            then?(); return
+        }
+        guard let paths = Self.buildPaths(ofApp: app), FileManager.default.fileExists(atPath: paths.project) else {
+            doneNote = String(format: t("dev.resignNoProject"), shortPath(Self.buildPaths(ofApp: app)?.project ?? app))
+            then?(); return
+        }
+        let xcrun = xcrunPath, team = signingTeam, name = deviceName(device)
+        DispatchQueue.global(qos: .userInitiated).async {
+            let scheme = Self.scheme(of: paths.project, xcrun: xcrun)
+            DispatchQueue.main.async {
+                guard let scheme else {
+                    self.doneNote = String(format: self.t("dev.noProject"), self.shortPath(paths.project))
+                    then?(); return
+                }
+                self.running = true
+                self.runTool(id: 1006, name: String(format: self.t("dev.resignStage"), name),
+                             Self.resignCommand(xcrun: xcrun, project: paths.project, scheme: scheme, device: device,
+                                                derived: paths.derived, team: team, bundle: bundle), step: Self.xcodeStep) { error in
+                    if let error, !error.isEmpty {
+                        self.running = false
+                        self.doneNote = String(format: self.t("dev.resignFailed"), error)
+                        then?(); return
+                    }
+                    self.runTool(id: 1007, name: String(format: self.t("dev.installStage"), name),
+                                 Self.reinstallCommand(xcrun: xcrun, device: device, app: app), step: Self.installStep) { installError in
+                        self.running = false
+                        if let installError {
+                            self.doneNote = String(format: self.t("dev.installFailed"), installError)
+                        } else {
+                            self.installedOn = device
+                            self.installedAppPath = app
+                            self.doneNote = String(format: self.t("dev.resigned"), name)
+                        }
+                        then?()
+                    }
+                }
+            }
+        }
+    }
+
+    /// The xcodebuild parameters of a re-sign: signAndInstall's, plus the installed app's own identifier. The same
+    /// derived data is what keeps Xcode from rebuilding the game's code.
+    nonisolated static func resignCommand(xcrun: String, project: String, scheme: String, device: String, derived: String,
+                                          team: String, bundle: String) -> [String] {
+        [xcrun, "xcodebuild", "-project", project, "-scheme", scheme, "-configuration", "Release",
+         "-destination", "id=\(device)", "-derivedDataPath", derived, "-allowProvisioningUpdates",
+         "DEVELOPMENT_TEAM=\(team)", "DM_COPY_ROMFS=NO", "PRODUCT_BUNDLE_IDENTIFIER=\(bundle)", "build"]
+    }
+
+    /// The cached project and derived data an installed app came from, from the app's own path
+    /// (<work>/xcode-derived-data/Build/Products/Release-iphoneos/DmIOS.app): a re-sign must run there to reuse them.
+    nonisolated static func buildPaths(ofApp app: String) -> (project: String, derived: String)? {
+        guard let marker = app.range(of: "/Build/Products/") else { return nil }
+        let derived = String(app[..<marker.lowerBound])
+        let work = (derived as NSString).deletingLastPathComponent
+        return (work + "/xcode/DmIOS.xcodeproj", derived)
+    }
+
+    /// Ask where to write the .ipa, then pack the signed app there.
+    func saveIPAPanel() {
+        let p = NSSavePanel()
+        p.title = t("dev.saveIPATitle")
+        p.allowedFileTypes = ["ipa"]
+        p.nameFieldStringValue = defaultIPAName()
+        p.canCreateDirectories = true
+        guard p.runModal() == .OK, let url = p.url else { return }
+        saveIPA(to: url)
+    }
+
+    /// The signed app as an .ipa (Payload/<name>.app, the layout iOS and the sideloaders install): useful while the
+    /// signature lasts, and the thing to re-sign when it expires. The game data is not in it — it stays in the app's
+    /// Documents (romfs.img), as a normal iOS build has it.
+    func saveIPA(to url: URL, then: (() -> Void)? = nil) {
+        let app = installedAppPath, fm = FileManager.default
+        guard !app.isEmpty, fm.fileExists(atPath: app) else {
+            doneNote = String(format: t("dev.saveNeedsApp"), shortPath(app))
+            then?(); return
+        }
+        let stage = fm.temporaryDirectory.appendingPathComponent("nspb-ipa-" + UUID().uuidString)
+        let payload = stage.appendingPathComponent("Payload")
+        do {
+            try fm.createDirectory(at: payload, withIntermediateDirectories: true)
+            try fm.copyItem(atPath: app, toPath: payload.appendingPathComponent((app as NSString).lastPathComponent).path)
+        } catch {
+            try? fm.removeItem(at: stage)
+            doneNote = String(format: t("dev.saveFailed"), error.localizedDescription)
+            then?(); return
+        }
+        running = true
+        runTool(id: 1005, name: t("dev.saveStage"), Self.ipaCommand(payload: payload.path, ipa: url.path), step: { _ in nil }) { error in
+            try? fm.removeItem(at: stage)
+            self.running = false
+            self.doneNote = error.map { String(format: self.t("dev.saveFailed"), $0) }
+                ?? String(format: self.t("dev.savedIPA"), self.shortPath(url.path))
+            then?()
+        }
+    }
+
+    /// ditto writes the archive the way Finder's "compress" does; the IPA's root must be Payload/, and --norsrc keeps
+    /// __MACOSX out (the signature itself lives in _CodeSignature inside the app).
+    nonisolated static func ipaCommand(payload: String, ipa: String) -> [String] {
+        ["/usr/bin/ditto", "-c", "-k", "--norsrc", "--keepParent", payload, ipa]
+    }
+
+    /// The name the save panel offers: the app's display name, so two games' IPAs do not collide. A slash or colon in a
+    /// game's name would split the file name or show as a folder in Finder.
+    func defaultIPAName() -> String {
+        let plist = NSDictionary(contentsOfFile: installedAppPath + "/Info.plist")
+        let name = (plist?["CFBundleDisplayName"] as? String) ?? (plist?["CFBundleExecutable"] as? String) ?? "DmIOS"
+        return name.replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: ":", with: "_") + ".ipa"
     }
 
     /// The game's folder (romfs.img, aoc/) into the installed app's Documents, where main.m looks for this game's files first.
@@ -3125,7 +3277,7 @@ struct BuilderView: View {
                 }
             }
             divider
-            row(m.t("diag.title"), detail: m.t("diag.note")) { DiagnosticsButton(m: m, width: Self.settingsButtonWidth) }
+            row(m.t("diag.title"), detail: m.t("diag.note")) { DiagnosticsButton(m: m, game: library.selected, width: Self.settingsButtonWidth) }
         }
     }
 

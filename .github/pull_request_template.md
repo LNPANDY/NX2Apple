@@ -18,4 +18,5 @@
 ## Scope
 
 - [ ] No vendored file (`dm/`, `scripts/`, `docs/`, `ref/`, `AGENTS.md`) is edited directly: a change there is a patch in `patches/` (`scripts/patches.py export`, and `patches.py check` passes), with its `Upstream-Status`
+- [ ] A fix to the engine or a game profile is also (or first) a PR at seedds/nxnative: this PR's patch says `forwarded seedds/nxnative#...`
 - [ ] No keys, game files or data extracted from a game in the change or the attachments

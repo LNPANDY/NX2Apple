@@ -106,4 +106,92 @@ final class DiagnosticsTests: XCTestCase {
         let zstd = BuildModel.Dep(id: "brew:zstd", name: "dep.zstd", hint: "dep.zstd.hint", present: true, detail: "/opt/homebrew/bin/zstd", installCmd: [])
         XCTAssertEqual(Diagnostics.dependency(zstd).detail, "/opt/homebrew/bin/zstd")
     }
+
+    // ---- fork patches, Xcode and Metal, and the selected game's log ----
+
+    private func fakeProbe(_ answers: [String: String]) -> Diagnostics.Probe {
+        { args in answers[args.joined(separator: " ")] }
+    }
+
+    private let metal = "Apple metal version 32023.921 (metalfe-32023.921.6)"
+    private let probes = [
+        "/usr/bin/xcode-select -p": "/Applications/Xcode.app/Contents/Developer\n",
+        "/usr/bin/xcodebuild -version": "Xcode 26.1\nBuild version 17B55\n",
+        "/usr/bin/xcrun -sdk macosx metal --version": "Apple metal version 32023.921 (metalfe-32023.921.6)\nTarget: air64-apple-darwin25.1.0\nInstalledDir: /Users/jo/x",
+        "/usr/bin/xcrun -sdk iphoneos metal --version": "Apple metal version 32023.800 (metalfe-32023.800.1)\nTarget: air64",
+        "/usr/bin/xcrun --sdk iphoneos --show-sdk-version": "26.1\n",
+    ]
+
+    func testTheToolchainComesFromTheProbesAndKeepsOnlyTheCompilersFirstLine() {
+        let t = Diagnostics.toolchain(pins: (metal, metal), run: fakeProbe(probes))
+        XCTAssertEqual(t.xcodePath, "/Applications/Xcode.app/Contents/Developer")
+        XCTAssertEqual(t.xcodeVersion, "Xcode 26.1, Build version 17B55")
+        XCTAssertEqual(t.metalMac, metal)
+        XCTAssertEqual(t.metalIOS, "Apple metal version 32023.800 (metalfe-32023.800.1)")
+        XCTAssertEqual(t.iosSDK, "26.1")
+        XCTAssertEqual(Diagnostics.toolchain(run: fakeProbe([:])), Diagnostics.Toolchain(), "nothing answers: nothing is invented")
+    }
+
+    func testTheReportNamesForkPatchesXcodeMetalAgainstThePinAndTheSDK() {
+        var i = inputs()
+        i.forkPatches = Diagnostics.patchList("runtime-profile\nromfsarc\n\n")
+        i.toolchain = Diagnostics.toolchain(pins: (metal, metal), run: fakeProbe(probes))
+        let report = Diagnostics.report(i)
+        for expected in [
+            "- Fork patches: runtime-profile, romfsarc",
+            "- Xcode: /Applications/Xcode.app/Contents/Developer (Xcode 26.1, Build version 17B55)",
+            "- Metal compiler (macOS): \(metal) (matches the pin)",
+            "- Metal compiler (iOS): Apple metal version 32023.800 (metalfe-32023.800.1) (pin: \(metal))",
+            "- iOS SDK: 26.1",
+        ] { XCTAssertTrue(report.contains(expected + "\n"), expected) }
+    }
+
+    func testTheReportSaysWhatIsMissing() {
+        let report = Diagnostics.report(inputs())   // nothing probed
+        XCTAssertTrue(report.contains("- Fork patches: not found\n"))
+        XCTAssertTrue(report.contains("- Xcode: not found\n"))
+        XCTAssertTrue(report.contains("- Metal compiler (macOS): not installed\n"))
+        XCTAssertTrue(report.contains("- iOS SDK: not installed\n"))
+        var i = inputs()
+        i.forkPatches = []
+        XCTAssertTrue(Diagnostics.report(i).contains("- Fork patches: none\n"))
+        XCTAssertFalse(report.contains("#### Selected game"), "no game selected")
+    }
+
+    func testThePinsAreReadFromTheChainLock() {
+        let lock = "# Translation chain\ndmsh_xlate.dll\tdbc483247a4cb22d\nmetal_macosx\t\(metal)\nmetal_iphoneos\tApple metal version 1 (x)\n"
+        XCTAssertEqual(Diagnostics.chainPins(lock).mac, metal)
+        XCTAssertEqual(Diagnostics.chainPins(lock).ios, "Apple metal version 1 (x)")
+        XCTAssertNil(Diagnostics.chainPins("dmsh_xlate.dll\tabc").mac)
+    }
+
+    func testTheSelectedGamesSectionHasItsBuiltPatchesAndARedactedLogTail() {
+        var i = inputs()
+        var lines = (1...300).map { "game line \($0)" }
+        lines[299] = "title_key = 0123456789abcdef0123456789abcdef"
+        i.game = Diagnostics.GameInfo(name: "Hades", titleID: "0100535012974000", builtForkPatches: "runtime-profile,romfsarc",
+                                      logPath: "/Users/jo/Library/Logs/nxnative/0100535012974000.log", log: lines)
+        let report = Diagnostics.report(i)
+        XCTAssertTrue(report.contains("- Game: Hades (0100535012974000)\n"))
+        XCTAssertTrue(report.contains("- Fork patches of the built app: runtime-profile, romfsarc\n"))
+        XCTAssertTrue(report.contains("- Game log: ~/Library/Logs/nxnative/0100535012974000.log\n"))
+        XCTAssertTrue(report.contains("Last 200 game log lines:"))
+        XCTAssertTrue(report.contains("````text\ngame line 101\n"))
+        XCTAssertFalse(report.contains("game line 100\n"))
+        XCTAssertTrue(report.contains("title_key = [redacted]\n"))
+        XCTAssertFalse(report.contains("0123456789abcdef0123456789abcdef"))
+        i.game?.logPath = nil; i.game?.log = []; i.game?.builtForkPatches = nil
+        let none = Diagnostics.report(i)
+        XCTAssertTrue(none.contains("- Game log: none yet, the game was not run\n"))
+        XCTAssertTrue(none.contains("- Fork patches of the built app: no Mac app built\n"))
+    }
+
+    func testNoNewReportTextHasASemicolonInAnUserFacingString() {
+        for key in ["diag.note", "library.showLog", "library.showLog.none"] {
+            for lang in [Lang.en, .zh] {
+                let text = L10n.string(key, lang)
+                XCTAssertFalse(text.contains(";") || text.contains("\u{FF1B}"), "\(key) \(lang)")
+            }
+        }
+    }
 }

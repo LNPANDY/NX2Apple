@@ -228,6 +228,21 @@ jobs:
       - name: Tests
         run: python -m unittest discover -s frontend-qt/tests -v
 
+  triage-scripts:
+    name: Triage script tests (.github/scripts)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.14'
+      # Pure Python: the issue triage's log extractor and symptom matcher, and the strict validator of the model's output
+      - name: Tests
+        run: python -m unittest discover -s .github/scripts/tests -v
+
   ios-build:
     name: Unsigned iOS app (synthetic modules, Swift and link)
     runs-on: xcode-27

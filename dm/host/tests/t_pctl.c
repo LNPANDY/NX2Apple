@@ -35,7 +35,7 @@ int main(void) {
     for (size_t i = 0; i < sizeof args / sizeof *args; i++) {
         if (check) CHECK(check(args[i]) == 0, "permission query denies communication, with or without UI");
         if (begin) CHECK(begin(args[i]) == 0, "begin agrees with the permission query");
-        if (stereo) CHECK(stereo(args[i]) == 1, "stereoscopic 3D stays allowed (positive control)");
+        if (stereo) CHECK(stereo(args[i]) == 0, "stereoscopic 3D not permitted: no VR display, as pl::BeginVrMode answers");
         if (end) end();
         if (check) CHECK(check(args[i]) == 0, "ending communication does not grant permission");
         if (available) CHECK(available() == 0, "permission queries do not make communication available");

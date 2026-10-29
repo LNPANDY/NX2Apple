@@ -23,6 +23,13 @@ Issue: LNPANDY/NX2Apple#<n>
 A status may carry a note in brackets. `scripts/patches.py status` lists every patch with its status, reason and age, so the
 list of what the fork carries and why is one command, and it should keep shrinking.
 
+## Upstream first
+
+A fix to the engine (`dm/`, `scripts/`, `ref/`), to a game profile (`dm/games/<id>/`) or to upstream's docs is a pull request to
+[seedds/nxnative](https://github.com/seedds/nxnative) first, or at least also. A patch here is only a bridge until upstream has it:
+its status is `forwarded seedds/nxnative#<n>`, and the next bump drops it once the change is in. Do not open a fork patch with
+`pending` for something that belongs upstream. A feature upstream does not want is `fork-only`, with the reason in `Reason:`.
+
 ## Day to day
 
 ```sh

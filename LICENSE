@@ -1,15 +1,8 @@
 MIT License
 
+Copyright (c) 2026 seedds
 Copyright (c) 2026 jhaizhou
-Copyright (c) 2026 LNPANDY (RomFS archive subsystem: dm/host/romfs_arc.*,
-dm/tools/romfs_arc.py, dm/host/tests/t_romfs_arc.c, and the integration in
-dm/host/hle_fs.c, dm/host/Makefile, dm/ios/Sources/main.m and
-dm/ios/tools/build_ipa.sh)
-
-This work is derived from nxnative (https://github.com/seedds/nxnative),
-which in turn grew out of d2r-mobile
-(https://github.com/jhaizhou-ops/d2r-mobile). The original copyright notice
-above is retained as the MIT License requires.
+Copyright (c) 2026 LNPANDY and NX2Apple contributors
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

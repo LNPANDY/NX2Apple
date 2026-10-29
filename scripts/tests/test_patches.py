@@ -371,5 +371,23 @@ class GeneratedIndexes(Fixture):
         self.assertIn('0002-index.patch', out); self.assertIn('generated', out)
 
 
+class HostTestRules(unittest.TestCase):
+    def test_sdk16_tests_keep_runtime_profile_linkage_after_refresh(self):
+        r = subprocess.run(
+            ['make', '-n', '-B', 'GAME=010015100B514000', 'build/t_language', 'build/t_shared_font'],
+            cwd=REPO / 'dm/host/tests', capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        for name in ('t_language', 't_shared_font'):
+            command = next(line for line in r.stdout.splitlines() if f'-o build/{name} ' in line)
+            self.assertIn(f'{name}.c ../hle_profile.c', command)
+            if name == 't_language':
+                self.assertIn('-fsanitize=address,undefined', command)
+        rules = (REPO / 'dm/host/tests/Makefile').read_text().splitlines()
+        prerequisites = ' '.join(line for line in rules if line.startswith('run:'))
+        for name in ('t_language', 't_input_map', 't_launcher_contract', 't_touchpad_geometry'):
+            self.assertIn(f'$(B)/{name}', prerequisites)
+            self.assertIn(f'\t$(B)/{name}', rules)
+
+
 if __name__ == '__main__':
     unittest.main()

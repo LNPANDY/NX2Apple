@@ -91,6 +91,7 @@ Game-specific findings; the general host changes they led to are listed under [F
 ## Mac routes
 
 - `DM_KEYS="12:A,14:A,20:A,26:A,32:A"` reaches the opening course.
+- Frame capture and replay ([development.md](../../../docs/development.md#frame-capture-and-replay)): with that route, `DM_NVN_CAPTURE=3000:1:<file>` (Toadette's welcome dialogue on the opening course; 873 regions, 257 MB) replays bit for bit in 8 fresh replays of 8 (2026-10-29, M4 Pro); only counter reports differ in the pools. `DM_DETCLOCK` cannot be used for it: the game stops presenting at about frame 150, waiting for guest time.
 - v0 with a fresh save, step by step through `DM_CTL`: `L+R~0.3` at the title, then `A` (New Game), `A` (one player), `LUp~0.2` and `A` (a character), `A` (OK); about 15 s later the course's opening dialogue, where `shot` lines every 0.35 s gave the black-block counts in [Rendering](#rendering).
 - 1.2.1 from [#377](https://github.com/seedds/nxnative/issues/377)'s save (World 1, at the Badge House on the map), through `DM_CTL` from about 35 s after start: `L+R~0.3`, `A` (the user), `A` (one player), `A` (Mario), `A` (OK); on the map `A` enters the Badge House, then `LLeft~0.8` and `LRight~0.9`, and the Poplin's dialogue opens; screenshots every 0.3 s there gave the 1.2.1 counts.
 
