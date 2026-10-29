@@ -12,8 +12,8 @@ The folder is chosen in each app's launcher: Cloud saves in the Mac settings win
 
 Tested: dm/host/tests/t_save_sync.c (47 checks, also under TSan and ASan/UBSan), and TOTK 1.4.3 between an iPhone and a Mac in both directions.
 
-Upstream-Status: pending
-Reason: Cross-save between a game's Mac and iPhone apps through an iCloud Drive folder the player picks (CloudKit needs entitlements these signings do not have); not sent to seedds/nxnative yet
+Upstream-Status: forwarded seedds/nxnative#617
+Reason: Cross-save between a game's Mac and iPhone apps through an iCloud Drive folder the player picks (CloudKit needs entitlements these signings do not have)
 Issue: none yet
 
 ---
