@@ -456,7 +456,6 @@ TABLE: dict[str, tuple[str, str, str, str]] = {
     'build.resultIOS': ('iPhone 构建已完成', 'iPhone build complete', 'iPhone-bygget är klart', 'iPhone-Build abgeschlossen'),
     'build.resultMac': ('Mac 构建已完成', 'Mac build complete', 'Mac-bygget är klart', 'Mac-Build abgeschlossen'),
     'build.showLibrary': ('查看游戏', 'View game', 'Visa spel', 'Spiel ansehen'),
-    'app.subtitle': ('Switch 游戏 → iPhone IPA · 归档分片 · 大内存', 'Switch games → iPhone IPA · archive shards · large memory', 'Switch-spel → iPhone-IPA · arkivsegment · stort minne', 'Switch-Spiele → iPhone-IPA · Archiv-Shards · viel Arbeitsspeicher'),
     'repo.title': ('项目仓库', 'Project repository', 'Projektförråd', 'Projekt-Repository'),
     'repo.note': ('App 调用这里的构建脚本', 'the app runs the build scripts from here', 'appen kör byggskripten härifrån', 'die App führt die Build-Skripte von hier aus'),
     'repo.choose': ('选择仓库…', 'Choose repository…', 'Välj förråd …', 'Repository wählen …'),
