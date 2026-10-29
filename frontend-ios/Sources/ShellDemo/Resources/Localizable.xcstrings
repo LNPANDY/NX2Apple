@@ -381,72 +381,12 @@
         }
       }
     },
-    "Version 1.0.0": {
+    "Version %@": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Version 1.0.0"
-          }
-        }
-      }
-    },
-    "Version 1.0.2": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Version 1.0.2"
-          }
-        }
-      }
-    },
-    "Version 1.1.0": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Version 1.1.0"
-          }
-        }
-      }
-    },
-    "Version 1.2.0": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Version 1.2.0"
-          }
-        }
-      }
-    },
-    "Version 1.4.0": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Version 1.4.0"
-          }
-        }
-      }
-    },
-    "Version 2.0.1": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Version 2.0.1"
-          }
-        }
-      }
-    },
-    "Version 3.1.0": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Version 3.1.0"
+            "value": "Version %@"
           }
         }
       }

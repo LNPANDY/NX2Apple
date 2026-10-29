@@ -19,7 +19,8 @@ import XCTest
     }
     private func launch(_ arguments: [String]) {
         app.terminate()
-        app.launchArguments = arguments
+        // TEST_RUNNER_SHOT_REAL_ART=1: the demo reads real game art from the host (see RealArt.swift).
+        app.launchArguments = arguments + ((ProcessInfo.processInfo.environment["SHOT_REAL_ART"] ?? "").isEmpty ? [] : ["--real-art"])
         app.launch()
         _ = app.buttons["controllers.open"].firstMatch.waitForExistence(timeout: 10)
             || app.buttons["controllers.close"].waitForExistence(timeout: 2)

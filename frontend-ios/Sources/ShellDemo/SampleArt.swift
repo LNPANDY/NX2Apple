@@ -1,16 +1,14 @@
 import SwiftUI
 import ShellUI
 
-/// Cover art for the fictional sample games, drawn here and rendered to images at launch. The views receive them
-/// exactly as they will receive a real game's icon. Each game has its own palette, composition and lettering, so the
+/// Square icons for the fictional sample games, drawn here and rendered to images at launch. The views receive them
+/// exactly as they will receive a real game's NACP icon, the fallback when a game has no banner. Each game has its own palette, composition and lettering, so the
 /// library reads as a shelf of different games. Nothing here is taken from a real game.
 @MainActor enum SampleArt {
     private static var cache: [String: Artwork] = [:]
 
     /// The square icon, with the game's lettering, as a NACP icon has it.
-    static func cover(_ id: String) -> Artwork? { render(id, lettering: true) }
-    /// Key art: the same picture without lettering, for the hero.
-    static func keyArt(_ id: String) -> Artwork? { render(id, lettering: false) }
+    static func icon(_ id: String) -> Artwork? { render(id, lettering: true) }
 
     private static func render(_ id: String, lettering: Bool) -> Artwork? {
         let key = "\(id).\(lettering)"
@@ -38,7 +36,7 @@ import ShellUI
     }
 }
 
-/// Off for the key art: the same picture without the game's lettering, as a hero behind the shell's own title.
+/// The game's lettering in the picture. Always on for icons, kept switchable for previews of the bare art.
 private struct LetteringKey: EnvironmentKey { static let defaultValue = true }
 private extension EnvironmentValues {
     var lettering: Bool {

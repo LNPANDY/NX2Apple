@@ -2,7 +2,7 @@ import CoreGraphics
 import Foundation
 import ImageIO
 
-/// A game's picture, decoded once by the host: the square NACP icon, or wider key art when there is some.
+/// A game's picture, decoded once by the host: the 16:9 key art (the eShop banner) or the square NACP icon.
 /// The views only draw it. A tiny copy and the mean colour are made here, so the blurred backgrounds stay cheap.
 public struct Artwork: Equatable, @unchecked Sendable {
     public let id: String
