@@ -18,3 +18,4 @@ fork-patches-stamp
 nsp-dotnet-root-verify
 games-md-gallery
 cloud-saves
+lm3-depth-mode
