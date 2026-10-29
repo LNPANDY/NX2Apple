@@ -991,6 +991,16 @@ def probe_link(sdk: Path) -> tuple[bool, str]:
     if v.returncode != 0:
         return False, (f'{lld.name} does not run by itself (exit {v.returncode}): {lld_line[:200]}'
                        ' — reinstall LLVM-MinGW')
+    # The link needs two things from the SDK that a hollow or partial download lacks; their
+    # absence reads as "undefined symbol: puts" (libc) at link time while the COMPILE probe
+    # stays green (it needs headers only). Name them before blaming the linker.
+    missing = [n for n, there in (
+        ('usr/lib/libSystem.tbd', (sdk / 'usr' / 'lib' / 'libSystem.tbd').is_file()),
+        ('usr/lib/crt*.o', any((sdk / 'usr' / 'lib').glob('crt*.o'))),
+    ) if not there]
+    if missing:
+        return False, (f'SDK is missing {", ".join(missing)}: the download is incomplete — '
+                       're-download the SDK in the app, or use the xip route (doctor --sdk-xip)')
 
     src = '#include <stdio.h>\nint main(void) { puts("probe"); return 0; }\n'
     with ascii_temp_dir('nspb-link-') as td:
