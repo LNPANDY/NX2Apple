@@ -34,6 +34,11 @@ def detect(locale_name: str, platform: str = 'darwin', env: dict | None = None) 
 
 
 class Detect(unittest.TestCase):
+    def test_language_button_cycles_through_each_available_language(self):
+        self.assertEqual(Lang.ZH.other, Lang.EN)
+        self.assertEqual(Lang.EN.other, Lang.SV)
+        self.assertEqual(Lang.SV.other, Lang.ZH)
+
     def test_a_saved_choice_wins(self):
         self.assertEqual(detect('English_United States', env={'NSPB_LANG': 'zh'}), Lang.ZH)
         self.assertEqual(detect('Chinese (Simplified)_China', env={'NSPB_LANG': 'en'}), Lang.EN)

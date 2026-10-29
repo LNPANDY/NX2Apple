@@ -1,4 +1,4 @@
-"""Language choice: Chinese on Chinese devices, English everywhere else."""
+"""Language choice: Chinese and Swedish devices use their matching catalog."""
 from __future__ import annotations
 
 import locale
@@ -10,21 +10,22 @@ from enum import Enum
 class Lang(Enum):
     ZH = 'zh'
     EN = 'en'
+    SV = 'sv'
 
     @property
     def other(self) -> 'Lang':
-        return Lang.EN if self is Lang.ZH else Lang.ZH
+        return {Lang.ZH: Lang.EN, Lang.EN: Lang.SV, Lang.SV: Lang.ZH}[self]
 
     @property
     def toggle_label(self) -> str:
-        return 'EN' if self is Lang.ZH else '中文'
+        return {Lang.ZH: 'EN', Lang.EN: 'Svenska', Lang.SV: '中文'}[self]
 
     @staticmethod
     def initial() -> 'Lang':
         """Saved choice, else the device language: any Chinese variant is Chinese, everything
         else is English (the same rule the SwiftUI app uses)."""
         saved = os.environ.get('NSPB_LANG', '')
-        if saved in ('zh', 'en'):
+        if saved in ('zh', 'en', 'sv'):
             return Lang(saved)
         if sys.platform.startswith('win'):
             # Ask Windows first, and always — not only when locale.getlocale() came back empty.
@@ -43,7 +44,10 @@ class Lang(Enum):
                 lang = ctypes.windll.kernel32.GetUserDefaultUILanguage() & 0xFF   # primary id
                 buf = ctypes.create_unicode_buffer(85)
                 if ctypes.windll.kernel32.GetLocaleInfoW(lang, 0x00000002, buf, 85):   # LOCALE_SISO639LANGNAME
-                    return Lang.ZH if buf.value.lower().startswith('zh') else Lang.EN
+                    low = buf.value.lower()
+                    if low.startswith('zh'):
+                        return Lang.ZH
+                    return Lang.SV if low.startswith('sv') else Lang.EN
             except Exception:
                 pass          # fall through to the environment
         try:
@@ -54,4 +58,6 @@ class Lang(Enum):
         # On Windows the locale name is spelled out ("Chinese (Simplified)_China"), so the prefix
         # test alone misses every Chinese install there; the name contains "Chinese".
         low = tag.lower()
-        return Lang.ZH if low.startswith('zh') or 'chinese' in low else Lang.EN
+        if low.startswith('zh') or 'chinese' in low:
+            return Lang.ZH
+        return Lang.SV if low.startswith('sv') or 'swedish' in low else Lang.EN
