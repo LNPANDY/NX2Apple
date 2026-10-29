@@ -18,9 +18,6 @@ games-md-gallery
 cloud-saves
 lm3-depth-mode
 nsp-title-id-from-package
-<<<<<<< HEAD
 cheats-engine
 cheats-mac-panel
-=======
-0030-front-mac-enter-fullscreen-once-the-app-is-activ.patch
->>>>>>> f4d0444c (Carry seedds/nxnative#665: a game opened from a fullscreen app enters fullscreen once it is on the active Space)
+front-mac-enter-fullscreen-once-the-app-is-activ
