@@ -1710,14 +1710,32 @@ class VenvWheelsTest(unittest.TestCase):
     """The build packages ride in the zip: the venv installs offline from wheels/ beside the
     exe when it is there, and from PyPI exactly as before when it is not (source runs)."""
 
+    @staticmethod
+    def _pip_args_fn():
+        """model.py imports PySide6, which the CI test job deliberately does not install: run
+        the pure static function by extracting it from the source when Qt is absent."""
+        try:
+            from nspb_qt import model as M
+            return M.Model._pip_args
+        except ImportError:
+            import ast
+            src = (QT / 'nspb_qt' / 'model.py').read_text()
+            tree = ast.parse(src)
+            fn = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)
+                      and n.name == '_pip_args')
+            for n in ast.walk(fn):
+                ast.fix_missing_locations(n)
+            ns: dict = {}
+            exec(compile(ast.fix_missing_locations(ast.Module(body=[fn], type_ignores=[])),
+                         '<model>', 'exec'), ns)
+            return ns['_pip_args']
+
     def test_offline_args_when_wheels_are_bundled(self) -> None:
-        from nspb_qt import model as M
-        args = M.Model._pip_args(['lz4', 'nsz'], Path('C:/app/wheels'))
+        args = self._pip_args_fn()(['lz4', 'nsz'], Path('C:/app/wheels'))
         self.assertEqual(args, ['install', '--no-index', '--find-links', 'C:/app/wheels', 'lz4', 'nsz'])
 
     def test_pypi_args_when_not_bundled(self) -> None:
-        from nspb_qt import model as M
-        self.assertEqual(M.Model._pip_args(['lz4'], None), ['install', 'lz4'])
+        self.assertEqual(self._pip_args_fn()(['lz4'], None), ['install', 'lz4'])
 
     def test_the_log_row_string_takes_three_args(self) -> None:
         from nspb_qt.i18n import Lang
