@@ -15,6 +15,7 @@ from pathlib import Path
 
 from PySide6.QtCore import Q_ARG, QMetaObject, QObject, Qt, QThread, Signal, Slot
 
+from . import build_failure as bf
 from . import platform_util as pu
 from .i18n import Lang
 from .localization import t
@@ -83,6 +84,8 @@ class Model(QObject):
         self.stages: list[Stage] = []
         self.running = False
         self.log_tail = ''
+        self.failure: bf.Failure | None = None   # the script's known early stop (build_failure.py), None for any other
+        self.override = bf.OverrideState()      # "Build anyway": one confirmed --allow-* for the next build
         self._last_error = ''   # the last real log line: the failure note names it (issue #52)
         self.game_dir = ''
         self.base_path = ''
@@ -969,6 +972,8 @@ class Model(QObject):
             self.ipa_path = str(Path(self.out_dir, f'{tid_hex}.ipa'))
             args += ['-o', self.ipa_path]
         self.effective_work_dir = work_dir if has_work_dir else str(Path(input_dir, f'{tid_hex}_build'))
+        flag = self.override.take()   # for this build only: the next one asks again
+        args = bf.arguments(args, flag)
 
         self.running = True
         self.runningChanged.emit(True)
@@ -976,7 +981,11 @@ class Model(QObject):
         self.ipa_path = self.archive_path = self.mac_app_path = ''
         self.log_tail = ''
         self._last_error = ''
+        self.failure = None
+        self.override.cancel()
         self.stagesChanged.emit()
+        if flag:
+            self.log(self.t('fail.override.note', flag) + '\n')
         self.log(self.t('msg.running', py + ' ' + ' '.join(args)) + '\n')
 
         env = pu.child_env()
@@ -1030,12 +1039,33 @@ class Model(QObject):
                 # The last real line says more than the exit code: "Build failed (exit code 1)"
                 # on its own sent a reporter looking for a log that was not on screen (#52)
                 last = getattr(self, '_last_error', '')
-                self.finished.emit(False, self.t('msg.buildFailedReason', last) if last else self.t('msg.buildFailed'))
+                note = self.t('msg.buildFailedReason', last) if last else self.t('msg.buildFailed')
+                known = bf.classify(self.log_tail)
+                if known.kind != bf.UNKNOWN:   # a known early stop: the window explains it and offers the next step
+                    self.failure = known
+                    note = self.failure_what(known)
+                self.finished.emit(False, note)
             if staging:
                 shutil.rmtree(staging, ignore_errors=True)
 
         self._thread = threading.Thread(target=work, daemon=True)
         self._thread.start()
+
+    def failure_what(self, f: 'bf.Failure') -> str:
+        """The first sentence of a failure's hint (it names the game of a 32-bit program when the message does)."""
+        if f.kind == bf.A32_PROGRAM and f.game:
+            return self.t('fail.a32Program.whatNamed', f.game)
+        return self.t(f.what_key)
+
+    def fix_failure(self, f: 'bf.Failure') -> None:
+        """The failure card's fix buttons run the dependency rows' own fixes (install_dep, as Settings does)."""
+        if f.kind == bf.TRANSLATOR:
+            row = next((d for d in self.deps if d.id == 'dotnet'), None)
+            if row:
+                self.install_dep(row)
+        elif f.kind == bf.IOS_SDK and not pu.IS_WIN:
+            self.install_dep(Dep('xcode', 'dep.xcode', 'dep.xcode.hint', DepState.MISSING,
+                                 install=['/usr/bin/xcodebuild', '-downloadPlatform', 'iOS']))
 
     def cancel_build(self) -> None:
         if self._proc and self._proc.poll() is None:
@@ -1047,6 +1077,7 @@ class Model(QObject):
         """Feed one line of the build's output: stage lines move the stage list, everything
         else goes to the log (which is what the window shows)."""
         self.log(line + '\n')
+        self.log_tail = (self.log_tail + line + '\n')[-12000:]   # what the classifier reads on a failure
         # The last line that was not stage bookkeeping: a failed build's summary used to be the
         # bare exit code ("Build failed (exit code 1)"), which told the reporter nothing and sent
         # them looking for a log that a short window had below the fold (issue #52)

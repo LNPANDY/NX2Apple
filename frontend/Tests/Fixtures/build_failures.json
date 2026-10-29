@@ -1,0 +1,67 @@
+[
+ {
+  "id": "rosetta.intel",
+  "kind": "rosetta",
+  "source": "scripts/build_ipa_from_nsp.py",
+  "fragment": "is an Intel one running under Rosetta",
+  "text": "[RED] this Python (/usr/local/bin/python3) is an Intel one running under Rosetta, and the tools it starts would run as Intel code too: run the script with an arm64 Python (/usr/bin/python3, or Homebrew's in /opt/homebrew)"
+ },
+ {
+  "id": "translator.run",
+  "kind": "translator",
+  "source": "scripts/build_ipa_from_nsp.py",
+  "fragment": "the shader translator does not run (",
+  "text": "[RED] the shader translator does not run (You must install .NET to run this application.): it needs the .NET 10 runtime for this Mac's architecture (brew install --cask dotnet-sdk); unset DOTNET_ROOT if it names another one"
+ },
+ {
+  "id": "translator.start",
+  "kind": "translator",
+  "source": "scripts/build_ipa_from_nsp.py",
+  "fragment": "the shader translator does not start (",
+  "text": "[RED] the shader translator does not start ([Errno 8] Exec format error: '/r/dm/gfx/tools/dmsh_xlate_bin'): /r/dm/gfx/tools/dmsh_xlate_bin"
+ },
+ {
+  "id": "ios.sdk",
+  "kind": "iosSDK",
+  "source": "scripts/build_ipa_from_nsp.py",
+  "fragment": "the iOS SDK is not installed",
+  "text": "[RED] the iOS SDK is not installed: install the iOS platform in Xcode → Settings → Components, or with xcodebuild -downloadPlatform iOS"
+ },
+ {
+  "id": "clt.selected",
+  "kind": "cltSelected",
+  "source": "scripts/build_ipa_from_nsp.py",
+  "fragment": "the selected developer folder is the Command Line Tools",
+  "text": "[RED] the selected developer folder is the Command Line Tools (/Library/Developer/CommandLineTools), which have no iOS SDK: select Xcode with sudo xcode-select -s /Applications/Xcode.app"
+ },
+ {
+  "id": "metal.other",
+  "kind": "otherMetal",
+  "source": "dm/gfx/tools/own_compilers.py",
+  "fragment": "Metal compiler is not the one the shaders were tested with",
+  "text": "[RED] this Mac's Metal compiler is not the one the shaders were tested with (dm/gfx/tools/dmsh_chain.lock): metal_macosx Apple metal version 32023.883 (metalfe-32023.883.5) (tested: Apple metal version 32023.921 (metalfe-32023.921.6)). Untested compilers are unsupported (GitHub issue #242). Install Xcode 27.1 (macOS 26.6 or later) and its Metal toolchain (xcodebuild -downloadComponent MetalToolchain), or set ALLOW_OTHER_METAL = True (--allow-other-metal) to build with this one anyway"
+ },
+ {
+  "id": "shaders.regression",
+  "kind": "shaderRegression",
+  "source": "scripts/build_ipa_from_nsp.py",
+  "fragment": "a change to the translation chain broke them",
+  "text": "[RED] 3 shaders that translated in b-1a2b3c fail in b-4d5e6f: a change to the translation chain broke them (list: /w/logs/shader_regressions.log). Please report it at https://github.com/seedds/nxnative/issues with that list; ALLOW_SHADER_REGRESSIONS = True (--allow-shader-regressions) packs the app without those shaders"
+ },
+ {
+  "id": "nsp.damaged",
+  "kind": "damagedNSP",
+  "source": "dm/tools/nx_extract/Program.cs",
+  "fragment": "files fail the NCA's hash check",
+  "text": "[RED] hash check failed: ExeFS/main\n[RED] the NSP is damaged: 1 files fail the NCA's hash check (an incomplete copy or a broken download); copy or download it again, or pass --allow-damaged to write them as read\n[RED] nx_extract exit code 3 (full output: /w/logs/extract.log)"
+ },
+ {
+  "id": "arm32.program",
+  "kind": "a32Program",
+  "source": "scripts/build_ipa_from_nsp.py",
+  "fragment": "is a 32-bit ARM program",
+  "game": "Some Game",
+  "pending_sync": "seedds a3d603ac (Stop the survey on a 32-bit ARM program)",
+  "text": "[RED] Some Game (0100ABCD00000000) is a 32-bit ARM program (main.npdm: the 64-bit instruction flag is clear): Apple silicon cannot run 32-bit ARM code, and this repository runs a game's own AArch64 code, so it cannot be ported"
+ }
+]
