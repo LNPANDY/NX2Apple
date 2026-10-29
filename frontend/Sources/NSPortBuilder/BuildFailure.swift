@@ -5,7 +5,12 @@ import Foundation
 /// the log, cut to 200 characters. The classifier reads the whole log tail, because for a damaged NSP the
 /// last line is only "nx_extract exit code 3" and the message is a few lines above it.
 enum BuildFailureKind: String, CaseIterable {
-    case rosetta, translator, iosSDK, cltSelected, otherMetal, shaderRegression, damagedNSP, a32Program, unknown
+    case rosetta, translator, iosSDK, cltSelected, otherMetal, shaderRegression, damagedNSP, a32Program
+    /// The inputs: the keys file, the game folder, a drive that is gone.
+    case keys, severalGames, noTitleID, driveMissing
+    /// The build's and the install's own steps.
+    case diskFull, teamTaken, noSigningAccount, deviceTransfer
+    case unknown
 
     /// The script's override for this stop, offered as "Build anyway". Only these three have one that the launcher
     /// may offer: the others cannot be built around (a 32-bit program, a missing SDK).
@@ -26,6 +31,9 @@ enum BuildFailureKind: String, CaseIterable {
 struct BuildFailure: Equatable {
     var kind: BuildFailureKind
     var gameName: String?   // a32Program: the game, when the message names it
+    /// What the message adds to its row: the GB a full disk needs (diskFull), the drive's name (driveMissing), the folder
+    /// of "no NSP with a readable title ID" (noTitleID).
+    var detail: String? = nil
 }
 
 enum BuildFailureClassifier {
@@ -44,14 +52,70 @@ enum BuildFailureClassifier {
         ("shaders.regression", .shaderRegression, "a change to the translation chain broke them"),
         ("nsp.damaged", .damagedNSP, "files fail the NCA's hash check"),
         ("arm32.program", .a32Program, "is a 32-bit ARM program"),
+        ("keys.missing", .keys, "(?m)^\\[RED\\] no such file: "),
+        ("games.several", .severalGames, "more than one game in the folder, keep one game per folder"),
+        ("games.noTitleID", .noTitleID, "no NSP with a readable title ID in "),
+        ("disk.low", .diskFull, "less than [0-9]+ GB free on the volume of "),
+        ("disk.full", .diskFull, "No space left on device"),
     ]
 
+    /// What the launcher itself knows when the log says nothing it can use. The keys file and the game files are checked
+    /// first: a drive that is not connected makes every later message ("not a folder", a dangling link) a consequence.
+    struct Inputs {
+        var keysPath = ""
+        var paths: [String] = []          // the picked game files and the game folder
+        var volumes = "/Volumes"
+        var isReadable: (String) -> Bool = { FileManager.default.isReadableFile(atPath: $0) }
+    }
+
     /// `unknown` when no row matches: the caller then keeps showing the last line of the log.
-    static func classify(_ log: String) -> BuildFailure {
-        for row in table where log.range(of: row.pattern, options: .regularExpression) != nil {
-            return BuildFailure(kind: row.kind, gameName: row.kind == .a32Program ? gameName(in: log) : nil)
+    static func classify(_ log: String, inputs: Inputs = Inputs()) -> BuildFailure {
+        for path in [inputs.keysPath] + inputs.paths where !path.isEmpty && GameLibrary.onUnmountedVolume(path, volumes: inputs.volumes) {
+            let prefix = inputs.volumes.hasSuffix("/") ? inputs.volumes : inputs.volumes + "/"
+            let name = path.dropFirst(prefix.count).split(separator: "/").first.map(String.init)
+            return BuildFailure(kind: .driveMissing, gameName: nil, detail: name)
         }
+        for row in table where log.range(of: row.pattern, options: .regularExpression) != nil {
+            return BuildFailure(kind: row.kind, gameName: row.kind == .a32Program ? gameName(in: log) : nil, detail: detail(of: row.kind, in: log))
+        }
+        // The keys file is gone or cannot be read: nx_extract stops with an exit code and no line of its own for it.
+        if !inputs.keysPath.isEmpty, !inputs.isReadable(inputs.keysPath) { return BuildFailure(kind: .keys, gameName: nil) }
         return BuildFailure(kind: .unknown, gameName: nil)
+    }
+
+    private static func detail(of kind: BuildFailureKind, in log: String) -> String? {
+        switch kind {
+        case .diskFull:   // "less than 40 GB free on the volume of /Volumes/X/..."
+            guard let r = log.range(of: #"less than [0-9]+ GB free"#, options: .regularExpression) else { return nil }
+            return log[r].split(separator: " ").dropFirst(2).first.map(String.init)
+        case .noTitleID:   // "no NSP with a readable title ID in /path"
+            guard let r = log.range(of: #"(?m)no NSP with a readable title ID in (.+)$"#, options: .regularExpression),
+                  let at = log[r].range(of: " in ") else { return nil }
+            return String(log[r][at.upperBound...]).trimmingCharacters(in: .whitespaces)
+        default: return nil
+        }
+    }
+
+    /// A step of the install on a device that failed, with the tool's last error line. The sign step's own retry (the team's
+    /// variant of the bundle ID) has run already when this is called.
+    enum InstallStep { case sign, install, copy }
+
+    /// nil when the launcher has no better words than the tool's own line. `teamListed`: whether the chosen team is still one
+    /// the Mac knows (an account signed in to Xcode, or a development certificate in the keychain).
+    static func classifyInstall(_ step: InstallStep, error: String, teamListed: Bool) -> BuildFailure? {
+        if error.contains("No space left on device") { return BuildFailure(kind: .diskFull, gameName: nil) }
+        switch step {
+        case .sign:
+            if signingTeamTaken(error) { return BuildFailure(kind: .teamTaken, gameName: nil) }
+            return teamListed ? nil : BuildFailure(kind: .noSigningAccount, gameName: nil)
+        case .install, .copy:
+            return BuildFailure(kind: .deviceTransfer, gameName: nil)
+        }
+    }
+
+    /// xcodebuild's words when the app's identifier is registered to another team.
+    static func signingTeamTaken(_ error: String) -> Bool {
+        error.contains("cannot be registered to your development team") || error.contains("No profiles for 'org.nxnative.")
     }
 
     /// "<name> (<title ID>) is a 32-bit ARM program": the name is "?" when the extraction has none.

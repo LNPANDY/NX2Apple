@@ -7,8 +7,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QFontDatabase
+from PySide6.QtCore import Qt, QUrl
+from PySide6.QtGui import QDesktopServices, QFontDatabase
 from PySide6.QtWidgets import (
     QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QMainWindow,
     QProgressBar, QPushButton, QScrollArea, QSizePolicy, QTextEdit, QVBoxLayout, QWidget,
@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
 
 from . import platform_util as pu
 from .model import DepState, Model
-from .style import GREEN, MUTED, ORANGE, RED
+from .style import CARD_EDGE, GREEN, MUTED, ORANGE, RED
 
 
 class MainWindow(QMainWindow):
@@ -86,20 +86,6 @@ class MainWindow(QMainWindow):
     def _build_header(self) -> None:
         row = QHBoxLayout()
         row.setSpacing(8)
-        badge = QLabel('🎮')
-        badge.setFixedSize(40, 40)
-        badge.setAlignment(Qt.AlignCenter)
-        badge.setStyleSheet(f'background: {GREEN}; border-radius: 10px; font-size: 18px;')
-        row.addWidget(badge)
-        left = QVBoxLayout()
-        left.setSpacing(3)
-        self.title = QLabel('NS Port Builder')
-        self.title.setObjectName('title')
-        self.subtitle = QLabel(self.m.t('app.subtitle'))
-        self.subtitle.setObjectName('subtitle')
-        left.addWidget(self.title)
-        left.addWidget(self.subtitle)
-        row.addLayout(left)
         row.addStretch(1)
         self.lang_btn = QPushButton(self.m.lang.toggle_label)
         self.lang_btn.clicked.connect(self._toggle_lang)
@@ -354,7 +340,9 @@ class MainWindow(QMainWindow):
         self.failure_box.hide()
         outer.addWidget(self.failure_box)
 
-    _FIX_BUTTONS = {'translator': 'fail.translator.button', 'iosSDK': 'fail.iosSDK.button'}
+    _FIX_BUTTONS = {'translator': 'fail.translator.button', 'iosSDK': 'fail.iosSDK.button',
+                    'keys': 'fail.keys.button', 'severalGames': 'fail.showFolder', 'noTitleID': 'fail.showFolder',
+                    'diskFull': 'fail.showFolder'}
 
     def _show_failure(self) -> None:
         f = self.m.failure
@@ -372,8 +360,17 @@ class MainWindow(QMainWindow):
         self.failure_box.show()
 
     def _fix_failure(self) -> None:
-        if self.m.failure is not None:
-            self.m.fix_failure(self.m.failure)
+        f = self.m.failure
+        if f is None:
+            return
+        if f.kind == 'keys':
+            self._choose_input('keys')   # the same picker as the keys row
+        elif f.kind in ('severalGames', 'noTitleID', 'diskFull'):
+            folder = self.m.failure_folder(f)
+            if folder:
+                QDesktopServices.openUrl(QUrl.fromLocalFile(folder))
+        else:
+            self.m.fix_failure(f)
 
     def _build_anyway(self) -> None:
         """Asks first: the dialog states the risk. Nothing is armed until the player agrees."""
@@ -393,13 +390,12 @@ class MainWindow(QMainWindow):
     def _separator() -> QFrame:
         line = QFrame()
         line.setFrameShape(QFrame.HLine)
-        line.setStyleSheet('color: #31373f;')
+        line.setStyleSheet(f'color: {CARD_EDGE};')
         return line
 
     # ---------------------------------------------------------------- refresh
 
     def _refresh_all(self) -> None:
-        self.subtitle.setText(self.m.t('app.subtitle'))
         self.lang_btn.setText(self.m.lang.toggle_label)
         # everything built once at start-up re-reads its string here: the language toggle emits
         # repoChanged, and without this the card titles, the notes and the buttons kept their

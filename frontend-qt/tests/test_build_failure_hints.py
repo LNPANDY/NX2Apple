@@ -7,6 +7,8 @@ pattern, shared with the Swift tests. A sync of scripts/ or dm/ that rewords a m
 """
 from __future__ import annotations
 
+import errno
+import importlib.util
 import json
 import os
 import re
@@ -47,6 +49,9 @@ class Classifier(unittest.TestCase):
         """A sync that rewords a message must fail here, not turn a hint into the raw last line."""
         for f in FIXTURES:
             with self.subTest(pattern=f['id']):
+                if f['source'] == 'errno':   # the system's own text, not the script's
+                    self.assertEqual(os.strerror(errno.ENOSPC), f['fragment'])
+                    continue
                 there = f['fragment'] in (ROOT / f['source']).read_text(encoding='utf-8')
                 if f.get('pending_sync'):
                     self.assertFalse(there, f"{f['id']} is in {f['source']} now: remove pending_sync ({f['pending_sync']}) from the fixture")
@@ -79,6 +84,55 @@ class Classifier(unittest.TestCase):
     def test_the_swift_overrides_are_these(self):
         flags = dict(re.findall(r'case \.(\w+): return "(--allow-[\w-]+)"', SWIFT))
         self.assertEqual(flags, bf.OVERRIDE_FLAGS)
+
+
+class Rows(unittest.TestCase):
+    """The rows of issue #141: what sets each one, and that the text names the action."""
+
+    def test_each_row_appears_for_its_log_line(self):
+        for pid, kind in (('keys.missing', bf.KEYS), ('games.several', bf.SEVERAL_GAMES), ('games.noTitleID', bf.NO_TITLE_ID),
+                          ('disk.low', bf.DISK_FULL), ('disk.full', bf.DISK_FULL)):
+            self.assertEqual(bf.classify(fixture(pid)['text']).kind, kind, pid)
+        self.assertEqual(bf.classify('copying: no such file: x').kind, bf.UNKNOWN)
+
+    def test_details(self):
+        self.assertEqual(bf.classify(fixture('disk.low')['text']).detail, fixture('disk.low')['gb'])
+        self.assertIsNone(bf.classify(fixture('disk.full')['text']).detail)
+        log = 'skipping an empty file: a.nsp\n' + fixture('games.noTitleID')['text'] + '\n'
+        self.assertEqual(bf.classify(log).detail, fixture('games.noTitleID')['folder'])
+
+    def test_a_keys_file_that_cannot_be_read_is_known_from_the_file(self):
+        log = '[RED] nx_extract exit code 1 (full output: /w/extract.log)'
+        self.assertEqual(bf.classify(log, keys_readable=False).kind, bf.KEYS)
+        self.assertEqual(bf.classify(log, keys_readable=True).kind, bf.UNKNOWN)
+        self.assertEqual(bf.classify('[RED] the iOS SDK is not installed', keys_readable=False).kind, bf.IOS_SDK)
+
+    def test_the_text_names_the_action(self):
+        words = {bf.KEYS: ['Choose your prod.keys again'], bf.SEVERAL_GAMES: ['Move the other games'],
+                 bf.NO_TITLE_ID: ['Rename the file', '0100XXXXXXXXXXXX', 'exact package', 'iCloud', 'Show folder'],
+                 bf.DISK_FULL: ['Free up space', '_build']}
+        for kind, ws in words.items():
+            en = TABLE[f'fail.{kind}.next'][1]
+            for w in ws:
+                self.assertIn(w, en, kind)
+        for key in ('fail.showFolder', 'fail.keys.button', 'fail.diskFull.whatNeeds'):
+            self.assertIn(key, TABLE)
+            self.assertTrue(TABLE[key][2] and TABLE[key][2] != TABLE[key][1], key)   # Swedish present
+
+    @unittest.skipIf(importlib.util.find_spec('PySide6') is None, 'PySide6 is not installed')
+    def test_show_folder_opens_the_game_folder_and_for_a_full_disk_the_build_folder(self):
+        import tempfile
+        from nspb_qt.model import Model
+        m = Model()
+        with tempfile.TemporaryDirectory() as d:
+            m.base_path = str(Path(d, 'game.nsp'))
+            self.assertEqual(m.failure_folder(bf.Failure(bf.NO_TITLE_ID, detail='/x')), d)
+            self.assertEqual(m.failure_folder(bf.Failure(bf.DISK_FULL)), d)
+            Path(d, '0100F2C0115B6000_build').mkdir()
+            self.assertEqual(m.failure_folder(bf.Failure(bf.DISK_FULL)), str(Path(d, '0100F2C0115B6000_build')))
+        m.base_path = ''
+        self.assertEqual(m.failure_folder(bf.Failure(bf.NO_TITLE_ID, detail='/x/y')), '/x/y')
+        self.assertIn('40 GB', m.failure_what(bf.Failure(bf.DISK_FULL, detail='40')))
 
 
 class Override(unittest.TestCase):

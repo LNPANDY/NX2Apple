@@ -82,6 +82,15 @@
 - **Fix:** `scripts/build_ipa_from_nsp.py` `decompress_nsz` prefers the current Python's module: it links the file selected by `-k` as `keys.txt` in the conversion's temporary folder and runs `nsz -D` there, with `sys.argv[0]` set to `nsz` before import. Without the module, `nsz_command` probes `nsz` and `nsz-cli-macos-arm64` on the build's PATH and passes `--keys` to the first whose successful help lists that option. An unsupported or failed candidate does not hide the next one; when none works, the error lists the reasons and installation options. Executable, input and output paths are absolute because conversion changes directories. The temporary folder and link are removed on success or failure; the user's default keys are untouched.
 - **Found on:** [Super Mario Odyssey](../../dm/games/0100000000010000/README.md), converting its v0 NSZ. Applies to NSZ and XCZ inputs for every game. Synthetic tests during [PR #327](https://github.com/seedds/nxnative/pull/327) also reproduce an older console script hiding the release binary, a failed help probe containing `--keys`, and a relative PATH executable failing after the directory change; no game files are needed for those cases.
 
+## Package identification
+
+### An NSP without a ticket or a title ID in its name stops with "no NSP with a readable title ID"
+
+- **Symptom:** `[RED] no NSP with a readable title ID in <folder>`, although the keys open the package (the launcher's key check passes). Renaming the file to `Game [0100XXXXXXXXXXXX].nsp` makes the build go on.
+- **Cause:** `title_of` took the title ID only from the ticket's file name (`<rights ID>.tik`) or from a `[title ID]` tag in the package's file name. Many NSPs carry no ticket (standard-crypto dumps, repacks), and a download's file name often has no tag.
+- **Fix:** with neither, `title_of` asks the package: `nx_extract <prod.keys> --title <package>` opens it, decrypts the header of each meta NCA with the keys' `header_key` and prints the lowest title ID (the base game's before its update's or a DLC's). It works for NSP, NSZ (the meta NCA is not compressed), XCI and XCZ, and runs only when the ticket and the tag are both missing, so the common cases stay a read of the file name table. `nx_extract` is built into a temporary folder for it, since the build folder is named after the title ID. Key values are never printed.
+- **Found on:** NX2Apple, [LNPANDY/NX2Apple#177](https://github.com/LNPANDY/NX2Apple/issues/177) (Tears of the Kingdom, whose base NSP has no ticket). Applies to every game.
+
 ## Cartridge dumps
 
 ### A cartridge dump with its update on it extracts the update as the base game

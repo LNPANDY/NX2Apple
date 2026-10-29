@@ -49,6 +49,9 @@ jobs:
         working-directory: frontend-qt
         shell: bash
         run: |
+          # Manrope (the Mac launcher's typeface, SIL OFL 1.1) goes into the bundle's fonts folder
+          # with its licence; style.load_font() looks for it there.
+          PATHSEP=';'
           # --windowed: no console window. --name: the exe/bundle name.
           # --collect-all PySide6 copies the whole PySide6 package and OVERRIDES
           # --exclude-module (measured: the package stayed 247 MB with 38 exclusions in
@@ -110,6 +113,8 @@ jobs:
             --exclude-module PySide6.QtHttpServer \
             --exclude-module PySide6.QtGraphs \
             --exclude-module PySide6.QtGraphsWidgets \
+            --add-data "../frontend/fonts/Manrope.ttf${PATHSEP}fonts" \
+            --add-data "../frontend/fonts/Manrope-OFL.txt${PATHSEP}fonts" \
             --paths . \
             run_gui.py
 
