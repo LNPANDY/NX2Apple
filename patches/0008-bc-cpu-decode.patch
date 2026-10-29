@@ -75,7 +75,7 @@ index 4fd67122..65a16379 100644
  #include "../tex/nvn_deswizzle.h"
  #include "../tex/nvn_deswizzle_gpu.h"
  #include "nvn_builtin.h"
-@@ -79,6 +80,8 @@ static int g_warm_started;
+@@ -79,6 +80,8 @@ static inline uint64_t tex_slot_h(const uint64_t *tex, const uint64_t *img, unsi
  static void warm_claim(void);
  
  static id<MTLDevice> g_dev;
@@ -108,7 +108,7 @@ index 4fd67122..65a16379 100644
      // Metal's limits: 16384 in 2D, 2048 in 3D, 2048 array layers; beyond them Metal aborts the process on an assertion, so they are caught here with a red line
      if (t->d.width > 16384 || t->d.height > 16384 || t->d.depth > 2048) { RED_ONCE(71, "texture size exceeds Metal limits: %u×%u×%u levels %u format %#x target %d (first case ser=%llu)", t->d.width, t->d.height, t->d.depth, t->d.levels, t->d.format, t->d.target, (unsigned long long)t->serial); return nil; }
      MTLTextureDescriptor *d = [MTLTextureDescriptor new];
-@@ -2221,15 +2232,43 @@ static id<MTLTexture> pkg_upload_(const tex_t *t, uint64_t *stamp, id<MTLTexture
+@@ -2221,15 +2232,43 @@ static void zb_report(const tex_t *t, unsigned base, const char *why) {
          if (!(part = malloc(t->L.size ? t->L.size : 1))) MDIE("sparse texture copy of %llu bytes failed", (unsigned long long)t->L.size);
          nvn_sparse_copy(t->pool, part, (uint64_t)(uintptr_t)t->mem, t->L.size); src = part;
      }
@@ -153,7 +153,7 @@ index 4fd67122..65a16379 100644
              if (nvn_deswizzle(&t->d, l, y, src, (uint8_t *)stg.contents + off, pitch)) { RED_ONCE(9, "deswizzle failed format %#x target %d", t->d.format, t->d.target); break; }
              if (zb && l < 16) { const uint64_t *q = (const uint64_t *)((const uint8_t *)stg.contents + off); size_t nb = pitch * rows * z / 16;
                  for (size_t i = 0; i < nb; i++) g_zb[l] += !(q[2 * i] | q[2 * i + 1]);
-@@ -2238,6 +2277,7 @@ static id<MTLTexture> pkg_upload_(const tex_t *t, uint64_t *stamp, id<MTLTexture
+@@ -2238,6 +2277,7 @@ static void zb_report(const tex_t *t, unsigned base, const char *why) {
              off += pitch * rows * z;
          }
      }

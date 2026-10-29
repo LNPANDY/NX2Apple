@@ -793,7 +793,7 @@ diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
 index 19670a4a..234648b6 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
-@@ -185,7 +185,7 @@ static BOOL fullOnly(int b) { return b == B_LS || b == B_RS || b >= B_LEFT; }
+@@ -185,7 +185,7 @@ - (instancetype)initWithFrame:(CGRect)f {
          }
          _swap = shape(_controls); _swapLabel = label(_swap, @"");
          NSNumber *saved = [NSUserDefaults.standardUserDefaults objectForKey:k_layout_key];
