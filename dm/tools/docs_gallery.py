@@ -10,6 +10,8 @@ import html, pathlib, re, sys
 REPO = pathlib.Path(__file__).resolve().parents[2]
 TABLE = REPO / 'docs' / 'images' / 'gallery.tsv'
 OUT = REPO / 'GAMES.md'
+if not OUT.exists() and (REPO.parent / '.upstream-ref').is_file():
+    OUT = REPO.parent / 'GAMES.md'   # in engine/ (NX2Apple's tools/engine.py sync), GAMES.md is the checkout's, one folder up
 BEGIN = '<!-- gallery: written by dm/tools/docs_gallery.py from docs/images/gallery.tsv; change the table, then run it -->'
 END = '<!-- end of gallery -->'
 PER_ROW = 3

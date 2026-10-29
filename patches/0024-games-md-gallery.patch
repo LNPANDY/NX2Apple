@@ -10,16 +10,16 @@ Upstream-Status: fork-only
 Reason: README is the fork's short player page: the games gallery is written to GAMES.md (it would be most of the README) and the update history is CHANGELOG.md
 Issue: LNPANDY/NX2Apple#123
 ---
- dm/tools/docs_gallery.py    | 14 +++++++-------
+ dm/tools/docs_gallery.py    | 16 +++++++++-------
  dm/tools/tests/test_docs.py |  4 ++--
  docs/RELEASE-NOTES-GUIDE.md |  8 ++++----
- 3 files changed, 13 insertions(+), 13 deletions(-)
+ 3 files changed, 15 insertions(+), 13 deletions(-)
 
 diff --git a/dm/tools/docs_gallery.py b/dm/tools/docs_gallery.py
-index 32f39659..001561ce 100644
+index 32f39659..931363cd 100644
 --- a/dm/tools/docs_gallery.py
 +++ b/dm/tools/docs_gallery.py
-@@ -1,15 +1,15 @@
+@@ -1,15 +1,17 @@
  #!/usr/bin/env python3
 -# Writes the games gallery in README.md (between its gallery markers) from docs/images/gallery.tsv: one cell per row of the table, three to a row, in the table's order.
 +# Writes the games gallery in GAMES.md (between its gallery markers) from docs/images/gallery.tsv: one cell per row of the table, three to a row, in the table's order.
@@ -35,10 +35,12 @@ index 32f39659..001561ce 100644
  TABLE = REPO / 'docs' / 'images' / 'gallery.tsv'
 -OUT = REPO / 'README.md'
 +OUT = REPO / 'GAMES.md'
++if not OUT.exists() and (REPO.parent / '.upstream-ref').is_file():
++    OUT = REPO.parent / 'GAMES.md'   # in engine/ (NX2Apple's tools/engine.py sync), GAMES.md is the checkout's, one folder up
  BEGIN = '<!-- gallery: written by dm/tools/docs_gallery.py from docs/images/gallery.tsv; change the table, then run it -->'
  END = '<!-- end of gallery -->'
  PER_ROW = 3
-@@ -49,21 +49,21 @@ def gallery():
+@@ -49,21 +51,21 @@ def gallery():
      lines = ['<table>']
      for i in range(0, len(r), PER_ROW):
          row = [cell(*x) for x in r[i:i + PER_ROW]]
