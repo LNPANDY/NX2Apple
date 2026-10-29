@@ -33,6 +33,8 @@ Everything here was learned on Diablo II: Resurrected (SDK ~12, NVN 53, the orig
    - RomFS containers;
    - the rewrite-site census and imports vs. host hooks.
 
+   A 32-bit ARM program (`main.npdm` with the 64-bit instruction flag clear: Pikmin 3 Deluxe, New Super Mario Bros. U Deluxe) stops the survey with a red line: Apple silicon cannot run 32-bit ARM code, and the native-execution approach has no translator for it.
+
    It extracts only the code modules plus a RomFS list for the survey. Unless given `--survey-only`, it then writes a provisional profile into `<NSP folder>/<title ID>_build/profile/<title ID>/`, extracts the game, boots it on the Mac until its heap request when it has virtual address memory (the heap check) and packs a best-effort IPA. That profile is the starting point for step 3: the static keys follow rules checked against every profile, the rest are guesses or defaults ([dm/games/README.md](../../dm/games/README.md)); the run-time keys (`render_cond`, `tex_flush_upload`, `core_preempt`, …) are the bring-up's to find. For Mac runs, export `DM_GAMES_DIR=<NSP folder>/<title ID>_build/profile` until the profile moves into `dm/games/`.
 2. Extract base (and update, if in scope) — [01](01-extract.md). Finish the survey — [02](02-survey.md). Write down: SDK version, NVN API version, module list, imports the host lacks, SVCs, instruction census, NVN loader pattern, shader containers.
 3. Add a game profile `dm/games/<title ID>/game.tsv`, named after the base game's title ID (start from `010015100B514000/game.tsv`: identity, `build` rows, `modules`; keep the memory / NVN values until they are measured) and build the host for it with `make -C dm/host GAME=<id>`.

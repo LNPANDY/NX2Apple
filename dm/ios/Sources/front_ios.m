@@ -12,6 +12,7 @@
 
 UIView *dm_gamepad_view(CGRect frame);
 void dm_gamepad_reset(void);
+void dm_gamepad_active(void);
 void front_ios_boot(void);
 int front_ios_boot_ok(void);
 const char *front_ios_boot_message(void);   // main.m: why a build that keeps the game files off the IPA found none usable (NULL = the generic hint)
@@ -281,6 +282,6 @@ void front_ios_focus_event(int ev) {
             UIApplication.sharedApplication.idleTimerDisabled = YES;
             if (g_audio_intr) { LOG("audio session: active again with no interruption-ended notice; resuming"); g_audio_intr = 0; g_session_off = 1; }
             if (g_session_off) front_ios_audio_session();
-            front_ios_audio_apply(); dm_focus_set(1); break;
+            front_ios_audio_apply(); dm_gamepad_active(); dm_focus_set(1); break;
     }
 }

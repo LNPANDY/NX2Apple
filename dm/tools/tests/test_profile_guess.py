@@ -17,6 +17,25 @@ class GlslSources(unittest.TestCase):
         self.assertEqual(pg.glsl_sources(image), 2)
 
 
+class Npdm(unittest.TestCase):
+    def npdm(self, flags):
+        d = bytearray(0x80); d[:4] = b'META'; d[0xc] = flags
+        p = Path(self.tmp.name) / 'main.npdm'; p.write_bytes(d); return p
+
+    def setUp(self):
+        import tempfile
+        self.tmp = tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
+
+    def test_64bit_flag(self):
+        self.assertTrue(pg.aarch64(self.npdm(0x3f)))   # 64-bit, 39-bit address space
+
+    def test_32bit_program(self):
+        self.assertFalse(pg.aarch64(self.npdm(0x04)))   # Pikmin 3 Deluxe: 32-bit, no reserved region
+
+    def test_no_npdm(self):
+        self.assertTrue(pg.aarch64(Path(self.tmp.name) / 'missing.npdm'))
+
+
 class UnrealMemory(unittest.TestCase):
     def test_initial_heap_fits_beside_the_engine_region(self):
         facts = {

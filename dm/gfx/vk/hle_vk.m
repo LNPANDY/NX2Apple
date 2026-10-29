@@ -619,7 +619,7 @@ VKB(vkCreateSampler, VkResult, VkDevice d, const VkSamplerCreateInfo *ci, const 
                          ci->borderColor >= VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK ? MTLSamplerBorderColorOpaqueBlack : MTLSamplerBorderColorTransparentBlack;
         sd.lodMinClamp = ci->minLod; sd.lodMaxClamp = ci->maxLod;
         sd.normalizedCoordinates = !ci->unnormalizedCoordinates;
-        if (ci->mipLodBias != 0) RED1("sampler LOD bias %.2f not implemented", ci->mipLodBias);
+        sd.lodBias = fminf(fmaxf(ci->mipLodBias, -15), 15);   // Metal 26's sampler bias; the device reports maxSamplerLodBias 15
         VkSampler s = zalloc(sizeof *s); s->s = [g_dev newSamplerStateWithDescriptor:sd];
         if (!s->s) LOG("[vk] [RED] cannot create the sampler");
         *out = s;

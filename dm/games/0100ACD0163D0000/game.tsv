@@ -1,0 +1,42 @@
+# Game profile of Batman: Arkham Knight (Switch, update 1.0.5 = v327680; the base NSP is a 7 MB stub). Plays on the Mac
+# Format: see dm/games/README.md; bring-up and measurements in README.md beside this file
+# Rocksteady's Unreal Engine 3 (package version 864) with Wwise, CRI Sofdec movies and Scaleform menus, SDK 14.3.0.
+# The shaders are the global shader cache (GlobalShaderCache-Switch.bin) and the combined one in the Oodle-compressed package CombinedShaderCache-Switch.xxx (shader_split.py ue3_shaders).
+# The engine's allocator runs on the host (patches.py, hle_uemalloc.c layout UE3); the game's task ring gets barriers (patches.py)
+
+# ---- Identity ----
+title_id	0100ACD0163D0000
+program_id	0100ACD0163D0000
+
+# ---- App ----
+# Game name: only a label for profile listings and the Mac window title; the iOS app name is the game name in the base NSP, and the bundle ID comes from the base game title ID (build_ipa.sh / NSP script)
+name	Batman: Arkham Knight
+ipa	BatmanArkhamKnight.ipa
+app_category	public.app-category.games
+
+# ---- Versions ----
+build	v327680	1.0.5	main=feae83dc9e9fb34c77d0a62f1fa9ae9f	sdk=2aef2cffb104ee7c9e212fd2f4c731e9
+package	v327680
+shader_versions	v327680
+
+# ---- Files ----
+# every module main imports from
+modules	main sdk
+romfs_marker	BmGame/Movies/Ending.usm
+zip_store	.bin:.tfc:.upk:.usm:.wad:.xxx:.metallib
+
+# ---- Memory ----
+# The NPDM declares 32 MB of system resource (virtual address memory) and main never sets a heap. With the engine's allocator on a host malloc zone (outside the guest block)
+# the game maps almost nothing in the alias region, and on iOS the block, that heap and Metal share the app's address space: a 2 GB block with a 1.375 GB alias region,
+# as pull request #384 found on an iPad, where Engage's 5 GB block ran the heap out of address space (README.md, Memory). The node area is cut for this sdk build (dm/tools/sdk_patches.py)
+mem_reserve	0x80000000
+mem_alias	0x58000000
+mem_stack	0x10000000
+app_pool	0xCD500000
+sys_resource	0x2000000
+
+# ---- Shader split ----
+shader_groups	/BmGame/=bmgame
+shader_note	Batman: Arkham Knight shaders (Unreal Engine 3 global and combined shader caches)
+# the engine shares one control section among shaders whose sections differ only in GLSLC's compile information (+0x778..+0x791 and +0x7d0..+0x7e7), so the keys leave those bytes out (README.md, Files and shaders)
+shader_key_skip	0x770+0x78

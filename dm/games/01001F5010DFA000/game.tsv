@@ -1,0 +1,43 @@
+# Game profile of Pokémon Legends: Arceus (Switch, base game v0 + update 1.1.1 = v262144). Plays on the Mac
+# Format: see dm/games/README.md
+# Game Freak's engine between Sword's and Scarlet's Trinity, on SDK 11.4.0, NVN, Havok, Wwise, Pia / NPLN networking. The sdk build is Kirby and the Forgotten Land's; subsdk0 is the
+# movie module, subsdk1 GLSLC. Started from the provisional profile scripts/build_ipa_from_nsp.py wrote from its survey (dm/games/profile_guess.py)
+
+# ---- Identity ----
+title_id	01001F5010DFA000
+program_id	01001F5010DFA000
+
+# ---- App ----
+name	Pokémon Legends: Arceus
+ipa	PokMonLegendsArceus.ipa
+app_category	public.app-category.games
+# the camera is on the right stick
+pad_layout	full
+# the game sets the near=0 depth mode (nvnDeviceSetDepthMode): the pipeline bases made before it runs take the main0_z vertex entries
+depth_mode	zero
+
+# ---- Versions ----
+build	v262144	1.1.1	main=aee8f150dda1b5a838806e1a5ea6827a	subsdk1=4dd097b435891c5e0e15a65dbe47124f	sdk=b39add63421be525d352e576dab438d3
+package	v262144
+shader_versions	v262144
+
+# ---- Files ----
+# not loaded, main takes nothing from them the host does not supply: subsdk0 (NintendoSDK_movie)
+modules	main subsdk1 sdk
+romfs_marker	bin/sound/NX64/wwise/bank/Default.pck
+zip_store	.bfotf:.bnk:.gfpak:.pck:.ptcl:.metallib
+
+# ---- Memory ----
+# The NPDM declares 16 MB of system resource (virtual address memory); nninitStartup sets a 0.02 GB heap and initializes malloc's StandardAllocator over 32 GB of address space, which the
+# host gives what the alias region has room for (4.06 GB). The SDK-wide node area and 32 MB region alignment patches (dm/tools/sdk_patches.py) let it fit after the 62 MB node area
+mem_reserve	0x140000000
+mem_alias	0x118000000
+mem_stack	0x10000000
+app_pool	0xCD500000
+sys_resource	0x1000000
+
+# ---- Shader split ----
+# 12,851 shaders, by where each first appears: 11,352 in the effects' particle files (bin/effect/**/*.ptcl), 1,386 in the loose BNSH files (system_resource/gfx2/shader, the scene's
+# materials, terrain, water, lighting, shadows and post effects), 73 in the 678 GFPAK archives under bin/archive (Oodle Kraken entries, decoded with the game's own OodleLZ_Decompress), 40 in main
+shader_groups	/bin/=bin /system_resource/=systemresource
+shader_note	Pokémon Legends: Arceus shaders

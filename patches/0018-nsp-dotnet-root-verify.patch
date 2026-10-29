@@ -14,10 +14,10 @@ Issue: LNPANDY/NX2Apple#123
  1 file changed, 23 insertions(+)
 
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index 5d973e24..25426adf 100755
+index d0dae5ba..a70bc0bf 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
-@@ -2194,6 +2194,29 @@ def main(args=None):
+@@ -2199,6 +2199,29 @@ def main(args=None):
      env.setdefault('DOTNET_CLI_TELEMETRY_OPTOUT', '1')
      env.setdefault('DOTNET_NOLOGO', '1')
      configure_dotnet(env)

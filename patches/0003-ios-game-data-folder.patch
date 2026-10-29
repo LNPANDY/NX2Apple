@@ -262,10 +262,10 @@ index dc63e4e3..df41a708 100644
                          HStack {
                              Text("Memory available")
 diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
-index 45aa526b..56a432f1 100644
+index db2e49ea..80def564 100644
 --- a/dm/ios/Sources/front_ios.m
 +++ b/dm/ios/Sources/front_ios.m
-@@ -16,6 +16,7 @@
+@@ -17,6 +17,7 @@ void front_ios_boot(void);
  int front_ios_boot_ok(void);
  const char *front_ios_boot_message(void);   // main.m: why a build that keeps the game files off the IPA found none usable (NULL = the generic hint)
  bool dm_show_launcher(void *view_controller, void (*done)(void));   // Launcher.swift: false = no launcher (no dm/launcher.json, or DM_LAUNCHER=0)
@@ -273,7 +273,7 @@ index 45aa526b..56a432f1 100644
  
  static CAMetalLayer *g_layer;
  static void front_ios_power_watch(void);
-@@ -47,6 +48,7 @@ @interface DmRootVC : UIViewController
+@@ -48,6 +49,7 @@ static UILabel *front_ios_fps_label(void);
  @property (nonatomic, strong) UIView *pad;
  @property (nonatomic, strong) UILabel *fps;
  @property (nonatomic) BOOL launched;
@@ -281,7 +281,7 @@ index 45aa526b..56a432f1 100644
  - (void)startGame;
  @end
  static DmRootVC *g_root;
-@@ -69,6 +71,14 @@ - (void)viewDidLoad {
+@@ -70,6 +72,14 @@ static void launcher_done(void) { [g_root startGame]; }
  // The game view, the pad and the frame-rate counter are made once the launcher has set the switches they read (DM_SHOW_FPS, DM_METAL_HUD); the host's loading began at app launch (main.m)
  - (void)startGame {
      if (self.game) return;
@@ -296,7 +296,7 @@ index 45aa526b..56a432f1 100644
      front_hud_env();   // before the game view makes its device (an env file's DM_METAL_HUD sets it in main.m already)
      self.game = [[DmGameView alloc] initWithFrame:self.view.bounds];
      [self.view addSubview:self.game];
-@@ -104,7 +114,8 @@ - (void)viewDidAppear:(BOOL)a {
+@@ -105,7 +115,8 @@ static void launcher_done(void) { [g_root startGame]; }
      }
      if (self.launched || !front_ios_boot_ok()) return;
      self.launched = YES; g_root = self;
@@ -382,7 +382,7 @@ index fb37046e..5afddbb6 100644
      NSString *img = [doc stringByAppendingPathComponent:@"romfs.img"];
      if (romfs_image_complete(img) && romfs_identity_accepts(img)) {
          // A folder copy from before images is now dead weight of up to many GB (often cut off partway). Deleting its 300,000 files here took longer than iOS allows an app to start
-@@ -58,13 +109,48 @@ static int romfs_identity_accepts(NSString *img) {
+@@ -58,13 +109,48 @@ static NSString *romfs_locate(void) {
      }
      NSString *bundledImage = [NSBundle.mainBundle.resourcePath stringByAppendingPathComponent:@"romfs.img"];
      NSString *documentFolder = [doc stringByAppendingPathComponent:@"romfs"];

@@ -35,7 +35,7 @@ Update 1.3.1 (v327680) over the base game, SDK 18.3.5. The Wii game (codename Co
 - **Linear images:** staging images (`VK_IMAGE_TILING_LINEAR`, filled by the CPU and copied with `vkCmdCopyImage`) and one sampled 4x4 image alias their memory as on the Switch: the texture is made over the bound `MTLBuffer` with Metal's linear row alignment, which `vkGetImageSubresourceLayout` reports.
 - **Queries:** two timestamp pools and a 3,072-entry occlusion pool. Timestamps are their submit's completion time; occlusion queries count into a per-submit visibility buffer, copied to the pool when the submit completes.
 - Also added for Galaxy: pipeline caches, `vkCmdDraw`, image copies and read-backs.
-- **Not translated:** two geometry shaders (GX points and lines expanded to quads); those draws come out as one-pixel points and lines. GX's sampler LOD bias has no Metal sampler equivalent (red line).
+- **Not translated:** two geometry shaders (GX points and lines expanded to quads); those draws come out as one-pixel points and lines. GX's sampler LOD bias goes to Metal's sampler bias ([Sampler LOD bias](../../../docs/reference/rendering.md#sampler-lod-bias), resolved).
 
 ## Shaders
 
@@ -77,11 +77,12 @@ General host changes first needed here; each applies to every game:
 - **Sleeps under 20 µs take the yield back-off** (`sleep_precise`, `hle_thread.c`): [Sleeps under 20 µs take the yield path](../../../docs/reference/threads.md#sleeps-under-20-µs-take-the-yield-path).
 - **SDK 18's `InitializeTouchScreen(int, int)`** hooked: [SDK calls that open a system service through sm](../../../docs/reference/services.md#sdk-calls-that-open-a-system-service-through-sm).
 - **`op_mode`** (the operation mode at start, `DM_OPMODE`): [dm/games/README.md, Keys](../README.md#keys).
+- **Sampler LOD bias** given to Metal (NVN and Vulkan): [Sampler LOD bias](../../../docs/reference/rendering.md#sampler-lod-bias).
 - **Pro Controller motion absent from GameController on the Mac:** [Switch Pro Controller advertises motion but sends zeroes](../../../docs/reference/services.md#switch-pro-controller-advertises-motion-but-sends-zeroes).
 
 ## Open
 
-- GX points and lines (the geometry shaders) and sampler LOD bias are not done. The player README lists it as a known issue: effects drawn as points or lines come out one pixel wide.
+- GX points and lines (the geometry shaders) are not done. The player README lists it as a known issue: effects drawn as points or lines come out one pixel wide.
 - The capture timing differs between sources: the game notes say the modules are created in about 15 s on the Mac (the capture "under a minute"); [development.md, The packing script in detail](../../../docs/development.md#the-packing-script-in-detail) says 3,089 keys about 7 s after launch.
 - The `min` / `max` / `clamp` NaN fix (`precise::`, GitHub issue 72) was found on Galaxy 2's GX lighting; its notes have the detail ([0100FD8022DAA000](../0100FD8022DAA000/README.md)). Not stated whether this game showed it.
 - `game.tsv` says values marked "Mario's" are not measured for this game; none of its rows is marked so.

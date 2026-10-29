@@ -131,6 +131,15 @@ def info_plist(a, minos, icon):
     return p
 
 
+def source_commit():   # DMCommit: the checkout that packed the app (scripts/bug_report.py reads it), short hash, +dirty with uncommitted changes to tracked files; None outside a checkout
+    repo = HERE.parent.parent
+    try:
+        head = subprocess.run(['git', '-C', repo, 'rev-parse', '--short=12', 'HEAD'], capture_output=True, text=True, check=True).stdout.strip()
+        dirty = subprocess.run(['git', '-C', repo, 'status', '--porcelain', '--untracked-files=no'], capture_output=True, text=True, check=True).stdout.strip()
+    except (OSError, subprocess.CalledProcessError): return None
+    return head + ('+dirty' if dirty else '') if head else None
+
+
 def sign(app, identity, codesign):   # the inner host first, then the bundle (its resources and the launcher); no --options runtime (see the top)
     host = app / 'Contents/MacOS/dmhost'
     for target in (host, app):
@@ -262,6 +271,9 @@ def pack(a):
     if icon: step('icon'); make_icns(a.icon, res / 'AppIcon.icns')
     info = info_plist(a, minos, icon)
     info['DMModuleFiles'] = [p.name for p in mods]
+    commit = source_commit()
+    if commit: info['DMCommit'] = commit
+    if msl_dst.name.startswith('b-'): info['DMChain'] = msl_dst.name[2:]   # the library chain the app carries (a Vulkan or GL game's vk / gl has none)
     (c / 'Info.plist').write_bytes(plistlib.dumps(info))
     (c / 'PkgInfo').write_text('APPL????')
     step(f'signing ({"ad-hoc" if a.sign == "-" else a.sign})'); sign(tmp, a.sign, codesign)
