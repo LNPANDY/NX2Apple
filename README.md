@@ -23,11 +23,11 @@
 
 #### 🆕 Latest highlights
 
-- **A brand-new GUI** — the Mac launcher is here: manage your game library the way you manage a Switch.
-- **Saves, freed** — every Mac game's saves and logs live together in the game library folder.
-- **iPhone game data, freed** — the game's `.img` data finally loads straight from an external drive on iOS.
+- **Guided first run** — a setup wizard walks a new player through Xcode, keys and games; the build tools and a Python ship inside the app, so nobody installs Homebrew.
+- **Saves that follow you** — Mac ⇄ iPhone saves sync through one iCloud Drive folder, a deleted app reinstalls in seconds, and a free Apple ID's 7-day signature renews in place.
+- **Console mode** — plug in a controller, press Select: the library goes full screen, controller-first, like a Switch home menu.
 
-Every release is in the [changelog](CHANGELOG.md). **中文用户请看这里**：[简体中文 README](README.zh-CN.md). **Formerly `nxnative-romfs-archive`**: old links redirect here.
+Every release is in the [changelog](CHANGELOG.md). 中文用户请看这里：[简体中文 README](README.zh-CN.md)。
 
 </div>
 

@@ -23,11 +23,11 @@
 
 #### 🆕 最近重点更新
 
-- **全新 GUI**：Mac 端启动器来临，像管理 Switch 一样管理你的游戏库
-- **存档自由**：Mac 端各游戏存档及日志在游戏库文件夹统一管理
-- **iPhone 端游戏自由**：iOS 端终于可将游戏资源 .img 文件放在移动硬盘中加载
+- **引导式首次启动**：安装向导带新玩家走完 Xcode、密钥和游戏；构建工具和 Python 直接内置在 App 里，不用装 Homebrew
+- **存档跟着走**：Mac ⇄ iPhone 存档通过同一个 iCloud Drive 文件夹自动同步；删掉的 App 几秒重装；免费 Apple ID 的 7 天签名原地续签
+- **主机模式**：插上手柄按 Select，游戏库变全屏封面墙，手柄操作——就像 Switch 主菜单
 
-所有版本见[更新日志](CHANGELOG.zh-CN.md)。**English readers** — the [English README](README.md) covers everything. **原名 `nxnative-romfs-archive`**：旧链接会自动跳转到这里。
+所有版本见[更新日志](CHANGELOG.zh-CN.md)。English readers — the [English README](README.md) covers everything.
 
 </div>
 
