@@ -299,9 +299,72 @@ class MainWindow(QMainWindow):
         hint.setObjectName('note')
         hint.setWordWrap(True)
         outer.addLayout(row)
+        self._build_failure_box(outer)
         outer.addWidget(hint)
         self._translatable.append((hint, 'msg.workdirHint'))
         self.centralWidget().layout().addWidget(wrap)
+
+    def _build_failure_box(self, outer: QVBoxLayout) -> None:
+        """After a known early stop of the script: what happened, the next step, and its button."""
+        self.failure_box = QFrame()
+        self.failure_box.setObjectName('card')
+        box = QVBoxLayout(self.failure_box)
+        box.setContentsMargins(12, 8, 12, 8)
+        box.setSpacing(4)
+        self.failure_what = QLabel('')
+        self.failure_what.setWordWrap(True)
+        self.failure_what.setStyleSheet(f'color: {ORANGE}; font-weight: 600;')
+        self.failure_next = QLabel('')
+        self.failure_next.setWordWrap(True)
+        self.failure_next.setObjectName('note')
+        buttons = QHBoxLayout()
+        self.failure_fix_btn = QPushButton('')
+        self.failure_fix_btn.clicked.connect(self._fix_failure)
+        self.failure_anyway_btn = QPushButton(self.m.t('fail.buildAnyway'))
+        self.failure_anyway_btn.clicked.connect(self._build_anyway)
+        buttons.addWidget(self.failure_fix_btn)
+        buttons.addWidget(self.failure_anyway_btn)
+        buttons.addStretch(1)
+        box.addWidget(self.failure_what)
+        box.addWidget(self.failure_next)
+        box.addLayout(buttons)
+        self.failure_box.hide()
+        outer.addWidget(self.failure_box)
+
+    _FIX_BUTTONS = {'translator': 'fail.translator.button', 'iosSDK': 'fail.iosSDK.button'}
+
+    def _show_failure(self) -> None:
+        f = self.m.failure
+        if f is None or self.m.running:
+            self.failure_box.hide()
+            return
+        self.failure_what.setText(self.m.failure_what(f))
+        self.failure_next.setText(self.m.t(f.next_key))
+        fix = self._FIX_BUTTONS.get(f.kind)
+        self.failure_fix_btn.setVisible(fix is not None)
+        if fix:
+            self.failure_fix_btn.setText(self.m.t(fix))
+        self.failure_anyway_btn.setVisible(f.flag is not None)
+        self.failure_anyway_btn.setText(self.m.t('fail.buildAnyway'))
+        self.failure_box.show()
+
+    def _fix_failure(self) -> None:
+        if self.m.failure is not None:
+            self.m.fix_failure(self.m.failure)
+
+    def _build_anyway(self) -> None:
+        """Asks first: the dialog states the risk. Nothing is armed until the player agrees."""
+        if self.m.running or not self.m.override.request(self.m.failure):
+            return
+        from PySide6.QtWidgets import QMessageBox
+        risk = self.m.t(f'fail.{self.m.failure.kind}.risk')
+        yes = QMessageBox.question(self, self.m.t('fail.confirm.title'), risk,
+                                   QMessageBox.Yes | QMessageBox.Cancel, QMessageBox.Cancel)
+        if yes != QMessageBox.Yes:
+            self.m.override.cancel()
+            return
+        if self.m.override.confirm():
+            self._build_clicked()
 
     @staticmethod
     def _separator() -> QFrame:
@@ -320,6 +383,7 @@ class MainWindow(QMainWindow):
         # start-up language — the report's half-Chinese interface
         for w, key in self._translatable:
             w.setText(self.m.t(key))
+        self._show_failure()
         full = (pu.short_path(self.m.repo_path) if self.m.repo_ok
                 else (self.m.repo_path or self.m.t('repo.notFound')))
         self.repo_path_label.setText(full)
@@ -532,6 +596,7 @@ class MainWindow(QMainWindow):
             self.footer.setStyleSheet(f'color: {RED};')
         self.footer.setText(msg)
         self._failed = not ok
+        self._show_failure()
         if not ok:
             # The message points at the log, so put it in view rather than trusting the window to
             # be tall enough. ensureWidgetVisible also handles the scroll area's own margin.
@@ -552,6 +617,7 @@ class MainWindow(QMainWindow):
             self.footer.setText('')
             self.footer.setStyleSheet('')
             self._failed = False
+            self.failure_box.hide()
             self.m.start_build()
 
     def _choose_repo(self) -> None:
