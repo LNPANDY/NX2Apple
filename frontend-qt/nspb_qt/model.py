@@ -6,7 +6,6 @@ import re
 import shutil
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 from collections.abc import Callable
@@ -17,6 +16,7 @@ from pathlib import Path
 from PySide6.QtCore import QSettings, Q_ARG, QMetaObject, QObject, Qt, QThread, Signal, Slot
 
 from . import build_failure as bf
+from . import input_staging
 from . import platform_util as pu
 from .i18n import Lang
 from .localization import t
@@ -1002,33 +1002,19 @@ class Model(QObject):
         all_files = [self.base_path, self.update_path] + self.dlc_paths
         dirs = {str(Path(f).parent) for f in all_files if f}
 
-        staging: str | None = None
-        input_dir = base_dir
-        if len(dirs) > 1:
-            # files from different folders: a staging folder of links so the script sees one folder
-            staging = tempfile.mkdtemp(prefix='nspb-stage-')
-            linked = 0
-            for f in all_files:
-                if not f:
-                    continue
-                dst = Path(staging, Path(f).name)
-                try:
-                    os.link(f, dst) if not pu.IS_WIN else shutil.copy2(f, dst)
-                    linked += 1
-                except OSError:
-                    try:
-                        shutil.copy2(f, dst)
-                        linked += 1
-                    except OSError:
-                        pass
-            if linked == 0:
-                self.finished.emit(False, self.t('msg.stagingFailed'))
-                return
-            input_dir = staging
-
         tid = self._title_id(self.base_path)
         tid_hex = f'{tid:016X}' if tid else 'game'
         work_dir = str(Path(self.out_dir or base_dir, f'{tid_hex}_build'))
+
+        input_dir = base_dir
+        if len(dirs) > 1:
+            # files from different folders: a stable folder of links per game, so the script sees one
+            # folder and its fingerprints match on the next build (#132)
+            staging = input_staging.folder(work_dir)
+            if input_staging.sync(all_files, staging, hard_links=not pu.IS_WIN) == 0:
+                self.finished.emit(False, self.t('msg.stagingFailed'))
+                return
+            input_dir = staging
 
         compressed = any(Path(f).suffix.lower() in ('.nsz', '.xcz')
                          for f in all_files if f)
@@ -1138,8 +1124,6 @@ class Model(QObject):
                     self.failure = known
                     note = self.failure_what(known)
                 self.finished.emit(False, note)
-            if staging:
-                shutil.rmtree(staging, ignore_errors=True)
 
         self._thread = threading.Thread(target=work, daemon=True)
         self._thread.start()
