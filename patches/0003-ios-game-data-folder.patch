@@ -7,18 +7,18 @@ main.m locates the RomFS in the picked location, then Documents/games/<id>/, the
 temp follow it. Launcher.swift gets a Game data section; front_ios.m goes back to it when no data is found.
 
 Upstream-Status: pending
-Reason: Several games in one app, game data on an external drive: Documents/games/<id>/{romfs.img,romfs,msl,save,temp} and a Files-app pick of the data folder (needs the runtime profile). iOS twin of seedds/nxnative#460, which is Mac only
+Reason: Several games in one app, game data on an external drive: Documents/games/<id>/{romfs.img,romfs,msl,save,temp} and a Files-app pick of the data folder (needs the runtime profile). iOS twin of seedds/nxnative#460, which is Mac only. Also add-on content: games/<id>/aoc/<index>.img becomes DM_AOC_DIR (a slim IPA carries none, LNPANDY/NX2Apple#202), before <App>/aoc and never over an explicit value, compatible with the Documents/aoc of seedds/nxnative#486
 Issue: LNPANDY/NX2Apple#123
 ---
  dm/ios/Sources/DataBookmark.h          |  32 +++++++
- dm/ios/Sources/DataBookmark.m          |  79 +++++++++++++++++
+ dm/ios/Sources/DataBookmark.m          |  79 ++++++++++++++++
  dm/ios/Sources/DmIOS-Bridging-Header.h |   7 ++
- dm/ios/Sources/Launcher.swift          |  90 +++++++++++++++++++
+ dm/ios/Sources/Launcher.swift          |  90 ++++++++++++++++++
  dm/ios/Sources/front_ios.m             |  13 ++-
- dm/ios/Sources/main.m                  | 116 +++++++++++++++++++++++--
+ dm/ios/Sources/main.m                  | 121 +++++++++++++++++++++++--
  dm/ios/project.yml                     |   1 +
- dm/ios/tests/test_romfs_startup.py     |  41 ++++++++-
- 8 files changed, 367 insertions(+), 12 deletions(-)
+ dm/ios/tests/test_romfs_startup.py     |  49 +++++++++-
+ 8 files changed, 380 insertions(+), 12 deletions(-)
  create mode 100644 dm/ios/Sources/DataBookmark.h
  create mode 100644 dm/ios/Sources/DataBookmark.m
  create mode 100644 dm/ios/Sources/DmIOS-Bridging-Header.h
@@ -313,7 +313,7 @@ index db2e49ea..80def564 100644
  - (BOOL)prefersHomeIndicatorAutoHidden { return YES; }
  - (UIRectEdge)preferredScreenEdgesDeferringSystemGestures { return UIRectEdgeAll; }   // Edge gestures need two swipes, to avoid accidental exits
 diff --git a/dm/ios/Sources/main.m b/dm/ios/Sources/main.m
-index fb37046e..b2064dca 100644
+index fb37046e..24560205 100644
 --- a/dm/ios/Sources/main.m
 +++ b/dm/ios/Sources/main.m
 @@ -7,9 +7,10 @@
@@ -446,7 +446,7 @@ index fb37046e..b2064dca 100644
  // Boot prerequisites (done before UIApplicationMain): directories / environment variables / log -- the host's early load reads these
  // Why a slim build found no usable game files: the verdict on Documents/romfs.img, in the log and for the screen (front_ios_boot_message). NULL when the build has no romfs.id
  static char g_boot_message[640];
-@@ -127,15 +220,20 @@ static int boot_env(void) {
+@@ -127,16 +220,26 @@ static int boot_env(void) {
      NSString *lang = [NSBundle.mainBundle objectForInfoDictionaryKey:@"DMLanguage"];
      if (!getenv("DM_LANG") && [lang isKindOfClass:NSString.class] && lang.length) setenv("DM_LANG", lang.UTF8String, 0);
      fprintf(stderr, "boot: game language %s\n", getenv("DM_LANG") ?: "en-US");
@@ -471,8 +471,14 @@ index fb37046e..b2064dca 100644
 +    NSString *msl = (per_game && [fm fileExistsAtPath:per_game_msl]) ? per_game_msl : [res stringByAppendingPathComponent:@"msl"];
 +    setenv("DM_MSL_DIR", msl.fileSystemRepresentation, 0);
      setenv("DM_FONT_DIR", [dm stringByAppendingPathComponent:@"font"].fileSystemRepresentation, 0);   // Shared-font stand-ins (standard.ttf / nintendo_ext.ttf): iOS lacks the macOS font path
++    // Add-on content beside the game data: the launcher's games/<id>/aoc/ holds <index>.img (the layout hle_fs.c aoc_dir reads), because a slim IPA does not carry it. Taken before
++    // <App>/aoc and never over an explicit DM_AOC_DIR. A Documents/aoc folder (seedds/nxnative#486) stays compatible: it only ever fills DM_AOC_DIR when this did not.
++    NSString *per_game_aoc = [gdir stringByAppendingPathComponent:@"aoc"];
++    BOOL aoc_isdir = NO;
++    if (per_game && [fm fileExistsAtPath:per_game_aoc isDirectory:&aoc_isdir] && aoc_isdir) setenv("DM_AOC_DIR", per_game_aoc.fileSystemRepresentation, 0);
      NSString *aoc = [res stringByAppendingPathComponent:@"aoc"];   // add-on content: build_ipa.sh puts the RomFS extracted from the player's DLC NSPs at <App>/aoc/<index>/
      if ([fm fileExistsAtPath:aoc]) setenv("DM_AOC_DIR", aoc.fileSystemRepresentation, 0);
+     NSString *pso = [res stringByAppendingPathComponent:@"pso"];   // the pipeline archive made offline (build_ipa.sh, dm/gfx/tools/pso_offline.py): the shader pairs' bases, which the device then does not build
 diff --git a/dm/ios/project.yml b/dm/ios/project.yml
 index 4a1e3b65..298b2eed 100644
 --- a/dm/ios/project.yml
@@ -486,7 +492,7 @@ index 4a1e3b65..298b2eed 100644
        GCC_WARN_INHIBIT_ALL_WARNINGS: YES
  schemes:
 diff --git a/dm/ios/tests/test_romfs_startup.py b/dm/ios/tests/test_romfs_startup.py
-index b31ad6ed..82d0ff92 100644
+index b31ad6ed..ce34191b 100644
 --- a/dm/ios/tests/test_romfs_startup.py
 +++ b/dm/ios/tests/test_romfs_startup.py
 @@ -24,12 +24,19 @@ class Startup(unittest.TestCase):
@@ -511,7 +517,7 @@ index b31ad6ed..82d0ff92 100644
                            'if (!p) return 1; puts(p.fileSystemRepresentation); return 0; }}\n')
          cls.locator = root / 'locator'
          subprocess.run(['clang', '-fobjc-arc', '-Wall', '-Werror', '-I', str(REPO / 'dm/host'),
-@@ -92,5 +99,35 @@ class Startup(unittest.TestCase):
+@@ -92,5 +99,43 @@ class Startup(unittest.TestCase):
              shutil.copy(root / 'other.img', doc / 'romfs.img')
              self.assertEqual(locate().stdout.strip(), str(doc / 'romfs.img'))
  
@@ -544,6 +550,14 @@ index b31ad6ed..82d0ff92 100644
 +            # 4. a picked path holding none of this game's data falls through to the app's own copy
 +            empty = root / 'empty'; empty.mkdir()
 +            self.assertEqual(locate(empty), str(doc / 'romfs.img'))
++
++    def test_per_game_aoc_folder_is_taken_before_the_bundled_one(self):
++        """Slim builds carry no add-on content: games/<id>/aoc (the layout hle_fs.c aoc_dir reads) must reach DM_AOC_DIR, before <App>/aoc and never over an explicit value."""
++        main = (REPO / 'dm/ios/Sources/main.m').read_text()
++        per_game = main.index('setenv("DM_AOC_DIR", per_game_aoc.fileSystemRepresentation, 0)')
++        bundled = main.index('setenv("DM_AOC_DIR", aoc.fileSystemRepresentation, 0)')
++        self.assertLess(per_game, bundled)
++        self.assertIn('per_game && [fm fileExistsAtPath:per_game_aoc', main)   # only when the per-game folder is in use
 +
  
  if __name__ == '__main__': unittest.main()

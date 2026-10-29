@@ -129,5 +129,13 @@ class Startup(unittest.TestCase):
             empty = root / 'empty'; empty.mkdir()
             self.assertEqual(locate(empty), str(doc / 'romfs.img'))
 
+    def test_per_game_aoc_folder_is_taken_before_the_bundled_one(self):
+        """Slim builds carry no add-on content: games/<id>/aoc (the layout hle_fs.c aoc_dir reads) must reach DM_AOC_DIR, before <App>/aoc and never over an explicit value."""
+        main = (REPO / 'dm/ios/Sources/main.m').read_text()
+        per_game = main.index('setenv("DM_AOC_DIR", per_game_aoc.fileSystemRepresentation, 0)')
+        bundled = main.index('setenv("DM_AOC_DIR", aoc.fileSystemRepresentation, 0)')
+        self.assertLess(per_game, bundled)
+        self.assertIn('per_game && [fm fileExistsAtPath:per_game_aoc', main)   # only when the per-game folder is in use
+
 
 if __name__ == '__main__': unittest.main()
