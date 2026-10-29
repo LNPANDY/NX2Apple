@@ -240,6 +240,13 @@ static void pads_start(void) {
 - (void)viewDidChangeBackingProperties { [super viewDidChangeBackingProperties]; [self fitDrawable]; }
 @end
 
+// The window's delegate: AppKit reports a refused fullscreen request only here (there is no notification for it)
+static void (^g_fs_failed)(void);
+@interface DmWinDelegate : NSObject <NSWindowDelegate> @end
+@implementation DmWinDelegate
+- (void)windowDidFailToEnterFullScreen:(NSWindow *)w { (void)w; if (g_fs_failed) g_fs_failed(); }
+@end
+
 typedef struct { void (*fn)(void); } guest_arg;
 static void *guest_tramp(void *p) {
     static char alt[65536];                       // The signal alternate stack is per thread; crash printing must also work on the guest thread
@@ -1141,7 +1148,25 @@ void front_run(void (*guest)(void)) {
         [wm addItemWithTitle:@"Enter Full Screen" action:@selector(toggleFullScreen:) keyEquivalent:@"f"].keyEquivalentModifierMask = NSEventModifierFlagControl | NSEventModifierFlagCommand;
         NSApp.mainMenu = bar;
         const char *fs = getenv("DM_FULLSCREEN");   // 1 (or any value but 0): start in fullscreen; 0, the settings window's Window, or unset: a window
-        if (fs && strcmp(fs, "0")) dispatch_async(dispatch_get_main_queue(), ^{ [win toggleFullScreen:nil]; });
+        if (fs && strcmp(fs, "0")) {
+            // A game opened from an app that is itself in fullscreen starts while macOS leaves that Space: a request made right away reaches a window that is not on the active Space
+            // or an app that is not active yet, and AppKit can refuse it (the game stayed a window). So the request waits for the app to be active with its window on the active Space (activation or
+            // Space change, whichever comes last), and a refused one is repeated once. It stops as soon as the player toggles fullscreen themselves
+            static DmWinDelegate *wd; wd = [DmWinDelegate new]; win.delegate = wd;
+            __block int want = 1, retried = 0;
+            void (^enter)(void) = ^{
+                if (!want || (win.styleMask & NSWindowStyleMaskFullScreen) || !NSApp.isActive || !win.isOnActiveSpace) return;
+                want = 0; [win toggleFullScreen:nil]; };
+            g_fs_failed = ^{
+                LOG("front end: fullscreen was refused (app active %d, window on the active Space %d)%s", NSApp.isActive, win.isOnActiveSpace, retried ? "" : ", asking once more");
+                if (retried) return;
+                retried = 1; want = 1; dispatch_async(dispatch_get_main_queue(), enter); };
+            [NSNotificationCenter.defaultCenter addObserverForName:NSApplicationDidBecomeActiveNotification object:nil queue:nil usingBlock:^(NSNotification *n) { (void)n; enter(); }];
+            [NSWorkspace.sharedWorkspace.notificationCenter addObserverForName:NSWorkspaceActiveSpaceDidChangeNotification object:nil queue:nil usingBlock:^(NSNotification *n) { (void)n; enter(); }];
+            for (NSNotificationName nm in @[NSWindowWillEnterFullScreenNotification, NSWindowWillExitFullScreenNotification])
+                [NSNotificationCenter.defaultCenter addObserverForName:nm object:win queue:nil usingBlock:^(NSNotification *n) { (void)n; want = 0; }];   // the player's own toggle (ours already cleared it)
+            dispatch_async(dispatch_get_main_queue(), enter);
+        }
         for (NSNotificationName nm in @[GCControllerDidConnectNotification, GCControllerDidDisconnectNotification])
             [NSNotificationCenter.defaultCenter addObserverForName:nm object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *n) {
                 GCController *c = n.object; int conn = n.name == GCControllerDidConnectNotification;
