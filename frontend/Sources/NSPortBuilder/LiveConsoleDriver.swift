@@ -221,7 +221,7 @@ struct ConsolePadSnapshot: Equatable {
     func play(_ gameID: String) {
         state.play(gameID)
         guard state.startingGameID == gameID, let game = library.games.first(where: { $0.id.uuidString == gameID }) else { return }
-        let environment = GameStart.environment(for: game, library: library, controls: controls, repo: repo(), labels: labels)
+        let environment = GameStart.environment(for: game, library: library, controls: controls, repo: repo(), labels: labels, fullscreen: true)
         state.starting = .preparing
         launch(game, environment) { [weak self] pid, error in
             DispatchQueue.main.async {

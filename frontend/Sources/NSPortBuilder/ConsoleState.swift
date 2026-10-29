@@ -41,6 +41,8 @@ struct ConsoleGame: Identifiable {
     func value(_ setting: LaunchSetting) -> String { values[setting.env] ?? setting.def }
     var visibleSettings: [LaunchSetting] {
         settings.filter { setting in
+            // Console mode launches fullscreen whatever Display says (GameStart's fullscreen), so the sheet does not offer it.
+            guard setting.env != "DM_FULLSCREEN" else { return false }
             guard let needs = setting.needs else { return true }
             let parts = needs.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
             guard parts.count == 2, let parent = settings.first(where: { $0.env == parts[0] }) else { return false }
