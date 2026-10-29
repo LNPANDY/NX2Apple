@@ -203,6 +203,7 @@ class Strings(unittest.TestCase):
 
 
 try:
+    from PySide6.QtCore import QEvent
     from PySide6.QtWidgets import QApplication, QMessageBox
 except ImportError:          # the packaged app always has it; a bare python3 may not
     QApplication = None
@@ -219,10 +220,20 @@ class Window(unittest.TestCase):
         from nspb_qt.ui import MainWindow
         m = Model()
         w = MainWindow(m)
+        # A window left alive is destroyed by PySide after the QApplication at interpreter exit,
+        # which segfaults. Delete it (and the model) while the app is still there.
+        self.addCleanup(self._delete, m, w)
         w.show()
         m.failure = failure
         w._show_failure()
         return m, w
+
+    def _delete(self, m, w):
+        w.close()
+        w.deleteLater()
+        m.deleteLater()
+        self.app.sendPostedEvents(None, QEvent.DeferredDelete)
+        self.app.processEvents()
 
     def test_a_known_stop_shows_its_hint_and_the_buttons_it_has(self):
         m, w = self._window(bf.Failure(bf.OTHER_METAL))
