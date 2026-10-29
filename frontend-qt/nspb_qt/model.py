@@ -1138,7 +1138,7 @@ class Model(QObject):
                 # on its own sent a reporter looking for a log that was not on screen (#52)
                 last = getattr(self, '_last_error', '')
                 note = self.t('msg.buildFailedReason', last) if last else self.t('msg.buildFailed')
-                known = bf.classify(self.log_tail)
+                known = bf.classify(self.log_tail, keys_readable=self._keys_readable())
                 if known.kind != bf.UNKNOWN:   # a known early stop: the window explains it and offers the next step
                     self.failure = known
                     note = self.failure_what(known)
@@ -1151,7 +1151,33 @@ class Model(QObject):
         """The first sentence of a failure's hint (it names the game of a 32-bit program when the message does)."""
         if f.kind == bf.A32_PROGRAM and f.game:
             return self.t('fail.a32Program.whatNamed', f.game)
+        if f.kind == bf.DISK_FULL and f.detail:
+            return self.t('fail.diskFull.whatNeeds', f.detail)
         return self.t(f.what_key)
+
+    def _keys_readable(self) -> bool | None:
+        """Whether the chosen keys file can be opened: None when none is chosen."""
+        if not self.keys_path:
+            return None
+        try:
+            with open(self.keys_path, 'rb'):
+                return True
+        except OSError:
+            return False
+
+    def failure_folder(self, f: 'bf.Failure') -> str:
+        """The folder "Show folder" opens: the one with the game files, else the one the message names. For a full disk the
+        build folder (`<title ID>_build`) when it is there, since that is where the space went."""
+        game_dir = str(Path(self.base_path).parent) if self.base_path else ''
+        folder = game_dir or (f.detail if f.kind == bf.NO_TITLE_ID else '') or ''
+        if f.kind == bf.DISK_FULL and game_dir:
+            try:
+                built = sorted(p.name for p in Path(game_dir).iterdir() if p.name.endswith('_build') and p.is_dir())
+            except OSError:
+                built = []
+            if built:
+                folder = str(Path(game_dir, built[0]))
+        return folder
 
     def fix_failure(self, f: 'bf.Failure') -> None:
         """The failure card's fix buttons run the dependency rows' own fixes (install_dep, as Settings does)."""

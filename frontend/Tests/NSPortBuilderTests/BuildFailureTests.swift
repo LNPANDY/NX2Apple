@@ -7,7 +7,7 @@ import XCTest
 final class BuildFailureTests: XCTestCase {
     struct Fixture: Decodable {
         let id: String, kind: String, source: String, fragment: String, text: String
-        let game: String?
+        let game: String?, folder: String?, gb: String?
     }
 
     static let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
@@ -31,12 +31,19 @@ final class BuildFailureTests: XCTestCase {
 
     func testEveryKindIsReachable() {
         let kinds = Set(BuildFailureClassifier.table.map(\.kind))
-        for k in BuildFailureKind.allCases where k != .unknown { XCTAssertTrue(kinds.contains(k), "\(k)") }
+        for k in BuildFailureKind.allCases where k != .unknown && !Self.stateKinds.contains(k) { XCTAssertTrue(kinds.contains(k), "\(k)") }
     }
+
+    /// The rows that no log line sets: the launcher's own state (a drive, a team) or the step that failed (the install).
+    static let stateKinds: Set<BuildFailureKind> = [.driveMissing, .teamTaken, .noSigningAccount, .deviceTransfer]
 
     /// A sync of scripts/ or dm/ that rewords a message must fail here, not turn a hint into the raw last line.
     func testTheVendoredScriptsStillSayWhatThePatternsExpect() throws {
         for f in try fixtures() {
+            if f.source == "errno" {   // the system's own text, not the script's
+                XCTAssertEqual(String(cString: strerror(ENOSPC)), f.fragment, f.id)
+                continue
+            }
             let source = try String(contentsOf: Self.root.appendingPathComponent(f.source), encoding: .utf8)
             let there = source.contains(f.fragment)
             XCTAssertTrue(there, "\(f.id): \(f.source) no longer contains \"\(f.fragment)\": update the pattern and the fixture")
@@ -72,7 +79,8 @@ final class BuildFailureTests: XCTestCase {
     func testEveryHintIsInBothLanguagesWithoutSemicolons() {
         var keys = ["fail.section", "fail.buildAnyway", "fail.confirm.title", "fail.confirm.go", "fail.confirm.cancel", "fail.override.note",
                     "fail.a32Program.whatNamed", "fail.translator.button", "fail.iosSDK.button", "fail.cltSelected.button",
-                    "dep.metal.other", "dep.fix.metalPin"]
+                    "dep.metal.other", "dep.fix.metalPin", "fail.showFolder", "fail.openXcode", "fail.retry", "fail.keys.button",
+                    "fail.driveMissing.whatNamed", "fail.diskFull.whatNeeds"]
         for k in BuildFailureKind.allCases where k != .unknown {
             keys += [k.whatKey, k.nextKey]
             if k.overrideFlag != nil { keys.append("fail.\(k.rawValue).risk") }
@@ -140,7 +148,7 @@ final class BuildFailureTests: XCTestCase {
 
     func testAStopWithoutAnOverrideCannotBeBuiltAnyway() {
         let m = BuildModel()
-        for k in [BuildFailureKind.rosetta, .translator, .iosSDK, .cltSelected, .a32Program] {
+        for k in BuildFailureKind.allCases where k.overrideFlag == nil {
             m.failure = BuildFailure(kind: k, gameName: nil)
             m.requestBuildAnyway()
             XCTAssertNil(m.confirmingOverride, "\(k)")
@@ -241,12 +249,14 @@ final class BuildFailureTests: XCTestCase {
             window.orderOut(nil)
         }
         for (name, kind, lang) in [("hint-other-metal", BuildFailureKind.otherMetal, Lang.en), ("hint-ios-sdk", .iosSDK, .en), ("hint-damaged-nsp", .damagedNSP, .en),
-                                   ("hint-other-metal-zh", .otherMetal, .zh)] {
+                                   ("hint-other-metal-zh", .otherMetal, .zh)]
+                                  + [BuildFailureKind.keys, .severalGames, .noTitleID, .driveMissing, .diskFull, .teamTaken, .noSigningAccount, .deviceTransfer].flatMap { k in
+                                      [("row-\(k.rawValue)", k, Lang.en), ("row-\(k.rawValue)-zh", k, Lang.zh)] } {
             let m = BuildModel()
             m.lang = lang
-            m.failure = BuildFailure(kind: kind, gameName: nil)
+            m.failure = BuildFailure(kind: kind, gameName: nil, detail: kind == .diskFull ? "40" : kind == .driveMissing ? "Games" : nil)
             m.doneNote = m.failureWhat(m.failure!)
-            try capture(name, width: 760, height: 250, ZStack(alignment: .top) {
+            try capture(name, width: 760, height: kind == .noTitleID ? 380 : 250, ZStack(alignment: .top) {
                 LauncherPalette.background
                 BuildFailureCard(m: m).padding(24)
             })
