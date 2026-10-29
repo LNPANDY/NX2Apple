@@ -20,3 +20,4 @@ cheats-engine
 cheats-mac-panel
 front-mac-enter-fullscreen-once-the-app-is-activ
 front-mac-dm-screen
+nsp-script-remove-the-shader-libraries-of-older

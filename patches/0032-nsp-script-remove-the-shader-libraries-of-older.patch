@@ -1,0 +1,178 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: v0lumehi <aljic.zijad@gmail.com>
+Date: Fri, 30 Oct 2026 00:01:45 +0100
+Subject: [PATCH] NSP script: remove the shader libraries of older chain
+ versions after a successful build
+
+Every change to the shader chain translates all shaders again into a new b-<chain> folder, and nothing removed the old ones: a Breath of the Wild build folder held b-157e1b96c8da (2.1 GB) and b-a78f966a7b38 (2.3 GB) besides the current one, and each upstream update added another.
+
+build_shaders now calls prune_stale_chains last, after the libraries, their tables, the regression check and the reuse key of the current chain are in place (a reused build prunes too). It removes the b-<12 hex digits> folders of other chains in shader/cache and shader/ios and their keys (ios/b-<chain>.key, mac-b-<chain>.key), and logs one line with the freed size. A build that stops or fails earlier keeps the old libraries. Nothing else reads an old folder: the host and the packers take only the current chain, shader_regressions.py compares with the next chain's predecessor, which is the folder that stays, and the Metal compile cache already took the old libraries in. The compile cache is not touched.
+
+Tests in test_nsp_mac.py: two old chains are removed and the current one stays, a failed build and a build without libraries keep everything, other names (cas, a file, a malformed name) stay. Reference entry in docs/reference/shaders.md, the Breath of the Wild note and the symptom index.
+
+Upstream-Status: forwarded seedds/nxnative#682
+Reason: a build folder grows by about 2 GB per game with each upstream chain change until upstream merges it
+Issue: LNPANDY/NX2Apple#231
+
+---
+ dm/games/01007EF00011E000/README.md |  1 +
+ dm/tools/tests/test_nsp_mac.py      | 37 +++++++++++++++++++++++++++++
+ docs/development.md                 |  4 ++--
+ docs/reference/shaders.md           |  8 +++++++
+ scripts/build_ipa_from_nsp.py       | 22 ++++++++++++++++-
+ 5 files changed, 69 insertions(+), 3 deletions(-)
+
+diff --git a/dm/games/01007EF00011E000/README.md b/dm/games/01007EF00011E000/README.md
+index c6fce68b..d366499b 100644
+--- a/dm/games/01007EF00011E000/README.md
++++ b/dm/games/01007EF00011E000/README.md
+@@ -190,6 +190,7 @@ Before publishing, the fixes were integrated with main's pipeline archive and GP
+ 
+ ## Found on this game
+ 
++- **Resolved, two stale chain folders held 4.4 GB:** [Old shader library folders grew a game's build folder with each chain change](../../../docs/reference/shaders.md#old-shader-library-folders-grew-a-games-build-folder-with-each-chain-change).
+ - **Resolved build guard and cache isolation; rendering cause open:** [Tested tools and compiler-specific shader caches](../../../docs/reference/shaders.md#tested-tools-and-compiler-specific-shader-caches).
+ 
+ General host changes first needed here; each applies to every game:
+diff --git a/dm/tools/tests/test_nsp_mac.py b/dm/tools/tests/test_nsp_mac.py
+index ef9b925e..6efb27f5 100644
+--- a/dm/tools/tests/test_nsp_mac.py
++++ b/dm/tools/tests/test_nsp_mac.py
+@@ -120,6 +120,43 @@ class Nvn(Base):
+         (self.sh / 'cache' / f'b-{CHAIN}').rename(self.sh / 'cache' / 'b-ba9876543210')
+         self.build(False); self.assertEqual(self.ran[0][1]['DMSH_TARGETS'], 'ios')
+ 
++    def stale(self):   # two older chain versions' libraries and keys, in both library folders
++        for old in ('157e1b96c8da', 'a78f966a7b38'):
++            for d in (self.sh / 'cache', self.sh / 'ios'):
++                (d / f'b-{old}').mkdir(parents=True); (d / f'b-{old}' / 'k_b.metallib').write_bytes(b'x' * 100)
++            (self.sh / 'ios' / f'b-{old}.key').write_text('K\n'); (self.sh / f'mac-b-{old}.key').write_text('K\n')
++
++    def left(self):
++        return sorted(str(p.relative_to(self.sh)) for p in self.sh.rglob('*') if p.parent.name in ('cache', 'ios', 'shader') and (p.name.startswith(('b-', 'mac-b-'))))
++
++    def test_prune_stale_chains_after_success(self):   # the old chain versions go with their keys, the current one stays, the size is logged once
++        self.stale()
++        said = []
++        with mock.patch.object(nsp, 'say', said.append):
++            self.assertEqual(self.build(False), self.sh / 'ios')
++        self.assertEqual(self.left(), [f'cache/b-{CHAIN}', f'ios/b-{CHAIN}', f'ios/b-{CHAIN}.key'])
++        self.assertTrue((self.sh / 'ios' / f'b-{CHAIN}' / 'k_b.metallib').is_file())
++        self.assertEqual([m for m in said if m.startswith('removed old shader libraries')], ['removed old shader libraries b-157e1b96c8da, b-a78f966a7b38 (0.4 KB)'])
++        self.stale(); said.clear()   # a reused build prunes too
++        with mock.patch.object(nsp, 'say', said.append):
++            self.build(False)
++        self.assertEqual(self.ran, []); self.assertEqual(len(self.left()), 3)
++
++    def test_failed_build_keeps_stale_chains(self):   # nothing goes before the new libraries exist
++        self.stale(); before = self.left()
++        def failing(cmd, log, env=None, cwd=None, on_line=None): raise nsp.BuildError('translator failed')
++        with mock.patch.object(nsp, 'run', failing), self.assertRaises(nsp.BuildError): self.build(False)
++        self.assertEqual(self.left(), before)
++        with mock.patch.object(nsp, 'run', lambda *a, **k: None), self.assertRaises(nsp.BuildError): self.build(False)   # no libraries written
++        self.assertEqual(self.left(), before)
++
++    def test_prune_ignores_other_names(self):   # only b-<12 hex> folders and their keys, never the compile cache or another folder
++        self.build(True)
++        for n in ('cas', 'b-notahexchain', 'b-0123456789abcd', 'mine'): (self.sh / 'cache' / n).mkdir()
++        (self.sh / 'cache' / 'b-ffffffffffff').write_text('a file, not a library folder')
++        self.build(False)
++        self.assertEqual(sorted(p.name for p in (self.sh / 'cache').iterdir()), sorted(['b-0123456789abcd', 'b-ffffffffffff', 'b-notahexchain', f'b-{CHAIN}', 'cas', 'mine']))
++
+     def test_no_stamp(self):   # Mac libraries no full build stamped (an interrupted one): no table can name them, so neither key reuses them
+         self.build(False)
+         (self.sh / 'cache' / f'b-{CHAIN}' / 'inputs.tsv').unlink()
+diff --git a/docs/development.md b/docs/development.md
+index 3faf64a0..a1c57ce3 100644
+--- a/docs/development.md
++++ b/docs/development.md
+@@ -322,7 +322,7 @@ What the script does:
+    The Vulkan and GL captures also run on a Mac whose GPU has no Metal 4, such as a virtual Mac (GitHub's `macos-26` runner). Those two layers draw on classic Metal queues of their own, so there the NVN layer starts only its classic part and drops every present, which a headless capture does not need (`nvn_mtl.m` `mtl_device_classic`; `DM_TEST_NO_METAL4=1` does the same on any Mac). The GLSLC capture boots an NVN game, which needs Metal 4.
+ 5. It splits out the shaders from the game and every extracted DLC RomFS and checks them against the profile's tables (a Vulkan profile: it translates the RomFS's SPIR-V and the capture with `vk_shaders.py` instead; an OpenGL one: the GLSL sources and the capture with `gl_shaders.py`). Optional DLC that changes only the NVN shader union gets new tables in an external profile after the non-DLC shaders and facts have matched; registered module builds and fixes stay in use.
+ 6. It builds the iOS shader libraries with the in-repo SPIRV-Cross (`dm/gfx/tools/spirv_cross_bin`) and the Metal compiler in `dmsh_chain.lock` (Xcode 27.1). Another Metal compiler stops an NVN game's build before its shader steps. Issue #242 reported corruption with an untested compiler; its role remains unconfirmed. `--allow-other-metal` (`ALLOW_OTHER_METAL = True` in Spyder; `DM_ALLOW_OTHER_METAL=1` for `own_compilers.py`) permits it and reports the actual version. If a registered profile's `dmsh_chain.h` does not hold the version the source tree gives (a chain change left it behind), the script writes it again before any host is built, so it shows as changed in the checkout (`dmsh_build.py` would stop otherwise). Then the script makes the profile's `c1_full.tsv` and `cb_extent.tsv` from this build's Mac outputs when they are missing or name another chain. These two tables are not committed and git ignores them; `build_ipa.sh` stops without a current `c1_full.tsv`. Each line in the output names the file.
+-   It then compares the build with the game's previous one, the newest other `b-*/` in `<id>_build/shader/cache/` (`dm/gfx/tools/shader_regressions.py`, which reads the two `_b_build.json` reports). The translation chain is one for every game, so a translator change is tested only on the games its author owns; shaders that translated before and fail now are listed in `logs/shader_regressions.log` and stop the build ([GitHub issue #272](https://github.com/seedds/nxnative/issues/272)). Report them; `--allow-shader-regressions` (`ALLOW_SHADER_REGRESSIONS = True` in Spyder) packs the app without them.
++   It then compares the build with the game's previous one, the newest other `b-*/` in `<id>_build/shader/cache/` (the one the last chain change left: a build that succeeds removes the older chain folders and their keys, so each game keeps one) (`dm/gfx/tools/shader_regressions.py`, which reads the two `_b_build.json` reports). The translation chain is one for every game, so a translator change is tested only on the games its author owns; shaders that translated before and fail now are listed in `logs/shader_regressions.log` and stop the build ([GitHub issue #272](https://github.com/seedds/nxnative/issues/272)). Report them; `--allow-shader-regressions` (`ALLOW_SHADER_REGRESSIONS = True` in Spyder) packs the app without them.
+ 7. It calls `build_ipa.sh`. Xcode builds the app in the game's own build folder (`<id>_build/ipa/build/ios/pkg/dd`: `build_ipa.sh` sets `SYMROOT` and `OBJROOT`, which a custom build location in Xcode's settings does not override), so a repeat build compiles only what changed and two games built at once never write the same app. Then `dm/ios/tools/pack_ipa.py` packs it with the shader libraries, the add-on content and the RomFS straight from where they are. It reads and deflates files on all cores and writes at about the T7's write speed (300 MB/s): Breath of the Wild's 16 GB IPA takes 57 s, Info-ZIP's copy and zip took 2 min 50 s. A repeat pack reuses the previous IPA through `<ipa>.idx`, which records each packed file's size, times and inode: the unchanged leading entries stay in place in an APFS clone of the old IPA, and after the first changed entry, an unchanged file is copied compressed from it (both only when the source folder is on APFS; elsewhere every file is deflated again). `build_ipa.sh` passes the RomFS, the add-on content, the pipeline archive and the shader libraries before the app, so after a host fix only the app is written: Breath of the Wild repacks in 12-23 s instead of 105-163 s.
+ 
+ A repeat build skips work whose inputs have not changed. The extraction is kept (`extract/`). The DLC, the rewrite, the shader split and the iOS (or Vulkan) shaders each write a key beside their output: a sha256 of their inputs (the game files, the tools, the profile, Xcode's version and the in-repo spirv-cross; for the DLC, the DLC NSPs' names, sizes and times and nx_extract's sources). When the key matches, the stage line says `reused (inputs unchanged)` and the step does not run. Any change to a tool or the profile runs the step again; deleting the `.key` file forces it. The rewrite's key covers the patch files that name one of the modules' builds, the selected game's own, and always `dm/tools/sdk_patches.py`, whose SDK-wide `MATCH_CUTS` apply to builds it does not name (a new reviewed implementation was left out of a reused rewrite of Pokémon Legends: Arceus before). The iOS shaders' inputs are the shader package's content and only the tools `dmsh_build.py` loads (the modules it imports, at any depth): a split that runs again because a reader for another engine changed (a pull that touches `shader_split.py` or `unityfs.py`) writes the same package, and the iOS shaders stay reused.
+@@ -369,7 +369,7 @@ cd "<NSP folder>/<id>_build/run" && DM_ROOT="<NSP folder>/<id>_build" DM_ROMFS="
+ 
+ The save is in `<id>_build/run/save` and stays there from run to run. `DM_AOC_DIR` is added when the folder has DLC. `DM_NVN_SHMAP` is added for an NVN game; it names the profile's shader map, or the derived or provisional profile's. A Vulkan or GL game's `DM_MSL_DIR` is `<id>_build/shader`. The switches of `--env-file` are added to the command.
+ 
+-Reuse works as for the IPA. Each shader output has its own key, named after the one chain version: `shader/ios/b-<chain>.key` for the iOS libraries and `shader/mac-b-<chain>.key` for the Mac's (`shader/ios/vk.key` and `shader/vk.key` for a Vulkan game, the same with `gl` for a GL game). An NVN build writes only the requested target's key and compiles only its libraries, with one exception: an iOS build of a folder that holds the current chain's Mac libraries (a Mac-only build's, which its run command loads) builds them again too and writes both keys, since a full `dmsh_build.py` run removes every library of the folder before it rebuilds ([An iOS build after a Mac-only build kept no Mac libraries](reference/shaders.md#an-ios-build-after-a-mac-only-build-kept-no-mac-libraries)). The Mac sources and reflection are written and cached for either target, since paired vertex shaders, `c1_full.tsv` and `cb_extent.tsv` need them. A Mac-only build of a folder already packed as an IPA therefore translates again and compiles the Mac libraries. Either key is taken only while the Mac outputs carry a full build's stamp; `c1_full.tsv` or `cb_extent.tsv` that does not name it is made again from them, as for the IPA. Switching targets translates again because `dmsh_build.py`'s per-shader keys include the iOS compile convention; returning to a target reuses its previously compiled MSL from the Metal compile cache (`shader/cache/cas/metallib`). Vulkan and GL builds still compile both targets for an IPA.
++Reuse works as for the IPA. Each shader output has its own key, named after the one chain version: `shader/ios/b-<chain>.key` for the iOS libraries and `shader/mac-b-<chain>.key` for the Mac's (`shader/ios/vk.key` and `shader/vk.key` for a Vulkan game, the same with `gl` for a GL game). An NVN build writes only the requested target's key and compiles only its libraries, with one exception: an iOS build of a folder that holds the current chain's Mac libraries (a Mac-only build's, which its run command loads) builds them again too and writes both keys, since a full `dmsh_build.py` run removes every library of the folder before it rebuilds ([An iOS build after a Mac-only build kept no Mac libraries](reference/shaders.md#an-ios-build-after-a-mac-only-build-kept-no-mac-libraries)). The Mac sources and reflection are written and cached for either target, since paired vertex shaders, `c1_full.tsv` and `cb_extent.tsv` need them. A Mac-only build of a folder already packed as an IPA therefore translates again and compiles the Mac libraries. Either key is taken only while the Mac outputs carry a full build's stamp; `c1_full.tsv` or `cb_extent.tsv` that does not name it is made again from them, as for the IPA. Switching targets translates again because `dmsh_build.py`'s per-shader keys include the iOS compile convention; returning to a target reuses its previously compiled MSL from the Metal compile cache (`shader/cache/cas/metallib`). Vulkan and GL builds still compile both targets for an IPA. After a successful shader build, the script removes the libraries of other chain versions (`b-<other>` in `shader/cache` and `shader/ios`, and their keys) and logs `removed old shader libraries b-… (N GB)`. A chain change used to leave about 2 GB per update for Breath of the Wild. The Metal compile cache is not touched.
+ 
+ ### A benchmark on the Mac
+ 
+diff --git a/docs/reference/shaders.md b/docs/reference/shaders.md
+index 409e8332..e3eec379 100644
+--- a/docs/reference/shaders.md
++++ b/docs/reference/shaders.md
+@@ -1046,6 +1046,14 @@ Finding, keying and translating shaders (`dm/gfx/tools/shader_split.py`, `dmsh_b
+ - **Found on:** [Team Sonic Racing](../../dm/games/010092B0091D0000/README.md#found-on-this-game) (resolved).
+ - **Check:** `test_nsp_mac.py` (`test_ios_after_mac_keeps_mac_libraries`, `test_ios_after_mac_of_another_chain`).
+ 
++### Old shader library folders grew a game's build folder with each chain change
++
++- **Symptom:** the build folder of a game (`<id>_build/shader/`) gains about 2 GB for Breath of the Wild with every upstream update that changes the shader chain: after two updates `shader/cache` held `b-157e1b96c8da` (2.1 GB) and `b-a78f966a7b38` (2.3 GB) besides the current one, and the next build added a third.
++- **Cause:** the libraries are written to `b-<chain>/` (`shader/cache` for the Mac, `shader/ios` for iOS, with the reuse keys `shader/ios/b-<chain>.key` and `shader/mac-b-<chain>.key`) and a chain change starts a new folder. Nothing removed the old ones. The host loads only the current chain's folder, `dm/mac/pack_app.py` and `build_ipa.sh` pack only it, and `regress.py` reads the folder of its own run, so an old folder is dead weight. `dmsh_build.py` took libraries of older folders into the Metal compile cache (`dmsh_mtlcache.py`) before it translated, and `shader_regressions.py` compared the new build with the newest older folder's `_b_build.json`.
++- **Fix:** the NSP script (`prune_stale_chains`, called last in `build_shaders`) removes the folders named `b-<12 hex digits>` of other chain versions in `shader/cache` and `shader/ios`, and their keys, once the libraries, their tables and the key of the current chain are in place (a reused build prunes too). It logs one line, `removed old shader libraries b-… (N GB)`. A build that stops or fails earlier keeps the old libraries. The regression check has run by then, and the next chain change compares with the folder this build keeps. The compile cache already holds what the old libraries compiled, since `dmsh_build.py` took them in at the first build of the new chain. The only loss is for a chain that comes back (a checkout of an older commit): its shaders compile again where the cache does not hold their MSL. The compile cache itself (`shader/cache/cas/metallib`) is keyed by the MSL and the compiler, not by the chain, so entries are shared across chains and it is not pruned. It grows only with MSL that is new, and no code removes an entry.
++- **Found on:** [Breath of the Wild](../../dm/games/01007EF00011E000/README.md#found-on-this-game) (resolved).
++- **Check:** `test_nsp_mac.py` (`test_prune_stale_chains_after_success`, `test_failed_build_keeps_stale_chains`, `test_prune_ignores_other_names`).
++
+ ### Function constants specialized at load
+ 
+ - **Symptom:** `fragmentFunction main0 cannot be used to build a pipeline state` (a Metal validation assertion).
+diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
+index 5ae103eb..a7d77d81 100755
+--- a/scripts/build_ipa_from_nsp.py
++++ b/scripts/build_ipa_from_nsp.py
+@@ -1754,13 +1754,31 @@ def toolchain(repo, env=None):   # Metal is a separate Xcode download: its versi
+               for args in (['metal', '--version'], ['metallib', '--version'], ['--show-sdk-version'], ['--show-sdk-build-version'])))
+ 
+ 
++def prune_stale_chains(sh, chain):
++    """Remove the shader libraries of other chain versions, and their keys, once the build for this one succeeded: sh/cache/b-<old> (Mac), sh/ios/b-<old> (iOS), sh/ios/b-<old>.key and sh/mac-b-<old>.key.
++    A chain change translates every shader again into a new b-<chain>/, so each upstream update left another 2 GB for Breath of the Wild (two old folders: 4.4 GB). The host and the packers read only
++    b-<chain>/, shader_regressions.py compares this build with the one before it (already done, and the next chain change compares with this one), and the Metal compile cache (cas/metallib, keyed by the MSL)
++    holds what the old libraries compiled. Called only after the libraries, their tables and the key are in place, so a stopped or failed build keeps the old ones. Only names of the exact form
++    b-<12 hex digits> go (the key files with .key, the Mac's with a mac- prefix), never another entry. Returns the chain versions removed"""
++    def listing(d, pat): return [d / n for n in (os.listdir(d) if d.is_dir() else []) if re.fullmatch(pat, n) and n not in (f'b-{chain}', f'b-{chain}.key', f'mac-b-{chain}.key')]
++    old = [p for d in (sh / 'cache', sh / 'ios') for p in listing(d, r'b-[0-9a-f]{12}') if p.is_dir()]
++    old += [p for d, pat in ((sh / 'ios', r'b-[0-9a-f]{12}\.key'), (sh, r'mac-b-[0-9a-f]{12}\.key')) for p in listing(d, pat) if p.is_file()]
++    if not old: return []
++    size = sum(tree_size(p)[1] if p.is_dir() else p.stat().st_size for p in old)
++    for p in old: rmtree(p)
++    names = sorted({p.name.removesuffix('.key').removeprefix('mac-') for p in old})
++    say(f'removed old shader libraries {", ".join(names)} ({amount(size, "B")})')
++    return names
++
++
+ def build_shaders(py, repo, sh, xlate, env, logs, g, pkg_key=None, mac=False):
+     """The iOS shader libraries (dmsh_build.py, which also builds the Mac's into sh/cache when the build wants them), or with mac only the Mac's (a Mac-only build: no IOSOUT). Returns the folder the host takes
+     them from. Reused when the shader package (pkg_key, its content; None never reuses) and the chain's tools, translator binaries, profile and compilers are as at the last successful build:
+     dmsh_build.py would only restore every shader from its cache (63,000 for Breath of the Wild: about 100 s). The key of the iOS libraries is sh/ios/b-<chain>.key, that of the Mac's
+     sh/mac-b-<chain>.key (not in sh/cache, whose b-* entries dmsh_build.py reads as library folders). Each target writes only its own key (an iOS build that keeps a Mac build's libraries, both); either is taken only
+     while the Mac sources and reflection carry a full build's stamp (inputs.tsv) for c1_full.tsv and cb_extent.tsv to name (chain_tables).
+-    Switching targets translates again (the per-shader keys include the iOS compile convention); the Metal compile cache (dmsh_mtlcache.py) reuses previously compiled MSL for that target"""
++    Switching targets translates again (the per-shader keys include the iOS compile convention); the Metal compile cache (dmsh_mtlcache.py) reuses previously compiled MSL for that target.
++    After success the libraries of other chain versions are removed (prune_stale_chains)"""
+     ios, log = sh / 'ios', logs / 'dmsh_build.log'
+     PROG.stage('Mac shaders' if mac else 'iOS shaders')
+     chain = chain_of(repo)
+@@ -1780,6 +1798,7 @@ def build_shaders(py, repo, sh, xlate, env, logs, g, pkg_key=None, mac=False):
+         note = next((n for k in ((kmac, kf) if mac else (kf,)) if (n := reused(k, key)) is not None), None)
+         # the libraries are the last build's, so are tables that name their stamp; a missing or stale one is made from that build's Mac outputs, and without them the step runs again
+         if next(libs.glob('*_b.metallib'), None) and note is not None and chain_tables(py, repo, sh, env, logs, g, chain):
++            prune_stale_chains(sh, chain)
+             PROG.end(f'{note}, reused (inputs unchanged)'); return out
+     else: key = None
+     rmtree(kmac)
+@@ -1818,6 +1837,7 @@ def build_shaders(py, repo, sh, xlate, env, logs, g, pkg_key=None, mac=False):
+     shader_regressions(py, repo, sh / 'cache', chain, logs)   # before the key: a stopped build is checked again on the next run
+     if key:
+         for k in (kmac,) if mac else (kf, kmac) if keep_mac else (kf,): k.write_text(f'{key}\n{note}\n')
++    prune_stale_chains(sh, chain)   # last: a build that stopped before here keeps the old libraries
+     return out
+ 
+ 

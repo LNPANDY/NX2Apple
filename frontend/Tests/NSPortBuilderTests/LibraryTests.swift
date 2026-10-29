@@ -937,10 +937,11 @@ final class LibraryTests: XCTestCase {
         model.installDevice = previousDevice; model.signingTeam = previousTeam; model.target = previousTarget
         // The Free space sheet with a measured build folder (example sizes), two parts picked, then while a build runs
         let measured = BuildFolderSurvey(folder: "/Volumes/Games/Hades/\(titleID)_build",
-                                         sizes: [.extracted: 9_800_000_000, .shaders: 1_450_000_000, .xcode: 2_100_000_000, .caches: 610_000_000], kept: 48_000_000)
+                                         sizes: [.extracted: 9_800_000_000, .shaders: 5_850_000_000, .oldShaders: 4_400_000_000, .xcode: 2_100_000_000, .caches: 610_000_000], kept: 48_000_000,
+                                         oldShaders: [OldShaderVersion(name: "b-157e1b96c8da", bytes: 2_100_000_000), OldShaderVersion(name: "b-a78f966a7b38", bytes: 2_300_000_000)])
         for (name, running) in [("free-space", false), ("free-space-running", true)] {
             model.running = running
-            let sheet = NSHostingView(rootView: FreeSpaceView(m: model, game: library.games[0], survey: measured, chosen: [.extracted, .xcode])
+            let sheet = NSHostingView(rootView: FreeSpaceView(m: model, game: library.games[0], survey: measured, chosen: [.extracted, .oldShaders])
                 .environmentObject(PadFocus()))
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 690), styleMask: [.titled], backing: .buffered, defer: false)
             window.contentView = sheet
