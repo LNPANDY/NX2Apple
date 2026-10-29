@@ -23,6 +23,8 @@ enum RealArt {
     static let folders: [URL] = {
         let args = ProcessInfo.processInfo.arguments
         var folders = args.indices.filter { args[$0] == "--art-dir" && args.indices.contains($0 + 1) }.map { URL(fileURLWithPath: args[$0 + 1]) }
+        // On a device there are no launch arguments: a `DemoArt` folder inside the app bundle works like `--art-dir`.
+        if let bundled = Bundle.main.url(forResource: "DemoArt", withExtension: nil) { folders.append(bundled) }
         if args.contains("--real-art") {
             let env = ProcessInfo.processInfo.environment
             let home = env["SIMULATOR_HOST_HOME"] ?? NSHomeDirectory()
