@@ -14,11 +14,13 @@ final class DropFilesTests: XCTestCase {
     override func tearDownWithError() throws { try FileManager.default.removeItem(at: temporary) }
 
     /// A stand-in file of `size` bytes (the classification skips empty ones, as an unfinished download leaves).
-    @discardableResult private func file(_ name: String, size: Int = 16, in folder: String = "") throws -> String {
+    /// With `pfs0`, the file starts with an empty PFS0 header, so the folder scan's header check takes it as a package.
+    @discardableResult private func file(_ name: String, size: Int = 16, in folder: String = "", pfs0: Bool = false) throws -> String {
         let dir = folder.isEmpty ? temporary! : temporary.appendingPathComponent(folder)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let path = dir.appendingPathComponent(name).path
-        FileManager.default.createFile(atPath: path, contents: Data(repeating: 0, count: size))
+        let contents = pfs0 ? Data("PFS0".utf8) + Data(count: 12) : Data(repeating: 0, count: size)
+        FileManager.default.createFile(atPath: path, contents: contents)
         return path
     }
 
@@ -64,14 +66,15 @@ final class DropFilesTests: XCTestCase {
         XCTAssertEqual(empty.slot("base").problem, "data.noNsp")
     }
 
-    func testOneDroppedFolderIsTheSameAsChoosingIt() throws {
-        let base = try file("Game [0100000000010000].nsp", in: "Game/Base")
-        let update = try file("Game [0100000000010800][v65536].nsp", in: "Game/Update")
+    @MainActor func testOneDroppedFolderIsTheSameAsChoosingIt() async throws {
+        let base = try file("Game [0100000000010000].nsp", in: "Game/Base", pfs0: true)
+        let update = try file("Game [0100000000010800][v65536].nsp", in: "Game/Update", pfs0: true)
         let keys = try file("prod.keys", in: "Game")
-        try file("Game [0100000000010800][v999999].nsp", in: "Game/0100000000010000_build")   // the pipeline's own folder is pruned
+        try file("Game [0100000000010800][v999999].nsp", in: "Game/0100000000010000_build", pfs0: true)   // the pipeline's own folder is pruned
         let folder = temporary.appendingPathComponent("Game").path
         let m = BuildModel()
         m.take(dropped: [folder])
+        await m.scanTask?.value
         XCTAssertEqual(m.gameDir, folder)
         XCTAssertEqual(m.basePath, base)
         XCTAssertEqual(m.updatePath, update)

@@ -921,8 +921,10 @@ final class BuildModel: ObservableObject {
     /// …800 update, anything above base+0x1000 add-on content), plus prod.keys.
     /// Subfolders are scanned too — a dump usually arrives as 本体/ 更新/ DLC/ folders —
     /// pruning the build folders this pipeline itself writes so a rescan is not slow.
+    /// The scan runs off the main thread. `scanTask` lets a caller wait until the slots are filled.
+    private(set) var scanTask: Task<Void, Never>?
     func scan(folder: String) {
-        Task { @MainActor in
+        scanTask = Task { @MainActor in
             gameDir = folder
             let request = UUID()
             scanRequestID = request
