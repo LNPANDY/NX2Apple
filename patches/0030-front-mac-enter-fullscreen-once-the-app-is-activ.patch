@@ -1,0 +1,81 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: v0lumehi <aljic.zijad@gmail.com>
+Date: Thu, 29 Oct 2026 20:21:56 +0100
+Subject: [PATCH] front_mac: enter fullscreen once the app is active and the
+ window is on the active Space, repeat a refused request once
+
+A game opened from an app that is in fullscreen stayed a window. The request is now made when the app is active and the window is on the active Space, and repeated once when AppKit reports a refusal.
+
+Upstream-Status: forwarded seedds/nxnative#665
+Reason: A game started with DM_FULLSCREEN from the launcher's fullscreen console mode stays a window
+Issue: LNPANDY/NX2Apple#219
+
+---
+ dm/host/front_mac.m          | 27 ++++++++++++++++++++++++++-
+ docs/reference/frame-rate.md |  8 ++++++++
+ 2 files changed, 34 insertions(+), 1 deletion(-)
+
+diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
+index 3df6394d..85d39546 100644
+--- a/dm/host/front_mac.m
++++ b/dm/host/front_mac.m
+@@ -236,6 +236,13 @@ - (void)setFrameSize:(NSSize)s { [super setFrameSize:s]; [self fitDrawable]; }
+ - (void)viewDidChangeBackingProperties { [super viewDidChangeBackingProperties]; [self fitDrawable]; }
+ @end
+ 
++// The window's delegate: AppKit reports a refused fullscreen request only here (there is no notification for it)
++static void (^g_fs_failed)(void);
++@interface DmWinDelegate : NSObject <NSWindowDelegate> @end
++@implementation DmWinDelegate
++- (void)windowDidFailToEnterFullScreen:(NSWindow *)w { (void)w; if (g_fs_failed) g_fs_failed(); }
++@end
++
+ typedef struct { void (*fn)(void); } guest_arg;
+ static void *guest_tramp(void *p) {
+     static char alt[65536];                       // The signal alternate stack is per thread; crash printing must also work on the guest thread
+@@ -281,7 +288,25 @@ void front_run(void (*guest)(void)) {
+         [wm addItemWithTitle:@"Enter Full Screen" action:@selector(toggleFullScreen:) keyEquivalent:@"f"].keyEquivalentModifierMask = NSEventModifierFlagControl | NSEventModifierFlagCommand;
+         NSApp.mainMenu = bar;
+         const char *fs = getenv("DM_FULLSCREEN");   // 1 (or any value but 0): start in fullscreen; 0, the settings window's Window, or unset: a window
+-        if (fs && strcmp(fs, "0")) dispatch_async(dispatch_get_main_queue(), ^{ [win toggleFullScreen:nil]; });
++        if (fs && strcmp(fs, "0")) {
++            // A game opened from an app that is itself in fullscreen starts while macOS leaves that Space: a request made right away reaches a window that is not on the active Space
++            // or an app that is not active yet, and AppKit can refuse it (the game stayed a window). So the request waits for the app to be active with its window on the active Space (activation or
++            // Space change, whichever comes last), and a refused one is repeated once. It stops as soon as the player toggles fullscreen themselves
++            static DmWinDelegate *wd; wd = [DmWinDelegate new]; win.delegate = wd;
++            __block int want = 1, retried = 0;
++            void (^enter)(void) = ^{
++                if (!want || (win.styleMask & NSWindowStyleMaskFullScreen) || !NSApp.isActive || !win.isOnActiveSpace) return;
++                want = 0; [win toggleFullScreen:nil]; };
++            g_fs_failed = ^{
++                LOG("front end: fullscreen was refused (app active %d, window on the active Space %d)%s", NSApp.isActive, win.isOnActiveSpace, retried ? "" : ", asking once more");
++                if (retried) return;
++                retried = 1; want = 1; dispatch_async(dispatch_get_main_queue(), enter); };
++            [NSNotificationCenter.defaultCenter addObserverForName:NSApplicationDidBecomeActiveNotification object:nil queue:nil usingBlock:^(NSNotification *n) { (void)n; enter(); }];
++            [NSWorkspace.sharedWorkspace.notificationCenter addObserverForName:NSWorkspaceActiveSpaceDidChangeNotification object:nil queue:nil usingBlock:^(NSNotification *n) { (void)n; enter(); }];
++            for (NSNotificationName nm in @[NSWindowWillEnterFullScreenNotification, NSWindowWillExitFullScreenNotification])
++                [NSNotificationCenter.defaultCenter addObserverForName:nm object:win queue:nil usingBlock:^(NSNotification *n) { (void)n; want = 0; }];   // the player's own toggle (ours already cleared it)
++            dispatch_async(dispatch_get_main_queue(), enter);
++        }
+         for (NSNotificationName nm in @[GCControllerDidConnectNotification, GCControllerDidDisconnectNotification])
+             [NSNotificationCenter.defaultCenter addObserverForName:nm object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *n) {
+                 GCController *c = n.object; int conn = n.name == GCControllerDidConnectNotification;
+diff --git a/docs/reference/frame-rate.md b/docs/reference/frame-rate.md
+index a438de68..947accaf 100644
+--- a/docs/reference/frame-rate.md
++++ b/docs/reference/frame-rate.md
+@@ -170,6 +170,14 @@ Frame pacing: the host's frame step, engine frame limiters, present intervals an
+ - **Check:** here (a built-in 120 Hz screen, a multiple of every link rate) a harness drove `front_mac.m` asked for 50 fps: no switch in the window, 120 → 50 Hz in fullscreen, 120 Hz again on leaving it, and 120 Hz after quitting in fullscreen; at 60 fps and with `DM_SCREEN_MATCH=0` nothing switched.
+ - **Not checked:** the link's new range after a switch has not run here (Hades windowed and fullscreen paced at 60 as before).
+ 
++### A game opened from a fullscreen app stays a window
++
++- **Symptom:** a Mac game started with `DM_FULLSCREEN=1` from an app that is itself in fullscreen (the launcher's console mode) came up as a window. The reporter: "using a full screen app to launch another full-screen app will fail, it will automatically switch to windowed mode".
++- **Cause:** the launcher lives in its own fullscreen Space, so opening the game makes macOS leave that Space. `front_run` asked for fullscreen on the next run-loop turn, when the log of a test harness (two small apps, the second making the same request) shows the app active but its window not yet on the active Space (`isOnActiveSpace` 0, the Space change arriving 0.3 to 0.5 s later). AppKit drops a request made then and reports it only to the window delegate (`windowDidFailToEnterFullScreen:`, there is no notification). That the request is refused in that state is **open**: the harness took it every time, so the failure itself has not been reproduced here, only the state in which it is made.
++- **Fix:** `front_mac.m` `front_run` makes the request once the app is active and the window is on the active Space (`NSApplicationDidBecomeActiveNotification`, `NSWorkspaceActiveSpaceDidChangeNotification`, whichever comes last), repeats a refused one once (the `fullscreen was refused` line), and stops when the player toggles fullscreen first. `g_fullscreen` and `screen_match_apply` are unchanged. The alternative, a borderless screen-sized window with no Space of its own, would avoid the transition but give up native fullscreen, which `screen_match_apply` relies on.
++- **Found on:** the NX2Apple launcher's console mode (LNPANDY/NX2Apple), no game in particular.
++- **Not checked:** the refusal itself, and a game started through the real console mode.
++
+ ### Frame latency 2 for the display link in fullscreen
+ 
+ - **Symptom:** on a ProMotion built-in screen, only in fullscreen, the frame step went 1 → 2 → 3 vsyncs on frames costing 0.1–0.6 vsyncs (`3 late frames; cost 0.32 vsyncs`) and the game presented 15 frames a second; a window, or the screen set to a fixed 60 Hz, did not do it. The `DM_NVN_TSV` rows show presents shown one 120 Hz refresh late (`@pres_at_ms` − `@link_target_ms` = 8.3 ms) with a skipped tick after each (`@link_gap_ms` 33 ms), and `@link_lead_ms` about 16 ms against about 50 ms in a window.

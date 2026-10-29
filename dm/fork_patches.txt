@@ -20,3 +20,4 @@ lm3-depth-mode
 nsp-title-id-from-package
 cheats-engine
 cheats-mac-panel
+front-mac-enter-fullscreen-once-the-app-is-activ

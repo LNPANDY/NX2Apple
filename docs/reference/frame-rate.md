@@ -170,6 +170,14 @@ Frame pacing: the host's frame step, engine frame limiters, present intervals an
 - **Check:** here (a built-in 120 Hz screen, a multiple of every link rate) a harness drove `front_mac.m` asked for 50 fps: no switch in the window, 120 → 50 Hz in fullscreen, 120 Hz again on leaving it, and 120 Hz after quitting in fullscreen; at 60 fps and with `DM_SCREEN_MATCH=0` nothing switched.
 - **Not checked:** the link's new range after a switch has not run here (Hades windowed and fullscreen paced at 60 as before).
 
+### A game opened from a fullscreen app stays a window
+
+- **Symptom:** a Mac game started with `DM_FULLSCREEN=1` from an app that is itself in fullscreen (the launcher's console mode) came up as a window. The reporter: "using a full screen app to launch another full-screen app will fail, it will automatically switch to windowed mode".
+- **Cause:** the launcher lives in its own fullscreen Space, so opening the game makes macOS leave that Space. `front_run` asked for fullscreen on the next run-loop turn, when the log of a test harness (two small apps, the second making the same request) shows the app active but its window not yet on the active Space (`isOnActiveSpace` 0, the Space change arriving 0.3 to 0.5 s later). AppKit drops a request made then and reports it only to the window delegate (`windowDidFailToEnterFullScreen:`, there is no notification). That the request is refused in that state is **open**: the harness took it every time, so the failure itself has not been reproduced here, only the state in which it is made.
+- **Fix:** `front_mac.m` `front_run` makes the request once the app is active and the window is on the active Space (`NSApplicationDidBecomeActiveNotification`, `NSWorkspaceActiveSpaceDidChangeNotification`, whichever comes last), repeats a refused one once (the `fullscreen was refused` line), and stops when the player toggles fullscreen first. `g_fullscreen` and `screen_match_apply` are unchanged. The alternative, a borderless screen-sized window with no Space of its own, would avoid the transition but give up native fullscreen, which `screen_match_apply` relies on.
+- **Found on:** the NX2Apple launcher's console mode (LNPANDY/NX2Apple), no game in particular.
+- **Not checked:** the refusal itself, and a game started through the real console mode.
+
 ### Frame latency 2 for the display link in fullscreen
 
 - **Symptom:** on a ProMotion built-in screen, only in fullscreen, the frame step went 1 → 2 → 3 vsyncs on frames costing 0.1–0.6 vsyncs (`3 late frames; cost 0.32 vsyncs`) and the game presented 15 frames a second; a window, or the screen set to a fixed 60 Hz, did not do it. The `DM_NVN_TSV` rows show presents shown one 120 Hz refresh late (`@pres_at_ms` − `@link_target_ms` = 8.3 ms) with a skipped tick after each (`@link_gap_ms` 33 ms), and `@link_lead_ms` about 16 ms against about 50 ms in a window.
