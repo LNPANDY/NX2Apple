@@ -164,6 +164,11 @@ final class BuildModel: ObservableObject {
     }
     private var bundleID = ""             // from the script's "bundle ID:" line
     var xcrunPath = "/usr/bin/xcrun"      // tests stand in for xcodebuild and devicectl
+    var volumesRoot = "/Volumes"          // where external drives are mounted
+    var teamsProvider: () -> [SigningTeam] = { DeviceTools.teams() }   // the teams the Mac knows, read when a signing step fails
+    var chooseKeys: (() -> Void)?          // tests stand in for the file picker
+    var revealFolder: (URL) -> Void = { NSWorkspace.shared.open($0) }
+    var openApp: (URL) -> Void = { NSWorkspace.shared.openApplication(at: $0, configuration: NSWorkspace.OpenConfiguration()) }
 
     /// This iPhone build goes straight to a device.
     var installsDirectly: Bool { target != "mac-app" && !installDevice.isEmpty && !signingTeam.isEmpty }
@@ -1258,8 +1263,23 @@ final class BuildModel: ObservableObject {
     /// A failed build's log read for the script's known early stops: the card under the build button then says what
     /// happened and what to do. An unknown stop leaves the note (the last line of the log) as it is.
     func noteFailure() {
-        let f = BuildFailureClassifier.classify(logTail)
+        let f = BuildFailureClassifier.classify(logTail, inputs: failureInputs())
         guard f.kind != .unknown else { failure = nil; return }
+        failure = f
+        doneNote = failureWhat(f)
+    }
+
+    /// What the classifier may check besides the log: the keys file and where the game files are.
+    func failureInputs() -> BuildFailureClassifier.Inputs {
+        BuildFailureClassifier.Inputs(keysPath: keysPath, paths: ([basePath, updatePath, gameDir] + dlcPaths).filter { !$0.isEmpty },
+                                      volumes: volumesRoot)
+    }
+
+    /// A failed step of an install on a device, as a card when the launcher can say more than the tool's line.
+    /// Called after `finishInstall`, which put the tool's own error into the note.
+    func noteInstallFailure(_ step: BuildFailureClassifier.InstallStep, error: String) {
+        let listed = teamsProvider().contains { $0.id == signingTeam }
+        guard let f = BuildFailureClassifier.classifyInstall(step, error: error, teamListed: listed) else { failure = nil; return }
         failure = f
         doneNote = failureWhat(f)
     }
@@ -1267,6 +1287,8 @@ final class BuildModel: ObservableObject {
     /// The first sentence of a failure's hint (it names the game of a 32-bit program when the message does).
     func failureWhat(_ f: BuildFailure) -> String {
         if f.kind == .a32Program, let name = f.gameName { return String(format: t("fail.a32Program.whatNamed"), name) }
+        if f.kind == .driveMissing, let name = f.detail { return String(format: t("fail.driveMissing.whatNamed"), name) }
+        if f.kind == .diskFull, let gb = f.detail { return String(format: t("fail.diskFull.whatNeeds"), gb) }
         return t(f.kind.whatKey)
     }
 
@@ -1302,13 +1324,41 @@ final class BuildModel: ObservableObject {
             if let xcode = Self.installedXcode() {
                 installDep(Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint", present: false, installCmd: Self.selectXcodeCmd(xcode)))
             }
+        case .keys:
+            if let chooseKeys { chooseKeys() } else { pickFiles(kind: .keys) }   // the same picker as the keys row
+        case .severalGames, .noTitleID, .diskFull:
+            showFailureFolder()
+        case .teamTaken, .noSigningAccount:
+            openXcode()
+        case .deviceTransfer:
+            startBuild()
         default: break
         }
     }
 
+    /// The folder the failure is about, in the Finder: the folder of the game files, else the one the message names. For a full
+    /// disk the build folder (`<title ID>_build`, beside the game files) when it is there, since that is where the space went.
+    func showFailureFolder() {
+        guard let f = failure else { return }
+        var folder = gameDir.isEmpty ? (f.detail ?? "") : gameDir
+        if f.kind == .diskFull, !gameDir.isEmpty {
+            let built = ((try? FileManager.default.contentsOfDirectory(atPath: gameDir)) ?? []).sorted().first { $0.hasSuffix("_build") }
+            if let built { folder = gameDir + "/" + built }
+        }
+        guard !folder.isEmpty else { return }
+        revealFolder(URL(fileURLWithPath: folder))
+    }
+
+    /// Xcode itself: its Settings > Accounts is where a team is signed in, and Xcode has no address that opens that pane.
+    func openXcode() {
+        guard let app = Self.installedXcode() else { return }
+        openApp(URL(fileURLWithPath: app))
+    }
+
     /// Whether the card's fix button is already running its command.
     func fixBusy(_ kind: BuildFailureKind) -> Bool {
-        deps.first { $0.id == (kind == .translator ? "dotnet" : "xcode") }?.installing ?? false
+        guard [.translator, .iosSDK, .cltSelected].contains(kind) else { return false }
+        return deps.first { $0.id == (kind == .translator ? "dotnet" : "xcode") }?.installing ?? false
     }
 
     /// (file count, bytes) of a RomFS tree — the reuse fingerprint's content part.
@@ -1743,7 +1793,10 @@ final class BuildModel: ObservableObject {
         guard FileManager.default.fileExists(atPath: app) else { return finishInstall(String(format: t("dev.noProject"), shortPath(app))) }
         runTool(id: 1002, name: String(format: t("dev.installStage"), name),
                 [xcrun, "devicectl", "device", "install", "app", "--device", device, app], step: Self.installStep) { error in
-            if let error { return self.finishInstall(String(format: self.t("dev.installFailed"), error)) }
+            if let error {
+                self.finishInstall(String(format: self.t("dev.installFailed"), error))
+                return self.noteInstallFailure(.install, error: error)
+            }
             guard let bundle = NSDictionary(contentsOfFile: app + "/Info.plist")?["CFBundleIdentifier"] as? String else {
                 return self.finishInstall(String(format: self.t("dev.noProject"), self.shortPath(app + "/Info.plist")))
             }
@@ -1754,7 +1807,10 @@ final class BuildModel: ObservableObject {
             let copy = {
                 self.runTool(id: 1003, name: String(format: self.t("dev.copyStage"), name),
                              Self.archiveCopy(xcrun: xcrun, device: device, bundle: bundle, archive: archive, titleID: tid), step: Self.installStep) { error in
-                    if let error { return self.finishInstall(String(format: self.t("dev.copyFailed"), error)) }
+                    if let error {
+                        self.finishInstall(String(format: self.t("dev.copyFailed"), error))
+                        return self.noteInstallFailure(.copy, error: error)
+                    }
                     self.installedOn = device
                     self.installedAppPath = app
                     self.finishInstall(nil)
@@ -1795,10 +1851,7 @@ final class BuildModel: ObservableObject {
                 }
                 let appID = "org.nxnative." + (Self.titleID(self.basePath).map { String(format: "%016llX", $0) } ?? "game").lowercased()
                 let teamVariant = "org.nxnative." + appID.split(separator: ".").last!.appending(".\(team)")
-                func taken(_ e: String?) -> Bool {
-                    guard let e else { return false }
-                    return e.contains("cannot be registered to your development team") || e.contains("No profiles for 'org.nxnative.")
-                }
+                func taken(_ e: String?) -> Bool { e.map(BuildFailureClassifier.signingTeamTaken) ?? false }
                 self.runTool(id: 1001, name: String(format: self.t("dev.signStage"), name), sign(), step: Self.xcodeStep) { firstError in
                     if let firstError, taken(firstError) {
                         // Once more under this team's own identifier, and the log says why the first try failed.
@@ -1806,6 +1859,7 @@ final class BuildModel: ObservableObject {
                         self.runTool(id: 1001, name: String(format: self.t("dev.signStage"), name), sign(["PRODUCT_BUNDLE_IDENTIFIER=" + teamVariant]), step: Self.xcodeStep) { retryError in
                             if let retryError, !retryError.isEmpty {
                                 self.finishInstall(String(format: self.t("dev.signFailed"), retryError))
+                                self.noteInstallFailure(.sign, error: retryError)
                             } else {
                                 self.installBuiltApp(app: derived + "/Build/Products/Release-iphoneos/DmIOS.app", archive: archive, device: device, xcrun: xcrun)
                             }
@@ -1814,6 +1868,7 @@ final class BuildModel: ObservableObject {
                     }
                     if let firstError, !firstError.isEmpty {
                         self.finishInstall(String(format: self.t("dev.signFailed"), firstError))
+                        self.noteInstallFailure(.sign, error: firstError)
                     } else {
                         self.installBuiltApp(app: derived + "/Build/Products/Release-iphoneos/DmIOS.app", archive: archive, device: device, xcrun: xcrun)
                     }

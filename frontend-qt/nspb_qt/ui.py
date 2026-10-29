@@ -7,8 +7,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QFontDatabase
+from PySide6.QtCore import Qt, QUrl
+from PySide6.QtGui import QDesktopServices, QFontDatabase
 from PySide6.QtWidgets import (
     QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QMainWindow,
     QProgressBar, QPushButton, QScrollArea, QSizePolicy, QTextEdit, QVBoxLayout, QWidget,
@@ -352,7 +352,9 @@ class MainWindow(QMainWindow):
         self.failure_box.hide()
         outer.addWidget(self.failure_box)
 
-    _FIX_BUTTONS = {'translator': 'fail.translator.button', 'iosSDK': 'fail.iosSDK.button'}
+    _FIX_BUTTONS = {'translator': 'fail.translator.button', 'iosSDK': 'fail.iosSDK.button',
+                    'keys': 'fail.keys.button', 'severalGames': 'fail.showFolder', 'noTitleID': 'fail.showFolder',
+                    'diskFull': 'fail.showFolder'}
 
     def _show_failure(self) -> None:
         f = self.m.failure
@@ -370,8 +372,17 @@ class MainWindow(QMainWindow):
         self.failure_box.show()
 
     def _fix_failure(self) -> None:
-        if self.m.failure is not None:
-            self.m.fix_failure(self.m.failure)
+        f = self.m.failure
+        if f is None:
+            return
+        if f.kind == 'keys':
+            self._choose_input('keys')   # the same picker as the keys row
+        elif f.kind in ('severalGames', 'noTitleID', 'diskFull'):
+            folder = self.m.failure_folder(f)
+            if folder:
+                QDesktopServices.openUrl(QUrl.fromLocalFile(folder))
+        else:
+            self.m.fix_failure(f)
 
     def _build_anyway(self) -> None:
         """Asks first: the dialog states the risk. Nothing is armed until the player agrees."""

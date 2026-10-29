@@ -41,6 +41,14 @@ struct BuildFailureCard: View {
                 fix(kind, "fail.iosSDK.button")
             case .cltSelected:
                 if BuildModel.installedXcode() != nil { fix(kind, "fail.cltSelected.button") }
+            case .keys:
+                fix(kind, "fail.keys.button")
+            case .severalGames, .noTitleID, .diskFull:
+                fix(kind, "fail.showFolder")
+            case .teamTaken, .noSigningAccount:
+                if BuildModel.installedXcode() != nil { fix(kind, "fail.openXcode") }
+            case .deviceTransfer:
+                fix(kind, "fail.retry")
             default: EmptyView()
             }
             if kind.overrideFlag != nil {
