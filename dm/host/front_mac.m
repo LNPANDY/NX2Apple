@@ -1124,6 +1124,17 @@ void front_run(void (*guest)(void)) {
         if (getenv("DM_METAL_HUD") && atoi(getenv("DM_METAL_HUD"))) { g_layer.developerHUDProperties = @{@"mode": @"default"}; LOG("front end: Metal performance HUD on (DM_METAL_HUD)"); }   // Apple's HUD over the game: frame rate, frame and GPU time, memory
         v.layer = g_layer; [(DmGameView *)v fitDrawable];
         [win center];
+        // DM_SCREEN=<NSScreenNumber>: the launcher's display. Moved before the window is shown and before any fullscreen request, so DM_FULLSCREEN enters fullscreen there
+        const char *want_scr = getenv("DM_SCREEN");
+        if (want_scr && *want_scr) {
+            NSScreen *on = nil; char *end = NULL; unsigned long id = strtoul(want_scr, &end, 10);
+            if (end != want_scr && !*end) for (NSScreen *sc in NSScreen.screens) if ([sc.deviceDescription[@"NSScreenNumber"] unsignedLongValue] == id) on = sc;
+            if (on) {
+                NSRect vf = on.visibleFrame, wf = win.frame;
+                [win setFrameOrigin:NSMakePoint(NSMidX(vf) - wf.size.width / 2, NSMidY(vf) - wf.size.height / 2)];
+                LOG("front end: window on screen %lu '%s' (DM_SCREEN)", id, on.localizedName.UTF8String);
+            } else LOG("front end: DM_SCREEN=%s ignored, no connected screen has that number", want_scr);
+        }
         [win makeKeyAndOrderFront:nil];
         g_screen_fps = (int)(win.screen ?: NSScreen.mainScreen).maximumFramesPerSecond;
         g_win = win;
