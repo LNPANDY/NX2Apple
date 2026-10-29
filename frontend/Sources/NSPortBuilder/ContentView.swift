@@ -134,6 +134,17 @@ final class BuildModel: ObservableObject {
     @Published var bcOnCPU = UserDefaults.standard.bool(forKey: "bcOnCPU") {
         didSet { UserDefaults.standard.set(bcOnCPU, forKey: "bcOnCPU") }
     }
+    /// Pack the game files into the IPA instead of the slim package (the script's DM_FULL_ROMFS=1). Off by default:
+    /// iOS refuses a package of a few GB or more (PackageExtractionFailed), and the slim one reads the files from Documents.
+    @Published var fullRomfs = UserDefaults.standard.bool(forKey: "fullRomfsInIPA") {
+        didSet { UserDefaults.standard.set(fullRomfs, forKey: "fullRomfsInIPA") }
+    }
+    /// Whether the build that just ran packed the game files into the app: nothing is exported or sent afterwards.
+    @Published var lastBuildPackedGameFiles = false
+    /// The environment switch a build adds for the option: only an iPhone or iPad build takes it.
+    nonisolated static func gameFilesEnvironment(fullRomfs: Bool, target: String) -> [String: String] {
+        fullRomfs && target != "mac-app" ? ["DM_FULL_ROMFS": "1"] : [:]
+    }
     @Published var archivePath = ""  // the romfs folder the pack wrote
     /// Where this build's folder actually is: --work-dir when the checkout has it, else the script's
     /// default under the input folder (issue #5 — an upstream checkout has no --work-dir).
@@ -1284,6 +1295,10 @@ final class BuildModel: ObservableObject {
         // The bundled Python lives inside the signed app: a .pyc written there would change what the signature seals
         // (the packages are compiled at bundle time), and a user site must not shadow its pinned packages.
         denv.merge(BundledTools.environment(for: py)) { $1 }
+        // Game files inside the IPA: the script's build_ipa.sh packs them with DM_FULL_ROMFS=1 (there is no flag for it)
+        let packsGameFiles = !Self.gameFilesEnvironment(fullRomfs: fullRomfs, target: target).isEmpty
+        denv.merge(Self.gameFilesEnvironment(fullRomfs: fullRomfs, target: target)) { $1 }
+        lastBuildPackedGameFiles = false
         p.environment = denv
         Self.inOwnGroup(p, python: py)
         let pipe = Pipe()
@@ -1320,6 +1335,18 @@ final class BuildModel: ObservableObject {
                         }
                         self.running = false
                         self.cleanupStaging()
+                    } else if packsGameFiles {
+                        // The game files are inside the app: no romfs.img to export, nothing to copy to Documents
+                        self.lastBuildPackedGameFiles = true
+                        self.archivePath = ""
+                        if self.installsDirectly {
+                            self.signAndInstall(archive: "")
+                        } else {
+                            self.running = false
+                            self.done = true
+                            self.doneNote = self.t("msg.doneFull")
+                            self.cleanupStaging()
+                        }
                     } else if self.installsDirectly {
                         // The same archive as for sideloading, then the app without the game files, then the archive into its Documents
                         self.packArchive(workDir: self.effectiveWorkDir) { self.signAndInstall(archive: $0) }
@@ -1916,6 +1943,11 @@ final class BuildModel: ObservableObject {
                     self.finishInstall(nil)
                 }
             }
+            if archive.isEmpty {   // the game files are inside the app
+                self.installedOn = device
+                self.installedAppPath = app
+                return self.finishInstall(nil)
+            }
             guard FileManager.default.fileExists(atPath: archive + "/romfs.img") else { return copy() }
             self.askTransfer { ok in
                 guard ok else {
@@ -1947,7 +1979,7 @@ final class BuildModel: ObservableObject {
                 func sign(_ extra: [String] = []) -> [String] {
                     [xcrun, "xcodebuild", "-project", project, "-scheme", scheme, "-configuration", "Release",
                      "-destination", "id=\(device)", "-derivedDataPath", derived, "-allowProvisioningUpdates",
-                     "DEVELOPMENT_TEAM=\(team)", "DM_COPY_ROMFS=NO"] + extra + ["build"]
+                     "DEVELOPMENT_TEAM=\(team)"] + (archive.isEmpty ? [] : ["DM_COPY_ROMFS=NO"]) + extra + ["build"]
                 }
                 let appID = "org.nxnative." + (Self.titleID(self.basePath).map { String(format: "%016llX", $0) } ?? "game").lowercased()
                 let teamVariant = "org.nxnative." + appID.split(separator: ".").last!.appending(".\(team)")
@@ -2041,7 +2073,8 @@ final class BuildModel: ObservableObject {
                 self.running = true
                 self.runTool(id: 1006, name: String(format: self.t("dev.resignStage"), name),
                              Self.resignCommand(xcrun: xcrun, project: paths.project, scheme: scheme, device: device,
-                                                derived: paths.derived, team: team, bundle: bundle), step: Self.xcodeStep) { error in
+                                                derived: paths.derived, team: team, bundle: bundle,
+                                                keepsGameFiles: ["romfs.img", "romfs"].contains { FileManager.default.fileExists(atPath: app + "/" + $0) }), step: Self.xcodeStep) { error in
                     if let error, !error.isEmpty {
                         self.running = false
                         self.doneNote = String(format: self.t("dev.resignFailed"), error)
@@ -2067,10 +2100,10 @@ final class BuildModel: ObservableObject {
     /// The xcodebuild parameters of a re-sign: signAndInstall's, plus the installed app's own identifier. The same
     /// derived data is what keeps Xcode from rebuilding the game's code.
     nonisolated static func resignCommand(xcrun: String, project: String, scheme: String, device: String, derived: String,
-                                          team: String, bundle: String) -> [String] {
+                                          team: String, bundle: String, keepsGameFiles: Bool = false) -> [String] {
         [xcrun, "xcodebuild", "-project", project, "-scheme", scheme, "-configuration", "Release",
          "-destination", "id=\(device)", "-derivedDataPath", derived, "-allowProvisioningUpdates",
-         "DEVELOPMENT_TEAM=\(team)", "DM_COPY_ROMFS=NO", "PRODUCT_BUNDLE_IDENTIFIER=\(bundle)", "build"]
+         "DEVELOPMENT_TEAM=\(team)"] + (keepsGameFiles ? [] : ["DM_COPY_ROMFS=NO"]) + ["PRODUCT_BUNDLE_IDENTIFIER=\(bundle)", "build"]
     }
 
     /// The cached project and derived data an installed app came from, from the app's own path
@@ -3201,6 +3234,20 @@ struct BuilderView: View {
                 .background(LauncherPalette.surface.opacity(0.75), in: RoundedRectangle(cornerRadius: 14))
                 .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.white.opacity(0.06)))
                 .padding(.top, 4)
+                VStack(spacing: 0) {
+                    HStack(alignment: .center, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(m.t("opt.fullRomfs")).font(.manrope(14))
+                            Text(m.t("opt.fullRomfs.note")).font(.manrope(12.5)).foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        Spacer(minLength: 12)
+                        Toggle("", isOn: $m.fullRomfs).toggleStyle(LauncherSwitchStyle()).labelsHidden().disabled(m.running)
+                    }
+                    .padding(.horizontal, 18).padding(.vertical, 14)
+                }
+                .background(LauncherPalette.surface.opacity(0.75), in: RoundedRectangle(cornerRadius: 14))
+                .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.white.opacity(0.06)))
             }
         }
     }
@@ -3258,16 +3305,20 @@ struct BuilderView: View {
         } else if m.done && m.target != "mac-app" {
             group(m.t("install.title")) {
                 VStack(alignment: .leading, spacing: 10) {
-                    guideRow(m.t("install.step1")); guideRow(m.t("install.step2")); guideRow(m.t("install.step3"))
+                    guideRow(m.t("install.step1"))
+                    if m.lastBuildPackedGameFiles { guideRow(m.t("install.step2full")) }
+                    else { guideRow(m.t("install.step2")); guideRow(m.t("install.step3")) }
                 }
                 .padding(.horizontal, 18).padding(.vertical, 16)
                 divider
                 row("IPA", detail: m.shortPath(m.ipaPath), dot: LauncherPalette.ready, help: m.ipaPath) {
                     Button(m.t("install.reveal")) { reveal(m.ipaPath) }
                 }
-                divider
-                row("RomFS", detail: m.shortPath(m.archivePath), dot: LauncherPalette.ready, help: m.archivePath) {
-                    Button(m.t("install.reveal")) { reveal(m.archivePath) }
+                if !m.lastBuildPackedGameFiles {
+                    divider
+                    row("RomFS", detail: m.shortPath(m.archivePath), dot: LauncherPalette.ready, help: m.archivePath) {
+                        Button(m.t("install.reveal")) { reveal(m.archivePath) }
+                    }
                 }
             }
         }
