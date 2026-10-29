@@ -77,6 +77,7 @@ import SwiftUI
         XCTAssertEqual(launches.count, 1)
         XCTAssertEqual(launches.first?.environment["DM_PAD_MERGE"], "1")
         XCTAssertEqual(launches.first?.environment["DM_LAUNCHER"], "0")
+        if let main = NSScreen.main { XCTAssertEqual(launches.first?.environment["DM_SCREEN"], GameStart.displayID(of: main).map(String.init), "the game opens on the launcher's display") }
         XCTAssertEqual(launches.first?.game.titleID, titleID)
         let expected = launches.first.map { GameStart.environment(for: $0.game, library: GameLibrary(file: temporary.appendingPathComponent("other.json")), controls: layout, repo: "", labels: { $0 }) }
         XCTAssertEqual(launches.first?.environment, expected, "the same function the desktop Play uses")
