@@ -172,7 +172,7 @@ enum BuildFolder {
         return freed
     }
 
-    private nonisolated static func removeTree(_ path: String, protecting: [String], freed: inout Int64, failures: inout [String]) {
+    nonisolated static func removeTree(_ path: String, protecting: [String], freed: inout Int64, failures: inout [String]) {
         if protecting.contains(where: { path == $0 || path.hasPrefix($0 + "/") }) { return }
         if protecting.contains(where: { $0.hasPrefix(path + "/") }) {   // something to keep lies inside: go in, around it
             for name in (try? FileManager.default.contentsOfDirectory(atPath: path)) ?? [] {
