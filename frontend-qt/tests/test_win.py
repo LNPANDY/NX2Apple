@@ -1585,6 +1585,28 @@ class SaveConfigTest(unittest.TestCase):
         self.assertTrue(matches and all(tc.is_sdk_dir(m) for m in matches))
 
 
+class LinkProbeStrategyTest(unittest.TestCase):
+    """probe_link's three strategies and the step-0 linker self-check.
+
+    The Windows-only subprocess calls cannot run here; what is testable is the *shape*: the
+    strategy list (build-style fuse-ld first, then --ld-path, then -B), and that a silent
+    failure now names all three attempts plus the linker's own self-check instead of one
+    empty '(no output)'.
+    """
+
+    def test_the_strategy_order_is_build_style_first(self) -> None:
+        src = (QT / 'nspb_qt' / 'win' / 'toolchain.py').read_text()
+        body = src[src.index('def probe_link'):]
+        self.assertLess(body.index("'-fuse-ld=lld'"), body.index('f\'--ld-path={lld}\''),
+                        'the build\'s own invocation must be tried before --ld-path')
+        self.assertLess(body.index('f\'--ld-path={lld}\''), body.index("f'-B{lld.parent}'"),
+                        '--ld-path before the -B fallback')
+        self.assertIn("env['PATH'] = str(lld.parent)", body,
+                      'the build-style try must put the linker folder on PATH (build_app.link does)')
+        self.assertIn('does not run by itself', body,
+                      'a linker that cannot start is its own message, before any strategy runs')
+
+
 class InstallFailureHintTest(unittest.TestCase):
     """The row's fix hint after a failed install (Mac parity: name the fix, not the traceback)."""
 
