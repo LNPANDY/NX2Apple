@@ -35,12 +35,17 @@ final class ControlLayout: ObservableObject {
     @Published private(set) var padMode: PadMode = .standard
     /// The connected controller's GCController.productCategory, which Auto goes by; tests stand in for it.
     var controllerCategory: () -> String? = ControlLayout.connectedCategory
+    /// "All controllers are player 1" (launcher setting, off by default): passed at Play as DM_PAD_MERGE=1. It is not a layout
+    /// change, so it stays out of `isDefault`, `changeCount` and the Controls sheet's reset.
+    @Published var padMerge: Bool { didSet { defaults.set(padMerge, forKey: Self.padMergeKey) } }
+    static let padMergeKey = "padMerge"
     private let defaults: UserDefaults
     /// A key code, -1 for no key. `mode` is nil in settings saved before the layouts, which had only the custom buttons.
     private struct Saved: Codable { var keys: [String: Int]; var pad: [String: String]; var mode: String? }
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        padMerge = defaults.bool(forKey: Self.padMergeKey)
         if let data = defaults.data(forKey: "controlLayout"), let saved = try? JSONDecoder().decode(Saved.self, from: data) {
             keys = saved.keys.filter { k, code in Self.functions.contains { $0.id == k } && code < 128 }.mapValues { $0 < 0 ? nil : $0 }
             pad = saved.pad.filter { b, to in Self.buttons.contains(b) && (to == "none" || Self.buttons.contains(to)) }
@@ -90,9 +95,10 @@ final class ControlLayout: ObservableObject {
     func resetKeyboard() { keys = [:]; save() }
     func resetController() { pad = [:]; padMode = .standard; save() }
 
-    /// DM_KEYMAP and DM_PAD_MAP for the changes, in the sheet's order; empty when nothing changed.
+    /// DM_KEYMAP and DM_PAD_MAP for the changes, in the sheet's order, and DM_PAD_MERGE=1 when merging is on; empty when nothing changed.
     var environment: [String: String] {
         var env: [String: String] = [:]
+        if padMerge { env["DM_PAD_MERGE"] = "1" }
         let k = Self.functions.compactMap { f in keys[f.id].map { "\(f.id)=\($0.map(String.init) ?? "none")" } }
         if !k.isEmpty { env["DM_KEYMAP"] = k.joined(separator: ",") }
         let active = activePad

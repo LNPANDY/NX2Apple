@@ -63,7 +63,7 @@ enum ManagePad {
         if menuOpen {
             switch action {
             case .b: return .close
-            case .x, .y, .l, .r: return .swallow
+            case .x, .y, .l, .r, .plus, .select: return .swallow
             case .up, .down, .left, .right, .a: return .pass
             }
         }
