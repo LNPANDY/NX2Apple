@@ -398,8 +398,8 @@ final class CheatFilesTests: XCTestCase {
         }
         try shot("cheats", CheatsView(m: model, library: library, gameID: id, devicectl: DeviceControl { _ in (true, "") }, support: support))
         try shot("cheats-drop", CheatsView(m: model, library: library, gameID: id, support: support, dropped: true))
-        model.lang = .sv
-        try shot("cheats-sv", CheatsView(m: model, library: library, gameID: id, support: support))
+        model.lang = .de
+        try shot("cheats-de", CheatsView(m: model, library: library, gameID: id, support: support))
         model.lang = .zh
         try shot("cheats-zh", CheatsView(m: model, library: library, gameID: id, support: support))
         model.lang = .en

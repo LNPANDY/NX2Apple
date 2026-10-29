@@ -66,7 +66,9 @@ final class BuildFailureRowsTests: XCTestCase {
         try FileManager.default.createDirectory(at: volumes.appendingPathComponent("Games"), withIntermediateDirectories: true)
         XCTAssertEqual(BuildFailureClassifier.classify(log, inputs: .init(keysPath: "", paths: [gone], volumes: volumes.path)).kind, .noTitleID, "the drive is there")
         XCTAssertEqual(BuildFailureClassifier.classify(log, inputs: .init(keysPath: "/Users/x/prod.keys", paths: ["/Users/x/g.nsp"], volumes: volumes.path)).kind, .noTitleID, "a path off /Volumes is no drive")
-        XCTAssertTrue(BuildModel().failureWhat(f).contains("“Games”"))
+        let m = BuildModel()
+        m.lang = .en   // the quotes are English ones whatever the device language is
+        XCTAssertTrue(m.failureWhat(f).contains("“Games”"))
     }
 
     func testTheInstallStepsThatFailedBecomeRows() {

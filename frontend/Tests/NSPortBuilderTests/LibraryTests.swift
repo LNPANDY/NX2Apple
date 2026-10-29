@@ -873,7 +873,7 @@ final class LibraryTests: XCTestCase {
             UserDefaults.standard.set(oldOutput, forKey: "buildOutputDirectory")
         }
         model.repoPath = repo
-        model.lang = .en
+        model.lang = CaptureLanguage.current(.en)
         model.outDir = temporary.path
         model.depsChecked = true
         model.deps = [BuildModel.Dep(id: "test", name: "Xcode", hint: "", present: true, installCmd: [])]

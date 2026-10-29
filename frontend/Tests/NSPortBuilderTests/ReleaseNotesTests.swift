@@ -153,11 +153,18 @@ final class ReleaseNotesTests: XCTestCase {
         XCTAssertFalse(all.contains("upstream commits"))
     }
 
-    func testSwedishUsesTheEnglishSection() throws {
+    func testSwedishAndGermanUseTheEnglishSection() throws {
         let body = try Self.body072()
-        for lang in [Lang.sv] {
+        for lang in [Lang.sv, Lang.de] {
             XCTAssertEqual(ReleaseNotes.lines(body, for: lang), ReleaseNotes.lines(body, for: .en))
         }
+    }
+
+    func testGermanReadsTheEnglishHalfOfTheOtherShapes() {
+        let halves = "- English line\n\n---\n\n- 中文行"
+        XCTAssertEqual(ReleaseNotes.lines(halves, for: .de), ReleaseNotes.lines(halves, for: .en))
+        let marked = "**中文** 中文行\n**English** English line"
+        XCTAssertEqual(ReleaseNotes.lines(marked, for: .de), ["English line"])
     }
 
     func testHeadingAndBoldMarkerVariants() {

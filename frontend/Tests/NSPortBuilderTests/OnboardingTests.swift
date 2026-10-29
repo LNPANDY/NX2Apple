@@ -173,7 +173,7 @@ final class OnboardingTests: XCTestCase {
         let output = URL(fileURLWithPath: directory)
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         NSApplication.shared.setActivationPolicy(.accessory)
-        for lang: Lang in [.en, .zh] {
+        for lang: Lang in CaptureLanguage.all([.en, .zh]) {
             for step in OnboardingStep.allCases {
                 var s = OnboardingState()
                 s.step = step
@@ -225,7 +225,7 @@ final class OnboardingTests: XCTestCase {
             window.orderOut(nil)
         }
         // The NVN hints (old macOS on Welcome, old Xcode on the Xcode step).
-        for lang: Lang in [.en, .zh] {
+        for lang: Lang in CaptureLanguage.all([.en, .zh]) {
             for step in [OnboardingStep.welcome, .xcode] {
                 var s = MockOnboardingDriver.sampleState
                 s.step = step; s.platform = .selected(.mac); s.xcode = .ready
