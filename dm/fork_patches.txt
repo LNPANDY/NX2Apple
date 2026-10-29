@@ -18,5 +18,5 @@ games-md-gallery
 cloud-saves
 lm3-depth-mode
 nsp-title-id-from-package
-0028-cheats-engine.patch
-0029-cheats-mac-panel.patch
+cheats-engine
+cheats-mac-panel
