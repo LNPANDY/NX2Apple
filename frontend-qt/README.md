@@ -35,8 +35,11 @@ wherever `NSPB_REPO` points, and the repository group lets you pick it by hand.
 - Dependency detection per platform: Python + packages, .NET SDK, and either **Xcode + iOS SDK +
   Metal toolchain** (macOS) or the **Windows cross toolchain** (see [Windows build](#windows-build)),
   plus xcodegen / zstd / spirv-cross. Each row has an install button when a command can fix it.
-- Pick a game folder (or its four inputs separately). Base / update / DLC / `prod.keys` are
-  recognised from the dump names.
+- Pick a game folder (or its four inputs separately). Package identification prefers ticket
+  names, then filename title-ID tags, independently of keys. Preflight checks each selected
+  file's base/update/DLC role and game family, including matching files beside the base.
+  Ticketless bases paired with one known family remain supported. View identification
+  details or Copy diagnostics for safe methods/reasons, and use the file pickers to recover.
 - Build: runs the same script the SwiftUI app runs, streams its stage lines and log, then packs
   the RomFS archive and reports where the IPA and archive landed.
 - `--work-dir` is passed only when the checkout's script declares it (an upstream checkout has
@@ -274,4 +277,3 @@ build on Windows plus a device run can settle:
 
 `nspb_qt/win/doctor.py` is the fastest way to narrow a failure: it separates "a tool is missing"
 from "the tool exists but cannot do the job".
-

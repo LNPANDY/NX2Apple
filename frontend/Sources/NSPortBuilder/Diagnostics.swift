@@ -32,6 +32,7 @@ struct Diagnostics {
         var game: GameInfo?                  // the library's selected game
         var lastCommand: [String] = []       // the last build's, this session
         var log = ""                         // the build log the Builds page shows
+        var packageIdentification = ""
         var home = NSHomeDirectory()
     }
 
@@ -90,6 +91,11 @@ struct Diagnostics {
         out.append("- Metal compiler (iOS): " + metal(t.metalIOS, pin: t.metalPinIOS))
         out.append("- iOS SDK: " + (t.iosSDK ?? "not installed"))
         out.append("")
+        if !i.packageIdentification.isEmpty {
+            out.append("#### Package preflight")
+            out.append(i.packageIdentification)
+            out.append("")
+        }
         out.append("#### Last build")
         out.append("")
         if i.lastCommand.isEmpty {
@@ -293,6 +299,7 @@ extension BuildModel {
         let repo = repoOK ? repoPath : "", python = pythonPath.isEmpty ? Self.findPython().path : pythonPath, dotnet = dotnetPath
         let rows = depsChecked ? deps.map(Diagnostics.dependency) : [], checked = depsChecked
         let command = lastBuildCommand, log = logTail, xcrun = xcrunPath
+        let identification = packageInputs == selectedPackages ? packageCheck.diagnostics : "Not checked for the current selection."
         DispatchQueue.global(qos: .userInitiated).async {
             let git = Diagnostics.git(repo)
             let env = ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin", "TMPDIR": NSTemporaryDirectory()]
@@ -314,7 +321,7 @@ extension BuildModel {
                 forkPatches: repo.isEmpty ? nil : read("dm/fork_patches.txt").map(Diagnostics.patchList),
                 toolchain: Diagnostics.toolchain(xcrun: xcrun, pins: pins, run: Diagnostics.probe(env: env)),
                 game: game.map { Diagnostics.gameInfo($0) },
-                lastCommand: command, log: log)
+                lastCommand: command, log: log, packageIdentification: identification)
             let report = Diagnostics.report(inputs)
             DispatchQueue.main.async { done(report) }
         }

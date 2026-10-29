@@ -264,7 +264,7 @@ final class LibraryTests: XCTestCase {
         time.sleep(60)
         """.write(to: script, atomically: true, encoding: .utf8)
         let base = temporary.appendingPathComponent("Test [\(titleID)].nsp"), keys = temporary.appendingPathComponent("prod.keys")
-        try Data([0]).write(to: base); try Data().write(to: keys)
+        try (Data("PFS0".utf8) + Data(repeating: 0, count: 12)).write(to: base); try Data().write(to: keys)
         model.slots[0].paths = [base.path]; model.slots[3].paths = [keys.path]
         let running = expectation(description: "The stage is reported")
         let started = model.$stages.filter { $0.first?.percent == 25 }.prefix(1).sink { _ in running.fulfill() }
@@ -378,7 +378,7 @@ final class LibraryTests: XCTestCase {
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: xcrun.path)
         model.xcrunPath = xcrun.path
         let base = temporary.appendingPathComponent("Test [\(titleID)].nsp"), keys = temporary.appendingPathComponent("prod.keys")
-        try Data([0]).write(to: base); try Data().write(to: keys)
+        try (Data("PFS0".utf8) + Data(repeating: 0, count: 12)).write(to: base); try Data().write(to: keys)
         model.slots[0].paths = [base.path]; model.slots[3].paths = [keys.path]
         let finished = expectation(description: "Signed and installed")
         let token = model.$done.filter { $0 }.prefix(1).sink { _ in finished.fulfill() }
@@ -660,7 +660,7 @@ final class LibraryTests: XCTestCase {
         """.write(to: script, atomically: true, encoding: .utf8)
         let base = temporary.appendingPathComponent("Test [\(titleID)].nsp")
         let keys = temporary.appendingPathComponent("prod.keys")
-        try Data([0]).write(to: base)
+        try (Data("PFS0".utf8) + Data(repeating: 0, count: 12)).write(to: base)
         try Data().write(to: keys)
         model.slots[0].paths = [base.path]
         model.slots[3].paths = [keys.path]
@@ -673,6 +673,8 @@ final class LibraryTests: XCTestCase {
         RunLoop.main.run(until: Date().addingTimeInterval(0.1))
         let completed = expectation(description: "Successful app is added without an import")
         let token = library.$games.filter { $0.contains(where: \.isReady) }.prefix(1).sink { _ in completed.fulfill() }
+        let identified = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in model.canBuild }, object: nil)
+        wait(for: [identified], timeout: 10)
         XCTAssertTrue(model.canBuild)
         window.orderOut(nil) // Registration must work even while the launcher is hidden.
         model.startBuild()

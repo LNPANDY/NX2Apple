@@ -18,6 +18,7 @@ from PySide6.QtCore import Q_ARG, QMetaObject, QObject, Qt, QThread, Signal, Slo
 from . import platform_util as pu
 from .i18n import Lang
 from .localization import t
+from . import package_check
 
 
 # ---------------------------------------------------------------- dependency rows
@@ -71,6 +72,10 @@ class Model(QObject):
     runningChanged = Signal(bool)
     finished = Signal(bool, str)          # ok, note
     appUpdateFound = Signal(str, str)     # tag, url
+    packageChanged = Signal()
+    _packageDone = Signal(int, object, object)
+    _buildPackagesDone = Signal(int, object, object, object)
+    _folderDone = Signal(str, object)
 
     def __init__(self) -> None:
         super().__init__()
@@ -89,6 +94,15 @@ class Model(QObject):
         self.update_path = ''
         self.dlc_paths: list[str] = []
         self.keys_path = ''
+        self.package_result = package_check.Result()
+        self.package_inputs = None
+        self._package_requested = None
+        self._package_generation = 0
+        self.checking_packages = False
+        self._preparing_build = False
+        self._packageDone.connect(self._receive_packages)
+        self._buildPackagesDone.connect(self._receive_build_packages)
+        self._folderDone.connect(self._receive_folder)
         self.out_dir = ''
         self.ipa_path = ''
         self.archive_path = ''
@@ -865,72 +879,142 @@ class Model(QObject):
 
     # ---- inputs
 
+    def selected_packages(self):
+        return tuple([self.base_path, self.update_path] + self.dlc_paths)
+
+    def check_packages(self, force=False):
+        inputs = self.selected_packages()
+        if not force and inputs == self._package_requested:
+            return
+        self._package_requested = inputs
+        self._package_generation += 1
+        generation = self._package_generation
+        self.checking_packages = True
+        self.packageChanged.emit()
+
+        def work():
+            self._packageDone.emit(generation, inputs, package_check.check(inputs))
+        threading.Thread(target=work, daemon=True).start()
+
+    @Slot(int, object, object)
+    def _receive_packages(self, generation, inputs, result):
+        if generation != self._package_generation:
+            return
+        if inputs != self.selected_packages():
+            if inputs == self._package_requested and not self._preparing_build:
+                self.checking_packages = False
+                self.packageChanged.emit()
+            return
+        self.package_inputs, self.package_result = inputs, result
+        self.checking_packages = False
+        self.packageChanged.emit()
+
+    @Slot(int, object, object, object)
+    def _receive_build_packages(self, generation, inputs, result, staging):
+        self._preparing_build = False
+        if generation != self._package_generation:
+            if staging:
+                shutil.rmtree(staging, ignore_errors=True)
+            self.packageChanged.emit()
+            return
+        self._receive_packages(generation, inputs, result)
+        if inputs != self.selected_packages() or not result.ready:
+            if staging:
+                shutil.rmtree(staging, ignore_errors=True)
+            self.packageChanged.emit()
+            self.finished.emit(False, self.t('package.blocked'))
+            return
+        if result.needs_staging and not staging:
+            self.finished.emit(False, self.t('msg.stagingFailed'))
+            return
+        self._start_checked_build(result, staging)
+
     def scan_game_dir(self, d: str) -> None:
         """Pick the four inputs out of a folder (and its subfolders, one level): a base NSP,
         an update, DLCs and prod.keys, by the naming the dumps use."""
         self.game_dir = d
-        root = Path(d)
-        if not root.is_dir():
+        def work():
+            files = []
+            try:
+                for p in sorted(Path(d).iterdir()):
+                    if p.is_file():
+                        files.append(p)
+                    elif p.is_dir():
+                        files += [q for q in sorted(p.iterdir()) if q.is_file()]
+                packages = [package_check.inspect(str(p)) for p in files
+                            if p.suffix in package_check.EXTENSIONS and not p.name.startswith('._')]
+            except OSError:
+                packages = []
+            self._folderDone.emit(d, (files, packages))
+        threading.Thread(target=work, daemon=True).start()
+
+    @Slot(str, object)
+    def _receive_folder(self, d, scanned):
+        if self.game_dir != d:
             return
-        files: list[Path] = []
-        for p in sorted(root.iterdir()):
-            if p.is_file():
-                files.append(p)
-            elif p.is_dir():
-                files += [q for q in sorted(p.iterdir()) if q.is_file()]
+        files, packages = scanned
         self.keys_path = next((str(f) for f in files if f.name.lower() == 'prod.keys'), self.keys_path)
-        nsps = [f for f in files if f.suffix.lower() in ('.nsp', '.xci', '.nsz', '.xcz')]
-        updates = [f for f in nsps if '[upd]' in f.name.lower() or 'update' in f.name.lower()]
-        dlcs = [f for f in nsps if '[dlc]' in f.name.lower() or 'addon' in f.name.lower()]
-        bases = [f for f in nsps if f not in updates and f not in dlcs]
-        self.base_path = str(bases[0]) if bases else ''
-        self.update_path = str(updates[0]) if updates else ''
-        self.dlc_paths = [str(f) for f in dlcs]
+        bases = [p.path for p in packages if p.title is not None and p.actual_role == 'base']
+        updates = [p.path for p in packages if p.title is not None and p.actual_role == 'update']
+        unknown = [p.path for p in packages if p.title is None]
+        self.base_path = bases[0] if bases else unknown[0] if len(unknown) == 1 else ''
+        if self.update_path not in updates:
+            versions = [(int(m.group(1)), path) for path in updates
+                        if (m := re.search(r'\[v(\d+)\]', Path(path).name))]
+            # Match the backend's numeric version tags; do not guess between untagged updates.
+            self.update_path = max(versions)[1] if versions else updates[0] if len(updates) == 1 else ''
+        self.dlc_paths = [p.path for p in packages if p.title is not None and p.actual_role == 'dlc']
+        self.check_packages(force=True)
         self.repoChanged.emit()
 
     @property
     def can_build(self) -> bool:
         return (self.repo_ok and bool(self.base_path) and bool(self.keys_path)
-                and self.all_deps_ok and not self.running)
+                and self.all_deps_ok and not self.running and not self.checking_packages and not self._preparing_build
+                and self.package_inputs == self.selected_packages() and self.package_result.ready)
 
     # ---- build
 
     def start_build(self) -> None:
-        if self.running:
+        if self.running or self.checking_packages or self._preparing_build:
             return
         if not self.repo_ok:
             self.finished.emit(False, self.t('msg.repoInvalidEmpty'))
             return
+        inputs = self.selected_packages()
+        self._package_requested = inputs
+        self._package_generation += 1
+        generation = self._package_generation
+        staging_parent = self.out_dir or str(Path(inputs[0]).parent)
+        self._preparing_build = True
+        self.checking_packages = True
+        self.packageChanged.emit()
+
+        def work():
+            result = package_check.check(inputs)
+            staging = None
+            if result.ready and result.needs_staging:
+                try:
+                    staging = tempfile.mkdtemp(prefix='.nx2apple-inputs-', dir=staging_parent)
+                    for f in result.paths:
+                        dst = Path(staging, Path(f).name)
+                        try:
+                            os.link(f, dst)
+                        except OSError:
+                            shutil.copy2(f, dst)
+                except OSError:
+                    if staging:
+                        shutil.rmtree(staging, ignore_errors=True)
+                    staging = None
+            self._buildPackagesDone.emit(generation, inputs, result, staging)
+        threading.Thread(target=work, daemon=True).start()
+
+    def _start_checked_build(self, result, staging):
         py = self.python_path or ('python' if pu.IS_WIN else '/usr/bin/python3')
         base_dir = str(Path(self.base_path).parent)
-        all_files = [self.base_path, self.update_path] + self.dlc_paths
-        dirs = {str(Path(f).parent) for f in all_files if f}
-
-        staging: str | None = None
-        input_dir = base_dir
-        if len(dirs) > 1:
-            # files from different folders: a staging folder of links so the script sees one folder
-            staging = tempfile.mkdtemp(prefix='nspb-stage-')
-            linked = 0
-            for f in all_files:
-                if not f:
-                    continue
-                dst = Path(staging, Path(f).name)
-                try:
-                    os.link(f, dst) if not pu.IS_WIN else shutil.copy2(f, dst)
-                    linked += 1
-                except OSError:
-                    try:
-                        shutil.copy2(f, dst)
-                        linked += 1
-                    except OSError:
-                        pass
-            if linked == 0:
-                self.finished.emit(False, self.t('msg.stagingFailed'))
-                return
-            input_dir = staging
-
-        tid = self._title_id(self.base_path)
+        input_dir = staging or base_dir
+        all_files = result.paths
+        tid = result.title
         tid_hex = f'{tid:016X}' if tid else 'game'
         work_dir = str(Path(self.out_dir or base_dir, f'{tid_hex}_build'))
 
@@ -939,6 +1023,8 @@ class Model(QObject):
         if compressed and not pu._runs(py, ['-c', 'import nsz']):
             self.log(self.t('msg.installingNsz') + '\n')
             if not pu._runs(py, ['-m', 'pip', 'install', 'nsz']):
+                if staging:
+                    shutil.rmtree(staging, ignore_errors=True)
                 self.finished.emit(False, self.t('msg.nszFailed', py))
                 return
 
@@ -978,6 +1064,7 @@ class Model(QObject):
         self._last_error = ''
         self.stagesChanged.emit()
         self.log(self.t('msg.running', py + ' ' + ' '.join(args)) + '\n')
+        self.log(result.diagnostics + '\n')
 
         env = pu.child_env()
         droot = pu.dotnet_root(self.dotnet_path) if self.dotnet_ok else None

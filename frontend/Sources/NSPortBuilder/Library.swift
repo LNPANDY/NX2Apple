@@ -416,7 +416,8 @@ final class GameLibrary: ObservableObject {
 
     @discardableResult func rememberInputs(_ model: BuildModel) -> UUID? {
         guard !model.basePath.isEmpty else { return nil }
-        let titleID = BuildModel.titleID(model.basePath).map { String(format: "%016llX", $0) }
+        let identified = model.packageInputs == model.selectedPackages ? model.packageCheck.title : nil
+        let titleID = (identified ?? BuildModel.titleID(model.basePath)).map { String(format: "%016llX", $0) }
             ?? URL(fileURLWithPath: model.basePath).standardizedFileURL.path
         var game = games.first { $0.titleID == titleID } ?? LibraryGame(titleID: titleID, name: Self.title(for: model.basePath, repo: model.repoPath, titleID: titleID))
         game.inputs = Dictionary(uniqueKeysWithValues: model.slots.map { ($0.id, $0.paths) })

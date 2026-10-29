@@ -173,7 +173,8 @@ enum KeyCheck {
             guard nameAt < table.count else { continue }
             let name = String(decoding: table[nameAt...].prefix { $0 != 0 }, as: UTF8.self).lowercased()
             let ncz = name.hasSuffix(".ncz")
-            guard name.hasSuffix(".nca") || ncz, size >= UInt64(headerBytes), let h = read(dataStart + offset, headerBytes) else { continue }
+            guard name.hasSuffix(".nca") || ncz, size >= UInt64(headerBytes),
+                  offset <= UInt64.max - dataStart, let h = read(dataStart + offset, headerBytes) else { continue }
             headers.append((h, ncz))
         }
         return .pfs0(headers)

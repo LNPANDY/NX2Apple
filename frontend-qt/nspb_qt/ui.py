@@ -8,7 +8,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QFontDatabase
+from PySide6.QtGui import QFontDatabase, QGuiApplication
 from PySide6.QtWidgets import (
     QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QMainWindow,
     QProgressBar, QPushButton, QScrollArea, QSizePolicy, QTextEdit, QVBoxLayout, QWidget,
@@ -75,6 +75,7 @@ class MainWindow(QMainWindow):
         self.m.logAppended.connect(self._append_log)
         self.m.runningChanged.connect(self._refresh_running)
         self.m.finished.connect(self._on_finished)
+        self.m.packageChanged.connect(self._refresh_packages)
 
         self._refresh_all()
         self.m.check_deps()
@@ -213,6 +214,29 @@ class MainWindow(QMainWindow):
         pick.clicked.connect(self._pick_folder)
         row.addWidget(pick)
         lay.addLayout(row)
+        self.package_status = QLabel()
+        self.package_status.setWordWrap(True)
+        self.package_status.setTextFormat(Qt.PlainText)
+        self.package_status.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        lay.addWidget(self.package_status)
+        self.package_details = QTextEdit()
+        self.package_details.setReadOnly(True)
+        self.package_details.setMaximumHeight(150)
+        self.package_details.hide()
+        lay.addWidget(self.package_details)
+        recovery = QHBoxLayout()
+        for key, action in (
+            ('package.details', lambda: self.package_details.setVisible(not self.package_details.isVisible())),
+            ('package.choose', self._choose_failed_input),
+            ('diag.copy', lambda: QGuiApplication.clipboard().setText(
+                self.m.package_result.diagnostics if self.m.package_inputs == self.m.selected_packages()
+                else self.m.t('package.checking'))),
+        ):
+            button = QPushButton(self.m.t(key))
+            self._translatable.append((button, key))
+            button.clicked.connect(action)
+            recovery.addWidget(button)
+        lay.addLayout(recovery)
 
     def _build_deps(self) -> None:
         box, lay = self._card('dep.title')
@@ -343,6 +367,8 @@ class MainWindow(QMainWindow):
         self._refresh_deps()
 
     def _refresh_inputs(self) -> None:
+        self.m.check_packages()
+        self._refresh_packages()
         self.folder_label.setText(pu.short_path(self.m.game_dir) if self.m.game_dir
                                   else self.m.t('data.folderHint'))
         vals = {'base': self.m.base_path, 'update': self.m.update_path, 'keys': self.m.keys_path}
@@ -364,6 +390,16 @@ class MainWindow(QMainWindow):
                 dot.setStyleSheet(f'color: {MUTED if optional else RED};')
                 val.setText(self.m.t('data.notSelectedOptional') if optional else self.m.t('data.notSelected'))
                 val.setStyleSheet(f'color: {MUTED if optional else ORANGE};')
+        self._refresh_running()
+
+    def _refresh_packages(self):
+        current = self.m.package_inputs == self.m.selected_packages()
+        key = 'package.checking' if self.m.checking_packages else 'package.ready' if current and self.m.package_result.ready else 'package.blocked'
+        lines = [self.m.t(key)] if self.m.base_path else []
+        if current:
+            lines += [Path(p.path).name + ' — ' + p.status for p in self.m.package_result.packages]
+        self.package_status.setText('\n'.join(lines))
+        self.package_details.setPlainText(self.m.package_result.diagnostics if current else self.m.t('package.checking'))
         self._refresh_running()
 
     def _refresh_deps(self) -> None:
@@ -565,7 +601,12 @@ class MainWindow(QMainWindow):
         if d:
             self.m.scan_game_dir(d)
 
-    def _choose_input(self, key: str) -> None:
+    def _choose_failed_input(self):
+        current = self.m.package_inputs == self.m.selected_packages()
+        failed = next((p for p in self.m.package_result.packages if p.selected and p.reason), None) if current else None
+        self._choose_input(failed.role if failed else 'base', failed.path if failed else None)
+
+    def _choose_input(self, key: str, replacing: str | None = None) -> None:
         path, _ = QFileDialog.getOpenFileName(self, self.m.t('data.choose'))
         if not path:
             return
@@ -576,8 +617,12 @@ class MainWindow(QMainWindow):
         elif key == 'keys':
             self.m.keys_path = path
         else:
+            if replacing in self.m.dlc_paths:
+                self.m.dlc_paths.remove(replacing)
             if path not in self.m.dlc_paths:
                 self.m.dlc_paths.append(path)
+        if key != 'keys':
+            self.m.check_packages(force=True)
         self.m.repoChanged.emit()
 
     def _export_log(self) -> None:

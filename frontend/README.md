@@ -251,6 +251,14 @@ it with `python3 frontend-qt/gen_localization.py` from the repository root.
 
 ## Verification
 
+The Builds page checks package identification independently of the key/header check.
+It prefers a recognized ticket **name**, then a filename `[16 hex title ID]`, and checks
+base/update/DLC roles and game families before building. A ticketless base can still be
+paired with a single known family, as the build script supports. Matching update/DLC
+files beside the base are included in preflight; unrelated games are isolated from the
+build. Identification details and Copy diagnostics report the method and failure reason,
+never ticket contents or key values. Use the existing file pickers to replace a failed input.
+
 ```bash
 swift test --package-path frontend
 ```

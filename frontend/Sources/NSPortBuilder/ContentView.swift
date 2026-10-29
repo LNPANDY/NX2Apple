@@ -887,6 +887,28 @@ final class BuildModel: ObservableObject {
     var keysPath: String { slot("keys").paths.first ?? "" }
     var updatePath: String { slot("update").paths.first ?? "" }
     var dlcPaths: [String] { slot("dlc").paths }
+    @Published var packageCheck = PackageCheck.Result()
+    @Published var packageInputs: [String] = []
+    @Published var checkingPackages = false
+    @MainActor private var packageRequestID = UUID()
+    @MainActor private var scanRequestID = UUID()
+    @MainActor private(set) var preparingBuild = false
+    @MainActor var inspectPackages: @Sendable ([String]) async -> PackageCheck.Result = { inputs in
+        await Task.detached(priority: .userInitiated) { PackageCheck.run(inputs) }.value
+    }
+    var selectedPackages: [String] { [basePath, updatePath] + dlcPaths }
+
+    @MainActor func checkPackages() async {
+        let inputs = selectedPackages
+        let request = UUID()
+        packageRequestID = request
+        checkingPackages = true
+        let result = await inspectPackages(inputs)
+        guard request == packageRequestID else { return }
+        checkingPackages = false
+        guard inputs == selectedPackages else { return }
+        packageCheck = result; packageInputs = inputs
+    }
 
     func slot(_ id: String) -> Slot { slots.first { $0.id == id } ?? slots[0] }
     func updateSlot(_ id: String, _ body: (inout Slot) -> Void) {
@@ -900,19 +922,48 @@ final class BuildModel: ObservableObject {
     /// Subfolders are scanned too — a dump usually arrives as 本体/ 更新/ DLC/ folders —
     /// pruning the build folders this pipeline itself writes so a rescan is not slow.
     func scan(folder: String) {
-        gameDir = folder
-        let found = Self.classify(Self.inputFiles(in: folder))
-        updateSlot("base") { $0.paths = found.base.map { [$0] } ?? []; $0.problem = found.base == nil ? "data.noBase" : "" }
-        updateSlot("update") { $0.paths = found.update.map { [$0] } ?? []; $0.problem = "" }
-        updateSlot("dlc") { $0.paths = found.dlc; $0.problem = "" }
-        updateSlot("keys") { $0.paths = found.keys.map { [$0] } ?? []; $0.problem = "" }
-        if !found.anyGame {
-            updateSlot("base") { $0.problem = "data.noNsp" }
+        Task { @MainActor in
+            gameDir = folder
+            let request = UUID()
+            scanRequestID = request
+            let found = await Task.detached(priority: .userInitiated) { Self.identifyInputs(Self.inputFiles(in: folder)) }.value
+            guard request == scanRequestID, gameDir == folder else { return }
+            updateSlot("base") { $0.paths = found.base.map { [$0] } ?? []; $0.problem = found.base == nil ? "data.noBase" : "" }
+            updateSlot("update") { $0.paths = found.update.map { [$0] } ?? []; $0.problem = "" }
+            updateSlot("dlc") { $0.paths = found.dlc; $0.problem = "" }
+            updateSlot("keys") { $0.paths = found.keys.map { [$0] } ?? []; $0.problem = "" }
+            if !found.anyGame { updateSlot("base") { $0.problem = "data.noNsp" } }
+            await checkPackages()
         }
     }
 
+    nonisolated static func identifyInputs(_ files: [String]) -> FoundInputs {
+        var found = FoundInputs()
+        var unidentified: [String] = []
+        for path in files.sorted() {
+            let name = (path as NSString).lastPathComponent
+            if name.hasPrefix("._") { continue }
+            if found.keys == nil && name.lowercased().hasSuffix(".keys") { found.keys = path; continue }
+            guard PackageCheck.extensions.contains((path as NSString).pathExtension) else { continue }
+            let p = PackageCheck.inspect(path)
+            if p.title == nil { unidentified.append(path); continue }
+            switch p.actualRole {
+            case "base":
+                let bytes = (try? FileManager.default.attributesOfItem(atPath: path))?[.size] as? Int64 ?? 0
+                let previous = found.base.flatMap { (try? FileManager.default.attributesOfItem(atPath: $0))?[.size] as? Int64 } ?? -1
+                if bytes > previous { found.base = path }
+            case "update":
+                if found.update == nil || updateVersion(name) > updateVersion(found.update!) { found.update = path }
+            default: found.dlc.append(path)
+            }
+        }
+        // Keep unidentified inputs visible: preflight explains the precise problem, not a keys error.
+        if found.base == nil, unidentified.count == 1 { found.base = unidentified[0] }
+        return found
+    }
+
     /// What a set of files holds for the four slots (`classify`).
-    struct FoundInputs: Equatable {
+    struct FoundInputs: Equatable, Sendable {
         var base: String?
         var update: String?
         var dlc: [String] = []
@@ -930,7 +981,7 @@ final class BuildModel: ObservableObject {
             if seen > 8000 { break }   // a pathological tree should not hang the picker
             seen += 1
             let name = (rel as NSString).lastPathComponent
-            if name.hasPrefix(".") { continue }
+            if name.hasPrefix(".") { enumerator?.skipDescendants(); continue }
             let path = folder + "/" + rel
             var isDir: ObjCBool = false
             guard fm.fileExists(atPath: path, isDirectory: &isDir) else { continue }
@@ -982,24 +1033,24 @@ final class BuildModel: ObservableObject {
         return v
     }
 
-    func pickFiles(kind: InputKind) {
+    func pickFiles(kind: InputKind, replacing: String? = nil) {
         let p = NSOpenPanel()
         p.canChooseDirectories = false
         p.canChooseFiles = true
         p.allowsMultipleSelection = (kind == .dlc)
         switch kind {
-        case .base, .update: p.allowedFileTypes = ["nsp", "xci"]
-        case .dlc: p.allowedFileTypes = ["nsp"]
+        case .base, .update, .dlc: p.allowedFileTypes = PackageCheck.extensions
         case .keys: p.allowedFileTypes = ["keys"]
         }
         guard p.runModal() == .OK, !p.urls.isEmpty else { return }
         let id = kind == .base ? "base" : kind == .update ? "update" : kind == .dlc ? "dlc" : "keys"
         let picked = p.urls.map(\.path)
         updateSlot(id) { s in
-            s.paths = kind == .dlc ? Array(Set(s.paths + picked)).sorted() : Array(picked.prefix(1))
+            s.paths = kind == .dlc ? Array(Set(s.paths.filter { $0 != replacing } + picked)).sorted() : Array(picked.prefix(1))
             s.problem = ""
         }
         if kind == .base, !picked.isEmpty { gameDir = (picked[0] as NSString).deletingLastPathComponent }
+        if id != "keys" { Task { await checkPackages() } }
     }
 
     func clear(_ id: String) { updateSlot(id) { $0.paths = []; $0.problem = "" } }
@@ -1016,11 +1067,40 @@ final class BuildModel: ObservableObject {
     /// A clone has .git; a GitHub "Download ZIP" copy does not (everything builds, but there is
     /// nothing to fetch or pull — the update buttons hide and the note says to re-download instead).
     var repoIsGit: Bool { FileManager.default.fileExists(atPath: repoPath + "/.git") }
-    var canBuild: Bool { repoOK && slot("base").ok && slot("keys").ok && allDepsPresent && !running }
+    var canBuild: Bool {
+        repoOK && slot("base").ok && slot("keys").ok && allDepsPresent && !running
+        && !checkingPackages && packageInputs == selectedPackages && packageCheck.ready
+    }
 
     // MARK: Build
 
-    func startBuild() {
+    @MainActor func startBuild() {
+        guard !running, !preparingBuild else { return }
+        guard repoOK else {
+            fail(repoPath.isEmpty ? t("msg.repoInvalidEmpty") : String(format: t("msg.repoInvalid"), shortPath(repoPath)))
+            return
+        }
+        let missing = Self.missingTools(in: repoPath)
+        guard missing.isEmpty else { fail(String(format: t("msg.toolsOld"), missing.joined(separator: ", "))); return }
+        guard !checkingPackages else { return }
+        let inputs = selectedPackages
+        let request = UUID()
+        packageRequestID = request
+        preparingBuild = true
+        checkingPackages = true
+        Task { @MainActor in
+            defer { preparingBuild = false }
+            let result = await inspectPackages(inputs)
+            guard request == packageRequestID else { return }
+            checkingPackages = false
+            guard inputs == selectedPackages else { return }
+            packageCheck = result; packageInputs = inputs
+            guard result.ready else { doneNote = t("package.blocked"); return }
+            startCheckedBuild()
+        }
+    }
+
+    @MainActor private func startCheckedBuild() {
         guard !running else { return }
         stopping = false
         running = true; done = false; doneNote = ""; stages = []; logTail = ""; lineBuf = ""; chainNoteShown = false
@@ -1046,46 +1126,20 @@ final class BuildModel: ObservableObject {
         // script takes one game per folder and refuses one with several ("more than one game in the
         // folder"), even when only the base game was picked (issue #58; ufooer's PR #31).
         let baseDir = (basePath as NSString).deletingLastPathComponent
-        let allPaths = [basePath, updatePath] + dlcPaths
-        let dirs = Set(allPaths.filter { !$0.isEmpty }.map { ($0 as NSString).deletingLastPathComponent })
-        let picked = Set(allPaths.filter { !$0.isEmpty }.map { ($0 as NSString).lastPathComponent })
-        let unpicked = ((try? FileManager.default.contentsOfDirectory(atPath: baseDir)) ?? []).filter {
-            ["nsp", "xci", "nsz", "xcz"].contains(($0 as NSString).pathExtension.lowercased()) && !picked.contains($0)
-        }
-        // Staged, the folder's own update and add-on content would be left behind, where the script
-        // used to find them unpicked: bring along those whose file name carries this game's title ID
-        // exactly as build_ipa_from_nsp.py:445 reads it: the low 12 bits are 0x000 for a base game,
-        // 0x800 for its update, and anything else is add-on content below the base.
-        var staged = allPaths
-        if let base = Self.titleID((basePath as NSString).lastPathComponent) {
-            let app = base & ~0xFFF
-            for f in unpicked {
-                guard let tid = Self.titleID(f) else { continue }
-                let low = tid & 0xFFF
-                let owner = low == 0 ? tid : (low == 0x800 ? tid & ~0xFFF : (tid & ~0xFFF) - 0x1000)
-                guard owner == app else { continue }
-                if low == 0x800 && !updatePath.isEmpty { continue }   // the update was picked already
-                if low != 0 && low != 0x800 && tid <= app { continue }   // add-on content sits above its base
-                staged.append(baseDir + "/" + f)
-            }
-        }
+        // Isolate exactly the files preflight checked when the folder contains other inputs.
+        // This prevents a different game's files or a malformed sibling entering scan_nsps afterwards.
+        let allPaths = packageCheck.paths
         var inputDir = baseDir
-        if dirs.count > 1 || !unpicked.isEmpty {
-            let tmp = NSTemporaryDirectory() + "nsport-\(UUID().uuidString.prefix(8))"
-            try? FileManager.default.createDirectory(atPath: tmp, withIntermediateDirectories: true)
-            var linked = 0
-            for f in staged where !f.isEmpty {
-                let dst = tmp + "/" + (f as NSString).lastPathComponent
-                if (try? FileManager.default.createSymbolicLink(atPath: dst, withDestinationPath: f)) != nil { linked += 1 }
-            }
-            if linked == 0 { fail(t("msg.stagingFailed")); return }
-            staging = tmp; inputDir = tmp
-            if !unpicked.isEmpty {
-                say(String(format: t("msg.stagedFromSharedFolder"), (basePath as NSString).lastPathComponent))
-            }
-        } else { staging = nil }
+        staging = nil
+        if packageCheck.needsStaging {
+            do {
+                inputDir = try PackageCheck.stage(allPaths, in: outDir.isEmpty ? baseDir : outDir)
+                staging = inputDir
+            } catch { fail(t("msg.stagingFailed")); return }
+        }
+        say(packageCheck.diagnostics)
 
-        let tidHex = Self.titleID(basePath).map { String(format: "%016llX", $0) } ?? "game"
+        let tidHex = packageCheck.title.map { String(format: "%016llX", $0) } ?? "game"
         let workDir = (outDir.isEmpty ? baseDir : outDir) + "/" + tidHex + "_build"
         // This fork's --work-dir keeps the build folder (extracted files, shader cache, the romfs
         // archive) outside the NSPs' folder. An upstream checkout or an older ZIP does not have the
@@ -1099,7 +1153,7 @@ final class BuildModel: ObservableObject {
         // A compressed dump (NSZ / XCZ) needs nsz in the interpreter the build runs under; it is not
         // part of the dependency probe (most builds never see one), so install it here, once, only
         // when such a file is actually selected — otherwise the build stops with "pip install nsz".
-        let compressed = ([basePath, updatePath] + dlcPaths).contains {
+        let compressed = allPaths.contains {
             let e = ($0 as NSString).pathExtension.lowercased()
             return e == "nsz" || e == "xcz"
         }
@@ -1518,7 +1572,7 @@ final class BuildModel: ObservableObject {
         // exposes on an external drive) then needs no renaming, and several games' folders can sit
         // side by side in one app.
         let gamesRoot = (outDir.isEmpty ? (basePath as NSString).deletingLastPathComponent : outDir) + "/games"
-        let tid = Self.titleID(basePath).map { String(format: "%016llX", $0) } ?? "game"
+        let tid = (packageCheck.title ?? Self.titleID(basePath)).map { String(format: "%016llX", $0) } ?? "game"
         // games/<id>/ holds romfs.img and aoc/ side by side: main.m's per-game lookup takes the
         // image, and the host mounts DLC from aoc/<index>.img (hle_fs.c aoc_dir). One folder, which
         // the user copies to the phone or keeps on an external drive as a whole.
@@ -1673,7 +1727,7 @@ final class BuildModel: ObservableObject {
             guard let bundle = NSDictionary(contentsOfFile: app + "/Info.plist")?["CFBundleIdentifier"] as? String else {
                 return self.finishInstall(String(format: self.t("dev.noProject"), self.shortPath(app + "/Info.plist")))
             }
-            let tid = Self.titleID(self.basePath).map { String(format: "%016llX", $0) } ?? "game"
+            let tid = (self.packageCheck.title ?? Self.titleID(self.basePath)).map { String(format: "%016llX", $0) } ?? "game"
             // Copying the game files over USB is the slowest part of an install and the player may
             // rather hand the data to the device themselves (a fast external drive in Files), so it
             // is their call. Without game files there is nothing to ask about.
@@ -1719,7 +1773,7 @@ final class BuildModel: ObservableObject {
                      "-destination", "id=\(device)", "-derivedDataPath", derived, "-allowProvisioningUpdates",
                      "DEVELOPMENT_TEAM=\(team)", "DM_COPY_ROMFS=NO"] + extra + ["build"]
                 }
-                let appID = "org.nxnative." + (Self.titleID(self.basePath).map { String(format: "%016llX", $0) } ?? "game").lowercased()
+                let appID = "org.nxnative." + ((self.packageCheck.title ?? Self.titleID(self.basePath)).map { String(format: "%016llX", $0) } ?? "game").lowercased()
                 let teamVariant = "org.nxnative." + appID.split(separator: ".").last!.appending(".\(team)")
                 func taken(_ e: String?) -> Bool {
                     guard let e else { return false }
@@ -2737,6 +2791,29 @@ struct BuilderView: View {
                 divider; slotRow(s)
                 if s.id == "keys", let keyCheck { KeyCheckLine(outcome: keyCheck, t: m.t) }
             }
+            if !m.basePath.isEmpty {
+                divider
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(m.t(m.checkingPackages ? "package.checking" : m.packageCheck.ready ? "package.ready" : "package.blocked"))
+                    ForEach(Array((m.packageInputs == m.selectedPackages ? m.packageCheck.packages : []).enumerated()), id: \.offset) { _, p in
+                        Text((p.path as NSString).lastPathComponent + " — " + p.status)
+                            .font(.manrope(12)).foregroundStyle(p.reason.isEmpty ? Color.secondary : Color.orange)
+                    }
+                    DisclosureGroup(m.t("package.details")) {
+                        Text(m.packageInputs == m.selectedPackages ? m.packageCheck.diagnostics : m.t("package.checking"))
+                            .font(.system(size: 12, design: .monospaced)).textSelection(.enabled)
+                    }
+                    HStack {
+                        Button(m.t("package.choose")) {
+                            let failed = m.packageInputs == m.selectedPackages
+                                ? m.packageCheck.packages.first { $0.selected && !$0.reason.isEmpty } : nil
+                            let kind: InputKind = failed?.role == "update" ? .update : failed?.role == "dlc" ? .dlc : .base
+                            m.pickFiles(kind: kind, replacing: failed?.path)
+                        }
+                        DiagnosticsButton(m: m, width: 130)
+                    }
+                }.padding(16)
+            }
             divider
             disclosure(m.t("build.options"), isOpen: extrasOpen) { extrasOpen.toggle() }
             if extrasOpen {
@@ -2753,6 +2830,7 @@ struct BuilderView: View {
         .task(id: KeyCheck.Inputs(keys: m.keysPath, files: [m.basePath, m.updatePath] + m.dlcPaths)) {
             keyCheck = await KeyCheck.runDetached(KeyCheck.Inputs(keys: m.keysPath, files: [m.basePath, m.updatePath] + m.dlcPaths))
         }
+        .task(id: m.selectedPackages) { await m.checkPackages() }
     }
 
     private func slotRow(_ s: Slot) -> some View {
@@ -2951,7 +3029,7 @@ struct BuilderView: View {
             statusText
             Spacer(minLength: 12)
             Button {
-                m.running ? m.stop() : m.startBuild()
+                Task { @MainActor in m.running ? m.stop() : m.startBuild() }
             } label: {
                 Label(m.running ? m.t(m.stopping ? "library.stopping" : "btn.stop") : (m.done ? m.t("btn.rebuild") : m.t("build.startGame")),
                       systemImage: m.running ? "stop.fill" : "hammer.fill")

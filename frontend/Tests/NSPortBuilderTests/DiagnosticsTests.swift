@@ -57,6 +57,19 @@ final class DiagnosticsTests: XCTestCase {
         XCTAssertTrue(report.contains("main build ID: 3CA12DFB0123456789ABCDEF0123456789ABCDEF"), "a build ID is not a key")
     }
 
+    func testPackageIdentificationIsSeparateFromKeysAndIncludedBeforeABuild() {
+        var i = inputs()
+        i.lastCommand = []
+        i.packageIdentification = PackageCheck.Result(packages: [
+            PackageCheck.Package(path: "/private/package.nsp", reason: PackageCheck.missingID, role: "base")
+        ]).diagnostics
+        let report = Diagnostics.report(i)
+        XCTAssertTrue(report.contains("#### Package preflight"))
+        XCTAssertTrue(report.contains(PackageCheck.missingID))
+        XCTAssertFalse(report.contains("/private/package.nsp"))
+        XCTAssertTrue(report.contains("No build in this session."))
+    }
+
     func testTheTailKeepsTheLastLinesWithoutTrailingBlanks() {
         XCTAssertEqual(Diagnostics.tail("a\nb\nc\n\n  \n", lines: 2), ["b", "c"])
         XCTAssertEqual(Diagnostics.tail("a\nb", lines: 50), ["a", "b"])
