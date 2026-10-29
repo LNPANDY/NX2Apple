@@ -149,7 +149,7 @@ display version must match the profile's, or the build says so.
 - **What this fork changes in upstream:** the engine (`dm/`, `scripts/`, `docs/`, `ref/`,
   `AGENTS.md`) is nxnative at a pinned commit plus a queue of patches, each saying why the fork
   carries it. [patches/README.md](patches/README.md) explains it, and
-  `python3 scripts/patches.py status` lists what is carried. A daily job moves the pin and opens a
+  `python3 tools/engine.py status` lists what is carried. A daily job moves the pin and opens a
   pull request, or an issue naming the patch that no longer fits.
 - **Another Switch game:** [docs/agents](docs/agents/README.md) (extraction, binary survey, bring-up).
 - **Release history:** [CHANGELOG.md](CHANGELOG.md).
