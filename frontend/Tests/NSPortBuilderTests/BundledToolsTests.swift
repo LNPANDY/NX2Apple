@@ -188,6 +188,27 @@ final class BundledToolsTests: XCTestCase {
         XCTAssertNotEqual(BuildModel.findPython(resources: root).path, py)
     }
 
+    /// The order of #107 and #154: the bundled Python (when it runs, is new enough and imports the
+    /// packages) beats a working uv interpreter; a damaged bundled one falls through to uv's.
+    func testBundledPythonBeatsUvAndAUvOneIsNextWhenItFails() throws {
+        let oldShim = BuildModel.uvShimDir, oldRoot = BuildModel.uvPythonRoot
+        defer { BuildModel.uvShimDir = oldShim; BuildModel.uvPythonRoot = oldRoot }
+        let good = "#!/bin/sh\ncase \"$2\" in *sys.version_info*) echo 3.13;; esac\nexit 0\n"
+        let shim = root.appendingPathComponent("uvhome/.local/bin")
+        try FileManager.default.createDirectory(at: shim, withIntermediateDirectories: true)
+        let uvPy = shim.appendingPathComponent("python3")
+        try Data(good.utf8).write(to: uvPy)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: uvPy.path)
+        BuildModel.uvShimDir = shim.path
+        BuildModel.uvPythonRoot = root.appendingPathComponent("uvhome/none").path
+        let bundled = try install("python/bin/python3", script: good)
+        XCTAssertEqual(BuildModel.findPython(resources: root).path, bundled)
+        try Data("#!/bin/sh\nexit 1\n".utf8).write(to: URL(fileURLWithPath: bundled))
+        XCTAssertTrue(BuildModel.pythonCandidates().contains(uvPy.path))
+        let next = BuildModel.findPython(resources: root)
+        XCTAssertNotEqual(next.path, bundled)
+    }
+
     // ---- the pinned packages ----
 
     func testBundledPackagePinsCoverThePipPackages() throws {

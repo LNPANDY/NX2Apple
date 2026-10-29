@@ -6,6 +6,7 @@ the window never branch on sys.platform themselves.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -13,6 +14,12 @@ from pathlib import Path
 
 IS_WIN = sys.platform.startswith('win')
 IS_MAC = sys.platform == 'darwin'
+
+#: The build script's own floor: `build_ipa_from_nsp.py` raises below 3.12 for a direct RomFS
+#: image build, and its f-strings do not parse on 3.9. `/usr/bin/python3` is 3.9 on a stock Mac,
+#: and pip-installing into it produced a build that died inside the script (issue #53 in the
+#: SwiftUI front end) instead of a row that said why.
+MIN_PYTHON = (3, 12)
 
 
 # ---------------------------------------------------------------- tool discovery
@@ -28,23 +35,47 @@ def _which(name: str, extra: list[str] | None = None) -> str | None:
     return None
 
 
-def find_python(extra_candidates: list[str] | None = None) -> tuple[str, bool, str]:
-    """The interpreter to build with: (path, has_packages, version_or_empty).
+def uv_pythons() -> list[str]:
+    """The interpreters `uv python install` manages.
 
-    The build scripts need lz4, capstone, fontTools, zstd and (for compressed dumps) nsz. A
-    system interpreter rarely has them, so the venv the app manages is checked first, then
-    every python on the machine. `extra_candidates` puts paths ahead of the system probes
-    without this module knowing about Windows specifics: the caller passes the interpreter the
-    app installed for itself (toolchain.python_dir), which a machine with no system Python is
-    exactly the one that has to be found again.
+    uv downloads its own Pythons into a store (`~/.local/share/uv/python`, or
+    `UV_PYTHON_INSTALL_DIR`) and links shims into `~/.local/bin`. Neither directory is on a GUI
+    process's PATH and neither was in the probe list, so a uv user with a working 3.12 and the
+    packages was told no interpreter had been found. Windows keeps the store under
+    `%LOCALAPPDATA%\\uv\\python` and puts the exe straight in the install folder.
     """
-    probe = (
-        "import lz4, capstone, fontTools\n"
-        "try:\n"
-        "    from compression import zstd\n"
-        "except ImportError:\n"
-        "    from backports import zstd\n"
-    )
+    # The interpreter itself, not `python3-config` and friends that share the prefix.
+    name_re = re.compile(r'^python(3(\.\d+)?)?\.exe$' if IS_WIN else r'^python3(\.\d+)?$')
+
+    def named(d: Path, pattern: str) -> list[str]:
+        return sorted(str(p) for p in d.glob(pattern) if name_re.match(p.name))
+
+    out: list[str] = []
+    home = Path.home()
+    shim_dir = home / '.local' / 'bin'
+    if shim_dir.is_dir():
+        out += named(shim_dir, 'python*.exe' if IS_WIN else 'python3*')
+    local = Path(os.environ.get('LOCALAPPDATA', str(home / 'AppData' / 'Local')))
+    roots = [os.environ.get('UV_PYTHON_INSTALL_DIR') or '',
+             str(local / 'uv' / 'python') if IS_WIN else str(home / '.local' / 'share' / 'uv' / 'python')]
+    for root in roots:
+        if not root or not Path(root).is_dir():
+            continue
+        for install in sorted(Path(root).iterdir(), reverse=True):
+            if install.is_dir():
+                out += named(install if IS_WIN else install / 'bin',
+                             'python*.exe' if IS_WIN else 'python3*')
+    return out
+
+
+def python_candidates(extra_candidates: list[str] | None = None) -> list[str]:
+    """Every interpreter a build could run under, best first.
+
+    The app's own venv, then whatever the caller passes (the interpreter the app installed for
+    itself, which a machine with no system Python is exactly the one that has to be found again),
+    then the platform's usual installs, uv's store, and last what `which` can see — which, in a
+    GUI launch, is next to nothing.
+    """
     cands: list[str] = [venv_python()] + [c for c in (extra_candidates or []) if c]
     if IS_WIN:
         cands += [
@@ -58,25 +89,71 @@ def find_python(extra_candidates: list[str] | None = None) -> tuple[str, bool, s
             for v in sorted(os.listdir(fw), reverse=True):
                 cands.append(f'{fw}/{v}/bin/python3')
         cands += ['/opt/homebrew/bin/python3', '/usr/local/bin/python3', '/usr/bin/python3']
+        cands += uv_pythons()
     if w := _which('python3' if not IS_WIN else 'python'):
         cands.append(w)
+    return cands
 
-    fallback: tuple[str, str] | None = None
+
+def find_python(extra_candidates: list[str] | None = None) -> tuple[str, bool, str]:
+    """The interpreter to build with: (path, has_packages, version_or_empty).
+
+    The build scripts need lz4, capstone, fontTools, zstd and (for compressed dumps) nsz. A
+    system interpreter rarely has them, so the venv the app manages is checked first, then
+    every python on the machine (see python_candidates for the order).
+    """
+    probe = (
+        "import lz4, capstone, fontTools\n"
+        "try:\n"
+        "    from compression import zstd\n"
+        "except ImportError:\n"
+        "    from backports import zstd\n"
+    )
+
+    ready: tuple[str, str] | None = None     # newest that already has the packages
+    fallback: tuple[str, str] | None = None  # newest that runs at all: 安装 finishes it
     seen: set[str] = set()
-    for c in cands:
+    for c in python_candidates(extra_candidates):
         if not c or c in seen or not Path(c).is_file():
             continue
         seen.add(c)
         ver = _python_version(c)
-        if not ver or _ver_tuple(ver) < (3, 9):
+        if not ver or _ver_tuple(ver) < MIN_PYTHON:
             continue
         if _runs(c, ['-c', probe]):
-            return (c, True, ver)
-        if fallback is None:
+            if ready is None or _ver_tuple(ver) > _ver_tuple(ready[1]):
+                ready = (c, ver)
+        elif fallback is None or _ver_tuple(ver) > _ver_tuple(fallback[1]):
             fallback = (c, ver)
+    if ready:
+        return (ready[0], True, ready[1])
     if fallback:
         return (fallback[0], False, fallback[1])
     return ('python' if IS_WIN else '/usr/bin/python3', False, '')
+
+
+def venv_base(preferred: str) -> str | None:
+    """The interpreter to create the app's venv from, or None when the machine has none.
+
+    `preferred` is what the panel picked; when find_python() found nothing that is `/usr/bin/
+    python3` (3.9, below MIN_PYTHON) or the venv path it hopes to create — neither can run
+    `-m venv`, and the Python row never recovered from it. So a base that does not run at the
+    required version falls back to the newest candidate that does.
+    """
+    if Path(preferred).is_file() and os.access(preferred, os.X_OK):
+        v = _python_version(preferred)
+        if v and _ver_tuple(v) >= MIN_PYTHON:
+            return preferred
+    best: tuple[str, str] | None = None
+    for c in python_candidates():
+        if not c or not Path(c).is_file() or not os.access(c, os.X_OK):
+            continue
+        v = _python_version(c)
+        if not v or _ver_tuple(v) < MIN_PYTHON:
+            continue
+        if best is None or _ver_tuple(v) > _ver_tuple(best[1]):
+            best = (c, v)
+    return best[0] if best else None
 
 
 def _python_version(py: str) -> str:

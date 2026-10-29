@@ -48,6 +48,12 @@ game it adds its built app's patches and the last 200 lines of its log. The home
 folder is shown as `~`, a log line holding key material (`name = <hex>`, as in
 `prod.keys`) keeps only its name, and no environment variables are included.
 
+Every dependency check also writes `deps-check.txt` beside `library.json`
+(`~/Library/Application Support/NS Port Builder/`): each row's verdict, the
+interpreter paths that were tried, and the `HOME` and `PATH` the panel ran with.
+That is the file to attach when the panel and the terminal disagree — a Finder
+launch gives the app a different PATH from the shell's.
+
 A completed Mac build appears in the collection automatically and can be started
 with **Play**. An iPhone build, by default, offers its unsigned IPA and the
 sideloading and RomFS-copy instructions.
@@ -227,6 +233,13 @@ installs), verifies `.NET` with `--list-sdks` (the extractor targets `net10.0`),
 and picks the first interpreter that can really import
 `lz4 capstone fontTools backports.zstd`. That same interpreter then runs the
 build.
+
+The interpreters uv installs (`uv python install`) count as well: they live in
+`~/.local/share/uv/python` (or `UV_PYTHON_INSTALL_DIR`) with shims in
+`~/.local/bin`, neither of which a GUI launch's PATH contains, and a uv user
+often has no Homebrew and no python.org framework at all. When no interpreter is
+found, **Install** creates the app's venv from the newest one that does run at
+3.12 or newer rather than from the venv path it is about to create.
 
 ### The bundled build tools and Python
 
