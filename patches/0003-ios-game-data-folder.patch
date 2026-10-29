@@ -7,7 +7,7 @@ main.m locates the RomFS in the picked location, then Documents/games/<id>/, the
 temp follow it. Launcher.swift gets a Game data section; front_ios.m goes back to it when no data is found.
 
 Upstream-Status: pending
-Reason: Several games in one app, game data on an external drive: Documents/games/<id>/{romfs.img,romfs,msl,save,temp} and a Files-app pick of the data folder (needs the runtime profile). iOS twin of seedds/nxnative#460, which is Mac only. Also add-on content: games/<id>/aoc/<index>.img becomes DM_AOC_DIR (a slim IPA carries none, LNPANDY/NX2Apple#202), before <App>/aoc and never over an explicit value, compatible with the Documents/aoc of seedds/nxnative#486
+Reason: Several games in one app, game data on an external drive: Documents/games/<id>/{romfs.img,romfs,msl,save,temp} and a Files-app pick of the data folder (needs the runtime profile). iOS twin of seedds/nxnative#460, which is Mac only. Also add-on content: games/<id>/aoc/<index>.img becomes DM_AOC_DIR (a slim IPA carries none, LNPANDY/NX2Apple#202), before <App>/aoc and never over an explicit value, compatible with the Documents/aoc of seedds/nxnative#486. Also DM_CHEATS=games/<id>/cheats (never over an explicit value), where the launcher's Cheats sheet copies a game's cheat files (LNPANDY/NX2Apple#97)
 Issue: LNPANDY/NX2Apple#123
 ---
  dm/ios/Sources/DataBookmark.h          |  32 +++++++
@@ -15,10 +15,10 @@ Issue: LNPANDY/NX2Apple#123
  dm/ios/Sources/DmIOS-Bridging-Header.h |   7 ++
  dm/ios/Sources/Launcher.swift          |  90 ++++++++++++++++++
  dm/ios/Sources/front_ios.m             |  13 ++-
- dm/ios/Sources/main.m                  | 121 +++++++++++++++++++++++--
+ dm/ios/Sources/main.m                  | 123 +++++++++++++++++++++++--
  dm/ios/project.yml                     |   1 +
  dm/ios/tests/test_romfs_startup.py     |  49 +++++++++-
- 8 files changed, 380 insertions(+), 12 deletions(-)
+ 8 files changed, 382 insertions(+), 12 deletions(-)
  create mode 100644 dm/ios/Sources/DataBookmark.h
  create mode 100644 dm/ios/Sources/DataBookmark.m
  create mode 100644 dm/ios/Sources/DmIOS-Bridging-Header.h
@@ -446,7 +446,7 @@ index fb37046e..24560205 100644
  // Boot prerequisites (done before UIApplicationMain): directories / environment variables / log -- the host's early load reads these
  // Why a slim build found no usable game files: the verdict on Documents/romfs.img, in the log and for the screen (front_ios_boot_message). NULL when the build has no romfs.id
  static char g_boot_message[640];
-@@ -127,16 +220,26 @@ static int boot_env(void) {
+@@ -127,16 +220,28 @@ static int boot_env(void) {
      NSString *lang = [NSBundle.mainBundle objectForInfoDictionaryKey:@"DMLanguage"];
      if (!getenv("DM_LANG") && [lang isKindOfClass:NSString.class] && lang.length) setenv("DM_LANG", lang.UTF8String, 0);
      fprintf(stderr, "boot: game language %s\n", getenv("DM_LANG") ?: "en-US");
@@ -476,6 +476,8 @@ index fb37046e..24560205 100644
 +    NSString *per_game_aoc = [gdir stringByAppendingPathComponent:@"aoc"];
 +    BOOL aoc_isdir = NO;
 +    if (per_game && [fm fileExistsAtPath:per_game_aoc isDirectory:&aoc_isdir] && aoc_isdir) setenv("DM_AOC_DIR", per_game_aoc.fileSystemRepresentation, 0);
++    // Cheats (dm/host/hle_cheats.c, docs/frontends.md "Cheats"): a front end copies the game's cheat files to Documents/games/<id>/cheats, next to its saves. The host never creates the folder and an explicit DM_CHEATS (an env file) wins.
++    setenv("DM_CHEATS", [gdir stringByAppendingPathComponent:@"cheats"].fileSystemRepresentation, 0);
      NSString *aoc = [res stringByAppendingPathComponent:@"aoc"];   // add-on content: build_ipa.sh puts the RomFS extracted from the player's DLC NSPs at <App>/aoc/<index>/
      if ([fm fileExistsAtPath:aoc]) setenv("DM_AOC_DIR", aoc.fileSystemRepresentation, 0);
      NSString *pso = [res stringByAppendingPathComponent:@"pso"];   // the pipeline archive made offline (build_ipa.sh, dm/gfx/tools/pso_offline.py): the shader pairs' bases, which the device then does not build

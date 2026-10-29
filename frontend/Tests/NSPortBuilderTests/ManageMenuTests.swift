@@ -39,8 +39,8 @@ final class ManageMenuTests: XCTestCase {
         var game = try readyGame()
         game.artworkPath = "/art.png"
         let list = items(game, folder: true, log: true)
-        XCTAssertEqual(list.map(\.id), ["rebuild", "options", "saves", "artwork", "resetArtwork", "reveal", "log", "freeSpace", "remove"])
-        XCTAssertEqual(list.map(\.title), ["library.buildAgain", "launch.title", "saves.menu", "library.changeArtwork", "library.resetArtwork", "install.reveal", "library.showLog", "free.menu", "library.remove"]
+        XCTAssertEqual(list.map(\.id), ["rebuild", "options", "saves", "cheats", "artwork", "resetArtwork", "reveal", "log", "freeSpace", "remove"])
+        XCTAssertEqual(list.map(\.title), ["library.buildAgain", "launch.title", "saves.menu", "cheats.menu", "library.changeArtwork", "library.resetArtwork", "install.reveal", "library.showLog", "free.menu", "library.remove"]
             .map { L10n.string($0, .en) })
         XCTAssertTrue(list.allSatisfy(\.enabled))
         XCTAssertEqual(list.last?.destructive, true)
@@ -52,7 +52,7 @@ final class ManageMenuTests: XCTestCase {
     func testANotBuiltGameLeavesOutTheRowsThatNeedABuild() {
         var game = LibraryGame(titleID: titleID, name: "Hades")
         var list = items(game)
-        XCTAssertEqual(list.map(\.id), ["rebuild", "saves", "artwork", "remove"], "no launch options, Finder or Free space without a build")
+        XCTAssertEqual(list.map(\.id), ["rebuild", "saves", "cheats", "artwork", "remove"], "no launch options, Finder or Free space without a build")
         XCTAssertFalse(list[0].enabled, "no recorded inputs: nothing to build again")
         game.inputs = ["base": ["/preview/Hades.nsp"]]
         list = items(game)
@@ -94,10 +94,10 @@ final class ManageMenuTests: XCTestCase {
         let game = try readyGame()
         var log: [String] = []
         let actions = ManageActions(rebuild: { log.append("rebuild") }, options: { log.append("options") }, saves: { log.append("saves") },
-                                    changeArtwork: { log.append("artwork") }, resetArtwork: { log.append("reset") }, reveal: { log.append("reveal") }, showLog: { log.append("log") },
+                                    cheats: { log.append("cheats") }, changeArtwork: { log.append("artwork") }, resetArtwork: { log.append("reset") }, reveal: { log.append("reveal") }, showLog: { log.append("log") },
                                     freeSpace: { log.append("free") }, remove: { log.append("remove") })
         for item in items(game, folder: true, log: true, actions: actions) { item.run() }
-        XCTAssertEqual(log, ["rebuild", "options", "saves", "artwork", "reveal", "log", "free", "remove"])
+        XCTAssertEqual(log, ["rebuild", "options", "saves", "cheats", "artwork", "reveal", "log", "free", "remove"])
     }
 
     func testTheControllerLandsOnTheFirstUsableRow() throws {

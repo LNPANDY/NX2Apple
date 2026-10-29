@@ -258,6 +258,31 @@ static void fill(NpadState *s, uint32_t id, uint32_t style) {
     s->buttons = b;
     s->attributes = ATTR_CONNECTED | (id == NPAD_HANDHELD ? ATTR_WIRED | ATTR_LEFT_CONN | ATTR_LEFT_WIRED | ATTR_RIGHT_CONN | ATTR_RIGHT_WIRED : ATTR_LEFT_CONN | ATTR_RIGHT_CONN);
 }
+// The cheat VM's key mask (hle_cheats.c "all keys of the mask held"): the OR of every player's controller buttons
+// (the keyboard / touch source's bits included) plus the eight stick-direction pseudo buttons of the merged axes —
+// one flat bitset, not exactly any one npad read (fill() publishes per-npad states with attributes, merges and
+// latches), and nothing here consumes a latch or bumps the sampling: the game's own reads keep them both. Mask bits:
+// the buttons 0..15 in NpadButton order and the sticks' directions 16..23; SL / SR (bits 24 / 25) can never fire, no
+// input source of this host reports them
+uint64_t dm_cheats_keys(void) {
+    uint64_t b = 0; int32_t a[4] = {0};
+    b |= atomic_load(&g_btn);
+    for (int p = 0; p < DM_PLAYERS; p++) {
+        b |= atomic_load(&g_pad_btn[p]);
+        uint64_t v = atomic_load(&g_pad_axes[p]); for (int i = 0; i < 4; i++) a[i] = pick(a[i], ax(v, i));
+    }
+    uint64_t k = atomic_load(&g_axes); for (int i = 0; i < 4; i++) a[i] = pick(a[i], ax(k, i));
+    b &= 0xffffull;
+    if (a[0] < -STICK_THRESH) b |= 1u << 16;
+    if (a[1] > STICK_THRESH) b |= 1u << 17;
+    if (a[0] > STICK_THRESH) b |= 1u << 18;
+    if (a[1] < -STICK_THRESH) b |= 1u << 19;
+    if (a[2] < -STICK_THRESH) b |= 1u << 20;
+    if (a[3] > STICK_THRESH) b |= 1u << 21;
+    if (a[2] > STICK_THRESH) b |= 1u << 22;
+    if (a[3] < -STICK_THRESH) b |= 1u << 23;
+    return b;
+}
 // GetNpadStates(out, n, id): newest first, n entries: the current state repeated with consecutive sampling numbers. The host keeps no history, but on hardware the
 // 16-entry history is always full, and games read all of it whatever count comes back: Super Mario Odyssey (main+0x93fc20) polls every controller slot each frame, which advances
 // the shared sampling number by about 16 per frame, and with only entry 0 written neither stick did anything in play (the camera did not turn at its first hint) while buttons

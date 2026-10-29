@@ -243,6 +243,8 @@ static int boot_env(void) {
     NSString *per_game_aoc = [gdir stringByAppendingPathComponent:@"aoc"];
     BOOL aoc_isdir = NO;
     if (per_game && [fm fileExistsAtPath:per_game_aoc isDirectory:&aoc_isdir] && aoc_isdir) setenv("DM_AOC_DIR", per_game_aoc.fileSystemRepresentation, 0);
+    // Cheats (dm/host/hle_cheats.c, docs/frontends.md "Cheats"): a front end copies the game's cheat files to Documents/games/<id>/cheats, next to its saves. The host never creates the folder and an explicit DM_CHEATS (an env file) wins.
+    setenv("DM_CHEATS", [gdir stringByAppendingPathComponent:@"cheats"].fileSystemRepresentation, 0);
     NSString *aoc = [res stringByAppendingPathComponent:@"aoc"];   // add-on content: build_ipa.sh puts the RomFS extracted from the player's DLC NSPs at <App>/aoc/<index>/
     if ([fm fileExistsAtPath:aoc]) setenv("DM_AOC_DIR", aoc.fileSystemRepresentation, 0);
     NSString *pso = [res stringByAppendingPathComponent:@"pso"];   // the pipeline archive made offline (build_ipa.sh, dm/gfx/tools/pso_offline.py): the shader pairs' bases, which the device then does not build

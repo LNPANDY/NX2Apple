@@ -6,6 +6,7 @@ struct ManageActions {
     var rebuild: () -> Void = {}
     var options: () -> Void = {}
     var saves: () -> Void = {}
+    var cheats: () -> Void = {}
     var changeArtwork: () -> Void = {}
     var resetArtwork: () -> Void = {}
     var reveal: () -> Void = {}
@@ -33,6 +34,7 @@ struct ManageItem: Identifiable {
                                 enabled: !running && !game.inputs["base", default: []].isEmpty, run: a.rebuild)]
         if game.isReady { items.append(.init(id: "options", symbol: "slider.horizontal.3", title: t("launch.title"), run: a.options)) }
         items.append(.init(id: "saves", symbol: "tray.and.arrow.down", title: t("saves.menu"), run: a.saves))
+        items.append(.init(id: "cheats", symbol: "wand.and.stars", title: t("cheats.menu"), run: a.cheats))
         items.append(.init(id: "artwork", symbol: "photo", title: t("library.changeArtwork"), run: a.changeArtwork))
         if !game.artworkPath.isEmpty { items.append(.init(id: "resetArtwork", symbol: "arrow.uturn.backward", title: t("library.resetArtwork"), run: a.resetArtwork)) }
         if game.revealTarget != nil { items.append(.init(id: "reveal", symbol: "folder", title: t("install.reveal"), run: a.reveal)) }
