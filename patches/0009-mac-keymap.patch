@@ -224,7 +224,7 @@ index 00000000..56fa4993
 +}
 +static int pad_map_is_default(const pad_map *m) { for (int b = 0; b < IM_BUTTONS; b++) if (m->to[b] != b) return 0; return 1; }
 diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
-index c60063b5..0b0a7799 100644
+index 3fbba0ac..50befe6e 100644
 --- a/dm/host/tests/Makefile
 +++ b/dm/host/tests/Makefile
 @@ -12,7 +12,7 @@ QUIET = $(if $(strip $(SAN)),,2>/dev/null)

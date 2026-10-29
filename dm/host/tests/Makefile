@@ -12,7 +12,6 @@ QUIET = $(if $(strip $(SAN)),,2>/dev/null)
 GINC = $(if $(strip $(GAME)),-I../gen/$(GAME) -I../../games/$(GAME),$(error GAME is not set: make GAME=<base game title ID>: $(shell python3 ../../games/game.py list | awk -F'\t' '{printf "%s (%s)  ", $$1, $$3}')))
 $(B)/t_fs $(B)/t_fs_case $(B)/t_fs_commit_list $(B)/t_fs_commit_list_tsan: ../romfs_image.h
 GAME_H = ../gen/$(GAME)/game_profile.h
-run: $(B)/t_touchpad_geometry
 run: $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture $(B)/t_oe $(B)/t_fs $(B)/t_fs_commit_list $(B)/t_thread_leak $(B)/t_fs_case $(B)/t_audio $(B)/t_audio_spsc $(B)/t_swkbd $(B)/t_altstack $(B)/t_condvar $(B)/t_condvar_old $(B)/t_pctl $(B)/t_time $(B)/t_shared_font $(B)/t_vorbis $(B)/t_vorbis_divides $(B)/t_hid $(B)/t_input_map $(B)/t_launcher_contract $(B)/t_haptics $(B)/t_haptics_apple
 	$(B)/t_language
 	$(B)/t_heap_size
@@ -51,7 +50,6 @@ run: $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture 
 	$(B)/t_launcher_contract
 	$(B)/t_haptics
 	$(B)/t_haptics_apple
-	$(B)/t_touchpad_geometry
 	$(B)/t_nro
 	$(B)/t_symbols
 run: $(B)/t_nro
@@ -98,20 +96,20 @@ $(B)/t_gesture: t_gesture.c ../hle_touch.c ../front.h ../dm.h $(GAME_H) | $(B)
 	$(CLANG) -O1 -Wall -Wno-unused-function -I.. $(GINC) -o $@ t_gesture.c ../hle_touch.c
 $(B)/t_thread_leak: t_thread_leak.c ../thread.c ../dm.h $(GAME_H) | $(B)
 	$(CLANG) -O1 -Wno-unused-function -I.. $(GINC) -o $@ t_thread_leak.c
-$(B)/t_fs: t_fs.c t_fs_stub.c ../hle_fs.c ../save_sync.c ../save_sync.h ../hle_bigstack.c ../romfs_arc.c ../hle.h ../dm.h $(GAME_H) ../hle_profile.c ../hle_profile.h | $(B)
-	$(CLANG) -O1 -Wno-unused-function -I.. $(GINC) -o $@ t_fs.c t_fs_stub.c ../hle_bigstack.c ../save_sync.c ../romfs_arc.c ../hle_profile.c
-$(B)/t_fs_commit_list: t_fs_commit_list.c t_fs_stub.c ../hle_fs.c ../save_sync.c ../save_sync.h ../hle_bigstack.c ../romfs_arc.c ../hle.h ../dm.h $(GAME_H) ../hle_profile.c ../hle_profile.h | $(B)
-	$(CLANG) -O1 -Wall -Wno-unused-function -I.. $(GINC) -o $@ t_fs_commit_list.c t_fs_stub.c ../hle_bigstack.c ../save_sync.c ../romfs_arc.c ../hle_profile.c
+$(B)/t_fs: t_fs.c t_fs_stub.c ../hle_fs.c ../save_sync.c ../save_sync.h ../hle_bigstack.c ../hle.h ../dm.h $(GAME_H) ../hle_profile.c ../hle_profile.h | $(B)
+	$(CLANG) -O1 -Wno-unused-function -I.. $(GINC) -o $@ t_fs.c t_fs_stub.c ../hle_bigstack.c ../save_sync.c ../hle_profile.c
+$(B)/t_fs_commit_list: t_fs_commit_list.c t_fs_stub.c ../hle_fs.c ../save_sync.c ../save_sync.h ../hle_bigstack.c ../hle.h ../dm.h $(GAME_H) ../hle_profile.c ../hle_profile.h | $(B)
+	$(CLANG) -O1 -Wall -Wno-unused-function -I.. $(GINC) -o $@ t_fs_commit_list.c t_fs_stub.c ../hle_bigstack.c ../save_sync.c ../hle_profile.c
 $(B)/t_fs_commit_list_tsan: t_fs_commit_list.c t_fs_stub.c ../hle_fs.c ../save_sync.c ../save_sync.h ../hle_bigstack.c ../hle.h ../dm.h $(GAME_H) | $(B)
 	$(CLANG) -O1 -g -fsanitize=thread -Wall -Wno-unused-function -I.. $(GINC) -o $@ t_fs_commit_list.c t_fs_stub.c ../hle_bigstack.c ../save_sync.c ../hle_profile.c
 .PHONY: fs-tsan
 fs-tsan: $(B)/t_fs_commit_list_tsan
 	TMPDIR="$(abspath $(B))" $(B)/t_fs_commit_list_tsan
-$(B)/t_fs_case: t_fs_case.c ../hle_fs.c ../save_sync.c ../save_sync.h ../hle_bigstack.c ../romfs_arc.c ../hle.h ../dm.h $(GAME_H) ../hle_profile.c ../hle_profile.h | $(B)
-	$(CLANG) -O1 -Wno-unused-function -I.. $(GINC) -o $@ t_fs_case.c ../hle_bigstack.c ../save_sync.c ../romfs_arc.c ../hle_profile.c
+$(B)/t_fs_case: t_fs_case.c ../hle_fs.c ../save_sync.c ../save_sync.h ../hle_bigstack.c ../hle.h ../dm.h $(GAME_H) ../hle_profile.c ../hle_profile.h | $(B)
+	$(CLANG) -O1 -Wno-unused-function -I.. $(GINC) -o $@ t_fs_case.c ../hle_bigstack.c ../save_sync.c ../hle_profile.c
 run: $(B)/t_save_sync
-$(B)/t_save_sync: t_save_sync.c t_fs_stub.c ../hle_fs.c ../save_sync.c ../save_sync.h ../hle_bigstack.c ../romfs_arc.c ../hle.h ../dm.h $(GAME_H) ../hle_profile.c ../hle_profile.h | $(B)
-	$(CLANG) -O1 -Wall -Wno-unused-function -I.. $(GINC) -o $@ t_save_sync.c t_fs_stub.c ../hle_bigstack.c ../save_sync.c ../romfs_arc.c ../hle_profile.c
+$(B)/t_save_sync: t_save_sync.c t_fs_stub.c ../hle_fs.c ../save_sync.c ../save_sync.h ../hle_bigstack.c ../hle.h ../dm.h $(GAME_H) ../hle_profile.c ../hle_profile.h | $(B)
+	$(CLANG) -O1 -Wall -Wno-unused-function -I.. $(GINC) -o $@ t_save_sync.c t_fs_stub.c ../hle_bigstack.c ../save_sync.c ../hle_profile.c
 .PHONY: save-sync
 save-sync: $(B)/t_save_sync
 	TMPDIR="$(abspath $(B))" $(B)/t_save_sync $(QUIET)
@@ -160,8 +158,6 @@ $(B)/t_hid_tsan: t_hid.c ../hle_hid.c ../motion_fusion.h ../hle_haptics.c ../hle
 	$(CLANG) -O1 -g -fsanitize=thread -Wall -Werror -Wno-unused-function -I.. $(GINC) -o $@ t_hid.c ../hle_haptics.c
 $(B)/t_haptics: t_haptics.c ../hle_haptics.c ../hle_haptics.h ../dm_input.h | $(B)
 	$(CLANG) -O1 -g -Wall -Werror -I.. -o $@ t_haptics.c ../hle_haptics.c
-$(B)/t_touchpad_geometry: t_touchpad_geometry.c ../touchpad_geometry.h ../dm_input.h | $(B)
-	$(CLANG) -O1 -Wall -I.. $(GINC) -o $@ t_touchpad_geometry.c
 $(B)/t_haptics_apple: t_haptics_apple.m ../haptics_apple.m ../haptics_apple.h ../hle_haptics.c ../hle_haptics.h | $(B)
 	$(CLANG) -O1 -g -fobjc-arc -Wall -Werror -I.. -o $@ t_haptics_apple.m ../hle_haptics.c -framework Cocoa -framework GameController -framework CoreHaptics -framework IOKit
 $(B)/t_time: t_time.c ../hle_time.c ../hle.h ../dm.h $(GAME_H) | $(B)

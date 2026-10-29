@@ -41,22 +41,29 @@ static int romfs_identity_accepts(NSString *img) {
     if (rc != ROMFS_ID_OK && rc != ROMFS_ID_NONE) fprintf(stderr, "[RED] boot: Documents/romfs.img is not the image this build needs (verdict %d); not used\n", rc);
     return rc == ROMFS_ID_OK || rc == ROMFS_ID_NONE;
 }
-// A folder holds this game's files if it has a ROMFSARC index or the profile's marker path.
+// Set when a folder holds an old shard archive (romfs.idx): the launcher's Game data section shows it.
+static char g_old_archive[200];
+const char *dm_old_archive_message(void) { return g_old_archive[0] ? g_old_archive : NULL; }
+// A folder holds this game's files if it has the profile's marker path.
 // Shared by romfs_locate and the per-game layout below, so both answer the same question.
 static BOOL romfs_dir_ok(NSString *d) {
     NSFileManager *fm = NSFileManager.defaultManager;
-    // A ROMFSARC archive: <dir>/romfs.idx next to romfs.NN shards. The host opens it when DM_ROMFS
-    // points at the base; the marker check does not apply (there are no directories to walk).
-    if ([fm fileExistsAtPath:[d stringByAppendingPathComponent:@"romfs.idx"]]) return YES;
     // A plain directory tree: only one containing the game profile's romfs_marker path counts
     // (Mario: System/Resource, the resource size table). Runtime profile: the marker is a profile
     // value now; the compiled macro is only what dm_profile() falls back to without DM_PROFILE.
-    return [fm fileExistsAtPath:[d stringByAppendingPathComponent:@(dm_profile()->romfs_marker)]];
+    if ([fm fileExistsAtPath:[d stringByAppendingPathComponent:@(dm_profile()->romfs_marker)]]) return YES;
+    // ROMFSARC shard archives (<dir>/romfs.idx next to romfs.NN) are no longer read: the folder is
+    // reported as holding no game data, and the log and the launcher's Game data section name the action.
+    if ([fm fileExistsAtPath:[d stringByAppendingPathComponent:@"romfs.idx"]]) {
+        snprintf(g_old_archive, sizeof g_old_archive, "The game data here is an old shard archive (romfs.idx), which this version no longer reads. Re-send the game data as romfs.img from the launcher.");
+        fprintf(stderr, "boot: %s holds an old RomFS shard archive (romfs.idx), which is no longer read. Re-send the game data as romfs.img from the launcher\n", d.fileSystemRepresentation);
+    }
+    return NO;
 }
 
 // Where one game's data lives under the per-game layout: Documents/games/<title ID>/, holding
 //   romfs.img   the whole RomFS as one image file (what scripts/push_romfs.sh sends), or
-//   romfs/      a ROMFSARC archive or a plain tree, for copies made before images
+//   romfs/      a plain tree, for copies made before images
 //   msl/        this game's Metal shader libraries (optional; the app's own dm/ is used otherwise)
 //   save/ temp/ this game's saves and scratch space
 // The layout exists so several games can share one installed app and so the game data can sit on

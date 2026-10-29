@@ -2,7 +2,7 @@ import SwiftUI
 
 // NS Port Builder: a macOS front end that walks a user through building a playable
 // IPA from their own Switch game files. Not part of the host runtime; drives the
-// repository's scripts (build_ipa_from_nsp.py, romfs_arc.py) as subprocesses.
+// repository's scripts (build_ipa_from_nsp.py, romfs_image.py) as subprocesses.
 //
 // The four inputs are picked separately — base game, update, add-on content (DLC),
 // prod.keys — because they are not always in one folder. When they are (the common
@@ -1561,7 +1561,7 @@ final class BuildModel: ObservableObject {
 
     // MARK: Archive
 
-    /// Pack the extracted RomFS into a ROMFSARC archive. The extracted folder is
+    /// Pack the extracted RomFS into one romfs.img. The extracted folder is
     /// <work>/extract/v<N>/RomFS where N is the profile's package version, so take
     /// the highest v* that actually has a RomFS instead of hardcoding one game.
     /// `then` continues the build with the archive's folder (installing on a device) instead of ending it.

@@ -23,10 +23,10 @@ Issue: LNPANDY/NX2Apple#123
  6 files changed, 16 insertions(+), 2 deletions(-)
 
 diff --git a/dm/ios/Sources/main.m b/dm/ios/Sources/main.m
-index 5afddbb6..c4c84e5d 100644
+index b2064dca..bec90271 100644
 --- a/dm/ios/Sources/main.m
 +++ b/dm/ios/Sources/main.m
-@@ -178,6 +178,9 @@ static int boot_env(void) {
+@@ -185,6 +185,9 @@ static int boot_env(void) {
      NSString *log = [doc stringByAppendingPathComponent:@"log.txt"], *prev = [doc stringByAppendingPathComponent:@"log.prev.txt"];
      [fm removeItemAtPath:prev error:nil]; [fm moveItemAtPath:log toPath:prev error:nil];
      if (freopen(log.fileSystemRepresentation, "w", stderr)) setvbuf(stderr, NULL, _IOLBF, 0);

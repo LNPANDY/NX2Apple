@@ -384,7 +384,7 @@ class HostTestRules(unittest.TestCase):
                 self.assertIn('-fsanitize=address,undefined', command)
         rules = (REPO / 'dm/host/tests/Makefile').read_text().splitlines()
         prerequisites = ' '.join(line for line in rules if line.startswith('run:'))
-        for name in ('t_language', 't_input_map', 't_launcher_contract', 't_touchpad_geometry'):
+        for name in ('t_language', 't_input_map', 't_launcher_contract'):
             self.assertIn(f'$(B)/{name}', prerequisites)
             self.assertIn(f'\t$(B)/{name}', rules)
 

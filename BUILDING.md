@@ -71,4 +71,4 @@ GAME=<title id> W=<work dir> PATCHED=<patched dir> \
 `--full-romfs` (or `DM_FULL_ROMFS=1`) packs the RomFS into the package instead — upstream's
 behaviour, only sensible for small games.
 
-The RomFS no longer has to be packed into a shard archive: the build writes the game's data as a single `romfs.img`. Archives made earlier (`romfs.idx` with `romfs.00`, `romfs.01`, …) still load, because the patch queue still carries the reader ([patches/0002-romfsarc.patch](patches/0002-romfsarc.patch), format in [docs/ROMFS_ARCHIVE.md](docs/ROMFS_ARCHIVE.md)).
+The RomFS no longer has to be packed into a shard archive: the build writes the game's data as a single `romfs.img`. Shard archives made earlier (`romfs.idx` with `romfs.00`, `romfs.01`, …) are no longer read; the launcher reports such a folder as having no game data, and the data is sent again once as a `romfs.img`.

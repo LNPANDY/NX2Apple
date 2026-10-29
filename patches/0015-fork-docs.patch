@@ -13,14 +13,14 @@ Issue: LNPANDY/NX2Apple#123
  docs/MULTIPLAYER.md         | 139 +++++++++++++++
  docs/RELEASE-NOTES-GUIDE.md | 105 +++++++++++
  docs/RELEASE_NOTES.md       |  77 ++++++++
- docs/ROADMAP.md             | 140 +++++++++++++++
+ docs/ROADMAP.md             | 139 +++++++++++++++
  docs/WORK-IN-PROGRESS.md    |  88 ++++++++++
  docs/badges/games.json      |   6 +
  docs/badges/verified.json   |   6 +
  docs/launcher-c-design.md   | 339 ++++++++++++++++++++++++++++++++++++
  docs/launcher-c-plan.md     | 213 ++++++++++++++++++++++
  docs/probe-dlopen.md        |  64 +++++--
- 11 files changed, 1262 insertions(+), 15 deletions(-)
+ 11 files changed, 1261 insertions(+), 15 deletions(-)
  create mode 100644 dm/ios/ENTITLEMENTS.md
  create mode 100644 docs/MULTIPLAYER.md
  create mode 100644 docs/RELEASE-NOTES-GUIDE.md
@@ -479,10 +479,10 @@ index 00000000..2f1132cb
 +- **GabeThe21stGamer**：暴露了旧工具与无证书两条路径的报告（#87），以及免证书安装的免费 Apple ID 实测。
 diff --git a/docs/ROADMAP.md b/docs/ROADMAP.md
 new file mode 100644
-index 00000000..35472c99
+index 00000000..25ab8a5c
 --- /dev/null
 +++ b/docs/ROADMAP.md
-@@ -0,0 +1,140 @@
+@@ -0,0 +1,139 @@
 +# Roadmap: what to do next, and why
 +
 +Three investigations ran in parallel (runtime profiles for a universal launcher, a survey of
@@ -492,7 +492,7 @@ index 00000000..35472c99
 +## 1. Touch look and native aspect — the one capability we do not have
 +
 +**From [devinhurry/touch-the-wild](https://github.com/devinhurry/touch-the-wild)** (not in
-+upstream's tree: `hle_look.c`, `touchpad_geometry.h`, `hle_botw_touchhud.c`, `hle_aspect.c`
++upstream's tree: `hle_look.c`, `touchpad_geometry.h` (once carried here as an experiment, since dropped), `hle_botw_touchhud.c`, `hle_aspect.c`
 +all verified absent from seedds/nxnative).
 +
 +Today the only way to turn the camera on a phone is holding a virtual right stick, which turns
@@ -612,9 +612,8 @@ index 00000000..35472c99
 +if 4–8 games in one app is worth it, and C needs a `dlopen` experiment before any commitment.
 +
 +External storage on iOS: `UIDocumentPickerViewController` for the folder, persist a security-
-+scoped bookmark in UserDefaults, store the ROMFSARC index and shards there. `romfs_arc.c`
-+already `pread`s per shard, so an external path works unchanged —
-+`main.m romfs_locate` only checks `Documents/romfs` and `<App>/romfs` today.
++scoped bookmark in UserDefaults, store the picked location there (done: `romfs.img` is read from any
++security-scoped path, `dm_picked_data_path`; the shard-archive reader this note first assumed is gone).
 +
 +## Safety note from the fork survey
 +
@@ -743,7 +742,7 @@ index 00000000..92b31479
 +}
 diff --git a/docs/launcher-c-design.md b/docs/launcher-c-design.md
 new file mode 100644
-index 00000000..bc814c7d
+index 00000000..476a1c1e
 --- /dev/null
 +++ b/docs/launcher-c-design.md
 @@ -0,0 +1,339 @@
@@ -980,11 +979,11 @@ index 00000000..bc814c7d
 +- **游戏列表** = 扫描两个来源后按 title id 连接：
 +  1. **代码**：`Bundle.main/Frameworks/*.framework`，读每个 framework `Resources/game.manifest.json`
 +     （构建时生成，第 3.2 节），运行期用 `getsectiondata`/段存在性做交叉校验（防 manifest 与段不一致）。
-+     不建议扫 `romfs.idx` 当列表依据——romfs 是用户可移动的数据（外置盘是计划能力：romfs_arc.c 按分片
++     不建议扫数据文件当列表依据——romfs 是用户可移动的数据（外置盘是计划能力：当时设想按分片
 +     pread，天然支持外部路径，但今天 `main.m romfs_locate` 只查 per-game/Documents/bundle 三处，
 +     文件夹选择器是待办，ROADMAP:129-132），代码在不在 bundle 里才是"装没装"。
 +  2. **数据**：`Documents/games/*/`，"这个目录是不是一个游戏的文件"的判定已经存在：
-+     `main.m:19-28 romfs_dir_ok`（有 `romfs.idx` 或 profile 的 `romfs_marker` 路径即算）。
++     `main.m:19-28 romfs_dir_ok`（有 profile 的 `romfs_marker` 路径即算；旧的 `romfs.idx` 分片归档已不再读取）。
 +  - 列表状态：代码+数据 = 可玩，只有代码 = 提示"把 romfs 放进 Files"，只有数据 = 灰显"IPA 里没有这个游戏
 +    的 framework（需要重签安装）"——这条提示就是 2.2 结论的用户可见面。
 +- **存档隔离**：已经有了。`Documents/games/<id>/{save,temp}`，`main.m:95-104`：
@@ -1088,7 +1087,7 @@ index 00000000..bc814c7d
 +> **Update (merged):** the dlopen probe now exists — `dm/ios/probe/` with `build_probe.sh`, committed alongside this document, and `probe-out/DmProbe.ipa` is built. W1 step 1 is done. What remains is running it on an iOS 26 device and reading `Documents/probe-log.txt`.
 diff --git a/docs/launcher-c-plan.md b/docs/launcher-c-plan.md
 new file mode 100644
-index 00000000..ab13b78d
+index 00000000..e6e253c5
 --- /dev/null
 +++ b/docs/launcher-c-plan.md
 @@ -0,0 +1,213 @@
@@ -1197,7 +1196,7 @@ index 00000000..ab13b78d
 +  `pickedDataBookmark.<titleID>` with migration, `GameData.m` resolves like `main.m:69–117` with
 +  explicit title id/marker, `GameLauncher.m` sets `DM_AOC_DIR`, `DM_MSL_DIR`, `DM_PSO_BUNDLE`
 +  per game first and then app-wide, `LauncherSettings` is per game, and `GameLibrary` never treats
-+  `romfs.idx` as "code installed" (design §233–240).
++  a data file as "code installed" (design §233–240).
 +- Done when: two titles' `Documents/games/<id>/{romfs.img,romfs,save,temp,msl,pso,aoc}` are
 +  isolated, a stale bookmark falls back, an identity mismatch falls back, and DLC `aoc/<index>.img`
 +  mounts (`hle_fs.c:516-518`).
@@ -1215,7 +1214,7 @@ index 00000000..ab13b78d
 +`nro_count > 0`) — a mismatch marks the game `broken` without affecting others.
 +
 +Discovery: frameworks come from `Bundle.main.privateFrameworksURL/*.framework` and data from
-+`Documents/games/<title_id>/` (`romfs.img` complete, or `romfs/romfs.idx`, or
++`Documents/games/<title_id>/` (`romfs.img` complete, or
 +`romfs/<manifest.romfs_marker>`), with a per-title bookmark for external drives, and the results merge into
 +playable / needsData / needsFramework / broken.
 +
