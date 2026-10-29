@@ -9,3 +9,5 @@ QA/
 *.jpeg
 *.png
 *.webp
+# A private build may carry banners in the app bundle (DemoArt/). The images stay out of git, the *.jpg rules above cover them.
+DemoArt/
