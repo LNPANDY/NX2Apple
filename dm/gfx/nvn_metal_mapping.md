@@ -54,7 +54,7 @@ The following are empty implementations (`g_nops` in `hle_nvn.c`); calling them 
 
 ## 3. Shader bindings
 
-Switch shaders obtain their resources through a few constant sections maintained by the driver, and during replay the graphics layer fills the same contents into Metal's argument buffer. Each binding in the reflection json carries a kind (`NVN_RB_*` in `nvn/nvn_refl.h`):
+Switch shaders obtain their resources through a few constant sections maintained by the driver, and during replay the graphics layer fills the same contents into Metal's argument buffer. Each binding in the reflection json carries a kind, a string of `nvn/dmsh_abi.h` (`DMSH_KIND_*`, the one definition the build and the host share, with the driver segments' layout) that `nvn/nvn_refl.m` turns into an `NVN_RB_*` code (`nvn/nvn_refl.h`):
 
 | Kind | Meaning |
 |---|---|

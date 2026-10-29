@@ -9,27 +9,26 @@ Upstream-Status: fork-only
 Reason: Virtual-pad geometry used by tests only; a fork experiment without a hook in the host
 Issue: LNPANDY/NX2Apple#123
 ---
- dm/host/tests/Makefile              |   5 +-
+ dm/host/tests/Makefile              |   4 +
  dm/host/tests/t_touchpad_geometry.c | 131 ++++++++++++++++++++
  dm/host/touchpad_geometry.h         | 179 ++++++++++++++++++++++++++++
- 3 files changed, 314 insertions(+), 1 deletion(-)
+ 3 files changed, 314 insertions(+)
  create mode 100644 dm/host/tests/t_touchpad_geometry.c
  create mode 100644 dm/host/touchpad_geometry.h
 
 diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
-index 0b651aa9..26bc1eac 100644
+index 0b0a7799..93a17e8f 100644
 --- a/dm/host/tests/Makefile
 +++ b/dm/host/tests/Makefile
-@@ -12,7 +12,7 @@ QUIET = $(if $(strip $(SAN)),,2>/dev/null)
+@@ -12,6 +12,7 @@ QUIET = $(if $(strip $(SAN)),,2>/dev/null)
  GINC = $(if $(strip $(GAME)),-I../gen/$(GAME) -I../../games/$(GAME),$(error GAME is not set: make GAME=<base game title ID>: $(shell python3 ../../games/game.py list | awk -F'\t' '{printf "%s (%s)  ", $$1, $$3}')))
  $(B)/t_fs $(B)/t_fs_case $(B)/t_fs_commit_list $(B)/t_fs_commit_list_tsan: ../romfs_image.h
  GAME_H = ../gen/$(GAME)/game_profile.h
--run: $(B)/t_motion $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture $(B)/t_oe $(B)/t_fs $(B)/t_fs_commit_list $(B)/t_thread_leak $(B)/t_fs_case $(B)/t_audio $(B)/t_audio_spsc $(B)/t_swkbd $(B)/t_altstack $(B)/t_condvar $(B)/t_condvar_old $(B)/t_pctl $(B)/t_time $(B)/t_shared_font $(B)/t_vorbis $(B)/t_vorbis_divides $(B)/t_hid $(B)/t_input_map $(B)/t_launcher_contract $(B)/t_haptics $(B)/t_haptics_apple
-+run: $(B)/t_motion $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture $(B)/t_oe $(B)/t_fs $(B)/t_fs_commit_list $(B)/t_thread_leak $(B)/t_fs_case $(B)/t_audio $(B)/t_audio_spsc $(B)/t_swkbd $(B)/t_altstack $(B)/t_condvar $(B)/t_condvar_old $(B)/t_pctl $(B)/t_time $(B)/t_shared_font $(B)/t_vorbis $(B)/t_vorbis_divides $(B)/t_hid $(B)/t_input_map $(B)/t_launcher_contract $(B)/t_haptics $(B)/t_haptics_apple $(B)/t_touchpad_geometry
++run: $(B)/t_touchpad_geometry
+ run: $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture $(B)/t_oe $(B)/t_fs $(B)/t_fs_commit_list $(B)/t_thread_leak $(B)/t_fs_case $(B)/t_audio $(B)/t_audio_spsc $(B)/t_swkbd $(B)/t_altstack $(B)/t_condvar $(B)/t_condvar_old $(B)/t_pctl $(B)/t_time $(B)/t_shared_font $(B)/t_vorbis $(B)/t_vorbis_divides $(B)/t_hid $(B)/t_input_map $(B)/t_launcher_contract $(B)/t_haptics $(B)/t_haptics_apple
+ 	$(B)/t_language
  	$(B)/t_heap_size
- 	$(B)/t_touch
- 	$(B)/t_gesture
-@@ -48,6 +48,7 @@ run: $(B)/t_motion $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture $(B)/t_oe $(B)/t
+@@ -49,6 +50,7 @@ run: $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture
  	$(B)/t_launcher_contract
  	$(B)/t_haptics
  	$(B)/t_haptics_apple
@@ -37,7 +36,7 @@ index 0b651aa9..26bc1eac 100644
  	$(B)/t_nro
  	$(B)/t_symbols
  run: $(B)/t_nro
-@@ -148,6 +149,8 @@ $(B)/t_hid_tsan: t_hid.c ../hle_hid.c ../motion_fusion.h ../hle_haptics.c ../hle
+@@ -151,6 +153,8 @@ $(B)/t_hid_tsan: t_hid.c ../hle_hid.c ../motion_fusion.h ../hle_haptics.c ../hle
  	$(CLANG) -O1 -g -fsanitize=thread -Wall -Werror -Wno-unused-function -I.. $(GINC) -o $@ t_hid.c ../hle_haptics.c
  $(B)/t_haptics: t_haptics.c ../hle_haptics.c ../hle_haptics.h ../dm_input.h | $(B)
  	$(CLANG) -O1 -g -Wall -Werror -I.. -o $@ t_haptics.c ../hle_haptics.c

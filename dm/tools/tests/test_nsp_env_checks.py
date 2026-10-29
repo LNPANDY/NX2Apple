@@ -4,6 +4,7 @@ Every input (xcrun, xcode-select, sysctl, the translator, PATH) is mocked: no Xc
 import importlib.util
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -12,6 +13,8 @@ REPO = Path(__file__).resolve().parents[3]
 spec = importlib.util.spec_from_file_location('build_ipa_from_nsp', REPO / 'scripts/build_ipa_from_nsp.py')
 assert spec and spec.loader
 nsp = importlib.util.module_from_spec(spec); spec.loader.exec_module(nsp)
+sys.path.insert(0, str(REPO / 'dm/gfx/tools'))
+import dmsh_chain  # noqa: E402
 
 
 def fake_run(sdk_rc=0, devdir='/Applications/Xcode.app/Contents/Developer', xlate=(0, 'f21af1efa737a270\n', ''), translated='0', calls=None):
@@ -81,6 +84,28 @@ class Rosetta(unittest.TestCase):
 
     def test_other_systems_are_not_asked(self):
         with mock.patch.object(nsp.sys, 'platform', 'linux'), mock.patch.object(nsp.subprocess, 'run', side_effect=AssertionError): nsp.check_native_python()
+
+
+class ChainCheck(unittest.TestCase):   # dmsh_build.py run directly (dmsh_chain.check_tools) names the translator that does not run, not an empty `xlate_source`
+    def embedded(self, xlate):
+        with mock.patch.object(dmsh_chain.subprocess, 'run', fake_run(xlate=xlate)): return dmsh_chain.xlate_embedded()
+
+    def test_embedded(self):
+        self.assertEqual(self.embedded((0, 'f21af1efa737a270\n', '')), 'f21af1efa737a270')
+        self.assertEqual(self.embedded((131, '', 'You must install .NET to run this application.\n\nApp: x')), 'does not run (You must install .NET to run this application.)')
+        self.assertEqual(self.embedded((0, ' \n', '')), 'does not run (exit code 0)')
+        for exc in (OSError('Exec format error'), subprocess.TimeoutExpired('dmsh_xlate', 60)):
+            with self.subTest(exc=exc): self.assertTrue(self.embedded(exc).startswith('does not run ('))
+
+    def check(self, xlate_source):
+        with open(dmsh_chain.LOCK) as f: lock = dict(l.rstrip('\n').split('\t', 1) for l in f if '\t' in l and not l.startswith('#'))
+        with mock.patch.object(dmsh_chain, 'tools_now', lambda: {**lock, 'xlate_source': xlate_source}): return dmsh_chain.check_tools()
+
+    def test_check_tools(self):
+        bad = self.check('does not run (You must install .NET to run this application.)')
+        self.assertEqual(len(bad), 1, bad); self.assertIn('the translator does not run (You must install .NET', bad[0]); self.assertIn('.NET 10 runtime', bad[0])
+        bad = self.check('0123456789abcdef')   # a translator that runs but was built from other source: the lock line and the rebuild line
+        self.assertEqual(len(bad), 2, bad); self.assertIn('xlate_source: lock', bad[0]); self.assertIn('rebuild dmsh_xlate', bad[1])
 
 
 if __name__ == '__main__': unittest.main()

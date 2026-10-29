@@ -6,6 +6,7 @@
 #include <string.h>
 #include "nvn.h"
 #include "nvn_tex.h"
+#include "dmsh_abi.h"   // the shader library ABI shared with the shader build (DMSH_SEPTEX_SLOT0)
 
 #define MAGIC(a, b, c, d) ((uint32_t)(a) | (uint32_t)(b) << 8 | (uint32_t)(c) << 16 | (uint32_t)(d) << 24)
 #define FITS(T, H) _Static_assert(sizeof(T) <= sizeof(H), #T " exceeds the reserved size of " #H)
@@ -152,9 +153,9 @@ static inline const p_bind_handles *bind_rec(uint32_t op, const void *a, p_bind_
     t->stage = b->stage; t->first = b->slot; t->n = 1; t->defer = 0; t->src = 0;
     t->h[0] = (tid ? tid + (uint64_t)b->tbase : 0) | (sid ? sid + (uint64_t)b->sbase : 0) << 20; return t;
 }
-// Texture slots of a stage: 0-127 nvnCommandBufferBindTexture's (combined handles), 128-255 the separate texture binds. The driver keeps the two in tables of their own (c2 0x20 + 8 r and
-// 0x168 + 8 r, dm/gfx/tools/dmsh_build.py), which the shaders' reflection names as these slots, so a game may bind both kinds in the same frame (Monster Hunter Rise: BindTexture slot 0 beside separate slots 0-4)
-#define NVN_SEPTEX_SLOT0 128
+// Texture slots of a stage: 0-127 nvnCommandBufferBindTexture's (combined handles), 128-255 the separate texture binds. The driver keeps the two in tables of their own (c2 DMSH_C2_TEX + 8 r and
+// DMSH_C2_SEPTEX + 8 r, dmsh_abi.h), which the shaders' reflection names as these slots, so a game may bind both kinds in the same frame (Monster Hunter Rise: BindTexture slot 0 beside separate slots 0-4)
+#define NVN_SEPTEX_SLOT0 DMSH_SEPTEX_SLOT0
 typedef struct { int32_t face, value_mask, mask, ref, which; } p_stencil;  // which: 0 value mask 1 write mask 2 reference value
 typedef struct { float factor, units, clamp; } p_poly_offset;
 typedef struct { int32_t prim, first, count, instances, base_instance; uint64_t ind; uint64_t mdi_cnt; int32_t mdi_i, pad; } p_draw;   // instances 0 counts as 1; ind != 0: DrawArraysIndirect, the arguments are read by the GPU from that address; mdi_cnt != 0: draw mdi_i of an indirect-count multi-draw (drawn only while mdi_i < the u32 at mdi_cnt)

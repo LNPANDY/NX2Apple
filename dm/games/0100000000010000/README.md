@@ -30,6 +30,7 @@ No `patches.py`. `op_mode` stays docked: Odyssey only takes its motion moves in 
 
 ## Services
 
+- **Resolved: modern Chinese language codes selected Japanese.** The general [Chinese language alias comparison fix](../../../docs/reference/services.md#chinese-language-aliases-in-settings-comparisons) makes raw `DM_LANG=zh-Hans` and `zh-Hant` select Simplified and Traditional Chinese. Checked on the Mac with separate fresh test saves, through the startup mode-selection menus; no new gameplay or iPhone test.
 - Start-up calls no game before it made, each answered by the host: the aborting `account::OpenPreselectedUser` and `GetLastOpenedUser` (a null read), news delivery (`bcat`: the delivery storage does not mount, which the game treats as "nothing delivered"), HOME-button blocking, the parental 3D-mode setting, `vi::SetLayerScalingMode`, `time::ToPosixTimeFromUtc`, the debug pad, and the SDK 7 names of two audio-device calls (`audio::AcquireAudioDeviceSwitchNotification` aborted). Each aborted with no message in the SDK's IPC; frames resolved with `sdis.py --sym`.
 - Command memory: it hands out many 512-byte command memory grants before recording; with no recording to reclaim them by, 256 KB host segments each reached the cap entering the Wooded Kingdom, so an empty-pool grant of at most 4 KB outside a recording gets a 4 KB segment (`hostseg_size`). The `GetCommandMemoryUsed` count from the last `AddCommandMemory` (found on Three Houses) left it unchanged.
 - Shared fonts: SDK 7, so the address is the plain TTF. Focus handling mode 3 (no focus notifications; the system suspends the game out of focus).
@@ -58,6 +59,7 @@ No `patches.py`. `op_mode` stays docked: Odyssey only takes its motion moves in 
 
 General host and tool changes first needed here; each applies to every game:
 
+- **Chinese language aliases in both settings equality operators:** [Chinese language aliases in settings comparisons](../../../docs/reference/services.md#chinese-language-aliases-in-settings-comparisons).
 - **BAHS pairs omitted from vertex padding:** [Pixel shader inputs the vertex shader does not write](../../../docs/reference/shaders.md#pixel-shader-inputs-the-vertex-shader-does-not-write).
 - **Front end at `-O1`** (`dmsh_build.py` and `ios_metal.py`): [Front end at -O1: Apple's control-flow lowering](../../../docs/reference/shaders.md#front-end-at--o1-apples-control-flow-lowering).
 - **Pipeline archive flush periods** (no compile waits for a flush; the prepare step stops at the last pair handed out): [A compile that does not return stalls every flush and draw](../../../docs/reference/shaders.md#a-compile-that-does-not-return-stalls-every-flush-and-draw).

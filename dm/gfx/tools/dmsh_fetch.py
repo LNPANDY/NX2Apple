@@ -6,6 +6,7 @@
 # Rewritable samples: .sample(sampler, select(_N, float2(0.0), isnan(_N))) on a 2D float texture, where _N = float2(in.m_X.x, in.m_X.y) (interpolated output unchanged);
 # whether the texel is really fetched at this pixel is proven at runtime (correspondence between vertex uv and position, texture size = target size); if it cannot be proven, the original version is used
 import re
+import dmsh_abi as abi
 
 NFB = 8
 
@@ -17,7 +18,7 @@ def variant(msl, bindings, om_only_ok=False):
     if cut >= 0: msl = msl[:cut + 1]
     tex = {m.group(1) for m in re.finditer(r'texture2d<float> (\w+) \[\[id\(\d+\)\]\];', msl)}
     locn = {m.group(1): int(m.group(2)) for m in re.finditer(r'float4 (m_\d+) \[\[user\(locn(\d+)\)\]\];', msl.split('struct main0_in', 1)[-1].split('};', 1)[0])}
-    reg = {b['msl_name']: b['reg'] for b in bindings if b.get('kind') == 'tex' and b.get('msl_name') and b.get('reg') is not None}
+    reg = {b['msl_name']: b['reg'] for b in bindings if b.get('kind') == abi.KIND_TEX and b.get('msl_name') and b.get('reg') is not None}
     pat = re.compile(r'spvDescriptorSet0\.(\w+)\.sample\(spvDescriptorSet0\.(\w+)Smplr, select\((_\d+), float2\(0\.0\), isnan\(\3\)\)\)')
     calls, out_parts, pos = [], [], 0
     for m in pat.finditer(msl):

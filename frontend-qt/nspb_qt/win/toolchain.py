@@ -250,6 +250,22 @@ def config_path() -> Path:
     return base / 'NS Port Builder' / 'toolchain.json'
 
 
+def save_config(key: str, value: str) -> Path:
+    """Set one `toolchain.json` key, keeping the rest (an unreadable file is replaced, not merged:
+    its content could not be parsed anyway). Returns the path written, for the log line.
+
+    The dependency panel's Choose button uses this: a folder the user pointed at once must
+    survive restarts, and the discovery helpers already read it back through `setting(key)`.
+    """
+    p = Path(os.environ.get(ENV_TOOLCHAIN) or config_path())
+    p.parent.mkdir(parents=True, exist_ok=True)
+    data = load_config()
+    data.pop('_error', None)
+    data[key] = value
+    p.write_text(json.dumps(data, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
+    return p
+
+
 def load_config() -> dict:
     """The user's `toolchain.json`; an unreadable one is reported, never fatal.
 
@@ -935,30 +951,61 @@ def probe_link(sdk: Path) -> tuple[bool, str]:
         return False, 'no clang.exe'
     if not lld:
         return False, note or 'no ld64.lld'
+
+    # Step 0: run the linker by itself. A silent clang failure (the report: exit 1, no output on
+    # either stream) cannot say whether the linker is broken or clang's drive of it is, and the
+    # two have different fixes. lld --version is the smallest probe that separates them.
+    v = subprocess.run([str(lld), '--version'], capture_output=True, text=True, timeout=60,
+                       **no_window())
+    lld_self = (v.stdout or v.stderr or '').strip().splitlines()
+    lld_line = lld_self[0] if lld_self else f'exit {v.returncode}, no output'
+    if v.returncode != 0:
+        return False, (f'{lld.name} does not run by itself (exit {v.returncode}): {lld_line[:200]}'
+                       ' — reinstall LLVM-MinGW')
+
     src = '#include <stdio.h>\nint main(void) { puts("probe"); return 0; }\n'
     with ascii_temp_dir('nspb-link-') as td:
         c = Path(td) / 'probe.c'
         out = Path(td) / 'probe'
         c.write_text(src, encoding='utf-8')
-        # --ld-path names the linker directly. -fuse-ld=lld + PATH prepend worked on the machines
-        # that probed green, but the report's machine failed with exit 1 and no output — on Windows
-        # clang's linker lookup has more moving parts (PATHEXT, the llvm-mingw driver config), so
-        # name the binary and let the failure say what actually went wrong.
-        cmd = [str(clang), '-target', f'arm64-apple-ios{IOS_DEPLOYMENT}', '-isysroot', str(sdk),
-               '-fuse-ld=lld', f'--ld-path={lld}', '-o', str(out), str(c)]
-        try:
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=180, env=env,
-                               **no_window())
-        except subprocess.TimeoutExpired:
-            return False, 'link timed out'
-        except OSError as e:
-            return False, f'cannot run clang: {e}'
-        if r.returncode != 0:
+        target = f'-target arm64-apple-ios{IOS_DEPLOYMENT}'.split()
+        base = [str(clang), *target, '-isysroot', str(sdk)]
+
+        def run(extra: list[str], env: dict[str, str] | None) -> subprocess.CompletedProcess:
+            cmd = [*base, *extra, '-o', str(out), str(c)]
+            return subprocess.run(cmd, capture_output=True, text=True, timeout=180,
+                                  env=env, **no_window())
+
+        def summary(r: subprocess.CompletedProcess) -> str:
             # the exit code is the evidence: 0xC0000135 (STATUS_DLL_NOT_FOUND) reads as "a DLL is
-            # missing", not "the linker is bad" — the report's "link failed: no output" carried
-            # neither, because an empty output tail replaced the code
+            # missing", not "the linker is bad"; an empty stream pair stays honest as (no output)
             tail = ((r.stderr or r.stdout or '').strip().splitlines() or ['(no output)'])[-1]
-            return False, f'link exit {r.returncode} (0x{r.returncode & 0xFFFFFFFF:08x}): {tail[:400]}'
+            return f'exit {r.returncode} (0x{r.returncode & 0xFFFFFFFF:08x}): {tail[:400]}'
+
+        # Strategy 1 — the build's own shape (build_app.link): -fuse-ld=lld and the linker's
+        # folder on PATH. If the machine's PATH handling differs from the probe's assumptions,
+        # this is what the build would do, so it is the first thing to try.
+        env = dict(os.environ)   # a child on Windows needs the full env (SystemRoot etc.)
+        env['PATH'] = str(lld.parent) + os.pathsep + env.get('PATH', '')
+        r = run(['-fuse-ld=lld'], env)
+        if r.returncode == 0:
+            how = 'fuse-ld (build-style)'
+        else:
+            first = summary(r)
+            # Strategy 2 — name the linker directly (--ld-path), bypassing every lookup.
+            r = run(['-fuse-ld=lld', f'--ld-path={lld}'], dict(os.environ))
+            if r.returncode == 0:
+                how = 'ld-path'
+            else:
+                second = summary(r)
+                # Strategy 3 — -fuse-ld=full or the absolute path as -B: clang's last resort
+                r = run([f'-B{lld.parent}', '-fuse-ld=lld'], dict(os.environ))
+                if r.returncode == 0:
+                    how = '-B dir'
+                else:
+                    third = summary(r)
+                    return False, (f'link failed 3 ways; ld64.lld self-check: {lld_line[:120]}; '
+                                   f'fuse-ld {first}; ld-path {second}; -B {third}')
         try:
             data = out.read_bytes()
         except OSError as e:
@@ -973,7 +1020,7 @@ def probe_link(sdk: Path) -> tuple[bool, str]:
         plat = macho_platform(data)
         if plat is not None and plat != PLATFORM_IOS:
             return False, f'platform {plat} is not iOS ({PLATFORM_IOS})'
-        return True, f'arm64 MH_EXECUTE{"" if plat is None else f", platform {plat}"}, {len(data)} bytes'
+        return True, f'arm64 MH_EXECUTE{"" if plat is None else f", platform {plat}"}, {len(data)} bytes ({how})'
 
 
 def macho_platform(data: bytes) -> int | None:

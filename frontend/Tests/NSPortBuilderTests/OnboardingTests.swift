@@ -157,6 +157,14 @@ final class OnboardingTests: XCTestCase {
         XCTAssertTrue(L10n.selfCheck().isEmpty)
     }
 
+    func testSwedishUsesItsCatalog() {
+        XCTAssertEqual(L10n.string("settings.language.sv", .sv), "Svenska")
+        XCTAssertEqual(L10n.string("onboarding.start", .sv), "Kom igång")
+        XCTAssertEqual(L10n.string("onboarding.xcode.ready", .sv), "Xcode är klart.")
+        XCTAssertEqual(L10n.string("dep.python", .sv), "Python + paket")
+        XCTAssertNotEqual(L10n.string("settings.language.sv", .sv), "settings.language.sv")
+    }
+
     /// The same opt-in native capture path as the launcher's other visual QA tests.
     @MainActor func testRenderOnboardingForVisualQA() throws {
         guard let directory = ProcessInfo.processInfo.environment["NX_ONBOARDING_CAPTURE_DIR"] else {
@@ -215,6 +223,29 @@ final class OnboardingTests: XCTestCase {
             try XCTUnwrap(rep.representation(using: .png, properties: [:]))
                 .write(to: output.appendingPathComponent("xcode-\(name)-en.png"))
             window.orderOut(nil)
+        }
+        // The NVN hints (old macOS on Welcome, old Xcode on the Xcode step).
+        for lang: Lang in [.en, .zh] {
+            for step in [OnboardingStep.welcome, .xcode] {
+                var s = MockOnboardingDriver.sampleState
+                s.step = step; s.platform = .selected(.mac); s.xcode = .ready
+                s.setup = [.selected: .done, .license: .done, .firstLaunch: .done, .metal: .done]
+                s.background = [.python: .done, .dotnet: .done, .tools: .done]
+                s.osTooOldForNVN = true; s.xcodeTooOldForNVN = true
+                let driver = MockOnboardingDriver(state: s, lang: lang, animated: false)
+                let host = NSHostingView(rootView: OnboardingView(driver: driver, lang: lang))
+                let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 680),
+                                      styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+                window.contentView = host
+                window.orderFront(nil)
+                RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+                host.layoutSubtreeIfNeeded()
+                let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+                host.cacheDisplay(in: host.bounds, to: rep)
+                try XCTUnwrap(rep.representation(using: .png, properties: [:]))
+                    .write(to: output.appendingPathComponent("nvn-hint-\(step.rawValue)-\(lang.rawValue).png"))
+                window.orderOut(nil)
+            }
         }
     }
 }

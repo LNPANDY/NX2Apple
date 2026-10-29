@@ -174,6 +174,11 @@ import UniformTypeIdentifiers
                 Text(t("onboarding.require.diskWarning")).foregroundStyle(LauncherPalette.building)
                     .opacity(state.welcome.hasSpace ? 0 : 1).accessibilityHidden(state.welcome.hasSpace)
             }
+            // A fact about this Mac, constant during setup: a calm note, not a warning, and no gate.
+            if state.osTooOldForNVN {
+                Text(t("onboarding.nvn.os")).font(.manrope(13)).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }.modifier(OnboardingCard())
     }
 
@@ -252,6 +257,11 @@ import UniformTypeIdentifiers
                         taskRow(task.titleKey, status: state.setup[task] ?? (state.xcode == .ready ? .done : .queued))
                     }
                 case let .failed(failure): failureView(failure)
+                }
+                // Inside the fixed card (it scrolls when longer), so the card heights stay as they are.
+                if state.xcodeTooOldForNVN, state.xcode != .checking {
+                    Text(t("onboarding.nvn.xcode")).font(.manrope(12)).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
               }
             }

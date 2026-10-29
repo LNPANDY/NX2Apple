@@ -1610,6 +1610,115 @@ class LocalizationTest(unittest.TestCase):
             self.assertTrue(zh and zh != k, f'{k} has no Chinese text')
             self.assertTrue(en and en != k, f'{k} has no English text')
 
+    def test_the_guidance_and_pick_keys_exist_in_both_languages(self) -> None:
+        from nspb_qt.i18n import Lang
+        from nspb_qt.localization import TABLE, t
+        keys = ['dep.guide.iossdk', 'dep.guide.metal', 'dep.pick', 'dep.hide', 'dep.show',
+                'dep.pick.ios_sdk.title', 'dep.pick.metal_dir.title',
+                'dep.pick.saved', 'dep.pick.iossdk.saved', 'dep.pick.iossdk.version',
+                'dep.pick.iossdk.invalid', 'dep.fix.network', 'dep.fix.diskspace', 'dep.fix.log']
+        for k in keys:
+            self.assertIn(k, TABLE, f'{k} missing from the table')
+            zh, en = t(k, Lang.ZH), t(k, Lang.EN)
+            self.assertTrue(zh and zh != k and en and en != k, f'{k} is not bilingual')
+
+
+class SaveConfigTest(unittest.TestCase):
+    """The Choose-a-folder path writes toolchain.json and reads it back through setting()."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self._old = os.environ.get('NSPB_TOOLCHAIN_JSON')
+        os.environ['NSPB_TOOLCHAIN_JSON'] = str(Path(self.tmp.name) / 'toolchain.json')
+
+    def tearDown(self) -> None:
+        if self._old is None:
+            os.environ.pop('NSPB_TOOLCHAIN_JSON', None)
+        else:
+            os.environ['NSPB_TOOLCHAIN_JSON'] = self._old
+
+    def test_save_config_keeps_other_keys_and_is_read_back(self) -> None:
+        cfg = Path(os.environ['NSPB_TOOLCHAIN_JSON'])
+        cfg.parent.mkdir(parents=True, exist_ok=True)
+        cfg.write_text('{"llvm_dir": "C:/tools/llvm"}', encoding='utf-8')
+        p = tc.save_config('ios_sdk', 'C:/sdks/iPhoneOS26.0.sdk')
+        self.assertEqual(p, cfg)
+        self.assertEqual(tc.setting('ios_sdk'), 'C:/sdks/iPhoneOS26.0.sdk')
+        self.assertEqual(tc.setting('llvm_dir'), 'C:/tools/llvm', 'the other keys survive')
+
+    def test_save_config_creates_missing_folders_and_replaces_a_broken_file(self) -> None:
+        cfg = Path(os.environ['NSPB_TOOLCHAIN_JSON'])
+        cfg.parent.mkdir(parents=True, exist_ok=True)
+        cfg.write_text('not json', encoding='utf-8')
+        tc.save_config('metal_dir', 'C:/Metal')
+        self.assertEqual(tc.setting('metal_dir'), 'C:/Metal')
+
+    def test_the_picked_sdk_is_accepted_only_when_it_really_is_one(self) -> None:
+        # The model validates before saving: a wrong pick must not become the configured answer.
+        root = Path(self.tmp.name)
+        unpacked = root / 'Metal-thing-unpacked'   # whatever the archive's top folder is called
+        unpacked.mkdir(parents=True)
+        good = make_fake_sdk(unpacked, '26.2')
+        self.assertTrue(tc.is_sdk_dir(good), 'the sdk folder itself')
+        self.assertFalse(tc.is_sdk_dir(unpacked), 'the folder above it is not an SDK by itself')
+        self.assertFalse(tc.is_sdk_dir(root / 'elsewhere'))
+        # ...but the model's pick accepts "one level down", so the unpacked root resolves to the SDK:
+        matches = sorted(unpacked.glob('iPhoneOS*.sdk'), reverse=True)
+        self.assertTrue(matches and all(tc.is_sdk_dir(m) for m in matches))
+
+
+class LinkProbeStrategyTest(unittest.TestCase):
+    """probe_link's three strategies and the step-0 linker self-check.
+
+    The Windows-only subprocess calls cannot run here; what is testable is the *shape*: the
+    strategy list (build-style fuse-ld first, then --ld-path, then -B), and that a silent
+    failure now names all three attempts plus the linker's own self-check instead of one
+    empty '(no output)'.
+    """
+
+    def test_the_strategy_order_is_build_style_first(self) -> None:
+        src = (QT / 'nspb_qt' / 'win' / 'toolchain.py').read_text()
+        body = src[src.index('def probe_link'):]
+        self.assertLess(body.index("'-fuse-ld=lld'"), body.index('f\'--ld-path={lld}\''),
+                        'the build\'s own invocation must be tried before --ld-path')
+        self.assertLess(body.index('f\'--ld-path={lld}\''), body.index("f'-B{lld.parent}'"),
+                        '--ld-path before the -B fallback')
+        self.assertIn("env['PATH'] = str(lld.parent)", body,
+                      'the build-style try must put the linker folder on PATH (build_app.link does)')
+        self.assertIn('does not run by itself', body,
+                      'a linker that cannot start is its own message, before any strategy runs')
+
+
+class InstallFailureHintTest(unittest.TestCase):
+    """The row's fix hint after a failed install (Mac parity: name the fix, not the traceback)."""
+
+    def test_network_disk_and_other_map_to_their_hints(self) -> None:
+        # model.py imports PySide6, which the test machine need not have: the classifier is a
+        # pure function, so its source is extracted and run standalone when Qt is absent.
+        try:
+            from nspb_qt import model as M
+            classify = M.BuildModel._classify_install_failure
+        except ImportError:
+            import ast
+            src = (HERE.parent / 'nspb_qt' / 'model.py').read_text()
+            tree = ast.parse(src)
+            fn = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)
+                      and n.name == '_classify_install_failure')
+            # A copied FunctionDef needs line numbers before compile accepts it.
+            ast.copy_location(fn, fn)
+            for n in ast.walk(fn):
+                ast.copy_location(n, n)
+                ast.fix_missing_locations(n)
+            ns: dict = {}
+            exec(compile(ast.fix_missing_locations(ast.Module(body=[fn], type_ignores=[])),
+                         '<model>', 'exec'), ns)
+            classify = ns['_classify_install_failure']
+        self.assertEqual(classify('DownloadError: connection reset by peer'), 'dep.fix.network')
+        self.assertEqual(classify('URLError: operation timed out'), 'dep.fix.network')
+        self.assertEqual(classify('OSError: [Errno 28] No space left on device'), 'dep.fix.diskspace')
+        self.assertEqual(classify('KeyError: x'), 'dep.fix.log')
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

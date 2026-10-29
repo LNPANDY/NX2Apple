@@ -29,6 +29,9 @@ int main(void){@autoreleasepool{
  E("texture write rejected",0,ro(one(@{@"kind":@"tex",@"msl_type":@"texture2d<float, access::write>"})));
  E("cbuf constant explicitly RO",1,ro(one(@{@"kind":@"cbuf",@"msl_type":@"constant _16*"})));
  E("cbuf of unknown type rejected",0,ro(one(@{@"kind":@"cbuf",@"msl_type":@"device _16*"})));
+ E("separate sampler RO",1,ro(one(@{@"kind":@"samp",@"msl_type":@"sampler"})));
+ E("combined handle's sampler RO",1,ro(one(@{@"kind":@"samp_tex",@"msl_type":@"sampler"})));
+ E("sampler kind of another type rejected",0,ro(one(@{@"kind":@"samp_tex",@"msl_type":@"texture2d<float>"})));
  E("unknown kind rejected",0,ro(one(@{@"kind":@"opaque",@"msl_type":@"constant _16*"})));
  E("missing bindings rejected",0,ro(@{@"route":@"B"}));
  E("missing driver semantics rejected",0,ro(@{@"route":@"B",@"bindings":@[]}));

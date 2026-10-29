@@ -9,6 +9,7 @@ Update 1.1.0 (v65536) over the base game, SDK 11.4.0. HAL Laboratory's own engin
 | 4 GB block: `mem_reserve 0x100000000`, `mem_alias 0x10000000`, `mem_stack 0x10000000`, `app_pool 0xCD500000` | [`game.tsv`](game.tsv) | no system resource; 256 MB in front + 256 MB alias region + 256 MB stack region + 3.25 GB heap region. See [Memory](#memory) |
 | `modules main subsdk0 sdk` | `game.tsv` | `subsdk0` is the movie library: the opening and ending movies and the guide movies |
 | `shader_groups /gfx/=gfx /ptcl/=ptcl /lyt/=lyt /shader/=shader` | `game.tsv` | the shaders are BNSH archives in HAL's `.cmp` containers; see [Files and shaders](#files-and-shaders) |
+| Node area cut and 32 MB alignment of large regions | `dm/tools/sdk_patches.py`, `sdk` build `b39add63…` | registered for [Pokémon Legends: Arceus](../01001F5010DFA000/README.md) on this build; this game has no virtual address memory and never reaches them |
 
 No code of the game is cut, and no run-time key is set. The game asks for present interval 1 and paces itself at 30 fps.
 

@@ -229,10 +229,31 @@ class MainWindow(QMainWindow):
         self._translatable.append((recheck, 'dep.recheck'))
         recheck.clicked.connect(self.m.check_deps)
         head.addWidget(recheck)
+        self.deps_toggle = QPushButton(self.m.t('dep.hide'))
+        self._translatable.append((self.deps_toggle, 'dep.hide'))
+        self.deps_toggle.clicked.connect(self._toggle_deps)
+        head.addWidget(self.deps_toggle)
         lay.addLayout(head)
         self.deps_container = QVBoxLayout()
         self.deps_container.setSpacing(3)
         lay.addLayout(self.deps_container)
+        # Open by default, like the Mac's panel (open while anything is missing); remembered for
+        # the next start either way.
+        self.deps_open = self.m.settings_value('depsExpanded')
+        self._apply_deps_open()
+
+    def _toggle_deps(self) -> None:
+        self.deps_open = not self.deps_open
+        self.m.settings_set('depsExpanded', self.deps_open)
+        self._apply_deps_open()
+
+    def _apply_deps_open(self) -> None:
+        for i in range(self.deps_container.count()):
+            if w := self.deps_container.itemAt(i).widget():
+                w.setVisible(self.deps_open)
+        self.deps_toggle.setText(self.m.t('dep.hide' if self.deps_open else 'dep.show'))
+        self._translatable = [(w, k) if k != 'dep.hide' and w is not self.deps_toggle else (w, 'dep.hide' if self.deps_open else 'dep.show')
+                              for w, k in self._translatable]
 
     def _build_progress(self) -> None:
         box, lay = self._card('prog.title')
@@ -299,9 +320,72 @@ class MainWindow(QMainWindow):
         hint.setObjectName('note')
         hint.setWordWrap(True)
         outer.addLayout(row)
+        self._build_failure_box(outer)
         outer.addWidget(hint)
         self._translatable.append((hint, 'msg.workdirHint'))
         self.centralWidget().layout().addWidget(wrap)
+
+    def _build_failure_box(self, outer: QVBoxLayout) -> None:
+        """After a known early stop of the script: what happened, the next step, and its button."""
+        self.failure_box = QFrame()
+        self.failure_box.setObjectName('card')
+        box = QVBoxLayout(self.failure_box)
+        box.setContentsMargins(12, 8, 12, 8)
+        box.setSpacing(4)
+        self.failure_what = QLabel('')
+        self.failure_what.setWordWrap(True)
+        self.failure_what.setStyleSheet(f'color: {ORANGE}; font-weight: 600;')
+        self.failure_next = QLabel('')
+        self.failure_next.setWordWrap(True)
+        self.failure_next.setObjectName('note')
+        buttons = QHBoxLayout()
+        self.failure_fix_btn = QPushButton('')
+        self.failure_fix_btn.clicked.connect(self._fix_failure)
+        self.failure_anyway_btn = QPushButton(self.m.t('fail.buildAnyway'))
+        self.failure_anyway_btn.clicked.connect(self._build_anyway)
+        buttons.addWidget(self.failure_fix_btn)
+        buttons.addWidget(self.failure_anyway_btn)
+        buttons.addStretch(1)
+        box.addWidget(self.failure_what)
+        box.addWidget(self.failure_next)
+        box.addLayout(buttons)
+        self.failure_box.hide()
+        outer.addWidget(self.failure_box)
+
+    _FIX_BUTTONS = {'translator': 'fail.translator.button', 'iosSDK': 'fail.iosSDK.button'}
+
+    def _show_failure(self) -> None:
+        f = self.m.failure
+        if f is None or self.m.running:
+            self.failure_box.hide()
+            return
+        self.failure_what.setText(self.m.failure_what(f))
+        self.failure_next.setText(self.m.t(f.next_key))
+        fix = self._FIX_BUTTONS.get(f.kind)
+        self.failure_fix_btn.setVisible(fix is not None)
+        if fix:
+            self.failure_fix_btn.setText(self.m.t(fix))
+        self.failure_anyway_btn.setVisible(f.flag is not None)
+        self.failure_anyway_btn.setText(self.m.t('fail.buildAnyway'))
+        self.failure_box.show()
+
+    def _fix_failure(self) -> None:
+        if self.m.failure is not None:
+            self.m.fix_failure(self.m.failure)
+
+    def _build_anyway(self) -> None:
+        """Asks first: the dialog states the risk. Nothing is armed until the player agrees."""
+        if self.m.running or not self.m.override.request(self.m.failure):
+            return
+        from PySide6.QtWidgets import QMessageBox
+        risk = self.m.t(f'fail.{self.m.failure.kind}.risk')
+        yes = QMessageBox.question(self, self.m.t('fail.confirm.title'), risk,
+                                   QMessageBox.Yes | QMessageBox.Cancel, QMessageBox.Cancel)
+        if yes != QMessageBox.Yes:
+            self.m.override.cancel()
+            return
+        if self.m.override.confirm():
+            self._build_clicked()
 
     @staticmethod
     def _separator() -> QFrame:
@@ -320,6 +404,7 @@ class MainWindow(QMainWindow):
         # start-up language — the report's half-Chinese interface
         for w, key in self._translatable:
             w.setText(self.m.t(key))
+        self._show_failure()
         full = (pu.short_path(self.m.repo_path) if self.m.repo_ok
                 else (self.m.repo_path or self.m.t('repo.notFound')))
         self.repo_path_label.setText(full)
@@ -366,6 +451,11 @@ class MainWindow(QMainWindow):
                 val.setStyleSheet(f'color: {MUTED if optional else ORANGE};')
         self._refresh_running()
 
+    @staticmethod
+    def _esc(text: str) -> str:
+        # The failure line is tool output; keep it out of the rich-text parser.
+        return (text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;'))
+
     def _refresh_deps(self) -> None:
         while self.deps_container.count():
             item = self.deps_container.takeAt(0)
@@ -408,12 +498,41 @@ class MainWindow(QMainWindow):
                     btn.setEnabled(not d.installing)
                     btn.clicked.connect(lambda _=False, dep=d: self.m.install_dep(dep))
                     h.addWidget(btn)
-                else:
+                if d.pick_key:
+                    # Apple-licensed pieces cannot be downloaded by the app: Choose points at a
+                    # copy the user already has (validated, remembered in toolchain.json).
+                    pick = QPushButton(self.m.t('dep.pick'))
+                    pick.clicked.connect(lambda _=False, dep=d: self.m.pick_dep_folder(dep))
+                    h.addWidget(pick)
+                if not d.install and not d.pick_key:
                     hint = QLabel(self.m.t(d.hint_key))
                     hint.setObjectName('note')
                     hint.setOpenExternalLinks(True)   # the Windows hints carry download links
                     h.addWidget(hint)
             self.deps_container.addWidget(row)
+            # Why the last install failed and what to do: the tool's own line under the row, the
+            # fix under it (Mac parity). Cleared when the row installs successfully.
+            if not d.ok and (d.last_error or d.fix_hint):
+                note = QLabel(('<br>' if d.last_error and d.fix_hint else '')
+                              + (self._esc(d.last_error) if d.last_error else '')
+                              + ('<br>' + self.m.t(d.fix_hint) if d.fix_hint else ''))
+                note.setObjectName('note')
+                note.setOpenExternalLinks(True)
+                note.setContentsMargins(20, 0, 0, 4)
+                self.deps_container.addWidget(note)
+        for d in self.m.deps:
+            if not d.ok and not d.install and d.id == 'ios_sdk':
+                guide = QLabel(self.m.t('dep.guide.iossdk'))
+                guide.setObjectName('note')
+                guide.setOpenExternalLinks(True)
+                guide.setContentsMargins(20, 0, 0, 4)
+                self.deps_container.addWidget(guide)
+            elif not d.ok and not d.install and d.id == 'metal':
+                guide = QLabel(self.m.t('dep.guide.metal'))
+                guide.setObjectName('note')
+                guide.setOpenExternalLinks(True)
+                guide.setContentsMargins(20, 0, 0, 4)
+                self.deps_container.addWidget(guide)
         if self.m.deps_checked:
             if not self.m.deps:
                 # The check produced no rows at all, which means it failed — never report that as
@@ -532,6 +651,7 @@ class MainWindow(QMainWindow):
             self.footer.setStyleSheet(f'color: {RED};')
         self.footer.setText(msg)
         self._failed = not ok
+        self._show_failure()
         if not ok:
             # The message points at the log, so put it in view rather than trusting the window to
             # be tall enough. ensureWidgetVisible also handles the scroll area's own margin.
@@ -552,6 +672,7 @@ class MainWindow(QMainWindow):
             self.footer.setText('')
             self.footer.setStyleSheet('')
             self._failed = False
+            self.failure_box.hide()
             self.m.start_build()
 
     def _choose_repo(self) -> None:

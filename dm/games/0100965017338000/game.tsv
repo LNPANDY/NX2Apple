@@ -1,0 +1,45 @@
+# Game profile of Super Mario Party Jamboree (Switch, update 2.3.0). Plays on the Mac
+# Format: see dm/games/README.md
+# NintendoWare Bezel Engine 2.9, SDK 17.5.9: nearly all of RomFS is in Bezel Engine archives (.bea, the 2.9 form with inline entries; zstd entries); the shaders are BNSH in their
+# .fshb / .bfsha / .bnsh entries and in main (shader_split.py bea_members). The minigames, boards and modes are 139 NROs (nro/NX_Release, one NRR), loaded with ro::LoadModule
+
+# ---- Identity ----
+title_id	0100965017338000
+program_id	0100965017338000
+
+# ---- App ----
+# Game name: only a label for profile listings and the Mac window title; the iOS app name is the game name in the base NSP, and the bundle ID comes from the base game title ID (build_ipa.sh / NSP script)
+name	Super Mario Party Jamboree
+ipa	SuperMarioPartyJamboree.ipa
+app_category	public.app-category.board-games
+
+# ---- Versions ----
+build	v458752	2.3.0	main=d70ce1726c979e45ed4200e9c2b23b2a	subsdk0=ff2b1a8f14147dc58034940e78a104ef	sdk=fcd139127b9c99988c2613230db18e26
+package	v458752
+shader_versions	v458752
+
+# ---- Files ----
+# load order as on Horizon: main, subsdk*, sdk (subsdk0 = NintendoSDK_movie)
+modules	main subsdk0 sdk
+romfs_marker	boot.nbinit
+zip_store	.bea:.bfstm:.mp4:.nro:.metallib
+
+# ---- Memory ----
+# The NPDM declares 16 MB of system resource, so on the Switch IsVirtualAddressMemoryEnabled is true. nninitStartup (main+0x98281c, Big Brain Academy's form) chooses its memory setup
+# by it: with virtual address memory, malloc's StandardAllocator gets a 2 GB address region and Bezel's a 56 GB one; without, it sets a heap of pool − used memory, malloc gets 32 MB
+# of it and Bezel the rest. The 4.375 GB alias region of the 5 GB block leaves Bezel 2.06 GB beside malloc's idle 2 GB (5 MB mapped), and Bezel needs more: with a 64 GB alias region
+# it held 2.3 GB at the Party Plaza; with 2.06 GB it returned null for a 46 MB request as the plaza loaded (main+0x8d9a48). Both regions need about 5.2 GB of alias region, more than
+# a phone without extended addressing gives with Metal beside it, so the profile reports no system resource and the game takes its heap path: a 3.14 GB heap in the 4 GB layout
+sys_resource	0
+mem_reserve	0x100000000
+mem_alias	0x10000000
+mem_stack	0x10000000
+app_pool	0xCD500000
+
+# ---- Shader split (shader_split.py; BNSH in the Bezel Engine archives, bea_members) ----
+shader_groups	/Archive/=archive
+shader_note	Super Mario Party Jamboree shaders
+
+# ---- Mode ----
+# the NVN depth mode the game sets (nvnDeviceSetDepthMode near = 0): the prebuilt pipeline bases take the main0_z vertex entries
+depth_mode	zero

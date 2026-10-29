@@ -1,0 +1,46 @@
+# Game profile of Paper Mario: The Origami King (Switch, update 1.0.1 = v65536). Plays on the Mac at 30 fps, as on the Switch (the title, a new game, the opening drive into Toad Town and Peach's castle, with sound)
+# Format: see dm/games/README.md
+# Intelligent Systems' engine on NintendoWare (G3d, Vfx, Atk), NVN, SDK 8.3.1. Nearly every RomFS file is zstd (named .zst), the music is Opus, and the movies are WebM through the SDK's movie
+# library (subsdk0). The shaders are BNSH: 3,763 in shaders/*.bfsha.zst and 5,675 in the particle effects (effect/*.ptcl.zst)
+
+# ---- Identity ----
+title_id	0100A3900C3E2000
+program_id	0100A3900C3E2000
+
+# ---- App ----
+# Game name: only a label for profile listings and the Mac window title; the iOS app name is the game name in the base NSP, and the bundle ID comes from the base game title ID (build_ipa.sh / NSP script)
+name	Paper Mario: The Origami King
+ipa	PaperMarioTheOrigamiKing.ipa
+app_category	public.app-category.role-playing-games
+
+# ---- Versions ----
+# only the merged 1.0.1 copy is extracted
+build	v65536	1.0.1	main=e74395f066fd8ccb51ec17b39b3da2c8	subsdk0=a4b620d9c140a4ac6e010251afd5cb11	sdk=86a2afd863c99062d666226a9e7aa764
+package	v65536
+shader_versions	v65536
+
+# ---- Files ----
+# load order as on Horizon: main, subsdk*, sdk (subsdk0 = NintendoSDK_movie)
+modules	main subsdk0 sdk
+romfs_marker	sound/BK.bfsar
+zip_store	.bfsar:.bin:.webm:.zst:.metallib
+
+# ---- Memory ----
+# The NPDM declares 8 MB of system resource (virtual address memory), and main never calls SetMemoryHeapSize. nninitStartup makes the game's malloc a StandardAllocator over 62 GB of address
+# space (the region returns to main+0x5c05ac), which the host's StandardAllocator cap gives 4.06 GB. With the sdk cuts (node area 62 MB, 32 MB alignment for large regions; dm/tools/sdk_patches.py)
+# it fits Engage's 5 GB block: 256 MB in front + 4.375 GB alias region + 256 MB stack region + 128 MB heap region (never used). 1.39 GB mapped at boot
+mem_reserve	0x140000000
+mem_alias	0x118000000
+mem_stack	0x10000000
+app_pool	0xCD500000
+# the NPDM declares 8 MB of system resource
+sys_resource	0x800000
+
+# ---- Graphics ----
+# The anti-aliasing pass (shaders/aa.bfsha variation 1) samples the 1920x1080 RGB10A2 scene target it renders into: on the Mac whole 16x16 blocks of it read as magenta (1, 0, 1) in some frames
+# (about one block a frame at Peach's castle, none with the snapshot). Once a frame, an 8 MB copy
+feedback_snap	8dc20835c07cd7ff
+
+# ---- Shader split (shader_split.py: BNSH in the zstd .bfsha and .ptcl files) ----
+shader_groups	/shaders/=shaders /effect/=effect
+shader_note	Paper Mario: The Origami King shaders

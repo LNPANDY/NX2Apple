@@ -7,10 +7,10 @@ iPhone, can a sideloaded IPA — installed outside the App Store review with Alt
 i4Tools (爱思助手) — `dlopen` a dynamic framework inside its own bundle and call functions in it?**
 
 Every app with dynamic frameworks loads nested code from its own bundle at launch, so the
-mechanism exists; what this probe proves is that it survives the sideloaded conditions, where a
+mechanism exists, and what this probe proves is that it survives the sideloaded conditions, where a
 free-provisioning signature replaces the ad-hoc one at install time and re-signs the app and every
 nested framework. If `dlopen` refuses such code, route C is dead on stock devices and the dlerror
-texts are the evidence for upstream; if it works, route C stands.
+texts are the evidence for upstream. If it works, route C stands.
 
 ## What ships
 
@@ -26,13 +26,13 @@ Payload/DmProbe.app/
 At launch the shell appends one line per step to `Documents/probe-log.txt` and shows the verdict on
 its screen:
 
-1. the bundle and executable paths, the iOS version, and whether the framework file is present;
+1. the bundle and executable paths, the iOS version, and whether the framework file is present,
 2. `dlopen` attempts in order, each with its handle or its `dlerror()` text verbatim:
    `@executable_path/Frameworks/Probe.framework/Probe`, then `@rpath/Probe.framework/Probe`, the
    absolute sandbox path of the same file, the relative `Probe.framework/Probe`, and the bare
-   `Probe` (the last two are expected to fail; their texts tell us how far dyld got);
+   `Probe` (the last two are expected to fail, and their texts tell us how far dyld got),
 3. on the first success: `dlsym` of `probe_answer`, a call (42 expected), and `dladdr` naming the
-   image the symbol came from;
+   image the symbol came from,
 4. the last line is the verdict: `RESULT: FEASIBLE ...` or `RESULT: BLOCKED ...` plus the reason.
 
 ## Installing and reading the result
@@ -43,10 +43,10 @@ its screen:
    IPA). The IPA is unsigned-but-ad-hoc on purpose: the sideloader re-signs it with the user's
    Apple ID, exactly like every game IPA this repository ships.
 2. The first install from a given Apple ID needs Settings → General → VPN & Device Management →
-   trust the certificate. A free Apple ID re-signs every 7 days; a one-shot probe does not mind.
+   trust the certificate. A free Apple ID re-signs every 7 days, but a one-shot probe does not mind.
 3. Open DmProbe and wait two seconds. The result is on the screen and in the file:
    **Files app → On My iPhone → DmProbe → probe-log.txt** (`UIFileSharingEnabled` in the app's
-   Info.plist makes Documents visible there; runs append, so nothing is lost).
+   Info.plist makes Documents visible there, and runs append, so nothing is lost).
 4. Send the log back by sharing it from the Files app (long-press → Share → AirDrop / Mail /
    WeChat), or from i4Tools' app-file browser (DmProbe → Documents → probe-log.txt). If no new
    lines appeared, the app died before logging: send the crash report instead (Settings → Privacy
@@ -54,7 +54,7 @@ its screen:
 
 ## Result: FEASIBLE (device run, 2026-10-26)
 
-Run on an iPhone (iOS **27.0.1**, sideloaded IPA; probe built 2026-10-27). The full log:
+Run on an iPhone (iOS **27.0.1**, sideloaded IPA, probe built 2026-10-27). The full log:
 
 ```text
 ---- DmProbe run 2026-10-26 19:51:50 +0000 (probe built Oct 27 2026 03:48:01) ----
@@ -76,10 +76,10 @@ resolves a symbol in it and executes it. Route C is viable in principle.
 
 **What this still does not prove** (design doc §R1, and the reasons are different):
 - a framework carrying the game's working set — the many `__DM*W` sections (up to 255 per image),
-  tens of MB of `__TEXT` — loads and executes like this one-function probe;
+  tens of MB of `__TEXT` — loads and executes like this one-function probe,
 - the launcher's `vm_remap` of the game image's signed `__TEXT` into an anonymous address
-  (copy = FALSE) is accepted for a sideloaded, re-signed framework;
-- `getsectiondata` on a *dylib* header (the probe only used `dlsym`/`dladdr`);
+  (copy = FALSE) is accepted for a sideloaded, re-signed framework,
+- `getsectiondata` on a *dylib* header (the probe only used `dlsym`/`dladdr`),
 - loading a framework that was re-signed by a free Apple ID and installed through a different
   sideloader than the probe's.
 
@@ -91,27 +91,27 @@ one real game as a framework, in a shell app, on a device.
 | Last line of probe-log.txt | Meaning |
 |---|---|
 | `RESULT: FEASIBLE - dlopen("@executable_path/Frameworks/Probe.framework/Probe") succeeded and probe_answer() = 42` | Route C is viable: a sideloaded app loads and calls code in a framework inside its own bundle. Proceed with the launcher shell + per-game frameworks. |
-| `RESULT: BLOCKED - ... no suitable image found ... (no such file)` | The framework is not in the installed bundle: the sideloader stripped it or the layout broke. Record the sideloader and version; fix the packaging before concluding anything about `dlopen`. |
-| `RESULT: BLOCKED - ... code signature ... not valid` / `not signed` / `no Team ID` | The nested framework's signature was rejected: the sideloader failed to re-sign it, or iOS refuses its signature. Record the exact text and sideloader; retry with another sideloader (or an `ldid`-signed IPA) before treating it as a platform refusal. |
-| `RESULT: BLOCKED - ...` with any other `dlerror` text | Record the text verbatim with the device model, iOS version and sideloader; the attempt lines above it show which forms were tried. |
+| `RESULT: BLOCKED - ... no suitable image found ... (no such file)` | The framework is not in the installed bundle: the sideloader stripped it or the layout broke. Record the sideloader and version, and fix the packaging before concluding anything about `dlopen`. |
+| `RESULT: BLOCKED - ... code signature ... not valid` / `not signed` / `no Team ID` | The nested framework's signature was rejected: the sideloader failed to re-sign it, or iOS refuses its signature. Record the exact text and sideloader, and retry with another sideloader (or an `ldid`-signed IPA) before treating it as a platform refusal. |
+| `RESULT: BLOCKED - ...` with any other `dlerror` text | Record the text verbatim with the device model, iOS version and sideloader. The attempt lines above it show which forms were tried. |
 
 The failing fallbacks (relative and bare-name forms) always log `no suitable image found` texts —
-that is their expected outcome, not a verdict; the verdict uses only whether some form loaded.
+that is their expected outcome, not a verdict. The verdict uses only whether some form loaded.
 
 ## What it does not prove
 
 - **App Store review rules** (a policy question, not a technique one): irrelevant to sideloaded
   distribution, which is how this project ships.
 - **Loading code that is not in the signed bundle** (streaming game payloads from disk — the
-  original ROADMAP blocker): still expected to be blocked; route C compiles each game's modules
+  original ROADMAP blocker): still expected to be blocked, since route C compiles each game's modules
   into its framework at packaging time, inside the signed bundle.
 - **JIT, or anything about the game modules themselves**: the rewriter's output needs much more
-  than one C function; this probe only opens the door the launcher would walk through.
+  than one C function, and this probe only opens the door the launcher would walk through.
 
 The build was self-checked on the Mac only (`codesign -vvv --verify --strict` on the framework,
-the app, and the app extracted from the packed IPA again; `otool` load commands: the app's
+the app, and the app extracted from the packed IPA again. `otool` load commands: the app's
 `LC_RPATH @executable_path/Frameworks`, the framework's install name `@rpath/Probe.framework/Probe`,
-`minos 26.0`; `lipo` arm64; `plutil` on both Info.plists; `ldid` is not installed on this machine,
+`minos 26.0`, `lipo` arm64, `plutil` on both Info.plists, and `ldid` is not installed on this machine,
 so codesign only). The device run is the user's step.
 
 ## Building it again

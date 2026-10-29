@@ -27,9 +27,32 @@ struct Diagnostics {
         var dotnetVersion: String?
         var depsChecked = true
         var deps: [Dependency] = []
+        var forkPatches: [String]?           // dm/fork_patches.txt of the checkout; nil when the file is not there
+        var toolchain = Toolchain()
+        var game: GameInfo?                  // the library's selected game
         var lastCommand: [String] = []       // the last build's, this session
         var log = ""                         // the build log the Builds page shows
         var home = NSHomeDirectory()
+    }
+
+    /// What Xcode and its compilers say, for the build-problem form. A nil is a tool that did not answer.
+    struct Toolchain: Equatable {
+        var xcodePath: String?
+        var xcodeVersion: String?
+        var metalMac: String?
+        var metalIOS: String?
+        var metalPinMac: String?             // dm/gfx/tools/dmsh_chain.lock
+        var metalPinIOS: String?
+        var iosSDK: String?
+    }
+
+    /// The selected game, for the game-problem form: what its app was built with and the end of its log.
+    struct GameInfo: Equatable {
+        var name: String
+        var titleID: String
+        var builtForkPatches: String?        // DMForkPatches of the built Mac app; nil when the app has none
+        var logPath: String?                 // nil: the game was never run
+        var log: [String] = []
     }
 
     static let logLines = 50
@@ -43,7 +66,7 @@ struct Diagnostics {
         if let commit = i.commit {
             var line = "- Commit: \(commit)" + (i.branch.map { " (branch \($0))" } ?? "")
             if !i.behind.isEmpty {
-                line += "; " + i.behind.map { "\($0.count) behind \($0.ref)" }.joined(separator: ", ")
+                line += ", " + i.behind.map { "\($0.count) behind \($0.ref)" }.joined(separator: ", ")
                 if let fetched = i.lastFetch { line += " as of the last fetch, " + stamp(fetched) }
             }
             out.append(line)
@@ -60,6 +83,12 @@ struct Diagnostics {
             out.append("- Dependencies: " + (missing.isEmpty ? "all present" : "\(missing.count) missing"))
             for d in i.deps { out.append("  - \(d.present ? "ok" : "MISSING") \(d.name)" + (d.detail.isEmpty ? "" : ": \(d.detail)")) }
         }
+        out.append("- Fork patches: " + patches(i.forkPatches))
+        let t = i.toolchain
+        out.append("- Xcode: " + (t.xcodePath ?? "not found") + parenthesized([t.xcodeVersion]))
+        out.append("- Metal compiler (macOS): " + metal(t.metalMac, pin: t.metalPinMac))
+        out.append("- Metal compiler (iOS): " + metal(t.metalIOS, pin: t.metalPinIOS))
+        out.append("- iOS SDK: " + (t.iosSDK ?? "not installed"))
         out.append("")
         out.append("#### Last build")
         out.append("")
@@ -79,7 +108,42 @@ struct Diagnostics {
             out += tail.map(redact)
             out.append("````")
         }
+        if let g = i.game {
+            out.append("")
+            out.append("#### Selected game")
+            out.append("")
+            out.append("- Game: \(g.name) (\(g.titleID))")
+            out.append("- Fork patches of the built app: " + (g.builtForkPatches.map { $0.isEmpty ? "none" : $0.replacingOccurrences(of: ",", with: ", ") } ?? "no Mac app built"))
+            if g.logPath == nil {
+                out.append("- Game log: none yet, the game was not run")
+            } else {
+                out.append("- Game log: \(g.logPath ?? "")")
+                let lines = tailOf(g.log, GameLog.lines)
+                if !lines.isEmpty {
+                    out.append("")
+                    out.append("Last \(lines.count) game log lines:")
+                    out.append("")
+                    out.append("````text")
+                    out += lines.map(redact)
+                    out.append("````")
+                }
+            }
+        }
         return shortenHome(out.joined(separator: "\n") + "\n", home: i.home)
+    }
+
+    private static func tailOf(_ lines: [String], _ n: Int) -> [String] { Array(lines.suffix(n)) }
+
+    private static func patches(_ list: [String]?) -> String {
+        guard let list else { return "not found" }
+        return list.isEmpty ? "none" : list.joined(separator: ", ")
+    }
+
+    /// A compiler's version beside the one the translation chain was built with.
+    private static func metal(_ found: String?, pin: String?) -> String {
+        guard let found else { return "not installed" + (pin.map { " (pin: \($0))" } ?? "") }
+        guard let pin else { return found }
+        return found + (found == pin ? " (matches the pin)" : " (pin: \(pin))")
     }
 
     /// The home folder as ~ wherever it starts a path, and only there: /Users/jo becomes ~, /Users/joanna stays.
@@ -165,6 +229,55 @@ struct Diagnostics {
         return (commit, branch, behind, fetched)
     }
 
+    /// The checkout's fork patch names, one per line (dm/fork_patches.txt), blanks left out, as pack_app.py reads them.
+    static func patchList(_ text: String) -> [String] {
+        text.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+    }
+
+    /// The Metal compiler versions the chain was built with: `metal_macosx` and `metal_iphoneos` of dmsh_chain.lock (tab-separated).
+    static func chainPins(_ lock: String) -> (mac: String?, ios: String?) {
+        var pins: [String: String] = [:]
+        for line in lock.split(separator: "\n") where !line.hasPrefix("#") {
+            let parts = line.split(separator: "\t", maxSplits: 1).map(String.init)
+            if parts.count == 2 { pins[parts[0]] = parts[1].trimmingCharacters(in: .whitespaces) }
+        }
+        return (pins["metal_macosx"], pins["metal_iphoneos"])
+    }
+
+    /// A command's output when it exits 0, trimmed; nil when it fails or prints nothing. The tests stand in for BuildModel.runQuiet.
+    typealias Probe = (_ args: [String]) -> String?
+
+    static func probe(env: [String: String] = ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin", "TMPDIR": NSTemporaryDirectory()]) -> Probe {
+        { args in
+            guard FileManager.default.isExecutableFile(atPath: args[0]) else { return nil }
+            let r = BuildModel.runQuiet(args, env: env)
+            let s = r.out.trimmingCharacters(in: .whitespacesAndNewlines)
+            return r.ok && !s.isEmpty ? s : nil
+        }
+    }
+
+    /// Xcode's path and version, both Metal compilers and the iOS SDK, by the same tools the dependency check runs. Only the
+    /// first line of a compiler's answer is kept: the rest names the toolchain's folder.
+    static func toolchain(xcrun: String = "/usr/bin/xcrun", pins: (mac: String?, ios: String?) = (nil, nil), run: Probe) -> Toolchain {
+        func first(_ s: String?) -> String? { s?.split(separator: "\n").first.map(String.init) }
+        return Toolchain(
+            xcodePath: first(run(["/usr/bin/xcode-select", "-p"])),
+            xcodeVersion: run(["/usr/bin/xcodebuild", "-version"]).map { $0.split(separator: "\n").map(String.init).joined(separator: ", ") },
+            metalMac: first(run([xcrun, "-sdk", "macosx", "metal", "--version"])),
+            metalIOS: first(run([xcrun, "-sdk", "iphoneos", "metal", "--version"])),
+            metalPinMac: pins.mac, metalPinIOS: pins.ios,
+            iosSDK: first(run([xcrun, "--sdk", "iphoneos", "--show-sdk-version"])))
+    }
+
+    /// The selected game's section: the built app's DMForkPatches and the end of its latest log.
+    static func gameInfo(_ game: LibraryGame, home: String = NSHomeDirectory(), lines: Int = GameLog.lines) -> GameInfo {
+        let info = NSDictionary(contentsOfFile: game.appPath + "/Contents/Info.plist")
+        let log = GameLog.latest(titleID: game.titleID, appPath: game.appPath, home: home)
+        return GameInfo(name: game.name, titleID: game.titleID,
+                        builtForkPatches: info.map { ($0["DMForkPatches"] as? String) ?? "" },
+                        logPath: log?.path, log: log.flatMap { GameLog.tail($0, lines: lines) } ?? [])
+    }
+
     /// What a tool prints for its version, nil when it does not run.
     static func version(_ tool: String, _ args: [String], env: [String: String]) -> String? {
         guard FileManager.default.isExecutableFile(atPath: tool) else { return nil }
@@ -176,15 +289,17 @@ struct Diagnostics {
 
 extension BuildModel {
     /// The report, read in the background and handed back on the main thread.
-    func diagnostics(_ done: @escaping (String) -> Void) {
+    func diagnostics(game: LibraryGame? = nil, _ done: @escaping (String) -> Void) {
         let repo = repoOK ? repoPath : "", python = pythonPath.isEmpty ? Self.findPython().path : pythonPath, dotnet = dotnetPath
         let rows = depsChecked ? deps.map(Diagnostics.dependency) : [], checked = depsChecked
-        let command = lastBuildCommand, log = logTail
+        let command = lastBuildCommand, log = logTail, xcrun = xcrunPath
         DispatchQueue.global(qos: .userInitiated).async {
             let git = Diagnostics.git(repo)
             let env = ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin", "TMPDIR": NSTemporaryDirectory()]
             var dotnetEnv = env
             if !dotnet.isEmpty { dotnetEnv["DOTNET_ROOT"] = (dotnet as NSString).deletingLastPathComponent }
+            let read = { (file: String) in try? String(contentsOfFile: repo + "/" + file, encoding: .utf8) }
+            let pins = read("dm/gfx/tools/dmsh_chain.lock").map(Diagnostics.chainPins) ?? (nil, nil)
             let inputs = Diagnostics.Inputs(
                 appVersion: Self.appVersion,
                 macOS: ProcessInfo.processInfo.operatingSystemVersionString,
@@ -195,7 +310,11 @@ extension BuildModel {
                 pythonIsVenv: python == Self.venvPython(),
                 dotnet: dotnet,
                 dotnetVersion: dotnet.isEmpty ? nil : Diagnostics.version(dotnet, ["--version"], env: dotnetEnv),
-                depsChecked: checked, deps: rows, lastCommand: command, log: log)
+                depsChecked: checked, deps: rows,
+                forkPatches: repo.isEmpty ? nil : read("dm/fork_patches.txt").map(Diagnostics.patchList),
+                toolchain: Diagnostics.toolchain(xcrun: xcrun, pins: pins, run: Diagnostics.probe(env: env)),
+                game: game.map { Diagnostics.gameInfo($0) },
+                lastCommand: command, log: log)
             let report = Diagnostics.report(inputs)
             DispatchQueue.main.async { done(report) }
         }
@@ -205,6 +324,7 @@ extension BuildModel {
 /// Settings' Copy diagnostics: the report goes to the clipboard and the button says Copied for a moment.
 struct DiagnosticsButton: View {
     @ObservedObject var m: BuildModel
+    var game: LibraryGame?   // the library's selected game: its log goes in the report
     let width: CGFloat
     var showCopied = false   // the visual QA's confirmation
     @State private var busy = false
@@ -221,7 +341,7 @@ struct DiagnosticsButton: View {
 
     private func copy() {
         busy = true
-        m.diagnostics { report in
+        m.diagnostics(game: game) { report in
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(report, forType: .string)
             busy = false

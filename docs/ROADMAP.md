@@ -16,10 +16,10 @@ the camera, aiming and the weapon wheel all see the same input instead of one us
 stick and the other an injected value.
 
 Four details worth copying verbatim, because each is a bug that took them time:
-- **float exact equality** to recognise the frame it wrote, not an epsilon window;
+- **float exact equality** to recognise the frame it wrote, not an epsilon window,
 - **thread-local** copies of the original value, because the camera and action threads both
-  call the getter and would otherwise cross-pair;
-- normalisation by the frame's VFR ratio, and zero output when the drag stops;
+  call the getter and would otherwise cross-pair,
+- normalisation by the frame's VFR ratio, and zero output when the drag stops, and
 - `touchpad_geometry.h`: one C header describing the whole virtual pad, used by both the UIKit
   view and a **Mac mouse preview**, so the layout is tuned on a desk instead of on a phone.
 
@@ -30,7 +30,7 @@ the 3D view fills the screen.
 | Piece | Effort | Note |
 |---|---|---|
 | `touchpad_geometry.h` + Mac `--touch-preview` | 3–5 days | Visible immediately, zero device time |
-| Relative look (`hle_look.c`) | 1–2 weeks | Needs tests; the four details above are the spec |
+| Relative look (`hle_look.c`) | 1–2 weeks | Needs tests, and the four details above are the spec |
 | Native aspect (`hle_aspect.c`) | 3–5 days per game | Needs per-game projection offsets |
 | BOTW touch HUD (`hle_botw_touchhud.c`) | 3–5 days | Per-game only |
 
@@ -72,7 +72,7 @@ The two ideas worth taking without the code:
   ~4 ms/frame). One data row, read once per second.
 
 We already read one table from three places (`dm/games/settings.tsv` → `Launcher.swift` →
-`frontend-qt`); adding two columns keeps that structure.
+`frontend-qt`), and adding two columns keeps that structure.
 
 Also from that fork: `nvn_ambient.h` (227 lines, present stage only) — ambient letterbox that
 samples the frame's edges so a 16:9 game on a 4:3 iPad has a coloured surround instead of black.
@@ -87,8 +87,8 @@ Two forks solved it. **Copy the small one:**
 | | zenvyzenshiro/NXNativeWindows | xbunax/nxnative |
 |---|---|---|
 | Size | ~24 files (`win/` shim) | full FastAPI WebUI (720 KB, 98 files) |
-| Approach | `xcrun.py` maps every `xcrun metal/metallib/clang`, `sips`, `plutil` to a Windows equivalent; `Launcher.m` replaces the SwiftUI launcher; `sdk/extract_xip.py` unpacks `iPhoneOS.sdk` | same idea plus its own staging/overlay/patch build system |
-| Verified on | Windows 11, LLVM 23.1.4, Metal Tools 6.2, iPhoneOS 27.1 — **Balatro built, sideloaded, ran on an A16 iPad** | Hades II IPA produced; not verified on a device |
+| Approach | `xcrun.py` maps every `xcrun metal/metallib/clang`, `sips`, `plutil` to a Windows equivalent, `Launcher.m` replaces the SwiftUI launcher, and `sdk/extract_xip.py` unpacks `iPhoneOS.sdk` | same idea plus its own staging/overlay/patch build system |
+| Verified on | Windows 11, LLVM 23.1.4, Metal Tools 6.2, iPhoneOS 27.1 — **Balatro built, sideloaded, ran on an A16 iPad** | Hades II IPA produced, not verified on a device |
 | Fit for us | High — we already have two front ends | Low — it would be a third |
 
 Toolchain (pinned in both forks): LLVM-MinGW `20261020`, iPhoneOS SDK from
@@ -123,8 +123,8 @@ What actually bounds a universal launcher is different:
 | C. Shell app + per-game signed framework via `dlopen` | unbounded | large, unvalidated |
 
 **A already delivers what external storage needs** (romfs from an external folder, per-game
-saves and logs) and enables the runtime-profile work that was already done. Do A first; B only
-if 4–8 games in one app is worth it; C needs a `dlopen` experiment before any commitment.
+saves and logs) and enables the runtime-profile work that was already done. Do A first, B only
+if 4–8 games in one app is worth it, and C needs a `dlopen` experiment before any commitment.
 
 External storage on iOS: `UIDocumentPickerViewController` for the folder, persist a security-
 scoped bookmark in UserDefaults, store the ROMFSARC index and shards there. `romfs_arc.c`

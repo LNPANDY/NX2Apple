@@ -27,6 +27,11 @@ struct ContentView: View {
     @State private var page: LauncherPage = .library
     @State private var search = ""
     @State private var searching = false
+    @State private var consolePrompt = false
+    private let enterConsole: (() -> Void)?   // nil until the console mode is wired: no entry button, no prompt
+    private let injectedDriver: Bool
+    @StateObject private var consoleDriver: AnyConsoleDriver
+    @State private var controllerSheet = false
     @FocusState private var searchFocused: Bool
     @State private var artwork: [UUID: NSImage] = [:]
     @State private var activeBuildID: UUID?
@@ -38,12 +43,14 @@ struct ContentView: View {
     @State private var controlsOpen = false
     @State private var savesFor: UUID?   // the game whose Saves sheet is open (SaveTransfer.swift)
     @State private var manageOpenFor: UUID?   // the game whose Manage menu is open (ManageMenu.swift)
-    @StateObject private var controls = ControlLayout()
+    @StateObject private var controls: ControlLayout
     @StateObject private var gamepad = LauncherGamepad()
     @StateObject private var padFocus = PadFocus()
     @StateObject private var row = RowScroller()
     @StateObject private var toolsAge: ToolsAge
     @State private var buildCommit = ""   // the checkout's commit when the running build started (ToolsAge)
+    @State private var signatureExpiry: [UUID: Date] = [:]   // installed apps' provisioning-profile expiry, per game
+    @State private var resignNote: String?   // the last re-sign's outcome, shown under the hero's expiry line
     private var performStartupChecks: Bool
     private let onRunSetup: (() -> Void)?   // Settings' "Run setup again"; the root view supplies it
     private let qaManage: (open: Bool, ring: Bool)   // visual QA: the Manage menu open at launch, with the controller's focus ring or without
@@ -51,8 +58,15 @@ struct ContentView: View {
 
     init(model: BuildModel? = nil, library: GameLibrary? = nil, initialPage: LauncherPage = .library,
          activeBuildID: UUID? = nil, performStartupChecks: Bool = true, search: String? = nil, olderTools: Set<UUID> = [],
-         manageOpen: Bool = false, padRing: Bool = false, onRunSetup: (() -> Void)? = nil) {
+         manageOpen: Bool = false, padRing: Bool = false, onRunSetup: (() -> Void)? = nil,
+         enterConsole: (() -> Void)? = nil, controllerDriver: AnyConsoleDriver? = nil, controls sharedControls: ControlLayout? = nil, qaPrompt: Bool = false) {
+        _consolePrompt = State(initialValue: qaPrompt)   // visual QA: the connect prompt open at launch
         self.onRunSetup = onRunSetup
+        let layout = sharedControls ?? ControlLayout()
+        _controls = StateObject(wrappedValue: layout)
+        _consoleDriver = StateObject(wrappedValue: controllerDriver ?? AnyConsoleDriver(LauncherControllerDriver(layout: layout)))
+        injectedDriver = controllerDriver != nil
+        self.enterConsole = enterConsole
         qaManage = (manageOpen, padRing)
         if let search { _search = State(initialValue: search); _searching = State(initialValue: true) }   // visual QA: the bar with its field open
         _toolsAge = StateObject(wrappedValue: ToolsAge(older: olderTools))   // visual QA: games marked without a checkout to compare
@@ -63,11 +77,50 @@ struct ContentView: View {
         self.performStartupChecks = performStartupChecks
     }
 
+    /// "All controllers are player 1": saved here, passed to games as DM_PAD_MERGE, shown in the Controllers sheet too.
+    private func setPadMerge(_ on: Bool) {
+        controls.padMerge = on
+        if injectedDriver { consoleDriver.setPadMerge(on) }
+    }
+
     private var filteredGames: [LibraryGame] {
         library.games.filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) }
     }
 
     var body: some View {
+        launcherBody
+        .overlay(alignment: .top) {
+            if !controllerSheet, let toast = consoleDriver.state.toast { ConsoleToastView(toast: toast) }
+        }
+        .sheet(isPresented: $controllerSheet) {
+            ConsoleControllersSheet(driver: consoleDriver, lang: m.lang, close: { controllerSheet = false; consoleDriver.back() })
+                .environmentObject(padFocus)
+        }
+        .onChange(of: controllerSheet) { open in
+            padFocus.scope = open ? "console.controllers" : currentPadScope
+            if open { consoleDriver.openControllers(); padFocus.focused = "console.controller.merge" }
+            else if consoleDriver.state.presentedSheet == .controllers { consoleDriver.back() }
+        }
+        .overlay {
+            if consolePrompt, let enterConsole {
+                ConsoleConnectionPrompt(lang: m.lang, enterConsole: { consolePrompt = false; enterConsole() }, dismissPrompt: { consolePrompt = false })
+            }
+        }
+        .onChange(of: gamepad.connected) { connected in
+            if connected, enterConsole != nil, ConsolePrompt.shouldShow(enabled: ConsolePrompt.enabled, shown: ConsolePrompt.shownThisSession) {
+                ConsolePrompt.didShow()
+                consolePrompt = true
+            }
+        }
+        .onChange(of: consoleDriver.state.padMerge) { merged in if injectedDriver { controls.padMerge = merged } }
+        .onChange(of: consolePrompt) { open in
+            padFocus.scope = open ? "console.entry" : currentPadScope
+            if open { padFocus.focused = "console.entry.enter" }
+        }
+        .environmentObject(padFocus)
+    }
+
+    private var launcherBody: some View {
         VStack(spacing: 0) {
             topBar
             Divider().opacity(0.3)
@@ -76,7 +129,8 @@ struct ContentView: View {
             } else {
                 BuilderView(m: m, library: library, settings: page == .settings, onViewGame: { page = .library },
                             onOpenSettings: { page = .settings }, onChooseLibraryFolder: chooseLibraryFolder,
-                            onOpenControls: { controlsOpen = true }, onRunSetup: onRunSetup, controlChanges: controls.changeCount)
+                            onOpenControls: { controlsOpen = true }, onOpenControllers: { controllerSheet = true }, onRunSetup: onRunSetup, controlChanges: controls.changeCount,
+                            padMerge: Binding(get: { controls.padMerge }, set: { setPadMerge($0) }))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             if m.running || page == .library { activityBar }
@@ -100,12 +154,14 @@ struct ContentView: View {
         .frame(minWidth: 900, idealWidth: 1280, minHeight: 680, idealHeight: 900)
         .onAppear {
             gamepad.perform = padAction
+            gamepad.capture = { [consoleDriver] id, action in consoleDriver.consumePress(controllerID: id, isBack: action == .b) }
             if performStartupChecks { library.migrateLaunchOptions() }
             if qaManage.open {
                 if qaManage.ring { padFocus.show(default: nil) }
                 manageOpenFor = library.selected?.id
             }
             refreshArtwork()
+            readSignatures()
             if performStartupChecks { library.discover(); fetchArtwork(); m.refreshDevices(); checkTools() }
             if performStartupChecks {
                 m.checkDeps()
@@ -122,11 +178,13 @@ struct ContentView: View {
         }
         .onChange(of: library.games) { _ in
             refreshArtwork()
+            readSignatures()
             if performStartupChecks { fetchArtwork() }
         }
         .onChange(of: m.repoPath) { _ in refreshArtwork(); if performStartupChecks { checkTools() } }
         // A clone, pull or update check has finished (the automatic pull at launch among them): the checkout may have moved
         .onReceive(m.$repoBusy.removeDuplicates().dropFirst()) { busy in if !busy && performStartupChecks { checkTools() } }
+        .onChange(of: library.selectedID) { _ in resignNote = nil }   // the last re-sign's note belongs to its game
         .onReceive(m.$running.removeDuplicates()) { running in
             if running && activeBuildID == nil { activeBuildID = library.rememberInputs(m) }
             if running && activeBuildID != nil {   // the tools this build runs: a pull waits for the build (pullRepo, autoPull)
@@ -185,46 +243,65 @@ struct ContentView: View {
         }
     }
 
-    private var topBar: some View {
-        HStack(spacing: 6) {
-            // The project is NX2Apple (the user's call: what this fork produces is NX2Apple);
-            // "by nxnative" credits the engine it stands on, which the sketch kept.
-            VStack(alignment: .leading, spacing: -2) {
-                Text("NX2Apple").font(.manrope(27, .bold)).tracking(-0.8)
-                Text("— by nxnative").font(.manrope(10.5, .medium))
-                    .foregroundStyle(LauncherPalette.unbuilt).tracking(0.2)
-            }
-            .padding(.trailing, 34)
-            ForEach(LauncherPage.allCases, id: \.self) { destination in
-                Button { page = destination } label: {
-                    Label(m.t("nav." + destination.rawValue), systemImage: destination.symbol)
-                        .font(.manrope(15, page == destination ? .bold : .medium))
-                        .padding(.horizontal, 18).padding(.vertical, 10)
-                        .background(page == destination ? Color.white.opacity(0.10) : .clear,
-                                    in: RoundedRectangle(cornerRadius: 9))
-                        .contentShape(RoundedRectangle(cornerRadius: 9))   // the whole pill takes the click, not only its text
-                }
-                .buttonStyle(.plain)
-                .accessibilityAddTraits(page == destination ? .isSelected : [])
-                .padTarget("tab." + destination.rawValue, scope: "main") { page = destination }
-            }
-            Spacer(minLength: 8)
-            searchField
-            Button { newBuild() } label: {
-                Label(m.t("library.newBuild"), systemImage: "plus")
-                    .padding(.horizontal, 12).padding(.vertical, 8)
-                    .background(Color.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 8))
-                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.white.opacity(0.1)))
-                    .contentShape(RoundedRectangle(cornerRadius: 8))
-            }
-            .buttonStyle(.plain).disabled(m.running)
-            .padTarget("top.build", scope: "main", radius: 8) { if !m.running { newBuild() } }
-            .padding(.leading, 12)
-        }
-        .padding(.leading, 90).padding(.trailing, 24)
-        .frame(height: 64)
-        .background(TitlebarDoubleClick())   // an empty part of the bar acts as the title bar does
+    @ViewBuilder private func navLabel(_ destination: LauncherPage, compact: Bool) -> some View {
+        if compact { Image(systemName: destination.symbol).accessibilityLabel(m.t("nav." + destination.rawValue)) }
+        else { Label(m.t("nav." + destination.rawValue), systemImage: destination.symbol) }
     }
+
+    private var topBar: some View {
+        GeometryReader { geometry in
+            let compact = false   // the bar holds the tabs, search and Build game only, as before the console mode
+            VStack(spacing: 0) {
+                HStack(spacing: 6) {
+                    // The project is NX2Apple (the user's call: what this fork produces is NX2Apple);
+                    // "by nxnative" credits the engine it stands on, which the sketch kept.
+                    VStack(alignment: .leading, spacing: -2) {
+                        Text("NX2Apple").font(.manrope(27, .bold)).tracking(-0.8)
+                        Text("— by nxnative").font(.manrope(10.5, .medium))
+                            .foregroundStyle(LauncherPalette.unbuilt).tracking(0.2)
+                    }
+                    .fixedSize(horizontal: true, vertical: false)
+                    .padding(.trailing, compact ? 16 : 34)
+                    ForEach(LauncherPage.allCases, id: \.self) { destination in
+                        Button { page = destination } label: {
+                            // The selected tab is bold. The bold text also sizes the (hidden) slot, so a tab never changes width as the selection moves.
+                            ZStack {
+                                navLabel(destination, compact: compact).font(.manrope(15, .bold)).hidden()
+                                navLabel(destination, compact: compact).font(.manrope(15, page == destination ? .bold : .medium))
+                            }
+                                .padding(.horizontal, compact ? 14 : 18).padding(.vertical, 10)
+                                .background(page == destination ? Color.white.opacity(0.10) : .clear,
+                                            in: RoundedRectangle(cornerRadius: 9))
+                                .contentShape(RoundedRectangle(cornerRadius: 9))   // the whole pill takes the click, not only its text
+                        }
+                        .buttonStyle(.plain).help(m.t("nav." + destination.rawValue))
+                        .accessibilityAddTraits(page == destination ? .isSelected : [])
+                        .padTarget("tab." + destination.rawValue, scope: "main") { page = destination }
+                    }
+                    Spacer(minLength: 8)
+                    searchField
+                    Button { newBuild() } label: {
+                        Group {
+                            if compact { Image(systemName: "plus").accessibilityLabel(m.t("library.newBuild")) }
+                            else { Label(m.t("library.newBuild"), systemImage: "plus") }
+                        }
+                            .padding(.horizontal, 12).padding(.vertical, 8)
+                            .background(Color.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 8))
+                            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.white.opacity(0.1)))
+                            .contentShape(RoundedRectangle(cornerRadius: 8))
+                    }
+                    .buttonStyle(.plain).disabled(m.running).help(m.t("library.newBuild")).accessibilityLabel(m.t("library.newBuild"))
+                    .padTarget("top.build", scope: "main", radius: 8) { if !m.running { newBuild() } }
+                    .padding(.leading, 12)
+                }
+                .padding(.leading, 90).padding(.trailing, 24)
+                .frame(height: 64)
+                .background(TitlebarDoubleClick())   // an empty part of the bar acts as the title bar does
+            }
+        }
+        .frame(height: 64)
+    }
+
 
     /// The magnifier opens into a search field in the bar itself; Esc, or leaving it empty, closes it again.
     private var searchField: some View {
@@ -379,6 +456,32 @@ struct ContentView: View {
                         .anchorPreference(key: ManageAnchorKey.self, value: .bounds) { $0 }
                         .padTarget("hero.manage", scope: "main", radius: 12) { manageOpenFor = game.id }
                 }
+                // A free Apple ID's provisioning profile lasts 7 days. Say when this app's runs out, and offer the
+                // re-sign at any time: renewing early (before a trip, say) is as valid as renewing just in time.
+                if game.onDevice {
+                    HStack(spacing: 10) {
+                        Image(systemName: "checkmark.seal").font(.system(size: 12))
+                            .foregroundStyle(LauncherPalette.cream.opacity(0.7))
+                        Text(signatureExpiry[game.id].map { AppSignature.describe($0, m.t) } ?? m.t("dev.expiryUnknown"))
+                            .font(.manrope(12.5))
+                            .foregroundStyle(signatureExpiry[game.id].map { AppSignature.isUrgent($0) } == true
+                                             ? LauncherPalette.building : .secondary)
+                        Button { resign(game) } label: {
+                            Text(m.t("dev.resign")).font(.manrope(12, .semibold))
+                                .foregroundStyle(LauncherPalette.cream)
+                                .padding(.horizontal, 10).padding(.vertical, 4)
+                                .overlay(Capsule().strokeBorder(LauncherPalette.cream.opacity(0.35)))
+                                .contentShape(Capsule())
+                        }
+                        .buttonStyle(.plain).disabled(m.running)
+                        .help(m.t("dev.resignHelp"))
+                        .padTarget("hero.resign", scope: "main", radius: 12) { if !m.running { resign(game) } }
+                    }
+                }
+                if let resignNote {
+                    Text(resignNote).font(.manrope(12)).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             .padding(.horizontal, 34).padding(.bottom, 34)
         }
@@ -485,6 +588,14 @@ struct ContentView: View {
                     .font(.manrope(prominent ? 13 : 12)).foregroundStyle(.secondary).lineLimit(1)
                     .help(m.t("library.olderToolsHelp"))
             }
+            // A free Apple ID's profile lasts 7 days: the card says when it runs out, the hero offers to renew it.
+            if !building, let expiry = signatureExpiry[game.id] {
+                Text("· " + AppSignature.short(expiry, m.t))
+                    .font(.manrope(prominent ? 13 : 12))
+                    .foregroundStyle(AppSignature.isUrgent(expiry) ? LauncherPalette.building : .secondary)
+                    .lineLimit(1)
+                    .help(AppSignature.describe(expiry, m.t))
+            }
         }
         .accessibilityElement(children: .combine)
     }
@@ -538,9 +649,9 @@ struct ContentView: View {
                     if gamepad.connected {
                         // The buttons a controller has here, named as the game names them (A on the right)
                         HStack(spacing: 18) {
-                            padHint("A", m.t("pad.play")); padHint("X", m.t("pad.options")); padHint("B", m.t("pad.back"))
-                            padHint("Y", m.t("pad.manage"))
-                            Image(systemName: "gamecontroller").foregroundStyle(.secondary)
+                            padHint(.activate, m.t("pad.play")); padHint(.launchOptions, m.t("pad.options")); padHint(.back, m.t("pad.back"))
+                            padHint(.manage, m.t("pad.manage"))
+                            if enterConsole != nil { padHint(.select, m.t("console.entry")) }
                         }
                     }
                 }
@@ -549,10 +660,11 @@ struct ContentView: View {
         }
     }
 
-    private func padHint(_ button: String, _ label: String) -> some View {
+    /// A pad hint shows the glyph of the controller connected (the same ConsoleGlyphs the console mode uses), so it names the button
+    /// that really performs the action on a DualSense, an Xbox or a Nintendo-layout controller.
+    private func padHint(_ role: ConsoleGlyphs.Role, _ label: String) -> some View {
         HStack(spacing: 7) {
-            Text(button).font(.manrope(11, .bold)).foregroundStyle(.black)
-                .frame(width: 20, height: 20).background(LauncherPalette.cream.opacity(0.9), in: Circle())
+            ConsoleGlyphView(glyph: ConsoleGlyphs.current().glyph(for: role), size: 18).foregroundStyle(LauncherPalette.cream)
             Text(label).font(.manrope(13)).foregroundStyle(.secondary)
         }
     }
@@ -588,7 +700,23 @@ struct ContentView: View {
     /// then the D-pad moves it (PadFocus), A activates, B closes a sheet or goes back to the library, X opens the selected
     /// game's launch options, L and R switch the pages.
     private func padAction(_ action: LauncherGamepad.Action) {
-        let sheetOpen = optionsFor != nil || controlsOpen || savesFor != nil || freeSpaceFor != nil
+        if action == .select {   // the controller's Select-type button opens console mode
+            if let enterConsole { consolePrompt = false; enterConsole() }
+            return
+        }
+        if consolePrompt {
+            switch action {
+            case .b: consolePrompt = false
+            case .a: padFocus.activate()
+            case .left: padFocus.horizontal(-1)
+            case .right: padFocus.horizontal(1)
+            case .up: padFocus.move(dx: 0, dy: -1)
+            case .down: padFocus.move(dx: 0, dy: 1)
+            default: break
+            }
+            return
+        }
+        let sheetOpen = controllerSheet || optionsFor != nil || controlsOpen || savesFor != nil || freeSpaceFor != nil
         switch ManagePad.route(action, menuOpen: manageOpenFor != nil, sheetOpen: sheetOpen, hasGame: library.selected != nil && page == .library) {
         case .close: manageOpenFor = nil; return
         case .swallow: return
@@ -599,6 +727,7 @@ struct ContentView: View {
             return
         case .pass: break
         }
+        if action == .b, controllerSheet { controllerSheet = false; return }
         if action == .b, savesFor != nil { savesFor = nil; return }
         // The Free space sheet: B closes it, the D-pad and A work in it, X, L and R do nothing behind it
         if freeSpaceFor != nil && [.b, .x, .l, .r].contains(action) { if action == .b { freeSpaceFor = nil }; return }
@@ -625,7 +754,7 @@ struct ContentView: View {
             guard !sheetOpen, let at = LauncherPage.allCases.firstIndex(of: page) else { return }
             let pages = LauncherPage.allCases
             page = pages[(at + (action == .l ? pages.count - 1 : 1)) % pages.count]
-        case .y:   // the Manage menu: ManagePad.route opened it above
+        case .y, .plus, .select:   // Y is the Manage menu: ManagePad.route opened it above
             return
         case .b:
             return
@@ -636,10 +765,12 @@ struct ContentView: View {
     private func manageItems(_ game: LibraryGame) -> [ManageItem] {
         ManageItem.list(game: game, labels: m.t, running: m.running, olderTools: toolsAge.older.contains(game.id), activeBuildID: activeBuildID,
                         hasBuildFolder: BuildFolder.location(for: game) != nil,
+                        hasLog: GameLog.latest(titleID: game.titleID, appPath: game.appPath) != nil,
                         actions: ManageActions(
                             rebuild: { configureBuild(game) }, options: { optionsFor = game.id }, saves: { savesFor = game.id },
                             changeArtwork: { chooseArtwork(game) }, resetArtwork: { library.setArtwork("", for: game.id) },
                             reveal: { if let path = game.revealTarget { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) } },
+                            showLog: { if let log = GameLog.latest(titleID: game.titleID, appPath: game.appPath) { GameLog.show(log) } },
                             freeSpace: { freeSpaceFor = game.id }, remove: { removing = game }))
     }
 
@@ -647,7 +778,7 @@ struct ContentView: View {
 
     /// The scope a controller acts in when no menu is open: the innermost sheet, else the window.
     private var currentPadScope: String {
-        savesFor != nil ? "saves" : freeSpaceFor != nil ? "free" : optionsFor != nil ? "launch" : controlsOpen ? "controls" : "main"
+        controllerSheet ? "console.controllers" : savesFor != nil ? "saves" : freeSpaceFor != nil ? "free" : optionsFor != nil ? "launch" : controlsOpen ? "controls" : "main"
     }
 
     /// The space the collection row keeps around its cards for the focus ring (PadFocus draws it 4 pt outside a target).
@@ -670,12 +801,7 @@ struct ContentView: View {
             // The launch options; the app's launcher (dm/mac/launcher.c) keeps a variable that is already set.
             // The keyboard and controller layout (Settings → Controls) goes to every game; a build whose host does not read it plays with the default keys.
             // They stay launch overrides (the environment) for now: DM_KEYMAP and DM_PAD_MAP become saved choices only when seedds/nxnative#386 merges.
-            library.migrateLaunchOptions()
-            let settings = LaunchSetting.forMac(app: game.appPath, titleID: game.titleID, repo: m.repoPath, labels: m.t) ?? []
-            let mods = GameMod.list(in: GameMod.folder(for: game, library: library.folder), titleID: game.titleID)
-            let environment = game.startEnvironment(controls: controls.environment, settings: settings, mods: mods,
-                                                  store: SavedChoices(app: game.appPath, titleID: game.titleID),
-                                                  appReadsStore: SavedChoices.appReadsStore(app: game.appPath))
+            let environment = GameStart.environment(for: game, library: library, controls: controls, repo: m.repoPath, labels: m.t)   // GameStart.swift: the console mode starts games with the same
             if !environment.isEmpty { configuration.environment = environment }
             NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: game.appPath), configuration: configuration) { _, error in
                 DispatchQueue.main.async {
@@ -684,6 +810,27 @@ struct ContentView: View {
                 }
             }
         } catch { launchError = error.localizedDescription }
+    }
+
+    /// The installed apps' profile expiries, read in the background: `security cms` per app, so not in a view body.
+    private func readSignatures() {
+        let apps = library.games.filter(\.onDevice).map { ($0.id, $0.iosAppPath) }
+        guard !apps.isEmpty else { signatureExpiry = [:]; return }
+        DispatchQueue.global(qos: .utility).async {
+            var found: [UUID: Date] = [:]
+            for (id, path) in apps { if let date = AppSignature.expiration(ofApp: path) { found[id] = date } }
+            DispatchQueue.main.async { signatureExpiry = found }
+        }
+    }
+
+    /// Sign the installed app again for another 7 days (a free Apple ID's profile), then install it: the game's code
+    /// is not rebuilt, and its Documents stay.
+    private func resign(_ game: LibraryGame) {
+        resignNote = nil
+        m.resignOnDevice(app: game.iosAppPath, device: game.installedDevice) {
+            resignNote = m.doneNote
+            signatureExpiry[game.id] = AppSignature.expiration(ofApp: game.iosAppPath)
+        }
     }
 
     private func recordBuild() {

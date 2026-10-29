@@ -12,11 +12,12 @@ Upstream-Status: fork-only (upstream has the opt-in DM_COPY_ROMFS=NO since 32ae3
 Reason: Default slim IPA: the RomFS and aoc/ stay out unless DM_FULL_ROMFS=1 (a full package of a large game is many GB and iOS refuses it). Upstream took the opt-out DM_COPY_ROMFS=NO and kept the full package as its default
 Issue: LNPANDY/NX2Apple#123
 ---
- dm/ios/tests/test_ipa_unsigned.py | 13 +++++++++----
+ dm/ios/tests/test_ipa_unsigned.py | 13 ++++++++----
  dm/ios/tests/test_profile_pack.py |  3 ++-
- dm/ios/tools/build_ipa.sh         |  9 ++++++++-
+ dm/ios/tools/build_ipa.sh         |  9 +++++++-
+ dm/ios/tools/xcode_projects.py    | 34 ++++++++++++++++++++++++++++++-
  docs/env_switches.tsv             |  1 +
- 4 files changed, 20 insertions(+), 6 deletions(-)
+ 5 files changed, 53 insertions(+), 7 deletions(-)
 
 diff --git a/dm/ios/tests/test_ipa_unsigned.py b/dm/ios/tests/test_ipa_unsigned.py
 index 028d5067..42086883 100644
@@ -72,10 +73,10 @@ index 40db2b76..0407560d 100644
  
  
 diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index e2c174d1..3d8f5c73 100755
+index 1bb65f08..6a338846 100755
 --- a/dm/ios/tools/build_ipa.sh
 +++ b/dm/ios/tools/build_ipa.sh
-@@ -174,6 +174,9 @@ if [ -n "${DM_ENTITLEMENTS-default}" ]; then
+@@ -178,6 +178,9 @@ if [ -n "${DM_ENTITLEMENTS-default}" ]; then
  fi
  P=Payload/DmIOS.app
  MAPS=()
@@ -85,7 +86,7 @@ index e2c174d1..3d8f5c73 100755
  if [ "${DM_COPY_ROMFS:-YES}" = NO ]; then
    t "no game files in the IPA (DM_COPY_ROMFS=NO): the app takes Documents/romfs.img (scripts/push_romfs.sh)"
    # The image's identity (dm/host/romfs_identity.h) goes into the app as romfs.id: main.m then uses only a Documents/romfs.img with the same size and index hash, and says so when it is another version or missing.
-@@ -183,7 +186,11 @@ if [ "${DM_COPY_ROMFS:-YES}" = NO ]; then
+@@ -187,7 +190,11 @@ if [ "${DM_COPY_ROMFS:-YES}" = NO ]; then
      MAPS=("$P/romfs.id=$O/romfs.id"); t "game files identity: $(cat "$O/romfs.id")"
    fi
  elif [ -f "$ROMFS" ]; then MAPS=("$P/romfs.img=$ROMFS"); else MAPS=("$P/romfs=$ROMFS"); fi
@@ -98,8 +99,56 @@ index e2c174d1..3d8f5c73 100755
  if [ -n "${PSO:-}" ]; then MAPS+=("$P/pso=$PSO"); fi
  MAPS+=("$P/msl/$MSLDIR=$MSL_IOS/$MSLDIR" "$P=$APP")
  t "pack IPA (already-compressed game files stored, everything else deflated)"
+diff --git a/dm/ios/tools/xcode_projects.py b/dm/ios/tools/xcode_projects.py
+index a832ad5a..0f5485df 100644
+--- a/dm/ios/tools/xcode_projects.py
++++ b/dm/ios/tools/xcode_projects.py
+@@ -33,10 +33,42 @@ def workspace_projects(workspace):
+         if kind == 'absolute': yield Path(path).resolve()
+ 
+ 
++def prune_unreadable(workspace):
++    """Remove workspace entries the current user cannot access, and save the file.
++
++    The workspace records absolute paths, and the launcher's saved state crosses accounts on a
++    shared Mac: a new user's build inherits the first user's entries and dies with PermissionError
++    when it stats them. A project this user cannot read is not this user's project — removing the
++    entry is the fix, not a message telling them to edit XML."""
++    path = Path(workspace) / 'contents.xcworkspacedata'
++    if not path.exists(): return 0
++    tree = workspace_tree(workspace)
++    removed = 0
++    for group in tree.iter('Group'):
++        for ref in list(group.findall('FileRef')):
++            kind, _, loc = ref.get('location', '').partition(':')
++            if kind != 'absolute': continue
++            try:
++                Path(loc).exists()
++                continue   # the current user can read it: a real project, not a stale entry
++            except (PermissionError, OSError):
++                pass
++            group.remove(ref)
++            removed += 1
++    if removed:
++        tree.write(str(path), xml_declaration=True, encoding='unicode')
++        print(f'[NOTE] removed {removed} workspace entr{"y" if removed == 1 else "ies"} the current user cannot read (registered by another macOS user)')
++    return removed
++
++
+ def check_bundle_id(workspace, project, bundle_id):
++    prune_unreadable(workspace)
+     for other in workspace_projects(workspace):
+         if other == Path(project).resolve() or not other.exists(): continue
+-        used = signing_settings(other).get('PRODUCT_BUNDLE_IDENTIFIER', '')
++        try:
++            used = signing_settings(other).get('PRODUCT_BUNDLE_IDENTIFIER', '')
++        except (PermissionError, OSError):
++            continue
+         if used.lower() == bundle_id.lower():
+             raise ValueError(f'bundle ID {bundle_id} is already used by {other}; choose a different --bundle-id for this game')
+ 
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index b427084e..4b731480 100644
+index cd18b222..9f0f1009 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
 @@ -36,6 +36,7 @@ DM_FS	diagnostic	When set, logs file opens, paths not found or not mounted, and

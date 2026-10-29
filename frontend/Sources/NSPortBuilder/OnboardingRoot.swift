@@ -5,13 +5,19 @@ import SwiftUI
 struct RootView: View {
     private enum Mode { case checking, onboarding, launcher }
     /// Holds the two objects without publishing, so this view does not redraw with every line of a build log.
-    private final class Shared: ObservableObject { let model = BuildModel(); let library = GameLibrary() }
+    @MainActor private final class Shared: ObservableObject {
+        let model = BuildModel(); let library = GameLibrary(); let controls = ControlLayout()
+        /// The console mode's driver over this window's model, library and controls.
+        lazy var console = LiveConsoleDriver(library: library, controls: controls, repo: { [model] in model.repoPath }, lang: { [model] in model.lang },
+                                             labels: { [model] in model.t($0) })
+    }
     @StateObject private var shared = Shared()
     private var model: BuildModel { shared.model }
     private var library: GameLibrary { shared.library }
     @State private var mode: Mode = .checking
     @State private var driver: LiveOnboardingDriver?
     @StateObject private var gamepad = LauncherGamepad()
+    @ObservedObject var console: ConsoleCoordinator
 
     var body: some View {
         Group {
@@ -21,13 +27,25 @@ struct RootView: View {
             case .onboarding:
                 if let driver { OnboardingView(driver: driver, lang: model.lang, gamepad: gamepad) }
             case .launcher:
-                ContentView(model: model, library: library, onRunSetup: runSetupAgain)
+                ZStack {
+                    if console.active {
+                        ConsoleView(driver: shared.console, lang: model.lang, onExit: { console.exit(); shared.console.returnFromGame() })
+                            .onAppear { shared.console.reloadCovers() }
+                            .transition(CalmTransition.console)
+                    } else {
+                        ContentView(model: model, library: library, onRunSetup: runSetupAgain, enterConsole: { console.enter() },
+                                    controllerDriver: AnyConsoleDriver(shared.console), controls: shared.controls)
+                            .transition(CalmTransition.desktop)
+                    }
+                }
+                .animation(.easeInOut(duration: CalmTransition.reduceMotion ? 0.25 : ConsoleCoordinator.transitionSeconds), value: console.active)
             }
         }
         .background(LauncherPalette.background)
         .preferredColorScheme(.dark)
         .frame(minWidth: 900, idealWidth: 1280, minHeight: 680, idealHeight: 900)
         .task { await decide() }
+        .onChange(of: mode) { console.available = $0 == .launcher }
     }
 
     /// On launch: a setup marked done, or one that is complete already, goes straight to the launcher (and is marked done);

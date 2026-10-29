@@ -2,7 +2,7 @@ import Foundation
 
 /// A scripted demo only. No detection, file reads, installs, preferences or subprocesses.
 @MainActor final class MockOnboardingDriver: OnboardingDriver {
-    enum Scenario: String, CaseIterable { case fresh, xcodeReady, keysInvalid, xcodeFailed, noGames }
+    enum Scenario: String, CaseIterable { case fresh, xcodeReady, keysInvalid, xcodeFailed, noGames, oldMac }
     @Published private(set) var state: OnboardingState
     private(set) var resumeSnapshot: OnboardingState?
     let scenario: Scenario
@@ -20,6 +20,7 @@ import Foundation
 
     init(scenario: Scenario = .fresh, state: OnboardingState = MockOnboardingDriver.sampleState, lang: Lang = .initial(), animated: Bool = true) {
         self.scenario = scenario; self.state = state; self.lang = lang; self.animated = animated
+        if scenario == .oldMac { self.state.osTooOldForNVN = true; self.state.xcodeTooOldForNVN = true }
         if animated { enterStep() }
     }
     deinit { jobs.values.forEach { $0.cancel() } }

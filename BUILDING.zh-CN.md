@@ -16,7 +16,7 @@ python3 -m venv .venv                             # Homebrew 的 Python 不允�
 source .venv/bin/activate                         # 之后的 python3 即 venv 的（每个新终端都要执行）
 ```
 
-`backports.zstd` 是《王国之泪》的 zstd 字典需要的；其他游戏用不到。
+`backports.zstd` 是《王国之泪》的 zstd 字典需要的，其他游戏用不到。
 
 ## 你需要准备的文件
 
@@ -46,7 +46,7 @@ source .venv/bin/activate                         # 之后的 python3 即 venv �
 python3 scripts/build_ipa_from_nsp.py ~/Games/Hades2 -k ~/keys/prod.keys
 ```
 
-密钥的导出方式在 Switch 自制软件社区有完整文档（常见做法是在破解机上跑 Lockpick_RCM）；
+密钥的导出方式在 Switch 自制软件社区有完整文档（常见做法是在破解机上跑 Lockpick_RCM）。
 本仓库不涉及也不携带这一步。两条来自真实导出文件的实用提示：
 
 - **格式错误的行。** 有的导出工具会写出十六进制值长度不对的行（真实案例：33 行长度错误的
@@ -57,7 +57,7 @@ python3 scripts/build_ipa_from_nsp.py ~/Games/Hades2 -k ~/keys/prod.keys
 
 ## 构建 IPA
 
-主构建脚本**默认打瘦身 IPA**（不含 RomFS；App 从设备上的 `Documents/games/<id>/` 读游戏数据），所以上面的构建
+主构建脚本**默认打瘦身 IPA**（不含 RomFS，因为 App 从设备上的 `Documents/games/<id>/` 读游戏数据），所以上面的构建
 已经产出。以后只想重新打包时：
 
 ```bash

@@ -16,7 +16,7 @@ Measured here, both on a 12 GB iPhone:
 | Game | Peak resident | Headroom | Result |
 |---|---|---|---|
 | Tears of the Kingdom | 3,342 MB | 33 MB | killed entering the world map |
-| Hades II | — | — | asks for a 3.10 GB heap; at the budget limit |
+| Hades II | — | — | asks for a 3.10 GB heap, which is at the budget limit |
 
 Lowering the render scale to 0.5 did not change the Tears of the Kingdom outcome, so the limit is
 the guest heap rather than the GPU. The only way past it is a higher budget.
@@ -41,7 +41,7 @@ Reported by [playport.dev](https://playport.dev/) (a different project with the 
 | Impactor (from a computer) | Yes |
 | Xcode with a Personal Team | Yes |
 | SideStore 0.7.0, free Apple ID | Not by default — see below |
-| Sideloadly and others | Check the tool; Sideloadly does not enable it |
+| Sideloadly and others | Check the tool. Sideloadly does not enable it |
 
 ## SideStore with a free Apple ID
 
@@ -51,8 +51,8 @@ The entitlement attaches to the App ID, so it survives the weekly refresh once s
 2. Sideload **GetMoreRam** and sign in with the same Apple ID SideStore uses.
 3. In GetMoreRam open **App IDs**, tap **Refresh**, select this app's App ID, then
    **Add Increased Memory Limit**.
-4. Reinstall the app from SideStore (it upgrades in place; `Documents/` — the RomFS archive and the
-   saves — is preserved).
+4. Reinstall the app from SideStore (it upgrades in place, and `Documents/`, the RomFS archive and the
+   saves, is preserved).
 5. Confirm: `Documents/log.txt` should now show a much larger `headroom to the system memory limit`
    in the `memory up to frame N` lines. GetMoreRam uses one of a free Apple ID's three app slots, so
    delete it afterwards if you need the slot back.
@@ -87,14 +87,14 @@ codesign -d --entitlements :- Payload/DmIOS.app/DmIOS | grep increased-memory-li
 ```
 
 Measured here (12 GB iPhone, AltStore Classic 2.3): before the placeholder signature the budget was
-3,375 MB and Hades II died entering a larger scene; after it the game runs. If the budget stays at
+3,375 MB and Hades II died entering a larger scene. After it the game runs. If the budget stays at
 3,375 MB with a signed IPA, the remaining step is on the App ID — enable the capability with a tool
 like GetMoreRam (same Apple ID as the sideloader, App IDs → Refresh → select the app → Add
 Increased Memory Limit), then reinstall so the profile picks it up.
 
 ## Xcode route
 
-A project prepared with `--prepare-xcode` already carries the entitlement (`Gen/DmIOS.entitlements`);
-with a Personal Team and a real device, build from there. That is the one route where the app is
+A project prepared with `--prepare-xcode` already carries the entitlement (`Gen/DmIOS.entitlements`).
+With a Personal Team and a real device, build from there. That is the one route where the app is
 signed at build time, so no re-signing step can drop the entitlement. The Mac launcher's
 **Install on** uses this route.

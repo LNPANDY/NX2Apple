@@ -100,6 +100,13 @@ final class BuildModel: ObservableObject {
     @Published var logTail = ""
     @Published var done = false
     @Published var doneNote = ""
+    /// What the NSP script stopped on, when it is one of the known early stops (BuildFailure.swift). nil for a build that
+    /// succeeded, is running, or failed some other way (the note then shows the last line of the log, as it always did).
+    @Published var failure: BuildFailure?
+    /// "Build anyway" asked for this stop and waiting for the confirmation dialog.
+    @Published var confirmingOverride: BuildFailureKind?
+    /// The one-off `--allow-*` of a confirmed "Build anyway": taken by the next build and never stored.
+    private(set) var armedOverride: BuildFailureKind?
     @Published var ipaPath = ""      // captured from the script's "output IPA:" line
     @Published var macAppPath = ""   // --platform mac-app: the .app this build produced
     /// 'ios' = an IPA for an iPhone; 'mac-app' = a double-clickable Mac app (upstream's
@@ -598,7 +605,7 @@ final class BuildModel: ObservableObject {
     // The rules (what is verified, which copies replace themselves, never during a build) are in AppUpdate.swift.
 
     /// Bump together with each release tag; the update check compares it with the latest release.
-    static let appVersion = "0.5.0"
+    static let appVersion = "0.6.0"
     /// The update checkAppUpdate found: the tag, the asset to download, its digest, and the release
     /// notes the sheet shows. The notes are why the sheet exists — "update available" alone told a
     /// user nothing about what they would get.
@@ -1024,6 +1031,8 @@ final class BuildModel: ObservableObject {
         guard !running else { return }
         stopping = false
         running = true; done = false; doneNote = ""; stages = []; logTail = ""; lineBuf = ""; chainNoteShown = false
+        failure = nil; confirmingOverride = nil
+        let override = takeOverrideFlag()   // for this build only: the next one asks again
         installedOn = ""; installedAppPath = ""; bundleID = ""
         guard repoOK else {
             fail(repoPath.isEmpty ? t("msg.repoInvalidEmpty") : String(format: t("msg.repoInvalid"), shortPath(repoPath)))
@@ -1147,6 +1156,8 @@ final class BuildModel: ObservableObject {
         // The archive step packs whatever folder the build reported; without --work-dir that is the
         // script's default, which is the same workDir unless a separate output folder was chosen.
         effectiveWorkDir = hasWorkDir ? workDir : (inputDir as NSString).appendingPathComponent(tidHex + "_build")
+        args = BuildFailureClassifier.arguments(args, adding: override)
+        if let override { say(String(format: t("fail.override.note"), override)) }
         say(String(format: t("msg.running"), py) + " " + args.joined(separator: " "))
         lastBuildCommand = [py] + args
 
@@ -1218,6 +1229,7 @@ final class BuildModel: ObservableObject {
                     if let i = self.stages.lastIndex(where: { $0.state == .running }) {
                         self.stages[i].state = .failed
                         self.stages[i].detail = String(format: self.t("msg.exitCode"), status.terminationStatus)
+                        self.noteFailure()
                     } else {
                         // The last real line says more than the exit code alone, and the message
                         // points at the log: "Build failed (exit code 1)" with nothing else sent a
@@ -1226,6 +1238,7 @@ final class BuildModel: ObservableObject {
                         if let last = Self.lastMeaningfulLine(self.logTail) {
                             self.doneNote = String(format: self.t("msg.buildFailedReason"), last)
                         }
+                        self.noteFailure()
                     }
                     self.cleanupStaging()
                 }
@@ -1245,6 +1258,62 @@ final class BuildModel: ObservableObject {
         running = false
         done = ok
         doneNote = note
+    }
+
+    /// A failed build's log read for the script's known early stops: the card under the build button then says what
+    /// happened and what to do. An unknown stop leaves the note (the last line of the log) as it is.
+    func noteFailure() {
+        let f = BuildFailureClassifier.classify(logTail)
+        guard f.kind != .unknown else { failure = nil; return }
+        failure = f
+        doneNote = failureWhat(f)
+    }
+
+    /// The first sentence of a failure's hint (it names the game of a 32-bit program when the message does).
+    func failureWhat(_ f: BuildFailure) -> String {
+        if f.kind == .a32Program, let name = f.gameName { return String(format: t("fail.a32Program.whatNamed"), name) }
+        return t(f.kind.whatKey)
+    }
+
+    /// "Build anyway": asks first. Nothing is armed until `confirmBuildAnyway`.
+    func requestBuildAnyway() {
+        guard !running, let kind = failure?.kind, kind.overrideFlag != nil else { return }
+        confirmingOverride = kind
+    }
+
+    func cancelBuildAnyway() { confirmingOverride = nil }
+
+    func confirmBuildAnyway() {
+        guard let kind = confirmingOverride else { return }
+        confirmingOverride = nil
+        armedOverride = kind
+        startBuild()
+    }
+
+    /// The flag the next build runs with, once: the arm is cleared here, so a later build never inherits it.
+    func takeOverrideFlag() -> String? {
+        defer { armedOverride = nil }
+        return armedOverride?.overrideFlag
+    }
+
+    /// The card's fix buttons run the dependency rows' own commands (the same installDep as Settings).
+    func fixBuildFailure(_ kind: BuildFailureKind) {
+        switch kind {
+        case .translator:
+            if let d = deps.first(where: { $0.id == "dotnet" }) { installDep(d) }
+        case .iosSDK:
+            installDep(Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint", present: false, installCmd: Self.iosPlatformCmd))
+        case .cltSelected:
+            if let xcode = Self.installedXcode() {
+                installDep(Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint", present: false, installCmd: Self.selectXcodeCmd(xcode)))
+            }
+        default: break
+        }
+    }
+
+    /// Whether the card's fix button is already running its command.
+    func fixBusy(_ kind: BuildFailureKind) -> Bool {
+        deps.first { $0.id == (kind == .translator ? "dotnet" : "xcode") }?.installing ?? false
     }
 
     /// (file count, bytes) of a RomFS tree — the reuse fingerprint's content part.
@@ -1748,11 +1817,163 @@ final class BuildModel: ObservableObject {
         }
     }
 
-    private func finishInstall(_ failure: String?) {
+    private func finishInstall(_ failure: String?, note: String? = nil) {
         running = false
         done = failure == nil
-        doneNote = failure ?? String(format: t("dev.installed"), deviceName(installDevice))
+        doneNote = failure ?? note ?? String(format: t("dev.installed"), deviceName(installDevice))
         cleanupStaging()
+    }
+
+    /// Reinstall the signed app that is already in derived data, without unpacking, signing or packing again: the
+    /// device keeps the app's Documents (game data and saves), as the bundle ID does not change. A reinstall that
+    /// fails on an expired signature says so in devicectl's words; signing again is not this button's job.
+    func reinstallOnDevice(then: (() -> Void)? = nil) {
+        let device = installedOn, app = installedAppPath
+        guard !device.isEmpty, !app.isEmpty else { then?(); return }
+        guard FileManager.default.fileExists(atPath: app) else {
+            doneNote = String(format: t("dev.reinstallMissing"), shortPath(app))
+            then?(); return
+        }
+        running = true
+        runTool(id: 1004, name: String(format: t("dev.reinstallStage"), deviceName(device)),
+                Self.reinstallCommand(xcrun: xcrunPath, device: device, app: app), step: Self.installStep) { error in
+            if let error {
+                // The app is still on the device: a failed reinstall is a note, not a failed build
+                self.running = false
+                self.doneNote = String(format: self.t("dev.reinstallFailed"), error)
+            } else {
+                self.finishInstall(nil, note: String(format: self.t("dev.reinstalled"), self.deviceName(device)))
+            }
+            then?()
+        }
+    }
+
+    nonisolated static func reinstallCommand(xcrun: String, device: String, app: String) -> [String] {
+        [xcrun, "devicectl", "device", "install", "app", "--device", device, app]
+    }
+
+    /// Renew an installed app's signature (a free Apple ID's profile lasts 7 days). The same xcodebuild parameters as
+    /// the install, run on the cached project and derived data: Xcode reuses the compiled products and only signs
+    /// again, then devicectl installs the app over itself. PRODUCT_BUNDLE_IDENTIFIER is the installed app's own, so the
+    /// device keeps that app's Documents (game data, saves); a retry under another identifier would lose them.
+    func resignOnDevice(app: String, device: String, then: (() -> Void)? = nil) {
+        guard !device.isEmpty, !app.isEmpty else { then?(); return }
+        guard !signingTeam.isEmpty else {
+            doneNote = t("dev.resignNoTeam")
+            then?(); return
+        }
+        guard let bundle = NSDictionary(contentsOfFile: app + "/Info.plist")?["CFBundleIdentifier"] as? String else {
+            doneNote = String(format: t("dev.noProject"), shortPath(app + "/Info.plist"))
+            then?(); return
+        }
+        guard let paths = Self.buildPaths(ofApp: app), FileManager.default.fileExists(atPath: paths.project) else {
+            doneNote = String(format: t("dev.resignNoProject"), shortPath(Self.buildPaths(ofApp: app)?.project ?? app))
+            then?(); return
+        }
+        let xcrun = xcrunPath, team = signingTeam, name = deviceName(device)
+        DispatchQueue.global(qos: .userInitiated).async {
+            let scheme = Self.scheme(of: paths.project, xcrun: xcrun)
+            DispatchQueue.main.async {
+                guard let scheme else {
+                    self.doneNote = String(format: self.t("dev.noProject"), self.shortPath(paths.project))
+                    then?(); return
+                }
+                self.running = true
+                self.runTool(id: 1006, name: String(format: self.t("dev.resignStage"), name),
+                             Self.resignCommand(xcrun: xcrun, project: paths.project, scheme: scheme, device: device,
+                                                derived: paths.derived, team: team, bundle: bundle), step: Self.xcodeStep) { error in
+                    if let error, !error.isEmpty {
+                        self.running = false
+                        self.doneNote = String(format: self.t("dev.resignFailed"), error)
+                        then?(); return
+                    }
+                    self.runTool(id: 1007, name: String(format: self.t("dev.installStage"), name),
+                                 Self.reinstallCommand(xcrun: xcrun, device: device, app: app), step: Self.installStep) { installError in
+                        self.running = false
+                        if let installError {
+                            self.doneNote = String(format: self.t("dev.installFailed"), installError)
+                        } else {
+                            self.installedOn = device
+                            self.installedAppPath = app
+                            self.doneNote = String(format: self.t("dev.resigned"), name)
+                        }
+                        then?()
+                    }
+                }
+            }
+        }
+    }
+
+    /// The xcodebuild parameters of a re-sign: signAndInstall's, plus the installed app's own identifier. The same
+    /// derived data is what keeps Xcode from rebuilding the game's code.
+    nonisolated static func resignCommand(xcrun: String, project: String, scheme: String, device: String, derived: String,
+                                          team: String, bundle: String) -> [String] {
+        [xcrun, "xcodebuild", "-project", project, "-scheme", scheme, "-configuration", "Release",
+         "-destination", "id=\(device)", "-derivedDataPath", derived, "-allowProvisioningUpdates",
+         "DEVELOPMENT_TEAM=\(team)", "DM_COPY_ROMFS=NO", "PRODUCT_BUNDLE_IDENTIFIER=\(bundle)", "build"]
+    }
+
+    /// The cached project and derived data an installed app came from, from the app's own path
+    /// (<work>/xcode-derived-data/Build/Products/Release-iphoneos/DmIOS.app): a re-sign must run there to reuse them.
+    nonisolated static func buildPaths(ofApp app: String) -> (project: String, derived: String)? {
+        guard let marker = app.range(of: "/Build/Products/") else { return nil }
+        let derived = String(app[..<marker.lowerBound])
+        let work = (derived as NSString).deletingLastPathComponent
+        return (work + "/xcode/DmIOS.xcodeproj", derived)
+    }
+
+    /// Ask where to write the .ipa, then pack the signed app there.
+    func saveIPAPanel() {
+        let p = NSSavePanel()
+        p.title = t("dev.saveIPATitle")
+        p.allowedFileTypes = ["ipa"]
+        p.nameFieldStringValue = defaultIPAName()
+        p.canCreateDirectories = true
+        guard p.runModal() == .OK, let url = p.url else { return }
+        saveIPA(to: url)
+    }
+
+    /// The signed app as an .ipa (Payload/<name>.app, the layout iOS and the sideloaders install): useful while the
+    /// signature lasts, and the thing to re-sign when it expires. The game data is not in it — it stays in the app's
+    /// Documents (romfs.img), as a normal iOS build has it.
+    func saveIPA(to url: URL, then: (() -> Void)? = nil) {
+        let app = installedAppPath, fm = FileManager.default
+        guard !app.isEmpty, fm.fileExists(atPath: app) else {
+            doneNote = String(format: t("dev.saveNeedsApp"), shortPath(app))
+            then?(); return
+        }
+        let stage = fm.temporaryDirectory.appendingPathComponent("nspb-ipa-" + UUID().uuidString)
+        let payload = stage.appendingPathComponent("Payload")
+        do {
+            try fm.createDirectory(at: payload, withIntermediateDirectories: true)
+            try fm.copyItem(atPath: app, toPath: payload.appendingPathComponent((app as NSString).lastPathComponent).path)
+        } catch {
+            try? fm.removeItem(at: stage)
+            doneNote = String(format: t("dev.saveFailed"), error.localizedDescription)
+            then?(); return
+        }
+        running = true
+        runTool(id: 1005, name: t("dev.saveStage"), Self.ipaCommand(payload: payload.path, ipa: url.path), step: { _ in nil }) { error in
+            try? fm.removeItem(at: stage)
+            self.running = false
+            self.doneNote = error.map { String(format: self.t("dev.saveFailed"), $0) }
+                ?? String(format: self.t("dev.savedIPA"), self.shortPath(url.path))
+            then?()
+        }
+    }
+
+    /// ditto writes the archive the way Finder's "compress" does; the IPA's root must be Payload/, and --norsrc keeps
+    /// __MACOSX out (the signature itself lives in _CodeSignature inside the app).
+    nonisolated static func ipaCommand(payload: String, ipa: String) -> [String] {
+        ["/usr/bin/ditto", "-c", "-k", "--norsrc", "--keepParent", payload, ipa]
+    }
+
+    /// The name the save panel offers: the app's display name, so two games' IPAs do not collide. A slash or colon in a
+    /// game's name would split the file name or show as a folder in Finder.
+    func defaultIPAName() -> String {
+        let plist = NSDictionary(contentsOfFile: installedAppPath + "/Info.plist")
+        let name = (plist?["CFBundleDisplayName"] as? String) ?? (plist?["CFBundleExecutable"] as? String) ?? "DmIOS"
+        return name.replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: ":", with: "_") + ".ipa"
     }
 
     /// The game's folder (romfs.img, aoc/) into the installed app's Documents, where main.m looks for this game's files first.
@@ -1881,6 +2102,7 @@ final class BuildModel: ObservableObject {
         var lastError = ""   // the tool's own first error line after a failed install (brew's, pip's)
         var fixHint = ""     // an L10n key: what to type or click, chosen from that line
         var actionLabel = "" // an L10n key for the button when the action is not a plain install ("Fix")
+        var warning = false  // present, but with a caveat the row's error and hint lines explain (the Metal compiler is not the tested one)
         let installCmd: [String]      // run via bash; empty = manual (Xcode from the App Store)
     }
 
@@ -2233,6 +2455,14 @@ final class BuildModel: ObservableObject {
     nonisolated static let metalToolchainCmd = ["/usr/bin/xcodebuild", "-downloadComponent", "MetalToolchain"]
     nonisolated static let iosPlatformCmd = ["/usr/bin/xcodebuild", "-downloadPlatform", "iOS"]
 
+    /// One admin prompt runs both steps: switch the toolchain to this Xcode, then let it finish its first launch (license and
+    /// components) - a fresh App Store download has neither. The Xcode row and the failure card run the same command.
+    nonisolated static func selectXcodeCmd(_ xcode: String) -> [String] {
+        let script = "xcode-select -s '" + xcode + "/Contents/Developer' && xcodebuild -runFirstLaunch"
+        let apple = "do shell script \"" + script.replacingOccurrences(of: "\"", with: "\\\"") + "\" with administrator privileges"
+        return ["/usr/bin/osascript", "-e", apple]
+    }
+
     /// Whether the xcode row asks for the iOS SDK. Always, as before, unless the guided setup stored a Mac-only choice
     /// and builds are for the Mac: upstream no longer needs the iOS SDK for a Mac build (c464cb24).
     nonisolated static func needsIOSPlatform(defaults: UserDefaults = .standard) -> Bool {
@@ -2266,7 +2496,34 @@ final class BuildModel: ObservableObject {
                       "NONINTERACTIVE=1 /bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""])] + rows
     }
 
-    nonisolated static func detectDepsSync(needsIOS: Bool = BuildModel.needsIOSPlatform()) -> [Dep] {
+    /// First line of a tool's output (the Metal compiler's version line), nil when it does not run or says nothing.
+    nonisolated static func firstOutputLine(_ tool: String, _ args: [String]) -> String? {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: tool)
+        p.arguments = args
+        let out = Pipe()
+        p.standardOutput = out; p.standardError = Pipe(); p.standardInput = FileHandle.nullDevice
+        do { try p.run() } catch { return nil }
+        let data = out.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        guard p.terminationStatus == 0 else { return nil }
+        return String(decoding: data, as: UTF8.self).split(separator: "\n", omittingEmptySubsequences: true).first.map(String.init)
+    }
+
+    /// The Metal toolchain row. A compiler that does not run is the missing-toolchain row with its install button. One that differs from the
+    /// lock's pin is a warning and not a blocker: the row stays present, and its error and hint lines (the install failures' fields) say that
+    /// NVN games will stop. Pure over its inputs, so tests give it version strings.
+    nonisolated static func metalDep(runs: Bool, lock: String?, now: [String: String?], needsIOS: Bool) -> Dep {
+        var dep = Dep(id: "metal", name: "dep.metal", hint: "dep.metal.hint", present: runs, installCmd: metalToolchainCmd)
+        guard runs, let lock, let m = MetalPin.mismatches(lock: lock, now: now, iOS: needsIOS).first else { return dep }
+        dep.warning = true
+        dep.detail = "dep.metal.other:" + m.now + ":" + m.pinned
+        dep.lastError = "metal_" + m.sdk + ": " + m.now
+        dep.fixHint = "dep.fix.metalPin"
+        return dep
+    }
+
+    nonisolated static func detectDepsSync(needsIOS: Bool = BuildModel.needsIOSPlatform(), repo: String = "") -> [Dep] {
         var out: [Dep] = []
 
         // Xcode.app alone is not enough: since Xcode 15 the iOS platform ships as a separate
@@ -2286,20 +2543,17 @@ final class BuildModel: ObservableObject {
             out.append(Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint", present: false,
                            detail: "dep.xcode.noSDK", installCmd: iosPlatformCmd))
         case .commandLineToolsOnly(let xcode):
-            // One admin prompt runs both steps: switch the toolchain, then let Xcode finish its
-            // first launch (license and components) - a fresh App Store download has neither.
-            let script = "xcode-select -s '" + xcode + "/Contents/Developer' && xcodebuild -runFirstLaunch"
-            let apple = "do shell script \"" + script.replacingOccurrences(of: "\"", with: "\\\"") + "\" with administrator privileges"
             out.append(Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint", present: false,
                            detail: "dep.xcode.notSelected", actionLabel: "dep.xcode.fix",
-                           installCmd: ["/usr/bin/osascript", "-e", apple]))
+                           installCmd: selectXcodeCmd(xcode)))
         case .notInstalled:
             out.append(Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint", present: false, installCmd: []))
         }
 
-        let mt = runOK("/usr/bin/xcrun", ["-sdk", "macosx", "metal", "--version"])
-        out.append(Dep(id: "metal", name: "dep.metal", hint: "dep.metal.hint",
-                       present: mt, installCmd: metalToolchainCmd))
+        let macMetal = firstOutputLine("/usr/bin/xcrun", ["-sdk", "macosx", "metal", "--version"])
+        let lock = repo.isEmpty ? nil : try? String(contentsOfFile: repo + "/" + MetalPin.lockPath, encoding: .utf8)
+        let iosMetal = needsIOS && lock != nil ? firstOutputLine("/usr/bin/xcrun", ["-sdk", "iphoneos", "metal", "--version"]) : nil
+        out.append(metalDep(runs: macMetal != nil, lock: lock, now: ["macosx": macMetal, "iphoneos": iosMetal], needsIOS: needsIOS))
 
         out += toolDeps(resources: BundledTools.resources,
                         installed: { firstExisting(["/opt/homebrew/bin/\($0)", "/usr/local/bin/\($0)"]) },
@@ -2332,7 +2586,7 @@ final class BuildModel: ObservableObject {
     func checkDeps() {
         depsChecked = false
         DispatchQueue.global(qos: .userInitiated).async {
-            let d = Self.detectDepsSync()
+            let d = Self.detectDepsSync(repo: self.repoPath)
             Self.writeDepsReport(d)
             let (py, _) = Self.findPython()
             let (dn, _) = Self.findDotnet()
@@ -2504,8 +2758,11 @@ struct BuilderView: View {
     var onOpenSettings: () -> Void = {}
     var onChooseLibraryFolder: () -> Void = {}
     var onOpenControls: () -> Void = {}
+    var onOpenControllers: () -> Void = {}   // the Controllers sheet (the console mode's list, with the player-mode setting)
     var onRunSetup: (() -> Void)?   // the guided first-run setup, again (nil where there is none)
     var controlChanges = 0
+    var padMerge: Binding<Bool> = .constant(false)   // "All controllers are player 1" (ControlLayout.padMerge)
+    @AppStorage(ConsolePrompt.defaultsKey) private var consolePromptOn = true   // ConsoleCoordinator.swift
     @AppStorage(BuildNotice.defaultsKey) private var notifyBuilds = true   // BuildNotifications.swift
     @State private var extrasOpen = false
     @State private var logOpen = false
@@ -2619,6 +2876,7 @@ struct BuilderView: View {
         if m.target != "mac-app" { install.disabled(m.running) }
         logPanel
         action
+        BuildFailureCard(m: m)
         outcome
         progress
     }
@@ -2944,18 +3202,34 @@ struct BuilderView: View {
                 Button(m.t("controls.customize"), action: onOpenControls)
                     .padTarget("set.controls", scope: "main") { onOpenControls() }
             }
+            divider
+            row(m.t("console.mergeAll"), detail: m.t("console.mergeNote")) {
+                Toggle("", isOn: padMerge).labelsHidden().toggleStyle(LauncherSwitchStyle())
+                    .padTarget("set.padMerge", scope: "main") { padMerge.wrappedValue.toggle() }
+            }
+            divider
+            row(m.t("console.controllers"), detail: m.t("console.controllersRowNote")) {
+                Button(m.t("console.controllersOpen"), action: onOpenControllers)
+                    .padTarget("set.controllers", scope: "main") { onOpenControllers() }
+            }
+            divider
+            row(m.t("console.promptSetting"), detail: m.t("console.promptSettingNote")) {
+                Toggle("", isOn: $consolePromptOn).labelsHidden().toggleStyle(LauncherSwitchStyle())
+                    .padTarget("set.consolePrompt", scope: "main") { consolePromptOn.toggle() }
+            }
         }
         tools
         group(m.t("section.app"), footnote: m.appStatus) {
             // The interface language: the device default unless someone picks one here. Stored as
-            // "" (follow), "zh" or "en" so a later system-language change still applies.
+            // "" (follow), "zh", "en" or "sv" so a later system-language change still applies.
             row(m.t("settings.language"),
-                detail: Lang.saved.map { $0 == .zh ? m.t("settings.language.zh") : m.t("settings.language.en") }
+                detail: Lang.saved.map { m.t("settings.language.\($0.rawValue)") }
                     ?? m.t("settings.language.system"), dot: LauncherPalette.ready, help: "") {
                 // The launcher's own list (as in Launch options), drawn like the buttons beside it and as wide
                 LauncherMenuPicker(options: [(value: "", label: m.t("settings.language.system")),
                                              (value: "zh", label: m.t("settings.language.zh")),
-                                             (value: "en", label: m.t("settings.language.en"))],
+                                             (value: "en", label: m.t("settings.language.en")),
+                                             (value: "sv", label: m.t("settings.language.sv"))],
                                    selection: Lang.saved.map { $0.rawValue } ?? "", fill: true, buttonLike: true) { v in
                     Lang.saved = v.isEmpty ? nil : Lang(rawValue: v)
                     m.lang = Lang.initial()
@@ -3004,7 +3278,7 @@ struct BuilderView: View {
 
     /// The interface language one step on (a controller's left / right on the language list).
     private func cycleLanguage(_ by: Int) {
-        let values = ["", "zh", "en"]
+        let values = ["", "zh", "en", "sv"]
         let at = values.firstIndex(of: Lang.saved.map { $0.rawValue } ?? "") ?? 0
         let v = values[(at + by + values.count) % values.count]
         Lang.saved = v.isEmpty ? nil : Lang(rawValue: v)
@@ -3082,7 +3356,7 @@ struct BuilderView: View {
                 ForEach(m.deps, id: \.id) { d in
                     divider
                     VStack(alignment: .leading, spacing: 0) {
-                        row(m.t(d.name), detail: m.shortPath(m.depDetail(d)), dot: d.present ? LauncherPalette.ready : LauncherPalette.building,
+                        row(m.t(d.name), detail: m.shortPath(m.depDetail(d)), dot: d.present && !d.warning ? LauncherPalette.ready : LauncherPalette.building,
                             help: m.t(d.hint)) {
                             if d.installing {
                                 ProgressView().controlSize(.small)
@@ -3109,7 +3383,7 @@ struct BuilderView: View {
                 }
             }
             divider
-            row(m.t("diag.title"), detail: m.t("diag.note")) { DiagnosticsButton(m: m, width: Self.settingsButtonWidth) }
+            row(m.t("diag.title"), detail: m.t("diag.note")) { DiagnosticsButton(m: m, game: library.selected, width: Self.settingsButtonWidth) }
         }
     }
 

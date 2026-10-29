@@ -171,7 +171,8 @@ HLE_FORCE("_ZN2nn4pctl53RequestStereoVisionRestrictionConfigurationPermissionEv"
 HLE_FORCE("_ZN2nn4pctl20EndFreeCommunicationEv", "parental controls · communication with others", void, h_pctl_End, void) {}
 // Engage asks on entering a battle map (no UI); without this the SDK connects to the pctl service through sm, which the host does not have, and aborts
 HLE_FORCE("_ZN2nn4pctl28IsFreeCommunicationAvailableEv", "parental controls · whether communication with others is available, networking out of scope; never", unsigned, h_pctl_IsFree, void) { return 0; }
-// The Legend of Zelda: Breath of the Wild: checks the parental-control permission for stereoscopic 3D before VR-related screens (returns bool; the argument = whether to show UI, the game passes 0). The host has no parental controls: permitted
-HLE_FORCE("_ZN2nn4pctl27CheckStereoVisionPermissionEb", "parental controls · stereoscopic 3D permission; the host has no parental controls, allowed", unsigned, h_pctl_Stereo, unsigned show_ui) { (void)show_ui; return 1; }
+// The Legend of Zelda: Breath of the Wild: checks the parental-control permission for stereoscopic 3D before turning on the options' Labo VR mode (returns bool; the argument = whether to
+// show UI, the game passes 0). The host has no VR display (pl::BeginVrMode refuses, hle_sdk16.c): not permitted, so the game clears its VR flag and stays 2D (as MacNativeGames found on 1.6.0 and 1.9.0)
+HLE_FORCE("_ZN2nn4pctl27CheckStereoVisionPermissionEb", "parental controls · stereoscopic 3D permission; the host has no VR display, not permitted", unsigned, h_pctl_Stereo, unsigned show_ui) { (void)show_ui; return 0; }
 
 // swkbd software keyboard: see hle_swkbd.c

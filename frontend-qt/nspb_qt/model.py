@@ -9,12 +9,14 @@ import sys
 import tempfile
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 
-from PySide6.QtCore import Q_ARG, QMetaObject, QObject, Qt, QThread, Signal, Slot
+from PySide6.QtCore import QSettings, Q_ARG, QMetaObject, QObject, Qt, QThread, Signal, Slot
 
+from . import build_failure as bf
 from . import platform_util as pu
 from .i18n import Lang
 from .localization import t
@@ -39,6 +41,10 @@ class Dep:
     installing: bool = False
     required: bool = True       # a missing optional row (spirv-cross for Metal games, glslangValidator)
                                 # is not part of "缺 N 项": it does not stop the build in front of you
+    pick_key: str = ''          # a manual row the user can point at a folder ('ios_sdk', 'metal_dir'):
+                                # the panel grows a Choose button; the pick is validated and remembered
+    fix_hint: str = ''          # an L10n key set when this row's install failed: what to do next
+    last_error: str = ''        # the tool's own last error line, shown under the row (Mac parity)
 
     @property
     def ok(self) -> bool:
@@ -72,8 +78,13 @@ class Model(QObject):
     finished = Signal(bool, str)          # ok, note
     appUpdateFound = Signal(str, str)     # tag, url
 
+    #: Set by the window: asks for a folder (QFileDialog lives in the UI layer) and returns the
+    #: path, or '' when the user cancelled. `pick_dep_folder` calls it, so the model stays UI-free.
+    ask_folder: Callable[[str], str] | None = None
+
     def __init__(self) -> None:
         super().__init__()
+        self.settings = QSettings('NS Port Builder', 'NSPortBuilder')
         self.lang = Lang.initial()
         self.repo_path = self._find_repo()
         self.python_path, self.python_ok, self.python_ver = pu.find_python()
@@ -83,6 +94,8 @@ class Model(QObject):
         self.stages: list[Stage] = []
         self.running = False
         self.log_tail = ''
+        self.failure: bf.Failure | None = None   # the script's known early stop (build_failure.py), None for any other
+        self.override = bf.OverrideState()      # "Build anyway": one confirmed --allow-* for the next build
         self._last_error = ''   # the last real log line: the failure note names it (issue #52)
         self.game_dir = ''
         self.base_path = ''
@@ -122,6 +135,13 @@ class Model(QObject):
 
     def t(self, key: str, *args: object) -> str:
         return t(key, self.lang, *args)
+
+    def settings_value(self, key: str, default: bool | None = None) -> bool | None:
+        v = self.settings.value(key, defaultValue='', type=str)
+        return default if v == '' else v.lower() == 'true'
+
+    def settings_set(self, key: str, value: bool) -> None:
+        self.settings.setValue(key, 'true' if value else 'false')
 
     def toggle_lang(self) -> None:
         self.lang = self.lang.other
@@ -270,6 +290,13 @@ class Model(QObject):
         for d in deps:
             if d.id in running:
                 d.installing = True
+        # The failure note belongs to the row, and a check (which rebuilds every row) must not
+        # wipe it: it clears when that row installs successfully instead.
+        previous = {d.id: d for d in self.deps}
+        for d in deps:
+            p = previous.get(d.id)
+            if p is not None and not d.ok:
+                d.last_error, d.fix_hint = p.last_error, p.fix_hint
 
         self.deps = deps
         if not pu.IS_WIN:
@@ -359,7 +386,10 @@ class Model(QObject):
             out.append(Dep('lld', 'dep.lld', 'dep.lld.hint', state(p),
                            p.detail if not p.ok else (p.path or 'ok')))
 
-        # the SDK
+        # the SDK. Apple's SDK cannot be redistributed by us; the in-app download (the
+        # xybp888/iOS-SDKs checkout) needs no Apple ID and is the default fix, and Choose lets a
+        # user with Apple's own SDK point at it instead — validated and written to
+        # toolchain.json, so the choice survives restarts.
         p = by_id.get('ios_sdk')
         if p:
             detail = ''
@@ -369,7 +399,7 @@ class Model(QObject):
                 detail = p.detail
             install = [] if p.ok else ['__win__:ios_sdk']
             out.append(Dep('ios_sdk', 'dep.iossdk', 'dep.iossdk.hint', state(p), detail,
-                           install=install))
+                           install=install, pick_key='' if p.ok else 'ios_sdk'))
 
         # Metal. The hint is the Windows one: on macOS this row says
         # `xcodebuild -downloadComponent`, which is an Apple ID login away on Windows
@@ -377,7 +407,8 @@ class Model(QObject):
         p = by_id.get('metal')
         if p:
             out.append(Dep('metal', 'dep.metal', 'dep.metal.hint.win', state(p),
-                           (p.path or 'ok') if p.ok else (p.detail or '')))
+                           (p.path or 'ok') if p.ok else (p.detail or ''),
+                           pick_key='' if p.ok else 'metal_dir'))
 
         # the probes: one row each, so a broken toolchain names the step that fails
         for pid, key in (('probe_compile', 'dep.probe.compile'),
@@ -722,13 +753,71 @@ class Model(QObject):
                 # DownloadError, OSError, ImportError, a missing attribute: all reported with the
                 # type so a bug report names the failure without guessing.
                 import traceback
-                self.log(self.t('dep.install.fail', f'{type(e).__name__}: {e}') + '\n')
+                detail = f'{type(e).__name__}: {e}'
+                self.log(self.t('dep.install.fail', detail) + '\n')
                 self.log(traceback.format_exc() + '\n')
+                self._record_install_failure(dep, detail)
             self._clear_installing(dep)
             self.depsChanged.emit()
             self.check_deps()
 
         threading.Thread(target=work, daemon=True).start()
+
+    def _record_install_failure(self, dep: Dep, detail: str) -> None:
+        """Say why an install failed and what to do, under the row itself (Mac parity).
+
+        The log already carries the traceback; the row gets the one-line error plus a fix chosen
+        from it — network for downloads, disk space for unpacks — so the player needs no log
+        reading for the two cases that cover most of them.
+        """
+        fix = self._classify_install_failure(detail)
+        for r in self.deps:
+            if r.id == dep.id:
+                r.last_error = detail
+                r.fix_hint = fix
+
+    @staticmethod
+    def _classify_install_failure(detail: str) -> str:
+        """The fix hint for one install failure, from its text (network, disk space, else the log)."""
+        low = detail.lower()
+        if 'timed out' in low or 'connection' in low or 'resolve host' in low or 'network' in low:
+            return 'dep.fix.network'
+        if 'no space' in low or 'disk full' in low or 'errno 28' in low:
+            return 'dep.fix.diskspace'
+        return 'dep.fix.log'
+
+    def pick_dep_folder(self, dep: Dep) -> None:
+        """A folder the user chose for one manual row: validated now, remembered in
+        `toolchain.json`, then a fresh check re-reads it.
+
+        Validation before saving keeps a wrong pick from silently becoming the configured answer
+        (the SDK probe would then say `wrong` with a confusing version note on every start).
+        """
+        if not dep.pick_key:
+            return
+        from .win import toolchain as wtc
+        ask = self.ask_folder
+        if ask is None:
+            return   # no window attached (tests): nothing to ask with
+        folder = ask(self.t('dep.pick.' + dep.pick_key + '.title'))
+        if not folder:
+            return
+        if dep.pick_key == 'ios_sdk':
+            # The SDK can sit one level down (the guide's step 2 says so): accept both layouts.
+            candidates = [Path(folder)] + sorted(Path(folder).glob('iPhoneOS*.sdk'), reverse=True)
+            match = next((c for c in candidates if wtc.is_sdk_dir(c)), None)
+            if match is None:
+                self.log(self.t('dep.pick.iossdk.invalid', folder) + '\n')
+                return
+            ver, _build = wtc.sdk_version(match)
+            wtc.save_config('ios_sdk', str(match))
+            self.log(self.t('dep.pick.iossdk.saved', match) + '\n')
+            if ver:
+                self.log(self.t('dep.pick.iossdk.version', ver) + '\n')
+        else:
+            wtc.save_config(dep.pick_key, folder)
+            self.log(self.t('dep.pick.saved', folder) + '\n')
+        self.check_deps()
 
     def _progress_logger(self, label: str):
         """A progress callback that logs at 5% steps, not on every chunk.
@@ -976,6 +1065,8 @@ class Model(QObject):
             self.ipa_path = str(Path(self.out_dir, f'{tid_hex}.ipa'))
             args += ['-o', self.ipa_path]
         self.effective_work_dir = work_dir if has_work_dir else str(Path(input_dir, f'{tid_hex}_build'))
+        flag = self.override.take()   # for this build only: the next one asks again
+        args = bf.arguments(args, flag)
 
         self.running = True
         self.runningChanged.emit(True)
@@ -983,7 +1074,11 @@ class Model(QObject):
         self.ipa_path = self.archive_path = self.mac_app_path = ''
         self.log_tail = ''
         self._last_error = ''
+        self.failure = None
+        self.override.cancel()
         self.stagesChanged.emit()
+        if flag:
+            self.log(self.t('fail.override.note', flag) + '\n')
         self.log(self.t('msg.running', py + ' ' + ' '.join(args)) + '\n')
 
         env = pu.child_env()
@@ -1037,12 +1132,33 @@ class Model(QObject):
                 # The last real line says more than the exit code: "Build failed (exit code 1)"
                 # on its own sent a reporter looking for a log that was not on screen (#52)
                 last = getattr(self, '_last_error', '')
-                self.finished.emit(False, self.t('msg.buildFailedReason', last) if last else self.t('msg.buildFailed'))
+                note = self.t('msg.buildFailedReason', last) if last else self.t('msg.buildFailed')
+                known = bf.classify(self.log_tail)
+                if known.kind != bf.UNKNOWN:   # a known early stop: the window explains it and offers the next step
+                    self.failure = known
+                    note = self.failure_what(known)
+                self.finished.emit(False, note)
             if staging:
                 shutil.rmtree(staging, ignore_errors=True)
 
         self._thread = threading.Thread(target=work, daemon=True)
         self._thread.start()
+
+    def failure_what(self, f: 'bf.Failure') -> str:
+        """The first sentence of a failure's hint (it names the game of a 32-bit program when the message does)."""
+        if f.kind == bf.A32_PROGRAM and f.game:
+            return self.t('fail.a32Program.whatNamed', f.game)
+        return self.t(f.what_key)
+
+    def fix_failure(self, f: 'bf.Failure') -> None:
+        """The failure card's fix buttons run the dependency rows' own fixes (install_dep, as Settings does)."""
+        if f.kind == bf.TRANSLATOR:
+            row = next((d for d in self.deps if d.id == 'dotnet'), None)
+            if row:
+                self.install_dep(row)
+        elif f.kind == bf.IOS_SDK and not pu.IS_WIN:
+            self.install_dep(Dep('xcode', 'dep.xcode', 'dep.xcode.hint', DepState.MISSING,
+                                 install=['/usr/bin/xcodebuild', '-downloadPlatform', 'iOS']))
 
     def cancel_build(self) -> None:
         if self._proc and self._proc.poll() is None:
@@ -1054,6 +1170,7 @@ class Model(QObject):
         """Feed one line of the build's output: stage lines move the stage list, everything
         else goes to the log (which is what the window shows)."""
         self.log(line + '\n')
+        self.log_tail = (self.log_tail + line + '\n')[-12000:]   # what the classifier reads on a failure
         # The last line that was not stage bookkeeping: a failed build's summary used to be the
         # bare exit code ("Build failed (exit code 1)"), which told the reporter nothing and sent
         # them looking for a log that a short window had below the fold (issue #52)

@@ -80,16 +80,28 @@ extension View {
     }
 }
 
+/// How the focus ring sits on a control. The desktop launcher draws it 4 points outside. The console mode draws it on the
+/// control's own edge, in the control's own shape (`radius`), so there is no gap and layout never changes with focus.
+enum PadRingStyle { case outset, hug }
+private struct PadRingStyleKey: EnvironmentKey { static let defaultValue = PadRingStyle.outset }
+extension EnvironmentValues {
+    var padRingStyle: PadRingStyle {
+        get { self[PadRingStyleKey.self] }
+        set { self[PadRingStyleKey.self] = newValue }
+    }
+}
+
 private struct PadTargetModifier: ViewModifier {
     let id: String, scope: String, radius: CGFloat
     let handlers: PadFocus.Handlers
     @EnvironmentObject private var focus: PadFocus
+    @Environment(\.padRingStyle) private var ringStyle
 
     func body(content: Content) -> some View {
         focus.register(id, handlers)
         let on = focus.visible && focus.focused == id
         return content
-            .overlay(RoundedRectangle(cornerRadius: radius).strokeBorder(LauncherPalette.cream, lineWidth: on ? 2 : 0).padding(-4).allowsHitTesting(false))
+            .overlay(RoundedRectangle(cornerRadius: radius).strokeBorder(LauncherPalette.cream, lineWidth: on ? 2 : 0).padding(ringStyle == .hug ? 0 : -4).allowsHitTesting(false))
             .background(GeometryReader { g in
                 Color.clear.preference(key: PadTargetKey.self, value: [.init(id: id, frame: g.frame(in: .named("pad." + scope)))])
             })

@@ -98,8 +98,10 @@ final class XcodeTeamsTests: XCTestCase {
             XCTAssertNotEqual(m.t("dev.personalTeam"), "dev.personalTeam")
         }
         let m = BuildModel(); m.lang = .en
-        XCTAssertTrue(m.t("dev.noTeam").contains("Settings → Accounts"))
+        XCTAssertTrue(m.t("dev.noTeam").contains("Settings → Apple Accounts"))
         XCTAssertTrue(m.t("dev.noTeam").contains("no development certificate"))
+        XCTAssertTrue(m.t("dev.noTeam").contains("Download Manual Profiles"))
+        XCTAssertFalse(m.t("dev.noTeam").contains("(null)"))
         XCTAssertTrue(m.t("dev.teamNoCert").contains("first install"))
     }
 }

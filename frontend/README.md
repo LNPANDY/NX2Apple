@@ -33,15 +33,18 @@ Setup lives under **Settings**: the games folder, the repository and its updates
 the dependency checks and installers, and app updates. Missing setup is linked
 from the build screen. The progress shows each of the script's steps with its
 count, the time it has been running and, while the script's estimate lasts, the
-time left; the build log opens under it. **Stop** ends the script and every tool
+time left. The build log opens under it. **Stop** ends the script and every tool
 it started (the build runs in a process group of its own), and so does quitting
 the app.
 
 **Settings → Copy diagnostics** puts a short Markdown report on the clipboard, for a
-bug report: the app and macOS versions and the chip; the repository, its commit and
-branch and how far it is behind `upstream/main` and `origin/main` as of the last fetch
-(nothing is fetched); the Python and .NET the builds run with and the dependency
-check; this session's last build command and the last 50 lines of its log. The home
+bug report. It holds the app and macOS versions and the chip, the repository (its commit and
+branch and how far it is behind `upstream/main` and `origin/main` as of the last fetch, since
+nothing is fetched), the Python and .NET the builds run with and the dependency
+check, the fork patches in the checkout (`dm/fork_patches.txt`), the selected Xcode and its
+version, both Metal compilers beside the versions `dm/gfx/tools/dmsh_chain.lock` pins, the iOS SDK,
+and this session's last build command and the last 50 lines of its log. For the selected
+game it adds its built app's patches and the last 200 lines of its log. The home
 folder is shown as `~`, a log line holding key material (`name = <hex>`, as in
 `prod.keys`) keeps only its name, and no environment variables are included.
 
@@ -56,7 +59,7 @@ with **Play**. An iPhone build, by default, offers its unsigned IPA and the
 sideloading and RomFS-copy instructions.
 
 When a build finishes or fails while the app is in the background, a notification
-names the game and the target; clicking it shows the game in the library, or the
+names the game and the target. Clicking it shows the game in the library, or the
 Builds page with the log for a failed build. macOS asks for permission when the
 first build starts, and **Settings → App** turns it off. Notifications need the
 app bundle: started with `swift run` the launcher has no bundle identifier, and
@@ -83,14 +86,18 @@ The first time, turn on Developer Mode on the device and trust the developer
 under Settings → General → VPN & Device Management. With a free Apple ID the
 profile expires after seven days. **Don't install, export the IPA** keeps the
 unsigned IPA as before. The devices and teams are read with `devicectl list
-devices` and `security find-identity`; the team is the certificate's
+devices` and `security find-identity`. The team is the certificate's
 organizational unit, not the code in its name.
+
+**Manage > Show game log** opens the game's latest log in Console. It is `<library folder>/log/<title ID>.log`
+when the app's folder holds the library marker (`.nx2apple-library`), else
+`~/Library/Logs/nxnative/<title ID>.log` (`dm/mac/launcher.c`), and the row is off with a tooltip until the game has run.
 
 ## Saves
 
 **Manage > Saves…** (a controller's Y) shows a game's save on this Mac
 (where `dm/mac/launcher.c` puts it: `<library folder>/save/<title ID>` beside the app when
-its folder holds `games/`, else `~/Library/Application Support/nxnative/<title ID>/save`;
+its folder holds `games/`, else `~/Library/Application Support/nxnative/<title ID>/save`, and
 until the app has copied an older `~/Library` save across, that one is shown) and
 on the device the launcher installed it on (`Documents/games/<title ID>/save` in the app's
 data container, from `dm/ios/Sources/main.m`), each with the date of its newest file, and
@@ -99,7 +106,7 @@ asking. The save being replaced is backed up first, beside the Mac save in
 `<save>-backups/<date> mac` or `<date> device` (the device's is copied to the Mac before
 anything is replaced). A game that also keeps device save data has a `<save>_device`
 folder beside it (`dm/host/hle_fs.c`), which goes along. The copy is refused while
-the game runs on the Mac; close it on the device too, or it writes its own save over the
+the game runs on the Mac. Close it on the device too, or it writes its own save over the
 copy later. The device side uses the install's route: `devicectl device info files` for
 the date and `devicectl device copy from` / `copy to` with the app's data container. Only
 a game installed from here has a known bundle ID, so a sideloaded IPA has no device side.
@@ -110,8 +117,8 @@ Set **Your games folder** in Settings once. The launcher remembers it, checks it
 on startup, and uses it as the default output location for new builds. **Refresh**
 looks for existing nxnative Mac game apps, including apps in subfolders up to four
 levels deep. It skips game contents, extraction folders and build caches. It does
-not copy or move the games. Several builds of the same title occupy one entry;
-an already linked, valid build keeps its location.
+not copy or move the games. Several builds of the same title occupy one entry,
+and an already linked, valid build keeps its location.
 
 Readiness is checked against each app's title ID and executables. Ready games are
 green, building games are yellow, and games without a finished output are gray.
@@ -124,11 +131,11 @@ library manifest is stored at
 The button beside **Play** opens the game's launch options: the settings the iPhone
 launcher shows before a game starts ([docs/settings.md](../docs/settings.md)), read
 from the list the engine packs into the Mac app (`Contents/Resources/dm/launcher.json`,
-written by `dm/games/settings.py` from `dm/games/settings.tsv`; the engine change that
+written by `dm/games/settings.py` from `dm/games/settings.tsv`, and the engine change that
 packs it is [seedds/nxnative#352](https://github.com/seedds/nxnative/pull/352), so a
 sync from upstream brings it). **Play** starts the app with every setting in its
 environment. Only a choice that differs from the game's tested default is kept, in the
-library manifest; **Reset to tested defaults** forgets them. An app without the list
+library manifest. **Reset to tested defaults** forgets them. An app without the list
 shows none. Starting the app from Finder uses its defaults.
 
 ## Controls
@@ -153,20 +160,20 @@ buttons by their letters (an Xbox controller's letters are Apple's button diamon
 a Pro Controller's A, on the right, arrives as `buttonA`, as
 [seedds/nxnative#382](https://github.com/seedds/nxnative/pull/382) found), which the
 host's positional reading turns into the other letter, so one swap serves both.
-**Custom** is the per-button choice; changing a button switches to it. **Auto** picks
+**Custom** is the per-button choice. Changing a button switches to it. **Auto** picks
 By label or Standard from `GCController.productCategory` of the controller connected
 when **Play** is pressed (Nintendo, Switch Pro, Joy-Con or Xbox in its name: By label).
-One map goes to every controller, so two different kinds at once cannot both be right;
-a per-controller choice belongs in the host (#382 does it for Nintendo controllers).
+One map goes to every controller, so two different kinds at once cannot both be right.
+A per-controller choice belongs in the host (#382 does it for Nintendo controllers).
 The page shows the connected controller and what Auto picks for it.
 
 ## Artwork
 
 The launcher shows, in this order: a custom image chosen under **Manage > Change
-artwork**; the game's eShop key art (1920×1080 from Nintendo's image CDN, found by
+artwork**, then the game's eShop key art (1920×1080 from Nintendo's image CDN, found by
 title ID in the community title database
-[blawar/titledb](https://github.com/blawar/titledb)); a matching gameplay screenshot
-from the repository; the built app's icon. The title list (about 90 MB) is
+[blawar/titledb](https://github.com/blawar/titledb)), then a matching gameplay screenshot
+from the repository, and last the built app's icon. The title list (about 90 MB) is
 downloaded only while a game in the collection has no key art yet, reduced to title
 ID → image and kept with the images in
 `~/Library/Application Support/NS Port Builder/artwork/`. Custom images stay at
@@ -174,13 +181,13 @@ their chosen path.
 
 ## Type
 
-The interface is set in Manrope (SIL Open Font License; `fonts/`, with its license):
+The interface is set in Manrope (SIL Open Font License, with its license in `fonts/`):
 headings, text and a game's status line, whose capitals are the same face, tracked.
 Paths and the build log use the system's monospaced face. `python3 fonts/embed_fonts.py`
 writes the font into the binary as `Sources/NSPortBuilder/EmbeddedFonts.swift`, so the app needs no font
 installed and no resource bundle beside the executable.
 
-The app icon is drawn by `make_icon.swift`; `./make_icon.sh` writes `icon.iconset/`
+The app icon is drawn by `make_icon.swift`, and `./make_icon.sh` writes `icon.iconset/`
 and `AppIcon.icns` from it.
 
 ## App updates
@@ -191,12 +198,12 @@ the background and staged: the zip's SHA-256 must match the `digest` GitHub give
 for the asset (a release without one is not installed automatically), and the app
 inside must carry this app's bundle identifier, an executable and the release's
 version. The staged copy replaces the app when you quit it, so the next launch is
-the new version; **Restart now** in Settings and in the library's bottom line
+the new version. **Restart now** in Settings and in the library's bottom line
 installs it at once. Neither runs while a build does: the swap ends with a relaunch,
 which would end the build's process group. If you quit during a build, the build is
 stopped as before and the update waits for a later quit. With the switch off,
 **Update to vX** in Settings downloads, verifies and relaunches as before (a
-release without a digest is still accepted there; a wrong digest never is).
+release without a digest is still accepted there, but a wrong digest never is).
 
 A launcher built from this repository never replaces itself: `swift run` (no
 bundle), a bundle under `.build/` or `DerivedData/`, a bundle beside
@@ -210,7 +217,7 @@ cd frontend
 swift run
 ```
 
-or double-click `nxnative.app` in this folder (ad-hoc signed; rebuild it with `swift build -c release`
+or double-click `nxnative.app` in this folder (ad-hoc signed, and rebuild it with `swift build -c release`
 and copy the binary into `Contents/MacOS/`). The app's settings and library stay under the folder name it
 had before the rename, `~/Library/Application Support/NS Port Builder/`.
 
@@ -240,10 +247,10 @@ The release app (`NX2Apple.app`) carries `zstd`, `glslangValidator`, `spirv-cros
 `Contents/Resources/tools/bin`) and a relocatable CPython 3.13 with `lz4 capstone fonttools
 backports.zstd nsz` (`Contents/Resources/python`), so a player needs no Homebrew and no Python.
 `tools/bundle_tools.sh` fills them in during the release workflow (pinned versions and sha256 of the
-sources, built for macOS 13 with static libraries; the Python packages come from
+sources, built for macOS 13 with static libraries, and the Python packages come from
 `tools/bundled-python-requirements.txt`) and `tools/check_bundle.sh` runs each tool from the bundle
 with a clean PATH. The dependency check (`BundledTools.swift`) prefers them to Homebrew's and shows
-"bundled"; the build's PATH starts with them. Under `swift run`, or in a build without the bundle,
+"bundled", and the build's PATH starts with them. Under `swift run`, or in a build without the bundle,
 nothing changes: Homebrew's tools, a system Python or the launcher's venv. To try the bundle by hand:
 `tools/bundle_tools.sh <folder> <work folder>`, then `tools/check_bundle.sh <folder>`.
 
@@ -251,8 +258,8 @@ nothing changes: Homebrew's tools, a system Python or the launcher's venv. To tr
 
 The interface follows the system language at every launch: any Chinese variant
 (Simplified, Traditional, Hong Kong, Taiwan) gets Chinese, every other language gets
-English; the app has no language switch. Strings live in
-`Sources/NSPortBuilder/Localization.swift`; regenerate the Qt table after editing
+English, and the app has no language switch. Strings live in
+`Sources/NSPortBuilder/Localization.swift`. Regenerate the Qt table after editing
 it with `python3 frontend-qt/gen_localization.py` from the repository root.
 
 ## Verification
