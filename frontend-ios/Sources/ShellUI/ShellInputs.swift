@@ -1,0 +1,150 @@
+import Foundation
+
+/// The caller supplies display data. These types never load, validate, or store game data.
+public enum GameState: Equatable, Sendable {
+    case playable
+    case needsGameData
+    case needsAppUpdate
+    case broken(reason: String)
+}
+
+public struct GameTile: Identifiable, Equatable, Sendable {
+    public var id: String
+    public var title: String
+    /// One short line under the title, such as the version.
+    public var subtitle: String
+    /// The square cover, normally the game's NACP icon. Nil draws a calm placeholder from the title.
+    public var cover: Artwork?
+    /// Wider key art for the hero, when the game data has some. Nil uses the cover.
+    public var heroArt: Artwork?
+    public var state: GameState
+    /// Already localized, such as "Played today". Nil leaves the game out of Recently played.
+    public var recentlyPlayed: String?
+    public init(id: String, title: String, subtitle: String = "", cover: Artwork? = nil, heroArt: Artwork? = nil,
+                state: GameState = .playable, recentlyPlayed: String? = nil) {
+        self.id = id
+        self.title = title
+        self.subtitle = subtitle
+        self.cover = cover
+        self.heroArt = heroArt
+        self.state = state
+        self.recentlyPlayed = recentlyPlayed
+    }
+}
+
+public struct SettingOption: Identifiable, Equatable, Sendable {
+    public var id: String
+    public var label: String
+    public init(_ value: String, _ label: String) { id = value; self.label = label }
+}
+
+public enum SettingKind: Equatable, Sendable {
+    case toggle(on: String, off: String)
+    case choice([SettingOption])
+    case range(min: Double, max: Double, step: Double, unit: String)
+}
+
+public struct SettingRow: Identifiable, Equatable, Sendable {
+    public var id: String
+    public var label: String
+    public var note: String
+    public var kind: SettingKind
+    public var value: String
+    /// The caller resolves dependencies and locks before supplying rows.
+    public var enabled: Bool
+    public init(id: String, label: String, note: String = "", kind: SettingKind, value: String, enabled: Bool = true) {
+        self.id = id
+        self.label = label
+        self.note = note
+        self.kind = kind
+        self.value = value
+        self.enabled = enabled
+    }
+}
+
+public struct SettingSection: Identifiable, Equatable, Sendable {
+    public var id: String
+    public var title: String
+    public var rows: [SettingRow]
+    public init(id: String, title: String, rows: [SettingRow]) { self.id = id; self.title = title; self.rows = rows }
+}
+
+public struct GameDetail: Identifiable, Equatable, Sendable {
+    public var id: String { game.id }
+    public var game: GameTile
+    public var sections: [SettingSection]
+    public var dataSource: String
+    public var dataNote: String
+    public var cloudSaves: String?
+    public var cloudNote: String
+    public var dlc: String
+    public var hasModifiedSettings: Bool
+    public init(game: GameTile, sections: [SettingSection] = [], dataSource: String = "", dataNote: String = "",
+                cloudSaves: String? = nil, cloudNote: String = "", dlc: String = "", hasModifiedSettings: Bool = false) {
+        self.game = game
+        self.sections = sections
+        self.dataSource = dataSource
+        self.dataNote = dataNote
+        self.cloudSaves = cloudSaves
+        self.cloudNote = cloudNote
+        self.dlc = dlc
+        self.hasModifiedSettings = hasModifiedSettings
+    }
+}
+
+public struct ControllerInfo: Identifiable, Equatable, Sendable {
+    public var id: String
+    public var name: String
+    public var player: String
+    /// Nil means the controller does not report battery level.
+    public var batteryPercent: Int?
+    public var charging: Bool
+    public init(id: String, name: String, player: String, batteryPercent: Int? = nil, charging: Bool = false) {
+        self.id = id
+        self.name = name
+        self.player = player
+        self.batteryPercent = batteryPercent
+        self.charging = charging
+    }
+}
+
+/// An optional event supplied by the host's input adapter. Increment sequence for repeated presses.
+public struct ShellInput: Equatable, Sendable {
+    public enum Action: Sendable { case up, down, left, right, activate, back, settings, controllers }
+    public var sequence: Int
+    public var action: Action
+    public init(sequence: Int, action: Action) { self.sequence = sequence; self.action = action }
+}
+
+/// All effects leave the package through these closures. The game ID is always explicit.
+public struct ShellActions {
+    public var onSelect: (String) -> Void
+    public var onPlay: (String) -> Void
+    public var onChange: (_ gameID: String, _ settingID: String, _ value: String) -> Void
+    public var onPickGameData: (String) -> Void
+    public var onUseAppData: (String) -> Void
+    public var onPickCloudSaves: (String) -> Void
+    public var onDisableCloudSaves: (String) -> Void
+    public var onResetDefaults: (String) -> Void
+    public var onShowLog: (String) -> Void
+    public var onAppUpdate: () -> Void
+    public var onBack: () -> Void
+    public init(onSelect: @escaping (String) -> Void = { _ in }, onPlay: @escaping (String) -> Void = { _ in },
+                onChange: @escaping (String, String, String) -> Void = { _, _, _ in },
+                onPickGameData: @escaping (String) -> Void = { _ in }, onUseAppData: @escaping (String) -> Void = { _ in },
+                onPickCloudSaves: @escaping (String) -> Void = { _ in }, onDisableCloudSaves: @escaping (String) -> Void = { _ in },
+                onResetDefaults: @escaping (String) -> Void = { _ in }, onShowLog: @escaping (String) -> Void = { _ in },
+                onAppUpdate: @escaping () -> Void = {}, onBack: @escaping () -> Void = {}) {
+        self.onSelect = onSelect
+        self.onPlay = onPlay
+        self.onChange = onChange
+        self.onPickGameData = onPickGameData
+        self.onUseAppData = onUseAppData
+        self.onPickCloudSaves = onPickCloudSaves
+        self.onDisableCloudSaves = onDisableCloudSaves
+        self.onResetDefaults = onResetDefaults
+        self.onShowLog = onShowLog
+        self.onAppUpdate = onAppUpdate
+        self.onBack = onBack
+    }
+}

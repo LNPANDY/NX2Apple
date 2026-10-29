@@ -1,0 +1,476 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "2 additional content packs": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2 additional content packs"
+          }
+        }
+      }
+    },
+    "30 fps": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "30 fps"
+          }
+        }
+      }
+    },
+    "60 fps": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "60 fps"
+          }
+        }
+      }
+    },
+    "All controllers are player 1": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All controllers are player 1"
+          }
+        }
+      }
+    },
+    "App update requested. The host supplies update instructions.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App update requested. The host supplies update instructions."
+          }
+        }
+      }
+    },
+    "Back requested.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Back requested."
+          }
+        }
+      }
+    },
+    "Choose a RomFS folder or romfs.img on this device, an external drive, or iCloud Drive.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose a RomFS folder or romfs.img on this device, an external drive, or iCloud Drive."
+          }
+        }
+      }
+    },
+    "Choose cloud folder requested. The host supplies the picker.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose cloud folder requested. The host supplies the picker."
+          }
+        }
+      }
+    },
+    "Choose game data requested. The host supplies the picker.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose game data requested. The host supplies the picker."
+          }
+        }
+      }
+    },
+    "Controls": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controls"
+          }
+        }
+      }
+    },
+    "Demo action": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demo action"
+          }
+        }
+      }
+    },
+    "Docked": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Docked"
+          }
+        }
+      }
+    },
+    "Fold": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fold"
+          }
+        }
+      }
+    },
+    "Frame rate": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frame rate"
+          }
+        }
+      }
+    },
+    "Game": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Game"
+          }
+        }
+      }
+    },
+    "Handheld": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Handheld"
+          }
+        }
+      }
+    },
+    "No additional content": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No additional content"
+          }
+        }
+      }
+    },
+    "OK": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        }
+      }
+    },
+    "Performance": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Performance"
+          }
+        }
+      }
+    },
+    "Play mode": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Play mode"
+          }
+        }
+      }
+    },
+    "Play requested. The demo does not launch games.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Play requested. The demo does not launch games."
+          }
+        }
+      }
+    },
+    "Played today": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Played today"
+          }
+        }
+      }
+    },
+    "Played yesterday": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Played yesterday"
+          }
+        }
+      }
+    },
+    "Player 1": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Player 1"
+          }
+        }
+      }
+    },
+    "Player 2": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Player 2"
+          }
+        }
+      }
+    },
+    "Player 3": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Player 3"
+          }
+        }
+      }
+    },
+    "Pro Controller": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pro Controller"
+          }
+        }
+      }
+    },
+    "Render scale": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Render scale"
+          }
+        }
+      }
+    },
+    "Scale the game's 3D resolution.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scale the game's 3D resolution."
+          }
+        }
+      }
+    },
+    "Show frame rate": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show frame rate"
+          }
+        }
+      }
+    },
+    "Show log requested. The host supplies the log.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show log requested. The host supplies the log."
+          }
+        }
+      }
+    },
+    "The game's display and performance profile.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The game's display and performance profile."
+          }
+        }
+      }
+    },
+    "This app's folder": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This app's folder"
+          }
+        }
+      }
+    },
+    "This game's bundled files could not be verified. Rebuild the app to restore them.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This game's bundled files could not be verified. Rebuild the app to restore them."
+          }
+        }
+      }
+    },
+    "USB Controller": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "USB Controller"
+          }
+        }
+      }
+    },
+    "Unfold": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unfold"
+          }
+        }
+      }
+    },
+    "Use app data requested.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use app data requested."
+          }
+        }
+      }
+    },
+    "Use more than one controller for the same player.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use more than one controller for the same player."
+          }
+        }
+      }
+    },
+    "Version 1.0.0": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Version 1.0.0"
+          }
+        }
+      }
+    },
+    "Version 1.0.2": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Version 1.0.2"
+          }
+        }
+      }
+    },
+    "Version 1.1.0": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Version 1.1.0"
+          }
+        }
+      }
+    },
+    "Version 1.2.0": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Version 1.2.0"
+          }
+        }
+      }
+    },
+    "Version 1.4.0": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Version 1.4.0"
+          }
+        }
+      }
+    },
+    "Version 2.0.1": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Version 2.0.1"
+          }
+        }
+      }
+    },
+    "Version 3.1.0": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Version 3.1.0"
+          }
+        }
+      }
+    },
+    "Wireless Controller": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wireless Controller"
+          }
+        }
+      }
+    },
+    "iCloud Drive / Game Saves": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud Drive / Game Saves"
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}
