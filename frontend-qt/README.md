@@ -30,6 +30,13 @@ python3 -m venv .venv
 From this folder. It looks for the repository checkout next to itself, in `~/NX2Apple`, or
 wherever `NSPB_REPO` points, and the repository group lets you pick it by hand.
 
+## Look
+
+`nspb_qt/style.py` follows the Mac launcher: near-black background, cream accent, the state colours
+of its `LauncherPalette`, and the Manrope typeface (SIL OFL 1.1). The font is not copied here: a
+source run loads `../frontend/fonts/Manrope.ttf`, and the Windows build adds it and its licence to
+the bundle's `fonts` folder (`build-qt.yml`). If the file is missing the system font is used.
+
 ## What works today
 
 - Dependency detection per platform: Python + packages, .NET SDK, and either **Xcode + iOS SDK +

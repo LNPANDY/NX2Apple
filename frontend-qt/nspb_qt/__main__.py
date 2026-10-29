@@ -9,7 +9,7 @@ from PySide6.QtWidgets import QApplication
 
 from .model import Model
 from .platform_util import hide_console_for_children
-from .style import STYLE
+from .style import STYLE, load_font
 from .ui import MainWindow
 
 
@@ -27,6 +27,11 @@ def main() -> int:
     app.setApplicationDisplayName('NS Port Builder')
     app.setStyleSheet(STYLE)
     app.setStyle('Fusion')   # the same widget look on Windows and macOS
+    family = load_font()     # Manrope, as the Mac launcher; the system font when it cannot load
+    if family:
+        font = app.font()
+        font.setFamily(family)
+        app.setFont(font)
     model = Model()
     win = MainWindow(model)
     win.show()
