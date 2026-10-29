@@ -16,7 +16,6 @@ Ported onto the pinned tree from seedds/nxnative#406 (all but the Mac panel).
 Upstream-Status: forwarded seedds/nxnative#406
 Reason: the launcher's cheat manager builds on its file contract until upstream merges it
 Issue: LNPANDY/NX2Apple#97
-
 ---
  dm/games/01003FC01670C000/README.md |   10 +
  dm/gfx/nvn/hle_nvn.c                |    1 +
@@ -37,13 +36,13 @@ Issue: LNPANDY/NX2Apple#97
  docs/reference/README.md            |    3 +-
  docs/reference/cheats.md            |  251 ++++
  docs/reference/rewriter.md          |   14 +
- scripts/cheat_anchor.py             | 1443 +++++++++++++++++++
- 20 files changed, 5263 insertions(+), 2 deletions(-)
+ scripts/cheat_anchor.py             | 1450 +++++++++++++++++++
+ 20 files changed, 5270 insertions(+), 2 deletions(-)
  create mode 100644 dm/host/hle_cheats.c
  create mode 100644 dm/host/tests/t_cheats.c
  create mode 100644 dm/tools/tests/test_cheat_anchor.py
  create mode 100644 docs/reference/cheats.md
- create mode 100644 scripts/cheat_anchor.py
+ create mode 100755 scripts/cheat_anchor.py
 
 diff --git a/dm/games/01003FC01670C000/README.md b/dm/games/01003FC01670C000/README.md
 index d4f7ba00..68c218f3 100644
@@ -2989,7 +2988,7 @@ index 00000000..f6b71a57
 +}
 diff --git a/dm/tools/tests/test_cheat_anchor.py b/dm/tools/tests/test_cheat_anchor.py
 new file mode 100644
-index 00000000..236cf75f
+index 00000000..462c0d40
 --- /dev/null
 +++ b/dm/tools/tests/test_cheat_anchor.py
 @@ -0,0 +1,638 @@
@@ -3001,17 +3000,17 @@ index 00000000..236cf75f
 +stay in their target's segment; malformed files and undecodable cheats are never shortened or dropped silently.
 +"""
 +import importlib.util
-+from pathlib import Path
 +import struct
 +import sys
 +import tempfile
 +import tomllib
 +import unittest
 +import warnings
++from pathlib import Path
 +
 +REPO = Path(__file__).resolve().parents[3]
 +sys.path.insert(0, str(REPO / 'dm/tools'))
-+from nso_asm import ADRP, ADDI, B, NOP
++from nso_asm import ADDI, ADRP, NOP, B
 +
 +spec = importlib.util.spec_from_file_location('cheat_anchor', REPO / 'scripts/cheat_anchor.py')
 +assert spec and spec.loader   # a path that exists: narrows the Optional for the type checker
@@ -3162,7 +3161,7 @@ index 00000000..236cf75f
 +        """References that disagree, or too few of them, refuse the cheat instead of guessing."""
 +        old = self.build('a', {0x100: reader(0x100, 0x4100), 0x200: reader(0x200, 0x4100, 0x20)})
 +        split = self.build('b', {0x300: reader(0x300, 0x4180), 0x500: reader(0x500, 0x4240, 0x20)}, build=B2)
-+        got, report, skipped = self.roundtrip(old, split, '[x]\n02000000 0000411E 000003E7\n')
++        _got, report, skipped = self.roundtrip(old, split, '[x]\n02000000 0000411E 000003E7\n')
 +        self.assertEqual(skipped, 1); self.assertIn('disagree', report[0])
 +        one = self.build('c', {0x300: reader(0x300, 0x4180)}, build=b'\x33' * 8)
 +        _, report, skipped = self.roundtrip(old, one, '[x]\n02000000 0000411E 000003E7\n')
@@ -3274,7 +3273,7 @@ index 00000000..236cf75f
 +        g = lambda s, data: [ADRP(8, s, data), LDRW(0, 8, data & 0xfff), RET]   # ldr w0, [x8, #lo]: an adrp's user
 +        old = self.build('a', {0x100: g(0x100, 0x4100)})
 +        new = self.build('b', {0x100: g(0x100, 0x4180)}, build=B2)
-+        src, report, bound = ca.import_file(self.txt(f'[Next field]\n04000000 00000104 {LDRW(0, 8, 0x104):08X}\n'), old)
++        _src, report, bound = ca.import_file(self.txt(f'[Next field]\n04000000 00000104 {LDRW(0, 8, 0x104):08X}\n'), old)
 +        self.assertEqual(bound, 1); self.assertIn('takes the page of the adrp at 0x100', ' '.join(report))
 +        got, report, skipped = self.roundtrip(old, new, f'[Restore]\n04000000 00000104 {LDRW(0, 8, 0x100):08X}\n')
 +        self.assertEqual(skipped, 0, report); self.assertEqual(got['Restore'][2], [0x04000000, 0x104, LDRW(0, 8, 0x180)])
@@ -3316,7 +3315,7 @@ index 00000000..236cf75f
 +        """Unanchorable cheats stay bound to their own build, and a file named after another build needs --assume-build."""
 +        old = self.build('a', {0x100: reader(0x100, 0x4100), 0x200: reader(0x200, 0x4100, 0x20)})
 +        new = self.build('b', {0x100: reader(0x100, 0x4100), 0x200: reader(0x200, 0x4100, 0x20)}, build=B2)
-+        got, report, skipped = self.roundtrip(old, new, '[Heap]\n02100000 00001234 00000001\n')   # region 1: the heap
++        _got, report, skipped = self.roundtrip(old, new, '[Heap]\n02100000 00001234 00000001\n')   # region 1: the heap
 +        self.assertEqual(skipped, 1); self.assertIn('written for build 1111111111111111 only', report[0])
 +        with self.assertRaisesRegex(ca.AnchorError, 'names build 2222222222222222'):
 +            ca.import_file(self.txt('[x]\n02000000 0000411E 00000001\n', '2222222222222222.txt'), old)
@@ -3392,9 +3391,9 @@ index 00000000..236cf75f
 +        self.assertIn('no describable code reference', ' '.join(report))
 +        # with an object at the start of .data: anchored to it, and found again when .rodata grows and .data moves up
 +        old = self.build('c', {**ro, 0x300: reader(0x300, 0x4000, 0x22), 0x400: reader(0x400, 0x4000, 0x24)})
-+        grown = self.build('d', {**ro, 0x300: reader(0x300, 0x4100, 0x22), 0x400: reader(0x400, 0x4100, 0x24)}, build=B2, data=0x4100)
++        grown = self.build('d', {**ro, 0x300: reader(0x300, 0x5000, 0x22), 0x400: reader(0x400, 0x5000, 0x24)}, build=B2, data=0x5000)
 +        got, report, skipped = self.roundtrip(old, grown, '[x]\n02000000 00004010 00000001\n')
-+        self.assertEqual(skipped, 0, report); self.assertEqual(got['x'][2][1], 0x4110)
++        self.assertEqual(skipped, 0, report); self.assertEqual(got['x'][2][1], 0x5010)
 +        # a source that anchors the .data target on the .rodata object (what import used to write) is refused
 +        refs = ', '.join(f'{{ old = "{old.word(s):08X}", size = 0x10, at = 0x0, use = 0x4, fp = "{old.digest(s, "fp")}" }}' for s in (0x100, 0x200))
 +        self.source(f'format = 1\n[[cheats]]\nname = "x"\ntarget = "d_3FF8+0x18"\ntype = "u16"\nvalue = 1\n[anchors.d_3FF8]\ndata = [{refs}]\n')
@@ -3404,7 +3403,7 @@ index 00000000..236cf75f
 +    def test_glued_words_are_split_and_stray_tokens_make_a_cheat_malformed(self):
 +        """Glued words split like Atmosphère reads them; prose lines are ignored like the host does; junk on a code
 +        line, or a cut word, keeps the cheat whole, bound and refused, with its line; such a token survives the TOML."""
-+        entries, warns = ca.parse_atmosphere('[A]\n0400000000004100 00000001\n')
++        entries, _warns = ca.parse_atmosphere('[A]\n0400000000004100 00000001\n')
 +        self.assertEqual(entries, [('A', False, [0x04000000, 0x4100, 1], [])])
 +        old = self.build('a', {0x100: reader(0x100, 0x4100), 0x200: reader(0x200, 0x4100, 0x20)})
 +        text = ('[B]\n80000001\n04000000 00004100 00000001\n2000000\n[C]\nby someone\n04000000 00004104 00000002\n'
@@ -3427,7 +3426,7 @@ index 00000000..236cf75f
 +        got, report, skipped = self.roundtrip(old, old, '[Weird]\nB0000000 00000001\n')
 +        self.assertEqual(skipped, 0, report); self.assertEqual(got['Weird'][2], [0xB0000000, 1])
 +        self.assertIn('[Weird]\nB0000000 00000001\n', ca.render(list(got.values())))
-+        _, entries, report, skipped = ca.compile_source(self.dir / 'g.cheats.toml', new)
++        _, _entries, report, skipped = ca.compile_source(self.dir / 'g.cheats.toml', new)
 +        self.assertEqual(skipped, 1)
 +
 +    def test_a_file_named_after_the_title_id_names_no_build(self):
@@ -3437,7 +3436,7 @@ index 00000000..236cf75f
 +        struct.pack_into('<Q', npdm, 0x90, 0x0100abcd00000000); (self.dir / 't/main.npdm').write_bytes(npdm)
 +        old = self.build('t/main', {0x100: reader(0x100, 0x4100), 0x200: reader(0x200, 0x4100, 0x20)})
 +        self.assertEqual(old.title, '0100ABCD00000000')
-+        src, report, bound = ca.import_file(self.txt('[h]\n02100000 00001234 00000001\n', '0100ABCD00000000.txt'), old)
++        src, _report, bound = ca.import_file(self.txt('[h]\n02100000 00001234 00000001\n', '0100ABCD00000000.txt'), old)
 +        self.assertEqual(bound, 1); self.assertEqual(src['cheats'][0]['builds'], ['1111111111111111'])
 +
 +    def test_a_merged_pair_keeps_its_master_flag(self):
@@ -3448,14 +3447,14 @@ index 00000000..236cf75f
 +                src, _, _ = ca.import_file(self.txt(f'{{Fast - on}}\n04000000 0000010C 1E2F1000\n{off_head}\n04000000 0000010C 1E2E1000\n'), old)
 +                self.assertEqual([c.get('on_name') for c in src['cheats']], ['Fast - on'])   # merged into one cheat
 +                ca.write_toml(src, self.dir / 'g.cheats.toml', 'cheats.txt')
-+                _, entries, report, skipped = ca.compile_source(self.dir / 'g.cheats.toml', old)
++                _, entries, _report, _skipped = ca.compile_source(self.dir / 'g.cheats.toml', old)
 +                self.assertEqual([(e[0], e[1]) for e in entries], [('Fast - on', True), ('Fast - off', off_master)])
 +
 +    def test_only_opcode_0_literals_are_carried_into_the_code(self):
 +        """A register store (opcode A) into the code is bound to its build: its value never meets the relocation rule."""
 +        fa = lambda s, callee: [MOVZ(1, 1), BL(s + 4, callee), MOVZ(2, 2), MOVZ(3, 3), RET]
 +        old = self.build('a', {0x100: fa(0x100, 0x300), 0x300: [MOVZ(0, 7), RET]})
-+        src, report, bound = ca.import_file(self.txt(f'[RegStore]\n400F0000 00000000 {BL(0x104, 0x308):08X}\nA4F00400 00000104\n'), old)
++        _src, report, bound = ca.import_file(self.txt(f'[RegStore]\n400F0000 00000000 {BL(0x104, 0x308):08X}\nA4F00400 00000104\n'), old)
 +        self.assertEqual(bound, 1); self.assertIn('a store of a register into the code at 0x104', ' '.join(report))
 +
 +    def test_a_new_adrp_user_over_an_unmoved_word_is_bound(self):
@@ -3464,24 +3463,24 @@ index 00000000..236cf75f
 +        old = self.build('a', {0x100: f(0x100, 0x4100)})
 +        new = self.build('b', {0x100: f(0x100, 0x4180)}, build=B2)   # the data moved inside its page, the code did not
 +        text = f'[Neighbour]\n04000000 00000108 {LDRW(0, 8, 0x104):08X}\n'
-+        src, report, bound = ca.import_file(self.txt(text), old)
++        _src, report, bound = ca.import_file(self.txt(text), old)
 +        self.assertEqual(bound, 1); self.assertIn('takes the page of the adrp at 0x100', ' '.join(report))
 +        self.source(f'format = 1\nauthored = "1111111111111111"\n[[cheats]]\nname = "N"\npatch = [{{ at = "s_108", new = "{LDRW(0, 8, 0x104):08X}" }}]\n'
 +                    f'[anchors.s_108]\ncode = {{ old = "{MOVZ(0, 2):08X}", size = 0x14, at = 0x8, fp = "{old.digest(0x100, "fp")}" }}\n')
-+        _, entries, report, skipped = ca.compile_source(self.dir / 's.cheats.toml', old)
++        _, _entries, report, skipped = ca.compile_source(self.dir / 's.cheats.toml', old)
 +        self.assertEqual(skipped, 0, report)   # its own build: the word is right there
-+        _, entries, report, skipped = ca.compile_source(self.dir / 's.cheats.toml', new)
++        _, _entries, report, skipped = ca.compile_source(self.dir / 's.cheats.toml', new)
 +        self.assertEqual(skipped, 1); self.assertIn('takes the page of the adrp', report[0])
 +
 +    def test_a_narrow_write_is_checked_by_the_word_it_makes(self):
 +        """A 2-byte write that retargets a bl is bound at import, and refused at compile when the site was found by its window."""
 +        F = lambda s, g: [MOVZ(1, 1), BL(s + 4, g), MOVZ(2, 2), MOVZ(3, 3), RET]
 +        old = self.build('a', {0x100: F(0x100, 0x400), 0x400: [MOVZ(0, 7), RET], 0x500: [MOVZ(0, 8), MOVZ(6, 9), RET]})
-+        src, report, bound = ca.import_file(self.txt(f'[ToH]\n02000000 00000104 0000{BL(0x104, 0x500) & 0xffff:04X}\n'), old)
++        _src, report, bound = ca.import_file(self.txt(f'[ToH]\n02000000 00000104 0000{BL(0x104, 0x500) & 0xffff:04X}\n'), old)
 +        self.assertEqual(bound, 1); self.assertIn('makes 940000FF, PC-relative to 0x500', ' '.join(report))
 +        self.source(f'format = 1\n[[cheats]]\nname = "N"\npatch = [{{ at = "s_104", width = 2, new = "{BL(0x104, 0x500) & 0xffff:04X}" }}]\n'
 +                    f'[anchors.s_104]\ncode = {{ old = "{BL(0x104, 0x400):08X}", size = 0x14, at = 0x4, fp = "{old.digest(0x100, "fp")}" }}\n')
-+        _, entries, report, skipped = ca.compile_source(self.dir / 's.cheats.toml', old)
++        _, _entries, report, skipped = ca.compile_source(self.dir / 's.cheats.toml', old)
 +        self.assertEqual(skipped, 1); self.assertIn('PC-relative to 0x500', report[0])
 +
 +    def test_a_compare_with_a_moved_original_compares_with_this_builds_word(self):
@@ -3497,7 +3496,7 @@ index 00000000..236cf75f
 +    def test_a_store_offset_by_r0_the_cheat_sets_is_indexed(self):
 +        """The VM adds the offset register, r0 included: a store into code offset by an r0 the cheat loads is not static."""
 +        old = self.build('a', {0x100: [0xaa1703e0, NOP, LDRH(0, 0, 0x34), 0x1e2e1000, RET]})
-+        src, report, bound = ca.import_file(self.txt('[R0]\n40000000 00000000 00000004\n04000000 0000010C 1E2F1000\n'), old)
++        _src, report, bound = ca.import_file(self.txt('[R0]\n40000000 00000000 00000004\n04000000 0000010C 1E2F1000\n'), old)
 +        self.assertEqual(bound, 1); self.assertIn('indexed by register 0', ' '.join(report))
 +
 +    def test_a_data_anchor_found_among_identical_copies_by_order_is_weak(self):
@@ -3579,7 +3578,7 @@ index 00000000..236cf75f
 +        nd = got['HP never decreases']   # no Atmosphère program: the host runs it from the meta row
 +        self.assertEqual((nd[2], nd[3]['action'], nd[3]['address'], nd[3]['type']), ([], 'never-decrease', '0:0x411C', 's16'))
 +        self.assertIn('nxnative only', nd[3]['how'])
-+        self.assertEqual(skipped, 1); self.assertIn('only unsigned types', [r for r in report if 'Signed' in r][0])
++        self.assertEqual(skipped, 1); self.assertIn('only unsigned types', next(r for r in report if 'Signed' in r))
 +        text = ca.render(entries)
 +        self.assertIn('[--SectionStart:Items--]\n\n[Gold]\n04000000 00004140 000001F4\n\n[--SectionEnd:Items--]', text)
 +        self.assertIn('[HP never decreases]\n\n', text)   # an empty entry: an inert label on other engines
@@ -4094,11 +4093,11 @@ index e1429b2a..5e24914f 100644
  
  ### Offset jump tables through x18 read at rewrite time
 diff --git a/scripts/cheat_anchor.py b/scripts/cheat_anchor.py
-new file mode 100644
-index 00000000..0ea50937
+new file mode 100755
+index 00000000..74ce0c67
 --- /dev/null
 +++ b/scripts/cheat_anchor.py
-@@ -0,0 +1,1443 @@
+@@ -0,0 +1,1450 @@
 +#!/usr/bin/env python3
 +# Cheats that survive game updates: anchor the addresses of Atmosphère cheat codes to the game's own code, then compile
 +# them into the plain Atmosphère file (<build ID>.txt) of any build of the game.
@@ -4122,14 +4121,21 @@ index 00000000..0ea50937
 +#   cheat_anchor.py check   <game>.cheats.toml --nso <ExeFS/main of the target build>
 +# Needs Python 3.11+ (tomllib) and the README's packages (lz4, capstone). Exit status: 0 everything resolved, 2 some cheats
 +# were skipped or kept bound to one build (the file is still written; the report says why), 1 an error (nothing written).
-+import argparse, bisect, datetime, hashlib, re, struct, sys, tomllib
++import argparse
++import bisect
++import datetime
++import hashlib
++import re
++import struct
++import sys
++import tomllib
 +from pathlib import Path
 +
 +TOOLS = Path(__file__).resolve().parent.parent / 'dm' / 'tools'   # the repository's tools, found from this script's place
 +sys.path.insert(0, str(TOOLS))
-+import nso_match                     # function boundaries and fingerprints: the rewriter's cross-build matcher
-+from nso_syms import load as load_nso
-+import nacp                          # the display version of a build, from the control.nacp beside its ExeFS
++import nacp  # pyright: ignore[reportMissingImports]  # the display version of a build, from the control.nacp beside its ExeFS
++import nso_match  # pyright: ignore[reportMissingImports]  # function boundaries and fingerprints: the rewriter's cross-build matcher
++from nso_syms import load as load_nso  # pyright: ignore[reportMissingImports]
 +
 +FORMAT = 1                           # the source format version this tool reads and writes
 +MAX_FIELD = 0x10000                  # a data target may lie this far past the address the code references (a field of a large object)
@@ -4708,7 +4714,7 @@ index 00000000..0ea50937
 +
 +# ---------- import: an Atmosphère file into anchored cheats ----------
 +
-+ON_OFF = re.compile(r'^(.*?)(?:\s*[-:_]\s*|\s+|\s*[(\[]\s*)(on|off)\s*[)\]]?$', re.I)
++ON_OFF = re.compile(r'^(.*?)(?:\s*[-:_]\s*|\s+|\s*[(\[]\s*)(on|off)\s*[)\]]?$', re.IGNORECASE)
 +
 +
 +def import_file(txt, build, assume_build=False):

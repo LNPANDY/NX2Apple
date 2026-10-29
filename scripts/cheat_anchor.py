@@ -21,14 +21,21 @@
 #   cheat_anchor.py check   <game>.cheats.toml --nso <ExeFS/main of the target build>
 # Needs Python 3.11+ (tomllib) and the README's packages (lz4, capstone). Exit status: 0 everything resolved, 2 some cheats
 # were skipped or kept bound to one build (the file is still written; the report says why), 1 an error (nothing written).
-import argparse, bisect, datetime, hashlib, re, struct, sys, tomllib
+import argparse
+import bisect
+import datetime
+import hashlib
+import re
+import struct
+import sys
+import tomllib
 from pathlib import Path
 
 TOOLS = Path(__file__).resolve().parent.parent / 'dm' / 'tools'   # the repository's tools, found from this script's place
 sys.path.insert(0, str(TOOLS))
-import nso_match                     # function boundaries and fingerprints: the rewriter's cross-build matcher
-from nso_syms import load as load_nso
-import nacp                          # the display version of a build, from the control.nacp beside its ExeFS
+import nacp  # pyright: ignore[reportMissingImports]  # the display version of a build, from the control.nacp beside its ExeFS
+import nso_match  # pyright: ignore[reportMissingImports]  # function boundaries and fingerprints: the rewriter's cross-build matcher
+from nso_syms import load as load_nso  # pyright: ignore[reportMissingImports]
 
 FORMAT = 1                           # the source format version this tool reads and writes
 MAX_FIELD = 0x10000                  # a data target may lie this far past the address the code references (a field of a large object)
@@ -607,7 +614,7 @@ def format_words(words, ins=None, tokens=None):
 
 # ---------- import: an Atmosphère file into anchored cheats ----------
 
-ON_OFF = re.compile(r'^(.*?)(?:\s*[-:_]\s*|\s+|\s*[(\[]\s*)(on|off)\s*[)\]]?$', re.I)
+ON_OFF = re.compile(r'^(.*?)(?:\s*[-:_]\s*|\s+|\s*[(\[]\s*)(on|off)\s*[)\]]?$', re.IGNORECASE)
 
 
 def import_file(txt, build, assume_build=False):
