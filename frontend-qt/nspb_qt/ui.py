@@ -229,10 +229,31 @@ class MainWindow(QMainWindow):
         self._translatable.append((recheck, 'dep.recheck'))
         recheck.clicked.connect(self.m.check_deps)
         head.addWidget(recheck)
+        self.deps_toggle = QPushButton(self.m.t('dep.hide'))
+        self._translatable.append((self.deps_toggle, 'dep.hide'))
+        self.deps_toggle.clicked.connect(self._toggle_deps)
+        head.addWidget(self.deps_toggle)
         lay.addLayout(head)
         self.deps_container = QVBoxLayout()
         self.deps_container.setSpacing(3)
         lay.addLayout(self.deps_container)
+        # Open by default, like the Mac's panel (open while anything is missing); remembered for
+        # the next start either way.
+        self.deps_open = self.m.settings_value('depsExpanded')
+        self._apply_deps_open()
+
+    def _toggle_deps(self) -> None:
+        self.deps_open = not self.deps_open
+        self.m.settings_set('depsExpanded', self.deps_open)
+        self._apply_deps_open()
+
+    def _apply_deps_open(self) -> None:
+        for i in range(self.deps_container.count()):
+            if w := self.deps_container.itemAt(i).widget():
+                w.setVisible(self.deps_open)
+        self.deps_toggle.setText(self.m.t('dep.hide' if self.deps_open else 'dep.show'))
+        self._translatable = [(w, k) if k != 'dep.hide' and w is not self.deps_toggle else (w, 'dep.hide' if self.deps_open else 'dep.show')
+                              for w, k in self._translatable]
 
     def _build_progress(self) -> None:
         box, lay = self._card('prog.title')
@@ -430,6 +451,11 @@ class MainWindow(QMainWindow):
                 val.setStyleSheet(f'color: {MUTED if optional else ORANGE};')
         self._refresh_running()
 
+    @staticmethod
+    def _esc(text: str) -> str:
+        # The failure line is tool output; keep it out of the rich-text parser.
+        return (text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;'))
+
     def _refresh_deps(self) -> None:
         while self.deps_container.count():
             item = self.deps_container.takeAt(0)
@@ -472,12 +498,41 @@ class MainWindow(QMainWindow):
                     btn.setEnabled(not d.installing)
                     btn.clicked.connect(lambda _=False, dep=d: self.m.install_dep(dep))
                     h.addWidget(btn)
-                else:
+                if d.pick_key:
+                    # Apple-licensed pieces cannot be downloaded by the app: Choose points at a
+                    # copy the user already has (validated, remembered in toolchain.json).
+                    pick = QPushButton(self.m.t('dep.pick'))
+                    pick.clicked.connect(lambda _=False, dep=d: self.m.pick_dep_folder(dep))
+                    h.addWidget(pick)
+                if not d.install and not d.pick_key:
                     hint = QLabel(self.m.t(d.hint_key))
                     hint.setObjectName('note')
                     hint.setOpenExternalLinks(True)   # the Windows hints carry download links
                     h.addWidget(hint)
             self.deps_container.addWidget(row)
+            # Why the last install failed and what to do: the tool's own line under the row, the
+            # fix under it (Mac parity). Cleared when the row installs successfully.
+            if not d.ok and (d.last_error or d.fix_hint):
+                note = QLabel(('<br>' if d.last_error and d.fix_hint else '')
+                              + (self._esc(d.last_error) if d.last_error else '')
+                              + ('<br>' + self.m.t(d.fix_hint) if d.fix_hint else ''))
+                note.setObjectName('note')
+                note.setOpenExternalLinks(True)
+                note.setContentsMargins(20, 0, 0, 4)
+                self.deps_container.addWidget(note)
+        for d in self.m.deps:
+            if not d.ok and not d.install and d.id == 'ios_sdk':
+                guide = QLabel(self.m.t('dep.guide.iossdk'))
+                guide.setObjectName('note')
+                guide.setOpenExternalLinks(True)
+                guide.setContentsMargins(20, 0, 0, 4)
+                self.deps_container.addWidget(guide)
+            elif not d.ok and not d.install and d.id == 'metal':
+                guide = QLabel(self.m.t('dep.guide.metal'))
+                guide.setObjectName('note')
+                guide.setOpenExternalLinks(True)
+                guide.setContentsMargins(20, 0, 0, 4)
+                self.deps_container.addWidget(guide)
         if self.m.deps_checked:
             if not self.m.deps:
                 # The check produced no rows at all, which means it failed — never report that as
