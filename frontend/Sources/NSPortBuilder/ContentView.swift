@@ -1561,6 +1561,24 @@ final class BuildModel: ObservableObject {
 
     // MARK: Archive
 
+    /// The DLC images ride along: with the slim default the build script leaves them in the work folder
+    /// instead of packing them into the IPA, and the host mounts them from DM_AOC_DIR/<index>.img, so
+    /// they belong in this game's folder. Every way the archive step can end (folder pack, image copy,
+    /// image reuse, stamp reuse) goes through here (issue #202).
+    private func placeAddOnContent(workDir: String, in dest: String) {
+        let n = Self.copyAddOnContent(from: workDir + "/aoc", to: dest + "/aoc")
+        if n > 0 { say(String(format: t("msg.aocCopied"), n)) }
+    }
+
+    /// Replace `to` with a copy of `from` when `from` exists. Returns how many entries `to` holds afterwards.
+    nonisolated static func copyAddOnContent(from: String, to: String) -> Int {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: from) else { return 0 }
+        try? fm.removeItem(atPath: to)
+        try? fm.copyItem(atPath: from, toPath: to)
+        return ((try? fm.contentsOfDirectory(atPath: to)) ?? []).count
+    }
+
     /// Pack the extracted RomFS into one romfs.img. The extracted folder is
     /// <work>/extract/v<N>/RomFS where N is the profile's package version, so take
     /// the highest v* that actually has a RomFS instead of hardcoding one game.
@@ -1606,6 +1624,7 @@ final class BuildModel: ObservableObject {
             stages.append(Stage(id: 1000, name: t("prog.archive"), state: .done,
                                 detail: String(format: t("prog.archiveReused"), reused)))
             say(String(format: t("msg.archiveReused"), dest))
+            placeAddOnContent(workDir: workDir, in: dest)
             if let then { return then(dest) }
             cleanupStaging()
             finishBuild(ok: true, note: t("msg.done"))
@@ -1640,6 +1659,7 @@ final class BuildModel: ObservableObject {
                 stages.append(Stage(id: idx, name: t("prog.archive"), state: .done,
                                     detail: String(format: t("prog.archiveReused"), 1)))
                 say(String(format: t("msg.archiveReused"), dest))
+                placeAddOnContent(workDir: workDir, in: dest)
                 archivePath = dest
                 if let then { return then(dest) }
                 cleanupStaging()
@@ -1656,6 +1676,7 @@ final class BuildModel: ObservableObject {
                     stages[i].state = .done; stages[i].detail = v
                 }
                 say(String(format: t("msg.archiveLog"), romfsImage, dest))
+                placeAddOnContent(workDir: workDir, in: dest)
                 archivePath = dest
                 if let then { return then(dest) }
                 cleanupStaging()
@@ -1691,17 +1712,7 @@ final class BuildModel: ObservableObject {
             if succeeded {
                 self.archivePath = dest
                 Self.writeStamp(source: romfs, version: v, to: dest + "/.packstamp")
-                // The DLC images ride along: with the slim default the build script leaves them in
-                // the work folder instead of packing them into the IPA, and the host mounts them
-                // from DM_AOC_DIR/<index>.img — so they belong in this game's folder.
-                let aocSrc = workDir + "/aoc"
-                let aocDst = dest + "/aoc"
-                if fm.fileExists(atPath: aocSrc) {
-                    try? fm.removeItem(atPath: aocDst)
-                    try? fm.copyItem(atPath: aocSrc, toPath: aocDst)
-                    let n = ((try? fm.contentsOfDirectory(atPath: aocDst)) ?? []).count
-                    if n > 0 { self.say(String(format: self.t("msg.aocCopied"), n)) }
-                }
+                self.placeAddOnContent(workDir: workDir, in: dest)
             }
             if let i = self.stages.firstIndex(where: { $0.id == idx }) {
                 self.stages[i].state = succeeded ? .done : .failed
