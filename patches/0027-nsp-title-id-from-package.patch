@@ -1,0 +1,218 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: v0lumehi <aljic.zijad@gmail.com>
+Date: Thu, 29 Oct 2026 20:23:52 +0100
+Subject: [PATCH] NSP script: a package with no ticket and no [title ID] in its
+ name gives its title ID from its own meta NCA
+
+title_of took the title ID only from the ticket's file name or a [title ID] tag in the file name. With neither, it now asks nx_extract --title, which reads the meta NCA's header with the keys' header_key.
+
+Upstream-Status: forwarded seedds/nxnative#666
+Reason: an NSP without a ticket and without a title ID tag stops the build until upstream merges the fallback
+Issue: LNPANDY/NX2Apple#177
+
+---
+ dm/tools/nx_extract/Program.cs  | 11 ++++++++
+ dm/tools/tests/test_nsp_scan.py | 45 +++++++++++++++++++++++++++++++++
+ docs/development.md             |  2 +-
+ docs/reference/packing.md       |  9 +++++++
+ scripts/build_ipa_from_nsp.py   | 31 ++++++++++++++++++-----
+ 5 files changed, 90 insertions(+), 8 deletions(-)
+
+diff --git a/dm/tools/nx_extract/Program.cs b/dm/tools/nx_extract/Program.cs
+index e8c13925..f11e218b 100644
+--- a/dm/tools/nx_extract/Program.cs
++++ b/dm/tools/nx_extract/Program.cs
+@@ -5,6 +5,8 @@
+ // A damaged NSP (a file whose data fails the NCA's hash check, e.g. a copy cut short or a broken download) stops the extraction with exit code 3 after listing every damaged file;
+ //   --allow-damaged writes those files as read instead and only lists them (Super Mario Galaxy's base NSP with 147 MB zeroed: its two prologue WebM movies).
+ // Add-on content: nx_extract <prod.keys> --aoc <DLC NSP> <output dir> writes the RomFS of the DLC's data NCA to <output dir> (the packing script puts it at aoc/<index>/, the host mounts it through DM_AOC_DIR).
++// Title ID of a package: nx_extract <prod.keys> --title <NSP, NSZ, XCI or XCZ> prints "title <16 hex digits>", the lowest title ID of the package's meta NCAs (the base game's, before its update's or a DLC's),
++//   read from the meta NCA's header with the keys' header_key. For a package without a ticket and without a [title ID] in its name (the NSP script's title_of); exit code 5 when it has no meta NCA.
+ // Title keys come from the common tickets (.tik) inside the NSPs, so only prod.keys is needed; key values are never printed.
+ // The base game may also be a cartridge dump (.xci, Monster Hunter Rise): its secure partition holds the NCAs, which carry their keys in the key area (no ticket).
+ //   When the cartridge also carries an update (1G+1U), only the base game's NCAs (those its Application content meta lists) are read; the update comes from the update NSP.
+@@ -33,6 +35,7 @@ static class P {
+         bool manifest = Array.IndexOf(a, "--manifest") >= 0; a = Array.FindAll(a, s => s != "--manifest");
+         bool image = Array.IndexOf(a, "--romfs-image") >= 0; a = Array.FindAll(a, s => s != "--romfs-image");
+         g_allow = Array.IndexOf(a, "--allow-damaged") >= 0; a = Array.FindAll(a, s => s != "--allow-damaged");
++        if (a.Length == 3 && a[1] == "--title") return Title(ExternalKeyReader.ReadKeyFile(a[0]), a[2]);
+         if (a.Length < 4) { Console.Error.WriteLine("usage: nx_extract <prod.keys> <base.nsp> <update.nsp|-> <out dir> [base RomFS dir] [--romfs-image|--manifest] [--allow-damaged]\n       nx_extract <prod.keys> --aoc <dlc.nsp> <out dir or image> [--romfs-image]"); return 2; }
+         KeySet ks = ExternalKeyReader.ReadKeyFile(a[0]);
+         if (a[1] == "--aoc") return Aoc(ks, a[2], a[3], image);
+@@ -78,6 +81,14 @@ static class P {
+         return Damaged();
+     }
+ 
++    static int Title(KeySet ks, string path) {
++        ulong? id = null;
++        foreach (Nca n in OpenNsp(ks, path)) if (n.Header.ContentType == NcaContentType.Meta && (id == null || n.Header.TitleId < id)) id = n.Header.TitleId;
++        if (id == null) { Console.WriteLine($"[RED] no meta NCA in {Path.GetFileName(path)}"); return 5; }
++        Console.WriteLine($"title {id:x16}");
++        return 0;
++    }
++
+     // Files whose data failed the hash check: listed at the end; exit code 3 unless --allow-damaged
+     static readonly List<string> g_damaged = new List<string>(); static bool g_allow; static Func<IFileSystem> g_lenient; static IFileSystem g_lenientFs;
+     static bool HashError(HorizonResultException e) => e.ResultValue.Module == 2 && e.ResultValue.Description >= 4600 && e.ResultValue.Description < 4700;   // fs: integrity verification failures (2002-46xx)
+diff --git a/dm/tools/tests/test_nsp_scan.py b/dm/tools/tests/test_nsp_scan.py
+index 08583ad6..7c7db8d8 100644
+--- a/dm/tools/tests/test_nsp_scan.py
++++ b/dm/tools/tests/test_nsp_scan.py
+@@ -47,5 +47,50 @@ class Scan(unittest.TestCase):
+         self.assertEqual(self.said, [])
+ 
+ 
++class TitleFromPackage(unittest.TestCase):
++    """A package with neither a ticket nor a [title ID] in its name (a standard-crypto dump, a repack: LNPANDY/NX2Apple#177) is asked for its title ID. The reader itself (nx_extract --title,
++    the meta NCA's header under the keys' header_key) needs real keys and is not run here: its boundary is stubbed and its command line and output are checked"""
++    def setUp(self):
++        self.tmp = Path(tempfile.mkdtemp()); self.addCleanup(shutil.rmtree, self.tmp)
++        cm = mock.patch.object(nsp, 'say', lambda *_: None); cm.__enter__(); self.addCleanup(cm.__exit__, None, None, None)
++
++    def test_precedence_and_cost(self):
++        def never(_): raise AssertionError('the package was read although a ticket or a tag names it')
++        tik = self.tmp / 'a.nsp'; pfs0(tik, [f'{APP:016x}0000000000000011.tik'])
++        self.assertEqual(nsp.title_of(tik, never), APP)
++        tag = self.tmp / f'Game [{APP | 0x800:016X}].nsp'; pfs0(tag, ['x.nca'])
++        self.assertEqual(nsp.title_of(tag, never), APP | 0x800)
++        bare = self.tmp / 'Game.nsp'; pfs0(bare, ['x.nca'])
++        self.assertIsNone(nsp.title_of(bare))
++        self.assertEqual(nsp.title_of(bare, lambda p: APP | 0x800 if p == bare else None), APP | 0x800)
++
++    def test_scan_uses_the_reader_for_untagged_ticketless_packages(self):
++        ids = {}
++        for name, tid in (('base.nsp', APP), ('upd.nsp', APP | 0x800), ('dlc.nsp', APP + 0x1001)):
++            pfs0(self.tmp / name, ['x.cnmt.nca']); ids[self.tmp / name] = tid
++        app, fam = nsp.scan_nsps(self.tmp, ids.get)
++        self.assertEqual((app, fam['base'], [p for _, p in fam['updates']], [t for t, _, _ in fam['dlc']]), (APP, self.tmp / 'base.nsp', [self.tmp / 'upd.nsp'], [APP + 0x1001]))
++
++    def test_scan_still_stops_when_nothing_reads(self):
++        pfs0(self.tmp / 'a.nsp', ['x.nca']); pfs0(self.tmp / 'b.nsp', ['y.nca'])
++        for reader in (None, lambda p: None):
++            with self.assertRaisesRegex(nsp.BuildError, 'no NSP with a readable title ID'): nsp.scan_nsps(self.tmp, reader)
++
++    def test_reader_runs_nx_extract_title_mode(self):
++        keys, pkg, calls = self.tmp / 'prod.keys', self.tmp / 'a.nsp', []
++        def fake_run(cmd, log, env=None, cwd=None, on_line=None, ok=()):
++            calls.append((cmd, ok)); log.parent.mkdir(parents=True, exist_ok=True)
++            log.write_text(self.out)
++            if self.broken: raise nsp.BuildError('nx_extract exit code 1')
++        with mock.patch.object(nsp, 'build_nx_extract', lambda *a: 'nx'), mock.patch.object(nsp, 'run', fake_run), nsp.package_title_reader(REPO, keys, {}) as read:
++            self.out, self.broken = f'title {APP:016x}\n', False
++            self.assertEqual(read(pkg), APP)
++            self.assertEqual(calls[0][0], ['nx', keys, '--title', pkg]); self.assertIn(5, calls[0][1])
++            self.out = '[RED] no meta NCA in a.nsp\n'
++            self.assertIsNone(read(pkg))
++            self.out, self.broken = '', True
++            self.assertIsNone(read(pkg))
++
++
+ if __name__ == '__main__':
+     unittest.main()
+diff --git a/docs/development.md b/docs/development.md
+index 6b58a678..55626b4f 100644
+--- a/docs/development.md
++++ b/docs/development.md
+@@ -206,7 +206,7 @@ In Spyder, open the script, fill in the settings at the top (`NSP_DIR`, `PROD_KE
+ 
+ What the script does:
+ 0. Before it extracts anything it checks the environment (`check_prereqs`, `check_native_python`): the Python modules and tools (glslang too, which an OpenGL game needs), the iOS SDK for an iPhone build (a separate download in Xcode's Components), the Metal compiler, and the shader translator, which it starts once with `--source-sha`, so a translator that finds no .NET 10 runtime of its architecture (an Intel .NET on Apple silicon, a `DOTNET_ROOT` that names one) stops it here, not as an empty `xlate_source` at the shader step. A Python under Rosetta (an Intel Homebrew's) stops it too: the universal translator it starts runs as Intel code and finds no Intel .NET.
+-1. It finds the game profile from the title ID (the `[title ID]` in the file names, or the NSP's ticket; the update by its `[vN]` tag). The update is optional: it packs the newest version in the folder (`-p` / `PACKAGE` picks another).
++1. It finds the game profile from the title ID (the NSP's ticket, else the `[title ID]` in the file name, else the package's own meta NCA, read with the keys through `nx_extract --title`; the update by its `[vN]` tag). The update is optional: it packs the newest version in the folder (`-p` / `PACKAGE` picks another).
+ 2. It extracts ExeFS and streams the merged, integrity-checked RomFS directly into `<id>_build/extract/<version>/RomFS.img`. No RomFS folder or individual resource files are written. Shader scanners, profile discovery and NRO collection read bounded file ranges from that image through `dm/tools/romfs.py`; archive readers map only the archive's range. This requires Python 3.12 or newer. An old folder extraction is replaced atomically after the new extraction succeeds. Each DLC similarly becomes `aoc/<index>.img`.
+ 3. It rewrites the code modules, checking each build ID against the profile. A version the profile does not register (the base game alone when the profile was brought up on an update, another update, or files whose build IDs differ), or one whose shader tables need a version that is not in the folder, is built from a profile derived from it in `<id>_build/profile/<id>/`: the profile's keys, that version's build row, and shader tables, chain header, `c1_full.tsv` and `cb_extent.tsv` made from that version's own files (as for a provisional profile, without the heap check; with the address region check below). The rewriter's cuts and the host's fixes for a registered build do not reach a module of another build; the script says which modules those are. A title ID no profile has is first looked up by build: when its `main` (of the base game with its newest update, else of the base game alone, read from a code-only extraction) is a build a profile registers, a regional release of the same build (Advance Wars 1+2: Re-Boot Camp under `0100300012FFF000`, issue #114), it packs from a profile derived from that one, with the folder's title ID and `main.npdm`'s program ID (`same_build`, `game.py` `by_build`); only otherwise is it surveyed. A provisional profile (a game without one in `dm/games`) then gets `mem_used` from the rewritten modules, and, when the game has virtual address memory and sets a heap, a heap check: the Mac host is built into `<id>_build/tools/dmhost` and the game boots in it until its first heap request (a few seconds, log `<id>_build/logs/heap_check.log`), which sizes the heap region (see [dm/games/README.md](../dm/games/README.md), Adding a game). For a game with virtual address memory, with a provisional or a derived profile, a second boot, the address region check, runs with a Switch-sized alias region for 15 s into `nnMain` (log `<id>_build/logs/region_check.log`, table `regions.tsv`) and reports the address regions the game takes, who asks for each and where they reach against the profile's alias region, in red when past it; when the regions made after a `StandardAllocator` region need more room than the host's cap leaves them, it sets `stdalloc_cap` in the profile ([memory.md, Measuring address regions and commits](reference/memory.md#measuring-address-regions-and-commits)).
+ 4. For a game whose `main` holds GLSL sources and calls `glslcCompile` (Three Houses), it captures the shaders the game compiles at run time, which no game file holds. It builds the Mac host into `<id>_build/tools/dmhost` and boots the game in it, headless and silent, with `DM_GLSLC_CAPTURE` pointing at `<id>_build/extract/<version>/glslc_capture`. The save, temporary storage and log all stay in `<id>_build/`. It stops the game as soon as every capture file named in the profile's shader map is there (Three Houses: 9, about a second after launch), and gives up after 30 s. A folder that already holds them all is reused.
+diff --git a/docs/reference/packing.md b/docs/reference/packing.md
+index d22a577d..ed180238 100644
+--- a/docs/reference/packing.md
++++ b/docs/reference/packing.md
+@@ -82,6 +82,15 @@
+ - **Fix:** `scripts/build_ipa_from_nsp.py` `decompress_nsz` prefers the current Python's module: it links the file selected by `-k` as `keys.txt` in the conversion's temporary folder and runs `nsz -D` there, with `sys.argv[0]` set to `nsz` before import. Without the module, `nsz_command` probes `nsz` and `nsz-cli-macos-arm64` on the build's PATH and passes `--keys` to the first whose successful help lists that option. An unsupported or failed candidate does not hide the next one; when none works, the error lists the reasons and installation options. Executable, input and output paths are absolute because conversion changes directories. The temporary folder and link are removed on success or failure; the user's default keys are untouched.
+ - **Found on:** [Super Mario Odyssey](../../dm/games/0100000000010000/README.md), converting its v0 NSZ. Applies to NSZ and XCZ inputs for every game. Synthetic tests during [PR #327](https://github.com/seedds/nxnative/pull/327) also reproduce an older console script hiding the release binary, a failed help probe containing `--keys`, and a relative PATH executable failing after the directory change; no game files are needed for those cases.
+ 
++## Package identification
++
++### An NSP without a ticket or a title ID in its name stops with "no NSP with a readable title ID"
++
++- **Symptom:** `[RED] no NSP with a readable title ID in <folder>`, although the keys open the package (the launcher's key check passes). Renaming the file to `Game [0100XXXXXXXXXXXX].nsp` makes the build go on.
++- **Cause:** `title_of` took the title ID only from the ticket's file name (`<rights ID>.tik`) or from a `[title ID]` tag in the package's file name. Many NSPs carry no ticket (standard-crypto dumps, repacks), and a download's file name often has no tag.
++- **Fix:** with neither, `title_of` asks the package: `nx_extract <prod.keys> --title <package>` opens it, decrypts the header of each meta NCA with the keys' `header_key` and prints the lowest title ID (the base game's before its update's or a DLC's). It works for NSP, NSZ (the meta NCA is not compressed), XCI and XCZ, and runs only when the ticket and the tag are both missing, so the common cases stay a read of the file name table. `nx_extract` is built into a temporary folder for it, since the build folder is named after the title ID. Key values are never printed.
++- **Found on:** NX2Apple, [LNPANDY/NX2Apple#177](https://github.com/LNPANDY/NX2Apple/issues/177) (Tears of the Kingdom, whose base NSP has no ticket). Applies to every game.
++
+ ## Cartridge dumps
+ 
+ ### A cartridge dump with its update on it extracts the update as the base game
+diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
+index a70bc0bf..5d685dfd 100755
+--- a/scripts/build_ipa_from_nsp.py
++++ b/scripts/build_ipa_from_nsp.py
+@@ -29,7 +29,7 @@
+ # unless ALLOW_OTHER_METAL / --allow-other-metal. Issue #242 reported corruption with another compiler; the cause is still unconfirmed.
+ # Python 3.12+ is required for bounded archive mappings inside images. The Python running this file needs lz4, capstone and fonttools (and backports.zstd before Python 3.14); also needed: Xcode, xcodegen, .NET SDK 10, zstd. SPIRV-Cross is the in-repo build. A first run takes 2 (Metroid Dread) to 10 minutes (Breath of the Wild: 5 of them the shader split), longer when shader libraries must be compiled; a repeat run with unchanged inputs takes about 20 s (Metroid Dread), mostly packing the IPA. Key values are never printed.
+ # The console shows one line per stage ([k/n] stage, with a bar, done/total, percent, elapsed time and ETA where the work can be counted); the tools' own output goes only to logs/ (PROGRESS / --progress). --progress json writes newline-delimited JSON events to stdout.
+-import ast, collections, ctypes, errno, getpass, pwd, hashlib, importlib.util, json, os, re, shlex, shutil, struct, subprocess, sys, tempfile, threading, time, types
++import ast, collections, contextlib, ctypes, errno, getpass, pwd, hashlib, importlib.util, json, os, re, shlex, shutil, struct, subprocess, sys, tempfile, threading, time, types
+ from pathlib import Path
+ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "dm/tools"))
+ import romfs as rfs
+@@ -427,11 +427,28 @@ def is_package(path):   # what nx_extract's OpenNsp opens: an XCI / XCZ by the c
+     return h[:4] == b'PFS0' or h[0x100:] == b'HEAD'
+ 
+ 
+-def title_of(path):   # the ticket name (the first 16 digits of the rights ID = title ID), else [title ID] in the file name
++def title_of(path, from_package=None):   # the ticket name (the first 16 digits of the rights ID = title ID), else [title ID] in the file name, else what the package itself says
+     for n in pfs0_names(path):   # the ticket first: a file name's tag can be wrong (FFT's base NSP is tagged …0001, its ticket is …0000)
+         if re.match(r'[0-9A-Fa-f]{32}\.tik$', n): return int(n[:16], 16)
+     m = re.search(r'\[([0-9A-Fa-f]{16})\]', path.name)
+-    return int(m.group(1), 16) if m else None
++    if m: return int(m.group(1), 16)
++    return from_package(path) if from_package else None   # an NSP without a ticket (a standard-crypto dump, a repack) and without a tag (LNPANDY/NX2Apple#177)
++
++
++@contextlib.contextmanager
++def package_title_reader(repo, keys, env):
++    """Yield a function path -> title ID read from the package's meta NCA with the keys (`nx_extract <keys> --title <package>`, header_key; the same for an NSP, NSZ, XCI and XCZ), None when
++    it cannot be read. nx_extract is built on the first call into a temporary folder: the work folder is named after the title ID, which is what is being looked for"""
++    with tempfile.TemporaryDirectory(prefix='title_probe_') as t:
++        work, nx = Path(t), []
++        def read(path):
++            if not nx: nx.append(build_nx_extract(repo, work, work / 'logs', env))
++            log = work / 'logs/title.log'
++            try: run([nx[0], keys, '--title', path], log, env=env, ok=(5,))
++            except BuildError: return None
++            m = re.search(r'^title ([0-9a-f]{16})$', log.read_text(errors='replace'), re.M)
++            return int(m.group(1), 16) if m else None
++        yield read
+ 
+ 
+ def version_of(path):
+@@ -442,9 +459,9 @@ def version_of(path):
+ COMPRESSED = {'.nsz': '.nsp', '.xcz': '.xci'}   # nsz's compressed NSP / XCI and what nsz -D makes of them
+ 
+ 
+-def scan_nsps(nsp_dir):
++def scan_nsps(nsp_dir, from_package=None):
+     """Group by game: {application title ID: {'base': path, 'updates': [(version, path)], 'dlc': [(title ID, version, path)]}}. An NSZ / XCZ is listed as it is (its ticket names
+-    the title as an NSP's does) and converted afterwards (decompress_nsz)"""
++    the title as an NSP's does) and converted afterwards (decompress_nsz). A package with neither is asked for its title ID: from_package(path) (package_title_reader)"""
+     fams, unknown = {}, []
+     for p in sorted([*nsp_dir.glob('*.nsp'), *nsp_dir.glob('*.xci'), *nsp_dir.glob('*.nsz'), *nsp_dir.glob('*.xcz')]):   # a base game may be a cartridge dump (.xci: Monster Hunter Rise); nx_extract reads its secure partition
+         if p.name.startswith('._'): continue   # an AppleDouble file: on an exFAT / FAT drive macOS keeps a file's extended attributes (a download's quarantine flag) in `._<name>`, one beside each game file; is_package would skip it too, with a line for each
+@@ -454,7 +471,7 @@ def scan_nsps(nsp_dir):
+             say(f'skipping {p.name}: neither an NSP (PFS0) nor an XCI (HEAD at 0x100)'); continue
+         if p.suffix in COMPRESSED and p.with_suffix(COMPRESSED[p.suffix]).exists():
+             say(f'skipping {p.name}: {p.with_suffix(COMPRESSED[p.suffix]).name} is beside it'); continue
+-        tid = title_of(p)
++        tid = title_of(p, from_package)
+         if tid is None: unknown.append(p); continue
+         low = tid & 0xFFF   # base …000, update …800, DLC = base + 0x1000 + index
+         app = tid if low == 0 else tid & ~0xFFF if low == 0x800 else (tid & ~0xFFF) - 0x1000
+@@ -2224,7 +2241,7 @@ def main(args=None):
+             say('DOTNET_ROOT: removed (none verified — the apphost searches its default locations)')
+     env.setdefault('J', str(os.cpu_count() or 8))   # shader_split.py's and dmsh_build.py's workers (their default is 8)
+     py = sys.executable
+-    app, fam = scan_nsps(nsp_dir)
++    with package_title_reader(repo, keys, env) as from_package: app, fam = scan_nsps(nsp_dir, from_package)
+     fam = decompress_nsz(nsp_dir, app, fam, keys, env)
+     force =args.provisional or PROVISIONAL   # a provisional profile even when dm/games has one (testing the guesses)
+     g, provisional, shadowed = None if force else gamemod.by_title(app), False, False
