@@ -250,6 +250,22 @@ def config_path() -> Path:
     return base / 'NS Port Builder' / 'toolchain.json'
 
 
+def save_config(key: str, value: str) -> Path:
+    """Set one `toolchain.json` key, keeping the rest (an unreadable file is replaced, not merged:
+    its content could not be parsed anyway). Returns the path written, for the log line.
+
+    The dependency panel's Choose button uses this: a folder the user pointed at once must
+    survive restarts, and the discovery helpers already read it back through `setting(key)`.
+    """
+    p = Path(os.environ.get(ENV_TOOLCHAIN) or config_path())
+    p.parent.mkdir(parents=True, exist_ok=True)
+    data = load_config()
+    data.pop('_error', None)
+    data[key] = value
+    p.write_text(json.dumps(data, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
+    return p
+
+
 def load_config() -> dict:
     """The user's `toolchain.json`; an unreadable one is reported, never fatal.
 
