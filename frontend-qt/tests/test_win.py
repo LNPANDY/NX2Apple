@@ -1698,7 +1698,7 @@ class InstallFailureHintTest(unittest.TestCase):
         # pure function, so its source is extracted and run standalone when Qt is absent.
         try:
             from nspb_qt import model as M
-            classify = M.BuildModel._classify_install_failure
+            classify = M.Model._classify_install_failure
         except ImportError:
             import ast
             src = (HERE.parent / 'nspb_qt' / 'model.py').read_text()

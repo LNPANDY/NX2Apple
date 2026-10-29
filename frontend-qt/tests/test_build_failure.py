@@ -25,6 +25,7 @@ sys.path.insert(0, str(ROOT / 'frontend-qt'))
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
 try:
+    from PySide6.QtCore import QEvent
     from PySide6.QtWidgets import QApplication, QScrollArea
 except ImportError:          # the packaged app always has it; a bare python3 may not
     QApplication = None
@@ -36,11 +37,20 @@ class BuildFailure(unittest.TestCase):
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
 
+    def _delete(self, m, w):
+        w.close()
+        w.deleteLater()
+        m.deleteLater()
+        self.app.sendPostedEvents(None, QEvent.DeferredDelete)
+        self.app.processEvents()
+
     def _window(self, height: int):
         from nspb_qt.model import Model
         from nspb_qt.ui import MainWindow
         m = Model()
         w = MainWindow(m)
+        # Delete while the app exists: PySide destroys leftovers after it at exit and segfaults.
+        self.addCleanup(self._delete, m, w)
         w.resize(900, height)
         w.show()
         for _ in range(3):
