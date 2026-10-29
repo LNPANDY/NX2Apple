@@ -20,8 +20,6 @@ import SwiftUI
                           options: [["30", t("console.fps30")], ["60", t("console.fps60")]], min: nil, max: nil, step: nil, on: nil, off: nil),
             LaunchSetting(env: "DM_LANG", kind: "choice", label: t("console.language"), note: "", def: "en", section: nil,
                           options: [["en", t("console.english")], ["zh", t("console.chinese")], ["ja", t("console.japanese")]], min: nil, max: nil, step: nil, on: nil, off: nil),
-            LaunchSetting(env: "DM_FULLSCREEN", kind: "toggle", label: t("console.fullscreen"), note: "", def: "1", section: nil,
-                          options: nil, min: nil, max: nil, step: nil, on: nil, off: nil),
             LaunchSetting(env: "DM_RUMBLE", kind: "toggle", label: t("console.rumble"), note: "", def: "1", section: nil,
                           options: nil, min: nil, max: nil, step: nil, on: nil, off: nil)
         ]
