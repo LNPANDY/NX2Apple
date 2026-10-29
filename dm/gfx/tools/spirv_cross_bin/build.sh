@@ -5,7 +5,7 @@
 # The build is reproducible: the same commit, options and Xcode give the same bytes in any folder (the embedded --revision timestamp is the commit's time in UTC, SOURCE_DATE_EPOCH).
 # A universal binary (arm64 and x86_64), as the translator's launcher is, so an Intel Mac runs it too. SPIRV-Cross is Apache-2.0 (some headers MIT / Khronos): its LICENSE and LICENSES/
 # are copied beside the binary.
-# After changing the pin: run this, then dmsh_chain.py --update-lock and --header (a chain change: rebuild the shaders), and check that the MSL is the same as before for the shaders of
+# After changing the pin: run this, then tool_lock.py --update-lock and dmsh_chain.py --header (a chain change: rebuild the shaders), and check that the MSL is the same as before for the shaders of
 # a game (or say why it changes).
 # Usage: build.sh [work folder]   (default: a temporary folder; the source is cloned there, the binary and licences are written beside this script)
 set -eu

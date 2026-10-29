@@ -70,9 +70,11 @@ General host changes first needed here; each applies to every game:
 - **The dvdbnd / DCX / BND3 reader** (`bdt_shaders`): [GLSLC outputs in FromSoftware's BND3 and dvdbnd archives](../../../docs/reference/shaders.md#glslc-outputs-in-fromsoftwares-bnd3-and-dvdbnd-archives).
 - **SDK 4's movie decoder constructor and its buffer without a sync object** (`hle_movie.c`), **`friends::GetBlockedUserList` without a `Uid`**, **the UTF-16 profanity masking by name** (`hle_misc.c`), and **`Poll` / `Select` with nothing to wait on sleeping out their timeout** (`hle_net.c`): [SDK 4's `movie::Decoder` constructor without a priority](../../../docs/reference/movies.md#sdk-4s-moviedecoder-constructor-without-a-priority), [SDK 4's `movie::Buffer` has no sync object](../../../docs/reference/movies.md#sdk-4s-moviebuffer-has-no-sync-object), [SDK 4's `friends::GetBlockedUserList` without a `Uid`](../../../docs/reference/services.md#sdk-4s-friendsgetblockeduserlist-without-a-uid), [`nn::ngc::ProfanityFilter` vtable and by-name overloads](../../../docs/reference/services.md#nnngcprofanityfilter-vtable-and-by-name-overloads), [Socket `Poll` and `Select` with nothing to wait on](../../../docs/reference/services.md#socket-poll-and-select-with-nothing-to-wait-on).
 - **The real-time declaration covering the window thread's peak frames** (`rt_comp_tick` in `hle_nvn.c`): [Time-constraint computation declared below the thread's peaks](../../../docs/reference/frame-rate.md#time-constraint-computation-declared-below-the-threads-peaks).
+- [The alpha test through a library of its own](../../../docs/reference/rendering.md#the-alpha-test-through-a-library-of-its-own): grass, ferns and tree leaves came out as solid quads (Firelink Shrine, Darkroot Garden), reported with an implementation of its own on PR #32.
 
 ## Open
 
+- Check the foliage with the host's alpha test (reported fixed on PR #32 with another implementation).
 - Climbing ladders still misplays at 60 fps (with the community's cheat too).
 - Once, loading a save on the iPhone stayed on the loading screen (no save write, no red line); the next launch loaded it, and it has not come back.
 - SDK 4.5.0 is called "the oldest so far" in `game.tsv`, the bring-up notes and `AGENTS.md`, while Mario Kart 8 Deluxe ([0100152000022000](../0100152000022000/README.md)) is SDK 4.4.0, also called the oldest.

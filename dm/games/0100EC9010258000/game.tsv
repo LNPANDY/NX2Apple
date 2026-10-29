@@ -1,0 +1,40 @@
+# Streets of Rage 4 (Dotemu / Lizardcube / Guard Crush Games), SDK 9.3.1, NVN.
+# Started from the NSP script's provisional profile; brought up on the Mac with no change to it beyond the shader group (README.md).
+
+# ---- Identity ----
+title_id	0100EC9010258000
+program_id	0100EC9010258000
+
+# ---- App ----
+name	Streets of Rage 4
+ipa	StreetsOfRage4.ipa
+app_category	public.app-category.action-games
+
+# ---- Versions ----
+build	v458752	1.0.9	main=8817441976e32e94909a95f64405a99a	subsdk0=5a7ada8dd7447c10aa244944f64d0aff	sdk=ad3fdfbd62a5f4b082d385ffe420d440
+package	v458752
+shader_versions	v458752
+
+# ---- Files ----
+# every module main imports from
+modules	main subsdk0 sdk
+romfs_marker	textures
+zip_store	.bnk:.mp4:.otf:.png:.wem:.metallib
+
+# ---- Memory ----
+# main sets a heap of at most the pool − 64 MB − 27 MB of bss (counted as used memory): a 3328 MB heap region
+mem_reserve	0x100000000
+mem_alias	0x10000000
+mem_stack	0x10000000
+app_pool	0xCD500000
+# the NPDM declares 0 MB of system resource: IsVirtualAddressMemoryEnabled is false, as on Horizon (Big Brain Academy: Brain vs. Brain sets a heap only then)
+sys_resource	0x0
+
+# ---- Shader split ----
+# MonoGame effects: SpriteBatch's and the engine's in main, the game's in shader/*.xnb (127 shaders)
+shader_groups	/shader/=shader
+shader_note	Streets of Rage 4 shaders
+
+# ---- After the rewrite ----
+# used memory for the current rewritten modules, at least the default 64 MB
+mem_used	0x76d8000

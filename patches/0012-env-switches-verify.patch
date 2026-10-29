@@ -100,7 +100,7 @@ index 604494c9..e6a5ac1e 100644
  if __name__ == '__main__':
      unittest.main()
 diff --git a/docs/agents/README.md b/docs/agents/README.md
-index ad7d71aa..5b1569d7 100644
+index c039cf61..4b077bcc 100644
 --- a/docs/agents/README.md
 +++ b/docs/agents/README.md
 @@ -23,6 +23,8 @@ Everything here was learned on Diablo II: Resurrected (SDK ~12, NVN 53, the orig

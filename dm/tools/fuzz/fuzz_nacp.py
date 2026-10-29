@@ -11,6 +11,7 @@ import fuzzlib
 import nacp
 
 HARNESS = 'nacp'
+fuzzlib.guard(nacp)
 
 
 def title_area(names):   # 0x300 bytes per language: name 0x200 + publisher 0x100

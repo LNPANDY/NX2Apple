@@ -1,0 +1,35 @@
+# Team Sonic Racing (Sumo Digital's engine), SDK 5.6.0, NVN, Wwise.
+# Started from the NSP script's provisional profile; brought up on the Mac with no change to it beyond its comments and app category (README.md).
+
+# ---- Identity ----
+title_id	010092B0091D0000
+program_id	010092B0091D0000
+
+# ---- App ----
+name	Team Sonic Racing
+ipa	TeamSonicRacing.ipa
+app_category	public.app-category.racing-games
+
+# ---- Versions ----
+build	v131072	1.0.3	main=ad75285a65eb6ffddfb7df4ec09732cf	subsdk0=2ab2a250f6cfa2dcba87502b81a2f743	sdk=d32250c35c0ed7a04f560320b32d9c41
+package	v131072
+shader_versions	v131072
+
+# ---- Files ----
+# every module main imports from
+modules	main subsdk0 sdk
+romfs_marker	data/sound/streamsmulti.pck
+zip_store	.mp4:.pck:.sp4:.stz:.metallib
+
+# ---- Memory ----
+# main sets a heap of at most the pool − 64 MB: a 3328 MB heap region
+mem_reserve	0x100000000
+mem_alias	0x10000000
+mem_stack	0x10000000
+app_pool	0xCD500000
+# the NPDM declares 0 MB of system resource: IsVirtualAddressMemoryEnabled is false, as on Horizon (Big Brain Academy: Brain vs. Brain sets a heap only then)
+sys_resource	0x0
+
+# ---- Shader split ----
+shader_groups	/data/=data
+shader_note	Team Sonic Racing shaders (provisional profile)

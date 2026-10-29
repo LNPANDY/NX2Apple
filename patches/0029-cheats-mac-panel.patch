@@ -10,7 +10,6 @@ dm/host/front_mac.m. Ported onto the pinned tree from seedds/nxnative#406.
 Upstream-Status: forwarded seedds/nxnative#406
 Reason: the launcher's cheat manager builds on its file contract until upstream merges it
 Issue: LNPANDY/NX2Apple#97
-
 ---
  dm/host/front_mac.m | 860 ++++++++++++++++++++++++++++++++++++++++++++
  1 file changed, 860 insertions(+)

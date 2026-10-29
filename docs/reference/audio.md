@@ -58,6 +58,14 @@ For a replaced DSP renderer the size query keeps the service's work-buffer contr
 - **Fix:** `render_once` looks up the `SdkMutexType` functions only when `update_lock` does not find `LockMutex` (`hle_audren.c`).
 - **Found on:** [OCTOPATH TRAVELER](../../dm/games/010057D006492000/README.md) (SDK 3.5.1), the first SDK 3 game through the audio renderer (Bayonetta 2's 3.6.0 plays through `AudioOut`).
 
+### Where the `AudioRenderSystem` sits in `AudioRendererImpl`
+
+- **Symptom:** the sound is choppy: about two of every three 5 ms blocks are silent (a `DM_AUDIO_DUMP`), with no underruns. The log's `catch-up renders so far` grows by one for each rendered frame (2000 of every 2000), and every update logs `no frame rendered before update N`.
+- **Cause:** the host's takeover of `AudioRendererImpl::ExecuteAudioRendererRendering` found the `AudioRenderSystem` at a fixed `+0x60`, where SDK 16 and 20 keep it. SDK 3.4 keeps it at `+0x50` (`add x19, x0, #0x50` in the prologue, `sdk+0x188a10`). With the wrong pointer, the execution mode and rendering device came from other fields, so each render on the 5 ms render thread failed with 0x40299 and played a silent block. Only the game's updates rendered: one catch-up frame each, at 60 Hz instead of 200.
+- **Fix:** `impl_sys_off` in `hle_audren.c` reads the offset from the SDK's own function: the first `add xd, x0, #imm` before the first branch. If it finds none, it keeps `+0x60`. Every other `sdk` build on hand (18 games, SDK 4.5 to 21) reads `+0x60`.
+- **Found on:** [SteamWorld Dig](../../dm/games/01009320084A4000/README.md) and [SteamWorld Dig 2](../../dm/games/0100CA9002322000/README.md) (both ship the same SDK 3.4.0 `sdk` build).
+- **Check:** after the fix, the log has `audren: AudioRenderSystem at +0x50 in AudioRendererImpl`, a few dozen catch-up renders per 2000 frames, and a dump with no silent blocks once the music starts.
+
 ### The render thread's route through the public `ExecuteAudioRendererRendering` (SDK 20)
 
 - **Symptom:** `CommandListProcessor::Process` crashes now and then (SIGSEGV under `render_main`, once at 60 s and once at 134 s in the shrine); every `RequestUpdate` renders a catch-up frame.
@@ -242,6 +250,13 @@ For a replaced DSP renderer the size query keeps the service's work-buffer contr
 - **Cause:** the host has no microphone.
 - **Fix:** `ListAudioIns` reports none, both opens fail, and the calls that need an open AudioIn answer without touching the game's object (`hle_audio.c`).
 - **Found on:** [Absolum](../../dm/games/0100A83022A22000/README.md) (SDK 18.3.2, FNA on .NET NativeAOT with SDL3; one boot each).
+
+### `OpenAudioOut` without a release event (SDK 22)
+
+- **Symptom:** `game called nn::diag abort: Result 0xe15, call site sdk+0x1f8704`, i.e. inside `nn::audio::CreateAudioOutManagerByHipc+0xb4`, before any audio device opened.
+- **Cause:** SDK 22 calls **`nn::audio::OpenAudioOut(AudioOut*, const char*, const AudioOutParameter&)`** (`sdk+0x1f7914`, `nn::audio::OpenAudioOut(AudioOut*, const char*, const AudioOutParameter&)`'s failure path) — the overload without the `SystemEvent` the host implemented (`_ZN2nn5audio12OpenAudioOutEPNS0_8AudioOutEPKcRKNS0_17AudioOutParameterEPNS_2os11SystemEventE`). With no hook the SDK's own IPC path ran and the audout service is not there.
+- **Fix:** `hle_audio.c` gained the 4-argument hook, which opens through the same `au_open_at` and leaves the release event NULL (`au_open_at(g, NULL, name, param, __builtin_return_address(0))`), so the output polls its released buffers. The log then reads `OpenAudioOut … , no release event (the game polls)`.
+- **Found on:** [Well Dweller](../../dm/games/0100217023F6C000/README.md) (SDK 22.2.0); the game's first `AudioOut` is the "DeviceOut" form, the second its 48 kHz music output.
 
 ## Codecs
 

@@ -91,6 +91,12 @@ class ApplyAndCheck(Fixture):
         out = self.run_tool('status')
         self.assertIn('forwarded seedds/nxnative#475', out); self.assertIn('the fork needs line 2', out)
 
+    def test_a_subject_with_a_non_ascii_character_is_read_as_git_log_prints_it(self):
+        # format-patch writes it as RFC 2047 words, split over lines when long: refresh matches commits to patches by this text
+        raw = '=?UTF-8?q?Cheats:=20the=20Atmosph=C3=A8re=20cheat=20engin?=\n =?UTF-8?q?e,=20its=20hooks?='
+        self.assertEqual(P.Patch.decode_subject(raw), 'Cheats: the Atmosph\u00e8re cheat engine, its hooks')
+        self.assertEqual(P.Patch.decode_subject('plain  subject'), 'plain subject')
+
 
 class Bump(Fixture):
     def test_a_patch_upstream_has_taken_drops_and_is_listed(self):

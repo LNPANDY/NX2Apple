@@ -224,7 +224,7 @@ index 00000000..56fa4993
 +}
 +static int pad_map_is_default(const pad_map *m) { for (int b = 0; b < IM_BUTTONS; b++) if (m->to[b] != b) return 0; return 1; }
 diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
-index 3fbba0ac..50befe6e 100644
+index d648b693..40b81cee 100644
 --- a/dm/host/tests/Makefile
 +++ b/dm/host/tests/Makefile
 @@ -12,7 +12,7 @@ QUIET = $(if $(strip $(SAN)),,2>/dev/null)
@@ -236,7 +236,7 @@ index 3fbba0ac..50befe6e 100644
  	$(B)/t_language
  	$(B)/t_heap_size
  	$(B)/t_touch
-@@ -45,6 +45,8 @@ run: $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture
+@@ -47,6 +47,8 @@ run: $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture
  	$(B)/t_motion_pro
  	$(B)/t_motion_pro_mac
  	$(B)/t_hid
@@ -245,7 +245,7 @@ index 3fbba0ac..50befe6e 100644
  	$(B)/t_haptics
  	$(B)/t_haptics_apple
  	$(B)/t_nro
-@@ -139,6 +141,10 @@ $(B)/t_motion_pro: t_motion_pro.c ../motion_pro.h | $(B)
+@@ -150,6 +152,10 @@ $(B)/t_motion_pro: t_motion_pro.c ../motion_pro.h | $(B)
  	$(CLANG) -O1 -g -Wall -Werror -fsanitize=address,undefined -o $@ t_motion_pro.c
  $(B)/t_motion_pro_mac: t_motion_pro_mac.m ../motion_pro_mac.h ../motion_pro.h ../dm_input.h | $(B)
  	$(CLANG) -O1 -g -fobjc-arc -Wall -Werror -Wno-unused-function -fsanitize=address,undefined -I.. -o $@ t_motion_pro_mac.m -framework Foundation -framework GameController -framework IOKit
@@ -347,10 +347,10 @@ index 00000000..136b4035
 +    return fails != 0;
 +}
 diff --git a/dm/tools/impact_map.tsv b/dm/tools/impact_map.tsv
-index ca2bde38..16d3e177 100644
+index c67f5b10..b401a927 100644
 --- a/dm/tools/impact_map.tsv
 +++ b/dm/tools/impact_map.tsv
-@@ -112,6 +112,7 @@ dm/host/main.c	*:*	the host's start
+@@ -118,6 +118,7 @@ dm/host/main.c	*:*	the host's start
  dm/host/loader.c	*:*	module loading
  dm/host/hle.c	hle:*	the HLE tables
  dm/host/front_mac.m	present:*	the Mac front end
@@ -359,7 +359,7 @@ index ca2bde38..16d3e177 100644
  dm/host/motion_apple.h	hle:*SixAxisSensor*	controller motion supplied by GameController
  dm/host/motion_fusion.h	hle:*SixAxisSensor*	six-axis motion mapping and orientation
 diff --git a/docs/development.md b/docs/development.md
-index 04421a90..6b58a678 100644
+index f13c0864..a7b0ee51 100644
 --- a/docs/development.md
 +++ b/docs/development.md
 @@ -14,6 +14,8 @@ The README covers packing and playing. This page is for working on nxnative itse
@@ -372,10 +372,10 @@ index 04421a90..6b58a678 100644
  
  `dm/host/hle_svc.c` serializes heap resizing, physical map/unmap, stack
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index 9f0f1009..370739f9 100644
+index cabeee77..510f0a5c 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
-@@ -56,6 +56,7 @@ DM_ICON	path	`=<image>` gives `build_ipa.sh` another app icon (default the `icon
+@@ -59,6 +59,7 @@ DM_ICON	path	`=<image>` gives `build_ipa.sh` another app icon (default the `icon
  DM_IMPORTS	diagnostic	When set, logs each import the loader binds to a host function and each forced takeover
  DM_KBD	switch	`=<text>`: the system keyboard returns that text as OK without showing an input box; unset with no window, it returns cancel
  DM_KBD_PLAYER	switch	`own` makes the Mac keyboard player 1 on its own, with controllers from player 2 on (by default the first controller shares player 1 with the keyboard)
@@ -383,7 +383,7 @@ index 9f0f1009..370739f9 100644
  DM_KEYS	switch	Scripted input: `<seconds or f<frame>>:<key>[+key][~hold][*count/interval],…` presses buttons, sticks and `Shake` at those times
  DM_LANG	player	Game language as a language code (default `en-US`; the iOS app sets the one the IPA was packed with)
  DM_LAUNCHER	switch	`0` skips the iOS settings screen or the Mac settings window and starts the game at once, with the saved choices (on the Mac also `--no-launcher`)
-@@ -183,6 +184,7 @@ DM_OODLE_JOB	path	`=<job file>`: the host runs the game's own Oodle decoder on e
+@@ -187,6 +188,7 @@ DM_OODLE_JOB	path	`=<job file>`: the host runs the game's own Oodle decoder on e
  DM_OODLE_MODULES	path	The rewritten modules the Mac host's Oodle tool mode loads when `shader_split.py` decodes Trinity packs; set by the NSP script
  DM_OODLE_SERVE	switch	`=1`: the host answers decode requests on stdin / stdout with the game's own Oodle (or LZ5) decoder from the guest main thread before the SDK starts, until stdin ends
  DM_OPMODE	player	The operation mode the game sees: `0` handheld, `1` console (default: the profile's `op_mode`, console unless set); read once at startup

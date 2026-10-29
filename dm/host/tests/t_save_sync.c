@@ -9,6 +9,9 @@
 //   (5) both changed, the cloud's newer: B played without sync, A sent a newer save; B starts with sync: A's comes in, B's is kept
 //   (6) both changed, this one newer: A played without sync later than B sent; A starts with sync: A's goes out, B's is kept in A's backups ("cloud")
 //   (7) the Mac launcher's send after the host exited: a save the host committed and did not send goes out
+//   (8) the game's own folder (<folder>/<title ID>) chosen as the folder
+//   (9) a new backup removes the oldest of its side beyond 10, and leaves the other side's and the player's own folders
+//   (10) the launcher's DM_SAVE with a trailing slash: the same <save>.sync as the host's
 #include "../hle_fs.c"
 #include <ctype.h>
 #include <sys/wait.h>
@@ -133,9 +136,9 @@ int main(void) {
     CHECK(ss_decide("L", "B", "R", 10, 10, &both) == SS_PUSH && both, "the same date: this device's is kept");
 
     char A[1200], B[1200], cloud[1200], cf[1400], id[24], back[1400];
-    snprintf(A, sizeof A, "%s/mac/save", root); snprintf(B, sizeof B, "%s/iphone/save", root); snprintf(cloud, sizeof cloud, "%s/iCloud Drive/NX2Apple Saves", root);
+    snprintf(A, sizeof A, "%s/mac/save", root); snprintf(B, sizeof B, "%s/iphone/save", root); snprintf(cloud, sizeof cloud, "%s/iCloud Drive/nxnative Saves", root);
     mkd(A); mkd(B); mkd(cloud);
-    for (size_t i = 0; i <= strlen(dm_profile()->id); i++) id[i] = (char)toupper((unsigned char)dm_profile()->id[i]);
+    for (size_t i = 0; i <= strlen(DM_GAME_ID); i++) id[i] = (char)toupper((unsigned char)DM_GAME_ID[i]);
     snprintf(cf, sizeof cf, "%s/%s/save.dmsync", cloud, id);
 
     printf("(3) Mac -> cloud -> iPhone\n");
@@ -175,18 +178,44 @@ int main(void) {
     printf("(7) the Mac launcher after the host\n");
     snprintf(p, sizeof p, "%s/game.dat", A); put(p, "v8");
     setenv("DM_SAVE_SYNC", cloud, 1);
-    CHECK(save_sync_after_exit(A, dm_profile()->id) == 1 && cloud_has(cf, root, "game.dat", "v8"), "a save the host left unsent goes out");
+    CHECK(save_sync_after_exit(A, DM_GAME_ID) == 1 && cloud_has(cf, root, "game.dat", "v8"), "a save the host left unsent goes out");
     time_t sent = mtime_of(cf);
     sleep(1);
-    CHECK(save_sync_after_exit(A, dm_profile()->id) == 1 && mtime_of(cf) == sent, "a second time there is nothing to send (the cloud's file is not rewritten)");
+    CHECK(save_sync_after_exit(A, DM_GAME_ID) == 1 && mtime_of(cf) == sent, "a second time there is nothing to send (the cloud's file is not rewritten)");
     unsetenv("DM_SAVE_SYNC");
-    CHECK(save_sync_after_exit(A, dm_profile()->id) == 1, "sync off: nothing to do");
+    CHECK(save_sync_after_exit(A, DM_GAME_ID) == 1, "sync off: nothing to do");
 
     printf("(8) the game's own folder chosen\n");
     char C[1200], own[1300]; snprintf(C, sizeof C, "%s/mac2/save", root); mkd(C); snprintf(own, sizeof own, "%s/%s", cloud, id);
     snprintf(p, sizeof p, "%s/game.dat", C);
     CHECK(session(C, own, NULL, NULL) == 0 && same(p, "v8"), "<folder>/<title ID> itself as the folder: the save in it comes in");
     snprintf(q, sizeof q, "%s/%s", own, id); CHECK(!exists(q), "and no second <title ID> folder is made inside it");
+
+    printf("(9) old backups go\n");
+    snprintf(q, sizeof q, "%s-backups", C);
+    for (int i = 0; i < 12; i++) { snprintf(p, sizeof p, "%s/2001-01-01 00.00.%02d local/save", q, i); mkd(p); }
+    snprintf(p, sizeof p, "%s/2001-01-01 00.00.00 cloud", q); mkd(p); snprintf(p, sizeof p, "%s/my copy", q); mkd(p);
+    snprintf(p, sizeof p, "%s/2001-01-01 00.00.00 local 2", q); mkd(p);
+    CHECK(session(B, cloud, "game.dat", "v9") == 0 && cloud_has(cf, root, "game.dat", "v9"), "the iPhone saves again");
+    snprintf(p, sizeof p, "%s/game.dat", C);
+    CHECK(session(C, own, NULL, NULL) == 0 && same(p, "v9"), "the second Mac brings it in, keeping its own");
+    int locals = 0; DIR *d = opendir(q); struct dirent *e;
+    while (d && (e = readdir(d))) { size_t l = strlen(e->d_name); locals += l > 6 && (!strcmp(e->d_name + l - 6, " local") || strstr(e->d_name, " local ")); }
+    if (d) closedir(d);
+    backup_of(C, "local", back, sizeof back); snprintf(u, sizeof u, "%s/save/game.dat", back);
+    CHECK(locals == 10 && same(u, "v8"), "10 local backups stay, the new one among them (%d)", locals);
+    snprintf(p, sizeof p, "%s/2001-01-01 00.00.00 local 2", q); snprintf(u, sizeof u, "%s/2001-01-01 00.00.02 local", q);
+    char u2[1400]; snprintf(u2, sizeof u2, "%s/2001-01-01 00.00.03 local", q);
+    CHECK(!exists(p) && !exists(u) && exists(u2), "the four oldest went (00, 00 2, 01, 02)");
+    snprintf(p, sizeof p, "%s/2001-01-01 00.00.00 cloud", q); snprintf(u, sizeof u, "%s/my copy", q);
+    CHECK(exists(p) && exists(u), "the other side's backups and a folder of the player's stay");
+
+    printf("(10) the Mac launcher's DM_SAVE with a slash after it\n");
+    snprintf(p, sizeof p, "%s/game.dat", C); put(p, "v10");
+    snprintf(u, sizeof u, "%s/", C); setenv("DM_SAVE_SYNC", own, 1);
+    CHECK(save_sync_after_exit(u, DM_GAME_ID) == 1 && cloud_has(cf, root, "game.dat", "v10"), "it goes out");
+    snprintf(p, sizeof p, "%s/.sync", C); CHECK(!exists(p), "and the sync state is beside the save, not inside it");
+    unsetenv("DM_SAVE_SYNC");
 
     printf("== save sync: %d checks, %d failed ==\n", checks, fails);
     if (!fails) { char c[1200]; snprintf(c, sizeof c, "rm -rf '%s'", root); system(c); }

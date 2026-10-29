@@ -72,13 +72,22 @@ class Patch:
         text = path.read_text(encoding='utf-8', errors='replace')
         head = text.split('\n---\n', 1)[0]
         m = re.search(r'(?m)^Subject: (?:\[PATCH[^\]]*\] )?(.*(?:\n .*)*)', head)
-        self.subject = ' '.join(m.group(1).split()) if m else ''
+        self.subject = self.decode_subject(m.group(1)) if m else ''
         self.date = (re.search(r'(?m)^Date: (.*)$', head) or [None, ''])[1]
         self.status = self.header(head, 'Upstream-Status')
         self.reason = self.header(head, 'Reason')
         self.issue = self.header(head, 'Issue')
         self.kind = (self.status.split() or [''])[0]
         self.files = sorted({f for m in re.finditer(r'(?m)^diff --git a/(\S+) b/(\S+)$', text) for f in m.groups()})
+
+    @staticmethod
+    def decode_subject(raw):
+        """format-patch writes a subject with a non-ASCII character as RFC 2047 words (=?UTF-8?q?...?=), git log prints it decoded."""
+        import email.errors
+        import email.header
+        joined = ' '.join(raw.split())
+        try: return str(email.header.make_header(email.header.decode_header(joined)))
+        except (email.errors.HeaderParseError, LookupError, UnicodeError): return joined
 
     @staticmethod
     def header(head, key):

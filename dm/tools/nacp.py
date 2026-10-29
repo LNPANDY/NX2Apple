@@ -16,10 +16,11 @@ def name(path):
     p = Path(path)
     if not p.is_file(): return ''
     b = p.read_bytes(); t = b[:0x3000]
-    try:   # newer SDKs compress the title area: a u16 size + raw deflate, inflating to 32 languages × 0x300 (Mario 1.2.1 does)
-        z = zlib.decompress(b[2:2 + struct.unpack_from('<H', b)[0]], -15)
-        if len(z) == 0x6000: t = z
-    except zlib.error: pass   # not compressed
+    if len(b) >= 2:
+        try:   # newer SDKs compress the title area: a u16 size + raw deflate, inflating to 32 languages × 0x300 (Mario 1.2.1 does); inflate no further than that (a crafted size could inflate about 1,000 times)
+            d = zlib.decompressobj(-15); z = d.decompress(b[2:2 + struct.unpack_from('<H', b)[0]], 0x6000 + 1)
+            if d.eof and len(z) == 0x6000: t = z
+        except zlib.error: pass   # not compressed
     for i in range(len(t) // 0x300):
         n = t[i * 0x300:i * 0x300 + 0x200].split(b'\0', 1)[0]
         if not n: continue

@@ -13,7 +13,7 @@ Issue: LNPANDY/NX2Apple#123
  1 file changed, 87 insertions(+)
 
 diff --git a/dm/mac/launcher.c b/dm/mac/launcher.c
-index e9f154e7..af479db7 100644
+index df4ade9f..6c840f16 100644
 --- a/dm/mac/launcher.c
 +++ b/dm/mac/launcher.c
 @@ -22,6 +22,7 @@
@@ -24,7 +24,7 @@ index e9f154e7..af479db7 100644
  #include <sys/wait.h>
  #include <unistd.h>
  #include "romfs_image.h"
-@@ -72,6 +73,43 @@ static void mkdirs(const char *path) {   // mkdir -p
+@@ -73,6 +74,43 @@ static void mkdirs(const char *path) {   // mkdir -p
      mkdir(p, 0755);
  }
  
@@ -68,7 +68,7 @@ index e9f154e7..af479db7 100644
  static void env_file(const char *path) {   // KEY=VALUE lines, # starts a comment; a variable already set stays
      FILE *f = fopen(path, "r"); if (!f) return;
      char ln[4096];
-@@ -159,8 +197,57 @@ int main(int argc, char **argv) {
+@@ -172,8 +210,57 @@ int main(int argc, char **argv) {
      snprintf(sup, sizeof sup, "%s/Library/Application Support/nxnative/%s", home, id);
      snprintf(save, sizeof save, "%s/save", sup); snprintf(temp, sizeof temp, "%s/temp", sup);
      snprintf(logs, sizeof logs, "%s/Library/Logs/nxnative", home);

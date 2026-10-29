@@ -205,8 +205,9 @@ class MetalPrefill(unittest.TestCase):
 
     def earlier_libraries(self, third_identity):
         for i in range(3):
-            stem = f'key{i}_b'; src = f'MSL {i}'.encode()
+            stem = f'{i:016x}_b'; src = f'MSL {i}'.encode()
             (self.old / (stem + '.metal')).write_bytes(src)
+            (self.old / ('._' + stem + '.metal')).write_bytes(b'\0\x05\x16\x07' + b'\xa0' * 4092)   # an exFAT drive's AppleDouble: no shader of its own
             (self.old / (stem + '.metallib')).write_bytes(b'TESTED ' + src if i < 2 else b'WRONG OVERRIDE LIBRARY')
             meta = {'chain_metal': 'flags', 'stage': 'ps', 'chain_compiler': self.cache.ident['mac'].hex()}
             if i == 2:
@@ -221,12 +222,12 @@ class MetalPrefill(unittest.TestCase):
                 self.earlier_libraries(identity)
                 self.cache.fill(str(self.old))
                 result = self.root / 'result.metallib'
-                self.cache.compile('mac', str(self.old / 'key2_b.metal'), str(result))
+                self.cache.compile('mac', str(self.old / f'{2:016x}_b.metal'), str(result))
                 self.assertEqual(result.read_bytes(), b'TESTED MSL 2')
 
     def test_matching_compiler_libraries_still_prefill(self):
         self.earlier_libraries(self.cache.ident['mac'].hex())
-        (self.old / 'key2_b.metallib').write_bytes(b'TESTED MSL 2')
+        (self.old / f'{2:016x}_b.metallib').write_bytes(b'TESTED MSL 2')
         self.cache.fill(str(self.old))
         self.assertEqual(self.cache.stats['mac', 'filled'], 3)
 

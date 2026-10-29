@@ -9,6 +9,7 @@ import os
 
 private func info(_ key: String) -> Any? { Bundle.main.object(forInfoDictionaryKey: key) }
 
+
 /// Where this game's data comes from, and a picker to change it.
 ///
 /// The app can only read files it owns unless the player hands it a location through the document
@@ -40,7 +41,7 @@ private struct GameDataSection: View {
                  : note)
         }
         .sheet(isPresented: $picking) {
-            DocumentPicker { url in
+            DocumentPicker(types: [.item]) { url in
                 picking = false
                 if dm_store_picked_data(url) {
                     note = "Saved. The game uses this location when you press Play."
@@ -69,7 +70,7 @@ private struct GameDataSection: View {
 
 /// Cloud saves: an iCloud Drive folder shared with the Mac app (chosen in its settings window's
 /// Cloud saves too). The host brings the save in from there when the game starts and
-/// sends it there after each save (dm/host/save_sync.h); the folder is a bookmark (DataBookmark.m).
+/// sends it there after each save (dm/host/save_sync.h); the folder is a bookmark (CloudSaves.m).
 private struct CloudSavesSection: View {
     @State private var folder: String = ""
     @State private var note: String = ""
@@ -117,15 +118,14 @@ private struct CloudSavesSection: View {
     }
 }
 
-/// UIDocumentPickerViewController for files and folders, in the two callbacks a SwiftUI sheet wants.
+/// UIDocumentPickerViewController for files or folders (`types`), in the two callbacks a SwiftUI sheet wants.
 private struct DocumentPicker: UIViewControllerRepresentable {
-    var types: [UTType] = [.item]
+    var types: [UTType] = [.folder]
     let onPick: (URL) -> Void
     let onCancel: () -> Void
 
     func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
-        // .open (not .import): the file stays where it is and the bookmark keeps pointing at it,
-        // which is the whole point — an import would copy 16 GB into the app's container.
+        // .open (not .import): the file or folder stays where it is and the bookmark keeps pointing at it (an import would copy 16 GB of game data into the app's container).
         let picker = UIDocumentPickerViewController(forOpeningContentTypes: types, asCopy: false)
         picker.allowsMultipleSelection = false
         picker.delegate = context.coordinator

@@ -7,6 +7,7 @@ enum GameStart {
     @MainActor static func environment(for game: LibraryGame, library: GameLibrary, controls: ControlLayout, repo: String,
                                        labels: (String) -> String) -> [String: String] {
         library.migrateLaunchOptions()
+        CloudSavesMigration.run()   // before the app reads its env.txt: DM_SAVE_SYNC=icloud keeps the folder the iPhone app uses
         let settings = LaunchSetting.forMac(app: game.appPath, titleID: game.titleID, repo: repo, labels: labels) ?? []
         let mods = GameMod.list(in: GameMod.folder(for: game, library: library.folder), titleID: game.titleID)
         return game.startEnvironment(controls: controls.environment, settings: settings, mods: mods,

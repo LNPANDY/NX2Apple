@@ -148,7 +148,7 @@ index a832ad5a..0f5485df 100644
              raise ValueError(f'bundle ID {bundle_id} is already used by {other}; choose a different --bundle-id for this game')
  
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index cd18b222..9f0f1009 100644
+index 16972e4f..cabeee77 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
 @@ -36,6 +36,7 @@ DM_FS	diagnostic	When set, logs file opens, paths not found or not mounted, and

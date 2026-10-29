@@ -84,6 +84,7 @@ int main(void) { @autoreleasepool {
         if (mf == MTLVertexFormatInvalid) continue;   // a format the host does not know: no fetch either way
         nfmt++;
         int es = elem_size(f), ic = int_class(mf);
+        EXPECT("vattr_bytes (the bound-range check's element size) matches Metal's element", es, vattr_bytes(f));
         int k8 = !i2f && (mf == MTLVertexFormatUCharNormalized || mf == MTLVertexFormatCharNormalized || mf == MTLVertexFormatUChar || mf == MTLVertexFormatChar || mf == MTLVertexFormatUChar2Normalized ||
                  mf == MTLVertexFormatChar2Normalized || mf == MTLVertexFormatUChar2 || mf == MTLVertexFormatChar2 || mf == MTLVertexFormatUChar3Normalized || mf == MTLVertexFormatChar3Normalized ||
                  mf == MTLVertexFormatUChar3 || mf == MTLVertexFormatChar3 || mf == MTLVertexFormatUChar4Normalized || mf == MTLVertexFormatChar4Normalized || mf == MTLVertexFormatUChar4 ||

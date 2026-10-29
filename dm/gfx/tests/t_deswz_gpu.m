@@ -92,6 +92,8 @@ int main(void) {
             {"3D 64x64x16 mip", {2, NVN_FORMAT_RGBA8, 0, 0, 64, 64, 16, 7, 0}},
             {"packaged 3D byte 0x00 mip", {2, NVN_FORMAT_RGBA8, 0, 0, 32, 32, 32, 6, 0, 1}},
             {"packaged 3D byte 0x12 mip", {2, NVN_FORMAT_RGBA8, 0, 0, 32, 32, 32, 6, 0, 0x13}},
+            {"minimal RGB5A1 320x320", {1, NVN_FORMAT_RGB5A1, NVN_TEXTURE_FLAGS_MINIMAL_LAYOUT, 0, 320, 320, 1, 1, 0}},
+            {"minimal 2D array 64x64x3 mip", {4, NVN_FORMAT_RGBA8, NVN_TEXTURE_FLAGS_MINIMAL_LAYOUT, 0, 64, 64, 3, 7, 0}},
         };
         int fail = 0; unsigned n = 0;
         for (unsigned i = 0; i < sizeof(cases) / sizeof(*cases); i++) { fail |= run_case(dev, queue, &cases[i], i == 1); n++; }

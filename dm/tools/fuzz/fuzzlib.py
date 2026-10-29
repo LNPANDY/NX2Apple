@@ -4,8 +4,8 @@ The parsers read files a player supplies (an NSP's RomFS, ExeFS and control data
 a hang or a huge allocation. Each harness builds its seeds in code (synthetic files, never anything from a game) and defines check(data): run the parser on the bytes, return
 on a result or on its declared rejection, and let everything else out. run() here turns what comes out into a finding:
   - any exception check lets out (the parser's undeclared failures, and assertions a harness makes on a result);
-  - Oversized: an allocation larger than allowed() for the input, caught before it is made (lz4.block.decompress's uncompressed_size and bytearray(n) in the modules guard()
-    is given, inert outside run(); a MemoryError counts too, which the address-space limit set on Linux raises for the rest);
+  - Oversized: an allocation larger than allowed() for the input, caught before it is made (lz4.block.decompress's uncompressed_size, zlib.decompress's output and bytearray(n)
+    in the modules guard() is given, inert outside run(); a MemoryError counts too, which the address-space limit set on Linux raises for the rest);
   - Timeout: one input running longer than TIMEOUT seconds (libFuzzer's -timeout under atheris; SIGALRM under the random engine and in the replay).
 A finding's signature is <exception>@<file>:<caller>><function> of the innermost parser frames. dm/tools/fuzz/known.tsv lists the findings already recorded, one row per cause
 (a signature pattern, its corpus inputs, its issue): fuzzing skips what the patterns match so it can find other causes, the replay runs their inputs and expects them to fail
@@ -30,6 +30,7 @@ import sys
 import tempfile
 import time
 import traceback
+import zlib
 
 REPO = Path(__file__).resolve().parents[3]
 HERE = Path(__file__).resolve().parent
@@ -56,7 +57,8 @@ _limit = [1 << 62]
 
 
 def allowed(n):
-    """The most a parser may allocate for an n-byte input: 16 MiB, or 256 bytes per input byte (LZ4's largest ratio is about 255) when that is more"""
+    """The most a parser may allocate for an n-byte input: 16 MiB, or 256 bytes per input byte (LZ4's largest ratio is about 255) when that is more. zlib.decompress's output
+    is held to it too, though deflate reaches about 1032: a parser inflates no further than the size its format declares"""
     return max(16 << 20, 256 * n)
 
 
@@ -70,7 +72,8 @@ def _guarded_bytearray(*args, **kwargs):
 
 
 def guard(*modules):
-    """Catch the allocations a malformed size can drive before they are made: bytearray(n) in these modules, and every lz4.block.decompress (its uncompressed_size is allocated up front)"""
+    """Catch the allocations a malformed size can drive before they are made: bytearray(n) in these modules, every lz4.block.decompress (its uncompressed_size is allocated up
+    front) and every zlib.decompress (its output, inflated first to one byte past the limit)"""
     for m in modules: m.bytearray = _guarded_bytearray
     lz4_block = importlib.import_module('lz4.block')
     if not getattr(lz4_block.decompress, 'fuzz_guarded', False):
@@ -80,6 +83,14 @@ def guard(*modules):
             return real(source, uncompressed_size=uncompressed_size, **kwargs)
         decompress.fuzz_guarded = True
         lz4_block.__dict__['decompress'] = decompress   # (an attribute assignment pyright does not know the module has)
+    if not getattr(zlib.decompress, 'fuzz_guarded', False):
+        real_zlib = zlib.decompress
+        def zlib_decompress(data, wbits=zlib.MAX_WBITS, bufsize=zlib.DEF_BUF_SIZE):   # inflated first to one byte past the limit; then the real call, for its result and errors
+            try: _check_size(len(zlib.decompressobj(wbits).decompress(data, _limit[0] + 1)), 'zlib.decompress')
+            except (zlib.error, ValueError): pass   # (a bad wbits too: the real call raises its own error)
+            return real_zlib(data, wbits, bufsize)
+        zlib_decompress.fuzz_guarded = True
+        zlib.__dict__['decompress'] = zlib_decompress
 
 
 class InputFile:

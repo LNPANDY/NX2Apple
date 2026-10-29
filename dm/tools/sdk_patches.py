@@ -80,6 +80,13 @@ CUTS = {
     (0x1423fc, '08fca752', '087ca052', 'AddressRegionManager constructor: node area limit mov w8,#0x3fe00000 → mov w8,#0x3e00000'),
     (0x142468, '09fca752', '097ca052', 'AddressRegionManager constructor: length of the node area registered as an occupied region mov w9,#0x3fe00000 → mov w9,#0x3e00000'),
   ],
+  # EA SPORTS FC 27 1.8d.310c (v393216) sdk (SDK 22.2.0, also Well Dweller's, which has no virtual address memory): the same node area cut, the SDK-wide rule's implementation 6 (the
+  # constructor at sdk+0x14def0), registered because the profile was brought up on this build. Frostbite's VirtualAlloc reserves 264 regions, 2.8 GB, in its first minute
+  # (main+0x17f9884, AllocateAddressRegion), which the 1 GB node area pushed past the alias region. Region placement aligns only to 64 KB or 2 MB (sdk+0x14e060), as SDK 20
+  'fed212d6e0963706f9f4b16ea5d65879': [
+    (0x14df00, '08fca752', '087ca052', 'AddressRegionManager constructor: node area limit mov w8,#0x3fe00000 → mov w8,#0x3e00000'),
+    (0x14df6c, '09fca752', '097ca052', 'AddressRegionManager constructor: length of the node area registered as an occupied region mov w9,#0x3fe00000 → mov w9,#0x3e00000'),
+  ],
   # Paper Mario: The Origami King 1.0.1 (v65536) sdk (SDK 8.3.1): the SDK-wide rules' cuts (node area and alignment implementation 1, the constructor at sdk+0xc96e0), registered because the
   # profile was brought up on this build. nninitStartup initializes a StandardAllocator over 62 GB with virtual address memory (the region returns to main+0x5c05ac); the host's cap gives it
   # 4.06 GB, which fits the 4.375 GB alias region only after the 62 MB node area and with 32 MB alignment. Blasphemous 1.0.8 ships this build too; it has no virtual address memory
@@ -111,10 +118,16 @@ CUTS = {
   # 1 GB placement alignment makes that region fail with 0x1803 in the compact
   # guest block. Platform workaround: use 32 MB alignment for large regions,
   # as for the equivalent SDK build below; allocation sizes and guards stay intact.
+  # Subnautica: Below Zero 1.23.55063 (Unity 2019.4.36f1) ships this build too. VammManager::AllocateAddressRegion's placement (sdk+0x37c2fc) has Sea of Stars' size classes:
+  # 64 KB under 2 MB, 2 MB under 4 MB, 4 MB under 32 MB, 32 MB under 1 GB, else 1 GB. Unity's virtual allocator (every region returns to main+0x75a6b4) reserves N MB + 252 KB, so each
+  # region spills past a class: measured with DM_REGIONS at the crash site of the opening, 336 live regions (92 of 2.25 MB, 60 of 4.25 MB, 33 of 16.25 MB, 2 of 32.5 MB) held 3.45 GB with
+  # 0.87 GB of gaps between them and ended at +4.37 GB of the 4.375 GB alias region. As for Sea of Stars, the three large classes take SDK 20's 2 MB
   '3644a6760469451cabc99f00c540acc2': [
     (0x37c140, '08fca752', '087ca052', 'AddressRegionManager constructor: node area limit mov w8,#0x3fe00000 → mov w8,#0x3e00000'),
     (0x37c1dc, '09fca752', '097ca052', 'AddressRegionManager constructor: length of the node area registered as an occupied region mov w9,#0x3fe00000 → mov w9,#0x3e00000'),
-    (0x37c33c, '0a00a852', '0a40a052', 'AllocateAddressRegion: alignment of regions of 1 GB and more mov w10,#0x40000000 → mov w10,#0x2000000 (32 MB, as from 32 MB up)'),
+    (0x37c334, '0b40a052', '0b04a052', 'AllocateAddressRegion: alignment of regions from 32 MB to 1 GB mov w11,#0x2000000 → mov w11,#0x200000 (2 MB, as SDK 20)'),
+    (0x37c33c, '0a00a852', '0a04a052', 'AllocateAddressRegion: alignment of regions of 1 GB and more mov w10,#0x40000000 → mov w10,#0x200000 (2 MB, as SDK 20)'),
+    (0x37c340, '0808a052', '0804a052', 'AllocateAddressRegion: alignment of regions from 4 MB to 32 MB mov w8,#0x400000 → mov w8,#0x200000 (2 MB, as SDK 20)'),
   ],
   # Mario + Rabbids Sparks of Hope 1.6.2225577 (SDK 13.3.5): the same constructor
   # and placement code as nirvanA Initiative above. Snowdrop reserves a small
@@ -284,6 +297,8 @@ MATCH_CUTS = {'sdk': [
                '3549234b3e27a013791bbd834b5ff7dd501a5826c4216c80961bd996eef556ea'], 0x10, '08fca752', '087ca052', 0xa4, '09fca752', '097ca052'),
     # SDK 19.3.11 (Pokémon Legends: Z-A), 19.3.13 (Octopath Traveler 0), 20.5.19 (BALL x PIT), 20.5.22 (Tears of the Kingdom)
     node(244, ['b02f0514e2cc25a65261ec23cefa9a1fe7b244b3db741f183deb334935541eee'], 0x10, '08fca752', '087ca052', 0x7c, '09fca752', '097ca052'),
+    # SDK 22.2.0 (EA SPORTS FC 27, Well Dweller): the SDK 19 / 20 constructor, instruction for instruction up to its cold path, which gives each failing result its own abort (32 bytes more)
+    node(276, ['8960fe237061c387226a3775daf750a646dd0ee12eccf3d1340248683a6a7d78'], 0x10, '08fca752', '087ca052', 0x7c, '09fca752', '097ca052'),
     # SDK 7.3.2 (DRAGON QUEST XI S), 8.2.1 (Super Smash Bros. Ultimate), 8.3.1 (Paper Mario: The Origami King), 10.4.1 (Advance Wars 1+2), 10.4.8 (Pikmin 4)
     align(352, ['006abd214d94c93386735550cee4fe7708bc1f0d1812663123cfa3b9611f1533', '42167e4d3c710e11937e45a9e420fdd0ed9a410386c17da4d1d896b847d3b0d6'], 0x6c, 'ea030232'),
     # SDK 11.4.0 (Pokémon Legends: Arceus, Kirby and the Forgotten Land): the next rule's size classes with 8 more bytes of body; the 4 GB StandardAllocator region of Arceus's nninitStartup

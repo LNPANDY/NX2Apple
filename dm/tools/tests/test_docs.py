@@ -97,16 +97,16 @@ class Gallery(unittest.TestCase):
     def test_gallery_is_current(self):
         self.assertEqual(docs_gallery.OUT.read_text(encoding='utf-8'), docs_gallery.readme(), 'GAMES.md: the gallery is out of date: run dm/tools/docs_gallery.py')
 
-    def test_plain_text_captions_and_unknown_size(self):
-        image = docs_gallery.rows()[0][0]
+    def test_plain_text_captions_and_no_remark(self):
+        image, tid = docs_gallery.rows()[0][::3]
         with tempfile.TemporaryDirectory() as folder:
             table = Path(folder) / 'gallery.tsv'
-            table.write_text(f'{image}\tA & B: "Adventure" <2>\n', encoding='utf-8')
+            table.write_text(f'{image}\tA & B: "Adventure" <2>\t\t{tid}\n', encoding='utf-8')
             with patch.object(docs_gallery, 'TABLE', table):
                 text = docs_gallery.gallery()
                 self.assertIn('alt="A &amp; B: &quot;Adventure&quot; &lt;2&gt;"', text)
-                self.assertIn('<br><sub><b>A &amp; B: &quot;Adventure&quot; &lt;2&gt;</b></sub></td>', text)
-            self.assertIn('<sub><b>Game</b><br>~2 GB &amp; more</sub>', docs_gallery.cell(image, 'Game', '~2 GB & more', ''))
+                self.assertIn(f'<br><small><b><a href="dm/games/{tid}/README.md">A &amp; B: &quot;Adventure&quot; &lt;2&gt;</a></b></small></td>', text)
+            self.assertIn('Game</a></b><br>60 fps &amp; more</small></td>', docs_gallery.cell(image, 'Game', '60 fps & more', tid))
 
     def test_reversed_markers_fail_before_writing(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -157,14 +157,14 @@ class Gallery(unittest.TestCase):
 
     def test_union_merge_rejects_conflicting_game_rows(self):
         first, second = docs_gallery.rows()[:2]
-        # Concurrent caption/screenshot and size edits must require a manual resolution even when the names differ.
+        # Concurrent caption/screenshot and remark edits must require a manual resolution even when the names differ.
         for field, changes in (('image', {1: 'Corrected caption'}), ('name', {0: second[0]}),
                                ('title ID', {0: second[0], 1: 'Corrected caption'})):
             with self.subTest(field=field), tempfile.TemporaryDirectory() as folder:
-                base = [first[0], first[1], first[2], '0100000000000000' if field == 'title ID' else '']
+                base = list(first)
                 ours, theirs = base.copy(), base.copy()
                 for i, value in changes.items(): ours[i] = value
-                theirs[2] = '~2 GB'
+                theirs[2] = 'controller only'
                 paths = [Path(folder) / f'{side}.tsv' for side in ('ours', 'base', 'theirs')]
                 for path, row in zip(paths, (ours, base, theirs)): path.write_text('\t'.join(row) + '\n', encoding='utf-8')
                 result = subprocess.run(['git', 'merge-file', '--union', '-p', *map(str, paths)], check=True, capture_output=True, text=True)

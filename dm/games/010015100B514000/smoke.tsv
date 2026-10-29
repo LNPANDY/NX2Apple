@@ -1,4 +1,5 @@
 # Fresh save: title, player selection and opening course.
+# capture: the frame regress.py capture records for regress.py replay (the opening course's welcome dialogue)
 save	new
 keys	12:A,14:A,20:A,26:A,32:A
 secs	65
@@ -7,3 +8,4 @@ reach	2400@60
 window	45	15
 shots	50,58
 hang	20
+capture	3000

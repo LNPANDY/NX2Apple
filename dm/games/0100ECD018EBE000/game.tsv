@@ -53,11 +53,6 @@ fps_target	60
 # 32-58 fps at 0.994 of real time. DM_FPS_HOLD=on brings the holds back
 fps_hold	off
 
-# ---- Graphics ----
-# 2,386 pixel shaders pick a texture at run time between bound slots: the handle is read from the driver table of combined texture handles (c2 0x20 + 8 × slot: slots 0, 7, 8, 13 and 28;
-# 5,476 cube and 487 2D samples) and chosen by the shader, so the translator could not trace it to one slot
-tex_dyn_slots	on
-
 # ---- Shader split (shader_split.py: BNSH in the zstd .bfsha and .ptcl files) ----
 shader_groups	/shaders/=shaders /effect/=effect
 shader_note	Paper Mario: The Thousand-Year Door shaders

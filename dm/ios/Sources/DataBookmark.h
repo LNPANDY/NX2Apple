@@ -30,21 +30,3 @@ BOOL dm_store_picked_data(NSURL *url);
 
 /// Forget it (a player who wants the app to go back to its Documents copy).
 void dm_clear_picked_data(void);
-
-// Cloud saves (dm/host/save_sync.h): the iCloud Drive folder the player picked in the launcher's
-// Cloud saves section, remembered the same way. The host brings the save in from there when the
-// game starts and sends it there after each save; the Mac app chooses the same folder in its settings window.
-
-/// The picked folder, or nil; `stale` as for the game data.
-NSString *dm_cloud_saves_path(BOOL *stale);
-
-/// Store a bookmark for the folder the player just picked. Returns NO when the system refuses to make one.
-BOOL dm_store_cloud_saves(NSURL *url);
-
-/// Forget it: cloud saves off.
-void dm_clear_cloud_saves(void);
-
-/// Puts the picked folder into DM_SAVE_SYNC before the game starts (front_ios.m, at Play), its
-/// security scope held for the session. A DM_SAVE_SYNC from an env file or the launch environment
-/// wins; turning cloud saves off in the launcher clears the one this set.
-void dm_cloud_saves_env(void);

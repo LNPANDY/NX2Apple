@@ -28,7 +28,9 @@ class Image:
         self.path = _os.path.abspath(path)
         self.stat = _os.stat(self.path)
         with builtins.open(self.path, 'rb') as f:
-            magic, off, size, count = HEAD.unpack(f.read(HEAD.size))
+            head = f.read(HEAD.size)
+            if len(head) < HEAD.size: raise ValueError(f'invalid RomFS image header: {path}')
+            magic, off, size, count = HEAD.unpack(head)
             if magic != MAGIC or not 0 < count <= 0xffffffff or off < HEAD.size or off > self.stat.st_size or size != self.stat.st_size - off or count > size // ENT.size:
                 raise ValueError(f'invalid RomFS image header: {path}')
             f.seek(off); self.index = f.read(size)

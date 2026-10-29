@@ -32,6 +32,8 @@ supplied version. The supplied 4.0.0 update is damaged and remains unsupported
   32 MB alignment, as for the equivalent SDK build in Sparks of Hope.
   Decompilation confirms region size and page guards are unchanged. The same
   startup check fails with only the main cut and reaches `nnMain` with both.
+  Since Subnautica: Below Zero ([010014C011146000](../010014C011146000/README.md))
+  the build aligns its 4 MB, 32 MB and 1 GB classes to 2 MB, as SDK 20 does.
 - **Resolved: freed startup pages stayed mapped past the application pool.**
   Startup probes all allocatable memory, frees it, and leaves those pages in
   the SDK's cache. Without `mem_map_limit`, a physical-map census reaches
@@ -83,6 +85,20 @@ existing [per-depth-mode entry-point mechanism](../../../docs/reference/shaders.
 - [`smoke.tsv`](smoke.tsv) uses an isolated, fixed copy of the save just after
   getting up at `<NSP folder>/0100A3D008C5C000-work/smoke-save`. Make that
   copy before running the regression harness; the save stays outside the repo.
+  `regress.py capture` records its frame 3000 for `regress.py replay`: 4 of 8
+  replays equal the live frame, noise 20 pixels (2026-10-29, chain
+  `6ad4d951e3c8`; 7 of 8 and 18 pixels in an earlier capture). The capture
+  takes 53 s ([a frame capture runs under the standard thread
+  policy](../../../docs/reference/nvn-objects.md#a-frame-capture-runs-under-the-standard-thread-policy),
+  resolved; 1,178 s before). The first
+  captures aborted the replay ([a replay's own objects take serials above a
+  capture's](../../../docs/reference/nvn-objects.md#a-replays-own-objects-take-serials-above-a-captures), resolved).
+  Texture IDs 1726 to 1786 in the bedroom stay registered after the game
+  finalizes their textures' memory pools (each texture has a pool of its own)
+  and reuses the pool objects' memory. The capture read texture data there as
+  pool addresses and once stopped incomplete ([a captured texture ID whose memory
+  pool was finalized](../../../docs/reference/nvn-objects.md#a-captured-texture-id-whose-memory-pool-was-finalized),
+  resolved).
 - **Initial gameplay validation, 2026-10-27, chain `7fbca6dd477d`:**
   the complete Mac shaders render the character,
   academy, movie and bedroom. A fresh 10-minute run and a 20-minute reload
@@ -216,5 +232,8 @@ existing [per-depth-mode entry-point mechanism](../../../docs/reference/shaders.
 - [StandardAllocators over 12 to 62 GB of address space](../../../docs/reference/memory.md#standardallocators-over-12-to-62-gb-of-address-space).
 - [1 GB alignment of regions of 1 GB and more](../../../docs/reference/memory.md#1-gb-alignment-of-regions-of-1-gb-and-more).
 - [Maps past the application pool fail as on Horizon](../../../docs/reference/memory.md#maps-past-the-application-pool-fail-as-on-horizon).
+- [A replay's own objects take serials above a capture's](../../../docs/reference/nvn-objects.md#a-replays-own-objects-take-serials-above-a-captures).
+- [A captured texture ID whose memory pool was finalized](../../../docs/reference/nvn-objects.md#a-captured-texture-id-whose-memory-pool-was-finalized).
+- [A frame capture runs under the standard thread policy](../../../docs/reference/nvn-objects.md#a-frame-capture-runs-under-the-standard-thread-policy).
 - [Conservative rasterization remains unimplemented](../../../docs/reference/rendering.md#conservative-rasterization-remains-unimplemented).
 - [Metal's build folders left by pipeline archive flushes](../../../docs/reference/shaders.md#metals-build-folders-left-by-pipeline-archive-flushes).

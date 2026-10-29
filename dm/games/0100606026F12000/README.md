@@ -72,6 +72,6 @@ General host changes first needed here; each applies to every game:
 
 ## Open
 
-- **Known:** once in two runs, the frames that begin the new game's load bind 2D textures where a base pass shader declares 3D ones (red `texture type mismatch` lines, under a black screen).
+- **Known:** once in two runs, the frames that begin the new game's load bind 2D textures where a base pass shader declares 3D ones (red `texture type mismatch` lines, under a black screen). The host now binds the zero 3D texture there ([A 2D texture in a 3D slot binds the zero 3D texture](../../../docs/reference/rendering.md#a-2d-texture-in-a-3d-slot-binds-the-zero-3d-texture)); not run on this game since.
 - 11 shaders do not build (3 geometry, 8 compute with 3D image atomics); none met so far.
 - **Resolved: the image-atomic guards of `c3a0880` (2026-10-25) broke the opening.** 842 more compute shaders did not translate (`MSL 2.3 image atomics require IGN with a discarded result`; `41b20b5f09269ad8` is dispatched in the opening), and a new game aborted the host at the opening cutscene (`FATAL [RED] image atomics: unsupported or overflowing IMG extent`, compute shader `f3c5ced35cb619d0`, image slot 2, texture ID 2142). Since `2e655b7` translates image atomics whose result is used, chain `39e4d9585b1d` builds all but the 8 listed above, and a new game from an empty save plays the opening cutscene: both shaders run their atomics directly on their buffer textures (target 10, 8 KB). Checked on the Mac on 2026-10-26.

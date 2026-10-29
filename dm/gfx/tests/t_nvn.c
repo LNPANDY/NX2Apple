@@ -74,7 +74,7 @@ int main(void) {
       _Alignas(8) uint8_t state[64]={0};float cap=60;memcpy(state,&cap,4);dm_fps_state=state;
       EXPECT("stub state takes precedence over env",60,fps_present_cap());
       *(uint32_t *)(state+4)=1;
-      EXPECT("stub movie flag retains 30 cap",30,fps_present_cap());
+      EXPECT("the state page's movie flag is the host's copy, not read for the cap",60,fps_present_cap());
       dm_fps_state=NULL;unsetenv("DM_FPS_TARGET");g_present_cap=-1;nvn_present_config(0,0);
     }
     crash_install();   // the same SIGSEGV / SIGBUS handling as production (the page-fault hook is dispatched from within it)
@@ -559,6 +559,33 @@ int main(void) {
         bad = 0; for (int y = 0; y < 5; y++) for (int x = 0; x < 9; x++) for (int c = 0; c < 4; c++) bad += g2[(y * 9 + x) * 4 + c] != PX(x + 3, y + 2, c);
         EXPECT("ReadTexels packaged texture 9x5 (block-linear pool memory read directly)", 0, bad);
         P(nvnMemoryPoolFinalize)(&rp);
+    }
+
+    // 6b2. MINIMAL_LAYOUT storage: two 320x320 two-byte textures back to back, as before the mesh data in Tears of the Kingdom's Depths (GitHub issue #183). Each takes 204,800 bytes;
+    // WriteTexels of the first must leave the second, and the bytes after both, alone
+    {
+        enum { bytes = 320 * 320 * 2, guard = 65536 };
+        static uint8_t ms[2 * bytes + guard] __attribute__((aligned(16384)));
+        static uint8_t px[bytes], back[bytes];
+        memset(ms, 0xa7, sizeof ms);
+        for (int i = 0; i < bytes; i++) px[i] = (uint8_t)(i * 19 + (i >> 8));
+        NVNmemoryPoolBuilder mpb; NVNmemoryPool mp; P(nvnMemoryPoolBuilderSetDefaults)(&mpb); P(nvnMemoryPoolBuilderSetStorage)(&mpb, ms, sizeof ms);
+        P(nvnMemoryPoolInitialize)(&mp, &mpb);
+        NVNtexture mt[2]; NVNtextureBuilder b;
+        for (int k = 0; k < 2; k++) {
+            P(nvnTextureBuilderSetDevice)(&b, &dev); P(nvnTextureBuilderSetDefaults)(&b);
+            P(nvnTextureBuilderSetSize2D)(&b, 320, 320); P(nvnTextureBuilderSetFlags)(&b, NVN_TEXTURE_FLAGS_MINIMAL_LAYOUT);
+            P(nvnTextureBuilderSetFormat)(&b, k ? NVN_FORMAT_RGB565 : NVN_FORMAT_RGB5A1);
+            P(nvnTextureBuilderSetStorage)(&b, &mp, k * bytes); P(nvnTextureInitialize)(&mt[k], &b);
+            EXPECT("MINIMAL_LAYOUT 320x320 two-byte texture takes 204,800 bytes", bytes, P(nvnTextureGetStorageSize)(&mt[k]));
+            NVNcopyRegion all = {0, 0, 0, 320, 320, 1};
+            P(nvnTextureWriteTexels)(&mt[k], NULL, &all, px);
+            int bad = 0; for (int i = (k + 1) * bytes; i < (int)sizeof ms; i++) bad += ms[i] != 0xa7;
+            EXPECT("MINIMAL_LAYOUT WriteTexels leaves the storage after the texture alone", 0, bad);
+            P(nvnTextureReadTexels)(&mt[k], NULL, &all, back);
+            EXPECT("MINIMAL_LAYOUT texels read back as written", 0, memcmp(px, back, bytes));
+        }
+        P(nvnTextureFinalize)(&mt[0]); P(nvnTextureFinalize)(&mt[1]); P(nvnMemoryPoolFinalize)(&mp);
     }
 
     // 6c. Write-protected dirty pages: after a packaged texture is uploaded its pool pages are read-only; game write → page fault → mark dirty → re-upload on next use; a direct host read() write needs prepare first

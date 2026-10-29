@@ -79,6 +79,7 @@ General host changes first needed here; each applies to every game:
 - **`op_mode`** (the operation mode at start, `DM_OPMODE`): [dm/games/README.md, Keys](../README.md#keys).
 - **Sampler LOD bias** given to Metal (NVN and Vulkan): [Sampler LOD bias](../../../docs/reference/rendering.md#sampler-lod-bias).
 - **Pro Controller motion absent from GameController on the Mac:** [Switch Pro Controller advertises motion but sends zeroes](../../../docs/reference/services.md#switch-pro-controller-advertises-motion-but-sends-zeroes).
+- **The phone's gyro turned a quarter turn on iPhone Duo's inner display** (GitHub issue #569; iOS 27's `deviceMotionBody`, device test open): [The phone's motion in the picture's frame](../../../docs/reference/services.md#the-phones-motion-in-the-pictures-frame).
 
 ## Open
 

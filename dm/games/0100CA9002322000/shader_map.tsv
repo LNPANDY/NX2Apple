@@ -1,0 +1,21 @@
+# kind: evidence  SteamWorld Dig 2 shaders (provisional profile) (BNSH / BAHS in RomFS + main) → control section + code area keys (dm/gfx/tools/shader_split.py)
+# column 5 records where each key first appears; no PC shader pairing supplied
+package	index	stage	dm_ctl_sha16	source
+vs_other.bin	0	vertex	29c4a90a91ce1c51	/data01.impak/Shaders/BasicEffect_Color.bnsh#BNSH@0x0#var0
+ps_other.bin	0	pixel	428e6f5b967fd666	/data01.impak/Shaders/BasicEffect_Color.bnsh#BNSH@0x0#var0
+ps_other.bin	1	pixel	1c73801374d9f7a2	/data01.impak/Shaders/BasicEffect_ColorTexture.bnsh#BNSH@0x0#var0
+vs_other.bin	1	vertex	db5dca2d69ef5e3b	/data01.impak/Shaders/BasicEffect_ColorTexture.bnsh#BNSH@0x0#var0
+ps_other.bin	2	pixel	63cc1f8cba8515a6	/data01.impak/Shaders/ColorTextureBloomBlend.bnsh#BNSH@0x0#var0
+ps_other.bin	3	pixel	b75b0ba9cae0541b	/data01.impak/Shaders/ColorTextureBlur.bnsh#BNSH@0x0#var0
+ps_other.bin	4	pixel	1a9d9e0665156cfa	/data01.impak/Shaders/ColorTextureGamma.bnsh#BNSH@0x0#var0
+ps_other.bin	5	pixel	c01bf654f4d12262	/data01.impak/Shaders/ColorTextureOverlay.bnsh#BNSH@0x0#var0
+vs_other.bin	2	vertex	ebca150f7cc735b3	/data01.impak/Shaders/ColorTextureOverlay.bnsh#BNSH@0x0#var0
+ps_other.bin	6	pixel	5e7d498f5018ab87	/data01.impak/Shaders/ColorTextureOverlayFakeNearest.bnsh#BNSH@0x0#var0
+ps_other.bin	7	pixel	7982e32ce694adc2	/data01.impak/Shaders/ColorTextureRescaleColor.bnsh#BNSH@0x0#var0
+vs_other.bin	3	vertex	1f4d79000bf56b4c	/data01.impak/Shaders/LightOverlayEffect2.bnsh#BNSH@0x0#var0
+ps_other.bin	8	pixel	a7eab6a199d3b3db	/data01.impak/Shaders/LightOverlayEffect2.bnsh#BNSH@0x0#var0
+ps_other.bin	9	pixel	3776108835c82bb2	/data01.impak/Shaders/LightOverlayEffect2AO.bnsh#BNSH@0x0#var0
+vs_other.bin	4	vertex	60b40f323145088b	/data01.impak/Shaders/LightOverlayEffect2AO.bnsh#BNSH@0x0#var0
+ps_other.bin	10	pixel	7ef4dcfd2c045d69	/data01.impak/Shaders/LightOverlayEffect2AT.bnsh#BNSH@0x0#var0
+vs_other.bin	5	vertex	b57a414ab3613608	/data01.impak/Shaders/LightOverlayEffect2WriteDepth.bnsh#BNSH@0x0#var0
+ps_other.bin	11	pixel	e7e6cfe49cfbc881	/data01.impak/Shaders/LightOverlayEffect2WriteDepth.bnsh#BNSH@0x0#var0

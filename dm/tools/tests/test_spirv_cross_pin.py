@@ -11,6 +11,7 @@ REPO = Path(__file__).resolve().parents[3]
 BIN = REPO / 'dm/gfx/tools/spirv_cross_bin'
 sys.path.insert(0, str(REPO / 'dm/gfx/tools'))
 import dmsh_chain  # noqa: E402
+import tool_lock  # noqa: E402
 
 
 class Pin(unittest.TestCase):
@@ -21,7 +22,7 @@ class Pin(unittest.TestCase):
 
     def test_lock_records_it(self):
         with open(dmsh_chain.LOCK) as f: lock = dict(l.rstrip('\n').split('\t', 1) for l in f if '\t' in l and not l.startswith('#'))
-        self.assertEqual(lock['spirv-cross'], dmsh_chain.sha16(BIN / 'spirv-cross'))
+        self.assertEqual(lock['spirv-cross'], tool_lock.sha16(BIN / 'spirv-cross'))
 
     def test_pinned_release_and_licences(self):
         m = re.search(r'^TAG=(\S+)', (BIN / 'build.sh').read_text(), re.M)
