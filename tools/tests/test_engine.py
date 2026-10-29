@@ -246,8 +246,9 @@ class Search(unittest.TestCase):
         shutil.copy(REPO / '.gitignore', tmp / '.gitignore'); shutil.copy(REPO / '.ignore', tmp / '.ignore')
         (tmp / 'engine/dm').mkdir(parents=True); (tmp / 'engine/dm/needle.c').write_text('engine_needle_7f3\n')
         self.assertEqual(git(tmp, 'status', '--porcelain', '--untracked-files=all').count('engine/'), 0)
-        r = subprocess.run(['rg', '-l', 'engine_needle_7f3'], cwd=tmp, capture_output=True, text=True, check=False)
-        self.assertEqual(r.stdout.strip(), 'engine/dm/needle.c', r.stderr)
+        # the root named explicitly and stdin closed: with a pipe on stdin and no path, rg searches stdin (CI runners have one)
+        r = subprocess.run(['rg', '-l', 'engine_needle_7f3', '.'], cwd=tmp, capture_output=True, text=True, check=False, stdin=subprocess.DEVNULL)
+        self.assertEqual(r.stdout.strip(), './engine/dm/needle.c', r.stderr)
 
 
 class StampKey(Fixture):
