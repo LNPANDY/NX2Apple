@@ -9,12 +9,11 @@ README.md is the player's page and stays short: docs_gallery.py writes the galle
 Upstream-Status: fork-only
 Reason: README is the fork's short player page: the games gallery is written to GAMES.md (it would be most of the README) and the update history is CHANGELOG.md
 Issue: LNPANDY/NX2Apple#123
-
 ---
  dm/tools/docs_gallery.py    | 16 ++++++++--------
  dm/tools/tests/test_docs.py |  4 ++--
- docs/RELEASE-NOTES-GUIDE.md |  2 +-
- 3 files changed, 11 insertions(+), 11 deletions(-)
+ docs/RELEASE-NOTES-GUIDE.md |  8 ++++----
+ 3 files changed, 14 insertions(+), 14 deletions(-)
 
 diff --git a/dm/tools/docs_gallery.py b/dm/tools/docs_gallery.py
 index 38280413..5d5c78da 100644
@@ -97,15 +96,33 @@ index 350f7be9..ce6f40ed 100644
      def test_plain_text_captions_and_unknown_size(self):
          image = docs_gallery.rows()[0][0]
 diff --git a/docs/RELEASE-NOTES-GUIDE.md b/docs/RELEASE-NOTES-GUIDE.md
-index ba1f3323..a8378ef2 100644
+index ba1f3323..116d6e85 100644
 --- a/docs/RELEASE-NOTES-GUIDE.md
 +++ b/docs/RELEASE-NOTES-GUIDE.md
-@@ -75,7 +75,7 @@ changing the template means checking that sheet's tests too.
+@@ -53,11 +53,11 @@ same section order, and a reader picks one and reads straight through.
+ 
+ The two halves use the **same headings in the same order** (the Chinese ones are the translations
+ of the English ones), and the same number of items under each heading. Item 2 in English is item 2
+-in Chinese; a reader comparing the two must not have to map lists.
++in Chinese, so a reader comparing the two does not have to map lists.
+ 
+ Rules that matter more than the template:
+ 
+-1. **English first.** It is the canonical text; the Chinese half is written from it.
++1. **English first.** It is the canonical text, and the Chinese half is written from it.
+ 2. **Both halves say the same thing.** Not "a translation of the headline and a summary of the
+    rest" — a user reading either half must learn everything the other one learns.
+ 3. **Never split a section across the two halves.** All of Fixes is in one place, then all of
+@@ -75,10 +75,10 @@ changing the template means checking that sheet's tests too.
  
  ## Where the text comes from
  
 -- `README.md` and `README.zh-CN.md` share an update-history table; a release row goes in both, the
-+- `CHANGELOG.md` and `CHANGELOG.zh-CN.md` share an update-history table; a release row goes in both, the
++- `CHANGELOG.md` and `CHANGELOG.zh-CN.md` share an update-history table. A release row goes in both, the
    English one first (it is the canonical project history), then translated.
  - The release body itself is written once, in both languages, and is what `gh release edit
-   --notes-file` takes. Keep the file in `/tmp` while working; the release is the record.
+-  --notes-file` takes. Keep the file in `/tmp` while working; the release is the record.
++  --notes-file` takes. Keep the file in `/tmp` while working, since the release is the record.
+ - If a fact differs per platform (a macOS-only fix), say which platform in the same sentence in both
+   languages rather than relying on the reader's inference.
+ 

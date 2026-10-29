@@ -180,8 +180,9 @@ class RewriteKey(unittest.TestCase):
         got = nsp.patch_files(REPO, tmp, ['main', 'sdk'])
         self.assertEqual(got, [REPO / 'dm/tools/sdk_patches.py', REPO / 'dm/games' / gid / 'patches.py'])
         (tmp / 'main').write_bytes(b'NSO0' + bytes(0x3c) + bytes(16)); (tmp / 'sdk').write_bytes(b'NSO0' + bytes(0x3c) + bytes(16))
-        self.assertEqual(nsp.patch_files(REPO, tmp, ['main', 'sdk']), [])   # an unregistered build: no patch file counts
-        self.assertEqual(nsp.patch_files(REPO, tmp, ['main', 'sdk'], gid), [REPO / 'dm/games' / gid / 'patches.py'])
+        sdk_wide = REPO / 'dm/tools/sdk_patches.py'   # its SDK-wide MATCH_CUTS apply to any build, so it always counts
+        self.assertEqual(nsp.patch_files(REPO, tmp, ['main', 'sdk']), [sdk_wide])   # an unregistered build: no game's patch file counts
+        self.assertEqual(nsp.patch_files(REPO, tmp, ['main', 'sdk'], gid), [sdk_wide, REPO / 'dm/games' / gid / 'patches.py'])
         g = game.load(gid)
         self.assertNotIn(REPO / 'dm/games' / gid / 'patches.py', nsp.profile_files(g))   # only the rewrite step reads it
 
@@ -194,13 +195,14 @@ class RewriteKey(unittest.TestCase):
         mine, other = tmp / 'profiles/0100000000000000/patches.py', tmp / 'profiles/0100000000000001/patches.py'
         for f, text in ((mine, f"CUTS = {{'{bid}': []}}\n"), (other, "CUTS = {'" + '6f' * 16 + "': []}\n")):
             f.parent.mkdir(parents=True); f.write_text(text)
+        sdk_wide = REPO / 'dm/tools/sdk_patches.py'
         with mock.patch.dict(os.environ, {'DM_GAMES_DIR': str(tmp / 'profiles')}):
-            self.assertEqual(nsp.patch_files(REPO, tmp / 'exe', ['main']), [mine])   # only the file that names the module's build
-            self.assertEqual(nsp.patch_files(REPO, tmp / 'exe', ['main'], '0100000000000001'), [mine, other])   # the selected game's file counts for any build
+            self.assertEqual(nsp.patch_files(REPO, tmp / 'exe', ['main']), [sdk_wide, mine])   # of the games' files, only the one that names the module's build
+            self.assertEqual(nsp.patch_files(REPO, tmp / 'exe', ['main'], '0100000000000001'), [sdk_wide, mine, other])   # the selected game's file counts for any build
         with mock.patch.dict(os.environ, {'DM_GAMES_DIR': ''}):
-            self.assertEqual(nsp.patch_files(REPO, tmp / 'exe', ['main']), [])
+            self.assertEqual(nsp.patch_files(REPO, tmp / 'exe', ['main']), [sdk_wide])
         with mock.patch.dict(os.environ, {'DM_GAMES_DIR': os.pathsep.join([str(tmp / 'profiles')] * 2)}):
-            self.assertEqual(nsp.patch_files(REPO, tmp / 'exe', ['main']), [mine])
+            self.assertEqual(nsp.patch_files(REPO, tmp / 'exe', ['main']), [sdk_wide, mine])
 
 
 if __name__ == '__main__':

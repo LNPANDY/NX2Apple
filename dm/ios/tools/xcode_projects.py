@@ -33,10 +33,42 @@ def workspace_projects(workspace):
         if kind == 'absolute': yield Path(path).resolve()
 
 
+def prune_unreadable(workspace):
+    """Remove workspace entries the current user cannot access, and save the file.
+
+    The workspace records absolute paths, and the launcher's saved state crosses accounts on a
+    shared Mac: a new user's build inherits the first user's entries and dies with PermissionError
+    when it stats them. A project this user cannot read is not this user's project — removing the
+    entry is the fix, not a message telling them to edit XML."""
+    path = Path(workspace) / 'contents.xcworkspacedata'
+    if not path.exists(): return 0
+    tree = workspace_tree(workspace)
+    removed = 0
+    for group in tree.iter('Group'):
+        for ref in list(group.findall('FileRef')):
+            kind, _, loc = ref.get('location', '').partition(':')
+            if kind != 'absolute': continue
+            try:
+                Path(loc).exists()
+                continue   # the current user can read it: a real project, not a stale entry
+            except (PermissionError, OSError):
+                pass
+            group.remove(ref)
+            removed += 1
+    if removed:
+        tree.write(str(path), xml_declaration=True, encoding='unicode')
+        print(f'[NOTE] removed {removed} workspace entr{"y" if removed == 1 else "ies"} the current user cannot read (registered by another macOS user)')
+    return removed
+
+
 def check_bundle_id(workspace, project, bundle_id):
+    prune_unreadable(workspace)
     for other in workspace_projects(workspace):
         if other == Path(project).resolve() or not other.exists(): continue
-        used = signing_settings(other).get('PRODUCT_BUNDLE_IDENTIFIER', '')
+        try:
+            used = signing_settings(other).get('PRODUCT_BUNDLE_IDENTIFIER', '')
+        except (PermissionError, OSError):
+            continue
         if used.lower() == bundle_id.lower():
             raise ValueError(f'bundle ID {bundle_id} is already used by {other}; choose a different --bundle-id for this game')
 

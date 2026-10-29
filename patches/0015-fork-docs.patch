@@ -19,8 +19,8 @@ Issue: LNPANDY/NX2Apple#123
  docs/badges/verified.json   |   6 +
  docs/launcher-c-design.md   | 339 ++++++++++++++++++++++++++++++++++++
  docs/launcher-c-plan.md     | 213 ++++++++++++++++++++++
- docs/probe-dlopen.md        |  34 ++++
- 11 files changed, 1247 insertions(+)
+ docs/probe-dlopen.md        |  64 +++++--
+ 11 files changed, 1262 insertions(+), 15 deletions(-)
  create mode 100644 dm/ios/ENTITLEMENTS.md
  create mode 100644 docs/MULTIPLAYER.md
  create mode 100644 docs/RELEASE-NOTES-GUIDE.md
@@ -34,7 +34,7 @@ Issue: LNPANDY/NX2Apple#123
 
 diff --git a/dm/ios/ENTITLEMENTS.md b/dm/ios/ENTITLEMENTS.md
 new file mode 100644
-index 00000000..de284eb2
+index 00000000..5808b59e
 --- /dev/null
 +++ b/dm/ios/ENTITLEMENTS.md
 @@ -0,0 +1,100 @@
@@ -56,7 +56,7 @@ index 00000000..de284eb2
 +| Game | Peak resident | Headroom | Result |
 +|---|---|---|---|
 +| Tears of the Kingdom | 3,342 MB | 33 MB | killed entering the world map |
-+| Hades II | — | — | asks for a 3.10 GB heap; at the budget limit |
++| Hades II | — | — | asks for a 3.10 GB heap, which is at the budget limit |
 +
 +Lowering the render scale to 0.5 did not change the Tears of the Kingdom outcome, so the limit is
 +the guest heap rather than the GPU. The only way past it is a higher budget.
@@ -81,7 +81,7 @@ index 00000000..de284eb2
 +| Impactor (from a computer) | Yes |
 +| Xcode with a Personal Team | Yes |
 +| SideStore 0.7.0, free Apple ID | Not by default — see below |
-+| Sideloadly and others | Check the tool; Sideloadly does not enable it |
++| Sideloadly and others | Check the tool. Sideloadly does not enable it |
 +
 +## SideStore with a free Apple ID
 +
@@ -91,8 +91,8 @@ index 00000000..de284eb2
 +2. Sideload **GetMoreRam** and sign in with the same Apple ID SideStore uses.
 +3. In GetMoreRam open **App IDs**, tap **Refresh**, select this app's App ID, then
 +   **Add Increased Memory Limit**.
-+4. Reinstall the app from SideStore (it upgrades in place; `Documents/` — the RomFS archive and the
-+   saves — is preserved).
++4. Reinstall the app from SideStore (it upgrades in place, and `Documents/`, the RomFS archive and the
++   saves, is preserved).
 +5. Confirm: `Documents/log.txt` should now show a much larger `headroom to the system memory limit`
 +   in the `memory up to frame N` lines. GetMoreRam uses one of a free Apple ID's three app slots, so
 +   delete it afterwards if you need the slot back.
@@ -127,20 +127,20 @@ index 00000000..de284eb2
 +```
 +
 +Measured here (12 GB iPhone, AltStore Classic 2.3): before the placeholder signature the budget was
-+3,375 MB and Hades II died entering a larger scene; after it the game runs. If the budget stays at
++3,375 MB and Hades II died entering a larger scene. After it the game runs. If the budget stays at
 +3,375 MB with a signed IPA, the remaining step is on the App ID — enable the capability with a tool
 +like GetMoreRam (same Apple ID as the sideloader, App IDs → Refresh → select the app → Add
 +Increased Memory Limit), then reinstall so the profile picks it up.
 +
 +## Xcode route
 +
-+A project prepared with `--prepare-xcode` already carries the entitlement (`Gen/DmIOS.entitlements`);
-+with a Personal Team and a real device, build from there. That is the one route where the app is
++A project prepared with `--prepare-xcode` already carries the entitlement (`Gen/DmIOS.entitlements`).
++With a Personal Team and a real device, build from there. That is the one route where the app is
 +signed at build time, so no re-signing step can drop the entitlement. The Mac launcher's
 +**Install on** uses this route.
 diff --git a/docs/MULTIPLAYER.md b/docs/MULTIPLAYER.md
 new file mode 100644
-index 00000000..39558eb5
+index 00000000..f29c8188
 --- /dev/null
 +++ b/docs/MULTIPLAYER.md
 @@ -0,0 +1,139 @@
@@ -190,7 +190,7 @@ index 00000000..39558eb5
 +| `0x01` | IPv4 | both | a whole IP packet |
 +| `0x02` | ping | client → server | 4 random bytes (echoed back) |
 +| `0x03` | IPv4 fragment | both | 16-byte header + data (below) |
-+| `0x04` | auth | server → client | the server asks for a login; implementations without it log and continue |
++| `0x04` | auth | server → client | the server asks for a login, and implementations without it log and continue |
 +| `0x10` | info | server → client | a UTF-8 message to show the player |
 +
 +The high bit (`type & 0x7F`) is masked off on receive, so `0x81` is accepted as IPv4.
@@ -210,7 +210,7 @@ index 00000000..39558eb5
 +mismatched totals or MTUs, and concatenates parts in index order.
 +
 +**Client behaviour**: keepalive + ping every 10 s, consider the server lost after 30 s of
-+silence, reconnect every 5 s on failure. The client picks its virtual address itself; the server
++silence, reconnect every 5 s on failure. The client picks its virtual address itself, and the server
 +maps it to the connection.
 +
 +A real Switch can join a lan-play server, which is the whole point: this is how Switch players
@@ -229,7 +229,7 @@ index 00000000..39558eb5
 +Peer discovery without a router, using the platform's peer-to-peer mechanism (mush8 uses mDNS /
 +DNS-SD to advertise and browse, `dnssd.rs`: `DNSServiceRegister` / `DNSServiceBrowse` /
 +`DNSServiceResolve` / `DNSServiceGetAddrInfo`). Each player advertises a service and browses for
-+the others; the first contact becomes the transport.
++the others, and the first contact becomes the transport.
 +
 +## What the game needs above the transport
 +
@@ -254,8 +254,8 @@ index 00000000..39558eb5
 +|---|---|---|
 +| 1. BSD sockets | `socket`/`bind`/`sendto`/`recvfrom`/`poll`/`select` over the virtual network, with the errno conventions the SDK expects | new `dm/host/hle_bsd.c` (replaces the offline stubs in `hle_offline.c`) |
 +| 2. Virtual network | address/MASK/gateway, per-port socket registry, broadcast rules, receive queues, wake-on-packet for `poll` | new `dm/host/dm_vnet.c` |
-+| 3. Transports | lan-play framing + reassembly; LAN broadcast; wireless via mDNS | one file per transport |
-+| 4. `ldn` / `nifm` | make the game believe a session can exist; per-game payload mapping | `hle_ldn.c`, and per-game code |
++| 3. Transports | lan-play framing and reassembly, LAN broadcast, wireless via mDNS | one file per transport |
++| 4. `ldn` / `nifm` | make the game believe a session can exist, per-game payload mapping | `hle_ldn.c`, and per-game code |
 +
 +Layers 1–3 are game independent and reusable. Layer 4 is where a new title costs work again.
 +
@@ -268,7 +268,7 @@ index 00000000..39558eb5
 +- **Does our Metal host survive packet injection at frame rate?** Untested. The transport runs
 +  on its own thread, but `poll` must wake a blocked guest thread promptly.
 +- **iOS local network permission**: iOS 14+ shows a prompt and the entitlement
-+  `com.apple.developer.networking.multicast` may be needed for broadcast; a sideloaded unsigned
++  `com.apple.developer.networking.multicast` may be needed for broadcast. A sideloaded unsigned
 +  IPA cannot carry it, which could make LAN mode impossible on iOS while lan-play (unicast UDP)
 +  still works.
 +- **Matching the game update to the Switch's**, per mush8's note — our profiles already pin an
@@ -282,7 +282,7 @@ index 00000000..39558eb5
 +- [c22dev/mush8](https://github.com/c22dev/mush8) — `crates/nxhost/src/services/{vnet,lanplay,lan,wireless}.rs`,
 +  `crates/nxhost/src/dnssd.rs` (read at commit 0.1).
 +- lan-play itself is a public protocol with several open implementations (switch-lan-play and
-+  clients for it); the constant table above matches what mush8 implements.
++  clients for it), and the constant table above matches what mush8 implements.
 diff --git a/docs/RELEASE-NOTES-GUIDE.md b/docs/RELEASE-NOTES-GUIDE.md
 new file mode 100644
 index 00000000..ba1f3323
@@ -396,7 +396,7 @@ index 00000000..ba1f3323
 +into two lists.
 diff --git a/docs/RELEASE_NOTES.md b/docs/RELEASE_NOTES.md
 new file mode 100644
-index 00000000..c8adbaab
+index 00000000..2f1132cb
 --- /dev/null
 +++ b/docs/RELEASE_NOTES.md
 @@ -0,0 +1,77 @@
@@ -413,27 +413,27 @@ index 00000000..c8adbaab
 +- **Launch options live in the game's own store**: one string per setting (`launcher.<VAR>`) in the app's preferences domain, exactly where upstream's launcher reads them — Finder and Dock starts included. Only non-default values are kept, an earlier launcher's choices migrate once, and schema 1 is read properly: sub-settings appear only when their parent has the value (`needs`), sections the launcher has no name for draw after the known ones in list order, and range limits come from the row. A newer schema is read as far as it can be and noted in the log, never refused.
 +- **The library's Manage menu in the launcher's own style** — and a controller can open and drive it.
 +- **Build tools update themselves**: a ZIP copy of an old release is connected to git by itself when the app opens (your own edits are preserved on a branch), and a build refuses to start when the tools are older than the app instead of failing at the last step.
-+- **Install with just an Apple ID**: signing teams come from Xcode's provisioning preferences (personal teams are labelled), merged with the certificates'. With no certificate at all, Xcode creates one at the first install (`-allowProvisioningUpdates`); the messages say so, and with neither an Apple ID nor a certificate they say exactly where to sign in.
-+- **The installer asks before copying game files**: USB from the Mac runs at about 25–70 MB/s, so the dialog offers transfer now or skip — the game installs either way, and the outcome card gains a "Game data (romfs.img)" row with Reveal in Finder for a manual copy (a fast external drive handed to the device is quicker; the launcher's Game data picker loads from it).
-+- **Issue forms**: game, build and launcher problems each ask for what a report needs (versions, device, Copy diagnostics, the game's log) and refuse to submit without it; a PR template and CONTRIBUTING.md set the same rules for tools.
++- **Install with just an Apple ID**: signing teams come from Xcode's provisioning preferences (personal teams are labelled), merged with the certificates'. With no certificate at all, Xcode creates one at the first install (`-allowProvisioningUpdates`). The messages say so, and with neither an Apple ID nor a certificate they say exactly where to sign in.
++- **The installer asks before copying game files**: USB from the Mac runs at about 25–70 MB/s, so the dialog offers transfer now or skip — the game installs either way, and the outcome card gains a "Game data (romfs.img)" row with Reveal in Finder for a manual copy (a fast external drive handed to the device is quicker, and the launcher's Game data picker loads from it).
++- **Issue forms**: game, build and launcher problems each ask for what a report needs (versions, device, Copy diagnostics, the game's log) and refuse to submit without it. A PR template and CONTRIBUTING.md set the same rules for tools.
 +
 +## Fixes
 +
 +- **iPhone: choosing game data sticks.** The bookmark is written while the Files app's security scope is held (one written without it resolves to nothing from the next launch on — every pick read as "the app was signed differently"), saved only after a round-trip resolves, and a stale-but-readable bookmark rewrites itself instead of making you pick again. The resolved scope stays held for the session, since the game reads the image the whole time.
 +- **iPhone: no game data is no dead end.** A fresh install with nothing in Documents and no pick ever made boots into the launcher (the old build stopped on a static "Game files not found" page that never mentioned the picker), and Play (re)locates the data first — a pick made this session applies at once, with save/temp following the final location. An app without a launcher falls back to the static hint.
-+- **iPhone: the signing retry keeps its stage row.** The team-variant retry appended a second "Sign for …" row with the same id that no update ever reached; it spun for ever after the build moved on. A retried stage now reuses its row.
++- **iPhone: the signing retry keeps its stage row.** The team-variant retry appended a second "Sign for …" row with the same id that no update ever reached, so it spun for ever after the build moved on. A retried stage now reuses its row.
 +- **Mac: every extracted game version is kept as the build resource it is.** The versions a profile's shader tables were made from are inputs to the shader split on every build, so deleting the packed version's siblings traded a full re-extraction of the base game for disk space — the wrong trade, and it is undone.
-+- **Sync: the next upstream sync runs.** Upstream's latest commits stopped the sync and would have silently lost fork code; every patcher is now tested against real upstream in CI, a `--check-protection` run lists any hand-edited file no table covers, and files the fork owns outright are registered so a sync cannot revert them.
++- **Sync: the next upstream sync runs.** Upstream's latest commits stopped the sync and would have silently lost fork code. Every patcher is now tested against real upstream in CI, a `--check-protection` run lists any hand-edited file no table covers, and files the fork owns outright are registered so a sync cannot revert them.
 +
 +## Known issues
 +
-+- **Mods have not been played with a real mod yet**: the layouts and the environment string are verified; the actual overlay is not.
++- **Mods have not been played with a real mod yet**: the layouts and the environment string are verified, but the actual overlay is not.
 +- **Windows**: not provided on this page — the front end is verified on real hardware, the full build pipeline is not. The Actions artifact `NS-Port-Builder-qt-windows-x64` has the current front end.
 +
 +## Install
 +
 +- **macOS**: download `NX2Apple-macOS-arm64.zip`, unzip, then right-click → Open on first launch. In-app updates work from 0.4.9 on under the NX2Apple name (older versions: download this one by hand).
-+- **Windows**: not provided on this page; the Actions artifact has the Qt front end.
++- **Windows**: not provided on this page, but the Actions artifact has the Qt front end.
 +
 +## Credits
 +
@@ -448,20 +448,20 @@ index 00000000..c8adbaab
 +
 +## 新增
 +
-+- **启动选项存进游戏自己的存储**：每个设置一条字符串（`launcher.<VAR>`），写在 App 的偏好域里——正是上游启动器读取的位置，Finder 和 Dock 启动同样生效。只保留非默认值，旧启动器的选择一次性迁移；schema 1 完整支持：父项有值才显示子项（`needs`）、启动器不认识的分组按列表顺序排在已知分组之后、范围上下限来自条目本身。更新版的 schema 能读多少读多少并写进日志，绝不拒绝。
++- **启动选项存进游戏自己的存储**：每个设置一条字符串（`launcher.<VAR>`），写在 App 的偏好域里——正是上游启动器读取的位置，Finder 和 Dock 启动同样生效。只保留非默认值，旧启动器的选择一次性迁移。schema 1 完整支持：父项有值才显示子项（`needs`）、启动器不认识的分组按列表顺序排在已知分组之后、范围上下限来自条目本身。更新版的 schema 能读多少读多少并写进日志，绝不拒绝。
 +- **游戏库的 Manage 菜单换成启动器同款风格**——并且可以用手柄打开和操作。
-+- **构建工具自己更新**：旧版 ZIP 拷贝在 App 打开时自动接上 git（你自己的修改保留在分支上）；工具比 App 旧时直接拒绝开始构建，而不是到最后一步才失败。
-+- **只凭 Apple ID 就能安装**：签名团队从 Xcode 的开发者偏好里读取（个人团队会标注），与证书里的合并。一个证书都没有时，Xcode 在第一次安装时自动创建（`-allowProvisioningUpdates`）；提示语会说明这一点，既没有 Apple ID 也没有证书时，会告诉你确切该去哪里登录。
-+- **安装器在拷贝游戏文件前先询问**：Mac 经 USB 向 iPhone 只有约 25–70 MB/s，弹窗提供"现在传输"或"暂不传输"——两种选择游戏都会装上；结果卡片新增"游戏数据（romfs.img）"一行，带"在访达中显示"，方便手动拷贝（把高速外接盘直接连 iPhone 更快，启动器的"选择游戏数据"可以从那里加载）。
-+- **Issue 表单**：游戏/构建/启动器三类问题各自要求报告所需的信息（版本、设备、Copy 诊断、游戏日志），缺了就提交不了；PR 模板和 CONTRIBUTING.md 给工具立了同样的规矩。
++- **构建工具自己更新**：旧版 ZIP 拷贝在 App 打开时自动接上 git（你自己的修改保留在分支上），工具比 App 旧时直接拒绝开始构建，而不是到最后一步才失败。
++- **只凭 Apple ID 就能安装**：签名团队从 Xcode 的开发者偏好里读取（个人团队会标注），与证书里的合并。一个证书都没有时，Xcode 在第一次安装时自动创建（`-allowProvisioningUpdates`），提示语会说明这一点，既没有 Apple ID 也没有证书时，会告诉你确切该去哪里登录。
++- **安装器在拷贝游戏文件前先询问**：Mac 经 USB 向 iPhone 只有约 25–70 MB/s，弹窗提供"现在传输"或"暂不传输"——两种选择游戏都会装上，结果卡片新增"游戏数据（romfs.img）"一行，带"在访达中显示"，方便手动拷贝（把高速外接盘直接连 iPhone 更快，启动器的"选择游戏数据"可以从那里加载）。
++- **Issue 表单**：游戏/构建/启动器三类问题各自要求报告所需的信息（版本、设备、Copy 诊断、游戏日志），缺了就提交不了。PR 模板和 CONTRIBUTING.md 给工具立了同样的规矩。
 +
 +## 修复
 +
 +- **iPhone：选择游戏数据终于能记住。** 书签在 Files App 的安全作用域被持有期间写入（不持作用域写出的书签从下次启动起就解析不了——于是每次选择都报"签名不同"），保存前先验证能读回，能解析但过期的书签自动重写而不必重选。解析出的作用域在整个会话期间持有，因为游戏全程都在读镜像。
-+- **iPhone：没有游戏数据不再是死路。** 全新安装、Documents 里没有数据、也从没选过路径时，App 会正常进启动器（旧版停在一句静态的"Game files not found"上，绝口不提选择器）；按 Play 时先重新定位数据——本次会话的选择立即生效，存档/临时目录跟着最终位置走。没有启动器的极简包才回退到静态提示。
++- **iPhone：没有游戏数据不再是死路。** 全新安装、Documents 里没有数据、也从没选过路径时，App 会正常进启动器（旧版停在一句静态的"Game files not found"上，绝口不提选择器），按 Play 时先重新定位数据——本次会话的选择立即生效，存档/临时目录跟着最终位置走。没有启动器的极简包才回退到静态提示。
 +- **iPhone：签名重试复用同一行。** 团队变体重试会追加一行同 ID 的"为 … 签名"，而所有更新都只打到第一行——构建都走完了它还在转圈。重试的步骤现在复用自己的行。
 +- **Mac：每个解包版本都作为构建资源保留。** 游戏 shader 表登记的来源版本是每次构建 shader split 的输入，删掉打包版本之外的版本，等于拿整份基础版重解去换磁盘空间——这笔账不划算，已撤销。
-+- **同步：下一次上游同步能跑通了。** 上游最新提交会让同步中断并悄悄丢掉 fork 代码；现在每个补丁器都在 CI 里对着真实上游测试，`--check-protection` 会列出任何没被登记的手改文件，fork 完全 own 的文件也已登记、同步不会回退它们。
++- **同步：下一次上游同步能跑通了。** 上游最新提交会让同步中断并悄悄丢掉 fork 代码。现在每个补丁器都在 CI 里对着真实上游测试，`--check-protection` 会列出任何没被登记的手改文件，fork 完全 own 的文件也已登记、同步不会回退它们。
 +
 +## 已知问题
 +
@@ -471,7 +471,7 @@ index 00000000..c8adbaab
 +## 安装
 +
 +- **macOS**：下载 `NX2Apple-macOS-arm64.zip`，解压后右键 → 打开（首次）。0.4.9 起 App 内更新在 NX2Apple 名下正常工作（更早的版本请这次手动下载）。
-+- **Windows**：本页不提供；Actions 产物里有 Qt 前端。
++- **Windows**：本页不提供，Actions 产物里有 Qt 前端。
 +
 +## 致谢
 +
@@ -479,7 +479,7 @@ index 00000000..c8adbaab
 +- **GabeThe21stGamer**：暴露了旧工具与无证书两条路径的报告（#87），以及免证书安装的免费 Apple ID 实测。
 diff --git a/docs/ROADMAP.md b/docs/ROADMAP.md
 new file mode 100644
-index 00000000..69666591
+index 00000000..35472c99
 --- /dev/null
 +++ b/docs/ROADMAP.md
 @@ -0,0 +1,140 @@
@@ -501,10 +501,10 @@ index 00000000..69666591
 +stick and the other an injected value.
 +
 +Four details worth copying verbatim, because each is a bug that took them time:
-+- **float exact equality** to recognise the frame it wrote, not an epsilon window;
++- **float exact equality** to recognise the frame it wrote, not an epsilon window,
 +- **thread-local** copies of the original value, because the camera and action threads both
-+  call the getter and would otherwise cross-pair;
-+- normalisation by the frame's VFR ratio, and zero output when the drag stops;
++  call the getter and would otherwise cross-pair,
++- normalisation by the frame's VFR ratio, and zero output when the drag stops, and
 +- `touchpad_geometry.h`: one C header describing the whole virtual pad, used by both the UIKit
 +  view and a **Mac mouse preview**, so the layout is tuned on a desk instead of on a phone.
 +
@@ -515,7 +515,7 @@ index 00000000..69666591
 +| Piece | Effort | Note |
 +|---|---|---|
 +| `touchpad_geometry.h` + Mac `--touch-preview` | 3–5 days | Visible immediately, zero device time |
-+| Relative look (`hle_look.c`) | 1–2 weeks | Needs tests; the four details above are the spec |
++| Relative look (`hle_look.c`) | 1–2 weeks | Needs tests, and the four details above are the spec |
 +| Native aspect (`hle_aspect.c`) | 3–5 days per game | Needs per-game projection offsets |
 +| BOTW touch HUD (`hle_botw_touchhud.c`) | 3–5 days | Per-game only |
 +
@@ -557,7 +557,7 @@ index 00000000..69666591
 +  ~4 ms/frame). One data row, read once per second.
 +
 +We already read one table from three places (`dm/games/settings.tsv` → `Launcher.swift` →
-+`frontend-qt`); adding two columns keeps that structure.
++`frontend-qt`), and adding two columns keeps that structure.
 +
 +Also from that fork: `nvn_ambient.h` (227 lines, present stage only) — ambient letterbox that
 +samples the frame's edges so a 16:9 game on a 4:3 iPad has a coloured surround instead of black.
@@ -572,8 +572,8 @@ index 00000000..69666591
 +| | zenvyzenshiro/NXNativeWindows | xbunax/nxnative |
 +|---|---|---|
 +| Size | ~24 files (`win/` shim) | full FastAPI WebUI (720 KB, 98 files) |
-+| Approach | `xcrun.py` maps every `xcrun metal/metallib/clang`, `sips`, `plutil` to a Windows equivalent; `Launcher.m` replaces the SwiftUI launcher; `sdk/extract_xip.py` unpacks `iPhoneOS.sdk` | same idea plus its own staging/overlay/patch build system |
-+| Verified on | Windows 11, LLVM 23.1.4, Metal Tools 6.2, iPhoneOS 27.1 — **Balatro built, sideloaded, ran on an A16 iPad** | Hades II IPA produced; not verified on a device |
++| Approach | `xcrun.py` maps every `xcrun metal/metallib/clang`, `sips`, `plutil` to a Windows equivalent, `Launcher.m` replaces the SwiftUI launcher, and `sdk/extract_xip.py` unpacks `iPhoneOS.sdk` | same idea plus its own staging/overlay/patch build system |
++| Verified on | Windows 11, LLVM 23.1.4, Metal Tools 6.2, iPhoneOS 27.1 — **Balatro built, sideloaded, ran on an A16 iPad** | Hades II IPA produced, not verified on a device |
 +| Fit for us | High — we already have two front ends | Low — it would be a third |
 +
 +Toolchain (pinned in both forks): LLVM-MinGW `20261020`, iPhoneOS SDK from
@@ -608,8 +608,8 @@ index 00000000..69666591
 +| C. Shell app + per-game signed framework via `dlopen` | unbounded | large, unvalidated |
 +
 +**A already delivers what external storage needs** (romfs from an external folder, per-game
-+saves and logs) and enables the runtime-profile work that was already done. Do A first; B only
-+if 4–8 games in one app is worth it; C needs a `dlopen` experiment before any commitment.
++saves and logs) and enables the runtime-profile work that was already done. Do A first, B only
++if 4–8 games in one app is worth it, and C needs a `dlopen` experiment before any commitment.
 +
 +External storage on iOS: `UIDocumentPickerViewController` for the folder, persist a security-
 +scoped bookmark in UserDefaults, store the ROMFSARC index and shards there. `romfs_arc.c`
@@ -625,7 +625,7 @@ index 00000000..69666591
 +carrier).
 diff --git a/docs/WORK-IN-PROGRESS.md b/docs/WORK-IN-PROGRESS.md
 new file mode 100644
-index 00000000..5a11bdf8
+index 00000000..7364c2c8
 --- /dev/null
 +++ b/docs/WORK-IN-PROGRESS.md
 @@ -0,0 +1,88 @@
@@ -685,18 +685,18 @@ index 00000000..5a11bdf8
 +
 +| # | Item | Effort | Why not started |
 +|---|---|---|---|
-+| C1 | **Relative touch look** (`hle_look.c` idea) | 1–2 wks | touch-the-wild's version depends on per-game observation hooks and float-exact provenance; author says unstable. Layer 1 (geometry) is already in |
-+| C2 | **Native aspect ratio** (`hle_aspect.c` idea) | 3–5 d per game | Needs per-game projection offsets; layer 1 came first |
-+| C3 | **Atmosphère cheats** | 0 if upstream merges PR #268 | Waiting on upstream; falls back to ~1 wk of our own if it stalls |
-+| C4 | **Settings capability gating** (`requires` + `defaultAtFps` from AnySwitch) | 1–2 wks | Polish; needs `settings.tsv` schema change |
++| C1 | **Relative touch look** (`hle_look.c` idea) | 1–2 wks | touch-the-wild's version depends on per-game observation hooks and float-exact provenance, and the author says it is unstable. Layer 1 (geometry) is already in |
++| C2 | **Native aspect ratio** (`hle_aspect.c` idea) | 3–5 d per game | Needs per-game projection offsets, and layer 1 came first |
++| C3 | **Atmosphère cheats** | 0 if upstream merges PR #268 | Waiting on upstream, and falls back to ~1 wk of our own if it stalls |
++| C4 | **Settings capability gating** (`requires` + `defaultAtFps` from AnySwitch) | 1–2 wks | Polish, needs `settings.tsv` schema change |
 +| C5 | **Universal launcher architecture B** (4–8 games per IPA) | 3–4 wks | Blocked on: NRO-style module packing for non-NRO modules (`loader.c map_image`), and on deciding whether 4–8 games is worth it |
-+| C6 | **Multiplayer (LAN / lan-play / wireless)** | 2–3 wks for one game | Protocol documented in `docs/MULTIPLAYER.md`; needs BSD socket layer + virtual network + per-game `ldn` mapping. Untested: iOS multicast entitlement on a sideloaded IPA |
-+| C7 | **Launcher architecture C** (`dlopen` per-game framework) | large | Feasibility experiment **passed** on a device (iOS 27.0.1, sideloaded: `dlopen` of a nested framework + `dlsym` + call, docs/probe-dlopen.md); next is one real game as a framework in a shell app |
++| C6 | **Multiplayer (LAN / lan-play / wireless)** | 2–3 wks for one game | Protocol documented in `docs/MULTIPLAYER.md`, and needs BSD socket layer + virtual network + per-game `ldn` mapping. Untested: iOS multicast entitlement on a sideloaded IPA |
++| C7 | **Launcher architecture C** (`dlopen` per-game framework) | large | Feasibility experiment **passed** on a device (iOS 27.0.1, sideloaded, `dlopen` of a nested framework + `dlsym` + call, see docs/probe-dlopen.md). Next is one real game as a framework in a shell app |
 +| C8 | **Pikmin 4 / Yoshi / other fork profiles** | days each | Cherriable from forks once their PRs land upstream |
 +
 +## D. Blocked on upstream
 +
-+- [ ] PR #268 Atmosphère cheats — watch for merge; our daily sync will bring it in.
++- [ ] PR #268 Atmosphère cheats — watch for merge, since our daily sync will bring it in.
 +- [ ] seedds/nxnative#205 (we filed): ARM64 branch range on a 185 MB text. Without it,
 +      EA Sports FC 27 and similar large titles cannot be rewritten.
 +- [ ] Upstream PRs from forks worth cherry-picking: #218/#216 (Yoshi sparse textures, texraw),
@@ -706,15 +706,15 @@ index 00000000..5a11bdf8
 +
 +- [ ] The Qt front end has no reproducible "check for app updates" (the SwiftUI one has it).
 +- [ ] Qt front end: per-stage percentage display (currently an indeterminate bar for the
-+      running stage; the SwiftUI app shows real percentages from the script's own output).
++      running stage, while the SwiftUI app shows real percentages from the script's own output).
 +- [ ] `frontend-qt/README.md` says the Windows path is untested — update once section A passes.
-+- [ ] The games table in both READMEs is hand-inserted; `refresh_badges()` already counts the
++- [ ] The games table in both READMEs is hand-inserted, and `refresh_badges()` already counts the
 +      folders, so the table could be generated too.
-+- [ ] `docs/ROADMAP.md` predates the BC/multiplayer findings; fold them in.
++- [ ] `docs/ROADMAP.md` predates the BC/multiplayer findings, so fold them in.
 +
 +## How to use this file
 +
-+- Pick from A first if you are the one with the hardware; otherwise B.
++- Pick from A first if you are the one with the hardware, otherwise B.
 +- C is a menu, not a queue: each entry names its own blocker.
 +- Anything finished goes to the top table with its commit, so the list stays short.
 diff --git a/docs/badges/games.json b/docs/badges/games.json
@@ -743,7 +743,7 @@ index 00000000..92b31479
 +}
 diff --git a/docs/launcher-c-design.md b/docs/launcher-c-design.md
 new file mode 100644
-index 00000000..515d3eae
+index 00000000..bc814c7d
 --- /dev/null
 +++ b/docs/launcher-c-design.md
 @@ -0,0 +1,339 @@
@@ -753,12 +753,12 @@ index 00000000..515d3eae
 +`dm/host/hle_profile.{c,h}`（运行时 profile，已在 main，`3b36083`）。
 +
 +目标（用户原话）：**"打开启动器就像打开了一台 Switch"**——一个壳 App，里面看到多个已构建的游戏，
-+点一个进入那个游戏。架构 A（进行中，WIP:41-47）交付按游戏隔离的数据布局；本文设计 C——壳 +
++点一个进入那个游戏。架构 A（进行中，WIP:41-47）交付按游戏隔离的数据布局。本文设计 C——壳 +
 +每游戏 framework——把"多个游戏装进一个 App"的**代码**维度做对。
 +
 +本文回答六个问题：framework 边界、与架构 B 的真实差异（含 codesign 的诚实结论）、构建系统改造、
 +运行时选择器、风险清单、工作量分解。每个结论都给证据（文件与行号，或外部来源）。
-+**一句话结论先放在这里：C 不能"不重签就加游戏"——iOS 只允许 dlopen 安装时已在签名 bundle 内的代码；
++**一句话结论先放在这里：C 不能"不重签就加游戏"——iOS 只允许 dlopen 安装时已在签名 bundle 内的代码，
 +C 的真实价值是"每个游戏一个独立 Mach-O（各自的 255 section 预算、增量链接、坏一个不坏全局）"，
 +不是 unbounded。第 2 节有完整论证。**
 +
@@ -776,7 +776,7 @@ index 00000000..515d3eae
 +| `<game>` dylib：`__TEXT,__dm<mod>x0` / `__DM<mod>W,__img` / `__TEXT,__dm<mod>x1` 三段式聚合段 | `dm/ios/tools/gen_embed.py`（不改，同样的 embed.S 进一个 dylib target 而不是可执行文件） | 今天这些 section 在主可执行文件里（`loader.c:473-476`） |
 +| `__DATA,__dm_nro_tab` + 三个共享 NRO 段（有 NRO 的游戏，如任天堂明星大乱斗 98 个） | `gen_embed.py`（不改） | `loader.c:485-492` |
 +| `Info.plist`、`Resources/dm/`（`*.fixups.tsv`、`*.gates.tsv`、`nro.tsv`、shader 表） | `build_ipa.sh:75-81` 的复制清单原样搬进 framework | 今天在 App 的 `dm/` 资源目录（`project.yml` `Gen/dm` resources） |
-+| `Resources/profile.tsv`（运行时 game profile，可选；优先用 Documents 里的） | `dm/games/game.py profile <id> <out>`（`game.py:192-232`） | 今天靠 DM_PROFILE 环境变量指向 |
++| `Resources/profile.tsv`（运行时 game profile，可选，优先用 Documents 里的） | `dm/games/game.py profile <id> <out>`（`game.py:192-232`） | 今天靠 DM_PROFILE 环境变量指向 |
 +
 +framework 里**没有**宿主代码、没有 ObjC 类、没有入口函数——它对 dyld 是一个"加载后不被调用"的镜像，
 +唯一用途是让它的段被签名映射进进程，然后 `vm_remap` 到 guest 布局。romfs / msl / save / pso 一概不进
@@ -784,11 +784,11 @@ index 00000000..515d3eae
 +
 +**方案 FH（备选）：framework = 整个 dmhost + 该游戏的聚合段。** 入口
 +`int dmgame_main(int argc, char **argv, const char *profile_path)`（= 现在的 `dm_main`，`main.m:11` 用
-+`-Dmain=dm_main` 编进宿主；framework 内同名导出），壳 dlopen 后 `dlsym(handle, "dmgame_main")` 调用。
++`-Dmain=dm_main` 编进宿主，framework 内同名导出），壳 dlopen 后 `dlsym(handle, "dmgame_main")` 调用。
 +仅当 FR 的探针（第 5 节 R1）失败时退到 FH。FH 的代价：宿主对象码每个游戏重复一份（dm/host 的
-+.c/.m 源码合计约 11,265 行，头文件另计——重复是浪费但量级可接受）；**更严重的是壳与 framework
++.c/.m 源码合计约 11,265 行，头文件另计——重复是浪费但量级可接受）。**更严重的是壳与 framework
 +各持一份 ObjC 类**（`front_ios.m` 的 App/SceneDelegate、Metal NVN 层的类），同名类跨镜像重复注册
-+是 ObjC 运行时的已知雷区；除非"壳里不放宿主"，但这又把窗口/Metal 生命周期切成两半。
++是 ObjC 运行时的已知雷区，除非"壳里不放宿主"，但这又把窗口/Metal 生命周期切成两半。
 +
 +### 1.2 入口符号设计（两种方案统一写法）
 +
@@ -830,11 +830,11 @@ index 00000000..515d3eae
 +| 环境变量 | 现状（main.m 行号） | C 中的值 |
 +|---|---|---|
 +| `DM_ROMFS` | 87-90：`Documents/games/<DM_GAME_ID>/romfs` → `Documents/romfs` → `<App>/romfs` | `Documents/games/<选中 id>/romfs`，判定函数 `romfs_dir_ok`（19-28 行）原样复用 |
-+| `DM_SAVE` / `DM_TEMP` | 95-104：`game_dir_for`（36-39 行）的 per-game 布局，`romfs` 落在游戏目录内才启用 | 同上；**按游戏隔离已经存在**，壳只换 id |
-+| `DM_MSL_DIR` | 107-111：**已优先 per-game `<gdir>/msl`**，退到 bundle `<App>/msl` | 不改逻辑；shader 库放 `Documents/games/<id>/msl/`（数据，不进 framework，见 1.1） |
++| `DM_SAVE` / `DM_TEMP` | 95-104：`game_dir_for`（36-39 行）的 per-game 布局，`romfs` 落在游戏目录内才启用 | 同上，**按游戏隔离已经存在**，壳只换 id |
++| `DM_MSL_DIR` | 107-111：**已优先 per-game `<gdir>/msl`**，退到 bundle `<App>/msl` | 不改逻辑，shader 库放 `Documents/games/<id>/msl/`（数据，不进 framework，见 1.1） |
 +| `DM_PSO_BUNDLE` | 115-116：只查 bundle `<App>/pso` | 壳扩展为先查 `Documents/games/<id>/pso`（pso 离线管线档案是数据，BotW 一档约 650 MB/架构，`build_ipa.sh:82-86`） |
 +| `DM_NVN_SHMAP` | 105-106：bundle `<App>/dm/shader_map.tsv` | `<framework>/Resources/dm/shader_map.tsv` |
-+| `DM_PROFILE` | hle_profile.c:213-214 读取；iOS 侧今天没人设它 | `Documents/games/<id>/profile.tsv` 优先，退 framework 资源 |
++| `DM_PROFILE` | hle_profile.c:213-214 读取，iOS 侧今天没人设它 | `Documents/games/<id>/profile.tsv` 优先，退 framework 资源 |
 +| `DM_LANG` / `DM_SHOW_FPS` | 84-86（Info.plist `DMLanguage`） | 壳 Info.plist 或 Documents/env.txt（69-80 行的 env 文件机制不动） |
 +| 其余 `DM_*` 调试开关 | `main.c:42-46 flags_init` | Documents/env.txt，不变 |
 +
@@ -857,7 +857,7 @@ index 00000000..515d3eae
 +   放 Data 容器不行。
 +2. **实测复现**（johnno1962/InjectionNext issue #81，2025-08 起）：同 TeamIdentifier 签名、合法
 +   load commands、甚至 get-task-allow + Developer Mode 的 dylib，只要在 bundle 外（Data 容器），
-+   `dlopen` 报 `code signature invalid (errno=1)`；拷进 bundle 后立即成功。结论：AMFI 拒绝的是
++   `dlopen` 报 `code signature invalid (errno=1)`，拷进 bundle 后立即成功。结论：AMFI 拒绝的是
 +   **代码所在的路径**，不是签名的对错。该 issue 还确认 dylib **不能携带自己的 entitlements**。
 +3. **嵌入位置的官方要求**：TN2435（Embedding Frameworks In An App）与
 +   developer.apple.com/documentation/bundleresources/placing-content-in-a-bundle——第三方 app 的动态
@@ -866,7 +866,7 @@ index 00000000..515d3eae
 +
 +**反例为什么不算数**：LiveContainer（github.com/LiveContainer/LiveContainer）确实做到了"装一次壳、
 +之后随便加 app"。它的做法（读源码确认）：guest 可执行文件放在数据容器里，靠
-+`dlopen` 直接加载（`LCBootstrap.m:570-583`）；能这样做的条件是
++`dlopen` 直接加载（`LCBootstrap.m:570-583`），能这样做的条件是
 +`"If JIT is enabled, bypass library validation so we can load arbitrary binaries"`（`LCBootstrap.m:367-371`）——
 +即持有 JIT/动态代码签名资格时，在**自己进程内** hook dyld：`mmap` 被换成"把文件读进匿名内存再
 +mprotect 成 exec"、`fcntl(F_ADDFILESIGS_RETURN)` 被改成谎报签名覆盖全文件
@@ -877,7 +877,7 @@ index 00000000..515d3eae
 +guest"。我们的项目**不采用这条路**：JIT 资格（get-task-allow / 动态代码签名）在侧载调试场景技术上
 +拿得到（DolphiniOS 等靠 JIT-enabler 应用按会话附加），但那要求用户每次会话先跑一个 enabler、且整个
 +加载器建立在进程内 hook dyld 之上——LiveContainer 自己的代码就是"每次系统更新都可能断"的证词
-+（README 注明 "(Below iOS 26)"，即 iOS 26 起该路径有变；`LCBootstrap.m:577-583` 为 iOS 27 另加
++（README 注明 "(Below iOS 26)"，即 iOS 26 起该路径有变，`LCBootstrap.m:577-583` 为 iOS 27 另加
 +`bypass_seg_count_check`）。我们只需要"映射已签名页"，从来不需要"执行未签名代码"，
 +loader.c:473-476 的 vm_remap 路线不依赖任何特殊资格。**所以 LiveContainer 证明的恰恰是规则的坚硬，
 +不是豁口：绕过它需要 JIT 资格 + dyld hook，二者我们都不具备也不想要。**
@@ -892,7 +892,7 @@ index 00000000..515d3eae
 +因此 ROADMAP 第 123 行的 **"C: unbounded" 是错的，本文推翻它**。正确表述：
 +
 +- **代码维度**：games per IPA 仍由体积上界（第 5 节 R3 的同一套算术：每游戏 modules 约 104 MB，
-+  ROADMAP:116；系统对超大包拒绝安装，`build_ipa.sh:170-172` 记录了 PackageExtractionFailed），
++  ROADMAP:116，系统对超大包拒绝安装，`build_ipa.sh:170-172` 记录了 PackageExtractionFailed），
 +  ROADMAP:117 "4–8 games" 的估计对 B 和 C 同样成立。
 +- **数据维度**：romfs / msl / save / pso / profile.tsv 全是数据，放 `Documents/games/<id>/`，
 +  用户手动放文件即可、永不触发重签——这一维才是 unbounded，而且**架构 A 已经拿到了它**
@@ -905,14 +905,14 @@ index 00000000..515d3eae
 +
 +B（4–8 游戏聚合进一个二进制，WIP C5 估 3–4 周）：所有游戏的模块 section 挤进同一个 Mach-O，
 +共享 255 section 预算与命名空间。ROADMAP:112-115 记录了实测事故：*两个游戏同名模块静默合并进同一
-+section，无任何报错（第二个游戏的代码消失了）*；NRO 式"3 共享段 + (game, module) 键表"是修补，
++section，无任何报错（第二个游戏的代码消失了）*，NRO 式"3 共享段 + (game, module) 键表"是修补，
 +验证到 2 游戏 × 2 模块。C 把每个游戏放进自己的 Mach-O：
 +
 +| 维度 | B（聚合二进制） | C（壳 + 每 game framework） |
 +|---|---|---|
-+| section 预算 | 全体游戏共享 255（`loader.c:485`："a Mach-O file has at most 255 sections"；SSBU 98 NRO ×3 段 = 294 已单游戏爆表） | **每 framework 各自 255**；同名 section 物理上不可能跨游戏合并——B 的静默合并 bug 在 C 里结构性不存在 |
-+| 增量构建 | 加/换一个游戏 → 整个巨型可执行重链接 | 只有该游戏的 dylib 重链接；壳二进制不变；`pack_ipa.py` 按文件指纹复用旧 IPA 条目（pack_ipa.py:12-15），换一个游戏的重打包接近增量 |
-+| 故障半径 | 任一游戏的段/链接问题让整个 IPA 构建失败 | 坏的 framework 让 `dlopen` 返回 NULL（壳弹一条错误继续）；其余游戏不受影响 |
++| section 预算 | 全体游戏共享 255（`loader.c:485`："a Mach-O file has at most 255 sections"，SSBU 98 NRO ×3 段 = 294 已单游戏爆表） | **每 framework 各自 255**，同名 section 物理上不可能跨游戏合并——B 的静默合并 bug 在 C 里结构性不存在 |
++| 增量构建 | 加/换一个游戏 → 整个巨型可执行重链接 | 只有该游戏的 dylib 重链接，壳二进制不变，`pack_ipa.py` 按文件指纹复用旧 IPA 条目（pack_ipa.py:12-15），换一个游戏的重打包接近增量 |
++| 故障半径 | 任一游戏的段/链接问题让整个 IPA 构建失败 | 坏的 framework 让 `dlopen` 返回 NULL（壳弹一条错误继续），其余游戏不受影响 |
 +| 宿主份数 | 1 | 1（FR 方案） |
 +| 每游戏元数据 | 聚合表 | framework 自带（Resources + 段），分发单个游戏 = 拷一个目录 |
 +| 按需组合 | 每次都要全量决定装哪几个游戏 | 聚合脚本按用户拥有的 NSP 挑 framework 组装 IPA（仍是装时定死） |
@@ -939,8 +939,8 @@ index 00000000..515d3eae
 +### 3.2 `--framework` 模式（build_ipa.sh / build_ipa_from_nsp.py）
 +
 +- 工程模板加一个 `framework` target（xcodegen `type: framework`，platform iOS），sources 只含
-+  `Gen/embed.S` + 一个 3 行的占位 `.m`（给镜像一个符号，供 `dladdr` 取 `dli_fbase`）+ `Info.plist`；
-+  `Gen/dm` 表格进 `Resources`。`gen_build.py` 不动（宿主源码归壳的 target）；`gen_embed.py` 不动。
++  `Gen/embed.S` + 一个 3 行的占位 `.m`（给镜像一个符号，供 `dladdr` 取 `dli_fbase`）+ `Info.plist`。
++  `Gen/dm` 表格进 `Resources`。`gen_build.py` 不动（宿主源码归壳的 target），`gen_embed.py` 不动。
 +- 链接 flags：沿用 embed 的 `-Wl,-segprot,__DM<mod>W,rw,rw`（gen_embed.py 末尾输出），dylib 同样接受。
 +- 产物：`<game>.framework/`（dylib + Info.plist + Resources/{dm 表格, profile.tsv, launcher.json, icon}），
 +  外加一个 `game.manifest.json`（title id、名称、版本、modules 列表、chain 版本 `b-$V`、romfs marker——
@@ -950,7 +950,7 @@ index 00000000..515d3eae
 +  同类检查（stage_resources.sh:21-28）。
 +- 签名：`codesign --force --sign -` 占位 ad-hoc 签 framework（与 build_ipa.sh:158 现在签 App 的理由
 +  相同：侧载器要从占位签名里读 entitlements 并全部重签）。**framework 不带 entitlements 文件**
-+  （dylib 无法持有 entitlements，见 2.1 证据 2；内存权限等 entitlement 全在壳上，build_ipa.sh:119-124）。
++  （dylib 无法持有 entitlements，见 2.1 证据 2，内存权限等 entitlement 全在壳上，build_ipa.sh:119-124）。
 +
 +### 3.3 壳 App 与聚合 IPA
 +
@@ -961,9 +961,9 @@ index 00000000..515d3eae
 +  `Payload/Shell.app/Frameworks/<game>.framework`，壳资源映射照旧，调 `pack_ipa.py` 产出一份 IPA
 +  （`--skip $P/_CodeSignature` 的既有跳过逻辑沿用，build_ipa.sh:188）。
 +- **签名顺序**（对照 pack_app.py:100-106 的"先内后外"）：
-+  1. 每个 framework 内 dylib；
-+  2. 每个 framework bundle（封存其 Resources 与 Info.plist）；
-+  3. 壳可执行文件（带 entitlements，ad-hoc 占位）；
++  1. 每个 framework 内 dylib，
++  2. 每个 framework bundle（封存其 Resources 与 Info.plist），
++  3. 壳可执行文件（带 entitlements，ad-hoc 占位），
 +  4. 壳 bundle（封存 Frameworks/ 下全部嵌套代码）。
 +  壳 bundle 的签名会把所有 framework 的 CD hash 写进 CodeResources——这正是"加游戏必须重签"的
 +  机械原因（2.2）。侧载器（SideStore/AltStore）安装时对每个嵌套二进制重签并重建外层封存：
@@ -979,24 +979,24 @@ index 00000000..515d3eae
 +
 +- **游戏列表** = 扫描两个来源后按 title id 连接：
 +  1. **代码**：`Bundle.main/Frameworks/*.framework`，读每个 framework `Resources/game.manifest.json`
-+     （构建时生成，第 3.2 节）；运行期用 `getsectiondata`/段存在性做交叉校验（防 manifest 与段不一致）。
++     （构建时生成，第 3.2 节），运行期用 `getsectiondata`/段存在性做交叉校验（防 manifest 与段不一致）。
 +     不建议扫 `romfs.idx` 当列表依据——romfs 是用户可移动的数据（外置盘是计划能力：romfs_arc.c 按分片
 +     pread，天然支持外部路径，但今天 `main.m romfs_locate` 只查 per-game/Documents/bundle 三处，
 +     文件夹选择器是待办，ROADMAP:129-132），代码在不在 bundle 里才是"装没装"。
 +  2. **数据**：`Documents/games/*/`，"这个目录是不是一个游戏的文件"的判定已经存在：
 +     `main.m:19-28 romfs_dir_ok`（有 `romfs.idx` 或 profile 的 `romfs_marker` 路径即算）。
-+  - 列表状态：代码+数据 = 可玩；只有代码 = 提示"把 romfs 放进 Files"；只有数据 = 灰显"IPA 里没有这个游戏
++  - 列表状态：代码+数据 = 可玩，只有代码 = 提示"把 romfs 放进 Files"，只有数据 = 灰显"IPA 里没有这个游戏
 +    的 framework（需要重签安装）"——这条提示就是 2.2 结论的用户可见面。
 +- **存档隔离**：已经有了。`Documents/games/<id>/{save,temp}`，`main.m:95-104`：
 +  romfs 落在游戏目录内才用 per-game save（`per_game = [romfs hasPrefix:gdir]`，98 行），
 +  壳不改这个规则，只把选中的 id 传给 `game_dir_for`（36-39 行）。WIP:41-44 与 ROADMAP:125 的
 +  "A 已交付 per-game 布局" 即此。
 +- **profile 与设置**：`DM_PROFILE` 指向 `Documents/games/<id>/profile.tsv`（用户可改，不重签），
-+  无则退 framework 资源；`DM_PROF_*` 与 `DM_FPS_TARGET` 等开关的优先级链不变
++  无则退 framework 资源，`DM_PROF_*` 与 `DM_FPS_TARGET` 等开关的优先级链不变
 +  （hle_profile.h:3-5、hle_profile.c:211-219）。设置 UI 用壳自己的 launcher.json（每 framework 自带一份，
 +  `build_ipa.sh:96-97` 的 settings.py 产物搬进 Resources）。
 +- **切换游戏**：一次进程只跑一个游戏（理由见 R4）。游戏退出回壳 = 若宿主能干净收尾
-+  （hle_lifecycle 的 SIGTERM 路径）就回 shell 场景重建选择器；收不干净就 `exit(0)` 由用户再点图标
++  （hle_lifecycle 的 SIGTERM 路径）就回 shell 场景重建选择器，收不干净就 `exit(0)` 由用户再点图标
 +  （与 Switch 回 home 的手感一致）。两种都先写进壳，探针阶段一并验证。
 +
 +---
@@ -1005,20 +1005,20 @@ index 00000000..515d3eae
 +
 +- **R1 `dlopen`/`vm_remap` 在 dylib 上是否成立——C 的存在性风险，探针先行。**
 +  规则层面 2.1 已定（bundle 内可 dlopen），但我们的用法有两个未验证细节：dyld 是否接受带多个
-+  `__DM*W` rw,rw 自定义段 + 上百 section 的 dylib；`vm_remap` copy=FALSE 把 **dylib**（而非主可执行文件）
++  `__DM*W` rw,rw 自定义段 + 上百 section 的 dylib，`vm_remap` copy=FALSE 把 **dylib**（而非主可执行文件）
 +  的已签名 __TEXT 页重映射到匿名地址再执行是否被 AMFI 放行。现行机制对"主可执行文件自己的段"成立
 +  （loader.c:473-476，注释并援引 libffi trampoline table 先例），dylib 与它在内核路径上是同一类
 +  （同进程内已映射的签名页），但**没有实验前不下结论**。探针必须先跑。
 +  说明：任务输入里提到 `dm/ios/probe/` 正在另一分支验证——**本工作树核对过 launcher-b、pr17、pr18、
 +  mg-profile-runtime 四个分支，`dm/ios/probe/` 尚不存在**（只有 `dm/gfx/metal/probe/` 与 `dm/host/probe.c`），
 +  全仓库也没有任何 dlopen 引用。本文第 6 节把它列为第一步交付物，实验清单：
-+  P1 设备上 dlopen 一个 100 MB 级自定义段 dylib；P2 对其 __TEXT 段 vm_remap copy=FALSE + 执行 +
-+  与现行 executable 路径逐字节对比；P3 `getsectiondata(dylib_mh, ...)`；P4 dlopen 失败的错误面
-+  （能否继续跑）；P5 iOS 26 实机 + 侧载签名链（SideStore）各跑一遍。
-+- **R2 255 section 限制**：C 的每 framework 独立预算消掉 B 的跨游戏合并事故（2.3）；单游戏内
-+  NRO 过多仍沿用共享段方案（`gen_embed.py` 注释：最多 255 sections、SSBU 98 NRO×3 段必须打包；
++  P1 设备上 dlopen 一个 100 MB 级自定义段 dylib，P2 对其 __TEXT 段 vm_remap copy=FALSE + 执行 +
++  与现行 executable 路径逐字节对比，P3 `getsectiondata(dylib_mh, ...)`，P4 dlopen 失败的错误面
++  （能否继续跑），P5 iOS 26 实机 + 侧载签名链（SideStore）各跑一遍。
++- **R2 255 section 限制**：C 的每 framework 独立预算消掉 B 的跨游戏合并事故（2.3）。单游戏内
++  NRO 过多仍沿用共享段方案（`gen_embed.py` 注释：最多 255 sections、SSBU 98 NRO×3 段必须打包，
 +  `loader.c:485-492`）。残余风险：壳自身 + framework 数量不影响各镜像预算（预算是 per-Mach-O 的）。
-+- **R3 体积**：每游戏 framework ≈ modules（约 104 MB 原始，ROADMAP:116）+ 表格；IPA 总体积 = 壳
++- **R3 体积**：每游戏 framework ≈ modules（约 104 MB 原始，ROADMAP:116）+ 表格，IPA 总体积 = 壳
 +  （~11 K 行宿主 + SwiftUI，数 MB 级）+ N × framework。压缩后估每游戏几十 MB（deflate 对 NSO 镜像
 +  的实际收益待测，无历史数据，标待验证）。shader 库（BotW 阴影库 344 MB，ROADMAP:116）、pso 档案
 +  （~650 MB/架构，build_ipa.sh:86）全部走 `Documents/games/<id>/`，不占 IPA。系统对过大的包拒绝安装
@@ -1028,33 +1028,33 @@ index 00000000..515d3eae
 +  （hle_profile.h:22-23 的 mem_reserve/alias/stack/pool 等），不同游戏不需要不同签名资格。
 +  **同一时刻只加载一个 framework**：规避跨镜像 ObjC 类重复与 C 符号串扰，也把"多游戏同时运行"明确
 +  划出范围（那是 LiveContainer 的多容器问题，不追）。内存上多装几个游戏不吃亏：未 dlopen 的
-+  framework 不映射任何页；dlopen 后的代码页经 vm_remap copy=FALSE 与原映射共享物理页
-+  （loader.c:475 "sharing the same signed pages"），不因加载翻倍；切游戏先终止当前进程（第 4 节），
++  framework 不映射任何页，dlopen 后的代码页经 vm_remap copy=FALSE 与原映射共享物理页
++  （loader.c:475 "sharing the same signed pages"），不因加载翻倍，切游戏先终止当前进程（第 4 节），
 +  不存在两份 guest 内存布局并存。
 +- **R5 dyld 行为随 iOS 版本漂移**：LiveContainer 在 iOS 26 有豁免分支、iOS 27 加段数补丁（其源码
-+  2.1 节引用处）；我们目标就是 iOS 26+（project.yml `deploymentTarget: iOS 26.0`）。探针必须在
++  2.1 节引用处），我们目标就是 iOS 26+（project.yml `deploymentTarget: iOS 26.0`）。探针必须在
 +  实际目标 OS 上做，并把这个探针纳入每次大版本升级的回归清单。
-+- **R6 打包与增量**：`pack_ipa.py` 复用按指纹（pack_ipa.py:12-15、193-195）；framework 拆映射后
++- **R6 打包与增量**：`pack_ipa.py` 复用按指纹（pack_ipa.py:12-15、193-195），framework 拆映射后
 +  增量成立，但 ad-hoc 重签会改变 dylib 字节 → 每次聚合后所有 framework 的指纹都会变（签名写入
 +  Mach-O）。缓解：聚合脚本对"构建产物 → 占位签名 → 打包"全程用固定副本，只有真正重建的 framework
-+  走签名；重签发生在设备侧（侧载器），不影响构建机增量。此项需要在 W4 实测确认。
++  走签名，重签发生在设备侧（侧载器），不影响构建机增量。此项需要在 W4 实测确认。
 +
 +---
 +
-+## 6. 工作量分解（按周；◇ = 依赖探针结果，∥ = 可并行）
++## 6. 工作量分解（按周，◇ = 依赖探针结果，∥ = 可并行）
 +
 +| 周 | 内容 | 依赖 |
 +|---|---|---|
-+| W1 | `dm/ios/probe/`：P1–P5 实验（新目录；本工作树四分支均无现成探针）| 无。3–5 天 |
-+| W1 ∥ | `--framework` 构建模式（build_ipa.sh 分支、xcodegen framework target、manifest 生成）；Mac 上可先用普通 dylib 验证段布局与单测 | 不依赖探针（纯构建侧） |
++| W1 | `dm/ios/probe/`：P1–P5 实验（新目录，本工作树四分支均无现成探针）| 无。3–5 天 |
++| W1 ∥ | `--framework` 构建模式（build_ipa.sh 分支、xcodegen framework target、manifest 生成），Mac 上可先用普通 dylib 验证段布局与单测 | 不依赖探针（纯构建侧） |
 +| W1 ∥ | `loader.c` IMAGE_MH 参数化 + 宿主单测（Mac 可跑：map_image 的非 NRO 路径换成"给定 mach header"）| 不依赖探针 |
-+| W2 ◇ | 壳 App：选择器 UI（扫描 Frameworks + Documents/games）、env 装配（第 1.3 节表）、dlopen→dm_main 接线；探针若失败则切 FR→FH（第 1.1 节）或终止 C | W1 探针 P1–P3 |
-+| W3 | `pack_launcher_ipa.py` 聚合 + 签名顺序 + `test_pack_ipa.py` 扩展；双游戏 IPA 在模拟器/设备装机链验证 | W2 |
++| W2 ◇ | 壳 App：选择器 UI（扫描 Frameworks + Documents/games）、env 装配（第 1.3 节表）、dlopen→dm_main 接线，探针若失败则切 FR→FH（第 1.1 节）或终止 C | W1 探针 P1–P3 |
++| W3 | `pack_launcher_ipa.py` 聚合 + 签名顺序 + `test_pack_ipa.py` 扩展，双游戏 IPA 在模拟器/设备装机链验证 | W2 |
 +| W4 ◇ | 实机端到端：两个真实游戏（探针用的 NSP 复用）、切游戏、存档隔离、坏 framework 容错、R6 增量实测、文档收尾 | W3 + 用户的 NSP |
 +| 缓冲 | R5 的 iOS 26.1/27 差异回归、FH 备选路径（若 P2 失败，+1 周实现 FH 的 dmgame_main 与壳移交）| — |
 +
 +总计：**约 4 周到"双游戏可玩"，探针失败再 +1 周（FH）或止损回 B**。与 B 的 3–4 周相比没有省，
-+买到的是 2.3 表里的结构性收益；决定点仍建议放在 W1 探针之后。
++买到的是 2.3 表里的结构性收益，决定点仍建议放在 W1 探针之后。
 +
 +---
 +
@@ -1066,29 +1066,29 @@ index 00000000..515d3eae
 +- `dm/ios/tools/gen_embed.py:1-13`（三段式段、ITMS-90999 单可执行段、NRO 共享段 + 表）
 +- `dm/host/main.c:42-46,87-97,115-124`（DM_* 开关、模块清单来源、preload 约定）
 +- `dm/ios/Sources/main.m:19-28,36-39,41-52,69-80,87-116`（per-game 布局、romfs 判定、env 装配全表）
-+- `dm/host/hle_profile.{h:1-6, c:211-219}`（运行时 profile 加载顺序）；`dm/games/game.py:192-232`（profile TSV 生成）
++- `dm/host/hle_profile.{h:1-6, c:211-219}`（运行时 profile 加载顺序），`dm/games/game.py:192-232`（profile TSV 生成）
 +- `dm/ios/tools/build_ipa.sh:53,70-76,96-97,100-101,117-124,138-161,166-188`（chain 版本、Gen 生成、
 +  entitlements、不签名构建、占位签名、pack 映射）
-+- `dm/ios/tools/pack_ipa.py:12-15,193-195`（指纹复用）；`dm/ios/tools/stage_resources.sh:21-28`（chain 校验先例）
++- `dm/ios/tools/pack_ipa.py:12-15,193-195`（指纹复用），`dm/ios/tools/stage_resources.sh:21-28`（chain 校验先例）
 +- `dm/ios/project.yml`（iOS 26.0 target、Gen/dm resources、`-Dmain=dm_main`）
 +- `dm/mac/pack_app.py:100-106`（先内后外签名先例）
 +- `dm/host/dm.h:11`（MAX_MOD 128：profile 模块 + NRO 上限）
-+- `docs/ROADMAP.md:109-127`（调查结论、255 合并事故、104 MB/游戏、A/B/C 表）；`docs/WORK-IN-PROGRESS.md:41-47,61,63`（A 现状、C5/C7）
++- `docs/ROADMAP.md:109-127`（调查结论、255 合并事故、104 MB/游戏、A/B/C 表），`docs/WORK-IN-PROGRESS.md:41-47,61,63`（A 现状、C5/C7）
 +
 +仓库外：
 +- Apple DTS（Quinn "The Eskimo!"），dlopen 规则：developer.apple.com/forums/thread/773210
 +- InjectionNext 实测（bundle 外同 TeamID dylib 被拒、dylib 无 entitlements）：github.com/johnno1962/InjectionNext/issues/81
-+- TN2435 嵌入 framework：developer.apple.com/library/archive/technotes/tn2435/_index.html；
++- TN2435 嵌入 framework：developer.apple.com/library/archive/technotes/tn2435/_index.html，
 +  Placing content in a bundle：developer.apple.com/documentation/bundleresources/placing-content-in-a-bundle
 +- LiveContainer（JIT 条件下的 dyld 验证绕过、无 JIT 则重签 guest、iOS 26/27 适配）：
-+  github.com/LiveContainer/LiveContainer（README；`LiveContainer/LCBootstrap.m`、`LiveContainer/dyld_bypass_validation.m`）
-+- SideStore FAQ（重装同 bundle id 数据保留、重签模型）：docs.sidestore.io/docs/faq；
++  github.com/LiveContainer/LiveContainer（README，`LiveContainer/LCBootstrap.m`、`LiveContainer/dyld_bypass_validation.m`）
++- SideStore FAQ（重装同 bundle id 数据保留、重签模型）：docs.sidestore.io/docs/faq，
 +  免费 Apple ID 3 app / 10 App ID 限制：faq.altstore.io（这也是"所有游戏进一个壳"的动机之一）
 +
-+> **Update (merged):** the dlopen probe now exists — `dm/ios/probe/` with `build_probe.sh`, committed alongside this document, and `probe-out/DmProbe.ipa` is built. W1 step 1 is done; what remains is running it on an iOS 26 device and reading `Documents/probe-log.txt`.
++> **Update (merged):** the dlopen probe now exists — `dm/ios/probe/` with `build_probe.sh`, committed alongside this document, and `probe-out/DmProbe.ipa` is built. W1 step 1 is done. What remains is running it on an iOS 26 device and reading `Documents/probe-log.txt`.
 diff --git a/docs/launcher-c-plan.md b/docs/launcher-c-plan.md
 new file mode 100644
-index 00000000..9dc0ad3a
+index 00000000..ab13b78d
 --- /dev/null
 +++ b/docs/launcher-c-plan.md
 @@ -0,0 +1,213 @@
@@ -1097,7 +1097,7 @@ index 00000000..9dc0ad3a
 +Status: **the dlopen gate is open** (device run on iOS 27.0.1, [probe-dlopen.md](probe-dlopen.md)),
 +design in [launcher-c-design.md](launcher-c-design.md). This plan turns the design into
 +milestones with a testable artifact each. The probe proved a one-function framework loads and
-+runs; **the real payload is still unproven** (a framework with the game's ~100 MB of `__DM*W`
++runs, but **the real payload is still unproven** (a framework with the game's ~100 MB of `__DM*W`
 +sections / up to 255 sections, `vm_remap` of its signed `__TEXT` with copy=FALSE,
 +`getsectiondata` on a dylib header). M1 exists to prove exactly that.
 +
@@ -1113,20 +1113,20 @@ index 00000000..9dc0ad3a
 +
 +## M1 — the first testable artifact
 +
-+Keep "one game, one IPA"; move the game's modules out of the main executable into
++Keep "one game, one IPA" and move the game's modules out of the main executable into
 +`DmIOS.app/Frameworks/DmGame.framework`, `dlopen` it at launch, take its mach header via
 +`dlsym` + `dladdr`, and read its sections.
 +
 +**New files**
 +
 +- `dm/ios/project-framework.yml`: same app target as `project.yml` but without `Gen/embed.S`, with
-+  a `DmGame` framework target (`Gen/embed.S` + a marker `.m`; resources `Gen/framework/dm`,
++  a `DmGame` framework target (`Gen/embed.S` + a marker `.m`, with resources `Gen/framework/dm`,
 +  `profile.tsv`, `game.manifest.json`), `embed: true`, `link: false`, app RPATH
 +  `@executable_path/Frameworks`.
 +- `dm/ios/framework/DmGameMarker.m`: `dmgame_image_marker` — only for `dlsym`/`dladdr`.
 +- `dm/host/loader_image.h`: `void dm_set_game_image_header(const void *mh);`
 +- `dm/ios/Sources/FrameworkBootstrap.m/.h`: `dlopen` → `dlsym(marker)` → `dladdr` →
-+  `dm_set_game_image_header(info.dli_fbase)`; logs `[RED]` on failure.
++  `dm_set_game_image_header(info.dli_fbase)`, and it logs `[RED]` on failure.
 +- `dm/ios/tools/gen_manifest.py`: builds `game.manifest.json` (schema below).
 +- `dm/ios/tests/test_framework_build.py`, `test_framework_link.py`.
 +
@@ -1137,69 +1137,69 @@ index 00000000..9dc0ad3a
 +  `map_image()` (:536) use it. **Do not** touch `force_init()` (:154) — `__DATA,swforce` is the
 +  host's own table.
 +- `dm/ios/Sources/main.m`: under `DM_FRAMEWORK_BUILD`, set `DM_PROFILE` to the framework's
-+  `profile.tsv` **before** the first `dm_profile()` call; call `dm_open_game_framework()` before
-+  `dm_host_preload_start()` (:237); `argv[1]` and `DM_NVN_SHMAP` point at `<framework>/dm`.
-+- `dm/ios/tools/build_ipa.sh`: `FRAMEWORK=${DM_FRAMEWORK:-0}`; framework mode generates
++  `profile.tsv` **before** the first `dm_profile()` call, call `dm_open_game_framework()` before
++  `dm_host_preload_start()` (:237), and point `argv[1]` and `DM_NVN_SHMAP` at `<framework>/dm`.
++- `dm/ios/tools/build_ipa.sh`: `FRAMEWORK=${DM_FRAMEWORK:-0}`. Framework mode generates
 +  `Gen/framework/{dm,profile.tsv,game.manifest.json,Info.plist}`, `xcodegen --spec
 +  project-framework.yml` (:134), signs the framework first and the app executable second
 +  (:164–174).
 +- `scripts/build_ipa_from_nsp.py` (~:2075): `--framework` → `DM_FRAMEWORK=1` in `ipa_env`.
 +- `dm/ios/tools/compile_check.py`: a second pass with `DM_FRAMEWORK_BUILD=1`.
 +- `dm/ios/tests/test_ipa_unsigned.py`, `test_xcode_workflow.py`: framework packaging/signing
-+  assertions; `--prepare-xcode` uses `project-framework.yml`.
++  assertions, and `--prepare-xcode` uses `project-framework.yml`.
 +
 +**Done when**
 +
-+- Off-device: `compile_check.py` passes both ways; `test_framework_link.py` builds a synthetic
++- Off-device: `compile_check.py` passes both ways, `test_framework_link.py` builds a synthetic
 +  framework with `xcodebuild -target DmGame CODE_SIGNING_ALLOWED=NO` and `otool -l` shows
-+  `__TEXT,__dm<mod>x0`, `__DM<mod>W,__img`, `__TEXT,__dm<mod>x1`, `__DATA,__dm_nro_tab`;
-+  `test_framework_build.py` packs/signs a stand-in (framework has no entitlements); the default
++  `__TEXT,__dm<mod>x0`, `__DM<mod>W,__img`, `__TEXT,__dm<mod>x1`, `__DATA,__dm_nro_tab`,
++  `test_framework_build.py` packs/signs a stand-in (framework has no entitlements), and the default
 +  path (no `DM_FRAMEWORK`) is unchanged and the IPA has no `Frameworks/`.
-+- On device: sideload the `DM_FRAMEWORK=1` IPA; the log shows the framework path, handle, image
-+  base and each module's base/size; `DM_LOADHASH=1` per-module sha256 lines match the default
-+  build exactly (proof the framework path loads byte-identical code); a second run with an NRO
-+  game (SSBU) shows `__DATA,__dm_nro_tab` and `nro.tsv` working; iOS 26 and 27 if available.
++- On device: sideload the `DM_FRAMEWORK=1` IPA. The log shows the framework path, handle, image
++  base and each module's base/size, `DM_LOADHASH=1` per-module sha256 lines match the default
++  build exactly (proof the framework path loads byte-identical code), a second run with an NRO
++  game (SSBU) shows `__DATA,__dm_nro_tab` and `nro.tsv` working, and iOS 26 and 27 pass if available.
 +
 +## M2 — shell + one framework
 +
-+`DmShell.app` lists one game; Play sets the environment, `dlopen`s the framework, calls
++`DmShell.app` lists one game. Play sets the environment, `dlopen`s the framework, calls
 +`dm_set_game_image_header` + `dm_host_preload_start`, then shows the existing game view.
 +
 +- New: `dm/ios/project-shell.yml`, `dm/ios/Shell/{ShellMain.m,ShellView.swift,GameManifest.swift,
 +  GameLibrary.swift,GameData.m,GameLauncher.m,BootState.m}`, `dm/ios/tools/build_shell.sh`,
 +  `dm/ios/tests/{test_shell_library.py,test_framework_bootstrap.py}`.
 +- Changed: `main.m`'s `game_dir_for`/`romfs_dir_ok`/`romfs_locate`/`set_data_env` move to
-+  `GameData.m` (explicit title id/marker, no `dm_profile()`); `g_boot_ok` moves to `BootState`;
-+  `front_ios.m` presents the shell root only after preload; `Launcher.swift` reads
-+  `DM_LAUNCHER_JSON` (bundle fallback); `LauncherSettings.swift` gains a per-game key/suite.
++  `GameData.m` (explicit title id/marker, no `dm_profile()`), `g_boot_ok` moves to `BootState`,
++  `front_ios.m` presents the shell root only after preload, `Launcher.swift` reads
++  `DM_LAUNCHER_JSON` (bundle fallback), and `LauncherSettings.swift` gains a per-game key/suite.
 +- `dm/host/main.c:95` falls back to the compiled `DM_GAME_MODULES`: the shell passes the manifest
 +  modules in argv explicitly (no code change), or the fallback changes to
 +  `dm_profile()->modules` — pick one in M2 and keep the default path identical.
-+- Done when: `xcodebuild -scheme DmShell` builds; `test_shell_library.py` covers the three states
-+  (playable / needsData / needsFramework / broken); device: shell + 1 framework lists and plays,
++- Done when: `xcodebuild -scheme DmShell` builds, `test_shell_library.py` covers the three states
++  (playable / needsData / needsFramework / broken), and on a device the shell + 1 framework lists and plays and the
 +  log shows per-game `DM_PROFILE`/`DM_ROMFS`/`DM_SAVE`.
 +
 +## M3 — N games in one IPA
 +
 +- New: `dm/ios/tools/pack_launcher_ipa.py` (reads each manifest, validates chain vs
-+  `dm/gfx/nvn/dmsh_chain.h`, unique title ids, `CFBundleExecutable` vs manifest; signs in order:
-+  framework → shell executable (entitlements) → shell bundle; calls `pack_ipa.py`),
++  `dm/gfx/nvn/dmsh_chain.h`, unique title ids, `CFBundleExecutable` vs manifest, signs in order:
++  framework → shell executable (entitlements) → shell bundle, and calls `pack_ipa.py`),
 +  `tests/test_pack_launcher_ipa.py`, optional `framework_cache.py`.
-+- Changed: `build_ipa.sh` gains `DM_FRAMEWORK_ONLY=1` (framework + manifest, no app, no pack);
-+  `build_ipa_from_nsp.py` gains `--framework-only`; `GameLibrary.swift` scans
++- Changed: `build_ipa.sh` gains `DM_FRAMEWORK_ONLY=1` (framework + manifest, no app, no pack),
++  `build_ipa_from_nsp.py` gains `--framework-only`, and `GameLibrary.swift` scans
 +  `Frameworks/*.framework/game.manifest.json` + `Documents/games/*/`.
-+- Done when: two synthetic frameworks pack, chain mismatch and duplicate title ids are rejected;
-+  device: one IPA, two games, both play; a broken framework only breaks its own row.
++- Done when: two synthetic frameworks pack, chain mismatch and duplicate title ids are rejected,
++  and on a device one IPA holds two games that both play and a broken framework only breaks its own row.
 +
 +## M4 — per-game data, settings, external drive, DLC
 +
-+- `GameDataPicker.swift`, `test_shell_data.py`; `DataBookmark` keys become
-+  `pickedDataBookmark.<titleID>` with migration; `GameData.m` resolves like `main.m:69–117` with
-+  explicit title id/marker; `GameLauncher.m` sets `DM_AOC_DIR`, `DM_MSL_DIR`, `DM_PSO_BUNDLE`
-+  per game first, then app-wide; `LauncherSettings` per game; `GameLibrary` never treats
++- `GameDataPicker.swift`, `test_shell_data.py`. `DataBookmark` keys become
++  `pickedDataBookmark.<titleID>` with migration, `GameData.m` resolves like `main.m:69–117` with
++  explicit title id/marker, `GameLauncher.m` sets `DM_AOC_DIR`, `DM_MSL_DIR`, `DM_PSO_BUNDLE`
++  per game first and then app-wide, `LauncherSettings` is per game, and `GameLibrary` never treats
 +  `romfs.idx` as "code installed" (design §233–240).
 +- Done when: two titles' `Documents/games/<id>/{romfs.img,romfs,save,temp,msl,pso,aoc}` are
-+  isolated; stale bookmark falls back; identity mismatch falls back; DLC `aoc/<index>.img`
++  isolated, a stale bookmark falls back, an identity mismatch falls back, and DLC `aoc/<index>.img`
 +  mounts (`hle_fs.c:516-518`).
 +
 +## Manifest (`game.manifest.json`, in the framework root)
@@ -1208,15 +1208,15 @@ index 00000000..9dc0ad3a
 +`modules` (≥1), `nro_count`, `chain` (`b-<hex>`), `loader` (`FR`|`FH`), `framework`
 +(`<name>.framework`), `framework_executable`, `image_marker` (`dmgame_image_marker`), `profile`
 +(`profile.tsv`), `shader_map` (`dm/shader_map.tsv`), `launcher` (`dm/launcher.json`),
-+`romfs_marker`, `romfs_identity` (`DMROMFSID1 …`), `min_os`; optional `icon`, `built_by`,
++`romfs_marker`, `romfs_identity` (`DMROMFSID1 …`), `min_os`. Optional keys are `icon`, `built_by`,
 +`built_at`, `bytes`. Validation: schema, `CFBundleExecutable`, framework name, chain equal to the
-+shell's `DMSH_CHAIN`, unique title ids; at launch cross-check sections per module
++shell's `DMSH_CHAIN`, unique title ids, and at launch the loader cross-checks sections per module
 +(`__TEXT,__dm<mod>x0`, `__DM<mod>W,__img`, `__TEXT,__dm<mod>x1`, and `__DATA,__dm_nro_tab` when
 +`nro_count > 0`) — a mismatch marks the game `broken` without affecting others.
 +
-+Discovery: frameworks from `Bundle.main.privateFrameworksURL/*.framework`; data from
++Discovery: frameworks come from `Bundle.main.privateFrameworksURL/*.framework` and data from
 +`Documents/games/<title_id>/` (`romfs.img` complete, or `romfs/romfs.idx`, or
-+`romfs/<manifest.romfs_marker>`); per-title bookmark for external drives; merge into
++`romfs/<manifest.romfs_marker>`), with a per-title bookmark for external drives, and the results merge into
 +playable / needsData / needsFramework / broken.
 +
 +## Environment at game start
@@ -1244,49 +1244,49 @@ index 00000000..9dc0ad3a
 +
 +1. Build each `<Game>.framework` unsigned.
 +2. Sign the framework bundle first (no entitlements).
-+3. Build `DmShell.app`; place frameworks in `DmShell.app/Frameworks/`.
++3. Build `DmShell.app` and place frameworks in `DmShell.app/Frameworks/`.
 +4. Sign the shell executable with `com.apple.developer.kernel.increased-memory-limit`.
 +5. Sign the shell bundle last so `CodeResources` covers every nested CDHash (same order as
 +   `build_probe.sh:79–86`).
-+6. `pack_ipa.py` unchanged (mapping pairs, `--skip`, fingerprint reuse); `pack_launcher_ipa.py`
++6. `pack_ipa.py` unchanged (mapping pairs, `--skip`, fingerprint reuse), and `pack_launcher_ipa.py`
 +   orchestrates, skips the shell's `Frameworks/` in the generic map and maps each framework
 +   explicitly.
-+7. Self-check: `codesign -vvv --verify --strict` on framework and app; `otool -l` for
-+   `LC_ID_DYLIB=@rpath/<game>.framework/<game>` and app `LC_RPATH`; `plutil` both Info.plists.
++7. Self-check: `codesign -vvv --verify --strict` on framework and app, `otool -l` for
++   `LC_ID_DYLIB=@rpath/<game>.framework/<game>` and app `LC_RPATH`, and `plutil` on both Info.plists.
 +
 +Incremental: `pack_ipa.py` keys on size/mtime/ctime/inode, and ad-hoc re-signing rewrites bytes —
 +cache each signed framework per game (`$W/build/ios/frameworks/<id>/`) and never re-sign an
-+unchanged one; a shell change then rewrites only the shell entries.
++unchanged one, so a shell change then rewrites only the shell entries.
 +
 +## Tests
 +
-+Off-device: the tool-test loop; `compile_check.py` both modes; `xcodegen` + `xcodebuild` of the
-+framework from a synthetic `Gen`; macOS `dlopen`/`dlsym`/`dladdr` of a small dylib
-+(`getsectiondata`/`vm_remap` are covered by M1 on device); synthetic aggregate IPA checks
-+(`unzip -l`, `codesign -vvv`, negative chain/duplicate cases); `test_shell_library.py` three-state
-+cases; `test_shell_data.py` environment/isolation.
++Off-device: the tool-test loop, `compile_check.py` in both modes, `xcodegen` + `xcodebuild` of the
++framework from a synthetic `Gen`, macOS `dlopen`/`dlsym`/`dladdr` of a small dylib
++(`getsectiondata`/`vm_remap` are covered by M1 on device), synthetic aggregate IPA checks
++(`unzip -l`, `codesign -vvv`, negative chain/duplicate cases), `test_shell_library.py` three-state
++cases, and `test_shell_data.py` environment/isolation.
 +
 +On-device (minimum): M1 one real NVN game + one NRO game with `DM_LOADHASH` matching the default
-+build; M2 shell + 1; M3 shell + 2 with a broken framework; M4 two games with data/settings/DLC/
-+external drive; M5 upgrade/reinstall (bookmarks), incremental timing, iOS 26.1/27.
++build, M2 shell + 1, M3 shell + 2 with a broken framework, M4 two games with data/settings/DLC/
++external drive, and M5 upgrade/reinstall (bookmarks), incremental timing, iOS 26.1/27.
 +
 +## Top risks
 +
-+1. **Real payload unproven (M1)** — run a real game, not the probe; compare `DM_LOADHASH` with the
-+   default build; a `dlopen` success does not imply `vm_remap` works.
-+2. **Nested re-signing / entitlements** — framework first, shell last; framework carries no
-+   entitlements; test with AltStore, Sideloadly and i4Tools once, record which one.
-+3. **Size / re-sign / install limit** — code dimension stays 4–8 games/IPA (not unbounded); data
-+   stays in Documents; every added game means a new IPA, re-signed.
-+4. **Shell lifecycle / globals / ObjC** — one game per process; one preload; `DM_PROFILE` before the
-+   first `dm_profile()`; FH must handle duplicated ObjC classes (design §36–42, 277–284).
-+5. **Complexity regressing the default path** — default `project.yml` untouched; framework mode is
-+   opt-in; existing tests must stay green; cache prevents re-signing.
++1. **Real payload unproven (M1)** — run a real game, not the probe, and compare `DM_LOADHASH` with the
++   default build. A `dlopen` success does not imply `vm_remap` works.
++2. **Nested re-signing / entitlements** — framework first, shell last, and the framework carries no
++   entitlements. Test with AltStore, Sideloadly and i4Tools once, record which one.
++3. **Size / re-sign / install limit** — code dimension stays 4–8 games/IPA (not unbounded), data
++   stays in Documents, and every added game means a new IPA, re-signed.
++4. **Shell lifecycle / globals / ObjC** — one game per process, one preload, `DM_PROFILE` before the
++   first `dm_profile()`, and FH must handle duplicated ObjC classes (design §36–42, 277–284).
++5. **Complexity regressing the default path** — default `project.yml` untouched, framework mode is
++   opt-in, existing tests must stay green, and a cache prevents re-signing.
 +
 +## FH fallback trigger (decidable)
 +
 +Switch to FH only when **all** hold: `dlopen` and `dlsym(marker)` succeed and `dladdr` gives the
-+framework base; a plain control dylib/framework in the bundle loads and runs; but
++framework base, and a plain control dylib/framework in the bundle loads and runs, but
 +`getsectiondata(framework_mh, "__TEXT", "__dm<mod>x0")` returns NULL for real modules, or dyld
 +rejects a pure-module dylib carrying several `__DM<mod>W` sections. If `dlopen` fails for any
 +bundle framework (contradicting the probe), or `vm_remap` of signed pages cannot execute, FH does
@@ -1294,28 +1294,69 @@ index 00000000..9dc0ad3a
 +
 +## Documentation to update as this lands
 +
-+- `docs/ROADMAP.md`: C is **not** unbounded (code dimension 4–8 games/IPA; every added game needs a
-+  re-signed IPA; the data dimension is the unbounded one — see design §136–153); the `romfs_locate`
++- `docs/ROADMAP.md`: C is **not** unbounded (code dimension 4–8 games/IPA, and every added game needs a
++  re-signed IPA, while the data dimension is the unbounded one — see design §136–153). The `romfs_locate`
 +  row is stale (`main.m` already does per-game + picker + identity).
-+- `docs/WORK-IN-PROGRESS.md`: C7 "experiment passed, M1–M5 in progress"; architecture A's per-game
-+  layout is done; runtime profile is on main since `3b36083f`.
++- `docs/WORK-IN-PROGRESS.md`: C7 "experiment passed, M1–M5 in progress", architecture A's per-game
++  layout is done, and the runtime profile is on main since `3b36083f`.
 +- `README.md` / `README.zh-CN.md`: v0.4.7's "launcher not started" note is stale.
-+- `docs/probe-dlopen.md`: device result recorded (done in #139); keep "what it does not prove".
-+- `docs/launcher-c-design.md`: status line; §52–53 says omitting argv lets the profile's modules
++- `docs/probe-dlopen.md`: device result recorded (done in #139), and keep "what it does not prove".
++- `docs/launcher-c-design.md`: status line. The text at §52–53 says omitting argv lets the profile's modules
 +  apply, but `dm/host/main.c:95` falls back to the compiled macro — fix the doc or the code in M2.
 +- `docs/development.md`, `docs/reference/packing.md`, `docs/frontends.md`: `--framework`,
 +  `build_shell.sh`, `pack_launcher_ipa.py`, signing order, incremental cache, and what the shell is.
 diff --git a/docs/probe-dlopen.md b/docs/probe-dlopen.md
-index 625759c0..42ef8aba 100644
+index 625759c0..f50079dd 100644
 --- a/docs/probe-dlopen.md
 +++ b/docs/probe-dlopen.md
-@@ -52,6 +52,40 @@ its screen:
+@@ -7,10 +7,10 @@ iPhone, can a sideloaded IPA — installed outside the App Store review with Alt
+ i4Tools (爱思助手) — `dlopen` a dynamic framework inside its own bundle and call functions in it?**
+ 
+ Every app with dynamic frameworks loads nested code from its own bundle at launch, so the
+-mechanism exists; what this probe proves is that it survives the sideloaded conditions, where a
++mechanism exists, and what this probe proves is that it survives the sideloaded conditions, where a
+ free-provisioning signature replaces the ad-hoc one at install time and re-signs the app and every
+ nested framework. If `dlopen` refuses such code, route C is dead on stock devices and the dlerror
+-texts are the evidence for upstream; if it works, route C stands.
++texts are the evidence for upstream. If it works, route C stands.
+ 
+ ## What ships
+ 
+@@ -26,13 +26,13 @@ Payload/DmProbe.app/
+ At launch the shell appends one line per step to `Documents/probe-log.txt` and shows the verdict on
+ its screen:
+ 
+-1. the bundle and executable paths, the iOS version, and whether the framework file is present;
++1. the bundle and executable paths, the iOS version, and whether the framework file is present,
+ 2. `dlopen` attempts in order, each with its handle or its `dlerror()` text verbatim:
+    `@executable_path/Frameworks/Probe.framework/Probe`, then `@rpath/Probe.framework/Probe`, the
+    absolute sandbox path of the same file, the relative `Probe.framework/Probe`, and the bare
+-   `Probe` (the last two are expected to fail; their texts tell us how far dyld got);
++   `Probe` (the last two are expected to fail, and their texts tell us how far dyld got),
+ 3. on the first success: `dlsym` of `probe_answer`, a call (42 expected), and `dladdr` naming the
+-   image the symbol came from;
++   image the symbol came from,
+ 4. the last line is the verdict: `RESULT: FEASIBLE ...` or `RESULT: BLOCKED ...` plus the reason.
+ 
+ ## Installing and reading the result
+@@ -43,41 +43,75 @@ its screen:
+    IPA). The IPA is unsigned-but-ad-hoc on purpose: the sideloader re-signs it with the user's
+    Apple ID, exactly like every game IPA this repository ships.
+ 2. The first install from a given Apple ID needs Settings → General → VPN & Device Management →
+-   trust the certificate. A free Apple ID re-signs every 7 days; a one-shot probe does not mind.
++   trust the certificate. A free Apple ID re-signs every 7 days, but a one-shot probe does not mind.
+ 3. Open DmProbe and wait two seconds. The result is on the screen and in the file:
+    **Files app → On My iPhone → DmProbe → probe-log.txt** (`UIFileSharingEnabled` in the app's
+-   Info.plist makes Documents visible there; runs append, so nothing is lost).
++   Info.plist makes Documents visible there, and runs append, so nothing is lost).
+ 4. Send the log back by sharing it from the Files app (long-press → Share → AirDrop / Mail /
+    WeChat), or from i4Tools' app-file browser (DmProbe → Documents → probe-log.txt). If no new
     lines appeared, the app died before logging: send the crash report instead (Settings → Privacy
     & Security → Analytics Data → `DmProbe-*.ips`).
  
 +## Result: FEASIBLE (device run, 2026-10-26)
 +
-+Run on an iPhone (iOS **27.0.1**, sideloaded IPA; probe built 2026-10-27). The full log:
++Run on an iPhone (iOS **27.0.1**, sideloaded IPA, probe built 2026-10-27). The full log:
 +
 +```text
 +---- DmProbe run 2026-10-26 19:51:50 +0000 (probe built Oct 27 2026 03:48:01) ----
@@ -1337,10 +1378,10 @@ index 625759c0..42ef8aba 100644
 +
 +**What this still does not prove** (design doc §R1, and the reasons are different):
 +- a framework carrying the game's working set — the many `__DM*W` sections (up to 255 per image),
-+  tens of MB of `__TEXT` — loads and executes like this one-function probe;
++  tens of MB of `__TEXT` — loads and executes like this one-function probe,
 +- the launcher's `vm_remap` of the game image's signed `__TEXT` into an anonymous address
-+  (copy = FALSE) is accepted for a sideloaded, re-signed framework;
-+- `getsectiondata` on a *dylib* header (the probe only used `dlsym`/`dladdr`);
++  (copy = FALSE) is accepted for a sideloaded, re-signed framework,
++- `getsectiondata` on a *dylib* header (the probe only used `dlsym`/`dladdr`),
 +- loading a framework that was re-signed by a free Apple ID and installed through a different
 +  sideloader than the probe's.
 +
@@ -1350,3 +1391,37 @@ index 625759c0..42ef8aba 100644
  ## Reading the result
  
  | Last line of probe-log.txt | Meaning |
+ |---|---|
+ | `RESULT: FEASIBLE - dlopen("@executable_path/Frameworks/Probe.framework/Probe") succeeded and probe_answer() = 42` | Route C is viable: a sideloaded app loads and calls code in a framework inside its own bundle. Proceed with the launcher shell + per-game frameworks. |
+-| `RESULT: BLOCKED - ... no suitable image found ... (no such file)` | The framework is not in the installed bundle: the sideloader stripped it or the layout broke. Record the sideloader and version; fix the packaging before concluding anything about `dlopen`. |
+-| `RESULT: BLOCKED - ... code signature ... not valid` / `not signed` / `no Team ID` | The nested framework's signature was rejected: the sideloader failed to re-sign it, or iOS refuses its signature. Record the exact text and sideloader; retry with another sideloader (or an `ldid`-signed IPA) before treating it as a platform refusal. |
+-| `RESULT: BLOCKED - ...` with any other `dlerror` text | Record the text verbatim with the device model, iOS version and sideloader; the attempt lines above it show which forms were tried. |
++| `RESULT: BLOCKED - ... no suitable image found ... (no such file)` | The framework is not in the installed bundle: the sideloader stripped it or the layout broke. Record the sideloader and version, and fix the packaging before concluding anything about `dlopen`. |
++| `RESULT: BLOCKED - ... code signature ... not valid` / `not signed` / `no Team ID` | The nested framework's signature was rejected: the sideloader failed to re-sign it, or iOS refuses its signature. Record the exact text and sideloader, and retry with another sideloader (or an `ldid`-signed IPA) before treating it as a platform refusal. |
++| `RESULT: BLOCKED - ...` with any other `dlerror` text | Record the text verbatim with the device model, iOS version and sideloader. The attempt lines above it show which forms were tried. |
+ 
+ The failing fallbacks (relative and bare-name forms) always log `no suitable image found` texts —
+-that is their expected outcome, not a verdict; the verdict uses only whether some form loaded.
++that is their expected outcome, not a verdict. The verdict uses only whether some form loaded.
+ 
+ ## What it does not prove
+ 
+ - **App Store review rules** (a policy question, not a technique one): irrelevant to sideloaded
+   distribution, which is how this project ships.
+ - **Loading code that is not in the signed bundle** (streaming game payloads from disk — the
+-  original ROADMAP blocker): still expected to be blocked; route C compiles each game's modules
++  original ROADMAP blocker): still expected to be blocked, since route C compiles each game's modules
+   into its framework at packaging time, inside the signed bundle.
+ - **JIT, or anything about the game modules themselves**: the rewriter's output needs much more
+-  than one C function; this probe only opens the door the launcher would walk through.
++  than one C function, and this probe only opens the door the launcher would walk through.
+ 
+ The build was self-checked on the Mac only (`codesign -vvv --verify --strict` on the framework,
+-the app, and the app extracted from the packed IPA again; `otool` load commands: the app's
++the app, and the app extracted from the packed IPA again. `otool` load commands: the app's
+ `LC_RPATH @executable_path/Frameworks`, the framework's install name `@rpath/Probe.framework/Probe`,
+-`minos 26.0`; `lipo` arm64; `plutil` on both Info.plists; `ldid` is not installed on this machine,
++`minos 26.0`, `lipo` arm64, `plutil` on both Info.plists, and `ldid` is not installed on this machine,
+ so codesign only). The device run is the user's step.
+ 
+ ## Building it again

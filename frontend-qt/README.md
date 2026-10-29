@@ -35,13 +35,13 @@ wherever `NSPB_REPO` points, and the repository group lets you pick it by hand.
 - Dependency detection per platform: Python + packages, .NET SDK, and either **Xcode + iOS SDK +
   Metal toolchain** (macOS) or the **Windows cross toolchain** (see [Windows build](#windows-build)),
   plus xcodegen / zstd / spirv-cross. Each row has an install button when a command can fix it.
-- Pick a game folder (or its four inputs separately); base / update / DLC / `prod.keys` are
+- Pick a game folder (or its four inputs separately). Base / update / DLC / `prod.keys` are
   recognised from the dump names.
 - Build: runs the same script the SwiftUI app runs, streams its stage lines and log, then packs
   the RomFS archive and reports where the IPA and archive landed.
 - `--work-dir` is passed only when the checkout's script declares it (an upstream checkout has
   no such option — issue #5).
-- Bilingual: Chinese on Chinese devices, English elsewhere; the header button switches.
+- Bilingual: Chinese on Chinese devices, English elsewhere, and the header button switches.
 
 ## What is not there yet
 
@@ -95,7 +95,7 @@ The upstream file is never edited, so the daily sync cannot conflict with this w
 | `dmsh_xlate` apphost (a Mach-O) | `dotnet dmsh_xlate.dll`, the same locked build |
 | `which`, `python3`, `ctypes.CDLL(None)` | `sitecustomize.py` rewrites them at the subprocess boundary |
 | app icon via `actool` | Pillow, five sizes |
-| `codesign` ad-hoc + entitlements | skipped; the sideloader re-signs the IPA anyway |
+| `codesign` ad-hoc + entitlements | skipped, since the sideloader re-signs the IPA anyway |
 | the IPA's Unix `x` bit | `win/fix_ipa_modes.py` rewrites the zip's central directory in place |
 
 ## What you need to install
@@ -108,7 +108,7 @@ optional Vulkan/GL tools.
 Everything it downloads goes to `%LOCALAPPDATA%\NS Port Builder\tools`, outside the app folder, so
 updating the app (re-extracting its zip) does not throw the 182 MB LLVM archive away.
 
-Run this first if you prefer the command line; it lists what is missing and where to get it:
+Run this first if you prefer the command line. It lists what is missing and where to get it:
 
 ```bat
 python -m nspb_qt.win.doctor
@@ -118,7 +118,7 @@ python -m nspb_qt.win.doctor
    (and `backports.zstd` before Python 3.14).
 2. **.NET SDK 10** — the app downloads it (the zip, not the installer: no administrator rights,
    about 287 MB), or get it from <https://dotnet.microsoft.com/download/dotnet/10.0> (SDK, x64).
-   `nx_extract` targets `net10.0`, so SDK 8 or 9 alone is not enough; the dependency row says so
+   `nx_extract` targets `net10.0`, so SDK 8 or 9 alone is not enough, and the dependency row says so
    rather than failing halfway through a build.
 3. **LLVM-MinGW 20261020** — the app's Dependencies panel downloads and verifies it, or:
 
@@ -132,7 +132,7 @@ python -m nspb_qt.win.doctor
    |---|---|
    | `llvm-mingw-20261020-ucrt-x86_64.zip` | `fd5462b7f5d93b2ff981fcd3f9c7e427e47f3203c64ea91c27bcc444eebd74cd` |
 
-   Only the x86-64 archive is published by this app; a Windows-on-ARM machine runs it under
+   Only the x86-64 archive is published by this app, so a Windows-on-ARM machine runs it under
    emulation (the dependency panel says so in a `host architecture` row).
 
    The official `LLVM-*-win64.msi` from llvm.org works too (same clang, same LLD).
@@ -153,7 +153,7 @@ python -m nspb_qt.win.doctor
    The app cannot download this for you: Apple gates it behind a login.
 
 6. **spirv-cross** and **zstd** — Windows builds. The Vulkan SDK has `spirv-cross` (and
-   `glslangValidator`); zstd has releases on GitHub.
+   `glslangValidator`), and zstd has releases on GitHub.
 
 If auto-detection picks the wrong folder, set it in
 `%LOCALAPPDATA%\NS Port Builder\toolchain.json`:
@@ -182,7 +182,7 @@ two mirrors (`ghfast.top`, `gh-proxy.com`), and picks between them by timing a 2
 request — the report that prompted this was a 974-second download that *succeeded*, so failing
 over on errors alone would never have helped. The pinned SHA-256 is the only thing that decides
 what gets unpacked: a mirror serving different bytes is rejected exactly like a corrupted
-download. Microsoft's CDN (the .NET SDK) is not mirrored; it is fast enough on its own.
+download. Microsoft's CDN (the .NET SDK) is not mirrored, because it is fast enough on its own.
 
 **Where tools land.** `%LOCALAPPDATA%\NS Port Builder\tools`. Not inside the app folder: the app
 ships as a zip that gets re-extracted for every update, which would take 182 MB of LLVM with it.
@@ -214,7 +214,7 @@ Exit code 0 means every required row passed its probe.
 
 ### The one thing llvm-mingw gets wrong
 
-llvm-mingw's release script (`strip-llvm.sh`) **deletes `ld64.lld.exe`**; the zip only has
+llvm-mingw's release script (`strip-llvm.sh`) **deletes `ld64.lld.exe`**, so the zip only has
 `ld.lld.exe`. That is not a dead end: LLD is one binary containing every driver and picks one
 from `argv[0]`. Copying `ld.lld.exe` to `ld64.lld.exe` gives the Mach-O linker, and the app does
 that automatically (`toolchain.ensure_ld64_lld`). A build of LLD that was stripped down to ELF
@@ -234,7 +234,7 @@ broken IPA:
   (Pokémon Legends: Z-A, PlatinumGames titles, DRAGON QUEST XI S, …). Upstream decodes them by
   running the game's own decoder.
 - **The heap check** for a provisional profile. Replaced by an estimate (a 2 GB pool for a game
-  with virtual address memory); see `driver.heap_check`.
+  with virtual address memory). See `driver.heap_check`.
 - **The pipeline archive** (`pso_offline.py` / `metal-tt`). Apple's Windows Metal tools do not
   ship `metal-tt`, so `DM_PSO_GPUS` is forced to `none`: the device builds those pipeline bases
   on its first start instead (slower first launch, same result).
@@ -264,12 +264,12 @@ build on Windows plus a device run can settle:
    different compiler version, so the build will not fail — only a device run proves it.
 2. **The real rewritten modules.** Sections hundreds of MB, linked by `ld64.lld`, then signed by
    the sideloader.
-3. **The UIKit launcher.** `win/ios/Launcher.m` is a hand port of `Launcher.swift`; it honours
+3. **The UIKit launcher.** `win/ios/Launcher.m` is a hand port of `Launcher.swift`. It honours
    `section` grouping, a toggle's `on`/`off` values, env-file locking and Reset, but no one has
    tapped through it on a device.
 4. **Icons without an asset catalog** on iOS 26.
 5. **Line endings.** The checkout must keep LF. The shader chain hashes source bytes, so a CRLF
-   checkout breaks `dmsh_xlate --source-sha`. `.gitattributes` enforces this; a ZIP download
+   checkout breaks `dmsh_xlate --source-sha`. `.gitattributes` enforces this, but a ZIP download
    with autocrlf on can still break it.
 
 `nspb_qt/win/doctor.py` is the fastest way to narrow a failure: it separates "a tool is missing"

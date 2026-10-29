@@ -157,6 +157,13 @@ A decoder hands out as many outputs as it has slots, and while every slot is tak
 - **Fix** (`hle_movie.c`): a flush now keeps each slot's last picture, and in native-texture mode an output with no picture leaves the texture as it was, as the SDK's GPU consumer has nothing to draw.
 - **Found on:** [Big Brain Academy: Brain vs. Brain](../../dm/games/0100620012D6E000/README.md) (the same looped activity previews, Flush and Start).
 
+### `GetOutputBuffer` returns the output index in native-texture mode
+
+- **Symptom:** a native-texture movie freezes on its 16th picture while the game keeps running; `DM_MOVIE_TRACE=1` shows 16 `AcquireOutputBufferIndex` / `GetOutputBuffer` pairs and no `ReleaseOutputBufferIndex`.
+- **Cause:** in native-texture mode (output 3, mode 2) the SDK's `DecoderImpl::GetOutputBuffer` calls `CopyOutputBufferToClientTextureAndRelease`, which renders the picture into the client's texture with MediaCodec's `renderOutputBufferAndRelease`: the index goes back to the decoder there, and a client need not release it. The host kept the slot until a release, so a client that never releases held all 16 video slots and the decoder stopped. A client that releases anyway gets success from the SDK, whose texture-mode `ReleaseOutputBufferIndex` turns MediaCodec's "not owned" (-13) into 0 (SDK 17.5.9 `subsdk0+0x123a0c`).
+- **Fix** (`hle_movie.c`): the host tracks which output slots the client holds (taken by `AcquireOutputBufferIndex`, returned by a release or a flush). A texture-mode `GetOutputBuffer` returns its slot after writing the texture, and a release of a slot the client does not hold changes nothing and returns 0. Before, such a second release freed a slot the decoder might have filled again.
+- **Found on:** [Super Mario Party Jamboree](../../dm/games/0100965017338000/README.md) (SDK 17.5.9: the opening movie and the mode previews). Metroid Dread (SDK 11.4.3) has the same copy-and-release and still releases each index itself, the case the second rule covers.
+
 ## Demuxers and codecs
 
 ### `movie::Extractor` runs natively

@@ -44,7 +44,7 @@ Port **11451** by default, plain UDP, one byte of type followed by the payload.
 | `0x01` | IPv4 | both | a whole IP packet |
 | `0x02` | ping | client → server | 4 random bytes (echoed back) |
 | `0x03` | IPv4 fragment | both | 16-byte header + data (below) |
-| `0x04` | auth | server → client | the server asks for a login; implementations without it log and continue |
+| `0x04` | auth | server → client | the server asks for a login, and implementations without it log and continue |
 | `0x10` | info | server → client | a UTF-8 message to show the player |
 
 The high bit (`type & 0x7F`) is masked off on receive, so `0x81` is accepted as IPv4.
@@ -64,7 +64,7 @@ Reassembly keeps a table keyed by `(source, fragment id)`, drops entries older t
 mismatched totals or MTUs, and concatenates parts in index order.
 
 **Client behaviour**: keepalive + ping every 10 s, consider the server lost after 30 s of
-silence, reconnect every 5 s on failure. The client picks its virtual address itself; the server
+silence, reconnect every 5 s on failure. The client picks its virtual address itself, and the server
 maps it to the connection.
 
 A real Switch can join a lan-play server, which is the whole point: this is how Switch players
@@ -83,7 +83,7 @@ them. Simpler than lan-play, but only works when everyone shares one subnet.
 Peer discovery without a router, using the platform's peer-to-peer mechanism (mush8 uses mDNS /
 DNS-SD to advertise and browse, `dnssd.rs`: `DNSServiceRegister` / `DNSServiceBrowse` /
 `DNSServiceResolve` / `DNSServiceGetAddrInfo`). Each player advertises a service and browses for
-the others; the first contact becomes the transport.
+the others, and the first contact becomes the transport.
 
 ## What the game needs above the transport
 
@@ -108,8 +108,8 @@ Roughly four layers, in order:
 |---|---|---|
 | 1. BSD sockets | `socket`/`bind`/`sendto`/`recvfrom`/`poll`/`select` over the virtual network, with the errno conventions the SDK expects | new `dm/host/hle_bsd.c` (replaces the offline stubs in `hle_offline.c`) |
 | 2. Virtual network | address/MASK/gateway, per-port socket registry, broadcast rules, receive queues, wake-on-packet for `poll` | new `dm/host/dm_vnet.c` |
-| 3. Transports | lan-play framing + reassembly; LAN broadcast; wireless via mDNS | one file per transport |
-| 4. `ldn` / `nifm` | make the game believe a session can exist; per-game payload mapping | `hle_ldn.c`, and per-game code |
+| 3. Transports | lan-play framing and reassembly, LAN broadcast, wireless via mDNS | one file per transport |
+| 4. `ldn` / `nifm` | make the game believe a session can exist, per-game payload mapping | `hle_ldn.c`, and per-game code |
 
 Layers 1–3 are game independent and reusable. Layer 4 is where a new title costs work again.
 
@@ -122,7 +122,7 @@ documented above and it is the title mush8 proved) ≈ 2–3 weeks. Each further
 - **Does our Metal host survive packet injection at frame rate?** Untested. The transport runs
   on its own thread, but `poll` must wake a blocked guest thread promptly.
 - **iOS local network permission**: iOS 14+ shows a prompt and the entitlement
-  `com.apple.developer.networking.multicast` may be needed for broadcast; a sideloaded unsigned
+  `com.apple.developer.networking.multicast` may be needed for broadcast. A sideloaded unsigned
   IPA cannot carry it, which could make LAN mode impossible on iOS while lan-play (unicast UDP)
   still works.
 - **Matching the game update to the Switch's**, per mush8's note — our profiles already pin an
@@ -136,4 +136,4 @@ documented above and it is the title mush8 proved) ≈ 2–3 weeks. Each further
 - [c22dev/mush8](https://github.com/c22dev/mush8) — `crates/nxhost/src/services/{vnet,lanplay,lan,wireless}.rs`,
   `crates/nxhost/src/dnssd.rs` (read at commit 0.1).
 - lan-play itself is a public protocol with several open implementations (switch-lan-play and
-  clients for it); the constant table above matches what mush8 implements.
+  clients for it), and the constant table above matches what mush8 implements.

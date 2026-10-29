@@ -4,7 +4,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        For a game that crashes or looks wrong, use the Game problem form; for a failing build, the Build problem form.
+        For a game that crashes or looks wrong, use the Game problem form. For a failing build, use the Build problem form.
         Never attach keys, game files or anything extracted from a game.
   - type: dropdown
     id: kind

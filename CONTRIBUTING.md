@@ -4,17 +4,17 @@ Issues and pull requests are welcome. NX2Apple is the launcher (`frontend/`, `fr
 
 ## Reporting a problem
 
-Game problems, build problems and launcher problems each have an issue form (`.github/ISSUE_TEMPLATE/`); the form asks for what a report needs — versions, device, Copy diagnostics and the game's log. Use it from the Issues page; a report without those is usually unactionable.
+Game problems, build problems and launcher problems each have an issue form (`.github/ISSUE_TEMPLATE/`). The form asks for what a report needs — versions, device, Copy diagnostics and the game's log. Use it from the Issues page. A report without those is usually unactionable.
 
 ## Where an issue goes
 
 - **Here:** the app, a build or install that fails, and a game that does not run well on your Mac or iPhone or iPad.
-- **[Discussions](https://github.com/LNPANDY/NX2Apple/discussions):** questions (Q&A) and ideas (Ideas); bugs stay issues.
+- **[Discussions](https://github.com/LNPANDY/NX2Apple/discussions):** questions (Q&A) and ideas (Ideas). Bugs stay issues.
 - **[seedds/nxnative](https://github.com/seedds/nxnative/issues):** how the engine works, porting a new game, a rendering fault you have traced into the engine itself.
 
 ## What a report needs
 
-Pick a form: **Game problem**, **Build problem** or **Launcher problem or idea**. Each asks for what the problem is traced with: the game, its title ID and versions, the target, the device and OS, the NX2Apple version, **Settings > Copy diagnostics**, and the log (a game's log, or the Build log on the Builds page). A report without them gets a request for them first. Where a game's log is: a Mac game in a library folder writes `log/<title ID>.log` beside its app, otherwise `~/Library/Logs/nxnative/<title ID>.log`; on an iPhone or iPad it is `log.txt` in the Files app.
+Pick a form: **Game problem**, **Build problem** or **Launcher problem or idea**. Each asks for what the problem is traced with: the game, its title ID and versions, the target, the device and OS, the NX2Apple version, **Settings > Copy diagnostics**, and the log (a game's log, or the Build log on the Builds page). A report without them gets a request for them first. Where a game's log is: a Mac game in a library folder writes `log/<title ID>.log` beside its app, otherwise `~/Library/Logs/nxnative/<title ID>.log`. On an iPhone or iPad it is `log.txt` in the Files app.
 
 **Never attach keys, game files or anything extracted from a game.** Logs, screenshots, title IDs and build IDs are fine.
 
@@ -28,7 +28,7 @@ useful:**
   with the title ID, the update version, and what you did. It becomes a profile others can use.
 - **Send the shaders that are missing** — if a game runs but stutters on first use of an effect, its
   shader variants are missing from the map. The host can dump what it cannot find
-  (`DM_NVN_SHDUMP=<dir>`); attach those and we add them to `shader_map.tsv` for everyone.
+  (`DM_NVN_SHDUMP=<dir>`). Attach those and we add them to `shader_map.tsv` for everyone.
 
 Issues with a full `Documents/log.txt` get looked at first — that log usually names the exact
 missing piece.
@@ -37,8 +37,8 @@ missing piece.
 
 - One change per PR, off `main`. Commit messages say what changed and why, in plain English, as `git log` does.
 - Fill in the PR template: what and why, what was checked, screenshots for UI changes.
-- **`frontend/` and `frontend-qt/` are the fork's own:** change them freely. Run `cd frontend && swift test`; for a UI change also capture the views for visual QA (`NX_LAUNCHER_CAPTURE_DIR`, see [frontend/README.md](frontend/README.md#verification)).
-- **`dm/`, `scripts/`, `docs/`, `ref/` and `AGENTS.md` are upstream plus the patch queue.** They are generated: seedds/nxnative at the commit in `.upstream-ref` with the patches in `patches/` applied, so a direct edit fails `scripts/patches.py check` (the `pr-scope` and `patch-queue` jobs) and would be lost on the next bump. The failure names the command: `python3 scripts/patches.py absorb <files>` folds a direct edit into the patch that already touches the file (a new file may need `--into <patch>`); commit `patches/` with it. For a change that needs a patch of its own, commit the change, turn it into a patch with `scripts/patches.py export <commit>`, fill in its header (`Upstream-Status`, `Reason`, `Issue`), and send the same change to seedds/nxnative so the patch can go: [patches/README.md](patches/README.md) walks through it and states the patch policy (what a patch may and may not change). Files under `.github/` and in the repository root that are not in that list (this file, `CLAUDE.md`, the README) are the fork's.
+- **`frontend/` and `frontend-qt/` are the fork's own:** change them freely. Run `cd frontend && swift test`. For a UI change also capture the views for visual QA (`NX_LAUNCHER_CAPTURE_DIR`, see [frontend/README.md](frontend/README.md#verification)).
+- **`dm/`, `scripts/`, `docs/`, `ref/` and `AGENTS.md` are upstream plus the patch queue.** They are generated: seedds/nxnative at the commit in `.upstream-ref` with the patches in `patches/` applied, so a direct edit fails `scripts/patches.py check` (the `pr-scope` and `patch-queue` jobs) and would be lost on the next bump. The failure names the command: `python3 scripts/patches.py absorb <files>` folds a direct edit into the patch that already touches the file (a new file may need `--into <patch>`). Commit `patches/` with it. For a change that needs a patch of its own, commit the change, turn it into a patch with `scripts/patches.py export <commit>`, fill in its header (`Upstream-Status`, `Reason`, `Issue`), and send the same change to seedds/nxnative so the patch can go. Fixes to the engine and to game profiles go to seedds/nxnative first, as [patches/README.md](patches/README.md#upstream-first) states. That page walks through the steps and states the patch policy (what a patch may and may not change). Files under `.github/` and in the repository root that are not in that list (this file, `CLAUDE.md`, the README) are the fork's.
 
 ## For AI agents and other tools
 

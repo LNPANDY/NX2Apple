@@ -103,16 +103,18 @@ HLE_FORCE("_ZN2nn4time13ClockSnapshot31CreateWithAdjustableSystemClockEPS1_", "a
     return RES_OK;
 }
 // Arithmetic on two snapshots: the SDK hands both to the time service (a call through its session, AbortImpl when there is none: STEINS;GATE RE:BOOT's and Tears of the Kingdom's SDK;
-// Tears of the Kingdom imports both); the host computes what the service does (as Ryujinx's time service). TimeSpan is nanoseconds
+// Tears of the Kingdom imports both); the host computes what the service does (as Ryujinx's time service). TimeSpan is nanoseconds. CalculateSpanBetween returns bool, not a Result:
+// true when the span was stored (SDK 12 to 20 end it with `cset w0, eq` on the service's result, Metroid Dread's sdk+0x3ab540, Tears of the Kingdom's sdk+0x440f60); a Result 0 read as false
+// (Super Smash Bros. Ultimate's Spirit Board refilled at every visit, found by MacNativeGames)
 static int64_t snap64(const uint8_t *s, int off) { int64_t v; memcpy(&v, s + off, 8); return v; }
 static int same_source(const uint8_t *a, const uint8_t *b, int tp) { return !memcmp(a + tp + 8, b + tp + 8, 16); }   // the source IDs of the steady time points at +tp
 HLE_FORCE("_ZN2nn4time20CalculateSpanBetweenEPNS_8TimeSpanERKNS0_13ClockSnapshotES5_", "span between two snapshots (time service): their steady time points, else their network times",
-          Result, h_time_SpanBetween, int64_t *out, const uint8_t *a, const uint8_t *b) {
+          unsigned, h_time_SpanBetween, int64_t *out, const uint8_t *a, const uint8_t *b) {
     int64_t s;
     if (same_source(a, b, 0x90)) s = snap64(b, 0x90) - snap64(a, 0x90);
     else if (snap64(a, 0x48) && snap64(b, 0x48)) s = snap64(b, 0x48) - snap64(a, 0x48);
-    else return RES_FAIL;   // no common clock: the service answers "not found", *out untouched (as the SDK leaves it)
-    *out = s * 1000000000; return RES_OK;
+    else return 0;   // no common clock: the service answers "not found", *out untouched (as the SDK leaves it)
+    *out = s * 1000000000; return 1;
 }
 // How far the user moved the user clock between two snapshots (asked at Pokémon: Let's Go's first save, PR #36): the change of the user clock offset, 0 when the two contexts' steady
 // sources differ or both snapshots have automatic correction on. The snapshots carry h_time_GetContext's context, renewed when the host clock is set, so that shows up here

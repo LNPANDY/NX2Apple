@@ -1,0 +1,41 @@
+# Game profile of Bastion (Switch, base game 1.0.0 = v0). Plays on the Mac (logos, title, main menu, a new game into The Rippling Walls at 60 fps with music)
+# Format: see dm/games/README.md
+# Supergiant Games' C# engine on MonoGame 3.0 (Microsoft.Xna.Framework over NVN) compiled into main, XACT sound banks (.xgs / .xsb / .xwb) through the audio renderer, SDK 5.4.0.
+# The shaders are MonoGame effects of MGFX version 5, each shader a whole GLSLC output: 24 in Content/Effects/*.xnb and 5 MonoGame stock effects in Resources/*.dx11.mgfxo
+# (shader_split.py mgfx_effect). The provisional profile's guesses held: no key needed changing
+
+# ---- Identity ----
+title_id	010038600B27E000
+program_id	010038600B27E000
+
+# ---- App ----
+# Game name: only a label for profile listings and the Mac window title; the iOS app name is the game name in the base NSP, and the bundle ID comes from the base game title ID (build_ipa.sh / NSP script)
+name	Bastion
+ipa	Bastion.ipa
+app_category	public.app-category.action-games
+
+# ---- Versions ----
+build	v0	1.0.0	main=26a2d0ccaee5f39e92aad6bab4ba7c47	sdk=26ffb122262ca25e4c016c0af2f92a29
+package	v0
+shader_versions	v0
+
+# ---- Files ----
+modules	main sdk
+romfs_marker	Content/Audio/StreamingWaveBank.xwb
+zip_store	.pkg:.raw:.xwb:.metallib
+
+# ---- Memory ----
+# The NPDM declares no system resource, so the game has no virtual address memory: it sets a heap of the application pool − used memory and allocates from it.
+# The block is 256 MB in front + 256 MB alias region + 256 MB stack region + 3.25 GB heap region
+mem_reserve	0x100000000
+mem_alias	0x10000000
+mem_stack	0x10000000
+app_pool	0xCD500000
+# the NPDM declares no system resource: IsVirtualAddressMemoryEnabled is false, as on Horizon
+sys_resource	0x0
+# used memory for the rewritten modules (the NSP script's figure; main alone is 58 MB with its bss before the rewrite), more than the default 64 MB
+mem_used	0x4c00000
+
+# ---- Shader split (shader_split.py; MonoGame effects) ----
+shader_groups	/Content/=content /Resources/=resources
+shader_note	Bastion shaders

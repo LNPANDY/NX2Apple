@@ -53,11 +53,11 @@ same section order, and a reader picks one and reads straight through.
 
 The two halves use the **same headings in the same order** (the Chinese ones are the translations
 of the English ones), and the same number of items under each heading. Item 2 in English is item 2
-in Chinese; a reader comparing the two must not have to map lists.
+in Chinese, so a reader comparing the two does not have to map lists.
 
 Rules that matter more than the template:
 
-1. **English first.** It is the canonical text; the Chinese half is written from it.
+1. **English first.** It is the canonical text, and the Chinese half is written from it.
 2. **Both halves say the same thing.** Not "a translation of the headline and a summary of the
    rest" — a user reading either half must learn everything the other one learns.
 3. **Never split a section across the two halves.** All of Fixes is in one place, then all of
@@ -75,10 +75,10 @@ changing the template means checking that sheet's tests too.
 
 ## Where the text comes from
 
-- `CHANGELOG.md` and `CHANGELOG.zh-CN.md` share an update-history table; a release row goes in both, the
+- `CHANGELOG.md` and `CHANGELOG.zh-CN.md` share an update-history table. A release row goes in both, the
   English one first (it is the canonical project history), then translated.
 - The release body itself is written once, in both languages, and is what `gh release edit
-  --notes-file` takes. Keep the file in `/tmp` while working; the release is the record.
+  --notes-file` takes. Keep the file in `/tmp` while working, since the release is the record.
 - If a fact differs per platform (a macOS-only fix), say which platform in the same sentence in both
   languages rather than relying on the reader's inference.
 

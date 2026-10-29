@@ -4,7 +4,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for the report. The fields below are what a game problem is traced with; without them the first reply is a request for them.
+        Thanks for the report. The fields below are what a game problem is traced with. Without them the first reply is a request for them.
         **Never attach game files, keys, title keys or anything extracted from a game** (RomFS, NSOs, shaders). Logs and screenshots are fine.
         If the problem is that the build or the install to a device fails, use the Build problem form instead.
   - type: input
