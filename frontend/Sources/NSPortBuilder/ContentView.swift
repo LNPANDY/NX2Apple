@@ -1078,15 +1078,13 @@ final class BuildModel: ObservableObject {
                 staged.append(baseDir + "/" + f)
             }
         }
+        let tidHex = Self.titleID(basePath).map { String(format: "%016llX", $0) } ?? "game"
+        let workDir = (outDir.isEmpty ? baseDir : outDir) + "/" + tidHex + "_build"
         var inputDir = baseDir
         if dirs.count > 1 || !unpicked.isEmpty {
-            let tmp = NSTemporaryDirectory() + "nsport-\(UUID().uuidString.prefix(8))"
-            try? FileManager.default.createDirectory(atPath: tmp, withIntermediateDirectories: true)
-            var linked = 0
-            for f in staged where !f.isEmpty {
-                let dst = tmp + "/" + (f as NSString).lastPathComponent
-                if (try? FileManager.default.createSymbolicLink(atPath: dst, withDestinationPath: f)) != nil { linked += 1 }
-            }
+            // A stable folder per game (#132): the script's fingerprints name its files and its profile path.
+            let tmp = InputStaging.folder(workDir: workDir)
+            let linked = InputStaging.sync(files: staged, into: tmp)
             if linked == 0 { fail(t("msg.stagingFailed")); return }
             staging = tmp; inputDir = tmp
             if !unpicked.isEmpty {
@@ -1094,8 +1092,6 @@ final class BuildModel: ObservableObject {
             }
         } else { staging = nil }
 
-        let tidHex = Self.titleID(basePath).map { String(format: "%016llX", $0) } ?? "game"
-        let workDir = (outDir.isEmpty ? baseDir : outDir) + "/" + tidHex + "_build"
         // This fork's --work-dir keeps the build folder (extracted files, shader cache, the romfs
         // archive) outside the NSPs' folder. An upstream checkout or an older ZIP does not have the
         // option and would stop with "unrecognized arguments" (issue #5), so ask the script; without
@@ -1368,7 +1364,7 @@ final class BuildModel: ObservableObject {
     }
 
     private func cleanupStaging() {
-        if let s = staging { try? FileManager.default.removeItem(atPath: s); staging = nil }
+        staging = nil   // the folder stays for the next build of this game (#132, InputStaging)
     }
 
     /// A stopped build leaves no half-finished stages behind: the progress starts empty again.
