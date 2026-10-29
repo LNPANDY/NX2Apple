@@ -458,8 +458,6 @@ enum L10n {
         "build.showLibrary": ("\u{67e5}\u{770b}\u{6e38}\u{620f}", "View game"),
 
         // ---- title ----
-        "app.subtitle": ("Switch 游戏 → iPhone IPA · 归档分片 · 大内存",
-                         "Switch games → iPhone IPA · archive shards · large memory"),
 
         // ---- repository ----
         "repo.title": ("项目仓库", "Project repository"),
@@ -1538,7 +1536,6 @@ enum L10n {
         "msg.archiveLog": "Arkiv: %@ → %@",
         "dev.noTeam": "Det finns inget Apple-ID i Xcode och inget utvecklarcertifikat. Logga in i Xcode → Inställningar → Konton.",
         "dev.teamNoCert": "Det här teamet saknar utvecklarcertifikat. Xcode skapar det automatiskt vid första installationen och Mac-datorn måste vara ansluten till internet.",
-        "app.subtitle": "Switch-spel → iPhone-IPA · arkivsegment · stort minne",
         "repo.notFound": "Projektet hittades inte. Hämta det eller välj platsen för klonen till höger.",
         "repo.pickMessage": "Välj mappen för projektet som innehåller dm/tools/nx_extract/Program.cs",
         "repo.downloading": "Hämtar till ~/nxnative … Förloppet visas i loggen nedan och tar ungefär en minut.",

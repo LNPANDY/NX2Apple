@@ -84,20 +84,6 @@ class MainWindow(QMainWindow):
     def _build_header(self) -> None:
         row = QHBoxLayout()
         row.setSpacing(8)
-        badge = QLabel('🎮')
-        badge.setFixedSize(40, 40)
-        badge.setAlignment(Qt.AlignCenter)
-        badge.setStyleSheet(f'background: {GREEN}; border-radius: 10px; font-size: 18px;')
-        row.addWidget(badge)
-        left = QVBoxLayout()
-        left.setSpacing(3)
-        self.title = QLabel('NS Port Builder')
-        self.title.setObjectName('title')
-        self.subtitle = QLabel(self.m.t('app.subtitle'))
-        self.subtitle.setObjectName('subtitle')
-        left.addWidget(self.title)
-        left.addWidget(self.subtitle)
-        row.addLayout(left)
         row.addStretch(1)
         self.lang_btn = QPushButton(self.m.lang.toggle_label)
         self.lang_btn.clicked.connect(self._toggle_lang)
@@ -408,7 +394,6 @@ class MainWindow(QMainWindow):
     # ---------------------------------------------------------------- refresh
 
     def _refresh_all(self) -> None:
-        self.subtitle.setText(self.m.t('app.subtitle'))
         self.lang_btn.setText(self.m.lang.toggle_label)
         # everything built once at start-up re-reads its string here: the language toggle emits
         # repoChanged, and without this the card titles, the notes and the buttons kept their
