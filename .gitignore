@@ -35,3 +35,5 @@ frontend/NX2Apple.app/
 
 # the virtual environment the README creates for the Python packages
 .venv/
+frontend-qt/wheels/
+frontend-qt/NS-Port-Builder-qt-windows-x64.zip

@@ -739,6 +739,8 @@ enum L10n {
                                  "Xcode's license is not accepted yet: run sudo xcodebuild -license accept."),
         "dep.fix.network": ("下载失败了：检查网络（代理或 VPN 可能拦住了 Homebrew 的域名），再试一次。",
                             "The download failed: check the network (a proxy or VPN can block Homebrew's hosts) and try again."),
+        "dep.git.downloading": ("正在下载 PortableGit（SDK 下载需要它，约 45 MB）…", "Downloading PortableGit (the SDK download needs it, about 45 MB)…"),
+        "dep.git.done": ("PortableGit 已安装：%@", "PortableGit installed: %@"),
         "dep.fix.nonascii": ("SDK 所在路径含非英文字符（比如用户名里的中文）：ld64.lld 在 Windows 上可能因此打不开 SDK 文件。把整个 SDK 文件夹拷到一个纯英文路径（如 C:\\NSPB\\sdk），然后在依赖面板用「选择文件夹…」指向它。",
                              "The SDK path contains non-ASCII characters (a Chinese username, for example): ld64.lld on Windows may fail to open it. Copy the whole SDK folder to an ASCII-only path (e.g. C:\\NSPB\\sdk) and point the dependencies panel's Choose folder… at it."),
         "dep.row.log": ("依赖 %@：[%@] %@", "dependency %@: [%@] %@"),
