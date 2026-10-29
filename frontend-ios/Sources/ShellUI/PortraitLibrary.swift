@@ -1,12 +1,13 @@
 import SwiftUI
 
-/// The library when it is taller than it is wide: the chosen game's art as a full-bleed hero with the title over it,
+/// The library when it is taller than it is wide: the chosen game's banner as the hero with the title under it,
 /// then the collection, then recently played. In one column the primary action sits at the bottom for the thumb.
-/// Beside the settings pane (two panes) the collection becomes a grid and Play moves into the hero.
+/// With regular width (an iPad or an unfolded foldable held upright) the collection becomes a grid of wide cards and
+/// Play and the settings button move into the hero. Settings themselves only appear when asked for.
 struct PortraitLibrary: View {
     let games: [GameDetail]
     let selected: GameDetail
-    let twoPanes: Bool
+    let wide: Bool
     let size: CGSize
     let topInset: CGFloat
     let controllers: Int
@@ -39,16 +40,18 @@ struct PortraitLibrary: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     HeroView(game: selected.game, width: size.width, topInset: topInset,
-                             titleSize: twoPanes ? 34 : short ? 26 : 32) {
-                        if twoPanes {
-                            Button { primary(selected) } label: {
-                                Label(selected.game.state.actionTitle, systemImage: selected.game.state.actionSymbol)
-                            }
-                            .buttonStyle(PrimaryPillStyle())
-                            .accessibilityLabel(selected.game.state.actionTitle + ", " + selected.game.title)
-                            .accessibilityIdentifier("state.action")
-                            .shellTarget("lib.play", radius: 25) { primary(selected) }
-                            .padding(.top, 8)
+                             titleSize: wide ? 34 : short ? 26 : 32) {
+                        if wide {
+                            HStack(spacing: 12) {
+                                Button { primary(selected) } label: {
+                                    Label(selected.game.state.actionTitle, systemImage: selected.game.state.actionSymbol)
+                                }
+                                .buttonStyle(PrimaryPillStyle())
+                                .accessibilityLabel(selected.game.state.actionTitle + ", " + selected.game.title)
+                                .accessibilityIdentifier("state.action")
+                                .shellTarget("lib.play", radius: 25) { primary(selected) }
+                                settingsButton
+                            }.padding(.top, 8)
                         }
                     }
                     collection.padding(.top, short ? 6 : 14)
@@ -58,7 +61,7 @@ struct PortraitLibrary: View {
             .scrollPosition($position)
             .scrollIndicators(.hidden)
             .ignoresSafeArea(edges: .top)
-            .safeAreaInset(edge: .bottom, spacing: 0) { if !twoPanes { bottomBar } }
+            .safeAreaInset(edge: .bottom, spacing: 0) { if !wide { bottomBar } }
             .overlay(alignment: .topTrailing) {
                 ControllerChip(count: controllers, action: openControllers).padding(.top, 6).padding(.trailing, 16)
             }
@@ -73,8 +76,8 @@ struct PortraitLibrary: View {
     private var collection: some View {
         VStack(alignment: .leading, spacing: 14) {
             SectionHeading(title: ShellStrings.text("Your games"), trailing: "\(games.count)").padding(.horizontal, 24)
-            if twoPanes {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 170, maximum: 260), spacing: 18, alignment: .top)],
+            if wide {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 210, maximum: 320), spacing: 22, alignment: .top)],
                           alignment: .leading, spacing: 24) {
                     ForEach(games) { tile($0) }
                 }.padding(.horizontal, 24)
@@ -148,6 +151,14 @@ struct PortraitLibrary: View {
         }
     }
 
+    private var settingsButton: some View {
+        Button(action: openSettings) { Image(systemName: "slider.horizontal.3") }
+            .buttonStyle(RoundIconButtonStyle())
+            .accessibilityLabel(ShellStrings.text("Game settings"))
+            .accessibilityIdentifier("settings.open")
+            .shellTarget("lib.settings", radius: 25, action: openSettings)
+    }
+
     private var bottomBar: some View {
         HStack(spacing: 12) {
             Button { primary(selected) } label: {
@@ -157,11 +168,7 @@ struct PortraitLibrary: View {
             .accessibilityLabel(selected.game.state.actionTitle + ", " + selected.game.title)
             .accessibilityIdentifier("state.action")
             .shellTarget("lib.play", radius: 25) { primary(selected) }
-            Button(action: openSettings) { Image(systemName: "slider.horizontal.3") }
-                .buttonStyle(RoundIconButtonStyle())
-                .accessibilityLabel(ShellStrings.text("Game settings"))
-                .accessibilityIdentifier("settings.open")
-                .shellTarget("lib.settings", radius: 25, action: openSettings)
+            settingsButton
         }
         .padding(.horizontal, 24).padding(.top, 22).padding(.bottom, 8)
         .background {

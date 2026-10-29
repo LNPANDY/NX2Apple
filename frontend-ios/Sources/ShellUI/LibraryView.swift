@@ -3,27 +3,29 @@ import SwiftUI
 /// How the library arranges itself. Only the available size decides, never the device model or orientation,
 /// so a Stage Manager window, Split View and a foldable opening while the app runs all follow the same rules.
 enum ShellLayout: Equatable {
-    /// Compact and taller than wide: one column, settings pushed over the library.
+    /// Compact and taller than wide: one column, settings over the whole library when asked for.
     case column
-    /// Regular width and height, not wide: the library beside the settings pane.
-    case split
-    /// Wider than tall: Cover Flow. Settings open as a panel on the right (regular) or over the library (compact).
+    /// Regular width and height, not wide: the library alone with a grid of cards, settings as a panel when asked for.
+    case grid
+    /// Wider than tall: Cover Flow. Settings as a panel on the right (regular) or over the whole library (compact).
     case coverFlow(regular: Bool)
 
     static func resolve(_ size: CGSize, accessibilityText: Bool) -> ShellLayout {
         let regular = size.width >= 600 && size.height >= 500
         if size.width > size.height * 1.2 { return .coverFlow(regular: regular) }
-        return regular && !accessibilityText ? .split : .column
+        return regular && !accessibilityText ? .grid : .column
     }
 
-    /// The settings pane's width: the whole width where it covers the library.
+    /// The settings panel's width: the whole width where it covers the library, else a panel that leaves the
+    /// library in view beside it.
     func paneWidth(_ width: CGFloat) -> CGFloat {
         switch self {
         case .column, .coverFlow(regular: false): width
-        case .split: min(460, max(320, width * 0.46))
-        case .coverFlow(regular: true): min(520, max(380, width * 0.42))
+        case .grid, .coverFlow(regular: true): min(500, max(380, width * 0.5))
         }
     }
+    /// Whether the settings float as a panel over a dimmed library, rather than replacing it.
+    var settingsFloat: Bool { self == .grid || self == .coverFlow(regular: true) }
     var isCoverFlow: Bool { if case .coverFlow = self { true } else { false } }
 }
 
@@ -68,10 +70,11 @@ public struct LibraryView: View {
             let layout = ShellLayout.resolve(whole, accessibilityText: typeSize.isAccessibilitySize)
             let width = geometry.size.width
             let pane = layout.paneWidth(width)
-            let paneShown = layout == .split || settingsOpen
-            // Where the pane is as wide as the screen, the library underneath steps out of the way.
-            let paneCovers = settingsOpen && pane >= width
-            let panelOverLibrary = settingsOpen && layout == .coverFlow(regular: true)
+            // Settings only when asked for. A panel floats over the dimmed library where there is room, otherwise the
+            // settings take the whole screen and the library steps out of the way.
+            let floating = layout.settingsFloat
+            let paneCovers = settingsOpen && !floating
+            let panelOverLibrary = settingsOpen && floating
             ZStack(alignment: .topLeading) {
                 if layout.isCoverFlow, let selected { CoverFlowBackdrop(game: selected.game) } else { ShellPalette.background.ignoresSafeArea() }
                 if games.isEmpty {
@@ -80,37 +83,41 @@ public struct LibraryView: View {
                             ControllerChip(count: controllers.count, action: openControllers).padding(.top, 6).padding(.trailing, 16)
                         }
                 } else if let selected {
-                    library(selected, layout: layout,
-                            size: CGSize(width: layout == .split ? width - pane : width, height: geometry.size.height),
-                            topInset: insets.top)
-                        .frame(width: layout == .split ? width - pane : width, height: geometry.size.height)
+                    library(selected, layout: layout, size: geometry.size, topInset: insets.top)
+                        .frame(width: width, height: geometry.size.height)
                         .opacity(paneCovers ? 0 : 1)
-                        .allowsHitTesting(!paneCovers && !panelOverLibrary)
-                        .accessibilityHidden(paneCovers || panelOverLibrary)
-                        .transformPreference(FocusTargets.self) { if paneCovers || panelOverLibrary { $0.removeAll() } }
+                        .allowsHitTesting(!settingsOpen)
+                        .accessibilityHidden(settingsOpen)
+                        .transformPreference(FocusTargets.self) { if settingsOpen { $0.removeAll() } }
                     if panelOverLibrary {
-                        Color.black.opacity(0.45).ignoresSafeArea()
+                        Color.black.opacity(0.5).ignoresSafeArea()
                             .onTapGesture { closeSettings() }
                             .accessibilityHidden(true)
                             .transition(.opacity)
                     }
-                    // One settings pane in one place for every layout, so its scroll position and focus survive
+                    // One settings view in one place for every layout, so its state, scroll position and focus survive
                     // a fold, a rotation or a Stage Manager resize.
-                    settingsPane(selected, layout: layout)
-                        .frame(width: pane, height: geometry.size.height)
+                    settingsPane(selected, floating: floating, width: pane - (floating ? 24 : 0))
+                        .frame(width: pane - (floating ? 24 : 0))
+                        .frame(maxHeight: .infinity)
                         .background {
-                            (paneCovers ? ShellPalette.background : Color(red: 0.075, green: 0.075, blue: 0.082))
-                                .ignoresSafeArea()
-                                .overlay(alignment: .leading) {
-                                    if !paneCovers { Rectangle().fill(ShellPalette.hairline).frame(width: 1).ignoresSafeArea() }
-                                }
+                            if floating {
+                                RoundedRectangle(cornerRadius: 26).fill(Color(red: 0.075, green: 0.075, blue: 0.082))
+                                    .overlay(RoundedRectangle(cornerRadius: 26).strokeBorder(.white.opacity(0.10)))
+                            } else {
+                                ShellPalette.background.ignoresSafeArea()
+                            }
                         }
-                        .offset(x: paneShown ? 0 : pane + 24)
-                        .opacity(paneShown ? 1 : 0)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                        .allowsHitTesting(paneShown)
-                        .accessibilityHidden(!paneShown)
-                        .transformPreference(FocusTargets.self) { if !paneShown { $0.removeAll() } }
+                        .clipShape(RoundedRectangle(cornerRadius: floating ? 26 : 0))
+                        .shadow(color: .black.opacity(floating ? 0.5 : 0), radius: 40, x: -8)
+                        .padding(floating ? 12 : 0)
+                        .offset(x: settingsOpen ? 0 : pane + 40)
+                        .opacity(settingsOpen ? 1 : 0)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+                        .allowsHitTesting(settingsOpen)
+                        .accessibilityHidden(!settingsOpen)
+                        .accessibilityAddTraits(settingsOpen ? .isModal : [])
+                        .transformPreference(FocusTargets.self) { if !settingsOpen { $0.removeAll() } }
                 }
                 if controllersOpen {
                     Color.black.opacity(0.55).ignoresSafeArea().accessibilityHidden(true)
@@ -159,45 +166,45 @@ public struct LibraryView: View {
                           select: select, primary: primary, openSettings: openSettings, openControllers: openControllers)
                 .transition(.opacity)
         } else {
-            PortraitLibrary(games: games, selected: selected, twoPanes: layout == .split, size: size, topInset: topInset,
+            PortraitLibrary(games: games, selected: selected, wide: layout == .grid, size: size, topInset: topInset,
                             controllers: controllers.count, select: select, primary: primary,
                             openSettings: openSettings, openControllers: openControllers, position: $libraryPosition)
                 .transition(.opacity)
         }
     }
 
-    private func settingsPane(_ selected: GameDetail, layout: ShellLayout) -> some View {
-        let closable = layout != .split
-        return VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                if closable {
-                    Button(action: closeSettings) {
-                        if typeSize.isAccessibilitySize { Image(systemName: "chevron.left").frame(minWidth: 24) }
-                        else { Label(ShellStrings.text("Library"), systemImage: "chevron.left") }
-                    }
-                    .buttonStyle(ShellButtonStyle())
-                    .accessibilityLabel(ShellStrings.text("Library"))
-                    .accessibilityIdentifier("library.back")
-                    .shellTarget("set.back", action: closeSettings)
-                }
-                SectionHeading(title: ShellStrings.text("Game settings"))
-                    .padding(.leading, closable ? 4 : 0)
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 24).padding(.top, 10).padding(.bottom, 4).frame(minHeight: 56)
-            ScrollViewReader { proxy in
-                ScrollView {
-                    GameDetailView(detail: selected, actions: actions, showsPrimaryAction: layout != .split, showsHeader: layout != .split)
-                        .padding(.horizontal, 24).padding(.top, 12).padding(.bottom, 32)
+    /// The settings for the selected game: its banner as the header, with the title over it and Back on top, then
+    /// the primary action and the setting groups. A panel or the whole screen, the same view.
+    private func settingsPane(_ selected: GameDetail, floating: Bool, width: CGFloat) -> some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    PaneBanner(game: selected.game, width: width).id("set.top")
+                    GameDetailView(detail: selected, actions: actions, showsPrimaryAction: true, showsHeader: false)
+                        .padding(.horizontal, 24).padding(.top, 18).padding(.bottom, 32)
                         // A phone on its side: a readable column, not rows stretched across the whole width.
                         .frame(maxWidth: 640, alignment: .leading)
-                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .scrollPosition($settingsPosition)
-                .scrollIndicators(.hidden)
-                .onChange(of: focus.id) { _, id in
-                    guard let id, id.hasPrefix("set."), id != "set.back" else { return }
-                    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.18)) { proxy.scrollTo(id, anchor: .center) }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .scrollPosition($settingsPosition)
+            .scrollIndicators(.hidden)
+            .ignoresSafeArea(edges: floating ? [] : .top)
+            .overlay(alignment: .topLeading) {
+                Button(action: closeSettings) {
+                    if typeSize.isAccessibilitySize { Image(systemName: "chevron.left").frame(minWidth: 24) }
+                    else { Label(ShellStrings.text("Library"), systemImage: "chevron.left") }
+                }
+                .buttonStyle(ChipButtonStyle())
+                .accessibilityLabel(ShellStrings.text("Library"))
+                .accessibilityIdentifier("library.back")
+                .shellTarget("set.back", radius: 22, action: closeSettings)
+                .padding(.leading, 16).padding(.top, floating ? 14 : 6)
+            }
+            .onChange(of: focus.id) { _, id in
+                guard let id, id.hasPrefix("set.") else { return }
+                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.18)) {
+                    proxy.scrollTo(id == "set.back" ? "set.top" : id, anchor: id == "set.back" ? .top : .center)
                 }
             }
         }
@@ -220,11 +227,6 @@ public struct LibraryView: View {
         settingsPosition.scrollTo(edge: .top)
     }
     private func openSettings() {
-        if layout == .split {
-            // The pane is already there: move into it.
-            focus.id = targets.values.first { $0.id.hasPrefix("set.row.") }?.id ?? focus.id
-            return
-        }
         settingsOpen = true
         focus.id = "set.back"
     }
@@ -235,8 +237,7 @@ public struct LibraryView: View {
     private func openControllers() { controllersOpen = true; focus.id = "ctl.close" }
     private func back() {
         if controllersOpen { controllersOpen = false; focus.id = "lib.controllers" }
-        else if settingsOpen && layout != .split { closeSettings() }
-        else if let id = focus.id, id.hasPrefix("set.") { focus.id = selected.map { "lib.tile.\($0.id)" } }
+        else if settingsOpen { closeSettings() }
         else { actions.onBack() }
     }
     private func handle(_ action: ShellInput.Action) {
@@ -271,7 +272,41 @@ public struct LibraryView: View {
     }
     private var defaultFocus: String? {
         if controllersOpen { return "ctl.close" }
-        if settingsOpen && layout != .split { return "set.back" }
+        if settingsOpen { return "set.back" }
         return selected.map { "lib.tile.\($0.id)" } ?? "lib.controllers"
+    }
+}
+
+/// The top of the settings: the game's banner, whole and fading into the panel, then its state and title below it,
+/// so the banner's own logo and the title never overlap. Capped in height for a phone on its side.
+private struct PaneBanner: View {
+    let game: GameTile
+    let width: CGFloat
+    var body: some View {
+        let bannerHeight = min(width * 9 / 16, 220)
+        VStack(alignment: .leading, spacing: 8) {
+            StatusLabel(state: game.state, prominent: true)
+            Text(game.title).shellText(26, .heavy, relativeTo: .title).tracking(-0.7)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityAddTraits(.isHeader).accessibilityIdentifier("detail.title")
+            HStack(spacing: 8) {
+                SectionHeading(title: ShellStrings.text("Game settings"))
+                if !game.subtitle.isEmpty {
+                    Text(game.subtitle).shellText(12.5).foregroundStyle(.white.opacity(0.5))
+                }
+            }.padding(.top, 2)
+        }
+        .padding(.horizontal, 24)
+        .padding(.top, bannerHeight - 22)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(alignment: .top) {
+            ArtView(game: game, lettering: false)
+                .frame(width: width, height: bannerHeight)
+                .mask {
+                    LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.55),
+                                           .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom)
+                }
+                .accessibilityHidden(true)
+        }
     }
 }

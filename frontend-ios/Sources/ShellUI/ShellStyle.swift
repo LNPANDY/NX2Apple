@@ -114,7 +114,12 @@ struct ChipButtonStyle: ButtonStyle {
         configuration.label.shellText(13, .semibold, relativeTo: .footnote)
             .padding(.horizontal, 14).frame(minHeight: 44)
             .foregroundStyle(.white)
-            .background(.black.opacity(configuration.isPressed ? 0.55 : 0.38), in: Capsule())
+            // Its own quiet backdrop: a blur and a dark tint, so it stays legible on any art.
+            .background {
+                Capsule().fill(.ultraThinMaterial)
+                    .overlay(Capsule().fill(.black.opacity(configuration.isPressed ? 0.62 : 0.5)))
+            }
+            .environment(\.colorScheme, .dark)
             .overlay(Capsule().strokeBorder(.white.opacity(0.14)))
             .contentShape(Capsule())
     }
