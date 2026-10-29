@@ -307,7 +307,10 @@ class Model(QObject):
         # exists).
         for d in deps:
             if not d.ok and d.detail:
-                self.log(self.t('dep.row.log', d.title_key.replace('dep.', 'dep.').replace('.hint', ''),
+                # three placeholders, three args: a mismatch makes t() fall back to the raw
+                # "dependency %@: [%@] %@" line (the report's log had it six times)
+                name = d.title_key.replace('dep.', '').replace('.hint', '')
+                self.log(self.t('dep.row.log', name, d.state.value,
                                 d.detail.replace('\n', ' | ')) + '\n')
         if not pu.IS_WIN:
             # On Windows `_windows_deps` already set python_path (the interpreter the app
@@ -754,6 +757,14 @@ class Model(QObject):
                 elif what == 'ios_sdk':
                     self.log(self.t('dep.iossdk.downloading') + '\n')
                     from .win import sdk_fetch as sf
+                    # clone_sdk runs git, which a fresh machine has none of: the app installs
+                    # PortableGit itself (per-user, no installer) instead of sending the player
+                    # to git-scm.com — the report's SDK row failed three times on exactly that.
+                    if not (wtc.git_exe() or shutil.which('git')):
+                        self.log(self.t('dep.git.downloading') + '\n')
+                        from .win import fetch as wf
+                        git = wf.install_git(log=lambda s: self.log(str(s) + '\n'))
+                        self.log(self.t('dep.git.done', str(git)) + '\n')
                     path = sf.clone_sdk(log=lambda s: self.log(str(s) + '\n'))
                     self.log(self.t('dep.iossdk.done', str(path)) + '\n')
                     ok = True
@@ -895,6 +906,26 @@ class Model(QObject):
 
         return report
 
+    @staticmethod
+    def bundled_wheels() -> Path | None:
+        """The wheel folder shipped in the Windows zip (`wheels/` beside the exe).
+
+        The build packages (lz4, capstone, fonttools, nsz, backports.zstd) are downloaded by the
+        release workflow at packaging time, so the venv step installs from disk with no network
+        and no PyPI — the same "the app carries it" promise the Mac's bundled CPython makes.
+        Source runs have no such folder and fall back to PyPI.
+        """
+        base = getattr(sys, '_MEIPASS', None) or Path(sys.executable).parent
+        w = Path(base) / 'wheels'
+        return w if w.is_dir() and any(w.glob('*.whl')) else None
+
+    @staticmethod
+    def _pip_args(pkgs: list[str], wheels: Path | None) -> list[str]:
+        """pip's arguments: offline from the bundled wheels when they cover the packages."""
+        if wheels:
+            return ['install', '--no-index', '--find-links', str(wheels)] + pkgs
+        return ['install'] + pkgs
+
     def _make_venv(self, base: str) -> bool:
         """Create or reuse the app's venv and install the build packages into it."""
         vpy = pu.venv_python()
@@ -935,9 +966,12 @@ class Model(QObject):
         pkgs = ['lz4', 'capstone', 'fonttools', 'nsz']
         if ver < (3, 14):
             pkgs.insert(3, 'backports.zstd')
-        self.log(f'$ {vpy} -m pip install {" ".join(pkgs)}\n')
+        wheels = self.bundled_wheels()
+        args = self._pip_args(pkgs, wheels)
+        self.log(f'$ {vpy} -m pip {" ".join(args)}'
+                 + ('' if wheels else '  (from PyPI)') + '\n')
         try:
-            p = subprocess.Popen([vpy, '-m', 'pip', 'install'] + pkgs, stdout=subprocess.PIPE,
+            p = subprocess.Popen([vpy, '-m', 'pip'] + args, stdout=subprocess.PIPE,
                                  stderr=subprocess.STDOUT, text=True, errors='replace',
                                  env=pu.child_env(), **pu.no_window_kwargs())
             assert p.stdout is not None
@@ -975,10 +1009,18 @@ class Model(QObject):
 
         def run_all() -> None:
             try:
-                attempted: set[str] = set()
+                # attempted is keyed by (id, fix): an id may legitimately come back in a later
+                # pass with a DIFFERENT fix — installing the Python interpreter turns its row
+                # into "pip install the packages", which is exactly the step install-all must
+                # then run (the report: only the interpreter was installed, the packages step
+                # needed a second click on the row).
+                attempted: dict[str, tuple] = {}
                 while True:
-                    rows = [d for d in self.deps if not d.ok and d.install
-                            and d.id not in attempted]
+                    def pending(d) -> bool:
+                        if d.ok or not d.install:
+                            return False
+                        return attempted.get(d.id) != tuple(d.install)
+                    rows = [d for d in self.deps if pending(d)]
                     if not rows:
                         break
                     progressed = False
@@ -986,7 +1028,9 @@ class Model(QObject):
                         live = next((r for r in self.deps if r.id == d.id), None)
                         if live is None or live.ok or not live.install or live.installing:
                             continue
-                        attempted.add(live.id)
+                        if attempted.get(live.id) == tuple(live.install):
+                            continue
+                        attempted[live.id] = tuple(live.install)
                         self.log(f'--- {self.t(live.title_key)} ---\n')
                         self.install_dep(live)
                         progressed = True

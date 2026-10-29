@@ -1706,6 +1706,27 @@ class LinkProbeStrategyTest(unittest.TestCase):
         self.assertIn('dep.fix.nonascii', hinted)
 
 
+class VenvWheelsTest(unittest.TestCase):
+    """The build packages ride in the zip: the venv installs offline from wheels/ beside the
+    exe when it is there, and from PyPI exactly as before when it is not (source runs)."""
+
+    def test_offline_args_when_wheels_are_bundled(self) -> None:
+        from nspb_qt import model as M
+        args = M.Model._pip_args(['lz4', 'nsz'], Path('C:/app/wheels'))
+        self.assertEqual(args, ['install', '--no-index', '--find-links', 'C:/app/wheels', 'lz4', 'nsz'])
+
+    def test_pypi_args_when_not_bundled(self) -> None:
+        from nspb_qt import model as M
+        self.assertEqual(M.Model._pip_args(['lz4'], None), ['install', 'lz4'])
+
+    def test_the_log_row_string_takes_three_args(self) -> None:
+        from nspb_qt.i18n import Lang
+        from nspb_qt.localization import t
+        out = t('dep.row.log', Lang.EN, 'python', 'missing', 'C:/x | found')
+        self.assertEqual(out, 'dependency python: [missing] C:/x | found', 'the report log showed raw %@ placeholders')
+        self.assertTrue(t('dep.row.log', Lang.ZH, 'python', 'missing', 'd'), 'Chinese side is filled too')
+
+
 class MetalPickFlowShapeTest(unittest.TestCase):
     """The model wiring (source-shape, since model.py needs PySide6): the metal row asks for a
     file, takes a zip to install_metal_zip, a folder to _save_metal_folder."""
@@ -1783,7 +1804,7 @@ class InstallFailureHintTest(unittest.TestCase):
         # pure function, so its source is extracted and run standalone when Qt is absent.
         try:
             from nspb_qt import model as M
-            classify = M.BuildModel._classify_install_failure
+            classify = M.Model._classify_install_failure
         except ImportError:
             import ast
             src = (HERE.parent / 'nspb_qt' / 'model.py').read_text()

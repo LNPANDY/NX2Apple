@@ -38,6 +38,13 @@ jobs:
       - name: Generate the localisation table
         run: python frontend-qt/gen_localization.py
 
+      # The build packages ride in the zip: the venv step then installs from disk (--no-index),
+      # so a fresh machine needs no PyPI round-trip for lz4/capstone/fonttools/nsz. The runner's
+      # Python is the version these wheels target (3.12), matching the interpreter the app
+      # installs for its venv.
+      - name: Download the venv wheels
+        run: python -m pip download lz4 capstone fonttools backports.zstd nsz -d frontend-qt/wheels
+
       - name: Build
         working-directory: frontend-qt
         shell: bash
@@ -123,6 +130,7 @@ jobs:
         shell: bash
         run: |
           cd frontend-qt/dist
+          cp -r ../wheels "NS Port Builder/wheels"
           powershell -Command "Compress-Archive -Path 'NS Port Builder' -DestinationPath '../NS-Port-Builder-qt-windows-x64.zip'"
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
