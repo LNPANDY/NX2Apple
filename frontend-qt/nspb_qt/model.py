@@ -16,6 +16,7 @@ from pathlib import Path
 from PySide6.QtCore import QSettings, Q_ARG, QMetaObject, QObject, Qt, QThread, Signal, Slot
 
 from . import build_failure as bf
+from . import engine
 from . import input_staging
 from . import inputs
 from . import platform_util as pu
@@ -153,7 +154,40 @@ class Model(QObject):
 
     @staticmethod
     def is_repo(d: str) -> bool:
-        return bool(d) and Path(d, 'dm', 'tools', 'nx_extract', 'Program.cs').is_file()
+        return engine.is_checkout(d)   # the committed tree, a synced engine/, or tools/engine.py to make one (#214)
+
+    @property
+    def engine_path(self) -> str:
+        """The folder holding dm/ and scripts/: engine/ when synced, else the committed tree (engine.py's rule)."""
+        return engine.engine_root(self.repo_path)
+
+    def sync_engine(self, then: Callable[[bool], None] | None = None) -> None:
+        """Run `tools/engine.py sync` on a thread when engine/ is stale (after a pull, at the start, before a build that
+        needs it). A no-op for a checkout from before #214 or a current engine/. `then(ok)` runs after it."""
+        if not engine.is_stale(self.repo_path) or getattr(self, '_engine_syncing', False):
+            if then: then(True)
+            return
+        py = self.python_path or ('python' if pu.IS_WIN else '/usr/bin/python3')
+        cmd = engine.sync_command(self.repo_path, py)
+        self._engine_syncing = True
+        self.log('$ ' + ' '.join(cmd) + '\n')
+
+        def work() -> None:
+            ok = False
+            try:
+                p = subprocess.Popen(cmd, cwd=self.repo_path, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                                     errors='replace', env=pu.child_env(), **pu.no_window_kwargs())
+                assert p.stdout is not None
+                for line in p.stdout:
+                    self.log(line)
+                ok = p.wait() == 0
+            except OSError as e:
+                self.log(f'{e}\n')
+            self._engine_syncing = False
+            self.repoChanged.emit()
+            if then: then(ok)
+
+        threading.Thread(target=work, daemon=True).start()
 
     def _find_repo(self) -> str:
         saved = os.environ.get('NSPB_REPO', '')
@@ -183,7 +217,9 @@ class Model(QObject):
     def supports_work_dir(self) -> bool:
         """Whether the checkout's build script declares --work-dir (an upstream checkout or an
         old ZIP does not; passing it there stops at argparse — issue #5)."""
-        f = Path(self.repo_path, 'scripts', 'build_ipa_from_nsp.py')
+        f = Path(self.engine_path, 'scripts', 'build_ipa_from_nsp.py')
+        if not f.is_file() and engine.has_engine_tool(self.repo_path):
+            return True   # engine/ is not made yet: the fork's engine always has --work-dir (patch 0007)
         try:
             text = f.read_text(encoding='utf-8', errors='replace')
         except OSError:
@@ -194,6 +230,7 @@ class Model(QObject):
 
     def check_deps(self) -> None:
         self.deps_checked = False
+        self.sync_engine()   # at the start: a checkout whose engine/ is missing or older than its pin (#214)
         threading.Thread(target=self._check_deps_worker, daemon=True).start()
 
     def _check_deps_worker(self) -> None:
@@ -527,6 +564,7 @@ class Model(QObject):
             self.repo_busy = False
             if ok and self.is_repo(target):
                 self.repo_path = target
+                self.sync_engine()
             elif not ok:
                 shutil.rmtree(target, ignore_errors=True)   # a failed clone leaves a stub
             self.repoChanged.emit()
@@ -617,6 +655,7 @@ class Model(QObject):
                 if stream(['pull', '--ff-only', 'origin', 'main'], 'pull'):
                     self.repo_behind = 0
                     self.repo_status = self.t('repo.pulled')
+                    self.sync_engine()   # the pull may have moved the pin or the patches
                 else:
                     self.repo_status = self.t('repo.pullFail')
                 self.log(self.repo_status + '\n')
@@ -949,6 +988,13 @@ class Model(QObject):
 
         threading.Thread(target=run_all, daemon=True).start()
 
+    @Slot(bool)
+    def _build_after_sync(self, ok: bool) -> None:
+        if ok and not engine.needs_sync_before_build(self.repo_path):
+            self.start_build()
+        else:
+            self.finished.emit(False, self.t('msg.repoInvalidEmpty'))
+
     @Slot(str)
     def _emit_log(self, s: str) -> None:
         """Main-thread half of log(): see log() for why the hop exists."""
@@ -1014,6 +1060,10 @@ class Model(QObject):
         if not self.repo_ok:
             self.finished.emit(False, self.t('msg.repoInvalidEmpty'))
             return
+        if engine.needs_sync_before_build(self.repo_path):
+            # engine/ is the only engine and is stale or missing: make it, then build (a failed sync names its fix in the log)
+            self.sync_engine(lambda ok: QMetaObject.invokeMethod(self, '_build_after_sync', Qt.QueuedConnection, Q_ARG(bool, ok)))
+            return
         py = self.python_path or ('python' if pu.IS_WIN else '/usr/bin/python3')
         base_dir = str(Path(self.base_path).parent)
         all_files = [self.base_path, self.update_path] + self.dlc_paths
@@ -1048,8 +1098,8 @@ class Model(QObject):
             entry = ['-m', 'nspb_qt.win.driver']
             cwd = str(Path(__file__).resolve().parents[1])
         else:
-            entry = [str(Path(self.repo_path, 'scripts', 'build_ipa_from_nsp.py'))]
-            cwd = self.repo_path
+            entry = [str(Path(self.engine_path, 'scripts', 'build_ipa_from_nsp.py'))]
+            cwd = self.engine_path
         args = entry + [input_dir, '-k', self.keys_path, '--progress', 'lines']
         has_work_dir = self.supports_work_dir()
         if has_work_dir:
@@ -1102,7 +1152,7 @@ class Model(QObject):
                     self.log(f'[shim] {why}\n')
             except Exception as e:      # a broken shim must be visible, not fatal
                 self.log(f'[shim] could not prepare the Windows shim: {e}\n')
-            env['NSPB_REPO'] = self.repo_path
+            env['NSPB_REPO'] = self.engine_path
 
         def work() -> None:
             ok = False
@@ -1252,9 +1302,9 @@ class Model(QObject):
         self.stagesChanged.emit()
 
         def work_() -> None:
-            args = [self.python_path, str(Path(self.repo_path, 'dm', 'tools', 'romfs_image.py')),
+            args = [self.python_path, str(Path(self.engine_path, 'dm', 'tools', 'romfs_image.py')),
                     '--reuse', romfs, str(Path(dest, 'romfs.img'))]
-            env = pu.child_env({'PYTHONPATH': str(Path(self.repo_path, 'dm', 'tools'))})
+            env = pu.child_env({'PYTHONPATH': str(Path(self.engine_path, 'dm', 'tools'))})
             ok = True
             try:
                 p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
