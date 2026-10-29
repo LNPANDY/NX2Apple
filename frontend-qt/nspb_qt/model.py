@@ -842,6 +842,25 @@ class Model(QObject):
     def _make_venv(self, base: str) -> bool:
         """Create or reuse the app's venv and install the build packages into it."""
         vpy = pu.venv_python()
+        if Path(vpy).is_file():
+            ver = pu._python_version(vpy)
+            if not ver or pu._ver_tuple(ver) < pu.MIN_PYTHON:
+                # A venv an older app made from Apple's 3.9 (issue #75): pip into it would
+                # "succeed" and the build would still fail. Moved aside, never deleted, because
+                # the folder is the user's. Only when a base can build a new one.
+                new_base = pu.venv_base(base)
+                if new_base is None or new_base == vpy:
+                    self.log(f'{pu.venv_dir()} is older than Python {pu.MIN_PYTHON[0]}.'
+                             f'{pu.MIN_PYTHON[1]} and no newer Python was found to rebuild it from\n')
+                    return False
+                vdir = pu.venv_dir()
+                aside = vdir.with_name(f'{vdir.name}.old-{time.strftime("%Y%m%d-%H%M%S")}')
+                try:
+                    vdir.rename(aside)
+                except OSError as e:
+                    self.log(f'could not move {vdir} aside: {e}\n')
+                    return False
+                self.log(f'moved the old venv to {aside}\n')
         if not Path(vpy).is_file():
             # The panel's last resort is /usr/bin/python3 (3.9) or the venv path itself, and
             # neither can run `-m venv`: the row used to stay red however often Install ran.

@@ -2188,6 +2188,18 @@ final class BuildModel: ObservableObject {
         return dir.isEmpty ? NSHomeDirectory() + "/.local/share/uv/python" : dir
     }()
 
+    /// Where mise and asdf keep the Pythons they install, and mise's shims. `MISE_DATA_DIR` and
+    /// `ASDF_DATA_DIR` move them. A GUI launch's PATH does not include the shims directory, so a
+    /// Python managed by either was not found at all (issue #113). Injectable for tests.
+    nonisolated static var miseDataDir: String = {
+        let dir = ProcessInfo.processInfo.environment["MISE_DATA_DIR"] ?? ""
+        return dir.isEmpty ? NSHomeDirectory() + "/.local/share/mise" : dir
+    }()
+    nonisolated static var asdfDataDir: String = {
+        let dir = ProcessInfo.processInfo.environment["ASDF_DATA_DIR"] ?? ""
+        return dir.isEmpty ? NSHomeDirectory() + "/.asdf" : dir
+    }()
+
     nonisolated static func importsOK(_ py: String) -> Bool {
         runOK(py, ["-c", importProbe], env: ProcessInfo.processInfo.environment.merging(BundledTools.environment(for: py)) { $1 })
     }
@@ -2221,6 +2233,21 @@ final class BuildModel: ObservableObject {
             return p.terminationStatus == 0
         }
         let vpy = venvPython()
+        // An existing venv below minPython (built from Apple's 3.9 by an older app, issue #75) is
+        // moved aside and rebuilt: pip into it would "succeed" and the build would still fail.
+        // Moved, never deleted, because the folder is the user's. Only when a usable base exists,
+        // so a Mac with no new Python keeps its old venv instead of losing it for nothing.
+        if FileManager.default.isExecutableFile(atPath: vpy), pythonVersion(vpy).map({ $0 < minPython }) ?? true {
+            guard let interp = venvBase(preferred: base), interp != vpy else {
+                return (false, log + "\(venvDir) is older than Python \(minPython.0).\(minPython.1) and no newer Python was found to rebuild it from\n")
+            }
+            let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
+            let aside = venvDir + ".old-" + stamp
+            do { try FileManager.default.moveItem(atPath: venvDir, toPath: aside) } catch {
+                return (false, log + "could not move \(venvDir) aside: \(error.localizedDescription)\n")
+            }
+            log += "moved the old venv (Python below \(minPython.0).\(minPython.1)) to \(aside)\n"
+        }
         if !FileManager.default.isExecutableFile(atPath: vpy) {
             // findPython() returns the venv path it hopes to create when no interpreter was
             // found, and the panel hands that to this function. It cannot be a base: `-m venv`
@@ -2293,8 +2320,26 @@ final class BuildModel: ObservableObject {
         return out
     }
 
+    /// Pythons managed by mise (installs, then its shims) and asdf (installs only: an asdf shim is
+    /// a script that needs `asdf` on the PATH, which a GUI launch lacks). Only the interpreter
+    /// names are taken, never `python3-config` and the other files that share the folder.
+    nonisolated static func versionManagerPythonCandidates() -> [String] {
+        var out: [String] = []
+        let strict = #"^python3(\.\d+)?$"#
+        for root in [miseDataDir + "/installs/python", asdfDataDir + "/installs/python"] {
+            let installs = (try? FileManager.default.contentsOfDirectory(atPath: root)) ?? []
+            for d in installs.sorted(by: { $0.compare($1, options: .numeric) == .orderedDescending }) {
+                let bin = root + "/" + d + "/bin"
+                out += pythonNames(in: bin, matching: strict).map { bin + "/" + $0 }
+            }
+        }
+        let shims = miseDataDir + "/shims"
+        out += pythonNames(in: shims, matching: strict).map { shims + "/" + $0 }
+        return out
+    }
+
     /// Every interpreter a build could run under, best first: python.org's framework, Homebrew,
-    /// /usr/local, uv's store, then whatever `which` can see. Probed by hand because a GUI app
+    /// /usr/local, uv's store, mise and asdf, then whatever `which` can see. Probed by hand because a GUI app
     /// does not inherit the shell's PATH — the same reason .NET (in ~/.dotnet) used to show as
     /// missing while a terminal saw it.
     nonisolated static func pythonCandidates() -> [String] {
@@ -2312,6 +2357,7 @@ final class BuildModel: ObservableObject {
             cands += pythonNames(in: dir, matching: #"^python3\.\d+$"#).map { dir + "/" + $0 }
         }
         cands += uvPythonCandidates()
+        cands += versionManagerPythonCandidates()
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/which")
         p.arguments = ["-a", "python3"]
@@ -2345,7 +2391,10 @@ final class BuildModel: ObservableObject {
         }
         // No system interpreter has the packages: the venv (existing, or created by 安装) is next.
         let vpy = venvPython()
-        if FileManager.default.isExecutableFile(atPath: vpy) {
+        // A venv below minPython is not ready however complete its packages are: an older app
+        // version made it from Apple's 3.9, and the build script refuses that (issue #75). It
+        // falls through to the candidates above, or to the row saying the Python is too old.
+        if FileManager.default.isExecutableFile(atPath: vpy), let v = pythonVersion(vpy), v >= minPython {
             if importsOK(vpy) { return (vpy, true) }
             return (vpy, false)   // exists but incomplete: 安装 finishes it
         }
@@ -2570,21 +2619,25 @@ final class BuildModel: ObservableObject {
                          "curl -sSL https://dot.net/v1/dotnet-install.sh -o /tmp/di.sh && chmod +x /tmp/di.sh && /tmp/di.sh --channel 10.0 --install-dir $HOME/.dotnet"]))
 
         let (py, pyOK) = findPython()
-        let pyVer = pythonVersion(py).map { "\($0.0).\($0.1)" } ?? "?"
         // A too-old interpreter is a different problem from a missing package: say which one it is,
         // because the fix differs (install a newer Python vs pip install into this one).
         // A version we cannot read means no interpreter ran at all (py is then the venv
         // that does not exist yet), which is not the same as one that is too old.
-        let minVer = "\(minPython.0).\(minPython.1)"
-        let pyDetail = pyOK ? (py == BundledTools.python() ? "dep.bundled" : py)
-            : pythonVersion(py).map { $0 >= minPython
-                ? "dep.python.missing:\(py) (\(pyVer))"
-                : "dep.python.old:\(pyVer):\(minVer)" }
-            ?? "dep.python.notFound:\(minVer):\(minVer)"
+        let pyDetail = pythonDetail(py: py, ok: pyOK)
         out.append(Dep(id: "python", name: "dep.python", hint: "dep.python.hint",
                        present: pyOK, detail: pyDetail,
                        installCmd: [py, "-m", "pip", "install", "--user", "lz4", "capstone", "fonttools", "backports.zstd"]))
         return out
+    }
+
+    nonisolated static func pythonDetail(py: String, ok: Bool) -> String {
+        let pyVer = pythonVersion(py).map { "\($0.0).\($0.1)" } ?? "?"
+        let minVer = "\(minPython.0).\(minPython.1)"
+        return ok ? (py == BundledTools.python() ? "dep.bundled" : py)
+            : pythonVersion(py).map { $0 >= minPython
+                ? "dep.python.missing:\(py) (\(pyVer))"
+                : "dep.python.old:\(pyVer):\(minVer)" }
+            ?? "dep.python.notFound:\(minVer):\(minVer)"
     }
 
     func checkDeps() {
