@@ -81,6 +81,9 @@ class Model(QObject):
     #: Set by the window: asks for a folder (QFileDialog lives in the UI layer) and returns the
     #: path, or '' when the user cancelled. `pick_dep_folder` calls it, so the model stays UI-free.
     ask_folder: Callable[[str], str] | None = None
+    #: Same, for a file ('Metal Developer Tools*.zip' the user downloaded from Apple).
+    ask_file: Callable[[str], str] | None = None
+    _metal_zip: Path | None = None
 
     def __init__(self) -> None:
         super().__init__()
@@ -754,6 +757,16 @@ class Model(QObject):
                     path = sf.clone_sdk(log=lambda s: self.log(str(s) + '\n'))
                     self.log(self.t('dep.iossdk.done', str(path)) + '\n')
                     ok = True
+                elif what == 'metal_zip':
+                    # Apple's tools are Apple-ID-gated: the browser download is the licensed
+                    # path, the app does the unpack and remembers the folder.
+                    self.log(self.t('dep.metal.unpacking', self._metal_zip.name) + '\n')
+                    from .win import fetch as wf
+                    dest = wf.install_metal_from_zip(self._metal_zip,
+                                                     log=lambda s: self.log(str(s) + '\n'))
+                    wtc.save_config('metal_dir', str(dest))
+                    self.log(self.t('dep.metal.done', str(dest)) + '\n')
+                    ok = True
                 else:
                     self.log(f'unknown Windows install target: {what}\n')
             except Exception as e:
@@ -803,6 +816,19 @@ class Model(QObject):
         if not dep.pick_key:
             return
         from .win import toolchain as wtc
+        if dep.pick_key == 'metal_dir':
+            # The Metal zip is a file, not a folder: the ask_file callback (the window's file
+            # dialog filters *.zip) takes the browser download straight away. An already
+            # unpacked folder is equally accepted.
+            ask_file = self.ask_file
+            if ask_file is None:
+                return
+            picked = ask_file(self.t('dep.pick.metal_dir.title'))
+            if not picked:
+                return
+            if picked.lower().endswith('.zip'):
+                return self.install_metal_zip(Path(picked))
+            return self._save_metal_folder(Path(picked))
         ask = self.ask_folder
         if ask is None:
             return   # no window attached (tests): nothing to ask with
@@ -825,6 +851,29 @@ class Model(QObject):
             wtc.save_config(dep.pick_key, folder)
             self.log(self.t('dep.pick.saved', folder) + '\n')
         self.check_deps()
+
+    def _save_metal_folder(self, folder: Path) -> None:
+        """A folder the user already unpacked: validate the two layouts metal_dir() accepts."""
+        from .win import toolchain as wtc
+        if not (folder / 'bin' / 'metal.exe').is_file() and \
+           not (folder / 'ios' / 'bin' / 'metal.exe').is_file():
+            self.log(self.t('dep.pick.metal.invalid', str(folder)) + '\n')
+            return
+        wtc.save_config('metal_dir', str(folder))
+        self.log(self.t('dep.pick.saved', str(folder)) + '\n')
+        self.check_deps()
+
+    def install_metal_zip(self, zip_path: Path) -> None:
+        """Unpack the Apple zip the player downloaded and remember the folder (the one manual
+        dependency on Windows: Apple-ID-gated, so the app cannot fetch it itself)."""
+        if not zip_path.is_file():
+            self.log(self.t('dep.pick.metal.invalid', str(zip_path)) + '\n')
+            return
+        self._metal_zip = zip_path
+        dep = next((d for d in self.deps if d.id == 'metal'), None)
+        if dep is None:
+            return
+        self._install_win(dep, 'metal_zip')
 
     def _progress_logger(self, label: str):
         """A progress callback that logs at 5% steps, not on every chunk.

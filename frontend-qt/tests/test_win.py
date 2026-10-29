@@ -1706,6 +1706,75 @@ class LinkProbeStrategyTest(unittest.TestCase):
         self.assertIn('dep.fix.nonascii', hinted)
 
 
+class MetalPickFlowShapeTest(unittest.TestCase):
+    """The model wiring (source-shape, since model.py needs PySide6): the metal row asks for a
+    file, takes a zip to install_metal_zip, a folder to _save_metal_folder."""
+
+    def test_the_metal_row_routes_zip_and_folder(self) -> None:
+        src = (QT / 'nspb_qt' / 'model.py').read_text()
+        body = src[src.index("if dep.pick_key == 'metal_dir':"):]
+        self.assertIn('ask_file', body, 'the metal row must ask for a file (the zip)')
+        self.assertIn('install_metal_zip', body)
+        self.assertIn('_save_metal_folder', body)
+        self.assertIn("endswith('.zip')", body)
+
+
+class MetalZipInstallTest(unittest.TestCase):
+    """The one manual dependency (Apple-ID-gated Metal tools) handed a downloaded zip: the app
+    unpacks, validates both shipped layouts, and refuses anything else."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+
+    @staticmethod
+    def _fake_tools(root: Path, layout: str) -> Path:
+        bin_ = root / ('ios/bin' if layout == '4.x' else 'bin')
+        bin_.mkdir(parents=True)
+        (bin_ / 'metal.exe').write_bytes(b'MZ')
+        (bin_ / 'metallib.exe').write_bytes(b'MZ')
+        return root
+
+    def test_a_zip_with_the_tools_unpacks_to_the_tools_dir(self) -> None:
+        from nspb_qt.win import fetch as wf
+        tools = self.root / 'tools'
+        src = self._fake_tools(self.root / 'unpacked', '6.x')
+        zip_path = self.root / 'Metal Developer Tools 6.0.zip'
+        import zipfile
+        with zipfile.ZipFile(zip_path, 'w') as z:
+            for f in src.rglob('*'):
+                z.write(f, f.relative_to(src.parent))
+        dest = wf.install_metal_from_zip(zip_path, dest=tools / 'metal-developer-tools')
+        self.assertTrue((dest / 'bin' / 'metal.exe').is_file())
+        self.assertFalse((tools / 'metal-developer-tools-staging').exists(), 'staging is cleaned up')
+
+    def test_a_4x_layout_zip_is_accepted_by_its_ios_folder(self) -> None:
+        from nspb_qt.win import fetch as wf
+        src = self._fake_tools(self.root / 'u4', '4.x')
+        zip_path = self.root / 'metal4.zip'
+        import zipfile
+        with zipfile.ZipFile(zip_path, 'w') as z:
+            for f in src.rglob('*'):
+                z.write(f, f.relative_to(src.parent))
+        dest = wf.install_metal_from_zip(zip_path, dest=self.root / 'tools' / 'm4')
+        self.assertTrue((dest / 'ios' / 'bin' / 'metal.exe').is_file())
+
+    def test_a_zip_without_metal_exe_is_refused_and_leaves_nothing_behind(self) -> None:
+        from nspb_qt.win import fetch as wf
+        zip_path = self.root / 'not-metal.zip'
+        import zipfile
+        with zipfile.ZipFile(zip_path, 'w') as z:
+            (self.root / 'junk').mkdir()
+            (self.root / 'junk' / 'readme.txt').write_text('x', encoding='utf-8')
+            z.write(self.root / 'junk' / 'readme.txt', 'stuff/readme.txt')
+        tools = self.root / 'tools'
+        with self.assertRaises(wf.DownloadError):
+            wf.install_metal_from_zip(zip_path, dest=tools / 'm')
+        self.assertFalse((tools / 'm').exists())
+        self.assertFalse((tools / 'm-staging').exists())
+
+
 class InstallFailureHintTest(unittest.TestCase):
     """The row's fix hint after a failed install (Mac parity: name the fix, not the traceback)."""
 
