@@ -17,7 +17,7 @@ public struct GameDetailView: View {
     }
     public var body: some View {
         VStack(alignment: .leading, spacing: 30) {
-            if showsHeader { header }
+            if showsHeader || showsPrimaryAction { header }
             ForEach(detail.sections) { section in
                 group(section.title) {
                     ForEach(section.rows) { row in
@@ -68,6 +68,7 @@ public struct GameDetailView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 16) {
+            if showsHeader {
             HStack(alignment: .center, spacing: 16) {
                 CoverView(game: detail.game, radius: 8).frame(width: 112, height: 63)
                 VStack(alignment: .leading, spacing: 6) {
@@ -79,6 +80,7 @@ public struct GameDetailView: View {
                         VStack(alignment: .leading, spacing: 4) { status }
                     }
                 }
+            }
             }
             if showsPrimaryAction {
                 if !detail.game.state.explanation.isEmpty {

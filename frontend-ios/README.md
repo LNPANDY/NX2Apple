@@ -49,11 +49,11 @@ Only the available size decides, never the device model, idiom or orientation (`
 
 | Size | Layout |
 | --- | --- |
-| Compact, taller than wide (iPhone portrait, a folded foldable, Split View) | One column: the chosen game's banner edge to edge at the top, flowing into its blurred colour where the title sits, a row of wide cards, recently played, Play and settings at the bottom for the thumb. Settings push over the library. |
-| Regular width and height, not wide (iPad portrait, an unfolded foldable held like a book) | Two panes: the same library with a grid of wide cards and Play in the hero, settings inline beside it. |
-| Wider than tall (iPhone and iPad landscape, an unfolded foldable on its side) | Cover Flow over the blurred banner, wide cards in a calm deck. Settings open as a panel on the right (regular) or over the library (compact). |
+| Compact, taller than wide (iPhone portrait, a folded foldable, Split View) | One column: the chosen game's banner edge to edge at the top, flowing into its blurred colour where the title sits, a row of wide cards, recently played, Play and the settings button at the bottom for the thumb. Settings, when asked for, take the whole screen. |
+| Regular width and height, not wide (iPad portrait, an unfolded foldable held like a book) | The library alone: the same hero with Play and the settings button in it, a grid of wide cards, recently played. Settings, when asked for, float in as a panel from the right over the dimmed library. |
+| Wider than tall (iPhone and iPad landscape, an unfolded foldable on its side) | Cover Flow over the blurred banner, wide cards in a calm deck. Settings, when asked for, float in as the same panel (regular) or take the whole screen (compact). |
 
-The settings pane is one view in one place for every layout, so the selected game, open settings and both scroll positions survive a fold, a rotation or a Stage Manager resize.
+Settings appear only when asked for (the settings button, X on a controller) and close with Back, B or a tap outside. They are one view in one place for every layout, with the game's banner as their header, so the selected game, open settings and both scroll positions survive a fold, a rotation or a Stage Manager resize.
 
 Controller first: the D-pad and stick move a cream focus ring, A activates, B backs out, X opens settings, Y opens controllers. In Cover Flow, left and right move the carousel by one card and the focused card is always the middle one. Keyboard arrows, Return and Escape take the same path. Touch and pointer use ordinary controls.
 

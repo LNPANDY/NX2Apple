@@ -52,19 +52,19 @@ import XCTest
         app.buttons["qa.input.settings"].tap()
         let toggle = app.switches["setting.DM_SHOW_FPS"]
         XCTAssertTrue(toggle.waitForExistence(timeout: 5))
-        // Pushed settings start on Back, then Play and the play mode choice. Beside the library they start on the choice.
-        let pushed = app.buttons["library.back"].exists
-        for _ in 0..<(pushed ? 3 : 1) { app.buttons["qa.input.down"].tap() }
+        // Settings start on Back, then Play and the play mode choice, then the toggle.
+        XCTAssertTrue(app.buttons["library.back"].exists)
+        for _ in 0..<3 { app.buttons["qa.input.down"].tap() }
         app.buttons["qa.input.activate"].tap()
         XCTAssertEqual(toggle.value as? String, "1")
         app.buttons["qa.input.activate"].tap()
         XCTAssertEqual(toggle.value as? String, "0")
         capture("controller-toggles-setting")
         app.buttons["qa.input.back"].tap()
-        if pushed { XCTAssertFalse(app.buttons["library.back"].isHittable) }
+        XCTAssertFalse(app.buttons["library.back"].isHittable)
         capture("controller-back-restores-library")
         // The one-column row: right walks through every cover, also the ones still off screen.
-        guard pushed else { return }
+        guard UIDevice.current.userInterfaceIdiom == .phone else { return }
         app.terminate()
         app.launch()
         XCTAssertTrue(app.buttons["qa.input.right"].waitForExistence(timeout: 10))
@@ -102,10 +102,10 @@ import XCTest
         app.scrollViews.element(boundBy: app.scrollViews.count - 1).swipeUp()
         capture("folded-settings-scrolled")
         app.buttons["qa.fold"].tap()
-        // Unfolded: two panes, the hero beside the open settings.
-        XCTAssertEqual(app.staticTexts["hero.title"].label, "The Quiet Tide")
+        // Unfolded: the settings stay open, now as a panel over the library.
+        XCTAssertEqual(app.staticTexts["detail.title"].label, "The Quiet Tide")
         XCTAssertTrue(toggle.exists)
-        XCTAssertFalse(app.buttons["library.back"].exists)
+        XCTAssertTrue(app.buttons["library.back"].exists)
         capture("unfolded-settings-scrolled")
         app.buttons["qa.fold"].tap()
         XCTAssertTrue(app.buttons["library.back"].waitForExistence(timeout: 5))
