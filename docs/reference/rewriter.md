@@ -23,6 +23,20 @@ To enroll a cut for any game's own module:
 3. Add the rule under `MATCH_CUTS = {'main': [rule]}` (or the appropriate non-SDK module) in that game's `patches.py`. Record the evidence and remaining runtime validation in the game's note. Do not transplant a workaround into unrelated games.
 4. Verify an unregistered build-ID copy through the rewriter, comparing its output with the known fixed cut, and run `test_nso_match.py`, `test_patches.py` and `test_nro_pack.py`. The matching tests use synthetic modules from two profiles to check relocation, rejection and isolation without game files.
 
+### Cheats carried across game updates
+
+- **Symptom:** after a game update, the Cheats menu lists only `Cheats for build … (another version of the game)`, and nothing runs. Or a cheat file converted to the new build by hand writes into the wrong place: a table instead of a variable, or code that moved.
+- **Cause:** Atmosphère cheats name fixed offsets into the main NSO, valid for the one build the file is named after. An update moves code and data by different amounts in different parts of the image; a single shift is a guess.
+- **Fix:** `scripts/cheat_anchor.py` anchors each address to the game's code and compiles the cheats for any build ([Cheats that survive game updates](../development.md#cheats-that-survive-game-updates)):
+  - data through the adrp pairs (and relocated `.data` slots) that reference the nearest address at or below it;
+  - code sites through `nso_match.py`'s function fingerprints, then the tool's own fallbacks (the body digest, then a unique masked window), with a code site's original words always checked;
+  - ASM code caves through the padding before the read-only data.
+
+  The result is plain Atmosphère text, so it runs on any engine.
+- **Found on:**
+  - FINAL FANTASY CRYSTAL CHRONICLES Remastered Edition: the 1.0.1 cheatslips file, anchored on the cartridge's `main`, compiles to exactly the hand-verified +0x43680 on 1.0.3 (12 of 12 cheats, 4 of 4 references each). The 1.0.3 file (5 ASM cheats with a code cave, 7 stat cheats, Mog's fatigue) compiles back to identical writes on 1.0.3 and to all 18 entries on the cartridge's build (code sites: 4 exact, 3 by body digest, 2 by window).
+  - [13 Sentinels: Aegis Rim](../../dm/games/01003FC01670C000/README.md#cheats): a 1.10 Ryujinx list compiles back to identical writes and to 1.00, where every site lies 0x330 lower and the hook site was found by its body digest.
+
 ## Jump tables
 
 ### Offset jump tables through x18 read at rewrite time
