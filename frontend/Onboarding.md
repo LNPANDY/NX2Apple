@@ -11,12 +11,14 @@ NSPB_ONBOARDING_DEMO=xcodeReady swift run
 NSPB_ONBOARDING_DEMO=keysInvalid swift run
 NSPB_ONBOARDING_DEMO=xcodeFailed swift run
 NSPB_ONBOARDING_DEMO=noGames swift run
+NSPB_ONBOARDING_DEMO=oldMac swift run
 ```
 
 - `fresh`: Start, select a platform, Continue, Get Xcode, wait, Finish setup, confirm the found keys, review the games, Continue, Open library.
 - `xcodeReady`: the same path, with Xcode already present, and its checks tick through automatically.
 - `keysInvalid`: confirming the found file fails validation. Choose or drop another file to exercise recovery. The mock does not read it.
 - `xcodeFailed`: setup fails with a plain explanation and expandable diagnostics. Retry, then Finish setup to recover.
+- `oldMac`: the `fresh` path with the NVN hints on (below).
 - `noGames`: the mock folder scan finds no NSPs and shows a hint. Use Back or Set up later.
 
 Set up later preserves an in-memory snapshot, and Resume setup restores it. The mock persists nothing, and the real driver does (below).
@@ -58,6 +60,10 @@ Persist the current step and selections before handling `skipForLater`, then inj
 - Detection and installs are `BuildModel.checkDeps` / `deps` / `installDep`, one install at a time (Python, .NET, then Homebrew and the formulas). Homebrew waits for Xcode to be ready. The xcode row asks for the iOS SDK only when the stored platform is not Mac-only or builds target an iPhone (`BuildModel.needsIOSPlatform`).
 - Xcode: missing opens the App Store and polls /Applications for it, and setup is one administrator prompt (`OnboardingAdmin.source`: `xcode-select -s`, `xcodebuild -license accept`, `-runFirstLaunch`), then the Metal Toolchain and, for iPhone or both, the iOS platform without it. A cancelled prompt returns to `needsSetup`.
 - Keys are found in `~/.switch`, `~/Downloads` and the games folder, checked by `KeyCheck`, and only the path goes into the keys slot. Games use `GameLibrary.sourceGames`, `BuildModel.scan` and `GameLibrary.setFolder`.
+
+## NVN hints
+
+NVN games' shaders need the Metal compiler of Xcode 27.1, which needs macOS 26.6. `OnboardingState.osTooOldForNVN` (macOS below 26.6, from `OnboardingEnvironment.osVersion`) adds a calm note to Welcome, and `xcodeTooOldForNVN` (the probe's `xcodebuild -version` below 27.1, where an unreadable version never counts) adds a secondary line in the Xcode card. Neither gates anything: other games build with an older Xcode.
 
 ## Presentation choices
 

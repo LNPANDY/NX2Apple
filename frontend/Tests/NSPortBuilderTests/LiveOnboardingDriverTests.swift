@@ -15,6 +15,7 @@ import XCTest
         var keyOutcome = KeyCheck.Outcome.fits
         var games: [LibraryGame] = []
         var xcodeWorks: Bool?   // nil: follows the probe
+        var os = OperatingSystemVersion(majorVersion: 26, minorVersion: 6, patchVersion: 0)
     }
 
     func dep(_ id: String, present: Bool) -> BuildModel.Dep {
@@ -45,6 +46,7 @@ import XCTest
         env.defaults = defaults
         env.home = home.path
         env.freeBytes = { 100_000_000_000 }
+        env.osVersion = { fake.os }
         env.xcodeInstalled = { fake.xcodeWorks ?? (fake.probe.appPath != nil) }
         env.xcodeFolderExists = { fake.probe.appPath != nil }
         env.xcodeProbe = { fake.probe }
@@ -423,5 +425,47 @@ import XCTest
         XCTAssertEqual(exits, [.library])
         XCTAssertTrue(defaults.bool(forKey: OnboardingDefaults.completed))
         XCTAssertFalse(defaults.bool(forKey: OnboardingDefaults.inProgress))
+    }
+
+    // MARK: NVN hints (macOS 26.6 / Xcode 27.1)
+
+    func testOSHintFollowsMacOSVersion() {
+        let fake = Fake()
+        for (v, old) in [((13, 0, 0), true), ((26, 5, 9), true), ((26, 6, 0), false), ((26, 6, 1), false), ((27, 0, 0), false)] {
+            fake.os = OperatingSystemVersion(majorVersion: v.0, minorVersion: v.1, patchVersion: v.2)
+            let (driver, _) = make(fake, deps: [])
+            XCTAssertEqual(driver.state.osTooOldForNVN, old, "\(v)")
+        }
+    }
+
+    func testXcodeHintFollowsProbeVersion() async {
+        let fake = Fake()
+        for (version, old) in [("26.4", true), ("27.0", true), ("27", true), ("27.1", false), ("27.2", false), ("28.0", false), (nil, false)] as [(String?, Bool)] {
+            fake.probe.version = version
+            let (driver, _) = make(fake, deps: [dep("metal", present: true), dep("xcode", present: true)])
+            await driver.refreshXcode()
+            XCTAssertEqual(driver.state.xcodeTooOldForNVN, old, "\(version ?? "nil")")
+        }
+    }
+
+    func testNoXcodeMeansNoXcodeHint() async {
+        let fake = Fake()
+        fake.probe = XcodeProbe(appPath: nil, version: "26.0")
+        let (driver, _) = make(fake, deps: [])
+        await driver.refreshXcode()
+        XCTAssertFalse(driver.state.xcodeTooOldForNVN)
+    }
+
+    func testHintsDoNotGateSetup() {
+        let fake = Fake(); fake.os = OperatingSystemVersion(majorVersion: 14, minorVersion: 0, patchVersion: 0)
+        let (driver, _) = make(fake, deps: [])
+        XCTAssertTrue(driver.state.osTooOldForNVN)
+        XCTAssertTrue(driver.state.canAdvance)
+    }
+
+    func testXcodeVersionParsing() {
+        XCTAssertEqual(OnboardingNVN.xcodeVersion(from: "Xcode 27.1\nBuild version 17A1\n"), "27.1")
+        XCTAssertEqual(OnboardingNVN.xcodeVersion(from: "Xcode 16.4 beta 2\n"), "16.4")
+        XCTAssertNil(OnboardingNVN.xcodeVersion(from: "xcode-select: error: tool 'xcodebuild' requires Xcode"))
     }
 }

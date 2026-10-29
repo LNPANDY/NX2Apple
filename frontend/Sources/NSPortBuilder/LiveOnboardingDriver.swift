@@ -18,6 +18,7 @@ struct XcodeProbe: Equatable {
     var selectedIsXcode = false     // `xcode-select -p` points into an Xcode.app, not the Command Line Tools
     var licenseAccepted = false
     var firstLaunchDone = false
+    var version: String?            // from `xcodebuild -version` of appPath ("27.1"); nil when unreadable
     var developerDir: String? { appPath.map { $0 + "/Contents/Developer" } }
     var needsAdmin: Bool { !(selectedIsXcode && licenseAccepted && firstLaunchDone) }
 }
@@ -29,6 +30,7 @@ struct OnboardingEnvironment {
     var defaults: UserDefaults = .standard
     var home = NSHomeDirectory()
     var freeBytes: () -> Int64? = { OnboardingEnvironment.homeVolumeFreeBytes() }
+    var osVersion: () -> OperatingSystemVersion = { ProcessInfo.processInfo.operatingSystemVersion }
     /// Whether a working Xcode is there, for the poll while the App Store installs it: `xcodebuild -version` must exit 0,
     /// because the App Store creates Xcode.app while it is still downloading. Runs off the main thread.
     var xcodeInstalled: () async -> Bool = { await Task.detached { OnboardingEnvironment.xcodeApps().first != nil }.value }
@@ -93,6 +95,16 @@ struct OnboardingEnvironment {
                 probe.selectedIsXcode = true
                 probe.appPath = String(selected[..<r.lowerBound]) + ".app"
             } else { probe.appPath = xcodeApps().first }
+            if let dir = probe.developerDir {
+                let v = Process()
+                v.executableURL = URL(fileURLWithPath: "/usr/bin/xcodebuild"); v.arguments = ["-version"]
+                v.environment = ["DEVELOPER_DIR": dir, "PATH": "/usr/bin:/bin"]
+                let out = Pipe(); v.standardOutput = out; v.standardError = FileHandle.nullDevice
+                if (try? v.run()) != nil {
+                    let data = out.fileHandleForReading.readDataToEndOfFile(); v.waitUntilExit()
+                    if v.terminationStatus == 0 { probe.version = OnboardingNVN.xcodeVersion(from: String(data: data, encoding: .utf8) ?? "") }
+                }
+            }
             if probe.selectedIsXcode {
                 probe.licenseAccepted = BuildModel.runOK("/usr/bin/xcodebuild", ["-license", "check"])
                 probe.firstLaunchDone = BuildModel.runOK("/usr/bin/xcodebuild", ["-checkFirstLaunchStatus"])
@@ -427,6 +439,7 @@ enum OnboardingLaunch {
         let (xcode, _) = OnboardingXcode.evaluate(probe: probe, metalReady: dep("metal")?.present ?? false,
                                                   iosReady: dep("xcode")?.present ?? false, includesIOS: state.selectedPlatform?.includesIOS == true)
         if xcode != .ready { state.step = .xcode; persistStep() }
+        updateWelcome()
     }
 
     // MARK: Welcome
@@ -445,6 +458,8 @@ enum OnboardingLaunch {
         // Whole GB as Finder counts them (10^9). Without a reading the volume is taken to have room: nothing to warn about.
         let free = env.freeBytes().map { Int($0 / 1_000_000_000) } ?? needed
         state.welcome = .requirements(freeGB: free, neededGB: needed)
+        state.osTooOldForNVN = OnboardingNVN.osTooOld(env.osVersion())
+        state.xcodeTooOldForNVN = probed && probe.appPath != nil && OnboardingNVN.xcodeTooOld(probe.version)
     }
 
     // MARK: Xcode
