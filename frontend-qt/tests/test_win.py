@@ -692,6 +692,29 @@ class DriverPatchTest(unittest.TestCase):
         self.assertIn('metal', joined)
         self.assertNotIn('xcodebuild', joined)
 
+    def test_stage_key_fingerprints_the_selected_spirv_cross(self) -> None:
+        """Switching SPIRV_CROSS must invalidate the shader-stage key."""
+        with tempfile.TemporaryDirectory() as td:
+            a = Path(td) / 'cross-a.exe'
+            b = Path(td) / 'cross-b.exe'
+            a.write_bytes(b'first')
+            b.write_bytes(b'second')
+
+            def files(probes):
+                return [p for kind, values in probes if kind == 'files' for p in values]
+
+            first = self.mod.toolchain(self.repo, {'SPIRV_CROSS': str(a), 'PATH': ''})
+            second = self.mod.toolchain(self.repo, {'SPIRV_CROSS': str(b), 'PATH': ''})
+            self.assertIn(a, files(first))
+            self.assertIn(b, files(second))
+            self.assertNotEqual(self.mod.fingerprint(('files', [a])),
+                                self.mod.fingerprint(('files', [b])))
+            # The same selected path with changed executable contents must also
+            # change the key, or a rebuilt compiler would reuse the old library.
+            before = self.mod.fingerprint(('files', [a]))
+            a.write_bytes(b'changed')
+            self.assertNotEqual(before, self.mod.fingerprint(('files', [a])))
+
     def test_tool_paths_are_replaced_not_extended(self) -> None:
         """On Windows the upstream macOS list must be gone.
 
@@ -1277,7 +1300,8 @@ class PythonInstallTest(unittest.TestCase):
             shim.parent.mkdir(parents=True)
             shim.write_text('#!/bin/sh\n')
             with mock.patch.object(pu, 'IS_WIN', False), \
-                    mock.patch.dict(os.environ, {'UV_PYTHON_INSTALL_DIR': str(store), 'HOME': td}):
+                    mock.patch.dict(os.environ, {'UV_PYTHON_INSTALL_DIR': str(store), 'HOME': td,
+                                                 'USERPROFILE': td}):
                 cands = pu.uv_pythons()
             self.assertIn(str(exe), cands, "uv's store holds the real interpreter")
             self.assertIn(str(shim), cands, "uv links a python3 shim in ~/.local/bin")
@@ -1727,7 +1751,7 @@ class LinkProbeStrategyTest(unittest.TestCase):
     """
 
     def test_the_strategy_order_is_build_style_first(self) -> None:
-        src = (QT / 'nspb_qt' / 'win' / 'toolchain.py').read_text()
+        src = (QT / 'nspb_qt' / 'win' / 'toolchain.py').read_text(encoding='utf-8')
         body = src[src.index('def probe_link'):]
         self.assertLess(body.index("'-fuse-ld=lld'"), body.index('f\'--ld-path={lld}\''),
                         'the build\'s own invocation must be tried before --ld-path')
@@ -1750,7 +1774,7 @@ class InstallFailureHintTest(unittest.TestCase):
             classify = M.Model._classify_install_failure
         except ImportError:
             import ast
-            src = (HERE.parent / 'nspb_qt' / 'model.py').read_text()
+            src = (HERE.parent / 'nspb_qt' / 'model.py').read_text(encoding='utf-8')
             tree = ast.parse(src)
             fn = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)
                       and n.name == '_classify_install_failure')
