@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
 
 from . import platform_util as pu
 from .model import DepState, Model
-from .style import GREEN, MUTED, ORANGE, RED
+from .style import CARD_EDGE, GREEN, MUTED, ORANGE, RED
 
 
 class MainWindow(QMainWindow):
@@ -402,7 +402,7 @@ class MainWindow(QMainWindow):
     def _separator() -> QFrame:
         line = QFrame()
         line.setFrameShape(QFrame.HLine)
-        line.setStyleSheet('color: #31373f;')
+        line.setStyleSheet(f'color: {CARD_EDGE};')
         return line
 
     # ---------------------------------------------------------------- refresh
