@@ -4,7 +4,7 @@ Issues and pull requests are welcome. NX2Apple is the launcher (`frontend/`, `fr
 
 ## Reporting a problem
 
-Game problems, build problems and launcher problems each have an issue form (`.github/ISSUE_TEMPLATE/`). The form asks for what a report needs — versions, device, Copy diagnostics and the game's log. Use it from the Issues page. A report without those is usually unactionable.
+Game problems, build problems and launcher problems each have an issue form (`.github/ISSUE_TEMPLATE/`). The form asks for what a report needs — versions, device, Copy diagnostics, the build log's game profile lines, the game's log and the crash report. Use it from the Issues page. A report without those is usually unactionable.
 
 ## Where an issue goes
 
