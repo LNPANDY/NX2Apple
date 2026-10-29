@@ -17,3 +17,4 @@ nsp-dotnet-root-verify
 games-md-gallery
 cloud-saves
 lm3-depth-mode
+nsp-title-id-from-package

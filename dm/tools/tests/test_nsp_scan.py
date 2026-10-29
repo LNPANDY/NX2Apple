@@ -47,5 +47,50 @@ class Scan(unittest.TestCase):
         self.assertEqual(self.said, [])
 
 
+class TitleFromPackage(unittest.TestCase):
+    """A package with neither a ticket nor a [title ID] in its name (a standard-crypto dump, a repack: LNPANDY/NX2Apple#177) is asked for its title ID. The reader itself (nx_extract --title,
+    the meta NCA's header under the keys' header_key) needs real keys and is not run here: its boundary is stubbed and its command line and output are checked"""
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()); self.addCleanup(shutil.rmtree, self.tmp)
+        cm = mock.patch.object(nsp, 'say', lambda *_: None); cm.__enter__(); self.addCleanup(cm.__exit__, None, None, None)
+
+    def test_precedence_and_cost(self):
+        def never(_): raise AssertionError('the package was read although a ticket or a tag names it')
+        tik = self.tmp / 'a.nsp'; pfs0(tik, [f'{APP:016x}0000000000000011.tik'])
+        self.assertEqual(nsp.title_of(tik, never), APP)
+        tag = self.tmp / f'Game [{APP | 0x800:016X}].nsp'; pfs0(tag, ['x.nca'])
+        self.assertEqual(nsp.title_of(tag, never), APP | 0x800)
+        bare = self.tmp / 'Game.nsp'; pfs0(bare, ['x.nca'])
+        self.assertIsNone(nsp.title_of(bare))
+        self.assertEqual(nsp.title_of(bare, lambda p: APP | 0x800 if p == bare else None), APP | 0x800)
+
+    def test_scan_uses_the_reader_for_untagged_ticketless_packages(self):
+        ids = {}
+        for name, tid in (('base.nsp', APP), ('upd.nsp', APP | 0x800), ('dlc.nsp', APP + 0x1001)):
+            pfs0(self.tmp / name, ['x.cnmt.nca']); ids[self.tmp / name] = tid
+        app, fam = nsp.scan_nsps(self.tmp, ids.get)
+        self.assertEqual((app, fam['base'], [p for _, p in fam['updates']], [t for t, _, _ in fam['dlc']]), (APP, self.tmp / 'base.nsp', [self.tmp / 'upd.nsp'], [APP + 0x1001]))
+
+    def test_scan_still_stops_when_nothing_reads(self):
+        pfs0(self.tmp / 'a.nsp', ['x.nca']); pfs0(self.tmp / 'b.nsp', ['y.nca'])
+        for reader in (None, lambda p: None):
+            with self.assertRaisesRegex(nsp.BuildError, 'no NSP with a readable title ID'): nsp.scan_nsps(self.tmp, reader)
+
+    def test_reader_runs_nx_extract_title_mode(self):
+        keys, pkg, calls = self.tmp / 'prod.keys', self.tmp / 'a.nsp', []
+        def fake_run(cmd, log, env=None, cwd=None, on_line=None, ok=()):
+            calls.append((cmd, ok)); log.parent.mkdir(parents=True, exist_ok=True)
+            log.write_text(self.out)
+            if self.broken: raise nsp.BuildError('nx_extract exit code 1')
+        with mock.patch.object(nsp, 'build_nx_extract', lambda *a: 'nx'), mock.patch.object(nsp, 'run', fake_run), nsp.package_title_reader(REPO, keys, {}) as read:
+            self.out, self.broken = f'title {APP:016x}\n', False
+            self.assertEqual(read(pkg), APP)
+            self.assertEqual(calls[0][0], ['nx', keys, '--title', pkg]); self.assertIn(5, calls[0][1])
+            self.out = '[RED] no meta NCA in a.nsp\n'
+            self.assertIsNone(read(pkg))
+            self.out, self.broken = '', True
+            self.assertIsNone(read(pkg))
+
+
 if __name__ == '__main__':
     unittest.main()
