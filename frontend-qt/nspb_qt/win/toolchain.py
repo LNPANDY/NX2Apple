@@ -947,7 +947,8 @@ def probe_link(sdk: Path) -> tuple[bool, str]:
         cmd = [str(clang), '-target', f'arm64-apple-ios{IOS_DEPLOYMENT}', '-isysroot', str(sdk),
                '-fuse-ld=lld', f'--ld-path={lld}', '-o', str(out), str(c)]
         try:
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=180, env=env,
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=180,
+                               env=dict(os.environ),  # a child on Windows needs the full env (SystemRoot etc.)
                                **no_window())
         except subprocess.TimeoutExpired:
             return False, 'link timed out'
