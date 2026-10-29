@@ -52,6 +52,13 @@ A completed Mac build appears in the collection automatically and can be started
 with **Play**. An iPhone build, by default, offers its unsigned IPA and the
 sideloading and RomFS-copy instructions.
 
+For IPA export, turn on **Include game data in IPA** to produce a self-contained
+IPA, including any DLC, without a separate game-data transfer. This is useful
+for LiveContainer; large IPAs may fail with conventional installers. The choice
+is remembered and defaults off. Bundled builds skip the separate archive step,
+but the IPA may still contain an internal `romfs.img` produced by extraction.
+Mac builds and direct Xcode device installation are unchanged.
+
 When a build finishes or fails while the app is in the background, a notification
 names the game and the target. Clicking it shows the game in the library, or the
 Builds page with the log for a failed build. macOS asks for permission when the

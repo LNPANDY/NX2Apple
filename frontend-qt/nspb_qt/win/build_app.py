@@ -437,6 +437,36 @@ def info_plist(*, bundle_id: str, name: str, version: str, category: str, show_f
 
 # ---------------------------------------------------------------- main
 
+def pack_ipa(repo: Path, app: Path, msl_ios: Path, msldir: str, aoc: Path | None,
+             romfs: Path, out_ipa: Path, store: str, env: dict) -> None:
+    maps = [f'Payload/DmIOS.app={app}', f'Payload/DmIOS.app/msl/{msldir}={msl_ios / msldir}']
+    if aoc and aoc.is_dir() and any(aoc.iterdir()):
+        maps.append(f'Payload/DmIOS.app/aoc={aoc}')
+        t('add-on content: ' + ' '.join(sorted(p.name for p in aoc.iterdir())))
+    full = env.get('DM_COPY_ROMFS', 'YES' if env.get('DM_FULL_ROMFS') else 'NO') != 'NO'
+    if full:
+        resource = 'romfs.img' if romfs.is_file() else 'romfs'
+        maps.append(f'Payload/DmIOS.app/{resource}={romfs}')
+        t('packing the full IPA with the RomFS (only sensible for small games)')
+    else:
+        t('packing a slim IPA without the RomFS (the game files come from Documents/romfs)')
+    t('pack IPA')
+    pack = [sys.executable, str(repo / 'dm/ios/tools/pack_ipa.py'), str(out_ipa)]
+    if store:
+        pack += ['--store', ':'.join(store.split(':'))]
+    pack += ['--skip', 'Payload/DmIOS.app/msl', '--skip', 'Payload/DmIOS.app/aoc',
+             '--skip', 'Payload/DmIOS.app/romfs', '--skip', 'Payload/DmIOS.app/romfs.img',
+             *maps]
+    r = subprocess.run(pack, capture_output=True, text=True, errors='replace')
+    if r.returncode:
+        print(((r.stdout or '') + (r.stderr or ''))[-3000:], file=sys.stderr)
+        die('pack_ipa failed')
+    # Windows has no Unix modes: restore the executable bit for iOS install tools.
+    fixed = fix_ipa_modes.fix(out_ipa, ['Payload/DmIOS.app/DmIOS'])
+    t(f'IPA modes: {fixed}')
+    t(f'done: {out_ipa} ({out_ipa.stat().st_size / 2**30:.2f} GiB)')
+
+
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     if '--prepare-xcode' in args:
@@ -463,7 +493,10 @@ def main(argv: list[str] | None = None) -> int:
 
     pkg = gp('package')
     patched = Path(env.get('PATCHED') or w / f'build/patched_{pkg}')
-    romfs = Path(env.get('ROMFS') or w / f'data/{pkg}/RomFS')
+    default_romfs = w / f'data/{pkg}/RomFS.img'
+    if not default_romfs.is_file():
+        default_romfs = w / f'data/{pkg}/RomFS'
+    romfs = Path(env.get('ROMFS') or default_romfs)
     msl_ios = Path(env.get('MSL_IOS') or w / 'build/ios/dmsh_b')
     aoc = Path(env['AOC']) if env.get('AOC') else (None if 'AOC' in env else w / 'data/aoc')
     out_ipa = Path(args[0]) if args and not args[0].startswith('-') else \
@@ -476,8 +509,7 @@ def main(argv: list[str] | None = None) -> int:
     for m in mods:
         if not ((patched / f'{m}.patched.bin').exists() and (patched / f'{m}.fixups.tsv').exists()):
             die(f'no rewritten module {patched}/{m} (the rewrite step must run first)')
-    if not (romfs / marker).exists():
-        die(f'no RomFS at {romfs} (missing {marker})')
+    py(repo / 'dm/tools/romfs.py', romfs, marker)
 
     name = env.get('DM_DISPLAY_NAME') or ''
     if not name:
@@ -661,32 +693,7 @@ def main(argv: list[str] | None = None) -> int:
     (app / 'PkgInfo').write_bytes(b'APPL????')
 
     # --- pack
-    maps = [f'Payload/DmIOS.app={app}', f'Payload/DmIOS.app/msl/{msldir}={msl_ios / msldir}']
-    if aoc and aoc.is_dir() and any(aoc.iterdir()):
-        maps.append(f'Payload/DmIOS.app/aoc={aoc}')
-        t('add-on content: ' + ' '.join(sorted(p.name for p in aoc.iterdir())))
-    full = bool(env.get('DM_FULL_ROMFS'))
-    if full:
-        maps.append(f'Payload/DmIOS.app/romfs={romfs}')
-        t('packing the full IPA with the RomFS (only sensible for small games)')
-    else:
-        t('packing a slim IPA without the RomFS (the game files come from Documents/romfs)')
-    store = gp('zip_store') or ''
-    t('pack IPA')
-    pack = [sys.executable, str(repo / 'dm/ios/tools/pack_ipa.py'), str(out_ipa)]
-    if store:
-        pack += ['--store', ':'.join(store.split(':'))]
-    pack += ['--skip', 'Payload/DmIOS.app/msl', '--skip', 'Payload/DmIOS.app/aoc',
-             '--skip', 'Payload/DmIOS.app/romfs', *maps]
-    r = subprocess.run(pack, capture_output=True, text=True, errors='replace')
-    if r.returncode:
-        print(((r.stdout or '') + (r.stderr or ''))[-3000:], file=sys.stderr)
-        die('pack_ipa failed')
-    # Windows has no Unix modes: pack_ipa writes 0o666 for every file, which an iOS install
-    # tool may refuse to launch. Rewrite the executable's central-directory entry to 0755.
-    fixed = fix_ipa_modes.fix(out_ipa, ['Payload/DmIOS.app/DmIOS'])
-    t(f'IPA modes: {fixed}')
-    t(f'done: {out_ipa} ({out_ipa.stat().st_size / 2**30:.2f} GiB)')
+    pack_ipa(repo, app, msl_ios, msldir, aoc, romfs, out_ipa, gp('zip_store') or '', env)
     return 0
 
 

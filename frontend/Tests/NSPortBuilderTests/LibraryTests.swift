@@ -312,7 +312,7 @@ final class LibraryTests: XCTestCase {
     /// once the player answered the transfer question, and the library opens it there. The tools are stand-ins; nothing is signed.
     @MainActor private func runInstallFlow(transfer: Bool) throws -> (BuildModel, [String], URL, URL) {
         guard FileManager.default.isExecutableFile(atPath: "/usr/bin/python3") else { throw XCTSkip("System Python is required for the process fixture") }
-        let saved = ["repoPath", "buildTarget", "buildOutputDirectory", "installDevice", "signingTeam"].map { ($0, UserDefaults.standard.object(forKey: $0)) }
+        let saved = ["repoPath", "buildTarget", "buildOutputDirectory", "installDevice", "signingTeam", "bundleIPA"].map { ($0, UserDefaults.standard.object(forKey: $0)) }
         defer { for (key, value) in saved { UserDefaults.standard.set(value, forKey: key) } }
         let model = BuildModel()
         model.repoPath = temporary.path
@@ -324,6 +324,7 @@ final class LibraryTests: XCTestCase {
         model.deps = [BuildModel.Dep(id: "test", name: "test", hint: "", present: true, installCmd: [])]
         model.installDevice = "00008150-AAAA"
         model.signingTeam = "TEAM123456"
+        model.bundleIPA = true   // IPA export packaging does not change direct device installation.
         let marker = temporary.appendingPathComponent("dm/tools/nx_extract/Program.cs")
         try FileManager.default.createDirectory(at: marker.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data().write(to: marker)

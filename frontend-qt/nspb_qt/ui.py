@@ -10,7 +10,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFontDatabase
 from PySide6.QtWidgets import (
-    QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QMainWindow,
+    QCheckBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QMainWindow,
     QProgressBar, QPushButton, QScrollArea, QSizePolicy, QTextEdit, QVBoxLayout, QWidget,
 )
 
@@ -213,6 +213,16 @@ class MainWindow(QMainWindow):
         pick.clicked.connect(self._pick_folder)
         row.addWidget(pick)
         lay.addLayout(row)
+        self.bundle_ipa_check = QCheckBox(self.m.t('opt.bundleIPA'))
+        self.bundle_ipa_check.setChecked(self.m.bundle_ipa)
+        self.bundle_ipa_check.toggled.connect(lambda checked: setattr(self.m, 'bundle_ipa', checked))
+        self._translatable.append((self.bundle_ipa_check, 'opt.bundleIPA'))
+        lay.addWidget(self.bundle_ipa_check)
+        self.bundle_ipa_note = QLabel(self.m.t('opt.bundleIPA.note'))
+        self.bundle_ipa_note.setObjectName('note')
+        self.bundle_ipa_note.setWordWrap(True)
+        self._translatable.append((self.bundle_ipa_note, 'opt.bundleIPA.note'))
+        lay.addWidget(self.bundle_ipa_note)
 
     def _build_deps(self) -> None:
         box, lay = self._card('dep.title')
@@ -485,6 +495,14 @@ class MainWindow(QMainWindow):
 
     def _refresh_running(self) -> None:
         running = self.m.running
+        ios = self.m.target == 'ios'
+        self.bundle_ipa_check.setVisible(ios)
+        self.bundle_ipa_note.setVisible(ios)
+        self.bundle_ipa_check.setEnabled(not running)
+        self.bundle_ipa_check.setChecked(self.m.bundle_ipa)
+        if hasattr(self, 'target_btn'):
+            self.target_btn.setEnabled(not running)
+            self.target_btn.setText(self.m.t('target.ios' if ios else 'target.mac'))
         self.build_btn.setText(self.m.t('build.cancel') if running else self.m.t('build.start'))
         self.build_btn.setObjectName('danger' if running else 'primary')
         self.build_btn.style().unpolish(self.build_btn)
@@ -521,10 +539,13 @@ class MainWindow(QMainWindow):
 
     def _on_finished(self, ok: bool, note: str) -> None:
         if ok:
-            msg = note or self.m.t('msg.done')
+            bundled = self.m.output_mode == 'bundle'
+            msg = self.m.t('msg.bundledDone') if bundled else (note or self.m.t('msg.done'))
             if self.m.ipa_path:
                 msg += '   ' + self.m.t('msg.ipaAt', self.m.ipa_path)
-            if self.m.archive_path:
+            if bundled:
+                msg += '   ' + self.m.t('install.bundled')
+            elif self.m.archive_path:
                 msg += '   ' + self.m.t('msg.archiveAt', self.m.archive_path)
             self.footer.setStyleSheet(f'color: {GREEN};')
         else:
@@ -606,6 +627,7 @@ class MainWindow(QMainWindow):
         self.target_btn.setText(self.m.t('target.mac' if self.m.target == 'mac-app' else 'target.ios'))
         self.footer.setText(self.m.t('target.hint.mac' if self.m.target == 'mac-app' else 'target.hint.ios'))
         self.footer.setStyleSheet('')
+        self._refresh_running()
 
     def _choose_out(self) -> None:
         d = QFileDialog.getExistingDirectory(self, self.m.t('build.outDir'))

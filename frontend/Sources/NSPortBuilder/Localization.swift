@@ -767,6 +767,11 @@ enum L10n {
         "status.chooseRepo": ("先选择项目仓库", "Choose the project repository first"),
         "status.needInputs": ("还需要选择游戏本体和 prod.keys", "Still need the base game and prod.keys"),
         "status.output": ("输出：%@", "Output: %@"),
+        "opt.bundleIPA": ("将游戏数据包含在 IPA 中", "Include game data in IPA"),
+        "opt.bundleIPA.note": ("关闭时生成小型 IPA，并单独复制游戏数据。开启后无需单独传输，适合 LiveContainer。大型 IPA 可能无法通过常规安装器安装。IPA 内部仍可能包含 romfs.img。", "Off: a small IPA, and the game data is copied separately. On: no separate transfer, useful for LiveContainer. Large IPAs may fail with conventional installers. The IPA may still contain an internal romfs.img."),
+        "msg.bundledDone": ("完成：IPA 已包含游戏数据，无需单独复制。", "Done: the IPA includes the game data. No separate copy is needed."),
+        "msg.ipaMissing": ("构建结束但没有找到 IPA，请查看构建日志。", "The build finished but the IPA was not found. See the build log."),
+        "install.bundled": ("将 IPA 导入 LiveContainer 或兼容的安装器，然后启动游戏。游戏数据已包含在内，无需复制到 Documents。", "Import the IPA into LiveContainer or a compatible installer, then launch the game. The game data is included. No copy to Documents is needed."),
         "install.title": ("安装到 iPhone", "Install on the iPhone"),
         "install.step1": ("1\t用 AltStore / Sideloadly 安装上面的 IPA", "1\tInstall the IPA above with AltStore / Sideloadly"),
         "install.step2": ("2\t把上面的 romfs 文件夹整个拷到游戏 App 的 Documents 里（文件 App → 我的 iPhone → 游戏名）",
@@ -889,6 +894,11 @@ enum L10n {
     /// mechanical third column in every source-language row. A missing future entry deliberately
     /// falls back to the reviewed English text rather than exposing an internal key.
     static let sv: [String: String] = [
+        "opt.bundleIPA": "Inkludera speldata i IPA:n",
+        "opt.bundleIPA.note": "Av: en liten IPA, och speldata kopieras separat. På: ingen separat överföring, användbart för LiveContainer. Stora IPA-filer kan misslyckas med vanliga installationsprogram. IPA:n kan fortfarande innehålla en intern romfs.img.",
+        "msg.bundledDone": "Klart: IPA:n innehåller speldata. Ingen separat kopia behövs.",
+        "msg.ipaMissing": "Bygget blev klart men IPA:n hittades inte. Se byggloggen.",
+        "install.bundled": "Importera IPA:n i LiveContainer eller ett kompatibelt installationsprogram och starta sedan spelet. Speldata ingår. Ingen kopia till Documents behövs.",
         "settings.language": "Språk",
         "settings.language.system": "Följ systemet",
         "settings.language.zh": "Kinesiska",

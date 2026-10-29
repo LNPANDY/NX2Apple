@@ -37,8 +37,10 @@ wherever `NSPB_REPO` points, and the repository group lets you pick it by hand.
   plus xcodegen / zstd / spirv-cross. Each row has an install button when a command can fix it.
 - Pick a game folder (or its four inputs separately). Base / update / DLC / `prod.keys` are
   recognised from the dump names.
-- Build: runs the same script the SwiftUI app runs, streams its stage lines and log, then packs
-  the RomFS archive and reports where the IPA and archive landed.
+- Build: runs the same script the SwiftUI app runs and streams its stage lines and log.
+  iOS exports default to a slim IPA with separate RomFS data; **Include game data in IPA**
+  saves a bundled-export preference for subsequent launches. It is hidden for Mac app exports
+  and cannot be changed during a build.
 - `--work-dir` is passed only when the checkout's script declares it (an upstream checkout has
   no such option — issue #5).
 - Bilingual: Chinese on Chinese devices, English elsewhere, and the header button switches.
@@ -251,7 +253,19 @@ python -m nspb_qt.win.driver D:\Games\MarioWonder -k D:\keys\prod.keys
 
 The options are the upstream script's (`-h`). The IPA is unsigned, as on a Mac: sign it with
 Sideloadly (Windows), AltStore, or similar, and enable the Increased Memory Limit capability if
-the tool offers it. The IPA name and the RomFS archive come out where the macOS build puts them.
+the tool offers it.
+
+The GUI's default slim export passes `--romfs separate --keep-extracted`, leaves game data out
+of the IPA, and prepares separate RomFS data for transfer to the app's Documents folder. Keep
+the extraction until that transfer is complete. Windows slim IPAs still include DLC. Enable
+**Include game data in IPA** for a
+single IPA containing the game data and DLC: no separate RomFS transfer or archive step is
+needed. Bundled IPAs can be much larger, and large games may exceed the sideloader or device's
+installation limits. This choice does not affect Mac app exports.
+
+For command-line Windows builds, use `--romfs separate --keep-extracted` for slim output, or
+`--romfs bundle` with `DM_COPY_ROMFS=YES` and `DM_FULL_ROMFS=1` in the environment for bundled
+output. For slim output, set `DM_COPY_ROMFS=NO` and unset `DM_FULL_ROMFS`.
 
 ## Open risks
 
@@ -274,4 +288,3 @@ build on Windows plus a device run can settle:
 
 `nspb_qt/win/doctor.py` is the fastest way to narrow a failure: it separates "a tool is missing"
 from "the tool exists but cannot do the job".
-

@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 
-from PySide6.QtCore import Q_ARG, QMetaObject, QObject, Qt, QThread, Signal, Slot
+from PySide6.QtCore import Q_ARG, QMetaObject, QObject, QSettings, Qt, QThread, Signal, Slot
 
 from . import platform_util as pu
 from .i18n import Lang
@@ -94,6 +94,9 @@ class Model(QObject):
         self.archive_path = ''
         self.mac_app_path = ''
         self.target = 'ios'   # 'ios' (an IPA) or 'mac-app' (a double-clickable Mac app; macOS only)
+        self._settings = QSettings('NX2Apple', 'NSPortBuilder')
+        self._bundle_ipa = self._settings.value('bundleIPA', False, type=bool)
+        self.output_mode = 'separate'   # snapshot for the current/last build, not a preference
         self.repo_busy = False
         self.repo_behind: int | None = None
         self.repo_status = ''
@@ -117,6 +120,17 @@ class Model(QObject):
             self.log_path.write_text('', encoding='utf-8')
         except OSError:
             self.log_path = None
+
+    # ---- preferences
+
+    @property
+    def bundle_ipa(self) -> bool:
+        return self._bundle_ipa
+
+    @bundle_ipa.setter
+    def bundle_ipa(self, value: bool) -> None:
+        self._bundle_ipa = bool(value)
+        self._settings.setValue('bundleIPA', self._bundle_ipa)
 
     # ---- strings
 
@@ -961,25 +975,37 @@ class Model(QObject):
         # same steps and then packs dm/mac/pack_app.py's result. Its -o names the .app, and the
         # RomFS is inside it, so the archive step is skipped below.
         mac_app = self.target == 'mac-app'
+        bundle_ipa = not mac_app and self.bundle_ipa
+        self.output_mode = 'mac-app' if mac_app else ('bundle' if bundle_ipa else 'separate')
+        self.ipa_path = self.archive_path = self.mac_app_path = ''
         if mac_app:
             args += ['--platform', 'mac-app']
             self.mac_app_path = str(Path(self.out_dir or base_dir, f'{tid_hex}.app'))
             args += ['-o', self.mac_app_path]
-        elif self.out_dir:
-            self.ipa_path = str(Path(self.out_dir, f'{tid_hex}.ipa'))
-            args += ['-o', self.ipa_path]
+        else:
+            args += ['--romfs', 'bundle' if bundle_ipa else 'separate']
+            if not bundle_ipa:
+                args += ['--keep-extracted']
+            if self.out_dir:
+                self.ipa_path = str(Path(self.out_dir, f'{tid_hex}.ipa'))
+                args += ['-o', self.ipa_path]
         self.effective_work_dir = work_dir if has_work_dir else str(Path(input_dir, f'{tid_hex}_build'))
 
         self.running = True
         self.runningChanged.emit(True)
         self.stages = []
-        self.ipa_path = self.archive_path = self.mac_app_path = ''
         self.log_tail = ''
         self._last_error = ''
         self.stagesChanged.emit()
         self.log(self.t('msg.running', py + ' ' + ' '.join(args)) + '\n')
 
         env = pu.child_env()
+        if not mac_app:
+            env['DM_COPY_ROMFS'] = 'YES' if bundle_ipa else 'NO'
+            if bundle_ipa:
+                env['DM_FULL_ROMFS'] = '1'
+            else:
+                env.pop('DM_FULL_ROMFS', None)
         droot = pu.dotnet_root(self.dotnet_path) if self.dotnet_ok else None
         if droot:
             env['DOTNET_ROOT'] = droot
@@ -1022,7 +1048,14 @@ class Model(QObject):
                 exists = bool(self.mac_app_path) and Path(self.mac_app_path).exists()
                 self.finished.emit(exists, self.t('target.macDone' if exists else 'target.missingApp'))
             elif ok:
-                self.pack_archive()
+                if bundle_ipa:
+                    exists = bool(self.ipa_path) and Path(self.ipa_path).is_file()
+                    if self.stages:
+                        self.stages[-1].state = 'done' if exists else 'failed'
+                        self.stagesChanged.emit()
+                    self.finished.emit(exists, self.t('msg.bundledDone' if exists else 'msg.ipaMissing'))
+                else:
+                    self.pack_archive()
             else:
                 if self.stages:
                     self.stages[-1].state = 'failed'

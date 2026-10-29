@@ -119,6 +119,10 @@ final class BuildModel: ObservableObject {
     @Published var bcOnCPU = UserDefaults.standard.bool(forKey: "bcOnCPU") {
         didSet { UserDefaults.standard.set(bcOnCPU, forKey: "bcOnCPU") }
     }
+    @Published var bundleIPA = UserDefaults.standard.bool(forKey: "bundleIPA") {
+        didSet { UserDefaults.standard.set(bundleIPA, forKey: "bundleIPA") }
+    }
+    @Published private(set) var bundledIPA = false
     @Published var archivePath = ""  // the romfs folder the pack wrote
     /// Where this build's folder actually is: --work-dir when the checkout has it, else the script's
     /// default under the input folder (issue #5 — an upstream checkout has no --work-dir).
@@ -1025,6 +1029,11 @@ final class BuildModel: ObservableObject {
         stopping = false
         running = true; done = false; doneNote = ""; stages = []; logTail = ""; lineBuf = ""; chainNoteShown = false
         installedOn = ""; installedAppPath = ""; bundleID = ""
+        ipaPath = ""; archivePath = ""
+        let macApp = target == "mac-app"
+        let directInstall = installsDirectly
+        let bundled = !macApp && !directInstall && bundleIPA
+        bundledIPA = bundled
         guard repoOK else {
             fail(repoPath.isEmpty ? t("msg.repoInvalidEmpty") : String(format: t("msg.repoInvalid"), shortPath(repoPath)))
             return
@@ -1131,18 +1140,21 @@ final class BuildModel: ObservableObject {
             }
         }
         if hasWorkDir { args += ["--work-dir", workDir] }
-        let macApp = target == "mac-app"
         if macApp {
             // -o names the .app; the RomFS goes inside it, so the archive step is skipped below.
             args += ["--platform", "mac-app"]
             macAppPath = (outDir.isEmpty ? baseDir : outDir) + "/" + tidHex + ".app"
             args += ["-o", macAppPath]
-        } else if installsDirectly {
+        } else if directInstall {
             // The game's Xcode project instead of an IPA, signed for the device after the script (signAndInstall)
             args += ["--prepare-xcode", "--keep-extracted", "--team-id", signingTeam]
         } else if !outDir.isEmpty {
             ipaPath = outDir + "/" + tidHex + ".ipa"
             args += ["-o", ipaPath]
+        }
+        if !macApp && !directInstall {
+            args += ["--romfs", bundled ? "bundle" : "separate"]
+            if !bundled { args += ["--keep-extracted"] }
         }
         // The archive step packs whatever folder the build reported; without --work-dir that is the
         // script's default, which is the same workDir unless a separate output folder was chosen.
@@ -1172,6 +1184,10 @@ final class BuildModel: ObservableObject {
         // The bundled Python lives inside the signed app: a .pyc written there would change what the signature seals
         // (the packages are compiled at bundle time), and a user site must not shadow its pinned packages.
         denv.merge(BundledTools.environment(for: py)) { $1 }
+        if !macApp && !directInstall {
+            denv["DM_COPY_ROMFS"] = bundled ? "YES" : "NO"
+            if bundled { denv["DM_FULL_ROMFS"] = "1" }
+        }
         p.environment = denv
         Self.inOwnGroup(p, python: py)
         let pipe = Pipe()
@@ -1191,7 +1207,7 @@ final class BuildModel: ObservableObject {
                 }
                 if status.terminationStatus == 0 {
                     self.markAllDone()
-                    if self.target == "mac-app" {
+                    if macApp {
                         // The .app is self-contained (its RomFS is inside), and the marker file
                         // beside it (.nx2apple-library, a dot file the Finder hides) tells the
                         // game's launcher that this folder is a library: its saves and log live
@@ -1208,9 +1224,13 @@ final class BuildModel: ObservableObject {
                         }
                         self.running = false
                         self.cleanupStaging()
-                    } else if self.installsDirectly {
+                    } else if directInstall {
                         // The same archive as for sideloading, then the app without the game files, then the archive into its Documents
                         self.packArchive(workDir: self.effectiveWorkDir) { self.signAndInstall(archive: $0) }
+                    } else if bundled {
+                        let made = !self.ipaPath.isEmpty && FileManager.default.fileExists(atPath: self.ipaPath)
+                        self.finishBuild(ok: made, note: self.t(made ? "msg.bundledDone" : "msg.ipaMissing"))
+                        self.cleanupStaging()
                     } else {
                         self.packArchive(workDir: self.effectiveWorkDir)   // keeps running=true until the archive is done
                     }
@@ -2685,6 +2705,14 @@ struct BuilderView: View {
         files.disabled(m.running)
         target
         if m.target != "mac-app" { install.disabled(m.running) }
+        if m.target != "mac-app" && !m.installsDirectly {
+            group(m.t("opt.bundleIPA"), footnote: m.t("opt.bundleIPA.note")) {
+                row(m.t("opt.bundleIPA")) {
+                    Toggle("", isOn: $m.bundleIPA).toggleStyle(LauncherSwitchStyle()).labelsHidden()
+                        .accessibilityLabel(m.t("opt.bundleIPA")).disabled(m.running)
+                }
+            }
+        }
         logPanel
         action
         outcome
@@ -2855,16 +2883,22 @@ struct BuilderView: View {
         } else if m.done && m.target != "mac-app" {
             group(m.t("install.title")) {
                 VStack(alignment: .leading, spacing: 10) {
-                    guideRow(m.t("install.step1")); guideRow(m.t("install.step2")); guideRow(m.t("install.step3"))
+                    if m.bundledIPA {
+                        Text(m.t("install.bundled")).font(.manrope(14))
+                    } else {
+                        guideRow(m.t("install.step1")); guideRow(m.t("install.step2")); guideRow(m.t("install.step3"))
+                    }
                 }
                 .padding(.horizontal, 18).padding(.vertical, 16)
                 divider
                 row("IPA", detail: m.shortPath(m.ipaPath), dot: LauncherPalette.ready, help: m.ipaPath) {
                     Button(m.t("install.reveal")) { reveal(m.ipaPath) }
                 }
-                divider
-                row("RomFS", detail: m.shortPath(m.archivePath), dot: LauncherPalette.ready, help: m.archivePath) {
-                    Button(m.t("install.reveal")) { reveal(m.archivePath) }
+                if !m.bundledIPA {
+                    divider
+                    row("RomFS", detail: m.shortPath(m.archivePath), dot: LauncherPalette.ready, help: m.archivePath) {
+                        Button(m.t("install.reveal")) { reveal(m.archivePath) }
+                    }
                 }
             }
         }
