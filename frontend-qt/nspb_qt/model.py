@@ -299,6 +299,13 @@ class Model(QObject):
                 d.last_error, d.fix_hint = p.last_error, p.fix_hint
 
         self.deps = deps
+        # The panel can only show one row at a time; the log keeps every detail, so a report sent
+        # from a handheld always carries the full probe text (the truncated link row is why this
+        # exists).
+        for d in deps:
+            if not d.ok and d.detail:
+                self.log(self.t('dep.row.log', d.title_key.replace('dep.', 'dep.').replace('.hint', ''),
+                                d.detail.replace('\n', ' | ')) + '\n')
         if not pu.IS_WIN:
             # On Windows `_windows_deps` already set python_path (the interpreter the app
             # installed, which find_python without its candidates cannot see) and dotnet_path

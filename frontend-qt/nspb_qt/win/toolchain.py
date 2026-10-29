@@ -939,6 +939,32 @@ def probe_metal(sdk: Path) -> tuple[bool, str]:
         return True, f'{lib.stat().st_size} byte metallib for {tgt}'
 
 
+def link_attempt_summary(r: subprocess.CompletedProcess) -> str:
+    """One failed strategy: the exit code plus the output's last lines (all of them, not just
+    one — '(no output)' alone was the report's whole diagnostic)."""
+    lines = (r.stderr or r.stdout or '').strip().splitlines() or ['(no output)']
+    tail = ' | '.join(l.strip() for l in lines[-3:])
+    return f'exit {r.returncode} (0x{r.returncode & 0xFFFFFFFF:08x}): {tail[:500]}'
+
+
+def link_failure_summary(attempts: list[tuple[str, str, list[str]]], lld_line: str,
+                         base: list[str], sdk: Path) -> str:
+    """Every failed strategy, the linker's self-check, the exact command to try by hand, and —
+    when the SDK lives under a non-ASCII path — the one hint that has fixed this exact shape
+    before: ld64.lld's Windows port can fail to open narrow-char paths silently, while clang's
+    front end (the compile probe) handles them fine.
+    """
+    parts = [f'link failed {len(attempts)} ways; ld64.lld self-check: {lld_line[:140]}']
+    for how, summary, _cmd in attempts:
+        parts.append(f'{how}: {summary}')
+    parts.append('try by hand: ' + ' '.join([*base, '-fuse-ld=lld', '-o', '%TEMP%\\probe.exe', '<probe.c>']))
+    try:
+        str(sdk).encode('ascii')
+    except UnicodeEncodeError:
+        parts.append('dep.fix.nonascii')
+    return ' — '.join(parts)
+
+
 def probe_link(sdk: Path) -> tuple[bool, str]:
     """Link a tiny executable for iOS and check it is an arm64 MH_EXECUTE with an iOS platform.
 
@@ -971,41 +997,27 @@ def probe_link(sdk: Path) -> tuple[bool, str]:
         target = f'-target arm64-apple-ios{IOS_DEPLOYMENT}'.split()
         base = [str(clang), *target, '-isysroot', str(sdk)]
 
-        def run(extra: list[str], env: dict[str, str] | None) -> subprocess.CompletedProcess:
+        # Strategies, in order: the build's own shape first (build_app.link drives the linker
+        # with -fuse-ld=lld and the linker's folder on PATH — if the probe cannot link that way,
+        # neither can the build), then naming the linker directly, then -B as clang's last
+        # resort. Each failure is kept; all three failing produces the full report.
+        attempts: list[tuple[str, str, list[str]]] = []   # (strategy, summary, command)
+        for how, extra, env in (
+                ('fuse-ld (build-style)', ['-fuse-ld=lld'], None),
+                ('ld-path', ['-fuse-ld=lld', f'--ld-path={lld}'], None),
+                ('-B dir', [f'-B{lld.parent}', '-fuse-ld=lld'], None)):
+            run_env = dict(os.environ)   # a child on Windows needs the full env (SystemRoot etc.)
+            if extra[:1] == ['-fuse-ld=lld'] and how.startswith('fuse-ld'):
+                run_env['PATH'] = str(lld.parent) + os.pathsep + run_env.get('PATH', '')
             cmd = [*base, *extra, '-o', str(out), str(c)]
-            return subprocess.run(cmd, capture_output=True, text=True, timeout=180,
-                                  env=env, **no_window())
-
-        def summary(r: subprocess.CompletedProcess) -> str:
-            # the exit code is the evidence: 0xC0000135 (STATUS_DLL_NOT_FOUND) reads as "a DLL is
-            # missing", not "the linker is bad"; an empty stream pair stays honest as (no output)
-            tail = ((r.stderr or r.stdout or '').strip().splitlines() or ['(no output)'])[-1]
-            return f'exit {r.returncode} (0x{r.returncode & 0xFFFFFFFF:08x}): {tail[:400]}'
-
-        # Strategy 1 — the build's own shape (build_app.link): -fuse-ld=lld and the linker's
-        # folder on PATH. If the machine's PATH handling differs from the probe's assumptions,
-        # this is what the build would do, so it is the first thing to try.
-        env = dict(os.environ)   # a child on Windows needs the full env (SystemRoot etc.)
-        env['PATH'] = str(lld.parent) + os.pathsep + env.get('PATH', '')
-        r = run(['-fuse-ld=lld'], env)
-        if r.returncode == 0:
-            how = 'fuse-ld (build-style)'
-        else:
-            first = summary(r)
-            # Strategy 2 — name the linker directly (--ld-path), bypassing every lookup.
-            r = run(['-fuse-ld=lld', f'--ld-path={lld}'], dict(os.environ))
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=180,
+                               env=run_env, **no_window())
             if r.returncode == 0:
-                how = 'ld-path'
-            else:
-                second = summary(r)
-                # Strategy 3 — -fuse-ld=full or the absolute path as -B: clang's last resort
-                r = run([f'-B{lld.parent}', '-fuse-ld=lld'], dict(os.environ))
-                if r.returncode == 0:
-                    how = '-B dir'
-                else:
-                    third = summary(r)
-                    return False, (f'link failed 3 ways; ld64.lld self-check: {lld_line[:120]}; '
-                                   f'fuse-ld {first}; ld-path {second}; -B {third}')
+                how_ok = how
+                break
+            attempts.append((how, link_attempt_summary(r), cmd))
+        else:
+            return False, link_failure_summary(attempts, lld_line, base, sdk)
         try:
             data = out.read_bytes()
         except OSError as e:
@@ -1020,7 +1032,7 @@ def probe_link(sdk: Path) -> tuple[bool, str]:
         plat = macho_platform(data)
         if plat is not None and plat != PLATFORM_IOS:
             return False, f'platform {plat} is not iOS ({PLATFORM_IOS})'
-        return True, f'arm64 MH_EXECUTE{"" if plat is None else f", platform {plat}"}, {len(data)} bytes ({how})'
+        return True, f'arm64 MH_EXECUTE{"" if plat is None else f", platform {plat}"}, {len(data)} bytes ({how_ok})'
 
 
 def macho_platform(data: bytes) -> int | None:

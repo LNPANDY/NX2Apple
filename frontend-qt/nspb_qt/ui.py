@@ -486,6 +486,21 @@ class MainWindow(QMainWindow):
                     detail = self.m.t(detail)
             elif detail:
                 detail = pu.short_path(detail)
+            # A long detail (the link probe's three-attempt report) would be elided to nothing on
+            # one line: it moves into its own wrapped block under the row, where it is readable.
+            if len(detail) > 140 or '\n' in detail:
+                head = QLabel(detail[:120] + '…')
+                head.setObjectName('mono')
+                head.setTextInteractionFlags(Qt.TextSelectableByMouse)
+                h.addWidget(head, 1)
+                note = QLabel(detail)
+                note.setObjectName('mono')
+                note.setWordWrap(True)
+                note.setTextInteractionFlags(Qt.TextSelectableByMouse)
+                note.setContentsMargins(20, 0, 0, 4)
+                self.deps_container.addWidget(row)
+                self.deps_container.addWidget(note)
+                continue
             lab = QLabel(detail)
             lab.setObjectName('mono')
             lab.setTextInteractionFlags(Qt.TextSelectableByMouse)

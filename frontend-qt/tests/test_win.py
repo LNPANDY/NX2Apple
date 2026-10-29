@@ -1684,10 +1684,26 @@ class LinkProbeStrategyTest(unittest.TestCase):
                         'the build\'s own invocation must be tried before --ld-path')
         self.assertLess(body.index('f\'--ld-path={lld}\''), body.index("f'-B{lld.parent}'"),
                         '--ld-path before the -B fallback')
-        self.assertIn("env['PATH'] = str(lld.parent)", body,
+        self.assertIn("run_env['PATH'] = str(lld.parent)", body,
                       'the build-style try must put the linker folder on PATH (build_app.link does)')
         self.assertIn('does not run by itself', body,
                       'a linker that cannot start is its own message, before any strategy runs')
+
+    def test_the_failure_summary_names_everything_and_flags_a_non_ascii_sdk(self) -> None:
+        from nspb_qt.win import toolchain as tc
+        attempts = [('fuse-ld', 'exit 1 (0x00000001): (no output)', ['clang', '-fuse-ld=lld']),
+                    ('ld-path', 'exit 1 (0x00000001): (no output)', ['clang', '--ld-path=x']),
+                    ('-B dir', 'exit 1 (0x00000001): (no output)', ['clang', '-Bx'])]
+        plain = Path('C:/sdks/iPhoneOS26.0.sdk')
+        summary = tc.link_failure_summary(attempts, 'LLD 23.1.4', ['clang'], plain)
+        for part in ('link failed 3 ways', 'LLD 23.1.4', 'fuse-ld:', 'ld-path:', '-B dir:',
+                     'try by hand:'):
+            self.assertIn(part, summary, part)
+        self.assertNotIn('dep.fix.nonascii', summary)
+        # The owner's machine: C:\Users\QC-北\... — the SDK itself sits under a non-ASCII path
+        nonascii = Path('C:/Users/QC-北/AppData/Local/NS Port Builder/sdks/iPhoneOS26.0.sdk')
+        hinted = tc.link_failure_summary(attempts, 'LLD 23.1.4', ['clang'], nonascii)
+        self.assertIn('dep.fix.nonascii', hinted)
 
 
 class InstallFailureHintTest(unittest.TestCase):
