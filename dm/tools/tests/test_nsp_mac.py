@@ -120,6 +120,43 @@ class Nvn(Base):
         (self.sh / 'cache' / f'b-{CHAIN}').rename(self.sh / 'cache' / 'b-ba9876543210')
         self.build(False); self.assertEqual(self.ran[0][1]['DMSH_TARGETS'], 'ios')
 
+    def stale(self):   # two older chain versions' libraries and keys, in both library folders
+        for old in ('157e1b96c8da', 'a78f966a7b38'):
+            for d in (self.sh / 'cache', self.sh / 'ios'):
+                (d / f'b-{old}').mkdir(parents=True); (d / f'b-{old}' / 'k_b.metallib').write_bytes(b'x' * 100)
+            (self.sh / 'ios' / f'b-{old}.key').write_text('K\n'); (self.sh / f'mac-b-{old}.key').write_text('K\n')
+
+    def left(self):
+        return sorted(str(p.relative_to(self.sh)) for p in self.sh.rglob('*') if p.parent.name in ('cache', 'ios', 'shader') and (p.name.startswith(('b-', 'mac-b-'))))
+
+    def test_prune_stale_chains_after_success(self):   # the old chain versions go with their keys, the current one stays, the size is logged once
+        self.stale()
+        said = []
+        with mock.patch.object(nsp, 'say', said.append):
+            self.assertEqual(self.build(False), self.sh / 'ios')
+        self.assertEqual(self.left(), [f'cache/b-{CHAIN}', f'ios/b-{CHAIN}', f'ios/b-{CHAIN}.key'])
+        self.assertTrue((self.sh / 'ios' / f'b-{CHAIN}' / 'k_b.metallib').is_file())
+        self.assertEqual([m for m in said if m.startswith('removed old shader libraries')], ['removed old shader libraries b-157e1b96c8da, b-a78f966a7b38 (0.4 KB)'])
+        self.stale(); said.clear()   # a reused build prunes too
+        with mock.patch.object(nsp, 'say', said.append):
+            self.build(False)
+        self.assertEqual(self.ran, []); self.assertEqual(len(self.left()), 3)
+
+    def test_failed_build_keeps_stale_chains(self):   # nothing goes before the new libraries exist
+        self.stale(); before = self.left()
+        def failing(cmd, log, env=None, cwd=None, on_line=None): raise nsp.BuildError('translator failed')
+        with mock.patch.object(nsp, 'run', failing), self.assertRaises(nsp.BuildError): self.build(False)
+        self.assertEqual(self.left(), before)
+        with mock.patch.object(nsp, 'run', lambda *a, **k: None), self.assertRaises(nsp.BuildError): self.build(False)   # no libraries written
+        self.assertEqual(self.left(), before)
+
+    def test_prune_ignores_other_names(self):   # only b-<12 hex> folders and their keys, never the compile cache or another folder
+        self.build(True)
+        for n in ('cas', 'b-notahexchain', 'b-0123456789abcd', 'mine'): (self.sh / 'cache' / n).mkdir()
+        (self.sh / 'cache' / 'b-ffffffffffff').write_text('a file, not a library folder')
+        self.build(False)
+        self.assertEqual(sorted(p.name for p in (self.sh / 'cache').iterdir()), sorted(['b-0123456789abcd', 'b-ffffffffffff', 'b-notahexchain', f'b-{CHAIN}', 'cas', 'mine']))
+
     def test_no_stamp(self):   # Mac libraries no full build stamped (an interrupted one): no table can name them, so neither key reuses them
         self.build(False)
         (self.sh / 'cache' / f'b-{CHAIN}' / 'inputs.tsv').unlink()

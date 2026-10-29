@@ -1046,6 +1046,14 @@ Finding, keying and translating shaders (`dm/gfx/tools/shader_split.py`, `dmsh_b
 - **Found on:** [Team Sonic Racing](../../dm/games/010092B0091D0000/README.md#found-on-this-game) (resolved).
 - **Check:** `test_nsp_mac.py` (`test_ios_after_mac_keeps_mac_libraries`, `test_ios_after_mac_of_another_chain`).
 
+### Old shader library folders grew a game's build folder with each chain change
+
+- **Symptom:** the build folder of a game (`<id>_build/shader/`) gains about 2 GB for Breath of the Wild with every upstream update that changes the shader chain: after two updates `shader/cache` held `b-157e1b96c8da` (2.1 GB) and `b-a78f966a7b38` (2.3 GB) besides the current one, and the next build added a third.
+- **Cause:** the libraries are written to `b-<chain>/` (`shader/cache` for the Mac, `shader/ios` for iOS, with the reuse keys `shader/ios/b-<chain>.key` and `shader/mac-b-<chain>.key`) and a chain change starts a new folder. Nothing removed the old ones. The host loads only the current chain's folder, `dm/mac/pack_app.py` and `build_ipa.sh` pack only it, and `regress.py` reads the folder of its own run, so an old folder is dead weight. `dmsh_build.py` took libraries of older folders into the Metal compile cache (`dmsh_mtlcache.py`) before it translated, and `shader_regressions.py` compared the new build with the newest older folder's `_b_build.json`.
+- **Fix:** the NSP script (`prune_stale_chains`, called last in `build_shaders`) removes the folders named `b-<12 hex digits>` of other chain versions in `shader/cache` and `shader/ios`, and their keys, once the libraries, their tables and the key of the current chain are in place (a reused build prunes too). It logs one line, `removed old shader libraries b-… (N GB)`. A build that stops or fails earlier keeps the old libraries. The regression check has run by then, and the next chain change compares with the folder this build keeps. The compile cache already holds what the old libraries compiled, since `dmsh_build.py` took them in at the first build of the new chain. The only loss is for a chain that comes back (a checkout of an older commit): its shaders compile again where the cache does not hold their MSL. The compile cache itself (`shader/cache/cas/metallib`) is keyed by the MSL and the compiler, not by the chain, so entries are shared across chains and it is not pruned. It grows only with MSL that is new, and no code removes an entry.
+- **Found on:** [Breath of the Wild](../../dm/games/01007EF00011E000/README.md#found-on-this-game) (resolved).
+- **Check:** `test_nsp_mac.py` (`test_prune_stale_chains_after_success`, `test_failed_build_keeps_stale_chains`, `test_prune_ignores_other_names`).
+
 ### Function constants specialized at load
 
 - **Symptom:** `fragmentFunction main0 cannot be used to build a pipeline state` (a Metal validation assertion).

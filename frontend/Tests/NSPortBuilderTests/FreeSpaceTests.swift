@@ -66,7 +66,7 @@ final class FreeSpaceTests: XCTestCase {
     func testThePartsAreSizedAndWhatStaysIsNotOffered() throws {
         let game = try fixture()
         let survey = BuildFolder.survey(build.path, protecting: BuildFolder.protectedPaths(for: game))
-        XCTAssertEqual(survey.parts, BuildFolderPart.allCases)
+        XCTAssertEqual(survey.parts, BuildFolderPart.allCases.filter { $0 != .oldShaders }, "no chain given: no shader version is old")
         let kb: Int64 = 1024
         XCTAssertGreaterThanOrEqual(survey.sizes[.extracted] ?? 0, 4 * 64 * kb)
         XCTAssertGreaterThanOrEqual(survey.sizes[.shaders] ?? 0, 3 * 64 * kb)
@@ -74,6 +74,74 @@ final class FreeSpaceTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(survey.sizes[.xcode] ?? 0, 3 * 64 * kb)
         XCTAssertLessThan(survey.sizes[.xcode] ?? 0, 4 * 64 * kb + 16 * kb)
         XCTAssertGreaterThanOrEqual(survey.kept, 5 * 64 * kb, "logs, profile, saves, converted NSPs and the installed app")
+    }
+
+    /// Two old chain versions and the current one, as build_shaders leaves them (Mac and iPhone libraries, their keys), and
+    /// what must never count as old: the Metal compile cache, a short or longer name, a key of another form.
+    private func shaderVersions() throws {
+        let current = "b-f3ceca86cac5"
+        for chain in ["b-157e1b96c8da", "b-a78f966a7b38", current] {
+            try file("shader/cache/\(chain)/k_b.metallib", kb: chain == current ? 128 : 100)
+            try file("shader/ios/\(chain)/k_b.metallib", kb: chain == current ? 128 : 50)
+            try file("shader/ios/\(chain).key", kb: 1); try file("shader/mac-\(chain).key", kb: 1)
+        }
+        for path in ["shader/cache/cas/metallib/ab/x.metallib", "shader/cache/b-notahexchain/x", "shader/cache/b-157e1b96c8dag/x", "shader/ios/vk/vk_shaders.metallib",
+                     "shader/ios/b-157e1b96c8da.keep", "shader/pkg/b-a78f966a7b38.key"] { try file(path) }
+    }
+
+    func testTheCurrentChainIsReadAsTheScriptReadsIt() throws {
+        let repo = temporary.appendingPathComponent("repo")
+        XCTAssertNil(BuildFolder.currentChain(repo: repo.path))
+        try file("dm/gfx/nvn/dmsh_chain.h", in: repo)
+        XCTAssertNil(BuildFolder.currentChain(repo: repo.path), "a header without a version")
+        try "// the host loads only <library dir>/b-<V>/\n#define DMSH_CHAIN \"f3ceca86cac5\"\n".write(to: repo.appendingPathComponent("dm/gfx/nvn/dmsh_chain.h"), atomically: true, encoding: .utf8)
+        XCTAssertEqual(BuildFolder.currentChain(repo: repo.path), "f3ceca86cac5")
+        XCTAssertNil(BuildFolder.currentChain(repo: ""))
+    }
+
+    func testOldShaderVersionsAreListedWithTheirSizesAndTheCurrentOneIsKept() throws {
+        let game = try fixture(); try shaderVersions()
+        let survey = BuildFolder.survey(build.path, protecting: BuildFolder.protectedPaths(for: game), chain: "f3ceca86cac5")
+        XCTAssertEqual(survey.oldShaders.map(\.name), ["b-157e1b96c8da", "b-a78f966a7b38"])
+        let kb: Int64 = 1024
+        for version in survey.oldShaders { XCTAssertGreaterThanOrEqual(version.bytes, 152 * kb, version.name + " holds the Mac and iPhone libraries") }
+        XCTAssertEqual(survey.sizes[.oldShaders], survey.oldShaders.reduce(0) { $0 + $1.bytes })
+        XCTAssertGreaterThan(survey.sizes[.shaders] ?? 0, survey.sizes[.oldShaders] ?? 0, "part of the shader output, which stays whole")
+        XCTAssertTrue(survey.parts.contains(.oldShaders))
+        let current = BuildFolder.survey(build.path, protecting: [], chain: "157e1b96c8da")
+        XCTAssertEqual(current.oldShaders.map(\.name), ["b-a78f966a7b38", "b-f3ceca86cac5"], "whichever chain is current is the one kept")
+    }
+
+    func testRemovingOldShaderVersionsKeepsTheCurrentLibrariesAndEverythingElse() throws {
+        let game = try fixture(); try shaderVersions()
+        let freed = try BuildFolder.remove([.oldShaders], in: build.path, protecting: BuildFolder.protectedPaths(for: game), buildRunning: false, chain: "f3ceca86cac5")
+        XCTAssertGreaterThanOrEqual(freed, 2 * 152 * 1024)
+        for old in ["b-157e1b96c8da", "b-a78f966a7b38"] {
+            for path in ["shader/cache/\(old)", "shader/ios/\(old)", "shader/ios/\(old).key", "shader/mac-\(old).key"] { XCTAssertFalse(exists(path), path) }
+        }
+        for path in ["shader/cache/b-f3ceca86cac5/k_b.metallib", "shader/ios/b-f3ceca86cac5/k_b.metallib", "shader/ios/b-f3ceca86cac5.key", "shader/mac-b-f3ceca86cac5.key",
+                     "shader/cache/cas/metallib/ab/x.metallib", "shader/cache/b-notahexchain/x", "shader/cache/b-157e1b96c8dag/x", "shader/ios/vk/vk_shaders.metallib",
+                     "shader/ios/b-157e1b96c8da.keep", "shader/pkg/b-a78f966a7b38.key", "shader/package.bin", "shader/cache/b-1/a_b.metallib", "pso/mac/a.bin", "extract/v0/RomFS/data.bin"] {
+            XCTAssertTrue(exists(path), path)
+        }
+        XCTAssertEqual(BuildFolder.survey(build.path, protecting: [], chain: "f3ceca86cac5").oldShaders, [])
+    }
+
+    func testOldShaderVersionsNeedTheCurrentChainAndAFinishedBuild() throws {
+        let game = try fixture(); try shaderVersions()
+        let protected = BuildFolder.protectedPaths(for: game)
+        XCTAssertEqual(try BuildFolder.remove([.oldShaders], in: build.path, protecting: protected, buildRunning: false), 0, "without a chain nothing is old")
+        XCTAssertTrue(exists("shader/cache/b-157e1b96c8da/k_b.metallib"))
+        XCTAssertThrowsError(try BuildFolder.remove([.oldShaders], in: build.path, protecting: protected, buildRunning: true, chain: "f3ceca86cac5")) {
+            XCTAssertEqual($0 as? FreeSpaceError, .buildRunning)
+        }
+        XCTAssertTrue(exists("shader/cache/b-157e1b96c8da/k_b.metallib"))
+    }
+
+    func testShaderOutputStillRemovesEverythingIncludingTheOldVersions() throws {
+        let game = try fixture(); try shaderVersions()
+        try BuildFolder.remove([.shaders, .oldShaders], in: build.path, protecting: BuildFolder.protectedPaths(for: game), buildRunning: false, chain: "f3ceca86cac5")
+        XCTAssertFalse(exists("shader")); XCTAssertTrue(exists("extract/v0/RomFS/data.bin"))
     }
 
     func testRemovingOnePartLeavesTheRest() throws {
