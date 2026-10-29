@@ -948,7 +948,8 @@ def link_attempt_summary(r: subprocess.CompletedProcess) -> str:
 
 
 def link_failure_summary(attempts: list[tuple[str, str, list[str]]], lld_line: str,
-                         base: list[str], sdk: Path) -> str:
+                         base: list[str], sdk: Path,
+                         verbose: list[str] | None = None) -> str:
     """Every failed strategy, the linker's self-check, the exact command to try by hand, and —
     when the SDK lives under a non-ASCII path — the one hint that has fixed this exact shape
     before: ld64.lld's Windows port can fail to open narrow-char paths silently, while clang's
@@ -962,6 +963,8 @@ def link_failure_summary(attempts: list[tuple[str, str, list[str]]], lld_line: s
         str(sdk).encode('ascii')
     except UnicodeEncodeError:
         parts.append('dep.fix.nonascii')
+    if verbose:
+        parts.append('verbose: ' + ' | '.join(verbose))
     return ' — '.join(parts)
 
 
@@ -1005,7 +1008,10 @@ def probe_link(sdk: Path) -> tuple[bool, str]:
         for how, extra, env in (
                 ('fuse-ld (build-style)', ['-fuse-ld=lld'], None),
                 ('ld-path', ['-fuse-ld=lld', f'--ld-path={lld}'], None),
-                ('-B dir', [f'-B{lld.parent}', '-fuse-ld=lld'], None)):
+                ('-B dir', [f'-B{lld.parent}', '-fuse-ld=lld'], None),
+                # Apple's driver adds libSystem itself; a cross driver that does not leaves
+                # every libc symbol undefined (the report: puts). Name it explicitly.
+                ('explicit -lSystem', ['-fuse-ld=lld', '-lSystem'], None)):
             run_env = dict(os.environ)   # a child on Windows needs the full env (SystemRoot etc.)
             if extra[:1] == ['-fuse-ld=lld'] and how.startswith('fuse-ld'):
                 run_env['PATH'] = str(lld.parent) + os.pathsep + run_env.get('PATH', '')
@@ -1017,7 +1023,17 @@ def probe_link(sdk: Path) -> tuple[bool, str]:
                 break
             attempts.append((how, link_attempt_summary(r), cmd))
         else:
-            return False, link_failure_summary(attempts, lld_line, base, sdk)
+            # One more run, verbose: the driver's own link command, the runtime libs it adds
+            # (-lSystem, crt) and the library search paths — the three things that decide whether
+            # libc (puts) resolves. Capped, since -v prints hundreds of lines.
+            rv = subprocess.run([*base, '-fuse-ld=lld', '-v', '-o', str(out), str(c)],
+                                capture_output=True, text=True, timeout=180,
+                                env=dict(os.environ), **no_window())
+            interesting = [l.strip() for l in (rv.stderr or rv.stdout or '').splitlines()
+                           if any(k in l for k in ('-lSystem', 'crt', 'Library search',
+                                                   'ld64.lld', 'error'))][:12]
+            return False, link_failure_summary(attempts, lld_line, base, sdk,
+                                               verbose=interesting)
         try:
             data = out.read_bytes()
         except OSError as e:
