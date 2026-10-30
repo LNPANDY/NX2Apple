@@ -9,6 +9,8 @@ struct CoverFlowView: View, Equatable {
     let controllers: Int
     /// The controller hints at the bottom, while a controller or keyboard is in use.
     let showsHints: Bool
+    /// The screen's safe areas around this view, so the cards can sit in the middle of the whole screen.
+    var screenInsets = EdgeInsets()
     let select: (String) -> Void
     let primary: (GameDetail) -> Void
     let openSettings: () -> Void
@@ -30,34 +32,40 @@ struct CoverFlowView: View, Equatable {
     /// not reach the carousel.
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.games.map(\.game) == rhs.games.map(\.game) && lhs.selected.game == rhs.selected.game
-            && lhs.controllers == rhs.controllers && lhs.showsHints == rhs.showsHints
+            && lhs.controllers == rhs.controllers && lhs.showsHints == rhs.showsHints && lhs.screenInsets == rhs.screenInsets
     }
 
     var body: some View {
         GeometryReader { geometry in
             let short = geometry.size.height < 520
-            // A wide card as large as the Mac console's focused tile: what the height allows, never so wide that the
-            // neighbours vanish.
-            let cardHeight = max(90, min(geometry.size.height * (short ? 0.42 : 0.44), geometry.size.width * 0.54 * 9 / 16))
+            // The centred card sits in the middle of the whole screen, the top bar laid over it. The title and state
+            // go under the card at a fixed distance, so the card is only as tall as leaves room for them above the
+            // bottom edge, and never so wide that the neighbours vanish.
+            let height = geometry.size.height
+            let middle = (height + screenInsets.top + screenInsets.bottom) / 2 - screenInsets.top
+            let gap: CGFloat = short ? 10 : 24
+            let words = Self.infoHeight(short: short)
+            let below: CGFloat = short ? 4 : 56          // the hint row on a tablet, a margin on a phone
+            let byBottom = 2 * (height - middle - gap - words - below)
+            let byTop = 2 * (middle - (short ? 54 : 76))
+            let cardHeight = max(90, min(byBottom, byTop, geometry.size.width * 0.54 * 9 / 16) / 1.06)
             let cover = cardHeight * 16 / 9
-            VStack(spacing: 0) {
-                topBar.padding(.horizontal, 24).padding(.top, short ? 4 : 16)
-                // The cover block (cards, title and state, the hint row) is centred in the space under the top bar, a
-                // touch above the middle, never closer to the bar than the minimum gap. Its parts keep fixed places
-                // inside it, so nothing moves between games.
-                Spacer(minLength: short ? 18 : 32)
+            ZStack(alignment: .top) {
                 VStack(spacing: 0) {
                     Group {
                         if games.count <= 3 { shelf(width: geometry.size.width, cover: cover) } else { carousel(width: geometry.size.width, cover: cover) }
-                    }.frame(height: cover * 9 / 16 * 1.06)
+                    }.frame(height: cardHeight * 1.06)
                     info(short: short, width: geometry.size.width)
-                        .padding(.top, short ? 12 : 26).padding(.horizontal, 24)
-                    // The hint row keeps its place when it is hidden, so the card does not move when it appears.
-                    hints.opacity(showsHints ? 1 : 0).padding(.top, short ? 10 : 28)
+                        .padding(.top, gap).padding(.horizontal, 24)
                 }
-                Spacer(minLength: short ? 6 : 16)
-                // The optical lift: a little more room below than above.
-                Color.clear.frame(height: short ? 14 : 36)
+                .padding(.top, middle - cardHeight * 1.06 / 2)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                topBar(short: short).padding(.horizontal, 24).padding(.top, short ? 4 : 16)
+                if !short {
+                    // The hint row keeps its place when it is hidden, so nothing moves when it appears.
+                    hints.opacity(showsHints ? 1 : 0).padding(.bottom, 20)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                }
             }
         }
         .sensoryFeedback(.selection, trigger: selected.id)
@@ -70,12 +78,23 @@ struct CoverFlowView: View, Equatable {
         }
     }
 
-    private var topBar: some View {
+    /// The title and state under the card: two lines of title reserved, then the state line.
+    static func infoHeight(short: Bool) -> CGFloat {
+        let size: CGFloat = short ? 18 : 28
+        return size * 1.3 * 2 + 8 + 34
+    }
+
+    private func topBar(short: Bool) -> some View {
         HStack(alignment: .center, spacing: 10) {
             SectionHeading(title: ShellStrings.text("Your games"))
             Text(ShellStrings.text("\(position) of \(games.count)")).shellText(12, .medium, relativeTo: .caption)
                 .monospacedDigit().foregroundStyle(.white.opacity(0.45)).padding(.leading, 4)
             Spacer(minLength: 12)
+            if short {
+                // On a phone on its side the hints share the top bar, so the cards keep the height.
+                hints.opacity(showsHints ? 1 : 0)
+                Spacer(minLength: 12)
+            }
             Button(action: openSettings) { Image(systemName: "slider.horizontal.3").frame(minWidth: 18) }
                 .buttonStyle(ChipButtonStyle())
                 .accessibilityLabel(ShellStrings.text("Game settings") + ", " + selected.game.title)
@@ -190,7 +209,7 @@ struct CoverFlowView: View, Equatable {
     /// do. The space is reserved, so nothing moves when the selection changes, only the words crossfade.
     private func info(short: Bool, width: CGFloat) -> some View {
         let game = selected.game
-        let size: CGFloat = short ? 20 : 28
+        let size: CGFloat = short ? 18 : 28
         return ZStack(alignment: .top) {
             VStack(spacing: 8) {
                 Text("M\nM").shellType(ShellType.flowTitle(size))

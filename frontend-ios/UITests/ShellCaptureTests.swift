@@ -68,6 +68,23 @@ import XCTest
         XCUIDevice.shared.orientation = .portrait
     }
 
+    /// Every sample game's settings header: banners, square icons and the drawn placeholder.
+    func testCaptureSettingsHeaders() {
+        for orientation in [UIDeviceOrientation.landscapeLeft, .portrait] {
+            XCUIDevice.shared.orientation = orientation
+            let suffix = orientation == .portrait ? "portrait" : "landscape"
+            for id in ["orbit", "tide", "paper", "moon", "wild", "drift", "amber"] {
+                launch(["--screen", "settings", "--select", id])
+                shot("header-\(id)-\(suffix)")
+            }
+            launch(["--screen", "library", "--select", "drift"])
+            shot("library-short-title-\(suffix)")
+            launch(["--screen", "library", "--select", "paper"])
+            shot("library-long-title-\(suffix)")
+        }
+        XCUIDevice.shared.orientation = .portrait
+    }
+
     /// The fold stand-in: one running shell resized between a folded and an unfolded screen.
     func testCaptureFold() throws {
         try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "The fold stand-in needs an iPad canvas")
