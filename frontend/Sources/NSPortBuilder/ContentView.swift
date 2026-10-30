@@ -866,8 +866,14 @@ final class BuildModel: ObservableObject {
         }
         if relaunch {
             appStatus = String(format: t("app.relaunching"), staged.release.tag)
-            NSWorkspace.shared.openApplication(at: placed, configuration: NSWorkspace.OpenConfiguration())
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { exit(0) }
+            // The old instance is still running, so opening the same bundle now would only activate it:
+            // a helper opens the new copy once this process has exited.
+            if AppUpdate.relaunch(placed) {
+                NSApp.terminate(nil)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { exit(0) }
+            } else {
+                appStatus = String(format: t("app.relaunchFail"), staged.release.tag)
+            }
         }
         return true
     }
