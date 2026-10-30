@@ -57,3 +57,45 @@ final class LayoutTests: XCTestCase {
         XCTAssertEqual(CardSnap.card(target: -50, velocity: -0.8, stride: stride, count: 7, start: 0), 0)
     }
 }
+
+final class ChoicePresentationTests: XCTestCase {
+    private func resolve(_ labels: [String], _ width: CGFloat?, scale: CGFloat = 1) -> ChoicePresentation {
+        ChoicePresentation.resolve(labels: labels, width: width, textScale: scale)
+    }
+    func testFewShortLabelsAreSegmented() {
+        XCTAssertEqual(resolve(["Handheld", "Docked"], 400), .segmented)
+        XCTAssertEqual(resolve(["30 fps", "60 fps"], 300), .segmented)
+        XCTAssertEqual(resolve(["Off", "Low", "Medium", "High"], 420), .segmented)
+    }
+    func testManyOptionsAreAListWhateverTheWidth() {
+        let five = ["A", "B", "C", "D", "E"]
+        XCTAssertEqual(resolve(five, 2000), .list)
+        XCTAssertEqual(resolve(five, nil), .list)
+        let languages = Array(repeating: "American English", count: 15)
+        XCTAssertEqual(resolve(languages, 600), .list)
+    }
+    func testSingleOrNoOptionIsAList() {
+        XCTAssertEqual(resolve(["Only"], 400), .list)
+        XCTAssertEqual(resolve([], 400), .list)
+    }
+    func testLongLabelsDoNotFitTheirSegment() {
+        let labels = ["Latin American Spanish", "Brazilian Portuguese"]
+        XCTAssertEqual(resolve(labels, 300), .list)
+        XCTAssertEqual(resolve(labels, 640), .segmented)
+    }
+    func testNarrowWidthAndLargerTextTurnSegmentsIntoAList() {
+        let labels = ["Handheld", "Docked"]
+        XCTAssertEqual(resolve(labels, 400), .segmented)
+        XCTAssertEqual(resolve(labels, 150), .list)
+        XCTAssertEqual(resolve(["Standard", "Performance", "Quality"], 360), .segmented)
+        XCTAssertEqual(resolve(["Standard", "Performance", "Quality"], 360, scale: 1.6), .list)
+    }
+    func testWidthUnknownDecidesByCountOnly() {
+        XCTAssertEqual(resolve(["Handheld", "Docked"], nil), .segmented)
+    }
+    func testTextScaleGrowsWithDynamicType() {
+        XCTAssertEqual(ChoicePresentation.textScale(.large), 1)
+        XCTAssertLessThan(ChoicePresentation.textScale(.small), 1)
+        XCTAssertGreaterThan(ChoicePresentation.textScale(.accessibility3), ChoicePresentation.textScale(.xxxLarge))
+    }
+}

@@ -38,6 +38,8 @@ public struct LibraryView: View {
     @State private var controllersOpen: Bool
     /// The game whose How to fix or How to update explanation is open.
     @State private var helpGameID: String?
+    /// The choice whose option list is open.
+    @State private var choice: ChoiceRequest?
     @State private var focus: FocusAppearance
     @State private var targets = FocusTargetBuffer()
     @State private var settingsPosition = ScrollPosition()
@@ -119,7 +121,7 @@ public struct LibraryView: View {
                         .opacity(settingsOpen ? 1 : 0)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
                         .allowsHitTesting(settingsOpen)
-                        .accessibilityHidden(!settingsOpen)
+                        .accessibilityHidden(!settingsOpen || choice != nil)
                         .accessibilityAddTraits(settingsOpen ? .isModal : [])
                         .transformPreference(FocusTargets.self) { if !settingsOpen { $0.removeAll() } }
                 }
@@ -135,6 +137,15 @@ public struct LibraryView: View {
                         .padding(16)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .accessibilityAddTraits(.isModal)
+                        .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                }
+                if let choice {
+                    Color.black.opacity(0.55).ignoresSafeArea().accessibilityHidden(true)
+                        .onTapGesture { closeChoice() }
+                        .transition(.opacity)
+                    ChoicePickerView(request: choice, pick: pickChoice, close: closeChoice)
+                        .padding(.horizontal, 16).padding(.vertical, 12)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .transition(.opacity.combined(with: .scale(scale: 0.96)))
                 }
                 if controllersOpen {
@@ -154,7 +165,8 @@ public struct LibraryView: View {
                 values = values.filter { target in
                     if controllersOpen { return target.id.hasPrefix("ctl.") }
                     if helpGameID != nil { return target.id.hasPrefix("help.") }
-                    return !target.id.hasPrefix("ctl.") && !target.id.hasPrefix("help.")
+                    if choice != nil { return target.id.hasPrefix("pick.") }
+                    return !target.id.hasPrefix("ctl.") && !target.id.hasPrefix("help.") && !target.id.hasPrefix("pick.")
                 }
             }
             .coordinateSpace(name: "shell")
@@ -166,6 +178,8 @@ public struct LibraryView: View {
         .animation(reduceMotion ? nil : .smooth(duration: 0.3), value: settingsOpen)
         .animation(reduceMotion ? nil : .smooth(duration: 0.3), value: controllersOpen)
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: helpGameID)
+        .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: choice)
+        .environment(\.shellPickChoice, { request in openChoice(request) })
         .environment(\.shellShowHelp, { game in openHelp(game.id) })
         .environment(\.shellFocus, focus)
         .environment(\.shellInputDevice, device)
@@ -211,18 +225,22 @@ public struct LibraryView: View {
     /// the primary action and the setting groups. A panel or the whole screen, the same view. Full screen, the banner
     /// runs under the status bar and the settings scroll under the home indicator, while Back keeps its inset.
     private func settingsPane(_ selected: GameDetail, floating: Bool, width: CGFloat, insets: EdgeInsets) -> some View {
-        ZStack(alignment: .topLeading) {
+        // The bar holds Back and never scrolls: an opaque page-coloured band from the top edge of the screen (under the
+        // status bar) to below the button, so the content scrolls beneath it and never shows through.
+        let barHeight = insets.top + Self.barContentHeight
+        return ZStack(alignment: .top) {
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
                         PaneBanner(game: selected.game, width: width + insets.leading + insets.trailing,
-                                   leading: insets.leading, trailing: insets.trailing, topInset: insets.top).id("set.top")
+                                   leading: insets.leading, trailing: insets.trailing, topInset: 0).id("set.top")
                         GameDetailView(detail: selected, actions: actions, showsPrimaryAction: true, showsHeader: false)
                             .padding(.horizontal, 24).padding(.top, 18).padding(.bottom, 32 + insets.bottom)
                             // A phone on its side: a readable column, not rows stretched across the whole width.
                             .frame(maxWidth: 640, alignment: .leading)
                             .padding(.leading, insets.leading).padding(.trailing, insets.trailing)
                     }
+                    .padding(.top, barHeight)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .scrollPosition($settingsPosition)
@@ -231,21 +249,32 @@ public struct LibraryView: View {
                 .onChange(of: focus.id) { _, id in
                     guard let id, id.hasPrefix("set.") else { return }
                     withAnimation(reduceMotion ? nil : .easeOut(duration: 0.18)) {
-                        proxy.scrollTo(id == "set.back" ? "set.top" : id, anchor: id == "set.back" ? .top : .center)
+                        proxy.scrollTo(id, anchor: id == "set.back" ? .top : .center)
                     }
                 }
             }
-            Button(action: closeSettings) {
-                if typeSize.isAccessibilitySize { Image(systemName: "chevron.left").frame(minWidth: 24) }
-                else { Label(ShellStrings.text("Library"), systemImage: "chevron.left") }
+            HStack(spacing: 0) {
+                Button(action: closeSettings) {
+                    if typeSize.isAccessibilitySize { Image(systemName: "chevron.left").frame(minWidth: 24) }
+                    else { Label(ShellStrings.text("Library"), systemImage: "chevron.left") }
+                }
+                .buttonStyle(ChipButtonStyle())
+                .accessibilityLabel(ShellStrings.text("Library"))
+                .accessibilityIdentifier("library.back")
+                .shellTarget("set.back", radius: 22, action: closeSettings)
+                Spacer(minLength: 0)
             }
-            .buttonStyle(ChipButtonStyle())
-            .accessibilityLabel(ShellStrings.text("Library"))
-            .accessibilityIdentifier("library.back")
-            .shellTarget("set.back", radius: 22, action: closeSettings)
-            .padding(.leading, 16).padding(.top, 6)
+            .padding(.leading, 16 + insets.leading).padding(.trailing, 16 + insets.trailing)
+            .frame(height: Self.barContentHeight, alignment: .center)
+            .background(alignment: .top) {
+                ShellPalette.background.overlay(alignment: .bottom) { Rectangle().fill(ShellPalette.hairline).frame(height: 1) }
+                    .ignoresSafeArea(edges: [.top, .horizontal])
+            }
+            .accessibilityElement(children: .contain)
         }
     }
+    /// The settings' top bar below the status bar: the Back button and its margins.
+    private static let barContentHeight: CGFloat = 56
 
     // MARK: Actions and focus
 
@@ -284,8 +313,26 @@ public struct LibraryView: View {
     private func openControllers() { noteTouch(); controllersOpen = true; focus.id = "ctl.close" }
     private func openHelp(_ id: String) { returnFocus = focus.id; helpGameID = id; focus.id = "help.done" }
     private func closeHelp() { helpGameID = nil; focus.id = returnFocus }
+    private func openChoice(_ request: ChoiceRequest) {
+        noteTouch()
+        returnFocus = focus.id
+        choice = request
+        focus.id = "pick.\(request.row.value)"
+    }
+    private func closeChoice() {
+        guard let request = choice else { return }
+        choice = nil
+        focus.id = "set.row.\(request.row.id)"
+    }
+    private func pickChoice(_ value: String) {
+        noteTouch()
+        guard let request = choice else { return }
+        if value != request.row.value { actions.onChange(request.gameID, request.row.id, value) }
+        closeChoice()
+    }
     private func back() {
-        if helpGameID != nil { closeHelp() }
+        if choice != nil { closeChoice() }
+        else if helpGameID != nil { closeHelp() }
         else if controllersOpen { controllersOpen = false; focus.id = "lib.controllers" }
         else if settingsOpen { closeSettings() }
         else { actions.onBack() }
@@ -325,6 +372,7 @@ public struct LibraryView: View {
         if let id = focus.id, id.hasPrefix("lib.tile.") { select(String(id.dropFirst("lib.tile.".count))) }
     }
     private var defaultFocus: String? {
+        if let choice { return "pick.\(choice.row.value)" }
         if helpGameID != nil { return "help.done" }
         if controllersOpen { return "ctl.close" }
         if settingsOpen { return "set.back" }

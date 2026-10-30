@@ -210,6 +210,28 @@ final class Clock: @unchecked Sendable { var date: Date; init(_ d: Date) { date 
         #expect(game.cloudSavesURL == nil && model.notice == nil)
     }
 
+    /// What the player changes in the settings (the views' onChange) is what the engine gets: the launcher's environment, and the
+    /// engine launch plan built from it, which the shell sets before the engine reads anything (front_hud_env, dm_profile, hle_oe).
+    @Test func aChangedSettingReachesTheEngineEnvironment() async throws {
+        let box = try Sandbox()
+        try box.giveAppData()
+        let launcher = RecordingLauncher()
+        let model = ShellHostModel(config: box.config(), launcher: launcher)
+        model.actions.onChange(Fixtures.orbit, "DM_SHOW_FPS", "1")
+        model.actions.onChange(Fixtures.orbit, "DM_OPMODE", "0")
+        await model.playNow(Fixtures.orbit)
+        let game = try #require(launcher.launched.first)
+        #expect(game.environment["DM_SHOW_FPS"] == "1" && game.environment["DM_OPMODE"] == "0")
+        let plan = EngineLaunchPlan.make(game: game, appResources: box.root.appendingPathComponent("App"), documents: box.root.appendingPathComponent("Documents"),
+                                         envFileText: "DM_SHOW_FPS=0\nDM_OTHER=7\n")
+        #expect(plan.environment["DM_SHOW_FPS"] == "1", "the player's choice wins over an env file")
+        #expect(plan.environment["DM_OPMODE"] == "0" && plan.environment["DM_OTHER"] == "7")
+        // A second model (the next start of the app) reads the same suite
+        let again = RecordingLauncher()
+        await ShellHostModel(config: box.config(), launcher: again).playNow(Fixtures.orbit)
+        #expect(again.launched.first?.environment["DM_SHOW_FPS"] == "1")
+    }
+
     @Test func theStubShowsThatLaunchingIsNotAvailable() async throws {
         let box = try Sandbox()
         try box.giveAppData()

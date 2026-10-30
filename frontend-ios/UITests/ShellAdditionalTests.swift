@@ -73,6 +73,54 @@ import XCTest
         capture("controller-reaches-last-cover")
     }
 
+    /// A choice with many options is one compact row that opens a list: a controller walks it and picks, B closes
+    /// without a change, touch picks too.
+    func testLongChoiceOpensAListAndPicks() {
+        XCUIDevice.shared.orientation = .landscapeLeft
+        app.launchArguments = ["--screen", "settings", "--input-test"]
+        app.launch()
+        let row = app.buttons["setting.DM_LANGUAGE"]
+        let picker = app.descendants(matching: .any)["choice.picker"]
+        XCTAssertTrue(app.buttons["qa.input.down"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.switches["setting.DM_SHOW_FPS"].exists)
+        // Play mode has two short options and stays segmented. Language is one row, not fifteen buttons.
+        XCTAssertTrue(app.buttons["Play mode, Handheld"].exists)
+        XCTAssertFalse(app.buttons["Language, Japanese"].exists)
+        // The first press only shows the focus on Back, then Play, Play mode, Show frame rate, Language.
+        for _ in 0..<5 { app.buttons["qa.input.down"].tap() }
+        XCTAssertEqual(row.value as? String, "American English")
+        capture("language-collapsed")
+        app.buttons["qa.input.activate"].tap()
+        XCTAssertTrue(picker.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["choice.option.es-419"].exists)
+        capture("language-list")
+        // Controller: down twice, A picks Japanese and closes.
+        app.buttons["qa.input.down"].tap()
+        app.buttons["qa.input.down"].tap()
+        app.buttons["qa.input.activate"].tap()
+        XCTAssertFalse(picker.waitForExistence(timeout: 1))
+        XCTAssertEqual(row.value as? String, "Japanese")
+        // B closes without a change: down moves the focus, back leaves the value alone.
+        app.buttons["qa.input.activate"].tap()
+        XCTAssertTrue(picker.waitForExistence(timeout: 5))
+        app.buttons["qa.input.down"].tap()
+        app.buttons["qa.input.back"].tap()
+        XCTAssertFalse(picker.waitForExistence(timeout: 1))
+        XCTAssertEqual(row.value as? String, "Japanese")
+        // Touch: tap the row, tap an option.
+        row.tap()
+        XCTAssertTrue(picker.waitForExistence(timeout: 5))
+        app.buttons["choice.option.fr"].tap()
+        XCTAssertFalse(picker.waitForExistence(timeout: 1))
+        XCTAssertEqual(row.value as? String, "French")
+        // The close button and a tap outside leave it as well.
+        row.tap()
+        XCTAssertTrue(app.buttons["choice.close"].waitForExistence(timeout: 5))
+        app.buttons["choice.close"].tap()
+        XCTAssertFalse(picker.waitForExistence(timeout: 1))
+        XCTAssertEqual(row.value as? String, "French")
+    }
+
     func testCoverFlowFollowsTheController() {
         XCUIDevice.shared.orientation = .landscapeLeft
         app.launchArguments = ["--screen", "focus", "--input-test"]

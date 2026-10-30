@@ -27,6 +27,24 @@ import XCTest
         sleep(1)
     }
 
+    /// The settings with the language row collapsed, its open list, and the settings scrolled under the top bar.
+    func testCaptureChoiceAndTopBar() {
+        XCUIDevice.shared.orientation = .landscapeLeft
+        launch(["--screen", "settings", "--input-test"])
+        func appShot(_ name: String) { shot(name) }
+        for _ in 0..<5 { app.buttons["qa.input.down"].tap() }
+        sleep(1)
+        appShot("settings-language-collapsed")
+        app.buttons["qa.input.activate"].tap()
+        sleep(1)
+        appShot("settings-language-list")
+        app.buttons["qa.input.back"].tap()
+        sleep(1)
+        app.scrollViews.element(boundBy: app.scrollViews.count - 1).swipeUp()
+        sleep(1)
+        appShot("settings-scrolled-top-bar")
+    }
+
     func testCaptureMatrix() {
         for orientation in [UIDeviceOrientation.portrait, .landscapeLeft] {
             XCUIDevice.shared.orientation = orientation

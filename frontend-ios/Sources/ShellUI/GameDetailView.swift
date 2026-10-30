@@ -145,6 +145,9 @@ private struct SettingControl: View, Equatable {
     let change: (String) -> Void
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool { lhs.gameID == rhs.gameID && lhs.row == rhs.row }
     @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.shellPickChoice) private var pickChoice
+    /// The row's width, once measured, for the segmented-or-list rule.
+    @State private var width: CGFloat?
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             switch row.kind {
@@ -153,16 +156,17 @@ private struct SettingControl: View, Equatable {
                     .toggleStyle(CreamToggleStyle())
                     .shellTarget("set.row.\(row.id)", enabled: row.enabled) { change(row.value == on ? off : on) }
             case .choice(let options):
-                label
-                // Equal segments across the card. When the labels do not fit one row: two rows of equal cells, then a list.
-                if typeSize.isAccessibilitySize {
-                    list(options)
-                } else {
+                let labels = options.map(\.label)
+                let scale = ChoicePresentation.textScale(typeSize)
+                switch ChoicePresentation.resolve(labels: labels, width: width, textScale: scale) {
+                case .segmented:
+                    // Equal segments across the card. If the real layout still cannot hold them, the compact row.
                     ViewThatFits(in: .horizontal) {
-                        segmented([options])
-                        segmented(stride(from: 0, to: options.count, by: 2).map { Array(options[$0..<min($0 + 2, options.count)]) })
-                        list(options)
+                        VStack(alignment: .leading, spacing: 12) { label; segmented([options]) }
+                        valueRow(options)
                     }
+                case .list:
+                    valueRow(options)
                 }
             case .range(let min, let max, let step, let unit):
                 HStack(alignment: .firstTextBaseline) {
@@ -181,6 +185,7 @@ private struct SettingControl: View, Equatable {
                 }
             }
         }.frame(maxWidth: .infinity, alignment: .leading)
+            .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { new in if width.map({ abs($0 - new) > 0.5 }) ?? true { width = new } }
             .disabled(!row.enabled).opacity(row.enabled ? 1 : 0.45)
             .accessibilityIdentifier("setting.\(row.id)")
     }
@@ -216,27 +221,12 @@ private struct SettingControl: View, Equatable {
         .background(.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 11))
         .overlay(RoundedRectangle(cornerRadius: 11).strokeBorder(.white.opacity(0.08)))
     }
-    private func list(_ options: [SettingOption]) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            ForEach(options) { option in
-                let chosen = row.value == option.id
-                Button { change(option.id) } label: {
-                    HStack {
-                        Text(option.label).shellText(14, chosen ? .bold : .medium)
-                        Spacer()
-                        if chosen { Image(systemName: "checkmark").font(.system(size: 13, weight: .bold)) }
-                    }
-                    .padding(.horizontal, 14).frame(minHeight: 44)
-                    .foregroundStyle(chosen ? ShellPalette.cream : .white.opacity(0.75))
-                    .background(.white.opacity(chosen ? 0.08 : 0.03), in: RoundedRectangle(cornerRadius: 9))
-                    .contentShape(RoundedRectangle(cornerRadius: 9))
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(row.label + ", " + option.label)
-                .accessibilityAddTraits(chosen ? .isSelected : [])
-                .shellTarget("set.row.\(row.id).\(option.id)", enabled: row.enabled, radius: 9) { change(option.id) }
-            }
+    /// Many or long options: label and current value in one compact row that opens the list.
+    private func valueRow(_ options: [SettingOption]) -> some View {
+        ChoiceValueRow(row: row, valueLabel: options.first { $0.id == row.value }?.label ?? row.value) {
+            pickChoice?(ChoiceRequest(gameID: gameID, row: row))
         }
+        .shellTarget("set.row.\(row.id)", enabled: row.enabled, radius: 11) { pickChoice?(ChoiceRequest(gameID: gameID, row: row)) }
     }
     private func rangeButton(_ symbol: String, min: Double, max: Double, delta: Double) -> some View {
         let action = { change(String(Swift.min(max, Swift.max(min, (Double(row.value) ?? min) + delta)))) }

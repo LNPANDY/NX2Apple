@@ -31,7 +31,8 @@ func demoText(_ key: String.LocalizationValue) -> String {
             GameDetail(game: tile, sections: [
                 SettingSection(id: "game", title: demoText("Game"), rows: [
                     SettingRow(id: "DM_OPERATION_MODE", label: demoText("Play mode"), note: demoText("The game's display and performance profile."), kind: .choice([SettingOption("handheld", demoText("Handheld")), SettingOption("docked", demoText("Docked"))]), value: "handheld"),
-                    SettingRow(id: "DM_SHOW_FPS", label: demoText("Show frame rate"), kind: .toggle(on: "1", off: "0"), value: "0")
+                    SettingRow(id: "DM_SHOW_FPS", label: demoText("Show frame rate"), kind: .toggle(on: "1", off: "0"), value: "0"),
+                    SettingRow(id: "DM_LANGUAGE", label: demoText("Language"), kind: .choice([SettingOption("en-US", demoText("American English")), SettingOption("en-GB", demoText("British English")), SettingOption("ja", demoText("Japanese")), SettingOption("fr", demoText("French")), SettingOption("de", demoText("German")), SettingOption("es-419", demoText("Latin American Spanish")), SettingOption("es", demoText("Spanish")), SettingOption("it", demoText("Italian")), SettingOption("nl", demoText("Dutch")), SettingOption("fr-CA", demoText("Canadian French")), SettingOption("ru", demoText("Russian")), SettingOption("ko", demoText("Korean")), SettingOption("zh-Hant", demoText("Traditional Chinese")), SettingOption("zh-Hans", demoText("Simplified Chinese")), SettingOption("pt-BR", demoText("Brazilian Portuguese"))]), value: "en-US")
                 ]),
                 SettingSection(id: "controls", title: demoText("Controls"), rows: [
                     SettingRow(id: "DM_PAD_MERGE", label: demoText("All controllers are player 1"), note: demoText("Use more than one controller for the same player."), kind: .toggle(on: "1", off: "0"), value: "0")
