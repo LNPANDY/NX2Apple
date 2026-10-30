@@ -23,6 +23,9 @@ struct LibraryGame: Codable, Identifiable, Equatable {
     var installedDevice = ""
     /// The repository checkout's commit the last finished build used (ToolsAge); empty for a build from before it was recorded.
     var toolsCommit = ""
+    /// "Keep this build": the player says this build plays well, so engine updates stop marking it older and
+    /// nagging a rebuild. A rebuild stays one click away, and this game's profile changes keep being shown.
+    var pinned = false
 
     var isReady: Bool {
         guard let app = try? MacGameBundle.read(URL(fileURLWithPath: appPath)) else { return false }
@@ -71,6 +74,7 @@ extension LibraryGame {
         iosAppPath = try c.decodeIfPresent(String.self, forKey: .iosAppPath) ?? ""
         installedDevice = try c.decodeIfPresent(String.self, forKey: .installedDevice) ?? ""
         toolsCommit = try c.decodeIfPresent(String.self, forKey: .toolsCommit) ?? ""
+        pinned = try c.decodeIfPresent(Bool.self, forKey: .pinned) ?? false
     }
 }
 
@@ -543,6 +547,14 @@ final class GameLibrary: ObservableObject {
     func setArtwork(_ path: String, for id: UUID) {
         guard var game = games.first(where: { $0.id == id }) else { return }
         game.artworkPath = path
+        upsert(game)
+    }
+
+    /// "Keep this build" (LibraryGame.pinned): the player says this build plays well. The Manage menu's
+    /// row toggles it; ToolsAge reads it to stop marking the game older.
+    func setPinned(_ pinned: Bool, for id: UUID) {
+        guard var game = games.first(where: { $0.id == id }) else { return }
+        game.pinned = pinned
         upsert(game)
     }
 

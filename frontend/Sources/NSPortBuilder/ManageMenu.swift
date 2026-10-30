@@ -13,6 +13,7 @@ struct ManageActions {
     var showLog: () -> Void = {}
     var freeSpace: () -> Void = {}
     var remove: () -> Void = {}
+    var togglePin: () -> Void = {}
 }
 
 /// One row of the Manage menu.
@@ -32,6 +33,12 @@ struct ManageItem: Identifiable {
                      hasBuildFolder: Bool, hasLog: Bool = false, actions a: ManageActions) -> [ManageItem] {
         var items = [ManageItem(id: "rebuild", symbol: "arrow.clockwise", title: t(olderTools ? "library.rebuild" : "library.buildAgain"),
                                 enabled: !running && !game.inputs["base", default: []].isEmpty, run: a.rebuild)]
+        // "Keep this build": the build plays well, so engine updates stop marking it older. Only a build whose
+        // commit was recorded can be kept — without it there is nothing to compare against.
+        if game.isReady, !game.toolsCommit.isEmpty {
+            items.append(.init(id: "pin", symbol: game.pinned ? "lock.open" : "lock",
+                               title: t(game.pinned ? "library.unpin" : "library.pin"), run: a.togglePin))
+        }
         if game.isReady { items.append(.init(id: "options", symbol: "slider.horizontal.3", title: t("launch.title"), run: a.options)) }
         items.append(.init(id: "saves", symbol: "tray.and.arrow.down", title: t("saves.menu"), run: a.saves))
         items.append(.init(id: "cheats", symbol: "wand.and.stars", title: t("cheats.menu"), run: a.cheats))

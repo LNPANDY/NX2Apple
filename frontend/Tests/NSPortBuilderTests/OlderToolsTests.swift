@@ -50,42 +50,66 @@ final class OlderToolsTests: XCTestCase {
         let (repo, built) = try fixture()
         try commit(["dm/host/hle_fs.c": "two"], in: repo)
         let hades = game(built)
-        XCTAssertEqual(ToolsAge.olderGames([hades], repo: repo.path), [hades.id])
+        XCTAssertEqual(ToolsAge.olderGames(builds: [hades], repo: repo.path), [hades.id])
     }
 
     func testAChangeOnlyInTheDocsMarksNothing() throws {
         let (repo, built) = try fixture()
         try commit(["docs/development.md": "two", "dm/host/README.md": "notes"], in: repo)
-        XCTAssertEqual(ToolsAge.olderGames([game(built)], repo: repo.path), [])
+        XCTAssertEqual(ToolsAge.olderGames(builds: [game(built)], repo: repo.path), [])
     }
 
     func testAGameWithNoRecordedCommitIsNotMarked() throws {
         let (repo, _) = try fixture()
         try commit(["dm/host/hle_fs.c": "two"], in: repo)
-        XCTAssertEqual(ToolsAge.olderGames([game("")], repo: repo.path), [])
+        XCTAssertEqual(ToolsAge.olderGames(builds: [game("")], repo: repo.path), [])
     }
 
     func testOnlyTheGamesOwnProfileCounts() throws {
         let (repo, built) = try fixture()
         try commit(["dm/games/01007EF00011E000/game.tsv": "name\tZelda 2"], in: repo)
-        XCTAssertEqual(ToolsAge.olderGames([game(built)], repo: repo.path), [], "another game's profile")
+        XCTAssertEqual(ToolsAge.olderGames(builds: [game(built)], repo: repo.path), [], "another game's profile")
         try commit(["dm/games/\(titleID)/game.tsv": "name\tHades 2"], in: repo)
         let hades = game(built)
-        XCTAssertEqual(ToolsAge.olderGames([hades], repo: repo.path), [hades.id])
+        XCTAssertEqual(ToolsAge.olderGames(builds: [hades], repo: repo.path), [hades.id])
     }
 
     func testABuildAtHeadOrFromAnUnknownCommitIsNotMarked() throws {
         let (repo, _) = try fixture()
         let head = try commit(["dm/host/hle_fs.c": "two"], in: repo)
-        XCTAssertEqual(ToolsAge.olderGames([game(head)], repo: repo.path), [])
-        XCTAssertEqual(ToolsAge.olderGames([game(String(repeating: "0", count: 40))], repo: repo.path), [], "a commit the checkout does not have")
+        XCTAssertEqual(ToolsAge.olderGames(builds: [game(head)], repo: repo.path), [])
+        XCTAssertEqual(ToolsAge.olderGames(builds: [game(String(repeating: "0", count: 40))], repo: repo.path), [], "a commit the checkout does not have")
     }
 
     func testAFolderThatIsNotAGitCheckoutMarksNothing() throws {
         let zip = temporary.appendingPathComponent("zip")
         try FileManager.default.createDirectory(at: zip.appendingPathComponent("dm/host"), withIntermediateDirectories: true)
         XCTAssertNil(ToolsAge.head(repo: zip.path))
-        XCTAssertEqual(ToolsAge.olderGames([game("abc")], repo: zip.path), [])
+        XCTAssertEqual(ToolsAge.olderGames(builds: [game("abc")], repo: zip.path), [])
+    }
+
+    /// "Keep this build": a pinned game stops being nagged for a rebuild, while its own profile's changes
+    /// are still reported — the player decides whether to take them.
+    func testAPinnedGameIsNotMarkedOlderButItsProfileChangesStillShow() throws {
+        let (repo, built) = try fixture()
+        try commit(["dm/host/hle_fs.c": "two", "dm/games/\(titleID)/game.tsv": "name\tHades 2"], in: repo)
+        let pinned = (id: UUID(), titleID: titleID, commit: built, pinned: true)
+        let verdict = ToolsAge.classify(builds: [pinned], repo: repo.path)
+        XCTAssertFalse(verdict.older.contains(pinned.id), "pinned: no rebuild nag")
+        XCTAssertTrue(verdict.profileChanged.contains(pinned.id), "the profile note still shows for a pinned game")
+        let unpinned = (id: UUID(), titleID: titleID, commit: built, pinned: false)
+        let unpinnedVerdict = ToolsAge.classify(builds: [unpinned], repo: repo.path)
+        XCTAssertTrue(unpinnedVerdict.older.contains(unpinned.id))
+        XCTAssertTrue(unpinnedVerdict.profileChanged.contains(unpinned.id))
+    }
+
+    func testAProfileOnlyChangeStillMarksTheGameOlderWhenNotPinned() throws {
+        let (repo, built) = try fixture()
+        try commit(["dm/games/\(titleID)/game.tsv": "name\tHades 2"], in: repo)
+        let hades = (id: UUID(), titleID: titleID, commit: built, pinned: false)
+        let verdict = ToolsAge.classify(builds: [hades], repo: repo.path)
+        XCTAssertTrue(verdict.older.contains(hades.id))
+        XCTAssertTrue(verdict.profileChanged.contains(hades.id))
     }
 
     func testWhatABuildReads() {
