@@ -31,3 +31,5 @@
 0036-route-c-framework-build.patch
 0037-route-c-framework-tests.patch
 0038-dm-framework-env-switch-row.patch
+0039-route-c-shell.patch
+0040-nsp-shell-framework.patch

@@ -1,0 +1,826 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: v0lumehi <aljic.zijad@gmail.com>
+Date: Fri, 30 Oct 2026 20:07:15 +0100
+Subject: [PATCH] Route C shell: one app for the games, with each game's
+ framework built on its own
+
+build_ipa.sh DM_FRAMEWORK_ONLY=<folder> builds only the game's framework, DmGame<title ID>.framework, unsigned, with its shader
+libraries, pipeline archive, launcher.json and icon inside, so one folder is one game. build_shell.sh generates the shell project
+from project-shell.yml with every framework embedded and not linked, the host compiled from dm/host as in the one-game app and the
+frontend-ios package linked as a local Swift package. dm/ios/Shell holds the shell's main, its scene, the library on ShellHost and
+the real GameLauncher: Play sets the game's environment, dlopens its framework, hands the loader its mach header and starts the
+host, then front_ios.m's game view takes the window. One game per process.
+
+Upstream-Status: fork-only
+Reason: the route C shell (M2): its library is the fork's frontend-ios package and its frameworks build on the route C patches 0035 to 0038, which wait for the runtime profile (seedds/nxnative#492)
+Issue: LNPANDY/NX2Apple#144
+
+---
+ dm/ios/Shell/Shell-Bridging-Header.h |   2 +
+ dm/ios/Shell/ShellApp.swift          |  73 ++++++++++++
+ dm/ios/Shell/ShellEngine.h           |  10 ++
+ dm/ios/Shell/ShellMain.m             | 164 +++++++++++++++++++++++++++
+ dm/ios/project-shell.yml             | 113 ++++++++++++++++++
+ dm/ios/tests/test_shell_build.py     | 153 +++++++++++++++++++++++++
+ dm/ios/tools/build_ipa.sh            |  39 ++++++-
+ dm/ios/tools/build_shell.sh          | 121 ++++++++++++++++++++
+ dm/ios/tools/gen_manifest.py         |   9 +-
+ 9 files changed, 680 insertions(+), 4 deletions(-)
+ create mode 100644 dm/ios/Shell/Shell-Bridging-Header.h
+ create mode 100644 dm/ios/Shell/ShellApp.swift
+ create mode 100644 dm/ios/Shell/ShellEngine.h
+ create mode 100644 dm/ios/Shell/ShellMain.m
+ create mode 100644 dm/ios/project-shell.yml
+ create mode 100644 dm/ios/tests/test_shell_build.py
+ create mode 100755 dm/ios/tools/build_shell.sh
+
+diff --git a/dm/ios/Shell/Shell-Bridging-Header.h b/dm/ios/Shell/Shell-Bridging-Header.h
+new file mode 100644
+index 00000000..bf778b2c
+--- /dev/null
++++ b/dm/ios/Shell/Shell-Bridging-Header.h
+@@ -0,0 +1,2 @@
++// What ShellApp.swift calls in the engine glue (ShellMain.m).
++#include "ShellEngine.h"
+diff --git a/dm/ios/Shell/ShellApp.swift b/dm/ios/Shell/ShellApp.swift
+new file mode 100644
+index 00000000..8dbe45f0
+--- /dev/null
++++ b/dm/ios/Shell/ShellApp.swift
+@@ -0,0 +1,73 @@
++// Route C shell (docs/launcher-c-plan.md M2): the library on the frontend-ios package (ShellHost, ShellUI) and the real GameLauncher.
++// The games are the frameworks embedded in the app (Frameworks/DmGame<title ID>.framework, each with its manifest, settings list,
++// shader libraries and icon), their data the app's Documents/games/<title ID>/ or a folder the player picked. Play computes the
++// engine's environment (EngineLaunchPlan, the per-game app's boot_env() order) and hands it to ShellMain.m, which loads the framework
++// and starts the host. The per-game settings are the ones ShellHost stores per game, with the per-game app's key names, and reach the
++// engine as the same DM_* variables the per-game app's launcher sets.
++import Foundation
++import SwiftUI
++import UIKit
++import ShellHost
++import ShellUI
++
++/// The real launcher: one game per process. The process becomes the game, so `launch` returns only on a failure to start.
++struct EngineGameLauncher: GameLauncher {
++    enum Failure: LocalizedError {
++        case engine(String)
++        var errorDescription: String? { if case .engine(let text) = self { return text }; return nil }
++    }
++
++    @MainActor func launch(_ game: LaunchableGame) async throws {
++        let fm = FileManager.default
++        let documents = fm.urls(for: .documentDirectory, in: .userDomainMask)[0]
++        let envFile = try? String(contentsOf: documents.appendingPathComponent("env.txt"), encoding: .utf8)
++        let plan = EngineLaunchPlan.make(game: game, appResources: Bundle.main.resourceURL ?? Bundle.main.bundleURL, documents: documents, envFileText: envFile)
++        try plan.createFolders()
++        let pairs = plan.environment.sorted { $0.key < $1.key }
++        let failure = withCStrings(pairs.map(\.key)) { keys in
++            withCStrings(pairs.map(\.value)) { values in
++                withCStrings(plan.arguments) { argv in
++                    dm_shell_start_game(keys, values, Int32(pairs.count), argv, Int32(plan.arguments.count),
++                                        plan.frameworkExecutable.path, plan.imageMarker, plan.logURL.path, plan.workingDirectory.path)
++                }
++            }
++        }
++        if let failure { throw Failure.engine(String(cString: failure)) }
++        dm_shell_present_game()
++    }
++}
++
++/// `strdup`ed copies for the C call, freed after it (the engine copies what it keeps).
++private func withCStrings<R>(_ strings: [String], _ body: (UnsafePointer<UnsafePointer<CChar>?>) -> R) -> R {
++    let copies: [UnsafePointer<CChar>?] = strings.map { UnsafePointer(strdup($0)) }
++    defer { copies.forEach { free(UnsafeMutablePointer(mutating: $0)) } }
++    return copies.withUnsafeBufferPointer { body($0.baseAddress!) }
++}
++
++/// The library's root controller, for ShellMain.m's scene delegate.
++@objc(ShellLibrary) final class ShellLibrary: NSObject {
++    @MainActor @objc static func makeController() -> UIViewController {
++        let info = Bundle.main.infoDictionary ?? [:]
++        // The shader chain the host was compiled with (build_shell.sh writes DMChain): a framework built for another one needs an app update
++        let chain = (info["DMChain"] as? String).map { "b-" + $0 }
++        let frameworks = Bundle.main.privateFrameworksURL ?? Bundle.main.bundleURL.appendingPathComponent("Frameworks", isDirectory: true)
++        let config = ShellHostConfig(gamesRoot: frameworks, appDataRoot: ShellHostConfig.defaultAppDataRoot(),
++                                     environment: HostEnvironment(chain: chain),
++                                     updateURL: URL(string: "https://github.com/LNPANDY/NX2Apple/releases"))
++        let model = ShellHostModel(config: config, launcher: EngineGameLauncher(), picker: DocumentFolderPicker())
++        model.startControllers()
++        for entry in model.entries {
++            fputs("shell: game \(entry.id) \(entry.title) at \(entry.frameworkURL?.lastPathComponent ?? "-")\(entry.problem.map { ", broken: \($0.reason), \($0.detail)" } ?? "")\n", stderr)
++        }
++        // DM_SHELL_PLAY=<title ID> in the launch environment (devicectl process launch --environment-variables, the Mac launcher's
++        // Play on device) starts that game as Play in the library would, through the same launcher: the library is skipped
++        if let id = ProcessInfo.processInfo.environment["DM_SHELL_PLAY"], !id.isEmpty {
++            let state = model.details.first { $0.id == id }.map { "\($0.game.state)" } ?? "not in the library"
++            fputs("shell: DM_SHELL_PLAY=\(id) (\(state))\n", stderr)
++            DispatchQueue.main.async { model.play(id) }
++        }
++        let host = UIHostingController(rootView: ShellHostView(model: model))
++        host.view.backgroundColor = .black
++        return host
++    }
++}
+diff --git a/dm/ios/Shell/ShellEngine.h b/dm/ios/Shell/ShellEngine.h
+new file mode 100644
+index 00000000..40f6f04e
+--- /dev/null
++++ b/dm/ios/Shell/ShellEngine.h
+@@ -0,0 +1,10 @@
++// Route C shell: the engine side of Play (ShellMain.m), called by ShellApp.swift's EngineGameLauncher. See ShellMain.m.
++#pragma once
++
++// Sets the log, the environment (keys[i]=values[i], overwriting) and the working folder, dlopens the game's framework, hands its mach
++// header to the loader and starts the host's early loading with argv. NULL on success, else a message for the player (the log has
++// the details). Once per process.
++const char *dm_shell_start_game(const char *const *keys, const char *const *values, int n, const char *const *argv, int argc,
++                                const char *executable, const char *marker, const char *log_path, const char *cwd);
++// After a successful start: the window shows front_ios.m's game view, which starts the game.
++void dm_shell_present_game(void);
+diff --git a/dm/ios/Shell/ShellMain.m b/dm/ios/Shell/ShellMain.m
+new file mode 100644
+index 00000000..81a42d33
+--- /dev/null
++++ b/dm/ios/Shell/ShellMain.m
+@@ -0,0 +1,164 @@
++// Route C shell (docs/launcher-c-plan.md M2): the app that hosts the engine and several games' frameworks. It starts on the
++// library (frontend-ios's ShellHost views, ShellApp.swift) instead of booting a game at launch as dm/ios/Sources/main.m does, and
++// when the player presses Play, dm_shell_start_game() does what main.m's boot_env() does before UIApplicationMain, for the chosen
++// game: the log, the environment (EngineLaunchPlan in ShellHost computes it), dlopen of the game's framework and its mach header for
++// the loader, and the host's early loading. dm_shell_present_game() then hands the window to front_ios.m's game view, which starts
++// dm_main on the big-stack thread through front_ios_boot() below.
++// One game per process: dm_profile() and dm_host_preload_start() run once, so returning to the library is a relaunch of the app.
++// This file provides the symbols front_ios.m takes from main.m and Launcher.swift in the one-game app (front_ios_boot,
++// front_ios_boot_ok, front_ios_boot_message, dm_locate_game_data, dm_show_launcher): the shell compiles front_ios.m unchanged.
++#import <UIKit/UIKit.h>
++#include <dlfcn.h>
++#include <pthread.h>
++#include <signal.h>
++#include <stdio.h>
++#include <string.h>
++#include <sys/stat.h>
++#include <unistd.h>
++#include "front.h"
++#include "loader_image.h"
++#include "ShellEngine.h"
++#import "DmShell-Swift.h"
++
++int dm_main(int argc, char **argv);   // dm/host/main.c compiled in with -Dmain=dm_main
++UIViewController *front_ios_root(void);
++void front_ios_focus_event(int ev);
++
++static char **g_argv; static int g_argc; static int g_boot_ok;
++
++static NSString *documents(void) { return NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES)[0]; }
++
++// One log file per run, the previous one kept beside it (<name>.prev.txt): the shell's own lines go to Documents/shell-log.txt until a
++// game starts, the game's (the host's stderr) to Documents/log.txt, the file the per-game app writes and the issue forms ask for.
++static void log_to(NSString *log) {
++    NSString *prev = [[log stringByDeletingPathExtension] stringByAppendingString:@".prev.txt"];
++    NSFileManager *fm = NSFileManager.defaultManager;
++    [fm removeItemAtPath:prev error:nil]; [fm moveItemAtPath:log toPath:prev error:nil];
++    fflush(stderr);
++    if (freopen(log.fileSystemRepresentation, "w", stderr)) setvbuf(stderr, NULL, _IOLBF, 0);
++    NSString *fork_patches = [NSBundle.mainBundle objectForInfoDictionaryKey:@"DMForkPatches"];
++    fprintf(stderr, "fork patches: %s\n", [fork_patches isKindOfClass:NSString.class] && fork_patches.length ? fork_patches.UTF8String : "none");
++}
++
++// The variables worth a line of their own: what makes a report readable (which game, which data, which profile)
++static int logged_key(const char *k) {
++    static const char *keys[] = {"DM_PROFILE", "DM_ROMFS", "DM_SAVE", "DM_TEMP", "DM_MSL_DIR", "DM_PSO_BUNDLE", "DM_NVN_SHMAP", "DM_AOC_DIR", "DM_SAVE_SYNC", "DM_LANG", "DM_ENV_FILE_KEYS"};
++    for (size_t i = 0; i < sizeof keys / sizeof *keys; i++) if (!strcmp(k, keys[i])) return 1;
++    return 0;
++}
++
++const char *dm_shell_start_game(const char *const *keys, const char *const *values, int n, const char *const *argv, int argc,
++                                const char *executable, const char *marker, const char *log_path, const char *cwd) {
++    static char err[512];
++    static int started;
++    if (started++) return "A game was already started in this session. Close the app and open it again.";
++    if (argc < 2) return "The game's start arguments are incomplete.";
++    log_to(@(log_path));
++    fprintf(stderr, "shell: starting %s (%s)\n", argv[1], executable);
++    for (int i = 0; i < n; i++) {
++        setenv(keys[i], values[i], 1);
++        if (logged_key(keys[i])) fprintf(stderr, "boot: %s=%s\n", keys[i], values[i]);
++    }
++    if (cwd && *cwd) chdir(cwd);
++    front_hud_env();   // before the early loading below can make a device (main.m's order)
++    // dlopen + dlsym + dladdr hand the framework's mach header to the loader, after the environment and before loading starts
++    // (the design's order, FrameworkBootstrap.m in the one-game app). RTLD_LAZY: only its sections and the marker are needed.
++    void *h = dlopen(executable, RTLD_LAZY);
++    if (!h) {
++        snprintf(err, sizeof err, "The game's code could not be loaded: %s", dlerror() ?: "no reason given");
++        fprintf(stderr, "[RED] boot: dlopen %s failed: %s\n", executable, err);
++        return err;
++    }
++    dlerror();
++    void *sym = dlsym(h, marker);
++    Dl_info info;
++    if (!sym || !dladdr(sym, &info) || !info.dli_fbase) {
++        snprintf(err, sizeof err, "The game's code is damaged (no %s symbol). Install the game again.", marker);
++        fprintf(stderr, "[RED] boot: %s: %s\n", executable, err);
++        return err;
++    }
++    dm_set_game_image_header(info.dli_fbase);   // valid for the process's life: the framework is never dlclose()d
++    fprintf(stderr, "boot: game framework %s (handle %p, image base %p)\n", executable, h, info.dli_fbase);
++    g_argc = argc; g_argv = calloc((size_t)argc + 1, sizeof(char *));
++    for (int i = 0; i < argc; i++) g_argv[i] = strdup(argv[i]);
++    dm_host_preload_start(g_argc, g_argv);   // module tables, relocation and take-over in the background while the game view comes up
++    g_boot_ok = 1;
++    return NULL;
++}
++
++void dm_shell_present_game(void) {
++    UIWindow *window = nil;
++    for (UIScene *s in UIApplication.sharedApplication.connectedScenes)
++        if ([s isKindOfClass:UIWindowScene.class]) for (UIWindow *w in ((UIWindowScene *)s).windows) if (w.isKeyWindow || !window) window = w;
++    if (!window) { fprintf(stderr, "[RED] shell: no window for the game view\n"); return; }
++    UIViewController *game = front_ios_root();   // DmRootVC: landscape, its viewDidAppear starts the game (no settings screen: dm_show_launcher)
++    window.rootViewController = game;
++    [game setNeedsUpdateOfSupportedInterfaceOrientations];
++    [window.windowScene requestGeometryUpdateWithPreferences:[[UIWindowSceneGeometryPreferencesIOS alloc] initWithInterfaceOrientations:UIInterfaceOrientationMaskLandscape]
++                                                errorHandler:^(NSError *e) { fprintf(stderr, "shell: landscape request: %s\n", e.localizedDescription.UTF8String); }];
++}
++
++// ---- what front_ios.m takes from main.m and Launcher.swift ----
++static void *boot_thread(void *p) {
++    (void)p;
++    static char alt[65536]; stack_t ss = {.ss_sp = alt, .ss_size = sizeof alt}; sigaltstack(&ss, 0);   // crash printing must work on the host thread too
++    int rc = dm_main(g_argc, g_argv);
++    fprintf(stderr, "boot: dm_main returned %d\n", rc);
++    return NULL;
++}
++void front_ios_boot(void) {   // front_ios.m, once the game view exists
++    static int once; if (once++ || !g_boot_ok) return;
++    void front_ios_audio_session(void); front_ios_audio_session();
++    pthread_attr_t a; pthread_attr_init(&a); pthread_attr_setstacksize(&a, 64u << 20);
++    pthread_t t; pthread_create(&t, &a, boot_thread, NULL); pthread_detach(t);
++}
++int front_ios_boot_ok(void) { return g_boot_ok; }
++const char *front_ios_boot_message(void) { return NULL; }
++// The shell found the data before Play (DataLocator, EngineLaunchPlan): DM_ROMFS is set and the game view only checks it is still there
++int dm_locate_game_data(void) {
++    const char *r = getenv("DM_ROMFS"); struct stat st;
++    if (r && !stat(r, &st)) return 1;
++    fprintf(stderr, "[RED] shell: the game data at %s is gone\n", r ?: "(not set)");
++    return 0;
++}
++// The shell showed its own settings before Play: the game view starts the game at once
++bool dm_show_launcher(void *view_controller, void (*done)(void)) { (void)view_controller; (void)done; return false; }
++
++@interface App : UIResponder <UIApplicationDelegate>
++@end
++@implementation App
++- (UISceneConfiguration *)application:(UIApplication *)a configurationForConnectingSceneSession:(UISceneSession *)s options:(UISceneConnectionOptions *)o {
++    return [[UISceneConfiguration alloc] initWithName:@"Default" sessionRole:s.role];
++}
++@end
++
++@interface SceneDelegate : UIResponder <UIWindowSceneDelegate>
++@property (strong, nonatomic) UIWindow *window;
++@end
++@implementation SceneDelegate
++- (void)scene:(UIScene *)scene willConnectToSession:(UISceneSession *)session options:(UISceneConnectionOptions *)o {
++    self.window = [[UIWindow alloc] initWithWindowScene:(UIWindowScene *)scene];
++    self.window.rootViewController = [ShellLibrary makeController];
++    [self.window makeKeyAndVisible];
++}
++// front_ios.m ignores these until the game view exists
++- (void)sceneWillResignActive:(UIScene *)s { front_ios_focus_event(0); }
++- (void)sceneDidEnterBackground:(UIScene *)s { front_ios_focus_event(1); }
++- (void)sceneWillEnterForeground:(UIScene *)s { front_ios_focus_event(2); }
++- (void)sceneDidBecomeActive:(UIScene *)s { front_ios_focus_event(3); }
++@end
++
++int main(int argc, char **argv) {
++    @autoreleasepool {
++        log_to([documents() stringByAppendingPathComponent:@"shell-log.txt"]);
++        NSDictionary *info = NSBundle.mainBundle.infoDictionary;
++        fprintf(stderr, "shell: %s %s, commit %s, shader chain %s, iOS %s\n", [info[@"CFBundleIdentifier"] UTF8String], [info[@"CFBundleShortVersionString"] UTF8String] ?: "?",
++                [info[@"DMCommit"] UTF8String] ?: "not recorded", [info[@"DMChain"] UTF8String] ?: "?", UIDevice.currentDevice.systemVersion.UTF8String);
++        // Free space where the game data goes: the Mac launcher reads this line before it copies a game's data (many GB)
++        NSNumber *avail = [[NSURL fileURLWithPath:documents()] resourceValuesForKeys:@[NSURLVolumeAvailableCapacityForImportantUsageKey] error:nil][NSURLVolumeAvailableCapacityForImportantUsageKey];
++        fprintf(stderr, "shell: free space %lld bytes\n", avail ? avail.longLongValue : -1LL);
++        for (NSString *fw in [NSFileManager.defaultManager contentsOfDirectoryAtPath:NSBundle.mainBundle.privateFrameworksPath error:nil])
++            fprintf(stderr, "shell: framework %s\n", fw.UTF8String);
++    }
++    @autoreleasepool { return UIApplicationMain(argc, argv, nil, NSStringFromClass(App.class)); }
++}
+diff --git a/dm/ios/project-shell.yml b/dm/ios/project-shell.yml
+new file mode 100644
+index 00000000..b66a730e
+--- /dev/null
++++ b/dm/ios/project-shell.yml
+@@ -0,0 +1,113 @@
++# Route C shell project (docs/launcher-c-plan.md M2/M3): one app that hosts the engine and every game the player added, each game's
++# code and per-game files in its own framework (build_ipa.sh DM_FRAMEWORK_ONLY), the library and settings from the frontend-ios Swift
++# package. dm/ios/tools/build_shell.sh copies this template to the shell's project folder, puts the frameworks in at the FRAMEWORKS line and
++# runs xcodegen there. The one-game projects (project.yml, project-framework.yml) are untouched.
++# Why here and linked this way: the host is compiled from dm/host's Makefile per build (Gen/src, gen_build.py), as in the one-game
++# app, and its glue (Shell/) calls the engine's internals, so the project and its build script sit beside build_ipa.sh. The views have
++# no engine dependency and stay a Swift package in frontend-ios/, linked as a local package by its absolute path (DM_SHELL_PACKAGE),
++# so the demo app and the package tests build them without the engine.
++name: DmShell
++options:
++  bundleIdPrefix: ${DM_BUNDLE_ID}
++  deploymentTarget:
++    iOS: "26.0"
++configFiles:     # build_shell.sh: the host's header paths, defines and frameworks from dm/host/Makefile (gen_build.py)
++  Release: Gen/dm.xcconfig
++  Debug: Gen/dm.xcconfig
++packages:
++  ShellUI:
++    path: ${DM_SHELL_PACKAGE}
++targets:
++  DmShell:
++    type: application
++    platform: iOS
++    sources:
++      - path: Shell           # the shell's main, its scene, the library and the real GameLauncher (dm/ios/Shell)
++      - path: Sources/front_ios.m   # the game view, unchanged from the one-game app; ShellMain.m provides what it takes from main.m
++      - path: Sources/DmGamepad.m
++      - path: Sources/CloudSaves.m
++      - path: Sources/SaveSync.m
++      - path: Sources/DataBookmark.m
++      - path: Gen/dm          # the host's shared files (dm/font for DM_FONT_DIR); every game's tables are in its framework
++        type: folder
++        buildPhase: resources
++      - path: Gen/Assets.xcassets
++      - path: Gen/src
++      - path: Gen/main/main.c
++        compilerFlags: "-Dmain=dm_main"
++    dependencies:
++      - package: ShellUI
++        product: ShellUI
++      - package: ShellUI
++        product: ShellControllers
++      - package: ShellUI
++        product: ShellHost
++      # @FRAMEWORKS@ (build_shell.sh: one "- framework: <path>" entry per game, embedded and signed with the app, not linked: the shell dlopens the chosen one)
++    info:
++      path: Gen/Info.plist
++      properties:
++        CFBundleDisplayName: ${DM_SHELL_NAME}
++        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
++        CFBundleShortVersionString: $(MARKETING_VERSION)
++        UILaunchScreen: {}
++        UIFileSharingEnabled: true          # Documents (log.txt, shell-log.txt, games/<id>/) visible in the Files app
++        LSSupportsOpeningDocumentsInPlace: true
++        UISupportedInterfaceOrientations:   # the library turns, the game view asks for landscape (front_ios.m, dm_shell_present_game)
++          - UIInterfaceOrientationPortrait
++          - UIInterfaceOrientationLandscapeRight
++          - UIInterfaceOrientationLandscapeLeft
++        UISupportedInterfaceOrientations~ipad:
++          - UIInterfaceOrientationPortrait
++          - UIInterfaceOrientationPortraitUpsideDown
++          - UIInterfaceOrientationLandscapeRight
++          - UIInterfaceOrientationLandscapeLeft
++        UIRequiresFullScreen: true
++        UIUserInterfaceStyle: Dark
++        LSApplicationCategoryType: public.app-category.games
++        DMShowFPS: false
++        LSSupportsGameMode: true
++        GCSupportsControllerUserInteraction: true
++        GCSupportedGameControllers:
++          - ProfileName: ExtendedGamepad
++        CADisableMinimumFrameDurationOnPhone: true
++        UIApplicationSceneManifest:
++          UIApplicationSupportsMultipleScenes: false
++          UISceneConfigurations:
++            UIWindowSceneSessionRoleApplication:
++              - UISceneConfigurationName: Default
++                UISceneDelegateClassName: SceneDelegate
++    settings:
++      PRODUCT_BUNDLE_IDENTIFIER: ${DM_BUNDLE_ID}
++      PRODUCT_NAME: DmShell
++      PRODUCT_MODULE_NAME: DmShell   # ShellMain.m imports DmShell-Swift.h
++      MARKETING_VERSION: ${DM_APP_VERSION}
++      CURRENT_PROJECT_VERSION: ${DM_APP_VERSION}
++      DEVELOPMENT_TEAM: ${DM_TEAM_ID}
++      CODE_SIGN_STYLE: Automatic
++      ENABLE_USER_SCRIPT_SANDBOXING: NO
++      # No SYMROOT / OBJROOT of its own (project.yml has them): Swift packages need Xcode's own build locations. Products go to the
++      # derived data xcodebuild is given (-derivedDataPath; build_shell.sh, the Mac launcher)
++      ASSETCATALOG_COMPILER_APPICON_NAME: $(DM_APPICON)
++      TARGETED_DEVICE_FAMILY: "1,2"
++      ENABLE_BITCODE: NO
++      STRIP_BITCODE_FROM_COPIED_FILES: NO   # the embed phase would run bitcode_strip on every Mach-O file in a framework, the pipeline archive's GPU binaries (pso/*.mtl4a) too, and fail
++      GCC_C_LANGUAGE_STANDARD: gnu11
++      OTHER_CFLAGS: $(inherited) -mcpu=apple-a18   # the host assembly's LSE atomics, as in project.yml
++      LD_RUNPATH_SEARCH_PATHS: $(inherited) @executable_path/Frameworks
++      CLANG_ENABLE_OBJC_ARC: YES
++      CLANG_ENABLE_MODULES: YES
++      SWIFT_VERSION: "5.0"
++      SWIFT_OBJC_BRIDGING_HEADER: Shell/Shell-Bridging-Header.h
++      DEBUG_INFORMATION_FORMAT: dwarf
++      GCC_WARN_INHIBIT_ALL_WARNINGS: YES
++schemes:
++  DmShell:
++    build:
++      targets:
++        DmShell: all
++    run:
++      config: Release
++    profile:
++      config: Release
++    archive:
++      config: Release
+diff --git a/dm/ios/tests/test_shell_build.py b/dm/ios/tests/test_shell_build.py
+new file mode 100644
+index 00000000..97c531c8
+--- /dev/null
++++ b/dm/ios/tests/test_shell_build.py
+@@ -0,0 +1,153 @@
++"""Route C shell (docs/launcher-c-plan.md M2): dm/ios/tools/build_shell.sh, off a device.
++
++The checks of the frameworks it is given run anywhere: a manifest of another shader chain, two frameworks of one title, a folder
++whose name the manifest does not give, games of two profiles (the host is still compiled for one) and a missing executable are refused
++before anything is generated. With XcodeGen and an iPhoneOS SDK the shell is also generated and built, unsigned, around a synthetic
++framework (a one-symbol dylib, no game code): the app embeds the framework without linking it (the shell dlopens it), carries
++LC_RPATH @executable_path/Frameworks, the frontend-ios package's resource bundles, its name and the chain in Info.plist, and a prepared
++project asks for the Increased Memory Limit (DM_ENTITLEMENTS= leaves it out). No game files, shaders or signing are involved.
++"""
++import json
++import os
++from pathlib import Path
++import plistlib
++import shutil
++import subprocess
++import sys
++import tempfile
++import unittest
++
++REPO = Path(__file__).resolve().parents[3]
++SCRIPT = REPO / 'dm/ios/tools/build_shell.sh'
++GAME = '010015100B514000'   # a profile in dm/games: the host is generated for the first framework's title
++OTHER = '0100000000010000'
++CHAIN = 'b-' + next(line.split('"')[1] for line in (REPO / 'dm/gfx/nvn/dmsh_chain.h').read_text().splitlines()
++                    if line.startswith('#define DMSH_CHAIN "'))
++HAS_TOOLS = (sys.platform == 'darwin' and shutil.which('xcodegen') and shutil.which('xcodebuild')
++             and subprocess.run(['xcrun', '--sdk', 'iphoneos', '--show-sdk-path'], capture_output=True).returncode == 0)
++
++
++def font_python():
++    """A python that has fontTools, for make_ext_font.py (FONT_PY), or None."""
++    for py in (os.environ.get('FONT_PY'), sys.executable, shutil.which('python3')):
++        if py and subprocess.run([py, '-c', 'import fontTools'], capture_output=True).returncode == 0: return py
++    return None
++
++
++def framework(root, title=GAME, chain=CHAIN, name=None, executable=True, compile_it=False):
++    """A framework folder as build_ipa.sh DM_FRAMEWORK_ONLY writes it, with a manifest and, optionally, a real arm64 dylib."""
++    name = name or f'DmGame{title}'
++    fw = Path(root) / f'{name}.framework'
++    (fw / 'dm').mkdir(parents=True)
++    exe = f'DmGame{title}'
++    manifest = {'schema': 1, 'title_id': title, 'name': f'Fixture {title}', 'display_version': '1.0', 'package_version': 'v0',
++                'modules': ['main'], 'nro_count': 0, 'chain': chain, 'loader': 'FR', 'framework': f'DmGame{title}.framework',
++                'framework_executable': exe, 'image_marker': 'dmgame_image_marker', 'profile': 'profile.tsv',
++                'shader_map': 'dm/shader_map.tsv', 'launcher': 'dm/launcher.json', 'romfs_marker': 'fixture.marker',
++                'romfs_identity': '', 'min_os': '26.0'}
++    (fw / 'game.manifest.json').write_text(json.dumps(manifest, indent=2))
++    (fw / 'dm/launcher.json').write_text(json.dumps({'schema': 1, 'game': title, 'settings': []}))
++    (fw / 'profile.tsv').write_text(f'id\t{title}\n')
++    plist = {'CFBundleExecutable': exe, 'CFBundleIdentifier': f'org.nxnative.ci.{title.lower()}', 'CFBundleName': exe,
++             'CFBundlePackageType': 'FMWK', 'CFBundleShortVersionString': '1.0', 'CFBundleVersion': '1.0',
++             'CFBundleSupportedPlatforms': ['iPhoneOS'], 'MinimumOSVersion': '26.0'}
++    (fw / 'Info.plist').write_bytes(plistlib.dumps(plist))
++    if compile_it:
++        src = Path(root) / 'marker.c'
++        src.write_text('__attribute__((used, visibility("default"))) const char dmgame_image_marker[] = "DmGame";\n')
++        r = subprocess.run(['xcrun', '-sdk', 'iphoneos', 'clang', '-arch', 'arm64', '-mios-version-min=26.0', '-dynamiclib',
++                            '-install_name', f'@rpath/{exe}.framework/{exe}', str(src), '-o', str(fw / exe)], capture_output=True, text=True)
++        assert r.returncode == 0, r.stderr
++    elif executable:
++        (fw / exe).write_bytes(b'stand-in')
++    return fw
++
++
++def run_script(mode, frameworks, shell_dir, **extra):
++    env = dict(os.environ, SHELL_DIR=str(shell_dir), DM_SHELL_FRAMEWORKS='\n'.join(str(f) for f in frameworks), **extra)
++    return subprocess.run(['bash', str(SCRIPT), mode], env=env, capture_output=True, text=True)
++
++
++class FrameworkChecks(unittest.TestCase):
++    """What build_shell.sh refuses before it generates anything."""
++    def setUp(self):
++        self.root = Path(tempfile.mkdtemp()).resolve()
++        self.addCleanup(shutil.rmtree, self.root)
++        self.shell = self.root / 'shell'
++
++    def refused(self, frameworks, text):
++        r = run_script('--prepare-xcode', frameworks, self.shell)
++        self.assertNotEqual(r.returncode, 0, r.stdout)
++        self.assertIn(text, r.stdout + r.stderr)
++        self.assertFalse((self.shell / 'Gen').exists(), 'nothing is generated for a refused set')
++
++    def test_another_chain_is_refused(self):
++        self.refused([framework(self.root, chain='b-000000000000')], 'built for shader chain b-000000000000')
++
++    def test_two_frameworks_of_one_title_are_refused(self):
++        a = framework(self.root / 'a')
++        b = framework(self.root / 'b')
++        self.refused([a, b], f'title ID {GAME} is already in the shell')
++
++    def test_games_of_two_profiles_are_refused_until_m3(self):
++        self.refused([framework(self.root / 'a'), framework(self.root / 'b', title=OTHER)], 'one game per shell until M3')
++
++    def test_a_folder_the_manifest_does_not_name_is_refused(self):
++        self.refused([framework(self.root, name='Renamed')], f'the manifest names DmGame{GAME}.framework')
++
++    def test_a_framework_without_its_executable_is_refused(self):
++        self.refused([framework(self.root, executable=False)], f'no executable DmGame{GAME}')
++
++    def test_no_frameworks_and_no_mode_are_refused(self):
++        r = run_script('--prepare-xcode', [], self.shell)
++        self.assertNotEqual(r.returncode, 0)
++        self.assertIn('DM_SHELL_FRAMEWORKS is not set', r.stdout)
++        r = run_script('--sign', [framework(self.root)], self.shell)
++        self.assertNotEqual(r.returncode, 0)
++        self.assertIn('usage', r.stdout)
++
++
++@unittest.skipUnless(HAS_TOOLS and font_python(), 'needs macOS, XcodeGen, an iPhoneOS SDK and a python with fontTools')
++class ShellBuild(unittest.TestCase):
++    def test_the_shell_embeds_the_framework_unlinked_and_builds(self):
++        root = Path(tempfile.mkdtemp()).resolve()
++        self.addCleanup(shutil.rmtree, root)
++        fw = framework(root / 'frameworks', compile_it=True)
++        shell = root / 'shell'
++        r = run_script('--prepare-xcode', [fw], shell, FONT_PY=font_python(), DM_SHELL_NAME='Shell Fixture', DM_BUNDLE_ID='org.nxnative.ci.shell')
++        self.assertEqual(r.returncode, 0, r.stdout[-3000:] + r.stderr[-2000:])
++        spec = (shell / 'project.yml').read_text()
++        self.assertIn(f'- framework: "{fw}"', spec)
++        self.assertIn('embed: true', spec)
++        self.assertIn('link: false', spec)
++        self.assertIn('path: ${DM_SHELL_PACKAGE}', spec)   # build_shell.sh exports it: frontend-ios in this checkout
++        self.assertIn('CODE_SIGN_ENTITLEMENTS = Gen/DmShell.entitlements', (shell / 'Gen/dm.xcconfig').read_text())
++        self.assertIn('increased-memory-limit', (shell / 'Gen/DmShell.entitlements').read_text())
++        pbx = (shell / 'DmShell.xcodeproj/project.pbxproj').read_text()
++        self.assertIn('Embed Frameworks', pbx)
++        self.assertIn('XCLocalSwiftPackageReference', pbx)
++        r = run_script('--prepare-xcode', [fw], shell, FONT_PY=font_python(), DM_ENTITLEMENTS='')
++        self.assertEqual(r.returncode, 0, r.stdout[-3000:])
++        self.assertNotIn('CODE_SIGN_ENTITLEMENTS', (shell / 'Gen/dm.xcconfig').read_text())
++
++        r = run_script('--build', [fw], shell, FONT_PY=font_python(), DM_SHELL_NAME='Shell Fixture', DM_BUNDLE_ID='org.nxnative.ci.shell')
++        log = (shell / 'build.log').read_text() if (shell / 'build.log').exists() else ''
++        self.assertEqual(r.returncode, 0, r.stdout[-3000:] + log[-4000:])
++        app = shell / 'dd/Build/Products/Release-iphoneos/DmShell.app'
++        info = plistlib.loads((app / 'Info.plist').read_bytes())
++        self.assertEqual(info['CFBundleDisplayName'], 'Shell Fixture')
++        self.assertEqual(info['CFBundleIdentifier'], 'org.nxnative.ci.shell')
++        self.assertEqual('b-' + info['DMChain'], CHAIN)
++        self.assertEqual(info['UIApplicationSceneManifest']['UISceneConfigurations']['UIWindowSceneSessionRoleApplication'][0]['UISceneDelegateClassName'], 'SceneDelegate')
++        self.assertTrue((app / f'Frameworks/{fw.name}/{fw.stem}').is_file())
++        self.assertTrue((app / f'Frameworks/{fw.name}/game.manifest.json').is_file())
++        self.assertTrue((app / 'dm/font/standard.ttf').is_file())
++        self.assertTrue(any(p.name.endswith('ShellHost.bundle') for p in app.iterdir()), 'the ShellHost package resources')
++        load = subprocess.run(['otool', '-l', str(app / 'DmShell')], capture_output=True, text=True).stdout
++        self.assertIn('@executable_path/Frameworks', load)
++        self.assertNotIn(fw.stem, subprocess.run(['otool', '-L', str(app / 'DmShell')], capture_output=True, text=True).stdout,
++                         'the shell dlopens the game framework, it must not link it')
++
++
++if __name__ == '__main__':
++    unittest.main()
+diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
+index db6471e7..0db39f9f 100755
+--- a/dm/ios/tools/build_ipa.sh
++++ b/dm/ios/tools/build_ipa.sh
+@@ -10,6 +10,9 @@
+ #   DM_FRAMEWORK=1 (route C, docs/launcher-c-plan.md M1) compiles the game's modules into DmIOS.app/Frameworks/DmGame.framework instead of the executable
+ #     (project-framework.yml): Gen/framework/ holds the framework's dm/ tables, profile.tsv and game.manifest.json; the framework is signed ad-hoc first
+ #     (no entitlements: a dylib cannot hold them) and the app's executable second. Default 0: the build above, unchanged.
++#   DM_FRAMEWORK_ONLY=<folder> (route C's shell, docs/launcher-c-plan.md M2/M3) builds only this game's framework, unsigned, as
++#     <folder>/DmGame<title ID>.framework with its shader libraries (msl/), pipeline archive (pso/), launcher.json and icon inside, for
++#     build_shell.sh to embed in the shell app; no app, no IPA, no game files
+ #   AOC=add-on content directory (default $W/data/aoc; when it exists it goes to DmIOS.app/aoc/<index>/; an empty string = none), GFXAPI=nvn / vulkan (default: by the shader libraries in MSL_IOS)
+ #   The app name is the game name in the base NSP's control data ($W/data/v0/control.nacp, else the one next to the RomFS), the app version is the display version in the packed game's control data (the one next to the RomFS:
+ #   nx_extract saves the update's there when an update is packed, else the base game's), the bundle ID is org.nxnative.<base game title ID in lowercase> (DM_DISPLAY_NAME / DM_APP_VERSION / DM_BUNDLE_ID override them);
+@@ -32,6 +35,12 @@ if [ -z "${ROMFS:-}" ] && [ -f "$W/data/$PKG/RomFS.img" ]; then ROMFS=$W/data/$P
+ PATCHED=${PATCHED:-$W/build/patched_$PKG}; ROMFS=${ROMFS:-$W/data/$PKG/RomFS}; MSL_IOS=${MSL_IOS:-$W/build/ios/dmsh_b}; AOC=${AOC-$W/data/aoc}
+ PREPARE_XCODE=NO; [ "${1:-}" != --prepare-xcode ] || PREPARE_XCODE=YES
+ FRAMEWORK=${DM_FRAMEWORK:-0}   # 1: the game's modules live in DmGame.framework (route C); 0: in the executable, as always
++# Route C's shell (DM_FRAMEWORK_ONLY=<folder>): only this game's framework, self-contained, for build_shell.sh to embed (no app, no IPA)
++FRAMEWORK_ONLY=${DM_FRAMEWORK_ONLY:-}; FW_NAME=DmGame
++if [ -n "$FRAMEWORK_ONLY" ]; then
++  [ "$PREPARE_XCODE" != YES ] || die "DM_FRAMEWORK_ONLY builds the game framework for the shell; it cannot be combined with --prepare-xcode"
++  FRAMEWORK=1; FW_NAME=DmGame$(echo "$GAME" | tr 'a-z' 'A-Z')   # unique in the shell's Frameworks/, where several games sit side by side
++fi
+ OUT_IPA=${1:-$(dirname "$W")/$(gp ipa)}; O=$W/build/ios/pkg; DD=$O/dd
+ XCODE_DD=${DM_XCODE_DERIVED_DATA:-$W/build/ios/xcode-dd}
+ MODS=$(gp modules); MARKER=$(gp romfs_marker)
+@@ -139,7 +148,9 @@ else t "no app icon ($ICON not found): the home-screen icon stays blank"; fi
+ if [ "$FRAMEWORK" = 1 ]; then
+   rm -rf Gen/framework && mkdir -p Gen/framework/dm || die "mkdir Gen/framework"
+   cp -R Gen/dm/. Gen/framework/dm/ || die "copy the framework tables"
+-  rm -rf Gen/framework/dm/font Gen/framework/dm/launcher.json Gen/framework/dm/env.txt
++  rm -rf Gen/framework/dm/font Gen/framework/dm/env.txt
++  # The one-game app reads its launcher.json from the app's dm/; the shell reads each game's from its framework (manifest key launcher)
++  [ -n "$FRAMEWORK_ONLY" ] || rm -f Gen/framework/dm/launcher.json
+   python3 "$DM/games/game.py" profile "$GAME" Gen/framework/profile.tsv > /dev/null || die "game profile"
+   # The manifest names the game data this framework was built for: the RomFS image's identity (dm/host/romfs_identity.h), as the
+   # pack step's romfs.id does. That step's default is repeated here because the manifest is a build resource and has to exist now.
+@@ -151,7 +162,7 @@ if [ "$FRAMEWORK" = 1 ]; then
+   NRO_TABLE=$PATCHED/nro.tsv; [ -f "$NRO_TABLE" ] || NRO_TABLE=   # the NRO modules gen_embed.py packs: nro_count in the manifest
+   python3 tools/gen_manifest.py Gen/framework/game.manifest.json --game "$GAME" --name "$DM_DISPLAY_NAME" \
+     --display-version "$DM_APP_VERSION" --package-version "${PKG:-}" --modules "$MODS" ${NRO_TABLE:+--nro-table "$NRO_TABLE"} \
+-    --chain "b-$V" --romfs-marker "$MARKER" --romfs-identity "$ROMFS_ID" > /dev/null || die "game manifest (gen_manifest.py)"
++    --chain "b-$V" --romfs-marker "$MARKER" --romfs-identity "$ROMFS_ID" --framework-name "$FW_NAME" > /dev/null || die "game manifest (gen_manifest.py)"
+   printf 'OTHER_LDFLAGS = $(inherited) %s\n' "$F" > Gen/framework.xcconfig || die "framework link flags"
+   t "framework: Gen/framework (modules $MODS, profile.tsv, game.manifest.json)"
+ fi
+@@ -185,6 +196,30 @@ if [ "$PREPARE_XCODE" = YES ]; then
+   exit 0
+ fi
+ 
++# DM_FRAMEWORK_ONLY: the framework target alone, unsigned (build_shell.sh's project embeds it and Xcode signs it with the shell), then the
++# game's per-game resources into it, so one folder is one game: the shader libraries (msl/<MSLDIR>, the shell's DM_MSL_DIR), the pipeline
++# archive (pso/, DM_PSO_BUNDLE) and the icon the shell's library shows. The game files and add-on content stay out (data, Documents/games/<id>/)
++if [ -n "$FRAMEWORK_ONLY" ]; then
++  t "xcodebuild (Release, unsigned, the game framework $FW_NAME only)"
++  mkdir -p "$O" "$FRAMEWORK_ONLY" || die "mkdir $FRAMEWORK_ONLY"
++  xcodebuild -project DmIOS.xcodeproj -target DmGame -configuration Release -sdk iphoneos \
++    CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= PRODUCT_NAME="$FW_NAME" PRODUCT_BUNDLE_IDENTIFIER="$DM_BUNDLE_ID.game" \
++    DM_XCODE_OUTPUT_ROOT="$DD" SYMROOT="$DD/Build/Products" OBJROOT="$DD/Build/Intermediates.noindex" build > "$O/build-framework.log" 2>&1 \
++    || { grep -E 'error:' "$O/build-framework.log" | head -20; die "xcodebuild, log $O/build-framework.log"; }
++  BUILT=$DD/Build/Products/Release-iphoneos/$FW_NAME.framework
++  [ -f "$BUILT/$FW_NAME" ] || die "no built framework $BUILT"
++  OUTFW=$FRAMEWORK_ONLY/$FW_NAME.framework; mkdir -p "$OUTFW"
++  rsync -a --delete --exclude /msl --exclude /pso --exclude /icon.png -- "$BUILT/" "$OUTFW/" || die "copy the framework to $OUTFW"
++  mkdir -p "$OUTFW/msl/$MSLDIR" && rsync -a --delete -- "$MSL_IOS/$MSLDIR/" "$OUTFW/msl/$MSLDIR/" || die "copy the shader libraries"
++  for old in "$OUTFW/msl/"*; do [ "$old" = "$OUTFW/msl/$MSLDIR" ] || rm -rf "$old"; done
++  if [ -n "$PSO" ]; then mkdir -p "$OUTFW/pso" && rsync -a --delete -- "$PSO/" "$OUTFW/pso/" || die "copy the pipeline archive"; else rm -rf "$OUTFW/pso"; fi
++  if [ -f "$ICON" ]; then sips -s format png -z 512 512 "$ICON" --out "$OUTFW/icon.png" > /dev/null || die "sips: cannot convert the icon $ICON"; else rm -f "$OUTFW/icon.png"; fi
++  python3 -c 'import json, sys; m = json.load(open(sys.argv[1])); sys.exit(m["framework_executable"] != sys.argv[2])' "$OUTFW/game.manifest.json" "$FW_NAME" \
++    || die "$OUTFW/game.manifest.json does not name $FW_NAME"
++  t "done: $OUTFW ($(du -sh "$OUTFW" | cut -f1); build_shell.sh embeds it in the shell)"
++  exit 0
++fi
++
+ t "xcodebuild (Release, unsigned, iPhone + iPad)"
+ mkdir -p "$O"
+ xcodebuild -project DmIOS.xcodeproj -scheme DmIOS -configuration Release -destination 'generic/platform=iOS' -derivedDataPath "$DD" \
+diff --git a/dm/ios/tools/build_shell.sh b/dm/ios/tools/build_shell.sh
+new file mode 100755
+index 00000000..ed9e53f1
+--- /dev/null
++++ b/dm/ios/tools/build_shell.sh
+@@ -0,0 +1,121 @@
++#!/bin/bash
++# Route C shell (docs/launcher-c-plan.md M2/M3): one iPhone and iPad app for every game the player added. It hosts the engine and
++# embeds each game's framework (build_ipa.sh DM_FRAMEWORK_ONLY=<folder>: the game's modules, tables, profile, settings list, shader
++# libraries, pipeline archive and icon). The game data stays out: the app takes it from Documents/games/<title ID>/ or a picked folder.
++# Usage: dm/ios/tools/build_shell.sh --prepare-xcode | --build
++#   --prepare-xcode  generates the project in SHELL_DIR and stops: Xcode (or xcodebuild with a team and a device, as the Mac launcher
++#                    does) signs every framework and the app and installs it; nothing is signed or installed here
++#   --build          also builds it for iOS, unsigned (CODE_SIGNING_ALLOWED=NO), to check it compiles and links (CI, off a device)
++# Environment:
++#   SHELL_DIR            the shell's project folder (required; outside dm/ios, on the drive with the games: Gen/, the project, derived data)
++#   DM_SHELL_FRAMEWORKS  the games' framework folders, one per line (required, at least one; <folder>/DmGame<title ID>.framework)
++#   DM_BUNDLE_ID         the shell's bundle ID (default org.nxnative.shell). Keep it for the life of the install: the same ID installed
++#                        over the existing app keeps its Documents (game data, saves) when it is signed again after 7 days
++#   DM_TEAM_ID           the signing team for the prepared project (default 0000000000, a placeholder)
++#   DM_SHELL_NAME        the name under the icon (default NX2Apple); DM_APP_VERSION the app version (default 1.0)
++#   DM_SHELL_PACKAGE     the frontend-ios Swift package (default: frontend-ios beside dm/ in this checkout)
++#   DM_XCODE_DERIVED_DATA  derived data (default SHELL_DIR/dd); FONT_PY / STD_FONT as for build_ipa.sh
++#   DM_GAMES_DIR         passed through, for a provisional game profile
++#   DM_ENTITLEMENTS      empty: no Increased Memory Limit request in the prepared project (default: requested, as build_ipa.sh does)
++# The host is compiled from dm/host for one game profile (gen_build.py: game_profile.h). The runtime profile (DM_PROFILE) covers most
++# of it, but parts of the host still read the compiled game_profile.h macros (DM_GAME_ID in the save sync, the shader key skip, the
++# texture upload switches, the module list fallback), so a shell holds the games of one profile for now: several frameworks of different
++# games are refused until those sites read dm_profile() (M3).
++set -u
++cd "$(dirname "$0")/.." || exit 1
++IOS_SOURCE=$PWD; DM=$(cd .. && pwd); REPO=$(cd "$DM/.." && pwd)
++t() { echo "[$(date +%T)] $*"; }; die() { t "FAIL: $*"; exit 1; }
++MODE=${1:-}; case "$MODE" in --prepare-xcode|--build) ;; *) die "usage: $0 --prepare-xcode | --build";; esac
++[ -n "${SHELL_DIR:-}" ] || die "SHELL_DIR is not set: the shell's project folder"
++[ -n "${DM_SHELL_FRAMEWORKS:-}" ] || die "DM_SHELL_FRAMEWORKS is not set: the games' framework folders, one per line"
++mkdir -p "$SHELL_DIR" || die "mkdir $SHELL_DIR"; S=$(cd "$SHELL_DIR" && pwd)
++[ "$S" != "$IOS_SOURCE" ] || die "the shell project must be outside dm/ios"
++export DM_SHELL_PACKAGE=${DM_SHELL_PACKAGE:-$REPO/frontend-ios}
++[ -f "$DM_SHELL_PACKAGE/Package.swift" ] || die "no Swift package at $DM_SHELL_PACKAGE (DM_SHELL_PACKAGE)"
++export LC_ALL=C DM_BUNDLE_ID=${DM_BUNDLE_ID:-org.nxnative.shell} DM_TEAM_ID=${DM_TEAM_ID:-0000000000} DM_SHELL_NAME=${DM_SHELL_NAME:-NX2Apple} DM_APP_VERSION=${DM_APP_VERSION:-1.0}
++export DM_FORK_PATCHES=$(paste -sd, "$DM/fork_patches.txt" 2>/dev/null || true)
++DD=${DM_XCODE_DERIVED_DATA:-$S/dd}; mkdir -p "$DD" && DD=$(cd "$DD" && pwd)
++V=$(sed -n 's/^#define DMSH_CHAIN "\(.*\)"/\1/p' "$DM/gfx/nvn/dmsh_chain.h"); [ -n "$V" ] || die "no DMSH_CHAIN in dm/gfx/nvn/dmsh_chain.h"
++
++# Every framework: a manifest of this chain, its executable, a title ID of its own. The first one's profile is the host's
++FWLIST=$S/frameworks.txt
++python3 -I - "$V" "$FWLIST" <<'PY' || die "the frameworks in DM_SHELL_FRAMEWORKS (above)"
++import json, os, sys
++chain, out = 'b-' + sys.argv[1], sys.argv[2]
++paths = [p.strip() for p in os.environ['DM_SHELL_FRAMEWORKS'].splitlines() if p.strip()]
++if not paths: sys.exit('[RED] no framework named')
++seen, rows = {}, []
++for p in paths:
++    p = os.path.abspath(p)
++    try: m = json.load(open(os.path.join(p, 'game.manifest.json'), encoding='utf-8'))
++    except (OSError, ValueError) as e: sys.exit(f'[RED] {p}: no readable game.manifest.json ({e})')
++    name, exe, tid = m.get('framework'), m.get('framework_executable'), m.get('title_id', '')
++    if os.path.basename(p) != name: sys.exit(f'[RED] {p}: the manifest names {name}')
++    if not os.path.isfile(os.path.join(p, exe or '-')): sys.exit(f'[RED] {p}: no executable {exe} (build_ipa.sh DM_FRAMEWORK_ONLY builds it)')
++    if m.get('chain') != chain: sys.exit(f'[RED] {p}: built for shader chain {m.get("chain")}, this checkout is {chain}: build the game again')
++    if tid in seen: sys.exit(f'[RED] {p}: title ID {tid} is already in the shell ({seen[tid]})')
++    seen[tid] = p; rows.append((tid, p, m.get('name', '')))
++if len({r[0] for r in rows}) > 1:
++    sys.exit('[RED] games of different profiles in one shell: ' + ', '.join(f'{r[2]} ({r[0]})' for r in rows) +
++             '. The host is still compiled for one game profile (build_shell.sh, header): one game per shell until M3')
++with open(out, 'w', encoding='utf-8') as f:
++    for tid, p, name in rows: f.write(f'{tid}\t{p}\t{name}\n')
++PY
++export GAME=$(head -1 "$FWLIST" | cut -f1)
++t "shell: $DM_SHELL_NAME ($DM_BUNDLE_ID), host profile $GAME, games: $(cut -f3 "$FWLIST" | paste -sd, -)"
++
++t "generate Gen/ (host sources, shared files, the project)"
++for item in Sources Shell tools; do ln -sfn "$IOS_SOURCE/$item" "$S/$item" || die "link $item"; done
++cd "$S" || die "cd $S"
++rm -rf Gen && mkdir -p Gen/dm/font || die "mkdir Gen"
++python3 "$IOS_SOURCE/tools/gen_build.py" "$DM/host" Gen > Gen/dm.xcconfig || die "gen_build"
++echo 'OTHER_LDFLAGS = $(inherited) $(DM_FRAMEWORKS)' >> Gen/dm.xcconfig
++cp "${STD_FONT:-/System/Library/Fonts/Supplemental/Arial Unicode.ttf}" Gen/dm/font/standard.ttf || die "copy standard font (STD_FONT=a TTF)"
++"${FONT_PY:-python3}" "$DM/tools/make_ext_font.py" Gen/dm/font/nintendo_ext.ttf > /dev/null || die "make_ext_font.py (pip install fonttools, or FONT_PY=python with fontTools)"
++mkdir -p Gen/Assets.xcassets && printf '{"info":{"author":"xcode","version":1}}\n' > Gen/Assets.xcassets/Contents.json || die "asset catalog"
++# The shell asks for the Increased Memory Limit capability, as the one-game app does; a framework cannot hold entitlements
++printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>' '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
++  '<plist version="1.0"><dict><key>com.apple.developer.kernel.increased-memory-limit</key><true/></dict></plist>' > Gen/DmShell.entitlements || die "entitlements"
++# DM_ENTITLEMENTS= (empty) leaves the request out, for a team whose profiles cannot carry the capability yet (the game may then run
++# out of memory on the device)
++if [ "$MODE" = --prepare-xcode ] && [ -n "${DM_ENTITLEMENTS-default}" ]; then echo "CODE_SIGN_ENTITLEMENTS = Gen/DmShell.entitlements" >> Gen/dm.xcconfig
++elif [ "$MODE" = --prepare-xcode ]; then t "entitlements: none (DM_ENTITLEMENTS is empty): no Increased Memory Limit"; fi
++# The template with one embedded, unlinked framework per game where it says @FRAMEWORKS@
++python3 -I - "$IOS_SOURCE/project-shell.yml" "$FWLIST" project.yml <<'PY' || die "project.yml"
++import sys
++template, fwlist, out = sys.argv[1:]
++lines, done = [], False
++for line in open(template, encoding='utf-8').read().splitlines():
++    if line.lstrip().startswith('# @FRAMEWORKS@'):
++        pad = line[:len(line) - len(line.lstrip())]
++        for row in open(fwlist, encoding='utf-8').read().splitlines():
++            path = row.split('\t')[1]
++            lines += [f'{pad}- framework: "{path}"', f'{pad}  embed: true', f'{pad}  link: false', f'{pad}  codeSign: true']
++        done = True
++        continue
++    lines.append(line)
++if not done: sys.exit('[RED] project-shell.yml has no @FRAMEWORKS@ line')
++open(out, 'w', encoding='utf-8').write('\n'.join(lines) + '\n')
++PY
++xcodegen generate -q > /dev/null || die "xcodegen"
++COMMIT=$(git -C "$DM" rev-parse --short=12 HEAD 2> /dev/null) && { [ -z "$(git -C "$DM" status --porcelain --untracked-files=no 2> /dev/null)" ] || COMMIT=$COMMIT+dirty
++  /usr/libexec/PlistBuddy -c "Add :DMCommit string $COMMIT" Gen/Info.plist > /dev/null || die "DMCommit"; t "source: $COMMIT"; }
++/usr/libexec/PlistBuddy -c "Add :DMChain string $V" Gen/Info.plist > /dev/null || die "DMChain"
++/usr/libexec/PlistBuddy -c "Add :DMForkPatches string $DM_FORK_PATCHES" Gen/Info.plist > /dev/null || die "DMForkPatches"
++if [ "$MODE" = --prepare-xcode ]; then
++  t "Xcode project: $S/DmShell.xcodeproj (scheme DmShell)"
++  t "Xcode derived data: $DD"
++  t "ready: select your Team in Signing & Capabilities and a physical device, then Run (Release); or xcodebuild -scheme DmShell -destination id=<device> DEVELOPMENT_TEAM=<team> -allowProvisioningUpdates"
++  exit 0
++fi
++
++t "xcodebuild (Release, unsigned, iPhone + iPad)"
++xcodebuild -project DmShell.xcodeproj -scheme DmShell -configuration Release -destination 'generic/platform=iOS' -derivedDataPath "$DD" \
++  CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= build > "$S/build.log" 2>&1 \
++  || { grep -E 'error:' "$S/build.log" | head -20; die "xcodebuild, log $S/build.log"; }
++APP=$DD/Build/Products/Release-iphoneos/DmShell.app
++[ -x "$APP/DmShell" ] || die "no built app at $APP"
++while IFS=$'\t' read -r tid path name; do
++  fw=$APP/Frameworks/$(basename "$path"); [ -d "$fw" ] || die "the app does not embed $(basename "$path")"
++done < "$FWLIST"
++t "done: $APP ($(du -sh "$APP" | cut -f1)), unsigned"
+diff --git a/dm/ios/tools/gen_manifest.py b/dm/ios/tools/gen_manifest.py
+index ec2c33be..e1d302ff 100644
+--- a/dm/ios/tools/gen_manifest.py
++++ b/dm/ios/tools/gen_manifest.py
+@@ -48,6 +48,8 @@ def manifest(args):
+     if not modules or any(not re.match(r'^[A-Za-z0-9]+$', m) for m in modules):
+         raise SystemExit(f'[RED] gen_manifest: --modules {args.modules!r} names no module or a module with an underscore '
+                          '(the loader\'s embedded section names cannot hold one)')
++    if not re.match(r'^[A-Za-z][A-Za-z0-9_]*$', args.framework_name):
++        raise SystemExit(f'[RED] gen_manifest: --framework-name {args.framework_name!r} is not a bundle executable name')
+     if not CHAIN.match(args.chain):
+         raise SystemExit(f'[RED] gen_manifest: --chain {args.chain!r} is not written b-<version> (dm/gfx/nvn/dmsh_chain.h)')
+     if args.romfs_identity and not args.romfs_identity.startswith('DMROMFSID1 '):
+@@ -62,8 +64,8 @@ def manifest(args):
+         'nro_count': nro_count(args.nro_table),
+         'chain': args.chain,
+         'loader': 'FR',                # a pure module container: the shell is the host (design §1.1 FR)
+-        'framework': FRAMEWORK,
+-        'framework_executable': FRAMEWORK_EXECUTABLE,
++        'framework': args.framework_name + '.framework',
++        'framework_executable': args.framework_name,
+         'image_marker': IMAGE_MARKER,
+         'profile': PROFILE,
+         'shader_map': SHADER_MAP,
+@@ -90,6 +92,9 @@ def main(argv=None):
+     ap.add_argument('--romfs-marker', required=True, help='the profile\'s romfs_marker: a folder with it is this game\'s data')
+     ap.add_argument('--romfs-identity', default='', help='the RomFS image identity line build_ipa.sh writes (empty for a folder)')
+     ap.add_argument('--min-os', default='26.0', help='the minimum iOS version (project.yml\'s deployment target)')
++    ap.add_argument('--framework-name', default=FRAMEWORK_EXECUTABLE,
++                    help='the framework\'s product name: DmGame in the one-game app (M1), DmGame<title ID> in the shell, where several '
++                         'games\' frameworks sit side by side in Frameworks/')
+     ap.add_argument('--built-by', help='who built it, for a log line (optional; a device or tool name)')
+     args = ap.parse_args(argv)
+     data = manifest(args)
