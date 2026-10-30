@@ -292,9 +292,28 @@ final class CheatFilesTests: XCTestCase {
         XCTAssertEqual(args[args.firstIndex(of: "--destination")! + 1], "Documents/games/\(titleID)/cheats")
         XCTAssertEqual(args[args.firstIndex(of: "--domain-identifier")! + 1], "com.example.game")
         XCTAssertEqual(args[args.firstIndex(of: "--domain-type")! + 1], "appDataContainer")
-        XCTAssertEqual(args[args.firstIndex(of: "--remove-existing-content")! + 1], "true", "the device holds the Mac's files and nothing older")
+        XCTAssertFalse(args.contains("--remove-existing-content"), "devicectl's flag also deletes the destination's siblings (#250)")
         XCTAssertEqual(args[args.firstIndex(of: "--device")! + 1], "00008150-AAAA")
         XCTAssertEqual(try fm.contentsOfDirectory(atPath: temporary.path).filter { $0.hasPrefix("nxnative-cheats-") }, [], "the staged copy is removed")
+    }
+
+    /// #250: the cheats push must leave the game's romfs.img, aoc/ and save beside the cheats folder on the device.
+    func testTheCheatsPushLeavesTheGameDataBesideIt() throws {
+        try write("[A]\n00000000\n", "\(build).txt")
+        let device = SaveTransferTests.FakeDevice(temporary.appendingPathComponent("container"))
+        let game = device.container.appendingPathComponent("Documents/games/\(titleID)")
+        for (name, text) in [("romfs.img", "img"), ("aoc/a.bin", "dlc"), ("save/data.bin", "save"), ("cheats/old.txt", "old")] {
+            let url = game.appendingPathComponent(name)
+            try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data(text.utf8).write(to: url)
+        }
+        try CheatTransfer(files: files, device: "00008150-AAAA", bundle: "com.example.game", devicectl: device.control, scratch: temporary).toDevice()
+        func read(_ n: String) -> String? { (try? Data(contentsOf: game.appendingPathComponent(n))).map { String(decoding: $0, as: UTF8.self) } }
+        XCTAssertEqual(read("romfs.img"), "img")
+        XCTAssertEqual(read("aoc/a.bin"), "dlc")
+        XCTAssertEqual(read("save/data.bin"), "save")
+        XCTAssertNotNil(read("cheats/\(build).txt"))
+        XCTAssertFalse(device.calls.contains { $0.contains("--remove-existing-content") })
     }
 
     func testAFailedCopyNamesDevicectlsLastLineAndAnEmptyFolderIsRefused() throws {
