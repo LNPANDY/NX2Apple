@@ -722,7 +722,7 @@ final class ShellInstallTests: XCTestCase {
         wait(for: [stopped], timeout: 20)
         withExtendedLifetime(token) {}
         XCTAssertEqual(model.failure?.kind, .devicePairing)
-        XCTAssertTrue(model.doneNote.contains("tap Trust on the device"), model.doneNote)
+        XCTAssertEqual(model.doneNote, String(format: model.t("shell.notPaired"), model.deviceName(model.installDevice)), "the pairing steps, in the app's language")
         XCTAssertFalse(fm.fileExists(atPath: state + "/script.txt"), "the build script did not start")
     }
 
@@ -745,7 +745,7 @@ final class ShellInstallTests: XCTestCase {
         }
         finish { model.installShell(framework: f.framework, titleID: titleID, name: "Test Game", archive: f.archive) }
         XCTAssertEqual(model.failure?.kind, .shellDataIncomplete)
-        XCTAssertTrue(model.doneNote.contains("incomplete"), model.doneNote)
+        XCTAssertTrue(model.doneNote.hasPrefix(String(format: model.t("shell.copyIncomplete"), model.deviceName(model.installDevice), "").components(separatedBy: ": ").first ?? "-"), model.doneNote)
         XCTAssertFalse(model.done)
         XCTAssertEqual(plans.count, 1)
         XCTAssertEqual(plans.first?.connection, .wired)
