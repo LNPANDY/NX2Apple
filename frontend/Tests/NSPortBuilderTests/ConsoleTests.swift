@@ -193,7 +193,7 @@ final class ConsoleTests: XCTestCase {
         guard let directory = ProcessInfo.processInfo.environment["NX_CONSOLE_CAPTURE_DIR"] else { throw XCTSkip("Set NX_CONSOLE_CAPTURE_DIR for desktop captures") }
         let output = URL(fileURLWithPath: directory)
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
-        for lang in [Lang.en, .zh] {
+        for lang in CaptureLanguage.all([.en, .zh]) {
             for width: CGFloat in [900, 1280] {
                 let model = BuildModel()
                 model.lang = lang
@@ -227,7 +227,7 @@ final class ConsoleTests: XCTestCase {
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         NSApplication.shared.setActivationPolicy(.accessory)
         let sizes: [(String, CGFloat, CGFloat)] = [("tv", 1920, 1080), ("mac", 1280, 800), ("compact", 390, 844)]
-        for lang in [Lang.en, .zh] {
+        for lang in CaptureLanguage.all([.en, .zh]) {
             for (name, width, height) in sizes {
                 for screen in ["full", "few", "empty", "controllers", "controllersMixed", "mixedHome", "controllerDesktop", "connectedToast", "starting", "options", "needsBuild", "needsData", "broken", "desktop", "prompt"] {
                     let driver = MockConsoleDriver(scenario: MockConsoleDriver.Scenario(rawValue: screen) ?? (screen == "mixedHome" || screen == "controllerDesktop" || screen == "connectedToast" ? .controllersMixed : .full), lang: lang, animated: false)
