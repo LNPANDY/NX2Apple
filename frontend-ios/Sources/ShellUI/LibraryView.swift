@@ -201,7 +201,7 @@ public struct LibraryView: View {
 
     @ViewBuilder private func library(_ selected: GameDetail, layout: ShellLayout, size: CGSize, insets: EdgeInsets) -> some View {
         if layout.isCoverFlow {
-            CoverFlowView(games: games, selected: selected, controllers: controllers.count, showsHints: !touchMode,
+            CoverFlowView(games: games, selected: selected, controllers: controllers.count, showsHints: !touchMode, screenInsets: insets,
                           select: select, primary: primary, openSettings: openSettings, openControllers: openControllers)
                 .equatable()
                 .transition(.opacity)
@@ -352,36 +352,57 @@ private struct PaneBanner: View {
     /// The status bar's height where the banner runs under it.
     var topInset: CGFloat = 0
     var body: some View {
-        let bannerHeight = min(width * 9 / 16, 220) + topInset
-        // The words are bottom-aligned in a block that always reserves two lines of title, as in the library hero: a
-        // short title shows more banner above it instead of leaving a hole, and the settings start at the same place.
-        ZStack(alignment: .bottomLeading) {
-            words(title: "M\nM").hidden().accessibilityHidden(true)
-            words(title: game.title)
+        let hasBanner = game.banner != nil
+        // A banner gets its full width and 16:9 height. Square or portrait art is never cropped into a tile: it shows
+        // whole as a rounded cover above the words, on a heavily blurred fill of itself.
+        let bannerHeight = hasBanner ? min(width * 9 / 16, 220) + topInset : topInset + 64
+        // On a wide screen the cover sits beside the words, on a narrow one above them, aligned to the same edge.
+        let layout = width >= 560 ? AnyLayout(HStackLayout(alignment: .bottom, spacing: 22))
+                                  : AnyLayout(VStackLayout(alignment: .leading, spacing: 16))
+        layout {
+            if !hasBanner { CoverThumbnail(game: game).frame(width: 96, height: 96) }
+            // The words are bottom-aligned in a block that always reserves two lines of title, as in the library
+            // hero: a short title shows more banner above it instead of leaving a hole.
+            ZStack(alignment: .bottomLeading) {
+                words(title: "M\nM").hidden().accessibilityHidden(true)
+                words(title: game.title)
+            }
         }
         .padding(.leading, leading + 24).padding(.trailing, 24)
-        .padding(.top, bannerHeight - 22)
+        .padding(.top, bannerHeight - (hasBanner ? 22 : 0))
         .frame(maxWidth: .infinity, alignment: .leading)
         .background {
-            // The banner fills the whole header edge to edge, cropped as needed, and fades into the page under the words.
-            ArtView(game: game, lettering: false)
-                .frame(width: width)
-                .overlay(alignment: .top) {
-                    // Darker under the status bar, so the time and battery stay legible on any art.
-                    if topInset > 0 {
-                        LinearGradient(colors: [.black.opacity(0.5), .clear], startPoint: .top, endPoint: .bottom)
-                            .frame(height: topInset + 50)
-                    }
+            Group {
+                if hasBanner {
+                    // The banner fills the whole header edge to edge, cropped as needed, darker under the words.
+                    ArtView(game: game, lettering: false)
+                        .frame(width: width)
+                        .overlay {
+                            LinearGradient(stops: [.init(color: .clear, location: 0.35), .init(color: .black.opacity(0.45), location: 0.7),
+                                                   .init(color: .black.opacity(0.6), location: 1)], startPoint: .top, endPoint: .bottom)
+                        }
+                } else {
+                    ArtView(game: game, backdrop: true)
+                        .frame(width: width)
+                        .scaleEffect(1.4)
+                        .blur(radius: 40, opaque: true)
+                        .saturation(1.2)
+                        .overlay(Color.black.opacity(0.38))
                 }
-                .overlay {
-                    LinearGradient(stops: [.init(color: .clear, location: 0.35), .init(color: .black.opacity(0.45), location: 0.7),
-                                           .init(color: .black.opacity(0.6), location: 1)], startPoint: .top, endPoint: .bottom)
+            }
+            .overlay(alignment: .top) {
+                // Darker under the status bar, so the time and battery stay legible on any art.
+                if topInset > 0 {
+                    LinearGradient(colors: [.black.opacity(0.5), .clear], startPoint: .top, endPoint: .bottom)
+                        .frame(height: topInset + 50)
                 }
-                .mask {
-                    LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.7),
-                                           .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom)
-                }
-                .accessibilityHidden(true)
+            }
+            .mask {
+                LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.7),
+                                       .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom)
+            }
+            .clipped()
+            .accessibilityHidden(true)
         }
     }
 
@@ -397,6 +418,26 @@ private struct PaneBanner: View {
                 }
             }.padding(.top, 2)
         }
+    }
+}
+
+/// A game's square art shown whole: the icon, or the placeholder cover when there is none.
+private struct CoverThumbnail: View {
+    let game: GameTile
+    var body: some View {
+        Group {
+            if let icon = game.icon {
+                Image(decorative: icon.image, scale: 1).resizable().interpolation(.high).scaledToFill()
+            } else if let banner = game.banner {
+                Image(decorative: banner.image, scale: 1).resizable().interpolation(.high).scaledToFill()
+            } else {
+                PlaceholderArt(title: game.title, seed: game.id)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+        .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(.white.opacity(0.14)))
+        .shadow(color: .black.opacity(0.4), radius: 16, y: 6)
+        .accessibilityHidden(true)
     }
 }
 
