@@ -3050,16 +3050,22 @@ struct BuilderView: View {
             Circle().fill(dot ?? .clear).frame(width: 7, height: 7)
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
-                    Text(title).font(.manrope(14))
+                    Text(title).font(.manrope(14)).fixedSize(horizontal: false, vertical: true)
                     if let open {
                         Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).foregroundStyle(.secondary)
                             .rotationEffect(.degrees(open ? 90 : 0))
                     }
                 }
                 if !detail.isEmpty {
-                    // A path is technical text: the system's monospaced face; everything else Manrope
-                    Text(detail).font(detail.hasPrefix("/") || detail.hasPrefix("~") ? .mono(12) : .manrope(12.5)).foregroundStyle(.secondary)
-                        .lineLimit(1).truncationMode(.middle).help(help.isEmpty ? detail : help)
+                    // A path is technical text: the system's monospaced face, on one line, cut in the middle when
+                    // too long. Everything else is prose in Manrope and wraps, so no word is ever cut.
+                    if detail.hasPrefix("/") || detail.hasPrefix("~") {
+                        Text(detail).font(.mono(12)).foregroundStyle(.secondary)
+                            .lineLimit(1).truncationMode(.middle).help(help.isEmpty ? detail : help)
+                    } else {
+                        Text(detail).font(.manrope(12.5)).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true).help(help.isEmpty ? detail : help)
+                    }
                 }
             }
             Spacer(minLength: 12)
@@ -3402,6 +3408,8 @@ struct BuilderView: View {
 
     /// Every button of the Settings cards is this wide, so they stand in one column.
     static let settingsButtonWidth: CGFloat = 150
+    /// The language picker is wider: "Systemsprache" does not fit the button width.
+    static let settingsPickerWidth: CGFloat = 180
 
     @ViewBuilder private var settingsPage: some View {
         pageHeading(m.t("settings.heading"), note: m.t("settings.note"))
@@ -3459,7 +3467,7 @@ struct BuilderView: View {
                     Lang.saved = v.isEmpty ? nil : Lang(rawValue: v)
                     m.lang = Lang.initial()
                 }
-                .frame(width: Self.settingsButtonWidth)
+                .frame(width: Self.settingsPickerWidth)
                 .padTarget("set.language", scope: "main", activate: { cycleLanguage(1) }, adjust: { cycleLanguage($0) })
             }
             divider
