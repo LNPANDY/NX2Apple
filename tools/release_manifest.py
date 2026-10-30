@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""latest.json for the engine, signed (LNPANDY/NX2Apple#227): what the launcher reads to update the engine without an app release.
+"""latest.json for the engine, signed when a key is set (LNPANDY/NX2Apple#227): what the launcher reads to update the engine without an app release.
 
 The manifest has the shape of EngineManifest.Manifest (frontend/Sources/NSPortBuilder/EngineManifest.swift), plus `engine_id`:
 
@@ -13,18 +13,24 @@ The manifest has the shape of EngineManifest.Manifest (frontend/Sources/NSPortBu
 manifest cannot disagree with the asset it describes. The signature is a detached Ed25519 signature over the exact bytes of
 latest.json, base64, in latest.json.sig next to it (EngineManifest.verify(manifest:signature:publicKey:)).
 
-The private key is the repository secret ENGINE_SIGNING_KEY: base64 of the 32 raw bytes. Its public key must equal the one in
-frontend/engine-signing.pub, which the launcher compiles in. `check-key` fails when the secret is missing or belongs to another key,
-so a release can never ship with signing off or with a key the launcher does not trust.
+The private key is the repository secret ENGINE_SIGNING_KEY: base64 of the 32 raw bytes. Signing is optional for now. When the secret is
+set, `publish` signs, and its public key must equal the one in frontend/engine-signing.pub, which the launcher compiles in: a key that
+does not belong to that file stops the release. When the secret is not set, `publish` writes and uploads latest.json without a signature
+and prints a warning (a GitHub annotation in CI). Signing becomes mandatory before any download source other than GitHub is added
+(LNPANDY/NX2Apple#268, Cloudflare R2): `publish --source` already refuses to run without a key.
 
 Subcommands (Python 3.9+, `pip install -r tools/requirements-release.txt`):
   keygen                       print a new key pair (private base64 for the secret, public base64 for engine-signing.pub)
-  check-key [--pub FILE]       exit 0 when $ENGINE_SIGNING_KEY is set and matches the public key file
+  check-key [--pub FILE]       exit 0 when $ENGINE_SIGNING_KEY is unset (warning: releases go out unsigned) or set and matching the
+                               public key file, exit 2 when it is set and malformed or not the key of the file
   publish --engine-zip Z --version V --channel stable|experimental --tag T --out DIR [--app-zip A] [--upload]
-                               write latest.json and latest.json.sig (and copies of the zips) to DIR and verify them. With --upload,
-                               put the zip, latest.json and latest.json.sig on the GitHub release TAG (gh). Without it nothing is
-                               uploaded: that is the dry run. --ephemeral-key signs with a throwaway key (dry runs only, never uploads)
-  verify --manifest F --sig F [--pub FILE]   check a signature the way the launcher does
+                               write latest.json and, when a key is set, latest.json.sig (and copies of the zips) to DIR and verify them. With --upload,
+                               put the zip, latest.json and (when signed) latest.json.sig on the GitHub release TAG (gh). Without it
+                               nothing is uploaded: that is the dry run. --ephemeral-key signs with a throwaway key (dry runs only,
+                               never uploads)
+  verify --manifest F [--sig F] [--pub FILE] [--require-signature]
+                               check a signature the way the launcher does. A missing signature file is accepted with a warning while
+                               ENGINE_SIGNING_KEY is not set, and is an error when the key is set or --require-signature is given
 """
 import argparse
 import base64
@@ -55,6 +61,17 @@ class Fail(Exception):
 
 def say(*a):
     print(*a, flush=True)
+
+
+def warn(msg):
+    """A warning that stands out in the CI log (a workflow annotation) and reads fine in a terminal."""
+    if os.environ.get('GITHUB_ACTIONS') == 'true': print(f'::warning title=Engine is not signed::{msg}', flush=True)
+    else: print(f'WARNING: {msg}', flush=True)
+
+
+def unsigned_warning():
+    warn(f'{KEY_ENV} is not set, so latest.json is published without a signature. Signing becomes mandatory before any download '
+         f'source other than GitHub is added (LNPANDY/NX2Apple#268).')
 
 
 def ed25519():
@@ -97,13 +114,14 @@ def read_pub(path):
 
 
 def signing_key(pub_file, ephemeral=False):
-    """The private key to sign with, after checking it belongs to the committed public key. (key, its public base64)."""
+    """The private key to sign with, after checking it belongs to the committed public key: (key, its public base64).
+    (None, None) when signing is off, which is when the secret is not set."""
     if ephemeral:
         ed, _ = ed25519()
         k = ed.Ed25519PrivateKey.generate()
         return k, public_b64(k)
     secret = os.environ.get(KEY_ENV, '').strip()
-    if not secret: raise Fail(f'the repository secret {KEY_ENV} is not set: a release must be signed')
+    if not secret: return None, None
     key = private_key(secret)
     want = read_pub(pub_file)
     have = public_b64(key)
@@ -171,7 +189,8 @@ def gh(*a, check=True):
 
 
 def upload(files, tag, repo, channel, notes):
-    """Engine zip first, the manifest and its signature last, so a launcher that reads the new manifest finds its zip."""
+    """Engine zip first, the manifest and its signature last, so a launcher that reads the new manifest finds its zip.
+    Without a signature among the files, an older latest.json.sig on the release is removed first: it would not match the new manifest."""
     exists = gh('release', 'view', tag, '-R', repo, check=False).returncode == 0
     if channel == 'experimental':
         # A pre-release under a fixed tag, never "latest", so it never becomes what the app's own update looks at.
@@ -179,6 +198,8 @@ def upload(files, tag, repo, channel, notes):
         else: gh('release', 'create', tag, '-R', repo, '--prerelease', '--latest=false', '--title', 'Engine (experimental)', '--notes', notes)
     elif not exists:
         raise Fail(f'the release {tag} does not exist: the release workflow creates it before it publishes the engine')
+    if SIGNATURE not in [Path(f).name for f in files]:
+        gh('release', 'delete-asset', tag, SIGNATURE, '-R', repo, '--yes', check=False)
     for f in files:
         gh('release', 'upload', tag, str(f), '-R', repo, '--clobber')
         say(f'uploaded {Path(f).name} to {repo} {tag}')
@@ -187,17 +208,26 @@ def upload(files, tag, repo, channel, notes):
 def cmd_publish(a):
     if a.upload and a.ephemeral_key: raise Fail('--ephemeral-key signs with a throwaway key: it never uploads')
     key, pub = signing_key(a.pub, a.ephemeral_key)
+    if key is None and a.source:
+        raise Fail(f'--source adds a download source other than GitHub, which needs a signature: set {KEY_ENV}')
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     zsrc = Path(a.engine_zip)
     data = build_manifest(zsrc, a.version, a.channel, a.tag, a.app_zip, a.repo, a.built, a.source or ())
-    files = [out / zsrc.name, out / MANIFEST, out / SIGNATURE]
+    files = [out / zsrc.name, out / MANIFEST]
     if zsrc.resolve() != files[0].resolve(): shutil.copyfile(zsrc, files[0])
     files[1].write_bytes(data)
-    files[2].write_text(base64.b64encode(key.sign(data)).decode())   # no newline: Data(base64Encoded:) rejects one
-    if not verify_signature(files[1].read_bytes(), files[2].read_text(), pub): raise Fail('the signature just made does not verify')
+    sigfile = out / SIGNATURE
+    if key is not None:
+        files.append(sigfile)
+        sigfile.write_text(base64.b64encode(key.sign(data)).decode())   # no newline: Data(base64Encoded:) rejects one
+        if not verify_signature(files[1].read_bytes(), sigfile.read_text(), pub): raise Fail('the signature just made does not verify')
+    elif sigfile.exists():
+        sigfile.unlink()   # a signature left in --out by an earlier run does not belong to this manifest
     m = json.loads(data)
-    say(f'{MANIFEST}: {m["channel"]} {m["version"]} engine_id {m["engine_id"]} built {m["built"]}, signed ({"ephemeral key" if a.ephemeral_key else "ENGINE_SIGNING_KEY"})')
+    how = f'signed ({"ephemeral key" if a.ephemeral_key else KEY_ENV})' if key is not None else 'not signed'
+    say(f'{MANIFEST}: {m["channel"]} {m["version"]} engine_id {m["engine_id"]} built {m["built"]}, {how}')
+    if key is None: unsigned_warning()
     if a.upload:
         notes = (f'Engine {m["engine_id"]} (seedds/nxnative {m["pin"][:12]} + the patch series), built {m["built"]}. '
                  + ('Experimental: built by the nightly sync and checked by CI only, not played on hardware. The launcher offers it as a manual, opt-in update.'
@@ -210,13 +240,23 @@ def cmd_publish(a):
 
 def cmd_check_key(a):
     key, pub = signing_key(a.pub)
+    if key is None:
+        unsigned_warning()
+        return 0
     say(f'{KEY_ENV} matches {a.pub} ({pub})')
     return 0
 
 
 def cmd_verify(a):
+    sig = Path(a.sig) if a.sig else Path(a.manifest).with_name(SIGNATURE)
+    if not sig.is_file():
+        if a.require_signature or os.environ.get(KEY_ENV, '').strip():
+            say(f'signature MISSING: {sig} does not exist')
+            return 1
+        warn(f'{sig} does not exist and {KEY_ENV} is not set: the manifest is accepted without a signature.')
+        return 0
     pub = read_pub(a.pub)
-    ok = verify_signature(Path(a.manifest).read_bytes(), Path(a.sig).read_text(), pub)
+    ok = verify_signature(Path(a.manifest).read_bytes(), sig.read_text(), pub)
     say('signature valid' if ok else 'signature INVALID')
     return 0 if ok else 1
 
@@ -236,7 +276,8 @@ def main(argv=None):
     sub = ap.add_subparsers(dest='cmd', required=True)
     sub.add_parser('keygen').set_defaults(f=cmd_keygen)
     s = sub.add_parser('check-key'); s.add_argument('--pub', default=str(PUB_FILE)); s.set_defaults(f=cmd_check_key)
-    s = sub.add_parser('verify'); s.add_argument('--manifest', required=True); s.add_argument('--sig', required=True); s.add_argument('--pub', default=str(PUB_FILE)); s.set_defaults(f=cmd_verify)
+    s = sub.add_parser('verify'); s.add_argument('--manifest', required=True); s.add_argument('--sig', help='default: latest.json.sig next to the manifest'); s.add_argument('--pub', default=str(PUB_FILE))
+    s.add_argument('--require-signature', action='store_true'); s.set_defaults(f=cmd_verify)
     s = sub.add_parser('publish')
     s.add_argument('--engine-zip', required=True); s.add_argument('--app-zip'); s.add_argument('--version', required=True)
     s.add_argument('--channel', required=True, choices=('stable', 'experimental')); s.add_argument('--tag', required=True)

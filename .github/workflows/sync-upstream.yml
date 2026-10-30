@@ -11,12 +11,16 @@
 # runs the checks itself before it opens the PR. A repository secret SYNC_TOKEN (a fine-grained token
 # with contents, pull requests and issues write) makes the PR start tests.yml as well.
 #
-# The experimental engine channel (LNPANDY/NX2Apple#227): after the sync job passed its checks (the series applies, the tests, the host build)
-# the publish-experimental job builds the engine tree of the bumped branch (tools/engine.py tree), writes latest.json with channel
-# "experimental" and "built", signs it with the repository secret ENGINE_SIGNING_KEY (tools/release_manifest.py) and replaces the assets
+# The experimental engine channel (LNPANDY/NX2Apple#227): it is built and published from main only, and only after the nightly bump of the sync
+# job went green (the pin moved and every check passed, or upstream had nothing new). The publish-experimental job runs only on the ref
+# refs/heads/main, so a manual run on a pull request branch or any other ref never builds it and never sees the signing key. It builds
+# the engine tree of main (tools/engine.py tree), writes latest.json with channel "experimental" and "built", and replaces the assets
 # (NX2Apple-engine.zip, latest.json, latest.json.sig) of the pre-release tag engine-experimental, which it creates when missing and keeps a
-# pre-release that is never "latest". A workflow artifact cannot serve: the launcher has no token. It only publishes after a green sync job,
-# and its failure (a missing or wrong key) never opens the "sync blocked" issue. `force_experimental` publishes main's engine by hand.
+# pre-release that is never "latest". A workflow artifact cannot serve: the launcher has no token. An engine that is already published
+# is not uploaded again. The bump itself is a pull request: its engine reaches this channel after it is merged.
+# The repository secret ENGINE_SIGNING_KEY is optional for now: with it latest.json.sig is made, without it the engine goes out unsigned and
+# the log says so. Signing becomes mandatory before any download source other than GitHub is added (LNPANDY/NX2Apple#268, Cloudflare R2).
+# A failure of the publish job (a wrong key) never opens the "sync blocked" issue.
 name: Sync upstream
 
 on:
@@ -25,7 +29,7 @@ on:
   workflow_dispatch:
     inputs:
       force_experimental:
-        description: "Also publish the engine of main to the engine-experimental tag (the first time, or after the tag was removed)"
+        description: "Publish the engine of main to the engine-experimental tag even when that engine is already there (a run on main only)"
         type: boolean
         default: false
 
@@ -38,7 +42,7 @@ jobs:
   sync:
     runs-on: macos-latest   # the host build needs clang + macOS headers
     outputs:
-      branch: ${{ steps.pr.outputs.branch }}   # the pushed sync branch, empty when nothing changed
+      bump: ${{ steps.bump.outputs.changed }}   # yes (a PR was opened), no (already at upstream), conflict
     env:
       GH_TOKEN: ${{ secrets.SYNC_TOKEN || secrets.GITHUB_TOKEN }}
     steps:
@@ -131,10 +135,14 @@ jobs:
           fi
 
   publish-experimental:
-    # Only after a green sync job (its checks are the "CI is green" of this channel). Separate from it so that a publishing problem
-    # (no key, no release permission) does not read as a blocked sync above.
+    # Main only, and only after a green bump. The ref test is what keeps a run on another ref (a manual run on a pull request branch) from
+    # building and publishing: the job then never starts. Separate from the sync job so that a publishing problem (a wrong key, no release
+    # permission) does not read as a blocked sync above.
     needs: sync
-    if: needs.sync.result == 'success' && (needs.sync.outputs.branch != '' || inputs.force_experimental)
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      needs.sync.result == 'success' &&
+      (needs.sync.outputs.bump == 'yes' || needs.sync.outputs.bump == 'no')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     concurrency: engine-experimental   # two runs must not replace the assets at the same time
@@ -147,18 +155,17 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.sync.outputs.branch || github.event.repository.default_branch }}
+          ref: ${{ github.sha }}   # the main commit this run started on, never a sync branch
           persist-credentials: false
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.14'
       - run: python -m pip install -r tools/requirements-release.txt
 
-      - name: Signing key (fails when the secret is missing or is not the key in frontend/engine-signing.pub)
+      - name: Signing key (a warning when the secret is not set, a failure when it is not the key in frontend/engine-signing.pub)
         run: python tools/release_manifest.py check-key --pub frontend/engine-signing.pub
 
-      - name: "Main's tests must be green (a bump branch was just checked, a hand-started publish of main was not)"
-        if: needs.sync.outputs.branch == ''
+      - name: "Main's tests must be green"
         run: |
           c=$(gh run list -R "${{ github.repository }}" --workflow tests.yml --branch "${{ github.event.repository.default_branch }}" --event push --limit 1 --json conclusion --jq '.[0].conclusion')
           echo "latest tests.yml on main: ${c:-none}"
@@ -169,7 +176,19 @@ jobs:
           python tools/engine.py sync
           python tools/engine.py tree --out "$RUNNER_TEMP/engine-tree" --zip "$RUNNER_TEMP/engine-out/NX2Apple-engine.zip"
 
+      - name: Is this engine already published?
+        id: published
+        run: |
+          new=$(cat "$RUNNER_TEMP/engine-tree/.engine-id")
+          old=$(gh release download engine-experimental -R "${{ github.repository }}" -p latest.json -O - 2> /dev/null | python -c 'import json, sys; print(json.load(sys.stdin).get("engine_id", ""))' 2> /dev/null || true)
+          echo "published: ${old:-none}, main: $new"
+          if [ "$new" = "$old" ] && [ "${{ inputs.force_experimental }}" != "true" ]; then
+            echo "same=yes" >> "$GITHUB_OUTPUT"
+            echo "Already published: nothing to upload."
+          fi
+
       - name: Publish to the engine-experimental pre-release
+        if: steps.published.outputs.same != 'yes'
         run: |
           APPV=$(sed -n 's/.*static let appVersion = "\(.*\)".*/\1/p' frontend/Sources/NSPortBuilder/ContentView.swift)
           python tools/release_manifest.py publish \

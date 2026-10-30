@@ -115,11 +115,26 @@ a synced `engine/` (`dm/`, `scripts/`, `docs/`, `ref/`, `AGENTS.md`, `LICENSE`, 
 the pin alone does not name a tree). The zip is deterministic (sorted, fixed timestamps), so its SHA-256 is reproducible.
 
 `python3 tools/release_manifest.py publish ...` writes `latest.json` (version, pin, `engine_id`, channel, built, the engine and app assets with
-SHA-256 and size, sources) and `latest.json.sig` (a detached Ed25519 signature over its exact bytes, base64), and with `--upload` puts
-`NX2Apple-engine.zip`, `latest.json` and `latest.json.sig` on a GitHub release. Without `--upload` it is a dry run. The key is the repository
-secret `ENGINE_SIGNING_KEY` (base64 of the 32 raw private bytes), checked against `frontend/engine-signing.pub`, which the launcher compiles in
-(`python3 tools/release_manifest.py keygen` makes a pair). `build-mac-app.yml` does this for a release tag (stable channel, the tree also goes
-into `Contents/Resources/engine`), `sync-upstream.yml` for the pre-release tag `engine-experimental` after a green nightly bump.
+SHA-256 and size, sources) and, when a key is set, `latest.json.sig` (a detached Ed25519 signature over its exact bytes, base64). With `--upload` it puts
+`NX2Apple-engine.zip`, `latest.json` and `latest.json.sig` on a GitHub release. Without `--upload` it is a dry run.
+`build-mac-app.yml` does this for a release tag (stable channel, the tree also goes into `Contents/Resources/engine`).
+`sync-upstream.yml` does it for the pre-release tag `engine-experimental`.
+
+### Signing is optional for now
+
+The key is the repository secret `ENGINE_SIGNING_KEY` (base64 of the 32 raw private bytes). `python3 tools/release_manifest.py keygen` makes a pair.
+Its public half is `frontend/engine-signing.pub`, which the launcher compiles in.
+- With the secret set, `publish` signs and verifies the result. A key that does not belong to `frontend/engine-signing.pub` stops the release.
+- Without the secret, `publish` writes and uploads `latest.json` without a signature and prints a warning, a workflow annotation in CI. A `latest.json.sig` left on the release by an earlier signed run is removed, because it would not match the new manifest.
+- `python3 tools/release_manifest.py verify --manifest latest.json` checks a signature the way the launcher does. A missing `latest.json.sig` passes with a warning while the secret is not set, and fails when the secret is set or `--require-signature` is given.
+- Signing becomes mandatory before any download source other than GitHub is added (#268, Cloudflare R2). `publish --source` already refuses to run without a key.
+
+### The experimental channel
+
+The pre-release `engine-experimental` is built and published from `main` only, by the `publish-experimental` job of `sync-upstream.yml`.
+The job starts only on the ref `refs/heads/main` and only when the sync job of the nightly run succeeded with a green bump.
+It builds the engine of `main` and uploads it when its `engine_id` is not the one already published. A bump reaches the channel once its pull request is merged.
+A run on a pull request branch or any other ref never starts the job. The `force_experimental` input of a manual run on `main` uploads again even when the `engine_id` is the same.
 
 Locally: `python3 tools/engine.py sync`, then `tree --out /tmp/t --zip /tmp/e/NX2Apple-engine.zip`, then `publish --engine-zip /tmp/e/NX2Apple-engine.zip
 --version 0.0.0 --channel experimental --tag engine-experimental --out /tmp/p --ephemeral-key` runs every step except the upload.

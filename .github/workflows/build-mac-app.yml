@@ -11,9 +11,11 @@
 # The app carries the engine (issues #214 and #227): `tools/engine.py tree` builds the engine tree (seedds/nxnative at the pin plus the patch
 # series, no git history) into Contents/Resources/engine, and the launcher copies it to Application Support on first use. The same tree goes up
 # as a release asset (NX2Apple-engine.zip) together with latest.json and its Ed25519 signature latest.json.sig (tools/release_manifest.py), which
-# is what the launcher reads to update the engine without an app release. The signing key is the repository secret ENGINE_SIGNING_KEY: a tag build
-# fails at its first step when the secret is missing or is not the key in frontend/engine-signing.pub (compiled into the launcher). Other builds
-# run the same steps as a dry run with a throwaway key and upload nothing. It also carries its build tools (zstd, glslangValidator, spirv-cross, xcodegen) and a Python with the packages the build scripts import,
+# is what the launcher reads to update the engine without an app release. The signing key is the repository secret ENGINE_SIGNING_KEY and it is
+# optional for now: when it is set, the engine is signed, and a tag build fails at its first step when the key is not the one in
+# frontend/engine-signing.pub (compiled into the launcher). When it is not set, a tag build publishes without latest.json.sig and prints a warning.
+# Signing becomes mandatory before any download source other than GitHub is added (LNPANDY/NX2Apple#268, Cloudflare R2).
+# Other builds run the same steps as a dry run with a throwaway key and upload nothing. It also carries its build tools (zstd, glslangValidator, spirv-cross, xcodegen) and a Python with the packages the build scripts import,
 # so a player installs neither Homebrew nor Python (frontend/tools/bundle_tools.sh builds them from pinned, checksummed sources; check_bundle.sh
 # runs each from the assembled bundle with a clean PATH, checks the load paths and the signature).
 #
@@ -44,13 +46,14 @@ jobs:
       - name: Install the signing tool's package
         run: python -m pip install -r tools/requirements-release.txt
 
-      - name: Signing key (a release without a matching key must not ship)
+      - name: Signing key (a warning without one, a failure with a key that does not match)
         if: startsWith(github.ref, 'refs/tags/')
         env:
           ENGINE_SIGNING_KEY: ${{ secrets.ENGINE_SIGNING_KEY }}
         run: |
-          # Fails when the secret is missing, or when its public key is not the one in frontend/engine-signing.pub, the value the launcher
-          # compiles in (EngineManifest.verify): a manifest signed with any other key would be rejected by every installed app.
+          # Warns when the secret is not set (the release then goes out unsigned). Fails when it is set and its public key is not the one in
+          # frontend/engine-signing.pub, the value the launcher compiles in (EngineManifest.verify): a manifest signed with any other key
+          # would be rejected by every installed app.
           python tools/release_manifest.py check-key --pub frontend/engine-signing.pub
 
       - name: Engine tree (tools/engine.py tree)
@@ -205,7 +208,8 @@ jobs:
           ENGINE_SIGNING_KEY: ${{ secrets.ENGINE_SIGNING_KEY }}
         run: |
           # latest.json: version, pin, engine_id, the engine and app assets with SHA-256 and size, sources (this release's download URL),
-          # built, channel stable. latest.json.sig: the Ed25519 signature over its exact bytes. The zip goes first, the signature last.
+          # built, channel stable. latest.json.sig: the Ed25519 signature over its exact bytes, made when ENGINE_SIGNING_KEY is set (without it
+          # the tool prints a warning and uploads no signature). The zip goes first, the signature last.
           python tools/release_manifest.py publish \
             --engine-zip "$RUNNER_TEMP/engine-out/NX2Apple-engine.zip" --app-zip frontend/NX2Apple-macOS-arm64.zip \
             --version "${{ steps.ver.outputs.version }}" --channel stable --tag "$GITHUB_REF_NAME" \

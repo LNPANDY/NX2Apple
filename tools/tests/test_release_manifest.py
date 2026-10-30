@@ -1,6 +1,6 @@
 """tools/release_manifest.py (LNPANDY/NX2Apple#227): latest.json has the shape EngineManifest.Manifest decodes, the signature is a
-detached Ed25519 signature over its exact bytes, the release fails without the right key, and uploads go in the right order with a
-fake `gh`. The keys are generated here: nothing secret is used and nothing touches the network."""
+detached Ed25519 signature over its exact bytes, a key that is set but wrong stops the release, no key means an unsigned release with
+a warning, and uploads go in the right order with a fake `gh`. The keys are generated here: nothing secret is used and nothing touches the network."""
 import base64
 import hashlib
 import importlib
@@ -121,17 +121,25 @@ class Manifest(unittest.TestCase):
         out = self.publish()
         args = ['verify', '--manifest', str(out / 'latest.json'), '--sig', str(out / 'latest.json.sig'), '--pub', str(self.pubfile)]
         self.assertEqual(R.main(args), 0)
+        self.assertEqual(R.main(['verify', '--manifest', str(out / 'latest.json'), '--pub', str(self.pubfile)]), 0)   # the .sig next to it
         (out / 'latest.json').write_bytes((out / 'latest.json').read_bytes().replace(b'stable', b'rolling'))
         self.assertEqual(R.main(args), 1)
 
+    def test_verify_fails_for_a_missing_signature_while_the_key_is_set(self):
+        out = self.publish()
+        (out / 'latest.json.sig').unlink()
+        self.assertEqual(R.main(['verify', '--manifest', str(out / 'latest.json'), '--pub', str(self.pubfile)]), 1)
+
     # ---- the key check ----
 
-    def test_a_release_fails_without_the_secret(self):
+    def test_without_the_secret_the_key_check_passes_with_a_warning(self):
+        import contextlib, io
         del os.environ[R.KEY_ENV]
-        self.assertEqual(R.main(['check-key', '--pub', str(self.pubfile)]), 2)
-        self.publish(expect=2)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf): self.assertEqual(R.main(['check-key', '--pub', str(self.pubfile)]), 0)
+        self.assertIn('ENGINE_SIGNING_KEY is not set', buf.getvalue()); self.assertIn('WARNING', buf.getvalue())
         os.environ[R.KEY_ENV] = '   '
-        self.assertEqual(R.main(['check-key', '--pub', str(self.pubfile)]), 2)
+        self.assertEqual(R.main(['check-key', '--pub', str(self.pubfile)]), 0)
 
     def test_a_release_fails_when_the_key_is_not_the_one_in_the_repository(self):
         os.environ[R.KEY_ENV] = new_key()[1]
@@ -139,9 +147,10 @@ class Manifest(unittest.TestCase):
         self.publish(expect=2)
         self.assertFalse((self.tmp / 'out' / 'latest.json').exists())
 
-    def test_a_release_fails_while_the_repository_has_no_public_key(self):
+    def test_a_set_key_fails_while_the_repository_has_no_public_key(self):
         self.pubfile.write_text('# nothing yet\n')
         self.assertEqual(R.main(['check-key', '--pub', str(self.pubfile)]), 2)
+        self.publish(expect=2)
         self.pubfile.unlink()
         self.assertEqual(R.main(['check-key', '--pub', str(self.pubfile)]), 2)
 
@@ -222,6 +231,80 @@ class Manifest(unittest.TestCase):
         log = self.fake_gh(exists=True)
         self.publish()
         self.assertFalse(log.exists())
+
+    def test_a_signed_upload_does_not_delete_the_signature_asset(self):
+        log = self.fake_gh(exists=True)
+        self.publish('--upload')
+        self.assertFalse([c for c in self.calls(log) if c[:2] == ['release', 'delete-asset']])
+
+
+class Unsigned(unittest.TestCase):
+    """No ENGINE_SIGNING_KEY: the engine is published without a signature and the log says so. Needs no `cryptography`."""
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix='test-manifest-unsigned-'))
+        self.addCleanup(__import__('shutil').rmtree, self.tmp, True)
+        self.pubfile = self.tmp / 'engine-signing.pub'
+        self.pubfile.write_text('# no key yet\n')
+        self.engine = self.tmp / 'NX2Apple-engine.zip'
+        with zipfile.ZipFile(self.engine, 'w') as z:
+            z.writestr('.engine-id', EID + '\n'); z.writestr('.upstream-ref', PIN + '\n'); z.writestr('dm/a.c', 'x')
+        self.old_env = dict(os.environ)
+        os.environ.pop(R.KEY_ENV, None); os.environ.pop('GITHUB_ACTIONS', None)
+        self.addCleanup(self.restore)
+
+    def restore(self):
+        os.environ.clear(); os.environ.update(self.old_env)
+
+    def publish(self, *extra, channel='stable', tag='v0.8.0', out='out', expect=0):
+        import contextlib, io
+        args = ['publish', '--engine-zip', str(self.engine), '--version', '0.8.0', '--channel', channel, '--tag', tag,
+                '--out', str(self.tmp / out), '--pub', str(self.pubfile), '--built', '2026-10-31T02:00:00Z', *extra]
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf): self.assertEqual(R.main(args), expect)
+        return self.tmp / out, buf.getvalue()
+
+    def fake_gh(self):
+        d = self.tmp / 'bin'; d.mkdir(exist_ok=True)
+        log = self.tmp / 'gh.log'
+        gh = d / 'gh'
+        gh.write_text(f'#!/bin/sh\necho "$@" >> "{log}"\nexit 0\n')
+        gh.chmod(gh.stat().st_mode | stat.S_IXUSR)
+        os.environ['PATH'] = f'{d}:{os.environ["PATH"]}'
+        return log
+
+    def test_the_manifest_is_written_without_a_signature_and_with_a_warning(self):
+        out, text = self.publish()
+        self.assertTrue((out / 'latest.json').is_file()); self.assertFalse((out / 'latest.json.sig').exists())
+        self.assertEqual(json.loads((out / 'latest.json').read_text())['engine_id'], EID)
+        self.assertIn('not signed', text); self.assertIn('WARNING: ENGINE_SIGNING_KEY is not set', text)
+        self.assertIn('LNPANDY/NX2Apple#268', text)
+
+    def test_in_ci_the_warning_is_a_workflow_annotation(self):
+        os.environ['GITHUB_ACTIONS'] = 'true'
+        self.assertIn('::warning title=Engine is not signed::ENGINE_SIGNING_KEY is not set', self.publish()[1])
+
+    def test_a_signature_left_in_the_output_folder_is_removed(self):
+        (self.tmp / 'out').mkdir()
+        (self.tmp / 'out' / 'latest.json.sig').write_text('stale')
+        self.assertFalse((self.publish()[0] / 'latest.json.sig').exists())
+
+    def test_the_upload_drops_an_older_signature_and_sends_no_new_one(self):
+        log = self.fake_gh()
+        self.publish('--upload', channel='experimental', tag='engine-experimental')
+        calls = [l.split() for l in log.read_text().splitlines()]
+        self.assertEqual([c[3] for c in calls if c[:2] == ['release', 'delete-asset']], ['latest.json.sig'])
+        self.assertEqual([Path(c[3]).name for c in calls if c[:2] == ['release', 'upload']], ['NX2Apple-engine.zip', 'latest.json'])
+        self.assertLess([c[:2] for c in calls].index(['release', 'delete-asset']), [c[:2] for c in calls].index(['release', 'upload']))
+
+    def test_a_download_source_other_than_github_needs_a_key(self):
+        out, _ = self.publish('--source', 'https://mirror.example/engine/', expect=2)
+        self.assertFalse((out / 'latest.json').exists())
+
+    def test_verify_accepts_an_unsigned_manifest_with_a_warning_unless_a_signature_is_required(self):
+        out, _ = self.publish()
+        args = ['verify', '--manifest', str(out / 'latest.json'), '--pub', str(self.pubfile)]
+        self.assertEqual(R.main(args), 0)
+        self.assertEqual(R.main([*args, '--require-signature']), 1)
 
 
 if __name__ == '__main__':
