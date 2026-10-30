@@ -1,0 +1,2579 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jon Ochocki <24785922+jonochocki@users.noreply.github.com>
+Date: Fri, 30 Oct 2026 08:22:01 -0500
+Subject: [PATCH] iOS: adapt gameplay to Duo portrait and tabletop poses
+
+Upstream-Status: forwarded seedds/nxnative#683
+Reason: Adapt gameplay and touch input to native Duo poses without changing the launcher design.
+Issue: LNPANDY/NX2Apple (no issue, iPhone Duo portrait and tabletop gameplay)
+---
+ dm/ios/Sources/DmGamepad.m                    |  130 +-
+ dm/ios/Sources/DmHostingController.swift      |    7 +
+ dm/ios/Sources/DmLayout.h                     |   53 +
+ dm/ios/Sources/Launcher.swift                 |    2 +-
+ dm/ios/Sources/front_ios.m                    |   96 +-
+ dm/ios/project.yml                            |    8 +-
+ dm/ios/tests/duo/.gitignore                   |    5 +
+ dm/ios/tests/duo/README.md                    |   42 +
+ dm/ios/tests/duo/Sources/DuoHarnessApp.m      |  177 +++
+ dm/ios/tests/duo/Sources/DuoHarnessRuntime.h  |   38 +
+ dm/ios/tests/duo/Sources/DuoRuntimeStubs.m    |  127 ++
+ .../tests/duo/Sources/Fixtures/game_profile.h |    3 +
+ dm/ios/tests/duo/Tests/DuoHarnessTests.m      | 1189 +++++++++++++++++
+ .../Tests/DuoHostingOrientationTests.swift    |   40 +
+ .../UITests/DuoNativeRotationUITests.swift    |  148 ++
+ dm/ios/tests/duo/project.yml                  |  124 ++
+ dm/ios/tests/test_orientation_policy.py       |   25 +
+ docs/reference/rendering.md                   |    9 +
+ 18 files changed, 2178 insertions(+), 45 deletions(-)
+ create mode 100644 dm/ios/Sources/DmHostingController.swift
+ create mode 100644 dm/ios/Sources/DmLayout.h
+ create mode 100644 dm/ios/tests/duo/.gitignore
+ create mode 100644 dm/ios/tests/duo/README.md
+ create mode 100644 dm/ios/tests/duo/Sources/DuoHarnessApp.m
+ create mode 100644 dm/ios/tests/duo/Sources/DuoHarnessRuntime.h
+ create mode 100644 dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
+ create mode 100644 dm/ios/tests/duo/Sources/Fixtures/game_profile.h
+ create mode 100644 dm/ios/tests/duo/Tests/DuoHarnessTests.m
+ create mode 100644 dm/ios/tests/duo/Tests/DuoHostingOrientationTests.swift
+ create mode 100644 dm/ios/tests/duo/UITests/DuoNativeRotationUITests.swift
+ create mode 100644 dm/ios/tests/duo/project.yml
+ create mode 100644 dm/ios/tests/test_orientation_policy.py
+
+diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
+index 3747fc9..f5f4a88 100644
+--- a/dm/ios/Sources/DmGamepad.m
++++ b/dm/ios/Sources/DmGamepad.m
+@@ -1,6 +1,6 @@
+ // Virtual gamepad (Nintendo button positions) + physical controllers (GameController), handed to the host through dm_input_set and dm_pad_set_player (hle_hid.c, bit layout in dm_input.h).
+ //   Two layouts, three in handheld mode; one tap on the layout button at the top centre (labelled with the current layout, "2D" / "3D" / "Tap") goes to the next, and the choice is kept in NSUserDefaults (each game is its own app, so per game); the first launch uses the game profile's pad_layout (DM_GAME_PAD_LAYOUT).
+-//   Tap (touch): no control but the layout button, every other touch goes to the game's touch screen; offered only while the game is in handheld mode, the only one in which it reads the touch screen (Balatro, played by touch).
++//   Tap (touch): no control but the layout button, every other touch goes to the game's local touch viewport; offered only while the game is in handheld mode, the only one in which it reads the touch screen (Balatro, played by touch).
+ //   2D (simple): top corners ZL above L (one column), ZR above R likewise, teardrops with the tip toward the screen corner; − and + side by side at the top centre; the left stick in the bottom-left corner (fixed ring, tilt measured from the ring centre, small dead zone);
+ //     the A (right) B (bottom) X (top) Y (left) diamond in the bottom-right corner, sliding a finger between keys switches keys. Each bottom corner holds a single control, so it sits close in (reaching halfway into the side safe-area inset).
+ //   3D (full, Pro Controller style): everything in 2D (left stick and diamond keep their place and size), plus a D-pad (inward of and below the left stick, 8-way), a right stick that is not drawn
+@@ -9,8 +9,8 @@
+ //   Touch-down ownership: locked keys first (shoulders, − / +, the layout button, L3 / R3), then whichever of the diamond, the D-pad and the left stick has the smallest distance / grab radius (the left stick's grab circle borders the D-pad),
+ //     then in 3D the right stick for a touch in the right third.
+ //   Everything hugs the edges and corners to leave the picture room; controls sit over the picture, one CAShapeLayer each: a press only swaps the fill, a stick only moves its knob, nothing redraws the whole screen.
+-//   Touches no control takes (in 3D, those outside the right third) go to the game's touch screen (pushGame; Super Mario Galaxy's pointer in handheld mode).
+-//   The virtual gamepad (layout button included) hides while a physical controller is connected and comes back when it is removed; meanwhile every touch goes to the game. Physical controllers keep every button (D-pad and right stick included) and map by position: bottom = B, right = A, left = Y, top = X (same positions as on a Switch controller); a Nintendo pad maps by its labels (pad_apple.h).
++//   Touches no control takes (in 3D, those outside the right third) go to the game's touch screen when DmLayout assigns a local game viewport (pushGame; Super Mario Galaxy's pointer in handheld mode).
++//   The virtual gamepad (layout button included) hides while a physical controller is connected and comes back when it is removed; unclaimed touches go to the game only when a local game viewport exists. Physical controllers keep every button (D-pad and right stick included) and map by position: bottom = B, right = A, left = Y, top = X (same positions as on a Switch controller); a Nintendo pad maps by its labels (pad_apple.h).
+ //   Each physical controller is a player of its own (local co-op), as on the Mac: the first one connected is player 1, together with the touch gamepad, the next player 2, and so on up to 8; see "Physical controllers" below.
+ //   Shaking the phone shakes the controller (DM_BTN_SHAKE: its six-axis sensor, hle_hid.c), whichever controls are in use; see "Shaking the phone" below.
+ #import <UIKit/UIKit.h>
+@@ -28,6 +28,7 @@
+ #include "pad_apple.h"
+ #include "pad_slots.h"
+ #include <stdatomic.h>
++#import "DmLayout.h"
+ 
+ enum { B_A = 0, B_B, B_X, B_Y, B_LS, B_RS, B_L, B_R, B_ZL, B_ZR, B_PLUS, B_MINUS, B_LEFT, B_UP, B_RIGHT, B_DOWN, B_N };
+ enum { C_NONE = 0, C_STICK, C_DPAD, C_FACE, C_BTN, C_SWAP, C_GAME };   // which control a touch holds; C_GAME: none, the touch goes to the game's touch screen (finger slot << 8)
+@@ -130,6 +131,7 @@ static NSString *const k_layout_key = @"DmPadLayout";   // NSUserDefaults: 0 = 2
+ int dm_opmode(void);   // hle_oe.c: 0 = handheld
+ 
+ @interface DmGamepad : UIView
++- (void)arrange:(DmLayout)layout;
+ @end
+ static __weak DmGamepad *g_view;
+ static void pads_start(void);   // Physical controllers, below
+@@ -149,6 +151,7 @@ static void pads_start(void);   // Physical controllers, below
+     BOOL _full, _tap;                              // the 3D layout / the Tap layout is current
+     CALayer *_controls;                            // holds every control layer: hidden while a physical controller is connected (the view itself stays, for game touches)
+     BOOL _padOff;                                  // a physical controller is connected: every touch goes to the game
++    DmLayout _layout;
+     UITouch *_game[16];                            // touches on the game's touch screen by finger slot
+ }
+ 
+@@ -161,13 +164,17 @@ static CAShapeLayer *shape(CALayer *parent) {
+ }
+ static CATextLayer *label(CALayer *parent, NSString *s) {
+     CATextLayer *t = [CATextLayer layer];
+-    t.string = s; t.alignmentMode = kCAAlignmentCenter; t.foregroundColor = k_text.CGColor; t.contentsScale = UIScreen.mainScreen.scale;
++    t.string = s; t.alignmentMode = kCAAlignmentCenter; t.foregroundColor = k_text.CGColor;
+     [parent addSublayer:t]; return t;
+ }
+ static BOOL fullOnly(int b) { return b == B_LS || b == B_RS || b >= B_LEFT; }   // keys shown only in the 3D layout
+ 
+ - (instancetype)initWithFrame:(CGRect)f {
+     if ((self = [super initWithFrame:f])) {
++        _layout = dm_layout(self.bounds, UIEdgeInsetsZero, NO, CGRectNull);
++        [self registerForTraitChanges:@[UITraitDisplayScale.class] withHandler:^(id<UITraitEnvironment> environment, UITraitCollection *previous) {
++            [(UIView *)environment setNeedsLayout];
++        }];
+         self.multipleTouchEnabled = YES; self.opaque = NO; self.backgroundColor = UIColor.clearColor;
+         const char *feedback = getenv("DM_TOUCH_HAPTICS");
+         if (!feedback || atoi(feedback)) {
+@@ -223,46 +230,92 @@ static BOOL fullOnly(int b) { return b == B_LS || b == B_RS || b >= B_LEFT; }
+ }
+ 
+ // ---- Layout (points; computed inside the safe area) ----
+-- (CGRect)safe { return UIEdgeInsetsInsetRect(self.bounds, self.safeAreaInsets); }
+-- (CGRect)corner { UIEdgeInsets i = self.safeAreaInsets; i.left *= K_CORNER_IN; i.right *= K_CORNER_IN; return UIEdgeInsetsInsetRect(self.bounds, i); }   // the rectangle the bottom-corner controls use
+-- (CGFloat)u { return MIN(self.bounds.size.height / 430.0, 1.3); }   // 1 = 430 points tall (iPhone Pro Max landscape)
++- (void)arrange:(DmLayout)layout {
++    if (CGRectEqualToRect(_layout.controls, layout.controls) && CGRectEqualToRect(_layout.game, layout.game) && _layout.separated == layout.separated && _layout.topSafeOnly == layout.topSafeOnly) return;
++    [self reset];   // A finger held across a pose change must not leave a key or game touch stuck.
++    _layout = layout;
++    [self setNeedsLayout];
++}
++- (CGRect)safe { return CGRectIntersection(_layout.controls, UIEdgeInsetsInsetRect(self.bounds, dm_game_safe_insets(self.bounds, self.safeAreaInsets, _layout.topSafeOnly))); }
++- (CGRect)corner { if (_layout.separated) return self.safe; UIEdgeInsets i = self.safeAreaInsets; i.left *= K_CORNER_IN; i.right *= K_CORNER_IN; return UIEdgeInsetsInsetRect(self.bounds, i); }   // the rectangle the bottom-corner controls use
++- (CGFloat)u { if (_layout.separated) { CGRect s = self.safe; return MIN(MIN(s.size.height / 430.0, s.size.width / 700.0), 1.3); } return MIN(self.bounds.size.height / 430.0, 1.3); }   // 1 = 430 points tall (iPhone Pro Max landscape)
+ static CGPoint side(CGRect s, int right, CGFloat dx, CGFloat y) { return CGPointMake(right ? CGRectGetMaxX(s) - dx : CGRectGetMinX(s) + dx, y); }
+-- (CGPoint)faceCenter { CGRect s = self.corner; CGFloat u = self.u; return side(s, 1, K_FACE_X * u, CGRectGetMaxY(s) - K_PAD_Y * u); }
++- (BOOL)portraitControls { return _layout.separated && self.bounds.size.height > self.bounds.size.width; }
++- (CGPoint)portraitThumbCenter:(BOOL)right {
++    CGRect s = self.safe;
++    return CGPointMake(CGRectGetMinX(s) + s.size.width * (right ? 0.72 : 0.28),
++                       CGRectGetMinY(s) + s.size.height * 0.58);
++}
++- (CGPoint)faceCenter { CGRect s = self.corner; CGFloat u = self.u;
++    if (self.portraitControls) return [self portraitThumbCenter:YES];
++    CGFloat edge = _layout.separated ? self.faceGap + self.faceHitR : 0;
++    return side(s, 1, MAX(K_FACE_X * u, edge), CGRectGetMaxY(s) - MAX(K_PAD_Y * u, edge)); }
+ - (CGFloat)faceGap { return K_FACE_GAP * self.u; }
+ - (CGFloat)faceR { return K_FACE_R * self.u; }
++- (CGFloat)faceHitR { return MAX(self.faceR * 1.25, _layout.separated ? 22 : 0); }
+ - (CGPoint)facePos:(int)b { CGPoint c = self.faceCenter; CGFloat g = self.faceGap;
+     switch (b) { case B_A: return CGPointMake(c.x + g, c.y); case B_B: return CGPointMake(c.x, c.y + g); case B_X: return CGPointMake(c.x, c.y - g); default: return CGPointMake(c.x - g, c.y); } }
+-- (CGPoint)stickHome { CGRect s = self.corner; return side(s, 0, K_STICK_X * self.u, CGRectGetMaxY(s) - K_PAD_Y * self.u); }   // the left stick's ring centre
++- (CGPoint)stickHome {
++    if (self.portraitControls) {
++        CGPoint p = [self portraitThumbCenter:NO];
++        if (_full) p.x -= self.dpadR + 6 * self.u;
++        return p;
++    }
++    CGRect s = self.corner;
++    return side(s, 0, K_STICK_X * self.u, CGRectGetMaxY(s) - K_PAD_Y * self.u);
++}
+ - (CGPoint)stickCentre:(int)i { return i ? _rCentre : self.stickHome; }
+ - (CGFloat)stickR:(int)i { return (i ? K_RSTICK_R : K_STICK_R) * self.u; }
+-- (BOOL)inRightArea:(CGPoint)p { CGRect b = self.bounds; return p.x >= CGRectGetMaxX(b) - b.size.width * K_RSWIPE; }
+-- (CGPoint)dpadCenter { CGRect s = self.corner; CGFloat u = self.u; return side(s, 0, K_LOW_X * u, CGRectGetMaxY(s) - K_LOW_Y * u); }
++- (BOOL)inRightArea:(CGPoint)p { CGRect b = _layout.controls; return p.x >= CGRectGetMaxX(b) - b.size.width * K_RSWIPE; }
++- (CGPoint)dpadCenter {
++    if (self.portraitControls) {
++        CGPoint p = [self portraitThumbCenter:NO];
++        p.x += [self stickR:0] + 6 * self.u;
++        return p;
++    }
++    CGRect s = self.corner; CGFloat u = self.u;
++    return side(s, 0, K_LOW_X * u, CGRectGetMaxY(s) - K_LOW_Y * u);
++}
+ - (CGFloat)dpadR { return K_DPAD_R * self.u; }
+ static BOOL isDrop(int b) { return b == B_ZL || b == B_L || b == B_ZR || b == B_R; }
+ static BOOL isClick(int b) { return b == B_LS || b == B_RS; }
+ - (CGPoint)dropCenter:(int)b { CGRect s = self.safe; CGFloat u = self.u; BOOL z = b == B_ZL || b == B_ZR;
+-    return side(s, b == B_ZR || b == B_R, (z ? K_ZL_X : K_L_X) * u, CGRectGetMinY(s) + (z ? K_ZL_Y : K_L_Y) * u); }
++    CGFloat edge = _layout.separated ? 22 : 0;
++    return side(s, b == B_ZR || b == B_R, MAX((z ? K_ZL_X : K_L_X) * u, edge), CGRectGetMinY(s) + MAX((z ? K_ZL_Y : K_L_Y) * u, edge)); }
+ - (CGFloat)dropR:(int)b { return (b == B_ZL || b == B_ZR ? K_ZL_R : K_L_R) * self.u; }
+-- (CGPoint)clickCenter:(int)b { CGRect s = self.safe; CGFloat u = self.u; return side(s, b == B_RS, K_CLICK_X * u, CGRectGetMinY(s) + K_ZL_Y * u); }
++- (CGPoint)clickCenter:(int)b { CGRect s = self.safe; CGFloat u = self.u; CGFloat edge = _layout.separated ? 22 : 0;
++    return side(s, b == B_RS, MAX(K_CLICK_X * u, edge), CGRectGetMinY(s) + MAX(K_ZL_Y * u, edge)); }
+ - (CGRect)pillRect:(int)b { CGRect s = self.safe; CGFloat u = self.u, w = K_PILL_W * u, h = K_PILL_H * u;
+-    CGPoint c = CGPointMake(CGRectGetMidX(s) + (b == B_PLUS ? K_PILL_DX : -K_PILL_DX) * u, CGRectGetMinY(s) + K_PILL_Y * u);   // − on the left, + on the right
++    CGPoint c = CGPointMake(CGRectGetMidX(s) + (b == B_PLUS ? K_PILL_DX : -K_PILL_DX) * u, CGRectGetMinY(s) + MAX(K_PILL_Y * u, _layout.separated ? 14 : 0));   // − on the left, + on the right
+     return CGRectMake(c.x - w / 2, c.y - h / 2, w, h); }
+-- (CGPoint)swapCenter { CGRect s = self.safe; return CGPointMake(CGRectGetMidX(s), CGRectGetMinY(s) + K_PILL_Y * self.u); }
++- (CGPoint)swapCenter { CGRect s = self.safe; return CGPointMake(CGRectGetMidX(s), CGRectGetMinY(s) + MAX(K_PILL_Y * self.u, _layout.separated ? 14 : 0)); }
+ 
+ static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y); }
+-- (int)btnAt:(CGPoint)p {   // locked keys (tested on touch-down only, then locked)
++- (CGFloat)buttonDistance:(int)b point:(CGPoint)p {
+     CGFloat u = self.u;
++    if (isDrop(b)) return dist(p, [self dropCenter:b]) / MAX([self dropR:b] * 1.35, _layout.separated ? 22 : 0);
++    if (isClick(b)) return dist(p, [self clickCenter:b]) / MAX(K_CLICK_R * u * 1.35, _layout.separated ? 22 : 0);
++    CGRect r = CGRectInset([self pillRect:b], -8 * u, -8 * u);
++    if (!_layout.separated && !CGRectContainsPoint(r, p)) return CGFLOAT_MAX;
++    CGFloat w = MAX(r.size.width, _layout.separated ? 28 : 0), h = MAX(r.size.height, _layout.separated ? 28 : 0);
++    return MAX(fabs(p.x - CGRectGetMidX(r)) / (w / 2), fabs(p.y - CGRectGetMidY(r)) / (h / 2));
++}
++- (int)btnAt:(CGPoint)p {   // Locked at touch-down; nearest normalized target wins overlapping separated-layout hits.
++    int best = -1; CGFloat distance = 1;
+     for (int i = 0; i < (int)(sizeof k_btns / sizeof *k_btns); i++) { int b = k_btns[i];
+         if (fullOnly(b) && !_full) continue;
+-        BOOL hit = isDrop(b) ? dist(p, [self dropCenter:b]) <= [self dropR:b] * 1.35
+-                 : isClick(b) ? dist(p, [self clickCenter:b]) <= K_CLICK_R * u * 1.35
+-                 : CGRectContainsPoint(CGRectInset([self pillRect:b], -8 * u, -8 * u), p);
+-        if (hit) return b; }
+-    return -1;
++        CGFloat d = [self buttonDistance:b point:p];
++        if (d <= 1 && (best < 0 || d < distance)) {
++            best = b; distance = d;
++            if (!_layout.separated) return b;
++        }
++    }
++    return best;
+ }
+-- (BOOL)inSwap:(CGPoint)p { return dist(p, self.swapCenter) <= K_SWAP_R * self.u * 1.6; }
++- (CGFloat)swapDistance:(CGPoint)p { return dist(p, self.swapCenter) / MAX(K_SWAP_R * self.u * 1.6, _layout.separated ? 14 : 0); }
++- (BOOL)inSwap:(CGPoint)p { return [self swapDistance:p] <= 1; }
+ - (uint64_t)faceAt:(CGPoint)p {   // keys under the finger in the diamond (between two keys both count)
+-    uint64_t m = 0; CGFloat r = self.faceR * 1.25;
++    uint64_t m = 0; CGFloat r = self.faceHitR;
+     for (int b = B_A; b <= B_Y; b++) if (dist(p, [self facePos:b]) <= r) m |= 1ull << b;
+     return m;
+ }
+@@ -314,13 +367,11 @@ static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y);
+     if (changed || stick || _stickShown) [self refresh];   // also refresh on the stick release so the knob returns to the centre
+     _stickShown = stick;
+ }
+-// Touches no control takes (all of them while a physical controller is connected) go to the game's touch screen, normalized on the 16:9 picture that front_ios.m
+-// centres in the screen: Super Mario Galaxy's pointer in handheld mode (profile op_mode). The host reports them only in handheld mode, as on the Switch (hle_hid.c touch_read)
++// Touches no control takes go to the game's touch screen, normalized on front_ios.m's actual 16:9 viewport (including portrait and tabletop splits): Super Mario Galaxy's pointer in handheld mode (profile op_mode). The host reports them only in handheld mode, as on the Switch (hle_hid.c touch_read)
+ - (void)pushGame {
+-    CGRect b = self.bounds; CGFloat w = b.size.width, h = b.size.height;
+-    if (w <= 0 || h <= 0) return;
+-    if (w / h > 16.0 / 9.0) w = h * 16.0 / 9.0; else h = w * 9.0 / 16.0;
+-    CGFloat x0 = (b.size.width - w) / 2, y0 = (b.size.height - h) / 2;
++    CGRect b = _layout.game; CGFloat w = b.size.width, h = b.size.height;
++    if (w <= 0 || h <= 0) { dm_touch_set(NULL, 0); return; }
++    CGFloat x0 = CGRectGetMinX(b), y0 = CGRectGetMinY(b);
+     dm_touch t[16]; int n = 0;
+     for (int i = 0; i < 16; i++) if (_game[i]) {
+         CGPoint p = [_game[i] locationInView:self];
+@@ -329,6 +380,7 @@ static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y);
+     dm_touch_set(t, n);
+ }
+ - (BOOL)gameBegin:(UITouch *)t {
++    if (CGRectIsEmpty(_layout.game) || (_layout.separated && !CGRectContainsPoint(_layout.game, [t locationInView:self]))) return NO;
+     for (int i = 0; i < 16; i++) if (!_game[i]) { _game[i] = t; [_owner setObject:@(C_GAME | (uint64_t)i << 8) forKey:t]; return YES; }
+     return NO;
+ }
+@@ -336,15 +388,19 @@ static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y);
+     BOOL game = NO;
+     for (UITouch *t in ts) {
+         if (_padOff) { game |= [self gameBegin:t]; continue; }
+-        CGPoint p = [t locationInView:self]; int hit = _tap ? -1 : [self btnAt:p];
++        CGPoint p = [t locationInView:self];
++        if (_layout.separated && !CGRectContainsPoint(_layout.controls, p)) { game |= [self gameBegin:t]; continue; }
++        int hit = _tap ? -1 : [self btnAt:p];
++        if ([self inSwap:p] && (hit < 0 || (_layout.separated && [self swapDistance:p] < [self buttonDistance:hit point:p]))) {
++            [_owner setObject:@(C_SWAP) forKey:t]; continue;
++        }
+         if (hit >= 0) { [_owner setObject:@(C_BTN | (uint64_t)hit << 8) forKey:t]; continue; }
+-        if ([self inSwap:p]) { [_owner setObject:@(C_SWAP) forKey:t]; continue; }
+         if (_tap) { game |= [self gameBegin:t]; continue; }
+         // diamond, D-pad, left stick: take the one with the smallest distance / grab radius, if it is <= 1
+         CGFloat best = 1; int kind = C_NONE, idx = 0;
+-        CGFloat f = dist(p, self.faceCenter) / (self.faceGap + self.faceR * 1.6); if (f <= best) { best = f; kind = C_FACE; }
+-        if (_full) { CGFloat d = dist(p, self.dpadCenter) / (self.dpadR * K_DPAD_GRAB); if (d < best) { best = d; kind = C_DPAD; } }
+-        if (!_stick[0]) { CGFloat s = dist(p, self.stickHome) / ([self stickR:0] * K_STICK_GRAB); if (s < best) { best = s; kind = C_STICK; } }
++        CGFloat f = dist(p, self.faceCenter) / (self.faceGap + MAX(self.faceR * 1.6, self.faceHitR)); if (f <= best) { best = f; kind = C_FACE; }
++        if (_full) { CGFloat d = dist(p, self.dpadCenter) / MAX(self.dpadR * K_DPAD_GRAB, _layout.separated ? 22 : 0); if (d < best) { best = d; kind = C_DPAD; } }
++        if (!_stick[0]) { CGFloat s = dist(p, self.stickHome) / MAX([self stickR:0] * K_STICK_GRAB, _layout.separated ? 22 : 0); if (s < best) { best = s; kind = C_STICK; } }
+         if (kind == C_NONE && _full && !_stick[1] && [self inRightArea:p]) { kind = C_STICK; idx = 1; _rCentre = p; }   // the right stick: centred where the touch lands
+         if (kind == C_FACE) { [_owner setObject:@(C_FACE) forKey:t]; [_faceOf setObject:@([self faceAt:p]) forKey:t]; }
+         else if (kind == C_DPAD) [_owner setObject:@(C_DPAD) forKey:t];
+@@ -418,6 +474,11 @@ static void placeLabel(CATextLayer *t, CGPoint c, CGFloat fs) {
+     UIWindowScene *ws = self.window.windowScene; if (ws) atomic_store(&g_iface_orient, (int)ws.effectiveGeometry.interfaceOrientation);
+     CGFloat u = self.u;
+     [CATransaction begin]; [CATransaction setDisableActions:YES];
++    CGFloat scale = MAX(self.traitCollection.displayScale, 1);
++    for (int b = 0; b < B_N; b++) if (_label[b] && _label[b].contentsScale != scale) {
++        _label[b].contentsScale = scale; [_label[b] setNeedsDisplay];
++    }
++    if (_swapLabel.contentsScale != scale) { _swapLabel.contentsScale = scale; [_swapLabel setNeedsDisplay]; }
+     _controls.frame = self.layer.bounds;
+     for (int b = B_A; b <= B_Y; b++) { CGPoint c = [self facePos:b]; setPath(_key[b], circlePath(c, self.faceR)); placeLabel(_label[b], c, 20 * u); }
+     for (int i = 0; i < (int)(sizeof k_btns / sizeof *k_btns); i++) { int b = k_btns[i];
+@@ -529,6 +590,7 @@ static BOOL pads_slotted(GCController *gone) {
+ @end
+ 
+ UIView *dm_gamepad_view(CGRect frame) { DmGamepad *v = [[DmGamepad alloc] initWithFrame:frame]; g_view = v; return v; }
++void dm_gamepad_arrange(UIView *view, DmLayout layout) { [(DmGamepad *)view arrange:layout]; }
+ void dm_gamepad_active(void) { dispatch_async(dispatch_get_main_queue(), ^{ for (GCController *c in GCController.controllers) dm_motion_rearm(c); }); }   // On become active: motion_apple.h
+ void dm_gamepad_reset(void) {   // On resign active: release everything (a key held while switching away and released in background gets no "release")
+     dispatch_async(dispatch_get_main_queue(), ^{ [g_view reset]; });
+diff --git a/dm/ios/Sources/DmHostingController.swift b/dm/ios/Sources/DmHostingController.swift
+new file mode 100644
+index 0000000..14eee41
+--- /dev/null
++++ b/dm/ios/Sources/DmHostingController.swift
+@@ -0,0 +1,7 @@
++import SwiftUI
++import UIKit
++
++// Full-screen SwiftUI presentations must preserve the game's four-orientation policy.
++final class DmHostingController<Content: View>: UIHostingController<Content> {
++    override var supportedInterfaceOrientations: UIInterfaceOrientationMask { .all }
++}
+diff --git a/dm/ios/Sources/DmLayout.h b/dm/ios/Sources/DmLayout.h
+new file mode 100644
+index 0000000..4b118d8
+--- /dev/null
++++ b/dm/ios/Sources/DmLayout.h
+@@ -0,0 +1,53 @@
++// Shared picture and input geometry; division includes UIKit's interactive margins.
++#pragma once
++#import <UIKit/UIKit.h>
++
++NS_ASSUME_NONNULL_BEGIN
++
++typedef struct { CGRect game, controls; BOOL separated, topSafeOnly; } DmLayout;
++
++static inline UIEdgeInsets dm_game_safe_insets(CGRect bounds, UIEdgeInsets insets, BOOL duo) {
++    return duo && bounds.size.height > bounds.size.width ? UIEdgeInsetsMake(insets.top, 0, 0, 0) : insets;
++}
++
++static inline CGRect dm_aspect_fit(CGRect b) {
++    CGFloat w = b.size.width, h = b.size.height;
++    if (w <= 0 || h <= 0) return CGRectZero;
++    if (w / h > 16.0 / 9.0) w = h * 16.0 / 9.0; else h = w * 9.0 / 16.0;
++    return CGRectMake(floor(CGRectGetMidX(b) - w / 2), floor(CGRectGetMidY(b) - h / 2), w, h);
++}
++
++static inline CGRect dm_horizontal_division(CGRect b, CGRect division) {
++    if (CGRectIsNull(division) || division.size.width <= division.size.height) return CGRectNull;
++    // Preserve zero-height inactive folds and clip regions during display handoff.
++    CGFloat x = MAX(CGRectGetMinX(b), CGRectGetMinX(division));
++    CGFloat y = MAX(CGRectGetMinY(b), CGRectGetMinY(division));
++    CGFloat right = MIN(CGRectGetMaxX(b), CGRectGetMaxX(division));
++    CGFloat bottom = MIN(CGRectGetMaxY(b), CGRectGetMaxY(division));
++    if (right - x < b.size.width * 0.9 || bottom < y ||
++        y <= CGRectGetMinY(b) || bottom >= CGRectGetMaxY(b)) return CGRectNull;
++    return CGRectMake(x, y, right - x, bottom - y);
++}
++
++static inline DmLayout dm_layout(CGRect b, UIEdgeInsets insets, BOOL partiallyOpen, CGRect division) {
++    DmLayout l = { dm_aspect_fit(b), b, NO, NO };
++    if (CGRectIsEmpty(b)) return l;
++    division = dm_horizontal_division(b, division);
++    BOOL portrait = b.size.height > b.size.width;
++    if (!portrait && (!partiallyOpen || CGRectIsNull(division))) return l;
++    if (CGRectIsNull(division)) division = CGRectMake(b.origin.x, CGRectGetMidY(b), b.size.width, 0);
++    CGRect safe = UIEdgeInsetsInsetRect(b, insets);
++    CGRect upper = CGRectMake(CGRectGetMinX(safe), CGRectGetMinY(safe), safe.size.width,
++                             CGRectGetMinY(division) - CGRectGetMinY(safe));
++    CGRect lower = CGRectMake(CGRectGetMinX(b), CGRectGetMaxY(division), b.size.width,
++                             CGRectGetMaxY(b) - CGRectGetMaxY(division));
++    if (upper.size.height <= 0 || CGRectGetMaxY(safe) <= CGRectGetMinY(lower)) return l;
++    l.game = dm_aspect_fit(upper); l.controls = lower; l.separated = YES;
++    return l;
++}
++
++UIView *dm_gamepad_view(CGRect frame);
++void dm_gamepad_arrange(UIView *view, DmLayout layout);
++void dm_gamepad_reset(void);
++
++NS_ASSUME_NONNULL_END
+diff --git a/dm/ios/Sources/Launcher.swift b/dm/ios/Sources/Launcher.swift
+index f20e403..c968c26 100644
+--- a/dm/ios/Sources/Launcher.swift
++++ b/dm/ios/Sources/Launcher.swift
+@@ -240,7 +240,7 @@ public func dmShowLauncher(_ viewController: UnsafeMutableRawPointer, _ done: @c
+         model.apply()
+         h.dismiss(animated: false) { done() }
+     }
+-    let h = UIHostingController(rootView: view)
++    let h = DmHostingController(rootView: view)
+     h.modalPresentationStyle = .fullScreen
+     host = h
+     parent.present(h, animated: false)
+diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
+index 04a0f51..b04c66d 100644
+--- a/dm/ios/Sources/front_ios.m
++++ b/dm/ios/Sources/front_ios.m
+@@ -1,4 +1,4 @@
+-// iOS front end (the iOS implementation of front.h): a centered 16:9 Metal view (black bars on both sides) + a full-screen virtual gamepad layer (DmGamepad.m, controls drawn over the picture);
++// iOS front end: portrait puts 16:9 video above the gamepad; native horizontal folds set the separation when available;
+ // with a TV connected the Metal view is on the TV and the phone shows the pad (DmTVSceneDelegate).
+ // The host runs on the big-stack thread started by main.m; front_run runs the guest directly on the calling thread.
+ #import <UIKit/UIKit.h>
+@@ -13,9 +13,9 @@
+ #include "save_sync.h"
+ #import "CloudSaves.h"
+ 
+-UIView *dm_gamepad_view(CGRect frame);
+-void dm_gamepad_reset(void);
+ void dm_gamepad_active(void);
++#import "DmLayout.h"
++
+ void front_ios_boot(void);
+ int front_ios_boot_ok(void);
+ const char *front_ios_boot_message(void);   // main.m: why a build that keeps the game files off the IPA found none usable (NULL = the generic hint)
+@@ -34,9 +34,12 @@ static UILabel *front_ios_fps_label(void);
+ + (Class)layerClass { return CAMetalLayer.class; }
+ - (instancetype)initWithFrame:(CGRect)f {
+     if ((self = [super initWithFrame:f])) {
++        [self registerForTraitChanges:@[UITraitDisplayScale.class] withHandler:^(id<UITraitEnvironment> environment, UITraitCollection *previous) {
++            [(UIView *)environment setNeedsLayout];
++        }];
+         CAMetalLayer *l = (CAMetalLayer *)self.layer;
+         l.device = MTLCreateSystemDefaultDevice(); l.pixelFormat = MTLPixelFormatBGRA8Unorm;
+-        l.contentsScale = UIScreen.mainScreen.nativeScale; l.framebufferOnly = NO; l.opaque = YES;
++        l.contentsScale = MAX(self.traitCollection.displayScale, 1); l.framebufferOnly = NO; l.opaque = YES;
+         self.backgroundColor = UIColor.blackColor;
+     }
+     return self;
+@@ -49,6 +52,9 @@ static UILabel *front_ios_fps_label(void);
+ - (void)layoutSubviews {
+     [super layoutSubviews];
+     CAMetalLayer *l = (CAMetalLayer *)self.layer;
++    UIWindowScene *ws = self.window.windowScene; UIScreen *screen = ws.screen;
++    // Preserve native-pixel gameplay; UIKit text uses the view's displayScale. On a TV the scale tv_attach set (at most 1080p) stays.
++    if (![ws.session.role isEqualToString:UIWindowSceneSessionRoleExternalDisplayNonInteractive]) l.contentsScale = screen ? screen.nativeScale : MAX(self.traitCollection.displayScale, 1);
+     l.drawableSize = CGSizeMake(self.bounds.size.width * l.contentsScale, self.bounds.size.height * l.contentsScale);
+ }
+ @end
+@@ -59,6 +65,22 @@ static CGRect fit_16_9(CGRect b) {   // the largest centered 16:9 rectangle in b
+ }
+ static void tv_attach(void);
+ 
++@interface DmRootView : UIView
++@end
++@implementation DmRootView
+++ (BOOL)requiresConstraintBasedLayout { return YES; }
++- (void)updateConstraints {
++#if __has_include(<UIKit/UIHingeInteraction.h>)
++    if (@available(iOS 27.1, *)) {
++        // Reading here registers UIKit's automatic reserved-region invalidation.
++        [self reservedRegionsOfKind:UIViewReservedRegionKind.divisionRegionKind options:UIViewReservedRegionQueryOptionsIncludeInactive];
++        [self setNeedsLayout];
++    }
++#endif
++    [super updateConstraints];
++}
++@end
++
+ @interface DmRootVC : UIViewController
+ @property (nonatomic, strong) DmGameView *game;
+ @property (nonatomic, strong) UIView *pad;
+@@ -66,14 +88,31 @@ static void tv_attach(void);
+ @property (nonatomic) BOOL launched;
+ @property (nonatomic, strong) id tv;   // the TV scene accessory's registration (iOS 27)
+ @property (nonatomic) BOOL hasLauncher;   // the app has a settings screen: a failed Play goes back to it (its Game data section is the way out)
++@property (nonatomic) BOOL partiallyOpen;
++@property (nonatomic) NSInteger hingeStatus;
++@property (nonatomic) BOOL separated;
++@property (nonatomic, copy) NSString *layoutLog;
++#if __has_include(<UIKit/UIHingeInteraction.h>)
++- (void)hingeChanged:(UIHinge *)hinge API_AVAILABLE(ios(27.1));
++#endif
++
+ - (void)startGame;
+ @end
+ static DmRootVC *g_root;
+ static void launcher_done(void) { [g_root startGame]; }
+ @implementation DmRootVC
++- (void)loadView { self.view = [DmRootView new]; }
+ - (void)viewDidLoad {
+     [super viewDidLoad];
+     self.view.backgroundColor = UIColor.blackColor;
++#if __has_include(<UIKit/UIHingeInteraction.h>)
++    if (@available(iOS 27.1, *)) {
++        __weak DmRootVC *weakSelf = self;
++        [self.view addInteraction:[[UIHingeInteraction alloc] initWithUpdateHandler:^(UIHingeInteraction *interaction, UIHingeInteractionUpdate *update) {
++            [weakSelf hingeChanged:update.hinge];
++        }]];
++    }
++#endif
+     front_ios_power_watch();
+     if (!front_ios_boot_ok()) {   // No game files: show a hint and do not start the host
+         UILabel *lb = [[UILabel alloc] initWithFrame:CGRectInset(self.view.bounds, 40, 40)];
+@@ -92,6 +131,18 @@ static void launcher_done(void) { [g_root startGame]; }
+     }
+ #endif
+ }
++#if __has_include(<UIKit/UIHingeInteraction.h>)
++- (void)hingeChanged:(UIHinge *)hinge API_AVAILABLE(ios(27.1)) {
++    NSInteger status = hinge ? hinge.status : UIHingeStatusUnknown;
++    if (self.hingeStatus != status) {
++        self.hingeStatus = status;
++        LOG("front end: Duo hinge status %ld, angle %.3f", (long)status, hinge.angle);
++    }
++    self.partiallyOpen = status == UIHingeStatusPartiallyOpen;
++    [self.view setNeedsUpdateConstraints];
++    [self.view setNeedsLayout];
++}
++#endif
+ // The game view, the pad and the frame-rate counter are made once the launcher has set the switches they read (DM_SHOW_FPS, DM_METAL_HUD); the host's loading began at app launch (main.m)
+ - (void)startGame {
+     if (self.game) return;
+@@ -104,6 +155,7 @@ static void launcher_done(void) { [g_root startGame]; }
+         [self.view addSubview:lb]; return;
+     }
+     dm_cloud_saves_env();   // DM_SAVE_SYNC from the launcher's Cloud saves pick, before the game's first save mount reads it (CloudSaves.m, save_sync.h)
++
+     front_hud_env();   // before the game view makes its device (an env file's DM_METAL_HUD sets it in main.m already)
+     self.game = [[DmGameView alloc] initWithFrame:self.view.bounds];
+     [self.view addSubview:self.game];
+@@ -124,9 +176,37 @@ static void launcher_done(void) { [g_root startGame]; }
+ - (void)viewDidLayoutSubviews {
+     [super viewDidLayoutSubviews];
+     CGRect b = self.view.bounds; if (!self.game) return;
+-    if (self.game.superview == self.view) self.game.frame = fit_16_9(b);   // on a TV the TV's view lays it out
+-    if (self.fps) {   // the top row's free stretch: right of DmGamepad.m's L3 key (102 + 17 of its units from the safe edge), level with − / + (22 units down); u is its unit
+-        CGRect s = UIEdgeInsetsInsetRect(b, self.view.safeAreaInsets); CGFloat u = MIN(b.size.height / 430.0, 1.3);
++    CGRect division = CGRectNull;
++    NSMutableArray<NSString *> *regionLog = [NSMutableArray array];
++#if __has_include(<UIKit/UIHingeInteraction.h>)
++    if (@available(iOS 27.1, *)) {
++        for (UIViewReservedRegion *region in [self.view reservedRegionsOfKind:UIViewReservedRegionKind.divisionRegionKind options:UIViewReservedRegionQueryOptionsIncludeInactive]) {
++            [regionLog addObject:[NSString stringWithFormat:@"%@ active=%d", NSStringFromCGRect(region.frame), region.isActive]];
++            CGRect candidate = dm_horizontal_division(b, region.frame);
++            if (CGRectIsNull(division) && !CGRectIsNull(candidate)) division = candidate;
++        }
++    }
++#endif
++    BOOL duoPortrait = b.size.height > b.size.width && (self.hingeStatus != 0 || !CGRectIsNull(division));
++    UIEdgeInsets gameInsets = dm_game_safe_insets(b, self.view.safeAreaInsets, duoPortrait);
++    DmLayout layout = dm_layout(b, gameInsets, self.partiallyOpen, division);
++    if (self.game.superview == self.view) self.game.frame = layout.game;   // on a TV the TV's view lays it out
++    layout.topSafeOnly = duoPortrait;
++    UIInterfaceOrientationMask appMask = [UIApplication.sharedApplication supportedInterfaceOrientationsForWindow:self.view.window];
++    NSString *summary = [NSString stringWithFormat:@"bounds %@, orientation %ld, scene locked %d, root mask %#lx, app mask %#lx, hinge %ld, partial %d, divisions %@, mode %@", NSStringFromCGRect(b), (long)self.view.window.windowScene.effectiveGeometry.interfaceOrientation, self.view.window.windowScene.effectiveGeometry.isInterfaceOrientationLocked, (unsigned long)self.supportedInterfaceOrientations, (unsigned long)appMask, (long)self.hingeStatus, self.partiallyOpen, regionLog, layout.separated ? @"split" : @"overlay"];
++    if (![summary isEqualToString:self.layoutLog]) {
++        self.layoutLog = summary;
++        LOG("front end: Duo layout %s", summary.UTF8String);
++    }
++    if (layout.separated != self.separated) {
++        self.separated = layout.separated;
++        LOG("front end: Duo %s, video %s, controls %s", layout.separated ? "split" : "overlay", NSStringFromCGRect(layout.game).UTF8String, NSStringFromCGRect(layout.controls).UTF8String);
++    }
++    self.pad.frame = b;
++    dm_gamepad_arrange(self.pad, layout);
++    if (self.fps) {
++        CGRect s = CGRectIntersection(layout.controls, UIEdgeInsetsInsetRect(b, gameInsets));
++        CGFloat u = layout.separated ? MIN(MIN(s.size.height / 430.0, s.size.width / 700.0), 1.3) : MIN(b.size.height / 430.0, 1.3);
+         self.fps.frame = CGRectMake(floor(CGRectGetMinX(s) + 130 * u), floor(CGRectGetMinY(s) + 22 * u - 11), 64, 22);
+     }
+ }
+@@ -145,7 +225,7 @@ static void launcher_done(void) { [g_root startGame]; }
+ - (BOOL)prefersHomeIndicatorAutoHidden { return YES; }
+ - (UIRectEdge)preferredScreenEdgesDeferringSystemGestures { return UIRectEdgeAll; }   // Edge gestures need two swipes, to avoid accidental exits
+ - (BOOL)prefersStatusBarHidden { return YES; }
+-- (UIInterfaceOrientationMask)supportedInterfaceOrientations { return UIInterfaceOrientationMaskLandscape; }
++- (UIInterfaceOrientationMask)supportedInterfaceOrientations { return UIInterfaceOrientationMaskAll; }
+ @end
+ UIViewController *front_ios_root(void) { return [DmRootVC new]; }
+ 
+diff --git a/dm/ios/project.yml b/dm/ios/project.yml
+index ed0010a..8964dbb 100644
+--- a/dm/ios/project.yml
++++ b/dm/ios/project.yml
+@@ -32,13 +32,17 @@ targets:
+         CFBundleDisplayName: ${DM_DISPLAY_NAME}   # the game name in the base NSP (set by build_ipa.sh)
+         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+         CFBundleShortVersionString: $(MARKETING_VERSION)
+-        UILaunchStoryboardName: ""
++        UILaunchScreen: {}
+         UIFileSharingEnabled: true          # Documents (log.txt, saves) visible in the Files app
+         LSSupportsOpeningDocumentsInPlace: true
+         UISupportedInterfaceOrientations:
+           - UIInterfaceOrientationLandscapeRight
+           - UIInterfaceOrientationLandscapeLeft
+-        UIRequiresFullScreen: true
++        UISupportedInterfaceOrientations~ipad:
++          - UIInterfaceOrientationPortrait
++          - UIInterfaceOrientationPortraitUpsideDown
++          - UIInterfaceOrientationLandscapeRight
++          - UIInterfaceOrientationLandscapeLeft
+         UIStatusBarHidden: true
+         UIViewControllerBasedStatusBarAppearance: false
+         LSApplicationCategoryType: ${DM_APP_CATEGORY}   # game profile app_category
+diff --git a/dm/ios/tests/duo/.gitignore b/dm/ios/tests/duo/.gitignore
+new file mode 100644
+index 0000000..de4db43
+--- /dev/null
++++ b/dm/ios/tests/duo/.gitignore
+@@ -0,0 +1,5 @@
++/DuoHarness.xcodeproj/
++/Info.plist
++/DerivedData/
++__pycache__/
++*.py[cod]
+diff --git a/dm/ios/tests/duo/README.md b/dm/ios/tests/duo/README.md
+new file mode 100644
+index 0000000..07d4df5
+--- /dev/null
++++ b/dm/ios/tests/duo/README.md
+@@ -0,0 +1,42 @@
++# Duo UI and input harness
++
++This XCTest app compiles the production iOS gamepad, layout and hosting-controller code with inert host-runtime stubs. Its fixture `game_profile.h` supplies no game data, so the harness does not generate or require a game profile or extracted files.
++
++The Simulator unit tests cover portrait and landscape layout, safe areas, valid and invalid division regions, 16:9 fitting, touch hit ownership, multitouch and video coordinates, pose-change input release, controller-to-player slots, stale controller callbacks, and preservation of a seeded controller-motion sample across layout changes. The optional virtual-controller case runs when Simulator exposes one.
++
++The native rotation UI test requires the iOS 27.1 iPhone Duo simulator with the hinge fully open. The simulator does not apply scene rotations from `XCUIDevice.shared.orientation` in this test path, so the test waits for an operator to rotate the simulator through Device Hub. It verifies the live bounds and video/control frames while the operator cycles through both landscape and both portrait poses. Inner-display composition follows bounds rather than the scene orientation value. The phone plist deliberately permits only landscape, while the iPad list permits all four orientations. In each portrait pose, click the center of the visible Game viewport within 60 seconds; the test verifies that the native click reaches `dm_touch_set` with a centered normalized game coordinate. It fails if the hinge is not fully open, any pose is not reached, or either native click is missing. The Simulator unit tests continue to use synthetic touches, controller snapshots, hinge statuses, and division callbacks; they do not exercise UIKit hit-testing or system touch cancellation.
++
++The harness uses synthetic host state and does not validate an installed game, physical hinge sensors or device motion.
++
++From the repository root:
++
++```sh
++cd dm/ios/tests/duo
++xcodegen generate --spec project.yml
++xcodebuild test -project DuoHarness.xcodeproj -scheme DuoHarness \
++  -destination 'platform=iOS Simulator,id=<simulator-udid>' \
++  -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO
++```
++
++Run the native rotation test on the fully-open iPhone Duo simulator. While the test waits for each pose, rotate the simulator through the printed Device Hub sequence before its 60-second timeout. At each portrait prompt, click the visible Game viewport center before continuing:
++
++```sh
++xcodebuild test -project DuoHarness.xcodeproj -scheme DuoHarnessNativeRotation \
++  -destination 'platform=iOS Simulator,id=<iphone-duo-simulator-udid>' \
++  -parallel-testing-enabled NO \
++  CODE_SIGNING_ALLOWED=NO \
++  -only-testing:DuoHarnessUITests/DuoNativeRotationUITests/testObservedNativeFourOrientationCycleOnFullyOpenDuoPreservesLayoutAndTouchRouting
++```
++
++To build and install the harness app for a simulator:
++
++```sh
++DERIVED_DATA="$(mktemp -d "${TMPDIR:-/tmp}/duo-harness.XXXXXX")"
++xcodebuild build-for-testing -project DuoHarness.xcodeproj -scheme DuoHarness \
++  -destination 'generic/platform=iOS Simulator' -derivedDataPath "$DERIVED_DATA" \
++  CODE_SIGNING_ALLOWED=NO
++DEVICE=<simulator-udid>
++APP="$DERIVED_DATA/Build/Products/Debug-iphonesimulator/DuoHarness.app"
++xcrun simctl install "$DEVICE" "$APP"
++xcrun simctl launch "$DEVICE" org.nxnative.DuoHarness
++```
+diff --git a/dm/ios/tests/duo/Sources/DuoHarnessApp.m b/dm/ios/tests/duo/Sources/DuoHarnessApp.m
+new file mode 100644
+index 0000000..e9b168d
+--- /dev/null
++++ b/dm/ios/tests/duo/Sources/DuoHarnessApp.m
+@@ -0,0 +1,177 @@
++#import <UIKit/UIKit.h>
++#import "DmLayout.h"
++#import "DuoHarnessRuntime.h"
++#include <stdlib.h>
++#include <string.h>
++#if __has_include(<UIKit/UIHingeInteraction.h>)
++#import <UIKit/UIHingeInteraction.h>
++#endif
++
++UIViewController *front_ios_root(void);
++
++static NSArray<NSNumber *> *DuoHarnessRectArray(CGRect rect) {
++    return @[@(CGRectGetMinX(rect)), @(CGRectGetMinY(rect)), @(CGRectGetWidth(rect)), @(CGRectGetHeight(rect))];
++}
++
++static NSArray<NSArray<NSNumber *> *> *DuoHarnessTouchArray(DuoHarnessInput input) {
++    NSMutableArray *touches = [NSMutableArray arrayWithCapacity:(NSUInteger)input.last_touch_count];
++    for (int i = 0; i < input.last_touch_count; i++) {
++        [touches addObject:@[@(input.last_touches[i].x), @(input.last_touches[i].y)]];
++    }
++    return touches;
++}
++
++@interface DuoHarnessDiagnosticsOverlay : UIView
++@property (nonatomic, copy) void (^didLayout)(void);
++@end
++
++@implementation DuoHarnessDiagnosticsOverlay
++- (void)layoutSubviews {
++    [super layoutSubviews];
++    if (self.didLayout) self.didLayout();
++}
++@end
++
++@interface DuoHarnessAppDelegate : UIResponder <UIApplicationDelegate>
++@end
++
++@interface DuoHarnessSceneDelegate : UIResponder <UIWindowSceneDelegate>
++@property (nonatomic, strong) UIWindow *window;
++@property (nonatomic, strong) UILabel *diagnosticsLabel;
++@property (nonatomic, strong) id inputObserver;
++@property (nonatomic) NSInteger diagnosticHingeStatus;
++@property (nonatomic) CGFloat diagnosticHingeAngle;
++#if __has_include(<UIKit/UIHingeInteraction.h>)
++@property (nonatomic, strong) UIHingeInteraction *diagnosticHingeInteraction API_AVAILABLE(ios(27.1));
++#endif
++- (void)refreshDiagnostics;
++@end
++
++@implementation DuoHarnessAppDelegate
++- (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)options {
++    (void)application; (void)options;
++    // Synthetic touches should not start device motion or trigger hardware feedback.
++    setenv("DM_MOTION", "0", 1);
++    setenv("DM_TOUCH_HAPTICS", "0", 1);
++    return YES;
++}
++- (UISceneConfiguration *)application:(UIApplication *)application
++    configurationForConnectingSceneSession:(UISceneSession *)session
++    options:(UISceneConnectionOptions *)options {
++    (void)application; (void)options;
++    return [[UISceneConfiguration alloc] initWithName:@"Default" sessionRole:session.role];
++}
++@end
++
++@implementation DuoHarnessSceneDelegate
++- (void)scene:(UIScene *)scene willConnectToSession:(UISceneSession *)session options:(UISceneConnectionOptions *)options {
++    (void)session; (void)options;
++    if (![scene isKindOfClass:UIWindowScene.class]) return;
++    self.window = [[UIWindow alloc] initWithWindowScene:(UIWindowScene *)scene];
++    UIViewController *root = front_ios_root();
++    self.window.rootViewController = root;
++    [self.window makeKeyAndVisible];
++
++    self.diagnosticHingeStatus = -1;
++    self.diagnosticHingeAngle = -1;
++    self.diagnosticsLabel = [UILabel new];
++    self.diagnosticsLabel.frame = CGRectMake(0, 0, 1, 1);
++    self.diagnosticsLabel.isAccessibilityElement = YES;
++    self.diagnosticsLabel.accessibilityIdentifier = @"duo.diagnostics";
++    self.diagnosticsLabel.accessibilityLabel = @"Duo native rotation diagnostics";
++    self.diagnosticsLabel.accessibilityTraits = UIAccessibilityTraitStaticText;
++    self.diagnosticsLabel.userInteractionEnabled = NO;
++
++    DuoHarnessDiagnosticsOverlay *overlay = [[DuoHarnessDiagnosticsOverlay alloc] initWithFrame:root.view.bounds];
++    overlay.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
++    overlay.backgroundColor = UIColor.clearColor;
++    overlay.userInteractionEnabled = NO;
++    [overlay addSubview:self.diagnosticsLabel];
++    __weak DuoHarnessSceneDelegate *weakSelf = self;
++    overlay.didLayout = ^{ [weakSelf refreshDiagnostics]; };
++    [root.view addSubview:overlay];
++
++    self.inputObserver = [NSNotificationCenter.defaultCenter addObserverForName:DuoHarnessInputDidChangeNotification
++                                                                          object:nil
++                                                                           queue:NSOperationQueue.mainQueue
++                                                                      usingBlock:^(NSNotification *note) {
++        (void)note;
++        [weakSelf refreshDiagnostics];
++    }];
++#if __has_include(<UIKit/UIHingeInteraction.h>)
++    if (@available(iOS 27.1, *)) {
++        self.diagnosticHingeInteraction = [[UIHingeInteraction alloc] initWithUpdateHandler:^(UIHingeInteraction *interaction, UIHingeInteractionUpdate *update) {
++            (void)interaction;
++            UIHinge *hinge = update.hinge;
++            weakSelf.diagnosticHingeStatus = hinge ? hinge.status : -1;
++            weakSelf.diagnosticHingeAngle = hinge ? hinge.angle : -1;
++            [weakSelf refreshDiagnostics];
++        }];
++        [root.view addInteraction:self.diagnosticHingeInteraction];
++    }
++#endif
++    dispatch_async(dispatch_get_main_queue(), ^{ [weakSelf refreshDiagnostics]; });
++    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(NSEC_PER_SEC / 2)), dispatch_get_main_queue(), ^{
++        [weakSelf.window.rootViewController.view layoutIfNeeded];
++        [weakSelf refreshDiagnostics];
++    });
++}
++
++- (void)windowScene:(UIWindowScene *)windowScene
++    didUpdateEffectiveGeometry:(UIWindowSceneGeometry *)previousEffectiveGeometry API_AVAILABLE(ios(26.0)) {
++    (void)windowScene; (void)previousEffectiveGeometry;
++    __weak DuoHarnessSceneDelegate *weakSelf = self;
++    dispatch_async(dispatch_get_main_queue(), ^{ [weakSelf refreshDiagnostics]; });
++}
++
++- (void)refreshDiagnostics {
++    UIWindow *window = self.window;
++    UIViewController *root = window.rootViewController;
++    if (!window || !root || !self.diagnosticsLabel) return;
++    UIWindowScene *scene = window.windowScene;
++    UIView *game = [root valueForKey:@"game"];
++    UIView *pad = [root valueForKey:@"pad"];
++    if (!game || !pad) {
++        self.diagnosticsLabel.accessibilityValue = @"Duo diagnostics unavailable: production gamepad has not started";
++        return;
++    }
++    NSValue *storedLayout = [pad valueForKey:@"layout"];
++    if (![storedLayout isKindOfClass:NSValue.class] || strcmp(storedLayout.objCType, @encode(DmLayout)) != 0) {
++        self.diagnosticsLabel.accessibilityValue = @"Duo diagnostics unavailable: production gamepad layout is not readable";
++        return;
++    }
++    self.diagnosticsLabel.frame = game.frame;
++    DmLayout layout;
++    [storedLayout getValue:&layout size:sizeof(layout)];
++
++    DuoHarnessInput input = duo_harness_input();
++    NSDictionary *snapshot = @{
++        @"orientation": @(scene.effectiveGeometry.interfaceOrientation),
++        @"bounds": DuoHarnessRectArray(root.view.bounds),
++        @"game": DuoHarnessRectArray(game.frame),
++        @"controls": DuoHarnessRectArray(layout.controls),
++        @"separated": @(layout.separated),
++        @"touchCount": @(input.touch_count),
++        @"touchUpdates": @(input.touch_update_count),
++        @"lastTouches": DuoHarnessTouchArray(input),
++        @"hingeStatus": @(self.diagnosticHingeStatus),
++        @"hingeAngle": @(self.diagnosticHingeAngle)
++    };
++    NSError *error = nil;
++    NSData *data = [NSJSONSerialization dataWithJSONObject:snapshot options:0 error:&error];
++    if (!data) {
++        self.diagnosticsLabel.accessibilityValue = [NSString stringWithFormat:@"diagnostics error: %@", error];
++        return;
++    }
++    NSString *value = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
++    if (![self.diagnosticsLabel.accessibilityValue isEqualToString:value]) self.diagnosticsLabel.accessibilityValue = value;
++}
++
++- (void)dealloc {
++    if (self.inputObserver) [NSNotificationCenter.defaultCenter removeObserver:self.inputObserver];
++}
++@end
++
++int main(int argc, char *argv[]) {
++    @autoreleasepool { return UIApplicationMain(argc, argv, nil, NSStringFromClass(DuoHarnessAppDelegate.class)); }
++}
+diff --git a/dm/ios/tests/duo/Sources/DuoHarnessRuntime.h b/dm/ios/tests/duo/Sources/DuoHarnessRuntime.h
+new file mode 100644
+index 0000000..644df62
+--- /dev/null
++++ b/dm/ios/tests/duo/Sources/DuoHarnessRuntime.h
+@@ -0,0 +1,38 @@
++#pragma once
++#import <Foundation/Foundation.h>
++#include "front.h"
++#include "dm_input.h"
++
++typedef struct {
++    uint64_t buttons;
++    int32_t lx, ly, rx, ry;
++    int touch_count;
++    dm_touch touches[16];
++    uint64_t touch_update_count;
++    int last_touch_count;
++    dm_touch last_touches[16];
++} DuoHarnessInput;
++
++typedef struct {
++    uint64_t buttons;
++    int32_t lx, ly, rx, ry;
++} DuoHarnessPlayerInput;
++
++typedef struct {
++    float acceleration[3];
++    float rotation[3];
++} DuoHarnessMotion;
++
++typedef struct {
++    DuoHarnessInput input;
++    DuoHarnessPlayerInput players[DM_PLAYERS];
++    uint32_t connected_players;
++    DuoHarnessMotion controller_motion[DM_PLAYERS];
++    uint32_t controller_motion_mask;
++} DuoHarnessState;
++
++DuoHarnessInput duo_harness_input(void);
++DuoHarnessState duo_harness_state(void);
++void duo_harness_clear(void);
++
++FOUNDATION_EXPORT NSString * const DuoHarnessInputDidChangeNotification;
+diff --git a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
+new file mode 100644
+index 0000000..f2d2072
+--- /dev/null
++++ b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
+@@ -0,0 +1,127 @@
++#import <GameController/GameController.h>
++#import "DuoHarnessRuntime.h"
++#include "dm.h"
++#include "dm_input.h"
++#include "haptics_apple.h"
++#include "hle.h"
++#include <pthread.h>
++#include <string.h>
++
++NSString * const DuoHarnessInputDidChangeNotification = @"DuoHarnessInputDidChange";
++
++static pthread_mutex_t g_input_lock = PTHREAD_MUTEX_INITIALIZER;
++static DuoHarnessState g_state;
++static struct dm_profile g_profile;
++static dispatch_once_t g_profile_once;
++
++DuoHarnessInput duo_harness_input(void) {
++    pthread_mutex_lock(&g_input_lock);
++    DuoHarnessInput value = g_state.input;
++    pthread_mutex_unlock(&g_input_lock);
++    return value;
++}
++
++DuoHarnessState duo_harness_state(void) {
++    pthread_mutex_lock(&g_input_lock);
++    DuoHarnessState value = g_state;
++    pthread_mutex_unlock(&g_input_lock);
++    return value;
++}
++
++void duo_harness_clear(void) {
++    pthread_mutex_lock(&g_input_lock);
++    memset(&g_state, 0, sizeof(g_state));
++    pthread_mutex_unlock(&g_input_lock);
++}
++
++void dm_input_set(uint64_t buttons, int32_t lx, int32_t ly, int32_t rx, int32_t ry) {
++    pthread_mutex_lock(&g_input_lock);
++    g_state.input.buttons = buttons;
++    g_state.input.lx = lx; g_state.input.ly = ly; g_state.input.rx = rx; g_state.input.ry = ry;
++    pthread_mutex_unlock(&g_input_lock);
++    [[NSNotificationCenter defaultCenter] postNotificationName:DuoHarnessInputDidChangeNotification object:nil];
++}
++
++void dm_touch_set(const dm_touch *touches, int count) {
++    pthread_mutex_lock(&g_input_lock);
++    g_state.input.touch_count = count > 16 ? 16 : count;
++    g_state.input.touch_update_count++;
++    memset(g_state.input.touches, 0, sizeof(g_state.input.touches));
++    if (touches && g_state.input.touch_count > 0) memcpy(g_state.input.touches, touches, (size_t)g_state.input.touch_count * sizeof(*touches));
++    if (touches && g_state.input.touch_count > 0) {
++        g_state.input.last_touch_count = g_state.input.touch_count;
++        memset(g_state.input.last_touches, 0, sizeof(g_state.input.last_touches));
++        memcpy(g_state.input.last_touches, touches, (size_t)g_state.input.touch_count * sizeof(*touches));
++    }
++    pthread_mutex_unlock(&g_input_lock);
++    [[NSNotificationCenter defaultCenter] postNotificationName:DuoHarnessInputDidChangeNotification object:nil];
++}
++
++void dm_pad_set(uint64_t buttons, int32_t lx, int32_t ly, int32_t rx, int32_t ry) {
++    dm_pad_set_player(0, buttons, lx, ly, rx, ry);
++}
++
++void dm_pad_set_player(int player, uint64_t buttons, int32_t lx, int32_t ly, int32_t rx, int32_t ry) {
++    if (player < 0 || player >= DM_PLAYERS) return;
++    pthread_mutex_lock(&g_input_lock);
++    g_state.players[player] = (DuoHarnessPlayerInput){buttons, lx, ly, rx, ry};
++    pthread_mutex_unlock(&g_input_lock);
++}
++
++void dm_pad_players(uint32_t mask) {
++    pthread_mutex_lock(&g_input_lock);
++    g_state.connected_players = mask;
++    pthread_mutex_unlock(&g_input_lock);
++}
++
++void dm_motion_set(int player, const float acceleration[3], const float rotation[3]) {
++    if (player < 0 || player >= DM_PLAYERS || !acceleration || !rotation) return;
++    pthread_mutex_lock(&g_input_lock);
++    memcpy(g_state.controller_motion[player].acceleration, acceleration, sizeof(g_state.controller_motion[player].acceleration));
++    memcpy(g_state.controller_motion[player].rotation, rotation, sizeof(g_state.controller_motion[player].rotation));
++    g_state.controller_motion_mask |= 1u << player;
++    pthread_mutex_unlock(&g_input_lock);
++}
++
++void dm_motion_set_switch(int player, const float acceleration[3], const float rotation[3]) {
++    (void)player; (void)acceleration; (void)rotation;
++}
++
++void dm_motion_clear(int player) {
++    if (player < 0 || player >= DM_PLAYERS) return;
++    pthread_mutex_lock(&g_input_lock);
++    memset(&g_state.controller_motion[player], 0, sizeof(g_state.controller_motion[player]));
++    g_state.controller_motion_mask &= ~(1u << player);
++    pthread_mutex_unlock(&g_input_lock);
++}
++
++uint32_t dm_player_npad(int player) { return player == 0 ? 0x20 : (uint32_t)player; }
++
++const struct dm_profile *dm_profile(void) {
++    dispatch_once(&g_profile_once, ^{ g_profile.pad_layout = 1; g_profile.opmode = 0; });
++    return &g_profile;
++}
++
++int dm_opmode(void) { return 0; }
++void dm_set_opmode(int mode) { (void)mode; }
++void dm_haptics_apple_init(void) {}
++void dm_haptics_apple_controller(int player, GCController *controller) { (void)player; (void)controller; }
++
++int front_ios_boot_ok(void) { return 1; }
++void front_ios_boot(void) {}
++bool dm_show_launcher(void *viewController, void (*done)(void)) { (void)viewController; (void)done; return false; }
++
++uint64_t g_t0_ns;
++uint64_t now_ns(void) { return 1; }
++uint64_t mtl_present_count(void) { return 0; }
++__thread _Atomic int dm_host_work;
++void dm_gfx_suspend(int on) { (void)on; }
++void dm_audio_suspend(int on) { (void)on; }
++void dm_audio_reset(void) {}
++void dm_focus_set(int state) { (void)state; }
++void guest_clock_freeze_for(int reason, int on) { (void)reason; (void)on; }
++const char *front_ios_boot_message(void) { return NULL; }
++const char *front_ios_device_message(void) { return NULL; }
++int dm_locate_game_data(void) { return 1; }
++void dm_cloud_saves_env(void) {}
++int save_sync_flush(int timeout_ms) { (void)timeout_ms; return 1; }
+diff --git a/dm/ios/tests/duo/Sources/Fixtures/game_profile.h b/dm/ios/tests/duo/Sources/Fixtures/game_profile.h
+new file mode 100644
+index 0000000..c4f4c5e
+--- /dev/null
++++ b/dm/ios/tests/duo/Sources/Fixtures/game_profile.h
+@@ -0,0 +1,3 @@
++#pragma once
++
++// DmGamepad uses the runtime profile supplied by DuoRuntimeStubs, not generated game constants.
+diff --git a/dm/ios/tests/duo/Tests/DuoHarnessTests.m b/dm/ios/tests/duo/Tests/DuoHarnessTests.m
+new file mode 100644
+index 0000000..271d44c
+--- /dev/null
++++ b/dm/ios/tests/duo/Tests/DuoHarnessTests.m
+@@ -0,0 +1,1189 @@
++#import <XCTest/XCTest.h>
++#import <GameController/GameController.h>
++#import <QuartzCore/CAMetalLayer.h>
++#import <objc/runtime.h>
++#if __has_include(<UIKit/UIHingeInteraction.h>)
++#import <UIKit/UIHingeInteraction.h>
++#import <UIKit/UIViewReservedRegion.h>
++#define DUO_HARNESS_HAS_NATIVE_POSE_API 1
++#else
++#define DUO_HARNESS_HAS_NATIVE_POSE_API 0
++#endif
++#import "DmLayout.h"
++#import "DuoHarnessRuntime.h"
++#include "dm_input.h"
++#include <math.h>
++#include <stdio.h>
++
++static NSArray<GCController *> *gDuoHarnessControllers;
++static BOOL gDuoHarnessControllerSwizzleInstalled;
++static UIView *gDuoHarnessReservedRegionView;
++static id gDuoHarnessReservedRegion;
++static BOOL gDuoHarnessSawIncludeInactiveDivisionQuery;
++static NSUInteger gDuoHarnessProbeViewClassSerial;
++
++@interface GCController (DuoHarnessControllerList)
+++ (NSArray<GCController *> *)duo_harness_controllers;
++@end
++
++@implementation GCController (DuoHarnessControllerList)
+++ (NSArray<GCController *> *)duo_harness_controllers {
++    @synchronized (GCController.class) {
++        if (gDuoHarnessControllers) return gDuoHarnessControllers;
++    }
++    return [self duo_harness_controllers];
++}
++@end
++
++@interface DuoFakeTouch : NSObject
++@property (nonatomic) CGPoint point;
++@property (nonatomic) NSTimeInterval timestamp;
++- (CGPoint)locationInView:(UIView *)view;
++@end
++
++@implementation DuoFakeTouch
++- (CGPoint)locationInView:(UIView *)view { (void)view; return self.point; }
++@end
++
++#if DUO_HARNESS_HAS_NATIVE_POSE_API
++@interface DuoFakeHinge : NSObject
++@property (nonatomic) NSInteger status;
++@property (nonatomic) CGFloat angle;
++@end
++@implementation DuoFakeHinge
++@end
++
++@interface DuoFakeReservedRegion : NSObject
++@property (nonatomic) CGRect frame;
++@property (nonatomic) UIEdgeInsets margins;
++@property (nonatomic, strong) id identifier;
++@property (nonatomic, strong) id kind;
++@property (nonatomic, getter=isActive) BOOL active;
++@end
++@implementation DuoFakeReservedRegion
++@end
++
++@interface UIViewController (DuoHarnessNativeHingeCallback)
++- (void)hingeChanged:(id _Nullable)hinge;
++- (void)startGame;
++@end
++
++static NSArray<UIViewReservedRegion *> *DuoHarnessReservedRegionsForProbeView(
++    id view, SEL selector, UIViewReservedRegionKind *kind, UIViewReservedRegionQueryOptions options) API_AVAILABLE(ios(27.1)) {
++    (void)selector;
++    (void)kind;
++    if (view == gDuoHarnessReservedRegionView) {
++        if (options & UIViewReservedRegionQueryOptionsIncludeInactive) {
++            gDuoHarnessSawIncludeInactiveDivisionQuery = YES;
++            return gDuoHarnessReservedRegion ? @[(UIViewReservedRegion *)gDuoHarnessReservedRegion] : @[];
++        }
++        return @[];
++    }
++    return @[];
++}
++
++static Class DuoHarnessInstallReservedRegionProbe(UIView *view) API_AVAILABLE(ios(27.1)) {
++    Class originalClass = object_getClass(view);
++    char className[96];
++    snprintf(className, sizeof(className), "DuoHarnessReservedRegionProbe%lu", (unsigned long)++gDuoHarnessProbeViewClassSerial);
++    Class probeClass = objc_allocateClassPair(originalClass, className, 0);
++    if (!probeClass) return Nil;
++    Method queryMethod = class_getInstanceMethod(UIView.class, @selector(reservedRegionsOfKind:options:));
++    if (!queryMethod || !class_addMethod(probeClass, @selector(reservedRegionsOfKind:options:),
++                                         (IMP)DuoHarnessReservedRegionsForProbeView, method_getTypeEncoding(queryMethod))) {
++        objc_disposeClassPair(probeClass);
++        return Nil;
++    }
++    objc_registerClassPair(probeClass);
++    object_setClass(view, probeClass);
++    return originalClass;
++}
++
++#endif
++
++@interface DuoHarnessTests : XCTestCase
++@property (nonatomic, strong) id savedLayout;
++@property (nonatomic) BOOL controllerListOverridden;
++- (void)setHarnessControllers:(NSArray<GCController *> * _Nullable)controllers notification:(NSNotificationName _Nullable)notification;
++- (UIViewController *)harnessRootViewController;
++- (void)waitForView:(UIView *)view hidden:(BOOL)hidden;
++@end
++
++@implementation DuoHarnessTests
++- (void)setUp {
++    [super setUp];
++    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
++    self.savedLayout = [defaults objectForKey:@"DmPadLayout"];
++    [defaults setObject:@1 forKey:@"DmPadLayout"];
++    [self setHarnessControllers:@[] notification:GCControllerDidDisconnectNotification];
++    duo_harness_clear();
++}
++
++- (void)tearDown {
++    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
++    if (self.savedLayout) [defaults setObject:self.savedLayout forKey:@"DmPadLayout"];
++    else [defaults removeObjectForKey:@"DmPadLayout"];
++    if (self.controllerListOverridden) {
++        @synchronized (GCController.class) {
++            Method original = class_getClassMethod(GCController.class, @selector(controllers));
++            Method replacement = class_getClassMethod(GCController.class, @selector(duo_harness_controllers));
++            method_exchangeImplementations(original, replacement);
++            gDuoHarnessControllers = nil;
++            gDuoHarnessControllerSwizzleInstalled = NO;
++        }
++        self.controllerListOverridden = NO;
++    }
++    [super tearDown];
++}
++
++- (void)setHarnessControllers:(NSArray<GCController *> * _Nullable)controllers notification:(NSNotificationName _Nullable)notification {
++    @synchronized (GCController.class) {
++        if (!gDuoHarnessControllerSwizzleInstalled) {
++            Method original = class_getClassMethod(GCController.class, @selector(controllers));
++            Method replacement = class_getClassMethod(GCController.class, @selector(duo_harness_controllers));
++            method_exchangeImplementations(original, replacement);
++            gDuoHarnessControllerSwizzleInstalled = YES;
++            self.controllerListOverridden = YES;
++        }
++        gDuoHarnessControllers = [controllers copy];
++    }
++    if (notification) [[NSNotificationCenter defaultCenter] postNotificationName:notification object:nil];
++}
++
++- (void)waitForView:(UIView *)view hidden:(BOOL)hidden {
++    NSPredicate *predicate = [NSPredicate predicateWithBlock:^BOOL(UIView *candidate, NSDictionary *bindings) {
++        (void)bindings;
++        return candidate.hidden == hidden;
++    }];
++    XCTNSPredicateExpectation *expectation = [[XCTNSPredicateExpectation alloc] initWithPredicate:predicate object:view];
++    XCTAssertEqual([XCTWaiter waitForExpectations:@[expectation] timeout:5.0], XCTWaiterResultCompleted);
++}
++
++- (void)deliverSnapshotChangeFor:(GCController *)controller button:(GCControllerButtonInput *)button value:(float)value {
++    [button setValue:value];
++    GCExtendedGamepad *profile = controller.extendedGamepad;
++    GCExtendedGamepadValueChangedHandler handler = profile.valueChangedHandler;
++    if (handler) handler(profile, button);
++}
++
++- (void)testPortraitSeparatesAcrossHingeStatesAndUsesNativeDivision {
++    CGRect landscape = CGRectMake(0, 0, 844, 390);
++    DmLayout overlay = dm_layout(landscape, UIEdgeInsetsZero, NO, CGRectNull);
++    XCTAssertFalse(overlay.separated);
++    XCTAssertTrue(CGRectEqualToRect(overlay.controls, landscape));
++    XCTAssertEqualWithAccuracy(overlay.game.size.width / overlay.game.size.height, 16.0 / 9.0, 0.001);
++
++    CGRect portrait = CGRectMake(0, 0, 390, 844);
++    UIEdgeInsets safe = UIEdgeInsetsMake(59, 0, 34, 0);
++    CGRect division = CGRectMake(0, 400, 390, 24);
++    DmLayout separated = dm_layout(portrait, safe, NO, division);
++    XCTAssertTrue(separated.separated, @"Portrait uses a valid native horizontal division even with no confirmed hinge state");
++    XCTAssertEqualWithAccuracy(CGRectGetMinY(separated.game), 119, 1);
++    XCTAssertLessThanOrEqual(CGRectGetMaxY(separated.game), CGRectGetMinY(division));
++    XCTAssertTrue(CGRectEqualToRect(separated.controls, CGRectMake(0, 424, 390, 420)));
++    XCTAssertLessThanOrEqual(CGRectGetMaxY(separated.game), CGRectGetMinY(separated.controls), @"Video and controls must not overlap");
++
++    DmLayout clipped = dm_layout(portrait, safe, NO, CGRectMake(-50, 400, 500, 24));
++    XCTAssertTrue(clipped.separated, @"A division that partially overlaps the view still separates its visible panels");
++    XCTAssertEqualWithAccuracy(CGRectGetMinY(clipped.controls), 424, 0.001);
++    XCTAssertEqualWithAccuracy(clipped.controls.size.width, portrait.size.width, 0.001);
++    DmLayout flat = dm_layout(portrait, safe, NO, CGRectMake(0, 300, 390, 0));
++    XCTAssertTrue(flat.separated, @"A zero-height native division remains a useful split boundary");
++    XCTAssertEqualWithAccuracy(CGRectGetMinY(flat.controls), 300, 0.001, @"Prefer a valid native split away from the fallback midpoint");
++    XCTAssertLessThanOrEqual(CGRectGetMaxY(flat.game), 300);
++    XCTAssertTrue(dm_layout(portrait, safe, YES, division).separated, @"A partially-open display can use the same portrait split");
++    XCTAssertTrue(dm_layout(portrait, safe, NO, CGRectNull).separated, @"Portrait without a division still uses a midpoint split");
++    XCTAssertTrue(dm_layout(portrait, safe, YES, CGRectMake(500, 400, 500, 24)).separated, @"Invalid native regions fall back to a portrait split");
++    XCTAssertTrue(dm_layout(portrait, safe, NO, CGRectMake(180, 0, 24, 844)).separated, @"A vertical region falls back to a portrait split");
++}
++
++- (void)testPortraitFallbackFitsVideoAndControlsWithinSafeAreasAtNarrowSizes {
++    const CGRect sizes[] = {CGRectMake(0, 0, 390, 844), CGRectMake(0, 0, 320, 568)};
++    const UIEdgeInsets insets[] = {UIEdgeInsetsMake(59, 0, 34, 0), UIEdgeInsetsMake(50, 0, 24, 0)};
++    for (NSUInteger i = 0; i < 2; i++) {
++        CGRect bounds = sizes[i];
++        CGFloat splitY = CGRectGetMidY(bounds);
++        CGRect safe = UIEdgeInsetsInsetRect(bounds, insets[i]);
++        DmLayout layout = dm_layout(bounds, insets[i], NO, CGRectNull);
++        XCTAssertTrue(layout.separated);
++        XCTAssertTrue(CGRectEqualToRect(layout.controls, CGRectMake(0, splitY, bounds.size.width, bounds.size.height - splitY)));
++        XCTAssertEqualWithAccuracy(layout.game.size.width / layout.game.size.height, 16.0 / 9.0, 0.001);
++        XCTAssertGreaterThanOrEqual(CGRectGetMinY(layout.game), CGRectGetMinY(safe));
++        XCTAssertLessThanOrEqual(CGRectGetMaxY(layout.game), splitY);
++        XCTAssertLessThanOrEqual(CGRectGetMaxY(layout.game), CGRectGetMinY(layout.controls), @"The midpoint boundary leaves no video/control overlap");
++    }
++}
++
++- (void)testLandscapeUsesOverlayExceptForPartiallyOpenNativeDivision {
++    CGRect bounds = CGRectMake(0, 0, 844, 390);
++    DmLayout overlay = dm_layout(bounds, UIEdgeInsetsZero, NO, CGRectNull);
++    XCTAssertFalse(overlay.separated);
++    XCTAssertTrue(CGRectEqualToRect(overlay.controls, bounds));
++    XCTAssertTrue(CGRectEqualToRect(overlay.game, dm_aspect_fit(bounds)));
++    XCTAssertFalse(dm_layout(bounds, UIEdgeInsetsZero, NO, CGRectMake(0, 180, 844, 24)).separated,
++                   @"A fully-open landscape display retains the overlay layout");
++    CGRect division = CGRectMake(0, 180, 844, 24);
++    DmLayout separated = dm_layout(bounds, UIEdgeInsetsZero, YES, division);
++    XCTAssertTrue(separated.separated,
++                  @"A landscape split still requires a partially-open hinge and a valid native division");
++    XCTAssertEqualWithAccuracy(CGRectGetMaxY(separated.game), 180, 1);
++    XCTAssertEqualWithAccuracy(CGRectGetMinY(separated.controls), 204, 0.001,
++                               @"Keep the full reserved gap between video and controls");
++    XCTAssertLessThanOrEqual(CGRectGetMaxY(separated.game), CGRectGetMinY(separated.controls));
++}
++
++- (void)testPortraitWithoutHingeStatusStillSplitsVideoAboveControls {
++    DmLayout layout = dm_layout(CGRectMake(0, 0, 390, 844), UIEdgeInsetsMake(59, 0, 34, 0), NO, CGRectNull);
++    XCTAssertTrue(layout.separated);
++    XCTAssertTrue(CGRectEqualToRect(layout.controls, CGRectMake(0, 422, 390, 422)));
++    XCTAssertLessThanOrEqual(CGRectGetMaxY(layout.game), CGRectGetMinY(layout.controls));
++}
++
++- (void)testPortraitControlsUseAnchoredGroupsWithASeparatedThreeDimensionalLeftPair {
++    struct { CGRect bounds; UIEdgeInsets insets; CGRect division; } cases[] = {
++        {CGRectMake(0, 0, 669, 951), UIEdgeInsetsMake(62, 0, 34, 0), CGRectMake(0, 455.5, 669, 40)},
++        {CGRectMake(0, 0, 390, 844), UIEdgeInsetsMake(59, 0, 34, 0), CGRectNull},
++        {CGRectMake(0, 0, 320, 568), UIEdgeInsetsMake(50, 0, 24, 0), CGRectNull},
++    };
++    for (NSUInteger i = 0; i < sizeof cases / sizeof cases[0]; i++) {
++        CGRect bounds = cases[i].bounds;
++        DmLayout layout = [self portraitControlLayoutForBounds:bounds insets:cases[i].insets division:cases[i].division];
++        XCTAssertTrue(layout.separated, @"Portrait case %lu must expose a controls panel", (unsigned long)i);
++        XCTAssertLessThanOrEqual(CGRectGetMaxY(layout.game), CGRectGetMinY(layout.controls),
++                                 @"Video and controls must remain disjoint in portrait case %lu", (unsigned long)i);
++        UIView *pad = [self padForLayout:layout bounds:bounds];
++
++        CGRect lower = layout.controls;
++        CGFloat u = MIN(MIN(lower.size.height / 430.0, lower.size.width / 700.0), 1.3);
++        CGPoint leftAnchor = CGPointMake(CGRectGetMinX(lower) + 0.28 * lower.size.width,
++                                         CGRectGetMinY(lower) + 0.58 * lower.size.height);
++        CGPoint rightAnchor = CGPointMake(CGRectGetMinX(lower) + 0.72 * lower.size.width, leftAnchor.y);
++        CGRect stickRing = [self largestShapePathBoundsInLayer:pad.layer];
++        CGPoint renderedStick = CGPointMake(CGRectGetMidX(stickRing), CGRectGetMidY(stickRing));
++        CGPoint expectedStick = CGPointMake(leftAnchor.x - (48 * u + 6 * u), leftAnchor.y);
++        XCTAssertEqualWithAccuracy(renderedStick.x, expectedStick.x, 0.5,
++                                   @"The 3D joystick should sit left of the D-pad with their pair centered at the left anchor (case %lu)", (unsigned long)i);
++        XCTAssertEqualWithAccuracy(renderedStick.y, expectedStick.y, 0.5);
++
++        CGPoint faces = [self faceDiamondCenterInPad:pad];
++        XCTAssertEqualWithAccuracy(faces.x, rightAnchor.x, 0.5,
++                                   @"The ABXY diamond should be centered at the right portrait anchor (case %lu)", (unsigned long)i);
++        XCTAssertEqualWithAccuracy(faces.y, rightAnchor.y, 0.5);
++
++        CGPoint dpadCenter = CGPointMake(leftAnchor.x + (77 * u + 6 * u), leftAnchor.y);
++        CGFloat artGap = dpadCenter.x - 48 * u - CGRectGetMaxX(stickRing);
++        XCTAssertEqualWithAccuracy(artGap, 12 * u, 0.5,
++                                   @"The rendered joystick and D-pad hit center should preserve a 12 scaled-point gap (case %lu)", (unsigned long)i);
++        DuoFakeTouch *right = [self touchAt:CGPointMake(dpadCenter.x + 0.6 * 48 * u, dpadCenter.y) time:1];
++        [self beginTouches:@[right] onPad:pad];
++        XCTAssertEqual(duo_harness_input().buttons, DM_BTN_RIGHT,
++                       @"The D-pad hit target should share its specified portrait position (case %lu)", (unsigned long)i);
++        [self endTouches:@[right] onPad:pad cancelled:NO];
++
++        XCTAssertGreaterThanOrEqual(CGRectGetMinX(stickRing), CGRectGetMinX(lower) - 0.5,
++                                    @"The joystick remains inside the lower safe area (case %lu)", (unsigned long)i);
++        XCTAssertLessThanOrEqual(CGRectGetMaxX(stickRing), CGRectGetMaxX(lower) + 0.5,
++                                 @"The joystick remains inside the lower safe area (case %lu)", (unsigned long)i);
++        XCTAssertGreaterThanOrEqual(faces.x - 77 * u, CGRectGetMinX(lower) - 0.5,
++                                    @"The face cluster's expanded targets remain inside the lower safe area (case %lu)", (unsigned long)i);
++        XCTAssertLessThanOrEqual(faces.x + 77 * u, CGRectGetMaxX(lower) + 0.5,
++                                 @"The face cluster's expanded targets remain inside the lower safe area (case %lu)", (unsigned long)i);
++    }
++}
++
++- (void)testPortraitTwoDimensionalStickAndFaceAnchorsAndKeepsDpadInactive {
++    CGRect bounds = CGRectMake(0, 0, 390, 844);
++    UIEdgeInsets insets = UIEdgeInsetsMake(59, 0, 34, 0);
++    DmLayout layout = [self portraitControlLayoutForBounds:bounds insets:insets division:CGRectNull];
++    [NSUserDefaults.standardUserDefaults setObject:@0 forKey:@"DmPadLayout"];
++    UIView *pad = [self padForLayout:layout bounds:bounds];
++
++    CGRect lower = layout.controls;
++    CGFloat u = MIN(MIN(lower.size.height / 430.0, lower.size.width / 700.0), 1.3);
++    CGPoint leftAnchor = CGPointMake(CGRectGetMinX(lower) + 0.28 * lower.size.width,
++                                     CGRectGetMinY(lower) + 0.58 * lower.size.height);
++    CGPoint rightAnchor = CGPointMake(CGRectGetMinX(lower) + 0.72 * lower.size.width, leftAnchor.y);
++    CGRect stickRing = [self largestShapePathBoundsInLayer:pad.layer];
++    XCTAssertEqualWithAccuracy(CGRectGetMidX(stickRing), leftAnchor.x, 0.5,
++                               @"In 2D, the left stick itself occupies the left portrait anchor");
++    XCTAssertEqualWithAccuracy(CGRectGetMidY(stickRing), leftAnchor.y, 0.5);
++    CGPoint faces = [self faceDiamondCenterInPad:pad];
++    XCTAssertEqualWithAccuracy(faces.x, rightAnchor.x, 0.5);
++    XCTAssertEqualWithAccuracy(faces.y, rightAnchor.y, 0.5);
++
++    DuoFakeTouch *stick = [self touchAt:leftAnchor time:1];
++    [self beginTouches:@[stick] onPad:pad];
++    [self moveTouch:stick to:CGPointMake(leftAnchor.x + 30 * u, leftAnchor.y) onPad:pad];
++    XCTAssertGreaterThan(duo_harness_input().lx, 0,
++                         @"A touch at the visible 2D stick must drive the left-stick mapping");
++    [self endTouches:@[stick] onPad:pad cancelled:NO];
++
++    CGPoint hiddenDpad = CGPointMake(leftAnchor.x + (77 + 6 + 0.6 * 48) * u, leftAnchor.y);
++    DuoFakeTouch *dpad = [self touchAt:hiddenDpad time:2];
++    [self beginTouches:@[dpad] onPad:pad];
++    XCTAssertEqual(duo_harness_input().buttons & DM_BTN_RIGHT, 0,
++                   @"The 2D layout must not expose the 3D D-pad at its portrait 3D position");
++    [self endTouches:@[dpad] onPad:pad cancelled:NO];
++}
++
++- (void)testPortraitThreeDimensionalAnchorsKeepStickDpadFaceAndGameTouchesIndependent {
++    CGRect bounds = CGRectMake(0, 0, 669, 951);
++    UIEdgeInsets insets = UIEdgeInsetsMake(62, 0, 34, 0);
++    DmLayout layout = [self portraitControlLayoutForBounds:bounds insets:insets division:CGRectMake(0, 455.5, 669, 40)];
++    UIView *pad = [self padForLayout:layout bounds:bounds];
++    CGRect lower = layout.controls;
++    CGFloat u = MIN(MIN(lower.size.height / 430.0, lower.size.width / 700.0), 1.3);
++    CGPoint leftAnchor = CGPointMake(CGRectGetMinX(lower) + 0.28 * lower.size.width,
++                                     CGRectGetMinY(lower) + 0.58 * lower.size.height);
++    CGPoint stickCenter = CGPointMake(leftAnchor.x - 54 * u, leftAnchor.y);
++    CGPoint dpadCenter = CGPointMake(leftAnchor.x + 83 * u, leftAnchor.y);
++    CGPoint faceA = CGPointMake(CGRectGetMinX(lower) + 0.72 * lower.size.width + 50 * u, leftAnchor.y);
++    CGPoint video = CGPointMake(CGRectGetMidX(layout.game), CGRectGetMidY(layout.game));
++    DuoFakeTouch *stick = [self touchAt:stickCenter time:1];
++    DuoFakeTouch *right = [self touchAt:CGPointMake(dpadCenter.x + 0.6 * 48 * u, dpadCenter.y) time:1];
++    DuoFakeTouch *a = [self touchAt:faceA time:1];
++    DuoFakeTouch *game = [self touchAt:video time:1];
++
++    [self beginTouches:@[stick, right, a, game] onPad:pad];
++    [self moveTouch:stick to:CGPointMake(stickCenter.x + 30 * u, stickCenter.y) onPad:pad];
++    DuoHarnessInput input = duo_harness_input();
++    XCTAssertGreaterThan(input.lx, 0, @"The stick touch should remain owned while three other touches begin");
++    XCTAssertEqual(input.buttons & (DM_BTN_RIGHT | DM_BTN_A), DM_BTN_RIGHT | DM_BTN_A,
++                   @"D-pad and ABXY retain separate button ownership");
++    XCTAssertEqual(input.touch_count, 1, @"The game viewport keeps its own touch slot alongside the controls");
++    XCTAssertEqualWithAccuracy(input.touches[0].x, 0.5, 0.001);
++    XCTAssertEqualWithAccuracy(input.touches[0].y, 0.5, 0.001);
++    [self endTouches:@[stick, right, a, game] onPad:pad cancelled:NO];
++    input = duo_harness_input();
++    XCTAssertEqual(input.buttons, 0);
++    XCTAssertEqual(input.touch_count, 0);
++}
++
++- (void)testLandscapeControlAnchorsAndMultitouchKeepTheirExistingLayout {
++    CGRect bounds = CGRectMake(0, 0, 844, 390);
++    DmLayout layout = dm_layout(bounds, UIEdgeInsetsZero, NO, CGRectNull);
++    XCTAssertFalse(layout.separated, @"Landscape keeps the overlay layout");
++    XCTAssertTrue(CGRectEqualToRect(layout.game, dm_aspect_fit(bounds)));
++    UIView *pad = [self padForLayout:layout bounds:bounds];
++    CGFloat u = MIN(bounds.size.height / 430.0, 1.3);
++    CGRect stickRing = [self largestShapePathBoundsInLayer:pad.layer];
++    XCTAssertEqualWithAccuracy(CGRectGetMidX(stickRing), 81 * u, 0.5);
++    XCTAssertEqualWithAccuracy(CGRectGetMidY(stickRing), bounds.size.height - 82 * u, 0.5);
++    CGPoint faces = [self faceDiamondCenterInPad:pad];
++    XCTAssertEqualWithAccuracy(faces.x, bounds.size.width - 81 * u, 0.5);
++    XCTAssertEqualWithAccuracy(faces.y, bounds.size.height - 82 * u, 0.5);
++
++    CGPoint stickCenter = CGPointMake(81 * u, bounds.size.height - 82 * u);
++    CGPoint dpadCenter = CGPointMake(231 * u, bounds.size.height - 64 * u);
++    CGPoint aCenter = [self faceAIn:layout bounds:bounds];
++    CGPoint video = CGPointMake(CGRectGetMidX(layout.game), CGRectGetMidY(layout.game));
++    DuoFakeTouch *stick = [self touchAt:stickCenter time:1];
++    DuoFakeTouch *right = [self touchAt:CGPointMake(dpadCenter.x + 0.6 * 48 * u, dpadCenter.y) time:1];
++    DuoFakeTouch *a = [self touchAt:aCenter time:1];
++    DuoFakeTouch *game = [self touchAt:video time:1];
++    [self beginTouches:@[stick, right, a, game] onPad:pad];
++    [self moveTouch:stick to:CGPointMake(stickCenter.x + 30 * u, stickCenter.y) onPad:pad];
++    DuoHarnessInput input = duo_harness_input();
++    XCTAssertGreaterThan(input.lx, 0);
++    XCTAssertEqual(input.buttons & (DM_BTN_RIGHT | DM_BTN_A), DM_BTN_RIGHT | DM_BTN_A);
++    XCTAssertEqual(input.touch_count, 1);
++    [self endTouches:@[stick, right, a, game] onPad:pad cancelled:NO];
++    input = duo_harness_input();
++    XCTAssertEqual(input.buttons, 0);
++    XCTAssertEqual(input.touch_count, 0);
++}
++
++- (void)testSmallSeparatedHitTargetsMeetMinimumsWithoutGrowingArtwork {
++    CGRect bounds = CGRectMake(0, 0, 390, 844);
++    DmLayout layout = [self separatedLayout:bounds];
++    UIView *pad = [self padForLayout:layout bounds:bounds];
++    CGFloat u = MIN(MIN(layout.controls.size.height / 430.0, layout.controls.size.width / 700.0), 1.3);
++    XCTAssertEqualWithAccuracy(u, 390.0 / 700.0, 0.001);
++
++    // Probe just inside 44 pt face targets, inward from each visible button center. The
++    // expected button remains the nearest target even where neighboring target circles overlap.
++    NSArray<NSString *> *faces = @[@"A", @"B", @"X", @"Y"];
++    const uint64_t faceBits[] = {DM_BTN_A, DM_BTN_B, DM_BTN_X, DM_BTN_Y};
++    const CGPoint faceOffsets[] = {{-21.5, 0}, {0, -21.5}, {0, 21.5}, {21.5, 0}};
++    for (NSUInteger i = 0; i < faces.count; i++) {
++        NSString *name = faces[i];
++        CGPoint center = [self controlCenterNamed:name inPad:pad];
++        CGPoint probe = CGPointMake(center.x + faceOffsets[i].x, center.y + faceOffsets[i].y);
++        XCTAssertLessThan([self controlPathBoundsNamed:name inPad:pad].size.width, 44);
++        XCTAssertFalse([self controlNamed:name containsPoint:probe inPad:pad], @"%@ artwork should keep its scaled visual size", name);
++        [self assertButton:faceBits[i] at:probe onPad:pad time:10 + i];
++    }
++
++    // Shoulder buttons, triggers, and stick clicks are frequent 44 pt targets too.
++    NSArray<NSString *> *wideButtons = @[@"ZL", @"L", @"ZR", @"R", @"L3", @"R3"];
++    const uint64_t wideBits[] = {DM_BTN_ZL, DM_BTN_L, DM_BTN_ZR, DM_BTN_R, DM_BTN_LS, DM_BTN_RS};
++    // Probe outward on corner controls that overlap expanded L3/R3 targets.
++    const CGPoint wideOffsets[] = {{0, -21.5}, {0, 21.5}, {0, -21.5}, {0, 21.5}, {21.5, 0}, {-21.5, 0}};
++    for (NSUInteger i = 0; i < wideButtons.count; i++) {
++        NSString *name = wideButtons[i];
++        CGPoint center = [self controlCenterNamed:name inPad:pad];
++        CGPoint probe = CGPointMake(center.x + wideOffsets[i].x, center.y + wideOffsets[i].y);
++        XCTAssertLessThan([self controlPathBoundsNamed:name inPad:pad].size.width, 44);
++        XCTAssertFalse([self controlNamed:name containsPoint:probe inPad:pad], @"%@ artwork should keep its scaled visual size", name);
++        [self assertButton:wideBits[i] at:probe onPad:pad time:20 + i];
++    }
++
++    // Minus/plus use 28 pt targets. Their vertical probe is outside the drawn pill.
++    NSArray<NSString *> *menuButtons = @[@"−", @"+"];
++    const uint64_t menuBits[] = {DM_BTN_MINUS, DM_BTN_PLUS};
++    for (NSUInteger i = 0; i < menuButtons.count; i++) {
++        NSString *name = menuButtons[i];
++        CGPoint center = [self controlCenterNamed:name inPad:pad];
++        CGPoint probe = CGPointMake(center.x, center.y + 13.25);
++        XCTAssertLessThan([self controlPathBoundsNamed:name inPad:pad].size.height, 28);
++        XCTAssertFalse([self controlNamed:name containsPoint:probe inPad:pad], @"%@ artwork should keep its scaled visual size", name);
++        [self assertButton:menuBits[i] at:probe onPad:pad time:30 + i];
++    }
++
++    CGPoint swapCenter = [self controlCenterNamed:@"3D" inPad:pad];
++    CGPoint swapProbe = CGPointMake(swapCenter.x, swapCenter.y + 13.7);
++    CGRect swapArtwork = [self controlPathBoundsNamed:@"3D" inPad:pad];
++    XCTAssertLessThan(swapArtwork.size.width, 28);
++    XCTAssertFalse([self controlNamed:@"3D" containsPoint:swapProbe inPad:pad]);
++    DuoFakeTouch *swap = [self touchAt:swapProbe time:33];
++    [self beginTouches:@[swap] onPad:pad];
++    [self endTouches:@[swap] onPad:pad cancelled:NO];
++    XCTAssertNotNil([self textLayerNamed:@"Tap" inLayer:pad.layer], @"The 28 pt switch target should respond outside its drawn circle");
++    XCTAssertEqualWithAccuracy([self controlPathBoundsNamed:@"Tap" inPad:pad].size.width, swapArtwork.size.width, 0.001);
++}
++
++- (void)testExpandedTargetsRemainReachableWithinSafeAreaInNarrowSeparated {
++    CGRect bounds = CGRectMake(0, 0, 390, 844);
++    DmLayout layout = [self separatedLayout:bounds];
++    // Model a 16 pt side safe area and 34 pt bottom safe area without depending on
++    // the simulator's current display insets.
++    layout.controls = CGRectMake(16, CGRectGetMinY(layout.controls), bounds.size.width - 32,
++                                 CGRectGetHeight(layout.controls) - 34);
++    UIView *pad = [self padForLayout:layout bounds:bounds];
++    CGRect controls = layout.controls;
++
++    for (NSString *name in @[@"A", @"B", @"X", @"Y"]) {
++        CGPoint center = [self controlCenterNamed:name inPad:pad];
++        XCTAssertGreaterThanOrEqual(center.x - 22, CGRectGetMinX(controls) - 0.01);
++        XCTAssertLessThanOrEqual(center.x + 22, CGRectGetMaxX(controls) + 0.01);
++        XCTAssertGreaterThanOrEqual(center.y - 22, CGRectGetMinY(controls) - 0.01);
++        XCTAssertLessThanOrEqual(center.y + 22, CGRectGetMaxY(controls) + 0.01);
++    }
++    for (NSString *name in @[@"ZL", @"L", @"ZR", @"R", @"L3", @"R3"]) {
++        CGPoint center = [self controlCenterNamed:name inPad:pad];
++        XCTAssertGreaterThanOrEqual(center.x - 22, CGRectGetMinX(controls) - 0.01);
++        XCTAssertLessThanOrEqual(center.x + 22, CGRectGetMaxX(controls) + 0.01);
++        XCTAssertGreaterThanOrEqual(center.y - 22, CGRectGetMinY(controls) - 0.01);
++        XCTAssertLessThanOrEqual(center.y + 22, CGRectGetMaxY(controls) + 0.01);
++    }
++
++    CGPoint a = [self controlCenterNamed:@"A" inPad:pad];
++    CGPoint b = [self controlCenterNamed:@"B" inPad:pad];
++    DuoFakeTouch *right = [self touchAt:CGPointMake(a.x + 21.5, a.y) time:1];
++    [self beginTouches:@[right] onPad:pad];
++    XCTAssertEqual(duo_harness_input().buttons, DM_BTN_A);
++    [self endTouches:@[right] onPad:pad cancelled:NO];
++    DuoFakeTouch *bottom = [self touchAt:CGPointMake(b.x, b.y + 21.5) time:2];
++    [self beginTouches:@[bottom] onPad:pad];
++    XCTAssertEqual(duo_harness_input().buttons, DM_BTN_B);
++    [self endTouches:@[bottom] onPad:pad cancelled:NO];
++
++    CGPoint zl = [self controlCenterNamed:@"ZL" inPad:pad];
++    DuoFakeTouch *left = [self touchAt:CGPointMake(zl.x - 21.5, zl.y) time:3];
++    [self beginTouches:@[left] onPad:pad];
++    XCTAssertEqual(duo_harness_input().buttons, DM_BTN_ZL);
++    [self endTouches:@[left] onPad:pad cancelled:NO];
++
++    CGPoint swap = [self controlCenterNamed:@"3D" inPad:pad];
++    DuoFakeTouch *top = [self touchAt:CGPointMake(swap.x, CGRectGetMinY(controls) + 0.8) time:4];
++    [self beginTouches:@[top] onPad:pad];
++    [self endTouches:@[top] onPad:pad cancelled:NO];
++    XCTAssertNotNil([self textLayerNamed:@"Tap" inLayer:pad.layer], @"The 28 pt switch target should remain reachable at the safe top edge");
++}
++
++- (void)testFaceTargetsKeepTheirMultiButtonSlideBehavior {
++    CGRect bounds = CGRectMake(0, 0, 390, 844);
++    DmLayout layout = [self separatedLayout:bounds];
++    UIView *pad = [self padForLayout:layout bounds:bounds];
++    CGPoint a = [self controlCenterNamed:@"A" inPad:pad];
++    CGPoint b = [self controlCenterNamed:@"B" inPad:pad];
++    DuoFakeTouch *touch = [self touchAt:a time:1];
++
++    [self beginTouches:@[touch] onPad:pad];
++    XCTAssertEqual(duo_harness_input().buttons, DM_BTN_A);
++    [self moveTouch:touch to:CGPointMake((a.x + b.x) / 2, (a.y + b.y) / 2) onPad:pad];
++    XCTAssertEqual(duo_harness_input().buttons, DM_BTN_A | DM_BTN_B,
++                   @"A face touch near two enlarged targets should preserve the intentional union");
++    [self moveTouch:touch to:b onPad:pad];
++    XCTAssertEqual(duo_harness_input().buttons, DM_BTN_B);
++    [self endTouches:@[touch] onPad:pad cancelled:NO];
++    XCTAssertEqual(duo_harness_input().buttons, 0);
++}
++
++- (void)testOverlappingLockedButtonTargetsChooseNearestAndStayLocked {
++    CGRect bounds = CGRectMake(0, 0, 390, 844);
++    UIView *pad = [self padForLayout:[self separatedLayout:bounds] bounds:bounds];
++    CGPoint zl = [self controlCenterNamed:@"ZL" inPad:pad];
++    CGPoint ls = [self controlCenterNamed:@"L3" inPad:pad];
++    CGPoint nearerToL3 = CGPointMake(zl.x + (ls.x - zl.x) * 0.6, zl.y);
++    DuoFakeTouch *touch = [self touchAt:nearerToL3 time:1];
++
++    [self beginTouches:@[touch] onPad:pad];
++    XCTAssertEqual(duo_harness_input().buttons, DM_BTN_LS,
++                   @"When enlarged shoulder/click targets overlap, the nearest normalized target wins");
++    [self moveTouch:touch to:zl onPad:pad];
++    XCTAssertEqual(duo_harness_input().buttons, DM_BTN_LS,
++                   @"A regular button stays owned by the touch-down selection while the finger moves");
++    [self endTouches:@[touch] onPad:pad cancelled:NO];
++    XCTAssertEqual(duo_harness_input().buttons, 0);
++}
++
++- (void)testSwapAndMenuOverlapUseNearestHitTargetThenKeepOwnership {
++    CGRect bounds = CGRectMake(0, 0, 390, 844);
++    UIView *pad = [self padForLayout:[self separatedLayout:bounds] bounds:bounds];
++    CGPoint minus = [self controlCenterNamed:@"−" inPad:pad];
++    CGPoint swap = [self controlCenterNamed:@"3D" inPad:pad];
++
++    // This point lies in both enlarged targets but is nearer to minus after normalization.
++    CGPoint nearerToMinus = CGPointMake(minus.x + 16, minus.y);
++    DuoFakeTouch *minusTouch = [self touchAt:nearerToMinus time:1];
++    [self beginTouches:@[minusTouch] onPad:pad];
++    XCTAssertEqual(duo_harness_input().buttons, DM_BTN_MINUS);
++    [self moveTouch:minusTouch to:swap onPad:pad];
++    XCTAssertEqual(duo_harness_input().buttons, DM_BTN_MINUS);
++    [self endTouches:@[minusTouch] onPad:pad cancelled:NO];
++    XCTAssertNotNil([self textLayerNamed:@"3D" inLayer:pad.layer]);
++
++    // This point is in both targets but is nearer to the layout switch. Releasing there switches layout.
++    CGPoint nearerToSwap = CGPointMake(minus.x + 17.5, minus.y);
++    DuoFakeTouch *swapTouch = [self touchAt:nearerToSwap time:2];
++    [self beginTouches:@[swapTouch] onPad:pad];
++    XCTAssertEqual(duo_harness_input().buttons, 0);
++    [self endTouches:@[swapTouch] onPad:pad cancelled:NO];
++    XCTAssertNotNil([self textLayerNamed:@"Tap" inLayer:pad.layer]);
++}
++
++- (void)testGamepadTextLayersRefreshScaleFromTheCurrentTraitCollection {
++    if (@available(iOS 17.0, *)) {
++        CGRect bounds = CGRectMake(0, 0, 844, 390);
++        DmLayout layout = dm_layout(bounds, UIEdgeInsetsZero, NO, CGRectNull);
++        UIView *pad = [self padForLayout:layout bounds:bounds];
++        CATextLayer *face = [self textLayerNamed:@"A" inLayer:pad.layer];
++        XCTAssertNotNil(face);
++        UIViewController *root = nil;
++        for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
++            if (![scene isKindOfClass:UIWindowScene.class]) continue;
++            for (UIWindow *window in ((UIWindowScene *)scene).windows) if (window.isKeyWindow) root = window.rootViewController;
++        }
++        XCTAssertNotNil(root);
++        pad.frame = root.view.bounds;
++        [root.view addSubview:pad];
++        [root.view layoutIfNeeded];
++        [pad layoutIfNeeded];
++        CGRect visualBefore = [self controlPathBoundsNamed:@"A" inPad:pad];
++        CGFloat currentScale = pad.traitCollection.displayScale;
++        CGFloat overrideScale = fabs(currentScale - 1.0) < 0.01 ? 2.0 : 1.0;
++
++        pad.traitOverrides.displayScale = overrideScale;
++        [pad setNeedsLayout];
++        [pad layoutIfNeeded];
++
++        XCTAssertEqualWithAccuracy(pad.traitCollection.displayScale, overrideScale, 0.001);
++        XCTAssertEqualWithAccuracy(face.contentsScale, overrideScale, 0.001);
++        XCTAssertEqualWithAccuracy([self controlPathBoundsNamed:@"A" inPad:pad].size.width, visualBefore.size.width, 0.001,
++                                   @"Changing the text raster scale must not resize the gamepad artwork");
++        pad.traitOverrides.displayScale = currentScale;
++        [pad removeFromSuperview];
++    }
++}
++
++- (void)testFrontRootStartsProductionGamepadAndMatchesCurrentGeometry {
++    UIViewController *root = [self harnessRootViewController];
++    XCTAssertNotNil(root);
++    [root.view layoutIfNeeded];
++    UIView *game = [root valueForKey:@"game"];
++    UIView *pad = [root valueForKey:@"pad"];
++    XCTAssertNotNil(game);
++    XCTAssertNotNil(pad);
++    CGRect division = CGRectNull;
++#if DUO_HARNESS_HAS_NATIVE_POSE_API
++    if (@available(iOS 27.1, *)) {
++        for (UIViewReservedRegion *region in [root.view reservedRegionsOfKind:UIViewReservedRegionKind.divisionRegionKind options:UIViewReservedRegionQueryOptionsIncludeInactive]) {
++            CGRect candidate = dm_horizontal_division(root.view.bounds, region.frame);
++            if (CGRectIsNull(division) && !CGRectIsNull(candidate)) division = candidate;
++        }
++    }
++#endif
++    BOOL partiallyOpen = [[root valueForKey:@"partiallyOpen"] boolValue];
++    BOOL duo = [[root valueForKey:@"hingeStatus"] integerValue] != 0 || !CGRectIsNull(division);
++    UIEdgeInsets insets = dm_game_safe_insets(root.view.bounds, root.view.safeAreaInsets, duo);
++    DmLayout layout = dm_layout(root.view.bounds, insets, partiallyOpen, division);
++    XCTAssertTrue(CGRectEqualToRect(game.frame, layout.game),
++                  @"The production game view must use the current scene bounds and native division region: actual %@, expected %@",
++                  NSStringFromCGRect(game.frame), NSStringFromCGRect(layout.game));
++    XCTAssertTrue(CGRectEqualToRect(pad.frame, root.view.bounds));
++    XCTAssertTrue([game.layer isKindOfClass:CAMetalLayer.class]);
++    CAMetalLayer *metal = (CAMetalLayer *)game.layer;
++    UIScreen *screen = root.view.window.windowScene.screen;
++    XCTAssertNotNil(screen);
++    XCTAssertEqualWithAccuracy(metal.drawableSize.width, game.bounds.size.width * screen.nativeScale, 1.0);
++    XCTAssertEqualWithAccuracy(metal.drawableSize.height, game.bounds.size.height * screen.nativeScale, 1.0);
++}
++
++- (void)testProductionRootRelayoutsMetalAndInputDuringWindowResizing {
++    UIViewController *root = [self harnessRootViewController];
++    UIView *game = [root valueForKey:@"game"];
++    UIView *pad = [root valueForKey:@"pad"];
++    NSPredicate *touchControlsActive = [NSPredicate predicateWithFormat:@"padOff == NO"];
++    XCTNSPredicateExpectation *ready = [[XCTNSPredicateExpectation alloc] initWithPredicate:touchControlsActive object:pad];
++    XCTAssertEqual([XCTWaiter waitForExpectations:@[ready] timeout:5.0], XCTWaiterResultCompleted);
++    CGRect original = root.view.frame;
++    UIViewAutoresizing originalMask = root.view.autoresizingMask;
++    root.view.autoresizingMask = UIViewAutoresizingNone;
++    const CGSize sizes[] = {{1024, 768}, {744, 900}, {375, 650}, {640, 360}, {500, 500}, {1024, 768}};
++    @try {
++        for (NSUInteger i = 0; i < sizeof sizes / sizeof sizes[0]; i++) {
++            root.view.frame = (CGRect){CGPointZero, sizes[i]};
++            [root.view setNeedsLayout];
++            [root.view layoutIfNeeded];
++            XCTAssertTrue(CGSizeEqualToSize(root.view.bounds.size, sizes[i]));
++            XCTAssertTrue(CGRectEqualToRect(pad.frame, root.view.bounds));
++            XCTAssertTrue(CGRectContainsRect(root.view.bounds, game.frame));
++            XCTAssertEqualWithAccuracy(game.bounds.size.width / game.bounds.size.height, 16.0 / 9.0, 0.001);
++            CAMetalLayer *metal = (CAMetalLayer *)game.layer;
++            CGFloat scale = root.view.window.windowScene.screen.nativeScale;
++            XCTAssertEqualWithAccuracy(metal.drawableSize.width, game.bounds.size.width * scale, 1.0);
++            XCTAssertEqualWithAccuracy(metal.drawableSize.height, game.bounds.size.height * scale, 1.0);
++            [self assertButton:DM_BTN_A at:[self controlCenterNamed:@"A" inPad:pad] onPad:pad time:i + 1];
++            [pad setValue:@YES forKey:@"tap"];
++            DuoFakeTouch *touch = [self touchAt:CGPointMake(CGRectGetMidX(game.frame), CGRectGetMidY(game.frame)) time:i + 1];
++            [self beginTouches:@[touch] onPad:pad];
++            XCTAssertEqual(duo_harness_input().touch_count, 1);
++            XCTAssertEqualWithAccuracy(duo_harness_input().touches[0].x, 0.5, 0.001);
++            XCTAssertEqualWithAccuracy(duo_harness_input().touches[0].y, 0.5, 0.001);
++            [self endTouches:@[touch] onPad:pad cancelled:NO];
++            [pad setValue:@NO forKey:@"tap"];
++        }
++    } @finally {
++        root.view.frame = original;
++        root.view.autoresizingMask = originalMask;
++        [root.view setNeedsLayout];
++        [root.view layoutIfNeeded];
++    }
++}
++
++- (void)testResizingReleasesHeldInputAndUpdatesVideoTouchCoordinates {
++    const CGRect windows[] = {CGRectMake(0, 0, 1024, 768), CGRectMake(0, 0, 320, 480),
++                              CGRectMake(0, 0, 640, 360), CGRectMake(0, 0, 500, 500)};
++    UIView *pad = [self padForLayout:dm_layout(windows[0], UIEdgeInsetsZero, NO, CGRectNull) bounds:windows[0]];
++    for (NSUInteger i = 0; i < sizeof windows / sizeof windows[0]; i++) {
++        CGRect bounds = windows[i];
++        DmLayout layout = dm_layout(bounds, UIEdgeInsetsZero, NO, CGRectNull);
++        pad.frame = bounds;
++        dm_gamepad_arrange(pad, layout);
++        [pad layoutIfNeeded];
++        XCTAssertEqual(duo_harness_input().buttons, 0);
++        XCTAssertEqual(duo_harness_input().touch_count, 0);
++        XCTAssertEqualWithAccuracy(layout.game.size.width / layout.game.size.height, 16.0 / 9.0, 0.001);
++        [self assertButton:DM_BTN_A at:[self controlCenterNamed:@"A" inPad:pad] onPad:pad time:i + 1];
++        // Tap mode isolates the game's touch viewport from the 3D right-stick gesture area.
++        [pad setValue:@YES forKey:@"tap"];
++        DuoFakeTouch *touch = [self touchAt:CGPointMake(CGRectGetMidX(layout.game), CGRectGetMidY(layout.game)) time:i + 1];
++        [self beginTouches:@[touch] onPad:pad];
++        DuoHarnessInput input = duo_harness_input();
++        XCTAssertEqual(input.touch_count, 1);
++        XCTAssertEqualWithAccuracy(input.touches[0].x, 0.5, 0.001);
++        XCTAssertEqualWithAccuracy(input.touches[0].y, 0.5, 0.001);
++        [pad setValue:@NO forKey:@"tap"];
++    }
++    dm_gamepad_arrange(pad, dm_layout(windows[0], UIEdgeInsetsZero, NO, CGRectNull));
++    XCTAssertEqual(duo_harness_input().touch_count, 0);
++}
++
++- (void)testDuoPortraitKeepsOnlyTopSafeArea {
++    CGRect portrait = CGRectMake(0, 0, 744, 1133);
++    UIEdgeInsets safe = UIEdgeInsetsMake(54, 20, 34, 24);
++    UIEdgeInsets duo = dm_game_safe_insets(portrait, safe, YES);
++    XCTAssertTrue(UIEdgeInsetsEqualToEdgeInsets(duo, UIEdgeInsetsMake(54, 0, 0, 0)));
++    XCTAssertTrue(UIEdgeInsetsEqualToEdgeInsets(dm_game_safe_insets(portrait, safe, NO), safe));
++    XCTAssertTrue(UIEdgeInsetsEqualToEdgeInsets(dm_game_safe_insets(CGRectMake(0, 0, 1133, 744), safe, YES), safe));
++    DmLayout layout = dm_layout(portrait, duo, NO, CGRectNull);
++    XCTAssertEqual(CGRectGetMinX(layout.controls), 0);
++    XCTAssertEqual(CGRectGetMaxX(layout.controls), 744);
++    XCTAssertEqual(CGRectGetMaxY(layout.controls), 1133);
++    XCTAssertGreaterThanOrEqual(CGRectGetMinY(layout.game), 54);
++}
++
++
++
++- (void)testRootOrientationMaskRemainsStableAcrossHingeStatuses {
++    UIViewController *root = [self harnessRootViewController];
++    XCTAssertNotNil(root);
++    if (!root) return;
++    UIInterfaceOrientationMask expectedMask = UIInterfaceOrientationMaskAll;
++    XCTAssertEqual(root.supportedInterfaceOrientations, expectedMask);
++
++#if DUO_HARNESS_HAS_NATIVE_POSE_API
++    if (@available(iOS 27.1, *)) {
++        SEL hingeCallback = @selector(hingeChanged:);
++        XCTAssertTrue([root respondsToSelector:hingeCallback]);
++        if (![root respondsToSelector:hingeCallback]) return;
++        Class hingeClass = NSClassFromString(@"UIHingeInteraction");
++        BOOL installed = NO;
++        for (id interaction in root.view.interactions) if ([interaction isKindOfClass:hingeClass]) installed = YES;
++        XCTAssertTrue(installed, @"The production root must observe native hinge state for layout only");
++
++        [(id)root hingeChanged:nil];
++        XCTAssertEqual(root.supportedInterfaceOrientations, expectedMask);
++        XCTAssertEqualObjects([root valueForKey:@"partiallyOpen"], @NO);
++
++        DuoFakeHinge *hinge = [DuoFakeHinge new];
++        const NSInteger statuses[] = {UIHingeStatusClosed, UIHingeStatusUnknown,
++                                      UIHingeStatusPartiallyOpen, UIHingeStatusFullyOpen};
++        for (NSUInteger i = 0; i < sizeof statuses / sizeof statuses[0]; i++) {
++            hinge.status = statuses[i];
++            [(id)root hingeChanged:hinge];
++            XCTAssertEqual(root.supportedInterfaceOrientations, expectedMask,
++                           @"Hinge status %ld must not change the device's supported orientations", (long)statuses[i]);
++            XCTAssertEqualObjects([root valueForKey:@"partiallyOpen"],
++                                  @(statuses[i] == UIHingeStatusPartiallyOpen));
++        }
++    }
++#endif
++
++    NSData *plist = [NSData dataWithContentsOfURL:[NSBundle.mainBundle URLForResource:@"Info" withExtension:@"plist"]];
++    NSDictionary *info = [NSPropertyListSerialization propertyListWithData:plist options:0 format:nil error:nil];
++    NSSet *landscape = [NSSet setWithArray:@[@"UIInterfaceOrientationLandscapeLeft", @"UIInterfaceOrientationLandscapeRight"]];
++    XCTAssertEqualObjects([NSSet setWithArray:info[@"UISupportedInterfaceOrientations"]], landscape);
++    NSSet *all = [landscape setByAddingObjectsFromSet:[NSSet setWithArray:@[@"UIInterfaceOrientationPortrait", @"UIInterfaceOrientationPortraitUpsideDown"]]];
++    XCTAssertEqualObjects([NSSet setWithArray:info[@"UISupportedInterfaceOrientations~ipad"]], all);
++    XCTAssertNil(info[@"UIRequiresFullScreen"]);
++
++}
++
++- (void)testInactiveNativeDivisionCanDriveSeparatedLayout {
++#if DUO_HARNESS_HAS_NATIVE_POSE_API
++    if (@available(iOS 27.1, *)) {
++        UIViewController *root = [self harnessRootViewController];
++        XCTAssertNotNil(root);
++        SEL hingeCallback = @selector(hingeChanged:);
++        XCTAssertTrue([root respondsToSelector:hingeCallback]);
++        if (![root respondsToSelector:hingeCallback]) return;
++
++        UIView *view = root.view;
++        Class originalClass = DuoHarnessInstallReservedRegionProbe(view);
++        XCTAssertNotNil(originalClass);
++        if (!originalClass) return;
++        CGRect bounds = view.bounds;
++        DuoFakeReservedRegion *region = [DuoFakeReservedRegion new];
++        region.frame = CGRectMake(CGRectGetMinX(bounds), CGRectGetMidY(bounds) - 12, CGRectGetWidth(bounds), 24);
++        region.identifier = [NSObject new];
++        region.kind = UIViewReservedRegionKind.divisionRegionKind;
++        region.active = NO;
++        gDuoHarnessReservedRegionView = view;
++        gDuoHarnessReservedRegion = region;
++        gDuoHarnessSawIncludeInactiveDivisionQuery = NO;
++        @try {
++            DuoFakeHinge *hinge = [DuoFakeHinge new];
++            hinge.status = UIHingeStatusPartiallyOpen;
++            hinge.angle = 2.25;
++            [(id)root hingeChanged:hinge];
++            [view setNeedsUpdateConstraints]; [view updateConstraintsIfNeeded];
++            [root viewDidLayoutSubviews];
++            [view setNeedsLayout]; [view layoutIfNeeded];
++
++            DmLayout expected = dm_layout(view.bounds, dm_game_safe_insets(view.bounds, view.safeAreaInsets, YES), YES, region.frame);
++            UIView *game = [root valueForKey:@"game"];
++            XCTAssertTrue(gDuoHarnessSawIncludeInactiveDivisionQuery,
++                          @"The root must query UIKit's IncludeInactive option for the division boundary");
++            XCTAssertFalse(region.isActive, @"This boundary case must use an inactive native division");
++            XCTAssertTrue(expected.separated);
++            XCTAssertTrue(CGRectEqualToRect(game.frame, expected.game),
++                          @"An inactive but valid horizontal division should still separate the panels");
++
++            hinge.status = UIHingeStatusFullyOpen;
++            [(id)root hingeChanged:hinge];
++            [root viewDidLayoutSubviews];
++            DmLayout fullyOpen = dm_layout(view.bounds, dm_game_safe_insets(view.bounds, view.safeAreaInsets, YES), NO, region.frame);
++            XCTAssertEqual(fullyOpen.separated, view.bounds.size.height > view.bounds.size.width,
++                           @"A fully-open landscape display overlays while portrait remains separated");
++            XCTAssertTrue(CGRectEqualToRect(game.frame, fullyOpen.game),
++                          @"Fully-open layout follows the stable portrait-split, landscape-overlay policy");
++        } @finally {
++            object_setClass(view, originalClass);
++            gDuoHarnessReservedRegionView = nil;
++            gDuoHarnessReservedRegion = nil;
++            gDuoHarnessSawIncludeInactiveDivisionQuery = NO;
++            [(id)root hingeChanged:nil];
++        }
++    } else {
++        XCTSkip(@"Reserved division regions are available from iOS 27.1");
++    }
++#else
++    XCTSkip(@"This SDK does not contain UIView reserved-region queries");
++#endif
++}
++
++
++
++- (UIViewController *)harnessRootViewController {
++    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
++        if (![scene isKindOfClass:UIWindowScene.class]) continue;
++        for (UIWindow *window in ((UIWindowScene *)scene).windows) if (window.isKeyWindow) return window.rootViewController;
++    }
++    return nil;
++}
++
++- (DmLayout)separatedLayout:(CGRect)bounds {
++    return dm_layout(bounds, UIEdgeInsetsZero, YES, CGRectMake(0, bounds.size.height * 0.48, bounds.size.width, 24));
++}
++
++- (UIView *)padForLayout:(DmLayout)layout bounds:(CGRect)bounds {
++    UIView *pad = dm_gamepad_view(bounds);
++    dm_gamepad_arrange(pad, layout);
++    [pad setNeedsLayout];
++    [pad layoutIfNeeded];
++    return pad;
++}
++
++- (DmLayout)portraitControlLayoutForBounds:(CGRect)bounds insets:(UIEdgeInsets)insets division:(CGRect)division {
++    DmLayout layout = dm_layout(bounds, insets, NO, division);
++    CGRect safe = UIEdgeInsetsInsetRect(bounds, insets);
++    CGFloat controlsTop = CGRectGetMinY(layout.controls);
++    layout.controls = CGRectMake(CGRectGetMinX(safe), controlsTop, safe.size.width,
++                                 MAX(0, CGRectGetMaxY(safe) - controlsTop));
++    return layout;
++}
++
++- (void)collectShapePathBoundsInLayer:(CALayer *)layer result:(NSMutableArray<NSValue *> *)result {
++    if ([layer isKindOfClass:CAShapeLayer.class]) {
++        CGPathRef path = ((CAShapeLayer *)layer).path;
++        if (path) [result addObject:[NSValue valueWithCGRect:CGPathGetBoundingBox(path)]];
++    }
++    for (CALayer *child in layer.sublayers) [self collectShapePathBoundsInLayer:child result:result];
++}
++
++- (CGRect)largestShapePathBoundsInLayer:(CALayer *)layer {
++    NSMutableArray<NSValue *> *bounds = [NSMutableArray array];
++    [self collectShapePathBoundsInLayer:layer result:bounds];
++    CGRect largest = CGRectNull;
++    CGFloat largestArea = 0;
++    for (NSValue *value in bounds) {
++        CGRect candidate = value.CGRectValue;
++        CGFloat area = candidate.size.width * candidate.size.height;
++        if (area > largestArea) { largest = candidate; largestArea = area; }
++    }
++    return largest;
++}
++
++- (CGPoint)faceDiamondCenterInPad:(UIView *)pad {
++    CGPoint sum = CGPointZero;
++    for (NSString *name in @[@"A", @"B", @"X", @"Y"]) {
++        CGPoint center = [self controlCenterNamed:name inPad:pad];
++        sum.x += center.x; sum.y += center.y;
++    }
++    return CGPointMake(sum.x / 4, sum.y / 4);
++}
++
++- (DuoFakeTouch *)touchAt:(CGPoint)point time:(NSTimeInterval)time {
++    DuoFakeTouch *touch = [DuoFakeTouch new];
++    touch.point = point; touch.timestamp = time;
++    return touch;
++}
++
++- (void)beginTouches:(NSArray<DuoFakeTouch *> *)touches onPad:(UIView *)pad {
++    [pad touchesBegan:(NSSet<UITouch *> *)[NSSet setWithArray:touches] withEvent:nil];
++}
++
++- (void)moveTouch:(DuoFakeTouch *)touch to:(CGPoint)point onPad:(UIView *)pad {
++    touch.point = point;
++    [pad touchesMoved:(NSSet<UITouch *> *)[NSSet setWithObject:touch] withEvent:nil];
++}
++
++- (void)endTouches:(NSArray<DuoFakeTouch *> *)touches onPad:(UIView *)pad cancelled:(BOOL)cancelled {
++    NSSet<UITouch *> *set = (NSSet<UITouch *> *)[NSSet setWithArray:touches];
++    if (cancelled) [pad touchesCancelled:set withEvent:nil];
++    else [pad touchesEnded:set withEvent:nil];
++}
++
++- (CGPoint)faceAIn:(DmLayout)layout bounds:(CGRect)bounds {
++    CGRect safe = CGRectIntersection(layout.controls, UIEdgeInsetsInsetRect(bounds, UIEdgeInsetsZero));
++    CGFloat u = layout.separated ? MIN(MIN(safe.size.height / 430.0, safe.size.width / 700.0), 1.3) : MIN(bounds.size.height / 430.0, 1.3);
++    if (layout.separated && bounds.size.height > bounds.size.width) {
++        CGPoint faceCenter = CGPointMake(CGRectGetMinX(safe) + 0.72 * safe.size.width,
++                                         CGRectGetMinY(safe) + 0.58 * safe.size.height);
++        return CGPointMake(faceCenter.x + 50 * u, faceCenter.y);
++    }
++    return CGPointMake(CGRectGetMaxX(safe) - 81 * u + 50 * u, CGRectGetMaxY(safe) - 82 * u);
++}
++
++- (CATextLayer *)textLayerNamed:(NSString *)name inLayer:(CALayer *)layer {
++    if ([layer isKindOfClass:CATextLayer.class] && [(id)((CATextLayer *)layer).string isEqual:name]) return (CATextLayer *)layer;
++    for (CALayer *child in layer.sublayers) {
++        CATextLayer *found = [self textLayerNamed:name inLayer:child];
++        if (found) return found;
++    }
++    return nil;
++}
++
++- (CGPoint)controlCenterNamed:(NSString *)name inPad:(UIView *)pad {
++    CATextLayer *label = [self textLayerNamed:name inLayer:pad.layer];
++    XCTAssertNotNil(label, @"Expected a visible control label named %@", name);
++    return CGPointMake(CGRectGetMidX(label.frame), CGRectGetMidY(label.frame));
++}
++
++- (CGRect)controlPathBoundsNamed:(NSString *)name inPad:(UIView *)pad {
++    CATextLayer *label = [self textLayerNamed:name inLayer:pad.layer];
++    XCTAssertNotNil(label, @"Expected a visible control label named %@", name);
++    CAShapeLayer *shape = (CAShapeLayer *)label.superlayer;
++    XCTAssertTrue(shape.path != NULL, @"Expected the control to have a rendered path");
++    return CGPathGetBoundingBox(shape.path);
++}
++
++- (BOOL)controlNamed:(NSString *)name containsPoint:(CGPoint)point inPad:(UIView *)pad {
++    CATextLayer *label = [self textLayerNamed:name inLayer:pad.layer];
++    XCTAssertNotNil(label, @"Expected a visible control label named %@", name);
++    CAShapeLayer *shape = (CAShapeLayer *)label.superlayer;
++    XCTAssertTrue(shape.path != NULL, @"Expected the control to have a rendered path");
++    return CGPathContainsPoint(shape.path, NULL, point, false);
++}
++
++- (void)assertButton:(uint64_t)button at:(CGPoint)point onPad:(UIView *)pad time:(NSTimeInterval)time {
++    DuoFakeTouch *touch = [self touchAt:point time:time];
++    [self beginTouches:@[touch] onPad:pad];
++    DuoHarnessInput input = duo_harness_input();
++    XCTAssertEqual(input.buttons, button, @"The enlarged hit area should select exactly the nearest button");
++    [self endTouches:@[touch] onPad:pad cancelled:NO];
++}
++
++- (void)testSimultaneousFaceButtonsAndVideoTouchKeepIndependentSlots {
++    CGRect bounds = CGRectMake(0, 0, 390, 844);
++    DmLayout layout = [self separatedLayout:bounds];
++    UIView *pad = [self padForLayout:layout bounds:bounds];
++    CGPoint a = [self faceAIn:layout bounds:bounds];
++    CGFloat u = MIN(MIN(layout.controls.size.height / 430.0, layout.controls.size.width / 700.0), 1.3);
++    CGPoint b = CGPointMake(a.x - 50 * u, a.y + 50 * u);
++    CGPoint video = CGPointMake(CGRectGetMidX(layout.game), CGRectGetMidY(layout.game));
++    DuoFakeTouch *ta = [self touchAt:a time:1], *tb = [self touchAt:b time:1], *tv = [self touchAt:video time:1];
++
++    [self beginTouches:@[ta, tb, tv] onPad:pad];
++    DuoHarnessInput input = duo_harness_input();
++    XCTAssertEqual(input.buttons & (DM_BTN_A | DM_BTN_B), DM_BTN_A | DM_BTN_B);
++    XCTAssertEqual(input.touch_count, 1);
++    XCTAssertEqualWithAccuracy(input.touches[0].x, 0.5, 0.001);
++    XCTAssertEqualWithAccuracy(input.touches[0].y, 0.5, 0.001);
++
++    [self endTouches:@[ta] onPad:pad cancelled:NO];
++    input = duo_harness_input();
++    XCTAssertEqual(input.buttons & DM_BTN_A, 0);
++    XCTAssertNotEqual(input.buttons & DM_BTN_B, 0);
++    XCTAssertEqual(input.touch_count, 1);
++
++    [self endTouches:@[tb, tv] onPad:pad cancelled:YES];
++    input = duo_harness_input();
++    XCTAssertEqual(input.buttons, 0);
++    XCTAssertEqual(input.touch_count, 0);
++}
++
++- (void)testVideoCoordinatesClampAtCornersAndIgnoreFoldAndControlArea {
++    CGRect bounds = CGRectMake(0, 0, 390, 844);
++    DmLayout layout = [self separatedLayout:bounds];
++    UIView *pad = [self padForLayout:layout bounds:bounds];
++    DuoFakeTouch *touch = [self touchAt:CGPointMake(CGRectGetMinX(layout.game), CGRectGetMinY(layout.game)) time:1];
++    [self beginTouches:@[touch] onPad:pad];
++    DuoHarnessInput input = duo_harness_input();
++    XCTAssertEqual(input.touch_count, 1);
++    XCTAssertEqualWithAccuracy(input.touches[0].x, 0, 0.001);
++    XCTAssertEqualWithAccuracy(input.touches[0].y, 0, 0.001);
++
++    [self moveTouch:touch to:CGPointMake(CGRectGetMidX(layout.game), CGRectGetMidY(layout.game)) onPad:pad];
++    input = duo_harness_input();
++    XCTAssertEqual(input.touches[0].id, 0);
++    XCTAssertEqualWithAccuracy(input.touches[0].x, 0.5, 0.001);
++    XCTAssertEqualWithAccuracy(input.touches[0].y, 0.5, 0.001);
++
++    [self moveTouch:touch to:CGPointMake(CGRectGetMaxX(layout.game) - 0.001, CGRectGetMaxY(layout.game) - 0.001) onPad:pad];
++    input = duo_harness_input();
++    XCTAssertEqualWithAccuracy(input.touches[0].x, 0.999, 0.001);
++    XCTAssertEqualWithAccuracy(input.touches[0].y, 0.999, 0.001);
++
++    [self endTouches:@[touch] onPad:pad cancelled:NO];
++    DuoFakeTouch *foldGap = [self touchAt:CGPointMake(CGRectGetMidX(bounds), CGRectGetMinY(layout.controls) - 10) time:2];
++    [self beginTouches:@[foldGap] onPad:pad];
++    input = duo_harness_input();
++    XCTAssertEqual(input.touch_count, 0);
++    XCTAssertEqual(input.buttons, 0);
++    [self endTouches:@[foldGap] onPad:pad cancelled:NO];
++
++    CGRect lower = layout.controls;
++    // The lower-panel midpoint can now fall on the portrait D-pad. Use the bottom-centre
++    // safe-area strip, clear of the anchored thumb groups, to verify controls do not claim it.
++    DuoFakeTouch *outside = [self touchAt:CGPointMake(CGRectGetMidX(lower), CGRectGetMaxY(lower) - 10) time:2];
++    [self beginTouches:@[outside] onPad:pad];
++    input = duo_harness_input();
++    XCTAssertEqual(input.touch_count, 0);
++    XCTAssertEqual(input.buttons, 0);
++    [self endTouches:@[outside] onPad:pad cancelled:NO];
++
++    DuoFakeTouch *rightThirdVideo = [self touchAt:CGPointMake(CGRectGetMaxX(layout.game) - 1, CGRectGetMidY(layout.game)) time:3];
++    [self beginTouches:@[rightThirdVideo] onPad:pad];
++    input = duo_harness_input();
++    XCTAssertEqual(input.touch_count, 1);
++    XCTAssertEqual(input.rx, 0);
++    XCTAssertEqual(input.ry, 0);
++    XCTAssertEqualWithAccuracy(input.touches[0].x, 0.997, 0.002);
++    XCTAssertEqualWithAccuracy(input.touches[0].y, 0.5, 0.001);
++    [self endTouches:@[rightThirdVideo] onPad:pad cancelled:NO];
++}
++
++- (void)testNoOpArrangePreservesHeldInputs {
++    CGRect bounds = CGRectMake(0, 0, 390, 844);
++    DmLayout separated = [self separatedLayout:bounds];
++    UIView *pad = [self padForLayout:separated bounds:bounds];
++    DuoFakeTouch *video = [self touchAt:CGPointMake(CGRectGetMidX(separated.game), CGRectGetMidY(separated.game)) time:1];
++    DuoFakeTouch *button = [self touchAt:[self faceAIn:separated bounds:bounds] time:1];
++    [self beginTouches:@[video, button] onPad:pad];
++
++    dm_gamepad_arrange(pad, separated);
++    DuoHarnessInput input = duo_harness_input();
++    XCTAssertNotEqual(input.buttons & DM_BTN_A, 0);
++    XCTAssertEqual(input.touch_count, 1);
++    XCTAssertEqualWithAccuracy(input.touches[0].x, 0.5, 0.001);
++    XCTAssertEqualWithAccuracy(input.touches[0].y, 0.5, 0.001);
++    [self endTouches:@[video, button] onPad:pad cancelled:NO];
++}
++
++- (void)testPoseChangeReleasesHeldButtonAndGameTouch {
++    CGRect bounds = CGRectMake(0, 0, 390, 844);
++    DmLayout separated = [self separatedLayout:bounds];
++    UIView *pad = [self padForLayout:separated bounds:bounds];
++    DuoFakeTouch *video = [self touchAt:CGPointMake(CGRectGetMidX(separated.game), CGRectGetMidY(separated.game)) time:1];
++    DuoFakeTouch *button = [self touchAt:[self faceAIn:separated bounds:bounds] time:1];
++    [self beginTouches:@[video, button] onPad:pad];
++    XCTAssertNotEqual(duo_harness_input().buttons & DM_BTN_A, 0);
++    XCTAssertEqual(duo_harness_input().touch_count, 1);
++
++    dm_gamepad_arrange(pad, dm_layout(bounds, UIEdgeInsetsZero, NO, CGRectNull));
++    DuoHarnessInput input = duo_harness_input();
++    XCTAssertEqual(input.buttons, 0);
++    XCTAssertEqual(input.touch_count, 0);
++    [self endTouches:@[video, button] onPad:pad cancelled:NO];
++}
++
++- (void)testConnectedVirtualControllerKeepsVideoTouchAndMapsPhysicalButtons {
++    if (@available(iOS 17.0, *)) {
++        [self setHarnessControllers:nil notification:nil];
++        CGRect bounds = CGRectMake(0, 0, 844, 390);
++        DmLayout layout = dm_layout(bounds, UIEdgeInsetsZero, NO, CGRectNull);
++        UIView *pad = [self padForLayout:layout bounds:bounds];
++        GCVirtualControllerConfiguration *config = [GCVirtualControllerConfiguration new];
++        config.hidden = YES;
++        config.elements = [NSSet setWithArray:@[GCInputButtonA, GCInputButtonB, GCInputButtonX, GCInputButtonY,
++                                                 GCInputLeftShoulder, GCInputRightShoulder, GCInputButtonMenu,
++                                                 GCInputLeftThumbstick, GCInputRightThumbstick, GCInputDirectionPad]];
++        GCVirtualController *controller = [[GCVirtualController alloc] initWithConfiguration:config];
++        XCTestExpectation *connected = [self expectationWithDescription:@"virtual controller connected"];
++        __block NSError *connectError;
++        [controller connectWithReplyHandler:^(NSError *error) { connectError = error; [connected fulfill]; }];
++        [self waitForExpectations:@[connected] timeout:5];
++        if (connectError || !controller.controller.extendedGamepad) {
++            [controller disconnect];
++            XCTSkip(@"Simulator virtual extended gamepad is unavailable");
++        }
++        [self setHarnessControllers:@[controller.controller] notification:GCControllerDidConnectNotification];
++
++        [controller setValue:1 forButtonElement:GCInputButtonB];
++        NSPredicate *hasA = [NSPredicate predicateWithBlock:^BOOL(id object, NSDictionary *bindings) {
++            (void)object; (void)bindings; return (duo_harness_state().players[0].buttons & DM_BTN_A) != 0;
++        }];
++        [self expectationForPredicate:hasA evaluatedWithObject:self handler:nil];
++        [self waitForExpectationsWithTimeout:5 handler:nil];
++
++        CGRect portrait = CGRectMake(0, 0, 390, 844);
++        DmLayout separated = [self separatedLayout:portrait];
++        pad.frame = portrait;
++        dm_gamepad_arrange(pad, separated);
++        [pad setNeedsLayout]; [pad layoutIfNeeded];
++        XCTAssertNotEqual(duo_harness_state().players[0].buttons & DM_BTN_A, 0,
++                          @"Changing the UI pose must preserve player one's controller state");
++
++        DuoFakeTouch *video = [self touchAt:CGPointMake(CGRectGetMidX(separated.game), CGRectGetMidY(separated.game)) time:1];
++        [self beginTouches:@[video] onPad:pad];
++        DuoHarnessInput input = duo_harness_input();
++        XCTAssertNotEqual(duo_harness_state().players[0].buttons & DM_BTN_A, 0);
++        XCTAssertEqual(input.touch_count, 1);
++        XCTAssertEqualWithAccuracy(input.touches[0].x, 0.5, 0.001);
++        XCTAssertEqualWithAccuracy(input.touches[0].y, 0.5, 0.001);
++        [self endTouches:@[video] onPad:pad cancelled:NO];
++        [controller setValue:0 forButtonElement:GCInputButtonB];
++        [self setHarnessControllers:@[] notification:GCControllerDidDisconnectNotification];
++        [controller disconnect];
++    } else {
++        XCTSkip(@"Virtual controllers require iOS 17 or later");
++    }
++}
++
++
++- (void)testControllersKeepIndependentPlayersAndLayoutKeepsMotionState {
++    if (@available(iOS 13.0, *)) {
++        GCController *first = [GCController controllerWithExtendedGamepad];
++        GCController *second = [GCController controllerWithExtendedGamepad];
++        XCTAssertTrue(first.isSnapshot);
++        XCTAssertTrue(second.isSnapshot);
++        [self setHarnessControllers:@[first, second] notification:GCControllerDidConnectNotification];
++
++        CGRect bounds = CGRectMake(0, 0, 844, 390);
++        UIView *pad = [self padForLayout:dm_layout(bounds, UIEdgeInsetsZero, NO, CGRectNull) bounds:bounds];
++        [self deliverSnapshotChangeFor:first button:first.extendedGamepad.buttonB value:1];
++        [self deliverSnapshotChangeFor:second button:second.extendedGamepad.buttonA value:1];
++        DuoHarnessState state = duo_harness_state();
++        XCTAssertEqual(state.connected_players, 0x3);
++        XCTAssertEqual(state.players[0].buttons, DM_BTN_A);
++        XCTAssertEqual(state.players[1].buttons, DM_BTN_B);
++        GCExtendedGamepadValueChangedHandler staleFirstHandler = first.extendedGamepad.valueChangedHandler;
++
++        const float acceleration[] = {0.25f, -0.5f, 0.75f};
++        const float rotation[] = {-1.0f, 2.0f, -3.0f};
++        dm_motion_set(1, acceleration, rotation);
++        CGRect portrait = CGRectMake(0, 0, 390, 844);
++        DmLayout separated = [self separatedLayout:portrait];
++        pad.frame = portrait;
++        dm_gamepad_arrange(pad, separated);
++        [pad layoutIfNeeded];
++        state = duo_harness_state();
++        XCTAssertEqual(state.connected_players, 0x3);
++        XCTAssertEqual(state.players[0].buttons, DM_BTN_A);
++        XCTAssertEqual(state.players[1].buttons, DM_BTN_B);
++        XCTAssertEqual(state.controller_motion_mask & (1u << 1), 1u << 1,
++                       @"Changing the UI pose must not clear player two's motion source");
++        for (NSUInteger axis = 0; axis < 3; axis++) {
++            XCTAssertEqualWithAccuracy(state.controller_motion[1].acceleration[axis], acceleration[axis], 0.001);
++            XCTAssertEqualWithAccuracy(state.controller_motion[1].rotation[axis], rotation[axis], 0.001);
++        }
++
++        // Reordering the connected-controller snapshot must not move either player's slot.
++        [self setHarnessControllers:@[second, first] notification:GCControllerDidConnectNotification];
++        [self setHarnessControllers:@[second] notification:GCControllerDidDisconnectNotification];
++        state = duo_harness_state();
++        XCTAssertEqual(state.connected_players, 0x2);
++        XCTAssertEqual(state.players[0].buttons, 0);
++        XCTAssertEqual(state.players[1].buttons, DM_BTN_B);
++        XCTAssertEqual(state.controller_motion_mask & 0x3, 0x2,
++                       @"Disconnecting player one must leave player two's motion source intact");
++        if (staleFirstHandler) staleFirstHandler(first.extendedGamepad, first.extendedGamepad.buttonB);
++        state = duo_harness_state();
++        XCTAssertEqual(state.players[0].buttons, 0,
++                       @"A queued callback from the disconnected controller must not reclaim its slot");
++        XCTAssertEqual(state.players[1].buttons, DM_BTN_B);
++
++        [self setHarnessControllers:@[] notification:GCControllerDidDisconnectNotification];
++        state = duo_harness_state();
++        XCTAssertEqual(state.connected_players, 0);
++        XCTAssertEqual(state.players[1].buttons, 0);
++        XCTAssertEqual(state.controller_motion_mask & (1u << 1), 0,
++                       @"Disconnecting player two clears its motion source");
++    }
++}
++
++
++@end
+diff --git a/dm/ios/tests/duo/Tests/DuoHostingOrientationTests.swift b/dm/ios/tests/duo/Tests/DuoHostingOrientationTests.swift
+new file mode 100644
+index 0000000..36d0073
+--- /dev/null
++++ b/dm/ios/tests/duo/Tests/DuoHostingOrientationTests.swift
+@@ -0,0 +1,40 @@
++import SwiftUI
++import UIKit
++import XCTest
++@testable import DuoHarness
++
++final class DuoHostingOrientationTests: XCTestCase {
++    @MainActor
++    func testProductionHostingControllerSupportsAllOrientationsInCurrentWindow() async {
++        guard let window = UIApplication.shared.connectedScenes
++            .compactMap({ $0 as? UIWindowScene })
++            .flatMap(\.windows)
++            .first(where: \.isKeyWindow),
++              let presenter = window.rootViewController else {
++            XCTFail("Expected the harness root in its phone window scene")
++            return
++        }
++        XCTAssertNil(presenter.presentedViewController, "The harness root should be available for a temporary full-screen host")
++
++        let host = DmHostingController(rootView: Color.clear)
++        let unattachedMask = host.supportedInterfaceOrientations
++        let unattachedIdiom = host.traitCollection.userInterfaceIdiom
++        host.modalPresentationStyle = .fullScreen
++        let presented = expectation(description: "full-screen SwiftUI host presented")
++        presenter.present(host, animated: false) { presented.fulfill() }
++        await fulfillment(of: [presented], timeout: 5)
++        let attachedMask = host.supportedInterfaceOrientations
++        let attachedIdiom = host.traitCollection.userInterfaceIdiom
++        let orientation = window.windowScene?.effectiveGeometry.interfaceOrientation.rawValue ?? -1
++
++        let dismissed = expectation(description: "full-screen SwiftUI host dismissed")
++        host.dismiss(animated: false) { dismissed.fulfill() }
++        await fulfillment(of: [dismissed], timeout: 5)
++
++        print("[DUO_HOST_ORIENTATION] phoneWindowIdiom=\(window.traitCollection.userInterfaceIdiom.rawValue) sceneOrientation=\(orientation) unattachedIdiom=\(unattachedIdiom.rawValue) unattachedMask=0x\(String(unattachedMask.rawValue, radix: 16)) attachedIdiom=\(attachedIdiom.rawValue) attachedMask=0x\(String(attachedMask.rawValue, radix: 16)) all=0x\(String(UIInterfaceOrientationMask.all.rawValue, radix: 16))")
++        XCTAssertNil(presenter.presentedViewController, "Restore the harness root after the probe")
++        XCTAssertEqual(attachedIdiom, window.traitCollection.userInterfaceIdiom)
++        XCTAssertEqual(unattachedMask, .all)
++        XCTAssertEqual(attachedMask, .all, "The production full-screen SwiftUI host must preserve the app's four-orientation policy")
++    }
++}
+diff --git a/dm/ios/tests/duo/UITests/DuoNativeRotationUITests.swift b/dm/ios/tests/duo/UITests/DuoNativeRotationUITests.swift
+new file mode 100644
+index 0000000..63cbd40
+--- /dev/null
++++ b/dm/ios/tests/duo/UITests/DuoNativeRotationUITests.swift
+@@ -0,0 +1,148 @@
++import XCTest
++import UIKit
++
++private struct DuoSnapshot {
++    let orientation: Int
++    let bounds: [Double]
++    let game: [Double]
++    let controls: [Double]
++    let separated: Bool
++    let touchCount: Int
++    let touchUpdates: Int
++    let lastTouches: [[Double]]
++    let hingeStatus: Int
++    let hingeAngle: Double
++
++    init?(_ element: XCUIElement) {
++        guard let value = element.value as? String,
++              let data = value.data(using: .utf8),
++              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
++              let orientation = (object["orientation"] as? NSNumber)?.intValue,
++              let bounds = Self.rect(object["bounds"]),
++              let game = Self.rect(object["game"]),
++              let controls = Self.rect(object["controls"]),
++              let separated = object["separated"] as? Bool,
++              let touchCount = (object["touchCount"] as? NSNumber)?.intValue,
++              let touchUpdates = (object["touchUpdates"] as? NSNumber)?.intValue,
++              let lastTouches = object["lastTouches"] as? [[NSNumber]],
++              let hingeStatus = (object["hingeStatus"] as? NSNumber)?.intValue,
++              let hingeAngle = (object["hingeAngle"] as? NSNumber)?.doubleValue else { return nil }
++        self.orientation = orientation
++        self.bounds = bounds
++        self.game = game
++        self.controls = controls
++        self.separated = separated
++        self.touchCount = touchCount
++        self.touchUpdates = touchUpdates
++        self.lastTouches = lastTouches.map { $0.map(\.doubleValue) }
++        self.hingeStatus = hingeStatus
++        self.hingeAngle = hingeAngle
++    }
++
++    private static func rect(_ value: Any?) -> [Double]? {
++        guard let numbers = value as? [NSNumber], numbers.count == 4 else { return nil }
++        return numbers.map(\.doubleValue)
++    }
++}
++
++final class DuoNativeRotationUITests: XCTestCase {
++    @MainActor
++    func testObservedNativeFourOrientationCycleOnFullyOpenDuoPreservesLayoutAndTouchRouting() {
++        guard #available(iOS 27.1, *) else {
++            XCTFail("The native Duo rotation test requires iOS 27.1 hinge and scene-geometry APIs")
++            return
++        }
++
++        let app = XCUIApplication(bundleIdentifier: "org.nxnative.DuoHarness")
++        app.launch()
++        defer { app.terminate() }
++
++        let diagnostics = app.descendants(matching: .any).matching(identifier: "duo.diagnostics").firstMatch
++        XCTAssertTrue(diagnostics.waitForExistence(timeout: 15), "The harness must expose live scene and input diagnostics")
++        guard diagnostics.exists else { return }
++
++        let fullyOpenStatus = UIHinge.Status.fullyOpen.rawValue
++        guard let initial = waitForSnapshot(diagnostics, timeout: 15, matching: {
++            $0.hingeStatus == fullyOpenStatus && abs($0.hingeAngle - .pi) < 0.12
++        }) else {
++            XCTFail("Open the Duo fully before running this test. Diagnostics: \(String(describing: diagnostics.value))")
++            return
++        }
++        XCTAssertEqual(initial.hingeStatus, fullyOpenStatus)
++        XCTAssertEqual(initial.hingeAngle, .pi, accuracy: 0.12)
++
++        let poses: [(name: String, portrait: Bool)] = [
++            ("landscape right", false),
++            ("portrait", true),
++            ("landscape left", false),
++            ("portrait upside down", true)
++        ]
++
++        for pose in poses {
++            print("[DUO_ROTATION] Waiting for Device Hub to set bounds for (\(pose.name)); rotate within 60 seconds.")
++            guard let snapshot = waitForSnapshot(diagnostics, timeout: 60, matching: {
++                ($0.bounds[3] > $0.bounds[2]) == pose.portrait
++            }) else {
++                XCTFail("Native \(pose.name) rotation did not reach the expected scene geometry. Diagnostics: \(String(describing: diagnostics.value))")
++                return
++            }
++
++            XCTAssertEqual(snapshot.hingeStatus, fullyOpenStatus, "Keep the Duo fully open through the orientation cycle")
++            XCTAssertEqual(snapshot.hingeAngle, .pi, accuracy: 0.12)
++            XCTAssertGreaterThan(snapshot.bounds[2], 0)
++            XCTAssertGreaterThan(snapshot.bounds[3], 0)
++            XCTAssertGreaterThan(snapshot.game[2], 0)
++            XCTAssertGreaterThan(snapshot.game[3], 0)
++            XCTAssertEqual(snapshot.bounds[3] > snapshot.bounds[2], pose.portrait,
++                           "Native \(pose.name) rotation must update the actual root view bounds")
++            XCTAssertEqual(snapshot.game[2] / snapshot.game[3], 16.0 / 9.0, accuracy: 0.01,
++                           "The production game view must keep its 16:9 frame in \(pose.name)")
++            XCTAssertGreaterThanOrEqual(snapshot.game[0], snapshot.bounds[0] - 1)
++            XCTAssertGreaterThanOrEqual(snapshot.game[1], snapshot.bounds[1] - 1)
++            XCTAssertLessThanOrEqual(snapshot.game[0] + snapshot.game[2], snapshot.bounds[0] + snapshot.bounds[2] + 1)
++            XCTAssertLessThanOrEqual(snapshot.game[1] + snapshot.game[3], snapshot.bounds[1] + snapshot.bounds[3] + 1)
++
++            if pose.portrait {
++                XCTAssertTrue(snapshot.separated, "Both native portrait poses keep the game above the touch controls")
++                XCTAssertLessThanOrEqual(snapshot.game[1] + snapshot.game[3], snapshot.controls[1] + 1)
++                XCTAssertGreaterThan(snapshot.controls[3], 0)
++                assertGameTouch(diagnostics: diagnostics, after: snapshot.touchUpdates)
++            } else {
++                XCTAssertFalse(snapshot.separated, "The fully-open Duo uses overlay controls in landscape")
++                XCTAssertEqual(snapshot.controls[0], snapshot.bounds[0], accuracy: 1)
++                XCTAssertEqual(snapshot.controls[1], snapshot.bounds[1], accuracy: 1)
++                XCTAssertEqual(snapshot.controls[2], snapshot.bounds[2], accuracy: 1)
++                XCTAssertEqual(snapshot.controls[3], snapshot.bounds[3], accuracy: 1)
++            }
++        }
++    }
++
++    @MainActor
++    private func assertGameTouch(diagnostics: XCUIElement, after updateCount: Int) {
++        print("[DUO_ROTATION] Click the center of the visible Game viewport within 60 seconds.")
++        guard let after = waitForSnapshot(diagnostics, timeout: 60, matching: {
++            $0.touchUpdates > updateCount && $0.touchCount == 0 && !$0.lastTouches.isEmpty
++        }) else {
++            XCTFail("A native click in the production game view must reach and release through dm_touch_set")
++            return
++        }
++        XCTAssertEqual(after.touchCount, 0, "The native click must be released after the input update")
++        if let touch = after.lastTouches.first, touch.count >= 2 {
++            XCTAssertEqual(touch[0], 0.5, accuracy: 0.04)
++            XCTAssertEqual(touch[1], 0.5, accuracy: 0.04)
++        } else {
++            XCTFail("The native click must include a normalized game-view touch sample")
++        }
++    }
++
++    @MainActor
++    private func waitForSnapshot(_ element: XCUIElement, timeout: TimeInterval,
++                                matching predicate: @escaping (DuoSnapshot) -> Bool) -> DuoSnapshot? {
++        let expectation = XCTNSPredicateExpectation(predicate: NSPredicate { object, _ in
++            guard let element = object as? XCUIElement, let snapshot = DuoSnapshot(element) else { return false }
++            return predicate(snapshot)
++        }, object: element)
++        guard XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed else { return nil }
++        return DuoSnapshot(element)
++    }
++}
+diff --git a/dm/ios/tests/duo/project.yml b/dm/ios/tests/duo/project.yml
+new file mode 100644
+index 0000000..26b4987
+--- /dev/null
++++ b/dm/ios/tests/duo/project.yml
+@@ -0,0 +1,124 @@
++name: DuoHarness
++options:
++  deploymentTarget:
++    iOS: "26.0"
++targets:
++  DuoHarness:
++    type: application
++    platform: iOS
++    sources:
++      - path: Sources
++      - path: ../../Sources/DmHostingController.swift
++      - path: ../../Sources/DmGamepad.m
++      - path: ../../Sources/front_ios.m
++    dependencies:
++      - sdk: UIKit.framework
++      - sdk: GameController.framework
++      - sdk: SwiftUI.framework
++      - sdk: CoreMotion.framework
++      - sdk: CoreText.framework
++      - sdk: QuartzCore.framework
++      - sdk: Metal.framework
++      - sdk: AVFAudio.framework
++    info:
++      path: Info.plist
++      properties:
++        CFBundleDisplayName: DuoHarness
++        CFBundleShortVersionString: "1.0"
++        CFBundleVersion: "2"
++        UILaunchScreen: {}
++        UIStatusBarHidden: true
++        UIViewControllerBasedStatusBarAppearance: false
++        UISupportedInterfaceOrientations:
++          - UIInterfaceOrientationLandscapeLeft
++          - UIInterfaceOrientationLandscapeRight
++        UISupportedInterfaceOrientations~ipad:
++          - UIInterfaceOrientationPortrait
++          - UIInterfaceOrientationPortraitUpsideDown
++          - UIInterfaceOrientationLandscapeLeft
++          - UIInterfaceOrientationLandscapeRight
++        LSSupportsGameMode: true
++        GCSupportsControllerUserInteraction: true
++        GCSupportedGameControllers:
++          - ProfileName: ExtendedGamepad
++        CADisableMinimumFrameDurationOnPhone: true
++        UIApplicationSceneManifest:
++          UIApplicationSupportsMultipleScenes: false
++          UISceneConfigurations:
++            UIWindowSceneSessionRoleApplication:
++              - UISceneConfigurationName: Default
++                UISceneDelegateClassName: DuoHarnessSceneDelegate
++    settings:
++      base:
++        PRODUCT_BUNDLE_IDENTIFIER: org.nxnative.DuoHarness
++        IPHONEOS_DEPLOYMENT_TARGET: "26.0"
++        TARGETED_DEVICE_FAMILY: "1,2"
++        HEADER_SEARCH_PATHS:
++          - $(inherited)
++          - $(SRCROOT)/../../../host
++          - $(SRCROOT)/../../Sources
++          - $(SRCROOT)/Sources/Fixtures
++        CLANG_ENABLE_OBJC_ARC: YES
++        CODE_SIGN_STYLE: Automatic
++        DEVELOPMENT_TEAM: ""
++  DuoHarnessTests:
++    type: bundle.unit-test
++    platform: iOS
++    sources:
++      - path: Tests
++    dependencies:
++      - target: DuoHarness
++      - sdk: GameController.framework
++      - sdk: SwiftUI.framework
++    settings:
++      base:
++        GENERATE_INFOPLIST_FILE: YES
++        PRODUCT_BUNDLE_IDENTIFIER: org.nxnative.DuoHarnessTests
++        IPHONEOS_DEPLOYMENT_TARGET: "26.0"
++        HEADER_SEARCH_PATHS:
++          - $(inherited)
++          - $(SRCROOT)/../../../host
++          - $(SRCROOT)/../../Sources
++          - $(SRCROOT)/Sources/Fixtures
++          - $(SRCROOT)/Sources
++        TEST_HOST: $(BUILT_PRODUCTS_DIR)/DuoHarness.app/DuoHarness
++        BUNDLE_LOADER: $(TEST_HOST)
++        CLANG_ENABLE_OBJC_ARC: YES
++        CODE_SIGN_STYLE: Automatic
++        DEVELOPMENT_TEAM: ""
++  DuoHarnessUITests:
++    type: bundle.ui-testing
++    platform: iOS
++    sources:
++      - path: UITests
++    dependencies:
++      - target: DuoHarness
++    settings:
++      base:
++        GENERATE_INFOPLIST_FILE: YES
++        PRODUCT_BUNDLE_IDENTIFIER: org.nxnative.DuoHarnessUITests
++        IPHONEOS_DEPLOYMENT_TARGET: "26.0"
++        TEST_TARGET_NAME: DuoHarness
++        TARGETED_DEVICE_FAMILY: "1,2"
++        SWIFT_VERSION: "5.0"
++        CODE_SIGN_STYLE: Automatic
++        DEVELOPMENT_TEAM: ""
++schemes:
++  DuoHarness:
++    build:
++      targets:
++        DuoHarness: all
++        DuoHarnessTests: [test]
++    test:
++      config: Debug
++      targets:
++        - DuoHarnessTests
++  DuoHarnessNativeRotation:
++    build:
++      targets:
++        DuoHarness: all
++        DuoHarnessUITests: [test]
++    test:
++      config: Debug
++      targets:
++        - DuoHarnessUITests
+diff --git a/dm/ios/tests/test_orientation_policy.py b/dm/ios/tests/test_orientation_policy.py
+new file mode 100644
+index 0000000..b3d0652
+--- /dev/null
++++ b/dm/ios/tests/test_orientation_policy.py
+@@ -0,0 +1,25 @@
++"""Keep the production and harness phone/iPad orientation contracts aligned."""
++import re
++import unittest
++from pathlib import Path
++
++IOS = Path(__file__).resolve().parents[1]
++
++
++class OrientationPolicyTests(unittest.TestCase):
++    def test_phone_landscape_and_ipad_resizing(self):
++        landscape = {"UIInterfaceOrientationLandscapeLeft", "UIInterfaceOrientationLandscapeRight"}
++        all_orientations = landscape | {"UIInterfaceOrientationPortrait", "UIInterfaceOrientationPortraitUpsideDown"}
++        for project in (IOS / "project.yml", IOS / "tests/duo/project.yml"):
++            source = project.read_text()
++            for key, expected in (("UISupportedInterfaceOrientations", landscape),
++                                  ("UISupportedInterfaceOrientations~ipad", all_orientations)):
++                with self.subTest(project=project.name, key=key):
++                    match = re.search(r"^        " + re.escape(key) + r":\n((?:          - .*\n)+)", source, re.MULTILINE)
++                    assert match is not None, f"Missing orientation array: {key}"
++                    self.assertEqual(set(re.findall(r"- (\w+)", match[1])), expected)
++            self.assertNotIn("UIRequiresFullScreen:", source)
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/docs/reference/rendering.md b/docs/reference/rendering.md
+index 7f0eebe..f961042 100644
+--- a/docs/reference/rendering.md
++++ b/docs/reference/rendering.md
+@@ -1122,3 +1122,12 @@ Digimon Story Cyber Sleuth: Complete Edition (Media.Vision's MVGL engine, SDK 6.
+ - **Fix:** collect per-pass write facts independently of the lookahead switch and omit only stores of attachments that were loaded and provably unchanged. Clears, depth writes, stencil writes and possible writable image/atomic/storage aliases retain their stores. Lookahead, pass merging and cross-submission invalidation remain disabled. `DM_NVN_UNWRITTEN_DC=0` restores store-all behavior.
+ - **Check:** `make -C dm/gfx/tests GAME=<id> check_t_unwritten_store` performs real GPU readback against a store-all control and literal color/depth/stencil values, with lookahead disabled. It covers read-only depth/stencil, depth writes, stencil writes, pending clears, and writable images (including native image atomics) and both storage-buffer binding forms. `t_unwritten_store --bench` runs a synthetic 32-pass 1080p workload with balanced on/off order; it is not a game FPS measurement.
+ - **Found on:** [NieR:Automata US 1.0.3](../../dm/games/010056B015FE8000/README.md#factory-combat-capture-and-9s-texture-follow-up), during iPhone factory-combat performance investigation. The change passes the GPU proof and rendering regressions on Mac; iPhone gameplay benefit remains to be measured.
++
++### iPhone Duo portrait and tabletop layout
++
++- **Symptom:** portrait gameplay overlaps the touch controls, or touch coordinates land outside the game picture.
++- **Cause:** the frontend assumed a landscape picture with controls overlaid across the full view, so its video and touch geometry did not follow the portrait layout. A native rotation A/B on the iPhone Duo iOS 27.1 simulator also showed that deprecated `UIRequiresFullScreen` blocked upside-down portrait despite all four orientations being declared; without the key, UIKit applied all four.
++- **Fix:** remove fullscreen compatibility and let UIKit handle rotation. The phone orientation list stays landscape-only for ordinary iPhones and the Duo outer display; UIKit ignores that list on the Duo inner display, where layout follows current window bounds. The iPad list allows all four orientations for resizable windows. Portrait places an aspect-fitted 16:9 game view above the controls, using a valid native horizontal division when available and the midpoint otherwise. Landscape keeps the overlay unless UIKit reports a partially open hinge with a valid horizontal division. Local-game layout changes do not request scene rotation. On Duo in portrait, only the top safe-area inset is applied to video and controls; left, right and bottom are ignored. Other devices and landscape keep their existing insets.
++- **Input:** game touches map through the actual game-view rectangle. When virtual controls are visible, touches in the controls pane go to the gamepad; layout changes release active virtual touches.
++- **Check:** [Duo harness notes](../../dm/ios/tests/duo/README.md) describe layout and input coverage. Synthetic checks do not establish physical pose, rotation, rendering, or controller acceptance. The operator-driven native rotation test checks bounds and portrait game-touch routing while the operator cycles through four device poses. The owner validated build 1.3.19 on a physical Duo: the outer display remains landscape-only and the inner display retains both portrait directions, landscape and tabletop layouts. Native iPad window-resizing checks exercise the production presentation and input path with synthetic Metal frames; full-game testing on a physical iPad remains outstanding.
++- **Found on:** [Pokémon Brilliant Diamond](../../dm/games/0100000011D90000/README.md).
