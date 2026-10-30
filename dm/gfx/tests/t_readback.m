@@ -61,6 +61,69 @@ static void sparse_reads(const NVNcopyRegion *region, const uint8_t expected[4])
     h_nvnMemoryPoolFinalize((NVNmemoryPool *)&sparse); h_nvnMemoryPoolFinalize((NVNmemoryPool *)&physical); munmap(phys, len);
 }
 
+// The RGB565 family in a plain texture (not packaged, sampled with no red / blue swap: tex_by_id) is in Metal's order, red at bit 11 (bit 10 for RGB5A1), the guest's order has red at bit 0.
+// Copies between such a texture and guest memory convert: a buffer → texture copy samples as the guest wrote it, a texture → buffer copy and ReadTexels give back the guest's bits, also of
+// what Metal itself cleared into it. A packaged texture holds Metal's order too: uploads convert, so what Metal clears or copies into one samples right (GitHub issue #183)
+static void sample2(int tid, float out[8]) {
+    static id<MTLComputePipelineState> p;
+    if (!p) { NSError *e = nil; id<MTLLibrary> l = [g_dev newLibraryWithSource:@"#include <metal_stdlib>\nusing namespace metal;\nkernel void k(texture2d<float, access::read> t [[texture(0)]], device float4 *o [[buffer(0)]], uint i [[thread_position_in_grid]]) { o[i] = t.read(uint2(i, 0)); }\n" options:nil error:&e];
+        p = [g_dev newComputePipelineStateWithFunction:[l newFunctionWithName:@"k"] error:&e]; }
+    os_unfair_lock_lock(&g_rmu); id<MTLTexture> v = tex_by_id(tid); os_unfair_lock_unlock(&g_rmu);
+    id<MTLBuffer> b = [g_dev newBufferWithLength:32 options:MTLResourceStorageModeShared];
+    id<MTLCommandBuffer> c = q_cb(); id<MTLComputeCommandEncoder> e = [c computeCommandEncoder];
+    [e setComputePipelineState:p]; [e setTexture:v atIndex:0]; [e setBuffer:b offset:0 atIndex:0]; [e dispatchThreads:MTLSizeMake(2, 1, 1) threadsPerThreadgroup:MTLSizeMake(2, 1, 1)];
+    [e endEncoding]; [c commit]; [c waitUntilCompleted]; memcpy(out, b.contents, 32);
+}
+static void packed_copies(int format, int tid) {
+    int b565 = format == NVN_FORMAT_RGB565, a1 = format == NVN_FORMAT_RGB5A1;
+    uint16_t red = a1 ? 0x801f : 0x001f, blue = b565 ? 0xf800 : 0x7c00, guest[2] = {red, blue};
+    void *mem = NULL; if (posix_memalign(&mem, getpagesize(), 262144)) abort(); memset(mem, 0, 262144);
+    pool_t pool = {.mem=mem, .size=262144}; mtl_pool_add(mem, 262144); nvn_dirty_add_range(mem, 262144);
+    NVNtextureBuilder tb; NVNtexture copied, cleared; h_nvnTextureBuilderSetDefaults(&tb); h_nvnTextureBuilderSetWidth(&tb, 2);
+    h_nvnTextureBuilderSetHeight(&tb, 1); h_nvnTextureBuilderSetFormat(&tb, format);
+    h_nvnTextureBuilderSetStorage(&tb, (const NVNmemoryPool *)&pool, 65536); EXPECT("packed texture init", 1, h_nvnTextureInitialize(&copied, &tb));
+    h_nvnTextureBuilderSetStorage(&tb, (const NVNmemoryPool *)&pool, 98304); EXPECT("packed texture 2 init", 1, h_nvnTextureInitialize(&cleared, &tb));
+    // Packaged textures (uploaded from their storage, NvPkg): one only sampled, one with its blue texel cleared to red, one a copy of the cleared plain texture (read back into its storage)
+    NVNpackagedTextureLayout lay = {{1, 0, 0, 0, 7, 0, 1, 0}}; NVNtexture up, upclr, upcopy; h_nvnTextureBuilderSetPackagedTextureLayout(&tb, &lay);
+    memcpy((uint8_t *)mem + 163840, guest, 4); memcpy((uint8_t *)mem + 172032, guest, 4);   // two texels of a GOB's first row: linear
+    h_nvnTextureBuilderSetStorage(&tb, (const NVNmemoryPool *)&pool, 163840); EXPECT("packaged texture init", 1, h_nvnTextureInitialize(&up, &tb));
+    h_nvnTextureBuilderSetStorage(&tb, (const NVNmemoryPool *)&pool, 172032); EXPECT("packaged texture 2 init", 1, h_nvnTextureInitialize(&upclr, &tb));
+    h_nvnTextureBuilderSetStorage(&tb, (const NVNmemoryPool *)&pool, 180224); EXPECT("packaged texture 3 init", 1, h_nvnTextureInitialize(&upcopy, &tb));
+    uint8_t *src = (uint8_t *)mem + 131072, *out = src + 4096, *out2 = src + 8192; memcpy(src, guest, 4); memset(out, 0xEE, 4); memset(out2, 0xEE, 4);
+    NVNcommandBuffer cmd; EXPECT("command init", 1, h_nvnCommandBufferInitialize(&cmd, NULL));
+    h_nvnCommandBufferAddCommandMemory(&cmd, (const NVNmemoryPool *)&pool, 0, 65536);
+    h_nvnCommandBufferBeginRecording(&cmd);
+    NVNcopyRegion region = {0, 0, 0, 2, 1, 1};
+    h_nvnCommandBufferCopyBufferToTexture(&cmd, (NVNbufferAddress)src, &copied, NULL, &region, 0);
+    h_nvnCommandBufferCopyTextureToBuffer(&cmd, &copied, NULL, &region, (NVNbufferAddress)out, 0);
+    float rgba[] = {1, 0, 0, 1}; h_nvnCommandBufferClearTexture(&cmd, &cleared, NULL, &region, rgba, 15);
+    h_nvnCommandBufferCopyTextureToBuffer(&cmd, &cleared, NULL, &region, (NVNbufferAddress)out2, 0);
+    NVNcopyRegion second = {1, 0, 0, 1, 1, 1}; h_nvnCommandBufferClearTexture(&cmd, &upclr, NULL, &second, rgba, 15);
+    h_nvnCommandBufferCopyTextureToTexture(&cmd, &cleared, NULL, &region, &upcopy, NULL, &region, 0);
+    NVNsync sync; h_nvnSyncInitialize(&sync, NULL);
+    h_nvnCommandBufferFenceSync(&cmd, &sync, NVN_SYNC_CONDITION_ALL_GPU_COMMANDS_COMPLETE, 0);
+    NVNcommandHandle h = h_nvnCommandBufferEndRecording(&cmd);
+    state_reset(); memset(&R, 0, sizeof R); mtl_sub_begin(); mtl_exec((const uint8_t *)h); mtl_sub_commit();
+    int wait = h_nvnSyncWait(&sync, 5000000000ull); EXPECT("packed copies fence wait", 1, wait == 0 || wait == 1);
+    char n[160]; const char *f = b565 ? "RGB565" : a1 ? "RGB5A1" : "RGB5";
+    mtl_reg_tex(tid, TX(&copied), NULL); float s[8]; sample2(tid, s);
+    snprintf(n, sizeof n, "%s buffer -> plain texture, sampled red then blue", f); EXPECT(n, 1, s[0] > .99f && s[2] < .01f && s[4] < .01f && s[6] > .99f);
+    uint16_t got[2]; memcpy(got, out, 4); snprintf(n, sizeof n, "%s plain texture -> buffer, the guest's bits", f); EXPECT(n, 1, got[0] == red && got[1] == blue);
+    memset(got, 0xEE, 4); h_nvnTextureReadTexels(&copied, NULL, &region, (uint8_t *)got); snprintf(n, sizeof n, "%s plain texture ReadTexels, the guest's bits", f); EXPECT(n, 1, got[0] == red && got[1] == blue);
+    uint16_t used = b565 || a1 ? 0xffff : 0x7fff;   // RGB5's top bit is unused (Metal's BGR5A1 stores alpha 1 there)
+    memcpy(got, out2, 4); snprintf(n, sizeof n, "%s cleared to red -> buffer, guest red", f); EXPECT(n, 1, (got[0] & used) == red && (got[1] & used) == red);
+    memset(got, 0xEE, 4); h_nvnTextureReadTexels(&cleared, NULL, &region, (uint8_t *)got); snprintf(n, sizeof n, "%s cleared to red, ReadTexels guest red", f); EXPECT(n, 1, (got[0] & used) == red && (got[1] & used) == red);
+    mtl_reg_tex(tid + 10, TX(&up), NULL); sample2(tid + 10, s);
+    snprintf(n, sizeof n, "%s packaged texture, sampled red then blue", f); EXPECT(n, 1, s[0] > .99f && s[2] < .01f && s[4] < .01f && s[6] > .99f);
+    mtl_reg_tex(tid + 20, TX(&upclr), NULL); sample2(tid + 20, s);
+    snprintf(n, sizeof n, "%s packaged texture, its blue texel cleared to red: red twice", f); EXPECT(n, 1, s[0] > .99f && s[2] < .01f && s[4] > .99f && s[6] < .01f);
+    mtl_reg_tex(tid + 30, TX(&upcopy), NULL); sample2(tid + 30, s);
+    snprintf(n, sizeof n, "%s cleared plain texture -> packaged texture, sampled red", f); EXPECT(n, 1, s[0] > .99f && s[2] < .01f && s[4] > .99f && s[6] < .01f);
+    memset(got, 0xEE, 4); h_nvnTextureReadTexels(&upcopy, NULL, &region, (uint8_t *)got); snprintf(n, sizeof n, "%s copy into a packaged texture, guest red in its storage", f); EXPECT(n, 1, (got[0] & used) == red && (got[1] & used) == red);
+    h_nvnTextureFinalize(&upcopy); h_nvnTextureFinalize(&upclr); h_nvnTextureFinalize(&up);
+    h_nvnTextureFinalize(&cleared); h_nvnTextureFinalize(&copied); nvn_dirty_remove_range(mem); mtl_pool_del(mem); free(mem);
+}
+
 int main(void) { @autoreleasepool {
     mtl_init();
     void *mem = NULL; if (posix_memalign(&mem, getpagesize(), 524288)) abort(); memset(mem, 0, 524288);
@@ -105,6 +168,12 @@ int main(void) { @autoreleasepool {
     h_nvnTextureBuilderSetStorage(&tb, (const NVNmemoryPool *)&pool, 393216); EXPECT("packaged texture 6 init", 1, h_nvnTextureInitialize(&pk6, &tb));
     float color2[] = {0.8f, 0.6f, 0.4f, 1.f}; h_nvnCommandBufferClearTexture(&cmd, &pk5, NULL, &region, color2, 15);
     h_nvnCommandBufferCopyTextureToTexture(&cmd, &pk5, NULL, &region, &pk6, NULL, &region, 0);
+    // A render pass into a packaged texture writes its storage, as the hardware's would: what the pass drew is read back into the storage when the submission completes (rt_mirror_flush).
+    // Tears of the Kingdom moves such textures with memcpy (its resource defragmentation) and re-creates them at the new address, which then has to carry the drawing
+    NVNtexture pk8; h_nvnTextureBuilderSetStorage(&tb, (const NVNmemoryPool *)&pool, 458752); EXPECT("packaged render target init", 1, h_nvnTextureInitialize(&pk8, &tb));
+    const NVNtexture *targets8[] = {&pk8};
+    h_nvnCommandBufferSetRenderTargets(&cmd, 1, targets8, views, NULL, NULL);
+    float color3[] = {0.4f, 0.2f, 0.8f, 1.f}; h_nvnCommandBufferClearColor(&cmd, 0, color3, 15);
     NVNsync sync; h_nvnSyncInitialize(&sync, NULL);
     h_nvnCommandBufferFenceSync(&cmd, &sync, NVN_SYNC_CONDITION_ALL_GPU_COMMANDS_COMPLETE, 0);
     NVNcommandHandle h = h_nvnCommandBufferEndRecording(&cmd);
@@ -138,8 +207,20 @@ int main(void) { @autoreleasepool {
     static const uint8_t expected2[] = {204, 153, 102, 255}; memset(cpu, 0xEE, sizeof cpu); h_nvnTextureReadTexels(&pk6, NULL, &region, cpu); bad = 0;
     for (int i=0; i<32; i++) bad += memcmp(cpu+i*4, expected2, 4) != 0;
     EXPECT("copy from a packaged texture the GPU cleared -> read back, 32 literal pixels", 0, bad);
+    static const uint8_t expected3[] = {102, 51, 204, 255}; memset(cpu, 0xEE, sizeof cpu); h_nvnTextureReadTexels(&pk8, NULL, &region, cpu); bad = 0;
+    for (int i=0; i<32; i++) bad += memcmp(cpu+i*4, expected3, 4) != 0;
+    EXPECT("render pass into a packaged texture -> its storage (ReadTexels), 32 literal pixels", 0, bad);
+    uint64_t reuploads = g_pkg_reuploads; tex_mtl((const tex_t *)&pk8);
+    EXPECT("its own readback is not uploaded again", 1, g_pkg_reuploads == reuploads);
+    NVNtexture pk9; memcpy((uint8_t *)mem + 491520, (uint8_t *)mem + 458752, ((const tex_t *)&pk8)->L.size);
+    h_nvnTextureBuilderSetStorage(&tb, (const NVNmemoryPool *)&pool, 491520); EXPECT("moved texture init", 1, h_nvnTextureInitialize(&pk9, &tb));
+    memset(cpu, 0xEE, sizeof cpu); h_nvnTextureReadTexels(&pk9, NULL, &region, cpu); bad = 0;
+    for (int i=0; i<32; i++) bad += memcmp(cpu+i*4, expected3, 4) != 0;
+    EXPECT("storage moved with memcpy -> a texture there holds the drawing, 32 literal pixels", 0, bad);
+    h_nvnTextureFinalize(&pk9); h_nvnTextureFinalize(&pk8);
     h_nvnTextureFinalize(&pk6); h_nvnTextureFinalize(&pk5); h_nvnTextureFinalize(&pk3); h_nvnTextureFinalize(&pk7); h_nvnTextureFinalize(&pk4); h_nvnTextureFinalize(&pk2);
     h_nvnTextureFinalize(&pk); h_nvnTextureFinalize(&tex); nvn_dirty_remove_range(mem); mtl_pool_del(mem); free(mem);
     sparse_reads(&region, expected);
+    packed_copies(NVN_FORMAT_RGB565, 500); packed_copies(NVN_FORMAT_RGB5A1, 501); packed_copies(NVN_FORMAT_RGB5, 502);
     printf("READBACK cases=%d failed=%d\n", cases, failed); return failed != 0;
 } }

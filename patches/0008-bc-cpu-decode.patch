@@ -20,7 +20,8 @@ Issue: LNPANDY/NX2Apple#123
  dm/third_party/bcdec/LICENSE       |   52 +
  dm/third_party/bcdec/README.md     |    2 +
  dm/third_party/bcdec/bcdec.h       | 1512 ++++++++++++++++++++++++++++
- 9 files changed, 1823 insertions(+), 2 deletions(-)
+ dm/tools/docs_patches.py           |    2 +
+ 10 files changed, 1825 insertions(+), 2 deletions(-)
  create mode 100644 dm/gfx/tex/nvn_bcdec.c
  create mode 100644 dm/gfx/tex/nvn_bcdec.h
  create mode 100644 dm/gfx/tex/tests/t_bcdec.c
@@ -43,10 +44,10 @@ index 8a8adb89..223a7f71 100644
  tex_dirty_upload	on
  # 60 fps (30 on the Switch): the host decides each frame's step in whole vsyncs and holds the frame that long (rewriter stubs at FPSLocker's sites, patches.py FRAME_STEP);
 diff --git a/dm/games/game.py b/dm/games/game.py
-index 368ed6dd..ee980eac 100644
+index a36ca0d2..faa6b6e1 100644
 --- a/dm/games/game.py
 +++ b/dm/games/game.py
-@@ -124,6 +124,8 @@ def header(g):
+@@ -126,6 +126,8 @@ def header(g):
      if tfu not in ('on', 'off'): sys.exit(f'{g.id}: tex_flush_upload must be on or off: {tfu}')
      tdu = g.get('tex_dirty_upload', 'off')   # with tex_flush_upload: a registered texture the CPU writes after init without any flush is uploaded too (dirty pages, hle_nvn.c nvn_ft_written): on / off
      if tdu not in ('on', 'off') or (tdu == 'on' and tfu != 'on'): sys.exit(f'{g.id}: tex_dirty_upload must be on or off, and needs tex_flush_upload on: {tdu}')
@@ -55,7 +56,7 @@ index 368ed6dd..ee980eac 100644
      tds = g.get('tex_dyn_slots', 'off')   # shaders whose texture handle the translator could not trace to one slot: slot indices in c2, the bound slots in the fallback arrays (nvn_mtl.m): on / off
      if tds not in ('on', 'off'): sys.exit(f'{g.id}: tex_dyn_slots must be on or off: {tds}')
      vcr = g.get('vconv_range', 'off')   # vertex attributes converted on the CPU only over the vertices each draw reads (nvn_mtl.m vc_draw_range): on / off
-@@ -177,6 +179,7 @@ def header(g):
+@@ -180,6 +182,7 @@ def header(g):
           f'#define DM_GAME_SHADER_KEY_SKIP_OFF {sko:#x}', f'#define DM_GAME_SHADER_KEY_SKIP_LEN {skl:#x}',
           f'#define DM_GAME_RENDER_COND {int(rcd == "on")}',
           f'#define DM_GAME_TEX_DIRTY_UPLOAD {int(tdu == "on")}',
@@ -64,7 +65,7 @@ index 368ed6dd..ee980eac 100644
           f'#define DM_GAME_GPU_TS_SEGMENT {int(gts == "segment")}',
           f'#define DM_GAME_VCONV_RANGE {int(vcr == "on")}',
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index 4fd67122..65a16379 100644
+index 6bbb06d6..7700a5ff 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
 @@ -20,6 +20,7 @@
@@ -75,7 +76,7 @@ index 4fd67122..65a16379 100644
  #include "../tex/nvn_deswizzle.h"
  #include "../tex/nvn_deswizzle_gpu.h"
  #include "nvn_builtin.h"
-@@ -79,6 +80,8 @@ static inline uint64_t tex_slot_h(const uint64_t *tex, const uint64_t *img, unsi
+@@ -80,6 +81,8 @@ static inline uint64_t tex_slot_h(const uint64_t *tex, const uint64_t *img, unsi
  static void warm_claim(void);
  
  static id<MTLDevice> g_dev;
@@ -84,7 +85,7 @@ index 4fd67122..65a16379 100644
  static NSMutableArray *g_l3_gpu_leaks;
  static int g_nvn_deswz_gpu;
  static id<MTLCommandQueue> g_q;
-@@ -392,6 +395,9 @@ void mtl_init(void) {
+@@ -393,6 +396,9 @@ void mtl_init(void) {
      g_dev = MTLCreateSystemDefaultDevice();
      if (!g_dev) MDIE("no Metal device");
      if (!g_dev.hasUnifiedMemory) MDIE("needs a unified-memory device (zero-copy memory pools)");
@@ -94,7 +95,7 @@ index 4fd67122..65a16379 100644
      g_q = [g_dev newCommandQueue];
      // A device without Metal 4 (the paravirtualized GPU of a virtual Mac, such as GitHub's macos-26 runner: no residency set, no MTL4CommandQueue) cannot run the NVN layer. The GL and
      // Vulkan layers draw on classic queues of their own and need only the device (mtl_device_classic): there the classic part starts and presents are dropped, which is all a
-@@ -1777,7 +1783,12 @@ static MTLTextureUsage img_usage(const tex_t *t, MTLPixelFormat pf) {
+@@ -1857,7 +1863,12 @@ static MTLTextureUsage img_usage(const tex_t *t, MTLPixelFormat pf) {
  static int tex_atomic_capable(id<MTLTexture> base) { return pf_r32i(base.pixelFormat) && (base.usage & MTLTextureUsageShaderWrite); }
  static MTLTextureDescriptor *tex_desc(const tex_t *t, int packaged) {
      uint32_t pf = 0; uint8_t swz[4];
@@ -108,7 +109,7 @@ index 4fd67122..65a16379 100644
      // Metal's limits: 16384 in 2D, 2048 in 3D, 2048 array layers; beyond them Metal aborts the process on an assertion, so they are caught here with a red line
      if (t->d.width > 16384 || t->d.height > 16384 || t->d.depth > 2048) { RED_ONCE(71, "texture size exceeds Metal limits: %u×%u×%u levels %u format %#x target %d (first case ser=%llu)", t->d.width, t->d.height, t->d.depth, t->d.levels, t->d.format, t->d.target, (unsigned long long)t->serial); return nil; }
      MTLTextureDescriptor *d = [MTLTextureDescriptor new];
-@@ -2221,15 +2232,43 @@ static void zb_report(const tex_t *t, unsigned base, const char *why) {
+@@ -2323,15 +2334,43 @@ static void rb_swap_rows(uint8_t *p, size_t wb, size_t rows, size_t nz, size_t r
          if (!(part = malloc(t->L.size ? t->L.size : 1))) MDIE("sparse texture copy of %llu bytes failed", (unsigned long long)t->L.size);
          nvn_sparse_copy(t->pool, part, (uint64_t)(uintptr_t)t->mem, t->L.size); src = part;
      }
@@ -151,9 +152,9 @@ index 4fd67122..65a16379 100644
 +                continue;
 +            }
              if (nvn_deswizzle(&t->d, l, y, src, (uint8_t *)stg.contents + off, pitch)) { RED_ONCE(9, "deswizzle failed format %#x target %d", t->d.format, t->d.target); break; }
+             if (rb_shift) rb_swap_rows((uint8_t *)stg.contents + off, pitch, rows, z, pitch, pitch * rows, rb_shift);
              if (zb && l < 16) { const uint64_t *q = (const uint64_t *)((const uint8_t *)stg.contents + off); size_t nb = pitch * rows * z / 16;
-                 for (size_t i = 0; i < nb; i++) g_zb[l] += !(q[2 * i] | q[2 * i + 1]);
-@@ -2238,6 +2277,7 @@ static void zb_report(const tex_t *t, unsigned base, const char *why) {
+@@ -2341,6 +2380,7 @@ static void rb_swap_rows(uint8_t *p, size_t wb, size_t rows, size_t nz, size_t r
              off += pitch * rows * z;
          }
      }
@@ -1972,3 +1973,16 @@ index 00000000..553c3ec5
 +For more information, please refer to <https://unlicense.org>
 +
 +*/
+diff --git a/dm/tools/docs_patches.py b/dm/tools/docs_patches.py
+index 7721fc4b..dca754d0 100644
+--- a/dm/tools/docs_patches.py
++++ b/dm/tools/docs_patches.py
+@@ -135,6 +135,8 @@ SWITCH_BINDING = [
+     ('fps_target', '', {'what': 'frame rate target', 'now': 'game', 'goal': 'game', 'purpose': 'frame rate', 'why': 'a choice per game'}),
+     ('perf_mode', '', {'what': 'Boost whatever the operation mode', 'now': 'game', 'goal': 'game', 'purpose': 'runtime', 'why': 'a combination a Switch 1 never reports: a choice per game'}),
+     ('op_mode', '', {'what': 'the operation mode at start', 'now': 'game', 'goal': 'game', 'purpose': 'runtime', 'why': "the game's controls (handheld: the touch screen instead of a gyro pointer)"}),
++    ('tex_bc_cpu', '', {'what': 'BC1-7 textures decoded on the CPU where the Metal device has no BC support', 'now': 'game', 'goal': 'host', 'purpose': 'rendering',
++     'why': 'a device capability, not a game choice: the host could decode wherever supportsBCTextureCompression is false, for every game'}),
+ ]
+ 
+ 

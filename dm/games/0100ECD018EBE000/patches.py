@@ -34,5 +34,10 @@ def frame_step(ctx):
 
 FRAME_STEP = {'0effe4af1dec3a7966b934d4a7c3d2bf': frame_step}
 
-# Whether a general rule could replace these patches (dm/tools/docs_patches.py lists it in docs/agents/game-patches.md)
-GENERALIZE = "No: the game's own clock floor and step"
+# How general each patch is and could be (dm/tools/docs_patches.py "Binding", listed in docs/agents/game-patches.md): what, its binding now, the loosest it could have (goal),
+# purpose, why; blocked or kept: why the gap stays open (cannot close yet, or left open on purpose); checked: what was checked on game files (else a judgement)
+BINDING = [
+    {'what': 'frame step floor 2 → 1 vsync, and its frame step', 'now': 'build', 'goal': 'game', 'purpose': 'frame rate',
+     'why': "the game's own clock floor and step",
+     'blocked': 'frame-step stubs have no function-matched form yet'},
+]

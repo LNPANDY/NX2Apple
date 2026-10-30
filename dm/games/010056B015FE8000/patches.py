@@ -21,5 +21,10 @@ CUTS = {
 # Offered only for the verified rewrite with native scale/UV publication intact.
 CAPABILITIES = {"3c10ec35c5ef4c3686b4053afb0e58e7": ("DYNAMIC_RESOLUTION",)}
 
-# Whether a general rule could replace these patches (dm/tools/docs_patches.py lists it in docs/agents/game-patches.md)
-GENERALIZE = "No: the game's own dynamic-resolution constants. The Asian build's cuts are the global build's 0x13c0 further on, so one function-matched rule could serve both releases"
+# How general each patch is and could be (dm/tools/docs_patches.py "Binding", listed in docs/agents/game-patches.md): what, its binding now, the loosest it could have (goal),
+# purpose, why; blocked or kept: why the gap stays open (cannot close yet, or left open on purpose); checked: what was checked on game files (else a judgement)
+BINDING = [
+    {'what': '60 fps intervals and dynamic-resolution constants', 'now': 'build', 'goal': 'game', 'purpose': 'frame rate',
+     'checked': "both releases' mains, where the host's rows for them were found",
+     'why': "the game's own constants; the Asian release's function is the global one's 0x13c0 further on, so one function-matched rule could serve both releases"},
+]

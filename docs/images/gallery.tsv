@@ -1,97 +1,112 @@
 # The games gallery in README.md, in the order it shows them (dm/tools/docs_gallery.py writes it from this table). A new game: its screenshot in docs/images and a row here,
-# usually at the end. Columns: image, name (caption and alt text), optional note (IPA size, then " · " and a remark), and optionally the title ID that links the name to its note.
-mario-kart-8-deluxe.jpg	Mario Kart 8 Deluxe	~11.9 GB · no Mii heads
-mario-vs-donkey-kong.jpg	Mario vs. Donkey Kong	~1.6 GB
-paper-mario-the-thousand-year-door.jpg	Paper Mario: The Thousand-Year Door	~5 GB · 60 fps with 1.0.1
-super-mario-3d-world.jpg	Super Mario 3D World + Bowser's Fury	~3 GB
-super-mario-bros-wonder.jpg	Super Mario Bros. Wonder	~4 GB
-super-mario-galaxy.jpg	Super Mario Galaxy	~3 GB
-super-mario-galaxy-2.jpg	Super Mario Galaxy 2	~3 GB
-super-mario-odyssey.jpg	Super Mario Odyssey	~6 GB
-zelda-breath-of-the-wild.jpg	The Legend of Zelda: Breath of the Wild	~16 GB · 60 fps with 1.9.0
-zelda-links-awakening.jpg	The Legend of Zelda: Link's Awakening	~6 GB
-zelda-tears-of-the-kingdom.jpg	The Legend of Zelda: Tears of the Kingdom	~17 GB · 60 fps with 1.4.3
-13-sentinels.jpg	13 Sentinels: Aegis Rim	~5 GB
-absolum.jpg	Absolum	~2 GB
-ace-attorney-investigations.jpg	Ace Attorney Investigations Collection	~7 GB
-advance-wars-1-2-re-boot-camp.jpg	Advance Wars 1+2: Re-Boot Camp	~7.1 GB
-ai-the-somnium-files.jpg	AI: THE SOMNIUM FILES	~8.3 GB
-ai-the-somnium-files-nirvana-initiative.jpg	AI: THE SOMNIUM FILES - nirvanA Initiative	~11.6 GB
-animal-crossing-new-horizons.jpg	Animal Crossing: New Horizons	~10.5 GB
-animal-well.png	ANIMAL WELL	~54 MB
-astral-chain.png	ASTRAL CHAIN	~9.7 GB · 60 fps target with 1.0.1	01007300020FA000
-balatro.jpg	Balatro	~82 MB · played by touch
-ball-x-pit.jpg	BALL x PIT	~1.1 GB
-bayonetta.jpg	Bayonetta	~8.8 GB
-bayonetta-2.jpg	Bayonetta 2	~12.5 GB
-bayonetta-3.jpg	Bayonetta 3	~14.2 GB
-big-brain-academy-brain-vs-brain.jpg	Big Brain Academy: Brain vs. Brain	~0.8 GB
-brain-memory-training-academy.jpg	Brain Memory Training Academy	~0.1 GB
-captain-toad-treasure-tracker.jpg	Captain Toad: Treasure Tracker	~2 GB
-catherine-full-body.jpg	Catherine: Full Body	~14 GB
-celeste.jpg	Celeste	~0.9 GB
-cuphead.jpg	Cuphead	~5 GB
-dark-souls-remastered-creation.jpg	DARK SOULS: REMASTERED	~4 GB · 60 fps with 1.0.3
-digimon-story-cyber-sleuth.jpg	Digimon Story Cyber Sleuth: Complete Edition	~5 GB
-donkey-kong-country-tropical-freeze.jpg	Donkey Kong Country: Tropical Freeze	~7.3 GB
-dragon-quest-vii-reimagined.jpg	DRAGON QUEST VII Reimagined	~5.9 GB
-dragon-quest-xi-s.jpg	DRAGON QUEST XI S: Echoes of an Elusive Age – Definitive Edition	~15 GB · 60 fps with 1.0.4
-final-fantasy-resonance.jpg	FINAL FANTASY RESONANCE	~10 GB · 60 fps with 1.0.1
-final-fantasy-tactics.jpg	FINAL FANTASY TACTICS - The Ivalice Chronicles	~11 GB
-fire-emblem-engage.jpg	Fire Emblem Engage	~15 GB · 60 fps with 2.0.0
-fire-emblem-three-houses.jpg	Fire Emblem: Three Houses	~13 GB · 60 fps with 1.2.0
-ghost-trick-phantom-detective.jpg	Ghost Trick: Phantom Detective	~3 GB
-the-great-ace-attorney-chronicles.jpg	The Great Ace Attorney Chronicles	~4 GB
-hades.jpg	Hades	~4 GB
-hades-ii.jpg	Hades II	~4 GB
-hollow-knight-silksong.jpg	Hollow Knight: Silksong	~6.4 GB
-hyrule-warriors-age-of-calamity.jpg	Hyrule Warriors: Age of Calamity	~15 GB · 60 fps with 1.3.0
-kirby-and-the-forgotten-land.jpg	Kirby and the Forgotten Land	~6.4 GB
-luigis-mansion-3.jpg	Luigi's Mansion 3	~7.5 GB · 60 fps with 1.4.0
-metroid-dread.jpg	Metroid Dread	~5 GB
-monster-hunter-rise.jpg	Monster Hunter Rise	~22 GB · 60 fps with 16.0.2
-monster-train-2.jpg	Monster Train 2	~1.6 GB · 60 fps with 1.1.1
-octopath-traveler.jpg	OCTOPATH TRAVELER	~3.6 GB
-octopath-traveler-0.jpg	Octopath Traveler 0	~4 GB · 60 fps with 1.0.5
-octopath-traveler-ii.jpg	Octopath Traveler II	~5.9 GB · 60 fps with 1.1.1
-patricks-parabox.jpg	Patrick's Parabox	~0.2 GB
-persona-5-royal.jpg	Persona 5 Royal	~14.9 GB
-pikmin-4.jpg	Pikmin 4	~10.8 GB
-pokemon-brilliant-diamond.jpg	Pokémon Brilliant Diamond	~4.6 GB · 60 fps with 1.3.0
-pokemon-legends-z-a.jpg	Pokémon Legends: Z-A	~6 GB
-pokemon-scarlet.png	Pokémon Scarlet	~7.0 GB
-pokemon-sword.jpg	Pokémon Sword	~12.4 GB
-pokemon-shield.jpg	Pokémon Shield	~12.4 GB
-portal.jpg	Portal	~2.6 GB
-raging-loop.jpg	Raging Loop	~0.9 GB
-rhythm-heaven-groove.jpg	Rhythm Heaven Groove	~3 GB
-romance-of-the-three-kingdoms-8-remake.jpg	ROMANCE OF THE THREE KINGDOMS 8 REMAKE	~16.8 GB · controller only
-sea-of-stars.jpg	Sea of Stars	~5.1 GB
-shin-megami-tensei-v-vengeance.jpg	SHIN MEGAMI TENSEI V: Vengeance	~14.6 GB · 60 fps with 1.0.3
-stardew-valley.jpg	Stardew Valley	~0.6 GB
-steins-gate-reboot.jpg	STEINS;GATE RE:BOOT	~6 GB
-super-smash-bros-ultimate.jpg	Super Smash Bros. Ultimate	~17.5 GB · offline
-taiko-risshiden-v-dx.jpg	Taiko Risshiden V DX	~3.3 GB · Japanese · played by touch
-unicorn-overlord.jpg	Unicorn Overlord	~4 GB
-yoshis-crafted-world.jpg	Yoshi's Crafted World	~6.1 GB	01006000040C2000
-nier-automata.png	NieR:Automata The End of YoRHa Edition	~10.9 GB · 60 fps with 1.0.3
-zelda-echoes-of-wisdom.jpg	The Legend of Zelda: Echoes of Wisdom	~7.8 GB
-donkey-kong-country-returns-hd.png	Donkey Kong Country Returns HD	~11.6 GB
-mario-rabbids-sparks-of-hope.jpg	Mario + Rabbids Sparks of Hope	~9.8 GB
-xenoblade-chronicles-2.jpg	Xenoblade Chronicles 2	~17.1 GB
-xenoblade-chronicles-3.jpg	Xenoblade Chronicles 3	~19.2 GB
-final-fantasy-crystal-chronicles.jpg	FINAL FANTASY CRYSTAL CHRONICLES Remastered Edition
-return-of-the-obra-dinn.png	Return of the Obra Dinn	~0.9 GB	010032E00E6E2000
-blasphemous-2.png	Blasphemous 2	~1.5 GB	010040801A4C8000
+# usually at the end. Columns: image, name (caption and alt text), note (a remark, such as "60 fps with 1.0.1", or empty), and the title ID that links the name to its note.
+mario-kart-8-deluxe.jpg	Mario Kart 8 Deluxe	no Mii heads	0100152000022000
+mario-vs-donkey-kong.jpg	Mario vs. Donkey Kong		0100B99019412000
+paper-mario-the-thousand-year-door.jpg	Paper Mario: The Thousand-Year Door	60 fps with 1.0.1	0100ECD018EBE000
+super-mario-3d-world.jpg	Super Mario 3D World + Bowser's Fury		010028600EBDA000
+super-mario-bros-wonder.jpg	Super Mario Bros. Wonder		010015100B514000
+super-mario-galaxy.jpg	Super Mario Galaxy		010099C022B96000
+super-mario-galaxy-2.jpg	Super Mario Galaxy 2		0100FD8022DAA000
+super-mario-odyssey.jpg	Super Mario Odyssey		0100000000010000
+zelda-breath-of-the-wild.jpg	The Legend of Zelda: Breath of the Wild	60 fps with 1.9.0	01007EF00011E000
+zelda-links-awakening.jpg	The Legend of Zelda: Link's Awakening		01006BB00C6F0000
+zelda-tears-of-the-kingdom.jpg	The Legend of Zelda: Tears of the Kingdom	60 fps with 1.4.3	0100F2C0115B6000
+13-sentinels.jpg	13 Sentinels: Aegis Rim		01003FC01670C000
+absolum.jpg	Absolum		0100A83022A22000
+ace-attorney-investigations.jpg	Ace Attorney Investigations Collection		010005501E68C000
+advance-wars-1-2-re-boot-camp.jpg	Advance Wars 1+2: Re-Boot Camp		0100300012F2A000
+ai-the-somnium-files.jpg	AI: THE SOMNIUM FILES		010089B00D09C000
+ai-the-somnium-files-nirvana-initiative.jpg	AI: THE SOMNIUM FILES - nirvanA Initiative		0100713016CCC000
+animal-crossing-new-horizons.jpg	Animal Crossing: New Horizons		01006F8002326000
+animal-well.png	ANIMAL WELL		010020D01AD24000
+astral-chain.png	ASTRAL CHAIN	60 fps target with 1.0.1	01007300020FA000
+balatro.jpg	Balatro	played by touch	0100CD801CE5E000
+ball-x-pit.jpg	BALL x PIT		010086A022444000
+bayonetta.jpg	Bayonetta		010076F0049A2000
+bayonetta-2.jpg	Bayonetta 2		01007960049A0000
+bayonetta-3.jpg	Bayonetta 3		01004A4010FEA000
+big-brain-academy-brain-vs-brain.jpg	Big Brain Academy: Brain vs. Brain		0100620012D6E000
+brain-memory-training-academy.jpg	Brain Memory Training Academy		0100F5D01DA3A000
+captain-toad-treasure-tracker.jpg	Captain Toad: Treasure Tracker		01009BF0072D4000
+catherine-full-body.jpg	Catherine: Full Body		0100BF00112C0000
+celeste.jpg	Celeste		01002B30028F6000
+cuphead.jpg	Cuphead		0100A5C00D162000
+dark-souls-remastered-creation.jpg	DARK SOULS: REMASTERED	60 fps with 1.0.3	01004AB00A260000
+digimon-story-cyber-sleuth.jpg	Digimon Story Cyber Sleuth: Complete Edition		010014E00DB56000
+donkey-kong-country-tropical-freeze.jpg	Donkey Kong Country: Tropical Freeze		0100C1F0051B6000
+dragon-quest-vii-reimagined.jpg	DRAGON QUEST VII Reimagined		0100A9D01C446000
+dragon-quest-xi-s.jpg	DRAGON QUEST XI S: Echoes of an Elusive Age – Definitive Edition	60 fps with 1.0.4	01006C300E9F0000
+final-fantasy-resonance.jpg	FINAL FANTASY RESONANCE	60 fps with 1.0.1	0100606026F12000
+final-fantasy-tactics.jpg	FINAL FANTASY TACTICS - The Ivalice Chronicles		010038B015560000
+fire-emblem-engage.jpg	Fire Emblem Engage	60 fps with 2.0.0	0100A6301214E000
+fire-emblem-three-houses.jpg	Fire Emblem: Three Houses	60 fps with 1.2.0	010055D009F78000
+ghost-trick-phantom-detective.jpg	Ghost Trick: Phantom Detective		010029B018432000
+the-great-ace-attorney-chronicles.jpg	The Great Ace Attorney Chronicles		010036E00FB20000
+hades.jpg	Hades		0100535012974000
+hades-ii.jpg	Hades II		0100A00019DE0000
+hollow-knight-silksong.jpg	Hollow Knight: Silksong		010013C00E930000
+hyrule-warriors-age-of-calamity.jpg	Hyrule Warriors: Age of Calamity	60 fps with 1.3.0	01002B00111A2000
+kirby-and-the-forgotten-land.jpg	Kirby and the Forgotten Land		01004D300C5AE000
+luigis-mansion-3.jpg	Luigi's Mansion 3	60 fps with 1.4.0	0100DCA0064A6000
+metroid-dread.jpg	Metroid Dread		010093801237C000
+monster-hunter-rise.jpg	Monster Hunter Rise	60 fps with 16.0.2	0100B04011742000
+monster-train-2.jpg	Monster Train 2	60 fps with 1.1.1	010051701FB46000
+octopath-traveler.jpg	OCTOPATH TRAVELER		010057D006492000
+octopath-traveler-0.jpg	Octopath Traveler 0	60 fps with 1.0.5	01005270232F2000
+octopath-traveler-ii.jpg	Octopath Traveler II	60 fps with 1.1.1	0100A3501946E000
+patricks-parabox.jpg	Patrick's Parabox		0100E44016C22000
+persona-5-royal.jpg	Persona 5 Royal		01005CA01580E000
+pikmin-4.jpg	Pikmin 4		0100B7C00933A000
+pokemon-brilliant-diamond.jpg	Pokémon Brilliant Diamond	60 fps with 1.3.0	0100000011D90000
+pokemon-legends-z-a.jpg	Pokémon Legends: Z-A		0100F43008C44000
+pokemon-scarlet.png	Pokémon Scarlet		0100A3D008C5C000
+pokemon-violet.jpg	Pokémon Violet		01008F6008C5E000
+pokemon-sword.jpg	Pokémon Sword		0100ABF008968000
+pokemon-shield.jpg	Pokémon Shield		01008DB008C2C000
+portal.jpg	Portal		01007BB017812000
+raging-loop.jpg	Raging Loop		010020400E1C2000
+rhythm-heaven-groove.jpg	Rhythm Heaven Groove		0100D9F01D474000
+romance-of-the-three-kingdoms-8-remake.jpg	ROMANCE OF THE THREE KINGDOMS 8 REMAKE	controller only	0100C2A01A730000
+sea-of-stars.jpg	Sea of Stars		01008C0016544000
+shin-megami-tensei-v-vengeance.jpg	SHIN MEGAMI TENSEI V: Vengeance	60 fps with 1.0.3	010069C01AB82000
+stardew-valley.jpg	Stardew Valley		0100E65002BB8000
+steins-gate-reboot.jpg	STEINS;GATE RE:BOOT		01008BC024FDE000
+super-smash-bros-ultimate.jpg	Super Smash Bros. Ultimate	offline	01006A800016E000
+taiko-risshiden-v-dx.jpg	Taiko Risshiden V DX	Japanese · played by touch	0100346017304000
+unicorn-overlord.jpg	Unicorn Overlord		010069401ADB8000
+yoshis-crafted-world.jpg	Yoshi's Crafted World		01006000040C2000
+nier-automata.png	NieR:Automata The End of YoRHa Edition	60 fps with 1.0.3	010056B015FE8000
+zelda-echoes-of-wisdom.jpg	The Legend of Zelda: Echoes of Wisdom		01008CF01BAAC000
+donkey-kong-country-returns-hd.png	Donkey Kong Country Returns HD		01009D901BC56000
+mario-rabbids-sparks-of-hope.jpg	Mario + Rabbids Sparks of Hope		0100317013770000
+xenoblade-chronicles-2.jpg	Xenoblade Chronicles 2		0100E95004038000
+xenoblade-chronicles-3.jpg	Xenoblade Chronicles 3		010074F013262000
+final-fantasy-crystal-chronicles.jpg	FINAL FANTASY CRYSTAL CHRONICLES Remastered Edition		0100CE4010AAC000
+return-of-the-obra-dinn.png	Return of the Obra Dinn		010032E00E6E2000
+blasphemous-2.png	Blasphemous 2		010040801A4C8000
 silver-pines.jpg	Silver Pines		0100D5B026844000
-blasphemous.jpg	Blasphemous	~0.9 GB	0100698009C6E000
-final-fantasy-x-x2-hd-remaster.jpg	FINAL FANTASY X/X-2 HD Remaster	~26.5 GB	0100BC300CB48000
-mario-rabbids-kingdom-battle.jpg	Mario + Rabbids Kingdom Battle	~5 GB	010067300059A000
+blasphemous.jpg	Blasphemous		0100698009C6E000
+final-fantasy-x-x2-hd-remaster.jpg	FINAL FANTASY X/X-2 HD Remaster		0100BC300CB48000
+mario-rabbids-kingdom-battle.jpg	Mario + Rabbids Kingdom Battle		010067300059A000
 persona-4-golden.jpg	Persona 4 Golden		010062B01525C000
-xenoblade-chronicles-definitive-edition.jpg	Xenoblade Chronicles: Definitive Edition	~13.2 GB	0100FF500E34A000
-pokemon-legends-arceus.jpg	Pokémon Legends: Arceus	~4.2 GB	01001F5010DFA000
+xenoblade-chronicles-definitive-edition.jpg	Xenoblade Chronicles: Definitive Edition		0100FF500E34A000
+pokemon-legends-arceus.jpg	Pokémon Legends: Arceus		01001F5010DFA000
 super-mario-party-jamboree.jpg	Super Mario Party Jamboree		0100965017338000
 cult-of-the-lamb.jpg	Cult of the Lamb		01002E7016C46000
 paper-mario-the-origami-king.jpg	Paper Mario: The Origami King		0100A3900C3E2000
 batman-arkham-knight.jpg	Batman: Arkham Knight		0100ACD0163D0000
-bastion.jpg	Bastion	~0.9 GB	010038600B27E000
+bastion.jpg	Bastion		010038600B27E000
+baba-is-you.jpg	Baba Is You		01002CD00A51C000
+steamworld-heist-ii.jpg	SteamWorld Heist II		010089C01E9CA000
+steamworld-heist.jpg	SteamWorld Heist: Ultimate Edition		010016100A186000
+subnautica-below-zero.jpg	Subnautica: Below Zero		010014C011146000
+steamworld-dig-2.jpg	SteamWorld Dig 2		0100CA9002322000
+streets-of-rage-4.jpg	Streets of Rage 4		0100EC9010258000
+mario-party-superstars.jpg	Mario Party Superstars		01006FE013472000
+subnautica.jpg	Subnautica		0100429011144000
+steamworld-dig.jpg	SteamWorld Dig		01009320084A4000
+team-sonic-racing.jpg	Team Sonic Racing		010092B0091D0000
+well-dweller.jpg	Well Dweller		0100217023F6C000
+need-for-speed-hot-pursuit-remastered.jpg	Need for Speed: Hot Pursuit Remastered		010029B0118E8000
+ea-sports-fc-27.jpg	EA SPORTS FC 27	60 fps with 1.8d.310c	0100C49025D3E000
+portal-2.jpg	Portal 2		0100ABD01785C000

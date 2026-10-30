@@ -7,7 +7,7 @@ Update 13.0.5 (`v2031616`) over the base game, with its 99 DLC licences; SDK 8.2
 | Setting | Where | Why |
 |---|---|---|
 | Engine region 62 GB → 4 GB (11 instructions) | [`patches.py`](patches.py), `main` `21450c64…`; for other builds the same cuts as one function-matched patch of four functions (`MATCH_CUTS`) | the game aborts in its static initialisers when its 62 GB address region fails; see [Memory](#memory) |
-| Node area 1 GB → 62 MB, regions of 1 GB and more aligned to 32 MB | `dm/tools/sdk_patches.py`, `sdk` build `5fd4f531…` (`sdk+0x336b50` / `+0x336bf0`, `+0x336d5c`) | with them the cut region starts 64 MB into the alias region instead of 1.95 GB |
+| Node area 1 GB → 62 MB, regions of 4 MB and more aligned to 2 MB (SDK 20's) | `dm/tools/sdk_patches.py` SDK-wide rules, `sdk` build `5fd4f531…` (`sdk+0x336b50` / `+0x336bf0`, `+0x336d54` / `+0x336d5c` / `+0x336d60`) | with them the cut region starts 64 MB into the alias region instead of 1.95 GB |
 | 5 GB guest layout: `mem_reserve 0x140000000`, `mem_alias 0x118000000`, `mem_stack 0x10000000`, `app_pool 0xCD500000` | [`game.tsv`](game.tsv) | a 4.375 GB alias region, where the game maps its memory itself |
 | `sys_resource 0x1000000` | `game.tsv` | the NPDM declares 16 MB of system resource (virtual address memory); `main` never sets a heap |
 | NRO modules | `dm/tools/nro_collect.py` (`nro.tsv`), `loader.c` "NRO modules", `hle_ro.c`, `gen_embed.py` | the fighter, item and common scripts; see [Fighter code at run time](#fighter-code-at-run-time) |

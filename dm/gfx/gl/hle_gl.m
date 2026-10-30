@@ -137,6 +137,7 @@ static _Atomic uint64_t g_done;                  // highest serial whose command
 static id<MTLCommandBuffer> g_cb;
 static id<MTLRenderCommandEncoder> g_enc;
 static _Atomic uint64_t g_n_draw, g_n_pass, g_n_up, g_n_blit, g_n_pso, g_n_cb;
+static _Atomic uint64_t g_sk_prog, g_sk_pass, g_sk_attr, g_sk_pso;   // draws dropped in draw_setup, by reason
 
 // ---------- Shader table (<DM_MSL_DIR>/gl/gl_shaders.tsv) ----------
 enum { T_FLOAT, T_VEC2, T_VEC3, T_VEC4, T_INT, T_IVEC2, T_IVEC3, T_IVEC4, T_UINT, T_UVEC2, T_UVEC3, T_UVEC4, T_BOOL, T_MAT2, T_MAT3, T_MAT4,
@@ -895,6 +896,12 @@ static void bind_uniforms_textures(prog_t *p) {
         id<MTLTexture> tx = nil; id<MTLSamplerState> sm = g_samp0;
         if (t && (t->made || tex_make(t, 0)) && t->tex) { tx = t->tex; sm = tex_sampler(t); t->use = g_serial; }
         if (!tx) tx = u->type == T_SAMPCUBE ? g_cube0 : u->type == T_SAMP3D ? g_tex3d0 : u->type == T_SAMP2DARR ? g_arr0 : g_tex0;
+        static int dl = -1; if (dl < 0) dl = getenv("DM_GL_DRAWLOG") != NULL;
+        if (dl && tx == g_tex0 && t == NULL) {   // a sampler with no texture: the layer draws the 1x1 black placeholder
+            static uint32_t seen_p[64]; static int seen_u[64], nseen;
+            int dup = 0; for (int k = 0; k < nseen; k++) if (seen_p[k] == p->serial && seen_u[k] == unit) dup = 1;
+            if (!dup && nseen < 64) { seen_p[nseen] = p->serial; seen_u[nseen++] = unit;
+                GLOG("program %u sampler %s (unit %d) has no texture: drawing the 1x1 black placeholder", p->serial, u->name, unit); } }
         for (int st = 0; st < 2; st++) {
             if (u->slot[st] < 0) continue;
             if (st) { [e setFragmentTexture:tx atIndex:u->slot[st]]; [e setFragmentSamplerState:sm atIndex:u->slot[st]]; }
@@ -903,36 +910,100 @@ static void bind_uniforms_textures(prog_t *p) {
     }
     E.prog = p->serial;
 }
+static int g_dl_mode, g_dl_n, g_dl_inst, g_dl_elems;   // the draw call being set up, for the DM_GL_DRAWLOG line
+// The vertex range a draw touches, which a client-memory array is copied by: draw_arrays' first..first+count, or the range of draw_elements' indices (plus its base vertex),
+// scanned only when a draw has such an array (draw_span), since the indices of a draw from vertex buffers are never read on the CPU
+static int64_t g_dl_first, g_dl_vend; static const uint8_t *g_dl_idx; static int g_dl_isz, g_dl_spanned;
+static void draw_span(void) {
+    if (g_dl_spanned || !g_dl_idx) return;
+    g_dl_spanned = 1;
+    uint64_t lo = UINT64_MAX, hi = 0;
+    for (int i = 0; i < g_dl_n; i++) {
+        uint64_t x = g_dl_isz == 4 ? ((const uint32_t *)g_dl_idx)[i] : g_dl_isz == 2 ? ((const uint16_t *)g_dl_idx)[i] : g_dl_idx[i];
+        if (x < lo) lo = x; if (x > hi) hi = x;
+    }
+    if (lo == UINT64_MAX) lo = hi = 0;
+    g_dl_first += (int64_t)lo; g_dl_vend = g_dl_first - (int64_t)lo + (int64_t)hi + 1;   // g_dl_first held the base vertex
+}
 // Everything a draw needs; 0 = skip it
+static id<MTLTexture> fb_color(GLuint fb, int *level, int *slice);
 static int draw_setup(void) {
     prog_t *p = prog_of(S.prog);
-    if (!p || !p->linked) { RED1("draw with no usable program (%u)", S.prog); return 0; }
-    if (!pass_ensure()) return 0;
+    if (!p || !p->linked) { g_sk_prog++; RED1("draw with no usable program (%u)", S.prog); return 0; }
+    if (!pass_ensure()) { g_sk_pass++; return 0; }
     pkey_t k; memset(&k, 0, sizeof k);
     vao_t *v = cur_vao(); const shinfo *vs = p->si[0];
+    id<MTLBuffer> cbuf[16] = {nil}; size_t coff[16] = {0};
     for (int i = 0; i < vs->na; i++) {
         int s = vs->a[i].slot; vattr_t *a = &v->a[p->amap[s]];
         if (!a->on) continue;
-        buf_t *b = buf_of(a->buf);
-        if (!b || !b->mb) { RED1("vertex attribute %d reads client memory or a buffer with no data (not implemented)", p->amap[s]); return 0; }
         k.vf[s] = (uint32_t)vfmt_of(a);
         k.stride[s] = a->stride ? a->stride : a->size * vtype_bytes(a->type); k.div[s] = a->div;
         if (!k.vf[s] || (k.stride[s] & 3)) { RED1("vertex attribute %d: type %#x size %d stride %d not mapped", p->amap[s], a->type, a->size, a->stride); return 0; }
+        buf_t *b = buf_of(a->buf);
+        if (b && b->mb) continue;   // a vertex buffer: bound as it is
+        if (a->buf) { g_sk_attr++; RED1("vertex attribute %d reads a buffer with no data (%u)", p->amap[s], a->buf); return 0; }
+        // Client memory: GL lets the game keep the vertices in its own array, Metal needs a buffer, so copy the span this draw touches into a
+        // transient block (GameMaker's runner draws every sprite and the screen composite through such arrays). The block keeps vertex i at i * stride from
+        // its start, as the array does, so the draw's own first vertex, indices and base vertex read the same vertices; only lo..hi is copied. A per-instance
+        // attribute (divisor d) is read by instance: elements 0 .. ceil(instances / d)
+        {   draw_span();
+            int64_t lo = a->div ? 0 : g_dl_first, hi = a->div ? (g_dl_inst + (int64_t)a->div - 1) / a->div : g_dl_vend; if (hi - lo < 1) hi = lo + 1;
+            size_t stride = k.stride[s], esz = (size_t)a->size * (size_t)vtype_bytes(a->type);
+            size_t len = lo < 0 ? 0 : (size_t)lo * stride + (size_t)(hi - lo - 1) * stride + esz;
+            if (!esz || lo < 0 || len > (128u << 20)) { g_sk_attr++; RED1("vertex attribute %d: client array vertices %lld..%lld (%zu bytes) out of range", p->amap[s], (long long)lo, (long long)hi, len); return 0; }
+            size_t off; id<MTLBuffer> mb = arena_alloc(len, &off);
+            memcpy((uint8_t *)mb.contents + off + (size_t)lo * stride, (const uint8_t *)(uintptr_t)a->off + (size_t)lo * stride, len - (size_t)lo * stride);
+            cbuf[s] = mb; coff[s] = off;   // bound below
+        }
     }
     k.cpf = P.cpf; k.dpf = P.dpf; k.spf = P.spf; k.mask = S.cmask;
     if (S.blend && P.cpf) { k.blend = 1; k.bsrc = bcode(S.bsrc); k.bdst = bcode(S.bdst); k.bsa = bcode(S.bsa); k.bda = bcode(S.bda); k.eqc = beq_of(S.eqc); k.eqa = beq_of(S.eqa); }
     id<MTLRenderPipelineState> pso = pso_get(p, &k);
-    if (!pso) return 0;
+    if (!pso) { g_sk_pso++; return 0; }
     id<MTLRenderCommandEncoder> e = g_enc;
     if ((__bridge void *)pso != E.pso) { E.pso = (__bridge void *)pso; [e setRenderPipelineState:pso]; }
     enc_state();
     for (int i = 0; i < vs->na; i++) {
         int s = vs->a[i].slot, gi = p->amap[s]; vattr_t *a = &v->a[gi];
-        if (a->on) { buf_t *b = buf_of(a->buf); b->use = g_serial; [e setVertexBuffer:b->mb offset:a->off atIndex:30 - s]; }
+        if (a->on && cbuf[s]) [e setVertexBuffer:cbuf[s] offset:coff[s] atIndex:30 - s];
+        else if (a->on) { buf_t *b = buf_of(a->buf); b->use = g_serial; [e setVertexBuffer:b->mb offset:a->off atIndex:30 - s]; }
         else [e setVertexBytes:S.va[gi] length:16 atIndex:30 - s];
     }
     bind_uniforms_textures(p);
     g_n_draw++;
+    // DM_GL_DRAWLOG=<n>[:<seconds>]: the first n draws after <seconds> of run time (default 0) with their target, viewport, scissor box and program
+    // (a port's first question is where its draws go: a picture that stays black while the game keeps drawing is usually a target or a viewport, not a shader)
+    { static long lim = -1, start_at; static double t0; static long n;
+      if (lim < 0) { const char *e = getenv("DM_GL_DRAWLOG"); lim = e ? atol(e) : 0; if (e && strchr(e, ':')) start_at = atol(strchr(e, ':') + 1); t0 = now_ns() / 1e9; }
+      if (n < lim && now_ns() / 1e9 - t0 >= (double)start_at) { int lv = 0, sl = 0; id<MTLTexture> t = fb_color(S.fb, &lv, &sl); n++;
+          const shinfo *vsi = p->si[0];
+          fb_t *fbt = fb_of(S.fb);
+          GLOG("draw %ld: framebuffer %u (colour tex %u) target %ux%u viewport %d,%d %dx%d scissor %d,%d %dx%d program %u blend %d mode %#x %s %d x%d",
+               (long)n, S.fb, fbt ? fbt->col.name : 0, t ? (unsigned)t.width : 0, t ? (unsigned)t.height : 0, S.vp[0], S.vp[1], S.vp[2], S.vp[3], S.sc[0], S.sc[1], S.sc[2], S.sc[3],
+               S.prog, S.blend, (unsigned)g_dl_mode, g_dl_elems ? "indexed" : "array", g_dl_n, g_dl_inst);
+          { static uint32_t dumped[32]; static int ndumped; int seen = 0; for (int k = 0; k < ndumped; k++) if (dumped[k] == p->serial) seen = 1;
+            if (!seen && ndumped < 32) { dumped[ndumped++] = p->serial;
+                GLOG("program %u blocks: vertex slot %d size %u, fragment slot %d size %u; %d uniforms:", p->serial, p->si[0]->ub_slot, p->si[0]->ub_size, p->si[1]->ub_slot, p->si[1]->ub_size, p->nu);
+                for (int k = 0; k < p->nu; k++) GLOG("   uniform %s type %u count %u unit %d (offset vertex %d fragment %d)", p->u[k].name, p->u[k].type, p->u[k].count, p->u[k].unit, p->u[k].off[0], p->u[k].off[1]); } }
+          // The textures the samplers point at: a full-screen composite of a 1280x720 surface must show that size in unit 0
+          { char line[512]; size_t o = 0;
+            for (int i = 0; i < 16; i++) { GLuint tn = S.units[i].t2d; tex_t *t = tex_of(tn); if (!t || !t->tex) continue;
+              o += snprintf(line + o, sizeof line - o, "%s%d: tex %u %ux%u fmt %lu", o ? ", " : "", i, tn, (unsigned)t->tex.width, (unsigned)t->tex.height, (unsigned long)t->tex.pixelFormat); }
+            GLOG("   samplers %s", line); }
+          // The first three vertices of every active attribute: where a black frame's quads actually are and which part of a texture they read
+          { vao_t *va = cur_vao();
+            for (int i = 0; i < vsi->na && i < 8; i++) { int s = vsi->a[i].slot, gi = p->amap[s]; vattr_t *a = &va->a[gi];
+              if (!a->on || a->size < 1 || a->size > 4) continue;
+              buf_t *b = buf_of(a->buf);
+              const uint8_t *base = b && b->mb ? (const uint8_t *)b->mb.contents + a->off : a->buf ? NULL : (const uint8_t *)(uintptr_t)a->off;
+              if (!base) { GLOG("   attribute %d: no data", gi); continue; }
+              size_t st = a->stride ? a->stride : a->size * vtype_bytes(a->type);
+              char v[3][64]; for (int k = 0; k < 3; k++) { const float *f = (const float *)(base + k * st); char *o = v[k]; o += snprintf(o, 64, "(");
+                for (int c = 0; c < a->size && c < 4; c++) o += snprintf(o, 64 - (size_t)(o - v[k]), "%s%.4f", c ? " " : "", f[c]);
+                snprintf(o, 64 - (size_t)(o - v[k]), ")"); }
+              GLOG("   attribute %d: size %d type %#x stride %zu %s, first 3 vertices %s %s %s", gi, a->size, a->type, st, a->buf ? "buffer" : "client memory", v[0], v[1], v[2]); } } } }
+
     return 1;
 }
 static MTLPrimitiveType prim_of(GLenum m, int *conv) {
@@ -958,6 +1029,7 @@ static uint32_t idx_convert(int conv, const uint32_t *in, uint32_t n, uint32_t b
 }
 static void draw_arrays(GLenum mode, GLint first, GLsizei count, GLsizei inst) {
     if (count <= 0 || inst <= 0) return;
+    g_dl_mode = mode; g_dl_n = count; g_dl_inst = inst; g_dl_elems = 0; g_dl_first = first; g_dl_vend = (int64_t)first + count; g_dl_idx = NULL;
     @autoreleasepool {
         int conv; MTLPrimitiveType pt = prim_of(mode, &conv);
         if (conv < 0 || !draw_setup()) return;
@@ -977,6 +1049,7 @@ static void draw_elements(GLenum mode, GLsizei count, GLenum type, const void *i
         uintptr_t io = (uintptr_t)indices; int isz = type == GL_UNSIGNED_INT ? 4 : type == GL_UNSIGNED_SHORT ? 2 : 1;
         const uint8_t *src = eb ? (eb->mb ? (const uint8_t *)eb->mb.contents + io : NULL) : (const uint8_t *)indices;
         if (!src || (eb && io + (size_t)count * isz > eb->size)) { RED1("glDrawElements: indices outside their buffer"); return; }
+        g_dl_mode = mode; g_dl_n = count; g_dl_inst = inst; g_dl_elems = 1; g_dl_first = base; g_dl_idx = src; g_dl_isz = isz; g_dl_spanned = 0;   // draw_span reads them
         if (!draw_setup()) return;
         if (!conv && isz > 1 && eb && io % 4 == 0) {   // the game's own index buffer
             eb->use = g_serial;
@@ -1062,6 +1135,9 @@ GL(glClearColor, void, GLfloat r, GLfloat g, GLfloat b, GLfloat a) { S.clear_c[0
 GL(glClearDepth, void, GLdouble d) { S.clear_d = d < 0 ? 0 : d > 1 ? 1 : d; }
 GL(glClearDepthf, void, GLfloat d) { S.clear_d = d < 0 ? 0 : d > 1 ? 1 : d; }
 GL(glClearStencil, void, GLint s) { S.clear_s = s; }
+// The depth range is [0,1] unless a game narrows it; the layer's viewport always maps the whole range (GameMaker's runner sets 0..1)
+GL(glDepthRange, void, GLdouble n, GLdouble f) { if (n != 0 || f != 1) RED1("glDepthRange(%g, %g): only 0..1 is mapped", (double)n, (double)f); }
+GL(glDepthRangef, void, GLfloat n, GLfloat f) { if (n != 0 || f != 1) RED1("glDepthRangef(%g, %g): only 0..1 is mapped", (double)n, (double)f); }
 // One buffer cleared to a value of its own, the clear values left as they were (LÖVE clears a canvas so when it is given a colour per canvas); colour attachment 0 only
 GLB(glClearBufferfv, void, GLenum buffer, GLint drawbuffer, const GLfloat *v) {
     if (buffer == GL_COLOR && drawbuffer == 0) { float keep[4]; memcpy(keep, S.clear_c, sizeof keep); memcpy(S.clear_c, v, sizeof keep); h_glClear(GL_COLOR_BUFFER_BIT); memcpy(S.clear_c, keep, sizeof keep); }
@@ -1081,6 +1157,7 @@ static void cap_set(GLenum cap, int on) {
     if (cap == GL_COLOR_TABLE) { S.color_table = on; return; }
     if (cap == GL_FRAMEBUFFER_SRGB) { if (on && !S.srgb) RED1("GL_FRAMEBUFFER_SRGB: writes into sRGB attachments are not converted"); S.srgb = on; return; }
     if (cap == GL_TEXTURE_2D || cap == 0x809d /* MULTISAMPLE */ || cap == 0x8642 /* PROGRAM_POINT_SIZE */ || cap == 0x8d69 /* PRIMITIVE_RESTART_FIXED_INDEX */ || cap == 0x884f /* TEXTURE_CUBE_MAP_SEAMLESS */
+        || cap == 0x864f /* DEPTH_CLAMP: Metal clamps to the depth range already */
         || cap == 0x92e0 /* DEBUG_OUTPUT */ || cap == 0x8242 /* DEBUG_OUTPUT_SYNCHRONOUS */) return;
     static GLenum seen[32]; static int n;
     for (int i = 0; i < n; i++) if (seen[i] == cap) return;
@@ -1126,6 +1203,10 @@ GL(glColorTable, void, GLenum target, GLenum ifmt, GLsizei w, GLenum format, GLe
 GL(glTexEnvi, void, GLenum t, GLenum p, GLint v) { (void)t; (void)p; (void)v; }
 GL(glGetError, GLenum, void) { return 0; }
 // Everything recorded so far runs to its end (LÖVE when the window changes)
+// glFlush: hand the commands encoded so far to the GPU without waiting. The layer commits at the frame's end, so a game that flushes in the middle of a frame
+// (GameMaker's runner does, before a menu or a surface read) would otherwise see nothing but the pointer: eglGetProcAddress returned null for a name it only
+// asks for, the guest called it and jumped to address 0 (Well Dweller's `CRASH sig=11 addr=0 pc=0 lr=main+0x3409a78`, at the pause menu).
+GLB(glFlush, void, void) { if (g_pend_clear.bits) clears_flush(); dm_gfx_enter(); cb_commit(); dm_gfx_leave(); }
 GLB(glFinish, void, void) { if (g_pend_clear.bits) clears_flush(); dm_gfx_enter(); id<MTLCommandBuffer> cb = cb_get(); cb_commit(); [cb waitUntilCompleted]; dm_gfx_leave(); }
 // Debug output and labels (LÖVE's debug groups and its GL debug callback, used when the game asks for debug output): none here
 GL(glDebugMessageCallback, void, void *cb, const void *user) { (void)cb; (void)user; }
@@ -1189,6 +1270,7 @@ GL(glGetIntegerv, void, GLenum p, GLint *v) {
         case GL_TEXTURE_BINDING_3D: *v = S.units[S.unit].t3d; return;
         case GL_TEXTURE_BINDING_2D_ARRAY: *v = S.units[S.unit].t2da; return;
         case 0x84e0: *v = GL_TEXTURE0 + S.unit; return;   // ACTIVE_TEXTURE
+        case GL_MAX_TEXTURE_MAX_ANISOTROPY: *v = 16; return;
         case GL_UNPACK_ALIGNMENT: *v = S.unpack_align; return;
         case GL_PACK_ALIGNMENT: *v = S.pack_align; return;
     }
@@ -1465,6 +1547,7 @@ GLB(glDeleteFramebuffers, void, GLsizei n, const GLuint *f) {
 GLB(glBindFramebuffer, void, GLenum target, GLuint f) {
     if (target != GL_DRAW_FRAMEBUFFER) S.read_fb = f;   // GL_FRAMEBUFFER binds both
     if (target == GL_READ_FRAMEBUFFER || f == S.fb) return;
+    { static int on = -1; if (on < 0) on = getenv("DM_GL_FBLOG") != NULL; if (on) { uint32_t bw, bh; fb_size(f, &bw, &bh); GLOG("bind framebuffer %u %ux%u (was %u) after %llu draws", f, bw, bh, S.fb, (unsigned long long)g_n_draw); } }
     if (g_pend_clear.bits && g_pend_clear.fb == S.fb) clears_flush();
     S.fb = f;   // the pass ends at the next draw or clear into another framebuffer (pass_ensure)
 }
@@ -1830,11 +1913,16 @@ static uint64_t g_frames;
 static void frame_end(void) {
     static uint64_t pd, pp, pu, pb, pc;
     uint64_t f = ++g_frames, dr = g_n_draw, pa = g_n_pass, up = g_n_up, bl = g_n_blit, cb = g_n_cb;
+    uint64_t sp = g_sk_prog, sq = g_sk_pass, sa = g_sk_attr, so = g_sk_pso;
+    static uint64_t pd2, pq, pa2, po;
     if (f <= 3 || f % 300 == 0) {
         GLOG("frame %llu: draws %llu, passes %llu, uploads %llu (%llu by blit), command buffers %llu (since the last record, %llu frames); pipelines so far %llu",
              (unsigned long long)f, (unsigned long long)(dr - pd), (unsigned long long)(pa - pp), (unsigned long long)(up - pu), (unsigned long long)(bl - pb),
              (unsigned long long)(cb - pc), (unsigned long long)(f <= 3 ? 1 : 300), (unsigned long long)g_n_pso);
         pd = dr; pp = pa; pu = up; pb = bl; pc = cb;
+        if (sp || sq || sa || so) { GLOG("frame %llu: dropped draws since the last record: %llu no program, %llu no pass, %llu no attribute buffer, %llu no pipeline",
+             (unsigned long long)f, (unsigned long long)(sp - pd2), (unsigned long long)(sq - pq), (unsigned long long)(sa - pa2), (unsigned long long)(so - po));
+            pd2 = sp; pq = sq; pa2 = sa; po = so; }
     }
     if (f % 1800 == 0) {
         task_vm_info_data_t vi; mach_msg_type_number_t n = TASK_VM_INFO_COUNT;
@@ -1964,12 +2052,23 @@ static void *gl_stub(const char *name) {
     g_stub_name[g_nstub] = name;   // the game's own string (its loader's name table)
     return (void *)(gl_stubs + 8 * g_nstub++);
 }
+// A name the loader asks for and the layer does not implement gets a null pointer, which is the documented meaning of "not there" (many loaders ask for the
+// whole GL 4.6 list and only call a few). The cost is that calling one jumps to address 0 with nothing in the log to say which: `[RED] CRASH sig=11 addr=0
+// pc=0 lr=<the blr's return address>` is that mistake. DM_GL_MISSES=1 prints every missing name once, and DM_GL_STUBS=1 replaces them with stubs that report
+// their first call, which names the one the game actually calls (GameMaker's runner asks for 215 names it does not implement and calls glFlush).
+static const char *g_miss_name[512]; static int g_nmiss;
+static void note_miss(const char *name) {
+    for (int i = 0; i < g_nmiss; i++) if (g_miss_name[i] == name) return;
+    if (g_nmiss < 512) g_miss_name[g_nmiss++] = name;
+    if (getenv("DM_GL_MISSES")) GLOG("[RED] eglGetProcAddress(%s): not implemented, the game gets a null pointer", name);
+}
 EGL(eglGetProcAddress, void *, const char *name) {
     static int asked, found; static pthread_mutex_t mu = PTHREAD_MUTEX_INITIALIZER;
     void *fn = name && !strncmp(name, "gl", 2) ? gl_lookup(name) : NULL;
     pthread_mutex_lock(&mu);
     asked++; if (fn) found++;
-    if (asked % 500 == 0 || (fn && g_log)) GLOG("eglGetProcAddress: %d names asked, %d implemented (last %s)", asked, found, name);
+    if (!fn && name && !strncmp(name, "gl", 2)) note_miss(name);
+    if (asked % 500 == 0 || (fn && g_log)) GLOG("eglGetProcAddress: %d names asked, %d implemented, %d not implemented (last %s)", asked, found, g_nmiss, name);
     if (!fn && name && !strncmp(name, "gl", 2)) fn = gl_stub(name);
     pthread_mutex_unlock(&mu);
     return fn;

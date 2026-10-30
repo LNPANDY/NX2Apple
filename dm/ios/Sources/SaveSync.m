@@ -1,4 +1,4 @@
-// Cloud saves on the iPhone: the copies to and from the iCloud Drive folder the player picked (dm/host/save_sync.h; the folder is a bookmark, DataBookmark.m).
+// Cloud saves on the iPhone: the copies to and from the iCloud Drive folder the player picked (dm/host/save_sync.h; the folder is a bookmark, CloudSaves.m).
 // They go through NSFileCoordinator: a file iCloud has only listed is downloaded before the read, and neither copy crosses iCloud's own writes of the file.
 // These replace the host's plain-copy defaults (weak, in save_sync.c) at link time; the host packs, unpacks and decides, this moves the one file.
 #import <Foundation/Foundation.h>

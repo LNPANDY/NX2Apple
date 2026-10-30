@@ -2,7 +2,7 @@
 # Writes the games gallery in GAMES.md (between its gallery markers) from docs/images/gallery.tsv: one cell per row of the table, three to a row, in the table's order.
 # The table is the source: a new game is a row in it (usually at the end), so two pull requests that each add a game change one line each instead of moving every cell after
 # the first one; .gitattributes merges the table with the union driver. Columns: image (a file in docs/images), name (the caption and the image's alt text), note (the small
-# line under it, in small print like the caption: the IPA's size, then " · " and a remark if any; omit when the size is unknown) and, optionally, the base game's title ID, which links to its game note.
+# line under it: a remark, such as "60 fps with 1.0.1"; empty for most games) and the base game's title ID, which links the name to its game note.
 # Run it after changing the table; --check only reports whether GAMES.md is current (dm/tools/tests/test_docs.py runs it).
 # Usage: docs_gallery.py [--check]
 import html, pathlib, re, sys
@@ -21,13 +21,13 @@ def rows():
     for n, line in enumerate(TABLE.read_text(encoding='utf-8').splitlines(), 1):
         if not line.strip() or line.startswith('#'): continue
         c = line.split('\t')
-        if len(c) not in (2, 3, 4): sys.exit(f'{TABLE.name}:{n}: 2 to 4 columns expected, {len(c)} found')
-        image, name, note, tid = c + [''] * (4 - len(c))
+        if len(c) != 4: sys.exit(f'{TABLE.name}:{n}: 4 columns expected (image, name, note, title ID), {len(c)} found')
+        image, name, note, tid = c
         if not (REPO / 'docs' / 'images' / image).is_file(): sys.exit(f'{TABLE.name}:{n}: no image docs/images/{image}')
-        if tid and not re.fullmatch(r'[0-9A-F]{16}', tid): sys.exit(f'{TABLE.name}:{n}: a title ID is 16 hex digits: {tid}')
+        if not re.fullmatch(r'[0-9A-F]{16}', tid): sys.exit(f'{TABLE.name}:{n}: a title ID is 16 hex digits: {tid!r}')
+        if not (REPO / 'dm' / 'games' / tid / 'README.md').is_file(): sys.exit(f'{TABLE.name}:{n}: no game note dm/games/{tid}/README.md')
         # A union merge can retain two different captions for the same game, so check its image and title ID too.
         for field, value in (('image', image), ('name', name), ('title ID', tid)):
-            if not value: continue
             if value in seen[field]:
                 sys.exit(f'{TABLE.name}:{n}: duplicate {field} {value!r} (first at line {seen[field][value]}): merge the rows by hand')
             seen[field][value] = n
@@ -38,10 +38,10 @@ def rows():
 def cell(image, name, note, tid):
     # Attributes use double quotes; apostrophes in existing captions need no escaping.
     image, name, note = (html.escape(s, quote=False).replace('"', '&quot;') for s in (image, name, note))
-    caption = f'<a href="dm/games/{tid}/README.md">{name}</a>' if tid else name
-    detail = f'<br>{note}' if note else ''   # a game whose IPA size is still open has only its caption
-    # All in small print: GitHub keeps its own line height in a page, so smaller text is what makes the captions compact.
-    return f'<td align="center" valign="top" width="33%"><img src="docs/images/{image}" width="256" alt="{name}"><br><sub><b>{caption}</b>{detail}</sub></td>'
+    caption = f'<a href="dm/games/{tid}/README.md">{name}</a>'
+    detail = f'<br>{note}' if note else ''   # a game with no remark has only its caption
+    # <small> is one step below the body text; <sub> would be smaller still and lower the baseline.
+    return f'<td align="center" valign="top" width="33%"><img src="docs/images/{image}" width="256" alt="{name}"><br><small><b>{caption}</b>{detail}</small></td>'
 
 
 def gallery():

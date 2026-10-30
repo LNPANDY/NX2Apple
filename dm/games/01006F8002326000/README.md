@@ -59,9 +59,11 @@ General host changes first needed here; each applies to every game:
 - **Yields that make progress return at once** (`thr_yield` in `hle_thread.c`): [Yields that make progress return at once (`thr_yield`)](../../../docs/reference/threads.md#yields-that-make-progress-return-at-once-thr_yield) and [development.md, Power](../../../docs/development.md#power) ("Yield loops").
 - **The game's own HIPC clients answered by host sessions** (`hle_sf.c`, `DM_SF_TRACE`), **device save data and shared transactions** (`mount_ex`), **`fs::Commit` with a mount list or a `CommitOption`**, and the adjustable user clock, region code and SDK 20 album and steady-clock calls: [Game-linked HIPC clients of system services](../../../docs/reference/services.md#game-linked-hipc-clients-of-system-services), [Device save data on the account save's directory](../../../docs/reference/services.md#device-save-data-on-the-account-saves-directory), [`fs::Commit` with a list of mounts](../../../docs/reference/services.md#fscommit-with-a-list-of-mounts), [Steady clock, clock snapshots and user clocks](../../../docs/reference/services.md#steady-clock-clock-snapshots-and-user-clocks), [Region code from the language](../../../docs/reference/services.md#region-code-from-the-language), [Album calls fail with no album](../../../docs/reference/services.md#album-calls-fail-with-no-album).
 - **16 output slots for video movie decoders** (`MD_NOUT_VIDEO` in `hle_movie.c`): [Video output slots: how far the extractor gets ahead](../../../docs/reference/movies.md#video-output-slots-how-far-the-extractor-gets-ahead).
+- [The alpha test through a library of its own](../../../docs/reference/rendering.md#the-alpha-test-through-a-library-of-its-own): the island map's corruption (issue #73) improved with an alpha test in a downstream runtime (PR #430).
 
 ## Open
 
+- Check the island map (issue #73) with the host's alpha test.
 - `game.tsv` still describes the game as "In bring-up", while it plays on the iPhone.
 - A save on the Mac (the end of the first day) has not been reached.
 - The keyboard's 8 geometry shaders do not translate.

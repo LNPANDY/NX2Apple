@@ -6,6 +6,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import types
 import unittest
 from unittest import mock
 
@@ -15,6 +16,7 @@ assert spec and spec.loader
 nsp = importlib.util.module_from_spec(spec); spec.loader.exec_module(nsp)
 sys.path.insert(0, str(REPO / 'dm/gfx/tools'))
 import dmsh_chain  # noqa: E402
+import tool_lock  # noqa: E402
 
 
 def fake_run(sdk_rc=0, devdir='/Applications/Xcode.app/Contents/Developer', xlate=(0, 'f21af1efa737a270\n', ''), translated='0', calls=None):
@@ -31,11 +33,15 @@ def fake_run(sdk_rc=0, devdir='/Applications/Xcode.app/Contents/Developer', xlat
     return run
 
 
+def fake_capstone(major):   # the installed capstone's version does not matter to these tests
+    return types.SimpleNamespace(__version__=f'{major}.0.0', cs_version=lambda: (major, 0, major << 8))
+
+
 class Prereqs(unittest.TestCase):
-    def check(self, mac=False, which=lambda *a, **k: '/x', **kw):
+    def check(self, mac=False, which=lambda *a, **k: '/x', capstone=5, **kw):
         calls = []
         with tempfile.TemporaryDirectory() as d, mock.patch.object(nsp, '_importable', lambda m: True), mock.patch.object(nsp.shutil, 'which', which), \
-                mock.patch.object(nsp.subprocess, 'run', fake_run(calls=calls, **kw)):
+                mock.patch.object(nsp.subprocess, 'run', fake_run(calls=calls, **kw)), mock.patch.dict(sys.modules, capstone=fake_capstone(capstone)):
             xlate = Path(d) / 'dmsh_xlate'; xlate.write_text('')
             try: nsp.check_prereqs({'PATH': '/usr/bin', 'DOTNET_ROOT': '/stale'}, xlate, mac)
             finally: self.calls = calls
@@ -70,6 +76,15 @@ class Prereqs(unittest.TestCase):
     def test_glslang_is_a_prerequisite(self):   # README installs it; an OpenGL game would otherwise stop only after its run-time capture
         with self.assertRaisesRegex(nsp.BuildError, r'glslangValidator \(brew install glslang\)'): self.check(which=lambda t, **k: None if t == 'glslangValidator' else '/x')
 
+    def test_capstone_5_passes(self):
+        with mock.patch.dict(sys.modules, capstone=fake_capstone(5)): nsp.check_capstone()
+
+    def test_other_capstone_stops_with_the_install_command(self):   # Capstone 6 renamed CS_ARCH_ARM64 and the operand constants patch_nso.py uses
+        for major in (4, 6):
+            with self.subTest(major=major), mock.patch.dict(sys.modules, capstone=fake_capstone(major)):
+                with self.assertRaisesRegex(nsp.BuildError, rf'Capstone {major}\.0\.0 is unsupported.*-m pip install .capstone>=5,<6'): nsp.check_capstone()
+        with self.assertRaisesRegex(nsp.BuildError, 'Capstone 6'): self.check(capstone=6, which=lambda *a, **k: None)   # before the tools and the Metal check
+
 
 class Rosetta(unittest.TestCase):
     def check(self, translated, platform='darwin'):
@@ -86,9 +101,9 @@ class Rosetta(unittest.TestCase):
         with mock.patch.object(nsp.sys, 'platform', 'linux'), mock.patch.object(nsp.subprocess, 'run', side_effect=AssertionError): nsp.check_native_python()
 
 
-class ChainCheck(unittest.TestCase):   # dmsh_build.py run directly (dmsh_chain.check_tools) names the translator that does not run, not an empty `xlate_source`
+class ChainCheck(unittest.TestCase):   # dmsh_build.py run directly (tool_lock.check_tools) names the translator that does not run, not an empty `xlate_source`
     def embedded(self, xlate):
-        with mock.patch.object(dmsh_chain.subprocess, 'run', fake_run(xlate=xlate)): return dmsh_chain.xlate_embedded()
+        with mock.patch.object(tool_lock.subprocess, 'run', fake_run(xlate=xlate)): return tool_lock.xlate_embedded()
 
     def test_embedded(self):
         self.assertEqual(self.embedded((0, 'f21af1efa737a270\n', '')), 'f21af1efa737a270')
@@ -99,7 +114,11 @@ class ChainCheck(unittest.TestCase):   # dmsh_build.py run directly (dmsh_chain.
 
     def check(self, xlate_source):
         with open(dmsh_chain.LOCK) as f: lock = dict(l.rstrip('\n').split('\t', 1) for l in f if '\t' in l and not l.startswith('#'))
-        with mock.patch.object(dmsh_chain, 'tools_now', lambda: {**lock, 'xlate_source': xlate_source}): return dmsh_chain.check_tools()
+        with mock.patch.object(tool_lock, 'tools_now', lambda: {**lock, 'xlate_source': xlate_source}): return tool_lock.check_tools()
+
+    def test_checks_are_outside_the_chain(self):   # a fix to a check changes neither V nor any shader's cache key (dmsh_build.py CODE_FP takes dmsh_chain.py's code form)
+        self.assertNotIn('tools/tool_lock.py', dmsh_chain.FILES)
+        for name in ('tools_now', 'check_tools', 'xlate_embedded'): self.assertFalse(hasattr(dmsh_chain, name), name)
 
     def test_check_tools(self):
         bad = self.check('does not run (You must install .NET to run this application.)')

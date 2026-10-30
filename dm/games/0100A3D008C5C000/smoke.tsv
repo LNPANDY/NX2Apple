@@ -1,4 +1,5 @@
 # The fixed save is made just after getting up in the opening bedroom; see README.md.
+# capture: the frame regress.py capture records for regress.py replay (the opening bedroom, about the 100 s screenshot)
 save	0100A3D008C5C000-work/smoke-save
 keys	f300:A*5/150
 secs	180
@@ -7,3 +8,4 @@ reach	1200@90
 window	100	60
 shots	100,150
 hang	30
+capture	3000

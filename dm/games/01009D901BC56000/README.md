@@ -11,7 +11,7 @@ Plays on the Mac at 60 fps: the title, a new save, the opening movie, the island
 | `sys_resource 0x1000000` | [`game.tsv`](game.tsv) | the NPDM declares 16 MB of system resource: virtual address memory |
 | 5 GB guest block: `mem_reserve 0x140000000`, `mem_alias 0x118000000`, `mem_stack 0x10000000`, `app_pool 0xCD500000` | `game.tsv` | Unity 6 reserves and commits its regions itself, without setting a heap, as [BALL x PIT](../010086A022444000/README.md) |
 | `depth_mode zero` | `game.tsv` | the offline pipeline prebuild uses the near=0 convention the game sets at boot |
-| SDK node area 1 GB → 62 MB | `dm/tools/sdk_patches.py`, SDK build `60751516…` | the existing shared SDK patch leaves room for the game's address regions |
+| SDK node area 1 GB → 62 MB, and regions of 4 MB and more aligned to 2 MB as SDK 20 | `dm/tools/sdk_patches.py`, the SDK-wide rules (`MATCH_CUTS`) on SDK build `60751516…` | leaves room for the game's address regions; the build's row (the node area cut alone) was removed on 2026-10-30 after a run on Monster Train 2, the same build |
 | Unity 6 Shader layout | `dm/gfx/tools/unityfs.py` | no bundle supplies the stripped files' type tree; see [Shaders](#shaders) |
 
 No game-code patch.

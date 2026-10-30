@@ -91,6 +91,10 @@ class TitleFromPackage(unittest.TestCase):
             self.out, self.broken = '', True
             self.assertIsNone(read(pkg))
 
+    def test_reader_without_dotnet_says_what_to_do(self):
+        with mock.patch.object(nsp.shutil, 'which', lambda *a, **k: None), nsp.package_title_reader(REPO, self.tmp / 'prod.keys', {}) as read:
+            with self.assertRaisesRegex(nsp.BuildError, r'needs dotnet .* add the title ID to the name'): read(self.tmp / 'Game.nsp')
+
 
 if __name__ == '__main__':
     unittest.main()

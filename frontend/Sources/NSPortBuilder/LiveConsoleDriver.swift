@@ -105,11 +105,6 @@ struct ConsolePadSnapshot: Equatable {
                 MainActor.assumeIsolated { self?.padsChanged(connected: false, note: note) }
             },
         ]
-        let workspace = NSWorkspace.shared.notificationCenter
-        observers.append(workspace.addObserver(forName: NSWorkspace.didTerminateApplicationNotification, object: nil, queue: .main) { [weak self] note in
-            let pid = (note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?.processIdentifier
-            MainActor.assumeIsolated { if let pid { self?.gameDidTerminate(pid: pid) } }
-        })
         observers.append(center.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.gameWindowAppeared() }
         })
@@ -221,7 +216,7 @@ struct ConsolePadSnapshot: Equatable {
     func play(_ gameID: String) {
         state.play(gameID)
         guard state.startingGameID == gameID, let game = library.games.first(where: { $0.id.uuidString == gameID }) else { return }
-        let environment = GameStart.environment(for: game, library: library, controls: controls, repo: repo(), labels: labels)
+        let environment = GameStart.environment(for: game, library: library, controls: controls, repo: repo(), labels: labels, fullscreen: true)
             .merging(FrameTimes.recordingEnvironment(for: game, library: library.folder)) { $1 }   // a frame-time recording, as the desktop Play adds (FrameTimes.swift)
         state.starting = .preparing
         launch(game, environment) { [weak self] pid, error in
@@ -230,6 +225,7 @@ struct ConsolePadSnapshot: Equatable {
                     guard let self, self.state.startingGameID == gameID else { return }
                     if let error { self.state.returnFromGame(); self.showToast(error.localizedDescription); return }
                     self.launchedPID = pid
+                    if let pid { GameReturnWatcher.shared.didStart(pid: pid) { [weak self] in self?.gameDidTerminate(pid: pid) } }   // the launcher's one watcher and its switch (ReturnAfterPlay.swift)
                     self.state.starting = .opening
                     self.timeoutTask?.cancel()
                     self.timeoutTask = Task { [weak self] in
@@ -257,14 +253,13 @@ struct ConsolePadSnapshot: Equatable {
         state.returnFromGame()
     }
 
-    /// The game this console started quit: the console comes back to the front (PR #110's launcher-wide return does the same for the desktop).
+    /// The game this console started quit (GameReturnWatcher, which then brings the launcher forward when Settings > App
+    /// leaves that on, as for the desktop Play): Starting ends, the selected game is kept.
     func gameDidTerminate(pid: Int32) {
         guard pid == launchedPID else { return }
         launchedPID = nil
         timeoutTask?.cancel()
         state.returnFromGame()
-        NSApp.unhide(nil)
-        NSApp.activate(ignoringOtherApps: true)
     }
 
     // MARK: Options

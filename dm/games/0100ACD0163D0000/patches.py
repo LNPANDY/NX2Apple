@@ -25,5 +25,11 @@ CUTS = {
   ],
 }
 
-# Whether a general rule could replace these patches (dm/tools/docs_patches.py lists it in docs/agents/game-patches.md)
-GENERALIZE = 'No for the queue barriers (a data race in the game\'s own task ring). Partly for the allocator: the Unreal 4/5 games find their allocator by function fingerprint per engine version (see OCTOPATH TRAVELER 0); this UE3 build inlines its constructor into the GMalloc setup, so a fingerprint would match that whole function, and the vtable layout (25 slots, 32-bit sizes) is its own'
+# How general each patch is and could be (dm/tools/docs_patches.py "Binding", listed in docs/agents/game-patches.md): what, its binding now, the loosest it could have (goal),
+# purpose, why; blocked or kept: why the gap stays open (cannot close yet, or left open on purpose); checked: what was checked on game files (else a judgement)
+BINDING = [
+    {'what': 'task ring push and pop barriers', 'now': 'build', 'goal': 'game', 'purpose': 'race',
+     'why': "a data race in the game's own task ring"},
+    {'what': "UE3's GMalloc setup skipped, the host allocator in (hle_uemalloc.c)", 'now': 'build', 'goal': 'game', 'purpose': 'address space',
+     'why': "UE3 inlines the allocator's constructor into the GMalloc setup and has its own vtable layout (25 slots, 32-bit sizes), so the Unreal 4/5 discovery does not apply"},
+]

@@ -9,20 +9,19 @@
 # Usage: dmsh_chain.py                 print V (default options)
 #       dmsh_chain.py --header        rewrite dm/gfx/nvn/dmsh_chain.h (run after changing any file listed above, and commit it with the change)
 #       dmsh_chain.py --inputs        print the digest of the current game profile's inputs (DM_GAME), as b-<V>/inputs.tsv records it
-#       dmsh_chain.py --check-tools   verify that the actual tools match the lock file; on mismatch print [RED] lines and exit 1
-#       dmsh_chain.py --update-lock   rewrite the lock file from the actual tools (run after changing Ryujinx / spirv-cross / Xcode; committed to the repo)
+#       (checking the tools against dmsh_chain.lock, and rewriting it, is tool_lock.py's: the checks decide no output, so they are outside V and the shaders' cache keys)
 # Environment: XLATE_DEBUG / XLATE_REDUCED (same meaning as in dmsh_build.py, default 1 / 1; non-default options yield a different V, which the host will not load)
-import os, sys, ast, hashlib, subprocess, shutil
+import os, sys, ast, hashlib
 DM_ROOT = os.environ.get('DM_ROOT') or os.path.expanduser('~/dm-work')   # Workspace root (game files, build outputs and run artifacts are all under it)
 HERE = os.path.dirname(os.path.abspath(__file__)); GFX = os.path.dirname(HERE); HOME = os.path.expanduser('~')
-FILES = ['tools/dmsh_chain.py', 'tools/dmsh_build.py', 'tools/dmsh_atomic.py', 'tools/dmsh_fetch.py', 'tools/dmsh_vin.py', 'tools/dmsh_pull.py', 'tools/dmsh_pull.metal', 'tools/dmsh_geometry.py', 'tools/dmsh_mesh.py', 'tools/dmsh_facts.py', 'nvn/dmsh_abi.h', 'tools/dmsh_abi.py', 'tools/dmsh_xlate/Program.cs', 'tools/dmsh_xlate/dmsh_xlate.csproj', '../ios/tools/ios_metal.py', 'tools/dmsh_chain.lock']
+FILES = ['tools/dmsh_chain.py', 'tools/dmsh_build.py', 'tools/dmsh_atomic.py', 'tools/dmsh_fetch.py', 'tools/dmsh_vin.py', 'tools/dmsh_pull.py', 'tools/dmsh_pull.metal', 'tools/dmsh_alpha.py', 'tools/dmsh_logic.py', 'tools/dmsh_geometry.py', 'tools/dmsh_mesh.py', 'tools/dmsh_facts.py', 'nvn/dmsh_abi.h', 'tools/dmsh_abi.py', 'tools/dmsh_xlate/Program.cs', 'tools/dmsh_xlate/dmsh_xlate.csproj', '../ios/tools/ios_metal.py', 'tools/dmsh_chain.lock']
 # This target-specific lowering lives in the vendored translator. Include its
 # sources as well as the rebuilt DLL fingerprint; no old shader cache can bypass it.
 FILES += ['../third_party/ryujinx/src/Ryujinx.Graphics.Shader/' + f for f in (
     'Instructions/InstEmitSurface.cs', 'IntermediateRepresentation/TextureFlags.cs',
     'Translation/TranslationFlags.cs', 'Translation/HostCapabilities.cs',
     'Translation/Transforms/GeometryToCompute.cs', 'Translation/TranslatorContext.cs', 'Translation/Translator.cs', 'Translation/EmitterContext.cs', 'Translation/ShaderDefinitions.cs', 'CodeGen/Spirv/Instructions.cs',
-    'StructuredIr/ShaderProperties.cs', 'Translation/Optimizations/BindlessElimination.cs')]
+    'StructuredIr/ShaderProperties.cs', 'Translation/Optimizations/BindlessElimination.cs', 'Translation/Optimizations/Optimizer.cs')]
 INPUT_TABLES = ['shader_facts.tsv', 'shader_map.tsv', 'shader_map.tsv.conflicts.tsv', 'shader_pairs.tsv', 'pso_pairs.tsv', 'bf_want.tsv', 'geo_mesh.tsv', 'dual_want.tsv']   # in the game profile folder
 LOCK = os.path.join(HERE, 'dmsh_chain.lock'); HEADER = os.path.join(GFX, 'nvn/dmsh_chain.h')
 STAMP = 'inputs.tsv'   # in the library directory b-<V>/
@@ -81,41 +80,8 @@ def write_stamp(lib, game_id, digest):
 def table_head(lib):   # the header c1_full.tsv / cb_extent.tsv start with: the library's chain version and its inputs ("none" when it has no stamp, which nothing takes)
     return f'# chain {os.path.basename(os.path.normpath(lib))} inputs {read_stamp(lib).get("inputs", "none")}'
 
-def sha16(p): return hashlib.sha256(open(p, 'rb').read()).hexdigest()[:16]
-
-def tools_now():
-    """Actual tool fingerprints: translator dll (including the Ryujinx shader library), spirv-cross, metal compiler (macOS / iOS)"""
-    t = {}
-    for dll in ('dmsh_xlate.dll', 'Ryujinx.Graphics.Shader.dll', 'Ryujinx.Common.dll'): t[dll] = sha16(os.path.join(XLATE_DIR, dll))
-    t['xlate_source'] = xlate_embedded()
-    sc = shutil.which(SPIRV_CROSS)
-    t['spirv-cross'] = sha16(sc) if sc else 'missing'
-    for sdk in ('macosx', 'iphoneos'):
-        t['metal_' + sdk] = subprocess.run(['xcrun', '-sdk', sdk, 'metal', '--version'], capture_output=True, text=True).stdout.splitlines()[0:1] or ['missing']
-        t['metal_' + sdk] = t['metal_' + sdk][0]
-    return t
-
-NO_RUN = 'does not run'
-def xlate_embedded():
-    """The source digest the translator embeds (dmsh_xlate --source-sha), or 'does not run (<its first error line>)': without a .NET 10 runtime for the architecture it starts as (a Python
-    under Rosetta starts the universal apphost as x86_64) it exits 131 with nothing on stdout, which read as an empty digest and a stale translator (docs/reference/packing.md)"""
-    try: r = subprocess.run([os.path.join(XLATE_DIR, 'dmsh_xlate'), '--source-sha'], capture_output=True, text=True, errors='replace', timeout=60)
-    except (OSError, subprocess.SubprocessError) as e: return f'{NO_RUN} ({e})'
-    if r.returncode == 0 and r.stdout.strip(): return r.stdout.strip()
-    return '%s (%s)' % (NO_RUN, (r.stderr.strip().splitlines() or r.stdout.strip().splitlines() or [f'exit code {r.returncode}'])[0])
-
-def no_run_message(embedded): return f'the translator {embedded}: it needs the .NET 10 runtime for this Mac\'s architecture (brew install --cask dotnet-sdk); unset DOTNET_ROOT if it names another one'
-
 def xlate_source_sha():   # same convention as dmsh_xlate --source-sha: the embedded Program.cs and csproj concatenated in that order
     return hashlib.sha256(b''.join(open(os.path.join(HERE, 'dmsh_xlate', f), 'rb').read() for f in ('Program.cs', 'dmsh_xlate.csproj'))).hexdigest()[:16]
-
-def check_tools():
-    want = dict(l.rstrip('\n').split('\t', 1) for l in open(LOCK) if '\t' in l and not l.startswith('#'))
-    now = tools_now(); ran = not now['xlate_source'].startswith(NO_RUN)
-    bad = [f'{k}: lock {want.get(k)} / actual {v}' for k, v in now.items() if want.get(k) != v and (ran or k != 'xlate_source')]
-    if not ran: bad.append(no_run_message(now['xlate_source']))
-    elif now['xlate_source'] != xlate_source_sha(): bad.append(f'the translator was not built from the in-repo source: embedded source {now["xlate_source"]} / in repo {xlate_source_sha()} (rebuild dmsh_xlate)')
-    return bad
 
 def header_text(v):
     return (f'// Generated file (dm/gfx/tools/dmsh_chain.py --header): the B shader library translation chain version this source tree expects (default options), one for every game;\n'
@@ -124,17 +90,7 @@ def header_text(v):
 
 if __name__ == '__main__':
     a = sys.argv[1:]
-    if a == ['--update-lock']:
-        t = tools_now()
-        if t['xlate_source'].startswith(NO_RUN): sys.exit('[RED] ' + no_run_message(t['xlate_source']))
-        if t['xlate_source'] != xlate_source_sha(): sys.exit(f'[RED] the translator was not built from the in-repo source (embedded {t["xlate_source"]} / in repo {xlate_source_sha()}): rebuild dmsh_xlate first')
-        open(LOCK, 'w').write('# Translation chain tool fingerprints (written by dmsh_chain.py --update-lock; regenerate after changing tools and commit it)\n' + ''.join(f'{k}\t{v}\n' for k, v in t.items()))
-        print('wrote', LOCK)
-    elif a == ['--check-tools']:
-        bad = check_tools()
-        for b in bad: print('[RED] translation chain tools do not match the lock file: ' + b)
-        sys.exit(1 if bad else 0)
-    elif a == ['--header']:
+    if a == ['--header']:
         open(HEADER, 'w').write(header_text(version()))
         print(version())
     elif a == ['--inputs']: print(inputs(load_game()))

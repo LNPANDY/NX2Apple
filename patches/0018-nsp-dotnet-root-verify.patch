@@ -1,10 +1,8 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: v0lumehi <aljic.zijad@googlemail.com>
-Date: Wed, 28 Oct 2026 16:18:05 +0100
+From: seedds <seedds@gmail.com>
+Date: Fri, 30 Oct 2026 16:14:10 +0800
 Subject: [PATCH] NSP script: verify DOTNET_ROOT by running the shader
  translator
-
-configure_dotnet takes the first runtime root `dotnet --list-runtimes` names, which can be one the translator's apphost cannot use (an arm64 .NET beside an x86_64 apphost, a Homebrew wrapper's directory). The build then stopped at the iOS shader step with an empty translator fingerprint. The script now runs `dmsh_xlate --source-sha` with the chosen root and, when it prints nothing, tries the usual roots (Homebrew libexec, ~/.dotnet, /usr/local/share/dotnet) and keeps the first that answers, or removes DOTNET_ROOT so the apphost searches its own defaults. Never falls back to a guess.
 
 Upstream-Status: pending
 Reason: configure_dotnet takes the first listed root without checking that the shader translator runs with it; the build stops at the iOS shader step with an empty fingerprint (fork commit d0ed53df). Not sent to seedds/nxnative yet
@@ -14,10 +12,10 @@ Issue: LNPANDY/NX2Apple#123
  1 file changed, 23 insertions(+)
 
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index d0dae5ba..a70bc0bf 100755
+index 7b2197cc..bfbacea1 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
-@@ -2199,6 +2199,29 @@ def main(args=None):
+@@ -2274,6 +2274,29 @@ def main(args=None):
      env.setdefault('DOTNET_CLI_TELEMETRY_OPTOUT', '1')
      env.setdefault('DOTNET_NOLOGO', '1')
      configure_dotnet(env)
@@ -46,4 +44,4 @@ index d0dae5ba..a70bc0bf 100755
 +            say('DOTNET_ROOT: removed (none verified — the apphost searches its default locations)')
      env.setdefault('J', str(os.cpu_count() or 8))   # shader_split.py's and dmsh_build.py's workers (their default is 8)
      py = sys.executable
-     app, fam = scan_nsps(nsp_dir)
+     with package_title_reader(repo, keys, env) as from_package: app, fam = scan_nsps(nsp_dir, from_package)

@@ -7,7 +7,7 @@ Update 2.0.2 (v393216) over the base game, SDK 19.3.11 (NVN 55). Game Freak's Tr
 | Setting | Where | Why |
 |---|---|---|
 | Allocator address space 12 GB → 3.94 GB | the host's StandardAllocator cap (`hle_svc.c`), every build | `StandardAllocator::Initialize(nullptr, 0x300000000)` does not fit a phone; see [Memory](#memory) |
-| Node area cut 1 GB → 62 MB | `dm/tools/sdk_patches.py`, `sdk` build `df7a3960…` (`sdk+0x1423fc` / `+0x142468`) | the alias region must hold the node area and the allocator's region |
+| Node area cut 1 GB → 62 MB | `dm/tools/sdk_patches.py` SDK-wide rules, `sdk` build `df7a3960…` (`sdk+0x1423fc` / `+0x142468`) | the alias region must hold the node area and the allocator's region |
 | 5 GB guest layout: `mem_reserve 0x140000000`, `mem_alias 0x110000000`, `mem_stack 0x10000000`, `app_pool 0xCD500000` | [`game.tsv`](game.tsv) | the 4.25 GB alias region holds 62 MB + 4 GB (SDK 19 puts the region 4 MB aligned right after the node area); the 5 GB block Tears of the Kingdom runs in |
 | `mem_map_limit on` | `game.tsv` | the SDK keeps the pages of `nninitStartup`'s probe mapped until a map fails; the pool is enforced as on Horizon, so it gives them back |
 | Integer output rows `b767103838f729ca`, `c509e77bef5b4249` | [`shader_facts_manual.tsv`](shader_facts_manual.tsv) | no PC version, so the translator declares every output float; these two pixel shaders (variations 0 and 3 of one BNSH in the `imgui.trsha` pack, the `env_ikkaku` system shaders) write an integer ID (255, or one taken from the game's uniforms) to output 1, an `R8_UI` target; Metal refused them on the character creation screen |

@@ -1,17 +1,11 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: Amost <6445689+Amost-@users.noreply.github.com>
-Date: Thu, 29 Oct 2026 20:02:49 +0100
+From: seedds <seedds@gmail.com>
+Date: Fri, 30 Oct 2026 16:14:56 +0800
 Subject: [PATCH] =?UTF-8?q?Cheats:=20the=20Atmosph=C3=A8re=20cheat=20engin?=
  =?UTF-8?q?e,=20its=20hooks,=20tools,=20tests=20and=20docs?=
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
-
-The host reads Atmosphère-format cheat files for the running game's build
-(dm/host/hle_cheats.c), keeps the player's toggles beside them, and
-scripts/cheat_anchor.py carries a cheat file across game updates. Includes
-the Cheats section of docs/frontends.md, the file contract for front ends.
-Ported onto the pinned tree from seedds/nxnative#406 (all but the Mac panel).
 
 Upstream-Status: forwarded seedds/nxnative#406
 Reason: the launcher's cheat manager builds on its file contract until upstream merges it
@@ -75,10 +69,10 @@ index d4f7ba00..68c218f3 100644
  - `game.tsv` still describes the game as "In bring-up" (the Mac reaching the first battle), while AGENTS.md lists it as playable on the iPhone.
  - `game.tsv`: only the merged 1.10 copy is extracted; the base game's own build IDs are added when needed.
 diff --git a/dm/gfx/nvn/hle_nvn.c b/dm/gfx/nvn/hle_nvn.c
-index 2f78c010..8c728bbb 100644
+index dd9ca7ba..be752246 100644
 --- a/dm/gfx/nvn/hle_nvn.c
 +++ b/dm/gfx/nvn/hle_nvn.c
-@@ -1374,6 +1374,7 @@ static void dump_frame(void) {
+@@ -1394,6 +1394,7 @@ static void dump_frame(void) {
              static long cap = -1; if (cap < 0) { const char *e = getenv("DM_MEM_CAP_GB"); cap = e ? atol(e) : DM_MEM_CAP_DEFAULT_GB; }
              if (cap > 0 && mb > (unsigned long long)cap * 1024) { LOG("[RED] memory watchdog: resident %llu MB over the limit of %ld GB (frame %llu), exiting", mb, cap, (unsigned long long)g_frame); _exit(86); } } }
      dm_guest_frame_tick();   // Deterministic guest clock (DM_DETCLOCK, host hle_os.c): each present advances a fixed step; a no-op when not enabled
@@ -87,11 +81,11 @@ index 2f78c010..8c728bbb 100644
  // ---------- Timing instrumentation (per-frame rows written to DM_NVN_TSV: frame / @metric / value; every 300 frames a summary of p50 / p95 / max) ----------
  #define TWIN 300
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index 65a16379..503407b3 100644
+index 7700a5ff..0bc6ef76 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
-@@ -2779,6 +2779,7 @@ static inline int passdump(void) {
- #define PD(...) do { if (passdump()) { fprintf(stderr, "[pass] F%llu ", (unsigned long long)atomic_load(&g_cur_frame)); fprintf(stderr, __VA_ARGS__); fputc('\n', stderr); } } while (0)
+@@ -2903,6 +2903,7 @@ static inline int passdump(void) {
+ #define PD(...) do { if (passdump()) { flockfile(stderr); fprintf(stderr, "[pass] F%llu ", (unsigned long long)atomic_load(&g_cur_frame)); fprintf(stderr, __VA_ARGS__); fputc('\n', stderr); funlockfile(stderr); } } while (0)
  static void blit_note(void) { if (g_enc) PD("E %llu copy / buffer update ends the render pass", g_stat_pass); }
  __attribute__((weak)) void dm_guest_frame_tick(void) {}   // hle_os.c provides the strong definition (DM_DETCLOCK deterministic guest clock); a no-op when graphics unit tests do not link the host   // diag.c provides the strong definition (DM_TICK_HOLD=E:SHOT unfreeze); a no-op when graphics unit tests do not link the host
 +__attribute__((weak)) void dm_cheats_present(void) {}   // hle_cheats.c provides the strong definition (the Atmosphère cheat pass per presented frame); a no-op when graphics unit tests do not link the host
@@ -99,10 +93,10 @@ index 65a16379..503407b3 100644
  __attribute__((weak)) uint64_t guest_ns(void) { return 0; }          // Same as above: read only when the deterministic clock is on; never reached in graphics unit tests
  static uint64_t att_bytes(id<MTLTexture> t, NSUInteger level) {
 diff --git a/dm/host/dm.h b/dm/host/dm.h
-index 54f15f61..a163fb1a 100644
+index a0ba4241..fc0b8b9c 100644
 --- a/dm/host/dm.h
 +++ b/dm/host/dm.h
-@@ -134,6 +134,50 @@ void dm_guest_write_prep_register(void (*fn)(void *addr, size_t len));
+@@ -136,6 +136,50 @@ void dm_guest_write_prep_register(void (*fn)(void *addr, size_t len));
  void dm_res_report_register(void (*fn)(uint32_t tick, const char *why));   // Resource count callback (registered by the graphics layer): called every 250 ticks, when the loading screen has been dismissed, and on exit when the record is full
  void (*dm_res_report_cb(void))(uint32_t tick, const char *why);   // Get the registered resource count callback (null if not registered)
  void dm_guest_write_prepare(void *addr, size_t len);
@@ -2234,10 +2228,10 @@ index 00000000..2932ca6e
 +
 +const char *dm_cheats_source(int i) { return i >= 0 && i < g_nsrc ? g_src[i] : ""; }
 diff --git a/dm/host/hle_hid.c b/dm/host/hle_hid.c
-index 148fdb3c..095ad8af 100644
+index 0a1b0a4b..bef705e7 100644
 --- a/dm/host/hle_hid.c
 +++ b/dm/host/hle_hid.c
-@@ -258,6 +258,31 @@ static void fill(NpadState *s, uint32_t id, uint32_t style) {
+@@ -441,6 +441,31 @@ static void fill(NpadState *s, uint32_t id, uint32_t style) {
      s->buttons = b;
      s->attributes = ATTR_CONNECTED | (id == NPAD_HANDHELD ? ATTR_WIRED | ATTR_LEFT_CONN | ATTR_LEFT_WIRED | ATTR_RIGHT_CONN | ATTR_RIGHT_WIRED : ATTR_LEFT_CONN | ATTR_RIGHT_CONN);
  }
@@ -2270,19 +2264,19 @@ index 148fdb3c..095ad8af 100644
  // 16-entry history is always full, and games read all of it whatever count comes back: Super Mario Odyssey (main+0x93fc20) polls every controller slot each frame, which advances
  // the shared sampling number by about 16 per frame, and with only entry 0 written neither stick did anything in play (the camera did not turn at its first hint) while buttons
 diff --git a/dm/host/hle_lifecycle.c b/dm/host/hle_lifecycle.c
-index e70fd9bd..c961452f 100644
+index 28fad5d5..e0279700 100644
 --- a/dm/host/hle_lifecycle.c
 +++ b/dm/host/hle_lifecycle.c
-@@ -13,6 +13,7 @@ void dm_host_shutdown(const char *why) {
-     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 1500 * NSEC_PER_MSEC), dispatch_get_global_queue(QOS_CLASS_USER_INTERACTIVE, 0), ^{
+@@ -14,6 +14,7 @@ void dm_host_shutdown(const char *why) {
          LOG("[RED] graceful exit not done in 1.5 seconds, exiting at once"); _exit(0); });
      hlecount_flush();                               // DM_HLECOUNT: _exit does not run atexit, write a copy here
+     dm_rec_finish();                                // DM_REC: the held state and the buffered steps (hle_hid.c)
 +    dm_cheats_exit();                               // a clean exit: no safe mode for the cheats at the next launch (atexit does not run either)
      dm_audio_suspend(1);
      dm_gfx_suspend(1);
      LOG("graceful exit done (%.3f s)", (now_ns() - t0) / 1e9);
 diff --git a/dm/host/hle_svc.c b/dm/host/hle_svc.c
-index 0673018b..e25655f5 100644
+index 085cc71f..33ab5e0e 100644
 --- a/dm/host/hle_svc.c
 +++ b/dm/host/hle_svc.c
 @@ -22,6 +22,14 @@ static size_t g_reserve;           // its size: RESERVE, or more with a DM_ALIAS
@@ -2326,10 +2320,10 @@ index 0673018b..e25655f5 100644
      for (int i = 0; i < g_nmap; i++) if (a < g_map[i].base + g_map[i].size && g_map[i].base < a + n) return i + 1;
      return 0;
 diff --git a/dm/host/main.c b/dm/host/main.c
-index ce87f4a4..8feecc47 100644
+index 6ba8c63e..341493af 100644
 --- a/dm/host/main.c
 +++ b/dm/host/main.c
-@@ -101,6 +101,7 @@ static void host_preload(int argc, char **argv) {
+@@ -102,6 +102,7 @@ static void host_preload(int argc, char **argv) {
      }
      if (!n) { static const char *def[] = DM_GAME_MODULES; for (int k = 0; k < DM_GAME_NMOD; k++) names[n++] = def[k]; }   // default module list from the game profile's modules (Mario: main sdk)
      load_modules(argv[1], names, n);
@@ -2338,7 +2332,7 @@ index ce87f4a4..8feecc47 100644
      uint64_t ta = now_ns();
      probe_install();   // DM_PROBE probes (for diagnostics)
 diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
-index 89904bc7..f1acffe8 100644
+index 05a5b35b..2683d30d 100644
 --- a/dm/host/tests/Makefile
 +++ b/dm/host/tests/Makefile
 @@ -12,7 +12,7 @@ QUIET = $(if $(strip $(SAN)),,2>/dev/null)
@@ -2350,7 +2344,7 @@ index 89904bc7..f1acffe8 100644
  	$(B)/t_language
  	$(B)/t_heap_size
  	$(B)/t_touch
-@@ -50,6 +50,7 @@ run: $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture
+@@ -53,6 +53,7 @@ run: $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture
  	$(B)/t_launcher_contract
  	$(B)/t_haptics
  	$(B)/t_haptics_apple
@@ -2358,7 +2352,7 @@ index 89904bc7..f1acffe8 100644
  	$(B)/t_nro
  	$(B)/t_symbols
  run: $(B)/t_nro
-@@ -82,6 +83,12 @@ $(B)/t_nro: t_nro.c ../loader.c ../hle_ro.c ../hle.h ../dm.h $(GAME_H) | $(B)
+@@ -85,6 +86,12 @@ $(B)/t_nro: t_nro.c ../loader.c ../hle_ro.c ../hle.h ../dm.h $(GAME_H) | $(B)
  .PHONY: nro
  nro: $(B)/t_nro
  	$(B)/t_nro
@@ -3631,7 +3625,7 @@ index 00000000..462c0d40
 +
 +if __name__ == '__main__': unittest.main()
 diff --git a/docs/development.md b/docs/development.md
-index 6b58a678..85cef1db 100644
+index e8cd757b..bf4d3f1c 100644
 --- a/docs/development.md
 +++ b/docs/development.md
 @@ -16,6 +16,113 @@ The README covers packing and playing. This page is for working on nxnative itse
@@ -3749,7 +3743,7 @@ index 6b58a678..85cef1db 100644
  
  `dm/host/hle_svc.c` serializes heap resizing, physical map/unmap, stack
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index 044f8e27..4c4a3a4a 100644
+index 3cfa659d..6993f8dc 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
 @@ -12,6 +12,11 @@ DM_AUDIO_MUTE	switch	`=1` runs the real Core Audio output path (callback pacing,
@@ -3765,12 +3759,12 @@ index 044f8e27..4c4a3a4a 100644
  DM_COPY_ROMFS	switch	`NO` keeps the game files out of the app, in the Xcode build phase (`stage_resources.sh`) and in the unsigned IPA of `build_ipa.sh` (on by default): `main.m` takes the validated `Documents/romfs.img` copied by `scripts/push_romfs.sh`, then a `Documents/romfs` folder; the build writes the image's identity as `romfs.id` into the app, and `main.m` uses only a matching image (`--romfs separate` of the NSP script sets this)
  DM_CTL	diagnostic	`=<file>` (Mac): the host polls the file every 100 ms and runs each appended line: button presses, `shot`, `passdump`, `texdump`, `env KEY=VALUE`, `peek`, `memdump`, `drag` and more
 diff --git a/docs/frontends.md b/docs/frontends.md
-index a22b9414..06e45d37 100644
+index 696d9a7e..9a758674 100644
 --- a/docs/frontends.md
 +++ b/docs/frontends.md
-@@ -72,6 +72,20 @@ Each app keeps the player's choices in its own preferences domain, its bundle ID
- - **`DM_SAVED_CHOICES=0`** (in the environment or an `env.txt`) starts with the tested defaults and leaves the saved choices as they are. **`DM_LAUNCHER=0`** only skips the settings screen (the iPhone's, or a Mac app's window): the saved choices still apply.
- - **A sandboxed front end** cannot write another app's preferences domain; this store is for front ends outside the App Sandbox, as NX2Apple is.
+@@ -82,6 +82,20 @@ The folder a Mac app's save is synced through ([Cloud saves](settings.md#cloud-s
+ - **One folder serves every game.** Each game keeps its own `<title ID>/save.dmsync` in it, so a front end can write the same path into each app's domain to give its whole library one cloud folder. A path that already ends in the game's title ID is taken as that game's own folder.
+ - **The iPhone app** keeps its folder as a security-scoped bookmark that only its own folder picker can make, so it is chosen there.
  
 +## Cheats
 +
@@ -4068,10 +4062,10 @@ index 00000000..bc3f531b
 +
 +No secondary source was needed. The host column comes from [docs/development.md, Cheats](../development.md#cheats) and `dm/host/hle_cheats.c` as of 2026-10-26 (the engine was brought to this table's reference semantics that day: failed accesses, reachable memory, the per-pass register reset).
 diff --git a/docs/reference/rewriter.md b/docs/reference/rewriter.md
-index e1429b2a..5e24914f 100644
+index c319197c..b7eda605 100644
 --- a/docs/reference/rewriter.md
 +++ b/docs/reference/rewriter.md
-@@ -23,6 +23,20 @@ To enroll a cut for any game's own module:
+@@ -32,6 +32,20 @@ To enroll a cut for any game's own module:
  3. Add the rule under `MATCH_CUTS = {'main': [rule]}` (or the appropriate non-SDK module) in that game's `patches.py`. Record the evidence and remaining runtime validation in the game's note. Do not transplant a workaround into unrelated games.
  4. Verify an unregistered build-ID copy through the rewriter, comparing its output with the known fixed cut, and run `test_nso_match.py`, `test_patches.py` and `test_nro_pack.py`. The matching tests use synthetic modules from two profiles to check relocation, rejection and isolation without game files.
  

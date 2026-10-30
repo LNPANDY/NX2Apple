@@ -1,3 +1,1 @@
 # Open findings of the fuzz harnesses (dm/tools/fuzz/fuzzlib.py), one row per cause: harness, signature pattern (fnmatch, alternatives separated by |), its inputs in corpus/<harness>/ (comma-separated), issue, what
-nacp	struct.error@nacp.py:name	empty.bin	#454	name() reads the u16 size of a compressed title area from a file shorter than 2 bytes
-romfs	struct.error@romfs.py:__init__	magic-only.img	#454	Image() unpacks the 32-byte header from an image cut short after its magic

@@ -30,6 +30,7 @@
 #define GUEST_NAME "org.d2rmobile.guest-name"   // hle_fs.c FS_GUEST_NAME: a file's guest name when its host name had to differ (a case collision); part of the save
 #define QUIET_MS 3000    // a game often commits several times in a row: the sender waits until it has been quiet this long
 #define FETCH_MS 10000   // the longest the game waits at its first save mount for the cloud's copy (a download); then it plays on with this device's save
+#define KEEP_BACKUPS 10  // backups kept of each side (local, cloud); older ones are removed when a new one is made
 enum { HDR = 8 + 4 + 4 + SS_HASH + 8 + 24 + 64, ENT = 24, CHUNK = 1 << 16 };   // header bytes, entry header bytes, the copy buffer
 static const char MAGIC[8] __attribute__((nonstring)) = "DMSYNC1\n", END[8] __attribute__((nonstring)) = "DMSYNCE\n";
 static const char *const FOLDERS[2] = {"save", "save_device"};   // their names in a packed save; on disk DM_SAVE and DM_SAVE_device (hle_fs.c h_fs_MountDeviceSave)
@@ -237,7 +238,7 @@ int ss_read(const char *bundle, const char *into, ss_meta *m) {
             if (fd >= 0 && write_all(fd, buf, k)) goto done;
             left -= k;
         }
-        if (fd >= 0) {   // the file's own date back, so the Mac front end's Saves sheet compares the save's age, not the copy's
+        if (fd >= 0) {   // the file's own date back: the newest one is the save's age when two changed saves are compared (ss_decide), not the time of the copy
             struct timespec t[2] = {{(time_t)mt, 0}, {(time_t)mt, 0}}; futimens(fd, t);
             int bad = close(fd); fd = -1; if (bad) goto done;
         }
@@ -285,12 +286,40 @@ static void write_base(const char *save, const char *hash) {   // written beside
     }
 }
 
-// A folder for a save about to be replaced: <save>-backups/<date> <side> (local: this device's, cloud: the cloud's), beside the ones the Mac front end's save copy makes (SaveTransfer.swift)
+// A backup this file made for `side`: "YYYY-MM-DD HH.MM.SS <side>", or with " <k>" after it (backup_dir); anything else in <save>-backups is the player's
+static int is_backup(const char *name, const char *side) {
+    static const char form[] = "0000-00-00 00.00.00 ";
+    for (int i = 0; form[i]; i++) if (form[i] == '0' ? !isdigit((unsigned char)name[i]) : name[i] != form[i]) return 0;
+    const char *s = name + sizeof form - 1; size_t sl = strlen(side);
+    if (strncmp(s, side, sl)) return 0;
+    if (!s[sl]) return 1;
+    if (s[sl] != ' ' || !s[sl + 1]) return 0;
+    for (s += sl + 1; *s; s++) if (!isdigit((unsigned char)*s)) return 0;
+    return 1;
+}
+
+// Only the newest KEEP_BACKUPS of a side stay: each switch between devices keeps a whole save, and on a phone they add up. `made` (just made) is one of them whatever its date says
+static void prune_backups(const char *save, const char *side, const char *made) {
+    char dir[PATH_MAX], **v; size_t n, k = 0, gone = 0; snprintf(dir, sizeof dir, "%s-backups", save);
+    if (names_of(dir, &v, &n)) return;
+    const char *mine = strrchr(made, '/'); mine = mine ? mine + 1 : made;
+    for (size_t i = 0; i < n; i++) if (is_backup(v[i], side) && strcmp(v[i], mine)) v[k++] = v[i]; else free(v[i]);   // in date order (names_of sorts them)
+    for (size_t i = 0; i + (KEEP_BACKUPS - 1) < k; i++) {
+        char p[PATH_MAX]; snprintf(p, sizeof p, "%s/%s", dir, v[i]);
+        if (rm_tree(p)) SRED("cannot remove the old backup %s (errno=%d)", p, errno); else gone++;
+    }
+    if (gone) SLOG("removed %zu old %s backup%s (the newest %d stay)", gone, side, gone == 1 ? "" : "s", KEEP_BACKUPS);
+    free_names(v, k);
+}
+
+// A folder for a save about to be replaced: <save>-backups/<date> <side> (local: this device's, cloud: the cloud's); the oldest of that side beyond KEEP_BACKUPS go
 static int backup_dir(const char *save, const char *side, char *out, size_t n) {
     char stamp[32]; time_t t = time(NULL); struct tm tm; localtime_r(&t, &tm); strftime(stamp, sizeof stamp, "%Y-%m-%d %H.%M.%S", &tm);
     snprintf(out, n, "%s-backups/%s %s", save, stamp, side);
     for (int k = 2; !access(out, F_OK); k++) snprintf(out, n, "%s-backups/%s %s %d", save, stamp, side, k);
-    return mkdirs(out);
+    if (mkdirs(out)) return -1;
+    prune_backups(save, side, out);
+    return 0;
 }
 
 // DM_SAVE_SYNC → <folder>/<title ID>/save.dmsync; 0 when sync is off
@@ -306,7 +335,7 @@ static int cloud_file(const char *title, char *out, size_t n) {
             else SLOG("off: iCloud Drive is not on for this Mac (no %s)", drive);
             return 0;
         }
-        snprintf(dir, sizeof dir, "%s/NX2Apple Saves", drive);
+        snprintf(dir, sizeof dir, "%s/nxnative Saves", drive);
 #else
         SLOG("off: DM_SAVE_SYNC=icloud is the Mac's iCloud Drive folder; on this device, choose the folder in the launcher (Cloud saves)");
         return 0;
@@ -334,12 +363,13 @@ static void deadline(int ms, struct timespec *ts) {
     ts->tv_sec += ms / 1000; ts->tv_nsec += (long)(ms % 1000) * 1000000;
     if (ts->tv_nsec >= 1000000000) { ts->tv_sec++; ts->tv_nsec -= 1000000000; }
 }
-static int fetch_timed(const char *cloud, const char *local, int ms) {   // front_save_sync_fetch's answer, or -1 at the time limit
+static int fetch_timed(const char *cloud, const char *local, int ms) {   // front_save_sync_fetch's answer, or -1 at the time limit (or with no thread to wait on)
     fetch_job *j = calloc(1, sizeof *j); pthread_t t;
     if (!j) return -1;
     pthread_mutex_init(&j->mu, NULL); pthread_cond_init(&j->cv, NULL);
     snprintf(j->cloud, sizeof j->cloud, "%s", cloud); snprintf(j->local, sizeof j->local, "%s", local);
-    if (pthread_create(&t, NULL, fetch_thread, j)) { pthread_mutex_destroy(&j->mu); pthread_cond_destroy(&j->cv); free(j); return front_save_sync_fetch(cloud, local); }
+    int e = pthread_create(&t, NULL, fetch_thread, j);
+    if (e) { pthread_mutex_destroy(&j->mu); pthread_cond_destroy(&j->cv); free(j); SRED("no thread to fetch the cloud's save (error %d)", e); return -1; }   // not fetched on this thread: a download that never finishes would hold the game
     pthread_detach(t);
     struct timespec ts; deadline(ms, &ts);
     pthread_mutex_lock(&j->mu);
@@ -499,9 +529,11 @@ int save_sync_flush(int timeout_ms) {
     return ok;
 }
 
-int save_sync_after_exit(const char *save, const char *title) {
-    char cloud[PATH_MAX];
-    return !cloud_file(title, cloud, sizeof cloud) || send_save(save, title, cloud);
+int save_sync_after_exit(const char *save, const char *title) {   // save: DM_SAVE, its trailing slashes stripped as h_fs_MountSave strips them (the same <save>.sync and <save>-backups)
+    char cloud[PATH_MAX], dd[PATH_MAX];
+    if (!save || !*save) return 1;
+    snprintf(dd, sizeof dd, "%s", save); size_t L = strlen(dd); while (L > 1 && dd[L - 1] == '/') dd[--L] = 0;
+    return !cloud_file(title, cloud, sizeof cloud) || send_save(dd, title, cloud);
 }
 
 // ---------- the platform's parts: these defaults are plain file copies, which the Mac's iCloud Drive takes (it downloads a file a read asks for) ----------

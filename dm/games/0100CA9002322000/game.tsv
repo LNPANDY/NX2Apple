@@ -1,0 +1,35 @@
+# SteamWorld Dig 2 (Image & Form's own engine), SDK 3.4.0, NVN.
+# Started from the NSP script's provisional profile; brought up on the Mac with no change to it (README.md).
+
+# ---- Identity ----
+title_id	0100CA9002322000
+program_id	0100CA9002322000
+
+# ---- App ----
+name	SteamWorld Dig 2
+ipa	SteamWorldDig2.ipa
+app_category	public.app-category.action-games
+
+# ---- Versions ----
+build	v196608	4.1.1	main=4417bbfe114aa26572fcc0635e02f58f	sdk=d6afd2cb180ca36e58ec21a12cf27eec
+package	v196608
+shader_versions	v196608
+
+# ---- Files ----
+# every module main imports from
+modules	main sdk
+romfs_marker	Cutscenes/cutscene1/cutscene1_0.bntx.z
+zip_store	.bntx:.impak:.ogg:.metallib
+
+# ---- Memory ----
+# main sets a heap of at most the pool − 64 MB: a 3328 MB heap region
+mem_reserve	0x100000000
+mem_alias	0x10000000
+mem_stack	0x10000000
+app_pool	0xCD500000
+# the NPDM declares 0 MB of system resource: IsVirtualAddressMemoryEnabled is false, as on Horizon (Big Brain Academy: Brain vs. Brain sets a heap only then)
+sys_resource	0x0
+
+# ---- Shader split ----
+shader_groups	/Audio/=audio /Characters/=characters /Atlases/=atlases /Textures/=textures /Fonts/=fonts /Language/=language /Menus/=menus /UI/=ui /Cutscenes/=cutscenes /Sprites/=sprites /Effects/=effects /Patchsets/=patchsets
+shader_note	SteamWorld Dig 2 shaders (provisional profile)

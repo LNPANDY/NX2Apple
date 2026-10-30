@@ -6,8 +6,8 @@ Update 2.0.59001 (v786432) over the base game, SDK 16.2.0. Unity 2021.3.25f1 IL2
 
 | Setting | Where | Why |
 |---|---|---|
-| Node area 1 GB → 62 MB | `dm/tools/sdk_patches.py`, `sdk` build `3053b229…`, `sdk+0x134728` / `+0x1347bc` | `StandardAllocator::Initialize` aborted before `nnMain`; see [Memory](#memory) |
-| Region alignment 4 MB / 32 MB / 1 GB → 2 MB (SDK 20's) | `sdk_patches.py`, the same build, `sdk+0x134914` / `+0x13491c` / `+0x134920` | Unity's regions took twice their size in address space; see [Memory](#memory) |
+| Node area 1 GB → 62 MB | `dm/tools/sdk_patches.py` SDK-wide rules, `sdk` build `3053b229…`, `sdk+0x134728` / `+0x1347bc` | `StandardAllocator::Initialize` aborted before `nnMain`; see [Memory](#memory) |
+| Region alignment 4 MB / 32 MB / 1 GB → 2 MB (SDK 20's) | `sdk_patches.py` SDK-wide rules (measured here; a row on this build until 2026-10-30), the same build, `sdk+0x134914` / `+0x13491c` / `+0x134920` | Unity's regions took twice their size in address space; see [Memory](#memory) |
 | `sys_resource 0x1000000` | [`game.tsv`](game.tsv) | the NPDM's 16 MB of system resource: virtual address memory |
 | 5 GB guest layout: `mem_reserve 0x140000000`, `mem_alias 0x118000000`, `mem_stack 0x10000000` | `game.tsv` | Ace Attorney Investigations Collection's layout ([010005501E68C000](../010005501E68C000/README.md)) |
 | `app_pool 0x60000000` (1.5 GB) | `game.tsv` | with the hardware pool Unity got no address region; see [Memory](#memory) |

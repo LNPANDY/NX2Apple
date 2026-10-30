@@ -29,7 +29,9 @@ static void target(float fps) {
     uint32_t bits; memcpy(&bits, &fps, sizeof bits);
     __atomic_store_n((uint32_t *)fps_state, bits, __ATOMIC_RELAXED);
 }
-static void movie(int on) { __atomic_store_n((uint32_t *)(fps_state + 4), on, __ATOMIC_RELAXED); }
+static _Atomic int test_movie;
+int dm_movie_playing(void) { return atomic_load(&test_movie); }   // hle_movie.c: a movie's pictures are being handed out
+static void movie(int on) { atomic_store(&test_movie, on); }
 
 static _Atomic int ready, start;
 static void *reader(void *unused) {

@@ -26,6 +26,7 @@ run: $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture 
 	$(B)/t_audio
 	$(B)/t_audio_spsc
 	$(B)/t_fpslock
+	$(B)/t_uecvar
 	$(B)/t_audren_work
 	$(B)/t_audren_layout
 	$(B)/t_swkbd
@@ -41,11 +42,13 @@ run: $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture 
 	$(B)/t_vorbis
 	$(B)/t_vorbis_divides
 	$(B)/t_movie_vpx
+	$(B)/t_movie_avc
 	$(B)/t_motion
 	$(B)/t_motion_apple
+	$(B)/t_pad_apple
 	$(B)/t_motion_pro
 	$(B)/t_motion_pro_mac
-	$(B)/t_hid
+	TMPDIR="$(abspath $(B))" $(B)/t_hid
 	$(B)/t_input_map
 	$(B)/t_launcher_contract
 	$(B)/t_haptics
@@ -107,7 +110,7 @@ $(B)/t_fs: t_fs.c t_fs_stub.c ../hle_fs.c ../save_sync.c ../save_sync.h ../hle_b
 	$(CLANG) -O1 -Wno-unused-function -I.. $(GINC) -o $@ t_fs.c t_fs_stub.c ../hle_bigstack.c ../save_sync.c ../hle_profile.c
 $(B)/t_fs_commit_list: t_fs_commit_list.c t_fs_stub.c ../hle_fs.c ../save_sync.c ../save_sync.h ../hle_bigstack.c ../hle.h ../dm.h $(GAME_H) ../hle_profile.c ../hle_profile.h | $(B)
 	$(CLANG) -O1 -Wall -Wno-unused-function -I.. $(GINC) -o $@ t_fs_commit_list.c t_fs_stub.c ../hle_bigstack.c ../save_sync.c ../hle_profile.c
-$(B)/t_fs_commit_list_tsan: t_fs_commit_list.c t_fs_stub.c ../hle_fs.c ../save_sync.c ../save_sync.h ../hle_bigstack.c ../hle.h ../dm.h $(GAME_H) | $(B)
+$(B)/t_fs_commit_list_tsan: t_fs_commit_list.c t_fs_stub.c ../hle_fs.c ../save_sync.c ../save_sync.h ../hle_bigstack.c ../hle.h ../dm.h $(GAME_H) ../hle_profile.c ../hle_profile.h | $(B)
 	$(CLANG) -O1 -g -fsanitize=thread -Wall -Wno-unused-function -I.. $(GINC) -o $@ t_fs_commit_list.c t_fs_stub.c ../hle_bigstack.c ../save_sync.c ../hle_profile.c
 .PHONY: fs-tsan
 fs-tsan: $(B)/t_fs_commit_list_tsan
@@ -135,6 +138,9 @@ $(B)/t_audio_spsc_tsan: t_audio_spsc.c ../hle_audio.c ../hle.h ../dm.h $(GAME_H)
 run: $(B)/t_fpslock
 $(B)/t_fpslock: t_fpslock.c ../hle_fpslock.c ../hle.h ../dm.h $(GAME_H) | $(B)
 	$(CLANG) -O1 -g -Wno-unused-function $(GINC) -o $@ t_fpslock.c ../hle_profile.c
+run: $(B)/t_uecvar
+$(B)/t_uecvar: t_uecvar.c ../hle_uecvar.c ../hle.h ../dm.h $(GAME_H) | $(B)
+	$(CLANG) -O1 -g -Wno-unused-function $(GINC) -o $@ t_uecvar.c
 $(B)/t_swkbd: t_swkbd.c ../hle_swkbd.c ../hle.h ../dm.h $(GAME_H) | $(B)
 	$(CLANG) -O1 -Wno-unused-function -I.. $(GINC) -o $@ t_swkbd.c ../hle_swkbd.c
 $(B)/t_altstack: t_altstack.c t_altstack_stub.c ../crash.c ../dm.h $(GAME_H) | $(B)
@@ -150,6 +156,9 @@ $(B)/t_motion: t_motion.c ../motion_fusion.h | $(B)
 run: $(B)/t_motion_apple
 $(B)/t_motion_apple: t_motion_apple.m ../motion_apple.h ../dm_input.h | $(B)
 	$(CLANG) -O1 -g -fobjc-arc -Wall -Werror -I.. -o $@ t_motion_apple.m -framework Foundation -framework GameController
+run: $(B)/t_pad_apple
+$(B)/t_pad_apple: t_pad_apple.m ../pad_apple.h ../dm_input.h | $(B)
+	$(CLANG) -O1 -g -fobjc-arc -Wall -Werror -I.. -o $@ t_pad_apple.m -framework Foundation -framework GameController
 run: $(B)/t_motion_pro $(B)/t_motion_pro_mac
 $(B)/t_motion_pro: t_motion_pro.c ../motion_pro.h | $(B)
 	$(CLANG) -O1 -g -Wall -Werror -fsanitize=address,undefined -o $@ t_motion_pro.c
@@ -188,6 +197,10 @@ $(B)/t_vorbis: t_vorbis.c ../../third_party/stb_vorbis/stb_vorbis.c | $(B)
 $(B)/t_vorbis_divides: t_vorbis.c ../../third_party/stb_vorbis/stb_vorbis.c | $(B)
 	$(CLANG) -O1 -g -DSTB_VORBIS_DIVIDES_IN_RESIDUE -Wno-unused-function -Wno-tautological-compare -o $@ t_vorbis.c
 run: $(B)/t_movie_vpx
+run: $(B)/t_movie_avc
+$(B)/t_movie_avc: t_movie_avc.c ../hle_movie.c ../hle_movie_avc.c ../hle_movie_avc.h $(GAME_H) ../gen/vpx/libvpx.a | $(B)
+	$(CLANG) -O1 -g -Wno-unused-function -Wno-tautological-compare $(GINC) -I../../third_party/libvpx -I../../third_party/libvpx/config -I../../third_party/stb_vorbis -Wl,-dead_strip -o $@ t_movie_avc.c ../gen/vpx/libvpx.a \
+		-framework AudioToolbox -framework VideoToolbox -framework CoreMedia -framework CoreVideo -framework CoreFoundation
 $(B)/t_movie_vpx: t_movie_vpx.c ../hle_movie.c $(GAME_H) ../gen/vpx/libvpx.a | $(B)
 	$(CLANG) -O1 -g -Wno-unused-function -Wno-tautological-compare $(GINC) -I../../third_party/libvpx -I../../third_party/libvpx/config -I../../third_party/stb_vorbis -Wl,-dead_strip -o $@ t_movie_vpx.c ../gen/vpx/libvpx.a -framework AudioToolbox
 ../gen/vpx/libvpx.a: FORCE
@@ -208,7 +221,7 @@ resolution: $(B)/t_resolution
 	@for fps in 0 30 60; do for mode in 0 1 unset invalid; do $(B)/t_resolution $$mode $$fps asia || exit 1; done; done
 tsan: $(B)/t_audio_spsc_tsan $(B)/t_hid_tsan
 	$(B)/t_audio_spsc_tsan
-	$(B)/t_hid_tsan
+	TMPDIR="$(abspath $(B))" $(B)/t_hid_tsan
 
 MEM_FLAGS = -O1 -Wall -Werror -Wno-unused-function -Imemory_profile -I..
 MEM_DEPS = t_svc_memory.c memory_profile/game_profile.h ../hle_svc.c ../hle_guestthread.c ../hle.h ../dm.h ../hle_profile.c ../hle_profile.h

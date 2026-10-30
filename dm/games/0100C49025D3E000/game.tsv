@@ -1,0 +1,46 @@
+# EA SPORTS FC 27 (Frostbite 2025.1.2), SDK 22.2.0, NVN in the renderer NRO Engine.Render.Core2.PlatformNvn.nro.
+# Started from the NSP script's provisional profile; the memory layout is measured on the Mac (README.md, Memory).
+
+# ---- Identity ----
+title_id	0100C49025D3E000
+program_id	0100C49025D3E000
+
+# ---- App ----
+name	EA SPORTS FC 27
+ipa	EaSportsFc27.ipa
+app_category	public.app-category.sports-games
+
+# ---- Versions ----
+build	v393216	1.8d.310c	main=a48c0de3bc353efa0e4d359bde05ef24	sdk=fed212d6e0963706f9f4b16ea5d65879
+package	v393216
+shader_versions	v393216
+
+# ---- Files ----
+# every module main imports from (the renderer NRO is loaded at run time, nro_collect.py)
+modules	main sdk
+romfs_marker	Data/NX/superbundlelayout/installpackage_05/cas_01.cas
+zip_store	.cas:.nrs:.metallib
+
+# ---- Memory ----
+# The NPDM declares 6 MB of system resource (virtual address memory) and main sets a heap of 1.19 GB (a 1.25 GB heap region, the heap check). Frostbite's VirtualAlloc reserves its
+# arenas as address regions, 264 of them and 2.8 GB in its first minute while it maps 0.7 GB: after the 62 MB node area they reach alias +3.5 GB at the title and +4.5 GB
+# 67 minutes into a match, so the alias region is 5.25 GB in a 7 GB block (README.md, Memory; more than the 5 GB proven on an iPhone)
+mem_reserve	0x1c0000000
+mem_alias	0x150000000
+mem_stack	0x10000000
+app_pool	0xCD500000
+# the NPDM declares 6 MB of system resource
+sys_resource	0x600000
+
+# ---- Shader split ----
+shader_groups	/Data/=data /Patch/=patch
+shader_note	EA SPORTS FC 27 shaders: Frostbite CompiledBytecode resources (frostbite.py)
+# The renderer keeps one copy of each control section by a hash that leaves out GLSLC's compile information (+0x7d0..+0x7e7) and hands later shaders the first one, so at run time
+# those bytes name another shader (README.md, Shaders)
+shader_key_skip	0x7d0+0x18
+
+# ---- Frame rate ----
+# 60 fps as on the game's other platforms: the host sets Frostbite's simulation rate (SimulationTimeSettings, found by name) and, on 1.8d.310c, the game's frame regulator to the
+# target (hle_fpslock.c); the game asks for present interval 2, which display pacing ignores (README.md, Frame rate). 30 runs the game's own 30
+fps_target	60
+present_interval	display

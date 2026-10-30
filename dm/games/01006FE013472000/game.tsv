@@ -1,0 +1,41 @@
+# Game profile of Mario Party Superstars (Switch, update 1.1.1). Plays on the Mac
+# Format: see dm/games/README.md
+# NintendoWare Bezel Engine 1.55, SDK 11.4.3 (the sdk, GLSLC and movie modules of Big Brain Academy: Brain vs. Brain): nearly all of RomFS is in Bezel Engine archives (.bea, zstd entries);
+# the shaders are BNSH in their .bfsha / .bnsh entries (the engine's own in System.nx.bea) and in main (shader_split.py bea_members). The boards and minigames are 126 NROs (nro/NX_Release, one NRR)
+
+# ---- Identity ----
+title_id	01006FE013472000
+program_id	01006FE013472000
+
+# ---- App ----
+# Game name: only a label for profile listings and the Mac window title; the iOS app name is the game name in the base NSP, and the bundle ID comes from the base game title ID (build_ipa.sh / NSP script)
+name	Mario Party Superstars
+ipa	MarioPartySuperstars.ipa
+app_category	public.app-category.board-games
+
+# ---- Versions ----
+build	v131072	1.1.1	main=2841e26d7fb8aa1783afd4b6c116d4f9	subsdk0=4dd097b435891c5e0e15a65dbe47124f	subsdk1=507f19d1240d09d00992248e8a0fd77e	sdk=2d369d9999e3e10e665106f840ffff9b
+package	v131072
+shader_versions	v131072
+
+# ---- Files ----
+# load order as on Horizon: main, subsdk*, sdk (subsdk0 = GLSLC, imported and never called; subsdk1 = NintendoSDK_movie)
+modules	main subsdk0 subsdk1 sdk
+romfs_marker	Archive/Resident.nx.bea
+zip_store	.bea:.bfstm:.nro:.metallib
+
+# ---- Memory ----
+# The NPDM declares no system resource, so IsVirtualAddressMemoryEnabled is false and nninitStartup sets a heap of pool − used memory, as Big Brain Academy's: a 3.14 GB heap in the 4 GB layout
+sys_resource	0
+mem_reserve	0x100000000
+mem_alias	0x10000000
+mem_stack	0x10000000
+app_pool	0xCD500000
+
+# ---- Shader split (shader_split.py; BNSH in the Bezel Engine archives, bea_members) ----
+shader_groups	/Archive/=archive
+shader_note	Mario Party Superstars shaders
+
+# ---- Mode ----
+# the NVN depth mode the game sets (nvnDeviceSetDepthMode near = 0): the prebuilt pipeline bases take the main0_z vertex entries
+depth_mode	zero

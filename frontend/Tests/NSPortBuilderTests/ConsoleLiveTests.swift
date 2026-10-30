@@ -77,9 +77,24 @@ import SwiftUI
         XCTAssertEqual(launches.count, 1)
         XCTAssertEqual(launches.first?.environment["DM_PAD_MERGE"], "1")
         XCTAssertEqual(launches.first?.environment["DM_LAUNCHER"], "0")
+        if let main = NSScreen.main { XCTAssertEqual(launches.first?.environment["DM_SCREEN"], GameStart.displayID(of: main).map(String.init), "the game opens on the launcher's display") }
+        XCTAssertEqual(launches.first?.environment["DM_FULLSCREEN"], "1", "console mode plays fullscreen whatever Display says")
         XCTAssertEqual(launches.first?.game.titleID, titleID)
-        let expected = launches.first.map { GameStart.environment(for: $0.game, library: GameLibrary(file: temporary.appendingPathComponent("other.json")), controls: layout, repo: "", labels: { $0 }) }
-        XCTAssertEqual(launches.first?.environment, expected, "the same function the desktop Play uses")
+        let expected = launches.first.map { GameStart.environment(for: $0.game, library: GameLibrary(file: temporary.appendingPathComponent("other.json")), controls: layout, repo: "", labels: { $0 }, fullscreen: true) }
+        XCTAssertEqual(launches.first?.environment, expected, "the same function the desktop Play uses, with the console's fullscreen")
+    }
+
+    func testConsoleLaunchesFullscreenOverTheSavedDisplayChoice() throws {
+        var launches: [Launch] = []
+        let (driver, library, _) = try makeDriver { launches.append($0) }
+        let game = try XCTUnwrap(library.games.first)
+        let display = try XCTUnwrap(LaunchSetting.forMac(app: game.appPath, titleID: game.titleID, repo: "", labels: { $0 })?.first { $0.env == "DM_FULLSCREEN" })
+        library.setLaunchOption(display, display.onValue, for: game.id)   // a saved Fullscreen choice, as the desktop would record it
+        driver.refresh()
+        let id = try XCTUnwrap(driver.state.games.first?.id)
+        driver.play(id)
+        XCTAssertEqual(launches.first?.environment["DM_FULLSCREEN"], "1")
+        XCTAssertNil(driver.state.games.first?.visibleSettings.first { $0.env == "DM_FULLSCREEN" }, "the sheet does not offer what Play overrides")
     }
 
     func testStartingEndsWhenTheGameQuits() async throws {

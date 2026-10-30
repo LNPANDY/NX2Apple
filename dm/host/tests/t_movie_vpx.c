@@ -32,7 +32,27 @@ static void decode(int type, int format, const uint8_t *packet, int size) {
     vpx_codec_destroy(&d.vpx);
     free(d.out[0].frm);
 }
+// The frame step's movie signal (dm_movie_playing): a video picture handed out raises it for MD_PLAYING_NS; an audio output does not
+static uint64_t test_now = 1000000000ull;
+uint64_t now_ns(void) { return test_now; }
+__thread _Atomic int dm_host_work;   // hle_thread.c
+static void playing(void) {
+    static mdec_t video = { .type = MD_TYPE_VP9, .nout = MD_NOUT_VIDEO, .started = 1 }, audio = { .type = MD_TYPE_VORBIS, .nout = MD_NOUT, .started = 1 };
+    pthread_mutex_init(&video.mu, NULL); pthread_mutex_init(&audio.mu, NULL);
+    void *vs[2] = { NULL, &video }, *as[2] = { NULL, &audio };
+    int idx, left; int64_t pts; uint32_t flags;
+    assert(!dm_movie_playing());
+    audio.outq[0] = 0; audio.noutq = 1;
+    assert(!h_movie_AcqOut(as, &idx, &pts, &flags, &left) && idx == 0 && !dm_movie_playing());
+    video.outq[0] = 3; video.noutq = 1;
+    assert(!h_movie_AcqOut(vs, &idx, &pts, &flags, &left) && idx == 3 && dm_movie_playing());
+    test_now += MD_PLAYING_NS - 1; assert(dm_movie_playing());
+    assert(h_movie_AcqOut(vs, &idx, &pts, &flags, &left) == MD_NO_OUTPUT && dm_movie_playing());   // no picture ready: nothing handed out, the signal is not renewed
+    test_now += 1; assert(!dm_movie_playing());
+    puts("movie signal: a video picture raises it for half a second, audio outputs do not");
+}
 int main(void) {
+    playing();
     int w = 0, h = 0;
     assert(!vp8_size(vp8, 9, &w, &h));
     assert(vp8_size(vp8, sizeof vp8, &w, &h) && w == 16 && h == 16);

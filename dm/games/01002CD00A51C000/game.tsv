@@ -1,0 +1,40 @@
+# Baba Is You (Hempuli; MP2 Games' Switch port), SDK 19.3.3, NVN.
+# Started from the NSP script's provisional profile; brought up on the Mac with no change to it beyond the shader group (README.md).
+
+# ---- Identity ----
+title_id	01002CD00A51C000
+program_id	01002CD00A51C000
+
+# ---- App ----
+name	Baba Is You
+ipa	BabaIsYou.ipa
+app_category	public.app-category.puzzle-games
+
+# ---- Versions ----
+build	v786432	1.0.12	main=4e1e4c7bc925853c998b8af07726c87d	sdk=a65883c2863f42f93e0f43f2d7aba0e8
+package	v786432
+shader_versions	v786432
+
+# ---- Files ----
+# every module main imports from
+modules	main sdk
+romfs_marker	Assets.dat
+zip_store	.dat:.ogg:.png:.ttf:.metallib
+
+# ---- Memory ----
+# main sets a heap of at most the pool − 64 MB: a 3328 MB heap region
+mem_reserve	0x100000000
+mem_alias	0x10000000
+mem_stack	0x10000000
+app_pool	0xCD500000
+# the NPDM declares 0 MB of system resource: IsVirtualAddressMemoryEnabled is false, as on Horizon (Big Brain Academy: Brain vs. Brain sets a heap only then)
+sys_resource	0x0
+
+# ---- Shader split ----
+# all 131 shaders are GLSLC programs (vertex + pixel + reflection) inside the root Assets.dat
+shader_groups	/Assets.dat=assets
+shader_note	Baba Is You shaders
+
+# ---- After the rewrite ----
+# used memory for the current rewritten modules, at least the default 64 MB
+mem_used	0x6000000

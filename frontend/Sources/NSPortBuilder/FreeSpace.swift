@@ -8,11 +8,13 @@ import SwiftUI
 /// or derived profile, which someone may have edited), run/ (the Mac development build's save) and nsp/ (NSZ files
 /// converted to NSP, which are game files).
 enum BuildFolderPart: String, CaseIterable, Identifiable {
-    case extracted, shaders, xcode, caches
+    case extracted, shaders, oldShaders, xcode, caches
     var id: String { rawValue }
 
     /// The part a top-level entry of the build folder belongs to; nil for what is never offered. A stage's reuse key
     /// (<name>.key) and an interrupted stage's output (<name>.partial) go with the folder they belong to.
+    /// `oldShaders` is never the part of a top-level entry: it is the part of shader/ (which `shaders` removes whole) that
+    /// belongs to other versions of the shader chain, and `BuildFolder.staleShaderEntries` finds it.
     static func of(_ name: String) -> BuildFolderPart? {
         var base = name
         for suffix in [".key", ".partial"] where base.hasSuffix(suffix) { base = String(base.dropLast(suffix.count)) }
@@ -33,7 +35,16 @@ struct BuildFolderSurvey: Equatable {
     var sizes: [BuildFolderPart: Int64] = [:]
     /// Everything that stays: logs, the profile, converted NSPs, saves, and anything the game still needs that lies inside.
     var kept: Int64 = 0
+    /// The shader libraries of other chain versions (b-<old> in shader/cache and shader/ios, with their keys), one entry per
+    /// chain version, already counted in `sizes[.shaders]`. Empty when the current chain is not known.
+    var oldShaders: [OldShaderVersion] = []
     var parts: [BuildFolderPart] { BuildFolderPart.allCases.filter { (sizes[$0] ?? 0) > 0 } }
+}
+
+/// One old chain version's libraries (the Mac's, the iPhone's and their keys), in bytes on disk.
+struct OldShaderVersion: Equatable {
+    var name: String   // b-<12 hex digits>
+    var bytes: Int64
 }
 
 enum FreeSpaceError: LocalizedError, Equatable {
@@ -80,10 +91,52 @@ enum BuildFolder {
         URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL.path
     }
 
+    /// The shader chain version of the checkout the launcher builds with: DMSH_CHAIN in dm/gfx/nvn/dmsh_chain.h, read as
+    /// the NSP script's chain_of() does (`#define DMSH_CHAIN "(.*)"`). nil when the header is missing or has none, and then no
+    /// shader version counts as old.
+    nonisolated static func currentChain(repo: String) -> String? {
+        guard !repo.isEmpty, let text = try? String(contentsOfFile: repo + "/dm/gfx/nvn/dmsh_chain.h", encoding: .utf8),
+              let range = text.range(of: #"#define DMSH_CHAIN "(.*)""#, options: .regularExpression) else { return nil }
+        let line = text[range]
+        guard let open = line.firstIndex(of: "\""), let close = line.lastIndex(of: "\""), open < close else { return nil }
+        let chain = String(line[line.index(after: open)..<close])
+        return chain.isEmpty ? nil : chain
+    }
+
+    /// The entries of the build folder that hold the libraries of chain versions other than `chain`, relative to it:
+    /// shader/cache/b-<old> (Mac) and shader/ios/b-<old> (iPhone) with shader/ios/b-<old>.key and shader/mac-b-<old>.key, the
+    /// names scripts/build_ipa_from_nsp.py's build_shaders writes. Only names of the form b-<12 hex digits> count, so the
+    /// Metal compile cache (shader/cache/cas), the current chain, a Vulkan or GL game's vk / gl and anything else stay.
+    /// Grouped by version.
+    nonisolated static func staleShaderEntries(in root: String, chain: String) -> [String: [String]] {
+        var found: [String: [String]] = [:]
+        let fm = FileManager.default
+        let version = #"b-[0-9a-f]{12}"#
+        for (dir, pattern, folder) in [("shader/cache", version, true), ("shader/ios", version, true),
+                                       ("shader/ios", version + #"\.key"#, false), ("shader", "mac-" + version + #"\.key"#, false)] {
+            for name in (try? fm.contentsOfDirectory(atPath: root + "/" + dir)) ?? [] {
+                guard name.range(of: "^" + pattern + "$", options: .regularExpression) != nil else { continue }
+                var isDir: ObjCBool = false
+                guard fm.fileExists(atPath: root + "/" + dir + "/" + name, isDirectory: &isDir), isDir.boolValue == folder else { continue }
+                let key = name.replacingOccurrences(of: "mac-", with: "", options: .anchored).replacingOccurrences(of: ".key", with: "")
+                if key != "b-" + chain { found[key, default: []].append(dir + "/" + name) }
+            }
+        }
+        return found
+    }
+
     /// The sizes of the parts and of what stays. Reads the whole folder (tens of GB for some games): off the main thread.
-    nonisolated static func survey(_ folder: String, protecting: [String]) -> BuildFolderSurvey {
+    /// `chain`: the current shader chain version (currentChain), for the shader versions that are not it.
+    nonisolated static func survey(_ folder: String, protecting: [String], chain: String? = nil) -> BuildFolderSurvey {
         let root = resolved(folder)
         var result = BuildFolderSurvey(folder: root)
+        if let chain {
+            result.oldShaders = staleShaderEntries(in: root, chain: chain)
+                .map { OldShaderVersion(name: $0.key, bytes: $0.value.reduce(0) { $0 + size(root + "/" + $1) }) }
+                .sorted { $0.name < $1.name }
+            let bytes = result.oldShaders.reduce(0) { $0 + $1.bytes }
+            if bytes > 0 { result.sizes[.oldShaders] = bytes }
+        }
         for name in (try? FileManager.default.contentsOfDirectory(atPath: root)) ?? [] {
             let path = root + "/" + name
             guard let part = BuildFolderPart.of(name) else { result.kept += size(path); continue }
@@ -98,7 +151,9 @@ enum BuildFolder {
     /// not a build folder. A protected path inside a part stays, with the folders that lead to it. Deleted, not moved to the
     /// Trash: the Trash keeps the bytes on the same drive. Returns the bytes freed.
     @discardableResult
-    nonisolated static func remove(_ parts: Set<BuildFolderPart>, in folder: String, protecting: [String], buildRunning: Bool) throws -> Int64 {
+    /// `.oldShaders` removes only the shader libraries of chain versions other than `chain` (and their keys), nothing without a
+    /// chain, and nothing more when `.shaders` is chosen too (that removes all of shader/).
+    nonisolated static func remove(_ parts: Set<BuildFolderPart>, in folder: String, protecting: [String], buildRunning: Bool, chain: String? = nil) throws -> Int64 {
         guard !buildRunning else { throw FreeSpaceError.buildRunning }
         let root = resolved(folder)
         guard root.hasSuffix("_build"), root.split(separator: "/").count > 1 else { throw FreeSpaceError.notABuildFolder(folder) }
@@ -107,6 +162,11 @@ enum BuildFolder {
         for name in (try? FileManager.default.contentsOfDirectory(atPath: root)) ?? [] {
             guard let part = BuildFolderPart.of(name), parts.contains(part) else { continue }
             removeTree(root + "/" + name, protecting: protecting, freed: &freed, failures: &failures)
+        }
+        if parts.contains(.oldShaders), !parts.contains(.shaders), let chain {
+            for entry in staleShaderEntries(in: root, chain: chain).values.flatMap({ $0 }).sorted() {
+                removeTree(root + "/" + entry, protecting: protecting, freed: &freed, failures: &failures)
+            }
         }
         if let first = failures.first { throw FreeSpaceError.failed(first) }
         return freed
@@ -168,7 +228,9 @@ struct FreeSpaceView: View {
         _chosen = State(initialValue: chosen)
     }
 
-    private var chosenBytes: Int64 { chosen.reduce(0) { $0 + (survey?.sizes[$1] ?? 0) } }
+    /// The old shader versions are part of the shader output, so choosing both counts them once.
+    private var chosenBytes: Int64 { chosen.reduce(0) { $0 + ($1 == .oldShaders && chosen.contains(.shaders) ? 0 : survey?.sizes[$1] ?? 0) } }
+    private var chain: String? { BuildFolder.currentChain(repo: m.repoPath) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -244,7 +306,7 @@ struct FreeSpaceView: View {
         .confirmationDialog(String(format: m.t("free.confirm"), Self.bytes(chosenBytes)), isPresented: $confirming, titleVisibility: .visible) {
             Button(m.t("free.confirmButton"), role: .destructive) { removeChosen() }
         } message: {
-            Text(([m.t("free.confirmNote")] + BuildFolderPart.allCases.filter(chosen.contains).map { m.t("free.cost." + $0.rawValue) }).joined(separator: "\n"))
+            Text(([m.t("free.confirmNote")] + BuildFolderPart.allCases.filter { chosen.contains($0) && !($0 == .oldShaders && chosen.contains(.shaders)) }.map { m.t("free.cost." + $0.rawValue) }).joined(separator: "\n"))
         }
     }
 
@@ -255,6 +317,11 @@ struct FreeSpaceView: View {
                 Text(m.t("free.part." + part.rawValue)).font(.manrope(14, .medium))
                 Text(m.t("free.cost." + part.rawValue)).font(.manrope(12)).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                if part == .oldShaders, let versions = survey?.oldShaders {   // which versions, each with its size
+                    Text(versions.map { "\($0.name)  \(Self.bytes($0.bytes))" }.joined(separator: "\n"))
+                        .font(.system(size: 11, design: .monospaced)).foregroundStyle(.tertiary).textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             Spacer(minLength: 12)
             sizeText(bytes)
@@ -278,21 +345,21 @@ struct FreeSpaceView: View {
     nonisolated static func bytes(_ n: Int64) -> String { ByteCountFormatter.string(fromByteCount: n, countStyle: .file) }
 
     private func measure() {
-        let protected = BuildFolder.protectedPaths(for: game)
+        let protected = BuildFolder.protectedPaths(for: game), chain = chain
         guard let folder = BuildFolder.location(for: game) else { survey = BuildFolderSurvey(folder: ""); return }
         DispatchQueue.global(qos: .userInitiated).async {
-            let result = BuildFolder.survey(folder, protecting: protected)
+            let result = BuildFolder.survey(folder, protecting: protected, chain: chain)
             DispatchQueue.main.async { survey = result; chosen = chosen.filter { (result.sizes[$0] ?? 0) > 0 } }
         }
     }
 
     private func removeChosen() {
         guard let folder = survey?.folder, !folder.isEmpty else { return }
-        let parts = chosen, protected = BuildFolder.protectedPaths(for: game), running = m.running
+        let parts = chosen, protected = BuildFolder.protectedPaths(for: game), running = m.running, chain = chain
         working = true
         DispatchQueue.global(qos: .userInitiated).async {
-            let result = Result { try BuildFolder.remove(parts, in: folder, protecting: protected, buildRunning: running) }
-            let after = BuildFolder.survey(folder, protecting: protected)
+            let result = Result { try BuildFolder.remove(parts, in: folder, protecting: protected, buildRunning: running, chain: chain) }
+            let after = BuildFolder.survey(folder, protecting: protected, chain: chain)
             DispatchQueue.main.async {
                 working = false
                 survey = after

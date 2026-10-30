@@ -99,6 +99,34 @@ class Startup(unittest.TestCase):
             shutil.copy(root / 'other.img', doc / 'romfs.img')
             self.assertEqual(locate().stdout.strip(), str(doc / 'romfs.img'))
 
+    def test_image_name_in_any_letter_case_on_a_case_sensitive_volume(self):
+        # iOS's file system is case-sensitive and the NSP script names its image RomFS.img: a copy through Finder or Files keeps that name
+        temporary = tempfile.TemporaryDirectory(); self.addCleanup(temporary.cleanup)   # removed after the volume is detached (cleanups run last first)
+        root = Path(temporary.name); disk = root / 'cs.dmg'; mount = root / 'mount'; mount.mkdir()
+        made = subprocess.run(['hdiutil', 'create', '-size', '8m', '-fs', 'Case-sensitive APFS', '-volname', 'romfs-case', str(disk)], capture_output=True, text=True)
+        if made.returncode or subprocess.run(['hdiutil', 'attach', '-nobrowse', '-mountpoint', str(mount), str(disk)], capture_output=True).returncode:
+            self.skipTest('no case-sensitive disk image: ' + made.stderr.strip())
+        self.addCleanup(subprocess.run, ['hdiutil', 'detach', '-force', str(mount)], capture_output=True)
+        doc = mount / 'Documents'; doc.mkdir(); tmp = root / 'temp'; tmp.mkdir(); bundle = root / 'App'; bundle.mkdir()
+        wanted, other = root / 'wanted', root / 'other'
+        for folder, name in ((wanted, 'a'), (other, 'b')): folder.mkdir(); (folder / 'marker').write_text('x'); (folder / name).write_text(name * 100)
+        image.pack(wanted, root / 'wanted.img'); image.pack(other, root / 'other.img')
+        (bundle / 'romfs.id').write_text(image.identity(root / 'wanted.img', 'T', '1.0', 'v0') + '\n')
+        def locate():
+            return subprocess.run([str(self.locator), str(doc), str(tmp), str(bundle)], capture_output=True, text=True)
+        shutil.copy(root / 'wanted.img', doc / 'RomFS.img')
+        self.assertFalse((doc / 'romfs.img').exists())   # the volume does tell the names apart
+        result = locate(); self.assertEqual(result.returncode, 0, result.stderr); self.assertEqual(result.stdout.strip(), str(doc / 'RomFS.img'))
+        shutil.copy(root / 'other.img', doc / 'romfs.img')   # another version under the exact name: rejected, the other spelling is used
+        result = locate(); self.assertEqual(result.stdout.strip(), str(doc / 'RomFS.img')); self.assertIn('[RED] boot: Documents/romfs.img is not', result.stderr)
+        shutil.copy(root / 'wanted.img', doc / 'romfs.img'); shutil.copy(root / 'other.img', doc / 'RomFS.img')
+        self.assertEqual(locate().stdout.strip(), str(doc / 'romfs.img'))
+        (bundle / 'romfs.id').unlink()   # both accepted (no identity): the exact name wins
+        shutil.copy(root / 'wanted.img', doc / 'RomFS.img')
+        self.assertEqual(locate().stdout.strip(), str(doc / 'romfs.img'))
+        (doc / 'romfs.img').write_bytes(b'cut off')   # an incomplete exact name: the complete other spelling
+        self.assertEqual(locate().stdout.strip(), str(doc / 'RomFS.img'))
+
     def test_the_location_the_player_picked_wins_over_everything(self):
         """The Files-app pick (DataBookmark): an image, a folder holding one, or a plain tree."""
         with tempfile.TemporaryDirectory() as temporary:

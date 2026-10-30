@@ -77,7 +77,7 @@ targets:
       OTHER_CFLAGS: $(inherited) -mcpu=apple-a18   # The host assembly contains LSE atomic instructions, which the default baseline does not accept
       CLANG_ENABLE_OBJC_ARC: YES
       SWIFT_VERSION: "5.0"                         # Launcher.swift (SwiftUI)
-      SWIFT_OBJC_BRIDGING_HEADER: Sources/DmIOS-Bridging-Header.h   # DataBookmark (the Files app pick)
+      SWIFT_OBJC_BRIDGING_HEADER: Sources/DmIOS-Bridging-Header.h   # CloudSaves.h (the cloud-save folder pick), DataBookmark.h (the Files app pick)
       DEBUG_INFORMATION_FORMAT: dwarf
       GCC_WARN_INHIBIT_ALL_WARNINGS: YES
 schemes:

@@ -13,6 +13,8 @@ module_t *module_of(const void *p) { (void)p; return NULL; }
 void *guest_sym(const char *name) { (void)name; return NULL; }
 void dm_backtrace(uint64_t fp) { (void)fp; }
 void hle_bind_system_event(void *ev, int autoclear) { (void)ev; (void)autoclear; }
+void dm_applet_enter(const char *name) { (void)name; }   // hle_oe.c: the shop stand-ins in hle_sdk16.c hold the game out of focus
+void dm_applet_leave(void) {}
 void hle_signal_system_event(void *ev) { (void)ev; }
 uint64_t hle_system_event_binding(void *ev) { (void)ev; return 1; }
 int hle_signal_system_event_binding(uint64_t binding) { (void)binding; return 1; }

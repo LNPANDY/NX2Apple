@@ -6,7 +6,7 @@
 // safe mode, values, details and the import of cheat files (see the code below).
 // Key map (Nintendo layout): WASD left stick, arrow keys D-pad, J=A K=B U=X I=Y, Q=L E=R, Z=ZL C=ZR, F=press left stick G=press right stick, Return=+ Tab=−, Space=shake the controller;
 // DM_KEYMAP moves a function to another key (the right stick too), DM_PAD_MAP changes what a controller's buttons send (input_map.h).
-// Controllers: buttons by position as on the iPhone (right A, bottom B, top X, left Y), shoulders L R, triggers ZL ZR, Menu + Options −, both sticks and their presses.
+// Controllers: face buttons as on the iPhone, by position (right A, bottom B, top X, left Y) or on a Nintendo pad by its labels (pad_apple.h), shoulders L R, triggers ZL ZR, Menu + Options −, both sticks and their presses.
 // Each controller is a player of its own (local co-op): the first one connected is player 1, together with the keyboard, the next player 2, and so on up to 8 (pad_slots.h);
 // DM_PAD_MERGE=1 merges every controller into player 1 instead, DM_KBD_PLAYER=own makes the keyboard player 1 on its own, with the controllers from player 2 on.
 #import <Cocoa/Cocoa.h>
@@ -22,6 +22,7 @@
 #include "haptics_apple.h"
 #include "motion_apple.h"
 #include "motion_pro_mac.h"
+#include "pad_apple.h"
 #include <signal.h>
 #include <math.h>
 #include <sys/stat.h>
@@ -122,9 +123,8 @@ static void pad_read(GCExtendedGamepad *g) {
     if (!g_input_on) return;
     int p = g_merge ? 0 : pad_slot_of(&g_slots, (__bridge const void *)g.controller); if (p < 0) return;
     dm_haptics_apple_controller(p, g.controller);
-    uint64_t m = 0;
+    uint64_t m = dm_pad_face(g);   // by position, a Nintendo pad by its labels
     #define K(btn, bit) if (btn.isPressed) m |= bit
-    K(g.buttonB, DM_BTN_A); K(g.buttonA, DM_BTN_B); K(g.buttonY, DM_BTN_X); K(g.buttonX, DM_BTN_Y);   // by position: right A, bottom B, top X, left Y
     K(g.leftShoulder, DM_BTN_L); K(g.rightShoulder, DM_BTN_R); K(g.leftTrigger, DM_BTN_ZL); K(g.rightTrigger, DM_BTN_ZR);
     K(g.buttonMenu, DM_BTN_PLUS); K(g.buttonOptions, DM_BTN_MINUS); K(g.leftThumbstickButton, DM_BTN_LS); K(g.rightThumbstickButton, DM_BTN_RS);   // nil on pads without them: not pressed
     K(g.dpad.left, DM_BTN_LEFT); K(g.dpad.up, DM_BTN_UP); K(g.dpad.right, DM_BTN_RIGHT); K(g.dpad.down, DM_BTN_DOWN);
@@ -238,6 +238,13 @@ static void pads_start(void) {
 }
 - (void)setFrameSize:(NSSize)s { [super setFrameSize:s]; [self fitDrawable]; }
 - (void)viewDidChangeBackingProperties { [super viewDidChangeBackingProperties]; [self fitDrawable]; }
+@end
+
+// The window's delegate: AppKit reports a refused fullscreen request only here (there is no notification for it)
+static void (^g_fs_failed)(void);
+@interface DmWinDelegate : NSObject <NSWindowDelegate> @end
+@implementation DmWinDelegate
+- (void)windowDidFailToEnterFullScreen:(NSWindow *)w { (void)w; if (g_fs_failed) g_fs_failed(); }
 @end
 
 typedef struct { void (*fn)(void); } guest_arg;
@@ -1117,10 +1124,28 @@ void front_run(void (*guest)(void)) {
         if (getenv("DM_METAL_HUD") && atoi(getenv("DM_METAL_HUD"))) { g_layer.developerHUDProperties = @{@"mode": @"default"}; LOG("front end: Metal performance HUD on (DM_METAL_HUD)"); }   // Apple's HUD over the game: frame rate, frame and GPU time, memory
         v.layer = g_layer; [(DmGameView *)v fitDrawable];
         [win center];
+        // DM_SCREEN=<NSScreenNumber>: the launcher's display. Moved before the window is shown and before any fullscreen request, so DM_FULLSCREEN enters fullscreen there
+        const char *want_scr = getenv("DM_SCREEN");
+        if (want_scr && *want_scr) {
+            NSScreen *on = nil; char *end = NULL; unsigned long id = strtoul(want_scr, &end, 10);
+            if (end != want_scr && !*end) for (NSScreen *sc in NSScreen.screens) if ([sc.deviceDescription[@"NSScreenNumber"] unsignedLongValue] == id) on = sc;
+            if (on) {
+                NSRect vf = on.visibleFrame, wf = win.frame;
+                [win setFrameOrigin:NSMakePoint(NSMidX(vf) - wf.size.width / 2, NSMidY(vf) - wf.size.height / 2)];
+                LOG("front end: window on screen %lu '%s' (DM_SCREEN)", id, on.localizedName.UTF8String);
+            } else LOG("front end: DM_SCREEN=%s ignored, no connected screen has that number", want_scr);
+        }
         [win makeKeyAndOrderFront:nil];
         g_screen_fps = (int)(win.screen ?: NSScreen.mainScreen).maximumFramesPerSecond;
         g_win = win;
         [NSApp activateIgnoringOtherApps:YES];
+        // A host another process starts (scripts/regress.py) is not activated (its focus state stays 2), so its window opened wherever it landed in the window order, and behind
+        // another app's window macOS fires its display link about once a second: Breath of the Wild stepped up to 3 vsyncs at boot and never came back (20 fps runs).
+        // DM_WINDOW_TOP=1 orders it in front without activation and keeps it above other apps' windows; the log names every change of the window's visibility either way
+        if (getenv("DM_WINDOW_TOP") && atoi(getenv("DM_WINDOW_TOP"))) { win.level = NSFloatingWindowLevel; [win orderFrontRegardless]; LOG("front end: window kept in front (DM_WINDOW_TOP)"); }
+        [[NSNotificationCenter defaultCenter] addObserverForName:NSWindowDidChangeOcclusionStateNotification object:win queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *n) {
+            (void)n; static int vis = -1; int v = (win.occlusionState & NSWindowOcclusionStateVisible) != 0; if (v == vis) return; vis = v;
+            if (v) LOG("front end: window visible"); else LOG("front end: window covered (its display link fires about once a second: frame times measure nothing)"); }];
         // Main menu: AppKit runs ⌘ shortcuts only through menu items, so ⌘Q quits and ⌃⌘F toggles fullscreen from here (AppKit shows the item as Globe-F and keeps ⌃⌘F as a hidden twin)
         NSMenu *bar = [NSMenu new], *app = [NSMenu new], *wm = [[NSMenu alloc] initWithTitle:@"Window"];
         [[bar addItemWithTitle:@"" action:nil keyEquivalent:@""] setSubmenu:app];
@@ -1141,7 +1166,25 @@ void front_run(void (*guest)(void)) {
         [wm addItemWithTitle:@"Enter Full Screen" action:@selector(toggleFullScreen:) keyEquivalent:@"f"].keyEquivalentModifierMask = NSEventModifierFlagControl | NSEventModifierFlagCommand;
         NSApp.mainMenu = bar;
         const char *fs = getenv("DM_FULLSCREEN");   // 1 (or any value but 0): start in fullscreen; 0, the settings window's Window, or unset: a window
-        if (fs && strcmp(fs, "0")) dispatch_async(dispatch_get_main_queue(), ^{ [win toggleFullScreen:nil]; });
+        if (fs && strcmp(fs, "0")) {
+            // A game opened from an app that is itself in fullscreen starts while macOS leaves that Space: a request made right away reaches a window that is not on the active Space
+            // or an app that is not active yet, and AppKit can refuse it (the game stayed a window). So the request waits for the app to be active with its window on the active Space (activation or
+            // Space change, whichever comes last), and a refused one is repeated once. It stops as soon as the player toggles fullscreen themselves
+            static DmWinDelegate *wd; wd = [DmWinDelegate new]; win.delegate = wd;
+            __block int want = 1, retried = 0;
+            void (^enter)(void) = ^{
+                if (!want || (win.styleMask & NSWindowStyleMaskFullScreen) || !NSApp.isActive || !win.isOnActiveSpace) return;
+                want = 0; [win toggleFullScreen:nil]; };
+            g_fs_failed = ^{
+                LOG("front end: fullscreen was refused (app active %d, window on the active Space %d)%s", NSApp.isActive, win.isOnActiveSpace, retried ? "" : ", asking once more");
+                if (retried) return;
+                retried = 1; want = 1; dispatch_async(dispatch_get_main_queue(), enter); };
+            [NSNotificationCenter.defaultCenter addObserverForName:NSApplicationDidBecomeActiveNotification object:nil queue:nil usingBlock:^(NSNotification *n) { (void)n; enter(); }];
+            [NSWorkspace.sharedWorkspace.notificationCenter addObserverForName:NSWorkspaceActiveSpaceDidChangeNotification object:nil queue:nil usingBlock:^(NSNotification *n) { (void)n; enter(); }];
+            for (NSNotificationName nm in @[NSWindowWillEnterFullScreenNotification, NSWindowWillExitFullScreenNotification])
+                [NSNotificationCenter.defaultCenter addObserverForName:nm object:win queue:nil usingBlock:^(NSNotification *n) { (void)n; want = 0; }];   // the player's own toggle (ours already cleared it)
+            dispatch_async(dispatch_get_main_queue(), enter);
+        }
         for (NSNotificationName nm in @[GCControllerDidConnectNotification, GCControllerDidDisconnectNotification])
             [NSNotificationCenter.defaultCenter addObserverForName:nm object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *n) {
                 GCController *c = n.object; int conn = n.name == GCControllerDidConnectNotification;

@@ -16,8 +16,7 @@
 0017-fork-patches-stamp.patch
 0018-nsp-dotnet-root-verify.patch
 0024-games-md-gallery.patch
-0025-cloud-saves.patch
-0026-lm3-depth-mode.patch
-0027-nsp-title-id-from-package.patch
 0028-cheats-engine.patch
 0029-cheats-mac-panel.patch
+0030-front-mac-enter-fullscreen-once-the-app-is-activ.patch
+0031-front-mac-dm-screen.patch

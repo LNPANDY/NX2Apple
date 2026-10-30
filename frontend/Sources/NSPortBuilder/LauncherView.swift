@@ -156,7 +156,7 @@ struct ContentView: View {
         .onAppear {
             gamepad.perform = padAction
             gamepad.capture = { [consoleDriver] id, action in consoleDriver.consumePress(controllerID: id, isBack: action == .b) }
-            if performStartupChecks { library.migrateLaunchOptions() }
+            if performStartupChecks { library.migrateLaunchOptions(); CloudSavesMigration.run() }
             if qaManage.open {
                 if qaManage.ring { padFocus.show(default: nil) }
                 manageOpenFor = library.selected?.id
@@ -691,7 +691,9 @@ struct ContentView: View {
             m.slots[index].paths = game.inputs[m.slots[index].id] ?? []
             m.slots[index].problem = ""
         }
-        m.gameDir = (m.basePath as NSString).deletingLastPathComponent
+        // The folder the game's files were found in (a base package may sit one level down in its own folder) — from the
+        // scan, or from the last build. Falling back to the base's folder would put the update and DLC out of reach.
+        m.gameDir = game.sourceFolder.isEmpty ? (m.basePath as NSString).deletingLastPathComponent : game.sourceFolder
         m.outDir = game.outputDirectory
         m.done = false; m.doneNote = ""; m.stages = []
         m.target = game.lastTarget
@@ -807,10 +809,14 @@ struct ContentView: View {
             let environment = GameStart.environment(for: game, library: library, controls: controls, repo: m.repoPath, labels: m.t)   // GameStart.swift: the console mode starts games with the same
             let withRecording = environment.merging(FrameTimes.recordingEnvironment(for: game, library: library.folder)) { $1 }   // FrameTimes.swift, as console mode does
             if !withRecording.isEmpty { configuration.environment = withRecording }
-            NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: game.appPath), configuration: configuration) { _, error in
+            NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: game.appPath), configuration: configuration) { app, error in
+                let pid = app?.processIdentifier
                 DispatchQueue.main.async {
-                    launching = false
-                    if let error { launchError = error.localizedDescription }
+                    MainActor.assumeIsolated {
+                        launching = false
+                        if let error { launchError = error.localizedDescription }
+                        else if let pid { GameReturnWatcher.shared.didStart(pid: pid) }   // ReturnAfterPlay.swift
+                    }
                 }
             }
         } catch { launchError = error.localizedDescription }

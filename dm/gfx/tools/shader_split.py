@@ -38,6 +38,9 @@
 #   · SNVN (Retro Studios, Donkey Kong Country: Tropical Freeze): zlib program records in the SNVN chunks of MaterialArchive.arc, of the MTRL resources in its .pak archives
 #       and of the startup material archive LZSS-compressed in main, see rfrm_shaders and retro_main_forms
 #   · BERG (Snowdrop, Mario + Rabbids Sparks of Hope): shader objects in the individually zstd-compressed records of its SDF data slices, see snowdrop_shaders
+#   · bnd2 (Criterion's Bundle 2, Need for Speed: Hot Pursuit Remastered): whole GLSLC outputs in the zlib resources of SHADERS.BNDL, see bnd2_resources and bnd2_shaders
+#   · Frostbite (EA SPORTS FC 27): the CompiledBytecode resources of the bundles its superbundle tables (.toc) list, in its cas files (Oodle Leviathan, decoded by the game's own decoder in the
+#       Mac host), each a VNVN record with one code area and control section (frostbite.py), see frostbite_jobs and frostbite_shaders
 #   · Unreal Engine 3 (Batman: Arkham Knight): shader records in its global shader cache (BMSG) and in the packages (the combined shader cache), whose compressed chunks are Oodle blocks decoded by the game's own decoder in the Mac host, see ue3_body and ue3_shaders
 # Code area: 0x30 header + (graphics) 0x50 SPH + instructions; header magic 0x12345678 for graphics, 0x12345679 for compute. The control section starts with 0x98761234, +0x704 = code area length,
 #   +0x700 = start of the c1 constant segment within the code area; for compute +0x748 thread group xyz (u32 ×3), +0x754 shared memory bytes (checked one by one against PC reflection on D2R's 22 compute shaders).
@@ -1433,6 +1436,58 @@ def adrp_targets(d, lo, hi):
                 break
     return out
 
+SUMO_NX, NVNSH, SUMO_MUX = b'Ninty_NX' + bytes(8), b'NVNsh\0', b'MuxFDMR\x02'
+
+def sumo_members(d, label):
+    """Sumo's MuxFDMR v2: two buffer lengths at +24/+32, one or two zlib streams whose stored lengths start at +40."""
+    if len(d) < 44: red(f'{label}: truncated MuxFDMR header')
+    head, n = struct.unpack_from('<I', d, 8)[0], d[18]
+    if d[17] != 2 or n not in (1, 2) or head != 44 + 4 * n or head > len(d): red(f'{label}: unsupported MuxFDMR layout')
+    sizes = struct.unpack_from('<' + 'I' * n, d, 40)
+    if head + sum(sizes) != len(d): red(f'{label}: MuxFDMR streams do not fit the file')
+    import zlib
+    for i, size in enumerate(sizes):
+        expected = struct.unpack_from('<I', d, 24 + 8 * i)[0]
+        z = zlib.decompressobj()
+        raw = z.decompress(d[head:head + size], expected + 1)
+        if not z.eof or z.unused_data or len(raw) != expected: red(f'{label}: MuxFDMR stream {i} length does not match its header')
+        yield f'#MUX{i}', raw
+        head += size
+
+def sumo_program(d, base, size, co, ko, cn, kn, label, stage=None):
+    if base < 0 or size < 0x34 or base + size > len(d) or cn < 0x760 or kn < 0x40 or min(co, ko) < 0x34 or max(co + cn, ko + kn) > size or not (co + cn <= ko or ko + kn <= co):
+        red(f'{label}: shader ranges do not fit the container')
+    ctl, code = d[base + co:base + co + cn], d[base + ko:base + ko + kn]
+    st = glslc_stage(ctl, code)
+    if not st or stage is not None and st != stage: red(f'{label}: invalid shader stage')
+    why = check(label, st, ctl, code)
+    if why: red(f'{label}: {why}')
+    return label, st, ctl, code
+
+def sumo_shaders(d, label):
+    """Sumo's Ninty_NX descriptors use container-relative ranges and their own relative offset; NVNsh v1 stores one stage per record. As with Needle's, a magic whose container
+    does not fit the data is a literal in executable code, not a container (the split reads main whole, where a stop would end it); a container that fits must be valid."""
+    out = []
+    for m in re.finditer(re.escape(SUMO_NX), d):
+        r = m.start() - 0x30
+        if r < 0: continue
+        base = r - struct.unpack_from('<Q', d, r + 0x28)[0]
+        if base < 0 or r < base + 0x38: continue
+        size = struct.unpack_from('<Q', d, base + 8)[0]
+        if r + 0x40 > base + size or base + size > len(d): continue
+        if struct.unpack_from('<I', d, base + 4)[0] != 1: red(f'{label}: unsupported Ninty_NX container version')
+        co, ko, cn, kn = struct.unpack_from('<QQII', d, r)
+        out.append(sumo_program(d, base, size, co, ko, cn, kn, f'{label}#SUMO@{r:#x}'))
+    for m in re.finditer(re.escape(NVNSH), d):
+        h = m.start()
+        if h + 0x34 > len(d) or not 0x34 <= struct.unpack_from('<I', d, h + 8)[0] <= len(d) - h: continue
+        if struct.unpack_from('<H', d, h + 6)[0] != 1: red(f'{label}: unsupported NVNsh version')
+        size, stage = struct.unpack_from('<I', d, h + 8)[0], struct.unpack_from('<I', d, h + 28)[0]
+        if stage >= len(STAGES): red(f'{label}: invalid NVNsh stage {stage}')
+        co, ko, kn, cn = struct.unpack_from('<4I', d, h + 32)
+        out.append(sumo_program(d, h, size, co, ko, cn, kn, f'{label}#NVNSH@{h:#x}', STAGES[stage]))
+    return out
+
 def phyre_shaders(d, label):
     """Phyre's NVN code immediately precedes its control section, unaligned in RYHP effects; loose blobs also prefix their two lengths (FFX/X-2)."""
     out = []
@@ -1533,6 +1588,43 @@ def trpfs_jobs(files, parts=64):
         if cur: jobs.append((p, r, tuple(cur)))
         taken |= {p, p[:-1] + 'd'}
     return jobs, taken
+
+FB_CAS = 'Frostbite cas'
+def frostbite_jobs(files, parts=64):
+    """Frostbite (EA SPORTS FC 27): its shaders are the CompiledBytecode resources of the bundles (frostbite.resources), stored in the cas files. → ([(cas path, rel, (FB_CAS, ((offset,
+    stored size, size, name), …))), …] in about equal stored sizes, the paths taken: every .toc and .cas file, which hold nothing a loose scan reads (31.8 GB in FC 27)"""
+    import frostbite
+    roots = {p[:-len('Data/layout.toc')] for p, _ in files if p.endswith(os.sep + os.path.join('Data', 'layout.toc'))}
+    jobs, taken = [], set()
+    for root in sorted(roots):
+        if not frostbite.is_frostbite(root): continue
+        res = frostbite.resources(root, frostbite.COMPILED_BYTECODE)
+        rel_of = {p: r for p, r in files if p.startswith(root)}
+        taken |= {p for p in rel_of if p.endswith(('.toc', '.cas'))}
+        by_cas = collections.defaultdict(list)
+        for (cas, off, stored), (size, name) in res.items(): by_cas[cas].append((off, stored, size, name))
+        step = sum(stored for (_, _, stored) in res) / parts
+        for cas in sorted(by_cas):
+            cur, size_ = [], 0
+            for e in sorted(by_cas[cas]):
+                cur.append(e); size_ += e[1]
+                if size_ >= step: jobs.append((cas, rel_of[cas], (FB_CAS, tuple(cur)))); cur, size_ = [], 0
+            if cur: jobs.append((cas, rel_of[cas], (FB_CAS, tuple(cur))))
+    return jobs, taken
+
+def frostbite_shaders(path, rel, ents, out):
+    """A range of one cas file's CompiledBytecode resources (frostbite_jobs), each decoded with the game's Oodle and read as one shader (frostbite.nvn_shader). Labels: /<cas>#<resource name>"""
+    import frostbite
+    from romfs import mmap
+    with open(path, 'rb') as f, mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as d:
+        for off, stored, size, name in ents:
+            label = f'/{rel}#{name}'
+            sh = frostbite.nvn_shader(frostbite.read(d, off, stored, size, oodle))
+            if sh is None: print(f'[RED] {label}: a CompiledBytecode resource without a VNVN record; left out', flush=True); continue
+            code, ctl = sh; st = glslc_stage(ctl, code)
+            why = check(label, st, ctl, code) if st else 'no stage in the code area header'
+            if why: print(f'[RED] {label}: {why}; left out', flush=True); continue
+            out.append((label, st, ctl, code))
 
 def smash_arc_jobs(files, parts=128):
     """Super Smash Bros. Ultimate's data.arc (17.6 GB, smash_arc.py): the game's current files, in ranges of about equal stored size. → ([(path, rel, entries), …], the paths taken)"""
@@ -1783,7 +1875,9 @@ def monolith_cmp_data(d, off):
     if off + 16 > len(d) or d[off:off + 8] != b'cmp\0zlib': return None
     size, raw = struct.unpack_from('<2I', d, off + 8)
     if not size or size > len(d) - off - 16: return None
-    z = zlib.decompressobj(); data = z.decompress(d[off + 16:off + 16 + size]) + z.flush()
+    z = zlib.decompressobj()
+    try: data = z.decompress(d[off + 16:off + 16 + size]) + z.flush()
+    except zlib.error as e: red(f'cmp zlib @{off:#x}: damaged payload ({e})')
     if not z.eof or z.unused_data or len(data) != raw: red(f'cmp zlib @{off:#x}: payload does not match stored/raw sizes')
     return data, off + 16 + size
 
@@ -2110,17 +2204,30 @@ def unity_text_glslc(x, base):
     return out
 
 NEST = 16   # archives in archives scan_blob opens (SARC, PlatinumGames' DAT): real files nest a few. A damaged or crafted one could nest one per header's length, or have every
-            # member point at the same inner archive, its work doubling with each level: the members a file's archives open may add up to at most NEST times the file
+            # member point at the same inner archive, its work doubling with each level. Two budgets of NEST times the file bound the work: left[0], the members a file's archives open,
+            # each counted by what it takes up in its archive, and left[1], what its Yaz0 members expand to. Counting a Yaz0 member by what it expands to in the first budget paid twice
+            # for the same bytes, once for the member and once for its members (GitHub issue #640: Mario Kart 8 Deluxe's UI/<lang>/race.sarc, 204 KB, holds one layout archive
+            # that expands 9 times, which then added up to 18 times the file)
 def scan_blob(d, label, out, depth=0, left=None):
     if depth > NEST: red(f'{label}: archives nested more than {NEST} deep')
+    if d[:8] == SUMO_MUX:
+        members = list(sumo_members(d, label))
+        if left is None: left = [NEST * sum(len(member) for _, member in members)] * 2   # as with Yaz0, count decoded bytes, not compressed bytes
+        for nm, member in members: scan_blob(member, label + nm, out, depth + 1, left)
+        return
     if d[:4] in (b'HCPS', b'xbc1', b'DRSM') or d[:8] == b'cmp\0zlib':
         monolith_shaders(d, label, out)
         return
     for m in re.finditer(b'SLCT\x03\x10\0\0', d): out.extend(slct_shaders(d, m.start(), label))
-    if d[:4] == b'Yaz0': d = yaz0(d, label)
-    if left is None: left = [NEST * len(d)]   # the file itself: what its archives' members may add up to
+    stored = len(d)   # what the member takes up in its archive
+    if d[:4] == b'Yaz0':
+        if left is not None:   # charged by its header before it is decoded
+            left[1] -= int.from_bytes(d[4:8], 'big')
+            if left[1] < 0: red(f'{label}: the Yaz0 archive members expand to more than {NEST} times the file')
+        d = yaz0(d, label)
+    if left is None: left = [NEST * len(d)] * 2   # the file itself: what its archives' members may add up to, and what their Yaz0 may expand to
     else:
-        left[0] -= len(d)
+        left[0] -= stored
         if left[0] < 0: red(f'{label}: the archive members add up to more than {NEST} times the file (members that overlap)')
     if d[:4] == b'SARC':
         for nm, m in sarc_members(d, label): scan_blob(m, f'{label}/{nm}', out, depth + 1, left)
@@ -2139,6 +2246,7 @@ def scan_blob(d, label, out, depth=0, left=None):
         if m.start() + size <= len(d) and d[m.start() + 0x60:m.start() + 0x64] == b'grsc': out.extend(bnsh_shaders(d, m.start(), label))
     if MGFX in d: out.extend(mgfx_shaders(d, label))
     if NEEDLE in d: out.extend(needle_shaders(d, label))
+    if SUMO_NX in d or NVNSH in d: out.extend(sumo_shaders(d, label))
 
 def group(label):
     """source group (second half of the package file name)"""
@@ -2159,10 +2267,11 @@ def pixel_input_cover(shaders):
         k = min(ins, key=lambda k: (-len(ins[k] & left), k)); cover.append(k); left -= ins[k]
     return cover
 
-SINGLE_STAGE = ('#GLSLC@', '#UE', '#MTSPK@', '#MGFX@', '#NLG', '#PGSO', '#RAW@', '#TFXO@', '#NEEDLE@', '#SNOWDROP@', '#PHYRE@')   # sources whose every shader is a program of one stage: GLSLC outputs, Unreal's shader records, MT Framework's shader package (BNSH variations, Unity programs, MSHD and SDF pair theirs);
+SINGLE_STAGE = ('#GLSLC@', '#UE', '#MTSPK@', '#MGFX@', '#NLG', '#PGSO', '#RAW@', '#TFXO@', '#NEEDLE@', '#SNOWDROP@', '#PHYRE@', '#SUMO@', '#NVNSH@')   # sources whose every shader is a program of one stage: GLSLC outputs, Unreal's shader records, MT Framework's shader package (BNSH variations, Unity programs, MSHD and SDF pair theirs);
 # Unreal Engine 3's shader caches (ue3_shaders, '#UE3@'); MonoGame's effects, whose passes may name no vertex shader and keep the one bound (Celeste: 10 of its 13 effects draw through SpriteBatch's vertex shader, which is in main); Next Level Games'
 # archives (Luigi's Mansion 3 makes 5,317 programs of one stage each at boot); PlatinumGames' shader objects (Bayonetta 3: one stage each, pg_shader); control sections loose in main
-# (Advance Wars 1+2: Re-Boot Camp's Bink shaders, raw_shaders), which no file pairs; and YEBIS's effect file (tfxo_shaders)
+# (Advance Wars 1+2: Re-Boot Camp's Bink shaders, raw_shaders), which no file pairs; YEBIS's effect file (tfxo_shaders); and Sumo's Ninty_NX descriptors and NVNsh records, one stage
+# each (Team Sonic Racing: 2,116 vertex and 2,399 pixel programs, sumo_shaders)
 def separable_pairs(keys):
     """Single-stage programs (13 Sentinels: each GLSLC output becomes a program with one stage, and BindProgram's stage bits combine vertex and pixel programs per draw; Unreal combines its shaders per draw
     from the pipeline state) have their real pairs only at draw time. vs_pad uses only the union of the locations the paired pixel shaders read, so every single-stage vertex shader is paired with
@@ -2174,6 +2283,36 @@ def separable_pairs(keys):
     return {(v, p) for v in single for p in cover}, cover
 
 SMASH_ARC = struct.pack('<Q', 0xABCDEF9876543210)   # smash_arc.MAGIC (scan_file reads only the first bytes, without importing the reader)
+BND2 = b'bnd2'
+
+def bnd2_resources(d, label):
+    """The resources of a Criterion Bundle 2 ('bnd2', Burnout Paradise's format; version 3 in Need for Speed: Hot Pursuit Remastered): → [(resource ID, type, block, data)].
+    Header: +0x04 version, +0x08 platform, +0x10 entry count, +0x14 entry table offset, +0x18 four block data offsets (u32), +0x28 flags (bit 0: resources zlib-compressed).
+    An entry is 0x50 bytes: +0x00 resource ID u64, +0x08 import hash u64, +0x10 four uncompressed sizes, +0x20 four sizes on disk (each with the alignment in the top
+    nibble), +0x30 four offsets (from that block's data offset), +0x40 import offset, +0x44 type ID, +0x48 import count u16, flags u8, stream index u8.
+    A resource has up to four blocks (0: main memory, 1: graphics memory). Hot Pursuit Remastered's SHADERS.BNDL keeps one whole GLSLC output in block 1 of each type 0x8 resource (2,112)"""
+    ver, plat, dbg, cnt, eoff = struct.unpack_from('<5I', d, 4)
+    if ver not in (2, 3) or eoff + cnt * 0x50 > len(d): red(f'{label}: bnd2 version {ver} with {cnt} entries at {eoff:#x} is not a layout this reader knows')
+    datoff = struct.unpack_from('<4I', d, 0x18); flags, = struct.unpack_from('<I', d, 0x28)
+    out = []
+    for i in range(cnt):
+        e = eoff + i * 0x50
+        rid, = struct.unpack_from('<Q', d, e); typ, = struct.unpack_from('<I', d, e + 0x44)
+        sizes = struct.unpack_from('<4I', d, e + 0x20); offs = struct.unpack_from('<4I', d, e + 0x30)
+        for k in range(4):
+            n = sizes[k] & 0x0FFFFFFF
+            if not n: continue
+            raw = d[datoff[k] + offs[k]:datoff[k] + offs[k] + n]
+            out.append((rid, typ, k, zlib.decompress(raw) if flags & 1 else raw))
+    return out
+
+def bnd2_shaders(d, label):
+    """GLSLC outputs in the resources of a Criterion Bundle 2 (bnd2_resources), each resource block scanned with glslc_shaders. Bundles without shaders (tracks, vehicles, UI) cost one
+    inflate of each resource; the outputs' magic decides, not the resource type, whose numbering is per game"""
+    found = []
+    for rid, typ, k, r in bnd2_resources(d, label):
+        if b'\x91\x68\x86\x19' in r: found += glslc_shaders(r, f'{label}/{rid:016x}.{typ:x}.{k}', need=False)
+    return found
 UE_TAG = {'SV': 'vs', 'SH': 'hs', 'SD': 'ds', 'SG': 'gs', 'SP': 'ps', 'SC': 'cs'}
 def main_imports(img):   # the names main imports (its dynamic symbols)
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '../../tools')); import nso_syms
@@ -2246,6 +2385,9 @@ def scan_file_in(args):
     if len(args) > 2 and args[2][0] == UE_LEGACY:   # files of a legacy Unreal pak (ue_legacy_jobs)
         ue_legacy_shaders(path, rel, args[2][1], found)
         return rel, uniq_keys(found), var_pairs(found), trees
+    if len(args) > 2 and args[2][0] == FB_CAS:   # CompiledBytecode resources of a Frostbite cas file (frostbite_jobs)
+        frostbite_shaders(path, rel, args[2][1], found)
+        return rel, uniq_keys(found), var_pairs(found), trees
     if len(args) > 2 and head[:4] == PKZL:   # entries of a PlatinumGames PKZ (pkz_jobs)
         pkz_shaders(path, rel, args[2], found)
         return rel, uniq_keys(found), var_pairs(found), trees
@@ -2263,6 +2405,9 @@ def scan_file_in(args):
         return rel, uniq_keys(found), var_pairs(found), trees
     if len(args) > 2:   # a range of LINKDATA entries (linkdata_jobs)
         linkdata_shaders(path, rel, args[2], found)
+        return rel, uniq_keys(found), var_pairs(found), trees
+    if head[:4] == BND2:   # a Criterion Bundle 2 (Need for Speed: Hot Pursuit Remastered's SHADERS.BNDL): GLSLC outputs in its zlib resources (bnd2_shaders)
+        found += bnd2_shaders(open(path, 'rb').read(), '/' + rel)
         return rel, uniq_keys(found), var_pairs(found), trees
     if head[:4] == SPKG or head[:4] == b'\0\0\1\0' and path.endswith('.gz'):   # Three Houses' loose shader packages and chunked zlib files (kt_shaders)
         kt_shaders(open(path, 'rb').read(), '/' + rel, found)
@@ -2320,7 +2465,7 @@ def scan_file_in(args):
         try: pairs = unity_shaders(d, '/' + rel, found, trees if not TREES else dict(TREES))
         except unityfs.NoTree: return rel, {}, set(), 'defer'
         return rel, uniq_keys(found), var_pairs(found) | {(a, b, 'prog') for a, b in pairs}, trees
-    elif b'BNSH\0\0\0\0' not in d and b'BAHS' not in d and d[:4] != b'MSHD' and not (d[:4] == b'SARC' and b'Yaz0' in d) and b'\x91\x68\x86\x19' not in d and MGFX not in d and NEEDLE not in d: return rel, {}, set(), {}   # a SARC may hold Yaz0 members
+    elif b'BNSH\0\0\0\0' not in d and b'BAHS' not in d and d[:4] != b'MSHD' and not (d[:4] == b'SARC' and b'Yaz0' in d) and b'\x91\x68\x86\x19' not in d and MGFX not in d and NEEDLE not in d and d[:8] != SUMO_MUX and SUMO_NX not in d and NVNSH not in d: return rel, {}, set(), {}   # a SARC may hold Yaz0 members
     else:
         scan_blob(d, '/' + rel, found)
         # whole GLSLC outputs in a file no other reader takes (FINAL FANTASY TACTICS - The Ivalice Chronicles: its engine's technique files, resources_nx/…/shader/*.tec, 261 outputs beside
@@ -2411,8 +2556,9 @@ def main():
     ck_jobs, cpks = cpk_jobs(files)   # Bayonetta 2's CRI CPK archives (CRILAYLA entries)
     zp_jobs, zips = zip_jobs(files)   # Portal's game.zip (Deflate members)
     ah_jobs, arhs = arh_jobs(files)   # Monolith's ARH1/ARD archives and embedded XBC1/HCPS programs
-    big += pak_jobs + tr_jobs + ue_jobs + bd_jobs + arc_jobs + pz_jobs + ck_jobs + zp_jobs + ah_jobs
-    files = [(p, r) for p, r in files if not linkdata_jobs(p, r) and p not in paks and p not in trp and p not in uep and p not in bdts and p not in arcs and p not in pkzs and p not in cpks and p not in zips and p not in arhs]
+    fb_jobs, fbs = frostbite_jobs(files)   # EA SPORTS FC 27's Frostbite bundles, Oodle Leviathan decoded by the game's own decoder in the Mac host
+    big += pak_jobs + tr_jobs + ue_jobs + bd_jobs + arc_jobs + pz_jobs + ck_jobs + zp_jobs + ah_jobs + fb_jobs
+    files = [(p, r) for p, r in files if not linkdata_jobs(p, r) and p not in paks and p not in trp and p not in uep and p not in bdts and p not in arcs and p not in pkzs and p not in cpks and p not in zips and p not in arhs and p not in fbs]
     with cf.ProcessPoolExecutor(J, initializer=_pool_init, initargs=(common, {}, zdicts)) as ex:
         n = len(big) + len(files)
         results += pooled(ex, big, n) + pooled(ex, files, n, len(big), chunk=16)

@@ -128,8 +128,9 @@ class Load(unittest.TestCase):
         d = make_nso(); c = struct.unpack_from('<I', d, 0x68)[0]
         self.error(seg(d, 2, sz=c - 1), 'data segment', 'more than its')   # a compressed one is never larger stored than loaded
 
-    def test_compression_it_cannot_decode(self):
-        self.error(flags(make_nso(), set_=0x80), 'zstd')
+    def test_compression_that_fails_is_named(self):
+        # flag bit 7 makes every compressed segment ZBIC (system 22.0.0 on): these segments are LZ4, so the Error names ZBIC, whether zbic is installed or not
+        self.error(flags(make_nso(), set_=0x80), 'ZBIC')
         d, _ = make_nro(); struct.pack_into('<I', d, 0x1c, 2); self.error(d, 'compressed NRO')
 
 

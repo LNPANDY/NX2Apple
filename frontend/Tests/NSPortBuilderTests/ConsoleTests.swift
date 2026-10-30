@@ -265,4 +265,53 @@ final class ConsoleTests: XCTestCase {
             }
         }
     }
+
+    /// The focus ring of the first tile must survive a scroll to the far end and back. Scrolling to a tile's own edge used to push the
+    /// 8 pt of room for the ring out of the row's clip, so the ring was cut at the left. The ring is cream, so the test looks for a
+    /// cream column just left of the first tile's image. Set NX_CONSOLE_CAPTURE_DIR to keep the PNGs.
+    @MainActor func testFirstTileRingIsNotClippedAfterScrollingBack() throws {
+        NSApplication.shared.setActivationPolicy(.accessory)
+        let (width, height): (CGFloat, CGFloat) = (1280, 800)
+        let driver = MockConsoleDriver(scenario: .full, lang: .en, animated: false)
+        let host = NSHostingView(rootView: ConsoleView(driver: driver, lang: .en).transaction { $0.disablesAnimations = true }.frame(width: width, height: height))
+        let window = NSWindow(contentRect: NSRect(x: -10000, y: 0, width: width, height: height), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.orderBack(nil)
+        defer { window.orderOut(nil); window.contentView = nil; window.close() }
+        func settle() { RunLoop.main.run(until: Date().addingTimeInterval(0.4)); host.layoutSubtreeIfNeeded() }
+        func snapshot(_ name: String) throws -> NSBitmapImageRep {
+            let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+            host.cacheDisplay(in: host.bounds, to: rep)
+            if let directory = ProcessInfo.processInfo.environment["NX_CONSOLE_CAPTURE_DIR"] {
+                let output = URL(fileURLWithPath: directory)
+                try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+                try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: output.appendingPathComponent(name + ".png"))
+            }
+            return rep
+        }
+        settle()
+        let first = try XCTUnwrap(driver.state.games.first).id, last = try XCTUnwrap(driver.state.games.last).id
+        let start = try snapshot("clip-1-start")
+        driver.focus(last); settle()
+        _ = try snapshot("clip-2-last")
+        driver.focus(first); settle()
+        let rep = try snapshot("clip-3-back")
+        // the ring is a vertical cream line along the image's left edge: the leftmost column with a long run of cream pixels
+        func ringColumn(_ rep: NSBitmapImageRep) -> Int? {
+            func isCream(_ x: Int, _ y: Int) -> Bool {
+                guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { return false }
+                return c.redComponent > 0.8 && c.greenComponent > 0.75 && c.blueComponent > 0.6 && c.alphaComponent > 0.9
+            }
+            let scale = CGFloat(rep.pixelsWide) / width
+            for x in 0..<Int(300 * scale) {
+                var run = 0
+                for y in 0..<rep.pixelsHigh { run = isCream(x, y) ? run + 1 : 0; if run >= Int(150 * scale) { return x } }
+            }
+            return nil
+        }
+        let before = try XCTUnwrap(ringColumn(start), "no focus ring found at the start")
+        let after = try XCTUnwrap(ringColumn(rep), "no focus ring found on the first tile after scrolling back")
+        XCTAssertEqual(after, before, "the first tile's ring is cut off after scrolling back (its left edge moved)")
+    }
 }

@@ -1,22 +1,17 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: Amost <6445689+Amost-@users.noreply.github.com>
-Date: Thu, 29 Oct 2026 20:02:49 +0100
+From: seedds <seedds@gmail.com>
+Date: Fri, 30 Oct 2026 16:15:07 +0800
 Subject: [PATCH] Cheats: the Mac Cheats menu and panel
-
-The Cheats menu of the Mac game window and the floating Cheats panel
-(sections, search, master switch, values, import of cheat files) in
-dm/host/front_mac.m. Ported onto the pinned tree from seedds/nxnative#406.
 
 Upstream-Status: forwarded seedds/nxnative#406
 Reason: the launcher's cheat manager builds on its file contract until upstream merges it
 Issue: LNPANDY/NX2Apple#97
-
 ---
  dm/host/front_mac.m | 860 ++++++++++++++++++++++++++++++++++++++++++++
  1 file changed, 860 insertions(+)
 
 diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
-index 3df6394d..664b7753 100644
+index a383f04b..99c18f7d 100644
 --- a/dm/host/front_mac.m
 +++ b/dm/host/front_mac.m
 @@ -1,6 +1,9 @@
@@ -28,16 +23,16 @@ index 3df6394d..664b7753 100644
 +// safe mode, values, details and the import of cheat files (see the code below).
  // Key map (Nintendo layout): WASD left stick, arrow keys D-pad, J=A K=B U=X I=Y, Q=L E=R, Z=ZL C=ZR, F=press left stick G=press right stick, Return=+ Tab=−, Space=shake the controller;
  // DM_KEYMAP moves a function to another key (the right stick too), DM_PAD_MAP changes what a controller's buttons send (input_map.h).
- // Controllers: buttons by position as on the iPhone (right A, bottom B, top X, left Y), shoulders L R, triggers ZL ZR, Menu + Options −, both sticks and their presses.
-@@ -21,6 +24,7 @@
- #include "motion_pro_mac.h"
+ // Controllers: face buttons as on the iPhone, by position (right A, bottom B, top X, left Y) or on a Nintendo pad by its labels (pad_apple.h), shoulders L R, triggers ZL ZR, Menu + Options −, both sticks and their presses.
+@@ -22,6 +25,7 @@
+ #include "pad_apple.h"
  #include <signal.h>
  #include <math.h>
 +#include <sys/stat.h>
  
  static CAMetalLayer *g_layer;
  static uint64_t g_btn;
-@@ -245,6 +249,850 @@ - (void)viewDidChangeBackingProperties { [super viewDidChangeBackingProperties];
+@@ -252,6 +256,850 @@ - (void)windowDidFailToEnterFullScreen:(NSWindow *)w { (void)w; if (g_fs_failed)
  
  // Metal reads MTL_HUD_ENABLED when the process makes its first device, which can be before the window: set from DM_METAL_HUD before main (set in front_run, the HUD did not show)
  __attribute__((constructor)) static void hud_env(void) { front_hud_env(); }
@@ -888,7 +883,7 @@ index 3df6394d..664b7753 100644
  void front_run(void (*guest)(void)) {
      // A game: tell macOS its work is latency-critical, so the system does not trade its frame time for power while the frame rate is capped
      static id activity; activity = [[NSProcessInfo processInfo] beginActivityWithOptions:NSActivityUserInitiated | NSActivityLatencyCritical reason:@"game"];
-@@ -277,6 +1125,18 @@ void front_run(void (*guest)(void)) {
+@@ -302,6 +1150,18 @@ void front_run(void (*guest)(void)) {
          NSMenu *bar = [NSMenu new], *app = [NSMenu new], *wm = [[NSMenu alloc] initWithTitle:@"Window"];
          [[bar addItemWithTitle:@"" action:nil keyEquivalent:@""] setSubmenu:app];
          [app addItemWithTitle:@"Quit " DM_GAME_NAME action:@selector(terminate:) keyEquivalent:@"q"];

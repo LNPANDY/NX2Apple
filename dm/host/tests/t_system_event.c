@@ -38,6 +38,8 @@ static int test_sleep(const struct timespec *ts, struct timespec *left) {
 #undef pthread_create
 #undef pthread_detach
 #undef nanosleep
+void dm_applet_enter(const char *name) { (void)name; }   // hle_oe.c: the shop stand-ins hold the game out of focus
+void dm_applet_leave(void) {}
 
 struct dm_flags g_flag;
 module_t *g_mod;
@@ -47,6 +49,8 @@ __thread _Atomic int dm_host_work;
 pthread_key_t g_key18;
 void crash_thread_init(void) {}
 void guest_thread_init(void) {}
+void guest_thread_set_id(uint64_t id) { (void)id; }
+void guest_gate_stack(int own_stack) { (void)own_stack; }
 void dm_thread_enter(uint64_t entry, uint64_t arg, uint64_t sp) { (void)entry; (void)arg; (void)sp; abort(); }
 uint64_t now_ns(void) { return clock_ns; }
 uint64_t guest_ns(void) { return now_ns(); }

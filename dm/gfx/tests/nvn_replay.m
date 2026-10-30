@@ -218,6 +218,10 @@ int main(int argc, char **argv) { @autoreleasepool {
         return worst;
     }
     uint64_t tl0 = now_ns();
+    // The capture's textures and programs keep the live run's serials, and the replay layer's own objects (the per-stage combined programs of bind_stages) take theirs from
+    // the same counter and the same serial table: counted from 1 here, a combined program took a captured texture's serial, and that texture resolved to the program
+    // (Pokemon Scarlet: -[NvProg width] in rt_dims). Serials of a live run stay far below 2^61 (external textures take 2^62 and up)
+    nvn_serial_floor(1ull << 61);
     cap_reader rd; int lr = cap_load(&rd, path);
     if (lr <= 0) RFAIL("%s: %s", path, lr < 0 ? "not a capture of format 1" : "cannot read");
     for (;;) { cap_chunk c; uint8_t *d; int r = cap_next(&rd, &c, &d); if (r < 0) RFAIL("%s: corrupt chunk at byte %zu", path, rd.pos); if (!r) break;
@@ -234,6 +238,8 @@ int main(int argc, char **argv) { @autoreleasepool {
     uint64_t mtl_frame = head_get(head, hn, "mtl_frame", v, sizeof v) ? strtoull(v, NULL, 10) : 0;
     if (strcmp(title, DM_GAME_ID)) RFAIL("the capture is of %s, this replayer is built for %s (make GAME=%s nvn_replay)", title, DM_GAME_ID, title);
     if (ln != strlen(cap_layout()) || memcmp(lay, cap_layout(), ln)) RFAIL("the capture's record layout differs from this build's (nvn_obj.h changed since the capture): capture again");
+    if (!head_get(head, hn, "iface", v, sizeof v) || atoi(v) != CAP_IFACE)   // the shader interface hashes check_programs compares (nvn_capture.inc cap_iface)
+        RFAIL("the capture's shader interface hashes are of another kind (%s, this build %d: before 2 they hashed nvn_refl.h's struct bytes): capture again", head_get(head, hn, "iface", v, sizeof v) ? v : "none", CAP_IFACE);
     printf("capture %s: %s frame %s, build %s, host %s, chain %s (this build: chain %s)\n", path, title, frame, build, commit, chain, DMSH_CHAIN);
     apply_env(head, hn);
     mtl_init();
@@ -317,7 +323,7 @@ int main(int argc, char **argv) { @autoreleasepool {
                 if (c->tag == CAP_PADD && s > 1) add_pools(d, c->raw);
                 else if (c->tag == CAP_PDIF) for (size_t o = 0; o + 24 <= c->raw;) { uint32_t r; uint64_t off, len; memcpy(&r, d + o, 4); memcpy(&off, d + o + 8, 8); memcpy(&len, d + o + 16, 8);
                     if (r >= rp_nrg || off + len > rp_rg[r].size || o + 24 + len > c->raw) RFAIL("a pool change outside its region"); memcpy(rp_rg[r].mem + off, d + o + 24, (size_t)len); o += 24 + (size_t)len; }
-                else if (c->tag == CAP_TREG) for (size_t o = 0; o + sizeof(cap_treg) <= c->raw; o += sizeof(cap_treg)) { cap_treg *e = (cap_treg *)(d + o); mtl_reg_tex(e->tid, e->ok ? &e->t : NULL, e->has_v ? &e->v : NULL); }
+                else if (c->tag == CAP_TREG) for (size_t o = 0; o + sizeof(cap_treg) <= c->raw; o += sizeof(cap_treg)) { cap_treg *e = (cap_treg *)(d + o); mtl_reg_tex(e->tid, e->ok ? &e->t : NULL, e->has_v ? &e->v : NULL); if (e->gone) mtl_reg_tex_gone(e->tid); }
                 else if (c->tag == CAP_SREG) for (size_t o = 0; o + sizeof(cap_sreg) <= c->raw; o += sizeof(cap_sreg)) { cap_sreg e; memcpy(&e, d + o, sizeof e); mtl_reg_samp(e.sid, &e.p); }
                 else if (c->tag == CAP_TPIX) fill_tex(d, c->raw);
             }

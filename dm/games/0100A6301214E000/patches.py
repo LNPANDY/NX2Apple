@@ -13,5 +13,10 @@ CUTS = {
   ],
 }
 
-# Whether a general rule could replace these patches (dm/tools/docs_patches.py lists it in docs/agents/game-patches.md)
-GENERALIZE = "No: Unity's vSyncCount setter held at 1 is right only because this game's logic steps by that count"
+# How general each patch is and could be (dm/tools/docs_patches.py "Binding", listed in docs/agents/game-patches.md): what, its binding now, the loosest it could have (goal),
+# purpose, why; blocked or kept: why the gap stays open (cannot close yet, or left open on purpose); checked: what was checked on game files (else a judgement)
+BINDING = [
+    {'what': 'Unity QualitySettings.vSyncCount held at 1', 'now': 'build', 'goal': 'engine', 'purpose': 'frame rate',
+     'why': "an IL2CPP player registers the setter by its icall name, so the place can be found in any Unity game; holding it at 1 stays this profile's choice (its logic steps by the "
+            'count)'},
+]

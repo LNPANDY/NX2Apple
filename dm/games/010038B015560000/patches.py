@@ -14,5 +14,9 @@ CUTS = {
   ],
 }
 
-# Whether a general rule could replace these patches (dm/tools/docs_patches.py lists it in docs/agents/game-patches.md)
-GENERALIZE = "No: a lost wake-up in the game's own job pool, not a host or SDK difference"
+# How general each patch is and could be (dm/tools/docs_patches.py "Binding", listed in docs/agents/game-patches.md): what, its binding now, the loosest it could have (goal),
+# purpose, why; blocked or kept: why the gap stays open (cannot close yet, or left open on purpose); checked: what was checked on game files (else a judgement)
+BINDING = [
+    {'what': 'job pool wake-up', 'now': 'build', 'goal': 'game', 'purpose': 'race',
+     'why': "a lost wake-up in the game's own job pool, not a host or SDK difference"},
+]

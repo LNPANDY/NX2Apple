@@ -1,0 +1,35 @@
+# SteamWorld Dig (Image & Form's own engine), SDK 3.4.0, NVN.
+# Started from the NSP script's provisional profile; brought up on the Mac with no change to it (README.md).
+
+# ---- Identity ----
+title_id	01009320084A4000
+program_id	01009320084A4000
+
+# ---- App ----
+name	SteamWorld Dig
+ipa	SteamWorldDig.ipa
+app_category	public.app-category.action-games
+
+# ---- Versions ----
+build	v65536	1.12.0	main=28ca125827f8105a3accfb212d3138fa	sdk=d6afd2cb180ca36e58ec21a12cf27eec
+package	v65536
+shader_versions	v65536
+
+# ---- Files ----
+# every module main imports from
+modules	main sdk
+romfs_marker	Menus/menus/spriteset.dat
+zip_store	.ogg:.z:.metallib
+
+# ---- Memory ----
+# main sets a heap of at most the pool − 64 MB: a 3328 MB heap region
+mem_reserve	0x100000000
+mem_alias	0x10000000
+mem_stack	0x10000000
+app_pool	0xCD500000
+# the NPDM declares 0 MB of system resource: IsVirtualAddressMemoryEnabled is false, as on Horizon (Big Brain Academy: Brain vs. Brain sets a heap only then)
+sys_resource	0x0
+
+# ---- Shader split ----
+shader_groups	/Audio/=audio /Sprites/=sprites /Fonts/=fonts /Levels/=levels /Definitions/=definitions /Menus/=menus /Textures/=textures /Atlases/=atlases /Language/=language /Shaders/=shaders /Config/=config
+shader_note	SteamWorld Dig shaders (provisional profile)

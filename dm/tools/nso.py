@@ -8,9 +8,10 @@ truncated file raises Error (a ValueError):
     check-hash flag is set (every retail module: 93 of 93 surveyed, all 279 hashes matching) must match its SHA-256 in the header, so damaged bytes of the right size are caught too.
     A module with the flags cleared (a modified main) is not checked, as on the Switch.
   · NRO, as nn::ro (Atmosphere's ro_service_impl.cpp, ValidateNro): sizes in whole pages, text at 0, ro and data right after, data ending at the module's size (40 of 40 surveyed).
-  · Beyond Horizon, so a small file cannot claim gigabytes: a compressed segment can be no more than LZ4 produces from its stored bytes (255 bytes per byte), and the image, gaps
-    included, no more than that of the whole file.
-  · Compression this loader cannot decode (a zstd main, NSO flag bit 7; a compressed NRO, system 23.0.0+) is an Error naming it, never a wrong image.
+  · Beyond Horizon, so a small file cannot claim gigabytes: a compressed segment can be no more than LZ4 produces from its stored bytes (255 bytes per byte; zstd has no such
+    bound, so a ZBIC segment is held only to its own size), and the image, gaps included, no more than that of the whole file.
+  · Compression: LZ4, and ZBIC (NSO flag bit 7, system 22.0.0 on: Nintendo's zstd variant, its own magic and entropy-table coding, which stock zstd cannot read) through the zbic
+    package, as lz4.block is used. A compressed NRO (system 23.0.0+) is an Error naming it, never a wrong image.
 bss is only a size: the image never includes it (patch_nso.py lays it out; this script's output file gets it as a sparse tail).
 Usage on its own: nso.py <module> <out.bin> (the whole memory image, bss included, for nso_fnmap.py and analysis)"""
 import hashlib, struct, sys
@@ -25,6 +26,21 @@ NAMES = ('text', 'ro', 'data')
 
 class Error(ValueError):
     pass
+
+
+def zstd_segment(raw, size, what):
+    """A ZBIC segment (NSO flag bit 7, system 22.0.0 on) decompressed to size: zbic.decompress decodes Nintendo's zstd variant, and its own
+    checks catch a damaged stream, so its messages are passed on; a wrong length still gets this loader's own Error, as a short LZ4 stream does"""
+    try:
+        import zbic   # pyright: ignore[reportMissingImports]  # an optional package, only a system 22.0.0+ module's ZBIC segments need it
+    except ImportError:
+        raise Error(f'{what}: ZBIC (zstd) segments need the zbic package (python3 -m pip install zbic)') from None
+    try:
+        out = zbic.decompress(bytes(raw))   # bytes: a caller may hand over the bytearray it built the module in
+    except Exception as e:
+        raise Error(f'{what}: ZBIC does not decompress ({e})') from None
+    if len(out) != size: raise Error(f'{what}: ZBIC decompresses to {len(out):#x} bytes, not the {size:#x} of the header: the file is damaged')
+    return out
 
 
 class Module(NamedTuple):
@@ -42,7 +58,6 @@ def load(d, name='module'):
     if d[:4] == b'NSO0':
         if len(d) < 0x100: raise Error(f'{name}: the NSO header is cut short ({len(d)} bytes)')
         flags = struct.unpack_from('<I', d, 0xc)[0]
-        if flags & NSO_ZSTD: raise Error(f'{name}: compressed with zstd (NSO flag bit 7), which this loader does not decode yet')
         stored = [struct.unpack_from('<III', d, 0x10 + i * 0x10) for i in range(3)]   # (file offset, memory offset, size)
         csz = [c if flags >> i & 1 else sz for i, ((_, _, sz), c) in enumerate(zip(stored, struct.unpack_from('<III', d, 0x60)))]   # bytes in the file
         bss, build_id = struct.unpack_from('<I', d, 0x3c)[0], bytes(d[0x40:0x60])
@@ -52,7 +67,7 @@ def load(d, name='module'):
             if sz > SIZE_MAX: raise Error(f'{what} claims {sz:#x} bytes, more than Horizon loads')
             if fo + c > len(d): raise Error(f'{what} is stored at {fo:#x}..{fo + c:#x}, past the end of the file ({len(d):#x} bytes): the file is cut short or damaged')
             if flags >> i & 1 and c > sz: raise Error(f'{what} is stored compressed in {c:#x} bytes, more than its {sz:#x}')
-            if flags >> i & 1 and sz > c * LZ4_MAX_RATIO: raise Error(f'{what} claims {sz:#x} bytes from {c:#x} stored, more than LZ4 can produce')
+            if flags >> i & 1 and not flags & NSO_ZSTD and sz > c * LZ4_MAX_RATIO: raise Error(f'{what} claims {sz:#x} bytes from {c:#x} stored, more than LZ4 can produce')
         if stored[0][1]: raise Error(f'{name}: text segment is at {stored[0][1]:#x}, not at 0')
         for i in (1, 2):
             if stored[i][1] < stored[i - 1][1] + stored[i - 1][2]: raise Error(f'{name}: {NAMES[i]} segment at {stored[i][1]:#x} overlaps the {NAMES[i - 1]} segment before it')
@@ -79,9 +94,12 @@ def load(d, name='module'):
     for i, ((fo, mo, sz), c) in enumerate(zip(stored, csz)):
         raw = d[fo:fo + c]
         if flags >> i & 1:
-            import lz4.block
-            try: raw = lz4.block.decompress(raw, uncompressed_size=sz)
-            except lz4.block.LZ4BlockError as e: raise Error(f'{name}: {NAMES[i]} segment does not decompress ({e})') from None
+            if flags & NSO_ZSTD:
+                raw = zstd_segment(raw, sz, f'{name}: {NAMES[i]} segment')
+            else:
+                import lz4.block
+                try: raw = lz4.block.decompress(raw, uncompressed_size=sz)
+                except lz4.block.LZ4BlockError as e: raise Error(f'{name}: {NAMES[i]} segment does not decompress ({e})') from None
         if len(raw) != sz: raise Error(f'{name}: {NAMES[i]} segment decompresses to {len(raw):#x} bytes, not the {sz:#x} of the header: the file is damaged')
         if flags >> (3 + i) & 1 and hashlib.sha256(raw).digest() != d[0xa0 + 0x20 * i:0xc0 + 0x20 * i]:
             raise Error(f'{name}: {NAMES[i]} segment does not match its SHA-256 in the header: the file is damaged')

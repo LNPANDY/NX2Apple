@@ -9,7 +9,7 @@ Update 1.3.2 (`v458752`) over the base game, SDK 7.3.2. Game Freak's engine befo
 | 4 GB layout: `mem_reserve 0x100000000`, `mem_alias 0x10000000`, `mem_stack 0x10000000`, `app_pool 0xCD500000`, `sys_resource 0x0` | [`game.tsv`](game.tsv) | no virtual address memory (the NPDM declares no system resource): `nninitStartup` sets a 3.13 GB heap |
 | `mem_used 0x4c00000` | `game.tsv` | the rewritten modules (76 MB: `main` 25 MB of text, GLSLC 4.8 MB) are larger than the default 64 MB of used memory |
 | `pad_layout full` | `game.tsv` | the 3D gamepad layout: the camera is on the right stick |
-| Node area cut and 32 MB alignment of large regions | `dm/tools/sdk_patches.py`, `sdk` build `fcf93a41…` | registered for DRAGON QUEST XI S on this build; this game has no virtual address memory |
+| Node area cut and 2 MB alignment of large regions (SDK 20's) | `dm/tools/sdk_patches.py` SDK-wide rules, `sdk` build `fcf93a41…` | DRAGON QUEST XI S's build, cut by the SDK-wide rules; this game has no virtual address memory |
 
 No `patches.py`.
 

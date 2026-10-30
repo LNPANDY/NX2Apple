@@ -110,6 +110,19 @@ static uint64_t level_walk(const nvn_texdesc *d, unsigned level, unsigned dpl, u
 static uint64_t level_offset(const nvn_texdesc *d, unsigned level, unsigned dpl, uint32_t w, uint32_t h, uint32_t z, unsigned tileH, unsigned tileD, fmt_t t) {
     return level_walk(d, level, dpl, w, h, z, tileH, tileD, t, 0);
 }
+// Bytes of one layer (all levels): a sparse texture's whole 64 KB tiles, a layered texture's layer aligned to its block
+static uint64_t layer_bytes(const nvn_texdesc *d, unsigned dpl, int layered, uint32_t w, uint32_t h, uint32_t z, unsigned tileH, unsigned tileD, fmt_t t) {
+    uint64_t ls = level_offset(d, d->levels ? d->levels : 1, dpl, w, h, z, tileH, tileD, t);
+    if (sparse_of(d)) ls = (ls + SPARSE_TILE - 1) & ~(uint64_t)(SPARSE_TILE - 1);
+    if (layered) {
+        uint32_t hh = blk(h, t.bh); unsigned th = tileH, td = tileD;
+        while (th && hh <= (8u << (th - 1))) th--;
+        while (td && z <= (1u << (td - 1))) td--;
+        unsigned sh = th + td + 9; uint64_t g = ls >> sh;
+        if (ls != g << sh) ls = (g + 1) << sh;
+    }
+    return ls;
+}
 
 void nvn_tex_layout(const nvn_texdesc *d, nvn_texlayout *o) {
     fmt_t t = fmt_of(d->format);
@@ -140,17 +153,16 @@ void nvn_tex_layout(const nvn_texdesc *d, nvn_texlayout *o) {
                && blk(h * sy, t.bh) >= 8u << sparse_tile_h(t.bpb)) tileH = (unsigned)sparse_tile_h(t.bpb);
     else if (dpl == 2) { uint32_t ah = blk(h * sy, t.bh); tileH = pick_tile(ah * 3 / 16); }
     else if (dpl == 3) tileD = pick_tile(z + z / 2);
-    o->tileH = tileH; o->tileD = tileD;
-    unsigned levels = d->levels ? d->levels : 1;
-    uint64_t ls = level_offset(d, levels, dpl, w, h, z, tileH, tileD, t);
-    if (sparse_of(d)) ls = (ls + SPARSE_TILE - 1) & ~(uint64_t)(SPARSE_TILE - 1);
-    if (layered) {                                                    // Layer size is aligned to the block
-        uint32_t hh = blk(h, t.bh); unsigned th = tileH, td = tileD;
-        while (th && hh <= (8u << (th - 1))) th--;
-        while (td && z <= (1u << (td - 1))) td--;
-        unsigned sh = th + td + 9; uint64_t g = ls >> sh;
-        if (ls != g << sh) ls = (g + 1) << sh;
+    uint64_t ls = layer_bytes(d, dpl, layered, w, h, z, tileH, tileD, t);
+    // MINIMAL_LAYOUT (0x200): the driver keeps the automatic block height and depth only when the whole layer (every level, the layer alignment) is no larger than with 1-GOB blocks,
+    // else it takes 1-GOB blocks (digitalhivehub's driver sweep, nxnative PR #11: no difference left outside SPARSE). A packaged layout and a sparse texture's tiles keep their own.
+    // Tears of the Kingdom's Depths: two 320×320 RGB5A1 / RGB565 textures sit right before mesh data in one resource and take 204,800 bytes each; laid out with the automatic 16 GOBs
+    // (245,760 bytes), WriteTexels overwrote the mesh behind them and the terrain came out as huge stretched walls (GitHub issue #183)
+    if ((d->flags & 0x200) && !d->pkg_block_h && !sparse_of(d) && (tileH || tileD)) {
+        uint64_t one = layer_bytes(d, dpl, layered, w, h, z, 0, 0, t);
+        if (one != ls) { tileH = tileD = 0; ls = one; }
     }
+    o->tileH = tileH; o->tileD = tileD;
     o->layer_size = ls;
     o->size = layered ? ls * z : ls;
     o->align = sparse_of(d) ? SPARSE_TILE : 512;

@@ -1,0 +1,12 @@
+# kind: evidence  SteamWorld Dig shaders (provisional profile) (BNSH / BAHS in RomFS + main) → control section + code area keys (dm/gfx/tools/shader_split.py)
+# column 5 records where each key first appears; no PC shader pairing supplied
+package	index	stage	dm_ctl_sha16	source
+vs_shaders.bin	0	vertex	29c4a90a91ce1c51	/Shaders/BasicEffect_Color.bnsh#BNSH@0x0#var0
+ps_shaders.bin	0	pixel	428e6f5b967fd666	/Shaders/BasicEffect_Color.bnsh#BNSH@0x0#var0
+ps_shaders.bin	1	pixel	1c73801374d9f7a2	/Shaders/BasicEffect_ColorTexture.bnsh#BNSH@0x0#var0
+vs_shaders.bin	1	vertex	db5dca2d69ef5e3b	/Shaders/BasicEffect_ColorTexture.bnsh#BNSH@0x0#var0
+ps_shaders.bin	2	pixel	63cc1f8cba8515a6	/Shaders/ColorTextureBloomBlend.bnsh#BNSH@0x0#var0
+ps_shaders.bin	3	pixel	b75b0ba9cae0541b	/Shaders/ColorTextureBlur.bnsh#BNSH@0x0#var0
+ps_shaders.bin	4	pixel	69ee92958b5f18d5	/Shaders/ColorTextureFakeNearest.bnsh#BNSH@0x0#var0
+ps_shaders.bin	5	pixel	1a9d9e0665156cfa	/Shaders/ColorTextureGamma.bnsh#BNSH@0x0#var0
+ps_shaders.bin	6	pixel	7982e32ce694adc2	/Shaders/ColorTextureRescaleColor.bnsh#BNSH@0x0#var0

@@ -49,7 +49,10 @@ DM_GAME_ENV	switch	`KEY=VALUE` pairs, separated by spaces, that the game's own `
 DM_GFX_FIXTURE_OUT	test	`=<dir>`: graphics tests write their raw result textures and buffers there
 DM_GLSLC_CAPTURE	path	`=<dir>` saves every GLSLC output the game compiles at run time; `shader_split.py` reads it (default `<version dir>/glslc_capture`)
 DM_GL_CAPTURE	path	`=<dir>`: the GL layer writes every shader source the game compiles (`<key>.vert` / `<key>.frag`) for `gl_shaders.py`; the NSP script uses it to capture run-time shaders
+DM_GL_DRAWLOG	diagnostic	`=<n>[:<seconds>]` logs the first `<n>` GL draws after `<seconds>`, each with its framebuffer, viewport, scissor box, program, uniforms, samplers and its vertex attributes' first vertices; `=1` or more also names samplers that have no texture
+DM_GL_FBLOG	diagnostic	`=1` logs every framebuffer bind with its size and the draws so far
 DM_GL_LOG	diagnostic	`=1` makes the GL layer log object creation
+DM_GL_MISSES	diagnostic	`=1` reports each `eglGetProcAddress` name the layer lacks when the game first asks for it
 DM_GL_STUBS	diagnostic	`=1` gives every GL function the layer lacks a stub that reports its first call and returns 0, instead of a null pointer (bring-up)
 DM_GPU_CAPTURE	diagnostic	`=<frame>[:<frames>]` or `gpu:<ms>[:<after frame>]` writes a Metal GPU trace of those frames for Xcode's Metal debugger; can be set while running through `DM_CTL`
 DM_GPU_CAPTURE_DIR	path	Folder for `DM_GPU_CAPTURE`'s traces (default `gpu_captures/` in the working directory)
@@ -62,7 +65,7 @@ DM_IMPORTS	diagnostic	When set, logs each import the loader binds to a host func
 DM_KBD	switch	`=<text>`: the system keyboard returns that text as OK without showing an input box; unset with no window, it returns cancel
 DM_KBD_PLAYER	switch	`own` makes the Mac keyboard player 1 on its own, with controllers from player 2 on (by default the first controller shares player 1 with the keyboard)
 DM_KEYMAP	player	Mac keyboard: `<name>=<key code>,…` puts a button (`A` … `Down`), a stick direction (`LUp` … `RRight`) or `Shake` on another key (macOS virtual key code, or `none`); one key holds one function (`input_map.h`)
-DM_KEYS	switch	Scripted input: `<seconds or f<frame>>:<key>[+key][~hold][*count/interval],…` presses buttons, sticks and `Shake` at those times
+DM_KEYS	switch	Scripted input: `<seconds or f<frame>>:<key>[+key][~hold or ~f<frames>][*count/interval],…` presses buttons, sticks, touches and `Shake` at those times; `=@<file>` reads the steps from the file
 DM_LANG	player	Game language as a language code (default `en-US`; the iOS app sets the one the IPA was packed with)
 DM_LAUNCHER	switch	`0` skips the iOS settings screen or the Mac settings window and starts the game at once, with the saved choices (on the Mac also `--no-launcher`)
 DM_LINK_VTICK	switch	`0` keeps the system's display-link rate on 144 or 165 Hz Mac screens; by default the link counts only the refreshes nearest a steady 1/60 s clock
@@ -108,7 +111,7 @@ DM_NVN_DUAL_WANT	path	`=<file>`: appends the key of each pixel shader a pipeline
 DM_NVN_ENC_LABEL	diagnostic	`=1` labels every render encoder `p<pass in frame> <width>x<height> <first 8 digits of the first draw's fragment key> d<draws>` for Instruments traces
 DM_NVN_ENC_THREAD	player	`1` runs the replay's Metal encoding on a thread of its own while the submit thread goes on translating; on by default on iOS (`0` turns it off), off on macOS
 DM_NVN_FAST_WAKE	switch	`0` makes the game's `SyncWait`s wake on the commit feedback handler instead of the GPU's own signal of the fence (on by default)
-DM_NVN_FB_SNAP	switch	Which fragment shaders sampling a colour attachment of their own pass read a snapshot of it: `0` none, `all` every shader (slow), `<keys,…>` that list instead of the profile's `feedback_snap`
+DM_NVN_FB_SNAP	switch	Draws that sample a colour attachment of their own render pass: unset, those that write it (or follow a write in the pass) read a snapshot, reused until the game's next barrier; `0` none; `all` a fresh snapshot for every draw that samples one (slow, diagnostic)
 DM_NVN_FLUSH_FILL	switch	`0` starts a new GPU texture in a CPU-writable pool as zeros; by default one whose storage the game flushed before its first use is filled from that storage once
 DM_NVN_FRAMES	diagnostic	`=<N>` prints the NVN call table frame by frame for the first N frames (default 3)
 DM_NVN_FUSE_CHECK	diagnostic	`=1` checks pass merging in the same frame: renders the merged passes again apart and logs the comparison of the attachments every time
@@ -149,6 +152,7 @@ DM_NVN_SKIP_FS	diagnostic	`=<fragment key>[,…]` (up to 16) drops all draws of 
 DM_NVN_SKIP_SMALL	diagnostic	`=<width>` drops all draws whose target width is at most that, to measure the cost of tiny render passes; the picture is wrong
 DM_NVN_SLICE_MERGE	switch	`0` keeps passes into other layers of one array or cube texture level apart (on by default: they run as one layered pass)
 DM_NVN_SNAPRAW	diagnostic	`=1` makes `DM_NVN_TEXDUMP` also save each target's raw bytes, with a text header line, since converting an HDR target to an 8-bit image truncates
+DM_NVN_STORAGE_FIRST_USE	switch	`0` keeps a sampled block-compressed texture in a CPU-writable pool to the one-time fill instead of making it CPU-written when its storage holds data at first use (on by default; `tex_cpu_content`), to measure it
 DM_NVN_T2T_FROM	diagnostic	`=<frame>`: `DM_NVN_T2T_TRACE` records copies only from that frame on (default 0)
 DM_NVN_T2T_TRACE	diagnostic	`=<W>x<H>:<file>`: after each copy into an RGBA16F texture of that size, copies the result into a trace buffer on the GPU timeline; 240 entries are written to the file
 DM_NVN_TBDR	switch	`=1` turns on the replay's TBDR pass optimizations (store / load elision, pass merging, same-target continuation); off by default since bindless textures defeat their read inference
@@ -221,7 +225,7 @@ DM_PSO_ARCHIVE	path	The folder of the per-game Metal 4 pipeline archive of pipel
 DM_PSO_BUNDLE	path	The pipeline archive made offline (`<GPU architecture>.mtl4a`, `prebuilt.tsv`), read only; the iOS app and Mac launcher set it to their `pso/` folder; `off` ignores it
 DM_PSO_GPUS	switch	`build_ipa.sh`: the GPU architectures, comma-separated, to build the offline pipeline archive for (`none` builds none); unset, `g18p` for a profile with `pso_mtl4 on`, else none
 DM_PSO_HYBRID	switch	`0`: a draw whose pipeline is not built yet waits for it instead of drawing with its shader pair's pulling pipeline meanwhile (on by default with the Metal 4 path)
-DM_PSO_IOS_MIN	switch	`build_ipa.sh`: the minimum iOS version of the offline pipeline archives (default the SDK's major version); an older system cannot open them and builds the bases itself
+DM_PSO_IOS_MIN	switch	`build_ipa.sh`: the minimum iOS version of the offline pipeline archives (default the SDK's major version); a device of another major version cannot open them and builds the bases itself
 DM_PSO_MANIFEST	path	The prewarm manifest to use instead of the profile's `pso_manifest.tsv`; `off` turns the prewarm off
 DM_PSO_MTL4	player	`0` builds render pipelines through the `MTLDevice` with no bases and no archive; `1` uses MTL4Compiler with the archive, hybrid pipelines and prebuild (default on on the Mac, the profile's `pso_mtl4` on iOS)
 DM_PSO_PAIRS	path	The prebuild's second shader pair table (default: `pso_pairs.tsv` beside the shader map)
@@ -236,6 +240,7 @@ DM_PSO_USER	path	The per-device list of shaders and pipelines built on the spot 
 DM_PSO_WAITLOG	diagnostic	`=1` logs each draw that waited more than 20 ms for its pipeline, with its shader pair and why no stand-in served it
 DM_QOS_EDGES	switch	`=e1,e2`: the Switch priority edges of `DM_QOS_MAP` (default `44,59`)
 DM_QOS_MAP	switch	`=1` maps guest thread priority to QoS class: ≤ 44 user-interactive, 45–59 user-initiated, the rest utility (off by default: every guest thread runs user-interactive)
+DM_REC	diagnostic	`=<file>`: writes player 1's physical input (keyboard, mouse touches, controllers; never `DM_KEYS` / `DM_CTL`) to the file as `DM_KEYS` steps in presented frames, for replaying a run (`DM_KEYS=@<file>`)
 DM_REGIONS	diagnostic	`=<file>` writes the table of the SDK's address regions every 2 s (alias offset, size, where the request returns to in the game, bytes mapped, the part opened, the SDK offset the request came through; `hle_svc.c` "Address regions"); the NSP script's address region check sets it
 DM_RENDER_SCALE	player	`0.5` to `1.0`: fixes the game's 3D views at that fraction of their size and turns its dynamic resolution off, for builds with a render scale stub; `1.0` (the default) keeps it
 DM_RESOURCE_AOC	path	The add-on content folder the iOS build copies into the app's `aoc/` (empty for none); written by `gen_resources.py`, read by `stage_resources.sh`
@@ -260,8 +265,9 @@ DM_RUMBLE_LOG	diagnostic	`=1` logs the game's vibration handle requests and, onc
 DM_RUMBLE_MIN	player	`=0..0.9`: controller rumble levels below it stay silent and the rest is stretched over the full range (default 0; the phone is unaffected); for games whose quiet HD rumble texture keeps rotating motors running (Mario Kart 8 Deluxe: 0.45); launcher setting
 DM_SAVE	path	This run's save folder (must be set); the device save is `<DM_SAVE>_device`, and `pso_user.tsv` goes in its parent folder; the Mac launcher, the iOS app and the NSP script set it
 DM_SAVED_CHOICES	switch	`0` ignores the player's saved choices (launcher.<VAR> in the app's preferences) and leaves them saved; the Mac launcher and the iOS settings screen
-DM_SAVE_SYNC	player	Cloud saves: the folder whose `<title ID>/save.dmsync` the save is synced through, `icloud` for iCloud Drive/NX2Apple Saves (the Mac); `0` or unset, off. The Mac launcher sets the folder chosen in its settings window's Cloud saves, the iPhone app the one picked in its launcher (dm/host/save_sync.h)
+DM_SAVE_SYNC	player	Cloud saves: the folder whose `<title ID>/save.dmsync` the save is synced through, `icloud` for iCloud Drive/nxnative Saves (the Mac); `0` or unset, off. The Mac launcher sets the folder chosen in its settings window's Cloud saves, the iPhone app the one picked in its launcher (dm/host/save_sync.h)
 DM_SCHEME_NAME	switch	Set by `build_ipa.sh` itself for xcodegen's `project.yml`: the Xcode scheme name, `DmIOS`, or `<display name> (<title ID>)` for a project prepared with `--prepare-xcode`
+DM_SCREEN	player	`=<number>` opens the Mac window on the connected screen with that `NSScreenNumber` (`CGDirectDisplayID`), centred, before any `DM_FULLSCREEN` request; an unknown number is logged and ignored. The NX2Apple launcher sets it to its own window's screen
 DM_SCREEN_MATCH	switch	`0` keeps the screen's refresh rate in fullscreen; by default a Mac screen whose rate is not a multiple of the game's frame rate switches to one that is (144 → 120 Hz)
 DM_SF_TRACE	diagnostic	`=1` logs every request on the game's own HIPC client sessions that the host answers (`hle_sf.c`)
 DM_SHAKE_G	switch	`=<G>`: on iOS, the acceleration beyond gravity above which a flick of the phone shakes the controller's six-axis sensor (default 1.5)
@@ -274,10 +280,12 @@ DM_SPIN_LIST	diagnostic	`=1` makes `patch_nso.py` print every guest poll loop it
 DM_SPIN_POLL	switch	`=<µs>`: how long a spin-gate wait polls before it sleeps with the yield back-off (default 2000; `0` yields on every pass)
 DM_SVC	diagnostic	`=1` logs memory SVCs (`SetHeapSize`, `MapMemory`, `Map`/`UnmapPhysicalMemory`) with their addresses and sizes
 DM_SYMCHECK	diagnostic	`=1` checks every hashed module symbol lookup against a linear search and logs a red line for each mismatch
+DM_TBUF_ALIGN	diagnostic	`=<bytes>` uses that value as the linear-texture alignment for buffer textures when it is larger than the device's `minimumLinearTextureAlignmentForPixelFormat`: a Mac can then reproduce a phone's larger alignment (a 64-byte one fails the buffers a device with 64 bytes cannot view), to check `tbuf_as_2d`'s aligned-row copy
 DM_TEAM_ID	switch	Apple team ID for the per-game Xcode project, used when `--team-id` / `TEAM_ID` is not given; `build_ipa.sh` uses the placeholder `0000000000` (unsigned) when unset
 DM_TEMP	path	Temporary storage folder (default `$DM_ROOT/run/platform/temp`); stand-in system data goes in `<DM_TEMP>_sysdata`; the Mac launcher, the iOS app and the NSP script set it
 DM_TEST_ARCHIVE_CONSTANTS	test	Use optional function constants in the synthetic pipeline archive restart fixture
 DM_TEST_ARCHIVE_MIXED	test	Mix a newly compiled shader function with compacted bases in the archive restart fixture
+DM_TEST_BORDER	test	Path to the native t_border executable that test_dmsh_border.py runs a rewritten shader through on the GPU (`make check_t_border` sets it)
 DM_TEST_BUILD	test	Build folder of `dm/host/tests` whose `t_svc_memory` `test_memory_profile.py` runs (default `build`; `make asan` sets `build/asan`)
 DM_TEST_FS_FAIL	diagnostic	`=write:<n>[:<errno>]` makes the nth save write fail with that errno (default ENOSPC), which refuses the save transaction's commit
 DM_TEST_FS_FAILAT	diagnostic	`=<point>[:<count>][,…]` makes steps of the save transaction (`mountclone`, `reclone`, `guestname`, `renameback`) fail with ENOSPC
@@ -301,6 +309,7 @@ DM_TOUCH_HAPTICS	player	`0` turns off the light haptic tap when a touch control 
 DM_TOUCH_LOG	diagnostic	`=1` logs each touch-screen read with touch points (sample, finger, position, attributes) and each gesture entry, up to 500 lines
 DM_UDC_SELFTEST	diagnostic	`=1` runs a start-up check of DontCare load and store on private depth-stencil and RGBA8 textures (clear, Load + DontCare, read back) and logs one result line
 DM_UE_SHADERS	path	Folder of the Unreal shader code archives decoded by `uepak.py`, for `shader_split.py` (default `ue_shaders` beside the RomFS); needed when the RomFS has Unreal paks
+DM_UE_TEXTURE_POOL	switch	Megabytes Unreal's texture streaming pool (`r.Streaming.PoolSize`) is raised to, overriding the profile's `ue_texture_pool`; `0` keeps the game's own pool. On iOS only this switch turns it on (`Documents/env.txt`)
 DM_VK_CAPTURE	path	`=<dir>` (Mac) writes every SPIR-V module the game creates to `<dir>/<key>.spv`; the NSP script's Vulkan shader capture stage sets it
 DM_VK_LOG	diagnostic	`=1` logs Vulkan object creation in the Vulkan-on-Metal layer
 DM_VSYNC_HZ	switch	`=<Hz>`: rate at which a host thread fires the vi vsync event when the display link does not drive it (default 60)
@@ -308,6 +317,7 @@ DM_WATCH	diagnostic	`=<s>` dumps all threads after that many seconds (SIGALRM) a
 DM_WATCH_SAMPLE	diagnostic	`=<path>` (Mac): when the stall watchdog fires, samples the process for 1 s with `/usr/bin/sample` and writes the thread stacks to that path
 DM_WATCH_STALL	diagnostic	`=<s>`: when the frame loop makes no progress for that long (default 15 with `DM_WATCH`), logs a red line, dumps the threads and exits
 DM_WINDOW	switch	When set (to any value, `0` included) opens a Mac window with keyboard and controller input; unset runs headless with the guest on the current thread; the Mac launcher sets it
+DM_WINDOW_TOP	diagnostic	`1` (Mac, with `DM_WINDOW`) orders the game window in front without activating it and keeps it above other apps' windows, so a covered window does not slow the run; `regress.py` sets it
 DM_XCODE_DERIVED_DATA	path	Xcode derived data folder for `build_ipa.sh` (default `$W/build/ios/xcode-dd`); the NSP script points it into the game's build folder
 DM_XCODE_PROJECT_DIR	path	Folder of the per-game Xcode project that `build_ipa.sh --prepare-xcode` makes (default `$W/xcode`); the NSP script sets it
 DM_XV_FILE	path	File where the attachment validity ledger keeps the keys it disabled after a violation, read at the next launch

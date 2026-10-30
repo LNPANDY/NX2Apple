@@ -1,6 +1,6 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: v0lumehi <aljic.zijad@googlemail.com>
-Date: Wed, 28 Oct 2026 13:33:54 +0100
+From: seedds <seedds@gmail.com>
+Date: Fri, 30 Oct 2026 16:13:09 +0800
 Subject: [PATCH] Mac front end: DM_KEYMAP and DM_PAD_MAP
 
 input_map.h parses the maps; front_mac.m applies them to keys and controller buttons.
@@ -23,7 +23,7 @@ Issue: LNPANDY/NX2Apple#386
  create mode 100644 dm/host/tests/t_launcher_contract.c
 
 diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
-index eb833d10..3df6394d 100644
+index 7671c20a..e70075dc 100644
 --- a/dm/host/front_mac.m
 +++ b/dm/host/front_mac.m
 @@ -1,7 +1,8 @@
@@ -33,7 +33,7 @@ index eb833d10..3df6394d 100644
 -// Key map (Nintendo layout): WASD left stick, arrow keys D-pad, J=A K=B U=X I=Y, Q=L E=R, Z=ZL C=ZR, F=press left stick G=press right stick, Return=+ Tab=−, Space=shake the controller.
 +// Key map (Nintendo layout): WASD left stick, arrow keys D-pad, J=A K=B U=X I=Y, Q=L E=R, Z=ZL C=ZR, F=press left stick G=press right stick, Return=+ Tab=−, Space=shake the controller;
 +// DM_KEYMAP moves a function to another key (the right stick too), DM_PAD_MAP changes what a controller's buttons send (input_map.h).
- // Controllers: buttons by position as on the iPhone (right A, bottom B, top X, left Y), shoulders L R, triggers ZL ZR, Menu + Options −, both sticks and their presses.
+ // Controllers: face buttons as on the iPhone, by position (right A, bottom B, top X, left Y) or on a Nintendo pad by its labels (pad_apple.h), shoulders L R, triggers ZL ZR, Menu + Options −, both sticks and their presses.
  // Each controller is a player of its own (local co-op): the first one connected is player 1, together with the keyboard, the next player 2, and so on up to 8 (pad_slots.h);
  // DM_PAD_MERGE=1 merges every controller into player 1 instead, DM_KBD_PLAYER=own makes the keyboard player 1 on its own, with the controllers from player 2 on.
 @@ -14,6 +15,7 @@
@@ -44,7 +44,7 @@ index eb833d10..3df6394d 100644
  #include "haptics_apple.h"
  #include "motion_apple.h"
  #include "motion_pro_mac.h"
-@@ -22,7 +24,6 @@
+@@ -23,7 +25,6 @@
  
  static CAMetalLayer *g_layer;
  static uint64_t g_btn;
@@ -52,7 +52,7 @@ index eb833d10..3df6394d 100644
  static int g_input_on = 1;   // main thread: the game window is key, so its keyboard, mouse and controllers reach the game (input_release / input_resume)
  
  void *front_metal_layer(void) { return (__bridge void *)g_layer; }
-@@ -86,27 +87,20 @@ void front_screen_match(int fps) {
+@@ -87,27 +88,20 @@ void front_screen_match(int fps) {
      if (!g_layer || g_match_want == fps) return;   // no window (a windowless run's main thread runs the guest), or the rate as before
      g_match_want = fps; dispatch_async(dispatch_get_main_queue(), ^{ screen_match_apply(); });
  }
@@ -90,7 +90,7 @@ index eb833d10..3df6394d 100644
      push();
  }
  
-@@ -118,6 +112,7 @@ static void on_key(NSEvent *e, int down) {
+@@ -119,6 +113,7 @@ static void on_key(NSEvent *e, int down) {
  static pad_slots g_slots;
  static GCController *g_held[DM_PLAYERS];   // the controller of each slot, kept alive while it holds it (the slot table keys on its pointer)
  static int g_merge, g_kbd_own;
@@ -126,7 +126,7 @@ index eb833d10..3df6394d 100644
      const char *e = getenv("DM_PAD_MERGE"); g_merge = e && atoi(e);
      e = getenv("DM_KBD_PLAYER"); g_kbd_own = !g_merge && e && !strcmp(e, "own");
      static const char kbd = 0;
-@@ -356,7 +356,7 @@ int front_text_input(const char *title, const char *sub, const char *guide, cons
+@@ -388,7 +388,7 @@ int front_text_input(const char *title, const char *sub, const char *guide, cons
      dispatch_sync(dispatch_get_main_queue(), ^{
          // The box takes the keyboard and the mouse, so the game window never sees the key-up of the button or the touch-up of the click that opened it: nothing may stay pressed
          // while it is up, or the game reads the stuck button / touch the moment the box closes (Stardew Valley's character creation re-opened the keyboard endlessly)
@@ -224,7 +224,7 @@ index 00000000..56fa4993
 +}
 +static int pad_map_is_default(const pad_map *m) { for (int b = 0; b < IM_BUTTONS; b++) if (m->to[b] != b) return 0; return 1; }
 diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
-index 3fbba0ac..50befe6e 100644
+index e8d812ce..05a5b35b 100644
 --- a/dm/host/tests/Makefile
 +++ b/dm/host/tests/Makefile
 @@ -12,7 +12,7 @@ QUIET = $(if $(strip $(SAN)),,2>/dev/null)
@@ -236,16 +236,16 @@ index 3fbba0ac..50befe6e 100644
  	$(B)/t_language
  	$(B)/t_heap_size
  	$(B)/t_touch
-@@ -45,6 +45,8 @@ run: $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture
+@@ -49,6 +49,8 @@ run: $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture
  	$(B)/t_motion_pro
  	$(B)/t_motion_pro_mac
- 	$(B)/t_hid
+ 	TMPDIR="$(abspath $(B))" $(B)/t_hid
 +	$(B)/t_input_map
 +	$(B)/t_launcher_contract
  	$(B)/t_haptics
  	$(B)/t_haptics_apple
  	$(B)/t_nro
-@@ -139,6 +141,10 @@ $(B)/t_motion_pro: t_motion_pro.c ../motion_pro.h | $(B)
+@@ -155,6 +157,10 @@ $(B)/t_motion_pro: t_motion_pro.c ../motion_pro.h | $(B)
  	$(CLANG) -O1 -g -Wall -Werror -fsanitize=address,undefined -o $@ t_motion_pro.c
  $(B)/t_motion_pro_mac: t_motion_pro_mac.m ../motion_pro_mac.h ../motion_pro.h ../dm_input.h | $(B)
  	$(CLANG) -O1 -g -fobjc-arc -Wall -Werror -Wno-unused-function -fsanitize=address,undefined -I.. -o $@ t_motion_pro_mac.m -framework Foundation -framework GameController -framework IOKit
@@ -347,19 +347,19 @@ index 00000000..136b4035
 +    return fails != 0;
 +}
 diff --git a/dm/tools/impact_map.tsv b/dm/tools/impact_map.tsv
-index ca2bde38..16d3e177 100644
+index 18a2f110..79d1d7eb 100644
 --- a/dm/tools/impact_map.tsv
 +++ b/dm/tools/impact_map.tsv
-@@ -112,6 +112,7 @@ dm/host/main.c	*:*	the host's start
+@@ -122,6 +122,7 @@ dm/host/main.c	*:*	the host's start
  dm/host/loader.c	*:*	module loading
  dm/host/hle.c	hle:*	the HLE tables
  dm/host/front_mac.m	present:*	the Mac front end
 +dm/host/input_map.h	present:*	the Mac front end's key and controller button map
  dm/host/dm_input.h	hle:*hid*	the shared input interface
  dm/host/motion_apple.h	hle:*SixAxisSensor*	controller motion supplied by GameController
- dm/host/motion_fusion.h	hle:*SixAxisSensor*	six-axis motion mapping and orientation
+ dm/host/pad_apple.h	hle:*hid*	controller face buttons from GameController
 diff --git a/docs/development.md b/docs/development.md
-index 04421a90..6b58a678 100644
+index f5ea1025..7b6b9361 100644
 --- a/docs/development.md
 +++ b/docs/development.md
 @@ -14,6 +14,8 @@ The README covers packing and playing. This page is for working on nxnative itse
@@ -372,18 +372,18 @@ index 04421a90..6b58a678 100644
  
  `dm/host/hle_svc.c` serializes heap resizing, physical map/unmap, stack
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index 9f0f1009..370739f9 100644
+index 2dc79e65..a4e18ba3 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
-@@ -56,6 +56,7 @@ DM_ICON	path	`=<image>` gives `build_ipa.sh` another app icon (default the `icon
+@@ -59,6 +59,7 @@ DM_ICON	path	`=<image>` gives `build_ipa.sh` another app icon (default the `icon
  DM_IMPORTS	diagnostic	When set, logs each import the loader binds to a host function and each forced takeover
  DM_KBD	switch	`=<text>`: the system keyboard returns that text as OK without showing an input box; unset with no window, it returns cancel
  DM_KBD_PLAYER	switch	`own` makes the Mac keyboard player 1 on its own, with controllers from player 2 on (by default the first controller shares player 1 with the keyboard)
 +DM_KEYMAP	player	Mac keyboard: `<name>=<key code>,…` puts a button (`A` … `Down`), a stick direction (`LUp` … `RRight`) or `Shake` on another key (macOS virtual key code, or `none`); one key holds one function (`input_map.h`)
- DM_KEYS	switch	Scripted input: `<seconds or f<frame>>:<key>[+key][~hold][*count/interval],…` presses buttons, sticks and `Shake` at those times
+ DM_KEYS	switch	Scripted input: `<seconds or f<frame>>:<key>[+key][~hold or ~f<frames>][*count/interval],…` presses buttons, sticks, touches and `Shake` at those times; `=@<file>` reads the steps from the file
  DM_LANG	player	Game language as a language code (default `en-US`; the iOS app sets the one the IPA was packed with)
  DM_LAUNCHER	switch	`0` skips the iOS settings screen or the Mac settings window and starts the game at once, with the saved choices (on the Mac also `--no-launcher`)
-@@ -183,6 +184,7 @@ DM_OODLE_JOB	path	`=<job file>`: the host runs the game's own Oodle decoder on e
+@@ -187,6 +188,7 @@ DM_OODLE_JOB	path	`=<job file>`: the host runs the game's own Oodle decoder on e
  DM_OODLE_MODULES	path	The rewritten modules the Mac host's Oodle tool mode loads when `shader_split.py` decodes Trinity packs; set by the NSP script
  DM_OODLE_SERVE	switch	`=1`: the host answers decode requests on stdin / stdout with the game's own Oodle (or LZ5) decoder from the guest main thread before the SDK starts, until stdin ends
  DM_OPMODE	player	The operation mode the game sees: `0` handheld, `1` console (default: the profile's `op_mode`, console unless set); read once at startup

@@ -1,0 +1,43 @@
+# Need for Speed: Hot Pursuit Remastered (Criterion / Stellar Entertainment, SDK 10.4.1, NVN). Started from the NSP script's provisional profile (dm/games/profile_guess.py); see README.md
+# Shaders: whole GLSLC outputs in the zlib resources of SHADERS.BNDL, a Criterion Bundle 2 (shader_split.py bnd2_shaders)
+
+# ---- Identity ----
+title_id	010029B0118E8000
+program_id	010029B0118E8000
+
+# ---- App ----
+name	Need For Speed™ Hot Pursuit Remastered
+ipa	NeedForSpeedHotPursuitRemastered.ipa
+app_category	public.app-category.games
+
+# ---- Versions ----
+build	v196608	1.0.3	main=799d1061182c1302e08e706b84ce76e5	subsdk1=84e50460493a12f26100e5150fbff271	sdk=d9add76fc264863d85fbbd1d70076c76
+package	v196608
+shader_versions	v196608
+
+# ---- Files ----
+# not loaded, main takes nothing from them the host does not supply: subsdk0 (GLSLC)
+modules	main subsdk1 sdk
+romfs_marker	UI/MOVIES/1254893.BIK
+zip_store	.bik:.bndl:.metallib
+
+# ---- Memory ----
+# main sets a heap of at most the pool − 64 MB: a 3328 MB heap region
+mem_reserve	0x100000000
+mem_alias	0x10000000
+mem_stack	0x10000000
+app_pool	0xCD500000
+# the NPDM declares 0 MB of system resource: IsVirtualAddressMemoryEnabled is false, as on Horizon (Big Brain Academy: Brain vs. Brain sets a heap only then)
+sys_resource	0x0
+
+# ---- Frame rate ----
+# 60 fps (30 on the Switch): the engine's 60 fps mode, frame ticks and game step written by the host (hle_fpslock.c), its spin limiter cut by the rewriter (patches.py).
+# The game asks for present interval 2; display presents every frame the game makes
+fps_target	60
+present_interval	display
+# The game waits on its fence every frame (two SyncWaits): with Metal encoding on the submit thread its 60 fps frame took 18.1 ms (55 fps), on its own thread 16.7
+enc_thread	on
+
+# ---- Shader split ----
+shader_groups	/RU/=ru /EN_US/=enus /IT/=it /DE/=de /ES/=es /FR/=fr /JA/=ja /UI/=ui /DECALLIBRARY/=decallibrary /VEHICLES/=vehicles /PREMADEWRAPS/=premadewraps /SEACREST/=seacrest /GAMELOGIC/=gamelogic /SOUND/=sound /CHARACTERS/=characters /AI/=ai /ENVIRONMENT/=environment /ENVIRONMENTSETTINGS/=environmentsetti /GPGPU/=gpgpu /POSTFX/=postfx
+shader_note	Need For Speed™ Hot Pursuit Remastered shaders

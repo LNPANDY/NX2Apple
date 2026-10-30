@@ -64,7 +64,8 @@ typedef struct { uint32_t index, flags; uint64_t mem, size; int32_t vmode, pad; 
 // whose translated shaders take other bindings than the records were made for stops (nvn_replay) instead of drawing with them
 typedef struct { uint32_t index, nstage; uint64_t serial; uint8_t key[6][8]; uint8_t ok, pad[7]; uint64_t iface[6]; } cap_prog;
 typedef struct { uint32_t index; int32_t n; uint64_t pool; int64_t off; int32_t tex_base, samp_base; } cap_dpol;   // pool: CAP_OBJ(CAP_K_POOL)
-typedef struct { int32_t tid; uint8_t ok, has_v, pad[2]; tex_t t; view_t v; } cap_treg;
+// gone: the ID stays registered but its memory pool was finalized (treg_drop_pool_views): t keeps neither its pool nor its storage address, which name memory the game has since reused
+typedef struct { int32_t tid; uint8_t ok, has_v, gone, pad; tex_t t; view_t v; } cap_treg;
 typedef struct { int32_t sid, pad; samp_par p; } cap_sreg;
 // per texture the frame reaches: live = initialized and not finalized (mtl_tex_init); cpu = its host texture is uploaded from its pool (CPU-written, or a texture the
 // flush tracking of DM_GAME_TEX_DIRTY_UPLOAD made packaged): the replay marks it CPU-written so it takes the same path

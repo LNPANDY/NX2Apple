@@ -11,7 +11,7 @@ Status: brought up on the Mac: the first-boot brightness screen, the title, a ne
 | `fps_target 60` | [`game.tsv`](game.tsv), `hle_fpslock.c` | the host writes 1 into `rhi.SyncInterval`; see [Frame rate](#frame-rate) |
 | FMallocBinned3 constructor cut: `main+0x137f0` `bl 0xae770` → `nop` | [`patches.py`](patches.py), `main` `84e182f7…` | the constructor reserves 38 GB of address space for its pools; the host runs Unreal's heap (`hle_uemalloc.c` layout `UE5_6`); see [Memory](#memory) |
 | `game_args -SwitchVirtualAddressSpaceSize=4064` | `game.tsv` | the engine's page allocator never gives address space back: a 2 GB region aborted in the first battle |
-| Node area cut 1 GB → 62 MB (`sdk+0x145cbc` / `+0x145d28`) | `dm/tools/sdk_patches.py`, `sdk` build `0023a1b0…` | as on the other Unreal games' SDKs; this build aligns regions of 2 MB and more to 2 MB only, so it needs no alignment cut |
+| Node area cut 1 GB → 62 MB (`sdk+0x145cbc` / `+0x145d28`) | `dm/tools/sdk_patches.py` SDK-wide rules, `sdk` build `0023a1b0…` | as on the other Unreal games' SDKs; this build aligns regions of 2 MB and more to 2 MB only, so it needs no alignment cut |
 | Engage's 5 GB block: `mem_reserve 0x140000000`, `mem_alias 0x118000000`, `mem_stack 0x10000000`, `app_pool 0xCD500000` | `game.tsv` | 256 MB in front + 4.375 GB alias region + 256 MB stack region + 128 MB heap region, as DRAGON QUEST XI S's |
 | `sys_resource 0x1400000` | `game.tsv` | the NPDM declares 20 MB of system resource |
 | `tex_dyn_slots on` | `game.tsv` | 2,077 particle vertex shaders pick their texture slot at run time; see [Shaders](#shaders) |
@@ -72,6 +72,6 @@ General host changes first needed here; each applies to every game:
 
 ## Open
 
-- **Known:** once in two runs, the frames that begin the new game's load bind 2D textures where a base pass shader declares 3D ones (red `texture type mismatch` lines, under a black screen).
+- **Known:** once in two runs, the frames that begin the new game's load bind 2D textures where a base pass shader declares 3D ones (red `texture type mismatch` lines, under a black screen). The host now binds the zero 3D texture there ([A 2D texture in a 3D slot binds the zero 3D texture](../../../docs/reference/rendering.md#a-2d-texture-in-a-3d-slot-binds-the-zero-3d-texture)); not run on this game since.
 - 11 shaders do not build (3 geometry, 8 compute with 3D image atomics); none met so far.
 - **Resolved: the image-atomic guards of `c3a0880` (2026-10-25) broke the opening.** 842 more compute shaders did not translate (`MSL 2.3 image atomics require IGN with a discarded result`; `41b20b5f09269ad8` is dispatched in the opening), and a new game aborted the host at the opening cutscene (`FATAL [RED] image atomics: unsupported or overflowing IMG extent`, compute shader `f3c5ced35cb619d0`, image slot 2, texture ID 2142). Since `2e655b7` translates image atomics whose result is used, chain `39e4d9585b1d` builds all but the 8 listed above, and a new game from an empty save plays the opening cutscene: both shaders run their atomics directly on their buffer textures (target 10, 8 KB). Checked on the Mac on 2026-10-26.

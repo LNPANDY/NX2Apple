@@ -11,7 +11,7 @@ Update 1.1.0 (v131072) over the base game, SDK 8.2.0. Grezzo's engine on Nintend
 | 4 GB layout: `mem_reserve 0x100000000`, `mem_alias 0x10000000`, `mem_stack 0x10000000`, `app_pool 0xCD500000` | [`game.tsv`](game.tsv) | no system resource in the NPDM: the game uses `SetHeapSize`. 13 Sentinels' partition (256 MB in front + 256 MB alias + 256 MB stack + 3.25 GB heap), "until measured" |
 | `depth_mode zero` | `game.tsv` | the game sets the near = 0 depth mode, so the pipeline bases made before it runs (the NSP script's Mac prebuild, and a [pipeline archive made offline](../../../docs/development.md#the-pipeline-archive-made-offline) for the iPhone when one is built with `DM_PSO_GPUS`) take its vertex shaders' `main0_z` entries (the host itself follows the mode the game sets) |
 
-No `dm/tools/sdk_patches.py` cut for its `sdk` build (`3ae34e68…`). No `pad_layout`: the virtual gamepad starts in the 2D layout.
+`dm/tools/sdk_patches.py`'s SDK-wide rules cut its `sdk` build (`3ae34e68…`): the node area and 2 MB alignment of large regions. No `pad_layout`: the virtual gamepad starts in the 2D layout.
 
 ## Rendering
 

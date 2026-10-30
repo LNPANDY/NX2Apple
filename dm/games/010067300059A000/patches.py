@@ -18,5 +18,12 @@ CUTS = {
     ],
 }
 
-# Whether a general rule could replace these patches (dm/tools/docs_patches.py lists it in docs/agents/game-patches.md)
-GENERALIZE = "Partly: Mario + Rabbids Kingdom Battle and Sparks of Hope cut the same Snowdrop three-pool allocator; one function-matched rule could serve both only if their code matches (not checked). The cause, an iPhone's address space, cannot be fixed in the host"
+# How general each patch is and could be (dm/tools/docs_patches.py "Binding", listed in docs/agents/game-patches.md): what, its binding now, the loosest it could have (goal),
+# purpose, why; blocked or kept: why the gap stays open (cannot close yet, or left open on purpose); checked: what was checked on game files (else a judgement)
+BINDING = [
+    {'what': 'Snowdrop three-pool allocator: 12 GB of ranges → 3 GB', 'now': 'build', 'goal': 'game', 'purpose': 'address space',
+     'checked': "both games' functions compared by fingerprint and disassembly, 2026-10-29",
+     'why': 'Mario + Rabbids Kingdom Battle and Sparks of Hope build the same source routine differently: 44% of the instructions alike, fields 8 bytes apart, every callee different, '
+            "other cut offsets and bytes (checked 2026-10-29), so no Snowdrop rule; a function-matched rule could carry it over the game's updates. The cause, an iPhone's address "
+            'space, is a platform limit'},
+]

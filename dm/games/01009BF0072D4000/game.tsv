@@ -20,9 +20,6 @@ app_category	public.app-category.puzzle-games
 op_mode	handheld
 # the virtual gamepad starts in the 3D layout (D-pad, right stick, L3 / R3): the right stick turns the camera
 pad_layout	full
-# agl's post-effect program 987 (agl_technique_pfx.sharcb, as 3D World's 66a71a3081b91b9a) writes the 1920x1080 RGB10A2 image as an attachment while sampling it:
-# without the snapshot the Mac too shows 16x16 magenta blocks in about half the frames of the opening course
-feedback_snap	54f58a7cab608766
 
 # ---- Versions ----
 # only the merged 1.4.2 copy is extracted; the base game's own build IDs are added when needed
