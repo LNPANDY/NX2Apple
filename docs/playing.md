@@ -42,4 +42,4 @@ A Mac app shows the game's settings in a window before the game starts ([The Mac
 
 ## Shaders on first sight
 
-Short stutters the first time a new scene appears are normal: the app compiles graphics for it once and remembers them for the next launch. What it remembered, and what the game's list names, is built before the game starts, behind "Preparing shaders" and a progress bar when that takes more than half a second.
+Short stutters the first time a new scene appears are normal: the app compiles graphics for it once and remembers them for the next launch. What it remembered, and what the game's list names, are built before the game starts, behind "Preparing shaders" and a progress bar when that takes more than half a second.
