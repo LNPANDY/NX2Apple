@@ -68,14 +68,22 @@ struct Slot: Identifiable {
     let optional: Bool
     var paths: [String] = []
     var problem: String = ""
+    /// A finished sentence shown beside the file name (the update row: which of several updates was taken).
+    var note: String = ""
     var ok: Bool { paths.contains { FileManager.default.fileExists(atPath: $0) } }
     /// `problem` holds either a finished message or a key + arguments, resolved by the model
     /// (it needs the current language, which a struct cannot read).
     var problemText: String { problem }
     func summary(_ t: (String) -> String) -> String {
         if !problem.isEmpty { return problem.hasPrefix("data.") ? t(problem) : problem }
-        if paths.isEmpty { return optional ? t("data.notSelectedOptional") : t("data.notSelected") }
-        if paths.count == 1 { return (paths[0] as NSString).lastPathComponent }
+        if paths.isEmpty {
+            if kind == .dlc { return t("data.notSelectedDlc") }
+            return optional ? t("data.notSelectedOptional") : t("data.notSelected")
+        }
+        if paths.count == 1 {
+            let name = (paths[0] as NSString).lastPathComponent
+            return note.isEmpty ? name : name + "\n" + note
+        }
         return String(format: t("data.files"), paths.count) + paths.map { ($0 as NSString).lastPathComponent }.joined(separator: ", ")
     }
 }
@@ -915,7 +923,7 @@ final class BuildModel: ObservableObject {
         gameDir = folder
         let found = Self.classify(Self.inputFiles(in: folder))
         updateSlot("base") { $0.paths = found.base.map { [$0] } ?? []; $0.problem = found.base == nil ? "data.noBase" : "" }
-        updateSlot("update") { $0.paths = found.update.map { [$0] } ?? []; $0.problem = "" }
+        updateSlot("update") { $0.paths = found.update.map { [$0] } ?? []; $0.problem = ""; $0.note = updateNote(found) }
         updateSlot("dlc") { $0.paths = found.dlc; $0.problem = "" }
         updateSlot("keys") { $0.paths = found.keys.map { [$0] } ?? []; $0.problem = "" }
         if !found.anyGame {
@@ -929,7 +937,19 @@ final class BuildModel: ObservableObject {
         var update: String?
         var dlc: [String] = []
         var keys: String?
+        /// How many updates the files held and the version of the one taken (the newest), for the update row's note.
+        var updateCount = 0
+        var updateVersion = 0
         var anyGame: Bool { base != nil || update != nil || !dlc.isEmpty }
+        static func == (a: Self, b: Self) -> Bool {
+            a.base == b.base && a.update == b.update && a.dlc == b.dlc && a.keys == b.keys
+        }
+    }
+
+    /// The update row's note when the files held several updates: which one was taken and why one is enough.
+    func updateNote(_ found: FoundInputs) -> String {
+        guard found.update != nil, found.updateCount > 1 else { return "" }
+        return String(format: t("data.updateNewest"), found.updateVersion, found.updateCount)
     }
 
     /// The files under a folder, pruning the build folders this pipeline itself writes so a rescan is not slow.
@@ -970,7 +990,7 @@ final class BuildModel: ObservableObject {
             guard ["nsp", "xci", "nsz", "xcz"].contains((low as NSString).pathExtension) else { continue }
             let size = (try? FileManager.default.attributesOfItem(atPath: path))?[.size] as? Int ?? 0
             guard size > 0 else { continue }   // an incomplete download leaves 0-byte files behind
-            guard let tid = titleID(name) else { continue }   // a name without [title ID] cannot be classified
+            guard let tid = titleID(name) else { continue }   // a name without a title ID cannot be classified
             switch tid & 0xFFF {
             case 0: base.append((path, size))
             case 0x800: update.append((path, size, updateVersion(name)))
@@ -979,19 +999,70 @@ final class BuildModel: ObservableObject {
         }
         // several bases happen when a folder holds a repack beside the original: the largest wins
         found.base = base.sorted { $0.1 > $1.1 }.first?.0
-        // several updates: the newest [vN] is the one a profile would pack
-        found.update = update.sorted { $0.2 > $1.2 }.first?.0
+        // a folder that holds other games too: only the update and add-on content of the chosen base game count
+        if let app = found.base.flatMap({ titleID(($0 as NSString).lastPathComponent) }).map({ $0 & ~0xFFF }) {
+            update = update.filter { titleID(($0.0 as NSString).lastPathComponent).map(owner) == app }
+            dlc = dlc.filter { titleID(($0 as NSString).lastPathComponent).map(owner) == app }
+        }
+        // several updates: the newest version is the one a profile would pack (an update contains the earlier ones)
+        let newest = update.sorted { $0.2 > $1.2 }.first
+        found.update = newest?.0
+        found.updateCount = update.count
+        found.updateVersion = newest?.2 ?? 0
         found.dlc = dlc.sorted()
         return found
     }
 
-    /// The [vN] in a file name, 0 when absent — used to pick the newest of several updates.
+    /// The base game's title ID (low 12 bits clear) a title ID belongs to, as build_ipa_from_nsp.py reads it:
+    /// 0x000 is a base game, 0x800 its update, anything else add-on content in the block above the base.
+    nonisolated static func owner(_ tid: UInt64) -> UInt64 {
+        let low = tid & 0xFFF
+        return low == 0 ? tid : (low == 0x800 ? tid & ~0xFFF : (tid & ~0xFFF) - 0x1000)
+    }
+
+    /// Why a file does not fit the row it was put in, judged by the title ID in its name.
+    enum RowMismatch: Equatable { case notBase(UInt64), notUpdate(UInt64), notDLC(UInt64), otherGame }
+
+    /// A file whose name carries no title ID fits every row (the build script reads the ID from the package).
+    /// `base` is the selected base game's file name, when it carries one.
+    nonisolated static func rowMismatch(_ kind: InputKind, name: String, base: String?) -> RowMismatch? {
+        guard kind != .keys, let tid = titleID(name) else { return nil }
+        let low = tid & 0xFFF
+        switch kind {
+        case .base: if low != 0 { return .notBase(tid) }
+        case .update: if low != 0x800 { return .notUpdate(tid) }
+        case .dlc: if low == 0 || low == 0x800 { return .notDLC(tid) }
+        case .keys: break
+        }
+        if kind != .base, let b = base.flatMap(titleID), owner(tid) != b & ~0xFFF { return .otherGame }
+        return nil
+    }
+
+    /// The row's message for a rejected file, as a finished sentence in the current language.
+    func rowProblemText(_ mismatch: RowMismatch, name: String) -> String {
+        func hex(_ tid: UInt64) -> String { String(format: "%016llX", tid) }
+        switch mismatch {
+        case .notBase(let tid): return String(format: t("data.rowNotBase"), name, hex(tid))
+        case .notUpdate(let tid): return String(format: t("data.rowNotUpdate"), name, hex(tid))
+        case .notDLC(let tid): return String(format: t("data.rowNotDLC"), name, hex(tid))
+        case .otherGame: return String(format: t("data.rowOtherGame"), name)
+        }
+    }
+
+    /// The version in a file name, 0 when absent: `[v65536]` first, then the `_v65536` / ` v65536` token the
+    /// eShop-style names use (`01007EF00011E800_v1114112_038ff9df0888.nsp`). Picks the newest of several updates.
     nonisolated static func updateVersion(_ name: String) -> Int {
-        guard let re = try? NSRegularExpression(pattern: #"\[v(\d+)\]"#) else { return 0 }
+        for pattern in [#"\[v(\d+)\]"#, #"(?:^|[_ ])v(\d+)(?=$|[_ .\-)\]])"#] {
+            if let v = firstGroup(pattern, in: name), let n = Int(v) { return n }
+        }
+        return 0
+    }
+
+    nonisolated private static func firstGroup(_ pattern: String, in name: String) -> String? {
+        guard let re = try? NSRegularExpression(pattern: pattern) else { return nil }
         let ns = name as NSString
-        guard let m = re.firstMatch(in: name, range: NSRange(location: 0, length: ns.length)),
-              let v = Int(ns.substring(with: m.range(at: 1))) else { return 0 }
-        return v
+        guard let m = re.firstMatch(in: name, range: NSRange(location: 0, length: ns.length)) else { return nil }
+        return ns.substring(with: m.range(at: 1))
     }
 
     /// What the Choose… dialog of a row offers. The compressed NSZ / XCZ are accepted by the build
@@ -1010,24 +1081,47 @@ final class BuildModel: ObservableObject {
         p.canChooseFiles = true
         p.allowsMultipleSelection = (kind == .dlc)
         p.allowedFileTypes = Self.allowedFileTypes(for: kind)
-        guard p.runModal() == .OK, !p.urls.isEmpty else { return }
-        let id = kind == .base ? "base" : kind == .update ? "update" : kind == .dlc ? "dlc" : "keys"
-        let picked = p.urls.map(\.path)
-        updateSlot(id) { s in
-            s.paths = kind == .dlc ? Array(Set(s.paths + picked)).sorted() : Array(picked.prefix(1))
-            s.problem = ""
+        switch kind {
+        case .dlc:
+            p.message = t("data.dlcPanelMessage")
+            p.prompt = t("data.dlcPanelPrompt")
+        case .update: p.message = t("data.updatePanelMessage")
+        default: break
         }
-        if kind == .base, !picked.isEmpty { gameDir = (picked[0] as NSString).deletingLastPathComponent }
+        guard p.runModal() == .OK, !p.urls.isEmpty else { return }
+        take(picked: p.urls.map(\.path), kind: kind)
+    }
+
+    /// Files chosen for one row: those that fit it are taken, the first that does not is named on the row
+    /// and left out (it is not moved to another row: the row the user chose stays as they set it).
+    func take(picked: [String], kind: InputKind) {
+        let id = kind == .base ? "base" : kind == .update ? "update" : kind == .dlc ? "dlc" : "keys"
+        let baseName = kind == .base ? nil : (basePath as NSString).lastPathComponent
+        var fitting: [String] = [], problem = ""
+        for path in picked {
+            let name = (path as NSString).lastPathComponent
+            if let why = Self.rowMismatch(kind, name: name, base: baseName) {
+                if problem.isEmpty { problem = rowProblemText(why, name: name) }
+            } else { fitting.append(path) }
+        }
+        updateSlot(id) { s in
+            if !fitting.isEmpty {
+                s.paths = kind == .dlc ? Array(Set(s.paths + fitting)).sorted() : Array(fitting.prefix(1))
+                s.note = ""
+            }
+            s.problem = problem
+        }
+        if kind == .base, let first = fitting.first { gameDir = (first as NSString).deletingLastPathComponent }
     }
 
     func clear(_ id: String) { updateSlot(id) { $0.paths = []; $0.problem = "" } }
 
-    /// The title ID in a file name: [0100F2C0115B6000]
+    /// The title ID in a file name: `[0100F2C0115B6000]` first, else a bare 16-digit ID that starts with 01 as a token
+    /// (start of the name or after `_`, space, `-`, `.`, `(`, `[`), like `01007EF00011E000_v0_420d1c5034ab.nsp`.
     nonisolated static func titleID(_ name: String) -> UInt64? {
-        guard let re = try? NSRegularExpression(pattern: #"\[([0-9A-Fa-f]{16})\]"#) else { return nil }
-        let ns = name as NSString
-        guard let m = re.firstMatch(in: name, range: NSRange(location: 0, length: ns.length)) else { return nil }
-        return UInt64(ns.substring(with: m.range(at: 1)), radix: 16)
+        let found = firstGroup(#"\[([0-9A-Fa-f]{16})\]"#, in: name)
+            ?? firstGroup(#"(?:^|[_ \-.(\[])(01[0-9A-Fa-f]{14})(?![0-9A-Fa-f])"#, in: name)
+        return found.flatMap { UInt64($0, radix: 16) }
     }
 
     var repoOK: Bool { Self.isRepo(repoPath) }
