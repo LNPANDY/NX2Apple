@@ -199,11 +199,13 @@ struct SaveTransfer {
          "--domain-type", "appDataContainer", "--domain-identifier", bundle]
     }
 
-    /// The destination is the folder itself, as in the install's archiveCopy; the files the Mac does not have go, so the
-    /// device holds the Mac's save and nothing older beside it (the backup has the old one).
+    /// The destination is the folder itself, as in the install's archiveCopy. Never `--remove-existing-content true`: on a
+    /// real device it also deletes the destination's siblings (Documents/romfs.img, env.txt), not only its contents (#250).
+    /// Without it devicectl merges and overwrites, so a file the Mac no longer has can stay in the device's folder, which
+    /// costs far less than wiping game data (devicectl has no command to delete a single file). The backup has the old save.
     static func copyToCommand(device: String, bundle: String, source: String, destination: String) -> [String] {
         ["device", "copy", "to", "--device", device, "--source", source, "--destination", destination,
-         "--domain-type", "appDataContainer", "--domain-identifier", bundle, "--remove-existing-content", "true"]
+         "--domain-type", "appDataContainer", "--domain-identifier", bundle]
     }
 
     // ---- pure helpers ----
