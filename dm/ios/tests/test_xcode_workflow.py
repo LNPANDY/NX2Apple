@@ -29,7 +29,12 @@ class XcodePipelineTests(unittest.TestCase):
                 with self.subTest(graphics=graphics, derived=derived):
                     self.prepare_fixture(graphics, derived)
 
-    def prepare_fixture(self, graphics, derived):
+    def test_prepare_with_framework_asks_for_the_framework_project(self):
+        # --framework (route C, docs/launcher-c-plan.md M1): build_ipa.sh gets DM_FRAMEWORK=1 and copies
+        # project-framework.yml in as the project (test_framework_build.py checks that copy on the script itself)
+        self.prepare_fixture('nvn', False, framework=True)
+
+    def prepare_fixture(self, graphics, derived, framework=False):
         with tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
             root = Path(temporary).resolve()
             (root / 'prod.keys').touch()
@@ -75,7 +80,8 @@ class XcodePipelineTests(unittest.TestCase):
             try:
                 with redirect_stdout(output):
                     code = build.cli([str(root), '-k', str(root / 'prod.keys'), '--prepare-xcode',
-                                      '--language', 'ja', '--no-show-fps', '--no-motion', '--progress', 'json'])
+                                      '--language', 'ja', '--no-show-fps', '--no-motion', '--progress', 'json']
+                                     + (['--framework'] if framework else []))
             finally:
                 progress.close()
             self.assertEqual(code, 0)
@@ -92,6 +98,7 @@ class XcodePipelineTests(unittest.TestCase):
             self.assertEqual(environment['GFXAPI'], graphics)
             self.assertEqual(environment['DM_BUNDLE_ID'], 'com.example.saved')
             self.assertEqual(environment['DM_TEAM_ID'], 'ABCDEFGHIJ')
+            self.assertEqual(environment.get('DM_FRAMEWORK'), '1' if framework else None)
             self.assertEqual(Path(environment['DM_XCODE_PROJECT_DIR']), root / f'{registered.id}_build/xcode')
             register.assert_called_once()
             self.assertEqual(mocks['derive_profile'].call_count, int(derived))
