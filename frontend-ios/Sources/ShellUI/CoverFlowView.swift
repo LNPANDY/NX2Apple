@@ -38,19 +38,26 @@ struct CoverFlowView: View, Equatable {
             let short = geometry.size.height < 520
             // A wide card as large as the Mac console's focused tile: what the height allows, never so wide that the
             // neighbours vanish.
-            let cardHeight = max(90, min(geometry.size.height * (short ? 0.5 : 0.46), geometry.size.width * 0.54 * 9 / 16))
+            let cardHeight = max(90, min(geometry.size.height * (short ? 0.42 : 0.44), geometry.size.width * 0.54 * 9 / 16))
             let cover = cardHeight * 16 / 9
             VStack(spacing: 0) {
                 topBar.padding(.horizontal, 24).padding(.top, short ? 4 : 16)
-                Spacer(minLength: short ? 4 : 12)
-                Group {
-                    if games.count <= 3 { shelf(width: geometry.size.width, cover: cover) } else { carousel(width: geometry.size.width, cover: cover) }
-                }.frame(height: cover * 9 / 16 * 1.06)
-                info(short: short, width: geometry.size.width)
-                    .padding(.top, short ? 12 : 26).padding(.horizontal, 24)
-                Spacer(minLength: short ? 4 : 12)
-                // The hint row keeps its place when it is hidden, so the card does not move when it appears.
-                hints.opacity(showsHints ? 1 : 0).padding(.bottom, short ? 6 : 20)
+                // The cover block (cards, title and state, the hint row) is centred in the space under the top bar, a
+                // touch above the middle, never closer to the bar than the minimum gap. Its parts keep fixed places
+                // inside it, so nothing moves between games.
+                Spacer(minLength: short ? 18 : 32)
+                VStack(spacing: 0) {
+                    Group {
+                        if games.count <= 3 { shelf(width: geometry.size.width, cover: cover) } else { carousel(width: geometry.size.width, cover: cover) }
+                    }.frame(height: cover * 9 / 16 * 1.06)
+                    info(short: short, width: geometry.size.width)
+                        .padding(.top, short ? 12 : 26).padding(.horizontal, 24)
+                    // The hint row keeps its place when it is hidden, so the card does not move when it appears.
+                    hints.opacity(showsHints ? 1 : 0).padding(.top, short ? 10 : 28)
+                }
+                Spacer(minLength: short ? 6 : 16)
+                // The optical lift: a little more room below than above.
+                Color.clear.frame(height: short ? 14 : 36)
             }
         }
         .sensoryFeedback(.selection, trigger: selected.id)
