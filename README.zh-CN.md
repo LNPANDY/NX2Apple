@@ -80,7 +80,9 @@ App 自带构建工具和 Python，不需要装 Homebrew 和 Python；.NET SDK 1
 触屏、震动和体感见 [docs/playing.md](docs/playing.md)（英文）。新场景第一次出现时短促卡顿是正常的：
 App 会为它编译一次图形并记住。游戏数据（`romfs.img`）可以放在外置硬盘上，用「文件」App 选取。
 
-**游戏语言。** 默认英文。Mac 上用启动选项里的「游戏语言」一行。面板里没有的设置，可以写一个
+**游戏语言。** 在 Mac 上，如果游戏有 Mac 的系统语言，就会使用它：启动选项里「游戏语言」一行的
+第一个选项「系统语言」就是默认值，在那里选别的语言即可固定。没有该语言的游戏和所有 iPhone 版本
+默认英文。面板里没有的设置，可以写一个
 `env.txt`，每行 `KEY=VALUE`（例如 `DM_LANG=zh-Hans`），放在两处之一：
 `~/Library/Application Support/nxnative/<title ID>/env.txt` 优先，重新构建后仍在；
 `<App>.app/Contents/Resources/dm/env.txt` 是 App 自带的。在加入语言选项之前构建的 Mac App 需要重新构建

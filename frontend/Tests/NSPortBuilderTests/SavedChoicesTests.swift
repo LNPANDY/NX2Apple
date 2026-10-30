@@ -39,6 +39,93 @@ final class SavedChoicesTests: XCTestCase {
         return app.path
     }
 
+    private let lang = #"{"env": "DM_LANG", "kind": "choice", "section": "Game", "label": "Game language", "note": "", "default": "en-US", "options": [["en-US", "American English"], ["en-GB", "British English"], ["fr", "French"], ["ja", "Japanese"]]}"#
+
+    private func macList(_ rows: [String], preferred: [String]) throws -> [LaunchSetting] {
+        try XCTUnwrap(LaunchSetting.forMac(app: try app(rows), titleID: titleID, repo: temporary.path, labels: { L10n.string($0, .en) },
+                                           preferred: preferred)).filter { $0.env != "DM_FULLSCREEN" }   // the Display mode row forMac adds
+    }
+
+    func testSystemLanguageIsAChoiceAndTheDefaultWhenTheGameHasIt() throws {
+        let list = try macList([fps, lang], preferred: ["fr-FR", "en-US"])
+        let row = try XCTUnwrap(list.first { $0.env == "DM_LANG" })
+        XCTAssertEqual(row.options?.first, ["system", "System language (French)"])
+        XCTAssertEqual(row.options?.count, 5, "the game's own languages stay")
+        let store = SavedChoices(domain: bundleID)
+        XCTAssertEqual(store.current(row), "system", "the default")
+        store.followSystemLanguage(try XCTUnwrap(LaunchSetting.read(app: try app([fps, lang]))), preferred: ["fr-FR"])
+        XCTAssertEqual(store.raw("DM_LANG") as? String, "fr", "launcher.c reads the language it stands for")
+        XCTAssertEqual(store.current(row), "system")
+        XCTAssertFalse(store.hasChoices(list), "following the Mac is no choice to reset")
+    }
+
+    func testPickingALanguageStopsFollowingAndSystemLanguageComesBack() throws {
+        let row = try XCTUnwrap(try macList([lang], preferred: ["fr-FR"]).first)
+        let read = try XCTUnwrap(LaunchSetting.read(app: try app([lang])))
+        let store = SavedChoices(domain: bundleID)
+        store.set(row, "en-US")   // the packed default, picked: kept, so the Mac's language does not come back
+        store.followSystemLanguage(read, preferred: ["fr-FR"])
+        XCTAssertEqual(store.current(row), "en-US")
+        XCTAssertEqual(store.raw("DM_LANG") as? String, "en-US")
+        store.set(row, "system")
+        XCTAssertEqual(store.current(row), "system")
+        XCTAssertEqual(store.raw("DM_LANG") as? String, "fr")
+        store.set(row, "ja")
+        store.reset([row])
+        XCTAssertEqual(store.current(row), "system", "reset goes back to the default")
+        XCTAssertEqual(store.raw("DM_LANG") as? String, "fr", "and writes its language at once, for a start from Finder")
+    }
+
+    func testAChoiceMadeInTheGamesOwnWindowStands() throws {
+        let read = try XCTUnwrap(LaunchSetting.read(app: try app([lang])))
+        let row = try XCTUnwrap(try macList([lang], preferred: ["fr-FR"]).first)
+        let store = SavedChoices(domain: bundleID)
+        store.followSystemLanguage(read, preferred: ["fr-FR"])
+        CFPreferencesSetAppValue("launcher.DM_LANG" as CFString, "ja" as CFString, bundleID as CFString)   // the game's settings window
+        store.followSystemLanguage(read, preferred: ["fr-FR"])
+        XCTAssertEqual(store.raw("DM_LANG") as? String, "ja")
+        XCTAssertEqual(store.current(row), "ja")
+        store.set(row, "system")
+        CFPreferencesSetAppValue("launcher.DM_LANG" as CFString, nil, bundleID as CFString)   // its window picks the packed default
+        store.followSystemLanguage(read, preferred: ["fr-FR"])
+        XCTAssertEqual(store.raw("DM_LANG") as? String, "en-US", "the window's default stands, kept as a choice")
+        XCTAssertEqual(store.current(row), "en-US")
+    }
+
+    func testTheMacsLanguageChangeReachesAFollowingGame() throws {
+        let read = try XCTUnwrap(LaunchSetting.read(app: try app([lang])))
+        let store = SavedChoices(domain: bundleID)
+        store.followSystemLanguage(read, preferred: ["fr-FR"])
+        store.followSystemLanguage(read, preferred: ["ja-JP"])
+        XCTAssertEqual(store.raw("DM_LANG") as? String, "ja")
+        store.followSystemLanguage(read, preferred: ["de-DE"])
+        XCTAssertNil(store.raw("DM_LANG"), "no German: the tested default")
+        XCTAssertTrue(store.followsSystemLanguage)
+    }
+
+    func testAGameWithoutTheMacsLanguageKeepsItsDefault() throws {
+        let list = try macList([lang], preferred: ["de-DE"])
+        XCTAssertNil(list[0].options?.first { $0.first == "system" }, "no System language choice")
+        XCTAssertEqual(list[0].def, "en-US")
+        let store = SavedChoices(domain: bundleID)
+        store.followSystemLanguage(try XCTUnwrap(LaunchSetting.read(app: try app([lang]))), preferred: ["de-DE"])
+        XCTAssertNil(store.raw("DM_LANG"))
+        XCTAssertEqual(store.current(list[0]), "en-US", "the game's tested default")
+    }
+
+    func testTheMacsLanguageMapsToTheGamesCodes() {
+        let all = ["en-US", "en-GB", "ja", "fr", "de", "es-419", "es", "it", "nl", "fr-CA", "pt", "ru", "ko", "zh-Hant", "zh-Hans", "pt-BR"]
+        let cases: [(String, String)] = [("fr-FR", "fr"), ("fr-CA", "fr-CA"), ("fr", "fr"), ("en-GB", "en-GB"), ("en-AU", "en-GB"),
+                                         ("en-US", "en-US"), ("en", "en-US"), ("es-ES", "es"), ("es-MX", "es-419"), ("es-419", "es-419"),
+                                         ("pt-BR", "pt-BR"), ("pt-PT", "pt"), ("zh-Hans-CN", "zh-Hans"), ("zh-Hant-TW", "zh-Hant"),
+                                         ("zh-HK", "zh-Hant"), ("zh-Hans-HK", "zh-Hans"), ("en-001", "en-GB"), ("ja-JP", "ja"), ("de-CH", "de")]
+        for (tag, want) in cases { XCTAssertEqual(SavedChoices.gameLanguage(preferred: [tag], offered: all), want, tag) }
+        XCTAssertEqual(SavedChoices.gameLanguage(preferred: ["fr-CA"], offered: ["en-US", "fr"]), "fr", "the other French")
+        XCTAssertEqual(SavedChoices.gameLanguage(preferred: ["sv-SE", "de-DE"], offered: ["en-US", "de"]), "de", "the next preferred language")
+        XCTAssertNil(SavedChoices.gameLanguage(preferred: ["sv-SE"], offered: ["en-US", "ja"]))
+        XCTAssertNil(SavedChoices.gameLanguage(preferred: ["zh-Hant-TW"], offered: ["en-US", "zh-Hans"]), "never the other script")
+    }
+
     func testDomainIsTheBundleIDElseThePackersDefault() throws {
         let path = try app([fps])
         XCTAssertEqual(SavedChoices(app: path, titleID: titleID).domain, bundleID)

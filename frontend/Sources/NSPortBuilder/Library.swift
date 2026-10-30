@@ -77,9 +77,10 @@ extension LibraryGame {
 /// One row of the app's `dm/launcher.json` (dm/games/settings.py), the list the iPhone launcher shows
 /// (dm/ios/Sources/LauncherSettings.swift). Each sets an environment variable the game reads at start.
 struct LaunchSetting: Decodable, Identifiable {
-    let env, kind, label, note, def: String
+    let env, kind, label, note: String
+    var def: String
     let section: String?
-    let options: [[String]]?   // choice: [value, label]
+    var options: [[String]]?   // choice: [value, label]
     let min, max, step: Double?   // range
     let on, off: String?   // toggle: the values the variable takes
     /// "basic" for a setting shown first (settings.tsv's level column, seedds/nxnative#399); without it, `basicByDefault` decides.
@@ -88,6 +89,9 @@ struct LaunchSetting: Decodable, Identifiable {
     var base: [String: [Int]]? = nil
     /// `<VAR>=<value>` (schema 1, optional): the row is a sub-setting, shown only while the row that sets <VAR> has that value.
     var needs: String? = nil
+    /// The game language the System language choice stands for (forMac sets it when the game has the Mac's language).
+    var systemLanguageCode: String? = nil
+    var offersSystemLanguage: Bool { systemLanguageCode != nil }
     /// The value that leaves the variable unset (DM_FULLSCREEN is on when it is set at all).
     var unsetValue: String? = nil
     /// A setting this launcher adds itself (launcher.json has no row for it) is not a saved choice: the store has no rule for it.
@@ -125,7 +129,8 @@ struct LaunchSetting: Decodable, Identifiable {
     /// The app's settings as the Mac shows them: the Mac-only Display mode added when the list has none (the host reads
     /// DM_FULLSCREEN in front_mac.m; a list from settings.tsv will carry it as a platform:mac row), and the render scale's
     /// base size from the game's profile in the repository when the list does not carry it (render_base).
-    static func forMac(app: String, titleID: String, repo: String, labels: (String) -> String) -> [LaunchSetting]? {
+    static func forMac(app: String, titleID: String, repo: String, labels: (String) -> String,
+                       preferred: [String] = Locale.preferredLanguages) -> [LaunchSetting]? {
         guard var list = read(app: app) else { return nil }
         if !list.contains(where: { $0.env == "DM_FULLSCREEN" }) {
             let display = LaunchSetting(env: "DM_FULLSCREEN", kind: "choice", label: labels("launch.display"), note: "", def: "",
@@ -135,6 +140,14 @@ struct LaunchSetting: Decodable, Identifiable {
         }
         if let i = list.firstIndex(where: { $0.env == "DM_RENDER_SCALE" && $0.base == nil }), let base = renderBase(titleID: titleID, repo: repo) {
             list[i].base = base
+        }
+        // The game language follows the Mac's by default, as a choice of its own, when the game has that language.
+        if let i = list.firstIndex(where: { $0.env == "DM_LANG" && $0.kind == "choice" }), let options = list[i].options,
+           let code = SavedChoices.gameLanguage(preferred: preferred, offered: options.compactMap(\.first)) {
+            let name = options.first { $0.first == code }.flatMap { $0.count > 1 ? $0[1] : nil } ?? code
+            list[i].options = [[SavedChoices.systemLanguage, String(format: labels("launch.lang.system"), name)]] + options
+            list[i].def = SavedChoices.systemLanguage
+            list[i].systemLanguageCode = code
         }
         return list
     }
@@ -524,12 +537,17 @@ final class GameLibrary: ObservableObject {
     /// The one-time move of the launch options an earlier version kept in the library file into each app's preferences domain
     /// (SavedChoices.migrate). The field stays decoded so an old library file loads; what is left in it is only what the store
     /// has no row for. Runs for every game that has options and an app with a settings list; a game without one waits.
+    /// Then each game that follows the Mac's language gets it again (SavedChoices.followSystemLanguage).
     func migrateLaunchOptions() {
         var changed = false
         for i in games.indices where !games[i].launchOptions.isEmpty && !games[i].appPath.isEmpty {
             guard let settings = LaunchSetting.read(app: games[i].appPath) else { continue }
             let store = SavedChoices(app: games[i].appPath, titleID: games[i].titleID)
             for env in store.migrate(games[i].launchOptions, settings: settings) { games[i].launchOptions[env] = nil; changed = true }
+        }
+        for game in games where !game.appPath.isEmpty {
+            guard let settings = LaunchSetting.read(app: game.appPath) else { continue }
+            SavedChoices(app: game.appPath, titleID: game.titleID).followSystemLanguage(settings)
         }
         if changed { save() }
     }

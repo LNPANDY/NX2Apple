@@ -90,8 +90,10 @@ rumble and motion. Short stutters the first time a scene appears are normal: the
 graphics for it once and remembers them. The game's data (`romfs.img`) can live on an external drive
 that the Files app picks.
 
-**Game language.** English is the default. On the Mac, use the **Game language** row of Launch
-options. For anything the sheet lacks, write an `env.txt` of `KEY=VALUE` lines (for example
+**Game language.** On the Mac, a game that has your Mac's language speaks it: **System language**
+is the first choice of the **Game language** row of Launch options, and its default. Pick another
+language there to keep that one. A game without your Mac's language, and every iPhone build, starts
+in English. For anything the sheet lacks, write an `env.txt` of `KEY=VALUE` lines (for example
 `DM_LANG=zh-Hans`) in one of two places: `~/Library/Application Support/nxnative/<title ID>/env.txt`
 wins and survives rebuilds; `<App>.app/Contents/Resources/dm/env.txt` is the app's own. A Mac app
 built before the language row existed needs one rebuild to get it. On the iPhone, the same lines go

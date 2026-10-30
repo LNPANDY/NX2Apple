@@ -384,6 +384,7 @@ TABLE: dict[str, tuple[str, str, str, str]] = {
     'library.scrollForward': ('向后滚动', 'Scroll forward', 'Rulla framåt', 'Weiterblättern'),
     'launch.title': ('启动选项', 'Launch options', 'Startalternativ', 'Startoptionen'),
     'launch.reset': ('恢复测试默认值', 'Reset to tested defaults', 'Återställ testade standardvärden', 'Auf getestete Standardwerte zurücksetzen'),
+    'launch.lang.system': ('系统语言（%@）', 'System language (%@)', 'Systemspråk (%@)', 'Systemsprache (%@)'),
     'launch.done': ('完成', 'Done', 'Klar', 'Fertig'),
     'launch.applied': ('已保存到这个游戏应用中，每次启动都会生效。', 'Saved in the game’s app: applies every time it starts.', 'Sparat i spelets app och används vid varje start.', 'In der App des Spiels gesichert: gilt bei jedem Start.'),
     'launch.none': ('这个版本没有附带启动选项列表。', 'This build carries no list of launch options.', 'Den här versionen saknar lista över startalternativ.', 'Dieser Build bringt keine Liste mit Startoptionen mit.'),

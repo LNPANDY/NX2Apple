@@ -38,11 +38,23 @@ struct SavedChoices {
         return v
     }
 
-    /// What the setting is set to: the saved choice, else the tested default.
-    func current(_ s: LaunchSetting) -> String { value(s) ?? s.def }
+    /// What the setting is set to: the saved choice, else the tested default (System language for a game language row that offers it).
+    func current(_ s: LaunchSetting) -> String {
+        if s.offersSystemLanguage, followsSystemLanguage { return Self.systemLanguage }
+        return value(s) ?? s.def
+    }
 
-    /// A choice equal to the tested default removes the key, so the setting follows a later build's defaults.
+    /// A choice equal to the tested default removes the key, so the setting follows a later build's defaults. System language is
+    /// this launcher's own: the key holds the language it stands for, which launcher.c can read, and the marker the same code.
     func set(_ s: LaunchSetting, _ v: String) {
+        if s.offersSystemLanguage {
+            if v == Self.systemLanguage { writeSystemLanguage(s.systemLanguageCode); return }
+            // Any other language, English included, is kept: the game stops following the Mac.
+            CFPreferencesSetAppValue(Self.systemLanguageKey as CFString, nil, domain as CFString)
+            CFPreferencesSetAppValue(Self.key(s.env) as CFString, s.accepts(v) ? v as CFString : nil, domain as CFString)
+            CFPreferencesAppSynchronize(domain as CFString)
+            return
+        }
         if s.isDefault(v) || !s.accepts(v) { CFPreferencesSetAppValue(Self.key(s.env) as CFString, nil, domain as CFString) }
         else { CFPreferencesSetAppValue(Self.key(s.env) as CFString, v as CFString, domain as CFString) }
         CFPreferencesAppSynchronize(domain as CFString)
@@ -51,11 +63,16 @@ struct SavedChoices {
     /// "Reset to tested defaults": the keys of the settings the player can change.
     func reset(_ settings: [LaunchSetting]) {
         for s in settings where s.storeBacked { CFPreferencesSetAppValue(Self.key(s.env) as CFString, nil, domain as CFString) }
+        CFPreferencesSetAppValue(Self.systemLanguageKey as CFString, nil, domain as CFString)
         CFPreferencesAppSynchronize(domain as CFString)
+        // The default is System language: write the language it stands for now, so a start from Finder speaks it before Play does.
+        if let s = settings.first(where: \.offersSystemLanguage) { writeSystemLanguage(s.systemLanguageCode) }
     }
 
     /// Whether any setting has a saved choice (the Reset button shows).
-    func hasChoices(_ settings: [LaunchSetting]) -> Bool { settings.contains { $0.storeBacked && raw($0.env) != nil } }
+    func hasChoices(_ settings: [LaunchSetting]) -> Bool {
+        settings.contains { $0.storeBacked && raw($0.env) != nil && !($0.env == "DM_LANG" && followsSystemLanguage) }
+    }
 
     /// The one-time move of the options an earlier launcher kept in the library file: a valid choice that differs from the default
     /// goes to the domain where it has no value yet. Returns the variables that are the store's now (to drop from the library).
@@ -68,6 +85,72 @@ struct SavedChoices {
             if raw(s.env) == nil, s.accepts(v), !s.isDefault(v) { set(s, v) }
         }
         return moved
+    }
+
+    /// The game language row's own choice: the Mac's language when the game has it (LaunchSetting.forMac offers it then).
+    static let systemLanguage = "system"
+    /// While the game language follows the Mac's, this key holds the same code as launcher.DM_LANG (the game ignores it: no rule
+    /// names it). A key that differs from it was written by someone else (the game's own settings window), whose choice then stands.
+    static let systemLanguageKey = "nx2apple.gameLanguageFollowsSystem"
+
+    private var systemLanguageMarker: String? { CFPreferencesCopyAppValue(Self.systemLanguageKey as CFString, domain as CFString) as? String }
+
+    /// System language is the default: the game follows the Mac while it has no language of its own, or while launcher.DM_LANG is
+    /// still the one this launcher wrote for it.
+    var followsSystemLanguage: Bool {
+        let key = raw("DM_LANG") as? String, marker = systemLanguageMarker
+        return marker == nil ? key == nil : marker == key
+    }
+
+    /// The key and the marker for System language standing for `code` (both removed for nil: the game's tested default applies).
+    private func writeSystemLanguage(_ code: String?) {
+        CFPreferencesSetAppValue(Self.systemLanguageKey as CFString, code.map { $0 as CFString }, domain as CFString)
+        CFPreferencesSetAppValue(Self.key("DM_LANG") as CFString, code.map { $0 as CFString }, domain as CFString)
+        CFPreferencesAppSynchronize(domain as CFString)
+    }
+
+    /// Keeps launcher.DM_LANG on the Mac's language while the game follows it, so a start from Finder or the Dock speaks it too, and
+    /// a change of the Mac's language reaches the game at the launcher's next start. A game without the Mac's language keeps its
+    /// tested default (the key goes). Runs with the launch options migration (startup, Play, the Launch options sheet), so it writes
+    /// only when something changed.
+    func followSystemLanguage(_ settings: [LaunchSetting], preferred: [String] = Locale.preferredLanguages) {
+        guard let s = settings.first(where: { $0.env == "DM_LANG" && $0.kind == "choice" && $0.storeBacked }) else { return }
+        let key = raw(s.env) as? String, marker = systemLanguageMarker
+        guard marker == nil ? key == nil : marker == key else {
+            if marker != nil {   // the key was changed elsewhere: that choice stands, the marker goes
+                CFPreferencesSetAppValue(Self.systemLanguageKey as CFString, nil, domain as CFString)
+                // A removed key is the game window's default: kept as a choice, or it would read as "follow the Mac" again.
+                if key == nil { CFPreferencesSetAppValue(Self.key(s.env) as CFString, s.def as CFString, domain as CFString) }
+                CFPreferencesAppSynchronize(domain as CFString)
+            }
+            return
+        }
+        let lang = Self.gameLanguage(preferred: preferred, offered: s.options?.compactMap(\.first) ?? [])
+        if lang != key { writeSystemLanguage(lang) }
+    }
+
+    /// The game language (a code of dm/tools/nacp.py) for the first of `preferred` (BCP 47 tags, as Locale.preferredLanguages
+    /// gives them) the game offers: the same region's variant first, then the language's other one (en-GB before en-US for a
+    /// British Mac, es-419 for Spanish outside Spain, zh-Hant for Taiwan, Hong Kong and Macao). nil when it offers none of them.
+    static func gameLanguage(preferred: [String], offered: [String]) -> String? {
+        for tag in preferred {
+            let parts = tag.split(separator: "-").map(String.init)
+            guard let language = parts.first?.lowercased() else { continue }
+            let rest = Set(parts.dropFirst().map { $0.uppercased() })
+            let candidates: [String]
+            switch language {
+            case "en": candidates = rest.isDisjoint(with: ["GB", "IE", "AU", "NZ", "ZA", "IN", "001", "150"]) ? ["en-US", "en-GB"] : ["en-GB", "en-US"]
+            case "fr": candidates = rest.contains("CA") ? ["fr-CA", "fr"] : ["fr", "fr-CA"]
+            case "es": candidates = rest.isEmpty || rest.contains("ES") ? ["es", "es-419"] : ["es-419", "es"]
+            case "pt": candidates = rest.contains("BR") ? ["pt-BR", "pt"] : ["pt", "pt-BR"]
+            case "zh":   // the script decides; the region only without one (zh-HK is Traditional, zh-Hans-HK Simplified)
+                let traditional = rest.contains("HANT") || (!rest.contains("HANS") && !rest.isDisjoint(with: ["TW", "HK", "MO"]))
+                candidates = traditional ? ["zh-Hant"] : ["zh-Hans"]
+            default: candidates = [language]
+            }
+            if let match = candidates.first(where: offered.contains) { return match }
+        }
+        return nil
     }
 }
 
