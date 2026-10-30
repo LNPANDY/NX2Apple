@@ -11,7 +11,7 @@ Status: brought up on the Mac: the first-boot brightness screen, the title, a ne
 | `fps_target 60` | [`game.tsv`](game.tsv), `hle_fpslock.c` | the host writes 1 into `rhi.SyncInterval`; see [Frame rate](#frame-rate) |
 | FMallocBinned3 constructor cut: `main+0x137f0` `bl 0xae770` → `nop` | [`patches.py`](patches.py), `main` `84e182f7…` | the constructor reserves 38 GB of address space for its pools; the host runs Unreal's heap (`hle_uemalloc.c` layout `UE5_6`); see [Memory](#memory) |
 | `game_args -SwitchVirtualAddressSpaceSize=4064` | `game.tsv` | the engine's page allocator never gives address space back: a 2 GB region aborted in the first battle |
-| Node area cut 1 GB → 62 MB (`sdk+0x145cbc` / `+0x145d28`) | `dm/tools/sdk_patches.py`, `sdk` build `0023a1b0…` | as on the other Unreal games' SDKs; this build aligns regions of 2 MB and more to 2 MB only, so it needs no alignment cut |
+| Node area cut 1 GB → 62 MB (`sdk+0x145cbc` / `+0x145d28`) | `dm/tools/sdk_patches.py` SDK-wide rules, `sdk` build `0023a1b0…` | as on the other Unreal games' SDKs; this build aligns regions of 2 MB and more to 2 MB only, so it needs no alignment cut |
 | Engage's 5 GB block: `mem_reserve 0x140000000`, `mem_alias 0x118000000`, `mem_stack 0x10000000`, `app_pool 0xCD500000` | `game.tsv` | 256 MB in front + 4.375 GB alias region + 256 MB stack region + 128 MB heap region, as DRAGON QUEST XI S's |
 | `sys_resource 0x1400000` | `game.tsv` | the NPDM declares 20 MB of system resource |
 | `tex_dyn_slots on` | `game.tsv` | 2,077 particle vertex shaders pick their texture slot at run time; see [Shaders](#shaders) |

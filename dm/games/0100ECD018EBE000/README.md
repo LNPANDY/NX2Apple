@@ -10,7 +10,7 @@ Update 1.0.1 (v65536), SDK 15.3.2. Intelligent Systems' engine on NintendoWare (
 | Frame-step stub, `fps_target 60` | `patches.py` `FRAME_STEP` (site `main+0x2e77f8`), [`game.tsv`](game.tsv) | the base clock steps by the host's vsyncs, so game time = real time at any rate |
 | `fps_hold off` | `game.tsv` | holding late frames left the render workers idle and the hold stuck at 20 fps |
 | Allocator address space 62 GB → 4.06 GB | the host's StandardAllocator cap (`hle_svc.c`), every build | `StandardAllocator::Initialize(nullptr, 0xf80000000, false)` does not fit a phone; see [Memory](#memory) |
-| Node area 1 GB → 62 MB, regions of 1 GB and more aligned to 32 MB | `dm/tools/sdk_patches.py`, `sdk` build `86188952…` (`sdk+0x12e0f0` / `+0x12e184`, `+0x12e2e0`) | Absolum's cuts on this build: the malloc region was placed 0.69 GB past the 1 GB node area |
+| Node area 1 GB → 62 MB, regions of 4 MB and more aligned to 2 MB (SDK 20's) | `dm/tools/sdk_patches.py` SDK-wide rules, `sdk` build `86188952…` (`sdk+0x12e0f0` / `+0x12e184`, `+0x12e2d8` / `+0x12e2e0` / `+0x12e2e4`) | Absolum's cuts on this build: the malloc region was placed 0.69 GB past the 1 GB node area |
 | 5 GB block: `mem_reserve 0x140000000`, `mem_alias 0x118000000`, `mem_stack 0x10000000`, `app_pool 0xCD500000` | `game.tsv` | Engage's block: 256 MB in front + 4.375 GB alias region + 256 MB stack region + 128 MB heap region (never used) |
 | `sys_resource 0x800000` | `game.tsv` | the NPDM declares 8 MB of system resource |
 | `pad_layout full` | `game.tsv` | the D-pad opens the Gear and Journal menus (the HUD shows it in Rogueport): the iPhone pad starts in the 3D layout, which has one |

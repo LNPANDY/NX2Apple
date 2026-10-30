@@ -8,7 +8,7 @@ On the Mac: the boot, the Bink opening movie, the title, Nell's introduction, a 
 
 | Setting | Where | Why |
 |---|---|---|
-| Node area cut 1 GB → 62 MB, and 32 MB alignment for regions of 1 GB and more | `dm/tools/sdk_patches.py`, `sdk` build `d9add76f…` | StandardAllocator's region (more than 1 GB) aborted in `nninitStartup`; see [Memory](#memory) |
+| Node area cut 1 GB → 62 MB, and 2 MB alignment for regions of 4 MB and more (SDK 20's) | `dm/tools/sdk_patches.py` SDK-wide rules, `sdk` build `d9add76f…` | StandardAllocator's region (more than 1 GB) aborted in `nninitStartup`; see [Memory](#memory) |
 | `sys_resource 0x1000000` | [`game.tsv`](game.tsv) | the NPDM declares 16 MB of system resource (virtual address memory) |
 | 5 GB block with a 2 GB pool: `mem_reserve 0x140000000`, `mem_alias 0x118000000`, `mem_stack 0x10000000`, `app_pool 0x80000000` | `game.tsv` | Engage's 5 GB block (4.375 GB alias region). The heap check's 1 GB pool ran the game's malloc dry at the first loading screen |
 | `pad_layout full` | `game.tsv` | the 3D gamepad layout: the map cursor moves with the D-pad |

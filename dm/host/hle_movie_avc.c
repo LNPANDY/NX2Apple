@@ -2,7 +2,8 @@
 // Super Mario Odyssey's 44 movies are MP4 / H.264 (the hint videos in its tutorial boxes, the kingdom travel videos): 41 High or Main profile with B-frames, 3 Baseline.
 // The SDK's demuxer hands over one access unit per packet with Annex B start codes; SPS / PPS come in Configure's csd-0 / csd-1 (as with Android's MediaCodec) and may also appear in the stream.
 // VideoToolbox wants a format description built from SPS / PPS and NAL units with 4-byte length prefixes. Decoding is synchronous and yields pictures in decode order; MediaCodec yields them
-// in presentation order, so pictures wait in a queue sorted by presentation time and leave it once more than `depth` are queued (4 when the profile has B-frames, 0 for Baseline), or all at the end of the stream
+// in presentation order, so pictures wait in a queue sorted by presentation time and leave it once more than `depth` are queued, or all at the end of the stream.
+// SPS pic_order_cnt_type 2 has decode order equal to output order: even High profile needs no reorder queue in that case
 #include "hle.h"
 #include <VideoToolbox/VideoToolbox.h>
 #include <arm_neon.h>
@@ -26,12 +27,63 @@ void mavc_drop(mavc *a) { for (int i = 0; i < a->nq; i++) CVPixelBufferRelease(a
 void mavc_free(mavc *a) { if (!a) return; close_session(a); mavc_drop(a); free(a->au); free(a); }
 int mavc_queued(const mavc *a) { return a->nq; }
 
+// Read only the SPS prefix through pic_order_cnt_type (H.264 7.4.2.1.1, 8.2.1.3).
+// CRI Sofdec2 waits for every picture; holding four merely because profile_idc
+// is High made the final picture arrive with EOS, which its player discards.
+// Other POC modes keep the existing depth; a truncated/unsupported SPS does too.
+typedef struct { uint8_t rbsp[512]; size_t n, bit; int bad; } avc_bits;
+static unsigned avc_u(avc_bits *b, unsigned n) {
+    if (n > 32 || b->bit + n > b->n * 8) { b->bad = 1; return 0; }
+    unsigned v = 0;
+    while (n--) { v = (v << 1) | ((b->rbsp[b->bit / 8] >> (7 - b->bit % 8)) & 1); b->bit++; }
+    return v;
+}
+static unsigned avc_ue(avc_bits *b) {
+    unsigned z = 0;
+    while (!b->bad && !avc_u(b, 1)) if (++z > 30) { b->bad = 1; return 0; }
+    return b->bad ? 0 : ((1u << z) - 1) + avc_u(b, z);
+}
+static int avc_reorder_depth(const uint8_t *nal, size_t n) {
+    int fallback = n > 1 && nal[1] == 66 ? 0 : 4;
+    if (n < 4 || n > 512 || (nal[0] & 31) != 7) return fallback;
+    avc_bits b = {0};
+    for (size_t i = 1; i < n; i++) {
+        if (i >= 3 && nal[i] == 3 && !nal[i - 1] && !nal[i - 2]) continue; // emulation_prevention_three_byte
+        b.rbsp[b.n++] = nal[i];
+    }
+    unsigned profile = avc_u(&b, 8); avc_u(&b, 16); // constraints, level_idc
+    if (avc_ue(&b) > 31) return fallback; // seq_parameter_set_id
+    switch (profile) {
+    case 44: case 83: case 86: case 100: case 110: case 118: case 122:
+    case 128: case 134: case 135: case 138: case 139: case 144: case 244: {
+        unsigned chroma = avc_ue(&b);
+        if (chroma > 3) return fallback;
+        if (chroma == 3) avc_u(&b, 1); // separate_colour_plane_flag
+        avc_ue(&b); avc_ue(&b); avc_u(&b, 1); // bit depths, transform bypass
+        if (avc_u(&b, 1)) for (unsigned i = 0; i < (chroma == 3 ? 12u : 8u) && !b.bad; i++) {
+            if (!avc_u(&b, 1)) continue;
+            int last = 8, next = 8;
+            for (unsigned j = 0; j < (i < 6 ? 16u : 64u) && !b.bad; j++) {
+                if (next) { unsigned code = avc_ue(&b); int delta = code & 1 ? (int)((code + 1) / 2) : -(int)(code / 2); next = (last + delta) & 255; }
+                if (next) last = next;
+            }
+        }
+        break;
+    }
+    case 66: case 77: case 88: break;
+    default: return fallback;
+    }
+    if (avc_ue(&b) > 12) return fallback; // log2_max_frame_num_minus4
+    unsigned poc = avc_ue(&b);
+    return !b.bad && poc == 2 ? 0 : fallback;
+}
+
 static void keep_ps(mavc *a, const uint8_t *nal, size_t n) {   // a parameter set NAL unit (without start code)
     int t = nal[0] & 31; uint8_t *dst = t == 7 ? a->sps : a->pps; int *dn = t == 7 ? &a->nsps : &a->npps;
     if (n > sizeof a->sps) { if (!a->red++) LOG("[RED] movie: AVC parameter set of %zu bytes, too long", n); return; }
     if ((size_t)*dn == n && !memcmp(dst, nal, n)) return;
     memcpy(dst, nal, n); *dn = (int)n; a->dirty = 1;
-    if (t == 7 && n > 1) a->depth = nal[1] == 66 ? 0 : 4;   // profile_idc: Baseline has no B-frames
+    if (t == 7) a->depth = avc_reorder_depth(nal, n);
 }
 // walk the NAL units of p (Annex B start codes, or else 4-byte lengths); fn gets each unit without its prefix. Zero bytes before a start code (the first byte of a 4-byte
 // start code, trailing_zero_8bits) are not part of the unit

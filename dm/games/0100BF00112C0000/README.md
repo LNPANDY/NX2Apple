@@ -10,7 +10,7 @@ Brought up on the Mac: the ATLUS logo, the title, the puzzle type choice, the Go
 |---|---|---|
 | `mem_used 0x6000000` (96 MB) | [`game.tsv`](game.tsv) | the rewritten modules take 92 MB, more than the default 64 MB; see [Memory](#memory) |
 | 4 GB layout: `mem_reserve 0x100000000`, `mem_alias 0x10000000`, `mem_stack 0x10000000`, `app_pool 0xCD500000` | `game.tsv` | the block of the other games without virtual address memory: 256 MB in front + 256 MB alias region + 256 MB stack region + 3.25 GB heap region |
-| Node area cut and 32 MB alignment for regions of 1 GB and more | `dm/tools/sdk_patches.py`, `sdk` build `5fd4f531…` | made for Super Smash Bros. Ultimate on the same build; this game has no virtual address memory and never makes an address region |
+| Node area cut and 2 MB alignment for regions of 4 MB and more (SDK 20's) | `dm/tools/sdk_patches.py` SDK-wide rules, `sdk` build `5fd4f531…` | made for Super Smash Bros. Ultimate on the same build, now from the SDK-wide rules; this game has no virtual address memory and never makes an address region |
 | The 2 shaders it compiles at boot | captured on the Mac (`hle_glslc.c`) | compiled at run time by its own GLSLC from GLSL sources in `main`, captured on the Mac as Three Houses' are ([010055D009F78000](../010055D009F78000/README.md)) |
 
 ## Frame rate
@@ -39,6 +39,7 @@ Brought up on the Mac: the ATLUS logo, the title, the puzzle type choice, the Go
 - CRI ADX2 sound (`data/sound*/*.acb` / `.awb`) through one 6-channel AudioOut.
 - CRI Sofdec2 movies (`data/movie*/*.usm`) whose H.264 goes through the SDK's `movie::Decoder` (the host's VideoToolbox decoder; mode 1, output format 4).
 - **Resolved: a read far outside guest memory at `main+0x344f74` on the first movie picture** (Sofdec2's NV12 → RGB conversion). The player reads `nv12-y-stride`, `nv12-y-offset`, `nv12-uv-stride` and `nv12-uv-offset` from the output format and checks none of the results (`main+0x34e694`); the host set no `nv12-uv-stride`, so the chroma stride was stack garbage. It is the luma stride now, as for any NV12 picture (`hle_movie.c` `md_format`).
+- **Resolved on the Mac: the anime intro ends on a black screen until manually skipped.** The host put the end-of-stream flag on the movie's last picture, which Sofdec2 drops, and then waited for that picture for good. The flag now comes on an output without a picture after the last one; the stream (H.264 High, SPS POC type 2) also needs no reorder queue. The host delivers all 1,141 pictures and the game enters Golden Playhouse by itself, from a fresh save with no skip input: [No picture carries the end-of-stream flag](../../../docs/reference/movies.md#no-picture-carries-the-end-of-stream-flag). The same symptom was reported on the iPhone for later story movies; those have not been checked one by one.
 
 ## Services
 
@@ -56,6 +57,7 @@ Brought up on the Mac: the ATLUS logo, the title, the puzzle type choice, the Go
 ## Mac routes
 
 - From a fresh save, `DM_KEYS="5:A*25/2,60:Plus*14/4,61:Y*14/4,62:A*14/4"` skips the intro scenes into the first Nightmare stage (about frame 3,300); `120:LUp~0.4*40/1.5` then climbs.
+- `smoke.tsv` uses only `DM_KEYS="5:A*25/2"`, then waits through the entire anime intro. Golden Playhouse is visible by frame 3,600; a host that flags the last picture stays black.
 
 ## Found on this game
 
@@ -65,6 +67,7 @@ General host changes first needed here; each applies to every game:
 - **VertexA / VertexB merge** (`shader_split.py` `sph_stage`, `dmsh_build.py` `vertex_ab`), explained in full under [Shaders](#shaders): [VertexA and VertexB parts merged into one vertex shader](../../../docs/reference/shaders.md#vertexa-and-vertexb-parts-merged-into-one-vertex-shader).
 - **Commit at the first pass boundary after a buffer → texture copy** (`g_cut_copy`, `sub_cut`; always on, even with `DM_NVN_CUT=0`): same section.
 - **`nv12-uv-stride` in the movie decoder's output format** (`md_format` in `hle_movie.c`): [Output format keys (`md_format`)](../../../docs/reference/movies.md#output-format-keys-md_format).
+- **The end-of-stream flag on an output without a picture, and no reorder queue for H.264 POC type 2** (`md_pump` in `hle_movie.c`, `hle_movie_avc.c`): [No picture carries the end-of-stream flag](../../../docs/reference/movies.md#no-picture-carries-the-end-of-stream-flag).
 - **`nn::settings::GetAvailableLanguageCodeCount`** (`hle_sdk16.c`): same section.
 
 ## Open

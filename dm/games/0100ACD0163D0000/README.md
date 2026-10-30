@@ -10,7 +10,7 @@ Two pull requests brought this game up before this profile, separately: [#339](h
 |---|---|---|
 | The allocator's construction skipped; the host's allocator in its object | [`patches.py`](patches.py), `hle_uemalloc.c` layout `UE3` | it would reserve 1 GB + 37 GB of address space; see [Memory](#memory) |
 | Barriers in the task ring | `patches.py` | its push and pop publish an item with no barrier, and Apple's cores drop items; see [Threads](#threads) |
-| Node area cut 1 GB → 62 MB | `dm/tools/sdk_patches.py`, `sdk` build `2aef2cff…` | registered because the profile was brought up on this build, as Cult of the Lamb's |
+| Node area cut 1 GB → 62 MB and regions of 4 MB and more aligned to 2 MB, as SDK 20 | `dm/tools/sdk_patches.py`, the SDK-wide rules (`MATCH_CUTS`) on `sdk` build `2aef2cff…` | a row for this build gave the node area cut alone until 2026-10-30; the smoke route makes no region of 256 MB or more, and ran the same with the rules |
 | `shader_key_skip 0x770+0x78` | [`game.tsv`](game.tsv) | the engine shares one control section among shaders that differ only in GLSLC's compile information; see [Files and shaders](#files-and-shaders) |
 | A 2 GB block: `mem_reserve 0x80000000`, `mem_alias 0x58000000` | `game.tsv` | the host heap lies outside the block; see [Memory](#memory) |
 | `sys_resource 0x2000000` | `game.tsv` | the NPDM's 32 MB of system resource: virtual address memory |

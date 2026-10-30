@@ -11,7 +11,7 @@ One page for people and agents: the tools this repository has for building, runn
 | An iPhone build | the same without `--platform` (an unsigned IPA the user sideloads) | [The packing script in detail](../development.md#the-packing-script-in-detail) |
 | Rebuild only the host | `make -C dm/host GAME=<id>` | [Build by hand (Mac)](../development.md#build-by-hand-mac) |
 | Rebuild only the shaders | `DM_GAME=<id> dm/gfx/tools/dmsh_build.py` (after a chain change: `dmsh_chain.py --header` first) | the chain procedure in [AGENTS.md](../../AGENTS.md); [04](04-graphics.md) |
-| Run with scripted input | `DM_KEYS` (button presses at fixed seconds or frames), `DM_CTL` (presses, screenshots and dumps while it runs) | [05, Scripted input](05-debugging.md#scripted-input-and-thread-scheduling) |
+| Run with scripted input | `DM_KEYS` (button presses at fixed seconds or frames), `DM_CTL` (presses, screenshots and dumps while it runs), `DM_REC` (records what the player does as `DM_KEYS` steps, to replay a bug report's path or make a route) | [05, Scripted input](05-debugging.md#scripted-input-and-thread-scheduling) |
 
 Start Mac runs with the Metal performance HUD (`DM_METAL_HUD=1`). A new title starts from the [checklist](README.md#checklist-for-a-new-title) and [03](03-bringup.md).
 
@@ -44,7 +44,7 @@ One chain and one host serve every profile, and each contributor owns only some 
 | `regress.py replay` | Each game's current frame capture replayed by both revisions' `nvn_replay` with their own shader libraries, compared with the live frame within twice the capture's noise; `regress.py capture --rev main` records the capture (the route's `capture` frame) and measures its noise ([Frame capture and replay](../development.md#frame-capture-and-replay)) | seconds per game once the replayers and chains are built; checks the replay layer only (`nvn_mtl.m` and below) |
 | `regress.py baseline --rev main --runs 2` | Records a baseline (a missing one is recorded by `check` itself); two runs give the noise | as `check`, per run |
 
-The routes are `dm/games/<id>/smoke.tsv`; a game without one takes part in the chain checks only. Add one when you own a game: a fixed save, the presses that load it, screenshots only while the player stands (where a walk ends moves from run to run), and the frame it must reach.
+The routes are `dm/games/<id>/smoke.tsv`; a game without one takes part in the chain checks only. Add one when you own a game: a fixed save, the presses that load it (written by hand, or played once with `DM_REC` and joined to one line), screenshots only while the player stands (where a walk ends moves from run to run), and the frame it must reach.
 
 Add `--record` to the check on your games (`check --record`, or `baseline --record`) and commit the `dm/games/<id>/validated.tsv` it writes with the pull request: it shows which chain each game was last green on (`regress.py list` prints it). A record needs `PASS` or `CHANGED` and successful boot runs, even when the baseline has the same boot failure. Derived build profiles do not validate repository profiles. The report is saved before the metadata is written. Without `--record` the harness changes nothing in `dm/games`.
 

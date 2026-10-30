@@ -6,7 +6,7 @@ Update 1.0.2 (v131072), SDK 13.3.5. Unity 2020.3.30f1 IL2CPP (Patrick's Parabox'
 
 | Setting | Where | Why |
 |---|---|---|
-| Node area cut 1 GB → 62 MB | `dm/tools/sdk_patches.py`, `sdk` build `3644a676…` | `nninitStartup` hands pool − used to StandardAllocator as virtual address memory and Unity reserves its own regions beside it; see [Memory](#memory) |
+| Node area cut 1 GB → 62 MB, regions of 4 MB and more aligned to 2 MB (SDK 20's, measured on Subnautica: Below Zero) | `dm/tools/sdk_patches.py` SDK-wide rules, `sdk` build `3644a676…` | `nninitStartup` hands pool − used to StandardAllocator as virtual address memory and Unity reserves its own regions beside it; see [Memory](#memory) |
 | `sys_resource 0x1000000` | [`game.tsv`](game.tsv) | the NPDM declares 16 MB of system resource, so `IsVirtualAddressMemoryEnabled` is true |
 | 5 GB block with a 1 GB pool: `mem_reserve 0x140000000`, `mem_alias 0x118000000`, `mem_stack 0x10000000`, `app_pool 0x40000000` | `game.tsv` | Ace Attorney Investigations Collection's layout ([010005501E68C000](../010005501E68C000/README.md)): 256 MB in front + 4.375 GB alias region + 256 MB stack region + 128 MB heap region. With the hardware pool the alias region was nearly full within 5 s |
 | `pad_layout full` | `game.tsv` | the 3D gamepad layout: the investigation moves its cursor with the left stick and the view with the right one |

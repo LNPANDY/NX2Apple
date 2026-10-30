@@ -9,5 +9,9 @@ CUTS = {
   ],
 }
 
-# Whether a general rule could replace these patches (dm/tools/docs_patches.py lists it in docs/agents/game-patches.md)
-GENERALIZE = "No: the engine's own spin limiter at a fixed address of this build"
+# How general each patch is and could be (dm/tools/docs_patches.py "Binding", listed in docs/agents/game-patches.md): what, its binding now, the loosest it could have (goal),
+# purpose, why; blocked or kept: why the gap stays open (cannot close yet, or left open on purpose); checked: what was checked on game files (else a judgement)
+BINDING = [
+    {'what': 'frame limiter spin: its branch back cut', 'now': 'build', 'goal': 'game', 'purpose': 'frame rate',
+     'why': "the engine's own spin limiter; a function-matched rule could carry it over the game's updates"},
+]

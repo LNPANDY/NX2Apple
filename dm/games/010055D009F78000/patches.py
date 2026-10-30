@@ -34,5 +34,13 @@ CUTS = {
   ],
 }
 
-# Whether a general rule could replace these patches (dm/tools/docs_patches.py lists it in docs/agents/game-patches.md)
-GENERALIZE = "Partly: the interval tables, the flag and the render-wait timeout are the game's own. The frame-limiter wait (YieldThread until the tick passes) could become a general rewriter rule beside the spin-wait rewrite: a loop of yields and tick reads slept out to its deadline"
+# How general each patch is and could be (dm/tools/docs_patches.py "Binding", listed in docs/agents/game-patches.md): what, its binding now, the loosest it could have (goal),
+# purpose, why; blocked or kept: why the gap stays open (cannot close yet, or left open on purpose); checked: what was checked on game files (else a judgement)
+BINDING = [
+    {'what': 'render intervals, the forced-interval flag and the render-wait timeout', 'now': 'build', 'goal': 'game', 'purpose': 'frame rate',
+     'why': "the game's own tables, flag and timeout"},
+    {'what': 'frame limiter wait: yield → sleep', 'now': 'build', 'goal': 'host', 'purpose': 'power',
+     'checked': 'Mac runs with the cut undone, 2026-10-26 (the game note)',
+     'why': "without it the host's yield back-off (thr_yield) holds 59.7 to 59.8 fps, at 0.9 to 1.2 W of CPU against 0.14 to 0.42 W (2026-10-26): a back-off that reaches a yield-and-"
+            "tick loop's deadline sooner would make the cut unnecessary for every game"},
+]

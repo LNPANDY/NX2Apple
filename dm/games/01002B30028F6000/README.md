@@ -13,7 +13,7 @@ The provisional profile's guesses held: no key needed changing.
 | `sys_resource 0x0` | [`game.tsv`](game.tsv) | the NPDM declares no system resource, so `IsVirtualAddressMemoryEnabled` is false, as on Horizon: no virtual address memory. The game sets a 3.11 GB heap (pool − used memory) |
 | 4 GB layout: `mem_reserve 0x100000000`, `mem_alias 0x10000000`, `mem_stack 0x10000000`, `app_pool 0xCD500000` | `game.tsv` | 256 MB in front + 256 MB alias region + 256 MB stack region + 3.25 GB heap region |
 | `mem_used 0x6400000` (100 MB) | `game.tsv` | the rewritten modules are larger than the default 64 MB of used memory (BRUTE's `main` alone is 78 MB with its bss), so the heap request plus the modules would exceed the pool |
-| Node area cut and 1 GB → 32 MB region alignment | `dm/tools/sdk_patches.py`, `sdk` build `8618895246b4…` | Absolum's cuts, registered on this build for Paper Mario; Celeste has no virtual address memory and never makes an address region |
+| Node area cut and 4 MB / 32 MB / 1 GB → 2 MB region alignment (SDK 20's) | `dm/tools/sdk_patches.py` SDK-wide rules, `sdk` build `8618895246b4…` | Absolum's cuts, from the SDK-wide rules on this build (Paper Mario's); Celeste has no virtual address memory and never makes an address region |
 | `shader_groups /Content/=content` | `game.tsv` | the MonoGame effects; see [Shaders](#shaders) |
 
 No `pad_layout`: the virtual gamepad starts in the 2D layout (the default).

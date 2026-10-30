@@ -1,0 +1,9 @@
+# Fresh-save route through the anime intro into Golden Playhouse. Never skip a movie.
+save	new
+keys	5:A*25/2
+secs	180
+quick	60
+reach	3600@150
+window	120	150
+shots	120,150
+prebuild	on

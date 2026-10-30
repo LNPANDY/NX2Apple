@@ -9,7 +9,7 @@ On the Mac: the logos, the title menu (its background is a movie), a new game th
 | Setting | Where | Why |
 |---|---|---|
 | 4 GB layout: `mem_reserve 0x100000000`, `mem_alias 0x10000000`, `mem_stack 0x10000000`, `app_pool 0xCD500000` | [`game.tsv`](game.tsv) | 13 Sentinels' partition, as the other games without virtual address memory: 256 MB in front + 256 MB alias region + 256 MB stack region + 3.25 GB heap region |
-| Node area cut 1 GB → 62 MB | `dm/tools/sdk_patches.py`, `sdk` build `0023a1b0…` | made for FINAL FANTASY RESONANCE on the same build; this game has no virtual address memory |
+| Node area cut 1 GB → 62 MB | `dm/tools/sdk_patches.py` SDK-wide rules, `sdk` build `0023a1b0…` | made for FINAL FANTASY RESONANCE on the same build, now from the SDK-wide rule; this game has no virtual address memory |
 
 The pad layout is the default 2D one (no `pad_layout` row) and the operation mode the default docked one; see [Input](#input).
 

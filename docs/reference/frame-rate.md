@@ -162,6 +162,15 @@ Frame pacing: the host's frame step, engine frame limiters, present intervals an
 - **Check:** `make -C dm/gfx/tests GAME=01007EF00011E000 check_t_present_snap` uses a gated encoder and GPU to check suspend, and a delayed present consumer to check nonblocking present, acquire pacing, fallback tickets and copied pixels after ring reuse. Runs with Metal validation on the Mac, with and without the encode thread; does not measure iPhone frame rate or latency.
 - **Found on:** [The Legend of Zelda: Breath of the Wild](../../dm/games/01007EF00011E000/README.md) (Mac; on the iPhone 17 Pro Max with the encode thread a steady 60 fps at docked resolution, present to screen about 74 ms with a ring of 2 against about 46–60 ms without).
 
+### A replaced snapshot ring texture stays resident until the slot's next use
+
+- **Symptom:** none seen in a game. When the presented texture changes size or format while snapshots are on, a display command buffer still queued could sample the ring slot's old texture outside the residency set, which faults the queue (`kIOGPUCommandBufferCallbackErrorPageFault`, then every later command buffer ignored), as in [A present snapshot's copy needs the same residency commit](rendering.md#a-present-snapshots-copy-needs-the-same-residency-commit).
+- **Cause:** `snap_take` replaces a slot's texture only once the slot's last present has been processed (`g_pq_done`), and it removed the old one from the snapshot residency set right away. A processed present has been committed, not run: as with [the present allocators](#a-present-command-allocator-is-reused-only-after-its-own-present-completes), the display-link callback sets `g_pq_done` before the GPU runs the present.
+- **Fix:** the slot keeps its old texture (`g_snap[k].old`) and removes it from the residency set at the slot's next use. That use already waits for the replacing copy's event, and the queue signals that event only after all the work committed before it, which includes every present that read the old texture. Memory changes only when the presented size or format does: the old texture lasts one more round of the ring.
+- **Found on:** no game. Found by reading `snap_take` while checking [GitHub issue #626](https://github.com/seedds/nxnative/issues/626) (whose logs show one size throughout).
+- **Check:** `make -C dm/gfx/tests GAME=010015100B514000 check_t_present_snap` runs `t_present_snap resize`, with and without the encode thread. It holds the queue behind a shared event in place of queued display command buffers and presents a 16x16 texture after two 8x8 ones. The old textures stay in `g_snap_res` while the queue is held, also through a present that falls back because its slot's copy is still queued, and each leaves at its own slot's next use. 13 checks pass with Metal validation; with the old removal, 4 fail.
+- **Not checked:** a game that changes its presented size with snapshots on, and the iPhone.
+
 ### Vulkan acquire and vsync event follow the display link
 
 - **Symptom:** a steady game whose frame-rate counter wanders between 50 and 60 on the iPhone only; the `display link up to tick` lines show about as many empty ticks as frames dropped by merging: frames arrive two in one tick and none in the next.
@@ -169,6 +178,13 @@ Frame pacing: the host's frame step, engine frame limiters, present intervals an
 - **Fix:** while the display link presents, both follow its ticks (`hle_vk.m` acquire → `mtl_link_wait_tick`, as NVN's; `hle_sdk16.c` vsync thread → `mtl_link_wait_vsync`), with the old clocks as the fallback.
 - **Found on:** [Super Mario Galaxy 2](../../dm/games/0100FD8022DAA000/README.md) (Vulkan).
 - **Note:** a Mac window measures nothing here unless it is on screen: macOS fires an occluded window's display link about once a second (`display link recovered: stalled 1017 ms`).
+
+### A game window another process starts opens behind other windows
+
+- **Symptom:** a `regress.py` run of an NVN game stays at 20 fps from the start (`frame N not reached`, a NEW-FAIL) in some runs only: `frame step: hold 1 → 2` and `2 → 3 vsyncs` in the first 15 presents, then `display link recovered: stalled 1017 ms` about once a second to the end, and no trial back to a shorter hold.
+- **Cause:** the host is started by another process, so macOS does not activate it (`oe focus state → 2` in every run), and its window opens wherever it lands in the window order. Behind another window it is covered, and macOS fires a covered window's display link about once a second. The late frames of the boot step the hold up, which happens in every run, and the stall each second makes a frame late again before the 30 frames in a row that a trial needs. A run whose window happened to be on screen came back to 1 vsync with a probe.
+- **Fix:** `DM_WINDOW_TOP=1` orders the window in front without activation and keeps it above other apps' windows (`front_mac.m`). `regress.py` sets it for its runs and captures. The host logs every change of the window's visibility (`front end: window covered`, `window visible`), and `regress.py` runs a route once more when its window was covered (`, window covered` in the report when the second run was covered too). A revision before this change ignores the setting, so its runs can still be covered.
+- **Found on:** [Breath of the Wild](../../dm/games/01007EF00011E000/README.md) (2026-10-28 and 29: every one of its 20 fps runs had 21 to 115 stalls, the runs at 60 fps 0 to 7).
 
 ### Virtual 60 Hz ticks on screens that are not a multiple of 60
 

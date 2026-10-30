@@ -8,7 +8,7 @@ The global profile's keys:
 
 | Setting | Where | Why |
 |---|---|---|
-| Memory, `sys_resource`, `pad_layout`, `tex_flush_upload`, `tex_dirty_upload`, `feedback_snap`, `present_interval display`, `gpu_timestamps segment`, `fps_target 60` | [`game.tsv`](game.tsv) | as the global profile ([its note](../010056B015FE8000/README.md#what-it-needs)) |
+| Memory, `sys_resource`, `pad_layout`, `tex_flush_upload`, `tex_dirty_upload`, `present_interval display`, `gpu_timestamps segment`, `fps_target 60` | [`game.tsv`](game.tsv) | as the global profile ([its note](../010056B015FE8000/README.md#what-it-needs)) |
 | Six dynamic-resolution cuts | [`patches.py`](patches.py) | the global build's 60 fps thresholds and preset-following lower bounds. The function is the global build's, `0x13c0` further on: each original sequence matches once in this `main`, at the global address + `0x13c0` |
 | Two frame-interval defaults (`0x591198`, `0x9bc128`) | `patches.py` | 60 fps as the game's own default, as the global build's. Single instructions, matched by what the code does: the first loads the mode right before the mode setter (`0x9c0590`), the second is the interval the present-interval function stores at the device's `+0x9c160` |
 | Frame rate (`DM_FPS_TARGET`, 30 or 60) | `hle_fpslock.c` `k_nier_dr` | the host sets the frame-interval mode at the display object's `+0x504` and the device's present interval, as for the global build. The display object is `main+0x192d600`, the target of the relocation of the slot the mode setter reads (`main+0x12c2d18`) |

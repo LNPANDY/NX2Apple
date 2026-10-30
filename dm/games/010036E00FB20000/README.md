@@ -8,7 +8,7 @@ Base game 1.0.0 (v0), with its DLC `010036E00FB21001`. SDK 10.4.1. Capcom's MT F
 |---|---|---|
 | `tex_flush_upload on`, `tex_dirty_upload on` | [`game.tsv`](game.tsv) | the CPU copies every texture into a CPU-cached pool after creating it and never flushes; with `tex_flush_upload` alone the screen stayed black. See [Rendering](#rendering) |
 | 4 GB layout: `mem_reserve 0x100000000`, `mem_alias 0x10000000`, `mem_stack 0x10000000`, `app_pool 0xCD500000` | `game.tsv` | the NPDM declares no system resource (META +0x14 = 0): `nninitStartup` sets a heap of the pool − 64 MB (3.14 GB); `main`'s bss is 9.2 MB |
-| Node area cut 1 GB → 62 MB, 1 GB alignment → 32 MB | `dm/tools/sdk_patches.py`, `sdk` build `d9add76f…` | applies to this build by its ID; made for Advance Wars 1+2: Re-Boot Camp, which shares it. This game has no virtual address memory and never makes an address region |
+| Node area cut 1 GB → 62 MB, 4 MB / 32 MB / 1 GB alignment → 2 MB (SDK 20's) | `dm/tools/sdk_patches.py` SDK-wide rules, `sdk` build `d9add76f…` | the SDK-wide rules' cuts; made for Advance Wars 1+2: Re-Boot Camp, which shares the build. This game has no virtual address memory and never makes an address region |
 | `pad_layout` not set (the default `simple`, 2D) | `game.tsv` | the gamepad starts in the 2D layout (the player-facing README lists it among the games that do) |
 | `depth_mode zero` | `game.tsv` | the game sets the near = 0 depth mode, so the pipeline bases made before it runs (the NSP script's Mac prebuild, and a [pipeline archive made offline](../../../docs/development.md#the-pipeline-archive-made-offline) for the iPhone when one is built with `DM_PSO_GPUS`) take its vertex shaders' `main0_z` entries (the host itself follows the mode the game sets) |
 
