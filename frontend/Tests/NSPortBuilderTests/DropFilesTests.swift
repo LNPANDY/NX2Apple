@@ -22,6 +22,14 @@ final class DropFilesTests: XCTestCase {
         return path
     }
 
+    /// The per-row Choose… dialog must not grey out compressed dumps (issue #236).
+    func testChooseDialogOffersCompressedDumps() {
+        XCTAssertEqual(Set(BuildModel.allowedFileTypes(for: .base)), ["nsp", "xci", "nsz", "xcz"])
+        XCTAssertEqual(BuildModel.allowedFileTypes(for: .update), BuildModel.allowedFileTypes(for: .base))
+        XCTAssertEqual(Set(BuildModel.allowedFileTypes(for: .dlc)), ["nsp", "nsz"])
+        XCTAssertEqual(BuildModel.allowedFileTypes(for: .keys), ["keys"])
+    }
+
     func testADroppedMixedSetIsSortedByTitleID() throws {
         let base = try file("Game [0100000000010000][v0].nsp", size: 64)
         let repack = try file("Game [0100000000010000].nsz", size: 32)

@@ -994,16 +994,22 @@ final class BuildModel: ObservableObject {
         return v
     }
 
+    /// What the Choose… dialog of a row offers. The compressed NSZ / XCZ are accepted by the build
+    /// script like their plain forms. DLC ships as NSP (or NSZ), never as a cartridge image.
+    nonisolated static func allowedFileTypes(for kind: InputKind) -> [String] {
+        switch kind {
+        case .base, .update: return ["nsp", "xci", "nsz", "xcz"]
+        case .dlc: return ["nsp", "nsz"]
+        case .keys: return ["keys"]
+        }
+    }
+
     func pickFiles(kind: InputKind) {
         let p = NSOpenPanel()
         p.canChooseDirectories = false
         p.canChooseFiles = true
         p.allowsMultipleSelection = (kind == .dlc)
-        switch kind {
-        case .base, .update: p.allowedFileTypes = ["nsp", "xci"]
-        case .dlc: p.allowedFileTypes = ["nsp"]
-        case .keys: p.allowedFileTypes = ["keys"]
-        }
+        p.allowedFileTypes = Self.allowedFileTypes(for: kind)
         guard p.runModal() == .OK, !p.urls.isEmpty else { return }
         let id = kind == .base ? "base" : kind == .update ? "update" : kind == .dlc ? "dlc" : "keys"
         let picked = p.urls.map(\.path)
