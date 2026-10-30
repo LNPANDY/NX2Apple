@@ -152,6 +152,43 @@ final class BuildCleanupTests: XCTestCase {
         }
     }
 
+    func testTheBuildPageHintNoLongerPromisesReuseAndTheNoteNamesTheLostRenewInEveryLanguage() {
+        let hint = [Lang.zh, .en, .sv].map { L10n.string("msg.workdirHint", $0) }
+        XCTAssertTrue(hint[1].contains("Keep build files"))
+        XCTAssertTrue(hint[2].contains("Behåll byggfiler"))
+        XCTAssertTrue(hint[0].contains("保留构建文件"))
+        for lang in [Lang.zh, .en, .sv] {
+            XCTAssertFalse(L10n.string("msg.workdirHint", lang).contains(";"), "\(lang)")
+        }
+        XCTAssertTrue(L10n.string("settings.keepBuildNote", .en).contains("loses Renew and Reinstall"))
+        XCTAssertTrue(L10n.string("settings.keepBuildNote", .sv).contains("Förnya"))
+        XCTAssertTrue(L10n.string("settings.keepBuildNote", .zh).contains("续签"))
+    }
+
+    /// The cleanup's protected paths come from `BuildFolder.protectedPaths`: the installed app and the archive folder with its romfs.img are in.
+    @MainActor func testTheCleanupSharesTheProtectedPathListWithTheFreeSpaceSheet() {
+        let model = BuildModel()
+        model.effectiveWorkDir = build.path
+        let oldOut = UserDefaults.standard.object(forKey: "buildOutputDirectory")
+        defer { UserDefaults.standard.set(oldOut, forKey: "buildOutputDirectory") }
+        model.slots[0].paths = [out.path + "/Game [\(titleID)][v0].nsp"]
+        model.outDir = out.path
+        model.macAppPath = out.path + "/Game.app"
+        model.ipaPath = out.path + "/Game.ipa"
+        model.installedAppPath = out.path + "/Installed.app"
+        model.armCleanup()
+        let plan = model.cleanupPlan
+        let shared = BuildFolder.protectedPaths(app: model.macAppPath, ipa: model.ipaPath, iosApp: model.installedAppPath,
+                                                archive: out.path + "/games/" + titleID, output: out.path, titleID: titleID, inputs: [])
+        for path in shared { XCTAssertTrue(plan?.protecting.map(BuildFolder.resolved).contains(path) ?? false, path) }
+        XCTAssertTrue(shared.contains(BuildFolder.resolved(out.path + "/games/" + titleID + "/romfs.img")))
+        XCTAssertTrue(shared.contains(BuildFolder.resolved(out.path + "/Installed.app")))
+    }
+
+    func testOnlyTheScratchFolderIsAlwaysRemovedWithoutAnIPA() {
+        XCTAssertEqual(BuildCleanup.alwaysRemoved(ipaWritten: false), ["tmp"])
+    }
+
     // MARK: The build's own flow
 
     /// A successful script arms the cleanup, a failed or stopped build never does, and a build that goes on (an install) is not cleaned up yet.

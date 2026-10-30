@@ -46,7 +46,7 @@ enum BuildCleanup {
     /// the Payload folder and the copy of the IPA that packing an IPA once left in ipa/ (the script removes them itself on
     /// its next run, unless the copy is the IPA it wrote). Relative to the build folder.
     static func alwaysRemoved(ipaWritten: Bool) -> [String] {
-        ["tmp", "tmp.key", "tmp.partial"] + (ipaWritten ? ["ipa/build/ios/pkg/Payload", "ipa/build/ios/pkg/out.ipa", "ipa/build/ios/pkg/out.ipa.idx"] : [])
+        ["tmp"] + (ipaWritten ? ["ipa/build/ios/pkg/Payload", "ipa/build/ios/pkg/out.ipa", "ipa/build/ios/pkg/out.ipa.idx"] : [])
     }
 
     /// The parts that go when the files are not kept: every one the Free space sheet knows. The old shader versions are inside
@@ -128,8 +128,9 @@ extension BuildModel {
         let tid = Self.titleID(basePath).map { String(format: "%016llX", $0) } ?? "game"
         cleanupPlan = BuildCleanup.Plan(
             work: effectiveWorkDir, keepFiles: keepBuildFiles,
-            protecting: [macAppPath, ipaPath, out + "/" + tid + ".app", out + "/" + tid + ".ipa", out + "/games/" + tid]
-                + slots.flatMap { $0.paths },
+            protecting: BuildFolder.protectedPaths(app: macAppPath, ipa: ipaPath, iosApp: installedAppPath, archive: out + "/games/" + tid,
+                                                   output: out, titleID: tid, inputs: slots.flatMap { $0.paths })
+                + [out + "/" + tid + ".app", out + "/" + tid + ".ipa"],
             deviceInstall: installsDirectly)
     }
 
