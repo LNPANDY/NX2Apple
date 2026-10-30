@@ -288,15 +288,39 @@ struct PlaceholderArt: View {
     }
 }
 
-/// A 16:9 card with the hairline every picture gets, so dark art keeps its edge on the dark page.
+/// A 16:9 card with the hairline every picture gets, so dark art keeps its edge on the dark page. In the library it
+/// carries the game's state as a small dot in its top-left corner.
 struct CoverView: View {
     let game: GameTile
     var radius: CGFloat = 10
+    var showsState = false
     var body: some View {
         ArtView(game: game)
             .aspectRatio(16 / 9, contentMode: .fit)
             .clipShape(RoundedRectangle(cornerRadius: radius))
             .overlay(RoundedRectangle(cornerRadius: radius).strokeBorder(.white.opacity(0.10)))
+            .overlay(alignment: .topLeading) {
+                if showsState {
+                    GeometryReader { geometry in
+                        let size = max(8, min(14, geometry.size.width * 0.034))
+                        StateDot(state: game.state, size: size).padding(size * 0.9)
+                    }
+                }
+            }
+            .accessibilityHidden(true)
+    }
+}
+
+/// The game's state as a dot: green ready, amber when it needs data or an update, grey when it is damaged. A dark
+/// ring behind it keeps it readable on light art.
+struct StateDot: View {
+    let state: GameState
+    var size: CGFloat = 10
+    var body: some View {
+        Circle().fill(state.color).frame(width: size, height: size)
+            .padding(size * 0.32)
+            .background(Circle().fill(.black.opacity(0.55)))
+            .overlay(Circle().strokeBorder(.white.opacity(0.18), lineWidth: 0.5))
             .accessibilityHidden(true)
     }
 }

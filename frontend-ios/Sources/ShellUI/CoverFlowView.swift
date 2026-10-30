@@ -185,7 +185,7 @@ struct CoverFlowView: View, Equatable {
             withAnimation(reduceMotion ? nil : .smooth(duration: 0.3)) { centredID = detail.id }
             select(detail.id)
         } label: {
-            CoverView(game: detail.game, radius: cover * 0.03)
+            CoverView(game: detail.game, radius: cover * 0.03, showsState: true)
                 .frame(width: cover, height: cover * 9 / 16)
                 .shadow(color: .black.opacity(0.5), radius: cover * 0.05, y: cover * 0.03)
         }
@@ -220,10 +220,12 @@ struct CoverFlowView: View, Equatable {
                     .lineLimit(2).truncationMode(.tail).multilineTextAlignment(.center)
                     .shadow(color: .black.opacity(0.35), radius: 10)
                     .accessibilityAddTraits(.isHeader).accessibilityIdentifier("hero.title")
+                // A ready game needs no words: its green dot says it. A game that cannot start gets one small line, its
+                // way out in the state's colour. The space is reserved either way.
                 if game.state == .playable {
-                    StatusLabel(state: game.state, prominent: true).frame(minHeight: 34)
+                    Color.clear.frame(height: 34).accessibilityHidden(true)
                 } else {
-                    StateChip(game: game) { primary(selected) }
+                    StateAction(game: game) { primary(selected) }
                 }
             }
             .id(game.id).transition(.opacity)
@@ -241,6 +243,29 @@ struct CoverFlowView: View, Equatable {
         }
         .frame(minHeight: 24)
         .accessibilityHidden(true)
+    }
+}
+
+/// The way out for a game that cannot start, as one small tappable line in the state's colour: "How to fix ›".
+/// VoiceOver reads the state with it.
+struct StateAction: View {
+    let game: GameTile
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Text(game.state.actionTitle).shellType(ShellType.button)
+                Image(systemName: "chevron.right").font(.system(size: 11, weight: .bold))
+            }
+            .foregroundStyle(game.state.color)
+            .lineLimit(1)
+            .padding(.horizontal, 12).frame(minHeight: 34)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(game.state.title + ", " + game.state.actionTitle)
+        .accessibilityIdentifier("state.chip")
+        .shellTarget("lib.chip", radius: 17, action: action)
     }
 }
 
