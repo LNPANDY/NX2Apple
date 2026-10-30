@@ -41,13 +41,19 @@ class Lang(Enum):
             # (the Windows report of "the exe is still not Chinese").
             import ctypes
             try:
-                lang = ctypes.windll.kernel32.GetUserDefaultUILanguage() & 0xFF   # primary id
+                lang = ctypes.windll.kernel32.GetUserDefaultUILanguage() & 0x3FF   # LANGID: the primary language
                 buf = ctypes.create_unicode_buffer(85)
-                if ctypes.windll.kernel32.GetLocaleInfoW(lang, 0x00000002, buf, 85):   # LOCALE_SISO639LANGNAME
-                    low = buf.value.lower()
+                # LOCALE_SISO639LANGNAME (0x59) is the ISO 639 code ("zh", "sv", "de"). 0x02 (LOCALE_SLANGUAGE)
+                # is the *localized display name* — "中文(简体，中国)" — so a Chinese Windows never matched
+                # the prefix test here and the early return handed that user an English interface.
+                if ctypes.windll.kernel32.GetLocaleInfoW(lang, 0x00000059, buf, 85):
+                    low = buf.value.strip().lower()
                     if low.startswith('zh'):
                         return Lang.ZH
-                    return Lang.SV if low.startswith('sv') else Lang.EN
+                    if low.startswith('sv'):
+                        return Lang.SV
+                    if low:                    # a real code we do not translate: this device is neither
+                        return Lang.EN
             except Exception:
                 pass          # fall through to the environment
         try:

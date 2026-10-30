@@ -69,6 +69,35 @@ class Detect(unittest.TestCase):
              mock.patch.object(sys, 'platform', 'win32'):
             self.assertEqual(Lang.initial(), Lang.ZH)
 
+    def win_language(self, kind_value: str, langid: int = 0x04) -> tuple[Lang, list[int]]:
+        """Lang.initial() on Windows, with GetLocaleInfoW answering `kind_value`; the kinds it was asked for come back too."""
+        asked: list[int] = []
+        fake = mock.Mock()
+        fake.windll.kernel32.GetUserDefaultUILanguage.return_value = langid
+
+        def getlocale(lang, kind, buf, n):
+            asked.append(kind)
+            buf.value = kind_value
+            return 1
+        fake.windll.kernel32.GetLocaleInfoW.side_effect = getlocale
+        with mock.patch.dict(os.environ, {}, clear=True), \
+             mock.patch.dict(sys.modules, {'ctypes': fake}), \
+             mock.patch('locale.getlocale', return_value=('English_United States', None)), \
+             mock.patch.object(sys, 'platform', 'win32'):
+            return Lang.initial(), asked
+
+    def test_windows_is_asked_for_the_iso_language_code(self):
+        """LOCALE_SISO639LANGNAME (0x59), not LOCALE_SLANGUAGE (0x02): 0x02 answers the *localized display
+        name* ("中文(简体，中国)"), so a Chinese Windows fell through to English and nobody noticed because the
+        call was only mocked for its return value."""
+        _, asked = self.win_language('zh')
+        self.assertEqual(asked, [0x00000059], "the ISO 639 code is what the prefix test can read")
+
+    def test_a_windows_display_name_still_selects_the_language(self):
+        for name, want in (('zh', Lang.ZH), ('zh-Hans', Lang.ZH), ('sv', Lang.SV), ('de', Lang.EN), ('en-US', Lang.EN)):
+            lang, _ = self.win_language(name)
+            self.assertEqual(lang, want, name)
+
     def test_an_empty_locale_falls_through_to_the_environment(self):
         self.assertEqual(detect('', env={'LANG': 'zh_CN.UTF-8'}), Lang.ZH)
         self.assertEqual(detect('', env={'LANG': 'en_US.UTF-8'}), Lang.EN)
