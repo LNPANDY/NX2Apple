@@ -12,7 +12,7 @@ sys.path.insert(0, str(ROOT / 'frontend-qt'))
 from nspb_qt.i18n import Lang   # noqa: E402
 from nspb_qt.localization import TABLE, t   # noqa: E402
 
-PLACEHOLDER = re.compile(r'%(?:\d+\$)?(?:ll|l)?[@dsf%]')
+PLACEHOLDER = re.compile(r'%(?:\d+\$)?(?:\.\d+)?(?:ll|l)?[@dsf%]')
 
 
 class German(unittest.TestCase):

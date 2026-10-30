@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import locale
 import os
+import re
 import sys
 from enum import Enum
 
@@ -54,7 +55,7 @@ class Lang(Enum):
                         return Lang.ZH
                     if low.startswith('sv'):
                         return Lang.SV
-                    if low.startswith('de'):
+                    if re.match(r'de($|[^a-z])', low):
                         return Lang.DE
                     if low:                    # a real code we do not translate: this device is neither
                         return Lang.EN
@@ -72,4 +73,4 @@ class Lang(Enum):
             return Lang.ZH
         if low.startswith('sv') or 'swedish' in low:
             return Lang.SV
-        return Lang.DE if low.startswith('de') or 'german' in low or 'deutsch' in low else Lang.EN
+        return Lang.DE if re.match(r'de($|[^a-z])', low) or 'german' in low or 'deutsch' in low else Lang.EN

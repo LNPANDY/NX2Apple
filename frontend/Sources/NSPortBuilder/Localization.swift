@@ -2020,6 +2020,7 @@ enum L10n {
         "cheats.dropHint": "Zum Importieren der Cheats ablegen",
         "cheats.note": "Schalter werden sofort gesichert und gelten beim nächsten Start des Spiels.",
         "cheats.noteDevice": "Kopiere nach einer Änderung erneut auf %@.",
+        "cheats.iosNote": "Cheats funktionieren in der Mac-App. Auf iPhone und iPad sind sie beim Start des Spiels ausgeschaltet, weil iOS es nicht erlaubt, den Code des Spiels zu ändern (seedds/nxnative#724).",
         "pad.manage": "Verwalten",
         "dev.signStage": "Für %@ signieren",
         "dev.installStage": "Auf %@ installieren",

@@ -19,9 +19,9 @@ final class GermanLocalizationTests: XCTestCase {
         "controls.fn.ZL", "controls.fn.ZR", "controls.fn.Plus", "controls.fn.Minus", "launch.mods",
     ]
 
-    /// printf-style placeholders in order: %@, %d, %ld, %lld, positional %1$@, and %%.
+    /// printf-style placeholders in order: %@, %d, %ld, %lld, %.0f and %.1f, positional %1$@, and %%.
     private func placeholders(_ s: String) -> [String] {
-        let re = try! NSRegularExpression(pattern: "%(?:[0-9]+\\$)?(?:ll|l)?[@dsf%]")
+        let re = try! NSRegularExpression(pattern: "%(?:[0-9]+\\$)?(?:\\.[0-9]+)?(?:ll|l)?[@dsf%]")
         return re.matches(in: s, range: NSRange(s.startIndex..., in: s)).map { String(s[Range($0.range, in: s)!]) }
     }
 
