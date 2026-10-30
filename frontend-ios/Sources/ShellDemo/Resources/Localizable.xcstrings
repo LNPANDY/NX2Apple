@@ -151,6 +151,16 @@
         }
       }
     },
+    "Game files damaged": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Game files damaged"
+          }
+        }
+      }
+    },
     "Handheld": {
       "localizations": {
         "en": {
@@ -311,6 +321,16 @@
         }
       }
     },
+    "Some of this game's bundled files could not be verified.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Some of this game's bundled files could not be verified."
+          }
+        }
+      }
+    },
     "The game's display and performance profile.": {
       "localizations": {
         "en": {
@@ -327,16 +347,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "This app's folder"
-          }
-        }
-      }
-    },
-    "This game's bundled files could not be verified. Rebuild the app to restore them.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This game's bundled files could not be verified. Rebuild the app to restore them."
           }
         }
       }

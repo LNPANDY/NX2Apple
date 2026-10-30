@@ -9,6 +9,8 @@ public struct ControllersView: View {
         self.onBack = onBack
     }
     public var body: some View {
+        // Scrolls under the home indicator to the bottom edge, with room for the last row to clear it.
+        GeometryReader { geometry in
         ScrollView {
             VStack(alignment: .leading, spacing: 30) {
                 HStack(alignment: .center) {
@@ -49,10 +51,12 @@ public struct ControllersView: View {
                     hint(ButtonGlyph(letter: "X"), ShellStrings.text("Game settings"))
                     hint(ButtonGlyph(letter: "Y"), ShellStrings.text("Controllers"))
                 }.padding(.horizontal, 4)
-            }.padding(24).frame(maxWidth: 640)
+            }.padding(24).padding(.bottom, geometry.safeAreaInsets.bottom).frame(maxWidth: 640)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .scrollIndicators(.hidden)
+        .ignoresSafeArea(edges: .bottom)
+        }
         .foregroundStyle(.white).preferredColorScheme(.dark)
     }
     private func hint(_ icon: some View, _ label: String) -> some View {

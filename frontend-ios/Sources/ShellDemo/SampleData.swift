@@ -22,7 +22,7 @@ func demoText(_ key: String.LocalizationValue) -> String {
             SampleArt.tile("moon", title: "Moonlit Express", version: "3.1.0", real: RealTitle("Super Smash Bros. Ultimate", "01006A800016E000", "super-smash-bros-ultimate.jpg"),
                            state: .needsAppUpdate),
             SampleArt.tile("wild", title: "Wild Gardens", version: "1.2.0", real: RealTitle("Batman: Arkham Knight", "0100ACD0163D0000", "batman-arkham-knight.jpg"),
-                           state: .broken(reason: demoText("This game's bundled files could not be verified. Rebuild the app to restore them."))),
+                           state: .broken(reason: demoText("Game files damaged"), detail: demoText("Some of this game's bundled files could not be verified."))),
             SampleArt.tile("drift", title: "Drift Atlas", version: "1.1.0", real: RealTitle("Celeste", "01002B30028F6000", "celeste.jpg")),
             // Always fictional: the icon-only fallback, a square icon inside a wide card.
             SampleArt.tile("amber", title: "Amber Hours", version: "1.0.2", real: nil)

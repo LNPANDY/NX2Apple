@@ -51,6 +51,16 @@
         }
       }
     },
+    "Build this game again on your Mac and install it on this device. The Mac app checks every file while it builds, so the new copy is complete.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Build this game again on your Mac and install it on this device. The Mac app checks every file while it builds, so the new copy is complete."
+          }
+        }
+      }
+    },
     "Charging": {
       "localizations": {
         "en": {
@@ -161,6 +171,26 @@
         }
       }
     },
+    "Done": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Done"
+          }
+        }
+      }
+    },
+    "For a bug report": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "For a bug report"
+          }
+        }
+      }
+    },
     "Game data": {
       "localizations": {
         "en": {
@@ -177,6 +207,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "Game settings"
+          }
+        }
+      }
+    },
+    "How to fix": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How to fix"
+          }
+        }
+      }
+    },
+    "How to update": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How to update"
           }
         }
       }
@@ -357,6 +407,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Show log"
+          }
+        }
+      }
+    },
+    "This game needs a newer version of this app. Update it with the Mac app on your Mac, then install it on this device again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This game needs a newer version of this app. Update it with the Mac app on your Mac, then install it on this device again."
           }
         }
       }

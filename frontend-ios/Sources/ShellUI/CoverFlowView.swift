@@ -15,6 +15,8 @@ struct CoverFlowView: View {
     /// How far the carousel is scrolled: 0 with the first cover in the middle.
     @State private var scrolled: CGFloat = 0
     @State private var userScrolling = false
+    /// False while the carousel scrolls, decelerates or snaps: a tap on the centre card then does nothing.
+    @State private var settled = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var typeSize
 
@@ -23,7 +25,7 @@ struct CoverFlowView: View {
             let short = geometry.size.height < 520
             // A wide card as large as the Mac console's focused tile: what the height allows, never so wide that the
             // neighbours vanish.
-            let cardHeight = max(90, min(geometry.size.height * (short ? 0.5 : 0.42), geometry.size.width * 0.52 * 9 / 16))
+            let cardHeight = max(90, min(geometry.size.height * 0.42, geometry.size.width * 0.52 * 9 / 16))
             let cover = cardHeight * 16 / 9
             VStack(spacing: 0) {
                 topBar.padding(.horizontal, 24).padding(.top, short ? 4 : 16)
@@ -85,12 +87,22 @@ struct CoverFlowView: View {
             scrolled = offset
         }
         .onScrollPhaseChange { _, phase in
+            // A touch scroll goes interacting, decelerating, sometimes animating (the snap), then idle. The flag holds
+            // until idle, so the snap that ends a swipe still counts as the player's. A scroll this view animates
+            // starts from idle and never sets it.
+            settled = phase == .idle
             switch phase {
             case .interacting, .decelerating: userScrolling = true
             case .idle:
-                if userScrolling, let id = centredID, id != selected.id { select(id) }
+                if userScrolling {
+                    // The card in the middle once the scroll has settled, from the offset itself.
+                    let index = min(games.count - 1, max(0, Int((scrolled / stride).rounded())))
+                    let id = games[index].id
+                    if centredID != id { centredID = id }
+                    if id != selected.id { select(id) }
+                }
                 userScrolling = false
-            default: userScrolling = false
+            default: break
             }
         }
         .scrollIndicators(.hidden)
@@ -118,7 +130,12 @@ struct CoverFlowView: View {
     private func coverButton(_ detail: GameDetail, cover: CGFloat) -> some View {
         let chosen = detail.id == selected.id
         return Button {
-            if chosen { return }
+            // The centred card acts like the button under it, once the carousel has settled. A side card only comes
+            // to the middle and never starts anything.
+            if chosen {
+                if settled { primary(detail) }
+                return
+            }
             withAnimation(reduceMotion ? nil : .smooth(duration: 0.32)) { centredID = detail.id }
             select(detail.id)
         } label: {
@@ -130,34 +147,31 @@ struct CoverFlowView: View {
         .shellTarget("lib.tile.\(detail.id)", radius: cover * 0.03) { primary(detail) }
         .accessibilityLabel(detail.game.title + ", " + detail.game.state.title)
         .accessibilityAddTraits(chosen ? .isSelected : [])
+        .accessibilityHint(chosen ? detail.game.state.actionTitle : ShellStrings.text("Double-tap to select"))
         .accessibilityIdentifier("tile.\(detail.id)")
     }
 
-    @ViewBuilder private func info(short: Bool, width: CGFloat) -> some View {
+    /// Under the centre card, the same on a phone and a tablet: the title centred with room for two lines, one status or
+    /// reason line, then the buttons at a fixed place. The space is reserved, so nothing moves when the selection
+    /// changes, only the words crossfade.
+    private func info(short: Bool, width: CGFloat) -> some View {
         let game = selected.game
-        if short {
-            // A phone on its side: one line of title and state beside the buttons, so the cover keeps the height.
-            HStack(spacing: 28) {
-                VStack(alignment: .leading, spacing: 5) {
-                    title(game, size: 20).lineLimit(2).minimumScaleFactor(0.85)
-                    StatusLabel(state: game.state)
-                }.frame(maxWidth: min(340, width * 0.4), alignment: .leading).fixedSize(horizontal: true, vertical: true)
-                actions(game)
-            }
-            .frame(maxWidth: .infinity)
-            .dynamicTypeSize(...DynamicTypeSize.xxLarge)
-        } else {
-            VStack(spacing: 12) {
-                title(game, size: 30).lineLimit(2).multilineTextAlignment(.center)
-                StatusLabel(state: game.state, prominent: true)
-                if !game.state.explanation.isEmpty {
-                    Text(game.state.explanation).shellText(14).foregroundStyle(.white.opacity(0.68))
-                        .multilineTextAlignment(.center).frame(maxWidth: 440).fixedSize(horizontal: false, vertical: true)
+        let size: CGFloat = short ? 20 : 28
+        return VStack(spacing: short ? 10 : 14) {
+            ZStack(alignment: .top) {
+                VStack(spacing: 6) {
+                    Text("M\nM").shellText(size, .heavy, relativeTo: .title)
+                    StatusLabel(state: .playable, prominent: true)
+                }.hidden().accessibilityHidden(true)
+                VStack(spacing: 6) {
+                    title(game, size: size).lineLimit(2).truncationMode(.tail).multilineTextAlignment(.center)
+                    StatusLabel(state: game.state, prominent: true)
                 }
-                actions(game).padding(.top, 6)
             }
-            .dynamicTypeSize(...DynamicTypeSize.accessibility1)
+            .frame(maxWidth: min(560, width - 48))
+            actions(game)
         }
+        .dynamicTypeSize(...(short ? DynamicTypeSize.xxLarge : DynamicTypeSize.accessibility1))
     }
 
     private func title(_ game: GameTile, size: CGFloat) -> some View {
@@ -170,7 +184,10 @@ struct CoverFlowView: View {
 
     private func actions(_ game: GameTile) -> some View {
         HStack(spacing: 12) {
-            Button { primary(selected) } label: { Label(game.state.actionTitle, systemImage: game.state.actionSymbol) }
+            // A fixed width that holds every state's label, so the row does not shift between games.
+            Button { primary(selected) } label: {
+                Label(game.state.actionTitle, systemImage: game.state.actionSymbol).frame(minWidth: 190)
+            }
                 .buttonStyle(PrimaryPillStyle())
                 .accessibilityLabel(game.state.actionTitle + ", " + game.title)
                 .accessibilityIdentifier("state.action")

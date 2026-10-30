@@ -66,10 +66,12 @@ struct SectionHeading: View {
 
 /// The Mac's secondary button: white 0.055, a 0.10 hairline, radius 9.
 struct ShellButtonStyle: ButtonStyle {
+    /// Take all the width offered, as the buttons inside a settings card do.
+    var fills = false
     @Environment(\.isEnabled) private var enabled
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label.shellText(14, .semibold)
-            .frame(minHeight: 44).padding(.horizontal, 14)
+        configuration.label.shellText(14, .semibold).lineLimit(1)
+            .padding(.horizontal, 14).frame(maxWidth: fills ? .infinity : nil, minHeight: 44)
             .foregroundStyle(.white.opacity(0.92))
             .background(.white.opacity(configuration.isPressed ? 0.13 : 0.055), in: RoundedRectangle(cornerRadius: 9))
             .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(.white.opacity(0.10)))
@@ -240,7 +242,7 @@ extension GameState {
         case .playable: ShellStrings.text("Ready to play")
         case .needsGameData: ShellStrings.text("Needs game data")
         case .needsAppUpdate: ShellStrings.text("App update needed")
-        case .broken: ShellStrings.text("Unavailable")
+        case .broken(let reason, _): reason.isEmpty ? ShellStrings.text("Unavailable") : reason
         }
     }
     var color: Color {
@@ -255,15 +257,15 @@ extension GameState {
         case .playable: ""
         case .needsGameData: ShellStrings.text("Choose this game's data to get ready to play.")
         case .needsAppUpdate: ShellStrings.text("Install a newer version of this app to play this game.")
-        case .broken(let reason): reason
+        case .broken(_, let detail): detail
         }
     }
     var actionTitle: String {
         switch self {
         case .playable: ShellStrings.text("Play")
         case .needsGameData: ShellStrings.text("Choose game data…")
-        case .needsAppUpdate: ShellStrings.text("Update app")
-        case .broken: ShellStrings.text("Show log")
+        case .needsAppUpdate: ShellStrings.text("How to update")
+        case .broken: ShellStrings.text("How to fix")
         }
     }
     var actionSymbol: String {
@@ -271,7 +273,7 @@ extension GameState {
         case .playable: "play.fill"
         case .needsGameData: "folder"
         case .needsAppUpdate: "arrow.up.circle"
-        case .broken: "doc.text"
+        case .broken: "wrench.and.screwdriver"
         }
     }
 }
@@ -311,5 +313,27 @@ struct GlyphHint: View {
             ButtonGlyph(letter: letter)
             Text(label).shellText(13, .medium, relativeTo: .footnote)
         }.foregroundStyle(.white.opacity(0.6))
+    }
+}
+
+extension GameState {
+    /// Broken and needs-an-update are fixed on the Mac. Their primary action explains how, instead of acting.
+    var needsHelp: Bool {
+        switch self {
+        case .broken, .needsAppUpdate: true
+        default: false
+        }
+    }
+}
+
+/// Shows the How to fix or How to update explanation for a game. The library provides it. Without one, the state
+/// view presents the explanation itself.
+private struct ShellHelpKey: EnvironmentKey {
+    nonisolated(unsafe) static let defaultValue: ((GameTile) -> Void)? = nil
+}
+extension EnvironmentValues {
+    var shellShowHelp: ((GameTile) -> Void)? {
+        get { self[ShellHelpKey.self] }
+        set { self[ShellHelpKey.self] = newValue }
     }
 }

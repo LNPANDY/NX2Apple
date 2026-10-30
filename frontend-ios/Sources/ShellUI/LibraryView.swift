@@ -39,11 +39,14 @@ public struct LibraryView: View {
     @State private var selectedID: String?
     @State private var settingsOpen: Bool
     @State private var controllersOpen: Bool
+    /// The game whose How to fix or How to update explanation is open.
+    @State private var helpGameID: String?
     @State private var focus: FocusAppearance
     @State private var targets = FocusTargetBuffer()
     @State private var settingsPosition = ScrollPosition()
     @State private var libraryPosition = ScrollPosition()
     @State private var layout: ShellLayout = .column
+    @State private var returnFocus: String?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var typeSize
 
@@ -83,11 +86,11 @@ public struct LibraryView: View {
                             ControllerChip(count: controllers.count, action: openControllers).padding(.top, 6).padding(.trailing, 16)
                         }
                 } else if let selected {
-                    library(selected, layout: layout, size: geometry.size, topInset: insets.top)
+                    library(selected, layout: layout, size: geometry.size, insets: insets)
                         .frame(width: width, height: geometry.size.height)
                         .opacity(paneCovers ? 0 : 1)
                         .allowsHitTesting(!settingsOpen)
-                        .accessibilityHidden(settingsOpen)
+                        .accessibilityHidden(settingsOpen || helpGameID != nil)
                         .transformPreference(FocusTargets.self) { if settingsOpen { $0.removeAll() } }
                     if panelOverLibrary {
                         Color.black.opacity(0.5).ignoresSafeArea()
@@ -97,7 +100,8 @@ public struct LibraryView: View {
                     }
                     // One settings view in one place for every layout, so its state, scroll position and focus survive
                     // a fold, a rotation or a Stage Manager resize.
-                    settingsPane(selected, floating: floating, width: pane - (floating ? 24 : 0))
+                    settingsPane(selected, floating: floating, width: pane - (floating ? 24 : 0),
+                                 insets: floating ? EdgeInsets() : insets)
                         .frame(width: pane - (floating ? 24 : 0))
                         .frame(maxHeight: .infinity)
                         .background {
@@ -108,7 +112,9 @@ public struct LibraryView: View {
                                 ShellPalette.background.ignoresSafeArea()
                             }
                         }
-                        .clipShape(RoundedRectangle(cornerRadius: floating ? 26 : 0))
+                        // Rounded as a panel. Full screen the clip reaches far past the edges, so the banner and the
+                        // scrolling settings run under the status bar and the home indicator.
+                        .clipShape(RoundedRectangle(cornerRadius: floating ? 26 : 0).inset(by: floating ? 0 : -400))
                         .shadow(color: .black.opacity(floating ? 0.5 : 0), radius: 40, x: -8)
                         .padding(floating ? 12 : 0)
                         .offset(x: settingsOpen ? 0 : pane + 40)
@@ -118,6 +124,20 @@ public struct LibraryView: View {
                         .accessibilityHidden(!settingsOpen)
                         .accessibilityAddTraits(settingsOpen ? .isModal : [])
                         .transformPreference(FocusTargets.self) { if !settingsOpen { $0.removeAll() } }
+                }
+                if let id = helpGameID, let game = games.first(where: { $0.id == id })?.game {
+                    Color.black.opacity(0.55).ignoresSafeArea().accessibilityHidden(true)
+                        .onTapGesture { closeHelp() }
+                        .transition(.opacity)
+                    StateHelpView(game: game, actions: actions, onClose: closeHelp)
+                        .frame(maxWidth: 460)
+                        .background(Color(red: 0.075, green: 0.075, blue: 0.082), in: RoundedRectangle(cornerRadius: 26))
+                        .overlay(RoundedRectangle(cornerRadius: 26).strokeBorder(.white.opacity(0.10)))
+                        .shadow(color: .black.opacity(0.5), radius: 40)
+                        .padding(16)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .accessibilityAddTraits(.isModal)
+                        .transition(.opacity.combined(with: .scale(scale: 0.96)))
                 }
                 if controllersOpen {
                     Color.black.opacity(0.55).ignoresSafeArea().accessibilityHidden(true)
@@ -133,7 +153,11 @@ public struct LibraryView: View {
                 }
             }
             .transformPreference(FocusTargets.self) { values in
-                values = values.filter { controllersOpen ? $0.id.hasPrefix("ctl.") : !$0.id.hasPrefix("ctl.") }
+                values = values.filter { target in
+                    if controllersOpen { return target.id.hasPrefix("ctl.") }
+                    if helpGameID != nil { return target.id.hasPrefix("help.") }
+                    return !target.id.hasPrefix("ctl.") && !target.id.hasPrefix("help.")
+                }
             }
             .coordinateSpace(name: "shell")
             .onPreferenceChange(FocusTargets.self) { all in targets.values = all.filter { $0.frame.width > 1 } }
@@ -143,6 +167,8 @@ public struct LibraryView: View {
         .animation(reduceMotion ? nil : .smooth(duration: 0.35), value: layout)
         .animation(reduceMotion ? nil : .smooth(duration: 0.3), value: settingsOpen)
         .animation(reduceMotion ? nil : .smooth(duration: 0.3), value: controllersOpen)
+        .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: helpGameID)
+        .environment(\.shellShowHelp, { game in openHelp(game.id) })
         .environment(\.shellFocus, focus)
         .foregroundStyle(.white)
         .font(ShellFonts.font(15)).tint(ShellPalette.cream).preferredColorScheme(.dark)
@@ -160,13 +186,13 @@ public struct LibraryView: View {
         }
     }
 
-    @ViewBuilder private func library(_ selected: GameDetail, layout: ShellLayout, size: CGSize, topInset: CGFloat) -> some View {
+    @ViewBuilder private func library(_ selected: GameDetail, layout: ShellLayout, size: CGSize, insets: EdgeInsets) -> some View {
         if layout.isCoverFlow {
             CoverFlowView(games: games, selected: selected, controllers: controllers.count, showsHints: !controllers.isEmpty,
                           select: select, primary: primary, openSettings: openSettings, openControllers: openControllers)
                 .transition(.opacity)
         } else {
-            PortraitLibrary(games: games, selected: selected, wide: layout == .grid, size: size, topInset: topInset,
+            PortraitLibrary(games: games, selected: selected, wide: layout == .grid, size: size, topInset: insets.top, bottomInset: insets.bottom,
                             controllers: controllers.count, select: select, primary: primary,
                             openSettings: openSettings, openControllers: openControllers, position: $libraryPosition)
                 .transition(.opacity)
@@ -175,44 +201,49 @@ public struct LibraryView: View {
 
     /// The settings for the selected game: its banner as the header, with the title over it and Back on top, then
     /// the primary action and the setting groups. A panel or the whole screen, the same view.
-    private func settingsPane(_ selected: GameDetail, floating: Bool, width: CGFloat) -> some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    PaneBanner(game: selected.game, width: width).id("set.top")
-                    GameDetailView(detail: selected, actions: actions, showsPrimaryAction: true, showsHeader: false)
-                        .padding(.horizontal, 24).padding(.top, 18).padding(.bottom, 32)
-                        // A phone on its side: a readable column, not rows stretched across the whole width.
-                        .frame(maxWidth: 640, alignment: .leading)
+    /// The settings for the selected game: its banner as the header, with the title below it and Back on top, then
+    /// the primary action and the setting groups. A panel or the whole screen, the same view. Full screen, the banner
+    /// runs under the status bar and the settings scroll under the home indicator, while Back keeps its inset.
+    private func settingsPane(_ selected: GameDetail, floating: Bool, width: CGFloat, insets: EdgeInsets) -> some View {
+        ZStack(alignment: .topLeading) {
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        PaneBanner(game: selected.game, width: width, topInset: insets.top).id("set.top")
+                        GameDetailView(detail: selected, actions: actions, showsPrimaryAction: true, showsHeader: false)
+                            .padding(.horizontal, 24).padding(.top, 18).padding(.bottom, 32 + insets.bottom)
+                            // A phone on its side: a readable column, not rows stretched across the whole width.
+                            .frame(maxWidth: 640, alignment: .leading)
+                            .padding(.leading, insets.leading).padding(.trailing, insets.trailing)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .scrollPosition($settingsPosition)
-            .scrollIndicators(.hidden)
-            .ignoresSafeArea(edges: floating ? [] : .top)
-            .overlay(alignment: .topLeading) {
-                Button(action: closeSettings) {
-                    if typeSize.isAccessibilitySize { Image(systemName: "chevron.left").frame(minWidth: 24) }
-                    else { Label(ShellStrings.text("Library"), systemImage: "chevron.left") }
-                }
-                .buttonStyle(ChipButtonStyle())
-                .accessibilityLabel(ShellStrings.text("Library"))
-                .accessibilityIdentifier("library.back")
-                .shellTarget("set.back", radius: 22, action: closeSettings)
-                .padding(.leading, 16).padding(.top, floating ? 14 : 6)
-            }
-            .onChange(of: focus.id) { _, id in
-                guard let id, id.hasPrefix("set.") else { return }
-                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.18)) {
-                    proxy.scrollTo(id == "set.back" ? "set.top" : id, anchor: id == "set.back" ? .top : .center)
+                .scrollPosition($settingsPosition)
+                .scrollIndicators(.hidden)
+                .ignoresSafeArea(edges: floating ? [] : .all)
+                .onChange(of: focus.id) { _, id in
+                    guard let id, id.hasPrefix("set.") else { return }
+                    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.18)) {
+                        proxy.scrollTo(id == "set.back" ? "set.top" : id, anchor: id == "set.back" ? .top : .center)
+                    }
                 }
             }
+            Button(action: closeSettings) {
+                if typeSize.isAccessibilitySize { Image(systemName: "chevron.left").frame(minWidth: 24) }
+                else { Label(ShellStrings.text("Library"), systemImage: "chevron.left") }
+            }
+            .buttonStyle(ChipButtonStyle())
+            .accessibilityLabel(ShellStrings.text("Library"))
+            .accessibilityIdentifier("library.back")
+            .shellTarget("set.back", radius: 22, action: closeSettings)
+            .padding(.leading, 16).padding(.top, floating ? 14 : 6)
         }
     }
 
     // MARK: Actions and focus
 
     private func primary(_ detail: GameDetail) {
+        if detail.game.state.needsHelp { openHelp(detail.id); return }
         switch detail.game.state {
         case .playable: actions.onPlay(detail.id)
         case .needsGameData: actions.onPickGameData(detail.id)
@@ -235,8 +266,11 @@ public struct LibraryView: View {
         focus.id = "lib.settings"
     }
     private func openControllers() { controllersOpen = true; focus.id = "ctl.close" }
+    private func openHelp(_ id: String) { returnFocus = focus.id; helpGameID = id; focus.id = "help.done" }
+    private func closeHelp() { helpGameID = nil; focus.id = returnFocus }
     private func back() {
-        if controllersOpen { controllersOpen = false; focus.id = "lib.controllers" }
+        if helpGameID != nil { closeHelp() }
+        else if controllersOpen { controllersOpen = false; focus.id = "lib.controllers" }
         else if settingsOpen { closeSettings() }
         else { actions.onBack() }
     }
@@ -271,6 +305,7 @@ public struct LibraryView: View {
         if let id = focus.id, id.hasPrefix("lib.tile.") { select(String(id.dropFirst("lib.tile.".count))) }
     }
     private var defaultFocus: String? {
+        if helpGameID != nil { return "help.done" }
         if controllersOpen { return "ctl.close" }
         if settingsOpen { return "set.back" }
         return selected.map { "lib.tile.\($0.id)" } ?? "lib.controllers"
@@ -282,13 +317,19 @@ public struct LibraryView: View {
 private struct PaneBanner: View {
     let game: GameTile
     let width: CGFloat
+    /// The status bar's height where the banner runs under it.
+    var topInset: CGFloat = 0
     var body: some View {
-        let bannerHeight = min(width * 9 / 16, 220)
+        let bannerHeight = min(width * 9 / 16, 220) + topInset
         VStack(alignment: .leading, spacing: 8) {
             StatusLabel(state: game.state, prominent: true)
-            Text(game.title).shellText(26, .heavy, relativeTo: .title).tracking(-0.7)
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityAddTraits(.isHeader).accessibilityIdentifier("detail.title")
+            // Two lines are always reserved, so the settings below start at the same place for every game.
+            ZStack(alignment: .topLeading) {
+                Text("M\nM").shellText(26, .heavy, relativeTo: .title).hidden().accessibilityHidden(true)
+                Text(game.title).shellText(26, .heavy, relativeTo: .title).tracking(-0.7)
+                    .lineLimit(2)
+                    .accessibilityAddTraits(.isHeader).accessibilityIdentifier("detail.title")
+            }
             HStack(spacing: 8) {
                 SectionHeading(title: ShellStrings.text("Game settings"))
                 if !game.subtitle.isEmpty {
@@ -302,6 +343,13 @@ private struct PaneBanner: View {
         .background(alignment: .top) {
             ArtView(game: game, lettering: false)
                 .frame(width: width, height: bannerHeight)
+                .overlay(alignment: .top) {
+                    // Darker under the status bar, so the time and battery stay legible on any art.
+                    if topInset > 0 {
+                        LinearGradient(colors: [.black.opacity(0.5), .clear], startPoint: .top, endPoint: .bottom)
+                            .frame(height: topInset + 50)
+                    }
+                }
                 .mask {
                     LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.55),
                                            .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom)

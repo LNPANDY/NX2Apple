@@ -45,6 +45,12 @@ import XCTest
             shot("three-games-\(suffix)")
             launch(["--screen", "library", "--select", "drift"])
             shot("library-drift-\(suffix)")
+            for (screen, name) in [("broken", "help-broken"), ("needs-update", "help-update")] {
+                launch(["--screen", screen])
+                app.buttons.matching(identifier: "state.action").allElementsBoundByIndex.first { $0.isHittable }?.tap()
+                sleep(1)
+                shot("\(name)-\(suffix)")
+            }
         }
         XCUIDevice.shared.orientation = .portrait
     }
