@@ -46,6 +46,7 @@ struct CheatsView: View {
             .padding(.horizontal, 30).padding(.top, 28).padding(.bottom, 16)
             VStack(alignment: .leading, spacing: 14) {
                 buildCard
+                if game?.cheatsNeedIOSNote ?? false { iosNoteCard }
                 if files.isEmpty { emptyCard } else { listCard }
                 actions
                 if busy {
@@ -123,6 +124,18 @@ struct CheatsView: View {
             }
             .padding(.horizontal, 18).padding(.vertical, 11)
         }
+    }
+
+    /// Cheats do not run on iPhone or iPad yet: said once, calmly, with the switches left usable for a Mac build.
+    private var iosNoteCard: some View {
+        HStack(alignment: .top, spacing: 14) {
+            Image(systemName: "info.circle").font(.system(size: 16, weight: .light)).foregroundStyle(.secondary).frame(width: 26)
+            Text(m.t("cheats.iosNote")).font(.manrope(12.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 18).padding(.vertical, 11)
+        .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 14))
+        .accessibilityElement(children: .combine)
     }
 
     private var emptyCard: some View {

@@ -408,3 +408,34 @@ final class CheatFilesTests: XCTestCase {
         try shot("cheats-empty", CheatsView(m: model, library: library, gameID: id, support: support))
     }
 }
+
+/// Issue #252: cheats are turned off when an iPhone or iPad game starts, so the Cheats sheet carries a note for a game with an iOS build.
+final class CheatsIOSNoteTests: XCTestCase {
+    func testNoteShowsOnlyWithAnIOSBuild() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("nxnative-iosnote-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let ipa = dir.appendingPathComponent("Game.ipa")
+        try Data("x".utf8).write(to: ipa)
+        let ios = dir.appendingPathComponent("Game.app")
+        try FileManager.default.createDirectory(at: ios, withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: ios.appendingPathComponent("Info.plist"))
+
+        var game = LibraryGame(titleID: "0100F2C0115B6000", name: "Game", appPath: "/gone/Game.app")
+        XCTAssertFalse(game.cheatsNeedIOSNote, "a Mac-only game has no note")
+        game.ipaPath = ipa.path
+        XCTAssertTrue(game.cheatsNeedIOSNote, "a built IPA gets it")
+        game.ipaPath = dir.appendingPathComponent("gone.ipa").path
+        XCTAssertFalse(game.cheatsNeedIOSNote, "an IPA that is gone does not")
+        game.iosAppPath = ios.path
+        game.installedDevice = "device"
+        XCTAssertTrue(game.cheatsNeedIOSNote, "a game installed on a device gets it")
+    }
+
+    func testNoteIsTranslatedWithoutSemicolons() {
+        for lang in [Lang.en, .zh, .sv] {
+            let text = L10n.string("cheats.iosNote", lang)
+            XCTAssertFalse(text.isEmpty); XCTAssertFalse(text.contains(";")); XCTAssertTrue(text.contains("#724"))
+        }
+    }
+}
