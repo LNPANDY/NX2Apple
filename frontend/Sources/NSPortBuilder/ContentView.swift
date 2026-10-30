@@ -628,6 +628,8 @@ final class BuildModel: ObservableObject {
     /// updates, so a user learns what changed before deciding, not after downloading.
     @Published var showUpdateSheet = false
     @Published var showConvertSheet = false
+    /// The uninstall row's dialog: computed when the row is pressed, run when the phrase matches.
+    @Published var uninstallPlan: Uninstall.Plan?
     @Published var appStatus = ""
     /// Set when the last update attempt was refused (a release this macOS cannot open, a bad download); the update sheet shows it.
     @Published var appUpdateBlocked: String?
@@ -3493,6 +3495,19 @@ struct BuilderView: View {
                 }
             }
             divider
+            if m.appInstallability == .ok {
+                // The uninstaller (Uninstall.swift): state folders and the launcher's own checkout go; the
+                // games folder and prod.keys stay; the app itself goes to the Trash. Typed confirmation.
+                row(m.t("uninstall.title"), detail: m.t("uninstall.note")) {
+                    Button(m.t("uninstall.button")) {
+                        m.uninstallPlan = Uninstall.plan(home: NSHomeDirectory(), gamesFolder: library.folder,
+                                                         checkouts: [m.repoPath])
+                    }
+                    .disabled(m.running)
+                    .padTarget("set.uninstall", scope: "main") { if !m.running { m.uninstallPlan = Uninstall.plan(home: NSHomeDirectory(), gamesFolder: library.folder, checkouts: [m.repoPath]) } }
+                }
+                divider
+            }
             // A launcher built from the repository never replaces itself (AppUpdate.installability): the switch says so and stays off
             row(m.t("app.auto"), detail: m.t(m.appInstallability == .ok ? "app.autoNote" : m.appInstallability == .developer ? "app.autoDev" : "app.autoReadOnly")) {
                 Toggle("", isOn: Binding(get: { m.autoUpdateApp && m.appInstallability == .ok }, set: { m.autoUpdateApp = $0 }))

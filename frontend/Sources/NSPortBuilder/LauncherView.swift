@@ -235,6 +235,22 @@ struct ContentView: View {
         .onChange(of: freeSpaceFor) { id in padFocus.scope = id != nil ? "free" : currentPadScope }
         .sheet(isPresented: $m.showUpdateSheet) { UpdateSheet(m: m) }
         .sheet(isPresented: $m.showConvertSheet) { ConvertView(m: m) }
+        .typeToConfirm(
+            isPresented: Binding(get: { m.uninstallPlan != nil }, set: { if !$0 { m.uninstallPlan = nil } }),
+            phrase: "NX2Apple",
+            title: m.t("uninstall.title"),
+            message: m.t("uninstall.confirm"),
+            buttonTitle: m.t("uninstall.button")) {
+            if let plan = m.uninstallPlan {
+                let result = Uninstall.run(plan)
+                m.uninstallPlan = nil
+                if result.failures.isEmpty {
+                    m.appStatus = String(format: m.t("uninstall.done"), result.removed.count)
+                } else {
+                    m.appStatus = m.t("uninstall.failed") + "\n" + result.failures.joined(separator: "\n")
+                }
+            }
+        }
         .sheet(isPresented: Binding(get: { savesFor != nil }, set: { if !$0 { savesFor = nil } })) {
             if let id = savesFor { SavesView(m: m, library: library, gameID: id).environmentObject(padFocus) }
         }
