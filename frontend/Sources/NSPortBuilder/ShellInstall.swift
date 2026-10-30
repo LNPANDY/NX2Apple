@@ -343,15 +343,19 @@ struct ShellInstaller {
         }
         // A device this Mac never paired is found out now, not after the signing: nothing is built for it
         if let refused = pairingRefusal() { return refused }
-        // The 16:9 banner of the shell's library (ShellHost reads <framework>/banner.<ext>, the square icon.png is the fallback)
-        if let banner = ShellInstall.placeBanner(titleID: titleID, framework: framework, banners: banners, picked: pickedArtwork) {
-            log("banner: \(banner)\n")
-        }
         // 3: the library
         var library = ShellLibrary.load(root: root)
         library.team = team
         library.add(.init(titleID: titleID, name: name, framework: framework))
         library.dropMissing()
+        // The 16:9 banner of the shell's library for every game in it (ShellHost reads <framework>/banner.<ext>, the square
+        // icon.png is the fallback): a game rebuilt since its last install gets its banner back too
+        for game in library.games {
+            let picked = game.titleID == titleID ? pickedArtwork : nil
+            if let banner = ShellInstall.placeBanner(titleID: game.titleID, framework: game.framework, banners: banners, picked: picked) {
+                log("banner: \(game.titleID) \(banner)\n")
+            }
+        }
         do { try library.save(root: root) } catch {
             return Outcome(ok: false, message: fmt("shell.projectFailed", error.localizedDescription))
         }
