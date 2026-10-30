@@ -16,16 +16,13 @@ enum ShellLayout: Equatable {
         return regular && !accessibilityText ? .grid : .column
     }
 
-    /// The settings panel's width: the whole width where it covers the library, else a panel that leaves the
-    /// library in view beside it.
-    func paneWidth(_ width: CGFloat) -> CGFloat {
-        switch self {
-        case .column, .coverFlow(regular: false): width
-        case .grid, .coverFlow(regular: true): min(500, max(380, width * 0.5))
-        }
-    }
-    /// Whether the settings float as a panel over a dimmed library, rather than replacing it.
-    var settingsFloat: Bool { self == .grid || self == .coverFlow(regular: true) }
+    /// The width of the overlay Settings and Controllers share: a panel from the trailing edge over the dimmed library.
+    static let overlayWidth: CGFloat = 520
+    /// Settings drop in as that overlay wherever the library stays in view beside it (at least 120 points of it), and
+    /// take the whole screen where it would not: a phone held upright, a folded foldable, a narrow window.
+    func settingsFloat(_ width: CGFloat) -> Bool { self != .column && width >= Self.overlayWidth + 120 }
+    /// The settings' width: the overlay, or the whole width.
+    func paneWidth(_ width: CGFloat) -> CGFloat { settingsFloat(width) ? min(width, Self.overlayWidth) : width }
     var isCoverFlow: Bool { if case .coverFlow = self { true } else { false } }
 }
 
@@ -82,7 +79,7 @@ public struct LibraryView: View {
             let pane = layout.paneWidth(width)
             // Settings only when asked for. A panel floats over the dimmed library where there is room, otherwise the
             // settings take the whole screen and the library steps out of the way.
-            let floating = layout.settingsFloat
+            let floating = layout.settingsFloat(width)
             let paneCovers = settingsOpen && !floating
             let panelOverLibrary = settingsOpen && floating
             ZStack(alignment: .topLeading) {
@@ -100,30 +97,24 @@ public struct LibraryView: View {
                         .accessibilityHidden(settingsOpen || helpGameID != nil)
                         .transformPreference(FocusTargets.self) { if settingsOpen { $0.removeAll() } }
                     if panelOverLibrary {
-                        Color.black.opacity(0.5).ignoresSafeArea()
+                        // The same dimming and dismissal as the Controllers overlay.
+                        Color.black.opacity(0.55).ignoresSafeArea()
                             .onTapGesture { closeSettings() }
                             .accessibilityHidden(true)
                             .transition(.opacity)
                     }
                     // One settings view in one place for every layout, so its state, scroll position and focus survive
                     // a fold, a rotation or a Stage Manager resize.
-                    settingsPane(selected, floating: floating, width: pane - (floating ? 24 : 0),
-                                 insets: floating ? EdgeInsets() : insets)
-                        .frame(width: pane - (floating ? 24 : 0))
+                    settingsPane(selected, floating: floating, width: pane,
+                                 insets: floating ? EdgeInsets(top: insets.top, leading: 0, bottom: insets.bottom, trailing: insets.trailing)
+                                                  : insets)
+                        .frame(width: pane)
                         .frame(maxHeight: .infinity)
-                        .background {
-                            if floating {
-                                RoundedRectangle(cornerRadius: 26).fill(Color(red: 0.075, green: 0.075, blue: 0.082))
-                                    .overlay(RoundedRectangle(cornerRadius: 26).strokeBorder(.white.opacity(0.10)))
-                            } else {
-                                ShellPalette.background.ignoresSafeArea()
-                            }
+                        // Presented like Controllers: the page colour edge to edge, a hairline toward the library.
+                        .background { ShellPalette.background.ignoresSafeArea() }
+                        .overlay(alignment: .leading) {
+                            if floating { Rectangle().fill(ShellPalette.hairline).frame(width: 1).ignoresSafeArea() }
                         }
-                        // Rounded as a panel. Full screen the clip reaches far past the edges, so the banner and the
-                        // scrolling settings run under the status bar and the home indicator.
-                        .clipShape(RoundedRectangle(cornerRadius: floating ? 26 : 0).inset(by: floating ? 0 : -400))
-                        .shadow(color: .black.opacity(floating ? 0.5 : 0), radius: 40, x: -8)
-                        .padding(floating ? 12 : 0)
                         .offset(x: settingsOpen ? 0 : pane + 40)
                         .opacity(settingsOpen ? 1 : 0)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
@@ -225,7 +216,7 @@ public struct LibraryView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
                         PaneBanner(game: selected.game, width: width + insets.leading + insets.trailing,
-                                   leading: insets.leading, topInset: insets.top).id("set.top")
+                                   leading: insets.leading, trailing: insets.trailing, topInset: insets.top).id("set.top")
                         GameDetailView(detail: selected, actions: actions, showsPrimaryAction: true, showsHeader: false)
                             .padding(.horizontal, 24).padding(.top, 18).padding(.bottom, 32 + insets.bottom)
                             // A phone on its side: a readable column, not rows stretched across the whole width.
@@ -236,7 +227,7 @@ public struct LibraryView: View {
                 }
                 .scrollPosition($settingsPosition)
                 .scrollIndicators(.hidden)
-                .ignoresSafeArea(edges: floating ? [] : .all)
+                .ignoresSafeArea(edges: .all)
                 .onChange(of: focus.id) { _, id in
                     guard let id, id.hasPrefix("set.") else { return }
                     withAnimation(reduceMotion ? nil : .easeOut(duration: 0.18)) {
@@ -252,7 +243,7 @@ public struct LibraryView: View {
             .accessibilityLabel(ShellStrings.text("Library"))
             .accessibilityIdentifier("library.back")
             .shellTarget("set.back", radius: 22, action: closeSettings)
-            .padding(.leading, 16).padding(.top, floating ? 14 : 6)
+            .padding(.leading, 16).padding(.top, 6)
         }
     }
 
@@ -347,8 +338,9 @@ private struct PaneBanner: View {
     let game: GameTile
     /// The full width, edge to edge under the side safe areas.
     let width: CGFloat
-    /// The leading safe area: the words keep it, the banner does not.
+    /// The side safe areas: the words keep them, the banner does not.
     var leading: CGFloat = 0
+    var trailing: CGFloat = 0
     /// The status bar's height where the banner runs under it.
     var topInset: CGFloat = 0
     var body: some View {
@@ -368,40 +360,47 @@ private struct PaneBanner: View {
                 words(title: game.title)
             }
         }
-        .padding(.leading, leading + 24).padding(.trailing, 24)
+        .padding(.leading, leading + 24).padding(.trailing, trailing + 24)
         .padding(.top, bannerHeight - (hasBanner ? 22 : 0))
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background {
-            Group {
-                if hasBanner {
-                    // The banner fills the whole header edge to edge, cropped as needed, darker under the words.
-                    ArtView(game: game, lettering: false)
-                        .frame(width: width)
-                        .overlay {
-                            LinearGradient(stops: [.init(color: .clear, location: 0.35), .init(color: .black.opacity(0.45), location: 0.7),
-                                                   .init(color: .black.opacity(0.6), location: 1)], startPoint: .top, endPoint: .bottom)
-                        }
-                } else {
-                    ArtView(game: game, backdrop: true)
-                        .frame(width: width)
-                        .scaleEffect(1.4)
-                        .blur(radius: 40, opaque: true)
-                        .saturation(1.2)
-                        .overlay(Color.black.opacity(0.38))
+        .background(alignment: .top) {
+            // The art runs on past the header and fades into the page over a long distance, so there is no line where
+            // the header ends and the settings begin.
+            GeometryReader { geometry in
+                let tall = geometry.size.height + 160
+                Group {
+                    if hasBanner {
+                        // The banner fills the header edge to edge, cropped as needed, darker under the words.
+                        ArtView(game: game, lettering: false)
+                            .overlay {
+                                LinearGradient(stops: [.init(color: .clear, location: 0.3), .init(color: .black.opacity(0.4), location: 0.6),
+                                                       .init(color: .black.opacity(0.55), location: 1)], startPoint: .top, endPoint: .bottom)
+                            }
+                    } else {
+                        ArtView(game: game, backdrop: true)
+                            .scaleEffect(1.4)
+                            .blur(radius: 40, opaque: true)
+                            .saturation(1.2)
+                            .overlay(Color.black.opacity(0.38))
+                    }
+                }
+                .frame(width: width, height: tall)
+                .clipped()
+                .overlay(alignment: .top) {
+                    // Darker under the status bar, so the time and battery stay legible on any art.
+                    if topInset > 0 {
+                        LinearGradient(colors: [.black.opacity(0.5), .clear], startPoint: .top, endPoint: .bottom)
+                            .frame(height: topInset + 50)
+                    }
+                }
+                .mask {
+                    LinearGradient(stops: [.init(color: .black, location: 0),
+                                           .init(color: .black, location: 0.45),
+                                           .init(color: .black.opacity(0.55), location: 0.68),
+                                           .init(color: .black.opacity(0.18), location: 0.85),
+                                           .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom)
                 }
             }
-            .overlay(alignment: .top) {
-                // Darker under the status bar, so the time and battery stay legible on any art.
-                if topInset > 0 {
-                    LinearGradient(colors: [.black.opacity(0.5), .clear], startPoint: .top, endPoint: .bottom)
-                        .frame(height: topInset + 50)
-                }
-            }
-            .mask {
-                LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.7),
-                                       .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom)
-            }
-            .clipped()
             .accessibilityHidden(true)
         }
     }

@@ -122,12 +122,17 @@ struct PortraitLibrary: View, Equatable {
         let chosen = detail.id == selected.id
         return Button { rowSelecting = !chosen; select(detail.id) } label: {
             VStack(alignment: .leading, spacing: 0) {
-                CoverView(game: detail.game)
+                CoverView(game: detail.game, showsState: true)
                     .shellTarget("lib.tile.\(detail.id)") { primary(detail) }
                 Text(detail.game.title).shellType(ShellType.cardTitle).lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
                     .foregroundStyle(.white.opacity(chosen ? 1 : 0.86))
                     .frame(maxWidth: .infinity, alignment: .leading).padding(.top, 10)
-                StatusLabel(state: detail.game.state).padding(.top, 4)
+                // The dot on the card carries the state. Words only where the game needs something, the line kept for
+                // every card so the row stays even.
+                Text(detail.game.state == .playable ? " " : detail.game.state.title)
+                    .shellType(ShellType.status).foregroundStyle(detail.game.state.color).lineLimit(1)
+                    .padding(.top, 4)
+                    .accessibilityHidden(detail.game.state == .playable)
                 // The Mac's selection mark: a cream bar under the chosen game.
                 Capsule().fill(ShellPalette.cream).frame(height: 3).padding(.top, 10).opacity(chosen ? 1 : 0)
             }.contentShape(Rectangle())

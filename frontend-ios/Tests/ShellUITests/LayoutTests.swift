@@ -33,15 +33,17 @@ final class LayoutTests: XCTestCase {
     func testAccessibilityTextUsesOneColumn() {
         XCTAssertEqual(layout(834, 1194, large: true), .column)
     }
-    func testPaneWidths() {
+    /// Settings drop in as the Controllers-style overlay where the library stays in view, else take the whole screen.
+    func testSettingsOverlay() {
+        XCTAssertFalse(ShellLayout.column.settingsFloat(402), "a phone held upright")
+        XCTAssertTrue(ShellLayout.coverFlow(regular: false).settingsFloat(750), "a phone on its side")
+        XCTAssertFalse(ShellLayout.coverFlow(regular: false).settingsFloat(525), "the folded foldable on its side")
+        XCTAssertTrue(ShellLayout.grid.settingsFloat(834), "an iPad held upright")
+        XCTAssertFalse(ShellLayout.grid.settingsFloat(626), "the unfolded foldable held upright: too narrow for both")
+        XCTAssertTrue(ShellLayout.coverFlow(regular: true).settingsFloat(1194))
+        XCTAssertEqual(ShellLayout.coverFlow(regular: true).paneWidth(1194), 520)
         XCTAssertEqual(ShellLayout.column.paneWidth(402), 402)
-        XCTAssertEqual(ShellLayout.grid.paneWidth(626), 380)
-        XCTAssertEqual(ShellLayout.grid.paneWidth(834), 417)
-        XCTAssertEqual(ShellLayout.coverFlow(regular: true).paneWidth(1194), 500)
-        XCTAssertTrue(ShellLayout.grid.settingsFloat)
-        XCTAssertFalse(ShellLayout.column.settingsFloat)
     }
-
     /// Cover Flow moves one card per gesture: a flick to the neighbour of where the touch began, a slow drag to the
     /// nearest card.
     func testCardSnap() {
