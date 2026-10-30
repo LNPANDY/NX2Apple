@@ -161,13 +161,18 @@ struct LaunchOptionsView: View {
         all.first { $0.env == "DM_OPMODE" }.map { value($0, game) != "0" } ?? true
     }
 
+    /// Whether this row carries a choice of its own: a value that differs from the tested default is what
+    /// "changed" means here, and it is what the tint and the per-row reset go by.
+    private func changed(_ s: LaunchSetting, _ game: LibraryGame) -> Bool { value(s, game) != s.def }
+
     @ViewBuilder private func row(_ s: LaunchSetting, _ game: LibraryGame, all: [LaunchSetting]) -> some View {
         let value = self.value(s, game)
         let isDocked = docked(game, all)
         let pixels = s.kind == "range" ? s.pixels(scale: Double(value) ?? 1, docked: isDocked) : nil
+        let changed = changed(s, game)
         HStack(alignment: .center, spacing: 16) {
             VStack(alignment: .leading, spacing: 3) {
-                Text(s.label).font(.manrope(14, .medium))
+                Text(s.label).font(.manrope(14, .medium)).foregroundStyle(changed ? LauncherPalette.cream : .primary)
                 if let full = s.kind == "range" ? s.pixels(scale: 1, docked: isDocked) : nil {
                     // The render scale in pixels: the share of the game's own size in the console mode chosen
                     Text(String(format: m.t(isDocked ? "launch.scaleOfDocked" : "launch.scaleOfHandheld"), Int(((Double(value) ?? 1) * 100).rounded()), full))
@@ -177,6 +182,15 @@ struct LaunchOptionsView: View {
                 }
             }
             Spacer(minLength: 12)
+            if changed {   // a per-row reset, NX Play's: one tap back to the tested default
+                Button { set(s, s.def) } label: {
+                    Image(systemName: "arrow.uturn.backward.circle").font(.system(size: 15))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help(m.t("launch.rowReset"))
+                .accessibilityLabel(m.t("launch.rowReset"))
+            }
             control(s, value, pixels: pixels).frame(width: LaunchControl.width, alignment: .trailing)
         }
         .padding(.horizontal, 18).padding(.vertical, 13)
