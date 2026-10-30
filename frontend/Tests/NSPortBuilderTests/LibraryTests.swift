@@ -310,9 +310,13 @@ final class LibraryTests: XCTestCase {
     /// sideloading, xcodebuild signs the app without the game files for the device (the first try fails on a taken
     /// App ID, so the retry under the team's own bundle ID runs too), devicectl installs it, the game files go over
     /// once the player answered the transfer question, and the library opens it there. The tools are stand-ins; nothing is signed.
-    @MainActor private func runInstallFlow(transfer: Bool) throws -> (BuildModel, [String], URL, URL) {
+    /// `full` turns "Game files inside the IPA" on (no archive is packed, nothing is copied to Documents), `ipaOnly` builds an
+    /// IPA instead of installing, `documents` is what the device's app holds in Documents (none: the app is not on it, clean:
+    /// only saves, old: a slim install's game image), `withoutGameFiles` makes the stand-ins produce an artifact that lacks them.
+    @MainActor private func runInstallFlow(transfer: Bool, full: Bool = false, ipaOnly: Bool = false, documents: String = "none",
+                                           withoutGameFiles: Bool = false) throws -> (BuildModel, [String], URL, URL) {
         guard FileManager.default.isExecutableFile(atPath: "/usr/bin/python3") else { throw XCTSkip("System Python is required for the process fixture") }
-        let saved = ["repoPath", "buildTarget", "buildOutputDirectory", "installDevice", "signingTeam"].map { ($0, UserDefaults.standard.object(forKey: $0)) }
+        let saved = ["repoPath", "buildTarget", "buildOutputDirectory", "installDevice", "signingTeam", "fullRomfsInIPA"].map { ($0, UserDefaults.standard.object(forKey: $0)) }
         defer { for (key, value) in saved { UserDefaults.standard.set(value, forKey: key) } }
         let model = BuildModel()
         model.repoPath = temporary.path
@@ -322,8 +326,11 @@ final class LibraryTests: XCTestCase {
         model.dotnetPath = "/usr/bin/true"
         model.depsChecked = true
         model.deps = [BuildModel.Dep(id: "test", name: "test", hint: "", present: true, installCmd: [])]
-        model.installDevice = "00008150-AAAA"
-        model.signingTeam = "TEAM123456"
+        model.installDevice = ipaOnly ? "" : "00008150-AAAA"
+        model.signingTeam = ipaOnly ? "" : "TEAM123456"
+        model.fullRomfs = full
+        try documents.write(to: temporary.appendingPathComponent("device-documents"), atomically: true, encoding: .utf8)
+        if withoutGameFiles { try Data().write(to: temporary.appendingPathComponent("no-game-files")) }
         let marker = temporary.appendingPathComponent("dm/tools/nx_extract/Program.cs")
         try FileManager.default.createDirectory(at: marker.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data().write(to: marker)
@@ -336,8 +343,12 @@ final class LibraryTests: XCTestCase {
         let script = temporary.appendingPathComponent("scripts/build_ipa_from_nsp.py")
         try FileManager.default.createDirectory(at: script.deletingLastPathComponent(), withIntermediateDirectories: true)
         try """
-        import sys, json, pathlib   # stand-in for the NSP script; it takes '--work-dir'
+        import sys, json, pathlib, zipfile   # stand-in for the NSP script; it takes '--work-dir'
         open('\(calls.path)', 'a').write('script ' + ' '.join(sys.argv[1:]) + '\\n')
+        if '-o' in sys.argv:   # an IPA build: the game files are in it when the script was asked for them
+            with zipfile.ZipFile(sys.argv[sys.argv.index('-o') + 1], 'w') as z:
+                z.writestr('Payload/DmIOS.app/DmIOS', 'x')
+                if '--romfs' in sys.argv and not pathlib.Path('\(temporary.path)/no-game-files').exists(): z.writestr('Payload/DmIOS.app/romfs.img', 'image')
         work = pathlib.Path(sys.argv[sys.argv.index('--work-dir') + 1])
         (work / 'xcode/DmIOS.xcodeproj').mkdir(parents=True)
         (work / 'extract/v0/RomFS').mkdir(parents=True); (work / 'extract/v0/RomFS/data.bin').write_bytes(b'game')
@@ -369,7 +380,14 @@ final class LibraryTests: XCTestCase {
             app = pathlib.Path(a[a.index('-derivedDataPath') + 1]) / 'Build/Products/Release-iphoneos/DmIOS.app'
             app.mkdir(parents=True, exist_ok=True)   # a re-sign rebuilds over the app the install left there
             with (app / 'Info.plist').open('wb') as f: plistlib.dump({'CFBundleIdentifier': 'org.nxnative.test'}, f)
+            if 'DM_COPY_ROMFS=YES' in a and not pathlib.Path('\(temporary.path)/no-game-files').exists(): (app / 'romfs.img').write_bytes(b'image')
             print('CodeSign ' + str(app), flush=True)
+        elif a[:4] == ['devicectl', 'device', 'info', 'files']:
+            state = pathlib.Path('\(temporary.path)/device-documents').read_text()
+            if state == 'none':
+                print('error: no app with this bundle identifier is installed', flush=True); sys.exit(1)
+            print('Name  Size'); print('Documents/saves/0.sav  12')
+            if state == 'old': print('Documents/games/\(titleID)/romfs.img  4294967296')
         elif a[:3] == ['devicectl', 'device', 'install']:
             print('45%', flush=True); print('App installed', flush=True)
         elif a[:4] == ['devicectl', 'device', 'copy', 'to']:
@@ -381,7 +399,9 @@ final class LibraryTests: XCTestCase {
         try Data([0]).write(to: base); try Data().write(to: keys)
         model.slots[0].paths = [base.path]; model.slots[3].paths = [keys.path]
         let finished = expectation(description: "Signed and installed")
-        let token = model.$done.filter { $0 }.prefix(1).sink { _ in finished.fulfill() }
+        // a build that fails its checks never sets done: its note is what ends the wait
+        let token = (full || ipaOnly ? model.$doneNote.filter { !$0.isEmpty }.map { _ in true }.eraseToAnyPublisher() : model.$done.filter { $0 }.eraseToAnyPublisher())
+            .prefix(1).sink { _ in finished.fulfill() }
         let asked = model.$transferAsk.filter { $0 }.prefix(1).sink { _ in model.transferAnswer(transfer) }
         model.startBuild()
         wait(for: [finished], timeout: 20)
@@ -434,6 +454,75 @@ final class LibraryTests: XCTestCase {
         model.openOnDevice(udid: model.installedOn, app: model.installedAppPath) { error in XCTAssertNil(error); opened.fulfill() }
         wait(for: [opened], timeout: 10)
         XCTAssertTrue(try String(contentsOf: calls, encoding: .utf8).contains("devicectl device process launch --device 00008150-AAAA org.nxnative.test"))
+    }
+
+    // MARK: Game files inside the IPA ("Game files inside the IPA", FullRomfsTests)
+
+    /// The full install: the script is asked for `--romfs bundle`, no archive is packed, nothing goes to Documents, the signed
+    /// app is built with DM_COPY_ROMFS=YES, and the device's Documents are looked at before anything is installed.
+    @MainActor func testFullInstallPacksNoArchiveAndCopiesNothing() throws {
+        let (model, log, _, _) = try runInstallFlow(transfer: true, full: true, documents: "clean")
+        XCTAssertTrue(log[0].contains("--romfs bundle"), log[0])
+        XCTAssertFalse(log.contains { $0.hasPrefix("romfs_image") })
+        XCTAssertFalse(log.contains { $0.hasPrefix("devicectl device copy") })
+        XCTAssertFalse(model.transferAsk)
+        let signs = log.filter { $0.hasPrefix("xcodebuild -project") }
+        XCTAssertFalse(signs.isEmpty)
+        for sign in signs { XCTAssertTrue(sign.contains("DM_COPY_ROMFS=YES"), sign); XCTAssertFalse(sign.contains("DM_COPY_ROMFS=NO"), sign) }
+        let order = ["xcodebuild -project", "devicectl device info files", "devicectl device install"].map { step in log.firstIndex { $0.hasPrefix(step) } }
+        XCTAssertEqual(order.compactMap { $0 }.count, 3)
+        XCTAssertEqual(order.compactMap { $0 }, order.compactMap { $0 }.sorted())
+        let listing = try XCTUnwrap(log.first { $0.hasPrefix("devicectl device info files") })
+        XCTAssertTrue(listing.contains("--domain-identifier org.nxnative.test --subdirectory Documents"), listing)
+        XCTAssertTrue(model.done)
+        XCTAssertEqual(model.installedOn, "00008150-AAAA")
+        XCTAssertEqual(model.doneNote, String(format: model.t("dev.installed"), "iPhone"))
+        XCTAssertEqual(model.archivePath, "")
+        XCTAssertTrue(model.lastBuildPackedGameFiles)
+    }
+
+    /// The app is not on the device yet (devicectl has nothing to list): that is a fresh install.
+    @MainActor func testFullInstallOnAFreshDeviceInstalls() throws {
+        let (model, log, _, _) = try runInstallFlow(transfer: true, full: true, documents: "none")
+        XCTAssertTrue(log.contains { $0.hasPrefix("devicectl device install app") })
+        XCTAssertTrue(model.done)
+    }
+
+    /// A slim install's game image in the app's Documents would be read before the packed files (main.m), so the install
+    /// stops with a message, and nothing on the device is installed, copied or deleted.
+    @MainActor func testFullInstallStopsWhereAnOlderSlimInstallHoldsTheGameFiles() throws {
+        let (model, log, _, _) = try runInstallFlow(transfer: true, full: true, documents: "old")
+        XCTAssertFalse(log.contains { $0.hasPrefix("devicectl device install") })
+        XCTAssertFalse(log.contains { $0.hasPrefix("devicectl device copy") })
+        XCTAssertFalse(model.done)
+        XCTAssertEqual(model.doneNote, String(format: model.t("dev.oldGameFiles"), "iPhone"))
+        XCTAssertEqual(model.installedOn, "")
+    }
+
+    /// A signed app without the game files is not a success, whatever the exit codes said.
+    @MainActor func testFullInstallFailsWhenTheSignedAppHasNoGameFiles() throws {
+        let (model, log, _, _) = try runInstallFlow(transfer: true, full: true, documents: "clean", withoutGameFiles: true)
+        XCTAssertFalse(log.contains { $0.hasPrefix("devicectl device") })
+        XCTAssertFalse(model.done)
+        let app = temporary.path + "/\(titleID)_build/xcode-derived-data/Build/Products/Release-iphoneos/DmIOS.app"
+        XCTAssertEqual(model.doneNote, String(format: model.t("msg.fullNoGameFiles"), model.shortPath(app)))
+    }
+
+    /// An IPA build: the script gets `--romfs bundle`, no archive is packed, and the IPA's Payload is checked for the game files.
+    @MainActor func testFullIPAIsCheckedForTheGameFiles() throws {
+        let (model, log, _, _) = try runInstallFlow(transfer: true, full: true, ipaOnly: true)
+        XCTAssertTrue(log[0].contains("--romfs bundle"), log[0])
+        XCTAssertFalse(log.contains { $0.hasPrefix("romfs_image") })
+        XCTAssertTrue(model.done)
+        XCTAssertEqual(model.doneNote, model.t("msg.doneFull"))
+        XCTAssertTrue(BuildModel.ipaHoldsGameFiles(model.ipaPath))
+    }
+
+    @MainActor func testFullIPAWithoutTheGameFilesFails() throws {
+        let (model, _, _, _) = try runInstallFlow(transfer: true, full: true, ipaOnly: true, withoutGameFiles: true)
+        XCTAssertFalse(model.done)
+        XCTAssertEqual(model.doneNote, String(format: model.t("msg.fullNoGameFiles"), model.shortPath(model.ipaPath)))
+        XCTAssertFalse(model.lastBuildPackedGameFiles)
     }
 
     /// A deleted app comes back without unpacking, signing or packing anything again: the signed app already in

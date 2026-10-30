@@ -141,9 +141,65 @@ final class BuildModel: ObservableObject {
     }
     /// Whether the build that just ran packed the game files into the app: nothing is exported or sent afterwards.
     @Published var lastBuildPackedGameFiles = false
-    /// The environment switch a build adds for the option: only an iPhone or iPad build takes it.
+    /// The environment a build adds for the option: only an iPhone or iPad build takes it. build_ipa.sh gives DM_COPY_ROMFS
+    /// precedence over DM_FULL_ROMFS wherever it is set (a `--romfs separate` run sets it to NO), so DM_COPY_ROMFS=YES goes
+    /// along: the request for the game files cannot be downgraded to a slim app by a variable that was already there.
     nonisolated static func gameFilesEnvironment(fullRomfs: Bool, target: String) -> [String: String] {
-        fullRomfs && target != "mac-app" ? ["DM_FULL_ROMFS": "1"] : [:]
+        fullRomfs && target != "mac-app" ? ["DM_FULL_ROMFS": "1", "DM_COPY_ROMFS": "YES"] : [:]
+    }
+    /// The script's own option for the same request. `--romfs separate` is what a slim build passes (the install-once flow in
+    /// #213 always does), so a full build names `--romfs bundle` and never relies on the environment alone.
+    nonisolated static func gameFilesArguments(fullRomfs: Bool, target: String) -> [String] {
+        fullRomfs && target != "mac-app" ? ["--romfs", "bundle"] : []
+    }
+    /// The size of what the picked files hold, before the build: the game files are most of it, so a build with them
+    /// inside the app is at least this large. Nil when nothing is picked.
+    var pickedGameFilesBytes: Int64? {
+        let paths = slots.filter { $0.kind != .keys }.flatMap(\.paths)
+        let total = paths.reduce(Int64(0)) { $0 + Self.size(ofItem: $1) }
+        return total > 0 ? total : nil
+    }
+    nonisolated static func size(ofItem path: String) -> Int64 {
+        let fm = FileManager.default
+        var isDir: ObjCBool = false
+        guard fm.fileExists(atPath: path, isDirectory: &isDir) else { return 0 }
+        if !isDir.boolValue { return ((try? fm.attributesOfItem(atPath: path))?[.size] as? NSNumber)?.int64Value ?? 0 }
+        guard let walk = fm.enumerator(at: URL(fileURLWithPath: path), includingPropertiesForKeys: [.fileSizeKey]) else { return 0 }
+        var total: Int64 = 0
+        for case let url as URL in walk { total += Int64((try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0) }
+        return total
+    }
+    /// What the app holds once the game files are packed: the IPA's Payload, or the signed app folder.
+    nonisolated static func isGameFilesEntry(_ name: String) -> Bool {
+        let parts = name.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+        guard parts.count >= 3, parts[0] == "Payload", parts[1].hasSuffix(".app") else { return false }
+        return (parts[2] == "romfs.img" && parts.count == 3) || (parts[2] == "romfs" && parts.count > 3)
+    }
+    /// Whether an IPA carries the game files (`unzip -Z1` lists its names from the central directory, which is quick for any size).
+    nonisolated static func ipaHoldsGameFiles(_ ipa: String) -> Bool {
+        var found = false
+        _ = runCaptured(["/usr/bin/unzip", "-Z1", ipa], env: ["PATH": "/usr/bin:/bin"]) { if isGameFilesEntry($0) { found = true } }
+        return found
+    }
+    /// Whether a built app folder carries the game files: DmIOS.app/romfs.img, or DmIOS.app/romfs with something in it.
+    nonisolated static func appHoldsGameFiles(_ app: String) -> Bool {
+        let fm = FileManager.default
+        if ((try? fm.attributesOfItem(atPath: app + "/romfs.img"))?[.size] as? NSNumber)?.int64Value ?? 0 > 0 { return true }
+        return ((try? fm.contentsOfDirectory(atPath: app + "/romfs")) ?? []).isEmpty == false
+    }
+    /// devicectl's listing of the installed app's Documents: the copies main.m reads before the app's own files
+    /// (Documents/romfs.img, Documents/games/<id>/romfs.img, a romfs folder in either place).
+    nonisolated static func documentsListing(xcrun: String, device: String, bundle: String) -> [String] {
+        [xcrun, "devicectl", "device", "info", "files", "--device", device, "--domain-type", "appDataContainer",
+         "--domain-identifier", bundle, "--subdirectory", "Documents", "--recurse"]
+    }
+    nonisolated static func listingHoldsOldGameFiles(_ lines: [String]) -> Bool {
+        lines.contains { line in
+            line.split(whereSeparator: { $0 == " " || $0 == "\t" }).contains { token in
+                let parts = token.split(separator: "/").map(String.init)
+                return parts.contains("romfs.img") || parts.contains("romfs")
+            }
+        }
     }
     @Published var archivePath = ""  // the romfs folder the pack wrote
     /// Where this build's folder actually is: --work-dir when the checkout has it, else the script's
@@ -1252,6 +1308,7 @@ final class BuildModel: ObservableObject {
             }
         }
         if hasWorkDir { args += ["--work-dir", workDir] }
+        args += Self.gameFilesArguments(fullRomfs: fullRomfs, target: target)
         let macApp = target == "mac-app"
         if macApp {
             // -o names the .app; the RomFS goes inside it, so the archive step is skipped below.
@@ -1295,7 +1352,7 @@ final class BuildModel: ObservableObject {
         // The bundled Python lives inside the signed app: a .pyc written there would change what the signature seals
         // (the packages are compiled at bundle time), and a user site must not shadow its pinned packages.
         denv.merge(BundledTools.environment(for: py)) { $1 }
-        // Game files inside the IPA: the script's build_ipa.sh packs them with DM_FULL_ROMFS=1 (there is no flag for it)
+        // Game files inside the IPA: --romfs bundle above, and build_ipa.sh's DM_FULL_ROMFS / DM_COPY_ROMFS here
         let packsGameFiles = !Self.gameFilesEnvironment(fullRomfs: fullRomfs, target: target).isEmpty
         denv.merge(Self.gameFilesEnvironment(fullRomfs: fullRomfs, target: target)) { $1 }
         lastBuildPackedGameFiles = false
@@ -1336,16 +1393,28 @@ final class BuildModel: ObservableObject {
                         self.running = false
                         self.cleanupStaging()
                     } else if packsGameFiles {
-                        // The game files are inside the app: no romfs.img to export, nothing to copy to Documents
+                        // The game files are inside the app: no romfs.img to export, nothing to copy to Documents.
+                        // What the build made is checked for them before it counts as done.
                         self.lastBuildPackedGameFiles = true
                         self.archivePath = ""
                         if self.installsDirectly {
-                            self.signAndInstall(archive: "")
+                            self.signAndInstall(archive: "")   // the signed app is checked in installBuiltApp
                         } else {
-                            self.running = false
-                            self.done = true
-                            self.doneNote = self.t("msg.doneFull")
-                            self.cleanupStaging()
+                            let ipa = self.ipaPath
+                            DispatchQueue.global(qos: .userInitiated).async {
+                                let found = FileManager.default.fileExists(atPath: ipa) && Self.ipaHoldsGameFiles(ipa)
+                                DispatchQueue.main.async {
+                                    self.running = false
+                                    if found {
+                                        self.done = true
+                                        self.doneNote = self.t("msg.doneFull")
+                                    } else {
+                                        self.lastBuildPackedGameFiles = false
+                                        self.doneNote = String(format: self.t("msg.fullNoGameFiles"), self.shortPath(ipa))
+                                    }
+                                    self.cleanupStaging()
+                                }
+                            }
                         }
                     } else if self.installsDirectly {
                         // The same archive as for sideloading, then the app without the game files, then the archive into its Documents
@@ -1918,6 +1987,36 @@ final class BuildModel: ObservableObject {
     private func installBuiltApp(app: String, archive: String, device: String, xcrun: String) {
         let name = deviceName(device)
         guard FileManager.default.fileExists(atPath: app) else { return finishInstall(String(format: t("dev.noProject"), shortPath(app))) }
+        // A build with the game files inside: the app xcodebuild signed must really carry them, and a device that
+        // holds an older copy in the app's Documents is not touched (main.m reads those first), the install stops instead
+        if lastBuildPackedGameFiles {
+            guard Self.appHoldsGameFiles(app) else { return finishInstall(String(format: t("msg.fullNoGameFiles"), shortPath(app))) }
+            guard let bundle = NSDictionary(contentsOfFile: app + "/Info.plist")?["CFBundleIdentifier"] as? String else {
+                return finishInstall(String(format: t("dev.noProject"), shortPath(app + "/Info.plist")))
+            }
+            let listing = Self.documentsListing(xcrun: xcrun, device: device, bundle: bundle)
+            append("[\(String(format: t("dev.oldFilesStage"), name))] \(listing.joined(separator: " "))\n")
+            DispatchQueue.global(qos: .userInitiated).async {
+                let lock = NSLock()
+                var lines: [String] = []
+                // A non-zero exit is an app that is not on the device yet: nothing old to be read
+                let listed = Self.runCaptured(listing, env: ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "HOME": NSHomeDirectory(), "USER": NSUserName(), "LANG": "en_US.UTF-8"]) { l in
+                    lock.lock(); lines.append(l); lock.unlock()
+                }
+                DispatchQueue.main.async {
+                    if listed, Self.listingHoldsOldGameFiles(lines) {
+                        return self.finishInstall(String(format: self.t("dev.oldGameFiles"), name))
+                    }
+                    self.installApp(app: app, archive: archive, device: device, xcrun: xcrun)
+                }
+            }
+            return
+        }
+        installApp(app: app, archive: archive, device: device, xcrun: xcrun)
+    }
+
+    private func installApp(app: String, archive: String, device: String, xcrun: String) {
+        let name = deviceName(device)
         runTool(id: 1002, name: String(format: t("dev.installStage"), name),
                 [xcrun, "devicectl", "device", "install", "app", "--device", device, app], step: Self.installStep) { error in
             if let error {
@@ -1943,7 +2042,7 @@ final class BuildModel: ObservableObject {
                     self.finishInstall(nil)
                 }
             }
-            if archive.isEmpty {   // the game files are inside the app
+            if self.lastBuildPackedGameFiles {   // the game files are inside the app, nothing goes to Documents
                 self.installedOn = device
                 self.installedAppPath = app
                 return self.finishInstall(nil)
@@ -1967,6 +2066,7 @@ final class BuildModel: ObservableObject {
     private func signAndInstall(archive: String) {
         let work = effectiveWorkDir, project = work + "/xcode/DmIOS.xcodeproj", derived = work + "/xcode-derived-data"
         let device = installDevice, team = signingTeam, name = deviceName(device), xcrun = xcrunPath
+        let full = lastBuildPackedGameFiles   // YES is passed explicitly: a Gen/dm.xcconfig that says NO would win over an absent setting
         guard FileManager.default.fileExists(atPath: project) else { return finishInstall(String(format: t("dev.noProject"), shortPath(project))) }
         DispatchQueue.global(qos: .userInitiated).async {
             let scheme = Self.scheme(of: project, xcrun: xcrun)
@@ -1979,7 +2079,7 @@ final class BuildModel: ObservableObject {
                 func sign(_ extra: [String] = []) -> [String] {
                     [xcrun, "xcodebuild", "-project", project, "-scheme", scheme, "-configuration", "Release",
                      "-destination", "id=\(device)", "-derivedDataPath", derived, "-allowProvisioningUpdates",
-                     "DEVELOPMENT_TEAM=\(team)"] + (archive.isEmpty ? [] : ["DM_COPY_ROMFS=NO"]) + extra + ["build"]
+                     "DEVELOPMENT_TEAM=\(team)", full ? "DM_COPY_ROMFS=YES" : "DM_COPY_ROMFS=NO"] + extra + ["build"]
                 }
                 let appID = "org.nxnative." + (Self.titleID(self.basePath).map { String(format: "%016llX", $0) } ?? "game").lowercased()
                 let teamVariant = "org.nxnative." + appID.split(separator: ".").last!.appending(".\(team)")
@@ -2074,7 +2174,7 @@ final class BuildModel: ObservableObject {
                 self.runTool(id: 1006, name: String(format: self.t("dev.resignStage"), name),
                              Self.resignCommand(xcrun: xcrun, project: paths.project, scheme: scheme, device: device,
                                                 derived: paths.derived, team: team, bundle: bundle,
-                                                keepsGameFiles: ["romfs.img", "romfs"].contains { FileManager.default.fileExists(atPath: app + "/" + $0) }), step: Self.xcodeStep) { error in
+                                                keepsGameFiles: Self.appHoldsGameFiles(app)), step: Self.xcodeStep) { error in
                     if let error, !error.isEmpty {
                         self.running = false
                         self.doneNote = String(format: self.t("dev.resignFailed"), error)
@@ -2103,7 +2203,7 @@ final class BuildModel: ObservableObject {
                                           team: String, bundle: String, keepsGameFiles: Bool = false) -> [String] {
         [xcrun, "xcodebuild", "-project", project, "-scheme", scheme, "-configuration", "Release",
          "-destination", "id=\(device)", "-derivedDataPath", derived, "-allowProvisioningUpdates",
-         "DEVELOPMENT_TEAM=\(team)"] + (keepsGameFiles ? [] : ["DM_COPY_ROMFS=NO"]) + ["PRODUCT_BUNDLE_IDENTIFIER=\(bundle)", "build"]
+         "DEVELOPMENT_TEAM=\(team)", keepsGameFiles ? "DM_COPY_ROMFS=YES" : "DM_COPY_ROMFS=NO", "PRODUCT_BUNDLE_IDENTIFIER=\(bundle)", "build"]
     }
 
     /// The cached project and derived data an installed app came from, from the app's own path
@@ -3240,6 +3340,11 @@ struct BuilderView: View {
                             Text(m.t("opt.fullRomfs")).font(.manrope(14))
                             Text(m.t("opt.fullRomfs.note")).font(.manrope(12.5)).foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
+                            if m.fullRomfs, let bytes = m.pickedGameFilesBytes {
+                                Text(String(format: m.t("opt.fullRomfs.size"), ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)))
+                                    .font(.manrope(12.5, .semibold)).foregroundStyle(LauncherPalette.cream)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
                         }
                         Spacer(minLength: 12)
                         Toggle("", isOn: $m.fullRomfs).toggleStyle(LauncherSwitchStyle()).labelsHidden().disabled(m.running)
