@@ -123,6 +123,59 @@ final class ReleaseNotesTests: XCTestCase {
         XCTAssertTrue(b.map(text).flatMap(links).contains { $0.0 == "#185" })
     }
 
+    // ---- v0.7.2's real body (language sections and a shared footer) ----
+
+    static func body072() throws -> String {
+        try String(contentsOf: root.appendingPathComponent("frontend/Tests/Fixtures/release_v0.7.2.md"), encoding: .utf8)
+    }
+
+    func testSectionedBodyEnglish() throws {
+        let lines = ReleaseNotes.lines(try Self.body072(), for: .en)
+        XCTAssertEqual(lines.count, 3)
+        XCTAssertTrue(lines[0].hasPrefix("- Fixed games opening to a black screen"))
+        XCTAssertTrue(lines[1].hasPrefix("- 26 upstream commits"))
+        XCTAssertTrue(lines[2].hasPrefix("**Install:**"))
+        let all = lines.joined(separator: "\n")
+        XCTAssertEqual(all.components(separatedBy: "Install:").count, 2, "footer once")
+        XCTAssertFalse(all.contains("修复部分游戏"))
+        XCTAssertFalse(all.contains("## "))
+    }
+
+    func testSectionedBodyChinese() throws {
+        let lines = ReleaseNotes.lines(try Self.body072(), for: .zh)
+        XCTAssertEqual(lines.count, 3)
+        XCTAssertTrue(lines[0].hasPrefix("- 修复部分游戏打开后黑屏"))
+        XCTAssertTrue(lines[1].hasPrefix("- 同步上游 26 个提交"))
+        XCTAssertTrue(lines[2].hasPrefix("**Install:**"))
+        let all = lines.joined(separator: "\n")
+        XCTAssertEqual(all.components(separatedBy: "Install:").count, 2, "footer once")
+        XCTAssertFalse(all.contains("Fixed games opening"))
+        XCTAssertFalse(all.contains("upstream commits"))
+    }
+
+    func testSwedishUsesTheEnglishSection() throws {
+        let body = try Self.body072()
+        for lang in [Lang.sv] {
+            XCTAssertEqual(ReleaseNotes.lines(body, for: lang), ReleaseNotes.lines(body, for: .en))
+        }
+    }
+
+    func testHeadingAndBoldMarkerVariants() {
+        let body = "### English\n- a\n\n**中文**\n- 乙\n\n---\nfoot"
+        XCTAssertEqual(ReleaseNotes.lines(body, for: .en), ["- a", "foot"])
+        XCTAssertEqual(ReleaseNotes.lines(body, for: .zh), ["- 乙", "foot"])
+        // Without a footer, and with the Chinese section first.
+        let two = "## 中文\n- 乙\n---\n## English\n- a"
+        XCTAssertEqual(ReleaseNotes.lines(two, for: .en), ["- a"])
+        XCTAssertEqual(ReleaseNotes.lines(two, for: .zh), ["- 乙"])
+    }
+
+    func testOldShapesStillSplitWithoutLanguageHeadings() throws {
+        // v0.7.0 has `---` halves and no language headings.
+        XCTAssertFalse(ReleaseNotes.lines(try Self.body(), for: .en).joined().contains("这一版"))
+        XCTAssertEqual(ReleaseNotes.lines("just text", for: .zh), ["just text"])
+    }
+
     // ---- Visual QA ----
 
     /// Opt-in native rendering for pull request screenshots (NX_LAUNCHER_CAPTURE_DIR).
@@ -136,11 +189,13 @@ final class ReleaseNotesTests: XCTestCase {
         // The body as it is, and the middle of it (the code spans, the links and the Fixes section) as the sheet shows it scrolled.
         let middle = "## New\n\n" + String(body[body.range(of: "- **Reinstall")!.lowerBound...body.range(of: "## Known issues")!.lowerBound])
             + "\n---\n\n## 新增\n\n" + String(body[body.range(of: "- **不重构建")!.lowerBound...body.range(of: "## 已知问题")!.lowerBound])
-        for (name, lang, notes) in [("update-sheet-notes-en", Lang.en, body), ("update-sheet-notes-zh", Lang.zh, body),
-                                    ("update-sheet-notes-middle-en", Lang.en, middle), ("update-sheet-notes-middle-zh", Lang.zh, middle)] {
+        let body072 = try Self.body072()
+        for (name, lang, notes, tag) in [("update-sheet-notes-v072-en", Lang.en, body072, "v0.7.2"), ("update-sheet-notes-v072-zh", Lang.zh, body072, "v0.7.2")]
+            + [("update-sheet-notes-en", Lang.en, body, "v0.7.0"), ("update-sheet-notes-zh", Lang.zh, body, "v0.7.0"),
+                                    ("update-sheet-notes-middle-en", Lang.en, middle, "v0.7.0"), ("update-sheet-notes-middle-zh", Lang.zh, middle, "v0.7.0")] {
             let m = BuildModel()
             m.lang = lang
-            m.appUpdate = AppUpdate.Release(tag: "v0.7.0", url: "", digest: nil, notes: notes)
+            m.appUpdate = AppUpdate.Release(tag: tag, url: "", digest: nil, notes: notes)
             let width: CGFloat = 560, height: CGFloat = 640
             let host = NSHostingView(rootView: UpdateSheet(m: m).frame(width: width, height: height))
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: height), styleMask: [.titled], backing: .buffered, defer: false)

@@ -4,8 +4,11 @@ import Foundation
 /// blocks (headings, bullets, paragraphs) and how a line's inline Markdown becomes an AttributedString
 /// with links. All pure, so the tests run it on real release bodies. UpdateSheet only styles the result.
 ///
-/// The release body follows docs/RELEASE-NOTES-GUIDE.md. Two shapes are in the wild:
+/// The release body follows docs/RELEASE-NOTES-GUIDE.md. Three shapes are in the wild:
 ///
+/// * **Language sections** (0.7.2): `## 中文` and `## English` headings (also `###`, or a line of just
+///   `**中文**` / `**English**`), each running to the next such heading or a `---`. Text after the last
+///   `---` is a shared footer (the install line) and follows the chosen section.
 /// * **Current**: English written out in full, `---`, then Chinese in full. The `---` is the split.
 /// * **Older releases (0.4.7 and before)**: `**中文** …` and `**English** …` paragraphs with bullet
 ///   lists interleaved one line each. Those are split on the markers.
@@ -26,6 +29,9 @@ enum ReleaseNotes {
 
     /// The body's Markdown lines for one language, still carrying their Markdown (`##`, `- `, `**`).
     static func lines(_ notes: String, for lang: Lang) -> [String] {
+        // Shape 0: explicit language headings.
+        if let sectioned = sections(notes, for: lang) { return sectioned }
+
         // Shape 1: two halves around a `---` line.
         let halves = notes.components(separatedBy: "\n---\n")
         if halves.count == 2 {
@@ -56,6 +62,42 @@ enum ReleaseNotes {
 
         // Neither shape: show it as it is.
         return clean(notes)
+    }
+
+    /// A line that is only a language marker: `## English`, `### 中文`, `**English**`.
+    private static func languageHeading(_ line: String) -> Lang? {
+        var s = line.trimmingCharacters(in: .whitespaces)
+        if s.hasPrefix("#") { s = String(s.drop { $0 == "#" }).trimmingCharacters(in: .whitespaces) }
+        else if s.hasPrefix("**"), s.hasSuffix("**"), s.count > 4 { s = String(s.dropFirst(2).dropLast(2)).trimmingCharacters(in: .whitespaces) }
+        else { return nil }
+        s = s.trimmingCharacters(in: CharacterSet(charactersIn: ":：")).trimmingCharacters(in: .whitespaces)
+        switch s.lowercased() {
+        case "中文", "简体中文", "chinese": return .zh
+        case "english": return .en
+        default: return nil
+        }
+    }
+
+    /// The chosen language's section plus the shared footer, or nil when the body has no pair of language headings.
+    private static func sections(_ notes: String, for lang: Lang) -> [String]? {
+        let all = notes.components(separatedBy: "\n")
+        let marks = all.enumerated().compactMap { i, l in languageHeading(l).map { (i, $0) } }
+        guard marks.contains(where: { $0.1 == .zh }), marks.contains(where: { $0.1 == .en }) else { return nil }
+        func isRule(_ l: String) -> Bool { l.trimmingCharacters(in: .whitespaces).hasPrefix("---") }
+        let want: Lang = lang == .zh ? .zh : .en   // Swedish (and any other language) reads the English section
+        var picked: [String] = []
+        for (n, mark) in marks.enumerated() where mark.1 == want {
+            let end = marks.indices.contains(n + 1) ? marks[n + 1].0 : all.count
+            let body = all[(mark.0 + 1)..<end]
+            picked += body.prefix { !isRule($0) }
+        }
+        // Footer: after the last rule that follows the last language heading.
+        var footer: [String] = []
+        if let last = marks.last?.0, let rule = all.indices.last(where: { $0 > last && isRule(all[$0]) }) {
+            footer = Array(all[(rule + 1)...])
+        }
+        let out = clean((picked + [""] + footer).joined(separator: "\n"))
+        return out.isEmpty ? nil : out
     }
 
     /// The Markdown for one language as a single string, ready for `blocks(from:)`.
