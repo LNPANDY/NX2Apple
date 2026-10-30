@@ -5,6 +5,8 @@ public struct GameStateView: View {
     public let game: GameTile
     public var actions: ShellActions
     public var showsExplanation: Bool
+    @Environment(\.shellShowHelp) private var showHelp
+    @State private var localHelp = false
     public init(game: GameTile, actions: ShellActions = ShellActions(), showsExplanation: Bool = true) {
         self.game = game
         self.actions = actions
@@ -25,13 +27,77 @@ public struct GameStateView: View {
                 .accessibilityLabel(game.state.actionTitle + ", " + game.title)
                 .shellTarget("set.play", radius: 25, action: perform)
         }
+        .sheet(isPresented: $localHelp) {
+            StateHelpView(game: game, actions: actions) { localHelp = false }
+                .presentationDetents([.medium])
+                .presentationBackground(ShellPalette.background)
+        }
     }
     private func perform() {
+        if game.state.needsHelp {
+            if let showHelp { showHelp(game) } else { localHelp = true }
+            return
+        }
         switch game.state {
         case .playable: actions.onPlay(game.id)
         case .needsGameData: actions.onPickGameData(game.id)
         case .needsAppUpdate: actions.onAppUpdate()
         case .broken: actions.onShowLog(game.id)
+        }
+    }
+}
+
+/// How to fix a broken game or update the app: both happen on the Mac, so this says so in two sentences and offers
+/// what can be done here. The log stays available for a bug report.
+public struct StateHelpView: View {
+    public let game: GameTile
+    public var actions: ShellActions
+    public var onClose: () -> Void
+    public init(game: GameTile, actions: ShellActions = ShellActions(), onClose: @escaping () -> Void = {}) {
+        self.game = game
+        self.actions = actions
+        self.onClose = onClose
+    }
+    public var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            StatusLabel(state: game.state, prominent: true)
+            Text(game.state.actionTitle).shellText(26, .heavy, relativeTo: .title).tracking(-0.7)
+                .accessibilityAddTraits(.isHeader).accessibilityIdentifier("help.title")
+            Text(message).shellText(15).foregroundStyle(.white.opacity(0.78)).fixedSize(horizontal: false, vertical: true)
+            if case .broken(_, let detail) = game.state, !detail.isEmpty {
+                Text(detail).shellText(13).foregroundStyle(.white.opacity(0.5)).fixedSize(horizontal: false, vertical: true)
+            }
+            VStack(spacing: 10) {
+                Button(action: onClose) { Text(ShellStrings.text("Done")).frame(maxWidth: .infinity) }
+                    .buttonStyle(PrimaryPillStyle(expands: true))
+                    .accessibilityIdentifier("help.done")
+                    .shellTarget("help.done", radius: 25, action: onClose)
+                switch game.state {
+                case .broken:
+                    Button(ShellStrings.text("Show log")) { actions.onShowLog(game.id) }
+                        .buttonStyle(ShellButtonStyle(fills: true))
+                        .accessibilityHint(ShellStrings.text("For a bug report"))
+                        .accessibilityIdentifier("help.log")
+                        .shellTarget("help.log") { actions.onShowLog(game.id) }
+                case .needsAppUpdate:
+                    Button(ShellStrings.text("Update app")) { actions.onAppUpdate() }
+                        .buttonStyle(ShellButtonStyle(fills: true))
+                        .accessibilityIdentifier("help.update")
+                        .shellTarget("help.update") { actions.onAppUpdate() }
+                default:
+                    EmptyView()
+                }
+            }.padding(.top, 8)
+        }
+        .padding(28)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .foregroundStyle(.white)
+    }
+    private var message: String {
+        switch game.state {
+        case .broken: ShellStrings.text("Build this game again on your Mac and install it on this device. The Mac app checks every file while it builds, so the new copy is complete.")
+        case .needsAppUpdate: ShellStrings.text("This game needs a newer version of this app. Update it with the Mac app on your Mac, then install it on this device again.")
+        default: ""
         }
     }
 }

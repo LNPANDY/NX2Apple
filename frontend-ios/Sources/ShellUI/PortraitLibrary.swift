@@ -10,6 +10,8 @@ struct PortraitLibrary: View {
     let wide: Bool
     let size: CGSize
     let topInset: CGFloat
+    /// The home indicator's height. Without a bottom bar the library scrolls under it to the bottom edge.
+    var bottomInset: CGFloat = 0
     let controllers: Int
     let select: (String) -> Void
     let primary: (GameDetail) -> Void
@@ -40,7 +42,7 @@ struct PortraitLibrary: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     HeroView(game: selected.game, width: size.width, topInset: topInset,
-                             titleSize: wide ? 34 : short ? 26 : 32) {
+                             titleSize: wide ? 34 : short ? 24 : 32, short: short, fullHeight: size.height + topInset) {
                         if wide {
                             HStack(spacing: 12) {
                                 Button { primary(selected) } label: {
@@ -56,11 +58,11 @@ struct PortraitLibrary: View {
                     }
                     collection.padding(.top, short ? 6 : 14)
                     recent.padding(.top, 34)
-                }.padding(.bottom, 28)
+                }.padding(.bottom, 28 + (wide ? bottomInset : 0))
             }
             .scrollPosition($position)
             .scrollIndicators(.hidden)
-            .ignoresSafeArea(edges: .top)
+            .ignoresSafeArea(edges: wide ? [.top, .bottom] : .top)
             .safeAreaInset(edge: .bottom, spacing: 0) { if !wide { bottomBar } }
             .overlay(alignment: .topTrailing) {
                 ControllerChip(count: controllers, action: openControllers).padding(.top, 6).padding(.trailing, 16)
@@ -187,27 +189,32 @@ struct HeroView<Accessory: View>: View {
     let width: CGFloat
     let topInset: CGFloat
     var titleSize: CGFloat = 34
+    /// A short screen (the folded foldable): a lower banner, cropped at the sides, and one line of hint.
+    var short = false
+    var fullHeight: CGFloat = .infinity
     @ViewBuilder let accessory: () -> Accessory
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        let bannerHeight = width * 9 / 16
+        let bannerHeight = short ? min(width * 9 / 16, fullHeight * 0.28) : width * 9 / 16
         VStack(alignment: .leading, spacing: 10) {
-            StatusLabel(state: game.state, prominent: true)
-            Text(game.title).shellText(titleSize, .heavy, relativeTo: .largeTitle).tracking(-titleSize * 0.03)
-                .lineLimit(3).minimumScaleFactor(0.75).fixedSize(horizontal: false, vertical: true)
-                .accessibilityAddTraits(.isHeader).accessibilityIdentifier("hero.title")
-            if !meta.isEmpty {
-                Text(meta).shellText(13).foregroundStyle(.white.opacity(0.62))
+            // A stable height for every game: the hidden template reserves the status, a two-line title, the meta line
+            // and a two-line hint, so the cards below never move when the selection changes. Only the text inside
+            // crossfades.
+            ZStack(alignment: .topLeading) {
+                HeroText(status: GameState.needsGameData, title: "M\nM", meta: "M",
+                         explanation: short ? "M" : "M\nM", titleSize: titleSize, hintLines: short ? 1 : 2)
+                    .hidden().accessibilityHidden(true)
+                HeroText(status: game.state, title: game.title, meta: meta, explanation: game.state.explanation, titleSize: titleSize,
+                         hintLines: short ? 1 : 2)
+                    .id(game.id).transition(.opacity)
             }
-            if !game.state.explanation.isEmpty {
-                Text(game.state.explanation).shellText(14.5).foregroundStyle(.white.opacity(0.78))
-                    .fixedSize(horizontal: false, vertical: true).padding(.top, 2)
-            }
+            .animation(reduceMotion ? .linear(duration: 0.12) : .easeInOut(duration: 0.25), value: game.id)
             accessory()
         }
         .padding(.horizontal, 24)
-        .padding(.top, max(topInset, bannerHeight - 26))
+        // The text starts where the banner has faded out, never over the art's own lettering.
+        .padding(.top, max(topInset, bannerHeight - 4))
         .padding(.bottom, 18)
         .frame(maxWidth: .infinity, alignment: .bottomLeading)
         .background {
@@ -220,8 +227,8 @@ struct HeroView<Accessory: View>: View {
                 ArtView(game: game, lettering: false)
                     .frame(width: width, height: bannerHeight)
                     .mask {
-                        LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.72),
-                                               .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom)
+                        LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.62),
+                                               .init(color: .clear, location: 0.98)], startPoint: .top, endPoint: .bottom)
                     }
                 LinearGradient(stops: [.init(color: .black.opacity(0.45), location: 0),
                                        .init(color: .clear, location: min(0.3, (topInset + 40) / max(1, bannerHeight * 2)))],
@@ -239,5 +246,30 @@ struct HeroView<Accessory: View>: View {
 
     private var meta: String {
         [game.subtitle, game.recentlyPlayed ?? ""].filter { !$0.isEmpty }.joined(separator: "  ·  ")
+    }
+}
+
+/// The hero's words: the state, the title on at most two lines (the full name is in settings), the meta line and a
+/// hint of at most two lines.
+struct HeroText: View {
+    let status: GameState
+    let title: String
+    let meta: String
+    let explanation: String
+    let titleSize: CGFloat
+    var hintLines = 2
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            StatusLabel(state: status, prominent: true)
+            Text(title).shellText(titleSize, .heavy, relativeTo: .largeTitle).tracking(-titleSize * 0.03)
+                .lineLimit(2).truncationMode(.tail)
+                .accessibilityAddTraits(.isHeader).accessibilityIdentifier("hero.title")
+            if !meta.isEmpty {
+                Text(meta).shellText(13).foregroundStyle(.white.opacity(0.62)).lineLimit(1)
+            }
+            if !explanation.isEmpty {
+                Text(explanation).shellText(14.5).foregroundStyle(.white.opacity(0.78)).lineLimit(hintLines).padding(.top, 2)
+            }
+        }
     }
 }

@@ -115,4 +115,77 @@ import XCTest
         app.buttons["library.back"].tap()
         XCTAssertEqual(app.staticTexts["hero.title"].label, "The Quiet Tide")
     }
+
+    /// The middle of the centred card, measured from the title under it. The tilted cards' accessibility frames are
+    /// skewed by their 3D transform, so a tap on the element itself can land on a neighbour.
+    private func centreCard() -> XCUICoordinate {
+        let window = app.windows.firstMatch.frame
+        let title = app.staticTexts["hero.title"].frame
+        return app.windows.firstMatch.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: window.midX - window.minX, dy: title.minY - window.minY - 80))
+    }
+    private let sampleTitles = ["Orbit Valley", "The Quiet Tide", "Paper Trails", "Moonlit Express", "Wild Gardens", "Drift Atlas", "Amber Hours"]
+
+    /// A touch swipe that snaps to another card makes it the selection: title, counter and buttons follow.
+    private func swipeCoverFlow(_ arguments: [String]) {
+        XCUIDevice.shared.orientation = .landscapeLeft
+        app.launchArguments = arguments
+        app.launch()
+        XCTAssertTrue(app.buttons["tile.orbit"].waitForExistence(timeout: 10))
+        XCTAssertEqual(app.staticTexts["hero.title"].label, "Orbit Valley")
+        let start = centreCard()
+        start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: -260, dy: 0)), withVelocity: .fast, thenHoldForDuration: 0)
+        sleep(2)
+        let counter = app.staticTexts.matching(NSPredicate(format: "label ENDSWITH ' of 7'")).firstMatch
+        XCTAssertTrue(counter.exists)
+        let place = Int(counter.label.split(separator: " ").first ?? "") ?? 1
+        XCTAssertGreaterThan(place, 1, "the swipe moved the carousel")
+        XCTAssertEqual(app.staticTexts["hero.title"].label, sampleTitles[place - 1])
+        XCTAssertFalse(app.alerts["Demo action"].exists, "a swipe that ends on a card never launches it")
+        capture("cover-flow-swiped")
+        XCUIDevice.shared.orientation = .portrait
+    }
+    func testCoverFlowTouchSwipeSelects() { swipeCoverFlow(["--screen", "library"]) }
+    func testCoverFlowTouchSwipeSelectsUnfolded() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "The fold stand-in needs an iPad canvas")
+        swipeCoverFlow(["--screen", "library", "--fold-test", "--unfolded"])
+    }
+
+    /// A broken game says what is wrong and explains the fix, the log stays one step away for a bug report.
+    func testBrokenGameExplainsTheFix() {
+        XCUIDevice.shared.orientation = .portrait
+        app.launchArguments = ["--screen", "broken"]
+        app.launch()
+        XCTAssertTrue(app.staticTexts["hero.title"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS[c] 'game files damaged'")).firstMatch.exists)
+        let fix = app.buttons.matching(identifier: "state.action").allElementsBoundByIndex.first { $0.isHittable }
+        XCTAssertEqual(fix?.label, "How to fix, Wild Gardens")
+        fix?.tap()
+        XCTAssertTrue(app.staticTexts["help.title"].waitForExistence(timeout: 5))
+        capture("broken-how-to-fix")
+        app.buttons["help.log"].tap()
+        XCTAssertTrue(app.alerts["Demo action"].waitForExistence(timeout: 5))
+        app.alerts.buttons["OK"].tap()
+        app.buttons["help.done"].tap()
+        XCTAssertFalse(app.staticTexts["help.title"].waitForExistence(timeout: 1))
+    }
+
+    /// Tapping a side card centres it and starts nothing. Tapping the centred card runs its primary action once.
+    func testCoverFlowTaps() {
+        XCUIDevice.shared.orientation = .landscapeLeft
+        app.launchArguments = ["--screen", "library"]
+        app.launch()
+        let side = app.buttons["tile.tide"]
+        XCTAssertTrue(side.waitForExistence(timeout: 10))
+        side.tap()
+        sleep(1)
+        XCTAssertEqual(app.staticTexts["hero.title"].label, "The Quiet Tide")
+        XCTAssertFalse(app.alerts["Demo action"].exists, "a side card only comes to the middle")
+        centreCard().tap()
+        XCTAssertTrue(app.alerts["Demo action"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.alerts.staticTexts["Play requested. The demo does not launch games."].exists)
+        app.alerts.buttons["OK"].tap()
+        XCTAssertFalse(app.alerts["Demo action"].waitForExistence(timeout: 1), "the action ran once")
+        XCUIDevice.shared.orientation = .portrait
+    }
 }

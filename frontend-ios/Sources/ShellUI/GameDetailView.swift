@@ -31,11 +31,11 @@ public struct GameDetailView: View {
                           title: detail.dataSource.isEmpty ? ShellStrings.text("No data selected") : detail.dataSource,
                           note: detail.dataNote) {
                     Button(ShellStrings.text("Choose…")) { actions.onPickGameData(detail.id) }
-                        .buttonStyle(ShellButtonStyle()).accessibilityLabel(ShellStrings.text("Choose game data…"))
+                        .buttonStyle(ShellButtonStyle(fills: true)).accessibilityLabel(ShellStrings.text("Choose game data…"))
                         .shellTarget("set.data") { actions.onPickGameData(detail.id) }
                     if !detail.dataSource.isEmpty {
                         Button(ShellStrings.text("Use app data")) { actions.onUseAppData(detail.id) }
-                            .buttonStyle(ShellButtonStyle()).shellTarget("set.appdata") { actions.onUseAppData(detail.id) }
+                            .buttonStyle(ShellButtonStyle(fills: true)).shellTarget("set.appdata") { actions.onUseAppData(detail.id) }
                     }
                 }
                 divider
@@ -47,17 +47,17 @@ public struct GameDetailView: View {
                           title: detail.cloudSaves ?? ShellStrings.text("Off"),
                           note: detail.cloudNote.isEmpty ? ShellStrings.text("Choose the same iCloud Drive folder you use on your Mac.") : detail.cloudNote) {
                     Button(ShellStrings.text("Choose folder…")) { actions.onPickCloudSaves(detail.id) }
-                        .buttonStyle(ShellButtonStyle()).shellTarget("set.cloud") { actions.onPickCloudSaves(detail.id) }
+                        .buttonStyle(ShellButtonStyle(fills: true)).shellTarget("set.cloud") { actions.onPickCloudSaves(detail.id) }
                     if detail.cloudSaves != nil {
                         Button(ShellStrings.text("Turn off")) { actions.onDisableCloudSaves(detail.id) }
-                            .buttonStyle(ShellButtonStyle()).accessibilityLabel(ShellStrings.text("Turn off cloud saves"))
+                            .buttonStyle(ShellButtonStyle(fills: true)).accessibilityLabel(ShellStrings.text("Turn off cloud saves"))
                             .shellTarget("set.cloud.off") { actions.onDisableCloudSaves(detail.id) }
                     }
                 }
             }
             VStack(alignment: .leading, spacing: 10) {
                 Button(ShellStrings.text("Reset to tested defaults")) { actions.onResetDefaults(detail.id) }
-                    .buttonStyle(ShellButtonStyle())
+                    .buttonStyle(ShellButtonStyle(fills: true))
                     .disabled(!detail.hasModifiedSettings)
                     .shellTarget("set.reset", enabled: detail.hasModifiedSettings) { actions.onResetDefaults(detail.id) }
                 Text(ShellStrings.text("Brings back the settings this game was tested with."))
@@ -128,10 +128,11 @@ private struct SourceRow<Buttons: View>: View {
                     }
                 }
             }
+            // The buttons share the card's width in equal parts, or stack full width when their labels do not fit.
             ViewThatFits(in: .horizontal) {
-                HStack(spacing: 10) { buttons() }
-                VStack(alignment: .leading, spacing: 10) { buttons() }
-            }.padding(.leading, 32)
+                EqualRow(spacing: 10) { buttons() }
+                VStack(spacing: 10) { buttons() }
+            }
         }
     }
 }
@@ -149,13 +150,15 @@ private struct SettingControl: View {
                     .shellTarget("set.row.\(row.id)", enabled: row.enabled) { change(row.value == on ? off : on) }
             case .choice(let options):
                 label
-                if options.count <= 3 && !typeSize.isAccessibilitySize {
+                // Equal segments across the card. When the labels do not fit one row: two rows of equal cells, then a list.
+                if typeSize.isAccessibilitySize {
+                    list(options)
+                } else {
                     ViewThatFits(in: .horizontal) {
-                        segmented(options)
+                        segmented([options])
+                        segmented(stride(from: 0, to: options.count, by: 2).map { Array(options[$0..<min($0 + 2, options.count)]) })
                         list(options)
                     }
-                } else {
-                    list(options)
                 }
             case .range(let min, let max, let step, let unit):
                 HStack(alignment: .firstTextBaseline) {
@@ -183,22 +186,26 @@ private struct SettingControl: View {
             if !row.note.isEmpty { Text(row.note).shellText(12.5).foregroundStyle(.white.opacity(0.5)).fixedSize(horizontal: false, vertical: true) }
         }
     }
-    /// The Mac's segmented choice: a dim track, the chosen value in cream.
-    private func segmented(_ options: [SettingOption]) -> some View {
-        HStack(spacing: 2) {
-            ForEach(options) { option in
-                let chosen = row.value == option.id
-                Button { change(option.id) } label: {
-                    Text(option.label).shellText(13.5, chosen ? .bold : .medium).lineLimit(1)
-                        .padding(.horizontal, 16).frame(minHeight: 40)
-                        .foregroundStyle(chosen ? .black : .white.opacity(0.75))
-                        .background(chosen ? ShellPalette.cream : .clear, in: RoundedRectangle(cornerRadius: 8))
-                        .contentShape(RoundedRectangle(cornerRadius: 8))
+    /// The Mac's segmented choice, across the whole card: a dim track, equal segments, the chosen value in cream.
+    private func segmented(_ rows: [[SettingOption]]) -> some View {
+        VStack(spacing: 2) {
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, options in
+                EqualRow(spacing: 2) {
+                    ForEach(options) { option in
+                        let chosen = row.value == option.id
+                        Button { change(option.id) } label: {
+                            Text(option.label).shellText(13.5, chosen ? .bold : .medium).lineLimit(1)
+                                .padding(.horizontal, 14).frame(maxWidth: .infinity, minHeight: 40)
+                                .foregroundStyle(chosen ? .black : .white.opacity(0.75))
+                                .background(chosen ? ShellPalette.cream : .clear, in: RoundedRectangle(cornerRadius: 8))
+                                .contentShape(RoundedRectangle(cornerRadius: 8))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(row.label + ", " + option.label)
+                        .accessibilityAddTraits(chosen ? .isSelected : [])
+                        .shellTarget("set.row.\(row.id).\(option.id)", enabled: row.enabled, radius: 8) { change(option.id) }
+                    }
                 }
-                .buttonStyle(.plain).fixedSize()
-                .accessibilityLabel(row.label + ", " + option.label)
-                .accessibilityAddTraits(chosen ? .isSelected : [])
-                .shellTarget("set.row.\(row.id).\(option.id)", enabled: row.enabled, radius: 8) { change(option.id) }
             }
         }
         .padding(3)
@@ -236,5 +243,28 @@ private struct SettingControl: View {
         .overlay(Circle().strokeBorder(.white.opacity(0.10)))
         .accessibilityLabel(ShellStrings.text(symbol == "minus" ? "Decrease" : "Increase") + " " + row.label)
         .shellTarget("set.row.\(row.id).\(symbol)", enabled: row.enabled, radius: 22, action: action)
+    }
+}
+
+/// Children side by side in equal widths that fill the row. Its ideal width is the widest child times the count, so
+/// a `ViewThatFits` can fall back when the labels would not fit at equal widths.
+struct EqualRow: Layout {
+    var spacing: CGFloat
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
+        let gaps = spacing * CGFloat(max(0, subviews.count - 1))
+        let natural = (sizes.map(\.width).max() ?? 0) * CGFloat(subviews.count) + gaps
+        let width = proposal.width.map { $0.isFinite ? $0 : natural } ?? natural
+        let cell = subviews.isEmpty ? 0 : (width - gaps) / CGFloat(subviews.count)
+        let height = subviews.map { $0.sizeThatFits(ProposedViewSize(width: cell, height: nil)).height }.max() ?? 0
+        return CGSize(width: width, height: height)
+    }
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard !subviews.isEmpty else { return }
+        let cell = (bounds.width - spacing * CGFloat(subviews.count - 1)) / CGFloat(subviews.count)
+        for (index, subview) in subviews.enumerated() {
+            subview.place(at: CGPoint(x: bounds.minX + CGFloat(index) * (cell + spacing), y: bounds.minY),
+                          proposal: ProposedViewSize(width: cell, height: bounds.height))
+        }
     }
 }
