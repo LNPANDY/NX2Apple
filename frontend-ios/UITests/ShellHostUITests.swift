@@ -43,12 +43,16 @@ import XCTest
         XCTAssertTrue(app.staticTexts["Details"].exists)
     }
 
-    func testUnreadableManifestIsUnknownGameWithItsIDAsSmallText() {
+    func testUnreadableManifestIsUnknownGameWithoutTheTitleIDInTheMainUI() {
         launch(select: "0100000000050000")
         XCTAssertEqual(app.staticTexts["hero.title"].label, "Unknown game")
-        XCTAssertTrue(app.staticTexts["0100000000050000"].exists)
+        XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS '0100000000050000'")).firstMatch.exists)
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] \"Can't read this game\"")).firstMatch.exists)
         XCTAssertTrue(app.staticTexts["This game's manifest is damaged. Rebuild the game in the launcher on your Mac."].exists)
+        let fix = app.buttons.matching(identifier: "state.action").allElementsBoundByIndex.first { $0.isHittable }
+        fix?.tap()
+        XCTAssertTrue(app.staticTexts["help.title"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.staticTexts["help.titleid"].label, "Title ID 0100000000050000")
     }
 
     func testLibraryStartsOnAPlayableGameWithTheVersionLine() {

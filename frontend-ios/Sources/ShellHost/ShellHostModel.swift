@@ -129,7 +129,7 @@ public struct ShellHostConfig: Sendable {
         let data = data(for: entry)
         let state = GameStateResolver.state(for: entry, data: data, environment: config.environment)
         let played = lastPlayed(entry.id)
-        let tile = GameTile(id: entry.id, title: entry.title, subtitle: entry.manifest.map { ShellFormat.version($0.displayVersion) } ?? entry.id,
+        let tile = GameTile(id: entry.id, title: entry.title, subtitle: entry.manifest.map { ShellFormat.version($0.displayVersion) } ?? "",
                             banner: image(entry.bannerURL), icon: image(entry.iconURL), state: state,
                             recentlyPlayed: played.map { ShellFormat.played($0, now: config.now()) })
         guard let profile = entry.profile, entry.problem == nil else {

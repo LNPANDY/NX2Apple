@@ -67,6 +67,8 @@ public struct StateHelpView: View {
             if case .broken(_, _, let technical) = game.state, !technical.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(ShellStrings.text("Details")).shellText(11.5, .semibold).foregroundStyle(.white.opacity(0.5))
+                    Text(verbatim: ShellStrings.text("Title ID \(game.id)")).font(.system(size: 12, design: .monospaced)).foregroundStyle(.white.opacity(0.5))
+                        .textSelection(.enabled).accessibilityIdentifier("help.titleid")
                     Text(verbatim: technical).font(.system(size: 12, design: .monospaced)).foregroundStyle(.white.opacity(0.5))
                         .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
                         .accessibilityIdentifier("help.details")

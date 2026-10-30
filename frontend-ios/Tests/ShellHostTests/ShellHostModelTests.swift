@@ -336,14 +336,14 @@ final class Clock: @unchecked Sendable { var date: Date; init(_ d: Date) { date 
     @Test func anUnreadableManifestNeverShowsTheBareTitleID() throws {
         let box = try Sandbox()
         let model = ShellHostModel(config: box.config())
-        // Truncated JSON: no name anywhere, so "Unknown game" with the ID as the small line.
+        // Truncated JSON: no name anywhere, so "Unknown game" and no subtitle.
         let unknown = try detail(model, Fixtures.badManifest).game
-        #expect(unknown.title == "Unknown game" && unknown.subtitle == Fixtures.badManifest)
+        #expect(unknown.title == "Unknown game" && unknown.subtitle.isEmpty)
         #expect(unknown.state == .broken(reason: "Can't read this game", detail: ProblemCause.manifestDamaged.message,
                                          technical: try #require({ () -> String? in if case .broken(_, _, let t) = unknown.state { t } else { nil } }())))
         // Valid JSON that fails validation keeps its own name.
         let partial = try detail(model, Fixtures.missingKey).game
-        #expect(partial.title == "Missing Key Fixture" && partial.subtitle == Fixtures.missingKey)
+        #expect(partial.title == "Missing Key Fixture" && partial.subtitle.isEmpty)
         // Nothing the player reads as a title is a 16 digit ID.
         for d in model.details { #expect(d.game.title.count != 16 || !d.game.title.allSatisfy(\.isNumber)) }
     }

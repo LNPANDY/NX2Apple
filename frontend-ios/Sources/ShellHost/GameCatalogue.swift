@@ -33,7 +33,7 @@ public struct CatalogueEntry: Equatable, Sendable, Identifiable {
     /// The name from a manifest that could not be fully read, when it still has one.
     public var readableName: String?
 
-    /// Never the bare title ID: an unreadable bundle is "Unknown game" and its ID is the subtitle.
+    /// Never the bare title ID: an unreadable bundle is "Unknown game". The ID is shown only in the How to fix sheet.
     public var title: String { manifest?.name ?? readableName ?? hostText("Unknown game") }
     public var frameworkURL: URL? { manifest.map { directory.appendingPathComponent($0.framework, isDirectory: true) } }
 }
