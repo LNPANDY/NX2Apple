@@ -20,17 +20,28 @@ final class SaveTransferTests: XCTestCase {
     final class FakeDevice {
         let container: URL
         var reachable = true, nested = false, failCopyFrom = false
-        var calls: [[String]] = []
+        var apps: [(bundle: String, name: String)] = []   // what `device info apps` lists
+        var hang: DispatchSemaphore?                      // a command waits here first: a device that never answers
+        var calls: [[String]] { lock.lock(); defer { lock.unlock() }; return recorded }
+        private var recorded: [[String]] = []
+        private let lock = NSLock()
+        func clearCalls() { lock.lock(); recorded = []; lock.unlock() }
         init(_ container: URL) { self.container = container }
 
         func value(_ flag: String, _ args: [String]) -> String? { args.firstIndex(of: flag).map { args[$0 + 1] } }
 
         var control: DeviceControl {
             DeviceControl { [self] args in
-                calls.append(args)
+                lock.lock(); recorded.append(args); lock.unlock()
+                if let hang { hang.wait() }
                 guard reachable else { return (false, "ERROR: The device is not connected. (com.apple.dt.CoreDeviceError error 4)") }
                 let fm = FileManager.default
                 switch Array(args.prefix(3)) {
+                case ["device", "info", "apps"]:
+                    let list = apps.map { ["bundleIdentifier": $0.bundle, "name": $0.name, "version": "1.0"] }
+                    let json = try! JSONSerialization.data(withJSONObject: ["info": ["outcome": "success"], "result": ["apps": list]])
+                    try! json.write(to: URL(fileURLWithPath: value("--json-output", args)!))
+                    return (true, "")
                 case ["device", "info", "files"]:
                     let dir = container.appendingPathComponent(value("--subdirectory", args)!)
                     guard fm.fileExists(atPath: dir.path) else { return (false, "ERROR: The file couldn't be opened because there is no such file.") }
@@ -209,7 +220,7 @@ final class SaveTransferTests: XCTestCase {
         XCTAssertFalse(device.calls.contains { $0.prefix(3) == ["device", "copy", "to"] })
         // No Mac save: nothing is asked of the device at all
         try fm.removeItem(at: t.mac.appendingPathComponent("save"))
-        device.calls = []
+        device.clearCalls()
         XCTAssertThrowsError(try t.macToDevice()) { XCTAssertEqual($0 as? SaveTransfer.Failure, .noMacSave) }
         XCTAssertTrue(device.calls.isEmpty)
         // A device that is not reachable: the copy stops before anything is replaced
