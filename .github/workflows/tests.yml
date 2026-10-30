@@ -235,6 +235,28 @@ jobs:
           path: logs
           retention-days: 7
 
+  shell-package:
+    name: iOS shell package (frontend-ios, swift test)
+    runs-on: xcode-27
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The views, the host layer (catalogue from embedded frameworks, the engine launch plan, settings, bookmarks) and the
+      # controller mapping, on the Mac (the package also builds for macOS); the UI tests need a Simulator and stay local
+      - name: Tests
+        working-directory: frontend-ios
+        run: |
+          mkdir -p ../logs
+          swift test 2>&1 | tee ../logs/shell-package-tests.log
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure()
+        with:
+          name: logs-shell-package
+          path: logs
+          retention-days: 7
+
   launcher-qt:
     name: Qt front end (frontend-qt tests)
     runs-on: xcode-27
@@ -301,6 +323,12 @@ jobs:
       # test_framework_build.py's packaging half runs in tool-tests; its link half needs xcodegen, installed only here.
       - name: The game framework links the module sections (route C M1)
         run: python3 -m unittest -v dm/ios/tests/test_framework_link.py 2>&1 | tee logs/framework-link.log
+      # Route C M2: build_shell.sh generates and builds the shell (host, frontend-ios package, a synthetic framework embedded and not
+      # linked). make_ext_font.py needs fontTools, which only this step installs
+      - name: The shell app embeds a game framework and builds (route C M2)
+        run: |
+          python3 -m pip install --user --break-system-packages fonttools > /dev/null
+          python3 -m unittest -v dm/ios/tests/test_shell_build.py 2>&1 | tee logs/shell-build.log
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
         with:
