@@ -9,4 +9,5 @@ Read [AGENTS.md](../AGENTS.md) and [CONTRIBUTING.md](../CONTRIBUTING.md) first; 
 - No AI attribution anywhere: no "Generated with", no `Co-Authored-By` for a tool, in commits, PRs or issues.
 - Never attach or commit keys, game files or anything extracted from a game.
 - You work on a Linux runner and cannot build or run the macOS app. The macOS jobs of `tests.yml` are the check: do not claim a Swift or Metal change works until they are green.
+- A PR that changes the launcher needs before and after screenshots. You cannot capture them: say so under Screenshots and ask for them in the PR (CONTRIBUTING.md, "For AI agents and other tools").
 - Issues and PRs follow the forms and the PR template (CONTRIBUTING.md, "For AI agents and other tools").
