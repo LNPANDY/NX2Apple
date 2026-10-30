@@ -384,7 +384,7 @@ def install_python(dest: Path | None = None,
     survives app updates like every other tool the app fetches.
 
     `Include_pip=1` matters: the interpreter alone is not enough, the build needs lz4, capstone,
-    fonttools and nsz, and the front end installs those into a venv made from this interpreter.
+    fonttools, zbic and nsz, and the front end installs those into a venv made from this interpreter.
     The bootstrapper blocks until the install finishes, so the caller can probe the result.
     """
     log = log or (lambda s: None)

@@ -21,6 +21,13 @@
   "text": "[RED] the shader translator does not start ([Errno 8] Exec format error: '/r/dm/gfx/tools/dmsh_xlate_bin'): /r/dm/gfx/tools/dmsh_xlate_bin"
  },
  {
+  "id": "zbic.missing",
+  "kind": "zbic",
+  "source": "dm/tools/nso.py",
+  "fragment": "need the zbic package",
+  "text": "[RED] text segment: ZBIC (zstd) segments need the zbic package (python3 -m pip install zbic)"
+ },
+ {
   "id": "ios.sdk",
   "kind": "iosSDK",
   "source": "scripts/build_ipa_from_nsp.py",

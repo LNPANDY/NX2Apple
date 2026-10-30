@@ -38,6 +38,19 @@ final class BuildFailureRowsTests: XCTestCase {
         XCTAssertEqual(BuildFailureClassifier.classify("[RED] the iOS SDK is not installed", inputs: inputs).kind, .iosSDK, "a known stop keeps its own row")
     }
 
+    func testAMissingZbicPackageIsItsOwnRowWithAnInstallButton() throws {
+        let log = "[3/9] extract\n" + (try fixture("zbic.missing").text) + "\n"
+        XCTAssertEqual(BuildFailureClassifier.classify(log).kind, .zbic)
+        XCTAssertEqual(BuildFailureClassifier.classify("[RED] the zbic package decoded it").kind, .unknown)
+        XCTAssertTrue(L10n.table["fail.zbic.next"]?.en.contains("pip install zbic") ?? false)
+        XCTAssertEqual(L10n.table["fail.zbic.button"]?.en, "Install zbic")
+        let m = BuildModel()
+        m.logTail = log
+        m.noteFailure()
+        XCTAssertEqual(m.failure?.kind, .zbic)
+        XCTAssertFalse(m.fixBusy(.zbic))
+    }
+
     func testSeveralGamesAndNoTitleID() throws {
         XCTAssertEqual(BuildFailureClassifier.classify(try fixture("games.several").text).kind, .severalGames)
         let none = try fixture("games.noTitleID")

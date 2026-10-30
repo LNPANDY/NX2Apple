@@ -255,7 +255,7 @@ A GUI app does not inherit the shell's PATH. On a machine where a terminal sees
 actually are (`~/.dotnet`, `/usr/local/share/dotnet`, the Python framework
 installs), verifies `.NET` with `--list-sdks` (the extractor targets `net10.0`),
 and picks the first interpreter that can really import
-`lz4 capstone fontTools backports.zstd`. That same interpreter then runs the
+`lz4 capstone fontTools zbic backports.zstd`. That same interpreter then runs the
 build.
 
 The interpreters uv installs (`uv python install`) count as well: they live in
@@ -269,7 +269,7 @@ found, **Install** creates the app's venv from the newest one that does run at
 
 The release app (`NX2Apple.app`) carries `zstd`, `glslangValidator`, `spirv-cross`, `xcodegen` (in
 `Contents/Resources/tools/bin`) and a relocatable CPython 3.13 with `lz4 capstone fonttools
-backports.zstd nsz` (`Contents/Resources/python`), so a player needs no Homebrew and no Python.
+zbic backports.zstd nsz` (`Contents/Resources/python`), so a player needs no Homebrew and no Python.
 `tools/bundle_tools.sh` fills them in during the release workflow (pinned versions and sha256 of the
 sources, built for macOS 13 with static libraries, and the Python packages come from
 `tools/bundled-python-requirements.txt`) and `tools/check_bundle.sh` runs each tool from the bundle

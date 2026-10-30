@@ -127,7 +127,7 @@ for d in "$SITE/site-packages/"*.dist-info; do
     find "$d" -maxdepth 2 \( -iname 'LICEN[SC]E*' -o -iname 'COPYING*' -o -iname 'NOTICE*' \) -type f -exec cp {} "$LIC/python-packages/$n/" \;
 done
 "$PY" -I - <<'PYEOF'
-import lz4.block, capstone, fontTools, nsz, ssl, sqlite3, zlib, lzma, bz2
+import lz4.block, capstone, fontTools, zbic, nsz, ssl, sqlite3, zlib, lzma, bz2
 try: from compression import zstd
 except ImportError: from backports import zstd
 PYEOF

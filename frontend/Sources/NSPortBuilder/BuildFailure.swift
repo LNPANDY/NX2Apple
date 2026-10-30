@@ -5,7 +5,7 @@ import Foundation
 /// the log, cut to 200 characters. The classifier reads the whole log tail, because for a damaged NSP the
 /// last line is only "nx_extract exit code 3" and the message is a few lines above it.
 enum BuildFailureKind: String, CaseIterable {
-    case rosetta, translator, iosSDK, cltSelected, otherMetal, shaderRegression, damagedNSP, a32Program
+    case rosetta, translator, zbic, iosSDK, cltSelected, otherMetal, shaderRegression, damagedNSP, a32Program
     /// The inputs: the keys file, the game folder, a drive that is gone.
     case keys, severalGames, noTitleID, driveMissing
     /// The build's and the install's own steps.
@@ -46,6 +46,7 @@ enum BuildFailureClassifier {
         ("rosetta.intel", .rosetta, "is an Intel one running under Rosetta"),
         ("translator.run", .translator, "the shader translator does not run"),
         ("translator.start", .translator, "the shader translator does not start"),
+        ("zbic.missing", .zbic, "need the zbic package"),
         ("ios.sdk", .iosSDK, "the iOS SDK is not installed"),
         ("clt.selected", .cltSelected, "the selected developer folder is the Command Line Tools"),
         ("metal.other", .otherMetal, "Metal compiler is not the one the shaders were tested with"),

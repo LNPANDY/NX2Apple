@@ -105,7 +105,7 @@ jobs:
         run: |
           set -euo pipefail
           # zstd, glslangValidator, spirv-cross and xcodegen run by their bundle paths with a PATH of /usr/bin:/bin; the Python imports
-          # lz4, capstone, fontTools and nsz; no Mach-O file links into /opt/homebrew; the signature verifies.
+          # lz4, capstone, fontTools, zbic (system 22.0.0+ modules) and nsz, so a release without one of them fails here; no Mach-O file links into /opt/homebrew; the signature verifies.
           tools/check_bundle.sh NX2Apple.app
           codesign -v --deep --strict NX2Apple.app
 

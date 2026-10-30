@@ -119,6 +119,20 @@ class Rows(unittest.TestCase):
             self.assertIn(key, TABLE)
             self.assertTrue(TABLE[key][2] and TABLE[key][2] != TABLE[key][1], key)   # Swedish present
 
+    def test_a_missing_zbic_package_is_its_own_row(self):
+        log = '[3/9] extract\n' + fixture('zbic.missing')['text'] + '\n'
+        self.assertEqual(bf.classify(log).kind, bf.ZBIC)
+        self.assertEqual(bf.classify('[RED] the zbic package decoded it').kind, bf.UNKNOWN)
+        self.assertIn('pip install zbic', TABLE['fail.zbic.next'][1])
+        self.assertIn('zbic', TABLE['fail.zbic.button'][1])
+
+    def test_the_python_probe_and_the_venv_install_name_zbic(self):
+        pkg = ROOT / 'frontend-qt/nspb_qt'
+        self.assertIn('import lz4, capstone, fontTools, zbic', (pkg / 'platform_util.py').read_text(encoding='utf-8'))
+        model = (pkg / 'model.py').read_text(encoding='utf-8')
+        self.assertIn("pkgs = ['lz4', 'capstone', 'fonttools', 'zbic', 'nsz']", model)
+        self.assertIn("'zbic', 'backports.zstd', 'nsz'", model)
+
     @unittest.skipIf(importlib.util.find_spec('PySide6') is None, 'PySide6 is not installed')
     def test_show_folder_opens_the_game_folder_and_for_a_full_disk_the_build_folder(self):
         import tempfile

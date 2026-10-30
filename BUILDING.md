@@ -11,7 +11,7 @@ git clone https://github.com/<you>/NX2Apple.git
 cd NX2Apple
 brew bundle --file=Brewfile                       # xcodegen, zstd, spirv-cross, glslang (the NSP script checks for it), .NET SDK
 python3 -m venv .venv                             # Homebrew's Python refuses global pip installs (PEP 668)
-.venv/bin/python -m pip install lz4 capstone fonttools nsz "backports.zstd; python_version < '3.14'"
+.venv/bin/python -m pip install lz4 capstone fonttools zbic nsz "backports.zstd; python_version < '3.14'"
 source .venv/bin/activate                         # so that python3 below is the venv's (in each new terminal)
 ```
 

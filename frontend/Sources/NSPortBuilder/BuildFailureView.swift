@@ -37,6 +37,8 @@ struct BuildFailureCard: View {
             switch kind {
             case .translator:
                 fix(kind, "fail.translator.button")
+            case .zbic:
+                fix(kind, "fail.zbic.button")
             case .iosSDK:
                 fix(kind, "fail.iosSDK.button")
             case .cltSelected:

@@ -1424,6 +1424,8 @@ final class BuildModel: ObservableObject {
             if let xcode = Self.installedXcode() {
                 installDep(Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint", present: false, installCmd: Self.selectXcodeCmd(xcode)))
             }
+        case .zbic:
+            if let d = deps.first(where: { $0.id == "python" }) { installDep(d) }   // the venv install, which now names zbic
         case .keys:
             if let chooseKeys { chooseKeys() } else { pickFiles(kind: .keys) }   // the same picker as the keys row
         case .severalGames, .noTitleID, .diskFull:
@@ -1457,8 +1459,9 @@ final class BuildModel: ObservableObject {
 
     /// Whether the card's fix button is already running its command.
     func fixBusy(_ kind: BuildFailureKind) -> Bool {
-        guard [.translator, .iosSDK, .cltSelected].contains(kind) else { return false }
-        return deps.first { $0.id == (kind == .translator ? "dotnet" : "xcode") }?.installing ?? false
+        guard [.translator, .iosSDK, .cltSelected, .zbic].contains(kind) else { return false }
+        let id = kind == .translator ? "dotnet" : kind == .zbic ? "python" : "xcode"
+        return deps.first { $0.id == id }?.installing ?? false
     }
 
     /// (file count, bytes) of a RomFS tree — the reuse fingerprint's content part.
@@ -2285,7 +2288,7 @@ final class BuildModel: ObservableObject {
         paths.first { FileManager.default.isExecutableFile(atPath: $0) }
     }
 
-    /// The Python that actually has lz4/capstone/fontTools/backports.zstd — the one
+    /// The Python that actually has lz4/capstone/fontTools/zbic/backports.zstd — the one
     /// the build must run under, not whatever /usr/bin/python3 happens to be.
     /// The minimum the build scripts need. /usr/bin/python3 is 3.9 on a stock Mac and has none of
     /// the packages; picking it made a build fail with a syntax error deep inside the script
@@ -2308,15 +2311,17 @@ final class BuildModel: ObservableObject {
         ("glslang", "glslangValidator", "dep.glslang"),
     ]
 
-    /// The interpreter probe: lz4 / capstone / fontTools always, and zstd from either source —
+    /// The interpreter probe: lz4 / capstone / fontTools / zbic always, and zstd from either source —
     /// `compression.zstd` is built in from Python 3.14 and `backports.zstd` (which declares
     /// Python < 3.14) is the only option before that. Requiring the backport unconditionally
     /// rejected an otherwise working Homebrew Python 3.15 (issue #1).
+    /// zbic is required although only a game with system 22.0.0+ modules (ZBIC segments, Nintendo's zstd variant) needs it:
+    /// the launcher cannot know that before the extraction, and the build stops late without it (issue #251).
     /// nsz is deliberately not required here: it is only needed for NSZ / XCZ dumps, and the
     /// pipeline says so by name when one shows up. The venv installs it anyway so that a player
     /// who downloads a compressed dump never meets that error.
     nonisolated static let importProbe = """
-        import lz4, capstone, fontTools
+        import lz4, capstone, fontTools, zbic
         try:
             from compression import zstd
         except ImportError:
@@ -2363,8 +2368,8 @@ final class BuildModel: ObservableObject {
     /// nsz is always installed: NSZ / XCZ dumps are accepted by the pipeline now, and a player who
     /// downloads one should not have to run pip by hand (it is a few hundred KB).
     nonisolated static func pipPackages(_ version: (Int, Int)) -> [String] {
-        version < (3, 14) ? ["lz4", "capstone", "fonttools", "backports.zstd", "nsz"]
-                          : ["lz4", "capstone", "fonttools", "nsz"]
+        version < (3, 14) ? ["lz4", "capstone", "fonttools", "zbic", "backports.zstd", "nsz"]
+                          : ["lz4", "capstone", "fonttools", "zbic", "nsz"]
     }
 
     /// Create the venv (reusing an existing one) and install the packages into it. Returns the
@@ -2781,7 +2786,7 @@ final class BuildModel: ObservableObject {
         let pyDetail = pythonDetail(py: py, ok: pyOK)
         out.append(Dep(id: "python", name: "dep.python", hint: "dep.python.hint",
                        present: pyOK, detail: pyDetail,
-                       installCmd: [py, "-m", "pip", "install", "--user", "lz4", "capstone", "fonttools", "backports.zstd"]))
+                       installCmd: [py, "-m", "pip", "install", "--user", "lz4", "capstone", "fonttools", "zbic", "backports.zstd"]))
         return out
     }
 
