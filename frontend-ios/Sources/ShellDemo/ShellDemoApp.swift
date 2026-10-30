@@ -3,9 +3,17 @@ import ShellUI
 import ShellControllers
 
 @main struct ShellDemoApp: App {
+    /// `--host`, or always when built with `-D HOST_DEFAULT` (a build to install, where no launch arguments can be passed).
+    private var hostMode: Bool {
+        #if HOST_DEFAULT
+        !ProcessInfo.processInfo.arguments.contains("--samples")
+        #else
+        ProcessInfo.processInfo.arguments.contains("--host")
+        #endif
+    }
     var body: some Scene {
         WindowGroup {
-            if ProcessInfo.processInfo.arguments.contains("--host") { HostDemoScreen() } else { DemoScreen() }
+            if hostMode { HostDemoScreen() } else { DemoScreen() }
         }
     }
 }

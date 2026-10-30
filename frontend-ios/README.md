@@ -78,7 +78,7 @@ Play on a playable game builds a `LaunchableGame` (title ID, name, manifest, bun
 
 ### Host mode of the demo
 
-`--host` runs `ShellHostView` on the fixture bundles in `Tests/ShellHostTests/Fixtures/Games` (the Xcode app carries them as its `Games` folder, the package executable takes `--games-dir <folder>`): playable, needs game data, app update (another chain and a newer OS) and broken (no framework, damaged manifest, manifest without keys, damaged settings list). They hold no game data and no pictures (`.gitignore` keeps images out, the tests draw their own). Marker files in a temporary app-data folder make most of them playable, and launching is the stub. `--select <title ID>` picks the first game.
+`--host` runs `ShellHostView` on the fixture bundles in `Tests/ShellHostTests/Fixtures/Games` (the Xcode app carries them as its `Games` folder, the package executable takes `--games-dir <folder>`): playable, needs game data, app update (another chain and a newer OS) and broken (no framework, damaged manifest, manifest without keys, damaged settings list). They hold no game data and no pictures (`.gitignore` keeps images out, the tests draw their own). Marker files in a temporary app-data folder make most of them playable, and launching is the stub. `--select <title ID>` picks the first game. A build with `SWIFT_ACTIVE_COMPILATION_CONDITIONS='$(inherited) HOST_DEFAULT'` starts in host mode without arguments (for installing on a device), and `--samples` brings the sample games back.
 
 ## Layouts
 
