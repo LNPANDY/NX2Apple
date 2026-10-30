@@ -141,12 +141,13 @@ struct LaunchSetting: Decodable, Identifiable {
         if let i = list.firstIndex(where: { $0.env == "DM_RENDER_SCALE" && $0.base == nil }), let base = renderBase(titleID: titleID, repo: repo) {
             list[i].base = base
         }
-        // The game language follows the Mac's by default, as a choice of its own, when the game has that language.
+        // The game language can follow the Mac's, as a choice of its own, when the game has that language: the default for a game
+        // built in English (SavedChoices.systemLanguageIsDefault), one choice among the others for a build in another language.
         if let i = list.firstIndex(where: { $0.env == "DM_LANG" && $0.kind == "choice" }), let options = list[i].options,
            let code = SavedChoices.gameLanguage(preferred: preferred, offered: options.compactMap(\.first)) {
             let name = options.first { $0.first == code }.flatMap { $0.count > 1 ? $0[1] : nil } ?? code
             list[i].options = [[SavedChoices.systemLanguage, String(format: labels("launch.lang.system"), name)]] + options
-            list[i].def = SavedChoices.systemLanguage
+            if SavedChoices.systemLanguageIsDefault(packed: list[i].def) { list[i].def = SavedChoices.systemLanguage }
             list[i].systemLanguageCode = code
         }
         return list

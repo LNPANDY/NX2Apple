@@ -40,7 +40,7 @@ struct SavedChoices {
 
     /// What the setting is set to: the saved choice, else the tested default (System language for a game language row that offers it).
     func current(_ s: LaunchSetting) -> String {
-        if s.offersSystemLanguage, followsSystemLanguage { return Self.systemLanguage }
+        if s.offersSystemLanguage, followsSystemLanguage(byDefault: s.def == Self.systemLanguage) { return Self.systemLanguage }
         return value(s) ?? s.def
     }
 
@@ -65,13 +65,13 @@ struct SavedChoices {
         for s in settings where s.storeBacked { CFPreferencesSetAppValue(Self.key(s.env) as CFString, nil, domain as CFString) }
         CFPreferencesSetAppValue(Self.systemLanguageKey as CFString, nil, domain as CFString)
         CFPreferencesAppSynchronize(domain as CFString)
-        // The default is System language: write the language it stands for now, so a start from Finder speaks it before Play does.
-        if let s = settings.first(where: \.offersSystemLanguage) { writeSystemLanguage(s.systemLanguageCode) }
+        // Where the default is System language, write the language it stands for now, so a start from Finder speaks it before Play does.
+        if let s = settings.first(where: { $0.offersSystemLanguage && $0.def == Self.systemLanguage }) { writeSystemLanguage(s.systemLanguageCode) }
     }
 
     /// Whether any setting has a saved choice (the Reset button shows).
     func hasChoices(_ settings: [LaunchSetting]) -> Bool {
-        settings.contains { $0.storeBacked && raw($0.env) != nil && !($0.env == "DM_LANG" && followsSystemLanguage) }
+        settings.contains { $0.storeBacked && raw($0.env) != nil && !($0.offersSystemLanguage && $0.def == Self.systemLanguage && followsSystemLanguage(byDefault: true)) }
     }
 
     /// The one-time move of the options an earlier launcher kept in the library file: a valid choice that differs from the default
@@ -95,12 +95,16 @@ struct SavedChoices {
 
     private var systemLanguageMarker: String? { CFPreferencesCopyAppValue(Self.systemLanguageKey as CFString, domain as CFString) as? String }
 
-    /// System language is the default: the game follows the Mac while it has no language of its own, or while launcher.DM_LANG is
-    /// still the one this launcher wrote for it.
-    var followsSystemLanguage: Bool {
+    /// Whether the game follows the Mac: while launcher.DM_LANG is still the one this launcher wrote for it, or, where System
+    /// language is the default (`byDefault`), while it has no language of its own.
+    func followsSystemLanguage(byDefault: Bool) -> Bool {
         let key = raw("DM_LANG") as? String, marker = systemLanguageMarker
-        return marker == nil ? key == nil : marker == key
+        return marker == nil ? key == nil && byDefault : marker == key
     }
+
+    /// System language is the default only for a game built in the script's own default language, English: a build that asked for
+    /// another one (LANGUAGE / --language) keeps it as its default, and System language is one choice among the others.
+    static func systemLanguageIsDefault(packed: String) -> Bool { packed.hasPrefix("en-") }
 
     /// The key and the marker for System language standing for `code` (both removed for nil: the game's tested default applies).
     private func writeSystemLanguage(_ code: String?) {
@@ -116,7 +120,7 @@ struct SavedChoices {
     func followSystemLanguage(_ settings: [LaunchSetting], preferred: [String] = Locale.preferredLanguages) {
         guard let s = settings.first(where: { $0.env == "DM_LANG" && $0.kind == "choice" && $0.storeBacked }) else { return }
         let key = raw(s.env) as? String, marker = systemLanguageMarker
-        guard marker == nil ? key == nil : marker == key else {
+        guard followsSystemLanguage(byDefault: Self.systemLanguageIsDefault(packed: s.def)) else {
             if marker != nil {   // the key was changed elsewhere: that choice stands, the marker goes
                 CFPreferencesSetAppValue(Self.systemLanguageKey as CFString, nil, domain as CFString)
                 // A removed key is the game window's default: kept as a choice, or it would read as "follow the Mac" again.

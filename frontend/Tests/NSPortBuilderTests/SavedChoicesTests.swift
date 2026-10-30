@@ -100,7 +100,7 @@ final class SavedChoicesTests: XCTestCase {
         XCTAssertEqual(store.raw("DM_LANG") as? String, "ja")
         store.followSystemLanguage(read, preferred: ["de-DE"])
         XCTAssertNil(store.raw("DM_LANG"), "no German: the tested default")
-        XCTAssertTrue(store.followsSystemLanguage)
+        XCTAssertTrue(store.followsSystemLanguage(byDefault: true))
     }
 
     func testAGameWithoutTheMacsLanguageKeepsItsDefault() throws {
@@ -111,6 +111,28 @@ final class SavedChoicesTests: XCTestCase {
         store.followSystemLanguage(try XCTUnwrap(LaunchSetting.read(app: try app([lang]))), preferred: ["de-DE"])
         XCTAssertNil(store.raw("DM_LANG"))
         XCTAssertEqual(store.current(list[0]), "en-US", "the game's tested default")
+    }
+
+    func testABuildInAnotherLanguageKeepsItAsItsDefault() throws {
+        let japanese = lang.replacingOccurrences(of: #""default": "en-US""#, with: #""default": "ja""#)
+        let row = try XCTUnwrap(try macList([japanese], preferred: ["fr-FR"]).first)
+        XCTAssertEqual(row.options?.first?.first, "system", "System language is still offered")
+        XCTAssertEqual(row.def, "ja", "but the build's language stays the default")
+        let read = try XCTUnwrap(LaunchSetting.read(app: try app([japanese])))
+        let store = SavedChoices(domain: bundleID)
+        store.followSystemLanguage(read, preferred: ["fr-FR"])
+        XCTAssertNil(store.raw("DM_LANG"), "nothing written: the game starts in Japanese")
+        XCTAssertEqual(store.current(row), "ja")
+        XCTAssertFalse(store.hasChoices([row]))
+        store.set(row, "system")
+        XCTAssertEqual(store.current(row), "system")
+        XCTAssertEqual(store.raw("DM_LANG") as? String, "fr")
+        XCTAssertTrue(store.hasChoices([row]), "System language is a choice here: Reset shows")
+        store.followSystemLanguage(read, preferred: ["de-DE", "fr-FR"])
+        XCTAssertEqual(store.raw("DM_LANG") as? String, "fr", "a chosen System language follows the Mac too")
+        store.reset([row])
+        XCTAssertNil(store.raw("DM_LANG"))
+        XCTAssertEqual(store.current(row), "ja")
     }
 
     func testTheMacsLanguageMapsToTheGamesCodes() {
