@@ -97,6 +97,7 @@ final class SavesModel: ObservableObject {
     @Published private(set) var selected = ""
     @Published private(set) var deviceState = DeviceState.reading
     @Published private(set) var macSave = SaveTransfer.Contents()
+    @Published private(set) var macLocation: SaveTransfer.MacLocation
     @Published private(set) var found: SaveTransfer?   // the game's app on the selected device, once it is ready
     private var generation = 0
     private var started = false
@@ -107,6 +108,7 @@ final class SavesModel: ObservableObject {
         self.template = template; self.name = name; self.recordedBundle = recordedBundle; self.recordedDevice = recordedDevice
         self.installTarget = installTarget; self.remembered = remembered; self.rememberChoice = rememberChoice
         self.listDevices = listDevices; self.timeout = timeout
+        self.macLocation = template.macLocation()
     }
 
     var isReading: Bool { deviceState == .reading }
@@ -151,6 +153,7 @@ final class SavesModel: ObservableObject {
         generation += 1
         let mine = generation
         macSave = template.readMac()
+        macLocation = template.macLocation()
         deviceState = .reading
         found = nil
         let known = devices, current = selected

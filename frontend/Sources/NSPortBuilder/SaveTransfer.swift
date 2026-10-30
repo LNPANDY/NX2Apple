@@ -48,8 +48,8 @@ struct DeviceControl {
 /// takes (devicectl and the app's data container). The save that is replaced is backed up on the Mac
 /// first, so a copy in the wrong direction loses nothing.
 ///
-/// Where the saves are: the Mac app keeps them beside itself in <app's folder>/save/<title ID> when that folder also holds
-/// games/ (the launcher's layout), else in ~/Library/Application Support/nxnative/<title ID>/save (dm/mac/launcher.c, DM_SAVE;
+/// Where the saves are: the Mac app keeps them beside itself in <app's folder>/save/<title ID> when that folder holds the
+/// library marker (.nx2apple-library, which the launcher's build writes, fork patch mac-library-folder), else in ~/Library/Application Support/nxnative/<title ID>/save (dm/mac/launcher.c, DM_SAVE;
 /// the device save is DM_SAVE + "_device", dm/host/hle_fs.c); the iPhone app in Documents/games/<title ID>/save (dm/ios/Sources/main.m), the per-game folder it uses when the
 /// game files come from Documents/games/<title ID>/, which is where the launcher's install puts them, or in Documents/save
 /// for a sideloaded IPA with the game files inside. Both are read (resolveDevice), and the one in use decides where a copy
@@ -86,14 +86,14 @@ struct SaveTransfer {
         support.appendingPathComponent("nxnative").appendingPathComponent(titleID).appendingPathComponent("save")
     }
 
-    /// The Mac app's DM_SAVE, by launcher.c's rule: beside the app when the app's folder also holds games/, else ~/Library.
+    /// The Mac app's DM_SAVE, by launcher.c's rule: beside the app when the app's folder holds the library marker, else ~/Library.
+    /// The second value is the ~/Library save the app copies across on its first start in a library folder (nil without the marker).
     static func macSave(titleID: String, appPath: String,
                         support: URL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]) -> (save: URL, legacy: URL?) {
         let legacy = legacyMacSave(titleID: titleID, support: support)
         guard !appPath.isEmpty else { return (legacy, nil) }
         let folder = URL(fileURLWithPath: appPath).deletingLastPathComponent()
-        var isDir: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: folder.appendingPathComponent("games").path, isDirectory: &isDir), isDir.boolValue else { return (legacy, nil) }
+        guard FileManager.default.fileExists(atPath: folder.appendingPathComponent(GameLog.marker).path) else { return (legacy, nil) }
         return (folder.appendingPathComponent("save").appendingPathComponent(titleID), legacy)
     }
 
@@ -120,6 +120,24 @@ struct SaveTransfer {
     var backups: URL { macSave.deletingLastPathComponent().appendingPathComponent(macSave.lastPathComponent + "-backups") }
 
     // ---- reading ----
+
+    /// Which Mac save the Saves window reads, for the line under "This Mac".
+    enum MacLocation: Equatable {
+        case library(URL)    // beside the app, the library folder's save/<title ID>: what the game reads
+        case standard(URL)   // ~/Library/Application Support, the default location (no library folder)
+        case pending(URL)    // the ~/Library save of a game in a library folder, which the game copies across on its next start
+    }
+
+    /// The folder the game reads its save from, by the launcher's rule. In a library folder that is save/<title ID> beside the
+    /// app, also when both exist (the game reads that one and copies the ~/Library save only while it is empty), and the
+    /// ~/Library one only while nothing is beside the app yet.
+    func macLocation() -> MacLocation {
+        guard legacySave != nil else { return .standard(macSave) }
+        for f in Self.folders {
+            if let source = macSource(f), Self.macPath(f, save: macSave) != source { return .pending(Self.macPath("save", save: legacySave!)) }
+        }
+        return .library(macSave)
+    }
 
     func readMac() -> Contents {
         Self.folders.reduce(into: Contents()) { c, f in
@@ -398,6 +416,15 @@ struct SavesView: View {
     private var game: LibraryGame? { library.games.first { $0.id == gameID } }
     private var macSave: SaveTransfer.Contents { model.macSave }
     private var deviceSave: SaveTransfer.Contents? { model.deviceSave }
+    /// Which folder the Mac save is read from, so "No save yet" says where it looked.
+    private var macLocationText: String {
+        func shown(_ url: URL) -> String { (url.path as NSString).abbreviatingWithTildeInPath }
+        switch model.macLocation {
+        case .library(let url): return String(format: m.t("saves.macLibrary"), shown(url))
+        case .standard(let url): return String(format: m.t("saves.macStandard"), shown(url))
+        case .pending(let url): return String(format: m.t("saves.macPending"), shown(url))
+        }
+    }
     /// The device the sheet asks: its name, or what the launcher recorded when the list has not come yet.
     private var deviceName: String { model.selectedDevice?.name ?? game.map { m.deviceName($0.installedDevice) } ?? "iPhone" }
     private var transfer: SaveTransfer { model.found ?? model.template }
@@ -491,6 +518,10 @@ struct SavesView: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(side == .mac ? m.t("saves.mac") : deviceName).font(.manrope(14, .medium))
                 Text(detail).font(.manrope(12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                if side == .mac {
+                    Text(macLocationText).font(.manrope(11)).foregroundStyle(.tertiary).lineLimit(2).truncationMode(.middle)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             Spacer(minLength: 12)
             if newer == side && (side == .mac || deviceSave != nil) {
