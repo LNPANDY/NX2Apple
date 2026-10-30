@@ -1,0 +1,506 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "\"%@\" is not a DM_ switch.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\"%@\" is not a DM_ switch."
+          }
+        }
+      }
+    },
+    "%@ appears twice in launcher.json.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ appears twice in launcher.json."
+          }
+        }
+      }
+    },
+    "%@ has a wrong or missing value at \"%@\".": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ has a wrong or missing value at \"%@\"."
+          }
+        }
+      }
+    },
+    "%@ has no \"%@\"%@.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ has no \"%@\"%@."
+          }
+        }
+      }
+    },
+    "%@ has the unknown kind \"%@\".": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ has the unknown kind \"%@\"."
+          }
+        }
+      }
+    },
+    "%@ is a choice without [value, label] options.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is a choice without [value, label] options."
+          }
+        }
+      }
+    },
+    "%@ is a range without min, max and step.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is a range without min, max and step."
+          }
+        }
+      }
+    },
+    "%@ is not in this game's folder. Install the game again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is not in this game's folder. Install the game again."
+          }
+        }
+      }
+    },
+    "%@ is not valid JSON.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is not valid JSON."
+          }
+        }
+      }
+    },
+    "%lld additional content packs": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld additional content packs"
+          }
+        }
+      }
+    },
+    "1 additional content pack": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 additional content pack"
+          }
+        }
+      }
+    },
+    "Choose a RomFS folder or romfs.img on this device, an external drive, or iCloud Drive.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose a RomFS folder or romfs.img on this device, an external drive, or iCloud Drive."
+          }
+        }
+      }
+    },
+    "Done": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Done"
+          }
+        }
+      }
+    },
+    "Game code missing": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Game code missing"
+          }
+        }
+      }
+    },
+    "Game files damaged": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Game files damaged"
+          }
+        }
+      }
+    },
+    "Game manifest missing": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Game manifest missing"
+          }
+        }
+      }
+    },
+    "Launching is not available yet.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Launching is not available yet."
+          }
+        }
+      }
+    },
+    "Manifest damaged": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manifest damaged"
+          }
+        }
+      }
+    },
+    "Manifest not supported": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manifest not supported"
+          }
+        }
+      }
+    },
+    "No additional content": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No additional content"
+          }
+        }
+      }
+    },
+    "No game data for %@ was found in that folder.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No game data for %@ was found in that folder."
+          }
+        }
+      }
+    },
+    "No update address is set up for this app.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No update address is set up for this app."
+          }
+        }
+      }
+    },
+    "OK": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        }
+      }
+    },
+    "Only the end of the log is shown.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only the end of the log is shown."
+          }
+        }
+      }
+    },
+    "Player %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Player %@"
+          }
+        }
+      }
+    },
+    "Settings list damaged": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Settings list damaged"
+          }
+        }
+      }
+    },
+    "Settings list missing": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Settings list missing"
+          }
+        }
+      }
+    },
+    "Settings list not supported": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Settings list not supported"
+          }
+        }
+      }
+    },
+    "Shell": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell"
+          }
+        }
+      }
+    },
+    "That folder could not be remembered. Try a different one.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That folder could not be remembered. Try a different one."
+          }
+        }
+      }
+    },
+    "That location could not be remembered. Try a different one.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That location could not be remembered. Try a different one."
+          }
+        }
+      }
+    },
+    "The folder is named %@ but the manifest says %@.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The folder is named %@ but the manifest says %@."
+          }
+        }
+      }
+    },
+    "The folder you chose before is no longer readable. Please choose it again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The folder you chose before is no longer readable. Please choose it again."
+          }
+        }
+      }
+    },
+    "The game's manifest": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The game's manifest"
+          }
+        }
+      }
+    },
+    "The location you picked before is no longer readable (the app was signed differently). Please choose it again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The location you picked before is no longer readable (the app was signed differently). Please choose it again."
+          }
+        }
+      }
+    },
+    "The manifest lists no modules.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The manifest lists no modules."
+          }
+        }
+      }
+    },
+    "The settings list": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The settings list"
+          }
+        }
+      }
+    },
+    "This app's folder": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This app's folder"
+          }
+        }
+      }
+    },
+    "This app's folder has no data for this game yet. Copy it to games/%@ in this app's folder in Files.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This app's folder has no data for this game yet. Copy it to games/%@ in this app's folder in Files."
+          }
+        }
+      }
+    },
+    "This game has no launcher.json.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This game has no launcher.json."
+          }
+        }
+      }
+    },
+    "This game has no log yet. It appears after the game has run.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This game has no log yet. It appears after the game has run."
+          }
+        }
+      }
+    },
+    "This game's folder has no game.manifest.json.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This game's folder has no game.manifest.json."
+          }
+        }
+      }
+    },
+    "chain \"%@\" is not of the form b-<hex>.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "chain \"%@\" is not of the form b-<hex>."
+          }
+        }
+      }
+    },
+    "framework \"%@\" is not a .framework name.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "framework \"%@\" is not a .framework name."
+          }
+        }
+      }
+    },
+    "game \"%@\" in launcher.json is not 16 hex digits.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "game \"%@\" in launcher.json is not 16 hex digits."
+          }
+        }
+      }
+    },
+    "game.manifest.json has schema %lld, this app reads schema %lld.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "game.manifest.json has schema %lld, this app reads schema %lld."
+          }
+        }
+      }
+    },
+    "launcher.json has schema %lld, this app reads schema 1.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "launcher.json has schema %lld, this app reads schema 1."
+          }
+        }
+      }
+    },
+    "launcher.json is for %@, the manifest for %@.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "launcher.json is for %@, the manifest for %@."
+          }
+        }
+      }
+    },
+    "loader \"%@\" is neither FR nor FH.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "loader \"%@\" is neither FR nor FH."
+          }
+        }
+      }
+    },
+    "title_id \"%@\" is not 16 hex digits.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "title_id \"%@\" is not 16 hex digits."
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

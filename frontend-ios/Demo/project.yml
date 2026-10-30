@@ -25,11 +25,17 @@ targets:
     platform: iOS
     sources:
       - ../Sources/ShellDemo
+      # The fixture bundles for --host, copied into the app as its Games folder. No game data, no pictures.
+      - path: ../Tests/ShellHostTests/Fixtures/Games
+        type: folder
+        buildPhase: resources
     dependencies:
       - package: ShellUI
         product: ShellUI
       - package: ShellUI
         product: ShellControllers
+      - package: ShellUI
+        product: ShellHost
   ShellDemoUITests:
     type: bundle.ui-testing
     platform: iOS
