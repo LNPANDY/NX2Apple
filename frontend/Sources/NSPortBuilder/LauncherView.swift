@@ -806,10 +806,14 @@ struct ContentView: View {
             // They stay launch overrides (the environment) for now: DM_KEYMAP and DM_PAD_MAP become saved choices only when seedds/nxnative#386 merges.
             let environment = GameStart.environment(for: game, library: library, controls: controls, repo: m.repoPath, labels: m.t)   // GameStart.swift: the console mode starts games with the same
             if !environment.isEmpty { configuration.environment = environment }
-            NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: game.appPath), configuration: configuration) { _, error in
+            NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: game.appPath), configuration: configuration) { app, error in
+                let pid = app?.processIdentifier
                 DispatchQueue.main.async {
-                    launching = false
-                    if let error { launchError = error.localizedDescription }
+                    MainActor.assumeIsolated {
+                        launching = false
+                        if let error { launchError = error.localizedDescription }
+                        else if let pid { GameReturnWatcher.shared.didStart(pid: pid) }   // ReturnAfterPlay.swift
+                    }
                 }
             }
         } catch { launchError = error.localizedDescription }

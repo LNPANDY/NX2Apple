@@ -2876,6 +2876,7 @@ struct BuilderView: View {
     var padMerge: Binding<Bool> = .constant(false)   // "All controllers are player 1" (ControlLayout.padMerge)
     @AppStorage(ConsolePrompt.defaultsKey) private var consolePromptOn = true   // ConsoleCoordinator.swift
     @AppStorage(BuildNotice.defaultsKey) private var notifyBuilds = true   // BuildNotifications.swift
+    @AppStorage(ReturnAfterPlay.defaultsKey) private var returnAfterPlay = true   // ReturnAfterPlay.swift
     @State private var extrasOpen = false
     @State private var logOpen = false
     @State private var keyCheck: KeyCheck.Outcome?   // prod.keys against the chosen files (KeyCheck.swift)
@@ -3363,6 +3364,12 @@ struct BuilderView: View {
                 }
                 divider
             }
+            // The launcher back in front when a game it started quits (ReturnAfterPlay.swift)
+            row(m.t("settings.returnAfterPlay"), detail: m.t("settings.returnAfterPlayNote")) {
+                Toggle("", isOn: $returnAfterPlay).toggleStyle(LauncherSwitchStyle()).labelsHidden()
+                    .padTarget("set.returnAfterPlay", scope: "main") { returnAfterPlay.toggle() }
+            }
+            divider
             row("NX2Apple", detail: String(format: m.t("app.version"), BuildModel.appVersion),
                 dot: m.appStaged != nil ? LauncherPalette.ready : nil) {
                 if m.appBusy { ProgressView().controlSize(.small) }
