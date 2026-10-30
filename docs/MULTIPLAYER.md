@@ -107,7 +107,7 @@ Roughly four layers, in order:
 | Layer | Content | Where it would live |
 |---|---|---|
 | 1. BSD sockets | `socket`/`bind`/`sendto`/`recvfrom`/`poll`/`select` over the virtual network, with the errno conventions the SDK expects | new `dm/host/hle_bsd.c` (replaces the offline stubs in `hle_offline.c`) |
-| 2. Virtual network | address/MASK/gateway, per-port socket registry, broadcast rules, receive queues, wake-on-packet for `poll` | new `dm/host/dm_vnet.c` |
+| 2. Virtual network | address/mask/gateway, per-port socket registry, broadcast rules, receive queues, wake-on-packet for `poll` | new `dm/host/dm_vnet.c` |
 | 3. Transports | lan-play framing and reassembly, LAN broadcast, wireless via mDNS | one file per transport |
 | 4. `ldn` / `nifm` | make the game believe a session can exist, per-game payload mapping | `hle_ldn.c`, and per-game code |
 
