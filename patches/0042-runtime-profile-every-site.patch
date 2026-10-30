@@ -16,14 +16,14 @@ test_game_profile.py check it.
 Upstream-Status: fork-only (completes 0001 runtime-profile, design note seedds/nxnative#492)
 Reason: the route C shell runs several games on one host binary, so no host site may keep the compiled game's values. It builds on the runtime profile of 0001 and goes upstream with it
 Issue: LNPANDY/NX2Apple#144
-
 ---
  dm/games/game.py                    |   7 +-
  dm/gfx/nvn/hle_nvn.c                |  39 ++++++-----
  dm/gfx/nvn/nvn_capture.h            |   2 +-
  dm/gfx/nvn/nvn_capture.inc          |   2 +-
- dm/gfx/nvn/nvn_mtl.m                |  24 +++----
+ dm/gfx/nvn/nvn_mtl.m                |  25 +++----
  dm/gfx/nvn/nvn_rec.h                |   2 +-
+ dm/gfx/tests/Makefile               |   8 +--
  dm/gfx/tests/t_host_stubs.c         |   2 +
  dm/host/front_mac.m                 |   8 +--
  dm/host/hle_cheats.c                |  14 ++--
@@ -39,7 +39,7 @@ Issue: LNPANDY/NX2Apple#144
  dm/host/tests/Makefile              |  13 +++-
  dm/host/tests/t_profile_runtime.c   | 100 ++++++++++++++++++++++++++++
  dm/tools/tests/test_game_profile.py |  54 +++++++++++++++
- 21 files changed, 286 insertions(+), 78 deletions(-)
+ 22 files changed, 291 insertions(+), 82 deletions(-)
  create mode 100644 dm/host/tests/t_profile_runtime.c
  create mode 100644 dm/tools/tests/test_game_profile.py
 
@@ -232,7 +232,7 @@ index 3d643189..04f308a1 100644
      for (char **e = *_NSGetEnviron(); *e; e++) if (!strncmp(*e, "DM_", 3) && strncmp(*e, "DM_NVN_CAPTURE=", 15)) KV("env\t%s\n", *e);
  #undef KV
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index 0bc6ef76..a8c82c4f 100644
+index 0bc6ef76..68027bdb 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
 @@ -397,7 +397,7 @@ void mtl_init(void) {
@@ -244,7 +244,7 @@ index 0bc6ef76..a8c82c4f 100644
      if (g_bc_cpu) MLOG("BC textures: this GPU has no BC support, decoding them on the CPU (profile tex_bc_cpu)");
      g_q = [g_dev newCommandQueue];
      // A device without Metal 4 (the paravirtualized GPU of a virtual Mac, such as GitHub's macos-26 runner: no residency set, no MTL4CommandQueue) cannot run the NVN layer. The GL and
-@@ -1287,7 +1287,7 @@ static void post(post_op o) {
+@@ -1287,7 +1287,7 @@ static uint64_t gpu_ticks(void) { uint64_t g = guest_ns(); if (!g) { struct time
  // so a game that waits for the fence reads one submission's reports together; a segment whose feedback has not arrived by then takes the last segment's times
  #define SEG_CLK_N 1024
  struct seg_clk { _Atomic int refs; _Atomic uint64_t t[SEG_CLK_N][2]; };   // per submission (g_sclk, allocated at its first cut): guest ns of each cut segment's GPU start / end (0 = no feedback yet)
@@ -262,7 +262,7 @@ index 0bc6ef76..a8c82c4f 100644
      }
      free(ops); seg_clk_put(sc); r->ops = NULL; r->sc = NULL;
      atomic_store(&r->claimed, 1);
-@@ -2669,7 +2669,7 @@ static void sparse_view(NvPkg *pk, const tex_t *t) {
+@@ -2669,7 +2669,7 @@ static id<MTLTexture> tex_mtl_(const tex_t *ct) {
          }
      }
      id have = tex_get(t->serial);
@@ -271,7 +271,7 @@ index 0bc6ef76..a8c82c4f 100644
      if (!packaged && !have && on_sub_thread() && tex_cpu_content(t)) { mtl_tex_cpu_written(t); packaged = 1; }   // storage the CPU wrote before its first use (tex_cpu_content)
      if (packaged) {
          NvPkg *pk = [have isKindOfClass:[NvPkg class]] ? have : nil;   // resolved as GPU-only before the CPU wrote it: dropped and rebuilt as packaged
-@@ -3658,7 +3658,7 @@ static int clear_rect_zero(int i) {
+@@ -3658,7 +3658,7 @@ static NSString *exe_rel(const char *rel) {
  static void shmap_load(void) {
      if (g_shmap) return;
      const char *e = getenv("DM_NVN_SHMAP");
@@ -289,7 +289,7 @@ index 0bc6ef76..a8c82c4f 100644
      else MLOG("shader library stamp: game %s, inputs %s", st_game.UTF8String, st_inputs.UTF8String);
      NSString *cp = [[path stringByDeletingLastPathComponent] stringByAppendingPathComponent:@"c1_full.tsv"];   // Same directory as the mapping table (Mac: dm/games/<id>; iOS: dm/ inside the App, copied along by build_ipa.sh)
      NSString *ct = cp ? [NSString stringWithContentsOfFile:cp encoding:NSUTF8StringEncoding error:nil] : nil;
-@@ -3887,7 +3887,7 @@ void mtl_set_depth_zero(int on) {
+@@ -3887,7 +3887,7 @@ static NvShader *shader_load(NSString *pc, int stage, int layer) {
      if (stage == 0 && [j[@"layer_from"] isKindOfClass:[NSDictionary class]]) { o->lay_loc = [j[@"layer_from"][@"loc"] intValue]; o->lay_comp = [[j[@"layer_from"][@"comp"] description] UTF8String][0]; }
      char err[160];
      if (nvn_refl_from_json(j, &o->rf, err, sizeof err)) { MLOG("[RED] shader %s reflection conversion failed: %s", pc.UTF8String, err); return nil; }
@@ -298,7 +298,7 @@ index 0bc6ef76..a8c82c4f 100644
          // (rf.c1 is freed by dealloc when o goes: freeing it here too was a double free, which aborted FINAL FANTASY RESONANCE at its first such shader)
          MLOG("[RED] shader %s reflection conversion failed: a texture handle the translator could not trace to one slot (profile key tex_dyn_slots off)", pc.UTF8String); return nil; }
      if (rt_range_on()) o->range_ro=rt_range_bindings_ro(j);
-@@ -5185,7 +5185,7 @@ static void vconv_fill(int f, uint64_t src, uint32_t stride, uint64_t nv, float
+@@ -5185,7 +5185,7 @@ typedef struct { uint64_t ibuf; int32_t count, itype; } ir_key;
  typedef struct { uint32_t mn, mx; uint64_t stamp, seen, lo, n; const void *span; int gpuw; } ir_ent;   // gpuw: a GPU write was queued on the indices: never trusted again
  static nvn_hmap g_ir = {.klen = sizeof(ir_key)};
  static uint64_t g_vc_rgn[VC_RGN / 64], g_vc_stat, g_vc_conv, g_vc_whole, g_vc_checks, g_vc_bad;   // g_vc_rgn: 1 MB regions holding a kept index range (hashed); g_vc_conv / g_vc_whole: vertices converted / in the bound ranges
@@ -334,7 +334,7 @@ index 0bc6ef76..a8c82c4f 100644
                  if (t == NVN_COUNTER_TYPE_SAMPLES_PASSED) { post((post_op){3, NULL, 0, 0, ad, (uint32_t)t, vis_snapshot()}); g_vis_cur = -1; }
                  else mtl_sub_counter(ad, (uint32_t)t);
                  break; }
-@@ -11715,7 +11715,7 @@ uint64_t mtl_present_ext(uint64_t serial, double period, void *ev, uint64_t ev_v
+@@ -11715,9 +11715,10 @@ static int g_snap_n = 2;
  int mtl_snap_on(void) {
      static int v = -1; if (v >= 0) return v;
      const char *e = getenv("DM_PRESENT_SNAP");
@@ -342,7 +342,10 @@ index 0bc6ef76..a8c82c4f 100644
 +    int n = e ? atoi(e) : dm_prof()->present_snap ? 2 : 0;   // the profile's present_snap (a ring of 2)
      v = n > 0; g_snap_n = n < 2 ? 2 : n > SNAP_MAX ? SNAP_MAX : n;
      if (v) MLOG("present snapshots (DM_PRESENT_SNAP=%d): each present is copied into a ring of %d host textures and the game's texture is free at once", n, g_snap_n);
++    else MLOG("present snapshots off (%s): the screen shows the game's own texture", e ? "DM_PRESENT_SNAP" : "game profile present_snap");   // Frame buffering off: the log says so too
      return v;
+ }
+ static void snap_commit_wait(uint64_t v) { if (v) rec_note_wait(&g_snap_cmt, v); }
 diff --git a/dm/gfx/nvn/nvn_rec.h b/dm/gfx/nvn/nvn_rec.h
 index c584ab2b..a4c591e8 100644
 --- a/dm/gfx/nvn/nvn_rec.h
@@ -356,6 +359,25 @@ index c584ab2b..a4c591e8 100644
  #endif
      if (g_rec) MLOG("Metal encoding runs on its own thread (DM_NVN_ENC_THREAD=0 turns it off)");
      return g_rec;
+diff --git a/dm/gfx/tests/Makefile b/dm/gfx/tests/Makefile
+index a416e166..4629d8cc 100644
+--- a/dm/gfx/tests/Makefile
++++ b/dm/gfx/tests/Makefile
+@@ -41,10 +41,10 @@ t_transform_feedback: t_transform_feedback.m $(MTL_T_DEP)
+ .PHONY: check_t_transform_feedback
+ check_t_transform_feedback: t_transform_feedback
+ 	DM_TEST_TRANSFORM_FEEDBACK=$(CURDIR)/t_transform_feedback MTL_DEBUG_LAYER=1 python3 -m unittest test_transform_feedback.py
+-t_gfx_suspend: t_gfx_suspend.c ../nvn/hle_nvn.c ../../host/crash.c ../../host/hle_bigstack.c $(GFX) $(GFX_H)
+-	clang $(CFLAGS) -fobjc-arc -o $@ t_gfx_suspend.c ../../host/crash.c ../../host/hle_bigstack.c $(GFX) $(FW)
+-t_nvn: t_nvn.c ../nvn/hle_nvn.c ../../host/crash.c ../../host/hle_bigstack.c $(GFX) $(GFX_H)
+-	clang $(CFLAGS) -fobjc-arc -o $@ t_nvn.c ../../host/crash.c ../../host/hle_bigstack.c $(GFX) $(FW)
++t_gfx_suspend: t_gfx_suspend.c ../nvn/hle_nvn.c ../../host/crash.c ../../host/hle_bigstack.c ../../host/hle_profile.c $(GFX) $(GFX_H)
++	clang $(CFLAGS) -fobjc-arc -o $@ t_gfx_suspend.c ../../host/crash.c ../../host/hle_bigstack.c ../../host/hle_profile.c $(GFX) $(FW)
++t_nvn: t_nvn.c ../nvn/hle_nvn.c ../../host/crash.c ../../host/hle_bigstack.c ../../host/hle_profile.c $(GFX) $(GFX_H)
++	clang $(CFLAGS) -fobjc-arc -o $@ t_nvn.c ../../host/crash.c ../../host/hle_bigstack.c ../../host/hle_profile.c $(GFX) $(FW)
+ t_dirty_slots: t_dirty_slots.c ../nvn/nvn_dirty.c ../../host/crash.c ../nvn/nvn_dirty.h $(GAME_H)
+ 	clang $(CFLAGS) -o $@ t_dirty_slots.c ../../host/crash.c ../nvn/nvn_dirty.c
+ t_dirty_race: t_dirty_race.c ../nvn/nvn_dirty.c ../../host/crash.c ../nvn/nvn_dirty.h $(GAME_H)
 diff --git a/dm/gfx/tests/t_host_stubs.c b/dm/gfx/tests/t_host_stubs.c
 index 8f9b3f85..24d3c633 100644
 --- a/dm/gfx/tests/t_host_stubs.c
@@ -370,7 +392,7 @@ diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
 index 182e32df..ec864482 100644
 --- a/dm/host/front_mac.m
 +++ b/dm/host/front_mac.m
-@@ -728,7 +728,7 @@ - (BOOL)control:(NSControl *)c textView:(NSTextView *)tv doCommandBySelector:(SE
+@@ -728,7 +728,7 @@ static NSTextField *panel_note(NSString *text) {
  // the path came in. build: this build's ID (read from the engine on the main thread by the caller). Runs on a background
  // queue (findCheats:): it touches only the file system and Foundation, never AppKit or the cheats engine
  static NSArray<NSURL *> *found_cheat_files(NSString *build) {
@@ -379,7 +401,7 @@ index 182e32df..ec864482 100644
      NSString *as = [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Application Support"];
      NSMutableArray<NSString *> *dirs = [NSMutableArray array];
      NSFileManager *fm = NSFileManager.defaultManager;
-@@ -815,7 +815,7 @@ - (BOOL)importFiles:(NSArray<NSURL *> *)urls {
+@@ -815,7 +815,7 @@ static NSArray<NSURL *> *found_cheat_files(NSString *build) {
      const char *dirc = dm_cheats_dir_path();
      if (!dirc || !*dirc || strlen(dm_cheats_build()) != 16) { NSBeep(); return NO; }   // no folder, or no build ID to name a file by
      NSString *dir = engine_str(dirc), *build = engine_str(dm_cheats_build());
