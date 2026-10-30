@@ -166,7 +166,8 @@ struct ContentView: View {
             if performStartupChecks { library.discover(); fetchArtwork(); m.refreshDevices(); checkTools() }
             if performStartupChecks {
                 m.checkDeps()
-                if m.repoOK && m.repoIsGit { m.checkRepoUpdates(silent: true) } else { m.adoptAtLaunch() }
+                if m.usesEngineStore { m.prepareEngine() }   // the release app: its engine store, never git (EngineUpdateModel.swift)
+                else if m.repoOK && m.repoIsGit { m.checkRepoUpdates(silent: true) } else { m.adoptAtLaunch() }
                 m.checkAppUpdate(silent: true)
                 BuildNotifier.shared.watch(m, library: library)   // BuildNotifications.swift
             }
@@ -200,6 +201,7 @@ struct ContentView: View {
                 DispatchQueue.main.async {
                     if m.done { recordBuild() }
                     activeBuildID = nil
+                    m.applyPendingEngine()   // an engine installed during the build takes over once it is recorded
                 }
             }
         }
