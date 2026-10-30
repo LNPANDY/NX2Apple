@@ -253,7 +253,7 @@ final class BuildFailureTests: XCTestCase {
                                   + [BuildFailureKind.keys, .severalGames, .noTitleID, .driveMissing, .diskFull, .teamTaken, .noSigningAccount, .deviceTransfer].flatMap { k in
                                       [("row-\(k.rawValue)", k, Lang.en), ("row-\(k.rawValue)-zh", k, Lang.zh)] } {
             let m = BuildModel()
-            m.lang = lang
+            m.lang = CaptureLanguage.current(lang)
             m.failure = BuildFailure(kind: kind, gameName: nil, detail: kind == .diskFull ? "40" : kind == .driveMissing ? "Games" : nil)
             m.doneNote = m.failureWhat(m.failure!)
             try capture(name, width: 760, height: kind == .noTitleID ? 380 : 250, ZStack(alignment: .top) {
