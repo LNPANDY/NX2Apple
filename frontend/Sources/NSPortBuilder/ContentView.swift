@@ -22,6 +22,19 @@ struct Stage: Identifiable {
     var eta: Double? = nil     // the script's estimate of the seconds left, as of etaAt
     var etaAt: Date? = nil
 
+    /// A stage's name in the launcher's language. The script names its stages in English (PROG.stage in
+    /// build_ipa_from_nsp.py): stage.<name> in the table, "extract <name>" and "<API> shader capture" with their
+    /// part kept; a name the table does not know (a newer script's) is shown as the script wrote it.
+    static func localizedName(_ name: String, _ t: (String) -> String) -> String {
+        func known(_ key: String) -> String? { let s = t(key); return s == key ? nil : s }
+        let key = "stage." + name.lowercased().replacingOccurrences(of: "[^a-z0-9]+", with: "_", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "_"))
+        if let s = known(key) { return s }
+        if name.hasPrefix("extract "), let f = known("stage.extract") { return String(format: f, String(name.dropFirst("extract ".count))) }
+        if name.hasSuffix(" shader capture"), let f = known("stage.capture") { return String(format: f, String(name.dropLast(" shader capture".count))) }
+        return name
+    }
+
     /// "3:42" since the stage began, then "1 min left" while the script's estimate, counted down from when it came,
     /// lasts: the estimate only arrives with a new count, so one taken as it was would stand still with the count.
     func clock(at now: Date, left: String) -> String {
@@ -1659,12 +1672,12 @@ final class BuildModel: ObservableObject {
         }
         guard let s = Self.parseStage(line) else { return }
         if let i = stages.firstIndex(where: { $0.id == s.k }) {
-            if !s.name.isEmpty { stages[i].name = s.name }
+            if !s.name.isEmpty { stages[i].name = Stage.localizedName(s.name, t) }
             if s.state != .pending { stages[i].state = s.state }
             if !s.detail.isEmpty { stages[i].detail = s.detail }
             stages[i].percent = s.percent
         } else if s.state != .pending {
-            stages.append(Stage(id: s.k, name: s.name, state: s.state, detail: s.detail, percent: s.percent, started: Date()))
+            stages.append(Stage(id: s.k, name: Stage.localizedName(s.name, t), state: s.state, detail: s.detail, percent: s.percent, started: Date()))
             stages.sort { $0.id < $1.id }
         }
     }
@@ -1695,14 +1708,14 @@ final class BuildModel: ObservableObject {
         let k = (e["k"] as? NSNumber)?.intValue ?? 0
         func stage(_ update: (inout Stage) -> Void) {
             if let i = stages.firstIndex(where: { $0.id == k }) { update(&stages[i]) }
-            else { var s = Stage(id: k, name: e["name"] as? String ?? ""); update(&s); stages.append(s); stages.sort { $0.id < $1.id } }
+            else { var s = Stage(id: k, name: Stage.localizedName(e["name"] as? String ?? "", t)); update(&s); stages.append(s); stages.sort { $0.id < $1.id } }
         }
         switch kind {
         case "stage":
             let name = e["name"] as? String ?? "", step = e["step"] as? String ?? ""
             let n = (e["n"] as? NSNumber)?.intValue ?? 0
             append("[\(k)/\(n)] \(name)" + (step.isEmpty ? "" : " · \(step)") + " …\n")
-            stage { $0.name = name; $0.state = .running; $0.detail = step; $0.percent = nil; $0.started = Date(); $0.eta = nil }
+            stage { $0.name = Stage.localizedName(name, t); $0.state = .running; $0.detail = step; $0.percent = nil; $0.started = Date(); $0.eta = nil }
         case "step":
             let step = e["step"] as? String ?? ""
             append("    · \(step)\n")

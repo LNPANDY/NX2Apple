@@ -28,6 +28,45 @@ final class LaunchOptionsTests: XCTestCase {
     private let opmode = #"{"env": "DM_OPMODE", "kind": "choice", "label": "Console mode", "note": "", "default": "1", "section": "Game", "options": [["1", "Docked"], ["0", "Handheld"]]}"#
     private let hud = #"{"env": "DM_METAL_HUD", "kind": "toggle", "label": "Metal HUD", "note": "", "default": "0", "section": "Performance", "on": "1", "off": "0"}"#
 
+    func testTheBuildsEnglishRowsAreShownInTheLaunchersLanguage() throws {
+        let unknown = #"{"env": "DM_NEW", "kind": "choice", "label": "New setting", "note": "A note", "default": "a", "section": "Game", "options": [["a", "Alpha"]]}"#
+        let (app, repo) = try app([opmode, unknown].joined(separator: ","))
+        let sv = try XCTUnwrap(LaunchSetting.forMac(app: app, titleID: "01007EF00011E000", repo: repo, labels: { L10n.string($0, .sv) }))
+        let mode = try XCTUnwrap(sv.first { $0.env == "DM_OPMODE" })
+        XCTAssertEqual(mode.label, "Konsolläge")
+        XCTAssertEqual(mode.options ?? [], [["1", "Dockad"], ["0", "Handhållen"]], "the values stay, the labels change")
+        let new = try XCTUnwrap(sv.first { $0.env == "DM_NEW" })
+        XCTAssertEqual([new.label, new.note], ["New setting", "A note"], "a row the table does not know keeps the build's text")
+        XCTAssertEqual(new.options ?? [], [["a", "Alpha"]])
+        let zh = try XCTUnwrap(LaunchSetting.forMac(app: app, titleID: "01007EF00011E000", repo: repo, labels: { L10n.string($0, .zh) }))
+        XCTAssertEqual(zh.first { $0.env == "DM_OPMODE" }?.label, "主机模式")
+    }
+
+    /// Every row of dm/games/settings.tsv and every language of dm/tools/nacp.py has its launch.opt entry, with the same
+    /// English, so a row added there is translated here too.
+    func testEveryPlayerFacingSettingHasItsEntries() throws {
+        let tsv = try String(contentsOf: BuildFailureTests.engine.appendingPathComponent("dm/games/settings.tsv"), encoding: .utf8)
+        for line in tsv.split(separator: "\n") where !line.hasPrefix("#") {
+            let c = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+            guard c.count > 6 else { continue }
+            XCTAssertEqual(L10n.string("launch.opt." + c[0], .en), c[6], c[0])
+            if c.count > 7, !c[7].isEmpty { XCTAssertEqual(L10n.string("launch.opt.\(c[0]).note", .en), c[7], c[0]) }
+            if c[1] == "choice", c[2] != "languages" {
+                for pair in c[2].split(separator: ",") {
+                    let v = pair.split(separator: "=", maxSplits: 1).map(String.init)
+                    XCTAssertEqual(L10n.string("launch.opt.\(c[0]).\(v[0])", .en), v[1], c[0])
+                }
+            }
+        }
+        let nacp = try String(contentsOf: BuildFailureTests.engine.appendingPathComponent("dm/tools/nacp.py"), encoding: .utf8)
+        let re = try NSRegularExpression(pattern: #"\('([A-Za-z-0-9]+)', '([^']+)'\)"#)
+        let langs = re.matches(in: nacp, range: NSRange(nacp.startIndex..., in: nacp)).map { m in
+            (String(nacp[Range(m.range(at: 1), in: nacp)!]), String(nacp[Range(m.range(at: 2), in: nacp)!]))
+        }
+        XCTAssertEqual(langs.count, 16)
+        for (code, name) in langs { XCTAssertEqual(L10n.string("launch.opt.DM_LANG." + code, .en), name, code) }
+    }
+
     func testDisplayModeComesAfterTheRenderScaleAndWindowLeavesTheVariableUnset() throws {
         let (app, repo) = try app([scale, opmode].joined(separator: ","))
         let list = try XCTUnwrap(LaunchSetting.forMac(app: app, titleID: "01007EF00011E000", repo: repo, labels: { $0 }))
