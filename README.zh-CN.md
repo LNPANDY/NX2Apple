@@ -13,8 +13,8 @@
 [![Forks](https://img.shields.io/github/forks/LNPANDY/NX2Apple?style=social)](https://github.com/LNPANDY/NX2Apple/network/members)
 [![Issues](https://img.shields.io/github/issues/LNPANDY/NX2Apple)](https://github.com/LNPANDY/NX2Apple/issues)
 [![License](https://img.shields.io/github/license/LNPANDY/NX2Apple)](LICENSE)
-[![游戏](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FLNPANDY%2FNX2Apple%2Fmain%2Fdocs%2Fbadges%2Fgames.json)](docs/badges/games.json)
-[![已验证](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FLNPANDY%2FNX2Apple%2Fmain%2Fdocs%2Fbadges%2Fverified.json)](docs/badges/verified.json)
+[![游戏](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FLNPANDY%2FNX2Apple%2Fmain%2F.github%2Fbadges%2Fgames.json)](.github/badges/games.json)
+[![已验证](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FLNPANDY%2FNX2Apple%2Fmain%2F.github%2Fbadges%2Fverified.json)](.github/badges/verified.json)
 
 [![English](https://img.shields.io/badge/🇺🇸_English-available-green)](README.md)
 [![简体中文](https://img.shields.io/badge/🇨🇳_简体中文-当前-blue)](README.zh-CN.md)
@@ -73,11 +73,11 @@ App 自带构建工具和 Python，不需要装 Homebrew 和 Python；.NET SDK 1
 
 **在 Mac 上**，构建好的游戏带着封面出现在游戏库里，点 **Play** 启动。**启动选项**（按游戏保存，重新
 构建后仍然保留）可设置帧率、主机模式（底座或掌机）、渲染缩放和超分辨率、游戏语言、操控等；每项的
-作用见 [docs/settings.md](docs/settings.md)（英文）。手柄既能操作游戏，也能操作启动器。
+作用见 [docs/settings.md](https://github.com/seedds/nxnative/blob/ee6648cb2bb46c19255c1d04f88e9c40d36ef6b4/docs/settings.md)（英文）。手柄既能操作游戏，也能操作启动器。
 
 **在 iPhone 上**，App 在游戏开始前显示同样的设置，点 **Play** 即可。触屏操控有 2D 和 3D 两种布局
 （点顶部中央的按钮切换），连接手柄（Xbox、PlayStation、Switch Pro、MFi）后触屏控件会隐藏。
-触屏、震动和体感见 [docs/playing.md](docs/playing.md)（英文）。新场景第一次出现时短促卡顿是正常的：
+触屏、震动和体感见 [docs/playing.md](https://github.com/seedds/nxnative/blob/ee6648cb2bb46c19255c1d04f88e9c40d36ef6b4/docs/playing.md)（英文）。新场景第一次出现时短促卡顿是正常的：
 App 会为它编译一次图形并记住。游戏数据（`romfs.img`）可以放在外置硬盘上，用「文件」App 选取。
 
 **游戏语言。** 默认英文。Mac 上用启动选项里的「游戏语言」一行。面板里没有的设置，可以写一个
@@ -103,12 +103,12 @@ iPhone 上在「文件」App 里该 App 名字下：`save/` 和 `log.txt`（上�
 
 | | 游戏 | 运行于 | 状态 |
 |---|---|---|---|
-| <img src="docs/images/zelda-tears-of-the-kingdom.jpg" width="96" alt=""> | 塞尔达传说：王国之泪 | Mac 和 iPhone | **本 fork 验证**：304,243 个文件，逐字节校验；约 17 GB |
-| <img src="docs/images/hades-ii.jpg" width="96" alt=""> | Hades II | Mac 和 iPhone | **本 fork 验证** |
-| <img src="docs/images/animal-crossing-new-horizons.jpg" width="96" alt=""> | 集合啦！动物森友会 | iPhone | **本 fork 验证**：流畅运行 |
-| <img src="docs/images/super-mario-odyssey.jpg" width="96" alt=""> | 超级马力欧 奥德赛 | iPhone | 上游报告可玩 |
-| <img src="docs/images/zelda-breath-of-the-wild.jpg" width="96" alt=""> | 塞尔达传说：旷野之息 | iPhone | 上游报告可玩；1.9.0 可 60 fps |
-| <img src="docs/images/mario-kart-8-deluxe.jpg" width="96" alt=""> | 马力欧卡丁车 8 豪华版 | iPhone | 上游报告可玩 |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/ee6648cb2bb46c19255c1d04f88e9c40d36ef6b4/docs/images/zelda-tears-of-the-kingdom.jpg" width="96" alt=""> | 塞尔达传说：王国之泪 | Mac 和 iPhone | **本 fork 验证**：304,243 个文件，逐字节校验；约 17 GB |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/ee6648cb2bb46c19255c1d04f88e9c40d36ef6b4/docs/images/hades-ii.jpg" width="96" alt=""> | Hades II | Mac 和 iPhone | **本 fork 验证** |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/ee6648cb2bb46c19255c1d04f88e9c40d36ef6b4/docs/images/animal-crossing-new-horizons.jpg" width="96" alt=""> | 集合啦！动物森友会 | iPhone | **本 fork 验证**：流畅运行 |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/ee6648cb2bb46c19255c1d04f88e9c40d36ef6b4/docs/images/super-mario-odyssey.jpg" width="96" alt=""> | 超级马力欧 奥德赛 | iPhone | 上游报告可玩 |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/ee6648cb2bb46c19255c1d04f88e9c40d36ef6b4/docs/images/zelda-breath-of-the-wild.jpg" width="96" alt=""> | 塞尔达传说：旷野之息 | iPhone | 上游报告可玩；1.9.0 可 60 fps |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/ee6648cb2bb46c19255c1d04f88e9c40d36ef6b4/docs/images/mario-kart-8-deluxe.jpg" width="96" alt=""> | 马力欧卡丁车 8 豪华版 | iPhone | 上游报告可玩 |
 
 **[GAMES.zh-CN.md](GAMES.zh-CN.md)**（English: [GAMES.md](GAMES.md)，带截图图库和每款的安装大小）
 有完整表格和每款游戏需要的更新包版本：更新包 NSP 的显示版本必须与 profile 一致，否则构建会提示。
@@ -116,11 +116,11 @@ iPhone 上在「文件」App 里该 App 名字下：`save/` 和 `log.txt`（上�
 ## 限制
 
 - **只支持有 profile 的游戏。** 列表之外的游戏需要单独的 bring-up 工作；起点是
-  [docs/agents](docs/agents/README.md)（上游为其他 Switch 游戏写的指南，英文）。
+  [docs/agents](https://github.com/seedds/nxnative/blob/ee6648cb2bb46c19255c1d04f88e9c40d36ef6b4/docs/agents/README.md)（上游为其他 Switch 游戏写的指南，英文）。
 - **大体积游戏在 iPhone 上会碰到内存上限。** 没有 Increased Memory Limit entitlement 时 iOS 只给 App
   约 3.4 GB，不够《王国之泪》用。App 请求了它，AltStore Classic 2.2+、Impactor 和 Xcode + Personal Team
   会保留；SideStore 配合免费 Apple ID 需要对 App ID 做一次性修复，Sideloadly 会丢掉它
-  （[步骤](dm/ios/ENTITLEMENTS.md)）。完整的测量见 [GAMES.zh-CN.md](GAMES.zh-CN.md#验证情况)。
+  （[步骤](ENTITLEMENTS.md)）。完整的测量见 [GAMES.zh-CN.md](GAMES.zh-CN.md#验证情况)。
 - **App 未签名。** 启动器和 iPhone 构建不会替你签名，需要你自己侧载。
 - **你自己的文件。** 不包含也不下载任何游戏数据、固件或密钥。
 - **旧的分片归档不再被读取。** 最早的 iPhone 构建把《王国之泪》打成 RomFS 分片归档（`romfs.idx`）；现在
@@ -129,11 +129,12 @@ iPhone 上在「文件」App 里该 App 名字下：`save/` 和 `log.txt`（上�
 ## 给开发者
 
 - **从源码构建：** [BUILDING.zh-CN.md](BUILDING.zh-CN.md)。**报告或修复问题：** [CONTRIBUTING.zh-CN.md](CONTRIBUTING.zh-CN.md)。
-- **本 fork 对上游改了什么：** 引擎（`dm/`、`scripts/`、`docs/`、`ref/`、`AGENTS.md`）就是 nxnative 在固定提交上的
-  内容，加一组补丁，每个补丁写明本 fork 为什么带着它。见 [patches/README.md](patches/README.md)；
+- **本 fork 对上游改了什么：** 引擎（`dm/`、`scripts/`、`docs/`、`ref/`）不提交在本仓库里。它是 nxnative
+  在固定提交（`.upstream-ref`）上的内容，加一组补丁，每个补丁写明本 fork 为什么带着它，
+  `python3 tools/engine.py sync` 把它构建到 `engine/`。见 [patches/README.md](patches/README.md)。
   `python3 tools/engine.py status` 列出带着的全部补丁。每天一次的任务移动固定提交并开 pull request，
-  某个补丁对不上时开一个点名该补丁的 issue。
-- **其他 Switch 游戏：** [docs/agents](docs/agents/README.md)（解包、二进制调查、bring-up）。
+  某个补丁对不上时开一个点名该补丁的 issue。本页指向引擎文档的链接都指向 nxnative 的固定提交。
+- **其他 Switch 游戏：** [docs/agents](https://github.com/seedds/nxnative/blob/ee6648cb2bb46c19255c1d04f88e9c40d36ef6b4/docs/agents/README.md)（解包、二进制调查、bring-up）。
 - **版本历史：** [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md)。
 
 ## 致谢
@@ -157,7 +158,7 @@ iPhone 上在「文件」App 里该 App 名字下：`save/` 和 `log.txt`（上�
 - **[SPIRV-Cross](https://github.com/KhronosGroup/SPIRV-Cross)** —— SPIR-V 转 Metal Shading Language。
 - **yuzu**、**deko3d**、**libvpx**、**stb_vorbis**、**libdeflate** —— 各自贡献见上游致谢列表。
 
-`dm/third_party` 里随附了其他项目及其许可证（[列表](dm/third_party/README.md)）。
+`dm/third_party` 里随附了其他项目及其许可证（[列表](https://github.com/seedds/nxnative/blob/ee6648cb2bb46c19255c1d04f88e9c40d36ef6b4/dm/third_party/README.md)）。
 
 ## 法律
 

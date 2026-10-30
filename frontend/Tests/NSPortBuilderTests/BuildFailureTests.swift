@@ -12,6 +12,8 @@ final class BuildFailureTests: XCTestCase {
 
     static let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         .deletingLastPathComponent().deletingLastPathComponent()   // the repository root
+    /// The engine's files (scripts/, dm/): `engine/` after `python3 tools/engine.py sync` (the repository commits none, #214).
+    static let engine = root.appendingPathComponent("engine")
 
     func fixtures() throws -> [Fixture] {
         let url = Self.root.appendingPathComponent("frontend/Tests/Fixtures/build_failures.json")
@@ -37,15 +39,15 @@ final class BuildFailureTests: XCTestCase {
     /// The rows that no log line sets: the launcher's own state (a drive, a team) or the step that failed (the install).
     static let stateKinds: Set<BuildFailureKind> = [.driveMissing, .teamTaken, .noSigningAccount, .deviceTransfer, .engineOffline, .engineSync]
 
-    /// A sync of scripts/ or dm/ that rewords a message must fail here, not turn a hint into the raw last line.
-    func testTheVendoredScriptsStillSayWhatThePatternsExpect() throws {
+    /// A bump of the pin or a patch that rewords a message must fail here, not turn a hint into the raw last line.
+    func testTheEnginesScriptsStillSayWhatThePatternsExpect() throws {
         for f in try fixtures() {
             if f.source == "errno" {   // the system's own text, not the script's
                 XCTAssertEqual(String(cString: strerror(ENOSPC)), f.fragment, f.id)
                 continue
             }
             if f.source == "codesign" { continue }   // Apple's text, from a tool the script runs
-            let source = try String(contentsOf: Self.root.appendingPathComponent(f.source), encoding: .utf8)
+            let source = try String(contentsOf: Self.engine.appendingPathComponent(f.source), encoding: .utf8)
             let there = source.contains(f.fragment)
             XCTAssertTrue(there, "\(f.id): \(f.source) no longer contains \"\(f.fragment)\": update the pattern and the fixture")
         }
@@ -181,7 +183,7 @@ final class BuildFailureTests: XCTestCase {
     }
 
     func testTheRepositorysOwnLockHasTheTwoPins() throws {
-        let lock = try String(contentsOf: Self.root.appendingPathComponent(MetalPin.lockPath), encoding: .utf8)
+        let lock = try String(contentsOf: Self.engine.appendingPathComponent(MetalPin.lockPath), encoding: .utf8)
         XCTAssertNotNil(MetalPin.pins(lock: lock)["metal_macosx"])
         XCTAssertNotNil(MetalPin.pins(lock: lock)["metal_iphoneos"])
     }

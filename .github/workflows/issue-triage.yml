@@ -1,7 +1,7 @@
 # Issue triage and log first aid, run by the GitHub Copilot CLI on a Copilot subscription (see .github/triage/README.md for the cost).
 #
 # Three jobs, each with the least it needs; the issue text is untrusted, so the model never holds a write token:
-#   gather   issues: read, no secrets   reads the issue, extracts log signals, matches docs/agents/symptoms.md, finds duplicate candidates
+#   gather   issues: read, no secrets   reads the issue, extracts log signals, matches the engine's docs/agents/symptoms.md, finds duplicate candidates
 #   analyze  no permissions, the model token   the Copilot CLI answers one JSON object; it can only read (--available-tools=view), in an empty directory
 #   apply    issues: write, no model token     validates the JSON strictly (.github/scripts/triage_apply.py), then adds labels and, only in post mode, posts one comment (report mode, the default: job summary and artifact instead)
 # The workflow never closes an issue, edits code, removes a label or runs on pull_request_target. Without the COPILOT_TOKEN secret it skips with a notice.
@@ -58,11 +58,10 @@ jobs:
         id: prepare
         env:
           GH_TOKEN: ${{ github.token }}
-        # The symptom index comes from engine/ (tools/engine.py sync, issue #214), or from the committed docs/ while the repository has them
+        # The symptom index comes from engine/ (tools/engine.py sync, issue #214): the repository commits no docs/
         run: |
-          python3 -I tools/engine.py sync || true
-          docs=docs; [ -f engine/docs/agents/symptoms.md ] && docs=engine/docs
-          python3 -I .github/scripts/triage_prepare.py --repo "$GITHUB_REPOSITORY" --issue "$ISSUE" --out "$RUNNER_TEMP/triage" --docs "$docs"
+          python3 -I tools/engine.py sync
+          python3 -I .github/scripts/triage_prepare.py --repo "$GITHUB_REPOSITORY" --issue "$ISSUE" --out "$RUNNER_TEMP/triage" --docs engine/docs
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: steps.prepare.outputs.skip == 'false'
         with:

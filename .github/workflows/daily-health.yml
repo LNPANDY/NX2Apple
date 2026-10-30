@@ -2,7 +2,7 @@
 # purpose — that workflow can fail silently (its own issue step needs a permission it may not have),
 # so this one reports on the state of the tree rather than on a sync attempt:
 #   - the last sync is recent (catches a schedule that stopped firing, or a run that died early)
-#   - the patch queue reproduces the vendored tree (catches a vendored edit without its patch) and shows which patches a bump to upstream main would conflict on
+#   - the patch queue is valid and applies to the pin (catches a broken header or a patch the pin no longer takes) and shows which patches a bump to upstream main would conflict on
 #   - the host builds and the host unit tests pass (catches a fork change that broke a test rule)
 #   - upstream has not moved without a sync (catches a failed sync that left no issue or PR)
 # A problem opens an issue with the log; a clean run just succeeds. No push, ever.
@@ -54,8 +54,8 @@ jobs:
             fi
 
             echo
-            echo "=== patch queue (check: the series applies to the pin and reproduces the committed vendored tree) ==="
-            python3 tools/engine.py check --tree 2>&1 | tail -40
+            echo "=== patch queue (check: the headers are complete and the series applies to the pin) ==="
+            python3 tools/engine.py check 2>&1 | tail -40
             CHECK_RC=${PIPESTATUS[0]}
             echo
             echo "=== patch queue (dry bump to seedds/main: which patches would conflict) ==="
@@ -93,5 +93,5 @@ jobs:
           $(tail -60 check.log 2>/dev/null || echo 'see the workflow log')
           \`\`\`
 
-          Common causes: a vendored file edited without its patch (patches/README.md), a test rule that no longer links a new dependency, or a sync that has not run for over two days." \
+          Common causes: a patch the pin no longer takes (patches/README.md), a test rule that no longer links a new dependency, or a sync that has not run for over two days." \
             || echo "issue creation failed; the log is in the workflow run"

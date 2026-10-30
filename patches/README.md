@@ -1,27 +1,24 @@
 # The patch queue
 
-> **engine/ (issue #214, step 1).** The engine is now also built into `engine/`, a real git repository that git ignores:
-> `python3 tools/engine.py sync` fetches seedds/nxnative at the pin (one commit deep) and applies `series` there with `git am`, one
-> commit per patch. Engine work is a commit in `engine/`, and `python3 tools/engine.py export` turns it into a patch with the header
-> below. The launchers, CI and the release app use `engine/`. The committed copy in `dm/`, `scripts/`, `docs/`, `ref/` and `AGENTS.md`
-> stays until one release has shipped with both layouts (step 2), and `tools/engine.py check --tree` keeps it equal to pin + series.
-> The patch tool moved from `tools/patches.py` to `tools/patches.py` (the old path forwards).
->
-> ```sh
-> python3 tools/engine.py sync                 # engine/ = pin + series (a no-op when nothing changed)
-> python3 tools/engine.py status               # what we carry, and the state of engine/
-> python3 tools/engine.py export               # commits made in engine/ since the last sync become patches
-> python3 tools/engine.py check --tree         # the series applies cleanly to the pin, and the committed tree matches
-> python3 tools/engine.py bump --dry --to main # which patches a bump would drop or conflict on
-> ```
->
-> `sync` never throws away work in `engine/`: with commits or changes there it stops and names `export` (or `--force`, which keeps
-> them on a backup branch). Offline, it says so and names the fix. A release app carries no engine: the launcher runs `sync` on the first start and after updates, which downloads about 80 MB from GitHub.
+The engine (`dm/`, `scripts/`, `docs/`, `ref/` and upstream's `AGENTS.md`) is not committed in this repository. It is
+[seedds/nxnative](https://github.com/seedds/nxnative) at the commit in `../.upstream-ref`, plus the patches in this folder applied in
+the order of `series` with `git am -3`. `python3 tools/engine.py sync` builds it into `engine/`, a real git repository that the outer
+one ignores: upstream's commit at the pin (one commit deep), then one commit per patch. The same model carries Chromium's changes in
+Electron and the upstream source's changes in a Debian package. The proposal and its reasons are
+[#123](https://github.com/LNPANDY/NX2Apple/issues/123) and [#214](https://github.com/LNPANDY/NX2Apple/issues/214).
 
-`dm/`, `scripts/`, `docs/`, `ref/` and `AGENTS.md` are not edited by hand. They are
-[seedds/nxnative](https://github.com/seedds/nxnative) at the commit in `../.upstream-ref`, plus the patches in this folder
-applied in the order of `series` with `git am -3`. The same model carries Chromium's changes in Electron and the upstream
-source's changes in a Debian package. The proposal and its reasons are [#123](https://github.com/LNPANDY/NX2Apple/issues/123).
+```sh
+python3 tools/engine.py sync                 # engine/ = pin + series (a no-op when nothing changed)
+python3 tools/engine.py status               # what we carry, and the state of engine/
+python3 tools/engine.py export               # commits made in engine/ since the last sync become patches
+python3 tools/engine.py check                # the headers are complete, and the series applies cleanly to the pin
+python3 tools/engine.py bump --dry --to main # which patches a bump would drop or conflict on
+```
+
+`sync` never throws away work in `engine/`: with commits or changes there it stops and names `export` (or `--force`, which keeps
+them on a backup branch). Offline, it says so and names the fix (`NX2APPLE_ENGINE_URL` takes a mirror or a local clone). The launchers
+run it on the first start of a checkout, CI runs it before every job that reads the engine, and the release app carries the engine tree
+instead (below). A PR that adds files under `dm/`, `scripts/`, `docs/` or `ref/` fails the `pr-scope` check.
 
 Every patch is a `git format-patch` file. Its commit message carries a header:
 
@@ -51,43 +48,31 @@ its status is `forwarded seedds/nxnative#<n>`, and the next bump drops it once t
 ## Day to day
 
 ```sh
-python3 tools/patches.py status             # what we carry, and why
-python3 tools/patches.py check              # series on the pin == the vendored tree of this checkout
-python3 tools/patches.py apply              # rebuild the vendored tree from the pin and the series
-python3 tools/patches.py bump --to <sha>    # move the pin (the nightly job does this)
-python3 tools/patches.py bump --dry --to <sha>   # which patches would conflict, changing nothing
-python3 tools/patches.py export <commit>    # a local commit becomes a patch
-python3 tools/patches.py absorb [paths]     # direct edits of vendored files fold into the patches that touch them
+python3 tools/engine.py status              # what we carry, and why (tools/patches.py status prints the table alone)
+python3 tools/engine.py sync                # make engine/ match the pin and the series
+python3 tools/engine.py export              # commits made in engine/ become patches
+python3 tools/engine.py check               # headers valid, no patch on the shader chain, the series applies to the pin
+python3 tools/engine.py bump --to <sha>     # move the pin (the nightly job does this with main)
+python3 tools/engine.py bump --dry --to <sha>   # which patches would conflict, changing nothing
+python3 tools/engine.py relink              # the links into seedds/nxnative in the READMEs follow the pin (bump does it)
 ```
 
-`apply` and `bump` need the upstream commit in the local repository (`git fetch seedds`, the remote
-`https://github.com/seedds/nxnative.git`). Scratch worktrees go to `$PATCHES_TMP` (or `--tmp`), else the system's temporary folder.
-`dm/fork_patches.txt` is generated by `apply` and `bump` (one patch name per line). Do not edit it.
-
-## You edited a vendored file directly (check fails)
-
-`check` names every file that differs from pin + patches and the command to run, e.g. `docs/x.md differs from pin+patches: run
-`python3 tools/patches.py absorb docs/x.md` and commit patches/`. `absorb [paths...]` takes the difference between the
-vendored files of your checkout (working tree or already committed) and pin + series, and folds each file into the patch that
-already touches it (the last one, when several do), keeping that patch's header. Then it runs `check`. Commit `patches/`.
-
-- A new file goes to a patch only when that is unambiguous: the one patch that touches files in the file's nearest folder.
-  Otherwise `absorb` stops, writes nothing, and asks for `--into <patch>` (a name from `status`, or its number).
-- `paths` limit what is folded in (files or folders). Without them every difference is.
-- It refuses the shader chain and the tool pins (Patch policy), and leaves the generated indexes to `apply`.
-- For a change that needs its own `Upstream-Status`, use `export` below instead.
+`bump` needs the new upstream commit, which it fetches into `engine/` itself. Scratch worktrees go to `$PATCHES_TMP` (or `--tmp`), else
+the system's temporary folder. `dm/fork_patches.txt` is generated by `sync` inside `engine/` (one patch name per line). Do not edit it.
 
 ## Carrying a quick fix, and sending it upstream
 
-1. Branch off `main`. Make the fix as an ordinary commit in the vendored files, with a message that says what and why.
-2. `python3 tools/patches.py export HEAD` writes `patches/NNNN-<subject>.patch`, adds it to `series`, and puts the header
-   template into the message (`Upstream-Status: pending`, `Reason: TODO`, `Issue: TODO`, which `--status`, `--reason` and `--issue` set). Fill the three lines in. A range
-   (`export main..HEAD`) makes one patch per commit. Rename the file if you want a shorter name, because the name is what
-   `fork_patches.txt` and `status` show.
-3. `python3 tools/patches.py check` must pass: the series applied to the pin gives exactly the tree you committed. Commit the
-   patch file with the change in the same pull request. The files you edited are already in your commit, so they are part of the PR.
-4. Send the same change to seedds/nxnative as a pull request from a branch off *their* main (`git fetch seedds`,
-   `git switch -c fix-x seedds/main`, `git cherry-pick <commit>`), and set the patch to `forwarded seedds/nxnative#<N>`.
+1. `python3 tools/engine.py sync`, then change the engine in `engine/` and commit there, with a message that says what and why.
+   Do not edit `dm/`, `scripts/`, `docs/` or `ref/` at the root of this repository: they do not exist there, and a PR that adds them
+   fails `pr-scope`.
+2. `python3 tools/engine.py export` writes `patches/NNNN-<subject>.patch` for each commit made since the last sync, adds it to
+   `series`, and puts the header template into the message (`Upstream-Status: pending`, `Reason: TODO`, `Issue: TODO`, which
+   `--status`, `--reason` and `--issue` set). Fill the three lines in. `export HEAD~2..HEAD` or `export <commit>` names the commits.
+   Rename the file if you want a shorter name, because the name is what `fork_patches.txt` and `status` show.
+3. `python3 tools/engine.py check` must pass. Commit `patches/` (and nothing from `engine/`) in a pull request here. The next `sync`
+   rebuilds `engine/` from the series, and keeps your commits on a backup branch.
+4. Send the same change to seedds/nxnative as a pull request from a branch off *their* main (`git -C engine fetch seedds`,
+   `git -C engine switch -c fix-x seedds/main`, `git cherry-pick <commit>`), and set the patch to `forwarded seedds/nxnative#<N>`.
 5. When upstream merges it, the next bump finds the patch empty and drops it (`landed upstream` in the sync PR). If upstream took it
    in a different form (as `Co-authored-by`, reworked), the patch conflicts instead. Delete it then, and set nothing else.
 
@@ -100,9 +85,9 @@ leaves the conflict in a worktree.
 1. In that worktree, resolve the conflict, `git add`, `git am --continue`. If upstream has taken the patch's change in another
    form, `git am --skip` instead.
 2. Apply the patches after it: `git am -3 <the remaining patch files>`.
-3. `python3 tools/patches.py refresh <worktree> --to <sha>` writes the commits back as the series (patches with no commit are
-   deleted), moves `.upstream-ref` and regenerates the vendored tree.
-4. Run the checks (`check`, the tests, the host build), commit, open the pull request.
+3. `python3 tools/engine.py refresh <worktree> --to <sha>` writes the commits back as the series (patches with no commit are
+   deleted) and moves `.upstream-ref`.
+4. Run the checks (`check`, `sync`, the tests, the host build), commit, open the pull request.
 
 The nightly workflow does the first step only: it opens a pull request on `sync/upstream` when every patch applies, and an issue
 naming the blocking patch when one does not. Whoever owns the patch refreshes it.
@@ -150,9 +135,9 @@ Upstream's compatibility is the baseline. A patch does not change it silently.
    patch acts only where it is needed (no change on supported hardware), has its own tests, and is ours to maintain: if it
    conflicts on a bump, we refresh it or drop it.
 3. **Off limits:** the shader chain (`DMSH_CHAIN`, `dm/gfx/nvn/dmsh_chain.h`, the chain tools `dm/gfx/tools/dmsh_*`, `Program.cs`,
-   `ios_metal.py`, `dmsh_chain.lock`, the translator `dmsh_xlate_bin`, with the exact list in AGENTS.md, which `patches.py` reads
-   from there), upstream's tool pins, and lowering a minimum version. Shader caches and game profiles depend on them, and diverging there
-   makes our builds incompatible with upstream's caches and bug reports. `patches.py check` and `export` reject a patch that touches
+   `ios_metal.py`, `dmsh_chain.lock`, the translator `dmsh_xlate_bin`, with the exact list in the engine's AGENTS.md, which
+   `tools/engine.py` reads from there), upstream's tool pins, and lowering a minimum version. Shader caches and game profiles depend on them, and diverging there
+   makes our builds incompatible with upstream's caches and bug reports. `tools/engine.py check` and `export` reject a patch that touches
    these paths.
 4. **Bug reports go where they belong.** Every build records the patches it carries: `DMForkPatches` in the app's `Info.plist` and
    the first line of the log (`fork patches: a, b, c`, `Documents/log.txt` on iOS, the Mac app's log). The issue forms ask for that
@@ -161,16 +146,15 @@ Upstream's compatibility is the baseline. A patch does not change it silently.
 
 ## What is not a patch
 
-`.github/`, `frontend/`, `frontend-qt/`, the README, CONTRIBUTING.md, CLAUDE.md and everything else outside the five vendored paths
-belong to the fork and are edited directly. Inside the vendored paths, the tool's own files (`tools/patches.py`,
-`scripts/tests/test_patches.py`) and the generated `dm/fork_patches.txt` are not part of the generated tree.
+`.github/`, `frontend/`, `frontend-qt/`, `tools/`, the README, CONTRIBUTING.md, AGENTS.md, CLAUDE.md and everything else in the repository
+belong to the fork and are edited directly. The engine is only what `sync` builds into `engine/`.
 
-## Generated files inside the vendored paths
+## Generated files inside the engine
 
 `docs/agents/game-patches.md` and `docs/agents/symptoms.md` are written by upstream's own tools (`dm/tools/docs_patches.py`,
 `dm/tools/docs_symptoms.py`) from the tree, and upstream's `test_docs.py` requires them to equal that output. With the series in,
 the tree differs from upstream's (a profile key, a patched host table), so upstream's copy would fail the test, and a patch that
-carried the file would conflict on every bump. `apply`, `bump` and `check` therefore run both tools on the patched tree and
-compare the result, and a patch that touches either file is rejected by `check` (`export` leaves them out). Nothing to do by hand:
-`apply` writes them. Not covered: `docs/badges/*.json`, which are carried as static files in `fork-docs`. The README's game table and
-banners are outside the vendored paths and no longer refreshed by a script.
+carried the file would conflict on every bump. `sync` therefore runs both tools on the patched tree and commits the result in
+`engine/`, and a patch that touches either file is rejected by `check` (`export` leaves them out). Nothing to do by hand: `sync` writes
+them. The badge data of the README is `.github/badges/*.json` in this repository (it was a patch of `fork-docs` before step 2 of #214).
+The games gallery of `GAMES.md` is written by `engine/dm/tools/docs_gallery.py`, with links to nxnative at the pinned commit.

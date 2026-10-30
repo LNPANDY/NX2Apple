@@ -1,4 +1,4 @@
-"""Log first aid for issue triage: signal lines out of an issue body or attached log, matched against docs/agents/symptoms.md.
+"""Log first aid for issue triage: signal lines out of an issue body or attached log, matched against the engine's docs/agents/symptoms.md (engine/docs after `tools/engine.py sync`).
 
 Deterministic and stdlib only. The model never sees raw logs, only what this module extracts (capped) and the entries it matches.
 Used by triage_prepare.py; tests are in .github/scripts/tests.
@@ -10,7 +10,17 @@ import urllib.request
 from pathlib import Path
 
 REPO_URL = 'https://github.com/LNPANDY/NX2Apple'
-BLOB = REPO_URL + '/blob/main/'
+# The entries and game notes the symptom index links to are the engine's docs (dm/, docs/), which this repository does not commit
+# (issue #214): the links go to seedds/nxnative, at the pinned commit once set_pin() has read .upstream-ref.
+UPSTREAM_URL = 'https://github.com/seedds/nxnative'
+BLOB = UPSTREAM_URL + '/blob/main/'
+
+
+def set_pin(sha):
+    """Make the links point at seedds/nxnative at this commit (a 40-digit hex id), the engine the symptom index was read from."""
+    global BLOB
+    if re.fullmatch(r'[0-9a-f]{40}', sha or ''):
+        BLOB = f'{UPSTREAM_URL}/blob/{sha}/'
 
 MAX_FETCH_BYTES = 8 * 1024 * 1024      # per attachment; read in chunks, only signal lines are kept
 FETCH_TIMEOUT = 15                      # seconds, per request

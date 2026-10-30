@@ -1,5 +1,7 @@
 # nxnative for Mac
 
+> Paths such as `dm/…`, `docs/…` and `scripts/…` in this page are the engine's: `engine/` in a checkout after `python3 tools/engine.py sync`, or nxnative at the pinned commit (`.upstream-ref`).
+
 The native macOS front end for building games from your own Switch files, with a
 library for playing the finished Mac apps. The interface is designed around
 building a game, rather than manually importing finished apps.
@@ -153,7 +155,7 @@ library manifest is stored at
 ## Launch options
 
 The button beside **Play** opens the game's launch options: the settings the iPhone
-launcher shows before a game starts ([docs/settings.md](../docs/settings.md)), read
+launcher shows before a game starts ([docs/settings.md](https://github.com/seedds/nxnative/blob/ee6648cb2bb46c19255c1d04f88e9c40d36ef6b4/docs/settings.md)), read
 from the list the engine packs into the Mac app (`Contents/Resources/dm/launcher.json`,
 written by `dm/games/settings.py` from `dm/games/settings.tsv`, and the engine change that
 packs it is [seedds/nxnative#352](https://github.com/seedds/nxnative/pull/352), so a

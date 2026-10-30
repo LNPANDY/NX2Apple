@@ -1,9 +1,9 @@
 # Instructions for the Copilot coding agent
 
-Read [AGENTS.md](../AGENTS.md) and [CONTRIBUTING.md](../CONTRIBUTING.md) first; they win over this file.
+Read [AGENTS.md](../AGENTS.md) (the fork's, at the root) and [CONTRIBUTING.md](../CONTRIBUTING.md) first, and they win over this file.
 
 - `frontend/` and `frontend-qt/` are this fork's own: change them directly. `cd frontend && swift test` is the check.
-- The vendored engine (`dm/`, `scripts/`, `docs/`, `ref/`, `AGENTS.md`) comes from upstream every day: do not edit it in a PR (the `pr-scope` check fails it). Until the `patches/` mechanism (#124) lands, `scripts/sync_upstream.py` (its `OURS` and `PATCHED` lists) is what protects a fork change there; ask a maintainer to add a patcher. Once it lands, a change to an engine path goes only through `patches/`.
+- The engine (`dm/`, `scripts/`, `docs/`, `ref/`) is not in this repository: it is seedds/nxnative at `.upstream-ref` plus `patches/`, built into `engine/` by `python3 tools/engine.py sync`. Do not add files under those paths in a PR (the `pr-scope` check fails it). A change to the engine is a pull request to seedds/nxnative first, and a patch in `patches/` (a commit in `engine/`, then `python3 tools/engine.py export`) only while the fork has to carry it.
 - Never touch the shader translation chain (`dm/gfx/tools/dmsh_*`, `dm/gfx/nvn/dmsh_chain.h`, `dmsh_chain.lock`, the translator).
 - A feature PR waits 48 hours for the owner before it merges. Releases (version bumps, tags, update-history rows) are the owner's.
 - No AI attribution anywhere: no "Generated with", no `Co-Authored-By` for a tool, in commits, PRs or issues.

@@ -335,7 +335,7 @@ class HostSourcesTest(unittest.TestCase):
     """The Makefile rules are reproduced, and a change upstream stops the build."""
 
     def setUp(self) -> None:
-        self.repo = QT.parent
+        self.repo = QT.parent / 'engine'   # tools/engine.py sync
         self.gen = Path(tempfile.mkdtemp())
         (self.gen / 'game_profile.h').write_text('// x', encoding='utf-8')
 
@@ -586,9 +586,9 @@ class DriverPatchTest(unittest.TestCase):
     def setUpClass(cls) -> None:
         from nspb_qt.win import driver
         cls.driver = driver
-        cls.repo = QT.parent
+        cls.repo = QT.parent / 'engine'   # tools/engine.py sync
         if not (cls.repo / 'scripts/build_ipa_from_nsp.py').is_file():
-            raise unittest.SkipTest('not a repository checkout')
+            raise unittest.SkipTest('engine/ is missing: run python3 tools/engine.py sync')
         # `pwd` is installed by the stub inside load_upstream, so this works on any OS
         cls.saved = {k: os.environ.get(k) for k in
                      ('NSPB_ALLOW_NON_WINDOWS', 'GAME', 'W')}
@@ -1384,7 +1384,7 @@ class DotnetTest(unittest.TestCase):
 
     def test_dotnet_version_satisfies_the_extractor_target(self) -> None:
         """`nx_extract` targets net10.0; a lower major builds nothing, so the pin must be >= 10."""
-        repo = QT.parent
+        repo = QT.parent / 'engine'
         csproj = (repo / 'dm/tools/nx_extract/nx_extract.csproj').read_text(encoding='utf-8')
         self.assertIn(f'net{tc.DOTNET_MAJOR}.0', csproj)
 

@@ -291,7 +291,7 @@ final class BuildModel: ObservableObject {
     }
 
     nonisolated static func isRepo(_ dir: String) -> Bool {
-        EngineLayout.isCheckout(dir)   // the committed tree, a synced engine/, or tools/engine.py to make one (#214)
+        EngineLayout.isCheckout(dir)   // a checkout with tools/engine.py, a synced engine/, or an engine tree (#214)
     }
 
     /// Every file of the repository the launcher itself runs by path: one list, next to the calls that use it
@@ -304,7 +304,7 @@ final class BuildModel: ObservableObject {
 
     /// The tools of `requiredTools` that `dir` does not have (empty: the build tools are as new as this app needs).
     nonisolated static func missingTools(in dir: String) -> [String] {
-        let root = EngineLayout.root(dir)   // engine/ once synced, else the committed tree (Engine.swift)
+        let root = EngineLayout.root(dir)   // the checkout's engine/, or an engine tree itself (Engine.swift)
         return requiredTools.filter { !FileManager.default.fileExists(atPath: root + "/" + $0) }
     }
 
@@ -629,8 +629,8 @@ final class BuildModel: ObservableObject {
     @Published var engineFailure: BuildFailure?
 
     /// `tools/engine.py sync` when engine/ is stale (#214, Engine.swift): at launch, after a clone, a pull or an adoption, and before a
-    /// build that has no other engine. Checkouts only: a release app carries its engine tree (#227) and never syncs. A no-op for a checkout
-    /// from before #214 or a current engine/. `then(ok)` runs on the main queue.
+    /// build that has no other engine. Checkouts only: a release app carries its engine tree (#227) and never syncs. A no-op for a current engine/ or a folder
+    /// that is an engine tree. `then(ok)` runs on the main queue.
     func syncEngine(then: ((Bool) -> Void)? = nil) {
         if engineSyncWaiting != nil { engineSyncAgain = true; if let then { engineSyncWaiting?.append(then) }; return }
         guard EngineLayout.isStale(repoPath) else { engineFailure = nil; then?(true); return }
@@ -1294,7 +1294,7 @@ final class BuildModel: ObservableObject {
                 return
             }
         }
-        let engine = EngineLayout.root(repoPath)   // engine/ once synced, else the committed tree (#214)
+        let engine = EngineLayout.root(repoPath)   // the checkout's engine/ (#214)
         var args = [engine + "/" + Self.buildScript, inputDir, "-k", keysPath,
                     "--progress", "json"]
         // A compatibility switch the player turned on: written to a small env file the pipeline

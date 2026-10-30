@@ -156,11 +156,11 @@ class Model(QObject):
 
     @staticmethod
     def is_repo(d: str) -> bool:
-        return engine.is_checkout(d)   # the committed tree, a synced engine/, or tools/engine.py to make one (#214)
+        return engine.is_checkout(d)   # a checkout with tools/engine.py, a synced engine/, or an engine tree (#214)
 
     @property
     def engine_path(self) -> str:
-        """The folder holding dm/ and scripts/: engine/ when synced, else the committed tree (engine.py's rule)."""
+        """The folder holding dm/ and scripts/: the checkout's engine/, or an engine tree itself (engine.py's rule)."""
         return engine.engine_root(self.repo_path)
 
     def sync_engine(self, then: Callable[[bool], None] | None = None) -> None:

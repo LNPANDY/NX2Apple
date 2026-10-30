@@ -6,7 +6,7 @@
 # pip: the Python packages bundled into the release app (frontend/bundled-python/requirements.txt, exact pins with hashes, installed by
 # frontend/tools/bundle_tools.sh with --require-hashes).
 #
-# Not covered: dm/, scripts/, docs/, ref/ and patches/ (upstream's tool pins there are not ours to change, a change is a patch), the bundled
+# Not covered: the engine (engine/, made from seedds/nxnative and patches/: upstream's tool pins there are not ours to change, a change is a patch), the bundled
 # CPython and the native tools (zstd, spirv-cross, glslangValidator, xcodegen), which are pinned by source and checksum in
 # frontend/tools/bundle_tools.sh.
 version: 2

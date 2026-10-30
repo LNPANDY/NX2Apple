@@ -17,12 +17,13 @@ Subcommands (Python 3.9+, stdlib and git):
                                Upstream-Status / Reason / Issue header, and add them to patches/series
   status                       the patches (Upstream-Status, Reason, age) and the state of engine/
   tree --out DIR [--zip FILE]  the engine tree for players, the release's engine (see below)
-  check [--tree]               headers valid, no patch touches the shader chain or the generated files, the series applies
-                               cleanly to the pin with no empty patch. --tree also compares the committed vendored tree with
-                               pin + series, as long as the repository still commits it (step 1 of #214)
+  check                        headers valid, no patch touches the shader chain or the generated files, the series applies
+                               cleanly to the pin with no empty patch
   bump --to SHA|main [--dry]   move the pin: re-apply the series on the new commit, drop the patches upstream has, write
-                               patches/ and .upstream-ref (the committed tree is tools/patches.py bump's job while it exists)
+                               patches/ and .upstream-ref
   refresh WORKTREE --to SHA    after a conflicting bump was resolved by hand in WORKTREE: its commits become the series
+  relink                       make the links to seedds/nxnative in the README and the other pages point at the pinned commit (bump and
+                               refresh do it, check fails while a page names another commit)
 
 The upstream URL is https://github.com/seedds/nxnative.git, or $NX2APPLE_ENGINE_URL (a mirror, or a local clone that holds the
 pin, which needs no network). `sync` is for developers, CI and checkouts: a release carries the engine tree (`tree`) instead.
@@ -238,9 +239,7 @@ def cmd_hook(a):
             f'Engine work: commit in engine/, then `python3 tools/engine.py export`.')
     except (Fail, OSError, ValueError, subprocess.SubprocessError) as e:   # a failed fetch, a missing git: say it in one line
         msg = ' '.join(str(e).split())[:300]
-        say(f'engine/: sync failed ({msg}). Run `python3 tools/engine.py sync` to see why. The committed tree (AGENTS.md, dm/) '
-            f'is used until then.' if (a.root / 'AGENTS.md').is_file() else
-            f'engine/: sync failed ({msg}). Run `python3 tools/engine.py sync` to see why.')
+        say(f'engine/: sync failed ({msg}). Run `python3 tools/engine.py sync` to see why.')
     return 0
 
 
@@ -414,39 +413,65 @@ def cmd_check(a):
     pd = root / 'patches'
     stray = sorted(f.name for f in pd.glob('*.patch') if f.name not in {p.file for p in patches})
     if stray: bad.append('patch files not in patches/series: ' + ', '.join(stray))
+    old = stale_links(root)
+    if old: bad.append('links into seedds/nxnative name another commit than .upstream-ref in ' + ', '.join(p.name for p in old) + ': run `python3 tools/engine.py relink`')
     eng = scratch_root(root)
     sha = pin(root)
     fetch(eng, sha)
-    # The chain rule reads AGENTS.md at the pin plus the series; the pin's own copy is close enough for the globs.
-    rules = eng if (eng / 'AGENTS.md').is_file() else root
-    for p in patches:
-        for m in p.problems(): bad.append(f'{p.file}: {m}')
-        gen = sorted(f for f in p.files if f in {o for o, _ in P.GENERATED})
-        if gen: bad.append(f'{p.file}: touches generated files ({", ".join(gen)}); sync regenerates them, so a patch must not carry them')
-        hits = P.chain_hits(p.files, rules)
-        if hits: bad.append(f'{p.file}: touches the shader chain or the tool pins, which patches must not change ({", ".join(hits)}); see patches/README.md, Patch policy')
-    if bad:
-        say('patch queue: invalid\n  ' + '\n  '.join(bad)); return 1
     with P.Scratch(eng, sha, a.tmp) as s:
+        # The chain rule reads the engine's AGENTS.md: the pin's own copy is close enough for the globs.
+        for p in patches:
+            for m in p.problems(): bad.append(f'{p.file}: {m}')
+            gen = sorted(f for f in p.files if f in {o for o, _ in P.GENERATED})
+            if gen: bad.append(f'{p.file}: touches generated files ({", ".join(gen)}); sync regenerates them, so a patch must not carry them')
+            hits = P.chain_hits(p.files, s.dir)
+            if hits: bad.append(f'{p.file}: touches the shader chain or the tool pins, which patches must not change ({", ".join(hits)}); see patches/README.md, Patch policy')
+        if bad:
+            say('patch queue: invalid\n  ' + '\n  '.join(bad)); return 1
         _, landed, conflicts = P.apply_series(s.dir, patches)
         if conflicts:
             p, msg = conflicts[0]
             say(f'patch queue: {p.file} does not apply to the pinned upstream {sha[:12]}\n  Reason: {p.reason}\n  Upstream-Status: {p.status}\n  {msg}'); return 1
         if landed:
             say('patch queue: patches that are empty on the pinned upstream (it has them already; run bump to drop them): ' + ', '.join(p.file for p in landed)); return 1
-        if a.tree and any((root / v).exists() for v in P.VENDORED):
-            P.generate(s.dir)
-            want = P.tree_files(s.dir)
-            diff = P.diff_trees(want, P.local_files(root))
-            have_list = (root / P.FORK_PATCHES).read_text() if (root / P.FORK_PATCHES).exists() else None
-            if have_list != P.fork_patch_list(patches): diff.append(f'  {P.FORK_PATCHES} is not the list of the series (run tools/patches.py apply)')
-            if diff:
-                say(f'patch queue: the committed vendored tree is not upstream {sha[:12]} plus the series ({len(diff)} differences):')
-                say('\n'.join(diff[:40]) + ('\n  ...' if len(diff) > 40 else ''))
-                say(P.fix_hint(diff, patches)); return 1
-            say(f'patch queue: ok. {len(patches)} patches apply cleanly to upstream {sha[:12]}, and the committed vendored tree matches ({len(want)} files)')
-            return 0
     say(f'patch queue: ok. {len(patches)} patches apply cleanly to upstream {sha[:12]}')
+    return 0
+
+
+# ---- links into the engine's documents ----
+
+# The pages of this repository that link to the engine's documents and images (the engine is not committed here, #214): they point at
+# seedds/nxnative at the pinned commit, and move with the pin.
+LINK_PINNED = re.compile(r'(https://(?:github\.com/seedds/nxnative/(?:blob|tree)|raw\.githubusercontent\.com/seedds/nxnative))/([0-9a-f]{40})(?=/)')
+
+
+def link_pages(root):
+    pages = [p for p in sorted(root.glob('*.md')) if not p.name.startswith('CHANGELOG')]
+    pages += [root / 'frontend' / 'README.md', root / 'frontend-qt' / 'README.md']
+    return [p for p in pages if p.is_file()]
+
+
+def stale_links(root):
+    """The pages that link to seedds/nxnative at a commit other than the pin."""
+    sha = pin(root)
+    return [p for p in link_pages(root) if any(m.group(2) != sha for m in LINK_PINNED.finditer(p.read_text(encoding='utf-8')))]
+
+
+def relink(root, sha=None):
+    """Point every link into seedds/nxnative at the pin (or `sha`). Returns the pages it changed."""
+    sha = sha or pin(root)
+    changed = []
+    for p in link_pages(root):
+        text = p.read_text(encoding='utf-8')
+        new = LINK_PINNED.sub(lambda m: f'{m.group(1)}/{sha}', text)
+        if new != text:
+            p.write_text(new, encoding='utf-8'); changed.append(p)
+    return changed
+
+
+def cmd_relink(a):
+    changed = relink(a.root)
+    say(f'links into seedds/nxnative now point at {pin(a.root)[:12]} in ' + (', '.join(p.name for p in changed) if changed else 'no page (already current)'))
     return 0
 
 
@@ -484,7 +509,9 @@ def cmd_bump(a):
         P.write_series(root, s.dir, applied, landed, patches)
         (root / '.upstream-ref').write_text(sha + '\n')
         s.close()
-        say('wrote patches/ and .upstream-ref; `python3 tools/engine.py sync` builds engine/ on the new pin')
+        pages = relink(root)
+        say('wrote patches/ and .upstream-ref' + (f', and moved the links into seedds/nxnative to the new pin in {", ".join(p.name for p in pages)}' if pages else '') +
+            '; `python3 tools/engine.py sync` builds engine/ on the new pin')
         return 0
     except BaseException:
         s.close(); raise
@@ -507,6 +534,7 @@ def cmd_refresh(a):
     say('landed upstream, dropped: ' + (', '.join(p.name for p in landed) or 'none'))
     P.write_series(root, wt, applied, landed, old)
     (root / '.upstream-ref').write_text(sha + '\n')
+    relink(root)
     say('wrote patches/ and .upstream-ref; `python3 tools/engine.py sync` builds engine/ on the new pin')
     return 0
 
@@ -524,8 +552,9 @@ def main(argv=None):
     s.add_argument('--status', default='pending'); s.add_argument('--reason', default='TODO: why the fork carries this'); s.add_argument('--issue', default='TODO: LNPANDY/NX2Apple#<n>'); s.set_defaults(f=cmd_export)
     s = sub.add_parser('tree'); s.add_argument('--out', required=True, help='the folder for the tree (emptied when it is an earlier tree)'); s.add_argument('--zip', help='also write the deterministic zip of the tree'); s.set_defaults(f=cmd_tree)
     sub.add_parser('status').set_defaults(f=cmd_status)
-    s = sub.add_parser('check'); s.add_argument('--tree', action='store_true', help='also compare the committed vendored tree (step 1 of #214)'); s.set_defaults(f=cmd_check)
+    sub.add_parser('check').set_defaults(f=cmd_check)
     s = sub.add_parser('bump'); s.add_argument('--to', required=True, help='the new upstream commit, or a branch such as main'); s.add_argument('--dry', action='store_true'); s.set_defaults(f=cmd_bump)
+    sub.add_parser('relink').set_defaults(f=cmd_relink)
     s = sub.add_parser('refresh'); s.add_argument('worktree'); s.add_argument('--to', required=True); s.set_defaults(f=cmd_refresh)
     a = ap.parse_args(argv)
     a.root = Path(a.repo).resolve()

@@ -3,8 +3,8 @@
 # Tests that need no game files, keys or GPU. GitHub's macOS runners are virtual Macs without Metal 4 (issue #112), so the tests that go through mtl_init
 # (t_nvn, t_mip_extent, t_rt_range and the rest of dm/gfx/tests' run list) stay local: run `make -C dm/gfx/tests GAME=<id> run` on an Apple-silicon Mac.
 # `profile_guess.py --check` stays local too: it compares the guesses with the extractions of the games (it needs their files).
-# The engine jobs run in engine/: seedds/nxnative at .upstream-ref plus patches/, made by `tools/engine.py sync` (issue #214). While the
-# repository still commits the same tree (step 1 of #214), the patch-queue job checks that both are equal.
+# The engine jobs run in engine/: seedds/nxnative at .upstream-ref plus patches/, made by `tools/engine.py sync` (issue #214). The repository
+# commits no engine files (step 2): every job that reads dm/, scripts/ or docs/ syncs first, and pr-scope.yml rejects a change to those paths.
 name: tests
 
 on:
@@ -138,7 +138,7 @@ jobs:
           retention-days: 7
 
   patch-queue:
-    name: Patch queue (series applies to the pin, committed tree matches, dry bump against seedds main, issues #123 and #214)
+    name: Patch queue (series applies to the pin, tool tests, dry bump against seedds main, issues #123 and #214)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -148,21 +148,22 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.14'
-      # tools/engine.py check --tree: the headers are complete, no patch touches the shader chain or the generated files, the series applies
-      # cleanly to the pinned upstream (.upstream-ref) with no empty patch, and, while the repository still commits the vendored tree (step 1
-      # of #214), that tree equals pin + series. engine.py fetches the pinned commit itself. The dry bump to seedds main only reports (the
-      # nightly sync opens the PR or the issue); it lists the patches that would conflict.
+      # tools/engine.py check: the headers are complete, no patch touches the shader chain or the generated files, and the series applies
+      # cleanly to the pinned upstream (.upstream-ref) with no empty patch. engine.py fetches the pinned commit itself. The dry bump to seedds
+      # main only reports (the nightly sync opens the PR or the issue); it lists the patches that would conflict.
       - name: Patch queue check
         run: |
-          python tools/engine.py check --tree || {
-            echo "::error title=Patch queue::The series does not apply to the pin, or the committed vendored tree differs from pin + patches. Fix: work in engine/ (python3 tools/engine.py sync), commit there, python3 tools/engine.py export, or fold a direct edit with python3 tools/patches.py absorb <files>. See patches/README.md."
+          python tools/engine.py check || {
+            echo "::error title=Patch queue::The series does not apply to the pin, or a patch header is incomplete. Fix: work in engine/ (python3 tools/engine.py sync), commit there, then python3 tools/engine.py export. See patches/README.md."
             exit 1
           }
+      - name: Engine (tools/engine.py sync, issue #214; the tool tests read engine/)
+        run: python tools/engine.py sync
       - name: Install ripgrep (the engine/ search test)
         run: sudo apt-get install -y -qq ripgrep > /dev/null
       - name: Install the signing tool's package (tools/release_manifest.py)
         run: python -m pip install -r tools/requirements-release.txt
-      - name: Patch tool and release tool tests
+      - name: Patch, engine and release tool tests
         run: python -m unittest -v tools/tests/test_patches.py tools/tests/test_engine.py tools/tests/test_release_manifest.py
       - name: Dry bump to seedds main (report only)
         run: python tools/engine.py bump --dry --to main || true
@@ -215,6 +216,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Engine (tools/engine.py sync, issue #214; the launcher's tests read engine/)
+        run: python3 tools/engine.py sync
       - name: Release build
         working-directory: frontend
         run: |
@@ -244,6 +247,8 @@ jobs:
         with:
           python-version: '3.14'
       # Pure Python: the Windows toolchain, IPA and shim logic with the system calls mocked; the few tests that need PySide6 skip without it
+      - name: Engine (tools/engine.py sync, issue #214; some tests read engine/)
+        run: python tools/engine.py sync
       - name: Tests
         run: python -m unittest discover -s frontend-qt/tests -v
       # The Qt table is generated from the SwiftUI one and says so at its top. A string added to
@@ -267,6 +272,8 @@ jobs:
         with:
           python-version: '3.14'
       # Pure Python: the issue triage's log extractor and symptom matcher, and the strict validator of the model's output
+      - name: Engine (tools/engine.py sync, issue #214; the symptom index tests read engine/docs)
+        run: python tools/engine.py sync
       - name: Tests
         run: python -m unittest discover -s .github/scripts/tests -v
 

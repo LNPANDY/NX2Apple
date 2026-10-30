@@ -5,7 +5,7 @@ counterpart: same job, same strings, built with PySide6 so Windows users get a n
 
 ## Why a second front end
 
-The build pipeline (`scripts/build_ipa_from_nsp.py`) is Python and runs on both systems, but
+The build pipeline (`scripts/build_ipa_from_nsp.py` of the engine) is Python and runs on both systems, but
 the SwiftUI app cannot: it needs macOS. Rather than maintain two unrelated GUIs, this one is
 written once and runs everywhere Python and Qt do.
 

@@ -3,13 +3,14 @@ import Foundation
 
 /// Where the engine of a checkout is, and whether it needs `tools/engine.py sync` (LNPANDY/NX2Apple#214).
 ///
-/// Since #214 the engine is built into `<checkout>/engine/`: seedds/nxnative at `.upstream-ref` plus `patches/`, made by
-/// `tools/engine.py sync`. Until the committed copy goes (step 2), a checkout has both, and one from before the switch has only the
-/// committed copy. The rule, the same as the Qt front end's (frontend-qt/nspb_qt/engine.py):
+/// The engine is not committed: it is built into `<checkout>/engine/` (seedds/nxnative at `.upstream-ref` plus `patches/`) by
+/// `tools/engine.py sync`. The rule, the same as the Qt front end's (frontend-qt/nspb_qt/engine.py):
 ///
-/// - `engine/` when it is synced and current,
-/// - else the committed tree (`dm/`, `scripts/` at the checkout's root) when the checkout has one,
-/// - else `engine/` as it is (stale or missing: the build syncs it first).
+/// - a checkout of this repository (it has `tools/engine.py` and `.upstream-ref`): `engine/`, which the build syncs first when it is
+///   stale or missing,
+/// - else a folder that is an engine tree itself (`dm/` at its root: the engine a release carries or installs, #227, or a
+///   seedds/nxnative clone): that folder,
+/// - else `engine/` as it is.
 ///
 /// `stampKey` is tools/engine.py's digest of the pin and the series, compared with the stamp sync wrote into engine/.git, so the
 /// launcher tells a stale engine without starting Python. The sync is for a repository checkout (a developer's,
@@ -77,20 +78,20 @@ enum EngineLayout {
     static func root(_ repo: String) -> String {
         guard !repo.isEmpty else { return repo }
         let fm = FileManager.default
-        if fm.fileExists(atPath: repo + "/engine/" + marker) && !isStale(repo) { return repo + "/engine" }
+        if hasEngineTool(repo) { return repo + "/engine" }
         if fm.fileExists(atPath: repo + "/" + marker) { return repo }
-        return hasEngineTool(repo) ? repo + "/engine" : repo
+        return fm.fileExists(atPath: repo + "/engine/" + marker) ? repo + "/engine" : repo
     }
 
-    /// A checkout the launcher can build from: the committed tree, a synced engine/, or tools/engine.py to make one.
+    /// A folder the launcher can build from: a checkout with tools/engine.py to make engine/, a synced engine/, or an engine tree.
     static func isCheckout(_ dir: String) -> Bool {
         let fm = FileManager.default
         return !dir.isEmpty && (fm.fileExists(atPath: dir + "/" + marker) || fm.fileExists(atPath: dir + "/engine/" + marker) || hasEngineTool(dir))
     }
 
-    /// engine/ is the only engine and it is stale or missing (after step 2, or a checkout whose committed tree is gone).
+    /// engine/ is the only engine and it is stale or missing: the build syncs it first.
     static func needsSyncBeforeBuild(_ repo: String) -> Bool {
-        hasEngineTool(repo) && isStale(repo) && !FileManager.default.fileExists(atPath: repo + "/" + marker)
+        hasEngineTool(repo) && isStale(repo)
     }
 
     /// `python tools/engine.py sync`

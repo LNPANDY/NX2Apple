@@ -49,7 +49,7 @@ struct ContentView: View {
     @StateObject private var padFocus = PadFocus()
     @StateObject private var row = RowScroller()
     @StateObject private var toolsAge: ToolsAge
-    @State private var buildCommit = ""   // the checkout's commit when the running build started (ToolsAge)
+    @State private var buildCommit = ""   // the engine's commit when the running build started (ToolsAge)
     @State private var signatureExpiry: [UUID: Date] = [:]   // installed apps' provisioning-profile expiry, per game
     @State private var resignNote: String?   // the last re-sign's outcome, shown under the hero's expiry line
     private var performStartupChecks: Bool
@@ -190,6 +190,8 @@ struct ContentView: View {
         .onChange(of: m.repoPath) { _ in refreshArtwork(); if performStartupChecks { checkTools() } }
         // A clone, pull or update check has finished (the automatic pull at launch among them): the checkout may have moved
         .onReceive(m.$repoBusy.removeDuplicates().dropFirst()) { busy in if !busy && performStartupChecks { checkTools() } }
+        // The engine was made or moved by a sync (its HEAD is what ToolsAge compares)
+        .onReceive(m.$engineSyncing.removeDuplicates().dropFirst()) { syncing in if !syncing && performStartupChecks { checkTools() } }
         .onChange(of: library.selectedID) { _ in resignNote = nil }   // the last re-sign's note belongs to its game
         .onReceive(m.$running.removeDuplicates()) { running in
             if running && activeBuildID == nil { activeBuildID = library.rememberInputs(m) }

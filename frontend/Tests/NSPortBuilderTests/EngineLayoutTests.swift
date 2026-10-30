@@ -1,8 +1,9 @@
 import XCTest
 @testable import NSPortBuilder
 
-/// #214: which engine the launcher builds from. engine/ when synced and current, the committed tree of a checkout from before the
-/// switch, and engine/ as the only choice (with a sync first) once the committed tree is gone. The stamp key matches tools/engine.py's.
+/// #214: which engine the launcher builds from. A checkout of this repository builds from its engine/ (synced first when it is stale or
+/// missing, there is no committed tree), a folder that is an engine tree itself (an installed release's engine) from that folder.
+/// The stamp key matches tools/engine.py's.
 final class EngineLayoutTests: XCTestCase {
     private var root: URL!
     private var repo: String { root.path }
@@ -37,7 +38,7 @@ final class EngineLayoutTests: XCTestCase {
         try touch("engine/.git/nx2apple-stamp", "nx2apple-engine 1\npin \(pin)\nkey \(EngineLayout.stampKey(repo)!)\nhead \(head)\n")
     }
 
-    func testACheckoutFromBeforeTheSwitchUsesItsCommittedTree() throws {
+    func testAnEngineTreeIsItsOwnRoot() throws {
         try touch(EngineLayout.marker)
         XCTAssertTrue(BuildModel.isRepo(repo))
         XCTAssertEqual(EngineLayout.root(repo), repo)
@@ -45,8 +46,7 @@ final class EngineLayoutTests: XCTestCase {
         XCTAssertFalse(EngineLayout.needsSyncBeforeBuild(repo))
     }
 
-    func testACurrentEngineWinsAndTheBuildScriptComesFromIt() throws {
-        try touch(EngineLayout.marker)
+    func testTheBuildScriptComesFromTheCheckoutsEngine() throws {
         try newLayout()
         try syncedEngine()
         XCTAssertFalse(EngineLayout.isStale(repo))
@@ -58,14 +58,13 @@ final class EngineLayoutTests: XCTestCase {
         XCTAssertTrue(BuildModel.repoSupportsWorkDir(repo))
     }
 
-    func testAStaleEngineFallsBackToTheCommittedTree() throws {
-        try touch(EngineLayout.marker)
+    func testAStaleEngineIsStillTheCheckoutsEngineAndTheBuildSyncsItFirst() throws {
         try newLayout()
         try syncedEngine()
         try touch("patches/0002-b.patch", "changed\n")
         XCTAssertTrue(EngineLayout.isStale(repo))
-        XCTAssertEqual(EngineLayout.root(repo), repo)
-        XCTAssertFalse(EngineLayout.needsSyncBeforeBuild(repo))
+        XCTAssertEqual(EngineLayout.root(repo), repo + "/engine")   // there is no committed tree to fall back to
+        XCTAssertTrue(EngineLayout.needsSyncBeforeBuild(repo))
     }
 
     func testACommitInEngineMakesItStale() throws {
@@ -75,7 +74,7 @@ final class EngineLayoutTests: XCTestCase {
         XCTAssertTrue(EngineLayout.isStale(repo))
     }
 
-    func testWithoutACommittedTreeTheEngineIsSyncedBeforeABuild() throws {
+    func testACheckoutWithoutAnEngineIsSyncedBeforeABuild() throws {
         try newLayout()
         XCTAssertTrue(BuildModel.isRepo(repo))
         XCTAssertTrue(EngineLayout.needsSyncBeforeBuild(repo))

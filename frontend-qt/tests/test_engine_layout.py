@@ -1,5 +1,5 @@
-"""Which engine the Qt front end builds from (LNPANDY/NX2Apple#214): engine/ when synced and current, the committed tree of a
-checkout from before the switch, and engine/ as the only choice (with a sync first) once the committed tree is gone."""
+"""Which engine the Qt front end builds from (LNPANDY/NX2Apple#214): the checkout's engine/ (synced first when it is stale or missing),
+or a folder that is an engine tree itself (an installed release's engine)."""
 from __future__ import annotations
 
 import importlib
@@ -42,27 +42,22 @@ class EngineLayoutTests(unittest.TestCase):
         self.touch('engine/.git/refs/heads/nx2apple', 'b' * 40 + '\n')
         self.touch('engine/.git/nx2apple-stamp', f'nx2apple-engine 1\npin {PIN}\nkey {engine.stamp_key(self.r)}\nhead {"b" * 40}\n')
 
-    def test_a_checkout_from_before_the_switch_uses_its_committed_tree(self):
+    def test_an_engine_tree_is_its_own_root(self):
         self.touch(MARKER)
         self.assertTrue(engine.is_checkout(str(self.r)))
         self.assertEqual(engine.engine_root(str(self.r)), str(self.r))
         self.assertFalse(engine.is_stale(str(self.r)))
+        self.assertFalse(engine.needs_sync_before_build(str(self.r)))
 
-    def test_a_current_engine_wins_over_the_committed_tree(self):
-        self.touch(MARKER)
+    def test_a_checkout_builds_from_engine_whether_it_is_current_or_stale(self):
         self.new_layout()
         self.synced_engine()
         self.assertFalse(engine.is_stale(str(self.r)))
         self.assertEqual(engine.engine_root(str(self.r)), str(self.r / 'engine'))
-
-    def test_a_stale_engine_falls_back_to_the_committed_tree(self):
-        self.touch(MARKER)
-        self.new_layout()
-        self.synced_engine()
         self.touch('patches/0001-a.patch', 'changed\n')
         self.assertTrue(engine.is_stale(str(self.r)))
-        self.assertEqual(engine.engine_root(str(self.r)), str(self.r))
-        self.assertFalse(engine.needs_sync_before_build(str(self.r)))
+        self.assertEqual(engine.engine_root(str(self.r)), str(self.r / 'engine'))   # no committed tree to fall back to
+        self.assertTrue(engine.needs_sync_before_build(str(self.r)))
 
     def test_a_commit_made_in_engine_makes_it_stale(self):
         self.new_layout()
@@ -70,7 +65,7 @@ class EngineLayoutTests(unittest.TestCase):
         self.touch('engine/.git/refs/heads/nx2apple', 'c' * 40 + '\n')
         self.assertTrue(engine.is_stale(str(self.r)))
 
-    def test_without_a_committed_tree_the_engine_is_synced_before_a_build(self):
+    def test_a_checkout_without_an_engine_is_synced_before_a_build(self):
         self.new_layout()
         self.assertTrue(engine.is_checkout(str(self.r)))
         self.assertTrue(engine.needs_sync_before_build(str(self.r)))

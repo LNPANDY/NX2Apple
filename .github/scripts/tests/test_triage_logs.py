@@ -123,9 +123,9 @@ class Match(unittest.TestCase):
 
 
 class RealIndex(unittest.TestCase):
-    @unittest.skipUnless((REPO_ROOT / 'docs/agents/symptoms.md').is_file(), 'no vendored docs')
+    @unittest.skipUnless((REPO_ROOT / 'engine/docs/agents/symptoms.md').is_file(), 'no engine/ (python3 tools/engine.py sync)')
     def test_every_fragment_matches_itself_and_entries_resolve(self):
-        docs = REPO_ROOT / 'docs'
+        docs = REPO_ROOT / 'engine/docs'
         syms = tl.parse_symptoms((docs / 'agents/symptoms.md').read_text(encoding='utf-8'))
         self.assertGreater(len(syms), 100)
         n = 0
@@ -140,9 +140,9 @@ class RealIndex(unittest.TestCase):
 
 
 class RealRendering(unittest.TestCase):
-    @unittest.skipUnless((REPO_ROOT / 'docs/reference/rendering.md').is_file(), 'no vendored docs')
+    @unittest.skipUnless((REPO_ROOT / 'engine/docs/reference/rendering.md').is_file(), 'no engine/ (python3 tools/engine.py sync)')
     def test_conditional_rendering_entry_lists_its_games(self):
-        docs = REPO_ROOT / 'docs'
+        docs = REPO_ROOT / 'engine/docs'
         syms = tl.parse_symptoms((docs / 'agents/symptoms.md').read_text(encoding='utf-8'))
         hits = tl.match_symptoms(['[RED] SetRenderEnableConditional: the host draws anyway'], syms, docs)
         self.assertTrue(hits)

@@ -39,3 +39,10 @@ frontend/NX2Apple.app/
 # The engine: seedds/nxnative at .upstream-ref plus patches/, made by `python3 tools/engine.py sync` (issue #214). A build product
 # like .build/, so git ignores it. The root .ignore un-ignores it for ripgrep-based search, so agents and editors still find it.
 /engine/
+
+# The committed engine tree is gone (issue #214, step 2): dm/, scripts/, docs/ and ref/ live in engine/ (and upstream's AGENTS.md
+# there), so a stray copy at the root, from an older checkout or a direct edit, is never committed. CI's pr-scope check says why.
+/dm/
+/scripts/
+/docs/
+/ref/
