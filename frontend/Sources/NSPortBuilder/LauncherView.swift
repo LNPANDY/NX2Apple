@@ -281,6 +281,27 @@ struct ContentView: View {
                         .padTarget("tab." + destination.rawValue, scope: "main") { page = destination }
                     }
                     Spacer(minLength: 8)
+                    // The update pill: one tap opens the update sheet (what changed, download). Gone once
+                    // the release is installed or the app learns there is nothing newer.
+                    if let update = m.appUpdate {
+                        let readOnly = m.appInstallability == .readOnly
+                        Button { m.showUpdateSheet = true } label: {
+                            HStack(spacing: 7) {
+                                Image(systemName: readOnly ? "exclamationmark.arrow.circlepath" : "arrow.down.circle")
+                                    .font(.system(size: 13, weight: .medium))
+                                Text(String(format: m.t("update.pill"), update.tag)).font(.manrope(13, .semibold))
+                            }
+                            .padding(.horizontal, 13).padding(.vertical, 8)
+                            .background((readOnly ? LauncherPalette.building : LauncherPalette.ready).opacity(0.16),
+                                        in: Capsule())
+                            .overlay(Capsule().strokeBorder((readOnly ? LauncherPalette.building : LauncherPalette.ready).opacity(0.4)))
+                            .contentShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .help(m.t(readOnly ? "update.readOnlyHint" : "update.pillHelp"))
+                        .accessibilityLabel(String(format: m.t("update.pill"), update.tag))
+                        .padding(.trailing, 4)
+                    }
                     searchField
                     Button { newBuild() } label: {
                         Group {

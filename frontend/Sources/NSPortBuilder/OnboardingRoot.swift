@@ -29,7 +29,8 @@ struct RootView: View {
             case .launcher:
                 ZStack {
                     if console.active {
-                        ConsoleView(driver: shared.console, lang: model.lang, onExit: { console.exit(); shared.console.returnFromGame() })
+                        ConsoleView(driver: shared.console, lang: model.lang, onExit: { console.exit(); shared.console.returnFromGame() },
+                                    updateTag: model.appUpdate?.tag)
                             .onAppear { shared.console.reloadCovers() }
                             .transition(CalmTransition.console)
                     } else {
