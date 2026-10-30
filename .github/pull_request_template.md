@@ -19,7 +19,7 @@
 
 ## Screenshots
 
-<!-- A change to anything visible in the launcher (`frontend/` or `frontend-qt/`) needs before and after images of every view it changes, in the languages it touches. Attach them here. Captures from `NX_LAUNCHER_CAPTURE_DIR` are fine (`NX_CAPTURE_LANG=de` picks the language). A PR without them is not reviewed. -->
+<!-- A change to anything visible in the launcher (`frontend/` or `frontend-qt/`) needs before and after images of every view it changes, in the languages it touches. Attach them here (`gh pr edit --attach <file>` uploads an image). Captures from `NX_LAUNCHER_CAPTURE_DIR` are fine (`NX_CAPTURE_LANG=de` picks the language). A PR without them is not reviewed. -->
 
 <!-- With no visible change, write: None, no visible change. -->
 
