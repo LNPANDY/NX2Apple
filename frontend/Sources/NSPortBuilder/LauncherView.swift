@@ -186,7 +186,9 @@ struct ContentView: View {
         // A clone, pull or update check has finished (the automatic pull at launch among them): the checkout may have moved
         .onReceive(m.$repoBusy.removeDuplicates().dropFirst()) { busy in if !busy && performStartupChecks { checkTools() } }
         .onChange(of: library.selectedID) { _ in resignNote = nil }   // the last re-sign's note belongs to its game
+        .onChange(of: buildProgress) { progress in if m.running { DockProgress.update(progress) } }
         .onReceive(m.$running.removeDuplicates()) { running in
+            if !running { DockProgress.update(nil) }
             if running && activeBuildID == nil { activeBuildID = library.rememberInputs(m) }
             if running && activeBuildID != nil {   // the tools this build runs: a pull waits for the build (pullRepo, autoPull)
                 buildCommit = ""
@@ -215,14 +217,14 @@ struct ContentView: View {
         )) {
             Button(m.t("library.ok")) { launchError = nil; library.error = nil }
         } message: { Text(launchError ?? library.error ?? "") }
-        .confirmationDialog(m.t("library.removeQuestion"), isPresented: Binding(
-            get: { removing != nil }, set: { if !$0 { removing = nil } }
-        ), titleVisibility: .visible) {
-            Button(m.t("library.remove"), role: .destructive) {
-                if let game = removing { library.remove(game.id) }
-                removing = nil
-            }
-        } message: { Text(m.t("library.removeNote")) }
+        .typeToConfirm(
+            isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }),
+            phrase: removing?.name ?? "",
+            title: m.t("library.removeQuestion"), message: m.t("library.removeNote"),
+            buttonTitle: m.t("library.remove")) {
+            if let game = removing { library.remove(game.id) }
+            removing = nil
+        }
         .sheet(isPresented: Binding(get: { optionsFor != nil }, set: { if !$0 { optionsFor = nil } })) {
             if let id = optionsFor { LaunchOptionsView(m: m, library: library, gameID: id).environmentObject(padFocus) }
         }

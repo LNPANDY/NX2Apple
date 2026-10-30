@@ -303,10 +303,12 @@ struct FreeSpaceView: View {
         .preferredColorScheme(.dark)
         .tint(LauncherPalette.cream)
         .onAppear { if survey == nil { measure() } }
-        .confirmationDialog(String(format: m.t("free.confirm"), Self.bytes(chosenBytes)), isPresented: $confirming, titleVisibility: .visible) {
-            Button(m.t("free.confirmButton"), role: .destructive) { removeChosen() }
-        } message: {
-            Text(([m.t("free.confirmNote")] + BuildFolderPart.allCases.filter { chosen.contains($0) && !($0 == .oldShaders && chosen.contains(.shaders)) }.map { m.t("free.cost." + $0.rawValue) }).joined(separator: "\n"))
+        .typeToConfirm(
+            isPresented: $confirming, phrase: game.name,
+            title: String(format: m.t("free.confirm"), Self.bytes(chosenBytes)),
+            message: ([m.t("free.confirmNote")] + BuildFolderPart.allCases.filter { chosen.contains($0) && !($0 == .oldShaders && chosen.contains(.shaders)) }.map { m.t("free.cost." + $0.rawValue) }).joined(separator: "\n"),
+            buttonTitle: m.t("free.confirmButton")) {
+            removeChosen()
         }
     }
 

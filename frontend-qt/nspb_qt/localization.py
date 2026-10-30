@@ -254,6 +254,8 @@ TABLE: dict[str, tuple[str, str, str, str]] = {
     'saves.askToMac': ('用 %@ 的存档替换这台 Mac 上的存档？', 'Replace the save on this Mac with the one from %@?', 'Ersätt sparfilen på den här Mac-datorn med den från %@?', 'Spielstand auf diesem Mac durch den von %@ ersetzen?'),
     'saves.askNote': ('请先在 %1$@ 上关闭游戏：正在运行的游戏之后会用自己的存档覆盖复制过去的存档。被替换的存档会先保存到 %2$@。', 'Close the game on %1$@ first: a running game writes its own save over the copy later. The save being replaced is kept in %2$@ first.', 'Stäng först spelet på %1$@: ett spel som körs skriver senare över kopian med sin egen sparfil. Sparfilen som ersätts sparas först i %2$@.', 'Beende das Spiel zuerst auf %1$@. Ein laufendes Spiel schreibt später seinen eigenen Spielstand über die Kopie. Der zu ersetzende Spielstand wird vorher in %2$@ gesichert.'),
     'saves.cancel': ('取消', 'Cancel', 'Avbryt', 'Abbrechen'),
+    'confirm.typePrompt': ('输入「%@」以确认', 'Type “%@” to confirm', 'Type “%@” to confirm', 'Type “%@” to confirm'),
+    'confirm.cancel': ('取消', 'Cancel', 'Cancel', 'Cancel'),
     'saves.replace': ('替换', 'Replace', 'Ersätt', 'Ersetzen'),
     'saves.copying': ('正在复制存档…', 'Copying the save…', 'Kopierar sparfilen …', 'Spielstand wird kopiert …'),
     'saves.copied': ('已复制。', 'Copied.', 'Kopierad.', 'Kopiert.'),
