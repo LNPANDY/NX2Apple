@@ -6,7 +6,7 @@ Subject: [PATCH] front_mac: hide the pointer after a few idle seconds over the
 
 The Mac host never hid the pointer, so it stayed on the picture of a game in a window and in fullscreen. It now hides after DM_CURSOR_HIDE seconds (3 by default) without movement over the game view and shows again on the next movement, click or scroll.
 
-Upstream-Status: pending
+Upstream-Status: forwarded seedds/nxnative#755
 Reason: The Mac host never hid the pointer over a game
 Issue: LNPANDY/NX2Apple#272
 
