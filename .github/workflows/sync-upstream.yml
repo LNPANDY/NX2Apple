@@ -10,12 +10,24 @@
 # A PR opened with the default GITHUB_TOKEN does not start other workflows (GitHub's rule), so this job
 # runs the checks itself before it opens the PR. A repository secret SYNC_TOKEN (a fine-grained token
 # with contents, pull requests and issues write) makes the PR start tests.yml as well.
+#
+# The experimental engine channel (LNPANDY/NX2Apple#227): after the sync job passed its checks (the series applies, the tests, the host build)
+# the publish-experimental job builds the engine tree of the bumped branch (tools/engine.py tree), writes latest.json with channel
+# "experimental" and "built", signs it with the repository secret ENGINE_SIGNING_KEY (tools/release_manifest.py) and replaces the assets
+# (NX2Apple-engine.zip, latest.json, latest.json.sig) of the pre-release tag engine-experimental, which it creates when missing and keeps a
+# pre-release that is never "latest". A workflow artifact cannot serve: the launcher has no token. It only publishes after a green sync job,
+# and its failure (a missing or wrong key) never opens the "sync blocked" issue. `force_experimental` publishes main's engine by hand.
 name: Sync upstream
 
 on:
   schedule:
     - cron: '30 21 * * *'   # 21:30 UTC = 5:30 Beijing
   workflow_dispatch:
+    inputs:
+      force_experimental:
+        description: "Also publish the engine of main to the engine-experimental tag (the first time, or after the tag was removed)"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -25,6 +37,8 @@ permissions:
 jobs:
   sync:
     runs-on: macos-latest   # the host build needs clang + macOS headers
+    outputs:
+      branch: ${{ steps.pr.outputs.branch }}   # the pushed sync branch, empty when nothing changed
     env:
       GH_TOKEN: ${{ secrets.SYNC_TOKEN || secrets.GITHUB_TOKEN }}
     steps:
@@ -64,6 +78,7 @@ jobs:
           make -C engine/dm/host GAME=$GAME dmhost -j4 2>&1 | tail -20
 
       - name: Commit to a sync branch and open a pull request
+        id: pr
         if: steps.bump.outputs.changed == 'yes'
         # main is protected (a pull request is required, force pushes and deletions are
         # blocked, and the rules apply to everyone including the owner and this bot), so the
@@ -79,6 +94,7 @@ jobs:
           git checkout -b "sync/upstream-$SHORT"
           git commit -m "Sync upstream $SHORT"
           git push -u origin "sync/upstream-$SHORT"
+          echo "branch=sync/upstream-$SHORT" >> "$GITHUB_OUTPUT"
           {
             echo "The patch queue re-applied on upstream \`${NEW:0:12}\` (was \`${OLD:0:12}\`): every patch applied, and \`tools/engine.py check --tree\`, the tests and a macOS host build passed. Merging brings seedds/nxnative to \`$NEW\`."
             echo
@@ -113,3 +129,50 @@ jobs:
           else
             gh issue create -R "${{ github.repository }}" --title "$TITLE" --body-file issue.md || echo "issue creation failed; the log is in the workflow run"
           fi
+
+  publish-experimental:
+    # Only after a green sync job (its checks are the "CI is green" of this channel). Separate from it so that a publishing problem
+    # (no key, no release permission) does not read as a blocked sync above.
+    needs: sync
+    if: needs.sync.result == 'success' && (needs.sync.outputs.branch != '' || inputs.force_experimental)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency: engine-experimental   # two runs must not replace the assets at the same time
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      ENGINE_SIGNING_KEY: ${{ secrets.ENGINE_SIGNING_KEY }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.sync.outputs.branch || github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.14'
+      - run: python -m pip install -r tools/requirements-release.txt
+
+      - name: Signing key (fails when the secret is missing or is not the key in frontend/engine-signing.pub)
+        run: python tools/release_manifest.py check-key --pub frontend/engine-signing.pub
+
+      - name: "Main's tests must be green (a bump branch was just checked, a hand-started publish of main was not)"
+        if: needs.sync.outputs.branch == ''
+        run: |
+          c=$(gh run list -R "${{ github.repository }}" --workflow tests.yml --branch "${{ github.event.repository.default_branch }}" --event push --limit 1 --json conclusion --jq '.[0].conclusion')
+          echo "latest tests.yml on main: ${c:-none}"
+          [ "$c" = "success" ] || { echo "::error::tests.yml on main is not green: not publishing"; exit 1; }
+
+      - name: Build the engine tree
+        run: |
+          python tools/engine.py sync
+          python tools/engine.py tree --out "$RUNNER_TEMP/engine-tree" --zip "$RUNNER_TEMP/engine-out/NX2Apple-engine.zip"
+
+      - name: Publish to the engine-experimental pre-release
+        run: |
+          APPV=$(sed -n 's/.*static let appVersion = "\(.*\)".*/\1/p' frontend/Sources/NSPortBuilder/ContentView.swift)
+          python tools/release_manifest.py publish \
+            --engine-zip "$RUNNER_TEMP/engine-out/NX2Apple-engine.zip" \
+            --version "$APPV-experimental" --channel experimental --tag engine-experimental \
+            --out "$RUNNER_TEMP/publish" --upload

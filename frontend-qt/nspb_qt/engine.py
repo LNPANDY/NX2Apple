@@ -2,8 +2,8 @@
 
 Since #214 the engine is built into `<checkout>/engine/` (seedds/nxnative at `.upstream-ref` plus `patches/`). Until the
 committed copy goes (step 2), a checkout has both, and one from before the switch has only the committed copy. The rule, the
-same as the Mac launcher's (frontend/Sources/NSPortBuilder/Engine.swift). A release carries no engine: the sync downloads it from
-GitHub on the first start and after updates, and a failed one becomes a failure row (`failure_kind`):
+same as the Mac launcher's (frontend/Sources/NSPortBuilder/Engine.swift). The sync is for checkouts (a release carries the engine tree
+instead, #227): it downloads the pinned commit from GitHub, and a failed one becomes a failure row (`failure_kind`):
 
 - engine/ when it is synced and current,
 - else the committed tree (dm/, scripts/ at the checkout's root) when the checkout has one,

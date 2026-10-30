@@ -255,6 +255,80 @@ class Search(unittest.TestCase):
         self.assertEqual(r.stdout.strip(), './engine/dm/needle.c', r.stderr)
 
 
+class Tree(Fixture):
+    """The engine tree for players: engine/ at its last sync, no git, with the identity and a zip that is the same every time."""
+    def make(self, name='out', zipname=None):
+        out = self.tmp / name
+        args = ['tree', '--out', str(out)] + (['--zip', str(self.tmp / zipname)] if zipname else [])
+        return out, self.tool(*args)
+
+    def test_the_tree_is_the_patched_engine_without_git_and_names_its_identity(self):
+        self.tool('sync')
+        out, said = self.make()
+        self.assertEqual((out / 'dm/a.c').read_text(), 'line1\nline2 fork\nline3\nline4\nline5\nline6\nline7\n')   # the patch is in
+        self.assertEqual((out / '.upstream-ref').read_text(), self.up1 + '\n')
+        eid = (out / '.engine-id').read_text().strip()
+        self.assertEqual(eid, self.up1 + '-' + E.stamp_key(self.r)[:12])
+        self.assertRegex(eid, r'^[0-9a-f]{40}-[0-9a-f]{12}$')
+        self.assertEqual(eid, E.engine_id(self.r)); self.assertIn(eid, said)
+        self.assertIn('line-2', (out / 'dm/fork_patches.txt').read_text())
+        self.assertTrue((out / 'AGENTS.md').is_file())
+        self.assertFalse((out / '.git').exists()); self.assertFalse((out / '.gitignore').exists())   # no history, no repository files
+        self.assertFalse((out / 'tools').exists()); self.assertFalse((out / 'patches').exists())    # nothing of the fork
+
+    def test_a_series_change_without_a_pin_move_changes_the_identity(self):
+        self.tool('sync'); out, _ = self.make('one')
+        self.add_patch('0002-b.patch', 'dm/b.c', 'b1\nb2 fork\n', 'Change b2', header=HEADER.replace('#1', '#2'))
+        self.tool('sync'); out2, _ = self.make('two')
+        a, b = (out / '.engine-id').read_text().strip(), (out2 / '.engine-id').read_text().strip()
+        self.assertEqual(a[:40], b[:40]); self.assertNotEqual(a, b)
+
+    def test_the_zip_is_deterministic_and_unpacks_to_the_tree(self):
+        import hashlib, time, zipfile
+        self.tool('sync')
+        out, _ = self.make('one', 'one.zip')
+        time.sleep(1.1)                                    # other modification times, same bytes
+        for f in out.rglob('*'): os.utime(f, (time.time(), time.time()))
+        out2, _ = self.make('two', 'two.zip')
+        h = lambda n: hashlib.sha256((self.tmp / n).read_bytes()).hexdigest()
+        self.assertEqual(h('one.zip'), h('two.zip'))
+        with zipfile.ZipFile(self.tmp / 'one.zip') as z:
+            names = z.namelist()
+            self.assertEqual(names, sorted(names)); self.assertIn('.engine-id', names); self.assertIn('dm/a.c', names)
+            self.assertEqual({i.date_time for i in z.infolist()}, {E.ZIP_TIME})
+            self.assertEqual(z.read('.engine-id').decode(), (out / '.engine-id').read_text())
+
+    def test_executable_bits_and_symlinks_survive(self):
+        import stat, zipfile
+        self.wu('dm/run.sh', '#!/bin/sh\n'); os.chmod(self.up / 'dm/run.sh', 0o755)
+        os.symlink('a.c', self.up / 'dm/link.c')
+        up2 = self.up_commit('dm/c.c', 'c\n', 'upstream 2')
+        (self.r / '.upstream-ref').write_text(up2 + '\n')
+        self.tool('sync'); out, _ = self.make('out', 'e.zip')
+        self.assertTrue(os.access(out / 'dm/run.sh', os.X_OK)); self.assertFalse(os.access(out / 'dm/a.c', os.X_OK))
+        self.assertTrue((out / 'dm/link.c').is_symlink())
+        with zipfile.ZipFile(self.tmp / 'e.zip') as z:
+            self.assertEqual(stat.S_IMODE(z.getinfo('dm/run.sh').external_attr >> 16), 0o755)
+            self.assertTrue(stat.S_ISLNK(z.getinfo('dm/link.c').external_attr >> 16))
+
+    def test_a_stale_or_dirty_engine_makes_no_tree(self):
+        self.tool('tree', '--out', str(self.tmp / 'o'), expect=2)           # no engine/ at all
+        self.tool('sync')
+        self.add_patch('0002-b.patch', 'dm/b.c', 'b1\nb2 fork\n', 'Change b2', header=HEADER.replace('#1', '#2'))
+        self.assertIn('not a current sync', self.tool('tree', '--out', str(self.tmp / 'o'), expect=2))
+        self.tool('sync')
+        (self.eng / 'dm/a.c').write_text('local edit\n')
+        self.assertIn('changes the release must not carry', self.tool('tree', '--out', str(self.tmp / 'o'), expect=2))
+        self.assertFalse((self.tmp / 'o/.engine-id').exists())
+
+    def test_it_will_not_empty_a_folder_that_is_not_an_earlier_tree(self):
+        self.tool('sync')
+        keep = self.tmp / 'precious'; keep.mkdir(); (keep / 'x').write_text('mine')
+        self.assertIn('not an engine tree', self.tool('tree', '--out', str(keep), expect=2))
+        self.assertEqual((keep / 'x').read_text(), 'mine')
+        self.make('again'); self.make('again')                              # an earlier tree is replaced
+
+
 class StampKey(Fixture):
     def test_the_qt_front_end_computes_the_same_key(self):
         sys.path.insert(0, str(REPO / 'frontend-qt'))

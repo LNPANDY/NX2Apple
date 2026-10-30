@@ -12,8 +12,10 @@ import Foundation
 /// - else `engine/` as it is (stale or missing: the build syncs it first).
 ///
 /// `stampKey` is tools/engine.py's digest of the pin and the series, compared with the stamp sync wrote into engine/.git, so the
-/// launcher tells a stale engine without starting Python. A release app carries no engine: the launcher runs the sync on the first
-/// start and after updates, which downloads it from GitHub (about 80 MB), and shows a failure row when that does not work.
+/// launcher tells a stale engine without starting Python. The sync is for a repository checkout (a developer's,
+/// or one a launcher cloned): it downloads the pinned engine from GitHub (about 80 MB) and shows a failure row when that does not work.
+/// A release app carries the engine tree instead (`Contents/Resources/engine`, built by `tools/engine.py tree`, #227) and takes updates
+/// from the release's `latest.json`: no git, no sync.
 enum EngineLayout {
     /// The file that tells an engine tree (BuildModel.isRepo always looked for it).
     static let marker = "dm/tools/nx_extract/Program.cs"

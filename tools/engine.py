@@ -16,6 +16,7 @@ Subcommands (Python 3.9+, stdlib and git):
   export [REV]                 turn commits made in engine/ (default: everything after the last sync) into patches with the
                                Upstream-Status / Reason / Issue header, and add them to patches/series
   status                       the patches (Upstream-Status, Reason, age) and the state of engine/
+  tree --out DIR [--zip FILE]  the engine tree for players, the release's engine (see below)
   check [--tree]               headers valid, no patch touches the shader chain or the generated files, the series applies
                                cleanly to the pin with no empty patch. --tree also compares the committed vendored tree with
                                pin + series, as long as the repository still commits it (step 1 of #214)
@@ -24,8 +25,14 @@ Subcommands (Python 3.9+, stdlib and git):
   refresh WORKTREE --to SHA    after a conflicting bump was resolved by hand in WORKTREE: its commits become the series
 
 The upstream URL is https://github.com/seedds/nxnative.git, or $NX2APPLE_ENGINE_URL (a mirror, or a local clone that holds the
-pin, which needs no network). A release app carries no engine: the launcher runs `sync` on the first start and after updates.
+pin, which needs no network). `sync` is for developers, CI and checkouts: a release carries the engine tree (`tree`) instead.
 Scratch worktrees go to $PATCHES_TMP (or --tmp), else the system's temporary folder.
+
+The engine tree (`tree`): what a player's launcher runs the build from, with no git. DIR gets the files of engine/ at its last sync
+(TREE_PATHS, the patches applied, dm/fork_patches.txt included), `.upstream-ref` and `.engine-id`, the engine's identity
+`<pin>-<first 12 hex of the series digest>`: the pin alone does not name a tree, since the series changes without the pin moving.
+The zip lists its entries sorted, with fixed timestamps and permissions (0755 or 0644), so the same tree gives the same bytes
+(for one zlib). tools/release_manifest.py publishes it.
 """
 import argparse
 import contextlib
@@ -34,6 +41,7 @@ import importlib
 import io
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -236,6 +244,97 @@ def cmd_hook(a):
     return 0
 
 
+# ---- tree: the engine for players ----
+
+TREE_PATHS = ('dm', 'scripts', 'docs', 'ref', 'AGENTS.md', 'LICENSE')   # what a player's build reads, of what engine/ tracks
+ENGINE_ID_FILE = '.engine-id'
+ZIP_TIME = (2020, 1, 1, 0, 0, 0)    # fixed, so the zip's bytes depend on the content only
+
+
+def engine_id(root):
+    """`<pin>-<first 12 hex of the series digest>`: names a tree (the series changes without the pin moving). [0-9a-f-], 53 characters."""
+    return f'{pin(root)}-{stamp_key(root)[:12]}'
+
+
+def extract_tree(eng, out):
+    """The files of engine/'s HEAD under TREE_PATHS into `out`: `git archive`, so no .git and nothing untracked or ignored."""
+    import tarfile
+    names = [n for n in TREE_PATHS if git('cat-file', '-e', f'HEAD:{n}', cwd=eng, check=False).returncode == 0]
+    if not names: raise Fail(f'{eng} holds none of {", ".join(TREE_PATHS)}: not an engine checkout')
+    proc = subprocess.Popen(['git', 'archive', '--format=tar', 'HEAD', '--', *names], cwd=eng, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    count = 0
+    with tarfile.open(fileobj=proc.stdout, mode='r|') as tar:
+        for m in tar:
+            dest = out / m.name
+            if m.isdir(): dest.mkdir(parents=True, exist_ok=True)
+            elif m.isreg():
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                with tar.extractfile(m) as src, open(dest, 'wb') as f: shutil.copyfileobj(src, f)
+                dest.chmod(0o755 if m.mode & 0o111 else 0o644)
+                count += 1
+            elif m.issym():
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                os.symlink(m.linkname, dest)
+                count += 1
+    proc.stdout.close()
+    if proc.wait(): raise Fail(f'git archive failed: {proc.stderr.read().decode(errors="replace").strip()[-500:]}')
+    return count
+
+
+def write_zip(tree, zpath):
+    """Every file of `tree` (the tree itself is the archive's root), sorted by path, fixed time, 0755 or 0644, deflate level 6."""
+    import stat
+    import zipfile
+    entries = []
+    for dirpath, dirnames, files in os.walk(tree):
+        dirnames.sort()
+        for n in files + [d for d in dirnames if os.path.islink(os.path.join(dirpath, d))]:
+            full = os.path.join(dirpath, n)
+            entries.append((Path(full).relative_to(tree).as_posix(), full))
+    entries.sort()
+    zpath = Path(zpath)
+    zpath.parent.mkdir(parents=True, exist_ok=True)
+    tmp = zpath.with_name(zpath.name + '.part')
+    with zipfile.ZipFile(tmp, 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as z:
+        for rel, full in entries:
+            zi = zipfile.ZipInfo(rel, ZIP_TIME)
+            zi.create_system = 3
+            if os.path.islink(full):
+                zi.external_attr = (stat.S_IFLNK | 0o755) << 16
+                z.writestr(zi, os.readlink(full))
+                continue
+            zi.compress_type = zipfile.ZIP_DEFLATED
+            zi.external_attr = (stat.S_IFREG | (0o755 if os.access(full, os.X_OK) else 0o644)) << 16
+            with open(full, 'rb') as f: z.writestr(zi, f.read(), compresslevel=6)
+    os.replace(tmp, zpath)
+    return len(entries)
+
+
+def cmd_tree(a):
+    root = a.root
+    eng = engine_dir(root)
+    reason = why_stale(root)
+    if reason: raise Fail(f'engine/ is not a current sync ({reason}): run `python3 tools/engine.py sync` first')
+    work = local_work(eng, read_stamp(eng))
+    if work: raise Fail('engine/ has changes the release must not carry: ' + '; '.join(work) + '. Export them as patches or sync --force.')
+    out = Path(a.out).resolve()
+    if out.exists() and any(out.iterdir()):
+        if not (out / ENGINE_ID_FILE).is_file(): raise Fail(f'{out} exists and is not an engine tree made by this command: choose an empty folder')
+        shutil.rmtree(out)
+    out.mkdir(parents=True, exist_ok=True)
+    n = extract_tree(eng, out)
+    eid = engine_id(root)
+    (out / '.upstream-ref').write_text(pin(root) + '\n')
+    (out / ENGINE_ID_FILE).write_text(eid + '\n')
+    if not (out / P.FORK_PATCHES).is_file(): raise Fail(f'{P.FORK_PATCHES} is missing from engine/: sync again')
+    say(f'engine tree: {eid} ({n} files) in {out}')
+    if a.zip:
+        k = write_zip(out, a.zip)
+        h = hashlib.sha256(Path(a.zip).read_bytes()).hexdigest()
+        say(f'engine zip: {a.zip} ({k} entries, {Path(a.zip).stat().st_size} bytes, sha256 {h})')
+    return 0
+
+
 # ---- export ----
 
 def cmd_export(a):
@@ -423,6 +522,7 @@ def main(argv=None):
     s = sub.add_parser('hook'); s.set_defaults(f=cmd_hook, force=False, quiet=True)
     s = sub.add_parser('export'); s.add_argument('rev', nargs='?', help='a commit or a range in engine/ (default: everything after the last sync)')
     s.add_argument('--status', default='pending'); s.add_argument('--reason', default='TODO: why the fork carries this'); s.add_argument('--issue', default='TODO: LNPANDY/NX2Apple#<n>'); s.set_defaults(f=cmd_export)
+    s = sub.add_parser('tree'); s.add_argument('--out', required=True, help='the folder for the tree (emptied when it is an earlier tree)'); s.add_argument('--zip', help='also write the deterministic zip of the tree'); s.set_defaults(f=cmd_tree)
     sub.add_parser('status').set_defaults(f=cmd_status)
     s = sub.add_parser('check'); s.add_argument('--tree', action='store_true', help='also compare the committed vendored tree (step 1 of #214)'); s.set_defaults(f=cmd_check)
     s = sub.add_parser('bump'); s.add_argument('--to', required=True, help='the new upstream commit, or a branch such as main'); s.add_argument('--dry', action='store_true'); s.set_defaults(f=cmd_bump)

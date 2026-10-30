@@ -160,8 +160,10 @@ jobs:
           }
       - name: Install ripgrep (the engine/ search test)
         run: sudo apt-get install -y -qq ripgrep > /dev/null
-      - name: Patch tool tests
-        run: python -m unittest -v tools/tests/test_patches.py tools/tests/test_engine.py
+      - name: Install the signing tool's package (tools/release_manifest.py)
+        run: python -m pip install -r tools/requirements-release.txt
+      - name: Patch tool and release tool tests
+        run: python -m unittest -v tools/tests/test_patches.py tools/tests/test_engine.py tools/tests/test_release_manifest.py
       - name: Dry bump to seedds main (report only)
         run: python tools/engine.py bump --dry --to main || true
 

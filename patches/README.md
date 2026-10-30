@@ -107,6 +107,23 @@ leaves the conflict in a worktree.
 The nightly workflow does the first step only: it opens a pull request on `sync/upstream` when every patch applies, and an issue
 naming the blocking patch when one does not. Whoever owns the patch refreshes it.
 
+## The engine tree and how it is published (#227)
+
+Players get no git: a release carries the engine as a plain tree. `python3 tools/engine.py tree --out DIR [--zip FILE]` writes it from
+a synced `engine/` (`dm/`, `scripts/`, `docs/`, `ref/`, `AGENTS.md`, `LICENSE`, the patches applied, `dm/fork_patches.txt`, no history) plus
+`.upstream-ref` and `.engine-id`, the tree's identity `<pin>-<first 12 hex of the series digest>` (the series changes without the pin moving, so
+the pin alone does not name a tree). The zip is deterministic (sorted, fixed timestamps), so its SHA-256 is reproducible.
+
+`python3 tools/release_manifest.py publish ...` writes `latest.json` (version, pin, `engine_id`, channel, built, the engine and app assets with
+SHA-256 and size, sources) and `latest.json.sig` (a detached Ed25519 signature over its exact bytes, base64), and with `--upload` puts
+`NX2Apple-engine.zip`, `latest.json` and `latest.json.sig` on a GitHub release. Without `--upload` it is a dry run. The key is the repository
+secret `ENGINE_SIGNING_KEY` (base64 of the 32 raw private bytes), checked against `frontend/engine-signing.pub`, which the launcher compiles in
+(`python3 tools/release_manifest.py keygen` makes a pair). `build-mac-app.yml` does this for a release tag (stable channel, the tree also goes
+into `Contents/Resources/engine`), `sync-upstream.yml` for the pre-release tag `engine-experimental` after a green nightly bump.
+
+Locally: `python3 tools/engine.py sync`, then `tree --out /tmp/t --zip /tmp/e/NX2Apple-engine.zip`, then `publish --engine-zip /tmp/e/NX2Apple-engine.zip
+--version 0.0.0 --channel experimental --tag engine-experimental --out /tmp/p --ephemeral-key` runs every step except the upload.
+
 ## Patch policy
 
 Upstream's compatibility is the baseline. A patch does not change it silently.

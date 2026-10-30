@@ -629,7 +629,7 @@ final class BuildModel: ObservableObject {
     @Published var engineFailure: BuildFailure?
 
     /// `tools/engine.py sync` when engine/ is stale (#214, Engine.swift): at launch, after a clone, a pull or an adoption, and before a
-    /// build that has no other engine. A release app carries no engine, so the first start downloads it here. A no-op for a checkout
+    /// build that has no other engine. Checkouts only: a release app carries its engine tree (#227) and never syncs. A no-op for a checkout
     /// from before #214 or a current engine/. `then(ok)` runs on the main queue.
     func syncEngine(then: ((Bool) -> Void)? = nil) {
         if engineSyncWaiting != nil { engineSyncAgain = true; if let then { engineSyncWaiting?.append(then) }; return }

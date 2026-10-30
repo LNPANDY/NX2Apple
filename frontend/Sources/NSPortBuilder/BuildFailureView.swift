@@ -82,7 +82,7 @@ struct BuildFailureCard: View {
     }
 }
 
-/// Above every page of the launcher while the engine is fetched and patched (tools/engine.py sync, run on the first start and after
+/// Above every page of the launcher while the engine is fetched and patched (tools/engine.py sync, run for a checkout at launch and after
 /// updates), and its failure row when that stops: what happened, what to do, and Try again.
 struct EngineSyncBanner: View {
     @ObservedObject var m: BuildModel
