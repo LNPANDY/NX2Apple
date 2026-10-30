@@ -140,6 +140,7 @@ struct ContentView: View {
         .environmentObject(padFocus)
         .manageMenuOverlay(items: manageOpenFor.flatMap { id in library.games.first { $0.id == id } }.map(manageItems),
                            label: m.t("library.manage"), pad: padFocus) { manageOpenFor = nil }
+        .launcherDropdownHost()
         .onChange(of: manageOpenFor) { id in
             padFocus.scope = id != nil ? "manage" : currentPadScope
             if id != nil, padFocus.visible {   // opened by the controller: its focus lands on the first usable row
@@ -224,16 +225,16 @@ struct ContentView: View {
             }
         } message: { Text(m.t("library.removeNote")) }
         .sheet(isPresented: Binding(get: { optionsFor != nil }, set: { if !$0 { optionsFor = nil } })) {
-            if let id = optionsFor { LaunchOptionsView(m: m, library: library, gameID: id).environmentObject(padFocus) }
+            if let id = optionsFor { LaunchOptionsView(m: m, library: library, gameID: id).environmentObject(padFocus).launcherDropdownHost() }
         }
-        .sheet(isPresented: $controlsOpen) { ControlsView(m: m, layout: controls).environmentObject(padFocus) }
+        .sheet(isPresented: $controlsOpen) { ControlsView(m: m, layout: controls).environmentObject(padFocus).launcherDropdownHost() }
         .sheet(isPresented: Binding(get: { freeSpaceFor != nil }, set: { if !$0 { freeSpaceFor = nil } })) {
             if let game = library.games.first(where: { $0.id == freeSpaceFor }) { FreeSpaceView(m: m, game: game).environmentObject(padFocus) }
         }
         .onChange(of: freeSpaceFor) { id in padFocus.scope = id != nil ? "free" : currentPadScope }
         .sheet(isPresented: $m.showUpdateSheet) { UpdateSheet(m: m) }
         .sheet(isPresented: Binding(get: { savesFor != nil }, set: { if !$0 { savesFor = nil } })) {
-            if let id = savesFor { SavesView(m: m, library: library, gameID: id).environmentObject(padFocus) }
+            if let id = savesFor { SavesView(m: m, library: library, gameID: id).environmentObject(padFocus).launcherDropdownHost() }
         }
         .onChange(of: savesFor) { id in padFocus.scope = id != nil ? "saves" : currentPadScope }
         .cheatsSheet(for: $cheatsFor, m: m, library: library, pad: padFocus) { currentPadScope }

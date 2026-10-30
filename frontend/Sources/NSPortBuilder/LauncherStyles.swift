@@ -137,55 +137,6 @@ struct LauncherSegmented: View {
     }
 }
 
-/// A longer list of choices: a pill with the current one that opens the list. With `fill` it takes the width it is
-/// given, the chevron at its right end; `buttonLike` draws it as LauncherSecondaryButtonStyle draws a button (Settings).
-struct LauncherMenuPicker: View {
-    let options: [(value: String, label: String)]
-    let selection: String
-    var fill = false
-    var buttonLike = false
-    let choose: (String) -> Void
-    @State private var open = false
-    var body: some View {
-        Button { open.toggle() } label: {
-            HStack(spacing: 8) {
-                Text(options.first { $0.value == selection }?.label ?? selection).font(.manrope(buttonLike ? 13 : 12.5, .semibold)).lineLimit(1)
-                if fill { Spacer(minLength: 0) }
-                Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, buttonLike ? 15 : 14).padding(.vertical, buttonLike ? 9 : 7)
-            .frame(maxWidth: fill ? .infinity : nil)
-            .background(Color.white.opacity(buttonLike ? 0.055 : 0.06), in: RoundedRectangle(cornerRadius: buttonLike ? 9 : 99))
-            .overlay(RoundedRectangle(cornerRadius: buttonLike ? 9 : 99).strokeBorder(Color.white.opacity(0.10)))
-            .foregroundStyle(Color.white.opacity(0.92))
-            .contentShape(RoundedRectangle(cornerRadius: buttonLike ? 9 : 99))
-        }
-        .buttonStyle(.plain)
-        .popover(isPresented: $open, arrowEdge: .bottom) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 2) {
-                    ForEach(options, id: \.value) { o in
-                        Button { choose(o.value); open = false } label: {
-                            HStack {
-                                Text(o.label).font(.manrope(13, o.value == selection ? .bold : .regular))
-                                Spacer(minLength: 16)
-                                if o.value == selection { Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)).foregroundStyle(LauncherPalette.cream) }
-                            }
-                            .padding(.horizontal, 12).padding(.vertical, 7)
-                            .background(o.value == selection ? Color.white.opacity(0.07) : .clear, in: RoundedRectangle(cornerRadius: 7))
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(6)
-            }
-            .frame(width: 240, height: min(CGFloat(options.count) * 33 + 12, 320))
-            .preferredColorScheme(.dark)
-        }
-    }
-}
-
 /// A slider without tick marks: a thin track, a cream fill and a round knob; snaps to its step.
 struct LauncherSlider: View {
     let value: Double

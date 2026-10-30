@@ -248,8 +248,8 @@ struct ControlsView: View {
                         let at = choices.firstIndex(of: layout.sends(button)) ?? 0
                         layout.setSends(button, choices[(at + by + choices.count) % choices.count])
                     }) {
-            LauncherMenuPicker(options: ControlLayout.buttons.map { (value: $0, label: m.t("controls.fn." + $0)) } + [(value: "none", label: m.t("controls.none"))],
-                               selection: layout.sends(button), fill: true) { layout.setSends(button, $0) }
+            LauncherDropdown(options: ControlLayout.buttons.map { (value: $0, label: m.t("controls.fn." + $0)) } + [(value: "none", label: m.t("controls.none"))],
+                             selection: layout.sends(button), label: m.t("controls.fn." + button), fill: true) { layout.setSends(button, $0) }
                 .frame(width: 168)   // the keyboard rows' width (× and key field), and "Right stick press" fits
         }
     }
