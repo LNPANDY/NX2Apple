@@ -20,12 +20,12 @@ Issue: LNPANDY/NX2Apple#144
  dm/ios/Shell/ShellEngine.h           |  10 ++
  dm/ios/Shell/ShellMain.m             | 172 +++++++++++++++++++++++++++
  dm/ios/Sources/front_ios.m           |   1 +
- dm/ios/project-shell.yml             | 113 ++++++++++++++++++
- dm/ios/tests/test_shell_build.py     | 157 ++++++++++++++++++++++++
+ dm/ios/project-shell.yml             | 114 ++++++++++++++++++
+ dm/ios/tests/test_shell_build.py     | 159 +++++++++++++++++++++++++
  dm/ios/tools/build_ipa.sh            |  39 +++++-
  dm/ios/tools/build_shell.sh          | 117 ++++++++++++++++++
  dm/ios/tools/gen_manifest.py         |   9 +-
- 10 files changed, 689 insertions(+), 4 deletions(-)
+ 10 files changed, 692 insertions(+), 4 deletions(-)
  create mode 100644 dm/ios/Shell/Shell-Bridging-Header.h
  create mode 100644 dm/ios/Shell/ShellApp.swift
  create mode 100644 dm/ios/Shell/ShellEngine.h
@@ -329,10 +329,10 @@ index ec3d5548..0184365d 100644
      self.pad.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
 diff --git a/dm/ios/project-shell.yml b/dm/ios/project-shell.yml
 new file mode 100644
-index 00000000..b66a730e
+index 00000000..1fc29561
 --- /dev/null
 +++ b/dm/ios/project-shell.yml
-@@ -0,0 +1,113 @@
+@@ -0,0 +1,114 @@
 +# Route C shell project (docs/launcher-c-plan.md M2/M3): one app that hosts the engine and every game the player added, each game's
 +# code and per-game files in its own framework (build_ipa.sh DM_FRAMEWORK_ONLY), the library and settings from the frontend-ios Swift
 +# package. dm/ios/tools/build_shell.sh copies this template to the shell's project folder, puts the frameworks in at the FRAMEWORKS line and
@@ -367,6 +367,7 @@ index 00000000..b66a730e
 +        type: folder
 +        buildPhase: resources
 +      - path: Gen/Assets.xcassets
++      - path: ${DM_SHELL_PACKAGE}/AppIcon.icon   # the app icon, an Icon Composer document, shared with the demo app
 +      - path: Gen/src
 +      - path: Gen/main/main.c
 +        compilerFlags: "-Dmain=dm_main"
@@ -422,7 +423,7 @@ index 00000000..b66a730e
 +      ENABLE_USER_SCRIPT_SANDBOXING: NO
 +      # No SYMROOT / OBJROOT of its own (project.yml has them): Swift packages need Xcode's own build locations. Products go to the
 +      # derived data xcodebuild is given (-derivedDataPath; build_shell.sh, the Mac launcher)
-+      ASSETCATALOG_COMPILER_APPICON_NAME: $(DM_APPICON)
++      ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
 +      TARGETED_DEVICE_FAMILY: "1,2"
 +      ENABLE_BITCODE: NO
 +      STRIP_BITCODE_FROM_COPIED_FILES: NO   # the embed phase would run bitcode_strip on every Mach-O file in a framework, the pipeline archive's GPU binaries (pso/*.mtl4a) too, and fail
@@ -448,10 +449,10 @@ index 00000000..b66a730e
 +      config: Release
 diff --git a/dm/ios/tests/test_shell_build.py b/dm/ios/tests/test_shell_build.py
 new file mode 100644
-index 00000000..32936222
+index 00000000..9582898b
 --- /dev/null
 +++ b/dm/ios/tests/test_shell_build.py
-@@ -0,0 +1,157 @@
+@@ -0,0 +1,159 @@
 +"""Route C shell (docs/launcher-c-plan.md M2): dm/ios/tools/build_shell.sh, off a device.
 +
 +The checks of the frameworks it is given run anywhere: a manifest of another shader chain, two frameworks of one title, a folder
@@ -596,6 +597,8 @@ index 00000000..32936222
 +        self.assertEqual(info['CFBundleDisplayName'], 'Shell Fixture')
 +        self.assertEqual(info['CFBundleIdentifier'], 'org.nxnative.ci.shell')
 +        self.assertEqual('b-' + info['DMChain'], CHAIN)
++        self.assertEqual(info['CFBundleIcons']['CFBundlePrimaryIcon']['CFBundleIconName'], 'AppIcon')   # frontend-ios/AppIcon.icon
++        self.assertTrue((app / 'Assets.car').is_file())
 +        self.assertEqual(info['UIApplicationSceneManifest']['UISceneConfigurations']['UIWindowSceneSessionRoleApplication'][0]['UISceneDelegateClassName'], 'SceneDelegate')
 +        self.assertTrue((app / f'Frameworks/{fw.name}/{fw.stem}').is_file())
 +        self.assertTrue((app / f'Frameworks/{fw.name}/game.manifest.json').is_file())
