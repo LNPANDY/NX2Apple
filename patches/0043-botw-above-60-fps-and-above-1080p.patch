@@ -1,0 +1,990 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: v0lumehi <aljic.zijad@gmail.com>
+Date: Sat, 31 Oct 2026 00:08:17 +0100
+Subject: [PATCH] Breath of the Wild above 60 fps and above 1080p
+ (seedds/nxnative#76)
+
+seedds/nxnative#76 at 0f2a772c, rebased onto the fork's pin (ee6648cb) and its patch series. The rewriter table of a
+Breath of the Wild 1.9.0 build names further stubs (VAR_STEP, RENDER_POOL, VIEW_W / VIEW_H, OUTPUT_W / OUTPUT_H). The loader
+writes the state page fields from +0x40 on only for such a build. DM_FPS_TARGET 61 to 240 gives a variable frame step, and
+any build without VAR_STEP refuses it. DM_RENDER_SCALE above 1.0 (up to 3.0) grows the render buffer pool, the application
+pool and the alias region, on the Mac only. Menus, held buttons and the physics step follow the frame ratio.
+
+Adapted to the fork: hle_svc.c and loader.c read the profile through dm_profile() (runtime-profile patch) instead of the
+DM_GAME_* macros. The generated docs/agents/game-patches.md and docs/agents/symptoms.md are left to patches.py apply.
+
+Upstream-Status: forwarded seedds/nxnative#76
+Reason: Breath of the Wild above 60 fps and above 1080p on the Mac until upstream merges it
+Issue: LNPANDY/NX2Apple#287
+---
+ dm/games/01007EF00011E000/README.md  |   6 +-
+ dm/games/01007EF00011E000/patches.py | 128 ++++++++++++++++++++++++++-
+ dm/games/README.md                   |   2 +-
+ dm/gfx/nvn/hle_nvn.c                 |  31 ++++++-
+ dm/gfx/nvn/nvn_fstep.h               |  17 ++++
+ dm/gfx/nvn/nvn_mtl.m                 |  28 +++---
+ dm/gfx/tests/nvn_replay.m            |   2 +
+ dm/gfx/tests/t_capture_live.m        |   2 +
+ dm/gfx/tests/t_copy_alias.m          |   2 +
+ dm/gfx/tests/t_cpu_tex.m             |   2 +
+ dm/gfx/tests/t_fstep.c               |  26 ++++++
+ dm/gfx/tests/t_linear_readback.m     |   2 +
+ dm/gfx/tests/t_link_ticks.m          |   8 +-
+ dm/gfx/tests/t_mip_extent.m          |   2 +
+ dm/gfx/tests/t_present_crop.m        |   2 +
+ dm/gfx/tests/t_present_snap.m        |   2 +
+ dm/gfx/tests/t_queue_origin.m        |   2 +
+ dm/gfx/tests/t_readback.m            |   2 +
+ dm/host/dm.h                         |   3 +
+ dm/host/hle.h                        |   2 +
+ dm/host/hle_svc.c                    |  21 +++--
+ dm/host/loader.c                     |  59 +++++++++---
+ dm/host/tests/t_heap_size.c          |   1 +
+ dm/host/tests/t_nro.c                |   1 +
+ dm/host/tests/t_svc_memory.c         |   1 +
+ dm/host/tests/t_symbols.c            |   1 +
+ dm/tools/docs_patches.py             |   2 +-
+ dm/tools/patch_nso.py                |  17 ++--
+ docs/reference/frame-rate.md         |   8 ++
+ docs/reference/memory.md             |   8 ++
+ 30 files changed, 344 insertions(+), 46 deletions(-)
+
+diff --git a/dm/games/01007EF00011E000/README.md b/dm/games/01007EF00011E000/README.md
+index 85625ecd..dd87e3be 100644
+--- a/dm/games/01007EF00011E000/README.md
++++ b/dm/games/01007EF00011E000/README.md
+@@ -32,6 +32,7 @@ No `tex_flush_upload` (a minute's boot saw it flush 32 CPU-filled textures with
+ - **Screens whose rate is not a multiple of 60 (from PR #27).** A cheap 50 ms frame shows 54.5 ms at 165 Hz; counted as late it kept the game at 20 fps for good, so the frame step lets a frame on time show one refresh longer than its hold (`shown_slack`, `nvn_fstep.h`).
+ - **Resolved: menu repeat twice as fast at 60 fps (2026-10-26).** `sead::ControllerBase::updateDerivativeParams_` (`main+0xeb0ef0`) adds a constant 1.0 (`main+0xeb0f78`..`88`) to each held button's count and repeats when `fmod(count - delay, pulse)` falls below that step, so delays and pulses were counted in frames: holding Down in the System menu for 0.3 s went 5 entries at 60 and 2 at 30 (found by MacNativeGames, `866beb9`). A `FRAME_STEP` stub at `main+0xeb0f88` takes the VFR's ratio (`+0x3c`, interval / 2) instead, keeping 1.0 when there is no VFR or the ratio is not positive. Mac, 60 fps: 0.2 / 0.3 / 0.4 s now move 1 / 2 / 3 entries, as the game does at 30. The pause menu's fast-repeat countdown (`main+0xe67d00`) already reads the VFR's delta.
+ - `DM_NVN_CUT` growing segments (64, 128, 256 … draws) were tried for fewer commits: the game fell from 60 to 30 fps in the same scene (GPU idle while the long last segments were encoded).
++- **Above 60 fps** (`DM_FPS_TARGET=61`–`240` on a build whose rewriter table has `VAR_STEP`; not offered by the iOS launcher: not yet run on an iPhone): a variable frame step. Each frame the host publishes the time the previous one took as the VFR's frame ratio (in 30 fps frames, state page +0x50, which the `setWaitVsyncInterval` stub latches once a frame at +0x54 for the stub at `main+0x151d484`, so both VFR calls of a frame take one step), from which every per-core step is taken, so the game keeps real time at any frame rate; a scene that fixes its own interval (the VFR override) and prerendered movies keep the whole-vsync step. The display link runs at the cap (mode 4, `nvn_mtl.m` `link_range`; on a screen whose rate is not a multiple of it, virtual ticks at the cap) and each frame is shown on the next tick. Logic that stepped by the interval and not by the ratio ran at twice the speed at 120: the layout system's animation step (menus, title screen, HUD; `main+0x1280ec8`) and a fade (`main+0x125f114`) take max(interval, 1) × 0.5, and now the ratio; held buttons count the ratio through the menu-repeat stub above (`main+0xeb0f88`), so at the variable step too; the physics step runs round(6 × ratio) substeps (two at 120, where ragdolls blew apart) and gets at least 0.5, three. These sites come from MacNativeGames (PR #103) and were checked by disassembly. Steps have no floor at the cap: at 120 on a 144 Hz screen frames start 6.9 and 13.9 ms apart in turn, and a floor of 1/120 s ran the game at 1.12 of real time; the floor of 1/240 s carries what it adds into the next steps, and after a cutscene or movie the step starts again from the next frame ([Variable frame step above 60 fps](../../../docs/reference/frame-rate.md#variable-frame-step-above-60-fps)). On the Mac (M2 Max, 2560×1440): 119.5 fps at the title and in the menus at 1.000 of real time; in the open world about 84 fps at 1440p and 74 at 4K with the first implementation of the same step (PR #62), which ran two physics substeps a frame at 120 where this one runs three. Log: `variable frame step: … fps, game time … (… of real time)`.
+ 
+ ### The game's own interval controller
+ 
+@@ -46,7 +47,8 @@ Used at `DM_FPS_TARGET=0` and for the interval the framework keeps while the VFR
+ 
+ ### Render scale
+ 
+-- `DM_RENDER_SCALE=0.5`–`1.0` (also from `Documents/env.txt`) fixes the 3D views at that fraction of 1600×900 docked (1280×720 handheld) and turns the game's dynamic resolution off; 1.0, the default, keeps it. Factors above 1.0 are refused by the loader (the per-frame texture pool's size is unknown).
++- `DM_RENDER_SCALE=0.5`–`1.0` (also from `Documents/env.txt`) fixes the 3D views at that fraction of 1600×900 docked (1280×720 handheld) and turns the game's dynamic resolution off; 1.0, the default, keeps it. Factors above 1.0 below.
++- **Above 1080p** (render scale above 1.0 on the Mac; the rewriter's table has `RENDER_POOL` and the base sizes `VIEW_W` / `VIEW_H`, `OUTPUT_W` / `OUTPUT_H`): 1.2 = 1920×1080, 1.6 = 2560×1440, 2.4 = 3840×2160 docked. gsys's 115 MB render buffer pool grows by the factor's square rounded up (stub at `main+0x106d328`, state +0x4c), and the application pool, the alias region and the game's fixed heaps around the pool (nninitStartup's at `main+0x71c`, the RootHeap at `main+0xc617c0`; the PlacementMgr heap failed before) grow by what the pool adds plus 64 MB (state +0x58, `hle_svc.c` `g_mem_extra`). Above 1.2 the output grows too: the game composed every frame into 1920×1080 display buffers, so the views were scaled down to them; its size global (`main+0x1e43dc0`) and the docked mode's output width, render size and window crop take the views' size (state +0x40 / +0x48). The loader writes these fields for a build whose table names them, so no game's constants are in the host. Not on iOS: the larger pool comes on top of the guest's address space, which iOS caps at a 6 GB reservation.
+ - The dynamic-resolution method (`main+0x12666e4`) keeps its scale in s8 (0.8–1.0 in 0.05 steps, `+0x1218`, `main+0x1266818`, or the forced 0.75 / 0.5 of `+0x284 & 0x1800`) and applies it from `main+0x1266880`: the views' scale (`+0x28a0` / `+0x28a4` = s8 × base width (`+0x1214`: 1600 docked, 1280 handheld) / output width), from which the size function (`main+0x106340c`) sizes the scene buffers each frame, the shader ratio `uking_dynamic_resolution_ratio` and the other readers (`main+0xc3c3f4`, an LOD check at `main+0x14126b4`). That block runs only when the dynamic path has just recomputed the scale (`+0x280` bit 4, set at `main+0x1266830`) or in a forced mode, else `main+0x126686c` skips it. The stub sets s8 at the block and, for a factor other than 1.0, takes the block every frame. A multiply in the size function (Tears of the Kingdom's way) would leave the ratio and those readers at the old scale.
+ - At 0.5 the 1600×900 passes become 800×450 and the 800×450, 400×225, 200×112 and 100×56 chains halve too, while the shadow maps and the 1920×1080 output keep their size and the HUD stays sharp. It holds in handheld mode (960×540 at 0.75). On the Mac (M4 Pro) the GPU time does not change (about 13 ms in the first shrine at 1.0 and at 0.5): a frame has about 650 passes, most of them tiny. Whether it helps an iPhone, whose GPU loads and stores each pass's attachments, is what the setting is for.
+ 
+@@ -219,6 +221,8 @@ General host changes first needed here; each applies to every game:
+ - **The host frame step in whole vsyncs** (`nvn_fstep.h`, `fstep_tick`, `FRAME_STEP` stubs, `fps_target`), explained in full under [Frame rate](#the-frame-step-current); its probes (`nvn_fstep_gpu_slowed`, `nvn_fstep_same`): [development.md, Power](../../../docs/development.md#power).
+ - **Real GPU timestamps per segment** (`gpu_timestamps`, `rep_ticks`), **submissions in segments** (`sub_cut`), **deferred texture binds** (`bh_fresh`), **duplicate colour slots** (`rt_dup_slot`), **cube textures as 2D arrays** (`tex_fit`), **compressed render targets through shadows** (`bcrt_attach` / `bcrt_flush`), **pool lookups** (`pool_find`), **memory fixes** (`defer_drain`'s pool, `g_ghost`, growing pool table), **`nvnTextureCompare` with the channel mapping**, **first-use fill of flushed storage** (`nvn_flushed`, `tex_init_fill`), **partial-cover uniform shadows** (`ubp_get`, `cb_extent.tsv`): [GPU timestamps per submission segment](../../../docs/reference/frame-rate.md#gpu-timestamps-per-submission-segment), [Submissions handed to the GPU in segments](../../../docs/reference/frame-rate.md#submissions-handed-to-the-gpu-in-segments), [Deferred texture binds read at execution](../../../docs/reference/shaders.md#deferred-texture-binds-read-at-execution), [The same texture attached at two colour slots](../../../docs/reference/rendering.md#the-same-texture-attached-at-two-colour-slots), [Cube textures held as 6-layer 2D arrays](../../../docs/reference/rendering.md#cube-textures-held-as-6-layer-2d-arrays), [Compressed textures as render targets through an uncompressed shadow](../../../docs/reference/rendering.md#compressed-textures-as-render-targets-through-an-uncompressed-shadow), [Address to memory pool lookups by binary search](../../../docs/reference/frame-rate.md#address-to-memory-pool-lookups-by-binary-search), [Deferred-release drain without an autorelease pool](../../../docs/reference/memory.md#deferred-release-drain-without-an-autorelease-pool), [Dead texture serials kept in a ghost table](../../../docs/reference/nvn-objects.md#dead-texture-serials-kept-in-a-ghost-table), [Memory-pool tracking table grows in blocks](../../../docs/reference/nvn-objects.md#memory-pool-tracking-table-grows-in-blocks), [`nvnTextureCompare` compares the channel mapping](../../../docs/reference/rendering.md#nvntexturecompare-compares-the-channel-mapping), [First-use fill of storage the game flushed](../../../docs/reference/nvn-objects.md#first-use-fill-of-storage-the-game-flushed), [Partial-cover uniform shadows keep passes open](../../../docs/reference/rendering.md#partial-cover-uniform-shadows-keep-passes-open).
+ - **Display-link waits per present interval** (`mtl_link_wait_tick`): [Frames of a dynamic present interval held on screen and at the acquire](../../../docs/reference/frame-rate.md#frames-of-a-dynamic-present-interval-held-on-screen-and-at-the-acquire).
++- **A variable frame step above 60 fps** (`VAR_STEP`, `nvn_vstep_next`, `vstep_tick`): [Variable frame step above 60 fps](../../../docs/reference/frame-rate.md#variable-frame-step-above-60-fps).
++- **A render buffer pool grown with the render scale** (`RENDER_POOL`, `OUTPUT_W` / `OUTPUT_H`, `dm_mem_extra`): [A render buffer pool grown with the render scale](../../../docs/reference/memory.md#a-render-buffer-pool-grown-with-the-render-scale).
+ - **Spin waits that take a spin lock** (`patch_nso.py` "Spin waits", `dm_spin_wait`) and **yields that make progress** (`thr_yield`): [development.md, Power](../../../docs/development.md#power).
+ - **`DT_RELR`** (`relr_apply`) and **halfword jump tables** (`half_count`): [Packed relative relocations (DT_RELR)](../../../docs/reference/rewriter.md#packed-relative-relocations-dt_relr), [Halfword jump table landing pads sized to the largest entry](../../../docs/reference/rewriter.md#halfword-jump-table-landing-pads-sized-to-the-largest-entry). **NVN calls on the big host stack** (`nvn_big_entry`): [NVN entry points on the big host stack](../../../docs/reference/nvn-objects.md#nvn-entry-points-on-the-big-host-stack).
+ - **SDK 20 service calls** and **record sizes against `GetCommandMemoryUsed`** (`draw_rec`): [SDK 20 six-axis sensor and amiibo (`nfp`) calls](../../../docs/reference/services.md#sdk-20-six-axis-sensor-and-amiibo-nfp-calls), [Applet resource user ID, launch parameters and VR mode](../../../docs/reference/services.md#applet-resource-user-id-launch-parameters-and-vr-mode), [Shared font load request](../../../docs/reference/services.md#shared-font-load-request), [Model heaps sized by the host's command record sizes](../../../docs/reference/memory.md#model-heaps-sized-by-the-hosts-command-record-sizes). **SDK 20's audio renderer layout** (`render_once`): [SDK 20's `AudioRenderSystem` layout](../../../docs/reference/audio.md#sdk-20s-audiorendersystem-layout). **Running a 30 fps game at 60**: [sead's dynamic present interval, `ksys::VFR` and the host's frame step](../../../docs/reference/frame-rate.md#seads-dynamic-present-interval-ksysvfr-and-the-hosts-frame-step).
+diff --git a/dm/games/01007EF00011E000/patches.py b/dm/games/01007EF00011E000/patches.py
+index a31a842e..ad425ae7 100644
+--- a/dm/games/01007EF00011E000/patches.py
++++ b/dm/games/01007EF00011E000/patches.py
+@@ -39,7 +39,9 @@ def frame_step(ctx):
+     fs_site(0x11269b8, 'fd7bbea9'); fs_site(0x151d3d0, 'fd7bbea9')
+     start = here(); emit(ADRP(16, here(), FS_STATE_OFF))
+     for w in (0xb9400211,   # ldr w17,[x16]          target fps (0 = off)
+-              0x34000191):  # cbz w17,orig (+12)
++              0x340001d1,   # cbz w17,orig (+14)
++              0xb9405211,   # ldr w17,[x16,#0x50]    the variable step (VAR_STEP below), latched once a frame at +0x54
++              0xb9005611):  # str w17,[x16,#0x54]
+         emit(w)
+     emit(ADRP(17, here(), 0x1e93890)); emit(LDRX(17, 17, 0x890 // 8))   # the VFR
+     for w in (0xb4000131,   # cbz x17,orig (+9)
+@@ -54,7 +56,7 @@ def frame_step(ctx):
+               0xa9be7bfd):  # orig: stp x29,x30,[sp,#-0x20]!
+         emit(w)
+     emit(B(here(), 0x11269bc))
+-    fs_put(0x11269b8, [B(0x11269b8, start)], 'setWaitVsyncInterval: the host\'s step unless the VFR override is set (state page target fps; 0 = the game\'s interval)')
++    fs_put(0x11269b8, [B(0x11269b8, start)], 'setWaitVsyncInterval: the host\'s step unless the VFR override is set (state page target fps; 0 = the game\'s interval); latches the variable step')
+     start = here(); emit(ADRP(16, here(), FS_STATE_OFF))
+     for w in (0xb9400211,   # ldr w17,[x16]          target fps (0 = off)
+               0x340000b1,   # cbz w17,orig (+5)
+@@ -81,13 +83,131 @@ def frame_step(ctx):
+         emit(w)
+     emit(B(here(), 0xeb0f8c))   # back
+     fs_put(0xeb0f88, [B(0xeb0f88, start)], 'held-button counts step by the VFR ratio (menu repeat in game time at any frame step)')
++    # Variable frame step (VAR_STEP: a cap above 60, hle_nvn.c vstep_tick). VFR::updateInterval turns the interval into the frame ratio, the frame's length in 30 fps frames
++    # (interval / [+0x150], 2: 0.5 at 60 fps), keeps it at +0x30 and publishes it at +0x3c, from which every per-core step is taken (main+0x151d7e8: delta frames at +0x108,
++    # delta time at +0x138). The host's step (state +0x50: the time the last frame took, clamped) is published instead, except while the game's own override is set (cutscenes keep
++    # their steps); +0x30 keeps the interval's ratio for them. It is read from +0x54, where the setter stub above latches it once a frame like the whole-vsync step: the host writes
++    # +0x50 on the presenting thread, which may come between the two VFR calls of a frame. x9, x10 and s2 are dead at main+0x151d484 (w8 holds the changed flag stored next)
++    fs_site(0x151d484, '2020201e')
++    start = here(); emit(ADRP(9, here(), FS_STATE_OFF))
++    for w in (0x3940a66a,   # ldrb w10,[x19,#0x29]   the VFR's override
++              0x350000aa,   # cbnz w10,orig (+5)
++              0xbd405522,   # ldr s2,[x9,#0x54]      the host's step (1/30 s units), as latched this frame
++              0x1e202048,   # fcmp s2,#0.0
++              0x5400004d,   # b.le orig (+2)         not set
++              0x1e204041,   # fmov s1,s2             published at +0x3c
++              0x1e202020):  # orig: fcmp s1,s0
++        emit(w)
++    emit(B(here(), 0x151d488))
++    fs_put(0x151d484, [B(0x151d484, start)], 'VFR::updateInterval: the published frame ratio is the host\'s variable step (state page +0x54, latched) when set, unless the game overrides its interval')
++    # Logic that steps by the interval rather than the frame ratio. The menus (title screen, inventory) and the HUD animated at twice the speed at 120 fps: the layout system's
++    # animation step is max(interval, 1) × 0.5 (main+0x1280ec8, the getter main+0x583118 reads the VFR's interval through its per-core pointers at +0x48) into +0xb20 of the
++    # layout system [main+0x1e374b8], and a fade adds max(interval, 1) × 0.5 × 0.2 a frame (main+0x125f114). Both take the VFR's frame ratio (+0x3c) × 2 in place of the interval,
++    # the same value at whole vsyncs and in cutscenes (ratio = interval / 2). Held buttons count the frame ratio through the stub above (main+0xeb0f88, held-button counts),
++    # so at the variable step too. The physics step
++    # (main+0x156f8e8, called from main+0x1281084 with the frame time and the ratio) runs round(6 × ratio) solver substeps: two at 120 fps, where staggered enemies' ragdolls blew
++    # apart; it gets at least 0.5, three substeps of half the length at 120 fps, as at 60. These sites were found by MacNativeGames (PR #103, games/totk/runtime/game_patches_botw.c)
++    # and checked here by disassembly. x9 at main+0x1280ecc and x8 at main+0x125f118 are set again before they are read; s9 is only read by the call's argument
++    for site, reg in ((0x1280ecc, 9), (0x125f118, 8)):
++        fs_site(site, '0000231e')   # ucvtf s0,w0
++        start = here(); emit(ADRP(reg, here(), 0x1e93890)); emit(LDRX(reg, reg, 0x890 // 8))   # the VFR
++        emit(0xbd403c00 | reg << 5)   # ldr s0,[xN,#0x3c]      its frame ratio
++        emit(0x1e202800)              # fadd s0,s0,s0          × 2: the interval it stands for (× 0.5 below)
++        emit(B(here(), site + 4))
++        fs_put(site, [B(site, start)], 'interval step: the VFR\'s frame ratio × 2 in place of max(interval, 1) (UI animation / fade)')
++    fs_site(0x128106c, '0940201e')   # fmov s9,s0
++    start = here()
++    for w in (0x1e2c1009,   # fmov s9,#0.5
++              0x1e294809):  # fmax s9,s0,s9          at least three physics substeps a frame
++        emit(w)
++    emit(B(here(), 0x1281070))
++    fs_put(0x128106c, [B(0x128106c, start)], 'physics step ratio at least 0.5 (three substeps)')
++    ctx.keys['VAR_STEP'] = 1
++    # Render scale above 1.0 (RENDER_POOL). gsys's render buffers (the scene's colour, depth, G-buffer and reduced buffers, gsys::RenderBufferContext) come from two 115 MB pools
++    # the graphics system makes at start (main+0xed5e70: a compressible texture pool and a virtual range for it), sized by the system's config +0x28, read from [x19+0x4d8] at
++    # main+0x106d328. Above a scale of about 1.3 the buffers no longer fitted: an allocation came back empty and RenderBufferContext crashed (main+0xed7128). The size is multiplied
++    # by the host's factor (state +0x4c: ceil(scale²), 0 = as is). x10 and x11 are dead there (x8 and x9 are stored next)
++    fs_site(0x106d328, '686e42f9')
++    start = here(); emit(ADRP(10, here(), FS_STATE_OFF))
++    for w in (0xb9404d4b,   # ldr w11,[x10,#0x4c]    pool factor
++              0xf9426e68,   # ldr x8,[x19,#0x4d8]    the pool size
++              0x3400004b,   # cbz w11,+2             no factor
++              0x9b0b7d08):  # mul x8,x8,x11
++        emit(w)
++    emit(B(here(), 0x106d32c))
++    fs_put(0x106d328, [B(0x106d328, start)], 'render buffer pool size × the host factor (state page +0x4c; 0 = the game\'s 115 MB)')
++    # The larger pool comes out of the heap the rest of the game shares: nninitStartup sets a fixed 0xc3000000 (3.05 GB, main+0x71c) whatever memory the system reports, and the
++    # RootHeap inside it is fixed too (0xc1000000, made at main+0xc617c0), so gsys::SystemTask and KingSystem grew inside a RootTask of the same size and PlacementMgr found no room
++    # for its 328 MB heap. Both grow by the bytes the host adds to the application pool for the larger pool (state +0x58, hle_svc.c mem_extra; 0 = the game's sizes)
++    fs_site(0x71c, '0060b852')
++    start = here(); emit(ADRP(16, here(), FS_STATE_OFF))
++    for w in (0xf9402e10,   # ldr x16,[x16,#0x58]    the bytes the host adds
++              0x52b86000,   # mov w0,#0xc3000000     the game's heap
++              0x8b100000):  # add x0,x0,x16
++        emit(w)
++    emit(B(here(), 0x720))
++    fs_put(0x71c, [B(0x71c, start)], 'nninitStartup heap size = the game\'s + the host\'s added bytes (state page +0x58)')
++    fs_site(0xc617c0, '0820b852')
++    start = here(); emit(ADRP(9, here(), FS_STATE_OFF))
++    for w in (0xf9402d29,   # ldr x9,[x9,#0x58]      the bytes the host adds
++              0x52b82008,   # mov w8,#0xc1000000     the game's RootHeap
++              0x8b090108):  # add x8,x8,x9
++        emit(w)
++    emit(B(here(), 0xc617c4))
++    fs_put(0xc617c0, [B(0xc617c0, start)], 'RootHeap size = the game\'s + the host\'s added bytes (state page +0x58)')
++    ctx.keys['RENDER_POOL'] = '0x7300000'
++    # Output size (OUTPUT_W / OUTPUT_H: state +0x40 u64 width | height << 32 and +0x48 float width, written by the loader where the 3D views outgrow 1920x1080; 0 = the game's).
++    # Docked, the game composes each frame into 1920x1080 display buffers whatever its 3D views render at, so a larger render scale was only supersampled down to 1080p. The size
++    # is a global (main+0x1e43dc0, set at three guarded inits, from which the window and its display buffers are made); the docked mode (main+0x12660bc) sets the output width
++    # (+0x1210, the divisor of the view scale above, so the 3D views stay at render scale × the docked base width 1600 at +0x1214), the system's render size (main+0x106dc70) and
++    # the window crop (main+0xe9af58). All four take the host's size; the handheld mode keeps 1280x720. Each stub only rewrites the register the site is setting (x4 at the crop
++    # holds the height, set just before)
++    for site in (0xc61ef4, 0xc61f28, 0x12618c4):
++        fs_site(site, '0987c0f2')
++        start = here(); emit(ADRP(9, here(), FS_STATE_OFF))
++        for w in (0xf9402129,   # ldr x9,[x9,#0x40]      the host's size
++                  0xb5000069,   # cbnz x9,+3
++                  0xd280f009,   # mov x9,#0x780          the game's 1920x1080
++                  0xf2c08709):  # movk x9,#0x438,lsl #32
++            emit(w)
++        emit(B(here(), site + 4))
++        fs_put(site, [B(site, start)], 'output size global = the host\'s (state page +0x40; 0 = 1920x1080)')
++    fs_site(0x12660cc, '680a09f9'); fs_site(0x12660d4, '0887c0f2'); fs_site(0x1266104, '03f08052')
++    start = here()
++    emit(0xf9090a68)            # str x8,[x19,#0x1210]   the game's widths (1920.0, base 1600.0)
++    emit(ADRP(8, here(), FS_STATE_OFF))
++    for w in (0xb9404908,       # ldr w8,[x8,#0x48]      the host's width (float)
++              0x34000048,       # cbz w8,+2
++              0xb9121268):      # str w8,[x19,#0x1210]
++        emit(w)
++    emit(B(here(), 0x12660d0))
++    fs_put(0x12660cc, [B(0x12660cc, start)], 'docked output width = the host\'s (state page +0x48; 0 = 1920.0)')
++    start = here(); emit(ADRP(8, here(), FS_STATE_OFF))
++    for w in (0xf9402108,       # ldr x8,[x8,#0x40]
++              0xb5000068,       # cbnz x8,+3
++              0xd280f008,       # mov x8,#0x780
++              0xf2c08708):      # movk x8,#0x438,lsl #32
++        emit(w)
++    emit(B(here(), 0x12660d8))
++    fs_put(0x12660d4, [B(0x12660d4, start)], 'docked render size = the host\'s output size')
++    start = here(); emit(ADRP(3, here(), FS_STATE_OFF))
++    for w in (0xf9402063,       # ldr x3,[x3,#0x40]
++              0xb4000083,       # cbz x3,+4
++              0xd360fc64,       # lsr x4,x3,#32          height
++              0x2a0303e3):      # mov w3,w3              width
++        emit(w)
++    emit(B(here(), 0x1266108))
++    emit(0x5280f003)            # mov w3,#0x780          the game's crop
++    emit(B(here(), 0x1266108))
++    fs_put(0x1266104, [B(0x1266104, start)], 'docked window crop = the host\'s output size')
++    ctx.keys.update(VIEW_W='0x640', VIEW_H='0x384', OUTPUT_W='0x780', OUTPUT_H='0x438')   # docked 3D view base 1600x900, output 1920x1080
+     # Render scale (state +0x10, float written by the loader: DM_RENDER_SCALE, 1.0 by default; independent of the frame step). The dynamic-resolution method (main+0x12666e4) keeps a
+     # scale in 0.8–1.0 rounded to 0.05 steps (+0x1218, main+0x1266818), or the game's forced 0.75 / 0.5 (+0x284 & 0x1800), in s8; from main+0x1266880 it applies s8: each view's
+     # scale (+0x28a0 / +0x28a4 = s8 × base width (+0x1214: 1600 docked, 1280 handheld) / output width), from which the scene buffers are sized each frame (main+0x106340c), the
+     # shader ratio uking_dynamic_resolution_ratio and the other readers (main+0xc3c3f4, an LOD check at main+0x14126b4). Setting s8 there keeps them all consistent (a multiply in the
+     # size function, TOTK's way, would leave the ratio and those readers at the old scale). The apply block runs only when the dynamic path has just recomputed the scale (+0x280 bit 4,
+     # set at main+0x1266830) or in a forced mode, else main+0x126686c skips it; with a factor it is taken every frame, as in the dynamic mode, so the factor holds with dynamic
+-    # resolution off too. Factors above 1.0 are refused by the loader: the per-frame texture pool's size is unknown. x8, s0, s1 and the flags are dead at both sites
++    # resolution off too. Factors above 1.0 grow the render buffer pool and the heaps around it (above). x8, s0, s1 and the flags are dead at both sites
+     fs_site(0x1266880, '88ae40f9'); fs_site(0x126686c, struct.pack('<I', B(0x126686c, 0x1266950)).hex())
+     apply = here(); emit(ADRP(8, here(), FS_STATE_OFF))
+     for w in (0xbd401100,   # ldr s0,[x8,#0x10]      render scale
+@@ -117,7 +237,7 @@ FRAME_STEP = {'cd57b23fa4bbad65803d9788c01821ee': frame_step}
+ BINDING = [
+     {'what': 'interval controller: the lower bound and the GPU-time path', 'now': 'build', 'goal': 'game', 'purpose': 'frame rate',
+      'why': "sead::GameFrameworkNx's interval controller in this build; Tears of the Kingdom shares sead but not this code"},
+-    {'what': '60 fps frame step and render scale (ksys::VFR)', 'now': 'build', 'goal': 'game', 'purpose': 'frame rate',
++    {'what': 'frame step (whole vsyncs and variable), render scale, output size, heaps and render buffer pool (ksys::VFR and the game setup code)', 'now': 'build', 'goal': 'game', 'purpose': 'frame rate',
+      'why': "the game's own frame code; the frame-step state page is general",
+      'blocked': 'frame-step stubs have no function-matched form yet'},
+ ]
+diff --git a/dm/games/README.md b/dm/games/README.md
+index 25059eac..db92d7b4 100644
+--- a/dm/games/README.md
++++ b/dm/games/README.md
+@@ -188,7 +188,7 @@ One row per profile; the notes are each profile's `README.md`.
+ | `present_snap` | `on` / `off` (the default): present snapshots by default (`nvn_mtl.m` `mtl_snap_on`, a ring of 2 host textures): each present is copied and the game's swapchain texture is free at once, so the GPU does not idle between frames ([Present snapshots](../../docs/reference/frame-rate.md#present-snapshots-the-games-swapchain-texture-free-at-once)). A setting the game was tested with: the iOS launcher's **Frame buffering** defaults to it, and `DM_PRESENT_SNAP` / `Documents/env.txt` override it. Breath of the Wild sets it on |
+ | `pso_mtl4` | `on` / `off` (the default): on iOS, render pipelines through MTL4Compiler by default, with the pipeline archive, the prepare step, the hybrid pipelines and the prebuild (on by default on the Mac; `DM_PSO_MTL4=1` / `0` overrides). A setting the game was tested with on an iPhone. It also gives the app the [pipeline archive made offline](../../docs/development.md#the-pipeline-archive-made-offline) (`build_ipa.sh` builds it for `g18p` unless `DM_PSO_GPUS` says otherwise; without the key, none) and the pulling libraries (`_bp`). Breath of the Wild sets it on |
+ | `enc_thread` | `on` / `off` (the default): on the Mac, Metal encoding on its own thread by default, as on iOS for every game (`nvn_rec.h` `rec_on`; `DM_NVN_ENC_THREAD=1` / `0` and the launcher's Encode thread override it). For a game that waits on its fence every frame, whose submit thread would otherwise also encode before the wait: Need for Speed: Hot Pursuit Remastered's 60 fps frame took 18.1 ms with encoding on the submit thread and 16.7 on its own |
+-| `fps_target` | Frame rate cap of the rewriter's frame step, for builds that have one (`FRAME_STEP` in the profile's `patches.py`: Tears of the Kingdom 1.4.3, Breath of the Wild 1.9.0, Hyrule Warriors: Age of Calamity 1.3.0, Paper Mario: The Thousand-Year Door 1.0.1, ASTRAL CHAIN 1.0.1), or the engine's own frame limit the host writes into game memory (`hle_fpslock.c`: Monster Hunter Rise 16.0.2, which also needs `present_interval display`; any Unreal Engine 4.2x / 5 build, its `t.MaxFPS` (or `ue_fps_cvar`) and `rhi.SyncInterval` or `nvn.SyncInterval`, found by name by the rewriter, so the game asks for present interval 1 itself; Luigi's Mansion 3 1.4.0, its frame limiter's milliseconds per frame, with `present_interval display`; Pokémon Brilliant Diamond 1.3.0, Unity's integer `Application.targetFrameRate`, also with `present_interval display`; EA SPORTS FC 27, Frostbite's simulation rate, found by name on any build, and on 1.8d.310c its frame regulator, also with `present_interval display`). `0` (the default): the game's own step. `30` / `60`: the host decides each frame's step in whole vsyncs and keeps the frame on screen that long (`hle_nvn.c` `fstep_tick`, `nvn_fstep.h`): 1 at a 60 cap, 2 when 60 does not hold or at a 30 cap (and while a prerendered movie plays), plus one vsync while the game is behind real time after a late frame. Presents follow that hold instead of the interval the game sets. `DM_FPS_TARGET` overrides it, also from `Documents/env.txt`; the log line `frame step: game time … of real time` checks the game's speed. A derived profile (`derive_profile`) whose `main` has no `FRAME_STEP` stubs, while the profile has them for other builds, gets `fps_target 0`: without the stubs the host would present every vsync and the game would run at double speed |
++| `fps_target` | Frame rate cap of the rewriter's frame step, for builds that have one (`FRAME_STEP` in the profile's `patches.py`: Tears of the Kingdom 1.4.3, Breath of the Wild 1.9.0, Hyrule Warriors: Age of Calamity 1.3.0, Paper Mario: The Thousand-Year Door 1.0.1, ASTRAL CHAIN 1.0.1), or the engine's own frame limit the host writes into game memory (`hle_fpslock.c`: Monster Hunter Rise 16.0.2, which also needs `present_interval display`; any Unreal Engine 4.2x / 5 build, its `t.MaxFPS` (or `ue_fps_cvar`) and `rhi.SyncInterval` or `nvn.SyncInterval`, found by name by the rewriter, so the game asks for present interval 1 itself; Luigi's Mansion 3 1.4.0, its frame limiter's milliseconds per frame, with `present_interval display`; Pokémon Brilliant Diamond 1.3.0, Unity's integer `Application.targetFrameRate`, also with `present_interval display`; EA SPORTS FC 27, Frostbite's simulation rate, found by name on any build, and on 1.8d.310c its frame regulator, also with `present_interval display`). `0` (the default): the game's own step. `30` / `60`: the host decides each frame's step in whole vsyncs and keeps the frame on screen that long (`hle_nvn.c` `fstep_tick`, `nvn_fstep.h`): 1 at a 60 cap, 2 when 60 does not hold or at a 30 cap (and while a prerendered movie plays), plus one vsync while the game is behind real time after a late frame. Presents follow that hold instead of the interval the game sets. `61`–`240`, only on a build whose rewriter table has `VAR_STEP` (Breath of the Wild 1.9.0; the loader refuses it elsewhere): a variable frame step, each frame steps the game by the time the previous one took (`hle_nvn.c` `vstep_tick`), and the display link runs at the cap. `DM_FPS_TARGET` overrides it, also from `Documents/env.txt`; the log line `frame step: game time … of real time` checks the game's speed. A derived profile (`derive_profile`) whose `main` has no `FRAME_STEP` stubs, while the profile has them for other builds, gets `fps_target 0`: without the stubs the host would present every vsync and the game would run at double speed |
+ | `fps_hold` | `on` (the default): with `fps_target`, three late frames in a row raise the hold above the cap's vsyncs (30 or 20 fps), and steady frames that fit try the lower hold again. `off`: frames are never held longer than the cap's vsyncs; each is shown as soon as it is ready. For a game whose updates do not wait for the presents and step by the cap whatever the hold (Age of Calamity): there the hold only paces the screen. `DM_FPS_HOLD=on` / `off` overrides it, also from `Documents/env.txt` Paper Mario: The Thousand-Year Door sets it off too: its frame waits for three render worker threads, and holding frames left them idle, so a frame cost more the longer the hold (the hold stuck at 3 vsyncs, 20 fps, on a loaded Mac; 32–58 fps without holds) |
+ | `ue_fps_cvar` | Unreal Engine games: the console variable the host writes `fps_target` into (`hle_fpslock.c`). `t.MaxFPS` (the default) is the engine's frame limit; a game whose settings apply a variable of its own to `t.MaxFPS` names that one, or the next settings change sets the game's 30 again (SHIN MEGAMI TENSEI V: Vengeance: `Project.FrameRateLimit`). The rewriter finds it by its registered name, so a name set here must be in `dm/tools/ue_cvar.py`'s `NAMES` (a red line otherwise): [Unreal's frame limit and present interval, found by name](../../docs/reference/frame-rate.md#unreals-frame-limit-and-present-interval-found-by-name) |
+ | `ue_texture_pool` | Unreal Engine games: megabytes of the texture streaming pool (`r.Streaming.PoolSize`) the host raises the game's own to, on the Mac (`hle_uecvar.c`; the rewriter finds the variable by its name, `dm/tools/ue_cvar.py`): past its pool the streamer drops the top mips of what is in view, and the Switch's pool is small (DRAGON QUEST VII Reimagined: 200 MB, 1000 on Windows). `0` (the default): the game's own pool. A larger value the game sets, or −1, stays. `DM_UE_TEXTURE_POOL` overrides it; on iOS only that switch turns it on (`Documents/env.txt`). An improvement over the Switch, not a fix: [Unreal's texture streaming pool](../../docs/reference/rendering.md#unreals-texture-streaming-pool) |
+diff --git a/dm/gfx/nvn/hle_nvn.c b/dm/gfx/nvn/hle_nvn.c
+index 22c7fc0e..2d1cfd18 100644
+--- a/dm/gfx/nvn/hle_nvn.c
++++ b/dm/gfx/nvn/hle_nvn.c
+@@ -1324,6 +1324,7 @@ static uint64_t g_frame;
+ static uint64_t g_acq_wait_ns, g_pq_wait_ns;   // Accumulated display-link wait / wait for the present queue to return inside acquire, recorded per frame at present (there can be several acquires within one frame)
+ static uint64_t g_fs_start, g_fs_wait;   // frame step (fstep_tick): when the first acquire after a present returned (the frame's start, 0 = none yet), and its pacing wait
+ uint64_t dm_nvn_frame_count(void) { return g_frame; }
++static int vstep_on(void);   // the variable frame step holds (vstep_tick)
+ extern uint64_t g_t0_ns;   // Host process start point (main.c; same base as the UIMSG timestamps)
+ NVN(nvnWindowAcquireTexture, NVNwindowAcquireTextureResult, NVNwindow *w, NVNsync *s, int *idx) {
+     win_t *o = (win_t *)w;
+@@ -1654,6 +1655,12 @@ static int fps_present_cap(void) {
+     }
+     return g_present_cap;
+ }
++// Variable frame step (a build whose rewriter table names VAR_STEP, DM_FPS_TARGET 61 to 240; loader.c dm_fps_var_cap): each frame steps the game by the real time the previous one
++// took, in 1/30 s units at state +0x50 (at least 1/240 s, at most the game's own longest step, 1.5; the build's stubs latch it once a game frame), and the frame is shown on the next
++// display-link tick. While the game fixes its own step (BotW's VFR override in cutscenes) or a prerendered movie halves the cap, the whole-vsync step holds as below
++__attribute__((weak)) int dm_fps_var_cap;   // loader.c; graphics unit tests have no loader
++static int vstep_on(void) { return dm_fps_var_cap && fps_step_cap() == 60 && !__atomic_load_n((uint32_t *)(dm_fps_state + 0x24), __ATOMIC_RELAXED); }
++int nvn_var_fps(void) { return dm_fps_state && vstep_on() ? dm_fps_var_cap : 0; }   // nvn_mtl.m: the display link runs at the cap while the variable step holds
+ static nvn_fstep g_fs;   // present thread only
+ static nvn_fgpu g_fg;   // the GPU time at kmin and at the current hold (nvn_fstep_gpu_slowed)
+ static _Atomic int g_fs_k;   // the hold presentation follows (0 = not decided yet)
+@@ -1687,7 +1694,7 @@ static int link_wait(const win_t *o, uint64_t timeout_ns) {
+         if (rate > hz) { remainder += rate; ticks = remainder / hz; remainder %= hz; }
+         return mtl_link_wait_ticks(ticks, timeout_ns);
+     }
+-    return mtl_link_wait_tick(present_itv(o), timeout_ns);
++    return mtl_link_wait_tick(dm_fps_state && vstep_on() ? 0 : present_itv(o), timeout_ns);   // a variable step: the next tick of the link
+ }
+ static uint64_t present_period(const win_t *o) {
+     present_cfg(o);
+@@ -1698,6 +1705,7 @@ static uint64_t present_period(const win_t *o) {
+         else if (was < 2) atomic_store(&g_itv2_since, now_ns() | 1);   // | 1: the start is never 0
+     }
+     int itv = present_itv(o), hz = g_hz;
++    if (hz > 0 && dm_fps_state && vstep_on()) return 1000000000ull / (uint64_t)dm_fps_var_cap;   // a variable step: one frame at the cap
+     return hz > 0 ? (uint64_t)itv * 1000000000ull / (uint64_t)hz : 0;
+ }
+ // The period the acquire thread declares to the scheduler (set_time_constraint): the present period, except that a hold the frame step raised for late frames keeps the cap's deadline.
+@@ -1808,13 +1816,32 @@ static const int *present_crop(const int win[4], int tw, int th, int lc[4]) {
+     }
+     return lc;
+ }
++// Once per present while the variable step holds: the time since the previous frame's start is the next frame's step (nvn_fstep.h nvn_vstep_next)
++static nvn_vstep g_vstep;   // present thread only
++static void vstep_tick(const win_t *o) {
++    static uint64_t t0, frames; static double game;
++    uint64_t st = g_fs_start ? g_fs_start : now_ns(); g_fs_start = g_fs_wait = 0;
++    // No floor at the cap: on a screen whose rate is not a multiple of it the link's ticks lie on the nearest refreshes (nvn_mtl.m link_range), so at 120 on a 144 Hz screen
++    // frames start 6.9 and 13.9 ms apart in turn; raising the short ones to 1/120 s ran the game at 1.12 of real time
++    float step = nvn_vstep_next(&g_vstep, st, dm_fps_var_cap);
++    memcpy(dm_fps_state + 0x50, &step, sizeof step);
++    __atomic_store_n((uint32_t *)(dm_fps_state + 0x20), 1u, __ATOMIC_RELAXED); atomic_store(&g_fs_k, 1);
++    game += step / 30.0; frames++;
++    if (o->presents % 1800 == 0) {   // game time against real time: below 1 when frames take longer than 1.5 steps (20 fps), as on the Switch
++        uint64_t t = now_ns();
++        if (t0) LOG("[nvn] variable frame step: %.1f fps, game time %.2f s in %.2f s (%.3f of real time)", frames / ((t - t0) / 1e9), game, (t - t0) / 1e9, game / ((t - t0) / 1e9));
++        t0 = t; game = 0; frames = 0;
++    }
++}
++// The whole-vsync step holds (the game's own step, a prerendered movie): its frames are stepped by it, so the variable step starts again from the next frame's start
++static void vstep_off(void) { if (dm_fps_state && dm_fps_var_cap) { memset(dm_fps_state + 0x50, 0, 4); nvn_vstep_reset(&g_vstep); } }
+ NVN(nvnQueuePresentTexture, void, NVNqueue *q, NVNwindow *w, int idx) {
+     (void)q; win_t *o = (win_t *)w; o->presents++;
+     dm_fps_lock_tick(); dm_ue_cvar_tick();
+     if (dm_fps_state) __atomic_store_n((uint32_t *)(dm_fps_state + 4), (uint32_t)dm_movie_playing(), __ATOMIC_RELAXED);   // the stubs' copy of the movie state (hle.h)
+     int c = fps_step_cap();
+     if (dm_fps_state) { static int was; if (c != was) { LOG("[nvn] frame step cap %d → %d fps at present %llu%s", was, c, (unsigned long long)o->presents, c == 30 && was == 60 ? (dm_movie_playing() ? " (movie playing)" : thermal_capped() ? " (thermal state serious)" : "") : ""); was = c; } }
+-    if (c) fstep_tick(o, c);
++    if (c) { if (vstep_on()) vstep_tick(o); else { vstep_off(); fstep_tick(o, c); } }
+     static uint64_t prev_in, prev_out, prev_pass, prev_draw;
+     present_cfg(o);
+     {
+diff --git a/dm/gfx/nvn/nvn_fstep.h b/dm/gfx/nvn/nvn_fstep.h
+index 9f80c4e6..fb66acb5 100644
+--- a/dm/gfx/nvn/nvn_fstep.h
++++ b/dm/gfx/nvn/nvn_fstep.h
+@@ -128,6 +128,23 @@ static inline int nvn_fstep_next(nvn_fstep *s, double shown, double cost, int km
+ // made the same work at hold 2 look not slowed
+ #define FSTEP_GPU_SLOW 1.3    // GPU time at the longer hold against its time at kmin
+ #define FSTEP_GPU_N 30        // frames at the longer hold before the comparison counts
++// Variable frame step (a build whose rewriter table has VAR_STEP, fps_target 61 to 240; hle_nvn.c vstep_tick): each frame steps the game by the time the previous one took, in
++// 1/30 s units, from the starts of the frames (ns). The first frame after a reset (the start, or frames the whole-vsync step held, whose time that step has stepped already) takes
++// one frame at the cap. A step below NVN_VSTEP_MIN (1/240 s) is raised to it and the time that adds is a carry the next steps give back: at 240 on a 360 Hz screen the
++// display link's virtual ticks lie 2.78 and 5.56 ms apart in turn, and raising the short ones alone ran the game at 1.17 of real time. A step above NVN_VSTEP_MAX (the game's
++// own longest, 1.5) slows the game down, as on the Switch
++#define NVN_VSTEP_MIN 0.125f
++#define NVN_VSTEP_MAX 1.5f
++typedef struct { uint64_t prev; float carry; } nvn_vstep;
++static inline void nvn_vstep_reset(nvn_vstep *v) { v->prev = 0; v->carry = 0; }
++static inline float nvn_vstep_next(nvn_vstep *v, uint64_t start, int cap) {
++    float step = v->prev && start > v->prev ? (float)((start - v->prev) * 30e-9) + v->carry : 30.0f / cap;
++    v->prev = start;
++    if (step < NVN_VSTEP_MIN) { v->carry = step - NVN_VSTEP_MIN; step = NVN_VSTEP_MIN; if (v->carry < -NVN_VSTEP_MAX) v->carry = -NVN_VSTEP_MAX; }
++    else v->carry = 0;
++    return step > NVN_VSTEP_MAX ? NVN_VSTEP_MAX : step;
++}
++
+ typedef struct { double ref, cur; int n, k; double ref_at[FSTEP_MAX + 1]; } nvn_fgpu;   // GPU time at kmin (running mean; of every kmin in ref_at); at the current hold k and its frame count
+ static inline int nvn_fgpu_slow(const nvn_fgpu *g) { return g->n >= FSTEP_GPU_N && g->ref > 0 && g->cur >= FSTEP_GPU_SLOW * g->ref && g->cur > FSTEP_FIT * (g->k - 1); }
+ // Once per frame, with the frame's GPU time (vsyncs; 0 = none finished yet) and the hold and probe state (nvn_fstep.probe) it ran under
+diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
+index 854d9bfd..f2eba3dc 100644
+--- a/dm/gfx/nvn/nvn_mtl.m
++++ b/dm/gfx/nvn/nvn_mtl.m
+@@ -11601,16 +11601,22 @@ static int link_on(void) { return g_dm_present_link && !atomic_load(&g_rescue_mo
+ // In fullscreen the Mac front end switches such a screen to a rate that is a multiple where it has one (front_screen_match), and the range is set again for it (link_sync)
+ __attribute__((weak)) int front_screen_max_fps(void) { return 0; }   // front_mac.m; graphics unit tests and iOS have none
+ __attribute__((weak)) void front_screen_match(int fps) { (void)fps; }   // front_mac.m; graphics unit tests and iOS have none
++__attribute__((weak)) int nvn_var_fps(void) { return 0; }   // hle_nvn.c: the cap of a variable frame step while it holds (0 = none)
++static int g_link_rate = 60;   // ticks a second of the current mode (link_range): 30 / 60 / 120, or a variable step's cap (mode 4)
++// Mode 4 (a variable frame step, which shows each frame on the next tick): the link runs at the step's cap, at most the screen's rate; on a screen whose rate is not a multiple of
++// it (120 on a 144 Hz screen) virtual ticks count at the cap, as for 60 below. Asked for 120 Hz, a 144 Hz screen fired the link on every other refresh, 72 Hz
+ static CAFrameRateRange link_range(int mode) {
+     static int on = -1; if (on < 0) { const char *e = getenv("DM_LINK_VTICK"); on = !(e && !strcmp(e, "0")); }
+-    int rate = mode == 3 ? 30 : mode == 2 ? 120 : 60, hz = on ? front_screen_max_fps() : 0;
++    int hz = on ? front_screen_max_fps() : 0, rate = mode == 3 ? 30 : mode == 2 ? 120 : mode == 4 ? nvn_var_fps() : 60;
++    if (mode == 4) { int mx = front_screen_max_fps(); if (rate < 61) rate = 120; if (mx > 0 && rate > mx) rate = mx; }
++    g_link_rate = rate;
+     if (mode != 2 && hz > rate && hz % rate) {
+         if (g_link_vperiod != 1.0 / rate) MLOG("display link at the screen's %d Hz, counting a tick every 1/%d s (the screen's rate is not a multiple of it)", hz, rate);
+         g_link_vhalf = 0.5 / hz; g_link_vperiod = 1.0 / rate;
+         return CAFrameRateRangeMake(rate, hz, hz);
+     }
+     g_link_vperiod = 0;
+-    return mode == 3 ? CAFrameRateRangeMake(30, 30, 30) : mode == 2 ? CAFrameRateRangeMake(60, 120, 120) : CAFrameRateRangeMake(60, 60, 60);
++    return mode == 3 ? CAFrameRateRangeMake(30, 30, 30) : mode == 2 ? CAFrameRateRangeMake(60, 120, 120) : mode == 4 ? CAFrameRateRangeMake(60, rate, rate) : CAFrameRateRangeMake(60, 60, 60);
+ }
+ // The display link's frame latency: 1 in a window, 2 in fullscreen (DM_PRESENT_LATENCY sets one for both). In a window the system calls back about 50 ms before the target display
+ // time; in fullscreen it shows the layer directly and, at latency 1, calls back only one 60 Hz period (16 ms) ahead. There, on ProMotion screens (M4 Pro, M5 Max), it shows some
+@@ -11620,7 +11626,7 @@ static CAFrameRateRange link_range(int mode) {
+ __attribute__((weak)) int front_fullscreen(void) { return 0; }   // front_mac.m; graphics unit tests and iOS have none
+ static int link_latency(void) { return g_present_latency > 0 ? g_present_latency : front_fullscreen() ? 2 : 1; }
+ static const char *link_latency_why(void) { return g_present_latency > 0 ? "DM_PRESENT_LATENCY" : front_fullscreen() ? "fullscreen" : "window"; }
+-static int g_link_mode = 1;   // Current mode of the display link object: 1 / 2 same as g_dm_present_link, 3 = power-saving mode 30 Hz
++static int g_link_mode = 1;   // Current mode of the display link object: 1 / 2 same as g_dm_present_link, 3 = power-saving mode 30 Hz, 4 = a variable frame step's cap
+ static void *link_main(void *arg) {   // Display link thread: started when switching to display-link mode, exits when switching back to 0
+     (void)arg;
+     pthread_setname_np("nvn-present-link");
+@@ -11650,7 +11656,9 @@ static void link_sync(void) {   // Called every frame by the game's present thre
+     if (g_rescue_mode) want = 0;
+     pthread_mutex_unlock(&g_pq_mu);
+     if (want && mtl_fps_target() == 30) want = 3;   // Power-saving mode: display link at 30 Hz
+-    if (want) front_screen_match(want == 3 ? 30 : want == 2 ? 120 : 60);
++    else if (want && nvn_var_fps()) want = 4;   // a variable frame step: the link at its cap
++    static int var_was; if (want == 4 && nvn_var_fps() != var_was) { var_was = nvn_var_fps(); applied = -1; }   // a new cap: the range again
++    if (want) front_screen_match(want == 3 ? 30 : want == 2 ? 120 : want == 4 ? nvn_var_fps() : 60);
+     // The screen's rate changed (switched by front_screen_match, or another screen): the range again, virtual ticks or none. Taken only once the link object exists, so a change
+     // while its thread starts (after link_main read the rate) is not lost
+     static int hz_was; int hz = front_screen_max_fps(); CAMetalDisplayLink *lk = g_link;
+@@ -11931,11 +11939,11 @@ int mtl_link_wait_tick(int vsyncs, uint64_t timeout_ns) {
+     // How many display-link ticks one frame takes: the game's present interval (vsyncs, 60 Hz) times 1 with a 60 Hz display link, times 2 with a 120 Hz one, halved and rounded up at 30 Hz.
+     // A frame presented with interval N blocks the game for N vsyncs on the Switch, as the display callback holds it N ticks: games that scale their time step by the interval (BotW's VFR: interval / 2)
+     // ran at double speed while they produced interval-2 frames every 60 Hz tick (iPhone log: Link sprinting with B, the interval flapping 1 ↔ 2)
+-    if (vsyncs < 1) vsyncs = 1;
+-    return mtl_link_wait_ticks(g_link_mode == 3 ? (vsyncs + 1) / 2 : vsyncs * (g_link_mode == 2 ? 2 : 1), timeout_ns);
++    // vsyncs 0: one tick of the link whatever its rate (a variable frame step shows each frame on the next refresh, hle_nvn.c vstep_tick; at 120 Hz a whole vsync is two ticks, 60 fps)
++    return mtl_link_wait_ticks(vsyncs < 1 ? 1 : (int)(((uint64_t)vsyncs * (uint64_t)g_link_rate + 59) / 60), timeout_ns);
+ }
+-// The display link's rate: 120 Hz (DM_PRESENT_LINK=2), 60, or 30 in power-saving mode
+-int mtl_link_rate(void) { return g_link_mode == 3 ? 30 : g_link_mode == 2 ? 120 : 60; }
++// The display link's rate: 120 Hz (DM_PRESENT_LINK=2), 60, 30 in power-saving mode, or a variable step's cap (g_link_rate)
++int mtl_link_rate(void) { return g_link_rate; }
+ // The same wait counted in the display link's own ticks: one per frame for a frame rate as high as the link's (present_interval display at DM_PRESENT_HZ=120 on a 120 Hz link)
+ int mtl_link_wait_ticks(int ticks, uint64_t timeout_ns) {
+     if (!mtl_link_active()) return 0;
+@@ -11954,8 +11962,8 @@ int mtl_link_wait_ticks(int ticks, uint64_t timeout_ns) {
+ // The display's vsync for vi::GetDisplayVsyncEvent (hle_sdk16.c): returns 1 at the first display-link tick of the next 60 Hz vsync after *seen (the tick count it last returned, updated),
+ // 0 when the link does not run, runs at 30 Hz (power saving: the 60 Hz event cannot come from it) or gives no tick within the timeout; the caller then keeps its own clock
+ int mtl_link_wait_vsync(uint64_t *seen, uint64_t timeout_ns) {
+-    if (!mtl_link_active() || g_link_mode == 3) return 0;
+-    const uint64_t step = g_link_mode == 2 ? 2 : 1;
++    if (!mtl_link_active() || g_link_rate % 60) return 0;   // 30 Hz, or a variable step's cap that is not a multiple of 60
++    const uint64_t step = (uint64_t)g_link_rate / 60;
+     pthread_mutex_lock(&g_link_mu);
+     if (*seen > g_link_tick_n || g_link_tick_n > *seen + 4 * step) *seen = g_link_tick_n;   // first call, or far behind (a stall): from the current tick on, no burst
+     struct timespec ts; clock_gettime(CLOCK_REALTIME, &ts);
+diff --git a/dm/gfx/tests/nvn_replay.m b/dm/gfx/tests/nvn_replay.m
+index 688d1d26..42ec48f0 100644
+--- a/dm/gfx/tests/nvn_replay.m
++++ b/dm/gfx/tests/nvn_replay.m
+@@ -11,8 +11,10 @@
+ #include <spawn.h>
+ #include <sys/wait.h>
+ #define nvn_game_fps nvn_game_fps_mtl_default
++#define nvn_var_fps nvn_var_fps_mtl_default   // the same for nvn_var_fps (a variable frame step)
+ #include "../nvn/nvn_mtl.m"
+ #undef nvn_game_fps
++#undef nvn_var_fps
+ #define g_ft g_ft_hle
+ #include "../nvn/hle_nvn.c"
+ #undef g_ft
+diff --git a/dm/gfx/tests/t_capture_live.m b/dm/gfx/tests/t_capture_live.m
+index bfbb6d02..aca4e825 100644
+--- a/dm/gfx/tests/t_capture_live.m
++++ b/dm/gfx/tests/t_capture_live.m
+@@ -6,8 +6,10 @@
+ //   ./t_capture_live <capture path>
+ #import <Foundation/Foundation.h>
+ #define nvn_game_fps nvn_game_fps_mtl_default
++#define nvn_var_fps nvn_var_fps_mtl_default   // the same for nvn_var_fps (a variable frame step)
+ #include "../nvn/nvn_mtl.m"
+ #undef nvn_game_fps
++#undef nvn_var_fps
+ #define g_ft g_ft_hle
+ #include "../nvn/hle_nvn.c"
+ #undef g_ft
+diff --git a/dm/gfx/tests/t_copy_alias.m b/dm/gfx/tests/t_copy_alias.m
+index e0add846..7e00d9d8 100644
+--- a/dm/gfx/tests/t_copy_alias.m
++++ b/dm/gfx/tests/t_copy_alias.m
+@@ -1,7 +1,9 @@
+ // Copies through distinct Metal buffers and sparse guest aliases must see earlier GPU writes.
+ #define nvn_game_fps nvn_game_fps_mtl_default
++#define nvn_var_fps nvn_var_fps_mtl_default   // the same for nvn_var_fps (a variable frame step)
+ #include "../nvn/nvn_mtl.m"
+ #undef nvn_game_fps
++#undef nvn_var_fps
+ #define g_ft g_ft_hle
+ #include "../nvn/hle_nvn.c"
+ #undef g_ft
+diff --git a/dm/gfx/tests/t_cpu_tex.m b/dm/gfx/tests/t_cpu_tex.m
+index b170c6fa..ef9e24ca 100644
+--- a/dm/gfx/tests/t_cpu_tex.m
++++ b/dm/gfx/tests/t_cpu_tex.m
+@@ -2,8 +2,10 @@
+ // not in it staying cheap with thousands of consecutive serials in it (a CFSet that hashed serials as numbers probed a whole bucket run per miss: half of Batman: Arkham Knight's
+ // rendering thread with 6,442 CPU-written textures)
+ #define nvn_game_fps nvn_game_fps_mtl_default
++#define nvn_var_fps nvn_var_fps_mtl_default   // the same for nvn_var_fps (a variable frame step)
+ #include "../nvn/nvn_mtl.m"
+ #undef nvn_game_fps
++#undef nvn_var_fps
+ #define g_ft g_ft_hle
+ #include "../nvn/hle_nvn.c"
+ #undef g_ft
+diff --git a/dm/gfx/tests/t_fstep.c b/dm/gfx/tests/t_fstep.c
+index be0678f9..acfdea71 100644
+--- a/dm/gfx/tests/t_fstep.c
++++ b/dm/gfx/tests/t_fstep.c
+@@ -309,6 +309,32 @@ int main(void) {
+         sim m = {0}; m.s.shown_slack = 60.0 / 165; run(&m, 60, 0.5, 1, 3, 0); run(&m, 300, 1.32, 1, 3, 0);
+         check(m.s.k == 2, "  the slack does not hide work: 22 ms frames still step to hold 2");
+     }
++    {   // Variable frame step (nvn_vstep_next): frames start at the given intervals (ms, repeating); game time is the sum of the steps (1/30 s units → s), real time the sum of the intervals
++        struct { int cap; double ms[2]; const char *what; } vc[] = {
++            {120, {8.3333, 8.3333}, "variable step, steady 120: 8.33 ms steps, game time = real time"},
++            {120, {6.9444, 13.8889}, "  120 on a 144 Hz screen (ticks 6.9 / 13.9 ms apart): game time = real time"},
++            {240, {2.7778, 5.5556}, "  240 on a 360 Hz screen (ticks 2.8 / 5.6 ms apart): the 1/240 s floor's carry keeps real time"},
++            {240, {2.7778, 2.7778}, "  frames faster than the floor (360 fps): at most 1/240 s a frame, the carry stays bounded"},
++        };
++        for (int c = 0; c < 4; c++) {
++            nvn_vstep v = {0}; uint64_t t = 1000000000ull; double game = 0, real = 0, mn = 1e9;
++            for (int i = 0; i < 2400; i++) {
++                float st = nvn_vstep_next(&v, t, vc[c].cap);
++                if (i) { game += st / 30.0; mn = st < mn ? st : mn; }
++                double d = vc[c].ms[i & 1]; t += (uint64_t)(d * 1e6); if (i < 2399) real += d / 1000;
++            }
++            snprintf(b, sizeof b, "%s (%.4f of real time, carry %.3f)", vc[c].what, game / real, v.carry);
++            check(c < 3 ? fabs(game / real - 1) < 0.002 : game / real < 1.51 && mn >= NVN_VSTEP_MIN && v.carry >= -NVN_VSTEP_MAX, b);
++        }
++        nvn_vstep v = {0}; uint64_t t = 1000000000ull;
++        for (int i = 0; i < 120; i++, t += 8333333) nvn_vstep_next(&v, t, 120);
++        nvn_vstep_reset(&v); t += 1000000000ull;   // a second of whole-vsync frames (a cutscene): the variable step is reset
++        float first = nvn_vstep_next(&v, t, 120), second = nvn_vstep_next(&v, t + 8333333, 120);
++        snprintf(b, sizeof b, "  after a second of whole-vsync frames: one frame at the cap, not the second (%.3f, then %.3f)", first, second);
++        check(fabsf(first - 0.25f) < 1e-4 && fabsf(second - 0.25f) < 1e-3, b);
++        nvn_vstep w = {0}; nvn_vstep_next(&w, 1000000000ull, 120); float slow = nvn_vstep_next(&w, 1060000000ull, 120);
++        check(slow == NVN_VSTEP_MAX, "  a 60 ms frame steps at most 1.5 (50 ms): the game slows down, as on the Switch");
++    }
+     printf("== %d checks, %d failed ==\n", checks, fail);
+     return fail != 0;
+ }
+diff --git a/dm/gfx/tests/t_linear_readback.m b/dm/gfx/tests/t_linear_readback.m
+index a9146fd1..e12b835e 100644
+--- a/dm/gfx/tests/t_linear_readback.m
++++ b/dm/gfx/tests/t_linear_readback.m
+@@ -1,8 +1,10 @@
+ // NVN linear image storage: GPU image writes must be visible through the memory-pool CPU mapping.
+ // Synthetic 160x90 RGBA8_SRGB IMAGE|LINEAR textures use a valid 640-byte row pitch.
+ #define nvn_game_fps nvn_game_fps_mtl_default
++#define nvn_var_fps nvn_var_fps_mtl_default   // the same for nvn_var_fps (a variable frame step)
+ #include "../nvn/nvn_mtl.m"
+ #undef nvn_game_fps
++#undef nvn_var_fps
+ #define g_ft g_ft_hle
+ #include "../nvn/hle_nvn.c"
+ #undef g_ft
+diff --git a/dm/gfx/tests/t_link_ticks.m b/dm/gfx/tests/t_link_ticks.m
+index 33ef1d92..9b4d6205 100644
+--- a/dm/gfx/tests/t_link_ticks.m
++++ b/dm/gfx/tests/t_link_ticks.m
+@@ -17,8 +17,10 @@ static int test_pthread_cond_timedwait(pthread_cond_t *, pthread_mutex_t *, cons
+ #define clock_gettime test_clock_gettime
+ #define pthread_cond_timedwait test_pthread_cond_timedwait
+ #define nvn_game_fps nvn_game_fps_mtl_default
++#define nvn_var_fps nvn_var_fps_mtl_default   // the same for nvn_var_fps (a variable frame step)
+ #include "../nvn/nvn_mtl.m"
+ #undef nvn_game_fps
++#undef nvn_var_fps
+ #undef pthread_cond_timedwait
+ #undef clock_gettime
+ #define g_ft g_ft_hle
+@@ -67,7 +69,7 @@ int main(void) { @autoreleasepool {
+     setenv("DM_FPS_TARGET", "0", 1);
+     g_dm_present_link = 2; g_link = (CAMetalDisplayLink *)[NSObject new];   // a link is "on" while the object is set; nothing calls it here
+     CHECK(mtl_link_active(), "the link counts as active");
+-    g_link_mode = 2;
++    g_link_mode = 2; g_link_rate = 120;   // link_range sets both
+     CHECK(mtl_link_rate() == 120, "a 120 Hz link reports 120");
+     double a = per_wait(0, 1), b = per_wait(1, 1), c = per_wait(1, 2);
+     printf("120 Hz link: interval 1 waits %.2f ticks, one own tick %.2f, two own ticks %.2f\n", a, b, c);
+@@ -92,12 +94,12 @@ int main(void) { @autoreleasepool {
+     state[0] = 30;
+     acquire_ticks(120, 1, 1, 4, "the 30 fps frame step keeps two 60 Hz vsyncs");
+     dm_fps_state = NULL;
+-    g_link_mode = 1;
++    g_link_mode = 1; g_link_rate = 60;   // link_range sets both
+     CHECK(mtl_link_rate() == 60, "a 60 Hz link reports 60");
+     a = per_wait(0, 1);
+     CHECK(a == 1, "a 60 Hz link: one tick per vsync");
+     acquire_ticks(120, 1, 1, 1, "a 60 Hz link limits display 120 Hz to one tick");
+-    g_link_mode = 3;
++    g_link_mode = 3; g_link_rate = 30;   // link_range sets both
+     CHECK(mtl_link_rate() == 30, "the 30 Hz power-saving link reports 30");
+     acquire_ticks(120, 1, 1, 1, "a 30 Hz link limits display 120 Hz to one tick");
+     acquire_ticks(60, 0, 2, 1, "a 30 Hz link keeps game interval 2 at one tick");
+diff --git a/dm/gfx/tests/t_mip_extent.m b/dm/gfx/tests/t_mip_extent.m
+index ca199fb2..7ed02691 100644
+--- a/dm/gfx/tests/t_mip_extent.m
++++ b/dm/gfx/tests/t_mip_extent.m
+@@ -1,8 +1,10 @@
+ // Real NVN recording entry → production Metal replay; each mip of 8x6 is hand-calculated independently; with no viewport set, an explicit viewport is not used to dodge it.
+ // nvn_mtl.m's nvn_game_fps is a weak default and hle_nvn.c gives the strong definition; in one translation unit the weak one is renamed (as in t_present_crop.m)
+ #define nvn_game_fps nvn_game_fps_mtl_default
++#define nvn_var_fps nvn_var_fps_mtl_default   // the same for nvn_var_fps (a variable frame step)
+ #include "../nvn/nvn_mtl.m"
+ #undef nvn_game_fps
++#undef nvn_var_fps
+ #define g_ft g_ft_hle   // both files have a static g_ft, so hle_nvn.c's is renamed too (as in t_present_crop.m)
+ #include "../nvn/hle_nvn.c"
+ #undef g_ft
+diff --git a/dm/gfx/tests/t_present_crop.m b/dm/gfx/tests/t_present_crop.m
+index d1e2d379..6814195a 100644
+--- a/dm/gfx/tests/t_present_crop.m
++++ b/dm/gfx/tests/t_present_crop.m
+@@ -1,8 +1,10 @@
+ // Present crop regression: colored 8×8 texture, closed-form RGBA expectations; real Metal rendering, no dependence on the game or on cross-run determinism.
+ // nvn_mtl.m's nvn_game_fps is a weak default and hle_nvn.c gives the strong definition; in one translation unit that is a redefinition, so the weak one is renamed (this test does not look at the frame-rate target)
+ #define nvn_game_fps nvn_game_fps_mtl_default
++#define nvn_var_fps nvn_var_fps_mtl_default   // the same for nvn_var_fps (a variable frame step)
+ #include "../nvn/nvn_mtl.m"
+ #undef nvn_game_fps
++#undef nvn_var_fps
+ #define g_ft g_ft_hle   // both files have a static g_ft (nvn_mtl.m's fragment argument table, hle_nvn.c's textures a flush can mark CPU-written), so hle_nvn.c's is renamed too
+ #include "../nvn/hle_nvn.c"
+ #undef g_ft
+diff --git a/dm/gfx/tests/t_present_snap.m b/dm/gfx/tests/t_present_snap.m
+index c1f37526..6be9dfc1 100644
+--- a/dm/gfx/tests/t_present_snap.m
++++ b/dm/gfx/tests/t_present_snap.m
+@@ -1,7 +1,9 @@
+ // Snapshot lifecycle: real NVN acquire/present/suspend, real Metal copies, and controlled encoder/GPU delays.
+ #define nvn_game_fps nvn_game_fps_mtl_default
++#define nvn_var_fps nvn_var_fps_mtl_default   // the same for nvn_var_fps (a variable frame step)
+ #include "../nvn/nvn_mtl.m"
+ #undef nvn_game_fps
++#undef nvn_var_fps
+ #define g_ft g_ft_hle
+ #include "../nvn/hle_nvn.c"
+ #undef g_ft
+diff --git a/dm/gfx/tests/t_queue_origin.m b/dm/gfx/tests/t_queue_origin.m
+index 006ddb96..c3e00d53 100644
+--- a/dm/gfx/tests/t_queue_origin.m
++++ b/dm/gfx/tests/t_queue_origin.m
+@@ -2,8 +2,10 @@
+ // used to construct later viewports can change independently. Check actual
+ // culling and front_facing pixels while alternating two queues on one device.
+ #define nvn_game_fps nvn_game_fps_mtl_default
++#define nvn_var_fps nvn_var_fps_mtl_default   // the same for nvn_var_fps (a variable frame step)
+ #include "../nvn/nvn_mtl.m"
+ #undef nvn_game_fps
++#undef nvn_var_fps
+ #define g_ft g_ft_hle
+ #include "../nvn/hle_nvn.c"
+ #undef g_ft
+diff --git a/dm/gfx/tests/t_readback.m b/dm/gfx/tests/t_readback.m
+index f7d4097c..cb7d1c77 100644
+--- a/dm/gfx/tests/t_readback.m
++++ b/dm/gfx/tests/t_readback.m
+@@ -1,8 +1,10 @@
+ // NVN readback contract: a pending clear must reach both GPU buffer copies and CPU reads.
+ // Expected 8x4 RGBA values are literal bytes, independent of the Metal replay's state.
+ #define nvn_game_fps nvn_game_fps_mtl_default
++#define nvn_var_fps nvn_var_fps_mtl_default   // the same for nvn_var_fps (a variable frame step)
+ #include "../nvn/nvn_mtl.m"
+ #undef nvn_game_fps
++#undef nvn_var_fps
+ #define g_ft g_ft_hle
+ #include "../nvn/hle_nvn.c"
+ #undef g_ft
+diff --git a/dm/host/dm.h b/dm/host/dm.h
+index 3ad1bb21..2d191695 100644
+--- a/dm/host/dm.h
++++ b/dm/host/dm.h
+@@ -55,6 +55,9 @@ typedef struct {
+     struct { char name[32]; uint64_t off; } ue_cvar[8];   // Unreal console variables found by their registered names (patch_nso.py, ue_cvar.py; UE_CVAR:<name>): each one's TAutoConsoleVariable
+     int n_ue_cvar;
+     uint64_t fps_state_off;    // frame step state page (patch_nso.py FRAME_STEP: Tears of the Kingdom 1.4.3 and Breath of the Wild 1.9.0 main); 0 = none
++    // Further stubs the build's rewriter table names (patch_nso.py FS_KEYS; 0 = none): a variable frame step (VAR_STEP), the render buffer pool a render scale above 1.0 grows
++    // (RENDER_POOL, bytes), the docked 3D views' base size and the output size its stubs replace (VIEW_W / VIEW_H, OUTPUT_W / OUTPUT_H)
++    uint64_t var_step, render_pool, view_w, view_h, out_w, out_h;
+     int64_t patch_off;         // patch area relative to the base; negative = before the base (image too large, see patch_nso.py FAR), and size does not include it
+     uint64_t image_size, file_image_len, patch_len;   // only with the patch area before the base: whole image (with bss and key page), length of the image part of the file, patch area length
+     uint64_t back_off, back_len;   // a second patch area after the image (patch_nso.py TWO: a text longer than a B reaches), inside size; 0 = none
+diff --git a/dm/host/hle.h b/dm/host/hle.h
+index d636725b..6aacadc8 100644
+--- a/dm/host/hle.h
++++ b/dm/host/hle.h
+@@ -64,6 +64,8 @@ static inline void dm_applet_leave_(const char *const *name) { (void)name; dm_ap
+ // Audio pause / resume following the lifecycle (called by the front end on going to background / returning to foreground)
+ extern uint8_t *dm_fps_state;   // frame step state page (loader.c install_fps_state): +0 float target fps, +4 movie flag (dm_movie_playing, written by the host at each present: Tears of the Kingdom's step stub caps its first, undecided steps by it), +0x10 float render scale, +0x18 double game seconds stepped; NULL when the build has none
+ int dm_movie_playing(void);   // hle_movie.c: a video decoder of the SDK's movie library handed out a picture in the last half second (the frame step then holds 30 fps)
++extern int dm_fps_var_cap;   // a variable frame step capped at this frame rate (loader.c; 0 = whole vsyncs)
++extern uint64_t dm_mem_extra;   // application memory added for a larger render buffer pool (loader.c; hle_svc.c)
+ void dm_audio_suspend(int on);
+ uint64_t dm_audio_render_calls(void);   // Cumulative sound card callback count (the silent sink is not counted)
+ void dm_audio_reset(void);   // iOS media services reset: recreate the AudioUnits (hle_audio.c)
+diff --git a/dm/host/hle_svc.c b/dm/host/hle_svc.c
+index 5e7eb0e0..ba14daba 100644
+--- a/dm/host/hle_svc.c
++++ b/dm/host/hle_svc.c
+@@ -16,7 +16,8 @@
+ // about 4.2 GB in total; on iOS without the "extended virtual addressing" entitlement a single reservation can be at most 6 GB
+ // (read on a real device: 6 GB succeeds, 7 GB fails), so it cannot be made any wider --
+ // with an 8 GB reservation, builds from developer accounts that cannot sign that entitlement (free accounts) would exit at this step.
+-#define RESERVE (dm_profile()->mem_reserve)   // SMBW: the heap needs only 1.47 GB, so the block stays at 5 GB (the total proven on a real device; a single 6 GB block can be reserved, but Metal etc. still need address space)
++static uint64_t g_mem_extra;   // application memory added for a larger render buffer pool (loader.c dm_fps_state_apply: a render scale above 1.0), taken when guest memory is laid out
++#define RESERVE ((dm_profile()->mem_reserve) + 2 * g_mem_extra)   // the extra goes to the alias region and the heap alike; SMBW: the heap needs only 1.47 GB, so the block stays at 5 GB (the total proven on a real device; a single 6 GB block can be reserved, but Metal etc. still need address space)
+ static uint8_t *g_as;              // ASLR region base = the whole block
+ static size_t g_reserve;           // its size: RESERVE, or more with a DM_ALIAS_SIZE alias region
+ static uint8_t *g_heap; static _Atomic size_t g_heap_cur; static size_t g_heap_cap;
+@@ -39,17 +40,19 @@ int dm_guest_as_contains(uintptr_t a) { uintptr_t b = (uintptr_t)g_as; return g_
+ 
+ static void *alias_windows_thread(void *arg);
+ static void *regions_thread(void *arg);
++int dm_mem_started(void) { return g_as != NULL; }   // loader.c: guest memory is laid out, its sizes are fixed
+ static void mem_init_once(void) {
+-    size_t pg = (size_t)getpagesize();
+-    if (RESERVE < 0x10000000 || (dm_profile()->mem_alias) > RESERVE - 0x10000000 ||
+-        (dm_profile()->mem_stack) > RESERVE - 0x10000000 - (dm_profile()->mem_alias) ||
+-        ((RESERVE | (dm_profile()->mem_alias) | (dm_profile()->mem_stack)) & (pg - 1)))
++    extern uint64_t dm_mem_extra; g_mem_extra = dm_mem_extra;
++    size_t pg = (size_t)getpagesize(), alias0 = (dm_profile()->mem_alias) + g_mem_extra;   // the profile's alias region, with the room a larger render buffer pool needs
++    if (RESERVE < 0x10000000 || alias0 > RESERVE - 0x10000000 ||
++        (dm_profile()->mem_stack) > RESERVE - 0x10000000 - alias0 ||
++        ((RESERVE | alias0 | (dm_profile()->mem_stack)) & (pg - 1)))
+         die("guest address-space profile has invalid native boundaries");
+     // DM_ALIAS_SIZE=<bytes>: an alias region of that size instead of the profile's, the heap and stacks as they are; the block grows with it. A Switch-sized one (64 GB) holds what
+     // a game reserves unchanged, for measuring its address regions on the Mac (the NSP script's heap check); an iPhone has no room for more than the profile's
+-    size_t alias = (dm_profile()->mem_alias); const char *as = getenv("DM_ALIAS_SIZE");
++    size_t alias = alias0; const char *as = getenv("DM_ALIAS_SIZE");
+     if (as && *as) { alias = (size_t)strtoull(as, NULL, 0); if (alias < 0x10000000 || (alias & (pg - 1))) die("DM_ALIAS_SIZE %s: at least 256 MB, in whole host pages", as); }
+-    g_reserve = RESERVE - (dm_profile()->mem_alias) + alias;
++    g_reserve = RESERVE - alias0 + alias;
+     g_as = mmap(NULL, g_reserve, PROT_NONE, MAP_PRIVATE | MAP_ANON, -1, 0);
+     if (g_as == MAP_FAILED) die("reserve guest AS");
+     // Fixed partition (all inside the reserved block): alias 2.875 GB, stack 256 MB, heap the remaining 1.625 GB.
+@@ -58,7 +61,7 @@ static void mem_init_once(void) {
+     //   and resource loading then MapPhysicalMemory's into the alias region after the node area on demand. With a 1.25 GB alias region only about 256 MB was left there, and 3 MB-class layout archives (WipeCourseIn / WipeWarp)
+     //   got no address, were skipped, and crashed on a null pointer when used (main +0x373e04). So alias = node area + 1.75 GB + slack; the heap needs only 1.47 GB, and 2.625 GB is plenty.
+     // The alias and stack sizes come from the game profile (mem_alias / mem_stack), the heap takes the rest; Mario: alias 0xB8000000, stack 0x10000000 → stack at +0xC8000000, heap at +0xD8000000
+-    g_alias = g_as + 0x10000000; g_alias_cap = alias;
++    g_alias = g_as + 0x10000000; g_alias_cap = alias;   // with a larger render buffer pool, its virtual range lives here
+     g_stack = g_alias + g_alias_cap; g_stack_cap = (dm_profile()->mem_stack);
+     g_heap  = g_stack + g_stack_cap; g_heap_cap  = g_reserve - (size_t)(g_heap - g_as);
+     if (!(g_alias_bits = calloc((g_alias_cap >> 18) + 1, sizeof *g_alias_bits))) die("alias region page bitmap calloc");
+@@ -78,7 +81,7 @@ static void mem_init(void) {
+ // and hands the whole block to its own StandardAllocator (main+0x32137a0) -- so heap size = pool − image footprint, it has only as much as the host reports.
+ // Previously 3 GB was reported here and SetHeapSize never failed: the heap was about 150 MB smaller than on the real device, at the run entry peak the main heap had only about 18 MB left, and under high local load a timing shift made a 128 KB request return null,
+ // which the guest writes to without a null check (CRASH main+0x1b36138, re-verified after merge with inv_tap).
+-#define APP_POOL (dm_profile()->app_pool)   // game profile app_pool (Mario 0xCD500000)
++#define APP_POOL ((dm_profile()->app_pool) + g_mem_extra)   // game profile app_pool (Mario 0xCD500000), plus what a larger render buffer pool adds
+ static size_t image_bytes(void) { size_t n = 0; for (int i = 0; i < g_nmod; i++) if (!g_mod[i].nro) n += g_mod[i].size;   // an NRO lives in memory the game allocated (its image and bss buffers)
+     return (n + 0x1fffff) & ~(size_t)0x1fffff; }
+ // Giant bss (modules with the patch area before the base, patch_nso.py FAR): the image bytes beyond the file part. Used memory was reported as "heap + 64 MB", where the 64 MB covers ordinary modules' code and data (Mario's two modules are about 74 MB together,
+diff --git a/dm/host/loader.c b/dm/host/loader.c
+index fb149728..338c534b 100644
+--- a/dm/host/loader.c
++++ b/dm/host/loader.c
+@@ -202,6 +202,12 @@ static void read_layout(module_t *m, const char *dir) {
+         else if (!strcmp(key, "RO_OFF")) m->ro_off = v;
+         else if (!strcmp(key, "DATA_OFF")) m->data_off = v;
+         else if (!strcmp(key, "FPS_STATE_OFF")) m->fps_state_off = v;
++        else if (!strcmp(key, "VAR_STEP")) m->var_step = v;
++        else if (!strcmp(key, "RENDER_POOL")) m->render_pool = v;
++        else if (!strcmp(key, "VIEW_W")) m->view_w = v;
++        else if (!strcmp(key, "VIEW_H")) m->view_h = v;
++        else if (!strcmp(key, "OUTPUT_W")) m->out_w = v;
++        else if (!strcmp(key, "OUTPUT_H")) m->out_h = v;
+         else if (!strcmp(key, "UE_MALLOC_VT")) m->ue_malloc_vt = v;
+         else if (!strcmp(key, "UE_MALLOC_SLOT")) m->ue_malloc_slot = (unsigned)v;
+         else if (!strncmp(key, "UE_CVAR:", 8)) {
+@@ -227,28 +233,61 @@ static void read_layout(module_t *m, const char *dir) {
+ }
+ 
+ // Frame step state (the page after the key page, read-write; layout in patch_nso.py FRAME_STEP): the rewriter's stubs step the game by the host's whole vsyncs capped at this
+-// target, 0 = the game's own interval logic. The profile's fps_target, overridden by DM_FPS_TARGET (0, 30 or 60); the graphics layer decides the steps and paces presents
+-// (hle_nvn.c fstep_tick)
++// target, 0 = the game's own interval logic. The profile's fps_target, overridden by DM_FPS_TARGET (0, 30 or 60; 61 to 240 on a build with a variable frame step); the graphics
++// layer decides the steps and paces presents (hle_nvn.c fstep_tick, vstep_tick)
+ uint8_t *dm_fps_state;
+-static const char *g_fps_mod;   // the module holding the state page (for the log)
++int dm_fps_var_cap;   // a variable frame step capped at this frame rate (VAR_STEP builds, DM_FPS_TARGET 61 to 240; hle_nvn.c vstep_tick); 0 = whole vsyncs
++uint64_t dm_mem_extra;   // bytes a render scale above 1.0 adds to the application pool and the alias region for the game's larger render buffer pool (hle_svc.c)
++static const module_t *g_fps_m;   // the module holding the state page
+ static void install_fps_state(module_t *m) {
+-    if (m->fps_state_off + 0x40 > m->size || m->fps_state_off < m->key_page_off + m->key_page_size) die("%s: frame step state page out of range", m->name);
+-    dm_fps_state = m->base + m->fps_state_off; g_fps_mod = m->name;
++    if (m->fps_state_off + 0x60 > m->size || m->fps_state_off < m->key_page_off + m->key_page_size) die("%s: frame step state page out of range", m->name);
++    dm_fps_state = m->base + m->fps_state_off; g_fps_m = m;
+ }
+ // The settings in the state page, written when the game starts (main.c, after host loading): on iOS the loading runs at app launch, before the launcher has set DM_FPS_TARGET and
+-// DM_RENDER_SCALE (Launcher.swift), and nothing reads the page before the game runs
++// DM_RENDER_SCALE (Launcher.swift), and nothing reads the page before the game runs. The fields beyond +0x40 are written only for a build whose rewriter table names their stubs
+ void dm_fps_state_apply(void) {
+     if (!dm_fps_state) return;
++    const module_t *m = g_fps_m; const char *name = m->name;
+     const char *e = getenv("DM_FPS_TARGET"); int t = e ? atoi(e) : dm_profile()->fps_target;
+-    if (t != 0 && t != 30 && t != 60) { LOG("[RED] DM_FPS_TARGET=%s: must be 0, 30 or 60; using the game's own frame step", e); t = 0; }
++    if (t != 0 && t != 30 && t != 60 && !(m->var_step && t > 60 && t <= 240)) {
++        LOG("[RED] DM_FPS_TARGET=%s: must be 0, 30 or 60%s; using the game's own frame step", e, m->var_step ? " or 61 to 240" : " (above 60 only on a build with a variable frame step)"); t = 0;
++    }
+     float f = (float)t; memcpy(dm_fps_state, &f, sizeof f);
++    dm_fps_var_cap = t > 60 ? t : 0;
+     // Render scale of the 3D views (the stubs at Tears of the Kingdom's main+0xd5cc0, Breath of the Wild's main+0x1266880): 1.0 keeps the game's own size and dynamic resolution;
+-    // another factor fixes the size at that fraction (DM_RENDER_SCALE, 0.5 to 1.0). Independent of the frame step: written at target 0 too
++    // another factor fixes the size at that multiple (DM_RENDER_SCALE, 0.5 to 1.0). Independent of the frame step: written at target 0 too. Above 1.0 (up to 3.0) only on a build whose
++    // stubs grow its render buffer pool (RENDER_POOL), and only on the Mac: the pool's growth comes on top of the guest's address space, which iOS caps at a 6 GB reservation (hle_svc.c)
++#if TARGET_OS_OSX
++    const float hi = m->render_pool ? 3.0f : 1.0f;
++#else
++    const float hi = 1.0f;
++#endif
+     const char *rs = getenv("DM_RENDER_SCALE"); float sc = 1.0f;
+-    if (rs) { char *end; sc = strtof(rs, &end); if (end == rs || *end || !(sc >= 0.5f && sc <= 1.0f)) { LOG("[RED] DM_RENDER_SCALE=%s: must be 0.5 to 1.0; keeping the game's size", rs); sc = 1.0f; } else LOG("%s: 3D views rendered at %.2f of the game's size (DM_RENDER_SCALE)", g_fps_mod, sc); }
++    if (rs) {
++        char *end; sc = strtof(rs, &end);
++        if (end == rs || *end || !(sc >= 0.5f && sc <= hi)) { LOG("[RED] DM_RENDER_SCALE=%s: must be 0.5 to %.1f%s; keeping the game's size", rs, hi, hi > 1.0f ? "" : " (above 1.0 only on the Mac, for a build whose stubs grow its render buffer pool)"); sc = 1.0f; }
++        else LOG("%s: 3D views rendered at %.2f of the game's size (DM_RENDER_SCALE)", name, sc);
++    }
+     memcpy(dm_fps_state + 0x10, &sc, sizeof sc);
++    if (m->render_pool && sc > 1.0f) {
++        // The game's render buffer pool grows by the factor's square, rounded up (+0x4c); the application pool and the alias region (where its virtual range lives) grow by what the
++        // pool adds plus 64 MB, and so do the game's fixed heaps around the pool (+0x58). Breath of the Wild's 115 MB held up to a factor of about 1.3
++        float sq = sc * sc; uint32_t k = (uint32_t)sq + (sq > (float)(uint32_t)sq);
++        uint64_t x = ((k - 1) * m->render_pool + (64ull << 20) + 0x1fffff) & ~0x1fffffull;
++        int dm_mem_started(void);
++        if (dm_mem_started()) { LOG("[RED] %s: render scale %.2f needs %.0f MB more application memory, but guest memory is already laid out; render buffer pool kept", name, sc, x / 1048576.0); k = 0; x = 0; }
++        else LOG("%s: render buffer pool ×%u, %.0f MB more application memory (DM_RENDER_SCALE %.2f)", name, k, x / 1048576.0, sc);
++        memcpy(dm_fps_state + 0x4c, &k, sizeof k); memcpy(dm_fps_state + 0x58, &x, sizeof x); dm_mem_extra = x;
++        // Where the views outgrow the game's output (its base view width × the factor), the output takes their size, so the frame is composed and shown at it rather than scaled down
++        if (k && m->view_w && m->out_w && sc * m->view_w > m->out_w + 0.5f) {
++            uint32_t ow = ((uint32_t)(sc * m->view_w + 0.5f) + 1) & ~1u, oh = ((uint32_t)(sc * m->view_h + 0.5f) + 1) & ~1u;
++            uint64_t osz = (uint64_t)oh << 32 | ow; float owf = (float)ow;
++            memcpy(dm_fps_state + 0x40, &osz, sizeof osz); memcpy(dm_fps_state + 0x48, &owf, sizeof owf);
++            LOG("%s: output %ux%u in place of %llux%llu (DM_RENDER_SCALE %.2f)", name, ow, oh, (unsigned long long)m->out_w, (unsigned long long)m->out_h, sc);
++        }
++    }
+     char cap[32]; snprintf(cap, sizeof cap, ", capped at %d fps", t);
+-    LOG("%s: frame step %s%s (%s)", g_fps_mod, !t ? "as the game sets it" : "in whole vsyncs decided by the host", t ? cap : "", e ? "DM_FPS_TARGET" : "game profile fps_target");
++    LOG("%s: frame step %s%s (%s)", name, !t ? "as the game sets it" : t > 60 ? "variable, the time each frame took" : "in whole vsyncs decided by the host", t ? cap : "", e ? "DM_FPS_TARGET" : "game profile fps_target");
+ }
+ static void install_key_page(module_t *m) {
+     if (m->key_page_off + m->key_page_size > m->size) die("%s: key page out of range", m->name);
+diff --git a/dm/host/tests/t_heap_size.c b/dm/host/tests/t_heap_size.c
+index d9588605..516ad2cf 100644
+--- a/dm/host/tests/t_heap_size.c
++++ b/dm/host/tests/t_heap_size.c
+@@ -34,6 +34,7 @@ int dm_ue_heap_owns(uint64_t a, uint64_t n) { (void)a; (void)n; return 0; } // N
+ void dm_guest_write_prepare(void *addr, size_t size) { (void)addr; (void)size; }
+ // This fixture calls the SVC dispatcher directly, without rewritten guest gates.
+ void gate_obs_set(int id, void (*fn)(uint64_t *, int)) { (void)id; (void)fn; }
++uint64_t dm_mem_extra;   // loader.c: no render buffer pool grown by a render scale here
+ 
+ static size_t page, old_size, requested;
+ static int calls, injected_error, last_prot;
+diff --git a/dm/host/tests/t_nro.c b/dm/host/tests/t_nro.c
+index 0f60f65c..43708910 100644
+--- a/dm/host/tests/t_nro.c
++++ b/dm/host/tests/t_nro.c
+@@ -13,6 +13,7 @@ static uint64_t missing;
+ uint64_t resolve_import(module_t *m, const char *name) { (void)m; (void)name; return (uint64_t)&missing; }
+ int hle_implements(const char *name) { (void)name; return 0; }
+ int svc_nro_deactivate(module_t *m) { m->loaded = 0; return 1; }   // no memory mappings in this fixture
++int dm_mem_started(void) { return 0; }   // hle_svc.c: guest memory not laid out yet (dm_fps_state_apply)
+ 
+ typedef struct {
+     Elf64_Sym sym[4];
+diff --git a/dm/host/tests/t_svc_memory.c b/dm/host/tests/t_svc_memory.c
+index 286874fd..9fc12aee 100644
+--- a/dm/host/tests/t_svc_memory.c
++++ b/dm/host/tests/t_svc_memory.c
+@@ -41,6 +41,7 @@ int thr_limit_used(void) { return 0; }
+ int dm_ue_heap_owns(uint64_t a, uint64_t n) { (void)a; (void)n; return 0; } // No Unreal allocator is installed in this fixture.
+ // This fixture calls the SVC dispatcher directly, without rewritten guest gates.
+ void gate_obs_set(int id, void (*fn)(uint64_t *, int)) { (void)id; (void)fn; }
++uint64_t dm_mem_extra;   // loader.c: no render buffer pool grown by a render scale here
+ module_t *module_of(const void *p) {
+     uintptr_t a = (uintptr_t)p;
+     for (int i = 0; i < g_nmod; ++i) {
+diff --git a/dm/host/tests/t_symbols.c b/dm/host/tests/t_symbols.c
+index b725bfea..fbe1434b 100644
+--- a/dm/host/tests/t_symbols.c
++++ b/dm/host/tests/t_symbols.c
+@@ -26,6 +26,7 @@ struct dm_flags g_flag;
+ uint64_t unimpl_stubs[MAX_STUB];
+ uint64_t now_ns(void) { return 0; }
+ uint64_t guest_ns(void) { return 0; }
++int dm_mem_started(void) { return 0; }   // hle_svc.c: guest memory not laid out yet (loader.c dm_fps_state_apply)
+ void guest_clock_read_wait(void) {}
+ void hlecount_seal(void) {}
+ int svc_nro_deactivate(module_t *m) { m->loaded = 0; return 1; }   // no memory mappings in this fixture
+diff --git a/dm/tools/docs_patches.py b/dm/tools/docs_patches.py
+index 27e718cf..67be5f1c 100644
+--- a/dm/tools/docs_patches.py
++++ b/dm/tools/docs_patches.py
+@@ -165,7 +165,7 @@ def build_rows(gs):   # {build ID: [(game, display version, module)]}
+ def frame_step_sites(fn):   # (offset, reason) of each site a FRAME_STEP function writes, and whether it marks a render-scale stub
+     pos, puts = [0x8000000], []
+     def emit(w): pos[0] += 4
+-    ctx = types.SimpleNamespace(here=lambda: pos[0], emit=emit, site=lambda off, orig: None, put=lambda off, words, why: puts.append((off, why)), state=0x9000000, render_scale=0)
++    ctx = types.SimpleNamespace(here=lambda: pos[0], emit=emit, site=lambda off, orig: None, put=lambda off, words, why: puts.append((off, why)), state=0x9000000, render_scale=0, keys={})
+     fn(ctx)
+     return sorted(puts), ctx.render_scale
+ 
+diff --git a/dm/tools/patch_nso.py b/dm/tools/patch_nso.py
+index 1d261ee5..8e10213c 100644
+--- a/dm/tools/patch_nso.py
++++ b/dm/tools/patch_nso.py
+@@ -1204,19 +1204,25 @@ obs += region_obs
+ # State page = the page after the key page (zero in the file, read-write in both loaders): +0 float target fps written by the loader (fps_target, DM_FPS_TARGET; 0 = every stub
+ # runs the original instructions), +4 30 fps movie/cinematic flag, +8 double lead (TOTK), +0x10 float render scale (TOTK, BotW), +0x18 double game seconds (TOTK),
+ # +0x20 u32 step in vsyncs (host; 0 = not decided yet), +0x24 u32 a step the game fixes itself (BotW's VFR override; 0 = none), +0x28 u32 AoC's vsyncs per update, marked by
+-# its first stub (0 = off), +0x30 u64 vsyncs stepped (the stubs; logged by the host to check the game's speed). Stub bodies assembled with clang
++# its first stub (0 = off), +0x30 u64 vsyncs stepped (the stubs; logged by the host to check the game's speed). Fields a build's stubs read only when its fixups table names them
++# (the loader writes them for that build alone): +0x40 u64 output width | height << 32 and +0x48 float output width (OUTPUT_W / OUTPUT_H; 0 = the game's), +0x4c u32 render buffer pool
++# factor and +0x58 u64 bytes added to the game's heaps around it (RENDER_POOL; 0 = as the game sets them), +0x50 float variable frame step in 1/30 s units (VAR_STEP, written by the
++# host each frame; 0 = off) and +0x54 the same latched by the build's stubs once a game frame. Stub bodies assembled with clang
+ # A build's stubs are FRAME_STEP[build ID](ctx) in its patches.py: ctx.here() / ctx.emit(word) assemble into the patch area, ctx.site(offset, original bytes) asserts a site and that it is
+-# no rewrite site, ctx.put(offset, words, reason) writes it (listed with the cuts), ctx.state is the state page's offset, and ctx.render_scale = 1 marks a render-scale stub
++# no rewrite site, ctx.put(offset, words, reason) writes it (listed with the cuts), ctx.state is the state page's offset, ctx.render_scale = 1 marks a render-scale stub, and
++# ctx.keys[KEY] = value adds a row to the fixups table for stubs the loader writes further state page fields for (VAR_STEP, RENDER_POOL, VIEW_W / VIEW_H, OUTPUT_W / OUTPUT_H)
+ FRAME_STEP = PATCHES['FRAME_STEP']
+ FS_STATE_OFF = 0
++FS_STATE_SIZE = 0x60
+ RENDER_SCALE = 0   # 1 = the build has a render-scale stub (state +0x10): the fixups table says so (RENDER_SCALE), and the iOS launcher offers the setting (dm/games/settings.tsv)
++FS_KEYS = {}   # further fixups table rows of the build's stubs (ctx.keys): the loader writes their state page fields for this build only
+ if BUILD_ID in FRAME_STEP and NAME == 'main':
+     FS_STATE_OFF = KEY_PAGE_OFF + 0x4000
+     if FAR:
+         # The loader supplies zero-filled BSS/key pages for a front patch area.
+         # Reserve the frame state after the key page there too; stubs reach it by ADRP.
+         IMAGE_SIZE = FS_STATE_OFF + 0x4000
+-    assert FS_STATE_OFF % 0x1000 == 0 and (FAR or FS_STATE_OFF + 0x40 <= PATCH_OFF) and not any(IMG[FS_STATE_OFF:]), 'frame step state page'
++    assert FS_STATE_OFF % 0x1000 == 0 and (FAR or FS_STATE_OFF + FS_STATE_SIZE <= PATCH_OFF) and not any(IMG[FS_STATE_OFF:]), 'frame step state page'
+     def fs_site(off, orig):
+         ob = bytes.fromhex(orig)
+         assert IMG[off:off + len(ob)] == ob, f'frame step original bytes mismatch {off:#x}: {bytes(IMG[off:off + len(ob)]).hex()}'
+@@ -1227,8 +1233,8 @@ if BUILD_ID in FRAME_STEP and NAME == 'main':
+         for i, w in enumerate(words): struct.pack_into('<I', IMG, off + 4 * i, w)
+         cuts.append((off, old.hex(), bytes(IMG[off:off + 4 * len(words)]).hex(), why)); stat('frame_step')
+ if FS_STATE_OFF:   # the build's stubs (FRAME_STEP of its patches.py)
+-    use_area(0); fs = types.SimpleNamespace(here=here, emit=emit, site=fs_site, put=fs_put, state=FS_STATE_OFF, render_scale=0)
+-    FRAME_STEP[BUILD_ID](fs); RENDER_SCALE = fs.render_scale
++    use_area(0); fs = types.SimpleNamespace(here=here, emit=emit, site=fs_site, put=fs_put, state=FS_STATE_OFF, render_scale=0, keys={})
++    FRAME_STEP[BUILD_ID](fs); RENDER_SCALE = fs.render_scale; FS_KEYS = fs.keys
+ 
+ # ---- Spin waits (every module) ----
+ # A guest loop that polls memory until another thread changes it fills only its own core on the Switch, where any higher-priority thread pinned there preempts it, so the
+@@ -1550,6 +1556,7 @@ with open(P('fixups.tsv'), 'w') as f:
+         for capability in PATCHES['CAPABILITIES'].get(BUILD_ID, ()):
+             assert re.fullmatch(r'[A-Z][A-Z0-9_]*', capability), f'invalid capability {capability}'
+             f.write(f'# {capability}\t1\n')
++    for k, v in FS_KEYS.items(): f.write(f'# {k}\t{v}\n')   # the build's further stubs (ctx.keys): the loader reads them
+     f.write(f'# BUILD_ID\t{BUILD_ID}\n')   # the host identifies the build by it: features with hard-coded addresses only run on the build they belong to
+ with open(P('gates.tsv'), 'w') as f:
+     for ret, k, arg, orig in gates: f.write(f'{ret:#x}\t{k}\t{arg}\t{orig:#x}\n')
+diff --git a/docs/reference/frame-rate.md b/docs/reference/frame-rate.md
+index bd767492..f5bde5aa 100644
+--- a/docs/reference/frame-rate.md
++++ b/docs/reference/frame-rate.md
+@@ -45,6 +45,14 @@ Frame pacing: the host's frame step, engine frame limiters, present intervals an
+ - **Found on:** reading the code; modelled in `t_fstep` with the 30 fps movie cap ([Movies hold 30 fps under the frame step](#movies-hold-30-fps-under-the-frame-step)) and [The Legend of Zelda: Breath of the Wild](../../dm/games/01007EF00011E000/README.md)'s iPhone GPU times (0.86 vsyncs at hold 1, 1.5 at hold 2). Not yet seen on these paths in a device log; first seen on a Mac with a 30 fps mode in a downstream fork.
+ - **Check:** `make -C dm/gfx/tests GAME=010015100B514000 t_fstep && dm/gfx/tests/t_fstep`: movie and thermal recovery, the first movie without a prior hitch, repeated caps after short and sustained runs, all 30 grace frames, failed-probe backoff and game-time debt. The original recovery cases fail on main before [PR #253](https://github.com/seedds/nxnative/pull/253); its initial fix still failed the first-movie, repeated-cap and full-grace regressions. All pass with the corrections above.
+ 
++### Variable frame step above 60 fps
++
++- **Symptom:** a game whose own logic steps in whole 30 or 60 fps frames runs too fast or uneven above 60 fps; with a cap that does not divide the screen's rate (120 on 144 Hz, 240 on 360 Hz) it runs faster than real time.
++- **Cause:** the whole-vsync frame step hands the game steps of 1 to 3 vsyncs, which cannot express 120 fps. Frames whose starts follow display-link ticks on a screen whose rate is not a multiple of the cap lie on the nearest refreshes (6.9 and 13.9 ms apart in turn at 120 on 144 Hz, 2.8 and 5.6 ms at 240 on 360 Hz), so a floor on the step that raises the short ones runs the game ahead (1.12 and 1.17 of real time).
++- **Fix:** a build whose rewriter table names `VAR_STEP` takes `fps_target` / `DM_FPS_TARGET` 61 to 240 (`loader.c` refuses it on other builds). Each frame steps the game by the time the previous one took, in 1/30 s units (`nvn_fstep.h` `nvn_vstep_next`, `hle_nvn.c` `vstep_tick`, state page +0x50): at least 1/240 s, with the time that floor adds carried into the next steps so game time keeps real time, at most the game's own longest step (1.5; longer frames slow the game down, as on the Switch). The build's stubs latch the step once a game frame (+0x54) so every reader in a frame uses one value, as the whole-vsync step is latched through the framework setter. While the game fixes its own step or a prerendered movie halves the cap the whole-vsync step holds, and the variable step starts again from the next frame afterwards (`vstep_off` resets it: the frames between were stepped already). The display link runs at the cap (`nvn_mtl.m` `link_range` mode 4) and each frame is shown on its next tick.
++- **Found on:** [The Legend of Zelda: Breath of the Wild](../../dm/games/01007EF00011E000/README.md) (1.9.0; its note has the stubs, the interval readers that had to take the frame ratio and the measurements).
++- **Check:** `t_fstep` (steady 120, 120 on 144 Hz, 240 on 360 Hz, the reset after whole-vsync frames, the longest step); the log line `variable frame step: … fps, game time … (… of real time)` every 1,800 presents.
++
+ ### Engine-native frame caps also govern presentation
+ 
+ - **Symptom:** selecting 30 FPS changes the engine's interval field, but the screen and frame loop still run near 60 FPS.
+diff --git a/docs/reference/memory.md b/docs/reference/memory.md
+index b231fde6..5bb75fe7 100644
+--- a/docs/reference/memory.md
++++ b/docs/reference/memory.md
+@@ -61,6 +61,14 @@ The guest address space, heaps, pools, virtual address memory and the allocators
+ - **Fix:** a request larger than the heap region returns 0xD001 (`hle_svc.c`, svc 0x1). The search then settles on 3.09 GB, the pool less the rewritten modules (the same LimitReached check as before).
+ - **Found on:** [Donkey Kong Country: Tropical Freeze](../../dm/games/0100C1F0051B6000/README.md) (SDK 4.4.0).
+ 
++### A render buffer pool grown with the render scale
++
++- **Symptom:** above a render scale of about 1.3 a game crashes building its render buffers (Breath of the Wild: an allocation came back empty, then `RenderBufferContext` at `main+0xed7128`).
++- **Cause:** the game sizes its render buffer pool for the Switch's resolutions (BotW: gsys's two 115 MB pools, a compressible texture pool and a virtual range for it), and its fixed heaps, the application pool and the alias region around that pool have no room for more.
++- **Fix:** a build whose rewriter table names `RENDER_POOL` (with the pool's base size) takes a render scale above 1.0 on the Mac (`loader.c`, up to 3.0): its stub multiplies the pool by the scale's square rounded up (state page +0x4c), and the application pool, the alias region and the game's fixed heaps around the pool grow by what the pool adds plus 64 MB (state +0x58, `dm_mem_extra`, `hle_svc.c`). Where the views outgrow the game's output, the build's `OUTPUT_W` / `OUTPUT_H` stubs give the output their size (+0x40 / +0x48), so frames are composed at it rather than scaled down. The loader writes these fields only for a build whose table names them, so no game's constants are in the host. Not on iOS: the larger pool comes on top of the guest's address space, which iOS caps at a 6 GB reservation.
++- **Found on:** [The Legend of Zelda: Breath of the Wild](../../dm/games/01007EF00011E000/README.md) (1.9.0: 1.2 = 1920×1080, 1.6 = 2560×1440, 2.4 = 3840×2160 docked; its note has the stub sites).
++- **Check:** the log line `render buffer pool ×<k>, <n> MB more application memory (DM_RENDER_SCALE …)`.
++
+ ### `nninitStartup`'s heap only without virtual address memory
+ 
+ - Not needed in the end for [Ace Attorney Investigations Collection](../../dm/games/010005501E68C000/README.md) (1.0.0.2, SDK 17.5.3): the process heap of pull request #16. `nninitStartup` calls `SetMemoryHeapSize` / `AllocateMemoryBlock` only without virtual address memory, and nothing else in `main` calls them ([Virtual address memory follows the NPDM's system resource](#virtual-address-memory-follows-the-npdms-system-resource)).

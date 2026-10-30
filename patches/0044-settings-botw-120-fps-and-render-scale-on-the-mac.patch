@@ -1,0 +1,167 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: v0lumehi <aljic.zijad@gmail.com>
+Date: Sat, 31 Oct 2026 00:09:25 +0100
+Subject: [PATCH] settings: Breath of the Wild offers 120 fps and a render
+ scale up to 2.4 on the Mac
+
+A build whose rewriter table has VAR_STEP (seedds/nxnative#76) takes DM_FPS_TARGET 61 to 240, and one with RENDER_POOL takes
+DM_RENDER_SCALE up to 3.0 on the Mac. The launcher list still offered 30 / 60 and 0.5 to 1.0, so a player could reach them
+only through the environment. Two Mac rows now replace the usual ones for such a build: 30, 60 or 120 fps, and 0.5 to 2.4
+(3840 x 2160 docked). The iPhone list is unchanged.
+
+settings.py: a condition may join several with &, and of several rows for one variable the last whose condition holds is
+listed, in the place of the first.
+
+Upstream-Status: pending (follow-up to seedds/nxnative#76)
+Reason: The Mac launcher offers the frame rate and render scale that seedds/nxnative#76 makes possible
+Issue: LNPANDY/NX2Apple#287
+---
+ dm/games/settings.py                     |  9 +++++--
+ dm/games/settings.tsv                    |  3 +++
+ dm/tools/tests/test_launcher_settings.py | 30 ++++++++++++++++++++++++
+ docs/frontends.md                        |  4 ++--
+ docs/settings.md                         |  8 +++++--
+ 5 files changed, 48 insertions(+), 6 deletions(-)
+
+diff --git a/dm/games/settings.py b/dm/games/settings.py
+index d16b9cb9..d609768b 100644
+--- a/dm/games/settings.py
++++ b/dm/games/settings.py
+@@ -69,6 +69,7 @@ def build(gid, patched, control):
+         return macros[name].strip('"')
+ 
+     def shown(cond, n):
++        if '&' in cond: return all(shown(c, n) for c in cond.split('&'))   # every one of the joined conditions
+         if cond == 'always': return True
+         if cond == 'languages>1': return len(langs) > 1
+         if cond.startswith('fixups:'): return cond[7:] in keys
+@@ -94,7 +95,10 @@ def build(gid, patched, control):
+         if kind == 'choice' and values != 'languages': return {v.split('=', 1)[0] for v in values.split(',')}
+         return None
+ 
+-    out, table, base = [], {r[1][0]: takes(r[1][1], r[1][2]) for r in rows()}, render_base(g)
++    out, at, table, base = [], {}, {}, render_base(g)
++    for _, r in rows():   # a variable several rows set takes the values of all of them
++        t = takes(r[1], r[2])
++        table[r[0]] = None if t is None or (r[0] in table and table[r[0]] is None) else table.get(r[0], set()) | t
+     for n, (var, kind, values, default, cond, section, label, note, extra) in rows():
+         m = meta(extra, n)
+         if 'needs' in m:
+@@ -119,7 +123,8 @@ def build(gid, patched, control):
+             if len(on_off) != 2 or not all(on_off) or on_off[0] == on_off[1]: sys.exit(f'settings.tsv:{n}: toggle values are - or <on>/<off>: {values}')
+             s.update(on=on_off[0], off=on_off[1], default=on_off[0] if s['default'] == '1' else on_off[1])   # the default as the value the variable takes
+         else: sys.exit(f'settings.tsv:{n}: unknown kind {kind}')
+-        out.append(s)
++        if var in at: out[at[var]] = s   # a later row whose condition holds replaces an earlier one for the same variable, in its place
++        else: at[var] = len(out); out.append(s)
+     return {'schema': SCHEMA, 'game': g.id, 'settings': out}
+ 
+ 
+diff --git a/dm/games/settings.tsv b/dm/games/settings.tsv
+index bb29206f..5b947afb 100644
+--- a/dm/games/settings.tsv
++++ b/dm/games/settings.tsv
+@@ -9,14 +9,17 @@
+ #             <ios>|<mac> selects the platform's default before resolving a profile macro or build variable
+ #   shown     always; DM_GAME_<NAME>!=<value> or ==<value>; fixups:<KEY>: main's rewriter table has that key (a stub in the game's build, patch_nso.py); languages>1; gfxapi:<API>: the packer's GFXAPI;
+ #             platform:<ios | mac>: the app's platform (SETTINGS_PLATFORM, ios when unset), for a switch only that platform's front end reads
++#             several joined with & must all hold. Of several rows for one variable, the last whose condition holds is listed, in the place of the first
+ #   section   Game, Controls or Performance: a heading on the single settings screen. Rows appear in table order within each section
+ #             Reset to tested defaults clears all launcher choices; values fixed by an env file stay
+ #   label, note  the setting's name and the line under it (may be empty; only for a setting with a cost: latency, memory, heat)
+ #   meta      optional, key=value pairs separated by ; (settings.py META lists the keys; docs/frontends.md, The settings list, describes them):
+ #             level=basic  a setting a front end shows first;  needs=<VAR>=<value>  a sub-setting, drawn only while the row that sets <VAR> has that value
+ DM_FPS_TARGET	choice	30=30 fps,60=60 fps	DM_GAME_FPS_TARGET	DM_GAME_FPS_TARGET!=0	Game	Frame rate		level=basic
++DM_FPS_TARGET	choice	30=30 fps,60=60 fps,120=120 fps	DM_GAME_FPS_TARGET	fixups:VAR_STEP&platform:mac	Game	Frame rate		level=basic
+ DM_DYNAMIC_RESOLUTION	toggle	-	0	fixups:DYNAMIC_RESOLUTION	Game	Dynamic resolution	Adjusts resolution between 70% and 100% under load. Turn off to keep full resolution for the selected console mode.
+ DM_RENDER_SCALE	range	0.5:1.0:0.05	1.0	fixups:RENDER_SCALE	Game	Render scale		level=basic
++DM_RENDER_SCALE	range	0.5:2.4:0.05	1.0	fixups:RENDER_POOL&platform:mac	Game	Render scale		level=basic
+ DM_OPMODE	choice	1=Docked,0=Handheld	DM_GAME_OPMODE	always	Game	Console mode		level=basic
+ DM_PRESENT_UPSCALE	choice	off=Standard,metalfx=MetalFX	off	always	Game	Upscaling	Uses more GPU time and can increase heat.
+ DM_LANG	choice	languages	build:DM_LANG	languages>1	Game	Game language		level=basic
+diff --git a/dm/tools/tests/test_launcher_settings.py b/dm/tools/tests/test_launcher_settings.py
+index cd43d2d7..f51187d6 100644
+--- a/dm/tools/tests/test_launcher_settings.py
++++ b/dm/tools/tests/test_launcher_settings.py
+@@ -148,6 +148,36 @@ class LauncherSettingsTests(unittest.TestCase):
+                 profile = type('Profile', (), {'id': BOTW, 'get': lambda self, key, default='', bad=bad: bad})()
+                 with self.assertRaises(SystemExit): settings.render_base(profile)
+ 
++    def test_variable_step_and_larger_render_pool_on_the_mac_only(self):
++        """A build with the variable frame step and the render pool stub (seedds/nxnative#76) offers 120 fps and a render scale above 1.0 on the Mac, in the place of the usual rows"""
++        def listed(keys, platform):
++            env = {'GFXAPI': 'nvn', **({'SETTINGS_PLATFORM': platform} if platform else {})}
++            with tempfile.TemporaryDirectory() as tmp, patch.object(settings.nacp, 'languages', return_value=['en-US']), patch.dict(os.environ, env):
++                if not platform: os.environ.pop('SETTINGS_PLATFORM', None)
++                (Path(tmp) / 'main.fixups.tsv').write_text(''.join(f'# {k}\t1\n' for k in keys))
++                return settings.build(BOTW, tmp, Path(tmp) / 'control.nacp')['settings']
++        usual, more = ['RENDER_SCALE'], ['RENDER_SCALE', 'VAR_STEP', 'RENDER_POOL']
++        for keys, platform, fps, hi in [(usual, 'mac', ['30', '60'], 1.0), (more, None, ['30', '60'], 1.0), (more, 'mac', ['30', '60', '120'], 2.4)]:
++            with self.subTest(keys=keys, platform=platform):
++                rows = listed(keys, platform)
++                envs = [s['env'] for s in rows]
++                self.assertEqual((envs.count('DM_FPS_TARGET'), envs.count('DM_RENDER_SCALE')), (1, 1))
++                self.assertEqual(envs.index('DM_FPS_TARGET'), 0)
++                s = {s['env']: s for s in rows}
++                self.assertEqual([o[0] for o in s['DM_FPS_TARGET']['options']], fps)
++                self.assertEqual((s['DM_FPS_TARGET']['default'], s['DM_FPS_TARGET']['level']), ('60', 'basic'))
++                self.assertEqual((s['DM_RENDER_SCALE']['min'], s['DM_RENDER_SCALE']['max'], s['DM_RENDER_SCALE']['default']), (0.5, hi, '1.0'))
++                self.assertEqual(s['DM_RENDER_SCALE']['base'], {'docked': [1600, 900], 'handheld': [1280, 720]})
++
++    def test_joined_conditions_all_hold(self):
++        tsv = '# header\nDM_X\ttoggle\t-\t0\talways&platform:mac\tGame\tX\nDM_Y\ttoggle\t-\t0\tplatform:ios&fixups:NOPE\tGame\tY\n'
++        for platform, want in (('mac', ['DM_X']), ('ios', [])):
++            with self.subTest(platform=platform), tempfile.TemporaryDirectory() as tmp:
++                (Path(tmp) / 'settings.tsv').write_text(tsv, encoding='utf-8')
++                with patch.object(settings, 'HERE', Path(tmp)), patch.object(settings.nacp, 'languages', return_value=['en-US']), \
++                        patch.dict(os.environ, {'SETTINGS_PLATFORM': platform}):
++                    self.assertEqual([s['env'] for s in settings.build(BOTW, tmp, Path(tmp) / 'control.nacp')['settings']], want)
++
+     def test_table_format_is_strict(self):
+         good = 'DM_X\ttoggle\t-\t0\talways\tGame\tX\n'
+         for bad, why in [('DM_X\ttoggle\t-\t0\talways\tGame\tX\t\tlevel=basic\textra\n', 'columns'),
+diff --git a/docs/frontends.md b/docs/frontends.md
+index 9a758674..ee6924da 100644
+--- a/docs/frontends.md
++++ b/docs/frontends.md
+@@ -30,8 +30,8 @@ A built app carries the settings its game supports, as the iPhone app's settings
+ ```json
+ {"schema": 1, "game": "01007EF00011E000", "settings": [
+  {"env": "DM_FPS_TARGET", "kind": "choice", "section": "Game", "label": "Frame rate", "note": "…", "default": "60",
+-  "options": [["30", "30 fps"], ["60", "60 fps"]], "level": "basic"},
+- {"env": "DM_RENDER_SCALE", "kind": "range", "section": "Game", "label": "Render scale", "note": "…", "default": "1.0", "min": 0.5, "max": 1.0, "step": 0.05},
++  "options": [["30", "30 fps"], ["60", "60 fps"], ["120", "120 fps"]], "level": "basic"},
++ {"env": "DM_RENDER_SCALE", "kind": "range", "section": "Game", "label": "Render scale", "note": "…", "default": "1.0", "min": 0.5, "max": 2.4, "step": 0.05},
+  {"env": "DM_FPS_HOLD", "kind": "toggle", "section": "Performance", "label": "Hold frames when late", "note": "…", "default": "on", "on": "on", "off": "off"}
+ ]}
+ ```
+diff --git a/docs/settings.md b/docs/settings.md
+index a1a6059e..7140283d 100644
+--- a/docs/settings.md
++++ b/docs/settings.md
+@@ -23,10 +23,14 @@ A Mac app carries the same list (`Contents/Resources/dm/launcher.json`), without
+ 
+ Games whose speed the app controls (Breath of the Wild, Tears of the Kingdom and a few others) offer **30 fps** or **60 fps**. 60 is smoother; 30 is what the Switch ran and uses less power, so the phone stays cooler and the battery lasts longer. The game runs at real speed either way.
+ 
++On the Mac, Breath of the Wild also offers **120 fps**. Each frame then steps the game by the time the previous frame took. A screen has to refresh at 120 Hz or more to show every frame. The iPhone stays at 30 or 60.
++
+ ### Render scale
+ 
+ The size of the 3D picture, from 50 to 100 %. Below 100 % the size is fixed there and the game's own dynamic resolution is off; 100 % keeps the game's own. Lower can be lighter on the GPU but is blurrier; the HUD and text keep their sharpness. Only games the app can scale offer it.
+ 
++On the Mac, Breath of the Wild goes up to 240 %, which is 3840 × 2160 docked. Above 100 % the game gets more memory for its larger picture, and above about 120 % the whole frame is shown at that size.
++
+ ### Console mode
+ 
+ **Docked** renders at the Switch's TV resolution, **Handheld** at its lower handheld resolution, which is lighter on the phone and can give a higher frame rate.
+@@ -212,8 +216,8 @@ A line like `DM_PRESENT_SNAP=0` in `Documents/env.txt` (in the Files app, under
+ 
+ | Setting | Variable | Values |
+ |---|---|---|
+-| Frame rate | `DM_FPS_TARGET` | `30`, `60` |
+-| Render scale | `DM_RENDER_SCALE` | `0.5` to `1.0` |
++| Frame rate | `DM_FPS_TARGET` | `30`, `60` (Breath of the Wild on the Mac: `61` to `240`) |
++| Render scale | `DM_RENDER_SCALE` | `0.5` to `1.0` (Breath of the Wild on the Mac: up to `3.0`) |
+ | Console mode | `DM_OPMODE` | `1` docked, `0` handheld |
+ | Game language | `DM_LANG` | a language code, such as `ja` |
+ | Display mode (Mac) | `DM_FULLSCREEN` | `1` fullscreen, `0` a window |

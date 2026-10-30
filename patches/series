@@ -35,3 +35,5 @@
 0050-route-c-shell.patch
 0051-nsp-shell-framework.patch
 0053-runtime-profile-every-site.patch
+0043-botw-above-60-fps-and-above-1080p.patch
+0044-settings-botw-120-fps-and-render-scale-on-the-mac.patch
