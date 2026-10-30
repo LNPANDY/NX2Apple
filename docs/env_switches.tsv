@@ -37,6 +37,7 @@ DM_FORCE_STRICT	diagnostic	`=1` makes the loader fail on forced-hook entries no 
 DM_FPS	switch	`30` or `60` pins the frame rate the display link and frame pacing aim for; otherwise it follows the game's present interval (60, or 30 when the game asks for 30)
 DM_FPS_HOLD	player	`on` / `off` overrides the profile's `fps_hold`: whether late frames may raise the hold above the frame cap's vsyncs (on by default)
 DM_FPS_TARGET	player	Frame-rate cap: `30` or `60`, or `0` for the game's own limit; overrides the profile's `fps_target`
+DM_FRAMEWORK	switch	`=1` (route C M1) compiles the game's modules into `DmIOS.app/Frameworks/DmGame.framework` instead of the executable, which `dlopen`s it at launch (`dm/ios/project-framework.yml`; the NSP script's `--framework` sets it); the default 0 keeps the usual in-executable build
 DM_FS	diagnostic	When set, logs file opens, paths not found or not mounted, and a read summary every 64 MiB or 1000 reads
 DM_FSLOG	diagnostic	`=<file>` writes one TSV line per ReadFile: seconds since boot, guest path, offset, length and guest buffer address
 DM_FSLOG_HASH	diagnostic	With `DM_FSLOG`, adds a column with the FNV-1a 64 hash of the bytes read
