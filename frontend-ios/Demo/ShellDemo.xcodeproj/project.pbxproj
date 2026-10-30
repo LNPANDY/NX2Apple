@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		0A794660C32B92327759DA96 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 80B29691CA12A696245D564A /* AppIcon.icon */; };
 		2861C1407044359116FE0A66 /* ShellCaptureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8694319745E3759D50772855 /* ShellCaptureTests.swift */; };
 		2BF462D88A6CE3993C4AEB9A /* ShellHostUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3902CFEF269CA462AFE8048 /* ShellHostUITests.swift */; };
 		2EEF6A8F9A7D58C09181EAB5 /* RealArt.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF911DEE5C19B0D069418726 /* RealArt.swift */; };
@@ -37,6 +38,7 @@
 		39DB78D11BCF59879A3712F5 /* SampleArt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SampleArt.swift; sourceTree = "<group>"; };
 		3FAC070A229B08BED4005826 /* Games */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Games; path = ../Tests/ShellHostTests/Fixtures/Games; sourceTree = SOURCE_ROOT; };
 		59E0A7AE45425C5BA9689FE4 /* ShellDemoApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellDemoApp.swift; sourceTree = "<group>"; };
+		80B29691CA12A696245D564A /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon.icon; sourceTree = "<group>"; };
 		8694319745E3759D50772855 /* ShellCaptureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellCaptureTests.swift; sourceTree = "<group>"; };
 		916109EC3198FC9C0E9D655B /* ShellDemoUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellDemoUITests.swift; sourceTree = "<group>"; };
 		B1D199F3FD9C677BD245559E /* ShellDemoApp.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = ShellDemoApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -86,6 +88,15 @@
 			path = ../Sources/ShellDemo;
 			sourceTree = "<group>";
 		};
+		85D1F85CF9A0EBBD520F89DC /* frontend-ios */ = {
+			isa = PBXGroup;
+			children = (
+				80B29691CA12A696245D564A /* AppIcon.icon */,
+			);
+			name = "frontend-ios";
+			path = ..;
+			sourceTree = "<group>";
+		};
 		B149173B288581EEEA22408A /* UITests */ = {
 			isa = PBXGroup;
 			children = (
@@ -119,6 +130,7 @@
 			isa = PBXGroup;
 			children = (
 				3FAC070A229B08BED4005826 /* Games */,
+				85D1F85CF9A0EBBD520F89DC /* frontend-ios */,
 				2152F5714F5AA74B9FBBB0F0 /* Packages */,
 				5928E24F76B598AD8FD0D1AB /* ShellDemo */,
 				B149173B288581EEEA22408A /* UITests */,
@@ -211,6 +223,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				0A794660C32B92327759DA96 /* AppIcon.icon in Resources */,
 				C12D9CC70DEF69CCB48F44E7 /* Games in Resources */,
 				F15D381F62331B5172AD6D22 /* Localizable.xcstrings in Resources */,
 			);
@@ -257,6 +270,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
@@ -371,6 +385,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";

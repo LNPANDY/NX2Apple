@@ -19,6 +19,8 @@ xcodebuild -project frontend-ios/Demo/ShellDemo.xcodeproj -scheme ShellDemo \
 
 `ShellDemo` is also an executable package target for previews on the Mac. The Xcode app target is `ShellDemoApp`.
 
+The app icon of the demo app and of the shell app (`dm/ios/project-shell.yml`) is `frontend-ios/AppIcon.icon`. It is edited in Icon Composer.
+
 ## Integrate
 
 All boundary types are in `Sources/ShellUI/ShellInputs.swift` and `ShellArtwork.swift`:
