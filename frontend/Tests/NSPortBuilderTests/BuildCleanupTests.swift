@@ -86,16 +86,6 @@ final class BuildCleanupTests: XCTestCase {
         assertOutputsStay()
     }
 
-    func testTheGameDataImageAMacSideInstallReadsStays() throws {
-        try fixture()
-        var p = plan(keep: false)
-        p.gameDataImage = build.appendingPathComponent("extract/v0/RomFS.img").path
-        _ = BuildCleanup.run(p)
-        XCTAssertTrue(exists("extract/v0/RomFS.img"))
-        XCTAssertFalse(exists("extract/v0/ExeFS/main"))
-        XCTAssertFalse(exists("shader"))
-    }
-
     func testWithTheSettingOnOnlyWhatNothingNeedsGoes() throws {
         try fixture()
         let outcome = BuildCleanup.run(plan(keep: true, ipa: true))

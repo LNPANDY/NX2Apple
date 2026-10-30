@@ -29,9 +29,6 @@ enum BuildCleanup {
         var deviceInstall = false
         /// An IPA exists outside the build folder, so what packing it left in ipa/ is not needed for it.
         var ipaWritten = false
-        /// The Mac-side game data image that a later device install reads from here (`--romfs separate`, PR #213), kept when set.
-        /// Nothing sets it before that change: today the image is copied to games/<title ID>/romfs.img before the install.
-        var gameDataImage = ""
     }
 
     struct Outcome: Equatable {
@@ -57,7 +54,6 @@ enum BuildCleanup {
     static func kept(_ plan: Plan, root: String) -> [String] {
         var paths = plan.protecting
         if plan.deviceInstall { paths += [root + "/xcode", root + "/xcode-derived-data"] }
-        if !plan.gameDataImage.isEmpty { paths.append(plan.gameDataImage) }
         return paths.filter { !$0.isEmpty }.map(BuildFolder.resolved)
     }
 
