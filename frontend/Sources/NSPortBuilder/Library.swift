@@ -12,6 +12,10 @@ struct LibraryGame: Codable, Identifiable, Equatable {
     var lastTarget = "ios"
     var inputs: [String: [String]] = [:]
     var outputDirectory = ""
+    /// The folder this game's files were found in, which is what the Build page shows: the parent of a base package a
+    /// level down (a "nsp本体" folder inside the game's folder) still holds the update and DLC, so the scan climbs to
+    /// the folder that does. Empty for a library written before it was recorded; the base package's folder is used then.
+    var sourceFolder = ""
     var artworkPath = ""
     var launchOptions: [String: String] = [:]
     var mods: [String] = []   // the mods (folder names in the game's mods folder) switched on
@@ -57,6 +61,7 @@ extension LibraryGame {
         lastTarget = try c.decodeIfPresent(String.self, forKey: .lastTarget) ?? "ios"
         inputs = try c.decodeIfPresent([String: [String]].self, forKey: .inputs) ?? [:]
         outputDirectory = try c.decodeIfPresent(String.self, forKey: .outputDirectory) ?? ""
+        sourceFolder = try c.decodeIfPresent(String.self, forKey: .sourceFolder) ?? ""
         artworkPath = try c.decodeIfPresent(String.self, forKey: .artworkPath) ?? ""
         launchOptions = try c.decodeIfPresent([String: String].self, forKey: .launchOptions) ?? [:]
         mods = try c.decodeIfPresent([String].self, forKey: .mods) ?? []
@@ -346,6 +351,7 @@ final class GameLibrary: ObservableObject {
 
     static func sourceGames(in root: URL, repo: String) -> [LibraryGame] {
         guard let e = FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles], errorHandler: { _, _ in true }) else { return [] }
+        let packages = Set(["nsp", "xci", "nsz", "xcz"])
         var result: [String: LibraryGame] = [:]
         while let url = e.nextObject() as? URL {
             if (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
@@ -353,24 +359,59 @@ final class GameLibrary: ObservableObject {
                 if e.level >= 4 || name.hasSuffix(".app") || name.hasSuffix("_build") || name.hasSuffix("-work") || name.hasSuffix("_survey") || ["romfs", "extract", "tools", "venv", "archive", "harness", "runs", "shader", "node_modules"].contains(name) { e.skipDescendants() }
                 continue
             }
-            guard ["nsp", "xci", "nsz", "xcz"].contains(url.pathExtension.lowercased()),
+            guard packages.contains(url.pathExtension.lowercased()),
                   let id = BuildModel.titleID(url.lastPathComponent), id & 0xfff == 0 else { continue }
             let tid = String(format: "%016llX", id)
             guard result[tid] == nil else { continue }
             var game = LibraryGame(titleID: tid, name: title(for: url.path, repo: repo, titleID: tid))
-            let parent = url.deletingLastPathComponent()
-            let files = (try? FileManager.default.contentsOfDirectory(at: parent, includingPropertiesForKeys: nil)) ?? []
-            game.inputs["base"] = [url.path]
-            game.inputs["update"] = files.filter { BuildModel.titleID($0.lastPathComponent) == id + 0x800 && ["nsp", "xci", "nsz", "xcz"].contains($0.pathExtension.lowercased()) }
+            // A game's files are often split by kind: the base under "<game>/nsp本体/", the update and the DLC beside it.
+            // The folder to scan is the one the player picks by hand — the game's own folder — so climb while the parent
+            // still holds a package of this game's family (the base, its update, or one of its DLC), and stop at the scan
+            // root or at a folder that holds no more of them (issue: an auto-scanned game found no update or DLC).
+            let family = { (name: String) -> Bool in
+                guard packages.contains((name as NSString).pathExtension.lowercased()),
+                      let other = BuildModel.titleID(name) else { return false }
+                return other == id || (other >= id + 0x800 && other < id + 0x1000) || (other >= id + 0x1000 && other < id + 0x2000)
+            }
+            var gameRoot = url.deletingLastPathComponent()
+            // The enumerator hands out resolved paths (/private/var/…) while the library folder may not be, so compare resolved.
+            let rootReal = root.resolvingSymlinksInPath().path
+            func inside(_ u: URL) -> String { u.resolvingSymlinksInPath().path }
+            while inside(gameRoot) != rootReal, inside(gameRoot).hasPrefix(rootReal) {
+                let parent = gameRoot.deletingLastPathComponent()
+                guard inside(parent).hasPrefix(rootReal),
+                      let names = try? FileManager.default.contentsOfDirectory(atPath: parent.path),
+                      names.contains(where: family) else { break }
+                gameRoot = parent
+            }
+            // Packages of this game anywhere in that folder, a few levels at most (what the build script itself scans).
+            var found: [URL] = []
+            if let walk = FileManager.default.enumerator(at: gameRoot, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles], errorHandler: { _, _ in true }) {
+                while let f = walk.nextObject() as? URL {
+                    if (try? f.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+                        let name = f.lastPathComponent.lowercased()
+                        if walk.level >= 3 || ["romfs", "extract", "tools", "venv", "archive", "harness", "runs", "shader"].contains(name) { walk.skipDescendants() }
+                        continue
+                    }
+                    if family(f.lastPathComponent) { found.append(f) }
+                }
+            }
+            let familyOf = { (u: URL, lo: UInt64, hi: UInt64) -> Bool in
+                guard let other = BuildModel.titleID(u.lastPathComponent) else { return false }
+                return other >= lo && other < hi
+            }
+            let isBase = { (u: URL) -> Bool in BuildModel.titleID(u.lastPathComponent) == id }
+            game.inputs["base"] = ([url] + found.filter(isBase))
+                .sorted { BuildModel.updateVersion($0.lastPathComponent) > BuildModel.updateVersion($1.lastPathComponent) }
+                .prefix(1).map(\.path)
+            game.inputs["update"] = found.filter { familyOf($0, id + 0x800, id + 0x1000) }
                 .sorted { BuildModel.updateVersion($0.lastPathComponent) > BuildModel.updateVersion($1.lastPathComponent) }.prefix(1).map(\.path)
-            game.inputs["dlc"] = files.filter {
-                guard let other = BuildModel.titleID($0.lastPathComponent) else { return false }
-                return other >= id + 0x1000 && other < id + 0x2000 && ["nsp", "nsz"].contains($0.pathExtension.lowercased())
-            }.map(\.path)
-            game.inputs["keys"] = [parent.appendingPathComponent("prod.keys"), root.appendingPathComponent("keys/prod.keys"), root.appendingPathComponent("prod.keys")]
+            game.inputs["dlc"] = found.filter { familyOf($0, id + 0x1000, id + 0x2000) }.map(\.path).sorted()
+            game.inputs["keys"] = [gameRoot.appendingPathComponent("prod.keys"), root.appendingPathComponent("keys/prod.keys"), root.appendingPathComponent("prod.keys"), gameRoot.appendingPathComponent("keys/prod.keys")]
                 .filter { FileManager.default.fileExists(atPath: $0.path) }.prefix(1).map(\.path)
-            game.outputDirectory = parent.path
-            if let ipa = files.first(where: { $0.pathExtension.lowercased() == "ipa" }) { game.ipaPath = ipa.path }
+            game.sourceFolder = gameRoot.path
+            game.outputDirectory = url.deletingLastPathComponent().path
+            if let ipa = found.first(where: { $0.pathExtension.lowercased() == "ipa" }) { game.ipaPath = ipa.path }
             result[tid] = game
         }
         return result.values.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
@@ -388,6 +429,14 @@ final class GameLibrary: ObservableObject {
                 for source in sources {
                     if var existing = self.games.first(where: { $0.titleID == source.titleID }) {
                         if existing.inputs["base", default: []].isEmpty { existing.inputs = source.inputs }
+                        else {
+                            // Slots the library has empty and the scan fills: an update or DLC added since, or a game
+                            // recorded before the scan climbed out of a "nsp本体" folder (nothing was found beside it then).
+                            for slot in ["update", "dlc", "keys"] where existing.inputs[slot, default: []].isEmpty {
+                                existing.inputs[slot] = source.inputs[slot] ?? []
+                            }
+                            if existing.sourceFolder.isEmpty { existing.sourceFolder = source.sourceFolder }
+                        }
                         if existing.ipaPath.isEmpty { existing.ipaPath = source.ipaPath }
                         self.upsert(existing)
                     } else { self.upsert(source) }
@@ -421,6 +470,7 @@ final class GameLibrary: ObservableObject {
         var game = games.first { $0.titleID == titleID } ?? LibraryGame(titleID: titleID, name: Self.title(for: model.basePath, repo: model.repoPath, titleID: titleID))
         game.inputs = Dictionary(uniqueKeysWithValues: model.slots.map { ($0.id, $0.paths) })
         game.outputDirectory = model.outDir
+        if !model.gameDir.isEmpty { game.sourceFolder = model.gameDir }
         game.lastTarget = model.target
         // An existing output is linked only after validating its metadata and executables.
         let dir = model.outDir.isEmpty ? URL(fileURLWithPath: model.basePath).deletingLastPathComponent().path : model.outDir

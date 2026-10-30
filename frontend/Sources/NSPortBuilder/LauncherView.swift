@@ -691,7 +691,9 @@ struct ContentView: View {
             m.slots[index].paths = game.inputs[m.slots[index].id] ?? []
             m.slots[index].problem = ""
         }
-        m.gameDir = (m.basePath as NSString).deletingLastPathComponent
+        // The folder the game's files were found in (a base package may sit one level down in its own folder) — from the
+        // scan, or from the last build. Falling back to the base's folder would put the update and DLC out of reach.
+        m.gameDir = game.sourceFolder.isEmpty ? (m.basePath as NSString).deletingLastPathComponent : game.sourceFolder
         m.outDir = game.outputDirectory
         m.done = false; m.doneNote = ""; m.stages = []
         m.target = game.lastTarget
