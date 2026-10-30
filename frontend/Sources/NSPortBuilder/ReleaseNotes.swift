@@ -84,7 +84,7 @@ enum ReleaseNotes {
         let marks = all.enumerated().compactMap { i, l in languageHeading(l).map { (i, $0) } }
         guard marks.contains(where: { $0.1 == .zh }), marks.contains(where: { $0.1 == .en }) else { return nil }
         func isRule(_ l: String) -> Bool { l.trimmingCharacters(in: .whitespaces).hasPrefix("---") }
-        let want: Lang = lang == .zh ? .zh : .en   // Swedish (and any other language) reads the English section
+        let want: Lang = lang == .zh ? .zh : .en   // Swedish, German, French (and any other language) read the English section
         var picked: [String] = []
         for (n, mark) in marks.enumerated() where mark.1 == want {
             let end = marks.indices.contains(n + 1) ? marks[n + 1].0 : all.count

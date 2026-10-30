@@ -127,7 +127,7 @@ jobs:
             <key>CFBundleShortVersionString</key><string>$V</string>
             <key>CFBundleVersion</key><string>$V</string>
             <key>CFBundleDevelopmentRegion</key><string>en</string>
-            <key>CFBundleLocalizations</key><array><string>en</string><string>zh-Hans</string><string>sv</string><string>de</string></array>
+            <key>CFBundleLocalizations</key><array><string>en</string><string>zh-Hans</string><string>sv</string><string>de</string><string>fr</string></array>
             <key>LSMinimumSystemVersion</key><string>13.0</string>
             <key>NSHighResolutionCapable</key><true/>
           </dict>

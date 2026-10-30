@@ -11,7 +11,7 @@ final class GermanLocalizationTests: XCTestCase {
         "onboarding.demo.mario", "console.kind.gamepad", "console.brand", "console.platform.mac",
         "console.platform.iphone", "console.version", "console.fps30", "console.fps60", "saves.toDevice",
         "saves.toMac", "cheats.title", "section.app", "app.version", "nav.builds", "settings.language.zh",
-        "settings.language.en", "settings.language.sv", "settings.language.de", "library.ok", "build.ios", "data.update", "data.keys", "msg.ipaAt",
+        "settings.language.en", "settings.language.sv", "settings.language.de", "settings.language.fr", "library.ok", "build.ios", "data.update", "data.keys", "msg.ipaAt",
         "dep.iossdk", "dep.tool.xcodegen", "dep.tool.zstd", "dep.tool.spirv-cross", "dep.tool.glslangValidator",
         "dep.glslang", "dep.xcode", "dep.metal", "dep.brew", "dep.xcodegen", "dep.zstd", "dep.spirv.win",
         "dep.zstd.win", "dep.spirv", "dep.dotnet", "dep.phase.download", "dep.python.hint",
@@ -71,8 +71,8 @@ final class GermanLocalizationTests: XCTestCase {
     }
 
     func testLanguageNamesExistInEveryLanguage() {
-        for lang: Lang in [.zh, .en, .sv, .de] {
-            for code in ["zh", "en", "sv", "de"] {
+        for lang: Lang in [.zh, .en, .sv, .de, .fr] {
+            for code in ["zh", "en", "sv", "de", "fr"] {
                 let key = "settings.language.\(code)"
                 XCTAssertNotEqual(L10n.string(key, lang), key)
             }

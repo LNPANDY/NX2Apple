@@ -1,4 +1,4 @@
-"""Language choice: Chinese, Swedish and German devices use their matching catalog."""
+"""Language choice: Chinese, Swedish, German and French devices use their matching catalog."""
 from __future__ import annotations
 
 import locale
@@ -7,28 +7,33 @@ import re
 import sys
 from enum import Enum
 
+# "fr" alone or followed by a separator (fr_FR, fr-CA, fr_BE.UTF-8), and not a longer code such as
+# "fry" (Frisian); Windows spells the locale out ("French_France"), matched by name instead.
+_FRENCH = re.compile(r'fr(?![a-z])')
+
 
 class Lang(Enum):
     ZH = 'zh'
     EN = 'en'
     SV = 'sv'
     DE = 'de'
+    FR = 'fr'
 
     @property
     def other(self) -> 'Lang':
-        return {Lang.ZH: Lang.EN, Lang.EN: Lang.SV, Lang.SV: Lang.DE, Lang.DE: Lang.ZH}[self]
+        return {Lang.ZH: Lang.EN, Lang.EN: Lang.SV, Lang.SV: Lang.DE, Lang.DE: Lang.FR, Lang.FR: Lang.ZH}[self]
 
     @property
     def toggle_label(self) -> str:
-        return {Lang.ZH: 'EN', Lang.EN: 'Svenska', Lang.SV: 'Deutsch', Lang.DE: '中文'}[self]
+        return {Lang.ZH: 'EN', Lang.EN: 'Svenska', Lang.SV: 'Deutsch', Lang.DE: 'Français', Lang.FR: '中文'}[self]
 
     @staticmethod
     def initial() -> 'Lang':
-        """Saved choice, else the device language: Chinese, Swedish and German (by language
+        """Saved choice, else the device language: Chinese, Swedish, German and French (by language
         code or Windows locale name) use their own catalog, everything else is English (the same
         rule the SwiftUI app uses)."""
         saved = os.environ.get('NSPB_LANG', '')
-        if saved in ('zh', 'en', 'sv', 'de'):
+        if saved in ('zh', 'en', 'sv', 'de', 'fr'):
             return Lang(saved)
         if sys.platform.startswith('win'):
             # Ask Windows first, and always — not only when locale.getlocale() came back empty.
@@ -57,6 +62,8 @@ class Lang(Enum):
                         return Lang.SV
                     if re.match(r'de($|[^a-z])', low):
                         return Lang.DE
+                    if _FRENCH.match(low):
+                        return Lang.FR
                     if low:                    # a real code we do not translate: this device is neither
                         return Lang.EN
             except Exception:
@@ -73,4 +80,6 @@ class Lang(Enum):
             return Lang.ZH
         if low.startswith('sv') or 'swedish' in low:
             return Lang.SV
-        return Lang.DE if re.match(r'de($|[^a-z])', low) or 'german' in low or 'deutsch' in low else Lang.EN
+        if re.match(r'de($|[^a-z])', low) or 'german' in low or 'deutsch' in low:
+            return Lang.DE
+        return Lang.FR if _FRENCH.match(low) or 'french' in low else Lang.EN
