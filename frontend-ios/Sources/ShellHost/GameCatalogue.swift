@@ -30,7 +30,11 @@ public struct CatalogueEntry: Equatable, Sendable, Identifiable {
     /// Set when the bundle cannot run at all, whatever the app or the data: the broken state.
     public var problem: GameProblem?
 
-    public var title: String { manifest?.name ?? id }
+    /// The name from a manifest that could not be fully read, when it still has one.
+    public var readableName: String?
+
+    /// Never the bare title ID: an unreadable bundle is "Unknown game" and its ID is the subtitle.
+    public var title: String { manifest?.name ?? readableName ?? hostText("Unknown game") }
     public var frameworkURL: URL? { manifest.map { directory.appendingPathComponent($0.framework, isDirectory: true) } }
 }
 
@@ -54,6 +58,7 @@ public enum GameCatalogue {
     public static func read(directory dir: URL, fileManager fm: FileManager = .default) -> CatalogueEntry {
         let id = dir.lastPathComponent
         var entry = CatalogueEntry(id: id, directory: dir, bannerURL: image(named: "banner", in: dir, fm), iconURL: image(named: "icon", in: dir, fm))
+        entry.readableName = lenientName(in: dir.appendingPathComponent("game.manifest.json"), fm)
         do {
             guard let data = fm.contents(atPath: dir.appendingPathComponent("game.manifest.json").path) else {
                 throw GameProblem(cause: .manifestMissing, reason: hostText("Game manifest missing"), detail: hostText("This game's folder has no game.manifest.json."))
@@ -87,6 +92,14 @@ public enum GameCatalogue {
             logger.error("\(id, privacy: .public): \(problem.reason, privacy: .public): \(problem.detail, privacy: .public)")
         }
         return entry
+    }
+
+    /// The `name` of a manifest that fails validation, when the file is still JSON with a name in it.
+    private static func lenientName(in url: URL, _ fm: FileManager) -> String? {
+        guard let data = fm.contents(atPath: url.path),
+              let name = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["name"] as? String else { return nil }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private static func image(named base: String, in dir: URL, _ fm: FileManager) -> URL? {

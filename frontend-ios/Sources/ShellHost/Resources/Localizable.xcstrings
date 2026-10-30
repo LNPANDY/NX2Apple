@@ -111,6 +111,16 @@
         }
       }
     },
+    "Can't read this game": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Can't read this game"
+          }
+        }
+      }
+    },
     "Choose a RomFS folder or romfs.img on this device, an external drive, or iCloud Drive.": {
       "localizations": {
         "en": {
@@ -167,16 +177,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Launching is not available yet."
-          }
-        }
-      }
-    },
-    "Manifest damaged": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Manifest damaged"
           }
         }
       }
@@ -487,6 +487,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "This game's settings list is missing. Rebuild the game in the launcher on your Mac."
+          }
+        }
+      }
+    },
+    "Unknown game": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown game"
           }
         }
       }

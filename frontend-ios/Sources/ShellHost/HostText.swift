@@ -13,6 +13,20 @@ public enum ProblemCause: Equatable, Sendable {
     case codeMissing
     case filesDamaged
 
+    /// The short state label, which says the same thing as `message`.
+    public var label: String {
+        switch self {
+        case .manifestMissing: hostText("Game manifest missing")
+        case .manifestDamaged: hostText("Can't read this game")
+        case .manifestUnsupported: hostText("Manifest not supported")
+        case .settingsMissing: hostText("Settings list missing")
+        case .settingsDamaged: hostText("Settings list damaged")
+        case .settingsUnsupported: hostText("Settings list not supported")
+        case .codeMissing: hostText("Game code missing")
+        case .filesDamaged: hostText("Game files damaged")
+        }
+    }
+
     /// What happened and what to do, for the player. The technical message stays in `GameProblem.detail`.
     public var message: String {
         switch self {

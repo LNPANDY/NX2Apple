@@ -43,6 +43,14 @@ import XCTest
         XCTAssertTrue(app.staticTexts["Details"].exists)
     }
 
+    func testUnreadableManifestIsUnknownGameWithItsIDAsSmallText() {
+        launch(select: "0100000000050000")
+        XCTAssertEqual(app.staticTexts["hero.title"].label, "Unknown game")
+        XCTAssertTrue(app.staticTexts["0100000000050000"].exists)
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] \"Can't read this game\"")).firstMatch.exists)
+        XCTAssertTrue(app.staticTexts["This game's manifest is damaged. Rebuild the game in the launcher on your Mac."].exists)
+    }
+
     func testLibraryStartsOnAPlayableGameWithTheVersionLine() {
         XCUIDevice.shared.orientation = .portrait
         app.launchArguments = ["--host"]

@@ -49,19 +49,19 @@ public struct GameManifest: Decodable, Equatable, Sendable {
                               detail: hostText("game.manifest.json has schema \(manifest.schema), this app reads schema \(supportedSchema)."))
         }
         guard isTitleID(manifest.titleID) else {
-            throw GameProblem(cause: .manifestDamaged, reason: hostText("Manifest damaged"), detail: hostText("title_id \"\(manifest.titleID)\" is not 16 hex digits."))
+            throw GameProblem(cause: .manifestDamaged, reason: ProblemCause.manifestDamaged.label, detail: hostText("title_id \"\(manifest.titleID)\" is not 16 hex digits."))
         }
         guard !manifest.modules.isEmpty else {
-            throw GameProblem(cause: .manifestDamaged, reason: hostText("Manifest damaged"), detail: hostText("The manifest lists no modules."))
+            throw GameProblem(cause: .manifestDamaged, reason: ProblemCause.manifestDamaged.label, detail: hostText("The manifest lists no modules."))
         }
         guard manifest.chain.hasPrefix("b-"), manifest.chain.count > 2, manifest.chain.dropFirst(2).allSatisfy(\.isHexDigit) else {
-            throw GameProblem(cause: .manifestDamaged, reason: hostText("Manifest damaged"), detail: hostText("chain \"\(manifest.chain)\" is not of the form b-<hex>."))
+            throw GameProblem(cause: .manifestDamaged, reason: ProblemCause.manifestDamaged.label, detail: hostText("chain \"\(manifest.chain)\" is not of the form b-<hex>."))
         }
         guard ["FR", "FH"].contains(manifest.loader) else {
-            throw GameProblem(cause: .manifestDamaged, reason: hostText("Manifest damaged"), detail: hostText("loader \"\(manifest.loader)\" is neither FR nor FH."))
+            throw GameProblem(cause: .manifestDamaged, reason: ProblemCause.manifestDamaged.label, detail: hostText("loader \"\(manifest.loader)\" is neither FR nor FH."))
         }
         guard manifest.framework.hasSuffix(".framework"), !manifest.framework.contains("/") else {
-            throw GameProblem(cause: .manifestDamaged, reason: hostText("Manifest damaged"), detail: hostText("framework \"\(manifest.framework)\" is not a .framework name."))
+            throw GameProblem(cause: .manifestDamaged, reason: ProblemCause.manifestDamaged.label, detail: hostText("framework \"\(manifest.framework)\" is not a .framework name."))
         }
         return manifest
     }
@@ -87,7 +87,7 @@ func isVersion(_ a: OperatingSystemVersion, atLeast b: OperatingSystemVersion) -
 
 /// A decoding error as one readable sentence.
 func describe(_ error: Error, file: String, cause: ProblemCause) -> GameProblem {
-    let short = hostText("Game files damaged")
+    let short = cause.label
     guard let e = error as? DecodingError else { return GameProblem(cause: cause, reason: short, detail: "\(file): \(error.localizedDescription)") }
     func path(_ c: [CodingKey]) -> String { c.map { $0.stringValue }.joined(separator: ".") }
     switch e {

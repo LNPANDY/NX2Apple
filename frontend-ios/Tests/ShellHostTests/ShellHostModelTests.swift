@@ -332,4 +332,36 @@ final class Clock: @unchecked Sendable { var date: Date; init(_ d: Date) { date 
         model.reload()
         #expect(model.details.first?.id == Fixtures.orbit)
     }
+
+    @Test func anUnreadableManifestNeverShowsTheBareTitleID() throws {
+        let box = try Sandbox()
+        let model = ShellHostModel(config: box.config())
+        // Truncated JSON: no name anywhere, so "Unknown game" with the ID as the small line.
+        let unknown = try detail(model, Fixtures.badManifest).game
+        #expect(unknown.title == "Unknown game" && unknown.subtitle == Fixtures.badManifest)
+        #expect(unknown.state == .broken(reason: "Can't read this game", detail: ProblemCause.manifestDamaged.message,
+                                         technical: try #require({ () -> String? in if case .broken(_, _, let t) = unknown.state { t } else { nil } }())))
+        // Valid JSON that fails validation keeps its own name.
+        let partial = try detail(model, Fixtures.missingKey).game
+        #expect(partial.title == "Missing Key Fixture" && partial.subtitle == Fixtures.missingKey)
+        // Nothing the player reads as a title is a 16 digit ID.
+        for d in model.details { #expect(d.game.title.count != 16 || !d.game.title.allSatisfy(\.isNumber)) }
+    }
+
+    @Test func theStateLabelMatchesTheCause() throws {
+        let box = try Sandbox()
+        let model = ShellHostModel(config: box.config())
+        func reason(_ id: String) throws -> String {
+            guard case .broken(let r, _, _) = try detail(model, id).game.state else { throw Failure() }
+            return r
+        }
+        #expect(try reason(Fixtures.badManifest) == "Can't read this game")
+        #expect(try reason(Fixtures.missingKey) == "Can't read this game")
+        #expect(try reason(Fixtures.badSettings) == "Settings list damaged")
+        #expect(try reason(Fixtures.noFramework) == "Game code missing")
+        for cause in [ProblemCause.manifestMissing, .manifestDamaged, .manifestUnsupported, .settingsMissing, .settingsDamaged,
+                      .settingsUnsupported, .codeMissing, .filesDamaged] {
+            #expect(!cause.label.isEmpty && !cause.label.contains(";"))
+        }
+    }
 }

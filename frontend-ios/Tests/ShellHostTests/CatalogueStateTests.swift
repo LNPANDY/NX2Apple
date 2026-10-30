@@ -14,7 +14,7 @@ import ShellUI
         #expect(byID[Fixtures.badManifest]?.problem?.detail.contains("not valid JSON") == true)
         #expect(byID[Fixtures.missingKey]?.problem != nil)
         #expect(byID[Fixtures.badSettings]?.problem?.detail.contains("DM_X") == true)
-        #expect(byID[Fixtures.badManifest]?.title == Fixtures.badManifest, "a broken manifest leaves the folder name as the title")
+        #expect(byID[Fixtures.badManifest]?.title == "Unknown game", "a manifest with no readable name is an unknown game, never its folder name")
         #expect(entries.suffix(2).allSatisfy { $0.manifest == nil }, "games whose manifest cannot be read sort last")
     }
 

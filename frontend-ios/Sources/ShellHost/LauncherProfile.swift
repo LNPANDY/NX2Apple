@@ -55,7 +55,7 @@ public struct LauncherProfile: Decodable, Equatable, Sendable {
         let profile: LauncherProfile
         do { profile = try JSONDecoder().decode(LauncherProfile.self, from: data) }
         catch { throw describe(error, file: "launcher.json", cause: .settingsDamaged) }
-        let reason = hostText("Settings list damaged")
+        let reason = ProblemCause.settingsDamaged.label
         if let schema = profile.schema, schema != 1 {
             throw GameProblem(cause: .settingsUnsupported, reason: hostText("Settings list not supported"), detail: hostText("launcher.json has schema \(schema), this app reads schema 1."))
         }

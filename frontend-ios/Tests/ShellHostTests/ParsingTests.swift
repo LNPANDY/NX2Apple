@@ -26,7 +26,7 @@ import Testing
         #expect(truncated.detail.contains("not valid JSON"))
         let missing = try #require(problem(String(decoding: fixture(Fixtures.missingKey, "game.manifest.json"), as: UTF8.self)))
         #expect(missing.detail.contains("display_version") || missing.detail.contains("\"") )
-        #expect(missing.reason == "Game files damaged")
+        #expect(missing.reason == "Can't read this game")
         #expect(problem("[]") != nil)
         #expect(problem("")?.detail.contains("game.manifest.json") == true)
     }
