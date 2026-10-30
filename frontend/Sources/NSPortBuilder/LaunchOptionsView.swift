@@ -210,7 +210,7 @@ struct LaunchOptionsView: View {
                 if options.count <= 3 {
                     LauncherSegmented(options: options, selection: value) { set(s, $0) }
                 } else {
-                    LauncherMenuPicker(options: options, selection: value, fill: true) { set(s, $0) }
+                    LauncherDropdown(options: options, selection: value, label: s.label, fill: true) { set(s, $0) }
                 }
             case "range":
                 let lo = s.min ?? 0, hi = s.max ?? 1

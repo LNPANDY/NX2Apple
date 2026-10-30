@@ -3122,7 +3122,7 @@ struct BuilderView: View {
             row(m.t("dev.target"), detail: m.devicesChecked && m.devices.isEmpty ? m.t("dev.noDevices") : "") {
                 if !m.devicesChecked { ProgressView().controlSize(.small) }
                 Button(m.t("dev.refresh")) { m.refreshDevices() }.buttonStyle(.plain).font(.manrope(13)).foregroundStyle(.secondary)
-                LauncherMenuPicker(options: devices, selection: m.installDevice) { m.installDevice = $0 }
+                LauncherDropdown(options: devices, selection: m.installDevice, label: m.t("dev.target")) { m.installDevice = $0 }
             }
             if !m.installDevice.isEmpty {
                 divider
@@ -3130,7 +3130,7 @@ struct BuilderView: View {
                     row(m.t("dev.team"), detail: m.t("dev.noTeam"), dot: LauncherPalette.building) { EmptyView() }
                 } else {
                     row(m.t("dev.team")) {
-                        LauncherMenuPicker(options: teams, selection: m.signingTeam) { m.signingTeam = $0 }
+                        LauncherDropdown(options: teams, selection: m.signingTeam, label: m.t("dev.team")) { m.signingTeam = $0 }
                     }
                 }
             }
@@ -3457,17 +3457,14 @@ struct BuilderView: View {
             row(m.t("settings.language"),
                 detail: Lang.saved.map { m.t("settings.language.\($0.rawValue)") }
                     ?? m.t("settings.language.system"), dot: LauncherPalette.ready, help: "") {
-                // The launcher's own list (as in Launch options), drawn like the buttons beside it and as wide
-                LauncherMenuPicker(options: [(value: "", label: m.t("settings.language.system")),
-                                             (value: "zh", label: m.t("settings.language.zh")),
-                                             (value: "en", label: m.t("settings.language.en")),
-                                             (value: "sv", label: m.t("settings.language.sv")),
-                                             (value: "de", label: m.t("settings.language.de"))],
-                                   selection: Lang.saved.map { $0.rawValue } ?? "", fill: true, buttonLike: true) { v in
+                // The launcher's own list, drawn like the buttons beside it and as wide as its label needs.
+                // The language names are in their own language (see "settings.language.*"), only "system" follows the UI.
+                LauncherDropdown(options: Self.languageCodes.map { (value: $0, label: m.t("settings.language." + ($0.isEmpty ? "system" : $0))) },
+                                 selection: Lang.saved.map { $0.rawValue } ?? "", label: m.t("settings.language"),
+                                 style: .button, minWidth: Self.settingsPickerWidth) { v in
                     Lang.saved = v.isEmpty ? nil : Lang(rawValue: v)
                     m.lang = Lang.initial()
                 }
-                .frame(width: Self.settingsPickerWidth)
                 .padTarget("set.language", scope: "main", activate: { cycleLanguage(1) }, adjust: { cycleLanguage($0) })
             }
             divider
@@ -3516,8 +3513,12 @@ struct BuilderView: View {
     }
 
     /// The interface language one step on (a controller's left / right on the language list).
+    /// The language picker's choices in order, "" being the system's. A new language is one more code here and its
+    /// "settings.language.<code>" entry, which is its own name (Svenska, Deutsch) in every language.
+    static let languageCodes = ["", "zh", "en", "sv", "de"]
+
     private func cycleLanguage(_ by: Int) {
-        let values = ["", "zh", "en", "sv", "de"]
+        let values = Self.languageCodes
         let at = values.firstIndex(of: Lang.saved.map { $0.rawValue } ?? "") ?? 0
         let v = values[(at + by + values.count) % values.count]
         Lang.saved = v.isEmpty ? nil : Lang(rawValue: v)
