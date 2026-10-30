@@ -1,5 +1,8 @@
 import Foundation
+import os
 import ShellUI
+
+private let logger = Logger(subsystem: "dev.nx2apple.shell", category: "catalogue")
 
 /// What the shell and the app it runs in are, for the checks that need an app version: the shader chain it was built
 /// with and the OS it runs on. A nil chain skips the chain check (the demo has no engine).
@@ -53,31 +56,35 @@ public enum GameCatalogue {
         var entry = CatalogueEntry(id: id, directory: dir, bannerURL: image(named: "banner", in: dir, fm), iconURL: image(named: "icon", in: dir, fm))
         do {
             guard let data = fm.contents(atPath: dir.appendingPathComponent("game.manifest.json").path) else {
-                throw GameProblem(reason: hostText("Game manifest missing"), detail: hostText("This game's folder has no game.manifest.json."))
+                throw GameProblem(cause: .manifestMissing, reason: hostText("Game manifest missing"), detail: hostText("This game's folder has no game.manifest.json."))
             }
             let manifest = try GameManifest.parse(data)
             entry.manifest = manifest
             guard manifest.titleID == id else {
-                throw GameProblem(reason: hostText("Game files damaged"), detail: hostText("The folder is named \(id) but the manifest says \(manifest.titleID)."))
+                throw GameProblem(cause: .filesDamaged, reason: hostText("Game files damaged"), detail: hostText("The folder is named \(id) but the manifest says \(manifest.titleID)."))
             }
             var isDir: ObjCBool = false
             guard fm.fileExists(atPath: dir.appendingPathComponent(manifest.framework).path, isDirectory: &isDir), isDir.boolValue else {
-                throw GameProblem(reason: hostText("Game code missing"), detail: hostText("\(manifest.framework) is not in this game's folder. Install the game again."))
+                throw GameProblem(cause: .codeMissing, reason: hostText("Game code missing"), detail: hostText("\(manifest.framework) is not in this game's folder. Install the game again."))
             }
             let direct = dir.appendingPathComponent("launcher.json")
             let inFramework = dir.appendingPathComponent(manifest.framework).appendingPathComponent(manifest.launcher)
             guard let launcherData = fm.contents(atPath: direct.path) ?? fm.contents(atPath: inFramework.path) else {
-                throw GameProblem(reason: hostText("Settings list missing"), detail: hostText("This game has no launcher.json."))
+                throw GameProblem(cause: .settingsMissing, reason: hostText("Settings list missing"), detail: hostText("This game has no launcher.json."))
             }
             let profile = try LauncherProfile.parse(launcherData)
             guard profile.game == manifest.titleID else {
-                throw GameProblem(reason: hostText("Game files damaged"), detail: hostText("launcher.json is for \(profile.game), the manifest for \(manifest.titleID)."))
+                throw GameProblem(cause: .filesDamaged, reason: hostText("Game files damaged"), detail: hostText("launcher.json is for \(profile.game), the manifest for \(manifest.titleID)."))
             }
             entry.profile = profile
         } catch let problem as GameProblem {
             entry.problem = problem
         } catch {
-            entry.problem = GameProblem(reason: hostText("Game files damaged"), detail: error.localizedDescription)
+            entry.problem = GameProblem(cause: .filesDamaged, reason: hostText("Game files damaged"), detail: error.localizedDescription)
+        }
+        if let problem = entry.problem {
+            // The technical message is for the log and the Details of the How to fix sheet, not for the hero.
+            logger.error("\(id, privacy: .public): \(problem.reason, privacy: .public): \(problem.detail, privacy: .public)")
         }
         return entry
     }
@@ -140,8 +147,8 @@ public enum DataLocator {
 /// built for another chain or a newer OS needs an app update, a game without reachable data needs game data.
 public enum GameStateResolver {
     public static func state(for entry: CatalogueEntry, data: DataResolution, environment: HostEnvironment) -> GameState {
-        if let problem = entry.problem { return .broken(reason: problem.reason, detail: problem.detail) }
-        guard let manifest = entry.manifest else { return .broken(reason: hostText("Game manifest missing")) }
+        if let problem = entry.problem { return problem.state }
+        guard let manifest = entry.manifest else { return GameProblem(cause: .manifestMissing, reason: hostText("Game manifest missing")).state }
         if let chain = environment.chain, chain != manifest.chain { return .needsAppUpdate }
         if let min = manifest.minOSVersion, !isVersion(environment.osVersion, atLeast: min) { return .needsAppUpdate }
         return data.found ? .playable : .needsGameData

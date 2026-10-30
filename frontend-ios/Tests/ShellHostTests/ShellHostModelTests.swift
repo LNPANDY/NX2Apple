@@ -19,6 +19,9 @@ final class RecordingLauncher: GameLauncher, @unchecked Sendable {
     }
 }
 
+struct Failure: Error {}
+final class Clock: @unchecked Sendable { var date: Date; init(_ d: Date) { date = d } }
+
 @MainActor @Suite struct ShellHostModelTests {
     private func detail(_ model: ShellHostModel, _ id: String = Fixtures.orbit) throws -> GameDetail {
         try #require(model.details.first { $0.id == id })
@@ -32,13 +35,14 @@ final class RecordingLauncher: GameLauncher, @unchecked Sendable {
         let model = ShellHostModel(config: box.config())
         #expect(model.details.count == 8)
         let orbit = try detail(model)
-        #expect(orbit.game.title == "Orbit Fixture" && orbit.game.subtitle == "1.0.0")
+        #expect(orbit.game.title == "Orbit Fixture" && orbit.game.subtitle == "Version 1.0.0" && orbit.game.recentlyPlayed == nil)
         #expect(orbit.game.state == .needsGameData)
         #expect(orbit.sections.map(\.title) == ["Game", "Performance"])
         #expect(orbit.dataSource == "" && !orbit.dataNote.isEmpty)
         #expect(orbit.cloudSaves == nil && orbit.dlc == "No additional content")
         #expect(try detail(model, Fixtures.chain).game.state == .needsAppUpdate)
-        #expect(try detail(model, Fixtures.noFramework).game.state == .broken(reason: "Game code missing", detail: "DmGame.framework is not in this game's folder. Install the game again."))
+        #expect(try detail(model, Fixtures.noFramework).game.state == .broken(reason: "Game code missing", detail: "The game's code is missing from this app. Rebuild and reinstall it.",
+                                                                                technical: "DmGame.framework is not in this game's folder. Install the game again."))
         #expect(try detail(model, Fixtures.badManifest).sections.isEmpty)
     }
 
@@ -238,5 +242,94 @@ final class RecordingLauncher: GameLauncher, @unchecked Sendable {
     @Test func connectedControllersBecomeControllerInfo() {
         let c = ConnectedController(id: "a", name: "Pro Controller", player: 2, family: .nintendo, batteryPercent: 40, charging: true)
         #expect(ShellHostModel.info(for: c) == ControllerInfo(id: "a", name: "Pro Controller", player: "Player 2", batteryPercent: 40, charging: true))
+    }
+
+    // MARK: Messages, order, last played
+
+    @Test func brokenGamesShowPlayerSentencesAndKeepTheTechnicalMessage() throws {
+        let box = try Sandbox()
+        let model = ShellHostModel(config: box.config())
+        func broken(_ id: String) throws -> (reason: String, detail: String, technical: String) {
+            guard case .broken(let r, let d, let t) = try detail(model, id).game.state else { throw Failure() }
+            return (r, d, t)
+        }
+        let settings = try broken(Fixtures.badSettings)
+        #expect(settings.detail == "This game's settings list is damaged. Rebuild the game in the launcher on your Mac.")
+        #expect(settings.technical == "DM_X is a choice without [value, label] options.")
+        let code = try broken(Fixtures.noFramework)
+        #expect(code.detail == "The game's code is missing from this app. Rebuild and reinstall it.")
+        #expect(code.technical.contains("DmGame.framework"))
+        #expect(try broken(Fixtures.badManifest).detail == "This game's manifest is damaged. Rebuild the game in the launcher on your Mac.")
+        #expect(try broken(Fixtures.missingKey).detail == "This game's manifest is damaged. Rebuild the game in the launcher on your Mac.")
+        #expect(try broken(Fixtures.badManifest).technical.contains("not valid JSON"))
+        for id in [Fixtures.badSettings, Fixtures.noFramework, Fixtures.badManifest, Fixtures.missingKey] {
+            let b = try broken(id)
+            #expect(!b.detail.contains("DM_") && !b.detail.contains("json") && !b.detail.contains(";") && !b.detail.contains("；"))
+        }
+    }
+
+    @Test func everyCauseHasItsOwnSentence() {
+        let causes: [ProblemCause] = [.manifestMissing, .manifestDamaged, .manifestUnsupported, .settingsMissing, .settingsDamaged,
+                                      .settingsUnsupported, .codeMissing, .filesDamaged]
+        #expect(ProblemCause.manifestMissing.message == "This game's manifest is missing. Rebuild the game in the launcher on your Mac.")
+        #expect(ProblemCause.settingsMissing.message == "This game's settings list is missing. Rebuild the game in the launcher on your Mac.")
+        #expect(ProblemCause.manifestUnsupported.message == "This game was built for a different version of this app. Update the app or rebuild the game in the launcher on your Mac.")
+        #expect(ProblemCause.settingsUnsupported.message == ProblemCause.manifestUnsupported.message)
+        #expect(ProblemCause.filesDamaged.message == "This game's files are damaged. Rebuild the game in the launcher on your Mac.")
+        #expect(causes.allSatisfy { !$0.message.isEmpty && !$0.message.contains(";") })
+        let problem = GameProblem(cause: .settingsDamaged, reason: "Settings list damaged", detail: "raw")
+        #expect(problem.state == .broken(reason: "Settings list damaged", detail: ProblemCause.settingsDamaged.message, technical: "raw"))
+    }
+
+    @Test func libraryStartsWithPlayableThenDataThenUpdateThenBroken() throws {
+        let box = try Sandbox()
+        try box.giveAppData()
+        let model = ShellHostModel(config: box.config())
+        // Orbit playable, Quiet and the missing-framework game and others by state, alphabetical within a group.
+        let ids = model.details.map(\.id)
+        #expect(ids.first == Fixtures.orbit)
+        let rank = model.details.map { d -> Int in
+            switch d.game.state { case .playable: 1; case .needsGameData: 2; case .needsAppUpdate: 3; case .broken: 4 }
+        }
+        #expect(rank == rank.sorted())
+        let broken = model.details.filter { if case .broken = $0.game.state { true } else { false } }.map(\.game.title)
+        #expect(broken == broken.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending })
+        #expect(model.details.map(\.id) == model.entries.map(\.id))
+        #expect(model.details.first?.game.title != "Bad Settings Fixture")
+    }
+
+    @Test func recentlyPlayedComesFirstAndPlayRecordsTheDate() async throws {
+        let box = try Sandbox()
+        try box.giveAppData()
+        let clock = Clock(Date(timeIntervalSince1970: 1_000_000))
+        let config = box.config(now: { clock.date })
+        let model = ShellHostModel(config: config)
+        await model.playNow(Fixtures.orbit)   // the stub launcher fails, the date is stored anyway
+        #expect(LastPlayedStore(defaults: box.defaults(Fixtures.orbit)).date == clock.date)
+        #expect(try detail(model).game.recentlyPlayed == "Played today")
+        #expect(model.details.first?.id == Fixtures.orbit, "no reorder under the player's finger")
+        // A second playable game, played later, goes first after the next reload.
+        try box.giveAppData(Fixtures.chain)
+        let quiet = "0100000000080000"
+        try box.giveAppData(quiet)
+        clock.date = clock.date.addingTimeInterval(3600)
+        let other = ShellHostModel(config: config)
+        await other.playNow(quiet)
+        #expect(other.details.first?.id == Fixtures.orbit || other.details.first?.id == quiet)
+        other.reload()
+        #expect(other.details.prefix(2).map(\.id) == [quiet, Fixtures.orbit])
+        // A broken game is last even after its neighbours were played.
+        #expect(other.details.last.map { if case .broken = $0.game.state { true } else { false } } == true)
+    }
+
+    @Test func selectionOrderStaysWhenOneGameChangesState() throws {
+        let box = try Sandbox()
+        let model = ShellHostModel(config: box.config())
+        let before = model.details.map(\.id)
+        try box.giveAppData()
+        model.useAppData(Fixtures.orbit)   // refresh: orbit becomes playable without a re-sort
+        #expect(model.details.map(\.id) == before)
+        model.reload()
+        #expect(model.details.first?.id == Fixtures.orbit)
     }
 }

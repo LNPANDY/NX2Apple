@@ -53,7 +53,7 @@ extension SampleArt {
     /// A sample game: the real title with its banner when the art is found, else the fictional one with its drawn icon.
     static func tile(_ id: String, title: String, version: String, real: RealTitle?, state: GameState = .playable,
                      recentlyPlayed: String? = nil) -> GameTile {
-        let subtitle = demoText("Version \(version)")
+        let subtitle = ShellFormat.version(version)
         if let real, let banner = RealArt.banner(for: real) {
             return GameTile(id: id, title: real.title, subtitle: subtitle, banner: banner, state: state, recentlyPlayed: recentlyPlayed)
         }

@@ -14,9 +14,9 @@ func demoText(_ key: String.LocalizationValue) -> String {
     static var games: [GameDetail] {
         let tiles: [GameTile] = [
             SampleArt.tile("orbit", title: "Orbit Valley", version: "1.4.0", real: RealTitle("The Legend of Zelda: Breath of the Wild", "01007EF00011E000", "zelda-breath-of-the-wild.jpg"),
-                           recentlyPlayed: demoText("Played today")),
+                           recentlyPlayed: ShellFormat.played(Date())),
             SampleArt.tile("tide", title: "The Quiet Tide", version: "2.0.1", real: RealTitle("Hades", "0100535012974000", "hades.jpg"),
-                           recentlyPlayed: demoText("Played yesterday")),
+                           recentlyPlayed: ShellFormat.played(Date().addingTimeInterval(-86_400))),
             SampleArt.tile("paper", title: "Paper Trails", version: "1.0.0", real: RealTitle("The Legend of Zelda: Tears of the Kingdom", "0100F2C0115B6000", "zelda-tears-of-the-kingdom.jpg"),
                            state: .needsGameData),
             SampleArt.tile("moon", title: "Moonlit Express", version: "3.1.0", real: RealTitle("Super Smash Bros. Ultimate", "01006A800016E000", "super-smash-bros-ultimate.jpg"),

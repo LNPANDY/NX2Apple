@@ -23,16 +23,17 @@ final class Sandbox: @unchecked Sendable {
     }
     deinit {
         try? FileManager.default.removeItem(at: root)
-        for id in ["0100000000010000", "0100000000020000", "0100000000030000"] { UserDefaults().removePersistentDomain(forName: suite + id) }
+        for id in ["0100000000010000", "0100000000020000", "0100000000030000", "0100000000040000", "0100000000080000"] { UserDefaults().removePersistentDomain(forName: suite + id) }
     }
 
     func defaults(_ id: String) -> UserDefaults { UserDefaults(suiteName: suite + id)! }
 
     func config(chain: String? = "b-3f9a2c", os: OperatingSystemVersion = OperatingSystemVersion(majorVersion: 26, minorVersion: 0, patchVersion: 0),
-                updateURL: URL? = nil, open: @escaping @MainActor @Sendable (URL) -> Void = { _ in }) -> ShellHostConfig {
+                updateURL: URL? = nil, open: @escaping @MainActor @Sendable (URL) -> Void = { _ in },
+                now: @escaping @Sendable () -> Date = { Date() }) -> ShellHostConfig {
         let suite = suite
         return ShellHostConfig(gamesRoot: games, appDataRoot: appData, environment: HostEnvironment(chain: chain, osVersion: os),
-                               updateURL: updateURL, defaults: { UserDefaults(suiteName: suite + $0)! }, openURL: open)
+                               updateURL: updateURL, defaults: { UserDefaults(suiteName: suite + $0)! }, openURL: open, now: now)
     }
 
     /// The game's app data folder with the marker file the orbit fixture's manifest names (not game data: an empty file).

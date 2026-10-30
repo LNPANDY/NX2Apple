@@ -17,16 +17,20 @@ public struct ShellHostConfig: Sendable {
     public var updateURL: URL?
     public var defaults: @Sendable (String) -> UserDefaults
     public var openURL: @MainActor @Sendable (URL) -> Void
+    /// The clock, for the last-played date and its wording.
+    public var now: @Sendable () -> Date
 
     public init(gamesRoot: URL, appDataRoot: URL, environment: HostEnvironment = HostEnvironment(), updateURL: URL? = nil,
                 defaults: @escaping @Sendable (String) -> UserDefaults = GameDefaults.suite(for:),
-                openURL: @escaping @MainActor @Sendable (URL) -> Void = ShellHostConfig.systemOpen) {
+                openURL: @escaping @MainActor @Sendable (URL) -> Void = ShellHostConfig.systemOpen,
+                now: @escaping @Sendable () -> Date = { Date() }) {
         self.gamesRoot = gamesRoot
         self.appDataRoot = appDataRoot
         self.environment = environment
         self.updateURL = updateURL
         self.defaults = defaults
         self.openURL = openURL
+        self.now = now
     }
 
     @MainActor public static func systemOpen(_ url: URL) {
@@ -71,11 +75,19 @@ public struct ShellHostConfig: Sendable {
 
     // MARK: Catalogue
 
-    /// Reads the games folder again.
+    /// Reads the games folder again and sorts the library (see `LibraryOrder`). Only this and the first load re-sort:
+    /// a change to one game updates it in place.
     public func reload() {
-        entries = GameCatalogue.scan(root: config.gamesRoot)
-        details = entries.map(detail(for:))
+        let scanned = GameCatalogue.scan(root: config.gamesRoot)
+        let built = scanned.map(detail(for:))
+        let order = LibraryOrder.ids(of: built.map(\.game), lastPlayed: Dictionary(uniqueKeysWithValues: scanned.compactMap { e in
+            lastPlayed(e.id).map { (e.id, $0) } }))
+        let position = Dictionary(uniqueKeysWithValues: order.enumerated().map { ($1, $0) })
+        entries = scanned.sorted { position[$0.id] ?? 0 < position[$1.id] ?? 0 }
+        details = built.sorted { position[$0.id] ?? 0 < position[$1.id] ?? 0 }
     }
+
+    private func lastPlayed(_ id: String) -> Date? { LastPlayedStore(defaults: config.defaults(id)).date }
 
     private func refresh(_ id: String) {
         guard let e = entries.firstIndex(where: { $0.id == id }), let d = details.firstIndex(where: { $0.id == id }) else { return }
@@ -116,8 +128,10 @@ public struct ShellHostConfig: Sendable {
     private func detail(for entry: CatalogueEntry) -> GameDetail {
         let data = data(for: entry)
         let state = GameStateResolver.state(for: entry, data: data, environment: config.environment)
-        let tile = GameTile(id: entry.id, title: entry.title, subtitle: entry.manifest?.displayVersion ?? "",
-                            banner: image(entry.bannerURL), icon: image(entry.iconURL), state: state)
+        let played = lastPlayed(entry.id)
+        let tile = GameTile(id: entry.id, title: entry.title, subtitle: ShellFormat.version(entry.manifest?.displayVersion ?? ""),
+                            banner: image(entry.bannerURL), icon: image(entry.iconURL), state: state,
+                            recentlyPlayed: played.map { ShellFormat.played($0, now: config.now()) })
         guard let profile = entry.profile, entry.problem == nil else {
             return GameDetail(game: tile, dataNote: dataNote(data, found: false))
         }
@@ -247,6 +261,9 @@ public struct ShellHostConfig: Sendable {
               details.first(where: { $0.id == id })?.game.state == .playable, let dataURL = data(for: entry).url else { return }
         var cloud: URL?
         if case .url(let url) = cloudStore(id).resolve() { cloud = url }
+        // Remembered when Play is triggered, even if the launcher then fails (the stub). The order changes at the next load.
+        LastPlayedStore(defaults: config.defaults(id)).record(config.now())
+        refresh(id)
         let game = LaunchableGame(
             titleID: id, name: entry.title, manifest: manifest, directory: entry.directory, frameworkURL: framework, dataURL: dataURL,
             appFolder: appFolder(for: id), environment: GameSettingsStore(profile: profile, defaults: config.defaults(id)).values(), cloudSavesURL: cloud)

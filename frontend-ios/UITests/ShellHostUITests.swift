@@ -27,6 +27,30 @@ import XCTest
         launch(select: "0100000000040000")
         XCTAssertEqual(app.staticTexts["hero.title"].label, "No Framework Fixture")
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] 'Game code missing'")).firstMatch.waitForExistence(timeout: 5))
+        // The hero says what to do, not the parser's message.
+        XCTAssertTrue(app.staticTexts["The game's code is missing from this app. Rebuild and reinstall it."].exists)
+        XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'DmGame.framework'")).firstMatch.exists)
+    }
+
+    func testBadSettingsShowsASentenceAndKeepsTheRawMessageInDetails() {
+        launch(select: "0100000000070000")
+        XCTAssertTrue(app.staticTexts["This game's settings list is damaged. Rebuild the game in the launcher on your Mac."].exists)
+        XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'DM_X'")).firstMatch.exists)
+        let fix = app.buttons.matching(identifier: "state.action").allElementsBoundByIndex.first { $0.isHittable }
+        fix?.tap()
+        XCTAssertTrue(app.staticTexts["help.title"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["DM_X is a choice without [value, label] options."].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Details"].exists)
+    }
+
+    func testLibraryStartsOnAPlayableGameWithTheVersionLine() {
+        XCUIDevice.shared.orientation = .portrait
+        app.launchArguments = ["--host"]
+        app.launch()
+        XCTAssertTrue(app.staticTexts["hero.title"].waitForExistence(timeout: 10))
+        XCTAssertNotEqual(app.staticTexts["hero.title"].label, "Bad Settings Fixture")
+        XCTAssertEqual(app.staticTexts["hero.title"].label, "Orbit Fixture")
+        XCTAssertTrue(app.staticTexts["Version 1.0.0"].exists)
     }
 
     func testSettingChangeSurvivesReopeningSettings() {

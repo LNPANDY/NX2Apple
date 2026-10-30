@@ -257,7 +257,7 @@ struct HeroView<Accessory: View>: View {
     }
 
     private var meta: String {
-        [game.subtitle, game.recentlyPlayed ?? ""].filter { !$0.isEmpty }.joined(separator: "  ·  ")
+        ShellFormat.metaLine(game.subtitle, game.recentlyPlayed)
     }
 }
 

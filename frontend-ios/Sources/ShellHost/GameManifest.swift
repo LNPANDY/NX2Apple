@@ -43,25 +43,25 @@ public struct GameManifest: Decodable, Equatable, Sendable {
     public static func parse(_ data: Data) throws(GameProblem) -> GameManifest {
         let manifest: GameManifest
         do { manifest = try JSONDecoder().decode(GameManifest.self, from: data) }
-        catch { throw describe(error, file: "game.manifest.json", what: hostText("The game's manifest")) }
+        catch { throw describe(error, file: "game.manifest.json", cause: .manifestDamaged) }
         guard manifest.schema == supportedSchema else {
-            throw GameProblem(reason: hostText("Manifest not supported"),
+            throw GameProblem(cause: .manifestUnsupported, reason: hostText("Manifest not supported"),
                               detail: hostText("game.manifest.json has schema \(manifest.schema), this app reads schema \(supportedSchema)."))
         }
         guard isTitleID(manifest.titleID) else {
-            throw GameProblem(reason: hostText("Manifest damaged"), detail: hostText("title_id \"\(manifest.titleID)\" is not 16 hex digits."))
+            throw GameProblem(cause: .manifestDamaged, reason: hostText("Manifest damaged"), detail: hostText("title_id \"\(manifest.titleID)\" is not 16 hex digits."))
         }
         guard !manifest.modules.isEmpty else {
-            throw GameProblem(reason: hostText("Manifest damaged"), detail: hostText("The manifest lists no modules."))
+            throw GameProblem(cause: .manifestDamaged, reason: hostText("Manifest damaged"), detail: hostText("The manifest lists no modules."))
         }
         guard manifest.chain.hasPrefix("b-"), manifest.chain.count > 2, manifest.chain.dropFirst(2).allSatisfy(\.isHexDigit) else {
-            throw GameProblem(reason: hostText("Manifest damaged"), detail: hostText("chain \"\(manifest.chain)\" is not of the form b-<hex>."))
+            throw GameProblem(cause: .manifestDamaged, reason: hostText("Manifest damaged"), detail: hostText("chain \"\(manifest.chain)\" is not of the form b-<hex>."))
         }
         guard ["FR", "FH"].contains(manifest.loader) else {
-            throw GameProblem(reason: hostText("Manifest damaged"), detail: hostText("loader \"\(manifest.loader)\" is neither FR nor FH."))
+            throw GameProblem(cause: .manifestDamaged, reason: hostText("Manifest damaged"), detail: hostText("loader \"\(manifest.loader)\" is neither FR nor FH."))
         }
         guard manifest.framework.hasSuffix(".framework"), !manifest.framework.contains("/") else {
-            throw GameProblem(reason: hostText("Manifest damaged"), detail: hostText("framework \"\(manifest.framework)\" is not a .framework name."))
+            throw GameProblem(cause: .manifestDamaged, reason: hostText("Manifest damaged"), detail: hostText("framework \"\(manifest.framework)\" is not a .framework name."))
         }
         return manifest
     }
@@ -86,19 +86,19 @@ func isVersion(_ a: OperatingSystemVersion, atLeast b: OperatingSystemVersion) -
 }
 
 /// A decoding error as one readable sentence.
-func describe(_ error: Error, file: String, what: String) -> GameProblem {
+func describe(_ error: Error, file: String, cause: ProblemCause) -> GameProblem {
     let short = hostText("Game files damaged")
-    guard let e = error as? DecodingError else { return GameProblem(reason: short, detail: "\(file): \(error.localizedDescription)") }
+    guard let e = error as? DecodingError else { return GameProblem(cause: cause, reason: short, detail: "\(file): \(error.localizedDescription)") }
     func path(_ c: [CodingKey]) -> String { c.map { $0.stringValue }.joined(separator: ".") }
     switch e {
     case .keyNotFound(let key, let c):
         let at = c.codingPath.isEmpty ? "" : " (in \(path(c.codingPath)))"
-        return GameProblem(reason: short, detail: hostText("\(file) has no \"\(key.stringValue)\"\(at)."))
+        return GameProblem(cause: cause, reason: short, detail: hostText("\(file) has no \"\(key.stringValue)\"\(at)."))
     case .typeMismatch(_, let c), .valueNotFound(_, let c):
-        return GameProblem(reason: short, detail: hostText("\(file) has a wrong or missing value at \"\(path(c.codingPath))\"."))
+        return GameProblem(cause: cause, reason: short, detail: hostText("\(file) has a wrong or missing value at \"\(path(c.codingPath))\"."))
     case .dataCorrupted:
-        return GameProblem(reason: short, detail: hostText("\(file) is not valid JSON."))
+        return GameProblem(cause: cause, reason: short, detail: hostText("\(file) is not valid JSON."))
     @unknown default:
-        return GameProblem(reason: short, detail: file)
+        return GameProblem(cause: cause, reason: short, detail: file)
     }
 }

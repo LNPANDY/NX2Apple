@@ -181,6 +181,16 @@
         }
       }
     },
+    "Details": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Details"
+          }
+        }
+      }
+    },
     "Done": {
       "localizations": {
         "en": {
@@ -381,6 +391,36 @@
         }
       }
     },
+    "Played %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Played %@"
+          }
+        }
+      }
+    },
+    "Played today": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Played today"
+          }
+        }
+      }
+    },
+    "Played yesterday": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Played yesterday"
+          }
+        }
+      }
+    },
     "Ready to play": {
       "localizations": {
         "en": {
@@ -487,6 +527,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Use app data"
+          }
+        }
+      }
+    },
+    "Version %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Version %@"
           }
         }
       }

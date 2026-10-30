@@ -54,34 +54,34 @@ public struct LauncherProfile: Decodable, Equatable, Sendable {
     public static func parse(_ data: Data) throws(GameProblem) -> LauncherProfile {
         let profile: LauncherProfile
         do { profile = try JSONDecoder().decode(LauncherProfile.self, from: data) }
-        catch { throw describe(error, file: "launcher.json", what: hostText("The settings list")) }
+        catch { throw describe(error, file: "launcher.json", cause: .settingsDamaged) }
         let reason = hostText("Settings list damaged")
         if let schema = profile.schema, schema != 1 {
-            throw GameProblem(reason: hostText("Settings list not supported"), detail: hostText("launcher.json has schema \(schema), this app reads schema 1."))
+            throw GameProblem(cause: .settingsUnsupported, reason: hostText("Settings list not supported"), detail: hostText("launcher.json has schema \(schema), this app reads schema 1."))
         }
         guard isTitleID(profile.game) else {
-            throw GameProblem(reason: reason, detail: hostText("game \"\(profile.game)\" in launcher.json is not 16 hex digits."))
+            throw GameProblem(cause: .settingsDamaged, reason: reason, detail: hostText("game \"\(profile.game)\" in launcher.json is not 16 hex digits."))
         }
         var seen = Set<String>()
         for s in profile.settings {
             guard s.env.hasPrefix("DM_"), s.env.dropFirst(3).allSatisfy({ $0.isUppercase || $0.isNumber || $0 == "_" }), s.env.count > 3 else {
-                throw GameProblem(reason: reason, detail: hostText("\"\(s.env)\" is not a DM_ switch."))
+                throw GameProblem(cause: .settingsDamaged, reason: reason, detail: hostText("\"\(s.env)\" is not a DM_ switch."))
             }
             guard seen.insert(s.env).inserted else {
-                throw GameProblem(reason: reason, detail: hostText("\(s.env) appears twice in launcher.json."))
+                throw GameProblem(cause: .settingsDamaged, reason: reason, detail: hostText("\(s.env) appears twice in launcher.json."))
             }
             switch s.kind {
             case "choice":
                 guard let o = s.options, !o.isEmpty, o.allSatisfy({ $0.count == 2 }) else {
-                    throw GameProblem(reason: reason, detail: hostText("\(s.env) is a choice without [value, label] options."))
+                    throw GameProblem(cause: .settingsDamaged, reason: reason, detail: hostText("\(s.env) is a choice without [value, label] options."))
                 }
             case "range":
                 guard s.min != nil, s.max != nil, let step = s.step, step > 0 else {
-                    throw GameProblem(reason: reason, detail: hostText("\(s.env) is a range without min, max and step."))
+                    throw GameProblem(cause: .settingsDamaged, reason: reason, detail: hostText("\(s.env) is a range without min, max and step."))
                 }
             case "toggle": break
             default:
-                throw GameProblem(reason: reason, detail: hostText("\(s.env) has the unknown kind \"\(s.kind)\"."))
+                throw GameProblem(cause: .settingsDamaged, reason: reason, detail: hostText("\(s.env) has the unknown kind \"\(s.kind)\"."))
             }
         }
         return profile

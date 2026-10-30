@@ -75,10 +75,10 @@ import ShellUI
 
     @Test func brokenBundlesAreBrokenWhateverElseIsPresent() {
         for id in [Fixtures.noFramework, Fixtures.badManifest, Fixtures.missingKey, Fixtures.badSettings] {
-            guard case .broken(let reason, let detail) = GameStateResolver.state(for: entry(id), data: found, environment: env) else {
+            guard case .broken(let reason, let detail, let technical) = GameStateResolver.state(for: entry(id), data: found, environment: env) else {
                 Issue.record("\(id) is not broken"); continue
             }
-            #expect(!reason.isEmpty && !detail.isEmpty)
+            #expect(!reason.isEmpty && !detail.isEmpty && !technical.isEmpty && detail != technical)
         }
     }
 

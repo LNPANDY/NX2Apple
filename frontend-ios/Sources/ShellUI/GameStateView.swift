@@ -64,8 +64,13 @@ public struct StateHelpView: View {
             Text(game.state.actionTitle).shellType(ShellType.pageTitle)
                 .accessibilityAddTraits(.isHeader).accessibilityIdentifier("help.title")
             Text(message).shellText(15).foregroundStyle(.white.opacity(0.78)).fixedSize(horizontal: false, vertical: true)
-            if case .broken(_, let detail) = game.state, !detail.isEmpty {
-                Text(detail).shellText(13).foregroundStyle(.white.opacity(0.5)).fixedSize(horizontal: false, vertical: true)
+            if case .broken(_, _, let technical) = game.state, !technical.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(ShellStrings.text("Details")).shellText(11.5, .semibold).foregroundStyle(.white.opacity(0.5))
+                    Text(verbatim: technical).font(.system(size: 12, design: .monospaced)).foregroundStyle(.white.opacity(0.5))
+                        .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("help.details")
+                }
             }
             VStack(spacing: 10) {
                 Button(action: onClose) { Text(ShellStrings.text("Done")).frame(maxWidth: .infinity) }
@@ -95,6 +100,7 @@ public struct StateHelpView: View {
     }
     private var message: String {
         switch game.state {
+        case .broken(_, let detail, _) where !detail.isEmpty: detail
         case .broken: ShellStrings.text("Build this game again on your Mac and install it on this device. The Mac app checks every file while it builds, so the new copy is complete.")
         case .needsAppUpdate: ShellStrings.text("This game needs a newer version of this app. Update it with the Mac app on your Mac, then install it on this device again.")
         default: ""

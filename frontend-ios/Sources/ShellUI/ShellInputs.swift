@@ -5,9 +5,10 @@ public enum GameState: Equatable, Sendable {
     case playable
     case needsGameData
     case needsAppUpdate
-    /// `reason` is one short line for under the title, such as "Game files damaged". `detail` may add a sentence
-    /// for the How to fix sheet.
-    case broken(reason: String, detail: String = "")
+    /// `reason` is one short line for under the title, such as "Game files damaged". `detail` is a plain sentence
+    /// for the player (what happened, what to do), shown under the title and in the How to fix sheet. `technical`
+    /// is the underlying message, shown only as small secondary Details in the sheet.
+    case broken(reason: String, detail: String = "", technical: String = "")
 }
 
 public struct GameTile: Identifiable, Equatable, Sendable {

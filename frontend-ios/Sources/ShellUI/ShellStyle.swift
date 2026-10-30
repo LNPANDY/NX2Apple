@@ -331,7 +331,7 @@ extension GameState {
         case .playable: ShellStrings.text("Ready to play")
         case .needsGameData: ShellStrings.text("Needs game data")
         case .needsAppUpdate: ShellStrings.text("App update needed")
-        case .broken(let reason, _): reason.isEmpty ? ShellStrings.text("Unavailable") : reason
+        case .broken(let reason, _, _): reason.isEmpty ? ShellStrings.text("Unavailable") : reason
         }
     }
     var color: Color {
@@ -346,7 +346,7 @@ extension GameState {
         case .playable: ""
         case .needsGameData: ShellStrings.text("Choose this game's data to get ready to play.")
         case .needsAppUpdate: ShellStrings.text("Install a newer version of this app to play this game.")
-        case .broken(_, let detail): detail
+        case .broken(_, let detail, _): detail
         }
     }
     var actionTitle: String {

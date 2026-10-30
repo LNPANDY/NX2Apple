@@ -221,26 +221,6 @@
         }
       }
     },
-    "Played today": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Played today"
-          }
-        }
-      }
-    },
-    "Played yesterday": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Played yesterday"
-          }
-        }
-      }
-    },
     "Player %lld": {
       "localizations": {
         "en": {
@@ -397,16 +377,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Use more than one controller for the same player."
-          }
-        }
-      }
-    },
-    "Version %@": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Version %@"
           }
         }
       }

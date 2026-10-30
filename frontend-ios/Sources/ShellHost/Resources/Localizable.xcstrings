@@ -331,6 +331,16 @@
         }
       }
     },
+    "The game's code is missing from this app. Rebuild and reinstall it.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The game's code is missing from this app. Rebuild and reinstall it."
+          }
+        }
+      }
+    },
     "The game's manifest": {
       "localizations": {
         "en": {
@@ -411,12 +421,72 @@
         }
       }
     },
+    "This game was built for a different version of this app. Update the app or rebuild the game in the launcher on your Mac.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This game was built for a different version of this app. Update the app or rebuild the game in the launcher on your Mac."
+          }
+        }
+      }
+    },
+    "This game's files are damaged. Rebuild the game in the launcher on your Mac.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This game's files are damaged. Rebuild the game in the launcher on your Mac."
+          }
+        }
+      }
+    },
     "This game's folder has no game.manifest.json.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "This game's folder has no game.manifest.json."
+          }
+        }
+      }
+    },
+    "This game's manifest is damaged. Rebuild the game in the launcher on your Mac.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This game's manifest is damaged. Rebuild the game in the launcher on your Mac."
+          }
+        }
+      }
+    },
+    "This game's manifest is missing. Rebuild the game in the launcher on your Mac.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This game's manifest is missing. Rebuild the game in the launcher on your Mac."
+          }
+        }
+      }
+    },
+    "This game's settings list is damaged. Rebuild the game in the launcher on your Mac.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This game's settings list is damaged. Rebuild the game in the launcher on your Mac."
+          }
+        }
+      }
+    },
+    "This game's settings list is missing. Rebuild the game in the launcher on your Mac.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This game's settings list is missing. Rebuild the game in the launcher on your Mac."
           }
         }
       }
