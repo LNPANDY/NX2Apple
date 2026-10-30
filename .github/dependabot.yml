@@ -1,11 +1,33 @@
-# Keeps the workflows' actions at their newest releases: the workflows pin each action to a commit SHA with its tag in a comment, and Dependabot
-# opens a pull request that moves both when an action publishes a new release.
+# Two ecosystems, each in one pull request a week.
+#
+# github-actions: the workflows pin each action to a commit SHA with its tag in a comment, and Dependabot moves both when an action publishes a
+# new release.
+#
+# pip: the Python packages bundled into the release app (frontend/bundled-python/requirements.txt, exact pins with hashes, installed by
+# frontend/tools/bundle_tools.sh with --require-hashes).
+#
+# Not covered: dm/, scripts/, docs/, ref/ and patches/ (upstream's tool pins there are not ours to change, a change is a patch), the bundled
+# CPython and the native tools (zstd, spirv-cross, glslangValidator, xcodegen), which are pinned by source and checksum in
+# frontend/tools/bundle_tools.sh.
 version: 2
 updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    labels: [dependencies, ci]
+    commit-message:
+      prefix: "ci"
     groups:
       actions:
+        patterns: ['*']
+  - package-ecosystem: pip
+    directory: /frontend/bundled-python
+    schedule:
+      interval: weekly
+    labels: [dependencies, build]
+    commit-message:
+      prefix: "build"
+    groups:
+      bundled-python:
         patterns: ['*']
