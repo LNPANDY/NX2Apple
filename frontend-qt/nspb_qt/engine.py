@@ -2,7 +2,8 @@
 
 Since #214 the engine is built into `<checkout>/engine/` (seedds/nxnative at `.upstream-ref` plus `patches/`). Until the
 committed copy goes (step 2), a checkout has both, and one from before the switch has only the committed copy. The rule, the
-same as the Mac launcher's (frontend/Sources/NSPortBuilder/Engine.swift):
+same as the Mac launcher's (frontend/Sources/NSPortBuilder/Engine.swift). A release carries no engine: the sync downloads it from
+GitHub on the first start and after updates, and a failed one becomes a failure row (`failure_kind`):
 
 - engine/ when it is synced and current,
 - else the committed tree (dm/, scripts/ at the checkout's root) when the checkout has one,
@@ -14,7 +15,9 @@ the launcher can tell a stale engine without starting Python. Pure stdlib, no Qt
 from __future__ import annotations
 
 import hashlib
+import subprocess
 from pathlib import Path
+from typing import Callable
 
 MARKER = ('dm', 'tools', 'nx_extract', 'Program.cs')   # the file that tells an engine tree (as BuildModel.is_repo always did)
 STAMP = Path('.git', 'nx2apple-stamp')
@@ -103,3 +106,28 @@ def needs_sync_before_build(repo: str) -> bool:
 
 def sync_command(repo: str, python: str) -> list[str]:
     return [python, str(Path(repo, 'tools', 'engine.py')), 'sync']
+
+
+ENGINE_OFFLINE = 'engineOffline'   # the fetch of the pinned commit failed: no network, GitHub unreachable, a proxy
+ENGINE_SYNC = 'engineSync'         # any other stop of the sync
+
+
+def failure_kind(log: str) -> str:
+    """What a failed sync was, from its output: tools/engine.py says "cannot fetch" when the pinned commit cannot be fetched."""
+    return ENGINE_OFFLINE if 'cannot fetch ' in log else ENGINE_SYNC
+
+
+def run_sync(cmd: list[str], cwd: str, line: Callable[[str], None], **popen) -> tuple[bool, str | None]:
+    """Run the sync command, pass its lines on, and return (ok, failure kind or None). Blocking: call it off the UI thread."""
+    tail = ''
+    try:
+        p = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors='replace', **popen)
+        assert p.stdout is not None
+        for out in p.stdout:
+            line(out)
+            tail = (tail + out)[-4000:]
+        ok = p.wait() == 0
+    except OSError as e:
+        line(f'{e}\n')
+        return False, ENGINE_SYNC
+    return ok, None if ok else failure_kind(tail)

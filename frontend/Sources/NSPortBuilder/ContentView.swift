@@ -623,25 +623,43 @@ final class BuildModel: ObservableObject {
     /// What waits for the running `tools/engine.py sync` (nil: none runs), and whether another one is due when it ends.
     private var engineSyncWaiting: [(Bool) -> Void]?
     private var engineSyncAgain = false
+    /// A sync runs: the launcher shows a status line with a spinner (EngineSyncBanner).
+    @Published var engineSyncing = false
+    /// How the last sync stopped (no network or GitHub unreachable, or another stop), as a failure row with a retry button. nil: none.
+    @Published var engineFailure: BuildFailure?
 
     /// `tools/engine.py sync` when engine/ is stale (#214, Engine.swift): at launch, after a clone, a pull or an adoption, and before a
-    /// build that has no other engine. A no-op for a checkout from before #214 or a current engine/. `then(ok)` runs on the main queue.
+    /// build that has no other engine. A release app carries no engine, so the first start downloads it here. A no-op for a checkout
+    /// from before #214 or a current engine/. `then(ok)` runs on the main queue.
     func syncEngine(then: ((Bool) -> Void)? = nil) {
         if engineSyncWaiting != nil { engineSyncAgain = true; if let then { engineSyncWaiting?.append(then) }; return }
-        guard EngineLayout.isStale(repoPath) else { then?(true); return }
+        guard EngineLayout.isStale(repoPath) else { engineFailure = nil; then?(true); return }
         engineSyncWaiting = then.map { [$0] } ?? []
+        engineSyncing = true; engineFailure = nil
         let repo = repoPath, chosen = pythonPath
         append("$ python3 tools/engine.py sync\n")
+        var tail = ""   // what failureKind reads when the sync stops (only touched on the main queue)
         DispatchQueue.global().async {
             let py = chosen.isEmpty ? Self.findPython().path : chosen
-            let ok = EngineLayout.runSync(repo: repo, python: py) { line in DispatchQueue.main.async { self.append(line + "\n") } }
+            let ok = EngineLayout.runSync(repo: repo, python: py) { line in
+                DispatchQueue.main.async { self.append(line + "\n"); tail = String((tail + line + "\n").suffix(4000)) }
+            }
             DispatchQueue.main.async {
                 let waiting = self.engineSyncWaiting ?? [], again = self.engineSyncAgain && ok
                 self.engineSyncWaiting = nil; self.engineSyncAgain = false
+                self.engineSyncing = false
+                self.engineFailure = ok ? nil : BuildFailure(kind: EngineLayout.failureKind(tail), gameName: nil)
                 if again { self.syncEngine { ok in waiting.forEach { $0(ok) } } } else { waiting.forEach { $0(ok) } }
                 self.objectWillChange.send()   // repoOK and the engine's paths may have changed
             }
         }
+    }
+
+    /// The failure row's Try again: clears the row and runs the sync again.
+    func retryEngineSync() {
+        guard !engineSyncing else { return }
+        engineFailure = nil
+        syncEngine()
     }
 
     // ---- App self-update (GitHub Releases) ----

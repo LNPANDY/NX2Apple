@@ -82,5 +82,44 @@ class EngineLayoutTests(unittest.TestCase):
         self.assertEqual(engine.sync_command('/c', 'py'), ['py', str(Path('/c/tools/engine.py')), 'sync'])
 
 
+class OnlineSync(unittest.TestCase):
+    """A release carries no engine: the first start downloads it, and a failed fetch is a failure row (no Qt needed)."""
+
+    def setUp(self):
+        self.r = Path(tempfile.mkdtemp(prefix='qt-engine-sync-'))
+        self.addCleanup(shutil.rmtree, self.r, True)
+
+    def tool(self, source: str) -> list[str]:
+        (self.r / 'engine.py').write_text(source)
+        return [sys.executable, str(self.r / 'engine.py')]
+
+    def test_a_failed_fetch_is_the_offline_row_and_any_other_stop_the_general_one(self):
+        src = (ROOT / 'tools' / 'engine.py').read_text(encoding='utf-8')
+        self.assertIn('cannot fetch ', src, 'tools/engine.py no longer says "cannot fetch": update engine.failure_kind')
+        self.assertEqual(engine.failure_kind('engine: cannot fetch aaaaaaaaaaaa from https://github.com/seedds/nxnative.git: Could not resolve host\n'),
+                         engine.ENGINE_OFFLINE)
+        self.assertEqual(engine.failure_kind('0003-x.patch does not apply to the pin aaaaaaaaaaaa\n'), engine.ENGINE_SYNC)
+        self.assertEqual(engine.failure_kind(''), engine.ENGINE_SYNC)
+
+    def test_no_network_ends_in_the_offline_kind_with_the_tools_lines_in_the_log(self):
+        cmd = self.tool("import sys\nprint('engine: cannot fetch abc from https://github.com/seedds/nxnative.git: Could not resolve host: github.com')\nsys.exit(2)\n")
+        lines: list[str] = []
+        ok, kind = engine.run_sync(cmd, str(self.r), lines.append)
+        self.assertFalse(ok)
+        self.assertEqual(kind, engine.ENGINE_OFFLINE)
+        self.assertIn('cannot fetch', ''.join(lines))
+
+    def test_another_stop_is_the_general_kind_and_a_working_sync_has_none(self):
+        ok, kind = engine.run_sync(self.tool("import sys\nprint('boom')\nsys.exit(1)\n"), str(self.r), lambda _l: None)
+        self.assertEqual((ok, kind), (False, engine.ENGINE_SYNC))
+        self.assertEqual(engine.run_sync(self.tool("print('engine: ready')\n"), str(self.r), lambda _l: None), (True, None))
+
+    def test_a_tool_that_cannot_start_is_a_general_stop(self):
+        lines: list[str] = []
+        ok, kind = engine.run_sync([str(self.r / 'no-such-python')], str(self.r), lines.append)
+        self.assertEqual((ok, kind), (False, engine.ENGINE_SYNC))
+        self.assertTrue(lines)
+
+
 if __name__ == '__main__':
     unittest.main()

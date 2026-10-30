@@ -96,6 +96,8 @@ class Model(QObject):
         self.stages: list[Stage] = []
         self.running = False
         self.log_tail = ''
+        self.engine_syncing = False   # tools/engine.py sync runs: the window shows a status line
+        self.engine_failure: bf.Failure | None = None   # how the last sync stopped (engine.py's failure_kind), shown as a failure row with Try again
         self.failure: bf.Failure | None = None   # the script's known early stop (build_failure.py), None for any other
         self.override = bf.OverrideState()      # "Build anyway": one confirmed --allow-* for the next build
         self._last_error = ''   # the last real log line: the failure note names it (issue #52)
@@ -164,30 +166,38 @@ class Model(QObject):
     def sync_engine(self, then: Callable[[bool], None] | None = None) -> None:
         """Run `tools/engine.py sync` on a thread when engine/ is stale (after a pull, at the start, before a build that
         needs it). A no-op for a checkout from before #214 or a current engine/. `then(ok)` runs after it."""
-        if not engine.is_stale(self.repo_path) or getattr(self, '_engine_syncing', False):
+        if getattr(self, '_engine_syncing', False):
+            if then: then(True)
+            return
+        if not engine.is_stale(self.repo_path):
+            self.engine_failure = None
             if then: then(True)
             return
         py = self.python_path or ('python' if pu.IS_WIN else '/usr/bin/python3')
         cmd = engine.sync_command(self.repo_path, py)
         self._engine_syncing = True
+        self.engine_syncing = True
+        self.engine_failure = None
         self.log('$ ' + ' '.join(cmd) + '\n')
+        self.repoChanged.emit()   # the window shows the status line
 
         def work() -> None:
-            ok = False
-            try:
-                p = subprocess.Popen(cmd, cwd=self.repo_path, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                                     errors='replace', env=pu.child_env(), **pu.no_window_kwargs())
-                assert p.stdout is not None
-                for line in p.stdout:
-                    self.log(line)
-                ok = p.wait() == 0
-            except OSError as e:
-                self.log(f'{e}\n')
+            ok, kind = engine.run_sync(cmd, self.repo_path, self.log, env=pu.child_env(), **pu.no_window_kwargs())
             self._engine_syncing = False
+            self.engine_syncing = False
+            self.engine_failure = None if ok else bf.Failure(kind or engine.ENGINE_SYNC)
             self.repoChanged.emit()
             if then: then(ok)
 
         threading.Thread(target=work, daemon=True).start()
+
+    def retry_engine_sync(self) -> None:
+        """The failure row's Try again: clears the row and runs the sync again."""
+        if self.engine_syncing:
+            return
+        self.engine_failure = None
+        self.sync_engine()
+        self.repoChanged.emit()
 
     def _find_repo(self) -> str:
         saved = os.environ.get('NSPB_REPO', '')

@@ -959,6 +959,14 @@ enum L10n {
         "fail.showFolder": ("显示文件夹", "Show folder"),
         "fail.openXcode": ("打开 Xcode", "Open Xcode"),
         "fail.retry": ("重试", "Try again"),
+        "engine.syncing": ("正在从 GitHub 获取引擎（约 80 MB）。首次启动和更新后会运行一次，需要一两分钟。",
+                           "Fetching the engine from GitHub (about 80 MB). This runs on the first start and after updates and takes a minute or two."),
+        "fail.engineOffline.what": ("无法从 GitHub 下载引擎。", "The engine could not be downloaded from GitHub."),
+        "fail.engineOffline.next": ("请检查网络连接，并确认可以访问 github.com，然后点「重试」。没有引擎就无法构建游戏。",
+                                    "Check your internet connection and that github.com can be reached, then press Try again. Games cannot be built without the engine."),
+        "fail.engineSync.what": ("引擎准备失败。", "The engine could not be prepared."),
+        "fail.engineSync.next": ("请点「重试」。原因见日志。如果一直失败，请用「复制诊断信息」连同日志一起反馈。",
+                                 "Press Try again. The log shows the reason. If it keeps failing, report it with Copy diagnostics and the log."),
         "dep.metal.other": ("%@（测试用的是 %@）",
                           "%@ (tested: %@)"),
         "dep.fix.metalPin": ("这不是着色器测试时用的 Metal 编译器。使用 NVN 的游戏会在着色器步骤前停下。请安装 Xcode 27.1（macOS 26.6 或更新）和它的 Metal 工具链。",
@@ -1767,6 +1775,11 @@ enum L10n {
         "fail.showFolder": "Visa mapp",
         "fail.openXcode": "Öppna Xcode",
         "fail.retry": "Försök igen",
+        "engine.syncing": "Hämtar motorn från GitHub (cirka 80 MB). Det körs vid första starten och efter uppdateringar och tar en till två minuter.",
+        "fail.engineOffline.what": "Det gick inte att hämta motorn från GitHub.",
+        "fail.engineOffline.next": "Kontrollera internetanslutningen och att github.com kan nås. Tryck sedan på Försök igen. Spel kan inte byggas utan motorn.",
+        "fail.engineSync.what": "Det gick inte att förbereda motorn.",
+        "fail.engineSync.next": "Tryck på Försök igen. Loggen visar orsaken. Om det fortsätter att misslyckas, rapportera det med Kopiera diagnostik och loggen.",
     ]
 
     /// German translations, an overlay like Swedish: informal "du", Apple's German terms for system

@@ -12,8 +12,8 @@ import Foundation
 /// - else `engine/` as it is (stale or missing: the build syncs it first).
 ///
 /// `stampKey` is tools/engine.py's digest of the pin and the series, compared with the stamp sync wrote into engine/.git, so the
-/// launcher tells a stale engine without starting Python. A release app carries the synced engine as `Resources/engine.git`
-/// (build-mac-app.yml), the seed sync fetches from before it goes to the network.
+/// launcher tells a stale engine without starting Python. A release app carries no engine: the launcher runs the sync on the first
+/// start and after updates, which downloads it from GitHub (about 80 MB), and shows a failure row when that does not work.
 enum EngineLayout {
     /// The file that tells an engine tree (BuildModel.isRepo always looked for it).
     static let marker = "dm/tools/nx_extract/Program.cs"
@@ -91,15 +91,15 @@ enum EngineLayout {
         hasEngineTool(repo) && isStale(repo) && !FileManager.default.fileExists(atPath: repo + "/" + marker)
     }
 
-    /// The engine a release app carries (build-mac-app.yml), when this is such an app.
-    static func seed(in resources: URL? = BundledTools.resources) -> String? {
-        guard let dir = resources?.appendingPathComponent("engine.git"), FileManager.default.fileExists(atPath: dir.path + "/HEAD") else { return nil }
-        return dir.path
+    /// `python tools/engine.py sync`
+    static func syncArguments(repo: String, python: String) -> [String] {
+        [python, repo + "/tools/engine.py", "sync"]
     }
 
-    /// `python tools/engine.py [--seed <the app's engine.git>] sync`
-    static func syncArguments(repo: String, python: String, seed: String? = EngineLayout.seed()) -> [String] {
-        [python, repo + "/tools/engine.py"] + (seed.map { ["--seed", $0] } ?? []) + ["sync"]
+    /// What a failed sync was, from its output: the fetch of the pinned commit (no network, GitHub unreachable, a proxy) says
+    /// "cannot fetch" (tools/engine.py), anything else is a sync that could not build the engine.
+    static func failureKind(_ log: String) -> BuildFailureKind {
+        log.contains("cannot fetch ") ? .engineOffline : .engineSync
     }
 
     /// Run the sync and stream its lines (blocking: call it off the main thread). git comes from the system's or Homebrew's PATH.

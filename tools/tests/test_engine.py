@@ -19,7 +19,6 @@ E = importlib.import_module('engine')
 
 BASE_ENV = dict(os.environ, GIT_AUTHOR_NAME='t', GIT_AUTHOR_EMAIL='t@example.invalid', GIT_COMMITTER_NAME='t', GIT_COMMITTER_EMAIL='t@example.invalid',
                 GIT_CONFIG_GLOBAL='/dev/null', GIT_CONFIG_SYSTEM='/dev/null')
-BASE_ENV.pop('NX2APPLE_ENGINE_SEED', None)
 
 HEADER = 'Upstream-Status: forwarded seedds/nxnative#475\nReason: the fork needs line 2\nIssue: LNPANDY/NX2Apple#1\n'
 
@@ -131,15 +130,20 @@ class Sync(Fixture):
         self.assertIn('0002-conflict.patch does not apply', out); self.assertIn('a reason to show', out)
         self.assertFalse((self.eng / '.git' / 'rebase-apply').exists())
 
-    def test_offline_names_the_fix_and_a_seed_needs_no_network(self):
+    def test_offline_names_the_fix_and_a_local_clone_needs_no_network(self):
         offline = dict(self.env, NX2APPLE_ENGINE_URL=str(self.tmp / 'nowhere'))
         out = self.tool('sync', expect=2, env=offline)
-        self.assertIn('cannot fetch', out); self.assertIn('Offline?', out); self.assertIn('--seed', out)
-        seed = self.tmp / 'seed.git'
-        git(self.tmp, 'clone', '-q', '--bare', '--depth', '1', 'file://' + str(self.up), str(seed))
-        out = self.tool('--seed', str(seed), 'sync', env=offline)
-        self.assertIn('from the seed', out)
+        self.assertIn('cannot fetch', out); self.assertIn('unreachable', out); self.assertIn('Check the connection', out)
+        self.assertNotIn('--seed', out); self.assertFalse((self.eng / '.git' / 'nx2apple-stamp').exists())
+        self.tool('stale', expect=1)
+        local = self.tmp / 'local.git'
+        git(self.tmp, 'clone', '-q', '--bare', '--depth', '1', 'file://' + str(self.up), str(local))
+        out = self.tool('sync', env=dict(self.env, NX2APPLE_ENGINE_URL=str(local)))
+        self.assertIn('engine: ready', out)
         self.tool('stale')
+
+    def test_the_seed_option_is_gone(self):
+        self.tool('--seed', str(self.tmp), 'sync', expect=2)
 
 
 class Hook(Fixture):

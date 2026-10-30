@@ -35,7 +35,7 @@ final class BuildFailureTests: XCTestCase {
     }
 
     /// The rows that no log line sets: the launcher's own state (a drive, a team) or the step that failed (the install).
-    static let stateKinds: Set<BuildFailureKind> = [.driveMissing, .teamTaken, .noSigningAccount, .deviceTransfer]
+    static let stateKinds: Set<BuildFailureKind> = [.driveMissing, .teamTaken, .noSigningAccount, .deviceTransfer, .engineOffline, .engineSync]
 
     /// A sync of scripts/ or dm/ that rewords a message must fail here, not turn a hint into the raw last line.
     func testTheVendoredScriptsStillSayWhatThePatternsExpect() throws {

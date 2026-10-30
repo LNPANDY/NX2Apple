@@ -172,6 +172,46 @@ class MainWindow(QMainWindow):
         self.repo_status = QLabel('')
         self.repo_status.setObjectName('note')
         lay.addWidget(self.repo_status)
+        # The engine's online sync (first start, after updates): a status line while it runs, and its failure row with Try again.
+        self.engine_status = QLabel('')
+        self.engine_status.setObjectName('note')
+        self.engine_status.setWordWrap(True)
+        self.engine_status.hide()
+        lay.addWidget(self.engine_status)
+        self.engine_failure_box = QFrame()
+        self.engine_failure_box.setObjectName('card')
+        fbox = QVBoxLayout(self.engine_failure_box)
+        fbox.setContentsMargins(12, 8, 12, 8)
+        fbox.setSpacing(4)
+        self.engine_failure_what = QLabel('')
+        self.engine_failure_what.setWordWrap(True)
+        self.engine_failure_what.setStyleSheet(f'color: {ORANGE}; font-weight: 600;')
+        self.engine_failure_next = QLabel('')
+        self.engine_failure_next.setWordWrap(True)
+        self.engine_failure_next.setObjectName('note')
+        self.engine_retry_btn = QPushButton(self.m.t('fail.retry'))
+        self._translatable.append((self.engine_retry_btn, 'fail.retry'))
+        self.engine_retry_btn.clicked.connect(self.m.retry_engine_sync)
+        retry_row = QHBoxLayout()
+        retry_row.addWidget(self.engine_retry_btn)
+        retry_row.addStretch(1)
+        fbox.addWidget(self.engine_failure_what)
+        fbox.addWidget(self.engine_failure_next)
+        fbox.addLayout(retry_row)
+        self.engine_failure_box.hide()
+        lay.addWidget(self.engine_failure_box)
+
+    def _show_engine_sync(self) -> None:
+        """The status line while tools/engine.py sync runs, or its failure row (what happened, what to do, Try again)."""
+        self.engine_status.setVisible(self.m.engine_syncing)
+        self.engine_status.setText(self.m.t('engine.syncing') if self.m.engine_syncing else '')
+        f = self.m.engine_failure
+        if f is None or self.m.engine_syncing:
+            self.engine_failure_box.hide()
+            return
+        self.engine_failure_what.setText(self.m.t(f.what_key))
+        self.engine_failure_next.setText(self.m.t(f.next_key))
+        self.engine_failure_box.show()
 
     def _build_inputs(self) -> None:
         box, lay = self._card('data.title', 'data.note')
@@ -416,6 +456,7 @@ class MainWindow(QMainWindow):
         for w, key in self._translatable:
             w.setText(self.m.t(key))
         self._show_failure()
+        self._show_engine_sync()
         full = (pu.short_path(self.m.repo_path) if self.m.repo_ok
                 else (self.m.repo_path or self.m.t('repo.notFound')))
         self.repo_path_label.setText(full)
@@ -433,6 +474,7 @@ class MainWindow(QMainWindow):
         busy = self.m.repo_busy or self.m.running
         for b in (self.download_btn, self.update_btn, self.choose_btn):
             b.setEnabled(not busy)
+        self.engine_retry_btn.setEnabled(not self.m.engine_syncing)
         if getattr(self.m, 'log_path', None):
             self.log_path_label.setText(self.m.t('log.at', str(self.m.log_path)))
         self._refresh_inputs()

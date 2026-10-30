@@ -85,10 +85,79 @@ final class EngineLayoutTests: XCTestCase {
         XCTAssertFalse(EngineLayout.needsSyncBeforeBuild(repo))
     }
 
-    func testTheSyncCommandPassesTheAppsSeed() {
-        XCTAssertEqual(EngineLayout.syncArguments(repo: "/c", python: "py", seed: nil), ["py", "/c/tools/engine.py", "sync"])
-        XCTAssertEqual(EngineLayout.syncArguments(repo: "/c", python: "py", seed: "/A.app/Contents/Resources/engine.git"),
-                       ["py", "/c/tools/engine.py", "--seed", "/A.app/Contents/Resources/engine.git", "sync"])
+    func testTheSyncCommandHasNoSeed() {
+        XCTAssertEqual(EngineLayout.syncArguments(repo: "/c", python: "py"), ["py", "/c/tools/engine.py", "sync"])
+    }
+
+    // ---- the online sync of a release app (no engine in the bundle)
+
+    private var toolSource: String {
+        let tools = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("tools/engine.py")
+        return (try? String(contentsOf: tools, encoding: .utf8)) ?? ""
+    }
+
+    func testAFailedFetchIsTheOfflineRowAndAnyOtherStopIsTheGeneralOne() {
+        XCTAssertTrue(toolSource.contains("cannot fetch "), "tools/engine.py no longer says \"cannot fetch\": update EngineLayout.failureKind")
+        let offline = "engine: cannot fetch aaaaaaaaaaaa from https://github.com/seedds/nxnative.git: fatal: unable to access: Could not resolve host\n"
+        XCTAssertEqual(EngineLayout.failureKind(offline), .engineOffline)
+        XCTAssertEqual(EngineLayout.failureKind("0003-x.patch does not apply to the pin aaaaaaaaaaaa\n"), .engineSync)
+        XCTAssertEqual(EngineLayout.failureKind(""), .engineSync)
+    }
+
+    /// A checkout whose tools/engine.py is `script` (a stand-in for the real one) and a model on it.
+    private func model(engineScript script: String) throws -> BuildModel {
+        try newLayout()
+        try touch("tools/engine.py", script)
+        let m = BuildModel()
+        m.repoPath = repo
+        m.pythonPath = "/usr/bin/python3"
+        return m
+    }
+
+    private func waitForSync(_ m: BuildModel, file: StaticString = #filePath, line: UInt = #line) {
+        let deadline = Date().addingTimeInterval(20)
+        while m.engineSyncing && Date() < deadline { RunLoop.current.run(until: Date().addingTimeInterval(0.05)) }
+        XCTAssertFalse(m.engineSyncing, "the sync did not end", file: file, line: line)
+    }
+
+    func testNoNetworkShowsTheStatusThenTheOfflineRowAndRetryRunsTheSyncAgain() throws {
+        let counter = root.appendingPathComponent("runs.txt").path
+        let m = try model(engineScript: """
+            import sys
+            open(\(String(reflecting: counter)), 'a').write('x')
+            print('engine: cannot fetch aaaaaaaaaaaa from https://github.com/seedds/nxnative.git: Could not resolve host: github.com')
+            sys.exit(2)
+            """)
+        XCTAssertNil(m.engineFailure)
+        m.syncEngine()
+        XCTAssertTrue(m.engineSyncing, "the status line shows while the engine is fetched")
+        waitForSync(m)
+        XCTAssertEqual(m.engineFailure?.kind, .engineOffline)
+        XCTAssertTrue(m.logTail.contains("cannot fetch"), "the log has the tool's line")
+        m.retryEngineSync()
+        XCTAssertNil(m.engineFailure, "Try again clears the row")
+        XCTAssertTrue(m.engineSyncing)
+        waitForSync(m)
+        XCTAssertEqual(m.engineFailure?.kind, .engineOffline)
+        XCTAssertEqual(try String(contentsOfFile: counter, encoding: .utf8), "xx", "the retry ran the tool again")
+    }
+
+    func testASyncThatWorksLeavesNoRow() throws {
+        let m = try model(engineScript: "print('engine: ready')\n")
+        m.engineFailure = BuildFailure(kind: .engineOffline, gameName: nil)
+        m.syncEngine()
+        waitForSync(m)
+        XCTAssertNil(m.engineFailure)
+    }
+
+    func testOfflineRowsHaveARetryButtonAndTheStatusLineHasText() {
+        for k in [BuildFailureKind.engineOffline, .engineSync] {
+            XCTAssertNotNil(L10n.table[k.whatKey]); XCTAssertNotNil(L10n.table[k.nextKey])
+        }
+        let en = L10n.table["fail.engineOffline.next"]?.en ?? ""
+        for w in ["internet connection", "github.com", "Try again"] { XCTAssertTrue(en.contains(w), w) }
+        XCTAssertNotNil(L10n.table["engine.syncing"]); XCTAssertNotNil(L10n.sv["engine.syncing"])
     }
 
     /// The launcher's key and tools/engine.py's agree, so a sync's stamp reads as current here.

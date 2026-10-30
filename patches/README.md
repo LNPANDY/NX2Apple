@@ -16,7 +16,7 @@
 > ```
 >
 > `sync` never throws away work in `engine/`: with commits or changes there it stops and names `export` (or `--force`, which keeps
-> them on a backup branch). Offline, it says so. A release app carries the pinned commit (`Resources/engine.git`) as a seed.
+> them on a backup branch). Offline, it says so and names the fix. A release app carries no engine: the launcher runs `sync` on the first start and after updates, which downloads about 80 MB from GitHub.
 
 `dm/`, `scripts/`, `docs/`, `ref/` and `AGENTS.md` are not edited by hand. They are
 [seedds/nxnative](https://github.com/seedds/nxnative) at the commit in `../.upstream-ref`, plus the patches in this folder

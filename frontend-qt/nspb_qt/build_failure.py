@@ -61,6 +61,7 @@ KINDS = [ROSETTA, TRANSLATOR, ZBIC, IOS_SDK, CLT_SELECTED, OTHER_METAL, SHADER_R
 # The Swift app has four more rows that no log line sets (a drive that is gone, a signing team, a device transfer):
 # they belong to the Mac launcher's install on a device and to /Volumes, which this front end does not have.
 # cloudFolder is a row of the table, so it is here, but the check that stops a build before it starts is the Mac launcher's.
+# The engine's online sync has two more (engine.py's ENGINE_OFFLINE and ENGINE_SYNC): no log line of the script sets them either.
 
 _A32_NAME = re.compile(r'^(?:\[RED\] )?(.+?) \([0-9A-Fa-f]{16}\) is a 32-bit ARM program', re.M)
 

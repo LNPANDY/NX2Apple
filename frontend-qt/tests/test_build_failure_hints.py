@@ -195,7 +195,8 @@ class Strings(unittest.TestCase):
         keys = ['fail.section', 'fail.buildAnyway', 'fail.confirm.title', 'fail.confirm.go', 'fail.confirm.cancel',
                 'fail.override.note', 'fail.a32Program.whatNamed', 'fail.translator.button', 'fail.iosSDK.button',
                 'fail.cltSelected.button', 'dep.metal.other', 'dep.fix.metalPin']
-        for kind in bf.KINDS:
+        keys += ['fail.retry', 'engine.syncing']
+        for kind in bf.KINDS + ['engineOffline', 'engineSync']:   # the last two are the engine sync's rows (engine.py's failure_kind)
             keys += [f'fail.{kind}.what', f'fail.{kind}.next']
             if kind in bf.OVERRIDE_FLAGS:
                 keys.append(f'fail.{kind}.risk')

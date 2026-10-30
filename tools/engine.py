@@ -9,7 +9,7 @@ dm/fork_patches.txt). A stamp in engine/.git records the pin and the series it w
 neither changed.
 
 Subcommands (Python 3.9+, stdlib and git):
-  sync [--seed DIR] [--force]  make engine/ match the pin and the series. A no-op when the stamp matches. Refuses to throw
+  sync [--force]               make engine/ match the pin and the series. A no-op when the stamp matches. Refuses to throw
                                away commits or changes made in engine/ (export them first, or --force keeps them on a branch)
   stale                        exit 0 when engine/ matches the pin and the series, 1 when a sync is needed (prints why)
   hook                         for an agent's session start (.claude/settings.json): sync when stale, print one line, always exit 0
@@ -23,10 +23,9 @@ Subcommands (Python 3.9+, stdlib and git):
                                patches/ and .upstream-ref (the committed tree is tools/patches.py bump's job while it exists)
   refresh WORKTREE --to SHA    after a conflicting bump was resolved by hand in WORKTREE: its commits become the series
 
-The upstream URL is https://github.com/seedds/nxnative.git, or $NX2APPLE_ENGINE_URL. A seed (--seed or $NX2APPLE_ENGINE_SEED)
-is a local git repository that holds the pin, such as the engine.git a release app carries: sync fetches from it first and
-needs the network only for what the seed lacks. Scratch worktrees go to $PATCHES_TMP (or --tmp), else the system's temporary
-folder.
+The upstream URL is https://github.com/seedds/nxnative.git, or $NX2APPLE_ENGINE_URL (a mirror, or a local clone that holds the
+pin, which needs no network). A release app carries no engine: the launcher runs `sync` on the first start and after updates.
+Scratch worktrees go to $PATCHES_TMP (or --tmp), else the system's temporary folder.
 """
 import argparse
 import contextlib
@@ -133,22 +132,16 @@ def have_commit(eng, sha):
     return git('cat-file', '-e', f'{sha}^{{commit}}', cwd=eng, check=False).returncode == 0
 
 
-def fetch(eng, sha, seed=None, url=None):
-    """Bring the commit into engine/: from the seed first (no network), then from upstream, one commit deep."""
+def fetch(eng, sha, url=None):
+    """Bring the commit into engine/ from upstream, one commit deep."""
     if have_commit(eng, sha): return 'already here'
-    seed = seed or os.environ.get('NX2APPLE_ENGINE_SEED')
-    if seed and Path(seed).exists():
-        git('fetch', '--quiet', '--no-tags', '--depth', '1', str(Path(seed).resolve()), sha, cwd=eng, check=False)
-        if have_commit(eng, sha): return f'from the seed {seed}'
-        # The seed is an older pin: fetch it anyway, so the shallow fetch below can send only what changed since.
-        git('fetch', '--quiet', '--no-tags', '--depth', '1', str(Path(seed).resolve()), 'HEAD', cwd=eng, check=False)
     url = url or os.environ.get('NX2APPLE_ENGINE_URL') or UPSTREAM_URL
     r = git('fetch', '--quiet', '--no-tags', '--depth', '1', url, sha, cwd=eng, check=False)
     if r.returncode or not have_commit(eng, sha):
         err = (r.stderr or '').strip().splitlines()
         raise Fail(f'cannot fetch {sha[:12]} from {url}: {err[-1] if err else "unknown error"}\n'
-                   f'  Offline? Connect and run `python3 tools/engine.py sync` again, or point --seed at a local copy that has the commit '
-                   f'(a release app carries one: NX2Apple.app/Contents/Resources/engine.git). Behind a mirror: set NX2APPLE_ENGINE_URL.')
+                   f'  Offline or GitHub unreachable? Check the connection and run `python3 tools/engine.py sync` again. '
+                   f'Behind a mirror or with a local clone that has the commit: set NX2APPLE_ENGINE_URL.')
     return f'from {url}'
 
 
@@ -207,7 +200,7 @@ def cmd_sync(a):
         git('branch', '--force', keep, 'HEAD', cwd=eng, check=False)
         say(f'engine: kept the previous HEAD on branch {keep} (and uncommitted changes in `git -C engine stash list`)')
     sha = pin(root)
-    got = fetch(eng, sha, a.seed)
+    got = fetch(eng, sha)
     say(f'engine: building {sha[:12]} + {len(patches)} patches ({reason or "forced"}; upstream commit {got})')
     applied, _ = build(root, eng, patches, sha)
     write_stamp(eng, root, head(eng))
@@ -324,7 +317,7 @@ def cmd_check(a):
     if stray: bad.append('patch files not in patches/series: ' + ', '.join(stray))
     eng = scratch_root(root)
     sha = pin(root)
-    fetch(eng, sha, a.seed)
+    fetch(eng, sha)
     # The chain rule reads AGENTS.md at the pin plus the series; the pin's own copy is close enough for the globs.
     rules = eng if (eng / 'AGENTS.md').is_file() else root
     for p in patches:
@@ -360,7 +353,7 @@ def cmd_check(a):
 
 # ---- bump, refresh ----
 
-def resolve_target(eng, to, seed=None):
+def resolve_target(eng, to):
     if re.fullmatch(r'[0-9a-f]{40}', to): return to
     url = os.environ.get('NX2APPLE_ENGINE_URL') or UPSTREAM_URL
     r = git('ls-remote', url, to, cwd=eng, check=False)
@@ -374,7 +367,7 @@ def cmd_bump(a):
     patches = P.load(root)
     eng = scratch_root(root)
     old = pin(root)
-    fetch(eng, old, a.seed)                      # the old pin's blobs let `git am -3` merge three ways
+    fetch(eng, old)                      # the old pin's blobs let `git am -3` merge three ways
     sha = resolve_target(eng, a.to)
     fetch(eng, sha)
     s = P.Scratch(eng, sha, a.tmp, keep=not a.dry)
@@ -423,7 +416,6 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--repo', default=str(REPO), help="the checkout (default: this script's)")
     ap.add_argument('--tmp', help='folder for scratch worktrees (default $PATCHES_TMP, else the system temporary folder)')
-    ap.add_argument('--seed', help='a local git repository holding the pin, tried before the network (default $NX2APPLE_ENGINE_SEED)')
     ap.add_argument('-q', '--quiet', action='store_true', help='print nothing when there is nothing to do')
     sub = ap.add_subparsers(dest='cmd', required=True)
     s = sub.add_parser('sync'); s.add_argument('--force', action='store_true', help='rebuild even when up to date; local work goes to a backup branch'); s.set_defaults(f=cmd_sync)
