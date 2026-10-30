@@ -207,7 +207,7 @@ struct LaunchOptionsView: View {
             switch s.kind {
             case "choice":
                 let options = (s.options ?? []).map { (value: $0[0], label: $0.count > 1 ? $0[1] : $0[0]) }
-                if options.count <= 3 {
+                if LaunchControl.isSegmented(env: s.env, labels: options.map(\.label)) {
                     LauncherSegmented(options: options, selection: value) { set(s, $0) }
                 } else {
                     LauncherDropdown(options: options, selection: value, label: s.label, fill: true) { set(s, $0) }

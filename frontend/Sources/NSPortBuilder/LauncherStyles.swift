@@ -106,6 +106,16 @@ struct LauncherSwitchStyle: ToggleStyle {
 /// in one column whatever their labels.
 enum LaunchControl {
     static let width: CGFloat = 220
+
+    /// Characters the segments of one control share: a segment of 12.5 pt text, 24 pt of padding in 220 pt, takes about 10 with two
+    /// choices and 6 with three.
+    static let segmentedCharacters = 20
+
+    /// Segmented for two or three short labels, a menu otherwise. The game's language (DM_LANG) is always a menu, as on the iPhone.
+    static func isSegmented(env: String, labels: [String]) -> Bool {
+        guard env != "DM_LANG", labels.count <= 3 else { return false }
+        return labels.allSatisfy { $0.count <= segmentedCharacters / max(labels.count, 1) }
+    }
 }
 
 /// Two or three choices side by side; the chosen one is a cream pill. Each choice takes an equal share of the width
