@@ -26,6 +26,7 @@ KEYS = 'keys'
 SEVERAL_GAMES = 'severalGames'
 NO_TITLE_ID = 'noTitleID'
 DISK_FULL = 'diskFull'
+CLOUD_FOLDER = 'cloudFolder'
 UNKNOWN = 'unknown'
 
 # (id, kind, regular expression searched in the log)
@@ -45,6 +46,7 @@ TABLE: list[tuple[str, str, str]] = [
     ('games.noTitleID', NO_TITLE_ID, r'no NSP with a readable title ID in '),
     ('disk.low', DISK_FULL, r'less than [0-9]+ GB free on the volume of '),
     ('disk.full', DISK_FULL, r'No space left on device'),
+    ('icloud.detritus', CLOUD_FOLDER, r'resource fork, Finder information, or similar detritus not allowed'),
 ]
 
 # The script's override for a stop, offered as "Build anyway". The others cannot be built around.
@@ -55,9 +57,10 @@ OVERRIDE_FLAGS = {
 }
 
 KINDS = [ROSETTA, TRANSLATOR, ZBIC, IOS_SDK, CLT_SELECTED, OTHER_METAL, SHADER_REGRESSION, DAMAGED_NSP, A32_PROGRAM,
-         KEYS, SEVERAL_GAMES, NO_TITLE_ID, DISK_FULL]
+         KEYS, SEVERAL_GAMES, NO_TITLE_ID, DISK_FULL, CLOUD_FOLDER]
 # The Swift app has four more rows that no log line sets (a drive that is gone, a signing team, a device transfer):
 # they belong to the Mac launcher's install on a device and to /Volumes, which this front end does not have.
+# cloudFolder is a row of the table, so it is here, but the check that stops a build before it starts is the Mac launcher's.
 
 _A32_NAME = re.compile(r'^(?:\[RED\] )?(.+?) \([0-9A-Fa-f]{16}\) is a 32-bit ARM program', re.M)
 
