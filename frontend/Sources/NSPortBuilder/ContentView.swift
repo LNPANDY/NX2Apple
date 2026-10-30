@@ -1185,6 +1185,12 @@ final class BuildModel: ObservableObject {
         }
         let tidHex = Self.titleID(basePath).map { String(format: "%016llX", $0) } ?? "game"
         let workDir = (outDir.isEmpty ? baseDir : outDir) + "/" + tidHex + "_build"
+        // The build's signing step refuses the attributes a cloud folder adds, after the long steps: stop here instead.
+        if cloudFolderCheck(workDir) {
+            failure = BuildFailure(kind: .cloudFolder, gameName: nil, detail: workDir)
+            fail(failureWhat(failure!))
+            return
+        }
         var inputDir = baseDir
         if dirs.count > 1 || !unpicked.isEmpty {
             // A stable folder per game (#132): the script's fingerprints name its files and its profile path.
@@ -1369,6 +1375,17 @@ final class BuildModel: ObservableObject {
         doneNote = failureWhat(f)
     }
 
+    /// Whether the build folder is in a cloud folder. Tests stand in for the system's answer.
+    var cloudFolderCheck: (String) -> Bool = { CloudFolder.contains($0) }
+
+    /// The Save to folder, picked in a panel. Clears the cloud-folder stop, since the next build looks at the new folder.
+    func chooseBuildFolder() {
+        let d = NSOpenPanel(); d.canChooseDirectories = true; d.canChooseFiles = false
+        guard d.runModal() == .OK, let u = d.url else { return }
+        outDir = u.path
+        if failure?.kind == .cloudFolder { failure = nil; doneNote = "" }
+    }
+
     /// What the classifier may check besides the log: the keys file and where the game files are.
     func failureInputs() -> BuildFailureClassifier.Inputs {
         BuildFailureClassifier.Inputs(keysPath: keysPath, paths: ([basePath, updatePath, gameDir] + dlcPaths).filter { !$0.isEmpty },
@@ -1430,6 +1447,8 @@ final class BuildModel: ObservableObject {
             if let chooseKeys { chooseKeys() } else { pickFiles(kind: .keys) }   // the same picker as the keys row
         case .severalGames, .noTitleID, .diskFull:
             showFailureFolder()
+        case .cloudFolder:
+            chooseBuildFolder()
         case .teamTaken, .noSigningAccount:
             openXcode()
         case .deviceTransfer:
@@ -3152,10 +3171,7 @@ struct BuilderView: View {
             }
             divider
             row(m.t("build.saveTo"), detail: m.outDir.isEmpty ? m.t("build.saveDefault") : m.shortPath(m.outDir), help: m.outDir) {
-                Button(m.t("data.change")) {
-                    let d = NSOpenPanel(); d.canChooseDirectories = true; d.canChooseFiles = false
-                    if d.runModal() == .OK, let u = d.url { m.outDir = u.path }
-                }
+                Button(m.t("data.change")) { m.chooseBuildFolder() }
             }
         }
         .task(id: KeyCheck.Inputs(keys: m.keysPath, files: [m.basePath, m.updatePath] + m.dlcPaths)) {

@@ -10,6 +10,9 @@ enum BuildFailureKind: String, CaseIterable {
     case keys, severalGames, noTitleID, driveMissing
     /// The build's and the install's own steps.
     case diskFull, teamTaken, noSigningAccount, deviceTransfer
+    /// The build folder is in iCloud Drive or another cloud folder (CloudFolder.swift): the launcher stops before the build, and the
+    /// codesign line of xcodebuild is the same stop for a build that got past that check.
+    case cloudFolder
     case unknown
 
     /// The script's override for this stop, offered as "Build anyway". Only these three have one that the launcher
@@ -58,6 +61,7 @@ enum BuildFailureClassifier {
         ("games.noTitleID", .noTitleID, "no NSP with a readable title ID in "),
         ("disk.low", .diskFull, "less than [0-9]+ GB free on the volume of "),
         ("disk.full", .diskFull, "No space left on device"),
+        ("icloud.detritus", .cloudFolder, "resource fork, Finder information, or similar detritus not allowed"),
     ]
 
     /// What the launcher itself knows when the log says nothing it can use. The keys file and the game files are checked

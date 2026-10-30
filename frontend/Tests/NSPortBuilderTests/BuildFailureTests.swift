@@ -44,6 +44,7 @@ final class BuildFailureTests: XCTestCase {
                 XCTAssertEqual(String(cString: strerror(ENOSPC)), f.fragment, f.id)
                 continue
             }
+            if f.source == "codesign" { continue }   // Apple's text, from a tool the script runs
             let source = try String(contentsOf: Self.root.appendingPathComponent(f.source), encoding: .utf8)
             let there = source.contains(f.fragment)
             XCTAssertTrue(there, "\(f.id): \(f.source) no longer contains \"\(f.fragment)\": update the pattern and the fixture")
