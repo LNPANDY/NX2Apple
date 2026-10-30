@@ -618,7 +618,7 @@ final class BuildModel: ObservableObject {
     // The rules (what is verified, which copies replace themselves, never during a build) are in AppUpdate.swift.
 
     /// Bump together with each release tag; the update check compares it with the latest release.
-    static let appVersion = "0.7.2"
+    static let appVersion = "0.7.3"
     /// The update checkAppUpdate found: the tag, the asset to download, its digest, and the release
     /// notes the sheet shows. The notes are why the sheet exists — "update available" alone told a
     /// user nothing about what they would get.
@@ -3439,7 +3439,7 @@ struct BuilderView: View {
         tools
         group(m.t("section.app"), footnote: m.appStatus) {
             // The interface language: the device default unless someone picks one here. Stored as
-            // "" (follow), "zh", "en" or "sv" so a later system-language change still applies.
+            // "" (follow), "zh", "en", "sv" or "de" so a later system-language change still applies.
             row(m.t("settings.language"),
                 detail: Lang.saved.map { m.t("settings.language.\($0.rawValue)") }
                     ?? m.t("settings.language.system"), dot: LauncherPalette.ready, help: "") {
@@ -3447,7 +3447,8 @@ struct BuilderView: View {
                 LauncherMenuPicker(options: [(value: "", label: m.t("settings.language.system")),
                                              (value: "zh", label: m.t("settings.language.zh")),
                                              (value: "en", label: m.t("settings.language.en")),
-                                             (value: "sv", label: m.t("settings.language.sv"))],
+                                             (value: "sv", label: m.t("settings.language.sv")),
+                                             (value: "de", label: m.t("settings.language.de"))],
                                    selection: Lang.saved.map { $0.rawValue } ?? "", fill: true, buttonLike: true) { v in
                     Lang.saved = v.isEmpty ? nil : Lang(rawValue: v)
                     m.lang = Lang.initial()
@@ -3502,7 +3503,7 @@ struct BuilderView: View {
 
     /// The interface language one step on (a controller's left / right on the language list).
     private func cycleLanguage(_ by: Int) {
-        let values = ["", "zh", "en", "sv"]
+        let values = ["", "zh", "en", "sv", "de"]
         let at = values.firstIndex(of: Lang.saved.map { $0.rawValue } ?? "") ?? 0
         let v = values[(at + by + values.count) % values.count]
         Lang.saved = v.isEmpty ? nil : Lang(rawValue: v)

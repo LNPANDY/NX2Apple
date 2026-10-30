@@ -58,7 +58,7 @@ final class BuildNotificationsTests: XCTestCase {
         try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: temporary) }
         let model = BuildModel()
-        model.lang = .en
+        model.lang = CaptureLanguage.current(.en)
         model.depsChecked = true
         model.deps = [BuildModel.Dep(id: "test", name: "Xcode", hint: "", present: true, installCmd: [])]
         let library = GameLibrary(file: temporary.appendingPathComponent("preview.json"))

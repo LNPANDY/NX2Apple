@@ -873,7 +873,7 @@ final class LibraryTests: XCTestCase {
             UserDefaults.standard.set(oldOutput, forKey: "buildOutputDirectory")
         }
         model.repoPath = repo
-        model.lang = .en
+        model.lang = CaptureLanguage.current(.en)
         model.outDir = temporary.path
         model.depsChecked = true
         model.deps = [BuildModel.Dep(id: "test", name: "Xcode", hint: "", present: true, installCmd: [])]
@@ -1155,12 +1155,19 @@ final class LibraryTests: XCTestCase {
             try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSinceNow: -3 * 86_400)], ofItemAtPath: save.path)
             let device = DeviceControl { args in   // a device whose save is from an hour ago
                 guard let i = args.firstIndex(of: "--json-output") else { return (false, "ERROR: not in the visual QA") }
+                if args.starts(with: ["device", "info", "apps"]) {
+                    try? JSONSerialization.data(withJSONObject: ["result": ["apps": [["bundleIdentifier": "com.example.hades", "name": game.name]]]]).write(to: URL(fileURLWithPath: args[i + 1]))
+                    return (true, "")
+                }
                 let files = args.contains("--recurse") ? [["name": "data.bin", "fileType": "file", "modificationDate": ISO8601DateFormatter().string(from: Date(timeIntervalSinceNow: -3600))]] : []
                 try? JSONSerialization.data(withJSONObject: ["result": ["files": files]]).write(to: URL(fileURLWithPath: args[i + 1]))
                 return (true, "")
             }
             let focus = PadFocus()
-            let host = NSHostingView(rootView: SavesView(m: model, library: library, gameID: game.id, devicectl: device, support: support).environmentObject(focus))
+            let host = NSHostingView(rootView: SavesView(m: model, library: library, gameID: game.id, devicectl: device, support: support, listDevices: {
+                [AppleDevice(id: "00008150-AAAA", name: "Zijad\u{2019}s iPhone", model: "iPhone 17", os: "27.0", reachable: true),
+                 AppleDevice(id: "00008150-BBBB", name: "Zijad\u{2019}s iPad", model: "iPad Pro", os: "27.0", reachable: true)]
+            }).environmentObject(focus))
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 520), styleMask: [.titled], backing: .buffered, defer: false)
             window.contentView = host
             window.orderFront(nil)

@@ -208,7 +208,7 @@ final class DropFilesTests: XCTestCase {
         let oldOutput = UserDefaults.standard.object(forKey: "buildOutputDirectory")
         defer { UserDefaults.standard.set(oldOutput, forKey: "buildOutputDirectory") }
         let model = BuildModel()
-        model.lang = .en
+        model.lang = CaptureLanguage.current(.en)
         model.outDir = temporary.path
         model.depsChecked = true
         model.deps = [BuildModel.Dep(id: "test", name: "Xcode", hint: "", present: true, installCmd: [])]

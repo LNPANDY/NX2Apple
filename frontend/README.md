@@ -281,10 +281,13 @@ nothing changes: Homebrew's tools, a system Python or the launcher's venv. To tr
 ## Language
 
 The interface follows the system language at every launch: any Chinese variant
-(Simplified, Traditional, Hong Kong, Taiwan) gets Chinese, every other language gets
-English, and the app has no language switch. Strings live in
-`Sources/NSPortBuilder/Localization.swift`. Regenerate the Qt table after editing
-it with `python3 frontend-qt/gen_localization.py` from the repository root.
+(Simplified, Traditional, Hong Kong, Taiwan) gets Chinese, Swedish gets Swedish, German gets
+German, and every other language gets English. Settings > Language overrides that. Strings live in
+`Sources/NSPortBuilder/Localization.swift`: the table holds Chinese and English, and Swedish (`sv`)
+and German (`de`) are overlays below it. A string added to the table needs its German entry, and
+`GermanLocalizationTests` fails until it has one (it also checks that the format placeholders match
+the English text). Regenerate the Qt table after editing it with
+`python3 frontend-qt/gen_localization.py` from the repository root.
 
 ## Verification
 
