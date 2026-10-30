@@ -14,7 +14,7 @@ public struct ControllersView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 30) {
                 HStack(alignment: .center) {
-                    Text(ShellStrings.text("Controllers")).shellText(30, .heavy, relativeTo: .title).tracking(-0.8)
+                    Text(ShellStrings.text("Controllers")).shellType(ShellType.pageTitle)
                         .lineLimit(1).minimumScaleFactor(0.7).accessibilityAddTraits(.isHeader)
                     Spacer(minLength: 8)
                     Button(action: onBack) { Image(systemName: "xmark") }
@@ -46,10 +46,10 @@ public struct ControllersView: View {
                 VStack(alignment: .leading, spacing: 14) {
                     SectionHeading(title: ShellStrings.text("On a controller"))
                     hint(Image(systemName: "dpad"), ShellStrings.text("Move between controls"))
-                    hint(ButtonGlyph(letter: "A"), ShellStrings.text("Select"))
-                    hint(ButtonGlyph(letter: "B"), ShellStrings.text("Back"))
-                    hint(ButtonGlyph(letter: "X"), ShellStrings.text("Game settings"))
-                    hint(ButtonGlyph(letter: "Y"), ShellStrings.text("Controllers"))
+                    hint(ButtonGlyph(role: .activate), ShellStrings.text("Select"))
+                    hint(ButtonGlyph(role: .back), ShellStrings.text("Back"))
+                    hint(ButtonGlyph(role: .settings), ShellStrings.text("Game settings"))
+                    hint(ButtonGlyph(role: .controllers), ShellStrings.text("Controllers"))
                 }.padding(.horizontal, 4)
             }.padding(24).padding(.bottom, geometry.safeAreaInsets.bottom).frame(maxWidth: 640)
                 .frame(maxWidth: .infinity, alignment: .leading)

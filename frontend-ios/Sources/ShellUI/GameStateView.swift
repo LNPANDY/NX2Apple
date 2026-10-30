@@ -61,7 +61,7 @@ public struct StateHelpView: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             StatusLabel(state: game.state, prominent: true)
-            Text(game.state.actionTitle).shellText(26, .heavy, relativeTo: .title).tracking(-0.7)
+            Text(game.state.actionTitle).shellType(ShellType.pageTitle)
                 .accessibilityAddTraits(.isHeader).accessibilityIdentifier("help.title")
             Text(message).shellText(15).foregroundStyle(.white.opacity(0.78)).fixedSize(horizontal: false, vertical: true)
             if case .broken(_, let detail) = game.state, !detail.isEmpty {
@@ -115,7 +115,7 @@ public struct EmptyLibraryView: View {
                 }
             }.padding(.bottom, 14).accessibilityHidden(true)
             SectionHeading(title: ShellStrings.text("Your games"))
-            Text(ShellStrings.text("A little room for adventure")).shellText(30, .heavy, relativeTo: .title).tracking(-0.8)
+            Text(ShellStrings.text("A little room for adventure")).shellType(ShellType.heroTitle(30))
                 .fixedSize(horizontal: false, vertical: true)
             Text(ShellStrings.text("Your games will appear here when they are included in this app."))
                 .shellText(15).foregroundStyle(.white.opacity(0.6)).fixedSize(horizontal: false, vertical: true)

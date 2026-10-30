@@ -31,9 +31,13 @@ import XCTest
         XCTAssertTrue(app.alerts.staticTexts["Play requested. The demo does not launch games."].exists)
         app.alerts.buttons["OK"].tap()
         if app.buttons["library.back"].exists { app.buttons["library.back"].tap() }
-        XCTAssertTrue(app.buttons["tile.orbit"].isHittable)
+        // The panel slides away first.
+        let orbit = app.buttons["tile.orbit"]
+        expectation(for: NSPredicate(format: "isHittable == true"), evaluatedWith: orbit)
+        waitForExpectations(timeout: 5)
         app.buttons["controllers.open"].tap()
-        XCTAssertTrue(app.staticTexts["Pro Controller"].waitForExistence(timeout: 5))
+        // The sheet lists the real controllers when the device has any, the sample ones otherwise.
+        XCTAssertTrue(app.buttons["controllers.close"].waitForExistence(timeout: 5))
         app.buttons["controllers.close"].tap()
         XCTAssertFalse(app.staticTexts["Pro Controller"].exists)
     }
@@ -43,7 +47,8 @@ import XCTest
         launch("library")
         app.buttons["tile.paper"].tap()
         XCTAssertEqual(app.staticTexts["hero.title"].label, "Paper Trails")
-        XCTAssertEqual(app.buttons["state.action"].firstMatch.label, "Choose game data…, Paper Trails")
+        // Under the card the state line is the way out: what is wrong and what to do.
+        XCTAssertEqual(app.buttons["state.chip"].label, "Needs game data, Choose game data…")
         XCUIDevice.shared.orientation = .portrait
     }
     func testLargeText() {

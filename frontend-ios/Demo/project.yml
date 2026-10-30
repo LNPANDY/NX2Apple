@@ -28,6 +28,8 @@ targets:
     dependencies:
       - package: ShellUI
         product: ShellUI
+      - package: ShellUI
+        product: ShellControllers
   ShellDemoUITests:
     type: bundle.ui-testing
     platform: iOS

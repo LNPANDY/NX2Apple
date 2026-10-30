@@ -188,4 +188,23 @@ import XCTest
         XCTAssertFalse(app.alerts["Demo action"].waitForExistence(timeout: 1), "the action ran once")
         XCUIDevice.shared.orientation = .portrait
     }
+
+    /// A slow drag to the next card, then at once a quick swipe the same way: two cards on, never back.
+    func testSlowDragThenQuickSwipeAdvancesTwo() {
+        XCUIDevice.shared.orientation = .landscapeLeft
+        app.launchArguments = ["--screen", "library"]
+        app.launch()
+        XCTAssertTrue(app.buttons["tile.orbit"].waitForExistence(timeout: 10))
+        let start = centreCard()
+        let window = app.windows.firstMatch.frame
+        let step = window.width * 0.32
+        start.press(forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: -step, dy: 0)), withVelocity: XCUIGestureVelocity(250), thenHoldForDuration: 0)
+        start.press(forDuration: 0.02, thenDragTo: start.withOffset(CGVector(dx: -step * 0.6, dy: 0)), withVelocity: .fast, thenHoldForDuration: 0)
+        sleep(2)
+        let counter = app.staticTexts.matching(NSPredicate(format: "label ENDSWITH ' of 7'")).firstMatch
+        XCTAssertEqual(counter.label, "3 of 7")
+        XCTAssertEqual(app.staticTexts["hero.title"].label, "Paper Trails")
+        XCTAssertFalse(app.alerts["Demo action"].exists)
+        XCUIDevice.shared.orientation = .portrait
+    }
 }
