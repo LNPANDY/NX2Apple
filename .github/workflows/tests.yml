@@ -297,6 +297,10 @@ jobs:
         run: |
           mkdir -p logs
           python3 dm/ios/tools/build_smoke.py --output "$RUNNER_TEMP/ios-smoke" 2>&1 | tee logs/ios-build.log
+      # Route C M1 (docs/launcher-c-plan.md): XcodeGen and xcodebuild of the DmGame framework target from a synthetic Gen/.
+      # test_framework_build.py's packaging half runs in tool-tests; its link half needs xcodegen, installed only here.
+      - name: The game framework links the module sections (route C M1)
+        run: python3 -m unittest -v dm/ios/tests/test_framework_link.py 2>&1 | tee logs/framework-link.log
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
         with:
