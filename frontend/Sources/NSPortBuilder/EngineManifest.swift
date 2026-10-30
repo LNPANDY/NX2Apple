@@ -10,8 +10,8 @@ import Foundation
 /// checkout the build reads (`BuildModel.repoPath`), so `isRepo`, the build script and the RomFS tool
 /// keep working unchanged.
 ///
-/// Two channels, one manifest: `stable` is the engine that shipped with this release; `rolling` is the
-/// newest one the nightly sync built, opt-in and labelled experimental in Settings.
+/// Two channels, one manifest shape: `stable` is the engine that shipped with this release, `experimental` is the
+/// newest one the nightly sync built from main, opt-in in Settings (EngineChannel).
 enum EngineManifest {
     /// One downloadable file: the release asset's name and the SHA-256 we verify before using it.
     struct Asset: Decodable, Equatable {
@@ -20,30 +20,38 @@ enum EngineManifest {
         let size: Int?
     }
 
-    /// The manifest's shape (`latest.json`). Unknown keys are ignored so an older launcher can read a
-    /// newer manifest as long as what it needs is still there.
+    /// The manifest's shape (`latest.json`, written by `tools/release_manifest.py`). Unknown keys are ignored so
+    /// an older launcher can read a newer manifest as long as what it needs is still there.
     struct Manifest: Decodable, Equatable {
-        /// The release version this manifest describes, e.g. "0.8.0".
+        /// The release version this manifest describes, e.g. "0.8.0" (or "0.8.0-experimental").
         let version: String
-        /// The seedds/nxnative commit the engine tree was built from (what `.upstream-ref` holds).
+        /// The seedds/nxnative commit the engine tree was built from (what `.upstream-ref` holds). Information only:
+        /// the patch series changes without the pin moving, so the pin does not name a tree.
         let pin: String
+        /// `<pin>-<12 hex of the patch series digest>`: the tree's identity, and its folder name in the store.
+        let engineID: String
         let engine: Asset
         /// The app itself, so one manifest drives both updates.
         let app: Asset?
         /// Where the files live, in the order they are tried. Empty: the release page on GitHub.
         var sources: [String] = []
-        /// When the nightly sync built this engine, for the rolling channel ("2026-10-31T02:00:00Z").
+        /// When the engine was built ("2026-10-31T02:00:00Z").
         var built: String?
+        /// "stable" or "experimental".
         var channel: String?
 
         // Written out because a default value does not make a key optional to the synthesized decoder:
         // a manifest without `sources` is valid and means "the release page".
-        private enum CodingKeys: String, CodingKey { case version, pin, engine, app, sources, built, channel }
+        private enum CodingKeys: String, CodingKey {
+            case version, pin, engine, app, sources, built, channel
+            case engineID = "engine_id"
+        }
 
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             version = try c.decode(String.self, forKey: .version)
             pin = try c.decode(String.self, forKey: .pin)
+            engineID = try c.decodeIfPresent(String.self, forKey: .engineID) ?? ""
             engine = try c.decode(Asset.self, forKey: .engine)
             app = try c.decodeIfPresent(Asset.self, forKey: .app)
             sources = try c.decodeIfPresent([String].self, forKey: .sources) ?? []
@@ -51,8 +59,9 @@ enum EngineManifest {
             channel = try c.decodeIfPresent(String.self, forKey: .channel)
         }
 
-        init(version: String, pin: String, engine: Asset, app: Asset?, sources: [String] = [], built: String? = nil, channel: String? = nil) {
-            self.version = version; self.pin = pin; self.engine = engine; self.app = app
+        init(version: String, pin: String, engineID: String, engine: Asset, app: Asset?, sources: [String] = [],
+             built: String? = nil, channel: String? = nil) {
+            self.version = version; self.pin = pin; self.engineID = engineID; self.engine = engine; self.app = app
             self.sources = sources; self.built = built; self.channel = channel
         }
     }
@@ -60,20 +69,30 @@ enum EngineManifest {
     enum Problem: Error, Equatable {
         case notJSON
         case missingVersion
-        case missingPin
+        case missingPin                 // not 7 to 64 lowercase hex characters
+        case badEngineID(String)        // not `<pin>-<12 lowercase hex>`
         case badDigest(String)          // not 64 lowercase hex characters
-        case noSources
+        case badAsset(String)           // not a plain file name
+        case badSource(String)          // not an https URL
     }
 
     /// Decode and validate. A manifest the launcher cannot act on fails here rather than half-way
-    /// through a download.
+    /// through a download. Every value that later becomes part of a path or a URL is checked here, because
+    /// an unsigned manifest is accepted while no key is built in.
     static func decode(_ data: Data) throws -> Manifest {
         let m: Manifest
         do { m = try JSONDecoder().decode(Manifest.self, from: data) }
         catch { throw Problem.notJSON }
         guard !m.version.trimmingCharacters(in: .whitespaces).isEmpty else { throw Problem.missingVersion }
-        guard m.pin.count >= 7 else { throw Problem.missingPin }
-        for a in [m.engine, m.app].compactMap({ $0 }) where !isDigest(a.sha256) { throw Problem.badDigest(a.sha256) }
+        guard isPin(m.pin) else { throw Problem.missingPin }
+        guard EngineStore.isEngineID(m.engineID), m.engineID.hasPrefix(m.pin + "-") else { throw Problem.badEngineID(m.engineID) }
+        for a in [m.engine, m.app].compactMap({ $0 }) {
+            guard isDigest(a.sha256) else { throw Problem.badDigest(a.sha256) }
+            guard isAssetName(a.asset) else { throw Problem.badAsset(a.asset) }
+        }
+        for s in m.sources {
+            guard let u = URL(string: s), u.scheme == "https", u.host?.isEmpty == false else { throw Problem.badSource(s) }
+        }
         return m
     }
 
@@ -81,7 +100,23 @@ enum EngineManifest {
         s.count == 64 && s.allSatisfy { $0.isHexDigit && !$0.isUppercase }
     }
 
+    static func isPin(_ s: String) -> Bool {
+        (7...64).contains(s.count) && s.allSatisfy { ("0"..."9").contains($0) || ("a"..."f").contains($0) }
+    }
+
+    /// A release asset's name: it is appended to a source URL and names a downloaded file, so no folders and no dots
+    /// at the start.
+    static func isAssetName(_ s: String) -> Bool {
+        guard (1...128).contains(s.count), !s.hasPrefix(".") else { return false }
+        return s.unicodeScalars.allSatisfy { CharacterSet.alphanumerics.contains($0) && $0.isASCII || "._-".unicodeScalars.contains($0) }
+    }
+
     // ---- Authenticity ----
+
+    /// The public half of the key that signs `latest.json`: base64 of the 32 raw Ed25519 bytes, the same line as
+    /// `frontend/engine-signing.pub`. Empty until the key pair exists, and then every manifest is accepted unsigned
+    /// (`.noKey`). Once it is set, only a manifest with a valid signature installs.
+    static let publicKey = ""
 
     /// What we can say about a manifest's signature. Integrity (a SHA-256 that matches) only proves the
     /// download is what the manifest lists — it says nothing when whoever served the manifest also served
@@ -118,14 +153,14 @@ enum EngineManifest {
     }
 }
 
-/// Where engine trees live on disk: one folder per pin, beside the app's other state, so an app update
-/// and an engine update cannot half-replace each other, and going back is just selecting the older pin.
+/// Where engine trees live on disk: one folder per engine id, beside the app's other state, so an app update
+/// and an engine update cannot half-replace each other, and going back is just selecting the older tree.
 struct EngineStore {
     let root: URL
 
     init(root: URL = EngineStore.defaultRoot) { self.root = root }
 
-    /// `~/Library/Application Support/NX2Apple/engine/<pin>/`. The folder is a full checkout for the
+    /// `~/Library/Application Support/NX2Apple/engine/<engine_id>/`. The folder is a full checkout for the
     /// build (`dm/`, `scripts/`, ...), so `repoPath` can point at it.
     static var defaultRoot: URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
@@ -133,29 +168,57 @@ struct EngineStore {
         return base.appendingPathComponent("NX2Apple/engine", isDirectory: true)
     }
 
-    func directory(for pin: String) -> URL { root.appendingPathComponent(pin, isDirectory: true) }
+    /// The file in a tree that names it (`tools/engine.py tree` writes it, with a newline).
+    static let idFile = ".engine-id"
+    /// What the launcher runs by path, and the pin. A tree without one of them is not used.
+    static let requiredFiles = ["scripts/build_ipa_from_nsp.py", "dm/tools/romfs_image.py", ".upstream-ref", idFile]
 
-    /// A tree is usable when it holds what the launcher runs by path (`BuildModel.requiredTools`).
-    /// Unpacking into a temporary folder and renaming makes a half-written tree unreadable rather than
-    /// silently incomplete, and this is the check that backs it up.
-    func isUsable(_ pin: String) -> Bool {
-        let dir = directory(for: pin)
-        for f in ["scripts/build_ipa_from_nsp.py", "dm/tools/romfs_image.py", ".upstream-ref"] {
-            guard FileManager.default.fileExists(atPath: dir.appendingPathComponent(f).path) else { return false }
-        }
-        return true
+    /// `<pin>-<12 hex>`: lowercase hex and dashes only, so an id can never leave the store as a path
+    /// (no `/`, no `..`, no dot at the start).
+    static func isEngineID(_ s: String) -> Bool {
+        let parts = s.split(separator: "-", omittingEmptySubsequences: false)
+        guard parts.count == 2, EngineManifest.isPin(String(parts[0])), parts[1].count == 12 else { return false }
+        return parts[1].allSatisfy { ("0"..."9").contains($0) || ("a"..."f").contains($0) }
     }
 
-    /// Remove every other pin's tree. Called after a successful switch, so a player keeps the one they
-    /// are on; `keeping` also holds the previous one while a build might still need it.
+    /// The tree's folder, or nil for anything that is not an engine id.
+    func directory(for id: String) -> URL? {
+        Self.isEngineID(id) ? root.appendingPathComponent(id, isDirectory: true) : nil
+    }
+
+    /// The id a tree names itself with (its `.engine-id`), nil when it has none.
+    static func identity(of tree: URL) -> String? {
+        guard let text = try? String(contentsOf: tree.appendingPathComponent(idFile), encoding: .utf8) else { return nil }
+        let id = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return isEngineID(id) ? id : nil
+    }
+
+    /// Whether `tree` holds everything the launcher runs by path and calls itself `id`.
+    static func isComplete(_ tree: URL, id: String) -> Bool {
+        requiredFiles.allSatisfy { FileManager.default.fileExists(atPath: tree.appendingPathComponent($0).path) }
+            && identity(of: tree) == id
+    }
+
+    /// A tree is usable when it is complete and is the engine its folder is named after. Unpacking into a
+    /// temporary folder and renaming makes a half-written tree unreadable rather than silently incomplete,
+    /// and this is the check that backs it up.
+    func isUsable(_ id: String) -> Bool {
+        guard let dir = directory(for: id) else { return false }
+        return Self.isComplete(dir, id: id)
+    }
+
+    /// Remove the trees not in `ids`, and what an interrupted install left behind. Only direct children this store
+    /// creates are touched: folders named like an engine id, and the `.tmp-` and `.download-` entries. Anything else
+    /// in the folder stays.
     @discardableResult
-    func prune(keeping pins: Set<String>) -> [String] {
+    func prune(keeping ids: Set<String>) -> [String] {
         let fm = FileManager.default
-        guard let entries = try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isDirectoryKey]) else { return [] }
+        guard let names = try? fm.contentsOfDirectory(atPath: root.path) else { return [] }
         var removed: [String] = []
-        for url in entries where (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
-            guard !pins.contains(url.lastPathComponent) else { continue }
-            if (try? fm.removeItem(at: url)) != nil { removed.append(url.lastPathComponent) }
+        for name in names {
+            let ours = Self.isEngineID(name) || name.hasPrefix(".tmp-") || name.hasPrefix(".download-")
+            guard ours, !ids.contains(name) else { continue }
+            if (try? fm.removeItem(at: root.appendingPathComponent(name))) != nil { removed.append(name) }
         }
         return removed.sorted()
     }
