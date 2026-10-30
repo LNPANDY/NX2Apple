@@ -3457,7 +3457,7 @@ struct BuilderView: View {
         tools
         group(m.t("section.app"), footnote: m.appStatus) {
             // The interface language: the device default unless someone picks one here. Stored as
-            // "" (follow), "zh", "en", "sv" or "de" so a later system-language change still applies.
+            // "" (follow), "zh", "en", "sv", "de" or "fr" so a later system-language change still applies.
             row(m.t("settings.language"),
                 detail: Lang.saved.map { m.t("settings.language.\($0.rawValue)") }
                     ?? m.t("settings.language.system"), dot: LauncherPalette.ready, help: "") {
@@ -3529,7 +3529,7 @@ struct BuilderView: View {
     /// The interface language one step on (a controller's left / right on the language list).
     /// The language picker's choices in order, "" being the system's. A new language is one more code here and its
     /// "settings.language.<code>" entry, which is its own name (Svenska, Deutsch) in every language.
-    static let languageCodes = ["", "zh", "en", "sv", "de"]
+    static let languageCodes = ["", "zh", "en", "sv", "de", "fr"]
 
     private func cycleLanguage(_ by: Int) {
         let values = Self.languageCodes
