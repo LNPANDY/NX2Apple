@@ -135,6 +135,7 @@ class Manifest(unittest.TestCase):
     def test_without_the_secret_the_key_check_passes_with_a_warning(self):
         import contextlib, io
         del os.environ[R.KEY_ENV]
+        os.environ.pop('GITHUB_ACTIONS', None)   # in CI the warning is an annotation, the plain text is the local one
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf): self.assertEqual(R.main(['check-key', '--pub', str(self.pubfile)]), 0)
         self.assertIn('ENGINE_SIGNING_KEY is not set', buf.getvalue()); self.assertIn('WARNING', buf.getvalue())
