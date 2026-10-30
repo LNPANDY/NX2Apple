@@ -131,12 +131,12 @@ def python_candidates(extra_candidates: list[str] | None = None) -> list[str]:
 def find_python(extra_candidates: list[str] | None = None) -> tuple[str, bool, str]:
     """The interpreter to build with: (path, has_packages, version_or_empty).
 
-    The build scripts need lz4, capstone, fontTools, zstd and (for compressed dumps) nsz. A
+    The build scripts need lz4, capstone, fontTools, zbic, zstd and (for compressed dumps) nsz. A
     system interpreter rarely has them, so the venv the app manages is checked first, then
     every python on the machine (see python_candidates for the order).
     """
     probe = (
-        "import lz4, capstone, fontTools\n"
+        "import lz4, capstone, fontTools, zbic\n"
         "try:\n"
         "    from compression import zstd\n"
         "except ImportError:\n"

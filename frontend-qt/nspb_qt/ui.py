@@ -352,7 +352,7 @@ class MainWindow(QMainWindow):
         self.failure_box.hide()
         outer.addWidget(self.failure_box)
 
-    _FIX_BUTTONS = {'translator': 'fail.translator.button', 'iosSDK': 'fail.iosSDK.button',
+    _FIX_BUTTONS = {'translator': 'fail.translator.button', 'zbic': 'fail.zbic.button', 'iosSDK': 'fail.iosSDK.button',
                     'keys': 'fail.keys.button', 'severalGames': 'fail.showFolder', 'noTitleID': 'fail.showFolder',
                     'diskFull': 'fail.showFolder'}
 

@@ -20,8 +20,8 @@ for t in zstd glslangValidator spirv-cross xcodegen; do
     p=$(env -i PATH="$T:/usr/bin:/bin" /usr/bin/which "$t") && [ "$p" = "$T/$t" ] && ok "PATH finds $t in the bundle" || bad "PATH finds $t at '$p'"
 done
 PY="$RES/python/bin/python3"
-v=$(clean "$PY" -I -c "import sys, lz4.block, capstone, fontTools, nsz; from compression import zstd" 2>&1 \
-    || clean "$PY" -I -c "import lz4.block, capstone, fontTools, nsz; from backports import zstd" 2>&1) && ok "python imports lz4, capstone, fontTools, nsz, zstd" || bad "python imports: $v"
+v=$(clean "$PY" -I -c "import sys, lz4.block, capstone, fontTools, zbic, nsz; from compression import zstd" 2>&1 \
+    || clean "$PY" -I -c "import lz4.block, capstone, fontTools, zbic, nsz; from backports import zstd" 2>&1) && ok "python imports lz4, capstone, fontTools, zbic, nsz, zstd" || bad "python imports: $v"
 v=$(clean "$PY" -I -c "import sys; print(sys.version.split()[0], sys.prefix)" 2>&1); echo "$v" | grep -q "$RES/python" && ok "python runs from the bundle: $v" || bad "python prefix is not the bundle: $v"
 
 # load paths: only the system's (a library's or extension's own install name is not a dependency)

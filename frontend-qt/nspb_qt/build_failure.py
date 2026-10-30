@@ -15,6 +15,7 @@ from dataclasses import dataclass
 
 ROSETTA = 'rosetta'
 TRANSLATOR = 'translator'
+ZBIC = 'zbic'
 IOS_SDK = 'iosSDK'
 CLT_SELECTED = 'cltSelected'
 OTHER_METAL = 'otherMetal'
@@ -32,6 +33,7 @@ TABLE: list[tuple[str, str, str]] = [
     ('rosetta.intel', ROSETTA, r'is an Intel one running under Rosetta'),
     ('translator.run', TRANSLATOR, r'the shader translator does not run'),
     ('translator.start', TRANSLATOR, r'the shader translator does not start'),
+    ('zbic.missing', ZBIC, r'need the zbic package'),
     ('ios.sdk', IOS_SDK, r'the iOS SDK is not installed'),
     ('clt.selected', CLT_SELECTED, r'the selected developer folder is the Command Line Tools'),
     ('metal.other', OTHER_METAL, r'Metal compiler is not the one the shaders were tested with'),
@@ -52,7 +54,7 @@ OVERRIDE_FLAGS = {
     DAMAGED_NSP: '--allow-damaged',
 }
 
-KINDS = [ROSETTA, TRANSLATOR, IOS_SDK, CLT_SELECTED, OTHER_METAL, SHADER_REGRESSION, DAMAGED_NSP, A32_PROGRAM,
+KINDS = [ROSETTA, TRANSLATOR, ZBIC, IOS_SDK, CLT_SELECTED, OTHER_METAL, SHADER_REGRESSION, DAMAGED_NSP, A32_PROGRAM,
          KEYS, SEVERAL_GAMES, NO_TITLE_ID, DISK_FULL]
 # The Swift app has four more rows that no log line sets (a drive that is gone, a signing team, a device transfer):
 # they belong to the Mac launcher's install on a device and to /Volumes, which this front end does not have.
