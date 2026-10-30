@@ -227,6 +227,14 @@ jobs:
       # Pure Python: the Windows toolchain, IPA and shim logic with the system calls mocked; the few tests that need PySide6 skip without it
       - name: Tests
         run: python -m unittest discover -s frontend-qt/tests -v
+      # The Qt table is generated from the SwiftUI one and says so at its top. A string added to
+      # Localization.swift without regenerating it left 18 keys missing here for a day (a source run
+      # of the Qt app shows those as raw keys), so the regeneration is the check: any difference
+      # means the committed table is stale.
+      - name: The Qt language table matches Localization.swift
+        run: |
+          python frontend-qt/gen_localization.py
+          git diff --exit-code -- frontend-qt/nspb_qt/localization.py
 
   triage-scripts:
     name: Triage script tests (.github/scripts)
