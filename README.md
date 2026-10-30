@@ -163,6 +163,10 @@ display version must match the profile's, or the build says so.
 
 Want on this list? [Contributing](CONTRIBUTING.md#helping-with-games) says how to start; reports with a full log and fixes with a test move fastest.
 
+**Community projects** — maintained by their authors, outside this repository:
+
+- **[widmonstertony/nxnative](https://github.com/widmonstertony/nxnative)** (`ios16-pokemon-za-port` branch) — iOS/iPadOS 16.1–17 and tvOS compatibility, with a legacy Metal renderer path, tested on an A10X iPad and an M2 iPad. For devices this fork's releases do not support.
+
 All of the engine work is other people's. This repository adds the launcher and the patch queue on top:
 
 - **[nxnative](https://github.com/seedds/nxnative)** (MIT) — the native-execution toolchain this
