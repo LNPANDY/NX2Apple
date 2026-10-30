@@ -1,6 +1,17 @@
 import SwiftUI
 
+/// The terminal switches run before any window exists: `--install-shell` is the shell install of Route C without the GUI
+/// (ShellInstall.swift). Everything else starts the app.
 @main
+enum Entry {
+    static func main() {
+        if CommandLine.arguments.contains("--install-shell") {
+            exit(ShellCLI.run(Array(CommandLine.arguments.dropFirst())))
+        }
+        NSPortBuilderApp.main()
+    }
+}
+
 struct NSPortBuilderApp: App {
     @NSApplicationDelegateAdaptor private var delegate: AppDelegate
     @StateObject private var console = ConsoleCoordinator()

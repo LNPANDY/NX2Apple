@@ -156,6 +156,12 @@ final class BuildModel: ObservableObject {
     }
     @Published var installedOn = ""       // the device the last build went to (its UDID)
     @Published var installedAppPath = ""  // the signed app that went there
+    /// The shared app's copy question: the size and the connection (nil: none is up).
+    @Published var shellCopy: ShellCopyPlan?
+    @Published var shellWaiting = false   // waiting for a cable before the game data goes over
+    fileprivate var shellCopyAnswer: ((ShellCopyDecision) -> Void)?
+    let shellWaitCancelled = LockedFlag()
+    private var shellRetry: (framework: String, titleID: String, name: String, archive: String)?
     @Published var transferAsk = false    // the transfer-the-game-files question is up: USB from the Mac is slow, so copying is the player's call
     private var transferHandler: ((Bool) -> Void)?
 
@@ -247,12 +253,12 @@ final class BuildModel: ObservableObject {
         p.executableURL = URL(fileURLWithPath: python)
     }
 
-    private static func track(_ p: Process) {
+    static func track(_ p: Process) {
         _ = exitHandlers
         groupsLock.lock(); groups.insert(p.processIdentifier); groupsLock.unlock()
     }
 
-    private static func untrack(_ p: Process) {
+    static func untrack(_ p: Process) {
         groupsLock.lock(); groups.remove(p.processIdentifier); groupsLock.unlock()
     }
 
@@ -1209,6 +1215,13 @@ final class BuildModel: ObservableObject {
 
     func startBuild() {
         guard !running else { return }
+        // The shared app needs a device this Mac knows. Found out here, before an hour of building, not after it.
+        if target == "ios-shell", !shellDeviceChecked {
+            guard installsDirectly else { doneNote = t("shell.needsDevice"); done = false; return }
+            verifyShellDevice()
+            return
+        }
+        shellDeviceChecked = false
         stopping = false
         running = true; done = false; doneNote = ""; stages = []; logTail = ""; lineBuf = ""; chainNoteShown = false
         failure = nil; confirmingOverride = nil
@@ -1338,6 +1351,9 @@ final class BuildModel: ObservableObject {
             args += ["--platform", "mac-app"]
             macAppPath = (outDir.isEmpty ? baseDir : outDir) + "/" + tidHex + ".app"
             args += ["-o", macAppPath]
+        } else if target == "ios-shell" {
+            // Only the game's framework: the one shared app is made and signed after the script (installShell)
+            args += ShellInstall.buildArguments(workDir: workDir, team: signingTeam)
         } else if installsDirectly {
             // The game's Xcode project instead of an IPA, signed for the device after the script (signAndInstall)
             args += ["--prepare-xcode", "--keep-extracted", "--team-id", signingTeam]
@@ -1411,6 +1427,14 @@ final class BuildModel: ObservableObject {
                         }
                         self.running = false
                         self.cleanupStaging()
+                    } else if self.target == "ios-shell" {
+                        // The same archive, then the game's framework into the one shared app on the device
+                        let tid = Self.titleID(self.basePath).map { String(format: "%016llX", $0) } ?? "game"
+                        let name = ((self.basePath as NSString).lastPathComponent as NSString).deletingPathExtension
+                        self.packArchive(workDir: self.effectiveWorkDir) {
+                            self.installShell(framework: ShellInstall.frameworkPath(workDir: self.effectiveWorkDir, titleID: tid),
+                                              titleID: tid, name: name, archive: $0)
+                        }
                     } else if self.installsDirectly {
                         // The same archive as for sideloading, then the app without the game files, then the archive into its Documents
                         self.packArchive(workDir: self.effectiveWorkDir) { self.signAndInstall(archive: $0) }
@@ -1442,6 +1466,27 @@ final class BuildModel: ObservableObject {
         }
         proc = p
         do { try p.run(); Self.track(p) } catch { fail(String(format: t("msg.launchFailed"), error.localizedDescription)) }
+    }
+
+    private var shellDeviceChecked = false
+
+    /// Looks the device up in `devicectl list devices` (in the background), then starts the build, or says how to pair it.
+    private func verifyShellDevice() {
+        running = true; done = false; doneNote = ""; failure = nil; stages = []
+        let xcrun = xcrunPath, device = installDevice
+        DispatchQueue.global(qos: .userInitiated).async {
+            let link = ShellInstall.connection(of: device, in: DeviceTools.devices(xcrun: xcrun, timeout: 20))
+            DispatchQueue.main.async {
+                self.running = false
+                if link == .notPaired {
+                    self.failure = BuildFailure(kind: .devicePairing, gameName: nil)
+                    self.doneNote = String(format: self.t("shell.notPaired"), self.deviceName(device))
+                    return
+                }
+                self.shellDeviceChecked = true
+                self.startBuild()
+            }
+        }
     }
 
     /// The build's last step is done either way: release the button and show the outcome.
@@ -1536,8 +1581,10 @@ final class BuildModel: ObservableObject {
             chooseBuildFolder()
         case .teamTaken, .noSigningAccount:
             openXcode()
-        case .deviceTransfer:
+        case .deviceTransfer, .devicePairing:
             startBuild()
+        case .shellDataIncomplete:
+            retryShellData()
         default: break
         }
     }
@@ -2085,6 +2132,87 @@ final class BuildModel: ObservableObject {
         }
     }
 
+    /// Steps 4 to 7 of the shared app (ShellInstall.swift) for a game whose framework is built and whose archive is packed: the
+    /// shell's project, signing, the install over the app that is already there, and the game data the device lacks.
+    func installShell(framework: String, titleID: String, name: String, archive: String, dataOnly: Bool = false) {
+        running = true
+        if dataOnly { failure = nil; done = false; doneNote = "" }
+        shellRetry = (framework, titleID, name, archive)
+        let python = pythonPath.isEmpty ? Self.findPython().path : pythonPath
+        let root = ShellLibrary.resolveRoot(parent: outDir.isEmpty ? (basePath as NSString).deletingLastPathComponent : outDir)
+        var installer = ShellInstaller(xcrun: xcrunPath, repo: repoPath, python: python, root: root, device: installDevice, team: signingTeam)
+        installer.deviceName = deviceName(installDevice)
+        installer.lang = lang
+        installer.ownGroup = true
+        installer.toolPath = Self.toolPath("/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin", python: python)
+        installer.log = { s in DispatchQueue.main.async { self.append(s) } }
+        installer.stage = { s in DispatchQueue.main.async {
+            if let i = self.stages.firstIndex(where: { $0.id == s.id }) {
+                self.stages[i].name = s.name; self.stages[i].state = s.state; self.stages[i].detail = s.detail
+                if let percent = s.percent { self.stages[i].percent = percent }
+                if s.state == .running, self.stages[i].started == nil { self.stages[i].started = Date() }
+            } else {
+                self.stages.append(Stage(id: s.id, name: s.name, state: s.state, detail: s.detail, percent: s.percent,
+                                         started: s.state == .running ? Date() : nil))
+            }
+        } }
+        installer.processStarted = { p in DispatchQueue.main.async { self.proc = p; Self.track(p) } }
+        installer.processEnded = { p in Self.untrack(p) }
+        // The size and the connection are shown with Continue, "Wait for a cable" and "Not now" (ShellCopyCard)
+        installer.decideCopy = { plan in
+            let answered = DispatchSemaphore(value: 0)
+            var answer = ShellCopyDecision.skip
+            DispatchQueue.main.async {
+                self.shellWaitCancelled.set(false)
+                self.shellCopyAnswer = { answer = $0; answered.signal() }
+                self.shellCopy = plan
+            }
+            answered.wait()
+            return answer
+        }
+        installer.waiting = { on in DispatchQueue.main.async { self.shellWaiting = on } }
+        installer.waitCancelled = { self.shellWaitCancelled.value }
+        let device = installDevice
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = dataOnly ? installer.installData(titleID: titleID, archive: archive)
+                                  : installer.install(framework: framework, titleID: titleID, name: name, archive: archive)
+            DispatchQueue.main.async {
+                self.shellCopy = nil; self.shellWaiting = false
+                if self.stopping {
+                    self.stopping = false; self.running = false
+                    self.resetProgress(); self.doneNote = self.t("msg.stopped"); self.cleanupStaging()
+                    return
+                }
+                guard result.ok else {
+                    self.finishInstall(result.message)
+                    if let kind = result.failure { self.failure = BuildFailure(kind: kind, gameName: nil) }
+                    else if let step = result.step { self.noteInstallFailure(step, error: result.message) }
+                    return
+                }
+                self.installedOn = device
+                self.installedAppPath = result.appPath
+                self.finishInstall(nil, note: result.message)
+            }
+        }
+    }
+
+    /// What the player picked on the copy card (Continue, wait for a cable, not now), handed to the install waiting for it.
+    func answerShellCopy(_ decision: ShellCopyDecision) {
+        guard let answer = shellCopyAnswer else { return }
+        shellCopyAnswer = nil
+        shellCopy = nil
+        answer(decision)
+    }
+
+    /// "Stop waiting" while the install waits for a cable: the poll ends at its next look and the game data stays for later.
+    func cancelShellWait() { shellWaitCancelled.set(true) }
+
+    /// Retry after game data that went over in part: only the data step runs again (listing, diff, copy).
+    func retryShellData() {
+        guard !running, let r = shellRetry else { return }
+        installShell(framework: r.framework, titleID: r.titleID, name: r.name, archive: r.archive, dataOnly: true)
+    }
+
     private func finishInstall(_ failure: String?, note: String? = nil) {
         running = false
         done = failure == nil
@@ -2130,26 +2258,33 @@ final class BuildModel: ObservableObject {
             doneNote = t("dev.resignNoTeam")
             then?(); return
         }
-        guard let bundle = NSDictionary(contentsOfFile: app + "/Info.plist")?["CFBundleIdentifier"] as? String else {
+        let shell = ShellInstall.paths(ofApp: app)
+        // The shared app's identifier is the one shell.json holds, the others' is the installed app's own
+        guard let bundle = shell.map({ ShellLibrary.load(root: $0.root).bundleID })
+                ?? (NSDictionary(contentsOfFile: app + "/Info.plist")?["CFBundleIdentifier"] as? String) else {
             doneNote = String(format: t("dev.noProject"), shortPath(app + "/Info.plist"))
             then?(); return
         }
-        guard let paths = Self.buildPaths(ofApp: app), FileManager.default.fileExists(atPath: paths.project) else {
+        guard let paths = shell.map({ (project: $0.project, derived: $0.derived) }) ?? Self.buildPaths(ofApp: app),
+              FileManager.default.fileExists(atPath: paths.project) else {
             doneNote = String(format: t("dev.resignNoProject"), shortPath(Self.buildPaths(ofApp: app)?.project ?? app))
             then?(); return
         }
         let xcrun = xcrunPath, team = signingTeam, name = deviceName(device)
         DispatchQueue.global(qos: .userInitiated).async {
-            let scheme = Self.scheme(of: paths.project, xcrun: xcrun)
+            let scheme = shell != nil ? ShellInstall.scheme : Self.scheme(of: paths.project, xcrun: xcrun)
             DispatchQueue.main.async {
                 guard let scheme else {
                     self.doneNote = String(format: self.t("dev.noProject"), self.shortPath(paths.project))
                     then?(); return
                 }
                 self.running = true
+                // The shared app is signed again under the identifier shell.json holds, so the device keeps its Documents
+                let command = shell.map { ShellInstall.buildCommand(xcrun: xcrun, root: $0.root, device: device, team: team, bundleID: bundle) }
+                    ?? Self.resignCommand(xcrun: xcrun, project: paths.project, scheme: scheme, device: device,
+                                          derived: paths.derived, team: team, bundle: bundle)
                 self.runTool(id: 1006, name: String(format: self.t("dev.resignStage"), name),
-                             Self.resignCommand(xcrun: xcrun, project: paths.project, scheme: scheme, device: device,
-                                                derived: paths.derived, team: team, bundle: bundle), step: Self.xcodeStep) { error in
+                             command, step: Self.xcodeStep) { error in
                     if let error, !error.isEmpty {
                         self.running = false
                         self.doneNote = String(format: self.t("dev.resignFailed"), error)
@@ -3205,6 +3340,7 @@ struct BuilderView: View {
         if m.target != "mac-app" { install.disabled(m.running) }
         logPanel
         action
+        ShellCopyCard(m: m)
         BuildFailureCard(m: m)
         outcome
         progress
@@ -3296,6 +3432,7 @@ struct BuilderView: View {
             HStack(spacing: 14) {
                 targetCard("mac-app", symbol: "desktopcomputer", title: "build.mac", note: "build.macNote")
                 targetCard("ios", symbol: "iphone", title: "build.ios", note: "build.iosNote")
+                targetCard("ios-shell", symbol: "square.stack.3d.up", title: "build.shell", note: "build.shellNote")
             }
             // A Mac app runs on this Mac's GPU, which always decodes BC textures: the switch is the iPhone's only.
             if m.target != "mac-app" {
@@ -3784,4 +3921,12 @@ struct BuilderView: View {
         d.message = m.t("repo.pickMessage")
         if d.runModal() == .OK, let u = d.url { m.repoPath = u.path }
     }
+}
+
+/// A flag two threads share (the cancel button on the main thread, the install's wait loop on a background one).
+final class LockedFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var flag = false
+    func set(_ value: Bool) { lock.lock(); flag = value; lock.unlock() }
+    var value: Bool { lock.lock(); defer { lock.unlock() }; return flag }
 }

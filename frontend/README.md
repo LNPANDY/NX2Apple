@@ -84,6 +84,18 @@ that did not change, so a reinstall sends the code and shaders, not the whole ga
 again. The first copy of a large game takes a few minutes. The game then appears
 in the collection, and its button opens it on the device.
 
+**iPhone or iPad (one app for all games)** is a third target for the same device. The build
+script makes only the game's framework (`--shell-framework`), and one shared app on the device
+holds every game you add. The launcher keeps the list of games in `shell.json` in the
+`NX2Apple-shell` folder (next to the output folder, saved as `shellRoot`), generates the app's
+project with `dm/ios/tools/build_shell.sh --prepare-xcode`, signs it with `xcodebuild` and
+installs it over the one already there, which keeps the app's Documents. Game data is
+compared with the device by path and size and only what is missing is copied, so a second
+install of the same game copies nothing. The same steps run without the window:
+
+    NSPortBuilder --install-shell --framework <path> --archive <games/TITLEID folder> --title-id <id> \
+        --name <name> --device <udid> --team <team> --repo <repo> [--shell-root <dir>] [--python <path>]
+
 The first time, turn on Developer Mode on the device and trust the developer
 under Settings → General → VPN & Device Management. With a free Apple ID the
 profile expires after seven days. **Don't install, export the IPA** keeps the

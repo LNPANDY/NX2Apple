@@ -7,6 +7,10 @@ struct AppleDevice: Identifiable, Equatable {
     let model: String
     let os: String
     let reachable: Bool     // connected now, by cable or the local network
+    var transport = ""      // devicectl's connectionProperties.transportType: "wired" (cable), "localNetwork" (Wi-Fi), "" when not connected
+
+    var wired: Bool { transport == "wired" }
+    var overNetwork: Bool { transport == "localNetwork" }
 }
 
 /// A team the launcher can sign for: from a development certificate in the keychain, from an account signed in to
@@ -64,7 +68,8 @@ enum DeviceTools {
             return AppleDevice(id: udid, name: properties["name"] as? String ?? udid,
                                model: hardware["marketingName"] as? String ?? "",
                                os: properties["osVersionNumber"] as? String ?? "",
-                               reachable: connection["transportType"] is String)
+                               reachable: connection["transportType"] is String,
+                               transport: connection["transportType"] as? String ?? "")
         }
         return devices.sorted { ($0.reachable ? 0 : 1, $0.name) < ($1.reachable ? 0 : 1, $1.name) }
     }
