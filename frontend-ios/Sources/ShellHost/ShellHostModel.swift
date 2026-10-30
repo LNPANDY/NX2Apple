@@ -243,7 +243,10 @@ public struct ShellHostConfig: Sendable {
         guard let entry = entry(id) else { return }
         let app = appFolder(for: id)
         let folders = [data(for: entry).url, app].compactMap { $0 }
+        // The shell's engine writes Documents/log.txt (EngineLaunchPlan) for whichever game ran last, so it counts only when that run was this game's
+        let engine = config.appDataRoot.deletingLastPathComponent().appendingPathComponent("log.txt")
         let found = folders.lazy.compactMap { LogReader.read($0.appendingPathComponent("log.txt")) }.first
+            ?? (LogReader.isRun(of: id, engine) ? LogReader.read(engine) : nil)
         log = LogPresentation(gameID: id, title: entry.title, text: found?.text, truncated: found?.truncated ?? false)
     }
 

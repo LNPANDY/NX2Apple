@@ -176,6 +176,18 @@ final class Clock: @unchecked Sendable { var date: Date; init(_ d: Date) { date 
         #expect(model.log?.text == "boot ok\nframe 1\n" && model.log?.truncated == false)
     }
 
+    @Test func showLogReadsTheEngineLogOnlyForTheGameThatRanLast() throws {
+        let box = try Sandbox()
+        let model = ShellHostModel(config: box.config())
+        let engine = box.root.appendingPathComponent("Documents/log.txt")
+        try box.write("shell: starting /app/Frameworks/DmGame\(Fixtures.orbit).framework/dm\nboot ok\n", to: engine)
+        model.actions.onShowLog(Fixtures.orbit)
+        #expect(model.log?.text?.hasSuffix("boot ok\n") == true)
+        try box.write("shell: starting /app/Frameworks/DmGame0100000000020000.framework/dm\nboot ok\n", to: engine)
+        model.actions.onShowLog(Fixtures.orbit)
+        #expect(model.log?.text == nil)
+    }
+
     @Test func aLongLogShowsItsEnd() throws {
         let box = try Sandbox()
         let url = box.appData.appendingPathComponent("log.txt")

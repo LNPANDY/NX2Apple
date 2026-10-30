@@ -24,4 +24,13 @@ public enum LogReader {
         guard (try? handle.seek(toOffset: start)) != nil, let data = try? handle.readToEnd() else { return nil }
         return (String(decoding: data, as: UTF8.self), start > 0)
     }
+
+    /// True when the log at `url` is a run of the game `id`: the shell's first lines name the game's framework
+    /// (`shell: starting …/DmGame<title ID>.framework/…`, ShellMain.m).
+    public static func isRun(of id: String, _ url: URL) -> Bool {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return false }
+        defer { try? handle.close() }
+        guard let head = try? handle.read(upToCount: 8192) else { return false }
+        return String(decoding: head, as: UTF8.self).contains("/DmGame\(id).framework/")
+    }
 }
