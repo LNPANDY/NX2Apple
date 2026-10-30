@@ -104,7 +104,7 @@ public struct GameDetailView: View {
 
     private func group<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            SectionHeading(title: title).padding(.leading, 4)
+            SectionHeading(title: title)
             VStack(alignment: .leading, spacing: 14) { content() }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .shellCard()

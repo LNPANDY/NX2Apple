@@ -224,7 +224,8 @@ public struct LibraryView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
-                        PaneBanner(game: selected.game, width: width, topInset: insets.top).id("set.top")
+                        PaneBanner(game: selected.game, width: width + insets.leading + insets.trailing,
+                                   leading: insets.leading, topInset: insets.top).id("set.top")
                         GameDetailView(detail: selected, actions: actions, showsPrimaryAction: true, showsHeader: false)
                             .padding(.horizontal, 24).padding(.top, 18).padding(.bottom, 32 + insets.bottom)
                             // A phone on its side: a readable column, not rows stretched across the whole width.
@@ -344,33 +345,27 @@ public struct LibraryView: View {
 /// so the banner's own logo and the title never overlap. Capped in height for a phone on its side.
 private struct PaneBanner: View {
     let game: GameTile
+    /// The full width, edge to edge under the side safe areas.
     let width: CGFloat
+    /// The leading safe area: the words keep it, the banner does not.
+    var leading: CGFloat = 0
     /// The status bar's height where the banner runs under it.
     var topInset: CGFloat = 0
     var body: some View {
         let bannerHeight = min(width * 9 / 16, 220) + topInset
-        VStack(alignment: .leading, spacing: 8) {
-            StatusLabel(state: game.state, prominent: true)
-            // Two lines are always reserved, so the settings below start at the same place for every game.
-            ZStack(alignment: .topLeading) {
-                Text("M\nM").shellType(ShellType.pageTitle).hidden().accessibilityHidden(true)
-                Text(game.title).shellType(ShellType.pageTitle)
-                    .lineLimit(2)
-                    .accessibilityAddTraits(.isHeader).accessibilityIdentifier("detail.title")
-            }
-            HStack(spacing: 8) {
-                SectionHeading(title: ShellStrings.text("Game settings"))
-                if !game.subtitle.isEmpty {
-                    Text(game.subtitle).shellType(ShellType.note).foregroundStyle(.white.opacity(0.5))
-                }
-            }.padding(.top, 2)
+        // The words are bottom-aligned in a block that always reserves two lines of title, as in the library hero: a
+        // short title shows more banner above it instead of leaving a hole, and the settings start at the same place.
+        ZStack(alignment: .bottomLeading) {
+            words(title: "M\nM").hidden().accessibilityHidden(true)
+            words(title: game.title)
         }
-        .padding(.horizontal, 24)
+        .padding(.leading, leading + 24).padding(.trailing, 24)
         .padding(.top, bannerHeight - 22)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(alignment: .top) {
+        .background {
+            // The banner fills the whole header edge to edge, cropped as needed, and fades into the page under the words.
             ArtView(game: game, lettering: false)
-                .frame(width: width, height: bannerHeight)
+                .frame(width: width)
                 .overlay(alignment: .top) {
                     // Darker under the status bar, so the time and battery stay legible on any art.
                     if topInset > 0 {
@@ -378,11 +373,29 @@ private struct PaneBanner: View {
                             .frame(height: topInset + 50)
                     }
                 }
+                .overlay {
+                    LinearGradient(stops: [.init(color: .clear, location: 0.35), .init(color: .black.opacity(0.45), location: 0.7),
+                                           .init(color: .black.opacity(0.6), location: 1)], startPoint: .top, endPoint: .bottom)
+                }
                 .mask {
-                    LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.55),
+                    LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.7),
                                            .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom)
                 }
                 .accessibilityHidden(true)
+        }
+    }
+
+    private func words(title: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            StatusLabel(state: game.state, prominent: true)
+            Text(title).shellType(ShellType.pageTitle).lineLimit(2)
+                .accessibilityAddTraits(.isHeader).accessibilityIdentifier("detail.title")
+            HStack(spacing: 8) {
+                SectionHeading(title: ShellStrings.text("Game settings"))
+                if !game.subtitle.isEmpty {
+                    Text(game.subtitle).shellType(ShellType.note).foregroundStyle(.white.opacity(0.5))
+                }
+            }.padding(.top, 2)
         }
     }
 }
