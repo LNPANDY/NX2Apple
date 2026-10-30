@@ -21,6 +21,16 @@ enum LauncherPalette {
     static let unbuilt = Color(red: 0.57, green: 0.58, blue: 0.61)
 }
 
+/// The library's filter ("全部 / 已拥有 / 已构建"): remembered between launches.
+enum LibraryFilter: String, CaseIterable, Identifiable {
+    case all, owned, built
+    var id: String { rawValue }
+    var labelKey: String { "filter." + rawValue }
+
+    static func load() -> LibraryFilter { LibraryFilter(rawValue: UserDefaults.standard.string(forKey: "libraryFilter") ?? "") ?? .all }
+    func save() { UserDefaults.standard.set(rawValue, forKey: "libraryFilter") }
+}
+
 struct ContentView: View {
     @StateObject private var m: BuildModel
     @StateObject private var library: GameLibrary
@@ -84,8 +94,33 @@ struct ContentView: View {
         if injectedDriver { consoleDriver.setPadMerge(on) }
     }
 
+    /// The games nxnative has profiles for, loaded from the checkout's dm/games: the "All" filter shows
+    /// these beside the player's own, covers scraped the same way.
+    @State private var supportedGames: [LibraryGame] = []
+    /// A profile-only card the player focused: it has no build, so the hero shows a hint instead of Play.
+    @State private var selectedUnowned: String?
+    @State private var libraryFilter: LibraryFilter = LibraryFilter.load() {
+        didSet { if libraryFilter != oldValue { libraryFilter.save(); selectedUnowned = nil; library.selectedID = nil } }
+    }
+
+    private func loadSupportedGames() {
+        supportedGames = SupportedGames.load(repo: m.repoPath)
+    }
+
+    private func isUnowned(_ game: LibraryGame) -> Bool {
+        !library.games.contains { $0.titleID == game.titleID }
+    }
+
     private var filteredGames: [LibraryGame] {
-        library.games.filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) }
+        let owned = library.games.filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) }
+        let unowned = supportedGames
+            .filter { s in !library.games.contains { $0.titleID == s.titleID } }
+            .filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) }
+        switch libraryFilter {
+        case .all: return owned + unowned
+        case .owned: return owned
+        case .built: return owned.filter { $0.isReady || $0.hasIOSBuild }
+        }
     }
 
     var body: some View {
@@ -164,6 +199,7 @@ struct ContentView: View {
             refreshArtwork()
             readSignatures()
             if performStartupChecks { library.discover(); fetchArtwork(); m.refreshDevices(); checkTools() }
+            loadSupportedGames()
             if performStartupChecks {
                 m.checkDeps()
                 if m.repoOK && m.repoIsGit { m.checkRepoUpdates(silent: true) } else { m.adoptAtLaunch() }
@@ -182,7 +218,7 @@ struct ContentView: View {
             readSignatures()
             if performStartupChecks { fetchArtwork() }
         }
-        .onChange(of: m.repoPath) { _ in refreshArtwork(); if performStartupChecks { checkTools() } }
+        .onChange(of: m.repoPath) { _ in refreshArtwork(); loadSupportedGames(); if performStartupChecks { checkTools() } }
         // A clone, pull or update check has finished (the automatic pull at launch among them): the checkout may have moved
         .onReceive(m.$repoBusy.removeDuplicates().dropFirst()) { busy in if !busy && performStartupChecks { checkTools() } }
         .onChange(of: library.selectedID) { _ in resignNote = nil }   // the last re-sign's note belongs to its game
@@ -391,13 +427,14 @@ struct ContentView: View {
 
     private var libraryPage: some View {
         GeometryReader { geometry in
-            if library.games.isEmpty {
+            if library.games.isEmpty && supportedGames.isEmpty {
                 emptyLibrary
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
-                        if let game = library.selected {
-                            hero(game, width: geometry.size.width, height: max(240, geometry.size.height - collectionHeight))
+                        if let entry = currentHero {
+                            hero(entry.game, unowned: entry.unowned,
+                                 width: geometry.size.width, height: max(240, geometry.size.height - collectionHeight))
                         }
                         // The hero takes what the collection leaves: the row's height grows with the window's width (its cards
                         // do, up to 300 pt), so a fixed share left a fullscreen window's cards cut off at the bottom
@@ -435,7 +472,7 @@ struct ContentView: View {
         .padding(48).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
     }
 
-    private func hero(_ game: LibraryGame, width: CGFloat, height: CGFloat) -> some View {
+    private func hero(_ game: LibraryGame, unowned: Bool = false, width: CGFloat, height: CGFloat) -> some View {
         ZStack(alignment: .bottomLeading) {
             if let image = artwork[game.id] {
                 Image(nsImage: image).resizable().scaledToFill()
@@ -470,6 +507,11 @@ struct ContentView: View {
                 Text(game.name).font(.manrope(min(68, width * 0.052), .heavy))
                     .tracking(-1.6).lineLimit(2).shadow(color: .black.opacity(0.25), radius: 12)
                 HStack(spacing: 18) {
+                    if unowned {
+                        Text(m.t("library.notOwnedHint"))
+                            .font(.manrope(14)).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true).frame(maxWidth: 460, alignment: .leading)
+                    } else {
                     Button { primaryAction(game) } label: {
                         Label(game.primary == .play ? m.t("library.play")
                                 : (game.primary == .openOnDevice ? String(format: m.t("dev.open"), m.deviceName(game.installedDevice))
@@ -497,6 +539,7 @@ struct ContentView: View {
                         .buttonStyle(.plain).accessibilityLabel(m.t("library.manage"))
                         .anchorPreference(key: ManageAnchorKey.self, value: .bounds) { $0 }
                         .padTarget("hero.manage", scope: "main", radius: 12) { manageOpenFor = game.id }
+                    }
                 }
                 // A free Apple ID's provisioning profile lasts 7 days. Say when this app's runs out, and offer the
                 // re-sign at any time: renewing early (before a trip, say) is as valid as renewing just in time.
@@ -530,6 +573,17 @@ struct ContentView: View {
         .frame(width: width, height: height).clipped()
     }
 
+    /// The hero's game: the player's selection, else the focused profile-only card. The unowned flag rides
+    /// along (a transient var on the copy, never persisted).
+    private var currentHero: (game: LibraryGame, unowned: Bool)? {
+        if let id = selectedUnowned, let game = supportedGames.first(where: { $0.titleID == id }) {
+            return (game, true)
+        }
+        if library.selectedID == nil, let first = filteredGames.first { return (first, isUnowned(first)) }
+        if let game = filteredGames.first(where: { $0.id == library.selectedID }) { return (game, isUnowned(game)) }
+        return nil
+    }
+
     private func collection(width: CGFloat) -> some View {
         let cardWidth = min(300, max(190, (width - 124) / 5))
         let step = cardWidth + 14
@@ -537,8 +591,25 @@ struct ContentView: View {
             HStack {
                 Text(m.t("library.collection")).font(.manrope(28, .bold)).tracking(-0.6)
                 Spacer()
-                Text(String(format: m.t("library.gameCount"), library.games.count))
+                Text(String(format: m.t("library.gameCount"), filteredGames.count))
                     .font(.manrope(12)).foregroundStyle(.secondary)
+            }
+            HStack(spacing: 8) {
+                ForEach(LibraryFilter.allCases) { f in
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) { libraryFilter = f }
+                    } label: {
+                        Text(m.t(f.labelKey)).font(.manrope(13, libraryFilter == f ? .bold : .medium))
+                            .padding(.horizontal, 14).padding(.vertical, 7)
+                            .background(libraryFilter == f ? Color.white.opacity(0.12) : Color.white.opacity(0.05),
+                                        in: Capsule())
+                            .overlay(Capsule().strokeBorder(libraryFilter == f ? LauncherPalette.cream.opacity(0.55) : Color.white.opacity(0.08)))
+                            .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(libraryFilter == f ? .isSelected : [])
+                }
+                Spacer()
             }
             if filteredGames.isEmpty {
                 Text(m.t("library.noResults")).foregroundStyle(.secondary).padding(.vertical, 28)
@@ -547,7 +618,10 @@ struct ContentView: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                         HStack(alignment: .top, spacing: 14) {
                             ForEach(filteredGames) { game in
-                                Button { library.selectedID = game.id } label: {
+                                let unowned = isUnowned(game)
+                                Button {
+                                    if unowned { selectedUnowned = game.titleID } else { selectedUnowned = nil; library.selectedID = game.id }
+                                } label: {
                                     VStack(alignment: .leading, spacing: 8) {
                                         ZStack {
                                             if let image = artwork[game.id] {
@@ -559,18 +633,29 @@ struct ContentView: View {
                                         }
                                         .frame(width: cardWidth, height: cardWidth / 1.8).clipped()
                                         .clipShape(RoundedRectangle(cornerRadius: 5))
+                                        .overlay(alignment: .topTrailing) {
+                                            if unowned {
+                                                Text(m.t("library.notOwnedShort"))
+                                                    .font(.manrope(10, .bold)).tracking(0.4)
+                                                    .foregroundStyle(.white).padding(.horizontal, 7).padding(.vertical, 3)
+                                                    .background(LauncherPalette.unbuilt.opacity(0.85), in: Capsule())
+                                                    .padding(6)
+                                            }
+                                        }
                                         .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(
-                                            game.id == library.selectedID ? LauncherPalette.cream : .clear, lineWidth: 2))
+                                            (unowned ? selectedUnowned == game.titleID : game.id == library.selectedID) ? LauncherPalette.cream : .clear, lineWidth: 2))
                                         Text(game.name).font(.manrope(16, .semibold)).lineLimit(1)
                                         status(game)
-                                        Capsule().fill(game.id == library.selectedID ? LauncherPalette.cream : .clear)
+                                        Capsule().fill((unowned ? selectedUnowned == game.titleID : game.id == library.selectedID) ? LauncherPalette.cream : .clear)
                                             .frame(height: 3).padding(.top, 4)
                                     }
                                     .frame(width: cardWidth, alignment: .leading).contentShape(Rectangle())
                                 }
                                 .buttonStyle(.plain)
-                                .accessibilityAddTraits(game.id == library.selectedID ? .isSelected : [])
-                                .padTarget("card." + game.id.uuidString, scope: "main", radius: 7) { if !launching { primaryAction(game) } }
+                                .accessibilityAddTraits((unowned ? selectedUnowned == game.titleID : game.id == library.selectedID) ? .isSelected : [])
+                                .padTarget("card." + game.id.uuidString, scope: "main", radius: 7) {
+                                    if !launching && !unowned { primaryAction(game) }   // a profile-only card has nothing to run
+                                }
                             }
                         }
                         // Room for the controller's focus ring, which sits 4 pt outside a card: the row clips at its edges, so it
