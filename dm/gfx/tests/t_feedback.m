@@ -1,4 +1,5 @@
-// Feedback snapshots and their per-draw argument substitution include separate texture slots.
+// Feedback snapshots and their per-draw argument substitution include separate texture slots; a snapshot is reused until the game's next barrier,
+// and a draw that only samples an attachment nothing in its pass has written reads it directly.
 #include "../nvn/nvn_mtl.m"
 void *front_metal_layer(void) { return NULL; }
 module_t *module_of(const void *p) { (void)p; return NULL; }
@@ -80,8 +81,41 @@ static void slot_case(NvProg *pr, id<MTLRenderPipelineState> pipeline, int slot,
     printf("feedback slot %d: %s\n", slot, before == failed ? "PASS" : "FAIL");
     mtl_tex_release(&source); mtl_tex_release(&output);
 }
+// The rule without a listed shader: copy once, reuse until a barrier, end the pass when an earlier draw of it read the attachment directly.
+static void reuse_case(NvProg *pr) {
+    int before = failed, tid = 650; NvShader *fs = pr->sh[1]; fs->rf.b[0].reg = 0;
+    tex_t source; target(&source, 99790);
+    mtl_reg_tex(tid, &source, NULL);
+    state_reset(); memset(&R, 0, sizeof R); mtl_sub_begin();
+    R.has_rt = 1; R.rt.n = 1; R.rt.color[0] = &source; S.tex[1][0] = tid;
+    S.chmask.mask = 0; clear(MTLClearColorMake(1, 0, 0, 1));
+    uint64_t copies = g_fb_count;
+    fb_prepare(pr);
+    CHECK(g_fb_n == 0 && g_enc, "a draw that writes nothing reads an unwritten attachment directly");
+    S.chmask.mask = 0xffffffffu;
+    fb_prepare(pr);
+    CHECK(g_fb_n == 1 && !g_enc && g_fb_count == copies + 1, "a writing draw takes a snapshot");
+    id<MTLTexture> first = g_fb_use[0];
+    clear(MTLClearColorMake(0, 1, 0, 1));
+    fb_prepare(pr);
+    CHECK(g_fb_n == 1 && g_enc && g_fb_count == copies + 1 && g_fb_use[0] == first, "the next writing draw reuses the snapshot without ending the pass");
+    S.chmask.mask = 0; rp_end(); clear(MTLClearColorMake(0, 1, 0, 1));
+    fb_prepare(pr);
+    CHECK(g_fb_n == 0 && g_enc, "a reading draw first in a pass reads directly");
+    S.chmask.mask = 0xffffffffu;
+    fb_prepare(pr);
+    CHECK(g_fb_n == 1 && !g_enc && g_fb_count == copies + 1, "a writing draw after a direct read ends the pass and reuses the snapshot");
+    g_fb_bar++;
+    clear(MTLClearColorMake(0, 0, 1, 1));
+    fb_prepare(pr);
+    CHECK(g_fb_n == 1 && !g_enc && g_fb_count == copies + 2, "a game barrier makes the next writing draw take a fresh snapshot");
+    rp_end();
+    CHECK(mtl_wait(mtl_sub_commit(), 5000000000ull), "GPU submission completed");
+    CHECK(!mtl_last_commit_error(), "GPU submission has no error");
+    printf("feedback reuse: %s\n", before == failed ? "PASS" : "FAIL");
+    mtl_tex_release(&source);
+}
 int main(void) { @autoreleasepool {
-    setenv("DM_NVN_FB_SNAP", "0123456789abcdef", 1);
     setenv("DM_NVN_TBDR", "0", 1);
     mtl_init(); NSError *error = nil;
     id<MTLLibrary> lib = [g_dev newLibraryWithSource:@"#include <metal_stdlib>\nusing namespace metal;\n"
@@ -103,6 +137,7 @@ int main(void) { @autoreleasepool {
     if (!pipeline) { fprintf(stderr, "%s\n", error.localizedDescription.UTF8String); return 1; }
     const int slots[] = {0, 128, 255};
     for (int i = 0; i < 3; i++) slot_case(pr, pipeline, slots[i], i);
+    reuse_case(pr);
     printf("feedback snapshot: %d checks, %d failed\n", checks, failed);
     return failed != 0;
 } }

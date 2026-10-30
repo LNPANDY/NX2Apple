@@ -179,6 +179,15 @@ class Build(unittest.TestCase):
         self.assertEqual(len(self.calls), 4)
         self.assertFalse((self.out / 'rest_pairs.tsv').exists())
 
+    def test_macos_takes_this_macs_major_version(self):   # not the SDK's: Xcode 27.1's SDK is 27.0 on macOS 26.6, which cannot open a 27.0 archive (GitHub issue #673)
+        def run(cmd, **kw):
+            cmd = [str(c) for c in cmd]
+            if cmd == ['sw_vers', '-productVersion']: return subprocess.CompletedProcess(cmd, 0, '26.6.2\n', '')
+            return self.fake_run(cmd)
+        with mock.patch.object(po.subprocess, 'run', run), mock.patch.dict(os.environ, DM_GAMES_DIR=str(self.prof.parent)), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(po.main(['--game', '0100000000001000', '--msl', str(self.lib), '--out', str(self.out), '--work', str(self.work), '--platform', 'macos', '--gpu', 'g16s']), 0)
+        self.assertEqual(self.calls[0][:8], ['xcrun', '-sdk', 'macosx', 'metal-tt', '-arch', 'applegpu_g16s', '-macos-version-min', '26.0'])
+
     def test_depth_override_and_bad_key(self):
         self.main('--depth', 'gl', '--script-only')
         self.assertIn('depth\tnear=-w\n', (self.out / 'prebuilt.tsv').read_text()); self.assertEqual(self.calls, [])

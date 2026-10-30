@@ -23,8 +23,14 @@ static int hid_usleep(useconds_t usec) { (void)usec; if (script_hold) script_hol
 int dm_opmode(void) { return g_mode; }
 uint64_t guest_ns(void) { return 1000000000ull; }
 uint64_t now_ns(void) { return motion_now; }
-uint64_t dm_guest_frame(void) { return 0; }
-void dm_touch_set(const dm_touch *t, int n) { (void)t; (void)n; }
+static uint64_t test_frame;   // presented frames (t_rec moves it)
+uint64_t dm_guest_frame(void) { return test_frame; }
+// The touchscreen as the game would read it: the first finger, and whether one was put down since the last read (a touch's Start is reported once, hle_touch.c)
+static int touch_down, touch_new, touch_downs; static float touch_x, touch_y;
+static void touch_to(const dm_touch *t, int n) { if (n > 0) { touch_new |= !touch_down; touch_downs += !touch_down; touch_x = t[0].x; touch_y = t[0].y; } touch_down = n > 0; }
+void (*_Atomic dm_touch_observer)(const dm_touch *t, int n);
+void dm_touch_set(const dm_touch *t, int n) { touch_to(t, n); void (*o)(const dm_touch *, int) = atomic_load(&dm_touch_observer); if (o) o(t, n); }
+void dm_touch_script(const dm_touch *t, int n) { touch_to(t, n); }
 int touch_fill_n(void *out, int max, uint64_t now) { (void)out; (void)max; (void)now; return 0; }
 int gesture_fill(void *out, int n, uint64_t now) { (void)out; (void)n; (void)now; return 0; }
 void dm_gfx_shot_at(long frame, const char *path) { (void)frame; (void)path; }
@@ -237,6 +243,7 @@ static void t_script(void) {
     g_mode = 1; dm_pad_players(1);
     dm_pad_set(0, 0, 0, 0, 0); buttons_of(0, STYLE_FULLKEY);
     dm_input_set(DM_BTN_X, 0, 0, 0, 0);
+    static key_step one[1]; g_steps = one; g_cap_steps = 0;
     g_nsteps = 1; g_steps[0] = (key_step){.btn = DM_BTN_A | DM_BTN_SHAKE, .lx = -0x7000, .hold = 0.15};
     script_hold = t_script_hold; keys_main(NULL); script_hold = NULL;
     CHECK(buttons_of(0, STYLE_FULLKEY) == (DM_BTN_B | DM_BTN_X), "script release preserves the controller and keyboard buttons");
@@ -253,7 +260,112 @@ static void t_script(void) {
     CHECK(s.buttons == DM_BTN_A && s.lx == 100 && s.ly == -200 && s.rx == 300 && s.ry == -400, "scripted buttons and all four axes reach player 1 in handheld mode");
     script_set(0, 0, 0, 0, 0); buttons_of(NPAD_HANDHELD, STYLE_HANDHELD);
     g_mode = 1; dm_pad_players(1);
-    g_nsteps = 0;
+    g_nsteps = 0; g_steps = NULL;
+}
+
+// DM_REC (GitHub issue #313): player 1's physical input written as DM_KEYS steps, read back by the DM_KEYS parser and played on the scripted path at the game's reads (keys_sync);
+// the game's view of every frame (buttons with their press latch, the shake, sticks, the touchscreen) is the same in the recording and the replay, to the recorder's stick and touch
+// steps, also for input that arrived after a frame's read
+typedef struct { uint64_t btn; int32_t q[4]; int touch; int32_t tx, ty; } frame_view;
+enum { REC_FRAMES = 64, REC_END = 62 };
+static frame_view rec_live[REC_FRAMES], rec_replay[REC_FRAMES];
+static frame_view game_reads(void) {   // what the game reads in this frame (and consumes: the press latches, a new touch)
+    NpadState s; fill(&s, 0, STYLE_FULLKEY);
+    frame_view v = {(s.buttons & 0xffff) | ((atomic_load(&g_btn) | atomic_load(&g_sc_btn) | atomic_load(&g_pad_btn[0])) & DM_BTN_SHAKE)};
+    int32_t a[4] = {s.lx, s.ly, s.rx, s.ry}; for (int i = 0; i < 4; i++) v.q[i] = (int32_t)lrint(a[i] * 100.0 / DM_STICK_MAX);
+    if ((v.touch = touch_down || touch_new)) { v.tx = (int32_t)lrintf(touch_x * 1000); v.ty = (int32_t)lrintf(touch_y * 1000); }
+    touch_new = 0;
+    return v;
+}
+static void live_to(uint64_t f) { while (test_frame < f) { rec_live[test_frame] = game_reads(); test_frame++; } }   // the game reads, then the next frame is presented
+static void replay_frame(void) { if (test_frame < REC_FRAMES) rec_replay[test_frame] = game_reads(); test_frame++; }   // keys_main waits: a frame goes by
+static void replay_late(void) { replay_frame(); replay_frame(); }   // keys_main waits and wakes late: two frames go by
+static void t_rec(void) {
+    g_mode = 1; dm_pad_players(1);
+    dm_input_set(0, 0, 0, 0, 0); dm_pad_set(0, 0, 0, 0, 0); script_set(0, 0, 0, 0, 0); game_reads();
+    char path[512]; snprintf(path, sizeof path, "%s/t_hid_rec.keys", getenv("TMPDIR") ? getenv("TMPDIR") : "/tmp");
+    test_frame = 0;
+    CHECK(rec_open(path), "DM_REC opens its file");
+    live_to(10); dm_input_set(DM_BTN_A, 0, 0, 0, 0);                         // the keyboard's A
+    live_to(12); dm_pad_set(0, 16384, -8192, 0, 0);                          // the controller's left stick half right, a quarter down
+    live_to(13); dm_pad_set(0, 16400, -8200, 0, 0);                          // drift within a step: no new step
+    live_to(15); dm_input_set(0, 0, 0, 0, 0);
+    live_to(20); dm_pad_set(0, 0, 0, 0, 0);
+    live_to(22); dm_input_set(DM_BTN_B, 0, 0, 0, 0); dm_input_set(0, 0, 0, 0, 0);   // B tapped between two reads: the latch hands it to frame 22's read, recorded there
+                 dm_pad_set(0, 0, 0, DM_STICK_MAX, 0); dm_pad_set(0, 0, 0, 0, 0);    // a stick flicked between two reads: the game cannot see it, not recorded
+    live_to(30); dm_touch_set(&(dm_touch){0, .25f, .75f}, 1);                 // the mouse on the touchscreen, dragged, lifted
+    live_to(31); dm_touch_set(&(dm_touch){0, .3f, .75f}, 1);
+    live_to(32); dm_touch_set(&(dm_touch){0, .302f, .75f}, 1);               // moved within a step
+    live_to(33); dm_touch_set(NULL, 0);
+    live_to(40); dm_input_set(DM_BTN_ZR | DM_BTN_SHAKE, 0, 0, 0, 0);
+    live_to(41); script_set(DM_BTN_X, 0, 0, 0, 0); dm_touch_script(&(dm_touch){0, .5f, .5f}, 1);   // scripted input (DM_KEYS, DM_CTL) is never recorded
+                 game_reads(); script_set(0, 0, 0, 0, 0); dm_touch_script(NULL, 0);
+    live_to(45); dm_input_set(0, 0, 0, 0, 0);
+    live_to(50); rec_live[50] = game_reads(); dm_input_set(DM_BTN_X, 0, 0, 0, 0); test_frame = 51;   // X arrives after frame 50's read: the game sees it from frame 51, stamped there
+    live_to(55); dm_input_set(0, 0, 0, 0, 0);
+    live_to(60); dm_input_set(DM_BTN_Y, 0, 0, 0, 0);                         // still held at exit: ends at the exit's frame
+    live_to(REC_END); dm_rec_finish();
+    atomic_store(&g_rec_on, 0); atomic_store(&dm_touch_observer, NULL); fclose(g_rec_file); g_rec_file = NULL;
+    dm_input_set(0, 0, 0, 0, 0); game_reads();
+
+    char text[1024] = {0}; FILE *f = fopen(path, "r"); size_t n = f ? fread(text, 1, sizeof text - 1, f) : 0; if (f) fclose(f); text[n] = 0; unlink(path);
+    const char *want = "f10:A~f2,\nf12:A+L0.50/-0.25~f3,\nf15:L0.50/-0.25~f5,\nf22:B~f1,\nf30:T0.250x0.750~f1,\nf31:T0.300x0.750~f2,\nf40:ZR+Shake~f5,\nf51:X~f4,\nf60:Y~f2,\n";
+    CHECK(!strcmp(text, want), "DM_REC writes the expected DM_KEYS steps");
+    if (strcmp(text, want)) fprintf(stderr, "recorded:\n%s", text);
+
+    keys_parse(text);
+    CHECK(g_nsteps == 9, "the DM_KEYS parser reads every recorded step");
+    if (g_nsteps == 9) {
+        CHECK(g_steps[1].frame && g_steps[1].at == 12 && g_steps[1].fhold && g_steps[1].hold == 3 && g_steps[1].btn == DM_BTN_A && g_steps[1].lx == 16384 && g_steps[1].ly == -8192,
+              "a recorded step reads back as its frame, frame hold, buttons and stick");
+        CHECK(g_steps[4].tap && g_steps[4].tx == .25f && g_steps[4].ty == .75f && g_steps[6].btn == (DM_BTN_ZR | DM_BTN_SHAKE), "touches and the shake read back");
+    }
+    CHECK(keys_framed(), "a recording is all frame steps held in frames: it is played at the game's reads");
+    touch_downs = 0; g_sync_next = g_sync_held = 0; atomic_store(&g_sync_on, 1);
+    for (test_frame = 0; test_frame <= REC_END; test_frame++) rec_replay[test_frame] = game_reads();
+    CHECK(touch_downs == 1, "a recorded drag replays as one finger that moves, not as taps");
+    CHECK(rec_replay[REC_END - 1].btn == DM_BTN_Y && !rec_replay[REC_END].btn && !atomic_load(&g_sync_on), "the replay ends at the frame the recording ended");
+    int bad = -1;
+    for (int i = 0; i < REC_END && bad < 0; i++) {
+        const frame_view *a = &rec_live[i], *b = &rec_replay[i]; int same = a->btn == b->btn && a->touch == b->touch;
+        for (int k = 0; k < 4; k++) same &= abs(a->q[k] - b->q[k]) < REC_STICK_STEP;
+        if (a->touch) same &= abs(a->tx - b->tx) < REC_TOUCH_STEP && abs(a->ty - b->ty) < REC_TOUCH_STEP;
+        if (!same) bad = i;
+    }
+    CHECK(bad < 0, "the replay gives the game the recorded input in every frame");
+    if (bad >= 0) fprintf(stderr, "frame %d: recorded %#llx L%d/%d touch %d, replayed %#llx L%d/%d touch %d\n", bad, (unsigned long long)rec_live[bad].btn, rec_live[bad].q[0], rec_live[bad].q[1],
+                          rec_live[bad].touch, (unsigned long long)rec_replay[bad].btn, rec_replay[bad].q[0], rec_replay[bad].q[1], rec_replay[bad].touch);
+    CHECK(rec_live[22].btn == DM_BTN_B && rec_replay[22].btn == DM_BTN_B && !rec_replay[23].btn, "a tap between two reads reaches the game once, live and replayed");
+    CHECK(!rec_live[50].btn && !rec_replay[50].btn && rec_replay[51].btn == DM_BTN_X, "input that came after a frame's read reaches the replay's next frame, as it did live");
+    CHECK(!atomic_load(&g_sc_btn) && !touch_down, "the replay releases everything at its end");
+    free(g_steps); g_steps = NULL; g_nsteps = g_cap_steps = 0;
+    // With the step limit raised for long recordings the steps are ordered by a merge sort: repeated groups still interleave, and steps at one time keep their listed order
+    keys_parse("290:A*3/3,291:Left*3/3 291.5:B*3/3\n300:X,300:Y");
+    static const uint64_t order[11] = {DM_BTN_A, DM_BTN_LEFT, DM_BTN_B, DM_BTN_A, DM_BTN_LEFT, DM_BTN_B, DM_BTN_A, DM_BTN_LEFT, DM_BTN_B, DM_BTN_X, DM_BTN_Y};
+    int ordered = g_nsteps == 11; for (int i = 0; ordered && i < 11; i++) ordered = g_steps[i].btn == order[i];
+    CHECK(ordered, "repeats interleave in time order and equal times keep their listed order; spaces and newlines separate steps");
+    free(g_steps); g_steps = NULL; g_nsteps = g_cap_steps = 0;
+    // A recording of the earlier format (stamped when input arrived: a press within one frame as ~f0) still plays at the reads: the press latch hands it to its frame's read
+    keys_parse("f5:B~f0,\nf6:A~f1,\n");
+    g_sync_next = g_sync_held = 0; atomic_store(&g_sync_on, 1); memset(rec_replay, 0, sizeof rec_replay);
+    for (test_frame = 0; test_frame < 9; test_frame++) rec_replay[test_frame] = game_reads();
+    CHECK(rec_replay[5].btn == DM_BTN_B && rec_replay[6].btn == DM_BTN_A && !rec_replay[4].btn && !rec_replay[7].btn, "a hold of 0 frames reaches its frame's read once");
+    free(g_steps); g_steps = NULL; g_nsteps = g_cap_steps = 0;
+    // A list with a step in seconds is played by keys_main. A replay that runs late: two frames go by each time keys_main waits, so the first tap is pressed a frame late and the second is already due when the first is let go. A gap
+    // in the list is a release the game must read, so the second tap is a press of its own (it used to follow without a release, and the game saw one long press)
+    keys_parse("f11:A~f2,\nf14:A~f2,\n");
+    memset(rec_replay, 0, sizeof rec_replay); test_frame = 0; script_hold = replay_late; keys_main(NULL); script_hold = NULL; replay_frame();   // the game reads the last frame
+    int presses = 0; for (int i = 1; i < REC_FRAMES; i++) presses += (rec_replay[i].btn & DM_BTN_A) && !(rec_replay[i - 1].btn & DM_BTN_A);
+    CHECK(presses == 2, "a late replay keeps the release between two taps: the game reads two presses");
+    free(g_steps); g_steps = NULL; g_nsteps = g_cap_steps = 0;
+    // DM_KEYS=@<file>: a recording too long for the environment is read from its file as it is
+    FILE *kf = fopen(path, "w"); CHECK(kf != NULL, "the steps file is written");
+    if (kf) { for (int i = 0; i < 50000; i++) fprintf(kf, "f%d:A+L0.50/-0.25~f1,\n", 2 * i); fclose(kf); }
+    char *kt = keys_file(path); CHECK(kt && strlen(kt) > 1000000, "keys_file reads a recording of more than 1 MiB whole");
+    if (kt) keys_parse(kt); free(kt); unlink(path);
+    CHECK(g_nsteps == 50000 && g_steps[49999].at == 99998, "all 50,000 steps of the file are parsed");
+    free(g_steps); g_steps = NULL; g_nsteps = g_cap_steps = 0;
+    CHECK(!keys_file(path), "a missing steps file reads as none");
 }
 
 // Live controller motion (dm_motion_set): player 1's six-axis sensor reports the controller's tilt and rotation instead of lying flat, and goes back to flat when cleared
@@ -376,6 +488,7 @@ int main(void) {
     t_motion_threads();
     t_motion_live();
     t_motion_hid();
+    t_rec();
     printf("hid players: %d checks, %d failed\n", checks, fails);
     return fails != 0;
 }

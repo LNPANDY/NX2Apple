@@ -228,27 +228,30 @@ class Matching(unittest.TestCase):
             with patch.dict(os.environ, DM_GAME=gid): exec(code, ns)
             self.assertFalse((root / 'own').exists())
 
-    def test_sdk_wide_rules_skip_the_games_own_builds(self):
-        # sdk_patches.py's MATCH_CUTS apply to every game's sdk of a build with no CUTS, unless the selected profile's build rows name it; a miss is not red
+    def test_sdk_wide_rules_apply_to_every_build_without_cuts(self):
+        # sdk_patches.py's MATCH_CUTS apply to every game's sdk of a build with no CUTS, the selected profile's own builds too (without a match.tsv: they lost nothing); an empty
+        # CUTS list keeps Nintendo's code; a miss is not red
         source = TOOLS / 'patch_nso.py'; tree = ast.parse(source.read_text())
         start = next(i for i, n in enumerate(tree.body) if isinstance(n, ast.Assign) and ast.unparse(n.targets[0]) == 'PATCH_FILES')
         end = next(i for i, n in enumerate(tree.body[start:], start) if isinstance(n, ast.Assign) and ast.unparse(n.targets[0]) == 'KEYS')
         code = compile(ast.Module(body=tree.body[start:end], type_ignores=[]), str(source), 'exec')
-        gid, own = '0100000000000001', 'cd' * 16
+        gid, own, kept = '0100000000000001', 'cd' * 16, 'ef' * 16
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp); (root / 'tools').mkdir()
-            (root / 'tools/sdk_patches.py').write_text(f'MATCH_CUTS = {{"sdk": [{self.rule!r}]}}\n')
+            (root / 'tools/sdk_patches.py').write_text(f'CUTS = {{{kept!r}: []}}\nMATCH_CUTS = {{"sdk": [{self.rule!r}]}}\n')
             g = root / 'games' / gid; g.mkdir(parents=True)
             (g / 'game.tsv').write_text(f'build\tv0\t1.0.0\tmain={"ab" * 16}\tsdk={own}\n')
-            for name, bid, gamed, expected in (('sdk', '00' * 16, gid, ADD), ('sdk', own, gid, MOV), ('sdk', own, '0100000000000002', ADD), ('main', '00' * 16, gid, MOV)):
+            for name, bid, gamed, expected in (('sdk', '00' * 16, gid, ADD), ('sdk', own, gid, ADD), ('sdk', own, '0100000000000002', ADD), ('sdk', kept, gid, MOV),
+                                               ('main', '00' * 16, gid, MOV)):
                 with self.subTest(module=name, build=bid, game=gamed):
                     img, out = bytearray(self.original), root / 'out' / f'{name}{bid}{gamed}'
                     ns = dict(__file__=str(root / 'tools/patch_nso.py'), os=os, glob=glob, importlib=importlib,
                               MOD=SimpleNamespace(build_id=bytes.fromhex(bid)), IMG=img, TEXT_END=0x2000, NAME=name, outdir=str(out))
                     with patch.dict(os.environ, DM_GAME=gamed): exec(code, ns)
                     self.assertEqual(struct.unpack_from('<I', img, 0x108)[0], expected)
-                    if expected == ADD:
+                    if expected == ADD and (bid, gamed) != (own, gid):
                         self.assertEqual([l.split('\t')[:3] for l in (out / 'sdk.match.tsv').read_text().splitlines()[1:]], [['sdk', 'heap', '0x108']])
+                    else: self.assertFalse((out / 'sdk.match.tsv').exists())
             printed = io.StringIO()
             with contextlib.redirect_stdout(printed):
                 ns = dict(__file__=str(root / 'tools/patch_nso.py'), os=os, glob=glob, importlib=importlib,

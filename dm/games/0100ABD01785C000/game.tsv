@@ -1,0 +1,37 @@
+# Portal 2 1.0.3, SDK 13.3.0. Valve's Source engine (NVIDIA Lightspeed Studios' Switch port, as Portal's): 21 NRO modules, NVN, shaders as GLSLC outputs.
+# Mac bring-up and validation: README.md beside this profile.
+
+# ---- Identity ----
+title_id	0100ABD01785C000
+program_id	0100ABD01785C000
+
+# ---- App ----
+name	Portal 2
+ipa	Portal2.ipa
+app_category	public.app-category.games
+pad_layout	full
+
+# ---- Versions ----
+build	v196608	1.0.3	main=b3ad5072371479730d49baebd0c4ec82	subsdk0=2f31216323724e1ff64f03eef5fe030d	sdk=2bf3519216f5b9d3e8ce26863c2e98b6
+package	v196608
+shader_versions	v196608
+
+# ---- Files ----
+# main imports from none of the subsdks; the NROs import GLSLC (subsdk0: materialsystem.nro). No movie module: Portal 2 ships none
+# subsdk1 is NVIDIA's OpenGL driver, never loaded
+modules	main subsdk0 sdk
+romfs_marker	game.zip
+zip_store	.nro:.zip:.metallib
+
+# ---- Memory ----
+# main sets a heap of at most the pool − 64 MB: a 3328 MB heap region
+mem_reserve	0x100000000
+mem_alias	0x10000000
+mem_stack	0x10000000
+app_pool	0xCD500000
+# the NPDM declares 0 MB of system resource: IsVirtualAddressMemoryEnabled is false, as on Horizon
+sys_resource	0x0
+
+# ---- Shader split ----
+shader_groups	/game.zip/=game
+shader_note	Portal 2 shaders

@@ -25,8 +25,11 @@ static uint64_t num(const char *v, uint64_t dflt) {
 }
 
 // ---- defaults: exactly what game_profile.h (generated from game.tsv) compiles in ----
-// A profile header may be partial (the unit tests' synthetic one carries only the memory constants), so every group is guarded:
-// a missing macro means "the game does not set this key", which is also what game.py leaves out when game.tsv has no such row.
+// A profile header may be partial (the unit tests' synthetic one carries only the memory constants, and game.py leaves a macro
+// out when game.tsv has no such row), so every macro is guarded on its own: a missing one means "the game does not set this key".
+// One shared guard per block was enough while the header defined the whole block, and broke when upstream dropped Wonder's
+// feedback_snap row (2026-10-30): the header still defined DM_GAME_PRESENT_DISPLAY, so the block's defaults were skipped and
+// DM_GAME_FEEDBACK_SNAP stayed undeclared.
 #ifndef DM_GAME_ID
 #define DM_GAME_ID ""
 #define DM_GAME_NAME ""
@@ -51,23 +54,59 @@ static uint64_t num(const char *v, uint64_t dflt) {
 #endif
 #ifndef DM_GAME_PRESENT_DISPLAY
 #define DM_GAME_PRESENT_DISPLAY 0
+#endif
+#ifndef DM_GAME_CORE_PREEMPT
 #define DM_GAME_CORE_PREEMPT 0
+#endif
+#ifndef DM_GAME_ALLOC_BIG_ALIGN
 #define DM_GAME_ALLOC_BIG_ALIGN 0
+#endif
+#ifndef DM_GAME_FPS_TARGET
 #define DM_GAME_FPS_TARGET 0
+#endif
+#ifndef DM_GAME_FPS_HOLD
 #define DM_GAME_FPS_HOLD 1
+#endif
+#ifndef DM_GAME_PRESENT_SNAP
 #define DM_GAME_PRESENT_SNAP 0
+#endif
+#ifndef DM_GAME_PSO_MTL4
 #define DM_GAME_PSO_MTL4 0
+#endif
+#ifndef DM_GAME_PAD_LAYOUT
 #define DM_GAME_PAD_LAYOUT 0
+#endif
+#ifndef DM_GAME_OPMODE
 #define DM_GAME_OPMODE 1
+#endif
+#ifndef DM_GAME_PERF_BOOST
 #define DM_GAME_PERF_BOOST 0
+#endif
+#ifndef DM_GAME_FEEDBACK_SNAP
 #define DM_GAME_FEEDBACK_SNAP ""
+#endif
+#ifndef DM_GAME_TEX_FLUSH_UPLOAD
 #define DM_GAME_TEX_FLUSH_UPLOAD 0
+#endif
+#ifndef DM_GAME_RENDER_COND
 #define DM_GAME_RENDER_COND 0
+#endif
+#ifndef DM_GAME_TEX_DIRTY_UPLOAD
 #define DM_GAME_TEX_DIRTY_UPLOAD 0
+#endif
+#ifndef DM_GAME_TEX_DYN_SLOTS
 #define DM_GAME_TEX_DYN_SLOTS 0
+#endif
+#ifndef DM_GAME_GPU_TS_SEGMENT
 #define DM_GAME_GPU_TS_SEGMENT 0
+#endif
+#ifndef DM_GAME_VCONV_RANGE
 #define DM_GAME_VCONV_RANGE 0
+#endif
+#ifndef DM_GAME_ARGS
 #define DM_GAME_ARGS ""
+#endif
+#ifndef DM_GAME_ENV
 #define DM_GAME_ENV ""
 #endif
 static void defaults(void) {

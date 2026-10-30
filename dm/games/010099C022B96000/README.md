@@ -11,7 +11,7 @@ Update 1.3.1 (v327680) over the base game, SDK 18.3.5. The Wii game (codename Co
 | `modules main subsdk0 sdk` | `game.tsv` | `subsdk1`–`subsdk4` are replaced by the host's Vulkan layer |
 | 1 GB block: `mem_reserve 0x40000000`, `mem_alias 0x10000000`, `mem_stack 0x10000000`, `app_pool 0xCD500000` | `game.tsv` | the game never calls `SetHeapSize`; its memory is `main`'s bss. See [Memory](#memory) |
 | `vk_capture.tsv` | profile | the keys of the SPIR-V modules Hagi generates at run time, which the NSP script captures; see [Shaders](#shaders) |
-| Node area cut 1 GB → 62 MB | `dm/tools/sdk_patches.py`, `sdk` build `6075151627016eef…` | needed by Galaxy 2's movie allocator on the same `sdk` build; the cut applies to every module of that build |
+| Node area cut 1 GB → 62 MB, and regions of 4 MB and more aligned to 2 MB as SDK 20 | `dm/tools/sdk_patches.py`, the SDK-wide rules (`MATCH_CUTS`) on `sdk` build `6075151627016eef…` (its row, the node area cut alone, was removed on 2026-10-30 after a run on Monster Train 2, the same build) | needed by Galaxy 2's movie allocator on the same `sdk` build; the cut applies to every module of that build |
 
 ## Memory
 

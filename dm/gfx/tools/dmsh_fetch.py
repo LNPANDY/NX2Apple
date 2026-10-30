@@ -19,11 +19,13 @@ def variant(msl, bindings, om_only_ok=False):
     tex = {m.group(1) for m in re.finditer(r'texture2d<float> (\w+) \[\[id\(\d+\)\]\];', msl)}
     locn = {m.group(1): int(m.group(2)) for m in re.finditer(r'float4 (m_\d+) \[\[user\(locn(\d+)\)\]\];', msl.split('struct main0_in', 1)[-1].split('};', 1)[0])}
     reg = {b['msl_name']: b['reg'] for b in bindings if b.get('kind') == abi.KIND_TEX and b.get('msl_name') and b.get('reg') is not None}
-    pat = re.compile(r'spvDescriptorSet0\.(\w+)\.sample\(spvDescriptorSet0\.(\w+)Smplr, select\((_\d+), float2\(0\.0\), isnan\(\3\)\)\)')
+    # A sample the border colour correction wrapped (dmsh_build.py border_emu) is taken whole: a tile read replaces the corrected sample, never feeds the correction
+    pat = re.compile(r'(dm_bs\()?spvDescriptorSet0\.(\w+)\.sample\(spvDescriptorSet0\.(\w+)Smplr, select\((_\d+), float2\(0\.0\), isnan\(\4\)\)\)'
+                     r'(?(1), spvDescriptorSet0\.%s, \d+u, spvDescriptorSet0\.\2, spvDescriptorSet0\.\3Smplr%s, select\(\4, float2\(0\.0\), isnan\(\4\)\)\))' % (abi.BORDER_MEMBER, abi.BORDER_TWIN))
     calls, out_parts, pos = [], [], 0
     for m in pat.finditer(msl):
-        member, var = m.group(1), m.group(3)
-        if member not in tex or member != m.group(2) or member not in reg: continue
+        member, var = m.group(2), m.group(4)
+        if member not in tex or member != m.group(3) or member not in reg: continue
         d = re.search(r'float2 %s = float2\((_\d+), (_\d+)\);' % var, msl)
         a = d and re.search(r'float %s = in\.(m_\d+)\.x;' % d.group(1), msl); b = d and re.search(r'float %s = in\.(m_\d+)\.y;' % d.group(2), msl)
         if not (a and b) or a.group(1) != b.group(1) or a.group(1) not in locn: continue

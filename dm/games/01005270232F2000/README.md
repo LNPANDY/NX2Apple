@@ -11,7 +11,7 @@ Status: brought up on the Mac through character creation and the story opening i
 | `fps_target 60` | [`game.tsv`](game.tsv), `hle_fpslock.c` | the host writes 60 into `t.MaxFPS` and 1 into `rhi.SyncInterval`; see [Frame rate](#frame-rate) |
 | FMallocBinned3 constructor cut: `main+0x12e40` `bl 0x9f480` → `nop` | [`patches.py`](patches.py), `main` `9fe60a21…` | the constructor reserves 37 GB of address space; the host's allocator runs Unreal's heap (`hle_uemalloc.c`); see [Memory](#memory) |
 | `game_args -SwitchVirtualAddressSpaceSize=2048` | `game.tsv` | caps the engine region Unreal's `nninitStartup` reserves (62 GB by default) at 2 GB |
-| Node area cut 1 GB → 62 MB (`sdk+0x1423fc` / `+0x142468`) | `dm/tools/sdk_patches.py`, `sdk` build `7bba185a…` | Unreal's region then starts 62 MB into the alias region, and the guest block stays small enough for an iPhone |
+| Node area cut 1 GB → 62 MB (`sdk+0x1423fc` / `+0x142468`) | `dm/tools/sdk_patches.py` SDK-wide rules, `sdk` build `7bba185a…` | Unreal's region then starts 62 MB into the alias region, and the guest block stays small enough for an iPhone |
 | 3.75 GB guest block: `mem_reserve 0xF0000000`, `mem_alias 0xC8000000`, `mem_stack 0x10000000`, `app_pool 0xCD500000` | `game.tsv` | alias region = node area + up to 1 GB of alignment (regions of 1 GB and more are 1 GB aligned) + the 2 GB region; 256 MB stacks, 128 MB heap |
 | `tex_dyn_slots on` | `game.tsv` | 61 particle vertex shaders pick one of several c2 table slots at run time (separate texture slots 0-10, samplers 0-4); see [Shaders](#shaders) |
 

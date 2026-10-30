@@ -42,8 +42,6 @@ gpu_timestamps	segment
 tex_flush_upload	on
 # Some title backgrounds are filled after initialization without an NVN flush.
 tex_dirty_upload	on
-# filter09 samples its own HDR attachment through a separate texture slot.
-feedback_snap	fd2c47b73f0e7e24
 
 # ---- Shader split ----
 shader_groups	/Enlighten/=enlighten /movie/=movie /sound/=sound /movie_logo/=movielogo

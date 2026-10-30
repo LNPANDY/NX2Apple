@@ -23,5 +23,11 @@ CUTS = {
   ],
 }
 
-# Whether a general rule could replace these patches (dm/tools/docs_patches.py lists it in docs/agents/game-patches.md)
-GENERALIZE = "Likely: the race is in Unity 2018.4's ThreadedStreamBuffer, engine code other Unity games of that era ship (Cuphead, AI: THE SOMNIUM FILES, Raging Loop). A function-matched rule per Unity version could give every game with the same code the load-acquires; other builds are not checked yet"
+# How general each patch is and could be (dm/tools/docs_patches.py "Binding", listed in docs/agents/game-patches.md): what, its binding now, the loosest it could have (goal),
+# purpose, why; blocked or kept: why the gap stays open (cannot close yet, or left open on purpose); checked: what was checked on game files (else a judgement)
+BINDING = [
+    {'what': 'ThreadedStreamBuffer load-acquires', 'now': 'build', 'goal': 'engine', 'purpose': 'race',
+     'why': "the race is in Unity 2018.4's ThreadedStreamBuffer, engine code other Unity games of that era ship (Cuphead, AI: THE SOMNIUM FILES, Raging Loop): a function-matched rule "
+            'per Unity version',
+     'blocked': 'no game files of those games on the drive to compare'},
+]

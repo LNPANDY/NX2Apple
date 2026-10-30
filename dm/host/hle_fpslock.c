@@ -200,7 +200,7 @@ static void fb_tick(int target, const char *src) {
     for (int j = 0; j < fb.ncache; j++) {
         uint64_t inst = 0, tinfo = 0; int32_t rate; float max;
         if (!rd((uint64_t)(uintptr_t)(fb.base + fb.cache[j]), &inst, sizeof inst) || !inst || !rd(inst + 8, &tinfo, sizeof tinfo) || tinfo != ti) continue;   // not made yet, or another word
-        if (!rd(inst + fb.off_rate, &rate, sizeof rate) || !rd(inst + fb.off_max, &max, sizeof max)) return;
+        if (!rd(inst + fb.off_rate, &rate, sizeof rate) || !rd(inst + fb.off_max, &max, sizeof max)) continue;
         if (rate != target) { int32_t *p = (int32_t *)(uintptr_t)(inst + fb.off_rate); dm_guest_write_prepare(p, sizeof *p); __atomic_store_n(p, target, __ATOMIC_RELAXED); }
         if (max != (float)target) { float w = (float)target, *p = (float *)(uintptr_t)(inst + fb.off_max); dm_guest_write_prepare(p, sizeof *p); __atomic_store_n((uint32_t *)p, *(uint32_t *)&w, __ATOMIC_RELAXED); }
         if ((rate != target || max != (float)target) && nlog < 8) { nlog++; LOG("main: Frostbite simulation rate ForceSimRate %d, MaxSimFps %g → %d (%s)", rate, max, target, src); }
@@ -215,8 +215,7 @@ void dm_fps_lock_tick(void) {
     if (state == -2) {
         state = -1;
         for (int i = 0; i < g_nmod; i++) if (!strcmp(g_mod[i].name, "main")) {
-            if (!strcmp(g_mod[i].build_id, "992787e2b54259948b844059a8ab21ad")) { base = g_mod[i].base; nier = 1; }
-            for (int k = 0; k < (int)(sizeof k_nier_dr / sizeof *k_nier_dr); k++) if (!strcmp(g_mod[i].build_id, k_nier_dr[k].build)) { base = g_mod[i].base; nier = 2; display = k_nier_dr[k].display; }
+            for (int k = 0; k < (int)(sizeof k_nier_dr / sizeof *k_nier_dr); k++) if (!strcmp(g_mod[i].build_id, k_nier_dr[k].build)) { base = g_mod[i].base; nier = 1; display = k_nier_dr[k].display; }
             for (int k = 0; k < NLOCKS; k++) if (!strcmp(g_mod[i].build_id, k_locks[k].build)) { rows[nrow++] = k; base = g_mod[i].base; }
         }
         fb_find(); if (!nrow && !nier && !fb.n) return;
@@ -226,28 +225,7 @@ void dm_fps_lock_tick(void) {
                   if (fb.n) LOG("main: Frostbite simulation rate left as the game sets it (%s)", src); return; }
         target = t; state = 0;
     }
-    if (nier == 1) {
-        // NieR:Automata (Switch) 1.0.2, matching the 60 FPS Atmosphere cheat
-        // for build 992787E2B5425994. Its chain follows the frame interval field;
-        // value 2 is the game's 30 FPS default and 1 selects 60 FPS.
-        uint64_t p = 0, q = 0; static int nlog_nier;
-        if (rd((uint64_t)(uintptr_t)(base + 0x192c818), &p, sizeof p) && p) {
-            const uint64_t offsets[] = {0x40, 0x10, 0x60, 0x180};
-            int ok = 1;
-            for (size_t i = 0; i < sizeof offsets / sizeof offsets[0]; i++) {
-                if (!rd(p + offsets[i], &q, sizeof q) || !q) { ok = 0; break; }
-                p = q;
-            }
-            if (ok) {
-                uint64_t a = p + 0xf14; uint32_t cur = 0, want = (uint32_t)(60 / target);
-                if (rd(a, &cur, sizeof cur) && cur != want && (cur == 1 || cur == 2)) {
-                    uint32_t *dst = (uint32_t *)(uintptr_t)a;
-                    dm_guest_write_prepare(dst, sizeof *dst); __atomic_store_n(dst, want, __ATOMIC_RELAXED);
-                    if (nlog_nier++ < 8) LOG("main: NieR frame interval %u → %u (%d fps; %s)", cur, want, target, src);
-                }
-            }
-        }
-    } else if (nier == 2) {
+    if (nier) {
         // NieR:Automata US/EU 1.0.3 (3c10ec35c5ef4c3686b4053afb0e58e7):
         // - [base + 0x192be00] points to the NVN graphics device object whose +0x9c160 holds the present interval (1 = 60 FPS, 2 = 30 FPS),
         //   and base + 0x192c304 (+0x504) holds the requested interval mode (0 = 60 FPS, 1 = 30 FPS).

@@ -1,0 +1,46 @@
+# Pokémon Violet 1.0.0, Game Freak's Trinity engine, SDK 13.3.5.
+# Pokémon Scarlet's twin (0100A3D008C5C000): the same sdk and subsdk0 builds, only main is its own.
+# Made from Scarlet's profile with Violet's title, name, IPA name, build row and shader tables.
+# Only 1.0.0 is registered; use -p v0 when the NSP folder also has updates.
+
+# ---- Identity ----
+title_id	01008F6008C5E000
+program_id	01008F6008C5E000
+
+# ---- App ----
+name	Pokémon Violet
+ipa	PokemonViolet.ipa
+app_category	public.app-category.games
+# The 3D layout exposes the right stick for the camera and the D-pad.
+pad_layout	full
+
+# ---- Versions ----
+build	v0	1.0.0	main=959ed651bf1ae0cccafe8c3f4c64bfd2	sdk=3644a6760469451cabc99f00c540acc2
+package	v0
+shader_versions	v0
+
+# The game calls nvnDeviceSetDepthMode(near=0); prepare the same main0_z bases
+# offline so the first run can use them instead of repeating the full prebuild.
+depth_mode	zero
+
+# ---- Files ----
+# subsdk0 is NintendoSDK_movie; the host supplies its imported entry points.
+modules	main sdk
+romfs_marker	arc/data.trpfs
+zip_store	.bk2:.bnk:.pck:.trpfd:.trpfs:.metallib
+
+# ---- Memory ----
+# The host's StandardAllocator cap, the 62 MB SDK node area and the SDK-wide
+# region alignment fit in the alias region. See Scarlet's README.md for the startup probes.
+mem_reserve	0x140000000
+mem_alias	0x118000000
+mem_stack	0x10000000
+app_pool	0xCD500000
+sys_resource	0x1000000
+# Startup allocates and frees everything allocatable. The SDK releases those
+# cached pages only after a map fails at the real application-pool limit.
+mem_map_limit	on
+
+# ---- Shader split ----
+shader_groups	#arc/system_resource=system #arc/ik_effect=effect #arc/ik_pokemon=pokemon #arc/ui=layout /arc/=arc
+shader_note	Pokémon Violet shaders

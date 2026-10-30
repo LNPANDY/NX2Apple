@@ -80,7 +80,8 @@ typedef struct {
     // Decoding: dmu lets only one guest thread take and decode packets at a time (packets enter libvpx in order); wmu / wcv hand one job to the host thread and wait for it
     pthread_mutex_t dmu, wmu; pthread_cond_t wcv; pthread_t wk;
     int job; const uint8_t *jp; int jn, jslot, jgot; int64_t jpts, jpts_out; int jflush;
-    mavc *avc; int avc_drain;                    // H.264 (hle_movie_avc.c); avc_drain: the end-of-stream packet came with pictures still queued, they leave one per free slot
+    mavc *avc; int avc_drain; int64_t drain_pts; // H.264 (hle_movie_avc.c); avc_drain: the end-of-stream packet's output had a picture; the pictures still queued leave one per free slot, then an empty output with the
+                                                 // end-of-stream flag and the packet's time (drain_pts)
     vpx_codec_ctx_t vpx; int vpx_on, red_dec, red_img;
     // Vorbis: the identification and setup headers from Configure's MediaData ("csd-0", "csd-1", as with Android's MediaCodec), the decoder (opened at the first packet), channels / rate, Ogg page sequence
     uint8_t *vhdr[2]; int vhdr_n[2]; stb_vorbis *vb; int ch, rate; uint32_t ogg_seq; int64_t ogg_gran; int red_vb;
@@ -430,14 +431,14 @@ static void md_pump(mdec_t *d) {
     dm_host_lock(&d->dmu);
     for (;;) {
         dm_host_mutex_lock(&d->mu);
-        if (d->avc_drain) {   // H.264 end of stream: the pictures still queued leave one per free slot; the last carries the end-of-stream flag
+        if (d->avc_drain) {   // H.264 end of stream: the pictures still queued leave one per free slot, then an output without a picture carries the end-of-stream flag
             int s = -1; for (int k = 0; k < d->nout; k++) if (!d->out[k].used) { s = k; break; }
             if (s < 0) { pthread_mutex_unlock(&d->mu); break; }
             d->out[s].used = 1; pthread_mutex_unlock(&d->mu);
-            d->jslot = s; d->jflush = 1; md_job(d, MDJ_TAKE); int got = d->jgot, left = d->avc ? mavc_queued(d->avc) : 0;
+            d->jslot = s; d->jflush = 1; md_job(d, MDJ_TAKE); int got = d->jgot;
             dm_host_mutex_lock(&d->mu);
-            d->out[s].pic = got; d->out[s].pts = got ? d->jpts_out : 0; d->out[s].flags = left ? 0 : 4; d->outq[d->noutq++] = s;
-            if (!left) d->avc_drain = 0;
+            d->out[s].pic = got; d->out[s].pts = got ? d->jpts_out : d->drain_pts; d->out[s].flags = got ? 0 : 4; d->outq[d->noutq++] = s;
+            if (!got) d->avc_drain = 0;
             pthread_mutex_unlock(&d->mu);
             md_event(d, 1);
             continue;
@@ -453,16 +454,17 @@ static void md_pump(mdec_t *d) {
         int eos = (pk.flags & 4) != 0;   // MediaCodec BUFFER_FLAG_END_OF_STREAM
         if (eos && (pk.pts < 0 || (uint32_t)pk.size >= MD_INCAP)) pk.size = 0;   // Monster Hunter Rise ends a stream with time -1 and the whole input buffer (4 MB) as its length: no data (decoding it gave VideoToolbox -12909 and AudioToolbox -50); an end-of-stream packet as long as the whole buffer is the same, with a real time (from PR #36)
         // H.264 end of stream: this packet's output takes the first queued picture (jflush). Taking none put a black picture without the flag ahead of the last
-        // `depth` pictures, a black flash before the movie's last frames
+        // `depth` pictures, a black flash before the movie's last frames. No picture carries the flag: CRI Sofdec2 (Catherine: Full Body) drops a picture flagged end-of-stream and then
+        // waits for it for good, so every picture leaves as a frame of the movie and an output without one ends it, as for VP9 and Baseline streams whose end-of-stream packet has no data
         if ((pk.size > 0 && (MD_VPX(d) || MD_AUDIO(d) || avc)) || (avc && eos)) {
             d->jp = d->in[pk.in] + pk.off; d->jn = pk.size; d->jslot = slot; d->jpts = pk.pts; d->jflush = avc && eos; md_job(d, MDJ_DECODE); got = d->jgot; }
-        int more = avc && eos && d->avc && mavc_queued(d->avc) > 0;   // H.264 pictures still queued: they follow this output, the last of them carries the end-of-stream flag
+        int more = avc && eos && got;   // a picture in this output: the queued ones follow it, then the end-of-stream output (the drain)
         dm_host_mutex_lock(&d->mu);
         d->infree[d->ninfree++] = pk.in;
         int ready = got || eos;   // an end-of-stream packet without a picture still yields an output to carry the flag back
         if (ready) { d->out[slot].pic = got; d->out[slot].pts = got && avc ? d->jpts_out : pk.pts; d->out[slot].flags = more ? pk.flags & ~4u : pk.flags; d->outq[d->noutq++] = slot; }
         else d->out[slot].used = 0;
-        if (more) d->avc_drain = 1;
+        if (more) { d->avc_drain = 1; d->drain_pts = pk.pts; }
         int ineos = d->in_eos;
         pthread_mutex_unlock(&d->mu);
         if (!ineos) md_event(d, 0);   // no input is announced after an end-of-stream packet (h_movie_AcqIn)

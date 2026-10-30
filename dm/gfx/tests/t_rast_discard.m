@@ -40,7 +40,8 @@ int main(void) { @autoreleasepool {
         "vertex float4 c(uint n[[vertex_id]]){return float4(0,0,0,1);}\n"
         "vertex void pd(uint n[[vertex_id]],constant A&a[[buffer(0)]]){a.p[n]=n+0x1200;}\n"
         "vertex void cd(uint n[[vertex_id]],constant A&a[[buffer(0)]]){a.p[n+4096]=a.p[n];}\n"
-        "fragment float4 f(){return float4(1,0,0,1);}\n" options:nil error:&error];
+        "fragment float4 f(){return float4(1,0,0,1);}\n"
+        "fragment float4 fw(constant A&a[[buffer(0)]]){a.p[8192]=1;return float4(1,0,0,1);}\n" options:nil error:&error];
     if(!lib){fprintf(stderr,"%s\n",error.localizedDescription.UTF8String);return 1;}
     static prog_t pg={.serial=910501}; NvProg *program=[NvProg new];
     NvShader *vs=[NvShader new];vs->fn=[lib newFunctionWithName:@"v"];vs->ae=[vs->fn newArgumentEncoderWithBufferIndex:0];
@@ -76,5 +77,33 @@ int main(void) { @autoreleasepool {
     bp.prog=&cp;emit(OP_BIND_PROGRAM,&bp,sizeof bp);emit(OP_DRAW,&arrays,sizeof arrays);execute();
     int ordered=1;for(int i=0;i<4096;i++)ordered&=output[i+4096]==(uint32_t)(i+0x1200);
     CHECK(ordered,"primitive barrier orders vertex storage writes before the consuming draw");
+    // The barrier also orders the other way: a later draw's storage writes come after the pass's earlier draws (Xenoblade Chronicles 2 rewrites shared bone matrix slots
+    // with a vertex-only draw after ORDER_PRIMITIVES). A barrier from the vertex stage inside the pass is enough when the earlier draws read memory only in their vertex stage or
+    // the barrier orders only primitives; ORDER_FRAGMENTS after a draw that reads in its fragment stage ends the pass; a draw without writes, or a write with no barrier, changes nothing
+    static prog_t rd={.serial=910506},rf={.serial=910507},fwp={.serial=910508};NvProg *reader=[NvProg new],*freader=[NvProg new],*fwriter=[NvProg new];
+    reader->sh[0]=[NvShader new];reader->sh[0]->fn=[lib newFunctionWithName:@"c"];reader->sh[1]=program->sh[1];serial_put(rd.serial,reader);
+    freader->sh[0]=reader->sh[0];freader->sh[1]=[NvShader new];freader->sh[1]->fn=program->sh[1]->fn;freader->sh[1]->stage=1;
+    freader->sh[1]->rf.nb=1;freader->sh[1]->rf.b[0]=(nvn_rbind){.kind=NVN_RB_SBUFP,.rw=0,.reg=5,.aid=0};serial_put(rf.serial,freader);   // only its binding table matters here
+    fwriter->sh[0]=reader->sh[0];NvShader *fws=[NvShader new];fws->fn=[lib newFunctionWithName:@"fw"];fws->stage=1;fws->ae=[fws->fn newArgumentEncoderWithBufferIndex:0];
+    fws->rf.nb=1;fws->rf.b[0]=(nvn_rbind){.kind=NVN_RB_SBUFP,.rw=1,.reg=0,.aid=0};fwriter->sh[1]=fws;serial_put(fwp.serial,fwriter);
+    p_bind_buf fbuf=buf;fbuf.stage=1;emit(OP_BIND_SSBO,&fbuf,sizeof fbuf);
+    arrays=(p_draw){.prim=NVN_DRAW_PRIMITIVE_TRIANGLES,.count=3,.instances=1};p_draw writes=(p_draw){.prim=0,.count=4096,.instances=1};
+    int32_t frag=NVN_BARRIER_ORDER_FRAGMENTS_BIT;
+    const struct { prog_t *first; int32_t *bar; int then; unsigned passes, vbar; const char *what; } cases[]={   // then: 0 a draw without writes, 1 a vertex writer, 2 a fragment writer
+        {&rd,&barrier,1,1,1,"a vertex-stage write after a primitive barrier stays in the pass behind a vertex barrier"},
+        {&rd,&barrier,0,1,0,"a draw without writes after a primitive barrier changes nothing"},
+        {&rd,NULL,1,1,0,"a storage write with no barrier changes nothing"},
+        {&rf,&barrier,1,1,1,"a primitive barrier after a draw that reads in its fragment stage stays in the pass (fragments are not ordered)"},
+        {&rf,&frag,1,2,0,"a fragment barrier after a draw that reads in its fragment stage ends the pass before a write"},
+        {&rd,&frag,2,1,1,"a fragment-stage write after a fragment barrier and vertex-only reads stays in the pass behind a vertex-to-fragment barrier"}};
+    for(int c=0;c<6;c++){
+        discard(0);bp.prog=cases[c].first;emit(OP_BIND_PROGRAM,&bp,sizeof bp);emit(OP_DRAW,&arrays,sizeof arrays);
+        if(cases[c].bar)emit(OP_BARRIER,cases[c].bar,4);
+        if(cases[c].then==0)emit(OP_DRAW,&arrays,sizeof arrays);
+        else if(cases[c].then==1){discard(1);bp.prog=&pp;emit(OP_BIND_PROGRAM,&bp,sizeof bp);emit(OP_DRAW,&writes,sizeof writes);}
+        else{bp.prog=&fwp;emit(OP_BIND_PROGRAM,&bp,sizeof bp);emit(OP_DRAW,&arrays,sizeof arrays);}
+        uint64_t before=g_stat_pass,vbar=g_order_vbar;execute();
+        CHECK(g_stat_pass-before==cases[c].passes&&g_order_vbar-vbar==cases[c].vbar,cases[c].what);
+    }
     printf("rasterizer discard: %d checks, %d failed\n",checks,fails);return fails!=0;
 } }

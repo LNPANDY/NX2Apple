@@ -16,5 +16,13 @@ CUTS = {
     ],
 }
 
-# Whether a general rule could replace these patches (dm/tools/docs_patches.py lists it in docs/agents/game-patches.md)
-GENERALIZE = "Maybe: every Unity player constructs ALLOC_BUCKET the same way; a function-matched cut of its block count would need each Unity version's constructor call reviewed"
+# How general each patch is and could be (dm/tools/docs_patches.py "Binding", listed in docs/agents/game-patches.md): what, its binding now, the loosest it could have (goal),
+# purpose, why; blocked or kept: why the gap stays open (cannot close yet, or left open on purpose); checked: what was checked on game files (else a judgement)
+BINDING = [
+    {'what': 'Unity BucketAllocator ALLOC_BUCKET: 255 blocks of 4 MB → 63', 'now': 'build', 'goal': 'game', 'purpose': 'address space',
+     'checked': "the bucket allocator of five Unity 2021 and later mains (not Subnautica's), 2026-10-29",
+     'why': "Unity 2019's constructor call takes the block count as a constant; Unity 2021 and later read the bucket sizes from boot.config with a default of one block (Cult of the "
+            'Lamb, Monster Train 2, Blasphemous 2, BALL x PIT, Donkey Kong Country Returns HD; checked 2026-10-29) and need no cut, so no Unity rule. A function-matched rule could '
+            "carry it over the game's updates",
+     'blocked': 'no extracted main of either Subnautica on the game drive to fingerprint'},
+]

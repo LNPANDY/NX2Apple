@@ -11,29 +11,29 @@ Upstream-Status: pending (design note seedds/nxnative#492)
 Reason: One host binary for every game: the profile constants are read at run time (DM_PROFILE, dm_profile()), not only as compile-time macros; the launcher needs it
 Issue: LNPANDY/NX2Apple#123
 ---
- dm/games/game.py                 |  34 +++++
+ dm/games/game.py                 |  34 ++++
  dm/host/dm.h                     |   1 +
  dm/host/hle_fpslock.c            |   2 +-
  dm/host/hle_fs.c                 |   2 +-
  dm/host/hle_os.c                 |   4 +-
- dm/host/hle_profile.c            | 242 +++++++++++++++++++++++++++++++
- dm/host/hle_profile.h            |  37 +++++
- dm/host/hle_svc.c                |  34 ++---
+ dm/host/hle_profile.c            | 281 +++++++++++++++++++++++++++++++
+ dm/host/hle_profile.h            |  37 ++++
+ dm/host/hle_svc.c                |  34 ++--
  dm/host/loader.c                 |   2 +-
- dm/host/tests/Makefile           |  58 ++++----
- dm/host/tests/t_layout_runtime.c | 103 +++++++++++++
+ dm/host/tests/Makefile           |  58 +++----
+ dm/host/tests/t_layout_runtime.c | 103 +++++++++++
  dm/ios/Sources/DmGamepad.m       |   2 +-
  docs/env_switches.tsv            |   1 +
- 13 files changed, 470 insertions(+), 52 deletions(-)
+ 13 files changed, 509 insertions(+), 52 deletions(-)
  create mode 100644 dm/host/hle_profile.c
  create mode 100644 dm/host/hle_profile.h
  create mode 100644 dm/host/tests/t_layout_runtime.c
 
 diff --git a/dm/games/game.py b/dm/games/game.py
-index b86f1a2e..7a505e2a 100644
+index 6c66ba1e..a36ca0d2 100644
 --- a/dm/games/game.py
 +++ b/dm/games/game.py
-@@ -199,6 +199,40 @@ if __name__ == '__main__':
+@@ -196,6 +196,40 @@ if __name__ == '__main__':
          out, text = Path(a[2]), header(load(a[1])); out.parent.mkdir(parents=True, exist_ok=True)
          if not (out.exists() and out.read_text() == text):   # written only when it changes: make runs this every time (the profile folder can change under the same GAME), and an unchanged header must not rebuild the host
              tmp = out.with_name(out.name + '.tmp'); tmp.write_text(text); tmp.replace(out)
@@ -87,10 +87,10 @@ index 53332280..a0ba4241 100644
  // Explicit host work does not occupy a guest core (Metal submission, or a blocked native codec lock). A contended host mutex must count as blocked: a signal's same-core handoff
  // can otherwise wait forever for a peer that needs the signaller's native lock. Uncontended locks retain guest ordering; the counter nests inside existing host work.
 diff --git a/dm/host/hle_fpslock.c b/dm/host/hle_fpslock.c
-index 571b22cc..baa3686f 100644
+index a767e88f..716fca91 100644
 --- a/dm/host/hle_fpslock.c
 +++ b/dm/host/hle_fpslock.c
-@@ -220,7 +220,7 @@ void dm_fps_lock_tick(void) {
+@@ -219,7 +219,7 @@ void dm_fps_lock_tick(void) {
              for (int k = 0; k < NLOCKS; k++) if (!strcmp(g_mod[i].build_id, k_locks[k].build)) { rows[nrow++] = k; base = g_mod[i].base; }
          }
          fb_find(); if (!nrow && !nier && !fb.n) return;
@@ -136,10 +136,10 @@ index 2d1afec7..14b3ee58 100644
  HLE_FORCE("_ZN2nn3mem17StandardAllocator8AllocateEm", "passed straight to the SDK; with the profile's alloc_big_align (13 Sentinels, Unicorn Overlord) allocations ≥ 64 KB are 64 KB aligned (memory pool start)", void *, h_mem_SAAllocate, void *self, size_t size) {
 diff --git a/dm/host/hle_profile.c b/dm/host/hle_profile.c
 new file mode 100644
-index 00000000..03ce4268
+index 00000000..93c7ad51
 --- /dev/null
 +++ b/dm/host/hle_profile.c
-@@ -0,0 +1,242 @@
+@@ -0,0 +1,281 @@
 +// Runtime game profile: see hle_profile.h. One IPA for every game reads its layout, switches and tables from DM_PROFILE
 +// instead of having them compiled in (game_profile.h stays the fallback, so a build without DM_PROFILE is unchanged).
 +#include "dm.h"
@@ -167,8 +167,11 @@ index 00000000..03ce4268
 +}
 +
 +// ---- defaults: exactly what game_profile.h (generated from game.tsv) compiles in ----
-+// A profile header may be partial (the unit tests' synthetic one carries only the memory constants), so every group is guarded:
-+// a missing macro means "the game does not set this key", which is also what game.py leaves out when game.tsv has no such row.
++// A profile header may be partial (the unit tests' synthetic one carries only the memory constants, and game.py leaves a macro
++// out when game.tsv has no such row), so every macro is guarded on its own: a missing one means "the game does not set this key".
++// One shared guard per block was enough while the header defined the whole block, and broke when upstream dropped Wonder's
++// feedback_snap row (2026-10-30): the header still defined DM_GAME_PRESENT_DISPLAY, so the block's defaults were skipped and
++// DM_GAME_FEEDBACK_SNAP stayed undeclared.
 +#ifndef DM_GAME_ID
 +#define DM_GAME_ID ""
 +#define DM_GAME_NAME ""
@@ -193,23 +196,59 @@ index 00000000..03ce4268
 +#endif
 +#ifndef DM_GAME_PRESENT_DISPLAY
 +#define DM_GAME_PRESENT_DISPLAY 0
++#endif
++#ifndef DM_GAME_CORE_PREEMPT
 +#define DM_GAME_CORE_PREEMPT 0
++#endif
++#ifndef DM_GAME_ALLOC_BIG_ALIGN
 +#define DM_GAME_ALLOC_BIG_ALIGN 0
++#endif
++#ifndef DM_GAME_FPS_TARGET
 +#define DM_GAME_FPS_TARGET 0
++#endif
++#ifndef DM_GAME_FPS_HOLD
 +#define DM_GAME_FPS_HOLD 1
++#endif
++#ifndef DM_GAME_PRESENT_SNAP
 +#define DM_GAME_PRESENT_SNAP 0
++#endif
++#ifndef DM_GAME_PSO_MTL4
 +#define DM_GAME_PSO_MTL4 0
++#endif
++#ifndef DM_GAME_PAD_LAYOUT
 +#define DM_GAME_PAD_LAYOUT 0
++#endif
++#ifndef DM_GAME_OPMODE
 +#define DM_GAME_OPMODE 1
++#endif
++#ifndef DM_GAME_PERF_BOOST
 +#define DM_GAME_PERF_BOOST 0
++#endif
++#ifndef DM_GAME_FEEDBACK_SNAP
 +#define DM_GAME_FEEDBACK_SNAP ""
++#endif
++#ifndef DM_GAME_TEX_FLUSH_UPLOAD
 +#define DM_GAME_TEX_FLUSH_UPLOAD 0
++#endif
++#ifndef DM_GAME_RENDER_COND
 +#define DM_GAME_RENDER_COND 0
++#endif
++#ifndef DM_GAME_TEX_DIRTY_UPLOAD
 +#define DM_GAME_TEX_DIRTY_UPLOAD 0
++#endif
++#ifndef DM_GAME_TEX_DYN_SLOTS
 +#define DM_GAME_TEX_DYN_SLOTS 0
++#endif
++#ifndef DM_GAME_GPU_TS_SEGMENT
 +#define DM_GAME_GPU_TS_SEGMENT 0
++#endif
++#ifndef DM_GAME_VCONV_RANGE
 +#define DM_GAME_VCONV_RANGE 0
++#endif
++#ifndef DM_GAME_ARGS
 +#define DM_GAME_ARGS ""
++#endif
++#ifndef DM_GAME_ENV
 +#define DM_GAME_ENV ""
 +#endif
 +static void defaults(void) {
@@ -538,10 +577,10 @@ index e0e89096..0a4a9ee6 100644
      float f = (float)t; memcpy(dm_fps_state, &f, sizeof f);
      // Render scale of the 3D views (the stubs at Tears of the Kingdom's main+0xd5cc0, Breath of the Wild's main+0x1266880): 1.0 keeps the game's own size and dynamic resolution;
 diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
-index b063d216..d648b693 100644
+index 44624a45..e8d812ce 100644
 --- a/dm/host/tests/Makefile
 +++ b/dm/host/tests/Makefile
-@@ -54,7 +54,7 @@ run: $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture
+@@ -56,7 +56,7 @@ run: $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture
  run: $(B)/t_nro
  run: $(B)/t_symbols
  $(B)/t_symbols: t_symbols.c ../hle.c ../loader.c ../hle.h ../dm.h $(GAME_H) | $(B)
@@ -550,7 +589,7 @@ index b063d216..d648b693 100644
  .PHONY: symbols
  symbols: $(B)/t_symbols
  	$(B)/t_symbols
-@@ -72,12 +72,12 @@ $(B)/t_audren_layout: t_audren_layout.c ../hle_audren.c ../hle.h ../dm.h $(GAME_
+@@ -74,12 +74,12 @@ $(B)/t_audren_layout: t_audren_layout.c ../hle_audren.c ../hle.h ../dm.h $(GAME_
  audren-layout: $(B)/t_audren_layout
  	$(B)/t_audren_layout
  $(B)/t_system_event: t_system_event.c ../hle_thread.c ../hle_sdk16.c ../hle.h ../dm.h $(GAME_H) | $(B)
@@ -565,7 +604,7 @@ index b063d216..d648b693 100644
  .PHONY: nro
  nro: $(B)/t_nro
  	$(B)/t_nro
-@@ -85,7 +85,7 @@ nro: $(B)/t_nro
+@@ -87,7 +87,7 @@ nro: $(B)/t_nro
  $(GAME_H): FORCE
  	$(MAKE) -C .. game_profile GAME=$(GAME)
  $(B)/t_heap_size: t_heap_size.c ../hle_svc.c ../dm.h $(GAME_H) | $(B)
@@ -574,7 +613,7 @@ index b063d216..d648b693 100644
  .PHONY: heap_size
  heap_size: $(B)/t_heap_size
  	$(B)/t_heap_size
-@@ -95,20 +95,20 @@ $(B)/t_gesture: t_gesture.c ../hle_touch.c ../front.h ../dm.h $(GAME_H) | $(B)
+@@ -97,20 +97,20 @@ $(B)/t_gesture: t_gesture.c ../hle_touch.c ../front.h ../dm.h $(GAME_H) | $(B)
  	$(CLANG) -O1 -Wall -Wno-unused-function -I.. $(GINC) -o $@ t_gesture.c ../hle_touch.c
  $(B)/t_thread_leak: t_thread_leak.c ../thread.c ../dm.h $(GAME_H) | $(B)
  	$(CLANG) -O1 -Wno-unused-function -I.. $(GINC) -o $@ t_thread_leak.c
@@ -605,7 +644,7 @@ index b063d216..d648b693 100644
  .PHONY: save-sync
  save-sync: $(B)/t_save_sync
  	TMPDIR="$(abspath $(B))" $(B)/t_save_sync $(QUIET)
-@@ -126,7 +126,7 @@ $(B)/t_audio_spsc_tsan: t_audio_spsc.c ../hle_audio.c ../hle.h ../dm.h $(GAME_H)
+@@ -128,7 +128,7 @@ $(B)/t_audio_spsc_tsan: t_audio_spsc.c ../hle_audio.c ../hle.h ../dm.h $(GAME_H)
  	$(CLANG) -O1 -g -O1 -fsanitize=thread -Wno-unused-function -I.. $(GINC) -o $@ t_audio_spsc.c -framework AudioToolbox
  run: $(B)/t_fpslock
  $(B)/t_fpslock: t_fpslock.c ../hle_fpslock.c ../hle.h ../dm.h $(GAME_H) | $(B)
@@ -614,7 +653,7 @@ index b063d216..d648b693 100644
  run: $(B)/t_uecvar
  $(B)/t_uecvar: t_uecvar.c ../hle_uecvar.c ../hle.h ../dm.h $(GAME_H) | $(B)
  	$(CLANG) -O1 -g -Wno-unused-function $(GINC) -o $@ t_uecvar.c
-@@ -137,9 +137,9 @@ $(B)/t_altstack: t_altstack.c t_altstack_stub.c ../crash.c ../dm.h $(GAME_H) | $
+@@ -139,9 +139,9 @@ $(B)/t_altstack: t_altstack.c t_altstack_stub.c ../crash.c ../dm.h $(GAME_H) | $
  $(B)/t_pctl: t_pctl.c ../hle_misc.c ../hle.h ../dm.h $(GAME_H) | $(B)
  	$(CLANG) -O1 -Wall -Werror -Wno-unused-function -I.. $(GINC) -o $@ t_pctl.c
  $(B)/t_shared_font: t_shared_font.c ../hle_sdk16.c ../hle.h ../dm.h $(GAME_H) | $(B)
@@ -626,7 +665,7 @@ index b063d216..d648b693 100644
  $(B)/t_motion: t_motion.c ../motion_fusion.h | $(B)
  	$(CLANG) -O1 -Wall -Werror -Wno-unused-function -o $@ t_motion.c -lm
  run: $(B)/t_motion_apple
-@@ -161,13 +161,13 @@ $(B)/t_haptics_apple: t_haptics_apple.m ../haptics_apple.m ../haptics_apple.h ..
+@@ -166,13 +166,13 @@ $(B)/t_haptics_apple: t_haptics_apple.m ../haptics_apple.m ../haptics_apple.h ..
  $(B)/t_time: t_time.c ../hle_time.c ../hle.h ../dm.h $(GAME_H) | $(B)
  	$(CLANG) -O1 -Wall -Werror -Wno-unused-function -I.. $(GINC) -o $@ t_time.c
  $(B)/t_oe: t_oe.c ../hle_oe.c ../hle.h ../dm.h $(GAME_H) | $(B)
@@ -644,7 +683,7 @@ index b063d216..d648b693 100644
  .PHONY: preempt
  preempt: $(B)/t_preempt
  	$(B)/t_preempt
-@@ -189,7 +189,7 @@ $(B):
+@@ -198,7 +198,7 @@ $(B):
  	mkdir -p $@
  .PHONY: run tsan
  $(B)/t_resolution: t_resolution.c ../hle_fpslock.c ../hle.h ../dm.h $(GAME_H) | $(B)
@@ -653,8 +692,8 @@ index b063d216..d648b693 100644
  .PHONY: resolution
  run: resolution
  resolution: $(B)/t_resolution
-@@ -202,17 +202,17 @@ tsan: $(B)/t_audio_spsc_tsan $(B)/t_hid_tsan
- 	$(B)/t_hid_tsan
+@@ -211,17 +211,17 @@ tsan: $(B)/t_audio_spsc_tsan $(B)/t_hid_tsan
+ 	TMPDIR="$(abspath $(B))" $(B)/t_hid_tsan
  
  MEM_FLAGS = -O1 -Wall -Werror -Wno-unused-function -Imemory_profile -I..
 -MEM_DEPS = t_svc_memory.c memory_profile/game_profile.h ../hle_svc.c ../hle_guestthread.c ../hle.h ../dm.h
@@ -677,7 +716,7 @@ index b063d216..d648b693 100644
  .PHONY: memory memory-tsan memory-dirty memory-profile
  memory: $(B)/t_svc_memory $(B)/t_svc_memory_unlimited $(B)/t_svc_memory_16k
  	$(B)/t_svc_memory
-@@ -228,7 +228,7 @@ run: memory memory-dirty memory-profile
+@@ -237,7 +237,7 @@ run: memory memory-dirty memory-profile
  
  # A native blocking notification wait must release the thread's guest core.
  $(B)/t_notify_sched: t_notify_sched.c t_condvar_stub.c ../hle_thread.c ../hle_oe.c ../hle.h ../dm.h $(GAME_H) | $(B)
@@ -796,10 +835,10 @@ index 00000000..20b210d4
 +    return bad ? 1 : 0;
 +}
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index 2c79941f..c08c1b25 100644
+index a079d7f2..3747fc9d 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
-@@ -192,7 +192,7 @@ - (instancetype)initWithFrame:(CGRect)f {
+@@ -193,7 +193,7 @@ - (instancetype)initWithFrame:(CGRect)f {
          }
          _swap = shape(_controls); _swapLabel = label(_swap, @"");
          NSNumber *saved = [NSUserDefaults.standardUserDefaults objectForKey:k_layout_key];
@@ -809,7 +848,7 @@ index 2c79941f..c08c1b25 100644
          _full = l == 1; _tap = l == 2;
          [self applyLayout];
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index b8d7259f..16972e4f 100644
+index 82ed6ed9..1400e86e 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
 @@ -211,6 +211,7 @@ DM_PROBE_LIMIT	diagnostic	Maximum printed hits per guest probe; 0 or absent leav

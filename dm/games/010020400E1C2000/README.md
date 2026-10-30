@@ -6,7 +6,7 @@ Base game 1.0.0 (v0), SDK 7.3.2. Unity 2018.3.10f1 IL2CPP with FMOD on NVN. Modu
 
 | Setting | Where | Why |
 |---|---|---|
-| DRAGON QUEST XI S's `sdk` cuts: node area 1 GB → 62 MB, regions of 1 GB and more aligned to 32 MB | `dm/tools/sdk_patches.py`, `sdk` build `fcf93a41…` (the constructor at `sdk+0x32c450`, cuts at `+0x32c460` and `+0x32c500`; `AllocateAddressRegion`'s alignment at `+0x32c66c`) | they put StandardAllocator's region 64 MB into the alias region; see [Memory](#memory) |
+| DRAGON QUEST XI S's `sdk` cuts: node area 1 GB → 62 MB, regions of 4 MB and more aligned to 2 MB (SDK 20's) | `dm/tools/sdk_patches.py` SDK-wide rules, `sdk` build `fcf93a41…` (the constructor at `sdk+0x32c450`, cuts at `+0x32c460` and `+0x32c500`; `AllocateAddressRegion`'s alignments at `+0x32c664`, `+0x32c66c`, `+0x32c670`) | they put StandardAllocator's region 64 MB into the alias region; see [Memory](#memory) |
 | `sys_resource 0x1000000` | [`game.tsv`](game.tsv) | the NPDM's 16 MB of system resource: virtual address memory |
 | 5 GB guest layout with the hardware pool: `mem_reserve 0x140000000`, `mem_alias 0x118000000`, `mem_stack 0x10000000`, `app_pool 0xCD500000` | `game.tsv` | Engage's block (256 MB in front + 4.375 GB alias region + 256 MB stack region + 128 MB heap region); Unity 2018.3 maps only inside StandardAllocator's region, so the pool stays as on the Switch |
 | `shader_groups /Data/=data` | `game.tsv` | |

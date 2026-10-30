@@ -14,7 +14,7 @@ On the Mac (2026-10-29): the accessibility settings, the EA SPORTS and FC 27 log
 | `shader_groups /Data/=data /Patch/=patch` | `game.tsv` | the shaders are in the base data's and the update's cas files |
 | [`dual_want.tsv`](dual_want.tsv) | profile | the six pixel shaders a match blends with their output 1 as the second source (dual-source blending), noted with `DM_NVN_DUAL_WANT` |
 | `fps_target 60`, `present_interval display` | `game.tsv` | 60 fps: the host sets Frostbite's simulation rate and the game's frame regulator ([Frame rate](#frame-rate)); the game's present interval 2 is ignored |
-| the node-area cut on `sdk` `fed212d6…` | [`dm/tools/sdk_patches.py`](../../tools/sdk_patches.py) | SDK 22's AddressRegionManager takes 1 GB of the alias region as its node area ([The SDK's address-region node area](../../../docs/reference/memory.md#the-sdks-address-region-node-area)); registered for this build, and the SDK-wide rule now covers SDK 22 |
+| the node-area cut on `sdk` `fed212d6…` | [`dm/tools/sdk_patches.py`](../../tools/sdk_patches.py) SDK-wide rules | SDK 22's AddressRegionManager takes 1 GB of the alias region as its node area ([The SDK's address-region node area](../../../docs/reference/memory.md#the-sdks-address-region-node-area)); the SDK-wide rule's implementation 6 gives this build the cut (its row was removed on 2026-10-30, as the rule gives the same cuts) |
 
 ## Files
 

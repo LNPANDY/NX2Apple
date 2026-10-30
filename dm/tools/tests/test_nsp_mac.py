@@ -150,6 +150,18 @@ class Nvn(Base):
         with mock.patch.object(nsp, 'run', lambda *a, **k: None), self.assertRaises(nsp.BuildError): self.build(False)   # no libraries written
         self.assertEqual(self.left(), before)
 
+    def test_failed_prune_keeps_the_build(self):   # a folder that cannot be removed is a [RED] line; the others go and the build still returns its libraries
+        self.stale()
+        real, said = nsp.rmtree, []
+        def stuck(p):
+            if p.name == 'b-157e1b96c8da' and p.parent.name == 'ios': raise PermissionError(13, 'Permission denied', str(p))
+            real(p)
+        with mock.patch.object(nsp, 'rmtree', stuck), mock.patch.object(nsp, 'say', said.append):
+            self.assertEqual(self.build(False), self.sh / 'ios')
+        self.assertEqual(self.left(), sorted([f'cache/b-{CHAIN}', 'ios/b-157e1b96c8da', f'ios/b-{CHAIN}', f'ios/b-{CHAIN}.key']))
+        self.assertEqual(len([m for m in said if m.startswith('[RED] could not remove old shader libraries')]), 1)
+        self.assertEqual(len([m for m in said if m.startswith('removed old shader libraries b-157e1b96c8da, b-a78f966a7b38 (')]), 1)
+
     def test_prune_ignores_other_names(self):   # only b-<12 hex> folders and their keys, never the compile cache or another folder
         self.build(True)
         for n in ('cas', 'b-notahexchain', 'b-0123456789abcd', 'mine'): (self.sh / 'cache' / n).mkdir()

@@ -12,7 +12,7 @@ Status (2026-10-26): opening gameplay tested on the Mac with the capped memory l
 | `game_args -SwitchVirtualAddressSpaceSize=2048` | [game.tsv](game.tsv) | `nninitStartup` reads this in MB; otherwise it reserves 62 GB |
 | `mem_reserve 0xF0000000`, `mem_alias 0xC8000000`, 256 MB stacks | `game.tsv` | a 3.75 GB guest block with a 2 GB engine region and a 128 MB heap region; the C library heap request is 6 MB |
 | `sys_resource 0x2800000` | `game.tsv` | the NPDM declares 40 MB of system resource |
-| Node-area and large-region alignment cuts | `dm/tools/sdk_patches.py`, SDK build `86188952…` | existing cuts for this exact SDK build: 62 MB node area, 32 MB region alignment |
+| Node-area and large-region alignment cuts | `dm/tools/sdk_patches.py` SDK-wide rules, SDK build `86188952…` | the SDK-wide rules' cuts on this build: 62 MB node area, 2 MB region alignment (SDK 20's) |
 | `pad_layout full` | `game.tsv` | both sticks and the D-pad for the 3D game |
 | `fps_target 60` | `game.tsv`, `hle_fpslock.c` | the host writes 60 into `Project.FrameRateLimit` and 1 into `rhi.SyncInterval`; see [Frame rate](#frame-rate) |
 

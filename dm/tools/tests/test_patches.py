@@ -16,6 +16,7 @@ from unittest import mock
 REPO = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO / 'dm/tools')); sys.path.insert(0, str(REPO / 'dm/games'))
 import game   # noqa: E402
+import docs_patches   # noqa: E402
 
 FILES = [REPO / 'dm/tools/sdk_patches.py'] + sorted((REPO / 'dm/games').glob('*/patches.py'))
 
@@ -62,9 +63,21 @@ class Registry(unittest.TestCase):
                 self.assertRegex(bid, r'^[0-9a-f]{32}$')
                 self.assertEqual(len(names), len(set(names)))
                 for name in names: self.assertRegex(name, r'^[A-Z][A-Z0-9_]*$')
-            self.assertFalse({k for k in vars(m) if k.isupper() and k not in ('CUTS', 'OBS', 'FRAME_STEP', 'CAPABILITIES', 'MATCH_CUTS', 'GENERALIZE')} - set(dir(__import__('nso_asm'))),
+            self.assertFalse({k for k in vars(m) if k.isupper() and k not in ('CUTS', 'OBS', 'FRAME_STEP', 'CAPABILITIES', 'MATCH_CUTS', 'BINDING')} - set(dir(__import__('nso_asm'))),
                              f'{p}: a table patch_nso.py does not read')
-            self.assertIsInstance(getattr(m, 'GENERALIZE', ''), str, f'{p}: GENERALIZE is a note (docs/agents/game-patches.md)')
+            # every patch file states each patch's binding (docs_patches.py "Binding"), and no goal is tighter than the binding now
+            self.assertTrue(getattr(m, 'BINDING', None), f'{p}: no BINDING (docs/agents/game-patches.md, "Binding")')
+            for e in m.BINDING: self.assertIsNone(docs_patches.binding_error(e, own=p.name == 'patches.py'), f'{p}')
+
+    def test_unreviewed_goals_stay_in_a_games_own_build_bound_patches(self):
+        e = {'what': 'a cut', 'now': 'build', 'goal': 'unreviewed', 'purpose': 'memory', 'why': 'found at bring-up'}
+        self.assertIsNone(docs_patches.binding_error(e, own=True))
+        self.assertIsNotNone(docs_patches.binding_error(e))   # sdk_patches.py, host rows, translator rules and switches review theirs
+        self.assertIsNotNone(docs_patches.binding_error(dict(e, now='game'), own=True))
+        self.assertIsNotNone(docs_patches.binding_error(dict(e, blocked='why'), own=True))
+        self.assertEqual(docs_patches.status(e), 'unreviewed')
+        reviewed = (dict(e, goal='sdk'), [], {'a', 'b'})
+        self.assertLess(docs_patches.payoff(reviewed), docs_patches.payoff((e, [], {'a', 'b', 'c'})))   # after every reviewed gap
 
     def test_function_match_rules(self):
         from nso_match import validate
@@ -79,13 +92,17 @@ class Registry(unittest.TestCase):
                 self.assertTrue(rules)
                 for rule in rules: validate(rule)
 
-    def test_sdk_wide_rules_restate_registered_cuts(self):
-        # every SDK-wide cut is one of the registered SDK cuts, the same bytes, at some build's function-relative offset (the rules were taken from them)
+    def test_sdk_wide_rules_change_what_their_names_say(self):
+        # the rules were taken from registered SDK cuts, and the builds they reproduce exactly have no row any more: each cut replaces the constant its rule names (0x3fe00000, the node
+        # area; 0x400000, 0x2000000 and 0x40000000, the alignments of the 4 MB, 32 MB and 1 GB classes; as movz or orr from wzr) with the reviewed one (62 MB; SDK 20's 2 MB) in the same register
         m = MODS[REPO / 'dm/tools/sdk_patches.py']
-        registered = {(old, new) for cuts in m.CUTS.values() for _, old, new, _ in cuts}
+        words = {m.node_area: ({'08fca752', '09fca752', 'e8230b32', 'e9230b32'}, {'087ca052', '097ca052'}),
+                 m.alignment: ({'0808a052', 'e8030a32', '0b40a052', 'eb030732', '0a00a852', 'ea030232'}, {'0804a052', '0b04a052', '0a04a052'})}
         for rule in m.MATCH_CUTS['sdk']:
+            old_words, new_words = words[rule['name']]
             for delta, old, new, why in rule['cuts']:
-                self.assertIn((old, new), registered, why)
+                self.assertIn(old, old_words, why); self.assertIn(new, new_words, why)
+                self.assertEqual(int(old[:2], 16) & 31, int(new[:2], 16) & 31, why)
 
     def test_game_files_name_their_own_builds(self):
         for p, m in MODS.items():

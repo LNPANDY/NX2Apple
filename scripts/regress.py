@@ -830,7 +830,7 @@ def run_env(g, art, route, outdir, a):
     else: save.mkdir()
     temp.mkdir()
     env = dict(os.environ, DM_ROOT=str(g.build), DM_ROMFS=str(g.romfs()), DM_SAVE=str(save), DM_TEMP=str(temp), DM_MSL_DIR=str(lib), DM_FONT_DIR=str(g.build / 'font'),
-               DM_WINDOW='1', DM_AUDIO='0', DM_METAL_HUD='0' if a.no_hud else '1', DM_CTL=str(outdir / 'ctl'), TMPDIR=str(game_root(g) / 'tmp') + '/')
+               DM_WINDOW='1', DM_WINDOW_TOP='1', DM_AUDIO='0', DM_METAL_HUD='0' if a.no_hud else '1', DM_CTL=str(outdir / 'ctl'), TMPDIR=str(game_root(g) / 'tmp') + '/')
     if g.kind == 'nvn':
         env.update(DM_NVN_SHMAP=str(prof / 'shader_map.tsv'), DM_NVN_TSV=str(outdir / 'frames.tsv'), DM_NVN_TSV_CALLS='0')
         if not (prof / 'pso_pairs.tsv').is_file() and (g.build / 'shader/pso_pairs.tsv').is_file(): env['DM_PSO_PAIRS'] = str(g.build / 'shader/pso_pairs.tsv')
@@ -860,7 +860,7 @@ def smoke_run(g, tree, art, route, quick, outdir, a):
     text = (outdir / 'log.txt').read_text(errors='replace')
     red, crash_line, prep, _ = read_log(text)
     res.update(exit=r['exit'], hang_at_s=r['hang_at_s'], hang_sample=r['hang_sample'], hang_dump='state dump (DM_CTL dump)' in text, first_frame_s=r['first_frame_s'], max_frame=r['max_frame'], peak_footprint_mb=r['peak_mb'], busy=r['busy'],
-               prepare_s=prep, red=dict(red), crash=None)
+               prepare_s=prep, red=dict(red), crash=None, covered=text.count('front end: window covered'))
     if crash_line or (r['exit'] not in (None, 0)):
         res['crash'] = {'line': normalize_red('[RED] ' + crash_line) if crash_line else None, **(crash_report(r['t0']) or {})}
     if route['reach']:
@@ -1088,9 +1088,13 @@ def smoke_series(g, tree, art, route, quick, label, a, runs):
     for i in range(runs):
         d = game_root(g) / 'runs' / f'{datetime.datetime.now():%Y%m%d-%H%M%S}-{label}-{"quick" if quick else "full"}-{i + 1}'
         say(f'  {g.id}: {label} run {i + 1}/{runs} ({"quick" if quick else "full"}, {route["quick"] if quick else route["secs"]:g} s) → {d}')
-        r = smoke_run(g, tree, art, route, quick, d, a); r['dir'] = str(d); out.append(r)
+        r = smoke_run(g, tree, art, route, quick, d, a); r['dir'] = str(d)
+        if r.get('covered'):   # another window covered the game's (a covered window's display link fires about once a second): its frame times measure nothing, so once more
+            say(f'    the window was covered during the run ({d / "log.txt"}): once more')
+            d = d.with_name(d.name + '-again'); r = smoke_run(g, tree, art, route, quick, d, a); r['dir'] = str(d)
+        out.append(r)
         say(f'    exit {r["exit"]}, max frame {r["max_frame"]}, first frame {r["first_frame_s"]} s, prepare {r["prepare_s"]} s, fps {r.get("fps")}, p99 {r.get("frame_p99")} ms, '
-            f'peak {r["peak_footprint_mb"]} MB, RED kinds {len(r["red"])}' + (f', prebuild {r["prebuild"].get("wall_s")} s' if r.get('prebuild') else '')
+            f'peak {r["peak_footprint_mb"]} MB, RED kinds {len(r["red"])}' + (', window covered' if r.get('covered') else '') + (f', prebuild {r["prebuild"].get("wall_s")} s' if r.get('prebuild') else '')
             + (f', FAIL: {"; ".join(run_failures(r, route))}' if run_failures(r, route) else '')
             + ''.join(f', thread stacks {d / x}' for x in (r.get('hang_sample'), (r.get('prebuild') or {}).get('hang_sample')) if x))
     return out
@@ -1509,7 +1513,7 @@ def report_md(rep):
                 pb = r.get('prebuild') or {}
                 L.append(f"  - {label}: exit {r.get('exit')}, first frame {r.get('first_frame_s')} s, max frame {r.get('max_frame')}, reached {r.get('reached')}, prepare {r.get('prepare_s')} s"
                          + (f", prebuild {pb.get('wall_s')} s ({pb.get('built', 0):g} built, {pb.get('failed', 0):g} failed)" if pb else '')
-                         + f", fps {r.get('fps')}, p50/p99 {r.get('frame_p50')}/{r.get('frame_p99')} ms, peak {r.get('peak_footprint_mb')} MB" + (', busy Mac' if r.get('busy') else '')
+                         + f", fps {r.get('fps')}, p50/p99 {r.get('frame_p50')}/{r.get('frame_p99')} ms, peak {r.get('peak_footprint_mb')} MB" + (', busy Mac' if r.get('busy') else '') + (', window covered' if r.get('covered') else '')
                          + (f", missing shader libraries {red_counts(r)[MISSING_LIB]}" if red_counts(r)[MISSING_LIB] else '')
                          + (', hang: state dump in log.txt' if r.get('hang_dump') else '') + (f", thread stacks {r['hang_sample']}" if r.get('hang_sample') else ''))
         rp = g.get('replay')

@@ -14,7 +14,6 @@ ipa	Mario3DWorld.ipa
 app_category	public.app-category.action-games
 # the virtual gamepad starts in the 3D layout (D-pad, right stick, L3 / R3): the right stick turns the camera
 pad_layout	full
-feedback_snap	66a71a3081b91b9a 30e3ccb0bd304ead
 
 # ---- Versions ----
 # only the merged 1.2.2 copy is extracted; the base game's own build IDs are added when needed

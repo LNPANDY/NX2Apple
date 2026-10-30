@@ -12,7 +12,7 @@ Build IDs (first 16 hex digits, as cheat files name them): 1.0.0 `DF154E1D08E396
 | the profile's other keys | [`game.tsv`](game.tsv) | the provisional profile's static guesses (`build_ipa_from_nsp.py` / `profile_guess.py`), unchanged: they boot and play |
 | default present interval (30 fps) | none | the game logic counts frames: see [Frame rate](#frame-rate) |
 
-`dm/tools/sdk_patches.py` has no cut for its `sdk` build (`5fd4f531c1195e9e5510c9e73f22cd39`).
+`dm/tools/sdk_patches.py`'s SDK-wide rules cut its `sdk` build (`5fd4f531c1195e9e5510c9e73f22cd39`, Super Smash Bros. Ultimate's).
 
 ## Code
 

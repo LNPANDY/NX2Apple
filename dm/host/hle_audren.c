@@ -413,16 +413,17 @@ static Result render_once(uint8_t *sys, int16_t *dst, int *nout) {
 //   the execution mode and rendering device, so every render of the render thread failed with 0x40299 and played silence; only the game's updates rendered (catch-up frames, one per
 //   update at 60 Hz), heard as chopped sound. Anything not found keeps +0x60
 static size_t impl_sys_off(void) {
-    static size_t off;
-    if (off) return off;
-    off = 0x60;
+    static _Atomic size_t found;   // the offset + 1 once looked up: an `add xd, x0, #0` gives +0
+    size_t k = atomic_load(&found);
+    if (k) return k - 1;
+    size_t off = 0x60;
     const uint32_t *f = guest_sym("_ZN2nn5audio6server24AudioRendererManagerImpl17AudioRendererImpl29ExecuteAudioRendererRenderingEv");
     for (int i = 0; f && i < 16; i++) {
         uint32_t w = f[i];
         if ((w & 0xffc003e0u) == 0x91000000u) { off = (w >> 10) & 0xfff; break; }   // add xd, x0, #imm12
         if ((w & 0x7c000000u) == 0x14000000u) break;   // b / bl: no offset before the first branch
     }
-    LOG("audren: AudioRenderSystem at +%#zx in AudioRendererImpl", off);
+    if (!atomic_exchange(&found, off + 1)) LOG("audren: AudioRenderSystem at +%#zx in AudioRendererImpl", off);
     return off;
 }
 HLE_FORCE("_ZN2nn5audio6server24AudioRendererManagerImpl17AudioRendererImpl29ExecuteAudioRendererRenderingEv", "render one frame manually: SDK generates commands + CPU processing, the host takes the DeviceSink output",
@@ -485,6 +486,12 @@ HLE_FORCE("_ZN2nn5audio26GetAudioDeviceOutputVolumeEPKNS0_15AudioDeviceNameE", "
 static atomic_int g_ad_notify;
 HLE_FORCE("_ZN2nn5audio39AcquireAudioDeviceNotificationForOutputEPNS_2os11SystemEventE", "output device change notification: bound, never signaled", Result, h_ad_Notify, void *ev) {
     if (atomic_exchange(&g_ad_notify, 1)) return 0x499;
+    hle_bind_system_event(ev, 0); return RES_OK;
+}
+// The input twin (Portal 2's main+0x19f37c, on its audio thread at start): the same shape with a flag of its own (SDK 13.3.0 sdk+0x56300: +0x851, the output's +0x852)
+static atomic_int g_ad_notify_in;
+HLE_FORCE("_ZN2nn5audio38AcquireAudioDeviceNotificationForInputEPNS_2os11SystemEventE", "input device change notification: bound, never signaled (the host has no microphone)", Result, h_ad_NotifyIn, void *ev) {
+    if (atomic_exchange(&g_ad_notify_in, 1)) return 0x499;
     hle_bind_system_event(ev, 0); return RES_OK;
 }
 // SDK 7 names of the two above (Super Mario Odyssey): the device-switch event and the active channel count

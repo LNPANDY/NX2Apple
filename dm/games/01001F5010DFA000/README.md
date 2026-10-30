@@ -7,7 +7,7 @@ Update 1.1.1 (`v262144`) over the base game, SDK 11.4.0. Game Freak's engine bet
 | Setting | Where | Why |
 |---|---|---|
 | 5 GB block: `mem_reserve 0x140000000`, `mem_alias 0x118000000` (4.38 GB), `sys_resource 0x1000000` | [`game.tsv`](game.tsv) | the NPDM declares 16 MB of system resource (virtual address memory); `nninitStartup` sets a 0.02 GB heap and initializes malloc's StandardAllocator over 32 GB of address space (`main+0x2779d8c`), which the host gives 4.06 GB ([StandardAllocators over 12 to 62 GB of address space](../../../docs/reference/memory.md#standardallocators-over-12-to-62-gb-of-address-space)) |
-| Node area cut and 32 MB alignment of large regions | `dm/tools/sdk_patches.py`, `sdk` build `b39add63…` (Kirby's) | without the alignment the 4.06 GB region goes to the next 1 GB boundary past the node area and does not fit ([1 GB alignment of regions of 1 GB and more](../../../docs/reference/memory.md#1-gb-alignment-of-regions-of-1-gb-and-more)) |
+| Node area cut and 2 MB alignment of large regions (SDK 20's) | `dm/tools/sdk_patches.py` SDK-wide rules, `sdk` build `b39add63…` (Kirby's) | without the alignment the 4.06 GB region goes to the next 1 GB boundary past the node area and does not fit ([1 GB alignment of regions of 1 GB and more](../../../docs/reference/memory.md#1-gb-alignment-of-regions-of-1-gb-and-more)) |
 | `dual_want.tsv` | profile | two post-effect pixel shaders are blended with their output 1 as the second source ([A written secondary blend source](../../../docs/reference/rendering.md#a-written-secondary-blend-source-nvn-dual-source-blending)) |
 | `depth_mode zero` | `game.tsv` | the game sets the near=0 depth mode, so the pipeline bases made before it runs take the `main0_z` vertex entries |
 | `pad_layout full` | `game.tsv` | the 3D gamepad layout: the camera is on the right stick |
@@ -40,6 +40,6 @@ No `patches.py`, and no host code keyed to this game.
 
 General changes first needed here; each applies to every game:
 
-- **The node area and 32 MB region alignment cuts of `sdk` `b39add63…`, and the SDK 11.4.0 implementation of the SDK-wide alignment patch** (`sdk_patches.py` `CUTS`, `MATCH_CUTS`): [1 GB alignment of regions of 1 GB and more](../../../docs/reference/memory.md#1-gb-alignment-of-regions-of-1-gb-and-more).
+- **The node area and 32 MB region alignment cuts of `sdk` `b39add63…`, and the SDK 11.4.0 implementation of the SDK-wide alignment patch** (`sdk_patches.py` `MATCH_CUTS`; the build's row was removed on 2026-10-29, as the rules give the same cuts): [1 GB alignment of regions of 1 GB and more](../../../docs/reference/memory.md#1-gb-alignment-of-regions-of-1-gb-and-more).
 - **Dual-source blending for NVN shaders** (`dmsh_build.py` `fs_dual`, `main0_d`, the profile's `dual_want.tsv`, `DM_NVN_DUAL_WANT`; `pso_desc` `pso_reads_src1`): [A written secondary blend source (NVN dual-source blending)](../../../docs/reference/rendering.md#a-written-secondary-blend-source-nvn-dual-source-blending).
 - **The NSP script's rewrite key always covers `sdk_patches.py`** (`patch_files`): [The packing script in detail](../../../docs/development.md#the-packing-script-in-detail).

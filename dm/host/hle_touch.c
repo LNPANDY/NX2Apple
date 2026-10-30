@@ -10,13 +10,14 @@
 #include "front.h"
 #include <math.h>
 #include <pthread.h>
+#include <stdatomic.h>
 enum { F_EMPTY, F_DOWN, F_LIFTED };
 static struct { int st, reported, again; float x, y, ax, ay; } g_f[16];   // again/ax/ay: the same id was pressed again before End went out (the next read reports End first, then the new Start)
 static struct { int down, pend; float x, y; } g_gf[16];   // the gesture recognizer's own view of the fingers; pend: pressed since its last sample (a press and lift between two samples still counts once)
 static pthread_mutex_t g_tl = PTHREAD_MUTEX_INITIALIZER;
 static int64_t g_tsamp; static uint64_t g_tlast_ns;
 
-void dm_touch_set(const dm_touch *t, int n) {
+static void touch_apply(const dm_touch *t, int n) {
     pthread_mutex_lock(&g_tl);
     int seen[16] = {0};
     for (int i = 0; i < n; i++) {
@@ -36,6 +37,14 @@ void dm_touch_set(const dm_touch *t, int n) {
     }
     pthread_mutex_unlock(&g_tl);
 }
+// The front ends' touches (the Mac mouse, the iPhone's screen) go through dm_touch_set, which DM_REC sees (hle_hid.c sets the observer); DM_KEYS and DM_CTL touch through
+// dm_touch_script, which it does not, so a recording never holds scripted input
+void (*_Atomic dm_touch_observer)(const dm_touch *t, int n);
+void dm_touch_set(const dm_touch *t, int n) {
+    touch_apply(t, n);
+    void (*o)(const dm_touch *, int) = atomic_load_explicit(&dm_touch_observer, memory_order_relaxed); if (o) o(t, n);
+}
+void dm_touch_script(const dm_touch *t, int n) { touch_apply(t, n); }
 
 static int32_t clampi(float v, int hi) { int32_t r = (int32_t)(v * (float)(hi + 1)); return r < 0 ? 0 : r > hi ? hi : r; }
 // Fill one TouchScreenState<max> (out is 0x10 + 0x28 · max bytes; max 1–16); now_ns is used for delta_time. Returns the number of touch points written.

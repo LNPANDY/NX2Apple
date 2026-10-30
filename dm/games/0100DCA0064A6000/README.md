@@ -11,7 +11,7 @@ Update 1.4.0 (v327680) over the base game, SDK 7.3.2 (NVN 53). Next Level Games'
 | `mem_used 0x4600000` | `game.tsv` | the rewritten modules are larger than the default 64 MB of used memory |
 | 4 GB layout: `mem_reserve 0x100000000`, `mem_alias 0x10000000`, `mem_stack 0x10000000`, `app_pool 0xCD500000`, `sys_resource 0x0` | `game.tsv` | no virtual address memory (the NPDM declares no system resource): `main` sets a 2.94 GB heap |
 | `pad_layout full` | `game.tsv` | Luigi moves with the left stick and aims with the right; the D-pad calls up the Virtual Boo: the iPhone pad starts in the 3D layout, which has both |
-| Node area cut and 32 MB alignment of large regions | `dm/tools/sdk_patches.py`, `sdk` build `fcf93a41…` | registered for DRAGON QUEST XI S on this build; this game has no virtual address memory |
+| Node area cut and 2 MB alignment of large regions (SDK 20's) | `dm/tools/sdk_patches.py` SDK-wide rules, `sdk` build `fcf93a41…` | DRAGON QUEST XI S's build, cut by the SDK-wide rules; this game has no virtual address memory |
 
 No `patches.py`.
 

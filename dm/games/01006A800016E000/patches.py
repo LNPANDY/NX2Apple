@@ -37,5 +37,10 @@ MATCH_CUTS = {'main': [{'name': region, 'functions': [
     _function(0x37caf10, 788, '846ba936f6b9870853808ed82d482ce0e104aa7ef300c692d79ca7d4837dd07b'),
 ]}]}
 
-# Whether a general rule could replace these patches (dm/tools/docs_patches.py lists it in docs/agents/game-patches.md)
-GENERALIZE = "Already function-matched for builds of the same code (MATCH_CUTS); the 62 GB region is the engine's own, so no general rule"
+# How general each patch is and could be (dm/tools/docs_patches.py "Binding", listed in docs/agents/game-patches.md): what, its binding now, the loosest it could have (goal),
+# purpose, why; blocked or kept: why the gap stays open (cannot close yet, or left open on purpose); checked: what was checked on game files (else a judgement)
+BINDING = [
+    {'what': 'engine region 62 GB → 4 GB (11 cuts in four functions)', 'now': 'game', 'goal': 'game', 'purpose': 'address space',
+     'checked': 'MATCH_CUTS enrolled on its builds',
+     'why': "function-matched for builds of the same code (MATCH_CUTS); the region and its node pool are the nu:: engine's own"},
+]

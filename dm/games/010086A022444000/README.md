@@ -8,7 +8,7 @@ On the Mac: the boot, the title, a new game, the intro and the descent into the 
 
 | Setting | Where | Why |
 |---|---|---|
-| Node area cut 1 GB → 62 MB | `dm/tools/sdk_patches.py`, `sdk` build `8bfebccd…` | Unity 6 takes all its memory through `AllocateAddressRegion`, after the node area; see [Memory](#memory) |
+| Node area cut 1 GB → 62 MB | `dm/tools/sdk_patches.py` SDK-wide rules, `sdk` build `8bfebccd…` | Unity 6 takes all its memory through `AllocateAddressRegion`, after the node area; see [Memory](#memory) |
 | `sys_resource 0x1000000` | [`game.tsv`](game.tsv) | the NPDM declares 16 MB of system resource, so `IsVirtualAddressMemoryEnabled` is true |
 | 5 GB block: `mem_reserve 0x140000000`, `mem_alias 0x118000000`, `mem_stack 0x10000000`, `app_pool 0xCD500000` | `game.tsv` | Engage's block of the other Unity games with virtual address memory (4.375 GB alias region) |
 | `pad_layout full` | `game.tsv` | the 3D gamepad layout: in a dive the right stick aims |

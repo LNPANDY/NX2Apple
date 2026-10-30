@@ -88,14 +88,24 @@ static int cap_enc_addr(void *ctx, uint64_t *field, uint64_t len, int writable) 
 }
 
 // The interface a program's shaders were translated with, as the replay layer resolved it: per stage a hash of its bindings, vertex inputs and thread group size (the
-// replayer computes the same from its own libraries and compares)
+// replayer computes the same from its own libraries and compares). It hashes their values field by field, and a field at 0 adds nothing (header key iface 2), so a field
+// widened or added to nvn_refl.h later keeps the hash of every shader that does not use it. A hash of the structs' bytes (captures without the key) changed for every
+// program when 682fdd26 widened nvn_rbind.n and added soff, and the replayer refused every capture although no binding had changed
+#define CAP_IFACE 2
+static void cap_iface_put(CC_SHA256_CTX *c, uint32_t tag, uint64_t v) { if (!v) return; uint64_t x[2] = {tag, v}; CC_SHA256_Update(c, x, sizeof x); }
 static void cap_iface(NvProg *o, uint64_t out[6]) {
     for (int st = 0; st < 6; st++) {
         NvShader *sh = o ? o->sh[st] : nil; out[st] = 0; if (!sh) continue;
         const nvn_refl *r = &sh->rf; int nb = MAX(0, MIN(r->nb, NVN_REFL_MAXB)), nv = MAX(0, MIN(r->nv, NVN_REFL_MAXV));
         CC_SHA256_CTX c; uint8_t md[32]; CC_SHA256_Init(&c);
-        CC_SHA256_Update(&c, &nb, sizeof nb); CC_SHA256_Update(&c, r->b, (CC_LONG)(nb * sizeof *r->b));
-        CC_SHA256_Update(&c, &nv, sizeof nv); CC_SHA256_Update(&c, r->v, (CC_LONG)(nv * sizeof *r->v)); CC_SHA256_Update(&c, r->tg, sizeof r->tg);
+        cap_iface_put(&c, 1, (uint64_t)nb + 1); cap_iface_put(&c, 2, (uint64_t)nv + 1);
+        for (int i = 0; i < 3; i++) cap_iface_put(&c, 3 + i, r->tg[i]);
+        for (int i = 0; i < nb; i++) { const nvn_rbind *b = &r->b[i]; uint32_t t = 1u << 24 | (uint32_t)i << 8;   // binding i, field f: tag t + f
+            const uint64_t f[] = {b->kind, b->rw, b->dtt, b->dpf, b->reg, b->aid, b->off, b->n, b->soff, b->f1d, b->atom};
+            for (uint32_t k = 0; k < sizeof f / sizeof *f; k++) cap_iface_put(&c, t + k, f[k]); }
+        for (int i = 0; i < nv; i++) { uint32_t t = 2u << 24 | (uint32_t)i << 8;
+            const uint64_t f[] = {r->v[i].loc, r->v[i].ct, r->v[i].nvn, r->v[i].sh[0], r->v[i].sh[1], r->v[i].sh[2]};
+            for (uint32_t k = 0; k < sizeof f / sizeof *f; k++) cap_iface_put(&c, t + k, f[k]); }
         CC_SHA256_Final(md, &c); memcpy(&out[st], md, 8); out[st] |= 1;
     }
 }
@@ -319,7 +329,7 @@ static void cap_head(void) {
     char exe[1024]; uint32_t en = sizeof exe; char commit[128] = "unknown";
     if (!_NSGetExecutablePath(exe, &en)) { char cmd[1400], *d = dirname(exe); snprintf(cmd, sizeof cmd, "git -C '%s' describe --always --dirty --abbrev=12 2>/dev/null", d);
         FILE *p = popen(cmd, "r"); if (p) { if (fgets(commit, sizeof commit, p)) commit[strcspn(commit, "\n")] = 0; else strlcpy(commit, "unknown", sizeof commit); pclose(p); } }
-    KV("format\t%u\n", CAP_VERSION); KV("chain\t%s\n", DMSH_CHAIN); KV("commit\t%s\n", commit); KV("title\t%s\n", DM_GAME_ID); KV("build\t%s\n", dm_main_build());
+    KV("format\t%u\n", CAP_VERSION); KV("iface\t%d\n", CAP_IFACE); KV("chain\t%s\n", DMSH_CHAIN); KV("commit\t%s\n", commit); KV("title\t%s\n", DM_GAME_ID); KV("build\t%s\n", dm_main_build());
     KV("frame\t%d\n", g_cap_frame); KV("frames\t1\n"); KV("mtl_frame\t%llu\n", (unsigned long long)atomic_load(&g_cur_frame));   // the replay layer's frame number: the replayer takes it, so frame-keyed diagnostics (DM_NVN_TEXDUMP, DM_NVN_PASSDUMP) select the same frame
     for (char **e = *_NSGetEnviron(); *e; e++) if (!strncmp(*e, "DM_", 3) && strncmp(*e, "DM_NVN_CAPTURE=", 15)) KV("env\t%s\n", *e);
 #undef KV

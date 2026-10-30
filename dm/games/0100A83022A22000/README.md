@@ -10,7 +10,7 @@ Status: brought up on 1.1.2 on the Mac: the logo movie, the licence agreement, t
 |---|---|---|
 | malloc's address space 40 GB → 2.5 GB | the host's StandardAllocator cap (`hle_svc.c`), every build, with [`game.tsv`](game.tsv)'s `stdalloc_cap 0xa0000000` | malloc's StandardAllocator takes 40 GB of address space; 2.19 GB is used into the first level, and the GC's 1.5 GB region comes after it; see [Memory](#memory) |
 | `game_env DOTNET_GCRegionRange=60000000` | [`game.tsv`](game.tsv), `hle_os.c` | the .NET GC's region range 1.5 GB instead of 5 × its hard limit (3.75 GB) |
-| Node area cut 1 GB → 62 MB (`sdk+0x13be4c` / `+0x13bee0`) and 32 MB alignment for regions of 1 GB and more (`sdk+0x13c03c`) | `dm/tools/sdk_patches.py`, `sdk` build `f118ae1c…` | the 1 GB alignment lost up to 1 GB before each of the two large regions |
+| Node area cut 1 GB → 62 MB (`sdk+0x13be4c` / `+0x13bee0`) and 2 MB alignment for regions of 4 MB and more, as SDK 20 (`sdk+0x13c034`, `+0x13c03c`, `+0x13c040`) | `dm/tools/sdk_patches.py` SDK-wide rules, `sdk` build `f118ae1c…` | the 1 GB alignment lost up to 1 GB before each of the two large regions |
 | Engage's 5 GB block: `mem_reserve 0x140000000`, `mem_alias 0x118000000`, `mem_stack 0x10000000`, `app_pool 0xCD500000` | `game.tsv` | 256 MB in front + 4.375 GB alias region + 256 MB stack region + 128 MB heap region (never used) |
 
 No `pad_layout` key: the iPhone gamepad starts in the 2D layout ([README](../../../README.md)).

@@ -10,14 +10,13 @@ On the Mac: the opening course, the cutscene that follows it and the title menu;
 |---|---|---|
 | `op_mode handheld` | [`game.tsv`](game.tsv) | docked, the game's pointer (touch blocks, stunning enemies) is the Joy-Con gyro, which the host does not have; handheld, it is the touch screen, which the iPhone front end feeds with the touches no gamepad control takes. Handheld also renders at 720p |
 | `pad_layout full` | `game.tsv` | the virtual gamepad starts in the 3D layout: the right stick turns the camera |
-| `feedback_snap 54f58a7cab608766` | `game.tsv` | agl's post-effect program samples its own attachment: 16x16 magenta blocks on the Mac too; see [Rendering](#rendering) |
 | 4 GB layout: `mem_reserve 0x100000000`, `mem_alias 0x10000000`, `mem_stack 0x10000000`, `app_pool 0xCD500000` | `game.tsv` | no system resource in the NPDM: the game sets a 3.00 GB heap (pool − 64 MB). `main`'s bss is only 1.4 MB. 13 Sentinels' partition, as the other EPD games without virtual address memory |
 
-No `patches.py`, no `dm/tools/sdk_patches.py` cut for its `sdk` build (`3ae34e68…`).
+No `patches.py`; `dm/tools/sdk_patches.py`'s SDK-wide rules cut its `sdk` build (`3ae34e68…`): the node area and 2 MB alignment of large regions.
 
 ## Rendering
 
-- **Current: same-pass feedback on the Mac too.** agl's post-effect program 987 (`54f58a7cab608766`, `agl_technique_pfx.sharcb`, the same program as 3D World's `66a71a3081b91b9a` in another build) writes the 1920x1080 RGB10A2 image as an attachment while sampling it. In 3D World the 16x16 magenta blocks showed only on the iPhone; here a Mac (Apple M6) showed one in about half the frames of the opening course, moving with the falling leaves. `DM_NVN_FB_SNAP=all` cleared every frame and named this one shader, now in `feedback_snap`.
+- **Resolved: same-pass feedback on the Mac too.** agl's post-effect program 987 (`54f58a7cab608766`, `agl_technique_pfx.sharcb`, the same program as 3D World's `66a71a3081b91b9a` in another build) writes the 1920x1080 RGB10A2 image as an attachment while sampling it. In 3D World the 16x16 magenta blocks showed only on the iPhone; here a Mac (Apple M6) showed one in about half the frames of the opening course, moving with the falling leaves. `DM_NVN_FB_SNAP=all` cleared every frame and named this one shader, which the profile then listed in a `feedback_snap` key. The host now snapshots such draws without a list ([Same-pass feedback read through a snapshot](../../../docs/reference/rendering.md#same-pass-feedback-read-through-a-snapshot)); this game was not run again with it (not on this Mac).
 - Its opening course renders with agl's transient targets: the storage-sharing table keeps its 26 entries and takes none over under the takeover rule (found on STEINS;GATE RE:BOOT), with the same memory and frame times as before.
 
 ## Files and shaders

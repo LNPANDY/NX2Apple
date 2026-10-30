@@ -12,16 +12,17 @@ void svc_thread_dump(void) {}
 uint64_t now_ns(void) { return bp_now(); }
 static int checks, failed;
 #define CHECK(name, ok) do { int pass = !!(ok); checks++; failed += !pass; printf("%s: %s\n", name, pass ? "PASS" : "FAIL"); } while (0)
-static tex_t source(unsigned i) {
-    MTLTextureDescriptor *d = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm width:8 height:8 mipmapped:NO];
+static tex_t source_n(unsigned i, int n) {   // n x n texels of 73 + i (n at most 16)
+    MTLTextureDescriptor *d = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm width:n height:n mipmapped:NO];
     d.storageMode = MTLStorageModeShared; d.usage = MTLTextureUsageShaderRead;
-    id<MTLTexture> mt = [g_dev newTextureWithDescriptor:d]; uint8_t bytes[256]; memset(bytes, 73 + i, sizeof bytes);
-    [mt replaceRegion:MTLRegionMake2D(0, 0, 8, 8) mipmapLevel:0 withBytes:bytes bytesPerRow:32];
+    id<MTLTexture> mt = [g_dev newTextureWithDescriptor:d]; uint8_t bytes[1024]; memset(bytes, 73 + i, sizeof bytes);
+    [mt replaceRegion:MTLRegionMake2D(0, 0, n, n) mipmapLevel:0 withBytes:bytes bytesPerRow:n * 4];
     tex_t t = {.magic=MAGIC('T','E','X',0), .serial=90001+i};
-    t.d.width = t.d.height = 8; t.d.depth = t.d.levels = t.d.samples = 1;
+    t.d.width = t.d.height = n; t.d.depth = t.d.levels = t.d.samples = 1;
     t.d.target = NVN_TEXTURE_TARGET_2D; t.d.format = NVN_FORMAT_RGBA8;
     serial_put(t.serial, mt); res_add(mt); res_commit(); return t;
 }
+static tex_t source(unsigned i) { return source_n(i, 8); }
 static void pixels(id<MTLTexture> t, int value) {
     id<MTLBuffer> out = [g_dev newBufferWithLength:256 options:MTLResourceStorageModeShared];
     id<MTLCommandBuffer> cb = [g_q commandBuffer]; id<MTLBlitCommandEncoder> b = [cb blitCommandEncoder];
@@ -108,6 +109,34 @@ static void pending_copy_case(void) {
     CHECK("discarded copies finish before drain returns", g_snap_ev.signaledValue >= v);
     pixels(g_snap[0].tex, 73); pixels(g_snap[1].tex, 73);
 }
+static void snap_present(const tex_t *t) { present_enqueue(t, 1. / 60, NULL, 0); mtl_present_flush(); snap_commit_wait(g_snap_v); }
+// A new presented size replaces the ring slot's texture while a present that sampled the old one may still be queued on the GPU (a gate holds the queue): the old texture stays
+// resident until the slot's next use, which comes only after the replacing copy, and with it everything queued before, has run
+static void resize_case(void) {
+    tex_t small = source_n(0, 8), big = source_n(26, 16);
+    snap_present(&small); snap_present(&small);
+    CHECK("both ring slots copied", [g_snap_ev waitUntilSignaledValue:g_snap_v timeoutMS:2000]);
+    id<MTLTexture> old0 = g_snap[0].tex, old1 = g_snap[1].tex;
+    id<MTLSharedEvent> gpu_gate = [g_dev newSharedEvent]; [g_q4 waitForEvent:gpu_gate value:1];   // stands for display command buffers still queued
+    snap_present(&big);
+    CHECK("slot 0 has a texture of the new size", g_snap[0].tex != old0 && g_snap[0].tex.width == 16);
+    CHECK("slot 0's old texture is still resident", [g_snap_res containsAllocation:old0]);
+    snap_present(&big);
+    CHECK("slot 1's old texture is still resident", [g_snap_res containsAllocation:old1]);
+    uint64_t ticket = present_enqueue(&big, 1. / 60, NULL, 0); mtl_present_flush();
+    CHECK("a present while slot 0's copy is queued falls back", ticket != 0);
+    CHECK("the old texture stays resident while the copy is queued", [g_snap_res containsAllocation:old0]);
+    gpu_gate.signaledValue = 1;
+    CHECK("the replacing copies complete", [g_snap_ev waitUntilSignaledValue:g_snap_v timeoutMS:2000]);
+    snap_present(&big);
+    CHECK("slot 0's old texture leaves at the slot's next use", ![g_snap_res containsAllocation:old0] && !g_snap[0].old);
+    CHECK("slot 0's new texture is resident", [g_snap_res containsAllocation:g_snap[0].tex]);
+    CHECK("slot 1's old texture waits for its own slot", [g_snap_res containsAllocation:old1]);
+    CHECK("the copy completes", [g_snap_ev waitUntilSignaledValue:g_snap_v timeoutMS:2000]);
+    pixels(g_snap[0].tex, 99);
+    snap_present(&big);
+    CHECK("slot 1's old texture leaves at its next use", ![g_snap_res containsAllocation:old1] && !g_snap[1].old);
+}
 int main(int argc, char **argv) { @autoreleasepool {
     alarm(15); setbuf(stdout, NULL);
     if (argc != 2) return 2;
@@ -116,6 +145,7 @@ int main(int argc, char **argv) { @autoreleasepool {
     if (!strcmp(argv[1], "suspend")) suspend_case();
     else if (!strcmp(argv[1], "pacing")) pacing_case();
     else if (!strcmp(argv[1], "copy")) pending_copy_case();
+    else if (!strcmp(argv[1], "resize")) resize_case();
     else return 2;
     printf("present snapshots: %d checks, %d failed\n", checks, failed); return failed != 0;
 } }

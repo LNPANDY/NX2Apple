@@ -36,11 +36,6 @@ app_pool	0xCD500000
 # the NPDM declares 8 MB of system resource
 sys_resource	0x800000
 
-# ---- Graphics ----
-# The anti-aliasing pass (shaders/aa.bfsha variation 1) samples the 1920x1080 RGB10A2 scene target it renders into: on the Mac whole 16x16 blocks of it read as magenta (1, 0, 1) in some frames
-# (about one block a frame at Peach's castle, none with the snapshot). Once a frame, an 8 MB copy
-feedback_snap	8dc20835c07cd7ff
-
 # ---- Shader split (shader_split.py: BNSH in the zstd .bfsha and .ptcl files) ----
 shader_groups	/shaders/=shaders /effect/=effect
 shader_note	Paper Mario: The Origami King shaders
