@@ -1,5 +1,7 @@
 <!-- One change per PR. CONTRIBUTING.md says where a change may go. Read it before touching dm/, scripts/, docs/, ref/ or AGENTS.md. -->
 
+Fix or feature? A fix merges once CI is green, a feature after 48 hours. Maintainers label it `bug` or `enhancement`.
+
 ## What and why
 
 <!-- The symptom or the need, the cause, and the change. Link the issue (Fixes #...). -->
