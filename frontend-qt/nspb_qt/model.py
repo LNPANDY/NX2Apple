@@ -17,6 +17,7 @@ from PySide6.QtCore import QSettings, Q_ARG, QMetaObject, QObject, Qt, QThread, 
 
 from . import build_failure as bf
 from . import input_staging
+from . import inputs
 from . import platform_util as pu
 from .i18n import Lang
 from .localization import t
@@ -994,13 +995,10 @@ class Model(QObject):
             elif p.is_dir():
                 files += [q for q in sorted(p.iterdir()) if q.is_file()]
         self.keys_path = next((str(f) for f in files if f.name.lower() == 'prod.keys'), self.keys_path)
-        nsps = [f for f in files if f.suffix.lower() in ('.nsp', '.xci', '.nsz', '.xcz')]
-        updates = [f for f in nsps if '[upd]' in f.name.lower() or 'update' in f.name.lower()]
-        dlcs = [f for f in nsps if '[dlc]' in f.name.lower() or 'addon' in f.name.lower()]
-        bases = [f for f in nsps if f not in updates and f not in dlcs]
-        self.base_path = str(bases[0]) if bases else ''
-        self.update_path = str(updates[0]) if updates else ''
-        self.dlc_paths = [str(f) for f in dlcs]
+        found = inputs.classify(files)
+        self.base_path = str(found['base']) if found['base'] else ''
+        self.update_path = str(found['update']) if found['update'] else ''
+        self.dlc_paths = [str(f) for f in found['dlc']]
         self.repoChanged.emit()
 
     @property
@@ -1276,13 +1274,5 @@ class Model(QObject):
 
     @staticmethod
     def _title_id(nsp: str) -> int | None:
-        """The title ID from a dump's file name: the 16 hex digits in [0100…], which every
-        dumper puts there."""
-        import re
-        m = re.search(r'\[([0-9A-Fa-f]{16})\]', Path(nsp).name)
-        if not m:
-            return None
-        try:
-            return int(m.group(1), 16)
-        except ValueError:
-            return None
+        """The title ID from a dump's file name: bracketed [0100…] or a bare 16-digit ID."""
+        return inputs.title_id(Path(nsp).name)
