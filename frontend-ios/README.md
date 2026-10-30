@@ -1,6 +1,6 @@
 # iOS shell views
 
-A Swift 6 package for iOS and iPadOS 26 and later. `ShellUI` is the view layer of the multi-game shell described in Route C (#144). It renders what it is given and reports what the player does. It has no engine dependency, game launching, storage, document picker, networking or game-file access.
+A Swift 6 package for iOS and iPadOS 26 and later. `ShellUI` is the view layer of the multi-game shell described in Route C (#144). It renders what it is given and reports what the player does. It has no engine dependency, game launching, storage, document picker, networking or game-file access. `ShellHost` is the layer behind it that does those things.
 
 ## Run
 
@@ -44,6 +44,41 @@ LibraryView(
 ```
 
 The caller returns changed values through `games`. The views keep no second copy.
+
+## Host
+
+`ShellHost` is a library for the real shell app and the demo. It turns real files into the view values and acts on `ShellActions`. `ShellUI` stays view-only. Main types: `ShellHostModel` (the `@Observable` model, its `actions` go to `LibraryView`) and `ShellHostView` (`LibraryView` on a model, plus the log sheet and a notice alert).
+
+| Part | What it does | Mirrors |
+| --- | --- | --- |
+| `GameCatalogue` | Scans `Games/<title ID>/`: `game.manifest.json` (schema 1, `GameManifest`), `launcher.json` (`LauncherProfile`, `docs/launcher.schema.json`, also read from `<framework>/<manifest.launcher>`), the manifest's `.framework` folder, optional `banner.<ext>` and `icon.<ext>`. A bundle that cannot be read stays in the list as broken with a readable reason (manifest missing, damaged or of another schema, framework missing, settings list damaged, folder and title ID disagree). | `docs/launcher-c-plan.md`, Manifest and Discovery |
+| `GameStateResolver` | Broken first, then needs app update (the manifest's `chain` differs from `HostEnvironment.chain`, or `min_os` is above the running OS), then needs game data, else playable. | the plan's playable, needsData, needsFramework and broken |
+| `DataLocator` | The picked location first, then `Documents/games/<title ID>/`, each accepted only with a non-empty `romfs.img` or the manifest's `romfs_marker` (also under `romfs/`). A picked folder that lost its data falls through to the app folder. | `romfs_locate` in `dm/ios/Sources/main.m`, patch 0003's layout |
+| `GameSettingsStore` | One `UserDefaults` suite per game (`dev.nx2apple.shell.game.<title ID>`), keys `launcher.<VAR>` holding strings. Only a value that differs from the tested default is stored, a saved value the game no longer offers reads as the default, and Reset forgets every saved choice. `SettingsPresenter` draws sections in the list's order and hides sub-settings (`needs`). | `dm/ios/Sources/LauncherSettings.swift` |
+| `BookmarkStore` | A security-scoped bookmark in the game's suite: `pickedDataBookmark` for game data, `cloudSavesBookmark` for the cloud-save folder. Written with the picker's scope, kept only if it resolves again, scope held once resolved, a stale one reported so the shell asks again, a refreshed one rewritten. No sync logic. | `dm/ios/Sources/DataBookmark.m` |
+| `FolderPicker` | `DocumentFolderPicker` is a `UIDocumentPickerViewController` for a folder, opened in place. Tests use a fake. | `DocumentPicker` in `dm/ios/Sources/Launcher.swift` |
+| Log | Show log reads the tail (256 KB) of `log.txt` in the game's data folder, else the app's folder, into a read-only sheet. | |
+| Update | `ShellHostConfig.updateURL` is opened by Update app. | |
+| Controllers | `ShellHostModel.startControllers()` runs `GamepadAdapter` and fills `controllers` (`ControllerInfo`) and `input` (`ShellInput`). | |
+
+```swift
+let config = ShellHostConfig(gamesRoot: gamesURL, appDataRoot: ShellHostConfig.defaultAppDataRoot(),
+                             environment: HostEnvironment(chain: dmshChain))
+let model = ShellHostModel(config: config, launcher: StubGameLauncher(), picker: DocumentFolderPicker())
+ShellHostView(model: model)
+```
+
+### Launching: the `GameLauncher` seam
+
+```swift
+public protocol GameLauncher: Sendable { @MainActor func launch(_ game: LaunchableGame) async throws }
+```
+
+Play on a playable game builds a `LaunchableGame` (title ID, name, manifest, bundle folder, framework URL, data folder, the app's `Documents/games/<title ID>/`, every `DM_*` value as a dictionary, the picked cloud-save folder) and calls `launch`. A thrown error is shown as the notice. `StubGameLauncher` only logs and throws `GameLaunchError.notAvailable` ("Launching is not available yet."). Route C's M2 (#144) plugs in the real launcher: it sets the environment from `environment` and the folders (`DM_PROFILE`, `DM_ROMFS`, `DM_SAVE`, `DM_TEMP`, `DM_SAVE_SYNC` from `cloudSavesURL`), `dlopen`s `frameworkURL` and starts the host with the manifest's modules. Nothing else in the host changes: pass it as `launcher:`. The engine and `dm/` are not part of this package.
+
+### Host mode of the demo
+
+`--host` runs `ShellHostView` on the fixture bundles in `Tests/ShellHostTests/Fixtures/Games` (the Xcode app carries them as its `Games` folder, the package executable takes `--games-dir <folder>`): playable, needs game data, app update (another chain and a newer OS) and broken (no framework, damaged manifest, manifest without keys, damaged settings list). They hold no game data and no pictures (`.gitignore` keeps images out, the tests draw their own). Marker files in a temporary app-data folder make most of them playable, and launching is the stub. `--select <title ID>` picks the first game.
 
 ## Layouts
 

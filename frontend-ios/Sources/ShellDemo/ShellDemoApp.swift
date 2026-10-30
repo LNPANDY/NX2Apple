@@ -3,7 +3,11 @@ import ShellUI
 import ShellControllers
 
 @main struct ShellDemoApp: App {
-    var body: some Scene { WindowGroup { DemoScreen() } }
+    var body: some Scene {
+        WindowGroup {
+            if ProcessInfo.processInfo.arguments.contains("--host") { HostDemoScreen() } else { DemoScreen() }
+        }
+    }
 }
 
 /// The demo owns sample values. None of this state or callback simulation is part of ShellUI.
