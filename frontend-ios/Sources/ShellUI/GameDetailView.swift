@@ -21,7 +21,8 @@ public struct GameDetailView: View {
             ForEach(detail.sections) { section in
                 group(section.title) {
                     ForEach(section.rows) { row in
-                        SettingControl(row: row) { actions.onChange(detail.id, row.id, $0) }
+                        // Equatable on its row: a change re-renders the changed row only, not every row of the game.
+                        SettingControl(gameID: detail.id, row: row) { actions.onChange(detail.id, row.id, $0) }.equatable()
                         if row.id != section.rows.last?.id { divider }
                     }
                 }
@@ -124,7 +125,7 @@ private struct SourceRow<Buttons: View>: View {
                 VStack(alignment: .leading, spacing: 5) {
                     Text(title).shellText(15, .semibold).fixedSize(horizontal: false, vertical: true)
                     if !note.isEmpty {
-                        Text(note).shellText(12.5).foregroundStyle(.white.opacity(0.5)).fixedSize(horizontal: false, vertical: true)
+                        Text(note).shellType(ShellType.note).foregroundStyle(.white.opacity(0.5)).fixedSize(horizontal: false, vertical: true)
                     }
                 }
             }
@@ -137,9 +138,12 @@ private struct SourceRow<Buttons: View>: View {
     }
 }
 
-private struct SettingControl: View {
+private struct SettingControl: View, Equatable {
+    /// Part of the comparison: two games can have identical rows, and the row must report to its own game.
+    let gameID: String
     let row: SettingRow
     let change: (String) -> Void
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool { lhs.gameID == rhs.gameID && lhs.row == rhs.row }
     @Environment(\.dynamicTypeSize) private var typeSize
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -182,8 +186,8 @@ private struct SettingControl: View {
     }
     private var label: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(row.label).shellText(15, .semibold).fixedSize(horizontal: false, vertical: true)
-            if !row.note.isEmpty { Text(row.note).shellText(12.5).foregroundStyle(.white.opacity(0.5)).fixedSize(horizontal: false, vertical: true) }
+            Text(row.label).shellType(ShellType.settingLabel).fixedSize(horizontal: false, vertical: true)
+            if !row.note.isEmpty { Text(row.note).shellType(ShellType.note).foregroundStyle(.white.opacity(0.5)).fixedSize(horizontal: false, vertical: true) }
         }
     }
     /// The Mac's segmented choice, across the whole card: a dim track, equal segments, the chosen value in cream.

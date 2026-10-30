@@ -47,6 +47,12 @@ public struct LibraryView: View {
     @State private var libraryPosition = ScrollPosition()
     @State private var layout: ShellLayout = .column
     @State private var returnFocus: String?
+    /// The device that sent the last input, for the glyphs.
+    @State private var device: InputDevice = .controller(.neutral)
+    /// True after a touch: the controller hints and the focus ring step back until the next controller or key press.
+    @State private var touchMode: Bool
+    @State private var gate = InputGate()
+    @FocusState private var keyboardFocus: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var typeSize
 
@@ -62,6 +68,7 @@ public struct LibraryView: View {
         _settingsOpen = State(initialValue: initialDetailOpen)
         _controllersOpen = State(initialValue: initialControllersOpen)
         _focus = State(initialValue: FocusAppearance(id: initialFocusVisible ? "lib.tile.\(first ?? "")" : nil, visible: initialFocusVisible))
+        _touchMode = State(initialValue: !initialFocusVisible)
     }
     private var selected: GameDetail? { games.first { $0.id == selectedID } ?? games.first }
 
@@ -170,16 +177,22 @@ public struct LibraryView: View {
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: helpGameID)
         .environment(\.shellShowHelp, { game in openHelp(game.id) })
         .environment(\.shellFocus, focus)
+        .environment(\.shellInputDevice, device)
         .foregroundStyle(.white)
         .font(ShellFonts.font(15)).tint(ShellPalette.cream).preferredColorScheme(.dark)
-        .onChange(of: input) { _, event in if let event { handle(event.action) } }
-        .focusable().focusEffectDisabled()
-        .onKeyPress(.leftArrow) { handle(.left); return .handled }
-        .onKeyPress(.rightArrow) { handle(.right); return .handled }
-        .onKeyPress(.upArrow) { handle(.up); return .handled }
-        .onKeyPress(.downArrow) { handle(.down); return .handled }
-        .onKeyPress(.return) { handle(.activate); return .handled }
-        .onKeyPress(.escape) { handle(.back); return .handled }
+        .onChange(of: input) { _, event in if let event { handle(event.action, from: event.device) } }
+        // A hardware keyboard, as on the Mac: arrows move, Return activates, Escape goes back, O opens game settings,
+        // Y opens controllers.
+        .focusable().focused($keyboardFocus).focusEffectDisabled()
+        .onAppear { keyboardFocus = true }
+        .onKeyPress(.leftArrow) { handle(.left, from: .keyboard); return .handled }
+        .onKeyPress(.rightArrow) { handle(.right, from: .keyboard); return .handled }
+        .onKeyPress(.upArrow) { handle(.up, from: .keyboard); return .handled }
+        .onKeyPress(.downArrow) { handle(.down, from: .keyboard); return .handled }
+        .onKeyPress(.return) { handle(.activate, from: .keyboard); return .handled }
+        .onKeyPress(.escape) { handle(.back, from: .keyboard); return .handled }
+        .onKeyPress("o") { handle(.settings, from: .keyboard); return .handled }
+        .onKeyPress("y") { handle(.controllers, from: .keyboard); return .handled }
         .onDisappear { targets.values.removeAll() }
         .onChange(of: games.map(\.id)) { _, ids in
             if !ids.contains(selectedID ?? "") { selectedID = ids.first; settingsOpen = false }
@@ -188,13 +201,15 @@ public struct LibraryView: View {
 
     @ViewBuilder private func library(_ selected: GameDetail, layout: ShellLayout, size: CGSize, insets: EdgeInsets) -> some View {
         if layout.isCoverFlow {
-            CoverFlowView(games: games, selected: selected, controllers: controllers.count, showsHints: !controllers.isEmpty,
+            CoverFlowView(games: games, selected: selected, controllers: controllers.count, showsHints: !touchMode,
                           select: select, primary: primary, openSettings: openSettings, openControllers: openControllers)
+                .equatable()
                 .transition(.opacity)
         } else {
             PortraitLibrary(games: games, selected: selected, wide: layout == .grid, size: size, topInset: insets.top, bottomInset: insets.bottom,
                             controllers: controllers.count, select: select, primary: primary,
                             openSettings: openSettings, openControllers: openControllers, position: $libraryPosition)
+                .equatable()
                 .transition(.opacity)
         }
     }
@@ -242,7 +257,14 @@ public struct LibraryView: View {
 
     // MARK: Actions and focus
 
+    /// An action that did not come from a controller or key came from touch: hints and focus ring step back.
+    private func noteTouch() {
+        guard !gate.handling else { return }
+        if !touchMode { touchMode = true }
+        if focus.visible { focus.visible = false }
+    }
     private func primary(_ detail: GameDetail) {
+        noteTouch()
         if detail.game.state.needsHelp { openHelp(detail.id); return }
         switch detail.game.state {
         case .playable: actions.onPlay(detail.id)
@@ -252,12 +274,14 @@ public struct LibraryView: View {
         }
     }
     private func select(_ id: String) {
+        noteTouch()
         guard id != selectedID else { return }
         selectedID = id
         actions.onSelect(id)
         settingsPosition.scrollTo(edge: .top)
     }
     private func openSettings() {
+        noteTouch()
         settingsOpen = true
         focus.id = "set.back"
     }
@@ -265,7 +289,7 @@ public struct LibraryView: View {
         settingsOpen = false
         focus.id = "lib.settings"
     }
-    private func openControllers() { controllersOpen = true; focus.id = "ctl.close" }
+    private func openControllers() { noteTouch(); controllersOpen = true; focus.id = "ctl.close" }
     private func openHelp(_ id: String) { returnFocus = focus.id; helpGameID = id; focus.id = "help.done" }
     private func closeHelp() { helpGameID = nil; focus.id = returnFocus }
     private func back() {
@@ -274,7 +298,11 @@ public struct LibraryView: View {
         else if settingsOpen { closeSettings() }
         else { actions.onBack() }
     }
-    private func handle(_ action: ShellInput.Action) {
+    private func handle(_ action: ShellInput.Action, from source: InputDevice) {
+        gate.handling = true
+        defer { gate.handling = false }
+        if device != source { device = source }
+        if touchMode { touchMode = false }
         focus.visible = true
         if focus.id == nil || !targets.values.contains(where: { $0.id == focus.id }) {
             focus.id = defaultFocus
@@ -325,15 +353,15 @@ private struct PaneBanner: View {
             StatusLabel(state: game.state, prominent: true)
             // Two lines are always reserved, so the settings below start at the same place for every game.
             ZStack(alignment: .topLeading) {
-                Text("M\nM").shellText(26, .heavy, relativeTo: .title).hidden().accessibilityHidden(true)
-                Text(game.title).shellText(26, .heavy, relativeTo: .title).tracking(-0.7)
+                Text("M\nM").shellType(ShellType.pageTitle).hidden().accessibilityHidden(true)
+                Text(game.title).shellType(ShellType.pageTitle)
                     .lineLimit(2)
                     .accessibilityAddTraits(.isHeader).accessibilityIdentifier("detail.title")
             }
             HStack(spacing: 8) {
                 SectionHeading(title: ShellStrings.text("Game settings"))
                 if !game.subtitle.isEmpty {
-                    Text(game.subtitle).shellText(12.5).foregroundStyle(.white.opacity(0.5))
+                    Text(game.subtitle).shellType(ShellType.note).foregroundStyle(.white.opacity(0.5))
                 }
             }.padding(.top, 2)
         }
@@ -357,4 +385,9 @@ private struct PaneBanner: View {
                 .accessibilityHidden(true)
         }
     }
+}
+
+/// Marks the actions a controller or key press causes, so they are not taken for touch. Not observed.
+@MainActor final class InputGate {
+    var handling = false
 }

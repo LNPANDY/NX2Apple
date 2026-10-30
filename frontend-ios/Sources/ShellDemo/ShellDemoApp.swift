@@ -1,5 +1,6 @@
 import SwiftUI
 import ShellUI
+import ShellControllers
 
 @main struct ShellDemoApp: App {
     var body: some Scene { WindowGroup { DemoScreen() } }
@@ -11,9 +12,9 @@ struct DemoScreen: View {
     @State private var notice: String?
     @State private var input: ShellInput?
     @State private var unfolded = ProcessInfo.processInfo.arguments.contains("--unfolded")
-    #if os(iOS)
-    @State private var controller = DemoControllerInput()
-    #endif
+    /// Real controllers, through the reusable adapter in ShellControllers.
+    @State private var gamepads = GamepadAdapter()
+    @State private var connected: [ConnectedController] = []
     private var args: [String] { ProcessInfo.processInfo.arguments }
     private func value(_ flag: String) -> String? {
         guard let i = args.firstIndex(of: flag), args.indices.contains(i + 1) else { return nil }
@@ -55,15 +56,17 @@ struct DemoScreen: View {
         .alert("Demo action", isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) {
             Button("OK") { notice = nil }
         } message: { Text(notice ?? "") }
-        #if os(iOS)
-        .onAppear { controller.start { action in send(action) } }
-        .onDisappear { controller.stop() }
-        #endif
+        .onAppear {
+            gamepads.onInput = { action, device in send(action, from: device) }
+            gamepads.onControllersChange = { connected = $0 }
+            gamepads.start()
+        }
+        .onDisappear { gamepads.stop() }
     }
 
     private var shell: some View {
         LibraryView(games: shown,
-                    controllers: scenario == "controllers-empty" ? [] : SampleData.controllers,
+                    controllers: scenario == "controllers-empty" ? [] : controllers,
                     actions: actions, input: input, initialSelection: initialSelection,
                     initialDetailOpen: scenario == "settings",
                     initialControllersOpen: scenario.hasPrefix("controllers"),
@@ -105,7 +108,17 @@ struct DemoScreen: View {
         default: .settings
         }
     }
-    private func send(_ action: ShellInput.Action) { input = ShellInput(sequence: (input?.sequence ?? 0) + 1, action: action) }
+    private func send(_ action: ShellInput.Action, from device: InputDevice = .controller(.neutral)) {
+        input = ShellInput(sequence: (input?.sequence ?? 0) + 1, action: action, device: device)
+    }
+    /// The real controllers when any are connected, the sample ones otherwise.
+    private var controllers: [ControllerInfo] {
+        if !connected.isEmpty {
+            return connected.map { ControllerInfo(id: $0.id, name: $0.name, player: demoText("Player \($0.player)"),
+                                                  batteryPercent: $0.batteryPercent, charging: $0.charging) }
+        }
+        return SampleData.controllers
+    }
     private var actions: ShellActions {
         ShellActions(onPlay: { _ in notice = demoText("Play requested. The demo does not launch games.") },
                      onChange: { game, row, value in

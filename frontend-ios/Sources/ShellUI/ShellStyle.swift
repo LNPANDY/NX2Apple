@@ -48,13 +48,61 @@ extension View {
     }
 }
 
+/// A text role: Manrope at a size and weight, scaled with Dynamic Type through its text style, and its tracking.
+struct TypeRole {
+    let size: CGFloat
+    let weight: Font.Weight
+    let style: Font.TextStyle
+    var tracking: CGFloat = 0
+}
+
+/// The type scale, derived from the Mac launcher's (frontend/Sources/NSPortBuilder): the same face from the same file,
+/// the same weight for the same role, the same tracking for capitals, sizes adapted to iOS. Every role scales with
+/// Dynamic Type through its text style.
+///
+/// | Role | Mac | iOS |
+/// | --- | --- | --- |
+/// | Hero title | heavy, up to 68, tracking -1.6 | heavy 32 (24 folded, 34 iPad), -0.024 per pt |
+/// | Cover Flow title | console title, bold 36, -1.6 | bold 28 (20 on a phone on its side) |
+/// | Page title (settings, controllers) | heavy 26, -0.6 | heavy 26, -0.6 |
+/// | Section capitals | console label, semibold 14, tracking 2 | semibold 11.5, tracking 1.6 |
+/// | Status eyebrow | bold 12, tracking 1.3 | bold 11.5, tracking 1.3 |
+/// | Status | medium 13 | medium 12.5 |
+/// | Card title | semibold 16 | semibold 14.5 |
+/// | Setting label | medium 14 | medium 15 |
+/// | Note | regular 12 | regular 12.5 |
+/// | Meta line | regular 13 | regular 13 |
+/// | Button | semibold 13 | semibold 14 |
+/// | Primary button | bold 18 | bold 17 |
+enum ShellType {
+    static func heroTitle(_ size: CGFloat) -> TypeRole { TypeRole(size: size, weight: .heavy, style: .largeTitle, tracking: -size * 0.024) }
+    static func flowTitle(_ size: CGFloat) -> TypeRole { TypeRole(size: size, weight: .bold, style: .title, tracking: -size * 0.04) }
+    static let pageTitle = TypeRole(size: 26, weight: .heavy, style: .title, tracking: -0.6)
+    static let sectionCaps = TypeRole(size: 11.5, weight: .semibold, style: .caption, tracking: 1.6)
+    static let eyebrow = TypeRole(size: 11.5, weight: .bold, style: .caption, tracking: 1.3)
+    static let status = TypeRole(size: 12.5, weight: .medium, style: .caption)
+    static let cardTitle = TypeRole(size: 14.5, weight: .semibold, style: .subheadline)
+    static let settingLabel = TypeRole(size: 15, weight: .medium, style: .body)
+    static let note = TypeRole(size: 12.5, weight: .regular, style: .footnote)
+    static let meta = TypeRole(size: 13, weight: .regular, style: .footnote)
+    static let body = TypeRole(size: 14.5, weight: .regular, style: .body)
+    static let button = TypeRole(size: 14, weight: .semibold, style: .body)
+    static let primaryButton = TypeRole(size: 17, weight: .bold, style: .headline)
+}
+
+extension View {
+    func shellType(_ role: TypeRole) -> some View {
+        font(ShellFonts.font(role.size, weight: role.weight, relativeTo: role.style)).tracking(role.tracking)
+    }
+}
+
 /// The small cream capitals that open a section, such as YOUR GAMES.
 struct SectionHeading: View {
     let title: String
     var trailing: String? = nil
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
-            Text(title.uppercased()).shellText(11, .bold, relativeTo: .caption).tracking(1.8)
+            Text(title.uppercased()).shellType(ShellType.sectionCaps)
                 .foregroundStyle(ShellPalette.cream.opacity(0.72)).accessibilityAddTraits(.isHeader)
             if let trailing {
                 Spacer(minLength: 8)
@@ -70,7 +118,7 @@ struct ShellButtonStyle: ButtonStyle {
     var fills = false
     @Environment(\.isEnabled) private var enabled
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label.shellText(14, .semibold).lineLimit(1)
+        configuration.label.shellType(ShellType.button).lineLimit(1)
             .padding(.horizontal, 14).frame(maxWidth: fills ? .infinity : nil, minHeight: 44)
             .foregroundStyle(.white.opacity(0.92))
             .background(.white.opacity(configuration.isPressed ? 0.13 : 0.055), in: RoundedRectangle(cornerRadius: 9))
@@ -84,7 +132,7 @@ struct ShellButtonStyle: ButtonStyle {
 struct PrimaryPillStyle: ButtonStyle {
     var expands = false
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label.shellText(17, .bold)
+        configuration.label.shellType(ShellType.primaryButton)
             .lineLimit(1).minimumScaleFactor(0.8)
             .padding(.horizontal, 26).frame(minHeight: 50)
             .frame(maxWidth: expands ? .infinity : nil)
@@ -128,21 +176,38 @@ struct ChipButtonStyle: ButtonStyle {
 }
 
 struct CreamToggleStyle: ToggleStyle {
+    func makeBody(configuration: Configuration) -> some View { CreamSwitch(configuration: configuration, isOn: configuration.isOn) }
+}
+
+/// The cream switch. The knob moves the moment it is tapped, with a short spring, from its own state. The new value
+/// goes out without an animation, so the host's update does not animate the whole screen, and the knob follows the
+/// value that comes back.
+private struct CreamSwitch: View {
+    let configuration: ToggleStyleConfiguration
+    /// The value as a plain input: a change from elsewhere (a controller, the host) redraws the switch even though the
+    /// configuration's binding looks the same.
+    let isOn: Bool
+    @State private var shown: Bool?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    func makeBody(configuration: Configuration) -> some View {
+    var body: some View {
+        let on = shown ?? isOn
         Button {
-            withAnimation(reduceMotion ? nil : .spring(response: 0.25, dampingFraction: 0.8)) { configuration.isOn.toggle() }
+            withAnimation(reduceMotion ? nil : .snappy(duration: 0.2)) { shown = !on }
+            var transaction = Transaction(animation: nil)
+            transaction.disablesAnimations = true
+            withTransaction(transaction) { configuration.isOn = !on }
         } label: {
             HStack(spacing: 16) {
                 configuration.label.frame(maxWidth: .infinity, alignment: .leading)
-                ZStack(alignment: configuration.isOn ? .trailing : .leading) {
-                    Capsule().fill(configuration.isOn ? ShellPalette.cream : .white.opacity(0.14))
-                    Circle().fill(configuration.isOn ? ShellPalette.background : .white.opacity(0.85)).padding(3)
+                ZStack(alignment: on ? .trailing : .leading) {
+                    Capsule().fill(on ? ShellPalette.cream : .white.opacity(0.14))
+                    Circle().fill(on ? ShellPalette.background : .white.opacity(0.85)).padding(3)
                 }.frame(width: 46, height: 28)
             }.frame(minHeight: 44).contentShape(Rectangle())
         }.buttonStyle(.plain)
-            .accessibilityValue(ShellStrings.text(configuration.isOn ? "On" : "Off"))
-            .accessibilityAddTraits(configuration.isOn ? .isSelected : [])
+            .onChange(of: isOn) { _, _ in shown = nil }
+            .accessibilityValue(ShellStrings.text(on ? "On" : "Off"))
+            .accessibilityAddTraits(on ? .isSelected : [])
     }
 }
 
@@ -286,37 +351,78 @@ struct StatusLabel: View {
         HStack(spacing: prominent ? 8 : 6) {
             Circle().fill(state.color).frame(width: prominent ? 7 : 6, height: prominent ? 7 : 6)
             Text(prominent ? state.title.uppercased() : state.title)
-                .shellText(prominent ? 11.5 : 12, prominent ? .bold : .medium, relativeTo: .caption)
-                .tracking(prominent ? 1.4 : 0)
+                .shellType(prominent ? ShellType.eyebrow : ShellType.status)
                 .foregroundStyle(state.color)
                 .lineLimit(prominent ? 2 : 1)
         }.accessibilityElement(children: .combine)
     }
 }
 
-/// A controller button as the Mac console draws it: the letter in a small rounded square.
+/// What a button does, for its glyph.
+enum GlyphRole { case activate, back, settings, controllers }
+
+/// A button as the Mac console draws it for the device used last: the letter in a rounded square for Xbox, Nintendo
+/// and unknown controllers, the shape for PlayStation (cross, circle, square, triangle), a key cap for a keyboard.
 struct ButtonGlyph: View {
-    let letter: String
+    let role: GlyphRole
+    @Environment(\.shellInputDevice) private var device
     var body: some View {
-        Text(letter).font(ShellFonts.fixed(11, weight: .bold))
-            .frame(width: 20, height: 20)
-            .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(.white.opacity(0.45), lineWidth: 1.2))
-            .accessibilityHidden(true)
+        Group {
+            switch device {
+            case .controller(.playStation):
+                Image(systemName: playStationSymbol).font(.system(size: 9, weight: .heavy)).frame(width: 20, height: 20)
+                    .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(.white.opacity(0.45), lineWidth: 1.2))
+            case .keyboard:
+                Text(keyCap).font(ShellFonts.fixed(10, weight: .bold)).padding(.horizontal, 5).frame(minWidth: 20, minHeight: 20)
+                    .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(.white.opacity(0.45), lineWidth: 1.2))
+            case .controller:
+                Text(letter).font(ShellFonts.fixed(11, weight: .bold)).frame(width: 20, height: 20)
+                    .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(.white.opacity(0.45), lineWidth: 1.2))
+            }
+        }.accessibilityHidden(true)
+    }
+    private var letter: String {
+        switch role { case .activate: "A"; case .back: "B"; case .settings: "X"; case .controllers: "Y" }
+    }
+    private var playStationSymbol: String {
+        switch role { case .activate: "xmark"; case .back: "circle"; case .settings: "square"; case .controllers: "triangle" }
+    }
+    private var keyCap: String {
+        switch role { case .activate: "return"; case .back: "esc"; case .settings: "O"; case .controllers: "Y" }
     }
 }
 
 struct GlyphHint: View {
-    let letter: String
+    let role: GlyphRole
     let label: String
     var body: some View {
         HStack(spacing: 8) {
-            ButtonGlyph(letter: letter)
+            ButtonGlyph(role: role)
             Text(label).shellText(13, .medium, relativeTo: .footnote)
         }.foregroundStyle(.white.opacity(0.6))
     }
 }
 
+private struct ShellInputDeviceKey: EnvironmentKey {
+    static let defaultValue = InputDevice.controller(.neutral)
+}
+extension EnvironmentValues {
+    /// The device that sent the last input. The hints and the controller help draw its glyphs.
+    var shellInputDevice: InputDevice {
+        get { self[ShellInputDeviceKey.self] }
+        set { self[ShellInputDeviceKey.self] = newValue }
+    }
+}
 extension GameState {
+    /// The short verb of the state chip under a Cover Flow card.
+    var chipAction: String {
+        switch self {
+        case .playable: ShellStrings.text("Play")
+        case .needsGameData: ShellStrings.text("Choose")
+        case .needsAppUpdate: ShellStrings.text("How to update")
+        case .broken: ShellStrings.text("How to fix")
+        }
+    }
     /// Broken and needs-an-update are fixed on the Mac. Their primary action explains how, instead of acting.
     var needsHelp: Bool {
         switch self {

@@ -110,12 +110,37 @@ public struct ControllerInfo: Identifiable, Equatable, Sendable {
     }
 }
 
+/// Which kind of controller a family of glyphs belongs to, from GameController's `productCategory`.
+/// The buttons are read by label, as on the Mac: GameController's buttonA is the cross on a PlayStation controller,
+/// A at the bottom on an Xbox controller and A on the right on a Nintendo controller, so each confirms with its own.
+public enum ControllerFamily: Equatable, Sendable {
+    case xbox, playStation, nintendo, neutral
+    public init(productCategory: String?) {
+        let c = (productCategory ?? "").lowercased().replacingOccurrences(of: "-", with: "")
+        if c.contains("dual") || c.contains("playstation") { self = .playStation }
+        else if c.contains("xbox") { self = .xbox }
+        else if c.contains("nintendo") || c.contains("switch") || c.contains("joycon") { self = .nintendo }
+        else { self = .neutral }
+    }
+}
+
+/// What sent the last input, so the hints show that device's own glyphs.
+public enum InputDevice: Equatable, Sendable {
+    case controller(ControllerFamily)
+    case keyboard
+}
+
 /// An optional event supplied by the host's input adapter. Increment sequence for repeated presses.
 public struct ShellInput: Equatable, Sendable {
     public enum Action: Sendable { case up, down, left, right, activate, back, settings, controllers }
     public var sequence: Int
     public var action: Action
-    public init(sequence: Int, action: Action) { self.sequence = sequence; self.action = action }
+    public var device: InputDevice
+    public init(sequence: Int, action: Action, device: InputDevice = .controller(.neutral)) {
+        self.sequence = sequence
+        self.action = action
+        self.device = device
+    }
 }
 
 /// All effects leave the package through these closures. The game ID is always explicit.

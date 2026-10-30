@@ -12,9 +12,9 @@
 		3E143B39E0F97A669D2F6EFF /* ShellAdditionalTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF3DBBE6BC067DDD34E3560C /* ShellAdditionalTests.swift */; };
 		44E0EBFDB9557A0C8BB741BE /* ShellUI in Frameworks */ = {isa = PBXBuildFile; productRef = 7F6858A53523100F9E10590E /* ShellUI */; };
 		4749F987D74B27CAA0E02480 /* ShellDemoApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59E0A7AE45425C5BA9689FE4 /* ShellDemoApp.swift */; };
+		876E4B3FCD4C78C4085BCE30 /* ShellControllers in Frameworks */ = {isa = PBXBuildFile; productRef = D58DB30045BDC25980479EF9 /* ShellControllers */; };
 		D94D715334EE4F5E0CCBA788 /* SampleArt.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39DB78D11BCF59879A3712F5 /* SampleArt.swift */; };
 		DF097C40B129901722DD4DF3 /* ShellDemoUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 916109EC3198FC9C0E9D655B /* ShellDemoUITests.swift */; };
-		E305EAC2B52CE23FC907C7C7 /* DemoControllerInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = 779E0E026682ED6CDDF647C6 /* DemoControllerInput.swift */; };
 		E71FEFEAE303CA4343BBDE2E /* SampleData.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBE23919FFDC3D06EF0D3065 /* SampleData.swift */; };
 		F15D381F62331B5172AD6D22 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = D1591481D38DDC20A1A9B215 /* Localizable.xcstrings */; };
 /* End PBXBuildFile section */
@@ -32,7 +32,6 @@
 /* Begin PBXFileReference section */
 		39DB78D11BCF59879A3712F5 /* SampleArt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SampleArt.swift; sourceTree = "<group>"; };
 		59E0A7AE45425C5BA9689FE4 /* ShellDemoApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellDemoApp.swift; sourceTree = "<group>"; };
-		779E0E026682ED6CDDF647C6 /* DemoControllerInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoControllerInput.swift; sourceTree = "<group>"; };
 		8694319745E3759D50772855 /* ShellCaptureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellCaptureTests.swift; sourceTree = "<group>"; };
 		916109EC3198FC9C0E9D655B /* ShellDemoUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellDemoUITests.swift; sourceTree = "<group>"; };
 		B1D199F3FD9C677BD245559E /* ShellDemoApp.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = ShellDemoApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -50,6 +49,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				44E0EBFDB9557A0C8BB741BE /* ShellUI in Frameworks */,
+				876E4B3FCD4C78C4085BCE30 /* ShellControllers in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -67,7 +67,6 @@
 		5928E24F76B598AD8FD0D1AB /* ShellDemo */ = {
 			isa = PBXGroup;
 			children = (
-				779E0E026682ED6CDDF647C6 /* DemoControllerInput.swift */,
 				FF911DEE5C19B0D069418726 /* RealArt.swift */,
 				39DB78D11BCF59879A3712F5 /* SampleArt.swift */,
 				CBE23919FFDC3D06EF0D3065 /* SampleData.swift */,
@@ -134,6 +133,7 @@
 			name = ShellDemoApp;
 			packageProductDependencies = (
 				7F6858A53523100F9E10590E /* ShellUI */,
+				D58DB30045BDC25980479EF9 /* ShellControllers */,
 			);
 			productName = ShellDemoApp;
 			productReference = B1D199F3FD9C677BD245559E /* ShellDemoApp.app */;
@@ -210,7 +210,6 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				E305EAC2B52CE23FC907C7C7 /* DemoControllerInput.swift in Sources */,
 				2EEF6A8F9A7D58C09181EAB5 /* RealArt.swift in Sources */,
 				D94D715334EE4F5E0CCBA788 /* SampleArt.swift in Sources */,
 				E71FEFEAE303CA4343BBDE2E /* SampleData.swift in Sources */,
@@ -483,6 +482,10 @@
 		7F6858A53523100F9E10590E /* ShellUI */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = ShellUI;
+		};
+		D58DB30045BDC25980479EF9 /* ShellControllers */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ShellControllers;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

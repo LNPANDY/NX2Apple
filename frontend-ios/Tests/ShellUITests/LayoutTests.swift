@@ -41,4 +41,17 @@ final class LayoutTests: XCTestCase {
         XCTAssertTrue(ShellLayout.grid.settingsFloat)
         XCTAssertFalse(ShellLayout.column.settingsFloat)
     }
+
+    /// Cover Flow moves one card per gesture: a flick to the neighbour of where the touch began, a slow drag to the
+    /// nearest card.
+    func testCardSnap() {
+        let stride: CGFloat = 100
+        XCTAssertEqual(CardSnap.card(target: 160, velocity: 0, stride: stride, count: 7, start: 0), 2, "slow drag: nearest")
+        XCTAssertEqual(CardSnap.card(target: 40, velocity: 0, stride: stride, count: 7, start: 0), 0)
+        XCTAssertEqual(CardSnap.card(target: 30, velocity: 0.6, stride: stride, count: 7, start: 0), 1, "a short flick still moves one")
+        XCTAssertEqual(CardSnap.card(target: 450, velocity: 2, stride: stride, count: 7, start: 1), 2, "a hard flick moves one, not four")
+        XCTAssertEqual(CardSnap.card(target: 90, velocity: -0.8, stride: stride, count: 7, start: 1), 0)
+        XCTAssertEqual(CardSnap.card(target: 700, velocity: 0.8, stride: stride, count: 7, start: 6), 6, "never past the last card")
+        XCTAssertEqual(CardSnap.card(target: -50, velocity: -0.8, stride: stride, count: 7, start: 0), 0)
+    }
 }

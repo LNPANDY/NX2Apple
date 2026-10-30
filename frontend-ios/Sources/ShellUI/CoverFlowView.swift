@@ -1,31 +1,44 @@
 import SwiftUI
 
-/// The library when it is wider than it is tall: one cover in the middle, its neighbours turned back, the title,
-/// state and primary action underneath. The backdrop (the blurred cover) is drawn by the library behind the safe area.
-struct CoverFlowView: View {
+/// The library when it is wider than it is tall: one card in the middle, its neighbours turned back, the title and
+/// state underneath. The card is the button: a tap on the centred card does what the game needs (Play, choose its
+/// data, how to fix it). The backdrop (the blurred banner) is drawn by the library behind the safe area.
+struct CoverFlowView: View, Equatable {
     let games: [GameDetail]
     let selected: GameDetail
     let controllers: Int
+    /// The controller hints at the bottom, while a controller or keyboard is in use.
     let showsHints: Bool
     let select: (String) -> Void
     let primary: (GameDetail) -> Void
     let openSettings: () -> Void
     let openControllers: () -> Void
     @State private var centredID: String?
-    /// How far the carousel is scrolled: 0 with the first cover in the middle.
+    /// How far the carousel is scrolled: 0 with the first card in the middle.
     @State private var scrolled: CGFloat = 0
+    /// True from the first touch of a scroll until it has settled.
     @State private var userScrolling = false
+    /// The card nearest the middle when the current touch began, also mid-snap, for one card per gesture.
+    @State private var gestureStart = 0
     /// False while the carousel scrolls, decelerates or snaps: a tap on the centre card then does nothing.
     @State private var settled = true
+    /// A long press on the centre card opened settings: the touch that ends it must not also play.
+    @State private var longPressed = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.dynamicTypeSize) private var typeSize
+
+    /// Re-render only for what is drawn: the games' tiles, the selection and the hints. Settings changes elsewhere do
+    /// not reach the carousel.
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.games.map(\.game) == rhs.games.map(\.game) && lhs.selected.game == rhs.selected.game
+            && lhs.controllers == rhs.controllers && lhs.showsHints == rhs.showsHints
+    }
 
     var body: some View {
         GeometryReader { geometry in
             let short = geometry.size.height < 520
             // A wide card as large as the Mac console's focused tile: what the height allows, never so wide that the
             // neighbours vanish.
-            let cardHeight = max(90, min(geometry.size.height * 0.42, geometry.size.width * 0.52 * 9 / 16))
+            let cardHeight = max(90, min(geometry.size.height * (short ? 0.5 : 0.46), geometry.size.width * 0.54 * 9 / 16))
             let cover = cardHeight * 16 / 9
             VStack(spacing: 0) {
                 topBar.padding(.horizontal, 24).padding(.top, short ? 4 : 16)
@@ -34,42 +47,45 @@ struct CoverFlowView: View {
                     if games.count <= 3 { shelf(width: geometry.size.width, cover: cover) } else { carousel(width: geometry.size.width, cover: cover) }
                 }.frame(height: cover * 9 / 16 * 1.06)
                 info(short: short, width: geometry.size.width)
-                    .padding(.top, short ? 14 : 28).padding(.horizontal, 24)
+                    .padding(.top, short ? 12 : 26).padding(.horizontal, 24)
                 Spacer(minLength: short ? 4 : 12)
-                if showsHints && !short {
-                    hints.padding(.bottom, 20)
-                }
+                // The hint row keeps its place when it is hidden, so the card does not move when it appears.
+                hints.opacity(showsHints ? 1 : 0).padding(.bottom, short ? 6 : 20)
             }
         }
         .sensoryFeedback(.selection, trigger: selected.id)
         .onAppear { centredID = selected.id }
-        .onChange(of: centredID) { _, id in
-            // Only a scroll the player makes chooses a game. A scroll this view animates (after the D-pad or a tap)
-            // passes other covers on the way and must not choose them.
-            if userScrolling, let id, id != selected.id { select(id) }
-        }
         .onChange(of: selected.id) { _, id in
-            guard centredID != id else { return }
-            withAnimation(reduceMotion ? nil : .smooth(duration: 0.32)) { centredID = id }
+            // A selection from the D-pad or a tap scrolls the carousel. Never while the player is touching it or it is
+            // still moving: the player's gesture always wins.
+            guard centredID != id, !userScrolling else { return }
+            withAnimation(reduceMotion ? nil : .smooth(duration: 0.3)) { centredID = id }
         }
     }
 
     private var topBar: some View {
-        HStack(alignment: .center) {
+        HStack(alignment: .center, spacing: 10) {
             SectionHeading(title: ShellStrings.text("Your games"))
             Text(ShellStrings.text("\(position) of \(games.count)")).shellText(12, .medium, relativeTo: .caption)
-                .monospacedDigit().foregroundStyle(.white.opacity(0.45)).padding(.leading, 6)
+                .monospacedDigit().foregroundStyle(.white.opacity(0.45)).padding(.leading, 4)
             Spacer(minLength: 12)
+            Button(action: openSettings) { Image(systemName: "slider.horizontal.3").frame(minWidth: 18) }
+                .buttonStyle(ChipButtonStyle())
+                .accessibilityLabel(ShellStrings.text("Game settings") + ", " + selected.game.title)
+                .accessibilityIdentifier("settings.open")
+                .shellTarget("lib.settings", radius: 22, action: openSettings)
             ControllerChip(count: controllers, action: openControllers)
         }
     }
     private var position: Int { (games.firstIndex { $0.id == selected.id } ?? 0) + 1 }
+    private var selectedIndex: Int { games.firstIndex { $0.id == selected.id } ?? 0 }
 
-    /// More than three games: a snapping carousel. The neighbours turn back a little and tuck behind the middle card,
-    /// a deck rather than a row, which suits wide banners better than the steep turn of square covers.
+    /// More than three games: a carousel that moves one card per gesture, the neighbours turned back a little and
+    /// tucked behind the middle card, a deck rather than a row.
     private func carousel(width: CGFloat, cover: CGFloat) -> some View {
         let spacing = cover * 0.04
         let stride = cover + spacing
+        let margin = max(0, (width - cover) / 2)
         return ScrollView(.horizontal) {
             LazyHStack(spacing: spacing) {
                 ForEach(Array(games.enumerated()), id: \.element.id) { index, detail in
@@ -80,26 +96,29 @@ struct CoverFlowView: View {
                 }
             }.scrollTargetLayout()
         }
-        .scrollTargetBehavior(.viewAligned)
+        .scrollTargetBehavior(CardSnap(stride: stride, count: games.count, start: gestureStart))
         .scrollPosition(id: $centredID, anchor: .center)
-        .contentMargins(.horizontal, max(0, (width - cover) / 2), for: .scrollContent)
+        .contentMargins(.horizontal, margin, for: .scrollContent)
         .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.x + $0.contentInsets.leading } action: { _, offset in
             scrolled = offset
         }
-        .onScrollPhaseChange { _, phase in
-            // A touch scroll goes interacting, decelerating, sometimes animating (the snap), then idle. The flag holds
-            // until idle, so the snap that ends a swipe still counts as the player's. A scroll this view animates
-            // starts from idle and never sets it.
+        .onScrollPhaseChange { old, phase, context in
+            // A touch scroll goes interacting, decelerating, maybe animating (the snap), then idle. Only once it has
+            // settled does the card in the middle become the selection, read from the final offset itself, so a stale
+            // value can never send the carousel back. A scroll this view animates starts from idle and never sets the
+            // flag, so it never selects.
             settled = phase == .idle
+            if phase == .interacting && old != .interacting {
+                let offset = context.geometry.contentOffset.x + context.geometry.contentInsets.leading
+                gestureStart = min(games.count - 1, max(0, Int((offset / stride).rounded())))
+            }
             switch phase {
             case .interacting, .decelerating: userScrolling = true
             case .idle:
                 if userScrolling {
-                    // The card in the middle once the scroll has settled, from the offset itself.
-                    let index = min(games.count - 1, max(0, Int((scrolled / stride).rounded())))
-                    let id = games[index].id
-                    if centredID != id { centredID = id }
-                    if id != selected.id { select(id) }
+                    let offset = context.geometry.contentOffset.x + context.geometry.contentInsets.leading
+                    let index = min(games.count - 1, max(0, Int((offset / stride).rounded())))
+                    if games[index].id != selected.id { select(games[index].id) }
                 }
                 userScrolling = false
             default: break
@@ -112,7 +131,7 @@ struct CoverFlowView: View {
     /// One to three games: they sit together in the middle, the chosen one in front and larger. No empty track.
     private func shelf(width: CGFloat, cover: CGFloat) -> some View {
         let card = min(cover, width / (1 + CGFloat(games.count - 1) * 0.8))
-        let chosenIndex = games.firstIndex { $0.id == selected.id } ?? 0
+        let chosenIndex = selectedIndex
         return ZStack {
             ForEach(Array(games.enumerated()), id: \.element.id) { index, detail in
                 let chosen = index == chosenIndex
@@ -130,13 +149,14 @@ struct CoverFlowView: View {
     private func coverButton(_ detail: GameDetail, cover: CGFloat) -> some View {
         let chosen = detail.id == selected.id
         return Button {
-            // The centred card acts like the button under it, once the carousel has settled. A side card only comes
-            // to the middle and never starts anything.
+            // The centred card acts like the game's primary action, once the carousel has settled. A side card only
+            // comes to the middle and never starts anything.
+            if longPressed { longPressed = false; return }
             if chosen {
                 if settled { primary(detail) }
                 return
             }
-            withAnimation(reduceMotion ? nil : .smooth(duration: 0.32)) { centredID = detail.id }
+            withAnimation(reduceMotion ? nil : .smooth(duration: 0.3)) { centredID = detail.id }
             select(detail.id)
         } label: {
             CoverView(game: detail.game, radius: cover * 0.03)
@@ -144,6 +164,13 @@ struct CoverFlowView: View {
                 .shadow(color: .black.opacity(0.5), radius: cover * 0.05, y: cover * 0.03)
         }
         .buttonStyle(.plain)
+        // A long press on the centred card opens its settings, a shortcut for the button at the top.
+        .simultaneousGesture(LongPressGesture(minimumDuration: 0.5).onEnded { _ in
+            guard chosen, settled else { return }
+            longPressed = true
+            openSettings()
+        })
+        .sensoryFeedback(.impact(weight: .medium), trigger: longPressed) { _, new in new }
         .shellTarget("lib.tile.\(detail.id)", radius: cover * 0.03) { primary(detail) }
         .accessibilityLabel(detail.game.title + ", " + detail.game.state.title)
         .accessibilityAddTraits(chosen ? .isSelected : [])
@@ -151,62 +178,98 @@ struct CoverFlowView: View {
         .accessibilityIdentifier("tile.\(detail.id)")
     }
 
-    /// Under the centre card, the same on a phone and a tablet: the title centred with room for two lines, one status or
-    /// reason line, then the buttons at a fixed place. The space is reserved, so nothing moves when the selection
-    /// changes, only the words crossfade.
+    /// Under the centre card, the same on a phone and a tablet: the title with room for two lines, then one line of
+    /// state. For a game that cannot start, that line is the way out: a small chip that says what is wrong and what to
+    /// do. The space is reserved, so nothing moves when the selection changes, only the words crossfade.
     private func info(short: Bool, width: CGFloat) -> some View {
         let game = selected.game
         let size: CGFloat = short ? 20 : 28
-        return VStack(spacing: short ? 10 : 14) {
-            ZStack(alignment: .top) {
-                VStack(spacing: 6) {
-                    Text("M\nM").shellText(size, .heavy, relativeTo: .title)
-                    StatusLabel(state: .playable, prominent: true)
-                }.hidden().accessibilityHidden(true)
-                VStack(spacing: 6) {
-                    title(game, size: size).lineLimit(2).truncationMode(.tail).multilineTextAlignment(.center)
-                    StatusLabel(state: game.state, prominent: true)
+        return ZStack(alignment: .top) {
+            VStack(spacing: 8) {
+                Text("M\nM").shellType(ShellType.flowTitle(size))
+                StateChip(game: game) {}.allowsHitTesting(false)
+            }.hidden().accessibilityHidden(true)
+            VStack(spacing: 8) {
+                Text(game.title).shellType(ShellType.flowTitle(size))
+                    .lineLimit(2).truncationMode(.tail).multilineTextAlignment(.center)
+                    .shadow(color: .black.opacity(0.35), radius: 10)
+                    .accessibilityAddTraits(.isHeader).accessibilityIdentifier("hero.title")
+                if game.state == .playable {
+                    StatusLabel(state: game.state, prominent: true).frame(minHeight: 34)
+                } else {
+                    StateChip(game: game) { primary(selected) }
                 }
             }
-            .frame(maxWidth: min(560, width - 48))
-            actions(game)
+            .id(game.id).transition(.opacity)
         }
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: game.id)
+        .frame(maxWidth: min(560, width - 48))
         .dynamicTypeSize(...(short ? DynamicTypeSize.xxLarge : DynamicTypeSize.accessibility1))
-    }
-
-    private func title(_ game: GameTile, size: CGFloat) -> some View {
-        Text(game.title).shellText(size, .heavy, relativeTo: .title).tracking(-size * 0.025)
-            .shadow(color: .black.opacity(0.35), radius: 10)
-            .accessibilityAddTraits(.isHeader).accessibilityIdentifier("hero.title")
-            .id("title.\(game.id)").transition(.opacity)
-            .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: game.id)
-    }
-
-    private func actions(_ game: GameTile) -> some View {
-        HStack(spacing: 12) {
-            // A fixed width that holds every state's label, so the row does not shift between games.
-            Button { primary(selected) } label: {
-                Label(game.state.actionTitle, systemImage: game.state.actionSymbol).frame(minWidth: 190)
-            }
-                .buttonStyle(PrimaryPillStyle())
-                .accessibilityLabel(game.state.actionTitle + ", " + game.title)
-                .accessibilityIdentifier("state.action")
-                .shellTarget("lib.play", radius: 25) { primary(selected) }
-            Button(action: openSettings) { Image(systemName: "slider.horizontal.3") }
-                .buttonStyle(RoundIconButtonStyle())
-                .accessibilityLabel(ShellStrings.text("Game settings"))
-                .accessibilityIdentifier("settings.open")
-                .shellTarget("lib.settings", radius: 25, action: openSettings)
-        }
     }
 
     private var hints: some View {
         HStack(spacing: 24) {
-            GlyphHint(letter: "A", label: selected.game.state.actionTitle)
-            GlyphHint(letter: "X", label: ShellStrings.text("Game settings"))
-            GlyphHint(letter: "Y", label: ShellStrings.text("Controllers"))
-        }.accessibilityHidden(true)
+            GlyphHint(role: .activate, label: selected.game.state.actionTitle)
+            GlyphHint(role: .settings, label: ShellStrings.text("Game settings"))
+            GlyphHint(role: .controllers, label: ShellStrings.text("Controllers"))
+        }
+        .frame(minHeight: 24)
+        .accessibilityHidden(true)
     }
+}
+
+/// What is wrong and what to do, as one small tappable line: "Game files damaged · How to fix".
+struct StateChip: View {
+    let game: GameTile
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Circle().fill(game.state.color).frame(width: 7, height: 7)
+                Text(game.state.title.uppercased()).shellType(ShellType.eyebrow)
+                    .foregroundStyle(game.state.color)
+                Text("·").foregroundStyle(.white.opacity(0.4))
+                Text(game.state.chipAction).shellType(ShellType.button)
+                Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).opacity(0.6)
+            }
+            .lineLimit(1)
+            .padding(.horizontal, 14).frame(minHeight: 34)
+            .background(.black.opacity(0.35), in: Capsule())
+            .overlay(Capsule().strokeBorder(.white.opacity(0.14)))
+            .contentShape(Capsule().inset(by: -6))
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.white)
+        .accessibilityLabel(game.state.title + ", " + game.state.actionTitle)
+        .accessibilityIdentifier("state.chip")
+        .shellTarget("lib.chip", radius: 17, action: action)
+    }
+}
+
+/// Moves the carousel one card per gesture, like paging: a flick goes to the neighbour of the card the touch began on,
+/// a slow drag settles on the card nearest the middle. The target is always a card close by, so the snap is short
+/// instead of a long glide, and a second swipe that starts mid-snap counts from where the carousel is.
+struct CardSnap: ScrollTargetBehavior {
+    let stride: CGFloat
+    let count: Int
+    /// The card nearest the middle when the touch began.
+    let start: Int
+    func updateTarget(_ target: inout ScrollTarget, context: TargetContext) {
+        let card = Self.card(target: target.rect.origin.x, velocity: context.velocity.dx, stride: stride, count: count, start: start)
+        target.rect.origin.x = CGFloat(card) * stride
+    }
+    /// The card a gesture ends on. `target` is where the scroll would rest, in content points (0 with the first card in
+    /// the middle), `velocity` the release speed in points per millisecond, positive toward the later cards.
+    static func card(target: CGFloat, velocity: CGFloat, stride: CGFloat, count: Int, start: Int) -> Int {
+        let nearest = Int((target / stride).rounded())
+        let card: Int
+        if velocity > flickVelocity { card = max(start + 1, min(nearest, start + 1)) }
+        else if velocity < -flickVelocity { card = min(start - 1, max(nearest, start - 1)) }
+        else { card = nearest }
+        return min(count - 1, max(0, card))
+    }
+    /// Above this release speed (points per millisecond) the gesture counts as a flick.
+    static let flickVelocity: CGFloat = 0.3
 }
 
 /// A card's turn by its place: up to 24 degrees back, smaller and darker, pulled in behind its nearer neighbour.

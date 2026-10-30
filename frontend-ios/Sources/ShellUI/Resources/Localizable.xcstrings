@@ -71,6 +71,16 @@
         }
       }
     },
+    "Choose": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose"
+          }
+        }
+      }
+    },
     "Choose folder…": {
       "localizations": {
         "en": {
@@ -177,6 +187,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Done"
+          }
+        }
+      }
+    },
+    "Double-tap to select": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Double-tap to select"
           }
         }
       }

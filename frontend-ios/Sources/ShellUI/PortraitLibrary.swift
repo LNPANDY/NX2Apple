@@ -4,7 +4,7 @@ import SwiftUI
 /// then the collection, then recently played. In one column the primary action sits at the bottom for the thumb.
 /// With regular width (an iPad or an unfolded foldable held upright) the collection becomes a grid of wide cards and
 /// Play and the settings button move into the hero. Settings themselves only appear when asked for.
-struct PortraitLibrary: View {
+struct PortraitLibrary: View, Equatable {
     let games: [GameDetail]
     let selected: GameDetail
     let wide: Bool
@@ -28,6 +28,11 @@ struct PortraitLibrary: View {
     /// A short screen (the folded foldable is about 1.4:1) gets a smaller hero and smaller covers, so the hero,
     /// the row and Play all fit without scrolling.
     private var short: Bool { size.height + topInset < 700 }
+    /// One height for the hero per layout, a little under half the screen, so "Your games" sits high.
+    private var heroHeight: CGFloat {
+        let tall = size.height + topInset
+        return wide ? min(tall * 0.42, size.width * 0.62) : tall * 0.42
+    }
     /// Whole cards only, the gap as wide as the margin: the next card starts exactly at the screen edge, so the edge
     /// falls between cards and never through a name or a status. Long names end in an ellipsis inside their card.
     private var coverSize: CGFloat {
@@ -37,12 +42,20 @@ struct PortraitLibrary: View {
         return (available - (count - 1) * 24) / count
     }
 
+    /// Re-render only for what is drawn: the games' tiles, the selection and the sizes. A setting changed in the panel
+    /// above does not redraw the library underneath.
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.games.map(\.game) == rhs.games.map(\.game) && lhs.selected.game == rhs.selected.game && lhs.wide == rhs.wide
+            && lhs.size == rhs.size && lhs.topInset == rhs.topInset && lhs.bottomInset == rhs.bottomInset
+            && lhs.controllers == rhs.controllers
+    }
+
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    HeroView(game: selected.game, width: size.width, topInset: topInset,
-                             titleSize: wide ? 34 : short ? 24 : 32, short: short, fullHeight: size.height + topInset) {
+                    HeroView(game: selected.game, width: size.width, topInset: topInset, height: heroHeight,
+                             titleSize: wide ? 34 : short ? 24 : 32, short: short) {
                         if wide {
                             HStack(spacing: 12) {
                                 Button { primary(selected) } label: {
@@ -111,7 +124,7 @@ struct PortraitLibrary: View {
             VStack(alignment: .leading, spacing: 0) {
                 CoverView(game: detail.game)
                     .shellTarget("lib.tile.\(detail.id)") { primary(detail) }
-                Text(detail.game.title).shellText(13.5, .semibold).lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
+                Text(detail.game.title).shellType(ShellType.cardTitle).lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
                     .foregroundStyle(.white.opacity(chosen ? 1 : 0.86))
                     .frame(maxWidth: .infinity, alignment: .leading).padding(.top, 10)
                 StatusLabel(state: detail.game.state).padding(.top, 4)
@@ -182,60 +195,54 @@ struct PortraitLibrary: View {
     }
 }
 
-/// The chosen game's banner, whole and edge to edge at the top, flowing into a blurred copy of itself where the
-/// state, the title and what to do next sit. The banner's own logo and the shell's title never overlap.
+/// The chosen game's banner filling the whole hero, darkened toward the bottom where the state, the title and what to
+/// do next sit. The hero has one height for every game: the words are bottom-aligned, so a short title simply shows
+/// more of the banner and a long one covers more of it. Nothing below moves when the selection changes.
 struct HeroView<Accessory: View>: View {
     let game: GameTile
     let width: CGFloat
     let topInset: CGFloat
+    /// The hero's height including the status bar. It grows only if the reserved words need more.
+    let height: CGFloat
     var titleSize: CGFloat = 34
-    /// A short screen (the folded foldable): a lower banner, cropped at the sides, and one line of hint.
+    /// A short screen (the folded foldable): one line of hint.
     var short = false
-    var fullHeight: CGFloat = .infinity
     @ViewBuilder let accessory: () -> Accessory
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        let bannerHeight = short ? min(width * 9 / 16, fullHeight * 0.28) : width * 9 / 16
-        VStack(alignment: .leading, spacing: 10) {
-            // A stable height for every game: the hidden template reserves the status, a two-line title, the meta line
-            // and a two-line hint, so the cards below never move when the selection changes. Only the text inside
-            // crossfades.
-            ZStack(alignment: .topLeading) {
+        VStack(alignment: .leading, spacing: 12) {
+            // The hidden template reserves the longest case (two lines of title, the meta line and the hint), so the
+            // hero keeps its height. The words are bottom-aligned inside it and crossfade.
+            ZStack(alignment: .bottomLeading) {
                 HeroText(status: GameState.needsGameData, title: "M\nM", meta: "M",
                          explanation: short ? "M" : "M\nM", titleSize: titleSize, hintLines: short ? 1 : 2)
                     .hidden().accessibilityHidden(true)
-                HeroText(status: game.state, title: game.title, meta: meta, explanation: game.state.explanation, titleSize: titleSize,
-                         hintLines: short ? 1 : 2)
+                HeroText(status: game.state, title: game.title, meta: meta,
+                         // The hint only where the game cannot start. For a playable game the meta line is enough.
+                         explanation: game.state == .playable ? "" : game.state.explanation,
+                         titleSize: titleSize, hintLines: short ? 1 : 2)
                     .id(game.id).transition(.opacity)
             }
             .animation(reduceMotion ? .linear(duration: 0.12) : .easeInOut(duration: 0.25), value: game.id)
             accessory()
         }
         .padding(.horizontal, 24)
-        // The text starts where the banner has faded out, never over the art's own lettering.
-        .padding(.top, max(topInset, bannerHeight - 4))
-        .padding(.bottom, 18)
-        .frame(maxWidth: .infinity, alignment: .bottomLeading)
+        .padding(.top, topInset + 60)
+        .padding(.bottom, 16)
+        .frame(maxWidth: .infinity, minHeight: height, alignment: .bottomLeading)
         .background {
-            ZStack(alignment: .top) {
-                ArtView(game: game, backdrop: true)
-                    .scaleEffect(1.4)
-                    .blur(radius: 50, opaque: true)
-                    .saturation(1.2)
-                    .overlay(Color.black.opacity(0.35))
+            ZStack {
                 ArtView(game: game, lettering: false)
-                    .frame(width: width, height: bannerHeight)
-                    .mask {
-                        LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.62),
-                                               .init(color: .clear, location: 0.98)], startPoint: .top, endPoint: .bottom)
-                    }
-                LinearGradient(stops: [.init(color: .black.opacity(0.45), location: 0),
-                                       .init(color: .clear, location: min(0.3, (topInset + 40) / max(1, bannerHeight * 2)))],
+                // Dark under the status bar, clear across the art, then deep toward the words at the bottom.
+                LinearGradient(stops: [.init(color: .black.opacity(0.5), location: 0),
+                                       .init(color: .clear, location: 0.22),
+                                       .init(color: .clear, location: 0.36),
+                                       .init(color: .black.opacity(0.55), location: 0.62),
+                                       .init(color: ShellPalette.background.opacity(0.94), location: 0.88),
+                                       .init(color: ShellPalette.background, location: 1)],
                                startPoint: .top, endPoint: .bottom)
-                // The blurred colour settles into the page at the bottom edge.
-                LinearGradient(stops: [.init(color: .clear, location: 0.55), .init(color: ShellPalette.background, location: 1)],
-                               startPoint: .top, endPoint: .bottom)
+                LinearGradient(colors: [.black.opacity(0.3), .clear], startPoint: .leading, endPoint: .center)
             }
             .id(game.id).transition(.opacity)
             .animation(reduceMotion ? .linear(duration: 0.15) : .easeInOut(duration: 0.35), value: game.id)
@@ -261,14 +268,14 @@ struct HeroText: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             StatusLabel(state: status, prominent: true)
-            Text(title).shellText(titleSize, .heavy, relativeTo: .largeTitle).tracking(-titleSize * 0.03)
+            Text(title).shellType(ShellType.heroTitle(titleSize))
                 .lineLimit(2).truncationMode(.tail)
                 .accessibilityAddTraits(.isHeader).accessibilityIdentifier("hero.title")
             if !meta.isEmpty {
-                Text(meta).shellText(13).foregroundStyle(.white.opacity(0.62)).lineLimit(1)
+                Text(meta).shellType(ShellType.meta).foregroundStyle(.white.opacity(0.62)).lineLimit(1)
             }
             if !explanation.isEmpty {
-                Text(explanation).shellText(14.5).foregroundStyle(.white.opacity(0.78)).lineLimit(hintLines).padding(.top, 2)
+                Text(explanation).shellType(ShellType.body).foregroundStyle(.white.opacity(0.78)).lineLimit(hintLines).padding(.top, 2)
             }
         }
     }

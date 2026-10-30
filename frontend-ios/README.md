@@ -29,7 +29,9 @@ All boundary types are in `Sources/ShellUI/ShellInputs.swift` and `ShellArtwork.
 - `SettingSection`, `SettingRow`, `SettingKind`, `SettingOption`: ordered toggle, choice and range rows with string values, as in launcher.json. The caller resolves dependencies, defaults and locked rows (`enabled`).
 - `ControllerInfo`: a connected controller, its player and an optional battery level.
 - `ShellActions`: selection, Play, setting changes, game-data and cloud-folder requests, reset, log, app update and Back. The game ID is always passed.
-- `ShellInput`: an optional semantic controller event with an increasing sequence. Hardware belongs to the caller. The demo's `DemoControllerInput` is one such adapter.
+- `ShellInput`: an optional semantic controller event with an increasing sequence and the device that sent it (`InputDevice`: a controller family or the keyboard), so the hints draw that device's glyphs.
+
+`ShellControllers` is a separate library target, not part of the views: `GamepadAdapter` reads every GameController controller (D-pad and left stick with a deadzone and the Mac's repeat on hold, A activates, B goes back, X and Menu open game settings, Y opens Controllers, by label so each family confirms with its own button) and reports `ShellInput` actions and the connected controllers with their battery. Its pure mapping (`PadMapper`, `RepeatTiming`) is unit tested. The demo uses it, the real shell can too.
 
 ```swift
 LibraryView(
@@ -55,7 +57,7 @@ Only the available size decides, never the device model, idiom or orientation (`
 
 Settings appear only when asked for (the settings button, X on a controller) and close with Back, B or a tap outside. They are one view in one place for every layout, with the game's banner as their header, so the selected game, open settings and both scroll positions survive a fold, a rotation or a Stage Manager resize.
 
-Controller first: the D-pad and stick move a cream focus ring, A activates, B backs out, X opens settings, Y opens controllers. In Cover Flow, left and right move the carousel by one card and the focused card is always the middle one. Keyboard arrows, Return and Escape take the same path. Touch and pointer use ordinary controls.
+Controller first: the D-pad and stick move a cream focus ring, A activates, B backs out, X opens settings, Y opens controllers. In Cover Flow, left and right move the carousel by one card and the focused card is always the middle one. A hardware keyboard works the same way: arrows, Return, Escape, O for settings and Y for controllers. Touch hides the focus ring and the controller hints until the next press. In Cover Flow the centred card is the button: a tap does what the game needs, a tap on a side card brings it to the middle, a long press opens its settings.
 
 Manrope and its SIL OFL licence are bundled and registered at runtime, with the system font as fallback. Reduce Motion turns the Cover Flow tilt and the slides into plain crossfades. Shell strings are in `Resources/Localizable.xcstrings`.
 
