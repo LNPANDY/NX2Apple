@@ -60,6 +60,10 @@ def load_font() -> str:
     from PySide6.QtGui import QFontDatabase
     fid = QFontDatabase.addApplicationFont(path)
     families = QFontDatabase.applicationFontFamilies(fid) if fid >= 0 else []
+    # The TTF's legacy family name is "Manrope ExtraLight" (a variable font), so prefer the
+    # "Manrope" family the stylesheet and Qt's matching use, and fall back to what Qt reports.
+    if 'Manrope' in families:
+        return 'Manrope'
     return families[0] if families else ''
 
 
@@ -191,7 +195,7 @@ QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{ background: 
 
 /* ---- dialogs inherit the dark look ---- */
 QFileDialog, QMessageBox, QInputDialog {{ background: {BG}; }}
-QLineEdit, QComboBox {{
+QLineEdit {{
     background: {FIELD};
     border: 1px solid {BTN_EDGE};
     border-radius: 9px;
@@ -200,16 +204,7 @@ QLineEdit, QComboBox {{
     selection-background-color: #5a5445;
     selection-color: {TEXT};
 }}
-QLineEdit:focus, QComboBox:focus {{ border-color: {CREAM}; }}
-QComboBox::drop-down {{ border: none; width: 20px; }}
-QComboBox QAbstractItemView {{
-    background: {CARD};
-    border: 1px solid {CARD_EDGE};
-    color: {TEXT};
-    selection-background-color: {BTN_PRESSED};
-    selection-color: {TEXT};
-    outline: none;
-}}
+QLineEdit:focus {{ border-color: {CREAM}; }}
 
 /* ---- menus and tooltips ---- */
 QMenu {{
@@ -227,28 +222,5 @@ QToolTip {{
     color: {TEXT};
     border: 1px solid {CARD_EDGE};
     padding: 4px 6px;
-}}
-
-/* ---- check boxes: the launcher's switch in cream when on ---- */
-QCheckBox {{ spacing: 8px; background: transparent; }}
-QCheckBox::indicator {{
-    width: 32px;
-    height: 18px;
-    border-radius: 9px;
-    background: #2a2a2c;
-    border: none;
-}}
-QCheckBox::indicator:checked {{ background: {CREAM}; }}
-QCheckBox::indicator:disabled {{ background: #1e1e1f; }}
-
-/* ---- sliders: a thin track with a cream fill and knob ---- */
-QSlider::groove:horizontal {{ height: 4px; border-radius: 2px; background: {TRACK}; }}
-QSlider::sub-page:horizontal {{ height: 4px; border-radius: 2px; background: {CREAM}; }}
-QSlider::handle:horizontal {{
-    background: {CREAM};
-    width: 16px;
-    height: 16px;
-    margin: -6px 0;
-    border-radius: 8px;
 }}
 """
