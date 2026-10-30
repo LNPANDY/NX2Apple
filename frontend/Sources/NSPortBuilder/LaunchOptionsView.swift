@@ -13,6 +13,7 @@ struct LaunchOptionsView: View {
     @State private var advancedOpen = false
     @State private var choicesRevision = 0   // bumped by a change: the values are read from the store again
     @State private var modsRevision = 0   // bumped by Refresh: the folder is read again
+    @State private var frameTimesRevision = 0   // bumped by the switch and Refresh: the recordings are read again
     @EnvironmentObject private var focus: PadFocus
 
     private var game: LibraryGame? { library.games.first { $0.id == gameID } }
@@ -49,6 +50,7 @@ struct LaunchOptionsView: View {
                     VStack(alignment: .leading, spacing: 24) {
                         groups(settings.filter(\.isBasic), game, all: settings)
                         modsSection(game)
+                        frameTimesSection(game)
                         let advanced = settings.filter { !$0.isBasic }
                         if !advanced.isEmpty {
                             card {
@@ -281,6 +283,56 @@ struct LaunchOptionsView: View {
             Text(m.t(list.count > 1 ? "launch.modsNoteOrder" : "launch.modsNote")).font(.manrope(12)).foregroundStyle(.secondary)
                 .padding(.leading, 2).fixedSize(horizontal: false, vertical: true)
         }
+    }
+
+    // ---- frame times ----
+
+    /// Recording frame times (FrameTimes.swift): the switch for the next Play, and the last recordings with their numbers.
+    @ViewBuilder private func frameTimesSection(_ game: LibraryGame) -> some View {
+        let _ = frameTimesRevision
+        let folder = FrameTimes.folder(titleID: game.titleID, library: library.folder)
+        let recent = Array(FrameTimes.recordings(in: folder).prefix(3))
+        let on = Binding(get: { _ = frameTimesRevision; return FrameTimes.enabled(titleID: game.titleID) },
+                         set: { FrameTimes.setEnabled($0, titleID: game.titleID); frameTimesRevision += 1 })
+        VStack(alignment: .leading, spacing: 10) {
+            heading(m.t("launch.frameTimes"))
+            card {
+                HStack(spacing: 16) {
+                    Text(m.t("launch.frameTimesRecord")).font(.manrope(14, .medium))
+                    Spacer(minLength: 12)
+                    Toggle("", isOn: on).labelsHidden().toggleStyle(LauncherSwitchStyle())
+                }
+                .padding(.horizontal, 18).padding(.vertical, 13).frame(minHeight: 52)
+                .padTarget("frameTimes.record", scope: "launch", radius: 10,
+                           activate: { on.wrappedValue.toggle() }, adjust: { _ in on.wrappedValue.toggle() })
+                divider
+                if recent.isEmpty {
+                    Text(m.t("launch.frameTimesNone")).font(.manrope(13)).foregroundStyle(.secondary)
+                        .padding(.horizontal, 18).padding(.vertical, 12)
+                    divider
+                }
+                ForEach(recent, id: \.self) { file in
+                    FrameTimesRecordingView(file: file, t: m.t)
+                    divider
+                }
+                HStack(spacing: 10) {
+                    Spacer()
+                    Button(m.t("launch.modsRefresh")) { frameTimesRevision += 1 }
+                        .padTarget("frameTimes.refresh", scope: "launch") { frameTimesRevision += 1 }
+                    Button(m.t("launch.frameTimesOpen")) { openFolder(folder) }
+                        .padTarget("frameTimes.open", scope: "launch") { openFolder(folder) }
+                }
+                .buttonStyle(LauncherSecondaryButtonStyle())
+                .padding(.horizontal, 18).padding(.vertical, 12)
+            }
+            Text(m.t("launch.frameTimesNote")).font(.manrope(12)).foregroundStyle(.secondary)
+                .padding(.leading, 2).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func openFolder(_ folder: URL) {
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        NSWorkspace.shared.open(folder)
     }
 
     private func openModsFolder() {
