@@ -738,11 +738,13 @@ final class LibraryTests: XCTestCase {
         XCTAssertTrue(model.canBuild)
         window.orderOut(nil) // Registration must work even while the launcher is hidden.
         model.startBuild()
-        wait(for: [completed], timeout: 30)   // a CI runner runs the script slowly
+        // The fixture runs system Python in a child process. A loaded CI runner took more than 10 s for it once, so the deadline
+        // is only a hang guard. Each wait returns on its event, so a fast build does not wait longer.
+        wait(for: [completed], timeout: 120)
         withExtendedLifetime(token) {}
         // The library can list the app before the model has taken in the script's exit (a slower Mac, CI): wait for both
         let settled = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in model.done && !model.running }, object: nil)
-        wait(for: [settled], timeout: 30)
+        wait(for: [settled], timeout: 120)
         XCTAssertTrue(model.done)
         XCTAssertFalse(model.running)
         XCTAssertEqual(model.stages.map(\.name), ["Mac app"])   // from the JSON events, which the log shows as text
