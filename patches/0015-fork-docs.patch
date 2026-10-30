@@ -15,7 +15,7 @@ Issue: LNPANDY/NX2Apple#123
  docs/ROADMAP.md             | 139 +++++++++++++++
  docs/WORK-IN-PROGRESS.md    |  88 ++++++++++
  docs/launcher-c-design.md   | 339 ++++++++++++++++++++++++++++++++++++
- docs/launcher-c-plan.md     | 232 ++++++++++++++++++++++++
+ docs/launcher-c-plan.md     | 233 +++++++++++++++++++++++++
  docs/probe-dlopen.md        |  64 +++++--
  8 files changed, 1149 insertions(+), 15 deletions(-)
  create mode 100644 docs/MULTIPLAYER.md
@@ -951,23 +951,24 @@ index 0000000..476a1c1
 +> **Update (merged):** the dlopen probe now exists — `dm/ios/probe/` with `build_probe.sh`, committed alongside this document, and `probe-out/DmProbe.ipa` is built. W1 step 1 is done. What remains is running it on an iOS 26 device and reading `Documents/probe-log.txt`.
 diff --git a/docs/launcher-c-plan.md b/docs/launcher-c-plan.md
 new file mode 100644
-index 00000000..34bb84f1
+index 00000000..de255fff
 --- /dev/null
 +++ b/docs/launcher-c-plan.md
-@@ -0,0 +1,232 @@
+@@ -0,0 +1,233 @@
 +# Route C implementation plan — shell app + per-game framework
 +
-+Status (2026-10-30): **M1 and M2 run on a device.** The shell app (`dm/ios/tools/build_shell.sh`,
-+`dm/ios/project-shell.yml`, `dm/ios/Shell/`) with Breath of the Wild's `DmGame01007EF00011E000.framework`
-+(`build_ipa.sh DM_FRAMEWORK_ONLY`, the NSP script's `--shell-framework`) was installed by the Mac launcher's
-+one-app target on an iPhone 17 Pro Max (iOS 27.0.1): the library lists the game from the embedded framework,
-+its data sits in `Documents/games/01007EF00011E000/`, and Play loads the framework (`boot: game framework …`,
-+the module bases of main, subsdk0 and sdk from its sections), mounts the RomFS image and both DLC and reaches
-+the game's frame loop. What M2 built and why is in the section below. Open: M3 needs the host to stop reading
-+the compiled `game_profile.h` macros (a shell holds one game profile until then, `build_shell.sh` refuses a
-+second), M4 (external drive, per-game DLC beyond `aoc/`), M5 (incremental frameworks, broken-framework
-+tolerance on a device, re-sign timing). The dlopen gate: [probe-dlopen.md](probe-dlopen.md), the design:
-+[launcher-c-design.md](launcher-c-design.md).
++Status (2026-10-30): **M1, M2 and M3 run on a device.** The shell app (`dm/ios/tools/build_shell.sh`,
++`dm/ios/project-shell.yml`, `dm/ios/Shell/`) holds Breath of the Wild's `DmGame01007EF00011E000.framework` and
++Hades' `DmGame0100535012974000.framework` (`build_ipa.sh DM_FRAMEWORK_ONLY`, the NSP script's `--shell-framework`),
++installed by the Mac launcher's one-app target on an iPhone 17 Pro Max (iOS 27.0.1). The library lists both from
++the embedded frameworks, each game's data sits in `Documents/games/<title ID>/`, and Play loads the chosen
++framework (`boot: game framework …`, the module bases from its sections), points `DM_PROFILE` at its
++`profile.tsv` and reaches the game's frame loop: Breath of the Wild (NVN, both DLC) and Hades (Vulkan) on one host
++binary, which reads every game value from the runtime profile (patch 0042). The per-game settings (language,
++performance HUD) reach the engine. Open: M4 (external drive, per-game msl/pso/profile overrides, DLC beyond
++`aoc/`), M5 (incremental frameworks, broken-framework tolerance on a device, re-sign timing), the shell's own
++"Preparing shaders" screen (the front ends' progress hook, patch 0041, forwarded as seedds/nxnative#742). The
++dlopen gate: [probe-dlopen.md](probe-dlopen.md), the design: [launcher-c-design.md](launcher-c-design.md).
 +
 +## Milestones
 +
