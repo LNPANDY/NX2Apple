@@ -272,7 +272,7 @@ The release app (`NX2Apple.app`) carries `zstd`, `glslangValidator`, `spirv-cros
 zbic backports.zstd nsz` (`Contents/Resources/python`), so a player needs no Homebrew and no Python.
 `tools/bundle_tools.sh` fills them in during the release workflow (pinned versions and sha256 of the
 sources, built for macOS 13 with static libraries, and the Python packages come from
-`tools/bundled-python-requirements.txt`) and `tools/check_bundle.sh` runs each tool from the bundle
+`bundled-python/requirements.txt`, exact pins with hashes that Dependabot keeps current) and `tools/check_bundle.sh` runs each tool from the bundle
 with a clean PATH. The dependency check (`BundledTools.swift`) prefers them to Homebrew's and shows
 "bundled", and the build's PATH starts with them. Under `swift run`, or in a build without the bundle,
 nothing changes: Homebrew's tools, a system Python or the launcher's venv. To try the bundle by hand:

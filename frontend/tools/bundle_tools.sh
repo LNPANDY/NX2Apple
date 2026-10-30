@@ -108,7 +108,7 @@ PYTAR=$(fetch "$PYTHON_URL" "$PYTHON_SHA256")
 rm -rf "$WORK/python-x"; mkdir -p "$WORK/python-x"; tar -xzf "$PYTAR" -C "$WORK/python-x"
 mv "$WORK/python-x/python" "$RES/python"
 PY="$RES/python/bin/python3"
-"$PY" -I -m pip install --disable-pip-version-check --no-warn-script-location --only-binary :all: -r "$HERE/bundled-python-requirements.txt" > "$WORK/pip.log" 2>&1 || { tail -30 "$WORK/pip.log"; exit 1; }
+"$PY" -I -m pip install --disable-pip-version-check --no-warn-script-location --only-binary :all: --require-hashes -r "$HERE/../bundled-python/requirements.txt" > "$WORK/pip.log" 2>&1 || { tail -30 "$WORK/pip.log"; exit 1; }
 # pip writes console scripts (nsz, fonttools, ...) whose first line names this build's absolute path: they cannot work from the player's copy
 # (the build script starts nsz as `python -c`, and nothing else is called by name), so they go. A script of python-build-standalone's own
 # (pip3) is a /bin/sh stub and stays.

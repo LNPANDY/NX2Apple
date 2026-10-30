@@ -241,12 +241,18 @@ final class BundledToolsTests: XCTestCase {
         // frontend/Tests/NSPortBuilderTests/BundledToolsTests.swift -> frontend/tools
         var url = URL(fileURLWithPath: #filePath)
         for _ in 0..<3 { url.deleteLastPathComponent() }
-        let text = try String(contentsOf: url.appendingPathComponent("tools/bundled-python-requirements.txt"), encoding: .utf8)
-        let pins = text.split(separator: "\n").filter { !$0.hasPrefix("#") }
+        let text = try String(contentsOf: url.appendingPathComponent("bundled-python/requirements.txt"), encoding: .utf8)
+        // a requirement starts at column 0, its --hash lines are indented continuations
+        let pins = text.split(separator: "\n").filter { !$0.hasPrefix("#") && !$0.hasPrefix(" ") && !$0.isEmpty }
         let names = Set(pins.map { String($0.split(separator: "=", maxSplits: 1)[0]).lowercased() })
         for pkg in BuildModel.pipPackages((3, 13)) {
             XCTAssertTrue(names.contains(pkg.lowercased()), "\(pkg) is installed by the launcher's venv but not pinned for the bundle")
         }
         XCTAssertTrue(pins.allSatisfy { $0.contains("==") }, "every bundled package has an exact version")
+        for pin in pins {
+            let block = text.components(separatedBy: String(pin))[1].components(separatedBy: "\n\n")[0].split(separator: "\n").prefix { $0.hasPrefix(" ") }
+            XCTAssertFalse(block.isEmpty, "\(pin) has no hash")
+            XCTAssertTrue(block.allSatisfy { $0.contains("--hash=sha256:") }, String(pin))
+        }
     }
 }
