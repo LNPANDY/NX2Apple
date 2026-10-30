@@ -16,6 +16,8 @@ struct Diagnostics {
         var macOS: String
         var chip: String
         var repoPath: String
+        /// The source the last clone or fetch used (RepoSource.swift): names the mirror when GitHub was unreachable.
+        var repoSource: String = ""
         var commit: String?                  // "<short hash> <subject>"
         var branch: String?
         var behind: [(ref: String, count: Int)] = []   // upstream/main, origin/main: the ones this checkout has
@@ -63,6 +65,7 @@ struct Diagnostics {
         out.append("- macOS: \(i.macOS)")
         out.append("- Chip: \(i.chip)")
         out.append("- Repository: \(i.repoPath.isEmpty ? "not found" : i.repoPath)")
+        if !i.repoSource.isEmpty { out.append("- Repository source: \(i.repoSource)") }
         if let commit = i.commit {
             var line = "- Commit: \(commit)" + (i.branch.map { " (branch \($0))" } ?? "")
             if !i.behind.isEmpty {
@@ -292,7 +295,7 @@ extension BuildModel {
     func diagnostics(game: LibraryGame? = nil, _ done: @escaping (String) -> Void) {
         let repo = repoOK ? repoPath : "", python = pythonPath.isEmpty ? Self.findPython().path : pythonPath, dotnet = dotnetPath
         let rows = depsChecked ? deps.map(Diagnostics.dependency) : [], checked = depsChecked
-        let command = lastBuildCommand, log = logTail, xcrun = xcrunPath
+        let command = lastBuildCommand, log = logTail, xcrun = xcrunPath, repoSource = repoSourceUsed
         DispatchQueue.global(qos: .userInitiated).async {
             let git = Diagnostics.git(repo)
             let env = ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin", "TMPDIR": NSTemporaryDirectory()]
@@ -304,7 +307,7 @@ extension BuildModel {
                 appVersion: Self.appVersion,
                 macOS: ProcessInfo.processInfo.operatingSystemVersionString,
                 chip: Diagnostics.chip(),
-                repoPath: repo, commit: git.commit, branch: git.branch, behind: git.behind, lastFetch: git.lastFetch,
+                repoPath: repo, repoSource: repoSource, commit: git.commit, branch: git.branch, behind: git.behind, lastFetch: git.lastFetch,
                 python: python,
                 pythonVersion: Diagnostics.version(python, ["-c", "import sys; print(sys.version.split()[0])"], env: env),
                 pythonIsVenv: python == Self.venvPython(),

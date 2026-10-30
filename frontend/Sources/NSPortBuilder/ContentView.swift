@@ -359,7 +359,12 @@ final class BuildModel: ObservableObject {
 
     // ---- Repository download and updates (a clone is the scripts' home; not everyone has git habits) ----
 
-    static let repoURL = "https://github.com/LNPANDY/NX2Apple.git"
+    static let repoURL = RepoEndpoints.github.url
+    /// The source the last clone or fetch actually used (RepoSource.swift), for the status line and Copy
+    /// diagnostics: "GitHub" normally, a mirror or proxy when this network cannot reach GitHub.
+    @Published var repoSourceUsed = ""
+    /// Remembered between launches, so a player whose network needs the mirror does not probe GitHub again.
+    private static let repoSourceKey = "repoSource"
     /// Clone/pull/check in flight; the buttons disable and the status line says what is happening.
     @Published var repoBusy = false
     @Published var repoStatus = ""
@@ -415,11 +420,27 @@ final class BuildModel: ObservableObject {
             return
         }
         repoBusy = true; repoStatus = t("repo.downloading")
-        append("git clone --depth 1 \(Self.repoURL) \(dest)\n")
+        // A source is probed before the clone: 200 MB from an unreachable host is a long wait for a
+        // failure, and `ls-remote` answers in a second. The winner is remembered (RepoSource.swift).
+        let preferred = UserDefaults.standard.string(forKey: Self.repoSourceKey)
+        let env = Self.gitEnv()
         DispatchQueue.global().async {
+            let source = RepoEndpoints.pick(preferred: preferred) { RepoEndpoints.answers($0, git: git, env: env) }
+            guard let source else {
+                DispatchQueue.main.async {
+                    self.repoBusy = false
+                    self.repoStatus = self.t("repo.netFail")
+                }
+                return
+            }
+            DispatchQueue.main.async {
+                self.repoSourceUsed = source.name
+                UserDefaults.standard.set(source.id, forKey: Self.repoSourceKey)
+                self.append("git clone --depth 1 \(source.url) \(dest)   (\(source.name))\n")
+            }
             // Shallow: a quarter of the bytes and a third of the time of a full clone, and fetch /
             // pull keep working on it (verified); the history is of no use to someone who wants to build.
-            let ok = Self.runCaptured([git, "clone", "--depth", "1", "--single-branch", "--progress", Self.repoURL, dest], env: Self.gitEnv()) {
+            let ok = Self.runCaptured([git, "clone", "--depth", "1", "--single-branch", "--progress", source.url, dest], env: env) {
                 line in DispatchQueue.main.async { self.append(line + "\n") }
             }
             DispatchQueue.main.async {
@@ -446,16 +467,34 @@ final class BuildModel: ObservableObject {
         repoBusy = true
         if !silent { repoStatus = t("repo.checking") }
         let dir = repoPath
+        let preferred = UserDefaults.standard.string(forKey: Self.repoSourceKey)
         DispatchQueue.global().async {
-            let fetched = Self.runQuiet([git, "-C", dir, "fetch", "origin", "main"], env: Self.gitEnv())
+            let env = Self.gitEnv()
+            var fetched = Self.runQuiet([git, "-C", dir, "fetch", "origin", "main"], env: env)
+            var used = ""
+            if !fetched.ok {
+                // `origin` is GitHub, which this network may not reach: fetch the same branch from
+                // another source into the same remote-tracking ref, so everything downstream (the
+                // behind count, the pull) keeps reading `origin/main`.
+                for source in RepoEndpoints.ordered(preferred: preferred) where source.url != Self.repoURL {
+                    let r = Self.runQuiet([git, "-C", dir, "fetch", source.url, "+refs/heads/main:refs/remotes/origin/main"], env: env)
+                    if r.ok { fetched = r; used = source.name; break }
+                }
+            }
             var behind = -1
             if fetched.ok {
-                let count = Self.runQuiet([git, "-C", dir, "rev-list", "--count", "HEAD..origin/main"], env: Self.gitEnv())
+                let count = Self.runQuiet([git, "-C", dir, "rev-list", "--count", "HEAD..origin/main"], env: env)
                 if count.ok { behind = Int(count.out.trimmingCharacters(in: .whitespacesAndNewlines)) ?? -1 }
             }
             DispatchQueue.main.async {
                 self.repoBusy = false
                 if behind >= 0 {
+                    if !used.isEmpty {
+                        self.repoSourceUsed = used
+                        if let s = RepoEndpoints.all.first(where: { $0.name == used }) {
+                            UserDefaults.standard.set(s.id, forKey: Self.repoSourceKey)
+                        }
+                    }
                     self.repoBehind = behind
                     if !silent { self.repoStatus = behind == 0 ? self.t("repo.upToDate") : String(format: self.t("repo.behind"), behind) }
                     else if behind > 0 && self.autoUpdateRepo { self.autoPull(behind) }   // the check when the app opens
