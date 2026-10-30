@@ -35,11 +35,14 @@ public struct CatalogueEntry: Equatable, Sendable, Identifiable {
 
     /// Never the bare title ID: an unreadable bundle is "Unknown game". The ID is shown only in the How to fix sheet.
     public var title: String { manifest?.name ?? readableName ?? hostText("Unknown game") }
-    public var frameworkURL: URL? { manifest.map { directory.appendingPathComponent($0.framework, isDirectory: true) } }
+    /// The game's framework folder: inside `directory` for a `Games/<title ID>/` bundle, `directory` itself for an
+    /// embedded `<Name>.framework`. Nil while the manifest could not be read.
+    public var frameworkURL: URL?
 }
 
 /// Discovers games from a folder of bundles: `Games/<title ID>/` with `game.manifest.json`, `launcher.json`, the
-/// manifest's `<name>.framework` and optional `banner.<ext>` and `icon.<ext>` pictures. Pure reads, no state.
+/// manifest's `<name>.framework` and optional `banner.<ext>` and `icon.<ext>` pictures, or, in the shell app, the
+/// embedded `<Name>.framework` folders that hold the manifest and everything else themselves. Pure reads, no state.
 public enum GameCatalogue {
     public static let imageExtensions = ["png", "jpg", "jpeg", "heic", "webp"]
 
@@ -50,7 +53,17 @@ public enum GameCatalogue {
             let dir = root.appendingPathComponent(name, isDirectory: true)
             var isDir: ObjCBool = false
             guard fm.fileExists(atPath: dir.path, isDirectory: &isDir), isDir.boolValue else { continue }
-            entries.append(read(directory: dir, fileManager: fm))
+            if name.hasSuffix(".framework") {
+                // Other frameworks (the Swift runtime, say) can sit next to the games: not a game, not listed.
+                guard fm.fileExists(atPath: dir.appendingPathComponent("game.manifest.json").path) else { continue }
+                var entry = readFramework(at: dir, fileManager: fm)
+                if let first = entries.first(where: { $0.frameworkURL != nil && $0.directory.pathExtension == "framework" && $0.id == entry.id }) {
+                    entry = brokenDuplicate(of: first, entry)
+                }
+                entries.append(entry)
+            } else {
+                entries.append(read(directory: dir, fileManager: fm))
+            }
         }
         return entries.sorted { ($0.manifest?.name ?? "\u{10FFFF}\($0.id)").localizedCaseInsensitiveCompare($1.manifest?.name ?? "\u{10FFFF}\($1.id)") == .orderedAscending }
     }
@@ -65,6 +78,7 @@ public enum GameCatalogue {
             }
             let manifest = try GameManifest.parse(data)
             entry.manifest = manifest
+            entry.frameworkURL = dir.appendingPathComponent(manifest.framework, isDirectory: true)
             guard manifest.titleID == id else {
                 throw GameProblem(cause: .filesDamaged, reason: hostText("Game files damaged"), detail: hostText("The folder is named \(id) but the manifest says \(manifest.titleID)."))
             }
@@ -91,6 +105,54 @@ public enum GameCatalogue {
             // The technical message is for the log and the Details of the How to fix sheet, not for the hero.
             logger.error("\(id, privacy: .public): \(problem.reason, privacy: .public): \(problem.detail, privacy: .public)")
         }
+        return entry
+    }
+
+    /// An embedded `<Name>.framework`: manifest, launcher.json, pictures and the rest all inside the folder itself.
+    public static func readFramework(at fw: URL, fileManager fm: FileManager = .default) -> CatalogueEntry {
+        let folder = fw.lastPathComponent
+        let fallbackID = String(folder.dropLast(".framework".count))
+        let manifestURL = fw.appendingPathComponent("game.manifest.json")
+        var entry = CatalogueEntry(id: fallbackID, directory: fw, bannerURL: image(named: "banner", in: fw, fm), iconURL: image(named: "icon", in: fw, fm))
+        entry.readableName = lenientName(in: manifestURL, fm)
+        do {
+            guard let data = fm.contents(atPath: manifestURL.path) else {
+                throw GameProblem(cause: .manifestMissing, reason: hostText("Game manifest missing"), detail: hostText("\(folder) has no game.manifest.json."))
+            }
+            let manifest = try GameManifest.parse(data)
+            entry.manifest = manifest
+            entry.id = manifest.titleID
+            entry.frameworkURL = fw
+            guard manifest.framework == folder else {
+                throw GameProblem(cause: .filesDamaged, reason: hostText("Game files damaged"), detail: hostText("The folder is named \(folder) but the manifest says \(manifest.framework)."))
+            }
+            let launcherData = fm.contents(atPath: fw.appendingPathComponent(manifest.launcher).path) ?? fm.contents(atPath: fw.appendingPathComponent("launcher.json").path)
+            guard let launcherData else {
+                throw GameProblem(cause: .settingsMissing, reason: hostText("Settings list missing"), detail: hostText("This game has no launcher.json."))
+            }
+            let profile = try LauncherProfile.parse(launcherData)
+            guard profile.game == manifest.titleID else {
+                throw GameProblem(cause: .filesDamaged, reason: hostText("Game files damaged"), detail: hostText("launcher.json is for \(profile.game), the manifest for \(manifest.titleID)."))
+            }
+            entry.profile = profile
+        } catch let problem as GameProblem {
+            entry.problem = problem
+        } catch {
+            entry.problem = GameProblem(cause: .filesDamaged, reason: hostText("Game files damaged"), detail: error.localizedDescription)
+        }
+        if let problem = entry.problem {
+            logger.error("\(folder, privacy: .public): \(problem.reason, privacy: .public): \(problem.detail, privacy: .public)")
+        }
+        return entry
+    }
+
+    /// The second framework with a title ID: broken, naming the one that was kept.
+    private static func brokenDuplicate(of first: CatalogueEntry, _ second: CatalogueEntry) -> CatalogueEntry {
+        var entry = second
+        // A distinct ID keeps both tiles apart (the list and the model look games up by ID).
+        entry.id = String(second.directory.lastPathComponent.dropLast(".framework".count))
+        entry.problem = GameProblem(cause: .filesDamaged, reason: hostText("Game files damaged"),
+                                    detail: hostText("\(second.directory.lastPathComponent) has the same title ID \(second.manifest?.titleID ?? "") as \(first.directory.lastPathComponent), which is used instead."))
         return entry
     }
 
@@ -144,11 +206,24 @@ public enum DataLocator {
     static func holder(of url: URL, manifest: GameManifest, _ fm: FileManager) -> URL? {
         var isDir: ObjCBool = false
         guard fm.fileExists(atPath: url.path, isDirectory: &isDir) else { return nil }
-        if !isDir.boolValue { return url.pathExtension == "img" && isNonEmpty(url, fm) ? url.deletingLastPathComponent() : nil }
-        if isNonEmpty(url.appendingPathComponent("romfs.img"), fm) { return url }
+        if !isDir.boolValue { return url.pathExtension == "img" && isComplete(url, manifest: manifest, fm) ? url.deletingLastPathComponent() : nil }
+        if isComplete(url.appendingPathComponent("romfs.img"), manifest: manifest, fm) { return url }
         for tree in [url, url.appendingPathComponent("romfs", isDirectory: true)]
         where fm.fileExists(atPath: tree.appendingPathComponent(manifest.romfsMarker).path) { return url }
         return nil
+    }
+
+    /// A non-empty image, and when the manifest names the image it was built for (`romfs_identity`, `size=<bytes>`), exactly that
+    /// size: a copy cut off partway (the device locked or was unplugged during the Mac launcher's copy) is not game data yet.
+    static func isComplete(_ url: URL, manifest: GameManifest, _ fm: FileManager) -> Bool {
+        guard isNonEmpty(url, fm) else { return false }
+        guard let want = expectedImageSize(manifest) else { return true }
+        return ((try? fm.attributesOfItem(atPath: url.path)[.size]) as? NSNumber)?.int64Value == want
+    }
+
+    /// `size=<bytes>` of the manifest's `romfs_identity` line (`DMROMFSID1 title=… size=… index=…`), nil without one.
+    static func expectedImageSize(_ manifest: GameManifest) -> Int64? {
+        manifest.romfsIdentity.split(separator: " ").first { $0.hasPrefix("size=") }.flatMap { Int64($0.dropFirst(5)) }
     }
 
     private static func isNonEmpty(_ url: URL, _ fm: FileManager) -> Bool {
