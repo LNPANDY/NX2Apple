@@ -47,7 +47,7 @@ struct CoverFlowView: View, Equatable {
             let words = Self.infoHeight(short: short)
             let below: CGFloat = short ? 4 : 56          // the hint row on a tablet, a margin on a phone
             let byBottom = 2 * (height - middle - gap - words - below)
-            let byTop = 2 * (middle - (short ? 54 : 76))
+            let byTop = 2 * (middle - Self.barTop(short: short) - Self.barHeight - (short ? 6 : 16))
             let cardHeight = max(90, min(byBottom, byTop, geometry.size.width * 0.54 * 9 / 16) / 1.06)
             let cover = cardHeight * 16 / 9
             ZStack(alignment: .top) {
@@ -60,7 +60,7 @@ struct CoverFlowView: View, Equatable {
                 }
                 .padding(.top, middle - cardHeight * 1.06 / 2)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                topBar(short: short).padding(.horizontal, 24).padding(.top, short ? 4 : 16)
+                topBar(short: short).padding(.horizontal, 24).padding(.top, Self.barTop(short: short))
                 if !short {
                     // The hint row keeps its place when it is hidden, so nothing moves when it appears.
                     hints.opacity(showsHints ? 1 : 0).padding(.bottom, 20)
@@ -84,6 +84,11 @@ struct CoverFlowView: View, Equatable {
         return size * 1.3 * 2 + 8 + 34
     }
 
+    /// The distance from the top of the safe area to the top bar. A phone on its side has no status bar, so the chips
+    /// need their own air above them there. The bar is one centred row, so the title and the chips share a centre.
+    static func barTop(short: Bool) -> CGFloat { short ? 12 : 16 }
+    static let barHeight: CGFloat = 44
+
     private func topBar(short: Bool) -> some View {
         HStack(alignment: .center, spacing: 10) {
             SectionHeading(title: ShellStrings.text("Your games"))
@@ -102,6 +107,10 @@ struct CoverFlowView: View, Equatable {
                 .shellTarget("lib.settings", radius: 22, action: openSettings)
             ControllerChip(count: controllers, action: openControllers)
         }
+        // On a phone on its side the hints share the row. At the largest sizes they would wrap into a tall block and the
+        // title and chips, centred in it, would sink away from the top edge, so the row stops growing at xxLarge, as the
+        // title under the card does.
+        .dynamicTypeSize(...(short ? DynamicTypeSize.xxLarge : DynamicTypeSize.accessibility5))
     }
     private var position: Int { (games.firstIndex { $0.id == selected.id } ?? 0) + 1 }
     private var selectedIndex: Int { games.firstIndex { $0.id == selected.id } ?? 0 }
