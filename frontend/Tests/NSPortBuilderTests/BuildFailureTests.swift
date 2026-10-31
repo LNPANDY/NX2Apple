@@ -251,6 +251,116 @@ final class BuildFailureTests: XCTestCase {
         XCTAssertTrue(m.depDetail(dep).contains(Self.pinned), m.depDetail(dep))
     }
 
+    // ---- extended virtual addressing (issue 247): the build path, not a classifier row
+
+    func testExtendedVirtualAddressingIsOptInOnTheBuildPath() {
+        let alias: UInt64 = 0x118000000
+        let paid = try! ExtendedVA.plan(ios: true, bcOnCPU: false, enabled: true, personalTeam: false,
+                                         sizeText: "0x400000000", profileAlias: alias).get()
+        XCTAssertEqual(paid.alias, 0x400000000)
+        XCTAssertFalse(paid.usesProfileAlias)
+        XCTAssertEqual(paid.envBody, "DM_ALIAS_SIZE=0x400000000\n")
+        XCTAssertFalse(paid.envBody!.contains("DM_PROF_"))
+        XCTAssertFalse(paid.envBody!.contains("APP_POOL"))
+        let xml = try! XCTUnwrap(paid.entitlements)
+        let increased = try! XCTUnwrap(xml.range(of: ExtendedVA.increasedMemory))
+        let extended = try! XCTUnwrap(xml.range(of: ExtendedVA.entitlement))
+        XCTAssertLessThan(increased.lowerBound, extended.lowerBound)
+        var args = ["script", "in"]
+        var env = ["PATH": "x"]
+        ExtendedVA.apply(args: &args, environment: &env, plan: paid, envPath: "/tmp/e.txt", plistPath: "/tmp/p.plist")
+        XCTAssertEqual(args, ["script", "in", "--env-file", "/tmp/e.txt"])
+        XCTAssertEqual(env["DM_ENTITLEMENTS"], "/tmp/p.plist")
+
+        let off = try! ExtendedVA.plan(ios: true, bcOnCPU: false, enabled: false, personalTeam: false,
+                                        sizeText: "0x400000000", profileAlias: alias).get()
+        XCTAssertNil(off.envBody)
+        XCTAssertNil(off.entitlements)
+        XCTAssertTrue(off.usesProfileAlias)
+        XCTAssertEqual(off.alias, alias)
+        var offArgs = ["script", "in"]
+        var offEnv = ["PATH": "x"]
+        ExtendedVA.apply(args: &offArgs, environment: &offEnv, plan: off, envPath: "/tmp/e.txt", plistPath: "/tmp/p.plist")
+        XCTAssertEqual(offArgs, ["script", "in"])
+        XCTAssertEqual(offEnv, ["PATH": "x"])
+
+        let bc = try! ExtendedVA.plan(ios: true, bcOnCPU: true, enabled: false, personalTeam: false,
+                                       sizeText: "0x400000000", profileAlias: alias).get()
+        XCTAssertEqual(bc.envBody, "DM_TEX_BC_CPU=1\n")
+        XCTAssertNil(bc.entitlements)
+        let both = try! ExtendedVA.plan(ios: true, bcOnCPU: true, enabled: true, personalTeam: false,
+                                         sizeText: "0x400000000", profileAlias: alias).get()
+        XCTAssertEqual(both.envBody, "DM_TEX_BC_CPU=1\nDM_ALIAS_SIZE=0x400000000\n")
+        XCTAssertFalse(both.envBody!.contains("APP_POOL"))
+
+        let mac = try! ExtendedVA.plan(ios: false, bcOnCPU: true, enabled: true, personalTeam: false,
+                                        sizeText: "0x400000000", profileAlias: alias).get()
+        XCTAssertNil(mac.envBody)
+        XCTAssertNil(mac.entitlements)
+        XCTAssertTrue(mac.usesProfileAlias)
+
+        let marked = LaunchSetting.memoryProfile(in: "mem_alias\t0x118000000\nextended_va\t0x300000000\n")
+        XCTAssertEqual(marked.memAlias, alias)
+        XCTAssertTrue(marked.extendedVA)
+        XCTAssertEqual(marked.extendedSize, 0x300000000)
+        XCTAssertEqual(ExtendedVA.choice(saved: nil, profile: marked), ExtendedVA.Choice(enabled: true, sizeText: "0x300000000"))
+        let onFlag = LaunchSetting.memoryProfile(in: "extended_va\ton\nmem_alias\t0x10000000\n")
+        XCTAssertTrue(onFlag.extendedVA)
+        XCTAssertNil(onFlag.extendedSize)
+        XCTAssertEqual(ExtendedVA.choice(saved: nil, profile: onFlag).sizeText, "0x400000000")
+        for flag in ["off", "0", "no", "false"] {
+            let row = LaunchSetting.memoryProfile(in: "mem_alias\t0x118000000\nextended_va\t\(flag)\n")
+            XCTAssertFalse(row.extendedVA, flag)
+            XCTAssertEqual(row.memAlias, alias)
+        }
+        XCTAssertFalse(LaunchSetting.memoryProfile(in: "mem_alias\t0x118000000\n").extendedVA)
+        let savedOff = ExtendedVA.choice(saved: ExtendedVA.Saved(enabled: false, sizeText: "0x400000000"), profile: marked)
+        XCTAssertFalse(savedOff.enabled)
+        XCTAssertNil(ExtendedVA.Saved.decode(nil))
+        XCTAssertNil(ExtendedVA.Saved.decode("maybe"))
+
+        XCTAssertFalse(SigningTeam(id: "PERSONAL00", identity: "", personal: true).allowsExtendedVirtualAddressing)
+        XCTAssertTrue(SigningTeam(id: "PAIDTEAM01", identity: "Apple Development: Name (PAIDTEAM01)").allowsExtendedVirtualAddressing)
+        let blocked = try! ExtendedVA.plan(ios: true, bcOnCPU: true, enabled: true, personalTeam: true,
+                                            sizeText: "0x400000000", profileAlias: alias).get()
+        XCTAssertTrue(blocked.blockedForPersonalTeam)
+        XCTAssertNil(blocked.entitlements)
+        XCTAssertEqual(blocked.envBody, "DM_TEX_BC_CPU=1\n")
+        XCTAssertEqual(blocked.alias, alias)
+        XCTAssertFalse(blocked.envBody!.contains("DM_ALIAS_SIZE"))
+
+        XCTAssertEqual(ExtendedVA.parseSize(""), .failure(.empty))
+        XCTAssertEqual(ExtendedVA.parseSize("  "), .failure(.empty))
+        XCTAssertEqual(ExtendedVA.parseSize("0x"), .failure(.empty))
+        for bad in ["12g", "xyz", "nope", "0x12g"] { XCTAssertEqual(ExtendedVA.parseSize(bad), .failure(.nonHex), bad) }
+        XCTAssertEqual(ExtendedVA.parseSize("0x10000001"), .failure(.unaligned))
+        XCTAssertEqual(ExtendedVA.parseSize("0xFFFC000"), .failure(.belowMinimum))
+        XCTAssertEqual(ExtendedVA.parseSize("0x1000004000"), .failure(.overSupported))
+        XCTAssertEqual(try! ExtendedVA.parseSize("0x10000000").get(), 0x10000000)
+        XCTAssertEqual(try! ExtendedVA.parseSize("0x1000000000").get(), 0x1000000000)
+        XCTAssertEqual(try! ExtendedVA.parseSize("0x400000000").get(), 0x400000000)
+
+        let resized = try! ExtendedVA.plan(ios: true, bcOnCPU: false, enabled: true, personalTeam: false,
+                                            sizeText: "0x800000000", profileAlias: alias).get()
+        XCTAssertEqual(resized.envBody, "DM_ALIAS_SIZE=0x800000000\n")
+        XCTAssertFalse(resized.envBody!.contains("DM_PROF_"))
+        XCTAssertFalse(resized.envBody!.contains("APP_POOL"))
+        XCTAssertNotEqual(resized.alias, paid.alias)
+
+        XCTAssertTrue(ExtendedVA.entitlementDropped(signature: ExtendedVA.increasedMemory, provision: nil))
+        XCTAssertFalse(ExtendedVA.entitlementDropped(signature: xml, provision: nil))
+        XCTAssertFalse(ExtendedVA.entitlementDropped(signature: xml, provision: xml))
+        XCTAssertTrue(ExtendedVA.entitlementDropped(signature: xml, provision: ExtendedVA.increasedMemory))
+        XCTAssertTrue(ExtendedVA.entitlementDropped(signature: xml, provision: ""))
+        let dropped = "the signature dropped \(ExtendedVA.entitlement): the provisioning profile or the sideloading tool has to keep this entitlement"
+        XCTAssertTrue(ExtendedVA.logReportsDroppedEntitlement(dropped))
+        XCTAssertFalse(ExtendedVA.logReportsDroppedEntitlement("entitlements: \(ExtendedVA.increasedMemory) only"))
+        let note = L10n.table["opt.eva.dropped"]?.en ?? ""
+        XCTAssertTrue(note.contains(ExtendedVA.entitlement))
+        XCTAssertTrue(note.contains("provisioning profile"))
+        XCTAssertTrue(note.lowercased().contains("sideload"))
+    }
+
     /// Opt-in native rendering for pull request screenshots (NX_LAUNCHER_CAPTURE_DIR), the way LibraryTests renders the launcher.
     @MainActor func testRenderBuildFailureStatesForScreenshots() throws {
         guard let directory = ProcessInfo.processInfo.environment["NX_LAUNCHER_CAPTURE_DIR"] else { throw XCTSkip("Set NX_LAUNCHER_CAPTURE_DIR to capture native views") }
