@@ -542,7 +542,7 @@ struct ContentView: View {
                 }
                 // A free Apple ID's provisioning profile lasts 7 days. Say when this app's runs out, and offer the
                 // re-sign at any time: renewing early (before a trip, say) is as valid as renewing just in time.
-                if game.onDevice {
+                if game.onDevice && !game.isOlderIOSBuild {
                     HStack(spacing: 10) {
                         Image(systemName: "checkmark.seal").font(.system(size: 12))
                             .foregroundStyle(LauncherPalette.cream.opacity(0.7))
@@ -669,7 +669,7 @@ struct ContentView: View {
     private func status(_ game: LibraryGame, prominent: Bool = false) -> some View {
         let building = m.running && activeBuildID == game.id
         let color = building ? LauncherPalette.building : ((game.isReady || game.hasIOSBuild) ? LauncherPalette.ready : LauncherPalette.unbuilt)
-        let key = building ? "library.building" : (game.isReady ? "library.ready" : (game.hasIOSBuild ? "library.readyIOS" : "library.notBuilt"))
+        let key = building ? "library.building" : (game.isReady ? "library.ready" : (game.hasIOSBuild ? (game.isOlderIOSBuild ? "library.olderIOS" : "library.readyIOS") : "library.notBuilt"))
         return HStack(spacing: 7) {
             Circle().fill(color).frame(width: prominent ? 9 : 7, height: prominent ? 9 : 7)
             Text(prominent ? m.t(key).uppercased() : m.t(key))
@@ -700,7 +700,7 @@ struct ContentView: View {
                 if m.running {
                     Image(systemName: "wrench.and.screwdriver").font(.system(size: 22, weight: .light)).foregroundStyle(.secondary)
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(m.t(m.target == "mac-app" ? "activity.mac" : "activity.ios")).font(.manrope(15, .bold))
+                        Text(m.t(m.target == BuildTarget.mac ? "activity.mac" : "activity.ios")).font(.manrope(15, .bold))
                         TimelineView(.periodic(from: Date(), by: 1)) { context in   // the clock ticks while a count may stand still
                             Text(m.stages.last(where: { $0.state == .running })
                                     .map { [$0.name, $0.detail, $0.clock(at: context.date, left: m.t("prog.eta"))].filter { !$0.isEmpty }.joined(separator: " · ") }
@@ -771,7 +771,7 @@ struct ContentView: View {
     private func newBuild() {
         guard !m.running else { page = .builds; return }
         for index in m.slots.indices { m.slots[index].paths = []; m.slots[index].problem = "" }
-        m.gameDir = ""; m.done = false; m.doneNote = ""; m.macAppPath = ""; m.ipaPath = ""; m.stages = []
+        m.gameDir = ""; m.done = false; m.doneNote = ""; m.macAppPath = ""; m.stages = []
         if m.outDir.isEmpty && !library.folder.isEmpty { m.outDir = library.folder }
         page = .builds
     }
@@ -936,8 +936,8 @@ struct ContentView: View {
 
     private func recordBuild() {
         guard m.done, let id = activeBuildID else { return }
-        if m.target == "mac-app" { library.recordCompletedApp(path: m.macAppPath, commit: buildCommit, for: id) }
-        else { library.recordCompletedIOS(ipa: m.ipaPath, archive: m.archivePath, app: m.installedAppPath, device: m.installedOn, commit: buildCommit, for: id) }
+        if m.target == BuildTarget.mac { library.recordCompletedApp(path: m.macAppPath, commit: buildCommit, for: id) }
+        else { library.recordCompletedIOS(archive: m.archivePath, app: m.installedAppPath, device: m.installedOn, commit: buildCommit, for: id) }
         refreshArtwork()
         if performStartupChecks { checkTools() }
     }

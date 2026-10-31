@@ -1,0 +1,53 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LNPANDY <lnp-andy@hotmail.com>
+Date: Fri, 30 Oct 2026 16:15:06 +0100
+Subject: [PATCH] Docs: DM_FRAMEWORK in the env switches table
+
+`build_ipa.sh` reads DM_FRAMEWORK (and the NSP script sets it), so
+dm/tools/env_switches.py --check lists it as a switch the code reads but
+docs/env_switches.tsv does not describe. One row, class `switch`, with
+what `=1` does and that the default keeps the in-executable build.
+
+Upstream-Status: fork-only (waits for the runtime profile, seedds/nxnative#492)
+Reason: opt-in game framework for the launcher (route C M1): it carries profile.tsv and sets DM_PROFILE, which exist only with the runtime-profile patch (seedds/nxnative#492 is still a design note), so it goes upstream after that
+Issue: LNPANDY/NX2Apple#144
+---
+ docs/env_switches.tsv | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
+index 6993f8dc..ec096fad 100644
+--- a/docs/env_switches.tsv
++++ b/docs/env_switches.tsv
+@@ -34,9 +34,12 @@ DM_FD_LOG	diagnostic	`=<seconds>` logs, every that many seconds, the number and
+ DM_FIXED_TIME	switch	`=<seconds>`: the user clock always returns that time and the host time zone is pinned to UTC, for deterministic comparison
+ DM_FONT_DIR	path	Folder of the shared-font stand-ins (`standard.ttf`, `nintendo_ext.ttf` with the button icons); the app, the Mac launcher and the NSP script set it
+ DM_FORCE_STRICT	diagnostic	`=1` makes the loader fail on forced-hook entries no module references, instead of only noting them (for checking a mistyped list)
++DM_FORK_PATCHES	path	the fork patches a build carries, comma separated (build_ipa.sh and build_shell.sh read dm/fork_patches.txt into it): `DMForkPatches` in the app's Info.plist and the first log line
+ DM_FPS	switch	`30` or `60` pins the frame rate the display link and frame pacing aim for; otherwise it follows the game's present interval (60, or 30 when the game asks for 30)
+ DM_FPS_HOLD	player	`on` / `off` overrides the profile's `fps_hold`: whether late frames may raise the hold above the frame cap's vsyncs (on by default)
+ DM_FPS_TARGET	player	Frame-rate cap: `30` or `60`, or `0` for the game's own limit; overrides the profile's `fps_target`
++DM_FRAMEWORK	switch	`=1` (route C M1) compiles the game's modules into `DmIOS.app/Frameworks/DmGame.framework` instead of the executable, which `dlopen`s it at launch (`dm/ios/project-framework.yml`; the NSP script's `--framework` sets it); the default 0 keeps the usual in-executable build
++DM_FRAMEWORK_ONLY	path	`=<folder>` (route C shell) makes build_ipa.sh build only the game's framework, `<folder>/DmGame<title ID>.framework` with its shader libraries, pipeline archive, settings list and icon, unsigned, for build_shell.sh (the NSP script's `--shell-framework` sets it)
+ DM_FS	diagnostic	When set, logs file opens, paths not found or not mounted, and a read summary every 64 MiB or 1000 reads
+ DM_FSLOG	diagnostic	`=<file>` writes one TSV line per ReadFile: seconds since boot, guest path, offset, length and guest buffer address
+ DM_FSLOG_HASH	diagnostic	With `DM_FSLOG`, adds a column with the FNV-1a 64 hash of the bytes read
+@@ -60,6 +63,7 @@ DM_GPU_CAPTURE_KEEP	diagnostic	Before each GPU capture, prunes the capture folde
+ DM_GUEST_SPAWN_TEST	diagnostic	`=1` runs a self-test before `nnMain`: a host-started guest thread does SDK malloc / free and locks an `nn::os` mutex, and the result is logged; `=2` also keeps a resident thread
+ DM_HITCH_DUMP	diagnostic	`=<ms>[:<s>]`: when no frame has been presented for that long (from s seconds on), logs every guest thread once per stall: wait, last SVC, pc, lr, frames and registers
+ DM_HLECOUNT	diagnostic	`=<file>` (`%d` = process ID) writes at exit a TSV of how many times the guest called each HLE function, zero counts included
++DM_HUD_PER_LAYER	switch	`1`: the shell app sets it at start together with `MTL_HUD_ENABLED`, and the game view then turns Apple's Metal HUD off on its layer unless `DM_METAL_HUD` is `1`
+ DM_ICON	path	`=<image>` gives `build_ipa.sh` another app icon (default the `icon.jpg` beside the RomFS)
+ DM_IMPORTS	diagnostic	When set, logs each import the loader binds to a host function and each forced takeover
+ DM_KBD	switch	`=<text>`: the system keyboard returns that text as OK without showing an input box; unset with no window, it returns cancel
+@@ -273,6 +277,10 @@ DM_SF_TRACE	diagnostic	`=1` logs every request on the game's own HIPC client ses
+ DM_SHAKE_G	switch	`=<G>`: on iOS, the acceleration beyond gravity above which a flick of the phone shakes the controller's six-axis sensor (default 1.5)
+ DM_SHARED_FONT	path	Font file served for every shared-font type except the Nintendo extension (default `$DM_FONT_DIR/standard.ttf`, then macOS's Arial Unicode)
+ DM_SHARED_FONT_EXT	path	Font file served for shared-font type 5, the Nintendo extension with the button icons (default `$DM_FONT_DIR/nintendo_ext.ttf`, made by `make_ext_font.py`)
++DM_SHELL_FRAMEWORKS	path	the game frameworks build_shell.sh embeds in the shell app, one folder per line
++DM_SHELL_NAME	switch	the shell app's name under its icon (build_shell.sh, default NX2Apple)
++DM_SHELL_PACKAGE	path	the frontend-ios Swift package build_shell.sh links into the shell app (default: frontend-ios in this checkout)
++DM_SHELL_PLAY	diagnostic	`=<title ID>` in the shell app's launch environment (devicectl) starts that game as Play in its library would, for a test run, and a launch from the home screen never has it
+ DM_SHOW_FPS	player	`1` shows the frame-rate counter on the iPhone (frames put on screen per second, top left); at IPA build it sets `DMShowFPS` in `Info.plist`, which `Documents/env.txt` overrides
+ DM_SLOWFRAME	diagnostic	`=1` writes the per-frame timing breakdown to the log only for dropped frames (kept in a ring of the last 16 frames, judged 8 frames late)
+ DM_SPIN	switch	`0` makes the rewriter's spin gate return at once, so guest poll loops spin with no sleep; the gate stays (on by default)

@@ -9,7 +9,7 @@ struct LibraryGame: Codable, Identifiable, Equatable {
     var appPath = ""
     var ipaPath = ""
     var archivePath = ""
-    var lastTarget = "ios"
+    var lastTarget = BuildTarget.ios
     var inputs: [String: [String]] = [:]
     var outputDirectory = ""
     /// The folder this game's files were found in, which is what the Build page shows: the parent of a base package a
@@ -39,6 +39,9 @@ struct LibraryGame: Codable, Identifiable, Equatable {
     var hasIOSBuild: Bool { hasIPA || hasIOSApp }
     var hasIPA: Bool { !ipaPath.isEmpty && FileManager.default.fileExists(atPath: ipaPath) }
     var hasIOSApp: Bool { !iosAppPath.isEmpty && FileManager.default.fileExists(atPath: iosAppPath + "/Info.plist") }
+    /// An iPhone build made before the shared app: a single IPA, or an app of its own. It stays in the library and Build makes
+    /// the game again for the shared app, which then replaces it.
+    var isOlderIOSBuild: Bool { hasIOSBuild && !(hasIOSApp && ShellInstall.paths(ofApp: iosAppPath) != nil) }
 
     /// What the hero's primary button does: play the Mac app, open the installed iPhone app, else build (an IPA alone is not a reason to show anything else).
     enum Primary: Equatable { case play, openOnDevice, build }
@@ -62,7 +65,7 @@ extension LibraryGame {
         appPath = try c.decodeIfPresent(String.self, forKey: .appPath) ?? ""
         ipaPath = try c.decodeIfPresent(String.self, forKey: .ipaPath) ?? ""
         archivePath = try c.decodeIfPresent(String.self, forKey: .archivePath) ?? ""
-        lastTarget = try c.decodeIfPresent(String.self, forKey: .lastTarget) ?? "ios"
+        lastTarget = BuildTarget.normalized(try c.decodeIfPresent(String.self, forKey: .lastTarget))
         inputs = try c.decodeIfPresent([String: [String]].self, forKey: .inputs) ?? [:]
         outputDirectory = try c.decodeIfPresent(String.self, forKey: .outputDirectory) ?? ""
         sourceFolder = try c.decodeIfPresent(String.self, forKey: .sourceFolder) ?? ""
@@ -497,13 +500,14 @@ final class GameLibrary: ObservableObject {
         upsert(game)
     }
 
-    func recordCompletedIOS(ipa: String, archive: String, app: String = "", device: String = "", commit: String = "", for id: UUID) {
+    func recordCompletedIOS(archive: String, app: String, device: String = "", commit: String = "", for id: UUID) {
         guard var game = games.first(where: { $0.id == id }),
-              FileManager.default.fileExists(atPath: ipa) || FileManager.default.fileExists(atPath: app + "/Info.plist") else { return }
-        // What this build made; an earlier build's IPA or installed app stays when this one made none
-        if !ipa.isEmpty { game.ipaPath = ipa }
+              FileManager.default.fileExists(atPath: app + "/Info.plist") else { return }
+        // The shared app replaces an older build's single IPA: the file stays on disk, the library stops listing it
+        game.ipaPath = ""
         if !archive.isEmpty { game.archivePath = archive }
-        if !app.isEmpty { game.iosAppPath = app; game.installedDevice = device }
+        game.iosAppPath = app
+        game.installedDevice = device
         game.toolsCommit = commit
         upsert(game)
     }

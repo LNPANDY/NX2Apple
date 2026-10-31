@@ -144,7 +144,6 @@ final class LauncherControlWidthTests: XCTestCase {
                 m.target = "ios"
                 m.done = true
                 m.devicesChecked = true
-                m.ipaPath = directory.appendingPathComponent("Hades.ipa").path
                 m.archivePath = directory.appendingPathComponent("romfs").path
             },
         ]

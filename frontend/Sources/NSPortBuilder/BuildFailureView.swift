@@ -58,8 +58,10 @@ struct BuildFailureCard: View {
                 fix(kind, "fail.cloudFolder.button")
             case .teamTaken, .noSigningAccount:
                 if BuildModel.installedXcode() != nil { fix(kind, "fail.openXcode") }
-            case .deviceTransfer:
+            case .deviceTransfer, .devicePairing:
                 fix(kind, "fail.retry")
+            case .shellDataIncomplete:
+                fix(kind, "shell.retry")
             case .engineOffline, .engineSync:
                 Button(m.t("fail.retry")) { m.retryEngineSync() }.disabled(m.engineSyncing)
             default: EmptyView()

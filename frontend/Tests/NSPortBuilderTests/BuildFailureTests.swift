@@ -37,7 +37,7 @@ final class BuildFailureTests: XCTestCase {
     }
 
     /// The rows that no log line sets: the launcher's own state (a drive, a team) or the step that failed (the install).
-    static let stateKinds: Set<BuildFailureKind> = [.driveMissing, .teamTaken, .noSigningAccount, .deviceTransfer, .engineOffline, .engineSync]
+    static let stateKinds: Set<BuildFailureKind> = [.driveMissing, .teamTaken, .noSigningAccount, .deviceTransfer, .devicePairing, .shellDataIncomplete, .engineOffline, .engineSync]
 
     /// A bump of the pin or a patch that rewords a message must fail here, not turn a hint into the raw last line.
     func testTheEnginesScriptsStillSayWhatThePatternsExpect() throws {
@@ -140,6 +140,7 @@ final class BuildFailureTests: XCTestCase {
 
     func testAConfirmedOverrideServesOneBuildOnly() {
         let m = BuildModel()
+        m.target = BuildTarget.mac   // the iPhone / iPad target stops first, at the device check
         m.failure = BuildFailure(kind: .damagedNSP, gameName: nil)
         m.requestBuildAnyway()
         m.confirmBuildAnyway()   // starts a build: with no repository it stops at once, after taking the flag

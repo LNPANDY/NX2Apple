@@ -26,3 +26,12 @@
 0040-nsp-derived-profile-without-frame-step.patch
 0041-shared-fonts-a-compact-stand-in-for-a-font-engin.patch
 0042-ios-launcher-present-the-document-picker-once-pe.patch
+0045-route-c-loader-image-header.patch
+0046-route-c-game-framework.patch
+0047-route-c-framework-build.patch
+0048-route-c-framework-tests.patch
+0049-dm-framework-env-switch-row.patch
+0052-front-progress-hook.patch
+0050-route-c-shell.patch
+0051-nsp-shell-framework.patch
+0053-runtime-profile-every-site.patch

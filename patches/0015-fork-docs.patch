@@ -15,7 +15,7 @@ Issue: LNPANDY/NX2Apple#123
  docs/ROADMAP.md             | 139 +++++++++++++++
  docs/WORK-IN-PROGRESS.md    |  88 ++++++++++
  docs/launcher-c-design.md   | 339 ++++++++++++++++++++++++++++++++++++
- docs/launcher-c-plan.md     | 213 ++++++++++++++++++++++
+ docs/launcher-c-plan.md     | 233 +++++++++++++++++++++++++
  docs/probe-dlopen.md        |  64 +++++--
  8 files changed, 1149 insertions(+), 15 deletions(-)
  create mode 100644 docs/MULTIPLAYER.md
@@ -951,18 +951,24 @@ index 0000000..476a1c1
 +> **Update (merged):** the dlopen probe now exists — `dm/ios/probe/` with `build_probe.sh`, committed alongside this document, and `probe-out/DmProbe.ipa` is built. W1 step 1 is done. What remains is running it on an iOS 26 device and reading `Documents/probe-log.txt`.
 diff --git a/docs/launcher-c-plan.md b/docs/launcher-c-plan.md
 new file mode 100644
-index 0000000..e6e253c
+index 00000000..de255fff
 --- /dev/null
 +++ b/docs/launcher-c-plan.md
-@@ -0,0 +1,213 @@
+@@ -0,0 +1,233 @@
 +# Route C implementation plan — shell app + per-game framework
 +
-+Status: **the dlopen gate is open** (device run on iOS 27.0.1, [probe-dlopen.md](probe-dlopen.md)),
-+design in [launcher-c-design.md](launcher-c-design.md). This plan turns the design into
-+milestones with a testable artifact each. The probe proved a one-function framework loads and
-+runs, but **the real payload is still unproven** (a framework with the game's ~100 MB of `__DM*W`
-+sections / up to 255 sections, `vm_remap` of its signed `__TEXT` with copy=FALSE,
-+`getsectiondata` on a dylib header). M1 exists to prove exactly that.
++Status (2026-10-30): **M1, M2 and M3 run on a device.** The shell app (`dm/ios/tools/build_shell.sh`,
++`dm/ios/project-shell.yml`, `dm/ios/Shell/`) holds Breath of the Wild's `DmGame01007EF00011E000.framework` and
++Hades' `DmGame0100535012974000.framework` (`build_ipa.sh DM_FRAMEWORK_ONLY`, the NSP script's `--shell-framework`),
++installed by the Mac launcher's one-app target on an iPhone 17 Pro Max (iOS 27.0.1). The library lists both from
++the embedded frameworks, each game's data sits in `Documents/games/<title ID>/`, and Play loads the chosen
++framework (`boot: game framework …`, the module bases from its sections), points `DM_PROFILE` at its
++`profile.tsv` and reaches the game's frame loop: Breath of the Wild (NVN, both DLC) and Hades (Vulkan) on one host
++binary, which reads every game value from the runtime profile (patch 0053). The per-game settings (language,
++performance HUD) reach the engine. Open: M4 (external drive, per-game msl/pso/profile overrides, DLC beyond
++`aoc/`), M5 (incremental frameworks, broken-framework tolerance on a device, re-sign timing), the shell's own
++"Preparing shaders" screen (the front ends' progress hook, patch 0052, forwarded as seedds/nxnative#742). The
++dlopen gate: [probe-dlopen.md](probe-dlopen.md), the design: [launcher-c-design.md](launcher-c-design.md).
 +
 +## Milestones
 +
@@ -1024,6 +1030,20 @@ index 0000000..e6e253c
 +  game (SSBU) shows `__DATA,__dm_nro_tab` and `nro.tsv` working, and iOS 26 and 27 pass if available.
 +
 +## M2 — shell + one framework
++
++**As built (2026-10-30).** The project lives in `dm/ios/project-shell.yml` beside `build_ipa.sh`, because
++the host is compiled from `dm/host`'s Makefile per build (`gen_build.py`) and the glue in `dm/ios/Shell/`
++calls the engine's internals. The views have no engine dependency and stay the Swift package `frontend-ios/`
++(ShellUI, ShellHost, ShellControllers), linked into the app as a local package by its absolute path, so the
++demo and the package tests build without the engine. `GameCatalogue` reads `Frameworks/*.framework` with a
++manifest, `EngineLaunchPlan` (ShellHost) computes the environment of the table below from the game, its data
++folder and the player's per-game settings (the per-game app's `launcher.<VAR>` keys), and `ShellMain.m` sets it,
++dlopens the framework, calls `dm_set_game_image_header` and `dm_host_preload_start` with
++`argv = [dmhost, <framework>/dm, <manifest modules>]`, then front_ios.m's unchanged game view takes the window.
++Each framework is self-contained: code, tables, `profile.tsv`, `dm/launcher.json`, `msl/`, `pso/`, icon and
++banner. The game data stays in Documents. The plan's separate `GameManifest.swift`, `GameLibrary.swift`,
++`GameData.m`, `GameLauncher.m` and `BootState.m` became ShellHost types and `ShellMain.m`, and `main.m`,
++`Launcher.swift` and `LauncherSettings.swift` are not changed (the default path is untouched).
 +
 +`DmShell.app` lists one game. Play sets the environment, `dlopen`s the framework, calls
 +`dm_set_game_image_header` + `dm_host_preload_start`, then shows the existing game view.

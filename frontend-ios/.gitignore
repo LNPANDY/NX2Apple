@@ -1,0 +1,13 @@
+.build/
+.swiftpm/
+DerivedData/
+*.xcresult/
+xcuserdata/
+QA/
+# The demo reads real game art at runtime from outside the package. No picture belongs here.
+*.jpg
+*.jpeg
+*.png
+*.webp
+# A private build may carry banners in the app bundle (DemoArt/). The images stay out of git, the *.jpg rules above cover them.
+DemoArt/

@@ -138,11 +138,12 @@ final class OlderToolsTests: XCTestCase {
         let library = GameLibrary(file: file)
         XCTAssertNil(library.error)
         XCTAssertEqual(library.games.first?.toolsCommit, "")
-        let ipa = temporary.appendingPathComponent("Hades.ipa")
-        try Data("ipa".utf8).write(to: ipa)
-        library.recordCompletedIOS(ipa: ipa.path, archive: "", commit: "abc123", for: id)
+        let app = temporary.appendingPathComponent("DmShell.app")
+        try FileManager.default.createDirectory(at: app, withIntermediateDirectories: true)
+        try Data("plist".utf8).write(to: app.appendingPathComponent("Info.plist"))
+        library.recordCompletedIOS(archive: "", app: app.path, commit: "abc123", for: id)
         XCTAssertEqual(GameLibrary(file: file).games.first?.toolsCommit, "abc123")
-        library.recordCompletedIOS(ipa: ipa.path, archive: "", for: id)   // a build from a checkout without git: nothing to compare
+        library.recordCompletedIOS(archive: "", app: app.path, for: id)   // a build from a checkout without git: nothing to compare
         XCTAssertEqual(GameLibrary(file: file).games.first?.toolsCommit, "")
     }
 }

@@ -112,6 +112,7 @@ final class CloudFolderTests: XCTestCase {
             try "x".write(to: url, atomically: true, encoding: .utf8)
         }
         let m = BuildModel()
+        m.target = BuildTarget.mac   // the iPhone / iPad target stops first, at the device check
         m.repoPath = repo.path
         m.outDir = ""
         m.updateSlot("base") { $0.paths = ["/Games/Game [0100152000022000].nsp"] }

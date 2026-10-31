@@ -1,0 +1,312 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LNPANDY <lnp-andy@hotmail.com>
+Date: Fri, 30 Oct 2026 16:15:06 +0100
+Subject: [PATCH] DM_FRAMEWORK=1 in build_ipa.sh, the NSP script and
+ compile_check.py
+
+build_ipa.sh's framework mode generates Gen/framework/{dm,profile.tsv,
+game.manifest.json} and Gen/framework.xcconfig after Gen/dm is complete, runs
+xcodegen with project-framework.yml, checks the app embedded DmGame.framework, and
+signs it ad-hoc before the app's executable (no entitlements on the framework: a
+dylib cannot hold them). Without DM_FRAMEWORK the script runs the same xcodegen
+command as before, and pack_ipa.py is unchanged: the framework rides in the app
+tree walk. gen_manifest.py writes the plan's game.manifest.json schema.
+build_ipa_from_nsp.py --framework sets DM_FRAMEWORK=1 (refused for the Mac
+platforms). compile_check.py compiles every source twice, the second time with
+DM_FRAMEWORK_BUILD=1, so main.m's dlopen path is checked without Xcode.
+
+Route C M1, docs/launcher-c-plan.md.
+
+The manifest block's FW_SLIM is renamed FW_COPY_ROMFS: it holds DM_COPY_ROMFS's value (YES = the RomFS is packed), so the old name read inverted.
+
+Upstream-Status: fork-only (waits for the runtime profile, seedds/nxnative#492)
+Reason: opt-in game framework for the launcher (route C M1): it carries profile.tsv and sets DM_PROFILE, which exist only with the runtime-profile patch (seedds/nxnative#492 is still a design note), so it goes upstream after that
+Issue: LNPANDY/NX2Apple#144
+
+---
+ dm/ios/tools/build_ipa.sh     |  53 ++++++++++++++++-
+ dm/ios/tools/compile_check.py |  22 ++++---
+ dm/ios/tools/gen_manifest.py  | 105 ++++++++++++++++++++++++++++++++++
+ scripts/build_ipa_from_nsp.py |   3 +
+ 4 files changed, 173 insertions(+), 10 deletions(-)
+ create mode 100644 dm/ios/tools/gen_manifest.py
+
+diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
+index 92fd85d4..db6471e7 100755
+--- a/dm/ios/tools/build_ipa.sh
++++ b/dm/ios/tools/build_ipa.sh
+@@ -7,6 +7,9 @@
+ #   Environment: GAME=game profile (dm/games/<base game title ID>, or one in DM_GAMES_DIR; required), W=the game's work folder (required: <NSP folder>/<title ID>-work, never the home folder), PATCHED / ROMFS / MSL_IOS can each be overridden
+ #   DM_COPY_ROMFS=NO leaves the game files (RomFS) out of the IPA, as it does for the Xcode build phase: the package then stays small (a large game's full package can exceed what iOS extracts), and the app takes the files from Documents/romfs.img (scripts/push_romfs.sh); default: they are packed
+ #   DM_ENTITLEMENTS=<plist> is the unsigned IPA's entitlements, signed ad-hoc into the executable (default: Increased Memory Limit; an empty string = none)
++#   DM_FRAMEWORK=1 (route C, docs/launcher-c-plan.md M1) compiles the game's modules into DmIOS.app/Frameworks/DmGame.framework instead of the executable
++#     (project-framework.yml): Gen/framework/ holds the framework's dm/ tables, profile.tsv and game.manifest.json; the framework is signed ad-hoc first
++#     (no entitlements: a dylib cannot hold them) and the app's executable second. Default 0: the build above, unchanged.
+ #   AOC=add-on content directory (default $W/data/aoc; when it exists it goes to DmIOS.app/aoc/<index>/; an empty string = none), GFXAPI=nvn / vulkan (default: by the shader libraries in MSL_IOS)
+ #   The app name is the game name in the base NSP's control data ($W/data/v0/control.nacp, else the one next to the RomFS), the app version is the display version in the packed game's control data (the one next to the RomFS:
+ #   nx_extract saves the update's there when an update is packed, else the base game's), the bundle ID is org.nxnative.<base game title ID in lowercase> (DM_DISPLAY_NAME / DM_APP_VERSION / DM_BUNDLE_ID override them);
+@@ -28,6 +31,7 @@ PKG=$(gp package)
+ if [ -z "${ROMFS:-}" ] && [ -f "$W/data/$PKG/RomFS.img" ]; then ROMFS=$W/data/$PKG/RomFS.img; fi
+ PATCHED=${PATCHED:-$W/build/patched_$PKG}; ROMFS=${ROMFS:-$W/data/$PKG/RomFS}; MSL_IOS=${MSL_IOS:-$W/build/ios/dmsh_b}; AOC=${AOC-$W/data/aoc}
+ PREPARE_XCODE=NO; [ "${1:-}" != --prepare-xcode ] || PREPARE_XCODE=YES
++FRAMEWORK=${DM_FRAMEWORK:-0}   # 1: the game's modules live in DmGame.framework (route C); 0: in the executable, as always
+ OUT_IPA=${1:-$(dirname "$W")/$(gp ipa)}; O=$W/build/ios/pkg; DD=$O/dd
+ XCODE_DD=${DM_XCODE_DERIVED_DATA:-$W/build/ios/xcode-dd}
+ MODS=$(gp modules); MARKER=$(gp romfs_marker)
+@@ -46,7 +50,10 @@ if [ "$PREPARE_XCODE" = YES ]; then
+   [ "$IOS" != "$IOS_SOURCE" ] || die "the per-game Xcode project must be outside dm/ios"
+   # Source links follow repository edits; generated files and build products belong to this game only. Linked again each time: a project prepared from another checkout (a removed worktree) follows this one
+   for item in Sources tools; do ln -sfn "$IOS_SOURCE/$item" "$IOS/$item" || die "link $item"; done
+-  cp "$IOS_SOURCE/project.yml" "$IOS/project.yml" || die "copy project template"
++  # Route C: the framework target's marker source lives in dm/ios/framework, and the template is project-framework.yml
++  [ "$FRAMEWORK" != 1 ] || ln -sfn "$IOS_SOURCE/framework" "$IOS/framework" || die "link framework"
++  PROJECT_TEMPLATE=project.yml; [ "$FRAMEWORK" != 1 ] || PROJECT_TEMPLATE=project-framework.yml
++  cp "$IOS_SOURCE/$PROJECT_TEMPLATE" "$IOS/project.yml" || die "copy project template"
+   cd "$IOS" || die "cd $IOS"
+   DM_SCHEME_NAME="$(echo "$DM_DISPLAY_NAME" | tr '/:' '__') ($GAME)"   # the scheme file is named after it
+ 
+@@ -121,6 +128,33 @@ if [ -f "$ICON" ]; then
+   echo "DM_APPICON = AppIcon" >> Gen/dm.xcconfig
+   t "app icon: $ICON"
+ else t "no app icon ($ICON not found): the home-screen icon stays blank"; fi
++# Route C (DM_FRAMEWORK=1): what project-framework.yml reads from Gen/framework.
++#   dm/                   the tables the loader reads from argv[1] and every table the shader map's directory holds (DM_NVN_SHMAP):
++#                         Gen/dm minus font/ (Arial Unicode, tens of MB; the app's dm/font serves DM_FONT_DIR) and the launcher's files
++#   profile.tsv           the runtime game profile (game.py profile): main.m sets DM_PROFILE to it before dm_profile() runs
++#   game.manifest.json    the game this framework carries (gen_manifest.py)
++#   Info.plist            written by xcodegen from project-framework.yml into this directory
++#   Gen/framework.xcconfig  the embedded modules' segment permissions (gen_embed.py's flags) and nothing else: the framework links no
++#                         host frameworks, and its ObjC side is one marker symbol (framework/DmGameMarker.m)
++if [ "$FRAMEWORK" = 1 ]; then
++  rm -rf Gen/framework && mkdir -p Gen/framework/dm || die "mkdir Gen/framework"
++  cp -R Gen/dm/. Gen/framework/dm/ || die "copy the framework tables"
++  rm -rf Gen/framework/dm/font Gen/framework/dm/launcher.json Gen/framework/dm/env.txt
++  python3 "$DM/games/game.py" profile "$GAME" Gen/framework/profile.tsv > /dev/null || die "game profile"
++  # The manifest names the game data this framework was built for: the RomFS image's identity (dm/host/romfs_identity.h), as the
++  # pack step's romfs.id does. That step's default is repeated here because the manifest is a build resource and has to exist now.
++  FW_COPY_ROMFS=${DM_COPY_ROMFS:-}
++  if [ -z "$FW_COPY_ROMFS" ] && [ "$PREPARE_XCODE" != YES ]; then [ -n "${DM_FULL_ROMFS:-}" ] && FW_COPY_ROMFS=YES || FW_COPY_ROMFS=NO; fi
++  ROMFS_ID=; if [ "$FW_COPY_ROMFS" = NO ] && [ -f "$ROMFS" ]; then
++    mkdir -p "$O" && ROMFS_ID=$(python3 -I "$DM/tools/romfs_image.py" --identity "$ROMFS" "$GAME" "$DM_APP_VERSION" "${PKG:-}") || die "identity of $ROMFS"
++  fi
++  NRO_TABLE=$PATCHED/nro.tsv; [ -f "$NRO_TABLE" ] || NRO_TABLE=   # the NRO modules gen_embed.py packs: nro_count in the manifest
++  python3 tools/gen_manifest.py Gen/framework/game.manifest.json --game "$GAME" --name "$DM_DISPLAY_NAME" \
++    --display-version "$DM_APP_VERSION" --package-version "${PKG:-}" --modules "$MODS" ${NRO_TABLE:+--nro-table "$NRO_TABLE"} \
++    --chain "b-$V" --romfs-marker "$MARKER" --romfs-identity "$ROMFS_ID" > /dev/null || die "game manifest (gen_manifest.py)"
++  printf 'OTHER_LDFLAGS = $(inherited) %s\n' "$F" > Gen/framework.xcconfig || die "framework link flags"
++  t "framework: Gen/framework (modules $MODS, profile.tsv, game.manifest.json)"
++fi
+ # A prepared Xcode project is signed in Xcode, so it asks for the Increased Memory Limit capability the bigger games need (see the README); DM_ENTITLEMENTS=another plist, or empty for none.
+ # The unsigned IPA carries the same request in its executable's ad-hoc signature below; the install tool replaces that signature.
+ if [ "$PREPARE_XCODE" = YES ] && [ -n "${DM_ENTITLEMENTS-default}" ]; then
+@@ -132,7 +166,10 @@ if [ "$PREPARE_XCODE" = YES ] && [ -n "${DM_ENTITLEMENTS-default}" ]; then
+ fi
+ # DM_COPY_ROMFS=NO also for the prepared project: its Copy game resources phase (stage_resources.sh) then leaves the game files out and writes the image's identity; Gen/dm.xcconfig is made again by every run
+ [ "${DM_COPY_ROMFS:-YES}" != NO ] || [ "$PREPARE_XCODE" != YES ] || echo "DM_COPY_ROMFS = NO" >> Gen/dm.xcconfig
+-xcodegen generate -q > /dev/null || die "xcodegen"
++# The framework project is named explicitly. Everything else runs xcodegen exactly as before: a prepared project has its
++# template copied in as project.yml, and the in-place build uses dm/ios/project.yml (the default template is never edited)
++if [ "$PREPARE_XCODE" = YES ] || [ "$FRAMEWORK" != 1 ]; then xcodegen generate -q > /dev/null || die "xcodegen"
++else xcodegen generate -q --spec project-framework.yml > /dev/null || die "xcodegen"; fi
+ # DMCommit / DMChain: the checkout that built the app (+dirty with uncommitted changes to tracked files) and the shader chain it carries, which the host logs at start (main.c)
+ COMMIT=$(git -C "$DM" rev-parse --short=12 HEAD 2> /dev/null) && { [ -z "$(git -C "$DM" status --porcelain --untracked-files=no 2> /dev/null)" ] || COMMIT=$COMMIT+dirty
+   /usr/libexec/PlistBuddy -c "Add :DMCommit string $COMMIT" Gen/Info.plist > /dev/null || die "DMCommit"; t "source: $COMMIT"; }
+@@ -163,6 +200,18 @@ APP=$DD/Build/Products/Release-iphoneos/DmIOS.app
+ # the app sets DM_AOC_DIR at launch, the host reports them as owned and mounts them from it) and the RomFS
+ rm -rf "$APP/msl" "$O/Payload"   # Payload/: what the copy-and-zip packing left behind, as was out.ipa (and its index) unless it is the IPA packed here, which a repeat pack reuses
+ [ "$O/out.ipa" -ef "$OUT_IPA" ] || rm -f "$O/out.ipa"; [ "$O/out.ipa.idx" -ef "$OUT_IPA.idx" ] || rm -f "$O/out.ipa.idx"
++# Route C: the framework is signed first, then the app's executable below, the order build_probe.sh uses for nested code. The
++# framework gets no entitlements: a dylib cannot hold them (the Increased Memory Limit request belongs to the app, below), and
++# the sideloader re-signs nested code. It must still be a valid signature: the packed framework is what the app dlopen()s.
++if [ "$FRAMEWORK" = 1 ]; then
++  FW=$APP/Frameworks/DmGame.framework
++  [ -d "$FW" ] || die "no $FW: project-framework.yml embeds the game framework"
++  xattr -cr "$FW" 2> /dev/null   # codesign refuses a bundle whose files carry resource forks, Finder information or quarantine attributes
++  codesign --force --sign - "$FW" || die "ad-hoc signature of the game framework"
++  [ -z "$(codesign -d --entitlements :- "$FW/DmGame" 2>/dev/null)" ] || die "the game framework's signature carries entitlements: a dylib cannot hold them"
++  codesign -vvv --verify --strict "$FW" > /dev/null 2>&1 || die "the game framework's signature does not verify"
++  t "game framework signed ad-hoc, no entitlements: $FW"
++fi
+ # The entitlements of an unsigned IPA: an unsigned build has no signature for a sideloader to read them from, so the Increased Memory Limit request would be lost (AltStore and others carry over
+ # the entitlements of the signature they replace; the Xcode project gets them through CODE_SIGN_ENTITLEMENTS, above). The executable gets an ad-hoc signature that carries them: the sideloader
+ # replaces the signature and keeps the entitlements. Only the executable is signed: the bundle's resources are packed from elsewhere and the signature is replaced anyway
+diff --git a/dm/ios/tools/compile_check.py b/dm/ios/tools/compile_check.py
+index 3f4d547b..11bf1189 100755
+--- a/dm/ios/tools/compile_check.py
++++ b/dm/ios/tools/compile_check.py
+@@ -4,7 +4,9 @@
+ The source list, header paths and -D flags come from the expanded compile commands of dm/host/Makefile, as gen_build.py takes them for the Xcode project:
+ the _mac sources stay out, main.c is compiled with -Dmain=dm_main, and dm/ios/Sources (Objective-C; Launcher.swift is not compiled) is added.
+ Each file is compiled to nothing (-c -o /dev/null), so the assembler sees entry.S and the embedded-segment files (Gen/embed.S) are not needed.
+-Usage: DM_GAME=<base game title ID> compile_check.py   (or GAME=)   Exit status 1 when any file fails."""
++Two passes: the default build, then the same sources with DM_FRAMEWORK_BUILD=1 (project-framework.yml: main.m's dlopen path and
++FrameworkBootstrap.m's real body), so a change to either build breaks here rather than in a device build.
++Usage: DM_GAME=<base game title ID> compile_check.py   (or GAME=)   Exit status 1 when any file fails in either pass."""
+ import concurrent.futures, os, shlex, subprocess, sys
+ repo = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..'))
+ host, ios = f'{repo}/dm/host', f'{repo}/dm/ios'
+@@ -29,14 +31,18 @@ srcs = [s for s in dict.fromkeys(srcs) if not os.path.splitext(s)[0].endswith('_
+ srcs += sorted(os.path.join(ios_src, f) for f in os.listdir(ios_src) if f.endswith(('.c', '.m')))
+ dirs = list(dict.fromkeys(os.path.dirname(s) for s in srcs))
+ flags = ['-arch', 'arm64', '-miphoneos-version-min=26.0', '-mcpu=apple-a18', '-fobjc-arc', '-O1', '-w'] + defs + [f'-I{d}' for d in incs + dirs]
+-def one(s):
+-    c = ['xcrun', '-sdk', 'iphoneos', 'clang'] + flags + (['-Dmain=dm_main'] if s == os.path.join(host, 'main.c') else []) + ['-c', s, '-o', '/dev/null']
++def one(s, extra=()):
++    c = ['xcrun', '-sdk', 'iphoneos', 'clang'] + flags + list(extra) + (['-Dmain=dm_main'] if s == os.path.join(host, 'main.c') else []) + ['-c', s, '-o', '/dev/null']
+     if s.endswith('.c'): c[4:4] = ['-std=gnu11']
+     p = subprocess.run(c, capture_output=True, text=True)
+     return s, p.returncode, p.stderr
+-bad = 0
+-with concurrent.futures.ThreadPoolExecutor(os.cpu_count()) as ex:
+-    for s, rc, err in ex.map(one, srcs):
+-        if rc: bad += 1; print(f'FAIL {os.path.relpath(s, repo)}\n{err}', file=sys.stderr)
+-print(f'iOS compile check: {len(srcs)} files, {bad} failed')
++def check(label, extra=()):
++    bad = 0
++    with concurrent.futures.ThreadPoolExecutor(os.cpu_count()) as ex:
++        for s, rc, err in ex.map(lambda s: one(s, extra), srcs):
++            if rc: bad += 1; print(f'FAIL {os.path.relpath(s, repo)}\n{err}', file=sys.stderr)
++    print(f'iOS compile check ({label}): {len(srcs)} files, {bad} failed')
++    return bad
++# The framework build defines its macro in project-framework.yml's OTHER_CFLAGS, make never sees it: pass it here
++bad = check('default') + check('DM_FRAMEWORK_BUILD=1', ['-DDM_FRAMEWORK_BUILD=1'])
+ sys.exit(1 if bad else 0)
+diff --git a/dm/ios/tools/gen_manifest.py b/dm/ios/tools/gen_manifest.py
+new file mode 100644
+index 00000000..ec2c33be
+--- /dev/null
++++ b/dm/ios/tools/gen_manifest.py
+@@ -0,0 +1,105 @@
++#!/usr/bin/env python3
++"""Write the game.manifest.json that travels inside a route C game framework (docs/launcher-c-plan.md, "Manifest").
++
++build_ipa.sh's DM_FRAMEWORK=1 mode calls this before xcodegen, so the file is a resource of the DmGame framework:
++<framework>/game.manifest.json. M1 builds one game per app and does not read it yet; M2's shell discovers the framework
++through it and M3 validates several (schema, title ID, chain against the shell's DMSH_CHAIN, CFBundleExecutable) and
++cross-checks the sections it names. Writing it now keeps the schema honest, and test_framework_build.py checks it.
++
++Usage:
++  gen_manifest.py <out.json> --game <title ID> --name <name> --display-version <v> --package-version <pkg>
++                  --modules "main sdk" [--nro-table <nro.tsv>] --chain b-<hex> --romfs-marker <path>
++                  [--romfs-identity "DMROMFSID1 ..."] [--min-os 26.0]
++Exit status 1 on a value the schema cannot carry (a bad title ID, no module, a chain not written b-<hex>).
++"""
++import argparse
++import json
++import re
++import sys
++from pathlib import Path
++
++SCHEMA = 1
++# The M1 framework's fixed names, the same constants project-framework.yml and FrameworkBootstrap.h use
++FRAMEWORK = 'DmGame.framework'
++FRAMEWORK_EXECUTABLE = 'DmGame'
++IMAGE_MARKER = 'dmgame_image_marker'
++PROFILE = 'profile.tsv'          # the framework's root: main.m points DM_PROFILE at it
++SHADER_MAP = 'dm/shader_map.tsv'  # inside the framework: main.m points DM_NVN_SHMAP at it
++LAUNCHER = 'dm/launcher.json'     # the loader's tables and the launcher settings share the framework's dm/
++TITLE_ID = re.compile(r'^[0-9A-F]{16}$')
++CHAIN = re.compile(r'^b-[0-9A-Za-z._-]+$')
++
++
++def nro_count(table):
++    """Rows gen_embed.py embeds: everything but comments, blank lines and the 'refused' ones (an online SDK the host never
++    loads, dm/tools/nro_collect.py). The same filter gen_embed.py applies when it packs the NRO pieces."""
++    if table is None:
++        return 0
++    rows = (line.split('\t')[0] for line in Path(table).read_text(encoding='utf-8').splitlines())
++    return sum(1 for name in rows if name and not name.startswith('#') and name != 'refused')
++
++
++def manifest(args):
++    """The schema's keys in its order; optional ones only when a value is given."""
++    title_id = args.game.upper()
++    modules = args.modules.split()
++    if not TITLE_ID.match(title_id):
++        raise SystemExit(f'[RED] gen_manifest: --game {args.game!r} is not a 16-digit hex title ID')
++    if not modules or any(not re.match(r'^[A-Za-z0-9]+$', m) for m in modules):
++        raise SystemExit(f'[RED] gen_manifest: --modules {args.modules!r} names no module or a module with an underscore '
++                         '(the loader\'s embedded section names cannot hold one)')
++    if not CHAIN.match(args.chain):
++        raise SystemExit(f'[RED] gen_manifest: --chain {args.chain!r} is not written b-<version> (dm/gfx/nvn/dmsh_chain.h)')
++    if args.romfs_identity and not args.romfs_identity.startswith('DMROMFSID1 '):
++        raise SystemExit('[RED] gen_manifest: --romfs-identity is not a romfs_image.py identity line (DMROMFSID1 ...)')
++    data = {
++        'schema': SCHEMA,
++        'title_id': title_id,
++        'name': args.name,
++        'display_version': args.display_version,
++        'package_version': args.package_version,
++        'modules': modules,
++        'nro_count': nro_count(args.nro_table),
++        'chain': args.chain,
++        'loader': 'FR',                # a pure module container: the shell is the host (design §1.1 FR)
++        'framework': FRAMEWORK,
++        'framework_executable': FRAMEWORK_EXECUTABLE,
++        'image_marker': IMAGE_MARKER,
++        'profile': PROFILE,
++        'shader_map': SHADER_MAP,
++        'launcher': LAUNCHER,
++        'romfs_marker': args.romfs_marker,
++        'romfs_identity': args.romfs_identity or '',
++        'min_os': args.min_os,
++    }
++    if args.built_by:
++        data['built_by'] = args.built_by
++    return data
++
++
++def main(argv=None):
++    ap = argparse.ArgumentParser(description='Write a route C game framework\'s game.manifest.json.')
++    ap.add_argument('out', help='the file to write (<Gen>/framework/game.manifest.json)')
++    ap.add_argument('--game', required=True, help='the base game title ID (16 hex digits)')
++    ap.add_argument('--name', required=True, help='the game name (control.nacp, as build_ipa.sh reads it)')
++    ap.add_argument('--display-version', required=True, help='the packed version\'s display version')
++    ap.add_argument('--package-version', required=True, help='the packed package version (the profile\'s package key)')
++    ap.add_argument('--modules', required=True, help='the game\'s modules, space separated (the profile\'s modules)')
++    ap.add_argument('--nro-table', help='the rewriter\'s nro.tsv, for nro_count; without it the count is 0')
++    ap.add_argument('--chain', required=True, help='the shader chain version, b-<version> (dm/gfx/nvn/dmsh_chain.h)')
++    ap.add_argument('--romfs-marker', required=True, help='the profile\'s romfs_marker: a folder with it is this game\'s data')
++    ap.add_argument('--romfs-identity', default='', help='the RomFS image identity line build_ipa.sh writes (empty for a folder)')
++    ap.add_argument('--min-os', default='26.0', help='the minimum iOS version (project.yml\'s deployment target)')
++    ap.add_argument('--built-by', help='who built it, for a log line (optional; a device or tool name)')
++    args = ap.parse_args(argv)
++    data = manifest(args)
++    out = Path(args.out)
++    out.parent.mkdir(parents=True, exist_ok=True)
++    # Indented and in the schema's order, so a diff between two builds is one line per changed value
++    out.write_text(json.dumps(data, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
++    print(out)
++    return data
++
++
++if __name__ == '__main__':
++    main()
+diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
+index bfbacea1..9a53bdbd 100755
+--- a/scripts/build_ipa_from_nsp.py
++++ b/scripts/build_ipa_from_nsp.py
+@@ -2133,6 +2133,7 @@ def parse_args(argv):
+     ap.add_argument('--romfs', choices=('bundle', 'separate'), help='bundle = the game files go into the IPA (default: the ROMFS setting, bundle); separate = they stay out of the IPA and the Xcode app: the build is small and fast, and the RomFS image '
+                     'is copied to the phone once per game version with the scripts/push_romfs.sh command printed at the end (the app refuses an image of another version)')
+     ap.add_argument('--prepare-xcode', action='store_true', help='prepare a per-game Xcode project and add it to the shared workspace instead of packing an IPA (requires keeping extracted files)')
++    ap.add_argument('--framework', action='store_true', help='the game\'s modules go into DmIOS.app/Frameworks/DmGame.framework, which the app dlopens at launch (route C, docs/launcher-c-plan.md M1), instead of the executable; the IPA is otherwise the usual one')
+     ap.add_argument('--platform', choices=('ios', 'mac', 'mac-app'), help='ios = the IPA (or the Xcode project); mac = for development: build only what running the game on this Mac needs (the Mac shaders and the Mac host, '
+                     'no iOS shaders, Xcode project or IPA), keep the extracted files and print the command that runs the game; mac-app = what mac builds, then a self-contained, double-clickable '
+                     'Mac app of the game (default: <game name>.app in the NSP folder, -o names another) (default: the PLATFORM setting, ios)')
+@@ -2233,6 +2234,7 @@ def main(args=None):
+     mac_pack = platform == 'mac-app'
+     if args.mac_sign and not mac_pack: raise BuildError('--mac-sign signs the Mac app: it needs --platform mac-app')
+     if mac and prepare_xcode: raise BuildError(f'--prepare-xcode makes an iPhone project: it cannot be combined with --platform {platform}')
++    if mac and args.framework: raise BuildError(f'--framework builds the iPhone app\'s game framework: it cannot be combined with --platform {platform}')
+     if mac and not apple_silicon(): raise BuildError(f'--platform {platform} runs the game in the Mac host, which runs the game\'s own arm64 code natively: it needs a Mac with Apple silicon, and this Mac has an Intel processor')
+     check_native_python()
+     keep = KEEP_EXTRACTED if args.keep_extracted is None else args.keep_extracted
+@@ -2500,6 +2502,7 @@ def main(args=None):
+     say('preparing the Xcode project' if prepare_xcode else f'building the IPA → {out_ipa}')
+     ipa_env = dict(env, GAME=g.id, W=str(work / 'ipa'), PATCHED=str(patched), ROMFS=str(rfs.source(game)), MSL_IOS=str(ios), GFXAPI=gfx, FONT_PY=py, DM_DISPLAY_NAME=app_name, DM_BUNDLE_ID=bundle_id, AOC=str(aoc or ''), DM_XCODE_DERIVED_DATA=str(work / 'xcode-derived-data'), DM_TEAM_ID=team_id, DM_LANG=lang)
+     if prepare_xcode: ipa_env['DM_XCODE_PROJECT_DIR'] = str(project.parent)
++    if args.framework: ipa_env['DM_FRAMEWORK'] = '1'; say('route C: the game\'s modules go into DmIOS.app/Frameworks/DmGame.framework (DM_FRAMEWORK=1)')
+     separate = romfs_mode == 'separate'
+     if separate: ipa_env['DM_COPY_ROMFS'] = 'NO'; say('game files: separate (DM_COPY_ROMFS=NO), left out of the app; the image stays at ' + str(rfs.source(game)))
+     if app_version: ipa_env['DM_APP_VERSION'] = app_version

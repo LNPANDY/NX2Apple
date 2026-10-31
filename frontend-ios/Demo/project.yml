@@ -1,0 +1,55 @@
+name: ShellDemo
+options:
+  bundleIdPrefix: dev.shellui
+  deploymentTarget:
+    iOS: '26.0'
+packages:
+  ShellUI:
+    path: ..
+settings:
+  base:
+    SWIFT_VERSION: '6.0'
+    CODE_SIGNING_ALLOWED: NO
+    GENERATE_INFOPLIST_FILE: YES
+    TARGETED_DEVICE_FAMILY: '1,2'
+    SUPPORTS_MACCATALYST: NO
+    INFOPLIST_KEY_UILaunchScreen_Generation: YES
+    INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+    INFOPLIST_KEY_UISupportedInterfaceOrientations: 'UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortraitUpsideDown'
+    INFOPLIST_KEY_UIUserInterfaceStyle: Dark
+    INFOPLIST_KEY_CFBundleDisplayName: Shell Demo
+    ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    SWIFT_EMIT_LOC_STRINGS: YES
+targets:
+  ShellDemoApp:
+    type: application
+    platform: iOS
+    sources:
+      - ../Sources/ShellDemo
+      # The fixture bundles for --host, copied into the app as its Games folder. No game data, no pictures.
+      - path: ../Tests/ShellHostTests/Fixtures/Games
+        type: folder
+        buildPhase: resources
+      - path: ../AppIcon.icon   # the app icon, shared with the shell app (dm/ios/project-shell.yml)
+    dependencies:
+      - package: ShellUI
+        product: ShellUI
+      - package: ShellUI
+        product: ShellControllers
+      - package: ShellUI
+        product: ShellHost
+  ShellDemoUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - ../UITests
+    dependencies:
+      - target: ShellDemoApp
+schemes:
+  ShellDemo:
+    build:
+      targets:
+        ShellDemoApp: all
+    test:
+      targets:
+        - ShellDemoUITests
