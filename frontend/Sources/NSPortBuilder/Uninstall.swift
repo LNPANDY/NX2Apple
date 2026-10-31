@@ -7,13 +7,17 @@ import AppKit
 /// - engine trees this launcher installed (`~/Library/Application Support/NX2Apple/engine/`)
 /// - the project checkout the launcher itself cloned (`~/NX2Apple`, only when it is the launcher's own
 ///   download; a checkout the player made by hand is not touched)
+/// - the launcher's settings (its UserDefaults domain)
 ///
-/// What stays: the games folder and everything in it, `prod.keys`, Homebrew, and the app itself, which
-/// goes to the Trash when the player confirms — never deleted.
+/// What stays: the games folder and everything in it, the build output folder, `prod.keys`, Homebrew, and the
+/// app itself, which goes to the Trash when the player confirms — never deleted. A folder that holds the games
+/// folder or the build output folder stays as a whole.
 enum Uninstall {
     struct Plan: Equatable {
         var stateFolders: [String] = []
         var checkouts: [String] = []
+        /// The UserDefaults domain with the launcher's settings, nil when there is none to remove.
+        var defaultsDomain: String?
         /// Where the app lives now (goes to the Trash, not deleted).
         var app: String = Bundle.main.bundlePath
     }
@@ -22,21 +26,31 @@ enum Uninstall {
     /// folders that exist, and a checkout that is the launcher's own download (the clone destination
     /// `cloneRepo` uses) rather than one the player picked from anywhere on disk.
     /// `home` is passed in (NSHomeDirectory() at the call site): a computed home is not testable.
-    nonisolated static func plan(home: String, gamesFolder: String, checkouts: [String]) -> Plan {
+    nonisolated static func plan(home: String, gamesFolder: String, outputFolder: String = "", checkouts: [String],
+                                 defaultsDomain: String? = nil) -> Plan {
         let fm = FileManager.default
-        var p = Plan()
+        var p = Plan(defaultsDomain: defaultsDomain)
+        let kept = [gamesFolder, outputFolder].filter { !$0.isEmpty }
+        let holdsPlayerFiles = { (folder: String) in kept.contains { contains(folder, $0) } }
         let state = home + "/Library/Application Support/NS Port Builder"
-        if fm.fileExists(atPath: state) { p.stateFolders.append(state) }
+        if fm.fileExists(atPath: state), !holdsPlayerFiles(state) { p.stateFolders.append(state) }
         let engine = home + "/Library/Application Support/NX2Apple"
-        if fm.fileExists(atPath: engine) { p.stateFolders.append(engine) }
+        if fm.fileExists(atPath: engine), !holdsPlayerFiles(engine) { p.stateFolders.append(engine) }
         let own = home + "/NX2Apple"
         for checkout in checkouts where fm.fileExists(atPath: checkout) {
             // The launcher's own clone sits at ~/NX2Apple and is a git checkout with origin = this repo.
             // A folder the player picked from anywhere else stays: we cannot know what else lives there.
-            guard checkout == own else { continue }
+            guard checkout == own, !holdsPlayerFiles(checkout) else { continue }
             if let origin = gitOrigin(checkout), origin.contains("LNPANDY/NX2Apple") { p.checkouts.append(checkout) }
         }
         return p
+    }
+
+    /// Whether `path` is `folder` or lies inside it, after resolving symbolic links and `..`.
+    nonisolated static func contains(_ folder: String, _ path: String) -> Bool {
+        let f = URL(fileURLWithPath: folder).resolvingSymlinksInPath().standardizedFileURL.pathComponents
+        let p = URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL.pathComponents
+        return p.count >= f.count && Array(p.prefix(f.count)) == f
     }
 
     nonisolated static func gitOrigin(_ checkout: String) -> String? {
@@ -54,6 +68,10 @@ enum Uninstall {
         for folder in plan.stateFolders + plan.checkouts {
             do { try fm.removeItem(atPath: folder); removed.append(folder) }
             catch { failures.append(folder + ": " + error.localizedDescription) }
+        }
+        if let domain = plan.defaultsDomain {
+            UserDefaults.standard.removePersistentDomain(forName: domain)
+            UserDefaults.standard.synchronize()
         }
         if movingAppToTrash, plan.app.hasSuffix(".app"), plan.app.contains("/Applications/") {
             if !fm.fileExists(atPath: plan.app) { failures.append(plan.app + ": not found") }

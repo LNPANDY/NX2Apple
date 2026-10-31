@@ -3520,12 +3520,9 @@ struct BuilderView: View {
                 // The uninstaller (Uninstall.swift): state folders and the launcher's own checkout go; the
                 // games folder and prod.keys stay; the app itself goes to the Trash.
                 row(m.t("uninstall.title"), detail: m.t("uninstall.note")) {
-                    Button(m.t("uninstall.button")) {
-                        m.uninstallPlan = Uninstall.plan(home: NSHomeDirectory(), gamesFolder: library.folder,
-                                                         checkouts: [m.repoPath])
-                    }
+                    Button(m.t("uninstall.button")) { m.uninstallPlan = uninstallPlan() }
                     .disabled(m.running)
-                    .padTarget("set.uninstall", scope: "main") { if !m.running { m.uninstallPlan = Uninstall.plan(home: NSHomeDirectory(), gamesFolder: library.folder, checkouts: [m.repoPath]) } }
+                    .padTarget("set.uninstall", scope: "main") { if !m.running { m.uninstallPlan = uninstallPlan() } }
                 }
                 divider
             }
@@ -3549,6 +3546,11 @@ struct BuilderView: View {
         let v = values[(at + by + values.count) % values.count]
         Lang.saved = v.isEmpty ? nil : Lang(rawValue: v)
         m.lang = Lang.initial()
+    }
+
+    private func uninstallPlan() -> Uninstall.Plan {
+        Uninstall.plan(home: NSHomeDirectory(), gamesFolder: library.folder, outputFolder: m.outDir,
+                       checkouts: [m.repoPath], defaultsDomain: Bundle.main.bundleIdentifier)
     }
 
     private var tools: some View {
