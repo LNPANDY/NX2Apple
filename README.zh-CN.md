@@ -87,7 +87,9 @@ App 自带构建工具和 Python，不需要装 Homebrew 和 Python；.NET SDK 1
 触屏、震动和体感见 [docs/playing.md](https://github.com/seedds/nxnative/blob/f11018a1f3125ec3046c30faae6147956a1a7c60/docs/playing.md)（英文）。新场景第一次出现时短促卡顿是正常的：
 App 会为它编译一次图形并记住。游戏数据（`romfs.img`）可以放在外置硬盘上，用「文件」App 选取。
 
-**游戏语言。** 默认英文。Mac 上用启动选项里的「游戏语言」一行。面板里没有的设置，可以写一个
+**游戏语言。** 在 Mac 上，如果游戏有 Mac 的系统语言，就会使用它：启动选项里「游戏语言」一行会预先选中它，
+直到你选择别的语言；「恢复测试默认值」会回到它。没有该语言的游戏、以其他语言构建的游戏（`LANGUAGE`）
+和所有 iPhone 版本使用构建时的语言，默认英文。面板里没有的设置，可以写一个
 `env.txt`，每行 `KEY=VALUE`（例如 `DM_LANG=zh-Hans`），放在两处之一：
 `~/Library/Application Support/nxnative/<title ID>/env.txt` 优先，重新构建后仍在；
 `<App>.app/Contents/Resources/dm/env.txt` 是 App 自带的。在加入语言选项之前构建的 Mac App 需要重新构建
