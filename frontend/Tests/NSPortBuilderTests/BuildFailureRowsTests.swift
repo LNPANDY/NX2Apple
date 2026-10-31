@@ -202,6 +202,7 @@ final class BuildFailureRowsTests: XCTestCase {
 
     func testTryAgainStartsANewBuildAndClearsTheCard() {
         let m = BuildModel()
+        m.target = BuildTarget.mac   // the iPhone / iPad target stops first, at the device check
         m.failure = BuildFailure(kind: .deviceTransfer, gameName: nil)
         m.fixBuildFailure(.deviceTransfer)   // no repository here: the build stops at once, but it has started and dropped the old card
         XCTAssertNil(m.failure)

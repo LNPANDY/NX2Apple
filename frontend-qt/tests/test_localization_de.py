@@ -11,6 +11,7 @@ sys.path.insert(0, str(ROOT / 'frontend-qt'))
 
 from nspb_qt.i18n import Lang   # noqa: E402
 from nspb_qt.localization import TABLE, t   # noqa: E402
+from gen_localization import unescape   # noqa: E402
 
 PLACEHOLDER = re.compile(r'%(?:\d+\$)?(?:\.\d+)?(?:ll|l)?[@dsf%]')
 
@@ -40,7 +41,7 @@ class German(unittest.TestCase):
         self.assertEqual(t('dep.recheck', Lang.EN), 'Check again')
 
     def test_escapes_of_the_swift_table_become_text(self):
-        self.assertIn('\t', t('install.step1', Lang.DE))
+        self.assertEqual(unescape('a\\tb\\u{e4}'), 'a\tb\u00e4')   # no table entry carries a tab any more
         self.assertIn('\n', t('fail.noTitleID.next', Lang.DE))
         self.assertNotIn('\\\\', t('dep.spirv.hint.win', Lang.DE))
 

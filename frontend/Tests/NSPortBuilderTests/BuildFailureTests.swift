@@ -140,6 +140,7 @@ final class BuildFailureTests: XCTestCase {
 
     func testAConfirmedOverrideServesOneBuildOnly() {
         let m = BuildModel()
+        m.target = BuildTarget.mac   // the iPhone / iPad target stops first, at the device check
         m.failure = BuildFailure(kind: .damagedNSP, gameName: nil)
         m.requestBuildAnyway()
         m.confirmBuildAnyway()   // starts a build: with no repository it stops at once, after taking the flag
