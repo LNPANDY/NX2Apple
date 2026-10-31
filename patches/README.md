@@ -106,7 +106,8 @@ the pin alone does not name a tree). The zip is deterministic (sorted, fixed tim
 `python3 tools/release_manifest.py publish ...` writes `latest.json` (version, pin, `engine_id`, channel, built, the engine and app assets with
 SHA-256 and size, sources) and, when a key is set, `latest.json.sig` (a detached Ed25519 signature over its exact bytes, base64). With `--upload` it puts
 `NX2Apple-engine.zip`, `latest.json` and `latest.json.sig` on a GitHub release. Without `--upload` it is a dry run.
-`build-mac-app.yml` does this for a release tag (stable channel, the tree also goes into `Contents/Resources/engine`).
+`build-mac-app.yml` does this for a release candidate tag `vX.Y.Z-rcN` and a release tag `vX.Y.Z` (stable channel, the tree also goes into `Contents/Resources/engine`).
+A release tag ships the files of the release candidate on its commit, and `release_manifest.py check-rc` checks they are that build ([RELEASING.md](../RELEASING.md)).
 `sync-upstream.yml` does it for the pre-release tag `engine-experimental`.
 
 ### Signing is optional for now

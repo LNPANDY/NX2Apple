@@ -31,6 +31,11 @@ Subcommands (Python 3.9+, `pip install -r tools/requirements-release.txt`):
   verify --manifest F [--sig F] [--pub FILE] [--require-signature]
                                check a signature the way the launcher does. A missing signature file is accepted with a warning while
                                ENGINE_SIGNING_KEY is not set, and is an error when the key is set or --require-signature is given
+  check-rc --manifest F --version V --engine-zip Z --app-zip A --built-engine-zip B
+                               before a final tag ships the files of its release candidate (RELEASING.md): exit 0 only when the
+                               candidate's latest.json is the stable manifest of version V, names exactly the engine zip Z and the app zip A
+                               (SHA-256, size, pin, engine_id), and the engine zip B that the final tag's commit builds holds the same
+                               files as Z (the same bytes, or the same files compressed differently, which it notes)
 """
 import argparse
 import base64
@@ -261,6 +266,57 @@ def cmd_verify(a):
     return 0 if ok else 1
 
 
+def check_rc(manifest, version, engine_zip, app_zip, built_engine_zip):
+    """The reasons the release candidate's files are not the release `version` (empty when they are)."""
+    try: m = json.loads(Path(manifest).read_bytes())
+    except (OSError, ValueError) as e: return [f'{manifest} is not readable JSON: {e}']
+    bad = []
+    if m.get('channel') != 'stable': bad.append(f'the candidate\'s manifest has channel {m.get("channel")!r}, not stable')
+    if m.get('version') != version: bad.append(f'the candidate\'s manifest is for version {m.get("version")!r}, not {version!r}')
+    for key, path in (('engine', engine_zip), ('app', app_zip)):
+        want = m.get(key) or {}
+        got = asset(path)
+        for field in ('asset', 'sha256', 'size'):
+            if want.get(field) != got[field]:
+                bad.append(f'{key} {field}: the manifest says {want.get(field)!r}, the candidate\'s {Path(path).name} has {got[field]!r}')
+    pin, eid = engine_identity(engine_zip)
+    if (m.get('pin'), m.get('engine_id')) != (pin, eid):
+        bad.append(f'the manifest names pin {m.get("pin")} engine_id {m.get("engine_id")}, the candidate\'s engine zip is {eid}')
+    _, beid = engine_identity(built_engine_zip)
+    if beid != eid:
+        bad.append(f'this commit builds engine {beid}, the candidate carries {eid}')
+    elif sha256_file(built_engine_zip) != sha256_file(engine_zip):
+        # The zip is reproducible, so the bytes normally match. Another zlib on the runner could compress the same files differently:
+        # that is still the tested engine (the release ships the candidate's zip in any case). Different files are not.
+        diff = sorted(set(zip_files(built_engine_zip)) ^ set(zip_files(engine_zip)))
+        if diff:
+            names = sorted({n for n, _, _ in diff})
+            bad.append(f'this commit builds an engine zip with other files than the candidate\'s: {", ".join(names[:5])}'
+                       + (f' and {len(names) - 5} more' if len(names) > 5 else ''))
+        else:
+            say(f'note: the engine zip this commit builds has the same files as the candidate\'s, compressed differently '
+                f'(SHA-256 {sha256_file(built_engine_zip)}). The release ships the candidate\'s zip')
+    return bad
+
+
+def zip_files(path):
+    """Each file of a zip as (name, CRC-32, size): what it holds, whatever the compression."""
+    with zipfile.ZipFile(path) as z:
+        return [(i.filename, i.CRC, i.file_size) for i in z.infolist()]
+
+
+def cmd_check_rc(a):
+    bad = check_rc(a.manifest, a.version, a.engine_zip, a.app_zip, a.built_engine_zip)
+    for b in bad: say(f'::error title=Not the tested build::{b}' if os.environ.get('GITHUB_ACTIONS') == 'true' else f'error: {b}')
+    if bad:
+        say('the final release would not ship the build of its release candidate: nothing is published')
+        return 1
+    m = json.loads(Path(a.manifest).read_bytes())
+    say(f'same build as the release candidate: {m["version"]} engine_id {m["engine_id"]}, engine SHA-256 {m["engine"]["sha256"]}, '
+        f'app SHA-256 {m["app"]["sha256"]}')
+    return 0
+
+
 def cmd_keygen(a):
     ed, _ = ed25519()
     from cryptography.hazmat.primitives import serialization
@@ -278,6 +334,9 @@ def main(argv=None):
     s = sub.add_parser('check-key'); s.add_argument('--pub', default=str(PUB_FILE)); s.set_defaults(f=cmd_check_key)
     s = sub.add_parser('verify'); s.add_argument('--manifest', required=True); s.add_argument('--sig', help='default: latest.json.sig next to the manifest'); s.add_argument('--pub', default=str(PUB_FILE))
     s.add_argument('--require-signature', action='store_true'); s.set_defaults(f=cmd_verify)
+    s = sub.add_parser('check-rc')
+    for o in ('--manifest', '--version', '--engine-zip', '--app-zip', '--built-engine-zip'): s.add_argument(o, required=True)
+    s.set_defaults(f=cmd_check_rc)
     s = sub.add_parser('publish')
     s.add_argument('--engine-zip', required=True); s.add_argument('--app-zip'); s.add_argument('--version', required=True)
     s.add_argument('--channel', required=True, choices=('stable', 'experimental')); s.add_argument('--tag', required=True)

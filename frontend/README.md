@@ -261,6 +261,10 @@ or double-click `nxnative.app` in this folder (ad-hoc signed, and rebuild it wit
 and copy the binary into `Contents/MacOS/`). The app's settings and library stay under the folder name it
 had before the rename, `~/Library/Application Support/NS Port Builder/`.
 
+To try the app CI built for a pull request, for `main` or for a release candidate, without building it: `tools/try-pr 271`,
+`tools/try-pr main` or `tools/try-pr v0.7.6-rc1` from the repository root. It opens the downloaded copy on the engine tree inside it.
+That copy shares settings and Application Support with an installed NX2Apple. The top of `tools/try-pr` says what that means.
+
 SwiftUI, macOS 13+.
 
 ### Why the dependency check does not use `which`
