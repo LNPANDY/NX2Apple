@@ -42,11 +42,11 @@ final class BuildCleanupTests: XCTestCase {
         try file("Hades [\(titleID)].nsp", in: out)
     }
 
-    private func plan(keep: Bool, device: Bool = false, ipa: Bool = false) -> BuildCleanup.Plan {
+    private func plan(keep: Bool, ipa: Bool = false) -> BuildCleanup.Plan {
         BuildCleanup.Plan(work: build.path, keepFiles: keep,
                           protecting: [out.appendingPathComponent(titleID + ".app").path, out.appendingPathComponent(titleID + ".ipa").path,
                                        out.appendingPathComponent("games/" + titleID).path, out.appendingPathComponent("Hades [\(titleID)].nsp").path],
-                          deviceInstall: device, ipaWritten: ipa)
+                          ipaWritten: ipa)
     }
 
     private func assertOutputsStay(file: StaticString = #filePath, line: UInt = #line) {
@@ -75,15 +75,6 @@ final class BuildCleanupTests: XCTestCase {
         assertOutputsStay()
         XCTAssertGreaterThan(outcome.freed, 0)
         XCTAssertEqual(Set(outcome.removed.compactMap(\.part)), [.extracted, .shaders, .xcode, .caches])
-    }
-
-    func testAnInstalledAppKeepsItsProjectAndDerivedDataForReinstallAndRenew() throws {
-        try fixture()
-        _ = BuildCleanup.run(plan(keep: false, device: true))
-        XCTAssertTrue(exists("xcode/DmIOS.xcodeproj/project.pbxproj"))
-        XCTAssertTrue(exists("xcode-derived-data/Build/Products/Release-iphoneos/DmIOS.app/Info.plist"))
-        for path in ["extract", "shader", "pso", "ipa", "tmp", "aoc"] { XCTAssertFalse(exists(path), path) }
-        assertOutputsStay()
     }
 
     func testWithTheSettingOnOnlyWhatNothingNeedsGoes() throws {
@@ -142,7 +133,7 @@ final class BuildCleanupTests: XCTestCase {
         }
     }
 
-    func testTheBuildPageHintNoLongerPromisesReuseAndTheNoteNamesTheLostRenewInEveryLanguage() {
+    func testTheBuildPageHintNoLongerPromisesReuse() {
         let hint = [Lang.zh, .en, .sv].map { L10n.string("msg.workdirHint", $0) }
         XCTAssertTrue(hint[1].contains("Keep build files"))
         XCTAssertTrue(hint[2].contains("Behåll byggfiler"))
@@ -150,9 +141,6 @@ final class BuildCleanupTests: XCTestCase {
         for lang in [Lang.zh, .en, .sv] {
             XCTAssertFalse(L10n.string("msg.workdirHint", lang).contains(";"), "\(lang)")
         }
-        XCTAssertTrue(L10n.string("settings.keepBuildNote", .en).contains("loses Renew and Reinstall"))
-        XCTAssertTrue(L10n.string("settings.keepBuildNote", .sv).contains("Förnya"))
-        XCTAssertTrue(L10n.string("settings.keepBuildNote", .zh).contains("续签"))
     }
 
     /// The cleanup's protected paths come from `BuildFolder.protectedPaths`: the installed app and the archive folder with its romfs.img are in.
@@ -164,11 +152,10 @@ final class BuildCleanupTests: XCTestCase {
         model.slots[0].paths = [out.path + "/Game [\(titleID)][v0].nsp"]
         model.outDir = out.path
         model.macAppPath = out.path + "/Game.app"
-        model.ipaPath = out.path + "/Game.ipa"
         model.installedAppPath = out.path + "/Installed.app"
         model.armCleanup()
         let plan = model.cleanupPlan
-        let shared = BuildFolder.protectedPaths(app: model.macAppPath, ipa: model.ipaPath, iosApp: model.installedAppPath,
+        let shared = BuildFolder.protectedPaths(app: model.macAppPath, ipa: "", iosApp: model.installedAppPath,
                                                 archive: out.path + "/games/" + titleID, output: out.path, titleID: titleID, inputs: [])
         for path in shared { XCTAssertTrue(plan?.protecting.map(BuildFolder.resolved).contains(path) ?? false, path) }
         XCTAssertTrue(shared.contains(BuildFolder.resolved(out.path + "/games/" + titleID + "/romfs.img")))
@@ -215,11 +202,6 @@ final class BuildCleanupTests: XCTestCase {
         XCTAssertFalse(model.cleaningUp)
         XCTAssertTrue(model.logTail.contains("Cleaned up the build folder"), model.logTail)
         assertOutputsStay()
-    }
-
-    func testTheResignDoesNotReadTheBuildFoldersGameFilesAgain() {
-        let command = BuildModel.resignCommand(xcrun: "/x", project: "/w/xcode/DmIOS.xcodeproj", scheme: "S", device: "U", derived: "/w/d", team: "T", bundle: "b")
-        XCTAssertTrue(command.contains("DM_COPY_GAME_RESOURCES=NO"))
     }
 
     // MARK: Visual QA

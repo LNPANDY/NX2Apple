@@ -9,9 +9,6 @@ import Foundation
 /// shader again without it takes long).
 ///
 /// What stays in either case is `BuildFolder`'s: logs/, profile/, run/, nsp/ and the staged inputs, which no part names.
-/// On top of that, for a build that was installed on a device through Xcode, xcode/ and xcode-derived-data/ stay whole: Reinstall
-/// and Renew run from that project and its built app (`BuildModel.resignOnDevice`, which signs with DM_COPY_GAME_RESOURCES=NO so
-/// the build's game files and shaders are not read again).
 enum BuildCleanup {
     static let defaultsKey = "keepBuildFiles"
 
@@ -24,9 +21,6 @@ enum BuildCleanup {
         var keepFiles: Bool
         /// Paths that stay wherever they lie: the finished app, the IPA, the game data archive, the installed app, the NSPs.
         var protecting: [String] = []
-        /// The app was signed from this folder's Xcode project and installed on a device: Reinstall and Renew need the project
-        /// and the derived data.
-        var deviceInstall = false
         /// An IPA exists outside the build folder, so what packing it left in ipa/ is not needed for it.
         var ipaWritten = false
     }
@@ -52,9 +46,7 @@ enum BuildCleanup {
 
     /// What stays whole beyond the protected paths, relative to the build folder, for a plan.
     static func kept(_ plan: Plan, root: String) -> [String] {
-        var paths = plan.protecting
-        if plan.deviceInstall { paths += [root + "/xcode", root + "/xcode-derived-data"] }
-        return paths.filter { !$0.isEmpty }.map(BuildFolder.resolved)
+        plan.protecting.filter { !$0.isEmpty }.map(BuildFolder.resolved)
     }
 
     /// Removes what the plan says. Off the main thread: it reads and deletes tens of GB.
@@ -124,10 +116,9 @@ extension BuildModel {
         let tid = Self.titleID(basePath).map { String(format: "%016llX", $0) } ?? "game"
         cleanupPlan = BuildCleanup.Plan(
             work: effectiveWorkDir, keepFiles: keepBuildFiles,
-            protecting: BuildFolder.protectedPaths(app: macAppPath, ipa: ipaPath, iosApp: installedAppPath, archive: out + "/games/" + tid,
+            protecting: BuildFolder.protectedPaths(app: macAppPath, ipa: "", iosApp: installedAppPath, archive: out + "/games/" + tid,
                                                    output: out, titleID: tid, inputs: slots.flatMap { $0.paths })
-                + [out + "/" + tid + ".app", out + "/" + tid + ".ipa"],
-            deviceInstall: installsDirectly)
+                + [out + "/" + tid + ".app", out + "/" + tid + ".ipa"])
     }
 
     /// Called whenever `running` turns false. The build may go on in the next step (it turns true again at once), so the decision waits one turn.
@@ -138,7 +129,6 @@ extension BuildModel {
             cleanupPlan = nil
             guard done, !stopping else { return }   // a failed or stopped build keeps everything, and so does a failed install
             plan.protecting.append(installedAppPath)
-            if target == "ios" && !plan.deviceInstall { plan.ipaWritten = Self.ipaExists(near: plan.work, named: ipaPath) }
             cleaningUp = true
             DispatchQueue.global(qos: .utility).async {
                 let outcome = BuildCleanup.run(plan)
@@ -148,14 +138,6 @@ extension BuildModel {
                 }
             }
         }
-    }
-
-    /// The IPA the script wrote: at the path the launcher asked for, else beside the build folder, where the script puts it by default.
-    nonisolated static func ipaExists(near work: String, named path: String) -> Bool {
-        let fm = FileManager.default
-        if !path.isEmpty, fm.fileExists(atPath: path) { return true }
-        let beside = (work as NSString).deletingLastPathComponent
-        return ((try? fm.contentsOfDirectory(atPath: beside)) ?? []).contains { $0.lowercased().hasSuffix(".ipa") }
     }
 
     /// True when the next build of the game on the Build page extracts and translates again: it was built before and its build folder is gone.
