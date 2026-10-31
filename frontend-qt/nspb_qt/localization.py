@@ -722,7 +722,6 @@ TABLE: dict[str, tuple[str, str, str, str]] = {
     'dep.dotnet': ('.NET SDK 10', '.NET SDK 10', '.NET SDK 10', '.NET SDK 10'),
     'dep.dotnet.hint': ('dotnet-install.sh 装到 ~/.dotnet', 'dotnet-install.sh into ~/.dotnet', 'dotnet-install.sh till ~/.dotnet', 'dotnet-install.sh nach ~/.dotnet'),
     'dep.dotnet.missing': ('没找到带 SDK 10 的 dotnet', 'no dotnet with SDK 10 found', 'ingen dotnet med SDK 10 hittades', 'kein dotnet mit SDK 10 gefunden'),
-    'dep.dotnet.shadowed': ('构建会先用 %@，它没有 SDK 10。点「修复」把 %@ 放到它前面', 'the build runs %@, which has no SDK 10. Fix puts %@ in front of it', 'bygget kör %@, som saknar SDK 10. Åtgärda lägger %@ före den', 'der Build nutzt %@, das kein SDK 10 hat. Beheben stellt %@ davor'),
     'dep.dotnet.downloading': ('正在下载 .NET SDK 10…（约 287 MB，解压后约 900 MB）', 'Downloading .NET SDK 10… (about 287 MB, about 900 MB unpacked)', 'Hämtar .NET SDK 10 … (ungefär 287 MB, ungefär 900 MB uppackat)', '.NET SDK 10 wird geladen … (etwa 287 MB, entpackt etwa 900 MB)'),
     'dep.dotnet.done': ('.NET SDK 已安装：%@', '.NET SDK installed: %@', '.NET SDK installerat: %@', '.NET SDK installiert: %@'),
     'dep.phase.download': ('下载', 'Download', 'Hämta', 'Download'),

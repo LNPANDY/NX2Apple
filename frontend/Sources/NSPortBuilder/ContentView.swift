@@ -2632,9 +2632,9 @@ final class BuildModel: ObservableObject {
     }
 
     /// Where the build looks for `dotnet`, in its order: build_ipa_from_nsp.py puts TOOL_PATHS (/opt/homebrew/bin,
-    /// /usr/local/bin, /usr/local/share/dotnet, ~/.dotnet) in front of PATH, so `dotnet build` runs the first of these
-    /// that exists. Checking ~/.dotnet first said .NET was fine on a Mac whose /usr/local/share/dotnet held an Intel
-    /// .NET 7, while every build ran that one and stopped at NETSDK1045.
+    /// /usr/local/bin, /usr/local/share/dotnet, ~/.dotnet) in front of PATH, then the first of these that lists an SDK 10
+    /// in front of the rest (the engine patch nsp-dotnet-sdk10-first). Before that patch, every build on a Mac whose
+    /// /usr/local/share/dotnet held an Intel .NET 7 ran that one and stopped at NETSDK1045.
     nonisolated static func dotnetCandidates(home: String = NSHomeDirectory()) -> [String] {
         ["/opt/homebrew/bin/dotnet", "/usr/local/bin/dotnet", "/usr/local/share/dotnet/dotnet", home + "/.dotnet/dotnet"]
     }
@@ -2659,34 +2659,12 @@ final class BuildModel: ObservableObject {
         return p.terminationStatus == 0 && hasSDK10(out)
     }
 
-    /// The dotnet the build runs, and whether it has an SDK 10 (an SDK, not just a runtime: the extractor is built).
-    nonisolated static func findDotnet() -> (path: String, ok: Bool) {
-        guard let d = firstExisting(dotnetCandidates()) else { return ("dotnet", false) }
-        return (d, dotnetHasSDK10(d))
-    }
-
-    /// The .NET row's action: dotnet-install.sh into ~/.dotnet unless it already has an SDK 10, then, when another
-    /// dotnet comes first for the build (`first`), a link to ~/.dotnet's in /usr/local/bin, which the build tries
-    /// before /usr/local/share/dotnet.
-    nonisolated static func dotnetInstallCommand(first: String?, home: String = NSHomeDirectory()) -> [String] {
-        let own = home + "/.dotnet/dotnet"
-        var script = "if ! \"$HOME/.dotnet/dotnet\" --list-sdks 2>/dev/null | grep -Eq '^[1-9][0-9]+\\.'; then "
-            + "curl -sSL https://dot.net/v1/dotnet-install.sh -o /tmp/di.sh && chmod +x /tmp/di.sh && /tmp/di.sh --channel 10.0 --install-dir $HOME/.dotnet; fi"
-        if let first, first != own, first != "/opt/homebrew/bin/dotnet" {
-            script += " && mkdir -p /usr/local/bin && ln -sf \"$HOME/.dotnet/dotnet\" /usr/local/bin/dotnet"
-        }
-        return ["/bin/bash", "-c", script]
-    }
-
-    /// The .NET row. `first` is the dotnet the build runs (nil: none), `ok` whether it has an SDK 10, `usable` a dotnet behind it
-    /// that has one. Another dotnet ahead of a good one keeps the row from being ready, and Fix puts the good one in front.
-    nonisolated static func dotnetDep(first: String?, ok: Bool, usable: String?, home: String = NSHomeDirectory()) -> Dep {
-        let shadowed = ok ? nil : first
-        var detail = "dep.dotnet.missing", action = ""
-        if ok { detail = first ?? "" }
-        else if let shadowed, let usable { detail = "dep.dotnet.shadowed:\(shadowed):\(usable)"; action = "dep.xcode.fix" }
-        return Dep(id: "dotnet", name: "dep.dotnet", hint: "dep.dotnet.hint", present: ok, detail: detail, actionLabel: action,
-                   installCmd: dotnetInstallCommand(first: shadowed, home: home))
+    /// The dotnet the build runs and whether it has an SDK 10 (an SDK, not just a runtime: the extractor is built): the first
+    /// candidate that lists one, else the first that exists.
+    nonisolated static func findDotnet(_ cands: [String] = dotnetCandidates()) -> (path: String, ok: Bool) {
+        let found = cands.filter { firstExisting([$0]) != nil }
+        if let d = found.first(where: dotnetHasSDK10) { return (d, true) }
+        return (found.first ?? "dotnet", false)
     }
 
     /// Whether the selected developer directory exists (`xcode-select -p`), which is the same
@@ -2853,10 +2831,10 @@ final class BuildModel: ObservableObject {
                         brew: firstExisting(["/opt/homebrew/bin/brew", "/usr/local/bin/brew"]))
 
         let (dn, dnOK) = findDotnet()
-        let found = FileManager.default.isExecutableFile(atPath: dn)
-        // A good dotnet behind the one the build runs
-        let usable = found && !dnOK ? dotnetCandidates().drop { $0 != dn }.dropFirst().first { firstExisting([$0]) != nil && dotnetHasSDK10($0) } : nil
-        out.append(dotnetDep(first: found ? dn : nil, ok: dnOK, usable: usable))
+        out.append(Dep(id: "dotnet", name: "dep.dotnet", hint: "dep.dotnet.hint",
+                       present: dnOK, detail: dnOK ? dn : "dep.dotnet.missing",
+                       installCmd: ["/bin/bash", "-c",
+                         "curl -sSL https://dot.net/v1/dotnet-install.sh -o /tmp/di.sh && chmod +x /tmp/di.sh && /tmp/di.sh --channel 10.0 --install-dir $HOME/.dotnet"]))
 
         let (py, pyOK) = findPython()
         // A too-old interpreter is a different problem from a missing package: say which one it is,

@@ -1,0 +1,117 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Aaron Oliphant <108481670+oliphantaaron@users.noreply.github.com>
+Date: Sat, 31 Oct 2026 15:21:44 -0400
+Subject: [PATCH] NSP script: the first dotnet with an SDK 10 goes in front of
+ PATH
+
+TOOL_PATHS looks in /usr/local/share/dotnet before ~/.dotnet. On a Mac where an installer left an older .NET there (an Intel
+.NET 7, run under Rosetta) and dotnet-install.sh put .NET 10 into ~/.dotnet, every build ran the old one and stopped at
+nx_extract with NETSDK1045. dotnet_sdk10_first moves the directory of the first dotnet that lists an SDK 10 or newer in
+front, before configure_dotnet reads the runtime root from it. PATH stays as it is when the first dotnet has an SDK 10 or
+none has one, so nothing else changes order.
+
+Upstream-Status: pending
+Reason: An older .NET in /usr/local/share/dotnet comes before the .NET 10 in ~/.dotnet in TOOL_PATHS, and the build stops with NETSDK1045
+Issue: LNPANDY/NX2Apple#342
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+---
+ dm/tools/tests/test_nsp_dotnet.py | 42 +++++++++++++++++++++++++++++++
+ scripts/build_ipa_from_nsp.py     | 18 +++++++++++++
+ 2 files changed, 60 insertions(+)
+
+diff --git a/dm/tools/tests/test_nsp_dotnet.py b/dm/tools/tests/test_nsp_dotnet.py
+index f81a641..80cda9e 100644
+--- a/dm/tools/tests/test_nsp_dotnet.py
++++ b/dm/tools/tests/test_nsp_dotnet.py
+@@ -6,6 +6,7 @@ import os
+ from pathlib import Path
+ import subprocess
+ import sys
++import tempfile
+ import unittest
+ from unittest import mock
+ 
+@@ -67,4 +68,45 @@ class Dotnet(unittest.TestCase):
+                 self.assertNotIn('DOTNET_ROOT', os.environ)
+ 
+ 
++class Sdk10First(unittest.TestCase):
++    """An older .NET earlier on PATH (an installer's /usr/local/share/dotnet before ~/.dotnet) gives way to the first dotnet with an SDK 10."""
++    def setUp(self):
++        t = tempfile.TemporaryDirectory(); self.addCleanup(t.cleanup); self.tmp = Path(t.name)
++        self.tools = str(self.tmp / 'tools'); os.mkdir(self.tools)   # a PATH entry without dotnet
++
++    def dotnet(self, name, sdks, code=0):
++        d = self.tmp / name; d.mkdir()
++        (d / 'dotnet').write_text(f'#!/bin/sh\nprintf "{sdks}"\nexit {code}\n'); (d / 'dotnet').chmod(0o755)
++        return str(d)
++
++    def path_after(self, *dirs):
++        env = {'PATH': os.pathsep.join(dirs)}
++        with mock.patch.object(nsp, 'say') as say: nsp.dotnet_sdk10_first(env)
++        self.said = say.call_args
++        return env['PATH'].split(os.pathsep)
++
++    def test_older_sdk_in_front_gives_way(self):
++        old, home = self.dotnet('share', '7.0.402 [/s/sdk]\\n'), self.dotnet('home', '9.0.100 [/h/sdk]\\n10.0.403 [/h/sdk]\\n')
++        self.assertEqual(self.path_after(self.tools, old, home, '/usr/bin'), [home, self.tools, old, '/usr/bin'])
++        self.assertIn(old, self.said.args[0])
++
++    def test_preview_counts(self):
++        old, new = self.dotnet('share', '8.0.318 [/s/sdk]\\n'), self.dotnet('home', '11.0.100-preview.1 [/h/sdk]\\n')
++        self.assertEqual(self.path_after(old, new), [new, old])
++
++    def test_first_with_sdk10_keeps_the_order(self):
++        local, home = self.dotnet('local', '10.0.403 [/l/sdk]\\n'), self.dotnet('home', '10.0.100 [/h/sdk]\\n')
++        dirs = [self.tools, local, home]
++        self.assertEqual(self.path_after(*dirs), dirs)
++        self.assertIsNone(self.said)
++
++    def test_no_sdk10_keeps_the_order(self):
++        dirs = [self.dotnet('share', '7.0.402 [/s/sdk]\\n'), self.dotnet('home', '8.0.318 [/h/sdk]\\n9.0.100 [/h/sdk]\\n')]
++        self.assertEqual(self.path_after(*dirs), dirs)
++
++    def test_failing_dotnet_is_skipped(self):
++        broken, home = self.dotnet('broken', '', code=1), self.dotnet('home', '10.0.403 [/h/sdk]\\n')
++        self.assertEqual(self.path_after(broken, home, broken), [home, broken, broken])
++
++
+ if __name__ == '__main__': unittest.main()
+diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
+index a287425..18392e4 100755
+--- a/scripts/build_ipa_from_nsp.py
++++ b/scripts/build_ipa_from_nsp.py
+@@ -417,6 +417,23 @@ def configure_dotnet(env):
+             return
+ 
+ 
++def dotnet_sdk10_first(env):
++    """Put the first dotnet on PATH that lists an SDK 10 or newer in front. TOOL_PATHS looks in /usr/local/share/dotnet before ~/.dotnet, so an
++    older .NET left there by an installer would build nx_extract and stop with NETSDK1045 while the .NET 10 of dotnet-install.sh sits in ~/.dotnet.
++    PATH stays as it is when the first dotnet has an SDK 10 or none has one."""
++    dirs = env['PATH'].split(os.pathsep)
++    found = list(dict.fromkeys(d for d in dirs if d and shutil.which('dotnet', path=d)))
++    for i, d in enumerate(found):
++        try:
++            out = subprocess.run([shutil.which('dotnet', path=d), '--list-sdks'], env=env, capture_output=True, text=True, timeout=30).stdout
++        except (OSError, subprocess.SubprocessError): continue
++        if any(int(v) >= 10 for v in re.findall(r'^(\d+)\.', out, re.M)):
++            if i:
++                env['PATH'] = os.pathsep.join([d] + [x for x in dirs if x != d])
++                say(f'dotnet: {d}, the first with an SDK 10 ({found[0]} comes before it and has none)')
++            return
++
++
+ # ---- NSP identification ----
+ def pfs0_names(path):   # NSP = PFS0: list the file names inside
+     with open(path, 'rb') as f:
+@@ -2368,6 +2385,7 @@ def main(args=None):
+     # who wants telemetry on keeps it.
+     env.setdefault('DOTNET_CLI_TELEMETRY_OPTOUT', '1')
+     env.setdefault('DOTNET_NOLOGO', '1')
++    dotnet_sdk10_first(env)   # before configure_dotnet, which takes the runtime root from the dotnet PATH finds first
+     configure_dotnet(env)
+     xlate_bin = repo / 'dm/gfx/tools/dmsh_xlate_bin/dmsh_xlate'   # the fork's check of the root configure_dotnet chose (fork commit d0ed53df; the fork patch nsp-dotnet-root-verify)
+     def xlate_answers(root):
