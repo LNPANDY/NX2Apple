@@ -84,7 +84,8 @@ final class LauncherDropdownTests: XCTestCase {
                     Text(L10n.string("settings.language.system", .de)).font(.manrope(12.5)).foregroundStyle(.secondary)
                 }
                 Spacer()
-                LauncherDropdown(options: options, selection: "", label: "Sprache", style: .button, minWidth: 150) { _ in }
+                LauncherDropdown(options: options, selection: "", label: "Sprache", style: .button) { _ in }
+                    .launcherRowControls()
             }
             .padding(.horizontal, 18).padding(.vertical, 13)
             .background(LauncherPalette.surface.opacity(0.75), in: RoundedRectangle(cornerRadius: 14))

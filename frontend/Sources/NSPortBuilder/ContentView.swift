@@ -3061,8 +3061,8 @@ struct BuilderView: View {
     }
 
     /// One line of a card: a status dot (its place kept when there is none, so every title starts on one line),
-    /// the title (with a disclosure chevron beside it when `open` is given), a secondary detail, and its controls,
-    /// whose right edges line up across the card.
+    /// the title (with a disclosure chevron beside it when `open` is given), a secondary detail, and its controls.
+    /// Its buttons and dropdowns are all LauncherControl.width wide, so they line up in one column across the cards.
     private func row<Trailing: View>(_ title: String, detail: String = "", dot: Color? = nil, help: String = "", open: Bool? = nil,
                                      @ViewBuilder trailing: () -> Trailing) -> some View {
         HStack(spacing: 12) {
@@ -3088,7 +3088,7 @@ struct BuilderView: View {
                 }
             }
             Spacer(minLength: 12)
-            trailing()
+            trailing().launcherRowControls()
         }
         .padding(.horizontal, 18).padding(.vertical, 13)
         .frame(minHeight: 52)
@@ -3167,6 +3167,7 @@ struct BuilderView: View {
                     Text(m.t(m.gameDir.isEmpty ? "data.choose" : "data.change"))
                         .font(.manrope(13, .semibold)).foregroundStyle(.black)
                         .padding(.horizontal, 16).padding(.vertical, 8)
+                        .launcherRowControlFrame()
                         .background(LauncherPalette.cream, in: Capsule())
                 }
                 .contentShape(Rectangle())
@@ -3422,14 +3423,9 @@ struct BuilderView: View {
 
     // ---- Settings ----
 
-    /// Every button of the Settings cards is this wide, so they stand in one column.
-    static let settingsButtonWidth: CGFloat = 150
-    /// The language picker is wider: "Systemsprache" does not fit the button width.
-    static let settingsPickerWidth: CGFloat = 180
-
     @ViewBuilder private var settingsPage: some View {
         pageHeading(m.t("settings.heading"), note: m.t("settings.note"))
-        settingsCards.buttonStyle(LauncherSecondaryButtonStyle(minWidth: Self.settingsButtonWidth))
+        settingsCards
     }
 
     @ViewBuilder private var settingsCards: some View {
@@ -3473,11 +3469,11 @@ struct BuilderView: View {
             row(m.t("settings.language"),
                 detail: Lang.saved.map { m.t("settings.language.\($0.rawValue)") }
                     ?? m.t("settings.language.system"), dot: LauncherPalette.ready, help: "") {
-                // The launcher's own list, drawn like the buttons beside it and as wide as its label needs.
+                // The launcher's own list, drawn like the buttons beside it and as wide as they are.
                 // The language names are in their own language (see "settings.language.*"), only "system" follows the UI.
                 LauncherDropdown(options: Self.languageCodes.map { (value: $0, label: m.t("settings.language." + ($0.isEmpty ? "system" : $0))) },
                                  selection: Lang.saved.map { $0.rawValue } ?? "", label: m.t("settings.language"),
-                                 style: .button, minWidth: Self.settingsPickerWidth) { v in
+                                 style: .button) { v in
                     Lang.saved = v.isEmpty ? nil : Lang(rawValue: v)
                     m.lang = Lang.initial()
                 }
@@ -3639,7 +3635,7 @@ struct BuilderView: View {
                 }
             }
             divider
-            row(m.t("diag.title"), detail: m.t("diag.note")) { DiagnosticsButton(m: m, game: library.selected, width: Self.settingsButtonWidth) }
+            row(m.t("diag.title"), detail: m.t("diag.note")) { DiagnosticsButton(m: m, game: library.selected) }
         }
     }
 

@@ -215,7 +215,8 @@ struct LauncherDropdownList: View {
 
 /// The launcher's dropdown: a button with the current choice that opens a list drawn in the app's own style
 /// (its dark surface, Manrope, a checkmark on the chosen row). It never cuts the label short unless it is given
-/// `fill` (the width of its container). With `minWidth` it is at least that wide and grows with its label.
+/// `fill` (the width of its container). Inside a setting row it is exactly LauncherControl.width wide, its choice at
+/// the left and the chevron at the right, the choice a little smaller when it does not fit.
 /// `label` names the setting for VoiceOver, which then reads the choice as the value.
 struct LauncherDropdown: View {
     let options: [(value: String, label: String)]
@@ -223,7 +224,6 @@ struct LauncherDropdown: View {
     var label = ""
     var style: LauncherDropdownStyle = .pill
     var fill = false
-    var minWidth: CGFloat?
     let choose: (String) -> Void
     @Environment(\.launcherDropdownHost) private var host
     @State private var id = UUID()
@@ -238,20 +238,21 @@ struct LauncherDropdown: View {
 
     fileprivate var current: String { options.first { $0.value == selection }?.label ?? selection }
 
-    fileprivate func face(open: Bool) -> some View {
+    fileprivate func face(open: Bool, rowWidth: CGFloat?) -> some View {
         let rounded = style == .button
         let shape = RoundedRectangle(cornerRadius: rounded ? 9 : 99)
+        let width = fill ? nil : rowWidth
         return HStack(spacing: 8) {
             Text(current).font(.manrope(rounded ? 13 : 12.5, .semibold)).lineLimit(1)
-                .fixedSize(horizontal: !fill, vertical: false)
-            if fill || minWidth != nil { Spacer(minLength: 0) }
+                .minimumScaleFactor(width == nil ? 1 : 0.85)
+                .fixedSize(horizontal: !fill && width == nil, vertical: false)
+            if fill || width != nil { Spacer(minLength: 0) }
             Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
                 .rotationEffect(.degrees(open ? 180 : 0))
         }
         .padding(.horizontal, rounded ? 15 : 14).padding(.vertical, rounded ? 9 : 7)
-        .frame(minWidth: minWidth)
+        .frame(width: width)
         .frame(maxWidth: fill ? .infinity : nil)
-        .fixedSize(horizontal: !fill && minWidth != nil, vertical: false)
         .background(Color.white.opacity(open ? 0.13 : (rounded ? 0.055 : 0.06)), in: shape)
         .overlay(shape.strokeBorder(Color.white.opacity(open ? 0.18 : 0.10)))
         .foregroundStyle(Color.white.opacity(0.92))
@@ -266,6 +267,7 @@ struct LauncherDropdown: View {
         @ObservedObject var host: LauncherDropdownState
         let dropdown: LauncherDropdown
         @Environment(\.isEnabled) private var enabled
+        @Environment(\.launcherControlWidth) private var rowWidth
         var body: some View {
             let open = host.request?.id == dropdown.id
             dropdown.accessible(
@@ -274,7 +276,7 @@ struct LauncherDropdown: View {
                         host.request = open ? nil : LauncherDropdownRequest(id: dropdown.id, options: dropdown.options, selection: dropdown.selection,
                                                                             label: dropdown.label, choose: dropdown.choose)
                     }
-                } label: { dropdown.face(open: open) }
+                } label: { dropdown.face(open: open, rowWidth: rowWidth) }
                 .buttonStyle(.plain)
                 .opacity(enabled ? 1 : 0.55)
                 .anchorPreference(key: LauncherDropdownAnchorKey.self, value: .bounds) { [dropdown.id: $0] }
@@ -287,9 +289,10 @@ struct LauncherDropdown: View {
         let dropdown: LauncherDropdown
         @State private var open = false
         @Environment(\.isEnabled) private var enabled
+        @Environment(\.launcherControlWidth) private var rowWidth
         var body: some View {
             dropdown.accessible(
-                Button { open.toggle() } label: { dropdown.face(open: open) }
+                Button { open.toggle() } label: { dropdown.face(open: open, rowWidth: rowWidth) }
                     .buttonStyle(.plain)
                     .opacity(enabled ? 1 : 0.55)
                     .popover(isPresented: $open, arrowEdge: .bottom) {
