@@ -35,8 +35,8 @@ permissions:
   contents: write
 
 jobs:
-  # The app icon is AppIcon.icon (Icon Composer). Its refractivity setting needs the actool of Xcode 27: the one on macos-latest (Xcode 26.6)
-  # crashes on it. So actool runs on the xcode-27 runner, as in tests.yml, and the build job takes the two files it writes. Assets.car is
+  # The app icon is AppIcon.icon (Icon Composer). The actool of Xcode 26.6 (the default on macos-latest) throws an exception on it, the one of
+  # Xcode 27.1 compiles it. So actool runs on the xcode-27 runner, as in tests.yml, and the build job takes the two files it writes. Assets.car is
   # the icon for macOS 26 and later (Liquid Glass), AppIcon.icns the one for macOS 13 to 25.
   icon:
     runs-on: xcode-27
