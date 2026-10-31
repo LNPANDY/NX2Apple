@@ -110,12 +110,27 @@ def head(eng):
     return r.stdout.strip() if r.returncode == 0 else ''
 
 
-def local_work(eng, st):
+SYNC_COMMITTERS = ('patches@localhost', 'engine@localhost')   # `git am` in patches.py and the generated-files commit above
+
+
+def made_by_sync(eng, h, pins):
+    """True when the commits from HEAD down to a pin were all committed by sync itself: what a sync that failed halfway
+    (older versions did not roll back) leaves behind. A commit made by a person has another committer."""
+    pins = {p for p in pins if p}
+    n = 0
+    while h not in pins:
+        r = git('log', '-1', '--format=%P%n%ce', h, cwd=eng, check=False).stdout.split('\n')
+        if len(r) < 2 or len(r[0].split()) != 1 or r[1] not in SYNC_COMMITTERS: return False
+        h, n = r[0], n + 1
+    return n > 0
+
+
+def local_work(eng, st, pins=()):
     """What sync would throw away: commits after the last sync, and changes to tracked or new files (ignored build products
     such as dm/host/gen are not work and survive a sync)."""
     out = []
     h = head(eng)
-    if st.get('head') and h and h != st['head']:
+    if st.get('head') and h and h != st['head'] and not made_by_sync(eng, h, pins):
         n = git('rev-list', '--count', f'{st["head"]}..{h}', cwd=eng, check=False).stdout.strip() or '?'
         out.append(f'{n} commit(s) after the last sync (HEAD {h[:12]})')
     dirty = git('status', '--porcelain', cwd=eng, check=False).stdout.splitlines()
@@ -188,6 +203,12 @@ def build(root, eng, patches, sha):
     return applied, landed
 
 
+def restore(eng, rev, branch):
+    git('am', '--abort', cwd=eng, check=False)
+    git('checkout', '--quiet', '--force', '-B', BRANCH, rev, cwd=eng)
+    if branch and branch != BRANCH: git('checkout', '--quiet', '--force', branch, cwd=eng)
+
+
 def cmd_sync(a):
     root = a.root
     eng = engine_dir(root)
@@ -198,7 +219,7 @@ def cmd_sync(a):
     patches = P.load(root)
     ensure_repo(eng)
     st = read_stamp(eng)
-    work = local_work(eng, st) if head(eng) else []
+    work = local_work(eng, st, (pin(root), st.get('pin'))) if head(eng) else []
     if work and st and not a.force:
         raise Fail('engine/ has work a sync would throw away: ' + '; '.join(work) + '.\n'
                    '  Turn commits into patches with `python3 tools/engine.py export`, then sync. Or keep them on a branch and '
@@ -211,7 +232,13 @@ def cmd_sync(a):
     sha = pin(root)
     got = fetch(eng, sha)
     say(f'engine: building {sha[:12]} + {len(patches)} patches ({reason or "forced"}; upstream commit {got})')
-    applied, _ = build(root, eng, patches, sha)
+    before = head(eng)
+    branch = git('symbolic-ref', '--quiet', '--short', 'HEAD', cwd=eng, check=False).stdout.strip()
+    try:
+        applied, _ = build(root, eng, patches, sha)
+    except Fail:
+        if before: restore(eng, before, branch)    # a failed sync leaves engine/ as it was: the next sync must not see commits nobody made
+        raise
     write_stamp(eng, root, head(eng))
     say(f'engine: ready, {len(applied)} patches on upstream {sha[:12]} in {eng}')
     return 0
