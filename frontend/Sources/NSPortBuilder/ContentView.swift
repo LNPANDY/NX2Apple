@@ -88,6 +88,127 @@ struct Slot: Identifiable {
     }
 }
 
+// MARK: - Extended virtual addressing
+
+/// Opt-in iOS alias region for a game whose default alias fragments before a large aligned allocation.
+/// Off keeps the profile's `mem_alias` and writes nothing. On writes `DM_ALIAS_SIZE` and an entitlements
+/// plist the existing `DM_ENTITLEMENTS` / `--env-file` plumbing already consumes. `app_pool` is never touched.
+enum ExtendedVA {
+    static let entitlement = "com.apple.developer.kernel.extended-virtual-addressing"
+    static let increasedMemory = "com.apple.developer.kernel.increased-memory-limit"
+    static let defaultSize: UInt64 = 0x4_0000_0000   // 16 GB, the size that fits a fragmented iPad alias
+    static let minimum: UInt64 = 0x1000_0000        // 256 MB, the host's own floor
+    static let maximum: UInt64 = 0x1_0000_0000_0    // 64 GB, a Switch-sized alias
+    static let page: UInt64 = 0x4000                // 16 KB, the iOS page this option aligns to
+
+    enum SizeError: Error, Equatable { case empty, nonHex, unaligned, belowMinimum, overSupported }
+
+    struct Plan: Equatable {
+        var envBody: String?
+        var entitlements: String?
+        var alias: UInt64
+        var usesProfileAlias: Bool
+        var blockedForPersonalTeam: Bool
+    }
+
+    struct Saved: Equatable {
+        var enabled: Bool
+        var sizeText: String
+
+        /// `"on\t0x…"` or `"off\t0x…"`. Anything else is no saved choice.
+        static func decode(_ raw: String?) -> Saved? {
+            guard let raw else { return nil }
+            let parts = raw.split(separator: "\t", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
+            guard parts.count == 2, parts[0] == "on" || parts[0] == "off", !parts[1].isEmpty else { return nil }
+            return Saved(enabled: parts[0] == "on", sizeText: parts[1])
+        }
+    }
+
+    struct Choice: Equatable {
+        var enabled: Bool
+        var sizeText: String
+    }
+
+    static func format(_ value: UInt64) -> String { String(format: "0x%llx", value) }
+
+    /// Bare hex or `0x` hex. Overflow and any other spelling are nil. Decimal is not accepted.
+    static func parseHex(_ text: String) -> UInt64? {
+        var body = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if body.lowercased().hasPrefix("0x") { body = String(body.dropFirst(2)) }
+        guard !body.isEmpty, body.allSatisfy(\.isHexDigit) else { return nil }
+        return UInt64(body, radix: 16)
+    }
+
+    static func parseSize(_ text: String) -> Result<UInt64, SizeError> {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty || trimmed.lowercased() == "0x" { return .failure(.empty) }
+        guard let value = parseHex(trimmed) else { return .failure(.nonHex) }
+        if value % page != 0 { return .failure(.unaligned) }
+        if value < minimum { return .failure(.belowMinimum) }
+        if value > maximum { return .failure(.overSupported) }
+        return .success(value)
+    }
+
+    /// A saved choice wins. Otherwise a profile `extended_va` preselects the checkbox and its size (16 GB when the
+    /// profile says on without a size). Off keeps the on-size ready for the next tick and does not copy `mem_alias` over it.
+    static func choice(saved: Saved?, profile: LaunchSetting.MemoryProfile) -> Choice {
+        if let saved { return Choice(enabled: saved.enabled, sizeText: saved.sizeText) }
+        if profile.extendedVA {
+            return Choice(enabled: true, sizeText: profile.extendedSize.map(format) ?? format(defaultSize))
+        }
+        return Choice(enabled: false, sizeText: format(defaultSize))
+    }
+
+    static func entitlementsPlist() -> String {
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+            + "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n"
+            + "<plist version=\"1.0\">\n<dict>\n"
+            + "\t<key>\(increasedMemory)</key>\n\t<true/>\n"
+            + "\t<key>\(entitlement)</key>\n\t<true/>\n"
+            + "</dict>\n</plist>\n"
+    }
+
+    /// `personalTeam` is a direct install with a free team: the entitlement cannot be kept, so the build stays on the
+    /// profile alias. A Mac build writes neither line. An iOS build with the option off writes only the BC line, when that is on.
+    static func plan(ios: Bool, bcOnCPU: Bool, enabled: Bool, personalTeam: Bool, sizeText: String, profileAlias: UInt64?) -> Result<Plan, SizeError> {
+        let profile = profileAlias ?? 0
+        let bc = bcOnCPU ? "DM_TEX_BC_CPU=1\n" : ""
+        if !ios {
+            return .success(Plan(envBody: nil, entitlements: nil, alias: profile, usesProfileAlias: true, blockedForPersonalTeam: false))
+        }
+        if !enabled || personalTeam {
+            return .success(Plan(envBody: bc.isEmpty ? nil : bc, entitlements: nil, alias: profile,
+                                  usesProfileAlias: true, blockedForPersonalTeam: personalTeam && enabled))
+        }
+        switch parseSize(sizeText) {
+        case .failure(let error): return .failure(error)
+        case .success(let size):
+            let body = bc + "DM_ALIAS_SIZE=\(format(size))\n"
+            return .success(Plan(envBody: body, entitlements: entitlementsPlist(), alias: size,
+                                  usesProfileAlias: false, blockedForPersonalTeam: false))
+        }
+    }
+
+    /// `--env-file` only when there is a body, `DM_ENTITLEMENTS` only when a plist was built. An empty plan leaves both alone.
+    static func apply(args: inout [String], environment: inout [String: String], plan: Plan, envPath: String, plistPath: String) {
+        if plan.envBody != nil { args += ["--env-file", envPath] }
+        if plan.entitlements != nil { environment["DM_ENTITLEMENTS"] = plistPath }
+    }
+
+    /// The signature must carry the entitlement. A provisioning dump, when the app has one, must carry it too.
+    /// An empty dump is present and lacks the key, so an unreadable profile fails closed.
+    static func entitlementDropped(signature: String, provision: String?) -> Bool {
+        if !signature.contains(entitlement) { return true }
+        if let provision, !provision.contains(entitlement) { return true }
+        return false
+    }
+
+    /// The pack script's own stop, not every log that merely omits the key.
+    static func logReportsDroppedEntitlement(_ log: String) -> Bool {
+        log.contains("dropped " + entitlement)
+    }
+}
+
 // MARK: - Model
 
 final class BuildModel: ObservableObject {
@@ -133,6 +254,21 @@ final class BuildModel: ObservableObject {
     /// which the host reads at start-up — no rebuild of the host needed.
     @Published var bcOnCPU = UserDefaults.standard.bool(forKey: "bcOnCPU") {
         didSet { UserDefaults.standard.set(bcOnCPU, forKey: "bcOnCPU") }
+    }
+    /// Per game, and only after the player changes it. A profile `extended_va` preselects it until then.
+    /// Off uses the profile's mem_alias. On asks for the size below (16 GB unless the profile names one).
+    @Published var extendedVA = false
+    @Published var extendedVASize = ExtendedVA.format(ExtendedVA.defaultSize)
+    /// The profile's mem_alias for the loaded game. The build does not write it: the host reads the profile.
+    var extendedVAProfileAlias: UInt64?
+    private var extendedVALoadedTitle: String?
+    /// This build wrote the extended-virtual-addressing entitlement, so the signed app has to still carry it.
+    private var extendedVARequested = false
+
+    /// A direct install with a personal team cannot keep the entitlement. An IPA export stays available.
+    var extendedVABlocked: Bool {
+        guard installsDirectly, let team = teams.first(where: { $0.id == signingTeam }) else { return false }
+        return !team.allowsExtendedVirtualAddressing
     }
     @Published var archivePath = ""  // the romfs folder the pack wrote
     /// Where this build's folder actually is: --work-dir when the checkout has it, else the script's
@@ -983,6 +1119,37 @@ final class BuildModel: ObservableObject {
         if !found.anyGame {
             updateSlot("base") { $0.problem = "data.noNsp" }
         }
+        syncExtendedVAFromBase()
+    }
+
+    /// Load this game's extended-virtual-addressing choice: a saved toggle, else the profile's `extended_va`.
+    /// The same title is left as the player set it. An empty title clears the checkbox and is not stored.
+    func syncExtendedVAFromBase() {
+        let tid = Self.titleID(basePath).map { String(format: "%016llX", $0) } ?? ""
+        syncExtendedVA(titleID: tid)
+    }
+
+    func syncExtendedVA(titleID: String) {
+        guard titleID != extendedVALoadedTitle else { return }
+        extendedVALoadedTitle = titleID
+        guard !titleID.isEmpty else { extendedVA = false; extendedVAProfileAlias = nil; return }
+        let profile = LaunchSetting.memoryProfile(titleID: titleID, repo: repoPath)
+        extendedVAProfileAlias = profile.memAlias
+        let choice = ExtendedVA.choice(saved: Self.savedExtendedVA(titleID), profile: profile)
+        extendedVA = choice.enabled
+        extendedVASize = choice.sizeText
+    }
+
+    /// Remember the toggle and the size for this title only. A later sync of the same title keeps the edit.
+    func persistExtendedVA() {
+        let tid = Self.titleID(basePath).map { String(format: "%016llX", $0) } ?? ""
+        guard !tid.isEmpty else { return }
+        UserDefaults.standard.set((extendedVA ? "on" : "off") + "\t" + extendedVASize, forKey: "extendedVA." + tid)
+        extendedVALoadedTitle = tid
+    }
+
+    private static func savedExtendedVA(_ titleID: String) -> ExtendedVA.Saved? {
+        ExtendedVA.Saved.decode(UserDefaults.standard.string(forKey: "extendedVA." + titleID))
     }
 
     /// What a set of files holds for the four slots (`classify`).
@@ -1191,6 +1358,7 @@ final class BuildModel: ObservableObject {
         stopping = false
         running = true; done = false; doneNote = ""; stages = []; logTail = ""; lineBuf = ""; chainNoteShown = false
         failure = nil; confirmingOverride = nil
+        extendedVARequested = false
         let override = takeOverrideFlag()   // for this build only: the next one asks again
         installedOn = ""; installedAppPath = ""; bundleID = ""
         guard repoOK else {
@@ -1297,18 +1465,42 @@ final class BuildModel: ObservableObject {
         let engine = EngineLayout.root(repoPath)   // the checkout's engine/ (#214)
         var args = [engine + "/" + Self.buildScript, inputDir, "-k", keysPath,
                     "--progress", "json"]
-        // A compatibility switch the player turned on: written to a small env file the pipeline
-        // copies into the app bundle (main.m sets one variable per line at boot). Only for an IPA;
-        // a Mac app runs on this Mac's GPU, which always has BC support.
-        if bcOnCPU && target != "mac-app" {
+        // BC and extended virtual addressing share one env file (main.m sets one variable per line).
+        // Off, with BC off, adds nothing: the args stay the ones above. A Mac build adds nothing either.
+        syncExtendedVAFromBase()
+        let aliasProfile = LaunchSetting.memoryProfile(titleID: Self.titleID(basePath).map { String(format: "%016llX", $0) } ?? "", repo: repoPath)
+        var evaEnvironment: [String: String] = [:]
+        switch ExtendedVA.plan(ios: target != "mac-app", bcOnCPU: bcOnCPU, enabled: extendedVA,
+                                personalTeam: extendedVABlocked, sizeText: extendedVASize, profileAlias: aliasProfile.memAlias) {
+        case .failure:
+            fail(t("opt.eva.badSize"))
+            return
+        case .success(var plan):
             let envPath = NSTemporaryDirectory() + "nspb-env-\(UUID().uuidString.prefix(8)).txt"
-            do {
-                try "DM_TEX_BC_CPU=1\n".write(toFile: envPath, atomically: true, encoding: .utf8)
-                args += ["--env-file", envPath]
-                say(t("msg.bcOn"))
-            } catch {
-                say(String(format: t("msg.bcEnvFailed"), error.localizedDescription))
+            let plistPath = NSTemporaryDirectory() + "nspb-ent-\(UUID().uuidString.prefix(8)).plist"
+            if let body = plan.envBody {
+                do {
+                    try body.write(toFile: envPath, atomically: true, encoding: .utf8)
+                    if body.contains("DM_TEX_BC_CPU") { say(t("msg.bcOn")) }
+                    if body.contains("DM_ALIAS_SIZE") { say(String(format: t("msg.evaOn"), ExtendedVA.format(plan.alias))) }
+                } catch {
+                    // The entitlement was requested: stopping is safer than a build that asks for 16 GB and cannot sign it.
+                    // BC alone still warns and continues, as it always did.
+                    if plan.entitlements != nil { fail(error.localizedDescription); return }
+                    say(String(format: t("msg.bcEnvFailed"), error.localizedDescription))
+                    plan.envBody = nil
+                }
             }
+            if let xml = plan.entitlements {
+                do {
+                    try xml.write(toFile: plistPath, atomically: true, encoding: .utf8)
+                    extendedVARequested = true
+                } catch {
+                    fail(error.localizedDescription)
+                    return
+                }
+            }
+            ExtendedVA.apply(args: &args, environment: &evaEnvironment, plan: plan, envPath: envPath, plistPath: plistPath)
         }
         if hasWorkDir { args += ["--work-dir", workDir] }
         let macApp = target == "mac-app"
@@ -1354,6 +1546,7 @@ final class BuildModel: ObservableObject {
         // The bundled Python lives inside the signed app: a .pyc written there would change what the signature seals
         // (the packages are compiled at bundle time), and a user site must not shadow its pinned packages.
         denv.merge(BundledTools.environment(for: py)) { $1 }
+        denv.merge(evaEnvironment) { $1 }
         p.environment = denv
         Self.inOwnGroup(p, python: py)
         let pipe = Pipe()
@@ -1433,6 +1626,12 @@ final class BuildModel: ObservableObject {
     /// A failed build's log read for the script's known early stops: the card under the build button then says what
     /// happened and what to do. An unknown stop leaves the note (the last line of the log) as it is.
     func noteFailure() {
+        // The pack script names the entitlement when a signature drops it. That note replaces the raw last line.
+        if ExtendedVA.logReportsDroppedEntitlement(logTail) {
+            failure = nil
+            doneNote = t("opt.eva.dropped")
+            return
+        }
         let f = BuildFailureClassifier.classify(logTail, inputs: failureInputs())
         guard f.kind != .unknown else { failure = nil; return }
         failure = f
@@ -2048,7 +2247,7 @@ final class BuildModel: ObservableObject {
                                 self.finishInstall(String(format: self.t("dev.signFailed"), retryError))
                                 self.noteInstallFailure(.sign, error: retryError)
                             } else {
-                                self.installBuiltApp(app: derived + "/Build/Products/Release-iphoneos/DmIOS.app", archive: archive, device: device, xcrun: xcrun)
+                                self.installIfEntitlementKept(derived: derived, archive: archive, device: device, xcrun: xcrun)
                             }
                         }
                         return
@@ -2057,11 +2256,58 @@ final class BuildModel: ObservableObject {
                         self.finishInstall(String(format: self.t("dev.signFailed"), firstError))
                         self.noteInstallFailure(.sign, error: firstError)
                     } else {
-                        self.installBuiltApp(app: derived + "/Build/Products/Release-iphoneos/DmIOS.app", archive: archive, device: device, xcrun: xcrun)
+                        self.installIfEntitlementKept(derived: derived, archive: archive, device: device, xcrun: xcrun)
                     }
                 }
             }
         }
+    }
+
+    /// After xcodebuild, before install: a build that asked for extended virtual addressing must still be signed with it.
+    private func installIfEntitlementKept(derived: String, archive: String, device: String, xcrun: String) {
+        let app = derived + "/Build/Products/Release-iphoneos/DmIOS.app"
+        if let why = extendedVARetentionFailure(app: app) {
+            finishInstall(why)
+            return
+        }
+        installBuiltApp(app: app, archive: archive, device: device, xcrun: xcrun)
+    }
+
+    /// nil unless this build wrote the entitlement and the signed app or its profile no longer has it.
+    private func extendedVARetentionFailure(app: String) -> String? {
+        guard extendedVARequested else { return nil }
+        let signature = Self.codesignEntitlements(app)
+        let provision = Self.provisionDump(app)
+        guard ExtendedVA.entitlementDropped(signature: signature, provision: provision) else { return nil }
+        return t("opt.eva.dropped")
+    }
+
+    private static func codesignEntitlements(_ path: String) -> String {
+        let p = Process(), out = Pipe(), err = Pipe()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
+        p.arguments = ["-d", "--entitlements", ":-", path]
+        p.standardOutput = out
+        p.standardError = err
+        guard (try? p.run()) != nil else { return "" }
+        let data = out.fileHandleForReading.readDataToEndOfFile() + err.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    /// nil when the app has no embedded profile. An unreadable profile is an empty dump, so the check fails closed.
+    private static func provisionDump(_ app: String) -> String? {
+        let profile = app + "/" + AppSignature.profileName
+        guard FileManager.default.fileExists(atPath: profile) else { return nil }
+        let p = Process(), out = Pipe()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/security")
+        p.arguments = ["cms", "-D", "-i", profile]
+        p.standardOutput = out
+        p.standardError = FileHandle.nullDevice
+        guard (try? p.run()) != nil else { return "" }
+        let data = out.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        guard p.terminationStatus == 0 else { return "" }
+        return String(decoding: data, as: UTF8.self)
     }
 
     private func finishInstall(_ failure: String?, note: String? = nil) {
@@ -3289,12 +3535,67 @@ struct BuilderView: View {
                         Toggle("", isOn: $m.bcOnCPU).toggleStyle(LauncherSwitchStyle()).labelsHidden().disabled(m.running)
                     }
                     .padding(.horizontal, 18).padding(.vertical, 14)
+                    divider
+                    extendedAddressing
                 }
                 .background(LauncherPalette.surface.opacity(0.75), in: RoundedRectangle(cornerRadius: 14))
                 .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.white.opacity(0.06)))
                 .padding(.top, 4)
+                .onAppear { m.syncExtendedVAFromBase() }
+                .onChange(of: m.basePath) { _ in m.syncExtendedVAFromBase() }
             }
         }
+    }
+
+    /// iOS only. The checkbox is per game. A personal team on a direct install looks off and stays disabled,
+    /// without forgetting a choice that a paid team or an IPA export can still use.
+    private var extendedAddressing: some View {
+        let shown = m.extendedVA && !m.extendedVABlocked
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(m.t("opt.eva")).font(.manrope(14))
+                    Text(m.t("opt.eva.note")).font(.manrope(12.5)).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 12)
+                Toggle("", isOn: Binding(
+                    get: { m.extendedVA && !m.extendedVABlocked },
+                    set: { value in
+                        guard !m.extendedVABlocked else { return }
+                        m.extendedVA = value
+                        m.persistExtendedVA()
+                    }
+                )).toggleStyle(LauncherSwitchStyle()).labelsHidden().disabled(m.running || m.extendedVABlocked)
+            }
+            if shown {
+                HStack(spacing: 12) {
+                    Text(m.t("opt.eva.size")).font(.manrope(13)).foregroundStyle(.secondary)
+                    TextField(m.t("opt.eva.size"), text: Binding(
+                        get: { m.extendedVASize },
+                        set: { m.extendedVASize = $0; m.persistExtendedVA() }
+                    ))
+                    .textFieldStyle(.roundedBorder)
+                    .font(.mono(13))
+                    .frame(maxWidth: 180)
+                    .disabled(m.running)
+                }
+                Text(m.t("opt.eva.sizeNote")).font(.manrope(12.5)).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if case .failure = ExtendedVA.parseSize(m.extendedVASize) {
+                    Text(m.t("opt.eva.badSize")).font(.manrope(12.5)).foregroundStyle(LauncherPalette.building)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            if m.extendedVABlocked {
+                Text(m.t("opt.eva.free")).font(.manrope(12.5)).foregroundStyle(LauncherPalette.building)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if shown && m.installDevice.isEmpty {
+                Text(m.t("opt.eva.sideload")).font(.manrope(12.5)).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.horizontal, 18).padding(.vertical, 14)
     }
 
     private func targetCard(_ value: String, symbol: String, title: String, note: String) -> some View {

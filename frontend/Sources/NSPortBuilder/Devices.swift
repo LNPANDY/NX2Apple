@@ -20,6 +20,9 @@ struct SigningTeam: Identifiable, Equatable {
 
     var hasCertificate: Bool { !identity.isEmpty }
 
+    /// A free Apple ID cannot keep com.apple.developer.kernel.extended-virtual-addressing. A paid team can.
+    var allowsExtendedVirtualAddressing: Bool { !personal }
+
     /// The name in the team menu: the team name (or the certificate holder's), "Personal team" for a free one, and the ID.
     func label(personalTeam: String) -> String {
         var holder = name

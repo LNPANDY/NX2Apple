@@ -140,6 +140,49 @@ struct LaunchSetting: Decodable, Identifiable {
         return list
     }
 
+    /// `mem_alias` and the launcher-only `extended_va` opt-in from the game's profile. The host ignores `extended_va`.
+    struct MemoryProfile: Equatable {
+        var memAlias: UInt64?
+        /// Preselect the build checkbox. A size that fails validation still counts as on, at the 16 GB default.
+        var extendedVA = false
+        /// A validated hex size from `extended_va`. Nil means "on" with no size of its own.
+        var extendedSize: UInt64?
+    }
+
+    /// The same game.tsv `renderBase` reads. Missing file, empty repo: no alias and not opted in.
+    static func memoryProfile(titleID: String, repo: String) -> MemoryProfile {
+        let path = EngineLayout.root(repo) + "/dm/games/" + titleID + "/game.tsv"
+        guard !titleID.isEmpty, !repo.isEmpty, let text = try? String(contentsOfFile: path, encoding: .utf8) else { return MemoryProfile() }
+        return memoryProfile(in: text)
+    }
+
+    /// `mem_alias` is raw hex with no size cap (the off-state alias). `extended_va` is off / on / a validated size.
+    static func memoryProfile(in text: String) -> MemoryProfile {
+        var profile = MemoryProfile()
+        var extended: String?
+        for raw in text.split(separator: "\n", omittingEmptySubsequences: false) {
+            let line = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            if line.isEmpty || line.hasPrefix("#") { continue }
+            let parts = line.split(separator: "\t", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
+            guard parts.count == 2 else { continue }
+            let key = parts[0].trimmingCharacters(in: .whitespaces)
+            let value = parts[1].trimmingCharacters(in: .whitespaces)
+            if key == "mem_alias" { profile.memAlias = ExtendedVA.parseHex(value) }
+            if key == "extended_va" { extended = value }
+        }
+        guard let extended else { return profile }
+        switch extended.lowercased() {
+        case "", "off", "0", "no", "false":
+            profile.extendedVA = false
+        case "on", "1", "yes", "true":
+            profile.extendedVA = true
+        default:
+            profile.extendedVA = true
+            if case .success(let size) = ExtendedVA.parseSize(extended) { profile.extendedSize = size }
+        }
+        return profile
+    }
+
     /// render_base in the game's profile ("1600x900 1280x720": docked, then handheld).
     static func renderBase(titleID: String, repo: String) -> [String: [Int]]? {
         let path = EngineLayout.root(repo) + "/dm/games/" + titleID + "/game.tsv"

@@ -7,24 +7,26 @@ The host reads a game profile at run time (hle_profile.c), with the compiled gam
 DM_PROF_<key> overrides on top. game.py gains a "profile" subcommand that writes the file.
 Touches every file that used a DM_GAME_* macro for the memory layout, game_env, alloc_big_align and the program id.
 
-Upstream-Status: pending (design note seedds/nxnative#492)
+Upstream-Status: forwarded seedds/nxnative#492
 Reason: One host binary for every game: the profile constants are read at run time (DM_PROFILE, dm_profile()), not only as compile-time macros; the launcher needs it
 Issue: LNPANDY/NX2Apple#123
+
+A game.tsv may also carry extended_va, a launcher opt-in for a larger iOS alias (issue 247). The host ignores that key, so mem_alias and app_pool stay as the profile set them. DM_ALIAS_SIZE remains the only alias override. Without the extended virtual addressing entitlement a reservation over about 6 GB still fails.
 ---
- dm/games/game.py                 |  34 ++++
+ dm/games/game.py                 |  37 ++++
  dm/host/dm.h                     |   1 +
  dm/host/hle_fpslock.c            |   2 +-
  dm/host/hle_fs.c                 |   2 +-
  dm/host/hle_os.c                 |   4 +-
- dm/host/hle_profile.c            | 281 +++++++++++++++++++++++++++++++
+ dm/host/hle_profile.c            | 282 +++++++++++++++++++++++++++++++
  dm/host/hle_profile.h            |  37 ++++
- dm/host/hle_svc.c                |  34 ++--
+ dm/host/hle_svc.c                |  38 ++--
  dm/host/loader.c                 |   2 +-
  dm/host/tests/Makefile           |  60 +++----
- dm/host/tests/t_layout_runtime.c | 103 +++++++++++
+ dm/host/tests/t_layout_runtime.c | 117 +++++++++++
  dm/ios/Sources/DmGamepad.m       |   2 +-
  docs/env_switches.tsv            |   1 +
- 13 files changed, 510 insertions(+), 53 deletions(-)
+ 13 files changed, 530 insertions(+), 55 deletions(-)
  create mode 100644 dm/host/hle_profile.c
  create mode 100644 dm/host/hle_profile.h
  create mode 100644 dm/host/tests/t_layout_runtime.c
@@ -33,7 +35,7 @@ diff --git a/dm/games/game.py b/dm/games/game.py
 index 5d04719a..359d377a 100644
 --- a/dm/games/game.py
 +++ b/dm/games/game.py
-@@ -199,6 +199,40 @@ if __name__ == '__main__':
+@@ -199,6 +199,43 @@ if __name__ == '__main__':
          out, text = Path(a[2]), header(load(a[1])); out.parent.mkdir(parents=True, exist_ok=True)
          if not (out.exists() and out.read_text() == text):   # written only when it changes: make runs this every time (the profile folder can change under the same GAME), and an unchanged header must not rebuild the host
              tmp = out.with_name(out.name + '.tmp'); tmp.write_text(text); tmp.replace(out)
@@ -68,6 +70,9 @@ index 5d04719a..359d377a 100644
 +        if api[0] is not None: L.append(f'device_api\t{api[0]}.{api[1] or 0}')
 +        for b, d in re.findall(r'\{"([0-9a-f]+)", "([^"]*)"\}', M.get('DM_GAME_DISPLAY_VERSIONS', '')):
 +            L.append(f'display_version\t{b}\t{d}')
++        # extended_va is a launcher opt-in for a larger iOS alias (DM_ALIAS_SIZE). Not a host constant: copied as written, never folded into mem_alias or app_pool.
++        eva = g.get('extended_va', '')
++        if eva: L.append(f'extended_va\t{eva}')
 +        text = '\n'.join(L) + '\n'
 +        if not (out.exists() and out.read_text() == text): out.write_text(text, encoding='utf-8')   # unchanged: keep the mtime
 +        print(out)
@@ -139,7 +144,7 @@ new file mode 100644
 index 00000000..93c7ad51
 --- /dev/null
 +++ b/dm/host/hle_profile.c
-@@ -0,0 +1,281 @@
+@@ -0,0 +1,282 @@
 +// Runtime game profile: see hle_profile.h. One IPA for every game reads its layout, switches and tables from DM_PROFILE
 +// instead of having them compiled in (game_profile.h stays the fallback, so a build without DM_PROFILE is unchanged).
 +#include "dm.h"
@@ -344,6 +349,7 @@ index 00000000..93c7ad51
 +    else if (!strcmp(k, "device_api")) { char *e; P.nvn_api_major = (int)strtol(v, &e, 10); if (e && *e == '.') P.nvn_api_minor = atoi(e + 1); }
 +    else if (!strcmp(k, "game_args")) copy_str(P.args, sizeof P.args, v);
 +    else if (!strcmp(k, "game_env")) copy_str(P.genv, sizeof P.genv, v);
++    else if (!strcmp(k, "extended_va")) (void)v;   // launcher opt-in (issue 247): not a host constant, and it must not change mem_alias or app_pool
 +    // any other key (ipa, zip_store, shader_*, build, package, ...) is not a host constant: ignored
 +}
 +
@@ -488,8 +494,10 @@ index 4f440a02..5e7eb0e0 100644
 +        (dm_profile()->mem_stack) > RESERVE - 0x10000000 - (dm_profile()->mem_alias) ||
 +        ((RESERVE | (dm_profile()->mem_alias) | (dm_profile()->mem_stack)) & (pg - 1)))
          die("guest address-space profile has invalid native boundaries");
-     // DM_ALIAS_SIZE=<bytes>: an alias region of that size instead of the profile's, the heap and stacks as they are; the block grows with it. A Switch-sized one (64 GB) holds what
-     // a game reserves unchanged, for measuring its address regions on the Mac (the NSP script's heap check); an iPhone has no room for more than the profile's
+-    // DM_ALIAS_SIZE=<bytes>: an alias region of that size instead of the profile's, the heap and stacks as they are; the block grows with it. A Switch-sized one (64 GB) holds what
+-    // a game reserves unchanged, for measuring its address regions on the Mac (the NSP script's heap check); an iPhone has no room for more than the profile's
++    // DM_ALIAS_SIZE=<bytes>: an alias region of that size instead of the profile's. Without the extended-virtual-addressing entitlement a single reservation over about 6 GB fails (reserve guest AS). With the entitlement a larger alias is a per-build opt-in and does not change app_pool or mem_alias.
++    // Profile key extended_va is not applied here. A Switch-sized alias (64 GB) is for measuring address regions on the Mac. The heap and stacks stay as the profile set them, and the block grows with the alias.
 -    size_t alias = DM_GAME_MEM_ALIAS; const char *as = getenv("DM_ALIAS_SIZE");
 +    size_t alias = (dm_profile()->mem_alias); const char *as = getenv("DM_ALIAS_SIZE");
      if (as && *as) { alias = (size_t)strtoull(as, NULL, 0); if (alias < 0x10000000 || (alias & (pg - 1))) die("DM_ALIAS_SIZE %s: at least 256 MB, in whole host pages", as); }
@@ -736,7 +744,7 @@ new file mode 100644
 index 00000000..20b210d4
 --- /dev/null
 +++ b/dm/host/tests/t_layout_runtime.c
-@@ -0,0 +1,103 @@
+@@ -0,0 +1,117 @@
 +// Stage-2 feasibility check: one binary, several guest memory layouts chosen at run time from DM_PROFILE.
 +// Each layout runs in its own process (mem_init is once per process, as in the host), so this test re-execs itself
 +// with LAYOUT set, boots the production dispatcher (hle_svc.c mem_init via GetInfo), and prints what it built.
@@ -765,7 +773,7 @@ index 00000000..20b210d4
 +uint64_t svc_dispatch(int num, uint64_t *regs, uint64_t orig_addr);   // hle_svc.c
 +static uint64_t info(int which) { uint64_t regs[31] = {0}; regs[1] = (uint64_t)which; svc_dispatch(0x29, regs, 0); return regs[1]; }   // GetInfo(out, id): id in x1, value out in x1
 +
-+typedef struct { const char *name, *profile; uint64_t reserve, alias, stack, pool, used, sysres; int limit; } case_t;
++typedef struct { const char *name, *profile; uint64_t reserve, alias, stack, pool, used, sysres; int limit; uint64_t alias_env; int extended_va; } case_t;
 +static const case_t CASES[] = {
 +    // Tears of the Kingdom: 5 GB, 2.375 GB alias
 +    {"totk", "layout_totk.tsv", 0x140000000ull, 0x98000000ull, 0x10000000ull, 0xCD500000ull, 0x4000000ull, 0x2000000ull, 0},
@@ -775,18 +783,26 @@ index 00000000..20b210d4
 +    {"smg",  "layout_smg.tsv",  0x40000000ull, 0x10000000ull, 0x10000000ull, 0xCD500000ull, 0x4000000ull, 0ull, 1},
 +    // Aegis Rim: alias 2.875 GB with the map limit on
 +    {"13s",  "layout_13s.tsv",  0x140000000ull, 0x118000000ull, 0x10000000ull, 0x40000000ull, 0x4000000ull, 0x1000000ull, 1},
++    // Extended virtual addressing: DM_ALIAS_SIZE replaces the alias only. extended_va is not a host constant (issue 247).
++    {"eva", "layout_eva.tsv", 0x140000000ull, 0x118000000ull, 0x10000000ull, 0xCD500000ull, 0x4000000ull, 0x2000000ull, 0, 0x400000000ull, 1},
 +};
 +#define NCASES ((int)(sizeof CASES / sizeof CASES[0]))
 +
 +static int child(const case_t *c) {
 +    char path[512]; snprintf(path, sizeof path, "%s/%s", getenv("LAYOUT_DIR") ?: ".", c->profile);
 +    setenv("DM_PROFILE", path, 1);
++    if (c->alias_env) {
++        char hex[32]; snprintf(hex, sizeof hex, "0x%llx", (unsigned long long)c->alias_env);
++        setenv("DM_ALIAS_SIZE", hex, 1);
++    } else unsetenv("DM_ALIAS_SIZE");
 +    const struct dm_profile *p = dm_profile();
 +    fprintf(stderr, "[child] %s: profile %s reserve %#llx alias %#llx stack %#llx pool %#llx used %#llx sysres %#llx limit %d\n",
 +            c->name, p->source, (unsigned long long)p->mem_reserve, (unsigned long long)p->mem_alias,
 +            (unsigned long long)p->mem_stack, (unsigned long long)p->app_pool, (unsigned long long)p->mem_used,
 +            (unsigned long long)p->sys_resource, p->mem_map_limit);
 +    // what the host reports to the guest, built by the production dispatcher
++    uint64_t want_alias = c->alias_env ? c->alias_env : c->alias;
++    uint64_t want_reserve = c->reserve - c->alias + want_alias;
 +    uint64_t aslr = info(12), aslr_size = info(13), heap_addr = info(4), heap_size = info(5);
 +    uint64_t alias_addr = info(2), alias_size = info(3), stack_addr = info(14), stack_size = info(15);
 +    uint64_t total = info(6), used = info(7), sysres = info(16);
@@ -796,9 +812,14 @@ index 00000000..20b210d4
 +           (unsigned long long)alias_addr, (unsigned long long)alias_size, (unsigned long long)stack_addr,
 +           (unsigned long long)stack_size, (unsigned long long)heap_addr, (unsigned long long)total,
 +           (unsigned long long)used, (unsigned long long)sysres);
-+    int ok = aslr_size == c->reserve && alias_size == c->alias && stack_size == c->stack && heap_size == c->reserve - 0x10000000ull - c->alias - c->stack
-+             && alias_addr == aslr + 0x10000000ull && stack_addr == alias_addr + c->alias
++    int ok = aslr_size == want_reserve && alias_size == want_alias && stack_size == c->stack && heap_size == want_reserve - 0x10000000ull - want_alias - c->stack
++             && alias_addr == aslr + 0x10000000ull && stack_addr == alias_addr + want_alias
 +             && heap_addr == stack_addr + c->stack && total == c->pool && sysres == c->sysres;
++    if (p->mem_alias != c->alias || p->app_pool != c->pool) {
++        printf("  [RED] profile mem_alias %#llx or app_pool %#llx changed (extended_va must not)\n",
++               (unsigned long long)p->mem_alias, (unsigned long long)p->app_pool);
++        ok = 0;
++    }
 +    if (used != c->used) { printf("  [RED] used memory %#llx, profile says %#llx\n", (unsigned long long)used, (unsigned long long)c->used); ok = 0; }
 +    // SetHeapSize must succeed inside the runtime region
 +    { uint64_t regs[31] = {0}; regs[1] = heap_size / 2; svc_dispatch(0x01, regs, 0); if (regs[0]) { printf("  [RED] SetHeapSize(%#llx) failed %#llx\n", (unsigned long long)(heap_size / 2), (unsigned long long)regs[0]); ok = 0; } }
@@ -828,6 +849,7 @@ index 00000000..20b210d4
 +        fprintf(f, "mem_used %#llx\n", (unsigned long long)CASES[i].used);
 +        fprintf(f, "sys_resource %#llx\n", (unsigned long long)CASES[i].sysres);
 +        fprintf(f, "mem_map_limit %d\n", CASES[i].limit);
++        if (CASES[i].extended_va) fprintf(f, "extended_va on\n");
 +        fclose(f);
 +    }
 +    int bad = 0;
