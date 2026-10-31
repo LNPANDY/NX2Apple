@@ -49,7 +49,8 @@ final class MacAppLanguageTests: XCTestCase {
 
     func testTheGameLanguageRowIsDrawnWithTheGamesLanguages() throws {
         let app = try macApp().path
-        let list = try XCTUnwrap(LaunchSetting.forMac(app: app, titleID: titleID, repo: "", labels: { $0 }))
+        // A Mac in a language the game lacks: the packed default stays (SavedChoicesTests has the preselected one)
+        let list = try XCTUnwrap(LaunchSetting.forMac(app: app, titleID: titleID, repo: "", labels: { $0 }, preferred: ["sv-SE"]))
         let lang = try XCTUnwrap(list.first { $0.env == "DM_LANG" }, "the sheet has a Game language row")
         XCTAssertEqual(lang.label, "Game language")
         XCTAssertEqual(lang.kind, "choice")

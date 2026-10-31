@@ -41,21 +41,26 @@ struct SavedChoices {
     /// What the setting is set to: the saved choice, else the tested default.
     func current(_ s: LaunchSetting) -> String { value(s) ?? s.def }
 
-    /// A choice equal to the tested default removes the key, so the setting follows a later build's defaults.
+    /// A choice equal to the tested default removes the key, so the setting follows a later build's defaults. The game language
+    /// row of a game built in English keeps every choice (`packedDefault`): a missing key would get the Mac's language later.
     func set(_ s: LaunchSetting, _ v: String) {
-        if s.isDefault(v) || !s.accepts(v) { CFPreferencesSetAppValue(Self.key(s.env) as CFString, nil, domain as CFString) }
+        if !s.accepts(v) || (s.isDefault(v) && s.packedDefault == nil) { CFPreferencesSetAppValue(Self.key(s.env) as CFString, nil, domain as CFString) }
         else { CFPreferencesSetAppValue(Self.key(s.env) as CFString, v as CFString, domain as CFString) }
         CFPreferencesAppSynchronize(domain as CFString)
     }
 
-    /// "Reset to tested defaults": the keys of the settings the player can change.
+    /// "Reset to tested defaults": the keys of the settings the player can change. The game language goes back to the Mac's,
+    /// written at once so a start from Finder speaks it too.
     func reset(_ settings: [LaunchSetting]) {
         for s in settings where s.storeBacked { CFPreferencesSetAppValue(Self.key(s.env) as CFString, nil, domain as CFString) }
+        for s in settings where s.storeBacked { if let code = s.macLanguage { CFPreferencesSetAppValue(Self.key(s.env) as CFString, code as CFString, domain as CFString) } }
         CFPreferencesAppSynchronize(domain as CFString)
     }
 
-    /// Whether any setting has a saved choice (the Reset button shows).
-    func hasChoices(_ settings: [LaunchSetting]) -> Bool { settings.contains { $0.storeBacked && raw($0.env) != nil } }
+    /// Whether any setting has a saved choice (the Reset button shows). The Mac's language is the game language's default, not a choice.
+    func hasChoices(_ settings: [LaunchSetting]) -> Bool {
+        settings.contains { $0.storeBacked && raw($0.env) != nil && ($0.macLanguage == nil || raw($0.env) as? String != $0.macLanguage) }
+    }
 
     /// The one-time move of the options an earlier launcher kept in the library file: a valid choice that differs from the default
     /// goes to the domain where it has no value yet. Returns the variables that are the store's now (to drop from the library).
@@ -68,6 +73,51 @@ struct SavedChoices {
             if raw(s.env) == nil, s.accepts(v), !s.isDefault(v) { set(s, v) }
         }
         return moved
+    }
+
+    /// The language to preselect for the game language row (a choice row from launcher.json): the first of the Mac's preferred
+    /// languages the game has. Only for a game built in English, the script's own default: a build that asked for another
+    /// language (LANGUAGE / --language) keeps it.
+    static func macLanguage(_ s: LaunchSetting, preferred: [String] = Locale.preferredLanguages) -> String? {
+        guard s.env == "DM_LANG", s.kind == "choice", builtInEnglish(s), let options = s.options else { return nil }
+        return gameLanguage(preferred: preferred, offered: options.compactMap(\.first))
+    }
+
+    /// Whether a launcher.json row's packed default is English, the script's own default language.
+    static func builtInEnglish(_ s: LaunchSetting) -> Bool { (s.packedDefault ?? s.def).hasPrefix("en-") }
+
+    /// Writes the Mac's language to launcher.DM_LANG for a game whose language was never picked, so a start from Finder or the
+    /// Dock speaks it too. Once written it is a choice like any other: a later change of the Mac's language does not touch it.
+    /// Runs with the launch options migration (startup, Play, the Launch options sheet).
+    func preselectLanguage(_ settings: [LaunchSetting], preferred: [String] = Locale.preferredLanguages) {
+        guard let s = settings.first(where: { $0.env == "DM_LANG" && $0.storeBacked }), raw(s.env) == nil,
+              let code = Self.macLanguage(s, preferred: preferred) else { return }
+        CFPreferencesSetAppValue(Self.key(s.env) as CFString, code as CFString, domain as CFString)
+        CFPreferencesAppSynchronize(domain as CFString)
+    }
+
+    /// The game language (a code of dm/tools/nacp.py) for the first of `preferred` (BCP 47 tags, as Locale.preferredLanguages
+    /// gives them) the game offers: the same region's variant first, then the language's other one (en-GB before en-US for a
+    /// British Mac, es-419 for Spanish outside Spain, zh-Hant for Taiwan, Hong Kong and Macao). nil when it offers none of them.
+    static func gameLanguage(preferred: [String], offered: [String]) -> String? {
+        for tag in preferred {
+            let parts = tag.split(separator: "-").map(String.init)
+            guard let language = parts.first?.lowercased() else { continue }
+            let rest = Set(parts.dropFirst().map { $0.uppercased() })
+            let candidates: [String]
+            switch language {
+            case "en": candidates = rest.isDisjoint(with: ["GB", "IE", "AU", "NZ", "ZA", "IN", "001", "150"]) ? ["en-US", "en-GB"] : ["en-GB", "en-US"]
+            case "fr": candidates = rest.contains("CA") ? ["fr-CA", "fr"] : ["fr", "fr-CA"]
+            case "es": candidates = rest.isEmpty || rest.contains("ES") ? ["es", "es-419"] : ["es-419", "es"]
+            case "pt": candidates = rest.contains("BR") ? ["pt-BR", "pt"] : ["pt", "pt-BR"]
+            case "zh":   // the script decides; the region only without one (zh-HK is Traditional, zh-Hans-HK Simplified)
+                let traditional = rest.contains("HANT") || (!rest.contains("HANS") && !rest.isDisjoint(with: ["TW", "HK", "MO"]))
+                candidates = traditional ? ["zh-Hant"] : ["zh-Hans"]
+            default: candidates = [language]
+            }
+            if let match = candidates.first(where: offered.contains) { return match }
+        }
+        return nil
     }
 }
 
@@ -142,7 +192,8 @@ extension LibraryGame {
         var environment = controls
         if !appReadsStore, let store {
             for s in settings where s.storeBacked {
-                if let v = store.value(s), !s.isDefault(v) { environment[s.env] = v }
+                // Compared with the packed default: the game language row's own may be the Mac's language, which the app lacks
+                if let v = store.value(s), !(s.packedDefault.map { $0 == v } ?? s.isDefault(v)) { environment[s.env] = v }
             }
         }
         environment.merge(launchEnvironment(settings)) { _, own in own }
