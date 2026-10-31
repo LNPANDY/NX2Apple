@@ -627,7 +627,6 @@ final class BuildModel: ObservableObject {
     /// Whether the "a new version is out" sheet is up: opened by the launch check and by Check for
     /// updates, so a user learns what changed before deciding, not after downloading.
     @Published var showUpdateSheet = false
-    @Published var showConvertSheet = false
     /// The uninstall row's dialog: computed when the row is pressed, run when the phrase matches.
     @Published var uninstallPlan: Uninstall.Plan?
     @Published var appStatus = ""
@@ -3554,9 +3553,6 @@ struct BuilderView: View {
 
     private var tools: some View {
         group(m.t("section.tools"), footnote: m.repoStatus.isEmpty ? (m.repoOK ? "" : m.t("repo.firstHint")) : m.repoStatus) {
-            row(m.t("convert.title"), detail: m.t("convert.note")) {
-                Button(m.t("convert.choose")) { m.showConvertSheet = true }
-            }
             row(m.t("repo.title"),
                 detail: m.repoOK ? m.shortPath(m.repoPath)
                     : (m.repoPath.isEmpty ? m.t("repo.notFound") : String(format: m.t("repo.notRepo"), m.shortPath(m.repoPath))),

@@ -280,7 +280,6 @@ struct ContentView: View {
         }
         .onChange(of: freeSpaceFor) { id in padFocus.scope = id != nil ? "free" : currentPadScope }
         .sheet(isPresented: $m.showUpdateSheet) { UpdateSheet(m: m) }
-        .sheet(isPresented: $m.showConvertSheet) { ConvertView(m: m) }
         .typeToConfirm(
             isPresented: Binding(get: { m.uninstallPlan != nil }, set: { if !$0 { m.uninstallPlan = nil } }),
             phrase: "NX2Apple",
