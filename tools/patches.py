@@ -182,7 +182,7 @@ def apply_series(wt, patches, stop=True):
             applied.append((p, after)); continue
         unmerged = git('ls-files', '-u', cwd=wt).stdout.strip()
         clean = git('diff', '--cached', '--quiet', cwd=wt, check=False).returncode == 0 and git('diff', '--quiet', cwd=wt, check=False).returncode == 0
-        if not unmerged and clean and 'Patch failed' not in r.stderr and 'patch does not apply' not in r.stderr:
+        if not unmerged and clean and re.search(r'No changes|already applied', r.stdout + r.stderr):
             git('am', '--skip', cwd=wt, check=False)
             landed.append(p); continue
         files = git('diff', '--name-only', '--diff-filter=U', cwd=wt, check=False).stdout.split()

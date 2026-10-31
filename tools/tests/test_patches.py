@@ -75,6 +75,57 @@ class Queue(unittest.TestCase):
         self.assertEqual(r.returncode, 2)
 
 
+def mkgit(cwd, *a):
+    env = dict(os.environ, GIT_AUTHOR_NAME='t', GIT_AUTHOR_EMAIL='t@example.invalid', GIT_COMMITTER_NAME='t', GIT_COMMITTER_EMAIL='t@example.invalid',
+               GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_SYSTEM=os.devnull)
+    r = subprocess.run(['git', '-c', 'commit.gpgsign=false', *a], cwd=cwd, capture_output=True, text=True, env=env)
+    if r.returncode: raise AssertionError(f'git {a}: {r.stderr}')
+    return r.stdout.strip()
+
+
+class ApplySeries(unittest.TestCase):
+    """apply_series sorts a patch into applied, landed or conflicts (LNPANDY/NX2Apple#322)"""
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix='test-patches-'))
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.wt = self.tmp / 'up'; self.wt.mkdir()
+        mkgit(self.wt, 'init', '-q', '-b', 'main')
+        self.write('a.c', 'a\nb\nc\nd\ne\nf\ng\n')
+        mkgit(self.wt, 'add', '-A'); mkgit(self.wt, 'commit', '-q', '-m', 'base')
+
+    def write(self, name, text): (self.wt / name).write_text(text)
+
+    def patch_from(self, text, name):
+        """a patch that turns the base a.c into `text`, made on a scratch clone"""
+        mk = self.tmp / 'mk'
+        shutil.rmtree(mk, True)
+        mkgit(self.tmp, 'clone', '-q', str(self.wt), str(mk))
+        (mk / 'a.c').write_text(text)
+        mkgit(mk, 'commit', '-q', '-am', name)
+        f = self.tmp / f'{name}.patch'
+        f.write_text(mkgit(mk, 'format-patch', '--zero-commit', '--no-signature', '--stdout', '-1', 'HEAD') + '\n')
+        return P.Patch(f)
+
+    def test_a_patch_upstream_already_has_is_landed(self):
+        p = self.patch_from('a\nB\nc\nd\ne\nf\ng\n', 'line2')
+        self.write('a.c', 'a\nB\nc\nD\ne\nf\ng\n')   # the same change, plus one near it, so the patch does not apply as it is
+        mkgit(self.wt, 'commit', '-q', '-am', 'upstream')
+        applied, landed, conflicts = P.apply_series(self.wt, [p])
+        self.assertEqual(([x.name for x, _ in applied], [x.name for x in landed], conflicts), ([], [p.name], []))
+
+    def test_a_patch_the_three_way_merge_cannot_start_is_a_conflict(self):
+        # the context is gone and the blobs of the patch are not in this repository: git has no base to merge with
+        p = self.patch_from('a\nB\nc\nd\ne\nf\ng\n', 'line2')
+        self.write('a.c', 'x\ny\nz\n')
+        mkgit(self.wt, 'commit', '-q', '-am', 'upstream')
+        text = '\n'.join('index 1234567..7654321 100644' if l.startswith('index ') else l for l in p.path.read_text().splitlines()) + '\n'
+        p.path.write_text(text)
+        applied, landed, conflicts = P.apply_series(self.wt, [p])
+        self.assertEqual(([x.name for x, _ in applied], [x.name for x in landed]), ([], []))
+        self.assertEqual([x.name for x, _ in conflicts], [p.name])
+        self.assertIn('Patch failed', conflicts[0][1])
+
+
 class ChainRule(unittest.TestCase):
     def test_the_chain_paths_come_from_the_engines_agents_md(self):
         g = P.chain_paths(SRC)
