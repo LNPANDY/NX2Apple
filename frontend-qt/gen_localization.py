@@ -14,19 +14,21 @@ SWIFT = HERE.parent / 'frontend' / 'Sources' / 'NSPortBuilder' / 'Localization.s
 OUT = HERE / 'nspb_qt' / 'localization.py'
 
 PAIR = re.compile(r'"([^"]+)":\s*\(\s*"((?:[^"\\]|\\.)*)"\s*,\s*"((?:[^"\\]|\\.)*)"\s*\)', re.S)
-OVERLAY_ENTRY = re.compile(r'"([^"]+)":\s*"((?:[^"\\]|\\.)*)"')
-
-
-def overlay(text: str, name: str) -> dict[str, str]:
-    """The `static let <name>: [String: String]` overlay of the Swift table (Swedish, German)."""
-    match = re.search(r'static let ' + name + r': \[String: String\] = \[(.*?)\n    \]', text, re.S)
-    return dict(OVERLAY_ENTRY.findall(match.group(1))) if match else {}
+OVERLAY = re.compile(r'"([^"]+)":\s*"((?:[^"\\]|\\.)*)"')
+ESCAPE = re.compile(r'\\u\{([0-9a-fA-F]+)\}|\\(.)')
+SIMPLE = {'n': '\n', 't': '\t', '"': '"', '\\': '\\'}
 
 
 def unescape(s: str) -> str:
-    """A Swift string literal's body as text (unicode, quote and backslash, \\n and \\t escapes)."""
-    return re.sub(r'\\(u\{([0-9a-fA-F]+)\}|.)',
-                  lambda m: chr(int(m[2], 16)) if m[2] else {'n': '\n', 't': '\t'}.get(m[1], m[1]), s)
+    """A Swift string literal's body as the text it means: \\u{...}, \\n, \\t, \\\" and \\\\, in one pass
+    so an escaped backslash is never read as the start of another escape."""
+    return ESCAPE.sub(lambda m: chr(int(m[1], 16)) if m[1] else SIMPLE.get(m[2], m[0]), s)
+
+
+def overlay(text: str, name: str) -> dict[str, str]:
+    """One language overlay (`static let <name>: [String: String]`), unescaped."""
+    match = re.search(rf'static let {name}: \[String: String\] = \[(.*?)\n    \]', text, re.S)
+    return {k: unescape(v) for k, v in OVERLAY.findall(match.group(1))} if match else {}
 
 
 def main() -> None:
@@ -36,6 +38,7 @@ def main() -> None:
         raise SystemExit(f'no strings found in {SWIFT}')
     swedish = overlay(text, 'sv')
     german = overlay(text, 'de')
+    french = overlay(text, 'fr')
     lines = [
         '"""Localised strings, generated from the SwiftUI app\'s Localization.swift.',
         '',
@@ -45,14 +48,14 @@ def main() -> None:
         '',
         'from .i18n import Lang',
         '',
-        '# key: (Chinese, English, Swedish, German). Swedish and German fall back to English.',
-        'TABLE: dict[str, tuple[str, str, str, str]] = {',
+        '# key: (Chinese, English, Swedish, German, French); a missing overlay entry is the English text',
+        'TABLE: dict[str, tuple[str, str, str, str, str]] = {',
     ]
     for key, zh, en in rows:
+        # Swift Unicode escapes keep the shared table ASCII without losing translations.
         zh, en = unescape(zh), unescape(en)
-        sv = unescape(swedish[key]) if key in swedish else en
-        de = unescape(german[key]) if key in german else en
-        lines.append(f'    {key!r}: ({zh!r}, {en!r}, {sv!r}, {de!r}),')
+        sv, de, fr = swedish.get(key, en), german.get(key, en), french.get(key, en)
+        lines.append(f'    {key!r}: ({zh!r}, {en!r}, {sv!r}, {de!r}, {fr!r}),')
     lines += [
         '}',
         '',
@@ -63,8 +66,8 @@ def main() -> None:
         '    The Swift table uses %@ as its placeholder (String(format:)); the Qt side uses',
         '    Python\'s %s, so the placeholder is translated here rather than in every call site.',
         '    """',
-        '    zh, en, sv, de = TABLE.get(key, (key, key, key, key))',
-        '    s = {Lang.ZH: zh, Lang.EN: en, Lang.SV: sv, Lang.DE: de}[lang]',
+        '    zh, en, sv, de, fr = TABLE.get(key, (key, key, key, key, key))',
+        '    s = {Lang.ZH: zh, Lang.EN: en, Lang.SV: sv, Lang.DE: de, Lang.FR: fr}[lang]',
         '    if not args:',
         '        return s',
         '    py = s.replace("%@", "%s")   # %d is the same in both; %@ is Swift-only',

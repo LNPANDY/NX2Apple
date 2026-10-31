@@ -153,9 +153,9 @@ final class ReleaseNotesTests: XCTestCase {
         XCTAssertFalse(all.contains("upstream commits"))
     }
 
-    func testSwedishAndGermanUseTheEnglishSection() throws {
+    func testSwedishGermanAndFrenchUseTheEnglishSection() throws {
         let body = try Self.body072()
-        for lang in [Lang.sv, Lang.de] {
+        for lang in [Lang.sv, .de, .fr] {
             XCTAssertEqual(ReleaseNotes.lines(body, for: lang), ReleaseNotes.lines(body, for: .en))
         }
     }

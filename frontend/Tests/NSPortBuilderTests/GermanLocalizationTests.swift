@@ -11,12 +11,14 @@ final class GermanLocalizationTests: XCTestCase {
         "onboarding.demo.mario", "console.kind.gamepad", "console.brand", "console.platform.mac",
         "console.platform.iphone", "console.version", "console.fps30", "console.fps60", "saves.toDevice",
         "saves.toMac", "cheats.title", "section.app", "app.version", "nav.builds", "settings.language.zh",
-        "settings.language.en", "settings.language.sv", "settings.language.de", "library.ok", "build.ios", "data.update", "data.keys", "msg.ipaAt",
+        "settings.language.en", "settings.language.sv", "settings.language.de", "settings.language.fr", "library.ok", "build.ios", "data.update", "data.keys", "msg.ipaAt",
         "dep.iossdk", "dep.tool.xcodegen", "dep.tool.zstd", "dep.tool.spirv-cross", "dep.tool.glslangValidator",
         "dep.glslang", "dep.xcode", "dep.metal", "dep.brew", "dep.xcodegen", "dep.zstd", "dep.spirv.win",
         "dep.zstd.win", "dep.spirv", "dep.dotnet", "dep.phase.download", "dep.python.hint",
         "controls.fn.A", "controls.fn.B", "controls.fn.X", "controls.fn.Y", "controls.fn.L", "controls.fn.R",
         "controls.fn.ZL", "controls.fn.ZR", "controls.fn.Plus", "controls.fn.Minus", "launch.mods",
+        "launch.opt.DM_FPS_TARGET.30", "launch.opt.DM_FPS_TARGET.60", "launch.opt.DM_PRESENT_UPSCALE.off",
+        "launch.opt.DM_PRESENT_UPSCALE.metalfx",
     ]
 
     /// printf-style placeholders in order: %@, %d, %ld, %lld, %.0f and %.1f, positional %1$@, and %%.
@@ -69,8 +71,8 @@ final class GermanLocalizationTests: XCTestCase {
     }
 
     func testLanguageNamesExistInEveryLanguage() {
-        for lang: Lang in [.zh, .en, .sv, .de] {
-            for code in ["zh", "en", "sv", "de"] {
+        for lang: Lang in [.zh, .en, .sv, .de, .fr] {
+            for code in ["zh", "en", "sv", "de", "fr"] {
                 let key = "settings.language.\(code)"
                 XCTAssertNotEqual(L10n.string(key, lang), key)
             }
