@@ -38,9 +38,16 @@ struct ConsoleGame: Identifiable {
     var settings: [LaunchSetting] = []
     var values: [String: String] = [:]
 
+    /// The console's order: the games this Mac can play first, then the rest, each group in the order it came in.
+    static func readyFirst(_ games: [ConsoleGame]) -> [ConsoleGame] {
+        games.filter { $0.status == .ready } + games.filter { $0.status != .ready }
+    }
+
     func value(_ setting: LaunchSetting) -> String { values[setting.env] ?? setting.def }
     var visibleSettings: [LaunchSetting] {
         settings.filter { setting in
+            // Console mode launches fullscreen whatever Display says (GameStart's fullscreen), so the sheet does not offer it.
+            guard setting.env != "DM_FULLSCREEN" else { return false }
             guard let needs = setting.needs else { return true }
             let parts = needs.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
             guard parts.count == 2, let parent = settings.first(where: { $0.env == parts[0] }) else { return false }

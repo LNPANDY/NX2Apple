@@ -68,14 +68,22 @@ struct Slot: Identifiable {
     let optional: Bool
     var paths: [String] = []
     var problem: String = ""
+    /// A finished sentence shown beside the file name (the update row: which of several updates was taken).
+    var note: String = ""
     var ok: Bool { paths.contains { FileManager.default.fileExists(atPath: $0) } }
     /// `problem` holds either a finished message or a key + arguments, resolved by the model
     /// (it needs the current language, which a struct cannot read).
     var problemText: String { problem }
     func summary(_ t: (String) -> String) -> String {
         if !problem.isEmpty { return problem.hasPrefix("data.") ? t(problem) : problem }
-        if paths.isEmpty { return optional ? t("data.notSelectedOptional") : t("data.notSelected") }
-        if paths.count == 1 { return (paths[0] as NSString).lastPathComponent }
+        if paths.isEmpty {
+            if kind == .dlc { return t("data.notSelectedDlc") }
+            return optional ? t("data.notSelectedOptional") : t("data.notSelected")
+        }
+        if paths.count == 1 {
+            let name = (paths[0] as NSString).lastPathComponent
+            return note.isEmpty ? name : name + "\n" + note
+        }
         return String(format: t("data.files"), paths.count) + paths.map { ($0 as NSString).lastPathComponent }.joined(separator: ", ")
     }
 }
@@ -164,6 +172,11 @@ final class BuildModel: ObservableObject {
     }
     private var bundleID = ""             // from the script's "bundle ID:" line
     var xcrunPath = "/usr/bin/xcrun"      // tests stand in for xcodebuild and devicectl
+    var volumesRoot = "/Volumes"          // where external drives are mounted
+    var teamsProvider: () -> [SigningTeam] = { DeviceTools.teams() }   // the teams the Mac knows, read when a signing step fails
+    var chooseKeys: (() -> Void)?          // tests stand in for the file picker
+    var revealFolder: (URL) -> Void = { NSWorkspace.shared.open($0) }
+    var openApp: (URL) -> Void = { NSWorkspace.shared.openApplication(at: $0, configuration: NSWorkspace.OpenConfiguration()) }
 
     /// This iPhone build goes straight to a device.
     var installsDirectly: Bool { target != "mac-app" && !installDevice.isEmpty && !signingTeam.isEmpty }
@@ -278,7 +291,7 @@ final class BuildModel: ObservableObject {
     }
 
     nonisolated static func isRepo(_ dir: String) -> Bool {
-        FileManager.default.fileExists(atPath: dir + "/dm/tools/nx_extract/Program.cs")
+        EngineLayout.isCheckout(dir)   // a checkout with tools/engine.py, a synced engine/, or an engine tree (#214)
     }
 
     /// Every file of the repository the launcher itself runs by path: one list, next to the calls that use it
@@ -291,7 +304,8 @@ final class BuildModel: ObservableObject {
 
     /// The tools of `requiredTools` that `dir` does not have (empty: the build tools are as new as this app needs).
     nonisolated static func missingTools(in dir: String) -> [String] {
-        requiredTools.filter { !FileManager.default.fileExists(atPath: dir + "/" + $0) }
+        let root = EngineLayout.root(dir)   // the checkout's engine/, or an engine tree itself (Engine.swift)
+        return requiredTools.filter { !FileManager.default.fileExists(atPath: root + "/" + $0) }
     }
 
     /// Whether the checkout's build script has this fork's `--work-dir` (issue #5): an upstream
@@ -299,7 +313,8 @@ final class BuildModel: ObservableObject {
     /// app passes it. Read from the script's own argparse rather than assumed — the option is the
     /// fork's, not upstream's.
     nonisolated static func repoSupportsWorkDir(_ dir: String) -> Bool {
-        let script = dir + "/" + buildScript
+        let script = EngineLayout.root(dir) + "/" + buildScript
+        if !FileManager.default.fileExists(atPath: script), EngineLayout.hasEngineTool(dir) { return true }   // engine/ not made yet: the fork's engine has it
         guard let text = try? String(contentsOfFile: script, encoding: .utf8) else { return false }
         return text.contains("'--work-dir'") || text.contains("\"--work-dir\"")
     }
@@ -414,6 +429,7 @@ final class BuildModel: ObservableObject {
                 if ok && Self.isRepo(dest) {
                     self.repoPath = dest
                     self.repoStatus = String(format: self.t("repo.downloadDone"), self.shortPath(dest))
+                    self.syncEngine()
                 } else {
                     self.repoStatus = self.t("repo.downloadFail")
                     try? FileManager.default.removeItem(atPath: dest)   // a failed clone leaves an empty folder
@@ -474,6 +490,7 @@ final class BuildModel: ObservableObject {
                 if r.ok {
                     self.repoBehind = 0; self.repoStatus = self.t("repo.pulled")
                     if !r.out.isEmpty { self.append(r.out + "\n") }
+                    self.syncEngine()   // the pull may have moved the pin or the patches
                 } else {
                     self.repoStatus = self.pullFailureMessage(r.out)
                     self.append(r.out + "\n")
@@ -500,6 +517,7 @@ final class BuildModel: ObservableObject {
                 if pulled.ok {
                     self.repoBehind = 0; self.autoPulled = behind
                     self.repoStatus = String(format: self.t("repo.autoPulled"), behind)
+                    self.syncEngine()
                 } else {
                     self.repoStatus = self.pullFailureMessage(pulled.out)
                     self.append(pulled.out + "\n")
@@ -594,6 +612,7 @@ final class BuildModel: ObservableObject {
                     self.repoBehind = 0
                     self.repoStatus = String(format: self.t(automatic ? "repo.adoptedAuto" : "repo.adopted"), branch)
                     if automatic { self.autoAdopted = true }
+                    self.syncEngine()
                 } else {
                     self.repoStatus = self.t(automatic ? "repo.adoptFailAuto" : "repo.adoptFail")
                 }
@@ -601,11 +620,53 @@ final class BuildModel: ObservableObject {
         }
     }
 
+    /// What waits for the running `tools/engine.py sync` (nil: none runs), and whether another one is due when it ends.
+    private var engineSyncWaiting: [(Bool) -> Void]?
+    private var engineSyncAgain = false
+    /// A sync runs: the launcher shows a status line with a spinner (EngineSyncBanner).
+    @Published var engineSyncing = false
+    /// How the last sync stopped (no network or GitHub unreachable, or another stop), as a failure row with a retry button. nil: none.
+    @Published var engineFailure: BuildFailure?
+
+    /// `tools/engine.py sync` when engine/ is stale (#214, Engine.swift): at launch, after a clone, a pull or an adoption, and before a
+    /// build that has no other engine. Checkouts only: a release app carries its engine tree (#227) and never syncs. A no-op for a current engine/ or a folder
+    /// that is an engine tree. `then(ok)` runs on the main queue.
+    func syncEngine(then: ((Bool) -> Void)? = nil) {
+        if engineSyncWaiting != nil { engineSyncAgain = true; if let then { engineSyncWaiting?.append(then) }; return }
+        guard EngineLayout.isStale(repoPath) else { engineFailure = nil; then?(true); return }
+        engineSyncWaiting = then.map { [$0] } ?? []
+        engineSyncing = true; engineFailure = nil
+        let repo = repoPath, chosen = pythonPath
+        append("$ python3 tools/engine.py sync\n")
+        var tail = ""   // what failureKind reads when the sync stops (only touched on the main queue)
+        DispatchQueue.global().async {
+            let py = chosen.isEmpty ? Self.findPython().path : chosen
+            let ok = EngineLayout.runSync(repo: repo, python: py) { line in
+                DispatchQueue.main.async { self.append(line + "\n"); tail = String((tail + line + "\n").suffix(4000)) }
+            }
+            DispatchQueue.main.async {
+                let waiting = self.engineSyncWaiting ?? [], again = self.engineSyncAgain && ok
+                self.engineSyncWaiting = nil; self.engineSyncAgain = false
+                self.engineSyncing = false
+                self.engineFailure = ok ? nil : BuildFailure(kind: EngineLayout.failureKind(tail), gameName: nil)
+                if again { self.syncEngine { ok in waiting.forEach { $0(ok) } } } else { waiting.forEach { $0(ok) } }
+                self.objectWillChange.send()   // repoOK and the engine's paths may have changed
+            }
+        }
+    }
+
+    /// The failure row's Try again: clears the row and runs the sync again.
+    func retryEngineSync() {
+        guard !engineSyncing else { return }
+        engineFailure = nil
+        syncEngine()
+    }
+
     // ---- App self-update (GitHub Releases) ----
     // The rules (what is verified, which copies replace themselves, never during a build) are in AppUpdate.swift.
 
     /// Bump together with each release tag; the update check compares it with the latest release.
-    static let appVersion = "0.7.0"
+    static let appVersion = "0.7.5"
     /// The update checkAppUpdate found: the tag, the asset to download, its digest, and the release
     /// notes the sheet shows. The notes are why the sheet exists — "update available" alone told a
     /// user nothing about what they would get.
@@ -614,6 +675,8 @@ final class BuildModel: ObservableObject {
     /// Whether the "a new version is out" sheet is up: opened by the launch check and by Check for
     /// updates, so a user learns what changed before deciding, not after downloading.
     @Published var showUpdateSheet = false
+    /// The uninstall row's dialog: computed when the row is pressed, run when the player confirms.
+    @Published var uninstallPlan: Uninstall.Plan?
     @Published var appStatus = ""
     /// Set when the last update attempt was refused (a release this macOS cannot open, a bad download); the update sheet shows it.
     @Published var appUpdateBlocked: String?
@@ -853,8 +916,14 @@ final class BuildModel: ObservableObject {
         }
         if relaunch {
             appStatus = String(format: t("app.relaunching"), staged.release.tag)
-            NSWorkspace.shared.openApplication(at: placed, configuration: NSWorkspace.OpenConfiguration())
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { exit(0) }
+            // The old instance is still running, so opening the same bundle now would only activate it:
+            // a helper opens the new copy once this process has exited.
+            if AppUpdate.relaunch(placed) {
+                NSApp.terminate(nil)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { exit(0) }
+            } else {
+                appStatus = String(format: t("app.relaunchFail"), staged.release.tag)
+            }
         }
         return true
     }
@@ -910,7 +979,7 @@ final class BuildModel: ObservableObject {
         gameDir = folder
         let found = Self.classify(Self.inputFiles(in: folder))
         updateSlot("base") { $0.paths = found.base.map { [$0] } ?? []; $0.problem = found.base == nil ? "data.noBase" : "" }
-        updateSlot("update") { $0.paths = found.update.map { [$0] } ?? []; $0.problem = "" }
+        updateSlot("update") { $0.paths = found.update.map { [$0] } ?? []; $0.problem = ""; $0.note = updateNote(found) }
         updateSlot("dlc") { $0.paths = found.dlc; $0.problem = "" }
         updateSlot("keys") { $0.paths = found.keys.map { [$0] } ?? []; $0.problem = "" }
         if !found.anyGame {
@@ -924,7 +993,19 @@ final class BuildModel: ObservableObject {
         var update: String?
         var dlc: [String] = []
         var keys: String?
+        /// How many updates the files held and the version of the one taken (the newest), for the update row's note.
+        var updateCount = 0
+        var updateVersion = 0
         var anyGame: Bool { base != nil || update != nil || !dlc.isEmpty }
+        static func == (a: Self, b: Self) -> Bool {
+            a.base == b.base && a.update == b.update && a.dlc == b.dlc && a.keys == b.keys
+        }
+    }
+
+    /// The update row's note when the files held several updates: which one was taken and why one is enough.
+    func updateNote(_ found: FoundInputs) -> String {
+        guard found.update != nil, found.updateCount > 1 else { return "" }
+        return String(format: t("data.updateNewest"), found.updateVersion, found.updateCount)
     }
 
     /// The files under a folder, pruning the build folders this pipeline itself writes so a rescan is not slow.
@@ -965,7 +1046,7 @@ final class BuildModel: ObservableObject {
             guard ["nsp", "xci", "nsz", "xcz"].contains((low as NSString).pathExtension) else { continue }
             let size = (try? FileManager.default.attributesOfItem(atPath: path))?[.size] as? Int ?? 0
             guard size > 0 else { continue }   // an incomplete download leaves 0-byte files behind
-            guard let tid = titleID(name) else { continue }   // a name without [title ID] cannot be classified
+            guard let tid = titleID(name) else { continue }   // a name without a title ID cannot be classified
             switch tid & 0xFFF {
             case 0: base.append((path, size))
             case 0x800: update.append((path, size, updateVersion(name)))
@@ -974,19 +1055,80 @@ final class BuildModel: ObservableObject {
         }
         // several bases happen when a folder holds a repack beside the original: the largest wins
         found.base = base.sorted { $0.1 > $1.1 }.first?.0
-        // several updates: the newest [vN] is the one a profile would pack
-        found.update = update.sorted { $0.2 > $1.2 }.first?.0
+        // a folder that holds other games too: only the update and add-on content of the chosen base game count
+        if let app = found.base.flatMap({ titleID(($0 as NSString).lastPathComponent) }).map({ $0 & ~0xFFF }) {
+            update = update.filter { titleID(($0.0 as NSString).lastPathComponent).map(owner) == app }
+            dlc = dlc.filter { titleID(($0 as NSString).lastPathComponent).map(owner) == app }
+        }
+        // several updates: the newest version is the one a profile would pack (an update contains the earlier ones)
+        let newest = update.sorted { $0.2 > $1.2 }.first
+        found.update = newest?.0
+        found.updateCount = update.count
+        found.updateVersion = newest?.2 ?? 0
         found.dlc = dlc.sorted()
         return found
     }
 
-    /// The [vN] in a file name, 0 when absent — used to pick the newest of several updates.
+    /// The base game's title ID (low 12 bits clear) a title ID belongs to, as build_ipa_from_nsp.py reads it:
+    /// 0x000 is a base game, 0x800 its update, anything else add-on content in the block above the base.
+    nonisolated static func owner(_ tid: UInt64) -> UInt64 {
+        let low = tid & 0xFFF
+        return low == 0 ? tid : (low == 0x800 ? tid & ~0xFFF : (tid & ~0xFFF) - 0x1000)
+    }
+
+    /// Why a file does not fit the row it was put in, judged by the title ID in its name.
+    enum RowMismatch: Equatable { case notBase(UInt64), notUpdate(UInt64), notDLC(UInt64), otherGame }
+
+    /// A file whose name carries no title ID fits every row (the build script reads the ID from the package).
+    /// `base` is the selected base game's file name, when it carries one.
+    nonisolated static func rowMismatch(_ kind: InputKind, name: String, base: String?) -> RowMismatch? {
+        guard kind != .keys, let tid = titleID(name) else { return nil }
+        let low = tid & 0xFFF
+        switch kind {
+        case .base: if low != 0 { return .notBase(tid) }
+        case .update: if low != 0x800 { return .notUpdate(tid) }
+        case .dlc: if low == 0 || low == 0x800 { return .notDLC(tid) }
+        case .keys: break
+        }
+        if kind != .base, let b = base.flatMap(titleID), owner(tid) != b & ~0xFFF { return .otherGame }
+        return nil
+    }
+
+    /// The row's message for a rejected file, as a finished sentence in the current language.
+    func rowProblemText(_ mismatch: RowMismatch, name: String) -> String {
+        func hex(_ tid: UInt64) -> String { String(format: "%016llX", tid) }
+        switch mismatch {
+        case .notBase(let tid): return String(format: t("data.rowNotBase"), name, hex(tid))
+        case .notUpdate(let tid): return String(format: t("data.rowNotUpdate"), name, hex(tid))
+        case .notDLC(let tid): return String(format: t("data.rowNotDLC"), name, hex(tid))
+        case .otherGame: return String(format: t("data.rowOtherGame"), name)
+        }
+    }
+
+    /// The version in a file name, 0 when absent: `[v65536]` first, then the `_v65536` / ` v65536` token the
+    /// eShop-style names use (`01007EF00011E800_v1114112_038ff9df0888.nsp`). Picks the newest of several updates.
     nonisolated static func updateVersion(_ name: String) -> Int {
-        guard let re = try? NSRegularExpression(pattern: #"\[v(\d+)\]"#) else { return 0 }
+        for pattern in [#"\[v(\d+)\]"#, #"(?:^|[_ ])v(\d+)(?=$|[_ .\-)\]])"#] {
+            if let v = firstGroup(pattern, in: name), let n = Int(v) { return n }
+        }
+        return 0
+    }
+
+    nonisolated private static func firstGroup(_ pattern: String, in name: String) -> String? {
+        guard let re = try? NSRegularExpression(pattern: pattern) else { return nil }
         let ns = name as NSString
-        guard let m = re.firstMatch(in: name, range: NSRange(location: 0, length: ns.length)),
-              let v = Int(ns.substring(with: m.range(at: 1))) else { return 0 }
-        return v
+        guard let m = re.firstMatch(in: name, range: NSRange(location: 0, length: ns.length)) else { return nil }
+        return ns.substring(with: m.range(at: 1))
+    }
+
+    /// What the Choose… dialog of a row offers. The compressed NSZ / XCZ are accepted by the build
+    /// script like their plain forms. DLC ships as NSP (or NSZ), never as a cartridge image.
+    nonisolated static func allowedFileTypes(for kind: InputKind) -> [String] {
+        switch kind {
+        case .base, .update: return ["nsp", "xci", "nsz", "xcz"]
+        case .dlc: return ["nsp", "nsz"]
+        case .keys: return ["keys"]
+        }
     }
 
     func pickFiles(kind: InputKind) {
@@ -994,29 +1136,48 @@ final class BuildModel: ObservableObject {
         p.canChooseDirectories = false
         p.canChooseFiles = true
         p.allowsMultipleSelection = (kind == .dlc)
+        p.allowedFileTypes = Self.allowedFileTypes(for: kind)
         switch kind {
-        case .base, .update: p.allowedFileTypes = ["nsp", "xci"]
-        case .dlc: p.allowedFileTypes = ["nsp"]
-        case .keys: p.allowedFileTypes = ["keys"]
+        case .dlc:
+            p.message = t("data.dlcPanelMessage")
+            p.prompt = t("data.dlcPanelPrompt")
+        case .update: p.message = t("data.updatePanelMessage")
+        default: break
         }
         guard p.runModal() == .OK, !p.urls.isEmpty else { return }
+        take(picked: p.urls.map(\.path), kind: kind)
+    }
+
+    /// Files chosen for one row: those that fit it are taken, the first that does not is named on the row
+    /// and left out (it is not moved to another row: the row the user chose stays as they set it).
+    func take(picked: [String], kind: InputKind) {
         let id = kind == .base ? "base" : kind == .update ? "update" : kind == .dlc ? "dlc" : "keys"
-        let picked = p.urls.map(\.path)
-        updateSlot(id) { s in
-            s.paths = kind == .dlc ? Array(Set(s.paths + picked)).sorted() : Array(picked.prefix(1))
-            s.problem = ""
+        let baseName = kind == .base ? nil : (basePath as NSString).lastPathComponent
+        var fitting: [String] = [], problem = ""
+        for path in picked {
+            let name = (path as NSString).lastPathComponent
+            if let why = Self.rowMismatch(kind, name: name, base: baseName) {
+                if problem.isEmpty { problem = rowProblemText(why, name: name) }
+            } else { fitting.append(path) }
         }
-        if kind == .base, !picked.isEmpty { gameDir = (picked[0] as NSString).deletingLastPathComponent }
+        updateSlot(id) { s in
+            if !fitting.isEmpty {
+                s.paths = kind == .dlc ? Array(Set(s.paths + fitting)).sorted() : Array(fitting.prefix(1))
+                s.note = ""
+            }
+            s.problem = problem
+        }
+        if kind == .base, let first = fitting.first { gameDir = (first as NSString).deletingLastPathComponent }
     }
 
     func clear(_ id: String) { updateSlot(id) { $0.paths = []; $0.problem = "" } }
 
-    /// The title ID in a file name: [0100F2C0115B6000]
+    /// The title ID in a file name: `[0100F2C0115B6000]` first, else a bare 16-digit ID that starts with 01 as a token
+    /// (start of the name or after `_`, space, `-`, `.`, `(`, `[`), like `01007EF00011E000_v0_420d1c5034ab.nsp`.
     nonisolated static func titleID(_ name: String) -> UInt64? {
-        guard let re = try? NSRegularExpression(pattern: #"\[([0-9A-Fa-f]{16})\]"#) else { return nil }
-        let ns = name as NSString
-        guard let m = re.firstMatch(in: name, range: NSRange(location: 0, length: ns.length)) else { return nil }
-        return UInt64(ns.substring(with: m.range(at: 1)), radix: 16)
+        let found = firstGroup(#"\[([0-9A-Fa-f]{16})\]"#, in: name)
+            ?? firstGroup(#"(?:^|[_ \-.(\[])(01[0-9A-Fa-f]{14})(?![0-9A-Fa-f])"#, in: name)
+        return found.flatMap { UInt64($0, radix: 16) }
     }
 
     var repoOK: Bool { Self.isRepo(repoPath) }
@@ -1043,6 +1204,15 @@ final class BuildModel: ObservableObject {
         // empty, and the old fallback was Apple's /usr/bin/python3 (3.9), which the script then
         // rejected with "require Python 3.12 or newer" whatever the machine actually had (#53).
         let py = pythonPath.isEmpty ? Self.findPython().path : pythonPath
+        // engine/ is the only engine and is stale or missing (#214): make it, then start again
+        if EngineLayout.needsSyncBeforeBuild(repoPath) {
+            syncEngine { ok in
+                self.running = false
+                if ok && !EngineLayout.needsSyncBeforeBuild(self.repoPath) { self.startBuild() }
+                else { self.fail(String(format: self.t("msg.toolsOld"), "engine/ (python3 tools/engine.py sync, see the log)")) }
+            }
+            return
+        }
         // The tools this app runs, before a build that takes an hour finds one missing at its last step (#87)
         let missing = Self.missingTools(in: repoPath)
         if !missing.isEmpty {
@@ -1080,6 +1250,12 @@ final class BuildModel: ObservableObject {
         }
         let tidHex = Self.titleID(basePath).map { String(format: "%016llX", $0) } ?? "game"
         let workDir = (outDir.isEmpty ? baseDir : outDir) + "/" + tidHex + "_build"
+        // The build's signing step refuses the attributes a cloud folder adds, after the long steps: stop here instead.
+        if cloudFolderCheck(workDir) {
+            failure = BuildFailure(kind: .cloudFolder, gameName: nil, detail: workDir)
+            fail(failureWhat(failure!))
+            return
+        }
         var inputDir = baseDir
         if dirs.count > 1 || !unpicked.isEmpty {
             // A stable folder per game (#132): the script's fingerprints name its files and its profile path.
@@ -1120,7 +1296,8 @@ final class BuildModel: ObservableObject {
                 return
             }
         }
-        var args = [repoPath + "/" + Self.buildScript, inputDir, "-k", keysPath,
+        let engine = EngineLayout.root(repoPath)   // the checkout's engine/ (#214)
+        var args = [engine + "/" + Self.buildScript, inputDir, "-k", keysPath,
                     "--progress", "json"]
         // A compatibility switch the player turned on: written to a small env file the pipeline
         // copies into the app bundle (main.m sets one variable per line at boot). Only for an IPA;
@@ -1160,7 +1337,7 @@ final class BuildModel: ObservableObject {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: py)
         p.arguments = args
-        p.currentDirectoryURL = URL(fileURLWithPath: repoPath)
+        p.currentDirectoryURL = URL(fileURLWithPath: engine)
         // The root of the runtime the apphost looks for: derived from the detected installation,
         // not assumed to be ~/.dotnet (Homebrew keeps it in …/opt/dotnet/libexec). Only set when the
         // derivation actually answered — a wrong root is worse than none, and the pipeline derives
@@ -1258,8 +1435,34 @@ final class BuildModel: ObservableObject {
     /// A failed build's log read for the script's known early stops: the card under the build button then says what
     /// happened and what to do. An unknown stop leaves the note (the last line of the log) as it is.
     func noteFailure() {
-        let f = BuildFailureClassifier.classify(logTail)
+        let f = BuildFailureClassifier.classify(logTail, inputs: failureInputs())
         guard f.kind != .unknown else { failure = nil; return }
+        failure = f
+        doneNote = failureWhat(f)
+    }
+
+    /// Whether the build folder is in a cloud folder. Tests stand in for the system's answer.
+    var cloudFolderCheck: (String) -> Bool = { CloudFolder.contains($0) }
+
+    /// The Save to folder, picked in a panel. Clears the cloud-folder stop, since the next build looks at the new folder.
+    func chooseBuildFolder() {
+        let d = NSOpenPanel(); d.canChooseDirectories = true; d.canChooseFiles = false
+        guard d.runModal() == .OK, let u = d.url else { return }
+        outDir = u.path
+        if failure?.kind == .cloudFolder { failure = nil; doneNote = "" }
+    }
+
+    /// What the classifier may check besides the log: the keys file and where the game files are.
+    func failureInputs() -> BuildFailureClassifier.Inputs {
+        BuildFailureClassifier.Inputs(keysPath: keysPath, paths: ([basePath, updatePath, gameDir] + dlcPaths).filter { !$0.isEmpty },
+                                      volumes: volumesRoot)
+    }
+
+    /// A failed step of an install on a device, as a card when the launcher can say more than the tool's line.
+    /// Called after `finishInstall`, which put the tool's own error into the note.
+    func noteInstallFailure(_ step: BuildFailureClassifier.InstallStep, error: String) {
+        let listed = teamsProvider().contains { $0.id == signingTeam }
+        guard let f = BuildFailureClassifier.classifyInstall(step, error: error, teamListed: listed) else { failure = nil; return }
         failure = f
         doneNote = failureWhat(f)
     }
@@ -1267,6 +1470,8 @@ final class BuildModel: ObservableObject {
     /// The first sentence of a failure's hint (it names the game of a 32-bit program when the message does).
     func failureWhat(_ f: BuildFailure) -> String {
         if f.kind == .a32Program, let name = f.gameName { return String(format: t("fail.a32Program.whatNamed"), name) }
+        if f.kind == .driveMissing, let name = f.detail { return String(format: t("fail.driveMissing.whatNamed"), name) }
+        if f.kind == .diskFull, let gb = f.detail { return String(format: t("fail.diskFull.whatNeeds"), gb) }
         return t(f.kind.whatKey)
     }
 
@@ -1302,13 +1507,46 @@ final class BuildModel: ObservableObject {
             if let xcode = Self.installedXcode() {
                 installDep(Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint", present: false, installCmd: Self.selectXcodeCmd(xcode)))
             }
+        case .zbic:
+            if let d = deps.first(where: { $0.id == "python" }) { installDep(d) }   // the venv install, which now names zbic
+        case .keys:
+            if let chooseKeys { chooseKeys() } else { pickFiles(kind: .keys) }   // the same picker as the keys row
+        case .severalGames, .noTitleID, .diskFull:
+            showFailureFolder()
+        case .cloudFolder:
+            chooseBuildFolder()
+        case .teamTaken, .noSigningAccount:
+            openXcode()
+        case .deviceTransfer:
+            startBuild()
         default: break
         }
     }
 
+    /// The folder the failure is about, in the Finder: the folder of the game files, else the one the message names. For a full
+    /// disk the build folder (`<title ID>_build`, beside the game files) when it is there, since that is where the space went.
+    func showFailureFolder() {
+        guard let f = failure else { return }
+        var folder = gameDir.isEmpty ? (f.detail ?? "") : gameDir
+        if f.kind == .diskFull, !gameDir.isEmpty {
+            let built = ((try? FileManager.default.contentsOfDirectory(atPath: gameDir)) ?? []).sorted().first { $0.hasSuffix("_build") }
+            if let built { folder = gameDir + "/" + built }
+        }
+        guard !folder.isEmpty else { return }
+        revealFolder(URL(fileURLWithPath: folder))
+    }
+
+    /// Xcode itself: its Settings > Accounts is where a team is signed in, and Xcode has no address that opens that pane.
+    func openXcode() {
+        guard let app = Self.installedXcode() else { return }
+        openApp(URL(fileURLWithPath: app))
+    }
+
     /// Whether the card's fix button is already running its command.
     func fixBusy(_ kind: BuildFailureKind) -> Bool {
-        deps.first { $0.id == (kind == .translator ? "dotnet" : "xcode") }?.installing ?? false
+        guard [.translator, .iosSDK, .cltSelected, .zbic].contains(kind) else { return false }
+        let id = kind == .translator ? "dotnet" : kind == .zbic ? "python" : "xcode"
+        return deps.first { $0.id == id }?.installing ?? false
     }
 
     /// (file count, bytes) of a RomFS tree — the reuse fingerprint's content part.
@@ -1688,9 +1926,10 @@ final class BuildModel: ObservableObject {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: pythonPath.isEmpty ? "/usr/bin/python3" : pythonPath)
         // dest/romfs.img: one file, which main.m's per-game lookup takes before any folder.
-        p.arguments = [repoPath + "/" + Self.romfsImageTool, "--reuse", romfs, dest + "/romfs.img"]
+        let engine = EngineLayout.root(repoPath)
+        p.arguments = [engine + "/" + Self.romfsImageTool, "--reuse", romfs, dest + "/romfs.img"]
         let romfsPy = p.executableURL!.path
-        p.environment = ["PATH": Self.toolPath("/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin", python: romfsPy), "PYTHONPATH": repoPath + "/dm/tools"]
+        p.environment = ["PATH": Self.toolPath("/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin", python: romfsPy), "PYTHONPATH": engine + "/dm/tools"]
             .merging(BundledTools.environment(for: romfsPy)) { $1 }
         Self.inOwnGroup(p, python: p.executableURL!.path)
         let pipe = Pipe(); p.standardOutput = pipe; p.standardError = pipe
@@ -1743,7 +1982,10 @@ final class BuildModel: ObservableObject {
         guard FileManager.default.fileExists(atPath: app) else { return finishInstall(String(format: t("dev.noProject"), shortPath(app))) }
         runTool(id: 1002, name: String(format: t("dev.installStage"), name),
                 [xcrun, "devicectl", "device", "install", "app", "--device", device, app], step: Self.installStep) { error in
-            if let error { return self.finishInstall(String(format: self.t("dev.installFailed"), error)) }
+            if let error {
+                self.finishInstall(String(format: self.t("dev.installFailed"), error))
+                return self.noteInstallFailure(.install, error: error)
+            }
             guard let bundle = NSDictionary(contentsOfFile: app + "/Info.plist")?["CFBundleIdentifier"] as? String else {
                 return self.finishInstall(String(format: self.t("dev.noProject"), self.shortPath(app + "/Info.plist")))
             }
@@ -1754,7 +1996,10 @@ final class BuildModel: ObservableObject {
             let copy = {
                 self.runTool(id: 1003, name: String(format: self.t("dev.copyStage"), name),
                              Self.archiveCopy(xcrun: xcrun, device: device, bundle: bundle, archive: archive, titleID: tid), step: Self.installStep) { error in
-                    if let error { return self.finishInstall(String(format: self.t("dev.copyFailed"), error)) }
+                    if let error {
+                        self.finishInstall(String(format: self.t("dev.copyFailed"), error))
+                        return self.noteInstallFailure(.copy, error: error)
+                    }
                     self.installedOn = device
                     self.installedAppPath = app
                     self.finishInstall(nil)
@@ -1795,10 +2040,7 @@ final class BuildModel: ObservableObject {
                 }
                 let appID = "org.nxnative." + (Self.titleID(self.basePath).map { String(format: "%016llX", $0) } ?? "game").lowercased()
                 let teamVariant = "org.nxnative." + appID.split(separator: ".").last!.appending(".\(team)")
-                func taken(_ e: String?) -> Bool {
-                    guard let e else { return false }
-                    return e.contains("cannot be registered to your development team") || e.contains("No profiles for 'org.nxnative.")
-                }
+                func taken(_ e: String?) -> Bool { e.map(BuildFailureClassifier.signingTeamTaken) ?? false }
                 self.runTool(id: 1001, name: String(format: self.t("dev.signStage"), name), sign(), step: Self.xcodeStep) { firstError in
                     if let firstError, taken(firstError) {
                         // Once more under this team's own identifier, and the log says why the first try failed.
@@ -1806,6 +2048,7 @@ final class BuildModel: ObservableObject {
                         self.runTool(id: 1001, name: String(format: self.t("dev.signStage"), name), sign(["PRODUCT_BUNDLE_IDENTIFIER=" + teamVariant]), step: Self.xcodeStep) { retryError in
                             if let retryError, !retryError.isEmpty {
                                 self.finishInstall(String(format: self.t("dev.signFailed"), retryError))
+                                self.noteInstallFailure(.sign, error: retryError)
                             } else {
                                 self.installBuiltApp(app: derived + "/Build/Products/Release-iphoneos/DmIOS.app", archive: archive, device: device, xcrun: xcrun)
                             }
@@ -1814,6 +2057,7 @@ final class BuildModel: ObservableObject {
                     }
                     if let firstError, !firstError.isEmpty {
                         self.finishInstall(String(format: self.t("dev.signFailed"), firstError))
+                        self.noteInstallFailure(.sign, error: firstError)
                     } else {
                         self.installBuiltApp(app: derived + "/Build/Products/Release-iphoneos/DmIOS.app", archive: archive, device: device, xcrun: xcrun)
                     }
@@ -2130,7 +2374,7 @@ final class BuildModel: ObservableObject {
         paths.first { FileManager.default.isExecutableFile(atPath: $0) }
     }
 
-    /// The Python that actually has lz4/capstone/fontTools/backports.zstd — the one
+    /// The Python that actually has lz4/capstone/fontTools/zbic/backports.zstd — the one
     /// the build must run under, not whatever /usr/bin/python3 happens to be.
     /// The minimum the build scripts need. /usr/bin/python3 is 3.9 on a stock Mac and has none of
     /// the packages; picking it made a build fail with a syntax error deep inside the script
@@ -2153,15 +2397,17 @@ final class BuildModel: ObservableObject {
         ("glslang", "glslangValidator", "dep.glslang"),
     ]
 
-    /// The interpreter probe: lz4 / capstone / fontTools always, and zstd from either source —
+    /// The interpreter probe: lz4 / capstone / fontTools / zbic always, and zstd from either source —
     /// `compression.zstd` is built in from Python 3.14 and `backports.zstd` (which declares
     /// Python < 3.14) is the only option before that. Requiring the backport unconditionally
     /// rejected an otherwise working Homebrew Python 3.15 (issue #1).
+    /// zbic is required although only a game with system 22.0.0+ modules (ZBIC segments, Nintendo's zstd variant) needs it:
+    /// the launcher cannot know that before the extraction, and the build stops late without it (issue #251).
     /// nsz is deliberately not required here: it is only needed for NSZ / XCZ dumps, and the
     /// pipeline says so by name when one shows up. The venv installs it anyway so that a player
     /// who downloads a compressed dump never meets that error.
     nonisolated static let importProbe = """
-        import lz4, capstone, fontTools
+        import lz4, capstone, fontTools, zbic
         try:
             from compression import zstd
         except ImportError:
@@ -2208,8 +2454,8 @@ final class BuildModel: ObservableObject {
     /// nsz is always installed: NSZ / XCZ dumps are accepted by the pipeline now, and a player who
     /// downloads one should not have to run pip by hand (it is a few hundred KB).
     nonisolated static func pipPackages(_ version: (Int, Int)) -> [String] {
-        version < (3, 14) ? ["lz4", "capstone", "fonttools", "backports.zstd", "nsz"]
-                          : ["lz4", "capstone", "fonttools", "nsz"]
+        version < (3, 14) ? ["lz4", "capstone", "fonttools", "zbic", "backports.zstd", "nsz"]
+                          : ["lz4", "capstone", "fonttools", "zbic", "nsz"]
     }
 
     /// Create the venv (reusing an existing one) and install the packages into it. Returns the
@@ -2604,7 +2850,7 @@ final class BuildModel: ObservableObject {
         }
 
         let macMetal = firstOutputLine("/usr/bin/xcrun", ["-sdk", "macosx", "metal", "--version"])
-        let lock = repo.isEmpty ? nil : try? String(contentsOfFile: repo + "/" + MetalPin.lockPath, encoding: .utf8)
+        let lock = repo.isEmpty ? nil : try? String(contentsOfFile: EngineLayout.root(repo) + "/" + MetalPin.lockPath, encoding: .utf8)
         let iosMetal = needsIOS && lock != nil ? firstOutputLine("/usr/bin/xcrun", ["-sdk", "iphoneos", "metal", "--version"]) : nil
         out.append(metalDep(runs: macMetal != nil, lock: lock, now: ["macosx": macMetal, "iphoneos": iosMetal], needsIOS: needsIOS))
 
@@ -2626,7 +2872,7 @@ final class BuildModel: ObservableObject {
         let pyDetail = pythonDetail(py: py, ok: pyOK)
         out.append(Dep(id: "python", name: "dep.python", hint: "dep.python.hint",
                        present: pyOK, detail: pyDetail,
-                       installCmd: [py, "-m", "pip", "install", "--user", "lz4", "capstone", "fonttools", "backports.zstd"]))
+                       installCmd: [py, "-m", "pip", "install", "--user", "lz4", "capstone", "fonttools", "zbic", "backports.zstd"]))
         return out
     }
 
@@ -2821,6 +3067,7 @@ struct BuilderView: View {
     var padMerge: Binding<Bool> = .constant(false)   // "All controllers are player 1" (ControlLayout.padMerge)
     @AppStorage(ConsolePrompt.defaultsKey) private var consolePromptOn = true   // ConsoleCoordinator.swift
     @AppStorage(BuildNotice.defaultsKey) private var notifyBuilds = true   // BuildNotifications.swift
+    @AppStorage(ReturnAfterPlay.defaultsKey) private var returnAfterPlay = true   // ReturnAfterPlay.swift
     @State private var extrasOpen = false
     @State private var logOpen = false
     @State private var keyCheck: KeyCheck.Outcome?   // prod.keys against the chosen files (KeyCheck.swift)
@@ -2875,28 +3122,34 @@ struct BuilderView: View {
     }
 
     /// One line of a card: a status dot (its place kept when there is none, so every title starts on one line),
-    /// the title (with a disclosure chevron beside it when `open` is given), a secondary detail, and its controls,
-    /// whose right edges line up across the card.
+    /// the title (with a disclosure chevron beside it when `open` is given), a secondary detail, and its controls.
+    /// Its buttons and dropdowns are all LauncherControl.width wide, so they line up in one column across the cards.
     private func row<Trailing: View>(_ title: String, detail: String = "", dot: Color? = nil, help: String = "", open: Bool? = nil,
                                      @ViewBuilder trailing: () -> Trailing) -> some View {
         HStack(spacing: 12) {
             Circle().fill(dot ?? .clear).frame(width: 7, height: 7)
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
-                    Text(title).font(.manrope(14))
+                    Text(title).font(.manrope(14)).fixedSize(horizontal: false, vertical: true)
                     if let open {
                         Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).foregroundStyle(.secondary)
                             .rotationEffect(.degrees(open ? 90 : 0))
                     }
                 }
                 if !detail.isEmpty {
-                    // A path is technical text: the system's monospaced face; everything else Manrope
-                    Text(detail).font(detail.hasPrefix("/") || detail.hasPrefix("~") ? .mono(12) : .manrope(12.5)).foregroundStyle(.secondary)
-                        .lineLimit(1).truncationMode(.middle).help(help.isEmpty ? detail : help)
+                    // A path is technical text: the system's monospaced face, on one line, cut in the middle when
+                    // too long. Everything else is prose in Manrope and wraps, so no word is ever cut.
+                    if detail.hasPrefix("/") || detail.hasPrefix("~") {
+                        Text(detail).font(.mono(12)).foregroundStyle(.secondary)
+                            .lineLimit(1).truncationMode(.middle).help(help.isEmpty ? detail : help)
+                    } else {
+                        Text(detail).font(.manrope(12.5)).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true).help(help.isEmpty ? detail : help)
+                    }
                 }
             }
             Spacer(minLength: 12)
-            trailing()
+            trailing().launcherRowControls()
         }
         .padding(.horizontal, 18).padding(.vertical, 13)
         .frame(minHeight: 52)
@@ -2949,7 +3202,7 @@ struct BuilderView: View {
             row(m.t("dev.target"), detail: m.devicesChecked && m.devices.isEmpty ? m.t("dev.noDevices") : "") {
                 if !m.devicesChecked { ProgressView().controlSize(.small) }
                 Button(m.t("dev.refresh")) { m.refreshDevices() }.buttonStyle(.plain).font(.manrope(13)).foregroundStyle(.secondary)
-                LauncherMenuPicker(options: devices, selection: m.installDevice) { m.installDevice = $0 }
+                LauncherDropdown(options: devices, selection: m.installDevice, label: m.t("dev.target")) { m.installDevice = $0 }
             }
             if !m.installDevice.isEmpty {
                 divider
@@ -2957,7 +3210,7 @@ struct BuilderView: View {
                     row(m.t("dev.team"), detail: m.t("dev.noTeam"), dot: LauncherPalette.building) { EmptyView() }
                 } else {
                     row(m.t("dev.team")) {
-                        LauncherMenuPicker(options: teams, selection: m.signingTeam) { m.signingTeam = $0 }
+                        LauncherDropdown(options: teams, selection: m.signingTeam, label: m.t("dev.team")) { m.signingTeam = $0 }
                     }
                 }
             }
@@ -2974,7 +3227,7 @@ struct BuilderView: View {
                     detail: m.gameDir.isEmpty ? m.t("build.folderNote") : m.shortPath(m.gameDir), help: m.gameDir) {
                     Text(m.t(m.gameDir.isEmpty ? "data.choose" : "data.change"))
                         .font(.manrope(13, .semibold)).foregroundStyle(.black)
-                        .padding(.horizontal, 16).padding(.vertical, 8)
+                        .launcherRowControlFrame()
                         .background(LauncherPalette.cream, in: Capsule())
                 }
                 .contentShape(Rectangle())
@@ -2991,10 +3244,7 @@ struct BuilderView: View {
             }
             divider
             row(m.t("build.saveTo"), detail: m.outDir.isEmpty ? m.t("build.saveDefault") : m.shortPath(m.outDir), help: m.outDir) {
-                Button(m.t("data.change")) {
-                    let d = NSOpenPanel(); d.canChooseDirectories = true; d.canChooseFiles = false
-                    if d.runModal() == .OK, let u = d.url { m.outDir = u.path }
-                }
+                Button(m.t("data.change")) { m.chooseBuildFolder() }
             }
         }
         .task(id: KeyCheck.Inputs(keys: m.keysPath, files: [m.basePath, m.updatePath] + m.dlcPaths)) {
@@ -3233,12 +3483,9 @@ struct BuilderView: View {
 
     // ---- Settings ----
 
-    /// Every button of the Settings cards is this wide, so they stand in one column.
-    static let settingsButtonWidth: CGFloat = 150
-
     @ViewBuilder private var settingsPage: some View {
         pageHeading(m.t("settings.heading"), note: m.t("settings.note"))
-        settingsCards.buttonStyle(LauncherSecondaryButtonStyle(minWidth: Self.settingsButtonWidth))
+        settingsCards
     }
 
     @ViewBuilder private var settingsCards: some View {
@@ -3278,20 +3525,18 @@ struct BuilderView: View {
         tools
         group(m.t("section.app"), footnote: m.appStatus) {
             // The interface language: the device default unless someone picks one here. Stored as
-            // "" (follow), "zh", "en" or "sv" so a later system-language change still applies.
+            // "" (follow), "zh", "en", "sv" or "de" so a later system-language change still applies.
             row(m.t("settings.language"),
                 detail: Lang.saved.map { m.t("settings.language.\($0.rawValue)") }
                     ?? m.t("settings.language.system"), dot: LauncherPalette.ready, help: "") {
-                // The launcher's own list (as in Launch options), drawn like the buttons beside it and as wide
-                LauncherMenuPicker(options: [(value: "", label: m.t("settings.language.system")),
-                                             (value: "zh", label: m.t("settings.language.zh")),
-                                             (value: "en", label: m.t("settings.language.en")),
-                                             (value: "sv", label: m.t("settings.language.sv"))],
-                                   selection: Lang.saved.map { $0.rawValue } ?? "", fill: true, buttonLike: true) { v in
+                // The launcher's own list, drawn like the buttons beside it and as wide as they are.
+                // The language names are in their own language (see "settings.language.*"), only "system" follows the UI.
+                LauncherDropdown(options: Self.languageCodes.map { (value: $0, label: m.t("settings.language." + ($0.isEmpty ? "system" : $0))) },
+                                 selection: Lang.saved.map { $0.rawValue } ?? "", label: m.t("settings.language"),
+                                 style: .button) { v in
                     Lang.saved = v.isEmpty ? nil : Lang(rawValue: v)
                     m.lang = Lang.initial()
                 }
-                .frame(width: Self.settingsButtonWidth)
                 .padTarget("set.language", scope: "main", activate: { cycleLanguage(1) }, adjust: { cycleLanguage($0) })
             }
             divider
@@ -3308,6 +3553,12 @@ struct BuilderView: View {
                 }
                 divider
             }
+            // The launcher back in front when a game it started quits (ReturnAfterPlay.swift)
+            row(m.t("settings.returnAfterPlay"), detail: m.t("settings.returnAfterPlayNote")) {
+                Toggle("", isOn: $returnAfterPlay).toggleStyle(LauncherSwitchStyle()).labelsHidden()
+                    .padTarget("set.returnAfterPlay", scope: "main") { returnAfterPlay.toggle() }
+            }
+            divider
             row("NX2Apple", detail: String(format: m.t("app.version"), BuildModel.appVersion),
                 dot: m.appStaged != nil ? LauncherPalette.ready : nil) {
                 if m.appBusy { ProgressView().controlSize(.small) }
@@ -3324,6 +3575,16 @@ struct BuilderView: View {
                 }
             }
             divider
+            if m.appInstallability == .ok {
+                // The uninstaller (Uninstall.swift): state folders and the launcher's own checkout go; the
+                // games folder and prod.keys stay; the app itself goes to the Trash.
+                row(m.t("uninstall.title"), detail: m.t("uninstall.note")) {
+                    Button(m.t("uninstall.button")) { m.uninstallPlan = uninstallPlan() }
+                    .disabled(m.running)
+                    .padTarget("set.uninstall", scope: "main") { if !m.running { m.uninstallPlan = uninstallPlan() } }
+                }
+                divider
+            }
             // A launcher built from the repository never replaces itself (AppUpdate.installability): the switch says so and stays off
             row(m.t("app.auto"), detail: m.t(m.appInstallability == .ok ? "app.autoNote" : m.appInstallability == .developer ? "app.autoDev" : "app.autoReadOnly")) {
                 Toggle("", isOn: Binding(get: { m.autoUpdateApp && m.appInstallability == .ok }, set: { m.autoUpdateApp = $0 }))
@@ -3334,12 +3595,21 @@ struct BuilderView: View {
     }
 
     /// The interface language one step on (a controller's left / right on the language list).
+    /// The language picker's choices in order, "" being the system's. A new language is one more code here and its
+    /// "settings.language.<code>" entry, which is its own name (Svenska, Deutsch) in every language.
+    static let languageCodes = ["", "zh", "en", "sv", "de"]
+
     private func cycleLanguage(_ by: Int) {
-        let values = ["", "zh", "en", "sv"]
+        let values = Self.languageCodes
         let at = values.firstIndex(of: Lang.saved.map { $0.rawValue } ?? "") ?? 0
         let v = values[(at + by + values.count) % values.count]
         Lang.saved = v.isEmpty ? nil : Lang(rawValue: v)
         m.lang = Lang.initial()
+    }
+
+    private func uninstallPlan() -> Uninstall.Plan {
+        Uninstall.plan(home: NSHomeDirectory(), gamesFolder: library.folder, outputFolder: m.outDir,
+                       checkouts: [m.repoPath], defaultsDomain: Bundle.main.bundleIdentifier)
     }
 
     private var tools: some View {
@@ -3440,7 +3710,7 @@ struct BuilderView: View {
                 }
             }
             divider
-            row(m.t("diag.title"), detail: m.t("diag.note")) { DiagnosticsButton(m: m, game: library.selected, width: Self.settingsButtonWidth) }
+            row(m.t("diag.title"), detail: m.t("diag.note")) { DiagnosticsButton(m: m, game: library.selected) }
         }
     }
 

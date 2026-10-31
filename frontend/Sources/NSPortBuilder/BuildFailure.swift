@@ -5,7 +5,17 @@ import Foundation
 /// the log, cut to 200 characters. The classifier reads the whole log tail, because for a damaged NSP the
 /// last line is only "nx_extract exit code 3" and the message is a few lines above it.
 enum BuildFailureKind: String, CaseIterable {
-    case rosetta, translator, iosSDK, cltSelected, otherMetal, shaderRegression, damagedNSP, a32Program, unknown
+    case rosetta, translator, zbic, iosSDK, cltSelected, otherMetal, shaderRegression, damagedNSP, a32Program
+    /// The inputs: the keys file, the game folder, a drive that is gone.
+    case keys, severalGames, noTitleID, driveMissing
+    /// The build's and the install's own steps.
+    case diskFull, teamTaken, noSigningAccount, deviceTransfer
+    /// The build folder is in iCloud Drive or another cloud folder (CloudFolder.swift): the launcher stops before the build, and the
+    /// codesign line of xcodebuild is the same stop for a build that got past that check.
+    case cloudFolder
+    /// The engine's online sync (tools/engine.py sync, Engine.swift): no network or GitHub unreachable, or any other stop of it.
+    case engineOffline, engineSync
+    case unknown
 
     /// The script's override for this stop, offered as "Build anyway". Only these three have one that the launcher
     /// may offer: the others cannot be built around (a 32-bit program, a missing SDK).
@@ -26,32 +36,93 @@ enum BuildFailureKind: String, CaseIterable {
 struct BuildFailure: Equatable {
     var kind: BuildFailureKind
     var gameName: String?   // a32Program: the game, when the message names it
+    /// What the message adds to its row: the GB a full disk needs (diskFull), the drive's name (driveMissing), the folder
+    /// of "no NSP with a readable title ID" (noTitleID).
+    var detail: String? = nil
 }
 
 enum BuildFailureClassifier {
     /// One row per message of the script. The pattern is a stable part of the text in scripts/build_ipa_from_nsp.py,
     /// dm/gfx/tools/own_compilers.py or dm/tools/nx_extract/Program.cs (regular expressions, searched in the log).
     /// Frontend/Tests/Fixtures/build_failures.json holds the real message for every row, and a test checks that each
-    /// fragment is still in the vendored script, so a sync that rewords a message fails there instead of turning a
+    /// fragment is still in the engine's script, so a sync that rewords a message fails there instead of turning a
     /// hint into the raw last line. The Qt front end has the same table (nspb_qt/build_failure.py, compared by a test).
     static let table: [(id: String, kind: BuildFailureKind, pattern: String)] = [
         ("rosetta.intel", .rosetta, "is an Intel one running under Rosetta"),
         ("translator.run", .translator, "the shader translator does not run"),
         ("translator.start", .translator, "the shader translator does not start"),
+        ("zbic.missing", .zbic, "need the zbic package"),
         ("ios.sdk", .iosSDK, "the iOS SDK is not installed"),
         ("clt.selected", .cltSelected, "the selected developer folder is the Command Line Tools"),
         ("metal.other", .otherMetal, "Metal compiler is not the one the shaders were tested with"),
         ("shaders.regression", .shaderRegression, "a change to the translation chain broke them"),
         ("nsp.damaged", .damagedNSP, "files fail the NCA's hash check"),
         ("arm32.program", .a32Program, "is a 32-bit ARM program"),
+        ("keys.missing", .keys, "(?m)^\\[RED\\] no such file: "),
+        ("games.several", .severalGames, "more than one game in the folder, keep one game per folder"),
+        ("games.noTitleID", .noTitleID, "no NSP with a readable title ID in "),
+        ("disk.low", .diskFull, "less than [0-9]+ GB free on the volume of "),
+        ("disk.full", .diskFull, "No space left on device"),
+        ("icloud.detritus", .cloudFolder, "resource fork, Finder information, or similar detritus not allowed"),
     ]
 
+    /// What the launcher itself knows when the log says nothing it can use. The keys file and the game files are checked
+    /// first: a drive that is not connected makes every later message ("not a folder", a dangling link) a consequence.
+    struct Inputs {
+        var keysPath = ""
+        var paths: [String] = []          // the picked game files and the game folder
+        var volumes = "/Volumes"
+        var isReadable: (String) -> Bool = { FileManager.default.isReadableFile(atPath: $0) }
+    }
+
     /// `unknown` when no row matches: the caller then keeps showing the last line of the log.
-    static func classify(_ log: String) -> BuildFailure {
-        for row in table where log.range(of: row.pattern, options: .regularExpression) != nil {
-            return BuildFailure(kind: row.kind, gameName: row.kind == .a32Program ? gameName(in: log) : nil)
+    static func classify(_ log: String, inputs: Inputs = Inputs()) -> BuildFailure {
+        for path in [inputs.keysPath] + inputs.paths where !path.isEmpty && GameLibrary.onUnmountedVolume(path, volumes: inputs.volumes) {
+            let prefix = inputs.volumes.hasSuffix("/") ? inputs.volumes : inputs.volumes + "/"
+            let name = path.dropFirst(prefix.count).split(separator: "/").first.map(String.init)
+            return BuildFailure(kind: .driveMissing, gameName: nil, detail: name)
         }
+        for row in table where log.range(of: row.pattern, options: .regularExpression) != nil {
+            return BuildFailure(kind: row.kind, gameName: row.kind == .a32Program ? gameName(in: log) : nil, detail: detail(of: row.kind, in: log))
+        }
+        // The keys file is gone or cannot be read: nx_extract stops with an exit code and no line of its own for it.
+        if !inputs.keysPath.isEmpty, !inputs.isReadable(inputs.keysPath) { return BuildFailure(kind: .keys, gameName: nil) }
         return BuildFailure(kind: .unknown, gameName: nil)
+    }
+
+    private static func detail(of kind: BuildFailureKind, in log: String) -> String? {
+        switch kind {
+        case .diskFull:   // "less than 40 GB free on the volume of /Volumes/X/..."
+            guard let r = log.range(of: #"less than [0-9]+ GB free"#, options: .regularExpression) else { return nil }
+            return log[r].split(separator: " ").dropFirst(2).first.map(String.init)
+        case .noTitleID:   // "no NSP with a readable title ID in /path"
+            guard let r = log.range(of: #"(?m)no NSP with a readable title ID in (.+)$"#, options: .regularExpression),
+                  let at = log[r].range(of: " in ") else { return nil }
+            return String(log[r][at.upperBound...]).trimmingCharacters(in: .whitespaces)
+        default: return nil
+        }
+    }
+
+    /// A step of the install on a device that failed, with the tool's last error line. The sign step's own retry (the team's
+    /// variant of the bundle ID) has run already when this is called.
+    enum InstallStep { case sign, install, copy }
+
+    /// nil when the launcher has no better words than the tool's own line. `teamListed`: whether the chosen team is still one
+    /// the Mac knows (an account signed in to Xcode, or a development certificate in the keychain).
+    static func classifyInstall(_ step: InstallStep, error: String, teamListed: Bool) -> BuildFailure? {
+        if error.contains("No space left on device") { return BuildFailure(kind: .diskFull, gameName: nil) }
+        switch step {
+        case .sign:
+            if signingTeamTaken(error) { return BuildFailure(kind: .teamTaken, gameName: nil) }
+            return teamListed ? nil : BuildFailure(kind: .noSigningAccount, gameName: nil)
+        case .install, .copy:
+            return BuildFailure(kind: .deviceTransfer, gameName: nil)
+        }
+    }
+
+    /// xcodebuild's words when the app's identifier is registered to another team.
+    static func signingTeamTaken(_ error: String) -> Bool {
+        error.contains("cannot be registered to your development team") || error.contains("No profiles for 'org.nxnative.")
     }
 
     /// "<name> (<title ID>) is a 32-bit ARM program": the name is "?" when the extraction has none.
@@ -73,7 +144,8 @@ enum BuildFailureClassifier {
 }
 
 /// The Metal compiler the shaders were tested with (dm/gfx/tools/dmsh_chain.lock) against this Mac's. NVN games stop at the
-/// start of the shader steps with another compiler (own_compilers.py --check-metal), so the dependency panel says so beforehand.
+/// start of the shader steps with another compiler of the lock's generation or an older one (own_compilers.py --check-metal), so
+/// the dependency panel says so beforehand; a newer compiler of the same generation builds with a note, like the script's gate.
 /// The comparison is the script's: the first line of `xcrun -sdk <sdk> metal --version`, and a compiler that is not there is
 /// not a mismatch (its own row reports a missing one).
 enum MetalPin {
@@ -93,13 +165,30 @@ enum MetalPin {
 
     /// `now`: the compilers found, by SDK name (macosx, iphoneos), nil for one that did not answer.
     /// An iOS compiler is compared only when `iOS` (the build is for an iPhone).
+    /// A newer compiler of the recorded generation is not a mismatch: Xcode's auto-update bumps it (the lock's 32023.921 to
+    /// 27.2's 32023.922) and a player cannot hold Xcode back — the engine's gate builds with a note (own_compilers.py, #242).
     static func mismatches(lock: String, now: [String: String?], iOS: Bool) -> [Mismatch] {
         let pinned = pins(lock: lock)
         var out: [Mismatch] = []
         for sdk in iOS ? ["macosx", "iphoneos"] : ["macosx"] {
-            guard let want = pinned["metal_" + sdk], let found = now[sdk] ?? nil, !found.isEmpty, found != want else { continue }
+            guard let want = pinned["metal_" + sdk], let found = now[sdk] ?? nil, !found.isEmpty, found != want, !buildsOn(tested: want, found: found) else { continue }
             out.append(Mismatch(sdk: sdk, now: found, pinned: want))
         }
         return out
+    }
+
+    /// `Apple metal version 32023.921 (metalfe-32023.921.6)` → (32023, 921, 6); nil for another shape.
+    static func version(_ s: String) -> (Int, Int, Int)? {
+        let text = s.trimmingCharacters(in: .whitespaces)
+        let pattern = "^Apple metal version (\\d+)\\.(\\d+) \\(metalfe-\\d+\\.\\d+\\.(\\d+)\\)$"
+        guard let re = try? NSRegularExpression(pattern: pattern), let m = re.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)), m.numberOfRanges == 4 else { return nil }
+        let g = { (i: Int) in Int((text as NSString).substring(with: m.range(at: i))) }
+        return g(1) != nil && g(2) != nil && g(3) != nil ? (g(1)!, g(2)!, g(3)!) : nil
+    }
+
+    /// Same leading version and strictly newer: the tested Xcode's compiler against the one an auto-update brought.
+    static func buildsOn(tested: String, found: String) -> Bool {
+        guard let a = version(tested), let b = version(found) else { return false }
+        return a.0 == b.0 && b > a
     }
 }

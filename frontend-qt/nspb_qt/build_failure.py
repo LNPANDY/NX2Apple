@@ -6,7 +6,7 @@ last line of the log. The classifier reads the whole log tail: for a damaged NSP
 
 TABLE is the same table as BuildFailure.swift's (a test compares the two). frontend/Tests/Fixtures/
 build_failures.json holds the script's real message for every row, and a test checks that each fragment is
-still in the vendored script, so a sync that rewords a message fails there.
+still in the engine's script, so a sync that rewords a message fails there.
 """
 from __future__ import annotations
 
@@ -15,12 +15,18 @@ from dataclasses import dataclass
 
 ROSETTA = 'rosetta'
 TRANSLATOR = 'translator'
+ZBIC = 'zbic'
 IOS_SDK = 'iosSDK'
 CLT_SELECTED = 'cltSelected'
 OTHER_METAL = 'otherMetal'
 SHADER_REGRESSION = 'shaderRegression'
 DAMAGED_NSP = 'damagedNSP'
 A32_PROGRAM = 'a32Program'
+KEYS = 'keys'
+SEVERAL_GAMES = 'severalGames'
+NO_TITLE_ID = 'noTitleID'
+DISK_FULL = 'diskFull'
+CLOUD_FOLDER = 'cloudFolder'
 UNKNOWN = 'unknown'
 
 # (id, kind, regular expression searched in the log)
@@ -28,12 +34,19 @@ TABLE: list[tuple[str, str, str]] = [
     ('rosetta.intel', ROSETTA, r'is an Intel one running under Rosetta'),
     ('translator.run', TRANSLATOR, r'the shader translator does not run'),
     ('translator.start', TRANSLATOR, r'the shader translator does not start'),
+    ('zbic.missing', ZBIC, r'need the zbic package'),
     ('ios.sdk', IOS_SDK, r'the iOS SDK is not installed'),
     ('clt.selected', CLT_SELECTED, r'the selected developer folder is the Command Line Tools'),
     ('metal.other', OTHER_METAL, r'Metal compiler is not the one the shaders were tested with'),
     ('shaders.regression', SHADER_REGRESSION, r'a change to the translation chain broke them'),
     ('nsp.damaged', DAMAGED_NSP, r"files fail the NCA's hash check"),
     ('arm32.program', A32_PROGRAM, r'is a 32-bit ARM program'),
+    ('keys.missing', KEYS, r'(?m)^\[RED\] no such file: '),
+    ('games.several', SEVERAL_GAMES, r'more than one game in the folder, keep one game per folder'),
+    ('games.noTitleID', NO_TITLE_ID, r'no NSP with a readable title ID in '),
+    ('disk.low', DISK_FULL, r'less than [0-9]+ GB free on the volume of '),
+    ('disk.full', DISK_FULL, r'No space left on device'),
+    ('icloud.detritus', CLOUD_FOLDER, r'resource fork, Finder information, or similar detritus not allowed'),
 ]
 
 # The script's override for a stop, offered as "Build anyway". The others cannot be built around.
@@ -43,7 +56,12 @@ OVERRIDE_FLAGS = {
     DAMAGED_NSP: '--allow-damaged',
 }
 
-KINDS = [ROSETTA, TRANSLATOR, IOS_SDK, CLT_SELECTED, OTHER_METAL, SHADER_REGRESSION, DAMAGED_NSP, A32_PROGRAM]
+KINDS = [ROSETTA, TRANSLATOR, ZBIC, IOS_SDK, CLT_SELECTED, OTHER_METAL, SHADER_REGRESSION, DAMAGED_NSP, A32_PROGRAM,
+         KEYS, SEVERAL_GAMES, NO_TITLE_ID, DISK_FULL, CLOUD_FOLDER]
+# The Swift app has four more rows that no log line sets (a drive that is gone, a signing team, a device transfer):
+# they belong to the Mac launcher's install on a device and to /Volumes, which this front end does not have.
+# cloudFolder is a row of the table, so it is here, but the check that stops a build before it starts is the Mac launcher's.
+# The engine's online sync has two more (engine.py's ENGINE_OFFLINE and ENGINE_SYNC): no log line of the script sets them either.
 
 _A32_NAME = re.compile(r'^(?:\[RED\] )?(.+?) \([0-9A-Fa-f]{16}\) is a 32-bit ARM program', re.M)
 
@@ -52,6 +70,7 @@ _A32_NAME = re.compile(r'^(?:\[RED\] )?(.+?) \([0-9A-Fa-f]{16}\) is a 32-bit ARM
 class Failure:
     kind: str
     game: str | None = None   # a32Program: the game, when the message names it
+    detail: str | None = None   # diskFull: the GB the script says it needs. noTitleID: the folder it names
 
     @property
     def what_key(self) -> str:
@@ -66,13 +85,28 @@ class Failure:
         return OVERRIDE_FLAGS.get(self.kind)
 
 
-def classify(log: str) -> Failure:
-    """UNKNOWN when no row matches: the caller then keeps showing the last line of the log."""
+def _detail(kind: str, log: str) -> str | None:
+    if kind == DISK_FULL:   # "less than 40 GB free on the volume of /Volumes/X/..."
+        m = re.search(r'less than ([0-9]+) GB free', log)
+        return m.group(1) if m else None
+    if kind == NO_TITLE_ID:   # "no NSP with a readable title ID in /path"
+        m = re.search(r'(?m)no NSP with a readable title ID in (.+)$', log)
+        return m.group(1).strip() if m else None
+    return None
+
+
+def classify(log: str, keys_readable: bool | None = None) -> Failure:
+    """UNKNOWN when no row matches: the caller then keeps showing the last line of the log.
+
+    keys_readable: what the window knows of the keys file (False = gone or unreadable). The script's own line for a missing
+    file is a row of the table, and nx_extract says nothing of its own about a file it cannot read."""
     for _id, kind, pattern in TABLE:
         if re.search(pattern, log):
             m = _A32_NAME.search(log) if kind == A32_PROGRAM else None
             name = m.group(1).strip() if m else None
-            return Failure(kind, None if name in (None, '', '?') else name)
+            return Failure(kind, None if name in (None, '', '?') else name, _detail(kind, log))
+    if keys_readable is False:
+        return Failure(KEYS)
     return Failure(UNKNOWN)
 
 

@@ -77,4 +77,19 @@ final class LaunchOptionsTests: XCTestCase {
                         folder.appendingPathComponent("C Atmosphere/atmosphere/contents/01007EF00011E000/romfs").path].joined(separator: ":"),
                        "the list's order (higher wins), and a code-only mod left out")
     }
+
+    func testShortChoicesAreSegmentedAndTheGameLanguageIsAlwaysAMenu() {
+        func segmented(_ env: String, _ labels: [String]) -> Bool { LaunchControl.isSegmented(env: env, labels: labels) }
+        XCTAssertTrue(segmented("DM_FPS_TARGET", ["30 fps", "60 fps"]))
+        XCTAssertTrue(segmented("DM_OPMODE", ["Docked", "Handheld"]))
+        XCTAssertTrue(segmented("DM_FULLSCREEN", ["Window", "Fullscreen"]))
+        XCTAssertTrue(segmented("DM_PRESENT_UPSCALE", ["Standard", "MetalFX"]))
+        XCTAssertTrue(segmented("DM_FULLSCREEN", ["Fenster", "Vollbild"]))
+        XCTAssertTrue(segmented("DM_FULLSCREEN", ["窗口", "全屏"]))
+        XCTAssertFalse(segmented("DM_LANG", ["English", "Japanese"]), "the game language is a menu, as on the iPhone")
+        XCTAssertFalse(segmented("DM_LANG", ["en", "ja", "de"]))
+        XCTAssertFalse(segmented("DM_X", ["American English", "Japanese"]), "a label that does not fit its segment")
+        XCTAssertFalse(segmented("DM_X", ["One", "Two", "Seven tens"]), "three segments are narrower than two")
+        XCTAssertFalse(segmented("DM_X", ["A", "B", "C", "D"]), "four or more are a menu")
+    }
 }

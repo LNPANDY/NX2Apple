@@ -7,6 +7,8 @@ pattern, shared with the Swift tests. A sync of scripts/ or dm/ that rewords a m
 """
 from __future__ import annotations
 
+import errno
+import importlib.util
 import json
 import os
 import re
@@ -20,6 +22,7 @@ sys.path.insert(0, str(ROOT / 'frontend-qt'))
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
 from nspb_qt import build_failure as bf  # noqa: E402
+from nspb_qt.i18n import Lang  # noqa: E402
 from nspb_qt.localization import TABLE  # noqa: E402
 
 FIXTURES = json.loads((ROOT / 'frontend/Tests/Fixtures/build_failures.json').read_text(encoding='utf-8'))
@@ -43,11 +46,16 @@ class Classifier(unittest.TestCase):
     def test_every_kind_is_reachable(self):
         self.assertEqual({k for _, k, _ in bf.TABLE}, set(bf.KINDS))
 
-    def test_the_vendored_scripts_still_say_what_the_patterns_expect(self):
+    def test_the_engines_scripts_still_say_what_the_patterns_expect(self):
         """A sync that rewords a message must fail here, not turn a hint into the raw last line."""
         for f in FIXTURES:
             with self.subTest(pattern=f['id']):
-                there = f['fragment'] in (ROOT / f['source']).read_text(encoding='utf-8')
+                if f['source'] == 'errno':   # the system's own text, not the script's
+                    self.assertEqual(os.strerror(errno.ENOSPC), f['fragment'])
+                    continue
+                if f['source'] == 'codesign':   # Apple's text, from a tool the script runs
+                    continue
+                there = f['fragment'] in (ROOT / 'engine' / f['source']).read_text(encoding='utf-8')
                 if f.get('pending_sync'):
                     self.assertFalse(there, f"{f['id']} is in {f['source']} now: remove pending_sync ({f['pending_sync']}) from the fixture")
                 else:
@@ -79,6 +87,71 @@ class Classifier(unittest.TestCase):
     def test_the_swift_overrides_are_these(self):
         flags = dict(re.findall(r'case \.(\w+): return "(--allow-[\w-]+)"', SWIFT))
         self.assertEqual(flags, bf.OVERRIDE_FLAGS)
+
+
+class Rows(unittest.TestCase):
+    """The rows of issue #141: what sets each one, and that the text names the action."""
+
+    def test_each_row_appears_for_its_log_line(self):
+        for pid, kind in (('keys.missing', bf.KEYS), ('games.several', bf.SEVERAL_GAMES), ('games.noTitleID', bf.NO_TITLE_ID),
+                          ('disk.low', bf.DISK_FULL), ('disk.full', bf.DISK_FULL)):
+            self.assertEqual(bf.classify(fixture(pid)['text']).kind, kind, pid)
+        self.assertEqual(bf.classify('copying: no such file: x').kind, bf.UNKNOWN)
+
+    def test_details(self):
+        self.assertEqual(bf.classify(fixture('disk.low')['text']).detail, fixture('disk.low')['gb'])
+        self.assertIsNone(bf.classify(fixture('disk.full')['text']).detail)
+        log = 'skipping an empty file: a.nsp\n' + fixture('games.noTitleID')['text'] + '\n'
+        self.assertEqual(bf.classify(log).detail, fixture('games.noTitleID')['folder'])
+
+    def test_a_keys_file_that_cannot_be_read_is_known_from_the_file(self):
+        log = '[RED] nx_extract exit code 1 (full output: /w/extract.log)'
+        self.assertEqual(bf.classify(log, keys_readable=False).kind, bf.KEYS)
+        self.assertEqual(bf.classify(log, keys_readable=True).kind, bf.UNKNOWN)
+        self.assertEqual(bf.classify('[RED] the iOS SDK is not installed', keys_readable=False).kind, bf.IOS_SDK)
+
+    def test_the_text_names_the_action(self):
+        words = {bf.KEYS: ['Choose your prod.keys again'], bf.SEVERAL_GAMES: ['Move the other games'],
+                 bf.NO_TITLE_ID: ['Rename the file', '0100XXXXXXXXXXXX', 'exact package', 'iCloud', 'Show folder'],
+                 bf.DISK_FULL: ['Free up space', '_build']}
+        for kind, ws in words.items():
+            en = TABLE[f'fail.{kind}.next'][1]
+            for w in ws:
+                self.assertIn(w, en, kind)
+        for key in ('fail.showFolder', 'fail.keys.button', 'fail.diskFull.whatNeeds'):
+            self.assertIn(key, TABLE)
+            self.assertTrue(TABLE[key][2] and TABLE[key][2] != TABLE[key][1], key)   # Swedish present
+            self.assertTrue(TABLE[key][3] and TABLE[key][3] != TABLE[key][1], key)   # German present
+
+    def test_a_missing_zbic_package_is_its_own_row(self):
+        log = '[3/9] extract\n' + fixture('zbic.missing')['text'] + '\n'
+        self.assertEqual(bf.classify(log).kind, bf.ZBIC)
+        self.assertEqual(bf.classify('[RED] the zbic package decoded it').kind, bf.UNKNOWN)
+        self.assertIn('pip install zbic', TABLE['fail.zbic.next'][1])
+        self.assertIn('zbic', TABLE['fail.zbic.button'][1])
+
+    def test_the_python_probe_and_the_venv_install_name_zbic(self):
+        pkg = ROOT / 'frontend-qt/nspb_qt'
+        self.assertIn('import lz4, capstone, fontTools, zbic', (pkg / 'platform_util.py').read_text(encoding='utf-8'))
+        model = (pkg / 'model.py').read_text(encoding='utf-8')
+        self.assertIn("pkgs = ['lz4', 'capstone', 'fonttools', 'zbic', 'nsz']", model)
+        self.assertIn("'zbic', 'backports.zstd', 'nsz'", model)
+
+    @unittest.skipIf(importlib.util.find_spec('PySide6') is None, 'PySide6 is not installed')
+    def test_show_folder_opens_the_game_folder_and_for_a_full_disk_the_build_folder(self):
+        import tempfile
+        from nspb_qt.model import Model
+        m = Model()
+        m.lang = Lang.EN   # these assertions read English whatever the device language is
+        with tempfile.TemporaryDirectory() as d:
+            m.base_path = str(Path(d, 'game.nsp'))
+            self.assertEqual(m.failure_folder(bf.Failure(bf.NO_TITLE_ID, detail='/x')), d)
+            self.assertEqual(m.failure_folder(bf.Failure(bf.DISK_FULL)), d)
+            Path(d, '0100F2C0115B6000_build').mkdir()
+            self.assertEqual(m.failure_folder(bf.Failure(bf.DISK_FULL)), str(Path(d, '0100F2C0115B6000_build')))
+        m.base_path = ''
+        self.assertEqual(m.failure_folder(bf.Failure(bf.NO_TITLE_ID, detail='/x/y')), '/x/y')
+        self.assertIn('40 GB', m.failure_what(bf.Failure(bf.DISK_FULL, detail='40')))
 
 
 class Override(unittest.TestCase):
@@ -122,7 +195,8 @@ class Strings(unittest.TestCase):
         keys = ['fail.section', 'fail.buildAnyway', 'fail.confirm.title', 'fail.confirm.go', 'fail.confirm.cancel',
                 'fail.override.note', 'fail.a32Program.whatNamed', 'fail.translator.button', 'fail.iosSDK.button',
                 'fail.cltSelected.button', 'dep.metal.other', 'dep.fix.metalPin']
-        for kind in bf.KINDS:
+        keys += ['fail.retry', 'engine.syncing']
+        for kind in bf.KINDS + ['engineOffline', 'engineSync']:   # the last two are the engine sync's rows (engine.py's failure_kind)
             keys += [f'fail.{kind}.what', f'fail.{kind}.next']
             if kind in bf.OVERRIDE_FLAGS:
                 keys.append(f'fail.{kind}.risk')
@@ -130,7 +204,7 @@ class Strings(unittest.TestCase):
             with self.subTest(key=key):
                 self.assertIn(key, TABLE)
                 row = TABLE[key]
-                zh, en = row[0], row[1]   # the table may carry a third (Swedish) element
+                zh, en = row[0], row[1]   # the table carries more columns (Swedish, German)
                 self.assertTrue(zh and en)
                 for text in (zh, en):
                     self.assertNotIn(';', text)
@@ -149,6 +223,7 @@ class Strings(unittest.TestCase):
 
 
 try:
+    from PySide6.QtCore import QEvent
     from PySide6.QtWidgets import QApplication, QMessageBox
 except ImportError:          # the packaged app always has it; a bare python3 may not
     QApplication = None
@@ -164,11 +239,22 @@ class Window(unittest.TestCase):
         from nspb_qt.model import Model
         from nspb_qt.ui import MainWindow
         m = Model()
+        m.lang = Lang.EN   # these assertions read English whatever the device language is
         w = MainWindow(m)
+        # A window left alive is destroyed by PySide after the QApplication at interpreter exit,
+        # which segfaults. Delete it (and the model) while the app is still there.
+        self.addCleanup(self._delete, m, w)
         w.show()
         m.failure = failure
         w._show_failure()
         return m, w
+
+    def _delete(self, m, w):
+        w.close()
+        w.deleteLater()
+        m.deleteLater()
+        self.app.sendPostedEvents(None, QEvent.DeferredDelete)
+        self.app.processEvents()
 
     def test_a_known_stop_shows_its_hint_and_the_buttons_it_has(self):
         m, w = self._window(bf.Failure(bf.OTHER_METAL))

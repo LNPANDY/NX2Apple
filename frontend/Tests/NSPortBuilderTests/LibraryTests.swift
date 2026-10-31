@@ -35,6 +35,42 @@ final class LibraryTests: XCTestCase {
         return app
     }
 
+    /// The library opens on the player's own games: Owned is the default, also for the "all" an earlier build may have stored.
+    func testLibraryFilterDefaultsToOwned() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "nxnative-tests-filter-" + temporary.lastPathComponent))
+        XCTAssertEqual(LibraryFilter.load(defaults), .owned)
+        defaults.set("all", forKey: "libraryFilter")
+        XCTAssertEqual(LibraryFilter.load(defaults), .owned)
+        LibraryFilter.built.save(defaults)
+        XCTAssertEqual(LibraryFilter.load(defaults), .built)
+        defaults.removePersistentDomain(forName: "nxnative-tests-filter-" + temporary.lastPathComponent)
+    }
+
+    /// Built hides the games without a build. The selection moves to a game it shows, and a controller's focus on a hidden card
+    /// is dropped, so A cannot start a game that is not on screen.
+    func testBuiltFilterKeepsSelectionAndFocusOnShownGames() throws {
+        let built = LibraryGame(titleID: titleID, name: "Hades", appPath: try makeApp(titleID).path)
+        let unbuilt = LibraryGame(titleID: "0100000000010000", name: "Celeste")
+        let games = [unbuilt, built]
+        XCTAssertEqual(games.filter(LibraryFilter.owned.includes).map(\.id), [unbuilt.id, built.id])
+        XCTAssertEqual(games.filter(LibraryFilter.built.includes).map(\.id), [built.id])
+
+        let hidden = LibraryFilter.built.reconcile(games: games, selectedID: unbuilt.id, focused: "card." + unbuilt.id.uuidString)
+        XCTAssertEqual(hidden.selectedID, built.id)
+        XCTAssertNil(hidden.focused)
+
+        let shown = LibraryFilter.built.reconcile(games: games, selectedID: built.id, focused: "card." + built.id.uuidString)
+        XCTAssertEqual(shown.selectedID, built.id)
+        XCTAssertEqual(shown.focused, "card." + built.id.uuidString)
+
+        let elsewhere = LibraryFilter.built.reconcile(games: games, selectedID: unbuilt.id, focused: "top.build")
+        XCTAssertEqual(elsewhere.focused, "top.build", "a focus outside the row stays")
+
+        let none = LibraryFilter.built.reconcile(games: [unbuilt], selectedID: unbuilt.id, focused: nil)
+        XCTAssertNil(none.selectedID)
+        XCTAssertEqual(LibraryFilter.owned.reconcile(games: games, selectedID: nil, focused: nil).selectedID, unbuilt.id)
+    }
+
     func testReadyRequiresMatchingGameAndCompleteExecutables() throws {
         let app = try makeApp(titleID)
         var game = LibraryGame(titleID: titleID, name: "Hades", appPath: app.path)
@@ -45,6 +81,15 @@ final class LibraryTests: XCTestCase {
         try FileManager.default.removeItem(at: app.appendingPathComponent("Contents/MacOS/dmhost"))
         XCTAssertFalse(game.isReady)
         XCTAssertThrowsError(try MacGameBundle.read(app))
+    }
+
+    /// A game without a Mac build has an empty path. That path is not read as the current folder, even when the current folder is a game.
+    func testAGameWithoutAnAppIsNotReady() throws {
+        let app = try makeApp(titleID)
+        let previous = FileManager.default.currentDirectoryPath
+        XCTAssertTrue(FileManager.default.changeCurrentDirectoryPath(app.path))
+        defer { FileManager.default.changeCurrentDirectoryPath(previous) }
+        XCTAssertFalse(LibraryGame(titleID: titleID, name: "Hades").isReady)
     }
 
     func testRejectsUnrelatedApplicationsAndExecutableTraversal() throws {
@@ -269,11 +314,11 @@ final class LibraryTests: XCTestCase {
         let running = expectation(description: "The stage is reported")
         let started = model.$stages.filter { $0.first?.percent == 25 }.prefix(1).sink { _ in running.fulfill() }
         model.startBuild()
-        wait(for: [running], timeout: 10)
+        wait(for: [running], timeout: 30)   // a CI runner starts the script slowly
         let stopped = expectation(description: "The build ends")
         let ended = model.$running.dropFirst().filter { !$0 }.prefix(1).sink { _ in stopped.fulfill() }
         model.stop()
-        wait(for: [stopped], timeout: 10)
+        wait(for: [stopped], timeout: 30)
         withExtendedLifetime((started, ended)) {}
         RunLoop.main.run(until: Date().addingTimeInterval(0.1))
         XCTAssertTrue(model.stages.isEmpty)
@@ -608,6 +653,59 @@ final class LibraryTests: XCTestCase {
         XCTAssertEqual(library.games.map(\.titleID), [titleID])
     }
 
+    /// The enumerator hands out resolved paths (/private/var/…); a test's own URLs keep /var/… — compare both the same way.
+    private static func canon(_ path: String) -> String {
+        path.hasPrefix("/private/var/") ? String(path.dropFirst("/private".count)) : path
+    }
+
+    /// The player drops the base under "<game>/nsp本体/", beside it the update and the DLC: the scan must record the game's
+    /// folder and find all three, exactly as picking that folder by hand does (a game auto-scanned game found neither).
+    func testAScanFindsTheUpdateAndDLCBesideTheFolderTheBaseSitsIn() throws {
+        let fm = FileManager.default
+        let game = temporary.appendingPathComponent("马车8")
+        let base = game.appendingPathComponent("nsp本体（1）")
+        try fm.createDirectory(at: base, withIntermediateDirectories: true)
+        let baseNSP = base.appendingPathComponent("[0100152000022000][v0].nsp")
+        let update = game.appendingPathComponent("[UPD][v4.0.1][0100152000022800][v1507328][22.5.0].nsp")
+        let dlc = game.appendingPathComponent("[0100152000023001][65536].nsz")
+        for f in [baseNSP, update, dlc] { try Data([0]).write(to: f) }
+        try Data([0]).write(to: game.appendingPathComponent("prod.keys"))
+        // Another game in the same library root, its own folder, no update: the climb must stop at its own folder.
+        let other = temporary.appendingPathComponent("王国之泪")
+        try fm.createDirectory(at: other, withIntermediateDirectories: true)
+        let otherBase = other.appendingPathComponent("[0100F2C0115B6000][v0].nsp")
+        try Data([0]).write(to: otherBase)
+
+        let games = GameLibrary.sourceGames(in: temporary, repo: "")
+        let mario = try XCTUnwrap(games.first { $0.titleID == "0100152000022000" })
+        XCTAssertEqual(Self.canon(mario.sourceFolder), Self.canon(game.path), "the game's folder, not the folder the base package sits in")
+        XCTAssertEqual(mario.inputs["base"]?.map(Self.canon), [Self.canon(baseNSP.path)])
+        XCTAssertEqual(mario.inputs["update"]?.map(Self.canon), [Self.canon(update.path)], "the update beside the base's folder is found")
+        XCTAssertEqual(mario.inputs["dlc"]?.map(Self.canon), [Self.canon(dlc.path)], "so is the DLC")
+        XCTAssertEqual(mario.inputs["keys"]?.map(Self.canon), [Self.canon(game.appendingPathComponent("prod.keys").path)])
+        XCTAssertEqual(Self.canon(mario.outputDirectory), Self.canon(base.path), "the build folder stays where the build page puts it today")
+
+        let zelda = try XCTUnwrap(games.first { $0.titleID == "0100F2C0115B6000" })
+        XCTAssertEqual(Self.canon(zelda.sourceFolder), Self.canon(other.path))
+        XCTAssertEqual(zelda.inputs["update"], [], "nothing of the other game leaks in")
+        XCTAssertEqual(zelda.inputs["dlc"], [])
+    }
+
+    /// Base, update and DLC in one folder: the folder is its own game folder and the climb goes no further.
+    func testAScanOfAFlatGameFolderStopsAtThatFolder() throws {
+        let flat = temporary.appendingPathComponent("Hades")
+        try FileManager.default.createDirectory(at: flat, withIntermediateDirectories: true)
+        // An update package carries the base's title ID + 0x800, a DLC one + 0x1000 and up.
+        let files = ["[\(titleID)][v0].nsp", "[0100535012974800][v65536].nsp", "[0100535012975001][65536].nsz"]
+        for f in files { try Data([0]).write(to: flat.appendingPathComponent(f)) }
+        let games = GameLibrary.sourceGames(in: temporary, repo: "")
+        let hades = try XCTUnwrap(games.first { $0.titleID == titleID })
+        XCTAssertEqual(Self.canon(hades.sourceFolder), Self.canon(flat.path))
+        XCTAssertEqual(hades.inputs["base"]?.map(Self.canon), [Self.canon(flat.appendingPathComponent(files[0]).path)])
+        XCTAssertEqual(hades.inputs["update"]?.map(Self.canon), [Self.canon(flat.appendingPathComponent(files[1]).path)])
+        XCTAssertEqual(hades.inputs["dlc"]?.map(Self.canon), [Self.canon(flat.appendingPathComponent(files[2]).path)])
+    }
+
     func testReadOnlyScanOfConfiguredFolder() throws {
         guard let path = ProcessInfo.processInfo.environment["NX_LAUNCHER_SCAN_FOLDER"] else { throw XCTSkip("Set NX_LAUNCHER_SCAN_FOLDER for a read-only scan of real builds") }
         let apps = GameLibrary.builtApps(in: URL(fileURLWithPath: path))
@@ -676,11 +774,13 @@ final class LibraryTests: XCTestCase {
         XCTAssertTrue(model.canBuild)
         window.orderOut(nil) // Registration must work even while the launcher is hidden.
         model.startBuild()
-        wait(for: [completed], timeout: 10)
+        // The fixture runs system Python in a child process. A loaded CI runner took more than 10 s for it once, so the deadline
+        // is only a hang guard. Each wait returns on its event, so a fast build does not wait longer.
+        wait(for: [completed], timeout: 120)
         withExtendedLifetime(token) {}
         // The library can list the app before the model has taken in the script's exit (a slower Mac, CI): wait for both
         let settled = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in model.done && !model.running }, object: nil)
-        wait(for: [settled], timeout: 10)
+        wait(for: [settled], timeout: 120)
         XCTAssertTrue(model.done)
         XCTAssertFalse(model.running)
         XCTAssertEqual(model.stages.map(\.name), ["Mac app"])   // from the JSON events, which the log shows as text
@@ -820,7 +920,7 @@ final class LibraryTests: XCTestCase {
             UserDefaults.standard.set(oldOutput, forKey: "buildOutputDirectory")
         }
         model.repoPath = repo
-        model.lang = .en
+        model.lang = CaptureLanguage.current(.en)
         model.outDir = temporary.path
         model.depsChecked = true
         model.deps = [BuildModel.Dep(id: "test", name: "Xcode", hint: "", present: true, installCmd: [])]
@@ -937,10 +1037,11 @@ final class LibraryTests: XCTestCase {
         model.installDevice = previousDevice; model.signingTeam = previousTeam; model.target = previousTarget
         // The Free space sheet with a measured build folder (example sizes), two parts picked, then while a build runs
         let measured = BuildFolderSurvey(folder: "/Volumes/Games/Hades/\(titleID)_build",
-                                         sizes: [.extracted: 9_800_000_000, .shaders: 1_450_000_000, .xcode: 2_100_000_000, .caches: 610_000_000], kept: 48_000_000)
+                                         sizes: [.extracted: 9_800_000_000, .shaders: 5_850_000_000, .oldShaders: 4_400_000_000, .xcode: 2_100_000_000, .caches: 610_000_000], kept: 48_000_000,
+                                         oldShaders: [OldShaderVersion(name: "b-157e1b96c8da", bytes: 2_100_000_000), OldShaderVersion(name: "b-a78f966a7b38", bytes: 2_300_000_000)])
         for (name, running) in [("free-space", false), ("free-space-running", true)] {
             model.running = running
-            let sheet = NSHostingView(rootView: FreeSpaceView(m: model, game: library.games[0], survey: measured, chosen: [.extracted, .xcode])
+            let sheet = NSHostingView(rootView: FreeSpaceView(m: model, game: library.games[0], survey: measured, chosen: [.extracted, .oldShaders])
                 .environmentObject(PadFocus()))
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 690), styleMask: [.titled], backing: .buffered, defer: false)
             window.contentView = sheet
@@ -1073,9 +1174,9 @@ final class LibraryTests: XCTestCase {
         do {
             try capture("settings-diagnostics", height: 1500, page: .settings)
             let buttons = NSHostingView(rootView: HStack(spacing: 14) {
-                DiagnosticsButton(m: model, width: BuilderView.settingsButtonWidth)
-                DiagnosticsButton(m: model, width: BuilderView.settingsButtonWidth, showCopied: true)
-            }.padding(24).background(LauncherPalette.background).environmentObject(PadFocus()))
+                DiagnosticsButton(m: model)
+                DiagnosticsButton(m: model, showCopied: true)
+            }.launcherRowControls().padding(24).background(LauncherPalette.background).environmentObject(PadFocus()))
             buttons.frame = NSRect(x: 0, y: 0, width: 420, height: 90)
             let window = NSWindow(contentRect: buttons.frame, styleMask: [.titled], backing: .buffered, defer: false)
             window.contentView = buttons
@@ -1101,12 +1202,19 @@ final class LibraryTests: XCTestCase {
             try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSinceNow: -3 * 86_400)], ofItemAtPath: save.path)
             let device = DeviceControl { args in   // a device whose save is from an hour ago
                 guard let i = args.firstIndex(of: "--json-output") else { return (false, "ERROR: not in the visual QA") }
+                if args.starts(with: ["device", "info", "apps"]) {
+                    try? JSONSerialization.data(withJSONObject: ["result": ["apps": [["bundleIdentifier": "com.example.hades", "name": game.name]]]]).write(to: URL(fileURLWithPath: args[i + 1]))
+                    return (true, "")
+                }
                 let files = args.contains("--recurse") ? [["name": "data.bin", "fileType": "file", "modificationDate": ISO8601DateFormatter().string(from: Date(timeIntervalSinceNow: -3600))]] : []
                 try? JSONSerialization.data(withJSONObject: ["result": ["files": files]]).write(to: URL(fileURLWithPath: args[i + 1]))
                 return (true, "")
             }
             let focus = PadFocus()
-            let host = NSHostingView(rootView: SavesView(m: model, library: library, gameID: game.id, devicectl: device, support: support).environmentObject(focus))
+            let host = NSHostingView(rootView: SavesView(m: model, library: library, gameID: game.id, devicectl: device, support: support, listDevices: {
+                [AppleDevice(id: "00008150-AAAA", name: "Zijad\u{2019}s iPhone", model: "iPhone 17", os: "27.0", reachable: true),
+                 AppleDevice(id: "00008150-BBBB", name: "Zijad\u{2019}s iPad", model: "iPad Pro", os: "27.0", reachable: true)]
+            }).environmentObject(focus))
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 520), styleMask: [.titled], backing: .buffered, defer: false)
             window.contentView = host
             window.orderFront(nil)

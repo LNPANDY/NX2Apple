@@ -1,6 +1,0 @@
-# Hand-written translation facts, merged over the generated rows of shader_facts.tsv by dm/gfx/tools/shader_split.py: key <TAB> facts JSON (same format)
-# Unreal's GLSL_SWITCH shaders carry no fragment output types, so the translator declares every output float; Metal refuses a pipeline whose float output meets an integer attachment
-# (the host's red line then prints the row to add here).
-# c254eaa40e0c4f1e (ShaderArchive-Global-SF_GLSL_SWITCH-SP_GLSL_SWITCH shader 1627, pixel: DownsampleDepthPixelShader.usf CopyStencilToLightingChannelsPS): writes the stencil's lighting
-# channel bits to an R8Uint target (seen in the first scene after the opening cutscene)
-c254eaa40e0c4f1e	{"fout":{"0":"uint"}}

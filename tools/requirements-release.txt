@@ -1,0 +1,2 @@
+# What tools/release_manifest.py needs to sign latest.json (Ed25519). Only the release and the nightly publish jobs install it.
+cryptography==46.0.3

@@ -1,0 +1,4 @@
+# The public half of the key that signs latest.json (Ed25519, base64 of the 32 raw bytes), one line below. Empty until the key exists.
+# The launcher (EngineManifest.verify's publicKey) compiles in the same value, and the release workflow fails when the repository
+# secret ENGINE_SIGNING_KEY is set and does not belong to it (tools/release_manifest.py check-key). Without the secret the engine is
+# published unsigned for now. Lines starting with # are comments.

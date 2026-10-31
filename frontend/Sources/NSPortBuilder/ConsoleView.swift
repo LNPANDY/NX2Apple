@@ -139,16 +139,10 @@ enum ConsoleInput {
                                 Text(game.title).font(.manrope(compact ? 36 : min(64, size.width / 24), .bold))
                                     .tracking(-1.6).lineLimit(2).fixedSize(horizontal: false, vertical: true)
                                     .accessibilityAddTraits(.isHeader)
-                                HStack(spacing: 12) {
-                                    if !game.version.isEmpty { Text(String(format: t("console.version"), game.version)).monospacedDigit().lineLimit(1)
-                                        .foregroundStyle(.white.opacity(0.6)).frame(width: compact ? 116 : 150, alignment: .leading) }   // fixed, so the badges stay put
-                                    ForEach(game.platforms, id: \.self) { platform in
-                                        Text(t(platform.labelKey)).font(.manrope(compact ? 13 : 17, .semibold))
-                                            .padding(.horizontal, 12).padding(.vertical, 5)
-                                            .background(.white.opacity(0.08), in: Capsule())
-                                    }
+                                if !game.version.isEmpty {
+                                    Text(String(format: t("console.version"), game.version)).monospacedDigit().lineLimit(1)
+                                        .font(.manrope(compact ? 14 : 18)).foregroundStyle(.white.opacity(0.6))
                                 }
-                                .font(.manrope(compact ? 14 : 18))
                             }
                             .id(game.id).transition(.opacity)
                             }
@@ -188,7 +182,7 @@ enum ConsoleInput {
         let width: CGFloat = compact ? size.width - inset * 2 - 16 : min(470, size.width * 0.32)
         return ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(alignment: .top, spacing: compact ? 22 : 28) {
+                HStack(alignment: .top, spacing: (compact ? 22 : 28) - 16) {
                     ForEach(state.games) { game in
                         let selected = state.focusedGame?.id == game.id
                         Button { driver.focus(game.id); driver.play(game.id) } label: {
@@ -205,9 +199,13 @@ enum ConsoleInput {
                         .accessibilityLabel(game.title + ", " + t(game.status.labelKey))
                         .accessibilityHint(t("console.playHint"))
                         .accessibilityAddTraits(selected ? .isSelected : [])
+                        // every tile carries its own 8 pt of room for the ring and the focus scale, and the scroll target is this padded
+                        // cell, so a scroll to the first or last tile never pushes that room out of the clip
+                        .padding(.horizontal, 8)
+                        .id(Self.rowCell(game.id))
                     }
                 }
-                .padding(.horizontal, 8).padding(.vertical, 12)   // room for the focused tile's small scale inside the clip
+                .padding(.vertical, 12)
             }
             .coordinateSpace(name: "console.row")
             .onPreferenceChange(ConsoleTileFramesKey.self) { tileFrames = $0 }
@@ -216,15 +214,16 @@ enum ConsoleInput {
                 // The ring moves across the visible tiles. The row scrolls only when the focused tile would leave the visible area, by
                 // the least that brings it inside, and a new focus replaces the running scroll (held repeats do not queue).
                 guard let id else { return }
-                let tile = "console.game." + id
-                guard let frame = tileFrames[id] else { proxy.scrollTo(tile, anchor: .center); return }
+                guard let frame = tileFrames[id] else { proxy.scrollTo(Self.rowCell(id), anchor: .center); return }
                 let rowWidth = size.width - 2 * (inset - 8)
                 let anchor: UnitPoint? = frame.minX < 8 ? .leading : (frame.maxX > rowWidth - 8 ? .trailing : nil)
-                if let anchor { withAnimation(.easeOut(duration: reduceMotion ? 0 : 0.2)) { proxy.scrollTo(tile, anchor: anchor) } }
+                if let anchor { withAnimation(.easeOut(duration: reduceMotion ? 0 : 0.2)) { proxy.scrollTo(Self.rowCell(id), anchor: anchor) } }
             }
-            .onAppear { if let id = state.focusedGame?.id { proxy.scrollTo("console.game." + id, anchor: .center) } }
+            .onAppear { if let id = state.focusedGame?.id { proxy.scrollTo(Self.rowCell(id), anchor: .center) } }
         }
     }
+
+    private static func rowCell(_ id: String) -> String { "console.row." + id }
 
     private func hintBar(compact: Bool, width: CGFloat) -> some View {
         let items = {
@@ -489,6 +488,7 @@ struct ConsoleGameTile: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             ConsoleArtwork(image: game.artwork, title: game.title).aspectRatio(1.8, contentMode: .fit)
+                .opacity(game.status == .ready ? 1 : 0.45)   // not playable on this Mac: dimmed, its status on top
                 .overlay(alignment: .bottomLeading) {
                     if game.status != .ready {
                         Text(L10n.string(game.status.labelKey, lang)).font(.manrope(compact ? 14 : 18, .semibold))

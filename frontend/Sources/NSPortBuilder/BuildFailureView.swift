@@ -4,9 +4,16 @@ import SwiftUI
 /// button that does it (a dependency's own install command, or "Build anyway" for the three stops that have an override).
 struct BuildFailureCard: View {
     @ObservedObject var m: BuildModel
+    /// The failure to show: the build's (`m.failure`) unless the caller passes another one, such as the engine sync's.
+    var failure: BuildFailure?
+
+    init(m: BuildModel, failure: BuildFailure? = nil) {
+        self.m = m
+        self.failure = failure
+    }
 
     var body: some View {
-        if let f = m.failure {
+        if let f = failure ?? m.failure {
             VStack(alignment: .leading, spacing: 10) {
                 Text(m.t("fail.section")).font(.manrope(15, .semibold)).foregroundStyle(.secondary).padding(.leading, 2)
                 VStack(alignment: .leading, spacing: 8) {
@@ -37,10 +44,24 @@ struct BuildFailureCard: View {
             switch kind {
             case .translator:
                 fix(kind, "fail.translator.button")
+            case .zbic:
+                fix(kind, "fail.zbic.button")
             case .iosSDK:
                 fix(kind, "fail.iosSDK.button")
             case .cltSelected:
                 if BuildModel.installedXcode() != nil { fix(kind, "fail.cltSelected.button") }
+            case .keys:
+                fix(kind, "fail.keys.button")
+            case .severalGames, .noTitleID, .diskFull:
+                fix(kind, "fail.showFolder")
+            case .cloudFolder:
+                fix(kind, "fail.cloudFolder.button")
+            case .teamTaken, .noSigningAccount:
+                if BuildModel.installedXcode() != nil { fix(kind, "fail.openXcode") }
+            case .deviceTransfer:
+                fix(kind, "fail.retry")
+            case .engineOffline, .engineSync:
+                Button(m.t("fail.retry")) { m.retryEngineSync() }.disabled(m.engineSyncing)
             default: EmptyView()
             }
             if kind.overrideFlag != nil {
@@ -57,6 +78,27 @@ struct BuildFailureCard: View {
             } else {
                 Button(m.t(key)) { m.fixBuildFailure(kind) }.disabled(m.running)
             }
+        }
+    }
+}
+
+/// Above every page of the launcher while the engine is fetched and patched (tools/engine.py sync, run for a checkout at launch and after
+/// updates), and its failure row when that stops: what happened, what to do, and Try again.
+struct EngineSyncBanner: View {
+    @ObservedObject var m: BuildModel
+
+    var body: some View {
+        if m.engineSyncing {
+            HStack(spacing: 10) {
+                ProgressView().controlSize(.small)
+                Text(m.t("engine.syncing")).font(.manrope(13)).foregroundStyle(LauncherPalette.building)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 24).padding(.vertical, 10)
+            .accessibilityIdentifier("engine.syncing")
+        } else if let f = m.engineFailure {
+            BuildFailureCard(m: m, failure: f).padding(.horizontal, 24).padding(.vertical, 10)
         }
     }
 }

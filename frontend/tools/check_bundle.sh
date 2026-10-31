@@ -20,8 +20,8 @@ for t in zstd glslangValidator spirv-cross xcodegen; do
     p=$(env -i PATH="$T:/usr/bin:/bin" /usr/bin/which "$t") && [ "$p" = "$T/$t" ] && ok "PATH finds $t in the bundle" || bad "PATH finds $t at '$p'"
 done
 PY="$RES/python/bin/python3"
-v=$(clean "$PY" -I -c "import sys, lz4.block, capstone, fontTools, nsz; from compression import zstd" 2>&1 \
-    || clean "$PY" -I -c "import lz4.block, capstone, fontTools, nsz; from backports import zstd" 2>&1) && ok "python imports lz4, capstone, fontTools, nsz, zstd" || bad "python imports: $v"
+v=$(clean "$PY" -I -c "import sys, lz4.block, capstone, fontTools, zbic, nsz; from compression import zstd" 2>&1 \
+    || clean "$PY" -I -c "import lz4.block, capstone, fontTools, zbic, nsz; from backports import zstd" 2>&1) && ok "python imports lz4, capstone, fontTools, zbic, nsz, zstd" || bad "python imports: $v"
 v=$(clean "$PY" -I -c "import sys; print(sys.version.split()[0], sys.prefix)" 2>&1); echo "$v" | grep -q "$RES/python" && ok "python runs from the bundle: $v" || bad "python prefix is not the bundle: $v"
 
 # load paths: only the system's (a library's or extension's own install name is not a dependency)
@@ -35,6 +35,15 @@ while IFS= read -r -d '' f; do
     otool -L "$f" 2>/dev/null | grep -q -e '/opt/homebrew' -e '/usr/local' && { bad "${f#$RES/} links into Homebrew"; links=1; }
 done < <(find "$RES/tools" "$RES/python" -type f -print0)
 [ "$links" = 0 ] && ok "no Mach-O file links outside the system or the bundle, and none needs macOS later than 13.0"
+
+# the icon: Assets.car (macOS 26 and later) and AppIcon.icns (13 to 25), and the two Info.plist keys that point at them
+if [ -d "$APP/Contents" ]; then
+    for f in Assets.car AppIcon.icns; do [ -s "$RES/$f" ] && ok "$f is in the bundle" || bad "$f is missing from Resources"; done
+    for k in CFBundleIconName CFBundleIconFile; do
+        v=$(/usr/libexec/PlistBuddy -c "Print :$k" "$APP/Contents/Info.plist" 2>&1)
+        [ "$v" = AppIcon ] && ok "Info.plist $k = $v" || bad "Info.plist $k is '$v', not AppIcon"
+    done
+fi
 
 if [ "${2:-}" = "--sign" ] && [ -d "$APP/Contents" ]; then
     codesign --force --deep --sign - "$APP" 2>&1 | tail -3

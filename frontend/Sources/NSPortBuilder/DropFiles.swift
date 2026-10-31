@@ -14,8 +14,21 @@ extension BuildModel {
             return FileManager.default.fileExists(atPath: p, isDirectory: &d) && d.boolValue
         }
         if paths.count == 1, isFolder(paths[0]) { scan(folder: paths[0]); return }
-        let found = Self.classify(paths.flatMap { isFolder($0) ? Self.inputFiles(in: $0) : [$0] })
+        var found = Self.classify(paths.flatMap { isFolder($0) ? Self.inputFiles(in: $0) : [$0] })
+        // update and add-on files of another game than the base (the dropped one, else the one already chosen)
+        let baseName = (found.base ?? (basePath.isEmpty ? nil : basePath)).map { ($0 as NSString).lastPathComponent }
+        var rejected: [InputKind: String] = [:]
+        func fits(_ path: String, _ kind: InputKind) -> Bool {
+            let name = (path as NSString).lastPathComponent
+            guard let why = Self.rowMismatch(kind, name: name, base: baseName) else { return true }
+            if rejected[kind] == nil { rejected[kind] = rowProblemText(why, name: name) }
+            return false
+        }
+        if let u = found.update, !fits(u, .update) { found.update = nil }
+        found.dlc = found.dlc.filter { fits($0, .dlc) }
         slots = Self.merged(slots, with: found)
+        for (kind, text) in rejected { updateSlot(kind == .update ? "update" : "dlc") { $0.problem = text } }
+        if found.update != nil { updateSlot("update") { $0.note = updateNote(found) } }
         if let base = found.base { gameDir = (base as NSString).deletingLastPathComponent }
     }
 

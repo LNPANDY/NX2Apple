@@ -60,8 +60,8 @@ struct PadModeSection: View {
                     Text(connected).font(.manrope(12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 12)
-                LauncherMenuPicker(options: PadMode.allCases.map { (value: $0.rawValue, label: label($0)) },
-                                   selection: layout.padMode.rawValue, fill: true) { v in PadMode(rawValue: v).map(layout.setPadMode) }
+                LauncherDropdown(options: PadMode.allCases.map { (value: $0.rawValue, label: label($0)) },
+                                 selection: layout.padMode.rawValue, label: m.t("controls.modeRow"), fill: true) { v in PadMode(rawValue: v).map(layout.setPadMode) }
                     .frame(width: 168)   // as wide as the button rows' choices below it
                     .frame(width: LaunchControl.width, alignment: .trailing)
             }

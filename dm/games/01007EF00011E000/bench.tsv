@@ -1,5 +1,0 @@
-# Benchmark routes for scripts/bench.py: name, DM_KEYS (seconds from host start), measuring window start and length (s), description.
-# A save in Zora's Domain (rain): the title screen's Continue and the load prompt take the A presses at 20-32 s, the scene is up at about 35 s and its HUD at about 40 s
-zora-pan	20:A*4/4,55:RRight~5,62:LUp~4,68:RLeft~5,75:LUp~3,80:RRight~3	45	55	a save in Zora's Domain: standing 10 s, then the camera turns right, Link walks, the camera turns left, he walks again, the camera turns right
-zora-stand	20:A*4/4	45	55	the same save, standing still
-probe	20:A*4/4	25	45	title screen to the save's scene, standing still: for finding the load time (screenshots)

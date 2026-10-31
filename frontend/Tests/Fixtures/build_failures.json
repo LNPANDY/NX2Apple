@@ -21,6 +21,13 @@
   "text": "[RED] the shader translator does not start ([Errno 8] Exec format error: '/r/dm/gfx/tools/dmsh_xlate_bin'): /r/dm/gfx/tools/dmsh_xlate_bin"
  },
  {
+  "id": "zbic.missing",
+  "kind": "zbic",
+  "source": "dm/tools/nso.py",
+  "fragment": "need the zbic package",
+  "text": "[RED] text segment: ZBIC (zstd) segments need the zbic package (python3 -m pip install zbic)"
+ },
+ {
   "id": "ios.sdk",
   "kind": "iosSDK",
   "source": "scripts/build_ipa_from_nsp.py",
@@ -62,5 +69,49 @@
   "fragment": "is a 32-bit ARM program",
   "game": "Some Game",
   "text": "[RED] Some Game (0100ABCD00000000) is a 32-bit ARM program (main.npdm: the 64-bit instruction flag is clear): Apple silicon cannot run 32-bit ARM code, and this repository runs a game's own AArch64 code, so it cannot be ported"
+ },
+ {
+  "id": "keys.missing",
+  "kind": "keys",
+  "source": "scripts/build_ipa_from_nsp.py",
+  "fragment": "no such file: {keys}",
+  "text": "[RED] no such file: /Volumes/Keys/prod.keys"
+ },
+ {
+  "id": "games.several",
+  "kind": "severalGames",
+  "source": "scripts/build_ipa_from_nsp.py",
+  "fragment": "more than one game in the folder, keep one game per folder",
+  "text": "[RED] more than one game in the folder, keep one game per folder: 0100000000010000, 01006F8002326000"
+ },
+ {
+  "id": "games.noTitleID",
+  "kind": "noTitleID",
+  "source": "scripts/build_ipa_from_nsp.py",
+  "fragment": "no NSP with a readable title ID in",
+  "text": "[RED] no NSP with a readable title ID in /Users/x/Games/Zelda",
+  "folder": "/Users/x/Games/Zelda"
+ },
+ {
+  "id": "disk.low",
+  "kind": "diskFull",
+  "source": "scripts/build_ipa_from_nsp.py",
+  "fragment": "GB free on the volume of {work}",
+  "text": "[RED] less than 40 GB free on the volume of /Volumes/NX/Zelda/0100F2C0115B6000_build",
+  "gb": "40"
+ },
+ {
+  "id": "disk.full",
+  "kind": "diskFull",
+  "source": "errno",
+  "fragment": "No space left on device",
+  "text": "[RED] OSError: [Errno 28] No space left on device"
+ },
+ {
+  "id": "icloud.detritus",
+  "kind": "cloudFolder",
+  "source": "codesign",
+  "fragment": "resource fork, Finder information, or similar detritus not allowed",
+  "text": "CodeSign /Users/x/Library/Mobile\\ Documents/com~apple~CloudDocs/Downloads/0100152000022000_build/xcode-derived-data/Build/Products/Release-iphoneos/DmIOS.app (in target 'DmIOS' from project 'DmIOS')\n/Users/x/Library/Mobile Documents/com~apple~CloudDocs/Downloads/0100152000022000_build/xcode-derived-data/Build/Products/Release-iphoneos/DmIOS.app: resource fork, Finder information, or similar detritus not allowed\nCommand CodeSign failed with a nonzero exit code"
  }
 ]

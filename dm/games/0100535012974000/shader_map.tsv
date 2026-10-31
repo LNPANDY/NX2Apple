@@ -1,2 +1,0 @@
-# kind: evidence  Hades has no NVN shaders: the table stays empty (its SPIR-V shaders go through the Vulkan layer)
-package	index	stage	dm_ctl_sha16	source

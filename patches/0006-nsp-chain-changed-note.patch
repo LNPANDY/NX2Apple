@@ -6,18 +6,18 @@ Subject: [PATCH] NSP script: a [NOTE] chain-changed line when cached libraries
 
 Printed before the shader step when b-<chain> differs from the cached libraries.
 
-Upstream-Status: fork-only (seedds/nxnative#490 is the event form, not this text note)
-Reason: The front ends turn the [NOTE] chain-changed marker into a notice when cached shader libraries are from an older chain; upstream will have a shaders_stale event (seedds/nxnative#490) instead
+Upstream-Status: fork-only (seedds/nxnative#490 landed as the shaders_stale event, not this text note)
+Reason: The front ends turn the [NOTE] chain-changed marker into a notice when cached shader libraries are from an older chain; upstream's shaders_stale event (seedds/nxnative#490) does not carry that marker, so the launcher keeps this note until it reads the event
 Issue: LNPANDY/NX2Apple#123
 ---
  scripts/build_ipa_from_nsp.py | 5 +++++
  1 file changed, 5 insertions(+)
 
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index 99f9aa95..16cfd4f2 100755
+index 2ce3b26..da118fe 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
-@@ -1725,6 +1725,11 @@ def build_shaders(py, repo, sh, xlate, env, logs, g, pkg_key=None, mac=False):
+@@ -1847,6 +1847,11 @@ def build_shaders(py, repo, sh, xlate, env, logs, g, pkg_key=None, mac=False):
      ios, log = sh / 'ios', logs / 'dmsh_build.log'
      PROG.stage('Mac shaders' if mac else 'iOS shaders')
      chain = chain_of(repo)

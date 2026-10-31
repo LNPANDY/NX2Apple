@@ -5,7 +5,7 @@ counterpart: same job, same strings, built with PySide6 so Windows users get a n
 
 ## Why a second front end
 
-The build pipeline (`scripts/build_ipa_from_nsp.py`) is Python and runs on both systems, but
+The build pipeline (`scripts/build_ipa_from_nsp.py` of the engine) is Python and runs on both systems, but
 the SwiftUI app cannot: it needs macOS. Rather than maintain two unrelated GUIs, this one is
 written once and runs everywhere Python and Qt do.
 
@@ -117,7 +117,7 @@ Run this first if you prefer the command line. It lists what is missing and wher
 python -m nspb_qt.win.doctor
 ```
 
-1. **Python 3.10+**, then `pip install PySide6 lz4 capstone fonttools pillow`
+1. **Python 3.10+**, then `pip install PySide6 lz4 capstone fonttools zbic pillow`
    (and `backports.zstd` before Python 3.14).
 2. **.NET SDK 10** — the app downloads it (the zip, not the installer: no administrator rights,
    about 287 MB), or get it from <https://dotnet.microsoft.com/download/dotnet/10.0> (SDK, x64).

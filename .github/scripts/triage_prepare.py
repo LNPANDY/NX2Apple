@@ -45,11 +45,18 @@ def gh(*args, check=True):
     return r.stdout
 
 
+FENCE = re.compile(r'^\s*(```|~~~)')
+EMPTY_FENCE = re.compile(r'^(```|~~~)[^\n]*\s*(```|~~~)$')
+
+
 def sections(body):
-    """The `### heading` sections of an issue-form body: {heading: text}."""
-    out, cur = {}, None
+    """The `### heading` sections of an issue-form body: {heading: text}. A heading inside a fenced block (the Copy diagnostics
+    report starts with one) belongs to the field around it."""
+    out, cur, fenced = {}, None, False
     for line in (body or '').splitlines():
-        m = re.match(r'^### (.+?)\s*$', line)
+        if FENCE.match(line):
+            fenced = not fenced
+        m = None if fenced else re.match(r'^### (.+?)\s*$', line)
         if m:
             cur = m[1]
             out[cur] = []
@@ -80,7 +87,7 @@ def analyse_form(body, readable_attachments):
         if sec.get('This is', '').startswith('An idea'):
             kind = 'idea'
         for h, name in REQUIRED.items():
-            if h not in sec or sec[h] not in NO_ANSWER:
+            if h not in sec or (sec[h] not in NO_ANSWER and not EMPTY_FENCE.match(sec[h])):
                 continue
             if h == 'Copy diagnostics' and kind == 'idea':
                 continue
@@ -160,7 +167,8 @@ def main(argv=None):
     ap.add_argument('--repo', required=True)
     ap.add_argument('--issue', type=int, required=True)
     ap.add_argument('--out', required=True)
-    ap.add_argument('--docs', default='docs')
+    ap.add_argument('--docs', default='engine/docs', help="the engine's docs/ (tools/engine.py sync makes engine/)")
+    ap.add_argument('--pin-file', default='.upstream-ref', help='the seedds/nxnative commit the links point at')
     ap.add_argument('--prompt', default='.github/triage/prompt.md')
     ap.add_argument('--issue-json', help='read the issue from this file instead of the API (tests)')
     a = ap.parse_args(argv)
@@ -201,6 +209,8 @@ def main(argv=None):
         readable += count[0] > 0
     signals = tl.finish_signals(sig)
 
+    if Path(a.pin_file).is_file():
+        tl.set_pin(Path(a.pin_file).read_text(encoding='utf-8').strip())
     symptoms = tl.parse_symptoms((Path(a.docs) / 'agents' / 'symptoms.md').read_text(encoding='utf-8'))
     matches = tl.match_symptoms([l for l, _ in signals['red']], symptoms, a.docs)
 

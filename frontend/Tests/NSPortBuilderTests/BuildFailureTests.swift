@@ -7,11 +7,13 @@ import XCTest
 final class BuildFailureTests: XCTestCase {
     struct Fixture: Decodable {
         let id: String, kind: String, source: String, fragment: String, text: String
-        let game: String?
+        let game: String?, folder: String?, gb: String?
     }
 
     static let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         .deletingLastPathComponent().deletingLastPathComponent()   // the repository root
+    /// The engine's files (scripts/, dm/): `engine/` after `python3 tools/engine.py sync` (the repository commits none, #214).
+    static let engine = root.appendingPathComponent("engine")
 
     func fixtures() throws -> [Fixture] {
         let url = Self.root.appendingPathComponent("frontend/Tests/Fixtures/build_failures.json")
@@ -31,13 +33,21 @@ final class BuildFailureTests: XCTestCase {
 
     func testEveryKindIsReachable() {
         let kinds = Set(BuildFailureClassifier.table.map(\.kind))
-        for k in BuildFailureKind.allCases where k != .unknown { XCTAssertTrue(kinds.contains(k), "\(k)") }
+        for k in BuildFailureKind.allCases where k != .unknown && !Self.stateKinds.contains(k) { XCTAssertTrue(kinds.contains(k), "\(k)") }
     }
 
-    /// A sync of scripts/ or dm/ that rewords a message must fail here, not turn a hint into the raw last line.
-    func testTheVendoredScriptsStillSayWhatThePatternsExpect() throws {
+    /// The rows that no log line sets: the launcher's own state (a drive, a team) or the step that failed (the install).
+    static let stateKinds: Set<BuildFailureKind> = [.driveMissing, .teamTaken, .noSigningAccount, .deviceTransfer, .engineOffline, .engineSync]
+
+    /// A bump of the pin or a patch that rewords a message must fail here, not turn a hint into the raw last line.
+    func testTheEnginesScriptsStillSayWhatThePatternsExpect() throws {
         for f in try fixtures() {
-            let source = try String(contentsOf: Self.root.appendingPathComponent(f.source), encoding: .utf8)
+            if f.source == "errno" {   // the system's own text, not the script's
+                XCTAssertEqual(String(cString: strerror(ENOSPC)), f.fragment, f.id)
+                continue
+            }
+            if f.source == "codesign" { continue }   // Apple's text, from a tool the script runs
+            let source = try String(contentsOf: Self.engine.appendingPathComponent(f.source), encoding: .utf8)
             let there = source.contains(f.fragment)
             XCTAssertTrue(there, "\(f.id): \(f.source) no longer contains \"\(f.fragment)\": update the pattern and the fixture")
         }
@@ -72,7 +82,8 @@ final class BuildFailureTests: XCTestCase {
     func testEveryHintIsInBothLanguagesWithoutSemicolons() {
         var keys = ["fail.section", "fail.buildAnyway", "fail.confirm.title", "fail.confirm.go", "fail.confirm.cancel", "fail.override.note",
                     "fail.a32Program.whatNamed", "fail.translator.button", "fail.iosSDK.button", "fail.cltSelected.button",
-                    "dep.metal.other", "dep.fix.metalPin"]
+                    "dep.metal.other", "dep.fix.metalPin", "fail.showFolder", "fail.openXcode", "fail.retry", "fail.keys.button",
+                    "fail.driveMissing.whatNamed", "fail.diskFull.whatNeeds"]
         for k in BuildFailureKind.allCases where k != .unknown {
             keys += [k.whatKey, k.nextKey]
             if k.overrideFlag != nil { keys.append("fail.\(k.rawValue).risk") }
@@ -140,7 +151,7 @@ final class BuildFailureTests: XCTestCase {
 
     func testAStopWithoutAnOverrideCannotBeBuiltAnyway() {
         let m = BuildModel()
-        for k in [BuildFailureKind.rosetta, .translator, .iosSDK, .cltSelected, .a32Program] {
+        for k in BuildFailureKind.allCases where k.overrideFlag == nil {
             m.failure = BuildFailure(kind: k, gameName: nil)
             m.requestBuildAnyway()
             XCTAssertNil(m.confirmingOverride, "\(k)")
@@ -164,6 +175,8 @@ final class BuildFailureTests: XCTestCase {
     static let lock = "# fingerprints\ndmsh_xlate.dll\tdbc483247a4cb22d\nmetal_macosx\tApple metal version 32023.921 (metalfe-32023.921.6)\nmetal_iphoneos\tApple metal version 32023.921 (metalfe-32023.921.6)\n"
     static let pinned = "Apple metal version 32023.921 (metalfe-32023.921.6)"
     static let other = "Apple metal version 32023.883 (metalfe-32023.883.5)"
+    static let newer = "Apple metal version 32023.922 (metalfe-32023.922.4)"
+    static let foreign = "Apple metal version 32024.100 (metalfe-32024.100.1)"
 
     func testThePinIsReadFromTheLock() {
         XCTAssertEqual(MetalPin.pins(lock: Self.lock)["metal_macosx"], Self.pinned)
@@ -172,7 +185,7 @@ final class BuildFailureTests: XCTestCase {
     }
 
     func testTheRepositorysOwnLockHasTheTwoPins() throws {
-        let lock = try String(contentsOf: Self.root.appendingPathComponent(MetalPin.lockPath), encoding: .utf8)
+        let lock = try String(contentsOf: Self.engine.appendingPathComponent(MetalPin.lockPath), encoding: .utf8)
         XCTAssertNotNil(MetalPin.pins(lock: lock)["metal_macosx"])
         XCTAssertNotNil(MetalPin.pins(lock: lock)["metal_iphoneos"])
     }
@@ -182,6 +195,24 @@ final class BuildFailureTests: XCTestCase {
         XCTAssertTrue(dep.present)
         XCTAssertFalse(dep.warning)
         XCTAssertTrue(dep.lastError.isEmpty)
+    }
+
+    func testANewerCompilerOfTheGenerationIsNoWarning() {   // Xcode 27.2's auto-update: the engine's gate builds with a note, so the row stays green
+        XCTAssertTrue(MetalPin.mismatches(lock: Self.lock, now: ["macosx": Self.newer, "iphoneos": Self.newer], iOS: true).isEmpty)
+        XCTAssertFalse(BuildModel.metalDep(runs: true, lock: Self.lock, now: ["macosx": Self.newer], needsIOS: true).warning)
+    }
+
+    func testAnOlderOrForeignGenerationStaysAWarning() {
+        for found in [Self.other, Self.foreign, "Apple metal 32023.922"] {
+            let m = MetalPin.mismatches(lock: Self.lock, now: ["macosx": found], iOS: false)
+            XCTAssertEqual(m.map(\.sdk), ["macosx"], found)
+        }
+        let v = MetalPin.version(Self.pinned)
+        XCTAssertEqual(v?.0, 32023); XCTAssertEqual(v?.1, 921); XCTAssertEqual(v?.2, 6)
+        XCTAssertNil(MetalPin.version("Apple metal 32023.922"))
+        XCTAssertFalse(MetalPin.buildsOn(tested: Self.pinned, found: Self.other))
+        XCTAssertTrue(MetalPin.buildsOn(tested: Self.pinned, found: Self.newer))
+        XCTAssertFalse(MetalPin.buildsOn(tested: Self.pinned, found: Self.foreign))
     }
 
     func testAnotherCompilerIsAWarningAndNotABlocker() {
@@ -241,12 +272,14 @@ final class BuildFailureTests: XCTestCase {
             window.orderOut(nil)
         }
         for (name, kind, lang) in [("hint-other-metal", BuildFailureKind.otherMetal, Lang.en), ("hint-ios-sdk", .iosSDK, .en), ("hint-damaged-nsp", .damagedNSP, .en),
-                                   ("hint-other-metal-zh", .otherMetal, .zh)] {
+                                   ("hint-other-metal-zh", .otherMetal, .zh)]
+                                  + [BuildFailureKind.keys, .severalGames, .noTitleID, .driveMissing, .diskFull, .teamTaken, .noSigningAccount, .deviceTransfer].flatMap { k in
+                                      [("row-\(k.rawValue)", k, Lang.en), ("row-\(k.rawValue)-zh", k, Lang.zh)] } {
             let m = BuildModel()
-            m.lang = lang
-            m.failure = BuildFailure(kind: kind, gameName: nil)
+            m.lang = CaptureLanguage.current(lang)
+            m.failure = BuildFailure(kind: kind, gameName: nil, detail: kind == .diskFull ? "40" : kind == .driveMissing ? "Games" : nil)
             m.doneNote = m.failureWhat(m.failure!)
-            try capture(name, width: 760, height: 250, ZStack(alignment: .top) {
+            try capture(name, width: 760, height: kind == .noTitleID ? 380 : 250, ZStack(alignment: .top) {
                 LauncherPalette.background
                 BuildFailureCard(m: m).padding(24)
             })

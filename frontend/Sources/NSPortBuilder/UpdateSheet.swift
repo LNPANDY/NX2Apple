@@ -8,6 +8,7 @@ import SwiftUI
 /// The notes come from the release body, which this project writes in both languages (see
 /// docs/RELEASE-NOTES-GUIDE.md). The sheet does not try to translate them; it shows the lines that
 /// match the interface language and falls back to the whole body when it cannot tell them apart.
+/// ReleaseNotes turns them into blocks with links, and this file only styles those.
 struct UpdateSheet: View {
     @ObservedObject var m: BuildModel
     @Environment(\.dismiss) private var dismiss
@@ -25,13 +26,11 @@ struct UpdateSheet: View {
             .padding(.horizontal, 28).padding(.top, 26).padding(.bottom, 18)
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 6) {
                     if let notes = update?.notes, !notes.isEmpty {
-                        ForEach(Array(Self.lines(notes, for: m.lang).enumerated()), id: \.offset) { _, line in
-                            Text(line)
-                                .font(.manrope(13))
-                                .fixedSize(horizontal: false, vertical: true)
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                        let blocks = ReleaseNotes.blocks(from: ReleaseNotes.markdown(notes, for: m.lang))
+                        ForEach(Array(blocks.enumerated()), id: \.offset) { index, block in
+                            blockView(block, first: index == 0)
                         }
                     } else {
                         Text(m.t("update.noNotes")).font(.manrope(13)).foregroundStyle(.secondary)
@@ -79,74 +78,49 @@ struct UpdateSheet: View {
         .tint(LauncherPalette.cream)
     }
 
-    /// The release body's lines for one language.
-    ///
-    /// Two shapes are in the wild, both described in docs/RELEASE-NOTES-GUIDE.md:
-    ///
-    /// * **Current**: English written out in full, `---`, then Chinese in full. The `---` is the
-    ///   split, so the two halves are read straight through and neither reader sees the other's text.
-    /// * **Older releases (0.4.7 and before)**: `**中文** …` and `**English** …` paragraphs with the
-    ///   bullet lists interleaved one line each. Those are split on the markers.
-    ///
-    /// A body with neither is shown whole — splitting it by guesswork is how the first version gave
-    /// an English reader the Chinese paragraph (that line contains both scripts).
-    static func lines(_ notes: String, for lang: Lang) -> [String] {
-        // Shape 1: two halves around a `---` line.
-        let halves = notes.components(separatedBy: "\n---\n")
-        if halves.count == 2 {
-            let first = clean(halves[0]), second = clean(halves[1])
-            // The English half first, as the guide requires; pick by which half is which, not by order
-            // alone, so a body written the other way round still reads correctly.
-            let firstIsEnglish = !containsHan(first.joined())
-            let english = firstIsEnglish ? first : second
-            let chinese = firstIsEnglish ? second : first
-            if !english.isEmpty && !chinese.isEmpty { return lang == .zh ? chinese : english }
-        }
-
-        // Shape 2: `**中文**` / `**English**` markers.
-        var zh: [String] = [], en: [String] = []
-        var marked = 0
-        for raw in notes.split(separator: "\n", omittingEmptySubsequences: false) {
-            var s = raw.trimmingCharacters(in: .whitespaces)
-            if s.isEmpty || s.hasPrefix("---") { continue }
-            if s.hasPrefix("#") {
-                while s.hasPrefix("#") { s.removeFirst() }
-                s = s.trimmingCharacters(in: .whitespaces)
-                if !s.isEmpty { zh.append(s); en.append(s) }
-                continue
+    @ViewBuilder private func blockView(_ block: ReleaseNotes.Block, first: Bool) -> some View {
+        switch block {
+        case .heading(let text):
+            Text(Self.styled(text, size: 12.5, weight: .bold))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, first ? 0 : 14)
+        case .bullet(let text):
+            // A hanging indent: the bullet is its own column, so wrapped lines align with the text.
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text("\u{2022}").font(.manrope(13)).foregroundStyle(.secondary).frame(width: 10, alignment: .center)
+                Text(Self.styled(text, size: 13))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
-            if let r = s.range(of: "**中文**") {
-                marked += 1
-                zh.append(s[r.upperBound...].replacingOccurrences(of: "**", with: "").trimmingCharacters(in: .whitespaces))
-            } else if let r = s.range(of: "**English**") {
-                marked += 1
-                en.append(s[r.upperBound...].replacingOccurrences(of: "**", with: "").trimmingCharacters(in: .whitespaces))
-            } else {
-                s = s.replacingOccurrences(of: "**", with: "")
-                if containsHan(s) { zh.append(s) } else { en.append(s) }
-            }
-        }
-        if marked > 0, !zh.isEmpty, !en.isEmpty { return lang == .zh ? zh : en }
-
-        // Neither shape: show it as it is.
-        return clean(notes)
-    }
-
-    /// One half of a body as display lines: heading marks and bold marks stripped, blanks dropped.
-    private static func clean(_ half: String) -> [String] {
-        half.split(separator: "\n", omittingEmptySubsequences: false).compactMap { raw in
-            var s = raw.trimmingCharacters(in: .whitespaces)
-            if s.isEmpty || s.hasPrefix("---") { return nil }
-            while s.hasPrefix("#") { s.removeFirst() }
-            s = s.replacingOccurrences(of: "**中文**", with: "")
-                 .replacingOccurrences(of: "**English**", with: "")
-                 .replacingOccurrences(of: "**", with: "")
-                 .trimmingCharacters(in: .whitespaces)
-            return s.isEmpty ? nil : s
+            .padding(.leading, 2)
+        case .paragraph(let text):
+            Text(Self.styled(text, size: 13))
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 3)
         }
     }
 
-    private static func containsHan(_ s: String) -> Bool {
-        s.unicodeScalars.contains { (0x4e00...0x9fff).contains($0.value) }
+    /// The launcher's look on a parsed line: Manrope, bold and italic runs, code in the monospaced face on a
+    /// faint background, links in the accent colour. Links open in the default browser (SwiftUI's openURL).
+    static func styled(_ text: AttributedString, size: CGFloat, weight: Font.Weight = .regular) -> AttributedString {
+        var out = text
+        for run in text.runs {
+            let intent = run.inlinePresentationIntent ?? []
+            var font = Font.manrope(size, intent.contains(.stronglyEmphasized) ? .bold : weight)
+            if intent.contains(.emphasized) { font = font.italic() }
+            if intent.contains(.code) {
+                font = .mono(size - 1, intent.contains(.stronglyEmphasized) ? .bold : .regular)
+                out[run.range].backgroundColor = Color.white.opacity(0.10)
+            }
+            out[run.range].font = font
+            if run.link != nil {
+                out[run.range].foregroundColor = LauncherPalette.cream
+                out[run.range].underlineStyle = .single
+            }
+        }
+        return out
     }
 }
