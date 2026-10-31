@@ -101,7 +101,13 @@ jobs:
           rm -rf "$APP"
           mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
           cp .build/release/NSPortBuilder "$APP/Contents/MacOS/NSPortBuilder"
-          cp AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+          # The app icon is AppIcon.icon (Icon Composer). actool, from the runner's Xcode (26 or later), compiles it to Assets.car for
+          # macOS 26 and later (Liquid Glass) and to AppIcon.icns for macOS 13 to 25. Info.plist names both (CFBundleIconName, CFBundleIconFile).
+          ICON_OUT="$RUNNER_TEMP/app-icon"
+          rm -rf "$ICON_OUT"; mkdir -p "$ICON_OUT"
+          xcrun actool AppIcon.icon --compile "$ICON_OUT" --platform macosx --minimum-deployment-target 13.0 \
+            --app-icon AppIcon --output-partial-info-plist "$ICON_OUT/partial.plist"
+          cp "$ICON_OUT/Assets.car" "$ICON_OUT/AppIcon.icns" "$APP/Contents/Resources/"
           # The build tools and the Python go into Resources before the bundle is signed (bundle_tools.sh signs each nested Mach-O file
           # itself: --deep below does not reach code that sits in Resources).
           tools/bundle_tools.sh "$APP/Contents/Resources" "$RUNNER_TEMP/bundle-tools-work"
@@ -120,6 +126,7 @@ jobs:
           <dict>
             <key>CFBundleExecutable</key><string>NSPortBuilder</string>
             <key>CFBundleIconFile</key><string>AppIcon</string>
+            <key>CFBundleIconName</key><string>AppIcon</string>
             <key>CFBundleIdentifier</key><string>org.nxnative.NSPortBuilder</string>
             <key>CFBundleName</key><string>NX2Apple</string>
             <key>CFBundleDisplayName</key><string>NX2Apple</string>
