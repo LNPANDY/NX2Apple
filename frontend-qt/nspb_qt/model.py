@@ -353,7 +353,7 @@ class Model(QObject):
         from .win import toolchain as wtc     # local import: macOS never loads it
 
         out: list[Dep] = []
-        probes = wtc.check_all(deep=True)
+        probes = wtc.check_all(deep=True, t=self.t)   # t: the failure summaries' hint keys reach the panel translated
 
         # Re-do the Python row now that the toolchain can speak: the interpreter this app
         # installed for itself is not on PATH and not in Program Files, so the row built before
