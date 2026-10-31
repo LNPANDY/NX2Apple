@@ -1,7 +1,7 @@
 import XCTest
 @testable import NSPortBuilder
 
-/// The Dock tile's text for a running build (DockProgress in TypeToConfirm.swift): the visible part is
+/// The Dock tile's text for a running build (DockProgress): the visible part is
 /// pure, so it is tested; the AppKit half (drawing the tile) is not.
 final class DockProgressTests: XCTestCase {
     func testThePercentTextForAProgressFraction() {

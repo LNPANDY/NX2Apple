@@ -1,41 +1,5 @@
 import SwiftUI
 
-/// A destructive action that asks for a phrase to be typed before it runs (NX Play's Remove Game and
-/// Free Up Space): a click-through confirmation dialog is not enough for "deletes builds and data for good".
-///
-/// The phrase is the game's name — something in front of the player, not a magic word to look up.
-struct TypeToConfirm: ViewModifier {
-    @Binding var isPresented: Bool
-    let phrase: String
-    let title: String
-    let message: String
-    let buttonTitle: String
-    let action: () -> Void
-    @State private var typed = ""
-
-    func body(content: Content) -> some View {
-        content.alert(title, isPresented: $isPresented) {
-            TextField(String(format: L10n.string("confirm.typePrompt", .initial()), phrase), text: $typed)
-            Button(buttonTitle, role: .destructive) {
-                defer { typed = "" }
-                guard typed.trimmingCharacters(in: .whitespaces) == phrase else { return }
-                action()
-            }
-            Button(L10n.string("confirm.cancel", .initial()), role: .cancel) { typed = "" }
-        } message: {
-            Text(message + "\n" + String(format: L10n.string("confirm.typePrompt", .initial()), phrase))
-        }
-    }
-}
-
-extension View {
-    func typeToConfirm(isPresented: Binding<Bool>, phrase: String, title: String, message: String,
-                       buttonTitle: String, action: @escaping () -> Void) -> some View {
-        modifier(TypeToConfirm(isPresented: isPresented, phrase: phrase, title: title, message: message,
-                               buttonTitle: buttonTitle, action: action))
-    }
-}
-
 /// The Dock icon mirrors a running build: a dark tile with the share of the work done, so a build's
 /// progress is visible from wherever the launcher was left.
 enum DockProgress {

@@ -263,14 +263,14 @@ struct ContentView: View {
         )) {
             Button(m.t("library.ok")) { launchError = nil; library.error = nil }
         } message: { Text(launchError ?? library.error ?? "") }
-        .typeToConfirm(
-            isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }),
-            phrase: removing?.name ?? "",
-            title: m.t("library.removeQuestion"), message: m.t("library.removeNote"),
-            buttonTitle: m.t("library.remove")) {
-            if let game = removing { library.remove(game.id) }
-            removing = nil
-        }
+        .confirmationDialog(m.t("library.removeQuestion"), isPresented: Binding(
+            get: { removing != nil }, set: { if !$0 { removing = nil } }
+        ), titleVisibility: .visible) {
+            Button(m.t("library.remove"), role: .destructive) {
+                if let game = removing { library.remove(game.id) }
+                removing = nil
+            }
+        } message: { Text(m.t("library.removeNote")) }
         .sheet(isPresented: Binding(get: { optionsFor != nil }, set: { if !$0 { optionsFor = nil } })) {
             if let id = optionsFor { LaunchOptionsView(m: m, library: library, gameID: id).environmentObject(padFocus).launcherDropdownHost() }
         }
@@ -280,22 +280,21 @@ struct ContentView: View {
         }
         .onChange(of: freeSpaceFor) { id in padFocus.scope = id != nil ? "free" : currentPadScope }
         .sheet(isPresented: $m.showUpdateSheet) { UpdateSheet(m: m) }
-        .typeToConfirm(
-            isPresented: Binding(get: { m.uninstallPlan != nil }, set: { if !$0 { m.uninstallPlan = nil } }),
-            phrase: "NX2Apple",
-            title: m.t("uninstall.title"),
-            message: m.t("uninstall.confirm"),
-            buttonTitle: m.t("uninstall.button")) {
-            if let plan = m.uninstallPlan {
-                let result = Uninstall.run(plan)
-                m.uninstallPlan = nil
-                if result.failures.isEmpty {
-                    m.appStatus = String(format: m.t("uninstall.done"), result.removed.count)
-                } else {
-                    m.appStatus = m.t("uninstall.failed") + "\n" + result.failures.joined(separator: "\n")
+        .confirmationDialog(m.t("uninstall.title"), isPresented: Binding(
+            get: { m.uninstallPlan != nil }, set: { if !$0 { m.uninstallPlan = nil } }
+        ), titleVisibility: .visible) {
+            Button(m.t("uninstall.confirmButton"), role: .destructive) {
+                if let plan = m.uninstallPlan {
+                    let result = Uninstall.run(plan)
+                    m.uninstallPlan = nil
+                    if result.failures.isEmpty {
+                        m.appStatus = String(format: m.t("uninstall.done"), result.removed.count)
+                    } else {
+                        m.appStatus = m.t("uninstall.failed") + "\n" + result.failures.joined(separator: "\n")
+                    }
                 }
             }
-        }
+        } message: { Text(m.t("uninstall.confirm")) }
         .sheet(isPresented: Binding(get: { savesFor != nil }, set: { if !$0 { savesFor = nil } })) {
             if let id = savesFor { SavesView(m: m, library: library, gameID: id).environmentObject(padFocus).launcherDropdownHost() }
         }

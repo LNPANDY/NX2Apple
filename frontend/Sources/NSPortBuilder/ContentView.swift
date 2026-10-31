@@ -627,7 +627,7 @@ final class BuildModel: ObservableObject {
     /// Whether the "a new version is out" sheet is up: opened by the launch check and by Check for
     /// updates, so a user learns what changed before deciding, not after downloading.
     @Published var showUpdateSheet = false
-    /// The uninstall row's dialog: computed when the row is pressed, run when the phrase matches.
+    /// The uninstall row's dialog: computed when the row is pressed, run when the player confirms.
     @Published var uninstallPlan: Uninstall.Plan?
     @Published var appStatus = ""
     /// Set when the last update attempt was refused (a release this macOS cannot open, a bad download); the update sheet shows it.
@@ -3518,7 +3518,7 @@ struct BuilderView: View {
             divider
             if m.appInstallability == .ok {
                 // The uninstaller (Uninstall.swift): state folders and the launcher's own checkout go; the
-                // games folder and prod.keys stay; the app itself goes to the Trash. Typed confirmation.
+                // games folder and prod.keys stay; the app itself goes to the Trash.
                 row(m.t("uninstall.title"), detail: m.t("uninstall.note")) {
                     Button(m.t("uninstall.button")) {
                         m.uninstallPlan = Uninstall.plan(home: NSHomeDirectory(), gamesFolder: library.folder,
