@@ -24,8 +24,9 @@ struct LibraryGame: Codable, Identifiable, Equatable {
     /// The repository checkout's commit the last finished build used (ToolsAge); empty for a build from before it was recorded.
     var toolsCommit = ""
 
+    /// An empty path means there is no Mac build. It is not read, because URL(fileURLWithPath:) would make it the current folder.
     var isReady: Bool {
-        guard let app = try? MacGameBundle.read(URL(fileURLWithPath: appPath)) else { return false }
+        guard !appPath.isEmpty, let app = try? MacGameBundle.read(URL(fileURLWithPath: appPath)) else { return false }
         return app.titleID == titleID
     }
 
