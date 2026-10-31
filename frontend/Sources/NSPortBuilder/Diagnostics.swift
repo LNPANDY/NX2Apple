@@ -20,6 +20,7 @@ struct Diagnostics {
         var branch: String?
         var behind: [(ref: String, count: Int)] = []   // upstream/main, origin/main: the ones this checkout has
         var lastFetch: Date?
+        var engine: String?                  // the release app's engine: "<channel> <version> (<engine_id>)"
         var python: String
         var pythonVersion: String?
         var pythonIsVenv = false             // the launcher's own venv (BuildModel.venvDir)
@@ -70,6 +71,8 @@ struct Diagnostics {
                 if let fetched = i.lastFetch { line += " as of the last fetch, " + stamp(fetched) }
             }
             out.append(line)
+        } else if let engine = i.engine {
+            out.append("- Engine: \(engine)")
         } else if !i.repoPath.isEmpty {
             out.append("- Commit: not a git checkout")
         }
@@ -293,6 +296,8 @@ extension BuildModel {
         let repo = repoOK ? repoPath : "", python = pythonPath.isEmpty ? Self.findPython().path : pythonPath, dotnet = dotnetPath
         let rows = depsChecked ? deps.map(Diagnostics.dependency) : [], checked = depsChecked
         let command = lastBuildCommand, log = logTail, xcrun = xcrunPath
+        let sel = engineSelection
+        let engine = usesEngineStore && !sel.engineID.isEmpty ? "\(sel.channel.rawValue) \(sel.version) (\(sel.engineID))" : nil
         DispatchQueue.global(qos: .userInitiated).async {
             let git = Diagnostics.git(repo)
             let env = ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin", "TMPDIR": NSTemporaryDirectory()]
@@ -306,6 +311,7 @@ extension BuildModel {
                 macOS: ProcessInfo.processInfo.operatingSystemVersionString,
                 chip: Diagnostics.chip(),
                 repoPath: repo, commit: git.commit, branch: git.branch, behind: git.behind, lastFetch: git.lastFetch,
+                engine: engine,
                 python: python,
                 pythonVersion: Diagnostics.version(python, ["-c", "import sys; print(sys.version.split()[0])"], env: env),
                 pythonIsVenv: python == Self.venvPython(),

@@ -377,6 +377,24 @@ final class BuildModel: ObservableObject {
     /// A copy without .git was connected to git and brought to the current version when the app opened (adoptAtLaunch).
     @Published var autoAdopted = false
 
+    // ---- The release app's engine (EngineUpdater.swift, EngineUpdateModel.swift) ----
+
+    /// The engine tree inside the app bundle. nil for a launcher built from the repository, which keeps its checkout and git.
+    /// A release app builds from the engine store instead, and never clones or pulls.
+    var engineBundle: URL? = EngineBundle.tree(in: Bundle.main.resourceURL)
+    var engineStore = EngineStore()
+    var engineTransport: EngineTransport = URLSessionEngineTransport()
+    @Published var engineSelection = EngineSelection.load()
+    @Published var engineBusy = false
+    @Published var engineStatus = ""
+    /// A newer engine the launch check found while automatic updates are off: Settings offers it.
+    @Published var engineAvailable: EngineUpdate.Engine?
+    /// The channel the player picked and is asked to confirm (the switch can change the shader chain).
+    @Published var confirmingChannel: EngineChannel?
+    /// An installed engine that waits for the running build to end before the build tools switch to it.
+    var pendingEngine: (engine: EngineUpdate.Engine, channel: EngineChannel)?
+    var usesEngineStore: Bool { engineBundle != nil }
+
     nonisolated static func gitBinary() -> String? {
         for c in ["/usr/bin/git", "/opt/homebrew/bin/git", "/usr/local/bin/git"]
             where FileManager.default.isExecutableFile(atPath: c) { return c }
@@ -408,7 +426,7 @@ final class BuildModel: ObservableObject {
 
     /// First-time flow: clone the project to ~/nxnative (the discovery seeds cover it) and select it.
     func cloneRepo() {
-        guard !running, !repoBusy else { return }
+        guard !running, !repoBusy, !usesEngineStore else { return }
         guard let git = Self.gitBinary() else { repoStatus = t("repo.gitMissing"); return }
         let dest = NSHomeDirectory() + "/NX2Apple"
         if FileManager.default.fileExists(atPath: dest) {
@@ -441,7 +459,7 @@ final class BuildModel: ObservableObject {
     /// Compare the checkout with origin/main. `silent` is the launch-time check: no status text, no
     /// error noise when offline — it only fills repoBehind when it can.
     func checkRepoUpdates(silent: Bool = false) {
-        guard repoOK, repoIsGit else { return }
+        guard repoOK, repoIsGit, !usesEngineStore else { return }   // a release app updates its engine by version instead
         guard !running, !repoBusy, let git = Self.gitBinary() else {
             if !silent, Self.gitBinary() == nil { repoStatus = t("repo.gitMissing") }
             return
@@ -480,7 +498,7 @@ final class BuildModel: ObservableObject {
     }
 
     func pullRepo() {
-        guard !running, !repoBusy, repoOK, repoIsGit, let git = Self.gitBinary() else { return }
+        guard !running, !repoBusy, !usesEngineStore, repoOK, repoIsGit, let git = Self.gitBinary() else { return }
         repoBusy = true; repoStatus = t("repo.pulling")
         let dir = repoPath
         DispatchQueue.global().async {
@@ -503,7 +521,7 @@ final class BuildModel: ObservableObject {
     /// to its tracked files and no build running, so a checkout someone works in is never touched. Settings says what
     /// happened (or why not), and the library's activity line names the new commits.
     func autoPull(_ behind: Int) {
-        guard !running, !repoBusy, repoOK, repoIsGit, let git = Self.gitBinary() else { return }
+        guard !running, !repoBusy, !usesEngineStore, repoOK, repoIsGit, let git = Self.gitBinary() else { return }
         repoBusy = true
         let dir = repoPath
         DispatchQueue.global().async {
@@ -554,6 +572,7 @@ final class BuildModel: ObservableObject {
     /// The launch-time step for a ZIP copy; a git checkout is left to checkRepoUpdates. Settings and the library's
     /// activity line say what happened.
     func adoptAtLaunch(remote: String = BuildModel.repoURL) {
+        guard !usesEngineStore else { return }
         switch Self.zipAdoption(isRepo: repoOK, isGit: repoIsGit, buildRunning: running, repoBusy: repoBusy, autoUpdate: autoUpdateRepo) {
         case .notNeeded: break
         case .waitsForBuild: repoStatus = t("repo.zipWaits")
@@ -573,7 +592,7 @@ final class BuildModel: ObservableObject {
     /// outside the repository.
     /// `automatic`: the launch-time adoption (adoptAtLaunch); `remote` is GitHub unless a test points it at a local repository.
     func adoptRepoAsGit(automatic: Bool = false, remote: String = BuildModel.repoURL) {
-        guard !running, !repoBusy, repoOK, !repoIsGit, let git = Self.gitBinary() else { return }
+        guard !running, !repoBusy, !usesEngineStore, repoOK, !repoIsGit, let git = Self.gitBinary() else { return }
         repoBusy = true; repoStatus = t("repo.adopting")
         let dir = repoPath
         DispatchQueue.global().async {
@@ -3613,7 +3632,11 @@ struct BuilderView: View {
     }
 
     private var tools: some View {
-        group(m.t("section.tools"), footnote: m.repoStatus.isEmpty ? (m.repoOK ? "" : m.t("repo.firstHint")) : m.repoStatus) {
+        group(m.t("section.tools"), footnote: m.usesEngineStore ? m.engineStatus
+                : (m.repoStatus.isEmpty ? (m.repoOK ? "" : m.t("repo.firstHint")) : m.repoStatus)) {
+            if m.usesEngineStore {
+                engineRows
+            } else {
             row(m.t("repo.title"),
                 detail: m.repoOK ? m.shortPath(m.repoPath)
                     : (m.repoPath.isEmpty ? m.t("repo.notFound") : String(format: m.t("repo.notRepo"), m.shortPath(m.repoPath))),
@@ -3665,6 +3688,7 @@ struct BuilderView: View {
                     Toggle("", isOn: $m.autoUpdateRepo).labelsHidden().toggleStyle(LauncherSwitchStyle())
                 }
             }
+            }
             divider
             Button(action: { withAnimation(.easeInOut(duration: 0.18)) { m.toggleDeps() } }) {
                 row(m.t("dep.title"),
@@ -3711,6 +3735,46 @@ struct BuilderView: View {
             }
             divider
             row(m.t("diag.title"), detail: m.t("diag.note")) { DiagnosticsButton(m: m, game: library.selected) }
+        }
+    }
+
+    /// The release app's engine (EngineUpdateModel.swift): which one the build uses, its channel, and the automatic update.
+    @ViewBuilder private var engineRows: some View {
+        let idle = !(m.engineBusy || m.running)
+        row(m.t("engine.title"), detail: m.engineDetail,
+            dot: m.engineSelection.engineID.isEmpty ? LauncherPalette.building : LauncherPalette.ready, help: m.repoPath) {
+            if m.engineBusy { ProgressView().controlSize(.small) }
+            if let next = m.engineAvailable {
+                Button(String(format: m.t("engine.install"), next.version)) { m.installAvailableEngine() }.disabled(!idle)
+                    .padTarget("set.engineInstall", scope: "main") { if idle { m.installAvailableEngine() } }
+            }
+            Button(m.t("repo.check")) { m.checkEngineUpdate() }.disabled(!idle)
+                .padTarget("set.engineCheck", scope: "main") { if idle { m.checkEngineUpdate() } }
+        }
+        divider
+        // A different channel is asked about first (the alert below): the switch can recompile every game's shaders
+        row(m.t("engine.update"), detail: m.t("engine.channelNote"), dot: LauncherPalette.ready) {
+            LauncherDropdown(options: EngineChannel.allCases.map { (value: $0.rawValue, label: m.t($0.labelKey)) },
+                             selection: m.engineSelection.channel.rawValue, fill: true) { v in
+                if let channel = EngineChannel(rawValue: v) { m.requestEngineChannel(channel) }
+            }
+            .disabled(!idle)
+            .padTarget("set.engineChannel", scope: "main") {
+                if idle { m.requestEngineChannel(m.engineSelection.channel == .stable ? .experimental : .stable) }
+            }
+        }
+        .alert(m.t("engine.switch.title"), isPresented: Binding(get: { m.confirmingChannel != nil },
+                                                               set: { if !$0 { m.cancelEngineChannel() } })) {
+            if let channel = m.confirmingChannel {
+                Button(String(format: m.t("engine.switch.go"), m.t(channel.labelKey))) { m.confirmEngineChannel(channel) }
+            }
+            Button(m.t("engine.switch.cancel"), role: .cancel) { m.cancelEngineChannel() }
+        } message: {
+            Text(m.confirmingChannel.flatMap { m.engineSelection.channel.switchWarningKey(to: $0) }.map { m.t($0) } ?? "")
+        }
+        divider
+        row(m.t("repo.auto"), detail: m.t("engine.autoNote")) {
+            Toggle("", isOn: $m.autoUpdateRepo).labelsHidden().toggleStyle(LauncherSwitchStyle())
         }
     }
 
