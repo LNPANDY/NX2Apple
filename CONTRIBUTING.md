@@ -35,6 +35,7 @@ missing piece.
 
 ## A pull request
 
+- Before any work in a clone or worktree, run `git config core.hooksPath .githooks`. The hooks run the checks for what you commit and push (`python3 tools/engine.py check` for `patches/`, the tests for the code you changed, see `tools/githooks.py`). `tools/engine.py sync`, `check` and `export` install the hooks when they are not. Keep them installed and never use `--no-verify`. Never push to `main` directly. The pre-push hook rejects it for every tool, and the "Main rule" ruleset on GitHub rejects it for everyone, with no bypass.
 - One change per PR, off `main`. Commit messages say what changed and why, in plain English, as `git log` does.
 - Fill in the PR template: what and why, what was checked, screenshots for UI changes.
 - A PR that changes anything visible in the launcher attaches before and after screenshots to the PR, under Screenshots. Show every view the PR changes, in each language it touches. A PR without them is not reviewed. A PR with no visible change writes "None, no visible change".
