@@ -174,6 +174,7 @@ class Against(unittest.TestCase):
 
 
 class Toolchain(unittest.TestCase):
+    @unittest.skipUnless((REPO / '.github/workflows/lint-c.yml').is_file(), 'no lint-c.yml workflow in this repository (NX2Apple runs no clang-tidy job)')
     def test_ci_downloads_the_llvm_the_baseline_was_made_with(self):
         wf = (REPO / '.github/workflows/lint-c.yml').read_text()
         m = re.search(r'^\s+LLVM_VERSION: (\d+\.\d+\.\d+)$', wf, re.M)

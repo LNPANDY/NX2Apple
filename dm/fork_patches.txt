@@ -17,3 +17,4 @@ games-md-gallery
 front-mac-enter-fullscreen-once-the-app-is-activ
 front-mac-dm-screen
 front-mac-hide-the-pointer-after-a-few-idle-seco
+lint-c-test-without-workflow
