@@ -131,10 +131,10 @@ struct ConsolePadSnapshot: Equatable {
         DispatchQueue.main.async { [weak self] in self?.refreshQueued = false; self?.refresh() }
     }
 
-    /// The library as console games, in the library's order, keeping the focus and each game's shown values.
+    /// The library as console games, the ones ready on this Mac first, keeping the focus and each game's shown values.
     func refresh() {
         let focus = state.focusedGameID
-        let games = library.games.map { consoleGame($0) }
+        let games = ConsoleGame.readyFirst(library.games.map { consoleGame($0) })
         state.games = games
         state.focusedGameID = games.contains { $0.id == focus } ? focus : (library.selected.map { $0.id.uuidString }.flatMap { id in games.contains { $0.id == id } ? id : nil } ?? games.first?.id)
         state.time = Date()

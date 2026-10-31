@@ -22,23 +22,6 @@ enum ConsoleInput {
     }
 }
 
-/// The console collection's filter ("全部 / 已构建 / iPhone"): display-only over the driver's games.
-enum ConsoleFilter: String, CaseIterable, Identifiable {
-    case all, built, iphone
-
-    var id: String { rawValue }
-
-    func label(_ lang: Lang) -> String {
-        let zh = ["全部", "已构建", "iPhone"]
-        let de = ["Alle", "Gebaut", "iPhone"]
-        switch lang {
-        case .zh: return zh[Self.allCases.firstIndex(of: self)!]
-        case .de: return de[Self.allCases.firstIndex(of: self)!]
-        default: return ["All", "Built", "iPhone"][Self.allCases.firstIndex(of: self)!]
-        }
-    }
-}
-
 @MainActor struct ConsoleView<Driver: ConsoleDriver>: View {
     @ObservedObject var driver: Driver
     var lang: Lang = .initial()
@@ -52,16 +35,6 @@ enum ConsoleFilter: String, CaseIterable, Identifiable {
     @StateObject private var gamepad: LauncherGamepad
     @State private var tileFrames: [String: CGRect] = [:]
     @State private var updateAlert: String?
-    /// The collection filter ("全部 / 已构建 / iPhone"): display-only, the driver keeps every game.
-    @State private var consoleFilter: ConsoleFilter = .all
-
-    private var visibleGames: [ConsoleGame] {
-        switch consoleFilter {
-        case .all: return state.games
-        case .built: return state.games.filter { $0.status == .ready }
-        case .iphone: return state.games.filter { $0.platforms.contains(.iphone) || $0.status == .iphoneOnly }
-        }
-    }
     /// The glyph set follows the input used last: a controller's own buttons, or key caps after the keyboard.
     @State private var glyphs: ConsoleGlyphs
 
@@ -221,22 +194,6 @@ enum ConsoleFilter: String, CaseIterable, Identifiable {
                 .buttonStyle(.plain)
                 .accessibilityLabel(String(format: lang == .zh ? "更新 %@" : "Update %@", updateTag))
             }
-            if state.games.count > 1 {
-                HStack(spacing: compact ? 5 : 7) {
-                    ForEach([ConsoleFilter.all, .built, .iphone]) { f in
-                        Button { withAnimation(.easeInOut(duration: 0.15)) { consoleFilter = f } } label: {
-                            Text(f.label(lang)).font(.manrope(compact ? 11 : 13, consoleFilter == f ? .bold : .medium))
-                                .padding(.horizontal, compact ? 8 : 11).padding(.vertical, compact ? 4 : 6)
-                                .background(consoleFilter == f ? Color.white.opacity(0.14) : Color.white.opacity(0.05), in: Capsule())
-                                .overlay(Capsule().strokeBorder(consoleFilter == f ? Color.white.opacity(0.3) : Color.white.opacity(0.08)))
-                                .contentShape(Capsule())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityAddTraits(consoleFilter == f ? .isSelected : [])
-                        .accessibilityLabel(f.label(lang))
-                    }
-                }
-            }
             Text(state.time, style: .time).font(.manrope(compact ? 17 : 22, .medium)).monospacedDigit()
                 .foregroundStyle(.white.opacity(0.65)).fixedSize()
         }
@@ -254,7 +211,7 @@ enum ConsoleFilter: String, CaseIterable, Identifiable {
         return ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(alignment: .top, spacing: (compact ? 22 : 28) - 16) {
-                    ForEach(visibleGames) { game in
+                    ForEach(state.games) { game in
                         let selected = state.focusedGame?.id == game.id
                         Button { driver.focus(game.id); driver.play(game.id) } label: {
                             ConsoleGameTile(game: game, selected: selected, compact: compact, lang: lang, captionVisible: tileVisible(game.id, rowWidth: size.width - 2 * (inset - 8)))
@@ -559,6 +516,7 @@ struct ConsoleGameTile: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             ConsoleArtwork(image: game.artwork, title: game.title).aspectRatio(1.8, contentMode: .fit)
+                .opacity(game.status == .ready ? 1 : 0.45)   // not playable on this Mac: dimmed, its status on top
                 .overlay(alignment: .bottomLeading) {
                     if game.status != .ready {
                         Text(L10n.string(game.status.labelKey, lang)).font(.manrope(compact ? 14 : 18, .semibold))
