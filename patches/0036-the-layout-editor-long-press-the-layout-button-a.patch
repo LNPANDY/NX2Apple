@@ -1,0 +1,248 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LNPANDY <lnp-andy@hotmail.com>
+Date: Sat, 31 Oct 2026 20:54:58 +0800
+Subject: [PATCH] The layout editor: long-press the layout button and drag
+ every control where it fits
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Each game is its own app, so its layout is its own: a long press on the layout button opens the editor, where every movable control (left stick, diamond, D-pad, shoulders, L3 / R3, − / +) shows a dashed outline to drag anywhere on screen; tapping the button saves and leaves, long-pressing it inside the editor resets every position. Positions are screen fractions in NSUserDefaults (DmPadCustom) and the built-in layout remains the fallback, so nothing moves until a player moves it. The editor holds no game input and the choice survives updates like the layout choice does.
+
+Upstream-Status: pending
+Reason: Players ask to place the virtual controls themselves (the built-in corners do not fit every hand and game); the editor keeps the built-in layout as the fallback and stores positions per game
+Issue: LNPANDY/NX2Apple (owner request, virtual pad customization)
+
+---
+ dm/ios/Sources/DmGamepad.m | 126 +++++++++++++++++++++++++++++++++----
+ 1 file changed, 115 insertions(+), 11 deletions(-)
+
+diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
+index def0a62..395e2e6 100644
+--- a/dm/ios/Sources/DmGamepad.m
++++ b/dm/ios/Sources/DmGamepad.m
+@@ -11,6 +11,9 @@
+ //     labelled R points at it while the 3D layout is new (it fades on the first touch there or after three seconds) — players could not find it otherwise.
+ //   Everything hugs the edges and corners to leave the picture room; controls sit over the picture, one CAShapeLayer each: a press only swaps the fill, a stick only moves its knob, nothing redraws the whole screen.
+ //   Touches no control takes (in 3D, those outside the right third) go to the game's touch screen (pushGame; Super Mario Galaxy's pointer in handheld mode).
++//   The layout editor: long-press the layout button (half a second) and every movable control becomes a dashed outline to drag anywhere; tapping the button
++//     again saves, long-pressing it inside the editor resets every position. Positions are kept in NSUserDefaults per game as screen fractions (each game is
++//     its own app, so its own layout), and a control without one sits exactly where the built-in layout puts it. The editor holds no game input.
+ //   The virtual gamepad (layout button included) hides while a physical controller is connected and comes back when it is removed; meanwhile every touch goes to the game. Physical controllers keep every button (D-pad and right stick included) and map by position: bottom = B, right = A, left = Y, top = X (same positions as on a Switch controller); a Nintendo pad maps by its labels (pad_apple.h).
+ //   Each physical controller is a player of its own (local co-op), as on the Mac: the first one connected is player 1, together with the touch gamepad, the next player 2, and so on up to 8; see "Physical controllers" below.
+ //   Shaking the phone shakes the controller (DM_BTN_SHAKE: its six-axis sensor, hle_hid.c), whichever controls are in use; see "Shaking the phone" below.
+@@ -128,7 +131,18 @@ static void phone_motion_start(UIView *body) {
+     K_CLICK_X = 102, K_CLICK_R = 17;                // L3 / R3: centre from the outer edge (level with ZL / ZR), radius
+ static const int k_btns[] = {B_ZL, B_L, B_ZR, B_R, B_MINUS, B_PLUS, B_LS, B_RS};   // keys locked at touch-down (L3 / R3 only in the 3D layout)
+ static NSString *const k_layout_key = @"DmPadLayout";   // NSUserDefaults: 0 = 2D, 1 = 3D, 2 = Tap (DM_GAME_PAD_LAYOUT's numbers)
++static NSString *const k_custom_key = @"DmPadCustom";   // NSUserDefaults: group → [x, y] as fractions of the screen (the layout editor's positions, per game)
+ int dm_opmode(void);   // hle_oe.c: 0 = handheld
++static NSString *groupOf(int b) {   // the group a key moves with in the layout editor; nil = not movable
++    switch (b) {
++        case B_A: case B_B: case B_X: case B_Y: return @"face";
++        case B_UP: case B_DOWN: case B_LEFT: case B_RIGHT: return @"dpad";
++        case B_LS: return @"LS"; case B_RS: return @"RS";
++        case B_L: return @"L"; case B_ZL: return @"ZL"; case B_R: return @"R"; case B_ZR: return @"ZR";
++        case B_MINUS: return @"minus"; case B_PLUS: return @"plus";
++        default: return nil;
++    }
++}
+ 
+ @interface DmGamepad : UIView
+ @end
+@@ -145,6 +159,10 @@ @implementation DmGamepad {
+     CAShapeLayer *_ring, *_knob;                   // the left stick (the right one is not drawn)
+     CAShapeLayer *_swap; CATextLayer *_swapLabel; BOOL _swapHeld;
+     CAShapeLayer *_rHint; CATextLayer *_rHintLabel; int _rHintToken;   // the right-stick hint of the 3D layout (see the header)
++    BOOL _edit; NSString *_editGroup; CGPoint _editGrab; UITouch *_editTouch;   // the layout editor: one dragged group at a time
++    NSDate *_swapDown;                               // when the layout button went down: a long press opens the editor (or resets inside it)
++    NSMutableDictionary<NSString *, CAShapeLayer *> *_ghosts;   // dashed outlines of the movable groups, visible only while editing
++    NSMutableDictionary<NSString *, NSArray<NSNumber *> *> *_draft;   // the editor's unsaved positions: group → [x, y] in screen fractions
+     UIImpactFeedbackGenerator *_touchFeedback;       // one short feedback per touch-control press edge
+     unsigned _hapticSticks;
+     BOOL _stickShown;                              // the left stick was held at the last refresh
+@@ -197,6 +215,11 @@ - (instancetype)initWithFrame:(CGRect)f {
+         _rHint = shape(_controls); _rHint.fillColor = k_ringFill.CGColor; _rHint.strokeColor = k_line.CGColor; _rHint.lineWidth = 1.5;
+         _rHint.lineDashPattern = @[@6, @5]; _rHint.hidden = YES;   // dashed: a zone to touch anywhere in, not a key
+         _rHintLabel = label(_rHint, @"R");
++        _ghosts = [NSMutableDictionary dictionary];
++        for (NSString *g in @[@"stick", @"face", @"dpad", @"L", @"ZL", @"R", @"ZR", @"LS", @"RS", @"minus", @"plus"]) {
++            CAShapeLayer *gh = shape(_controls); gh.fillColor = nil; gh.strokeColor = k_line.CGColor; gh.lineWidth = 1.5;
++            gh.lineDashPattern = @[@6, @5]; gh.hidden = YES; _ghosts[g] = gh;   // the editor's drag handles, one per movable group
++        }
+         NSNumber *saved = [NSUserDefaults.standardUserDefaults objectForKey:k_layout_key];
+         int l = saved ? (int)saved.integerValue : dm_profile()->pad_layout;
+         if (l == 2 && dm_opmode() != 0) l = 0;   // Tap only in handheld mode (env.txt's DM_OPMODE may have changed it)
+@@ -216,9 +239,11 @@ - (void)applyLayout {   // show / hide the controls for the current layout
+     [CATransaction begin]; [CATransaction setDisableActions:YES];
+     for (int b = 0; b < B_N; b++) _key[b].hidden = _tap || (fullOnly(b) && !_full);
+     _ring.hidden = _knob.hidden = _tap;
+-    _swapLabel.string = _tap ? @"Tap" : _full ? @"3D" : @"2D";
++    _controls.opacity = _edit ? 0.5 : 1;   // the editor dims the controls so its dashed outlines read as handles, not keys
++    _swapLabel.string = _edit ? @"✓" : _tap ? @"Tap" : _full ? @"3D" : @"2D";
++    for (NSString *g in _ghosts) [_ghosts[g] setHidden:!_edit];
+     [CATransaction commit];
+-    [self showStickHint];
++    if (!_edit) [self showStickHint];
+ }
+ - (void)showStickHint {   // the 3D layout's right stick is a zone, not a drawn key: point at it while it is new, fade it on the first touch there or after three seconds
+     _rHintToken++;
+@@ -229,6 +254,74 @@ - (void)showStickHint {   // the 3D layout's right stick is a zone, not a drawn
+         if (token == _rHintToken) _rHint.opacity = 0;   // the implicit fade runs even though applyLayout disables actions inside its own transaction only
+     });
+ }
++
++// ---- The layout editor (see the header) ----
++- (CGPoint)placed:(CGPoint)fallback group:(NSString *)g {   // the group's kept position, falling back to the built-in layout
++    NSArray<NSNumber *> *p = _draft[g] ?: [NSUserDefaults.standardUserDefaults dictionaryForKey:k_custom_key][g];
++    if (p.count == 2) return CGPointMake(p[0].doubleValue * self.bounds.size.width, p[1].doubleValue * self.bounds.size.height);
++    return fallback;
++}
++- (CGPoint)groupAnchor:(NSString *)g {
++    if ([g isEqualToString:@"stick"]) return self.stickHome;
++    if ([g isEqualToString:@"face"]) return self.faceCenter;
++    if ([g isEqualToString:@"dpad"]) return self.dpadCenter;
++    if ([g isEqualToString:@"L"]) return [self dropCenter:B_L];
++    if ([g isEqualToString:@"ZL"]) return [self dropCenter:B_ZL];
++    if ([g isEqualToString:@"R"]) return [self dropCenter:B_R];
++    if ([g isEqualToString:@"ZR"]) return [self dropCenter:B_ZR];
++    if ([g isEqualToString:@"LS"]) return [self clickCenter:B_LS];
++    if ([g isEqualToString:@"RS"]) return [self clickCenter:B_RS];
++    if ([g isEqualToString:@"minus"]) { CGRect rc = [self pillRect:B_MINUS]; return CGPointMake(CGRectGetMidX(rc), CGRectGetMidY(rc)); }
++    CGRect rc = [self pillRect:B_PLUS]; return CGPointMake(CGRectGetMidX(rc), CGRectGetMidY(rc));
++}
++- (CGFloat)groupR:(NSString *)g {
++    if ([g isEqualToString:@"stick"]) return [self stickR:0];
++    if ([g isEqualToString:@"face"]) return self.faceR + self.faceGap;
++    if ([g isEqualToString:@"dpad"]) return self.dpadR + 6 * self.u;
++    if ([g isEqualToString:@"L"] || [g isEqualToString:@"R"]) return [self dropR:B_L] + 4 * self.u;
++    if ([g isEqualToString:@"ZL"] || [g isEqualToString:@"ZR"]) return [self dropR:B_ZL] + 4 * self.u;
++    if ([g isEqualToString:@"LS"] || [g isEqualToString:@"RS"]) return K_CLICK_R * self.u + 4 * self.u;
++    return K_PILL_H * self.u / 2 + 4 * self.u;   // the pills
++}
++- (void)openEditor {   // long-press on the layout button: drag the controls, tap the button to save and leave, long-press it to reset everything
++    if (_tap || _edit) return;   // the Tap layout has no controls to move
++    _edit = YES; _draft = [NSMutableDictionary dictionary];
++    [self reset];
++    [self applyLayout]; [self setNeedsLayout];
++}
++- (void)closeEditor {
++    _edit = NO;
++    if (_draft.count) {
++        NSMutableDictionary *d = [[NSUserDefaults.standardUserDefaults dictionaryForKey:k_custom_key] mutableCopy] ?: [NSMutableDictionary dictionary];
++        [d addEntriesFromDictionary:_draft];   // a group the editor never touched keeps its saved place
++        [NSUserDefaults.standardUserDefaults setObject:d forKey:k_custom_key];
++    }
++    _draft = nil;
++    [self reset];
++    [self applyLayout]; [self setNeedsLayout];
++}
++- (void)editDown:(UITouch *)t at:(CGPoint)p {
++    if ([self inSwap:p]) { [_owner setObject:@(C_SWAP) forKey:t]; _swapDown = [NSDate date]; return; }   // tap = save and leave, long press = reset
++    if (_editTouch) return;   // one dragged group at a time
++    NSString *best = nil; CGFloat bd = INFINITY;
++    for (NSString *g in _ghosts) {
++        if (_ghosts[g].hidden) continue;
++        CGFloat d = dist(p, [self groupAnchor:g]);
++        if (d <= [self groupR:g] * 1.6 && d < bd) { bd = d; best = g; }
++    }
++    if (!best) return;
++    _editTouch = t; _editGroup = best;
++    CGPoint c = [self groupAnchor:best]; _editGrab = CGPointMake(c.x - p.x, c.y - p.y);
++}
++- (void)editMove:(CGPoint)p {
++    if (!_editGroup) return;
++    CGPoint c = CGPointMake(p.x + _editGrab.x, p.y + _editGrab.y);
++    UIEdgeInsets i = self.safeAreaInsets; CGFloat m = 30 * self.u;   // the group's centre stays a margin inside the safe area
++    c.x = fminf(fmaxf(c.x, CGRectGetMinX(self.bounds) + i.left + m), CGRectGetMaxX(self.bounds) - i.right - m);
++    c.y = fminf(fmaxf(c.y, CGRectGetMinY(self.bounds) + i.top + m), CGRectGetMaxY(self.bounds) - i.bottom - m);
++    _draft[_editGroup] = @[@(c.x / self.bounds.size.width), @(c.y / self.bounds.size.height)];
++    [self setNeedsLayout];   // the keys and the outlines follow live
++}
+ - (void)nextLayout {   // 2D → 3D (→ Tap in handheld mode) → 2D: release every touch first (no key stays held), save, lay out again
+     int l = _tap ? 0 : _full ? (dm_opmode() == 0 ? 2 : 0) : 1;
+     [self reset];
+@@ -242,25 +335,25 @@ - (CGRect)safe { return UIEdgeInsetsInsetRect(self.bounds, self.safeAreaInsets);
+ - (CGRect)corner { UIEdgeInsets i = self.safeAreaInsets; i.left *= K_CORNER_IN; i.right *= K_CORNER_IN; return UIEdgeInsetsInsetRect(self.bounds, i); }   // the rectangle the bottom-corner controls use
+ - (CGFloat)u { return MIN(self.bounds.size.height / 430.0, 1.3); }   // 1 = 430 points tall (iPhone Pro Max landscape)
+ static CGPoint side(CGRect s, int right, CGFloat dx, CGFloat y) { return CGPointMake(right ? CGRectGetMaxX(s) - dx : CGRectGetMinX(s) + dx, y); }
+-- (CGPoint)faceCenter { CGRect s = self.corner; CGFloat u = self.u; return side(s, 1, K_FACE_X * u, CGRectGetMaxY(s) - K_PAD_Y * u); }
++- (CGPoint)faceCenter { CGRect s = self.corner; CGFloat u = self.u; return [self placed:side(s, 1, K_FACE_X * u, CGRectGetMaxY(s) - K_PAD_Y * u) group:@"face"]; }
+ - (CGFloat)faceGap { return K_FACE_GAP * self.u; }
+ - (CGFloat)faceR { return K_FACE_R * self.u; }
+ - (CGPoint)facePos:(int)b { CGPoint c = self.faceCenter; CGFloat g = self.faceGap;
+     switch (b) { case B_A: return CGPointMake(c.x + g, c.y); case B_B: return CGPointMake(c.x, c.y + g); case B_X: return CGPointMake(c.x, c.y - g); default: return CGPointMake(c.x - g, c.y); } }
+-- (CGPoint)stickHome { CGRect s = self.corner; return side(s, 0, K_STICK_X * self.u, CGRectGetMaxY(s) - K_PAD_Y * self.u); }   // the left stick's ring centre
++- (CGPoint)stickHome { CGRect s = self.corner; return [self placed:side(s, 0, K_STICK_X * self.u, CGRectGetMaxY(s) - K_PAD_Y * self.u) group:@"stick"]; }   // the left stick's ring centre
+ - (CGPoint)stickCentre:(int)i { return i ? _rCentre : self.stickHome; }
+ - (CGFloat)stickR:(int)i { return (i ? K_RSTICK_R : K_STICK_R) * self.u; }
+ - (BOOL)inRightArea:(CGPoint)p { CGRect b = self.bounds; return p.x >= CGRectGetMaxX(b) - b.size.width * K_RSWIPE; }
+-- (CGPoint)dpadCenter { CGRect s = self.corner; CGFloat u = self.u; return side(s, 0, K_LOW_X * u, CGRectGetMaxY(s) - K_LOW_Y * u); }
++- (CGPoint)dpadCenter { CGRect s = self.corner; CGFloat u = self.u; return [self placed:side(s, 0, K_LOW_X * u, CGRectGetMaxY(s) - K_LOW_Y * u) group:@"dpad"]; }
+ - (CGFloat)dpadR { return K_DPAD_R * self.u; }
+ static BOOL isDrop(int b) { return b == B_ZL || b == B_L || b == B_ZR || b == B_R; }
+ static BOOL isClick(int b) { return b == B_LS || b == B_RS; }
+ - (CGPoint)dropCenter:(int)b { CGRect s = self.safe; CGFloat u = self.u; BOOL z = b == B_ZL || b == B_ZR;
+-    return side(s, b == B_ZR || b == B_R, (z ? K_ZL_X : K_L_X) * u, CGRectGetMinY(s) + (z ? K_ZL_Y : K_L_Y) * u); }
++    return [self placed:side(s, b == B_ZR || b == B_R, (z ? K_ZL_X : K_L_X) * u, CGRectGetMinY(s) + (z ? K_ZL_Y : K_L_Y) * u) group:groupOf(b)]; }
+ - (CGFloat)dropR:(int)b { return (b == B_ZL || b == B_ZR ? K_ZL_R : K_L_R) * self.u; }
+-- (CGPoint)clickCenter:(int)b { CGRect s = self.safe; CGFloat u = self.u; return side(s, b == B_RS, K_CLICK_X * u, CGRectGetMinY(s) + K_ZL_Y * u); }
++- (CGPoint)clickCenter:(int)b { CGRect s = self.safe; CGFloat u = self.u; return [self placed:side(s, b == B_RS, K_CLICK_X * u, CGRectGetMinY(s) + K_ZL_Y * u) group:groupOf(b)]; }
+ - (CGRect)pillRect:(int)b { CGRect s = self.safe; CGFloat u = self.u, w = K_PILL_W * u, h = K_PILL_H * u;
+-    CGPoint c = CGPointMake(CGRectGetMidX(s) + (b == B_PLUS ? K_PILL_DX : -K_PILL_DX) * u, CGRectGetMinY(s) + K_PILL_Y * u);   // − on the left, + on the right
++    CGPoint c = [self placed:CGPointMake(CGRectGetMidX(s) + (b == B_PLUS ? K_PILL_DX : -K_PILL_DX) * u, CGRectGetMinY(s) + K_PILL_Y * u) group:groupOf(b)];   // − on the left, + on the right
+     return CGRectMake(c.x - w / 2, c.y - h / 2, w, h); }
+ - (CGPoint)swapCenter { CGRect s = self.safe; return CGPointMake(CGRectGetMidX(s), CGRectGetMinY(s) + K_PILL_Y * self.u); }
+ 
+@@ -351,9 +444,11 @@ - (void)touchesBegan:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e {
+     BOOL game = NO;
+     for (UITouch *t in ts) {
+         if (_padOff) { game |= [self gameBegin:t]; continue; }
+-        CGPoint p = [t locationInView:self]; int hit = _tap ? -1 : [self btnAt:p];
++        CGPoint p = [t locationInView:self];
++        if (_edit) { [self editDown:t at:p]; continue; }
++        int hit = _tap ? -1 : [self btnAt:p];
+         if (hit >= 0) { [_owner setObject:@(C_BTN | (uint64_t)hit << 8) forKey:t]; continue; }
+-        if ([self inSwap:p]) { [_owner setObject:@(C_SWAP) forKey:t]; continue; }
++        if ([self inSwap:p]) { [_owner setObject:@(C_SWAP) forKey:t]; _swapDown = [NSDate date]; continue; }
+         if (_tap) { game |= [self gameBegin:t]; continue; }
+         // diamond, D-pad, left stick: take the one with the smallest distance / grab radius, if it is <= 1
+         CGFloat best = 1; int kind = C_NONE, idx = 0;
+@@ -374,6 +469,7 @@ - (void)touchesMoved:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e {
+     BOOL game = NO;
+     for (UITouch *t in ts) {
+         uint64_t v = [_owner objectForKey:t].unsignedLongLongValue; int c = (int)(v & 0xff); CGPoint p = [t locationInView:self];
++        if (t == _editTouch) { [self editMove:p]; continue; }
+         if (c == C_FACE) [_faceOf setObject:@([self faceAt:p]) forKey:t];
+         else if (c == C_STICK) { _stickNow[v >> 8] = p;
+             if ((v >> 8) == 1) { CGFloat d = dist(p, _rCentre), R = [self stickR:1];   // the right stick's centre follows a finger past its radius, so turning back responds at once
+@@ -387,13 +483,20 @@ - (void)endTouches:(NSSet<UITouch *> *)ts tapped:(BOOL)ended {
+     BOOL swap = NO, game = NO;
+     for (UITouch *t in ts) {
+         uint64_t v = [_owner objectForKey:t].unsignedLongLongValue;
++        if (t == _editTouch) { _editTouch = nil; _editGroup = nil; continue; }
+         if (ended && (v & 0xff) == C_SWAP && [self inSwap:[t locationInView:self]]) swap = YES;   // layout button: counts only when released on the button
+         if ((v & 0xff) == C_GAME && (v >> 8) < 16) { _game[v >> 8] = nil; game = YES; }
+         [_owner removeObjectForKey:t]; [_faceOf removeObjectForKey:t]; for (int i = 0; i < 2; i++) if (t == _stick[i]) _stick[i] = nil;
+     }
+     if (game) [self pushGame];
+     [self recompute];
+-    if (swap) [self nextLayout];
++    if (!swap) return;
++    BOOL held = _swapDown && -[_swapDown timeIntervalSinceNow] >= 0.5; _swapDown = nil;   // the layout button: tap = next layout (or save and leave), long press = the editor (or reset inside it)
++    if (_edit) {
++        if (held) { [NSUserDefaults.standardUserDefaults removeObjectForKey:k_custom_key]; [_draft removeAllObjects]; [self setNeedsLayout]; }
++        else [self closeEditor];
++    } else if (held) [self openEditor];
++    else [self nextLayout];
+ }
+ - (void)touchesEnded:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e { [self endTouches:ts tapped:YES]; }
+ - (void)touchesCancelled:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e { [self endTouches:ts tapped:NO]; }
+@@ -454,6 +557,7 @@ - (void)layoutSubviews {
+         CGPoint hc = CGPointMake(CGRectGetMaxX(self.bounds) - self.bounds.size.width * K_RSWIPE / 2, CGRectGetMidY(self.safe));
+         setPath(_rHint, circlePath(hc, K_RSTICK_R * u)); placeLabel(_rHintLabel, hc, 15 * u);
+     }
++    if (_edit) for (NSString *g in _ghosts) { CAShapeLayer *gh = _ghosts[g]; if (!gh.hidden) setPath(gh, circlePath([self groupAnchor:g], [self groupR:g])); }
+     setPath(_ring, circlePath(self.stickHome, [self stickR:0]));
+     CGFloat k = K_KNOB_R * u; _knob.bounds = CGRectMake(0, 0, 2 * k, 2 * k);
+     setPath(_knob, circlePath(CGPointMake(k, k), k));
