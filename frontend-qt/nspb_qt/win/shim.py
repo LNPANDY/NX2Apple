@@ -184,6 +184,7 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
             return _resolve(args[1:]) or [sys.executable, _XCRUN] + args[1:]
         if base == 'dmsh_xlate' and '/dmsh_xlate_bin/' in head:
             # an absolute path, not `which`: a .NET SDK the app installed is not on PATH
+            import toolchain as tc
             dn = tc.dotnet_dir()
             dotnet = str(dn / 'dotnet.exe') if dn else (shutil.which('dotnet') or 'dotnet')
             return [dotnet, args[0] + '.dll'] + args[1:]
@@ -322,11 +323,13 @@ def build_env(base: dict[str, str] | None = None, python_exe: str | None = None)
         p = tc.find_exe(name)
         if p:
             parts.append(str(p.parent))
+            if name == 'spirv-cross': env.setdefault('SPIRV_CROSS', str(p))
     # tc.dotnet_dir() first: it knows about the SDK the app installed for itself, which is not on
     # PATH and not in Program Files. `which` alone missed it, so `dotnet build` and the shader
     # translator failed on a machine that had just installed .NET through this app.
     if dn := tc.dotnet_dir():
         parts.append(str(dn))
+        env['DOTNET_ROOT'] = env['DOTNET_ROOT_X64'] = str(dn)
     elif dn := shutil.which('dotnet'):
         parts.append(str(Path(dn).parent))
 

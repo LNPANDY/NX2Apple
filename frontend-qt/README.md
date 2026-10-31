@@ -48,11 +48,12 @@ wherever `NSPB_REPO` points, and the repository group lets you pick it by hand.
 
 ## What is not there yet
 
-- **The Windows build path has run on a real Windows machine** — a handheld PC, which is where the
-  bug reports came from — through repository download, git auto-install and the LLVM / SDK / .NET
-  downloads. The compile, link, `Metal` compile and the final IPA on Windows have still not been
-  exercised end to end against a genuine LLVM-MinGW + iPhoneOS SDK + Metal Developer Tools
-  install. See [Windows build → Open risks](#open-risks).
+- **The Windows build path remains experimental.** One Rhythm Heaven Groove 1.0.0 IPA built on
+  Windows was reported to run at 60 FPS with correct button mappings on an iPhone Air with iOS
+  27.0.1. It used local fixes to the upstream image reader and Windows frontend, SDK symlinks
+  materialized by hand, and a Windows build of the pinned SPIRV-Cross source with locally recorded
+  compiler fingerprints. The current unmodified frontend is not yet verified end to end; other
+  games and longer-term performance remain unverified. See [Windows build → Open risks](#open-risks).
 - No self-update. Repository download and update buttons do exist (`Download repository`,
   `Check for updates`, `Pull updates`), and they log what git is doing.
 - No per-stage progress bar, no cancel-with-cleanup (cancel terminates the child).
@@ -258,9 +259,9 @@ the tool offers it. The IPA name and the RomFS archive come out where the macOS 
 
 ## Open risks
 
-The app's own toolchain discovery, downloads and repository handling have now run on a real
-Windows machine (a handheld PC). These are the parts that still have not, and that only a full
-build on Windows plus a device run can settle:
+The frontend's setup has run on Windows, and one locally patched Windows build was reported to
+run at 60 FPS on an iPhone. That test does not settle these risks for other games or for an
+unmodified checkout:
 
 1. **Shader libraries on the device.** They come from the Windows Metal compiler, not Xcode's.
    They must load and render on iOS 26+ (`newLibraryWithURL`). `own_compilers.py` accepts a
