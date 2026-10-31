@@ -3,7 +3,7 @@ import SwiftUI
 import XCTest
 @testable import NSPortBuilder
 
-/// The Game language row with its System language choice, on a French Mac, for visual QA (NX_LAUNCHER_CAPTURE_DIR): the desktop
+/// The Game language row with the Mac's language preselected, on a French Mac, for visual QA (NX_LAUNCHER_CAPTURE_DIR): the desktop
 /// Launch options sheet and the console mode's options.
 final class GameLanguageCaptureTests: XCTestCase {
     private let titleID = "0100A3D008C5C000"
@@ -36,7 +36,7 @@ final class GameLanguageCaptureTests: XCTestCase {
         let french = ["fr-FR", "en-US"]
         let settings = try XCTUnwrap(LaunchSetting.forMac(app: app.path, titleID: titleID, repo: "", labels: { L10n.string($0, .en) }, preferred: french))
         let store = SavedChoices(domain: bundleID)
-        store.followSystemLanguage(try XCTUnwrap(LaunchSetting.read(app: app.path)), preferred: french)
+        store.preselectLanguage(try XCTUnwrap(LaunchSetting.read(app: app.path)), preferred: french)
 
         func capture(_ name: String, _ view: some View, width: CGFloat, height: CGFloat) throws {
             let host = NSHostingView(rootView: view.frame(width: width, height: height))
@@ -54,7 +54,7 @@ final class GameLanguageCaptureTests: XCTestCase {
             window.close()
         }
 
-        // The desktop sheet: the row shows the default, System language (French)
+        // The desktop sheet: the row shows the preselected French
         var game = LibraryGame(titleID: titleID, name: "[Game]")
         game.appPath = app.path
         struct Snapshot: Codable { let games: [LibraryGame]; let folder: String }
@@ -69,7 +69,7 @@ final class GameLanguageCaptureTests: XCTestCase {
 
         // Console mode: the same row in the game's options
         let row = try XCTUnwrap(settings.first { $0.env == "DM_LANG" })
-        XCTAssertEqual(store.current(row), "system")
+        XCTAssertEqual(store.current(row), "fr")
         var values: [String: String] = [:]
         for s in settings { values[s.env] = s.storeBacked ? store.current(s) : s.def }
         let consoleGame = ConsoleGame(id: "game", title: "[Game]", version: "1.0.0", platforms: [.mac], artwork: nil, status: .ready,
