@@ -3754,11 +3754,10 @@ struct BuilderView: View {
         divider
         // A different channel is asked about first (the alert below): the switch can recompile every game's shaders
         row(m.t("engine.update"), detail: m.t("engine.channelNote"), dot: LauncherPalette.ready) {
-            LauncherMenuPicker(options: EngineChannel.allCases.map { (value: $0.rawValue, label: m.t($0.labelKey)) },
-                               selection: m.engineSelection.channel.rawValue, fill: true, buttonLike: true) { v in
+            LauncherDropdown(options: EngineChannel.allCases.map { (value: $0.rawValue, label: m.t($0.labelKey)) },
+                             selection: m.engineSelection.channel.rawValue, fill: true) { v in
                 if let channel = EngineChannel(rawValue: v) { m.requestEngineChannel(channel) }
             }
-            .frame(width: Self.settingsButtonWidth)
             .disabled(!idle)
             .padTarget("set.engineChannel", scope: "main") {
                 if idle { m.requestEngineChannel(m.engineSelection.channel == .stable ? .experimental : .stable) }
