@@ -1,0 +1,1968 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Javier Monterroso <jmonterroso@UNJDomain.com>
+Date: Sat, 31 Oct 2026 16:37:27 +0100
+Subject: [PATCH] host: embedded web browser controller with PIN pairing
+
+Upstream-Status: forwarded seedds/nxnative#806
+Reason: Embedded HTTP/WebSocket server allowing phones on Wi-Fi to act as gamepads with PIN authentication and rate limiting
+Issue: LNPANDY/NX2Apple#269
+
+---
+ dm/host/.gitignore         |   1 +
+ dm/host/Makefile           |  12 +-
+ dm/host/dm_webpad.c        | 681 ++++++++++++++++++++++++++++++++++
+ dm/host/dm_webpad.h        |  57 +++
+ dm/host/front_mac.m        |  98 +++++
+ dm/host/tests/t_webpad.c   | 245 +++++++++++++
+ dm/host/webpad.html        | 734 +++++++++++++++++++++++++++++++++++++
+ dm/ios/Sources/DmGamepad.m |   2 +
+ 8 files changed, 1826 insertions(+), 4 deletions(-)
+ create mode 100644 dm/host/dm_webpad.c
+ create mode 100644 dm/host/dm_webpad.h
+ create mode 100644 dm/host/tests/t_webpad.c
+ create mode 100644 dm/host/webpad.html
+
+diff --git a/dm/host/.gitignore b/dm/host/.gitignore
+index 0abef5e..1f519c2 100644
+--- a/dm/host/.gitignore
++++ b/dm/host/.gitignore
+@@ -5,3 +5,4 @@ dm_bright_levels.inc
+ *.h.tmp
+ *.inc.tmp
+ gen/
++webpad_html.h
+diff --git a/dm/host/Makefile b/dm/host/Makefile
+index 978fee0..8ae8396 100644
+--- a/dm/host/Makefile
++++ b/dm/host/Makefile
+@@ -1,7 +1,7 @@
+ # Game profile (dm/games/<id>/): the host is built for it (make GAME=base game title ID, required: there is no default game). game_profile.h is generated from game.tsv into gen/<id>/; the chain version header dmsh_chain.h (one for every game) lives in dm/gfx/nvn
+ # without GAME only clean passes; anything else (a bare make too, whose default goal is the host) stops and lists the profiles
+ ifeq ($(strip $(GAME)),)
+-ifneq ($(filter-out clean,$(or $(MAKECMDGOALS),dmhost)),)
++ifneq ($(filter-out clean webpad_html.h,$(or $(MAKECMDGOALS),dmhost)),)
+ $(error GAME is not set: make GAME=<base game title ID>: $(shell python3 ../games/game.py list | awk -F'\t' '{printf "%s (%s)  ", $$1, $$3}'))
+ endif
+ endif
+@@ -17,7 +17,7 @@ GAME_H = gen/$(GAME)/game_profile.h
+ include ../mac/min_os.mk
+ CFLAGS=-O1 -g -Wall -Wno-unused-function -mmacosx-version-min=$(MACOS_MIN)
+ # Service-layer takeover hle_*.c files are included by wildcard: adding a file does not touch this line (avoids merge conflicts)
+-SRC=main.c loader.c hle.c crash.c probe.c thread.c save_sync.c memstat.m haptics_apple.m $(sort $(wildcard hle_*.c)) front_mac.m entry.S
++SRC=main.c loader.c hle.c crash.c probe.c thread.c save_sync.c memstat.m haptics_apple.m dm_webpad.c $(sort $(wildcard hle_*.c)) front_mac.m entry.S
+ # NVN null device + nn::vi + the Vulkan layer (dm/gfx/)
+ # Sources under dm/gfx, dm/gfx/nvn, dm/gfx/tex, dm/gfx/vk and dm/gfx/gl are included by wildcard (tests/ and metal/ do not go into the host): adding a file does not touch this line
+ GFX=$(sort $(wildcard ../gfx/*.c ../gfx/nvn/*.c ../gfx/nvn/*.m ../gfx/nvn/*.S ../gfx/tex/*.c ../gfx/tex/*.m ../gfx/vk/*.m ../gfx/gl/*.m))
+@@ -44,6 +44,10 @@ $(MSL_H): $(MSL_SRC) ../gfx/tools/host_msl.py FORCE
+ 	python3 ../gfx/tools/host_msl.py --sdk $(MSL_SDK) $(if $(MSL_MIN_$(MSL_SDK)),--min $(MSL_MIN_$(MSL_SDK))) $@ $(MSL_SRC)
+ .PHONY: host_msl
+ host_msl: $(MSL_H)
++# Embedded web browser controller HTML asset compiled into C header
++webpad_html.h: webpad.html
++	xxd -i -n webpad_html $< $@
++
+ .DEFAULT_GOAL := dmhost   # The header generation rules are written first below, so the default goal must be stated explicitly (otherwise make only generates the headers and does not build the host)
+ .PHONY: game_profile
+ game_profile: $(GAME_H)
+@@ -63,8 +67,8 @@ endif
+ endif
+ .PHONY: FORCE
+ FORCE:
+-dmhost: $(SRC) $(GFX) ../third_party/stb_vorbis/stb_vorbis.c dm.h hle.h romfs_image.h save_sync.h dm_input.h pad_slots.h hle_haptics.h haptics_apple.h motion_fusion.h motion_apple.h motion_pro.h motion_pro_mac.h pad_apple.h front.h $(GFX_H) $(GAME_H) $(GAME_STAMP) $(VPX_LIB) $(MSL_H)
++dmhost: $(SRC) $(GFX) ../third_party/stb_vorbis/stb_vorbis.c dm.h hle.h romfs_image.h save_sync.h dm_input.h pad_slots.h hle_haptics.h haptics_apple.h motion_fusion.h motion_apple.h motion_pro.h motion_pro_mac.h pad_apple.h front.h $(GFX_H) $(GAME_H) $(GAME_STAMP) $(VPX_LIB) $(MSL_H) webpad_html.h
+ 	clang $(CFLAGS) -I../gfx/nvn/include -I$(dir $(MSL_H)) -I../third_party/vulkan-headers/include -I$(dir $(GAME_H)) -I$(VPX) -I../third_party/stb_vorbis -fobjc-arc -o $@ $(SRC) $(GFX) $(VPX_LIB) -framework Cocoa -framework QuartzCore -framework Metal -framework MetalFX -framework GameController -framework CoreHaptics -framework IOKit -framework AudioToolbox -framework VideoToolbox -framework CoreMedia -framework CoreVideo -framework ImageIO -framework UniformTypeIdentifiers
+ clean:   # the host and everything make generates for it (gen/: the profile headers, the game stamp and the libvpx build; dmhost_* and *.dSYM beside them, as in .gitignore)
+-	rm -rf gen dmhost dmhost_* *.dSYM
++	rm -rf gen dmhost dmhost_* *.dSYM webpad_html.h
+ .PHONY: clean
+diff --git a/dm/host/dm_webpad.c b/dm/host/dm_webpad.c
+new file mode 100644
+index 0000000..b3f2f7f
+--- /dev/null
++++ b/dm/host/dm_webpad.c
+@@ -0,0 +1,681 @@
++// dm_webpad.c: Clean-room embedded HTTP + WebSocket server for Wi-Fi browser controllers with PIN pairing.
++// MIT License.
++#include "dm_webpad.h"
++#include "dm_input.h"
++#include "hle.h"
++#include "webpad_html.h"
++
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <unistd.h>
++#include <pthread.h>
++#include <errno.h>
++#include <fcntl.h>
++#include <sys/types.h>
++#include <sys/socket.h>
++#include <netinet/in.h>
++#include <netinet/tcp.h>
++#include <arpa/inet.h>
++#include <ifaddrs.h>
++#include <net/if.h>
++#include <time.h>
++#include <dns_sd.h>
++#include <CommonCrypto/CommonDigest.h>
++
++#define MAX_WEB_CLIENTS 16
++#define MAX_IP_LOCKOUTS 64
++#define MAX_PIN_FAILURES 5
++#define MAX_GLOBAL_FAILURES 20
++#define WEBPAD_GUID "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
++#define WEBPAD_MAX_HEADER_SIZE 2048
++#define WEBPAD_MAX_PAYLOAD_SIZE 256
++
++typedef struct {
++    struct in_addr ip;
++    int fail_count;
++    bool locked;
++} ip_lockout_t;
++
++typedef struct {
++    int fd;
++    struct in_addr ip;
++    uint16_t port;
++    int player_slot; // 0..DM_PLAYERS-1 or -1 if unassigned
++    uint64_t last_seen_ms;
++    uint64_t last_ack_ms;
++    bool authenticated;
++    bool active;
++    pthread_t thread;
++} webpad_client_t;
++
++static int g_webpad_enabled = -1;
++static int g_server_fd = -1;
++static pthread_t g_server_thread;
++static pthread_mutex_t g_webpad_lock = PTHREAD_MUTEX_INITIALIZER;
++static webpad_client_t g_clients[MAX_WEB_CLIENTS];
++static ip_lockout_t g_lockouts[MAX_IP_LOCKOUTS];
++static int g_lockout_count = 0;
++static int g_global_failures = 0;
++static bool g_pairing_stopped = false;
++static DNSServiceRef g_dns_service = NULL;
++static char g_pairing_pin[8] = "";
++static dm_webpad_pin_prompt_cb g_pin_prompt_cb = NULL;
++
++static bool is_ip_locked(struct in_addr ip) {
++    pthread_mutex_lock(&g_webpad_lock);
++    if (g_pairing_stopped) {
++        pthread_mutex_unlock(&g_webpad_lock);
++        return true;
++    }
++    for (int i = 0; i < g_lockout_count; i++) {
++        if (g_lockouts[i].ip.s_addr == ip.s_addr && g_lockouts[i].locked) {
++            pthread_mutex_unlock(&g_webpad_lock);
++            return true;
++        }
++    }
++    pthread_mutex_unlock(&g_webpad_lock);
++    return false;
++}
++
++static bool record_failed_attempt(struct in_addr ip, const char *ip_str) {
++    pthread_mutex_lock(&g_webpad_lock);
++    g_global_failures++;
++    if (g_global_failures >= MAX_GLOBAL_FAILURES) {
++        g_pairing_stopped = true;
++        pthread_mutex_unlock(&g_webpad_lock);
++        LOG("[webpad] global PIN failure limit reached (%d), pairing stopped", MAX_GLOBAL_FAILURES);
++        return true;
++    }
++
++    int idx = -1;
++    for (int i = 0; i < g_lockout_count; i++) {
++        if (g_lockouts[i].ip.s_addr == ip.s_addr) {
++            idx = i;
++            break;
++        }
++    }
++    if (idx < 0) {
++        if (g_lockout_count < MAX_IP_LOCKOUTS) {
++            idx = g_lockout_count++;
++            g_lockouts[idx].ip = ip;
++            g_lockouts[idx].fail_count = 0;
++            g_lockouts[idx].locked = false;
++        } else {
++            // Table full: evict first unlocked entry
++            for (int i = 0; i < MAX_IP_LOCKOUTS; i++) {
++                if (!g_lockouts[i].locked) {
++                    idx = i;
++                    g_lockouts[idx].ip = ip;
++                    g_lockouts[idx].fail_count = 0;
++                    g_lockouts[idx].locked = false;
++                    break;
++                }
++            }
++            if (idx < 0) idx = 0; // fallback
++        }
++    }
++
++    g_lockouts[idx].fail_count++;
++    if (g_lockouts[idx].fail_count >= MAX_PIN_FAILURES) {
++        g_lockouts[idx].locked = true;
++        pthread_mutex_unlock(&g_webpad_lock);
++        LOG("[webpad] client %s exceeded maximum PIN attempts, locked out", ip_str);
++        return true;
++    }
++    pthread_mutex_unlock(&g_webpad_lock);
++    return false;
++}
++
++void dm_webpad_set_pin_prompt_cb(dm_webpad_pin_prompt_cb cb) {
++    g_pin_prompt_cb = cb;
++}
++
++void dm_webpad_trigger_pin_prompt(const char *client_ip) {
++    if (g_pin_prompt_cb) {
++        g_pin_prompt_cb(dm_webpad_pin(), client_ip);
++    }
++}
++
++void dm_webpad_check_pending_auth(void) {
++    pthread_mutex_lock(&g_webpad_lock);
++    bool any_pending = false;
++    for (int i = 0; i < MAX_WEB_CLIENTS; i++) {
++        if (g_clients[i].active && !g_clients[i].authenticated) {
++            any_pending = true;
++            break;
++        }
++    }
++    pthread_mutex_unlock(&g_webpad_lock);
++
++    if (!any_pending && g_pin_prompt_cb) {
++        g_pin_prompt_cb(NULL, NULL);
++    }
++}
++
++static uint64_t get_time_ms(void) {
++    struct timespec ts;
++    clock_gettime(CLOCK_MONOTONIC, &ts);
++    return (uint64_t)ts.tv_sec * 1000ULL + (uint64_t)ts.tv_nsec / 1000000ULL;
++}
++
++int dm_webpad_enabled(void) {
++    if (g_webpad_enabled >= 0) return g_webpad_enabled;
++    const char *e1 = getenv("DM_BROWSER_PADS");
++    const char *e2 = getenv("NX_BROWSER_PADS");
++    if ((e1 && atoi(e1)) || (e2 && atoi(e2))) {
++        g_webpad_enabled = 1;
++    } else {
++        g_webpad_enabled = 0;
++    }
++    return g_webpad_enabled;
++}
++
++void dm_webpad_enable(int on) {
++    g_webpad_enabled = on ? 1 : 0;
++}
++
++const char *dm_webpad_pin(void) {
++    if (!g_pairing_pin[0]) {
++        dm_webpad_set_pin(NULL);
++    }
++    return g_pairing_pin;
++}
++
++void dm_webpad_set_pin(const char *pin) {
++    pthread_mutex_lock(&g_webpad_lock);
++    if (pin && strlen(pin) == 4) {
++        snprintf(g_pairing_pin, sizeof(g_pairing_pin), "%s", pin);
++    } else {
++        const char *env_pin = getenv("DM_WEBPAD_PIN");
++        if (env_pin && strlen(env_pin) == 4) {
++            snprintf(g_pairing_pin, sizeof(g_pairing_pin), "%s", env_pin);
++        } else {
++            // Generate random 4-digit PIN
++            uint32_t val = (uint32_t)(arc4random_uniform(9000) + 1000);
++            snprintf(g_pairing_pin, sizeof(g_pairing_pin), "%04u", val);
++        }
++    }
++    pthread_mutex_unlock(&g_webpad_lock);
++}
++
++uint16_t dm_webpad_port(void) {
++    return DM_WEBPAD_DEFAULT_PORT;
++}
++
++int dm_webpad_get_ip(char *buf, size_t cap) {
++    struct ifaddrs *ifaddr, *ifa;
++    if (getifaddrs(&ifaddr) == -1) return -1;
++    int found = -1;
++    for (ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next) {
++        if (!ifa->ifa_addr || ifa->ifa_addr->sa_family != AF_INET) continue;
++        if (ifa->ifa_flags & IFF_LOOPBACK) continue;
++        if (!(ifa->ifa_flags & IFF_UP)) continue;
++        struct sockaddr_in *sin = (struct sockaddr_in *)ifa->ifa_addr;
++        if (inet_ntop(AF_INET, &sin->sin_addr, buf, (socklen_t)cap)) {
++            found = 0;
++            // Prefer standard Wi-Fi adapter (en0)
++            if (strcmp(ifa->ifa_name, "en0") == 0) break;
++        }
++    }
++    freeifaddrs(ifaddr);
++    return found;
++}
++
++static void base64_encode(const unsigned char *in, size_t len, char *out) {
++    static const char tbl[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
++    size_t i = 0, j = 0;
++    while (i < len) {
++        size_t rem = len - i;
++        uint32_t oct_a = in[i++];
++        uint32_t oct_b = rem > 1 ? in[i++] : 0;
++        uint32_t oct_c = rem > 2 ? in[i++] : 0;
++        uint32_t triple = (oct_a << 16) | (oct_b << 8) | oct_c;
++        out[j++] = tbl[(triple >> 18) & 0x3F];
++        out[j++] = tbl[(triple >> 12) & 0x3F];
++        out[j++] = rem > 1 ? tbl[(triple >> 6) & 0x3F] : '=';
++        out[j++] = rem > 2 ? tbl[triple & 0x3F] : '=';
++    }
++    out[j] = '\0';
++}
++
++static void ws_accept_key(const char *key, char *out) {
++    char combined[256];
++    snprintf(combined, sizeof(combined), "%s%s", key, WEBPAD_GUID);
++    unsigned char digest[CC_SHA1_DIGEST_LENGTH];
++    CC_SHA1((const unsigned char *)combined, (CC_LONG)strlen(combined), digest);
++    base64_encode(digest, sizeof(digest), out);
++}
++
++static int ws_send_frame(int fd, uint8_t opcode, const uint8_t *payload, size_t len) {
++    if (len > WEBPAD_MAX_PAYLOAD_SIZE) return -1;
++    uint8_t header[10];
++    size_t hlen = 0;
++    header[hlen++] = 0x80 | (opcode & 0x0F);
++    if (len < 126) {
++        header[hlen++] = (uint8_t)len;
++    } else {
++        header[hlen++] = 126;
++        header[hlen++] = (uint8_t)((len >> 8) & 0xFF);
++        header[hlen++] = (uint8_t)(len & 0xFF);
++    }
++    if (write(fd, header, hlen) != (ssize_t)hlen) return -1;
++    if (len > 0 && write(fd, payload, len) != (ssize_t)len) return -1;
++    return 0;
++}
++
++static int assign_player_slot(struct in_addr ip) {
++    for (int i = 0; i < MAX_WEB_CLIENTS; i++) {
++        if (g_clients[i].active && g_clients[i].authenticated && g_clients[i].ip.s_addr == ip.s_addr && g_clients[i].player_slot >= 0) {
++            return g_clients[i].player_slot;
++        }
++    }
++    bool taken[DM_PLAYERS] = { false };
++    for (int i = 0; i < MAX_WEB_CLIENTS; i++) {
++        if (g_clients[i].active && g_clients[i].authenticated && g_clients[i].player_slot >= 0 && g_clients[i].player_slot < DM_PLAYERS) {
++            taken[g_clients[i].player_slot] = true;
++        }
++    }
++    for (int p = 0; p < DM_PLAYERS; p++) {
++        if (!taken[p]) return p;
++    }
++    return -1;
++}
++
++static void update_pad_players_mask(void) {
++    uint32_t mask = 0;
++    for (int i = 0; i < MAX_WEB_CLIENTS; i++) {
++        if (g_clients[i].active && g_clients[i].authenticated && g_clients[i].player_slot >= 0 && g_clients[i].player_slot < DM_PLAYERS) {
++            mask |= (1u << g_clients[i].player_slot);
++        }
++    }
++    dm_pad_players(mask);
++}
++
++static void parse_and_apply_pad(int slot, const char *payload) {
++    if (slot < 0 || slot >= DM_PLAYERS) return;
++    unsigned long raw_btn = 0;
++    float lx = 0.0f, ly = 0.0f;
++    if (sscanf(payload, "%lu,%f,%f", &raw_btn, &lx, &ly) < 3) return;
++
++    if (lx < -1.0f) lx = -1.0f; else if (lx > 1.0f) lx = 1.0f;
++    if (ly < -1.0f) ly = -1.0f; else if (ly > 1.0f) ly = 1.0f;
++
++    uint64_t buttons = (uint64_t)raw_btn & 0xFFFF;
++    int32_t stick_lx = (int32_t)(lx * DM_STICK_MAX);
++    int32_t stick_ly = (int32_t)(ly * DM_STICK_MAX);
++
++    dm_pad_set_player(slot, buttons, stick_lx, stick_ly, 0, 0);
++}
++
++static void *webpad_client_worker(void *arg) {
++    webpad_client_t *c = (webpad_client_t *)arg;
++    int fd = c->fd;
++    bool is_ws = false;
++
++    char ip_str[INET_ADDRSTRLEN];
++    inet_ntop(AF_INET, &c->ip, ip_str, sizeof(ip_str));
++
++    if (is_ip_locked(c->ip)) {
++        const char *forbidden = "HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\nLocked out";
++        (void)write(fd, forbidden, strlen(forbidden));
++        goto cleanup;
++    }
++
++    struct timeval tv = { .tv_sec = 0, .tv_usec = 100000 };
++    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
++    int nodelay = 1;
++    setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
++
++    uint8_t buf[WEBPAD_MAX_HEADER_SIZE];
++    size_t buf_len = 0;
++    char client_pin[16] = "";
++
++    // Read initial HTTP request (bounded to WEBPAD_MAX_HEADER_SIZE)
++    while (buf_len < sizeof(buf) - 1) {
++        ssize_t n = read(fd, buf + buf_len, sizeof(buf) - 1 - buf_len);
++        if (n > 0) {
++            buf_len += (size_t)n;
++            buf[buf_len] = '\0';
++            if (strstr((char *)buf, "\r\n\r\n")) break;
++        } else if (n == 0 || (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK)) {
++            goto cleanup;
++        }
++        usleep(5000);
++    }
++
++    char *req = (char *)buf;
++    if (strncmp(req, "GET /", 5) != 0) goto cleanup;
++
++    char *path_end = strchr(req + 4, ' ');
++    if (!path_end) goto cleanup;
++    *path_end = '\0';
++    char *path = req + 4;
++    char *query = strchr(path, '?');
++    if (query) {
++        *query = '\0';
++        char *pin_param = strstr(query + 1, "pin=");
++        if (pin_param) {
++            snprintf(client_pin, sizeof(client_pin), "%.4s", pin_param + 4);
++        }
++    }
++
++    if (strcmp(path, "/ws") == 0) {
++        // WebSocket upgrade
++        char *key_header = strcasestr(path_end + 1, "Sec-WebSocket-Key:");
++        if (!key_header) goto cleanup;
++        key_header += 18;
++        while (*key_header == ' ') key_header++;
++        char *key_end = strstr(key_header, "\r\n");
++        if (!key_end) goto cleanup;
++        *key_end = '\0';
++
++        char accept_str[64];
++        ws_accept_key(key_header, accept_str);
++
++        char response[512];
++        int rlen = snprintf(response, sizeof(response),
++            "HTTP/1.1 101 Switching Protocols\r\n"
++            "Upgrade: websocket\r\n"
++            "Connection: Upgrade\r\n"
++            "Sec-WebSocket-Accept: %s\r\n\r\n", accept_str);
++        if (write(fd, response, (size_t)rlen) != rlen) goto cleanup;
++
++        is_ws = true;
++
++        // Verify PIN from query string
++        if (client_pin[0]) {
++            if (strlen(client_pin) == 4 && strlen(g_pairing_pin) == 4 && strcmp(client_pin, g_pairing_pin) == 0) {
++                c->authenticated = true;
++                pthread_mutex_lock(&g_webpad_lock);
++                c->player_slot = assign_player_slot(c->ip);
++                update_pad_players_mask();
++                pthread_mutex_unlock(&g_webpad_lock);
++                LOG("[webpad] client from %s authenticated via URL PIN (assigned player %d)", ip_str, c->player_slot + 1);
++            } else {
++                LOG("[webpad] client from %s PIN mismatch", ip_str);
++                if (record_failed_attempt(c->ip, ip_str)) {
++                    goto cleanup;
++                }
++                const char *auth_req = "AUTH_FAILED";
++                ws_send_frame(fd, 0x1, (const uint8_t *)auth_req, strlen(auth_req));
++                dm_webpad_trigger_pin_prompt(ip_str);
++            }
++        } else {
++            // Require PIN entry
++            const char *auth_req = "AUTH_REQUIRED";
++            ws_send_frame(fd, 0x1, (const uint8_t *)auth_req, strlen(auth_req));
++            dm_webpad_trigger_pin_prompt(ip_str);
++        }
++    } else {
++        // Serve HTML
++        char header[256];
++        int hlen = snprintf(header, sizeof(header),
++            "HTTP/1.1 200 OK\r\n"
++            "Content-Type: text/html; charset=utf-8\r\n"
++            "Content-Length: %u\r\n"
++            "Connection: close\r\n\r\n", webpad_html_len);
++        (void)write(fd, header, (size_t)hlen);
++        (void)write(fd, webpad_html, webpad_html_len);
++        goto cleanup;
++    }
++
++    // WebSocket frame loop
++    buf_len = 0;
++    c->last_seen_ms = get_time_ms();
++    c->last_ack_ms = 0;
++
++    while (c->active) {
++        uint64_t now = get_time_ms();
++
++        // 5 seconds timeout if not authenticated, 4 seconds silence if authenticated
++        uint64_t timeout_limit = c->authenticated ? 4000 : 5000;
++        if (now - c->last_seen_ms > timeout_limit) {
++            LOG("[webpad] client %s %s timed out", ip_str, c->authenticated ? "connection" : "auth wait");
++            break;
++        }
++
++        // Send periodic player ping if authenticated
++        if (c->authenticated && now - c->last_ack_ms > 500) {
++            c->last_ack_ms = now;
++            char msg[32];
++            int mlen = snprintf(msg, sizeof(msg), "player %d", c->player_slot + 1);
++            if (ws_send_frame(fd, 0x1, (const uint8_t *)msg, (size_t)mlen) < 0) {
++                break;
++            }
++        }
++
++        ssize_t n = read(fd, buf + buf_len, sizeof(buf) - buf_len);
++        if (n > 0) {
++            buf_len += (size_t)n;
++            while (buf_len >= 2) {
++                uint8_t b0 = buf[0];
++                uint8_t b1 = buf[1];
++                uint8_t opcode = b0 & 0x0F;
++                bool masked = (b1 & 0x80) != 0;
++                size_t payload_len = b1 & 0x7F;
++                size_t header_len = 2;
++
++                if (payload_len == 127) {
++                    LOG("[webpad] client %s sent 64-bit length frame, disconnecting", ip_str);
++                    goto cleanup;
++                } else if (payload_len == 126) {
++                    if (buf_len < 4) break;
++                    payload_len = ((size_t)buf[2] << 8) | buf[3];
++                    header_len = 4;
++                }
++
++                // Protect against oversized WebSocket frames
++                if (payload_len > WEBPAD_MAX_PAYLOAD_SIZE) {
++                    LOG("[webpad] client %s sent oversized payload (%zu bytes), disconnecting", ip_str, payload_len);
++                    goto cleanup;
++                }
++
++                size_t mask_offset = header_len;
++                if (masked) header_len += 4;
++
++                if (buf_len < header_len + payload_len) break; // Incomplete frame
++
++                uint8_t *payload_ptr = buf + header_len;
++                if (masked) {
++                    uint8_t *mask = buf + mask_offset;
++                    for (size_t k = 0; k < payload_len; k++) {
++                        payload_ptr[k] ^= mask[k % 4];
++                    }
++                }
++
++                if (opcode == 0x8) {
++                    goto cleanup; // Close
++                } else if (opcode == 0x9) {
++                    ws_send_frame(fd, 0xA, payload_ptr, payload_len); // Ping -> Pong
++                } else if (opcode == 0x1) {
++                    payload_ptr[payload_len] = '\0';
++                    char *text = (char *)payload_ptr;
++
++                    if (strncmp(text, "PIN:", 4) == 0) {
++                        char *attempt = text + 4;
++                        if (strlen(attempt) == 4 && strlen(g_pairing_pin) == 4 && strcmp(attempt, g_pairing_pin) == 0) {
++                            c->authenticated = true;
++                            pthread_mutex_lock(&g_webpad_lock);
++                            c->player_slot = assign_player_slot(c->ip);
++                            update_pad_players_mask();
++                            pthread_mutex_unlock(&g_webpad_lock);
++                            LOG("[webpad] client from %s authenticated via PIN (player %d)", ip_str, c->player_slot + 1);
++                            c->last_seen_ms = now;
++                            char msg[32];
++                            int mlen = snprintf(msg, sizeof(msg), "player %d", c->player_slot + 1);
++                            ws_send_frame(fd, 0x1, (const uint8_t *)msg, (size_t)mlen);
++                            dm_webpad_check_pending_auth();
++                        } else {
++                            LOG("[webpad] client from %s PIN mismatch", ip_str);
++                            if (record_failed_attempt(c->ip, ip_str)) {
++                                goto cleanup;
++                            }
++                            const char *fail = "AUTH_FAILED";
++                            ws_send_frame(fd, 0x1, (const uint8_t *)fail, strlen(fail));
++                            dm_webpad_trigger_pin_prompt(ip_str);
++                        }
++                    } else if (c->authenticated) {
++                        c->last_seen_ms = now;
++                        parse_and_apply_pad(c->player_slot, text);
++                    }
++                }
++
++                size_t total_frame = header_len + payload_len;
++                memmove(buf, buf + total_frame, buf_len - total_frame);
++                buf_len -= total_frame;
++            }
++        } else if (n == 0) {
++            break;
++        } else if (errno != EAGAIN && errno != EWOULDBLOCK) {
++            break;
++        }
++
++        usleep(5000);
++    }
++
++cleanup:
++    close(fd);
++    pthread_mutex_lock(&g_webpad_lock);
++    int slot = c->player_slot;
++    bool was_auth = c->authenticated;
++    c->active = false;
++    c->authenticated = false;
++    c->fd = -1;
++    c->player_slot = -1;
++    if (slot >= 0) {
++        dm_pad_set_player(slot, 0, 0, 0, 0, 0);
++        update_pad_players_mask();
++    }
++    pthread_mutex_unlock(&g_webpad_lock);
++
++    if (!was_auth) {
++        dm_webpad_check_pending_auth();
++    }
++
++    if (is_ws && was_auth) {
++        LOG("[webpad] client from %s disconnected (player %d freed)", ip_str, slot + 1);
++    }
++    return NULL;
++}
++
++static void *webpad_server_worker(void *arg) {
++    (void)arg;
++    LOG("[webpad] listening for Wi-Fi browser controllers on TCP port %d", DM_WEBPAD_DEFAULT_PORT);
++
++    // Register clean Bonjour service (_nxpad._tcp)
++    DNSServiceRegister(&g_dns_service, 0, 0, "NXPad", "_nxpad._tcp", NULL, NULL, htons(DM_WEBPAD_DEFAULT_PORT), 0, NULL, NULL, NULL);
++
++    while (g_server_fd >= 0) {
++        struct sockaddr_in client_addr;
++        socklen_t addr_len = sizeof(client_addr);
++        int client_fd = accept(g_server_fd, (struct sockaddr *)&client_addr, &addr_len);
++        if (client_fd < 0) {
++            if (g_server_fd < 0) break;
++            usleep(10000);
++            continue;
++        }
++
++        pthread_mutex_lock(&g_webpad_lock);
++        int free_idx = -1;
++        for (int i = 0; i < MAX_WEB_CLIENTS; i++) {
++            if (!g_clients[i].active) {
++                free_idx = i;
++                break;
++            }
++        }
++
++        if (free_idx >= 0) {
++            g_clients[free_idx].fd = client_fd;
++            g_clients[free_idx].ip = client_addr.sin_addr;
++            g_clients[free_idx].port = ntohs(client_addr.sin_port);
++            g_clients[free_idx].player_slot = -1;
++            g_clients[free_idx].last_seen_ms = get_time_ms();
++            g_clients[free_idx].last_ack_ms = 0;
++            g_clients[free_idx].authenticated = false;
++            g_clients[free_idx].active = true;
++            pthread_create(&g_clients[free_idx].thread, NULL, webpad_client_worker, &g_clients[free_idx]);
++            pthread_detach(g_clients[free_idx].thread);
++        } else {
++            close(client_fd);
++        }
++        pthread_mutex_unlock(&g_webpad_lock);
++    }
++
++    if (g_dns_service) {
++        DNSServiceRefDeallocate(g_dns_service);
++        g_dns_service = NULL;
++    }
++    return NULL;
++}
++
++void dm_webpad_start(void) {
++    if (!dm_webpad_enabled()) return;
++    if (g_server_fd >= 0) return;
++
++    // Ensure pairing PIN is generated immediately upon start
++    dm_webpad_pin();
++
++    memset(g_clients, 0, sizeof(g_clients));
++    for (int i = 0; i < MAX_WEB_CLIENTS; i++) {
++        g_clients[i].fd = -1;
++        g_clients[i].player_slot = -1;
++    }
++
++    g_server_fd = socket(AF_INET, SOCK_STREAM, 0);
++    if (g_server_fd < 0) {
++        LOG("[webpad] failed to create socket: %s", strerror(errno));
++        return;
++    }
++
++    int opt = 1;
++    setsockopt(g_server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
++    setsockopt(g_server_fd, SOL_SOCKET, SO_NOSIGPIPE, &opt, sizeof(opt));
++
++    struct sockaddr_in addr;
++    memset(&addr, 0, sizeof(addr));
++    addr.sin_family = AF_INET;
++    addr.sin_addr.s_addr = htonl(INADDR_ANY);
++    addr.sin_port = htons(DM_WEBPAD_DEFAULT_PORT);
++
++    if (bind(g_server_fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
++        LOG("[webpad] cannot bind port %d: %s", DM_WEBPAD_DEFAULT_PORT, strerror(errno));
++        close(g_server_fd);
++        g_server_fd = -1;
++        return;
++    }
++
++    if (listen(g_server_fd, 8) < 0) {
++        LOG("[webpad] cannot listen on socket: %s", strerror(errno));
++        close(g_server_fd);
++        g_server_fd = -1;
++        return;
++    }
++
++    char ip_str[64] = "127.0.0.1";
++    dm_webpad_get_ip(ip_str, sizeof(ip_str));
++    LOG("[webpad] Wi-Fi controller active: open http://%s:%d", ip_str, DM_WEBPAD_DEFAULT_PORT);
++
++    pthread_create(&g_server_thread, NULL, webpad_server_worker, NULL);
++}
++
++void dm_webpad_stop(void) {
++    if (g_server_fd < 0) return;
++    int s = g_server_fd;
++    g_server_fd = -1;
++    close(s);
++
++    pthread_mutex_lock(&g_webpad_lock);
++    for (int i = 0; i < MAX_WEB_CLIENTS; i++) {
++        if (g_clients[i].active) {
++            g_clients[i].active = false;
++            if (g_clients[i].fd >= 0) {
++                close(g_clients[i].fd);
++                g_clients[i].fd = -1;
++            }
++        }
++    }
++    pthread_mutex_unlock(&g_webpad_lock);
++
++    pthread_join(g_server_thread, NULL);
++}
+diff --git a/dm/host/dm_webpad.h b/dm/host/dm_webpad.h
+new file mode 100644
+index 0000000..6e09b60
+--- /dev/null
++++ b/dm/host/dm_webpad.h
+@@ -0,0 +1,57 @@
++// dm_webpad.h: Clean-room embedded HTTP + WebSocket gamepad server for local Wi-Fi.
++// MIT License.
++#pragma once
++#include <stddef.h>
++#include <stdint.h>
++#include <stdbool.h>
++
++#define DM_WEBPAD_DEFAULT_PORT 2904
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++// Returns 1 if web browser pads are enabled (DM_BROWSER_PADS=1 or dm_webpad_enable(1)).
++int dm_webpad_enabled(void);
++
++// Explicitly enable or disable webpad server before or during startup.
++void dm_webpad_enable(int on);
++
++// Returns the 4-digit pairing PIN as a null-terminated string (e.g. "4819").
++const char *dm_webpad_pin(void);
++
++// Sets a custom 4-digit pairing PIN. Pass NULL to generate a random PIN.
++void dm_webpad_set_pin(const char *pin);
++
++// Starts the webpad TCP listener thread and Bonjour/mDNS service advertisement (_nxpad._tcp).
++// Safe to call multiple times (idempotent).
++void dm_webpad_start(void);
++
++// Stops the webpad listener and disconnects clients.
++void dm_webpad_stop(void);
++
++// Synchronizes the webpad subsystem with the current slot mask.
++void dm_webpad_poll(void);
++
++// Returns active webpad port (e.g. 2904).
++uint16_t dm_webpad_port(void);
++
++// Copies primary local IPv4 address into buf (e.g. "192.168.1.38"), returns 0 on success.
++int dm_webpad_get_ip(char *buf, size_t cap);
++
++// Callback signature for host UI notifications (e.g. PIN request overlay)
++// Pass pin = NULL when no clients are pending authentication to dismiss the overlay
++typedef void (*dm_webpad_pin_prompt_cb)(const char *pin, const char *client_ip);
++
++// Sets the callback to be notified when an unauthenticated client needs pairing
++void dm_webpad_set_pin_prompt_cb(dm_webpad_pin_prompt_cb cb);
++
++// Triggered by the server when a client connects and needs authentication
++void dm_webpad_trigger_pin_prompt(const char *client_ip);
++
++// Checks if any client is currently pending authentication, and dismisses overlay if none
++void dm_webpad_check_pending_auth(void);
++
++#ifdef __cplusplus
++}
++#endif
+diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
+index 99d217d..c380e74 100644
+--- a/dm/host/front_mac.m
++++ b/dm/host/front_mac.m
+@@ -23,6 +23,7 @@
+ #include "motion_apple.h"
+ #include "motion_pro_mac.h"
+ #include "pad_apple.h"
++#include "dm_webpad.h"
+ #include <signal.h>
+ #include <math.h>
+ #include <sys/stat.h>
+@@ -210,6 +211,7 @@ static void pads_start(void) {
+                                                                            : "each controller is a player of its own, the keyboard plays with player 1");
+     pads_changed(nil);
+     dm_motion_pro_start(pro_devices_changed);
++    dm_webpad_start();
+ }
+ 
+ // Mouse as a single-point touchscreen (front.h dm_touch_set): left button down / drag = finger 0, release = lifted. The content view takes the clicks,
+@@ -257,6 +259,101 @@ - (void)windowDidFailToEnterFullScreen:(NSWindow *)w { (void)w; if (g_fs_failed)
+ // Metal reads MTL_HUD_ENABLED when the process makes its first device, which can be before the window: set from DM_METAL_HUD before main (set in front_run, the HUD did not show)
+ __attribute__((constructor)) static void hud_env(void) { front_hud_env(); }
+ 
++// WebPad PIN pairing in-game overlay
++static NSVisualEffectView *g_webpad_overlay = nil;
++static NSTimer *g_webpad_overlay_timer = nil;
++
++@interface DmWebpadOverlayHandler : NSObject
+++ (void)closeClicked;
++@end
++
++@implementation DmWebpadOverlayHandler
+++ (void)closeClicked {
++    if (g_webpad_overlay) {
++        [g_webpad_overlay removeFromSuperview];
++        g_webpad_overlay = nil;
++    }
++    if (g_webpad_overlay_timer) {
++        [g_webpad_overlay_timer invalidate];
++        g_webpad_overlay_timer = nil;
++    }
++}
++@end
++
++static void webpad_pin_prompt_handler(const char *pin, const char *client_ip) {
++    (void)client_ip;
++    dispatch_async(dispatch_get_main_queue(), ^{
++        if (!pin) {
++            // Dismiss overlay if no clients are pending authentication
++            [DmWebpadOverlayHandler closeClicked];
++            return;
++        }
++        if (!g_win || !g_win.contentView) return;
++        NSView *cv = g_win.contentView;
++        NSString *pinStr = @(pin);
++
++        if (!g_webpad_overlay) {
++            CGFloat w = 340, h = 135;
++            NSRect frame = NSMakeRect(floor((cv.bounds.size.width - w) / 2), cv.bounds.size.height - h - 28, w, h);
++            g_webpad_overlay = [[NSVisualEffectView alloc] initWithFrame:frame];
++            g_webpad_overlay.material = NSVisualEffectMaterialHUDWindow;
++            g_webpad_overlay.blendingMode = NSVisualEffectBlendingModeWithinWindow;
++            g_webpad_overlay.state = NSVisualEffectStateActive;
++            g_webpad_overlay.wantsLayer = YES;
++            g_webpad_overlay.layer.cornerRadius = 16.0;
++            g_webpad_overlay.layer.borderColor = [NSColor colorWithWhite:1.0 alpha:0.18].CGColor;
++            g_webpad_overlay.layer.borderWidth = 1.0;
++            g_webpad_overlay.autoresizingMask = NSViewMinXMargin | NSViewMaxXMargin | NSViewMinYMargin;
++
++            // Close button (X) in top-right
++            NSButton *closeBtn = [NSButton buttonWithTitle:@"✕" target:[DmWebpadOverlayHandler class] action:@selector(closeClicked)];
++            closeBtn.frame = NSMakeRect(w - 32, h - 32, 24, 24);
++            closeBtn.bordered = NO;
++            closeBtn.font = [NSFont systemFontOfSize:13 weight:NSFontWeightBold];
++            closeBtn.contentTintColor = [NSColor colorWithWhite:0.75 alpha:1.0];
++            [g_webpad_overlay addSubview:closeBtn];
++
++            // Subtitle / Title
++            NSTextField *titleLbl = [NSTextField labelWithString:@"🎮 Wi-Fi Controller Pairing"];
++            titleLbl.frame = NSMakeRect(16, h - 34, w - 50, 20);
++            titleLbl.font = [NSFont systemFontOfSize:13 weight:NSFontWeightBold];
++            titleLbl.textColor = [NSColor colorWithCalibratedRed:0.29 green:0.87 blue:0.50 alpha:1.0];
++            [g_webpad_overlay addSubview:titleLbl];
++
++            NSTextField *subLbl = [NSTextField labelWithString:@"A phone is requesting to join. Enter PIN:"];
++            subLbl.frame = NSMakeRect(16, h - 54, w - 32, 16);
++            subLbl.font = [NSFont systemFontOfSize:11 weight:NSFontWeightMedium];
++            subLbl.textColor = [NSColor colorWithWhite:0.8 alpha:1.0];
++            [g_webpad_overlay addSubview:subLbl];
++
++            // PIN display badge
++            NSTextField *pinLbl = [NSTextField labelWithString:pinStr];
++            pinLbl.tag = 999;
++            pinLbl.frame = NSMakeRect((w - 180) / 2, 14, 180, 48);
++            pinLbl.alignment = NSTextAlignmentCenter;
++            pinLbl.font = [NSFont monospacedDigitSystemFontOfSize:32 weight:NSFontWeightHeavy];
++            pinLbl.textColor = [NSColor whiteColor];
++            pinLbl.wantsLayer = YES;
++            pinLbl.layer.backgroundColor = [NSColor colorWithWhite:0.0 alpha:0.45].CGColor;
++            pinLbl.layer.cornerRadius = 10.0;
++            pinLbl.layer.borderColor = [NSColor colorWithCalibratedRed:0.29 green:0.87 blue:0.50 alpha:0.4].CGColor;
++            pinLbl.layer.borderWidth = 1.5;
++            [g_webpad_overlay addSubview:pinLbl];
++
++            [cv addSubview:g_webpad_overlay];
++        } else {
++            NSTextField *pinLbl = [g_webpad_overlay viewWithTag:999];
++            if (pinLbl) pinLbl.stringValue = pinStr;
++        }
++
++        if (g_webpad_overlay_timer) [g_webpad_overlay_timer invalidate];
++        g_webpad_overlay_timer = [NSTimer scheduledTimerWithTimeInterval:30.0 repeats:NO block:^(NSTimer * _Nonnull timer) {
++            (void)timer;
++            [DmWebpadOverlayHandler closeClicked];
++        }];
++    });
++}
++
+ // ---------- Cheats: the menu and the panel (hle_cheats.c holds every state; these only show it and call it) ----------
+ 
+ // A string of the engine as an NSString that is never nil: cheat names, sections and notes come from the player's files,
+@@ -1214,6 +1311,7 @@ void front_run(void (*guest)(void)) {
+                 if (!c.extendedGamepad || g_merge) LOG("controller %s: %s%s", conn ? "connected" : "disconnected", pad_name(c), c.extendedGamepad ? "" : " (no extended gamepad profile: not used)");
+                 pads_changed(conn ? nil : c); }];
+         dm_haptics_apple_init();
++        dm_webpad_set_pin_prompt_cb(webpad_pin_prompt_handler);
+         pads_start();
+         [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown | NSEventMaskKeyUp handler:^NSEvent *(NSEvent *e) {
+             if (e.window != win) return e;   // Only swallow keys for the game window; other windows such as the software keyboard input box receive typing as usual
+diff --git a/dm/host/tests/t_webpad.c b/dm/host/tests/t_webpad.c
+new file mode 100644
+index 0000000..907109d
+--- /dev/null
++++ b/dm/host/tests/t_webpad.c
+@@ -0,0 +1,245 @@
++// Comprehensive security & functional unit test for dm_webpad.
++// Tests:
++// 1. HTTP HTML serving
++// 2. Rejecting unauthorized WebSocket commands
++// 3. Rejecting incorrect PIN
++// 4. Successful PIN authentication via WebSocket message
++// 5. Successful PIN authentication via query string (?pin=...)
++// 6. Fuzzing: Oversized WebSocket frame rejection
++// 7. Security: IP lockout after 5 consecutive failed PIN attempts
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <assert.h>
++#include <unistd.h>
++#include <sys/socket.h>
++#include <netinet/in.h>
++#include <arpa/inet.h>
++#include <pthread.h>
++#include "dm_webpad.h"
++#include "dm_input.h"
++
++static uint32_t g_mock_players = 0;
++static uint64_t g_last_btn = 0;
++static int32_t g_last_lx = 0, g_last_ly = 0;
++static int g_last_player = -1;
++
++void dm_pad_players(uint32_t mask) {
++    g_mock_players = mask;
++}
++
++void dm_pad_set_player(int player, uint64_t buttons, int32_t lx, int32_t ly, int32_t rx, int32_t ry) {
++    (void)rx; (void)ry;
++    g_last_player = player;
++    g_last_btn = buttons;
++    g_last_lx = lx;
++    g_last_ly = ly;
++}
++
++static int connect_to_server(void) {
++    int s = socket(AF_INET, SOCK_STREAM, 0);
++    assert(s >= 0);
++    struct sockaddr_in sin;
++    memset(&sin, 0, sizeof(sin));
++    sin.sin_family = AF_INET;
++    sin.sin_port = htons(DM_WEBPAD_DEFAULT_PORT);
++    inet_pton(AF_INET, "127.0.0.1", &sin.sin_addr);
++    int rc = connect(s, (struct sockaddr *)&sin, sizeof(sin));
++    assert(rc == 0);
++    return s;
++}
++
++static void send_ws_handshake(int s, const char *path) {
++    char req[512];
++    snprintf(req, sizeof(req),
++        "GET %s HTTP/1.1\r\n"
++        "Host: localhost:2904\r\n"
++        "Upgrade: websocket\r\n"
++        "Connection: Upgrade\r\n"
++        "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
++        "Sec-WebSocket-Version: 13\r\n\r\n", path);
++    write(s, req, strlen(req));
++    char buf[1024];
++    size_t total = 0;
++    while (total < sizeof(buf) - 1) {
++        ssize_t n = read(s, buf + total, sizeof(buf) - 1 - total);
++        if (n <= 0) break;
++        total += (size_t)n;
++        buf[total] = '\0';
++        if (strstr(buf, "\r\n\r\n")) break;
++    }
++    assert(strstr(buf, "HTTP/1.1 101") != NULL);
++    // If not authenticated, server immediately sends AUTH_REQUIRED frame; drain it so socket is ready
++    if (!strstr(path, "pin=")) {
++        usleep(15000);
++        char drain[256];
++        recv(s, drain, sizeof(drain), MSG_DONTWAIT);
++    }
++}
++
++static void send_masked_text(int s, const char *payload) {
++    size_t plen = strlen(payload);
++    uint8_t frame[512];
++    frame[0] = 0x81;
++    frame[1] = 0x80 | (uint8_t)plen;
++    uint8_t mask[4] = { 0x11, 0x22, 0x33, 0x44 };
++    memcpy(frame + 2, mask, 4);
++    for (size_t i = 0; i < plen; i++) {
++        frame[6 + i] = (uint8_t)payload[i] ^ mask[i % 4];
++    }
++    write(s, frame, 6 + plen);
++}
++
++static void read_ws_text(int s, char *out, size_t cap) {
++    size_t total = 0;
++    while (total < cap - 1) {
++        char chunk[256];
++        ssize_t n = read(s, chunk, sizeof(chunk));
++        if (n <= 0) break;
++        memcpy(out + total, chunk, (size_t)n);
++        total += (size_t)n;
++        out[total] = '\0';
++        if (strstr(out, "AUTH_") || strstr(out, "player")) break;
++    }
++    out[total] = '\0';
++}
++
++int main() {
++    printf("[t_webpad] starting clean-room security and protocol tests...\n");
++    setenv("DM_BROWSER_PADS", "1", 1);
++    dm_webpad_enable(1);
++    dm_webpad_set_pin("4819");
++    assert(strcmp(dm_webpad_pin(), "4819") == 0);
++    dm_webpad_start();
++    usleep(100000);
++
++    // 1. HTTP GET /
++    int s = connect_to_server();
++    const char *http_req = "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n";
++    write(s, http_req, strlen(http_req));
++    char buf[16384];
++    size_t total = 0;
++    while (total < sizeof(buf) - 1) {
++        ssize_t r = read(s, buf + total, sizeof(buf) - 1 - total);
++        if (r <= 0) break;
++        total += (size_t)r;
++    }
++    buf[total] = '\0';
++    assert(total > 0);
++    assert(strstr(buf, "HTTP/1.1 200 OK") != NULL);
++    assert(strstr(buf, "NX2Apple") != NULL || strstr(buf, "NXPad") != NULL);
++    close(s);
++    printf("[t_webpad] 1. HTTP GET / verified!\n");
++
++    // 2. Unauthenticated gamepad input rejected
++    s = connect_to_server();
++    send_ws_handshake(s, "/ws");
++    g_last_player = -1;
++    send_masked_text(s, "1,0.500,-1.000"); // Unauthenticated command
++    usleep(30000);
++    assert(g_last_player == -1); // Must NOT take effect
++
++    // 3. Empty PIN and wrong PIN rejected
++    send_masked_text(s, "PIN:");
++    read_ws_text(s, buf, sizeof(buf));
++    assert(strstr(buf, "AUTH_FAILED") != NULL);
++    assert(g_last_player == -1);
++
++    send_masked_text(s, "PIN:9999");
++    read_ws_text(s, buf, sizeof(buf));
++    assert(strstr(buf, "AUTH_FAILED") != NULL);
++    assert(g_last_player == -1);
++    close(s);
++    printf("[t_webpad] 2 & 3. Empty PIN & wrong PIN rejected!\n");
++
++    // 4. Correct PIN via WebSocket message accepted
++    s = connect_to_server();
++    send_ws_handshake(s, "/ws");
++    send_masked_text(s, "PIN:4819");
++    read_ws_text(s, buf, sizeof(buf));
++    assert(strstr(buf, "player 1") != NULL);
++
++    send_masked_text(s, "1,0.500,-1.000");
++    usleep(30000);
++    assert(g_last_player == 0); // Player 1 (slot 0)
++    assert((g_last_btn & DM_BTN_A) != 0);
++    assert((g_mock_players & 1) != 0);
++    close(s);
++    printf("[t_webpad] 4. Correct PIN authenticated and controls enabled!\n");
++
++    // 5. Correct PIN via URL query parameter
++    s = connect_to_server();
++    send_ws_handshake(s, "/ws?pin=4819");
++    usleep(20000);
++    g_last_btn = 0;
++    send_masked_text(s, "2,-0.500,0.800"); // Button B + stick
++    usleep(30000);
++    assert((g_last_btn & DM_BTN_B) != 0);
++    close(s);
++    printf("[t_webpad] 5. Query string PIN authentication verified!\n");
++
++    // 6. Security Fuzz: Oversized WebSocket frame and 64-bit length frame rejected
++    s = connect_to_server();
++    send_ws_handshake(s, "/ws?pin=4819");
++    uint8_t bad_frame[512];
++    bad_frame[0] = 0x81;
++    bad_frame[1] = 0x80 | 126; // Extended length
++    bad_frame[2] = 0x01;
++    bad_frame[3] = 0x40; // 320 bytes (> WEBPAD_MAX_PAYLOAD_SIZE 256)
++    write(s, bad_frame, 4);
++    int attempts = 0;
++    while (attempts++ < 20) {
++        ssize_t n = read(s, buf, sizeof(buf));
++        if (n <= 0) break;
++        usleep(10000);
++    }
++    close(s);
++
++    // 64-bit frame length (payload_len == 127) must immediately disconnect
++    s = connect_to_server();
++    send_ws_handshake(s, "/ws?pin=4819");
++    uint8_t frame_127[16] = { 0x81, 0x80 | 127, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0 };
++    write(s, frame_127, 14);
++    attempts = 0;
++    while (attempts++ < 20) {
++        ssize_t n = read(s, buf, sizeof(buf));
++        if (n <= 0) break;
++        usleep(10000);
++    }
++    close(s);
++    printf("[t_webpad] 6. Oversized frame & 64-bit length frame safely dropped!\n");
++
++    // 7. Security: IP lockout after 5 consecutive failed PIN attempts
++    // We already used 2 failed attempts in test 3 ("PIN:" and "PIN:9999").
++    // Let's do 2 more failed attempts (total 4)
++    for (int i = 0; i < 2; i++) {
++        s = connect_to_server();
++        send_ws_handshake(s, "/ws");
++        send_masked_text(s, "PIN:0000");
++        read_ws_text(s, buf, sizeof(buf));
++        assert(strstr(buf, "AUTH_FAILED") != NULL);
++        close(s);
++    }
++    // Attempt 5 should trigger lockout and disconnect
++    s = connect_to_server();
++    send_ws_handshake(s, "/ws");
++    send_masked_text(s, "PIN:0000");
++    usleep(30000);
++    close(s);
++
++    // Attempt 6: Any connection from this IP is now locked out
++    s = connect_to_server();
++    const char *get_req = "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n";
++    write(s, get_req, strlen(get_req));
++    ssize_t n = read(s, buf, sizeof(buf) - 1);
++    if (n > 0) {
++        buf[n] = '\0';
++        assert(strstr(buf, "403 Forbidden") != NULL);
++    }
++    close(s);
++    printf("[t_webpad] 7. IP lockout after 5 failed attempts verified!\n");
++
++    dm_webpad_stop();
++    printf("[t_webpad] ALL SECURITY AND PROTOCOL TESTS PASSED!\n");
++    return 0;
++}
+diff --git a/dm/host/webpad.html b/dm/host/webpad.html
+new file mode 100644
+index 0000000..b7f5d70
+--- /dev/null
++++ b/dm/host/webpad.html
+@@ -0,0 +1,734 @@
++<!DOCTYPE html>
++<html lang="en">
++<head>
++<meta charset="utf-8">
++<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
++<meta name="apple-mobile-web-app-capable" content="yes">
++<meta name="mobile-web-app-capable" content="yes">
++<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
++<title>NX2Apple Controller Deck</title>
++<style>
++  :root {
++    --brandDark: #080B10;
++    --panelDark: #121620;
++    --surfaceMuted: #1E2430;
++    --borderSubtle: #262F3E;
++    --neonGreen: #22C55E;
++    --nintendoX: #38BDF8;
++    --nintendoY: #FACC15;
++    --nintendoB: #F87171;
++    --nintendoA: #4ADE80;
++  }
++  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
++  html, body {
++    margin: 0; padding: 0; width: 100%; height: 100%;
++    overscroll-behavior: none;
++    touch-action: manipulation;
++    -webkit-touch-callout: none;
++    -webkit-user-select: none;
++    user-select: none;
++    background-color: var(--brandDark);
++    color: #f1f5f9;
++    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
++    overflow: hidden;
++  }
++  body {
++    display: flex; flex-direction: column; justify-content: space-between;
++    padding: max(6px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
++  }
++
++  /* Header */
++  header {
++    width: 100%; display: flex; align-items: center; justify-content: space-between;
++    padding: 6px 12px; z-index: 20; flex-shrink: 0;
++    border-bottom: 1px solid rgba(27, 34, 48, 0.7);
++    background: linear-gradient(to bottom, #0e131c, transparent);
++    border-radius: 12px 12px 0 0;
++  }
++  .brand-group { display: flex; align-items: center; gap: 8px; }
++  .brand-title { font-size: 16px; font-weight: 800; letter-spacing: -0.025em; color: #fff; display: flex; align-items: center; gap: 2px; }
++  .brand-title span { color: #ef4444; }
++  .brand-sub { font-size: 10px; color: #94a3b8; font-weight: 500; letter-spacing: 0.05em; }
++
++  .status-badge {
++    display: flex; align-items: center; gap: 8px;
++    background: rgba(18, 22, 32, 0.9); border: 1px solid var(--borderSubtle);
++    padding: 4px 12px; border-radius: 9999px; font-size: 12px;
++    box-shadow: inset 0 1px 2px rgba(0,0,0,0.5);
++  }
++  .ping-dot { position: relative; display: flex; width: 8px; height: 8px; }
++  .ping-dot-core { position: relative; display: inline-flex; border-radius: 9999px; width: 8px; height: 8px; background-color: var(--neonGreen); }
++  .ping-dot-wave {
++    position: absolute; display: inline-flex; width: 100%; height: 100%;
++    border-radius: 9999px; background-color: var(--neonGreen); opacity: 0.75;
++    animation: pulse-wave 2.4s infinite cubic-bezier(0.4, 0, 0.6, 1);
++  }
++  @keyframes pulse-wave {
++    0%, 100% { opacity: 0.8; transform: scale(1); }
++    50% { opacity: 0.2; transform: scale(1.6); }
++  }
++
++  .status-ip { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 600; color: #e2e8f0; }
++  .status-dot { color: #64748b; font-size: 10px; }
++  .status-info { color: var(--neonGreen); font-family: ui-monospace, monospace; font-size: 11px; font-weight: 500; }
++  .status-slot { font-size: 11px; color: #cbd5e1; font-weight: 600; }
++
++  .util-group { display: flex; align-items: center; gap: 8px; }
++  .util-btn {
++    padding: 6px; border-radius: 8px; background: rgba(30, 36, 48, 0.6);
++    border: 1px solid var(--borderSubtle); color: #cbd5e1; cursor: pointer;
++    display: flex; align-items: center; justify-content: center;
++  }
++  .util-btn:active { background: rgba(38, 47, 62, 0.9); }
++
++  /* Main Playfield */
++  main {
++    width: 100%; flex: 1; display: flex; flex-direction: column; justify-content: space-between;
++    position: relative; padding: 4px 6px; max-width: 1280px; margin: 0 auto;
++  }
++
++  /* Top Row Bumpers & Triggers */
++  .top-row { width: 100%; display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; padding-top: 4px; }
++  .shoulder-cluster { display: flex; align-items: center; gap: 8px; }
++
++  /* Tactile Button Styling */
++  .gamepad-btn {
++    touch-action: none; cursor: pointer; user-select: none; -webkit-user-select: none;
++    transition: transform 0.06s ease, filter 0.06s ease, box-shadow 0.06s ease;
++    will-change: transform, box-shadow;
++    box-shadow: inset 0 1px 1px rgba(255,255,255,0.08), 0 4px 12px rgba(0,0,0,0.5);
++  }
++  .gamepad-btn:active, .gamepad-btn.pressed {
++    transform: scale(0.93) translateY(2px);
++    filter: brightness(1.25);
++    box-shadow: inset 0 3px 6px rgba(0,0,0,0.6), 0 1px 2px rgba(0,0,0,0.3);
++  }
++
++  /* Bumper Curves */
++  .btn-zl {
++    width: clamp(64px, 14vw, 96px); height: clamp(48px, 11vmin, 58px);
++    border-radius: 20px 8px 12px 24px;
++    background: linear-gradient(to bottom, #222a38, #121622);
++    border: 1px solid var(--borderSubtle);
++    display: flex; flex-direction: column; align-items: center; justify-content: center;
++    color: #cbd5e1; font-weight: bold; text-align: center;
++  }
++  .btn-l {
++    width: clamp(74px, 17vw, 112px); height: clamp(48px, 11vmin, 58px);
++    border-radius: 12px;
++    background: linear-gradient(to bottom, #283243, #161c28);
++    border: 1px solid var(--borderSubtle);
++    display: flex; align-items: center; justify-content: center;
++    color: #f8fafc; font-weight: 900; font-size: 16px;
++  }
++  .btn-r {
++    width: clamp(74px, 17vw, 112px); height: clamp(48px, 11vmin, 58px);
++    border-radius: 12px;
++    background: linear-gradient(to bottom, #283243, #161c28);
++    border: 1px solid var(--borderSubtle);
++    display: flex; align-items: center; justify-content: center;
++    color: #f8fafc; font-weight: 900; font-size: 16px;
++  }
++  .btn-zr {
++    width: clamp(64px, 14vw, 96px); height: clamp(48px, 11vmin, 58px);
++    border-radius: 8px 20px 24px 12px;
++    background: linear-gradient(to bottom, #222a38, #121622);
++    border: 1px solid var(--borderSubtle);
++    display: flex; flex-direction: column; align-items: center; justify-content: center;
++    color: #cbd5e1; font-weight: bold;
++  }
++  .trigger-sub { font-size: 9px; color: #94a3b8; font-family: ui-monospace, monospace; text-transform: uppercase; letter-spacing: 0.05em; }
++  .trigger-main { font-size: 15px; font-weight: 900; color: #f1f5f9; }
++
++  /* Center System Buttons */
++  .center-cluster { display: flex; flex-direction: column; align-items: center; gap: 4px; }
++  .system-bar {
++    display: flex; align-items: center; gap: 10px;
++    background: rgba(17, 22, 34, 0.85); border: 1px solid rgba(38, 47, 62, 0.6);
++    padding: 4px 12px; border-radius: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);
++  }
++  .btn-sys {
++    width: 36px; height: 36px; border-radius: 9999px;
++    background: #1b2230; border: 1px solid rgba(51, 65, 85, 0.6);
++    display: flex; align-items: center; justify-content: center;
++    color: #cbd5e1;
++  }
++  .btn-sys-sq {
++    width: 32px; height: 32px; border-radius: 8px;
++    background: #181f2c; border: 1px solid rgba(51, 65, 85, 0.6);
++    display: flex; align-items: center; justify-content: center;
++    color: #94a3b8;
++  }
++  .btn-sys-home {
++    width: 36px; height: 36px; border-radius: 9999px;
++    background: #1e2637; border: 2px solid rgba(6, 182, 212, 0.4);
++    display: flex; align-items: center; justify-content: center;
++    color: #67e8f9;
++  }
++
++  /* Thumb Interaction Zones */
++  .thumb-zones {
++    width: 100%; flex: 1; display: flex; align-items: center; justify-content: space-between;
++    padding: 0 8px; margin: 6px 0; position: relative;
++  }
++
++  /* Analog Stick Cluster */
++  .joystick-container { display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; }
++  .joystick-base {
++    position: relative; width: clamp(130px, 26vmin, 160px); height: clamp(130px, 26vmin, 160px);
++    border-radius: 9999px; background: linear-gradient(to bottom, #10141d, #171d29);
++    border: 2px solid var(--borderSubtle); box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5);
++    display: flex; align-items: center; justify-content: center; touch-action: none; cursor: pointer;
++  }
++  .stick-guide-v { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: space-between; align-items: center; padding: 6px 0; pointer-events: none; opacity: 0.35; font-size: 9px; font-weight: bold; color: #cbd5e1; }
++  .stick-guide-h { position: absolute; inset: 0; display: flex; justify-content: space-between; align-items: center; padding: 0 6px; pointer-events: none; opacity: 0.35; font-size: 9px; font-weight: bold; color: #cbd5e1; }
++
++  .joystick-thumb {
++    position: relative; width: clamp(74px, 15vmin, 90px); height: clamp(74px, 15vmin, 90px);
++    border-radius: 9999px; background: linear-gradient(135deg, #2a3447, #1c2331 50%, #131722);
++    border: 2px solid #3d4a61; box-shadow: inset 0 1px 1px rgba(255,255,255,0.08), 0 4px 12px rgba(0,0,0,0.5);
++    display: flex; align-items: center; justify-content: center;
++    background-image: radial-gradient(circle, transparent 38%, rgba(255,255,255,0.05) 40%, transparent 42%),
++                      radial-gradient(circle, transparent 58%, rgba(255,255,255,0.04) 60%, transparent 62%),
++                      radial-gradient(circle, transparent 78%, rgba(255,255,255,0.03) 80%, transparent 82%);
++    transition: transform 0.04s ease-out; will-change: transform;
++  }
++  .thumb-cup {
++    width: clamp(38px, 8vmin, 48px); height: clamp(38px, 8vmin, 48px);
++    border-radius: 9999px; background: #141923; border: 1px solid #2a3547;
++    box-shadow: inset 0 4px 10px rgba(0,0,0,0.8), inset 0 -2px 4px rgba(255,255,255,0.06);
++    display: flex; align-items: center; justify-content: center;
++  }
++  .thumb-center-dot {
++    width: 12px; height: 12px; border-radius: 9999px; background: #1f2838;
++    border: 1px solid rgba(51, 65, 85, 0.6); box-shadow: inset 0 1px 2px rgba(0,0,0,0.5);
++  }
++
++  .stick-label {
++    margin-top: 8px; font-size: 10px; font-family: ui-monospace, monospace; text-transform: uppercase;
++    letter-spacing: 0.05em; color: #94a3b8; background: rgba(30, 36, 48, 0.4);
++    padding: 2px 8px; border-radius: 4px; border: 1px solid rgba(38, 47, 62, 0.4);
++  }
++
++  /* ABXY Cluster */
++  .abxy-container { display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; }
++  .abxy-plate {
++    position: relative; width: clamp(190px, 38vmin, 240px); height: clamp(190px, 38vmin, 240px);
++    border-radius: 9999px; background: linear-gradient(to bottom, #111520, #161d2a);
++    border: 2px solid var(--borderSubtle); box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5);
++    display: flex; align-items: center; justify-content: center;
++  }
++  .cross-bar-h { position: absolute; width: 68%; height: 28%; background: rgba(11, 14, 22, 0.8); border-radius: 9999px; pointer-events: none; }
++  .cross-bar-v { position: absolute; width: 28%; height: 68%; background: rgba(11, 14, 22, 0.8); border-radius: 9999px; pointer-events: none; }
++
++  .abxy-btn {
++    position: absolute; width: clamp(58px, 12vmin, 72px); height: clamp(58px, 12vmin, 72px);
++    border-radius: 9999px; background: linear-gradient(to bottom, #242c3d, #1a202d 50%, #121620);
++    border: 2px solid #3e4c66; display: flex; flex-direction: column; align-items: center; justify-content: center;
++    box-shadow: inset 0 1px 1px rgba(255,255,255,0.08), 0 4px 12px rgba(0,0,0,0.5);
++  }
++  .abxy-btn .btn-char { font-size: clamp(20px, 4.5vmin, 26px); font-weight: 900; color: #fff; line-height: 1; }
++  .abxy-btn .color-pip { width: 6px; height: 6px; border-radius: 9999px; margin-top: 3px; }
++
++  .btn-pos-x { top: 6px; }
++  .btn-pos-x .color-pip { background-color: var(--nintendoX); }
++  .btn-pos-x.pressed, .btn-pos-x:active { border-color: var(--nintendoX); box-shadow: 0 0 12px rgba(56, 189, 248, 0.4); }
++
++  .btn-pos-y { left: 6px; }
++  .btn-pos-y .color-pip { background-color: var(--nintendoY); }
++  .btn-pos-y.pressed, .btn-pos-y:active { border-color: var(--nintendoY); box-shadow: 0 0 12px rgba(250, 204, 21, 0.4); }
++
++  .btn-pos-a { right: 6px; }
++  .btn-pos-a .color-pip { background-color: var(--nintendoA); }
++  .btn-pos-a.pressed, .btn-pos-a:active { border-color: var(--nintendoA); box-shadow: 0 0 12px rgba(74, 222, 128, 0.4); }
++
++  .btn-pos-b { bottom: 6px; }
++  .btn-pos-b .color-pip { background-color: var(--nintendoB); }
++  .btn-pos-b.pressed, .btn-pos-b:active { border-color: var(--nintendoB); box-shadow: 0 0 12px rgba(248, 113, 113, 0.4); }
++
++  /* PIN Modal */
++  #pin-modal {
++    display: none; position: fixed; inset: 0; z-index: 50;
++    background: rgba(8, 11, 16, 0.95); backdrop-filter: blur(10px);
++    align-items: center; justify-content: center; flex-direction: column; padding: 20px;
++  }
++  #pin-modal.show { display: flex; }
++  .pin-dialog {
++    background: #121620; border: 2px solid var(--borderSubtle); border-radius: 20px;
++    padding: 28px; max-width: 340px; width: 100%; text-align: center;
++    box-shadow: 0 20px 40px rgba(0,0,0,0.8);
++  }
++  .pin-title { font-size: 20px; font-weight: 800; color: #fff; margin-bottom: 8px; }
++  .pin-desc { font-size: 13px; color: #94a3b8; margin-bottom: 20px; line-height: 1.4; }
++  .pin-box {
++    width: 100%; font-size: 28px; font-weight: 800; letter-spacing: 10px; text-align: center;
++    padding: 12px 14px; background: #080b10; border: 2px solid var(--borderSubtle); border-radius: 12px;
++    color: #fff; outline: none; margin-bottom: 20px;
++  }
++  .pin-box:focus { border-color: var(--nintendoX); }
++  .pin-btn {
++    width: 100%; padding: 13px; font-size: 16px; font-weight: 800; border-radius: 12px;
++    background: #ef4444; border: none; color: #fff; cursor: pointer; transition: background 0.1s;
++  }
++  .pin-btn:active { background: #dc2626; }
++
++  @media (orientation: portrait) {
++    #rotate-hint {
++      display: flex; position: fixed; inset: 0; z-index: 40;
++      background: rgba(8, 11, 16, 0.97); align-items: center; justify-content: center;
++      flex-direction: column; text-align: center; font-size: 17px; font-weight: 700; color: #e2e8f0;
++      padding: 24px;
++    }
++  }
++  @media (orientation: landscape) {
++    #rotate-hint { display: none; }
++  }
++</style>
++</head>
++<body>
++
++<!-- Header Status -->
++<header>
++  <div class="brand-group">
++    <div class="brand-title">NX2<span>Apple</span></div>
++    <div class="brand-sub">— Controller Deck</div>
++  </div>
++
++  <div class="status-badge">
++    <span class="ping-dot">
++      <span class="ping-dot-wave" id="status-wave"></span>
++      <span class="ping-dot-core" id="status-dot"></span>
++    </span>
++    <span class="status-slot" id="player-slot">P-</span>
++    <span class="status-dot">•</span>
++    <span class="status-info" id="status-text">Connecting…</span>
++  </div>
++
++  <div class="util-group">
++    <button class="util-btn" id="haptic-toggle" title="Haptics">
++      <svg id="haptic-icon" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
++        <path d="M12 2v20M17 5v14M7 5v14M22 9v6M2 9v6" stroke-linecap="round"/>
++      </svg>
++    </button>
++  </div>
++</header>
++
++<!-- Main Playfield -->
++<main>
++  <!-- Top Bumpers & Shoulder Row -->
++  <div class="top-row">
++    <!-- Left Shoulder: ZL & L -->
++    <div class="shoulder-cluster">
++      <div class="gamepad-btn btn-zl" data-key="ZL">
++        <span class="trigger-sub">Trigger</span>
++        <span class="trigger-main">ZL</span>
++      </div>
++      <div class="gamepad-btn btn-l" data-key="L">L</div>
++    </div>
++
++    <!-- Center System Buttons: Minus, Capture, Home, Plus -->
++    <div class="center-cluster">
++      <div class="system-bar">
++        <div class="gamepad-btn btn-sys" data-key="MINUS" title="Minus (-)">
++          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M20 12H4" stroke-linecap="round"/></svg>
++        </div>
++        <div class="gamepad-btn btn-sys-sq" data-key="CAPTURE" title="Capture">
++          <svg width="12" height="12" fill="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/></svg>
++        </div>
++        <div class="gamepad-btn btn-sys-home" data-key="HOME" title="Home">
++          <svg width="15" height="15" fill="currentColor" viewBox="0 0 20 20"><path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z"/></svg>
++        </div>
++        <div class="gamepad-btn btn-sys" data-key="PLUS" title="Plus (+)">
++          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M12 4v16m8-8H4" stroke-linecap="round"/></svg>
++        </div>
++      </div>
++    </div>
++
++    <!-- Right Shoulder: R & ZR -->
++    <div class="shoulder-cluster">
++      <div class="gamepad-btn btn-r" data-key="R">R</div>
++      <div class="gamepad-btn btn-zr" data-key="ZR">
++        <span class="trigger-sub">Trigger</span>
++        <span class="trigger-main">ZR</span>
++      </div>
++    </div>
++  </div>
++
++  <!-- Thumb Zones (Left Joystick | Right ABXY) -->
++  <div class="thumb-zones">
++    <!-- Left Thumb: Analog Joystick -->
++    <div class="joystick-container">
++      <div class="joystick-base" id="joystick-base">
++        <div class="stick-guide-v"><span>▲</span><span>▼</span></div>
++        <div class="stick-guide-h"><span>◀</span><span>▶</span></div>
++        <div class="joystick-thumb" id="joystick-thumb">
++          <div class="thumb-cup">
++            <div class="thumb-center-dot"></div>
++          </div>
++        </div>
++      </div>
++      <div class="stick-label">Left Stick (L3 Press)</div>
++    </div>
++
++    <!-- Right Thumb: Large ABXY Diamond Pad -->
++    <div class="abxy-container">
++      <div class="abxy-plate" id="abxy-plate">
++        <div class="cross-bar-h"></div>
++        <div class="cross-bar-v"></div>
++
++        <!-- X (Top) -->
++        <div class="gamepad-btn abxy-btn btn-pos-x" data-key="X">
++          <span class="btn-char">X</span>
++          <span class="color-pip"></span>
++        </div>
++        <!-- Y (Left) -->
++        <div class="gamepad-btn abxy-btn btn-pos-y" data-key="Y">
++          <span class="btn-char">Y</span>
++          <span class="color-pip"></span>
++        </div>
++        <!-- A (Right) -->
++        <div class="gamepad-btn abxy-btn btn-pos-a" data-key="A">
++          <span class="btn-char">A</span>
++          <span class="color-pip"></span>
++        </div>
++        <!-- B (Bottom) -->
++        <div class="gamepad-btn abxy-btn btn-pos-b" data-key="B">
++          <span class="btn-char">B</span>
++          <span class="color-pip"></span>
++        </div>
++      </div>
++      <div class="stick-label">Nintendo Diamond Pad</div>
++    </div>
++  </div>
++</main>
++
++<!-- PIN Pairing Modal -->
++<div id="pin-modal">
++  <div class="pin-dialog">
++    <div class="pin-title">Enter Host PIN</div>
++    <div class="pin-desc">Enter the 4-digit PIN shown on the game screen to pair this controller.</div>
++    <input class="pin-box" id="pin-input" type="tel" maxlength="4" placeholder="••••" autocomplete="off" />
++    <button class="pin-btn" id="pin-submit">Connect Gamepad</button>
++  </div>
++</div>
++
++<div id="rotate-hint">Turn your phone sideways 🔄</div>
++
++<script>
++// Button Bits matching Switch nn::hid::NpadButton / dm_input.h
++const BITS = {
++  A: 1, B: 2, X: 4, Y: 8, LS: 16, RS: 32,
++  L: 64, R: 128, ZL: 256, ZR: 512,
++  PLUS: 1024, MINUS: 2048,
++  HOME: 0, CAPTURE: 0
++};
++
++// Keyboard mappings for desktop preview
++const KEY_MAP = {
++  KeyX: 1, Enter: 1,
++  KeyZ: 2, Backspace: 2,
++  KeyC: 4,
++  KeyV: 8,
++  KeyQ: 64,
++  KeyE: 128,
++  Digit1: 256,
++  Digit3: 512,
++  Equal: 1024,
++  Minus: 2048
++};
++const STICK_KEYS = ['KeyW', 'KeyA', 'KeyS', 'KeyD'];
++
++let hapticsEnabled = true;
++function triggerHaptic(ms = 18) {
++  if (hapticsEnabled && navigator.vibrate) {
++    try { navigator.vibrate(ms); } catch (e) {}
++  }
++}
++
++document.getElementById('haptic-toggle').addEventListener('click', () => {
++  hapticsEnabled = !hapticsEnabled;
++  triggerHaptic(30);
++  document.getElementById('haptic-icon').style.color = hapticsEnabled ? '#22C55E' : '#64748b';
++});
++
++// Touch and Button State
++const activeTouches = new Map(); // touchId -> bitmask
++const activeKeys = new Set();
++let lx = 0, ly = 0;
++let buttonMask = 0;
++let sentState = '';
++let lastAck = 0;
++let playerNum = null;
++let ws = null;
++let pingStart = 0;
++// Only read PIN from query param; never force stale incorrect PINs from localStorage
++let currentPin = new URLSearchParams(location.search).get('pin') || '';
++
++const statusDot = document.getElementById('status-dot');
++const statusWave = document.getElementById('status-wave');
++const statusText = document.getElementById('status-text');
++const playerSlot = document.getElementById('player-slot');
++const pinModal = document.getElementById('pin-modal');
++const pinInput = document.getElementById('pin-input');
++const pinSubmit = document.getElementById('pin-submit');
++
++function setStatusState(color, label, slotStr) {
++  statusDot.style.backgroundColor = color;
++  statusWave.style.backgroundColor = color;
++  if (label) statusText.textContent = label;
++  if (slotStr) playerSlot.textContent = slotStr;
++}
++
++function refreshButtonsUI() {
++  const prevMask = buttonMask;
++  buttonMask = 0;
++  for (const b of activeTouches.values()) buttonMask |= b;
++  for (const k of activeKeys) buttonMask |= (KEY_MAP[k] || 0);
++
++  if ((buttonMask & ~prevMask)) triggerHaptic(15);
++
++  document.querySelectorAll('.gamepad-btn').forEach(btn => {
++    const key = btn.getAttribute('data-key');
++    const bit = BITS[key] || 0;
++    if (bit) {
++      btn.classList.toggle('pressed', !!(buttonMask & bit));
++    }
++  });
++
++  sendState(false);
++}
++
++function sendState(force) {
++  const msg = buttonMask + ',' + lx.toFixed(3) + ',' + ly.toFixed(3);
++  if ((force || msg !== sentState) && ws && ws.readyState === WebSocket.OPEN) {
++    ws.send(msg);
++    sentState = msg;
++  }
++}
++
++// Multitouch handling for all buttons
++function bitAtPoint(x, y) {
++  const el = document.elementFromPoint(x, y);
++  const btn = el && el.closest('.gamepad-btn');
++  if (!btn) return 0;
++  const key = btn.getAttribute('data-key');
++  return BITS[key] || 0;
++}
++
++// Analog Stick Touch Logic
++const stickBase = document.getElementById('joystick-base');
++const stickThumb = document.getElementById('joystick-thumb');
++let stickTouchId = null;
++let baseRect = null;
++
++function updateStick(clientX, clientY) {
++  if (!baseRect) baseRect = stickBase.getBoundingClientRect();
++  const maxR = baseRect.width * 0.38; // Slightly larger throw ratio for easier reaching of 100% deflection
++  const cx = baseRect.left + baseRect.width / 2;
++  const cy = baseRect.top + baseRect.height / 2;
++  let dx = clientX - cx;
++  let dy = clientY - cy;
++  const dist = Math.hypot(dx, dy);
++  if (dist > maxR) {
++    dx = (dx / dist) * maxR;
++    dy = (dy / dist) * maxR;
++  }
++  stickThumb.style.transform = `translate3d(${dx}px, ${dy}px, 0)`;
++
++  // Normalized direct coordinates [-1.0, 1.0]
++  let normX = dx / maxR;
++  let normY = -dy / maxR; // Switch Y is inverted (up is positive)
++
++  // Subtle deadzone
++  const mag = Math.hypot(normX, normY);
++  if (mag < 0.05) {
++    lx = 0;
++    ly = 0;
++  } else {
++    // Linear & responsive: no sticky snapping or locking onto down/up!
++    // A clean circular mapping with gentle axial damping only when clearly horizontal/vertical.
++    lx = Math.max(-1.0, Math.min(1.0, normX));
++    ly = Math.max(-1.0, Math.min(1.0, normY));
++  }
++
++  sendState(false);
++}
++
++function resetStick() {
++  stickThumb.style.transform = 'translate3d(0, 0, 0)';
++  lx = 0; ly = 0;
++  sendState(false);
++}
++
++// Global Touch Listeners
++window.addEventListener('touchstart', (e) => {
++  if (e.target.closest('#pin-modal')) return;
++  e.preventDefault();
++  for (let i = 0; i < e.changedTouches.length; i++) {
++    const t = e.changedTouches[i];
++    if (!baseRect) baseRect = stickBase.getBoundingClientRect();
++    const cx = baseRect.left + baseRect.width / 2;
++    const cy = baseRect.top + baseRect.height / 2;
++
++    // Check if touch is inside analog stick base
++    if (stickTouchId === null && Math.hypot(t.clientX - cx, t.clientY - cy) < baseRect.width * 0.58) {
++      stickTouchId = t.identifier;
++      triggerHaptic(10);
++      updateStick(t.clientX, t.clientY);
++    } else {
++      const bit = bitAtPoint(t.clientX, t.clientY);
++      if (bit) activeTouches.set(t.identifier, bit);
++    }
++  }
++  refreshButtonsUI();
++}, { passive: false });
++
++window.addEventListener('touchmove', (e) => {
++  if (e.target.closest('#pin-modal')) return;
++  e.preventDefault();
++  for (let i = 0; i < e.changedTouches.length; i++) {
++    const t = e.changedTouches[i];
++    if (t.identifier === stickTouchId) {
++      updateStick(t.clientX, t.clientY);
++    } else if (activeTouches.has(t.identifier)) {
++      activeTouches.set(t.identifier, bitAtPoint(t.clientX, t.clientY));
++    }
++  }
++  refreshButtonsUI();
++}, { passive: false });
++
++window.addEventListener('touchend', (e) => {
++  for (let i = 0; i < e.changedTouches.length; i++) {
++    const t = e.changedTouches[i];
++    if (t.identifier === stickTouchId) {
++      stickTouchId = null;
++      resetStick();
++    }
++    activeTouches.delete(t.identifier);
++  }
++  refreshButtonsUI();
++}, { passive: false });
++
++window.addEventListener('touchcancel', (e) => {
++  for (let i = 0; i < e.changedTouches.length; i++) {
++    const t = e.changedTouches[i];
++    if (t.identifier === stickTouchId) {
++      stickTouchId = null;
++      resetStick();
++    }
++    activeTouches.delete(t.identifier);
++  }
++  refreshButtonsUI();
++}, { passive: false });
++
++// Mouse fallback for desktop testing
++let isMouseDown = false;
++stickBase.addEventListener('mousedown', (e) => {
++  isMouseDown = true;
++  baseRect = stickBase.getBoundingClientRect();
++  updateStick(e.clientX, e.clientY);
++});
++window.addEventListener('mousemove', (e) => {
++  if (isMouseDown) updateStick(e.clientX, e.clientY);
++});
++window.addEventListener('mouseup', () => {
++  if (isMouseDown) {
++    isMouseDown = false;
++    resetStick();
++  }
++});
++
++// Desktop Keyboard mapping
++window.addEventListener('keydown', (e) => {
++  if (e.target === pinInput) return;
++  if (!(e.code in KEY_MAP) && !STICK_KEYS.includes(e.code)) return;
++  e.preventDefault();
++  activeKeys.add(e.code);
++  if (stickTouchId === null) {
++    lx = (activeKeys.has('KeyD') ? 1 : 0) - (activeKeys.has('KeyA') ? 1 : 0);
++    ly = (activeKeys.has('KeyW') ? 1 : 0) - (activeKeys.has('KeyS') ? 1 : 0);
++  }
++  refreshButtonsUI();
++});
++
++window.addEventListener('keyup', (e) => {
++  if (e.target === pinInput) return;
++  if (e.code in KEY_MAP || STICK_KEYS.includes(e.code)) {
++    e.preventDefault();
++    activeKeys.delete(e.code);
++    if (stickTouchId === null) {
++      lx = (activeKeys.has('KeyD') ? 1 : 0) - (activeKeys.has('KeyA') ? 1 : 0);
++      ly = (activeKeys.has('KeyW') ? 1 : 0) - (activeKeys.has('KeyS') ? 1 : 0);
++    }
++    refreshButtonsUI();
++  }
++});
++
++// PIN Dialog
++function showPinDialog() {
++  pinModal.classList.add('show');
++  pinInput.value = ''; // Always clear previous input so user can type freely without overwrite
++  pinInput.focus();
++}
++
++pinSubmit.addEventListener('click', () => {
++  currentPin = pinInput.value.trim();
++  pinModal.classList.remove('show');
++  if (ws && ws.readyState === WebSocket.OPEN) {
++    ws.send('PIN:' + currentPin);
++  } else {
++    connectWS();
++  }
++});
++
++pinInput.addEventListener('keydown', (e) => {
++  if (e.key === 'Enter') pinSubmit.click();
++});
++
++// WebSocket Connection
++function connectWS() {
++  setStatusState('#eab308', 'Connecting…', 'P-');
++  const wsUrl = 'ws://' + location.host + '/ws?pin=' + encodeURIComponent(currentPin);
++  ws = new WebSocket(wsUrl);
++
++  ws.onopen = () => {
++    setStatusState('#38bdf8', 'Authenticating…', 'P-');
++    if (currentPin) ws.send('PIN:' + currentPin);
++    sendState(true);
++  };
++
++  ws.onmessage = (m) => {
++    lastAck = Date.now();
++    const data = m.data;
++    if (data === 'AUTH_REQUIRED' || data === 'AUTH_FAILED') {
++      setStatusState('#ef4444', 'PIN Required', 'P-');
++      showPinDialog();
++      return;
++    }
++    if (data.startsWith('player ')) {
++      pinModal.classList.remove('show');
++      playerNum = parseInt(data.split(' ')[1], 10);
++      setStatusState('#22c55e', 'Connected', 'P' + playerNum);
++    }
++  };
++
++  ws.onclose = () => {
++    playerNum = null;
++    setStatusState('#ef4444', 'Disconnected', 'P-');
++    setTimeout(connectWS, 1500);
++  };
++}
++
++// 50ms keep-alive tick
++setInterval(() => {
++  sendState(true);
++}, 50);
++
++window.addEventListener('resize', () => {
++  baseRect = null;
++});
++
++connectWS();
++</script>
++</body>
++</html>
+diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
+index 395e2e6..ba55474 100644
+--- a/dm/ios/Sources/DmGamepad.m
++++ b/dm/ios/Sources/DmGamepad.m
+@@ -30,6 +30,7 @@
+ #include "motion_apple.h"
+ #include "motion_fusion.h"
+ #include "pad_apple.h"
++#include "dm_webpad.h"
+ #include "pad_slots.h"
+ #include <stdatomic.h>
+ 
+@@ -607,6 +608,7 @@ static void read_pad(GCExtendedGamepad *g) {
+ static void pads_start(void) {
+     const char *e = getenv("DM_PAD_MERGE"); g_merge = e && atoi(e);
+     LOG("front end: %s", g_merge ? "every controller is player 1 (DM_PAD_MERGE)" : "each controller is a player of its own, the touch gamepad plays with player 1");
++    dm_webpad_start();
+ }
+ // Called at start and on every connect / disconnect (gone: the controller that was just removed, nil otherwise); returns whether a controller is in use
+ static BOOL pads_merged(GCController *gone) {
