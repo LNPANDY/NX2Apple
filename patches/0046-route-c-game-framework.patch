@@ -122,10 +122,10 @@ index 00000000..b354e253
 +}
 +#endif
 diff --git a/dm/ios/Sources/main.m b/dm/ios/Sources/main.m
-index 69ec53ed..ae14c0f5 100644
+index 7e4d49a3..58fa9691 100644
 --- a/dm/ios/Sources/main.m
 +++ b/dm/ios/Sources/main.m
-@@ -16,6 +16,14 @@
+@@ -18,6 +18,14 @@
  #ifndef DM_PLAYER_BUILD
  #define DM_PLAYER_BUILD 0
  #endif
@@ -140,7 +140,7 @@ index 69ec53ed..ae14c0f5 100644
  
  extern char **environ;
  
-@@ -200,6 +208,14 @@ static int boot_env(void) {
+@@ -221,6 +229,14 @@ static int boot_env(void) {
      // First line of the log: the fork's patches this build carries (Info.plist DMForkPatches), so a report says whether it comes from a build beyond upstream's support
      NSString *fork_patches = [NSBundle.mainBundle objectForInfoDictionaryKey:@"DMForkPatches"];
      fprintf(stderr, "fork patches: %s\n", [fork_patches isKindOfClass:NSString.class] && fork_patches.length ? fork_patches.UTF8String : "none");
@@ -155,7 +155,7 @@ index 69ec53ed..ae14c0f5 100644
      // Environment switch files (for on-device diagnostics: a sideloaded app cannot be given environment variables from outside): one KEY=VALUE per line, # starts a comment; Documents/env.txt takes precedence over dm/env.txt in the bundle (put there by build_ipa.sh's DM_ENV_FILE)
      NSMutableArray<NSString *> *from_file = [NSMutableArray array], *from_launch = [NSMutableArray array];
      for (char **e = environ; *e; e++) {   // set at launch (Xcode, devicectl): before the env files, and the launcher keeps them
-@@ -242,14 +258,20 @@ static int boot_env(void) {
+@@ -269,14 +285,20 @@ static int boot_env(void) {
      BOOL per_game = [romfs hasPrefix:gdir];   // messaging nil is NO here: no data means the shared layout
      if (!set_data_env(romfs, NO)) { if (!romfs) romfs_identity_report(doc);   // a slim build says why its romfs.img was not used
          fprintf(stderr, "boot: no game data yet (Documents/romfs.img, Documents/romfs or <App>/romfs); the launcher asks for it\n"); }
@@ -176,7 +176,7 @@ index 69ec53ed..ae14c0f5 100644
 -    setenv("DM_FONT_DIR", [dm stringByAppendingPathComponent:@"font"].fileSystemRepresentation, 0);   // Shared-font stand-ins (standard.ttf / nintendo_ext.ttf): iOS lacks the macOS font path
 +    setenv("DM_FONT_DIR", [app_dm stringByAppendingPathComponent:@"font"].fileSystemRepresentation, 0);   // Shared-font stand-ins (standard.ttf / nintendo_ext.ttf): iOS lacks the macOS font path
      // Add-on content beside the game data: the launcher's games/<id>/aoc/ holds <index>.img (the layout hle_fs.c aoc_dir reads), because a slim IPA does not carry it. Taken before
-     // <App>/aoc and never over an explicit DM_AOC_DIR. A Documents/aoc folder (seedds/nxnative#486) stays compatible: it only ever fills DM_AOC_DIR when this did not.
+     // Documents/aoc and <App>/aoc (aoc_locate, seedds/nxnative#486) and never over an explicit DM_AOC_DIR: aoc_locate only fills DM_AOC_DIR when this did not.
      NSString *per_game_aoc = [gdir stringByAppendingPathComponent:@"aoc"];
 diff --git a/dm/ios/framework/DmGameMarker.m b/dm/ios/framework/DmGameMarker.m
 new file mode 100644
