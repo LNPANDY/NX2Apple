@@ -214,7 +214,7 @@ struct LaunchOptionsView: View {
                 if LaunchControl.isSegmented(env: s.env, labels: options.map(\.label)) {
                     LauncherSegmented(options: options, selection: value) { set(s, $0) }
                 } else {
-                    LauncherDropdown(options: options, selection: value, label: s.label) { set(s, $0) }
+                    LauncherDropdown(options: options, selection: value, label: s.label, fill: true) { set(s, $0) }
                 }
             case "range":
                 let lo = s.min ?? 0, hi = s.max ?? 1
