@@ -175,6 +175,8 @@ final class BuildFailureTests: XCTestCase {
     static let lock = "# fingerprints\ndmsh_xlate.dll\tdbc483247a4cb22d\nmetal_macosx\tApple metal version 32023.921 (metalfe-32023.921.6)\nmetal_iphoneos\tApple metal version 32023.921 (metalfe-32023.921.6)\n"
     static let pinned = "Apple metal version 32023.921 (metalfe-32023.921.6)"
     static let other = "Apple metal version 32023.883 (metalfe-32023.883.5)"
+    static let newer = "Apple metal version 32023.922 (metalfe-32023.922.4)"
+    static let foreign = "Apple metal version 32024.100 (metalfe-32024.100.1)"
 
     func testThePinIsReadFromTheLock() {
         XCTAssertEqual(MetalPin.pins(lock: Self.lock)["metal_macosx"], Self.pinned)
@@ -193,6 +195,24 @@ final class BuildFailureTests: XCTestCase {
         XCTAssertTrue(dep.present)
         XCTAssertFalse(dep.warning)
         XCTAssertTrue(dep.lastError.isEmpty)
+    }
+
+    func testANewerCompilerOfTheGenerationIsNoWarning() {   // Xcode 27.2's auto-update: the engine's gate builds with a note, so the row stays green
+        XCTAssertTrue(MetalPin.mismatches(lock: Self.lock, now: ["macosx": Self.newer, "iphoneos": Self.newer], iOS: true).isEmpty)
+        XCTAssertFalse(BuildModel.metalDep(runs: true, lock: Self.lock, now: ["macosx": Self.newer], needsIOS: true).warning)
+    }
+
+    func testAnOlderOrForeignGenerationStaysAWarning() {
+        for found in [Self.other, Self.foreign, "Apple metal 32023.922"] {
+            let m = MetalPin.mismatches(lock: Self.lock, now: ["macosx": found], iOS: false)
+            XCTAssertEqual(m.map(\.sdk), ["macosx"], found)
+        }
+        let v = MetalPin.version(Self.pinned)
+        XCTAssertEqual(v?.0, 32023); XCTAssertEqual(v?.1, 921); XCTAssertEqual(v?.2, 6)
+        XCTAssertNil(MetalPin.version("Apple metal 32023.922"))
+        XCTAssertFalse(MetalPin.buildsOn(tested: Self.pinned, found: Self.other))
+        XCTAssertTrue(MetalPin.buildsOn(tested: Self.pinned, found: Self.newer))
+        XCTAssertFalse(MetalPin.buildsOn(tested: Self.pinned, found: Self.foreign))
     }
 
     func testAnotherCompilerIsAWarningAndNotABlocker() {

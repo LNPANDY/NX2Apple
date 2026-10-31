@@ -1,0 +1,135 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LNPANDY <lnp-andy@hotmail.com>
+Date: Sat, 31 Oct 2026 17:06:17 +0800
+Subject: [PATCH] Metal: a newer compiler of the recorded generation builds
+ with a note
+
+Xcode's auto-update bumps the compiler (27.1's 32023.921 to 27.2's 32023.922) and a player cannot hold Xcode back, so every NVN build stopped at the shader step (reports on LNPANDY/NX2Apple#304 and the launcher's dependency row). The wrapper now lets a newer compiler of the same generation (the lock's leading version) go on with a note; an older one, another generation or an unreadable version still stops behind DM_ALLOW_OTHER_METAL. The strict maintainer check keeps matching the lock exactly.
+
+Upstream-Status: pending
+Reason: Xcode 27.2 auto-updated its Metal compiler to 32023.922; the exact-match gate stopped every NVN build at the shader step. A newer compiler of the recorded generation now builds with a note
+Issue: seedds/nxnative#717
+
+---
+ dm/gfx/tools/own_compilers.py        | 41 ++++++++++++++++++++++++----
+ dm/tools/tests/test_own_compilers.py | 33 ++++++++++++++++++++++
+ 2 files changed, 68 insertions(+), 6 deletions(-)
+
+diff --git a/dm/gfx/tools/own_compilers.py b/dm/gfx/tools/own_compilers.py
+index fc0a062..374f766 100644
+--- a/dm/gfx/tools/own_compilers.py
++++ b/dm/gfx/tools/own_compilers.py
+@@ -2,6 +2,8 @@
+ # dmsh_build.py as a player's Mac runs it: the NSP script builds the shader libraries through this file. dmsh_build.py stops when any tool differs from dmsh_chain.lock;
+ # the translator (dmsh_xlate_bin), bundled SPIRV-Cross and Metal compilers (macOS and iOS) must match the lock. Issue #242 reported corruption with an untested Metal compiler;
+ # its role remains unconfirmed. Another Metal compiler stops the build with installation instructions unless DM_ALLOW_OTHER_METAL=1 (the NSP script's --allow-other-metal).
++# A NEWER compiler of the recorded generation builds with a note instead of stopping: Xcode's auto-update bumps the compiler (27.1's 32023.921 to 27.2's
++# 32023.922) and a player cannot hold Xcode back. An older compiler, another generation or an unreadable version still stops.
+ # The override reports the actual compiler, leaves the lock and chain version unchanged, and uses separate shader and variant cache entries keyed by that compiler and its SDK.
+ # A missing tool, another translator or another SPIRV-Cross always fails (a missing iOS compiler only when the build compiles for iOS). On the maintainer's Mac dmsh_build.py keeps the strict check. This wrapper is not part of the chain version.
+ # Usage: own_compilers.py <dmsh_build.py arguments>   (the environment as for dmsh_build.py)
+@@ -47,9 +49,35 @@ def other_metal():
+         if now != 'missing' and now != want.get('metal_' + sdk): out.append(('metal_' + sdk, want.get('metal_' + sdk), now))
+     return out
+ 
++METAL_V = re.compile(r'Apple metal version (\d+)\.(\d+) \(metalfe-\d+\.\d+\.(\d+)\)')   # the lock records 'Apple metal version 32023.921 (metalfe-32023.921.6)'
++_noted: set = set()   # the newer-compiler note, once per build per compiler
++
++def metal_key(s):
++    m = METAL_V.fullmatch(s.strip())
++    return tuple(int(g) for g in m.groups()) if m else None
++
++def newer_metal(metal):
++    """Split the mismatches into the ones that still stop and the newer compilers of the recorded generation that may build: Xcode's auto-update bumps
++    the compiler (27.1's 32023.921 to 27.2's 32023.922) and a player cannot hold Xcode back, so a newer one of the same generation goes on with a note;
++    an older one, another generation or an unreadable version still stops (issue #242)."""
++    stop, newer = [], []
++    for pair in metal:
++        tested, actual = metal_key(pair[1]), metal_key(pair[2])
++        (newer if tested and actual and tested[0] == actual[0] and actual > tested else stop).append(pair)
++    return stop, newer
++
++def newer_note(newer):
++    fresh = [(k, w, a) for k, w, a in newer if (k, a) not in _noted]
++    if not fresh: return
++    _noted.update((k, a) for k, w, a in fresh)
++    print('note: built with a newer Metal compiler than the shaders were tested with (untested, GitHub issue #242): ' +
++          '; '.join(f'{k} {now} (tested: {want})' for k, want, now in fresh), flush=True)
++
+ def check_metal():   # --check-metal: the stop message, '' when the build may go on
+-    metal = other_metal()
+-    return other_metal_message(metal) if metal and not allowed() else ''
++    stopping, newer = newer_metal(other_metal())
++    if stopping and not allowed(): return other_metal_message(stopping)
++    newer_note(newer)
++    return ''
+ 
+ def ios_target():   # as dmsh_build.py picks its targets: a Mac-only build (the NSP script's --platform mac / mac-app) compiles nothing for iOS
+     return 'ios' in (os.environ.get('DMSH_TARGETS') or ('mac,ios' if os.environ.get('IOSOUT') else 'mac')).split(',')
+@@ -61,10 +89,11 @@ def check_tools():
+         if m: own.append((m[1], m[2], m[3]))   # (lock key, tested, actual)
+         elif not (b.startswith('metal_iphoneos: ') and b.endswith(' / actual missing') and not ios_target()): bad.append(b)   # a Mac without the iOS platform
+     if bad: return bad
+-    metal = own
+-    if metal and not allowed(): sys.exit(other_metal_message(metal))
+-    if own: print('note: built with this Mac\'s compilers, not the ones the shaders were tested with (dmsh_chain.lock): ' +
+-                  '; '.join(f'{k} {now} (tested: {want})' for k, want, now in own) + (f' ({ALLOW}=1)' if metal else ''), flush=True)
++    stopping, newer = newer_metal(own)
++    newer_note(newer)
++    if stopping and not allowed(): sys.exit(other_metal_message(stopping))
++    if stopping: print('note: built with this Mac\'s compilers, not the ones the shaders were tested with (dmsh_chain.lock): ' +
++                       '; '.join(f'{k} {now} (tested: {want})' for k, want, now in stopping) + (f' ({ALLOW}=1)' if stopping else ''), flush=True)
+     return []
+ 
+ if __name__ == '__main__':
+diff --git a/dm/tools/tests/test_own_compilers.py b/dm/tools/tests/test_own_compilers.py
+index 4d4f6d3..7d08101 100644
+--- a/dm/tools/tests/test_own_compilers.py
++++ b/dm/tools/tests/test_own_compilers.py
+@@ -25,6 +25,8 @@ nsp = importlib.util.module_from_spec(spec); spec.loader.exec_module(nsp)
+ 
+ with open(dmsh_chain.LOCK) as _f: LOCKED = dict(l.rstrip('\n').split('\t', 1) for l in _f if '\t' in l and not l.startswith('#'))
+ OTHER = 'Apple metal version 32023.850 (metalfe-32023.850.10)'   # Xcode 26's, say
++NEWER = 'Apple metal version 32023.922 (metalfe-32023.922.4)'   # Xcode 27.2's auto-updated compiler: the recorded generation, newer than the lock
++FOREIGN = 'Apple metal version 32024.100 (metalfe-32024.100.1)'   # another toolchain generation, however new
+ 
+ 
+ def mismatch(key, actual): return f'{key}: lock {LOCKED[key]} / actual {actual}'
+@@ -91,6 +93,37 @@ class CheckTools(unittest.TestCase):
+             self.assertEqual(bool(msg), stops, (actual, allow))
+             if stops: self.assertIn(f'metal_macosx {OTHER}', msg); self.assertIn(f'metal_iphoneos {OTHER}', msg)
+ 
++    def test_newer_metal_builds_on(self):   # Xcode 27.2's auto-updated compiler of the recorded generation: a note, no stop (the wrapper's check_tools)
++        for key in ('metal_macosx', 'metal_iphoneos'):
++            own_compilers._noted.clear()
++            bad, out = self.check([mismatch(key, NEWER)])
++            self.assertEqual(bad, [])
++            self.assertIn('note: built with a newer Metal compiler than the shaders were tested with', out)
++            self.assertIn(f'{key} {NEWER} (tested: {LOCKED[key]})', out); self.assertIn('#242', out)
++        own_compilers._noted.clear()
++
++    def test_check_metal_lets_a_newer_compiler_go(self):   # --check-metal returns '' for the auto-updated compiler, with the note
++        own_compilers._noted.clear()
++        env = {k: v for k, v in os.environ.items() if k != own_compilers.ALLOW}
++        with mock.patch.object(own_compilers, 'metal_version', lambda sdk: NEWER), mock.patch.dict(os.environ, env, clear=True), redirect_stdout(io.StringIO()) as out:
++            self.assertEqual(own_compilers.check_metal(), '')
++        self.assertIn('note: built with a newer Metal compiler', out.getvalue())
++        own_compilers._noted.clear()
++
++    def test_older_or_foreign_generation_still_stop(self):   # backward and cross-generation stay behind the override
++        for other in (OTHER, FOREIGN, 'Apple metal 32023.922'):
++            with self.subTest(other=other):
++                with self.assertRaises(SystemExit) as e: self.check([mismatch('metal_macosx', other)])
++                self.assertTrue(str(e.exception.code).startswith('[RED] '))
++        self.assertEqual(own_compilers.metal_key(LOCKED['metal_macosx']), (32023, 921, 6))
++        self.assertIsNone(own_compilers.metal_key('Apple metal 32023.922'))
++
++    def test_newer_and_stopping_together(self):   # a newer macOS compiler and an older iOS one: the iOS mismatch stops, both notes reach the log
++        own_compilers._noted.clear()
++        with self.assertRaises(SystemExit) as e: self.check([mismatch('metal_macosx', NEWER), mismatch('metal_iphoneos', OTHER)])
++        self.assertIn('metal_iphoneos', str(e.exception.code))
++        own_compilers._noted.clear()
++
+ 
+ class NspScript(unittest.TestCase):
+     def setUp(self):
