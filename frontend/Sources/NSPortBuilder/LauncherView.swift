@@ -127,6 +127,7 @@ struct ContentView: View {
         VStack(spacing: 0) {
             topBar
             Divider().opacity(0.3)
+            EngineSyncBanner(m: m)
             if page == .library {
                 libraryPage
             } else {
@@ -169,6 +170,7 @@ struct ContentView: View {
             if performStartupChecks { library.discover(); fetchArtwork(); m.refreshDevices(); checkTools() }
             if performStartupChecks {
                 m.checkDeps()
+                m.syncEngine()   // a checkout whose engine/ is missing or older than its pin (#214)
                 if m.repoOK && m.repoIsGit { m.checkRepoUpdates(silent: true) } else { m.adoptAtLaunch() }
                 m.checkAppUpdate(silent: true)
                 BuildNotifier.shared.watch(m, library: library)   // BuildNotifications.swift

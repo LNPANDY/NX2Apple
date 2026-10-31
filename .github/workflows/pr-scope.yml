@@ -1,17 +1,18 @@
-# Guard the patch queue: fail a PR that edits a vendored file without a patch.
+# Guard the patch queue: fail a PR whose patches do not apply to the pin, or that edits a committed vendored file without a patch.
 #
-# dm/, scripts/, docs/, ref/ and AGENTS.md are upstream (seedds/nxnative, pinned in .upstream-ref) plus the patches in
-# patches/. A PR that edits one of those files directly would be reverted by the next bump, so `scripts/patches.py check`
-# (the series applied to the pin must give the committed tree) fails it. What a PR author sees: the files that differ, and the
-# way out (commit the change, `scripts/patches.py export <commit>`, fill in the header; patches/README.md).
-# A sync PR (branch sync/upstream-*) is checked too, on purpose: it must reproduce its own tree. The old per-file guard
-# and its skip for sync branches are gone with the anchor patchers.
-# The same check is a job in tests.yml; this one starts on the vendored paths only, and says so in its own name.
+# The engine is seedds/nxnative at the commit in .upstream-ref plus the patches in patches/. Since issue #214 it is built into engine/
+# by `tools/engine.py sync`, and engine work is a commit in engine/ that `tools/engine.py export` turns into a patch. While the
+# repository still commits the same tree in dm/, scripts/, docs/, ref/ and AGENTS.md (step 1 of #214), a PR that edits one of those
+# files directly would be reverted by the next bump, so `tools/engine.py check --tree` also compares that tree with pin + series. What a
+# PR author sees: the files that differ, and the way out (patches/README.md). In step 2 the committed tree goes, and this guard keeps
+# only the first half: the series applies cleanly to the pin.
+# A sync PR (branch sync/upstream-*) is checked too, on purpose: it must reproduce its own tree.
+# The same check is a job in tests.yml; this one starts on the engine's paths only, and says so in its own name.
 name: PR scope (sync safety)
 
 on:
   pull_request:
-    paths: ['dm/**', 'scripts/**', 'docs/**', 'ref/**', 'AGENTS.md', 'patches/**', '.upstream-ref']
+    paths: ['dm/**', 'scripts/**', 'docs/**', 'ref/**', 'AGENTS.md', 'patches/**', '.upstream-ref', 'tools/**']
 
 permissions:
   contents: read
@@ -22,15 +23,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0
           persist-credentials: false
-      - name: Fetch the pinned upstream commit
+      - name: The series applies to the pin, and the committed tree is pin + series
         run: |
-          git remote add seedds https://github.com/seedds/nxnative.git
-          git fetch --no-tags seedds "$(cat .upstream-ref)"
-      - name: The series reproduces the vendored tree
-        run: |
-          python3 scripts/patches.py check || {
-            echo "::error title=Patch queue::Patch queue out of sync: vendored files differ from pin + patches. Fix: python3 scripts/patches.py absorb <the files listed above> (a new file may need --into <patch>), then commit patches/. See patches/README.md."
+          python3 tools/engine.py check --tree || {
+            echo "::error title=Patch queue::The series does not apply to the pin, or a committed vendored file differs from pin + patches. Fix: work in engine/ (python3 tools/engine.py sync), commit there, then python3 tools/engine.py export. A direct edit of a committed file folds in with python3 tools/patches.py absorb <files>. See patches/README.md."
             exit 1
           }

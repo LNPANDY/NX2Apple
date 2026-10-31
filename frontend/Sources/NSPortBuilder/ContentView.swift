@@ -291,7 +291,7 @@ final class BuildModel: ObservableObject {
     }
 
     nonisolated static func isRepo(_ dir: String) -> Bool {
-        FileManager.default.fileExists(atPath: dir + "/dm/tools/nx_extract/Program.cs")
+        EngineLayout.isCheckout(dir)   // the committed tree, a synced engine/, or tools/engine.py to make one (#214)
     }
 
     /// Every file of the repository the launcher itself runs by path: one list, next to the calls that use it
@@ -304,7 +304,8 @@ final class BuildModel: ObservableObject {
 
     /// The tools of `requiredTools` that `dir` does not have (empty: the build tools are as new as this app needs).
     nonisolated static func missingTools(in dir: String) -> [String] {
-        requiredTools.filter { !FileManager.default.fileExists(atPath: dir + "/" + $0) }
+        let root = EngineLayout.root(dir)   // engine/ once synced, else the committed tree (Engine.swift)
+        return requiredTools.filter { !FileManager.default.fileExists(atPath: root + "/" + $0) }
     }
 
     /// Whether the checkout's build script has this fork's `--work-dir` (issue #5): an upstream
@@ -312,7 +313,8 @@ final class BuildModel: ObservableObject {
     /// app passes it. Read from the script's own argparse rather than assumed — the option is the
     /// fork's, not upstream's.
     nonisolated static func repoSupportsWorkDir(_ dir: String) -> Bool {
-        let script = dir + "/" + buildScript
+        let script = EngineLayout.root(dir) + "/" + buildScript
+        if !FileManager.default.fileExists(atPath: script), EngineLayout.hasEngineTool(dir) { return true }   // engine/ not made yet: the fork's engine has it
         guard let text = try? String(contentsOfFile: script, encoding: .utf8) else { return false }
         return text.contains("'--work-dir'") || text.contains("\"--work-dir\"")
     }
@@ -427,6 +429,7 @@ final class BuildModel: ObservableObject {
                 if ok && Self.isRepo(dest) {
                     self.repoPath = dest
                     self.repoStatus = String(format: self.t("repo.downloadDone"), self.shortPath(dest))
+                    self.syncEngine()
                 } else {
                     self.repoStatus = self.t("repo.downloadFail")
                     try? FileManager.default.removeItem(atPath: dest)   // a failed clone leaves an empty folder
@@ -487,6 +490,7 @@ final class BuildModel: ObservableObject {
                 if r.ok {
                     self.repoBehind = 0; self.repoStatus = self.t("repo.pulled")
                     if !r.out.isEmpty { self.append(r.out + "\n") }
+                    self.syncEngine()   // the pull may have moved the pin or the patches
                 } else {
                     self.repoStatus = self.pullFailureMessage(r.out)
                     self.append(r.out + "\n")
@@ -513,6 +517,7 @@ final class BuildModel: ObservableObject {
                 if pulled.ok {
                     self.repoBehind = 0; self.autoPulled = behind
                     self.repoStatus = String(format: self.t("repo.autoPulled"), behind)
+                    self.syncEngine()
                 } else {
                     self.repoStatus = self.pullFailureMessage(pulled.out)
                     self.append(pulled.out + "\n")
@@ -607,11 +612,54 @@ final class BuildModel: ObservableObject {
                     self.repoBehind = 0
                     self.repoStatus = String(format: self.t(automatic ? "repo.adoptedAuto" : "repo.adopted"), branch)
                     if automatic { self.autoAdopted = true }
+                    self.syncEngine()
                 } else {
                     self.repoStatus = self.t(automatic ? "repo.adoptFailAuto" : "repo.adoptFail")
                 }
             }
         }
+    }
+
+    /// What waits for the running `tools/engine.py sync` (nil: none runs), and whether another one is due when it ends.
+    private var engineSyncWaiting: [(Bool) -> Void]?
+    private var engineSyncAgain = false
+    /// A sync runs: the launcher shows a status line with a spinner (EngineSyncBanner).
+    @Published var engineSyncing = false
+    /// How the last sync stopped (no network or GitHub unreachable, or another stop), as a failure row with a retry button. nil: none.
+    @Published var engineFailure: BuildFailure?
+
+    /// `tools/engine.py sync` when engine/ is stale (#214, Engine.swift): at launch, after a clone, a pull or an adoption, and before a
+    /// build that has no other engine. Checkouts only: a release app carries its engine tree (#227) and never syncs. A no-op for a checkout
+    /// from before #214 or a current engine/. `then(ok)` runs on the main queue.
+    func syncEngine(then: ((Bool) -> Void)? = nil) {
+        if engineSyncWaiting != nil { engineSyncAgain = true; if let then { engineSyncWaiting?.append(then) }; return }
+        guard EngineLayout.isStale(repoPath) else { engineFailure = nil; then?(true); return }
+        engineSyncWaiting = then.map { [$0] } ?? []
+        engineSyncing = true; engineFailure = nil
+        let repo = repoPath, chosen = pythonPath
+        append("$ python3 tools/engine.py sync\n")
+        var tail = ""   // what failureKind reads when the sync stops (only touched on the main queue)
+        DispatchQueue.global().async {
+            let py = chosen.isEmpty ? Self.findPython().path : chosen
+            let ok = EngineLayout.runSync(repo: repo, python: py) { line in
+                DispatchQueue.main.async { self.append(line + "\n"); tail = String((tail + line + "\n").suffix(4000)) }
+            }
+            DispatchQueue.main.async {
+                let waiting = self.engineSyncWaiting ?? [], again = self.engineSyncAgain && ok
+                self.engineSyncWaiting = nil; self.engineSyncAgain = false
+                self.engineSyncing = false
+                self.engineFailure = ok ? nil : BuildFailure(kind: EngineLayout.failureKind(tail), gameName: nil)
+                if again { self.syncEngine { ok in waiting.forEach { $0(ok) } } } else { waiting.forEach { $0(ok) } }
+                self.objectWillChange.send()   // repoOK and the engine's paths may have changed
+            }
+        }
+    }
+
+    /// The failure row's Try again: clears the row and runs the sync again.
+    func retryEngineSync() {
+        guard !engineSyncing else { return }
+        engineFailure = nil
+        syncEngine()
     }
 
     // ---- App self-update (GitHub Releases) ----
@@ -1154,6 +1202,15 @@ final class BuildModel: ObservableObject {
         // empty, and the old fallback was Apple's /usr/bin/python3 (3.9), which the script then
         // rejected with "require Python 3.12 or newer" whatever the machine actually had (#53).
         let py = pythonPath.isEmpty ? Self.findPython().path : pythonPath
+        // engine/ is the only engine and is stale or missing (#214): make it, then start again
+        if EngineLayout.needsSyncBeforeBuild(repoPath) {
+            syncEngine { ok in
+                self.running = false
+                if ok && !EngineLayout.needsSyncBeforeBuild(self.repoPath) { self.startBuild() }
+                else { self.fail(String(format: self.t("msg.toolsOld"), "engine/ (python3 tools/engine.py sync, see the log)")) }
+            }
+            return
+        }
         // The tools this app runs, before a build that takes an hour finds one missing at its last step (#87)
         let missing = Self.missingTools(in: repoPath)
         if !missing.isEmpty {
@@ -1237,7 +1294,8 @@ final class BuildModel: ObservableObject {
                 return
             }
         }
-        var args = [repoPath + "/" + Self.buildScript, inputDir, "-k", keysPath,
+        let engine = EngineLayout.root(repoPath)   // engine/ once synced, else the committed tree (#214)
+        var args = [engine + "/" + Self.buildScript, inputDir, "-k", keysPath,
                     "--progress", "json"]
         // A compatibility switch the player turned on: written to a small env file the pipeline
         // copies into the app bundle (main.m sets one variable per line at boot). Only for an IPA;
@@ -1277,7 +1335,7 @@ final class BuildModel: ObservableObject {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: py)
         p.arguments = args
-        p.currentDirectoryURL = URL(fileURLWithPath: repoPath)
+        p.currentDirectoryURL = URL(fileURLWithPath: engine)
         // The root of the runtime the apphost looks for: derived from the detected installation,
         // not assumed to be ~/.dotnet (Homebrew keeps it in …/opt/dotnet/libexec). Only set when the
         // derivation actually answered — a wrong root is worse than none, and the pipeline derives
@@ -1866,9 +1924,10 @@ final class BuildModel: ObservableObject {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: pythonPath.isEmpty ? "/usr/bin/python3" : pythonPath)
         // dest/romfs.img: one file, which main.m's per-game lookup takes before any folder.
-        p.arguments = [repoPath + "/" + Self.romfsImageTool, "--reuse", romfs, dest + "/romfs.img"]
+        let engine = EngineLayout.root(repoPath)
+        p.arguments = [engine + "/" + Self.romfsImageTool, "--reuse", romfs, dest + "/romfs.img"]
         let romfsPy = p.executableURL!.path
-        p.environment = ["PATH": Self.toolPath("/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin", python: romfsPy), "PYTHONPATH": repoPath + "/dm/tools"]
+        p.environment = ["PATH": Self.toolPath("/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin", python: romfsPy), "PYTHONPATH": engine + "/dm/tools"]
             .merging(BundledTools.environment(for: romfsPy)) { $1 }
         Self.inOwnGroup(p, python: p.executableURL!.path)
         let pipe = Pipe(); p.standardOutput = pipe; p.standardError = pipe
@@ -2789,7 +2848,7 @@ final class BuildModel: ObservableObject {
         }
 
         let macMetal = firstOutputLine("/usr/bin/xcrun", ["-sdk", "macosx", "metal", "--version"])
-        let lock = repo.isEmpty ? nil : try? String(contentsOfFile: repo + "/" + MetalPin.lockPath, encoding: .utf8)
+        let lock = repo.isEmpty ? nil : try? String(contentsOfFile: EngineLayout.root(repo) + "/" + MetalPin.lockPath, encoding: .utf8)
         let iosMetal = needsIOS && lock != nil ? firstOutputLine("/usr/bin/xcrun", ["-sdk", "iphoneos", "metal", "--version"]) : nil
         out.append(metalDep(runs: macMetal != nil, lock: lock, now: ["macosx": macMetal, "iphoneos": iosMetal], needsIOS: needsIOS))
 

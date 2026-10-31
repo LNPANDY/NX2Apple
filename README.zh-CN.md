@@ -131,7 +131,7 @@ iPhone 上在「文件」App 里该 App 名字下：`save/` 和 `log.txt`（上�
 - **从源码构建：** [BUILDING.zh-CN.md](BUILDING.zh-CN.md)。**报告或修复问题：** [CONTRIBUTING.zh-CN.md](CONTRIBUTING.zh-CN.md)。
 - **本 fork 对上游改了什么：** 引擎（`dm/`、`scripts/`、`docs/`、`ref/`、`AGENTS.md`）就是 nxnative 在固定提交上的
   内容，加一组补丁，每个补丁写明本 fork 为什么带着它。见 [patches/README.md](patches/README.md)；
-  `python3 scripts/patches.py status` 列出带着的全部补丁。每天一次的任务移动固定提交并开 pull request，
+  `python3 tools/engine.py status` 列出带着的全部补丁。每天一次的任务移动固定提交并开 pull request，
   某个补丁对不上时开一个点名该补丁的 issue。
 - **其他 Switch 游戏：** [docs/agents](docs/agents/README.md)（解包、二进制调查、bring-up）。
 - **版本历史：** [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md)。

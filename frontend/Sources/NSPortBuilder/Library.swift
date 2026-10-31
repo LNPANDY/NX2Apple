@@ -142,7 +142,7 @@ struct LaunchSetting: Decodable, Identifiable {
 
     /// render_base in the game's profile ("1600x900 1280x720": docked, then handheld).
     static func renderBase(titleID: String, repo: String) -> [String: [Int]]? {
-        let path = repo + "/dm/games/" + titleID + "/game.tsv"
+        let path = EngineLayout.root(repo) + "/dm/games/" + titleID + "/game.tsv"
         guard !repo.isEmpty, let text = try? String(contentsOfFile: path, encoding: .utf8),
               let line = text.split(separator: "\n").first(where: { $0.hasPrefix("render_base\t") }) else { return nil }
         let sizes = line.dropFirst("render_base\t".count).split(separator: " ").map { $0.split(separator: "x").compactMap { Int($0) } }
@@ -561,7 +561,7 @@ final class GameLibrary: ObservableObject {
     }
 
     static func title(for path: String, repo: String, titleID: String) -> String {
-        if let text = try? String(contentsOfFile: repo + "/dm/games/" + titleID + "/game.tsv", encoding: .utf8),
+        if let text = try? String(contentsOfFile: EngineLayout.root(repo) + "/dm/games/" + titleID + "/game.tsv", encoding: .utf8),
            let row = text.split(separator: "\n").first(where: { $0.hasPrefix("name\t") }) {
             return String(row.dropFirst(5))
         }
@@ -581,7 +581,7 @@ final class GameLibrary: ObservableObject {
                 .filter { $0.isLetter || $0.isNumber }
         }
         let name = normalized(game.name)
-        let images = URL(fileURLWithPath: repo).appendingPathComponent("docs/images")
+        let images = URL(fileURLWithPath: EngineLayout.root(repo)).appendingPathComponent("docs/images")
         let files = (try? FileManager.default.contentsOfDirectory(at: images, includingPropertiesForKeys: nil)) ?? []
         let matches = files.filter {
             ["jpg", "jpeg", "png", "webp"].contains($0.pathExtension.lowercased()) && name.hasSuffix(normalized($0.deletingPathExtension().lastPathComponent))

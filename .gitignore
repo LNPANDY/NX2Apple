@@ -35,3 +35,7 @@ frontend/NX2Apple.app/
 
 # the virtual environment the README creates for the Python packages
 .venv/
+
+# The engine: seedds/nxnative at .upstream-ref plus patches/, made by `python3 tools/engine.py sync` (issue #214). A build product
+# like .build/, so git ignores it. The root .ignore un-ignores it for ripgrep-based search, so agents and editors still find it.
+/engine/

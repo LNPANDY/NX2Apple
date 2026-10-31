@@ -1,11 +1,13 @@
-"""scripts/patches.py on a fixture repository: the series reproduces the vendored tree, a patch that upstream took drops on a bump,
+"""tools/patches.py on a fixture repository: the series reproduces the vendored tree, a patch that upstream took drops on a bump,
 a conflict names its patch, export writes the header, a patch that touches the shader chain is rejected, and the list of carried
 patches is generated, and the generated indexes are regenerated on the patched tree. No game files, no network: upstream is a branch of the fixture."""
 import importlib.util, os, shutil, subprocess, sys, tempfile, unittest
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
-TOOL = REPO / 'scripts/patches.py'
+TOOL = REPO / 'tools/patches.py'
+# The engine sources the tests read: engine/ once tools/engine.py sync made it (LNPANDY/NX2Apple#214), else the committed tree
+SRC = REPO / 'engine' if (REPO / 'engine/AGENTS.md').is_file() else REPO
 spec = importlib.util.spec_from_file_location('patches_tool', TOOL)
 P = importlib.util.module_from_spec(spec); spec.loader.exec_module(P)
 
@@ -29,12 +31,12 @@ class Fixture(unittest.TestCase):
         self.w('dm/a.c', 'line1\nline2\nline3\nline4\nline5\nline6\nline7\n')
         self.w('dm/b.c', 'b1\nb2\n')
         self.w('docs/x.md', 'x\n')
-        shutil.copy(REPO / 'AGENTS.md', self.r / 'AGENTS.md')
+        shutil.copy(SRC / 'AGENTS.md', self.r / 'AGENTS.md')
         git(self.r, 'add', '-A'); git(self.r, 'commit', '-q', '-m', 'upstream 1')
         self.up1 = git(self.r, 'rev-parse', 'HEAD')
         git(self.r, 'branch', 'up')
-        # the tool lives in the fork's scripts/, which is vendored but not part of the generated tree
-        (self.r / 'scripts').mkdir(); shutil.copy(TOOL, self.r / 'scripts/patches.py')
+        # the tool lives in the fork's tools/, outside the vendored paths
+        (self.r / 'tools').mkdir(); shutil.copy(TOOL, self.r / 'tools/patches.py')
         self.w('dm/a.c', 'line1\nline2 fork\nline3\nline4\nline5\nline6\nline7\n')
         git(self.r, 'add', '-A'); git(self.r, 'commit', '-q', '-m', 'Make line 2 the fork\'s\n\nWhy: a test.')
         self.run_tool('export', 'HEAD', '--status', 'forwarded seedds/nxnative#475', '--reason', 'the fork needs line 2', '--issue', 'LNPANDY/NX2Apple#1')
@@ -46,7 +48,7 @@ class Fixture(unittest.TestCase):
         f = self.r / path; f.parent.mkdir(parents=True, exist_ok=True); f.write_text(text)
 
     def run_tool(self, *a, expect=0):
-        r = subprocess.run([sys.executable, str(self.r / 'scripts/patches.py'), '--tmp', str(self.tmp), *a], cwd=self.r, capture_output=True, text=True, env=ENV)
+        r = subprocess.run([sys.executable, str(self.r / 'tools/patches.py'), '--tmp', str(self.tmp), *a], cwd=self.r, capture_output=True, text=True, env=ENV)
         if expect is not None: self.assertEqual(r.returncode, expect, r.stdout + r.stderr)
         return r.stdout + r.stderr
 
@@ -71,7 +73,7 @@ class ApplyAndCheck(Fixture):
     def test_a_hand_edit_of_a_vendored_file_fails_check_and_apply_restores_it(self):
         self.w('dm/b.c', 'b1\nb2 edited\n')
         out = self.run_tool('check', expect=1)
-        self.assertIn('dm/b.c', out); self.assertIn('run `python3 scripts/patches.py absorb dm/b.c` and commit patches/', out)
+        self.assertIn('dm/b.c', out); self.assertIn('run `python3 tools/patches.py absorb dm/b.c` and commit patches/', out)
         self.run_tool('apply')
         self.assertEqual((self.r / 'dm/b.c').read_text(), 'b1\nb2\n')
         self.run_tool('check')
@@ -224,7 +226,7 @@ class Absorb(Fixture):
         for n in range(8): self.w(f'dm/n{n}.c', 'n\n')
         out = self.run_tool('check', expect=1)
         self.assertNotIn('...', out)
-        self.assertIn('`python3 scripts/patches.py absorb`', out)
+        self.assertIn('`python3 tools/patches.py absorb`', out)
 
     def test_a_full_revert_that_empties_a_patch_is_refused_and_changes_nothing(self):
         self.w('dm/a.c', 'line1\nline2\nline3\nline4\nline5\nline6\nline7\n')
@@ -324,8 +326,8 @@ class ForkPatchList(Fixture):
 
     def test_the_mac_app_stamps_the_list_into_info_plist(self):
         """pack_app.py's DMForkPatches is dm/fork_patches.txt, comma-separated, and empty without the file"""
-        sys.path.insert(0, str(REPO / 'dm/tools'))
-        spec = importlib.util.spec_from_file_location('pack_app_under_test', REPO / 'dm/mac/pack_app.py')
+        sys.path.insert(0, str(SRC / 'dm/tools'))
+        spec = importlib.util.spec_from_file_location('pack_app_under_test', SRC / 'dm/mac/pack_app.py')
         mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
         fake = self.tmp / 'dm/mac'; fake.mkdir(parents=True)
         mod.__file__ = str(fake / 'pack_app.py')
@@ -337,9 +339,9 @@ class ForkPatchList(Fixture):
 
     def test_the_first_log_line_and_the_ios_key_are_in_the_sources(self):
         """a read of the sources, not a run: the iOS app and the Mac launcher write the line, project.yml carries the key"""
-        self.assertIn('"fork patches: %s\\n"', (REPO / 'dm/ios/Sources/main.m').read_text())
-        self.assertIn('"fork patches: %s\\n"', (REPO / 'dm/mac/launcher.c').read_text())
-        self.assertIn('DMForkPatches: ${DM_FORK_PATCHES}', (REPO / 'dm/ios/project.yml').read_text())
+        self.assertIn('"fork patches: %s\\n"', (SRC / 'dm/ios/Sources/main.m').read_text())
+        self.assertIn('"fork patches: %s\\n"', (SRC / 'dm/mac/launcher.c').read_text())
+        self.assertIn('DMForkPatches: ${DM_FORK_PATCHES}', (SRC / 'dm/ios/project.yml').read_text())
 
 
 class GeneratedIndexes(Fixture):
@@ -381,14 +383,14 @@ class HostTestRules(unittest.TestCase):
     def test_sdk16_tests_keep_runtime_profile_linkage_after_refresh(self):
         r = subprocess.run(
             ['make', '-n', '-B', 'GAME=010015100B514000', 'build/t_language', 'build/t_shared_font'],
-            cwd=REPO / 'dm/host/tests', capture_output=True, text=True)
+            cwd=SRC / 'dm/host/tests', capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         for name in ('t_language', 't_shared_font'):
             command = next(line for line in r.stdout.splitlines() if f'-o build/{name} ' in line)
             self.assertIn(f'{name}.c ../hle_profile.c', command)
             if name == 't_language':
                 self.assertIn('-fsanitize=address,undefined', command)
-        rules = (REPO / 'dm/host/tests/Makefile').read_text().splitlines()
+        rules = (SRC / 'dm/host/tests/Makefile').read_text().splitlines()
         prerequisites = ' '.join(line for line in rules if line.startswith('run:'))
         for name in ('t_language', 't_input_map', 't_launcher_contract'):
             self.assertIn(f'$(B)/{name}', prerequisites)

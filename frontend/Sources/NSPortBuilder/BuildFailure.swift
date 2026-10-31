@@ -13,6 +13,8 @@ enum BuildFailureKind: String, CaseIterable {
     /// The build folder is in iCloud Drive or another cloud folder (CloudFolder.swift): the launcher stops before the build, and the
     /// codesign line of xcodebuild is the same stop for a build that got past that check.
     case cloudFolder
+    /// The engine's online sync (tools/engine.py sync, Engine.swift): no network or GitHub unreachable, or any other stop of it.
+    case engineOffline, engineSync
     case unknown
 
     /// The script's override for this stop, offered as "Build anyway". Only these three have one that the launcher

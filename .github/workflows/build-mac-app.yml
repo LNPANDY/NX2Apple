@@ -8,7 +8,14 @@
 # "up to date" — a silent failure of the update path for every existing install. Copies from before
 # the app was renamed (NS Port Builder) look for NS-Port-Builder-macOS-arm64.zip, so that one goes up too.
 #
-# The app also carries its build tools (zstd, glslangValidator, spirv-cross, xcodegen) and a Python with the packages the build scripts import,
+# The app carries the engine (issues #214 and #227): `tools/engine.py tree` builds the engine tree (seedds/nxnative at the pin plus the patch
+# series, no git history) into Contents/Resources/engine, and the launcher copies it to Application Support on first use. The same tree goes up
+# as a release asset (NX2Apple-engine.zip) together with latest.json and its Ed25519 signature latest.json.sig (tools/release_manifest.py), which
+# is what the launcher reads to update the engine without an app release. The signing key is the repository secret ENGINE_SIGNING_KEY and it is
+# optional for now: when it is set, the engine is signed, and a tag build fails at its first step when the key is not the one in
+# frontend/engine-signing.pub (compiled into the launcher). When it is not set, a tag build publishes without latest.json.sig and prints a warning.
+# Signing becomes mandatory before any download source other than GitHub is added (LNPANDY/NX2Apple#268, Cloudflare R2).
+# Other builds run the same steps as a dry run with a throwaway key and upload nothing. It also carries its build tools (zstd, glslangValidator, spirv-cross, xcodegen) and a Python with the packages the build scripts import,
 # so a player installs neither Homebrew nor Python (frontend/tools/bundle_tools.sh builds them from pinned, checksummed sources; check_bundle.sh
 # runs each from the assembled bundle with a clean PATH, checks the load paths and the signature).
 #
@@ -21,7 +28,7 @@ on:
   push:
     tags: ['v*']
   pull_request:
-    paths: ['frontend/**', '.github/workflows/build-mac-app.yml']
+    paths: ['frontend/**', 'tools/engine.py', 'tools/release_manifest.py', 'tools/requirements-release.txt', 'patches/**', '.upstream-ref', '.github/workflows/build-mac-app.yml']
   workflow_dispatch:
 
 permissions:
@@ -32,6 +39,31 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.14'
+      - name: Install the signing tool's package
+        run: python -m pip install -r tools/requirements-release.txt
+
+      - name: Signing key (a warning without one, a failure with a key that does not match)
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          ENGINE_SIGNING_KEY: ${{ secrets.ENGINE_SIGNING_KEY }}
+        run: |
+          # Warns when the secret is not set (the release then goes out unsigned). Fails when it is set and its public key is not the one in
+          # frontend/engine-signing.pub, the value the launcher compiles in (EngineManifest.verify): a manifest signed with any other key
+          # would be rejected by every installed app.
+          python tools/release_manifest.py check-key --pub frontend/engine-signing.pub
+
+      - name: Engine tree (tools/engine.py tree)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/engine.py sync
+          # The tree as it goes into the app, and its zip, byte for byte the same on every run (the SHA-256 in latest.json).
+          python tools/engine.py tree --out "$RUNNER_TEMP/engine-tree" --zip "$RUNNER_TEMP/engine-out/NX2Apple-engine.zip"
+          du -sh "$RUNNER_TEMP/engine-tree" "$RUNNER_TEMP/engine-out/NX2Apple-engine.zip"
 
       - name: Version from the tag
         id: ver
@@ -73,6 +105,13 @@ jobs:
           # The build tools and the Python go into Resources before the bundle is signed (bundle_tools.sh signs each nested Mach-O file
           # itself: --deep below does not reach code that sits in Resources).
           tools/bundle_tools.sh "$APP/Contents/Resources" "$RUNNER_TEMP/bundle-tools-work"
+          # The engine tree (Contents/ is read-only once signed: the launcher copies it to ~/Library/Application Support/NX2Apple/ on first
+          # use). Its Mach-O files (the shader translator, spirv-cross) are signed on their own like the bundled tools: --deep does not reach
+          # code in Resources. The zip asset keeps them as upstream built them.
+          ditto "$RUNNER_TEMP/engine-tree" "$APP/Contents/Resources/engine"
+          while IFS= read -r -d '' f; do
+            if file -b "$f" | grep -q 'Mach-O'; then codesign --force --sign - "$f" 2> /dev/null; fi
+          done < <(find "$APP/Contents/Resources/engine" -type f -perm -u+x -print0)
           V="${{ steps.ver.outputs.version }}"
           cat > "$APP/Contents/Info.plist" <<PLIST
           <?xml version="1.0" encoding="UTF-8"?>
@@ -108,6 +147,13 @@ jobs:
           # lz4, capstone, fontTools, zbic (system 22.0.0+ modules) and nsz, so a release without one of them fails here; no Mach-O file links into /opt/homebrew; the signature verifies.
           tools/check_bundle.sh NX2Apple.app
           codesign -v --deep --strict NX2Apple.app
+          # The engine tree inside the bundle is the one the zip asset holds: same identity, the files the launcher runs by path.
+          E="NX2Apple.app/Contents/Resources/engine"
+          cmp "$E/.engine-id" "$RUNNER_TEMP/engine-tree/.engine-id"
+          cmp "$E/.upstream-ref" ../.upstream-ref
+          test -f "$E/scripts/build_ipa_from_nsp.py" && test -f "$E/dm/tools/romfs_image.py" && test -f "$E/dm/fork_patches.txt"
+          test ! -e "$E/.git"
+          echo "engine in the bundle: $(cat "$E/.engine-id")"
 
       - name: Package
         working-directory: frontend
@@ -153,3 +199,36 @@ jobs:
             frontend/NX2Apple-macOS-arm64.zip \
             frontend/nxnative-macOS-arm64.zip \
             frontend/NS-Port-Builder-macOS-arm64.zip --clobber
+
+      - name: Publish the engine (NX2Apple-engine.zip, latest.json, latest.json.sig)
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ENGINE_SIGNING_KEY: ${{ secrets.ENGINE_SIGNING_KEY }}
+        run: |
+          # latest.json: version, pin, engine_id, the engine and app assets with SHA-256 and size, sources (this release's download URL),
+          # built, channel stable. latest.json.sig: the Ed25519 signature over its exact bytes, made when ENGINE_SIGNING_KEY is set (without it
+          # the tool prints a warning and uploads no signature). The zip goes first, the signature last.
+          python tools/release_manifest.py publish \
+            --engine-zip "$RUNNER_TEMP/engine-out/NX2Apple-engine.zip" --app-zip frontend/NX2Apple-macOS-arm64.zip \
+            --version "${{ steps.ver.outputs.version }}" --channel stable --tag "$GITHUB_REF_NAME" \
+            --out "$RUNNER_TEMP/publish" --upload
+
+      - name: Engine publishing dry run (a throwaway key, nothing uploaded)
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        shell: bash
+        run: |
+          python tools/release_manifest.py publish \
+            --engine-zip "$RUNNER_TEMP/engine-out/NX2Apple-engine.zip" --app-zip frontend/NX2Apple-macOS-arm64.zip \
+            --version "${{ steps.ver.outputs.version }}" --channel stable --tag "v${{ steps.ver.outputs.version }}" \
+            --out "$RUNNER_TEMP/publish" --ephemeral-key
+          cat "$RUNNER_TEMP/publish/latest.json"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        with:
+          name: engine-latest-json-dry-run
+          path: |
+            ${{ runner.temp }}/publish/latest.json
+            ${{ runner.temp }}/publish/latest.json.sig
+          if-no-files-found: error

@@ -1,5 +1,23 @@
 # The patch queue
 
+> **engine/ (issue #214, step 1).** The engine is now also built into `engine/`, a real git repository that git ignores:
+> `python3 tools/engine.py sync` fetches seedds/nxnative at the pin (one commit deep) and applies `series` there with `git am`, one
+> commit per patch. Engine work is a commit in `engine/`, and `python3 tools/engine.py export` turns it into a patch with the header
+> below. The launchers, CI and the release app use `engine/`. The committed copy in `dm/`, `scripts/`, `docs/`, `ref/` and `AGENTS.md`
+> stays until one release has shipped with both layouts (step 2), and `tools/engine.py check --tree` keeps it equal to pin + series.
+> The patch tool moved from `tools/patches.py` to `tools/patches.py` (the old path forwards).
+>
+> ```sh
+> python3 tools/engine.py sync                 # engine/ = pin + series (a no-op when nothing changed)
+> python3 tools/engine.py status               # what we carry, and the state of engine/
+> python3 tools/engine.py export               # commits made in engine/ since the last sync become patches
+> python3 tools/engine.py check --tree         # the series applies cleanly to the pin, and the committed tree matches
+> python3 tools/engine.py bump --dry --to main # which patches a bump would drop or conflict on
+> ```
+>
+> `sync` never throws away work in `engine/`: with commits or changes there it stops and names `export` (or `--force`, which keeps
+> them on a backup branch). Offline, it says so and names the fix. A release app carries no engine: the launcher runs `sync` on the first start and after updates, which downloads about 80 MB from GitHub.
+
 `dm/`, `scripts/`, `docs/`, `ref/` and `AGENTS.md` are not edited by hand. They are
 [seedds/nxnative](https://github.com/seedds/nxnative) at the commit in `../.upstream-ref`, plus the patches in this folder
 applied in the order of `series` with `git am -3`. The same model carries Chromium's changes in Electron and the upstream
@@ -20,7 +38,7 @@ Issue: LNPANDY/NX2Apple#<n>
 | `fork-only` | stays here: a fork product choice, or upstream declined it (`fork-only (declined seedds/nxnative#N)`) |
 | `backport <sha>` | upstream has it (that commit), and the patch goes on the next bump |
 
-A status may carry a note in brackets. `scripts/patches.py status` lists every patch with its status, reason and age, so the
+A status may carry a note in brackets. `tools/patches.py status` lists every patch with its status, reason and age, so the
 list of what the fork carries and why is one command, and it should keep shrinking.
 
 ## Upstream first
@@ -33,13 +51,13 @@ its status is `forwarded seedds/nxnative#<n>`, and the next bump drops it once t
 ## Day to day
 
 ```sh
-python3 scripts/patches.py status             # what we carry, and why
-python3 scripts/patches.py check              # series on the pin == the vendored tree of this checkout
-python3 scripts/patches.py apply              # rebuild the vendored tree from the pin and the series
-python3 scripts/patches.py bump --to <sha>    # move the pin (the nightly job does this)
-python3 scripts/patches.py bump --dry --to <sha>   # which patches would conflict, changing nothing
-python3 scripts/patches.py export <commit>    # a local commit becomes a patch
-python3 scripts/patches.py absorb [paths]     # direct edits of vendored files fold into the patches that touch them
+python3 tools/patches.py status             # what we carry, and why
+python3 tools/patches.py check              # series on the pin == the vendored tree of this checkout
+python3 tools/patches.py apply              # rebuild the vendored tree from the pin and the series
+python3 tools/patches.py bump --to <sha>    # move the pin (the nightly job does this)
+python3 tools/patches.py bump --dry --to <sha>   # which patches would conflict, changing nothing
+python3 tools/patches.py export <commit>    # a local commit becomes a patch
+python3 tools/patches.py absorb [paths]     # direct edits of vendored files fold into the patches that touch them
 ```
 
 `apply` and `bump` need the upstream commit in the local repository (`git fetch seedds`, the remote
@@ -49,7 +67,7 @@ python3 scripts/patches.py absorb [paths]     # direct edits of vendored files f
 ## You edited a vendored file directly (check fails)
 
 `check` names every file that differs from pin + patches and the command to run, e.g. `docs/x.md differs from pin+patches: run
-`python3 scripts/patches.py absorb docs/x.md` and commit patches/`. `absorb [paths...]` takes the difference between the
+`python3 tools/patches.py absorb docs/x.md` and commit patches/`. `absorb [paths...]` takes the difference between the
 vendored files of your checkout (working tree or already committed) and pin + series, and folds each file into the patch that
 already touches it (the last one, when several do), keeping that patch's header. Then it runs `check`. Commit `patches/`.
 
@@ -62,11 +80,11 @@ already touches it (the last one, when several do), keeping that patch's header.
 ## Carrying a quick fix, and sending it upstream
 
 1. Branch off `main`. Make the fix as an ordinary commit in the vendored files, with a message that says what and why.
-2. `python3 scripts/patches.py export HEAD` writes `patches/NNNN-<subject>.patch`, adds it to `series`, and puts the header
+2. `python3 tools/patches.py export HEAD` writes `patches/NNNN-<subject>.patch`, adds it to `series`, and puts the header
    template into the message (`Upstream-Status: pending`, `Reason: TODO`, `Issue: TODO`, which `--status`, `--reason` and `--issue` set). Fill the three lines in. A range
    (`export main..HEAD`) makes one patch per commit. Rename the file if you want a shorter name, because the name is what
    `fork_patches.txt` and `status` show.
-3. `python3 scripts/patches.py check` must pass: the series applied to the pin gives exactly the tree you committed. Commit the
+3. `python3 tools/patches.py check` must pass: the series applied to the pin gives exactly the tree you committed. Commit the
    patch file with the change in the same pull request. The files you edited are already in your commit, so they are part of the PR.
 4. Send the same change to seedds/nxnative as a pull request from a branch off *their* main (`git fetch seedds`,
    `git switch -c fix-x seedds/main`, `git cherry-pick <commit>`), and set the patch to `forwarded seedds/nxnative#<N>`.
@@ -82,12 +100,44 @@ leaves the conflict in a worktree.
 1. In that worktree, resolve the conflict, `git add`, `git am --continue`. If upstream has taken the patch's change in another
    form, `git am --skip` instead.
 2. Apply the patches after it: `git am -3 <the remaining patch files>`.
-3. `python3 scripts/patches.py refresh <worktree> --to <sha>` writes the commits back as the series (patches with no commit are
+3. `python3 tools/patches.py refresh <worktree> --to <sha>` writes the commits back as the series (patches with no commit are
    deleted), moves `.upstream-ref` and regenerates the vendored tree.
 4. Run the checks (`check`, the tests, the host build), commit, open the pull request.
 
 The nightly workflow does the first step only: it opens a pull request on `sync/upstream` when every patch applies, and an issue
 naming the blocking patch when one does not. Whoever owns the patch refreshes it.
+
+## The engine tree and how it is published (#227)
+
+Players get no git: a release carries the engine as a plain tree. `python3 tools/engine.py tree --out DIR [--zip FILE]` writes it from
+a synced `engine/` (`dm/`, `scripts/`, `docs/`, `ref/`, `AGENTS.md`, `LICENSE`, the patches applied, `dm/fork_patches.txt`, no history) plus
+`.upstream-ref` and `.engine-id`, the tree's identity `<pin>-<first 12 hex of the series digest>` (the series changes without the pin moving, so
+the pin alone does not name a tree). The zip is deterministic (sorted, fixed timestamps), so its SHA-256 is reproducible.
+
+`python3 tools/release_manifest.py publish ...` writes `latest.json` (version, pin, `engine_id`, channel, built, the engine and app assets with
+SHA-256 and size, sources) and, when a key is set, `latest.json.sig` (a detached Ed25519 signature over its exact bytes, base64). With `--upload` it puts
+`NX2Apple-engine.zip`, `latest.json` and `latest.json.sig` on a GitHub release. Without `--upload` it is a dry run.
+`build-mac-app.yml` does this for a release tag (stable channel, the tree also goes into `Contents/Resources/engine`).
+`sync-upstream.yml` does it for the pre-release tag `engine-experimental`.
+
+### Signing is optional for now
+
+The key is the repository secret `ENGINE_SIGNING_KEY` (base64 of the 32 raw private bytes). `python3 tools/release_manifest.py keygen` makes a pair.
+Its public half is `frontend/engine-signing.pub`, which the launcher compiles in.
+- With the secret set, `publish` signs and verifies the result. A key that does not belong to `frontend/engine-signing.pub` stops the release.
+- Without the secret, `publish` writes and uploads `latest.json` without a signature and prints a warning, a workflow annotation in CI. A `latest.json.sig` left on the release by an earlier signed run is removed, because it would not match the new manifest.
+- `python3 tools/release_manifest.py verify --manifest latest.json` checks a signature the way the launcher does. A missing `latest.json.sig` passes with a warning while the secret is not set, and fails when the secret is set or `--require-signature` is given.
+- Signing becomes mandatory before any download source other than GitHub is added (#268, Cloudflare R2). `publish --source` already refuses to run without a key.
+
+### The experimental channel
+
+The pre-release `engine-experimental` is built and published from `main` only, by the `publish-experimental` job of `sync-upstream.yml`.
+The job starts only on the ref `refs/heads/main` and only when the sync job of the nightly run succeeded with a green bump.
+It builds the engine of `main` and uploads it when its `engine_id` is not the one already published. A bump reaches the channel once its pull request is merged.
+A run on a pull request branch or any other ref never starts the job. The `force_experimental` input of a manual run on `main` uploads again even when the `engine_id` is the same.
+
+Locally: `python3 tools/engine.py sync`, then `tree --out /tmp/t --zip /tmp/e/NX2Apple-engine.zip`, then `publish --engine-zip /tmp/e/NX2Apple-engine.zip
+--version 0.0.0 --channel experimental --tag engine-experimental --out /tmp/p --ephemeral-key` runs every step except the upload.
 
 ## Patch policy
 
@@ -112,7 +162,7 @@ Upstream's compatibility is the baseline. A patch does not change it silently.
 ## What is not a patch
 
 `.github/`, `frontend/`, `frontend-qt/`, the README, CONTRIBUTING.md, CLAUDE.md and everything else outside the five vendored paths
-belong to the fork and are edited directly. Inside the vendored paths, the tool's own files (`scripts/patches.py`,
+belong to the fork and are edited directly. Inside the vendored paths, the tool's own files (`tools/patches.py`,
 `scripts/tests/test_patches.py`) and the generated `dm/fork_patches.txt` are not part of the generated tree.
 
 ## Generated files inside the vendored paths

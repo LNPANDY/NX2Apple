@@ -45,6 +45,12 @@ else:                                       # pragma: no cover - script mode
 
 HERE = Path(__file__).resolve().parent
 
+
+def _engine_root() -> str:
+    """The engine's folder when NSPB_REPO is unset: engine/ when synced, else the committed tree (LNPANDY/NX2Apple#214)."""
+    from nspb_qt import engine
+    return engine.engine_root(str(Path(__file__).resolve().parents[3]))
+
 #: Frameworks the app links. `Cocoa` is a macOS framework and is dropped; the rest is
 #: `dm/host/Makefile`'s link line minus Cocoa, plus what the UIKit side and the launcher use
 #: (Xcode would add UIKit through Swift module autolinking).
@@ -443,7 +449,7 @@ def main(argv: list[str] | None = None) -> int:
         die('--prepare-xcode generates an Xcode project, which needs a Mac with Xcode and '
             'xcodegen; on Windows the IPA is packed directly (drop the option)')
     env = os.environ
-    repo = Path(env.get('NSPB_REPO') or Path(__file__).resolve().parents[3])
+    repo = Path(env.get('NSPB_REPO') or _engine_root())
 
     game = env.get('GAME') or die('GAME is not set (the game profile ID)')
     w = Path(env.get('W') or die('W is not set (the work folder)'))

@@ -298,7 +298,8 @@ extension BuildModel {
             let env = ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin", "TMPDIR": NSTemporaryDirectory()]
             var dotnetEnv = env
             if !dotnet.isEmpty { dotnetEnv["DOTNET_ROOT"] = (dotnet as NSString).deletingLastPathComponent }
-            let read = { (file: String) in try? String(contentsOfFile: repo + "/" + file, encoding: .utf8) }
+            let engine = EngineLayout.root(repo)   // engine/ once synced, else the committed tree (#214)
+            let read = { (file: String) in try? String(contentsOfFile: engine + "/" + file, encoding: .utf8) }
             let pins = read("dm/gfx/tools/dmsh_chain.lock").map(Diagnostics.chainPins) ?? (nil, nil)
             let inputs = Diagnostics.Inputs(
                 appVersion: Self.appVersion,

@@ -56,7 +56,9 @@ REFUSED_OPTIONS = {
 
 
 def repo_dir() -> Path:
-    return Path(__file__).resolve().parents[3]
+    """The engine's folder: the checkout's engine/ when synced, else its committed tree (LNPANDY/NX2Apple#214)."""
+    from .. import engine
+    return Path(engine.engine_root(str(Path(__file__).resolve().parents[3])))
 
 
 def load_upstream(repo: Path) -> ModuleType:
