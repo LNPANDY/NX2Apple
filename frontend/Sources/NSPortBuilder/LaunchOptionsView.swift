@@ -147,6 +147,15 @@ struct LaunchOptionsView: View {
         return name == key ? section : name
     }
 
+    /// A setting's text in the launcher's language when this launcher has it (a game's launcher.json is in English), else the list's own.
+    private func text(_ key: String, _ fallback: String) -> String {
+        guard m.lang != .en else { return fallback }
+        let translated = m.t(key)
+        return translated == key ? fallback : translated
+    }
+    private func label(_ s: LaunchSetting) -> String { text("launch.set." + s.env, s.label) }
+    private func note(_ s: LaunchSetting) -> String { s.note.isEmpty ? "" : text("launch.set." + s.env + ".note", s.note) }
+
     private func set(_ s: LaunchSetting, _ value: String) {
         if s.storeBacked { store?.set(s, value) } else { library.setLaunchOption(s, value, for: gameID) }
         choicesRevision += 1
@@ -169,13 +178,13 @@ struct LaunchOptionsView: View {
         let pixels = s.kind == "range" ? s.pixels(scale: Double(value) ?? 1, docked: isDocked) : nil
         HStack(alignment: .center, spacing: 16) {
             VStack(alignment: .leading, spacing: 3) {
-                Text(s.label).font(.manrope(14, .medium))
+                Text(label(s)).font(.manrope(14, .medium))
                 if let full = s.kind == "range" ? s.pixels(scale: 1, docked: isDocked) : nil {
                     // The render scale in pixels: the share of the game's own size in the console mode chosen
                     Text(String(format: m.t(isDocked ? "launch.scaleOfDocked" : "launch.scaleOfHandheld"), Int(((Double(value) ?? 1) * 100).rounded()), full))
                         .font(.manrope(12)).foregroundStyle(.secondary)
-                } else if !s.note.isEmpty {
-                    Text(s.note).font(.manrope(12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                } else if !note(s).isEmpty {
+                    Text(note(s)).font(.manrope(12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
             }
             Spacer(minLength: 12)
@@ -210,11 +219,11 @@ struct LaunchOptionsView: View {
         HStack(spacing: 10) {
             switch s.kind {
             case "choice":
-                let options = (s.options ?? []).map { (value: $0[0], label: $0.count > 1 ? $0[1] : $0[0]) }
+                let options = (s.options ?? []).map { (value: $0[0], label: text("launch.opt.\(s.env).\($0[0])", $0.count > 1 ? $0[1] : $0[0])) }
                 if LaunchControl.isSegmented(env: s.env, labels: options.map(\.label)) {
                     LauncherSegmented(options: options, selection: value) { set(s, $0) }
                 } else {
-                    LauncherDropdown(options: options, selection: value, label: s.label, fill: true) { set(s, $0) }
+                    LauncherDropdown(options: options, selection: value, label: label(s), fill: true) { set(s, $0) }
                 }
             case "range":
                 let lo = s.min ?? 0, hi = s.max ?? 1
