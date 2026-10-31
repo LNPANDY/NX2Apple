@@ -11,7 +11,7 @@ returned None, so the rewrite stopped with "jump table 35837c". A 64-bit and wit
 0xffffffff only zero-extends, so a 32-bit check of its source, unchanged up to the and,
 bounds the index. Only sites that matched nothing before are affected.
 
-docs/reference/rewriter.md gets the entry, docs/agents/symptoms.md its symptom line.
+docs/reference/rewriter.md gets the entry; its symptom line in docs/agents/symptoms.md is a generated file, which tools/engine.py sync regenerates (seedds/nxnative#778 carries it).
 
 Upstream-Status: forwarded seedds/nxnative#778
 Reason: Mario Tennis Aces main stops the rewrite at an unrecognised jump table (and x18,x8,#0xffffffff index copy)
