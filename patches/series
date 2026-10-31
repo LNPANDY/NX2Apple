@@ -23,3 +23,5 @@
 0035-the-3d-layout-points-at-its-invisible-right-stic.patch
 0036-the-layout-editor-long-press-the-layout-button-a.patch
 0037-totk-1.4.2-frame-step-sites.patch
+0039-dm-ctl-texraw-every-slice.patch
+0040-layered-target-clears.patch

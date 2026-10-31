@@ -1,0 +1,80 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: keanu-stitch8 <riski.aditia@gmail.com>
+Date: Sat, 31 Oct 2026 22:56:42 +0700
+Subject: [PATCH] DM_CTL texraw saves every slice of a texture
+
+texraw saved slice 0 only, so a cube, array or layered render target
+could be checked only through its first face or layer. It now saves level
+0 of every slice one after another (a cube's six faces), with the slice
+count after the header's four fields when there is more than one. A
+single-slice texture's file is unchanged.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+Upstream-Status: forwarded seedds/nxnative#808
+Reason: texraw saved only slice 0, which hid the unclear faces of Little Nightmares' shadow cubes; it is the diagnostic the next patch's docs use
+Issue: LNPANDY/NX2Apple#328
+
+---
+ dm/gfx/nvn/nvn_mtl.m        | 10 ++++++----
+ dm/host/hle_hid.c           |  2 +-
+ docs/agents/05-debugging.md |  2 +-
+ 3 files changed, 8 insertions(+), 6 deletions(-)
+
+diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
+index 854d9bf..84ebfa8 100644
+--- a/dm/gfx/nvn/nvn_mtl.m
++++ b/dm/gfx/nvn/nvn_mtl.m
+@@ -10991,7 +10991,7 @@ void td_note_layer(id<MTLTexture> t, uint64_t ser, NSUInteger lv, NSUInteger sl)
+     [g_td_list addObject:@[t, @(ser), @(lv), @(sl)]];
+ }
+ // The next frame's targets, on request (the Mac's DM_CTL "texdump <path>", hle_hid.c): the path is kept (strdup), the frame number is the one after the current
+-// The Mac's DM_CTL "texraw <serial> <path>" (hle_hid.c): level 0 / slice 0 of the host texture behind a serial, raw, after the GPU finishes (header line: width height Metal format bytes per row);
++// The Mac's DM_CTL "texraw <serial> <path>" (hle_hid.c): level 0 of every slice (a cube's six faces) of the host texture behind a serial, raw, after the GPU finishes (header line: width height Metal format bytes per row, then the slice count when above one);
+ // for a texture that is no render target (a default texture, a lookup table) whose content a shader depends on
+ void dm_gfx_texraw(uint64_t serial, const char *path) {
+     __unsafe_unretained id o = tex_get(serial);
+@@ -10999,12 +10999,14 @@ void dm_gfx_texraw(uint64_t serial, const char *path) {
+     id<MTLTexture> t = o; mtl_finish_gpu();
+     if (t.storageMode == MTLStorageModeMemoryless || t.pixelFormat == MTLPixelFormatInvalid) return;
+     NSUInteger w = t.width, h = t.height, row = w * 16, sz = row * h;   // 16 bytes a texel: a multiple of every uncompressed texel size
+-    id<MTLBuffer> buf = [g_dev newBufferWithLength:sz options:MTLResourceStorageModeShared];
++    NSUInteger ns = (t.textureType == MTLTextureTypeCube || t.textureType == MTLTextureTypeCubeArray ? 6 : 1) * MAX(t.arrayLength, 1u);   // every slice (a cube's six faces), one after another
++    id<MTLBuffer> buf = [g_dev newBufferWithLength:sz * ns options:MTLResourceStorageModeShared];
+     id<MTLCommandBuffer> cb = q_cb(); id<MTLBlitCommandEncoder> b = [cb blitCommandEncoder];
+     MTLBlitOption bo = t.pixelFormat == MTLPixelFormatDepth32Float_Stencil8 ? MTLBlitOptionDepthFromDepthStencil : MTLBlitOptionNone;
+-    [b copyFromTexture:t sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(0, 0, 0) sourceSize:MTLSizeMake(w, h, 1) toBuffer:buf destinationOffset:0 destinationBytesPerRow:row destinationBytesPerImage:sz options:bo];
++    for (NSUInteger s = 0; s < ns; s++)
++        [b copyFromTexture:t sourceSlice:s sourceLevel:0 sourceOrigin:MTLOriginMake(0, 0, 0) sourceSize:MTLSizeMake(w, h, 1) toBuffer:buf destinationOffset:sz * s destinationBytesPerRow:row destinationBytesPerImage:sz options:bo];
+     [b endEncoding]; [cb commit]; [cb waitUntilCompleted];
+-    FILE *f = fopen(path, "wb"); if (f) { fprintf(f, "%lu %lu %lu %lu\n", (unsigned long)w, (unsigned long)h, (unsigned long)t.pixelFormat, (unsigned long)row); fwrite(buf.contents, 1, sz, f); fclose(f); }
++    FILE *f = fopen(path, "wb"); if (f) { fprintf(f, "%lu %lu %lu %lu", (unsigned long)w, (unsigned long)h, (unsigned long)t.pixelFormat, (unsigned long)row); if (ns > 1) fprintf(f, " %lu", (unsigned long)ns); fputc('\n', f); fwrite(buf.contents, 1, sz * ns, f); fclose(f); }
+     const uint8_t *p = buf.contents;
+     MLOG("[texraw] ser=%llu %lux%lu format %lu type %lu → %s; first bytes %02x %02x %02x %02x %02x %02x %02x %02x", (unsigned long long)serial, (unsigned long)w, (unsigned long)h, (unsigned long)t.pixelFormat, (unsigned long)t.textureType, path, p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7]);
+ }
+diff --git a/dm/host/hle_hid.c b/dm/host/hle_hid.c
+index db67a3a..768a357 100644
+--- a/dm/host/hle_hid.c
++++ b/dm/host/hle_hid.c
+@@ -204,7 +204,7 @@ void hid_keys_init(void) {
+ //   (hle_fpslock.c dm_ctl_cvar_f32; "cvari" an int one), "peek <address> <count>" logs that many floats of guest memory, "memdump <address> <bytes> <path>" saves guest memory
+ //   to a file (a buffer texture's storage, which the pass dump's tbuf lines print, holds what the GPU wrote: buffer textures are views of the pool), "texlist <NVN target>" logs the
+ //   registered textures of that target (2 = 3D) with storage address and block-linear layout (nvn_mtl.m dm_gfx_texlist), "texraw <serial> <path>"
+-//   saves a host texture's level 0 raw (nvn_mtl.m dm_gfx_texraw), "drag <x0> <y0> <x1> <y1> [seconds=0.3]" moves one finger in a straight line between the two normalized picture
++//   saves a host texture's level 0 raw, every slice (a cube's six faces) (nvn_mtl.m dm_gfx_texraw), "drag <x0> <y0> <x1> <y1> [seconds=0.3]" moves one finger in a straight line between the two normalized picture
+ //   points over that time and lifts it (the touch screen's pans and swipes, hle_touch.c gesture_sample), "dump" logs what each guest thread waits on and the graphics wait points
+ //   (crash_dump_now, as the iOS app's DM_LOG_PORT dump; scripts/regress.py asks for it before stopping a hung game), "#…" is ignored.
+ //   Look at a screen, decide, press, look again: menus whose timing moves from run to run (loading) need no blind timed script
+diff --git a/docs/agents/05-debugging.md b/docs/agents/05-debugging.md
+index 20dc66e..c18a46f 100644
+--- a/docs/agents/05-debugging.md
++++ b/docs/agents/05-debugging.md
+@@ -102,7 +102,7 @@ Patterns that worked: print every call of one function with its arguments; stop
+ 
+ - `DM_KEYS="<seconds>:<button>[+button][~hold],…"` presses buttons from host start (`hle_hid.c`). `<seconds>:<button>*<count>/<interval>` repeats a press, e.g. `42:A*170/2` presses A every 2 s from 42 s on, 170 times; at most 1,048,576 steps after expansion. Commas, spaces and newlines all separate steps. Steps run in time order, so repeated groups interleave (`f17400:Left~0.3*120/500,f17480:A*120/500,f17560:Left~0.3*120/500,f17640:A*120/500` = Left, A, Left, A every 500 frames: Fire Emblem: Three Houses' confirm dialogs default to No, and this cycle confirms Yes whether a dialog is open or not when it starts; A, Left, A loops forever once it starts on an open dialog); a list that mixes seconds and frame numbers keeps its listed order. A long run through a game's story is then a single switch, such as Metroid Dread's title, new game and story recap. `LLeft` / `LUp` / `LRight` / `LDown` push the left stick fully (Super Mario 3D World moves on its map by stick only); `Shake` shakes the controller for the hold time, at least one whole shake (its six-axis sensor); combos such as `L+R~0.5` press buttons together. Scripted presses are player 1's, as is the keyboard, on a path of their own that is ORed with the keyboard and player 1's controller (`script_set`): a connected controller (a DualShock 4 publishes its sticks all the time) no longer overwrites them. An `f` before the time counts presented frames instead of seconds (`f2500:A`, repeat intervals in frames too): with another heavy job running, seconds drift away from the game's progress and a route stops lining up; frame numbers do not. Breath of the Wild from its title menu into the autosave: `DM_KEYS=f2500:A,f2800:A,f3100:A,f3400:A` (control at frame ~3900). `~f<frames>` holds for that many presented frames from the step's frame instead of seconds, and a step that begins where such a hold ends follows it without a release (a held touch moves instead of lifting); a gap is a release. A list of only such steps, as `DM_REC` writes, is applied at the game's own input reads, frame for frame ([Recording input](../development.md#recording-input-dm_rec)). `DM_KEYS=@<file>` reads the steps from a file. `L<x>/<y>` / `R<x>/<y>` tilt a stick part way and `T<x>x<y>` touches the screen (normalized, origin top left) for the hold.
+ - `DM_REC=<file>` records player 1's physical input (keyboard, mouse touches, controllers; never `DM_KEYS` or `DM_CTL`) as `DM_KEYS` steps in presented frames, one per line: with the same build, a copy of the same save and the same `DM_DETCLOCK`, `DM_KEYS=@<file>` plays the run again, and joined to one line it is a smoke or bench route. Format, limits and the replay recipe: [Recording input](../development.md#recording-input-dm_rec).
+-- `DM_CTL=<file>` (Mac) drives a running game step by step instead: the host polls the file every 100 ms and acts on each line appended to it (`hle_hid.c` `ctl_main`). A line is a press as in `DM_KEYS` (`A`, `LDown~0.2`, `L+R~0.5`), or `shot <path>` (the next presented frame as PNG), `passdump <n>` (the next n frames as `DM_NVN_PASSDUMP`), `texdump <path with %d>` (the next frame's colour targets as `DM_NVN_TEXDUMP`), `texraw <serial> <path>` (level 0 of the host texture behind a serial, raw, with a `width height format row` header), `texlist <NVN target>` (registered textures of that target, `2` = 3D, with storage address, size and block-linear layout), `memdump <address> <bytes> <path>` (guest memory to a file: a buffer texture's storage from its `B` line holds what the GPU wrote), `peek <address> <count>` (floats to the log), `cvarf` / `cvari <main offset> <value>` (an Unreal console variable's game- and render-thread copies, for a `TAutoConsoleVariable` found as for `hle_fpslock.c`), or `env KEY=VALUE` (for switches read at use). Look, press, look again: menus and loads whose timing moves between runs need no blind timed script. A shell helper that appends a line and waits for a shot to be written keeps the loop short (DRAGON QUEST VII Reimagined's work folder: `run/ctl.sh` with `wait S` / `snap NAME`, and route scripts on top of it into the opening cutscene).
++- `DM_CTL=<file>` (Mac) drives a running game step by step instead: the host polls the file every 100 ms and acts on each line appended to it (`hle_hid.c` `ctl_main`). A line is a press as in `DM_KEYS` (`A`, `LDown~0.2`, `L+R~0.5`), or `shot <path>` (the next presented frame as PNG), `passdump <n>` (the next n frames as `DM_NVN_PASSDUMP`), `texdump <path with %d>` (the next frame's colour targets as `DM_NVN_TEXDUMP`), `texraw <serial> <path>` (level 0 of every slice of the host texture behind a serial, raw, with a `width height format row [slices]` header), `texlist <NVN target>` (registered textures of that target, `2` = 3D, with storage address, size and block-linear layout), `memdump <address> <bytes> <path>` (guest memory to a file: a buffer texture's storage from its `B` line holds what the GPU wrote), `peek <address> <count>` (floats to the log), `cvarf` / `cvari <main offset> <value>` (an Unreal console variable's game- and render-thread copies, for a `TAutoConsoleVariable` found as for `hle_fpslock.c`), or `env KEY=VALUE` (for switches read at use). Look, press, look again: menus and loads whose timing moves between runs need no blind timed script. A shell helper that appends a line and waits for a shot to be written keeps the loop short (DRAGON QUEST VII Reimagined's work folder: `run/ctl.sh` with `wait S` / `snap NAME`, and route scripts on top of it into the opening cutscene).
+ - Frame numbers are a stable way to aim dumps (`DM_NVN_PASSDUMP=<frame>`, `DM_NVN_SHOT=…`) at the same scene in another run: the per-frame NVN call counts (`[nvn] frame N: … calls`) matched between runs of the same script. Times in seconds drift with load.
+ - **A route through a 3D level** (Captain Toad: Treasure Tracker's opening course, where Toad has to find his way up a diorama to the star): screenshots alone took a dozen runs and still lost Toad behind the scenery, and turning the camera mid-route made the same input land differently each run. What worked: read the player's position every frame with a probe and plan from the stage's own data. The guest heap is laid out the same in every run, so the player actor is at the same address. `DM_PROBE=main:1fb2e0@*x0+48+8` (`PlayerActor::control`, the actor's pose at +0x48, the position 8 bytes into it, as `al::getTrans` reads it) prints x, y (height), z as three floats per frame. The stage map (`StageData/<stage>.szs`, a BYML) lists every actor with its `Translate`, including the goal and the rail the guide character walks. Stick directions are camera-relative: on the default camera two directions together (`LUp+LRight`) move along one world axis. Hold against walls where possible, since a wall stops the player at the same place in every run; the route then reproduced in 5 of 5 runs.
+ - **Spin waits** (`patch_nso.py` "Spin waits", `dm_spin_wait` in `hle_thread.c`).
