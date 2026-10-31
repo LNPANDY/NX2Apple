@@ -8,7 +8,7 @@ The Mac launcher's one-app install target passes it: the script runs the usual s
 DM_FRAMEWORK_ONLY, and keeps the extracted game files for the copy to the device (it implies --romfs separate and --keep-extracted).
 
 Upstream-Status: fork-only
-Reason: the NSP script's switch for the route C shell's game framework (patch 0039), which the fork's Mac launcher passes
+Reason: the NSP script's switch for the route C shell's game framework (patch 0050), which the fork's Mac launcher passes
 Issue: LNPANDY/NX2Apple#144
 
 ---

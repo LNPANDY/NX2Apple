@@ -16,7 +16,7 @@ Checked: make -C dm/host/tests GAME=010015100B514000 run (includes t_nro and t_s
 lint_python.py (no Python touched, 0 new findings).
 
 Upstream-Status: forwarded seedds/nxnative#729
-Reason: carried until seedds/nxnative#729 lands: the game framework (0035) calls the setter it adds
+Reason: carried until seedds/nxnative#729 lands: the game framework (0046) calls the setter it adds
 Issue: LNPANDY/NX2Apple#144
 
 ---

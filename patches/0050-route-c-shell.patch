@@ -12,7 +12,7 @@ the real GameLauncher: Play sets the game's environment, dlopens its framework, 
 host, then front_ios.m's game view takes the window. One game per process.
 
 Upstream-Status: fork-only
-Reason: the route C shell (M2): its library is the fork's frontend-ios package and its frameworks build on the route C patches 0035 to 0038, which wait for the runtime profile (seedds/nxnative#492)
+Reason: the route C shell (M2): its library is the fork's frontend-ios package and its frameworks build on the route C patches 0046 to 0049, which wait for the runtime profile (seedds/nxnative#492)
 Issue: LNPANDY/NX2Apple#144
 ---
  dm/ios/Shell/Shell-Bridging-Header.h |   2 +

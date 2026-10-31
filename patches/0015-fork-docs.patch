@@ -964,10 +964,10 @@ index 00000000..de255fff
 +the embedded frameworks, each game's data sits in `Documents/games/<title ID>/`, and Play loads the chosen
 +framework (`boot: game framework …`, the module bases from its sections), points `DM_PROFILE` at its
 +`profile.tsv` and reaches the game's frame loop: Breath of the Wild (NVN, both DLC) and Hades (Vulkan) on one host
-+binary, which reads every game value from the runtime profile (patch 0042). The per-game settings (language,
++binary, which reads every game value from the runtime profile (patch 0053). The per-game settings (language,
 +performance HUD) reach the engine. Open: M4 (external drive, per-game msl/pso/profile overrides, DLC beyond
 +`aoc/`), M5 (incremental frameworks, broken-framework tolerance on a device, re-sign timing), the shell's own
-+"Preparing shaders" screen (the front ends' progress hook, patch 0041, forwarded as seedds/nxnative#742). The
++"Preparing shaders" screen (the front ends' progress hook, patch 0052, forwarded as seedds/nxnative#742). The
 +dlopen gate: [probe-dlopen.md](probe-dlopen.md), the design: [launcher-c-design.md](launcher-c-design.md).
 +
 +## Milestones
