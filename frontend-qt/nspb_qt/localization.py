@@ -504,7 +504,7 @@ TABLE: dict[str, tuple[str, str, str, str]] = {
     'app.staging': ('正在后台下载 %@…', 'Downloading %@ in the background…', 'Hämtar %@ i bakgrunden …', '%@ wird im Hintergrund geladen …'),
     'app.ready': ('%@ 已下载并校验：退出 App 时安装，或点「立即重启」', '%@ is downloaded and verified: it installs when you quit, or Restart now', '%@ är hämtad och verifierad. Den installeras när du avslutar eller när du väljer Starta om nu.', '%@ ist geladen und geprüft: Es wird beim Beenden installiert, oder klicke auf „Jetzt neu starten“'),
     'app.restartNow': ('立即重启', 'Restart now', 'Starta om nu', 'Jetzt neu starten'),
-    'update.pill': ('更新 v%@', 'Update v%@', 'Uppdatera v%@', 'Update v%@'),
+    'update.pill': ('更新 %@', 'Update %@', 'Uppdatera %@', 'Update %@'),
     'update.pillHelp': ('查看这个版本更新了什么，并下载。', 'See what changed in this release and download it.', 'Se vad den här versionen ändrar och hämta den.', 'Was diese Version ändert und sie laden.'),
     'update.readOnlyHint': ('这个副本所在的位置无法自我更新。把 NX2Apple.app 移到「应用程序」文件夹后再更新。', 'This copy cannot update where it is. Move NX2Apple.app into Applications first.', 'Den här kopian kan inte uppdatera där den är. Flytta NX2Apple.app till Program-programmen först.', 'Diese Kopie kann sich nicht dort aktualisieren. Lege NX2Apple.app zuerst in Programme.'),
     'uninstall.title': ('卸载 NX2Apple', 'Uninstall NX2Apple', 'Avinstallera NX2Apple', 'NX2Apple deinstallieren'),

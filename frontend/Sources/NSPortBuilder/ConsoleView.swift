@@ -28,20 +28,15 @@ enum ConsoleInput {
     var inputs: AnyPublisher<ConsoleInput, Never> = Empty().eraseToAnyPublisher()
     /// Set by the real launcher: leaving the mode calls it instead of showing the preview's "Back on desktop" screen.
     var onExit: (() -> Void)?
-    /// A newer release is out (the launcher's update check): the top bar shows a pill for it. Tapping says what to do —
-    /// the update itself runs from Settings, after leaving console mode.
-    var updateTag: String? = nil
     @StateObject private var pad = PadFocus()
     @StateObject private var gamepad: LauncherGamepad
     @State private var tileFrames: [String: CGRect] = [:]
-    @State private var updateAlert: String?
     /// The glyph set follows the input used last: a controller's own buttons, or key caps after the keyboard.
     @State private var glyphs: ConsoleGlyphs
 
     /// `gamepad` is the one the root view owns (the controller has a single handler, so two would fight); without one the view makes its own.
-    init(driver: Driver, lang: Lang = .initial(), inputs: AnyPublisher<ConsoleInput, Never> = Empty().eraseToAnyPublisher(), gamepad: LauncherGamepad? = nil, glyphs: ConsoleGlyphs? = nil, onExit: (() -> Void)? = nil, updateTag: String? = nil) {
+    init(driver: Driver, lang: Lang = .initial(), inputs: AnyPublisher<ConsoleInput, Never> = Empty().eraseToAnyPublisher(), gamepad: LauncherGamepad? = nil, glyphs: ConsoleGlyphs? = nil, onExit: (() -> Void)? = nil) {
         self.onExit = onExit
-        self.updateTag = updateTag
         _glyphs = State(initialValue: glyphs ?? .current())
         self.driver = driver
         self.lang = lang
@@ -129,14 +124,6 @@ enum ConsoleInput {
         let inset: CGFloat = compact ? 24 : 64
         return VStack(alignment: .leading, spacing: 0) {
             topBar(compact: compact).padding(.horizontal, inset).padding(.top, compact ? 24 : 40)
-                .alert(String(format: lang == .zh ? "更新 %@" : "Update %@", updateAlert ?? ""),
-                       isPresented: Binding(get: { updateAlert != nil }, set: { if !$0 { updateAlert = nil } })) {
-                    Button("OK") { updateAlert = nil }
-                } message: {
-                    Text(String(format: lang == .zh
-                        ? "新版本 %@ 已发布。退出主机模式后，在设置 → 应用 中更新。"
-                        : "Version %@ is out. Leave console mode and update in Settings → App.", updateAlert ?? ""))
-                }
             if state.games.isEmpty {
                 empty(compact: compact).frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -179,21 +166,6 @@ enum ConsoleInput {
     private func topBar(compact: Bool) -> some View {
         HStack(spacing: compact ? 12 : 20) {
             ConsoleControllerChips(controllers: state.controllers, merged: state.padMerge, lang: lang, compact: compact) { driver.openControllers() }
-            if let updateTag {
-                Button { updateAlert = updateTag } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "arrow.down.circle").font(.system(size: compact ? 12 : 14, weight: .medium))
-                        Text(String(format: lang == .zh ? "更新 %@" : lang == .de ? "Update %@" : "Update %@", updateTag))
-                            .font(.manrope(compact ? 13 : 15, .semibold))
-                    }
-                    .padding(.horizontal, 11).padding(.vertical, compact ? 5 : 7)
-                    .background(LauncherPalette.ready.opacity(0.16), in: Capsule())
-                    .overlay(Capsule().strokeBorder(LauncherPalette.ready.opacity(0.4)))
-                    .contentShape(Capsule())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(String(format: lang == .zh ? "更新 %@" : "Update %@", updateTag))
-            }
             Text(state.time, style: .time).font(.manrope(compact ? 17 : 22, .medium)).monospacedDigit()
                 .foregroundStyle(.white.opacity(0.65)).fixedSize()
         }
