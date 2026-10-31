@@ -47,6 +47,15 @@ final class LibraryTests: XCTestCase {
         XCTAssertThrowsError(try MacGameBundle.read(app))
     }
 
+    /// A game without a Mac build has an empty path. That path is not read as the current folder, even when the current folder is a game.
+    func testAGameWithoutAnAppIsNotReady() throws {
+        let app = try makeApp(titleID)
+        let previous = FileManager.default.currentDirectoryPath
+        XCTAssertTrue(FileManager.default.changeCurrentDirectoryPath(app.path))
+        defer { FileManager.default.changeCurrentDirectoryPath(previous) }
+        XCTAssertFalse(LibraryGame(titleID: titleID, name: "Hades").isReady)
+    }
+
     func testRejectsUnrelatedApplicationsAndExecutableTraversal() throws {
         let app = try makeApp("not-a-title-id")
         XCTAssertThrowsError(try MacGameBundle.read(app))
