@@ -1,6 +1,6 @@
 # 游戏
 
-本 fork 有 profile 的全部游戏，以及每款需要的更新包。玩家主页是 [README.zh-CN.md](README.zh-CN.md)。[dm/games/README.md](https://github.com/seedds/nxnative/blob/ee6648cb2bb46c19255c1d04f88e9c40d36ef6b4/dm/games/README.md)（英文）是引擎对每款游戏的笔记。截图和 IPA 大小在英文页的[图库](GAMES.md#gallery)里。English: [GAMES.md](GAMES.md).
+本 fork 有 profile 的全部游戏，以及每款需要的更新包。玩家主页是 [README.zh-CN.md](README.zh-CN.md)。[dm/games/README.md](https://github.com/seedds/nxnative/blob/f11018a1f3125ec3046c30faae6147956a1a7c60/dm/games/README.md)（英文）是引擎对每款游戏的笔记。截图和 IPA 大小在英文页的[图库](GAMES.md#gallery)里。English: [GAMES.md](GAMES.md).
 
 ## 实测游戏
 
