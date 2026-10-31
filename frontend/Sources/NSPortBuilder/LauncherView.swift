@@ -45,7 +45,7 @@ struct ContentView: View {
     @State private var cheatsFor: UUID?  // the game whose Cheats sheet is open (CheatsView.swift)
     @State private var manageOpenFor: UUID?   // the game whose Manage menu is open (ManageMenu.swift)
     @StateObject private var controls: ControlLayout
-    @StateObject private var gamepad = LauncherGamepad()
+    @StateObject private var gamepad: LauncherGamepad
     @StateObject private var padFocus = PadFocus()
     @StateObject private var row = RowScroller()
     @StateObject private var toolsAge: ToolsAge
@@ -60,7 +60,8 @@ struct ContentView: View {
     init(model: BuildModel? = nil, library: GameLibrary? = nil, initialPage: LauncherPage = .library,
          activeBuildID: UUID? = nil, performStartupChecks: Bool = true, search: String? = nil, olderTools: Set<UUID> = [],
          manageOpen: Bool = false, padRing: Bool = false, onRunSetup: (() -> Void)? = nil,
-         enterConsole: (() -> Void)? = nil, controllerDriver: AnyConsoleDriver? = nil, controls sharedControls: ControlLayout? = nil, qaPrompt: Bool = false) {
+         enterConsole: (() -> Void)? = nil, controllerDriver: AnyConsoleDriver? = nil, controls sharedControls: ControlLayout? = nil, qaPrompt: Bool = false,
+         gamepad: LauncherGamepad? = nil) {
         _consolePrompt = State(initialValue: qaPrompt)   // visual QA: the connect prompt open at launch
         self.onRunSetup = onRunSetup
         let layout = sharedControls ?? ControlLayout()
@@ -71,6 +72,7 @@ struct ContentView: View {
         qaManage = (manageOpen, padRing)
         if let search { _search = State(initialValue: search); _searching = State(initialValue: true) }   // visual QA: the bar with its field open
         _toolsAge = StateObject(wrappedValue: ToolsAge(older: olderTools))   // visual QA: games marked without a checkout to compare
+        _gamepad = StateObject(wrappedValue: gamepad ?? LauncherGamepad())   // LauncherPerformanceTests presses its buttons
         _m = StateObject(wrappedValue: model ?? BuildModel())
         _library = StateObject(wrappedValue: library ?? GameLibrary())
         _page = State(initialValue: initialPage)
@@ -505,6 +507,7 @@ struct ContentView: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                         HStack(alignment: .top, spacing: 14) {
                             ForEach(filteredGames) { game in
+                                let _ = LauncherWork.count(.card)
                                 Button { library.selectedID = game.id } label: {
                                     VStack(alignment: .leading, spacing: 8) {
                                         ZStack {
