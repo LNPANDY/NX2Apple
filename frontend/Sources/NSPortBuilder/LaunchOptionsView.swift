@@ -161,18 +161,13 @@ struct LaunchOptionsView: View {
         all.first { $0.env == "DM_OPMODE" }.map { value($0, game) != "0" } ?? true
     }
 
-    /// Whether this row carries a choice of its own: a value that differs from the tested default is what
-    /// "changed" means here, and it is what the tint and the per-row reset go by.
-    private func changed(_ s: LaunchSetting, _ game: LibraryGame) -> Bool { value(s, game) != s.def }
-
     @ViewBuilder private func row(_ s: LaunchSetting, _ game: LibraryGame, all: [LaunchSetting]) -> some View {
         let value = self.value(s, game)
         let isDocked = docked(game, all)
         let pixels = s.kind == "range" ? s.pixels(scale: Double(value) ?? 1, docked: isDocked) : nil
-        let changed = changed(s, game)
         HStack(alignment: .center, spacing: 16) {
             VStack(alignment: .leading, spacing: 3) {
-                Text(s.label).font(.manrope(14, .medium)).foregroundStyle(changed ? LauncherPalette.cream : .primary)
+                Text(s.label).font(.manrope(14, .medium))
                 if let full = s.kind == "range" ? s.pixels(scale: 1, docked: isDocked) : nil {
                     // The render scale in pixels: the share of the game's own size in the console mode chosen
                     Text(String(format: m.t(isDocked ? "launch.scaleOfDocked" : "launch.scaleOfHandheld"), Int(((Double(value) ?? 1) * 100).rounded()), full))
@@ -182,15 +177,6 @@ struct LaunchOptionsView: View {
                 }
             }
             Spacer(minLength: 12)
-            if changed {   // a per-row reset, NX Play's: one tap back to the tested default
-                Button { set(s, s.def) } label: {
-                    Image(systemName: "arrow.uturn.backward.circle").font(.system(size: 15))
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-                .help(m.t("launch.rowReset"))
-                .accessibilityLabel(m.t("launch.rowReset"))
-            }
             control(s, value, pixels: pixels).launcherRowControls().frame(width: LaunchControl.width, alignment: .trailing)
         }
         .padding(.horizontal, 18).padding(.vertical, 13)
@@ -216,7 +202,8 @@ struct LaunchOptionsView: View {
     }
 
     /// The setting's control in the column every row shares: a segmented choice or a slider fills it, a dropdown is LauncherControl.width wide
-    /// at its right edge, and a toggle keeps its size there.
+    /// at its right edge, and a toggle keeps its size there. A slider ends in a reset arrow while its value differs from the
+    /// tested default: a slider is hard to put back on the exact default by hand. Its slot is always there, so the slider keeps its length.
     @ViewBuilder private func control(_ s: LaunchSetting, _ value: String, pixels: String?) -> some View {
         HStack(spacing: 10) {
             switch s.kind {
@@ -235,6 +222,18 @@ struct LaunchOptionsView: View {
                 Text(pixels ?? "\(Int(((Double(value) ?? 0) * 100).rounded()))%")
                     .font(.manrope(13, .semibold)).monospacedDigit().foregroundStyle(.secondary)
                     .frame(width: pixels == nil ? 44 : 72, alignment: .trailing)
+                ZStack {
+                    if Double(value) != Double(s.def) {
+                        Button { set(s, s.def) } label: {
+                            Image(systemName: "arrow.uturn.backward.circle").font(.system(size: 15))
+                                .foregroundStyle(.secondary).contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .help(m.t("launch.rowReset"))
+                        .accessibilityLabel(m.t("launch.rowReset"))
+                    }
+                }
+                .frame(width: 16)
             default:
                 Spacer(minLength: 0)
                 Toggle("", isOn: Binding(get: { value == s.onValue }, set: { set(s, $0 ? s.onValue : s.offValue) }))
