@@ -137,6 +137,26 @@ final class LibraryTests: XCTestCase {
         XCTAssertFalse(library.games[0].isReady)
     }
 
+    func testBuildOfPathKeyedEntryReplacesTheEntryOfTheSameGame() throws {
+        let app = try makeApp(titleID)
+        let file = temporary.appendingPathComponent("library.json")
+        var existing = LibraryGame(titleID: titleID, name: "Hades")
+        existing.appPath = app.path
+        existing.artworkPath = "/some/external/artwork.jpg"
+        // A base package whose name carries no title ID is keyed by its path until the build finishes.
+        var pending = LibraryGame(titleID: "/games/Hades.nsp", name: "Hades")
+        pending.inputs = ["base": ["/games/Hades.nsp"]]
+        try JSONEncoder().encode([existing, pending]).write(to: file)
+        let library = GameLibrary(file: file)
+        library.recordCompletedApp(path: app.path, for: pending.id)
+        XCTAssertEqual(library.games.count, 1)
+        XCTAssertEqual(library.games[0].titleID, titleID)
+        XCTAssertEqual(library.games[0].artworkPath, "/some/external/artwork.jpg")
+        XCTAssertEqual(library.games[0].inputs["base"], ["/games/Hades.nsp"])
+        XCTAssertTrue(library.games[0].isReady)
+        XCTAssertEqual(library.selectedID, library.games[0].id)
+    }
+
     func testRebuildingSameGameKeepsOneEntryAndCustomArtwork() throws {
         let app = try makeApp(titleID)
         let library = GameLibrary(file: temporary.appendingPathComponent("library.json"))
