@@ -29,6 +29,7 @@ dm/tools/usage.py	-	the usage manifests
 dm/tools/il2cpp_sym.py	-	read-only IL2CPP address analysis; not part of a game build or the host
 dm/tools/impact_map.tsv	-	this map
 dm/tools/lint_python_baseline.tsv	-	the lint baseline
+dm/gfx/hle_nv.c	hle:_ZN2nv*	graphics-library lifecycle and memory-query exports
 dm/gfx/nvn/*	api:nvn	NVN on Metal: every NVN game
 dm/gfx/nvn/dmsh_chain.h	shader:stage:*	the chain version: every game's NVN shader libraries
 dm/gfx/nvn/dmsh_abi.h	shader:stage:*	the shader library ABI (driver segment layout, binding kinds): every game's NVN shader libraries and their replay

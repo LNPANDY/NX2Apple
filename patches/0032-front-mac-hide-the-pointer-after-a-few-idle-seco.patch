@@ -9,7 +9,6 @@ The Mac host never hid the pointer, so it stayed on the picture of a game in a w
 Upstream-Status: forwarded seedds/nxnative#755
 Reason: The Mac host never hid the pointer over a game
 Issue: LNPANDY/NX2Apple#272
-
 ---
  dm/host/front_mac.m          | 16 ++++++++++++++++
  docs/env_switches.tsv        |  1 +
@@ -17,10 +16,10 @@ Issue: LNPANDY/NX2Apple#272
  3 files changed, 25 insertions(+)
 
 diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
-index 99c18f7d..e73472fb 100644
+index e8a645e7..113dcfbf 100644
 --- a/dm/host/front_mac.m
 +++ b/dm/host/front_mac.m
-@@ -1185,6 +1185,22 @@ void front_run(void (*guest)(void)) {
+@@ -1187,6 +1187,22 @@ void front_run(void (*guest)(void)) {
                  [NSNotificationCenter.defaultCenter addObserverForName:nm object:win queue:nil usingBlock:^(NSNotification *n) { (void)n; want = 0; }];   // the player's own toggle (ours already cleared it)
              dispatch_async(dispatch_get_main_queue(), enter);
          }
@@ -56,10 +55,10 @@ index 6993f8dc..c475d8ed 100644
  DM_DBG_AU_FRAMES	diagnostic	`=<frames>` asks the Mac's Core Audio output for that many frames per callback instead of about 5 ms (1024 reproduces the iOS default that caused crackling)
  DM_DETCLOCK	switch	`=<step ns>`: from the first present on, the guest clock advances a fixed step per present instead of following the wall clock, and the random source becomes a fixed-seed stream (replay and test runs)
 diff --git a/docs/reference/frame-rate.md b/docs/reference/frame-rate.md
-index 19e21153..7a181245 100644
+index 8a366cb6..bd767492 100644
 --- a/docs/reference/frame-rate.md
 +++ b/docs/reference/frame-rate.md
-@@ -210,6 +210,14 @@ Frame pacing: the host's frame step, engine frame limiters, present intervals an
+@@ -218,6 +218,14 @@ Frame pacing: the host's frame step, engine frame limiters, present intervals an
  - **Found on:** the NX2Apple launcher's console mode (LNPANDY/NX2Apple), no game in particular.
  - **Not checked:** the refusal itself, and a game started through the real console mode.
  

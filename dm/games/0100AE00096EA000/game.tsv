@@ -1,0 +1,44 @@
+# Hyrule Warriors: Definitive Edition (Koei Tecmo's KTGL engine on NVN, SDK 3.5.1), update v65536 = 1.0.1.
+# Started from the NSP script's provisional profile; the memory layout is the one it guessed, which boots and plays (not measured further).
+# RomFS: loose files under data/ (tables of entries; the .gz names are not compressed), H.264 movies in movie/*.mp4 (no audio track decoded through the movie library), the music in sound/BGMProduct.g1l.
+# The shaders are GLSLC compiler outputs: KTGL's G2S containers in data/action/shader/Normal.bin.gz, data/deferred/DeferredShader.bin.gz, the stage, shadow and effect files and the
+# _SPK4100 post-effect packages (data/posteffect/*.kps), plus 7 built-in shaders the game compiles at boot with its own GLSLC (subsdk0), captured on the Mac (glslc_capture, in ps_other / vs_other).
+
+# ---- Identity ----
+title_id	0100AE00096EA000
+program_id	0100AE00096EA000
+
+# ---- App ----
+name	Hyrule Warriors: Definitive Edition
+ipa	HyruleWarriorsDefinitiveEdition.ipa
+app_category	public.app-category.action-games
+# camera on the right stick
+pad_layout	full
+
+# ---- Versions ----
+build	v65536	1.0.1	main=815a2c19d176789688ff33ea875c26c5	subsdk0=8e7d6d12b5980b540e55f0feda56d246	subsdk1=798c30e126697f2222cf843f78f5c140	sdk=ae34e75d02925f4417b24499ad80c394
+package	v65536
+shader_versions	v65536
+
+# ---- Files ----
+# subsdk0 is GLSLC (NVN's run-time shader compiler), subsdk1 Nintendo's movie library (NintendoSDK_movie 3.5.1, OCTOPATH TRAVELER's build); sdk is OCTOPATH TRAVELER's build too
+modules	main subsdk0 subsdk1 sdk
+romfs_marker	sound/BGMProduct.g1l
+zip_store	.arc:.g1l:.gz:.mp4:.metallib
+
+# ---- Memory ----
+# The NPDM declares no system resource (META +0x14 = 0): no virtual address memory; nninitStartup sets a heap of the pool − used memory. The four modules take 43 MB, under the
+# default 64 MB of used memory. About 3.4 GB resident and 1.9 GB of Metal allocations on the Mac in the first battle
+mem_reserve	0x100000000
+mem_alias	0x10000000
+mem_stack	0x10000000
+app_pool	0xCD500000
+sys_resource	0x0
+
+# ---- Presentation ----
+# The game sets present interval 1 for its menus and battles and 2 for movies; its battles step by the time that passed (the mission clock and a 3 s stick hold match at 60 and 30 fps), so
+# the default pacing keeps the game's own 60 fps
+
+# ---- Shader split ----
+shader_groups	/data/=data /movie/=movie /sound/=sound
+shader_note	Hyrule Warriors: Definitive Edition shaders

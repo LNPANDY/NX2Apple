@@ -1,5 +1,5 @@
 # FINAL FANTASY RESONANCE, Asian release (0100B8A026F14000): the Korean / Chinese release of the game the registered JP profile (dm/games/0100606026F12000) covers.
-# The same Unreal Engine 5.6.1 build at the same offsets (hle_uemalloc.c, patches.py), so the values and comments here follow the JP profile; the shader tables are this build's own.
+# The same Unreal Engine 5.6.1 build at the same offsets, so the values and comments here follow the JP profile; the shader tables are this build's own.
 # Started from the NSP script's provisional profile (dm/games/profile_guess.py) and brought up on the Mac (docs/agents); format: see dm/games/README.md
 
 # ---- Identity ----
@@ -27,9 +27,9 @@ zip_store	.pak:.ttf:.txt:.ucas:.utoc:.metallib
 fps_target	60
 
 # ---- Memory ----
-# Unreal Engine 5.6.1: the allocator is replaced by the host's (hle_uemalloc.c layout UE5_6; the constructor call cut in patches.py) and the engine region capped at 4064 MB,
-# as the registered JP profile: a 4064 MB region in the 5 GB guest block (256 MB in front + 4.375 GB alias region + 256 MB stack region + 128 MB heap region)
-game_args	-SwitchVirtualAddressSpaceSize=4064
+# Unreal Engine 5.6.1: the allocator is replaced by the host's (hle_uemalloc.c layout UE5_6; the constructor call cut by dm/tools/ue_malloc.py) and the engine region given what the
+# alias region has room for (dm/tools/ue_region.py; hle_svc.c), as the registered JP profile: 4.06 GB in the 5 GB guest block (256 MB in front + 4.375 GB alias region + 256 MB stack
+# region + 128 MB heap region); until 2026-10-31 -SwitchVirtualAddressSpaceSize=4064 in game_args
 mem_reserve	0x140000000
 mem_alias	0x118000000
 mem_stack	0x10000000

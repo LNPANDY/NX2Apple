@@ -82,10 +82,10 @@ class DriverTableArrays(unittest.TestCase):
 def builder_unfillable():
     tree = ast.parse((TOOLS / 'dmsh_build.py').read_text())
     keep = lambda n: (isinstance(n, ast.FunctionDef) and n.name in ('drv_reads', 'unfillable')) or (isinstance(n, ast.Assign) and any(
-        (isinstance(t, ast.Name) and t.id in ('SSBO', 'DRV_FILL')) or (isinstance(t, ast.Tuple) and any(isinstance(e, ast.Name) and e.id == 'TEX_BASE' for e in t.elts)) for t in n.targets))
+        (isinstance(t, ast.Name) and t.id in ('SSBO', 'DRV_FILL', 'SAMPLE_ROWS')) or (isinstance(t, ast.Tuple) and any(isinstance(e, ast.Name) and e.id == 'TEX_BASE' for e in t.elts)) for t in n.targets))
     ns = {'re': re, 'abi': dmsh_abi}
     exec(compile(ast.Module(body=[n for n in tree.body if keep(n)], type_ignores=[]), str(TOOLS / 'dmsh_build.py'), 'exec'), ns)
-    return lambda src: ns['unfillable'](ns['drv_reads'](src))
+    return lambda src, stage='ps': ns['unfillable'](ns['drv_reads'](src), stage)
 
 
 UNFILLABLE = builder_unfillable()
@@ -100,6 +100,16 @@ class DriverReads(unittest.TestCase):
 
     def test_c2_word_outside_the_tables_is_refused(self):
         self.assertEqual(UNFILLABLE('float x = (*spvDescriptorSet0.fp_c2)._m0[0].x;'), ['c2+0x0'])
+
+    # Metroid Prime Remastered's sample position lookup (04023899305e93e1): the 0x630 row's masks and shifts, then a byte of the table at 0x620 by a computed index
+    SAMPLE_LOOKUP = ('int _79 = int(_70) & as_type<int>((*spvDescriptorSet0.fp_c0)._m0[99].w);\n'
+                     'float _107 = (*spvDescriptorSet0.fp_c0)._m0[int(_103)][_105];')
+
+    def test_sample_position_lookup_is_filled_in_a_pixel_shader(self):
+        self.assertEqual(UNFILLABLE(self.SAMPLE_LOOKUP), [])
+
+    def test_sample_rows_are_not_filled_for_other_stages(self):
+        self.assertEqual(UNFILLABLE(self.SAMPLE_LOOKUP, 'vs'), ['c0 dynamic index', 'c0+0x630'])
 
 
 if __name__ == '__main__':

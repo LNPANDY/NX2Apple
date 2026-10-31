@@ -1,0 +1,27 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: v0lumehi <aljic.zijad@gmail.com>
+Date: Sat, 31 Oct 2026 01:14:09 +0100
+Subject: [PATCH] test_lint_c: the LLVM check skips without a lint-c.yml
+ workflow
+
+NX2Apple carries no clang-tidy workflow, so the test that compares the baseline's LLVM with the one lint-c.yml downloads has nothing to read and skips. The baseline tests still run.
+
+Upstream-Status: fork-only
+Reason: the fork's CI runs dm/tools/tests but has no lint-c.yml (the ratchet's baseline counts upstream's sources, not the patched ones)
+Issue: LNPANDY/NX2Apple#123
+---
+ dm/tools/tests/test_lint_c.py | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/dm/tools/tests/test_lint_c.py b/dm/tools/tests/test_lint_c.py
+index ee4f5aea..b0cec232 100644
+--- a/dm/tools/tests/test_lint_c.py
++++ b/dm/tools/tests/test_lint_c.py
+@@ -174,6 +174,7 @@ class Against(unittest.TestCase):
+ 
+ 
+ class Toolchain(unittest.TestCase):
++    @unittest.skipUnless((REPO / '.github/workflows/lint-c.yml').is_file(), 'no lint-c.yml workflow in this repository (NX2Apple runs no clang-tidy job)')
+     def test_ci_downloads_the_llvm_the_baseline_was_made_with(self):
+         wf = (REPO / '.github/workflows/lint-c.yml').read_text()
+         m = re.search(r'^\s+LLVM_VERSION: (\d+\.\d+\.\d+)$', wf, re.M)

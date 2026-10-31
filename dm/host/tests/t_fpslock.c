@@ -1,4 +1,4 @@
-// Exercise production build gates and frame-limit writes against sparse synthetic module memory.
+// Exercise production build gates and frame-limit writes against sparse synthetic module memory; Unreal's rows come from the console variables the rewriter names in main's fixups.
 #include "../hle_fpslock.c"
 #include <assert.h>
 #include <math.h>
@@ -13,6 +13,8 @@ static int writes;
 void dm_guest_write_prepare(void *p, size_t n) { (void)p; assert(n == 4 || n == 8); writes++; }
 
 // adrp / add of a module offset into register r, at word i of the text (module offsets: the text at 0)
+static void cvar(const char *name, uint64_t off) { strcpy(g_mod[0].ue_cvar[g_mod[0].n_ue_cvar].name, name); g_mod[0].ue_cvar[g_mod[0].n_ue_cvar++].off = off; }
+
 static void adrp_add(uint32_t *t, uint32_t i, int r, uint64_t target) {
     int64_t imm = (int64_t)((target & ~0xfffull) - ((i * 4ull) & ~0xfffull)) >> 12;
     t[i] = 0x90000000u | (uint32_t)(imm & 3) << 29 | (uint32_t)((imm >> 2) & 0x7ffff) << 5 | (uint32_t)r;
@@ -56,8 +58,9 @@ static void check(int which) {
     } else if (which == 7) {
         strcpy(g_mod[0].build_id, "79e5950ffa85acf63e28c9aec051eac2");
         f = (float *)(base + 0x13c94dc); *f = 1000.0f / 30;
-    } else if (which == 8) {
-        strcpy(g_mod[0].build_id, "9fe60a212cff9b9a3656ab63d4f882e5");
+    } else if (which == 8) {   // Octopath Traveler 0: the frame limit and the present interval, and a variable the host does not write
+        strcpy(g_mod[0].build_id, "0123456789abcdef0123456789abcdef");
+        cvar("r.Streaming.PoolSize", 0x7c71608); cvar(DM_GAME_UE_FPS_CVAR, 0x7c738d0); cvar("rhi.SyncInterval", 0x7b32690);
         *(uintptr_t *)(base + 0x7c738d0 + 0x10) = (uintptr_t)object;
         *(uintptr_t *)(base + 0x7b32690 + 0x10) = (uintptr_t)(object + 16);
         f = (float *)object; f[0] = f[1] = 30;
@@ -71,9 +74,9 @@ static void check(int which) {
         frostbite(base, object);
         *(float *)(object + 0x34) = 30; *(int32_t *)(object + 0x38) = 30;
         if (which == 16) *(uint64_t *)(object + 8) = 0;   // the cache word holds something else
-    } else if (which >= 9) {
-        strcpy(g_mod[0].build_id, "b7f965b9d7227db8e29f04e84ea7331b");
-        if (which == 12) g_mod[0].build_id[31] = '0';
+    } else if (which >= 9) {   // the present interval alone (UE 4.18's nvn.SyncInterval); 12: a main the rewriter found no variable in
+        strcpy(g_mod[0].build_id, "0123456789abcdef0123456789abcdef");
+        if (which != 12) cvar("nvn.SyncInterval", 0x8adca10);
         *(uintptr_t *)(base + 0x8adca10 + 0x10) = which == 13 ? 0 : (uintptr_t)object;
         sync = (int32_t *)object; sync[0] = sync[1] = which == 10 ? 1 : 2;
     }

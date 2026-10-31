@@ -254,26 +254,26 @@ index f2cb6c1f..44af3cc5 100644
                      Section {
                          HStack {
 diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
-index 4fdb293c..a6f188eb 100644
+index 56c8add3..0469c900 100644
 --- a/dm/ios/Sources/front_ios.m
 +++ b/dm/ios/Sources/front_ios.m
-@@ -19,6 +19,7 @@
- int front_ios_boot_ok(void);
+@@ -21,6 +21,7 @@ int front_ios_boot_ok(void);
  const char *front_ios_boot_message(void);   // main.m: why a build that keeps the game files off the IPA found none usable (NULL = the generic hint)
+ const char *front_ios_device_message(void);   // main.m: why this device cannot run the games (its GPU has no BC textures; NULL = supported)
  bool dm_show_launcher(void *view_controller, void (*done)(void));   // Launcher.swift: false = no launcher (no dm/launcher.json, or DM_LAUNCHER=0)
 +int dm_locate_game_data(void);   // main.m: (re)decide where the game data is; NO when there still is none
  
  static CAMetalLayer *g_layer;
  static void front_ios_power_watch(void);
-@@ -50,6 +51,7 @@ @interface DmRootVC : UIViewController
- @property (nonatomic, strong) UIView *pad;
+@@ -64,6 +65,7 @@ static void tv_attach(void);
  @property (nonatomic, strong) UILabel *fps;
  @property (nonatomic) BOOL launched;
+ @property (nonatomic, strong) id tv;   // the TV scene accessory's registration (iOS 27)
 +@property (nonatomic) BOOL hasLauncher;   // the app has a settings screen: a failed Play goes back to it (its Game data section is the way out)
  - (void)startGame;
  @end
  static DmRootVC *g_root;
-@@ -72,6 +74,14 @@ - (void)viewDidLoad {
+@@ -93,6 +95,14 @@ static void launcher_done(void) { [g_root startGame]; }
  // The game view, the pad and the frame-rate counter are made once the launcher has set the switches they read (DM_SHOW_FPS, DM_METAL_HUD); the host's loading began at app launch (main.m)
  - (void)startGame {
      if (self.game) return;
@@ -288,7 +288,7 @@ index 4fdb293c..a6f188eb 100644
      dm_cloud_saves_env();   // DM_SAVE_SYNC from the launcher's Cloud saves pick, before the game's first save mount reads it (CloudSaves.m, save_sync.h)
      front_hud_env();   // before the game view makes its device (an env file's DM_METAL_HUD sets it in main.m already)
      self.game = [[DmGameView alloc] initWithFrame:self.view.bounds];
-@@ -108,7 +118,8 @@ - (void)viewDidAppear:(BOOL)a {
+@@ -128,7 +138,8 @@ static void launcher_done(void) { [g_root startGame]; }
      }
      if (self.launched || !front_ios_boot_ok()) return;
      self.launched = YES; g_root = self;
@@ -299,10 +299,10 @@ index 4fdb293c..a6f188eb 100644
  - (BOOL)prefersHomeIndicatorAutoHidden { return YES; }
  - (UIRectEdge)preferredScreenEdgesDeferringSystemGestures { return UIRectEdgeAll; }   // Edge gestures need two swipes, to avoid accidental exits
 diff --git a/dm/ios/Sources/main.m b/dm/ios/Sources/main.m
-index ca996cfb..193e2cac 100644
+index 5c60da7f..d6355c87 100644
 --- a/dm/ios/Sources/main.m
 +++ b/dm/ios/Sources/main.m
-@@ -7,9 +7,10 @@
+@@ -8,9 +8,10 @@
  #include <string.h>
  #include <sys/stat.h>
  #include <unistd.h>
@@ -314,7 +314,7 @@ index ca996cfb..193e2cac 100644
  #include "romfs_identity.h"
  #include "player_env.h"
  #ifndef DM_PLAYER_BUILD
-@@ -40,6 +41,38 @@ static int romfs_identity_accepts(NSString *img) {
+@@ -41,6 +42,38 @@ static int romfs_identity_accepts(NSString *img) {
      if (rc != ROMFS_ID_OK && rc != ROMFS_ID_NONE) fprintf(stderr, "[RED] boot: Documents/%s is not the image this build needs (verdict %d); not used\n", img.lastPathComponent.UTF8String, rc);
      return rc == ROMFS_ID_OK || rc == ROMFS_ID_NONE;
  }
@@ -353,7 +353,7 @@ index ca996cfb..193e2cac 100644
  // The images in Documents: romfs.img in any letter case, romfs.img itself first. The NSP script writes the image as RomFS.img (extract/<version>/RomFS.img) and the Mac's
  // file system ignores letter case, but iOS's does not: a copy made through Finder or the Files app keeps the source's name, which an exact lookup of romfs.img never finds
  static NSArray<NSString *> *romfs_document_images(NSString *doc) {
-@@ -55,6 +88,31 @@ static int romfs_identity_accepts(NSString *img) {
+@@ -56,6 +89,31 @@ static NSArray<NSString *> *romfs_document_images(NSString *doc) {
  static NSString *romfs_locate(void) {
      NSFileManager *fm = NSFileManager.defaultManager;
      NSString *doc = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES)[0];
@@ -385,7 +385,7 @@ index ca996cfb..193e2cac 100644
      for (NSString *img in romfs_document_images(doc)) {
          if (!romfs_image_complete(img) || !romfs_identity_accepts(img)) continue;
          // A folder copy from before images is now dead weight of up to many GB (often cut off partway). Deleting its 300,000 files here took longer than iOS allows an app to start
-@@ -70,13 +128,48 @@ static int romfs_identity_accepts(NSString *img) {
+@@ -71,13 +129,48 @@ static NSString *romfs_locate(void) {
      }
      NSString *bundledImage = [NSBundle.mainBundle.resourcePath stringByAppendingPathComponent:@"romfs.img"];
      NSString *documentFolder = [doc stringByAppendingPathComponent:@"romfs"];
@@ -436,10 +436,10 @@ index ca996cfb..193e2cac 100644
  // Boot prerequisites (done before UIApplicationMain): directories / environment variables / log -- the host's early load reads these
  // Why a slim build found no usable game files: the verdict on Documents/romfs.img (the first of romfs_document_images), in the log and for the screen (front_ios_boot_message). NULL when the build has no romfs.id
  static char g_boot_message[640];
-@@ -139,16 +232,28 @@ static int boot_env(void) {
-     NSString *lang = [NSBundle.mainBundle objectForInfoDictionaryKey:@"DMLanguage"];
-     if (!getenv("DM_LANG") && [lang isKindOfClass:NSString.class] && lang.length) setenv("DM_LANG", lang.UTF8String, 0);
-     fprintf(stderr, "boot: game language %s\n", getenv("DM_LANG") ?: "en-US");
+@@ -150,16 +243,28 @@ static int boot_env(void) {
+                  gpu ? gpu.name.UTF8String : "no Metal device");
+         fprintf(stderr, "[RED] boot: %s\n", g_device_message); return 0;
+     }
 +    // No game data yet is not fatal: the launcher comes up all the same, and its Game data section
 +    // is where a location gets picked; dm_locate_game_data() looks again when Play is pressed.
 +    NSString *gdir = game_dir_for(dm_profile()->id);
@@ -472,10 +472,10 @@ index ca996cfb..193e2cac 100644
      if ([fm fileExistsAtPath:aoc]) setenv("DM_AOC_DIR", aoc.fileSystemRepresentation, 0);
      NSString *pso = [res stringByAppendingPathComponent:@"pso"];   // the pipeline archive made offline (build_ipa.sh, dm/gfx/tools/pso_offline.py): the shader pairs' bases, which the device then does not build
 diff --git a/dm/ios/project.yml b/dm/ios/project.yml
-index 1f97e69a..5e03e337 100644
+index 5be3a4c2..16b41655 100644
 --- a/dm/ios/project.yml
 +++ b/dm/ios/project.yml
-@@ -76,7 +76,7 @@ targets:
+@@ -79,7 +79,7 @@ targets:
        OTHER_CFLAGS: $(inherited) -mcpu=apple-a18   # The host assembly contains LSE atomic instructions, which the default baseline does not accept
        CLANG_ENABLE_OBJC_ARC: YES
        SWIFT_VERSION: "5.0"                         # Launcher.swift (SwiftUI)

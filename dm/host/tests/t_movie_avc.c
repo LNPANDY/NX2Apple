@@ -65,7 +65,25 @@ static void drain(int nout) {
     md_job(&d, MDJ_QUIT); pthread_join(d.wk, NULL);
     for (int i = 0; i < MD_NOUT; i++) free(d.out[i].frm);
 }
+// Native-texture slots (md_rendered): one written into the client's texture stays taken, so no packet is decoded into it before the client's own release can come (GitHub
+// issue #700). A client that releases what it rendered keeps every slot until its release; one that has not yet gets the earlier slot back at its next GetOutputBuffer
+static void take(mdec_t *d, int i) { d->out[i].used = d->out[i].cli = 1; }
+static int rendered(mdec_t *d, int i) { pthread_mutex_lock(&d->mu); int n = md_rendered(d, i); pthread_mutex_unlock(&d->mu); return n; }
+static void tex_slots(void) {
+    static mdec_t d; d = (mdec_t){ .type = MD_TYPE_AVC, .mode = MD_MODE_TEX, .nout = 4, .started = 1 };
+    pthread_mutex_init(&d.mu, NULL); pthread_mutex_init(&d.dmu, NULL);
+    take(&d, 0); assert(!rendered(&d, 0) && d.out[0].used && d.out[0].rnd);
+    take(&d, 1); assert(rendered(&d, 1) == 1 && !d.out[0].used && !d.out[0].cli && d.out[1].rnd);   // never released: slot 0 returns at the next GetOutputBuffer
+    assert(md_rel(&d, 1) && d.tex_rel && !d.out[1].used);   // the client releases a rendered slot itself
+    take(&d, 2); assert(!rendered(&d, 2));
+    take(&d, 3); assert(!rendered(&d, 3) && d.out[2].used && d.out[2].rnd);   // now its slots wait for its release
+    take(&d, 0); assert(md_rel(&d, 0) && d.tex_rel && !d.out[0].used);   // a frame dropped without GetOutputBuffer
+    assert(md_rel(&d, 2) && md_rel(&d, 3) && !md_rel(&d, 3));   // a second release changes nothing
+    take(&d, 1); md_reset(&d, 0); assert(!d.out[1].used && !d.out[1].rnd && d.tex_rel);
+}
 int main(void) {
+    tex_slots();
+    puts("native texture: a rendered slot waits for the client's release, or for its next GetOutputBuffer while it has never released one");
     writer w;
     for (unsigned profile = 100; profile <= 244; profile += 144) for (unsigned chroma = 0; chroma <= 3; chroma++) {
         for (int scaling = 0; scaling < 2; scaling++) {

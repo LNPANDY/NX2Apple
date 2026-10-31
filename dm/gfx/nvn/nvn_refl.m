@@ -8,7 +8,11 @@
 // Dummy texture type: same prefix rules as the original dummy_tex (an unbound texture slot reads 0 per D3D semantics)
 static void dummy_kind(NSString *t, uint8_t *tt, uint8_t *pf) {
     MTLTextureType y = MTLTextureType2D;
-    if ([t hasPrefix:@"texture2d_array"] || [t hasPrefix:@"depth2d_array"]) y = MTLTextureType2DArray;
+    // A multisample slot (texelFetch of a multisample texture: URP's CopyDepth reads its MSAA depth through texture2d_ms) is its own type; read as 2D, the multisample
+    // texture bound there was reported as a type mismatch, and the slot's dummy and handle pools took 2D textures, which Metal does not accept in it
+    if ([t hasPrefix:@"texture2d_ms_array"] || [t hasPrefix:@"depth2d_ms_array"]) y = MTLTextureType2DMultisampleArray;
+    else if ([t hasPrefix:@"texture2d_ms"] || [t hasPrefix:@"depth2d_ms"]) y = MTLTextureType2DMultisample;
+    else if ([t hasPrefix:@"texture2d_array"] || [t hasPrefix:@"depth2d_array"]) y = MTLTextureType2DArray;
     else if ([t hasPrefix:@"texturecube_array"] || [t hasPrefix:@"depthcube_array"]) y = MTLTextureTypeCubeArray;
     else if ([t hasPrefix:@"texturecube"] || [t hasPrefix:@"depthcube"]) y = MTLTextureTypeCube;
     else if ([t hasPrefix:@"texture3d"]) y = MTLTextureType3D;

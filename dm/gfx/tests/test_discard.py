@@ -8,9 +8,9 @@ import tempfile
 import unittest
 
 path = Path(__file__).resolve().parents[1] / 'tools/dmsh_build.py'
-node = next(n for n in ast.parse(path.read_text()).body if isinstance(n, ast.FunctionDef) and n.name == 'vs_discard')
+nodes = [n for n in ast.parse(path.read_text()).body if isinstance(n, ast.FunctionDef) and n.name in ('vs_discard', 'vs_writes')]
 scope = {'re': re}
-exec(compile(ast.Module(body=[node], type_ignores=[]), str(path), 'exec'), scope)
+exec(compile(ast.Module(body=nodes, type_ignores=[]), str(path), 'exec'), scope)
 
 SOURCE = '''#include <metal_stdlib>
 using namespace metal;
@@ -28,6 +28,17 @@ vertex main0_out main0(uint n [[vertex_id]], constant Args& a [[buffer(0)]])
 
 
 class DiscardTests(unittest.TestCase):
+    def test_storage_writes_need_a_discard_entry(self):
+        self.assertTrue(scope['vs_writes'](SOURCE, [{'kind': 'sbuf', 'rw': True}]))
+
+    def test_image_stores_need_a_discard_entry(self):   # Metroid Prime Remastered's fog volume (1cbc19f806a08166): points write a 3D image
+        src = 'struct spvDescriptorSetBuffer0 { texture3d<float, access::write> vp_i_8 [[id(0)]]; };'
+        self.assertTrue(scope['vs_writes'](src, [{'kind': 'img', 'reg': 0}]))
+
+    def test_reads_only_need_none(self):
+        src = 'struct spvDescriptorSetBuffer0 { texture3d<float> vp_t_tcb_8 [[id(0)]]; device const uint* vp_s0 [[id(1)]]; };'
+        self.assertFalse(scope['vs_writes'](src, [{'kind': 'sbuf', 'rw': False}, {'kind': 'tex', 'reg': 0}]))
+
     @unittest.skipUnless(shutil.which('xcrun'), 'requires Metal compilers')
     def test_side_effects_before_both_returns_compile_as_void_vertex(self):
         src = SOURCE + scope['vs_discard'](SOURCE)

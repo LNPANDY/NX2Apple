@@ -246,7 +246,7 @@ class Regress(unittest.TestCase):
         self.assertEqual(regress.worst('PASS', 'CHANGED', 'REGRESSION'), 'REGRESSION'); self.assertEqual(regress.worst('NEW-FAIL', 'ERROR'), 'ERROR')
 
     def test_selection_keeps_games_without_routes(self):
-        games = [NS(id='a', name='routed', kind='nvn', route=lambda: {'save': 'new'}), NS(id='b', name='unrouted', kind='nvn', route=lambda: None)]
+        games = [NS(id='a', name='routed', kind='nvn', derived=False, route=lambda: {'save': 'new'}), NS(id='b', name='unrouted', kind='nvn', derived=False, route=lambda: None)]
         with patch.object(regress, 'find_games', return_value=games), patch.object(regress, 'say'):
             self.assertEqual(regress.select(NS(games=None), smoke=True), games)
 
@@ -283,6 +283,38 @@ class Regress(unittest.TestCase):
             check.assert_called_once()
             self.assertEqual(manifest['interface'], current)
 
+    def test_variant_hash_ignores_chain_stamps(self):   # 2026-10-31: DKC Tropical Freeze reported 720 changed shaders whose variants differed only in the stamps
+        k = '0123456789abcdef'
+        def lib(td, chain='c1', compiler='x1', bindings=(0,), msl='kernel void main0() {}', pull=b'\x01'):
+            d = Path(td); stamp = {'chain': chain, 'chain_metal': 'mac', 'chain_compiler': compiler}
+            (d / '_b_build.json').write_text(json.dumps([{'key': k, 'st': 'ok'}]))
+            (d / f'{k}_b.json').write_text(json.dumps({'key': k + '_b', **stamp}))
+            (d / f'{k}_bg0.json').write_text(json.dumps({'key': k + '_bg0', 'bindings': list(bindings), **stamp}))
+            (d / f'{k}_bg0.metal').write_text(msl)
+            (d / f'{k}_bp.metallib').write_bytes(pull)   # pull variants leave only their metallib here
+            return regress.nvn_manifest(d, 1)[k]['var']
+        def var(**kw):
+            with tempfile.TemporaryDirectory() as td: return lib(td, **kw)
+        base = var()
+        self.assertEqual(var(chain='c2', compiler='x2'), base)
+        for change in ({'bindings': (1,)}, {'msl': 'kernel void main0() { }'}, {'pull': b'\x02'}):
+            self.assertNotEqual(var(**change), base, change)
+
+    def test_reused_manifest_of_older_hashes_is_hashed_again(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td); g = NS(id='game', kind='nvn', folder=root)
+            out = regress.game_root(g) / 'chain/key'; (out / 'b-v').mkdir(parents=True)
+            (out / 'b-v/_b_build.json').write_text('[]')
+            (out / 'manifest.json').write_text(json.dumps({'kind': 'nvn', 'shaders': {'old': {}}, 'interface': {'bad': []}}))
+            fresh = {'k': {'st': 'ok', 'var': 'new'}}
+            with patch.object(regress, 'ROOT', root), patch.object(regress, 'chain_key', return_value=('v', 'i', 'key')), \
+                    patch.object(regress, 'interface_check', return_value={'bad': []}), patch.object(regress, 'nvn_manifest', return_value=fresh) as hashed:
+                manifest, _ = regress.chain_build(NS(), g, NS(tools_fp='', jobs=1))
+                self.assertEqual((manifest['shaders'], manifest['hashes']), (fresh, regress.NVN_HASHES))
+                self.assertEqual(json.loads((out / 'manifest.json').read_text())['hashes'], regress.NVN_HASHES)
+                regress.chain_build(NS(), g, NS(tools_fp='', jobs=1))
+            hashed.assert_called_once()   # a manifest of the current hashes is reused as it is
+
     def test_smoke_requires_prebuild_and_screenshots(self):
         route = {'reach': (100, 10.0), 'shots': [8]}
         good = {'exit': None, 'max_frame': 500, 'reached': True, 'prebuild': {'exit': 0, 'done': True, 'failed': 0},
@@ -311,6 +343,17 @@ class Regress(unittest.TestCase):
         processes = '100 1 S python3 /source/scripts/regress.py check\n101 100 S python3 /trees/dmsh_build.py\n102 101 R metal /games/title-work/regress/tmp/shader.metal\n103 1 R metal /another/build.metal\n104 100 R make dmhost\n'
         with patch.object(regress, 'sh', return_value=NS(stdout=processes)), patch.object(regress.os, 'getpid', return_value=200):
             self.assertEqual(regress.heavy_jobs(), ['103 metal /another/build.metal', '104 make dmhost'])
+
+    def test_build_profile_runs_only_when_derived_or_unported(self):
+        # A provisional profile the NSP script left from before the game's profile was added must not shadow dm/games' (it lacked OCTOPATH TRAVELER 0's tex_dyn_slots and fps_target)
+        with tempfile.TemporaryDirectory() as td, patch.object(regress, 'REPO', Path(td) / 'repo'):
+            root, gid = Path(td), '0123456789ABCDEF'
+            build = root / f'{gid}_build'; (build / 'profile' / gid).mkdir(parents=True); (build / 'profile' / gid / 'game.tsv').write_text('# Provisional game profile\n')
+            self.assertTrue(regress.Game(root, build).derived)                       # no profile in dm/games: the provisional one
+            (root / 'repo/dm/games' / gid).mkdir(parents=True); (root / 'repo/dm/games' / gid / 'game.tsv').write_text('title_id\t' + gid + '\n')
+            self.assertFalse(regress.Game(root, build).derived)                      # a profile in dm/games: it runs, not the leftover guesses
+            (build / 'profile' / f'{gid}.derived.key').write_text('key\n')
+            self.assertTrue(regress.Game(root, build).derived)                       # derived from it for another version
 
     def test_chain_key_tracks_shader_package_and_split_pairs(self):
         with tempfile.TemporaryDirectory() as td:

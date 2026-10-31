@@ -10,7 +10,9 @@ import os, re, sys, runpy, subprocess
 HERE = os.path.dirname(os.path.abspath(__file__)); sys.path.insert(0, HERE); import dmsh_chain, tool_lock
 OWN = re.compile(r'(metal_macosx|metal_iphoneos): lock (.*) / actual (?!missing$)(.*)')   # a missing compiler still stops the build
 ALLOW = 'DM_ALLOW_OTHER_METAL'
-XCODE = 'Xcode 27.1 (macOS 26.6 or later)'   # the Xcode whose Metal compiler dmsh_chain.lock records; README.md names it too
+XCODE_VERSION = '27.1'   # the Xcode whose Metal compiler dmsh_chain.lock records; README.md names it too
+XCODE = f'Xcode {XCODE_VERSION} (macOS 26.6 or later)'
+XCODE_APP = f'/Applications/Xcode-{XCODE_VERSION}.app'   # the name the message suggests for it beside a newer Xcode.app
 strict = tool_lock.check_tools
 
 def allowed(): return os.environ.get(ALLOW) == '1'
@@ -19,12 +21,22 @@ def metal_version(sdk):   # as tool_lock.tools_now records it: the first line of
     r = subprocess.run(['xcrun', '-sdk', sdk, 'metal', '--version'], capture_output=True, text=True)
     return (r.stdout.splitlines() or ['missing'])[0]
 
+def selected_xcode():   # ' (selected: Xcode 27.2 in /Applications/Xcode.app/Contents/Developer)', '' when it cannot be read; both tools follow DEVELOPER_DIR as xcrun does
+    try:
+        dev = subprocess.run(['xcode-select', '-p'], capture_output=True, text=True).stdout.strip()
+        ver = (subprocess.run(['xcodebuild', '-version'], capture_output=True, text=True).stdout.splitlines() or [''])[0]
+    except OSError: return ''
+    return f' (selected: {ver or "no Xcode"} in {dev})' if dev else ''
+
 def other_metal_message(metal):
-    """The stop message for the Metal compilers that differ from the lock: [(lock key, tested, actual)]"""
+    """The stop message for the Metal compilers that differ from the lock: [(lock key, tested, actual)]. Each Xcode downloads and uses its own Metal toolchain (a system asset),
+    whatever the macOS version, so with a newer Xcode selected -downloadComponent fetches that Xcode's compiler again: the tested Xcode must be selected first (GitHub issue #717)"""
     return ('[RED] this Mac\'s Metal compiler is not the one the shaders were tested with (dm/gfx/tools/dmsh_chain.lock): ' +
             '; '.join(f'{k} {now} (tested: {want})' for k, want, now in metal) +
-            f'. Untested compilers are unsupported (GitHub issue #242). Install {XCODE} and its Metal toolchain '
-            f'(xcodebuild -downloadComponent MetalToolchain), or set {ALLOW}=1 (the NSP script\'s --allow-other-metal) to build with this one anyway')
+            f'. Untested compilers are unsupported (GitHub issue #242). The Metal compiler is the selected Xcode\'s{selected_xcode()}: install {XCODE} '
+            f'from https://developer.apple.com/download/all/ (beside a newer Xcode, as {XCODE_APP}), select it (sudo xcode-select -s {XCODE_APP}, '
+            f'or DEVELOPER_DIR={XCODE_APP}/Contents/Developer for one build), then download its Metal toolchain (xcodebuild -downloadComponent MetalToolchain), '
+            f'or set {ALLOW}=1 (the NSP script\'s --allow-other-metal) to build with this one anyway')
 
 def other_metal():
     """The Metal compilers (macOS, iOS) that differ from the lock and are present: [(lock key, tested, actual)]; a missing one is dmsh_build.py's to report"""

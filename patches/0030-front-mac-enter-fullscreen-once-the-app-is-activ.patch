@@ -15,10 +15,10 @@ Issue: LNPANDY/NX2Apple#219
  2 files changed, 34 insertions(+), 1 deletion(-)
 
 diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
-index 3a83af0c..7671c20a 100644
+index 072a93f5..91224501 100644
 --- a/dm/host/front_mac.m
 +++ b/dm/host/front_mac.m
-@@ -236,6 +236,13 @@ - (void)setFrameSize:(NSSize)s { [super setFrameSize:s]; [self fitDrawable]; }
+@@ -240,6 +240,13 @@ static void pads_start(void) {
  - (void)viewDidChangeBackingProperties { [super viewDidChangeBackingProperties]; [self fitDrawable]; }
  @end
  
@@ -32,7 +32,7 @@ index 3a83af0c..7671c20a 100644
  typedef struct { void (*fn)(void); } guest_arg;
  static void *guest_tramp(void *p) {
      static char alt[65536];                       // The signal alternate stack is per thread; crash printing must also work on the guest thread
-@@ -288,7 +295,25 @@ void front_run(void (*guest)(void)) {
+@@ -1150,7 +1157,25 @@ void front_run(void (*guest)(void)) {
          [wm addItemWithTitle:@"Enter Full Screen" action:@selector(toggleFullScreen:) keyEquivalent:@"f"].keyEquivalentModifierMask = NSEventModifierFlagControl | NSEventModifierFlagCommand;
          NSApp.mainMenu = bar;
          const char *fs = getenv("DM_FULLSCREEN");   // 1 (or any value but 0): start in fullscreen; 0, the settings window's Window, or unset: a window
@@ -60,10 +60,10 @@ index 3a83af0c..7671c20a 100644
              [NSNotificationCenter.defaultCenter addObserverForName:nm object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *n) {
                  GCController *c = n.object; int conn = n.name == GCControllerDidConnectNotification;
 diff --git a/docs/reference/frame-rate.md b/docs/reference/frame-rate.md
-index 01e3d2f1..19e21153 100644
+index e823953a..8a366cb6 100644
 --- a/docs/reference/frame-rate.md
 +++ b/docs/reference/frame-rate.md
-@@ -202,6 +202,14 @@ Frame pacing: the host's frame step, engine frame limiters, present intervals an
+@@ -210,6 +210,14 @@ Frame pacing: the host's frame step, engine frame limiters, present intervals an
  - **Check:** here (a built-in 120 Hz screen, a multiple of every link rate) a harness drove `front_mac.m` asked for 50 fps: no switch in the window, 120 → 50 Hz in fullscreen, 120 Hz again on leaving it, and 120 Hz after quitting in fullscreen; at 60 fps and with `DM_SCREEN_MATCH=0` nothing switched.
  - **Not checked:** the link's new range after a switch has not run here (Hades windowed and fullscreen paced at 60 as before).
  

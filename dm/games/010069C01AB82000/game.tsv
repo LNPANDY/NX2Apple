@@ -19,11 +19,13 @@ romfs_marker	Project/Content/Paks/pakchunk0-Switch.pak
 zip_store	.pak:.metallib
 
 # ---- Memory ----
-# nninitStartup (+0x1b88a10) reads this option in MB and otherwise reserves 62 GB.
+# nninitStartup (+0x1b88a10) reserves one address region for the engine, 62 GB by default;
+# the rewriter's engine-wide gate on the store of its size
+# (dm/tools/ue_region.py; hle_svc.c) gives it what the alias region has room for
+# (2.81 GB; until 2026-10-31 -SwitchVirtualAddressSpaceSize=2048 in game_args).
 # FMallocBinned3's 37 GB pool reservation is replaced by the host's malloc zone
-# (patches.py, hle_uemalloc.c). The SDK build already has the 62 MB node-area and
-# 32 MB region-alignment cuts in sdk_patches.py.
-game_args	-SwitchVirtualAddressSpaceSize=2048
+# (the rewriter's engine-wide cut, dm/tools/ue_malloc.py; hle_uemalloc.c). The SDK-wide
+# rules give its SDK build the 62 MB node area and 2 MB region alignment (sdk_patches.py).
 mem_reserve	0xF0000000
 mem_alias	0xC8000000
 mem_stack	0x10000000
@@ -31,9 +33,11 @@ app_pool	0xCD500000
 sys_resource	0x2800000
 
 # The Switch profile caps Project.FrameRateLimit at 30 and rhi.syncinterval at 2.
-# hle_fpslock.c raises the verified 1.0.3 console variables; Unreal applies the
-# project limit through GameUserSettings to t.MaxFPS. DM_FPS_TARGET=30 restores 30.
+# hle_fpslock.c raises both console variables, found by name by the rewriter
+# (ue_cvar.py); Unreal applies the project limit through GameUserSettings to
+# t.MaxFPS, so ue_fps_cvar names it instead of t.MaxFPS. DM_FPS_TARGET=30 restores 30.
 fps_target	60
+ue_fps_cvar	Project.FrameRateLimit
 
 # ---- Input ----
 pad_layout	full

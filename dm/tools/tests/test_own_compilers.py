@@ -45,6 +45,18 @@ class CheckTools(unittest.TestCase):
             self.assertTrue(msg.startswith('[RED] '), msg)
             for want in (key, OTHER, LOCKED[key], 'Xcode 27.1', 'macOS 26.6', 'xcodebuild -downloadComponent MetalToolchain', 'DM_ALLOW_OTHER_METAL=1', '#242'): self.assertIn(want, msg)
 
+    def test_other_metal_says_to_select_the_tested_xcode(self):   # a newer Xcode selected downloads its own toolchain again (GitHub issue #717)
+        sel = ' (selected: Xcode 27.2 in /Applications/Xcode.app/Contents/Developer)'
+        with mock.patch.object(own_compilers, 'selected_xcode', lambda: sel):
+            msg = own_compilers.other_metal_message([('metal_macosx', LOCKED['metal_macosx'], OTHER)])
+        app = own_compilers.XCODE_APP
+        for want in (sel, 'https://developer.apple.com/download/all/', f'sudo xcode-select -s {app}', f'DEVELOPER_DIR={app}/Contents/Developer'): self.assertIn(want, msg)
+        self.assertLess(msg.index('xcode-select -s'), msg.index('-downloadComponent'), 'select the tested Xcode before downloading its toolchain')
+
+    def test_selected_xcode_without_xcode(self):   # no xcode-select or xcodebuild: the message goes without the selected Xcode
+        with mock.patch.object(own_compilers.subprocess, 'run', side_effect=FileNotFoundError):
+            self.assertEqual(own_compilers.selected_xcode(), '')
+
     def test_other_metal_allowed(self):
         bad, out = self.check([mismatch('metal_macosx', OTHER), mismatch('metal_iphoneos', OTHER)], allow=True)
         self.assertEqual(bad, [])

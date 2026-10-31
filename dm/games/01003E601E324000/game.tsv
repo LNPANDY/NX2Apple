@@ -1,0 +1,55 @@
+# DRAGON QUEST III HD-2D Remake: Square Enix, Unreal Engine 4.27.2 (one version 11 pak with an encrypted index, MallocBinned3), SDK 16.2.6, NVN, CRIWARE sound and Sofdec movies
+# (CRI Mana's own decoder threads); update 1.1.2 (v262144).
+# Started from the NSP script's provisional profile (dm/games/profile_guess.py) and brought up on the Mac (docs/agents)
+# Format: see dm/games/README.md
+
+# ---- Identity ----
+title_id	01003E601E324000
+program_id	01003E601E324000
+
+# ---- App ----
+# Game name: only a label for profile listings and the Mac window title; the iOS app name is the game name in the base NSP, and the bundle ID comes from the base game title ID (build_ipa.sh / NSP script)
+name	DRAGON QUEST III HD-2D Remake
+ipa	DragonQuestIiiHd2dRemake.ipa
+app_category	public.app-category.games
+
+# ---- Versions ----
+build	v262144	1.1.2	main=a6bd61cfb142e663f59f4d92b4ed0474	subsdk0=220d36873cbb6d5dc39a9a37127ea80d	sdk=a5cb2175cad2ca2afdd4c13577dbd079
+package	v262144
+shader_versions	v262144
+
+# ---- Files ----
+# load order as on Horizon: main, subsdk*, sdk (subsdk0 = NintendoSDK_movie, which main imports from)
+modules	main subsdk0 sdk
+romfs_marker	Nicola/Content/Paks/Nicola-Switch_0_P.pak
+zip_store	.pak:.metallib
+
+# ---- Graphics ----
+# 60 fps (30 on the Switch): the game's Switch device profile (Nicola/Config/Switch/SwitchDeviceProfiles.ini) sets rhi.syncinterval=2, the present interval 2 it asks for while
+# BaseSwitchEngine.ini's r.VSync=1 locks presents to vsync; no config sets FrameRateLimit or t.MaxFPS. The host writes 1 into rhi.SyncInterval (hle_fpslock.c), so the game asks for
+# present interval 1 itself. Unreal steps the game by the time that really passed (the same stick press moves the scene as far at 30 and at 60 fps).
+# DM_FPS_TARGET=30 (Documents/env.txt on the iPhone) keeps the game's 30 and saves power
+fps_target	60
+
+# ---- Memory ----
+# Unreal Engine 4.27: as DRAGON QUEST VII Reimagined (0100A9D01C446000/game.tsv), nninitStartup needs virtual address memory and reserves a 62 GB region for the engine. The rewriter's
+# engine-wide rules cut the FMallocBinned3 constructor call (the host runs Unreal's heap on a malloc zone outside the guest block; dm/tools/ue_malloc.py, hle_uemalloc.c) and give the region what
+# the alias region has room for, 2.81 GB (dm/tools/ue_region.py, hle_svc.c); the SDK's node area is cut to 62 MB (dm/tools/sdk_patches.py, its function-matched cuts on this sdk build).
+# On the Mac through the opening and the prologue: up to +0.75 GB of the alias region with 0.5 GB mapped, an Unreal heap of 1 GB, about 2.6 GB resident. Alias region = node area + the
+# region + 256 MB for regions made later; 256 MB stacks, 384 MB heap region
+mem_reserve	0xF0000000
+mem_alias	0xC8000000
+mem_stack	0x10000000
+app_pool	0xCD500000
+# the NPDM declares 80 MB of system resource
+sys_resource	0x5000000
+
+# ---- Input ----
+# The 3D pad layout (a D-pad and a right stick), as Octopath Traveler II and DRAGON QUEST VII Reimagined. It plays with the controller, so it stays docked (1920x1080)
+pad_layout	full
+
+# ---- Shader split ----
+# The shader code archives of Nicola-Switch_0_P.pak (ShaderArchive-*.ushaderbytecode), each shader LZ4-compressed (uepak.py lz4_shaders), read once uepak.py has the index's AES key
+# (two 16-byte literals in main's code, uepak.py code_keys): the engine's global shaders and the game's material shaders
+shader_groups	ShaderArchive-Global-=global ShaderArchive-=game
+shader_note	DRAGON QUEST III HD-2D Remake shaders

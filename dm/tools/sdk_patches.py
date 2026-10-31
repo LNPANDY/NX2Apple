@@ -93,12 +93,12 @@ CUTS = {
 #   were brought up on this build; Kirby has no virtual address memory and never reaches them
 # - fcf93a41…: DRAGON QUEST XI S 1.0.4 (v262144) sdk (SDK 7.3.2, the same build as Super Mario Odyssey 1.4.1's, which has no virtual address memory and never allocates an address region):
 #   the node area cut, and regions of 1 GB and more aligned to 32 MB, as Absolum's. Unreal Engine 4.18's nninitStartup takes one region for the whole engine, which a NumberLineAllocator
-#   (main+0x177c4d0) hands out (16 GB by default, -SwitchVirtualAddressSpaceSize= in MB caps it: the profile's game_args); the 1 GB alignment would have put it 1 GB into the alias region.
+#   (main+0x177c4d0) hands out (16 GB by default; the host gives it what the alias region has room for, dm/tools/ue_region.py); the 1 GB alignment would have put it 1 GB into the alias region.
 #   The constructor is at sdk+0x32c450 (the limit at +0x28 and the occupied length both from orr w9,wzr,#0x3fe00000); VammManager::AllocateAddressRegion's placement at sdk+0x32c600 aligns a
 #   region by its size as SDK 18 does: 64 KB under 2 MB, 2 MB under 4 MB, 4 MB under 32 MB, 32 MB under 1 GB, else 1 GB (+0x32c66c)
 # - 30a1e87b…: SDK 10.4.8 sdk 30a1e87b52f5 (Pikmin 4 1.1.1, Unreal Engine 4.26.2): the same cuts as the SDK 10.4.1 build above, whose AddressRegionManager this is at the same offsets (the
 #   constructor sdk+0x340e90, the node area limit +0x340ea0 and its occupied length +0x340f3c, AllocateAddressRegion's 1 GB alignment +0x34109c). Unreal's nninitStartup reserves its engine
-#   region (-SwitchVirtualAddressSpaceSize, the profile's game_args) in the alias region, so the region starts 62 MB in and a 4 GB region needs no 1 GB alignment slack
+#   region in the alias region (what the alias region has room for: dm/tools/ue_region.py), so the region starts 62 MB in and a 4 GB region needs no 1 GB alignment slack
 # - 86188952…: SDK 15.3.2 sdk 8618895246b4 (Paper Mario: The Thousand-Year Door 1.0.1, Celeste 1.4.1.1; Celeste has no virtual address memory and never makes an address region): Absolum's
 #   cuts on this build. The AddressRegionManager constructor is at sdk+0x12e0e0 (node area limit at +0x12e0f0, registered as occupied at +0x12e184) and VammManager::AllocateAddressRegion at
 #   sdk+0x12e1d0 aligns regions of 1 GB and more to 1 GB (+0x12e2e0). Measured with a 64 GB alias region: Paper Mario's malloc region was placed at the next 1 GB boundary after the 1 GB node
@@ -132,7 +132,7 @@ CUTS = {
 #   pool range (reduced from 12 GB to 3 GB in the game's patches.py). Both the 62 MB node area and 32 MB alignment are needed: with the original 1 GB alignment the 3 GB request returns
 #   0x1803, even after the node-area cut. Its own pools align to 64 KB / 512 KB and do not require 1 GB alignment of the enclosing address region.
 # - 7bba185a…: Octopath Traveler 0 1.0.5 (v327680) sdk (SDK 19.3.13): the AddressRegionManager node area 0x3fe00000 → 0x3e00000 (62 MB), as Engage's SDK 12 (above). The same constructor (sdk+0x1423ec):
-#   +0x1423fc sets the node area limit, +0x142468 registers it as an occupied region. Unreal's region (-SwitchVirtualAddressSpaceSize, the profile's game_args) then starts 62 MB into the
+#   +0x1423fc sets the node area limit, +0x142468 registers it as an occupied region. Unreal's region (what the alias region has room for: dm/tools/ue_region.py) then starts 62 MB into the
 #   alias region, and the guest block stays small enough for an iPhone next to the Unreal heap (hle_uemalloc.c), which lives outside it
 # - 871fb219…: Cult of the Lamb 1.5.28 (v1966080) sdk (SDK 19.3.14, Unity 2022.3.62f3): the same node area cut, the SDK-wide rule's implementation 5 (the constructor at sdk+0x1423ec), registered while
 #   the rules skipped builds a profile was brought up on (not on the game drive to check against them). nninitStartup calls StandardAllocator::Initialize(nullptr, pool − used) with virtual
@@ -159,7 +159,7 @@ CUTS = {
 #   at sdk+0x13be3c (the limit at +0x13be4c, the area registered as occupied at +0x13bee0), the placement's constants at sdk+0x13c034 / +0x13c03c / +0x13c040
 # - 5bcf525f…: OCTOPATH TRAVELER II 1.1.1 (v131072) sdk (SDK 12.3.2, Unreal Engine 4.27): the node area cut, as DRAGON QUEST VII Reimagined's, and now the 2 MB alignment (run on the
 #   game, 2026-10-30: its 2 GB region moves from alias +0.75 GB to +0.06 GB). The constructor is at sdk+0x346180 (the limit at +0x346190, the occupied length at +0x34622c), the
-#   placement's constants at sdk+0x346384 / +0x34638c / +0x346390. Unreal's engine region (-SwitchVirtualAddressSpaceSize, the profile's game_args) starts 62 MB into the alias region
+#   placement's constants at sdk+0x346384 / +0x34638c / +0x346390. Unreal's engine region (dm/tools/ue_region.py) starts 62 MB into the alias region
 node_area, alignment = 'AddressRegionManager node area 1 GB → 62 MB', 'AllocateAddressRegion: regions of 4 MB and more aligned to 2 MB, as SDK 20'
 def mov(old, value):   # the original mov / orr of a constant, as the registered reasons name it (its destination register: the word's low 5 bits)
     rd = int(old[:2], 16) & 31

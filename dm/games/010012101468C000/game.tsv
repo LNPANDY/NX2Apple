@@ -1,0 +1,46 @@
+# Game profile of Metroid Prime Remastered (Switch, 1.0.0 = v0). Plays on the Mac (boot, the title, the menus, a new game's opening and the Frigate Orpheon)
+# Format: see dm/games/README.md
+# Retro Studios' engine (RFRM forms, little-endian unlike Tropical Freeze's: MaterialArchive.arc and .pak archives) on SDK 12.3.1, NVN; subsdk0 is the SDK's movie library.
+# Its shaders are SNVN program records in MaterialArchive.arc, in the packs' MTRL resources and in a startup archive LZSS-compressed into main (shader_split.py rfrm_shaders /
+# retro_main_forms). What the host and chain needed for it is general (README.md: the PIXLD sample index, GLSLC's sample position table, image stores under rasterizer discard)
+
+# ---- Identity ----
+title_id	010012101468C000
+program_id	010012101468C000
+
+# ---- App ----
+# Game name: only a label for profile listings and the Mac window title; the iOS app name is the game name in the base NSP, and the bundle ID comes from the base game title ID (build_ipa.sh / NSP script)
+name	Metroid Prime Remastered
+ipa	MetroidPrimeRemastered.ipa
+app_category	public.app-category.games
+
+# ---- Versions ----
+build	v0	1.0.0	main=67c9ca1428222752f951021464a7b359	subsdk0=1506de55e5a3906ee3c63e66395d2f0c	sdk=2217a4a3c1f3c883278de72f8b008224
+package	v0
+shader_versions	v0
+
+# ---- Files ----
+# every module main imports from
+modules	main subsdk0 sdk
+romfs_marker	Preload/DuplicateData.pak
+zip_store	.arc:.pak:.metallib
+
+# ---- Memory ----
+# no system resource: nninitStartup binary-searches SetMemoryHeapSize from 4.5 GB down and settles on 3.11 GB in the 4 GB layout's 3.25 GB heap region, as Tropical Freeze does;
+# about 2.7 GB resident and 2.4 GB of Metal allocations on the Frigate Orpheon on the Mac
+mem_reserve	0x100000000
+mem_alias	0x10000000
+mem_stack	0x10000000
+app_pool	0xCD500000
+# the NPDM declares 0 MB of system resource: IsVirtualAddressMemoryEnabled is false, as on Horizon
+sys_resource	0x0
+
+# ---- Shader split ----
+# 40,483 shaders (20,233 vertex, 20,233 pixel, 12 geometry, 5 compute): MaterialArchive.arc, the MTRL resources of the world, preload and UI packs, and the startup archive in main;
+# 20,233 vertex / pixel pairs
+shader_groups	/Worlds/=worlds /Preload/=preload /UI/=ui
+shader_note	Metroid Prime Remastered shaders
+
+# ---- After the rewrite ----
+# the rewritten modules are larger than the default 64 MB of used memory
+mem_used	0x6600000

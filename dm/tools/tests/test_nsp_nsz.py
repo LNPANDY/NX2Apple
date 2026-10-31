@@ -1,4 +1,4 @@
-"""NSP script: NSZ / XCZ files in the NSP folder are listed by their ticket like NSPs (scan_nsps) and converted once with nsz -D into <title ID>_build/nsp/ (decompress_nsz):
+"""NSP script: NSZ / XCZ files in the NSP folder are listed by their ticket like NSPs (scan_nsps) and converted once with nsz -D into <build folder>/nsp/ (decompress_nsz):
 a conversion is moved in only when nsz exits 0 and made the file, and reused while its source is unchanged. nsz itself is stood in for (no game files, keys or nsz needed)."""
 import importlib.util
 import os
@@ -65,6 +65,14 @@ class Nsz(unittest.TestCase):
         os.utime(self.upd, ns=(0, 0))   # a changed source: converted again
         nsp.decompress_nsz(self.tmp, app, nsp.scan_nsps(self.tmp)[1], self.keys, {})
         self.assertEqual(self.runs[2:], [self.upd.name])
+
+    def test_work_dir(self):   # --work-dir: the conversions go to the build folder named, nothing to the NSP folder
+        app, fam = nsp.scan_nsps(self.tmp)
+        work = self.tmp / 'builds' / 'game'
+        fam = nsp.decompress_nsz(self.tmp, app, fam, self.keys, {}, work)
+        self.assertEqual(fam['base'], work / 'nsp' / 'Game [v0].nsp')
+        self.assertTrue((work / 'nsp' / 'Game [v0].nsp.key').is_file())
+        self.assertFalse((self.tmp / f'{APP:016X}_build').exists())
 
     def test_relative_paths(self):
         previous_cwd = Path.cwd(); self.addCleanup(os.chdir, previous_cwd); os.chdir(self.tmp)
