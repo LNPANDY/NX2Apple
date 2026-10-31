@@ -36,6 +36,15 @@ while IFS= read -r -d '' f; do
 done < <(find "$RES/tools" "$RES/python" -type f -print0)
 [ "$links" = 0 ] && ok "no Mach-O file links outside the system or the bundle, and none needs macOS later than 13.0"
 
+# the icon: Assets.car (macOS 26 and later) and AppIcon.icns (13 to 25), and the two Info.plist keys that point at them
+if [ -d "$APP/Contents" ]; then
+    for f in Assets.car AppIcon.icns; do [ -s "$RES/$f" ] && ok "$f is in the bundle" || bad "$f is missing from Resources"; done
+    for k in CFBundleIconName CFBundleIconFile; do
+        v=$(/usr/libexec/PlistBuddy -c "Print :$k" "$APP/Contents/Info.plist" 2>&1)
+        [ "$v" = AppIcon ] && ok "Info.plist $k = $v" || bad "Info.plist $k is '$v', not AppIcon"
+    done
+fi
+
 if [ "${2:-}" = "--sign" ] && [ -d "$APP/Contents" ]; then
     codesign --force --deep --sign - "$APP" 2>&1 | tail -3
     codesign -v --deep --strict "$APP" 2>&1 && ok "codesign -v --deep --strict" || bad "codesign -v --deep --strict"
