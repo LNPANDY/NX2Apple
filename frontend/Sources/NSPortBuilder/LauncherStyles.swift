@@ -138,6 +138,35 @@ struct LauncherSwitchStyle: ToggleStyle {
     }
 }
 
+/// The cream button of the library's hero (Play, Build game, Open on a device). It has one size in every state and language, so
+/// the button does not change size when a game goes from not built to built. A long label shrinks, then ends in an ellipsis.
+enum LauncherHeroAction {
+    static let width: CGFloat = 200
+    static let height: CGFloat = 54
+    static let horizontalPadding: CGFloat = 24
+    static let iconSlot: CGFloat = 28
+    static let iconSpacing: CGFloat = 8
+    static let labelWidth = width - 2 * horizontalPadding - iconSlot - iconSpacing
+    static let minimumScale: CGFloat = 0.7
+}
+
+struct LauncherHeroActionLabel: View {
+    let title: String
+    let symbol: String
+
+    var body: some View {
+        HStack(spacing: LauncherHeroAction.iconSpacing) {
+            Image(systemName: symbol).frame(width: LauncherHeroAction.iconSlot)
+            Text(title).lineLimit(1).minimumScaleFactor(LauncherHeroAction.minimumScale)
+        }
+        .font(.manrope(18, .bold))
+        .foregroundStyle(.black)
+        .padding(.horizontal, LauncherHeroAction.horizontalPadding)
+        .frame(width: LauncherHeroAction.width, height: LauncherHeroAction.height)
+        .background(LauncherPalette.cream, in: Capsule())
+    }
+}
+
 /// The width of a launch option's control (choices, list, slider with its value), so the controls of a card line up
 /// in one column whatever their labels.
 enum LaunchControl {
