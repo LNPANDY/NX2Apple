@@ -41,6 +41,36 @@ import XCTest
         app.buttons["controllers.close"].tap()
         XCTAssertFalse(app.staticTexts["Pro Controller"].exists)
     }
+    /// Swipes from the left screen edge to `fraction` of the width. A slow release at a short distance cancels.
+    private func edgeSwipe(to fraction: CGFloat, fling: Bool) {
+        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0.5)).withOffset(CGVector(dx: 1, dy: 0))
+        let end = app.coordinate(withNormalizedOffset: CGVector(dx: fraction, dy: 0.5))
+        start.press(forDuration: 0.05, thenDragTo: end, withVelocity: fling ? .fast : .slow, thenHoldForDuration: fling ? 0 : 0.5)
+    }
+    func testEdgeSwipeClosesSettingsAndCanBeCancelled() {
+        XCUIDevice.shared.orientation = .portrait
+        launch("library")
+        app.buttons["settings.open"].tap()
+        XCTAssertTrue(app.buttons["library.back"].waitForExistence(timeout: 5))
+        edgeSwipe(to: 0.1, fling: false)
+        XCTAssertTrue(app.buttons["library.back"].waitForExistence(timeout: 5), "A short swipe let go slowly springs back")
+        XCTAssertTrue(app.buttons["library.back"].isHittable)
+        edgeSwipe(to: 0.9, fling: true)
+        expectation(for: NSPredicate(format: "isHittable == false"), evaluatedWith: app.buttons["library.back"])
+        waitForExpectations(timeout: 5)
+        XCTAssertTrue(app.buttons["settings.open"].isHittable)
+        capture("edge-swipe-back-to-library")
+    }
+    func testEdgeSwipeClosesControllers() {
+        XCUIDevice.shared.orientation = .portrait
+        launch("library")
+        app.buttons["controllers.open"].tap()
+        XCTAssertTrue(app.buttons["controllers.close"].waitForExistence(timeout: 5))
+        edgeSwipe(to: 0.9, fling: true)
+        expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: app.buttons["controllers.close"])
+        waitForExpectations(timeout: 5)
+        XCTAssertTrue(app.buttons["controllers.open"].isHittable)
+    }
     func testShortShelfSelects() {
         XCUIDevice.shared.orientation = .landscapeLeft
         extraArguments = ["--games", "3"]

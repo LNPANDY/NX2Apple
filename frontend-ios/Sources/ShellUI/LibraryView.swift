@@ -43,6 +43,8 @@ public struct LibraryView: View {
     @State private var focus: FocusAppearance
     @State private var targets = FocusTargetBuffer()
     @State private var settingsPosition = ScrollPosition()
+    /// How far the left-edge swipe has dragged the open settings or Controllers to the right.
+    @State private var edgeDrag: CGFloat = 0
     @State private var libraryPosition = ScrollPosition()
     @State private var layout: ShellLayout = .column
     @State private var returnFocus: String?
@@ -94,13 +96,13 @@ public struct LibraryView: View {
                 } else if let selected {
                     library(selected, layout: layout, size: geometry.size, insets: insets)
                         .frame(width: width, height: geometry.size.height)
-                        .opacity(paneCovers ? 0 : 1)
+                        .opacity(paneCovers && edgeDrag == 0 ? 0 : 1)
                         .allowsHitTesting(!settingsOpen)
                         .accessibilityHidden(settingsOpen || helpGameID != nil)
                         .transformPreference(FocusTargets.self) { if settingsOpen { $0.removeAll() } }
                     if panelOverLibrary {
                         // The same dimming and dismissal as the Controllers overlay.
-                        Color.black.opacity(0.55).ignoresSafeArea()
+                        Color.black.opacity(0.55 * (settingsOpen && !controllersOpen ? 1 - min(1, edgeDrag / pane) : 1)).ignoresSafeArea()
                             .onTapGesture { closeSettings() }
                             .accessibilityHidden(true)
                             .transition(.opacity)
@@ -117,7 +119,7 @@ public struct LibraryView: View {
                         .overlay(alignment: .leading) {
                             if floating { Rectangle().fill(ShellPalette.hairline).frame(width: 1).ignoresSafeArea() }
                         }
-                        .offset(x: settingsOpen ? 0 : pane + 40)
+                        .offset(x: settingsOpen ? (controllersOpen ? 0 : edgeDrag) : pane + 40)
                         .opacity(settingsOpen ? 1 : 0)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
                         .allowsHitTesting(settingsOpen)
@@ -149,13 +151,14 @@ public struct LibraryView: View {
                         .transition(.opacity.combined(with: .scale(scale: 0.96)))
                 }
                 if controllersOpen {
-                    Color.black.opacity(0.55).ignoresSafeArea().accessibilityHidden(true)
+                    Color.black.opacity(0.55 * (1 - min(1, edgeDrag / min(width, 520)))).ignoresSafeArea().accessibilityHidden(true)
                         .onTapGesture { back() }
                     ControllersView(controllers: controllers, onBack: back)
                         .frame(width: min(width, 520))
                         .frame(maxHeight: .infinity)
                         .background { ShellPalette.background.ignoresSafeArea() }
                         .overlay(alignment: .leading) { Rectangle().fill(ShellPalette.hairline).frame(width: 1).ignoresSafeArea() }
+                        .offset(x: edgeDrag)
                         .frame(maxWidth: .infinity, alignment: .trailing)
                         .accessibilityAddTraits(.isModal)
                         .transition(.move(edge: .trailing).combined(with: .opacity))
@@ -170,6 +173,12 @@ public struct LibraryView: View {
                 }
             }
             .coordinateSpace(name: "shell")
+            .background {
+                EdgeSwipeBack(enabled: (settingsOpen || controllersOpen) && choice == nil && helpGameID == nil,
+                              changed: { edgeDrag = $0 },
+                              ended: { finishEdgeSwipe(travel: $0, velocity: $1, span: controllersOpen ? min(width, 520) : pane) },
+                              cancelled: cancelEdgeSwipe)
+            }
             .onPreferenceChange(FocusTargets.self) { all in targets.values = all.filter { $0.frame.width > 1 } }
             .onAppear { self.layout = layout }
             .onChange(of: layout) { _, new in self.layout = new }
@@ -291,6 +300,21 @@ public struct LibraryView: View {
         selectedID = id
         actions.onSelect(id)
         settingsPosition.scrollTo(edge: .top)
+    }
+    /// The swipe lets go: past a third of the panel or flung to the right, it finishes the slide out from where the
+    /// finger is and then closes without a second animation. Otherwise the panel springs back.
+    private func finishEdgeSwipe(travel: CGFloat, velocity: CGFloat, span: CGFloat) {
+        guard travel > span / 3 || velocity > 600 else { cancelEdgeSwipe(); return }
+        let close = {
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) { back(); edgeDrag = 0 }
+        }
+        if reduceMotion { close(); return }
+        withAnimation(.smooth(duration: 0.25), completionCriteria: .logicallyComplete) { edgeDrag = span + 40 } completion: { close() }
+    }
+    private func cancelEdgeSwipe() {
+        withAnimation(reduceMotion ? nil : .smooth(duration: 0.25)) { edgeDrag = 0 }
     }
     private func openSettings() {
         noteTouch()
