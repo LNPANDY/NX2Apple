@@ -32,9 +32,51 @@ defaults:
 
 # Actions are pinned to commit SHAs (the tag in the comment): a tag can be moved, a SHA cannot. Dependabot (github-actions) can raise them.
 jobs:
+  # Which areas the change touches, so a launcher-only or Qt-only PR skips the engine jobs on the scarce xcode-27 runners.
+  # Everything but a pull request (push to main, workflow_dispatch) reports every area as changed. So does any failure to
+  # find the diff. The jobs that wait for this one run when it did not succeed, so a broken filter never skips a check.
+  # The five required checks (patch-queue, launcher, launcher-qt, tool-tests, triage-scripts) either do not wait for it
+  # or are skipped by a job-level if, never by a paths: filter on the workflow (no run would leave the check pending).
+  changes:
+    name: Changed areas
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      engine: ${{ steps.diff.outputs.engine }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Which areas changed
+        id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          engine=true
+          if [ "$EVENT" = pull_request ]; then
+            if git fetch --no-tags --depth=1 origin "$BASE" && files=$(git diff --name-only "$BASE" HEAD); then
+              echo "$files"
+              # What the engine jobs read: engine/ is made from .upstream-ref and patches/ by tools/engine.py (dm/, scripts/ and docs/ are
+              # listed in case a change reaches them), the iOS shell package, and this file. A launcher (frontend/) or Qt (frontend-qt/)
+              # change alone leaves them out. Anything else (docs, .github/scripts) is no input of theirs either.
+              if echo "$files" | grep -Eq '^(dm/|scripts/|docs/|ref/|patches/|tools/|\.upstream-ref$|frontend-ios/|\.github/workflows/tests\.yml$)'; then
+                engine=true
+              else
+                engine=false
+              fi
+            else
+              echo "::warning::No diff against the base, so every area counts as changed"
+            fi
+          fi
+          echo "engine=$engine" >> "$GITHUB_OUTPUT"
+          echo "engine=$engine"
+
   host-tests:
     name: Host unit tests and CPU-only gfx tests
     runs-on: xcode-27
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.engine == 'true') }}
     timeout-minutes: 20
     defaults:
       run:
@@ -89,6 +131,8 @@ jobs:
   tool-tests:
     name: Tool tests
     runs-on: xcode-27
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.engine == 'true') }}
     timeout-minutes: 15
     defaults:
       run:
@@ -171,6 +215,8 @@ jobs:
   build:
     name: Build check (Mac host, gfx tests, iOS sources)
     runs-on: xcode-27
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.engine == 'true') }}
     timeout-minutes: 40
     defaults:
       run:
@@ -238,6 +284,8 @@ jobs:
   shell-package:
     name: iOS shell package (frontend-ios, swift test)
     runs-on: xcode-27
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.engine == 'true') }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -302,6 +350,8 @@ jobs:
   ios-build:
     name: Unsigned iOS app (synthetic modules, Swift and link)
     runs-on: xcode-27
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.engine == 'true') }}
     timeout-minutes: 40
     defaults:
       run:
