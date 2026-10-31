@@ -12,7 +12,6 @@ Each game is its own app, so its layout is its own: a long press on the layout b
 Upstream-Status: pending
 Reason: Players ask to place the virtual controls themselves (the built-in corners do not fit every hand and game); the editor keeps the built-in layout as the fallback and stores positions per game
 Issue: LNPANDY/NX2Apple (owner request, virtual pad customization)
-
 ---
  dm/ios/Sources/DmGamepad.m | 126 +++++++++++++++++++++++++++++++++----
  1 file changed, 115 insertions(+), 11 deletions(-)
@@ -31,7 +30,7 @@ index def0a62..395e2e6 100644
  //   The virtual gamepad (layout button included) hides while a physical controller is connected and comes back when it is removed; meanwhile every touch goes to the game. Physical controllers keep every button (D-pad and right stick included) and map by position: bottom = B, right = A, left = Y, top = X (same positions as on a Switch controller); a Nintendo pad maps by its labels (pad_apple.h).
  //   Each physical controller is a player of its own (local co-op), as on the Mac: the first one connected is player 1, together with the touch gamepad, the next player 2, and so on up to 8; see "Physical controllers" below.
  //   Shaking the phone shakes the controller (DM_BTN_SHAKE: its six-axis sensor, hle_hid.c), whichever controls are in use; see "Shaking the phone" below.
-@@ -128,7 +131,18 @@ static void phone_motion_start(UIView *body) {
+@@ -128,7 +131,18 @@ static const CGFloat
      K_CLICK_X = 102, K_CLICK_R = 17;                // L3 / R3: centre from the outer edge (level with ZL / ZR), radius
  static const int k_btns[] = {B_ZL, B_L, B_ZR, B_R, B_MINUS, B_PLUS, B_LS, B_RS};   // keys locked at touch-down (L3 / R3 only in the 3D layout)
  static NSString *const k_layout_key = @"DmPadLayout";   // NSUserDefaults: 0 = 2D, 1 = 3D, 2 = Tap (DM_GAME_PAD_LAYOUT's numbers)
@@ -50,7 +49,7 @@ index def0a62..395e2e6 100644
  
  @interface DmGamepad : UIView
  @end
-@@ -145,6 +159,10 @@ @implementation DmGamepad {
+@@ -145,6 +159,10 @@ static void pads_start(void);   // Physical controllers, below
      CAShapeLayer *_ring, *_knob;                   // the left stick (the right one is not drawn)
      CAShapeLayer *_swap; CATextLayer *_swapLabel; BOOL _swapHeld;
      CAShapeLayer *_rHint; CATextLayer *_rHintLabel; int _rHintToken;   // the right-stick hint of the 3D layout (see the header)
@@ -61,7 +60,7 @@ index def0a62..395e2e6 100644
      UIImpactFeedbackGenerator *_touchFeedback;       // one short feedback per touch-control press edge
      unsigned _hapticSticks;
      BOOL _stickShown;                              // the left stick was held at the last refresh
-@@ -197,6 +215,11 @@ - (instancetype)initWithFrame:(CGRect)f {
+@@ -197,6 +215,11 @@ static BOOL fullOnly(int b) { return b == B_LS || b == B_RS || b >= B_LEFT; }
          _rHint = shape(_controls); _rHint.fillColor = k_ringFill.CGColor; _rHint.strokeColor = k_line.CGColor; _rHint.lineWidth = 1.5;
          _rHint.lineDashPattern = @[@6, @5]; _rHint.hidden = YES;   // dashed: a zone to touch anywhere in, not a key
          _rHintLabel = label(_rHint, @"R");
@@ -73,7 +72,7 @@ index def0a62..395e2e6 100644
          NSNumber *saved = [NSUserDefaults.standardUserDefaults objectForKey:k_layout_key];
          int l = saved ? (int)saved.integerValue : dm_profile()->pad_layout;
          if (l == 2 && dm_opmode() != 0) l = 0;   // Tap only in handheld mode (env.txt's DM_OPMODE may have changed it)
-@@ -216,9 +239,11 @@ - (void)applyLayout {   // show / hide the controls for the current layout
+@@ -216,9 +239,11 @@ static BOOL fullOnly(int b) { return b == B_LS || b == B_RS || b >= B_LEFT; }
      [CATransaction begin]; [CATransaction setDisableActions:YES];
      for (int b = 0; b < B_N; b++) _key[b].hidden = _tap || (fullOnly(b) && !_full);
      _ring.hidden = _knob.hidden = _tap;
@@ -87,7 +86,7 @@ index def0a62..395e2e6 100644
  }
  - (void)showStickHint {   // the 3D layout's right stick is a zone, not a drawn key: point at it while it is new, fade it on the first touch there or after three seconds
      _rHintToken++;
-@@ -229,6 +254,74 @@ - (void)showStickHint {   // the 3D layout's right stick is a zone, not a drawn
+@@ -229,6 +254,74 @@ static BOOL fullOnly(int b) { return b == B_LS || b == B_RS || b >= B_LEFT; }
          if (token == _rHintToken) _rHint.opacity = 0;   // the implicit fade runs even though applyLayout disables actions inside its own transaction only
      });
  }
@@ -162,7 +161,7 @@ index def0a62..395e2e6 100644
  - (void)nextLayout {   // 2D → 3D (→ Tap in handheld mode) → 2D: release every touch first (no key stays held), save, lay out again
      int l = _tap ? 0 : _full ? (dm_opmode() == 0 ? 2 : 0) : 1;
      [self reset];
-@@ -242,25 +335,25 @@ - (CGRect)safe { return UIEdgeInsetsInsetRect(self.bounds, self.safeAreaInsets);
+@@ -242,25 +335,25 @@ static BOOL fullOnly(int b) { return b == B_LS || b == B_RS || b >= B_LEFT; }
  - (CGRect)corner { UIEdgeInsets i = self.safeAreaInsets; i.left *= K_CORNER_IN; i.right *= K_CORNER_IN; return UIEdgeInsetsInsetRect(self.bounds, i); }   // the rectangle the bottom-corner controls use
  - (CGFloat)u { return MIN(self.bounds.size.height / 430.0, 1.3); }   // 1 = 430 points tall (iPhone Pro Max landscape)
  static CGPoint side(CGRect s, int right, CGFloat dx, CGFloat y) { return CGPointMake(right ? CGRectGetMaxX(s) - dx : CGRectGetMinX(s) + dx, y); }
@@ -194,7 +193,7 @@ index def0a62..395e2e6 100644
      return CGRectMake(c.x - w / 2, c.y - h / 2, w, h); }
  - (CGPoint)swapCenter { CGRect s = self.safe; return CGPointMake(CGRectGetMidX(s), CGRectGetMinY(s) + K_PILL_Y * self.u); }
  
-@@ -351,9 +444,11 @@ - (void)touchesBegan:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e {
+@@ -351,9 +444,11 @@ static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y);
      BOOL game = NO;
      for (UITouch *t in ts) {
          if (_padOff) { game |= [self gameBegin:t]; continue; }
@@ -208,7 +207,7 @@ index def0a62..395e2e6 100644
          if (_tap) { game |= [self gameBegin:t]; continue; }
          // diamond, D-pad, left stick: take the one with the smallest distance / grab radius, if it is <= 1
          CGFloat best = 1; int kind = C_NONE, idx = 0;
-@@ -374,6 +469,7 @@ - (void)touchesMoved:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e {
+@@ -374,6 +469,7 @@ static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y);
      BOOL game = NO;
      for (UITouch *t in ts) {
          uint64_t v = [_owner objectForKey:t].unsignedLongLongValue; int c = (int)(v & 0xff); CGPoint p = [t locationInView:self];
@@ -216,7 +215,7 @@ index def0a62..395e2e6 100644
          if (c == C_FACE) [_faceOf setObject:@([self faceAt:p]) forKey:t];
          else if (c == C_STICK) { _stickNow[v >> 8] = p;
              if ((v >> 8) == 1) { CGFloat d = dist(p, _rCentre), R = [self stickR:1];   // the right stick's centre follows a finger past its radius, so turning back responds at once
-@@ -387,13 +483,20 @@ - (void)endTouches:(NSSet<UITouch *> *)ts tapped:(BOOL)ended {
+@@ -387,13 +483,20 @@ static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y);
      BOOL swap = NO, game = NO;
      for (UITouch *t in ts) {
          uint64_t v = [_owner objectForKey:t].unsignedLongLongValue;
@@ -238,7 +237,7 @@ index def0a62..395e2e6 100644
  }
  - (void)touchesEnded:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e { [self endTouches:ts tapped:YES]; }
  - (void)touchesCancelled:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e { [self endTouches:ts tapped:NO]; }
-@@ -454,6 +557,7 @@ - (void)layoutSubviews {
+@@ -454,6 +557,7 @@ static void placeLabel(CATextLayer *t, CGPoint c, CGFloat fs) {
          CGPoint hc = CGPointMake(CGRectGetMaxX(self.bounds) - self.bounds.size.width * K_RSWIPE / 2, CGRectGetMidY(self.safe));
          setPath(_rHint, circlePath(hc, K_RSTICK_R * u)); placeLabel(_rHintLabel, hc, 15 * u);
      }

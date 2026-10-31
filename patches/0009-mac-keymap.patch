@@ -23,7 +23,7 @@ Issue: LNPANDY/NX2Apple#386
  create mode 100644 dm/host/tests/t_launcher_contract.c
 
 diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
-index 33e22f7f..072a93f5 100644
+index beffeea..fb74e5b 100644
 --- a/dm/host/front_mac.m
 +++ b/dm/host/front_mac.m
 @@ -4,7 +4,8 @@
@@ -126,7 +126,7 @@ index 33e22f7f..072a93f5 100644
      const char *e = getenv("DM_PAD_MERGE"); g_merge = e && atoi(e);
      e = getenv("DM_KBD_PLAYER"); g_kbd_own = !g_merge && e && !strcmp(e, "own");
      static const char kbd = 0;
-@@ -1225,7 +1225,7 @@ int front_text_input(const char *title, const char *sub, const char *guide, cons
+@@ -1255,7 +1255,7 @@ int front_text_input(const char *title, const char *sub, const char *guide, cons
      dispatch_sync(dispatch_get_main_queue(), ^{
          // The box takes the keyboard and the mouse, so the game window never sees the key-up of the button or the touch-up of the click that opened it: nothing may stay pressed
          // while it is up, or the game reads the stuck button / touch the moment the box closes (Stardew Valley's character creation re-opened the keyboard endlessly)
@@ -137,7 +137,7 @@ index 33e22f7f..072a93f5 100644
          NSString *info = [NSString stringWithFormat:@"%s%s%s", sub ? sub : "", sub && *sub && guide && *guide ? "\n" : "", guide ? guide : ""];
 diff --git a/dm/host/input_map.h b/dm/host/input_map.h
 new file mode 100644
-index 00000000..56fa4993
+index 0000000..56fa499
 --- /dev/null
 +++ b/dm/host/input_map.h
 @@ -0,0 +1,82 @@
@@ -224,7 +224,7 @@ index 00000000..56fa4993
 +}
 +static int pad_map_is_default(const pad_map *m) { for (int b = 0; b < IM_BUTTONS; b++) if (m->to[b] != b) return 0; return 1; }
 diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
-index 5169f889..49be130b 100644
+index 5169f88..49be130 100644
 --- a/dm/host/tests/Makefile
 +++ b/dm/host/tests/Makefile
 @@ -12,7 +12,7 @@ QUIET = $(if $(findstring -fsanitize,$(SAN)),,2>/dev/null)
@@ -258,7 +258,7 @@ index 5169f889..49be130b 100644
  $(B)/t_hid_tsan: t_hid.c ../hle_hid.c ../motion_fusion.h ../hle_haptics.c ../hle_haptics.h ../pad_slots.h ../dm_input.h ../hle.h ../dm.h $(GAME_H) | $(B)
 diff --git a/dm/host/tests/t_input_map.c b/dm/host/tests/t_input_map.c
 new file mode 100644
-index 00000000..96736ad6
+index 0000000..96736ad
 --- /dev/null
 +++ b/dm/host/tests/t_input_map.c
 @@ -0,0 +1,43 @@
@@ -307,7 +307,7 @@ index 00000000..96736ad6
 +}
 diff --git a/dm/host/tests/t_launcher_contract.c b/dm/host/tests/t_launcher_contract.c
 new file mode 100644
-index 00000000..136b4035
+index 0000000..136b403
 --- /dev/null
 +++ b/dm/host/tests/t_launcher_contract.c
 @@ -0,0 +1,35 @@
@@ -347,10 +347,10 @@ index 00000000..136b4035
 +    return fails != 0;
 +}
 diff --git a/dm/tools/impact_map.tsv b/dm/tools/impact_map.tsv
-index 0add622e..f7feeb2c 100644
+index 4961987..de8c929 100644
 --- a/dm/tools/impact_map.tsv
 +++ b/dm/tools/impact_map.tsv
-@@ -123,6 +123,7 @@ dm/host/main.c	*:*	the host's start
+@@ -125,6 +125,7 @@ dm/host/main.c	*:*	the host's start
  dm/host/loader.c	*:*	module loading
  dm/host/hle.c	hle:*	the HLE tables
  dm/host/front_mac.m	present:*	the Mac front end
@@ -359,7 +359,7 @@ index 0add622e..f7feeb2c 100644
  dm/host/motion_apple.h	hle:*SixAxisSensor*	controller motion supplied by GameController
  dm/host/pad_apple.h	hle:*hid*	controller face buttons from GameController
 diff --git a/docs/development.md b/docs/development.md
-index db9de480..4f2b9378 100644
+index 5232a58..d3ebdd2 100644
 --- a/docs/development.md
 +++ b/docs/development.md
 @@ -14,6 +14,8 @@ The README covers packing and playing. This page is for working on nxnative itse
@@ -372,7 +372,7 @@ index db9de480..4f2b9378 100644
  
  How a Switch with Atmosphère runs cheats, and where this host differs, is in [Cheats on a Switch](reference/cheats.md).
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index 3920afb5..afe6032e 100644
+index 1cee0c6..36c1374 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
 @@ -64,6 +64,7 @@ DM_ICON	path	`=<image>` gives `build_ipa.sh` another app icon (default the `icon

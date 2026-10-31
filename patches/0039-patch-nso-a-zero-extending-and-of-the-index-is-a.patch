@@ -16,17 +16,16 @@ docs/reference/rewriter.md gets the entry; its symptom line in docs/agents/sympt
 Upstream-Status: forwarded seedds/nxnative#778
 Reason: Mario Tennis Aces main stops the rewrite at an unrecognised jump table (and x18,x8,#0xffffffff index copy)
 Issue: LNPANDY/NX2Apple#305
-
 ---
  dm/tools/patch_nso.py      | 5 +++++
  docs/reference/rewriter.md | 7 +++++++
  2 files changed, 12 insertions(+)
 
 diff --git a/dm/tools/patch_nso.py b/dm/tools/patch_nso.py
-index e1b834d..1d261ee 100644
+index e188050..64dce7f 100644
 --- a/dm/tools/patch_nso.py
 +++ b/dm/tools/patch_nso.py
-@@ -663,6 +663,11 @@ def jump_offsets(insl, j, copy_first=False, far_base=False, forward_base=False):
+@@ -689,6 +689,11 @@ def jump_offsets(insl, j, copy_first=False, far_base=False, forward_base=False):
          if not m: continue
          if wname(m.group(1)) in idx: cmp = p; break
          if masked:   # the checked register must be "the same source & the same mask", with the source unchanged up to the index's and
@@ -39,7 +38,7 @@ index e1b834d..1d261ee 100644
                  w = [wname(ctx[q].reg_name(r)) for r in ctx[q].regs_access()[1]]
                  if wname(m.group(1)) not in w: continue
 diff --git a/docs/reference/rewriter.md b/docs/reference/rewriter.md
-index 3294e33..8061161 100644
+index 04f5375..0bdc051 100644
 --- a/docs/reference/rewriter.md
 +++ b/docs/reference/rewriter.md
 @@ -79,6 +79,13 @@ To enroll a cut for any game's own module:

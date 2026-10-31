@@ -15,7 +15,7 @@ Issue: LNPANDY/NX2Apple#123
 
 diff --git a/ref/hle_hid_d2r.c b/ref/hle_hid_d2r.c
 new file mode 100644
-index 00000000..584d867b
+index 0000000..584d867
 --- /dev/null
 +++ b/ref/hle_hid_d2r.c
 @@ -0,0 +1,414 @@

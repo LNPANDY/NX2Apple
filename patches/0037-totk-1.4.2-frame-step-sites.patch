@@ -31,7 +31,6 @@ time. test_patches, test_docs and test_nsp_incremental pass.
 Upstream-Status: forwarded seedds/nxnative#793
 Reason: Tears of the Kingdom 1.4.2 ran at double speed without frame step sites
 Issue: LNPANDY/NX2Apple#303
-
 ---
  dm/games/0100F2C0115B6000/README.md  |  7 ++++
  dm/games/0100F2C0115B6000/game.tsv   |  2 +
@@ -39,7 +38,7 @@ Issue: LNPANDY/NX2Apple#303
  3 files changed, 45 insertions(+), 25 deletions(-)
 
 diff --git a/dm/games/0100F2C0115B6000/README.md b/dm/games/0100F2C0115B6000/README.md
-index 67826da..0ccd1b9 100644
+index 2ac37ae..e197da9 100644
 --- a/dm/games/0100F2C0115B6000/README.md
 +++ b/dm/games/0100F2C0115B6000/README.md
 @@ -24,6 +24,13 @@ Update 1.4.3 (v720896) over the base game, SDK 20.5.22. Nintendo EPD's engine (s
