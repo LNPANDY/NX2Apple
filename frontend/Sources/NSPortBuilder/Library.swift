@@ -493,11 +493,24 @@ final class GameLibrary: ObservableObject {
         guard var game = games.first(where: { $0.id == id }),
               let app = try? MacGameBundle.read(URL(fileURLWithPath: path)),
               app.titleID == game.titleID || game.titleID.hasPrefix("/") else { return }
+        // An entry keyed by its path (the base package's name carried no title ID) now learns the real one. If the
+        // library already lists that game, this build replaces it: what the user set on the old entry carries over.
+        if game.titleID != app.titleID, let old = games.first(where: { $0.id != id && $0.titleID == app.titleID }) {
+            game.artworkPath = old.artworkPath
+            game.launchOptions = old.launchOptions
+            game.mods = old.mods
+            game.iosAppPath = old.iosAppPath
+            game.installedDevice = old.installedDevice
+            game.ipaPath = old.ipaPath
+            game.archivePath = old.archivePath
+            games.removeAll { $0.id == old.id }
+        }
         game.titleID = app.titleID
         game.appPath = path
         game.name = app.name
         game.toolsCommit = commit   // empty for a checkout without git: nothing to compare, rather than an older build's commit
         upsert(game)
+        selectedID = game.id
     }
 
     func recordCompletedIOS(archive: String, app: String, device: String = "", commit: String = "", for id: UUID) {
