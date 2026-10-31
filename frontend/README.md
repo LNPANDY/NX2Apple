@@ -133,7 +133,7 @@ app's launcher (`dm/mac/launcher.c`) sets `DM_ROOT` to, whatever the library fol
   change. The iPhone runs data cheats only. A cheat that writes into the game's code is turned off there with a line in the log,
   because iOS does not allow changing the game's code. The sheet carries a note saying so for a game with an iOS build.
 - **Mac.** Code cheats run in the Mac app. The host refuses a code write into a word the rewriter changed, listed in the
-  app's `dm/main.changed.tsv`. An app built before that file existed refuses every code write until it is rebuilt.
+  app's `dm/main.changed.tsv`. Modules from an older rewriter have no such file. Then every code write is refused until the modules are rewritten.
 
 The host reads the files when the game starts, or on its Reload cheats (⌘R) on the Mac, and never watches the folder. So a
 change while the game runs applies after a reload, and the sheet says so. Live switching from the launcher is not part of it.
