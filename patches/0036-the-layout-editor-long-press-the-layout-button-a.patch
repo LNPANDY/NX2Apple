@@ -1,4 +1,4 @@
-From bd759cce46983faddc7ba46166730b34aece1414 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: LNPANDY <lnp-andy@hotmail.com>
 Date: Sun, 1 Nov 2026 00:59:17 +0800
 Subject: [PATCH] The layout editor: long-press the layout button and drag
@@ -12,395 +12,10 @@ Each game is its own app, so its layout is its own: a long press on the layout b
 Upstream-Status: pending
 Reason: Players ask to place the virtual controls themselves; per-key face buttons, a one-tap reset, and the touch hit-test reading the drawn position (owner-verified on a device)
 Issue: LNPANDY/NX2Apple (owner request, virtual pad customization)
-
 ---
- dm/fork_patches.txt                    |  26 +++++
- dm/games/0100F2C0115B6000/README.md    |   7 ++
- dm/games/0100F2C0115B6000/game.tsv     |   2 +
- dm/games/0100F2C0115B6000/patches.py   |  61 +++++-----
- dm/games/README.md                     |   2 +-
- dm/host/hle_sdk16.c                    |  63 ++++++++++-
- dm/host/tests/t_shared_font.c          |  58 +++++++++-
- dm/ios/Sources/DmGamepad.m             | 147 ++++++++++++++++++++++---
- dm/ios/tools/build_ipa.sh              |   3 +
- dm/tools/compact_font.py               |  48 ++++++++
- dm/tools/patch_nso.py                  |   5 +
- dm/tools/tests/test_nsp_incremental.py |  14 +++
- docs/agents/game-patches.md            |  17 ++-
- docs/agents/symptoms.md                |   3 +
- docs/reference/rewriter.md             |   7 ++
- docs/reference/services.md             |   8 ++
- scripts/build_ipa_from_nsp.py          |  26 ++++-
- 17 files changed, 452 insertions(+), 45 deletions(-)
- create mode 100644 dm/fork_patches.txt
- create mode 100644 dm/tools/compact_font.py
+ dm/ios/Sources/DmGamepad.m | 147 +++++++++++++++++++++++++++++++++----
+ 1 file changed, 134 insertions(+), 13 deletions(-)
 
-diff --git a/dm/fork_patches.txt b/dm/fork_patches.txt
-new file mode 100644
-index 0000000..0d93d8a
---- /dev/null
-+++ b/dm/fork_patches.txt
-@@ -0,0 +1,26 @@
-+runtime-profile
-+ios-game-data-folder
-+ios-slim-ipa
-+nsp-dotnet-home
-+nsp-chain-changed-note
-+bc-cpu-decode
-+mac-keymap
-+mac-library-folder
-+hades2-update-profile
-+env-switches-verify
-+ios-probe
-+fork-docs
-+ref-hle-hid-d2r
-+fork-patches-stamp
-+nsp-dotnet-root-verify
-+games-md-gallery
-+front-mac-dm-screen
-+front-mac-hide-the-pointer-after-a-few-idle-seco
-+lint-c-test-without-workflow
-+metal-a-newer-compiler-of-the-recorded-generatio
-+the-3d-layout-points-at-its-invisible-right-stic
-+the-layout-editor-long-press-the-layout-button-a
-+totk-1.4.2-frame-step-sites
-+patch-nso-a-zero-extending-and-of-the-index-is-a
-+nsp-derived-profile-without-frame-step
-+shared-fonts-a-compact-stand-in-for-a-font-engin
-diff --git a/dm/games/0100F2C0115B6000/README.md b/dm/games/0100F2C0115B6000/README.md
-index 2ac37ae..e197da9 100644
---- a/dm/games/0100F2C0115B6000/README.md
-+++ b/dm/games/0100F2C0115B6000/README.md
-@@ -24,6 +24,13 @@ Update 1.4.3 (v720896) over the base game, SDK 20.5.22. Nintendo EPD's engine (s
- - **Resolved:** the yield back-off used to start after 200 µs, which caught the main thread waiting for its workers on the frame's critical path: frames ran past 33 ms and the game dropped itself to 20 fps (9 times in 300 s on the Mac; on the iPhone the threads also stayed on efficiency cores). From 2 ms on it never backs off ([development.md, Power](../../../docs/development.md#power)).
- - The spin-wait rewrite finds 843 loops in `main`; 701 of them are one inlined atomic decrement (a compare-and-swap retried after another thread changed the count), which yields only on a second retry in a row.
- 
-+## Update 1.4.2
-+
-+- **Current:** 1.4.2 (v655360, main `5cb42b1c…`) has the same frame step and render scale stubs at its own sites (`sites` in `patches.py`). It is packed from a derived profile, as its shaders are not in this profile's tables. Without the stubs it ran at double speed at the default 60 fps: the host presented every vsync while the game still stepped 1/30 s per frame (`the game sets present interval 1 → 2`, 60.0 fps).
-+- Sites: the frame step, the two fps readers, the D-pad fade and the swapchain argument from FPSLocker's config for this build (`5CB42B1CF25469FB.yaml`); the render scale sites by 1.4.3's bytes, one match each, `0xc0` apart as on 1.4.3. Every site's original instructions are 1.4.3's, except the D-pad fade, which reads the menu entry through x25 and writes s9 (x24 and s10 on 1.4.3). By disassembly, the registers each stub takes are dead there as on 1.4.3, and every branch back lands on the next original instruction. 1.4.3's stubs are unchanged: the same 140 events on a recording context.
-+- Measured on the Mac (M1 Max, a Mac app from 1.4.2 with the rewritten `main`, the boot to the title, 130 s): at 60, `frame step cap 0 → 60 fps`, 60.0 fps once the title had loaded, game time 32.03 s in 32.03 s (1.000 of real time); while loading it held 2 or 3 vsyncs. At 30, 30.0 fps throughout, 60.00 s in 60.00 s. Not checked: gameplay past the title, the D-pad menu fade, render scales below 1.0, the iPhone.
-+- The 1.4.2 `sdk` (`5cf080e8…`) is not 1.4.3's; it gets the node area cut of issue #70 ([Memory](#memory)) through the SDK-wide function match (`AddressRegionManager node area 1 GB → 62 MB`, matched at `0x145bfc` and `0x145c68`).
-+
- ## Memory
- 
- - **Current (issue #147): confirmed transient upload-memory bug on the Mac; iOS validation pending.** With update 1.4.3, the corrected issue #70 SDK module, shader chain `dec5ee141a9f` and 30 fps, walking from the Great Sky Island save produced 10.70 GiB peak footprint after about 474 s; a shorter repeat reached 12.81 GiB after about 150 s. Live staging peaked at 4.48 / 5.82 GiB and the open batch at 4.41 / 5.75 GiB, then memory fell back near 4 GiB. The shorter burst logged 3,084.2 MB of uploads in one frame. A temporary 50 ms sampler and the kernel footprint-peak ledger caught peaks missed by the periodic reports and the 8 GiB sampled watchdog. With [bounded batches and upload-completion retirement](../../../docs/reference/memory.md#upload-staging-grows-within-one-rendering-submission), the 220 s shortened route with deferred encoding enabled peaked at 4.24 GiB footprint and 216 MiB live staging, without GPU errors. A 520 s replay of the original input timings peaked at 4.23 GiB / 200 MiB, but landed differently and reached Game Over earlier, so it is not an equivalent traversal comparison. These local results do not establish the cause of the reporter's full-device reboot or rule out longer-term cache growth; the requested save/route, full logs and Jetsam/panic reports are still needed for that comparison.
-diff --git a/dm/games/0100F2C0115B6000/game.tsv b/dm/games/0100F2C0115B6000/game.tsv
-index 223a7f7..fb0af7d 100644
---- a/dm/games/0100F2C0115B6000/game.tsv
-+++ b/dm/games/0100F2C0115B6000/game.tsv
-@@ -16,7 +16,9 @@ app_category	public.app-category.adventure-games
- pad_layout	full
- 
- # ---- Versions ----
-+# 1.4.2 (v655360) has its own frame step sites in patches.py; it is packed from a profile derived from it (its own shaders: these tables were made from 1.4.3's files)
- build	v720896	1.4.3	main=277178b7dba1b6d4949a84778d4abc58	subsdk0=f39f4c431234c72eb520cfdd1001bbcf	sdk=574284b40c06cf1821a44857939083be
-+build	v655360	1.4.2	main=5cb42b1cf25469fb0635fd046453d843	subsdk0=3308c1d216f788397d1451c8345a16cd	sdk=5cf080e800530a7f25bd528ec875c27b
- package	v720896
- shader_versions	v720896
- 
-diff --git a/dm/games/0100F2C0115B6000/patches.py b/dm/games/0100F2C0115B6000/patches.py
-index 42673bc..0b6b7d7 100644
---- a/dm/games/0100F2C0115B6000/patches.py
-+++ b/dm/games/0100F2C0115B6000/patches.py
-@@ -7,11 +7,12 @@ from nso_asm import ADRP, B, NOP, STP_PRE
- # and main+0x3e562c). The stub replaces that logic: int fps = 60 / step, and the float fps (timing +0x24, unused, per masagrator's FPSLocker config for this build, which found the
- # sites) the same, which the consumers read. Until the host has decided a step (the first frames) the step is the measured frame time (timing frame +0xd8, 19.2 MHz
- # ticks), clamped to [1 / cap, 1 / 15 s]; game time that ran ahead after a short frame (the "lead", at most 0.25 s; totk-mobile) is paid back by later frames. Prerendered movies hold 30 (the host's movie flag, state +4, hle_movie.c
--# dm_movie_playing), the D-pad menu fade starts at full rate (FPSLocker's fix at main+0x1fbc80) and the swapchain argument at main+0xbe14a8 becomes 1 as in FPSLocker
--def frame_step(ctx):
-+# dm_movie_playing), the D-pad menu fade starts at full rate (FPSLocker's fix at main+0x1fbc80) and the swapchain argument at main+0xbe14a8 becomes 1 as in FPSLocker.
-+# Offsets in the comments are 1.4.3's; each build's sites are in the sites table below
-+def frame_step(ctx, s):
-     here, emit, fs_site, fs_put, FS_STATE_OFF = ctx.here, ctx.emit, ctx.site, ctx.put, ctx.state
-     # frame step (replaces ldrb w9,[x0,#0x58], the first instruction after the prologue)
--    fs_site(0x2db18c, '09604139')
-+    fs_site(s['step'], '09604139')
-     start = here(); emit(ADRP(16, here(), FS_STATE_OFF))
-     for w in (0xbd400200,   # ldr s0,[x16]           target fps
-               0x1e202008,   # fcmp s0,#0.0
-@@ -30,7 +31,7 @@ def frame_step(ctx):
-               0x8b224084,   # add x4,x4,w2,uxtw
-               0xf9001a04):  # str x4,[x16,#0x30]     vsyncs stepped
-         emit(w)
--    emit(B(here(), 0x2db284))                                       # the original epilogue
-+    emit(B(here(), s['epilogue']))                                  # the original epilogue
-     for w in (0xf9406c22,   # elapsed: ldr x2,[x1,#0xd8]  last frame time in 19.2 MHz ticks
-               0x9e630041,   # ucvtf d1,x2
-               0x529f0003,   # mov w3,#0xf800
-@@ -66,11 +67,11 @@ def frame_step(ctx):
-               0x1e672a73,   # fadd d19,d19,d7
-               0xfd000e13):  # str d19,[x16,#0x18]    game seconds stepped
-         emit(w)
--    emit(B(here(), 0x2db284))                                       # the original epilogue
--    emit(0x39416009); emit(B(here(), 0x2db190))                     # off: ldrb w9,[x0,#0x58]; back
--    fs_put(0x2db18c, [B(0x2db18c, start)], 'frame step from the host in whole vsyncs, by elapsed time until it has decided one (state page target fps; 0 = original interval logic)')
-+    emit(B(here(), s['epilogue']))                                  # the original epilogue
-+    emit(0x39416009); emit(B(here(), s['step'] + 4))                # off: ldrb w9,[x0,#0x58]; back
-+    fs_put(s['step'], [B(s['step'], start)], 'frame step from the host in whole vsyncs, by elapsed time until it has decided one (state page target fps; 0 = original interval logic)')
-     # the two readers of the integer fps: float fps when on; the scvtf a few instructions later moves into the stub (s0 is not touched in between)
--    for site, cvt, r in ((0x2daa54, 0x2daa6c, 19), (0x3e562c, 0x3e5638, 22)):
-+    for site, cvt, r in s['readers']:
-         fs_site(site, struct.pack('<I', 0xbd425000 | r << 5).hex()); fs_site(cvt, '00d8215e')
-         start = here(); emit(STP_PRE(16, 17, 31, -16)); emit(ADRP(16, here(), FS_STATE_OFF))
-         for w in (0xb9400211,                # ldr w17,[x16]
-@@ -84,30 +85,32 @@ def frame_step(ctx):
-         emit(B(here(), site + 4))
-         fs_put(site, [B(site, start)], 'game step reads the float fps (original integer fps and scvtf when off)')
-         fs_put(cvt, [NOP], 'scvtf moved into the stub at the load')
--    # D-pad menu fade (w8 is overwritten right after the site)
--    fs_site(0x1fbc80, '0820201e0a04081f')
-+    # D-pad menu fade (w8 is overwritten right after the site). The menu entry's base register and the fade's destination differ by build: x24 and s10 on 1.4.3, x25 and s9 on 1.4.2
-+    fade, base, dst = s['fade']
-+    fmadd = 0x1f080400 | dst   # fmadd s<dst>,s0,s8,s1
-+    fs_site(fade, '0820201e' + struct.pack('<I', fmadd).hex())
-     start = here(); emit(ADRP(8, here(), FS_STATE_OFF))
-     for w in (0xb9400108, 0x340001a8,       # ldr w8,[x8]; cbz w8,off (+52)
-               0x1e202028, 0x54000101,       # fcmp s1,#0.0; b.ne go
--              0x785fa308, 0x7100151f, 0x540000a1,   # ldurh w8,[x24,#-6]; cmp w8,#5; b.ne go
--              0x785f8308, 0x7100151f, 0x54000041,   # ldurh w8,[x24,#-8]; cmp w8,#5; b.ne go
-+              0x785fa008 | base << 5, 0x7100151f, 0x540000a1,   # ldurh w8,[x<base>,#-6]; cmp w8,#5; b.ne go
-+              0x785f8008 | base << 5, 0x7100151f, 0x54000041,   # ldurh w8,[x<base>,#-8]; cmp w8,#5; b.ne go
-               0x1e2e1008,                   # fmov s8,#1.0
--              0x1f08040a, 0x1e202008, 0x14000003,   # go: fmadd s10,s0,s8,s1; fcmp s0,#0.0; b end
--              0x1e202008, 0x1f08040a):      # off: the original fcmp s0,#0.0; fmadd s10,s0,s8,s1
-+              fmadd, 0x1e202008, 0x14000003,   # go: fmadd s<dst>,s0,s8,s1; fcmp s0,#0.0; b end
-+              0x1e202008, fmadd):           # off: the original fcmp s0,#0.0; fmadd s<dst>,s0,s8,s1
-         emit(w)
--    emit(B(here(), 0x1fbc88))
--    fs_put(0x1fbc80, [B(0x1fbc80, start), NOP], 'D-pad menu fade starts at full rate under fractional steps (FPSLocker)')
-+    emit(B(here(), fade + 8))
-+    fs_put(fade, [B(fade, start), NOP], 'D-pad menu fade starts at full rate under fractional steps (FPSLocker)')
-     # swapchain argument (x16 is dead before the bl that follows)
--    fs_site(0xbe14a8, '61a24039')
-+    fs_site(s['swapchain'], '61a24039')
-     start = here(); emit(ADRP(16, here(), FS_STATE_OFF))
-     for w in (0xb9400210, 0x34000070, 0x52800021, 0x14000002, 0x3940a261):   # ldr w16,[x16]; cbz w16,off; mov w1,#1; b end; off: ldrb w1,[x19,#0x28]
-         emit(w)
--    emit(B(here(), 0xbe14ac))
--    fs_put(0xbe14a8, [B(0xbe14a8, start)], 'swapchain argument 1 when on (FPSLocker)')
-+    emit(B(here(), s['swapchain'] + 4))
-+    fs_put(s['swapchain'], [B(s['swapchain'], start)], 'swapchain argument 1 when on (FPSLocker)')
-     # Render scale (state +0x10, float written by the loader: DM_RENDER_SCALE, 1.0 by default). main+0xd5c24 sizes each view: screen size x the view's scale (5/6 for the scene: 1600x896
-     # docked) x the dynamic-resolution multiplier, clamped to 8..16384 and floored to the view's alignment. The stub multiplies both extents by the factor (s6, w8 and the flags are dead
-     # at main+0xd5cc0: s6 is set to 8.0 right after); any factor but 1.0 also replaces the dynamic multiplier (main+0xd5d80) with 1, so the size is fixed. 1.0 = bit-exact original
--    fs_site(0xd5cc0, '08d0a8524008251e6108241e0401271e'); fs_site(0xd5d80, '062940bd')
-+    fs_site(s['view'], '08d0a8524008251e6108241e0401271e'); fs_site(s['dynamic'], '062940bd')
-     start = here(); emit(ADRP(8, here(), FS_STATE_OFF))
-     for w in (0xbd401106,   # ldr s6,[x8,#0x10]   render scale
-               0x1e250840,   # fmul s0,s2,s5       (original)
-@@ -119,8 +122,8 @@ def frame_step(ctx):
-               0x52a8d008,   # skip: mov w8,#0x46800000 (original)
-               0x1e270104):  # fmov s4,w8          (original)
-         emit(w)
--    emit(B(here(), 0xd5cd0))
--    fs_put(0xd5cc0, [B(0xd5cc0, start)], 'view render size x the host render scale (1.0 = original)'); ctx.render_scale = 1
-+    emit(B(here(), s['view'] + 0x10))
-+    fs_put(s['view'], [B(s['view'], start)], 'view render size x the host render scale (1.0 = original)'); ctx.render_scale = 1
-     start = here(); emit(0xbd402906); emit(ADRP(8, here(), FS_STATE_OFF))   # ldr s6,[x8,#0x28] (original: the dynamic multiplier); x8 is dead after it
-     for w in (0xbd401107,   # ldr s7,[x8,#0x10]
-               0x1e2e1010,   # fmov s16,#1.0
-@@ -130,10 +133,18 @@ def frame_step(ctx):
-               0x5400004d,   # b.le done (+8)      not set
-               0x1e204206):  # fmov s6,s16         a fixed scale: no dynamic multiplier
-         emit(w)
--    emit(B(here(), 0xd5d84))
--    fs_put(0xd5d80, [B(0xd5d80, start)], 'dynamic resolution only at render scale 1.0')
-+    emit(B(here(), s['dynamic'] + 4))
-+    fs_put(s['dynamic'], [B(s['dynamic'], start)], 'dynamic resolution only at render scale 1.0')
- 
--FRAME_STEP = {'277178b7dba1b6d4949a84778d4abc58': frame_step}
-+# Each build's sites. 1.4.2's: the frame step, the fps readers, the D-pad fade and the swapchain argument from FPSLocker's config for that build (5CB42B1CF25469FB.yaml), the render
-+# scale sites by 1.4.3's bytes (one match each, at the same distance apart); every site's original instructions and the registers the stubs rely on checked by disassembly
-+sites = {
-+    '277178b7dba1b6d4949a84778d4abc58': {'step': 0x2db18c, 'epilogue': 0x2db284, 'readers': ((0x2daa54, 0x2daa6c, 19), (0x3e562c, 0x3e5638, 22)),   # 1.4.3
-+                                         'fade': (0x1fbc80, 24, 10), 'swapchain': 0xbe14a8, 'view': 0xd5cc0, 'dynamic': 0xd5d80},
-+    '5cb42b1cf25469fb0635fd046453d843': {'step': 0x2d4e68, 'epilogue': 0x2d4f60, 'readers': ((0x2d4730, 0x2d4748, 19), (0x37ea5c, 0x37ea68, 22)),   # 1.4.2
-+                                         'fade': (0x387390, 25, 9), 'swapchain': 0xbbf258, 'view': 0x10250c, 'dynamic': 0x1025cc},
-+}
-+FRAME_STEP = {bid: lambda ctx, s=s: frame_step(ctx, s) for bid, s in sites.items()}
- 
- # How general each patch is and could be (dm/tools/docs_patches.py "Binding", listed in docs/agents/game-patches.md): what, its binding now, the loosest it could have (goal),
- # purpose, why; blocked or kept: why the gap stays open (cannot close yet, or left open on purpose); checked: what was checked on game files (else a judgement)
-diff --git a/dm/games/README.md b/dm/games/README.md
-index 1229b36..25059ea 100644
---- a/dm/games/README.md
-+++ b/dm/games/README.md
-@@ -188,7 +188,7 @@ One row per profile; the notes are each profile's `README.md`.
- | `present_snap` | `on` / `off` (the default): present snapshots by default (`nvn_mtl.m` `mtl_snap_on`, a ring of 2 host textures): each present is copied and the game's swapchain texture is free at once, so the GPU does not idle between frames ([Present snapshots](../../docs/reference/frame-rate.md#present-snapshots-the-games-swapchain-texture-free-at-once)). A setting the game was tested with: the iOS launcher's **Frame buffering** defaults to it, and `DM_PRESENT_SNAP` / `Documents/env.txt` override it. Breath of the Wild sets it on |
- | `pso_mtl4` | `on` / `off` (the default): on iOS, render pipelines through MTL4Compiler by default, with the pipeline archive, the prepare step, the hybrid pipelines and the prebuild (on by default on the Mac; `DM_PSO_MTL4=1` / `0` overrides). A setting the game was tested with on an iPhone. It also gives the app the [pipeline archive made offline](../../docs/development.md#the-pipeline-archive-made-offline) (`build_ipa.sh` builds it for `g18p` unless `DM_PSO_GPUS` says otherwise; without the key, none) and the pulling libraries (`_bp`). Breath of the Wild sets it on |
- | `enc_thread` | `on` / `off` (the default): on the Mac, Metal encoding on its own thread by default, as on iOS for every game (`nvn_rec.h` `rec_on`; `DM_NVN_ENC_THREAD=1` / `0` and the launcher's Encode thread override it). For a game that waits on its fence every frame, whose submit thread would otherwise also encode before the wait: Need for Speed: Hot Pursuit Remastered's 60 fps frame took 18.1 ms with encoding on the submit thread and 16.7 on its own |
--| `fps_target` | Frame rate cap of the rewriter's frame step, for builds that have one (`FRAME_STEP` in the profile's `patches.py`: Tears of the Kingdom 1.4.3, Breath of the Wild 1.9.0, Hyrule Warriors: Age of Calamity 1.3.0, Paper Mario: The Thousand-Year Door 1.0.1, ASTRAL CHAIN 1.0.1), or the engine's own frame limit the host writes into game memory (`hle_fpslock.c`: Monster Hunter Rise 16.0.2, which also needs `present_interval display`; any Unreal Engine 4.2x / 5 build, its `t.MaxFPS` (or `ue_fps_cvar`) and `rhi.SyncInterval` or `nvn.SyncInterval`, found by name by the rewriter, so the game asks for present interval 1 itself; Luigi's Mansion 3 1.4.0, its frame limiter's milliseconds per frame, with `present_interval display`; Pokémon Brilliant Diamond 1.3.0, Unity's integer `Application.targetFrameRate`, also with `present_interval display`; EA SPORTS FC 27, Frostbite's simulation rate, found by name on any build, and on 1.8d.310c its frame regulator, also with `present_interval display`). `0` (the default): the game's own step. `30` / `60`: the host decides each frame's step in whole vsyncs and keeps the frame on screen that long (`hle_nvn.c` `fstep_tick`, `nvn_fstep.h`): 1 at a 60 cap, 2 when 60 does not hold or at a 30 cap (and while a prerendered movie plays), plus one vsync while the game is behind real time after a late frame. Presents follow that hold instead of the interval the game sets. `DM_FPS_TARGET` overrides it, also from `Documents/env.txt`; the log line `frame step: game time … of real time` checks the game's speed |
-+| `fps_target` | Frame rate cap of the rewriter's frame step, for builds that have one (`FRAME_STEP` in the profile's `patches.py`: Tears of the Kingdom 1.4.3, Breath of the Wild 1.9.0, Hyrule Warriors: Age of Calamity 1.3.0, Paper Mario: The Thousand-Year Door 1.0.1, ASTRAL CHAIN 1.0.1), or the engine's own frame limit the host writes into game memory (`hle_fpslock.c`: Monster Hunter Rise 16.0.2, which also needs `present_interval display`; any Unreal Engine 4.2x / 5 build, its `t.MaxFPS` (or `ue_fps_cvar`) and `rhi.SyncInterval` or `nvn.SyncInterval`, found by name by the rewriter, so the game asks for present interval 1 itself; Luigi's Mansion 3 1.4.0, its frame limiter's milliseconds per frame, with `present_interval display`; Pokémon Brilliant Diamond 1.3.0, Unity's integer `Application.targetFrameRate`, also with `present_interval display`; EA SPORTS FC 27, Frostbite's simulation rate, found by name on any build, and on 1.8d.310c its frame regulator, also with `present_interval display`). `0` (the default): the game's own step. `30` / `60`: the host decides each frame's step in whole vsyncs and keeps the frame on screen that long (`hle_nvn.c` `fstep_tick`, `nvn_fstep.h`): 1 at a 60 cap, 2 when 60 does not hold or at a 30 cap (and while a prerendered movie plays), plus one vsync while the game is behind real time after a late frame. Presents follow that hold instead of the interval the game sets. `DM_FPS_TARGET` overrides it, also from `Documents/env.txt`; the log line `frame step: game time … of real time` checks the game's speed. A derived profile (`derive_profile`) whose `main` has no `FRAME_STEP` stubs, while the profile has them for other builds, gets `fps_target 0`: without the stubs the host would present every vsync and the game would run at double speed |
- | `fps_hold` | `on` (the default): with `fps_target`, three late frames in a row raise the hold above the cap's vsyncs (30 or 20 fps), and steady frames that fit try the lower hold again. `off`: frames are never held longer than the cap's vsyncs; each is shown as soon as it is ready. For a game whose updates do not wait for the presents and step by the cap whatever the hold (Age of Calamity): there the hold only paces the screen. `DM_FPS_HOLD=on` / `off` overrides it, also from `Documents/env.txt` Paper Mario: The Thousand-Year Door sets it off too: its frame waits for three render worker threads, and holding frames left them idle, so a frame cost more the longer the hold (the hold stuck at 3 vsyncs, 20 fps, on a loaded Mac; 32–58 fps without holds) |
- | `ue_fps_cvar` | Unreal Engine games: the console variable the host writes `fps_target` into (`hle_fpslock.c`). `t.MaxFPS` (the default) is the engine's frame limit; a game whose settings apply a variable of its own to `t.MaxFPS` names that one, or the next settings change sets the game's 30 again (SHIN MEGAMI TENSEI V: Vengeance: `Project.FrameRateLimit`). The rewriter finds it by its registered name, so a name set here must be in `dm/tools/ue_cvar.py`'s `NAMES` (a red line otherwise): [Unreal's frame limit and present interval, found by name](../../docs/reference/frame-rate.md#unreals-frame-limit-and-present-interval-found-by-name) |
- | `ue_texture_pool` | Unreal Engine games: megabytes of the texture streaming pool (`r.Streaming.PoolSize`) the host raises the game's own to, on the Mac (`hle_uecvar.c`; the rewriter finds the variable by its name, `dm/tools/ue_cvar.py`): past its pool the streamer drops the top mips of what is in view, and the Switch's pool is small (DRAGON QUEST VII Reimagined: 200 MB, 1000 on Windows). `0` (the default): the game's own pool. A larger value the game sets, or −1, stays. `DM_UE_TEXTURE_POOL` overrides it; on iOS only that switch turns it on (`Documents/env.txt`). An improvement over the Switch, not a fix: [Unreal's texture streaming pool](../../docs/reference/rendering.md#unreals-texture-streaming-pool) |
-diff --git a/dm/host/hle_sdk16.c b/dm/host/hle_sdk16.c
-index 4119648..20d28b3 100644
---- a/dm/host/hle_sdk16.c
-+++ b/dm/host/hle_sdk16.c
-@@ -103,15 +103,74 @@ static const void *font_payload(const void *p) {
-     pthread_mutex_unlock(&font_mu);
-     return r;
- }
-+// The compact stand-in, for a font engine that cannot load the standard one: DM_SHARED_FONT_SMALL or $DM_FONT_DIR/standard_small.ttf (Noto Sans Regular, 0.6 MB, which
-+//   dm/tools/compact_font.py downloads at build time), then macOS's Arial. Mario Tennis Aces (SDK 4) loads the standard font into engines with 50 KB work buffers (main+0x3ebf8c),
-+//   where Arial Unicode (23 MB) fails with error 201; its "?" glyph lookup (main+0x3ee4dc) then finds no font and main+0x3eacbc crashed at address 0x38
-+static font_t small_f;
-+static int small_done;
-+static font_t font_small(void) {
-+    pthread_mutex_lock(&font_mu);
-+    if (!small_done) { small_done = 1; small_f = font_first("DM_SHARED_FONT_SMALL", "standard_small.ttf", "/System/Library/Fonts/Supplemental/Arial.ttf");
-+                 if (!small_f.p) LOG("[RED] no compact shared font (dm/tools/compact_font.py fetches DM_FONT_DIR/standard_small.ttf)"); }
-+    font_t f = small_f;
-+    pthread_mutex_unlock(&font_mu);
-+    return f;
-+}
-+static int font_is_std(const void *p) {
-+    pthread_mutex_lock(&font_mu);
-+    int r = p && std_f.p && (p == std_f.p || p == std_f.p + 8);
-+    pthread_mutex_unlock(&font_mu);
-+    return r;
-+}
- static uint32_t (*font_load)(void *, char *, const void *, unsigned, unsigned);
-+static uint32_t (*font_err)(void *);
-+static uint32_t (*font_init)(void *, void *, unsigned);
-+static void (*font_fini)(void *);
- static pthread_once_t font_load_once = PTHREAD_ONCE_INIT;
- static void font_load_init(void) {
-     font_load = guest_sym("_ZN2nn6fontll18ScalableFontEngine8LoadFontEPcPKvjj");
-     if (!font_load) die("ScalableFontEngine::LoadFont not found in the guest");
-+    font_err = guest_sym("_ZN2nn6fontll18ScalableFontEngine8GetErrorEv");
-+    font_init = guest_sym("_ZN2nn6fontll18ScalableFontEngine10InitializeEPvj");
-+    font_fini = guest_sym("_ZN2nn6fontll18ScalableFontEngine8FinalizeEv");
-+}
-+// Each engine's work buffer as Initialize got it, and whether a font loaded into it since. The engine is Monotype iType (LoadFont = FSS_load_font, GetError = FS_error, Initialize = FS_init_ex
-+//   on the work buffer): a load that runs out of the buffer (error 201) leaves it used up, and the compact font then failed the same way in that engine. So the retry starts from a clean
-+//   engine (Finalize, then Initialize on the same buffer), which only an engine with no font loaded yet can afford
-+typedef struct { void *self, *buf; unsigned size; int fonts; } font_eng_t;
-+static font_eng_t font_eng[64];
-+static int font_neng;
-+static font_eng_t *font_eng_of(void *self, int add) {   // with font_mu held
-+    for (int i = 0; i < font_neng; i++) if (font_eng[i].self == self) return &font_eng[i];
-+    if (!add) return NULL;
-+    font_eng_t *e = &font_eng[font_neng < 64 ? font_neng++ : 63];   // a 65th engine reuses the last slot: it may only lose its retry
-+    *e = (font_eng_t){self, NULL, 0, 0};
-+    return e;
-+}
-+HLE_FORCE("_ZN2nn6fontll18ScalableFontEngine10InitializeEPvj", "font engine initialize: the SDK's, with the work buffer recorded for the compact shared font's retry (h_font_LoadFont)", uint32_t, h_font_Initialize, void *self, void *buf, unsigned size) {
-+    pthread_once(&font_load_once, font_load_init);
-+    if (!font_init) die("ScalableFontEngine::Initialize not found in the guest");
-+    pthread_mutex_lock(&font_mu); font_eng_t *e = font_eng_of(self, 1); e->buf = buf; e->size = size; e->fonts = 0; pthread_mutex_unlock(&font_mu);
-+    return font_init(self, buf, size);
- }
--HLE_FORCE("_ZN2nn6fontll18ScalableFontEngine8LoadFontEPcPKvjj", "shared font BFTTF allocation base → TTF payload; parsing and errors stay in the SDK", uint32_t, h_font_LoadFont, void *self, char *name, const void *data, unsigned index, unsigned capacity) {
-+// The standard stand-in is loaded first; only when the engine then reports an error, and holds no other font, is it started afresh and given the compact one, so every game that loads the
-+// standard stand-in keeps its full coverage
-+HLE_FORCE("_ZN2nn6fontll18ScalableFontEngine8LoadFontEPcPKvjj", "shared font BFTTF allocation base → TTF payload, the compact stand-in when the engine cannot load the standard one; parsing and errors stay in the SDK", uint32_t, h_font_LoadFont, void *self, char *name, const void *data, unsigned index, unsigned capacity) {
-     pthread_once(&font_load_once, font_load_init);
--    return font_load(self, name, font_payload(data), index, capacity);
-+    uint32_t r = font_load(self, name, font_payload(data), index, capacity), e = font_err ? font_err(self) : 0;
-+    pthread_mutex_lock(&font_mu);
-+    font_eng_t *g = font_eng_of(self, 0), eng = g ? *g : (font_eng_t){0};
-+    if (g && !e) g->fonts++;
-+    pthread_mutex_unlock(&font_mu);
-+    if (!e || !font_is_std(data) || !g || eng.fonts || !eng.buf || !font_fini) return r;
-+    font_t s = font_small(); if (!s.p) return r;
-+    font_fini(self); font_init(self, eng.buf, eng.size);
-+    r = font_load(self, name, s.p + 8, index, capacity);
-+    uint32_t e2 = font_err(self);
-+    if (!e2) { pthread_mutex_lock(&font_mu); if ((g = font_eng_of(self, 0))) g->fonts++; pthread_mutex_unlock(&font_mu); }
-+    static _Atomic int n;
-+    if (!atomic_fetch_add(&n, 1) || e2) LOG("%sshared font: LoadFont failed with %u on the standard stand-in, the compact one gives %u (engine %p, work buffer %u bytes)", e2 ? "[RED] " : "", e, e2, self, eng.size);
-+    return r;
- }
- // The address points straight at the TTF (past the 8-byte header) and the size excludes the header, except for a game on SDK 11 or later whose main imports ScalableFontEngineHelper::Decode
- //   (dm_sdk_major, dm_main_imports; the profile's shared_font overrides). Super Mario 3D World + Bowser's Fury (SDK 10) records shared fonts as type 0 (main+0x975658), calls no Decode and hands the address
-diff --git a/dm/host/tests/t_shared_font.c b/dm/host/tests/t_shared_font.c
-index 8b1e0f6..acbef28 100644
---- a/dm/host/tests/t_shared_font.c
-+++ b/dm/host/tests/t_shared_font.c
-@@ -12,14 +12,29 @@ static char *seen_name;
- static const void *seen_data;
- static unsigned seen_index, seen_capacity;
- static uint32_t status;
-+// A model of the iType engine: GetError reads what the last LoadFont left, engine_err for any font but the compact stand-in and small_err for it; a failed load leaves the engine
-+// used up (every later load fails with 201) until Initialize starts it afresh
-+static uint32_t engine_err, small_err, cur_err;
-+static int used_up, inits, finis;
-+static void *init_buf;
-+static unsigned init_size;
-+static const void *small_payload;
- #define CHECK(c, msg) do { checks++; if (!(c)) { fails++; fprintf(stderr, "FAIL: %s\n", msg); } } while (0)
- static uint32_t original(void *self, char *name, const void *data, unsigned index, unsigned capacity) {
-     calls++; seen_self = self; seen_name = name; seen_data = data;
-     seen_index = index; seen_capacity = capacity;
-+    cur_err = used_up ? 201 : data && data == small_payload ? small_err : engine_err;
-+    if (cur_err) used_up = 1;
-     return status;
- }
-+static uint32_t get_error(void *self) { (void)self; return cur_err; }
-+static uint32_t init_engine(void *self, void *buf, unsigned size) { (void)self; inits++; used_up = 0; cur_err = 0; init_buf = buf; init_size = size; return 0; }
-+static void fini_engine(void *self) { (void)self; finis++; }
- void *guest_sym(const char *name) {
-     lookups++;
-+    if (!strcmp(name, "_ZN2nn6fontll18ScalableFontEngine8GetErrorEv")) return get_error;
-+    if (!strcmp(name, "_ZN2nn6fontll18ScalableFontEngine10InitializeEPvj")) return init_engine;
-+    if (!strcmp(name, "_ZN2nn6fontll18ScalableFontEngine8FinalizeEv")) return fini_engine;
-     CHECK(!strcmp(name, "_ZN2nn6fontll18ScalableFontEngine8LoadFontEPcPKvjj"), "original symbol lookup");
-     return missing ? NULL : original;
- }
-@@ -78,8 +93,49 @@ int main(void) {
-     ext_f = std_f;
-     CHECK(load(&self, name, standard, 0, 0) == status && seen_data == standard + 8, "extension fallback to standard");
-     CHECK(seen_index == 0 && seen_capacity == 0, "zero unsigned arguments preserved");
--    CHECK(lookups == 1, "original resolved once");
-+    CHECK(lookups == 4, "LoadFont, GetError, Initialize and Finalize resolved once");
-     CHECK(!memcmp(standard, unrelated, sizeof standard) && !memcmp(extension, unrelated, sizeof extension), "input bytes unchanged");
-+    // The compact stand-in: tried only for the host's standard font, only when the engine reports an error after loading it, only in an engine the host saw initialized and that holds
-+    // no font yet, and only when there is one; the engine is started afresh on its own work buffer first
-+    uint32_t (*init)(void *, void *, unsigned) = NULL; count = 0;
-+    for (size_t i = 0; e && i < bytes / sizeof *e; i++) if (!strcmp(e[i].name, "_ZN2nn6fontll18ScalableFontEngine10InitializeEPvj")) { init = e[i].fn; count++; }
-+    CHECK(count == 1 && init, "exact Initialize forced registration exists once");
-+    if (!init) return 1;
-+    ext_f = (font_t){extension, sizeof extension};
-+    uint8_t compact[64] = {0}, work[32]; memcpy(compact, &marker, 4);
-+    small_done = 1; small_f = (font_t){0}; small_payload = compact + 8; status = 7;
-+    int eng, n, i0;
-+    CHECK(init(&eng, work, sizeof work) == 0 && inits == 1 && init_buf == work && init_size == sizeof work, "Initialize forwards its arguments");
-+    engine_err = 201; small_err = 0; n = calls;
-+    CHECK(load(&eng, name, standard, 3, 5) == status && calls == n + 1 && seen_data == standard + 8 && finis == 0, "no compact stand-in: the failed load stands");
-+    small_f = (font_t){compact, sizeof compact};
-+    const void *std_in[] = {standard, standard + 8};
-+    for (unsigned i = 0; i < 2; i++) {
-+        init(&eng, work, sizeof work); n = calls; i0 = inits; int f0 = finis;
-+        CHECK(load(&eng, name, std_in[i], 3, 5) == status && calls == n + 2, "a failed standard load is made again");
-+        CHECK(finis == f0 + 1 && inits == i0 + 1 && init_buf == work && init_size == sizeof work, "after Finalize and Initialize on the engine's own work buffer");
-+        CHECK(seen_data == compact + 8 && seen_self == &eng && seen_name == name && seen_index == 3 && seen_capacity == 5, "with the compact payload, other arguments as given");
-+        CHECK(get_error(&eng) == 0, "the compact font loads in the fresh engine");
-+    }
-+    n = calls; i0 = inits;
-+    CHECK(load(&eng, name, standard, 3, 5) == status && calls == n + 1 && inits == i0, "an engine that holds a font is never started afresh");
-+    init(&eng, work, sizeof work); engine_err = 0;
-+    CHECK(load(&eng, name, unrelated, 3, 5) == status && get_error(&eng) == 0, "the game's own font loads");
-+    engine_err = 201; n = calls; i0 = inits;
-+    CHECK(load(&eng, name, standard, 3, 5) == status && calls == n + 1 && inits == i0, "nor one that loaded the game's own font");
-+    int other_eng; used_up = 0; n = calls; i0 = inits;
-+    CHECK(load(&other_eng, name, standard, 3, 5) == status && calls == n + 1 && inits == i0, "an engine initialized out of the host's sight is left as it is");
-+    const void *other[] = {extension, extension + 8, unrelated, NULL};
-+    for (unsigned i = 0; i < sizeof other / sizeof *other; i++) {
-+        init(&eng, work, sizeof work); n = calls;
-+        load(&eng, name, other[i], 3, 5);
-+        CHECK(calls == n + 1, "only the standard stand-in is replaced");
-+    }
-+    init(&eng, work, sizeof work); engine_err = 0; n = calls;
-+    CHECK(load(&eng, name, standard, 3, 5) == status && calls == n + 1 && seen_data == standard + 8, "a standard load without an error is kept");
-+    init(&eng, work, sizeof work); engine_err = 201; small_err = 201; n = calls;
-+    CHECK(load(&eng, name, standard, 3, 5) == status && calls == n + 2 && get_error(&eng) == 201, "a compact load that fails too is not tried a third time");
-+    CHECK(!memcmp(compact + 8, unrelated + 8, sizeof compact - 8), "compact bytes unchanged");
-     printf("shared font: %d checks, %d failed\n", checks, fails);
-     return fails != 0;
- }
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
 index def0a62..2b6b08c 100644
 --- a/dm/ios/Sources/DmGamepad.m
@@ -415,7 +30,7 @@ index def0a62..2b6b08c 100644
  //   The virtual gamepad (layout button included) hides while a physical controller is connected and comes back when it is removed; meanwhile every touch goes to the game. Physical controllers keep every button (D-pad and right stick included) and map by position: bottom = B, right = A, left = Y, top = X (same positions as on a Switch controller); a Nintendo pad maps by its labels (pad_apple.h).
  //   Each physical controller is a player of its own (local co-op), as on the Mac: the first one connected is player 1, together with the touch gamepad, the next player 2, and so on up to 8; see "Physical controllers" below.
  //   Shaking the phone shakes the controller (DM_BTN_SHAKE: its six-axis sensor, hle_hid.c), whichever controls are in use; see "Shaking the phone" below.
-@@ -128,7 +131,18 @@ static void phone_motion_start(UIView *body) {
+@@ -128,7 +131,18 @@ static const CGFloat
      K_CLICK_X = 102, K_CLICK_R = 17;                // L3 / R3: centre from the outer edge (level with ZL / ZR), radius
  static const int k_btns[] = {B_ZL, B_L, B_ZR, B_R, B_MINUS, B_PLUS, B_LS, B_RS};   // keys locked at touch-down (L3 / R3 only in the 3D layout)
  static NSString *const k_layout_key = @"DmPadLayout";   // NSUserDefaults: 0 = 2D, 1 = 3D, 2 = Tap (DM_GAME_PAD_LAYOUT's numbers)
@@ -434,7 +49,7 @@ index def0a62..2b6b08c 100644
  
  @interface DmGamepad : UIView
  @end
-@@ -144,7 +158,12 @@ @implementation DmGamepad {
+@@ -144,7 +158,12 @@ static void pads_start(void);   // Physical controllers, below
      CAShapeLayer *_key[B_N]; CATextLayer *_label[B_N];   // one layer per key
      CAShapeLayer *_ring, *_knob;                   // the left stick (the right one is not drawn)
      CAShapeLayer *_swap; CATextLayer *_swapLabel; BOOL _swapHeld;
@@ -447,7 +62,7 @@ index def0a62..2b6b08c 100644
      UIImpactFeedbackGenerator *_touchFeedback;       // one short feedback per touch-control press edge
      unsigned _hapticSticks;
      BOOL _stickShown;                              // the left stick was held at the last refresh
-@@ -194,9 +213,16 @@ - (instancetype)initWithFrame:(CGRect)f {
+@@ -194,9 +213,16 @@ static BOOL fullOnly(int b) { return b == B_LS || b == B_RS || b >= B_LEFT; }
              if (names[b]) _label[b] = label(_key[b], names[b]);   // the D-pad arms carry no label
          }
          _swap = shape(_controls); _swapLabel = label(_swap, @"");
@@ -464,7 +79,7 @@ index def0a62..2b6b08c 100644
          NSNumber *saved = [NSUserDefaults.standardUserDefaults objectForKey:k_layout_key];
          int l = saved ? (int)saved.integerValue : dm_profile()->pad_layout;
          if (l == 2 && dm_opmode() != 0) l = 0;   // Tap only in handheld mode (env.txt's DM_OPMODE may have changed it)
-@@ -216,9 +242,12 @@ - (void)applyLayout {   // show / hide the controls for the current layout
+@@ -216,9 +242,12 @@ static BOOL fullOnly(int b) { return b == B_LS || b == B_RS || b >= B_LEFT; }
      [CATransaction begin]; [CATransaction setDisableActions:YES];
      for (int b = 0; b < B_N; b++) _key[b].hidden = _tap || (fullOnly(b) && !_full);
      _ring.hidden = _knob.hidden = _tap;
@@ -479,7 +94,7 @@ index def0a62..2b6b08c 100644
  }
  - (void)showStickHint {   // the 3D layout's right stick is a zone, not a drawn key: point at it while it is new, fade it on the first touch there or after three seconds
      _rHintToken++;
-@@ -229,6 +258,83 @@ - (void)showStickHint {   // the 3D layout's right stick is a zone, not a drawn
+@@ -229,6 +258,83 @@ static BOOL fullOnly(int b) { return b == B_LS || b == B_RS || b >= B_LEFT; }
          if (token == _rHintToken) _rHint.opacity = 0;   // the implicit fade runs even though applyLayout disables actions inside its own transaction only
      });
  }
@@ -563,7 +178,7 @@ index def0a62..2b6b08c 100644
  - (void)nextLayout {   // 2D → 3D (→ Tap in handheld mode) → 2D: release every touch first (no key stays held), save, lay out again
      int l = _tap ? 0 : _full ? (dm_opmode() == 0 ? 2 : 0) : 1;
      [self reset];
-@@ -242,27 +348,29 @@ - (CGRect)safe { return UIEdgeInsetsInsetRect(self.bounds, self.safeAreaInsets);
+@@ -242,27 +348,29 @@ static BOOL fullOnly(int b) { return b == B_LS || b == B_RS || b >= B_LEFT; }
  - (CGRect)corner { UIEdgeInsets i = self.safeAreaInsets; i.left *= K_CORNER_IN; i.right *= K_CORNER_IN; return UIEdgeInsetsInsetRect(self.bounds, i); }   // the rectangle the bottom-corner controls use
  - (CGFloat)u { return MIN(self.bounds.size.height / 430.0, 1.3); }   // 1 = 430 points tall (iPhone Pro Max landscape)
  static CGPoint side(CGRect s, int right, CGFloat dx, CGFloat y) { return CGPointMake(right ? CGRectGetMaxX(s) - dx : CGRectGetMinX(s) + dx, y); }
@@ -600,7 +215,7 @@ index def0a62..2b6b08c 100644
  
  static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y); }
  - (int)btnAt:(CGPoint)p {   // locked keys (tested on touch-down only, then locked)
-@@ -351,13 +459,16 @@ - (void)touchesBegan:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e {
+@@ -351,13 +459,16 @@ static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y);
      BOOL game = NO;
      for (UITouch *t in ts) {
          if (_padOff) { game |= [self gameBegin:t]; continue; }
@@ -620,7 +235,7 @@ index def0a62..2b6b08c 100644
          if (_full) { CGFloat d = dist(p, self.dpadCenter) / (self.dpadR * K_DPAD_GRAB); if (d < best) { best = d; kind = C_DPAD; } }
          if (!_stick[0]) { CGFloat s = dist(p, self.stickHome) / ([self stickR:0] * K_STICK_GRAB); if (s < best) { best = s; kind = C_STICK; } }
          if (kind == C_NONE && _full && !_stick[1] && [self inRightArea:p]) { kind = C_STICK; idx = 1; _rCentre = p;   // the right stick: centred where the touch lands
-@@ -374,6 +485,7 @@ - (void)touchesMoved:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e {
+@@ -374,6 +485,7 @@ static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y);
      BOOL game = NO;
      for (UITouch *t in ts) {
          uint64_t v = [_owner objectForKey:t].unsignedLongLongValue; int c = (int)(v & 0xff); CGPoint p = [t locationInView:self];
@@ -628,7 +243,7 @@ index def0a62..2b6b08c 100644
          if (c == C_FACE) [_faceOf setObject:@([self faceAt:p]) forKey:t];
          else if (c == C_STICK) { _stickNow[v >> 8] = p;
              if ((v >> 8) == 1) { CGFloat d = dist(p, _rCentre), R = [self stickR:1];   // the right stick's centre follows a finger past its radius, so turning back responds at once
-@@ -387,13 +499,20 @@ - (void)endTouches:(NSSet<UITouch *> *)ts tapped:(BOOL)ended {
+@@ -387,13 +499,20 @@ static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y);
      BOOL swap = NO, game = NO;
      for (UITouch *t in ts) {
          uint64_t v = [_owner objectForKey:t].unsignedLongLongValue;
@@ -650,7 +265,7 @@ index def0a62..2b6b08c 100644
  }
  - (void)touchesEnded:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e { [self endTouches:ts tapped:YES]; }
  - (void)touchesCancelled:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e { [self endTouches:ts tapped:NO]; }
-@@ -450,10 +569,12 @@ - (void)layoutSubviews {
+@@ -450,10 +569,12 @@ static void placeLabel(CATextLayer *t, CGPoint c, CGFloat fs) {
      static const struct { int b; CGFloat angle; } arms[] = {{B_UP, 0}, {B_RIGHT, M_PI_2}, {B_DOWN, M_PI}, {B_LEFT, -M_PI_2}};   // the same arm in 90° steps
      for (int i = 0; i < 4; i++) setPath(_key[arms[i].b], armPath(self.dpadCenter, self.dpadR, K_ARM_W * u, K_ARM_IN * u, arms[i].angle, 6 * u));
      CGPoint sc = self.swapCenter; setPath(_swap, circlePath(sc, K_SWAP_R * u)); placeLabel(_swapLabel, sc, 12 * u);
@@ -663,174 +278,3 @@ index def0a62..2b6b08c 100644
      setPath(_ring, circlePath(self.stickHome, [self stickR:0]));
      CGFloat k = K_KNOB_R * u; _knob.bounds = CGRectMake(0, 0, 2 * k, 2 * k);
      setPath(_knob, circlePath(CGPointMake(k, k), k));
-diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index 92fd85d..a95b210 100755
---- a/dm/ios/tools/build_ipa.sh
-+++ b/dm/ios/tools/build_ipa.sh
-@@ -109,6 +109,9 @@ if [ "$GFXAPI" = vulkan ]; then MSLDIR=vk; elif [ "$GFXAPI" = gl ]; then MSLDIR=
- # Shared-font stand-ins: standard = macOS's Arial Unicode (absent on iOS), Nintendo extension = button icons generated by make_ext_font.py (needs fontTools; FONT_PY names a python that has it)
- mkdir -p Gen/dm/font && cp "${STD_FONT:-/System/Library/Fonts/Supplemental/Arial Unicode.ttf}" Gen/dm/font/standard.ttf || die "copy standard font (STD_FONT=a TTF)"
- "${FONT_PY:-python3}" "$DM/tools/make_ext_font.py" Gen/dm/font/nintendo_ext.ttf > /dev/null || die "make_ext_font.py (pip install fonttools, or FONT_PY=python with fontTools)"
-+# The compact stand-in for a font engine that cannot load the standard one (hle_sdk16.c h_font_LoadFont; Noto Sans, downloaded once into a cache). Offline the app goes without it,
-+# and such a game finds no glyph on the phone, which has no Arial to fall back on
-+python3 "$DM/tools/compact_font.py" Gen/dm/font/standard_small.ttf > /dev/null || t "compact shared font: not fetched (offline?); a game whose font engine cannot load the standard one finds no glyph"
- # App icon: the game's own icon (icon.jpg saved from the control data by nx_extract, the English 256x256 one). DM_ICON can point at another image; by default the icon.jpg next to the RomFS is used.
- # It is scaled to a 1024x1024 PNG in the asset catalog Gen/Assets.xcassets (a single-size app icon; actool generates the other sizes); with neither, no icon is set and the home-screen icon is blank.
- # The catalog is always created (the project always lists it, see project.yml); without an icon it stays empty and DM_APPICON is not set
-diff --git a/dm/tools/compact_font.py b/dm/tools/compact_font.py
-new file mode 100644
-index 0000000..c255d91
---- /dev/null
-+++ b/dm/tools/compact_font.py
-@@ -0,0 +1,48 @@
-+#!/usr/bin/env python3
-+# Fetch the compact stand-in for the standard shared font (standard_small.ttf): Noto Sans Regular, 0.6 MB, 3,884 glyphs (Latin, Greek, Cyrillic). The host gives it to a game's font engine
-+# only when that engine fails to load the standard stand-in (hle_sdk16.c h_font_LoadFont): Mario Tennis Aces loads the shared font into engines with 50 KB work buffers, where Arial Unicode
-+# (23 MB) fails with error 201 and the game then crashes looking up the "?" glyph. The file comes from the Noto project at a fixed commit and is checked against its SHA-256; it is kept in a
-+# cache (DM_FONT_CACHE, else ~/Library/Caches/nxnative/fonts), so only the first build downloads it. The font carries its licence (SIL Open Font License 1.1) in its name table (IDs 0, 13, 14).
-+# Usage: compact_font.py out.ttf; exit status 1 when it cannot be had (offline and not cached): the host then falls back to macOS's Arial
-+import hashlib, os, shutil, sys, tempfile, urllib.request
-+from pathlib import Path
-+
-+URL = ('https://raw.githubusercontent.com/notofonts/notofonts.github.io/412a7edb2c8c535d1066157e5b17e661fd5591fe/'
-+       'fonts/NotoSans/hinted/ttf/NotoSans-Regular.ttf')
-+SHA256 = '478c558ea716033cd60c03438f628dfa75694dcf6b5f6d505a2f05fd2b4f3823'
-+TIMEOUT = 30   # seconds without data before the download gives up
-+
-+
-+def digest(p):
-+    return hashlib.sha256(p.read_bytes()).hexdigest()
-+
-+
-+def cached():
-+    """The verified font in the cache, downloaded there first when it is not; raises OSError (or ValueError on a wrong digest) when it cannot be had"""
-+    d = Path(os.environ.get('DM_FONT_CACHE') or Path.home() / 'Library/Caches/nxnative/fonts')
-+    f = d / f'NotoSans-Regular-{SHA256[:16]}.ttf'
-+    if f.is_file() and digest(f) == SHA256: return f
-+    d.mkdir(parents=True, exist_ok=True)
-+    fd, tmp = tempfile.mkstemp(dir=d, suffix='.part')
-+    try:
-+        with os.fdopen(fd, 'wb') as out, urllib.request.urlopen(URL, timeout=TIMEOUT) as r: shutil.copyfileobj(r, out)
-+        if digest(Path(tmp)) != SHA256: raise ValueError(f'{URL}: SHA-256 is not {SHA256}')
-+        os.replace(tmp, f)   # only a verified file takes the cache name
-+    finally:
-+        if os.path.exists(tmp): os.unlink(tmp)
-+    return f
-+
-+
-+def main():
-+    if len(sys.argv) != 2: sys.exit('usage: compact_font.py out.ttf')
-+    try: src = cached()
-+    except (OSError, ValueError) as e:
-+        print(f'[YELLOW] compact shared font not fetched ({e}); the host falls back to macOS\'s Arial', file=sys.stderr); return 1
-+    out = Path(sys.argv[1]); out.parent.mkdir(parents=True, exist_ok=True)
-+    shutil.copyfile(src, out)
-+    print(f'{out}: Noto Sans Regular, {out.stat().st_size} bytes (from {src})')
-+    return 0
-+
-+
-+if __name__ == '__main__':
-+    sys.exit(main())
-diff --git a/dm/tools/patch_nso.py b/dm/tools/patch_nso.py
-index e188050..64dce7f 100644
---- a/dm/tools/patch_nso.py
-+++ b/dm/tools/patch_nso.py
-@@ -689,6 +689,11 @@ def jump_offsets(insl, j, copy_first=False, far_base=False, forward_base=False):
-         if not m: continue
-         if wname(m.group(1)) in idx: cmp = p; break
-         if masked:   # the checked register must be "the same source & the same mask", with the source unchanged up to the index's and
-+            # A 64-bit and with 0xffffffff only zero-extends, so a 32-bit check of its source bounds it: Mario Tennis Aces main+0x358368 has cmp w8,#4; b.hi; and x18,x8,#0xffffffff;
-+            # ldrsw x18,[x16,x18,lsl #2]
-+            if masked[1] == 0xffffffff and wname(m.group(1)) == masked[0] and m.group(1)[0] == 'w' and \
-+               not any(masked[0] in [wname(ctx[z].reg_name(r)) for r in ctx[z].regs_access()[1]] for z in range(i + 1, masked[2])):
-+                cmp = p; break
-             for q in range(i - 1, -1, -1):
-                 w = [wname(ctx[q].reg_name(r)) for r in ctx[q].regs_access()[1]]
-                 if wname(m.group(1)) not in w: continue
-diff --git a/dm/tools/tests/test_nsp_incremental.py b/dm/tools/tests/test_nsp_incremental.py
-index 6613e8a..08da8ab 100644
---- a/dm/tools/tests/test_nsp_incremental.py
-+++ b/dm/tools/tests/test_nsp_incremental.py
-@@ -122,6 +122,20 @@ class DeriveProfile(Base):
-         nsp.derive_profile(g, self.pdir, 'v65536', self.ex, ['main'], shader_only=True)
-         self.assertEqual(derived.table('shader_map.tsv').read_text(), 'generated DLC shader rows\n')
- 
-+    def test_derived_main_without_frame_step_stubs_keeps_the_games_step(self):
-+        source = self.src / 'game.tsv'; source.write_text(source.read_text() + 'fps_target\t60\n')
-+        (self.src / 'patches.py').write_text(f'def frame_step(ctx): pass\nFRAME_STEP = {{"{BID}": frame_step}}\n')   # stubs for the registered main only, never run
-+        self.derive()
-+        self.assertEqual(game.Game(self.pdir).get('fps_target'), '0')
-+        self.assertIn('frame step stubs for other builds only', (self.pdir / 'game.tsv').read_text())
-+        (self.src / 'patches.py').write_text(f'FRAME_STEP = {{"{BID}": 1, "{BID2}": 2}}\n')   # the derived main has stubs too
-+        self.derive(); self.assertEqual(game.Game(self.pdir).get('fps_target'), '60')
-+        (self.src / 'patches.py').write_text('CUTS = {}\n'); self.derive()   # no frame step in the profile
-+        self.assertEqual(game.Game(self.pdir).get('fps_target'), '60')
-+        (self.src / 'patches.py').write_text(f'FRAME_STEP = {{"{BID}": 1}}\n'); self.derive()
-+        nsp.derive_profile(game.Game(self.src), self.pdir, 'v65536', self.ex, ['main'], shader_only=True)   # shader tables only: the settings stay
-+        self.assertEqual(game.Game(self.pdir).get('fps_target'), '60')
-+
-     def test_missing_corrupt_and_duplicate_override_rows_derive_again(self):
-         for change in ('missing', 'corrupt', 'override', 'indented override', 'truncated'):
-             with self.subTest(change):
-diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index a60d511..ffcee75 100755
---- a/scripts/build_ipa_from_nsp.py
-+++ b/scripts/build_ipa_from_nsp.py
-@@ -827,6 +827,15 @@ def derived_key(profile_dir):
-     return profile_dir.with_name(profile_dir.name + '.derived.key')
- 
- 
-+def frame_step_builds(path):   # the build IDs of the FRAME_STEP table of a patches.py, read without running the file (empty: no table)
-+    try:
-+        for n in ast.parse(path.read_text(encoding='utf-8')).body:
-+            if isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == 'FRAME_STEP' for t in n.targets) and isinstance(n.value, ast.Dict):
-+                return {k.value for k in n.value.keys if isinstance(k, ast.Constant)}
-+    except (OSError, UnicodeError, SyntaxError): pass
-+    return set()
-+
-+
- def derive_profile(g, pdir, ver, d, mods, app=None, shader_only=False):
-     """The game's profile for a version it was not brought up on (the folder has no update, another update, files of other builds, or a registered build under another title ID: app),
-     in pdir (outside the repository, where a provisional profile goes): its keys as they are, with this version's build row, package and shader versions, and app's title ID and
-@@ -834,7 +843,8 @@ def derive_profile(g, pdir, ver, d, mods, app=None, shader_only=False):
-     left out: the build makes them again from this version's own files, as for a provisional profile. The hand-written tables (the prewarm list, shader_facts_manual.tsv) are copied:
-     they name shaders by content key. A folder derived from the same inputs (the files copied and the game.tsv written, kept in <pdir>.derived.key) is kept as it is, with what later
-     stages wrote into it (mem_used, the heap check, the split's tables), so their own reuse holds. shader_only preserves all registered game.tsv rows and links its existing cuts:
--    only the shader tables change with installed DLC or newly decoded compute kernels. Returns the version's display version"""
-+    only the shader tables change with installed DLC or newly decoded compute kernels. A profile with frame step stubs (FRAME_STEP) for other builds only gets fps_target 0 for this version:
-+    its main has no state page, so a cap of 30 or 60 would present every vsync while the game steps 1/30 s per frame (double speed). Returns the version's display version"""
-     src = sorted(p for p in g.dir.iterdir() if p.is_file() and (p.name not in DERIVED_SKIP or shader_only and p.name == 'patches.py'))
-     T, disp = '\t', nacp.version(d / 'control.nacp') or '?'
-     row = T.join(['build', ver, disp] + [f'{m}={build_id(d / "ExeFS" / m)}' for m in mods if (d / 'ExeFS' / m).exists()])
-@@ -845,7 +855,11 @@ def derive_profile(g, pdir, ver, d, mods, app=None, shader_only=False):
-     if app is not None and app != g.title_id:   # the host reports the program ID and answers save data queries for it (hle_svc.c, hle_fs.c)
-         ids = {'title_id': f'title_id{T}{app:016X}', 'program_id': f'program_id{T}{(pg.npdm(d / "ExeFS/main.npdm")[1] or app):016X}'}
-         out.insert(1, f'# under title ID {app:016X}, not the profile\'s {g.title_id:016X}')
-+    stubs = frame_step_builds(g.dir / 'patches.py')
-+    own_step = shader_only or not stubs or not (d / 'ExeFS/main').exists() or build_id(d / 'ExeFS/main') in stubs
-     for line in (g.dir / 'game.tsv').read_text(encoding='utf-8').splitlines():
-+        if not own_step and line.split(T, 1)[0] == 'fps_target' and line.partition(T)[2].strip() != '0':
-+            out += ['# the profile has frame step stubs for other builds only: this version\'s main has none, so it keeps the game\'s own step', f'fps_target{T}0']; continue
-         if line.split(T, 1)[0] in ids: out.append(ids[line.split(T, 1)[0]]); continue
-         if not shader_only and line.split(T, 1)[0] in ('build', 'package', 'shader_versions'):
-             if not put: out += [row, f'package{T}{ver}', f'shader_versions{T}{ver}']; put = True
-@@ -2070,6 +2084,16 @@ def mac_host(py, repo, work, env, logs, g):
-         rmtree(kf); font.mkdir(parents=True, exist_ok=True)
-         run([py, repo / 'dm/tools/make_ext_font.py', ttf], logs / 'make_ext_font.log', env=env)
-         kf.write_text(f'{key}\n')
-+    # The compact stand-in for a font engine that cannot load the standard one (compact_font.py: downloaded once into a cache, checked against its SHA-256). Without it (offline) the host
-+    # falls back to macOS's Arial, so the build goes on
-+    small, sk = font / 'standard_small.ttf', font / 'standard_small.key'
-+    key = fingerprint(('files', [repo / 'dm/tools/compact_font.py']))
-+    if not (small.is_file() and reused(sk, key) is not None):
-+        PROG.set(step='compact font')
-+        rmtree(sk); rmtree(small)
-+        run([py, repo / 'dm/tools/compact_font.py', small], logs / 'compact_font.log', env=env, ok=(1,))
-+        if small.is_file(): sk.write_text(f'{key}\n')
-+        else: say(f'[YELLOW] no compact shared font (see {logs / "compact_font.log"}): a game whose font engine cannot load the standard one gets macOS\'s Arial')
-     PROG.end(str(host))
-     return host, font
- 
--- 
-2.54.0 (Apple Git-157)
-
