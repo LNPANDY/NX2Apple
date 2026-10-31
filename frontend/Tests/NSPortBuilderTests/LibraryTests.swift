@@ -687,6 +687,7 @@ final class LibraryTests: XCTestCase {
         let saved = ["repoPath", "buildTarget", "buildOutputDirectory"].map { ($0, UserDefaults.standard.object(forKey: $0)) }
         defer { for (key, value) in saved { UserDefaults.standard.set(value, forKey: key) } }
         let model = BuildModel()
+        model.lang = .en   // the script's stage name as English shows it, whatever the Mac's language
         model.repoPath = temporary.path
         model.target = "mac-app"
         model.outDir = temporary.path
