@@ -66,6 +66,22 @@ def git(*a, cwd, check=True, binary=False):
     return P.git(*a, cwd=cwd, check=check, binary=binary)
 
 
+HOOKS = '.githooks'
+
+
+def install_hooks(root):
+    """core.hooksPath -> .githooks (the pre-push and pre-commit checks), unless it is set. A path the user chose is kept, with a warning.
+    The setting lives in the repository's config, so every worktree of it has the hooks."""
+    if not (root / HOOKS / 'pre-push').is_file(): return
+    cur = git('config', '--get', 'core.hooksPath', cwd=root, check=False).stdout.strip()
+    if cur.rstrip('/') == HOOKS: return
+    if cur:
+        say(f'WARNING: core.hooksPath is {cur!r}, not {HOOKS!r}, so the pre-push checks do not run here. '
+            f'Install them: git config core.hooksPath {HOOKS}')
+    elif git('config', '--local', 'core.hooksPath', HOOKS, cwd=root, check=False).returncode == 0:
+        say(f'git hooks: set core.hooksPath to {HOOKS} (pre-commit and pre-push checks, tools/githooks.py). Never bypass them with --no-verify.')
+
+
 def engine_dir(root):
     return root / 'engine'
 
@@ -180,7 +196,7 @@ def build(root, eng, patches, sha):
         say('empty on the pin (upstream has them, `tools/engine.py bump` drops them): ' + ', '.join(p.file for p in landed))
     for out, tool in P.GENERATED:
         if (eng / tool).is_file():
-            r = subprocess.run([sys.executable, str(eng / tool)], cwd=eng, capture_output=True, text=True, check=False)
+            r = subprocess.run([sys.executable, str(eng / tool)], cwd=eng, capture_output=True, text=True, check=False, env=P.clean_env())
             if r.returncode: raise Fail(f'{tool} failed on the patched tree: {(r.stderr.strip().splitlines() or [str(r.returncode)])[-1]}')
     (eng / P.FORK_PATCHES).write_text(P.fork_patch_list([p for p, _ in applied]))
     git('add', '--force', '--', P.FORK_PATCHES, *(o for o, _ in P.GENERATED if (eng / o).exists()), cwd=eng)
@@ -190,6 +206,7 @@ def build(root, eng, patches, sha):
 
 def cmd_sync(a):
     root = a.root
+    install_hooks(root)
     eng = engine_dir(root)
     reason = why_stale(root)
     if not reason and not a.force:
@@ -229,6 +246,7 @@ def cmd_hook(a):
     """One line for a session's context, whatever happens: a failed sync must never block the session."""
     buf = io.StringIO()
     try:
+        install_hooks(a.root)
         reason = why_stale(a.root)
         if reason:
             with contextlib.redirect_stdout(buf):
@@ -260,7 +278,7 @@ def extract_tree(eng, out):
     import tarfile
     names = [n for n in TREE_PATHS if git('cat-file', '-e', f'HEAD:{n}', cwd=eng, check=False).returncode == 0]
     if not names: raise Fail(f'{eng} holds none of {", ".join(TREE_PATHS)}: not an engine checkout')
-    proc = subprocess.Popen(['git', 'archive', '--format=tar', 'HEAD', '--', *names], cwd=eng, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    proc = subprocess.Popen(['git', 'archive', '--format=tar', 'HEAD', '--', *names], cwd=eng, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=P.clean_env())
     count = 0
     with tarfile.open(fileobj=proc.stdout, mode='r|') as tar:
         for m in tar:
@@ -338,6 +356,7 @@ def cmd_tree(a):
 
 def cmd_export(a):
     root = a.root
+    install_hooks(root)
     eng = engine_dir(root)
     if not is_repo(eng): raise Fail('engine/ is missing: run `python3 tools/engine.py sync`, commit your change in engine/, then export')
     st = read_stamp(eng)
@@ -408,6 +427,7 @@ def scratch_root(root):
 
 def cmd_check(a):
     root = a.root
+    install_hooks(root)
     patches = P.load(root)
     bad = []
     pd = root / 'patches'

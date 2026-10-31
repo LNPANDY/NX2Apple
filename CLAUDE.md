@@ -1,5 +1,6 @@
 # Notes for Claude
 
+- First step in every clone or worktree: `git config core.hooksPath .githooks` (the SessionStart hook does it when unset). Never use `--no-verify`, never push to `main`: a PreToolUse hook in `.claude/settings.json` blocks both. See AGENTS.md.
 - Read [AGENTS.md](AGENTS.md) first: this repository's layout and rules. For engine work read [engine/AGENTS.md](engine/AGENTS.md) too, upstream's guide from seedds/nxnative at the pin. `engine/` is made by `python3 tools/engine.py sync` (the SessionStart hook in `.claude/settings.json` runs it).
 - For an issue or a pull request, follow [CONTRIBUTING.md](CONTRIBUTING.md), section "For AI agents and other tools", and the templates in `.github/`.
 - A PR that changes the launcher needs before and after screenshots: see "For AI agents and other tools" in CONTRIBUTING.md for how to capture them and attach them with `gh pr create --attach`.
