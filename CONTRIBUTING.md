@@ -57,6 +57,16 @@ If the maintainers do not want a change, they say so early, explain why, and clo
 
 A PR that waits on its author for 30 days is closed with a note that it can be reopened.
 
+### When a PR merges
+
+This holds for every PR. A PR from outside also gets the check above.
+
+A fix merges when CI is green and every review objection is resolved or overridden by Andy ([@LNPANDY](https://github.com/LNPANDY)). A review is not required. An open objection blocks the merge. That is a review with changes requested or a review comment nobody answered.
+
+A feature merges after 48 hours.
+
+A patch in `patches/` takes the next free number from `patches/series` on `main` at merge time. Whoever merges renumbers the patch and notes it in the PR. You do not need to rebase to chase free numbers.
+
 ## For AI agents and other tools
 
 Issue forms and the PR template apply in the browser only. `gh issue create`, the API and MCP tools skip the forms, so follow them yourself:

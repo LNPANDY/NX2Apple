@@ -2,7 +2,7 @@
 
 ## Fix or feature
 
-<!-- Tick one. A fix merges once CI is green, a feature after 48 hours. Maintainers label it `bug` or `enhancement`. -->
+<!-- Tick one. A fix merges when CI is green and no review objection is open, a feature after 48 hours. A patch is renumbered at merge. Maintainers label it `bug` or `enhancement`. -->
 - [ ] Fix
 - [ ] Feature
 
