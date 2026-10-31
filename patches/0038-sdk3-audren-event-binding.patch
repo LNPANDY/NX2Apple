@@ -1,0 +1,169 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: keanu-stitch8 <riski.aditia@gmail.com>
+Date: Sat, 31 Oct 2026 21:55:52 +0700
+Subject: [PATCH] audren: SDK 3 signals the renderer event through its kernel
+ binding
+
+SDK 3's public ExecuteAudioRendererRendering signals the SystemEventType it
+stored in the AudioRendererHandle at open (os::SignalSystemEvent(handle[1]),
+skipped when it is NULL). On Horizon the game opens the DSP renderer, which
+keeps no pointer to that object (handle[1] = 0) and only attaches the
+service's kernel event to it, so a game may let the object go after
+OpenAudioRenderer. Little Nightmares (01002FC00412C000, 1.0.4, Unreal Engine
+4, SDK 3.5.1) reuses its memory right away: with the host's CPU / manual
+renderer the first render aborted in SignalSystemEvent (sdk+0x87960) on a
+state byte at +0x28 that was neither 1 nor 2 (Break at sdk+0xa9dec, exit 42).
+
+With SDK 3 the render thread now passes NULL as the event and signals the
+kernel event through its binding (hle_signal_system_event_binding), which is
+the same event while the object lives. Other SDKs are unchanged.
+
+Checked on the Mac: Little Nightmares boots, renders, takes input and plays
+sound (12,000 frames, 0 underruns).
+
+Upstream-Status: forwarded seedds/nxnative#804
+Reason: Little Nightmares (SDK 3.5.1) aborted on its first audio render: SDK 3 signals a SystemEventType the game already reused
+Issue: LNPANDY/NX2Apple#324
+
+---
+ dm/host/hle_audren.c            | 16 +++++++++++++++-
+ dm/host/tests/t_audren_layout.c |  3 +++
+ dm/host/tests/t_audren_work.c   | 21 +++++++++++++++++----
+ docs/reference/audio.md         |  7 +++++++
+ 4 files changed, 42 insertions(+), 5 deletions(-)
+
+diff --git a/dm/host/hle_audren.c b/dm/host/hle_audren.c
+index e2f666b..fb6f369 100644
+--- a/dm/host/hle_audren.c
++++ b/dm/host/hle_audren.c
+@@ -92,6 +92,12 @@ enum { CQ = 4 }; static int16_t g_cq[CQ][FRAME_MAX * 2]; static int g_cq_n[CQ];
+ static pthread_mutex_t g_cq_mu = PTHREAD_MUTEX_INITIALIZER; static pthread_cond_t g_cq_cv = PTHREAD_COND_INITIALIZER;   // the render thread signals each frame it takes off the queue (catch-up pacing)
+ static void cq_popped(void) { pthread_mutex_lock(&g_cq_mu); pthread_cond_broadcast(&g_cq_cv); pthread_mutex_unlock(&g_cq_mu); }
+ 
++// SDK 3's public ExecuteAudioRendererRendering signals the SystemEventType it stored in the handle at open (sdk+0x17e690 in Little Nightmares 1.0.4: os::SignalSystemEvent(handle[1]),
++// skipped when it is NULL). On Horizon the game opened the DSP renderer, which keeps no pointer to that object (handle[1] = 0) and only attaches the service's kernel event to it,
++// so the game may let the object go: Little Nightmares (Unreal Engine 4) reuses its memory right after OpenAudioRenderer, and the first render aborted in SignalSystemEvent on a
++// state byte (+0x28) that was neither 1 nor 2. With SDK 3 the render thread passes NULL and signals the kernel event through its binding, which is the same event while the object lives
++static uint64_t g_ev_binding;
++
+ typedef struct { void *ptr; uint64_t cap, size; } gbuf;       // same as the front of hle_audio.c's AudioOutBuffer
+ static void render_main(void *arg) {
+     (void)arg;
+@@ -112,7 +118,10 @@ static void render_main(void *arg) {
+         const int16_t *src; int got;
+         uint32_t h = atomic_load(&g_cq_head);
+         if (h != atomic_load(&g_cq_tail)) { src = g_cq[h % CQ]; got = g_cq_n[h % CQ]; atomic_store(&g_cq_head, h + 1); cq_popped(); }   // play queued catch-up output first
+-        else { g_frame_n = 0; exec(g_handle[0], g_handle[1]); src = g_frame; got = g_frame_n; }   // SDK: generate commands → CPU processing (output taken in the host takeover) → signal the game's renderer event
++        else {
++            g_frame_n = 0; exec(g_handle[0], g_ev_binding ? NULL : g_handle[1]); src = g_frame; got = g_frame_n;
++            if (g_ev_binding) hle_signal_system_event_binding(g_ev_binding);
++        }   // SDK: generate commands → CPU processing (output taken in the host takeover) → signal the game's renderer event
+         int n = got ? got : 240;
+         gbuf *b = free_list[--nfree];
+         if (got) memcpy(b->ptr, src, (size_t)n * 4); else memset(b->ptr, 0, (size_t)n * 4);
+@@ -161,9 +170,14 @@ static Result ar_open(void **handle, void *ev, const uint8_t *param, void *work,
+     // auto-clear event wakes only its highest-priority waiter, a kernel event wakes every waiter (each tries ResetSignal). Donkey Kong Country: Tropical Freeze waits on it from
+     // two threads: its audio thread (priority 29) every frame, and the main thread while CAudioMemoryPool::Shutdown detaches a pool as a level loads (main+0x6fa8c); the audio
+     // thread took every wake and the main thread waited forever. The renderer signals the event through os::SignalSystemEvent, which takes either kind
++    g_ev_binding = 0;
+     if (ev && *(int32_t *)(param + P_DEVICE) == 0) {
+         static void (*destroy)(void *); if (!destroy) destroy = gsym("_ZN2nn2os18DestroySystemEventEPNS0_15SystemEventTypeE");
+         destroy(ev); hle_bind_system_event(ev, 1);
++        if (dm_sdk_major() == 3 && handle[1] == ev) {
++            g_ev_binding = hle_system_event_binding(ev);
++            LOG("audren: SDK 3, the render thread signals the renderer event through its kernel binding (the game may reuse the SystemEventType)");
++        }
+     }
+     if (atomic_load(&g_open)) { LOG("[RED] audren: a second renderer (the host drives only one)"); return r; }
+     g_handle[0] = handle[0]; g_handle[1] = handle[1]; atomic_store(&g_open, 1);
+diff --git a/dm/host/tests/t_audren_layout.c b/dm/host/tests/t_audren_layout.c
+index 75228b1..a315e95 100644
+--- a/dm/host/tests/t_audren_layout.c
++++ b/dm/host/tests/t_audren_layout.c
+@@ -21,6 +21,9 @@ int dm_pcmout_append(void *k, void *b) { (void)k; (void)b; return 0; }
+ void *dm_pcmout_released(void *k) { (void)k; return NULL; }
+ void dm_pcmout_wait(void *k, int ms) { (void)k; (void)ms; }
+ void hle_bind_system_event(void *ev, int ac) { (void)ev; (void)ac; }
++int dm_sdk_major(void) { return 0; }
++uint64_t hle_system_event_binding(void *ev) { (void)ev; return 0; }
++int hle_signal_system_event_binding(uint64_t binding) { (void)binding; return 0; }
+ 
+ enum { SAMPLES = 240, NMIX = 8, NCMD = 6 };
+ static int32_t mix[NMIX * SAMPLES];
+diff --git a/dm/host/tests/t_audren_work.c b/dm/host/tests/t_audren_work.c
+index 931ad89..807cc95 100644
+--- a/dm/host/tests/t_audren_work.c
++++ b/dm/host/tests/t_audren_work.c
+@@ -25,7 +25,7 @@ static void work_free(void *p) {
+ 
+ enum { SDK_WORK = 0x760000, SERVICE_WORK = 0x61d000 };
+ static int opens, starts, joins, closes, fail_open, nested;
+-static int event_destroys, event_binds;
++static int event_destroys, event_binds, event_bindings, sdk_major = 16;
+ static void *sdk_event;
+ static void *sdk_work;
+ static void *map_key, *map_value;
+@@ -49,11 +49,13 @@ static Result sdk_open(void **handle, const uint8_t *param, void *work, size_t s
+ static Result sdk_open_ev(void **handle, void *ev, const uint8_t *param, void *work, size_t size) {
+     assert(ev);
+     sdk_event = ev;
+-    return nested ? h_ar_Open0(handle, param, work, size) : sdk_open(handle, param, work, size);
++    Result r = nested ? h_ar_Open0(handle, param, work, size) : sdk_open(handle, param, work, size);
++    if (!r && sdk_major == 3) handle[1] = ev;   // SDK 3's CPU / manual open keeps the event in the handle (sdk+0x17dffc in Little Nightmares 1.0.4)
++    return r;
+ }
+ static void sdk_destroy_event(void *ev) { assert(ev == sdk_event); event_destroys++; }
+ static void sdk_close(void *obj, void *state) {
+-    assert(obj == sdk_work && state == (uint8_t *)sdk_work + 0x80);
++    assert(obj == sdk_work && state == (sdk_major == 3 ? sdk_event : (uint8_t *)sdk_work + 0x80));
+     assert(((uint8_t *)obj)[SDK_WORK - 1] == 0x5a);   // storage is alive through SDK teardown
+     closes++;
+ }
+@@ -90,6 +92,9 @@ void hle_bind_system_event(void *ev, int ac) {
+     assert(ev == sdk_event && ac == 1 && event_destroys == event_binds + 1);
+     event_binds++;
+ }
++int dm_sdk_major(void) { return sdk_major; }
++uint64_t hle_system_event_binding(void *ev) { assert(ev == sdk_event && event_binds); event_bindings++; return 0x77; }
++int hle_signal_system_event_binding(uint64_t binding) { (void)binding; return 1; }
+ 
+ int main(void) {
+     uint8_t param[P_SIZE] = {0}, saved[P_SIZE];
+@@ -136,10 +141,18 @@ int main(void) {
+         assert(handle[0] != work && map_value == backing);
+         assert(((uint8_t *)work)[0] == 0xa5 && ((uint8_t *)work)[SERVICE_WORK - 1] == 0xa5);
+         assert(!memcmp(param, saved, sizeof param));
++        assert(!g_ev_binding);   // a newer SDK signals the event through the SDK, as before
+         h_ar_Close(handle[0], handle[1]);
+         assert(!backing && !map_key && allocations == frees && closes == c + 1 && joins == starts);
+     }
+-    assert(event_destroys == 2 && event_binds == 2);   // event opens, including the nested route, replace the local event once
++    assert(event_destroys == 2 && event_binds == 2 && !event_bindings);   // event opens, including the nested route, replace the local event once
++    // SDK 3 keeps the event in the handle, and the game may reuse the object (Little Nightmares): the render thread signals it through its kernel binding
++    sdk_major = 3; nested = 0;
++    assert(!h_ar_Open(handle, event, param, work, SERVICE_WORK));
++    assert(handle[1] == event && event_binds == 3 && event_bindings == 1 && g_ev_binding == 0x77);
++    h_ar_Close(handle[0], handle[1]);
++    assert(!backing && !map_key && allocations == frees && joins == starts);
++    sdk_major = 16;
+     fail_open = 1;
+     int s = starts;
+     assert(h_ar_Open0(handle, param, work, SERVICE_WORK));
+diff --git a/docs/reference/audio.md b/docs/reference/audio.md
+index 4c7103d..45b3762 100644
+--- a/docs/reference/audio.md
++++ b/docs/reference/audio.md
+@@ -58,6 +58,13 @@ For a replaced DSP renderer the size query keeps the service's work-buffer contr
+ - **Fix:** `render_once` looks up the `SdkMutexType` functions only when `update_lock` does not find `LockMutex` (`hle_audren.c`).
+ - **Found on:** [OCTOPATH TRAVELER](../../dm/games/010057D006492000/README.md) (SDK 3.5.1), the first SDK 3 game through the audio renderer (Bayonetta 2's 3.6.0 plays through `AudioOut`).
+ 
++### SDK 3 signals a renderer event the game may have reused
++
++- **Symptom:** the game exits with 42 on its first audio frame: `Break#1 reason=0` in `os::SignalSystemEvent`, called from the public `ExecuteAudioRendererRendering` on the host's render thread (`render_main`).
++- **Cause:** SDK 3's CPU / manual `OpenAudioRenderer` keeps the `SystemEventType` in the handle (`handle[1]`), and the public `ExecuteAudioRendererRendering` signals it after every render (skipped when it is NULL). The DSP open the game asked for keeps no pointer to it (`handle[1] = 0`) and only attaches the service's kernel event, so a game may let the object go once the renderer is open. Little Nightmares (Unreal Engine 4) reuses its memory right away, and `SignalSystemEvent` found a state byte (+0x28) that was neither 1 nor 2 and aborted. The binding the host made of the event ([The renderer event as the service gives it](#the-renderer-event-as-the-service-gives-it-a-kernel-event)) was intact.
++- **Fix:** with SDK 3 the render thread passes NULL as the event and signals the kernel event through its binding (`hle_signal_system_event_binding`), the same event while the object lives (`g_ev_binding` in `hle_audren.c`). Other SDKs signal through the SDK as before.
++- **Found on:** Little Nightmares (`01002FC00412C000`, 1.0.4, SDK 3.5.1), from a provisional profile: it boots, renders, takes input and plays sound on the Mac (M2 Pro, macOS 27.2).
++
+ ### Where the `AudioRenderSystem` sits in `AudioRendererImpl`
+ 
+ - **Symptom:** the sound is choppy: about two of every three 5 ms blocks are silent (a `DM_AUDIO_DUMP`), with no underruns. The log's `catch-up renders so far` grows by one for each rendered frame (2000 of every 2000), and every update logs `no frame rendered before update N`.
