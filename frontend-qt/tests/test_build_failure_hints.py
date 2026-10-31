@@ -46,14 +46,16 @@ class Classifier(unittest.TestCase):
     def test_every_kind_is_reachable(self):
         self.assertEqual({k for _, k, _ in bf.TABLE}, set(bf.KINDS))
 
-    def test_the_vendored_scripts_still_say_what_the_patterns_expect(self):
+    def test_the_engines_scripts_still_say_what_the_patterns_expect(self):
         """A sync that rewords a message must fail here, not turn a hint into the raw last line."""
         for f in FIXTURES:
             with self.subTest(pattern=f['id']):
                 if f['source'] == 'errno':   # the system's own text, not the script's
                     self.assertEqual(os.strerror(errno.ENOSPC), f['fragment'])
                     continue
-                there = f['fragment'] in (ROOT / f['source']).read_text(encoding='utf-8')
+                if f['source'] == 'codesign':   # Apple's text, from a tool the script runs
+                    continue
+                there = f['fragment'] in (ROOT / 'engine' / f['source']).read_text(encoding='utf-8')
                 if f.get('pending_sync'):
                     self.assertFalse(there, f"{f['id']} is in {f['source']} now: remove pending_sync ({f['pending_sync']}) from the fixture")
                 else:
@@ -193,7 +195,8 @@ class Strings(unittest.TestCase):
         keys = ['fail.section', 'fail.buildAnyway', 'fail.confirm.title', 'fail.confirm.go', 'fail.confirm.cancel',
                 'fail.override.note', 'fail.a32Program.whatNamed', 'fail.translator.button', 'fail.iosSDK.button',
                 'fail.cltSelected.button', 'dep.metal.other', 'dep.fix.metalPin']
-        for kind in bf.KINDS:
+        keys += ['fail.retry', 'engine.syncing']
+        for kind in bf.KINDS + ['engineOffline', 'engineSync']:   # the last two are the engine sync's rows (engine.py's failure_kind)
             keys += [f'fail.{kind}.what', f'fail.{kind}.next']
             if kind in bf.OVERRIDE_FLAGS:
                 keys.append(f'fail.{kind}.risk')

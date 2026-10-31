@@ -1,0 +1,3 @@
+# Read by ripgrep (and tools built on it, such as Claude Code's search), not by git: engine/ is in .gitignore because it is
+# generated (tools/engine.py sync, issue #214), but its files are the engine's sources and must stay searchable.
+!/engine/

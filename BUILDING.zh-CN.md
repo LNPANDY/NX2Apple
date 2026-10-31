@@ -10,6 +10,7 @@ Homebrew 工具和 Python 包，然后打 IPA。
 ```bash
 git clone https://github.com/<you>/NX2Apple.git
 cd NX2Apple
+python3 tools/engine.py sync                      # 引擎（固定提交上的 nxnative 加我们的补丁）构建到 engine/，约 80 MB
 brew bundle --file=Brewfile                       # xcodegen, zstd, spirv-cross, glslang（打包脚本会检查它）, .NET SDK
 python3 -m venv .venv                             # Homebrew 的 Python 不允许全局 pip 安装（PEP 668）
 .venv/bin/python -m pip install lz4 capstone fonttools zbic nsz "backports.zstd; python_version < '3.14'"
@@ -43,7 +44,7 @@ source .venv/bin/activate                         # 之后的 python3 即 venv �
 ```
 
 ```bash
-python3 scripts/build_ipa_from_nsp.py ~/Games/Hades2 -k ~/keys/prod.keys
+python3 engine/scripts/build_ipa_from_nsp.py ~/Games/Hades2 -k ~/keys/prod.keys
 ```
 
 密钥的导出方式在 Switch 自制软件社区有完整文档（常见做法是在破解机上跑 Lockpick_RCM）。
@@ -63,7 +64,7 @@ python3 scripts/build_ipa_from_nsp.py ~/Games/Hades2 -k ~/keys/prod.keys
 ```bash
 GAME=<title id> W=<工作目录> PATCHED=<改写目录> \
   ROMFS=<RomFS 目录> MSL_IOS=<shader 目录> \
-  dm/ios/tools/build_ipa.sh <输出.ipa>
+  engine/dm/ios/tools/build_ipa.sh <输出.ipa>
 ```
 
 `--full-romfs`（或 `DM_FULL_ROMFS=1`）把 RomFS 打进包里——上游行为，只对小体量游戏有意义。

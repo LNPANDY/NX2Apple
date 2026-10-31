@@ -116,8 +116,8 @@ final class BuildFailureRowsTests: XCTestCase {
     }
 
     func testTheNewRowsAreInAllThreeLanguagesWithoutSemicolonsOrTheProductName() {
-        var keys = ["fail.showFolder", "fail.openXcode", "fail.retry", "fail.keys.button", "fail.driveMissing.whatNamed", "fail.diskFull.whatNeeds"]
-        let kinds = BuildFailureTests.stateKinds.union([.keys, .severalGames, .noTitleID, .diskFull])
+        var keys = ["fail.showFolder", "fail.openXcode", "fail.retry", "fail.keys.button", "fail.driveMissing.whatNamed", "fail.diskFull.whatNeeds", "fail.cloudFolder.button", "engine.syncing"]
+        let kinds = BuildFailureTests.stateKinds.union([.keys, .severalGames, .noTitleID, .diskFull, .cloudFolder])
         for k in BuildFailureKind.allCases where kinds.contains(k) { keys += [k.whatKey, k.nextKey] }
         for key in keys {
             let row = L10n.table[key]

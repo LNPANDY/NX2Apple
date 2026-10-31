@@ -1,5 +1,7 @@
 # nxnative for Mac
 
+> Paths such as `dm/…`, `docs/…` and `scripts/…` in this page are the engine's: `engine/` in a checkout after `python3 tools/engine.py sync`, or nxnative at the pinned commit (`.upstream-ref`).
+
 The native macOS front end for building games from your own Switch files, with a
 library for playing the finished Mac apps. The interface is designed around
 building a game, rather than manually importing finished apps.
@@ -114,8 +116,8 @@ a game installed from here has a known bundle ID, so a sideloaded IPA has no dev
 ## Cheats
 
 **Manage > Cheats…** manages a game's cheat files, the contract that `docs/frontends.md` ("Cheats") describes and
-the host reads (`dm/host/hle_cheats.c`, carried here from [seedds/nxnative#406](https://github.com/seedds/nxnative/pull/406)
-while it is open). The files live in `~/Library/Application Support/nxnative/<title ID>/cheats`, which is what the Mac
+the host reads (`dm/host/hle_cheats.c`, from upstream since [seedds/nxnative#406](https://github.com/seedds/nxnative/pull/406)
+landed). The files live in `~/Library/Application Support/nxnative/<title ID>/cheats`, which is what the Mac
 app's launcher (`dm/mac/launcher.c`) sets `DM_ROOT` to, whatever the library folder is.
 
 - **Import** by dropping onto the sheet or **Import…**: a Ryujinx folder, an SD card's `atmosphere/contents/<title ID>/cheats`
@@ -130,7 +132,10 @@ app's launcher (`dm/mac/launcher.c`) sets `DM_ROOT` to, whatever the library fol
 - **iPhone / iPad.** For a game installed from here, **Copy to iPhone** replaces the app's `Documents/games/<title ID>/cheats`
   with this folder over the install's route (`devicectl device copy to`, as the Saves sheet does), without the Mac's
   safe-mode flag. The iOS app points `DM_CHEATS` at that folder (fork patch `ios-game-data-folder`), so copy again after a
-  change.
+  change. The iPhone runs data cheats only. A cheat that writes into the game's code is turned off there with a line in the log,
+  because iOS does not allow changing the game's code. The sheet carries a note saying so for a game with an iOS build.
+- **Mac.** Code cheats run in the Mac app. The host refuses a code write into a word the rewriter changed, listed in the
+  app's `dm/main.changed.tsv`. Modules from an older rewriter have no such file. Then every code write is refused until the modules are rewritten.
 
 The host reads the files when the game starts, or on its Reload cheats (⌘R) on the Mac, and never watches the folder. So a
 change while the game runs applies after a reload, and the sheet says so. Live switching from the launcher is not part of it.
@@ -153,7 +158,7 @@ library manifest is stored at
 ## Launch options
 
 The button beside **Play** opens the game's launch options: the settings the iPhone
-launcher shows before a game starts ([docs/settings.md](../docs/settings.md)), read
+launcher shows before a game starts ([docs/settings.md](https://github.com/seedds/nxnative/blob/c5fe6b5dbcb245f9116b1b380cc71ecd4c6c4f11/docs/settings.md)), read
 from the list the engine packs into the Mac app (`Contents/Resources/dm/launcher.json`,
 written by `dm/games/settings.py` from `dm/games/settings.tsv`, and the engine change that
 packs it is [seedds/nxnative#352](https://github.com/seedds/nxnative/pull/352), so a
@@ -211,8 +216,14 @@ Paths and the build log use the system's monospaced face. `python3 fonts/embed_f
 writes the font into the binary as `Sources/NSPortBuilder/EmbeddedFonts.swift`, so the app needs no font
 installed and no resource bundle beside the executable.
 
-The app icon is drawn by `make_icon.swift`, and `./make_icon.sh` writes `icon.iconset/`
-and `AppIcon.icns` from it.
+The app icon is `AppIcon.icon`, the Liquid Glass icon made in Icon Composer (the iOS app uses the same file).
+`build-mac-app.yml` compiles it with the `actool` of Xcode 27.1 (the one in Xcode 26.6 throws an exception on this icon) into `Assets.car` (macOS 26 and later) and `AppIcon.icns` (macOS 13 to 25),
+and `Info.plist` names both. To compile it by hand:
+
+```sh
+xcrun actool AppIcon.icon --compile out --platform macosx --minimum-deployment-target 13.0 \
+  --app-icon AppIcon --output-partial-info-plist out/partial.plist
+```
 
 ## App updates
 
@@ -301,3 +312,39 @@ process, including when the window is hidden. Set `NX_LAUNCHER_CAPTURE_DIR` to
 capture the native library, build, settings, empty and active-build views for
 visual QA. Capture fixtures are isolated from the user's library and never run a
 real game build.
+
+### Launcher performance test
+
+`LauncherPerformanceTests` fails when a change makes the launcher slow. It runs in
+CI with the other Swift tests. To run it alone:
+
+```bash
+swift test --package-path frontend --filter LauncherPerformanceTests
+```
+
+The test builds a synthetic library in a temporary folder. It has 30 owned games
+with banners, and every third game is built. The checkout has 150 game profiles.
+One game has two frame time recordings of about 3 MB together. No real game
+files or keys are used. The launcher is hosted in a window and driven with the
+gamepad. The test measures six interactions: a redraw of the library, the three
+tab switches, opening Options and opening Manage. Each one runs five times after
+a warm-up round.
+
+There are two guards per interaction:
+
+- Counts of work on the main thread. `LauncherWork` counts game cards built,
+  Manrope fonts made, `Info.plist` reads and frame time recordings parsed. The
+  counts are the same on every machine. Each budget is about twice what `main`
+  does. `main` makes no new font after the warm-up, so the font budget is a
+  small fixed number. A recording parsed on the main thread always fails.
+- The time the main thread is busy, as the median of the five runs. The budgets
+  are several times what `main` needs on the CI runner.
+
+The test prints a table with the measured values and the budgets. A failure
+names the interaction, the value, the budget and the likely cause. Most often a
+view does work for every game on every redraw. Examples are an eager `HStack`
+over all games, a font made per text, or a file read in a computed property.
+Make that work lazy or cache it. Then profile a release build with the Time
+Profiler to confirm. Raise a budget only when the launcher shows more on purpose,
+and say why in the pull request. The counts exist only in debug builds, so
+`LauncherWork.count` costs nothing in a release build.

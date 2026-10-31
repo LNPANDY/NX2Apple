@@ -83,9 +83,11 @@ struct LaunchOptionsView: View {
             HStack(spacing: 14) {
                 Text(m.t("launch.applied")).font(.manrope(12)).foregroundStyle(.secondary).lineLimit(2)
                 Spacer(minLength: 8)
+                // One LauncherControl wide, as the buttons of a setting row: its label fits on one line in every language
                 if let game, let settings, !game.launchOptions.isEmpty || (store?.hasChoices(settings) ?? false) {
                     Button(m.t("launch.reset")) { reset(settings) }
                         .buttonStyle(LauncherSecondaryButtonStyle())
+                        .launcherRowControls()
                         .padTarget("opt.reset", scope: "launch") { reset(settings) }
                 }
                 Button { dismiss() } label: {
@@ -177,7 +179,7 @@ struct LaunchOptionsView: View {
                 }
             }
             Spacer(minLength: 12)
-            control(s, value, pixels: pixels).frame(width: LaunchControl.width, alignment: .trailing)
+            control(s, value, pixels: pixels).launcherRowControls().frame(width: LaunchControl.width, alignment: .trailing)
         }
         .padding(.horizontal, 18).padding(.vertical, 13)
         .frame(minHeight: 52)
@@ -201,16 +203,18 @@ struct LaunchOptionsView: View {
         }
     }
 
-    /// The setting's control, filling the column every row shares (a toggle keeps its size at the column's right edge).
+    /// The setting's control in the column every row shares: a segmented choice or a slider fills it, a dropdown is LauncherControl.width wide
+    /// at its right edge, and a toggle keeps its size there. A slider ends in a reset arrow while its value differs from the
+    /// tested default: a slider is hard to put back on the exact default by hand. Its slot is always there, so the slider keeps its length.
     @ViewBuilder private func control(_ s: LaunchSetting, _ value: String, pixels: String?) -> some View {
         HStack(spacing: 10) {
             switch s.kind {
             case "choice":
                 let options = (s.options ?? []).map { (value: $0[0], label: $0.count > 1 ? $0[1] : $0[0]) }
-                if options.count <= 3 {
+                if LaunchControl.isSegmented(env: s.env, labels: options.map(\.label)) {
                     LauncherSegmented(options: options, selection: value) { set(s, $0) }
                 } else {
-                    LauncherMenuPicker(options: options, selection: value, fill: true) { set(s, $0) }
+                    LauncherDropdown(options: options, selection: value, label: s.label) { set(s, $0) }
                 }
             case "range":
                 let lo = s.min ?? 0, hi = s.max ?? 1
@@ -219,7 +223,19 @@ struct LaunchOptionsView: View {
                 }
                 Text(pixels ?? "\(Int(((Double(value) ?? 0) * 100).rounded()))%")
                     .font(.manrope(13, .semibold)).monospacedDigit().foregroundStyle(.secondary)
-                    .frame(width: pixels == nil ? 44 : 72, alignment: .trailing)
+                    .frame(width: LaunchControl.valueWidth, alignment: .trailing)
+                ZStack {
+                    if Double(value) != Double(s.def) {
+                        Button { set(s, s.def) } label: {
+                            Image(systemName: "arrow.uturn.backward.circle").font(.system(size: 15))
+                                .foregroundStyle(.secondary).contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .help(m.t("launch.rowReset"))
+                        .accessibilityLabel(m.t("launch.rowReset"))
+                    }
+                }
+                .frame(width: 16)
             default:
                 Spacer(minLength: 0)
                 Toggle("", isOn: Binding(get: { value == s.onValue }, set: { set(s, $0 ? s.onValue : s.offValue) }))

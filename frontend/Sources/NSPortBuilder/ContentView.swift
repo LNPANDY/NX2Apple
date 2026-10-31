@@ -291,7 +291,7 @@ final class BuildModel: ObservableObject {
     }
 
     nonisolated static func isRepo(_ dir: String) -> Bool {
-        FileManager.default.fileExists(atPath: dir + "/dm/tools/nx_extract/Program.cs")
+        EngineLayout.isCheckout(dir)   // a checkout with tools/engine.py, a synced engine/, or an engine tree (#214)
     }
 
     /// Every file of the repository the launcher itself runs by path: one list, next to the calls that use it
@@ -304,7 +304,8 @@ final class BuildModel: ObservableObject {
 
     /// The tools of `requiredTools` that `dir` does not have (empty: the build tools are as new as this app needs).
     nonisolated static func missingTools(in dir: String) -> [String] {
-        requiredTools.filter { !FileManager.default.fileExists(atPath: dir + "/" + $0) }
+        let root = EngineLayout.root(dir)   // the checkout's engine/, or an engine tree itself (Engine.swift)
+        return requiredTools.filter { !FileManager.default.fileExists(atPath: root + "/" + $0) }
     }
 
     /// Whether the checkout's build script has this fork's `--work-dir` (issue #5): an upstream
@@ -312,7 +313,8 @@ final class BuildModel: ObservableObject {
     /// app passes it. Read from the script's own argparse rather than assumed — the option is the
     /// fork's, not upstream's.
     nonisolated static func repoSupportsWorkDir(_ dir: String) -> Bool {
-        let script = dir + "/" + buildScript
+        let script = EngineLayout.root(dir) + "/" + buildScript
+        if !FileManager.default.fileExists(atPath: script), EngineLayout.hasEngineTool(dir) { return true }   // engine/ not made yet: the fork's engine has it
         guard let text = try? String(contentsOfFile: script, encoding: .utf8) else { return false }
         return text.contains("'--work-dir'") || text.contains("\"--work-dir\"")
     }
@@ -445,6 +447,7 @@ final class BuildModel: ObservableObject {
                 if ok && Self.isRepo(dest) {
                     self.repoPath = dest
                     self.repoStatus = String(format: self.t("repo.downloadDone"), self.shortPath(dest))
+                    self.syncEngine()
                 } else {
                     self.repoStatus = self.t("repo.downloadFail")
                     try? FileManager.default.removeItem(atPath: dest)   // a failed clone leaves an empty folder
@@ -505,6 +508,7 @@ final class BuildModel: ObservableObject {
                 if r.ok {
                     self.repoBehind = 0; self.repoStatus = self.t("repo.pulled")
                     if !r.out.isEmpty { self.append(r.out + "\n") }
+                    self.syncEngine()   // the pull may have moved the pin or the patches
                 } else {
                     self.repoStatus = self.pullFailureMessage(r.out)
                     self.append(r.out + "\n")
@@ -531,6 +535,7 @@ final class BuildModel: ObservableObject {
                 if pulled.ok {
                     self.repoBehind = 0; self.autoPulled = behind
                     self.repoStatus = String(format: self.t("repo.autoPulled"), behind)
+                    self.syncEngine()
                 } else {
                     self.repoStatus = self.pullFailureMessage(pulled.out)
                     self.append(pulled.out + "\n")
@@ -626,6 +631,7 @@ final class BuildModel: ObservableObject {
                     self.repoBehind = 0
                     self.repoStatus = String(format: self.t(automatic ? "repo.adoptedAuto" : "repo.adopted"), branch)
                     if automatic { self.autoAdopted = true }
+                    self.syncEngine()
                 } else {
                     self.repoStatus = self.t(automatic ? "repo.adoptFailAuto" : "repo.adoptFail")
                 }
@@ -633,11 +639,53 @@ final class BuildModel: ObservableObject {
         }
     }
 
+    /// What waits for the running `tools/engine.py sync` (nil: none runs), and whether another one is due when it ends.
+    private var engineSyncWaiting: [(Bool) -> Void]?
+    private var engineSyncAgain = false
+    /// A sync runs: the launcher shows a status line with a spinner (EngineSyncBanner).
+    @Published var engineSyncing = false
+    /// How the last sync stopped (no network or GitHub unreachable, or another stop), as a failure row with a retry button. nil: none.
+    @Published var engineFailure: BuildFailure?
+
+    /// `tools/engine.py sync` when engine/ is stale (#214, Engine.swift): at launch, after a clone, a pull or an adoption, and before a
+    /// build that has no other engine. Checkouts only: a release app carries its engine tree (#227) and never syncs. A no-op for a current engine/ or a folder
+    /// that is an engine tree. `then(ok)` runs on the main queue.
+    func syncEngine(then: ((Bool) -> Void)? = nil) {
+        if engineSyncWaiting != nil { engineSyncAgain = true; if let then { engineSyncWaiting?.append(then) }; return }
+        guard EngineLayout.isStale(repoPath) else { engineFailure = nil; then?(true); return }
+        engineSyncWaiting = then.map { [$0] } ?? []
+        engineSyncing = true; engineFailure = nil
+        let repo = repoPath, chosen = pythonPath
+        append("$ python3 tools/engine.py sync\n")
+        var tail = ""   // what failureKind reads when the sync stops (only touched on the main queue)
+        DispatchQueue.global().async {
+            let py = chosen.isEmpty ? Self.findPython().path : chosen
+            let ok = EngineLayout.runSync(repo: repo, python: py) { line in
+                DispatchQueue.main.async { self.append(line + "\n"); tail = String((tail + line + "\n").suffix(4000)) }
+            }
+            DispatchQueue.main.async {
+                let waiting = self.engineSyncWaiting ?? [], again = self.engineSyncAgain && ok
+                self.engineSyncWaiting = nil; self.engineSyncAgain = false
+                self.engineSyncing = false
+                self.engineFailure = ok ? nil : BuildFailure(kind: EngineLayout.failureKind(tail), gameName: nil)
+                if again { self.syncEngine { ok in waiting.forEach { $0(ok) } } } else { waiting.forEach { $0(ok) } }
+                self.objectWillChange.send()   // repoOK and the engine's paths may have changed
+            }
+        }
+    }
+
+    /// The failure row's Try again: clears the row and runs the sync again.
+    func retryEngineSync() {
+        guard !engineSyncing else { return }
+        engineFailure = nil
+        syncEngine()
+    }
+
     // ---- App self-update (GitHub Releases) ----
     // The rules (what is verified, which copies replace themselves, never during a build) are in AppUpdate.swift.
 
     /// Bump together with each release tag; the update check compares it with the latest release.
-    static let appVersion = "0.7.3"
+    static let appVersion = "0.7.5"
     /// The update checkAppUpdate found: the tag, the asset to download, its digest, and the release
     /// notes the sheet shows. The notes are why the sheet exists — "update available" alone told a
     /// user nothing about what they would get.
@@ -646,6 +694,8 @@ final class BuildModel: ObservableObject {
     /// Whether the "a new version is out" sheet is up: opened by the launch check and by Check for
     /// updates, so a user learns what changed before deciding, not after downloading.
     @Published var showUpdateSheet = false
+    /// The uninstall row's dialog: computed when the row is pressed, run when the player confirms.
+    @Published var uninstallPlan: Uninstall.Plan?
     @Published var appStatus = ""
     /// Set when the last update attempt was refused (a release this macOS cannot open, a bad download); the update sheet shows it.
     @Published var appUpdateBlocked: String?
@@ -885,8 +935,14 @@ final class BuildModel: ObservableObject {
         }
         if relaunch {
             appStatus = String(format: t("app.relaunching"), staged.release.tag)
-            NSWorkspace.shared.openApplication(at: placed, configuration: NSWorkspace.OpenConfiguration())
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { exit(0) }
+            // The old instance is still running, so opening the same bundle now would only activate it:
+            // a helper opens the new copy once this process has exited.
+            if AppUpdate.relaunch(placed) {
+                NSApp.terminate(nil)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { exit(0) }
+            } else {
+                appStatus = String(format: t("app.relaunchFail"), staged.release.tag)
+            }
         }
         return true
     }
@@ -1167,6 +1223,15 @@ final class BuildModel: ObservableObject {
         // empty, and the old fallback was Apple's /usr/bin/python3 (3.9), which the script then
         // rejected with "require Python 3.12 or newer" whatever the machine actually had (#53).
         let py = pythonPath.isEmpty ? Self.findPython().path : pythonPath
+        // engine/ is the only engine and is stale or missing (#214): make it, then start again
+        if EngineLayout.needsSyncBeforeBuild(repoPath) {
+            syncEngine { ok in
+                self.running = false
+                if ok && !EngineLayout.needsSyncBeforeBuild(self.repoPath) { self.startBuild() }
+                else { self.fail(String(format: self.t("msg.toolsOld"), "engine/ (python3 tools/engine.py sync, see the log)")) }
+            }
+            return
+        }
         // The tools this app runs, before a build that takes an hour finds one missing at its last step (#87)
         let missing = Self.missingTools(in: repoPath)
         if !missing.isEmpty {
@@ -1204,6 +1269,12 @@ final class BuildModel: ObservableObject {
         }
         let tidHex = Self.titleID(basePath).map { String(format: "%016llX", $0) } ?? "game"
         let workDir = (outDir.isEmpty ? baseDir : outDir) + "/" + tidHex + "_build"
+        // The build's signing step refuses the attributes a cloud folder adds, after the long steps: stop here instead.
+        if cloudFolderCheck(workDir) {
+            failure = BuildFailure(kind: .cloudFolder, gameName: nil, detail: workDir)
+            fail(failureWhat(failure!))
+            return
+        }
         var inputDir = baseDir
         if dirs.count > 1 || !unpicked.isEmpty {
             // A stable folder per game (#132): the script's fingerprints name its files and its profile path.
@@ -1244,7 +1315,8 @@ final class BuildModel: ObservableObject {
                 return
             }
         }
-        var args = [repoPath + "/" + Self.buildScript, inputDir, "-k", keysPath,
+        let engine = EngineLayout.root(repoPath)   // the checkout's engine/ (#214)
+        var args = [engine + "/" + Self.buildScript, inputDir, "-k", keysPath,
                     "--progress", "json"]
         // A compatibility switch the player turned on: written to a small env file the pipeline
         // copies into the app bundle (main.m sets one variable per line at boot). Only for an IPA;
@@ -1284,7 +1356,7 @@ final class BuildModel: ObservableObject {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: py)
         p.arguments = args
-        p.currentDirectoryURL = URL(fileURLWithPath: repoPath)
+        p.currentDirectoryURL = URL(fileURLWithPath: engine)
         // The root of the runtime the apphost looks for: derived from the detected installation,
         // not assumed to be ~/.dotnet (Homebrew keeps it in …/opt/dotnet/libexec). Only set when the
         // derivation actually answered — a wrong root is worse than none, and the pipeline derives
@@ -1388,6 +1460,17 @@ final class BuildModel: ObservableObject {
         doneNote = failureWhat(f)
     }
 
+    /// Whether the build folder is in a cloud folder. Tests stand in for the system's answer.
+    var cloudFolderCheck: (String) -> Bool = { CloudFolder.contains($0) }
+
+    /// The Save to folder, picked in a panel. Clears the cloud-folder stop, since the next build looks at the new folder.
+    func chooseBuildFolder() {
+        let d = NSOpenPanel(); d.canChooseDirectories = true; d.canChooseFiles = false
+        guard d.runModal() == .OK, let u = d.url else { return }
+        outDir = u.path
+        if failure?.kind == .cloudFolder { failure = nil; doneNote = "" }
+    }
+
     /// What the classifier may check besides the log: the keys file and where the game files are.
     func failureInputs() -> BuildFailureClassifier.Inputs {
         BuildFailureClassifier.Inputs(keysPath: keysPath, paths: ([basePath, updatePath, gameDir] + dlcPaths).filter { !$0.isEmpty },
@@ -1449,6 +1532,8 @@ final class BuildModel: ObservableObject {
             if let chooseKeys { chooseKeys() } else { pickFiles(kind: .keys) }   // the same picker as the keys row
         case .severalGames, .noTitleID, .diskFull:
             showFailureFolder()
+        case .cloudFolder:
+            chooseBuildFolder()
         case .teamTaken, .noSigningAccount:
             openXcode()
         case .deviceTransfer:
@@ -1860,9 +1945,10 @@ final class BuildModel: ObservableObject {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: pythonPath.isEmpty ? "/usr/bin/python3" : pythonPath)
         // dest/romfs.img: one file, which main.m's per-game lookup takes before any folder.
-        p.arguments = [repoPath + "/" + Self.romfsImageTool, "--reuse", romfs, dest + "/romfs.img"]
+        let engine = EngineLayout.root(repoPath)
+        p.arguments = [engine + "/" + Self.romfsImageTool, "--reuse", romfs, dest + "/romfs.img"]
         let romfsPy = p.executableURL!.path
-        p.environment = ["PATH": Self.toolPath("/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin", python: romfsPy), "PYTHONPATH": repoPath + "/dm/tools"]
+        p.environment = ["PATH": Self.toolPath("/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin", python: romfsPy), "PYTHONPATH": engine + "/dm/tools"]
             .merging(BundledTools.environment(for: romfsPy)) { $1 }
         Self.inOwnGroup(p, python: p.executableURL!.path)
         let pipe = Pipe(); p.standardOutput = pipe; p.standardError = pipe
@@ -2783,7 +2869,7 @@ final class BuildModel: ObservableObject {
         }
 
         let macMetal = firstOutputLine("/usr/bin/xcrun", ["-sdk", "macosx", "metal", "--version"])
-        let lock = repo.isEmpty ? nil : try? String(contentsOfFile: repo + "/" + MetalPin.lockPath, encoding: .utf8)
+        let lock = repo.isEmpty ? nil : try? String(contentsOfFile: EngineLayout.root(repo) + "/" + MetalPin.lockPath, encoding: .utf8)
         let iosMetal = needsIOS && lock != nil ? firstOutputLine("/usr/bin/xcrun", ["-sdk", "iphoneos", "metal", "--version"]) : nil
         out.append(metalDep(runs: macMetal != nil, lock: lock, now: ["macosx": macMetal, "iphoneos": iosMetal], needsIOS: needsIOS))
 
@@ -3055,28 +3141,34 @@ struct BuilderView: View {
     }
 
     /// One line of a card: a status dot (its place kept when there is none, so every title starts on one line),
-    /// the title (with a disclosure chevron beside it when `open` is given), a secondary detail, and its controls,
-    /// whose right edges line up across the card.
+    /// the title (with a disclosure chevron beside it when `open` is given), a secondary detail, and its controls.
+    /// Its buttons and dropdowns are all LauncherControl.width wide, so they line up in one column across the cards.
     private func row<Trailing: View>(_ title: String, detail: String = "", dot: Color? = nil, help: String = "", open: Bool? = nil,
                                      @ViewBuilder trailing: () -> Trailing) -> some View {
         HStack(spacing: 12) {
             Circle().fill(dot ?? .clear).frame(width: 7, height: 7)
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
-                    Text(title).font(.manrope(14))
+                    Text(title).font(.manrope(14)).fixedSize(horizontal: false, vertical: true)
                     if let open {
                         Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).foregroundStyle(.secondary)
                             .rotationEffect(.degrees(open ? 90 : 0))
                     }
                 }
                 if !detail.isEmpty {
-                    // A path is technical text: the system's monospaced face; everything else Manrope
-                    Text(detail).font(detail.hasPrefix("/") || detail.hasPrefix("~") ? .mono(12) : .manrope(12.5)).foregroundStyle(.secondary)
-                        .lineLimit(1).truncationMode(.middle).help(help.isEmpty ? detail : help)
+                    // A path is technical text: the system's monospaced face, on one line, cut in the middle when
+                    // too long. Everything else is prose in Manrope and wraps, so no word is ever cut.
+                    if detail.hasPrefix("/") || detail.hasPrefix("~") {
+                        Text(detail).font(.mono(12)).foregroundStyle(.secondary)
+                            .lineLimit(1).truncationMode(.middle).help(help.isEmpty ? detail : help)
+                    } else {
+                        Text(detail).font(.manrope(12.5)).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true).help(help.isEmpty ? detail : help)
+                    }
                 }
             }
             Spacer(minLength: 12)
-            trailing()
+            trailing().launcherRowControls()
         }
         .padding(.horizontal, 18).padding(.vertical, 13)
         .frame(minHeight: 52)
@@ -3129,7 +3221,7 @@ struct BuilderView: View {
             row(m.t("dev.target"), detail: m.devicesChecked && m.devices.isEmpty ? m.t("dev.noDevices") : "") {
                 if !m.devicesChecked { ProgressView().controlSize(.small) }
                 Button(m.t("dev.refresh")) { m.refreshDevices() }.buttonStyle(.plain).font(.manrope(13)).foregroundStyle(.secondary)
-                LauncherMenuPicker(options: devices, selection: m.installDevice) { m.installDevice = $0 }
+                LauncherDropdown(options: devices, selection: m.installDevice, label: m.t("dev.target")) { m.installDevice = $0 }
             }
             if !m.installDevice.isEmpty {
                 divider
@@ -3137,7 +3229,7 @@ struct BuilderView: View {
                     row(m.t("dev.team"), detail: m.t("dev.noTeam"), dot: LauncherPalette.building) { EmptyView() }
                 } else {
                     row(m.t("dev.team")) {
-                        LauncherMenuPicker(options: teams, selection: m.signingTeam) { m.signingTeam = $0 }
+                        LauncherDropdown(options: teams, selection: m.signingTeam, label: m.t("dev.team")) { m.signingTeam = $0 }
                     }
                 }
             }
@@ -3154,7 +3246,7 @@ struct BuilderView: View {
                     detail: m.gameDir.isEmpty ? m.t("build.folderNote") : m.shortPath(m.gameDir), help: m.gameDir) {
                     Text(m.t(m.gameDir.isEmpty ? "data.choose" : "data.change"))
                         .font(.manrope(13, .semibold)).foregroundStyle(.black)
-                        .padding(.horizontal, 16).padding(.vertical, 8)
+                        .launcherRowControlFrame()
                         .background(LauncherPalette.cream, in: Capsule())
                 }
                 .contentShape(Rectangle())
@@ -3171,10 +3263,7 @@ struct BuilderView: View {
             }
             divider
             row(m.t("build.saveTo"), detail: m.outDir.isEmpty ? m.t("build.saveDefault") : m.shortPath(m.outDir), help: m.outDir) {
-                Button(m.t("data.change")) {
-                    let d = NSOpenPanel(); d.canChooseDirectories = true; d.canChooseFiles = false
-                    if d.runModal() == .OK, let u = d.url { m.outDir = u.path }
-                }
+                Button(m.t("data.change")) { m.chooseBuildFolder() }
             }
         }
         .task(id: KeyCheck.Inputs(keys: m.keysPath, files: [m.basePath, m.updatePath] + m.dlcPaths)) {
@@ -3413,12 +3502,9 @@ struct BuilderView: View {
 
     // ---- Settings ----
 
-    /// Every button of the Settings cards is this wide, so they stand in one column.
-    static let settingsButtonWidth: CGFloat = 150
-
     @ViewBuilder private var settingsPage: some View {
         pageHeading(m.t("settings.heading"), note: m.t("settings.note"))
-        settingsCards.buttonStyle(LauncherSecondaryButtonStyle(minWidth: Self.settingsButtonWidth))
+        settingsCards
     }
 
     @ViewBuilder private var settingsCards: some View {
@@ -3462,17 +3548,14 @@ struct BuilderView: View {
             row(m.t("settings.language"),
                 detail: Lang.saved.map { m.t("settings.language.\($0.rawValue)") }
                     ?? m.t("settings.language.system"), dot: LauncherPalette.ready, help: "") {
-                // The launcher's own list (as in Launch options), drawn like the buttons beside it and as wide
-                LauncherMenuPicker(options: [(value: "", label: m.t("settings.language.system")),
-                                             (value: "zh", label: m.t("settings.language.zh")),
-                                             (value: "en", label: m.t("settings.language.en")),
-                                             (value: "sv", label: m.t("settings.language.sv")),
-                                             (value: "de", label: m.t("settings.language.de"))],
-                                   selection: Lang.saved.map { $0.rawValue } ?? "", fill: true, buttonLike: true) { v in
+                // The launcher's own list, drawn like the buttons beside it and as wide as they are.
+                // The language names are in their own language (see "settings.language.*"), only "system" follows the UI.
+                LauncherDropdown(options: Self.languageCodes.map { (value: $0, label: m.t("settings.language." + ($0.isEmpty ? "system" : $0))) },
+                                 selection: Lang.saved.map { $0.rawValue } ?? "", label: m.t("settings.language"),
+                                 style: .button) { v in
                     Lang.saved = v.isEmpty ? nil : Lang(rawValue: v)
                     m.lang = Lang.initial()
                 }
-                .frame(width: Self.settingsButtonWidth)
                 .padTarget("set.language", scope: "main", activate: { cycleLanguage(1) }, adjust: { cycleLanguage($0) })
             }
             divider
@@ -3511,6 +3594,16 @@ struct BuilderView: View {
                 }
             }
             divider
+            if m.appInstallability == .ok {
+                // The uninstaller (Uninstall.swift): state folders and the launcher's own checkout go; the
+                // games folder and prod.keys stay; the app itself goes to the Trash.
+                row(m.t("uninstall.title"), detail: m.t("uninstall.note")) {
+                    Button(m.t("uninstall.button")) { m.uninstallPlan = uninstallPlan() }
+                    .disabled(m.running)
+                    .padTarget("set.uninstall", scope: "main") { if !m.running { m.uninstallPlan = uninstallPlan() } }
+                }
+                divider
+            }
             // A launcher built from the repository never replaces itself (AppUpdate.installability): the switch says so and stays off
             row(m.t("app.auto"), detail: m.t(m.appInstallability == .ok ? "app.autoNote" : m.appInstallability == .developer ? "app.autoDev" : "app.autoReadOnly")) {
                 Toggle("", isOn: Binding(get: { m.autoUpdateApp && m.appInstallability == .ok }, set: { m.autoUpdateApp = $0 }))
@@ -3521,12 +3614,21 @@ struct BuilderView: View {
     }
 
     /// The interface language one step on (a controller's left / right on the language list).
+    /// The language picker's choices in order, "" being the system's. A new language is one more code here and its
+    /// "settings.language.<code>" entry, which is its own name (Svenska, Deutsch) in every language.
+    static let languageCodes = ["", "zh", "en", "sv", "de"]
+
     private func cycleLanguage(_ by: Int) {
-        let values = ["", "zh", "en", "sv", "de"]
+        let values = Self.languageCodes
         let at = values.firstIndex(of: Lang.saved.map { $0.rawValue } ?? "") ?? 0
         let v = values[(at + by + values.count) % values.count]
         Lang.saved = v.isEmpty ? nil : Lang(rawValue: v)
         m.lang = Lang.initial()
+    }
+
+    private func uninstallPlan() -> Uninstall.Plan {
+        Uninstall.plan(home: NSHomeDirectory(), gamesFolder: library.folder, outputFolder: m.outDir,
+                       checkouts: [m.repoPath], defaultsDomain: Bundle.main.bundleIdentifier)
     }
 
     private var tools: some View {
@@ -3632,7 +3734,7 @@ struct BuilderView: View {
                 }
             }
             divider
-            row(m.t("diag.title"), detail: m.t("diag.note")) { DiagnosticsButton(m: m, game: library.selected, width: Self.settingsButtonWidth) }
+            row(m.t("diag.title"), detail: m.t("diag.note")) { DiagnosticsButton(m: m, game: library.selected) }
         }
     }
 

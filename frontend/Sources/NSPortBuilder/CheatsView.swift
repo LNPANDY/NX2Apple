@@ -126,7 +126,7 @@ struct CheatsView: View {
         }
     }
 
-    /// Cheats do not run on iPhone or iPad yet: said once, calmly, with the switches left usable for a Mac build.
+    /// Code cheats do not run on iPhone or iPad, data cheats do: said once, calmly, with the switches left usable for a Mac build.
     private var iosNoteCard: some View {
         HStack(alignment: .top, spacing: 14) {
             Image(systemName: "info.circle").font(.system(size: 16, weight: .light)).foregroundStyle(.secondary).frame(width: 26)

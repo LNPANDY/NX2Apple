@@ -4,7 +4,6 @@
 0004-ios-slim-ipa.patch
 0005-nsp-dotnet-home.patch
 0006-nsp-chain-changed-note.patch
-0007-nsp-work-dir.patch
 0008-bc-cpu-decode.patch
 0009-mac-keymap.patch
 0010-mac-library-folder.patch
@@ -16,7 +15,13 @@
 0017-fork-patches-stamp.patch
 0018-nsp-dotnet-root-verify.patch
 0024-games-md-gallery.patch
-0028-cheats-engine.patch
-0029-cheats-mac-panel.patch
-0030-front-mac-enter-fullscreen-once-the-app-is-activ.patch
 0031-front-mac-dm-screen.patch
+0032-front-mac-hide-the-pointer-after-a-few-idle-seco.patch
+0033-lint-c-test-without-workflow.patch
+0034-metal-a-newer-compiler-of-the-recorded-generatio.patch
+0035-the-3d-layout-points-at-its-invisible-right-stic.patch
+0036-the-layout-editor-long-press-the-layout-button-a.patch
+0037-totk-1.4.2-frame-step-sites.patch
+0039-patch-nso-a-zero-extending-and-of-the-index-is-a.patch
+0040-nsp-derived-profile-without-frame-step.patch
+0041-shared-fonts-a-compact-stand-in-for-a-font-engin.patch

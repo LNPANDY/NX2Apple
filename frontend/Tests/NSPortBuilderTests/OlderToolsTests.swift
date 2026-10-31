@@ -81,6 +81,24 @@ final class OlderToolsTests: XCTestCase {
         XCTAssertEqual(ToolsAge.olderGames([game(String(repeating: "0", count: 40))], repo: repo.path), [], "a commit the checkout does not have")
     }
 
+    /// A checkout of this repository: tools/engine.py and .upstream-ref at its root, the engine in engine/ as a git repository of its own.
+    /// What counts is the engine's history (the pin and the series), never the launcher's own commits (#214, step 2).
+    func testTheEnginesHistoryCountsAndTheCheckoutsDoesNot() throws {
+        let checkout = temporary.appendingPathComponent("nx2apple")
+        let engine = checkout.appendingPathComponent("engine")
+        try FileManager.default.createDirectory(at: engine, withIntermediateDirectories: true)
+        try git("init", "-b", "main", in: checkout)
+        try commit(["tools/engine.py": "x", ".upstream-ref": String(repeating: "a", count: 40) + "\n", "frontend/a.swift": "one"], in: checkout)
+        try git("init", "-b", "main", in: engine)
+        let built = try commit(["dm/tools/nx_extract/Program.cs": "one", "dm/host/hle_fs.c": "one"], in: engine)
+        XCTAssertEqual(ToolsAge.head(repo: checkout.path), built, "the commit a build records is the engine's")
+        try commit(["frontend/a.swift": "two", "dm/host/hle_fs.c": "launcher file with an engine-looking name"], in: checkout)
+        XCTAssertEqual(ToolsAge.olderGames([game(built)], repo: checkout.path), [], "the checkout moved, the engine did not")
+        try commit(["dm/host/hle_fs.c": "two"], in: engine)   // a new pin or a changed patch
+        let hades = game(built)
+        XCTAssertEqual(ToolsAge.olderGames([hades], repo: checkout.path), [hades.id])
+    }
+
     func testAFolderThatIsNotAGitCheckoutMarksNothing() throws {
         let zip = temporary.appendingPathComponent("zip")
         try FileManager.default.createDirectory(at: zip.appendingPathComponent("dm/host"), withIntermediateDirectories: true)

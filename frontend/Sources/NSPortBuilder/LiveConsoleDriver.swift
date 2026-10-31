@@ -111,6 +111,10 @@ struct ConsolePadSnapshot: Equatable {
         clock = Timer.scheduledTimer(withTimeInterval: 20, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.state.time = Date(); self?.refreshControllers(announce: false) } }   // the battery has no change callback: it is read again each tick
     }
     private var devicePads = false
+    /// Runs before the game is opened and calls its argument when the launch may go on (the window leaves full screen first,
+    /// see ConsoleCoordinator). `gameEnded` runs when the game quit or did not start.
+    var prepareLaunch: (@escaping () -> Void) -> Void = { $0() }
+    var gameEnded: () -> Void = {}
 
     deinit {
         observers.forEach { NotificationCenter.default.removeObserver($0); NSWorkspace.shared.notificationCenter.removeObserver($0) }
@@ -127,10 +131,10 @@ struct ConsolePadSnapshot: Equatable {
         DispatchQueue.main.async { [weak self] in self?.refreshQueued = false; self?.refresh() }
     }
 
-    /// The library as console games, in the library's order, keeping the focus and each game's shown values.
+    /// The library as console games, the ones ready on this Mac first, keeping the focus and each game's shown values.
     func refresh() {
         let focus = state.focusedGameID
-        let games = library.games.map { consoleGame($0) }
+        let games = ConsoleGame.readyFirst(library.games.map { consoleGame($0) })
         state.games = games
         state.focusedGameID = games.contains { $0.id == focus } ? focus : (library.selected.map { $0.id.uuidString }.flatMap { id in games.contains { $0.id == id } ? id : nil } ?? games.first?.id)
         state.time = Date()
@@ -219,11 +223,19 @@ struct ConsolePadSnapshot: Equatable {
         let environment = GameStart.environment(for: game, library: library, controls: controls, repo: repo(), labels: labels, fullscreen: true)
             .merging(FrameTimes.recordingEnvironment(for: game, library: library.folder)) { $1 }   // a frame-time recording, as the desktop Play adds (FrameTimes.swift)
         state.starting = .preparing
+        prepareLaunch { [weak self] in
+            guard let self else { return }
+            guard self.state.startingGameID == gameID else { self.gameEnded(); return }
+            self.openGame(game, environment: environment, gameID: gameID)
+        }
+    }
+
+    private func openGame(_ game: LibraryGame, environment: [String: String], gameID: String) {
         launch(game, environment) { [weak self] pid, error in
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     guard let self, self.state.startingGameID == gameID else { return }
-                    if let error { self.state.returnFromGame(); self.showToast(error.localizedDescription); return }
+                    if let error { self.state.returnFromGame(); self.gameEnded(); self.showToast(error.localizedDescription); return }
                     self.launchedPID = pid
                     if let pid { GameReturnWatcher.shared.didStart(pid: pid) { [weak self] in self?.gameDidTerminate(pid: pid) } }   // the launcher's one watcher and its switch (ReturnAfterPlay.swift)
                     self.state.starting = .opening
@@ -260,6 +272,7 @@ struct ConsolePadSnapshot: Equatable {
         launchedPID = nil
         timeoutTask?.cancel()
         state.returnFromGame()
+        gameEnded()
     }
 
     // MARK: Options

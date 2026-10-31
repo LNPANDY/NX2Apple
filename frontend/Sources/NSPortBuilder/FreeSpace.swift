@@ -95,7 +95,7 @@ enum BuildFolder {
     /// the NSP script's chain_of() does (`#define DMSH_CHAIN "(.*)"`). nil when the header is missing or has none, and then no
     /// shader version counts as old.
     nonisolated static func currentChain(repo: String) -> String? {
-        guard !repo.isEmpty, let text = try? String(contentsOfFile: repo + "/dm/gfx/nvn/dmsh_chain.h", encoding: .utf8),
+        guard !repo.isEmpty, let text = try? String(contentsOfFile: EngineLayout.root(repo) + "/dm/gfx/nvn/dmsh_chain.h", encoding: .utf8),
               let range = text.range(of: #"#define DMSH_CHAIN "(.*)""#, options: .regularExpression) else { return nil }
         let line = text[range]
         guard let open = line.firstIndex(of: "\""), let close = line.lastIndex(of: "\""), open < close else { return nil }

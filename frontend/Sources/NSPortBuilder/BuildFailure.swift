@@ -10,6 +10,11 @@ enum BuildFailureKind: String, CaseIterable {
     case keys, severalGames, noTitleID, driveMissing
     /// The build's and the install's own steps.
     case diskFull, teamTaken, noSigningAccount, deviceTransfer
+    /// The build folder is in iCloud Drive or another cloud folder (CloudFolder.swift): the launcher stops before the build, and the
+    /// codesign line of xcodebuild is the same stop for a build that got past that check.
+    case cloudFolder
+    /// The engine's online sync (tools/engine.py sync, Engine.swift): no network or GitHub unreachable, or any other stop of it.
+    case engineOffline, engineSync
     case unknown
 
     /// The script's override for this stop, offered as "Build anyway". Only these three have one that the launcher
@@ -40,7 +45,7 @@ enum BuildFailureClassifier {
     /// One row per message of the script. The pattern is a stable part of the text in scripts/build_ipa_from_nsp.py,
     /// dm/gfx/tools/own_compilers.py or dm/tools/nx_extract/Program.cs (regular expressions, searched in the log).
     /// Frontend/Tests/Fixtures/build_failures.json holds the real message for every row, and a test checks that each
-    /// fragment is still in the vendored script, so a sync that rewords a message fails there instead of turning a
+    /// fragment is still in the engine's script, so a sync that rewords a message fails there instead of turning a
     /// hint into the raw last line. The Qt front end has the same table (nspb_qt/build_failure.py, compared by a test).
     static let table: [(id: String, kind: BuildFailureKind, pattern: String)] = [
         ("rosetta.intel", .rosetta, "is an Intel one running under Rosetta"),
@@ -58,6 +63,7 @@ enum BuildFailureClassifier {
         ("games.noTitleID", .noTitleID, "no NSP with a readable title ID in "),
         ("disk.low", .diskFull, "less than [0-9]+ GB free on the volume of "),
         ("disk.full", .diskFull, "No space left on device"),
+        ("icloud.detritus", .cloudFolder, "resource fork, Finder information, or similar detritus not allowed"),
     ]
 
     /// What the launcher itself knows when the log says nothing it can use. The keys file and the game files are checked
@@ -138,7 +144,8 @@ enum BuildFailureClassifier {
 }
 
 /// The Metal compiler the shaders were tested with (dm/gfx/tools/dmsh_chain.lock) against this Mac's. NVN games stop at the
-/// start of the shader steps with another compiler (own_compilers.py --check-metal), so the dependency panel says so beforehand.
+/// start of the shader steps with another compiler of the lock's generation or an older one (own_compilers.py --check-metal), so
+/// the dependency panel says so beforehand; a newer compiler of the same generation builds with a note, like the script's gate.
 /// The comparison is the script's: the first line of `xcrun -sdk <sdk> metal --version`, and a compiler that is not there is
 /// not a mismatch (its own row reports a missing one).
 enum MetalPin {
@@ -158,13 +165,30 @@ enum MetalPin {
 
     /// `now`: the compilers found, by SDK name (macosx, iphoneos), nil for one that did not answer.
     /// An iOS compiler is compared only when `iOS` (the build is for an iPhone).
+    /// A newer compiler of the recorded generation is not a mismatch: Xcode's auto-update bumps it (the lock's 32023.921 to
+    /// 27.2's 32023.922) and a player cannot hold Xcode back — the engine's gate builds with a note (own_compilers.py, #242).
     static func mismatches(lock: String, now: [String: String?], iOS: Bool) -> [Mismatch] {
         let pinned = pins(lock: lock)
         var out: [Mismatch] = []
         for sdk in iOS ? ["macosx", "iphoneos"] : ["macosx"] {
-            guard let want = pinned["metal_" + sdk], let found = now[sdk] ?? nil, !found.isEmpty, found != want else { continue }
+            guard let want = pinned["metal_" + sdk], let found = now[sdk] ?? nil, !found.isEmpty, found != want, !buildsOn(tested: want, found: found) else { continue }
             out.append(Mismatch(sdk: sdk, now: found, pinned: want))
         }
         return out
+    }
+
+    /// `Apple metal version 32023.921 (metalfe-32023.921.6)` → (32023, 921, 6); nil for another shape.
+    static func version(_ s: String) -> (Int, Int, Int)? {
+        let text = s.trimmingCharacters(in: .whitespaces)
+        let pattern = "^Apple metal version (\\d+)\\.(\\d+) \\(metalfe-\\d+\\.\\d+\\.(\\d+)\\)$"
+        guard let re = try? NSRegularExpression(pattern: pattern), let m = re.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)), m.numberOfRanges == 4 else { return nil }
+        let g = { (i: Int) in Int((text as NSString).substring(with: m.range(at: i))) }
+        return g(1) != nil && g(2) != nil && g(3) != nil ? (g(1)!, g(2)!, g(3)!) : nil
+    }
+
+    /// Same leading version and strictly newer: the tested Xcode's compiler against the one an auto-update brought.
+    static func buildsOn(tested: String, found: String) -> Bool {
+        guard let a = version(tested), let b = version(found) else { return false }
+        return a.0 == b.0 && b > a
     }
 }

@@ -37,7 +37,7 @@ Issue: LNPANDY/NX2Apple#123
 
 diff --git a/dm/ios/probe/.gitignore b/dm/ios/probe/.gitignore
 new file mode 100644
-index 00000000..a8ad17b6
+index 0000000..a8ad17b
 --- /dev/null
 +++ b/dm/ios/probe/.gitignore
 @@ -0,0 +1,2 @@
@@ -45,7 +45,7 @@ index 00000000..a8ad17b6
 +build/
 diff --git a/dm/ios/probe/DmProbe.xcodeproj/project.pbxproj b/dm/ios/probe/DmProbe.xcodeproj/project.pbxproj
 new file mode 100644
-index 00000000..bdc31f0c
+index 0000000..bdc31f0
 --- /dev/null
 +++ b/dm/ios/probe/DmProbe.xcodeproj/project.pbxproj
 @@ -0,0 +1,422 @@
@@ -473,7 +473,7 @@ index 00000000..bdc31f0c
 +}
 diff --git a/dm/ios/probe/DmProbe.xcodeproj/project.xcworkspace/contents.xcworkspacedata b/dm/ios/probe/DmProbe.xcodeproj/project.xcworkspace/contents.xcworkspacedata
 new file mode 100644
-index 00000000..919434a6
+index 0000000..919434a
 --- /dev/null
 +++ b/dm/ios/probe/DmProbe.xcodeproj/project.xcworkspace/contents.xcworkspacedata
 @@ -0,0 +1,7 @@
@@ -694,7 +694,7 @@ HcmV?d00001
 
 diff --git a/dm/ios/probe/DmProbe.xcodeproj/xcshareddata/xcschemes/DmProbe.xcscheme b/dm/ios/probe/DmProbe.xcodeproj/xcshareddata/xcschemes/DmProbe.xcscheme
 new file mode 100644
-index 00000000..ee38f971
+index 0000000..ee38f97
 --- /dev/null
 +++ b/dm/ios/probe/DmProbe.xcodeproj/xcshareddata/xcschemes/DmProbe.xcscheme
 @@ -0,0 +1,101 @@
@@ -801,7 +801,7 @@ index 00000000..ee38f971
 +</Scheme>
 diff --git a/dm/ios/probe/build_probe.sh b/dm/ios/probe/build_probe.sh
 new file mode 100755
-index 00000000..593d7922
+index 0000000..593d792
 --- /dev/null
 +++ b/dm/ios/probe/build_probe.sh
 @@ -0,0 +1,112 @@
@@ -919,7 +919,7 @@ index 00000000..593d7922
 +t "ready: sideload it (AltStore / Sideloadly / i4Tools), open DmProbe, read Documents/probe-log.txt; docs/probe-dlopen.md explains the results"
 diff --git a/dm/ios/probe/probe-Info.plist b/dm/ios/probe/probe-Info.plist
 new file mode 100644
-index 00000000..affd7571
+index 0000000..affd757
 --- /dev/null
 +++ b/dm/ios/probe/probe-Info.plist
 @@ -0,0 +1,37 @@
@@ -962,7 +962,7 @@ index 00000000..affd7571
 +</plist>
 diff --git a/dm/ios/probe/probe-framework-Info.plist b/dm/ios/probe/probe-framework-Info.plist
 new file mode 100644
-index 00000000..db711b14
+index 0000000..db711b1
 --- /dev/null
 +++ b/dm/ios/probe/probe-framework-Info.plist
 @@ -0,0 +1,24 @@
@@ -992,7 +992,7 @@ index 00000000..db711b14
 +</plist>
 diff --git a/dm/ios/probe/project.yml b/dm/ios/probe/project.yml
 new file mode 100644
-index 00000000..3d711419
+index 0000000..3d71141
 --- /dev/null
 +++ b/dm/ios/probe/project.yml
 @@ -0,0 +1,59 @@
@@ -1057,7 +1057,7 @@ index 00000000..3d711419
 +        Probe: all
 diff --git a/dm/ios/probe/src/probe.c b/dm/ios/probe/src/probe.c
 new file mode 100644
-index 00000000..77a15c6b
+index 0000000..77a15c6
 --- /dev/null
 +++ b/dm/ios/probe/src/probe.c
 @@ -0,0 +1,6 @@
@@ -1069,7 +1069,7 @@ index 00000000..77a15c6b
 +int probe_answer(void) { return 42; }
 diff --git a/dm/ios/probe/src/probe_main.m b/dm/ios/probe/src/probe_main.m
 new file mode 100644
-index 00000000..ea28aa90
+index 0000000..ea28aa9
 --- /dev/null
 +++ b/dm/ios/probe/src/probe_main.m
 @@ -0,0 +1,159 @@
@@ -1234,7 +1234,7 @@ index 00000000..ea28aa90
 +}
 diff --git a/docs/probe-dlopen.md b/docs/probe-dlopen.md
 new file mode 100644
-index 00000000..625759c0
+index 0000000..625759c
 --- /dev/null
 +++ b/docs/probe-dlopen.md
 @@ -0,0 +1,92 @@

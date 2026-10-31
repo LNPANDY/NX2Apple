@@ -21,19 +21,20 @@ struct LibraryGame: Codable, Identifiable, Equatable {
     var mods: [String] = []   // the mods (folder names in the game's mods folder) switched on
     var iosAppPath = ""
     var installedDevice = ""
-    /// The repository checkout's commit the last finished build used (ToolsAge); empty for a build from before it was recorded.
+    /// The engine's commit (engine/ HEAD: the pin plus the series) the last finished build used (ToolsAge); empty for a build from before it was recorded.
     var toolsCommit = ""
 
+    /// An empty path means there is no Mac build. It is not read, because URL(fileURLWithPath:) would make it the current folder.
     var isReady: Bool {
-        guard let app = try? MacGameBundle.read(URL(fileURLWithPath: appPath)) else { return false }
+        guard !appPath.isEmpty, let app = try? MacGameBundle.read(URL(fileURLWithPath: appPath)) else { return false }
         return app.titleID == titleID
     }
 
     /// Signed and installed on a paired device (installedDevice is its UDID): Play starts it there.
     var onDevice: Bool { !installedDevice.isEmpty && FileManager.default.fileExists(atPath: iosAppPath + "/Info.plist") }
 
-    /// Cheats are turned off when an iPhone or iPad game starts (iOS does not allow changing the game's code, seedds/nxnative#724),
-    /// so the Cheats sheet says so for a game that has an iOS build. The switches stay usable: the same game may have a Mac build.
+    /// An iPhone or iPad game runs only the cheats that write data. Code writes are refused there (iOS does not allow changing
+    /// the game's code), so the Cheats sheet says so for a game that has an iOS build. The switches stay usable: the same game may have a Mac build.
     var cheatsNeedIOSNote: Bool { hasIOSBuild || onDevice }
     var hasIOSBuild: Bool { hasIPA || hasIOSApp }
     var hasIPA: Bool { !ipaPath.isEmpty && FileManager.default.fileExists(atPath: ipaPath) }
@@ -141,7 +142,7 @@ struct LaunchSetting: Decodable, Identifiable {
 
     /// render_base in the game's profile ("1600x900 1280x720": docked, then handheld).
     static func renderBase(titleID: String, repo: String) -> [String: [Int]]? {
-        let path = repo + "/dm/games/" + titleID + "/game.tsv"
+        let path = EngineLayout.root(repo) + "/dm/games/" + titleID + "/game.tsv"
         guard !repo.isEmpty, let text = try? String(contentsOfFile: path, encoding: .utf8),
               let line = text.split(separator: "\n").first(where: { $0.hasPrefix("render_base\t") }) else { return nil }
         let sizes = line.dropFirst("render_base\t".count).split(separator: " ").map { $0.split(separator: "x").compactMap { Int($0) } }
@@ -225,8 +226,9 @@ struct MacGameBundle {
     }
 
     static func read(_ url: URL) throws -> MacGameBundle {
-        guard url.pathExtension.lowercased() == "app",
-              let data = try? Data(contentsOf: url.appendingPathComponent("Contents/Info.plist")),
+        guard url.pathExtension.lowercased() == "app" else { throw Invalid.notGame }
+        LauncherWork.count(.infoPlistRead)
+        guard let data = try? Data(contentsOf: url.appendingPathComponent("Contents/Info.plist")),
               let info = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
               let rawID = info["DMTitleID"] as? String,
               rawID.range(of: "^[0-9A-Fa-f]{16}$", options: .regularExpression) != nil,
@@ -559,7 +561,7 @@ final class GameLibrary: ObservableObject {
     }
 
     static func title(for path: String, repo: String, titleID: String) -> String {
-        if let text = try? String(contentsOfFile: repo + "/dm/games/" + titleID + "/game.tsv", encoding: .utf8),
+        if let text = try? String(contentsOfFile: EngineLayout.root(repo) + "/dm/games/" + titleID + "/game.tsv", encoding: .utf8),
            let row = text.split(separator: "\n").first(where: { $0.hasPrefix("name\t") }) {
             return String(row.dropFirst(5))
         }
@@ -579,7 +581,7 @@ final class GameLibrary: ObservableObject {
                 .filter { $0.isLetter || $0.isNumber }
         }
         let name = normalized(game.name)
-        let images = URL(fileURLWithPath: repo).appendingPathComponent("docs/images")
+        let images = URL(fileURLWithPath: EngineLayout.root(repo)).appendingPathComponent("docs/images")
         let files = (try? FileManager.default.contentsOfDirectory(at: images, includingPropertiesForKeys: nil)) ?? []
         let matches = files.filter {
             ["jpg", "jpeg", "png", "webp"].contains($0.pathExtension.lowercased()) && name.hasSuffix(normalized($0.deletingPathExtension().lastPathComponent))

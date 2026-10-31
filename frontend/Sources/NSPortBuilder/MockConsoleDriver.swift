@@ -26,14 +26,14 @@ import SwiftUI
         // Library-style titles. Covers come from the launcher's own artwork lookup in the repo copy (nothing is bundled or downloaded).
         let titles = ["Hollow Knight: Silksong", "Celeste", "Hades", "Sea of Stars", "Portal", "Balatro", "Animal Well", "Cuphead", "Stardew Valley", "Return of the Obra Dinn", "Blasphemous", "Hades II"]
         let noBanners = FileManager.default.temporaryDirectory.appendingPathComponent("console-demo-no-banners")   // the demo ids are invented: no eShop banner to find
-        let games = titles.enumerated().map { index, title in
+        let games = ConsoleGame.readyFirst(titles.enumerated().map { index, title in
             ConsoleGame(id: "demo.\(index)", title: title, version: "1.0.\(index % 3)", platforms: index % 3 == 1 ? [.mac] : [.mac, .iphone],
                         artwork: artworkRepo.flatMap { repo in
                             GameLibrary.artwork(for: LibraryGame(titleID: String(format: "%016X", index), name: title), repo: repo, banners: noBanners)
                         }.map { Image(nsImage: $0) },   // nil: the view draws a placeholder cover from the title
                         status: index == 3 ? .needsBuild : index == 5 ? .needsData : index == 7 ? .broken(t("console.demoBroken")) : index == 9 ? .iphoneOnly : .ready,
                         settings: settings)
-        }
+        })
         var snapshot = ConsoleState(games: scenario == .empty ? [] : scenario == .few ? Array(games.prefix(2)) : games,
                                     focusedGameID: scenario == .empty ? nil : "demo.0",
                                     controllers: [.init(id: "pad.1", name: t("console.demoController"), player: 1)],

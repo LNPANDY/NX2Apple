@@ -303,7 +303,8 @@ extension BuildModel {
             let env = ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin", "TMPDIR": NSTemporaryDirectory()]
             var dotnetEnv = env
             if !dotnet.isEmpty { dotnetEnv["DOTNET_ROOT"] = (dotnet as NSString).deletingLastPathComponent }
-            let read = { (file: String) in try? String(contentsOfFile: repo + "/" + file, encoding: .utf8) }
+            let engine = EngineLayout.root(repo)   // the checkout's engine/ (#214)
+            let read = { (file: String) in try? String(contentsOfFile: engine + "/" + file, encoding: .utf8) }
             let pins = read("dm/gfx/tools/dmsh_chain.lock").map(Diagnostics.chainPins) ?? (nil, nil)
             let inputs = Diagnostics.Inputs(
                 appVersion: Self.appVersion,
@@ -331,7 +332,6 @@ extension BuildModel {
 struct DiagnosticsButton: View {
     @ObservedObject var m: BuildModel
     var game: LibraryGame?   // the library's selected game: its log goes in the report
-    let width: CGFloat
     var showCopied = false   // the visual QA's confirmation
     @State private var busy = false
     @State private var copied = false
@@ -340,7 +340,7 @@ struct DiagnosticsButton: View {
         Button(action: copy) {
             if copied || showCopied { Label(m.t("diag.copied"), systemImage: "checkmark") } else { Text(m.t("diag.copy")) }
         }
-        .buttonStyle(LauncherSecondaryButtonStyle(accent: copied || showCopied ? LauncherPalette.ready : nil, minWidth: width))
+        .buttonStyle(LauncherSecondaryButtonStyle(accent: copied || showCopied ? LauncherPalette.ready : nil))
         .disabled(busy)
         .padTarget("set.diagnostics", scope: "main") { if !busy { copy() } }
     }

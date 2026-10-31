@@ -5,6 +5,11 @@
   <img src="frontend/screenshots/logo-light.png" width="360" alt="NX2Apple, by nxnative">
 </picture>
 
+> [!IMPORTANT]
+> **Update to 0.7.4 — required to keep building games. 请更新到 0.7.4**
+> The engine is no longer stored in this repository: versions 0.7.3 and older cannot download or update their repository (*Repository: not found*) and can no longer build games. Update in the app (*Settings → Check for updates*) or from the [releases page](https://github.com/LNPANDY/NX2Apple/releases/latest) — 0.7.4 needs no repository download.
+> 引擎不再随仓库提供：0.7.3 及更早版本无法下载仓库、无法构建游戏。请在 App 内「检查更新」或到[发布页](https://github.com/LNPANDY/NX2Apple/releases/latest)升级到 0.7.4，升级后无需再下载仓库。
+
 **Your Switch games, running on your iPhone.**
 
 **Not an emulator. No terminal. A macOS app does the whole build in a few clicks.**
@@ -13,8 +18,8 @@
 [![Forks](https://img.shields.io/github/forks/LNPANDY/NX2Apple?style=social)](https://github.com/LNPANDY/NX2Apple/network/members)
 [![Issues](https://img.shields.io/github/issues/LNPANDY/NX2Apple)](https://github.com/LNPANDY/NX2Apple/issues)
 [![License](https://img.shields.io/github/license/LNPANDY/NX2Apple)](LICENSE)
-[![Games](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FLNPANDY%2FNX2Apple%2Fmain%2Fdocs%2Fbadges%2Fgames.json)](docs/badges/games.json)
-[![Verified](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FLNPANDY%2FNX2Apple%2Fmain%2Fdocs%2Fbadges%2Fverified.json)](docs/badges/verified.json)
+[![Games](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FLNPANDY%2FNX2Apple%2Fmain%2F.github%2Fbadges%2Fgames.json)](.github/badges/games.json)
+[![Verified](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FLNPANDY%2FNX2Apple%2Fmain%2F.github%2Fbadges%2Fverified.json)](.github/badges/verified.json)
 
 [![English](https://img.shields.io/badge/🇺🇸_English-current-blue)](README.md)
 [![简体中文](https://img.shields.io/badge/🇨🇳_简体中文-available-green)](README.zh-CN.md)
@@ -49,8 +54,10 @@ launcher and a short list of patches, and follows nxnative every day.
 ## Requirements
 
 - **An Apple silicon Mac.** The launcher opens on **macOS 13 or later**. Building needs Xcode with
-  the iOS SDK, and NVN games need [Xcode](https://apps.apple.com/app/xcode/id497799835) 27.1 (macOS 26.6
-  or later) unless built with `--allow-other-metal`.
+  the iOS SDK, and NVN games need [Xcode](https://developer.apple.com/download/all/?q=Xcode%2027.1) 27.1 (macOS 26.6
+  or later) unless built with `--allow-other-metal`. Take 27.1 from Apple's download page, not the App Store's newer
+  Xcode. With a newer Xcode installed too, rename 27.1 to `Xcode-27.1.app` and select it:
+  `sudo xcode-select -s /Applications/Xcode-27.1.app`.
 - **Your own game dumps** (NSP or XCI) and **your own `prod.keys`** from your own console. Nothing is
   bundled, downloaded or looked up for you. The same `prod.keys` opens every one of your games; a
   current dump covers all retail titles.
@@ -81,11 +88,11 @@ Building by hand from a terminal is in [BUILDING.md](BUILDING.md).
 **On the Mac**, a finished game appears in the library with its key art. **Play** starts it.
 **Launch options** (per game, kept across rebuilds) set the frame rate, console mode (docked or
 handheld), render scale and upscaling, game language, controls and more; what each does is in
-[docs/settings.md](docs/settings.md). A controller drives the launcher as well as the games.
+[docs/settings.md](https://github.com/seedds/nxnative/blob/c5fe6b5dbcb245f9116b1b380cc71ecd4c6c4f11/docs/settings.md). A controller drives the launcher as well as the games.
 
 **On the iPhone**, the app shows the same settings before the game starts; tap **Play**. Touch
 controls come in a 2D and a 3D layout (tap the button at the top centre), and a connected controller
-(Xbox, PlayStation, Switch Pro, MFi) replaces them. [docs/playing.md](docs/playing.md) covers touch,
+(Xbox, PlayStation, Switch Pro, MFi) replaces them. [docs/playing.md](https://github.com/seedds/nxnative/blob/c5fe6b5dbcb245f9116b1b380cc71ecd4c6c4f11/docs/playing.md) covers touch,
 rumble and motion. Short stutters the first time a scene appears are normal: the app compiles
 graphics for it once and remembers them. The game's data (`romfs.img`) can live on an external drive
 that the Files app picks.
@@ -117,12 +124,12 @@ been tried on a phone yet. A few of them:
 
 | | Game | Where it runs | Status |
 |---|---|---|---|
-| <img src="docs/images/zelda-tears-of-the-kingdom.jpg" width="96" alt=""> | The Legend of Zelda: Tears of the Kingdom | Mac and iPhone | **Verified here**: 304,243 files, byte-checked; ~17 GB |
-| <img src="docs/images/hades-ii.jpg" width="96" alt=""> | Hades II | Mac and iPhone | **Verified here** |
-| <img src="docs/images/animal-crossing-new-horizons.jpg" width="96" alt=""> | Animal Crossing: New Horizons | iPhone | **Verified here**: runs smoothly |
-| <img src="docs/images/super-mario-odyssey.jpg" width="96" alt=""> | Super Mario Odyssey | iPhone | Reported playable upstream |
-| <img src="docs/images/zelda-breath-of-the-wild.jpg" width="96" alt=""> | The Legend of Zelda: Breath of the Wild | iPhone | Reported playable upstream; 60 fps with 1.9.0 |
-| <img src="docs/images/mario-kart-8-deluxe.jpg" width="96" alt=""> | Mario Kart 8 Deluxe | iPhone | Reported playable upstream |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/c5fe6b5dbcb245f9116b1b380cc71ecd4c6c4f11/docs/images/zelda-tears-of-the-kingdom.jpg" width="96" alt=""> | The Legend of Zelda: Tears of the Kingdom | Mac and iPhone | **Verified here**: 304,243 files, byte-checked; ~17 GB |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/c5fe6b5dbcb245f9116b1b380cc71ecd4c6c4f11/docs/images/hades-ii.jpg" width="96" alt=""> | Hades II | Mac and iPhone | **Verified here** |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/c5fe6b5dbcb245f9116b1b380cc71ecd4c6c4f11/docs/images/animal-crossing-new-horizons.jpg" width="96" alt=""> | Animal Crossing: New Horizons | iPhone | **Verified here**: runs smoothly |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/c5fe6b5dbcb245f9116b1b380cc71ecd4c6c4f11/docs/images/super-mario-odyssey.jpg" width="96" alt=""> | Super Mario Odyssey | iPhone | Reported playable upstream |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/c5fe6b5dbcb245f9116b1b380cc71ecd4c6c4f11/docs/images/zelda-breath-of-the-wild.jpg" width="96" alt=""> | The Legend of Zelda: Breath of the Wild | iPhone | Reported playable upstream; 60 fps with 1.9.0 |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/c5fe6b5dbcb245f9116b1b380cc71ecd4c6c4f11/docs/images/mario-kart-8-deluxe.jpg" width="96" alt=""> | Mario Kart 8 Deluxe | iPhone | Reported playable upstream |
 
 **[GAMES.md](GAMES.md)** (中文: [GAMES.zh-CN.md](GAMES.zh-CN.md)) has the screenshot gallery with each
 game's install size, and the full table with the update version each game needs: the update NSP's
@@ -131,11 +138,11 @@ display version must match the profile's, or the build says so.
 ## Limitations
 
 - **Only the games with a profile.** A title outside the list needs bring-up work of its own; the
-  place to start is [docs/agents](docs/agents/README.md), upstream's guide for another Switch title.
+  place to start is [docs/agents](https://github.com/seedds/nxnative/blob/c5fe6b5dbcb245f9116b1b380cc71ecd4c6c4f11/docs/agents/README.md), upstream's guide for another Switch title.
 - **Big games on an iPhone hit a memory limit.** Without the Increased Memory Limit entitlement iOS
   gives the app about 3.4 GB, which is not enough for Tears of the Kingdom. The app requests it, and
   AltStore Classic 2.2+, Impactor and Xcode with a Personal Team keep it; SideStore with a free Apple
-  ID needs a one-time App ID fix, and Sideloadly drops it ([the steps](dm/ios/ENTITLEMENTS.md)). The
+  ID needs a one-time App ID fix, and Sideloadly drops it ([the steps](ENTITLEMENTS.md)). The
   full measurements are in [GAMES.md](GAMES.md#verified-on).
 - **Unsigned apps.** The launcher and the iPhone builds are not signed for you; you sideload them.
 - **Your own files.** No game data, firmware or keys are included or downloaded.
@@ -146,12 +153,13 @@ display version must match the profile's, or the build says so.
 ## For developers
 
 - **Build from source:** [BUILDING.md](BUILDING.md). **Report or fix something:** [CONTRIBUTING.md](CONTRIBUTING.md).
-- **What this fork changes in upstream:** the engine (`dm/`, `scripts/`, `docs/`, `ref/`,
-  `AGENTS.md`) is nxnative at a pinned commit plus a queue of patches, each saying why the fork
-  carries it. [patches/README.md](patches/README.md) explains it, and
-  `python3 scripts/patches.py status` lists what is carried. A daily job moves the pin and opens a
-  pull request, or an issue naming the patch that no longer fits.
-- **Another Switch game:** [docs/agents](docs/agents/README.md) (extraction, binary survey, bring-up).
+- **What this fork changes in upstream:** the engine (`dm/`, `scripts/`, `docs/`, `ref/`) is not
+  committed here. It is nxnative at a pinned commit (`.upstream-ref`) plus a queue of patches, each
+  saying why the fork carries it, and `python3 tools/engine.py sync` builds it into `engine/`.
+  [patches/README.md](patches/README.md) explains it, and `python3 tools/engine.py status` lists what
+  is carried. A daily job moves the pin and opens a pull request, or an issue naming the patch that no
+  longer fits. The links to the engine's documents in this README point at nxnative at the pinned commit.
+- **Another Switch game:** [docs/agents](https://github.com/seedds/nxnative/blob/c5fe6b5dbcb245f9116b1b380cc71ecd4c6c4f11/docs/agents/README.md) (extraction, binary survey, bring-up).
 - **Release history:** [CHANGELOG.md](CHANGELOG.md).
 
 ## Credits
@@ -183,7 +191,7 @@ All of the engine work is other people's. This repository adds the launcher and 
 - **yuzu**, **deko3d**, **libvpx**, **stb_vorbis**, **libdeflate** — see upstream's acknowledgement
   list for what each contributes.
 
-`dm/third_party` ships other projects with their licenses ([list](dm/third_party/README.md)).
+`dm/third_party` ships other projects with their licenses ([list](https://github.com/seedds/nxnative/blob/c5fe6b5dbcb245f9116b1b380cc71ecd4c6c4f11/dm/third_party/README.md)).
 
 ## Legal
 

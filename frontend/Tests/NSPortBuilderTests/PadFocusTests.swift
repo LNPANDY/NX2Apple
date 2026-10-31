@@ -48,4 +48,19 @@ final class PadFocusTests: XCTestCase {
         f.scope = "launch"
         XCTAssertNil(f.focused, "another scope starts without a focus")
     }
+
+    /// A card the library filter hides keeps its handler but loses its frame: A does not start it, and moves skip it.
+    func testAHiddenTargetIsNeitherActivatedNorReached() {
+        let f = grid()
+        var activated = 0
+        f.register("card.2", .init(activate: { activated += 1 }, adjust: nil))
+        f.show(default: "card.2")
+        f.setFrames([.init(id: "card.1", frame: CGRect(x: 0, y: 300, width: 200, height: 120)),
+                     .init(id: "card.3", frame: CGRect(x: 440, y: 300, width: 200, height: 120))], scope: "main")
+        f.activate()
+        XCTAssertEqual(activated, 0)
+        f.focused = "card.1"
+        f.move(dx: 1, dy: 0)
+        XCTAssertEqual(f.focused, "card.3")
+    }
 }

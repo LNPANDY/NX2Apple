@@ -38,6 +38,11 @@ struct ConsoleGame: Identifiable {
     var settings: [LaunchSetting] = []
     var values: [String: String] = [:]
 
+    /// The console's order: the games this Mac can play first, then the rest, each group in the order it came in.
+    static func readyFirst(_ games: [ConsoleGame]) -> [ConsoleGame] {
+        games.filter { $0.status == .ready } + games.filter { $0.status != .ready }
+    }
+
     func value(_ setting: LaunchSetting) -> String { values[setting.env] ?? setting.def }
     var visibleSettings: [LaunchSetting] {
         settings.filter { setting in
