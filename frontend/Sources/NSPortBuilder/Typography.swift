@@ -30,15 +30,28 @@ enum Typography {
         return CTFontCreateWithFontDescriptor(variation, size, nil)
     }
 
-    static func font(_ face: CTFontDescriptor?, size: CGFloat, weight: Font.Weight, fallback: Font) -> Font {
-        ctFont(face, size: size, weight: weight).map { Font($0) } ?? fallback
-    }
-
     /// Manrope as a CTFont, to measure how wide a label is set (nil when the face cannot be read).
-    static func manropeFont(size: CGFloat, weight: Font.Weight) -> CTFont? { ctFont(manrope, size: size, weight: weight) }
+    static func manropeFont(size: CGFloat, weight: Font.Weight) -> CTFont? { manropeFace(size: size, weight: weight).ctFont }
 
-    static func text(_ size: CGFloat, _ weight: Font.Weight) -> Font {
-        font(manrope, size: size, weight: weight, fallback: .system(size: size, weight: weight))
+    static func text(_ size: CGFloat, _ weight: Font.Weight) -> Font { manropeFace(size: size, weight: weight).font }
+
+    /// Every label asks for its font each time a page is drawn, and a page has hundreds of labels. Each size and
+    /// weight is made once: one CTFont and one Font, so Core Text and SwiftUI see the same font again and reuse
+    /// what they measured.
+    private struct Face { let ctFont: CTFont?; let font: Font }
+    private struct FaceKey: Hashable { let size: CGFloat; let weight: Font.Weight }
+    private static let facesLock = NSLock()
+    private static var faces: [FaceKey: Face] = [:]
+
+    private static func manropeFace(size: CGFloat, weight: Font.Weight) -> Face {
+        let key = FaceKey(size: size, weight: weight)
+        facesLock.lock()
+        defer { facesLock.unlock() }
+        if let face = faces[key] { return face }
+        let ct = ctFont(manrope, size: size, weight: weight)
+        let face = Face(ctFont: ct, font: ct.map { Font($0) } ?? .system(size: size, weight: weight))
+        faces[key] = face
+        return face
     }
 }
 
