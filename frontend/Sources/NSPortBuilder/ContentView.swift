@@ -103,7 +103,7 @@ final class BuildModel: ObservableObject {
     }
     @Published var stages: [Stage] = []
     private var chainNoteShown = false   // the shader-chain notice shows once per build
-    @Published var running = false
+    @Published var running = false { didSet { if !running { scheduleCleanup() } } }   // BuildCleanup.swift
     @Published var stopping = false
     @Published var logTail = ""
     @Published var done = false
@@ -137,6 +137,12 @@ final class BuildModel: ObservableObject {
     /// Where this build's folder actually is: --work-dir when the checkout has it, else the script's
     /// default under the input folder (issue #5 — an upstream checkout has no --work-dir).
     var effectiveWorkDir = ""
+    /// Keep the build folder after a successful build, for fast rebuilds (off: it is removed, BuildCleanup.swift)
+    @Published var keepBuildFiles = BuildCleanup.keepBuildFiles() {
+        didSet { UserDefaults.standard.set(keepBuildFiles, forKey: BuildCleanup.defaultsKey) }
+    }
+    var cleanupPlan: BuildCleanup.Plan?   // armed by a successful script, run when the whole build has succeeded
+    @Published var cleaningUp = false
     var lastBuildCommand: [String] = []   // this session's last build, for Copy diagnostics (Diagnostics.swift)
 
     // ---- Installing on an iPhone or iPad (Xcode with a development certificate) ----
@@ -1193,12 +1199,13 @@ final class BuildModel: ObservableObject {
     /// A clone has .git; a GitHub "Download ZIP" copy does not (everything builds, but there is
     /// nothing to fetch or pull — the update buttons hide and the note says to re-download instead).
     var repoIsGit: Bool { FileManager.default.fileExists(atPath: repoPath + "/.git") }
-    var canBuild: Bool { repoOK && slot("base").ok && slot("keys").ok && allDepsPresent && !running }
+    var canBuild: Bool { repoOK && slot("base").ok && slot("keys").ok && allDepsPresent && !running && !cleaningUp }
 
     // MARK: Build
 
     func startBuild() {
-        guard !running else { return }
+        guard !running, !cleaningUp else { return }
+        cleanupPlan = nil
         // The shared app needs a device this Mac knows. Found out here, before an hour of building, not after it.
         if target != BuildTarget.mac, !shellDeviceChecked {
             guard installsDirectly else { doneNote = t("shell.needsDevice"); done = false; return }
@@ -1388,6 +1395,7 @@ final class BuildModel: ObservableObject {
                 }
                 if status.terminationStatus == 0 {
                     self.markAllDone()
+                    self.armCleanup()
                     if self.target == BuildTarget.mac {
                         // The .app is self-contained (its RomFS is inside), and the marker file
                         // beside it (.nx2apple-library, a dot file the Finder hides) tells the
@@ -1654,7 +1662,7 @@ final class BuildModel: ObservableObject {
         return nil
     }
 
-    private func say(_ s: String) { append(s + "\n") }
+    func say(_ s: String) { append(s + "\n") }
     private func append(_ s: String) {
         logTail += s
         if logTail.count > 12000 { logTail = String(logTail.suffix(9000)) }
@@ -3395,8 +3403,13 @@ struct BuilderView: View {
         } else if !m.slot("base").ok || !m.slot("keys").ok {
             Text(m.t("status.needInputs")).font(.manrope(13)).foregroundStyle(.secondary)
         } else {
-            Text(String(format: m.t("status.output"), m.shortPath(m.outDir.isEmpty ? (m.basePath as NSString).deletingLastPathComponent : m.outDir)))
-                .font(.manrope(13)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.head)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(String(format: m.t("status.output"), m.shortPath(m.outDir.isEmpty ? (m.basePath as NSString).deletingLastPathComponent : m.outDir)))
+                    .font(.manrope(13)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.head)
+                if m.rebuildFromScratch {   // BuildCleanup.swift: the build folder is gone, so this build starts from nothing
+                    Text(m.t("build.rebuildLong")).font(.manrope(12)).foregroundStyle(LauncherPalette.building).lineLimit(2)
+                }
+            }
         }
     }
 
@@ -3418,6 +3431,12 @@ struct BuilderView: View {
                 }
                 Button(m.t("library.chooseFolder"), action: onChooseLibraryFolder)
                     .padTarget("set.folder", scope: "main") { onChooseLibraryFolder() }
+            }
+        }
+        group(m.t("section.buildFiles"), footnote: m.t("settings.keepBuildNote")) {   // BuildCleanup.swift
+            row(m.t("settings.keepBuild"), detail: m.t(m.keepBuildFiles ? "settings.keepBuildOn" : "settings.keepBuildOff")) {
+                Toggle("", isOn: $m.keepBuildFiles).labelsHidden().toggleStyle(LauncherSwitchStyle())
+                    .padTarget("set.keepBuild", scope: "main") { m.keepBuildFiles.toggle() }
             }
         }
         group(m.t("section.controls"), footnote: m.t("controls.settingsHint")) {
