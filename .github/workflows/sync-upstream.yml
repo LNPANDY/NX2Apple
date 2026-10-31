@@ -1,9 +1,8 @@
-# Daily: follow upstream seedds/nxnative as a patch queue (issue #123, patches/README.md). The vendored
-# paths are upstream at a pinned commit (.upstream-ref) plus the patches in patches/; tools/patches.py
-# bump moves the pin, re-applies the series, drops the patches that landed upstream, and leaves the rest
-# for review. While the repository still commits the vendored tree (step 1 of issue #214), the bump
-# rewrites it too; in step 2 this becomes `tools/engine.py bump`, and the PR touches only .upstream-ref
-# and patches/. The checks run on engine/ (tools/engine.py sync) either way.
+# Daily: follow upstream seedds/nxnative as a patch queue (issue #123, patches/README.md). The engine
+# is upstream at a pinned commit (.upstream-ref) plus the patches in patches/; tools/engine.py bump
+# moves the pin, re-applies the series, drops the patches that landed upstream, and leaves the rest
+# for review. The PR touches only .upstream-ref and patches/ (the repository commits no engine files,
+# issue #214), and the checks run on engine/ (tools/engine.py sync).
 # Nothing is pushed to main (it is protected): the result is a pull request from the branch
 # sync/upstream-<short sha> (or, when a patch no longer applies, an issue naming it).
 #
@@ -48,14 +47,13 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0   # the pinned upstream commit's blobs come from seedds below; the fork's own history is small
           token: ${{ secrets.SYNC_TOKEN || secrets.GITHUB_TOKEN }}
 
-      - name: Fetch upstream
+      - name: Upstream main
         run: |
-          git remote add seedds https://github.com/seedds/nxnative.git
-          git fetch --no-tags seedds main
-          echo "NEW=$(git rev-parse seedds/main)" >> "$GITHUB_ENV"
+          NEW=$(git ls-remote https://github.com/seedds/nxnative.git refs/heads/main | cut -f1)
+          [[ "$NEW" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::cannot read seedds/nxnative main"; exit 1; }
+          echo "NEW=$NEW" >> "$GITHUB_ENV"
           echo "OLD=$(cat .upstream-ref)" >> "$GITHUB_ENV"
 
       - name: Bump the pin and re-apply the patches
@@ -63,7 +61,7 @@ jobs:
         run: |
           if [ "$OLD" = "$NEW" ]; then echo "Already at $NEW"; echo "changed=no" >> "$GITHUB_OUTPUT"; exit 0; fi
           set +e
-          python3 tools/patches.py bump --to "$NEW" 2>&1 | tee bump.log
+          python3 tools/engine.py bump --to "$NEW" 2>&1 | tee bump.log
           rc=${PIPESTATUS[0]}
           if [ $rc -eq 0 ]; then echo "changed=yes" >> "$GITHUB_OUTPUT"
           elif [ $rc -eq 1 ]; then echo "changed=conflict" >> "$GITHUB_OUTPUT"
@@ -72,9 +70,9 @@ jobs:
       - name: Check the patch queue
         if: steps.bump.outputs.changed == 'yes'
         run: |
-          python3 tools/engine.py check --tree
-          python3 -m unittest discover tools/tests
+          python3 tools/engine.py check
           python3 tools/engine.py sync
+          python3 -m unittest discover tools/tests
           # every .py parses on the Python this fork supports as its floor, the iOS build script survives bash -n
           python3 -m compileall -q engine/scripts engine/dm/tools engine/dm/games engine/dm/mac > /dev/null
           bash -n engine/dm/ios/tools/build_ipa.sh
@@ -93,14 +91,14 @@ jobs:
           git config user.name "sync-bot"
           git config user.email "actions@users.noreply.github.com"
           SHORT=${NEW:0:7}
-          git add -A patches .upstream-ref dm scripts docs ref AGENTS.md
+          git add -A patches .upstream-ref
           if git diff --cached --quiet; then echo "nothing to sync"; exit 0; fi
           git checkout -b "sync/upstream-$SHORT"
           git commit -m "Sync upstream $SHORT"
           git push -u origin "sync/upstream-$SHORT"
           echo "branch=sync/upstream-$SHORT" >> "$GITHUB_OUTPUT"
           {
-            echo "The patch queue re-applied on upstream \`${NEW:0:12}\` (was \`${OLD:0:12}\`): every patch applied, and \`tools/engine.py check --tree\`, the tests and a macOS host build passed. Merging brings seedds/nxnative to \`$NEW\`."
+            echo "The patch queue re-applied on upstream \`${NEW:0:12}\` (was \`${OLD:0:12}\`): every patch applied, and \`tools/engine.py check\`, the tests and a macOS host build passed. Merging brings seedds/nxnative to \`$NEW\`."
             echo
             echo "Upstream: https://github.com/seedds/nxnative/compare/${OLD:0:12}...${NEW:0:12}"
             echo
@@ -121,7 +119,7 @@ jobs:
           TITLE="Upstream sync blocked at ${NEW:0:7}"
           {
             echo "The nightly bump to \`${NEW:0:12}\` stopped at a patch that no longer applies. main is untouched. Whoever owns the patch refreshes it:"
-            echo "run \`tools/patches.py bump --to ${NEW:0:12}\` locally, resolve the conflict in the worktree it names, \`git am --continue\`, then \`tools/patches.py refresh <worktree> --to ${NEW:0:12}\` (patches/README.md)."
+            echo "run \`tools/engine.py bump --to ${NEW:0:12}\` locally, resolve the conflict in the worktree it names, \`git am --continue\`, then \`tools/engine.py refresh <worktree> --to ${NEW:0:12}\` (patches/README.md)."
             echo
             echo '```'
             cat tail.log

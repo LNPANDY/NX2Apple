@@ -47,7 +47,7 @@ HERE = Path(__file__).resolve().parent
 
 
 def _engine_root() -> str:
-    """The engine's folder when NSPB_REPO is unset: engine/ when synced, else the committed tree (LNPANDY/NX2Apple#214)."""
+    """The engine's folder when NSPB_REPO is unset: the checkout's engine/ (LNPANDY/NX2Apple#214, made by tools/engine.py sync)."""
     from nspb_qt import engine
     return engine.engine_root(str(Path(__file__).resolve().parents[3]))
 

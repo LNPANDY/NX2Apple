@@ -13,9 +13,14 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 TOOLS = REPO / 'tools'
-SRC = REPO / 'engine' if (REPO / 'engine/AGENTS.md').is_file() else REPO
+SRC = REPO / 'engine'   # made by `python3 tools/engine.py sync`
 sys.path.insert(0, str(TOOLS))
 E = importlib.import_module('engine')
+
+
+def setUpModule():
+    if not (SRC / 'AGENTS.md').is_file():
+        raise RuntimeError('engine/ is missing: run `python3 tools/engine.py sync` first')
 
 BASE_ENV = dict(os.environ, GIT_AUTHOR_NAME='t', GIT_AUTHOR_EMAIL='t@example.invalid', GIT_COMMITTER_NAME='t', GIT_COMMITTER_EMAIL='t@example.invalid',
                 GIT_CONFIG_GLOBAL='/dev/null', GIT_CONFIG_SYSTEM='/dev/null')
@@ -215,15 +220,18 @@ class CheckAndBump(Fixture):
         out = self.tool('check', expect=1)
         self.assertIn('0002-b.patch: Reason is missing', out)
 
-    def test_check_tree_compares_a_committed_vendored_tree(self):
-        self.tool('sync')
-        for v in ('dm', 'AGENTS.md'):
-            src = self.eng / v
-            (shutil.copytree if src.is_dir() else shutil.copy)(src, self.r / v)
-        self.assertIn('committed vendored tree matches', self.tool('check', '--tree'))
-        (self.r / 'dm/b.c').write_text('edited\n')
-        out = self.tool('check', '--tree', expect=1)
-        self.assertIn('dm/b.c', out); self.assertIn('absorb', out)
+    def test_check_has_no_tree_comparison_any_more(self):
+        self.assertIn('unrecognized arguments: --tree', self.tool('check', '--tree', expect=2))
+
+    def test_check_rejects_a_patch_that_touches_the_shader_chain(self):
+        self.add_patch('0002-chain.patch', 'dm/gfx/tools/dmsh_pull.py', 'x\n', 'Chain tool', header='Upstream-Status: pending\nReason: r\nIssue: LNPANDY/NX2Apple#4\n')
+        out = self.tool('check', expect=1)
+        self.assertIn('0002-chain.patch', out); self.assertIn('dm/gfx/tools/dmsh_pull.py', out); self.assertIn('shader chain', out)
+
+    def test_check_rejects_a_patch_that_carries_a_generated_file(self):
+        self.add_patch('0002-index.patch', 'docs/agents/game-patches.md', 'hand edit\n', 'Edit the index', header='Upstream-Status: fork-only\nReason: r\nIssue: LNPANDY/NX2Apple#1\n')
+        out = self.tool('check', expect=1)
+        self.assertIn('0002-index.patch', out); self.assertIn('generated', out)
 
     def test_bump_drops_a_patch_upstream_took_and_moves_the_pin(self):
         self.tool('sync')
@@ -235,6 +243,32 @@ class CheckAndBump(Fixture):
         self.assertFalse((self.r / 'patches/0001-line-2.patch').exists())
         self.tool('sync')
         self.assertEqual((self.eng / 'dm/fork_patches.txt').read_text(), '')
+
+
+class Relink(Fixture):
+    """The pages that link into seedds/nxnative (the engine's docs and images) follow the pin."""
+    OLD = 'b' * 40
+
+    def pages(self, sha):
+        (self.r / 'README.md').write_text(f'[a](https://github.com/seedds/nxnative/blob/{sha}/docs/a.md) <img src="https://raw.githubusercontent.com/seedds/nxnative/{sha}/docs/images/x.jpg"> https://github.com/seedds/nxnative/issues\n')
+        (self.r / 'CHANGELOG.md').write_text(f'history https://github.com/seedds/nxnative/blob/{sha}/docs/a.md\n')
+
+    def test_check_names_a_page_that_links_to_another_commit_and_relink_fixes_it(self):
+        self.pages(self.OLD)
+        out = self.tool('check', expect=1)
+        self.assertIn('README.md', out); self.assertIn('relink', out); self.assertNotIn('CHANGELOG.md', out)
+        self.assertIn('README.md', self.tool('relink'))
+        text = (self.r / 'README.md').read_text()
+        self.assertEqual(text.count(self.up1), 2); self.assertIn('seedds/nxnative/issues', text)
+        self.assertIn(self.OLD, (self.r / 'CHANGELOG.md').read_text())   # the history is left as it was
+        self.assertIn('apply cleanly', self.tool('check'))
+        self.assertIn('already current', self.tool('relink'))
+
+    def test_a_bump_moves_the_links_with_the_pin(self):
+        self.pages(self.up1)
+        up2 = self.up_commit('dm/b.c', 'b1\nb2\nb3\n', 'upstream moves')
+        self.assertIn('README.md', self.tool('bump', '--to', up2))
+        self.assertIn(f'blob/{up2}/docs/a.md', (self.r / 'README.md').read_text())
 
 
 class Search(unittest.TestCase):

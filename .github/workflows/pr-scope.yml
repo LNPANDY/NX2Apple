@@ -1,18 +1,17 @@
-# Guard the patch queue: fail a PR whose patches do not apply to the pin, or that edits a committed vendored file without a patch.
+# Guard the patch queue: fail a PR whose patches do not apply to the pin, or that adds files under the engine's old paths.
 #
-# The engine is seedds/nxnative at the commit in .upstream-ref plus the patches in patches/. Since issue #214 it is built into engine/
-# by `tools/engine.py sync`, and engine work is a commit in engine/ that `tools/engine.py export` turns into a patch. While the
-# repository still commits the same tree in dm/, scripts/, docs/, ref/ and AGENTS.md (step 1 of #214), a PR that edits one of those
-# files directly would be reverted by the next bump, so `tools/engine.py check --tree` also compares that tree with pin + series. What a
-# PR author sees: the files that differ, and the way out (patches/README.md). In step 2 the committed tree goes, and this guard keeps
-# only the first half: the series applies cleanly to the pin.
-# A sync PR (branch sync/upstream-*) is checked too, on purpose: it must reproduce its own tree.
-# The same check is a job in tests.yml; this one starts on the engine's paths only, and says so in its own name.
+# The engine is seedds/nxnative at the commit in .upstream-ref plus the patches in patches/. It is built into engine/ by
+# `tools/engine.py sync` and not committed (issue #214, step 2): dm/, scripts/, docs/ and ref/ do not exist in this repository, so a PR
+# that adds files there (a direct edit of the engine, made from an old checkout or by hand) fails with the way out. Engine work is a pull
+# request to seedds/nxnative first, and a commit in engine/ that `tools/engine.py export` turns into a patch when the fork has to carry it
+# before upstream merges. The other half: the series applies cleanly to the pin and every header is complete.
+# A sync PR (branch sync/upstream-*) is checked too, on purpose: it must still apply.
+# The same check is a job in tests.yml; this one starts on the engine's paths and the patch queue only, and says so in its own name.
 name: PR scope (sync safety)
 
 on:
   pull_request:
-    paths: ['dm/**', 'scripts/**', 'docs/**', 'ref/**', 'AGENTS.md', 'patches/**', '.upstream-ref', 'tools/**']
+    paths: ['dm/**', 'scripts/**', 'docs/**', 'ref/**', 'patches/**', '.upstream-ref', 'tools/**']
 
 permissions:
   contents: read
@@ -24,9 +23,17 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: The series applies to the pin, and the committed tree is pin + series
+      - name: No engine files in the repository
         run: |
-          python3 tools/engine.py check --tree || {
-            echo "::error title=Patch queue::The series does not apply to the pin, or a committed vendored file differs from pin + patches. Fix: work in engine/ (python3 tools/engine.py sync), commit there, then python3 tools/engine.py export. A direct edit of a committed file folds in with python3 tools/patches.py absorb <files>. See patches/README.md."
+          files=$(git ls-files -- dm scripts docs ref)
+          if [ -n "$files" ]; then
+            echo "$files" | head -20
+            echo "::error title=Engine files::This PR adds files under dm/, scripts/, docs/ or ref/, which this repository does not commit any more (the engine is seedds/nxnative at .upstream-ref plus patches/, built into engine/ by python3 tools/engine.py sync). Send the change to seedds/nxnative as a pull request first. If the fork has to carry it before upstream merges, make it a patch: commit in engine/, then python3 tools/engine.py export (patches/README.md). Do not copy engine files into the repository."
+            exit 1
+          fi
+      - name: The series applies to the pin
+        run: |
+          python3 tools/engine.py check || {
+            echo "::error title=Patch queue::The series does not apply to the pin, or a patch header is incomplete. Fix: work in engine/ (python3 tools/engine.py sync), commit there, then python3 tools/engine.py export. See patches/README.md."
             exit 1
           }

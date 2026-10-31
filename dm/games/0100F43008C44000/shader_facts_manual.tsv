@@ -1,7 +1,0 @@
-# Hand-written translation facts, merged over the generated rows of shader_facts.tsv by dm/gfx/tools/shader_split.py: key <TAB> facts JSON (same format)
-# This game has no PC version, so the translator has no fragment output types and declares every output float; Metal refuses a pipeline whose float output meets an integer attachment
-# (the host's red line then prints the row to add here). Rows are added for pipelines Metal refused in a run, not by guessing from the code: a value built with integer operations can as well be
-# raw bits stored into a float target (c85de3713170e519 ORs bit fields into output 0 and has not been seen with an integer attachment).
-# c509e77bef5b4249 and b767103838f729ca (env_ikkaku system shaders, variations 0 and 3 of one BNSH in the imgui.trsha pack, pixel): output 1 is an integer ID (255, or one taken from the game's uniforms) into an R8_UI target; refused on the character creation screen
-b767103838f729ca	{"fout":{"1":"uint"}}
-c509e77bef5b4249	{"fout":{"1":"uint"}}

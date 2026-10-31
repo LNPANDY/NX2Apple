@@ -9,6 +9,7 @@ This is the command-line route the launcher drives for you. The build is upstrea
 ```bash
 git clone https://github.com/<you>/NX2Apple.git
 cd NX2Apple
+python3 tools/engine.py sync                      # the engine (nxnative at the pin plus our patches) into engine/, about 80 MB
 brew bundle --file=Brewfile                       # xcodegen, zstd, spirv-cross, glslang (the NSP script checks for it), .NET SDK
 python3 -m venv .venv                             # Homebrew's Python refuses global pip installs (PEP 668)
 .venv/bin/python -m pip install lz4 capstone fonttools zbic nsz "backports.zstd; python_version < '3.14'"
@@ -41,7 +42,7 @@ Where to put it is up to you. You pass the path with `-k`:
 ```
 
 ```bash
-python3 scripts/build_ipa_from_nsp.py ~/Games/Hades2 -k ~/keys/prod.keys
+python3 engine/scripts/build_ipa_from_nsp.py ~/Games/Hades2 -k ~/keys/prod.keys
 ```
 
 How keys are dumped is documented across the Switch homebrew community (Lockpick_RCM from a
@@ -65,7 +66,7 @@ The main build script packs a **slim IPA by default** (no RomFS inside, as the a
 ```bash
 GAME=<title id> W=<work dir> PATCHED=<patched dir> \
   ROMFS=<RomFS dir> MSL_IOS=<shader dir> \
-  dm/ios/tools/build_ipa.sh <output.ipa>
+  engine/dm/ios/tools/build_ipa.sh <output.ipa>
 ```
 
 `--full-romfs` (or `DM_FULL_ROMFS=1`) packs the RomFS into the package instead — upstream's

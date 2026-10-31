@@ -1,13 +1,15 @@
 """Where the engine of a checkout is, and whether it needs `tools/engine.py sync` (LNPANDY/NX2Apple#214).
 
-Since #214 the engine is built into `<checkout>/engine/` (seedds/nxnative at `.upstream-ref` plus `patches/`). Until the
-committed copy goes (step 2), a checkout has both, and one from before the switch has only the committed copy. The rule, the
-same as the Mac launcher's (frontend/Sources/NSPortBuilder/Engine.swift). The sync is for checkouts (a release carries the engine tree
-instead, #227): it downloads the pinned commit from GitHub, and a failed one becomes a failure row (`failure_kind`):
+The engine is not committed: it is built into `<checkout>/engine/` (seedds/nxnative at `.upstream-ref` plus `patches/`) by
+`tools/engine.py sync`. The rule, the same as the Mac launcher's (frontend/Sources/NSPortBuilder/Engine.swift). The sync is for
+checkouts (a release carries the engine tree instead, #227): it downloads the pinned commit from GitHub, and a failed one becomes a
+failure row (`failure_kind`):
 
-- engine/ when it is synced and current,
-- else the committed tree (dm/, scripts/ at the checkout's root) when the checkout has one,
-- else engine/ as it is (stale or missing: the caller syncs first).
+- a checkout of this repository (it has tools/engine.py and .upstream-ref): engine/, which the caller syncs first when it is stale
+  or missing,
+- else a folder that is an engine tree itself (dm/ at its root: the engine a release carries or installs, or a seedds/nxnative
+  clone): that folder,
+- else engine/ as it is.
 
 `stamp_key` is tools/engine.py's: a digest of the pin and the series, compared with the stamp sync wrote into engine/.git, so
 the launcher can tell a stale engine without starting Python. Pure stdlib, no Qt.
@@ -87,21 +89,21 @@ def engine_root(repo: str) -> str:
     if not repo:
         return repo
     eng = Path(repo, 'engine')
-    if eng.joinpath(*MARKER).is_file() and not is_stale(repo):
+    if has_engine_tool(repo):
         return str(eng)
     if Path(repo, *MARKER).is_file():
         return repo
-    return str(eng) if has_engine_tool(repo) else repo
+    return str(eng) if eng.joinpath(*MARKER).is_file() else repo
 
 
 def is_checkout(d: str) -> bool:
-    """A checkout the launcher can build from: the committed tree, a synced engine/, or tools/engine.py to make one."""
+    """A folder the launcher can build from: a checkout with tools/engine.py to make engine/, a synced engine/, or an engine tree."""
     return bool(d) and (Path(d, *MARKER).is_file() or Path(d, 'engine', *MARKER).is_file() or has_engine_tool(d))
 
 
 def needs_sync_before_build(repo: str) -> bool:
-    """engine/ is the only engine and it is stale or missing (after step 2, or a checkout whose committed tree is gone)."""
-    return has_engine_tool(repo) and is_stale(repo) and not Path(repo, *MARKER).is_file()
+    """engine/ is the only engine and it is stale or missing: the build syncs it first."""
+    return has_engine_tool(repo) and is_stale(repo)
 
 
 def sync_command(repo: str, python: str) -> list[str]:

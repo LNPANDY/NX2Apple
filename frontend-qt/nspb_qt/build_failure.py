@@ -6,7 +6,7 @@ last line of the log. The classifier reads the whole log tail: for a damaged NSP
 
 TABLE is the same table as BuildFailure.swift's (a test compares the two). frontend/Tests/Fixtures/
 build_failures.json holds the script's real message for every row, and a test checks that each fragment is
-still in the vendored script, so a sync that rewords a message fails there.
+still in the engine's script, so a sync that rewords a message fails there.
 """
 from __future__ import annotations
 

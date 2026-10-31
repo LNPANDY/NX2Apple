@@ -21,7 +21,7 @@ struct LibraryGame: Codable, Identifiable, Equatable {
     var mods: [String] = []   // the mods (folder names in the game's mods folder) switched on
     var iosAppPath = ""
     var installedDevice = ""
-    /// The repository checkout's commit the last finished build used (ToolsAge); empty for a build from before it was recorded.
+    /// The engine's commit (engine/ HEAD: the pin plus the series) the last finished build used (ToolsAge); empty for a build from before it was recorded.
     var toolsCommit = ""
 
     /// An empty path means there is no Mac build. It is not read, because URL(fileURLWithPath:) would make it the current folder.

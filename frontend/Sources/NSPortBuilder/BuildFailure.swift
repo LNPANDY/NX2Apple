@@ -45,7 +45,7 @@ enum BuildFailureClassifier {
     /// One row per message of the script. The pattern is a stable part of the text in scripts/build_ipa_from_nsp.py,
     /// dm/gfx/tools/own_compilers.py or dm/tools/nx_extract/Program.cs (regular expressions, searched in the log).
     /// Frontend/Tests/Fixtures/build_failures.json holds the real message for every row, and a test checks that each
-    /// fragment is still in the vendored script, so a sync that rewords a message fails there instead of turning a
+    /// fragment is still in the engine's script, so a sync that rewords a message fails there instead of turning a
     /// hint into the raw last line. The Qt front end has the same table (nspb_qt/build_failure.py, compared by a test).
     static let table: [(id: String, kind: BuildFailureKind, pattern: String)] = [
         ("rosetta.intel", .rosetta, "is an Intel one running under Rosetta"),

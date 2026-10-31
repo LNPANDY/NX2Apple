@@ -167,7 +167,8 @@ def main(argv=None):
     ap.add_argument('--repo', required=True)
     ap.add_argument('--issue', type=int, required=True)
     ap.add_argument('--out', required=True)
-    ap.add_argument('--docs', default='docs')
+    ap.add_argument('--docs', default='engine/docs', help="the engine's docs/ (tools/engine.py sync makes engine/)")
+    ap.add_argument('--pin-file', default='.upstream-ref', help='the seedds/nxnative commit the links point at')
     ap.add_argument('--prompt', default='.github/triage/prompt.md')
     ap.add_argument('--issue-json', help='read the issue from this file instead of the API (tests)')
     a = ap.parse_args(argv)
@@ -208,6 +209,8 @@ def main(argv=None):
         readable += count[0] > 0
     signals = tl.finish_signals(sig)
 
+    if Path(a.pin_file).is_file():
+        tl.set_pin(Path(a.pin_file).read_text(encoding='utf-8').strip())
     symptoms = tl.parse_symptoms((Path(a.docs) / 'agents' / 'symptoms.md').read_text(encoding='utf-8'))
     matches = tl.match_symptoms([l for l, _ in signals['red']], symptoms, a.docs)
 

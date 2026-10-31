@@ -1,6 +1,0 @@
-# Hand-written translation facts, merged over the generated rows of shader_facts.tsv by dm/gfx/tools/shader_split.py: key <TAB> facts JSON (same format)
-# Unreal's GLSL_SWITCH shaders carry no fragment output types, so the translator declares every output float; Metal refuses a pipeline whose float output meets an integer attachment
-# (the host's red line then prints the row to add here).
-# f555b53f62ec5196 (ShaderArchive-Global-SF_GLSL_SWITCH shader 688, pixel): writes integers it computes per pixel, bit-cast into its output, to an R8Uint target (seen at the camera
-# settings' preview in the new-game menus)
-f555b53f62ec5196	{"fout":{"0":"uint"}}
