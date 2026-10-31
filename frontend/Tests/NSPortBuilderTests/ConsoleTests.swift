@@ -4,6 +4,15 @@ import Combine
 @testable import NSPortBuilder
 
 final class ConsoleTests: XCTestCase {
+    /// The games ready on this Mac come first. The rest follow in their own order, each with its status.
+    func testReadyGamesComeFirst() {
+        func game(_ id: String, _ status: ConsoleGame.Status) -> ConsoleGame {
+            ConsoleGame(id: id, title: id, version: "", platforms: [.mac], artwork: nil, status: status)
+        }
+        let games = [game("a", .needsBuild), game("b", .ready), game("c", .iphoneOnly), game("d", .ready), game("e", .broken("x"))]
+        XCTAssertEqual(ConsoleGame.readyFirst(games).map(\.id), ["b", "d", "a", "c", "e"])
+    }
+
     @MainActor func testScenariosAndBoundedFocus() {
         let driver = MockConsoleDriver(animated: false)
         XCTAssertEqual(driver.state.games.count, 12)
@@ -16,7 +25,7 @@ final class ConsoleTests: XCTestCase {
         state.moveFocus(-100)
         XCTAssertEqual(state.focusedGame?.id, "demo.0")
         state.moveFocus(100)
-        XCTAssertEqual(state.focusedGame?.id, "demo.11")
+        XCTAssertEqual(state.focusedGame?.id, "demo.9", "the games this Mac cannot play come last")
         XCTAssertEqual(MockConsoleDriver(scenario: .few, animated: false).state.games.count, 2)
         var empty = MockConsoleDriver(scenario: .empty, animated: false).state
         empty.moveFocus(1)

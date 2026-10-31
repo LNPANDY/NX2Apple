@@ -35,6 +35,42 @@ final class LibraryTests: XCTestCase {
         return app
     }
 
+    /// The library opens on the player's own games: Owned is the default, also for the "all" an earlier build may have stored.
+    func testLibraryFilterDefaultsToOwned() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "nxnative-tests-filter-" + temporary.lastPathComponent))
+        XCTAssertEqual(LibraryFilter.load(defaults), .owned)
+        defaults.set("all", forKey: "libraryFilter")
+        XCTAssertEqual(LibraryFilter.load(defaults), .owned)
+        LibraryFilter.built.save(defaults)
+        XCTAssertEqual(LibraryFilter.load(defaults), .built)
+        defaults.removePersistentDomain(forName: "nxnative-tests-filter-" + temporary.lastPathComponent)
+    }
+
+    /// Built hides the games without a build. The selection moves to a game it shows, and a controller's focus on a hidden card
+    /// is dropped, so A cannot start a game that is not on screen.
+    func testBuiltFilterKeepsSelectionAndFocusOnShownGames() throws {
+        let built = LibraryGame(titleID: titleID, name: "Hades", appPath: try makeApp(titleID).path)
+        let unbuilt = LibraryGame(titleID: "0100000000010000", name: "Celeste")
+        let games = [unbuilt, built]
+        XCTAssertEqual(games.filter(LibraryFilter.owned.includes).map(\.id), [unbuilt.id, built.id])
+        XCTAssertEqual(games.filter(LibraryFilter.built.includes).map(\.id), [built.id])
+
+        let hidden = LibraryFilter.built.reconcile(games: games, selectedID: unbuilt.id, focused: "card." + unbuilt.id.uuidString)
+        XCTAssertEqual(hidden.selectedID, built.id)
+        XCTAssertNil(hidden.focused)
+
+        let shown = LibraryFilter.built.reconcile(games: games, selectedID: built.id, focused: "card." + built.id.uuidString)
+        XCTAssertEqual(shown.selectedID, built.id)
+        XCTAssertEqual(shown.focused, "card." + built.id.uuidString)
+
+        let elsewhere = LibraryFilter.built.reconcile(games: games, selectedID: unbuilt.id, focused: "top.build")
+        XCTAssertEqual(elsewhere.focused, "top.build", "a focus outside the row stays")
+
+        let none = LibraryFilter.built.reconcile(games: [unbuilt], selectedID: unbuilt.id, focused: nil)
+        XCTAssertNil(none.selectedID)
+        XCTAssertEqual(LibraryFilter.owned.reconcile(games: games, selectedID: nil, focused: nil).selectedID, unbuilt.id)
+    }
+
     func testReadyRequiresMatchingGameAndCompleteExecutables() throws {
         let app = try makeApp(titleID)
         var game = LibraryGame(titleID: titleID, name: "Hades", appPath: app.path)

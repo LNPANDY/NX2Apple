@@ -488,6 +488,7 @@ struct ConsoleGameTile: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             ConsoleArtwork(image: game.artwork, title: game.title).aspectRatio(1.8, contentMode: .fit)
+                .opacity(game.status == .ready ? 1 : 0.45)   // not playable on this Mac: dimmed, its status on top
                 .overlay(alignment: .bottomLeading) {
                     if game.status != .ready {
                         Text(L10n.string(game.status.labelKey, lang)).font(.manrope(compact ? 14 : 18, .semibold))

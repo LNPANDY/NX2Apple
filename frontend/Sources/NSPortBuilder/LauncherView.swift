@@ -21,6 +21,31 @@ enum LauncherPalette {
     static let unbuilt = Color(red: 0.57, green: 0.58, blue: 0.61)
 }
 
+/// The library's filter: every game in the games folder, or only those with a build. Remembered between launches.
+enum LibraryFilter: String, CaseIterable, Identifiable {
+    case owned, built
+    var id: String { rawValue }
+    var labelKey: String { "filter." + rawValue }
+
+    /// Owned shows every game without reading its build, so the default filter costs nothing per card.
+    func includes(_ game: LibraryGame) -> Bool { self == .owned || game.isReady || game.hasIOSBuild }
+
+    static func load(_ defaults: UserDefaults = .standard) -> LibraryFilter {
+        LibraryFilter(rawValue: defaults.string(forKey: "libraryFilter") ?? "") ?? .owned
+    }
+    func save(_ defaults: UserDefaults = .standard) { defaults.set(rawValue, forKey: "libraryFilter") }
+
+    /// The selection and the controller's focus after a switch to this filter. A selected game the filter hides gives way to the
+    /// first one it shows, and a focus on a hidden card is dropped, so neither the hero nor the A button reaches a game that is not
+    /// on screen.
+    func reconcile(games: [LibraryGame], selectedID: UUID?, focused: String?) -> (selectedID: UUID?, focused: String?) {
+        let shown = games.filter(includes)
+        let selection = shown.contains { $0.id == selectedID } ? selectedID : shown.first?.id
+        guard let focused, focused.hasPrefix("card.") else { return (selection, focused) }
+        return (selection, shown.contains { "card." + $0.id.uuidString == focused } ? focused : nil)
+    }
+}
+
 struct ContentView: View {
     @StateObject private var m: BuildModel
     @StateObject private var library: GameLibrary
@@ -86,8 +111,26 @@ struct ContentView: View {
         if injectedDriver { consoleDriver.setPadMerge(on) }
     }
 
+    @State private var libraryFilter: LibraryFilter = LibraryFilter.load()
+
+    private func setLibraryFilter(_ filter: LibraryFilter) {
+        guard filter != libraryFilter else { return }
+        withAnimation(.easeInOut(duration: 0.2)) { libraryFilter = filter }
+        filter.save()
+        let after = filter.reconcile(games: library.games, selectedID: library.selectedID, focused: padFocus.focused)
+        if after.selectedID != library.selectedID { library.selectedID = after.selectedID }
+        if after.focused != padFocus.focused { padFocus.focused = after.focused }
+    }
+
     private var filteredGames: [LibraryGame] {
-        library.games.filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) }
+        library.games.filter { (search.isEmpty || $0.name.localizedCaseInsensitiveContains(search)) && libraryFilter.includes($0) }
+    }
+
+    /// The hero's game: the selection, unless the filter hides it, then the first game the filter shows.
+    private var heroGame: LibraryGame? {
+        guard libraryFilter != .owned else { return library.selected }
+        if let selected = library.selected, libraryFilter.includes(selected) { return selected }
+        return library.games.first(where: libraryFilter.includes)
     }
 
     var body: some View {
@@ -193,7 +236,9 @@ struct ContentView: View {
         // The engine was made or moved by a sync (its HEAD is what ToolsAge compares)
         .onReceive(m.$engineSyncing.removeDuplicates().dropFirst()) { syncing in if !syncing && performStartupChecks { checkTools() } }
         .onChange(of: library.selectedID) { _ in resignNote = nil }   // the last re-sign's note belongs to its game
+        .onChange(of: buildProgress) { progress in if m.running { DockProgress.update(progress) } }
         .onReceive(m.$running.removeDuplicates()) { running in
+            if !running { DockProgress.update(nil) }
             if running && activeBuildID == nil { activeBuildID = library.rememberInputs(m) }
             if running && activeBuildID != nil {   // the tools this build runs: a pull waits for the build (pullRepo, autoPull)
                 buildCommit = ""
@@ -239,6 +284,21 @@ struct ContentView: View {
         }
         .onChange(of: freeSpaceFor) { id in padFocus.scope = id != nil ? "free" : currentPadScope }
         .sheet(isPresented: $m.showUpdateSheet) { UpdateSheet(m: m) }
+        .confirmationDialog(m.t("uninstall.title"), isPresented: Binding(
+            get: { m.uninstallPlan != nil }, set: { if !$0 { m.uninstallPlan = nil } }
+        ), titleVisibility: .visible) {
+            Button(m.t("uninstall.confirmButton"), role: .destructive) {
+                if let plan = m.uninstallPlan {
+                    let result = Uninstall.run(plan)
+                    m.uninstallPlan = nil
+                    if result.failures.isEmpty {
+                        m.appStatus = String(format: m.t("uninstall.done"), result.removed.count)
+                    } else {
+                        m.appStatus = m.t("uninstall.failed") + "\n" + result.failures.joined(separator: "\n")
+                    }
+                }
+            }
+        } message: { Text(m.t("uninstall.confirm")) }
         .sheet(isPresented: Binding(get: { savesFor != nil }, set: { if !$0 { savesFor = nil } })) {
             if let id = savesFor { SavesView(m: m, library: library, gameID: id).environmentObject(padFocus).launcherDropdownHost() }
         }
@@ -302,6 +362,22 @@ struct ContentView: View {
                     .buttonStyle(.plain).disabled(m.running).help(m.t("library.newBuild")).accessibilityLabel(m.t("library.newBuild"))
                     .padTarget("top.build", scope: "main", radius: 8) { if !m.running { newBuild() } }
                     .padding(.leading, 12)
+                    // A newer release is out: a small icon, last in the bar, opens the update sheet. Without one the bar
+                    // stays as it is.
+                    if let update = m.appUpdate {
+                        let readOnly = m.appInstallability == .readOnly
+                        Button { m.showUpdateSheet = true } label: {
+                            Image(systemName: readOnly ? "exclamationmark.arrow.circlepath" : "arrow.down.circle")
+                                .font(.system(size: 18, weight: .medium))
+                                .foregroundStyle(readOnly ? LauncherPalette.building : LauncherPalette.ready)
+                                .frame(width: 34, height: 34).contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .padTarget("top.update", scope: "main", radius: 17) { m.showUpdateSheet = true }
+                        .padding(.leading, 16.5).padding(.trailing, -7.5)
+                        .help(String(format: m.t("update.pill"), update.tag) + "\n" + m.t(readOnly ? "update.readOnlyHint" : "update.pillHelp"))
+                        .accessibilityLabel(String(format: m.t("update.pill"), update.tag))
+                    }
                 }
                 .padding(.leading, 90).padding(.trailing, 24)
                 .frame(height: 64)
@@ -363,7 +439,7 @@ struct ContentView: View {
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
-                        if let game = library.selected {
+                        if let game = heroGame {
                             hero(game, width: geometry.size.width, height: max(240, geometry.size.height - collectionHeight))
                         }
                         // The hero takes what the collection leaves: the row's height grows with the window's width (its cards
@@ -497,20 +573,28 @@ struct ContentView: View {
     private func collection(width: CGFloat) -> some View {
         let cardWidth = min(300, max(190, (width - 124) / 5))
         let step = cardWidth + 14
+        let games = filteredGames
+        let heroID = heroGame?.id
         return VStack(alignment: .leading, spacing: 18) {
-            HStack {
+            HStack(spacing: 16) {
                 Text(m.t("library.collection")).font(.manrope(28, .bold)).tracking(-0.6)
                 Spacer()
-                Text(String(format: m.t("library.gameCount"), library.games.count))
+                LauncherSegmented(options: LibraryFilter.allCases.map { ($0.rawValue, m.t($0.labelKey)) },
+                                  selection: libraryFilter.rawValue) { setLibraryFilter(LibraryFilter(rawValue: $0) ?? .owned) }
+                    .frame(width: LauncherControl.width)
+                    .padTarget("library.filter", scope: "main", radius: 17,
+                               activate: { setLibraryFilter(libraryFilter == .owned ? .built : .owned) },
+                               adjust: { setLibraryFilter($0 > 0 ? .built : .owned) })
+                Text(String(format: m.t("library.gameCount"), libraryFilter == .owned ? library.games.count : library.games.filter(libraryFilter.includes).count))
                     .font(.manrope(12)).foregroundStyle(.secondary)
             }
-            if filteredGames.isEmpty {
+            if games.isEmpty {
                 Text(m.t("library.noResults")).foregroundStyle(.secondary).padding(.vertical, 28)
             } else {
                 ScrollViewReader { proxy in
                 ScrollView(.horizontal, showsIndicators: false) {
                         HStack(alignment: .top, spacing: 14) {
-                            ForEach(filteredGames) { game in
+                            ForEach(games) { game in
                                 let _ = LauncherWork.count(.card)
                                 Button { library.selectedID = game.id } label: {
                                     VStack(alignment: .leading, spacing: 8) {
@@ -525,16 +609,16 @@ struct ContentView: View {
                                         .frame(width: cardWidth, height: cardWidth / 1.8).clipped()
                                         .clipShape(RoundedRectangle(cornerRadius: 5))
                                         .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(
-                                            game.id == library.selectedID ? LauncherPalette.cream : .clear, lineWidth: 2))
+                                            game.id == heroID ? LauncherPalette.cream : .clear, lineWidth: 2))
                                         Text(game.name).font(.manrope(16, .semibold)).lineLimit(1)
                                         status(game)
-                                        Capsule().fill(game.id == library.selectedID ? LauncherPalette.cream : .clear)
+                                        Capsule().fill(game.id == heroID ? LauncherPalette.cream : .clear)
                                             .frame(height: 3).padding(.top, 4)
                                     }
                                     .frame(width: cardWidth, alignment: .leading).contentShape(Rectangle())
                                 }
                                 .buttonStyle(.plain)
-                                .accessibilityAddTraits(game.id == library.selectedID ? .isSelected : [])
+                                .accessibilityAddTraits(game.id == heroID ? .isSelected : [])
                                 .padTarget("card." + game.id.uuidString, scope: "main", radius: 7) { if !launching { primaryAction(game) } }
                             }
                         }

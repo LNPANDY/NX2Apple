@@ -31,10 +31,14 @@ final class PadFocus: ObservableObject {
 
     /// Left / right: the target's own value when it holds one, else a move.
     func horizontal(_ step: Int) {
-        if let id = focused, let adjust = handlers[id]?.adjust { adjust(step) } else { move(dx: CGFloat(step), dy: 0) }
+        if let id = focused, onScreen(id), let adjust = handlers[id]?.adjust { adjust(step) } else { move(dx: CGFloat(step), dy: 0) }
     }
 
-    func activate() { if let id = focused { handlers[id]?.activate?() } }
+    func activate() { if let id = focused, onScreen(id) { handlers[id]?.activate?() } }
+
+    /// Handlers outlive their views, so a target that is no longer drawn (a card the library filter or the search hides) is
+    /// recognised by its missing frame: A and left / right do nothing on it.
+    private func onScreen(_ id: String) -> Bool { frames.values.contains { $0.contains { $0.id == id } } }
 
     /// The nearest target in the direction, scored by distance along it plus twice the distance across it. Left and right
     /// stay in the row (the target must overlap it vertically), so the last card does not jump to a button across the

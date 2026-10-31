@@ -675,6 +675,8 @@ final class BuildModel: ObservableObject {
     /// Whether the "a new version is out" sheet is up: opened by the launch check and by Check for
     /// updates, so a user learns what changed before deciding, not after downloading.
     @Published var showUpdateSheet = false
+    /// The uninstall row's dialog: computed when the row is pressed, run when the player confirms.
+    @Published var uninstallPlan: Uninstall.Plan?
     @Published var appStatus = ""
     /// Set when the last update attempt was refused (a release this macOS cannot open, a bad download); the update sheet shows it.
     @Published var appUpdateBlocked: String?
@@ -3573,6 +3575,16 @@ struct BuilderView: View {
                 }
             }
             divider
+            if m.appInstallability == .ok {
+                // The uninstaller (Uninstall.swift): state folders and the launcher's own checkout go; the
+                // games folder and prod.keys stay; the app itself goes to the Trash.
+                row(m.t("uninstall.title"), detail: m.t("uninstall.note")) {
+                    Button(m.t("uninstall.button")) { m.uninstallPlan = uninstallPlan() }
+                    .disabled(m.running)
+                    .padTarget("set.uninstall", scope: "main") { if !m.running { m.uninstallPlan = uninstallPlan() } }
+                }
+                divider
+            }
             // A launcher built from the repository never replaces itself (AppUpdate.installability): the switch says so and stays off
             row(m.t("app.auto"), detail: m.t(m.appInstallability == .ok ? "app.autoNote" : m.appInstallability == .developer ? "app.autoDev" : "app.autoReadOnly")) {
                 Toggle("", isOn: Binding(get: { m.autoUpdateApp && m.appInstallability == .ok }, set: { m.autoUpdateApp = $0 }))
@@ -3593,6 +3605,11 @@ struct BuilderView: View {
         let v = values[(at + by + values.count) % values.count]
         Lang.saved = v.isEmpty ? nil : Lang(rawValue: v)
         m.lang = Lang.initial()
+    }
+
+    private func uninstallPlan() -> Uninstall.Plan {
+        Uninstall.plan(home: NSHomeDirectory(), gamesFolder: library.folder, outputFolder: m.outDir,
+                       checkouts: [m.repoPath], defaultsDomain: Bundle.main.bundleIdentifier)
     }
 
     private var tools: some View {

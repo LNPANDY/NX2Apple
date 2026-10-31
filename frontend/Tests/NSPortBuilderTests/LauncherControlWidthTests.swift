@@ -32,6 +32,19 @@ final class LauncherControlWidthTests: XCTestCase {
         }
     }
 
+    /// The library's Owned/Built switch is one LauncherControl wide, so each label fits its half in bold, without shrinking.
+    func testLibraryFilterLabelsFitTheirSegment() throws {
+        let room = (LauncherControl.width - 2 * 3 - 2) / 2 - 2 * 12
+        for filter in LibraryFilter.allCases {
+            for lang in Lang.allCases {
+                let text = L10n.string(filter.labelKey, lang)
+                let font = try XCTUnwrap(Typography.manropeFont(size: 12.5, weight: .bold))
+                let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: [.font: font]))
+                XCTAssertLessThanOrEqual(CTLineGetTypographicBounds(line, nil, nil, nil), room, "\(lang) \(filter.labelKey): \(text)")
+            }
+        }
+    }
+
     // MARK: Real pages
 
     private final class Samples { var all: [LauncherControlSample] = [] }
@@ -220,6 +233,61 @@ final class LauncherControlWidthTests: XCTestCase {
             let size = try XCTUnwrap(found.first, name).size
             XCTAssertEqual(size.width, LauncherControl.width, name)
             XCTAssertEqual(size.height, LauncherControl.height, name)
+        }
+    }
+
+    // MARK: Launch options
+
+    /// Every slider's value has one width, so the sliders are equally long: the widest value, four digits by four in pixels or
+    /// three in percent, fits it on one line.
+    @MainActor func testTheWidestSliderValueFitsItsColumn() {
+        for value in ["8888×8888", "888%"] {
+            let width = NSHostingView(rootView: Text(value).font(.manrope(13, .semibold)).monospacedDigit().fixedSize()).fittingSize.width
+            XCTAssertLessThanOrEqual(width, LaunchControl.valueWidth, value)
+        }
+    }
+
+    /// The Launch options sheet at its own size, with a choice made so that Reset to tested defaults shows: in every language
+    /// the button is one LauncherControl and its label fits on one line.
+    @MainActor func testLaunchOptionsResetFitsInEveryLanguage() throws {
+        NSApplication.shared.setActivationPolicy(.accessory)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("launch-width-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let titleID = "0100FFFF28200000"
+        let app = directory.appendingPathComponent("Game.app")
+        let dm = app.appendingPathComponent("Contents/Resources/dm")
+        try FileManager.default.createDirectory(at: dm, withIntermediateDirectories: true)
+        let info: [String: Any] = ["DMTitleID": titleID, "CFBundleIdentifier": "org.example.launchwidth." + titleID.lowercased()]
+        try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0).write(to: app.appendingPathComponent("Contents/Info.plist"))
+        let scale = #"{"env": "DM_RENDER_SCALE", "kind": "range", "label": "Render scale", "note": "", "default": "1.0", "section": "Game", "min": 0.5, "max": 1.0, "step": 0.05}"#
+        try #"{"game": "\#(titleID)", "settings": [\#(scale)]}"#.write(to: dm.appendingPathComponent("launcher.json"), atomically: true, encoding: .utf8)
+        var game = LibraryGame(titleID: titleID, name: "Game")
+        game.appPath = app.path
+        game.launchOptions["DM_FULLSCREEN"] = "1"   // Display mode is the launcher's own row: the choice stays in the library
+        struct Snapshot: Codable { let games: [LibraryGame]; let folder: String }
+        let file = directory.appendingPathComponent("library.json")
+        try JSONEncoder().encode(Snapshot(games: [game], folder: directory.path)).write(to: file)
+        let library = GameLibrary(file: file)
+        let model = BuildModel()
+        for lang in Lang.allCases {
+            model.lang = lang
+            let samples = Samples()
+            let view = LaunchOptionsView(m: model, library: library, gameID: game.id).environmentObject(PadFocus())
+                .environment(\.measuresLauncherControls, true)
+                .onPreferenceChange(LauncherControlSamples.self) { samples.all = $0 }
+            let host = NSHostingView(rootView: view)
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 700), styleMask: [.titled], backing: .buffered, defer: false)
+            window.contentView = host
+            window.orderFront(nil)
+            RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+            host.layoutSubtreeIfNeeded()
+            window.orderOut(nil)
+            XCTAssertFalse(samples.all.isEmpty, "\(lang): the sheet showed no Reset to tested defaults")
+            for sample in samples.all {
+                XCTAssertEqual(sample.size.width, LauncherControl.width, "\(lang)")
+                XCTAssertEqual(sample.size.height, LauncherControl.height, "\(lang)")
+                XCTAssertLessThanOrEqual(sample.labelWidth, sample.room, "\(lang): \(L10n.string("launch.reset", lang))")
+            }
         }
     }
 }
