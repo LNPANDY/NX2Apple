@@ -27,11 +27,14 @@ A candidate is built once. A second run of the same tag fails once the app is up
 
 ### Testing a candidate
 
-The test runs against the engine the release will serve, not against whatever an engine channel serves that day.
+The candidate's signed `latest.json` names the `engine_id` the release carries. The whole-app test checks that the app's first start, with its online engine check, lands on exactly that engine tree. The engine that `engine-experimental` serves that day does not count.
 
 - In a checkout, `tools/try-pr v0.7.6-rc1` downloads the app, checks its SHA-256 and its bundled `engine_id` against the candidate's `latest.json`, and prints the `engine_id`. It opens the app with launch arguments that make it build with its bundled engine: the stable channel, that `engine_id`, and no automatic engine or app update. The arguments last for that run.
 - By hand: download `NX2Apple-macOS-arm64.zip` from the pre-release and unzip it. `NX2Apple.app/Contents/Resources/engine/.engine-id` is the `engine_id` of the notes. Then run `open -n NX2Apple.app --args -engineChannel stable -engineID <engine_id> -autoUpdateRepo '<false/>' -autoUpdateApp '<false/>'`.
-- Settings shows the engine's version and the first 8 characters of its `engine_id`. The diagnostics report shows `Engine: stable 0.7.6 (<engine_id>)`. Both must match the notes.
+- After the first start, with the Mac online, check the engine the app uses. It must be the `engine_id` of the candidate's `latest.json` and of its notes. Any other `engine_id` makes the test void.
+  - Settings, Build tools, row "Build engine": `0.7.6 · upstream <8 characters>`. The 8 characters are the start of the pin only, so they cannot tell two engines of one pin apart.
+  - Settings, Build tools, row "Diagnostics", button "Copy diagnostics": the copied report has the line `- Engine: stable 0.7.6 (<engine_id>)` with the full `engine_id`.
+- The launch arguments keep the launch check online, and it installs nothing. On a Mac whose settings are on the stable channel, opening the app without arguments runs the normal first start. It must land on the same `engine_id`.
 - Without the arguments the app follows the channel and engine saved in its settings. The experimental channel serves the engine of `main`.
 - Test the whole app on a Mac, and build and install games for iPhone or iPad with it.
 
