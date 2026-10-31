@@ -212,6 +212,30 @@ import SwiftUI
         XCTAssertEqual(calls, [false, true, false])
     }
 
+    func testFullScreenIsAskedAgainWhenTheSystemDroppedTheFirstRequest() throws {
+        final class FakeWindow: NSWindow {
+            var isFull = true
+            override var styleMask: NSWindow.StyleMask {
+                get { isFull ? super.styleMask.union(.fullScreen) : super.styleMask }
+                set { super.styleMask = newValue.subtracting(.fullScreen) }
+            }
+        }
+        var calls: [Bool] = []
+        var dropped = 2
+        let window = FakeWindow(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: true)
+        let coordinator = ConsoleCoordinator(window: { window }, setFullScreen: { _, on, done in
+            calls.append(on)
+            if on, dropped > 0 { dropped -= 1 } else { window.isFull = on }
+            done()
+        }, appIsActive: { true })
+        coordinator.available = true
+        coordinator.enter()
+        coordinator.leaveFullScreenForGame {}
+        coordinator.resumeFullScreenAfterGame()
+        XCTAssertEqual(calls, [false, true, true, true], "two requests were dropped, the third one worked")
+        XCTAssertTrue(window.isFull)
+    }
+
     func testPlayWaitsForTheLaunchHookAndReportsTheEnd() async throws {
         var launches: [Launch] = []
         let (driver, _, _) = try makeDriver { launches.append($0) }
