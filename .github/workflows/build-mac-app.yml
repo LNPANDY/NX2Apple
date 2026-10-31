@@ -35,10 +35,46 @@ permissions:
   contents: write
 
 jobs:
+  # The app icon is AppIcon.icon (Icon Composer). Its refractivity setting needs the actool of Xcode 27: the one on macos-latest (Xcode 26.6)
+  # crashes on it. So actool runs on the xcode-27 runner, as in tests.yml, and the build job takes the two files it writes. Assets.car is
+  # the icon for macOS 26 and later (Liquid Glass), AppIcon.icns the one for macOS 13 to 25.
+  icon:
+    runs-on: xcode-27
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.1.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Compile AppIcon.icon
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/app-icon"
+          mkdir -p "$OUT"
+          xcrun actool frontend/AppIcon.icon --compile "$OUT" --platform macosx --minimum-deployment-target 13.0 \
+            --app-icon AppIcon --output-partial-info-plist "$OUT/partial.plist"
+          ls -la "$OUT/Assets.car" "$OUT/AppIcon.icns"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: app-icon
+          path: |
+            ${{ runner.temp }}/app-icon/Assets.car
+            ${{ runner.temp }}/app-icon/AppIcon.icns
+          if-no-files-found: error
+
   build:
+    needs: icon
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: app-icon
+          path: ${{ runner.temp }}/app-icon
 
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
@@ -101,13 +137,9 @@ jobs:
           rm -rf "$APP"
           mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
           cp .build/release/NSPortBuilder "$APP/Contents/MacOS/NSPortBuilder"
-          # The app icon is AppIcon.icon (Icon Composer). actool, from the runner's Xcode (26 or later), compiles it to Assets.car for
-          # macOS 26 and later (Liquid Glass) and to AppIcon.icns for macOS 13 to 25. Info.plist names both (CFBundleIconName, CFBundleIconFile).
-          ICON_OUT="$RUNNER_TEMP/app-icon"
-          rm -rf "$ICON_OUT"; mkdir -p "$ICON_OUT"
-          xcrun actool AppIcon.icon --compile "$ICON_OUT" --platform macosx --minimum-deployment-target 13.0 \
-            --app-icon AppIcon --output-partial-info-plist "$ICON_OUT/partial.plist"
-          cp "$ICON_OUT/Assets.car" "$ICON_OUT/AppIcon.icns" "$APP/Contents/Resources/"
+          # Assets.car and AppIcon.icns come from the icon job (AppIcon.icon compiled by actool). Info.plist names both
+          # (CFBundleIconName for macOS 26 and later, CFBundleIconFile for 13 to 25).
+          cp "$RUNNER_TEMP/app-icon/Assets.car" "$RUNNER_TEMP/app-icon/AppIcon.icns" "$APP/Contents/Resources/"
           # The build tools and the Python go into Resources before the bundle is signed (bundle_tools.sh signs each nested Mach-O file
           # itself: --deep below does not reach code that sits in Resources).
           tools/bundle_tools.sh "$APP/Contents/Resources" "$RUNNER_TEMP/bundle-tools-work"
