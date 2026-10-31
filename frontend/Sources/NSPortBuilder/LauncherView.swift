@@ -671,19 +671,10 @@ struct ContentView: View {
                 .font(prominent ? .manrope(12, .bold) : .manrope(13, .medium))
                 .tracking(prominent ? 1.3 : 0)   // the eyebrow: the same face, in tracked capitals
                 .foregroundStyle(color)
-            if !building && game.pinned {   // "keep this build": the lock replaces the older-tools note
-                Text("· " + m.t(prominent ? "library.pinned" : "library.pinnedShort"))
-                    .font(.manrope(prominent ? 13 : 12)).foregroundStyle(.secondary).lineLimit(1)
-                    .help(m.t("library.pinnedHelp"))
-            } else if !building && toolsAge.older.contains(game.id) {   // a quiet note beside the status, not a warning
+            if !building && toolsAge.older.contains(game.id) {   // a quiet note beside the status, not a warning
                 Text("· " + m.t(prominent ? "library.olderTools" : "library.olderToolsShort"))
                     .font(.manrope(prominent ? 13 : 12)).foregroundStyle(.secondary).lineLimit(1)
                     .help(m.t("library.olderToolsHelp"))
-            }
-            if !building && toolsAge.profileChanged.contains(game.id) {   // this game's own profile changed since its build
-                Text("· " + m.t(prominent ? "library.profileUpdated" : "library.profileUpdatedShort"))
-                    .font(.manrope(prominent ? 13 : 12)).foregroundStyle(.secondary).lineLimit(1)
-                    .help(m.t("library.profileUpdatedHelp"))
             }
             // A free Apple ID's profile lasts 7 days: the card says when it runs out, the hero offers to renew it.
             if !building, let expiry = signatureExpiry[game.id] {
@@ -871,8 +862,7 @@ struct ContentView: View {
                             changeArtwork: { chooseArtwork(game) }, resetArtwork: { library.setArtwork("", for: game.id) },
                             reveal: { if let path = game.revealTarget { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) } },
                             showLog: { if let log = GameLog.latest(titleID: game.titleID, appPath: game.appPath) { GameLog.show(log) } },
-                            freeSpace: { freeSpaceFor = game.id }, remove: { removing = game },
-                            togglePin: { library.setPinned(!game.pinned, for: game.id) }))
+                            freeSpace: { freeSpaceFor = game.id }, remove: { removing = game }))
     }
 
     private func manageItems(for game: LibraryGame?) -> [ManageItem] { game.map(manageItems) ?? [] }

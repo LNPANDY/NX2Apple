@@ -5,31 +5,22 @@ import Foundation
 /// build uses changed between that commit and HEAD. Only a change that can alter the built game counts, so a docs-only
 /// pull marks nothing. A game built before the commit was recorded, or in a checkout that is not a git one, is never marked.
 final class ToolsAge: ObservableObject {
-    /// The games whose build is older than the tools in the checkout now. A pinned game ("keep this build")
-    /// is never here: the player said it plays well.
+    /// The games whose build is older than the tools in the checkout now.
     @Published private(set) var older: Set<UUID> = []
-    /// The games whose own profile (`dm/games/<title ID>/`) changed since their build: informative even for
-    /// a pinned game, since the fixes are the player's to take or leave.
-    @Published private(set) var profileChanged: Set<UUID> = []
     private var generation = 0
 
-    init(older: Set<UUID> = [], profileChanged: Set<UUID> = []) {
-        self.older = older
-        self.profileChanged = profileChanged
-    }
+    init(older: Set<UUID> = []) { self.older = older }
 
     /// Runs git off the main thread; a check started later wins over one still running (the repository may move in between).
     func check(games: [LibraryGame], repo: String) {
         generation += 1
         let mine = generation
-        let builds = games.map { (id: $0.id, titleID: $0.titleID, commit: $0.toolsCommit, pinned: $0.pinned) }
+        let builds = games.map { (id: $0.id, titleID: $0.titleID, commit: $0.toolsCommit) }
         DispatchQueue.global(qos: .utility).async {
-            let result = Self.classify(builds: builds, repo: repo)
+            let result = Self.olderGames(builds, repo: repo)
             DispatchQueue.main.async {
-                guard mine == self.generation,
-                      result != Verdict(older: self.older, profileChanged: self.profileChanged) else { return }
-                self.older = result.older
-                self.profileChanged = result.profileChanged
+                guard mine == self.generation, result != self.older else { return }
+                self.older = result
             }
         }
     }
@@ -66,30 +57,16 @@ final class ToolsAge: ObservableObject {
         return r.out.split(separator: "\n").map(String.init).filter { !$0.isEmpty }
     }
 
-    /// The verdict for a set of builds: which are older than the checkout's tools, and which games' own
-    /// profiles changed since their build. `pinned` keeps a game out of `older` — the player said this build
-    /// plays well — while its profile changes are still reported.
-    struct Verdict: Equatable {
-        let older: Set<UUID>
-        let profileChanged: Set<UUID>
-    }
-
-    nonisolated static func classify(builds: [(id: UUID, titleID: String, commit: String, pinned: Bool)], repo: String) -> Verdict {
+    /// The games marked: one `git diff` per distinct recorded commit, then each game's files are filtered by its title ID.
+    nonisolated static func olderGames(_ builds: [(id: UUID, titleID: String, commit: String)], repo: String) -> Set<UUID> {
         let recorded = builds.filter { !$0.commit.isEmpty }
-        guard !recorded.isEmpty, let head = head(repo: repo) else { return Verdict(older: [], profileChanged: []) }
+        guard !recorded.isEmpty, let head = head(repo: repo) else { return [] }
         var diffs: [String: [String]] = [:]
-        var older: Set<UUID> = [], profileChanged: Set<UUID> = []
+        var marked: Set<UUID> = []
         for build in recorded where build.commit != head {
             if diffs[build.commit] == nil { diffs[build.commit] = changedFiles(since: build.commit, repo: repo) ?? [] }
-            let profileTouched = diffs[build.commit]!.contains { affects($0, titleID: build.titleID) && $0.hasPrefix("dm/games/") }
-            if profileTouched { profileChanged.insert(build.id) }
-            if !build.pinned, diffs[build.commit]!.contains(where: { affects($0, titleID: build.titleID) }) { older.insert(build.id) }
+            if diffs[build.commit]!.contains(where: { affects($0, titleID: build.titleID) }) { marked.insert(build.id) }
         }
-        return Verdict(older: older, profileChanged: profileChanged)
-    }
-
-    /// Compatibility with the older entry point: which games are older, none pinned.
-    nonisolated static func olderGames(builds: [(id: UUID, titleID: String, commit: String)], repo: String) -> Set<UUID> {
-        classify(builds: builds.map { (id: $0.id, titleID: $0.titleID, commit: $0.commit, pinned: false) }, repo: repo).older
+        return marked
     }
 }

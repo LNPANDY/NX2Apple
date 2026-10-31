@@ -35,20 +35,6 @@ final class LibraryTests: XCTestCase {
         return app
     }
 
-    /// "Keep this build" survives the library file, as the ToolsAge check reads it back.
-    func testPinRoundTripsThroughTheLibraryFile() throws {
-        let file = temporary.appendingPathComponent("pin.json")
-        let library = GameLibrary(file: file)
-        let game = LibraryGame(titleID: titleID, name: "Hades")
-        try library.addApp(makeApp(titleID, name: "Hades"))   // upsert is private: addApp records a game
-        let id = try XCTUnwrap(library.games.first?.id)
-        XCTAssertFalse(GameLibrary(file: file).games.first?.pinned ?? true, "off by default")
-        library.setPinned(true, for: id)
-        XCTAssertEqual(GameLibrary(file: file).games.first?.pinned, true)
-        library.setPinned(false, for: id)
-        XCTAssertEqual(GameLibrary(file: file).games.first?.pinned, false)
-    }
-
     /// The library opens on the player's own games: Owned is the default, also for the "all" an earlier build may have stored.
     func testLibraryFilterDefaultsToOwned() throws {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: "nxnative-tests-filter-" + temporary.lastPathComponent))
