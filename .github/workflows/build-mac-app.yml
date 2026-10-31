@@ -87,9 +87,15 @@ jobs:
         env:
           ENGINE_SIGNING_KEY: ${{ secrets.ENGINE_SIGNING_KEY }}
         run: |
-          # Warns when the secret is not set (the release then goes out unsigned). Fails when it is set and its public key is not the one in
-          # frontend/engine-signing.pub, the value the launcher compiles in (EngineManifest.verify): a manifest signed with any other key
-          # would be rejected by every installed app.
+          # Fails when the launcher's compiled-in key is empty (EngineManifest.publicKey): a release that ships without it accepts
+          # every manifest unsigned, silently. Fails too when the secret is set and its public key is not the one in
+          # frontend/engine-signing.pub: a manifest signed with any other key would be rejected by every installed app.
+          # With no secret yet the engine is published unsigned; signing becomes mandatory before any download source
+          # other than GitHub is added (LNPANDY/NX2Apple#268, Cloudflare R2).
+          grep -q 'static let publicKey = "PVCqIahW5HtyZPq76zTSFBa' frontend/Sources/NSPortBuilder/EngineManifest.swift || {
+            echo '::error title=Signing key::EngineManifest.publicKey is empty — generate a pair (python3 tools/release_manifest.py keygen), commit the public half and put the private half in the ENGINE_SIGNING_KEY secret'
+            exit 1
+          }
           python tools/release_manifest.py check-key --pub frontend/engine-signing.pub
 
       - name: Engine tree (tools/engine.py tree)

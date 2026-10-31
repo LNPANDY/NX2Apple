@@ -114,9 +114,10 @@ enum EngineManifest {
     // ---- Authenticity ----
 
     /// The public half of the key that signs `latest.json`: base64 of the 32 raw Ed25519 bytes, the same line as
-    /// `frontend/engine-signing.pub`. Empty until the key pair exists, and then every manifest is accepted unsigned
-    /// (`.noKey`). Once it is set, only a manifest with a valid signature installs.
-    static let publicKey = ""
+    /// `frontend/engine-signing.pub` (the private half is the repository secret ENGINE_SIGNING_KEY). Once it is set,
+    /// only a manifest with a valid signature installs; the release workflow fails a tag build whose constant is empty
+    /// (the launcher would otherwise accept every manifest unsigned, silently).
+    static let publicKey = "PVCqIahW5HtyZPq76zTSFBa+lK2bB2dKWScyb/4R3tY="
 
     /// What we can say about a manifest's signature. Integrity (a SHA-256 that matches) only proves the
     /// download is what the manifest lists — it says nothing when whoever served the manifest also served
