@@ -59,13 +59,13 @@ A PR that waits on its author for 30 days is closed with a note that it can be r
 
 ### When a PR merges
 
-This holds for every PR. A PR from outside also gets the check above.
+This holds for every PR. A PR from outside also gets the maintainer check above, and never merges before it.
 
 Every fix goes through a PR. A fix merges when CI is green. No approval is needed.
 
 An unanswered review with changes requested from a maintainer blocks the merge. A plain review comment does not block. The maintainer who requested the changes reviews again once the fix is pushed, and approves or withdraws the request. Each maintainer clears their own objections. If the two maintainers disagree about an objection, Andy ([@LNPANDY](https://github.com/LNPANDY)) decides.
 
-A feature merges after 48 hours.
+A feature from the maintainers (v0lumehi and LNPANDY) merges after 48 hours. A feature from outside never merges by waiting. It merges after a maintainer agreed to the idea, tried the app and reviewed the code.
 
 A patch in `patches/` takes the next free number from `patches/series` on `main` at merge time. Whoever merges renumbers the patch and notes it in the PR. You do not need to rebase to chase free numbers.
 
