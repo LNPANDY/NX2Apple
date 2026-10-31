@@ -1,0 +1,58 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Iheb Nachet <inachet3@gmail.com>
+Date: Sat, 31 Oct 2026 09:35:32 +0100
+Subject: [PATCH] patch_nso: a zero-extending and of the index is a copy for
+ the jump-table check
+
+Mario Tennis Aces main+0x35837c bounds its switch index with cmp w8,#4; b.hi and then
+indexes with and x18,x8,#0xffffffff; ldrsw x18,[x16,x18,lsl #2]. jump_offsets took the
+and as a mask and looked for the same mask on the checked register, found none and
+returned None, so the rewrite stopped with "jump table 35837c". A 64-bit and with
+0xffffffff only zero-extends, so a 32-bit check of its source, unchanged up to the and,
+bounds the index. Only sites that matched nothing before are affected.
+
+docs/reference/rewriter.md gets the entry; its symptom line in docs/agents/symptoms.md is a generated file, which tools/engine.py sync regenerates (seedds/nxnative#778 carries it).
+
+Upstream-Status: forwarded seedds/nxnative#778
+Reason: Mario Tennis Aces main stops the rewrite at an unrecognised jump table (and x18,x8,#0xffffffff index copy)
+Issue: LNPANDY/NX2Apple#305
+
+---
+ dm/tools/patch_nso.py      | 5 +++++
+ docs/reference/rewriter.md | 7 +++++++
+ 2 files changed, 12 insertions(+)
+
+diff --git a/dm/tools/patch_nso.py b/dm/tools/patch_nso.py
+index e1b834d..1d261ee 100644
+--- a/dm/tools/patch_nso.py
++++ b/dm/tools/patch_nso.py
+@@ -663,6 +663,11 @@ def jump_offsets(insl, j, copy_first=False, far_base=False, forward_base=False):
+         if not m: continue
+         if wname(m.group(1)) in idx: cmp = p; break
+         if masked:   # the checked register must be "the same source & the same mask", with the source unchanged up to the index's and
++            # A 64-bit and with 0xffffffff only zero-extends, so a 32-bit check of its source bounds it: Mario Tennis Aces main+0x358368 has cmp w8,#4; b.hi; and x18,x8,#0xffffffff;
++            # ldrsw x18,[x16,x18,lsl #2]
++            if masked[1] == 0xffffffff and wname(m.group(1)) == masked[0] and m.group(1)[0] == 'w' and \
++               not any(masked[0] in [wname(ctx[z].reg_name(r)) for r in ctx[z].regs_access()[1]] for z in range(i + 1, masked[2])):
++                cmp = p; break
+             for q in range(i - 1, -1, -1):
+                 w = [wname(ctx[q].reg_name(r)) for r in ctx[q].regs_access()[1]]
+                 if wname(m.group(1)) not in w: continue
+diff --git a/docs/reference/rewriter.md b/docs/reference/rewriter.md
+index 3294e33..8061161 100644
+--- a/docs/reference/rewriter.md
++++ b/docs/reference/rewriter.md
+@@ -79,6 +79,13 @@ To enroll a cut for any game's own module:
+ - **Fix:** in its last pass (`far_base`), `jump_offsets` accepts `cmp xI, #N` on the index too. The earlier passes are unchanged, so modules that rewrote before come out the same.
+ - **Found on:** [OCTOPATH TRAVELER](../../dm/games/010057D006492000/README.md) `main+0x1676f58` (1.0.5), the only such site in that `main`.
+ 
++### Index zero-extended after a 32-bit bounds check
++
++- **Symptom:** `jump table <addr>` assertion in `patch_nso.py` where the index is made with a 64-bit `and` by `0xffffffff` after the check (`cmp w8, #4; b.hi; and x18, x8, #0xffffffff; ldrsw x18, [x16, x18, lsl #2]; add x18, x18, x16; br x18`).
++- **Cause:** `jump_offsets` took the `and` as a mask and looked for the same mask on the checked register, which has none, so no form matched.
++- **Fix:** a 64-bit `and` with `0xffffffff` only zero-extends, so `jump_offsets` accepts a 32-bit `cmp` of its source when the source is unchanged between the check and the `and`. Only sites that matched nothing before are affected.
++- **Found on:** Mario Tennis Aces (0100BDE00862A000) `main+0x35837c` (1.0.0), a 5-entry table whose targets all lie in the function; with the fix `main`, `subsdk0` and `sdk` rewrite.
++
+ ### Index masked in the block that branches to the dispatch
+ 
+ - **Symptom:** `jump table <addr>` assertion in a Unity / IL2CPP `main` whose dispatch checks a fresh mask of another register than the one it indexes with.
