@@ -1695,15 +1695,20 @@ class LinkProbeStrategyTest(unittest.TestCase):
                     ('ld-path', 'exit 1 (0x00000001): (no output)', ['clang', '--ld-path=x']),
                     ('-B dir', 'exit 1 (0x00000001): (no output)', ['clang', '-Bx'])]
         plain = Path('C:/sdks/iPhoneOS26.0.sdk')
-        summary = tc.link_failure_summary(attempts, 'LLD 23.1.4', ['clang'], plain)
+        t = lambda key, *a: 'HINT:' + key   # the model's translator, as ui.py receives it
+        summary = tc.link_failure_summary(attempts, 'LLD 23.1.4', ['clang'], plain, t=t)
         for part in ('link failed 3 ways', 'LLD 23.1.4', 'fuse-ld:', 'ld-path:', '-B dir:',
                      'try by hand:'):
             self.assertIn(part, summary, part)
         self.assertNotIn('dep.fix.nonascii', summary)
-        # The owner's machine: C:\Users\QC-北\... — the SDK itself sits under a non-ASCII path
+        # The owner's machine: C:\Users\QC-北\... — the SDK itself sits under a non-ASCII path.
+        # The hint is a localization key: the panel must see it translated, never as the raw key.
         nonascii = Path('C:/Users/QC-北/AppData/Local/NS Port Builder/sdks/iPhoneOS26.0.sdk')
-        hinted = tc.link_failure_summary(attempts, 'LLD 23.1.4', ['clang'], nonascii)
-        self.assertIn('dep.fix.nonascii', hinted)
+        hinted = tc.link_failure_summary(attempts, 'LLD 23.1.4', ['clang'], nonascii, t=t)
+        self.assertIn('HINT:dep.fix.nonascii', hinted)
+        self.assertNotIn(' — dep.fix.nonascii', hinted)
+        bare = tc.link_failure_summary(attempts, 'LLD 23.1.4', ['clang'], nonascii)
+        self.assertNotIn('dep.fix.nonascii', bare)
 
 
 class VenvWheelsTest(unittest.TestCase):

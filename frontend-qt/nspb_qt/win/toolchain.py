@@ -949,11 +949,13 @@ def link_attempt_summary(r: subprocess.CompletedProcess) -> str:
 
 def link_failure_summary(attempts: list[tuple[str, str, list[str]]], lld_line: str,
                          base: list[str], sdk: Path,
-                         verbose: list[str] | None = None) -> str:
+                         verbose: list[str] | None = None,
+                         t=None) -> str:
     """Every failed strategy, the linker's self-check, the exact command to try by hand, and —
     when the SDK lives under a non-ASCII path — the one hint that has fixed this exact shape
     before: ld64.lld's Windows port can fail to open narrow-char paths silently, while clang's
-    front end (the compile probe) handles them fine.
+    front end (the compile probe) handles them fine. `t` is the model's translator: the hint is
+    a localization key and must reach the panel translated, not as a raw key.
     """
     parts = [f'link failed {len(attempts)} ways; ld64.lld self-check: {lld_line[:140]}']
     for how, summary, _cmd in attempts:
@@ -962,13 +964,13 @@ def link_failure_summary(attempts: list[tuple[str, str, list[str]]], lld_line: s
     try:
         str(sdk).encode('ascii')
     except UnicodeEncodeError:
-        parts.append('dep.fix.nonascii')
+        if t: parts.append(t('dep.fix.nonascii'))
     if verbose:
         parts.append('verbose: ' + ' | '.join(verbose))
     return ' — '.join(parts)
 
 
-def probe_link(sdk: Path) -> tuple[bool, str]:
+def probe_link(sdk: Path, t=None) -> tuple[bool, str]:
     """Link a tiny executable for iOS and check it is an arm64 MH_EXECUTE with an iOS platform.
 
     Only the linker and the SDK's stubs are exercised, not the game's own code: an undefined
@@ -991,12 +993,12 @@ def probe_link(sdk: Path) -> tuple[bool, str]:
     if v.returncode != 0:
         return False, (f'{lld.name} does not run by itself (exit {v.returncode}): {lld_line[:200]}'
                        ' — reinstall LLVM-MinGW')
-    # The link needs two things from the SDK that a hollow or partial download lacks; their
+    # The link needs libSystem's stub from the SDK that a hollow or partial download lacks; its
     # absence reads as "undefined symbol: puts" (libc) at link time while the COMPILE probe
-    # stays green (it needs headers only). Name them before blaming the linker.
+    # stays green (it needs headers only). Name it before blaming the linker. iOS executables
+    # use LC_MAIN, so a real SDK ships no crt*.o at all — checking for one rejected complete SDKs.
     missing = [n for n, there in (
         ('usr/lib/libSystem.tbd', (sdk / 'usr' / 'lib' / 'libSystem.tbd').is_file()),
-        ('usr/lib/crt*.o', any((sdk / 'usr' / 'lib').glob('crt*.o'))),
     ) if not there]
     if missing:
         return False, (f'SDK is missing {", ".join(missing)}: the download is incomplete — '
@@ -1043,7 +1045,7 @@ def probe_link(sdk: Path) -> tuple[bool, str]:
                            if any(k in l for k in ('-lSystem', 'crt', 'Library search',
                                                    'ld64.lld', 'error'))][:12]
             return False, link_failure_summary(attempts, lld_line, base, sdk,
-                                               verbose=interesting)
+                                               verbose=interesting, t=t)
         try:
             data = out.read_bytes()
         except OSError as e:
@@ -1086,7 +1088,7 @@ def macho_platform(data: bytes) -> int | None:
 
 # ---------------------------------------------------------------- the whole picture
 
-def check_all(deep: bool = False) -> list[Probe]:
+def check_all(deep: bool = False, t=None) -> list[Probe]:
     """Every component, in the order the dependency panel shows them.
 
     `deep` adds the compile / link / Metal probes. They take a few seconds, so the panel runs
@@ -1203,7 +1205,7 @@ def check_all(deep: bool = False) -> list[Probe]:
             # compiler); this one adds the SDK to the same probe shape the build uses
             ok, detail = probe_compile(sdk, clang)
             out.append(Probe('probe_compile', 'cross-compile probe', 'ok' if ok else 'wrong', detail))
-            ok2, detail2 = probe_link(sdk)
+            ok2, detail2 = probe_link(sdk, t=t)
             out.append(Probe('probe_link', 'cross-link probe', 'ok' if ok2 else 'wrong', detail2))
         if sdk and metal_ok:
             ok3, detail3 = probe_metal(sdk)
