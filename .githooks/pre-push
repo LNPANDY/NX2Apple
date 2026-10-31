@@ -1,0 +1,3 @@
+#!/bin/sh
+# Runs the checks that match what is pushed. The logic is in tools/githooks.py. Install: git config core.hooksPath .githooks
+exec python3 "$(dirname "$0")/../tools/githooks.py" pre-push

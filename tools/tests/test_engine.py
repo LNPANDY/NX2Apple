@@ -22,8 +22,8 @@ def setUpModule():
     if not (SRC / 'AGENTS.md').is_file():
         raise RuntimeError('engine/ is missing: run `python3 tools/engine.py sync` first')
 
-BASE_ENV = dict(os.environ, GIT_AUTHOR_NAME='t', GIT_AUTHOR_EMAIL='t@example.invalid', GIT_COMMITTER_NAME='t', GIT_COMMITTER_EMAIL='t@example.invalid',
-                GIT_CONFIG_GLOBAL='/dev/null', GIT_CONFIG_SYSTEM='/dev/null')
+BASE_ENV = E.P.clean_env(GIT_AUTHOR_NAME='t', GIT_AUTHOR_EMAIL='t@example.invalid', GIT_COMMITTER_NAME='t', GIT_COMMITTER_EMAIL='t@example.invalid',
+                         GIT_CONFIG_GLOBAL='/dev/null', GIT_CONFIG_SYSTEM='/dev/null')   # no GIT_DIR: a test must never reach the repository that runs it
 
 HEADER = 'Upstream-Status: forwarded seedds/nxnative#475\nReason: the fork needs line 2\nIssue: LNPANDY/NX2Apple#1\n'
 
@@ -174,6 +174,58 @@ class LocalWork(Fixture):
         self.add_patch('0002-b.patch', 'dm/b.c', 'b1\nb2 fork\n', 'Unrelated', header=HEADER.replace('#1', '#2'))
         out = self.tool('sync', expect=2)
         self.assertIn('export', out); self.assertIn('1 commit(s)', out)
+        self.assertEqual((self.eng / 'dm/b.c').read_text(), 'b1\nb2 engine\n')
+
+    def conflict_patch(self):
+        self.add_patch('0002-conflict.patch', 'dm/a.c', 'other\n', 'Conflicting')
+
+    def fix_series(self):
+        (self.r / 'patches/0002-conflict.patch').unlink()
+        (self.r / 'patches/series').write_text('# order\n0001-line-2.patch\n')
+        self.add_patch('0002-b.patch', 'dm/b.c', 'b1\nb2 fork\n', 'Fine', header=HEADER.replace('#1', '#2'))
+
+    def test_a_failed_sync_leaves_engine_as_it_was_and_the_next_sync_needs_no_force(self):
+        self.tool('sync')
+        before, stamp = git(self.eng, 'rev-parse', 'HEAD'), (self.eng / '.git/nx2apple-stamp').read_text()
+        self.conflict_patch()
+        self.assertIn('does not apply', self.tool('sync', expect=2))
+        self.assertEqual(git(self.eng, 'rev-parse', 'HEAD'), before)
+        self.assertEqual((self.eng / '.git/nx2apple-stamp').read_text(), stamp)
+        self.assertEqual(git(self.eng, 'status', '--porcelain'), '')
+        self.fix_series()
+        self.assertIn('engine: ready', self.tool('sync'))
+        self.assertEqual((self.eng / 'dm/b.c').read_text(), 'b1\nb2 fork\n')
+
+    def test_a_failed_first_sync_does_not_block_the_next(self):
+        self.conflict_patch()
+        self.tool('sync', expect=2)
+        self.fix_series()
+        self.assertIn('engine: ready', self.tool('sync'))
+
+    def test_a_failed_sync_keeps_a_branch_the_user_was_on(self):
+        self.tool('sync')
+        git(self.eng, 'checkout', '-q', '-b', 'mine')
+        self.conflict_patch()
+        self.tool('sync', '--force', expect=2)
+        self.assertEqual(git(self.eng, 'rev-parse', '--abbrev-ref', 'HEAD'), 'mine')
+
+    def stuck(self):
+        """What an older sync left after a conflict: the pin plus the patches that applied, committed by `git am`, with the old stamp."""
+        self.tool('sync')
+        git(self.eng, 'checkout', '-q', '--force', '-B', 'nx2apple', self.up1)
+        env = {k: v for k, v in BASE_ENV.items() if not k.startswith('GIT_COMMITTER')}   # the committer comes from -c, as in patches.am
+        subprocess.run(['git', '-c', 'user.name=patches.py', '-c', 'user.email=patches@localhost', '-c', 'commit.gpgsign=false', 'am', '-3', '--quiet',
+                        str(self.r / 'patches/0001-line-2.patch')], cwd=self.eng, env=env, check=True)
+        self.assertNotEqual(git(self.eng, 'rev-parse', 'HEAD'), (self.eng / '.git/nx2apple-stamp').read_text().split('head ')[1].strip())
+
+    def test_commits_that_a_failed_older_sync_left_are_not_work(self):
+        self.stuck()
+        self.assertIn('engine: ready', self.tool('sync'))
+
+    def test_a_real_commit_on_top_of_what_a_failed_sync_left_is_still_work(self):
+        self.stuck()
+        self.commit_in_engine()
+        self.assertIn('commit(s) after the last sync', self.tool('sync', expect=2))
         self.assertEqual((self.eng / 'dm/b.c').read_text(), 'b1\nb2 engine\n')
 
     def test_sync_refuses_to_drop_an_uncommitted_change(self):

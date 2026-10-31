@@ -16,7 +16,7 @@ python3 tools/engine.py bump --dry --to main # which patches a bump would drop o
 ```
 
 `sync` never throws away work in `engine/`: with commits or changes there it stops and names `export` (or `--force`, which keeps
-them on a backup branch). Offline, it says so and names the fix (`NX2APPLE_ENGINE_URL` takes a mirror or a local clone). The launchers
+them on a backup branch). A sync that fails (a patch does not apply) puts `engine/` back as it was, so the next sync does not see commits nobody made. Offline, it says so and names the fix (`NX2APPLE_ENGINE_URL` takes a mirror or a local clone). The launchers
 run it on the first start of a checkout, CI runs it before every job that reads the engine, and the release app carries the engine tree
 instead (below). A PR that adds files under `dm/`, `scripts/`, `docs/` or `ref/` fails the `pr-scope` check.
 
