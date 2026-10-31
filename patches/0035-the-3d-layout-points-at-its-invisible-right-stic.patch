@@ -12,7 +12,6 @@ The right stick answers anywhere in the right third of the screen and is drawn n
 Upstream-Status: pending
 Reason: Players could not find the 3D layout's right stick (it answers in the right third of the screen but is drawn nowhere); a dashed ring points at it while the layout is new
 Issue: LNPANDY/NX2Apple (player report, Pokémon Legends Z-A)
-
 ---
  dm/ios/Sources/DmGamepad.m | 24 ++++++++++++++++++++++--
  1 file changed, 22 insertions(+), 2 deletions(-)
@@ -31,7 +30,7 @@ index 3747fc9..def0a62 100644
  //   Everything hugs the edges and corners to leave the picture room; controls sit over the picture, one CAShapeLayer each: a press only swaps the fill, a stick only moves its knob, nothing redraws the whole screen.
  //   Touches no control takes (in 3D, those outside the right third) go to the game's touch screen (pushGame; Super Mario Galaxy's pointer in handheld mode).
  //   The virtual gamepad (layout button included) hides while a physical controller is connected and comes back when it is removed; meanwhile every touch goes to the game. Physical controllers keep every button (D-pad and right stick included) and map by position: bottom = B, right = A, left = Y, top = X (same positions as on a Switch controller); a Nintendo pad maps by its labels (pad_apple.h).
-@@ -143,6 +144,7 @@ @implementation DmGamepad {
+@@ -143,6 +144,7 @@ static void pads_start(void);   // Physical controllers, below
      CAShapeLayer *_key[B_N]; CATextLayer *_label[B_N];   // one layer per key
      CAShapeLayer *_ring, *_knob;                   // the left stick (the right one is not drawn)
      CAShapeLayer *_swap; CATextLayer *_swapLabel; BOOL _swapHeld;
@@ -39,7 +38,7 @@ index 3747fc9..def0a62 100644
      UIImpactFeedbackGenerator *_touchFeedback;       // one short feedback per touch-control press edge
      unsigned _hapticSticks;
      BOOL _stickShown;                              // the left stick was held at the last refresh
-@@ -192,6 +194,9 @@ - (instancetype)initWithFrame:(CGRect)f {
+@@ -192,6 +194,9 @@ static BOOL fullOnly(int b) { return b == B_LS || b == B_RS || b >= B_LEFT; }
              if (names[b]) _label[b] = label(_key[b], names[b]);   // the D-pad arms carry no label
          }
          _swap = shape(_controls); _swapLabel = label(_swap, @"");
@@ -49,7 +48,7 @@ index 3747fc9..def0a62 100644
          NSNumber *saved = [NSUserDefaults.standardUserDefaults objectForKey:k_layout_key];
          int l = saved ? (int)saved.integerValue : dm_profile()->pad_layout;
          if (l == 2 && dm_opmode() != 0) l = 0;   // Tap only in handheld mode (env.txt's DM_OPMODE may have changed it)
-@@ -213,6 +218,16 @@ - (void)applyLayout {   // show / hide the controls for the current layout
+@@ -213,6 +218,16 @@ static BOOL fullOnly(int b) { return b == B_LS || b == B_RS || b >= B_LEFT; }
      _ring.hidden = _knob.hidden = _tap;
      _swapLabel.string = _tap ? @"Tap" : _full ? @"3D" : @"2D";
      [CATransaction commit];
@@ -66,7 +65,7 @@ index 3747fc9..def0a62 100644
  }
  - (void)nextLayout {   // 2D → 3D (→ Tap in handheld mode) → 2D: release every touch first (no key stays held), save, lay out again
      int l = _tap ? 0 : _full ? (dm_opmode() == 0 ? 2 : 0) : 1;
-@@ -345,7 +360,8 @@ - (void)touchesBegan:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e {
+@@ -345,7 +360,8 @@ static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y);
          CGFloat f = dist(p, self.faceCenter) / (self.faceGap + self.faceR * 1.6); if (f <= best) { best = f; kind = C_FACE; }
          if (_full) { CGFloat d = dist(p, self.dpadCenter) / (self.dpadR * K_DPAD_GRAB); if (d < best) { best = d; kind = C_DPAD; } }
          if (!_stick[0]) { CGFloat s = dist(p, self.stickHome) / ([self stickR:0] * K_STICK_GRAB); if (s < best) { best = s; kind = C_STICK; } }
@@ -76,7 +75,7 @@ index 3747fc9..def0a62 100644
          if (kind == C_FACE) { [_owner setObject:@(C_FACE) forKey:t]; [_faceOf setObject:@([self faceAt:p]) forKey:t]; }
          else if (kind == C_DPAD) [_owner setObject:@(C_DPAD) forKey:t];
          else if (kind == C_STICK) { [_owner setObject:@(C_STICK | (uint64_t)idx << 8) forKey:t]; _stick[idx] = t; _stickNow[idx] = p; }
-@@ -434,6 +450,10 @@ - (void)layoutSubviews {
+@@ -434,6 +450,10 @@ static void placeLabel(CATextLayer *t, CGPoint c, CGFloat fs) {
      static const struct { int b; CGFloat angle; } arms[] = {{B_UP, 0}, {B_RIGHT, M_PI_2}, {B_DOWN, M_PI}, {B_LEFT, -M_PI_2}};   // the same arm in 90° steps
      for (int i = 0; i < 4; i++) setPath(_key[arms[i].b], armPath(self.dpadCenter, self.dpadR, K_ARM_W * u, K_ARM_IN * u, arms[i].angle, 6 * u));
      CGPoint sc = self.swapCenter; setPath(_swap, circlePath(sc, K_SWAP_R * u)); placeLabel(_swapLabel, sc, 12 * u);

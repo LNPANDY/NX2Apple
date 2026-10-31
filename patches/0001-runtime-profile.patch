@@ -30,7 +30,7 @@ Issue: LNPANDY/NX2Apple#123
  create mode 100644 dm/host/tests/t_layout_runtime.c
 
 diff --git a/dm/games/game.py b/dm/games/game.py
-index 5d04719a..359d377a 100644
+index 5d04719..359d377 100644
 --- a/dm/games/game.py
 +++ b/dm/games/game.py
 @@ -199,6 +199,40 @@ if __name__ == '__main__':
@@ -75,7 +75,7 @@ index 5d04719a..359d377a 100644
          print(load(a[1]).dir)
      elif len(a) == 3 and a[0] == 'link':   # link → the profile folder (replaced when it points elsewhere)
 diff --git a/dm/host/dm.h b/dm/host/dm.h
-index 25be8aad..3ad1bb21 100644
+index 25be8aa..3ad1bb2 100644
 --- a/dm/host/dm.h
 +++ b/dm/host/dm.h
 @@ -7,6 +7,7 @@
@@ -87,7 +87,7 @@ index 25be8aad..3ad1bb21 100644
  // Explicit host work does not occupy a guest core (Metal submission, or a blocked native codec lock). A contended host mutex must count as blocked: a signal's same-core handoff
  // can otherwise wait forever for a peer that needs the signaller's native lock. Uncontended locks retain guest ordering; the counter nests inside existing host work.
 diff --git a/dm/host/hle_fpslock.c b/dm/host/hle_fpslock.c
-index b2d07fba..eea8efc8 100644
+index b2d07fb..eea8efc 100644
 --- a/dm/host/hle_fpslock.c
 +++ b/dm/host/hle_fpslock.c
 @@ -207,7 +207,7 @@ void dm_fps_lock_tick(void) {
@@ -100,7 +100,7 @@ index b2d07fba..eea8efc8 100644
          if (t && ue_missing) LOG("[RED] main: Unreal %s not found by the rewriter (ue_cvar.py NAMES; game profile ue_fps_cvar): the game's own frame limit stays", DM_GAME_UE_FPS_CVAR);
          if (!nrow && !nier && !fb.n) return;
 diff --git a/dm/host/hle_fs.c b/dm/host/hle_fs.c
-index 92fc9561..f4fe8061 100644
+index 92fc956..f4fe806 100644
 --- a/dm/host/hle_fs.c
 +++ b/dm/host/hle_fs.c
 @@ -590,7 +590,7 @@ HLE_FORCE("_ZN2nn2fs14ExtendSaveDataERKNS_7account3UidEll", "fsp-srv; extend sav
@@ -113,7 +113,7 @@ index 92fc9561..f4fe8061 100644
  HLE_FORCE("_ZN2nn2fs21MountSaveDataReadOnlyEPKcNS_13ApplicationIdERKNS_7account3UidE", "fsp-srv; another program's save data: none", Result, h_fs_MountSaveRO, const char *name, uint64_t app, const void *uid) {
      (void)uid; LOG("[RED] fs read-only mount of another program's save data %s: program %016llx, the host has none", name, (unsigned long long)app); return 0x7d402u;   // fs ResultTargetNotFound
 diff --git a/dm/host/hle_os.c b/dm/host/hle_os.c
-index 2d1afec7..14b3ee58 100644
+index 2d1afec..14b3ee5 100644
 --- a/dm/host/hle_os.c
 +++ b/dm/host/hle_os.c
 @@ -120,7 +120,7 @@ HLE_FORCE("_ZN2nn6crypto36GenerateCryptographicallyRandomBytesEPvm", "csrng serv
@@ -136,7 +136,7 @@ index 2d1afec7..14b3ee58 100644
  HLE_FORCE("_ZN2nn3mem17StandardAllocator8AllocateEm", "passed straight to the SDK; with the profile's alloc_big_align (13 Sentinels, Unicorn Overlord) allocations ≥ 64 KB are 64 KB aligned (memory pool start)", void *, h_mem_SAAllocate, void *self, size_t size) {
 diff --git a/dm/host/hle_profile.c b/dm/host/hle_profile.c
 new file mode 100644
-index 00000000..93c7ad51
+index 0000000..93c7ad5
 --- /dev/null
 +++ b/dm/host/hle_profile.c
 @@ -0,0 +1,281 @@
@@ -423,7 +423,7 @@ index 00000000..93c7ad51
 +}
 diff --git a/dm/host/hle_profile.h b/dm/host/hle_profile.h
 new file mode 100644
-index 00000000..a2febeb3
+index 0000000..a2febeb
 --- /dev/null
 +++ b/dm/host/hle_profile.h
 @@ -0,0 +1,37 @@
@@ -465,7 +465,7 @@ index 00000000..a2febeb3
 +const struct dm_profile *dm_profile(void);   // loaded once; never NULL
 +void dm_profile_log(void);                   // one line per differing value (called after loading)
 diff --git a/dm/host/hle_svc.c b/dm/host/hle_svc.c
-index 4f440a02..5e7eb0e0 100644
+index 4f440a0..5e7eb0e 100644
 --- a/dm/host/hle_svc.c
 +++ b/dm/host/hle_svc.c
 @@ -16,7 +16,7 @@
@@ -564,7 +564,7 @@ index 4f440a02..5e7eb0e0 100644
          // nn::os::GetFreeThreadCount (SDK 11+): the thread resource limit less the threads alive, as the kernel answers it (Atmosphère kern_svc_info.cpp). pm gives an application a limit of
          // 96 threads (pm_spec.cpp BaseApplicationThreads; a boost raises it to 256). Monster Train 2's Unity 2022.3 player creates a thread only when this is at least 1: the 0 it got here
 diff --git a/dm/host/loader.c b/dm/host/loader.c
-index 6771666a..fb149728 100644
+index 6771666..fb14972 100644
 --- a/dm/host/loader.c
 +++ b/dm/host/loader.c
 @@ -239,7 +239,7 @@ static void install_fps_state(module_t *m) {
@@ -577,7 +577,7 @@ index 6771666a..fb149728 100644
      float f = (float)t; memcpy(dm_fps_state, &f, sizeof f);
      // Render scale of the 3D views (the stubs at Tears of the Kingdom's main+0xd5cc0, Breath of the Wild's main+0x1266880): 1.0 keeps the game's own size and dynamic resolution;
 diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
-index 3d79971e..5169f889 100644
+index 3d79971..5169f88 100644
 --- a/dm/host/tests/Makefile
 +++ b/dm/host/tests/Makefile
 @@ -60,7 +60,7 @@ run: $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture
@@ -733,7 +733,7 @@ index 3d79971e..5169f889 100644
  	$(B)/t_notify_sched
 diff --git a/dm/host/tests/t_layout_runtime.c b/dm/host/tests/t_layout_runtime.c
 new file mode 100644
-index 00000000..20b210d4
+index 0000000..20b210d
 --- /dev/null
 +++ b/dm/host/tests/t_layout_runtime.c
 @@ -0,0 +1,103 @@
@@ -841,7 +841,7 @@ index 00000000..20b210d4
 +    return bad ? 1 : 0;
 +}
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index a079d7f2..3747fc9d 100644
+index a079d7f..3747fc9 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
 @@ -193,7 +193,7 @@ static BOOL fullOnly(int b) { return b == B_LS || b == B_RS || b >= B_LEFT; }
@@ -854,7 +854,7 @@ index a079d7f2..3747fc9d 100644
          _full = l == 1; _tap = l == 2;
          [self applyLayout];
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index ba59c4db..b40da58b 100644
+index 87909a2..07dac57 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
 @@ -216,6 +216,7 @@ DM_PROBE_LIMIT	diagnostic	Maximum printed hits per guest probe; 0 or absent leav

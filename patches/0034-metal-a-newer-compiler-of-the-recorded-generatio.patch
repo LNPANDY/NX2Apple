@@ -9,7 +9,6 @@ Xcode's auto-update bumps the compiler (27.1's 32023.921 to 27.2's 32023.922) an
 Upstream-Status: pending
 Reason: Xcode 27.2 auto-updated its Metal compiler to 32023.922; the exact-match gate stopped every NVN build at the shader step. A newer compiler of the recorded generation now builds with a note
 Issue: seedds/nxnative#717
-
 ---
  dm/gfx/tools/own_compilers.py        | 41 ++++++++++++++++++++++++----
  dm/tools/tests/test_own_compilers.py | 33 ++++++++++++++++++++++
