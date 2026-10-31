@@ -41,6 +41,34 @@ missing piece.
 - **`frontend/` and `frontend-qt/` are the fork's own:** change them freely. Run `cd frontend && swift test`. For a UI change also capture the views for visual QA (`NX_LAUNCHER_CAPTURE_DIR`, see [frontend/README.md](frontend/README.md#verification)).
 - **The engine is not in this repository.** `dm/`, `scripts/`, `docs/` and `ref/` are seedds/nxnative at the commit in `.upstream-ref` with the patches in `patches/` applied, built into `engine/` by `python3 tools/engine.py sync` (a git repository that git ignores here, #214). A PR that adds files under those paths fails the `pr-scope` check, because the next sync would not carry them. A fix to the engine or to a game profile lands here first, as a patch, and goes to seedds/nxnative as a pull request in parallel, as [patches/README.md](patches/README.md#here-first-upstream-in-parallel) states. If you cannot open the upstream pull request, a maintainer sends it. To make the patch, commit the change in `engine/`, run `python3 tools/engine.py export`, fill in the header of the new patch (`Upstream-Status`, `Reason`, `Issue`), run `python3 tools/engine.py check`, and commit `patches/` with it. That page walks through the steps and states the patch policy (what a patch may and may not change). Everything else in the repository root and under `.github/` (this file, `CLAUDE.md`, `AGENTS.md`, the README) is the fork's.
 
+### Fixes, features and ideas
+
+A fix is welcome without asking first.
+
+A feature can be opened as a pull request on its own. It needs an issue that describes the idea. Write it within 48 hours of the first reply from a maintainer. One maintainer has to agree to the idea before the PR merges. If the issue is never written, the PR is closed with a note that it can be reopened. A PR is not closed on arrival for a missing issue.
+
+To talk about an idea before you write code, use [Discussions](https://github.com/LNPANDY/NX2Apple/discussions).
+
+### What happens to your PR
+
+A pull request from outside never merges automatically. One maintainer tries the app that CI built for the PR, which is the `NX2Apple-macOS-arm64` artifact of the Build Mac app run. The same maintainer reviews the code. Whoever looks first decides.
+
+If the maintainers do not want a change, they say so early, explain why, and close the PR. They may keep parts of it and credit you as co-author.
+
+A PR that waits on its author for 30 days is closed with a note that it can be reopened.
+
+### When a PR merges
+
+This holds for every PR. A PR from outside also gets the maintainer check above, and never merges before it.
+
+Every fix goes through a PR. A fix merges when CI is green. No approval is needed.
+
+An unanswered review with changes requested from a maintainer blocks the merge. A plain review comment does not block. The maintainer who requested the changes reviews again once the fix is pushed, and approves or withdraws the request. Each maintainer clears their own objections. If the two maintainers disagree about an objection, Andy ([@LNPANDY](https://github.com/LNPANDY)) decides.
+
+A feature from the maintainers (v0lumehi and LNPANDY) merges after 48 hours. A feature from outside never merges by waiting. It merges after a maintainer agreed to the idea, tried the app and reviewed the code.
+
+A patch in `patches/` takes the next free number from `patches/series` on `main` at merge time. Whoever merges renumbers the patch and notes it in the PR. You do not need to rebase to chase free numbers.
+
 ## For AI agents and other tools
 
 Issue forms and the PR template apply in the browser only. `gh issue create`, the API and MCP tools skip the forms, so follow them yourself:
