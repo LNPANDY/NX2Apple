@@ -114,8 +114,8 @@ a game installed from here has a known bundle ID, so a sideloaded IPA has no dev
 ## Cheats
 
 **Manage > Cheats…** manages a game's cheat files, the contract that `docs/frontends.md` ("Cheats") describes and
-the host reads (`dm/host/hle_cheats.c`, carried here from [seedds/nxnative#406](https://github.com/seedds/nxnative/pull/406)
-while it is open). The files live in `~/Library/Application Support/nxnative/<title ID>/cheats`, which is what the Mac
+the host reads (`dm/host/hle_cheats.c`, from upstream since [seedds/nxnative#406](https://github.com/seedds/nxnative/pull/406)
+landed). The files live in `~/Library/Application Support/nxnative/<title ID>/cheats`, which is what the Mac
 app's launcher (`dm/mac/launcher.c`) sets `DM_ROOT` to, whatever the library folder is.
 
 - **Import** by dropping onto the sheet or **Import…**: a Ryujinx folder, an SD card's `atmosphere/contents/<title ID>/cheats`
@@ -130,7 +130,10 @@ app's launcher (`dm/mac/launcher.c`) sets `DM_ROOT` to, whatever the library fol
 - **iPhone / iPad.** For a game installed from here, **Copy to iPhone** replaces the app's `Documents/games/<title ID>/cheats`
   with this folder over the install's route (`devicectl device copy to`, as the Saves sheet does), without the Mac's
   safe-mode flag. The iOS app points `DM_CHEATS` at that folder (fork patch `ios-game-data-folder`), so copy again after a
-  change.
+  change. The iPhone runs data cheats only. A cheat that writes into the game's code is turned off there with a line in the log,
+  because iOS does not allow changing the game's code. The sheet carries a note saying so for a game with an iOS build.
+- **Mac.** Code cheats run in the Mac app. The host refuses a code write into a word the rewriter changed, listed in the
+  app's `dm/main.changed.tsv`. An app built before that file existed refuses every code write until it is rebuilt.
 
 The host reads the files when the game starts, or on its Reload cheats (⌘R) on the Mac, and never watches the folder. So a
 change while the game runs applies after a reload, and the sheet says so. Live switching from the launcher is not part of it.

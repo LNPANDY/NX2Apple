@@ -28,10 +28,10 @@ zip_store	.awb:.pak:.ttf:.txt:.usm:.metallib
 fps_target	60
 
 # ---- Memory ----
-# Unreal Engine: nninitStartup (main+0x12d74) needs virtual address memory and reserves one address region for the engine (-SwitchVirtualAddressSpaceSize= in MB, game_args below; 62 GB by default).
-# Its allocator, an FMallocBinned3 (37 GB of address space), is replaced by the host's (patches.py cut, hle_uemalloc.c), and the SDK's node area is cut to 62 MB (dm/tools/sdk_patches.py), so the region holds what the engine maps
-# itself (709 MB at character creation, spread over 1 GB). Alias region = node area + up to 1 GB of alignment (regions of 1 GB and more are 1 GB aligned) + the 2 GB region; 256 MB stacks, 128 MB heap
-game_args	-SwitchVirtualAddressSpaceSize=2048
+# Unreal Engine: nninitStartup (main+0x12d74) needs virtual address memory and reserves one address region for the engine, 62 GB by default; the rewriter's engine-wide gate on the store of its size (dm/tools/ue_region.py; hle_svc.c) gives it what the alias region has room for
+# (2.81 GB; until 2026-10-31 -SwitchVirtualAddressSpaceSize=2048 in game_args). Its allocator, an FMallocBinned3 (37 GB of address space), is replaced by the host's (the rewriter's engine-wide cut, dm/tools/ue_malloc.py; hle_uemalloc.c),
+# and the SDK's node area is cut to 62 MB (dm/tools/sdk_patches.py), so the region holds what the engine maps itself (709 MB at character creation, spread over 1 GB). Alias region = node area
+# + the region (this SDK build aligns regions to 2 MB only) + 256 MB for regions made later; 256 MB stacks, 128 MB heap
 mem_reserve	0xF0000000
 mem_alias	0xC8000000
 mem_stack	0x10000000

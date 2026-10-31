@@ -14,10 +14,10 @@ Issue: LNPANDY/NX2Apple#221
  4 files changed, 14 insertions(+), 1 deletion(-)
 
 diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
-index e70075dc..a383f04b 100644
+index 91224501..e8a645e7 100644
 --- a/dm/host/front_mac.m
 +++ b/dm/host/front_mac.m
-@@ -276,6 +276,17 @@ void front_run(void (*guest)(void)) {
+@@ -1126,6 +1126,17 @@ void front_run(void (*guest)(void)) {
          if (getenv("DM_METAL_HUD") && atoi(getenv("DM_METAL_HUD"))) { g_layer.developerHUDProperties = @{@"mode": @"default"}; LOG("front end: Metal performance HUD on (DM_METAL_HUD)"); }   // Apple's HUD over the game: frame rate, frame and GPU time, memory
          v.layer = g_layer; [(DmGameView *)v fitDrawable];
          [win center];
@@ -36,7 +36,7 @@ index e70075dc..a383f04b 100644
          g_screen_fps = (int)(win.screen ?: NSScreen.mainScreen).maximumFramesPerSecond;
          g_win = win;
 diff --git a/docs/development.md b/docs/development.md
-index 7b6b9361..e8cd757b 100644
+index 3f122a70..f915286e 100644
 --- a/docs/development.md
 +++ b/docs/development.md
 @@ -10,7 +10,7 @@ The README covers packing and playing. This page is for working on nxnative itse
@@ -49,10 +49,10 @@ index 7b6b9361..e8cd757b 100644
  | Known gaps | Conditional render is always drawn; `MultiDraw*IndirectCount` waits on the CPU for the GPU-written count; geometry shaders do not translate. TBDR optimizations are off by default (they don't understand bindless textures yet). No amiibo. On the Mac, Mario's menu and dialogue text render blank (fine on the iPhone) |
  
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index a4e18ba3..3cfa659d 100644
+index afe6032e..6993f8dc 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
-@@ -262,6 +262,7 @@ DM_SAVE	path	This run's save folder (must be set); the device save is `<DM_SAVE>
+@@ -267,6 +267,7 @@ DM_SAVE	path	This run's save folder (must be set); the device save is `<DM_SAVE>
  DM_SAVED_CHOICES	switch	`0` ignores the player's saved choices (launcher.<VAR> in the app's preferences) and leaves them saved; the Mac launcher and the iOS settings screen
  DM_SAVE_SYNC	player	Cloud saves: the folder whose `<title ID>/save.dmsync` the save is synced through, `icloud` for iCloud Drive/nxnative Saves (the Mac); `0` or unset, off. The Mac launcher sets the folder chosen in its settings window's Cloud saves, the iPhone app the one picked in its launcher (dm/host/save_sync.h)
  DM_SCHEME_NAME	switch	Set by `build_ipa.sh` itself for xcodegen's `project.yml`: the Xcode scheme name, `DmIOS`, or `<display name> (<title ID>)` for a project prepared with `--prepare-xcode`
@@ -61,7 +61,7 @@ index a4e18ba3..3cfa659d 100644
  DM_SF_TRACE	diagnostic	`=1` logs every request on the game's own HIPC client sessions that the host answers (`hle_sf.c`)
  DM_SHAKE_G	switch	`=<G>`: on iOS, the acceleration beyond gravity above which a flick of the phone shakes the controller's six-axis sensor (default 1.5)
 diff --git a/docs/frontends.md b/docs/frontends.md
-index f2f9c8c9..696d9a7e 100644
+index 9fb49dba..dafd8857 100644
 --- a/docs/frontends.md
 +++ b/docs/frontends.md
 @@ -70,6 +70,7 @@ Each app keeps the player's choices in its own preferences domain, its bundle ID

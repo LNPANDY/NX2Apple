@@ -67,4 +67,4 @@ General changes first needed here; each applies to every game:
 - A battle, the sound and the iPhone are not tested; the IPA (3.6 GB) is built but not run on a device.
 - The travelers' signatures on their cards stop part-drawn ("Opli…", "Haa…"): not looked into.
 - The two untranslated compute shaders (above).
-- 60 fps: the host's frame-limit writes (`hle_fpslock.c`) need this build's `t.MaxFPS` and `nvn.SyncInterval` addresses.
+- 60 fps: the host's frame-limit writes (`hle_fpslock.c`) need this build's `t.MaxFPS` and `nvn.SyncInterval`, which the rewriter's search (`dm/tools/ue_cvar.py`) does not find yet: the inlined static constructor (`t.MaxFPS` loaded at `main+0x1bfdb90`) keeps a page base in `x22` from far before the name and stores the value pointer at `[x22, #0x5e8]`; see [Unreal's frame limit and present interval, found by name](../../../docs/reference/frame-rate.md#unreals-frame-limit-and-present-interval-found-by-name).

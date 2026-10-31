@@ -33,11 +33,11 @@ fps_target	60
 pad_layout	full
 
 # ---- Memory ----
-# Unreal Engine 4.18: nninitStartup takes one address region for the whole engine (16 GB by default), which a NumberLineAllocator (main+0x177c4d0) hands out; the game's argument
-# -SwitchVirtualAddressSpaceSize= caps it, in MB up to 4095 (main+0x177c440: atoi, and a larger number is taken as bytes; 4224 gave a 4 KB region and a crash in the allocator's
-# Compaction at boot). Two cuts on the SDK 7.3.2 build (dm/tools/sdk_patches.py) put it 64 MB into the alias region: the node area 62 MB instead of 1 GB, and regions of 1 GB and more
-# 32 MB aligned instead of 1 GB. Engage's 5 GB block: 256 MB in front + 4.375 GB alias region + 256 MB stack region + 128 MB heap region (the game sets no heap)
-game_args	-SwitchVirtualAddressSpaceSize=4064
+# Unreal Engine 4.18: nninitStartup takes one address region for the whole engine (16 GB by default), which a NumberLineAllocator (main+0x177c4d0) hands out;
+# the rewriter's engine-wide gate on the store of its size (dm/tools/ue_region.py; hle_svc.c) gives it what the alias region has room for: 4.06 GB. Until 2026-10-31 the game's argument
+# -SwitchVirtualAddressSpaceSize=4064 capped it (game_args), in MB up to 4095 (main+0x177c440: atoi, and a larger number is taken as bytes; 4224 gave a 4 KB region and a crash in the
+# allocator's Compaction at boot). Two cuts on the SDK 7.3.2 build (dm/tools/sdk_patches.py) put it 64 MB into the alias region: the node area 62 MB instead of 1 GB, and regions of 4 MB
+# and more 2 MB aligned, as SDK 20. Engage's 5 GB block: 256 MB in front + 4.375 GB alias region + 256 MB stack region + 128 MB heap region (the game sets no heap)
 mem_reserve	0x140000000
 mem_alias	0x118000000
 mem_stack	0x10000000

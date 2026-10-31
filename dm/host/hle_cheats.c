@@ -148,7 +148,6 @@ static int g_safe;             // safe mode: the last run ended without a clean 
 static _Atomic uint64_t g_present_ns;   // the last present: the ~60 Hz thread stands down while it is recent
 static _Atomic int g_dbg;      // DM_CHEATS_DEBUG
 static int g_any;              // DM_CHEATS_ANY_BUILD
-static _Atomic int g_inited;   // dm_cheats_init done (the thread keeps running under the consoleless iOS app too)
 
 // Region 0: the guest main NSO as the loader mapped it (dm/host/loader.c map_image: text pages and the patch area
 // read+execute, data and bss read+write, the host's key page read-only at the image's end); region 1: the heap,
@@ -163,17 +162,16 @@ void svc_guest_range(uint8_t **base, size_t *size); // hle_svc.c: that block (th
 // the original page mprotect RW -> copy -> RX on every write races with the game's running cores: between the first
 // mprotect and the restore their fetches of any instruction on that page fault (a 16 KB macOS page holds ~4 KB of
 // instructions, found when main+0x305DD98 faulted while the poke page 0x305F3FC was toggled, run xa). With the alias the
-// protections never change, so only the honest mid-word race the reference on Switch itself has is left. NULL when the
-// remap failed: writes fall back to the per-page mprotect toggle (kept below), logged [RED] once
+// protections never change, so only the honest mid-word race the reference on Switch itself has is left. NULL on the
+// iPhone and when the remap failed: then no cheat writes code (main_write_check)
 static uint8_t *g_alias;       // the alias mapping of main's image (same layout, page rounded up); every offset a
                                // cheat reaches is bounds-checked against main's own span first, so the page-rounded
                                // size needs no variable of its own
-static int g_alias_fallback;   // the fallback [RED] was already logged once
 
 // Map main's image a second time, writable. Called once a cheat file is actually picked (at init that is before the
 // guest starts, so nothing protects or tracks these pages yet); the mapping stays for the process's lifetime, the
-// loader's per-page protections never change after load. iPhone only: its SDK forbids mach_vm.h, and there the
-// guarded main_write_pages falls back to the per-page mprotect toggle (unsampled, plain C must stay compiling)
+// loader's per-page protections never change after load. Not on the iPhone: its SDK has no mach_vm.h, and its code pages
+// are the app's signed pages, which no mapping can make writable; cheats write only data there
 #if TARGET_OS_IPHONE
 static void alias_setup(void) { g_alias = NULL; }
 #else
@@ -529,49 +527,84 @@ static int mem_read(uint64_t addr, uint64_t len, uint64_t *out) {
     return 0;
 }
 
-// Cheats writing into main's pages (dmnt's WriteCheatProcessMemoryUnsafe on this host): if the writable alias of main
-// was mapped at init (alias_setup), everything is copied through it — the same physical memory, the game's own mapping
-// stays untouched and executable, no mprotect at write time. Without the alias (a remap failure) the code pages (text
-// to its text_end, the patch area) are toggled writable, copied and put back per page, and the instruction cache is
-// invalidated, so the game's fetches see exactly what the cheat says (the rewriter may have rewritten the same
-// instruction; the cheat still overwrites it when enabled) — but that path races with the game's running cores (see
-// alias_setup), so it logs a [RED] once and is truly a last resort. The key page (this host's TLS slot numbers, inside
-// the mapped image) is refused either way: changing it would break every guest thread
-static int main_write_pages(cheat_t *c, uint64_t addr, uint64_t len, const void *src) {
-    static long pg; if (!pg) pg = getpagesize();
-    module_t *m = g_main_mod; uint64_t mb = (uint64_t)(uintptr_t)m->base;
-    uint64_t rx_end = (m->text_end + pg - 1) & ~(uint64_t)(pg - 1);                    // the text as mprotect'd at load
-    // The patch area when it follows the image (patch_off >= 0), page-rounded. When it lies before the base
-    // (patch_off < 0, the loader's large-image layout) m->size excludes it and no cheat write can reach it: po = size
-    // leaves the second code range below empty. UINT64_MAX there would wrap mb + po to mb - 1, make every page count
-    // as code in the fallback (a [mb - 1, ...) test) and seal data / bss pages R|X, which faults the game's next write
-    uint64_t po = m->patch_off >= 0 ? ((uint64_t)m->patch_off & ~(uint64_t)(pg - 1)) : (uint64_t)m->size;
-    uint64_t kp0 = mb + m->key_page_off, kp1 = kp0 + m->key_page_size;
-    if (addr < kp1 && addr + len > kp0) {   // the write would cover the key page: refuse it like an out-of-range access
-        cheat_kill(c, "write into the host key page is refused");
+// The rewriter's list of main's text words whose instructions no longer run as the file has them (patch_nso.py
+// <name>.changed.tsv: the words it changed, the windows and spin waits whose copies run instead), as sorted runs of
+// image offsets; read once, when a cheat file is first picked. -1: no list beside the modules (an older rewriter's
+// output) or one of another build, and then no text word can be shown to be the game's own
+static uint32_t (*g_changed)[2];   // {offset, length} runs
+static int g_nchanged, g_changed_state;   // state 0 not read yet, 1 read, -1 missing or wrong
+
+static void changed_load(void) {
+    if (g_changed_state) return;
+    g_changed_state = -1;
+    char p[1100]; snprintf(p, sizeof p, "%s/main.changed.tsv", dm_module_dir());
+    FILE *f = fopen(p, "r");
+    if (!f) { LOG("[RED] cheats: no %s (the modules come from an older rewriter): code writes are refused; rewrite them with dm/tools/patch_nso.py", p); return; }
+    char line[256], bid[40] = ""; int cap = 0; unsigned long off, len;
+    while (fgets(line, sizeof line, f)) {   // NOLINT(clang-analyzer-unix.BlockInCriticalSection): a file load under the cheats lock; the per-frame pass only trylocks it, so a load never stalls a frame
+        if (sscanf(line, "# BUILD_ID %39s", bid) == 1) continue;
+        if (sscanf(line, "%lx %lx", &off, &len) != 2) continue;
+        if (g_nchanged == cap) {
+            cap = cap ? cap * 2 : 1024;
+            uint32_t (*grown)[2] = realloc(g_changed, (size_t)cap * sizeof *g_changed);
+            if (!grown) { fclose(f); g_nchanged = 0; return; }   // state -1: code writes stay refused
+            g_changed = grown;
+        }
+        g_changed[g_nchanged][0] = (uint32_t)off; g_changed[g_nchanged][1] = (uint32_t)len; g_nchanged++;
+    }
+    fclose(f);
+    if (strcasecmp(bid, g_main_mod->build_id)) { LOG("[RED] cheats: %s is for build %s, not main's %s: code writes are refused", p, bid, g_main_mod->build_id); g_nchanged = 0; return; }
+    g_changed_state = 1;
+    LOG("cheats: %d runs of text words the rewriter changed or moved (code writes into them are refused)", g_nchanged);
+}
+
+// The first changed run that [off, off + len) overlaps, or -1 (the runs are sorted and never overlap each other)
+static int changed_hit(uint64_t off, uint64_t len) {
+    int lo = 0, hi = g_nchanged;
+    while (lo < hi) { int mid = (lo + hi) / 2; if ((uint64_t)g_changed[mid][0] + g_changed[mid][1] <= off) lo = mid + 1; else hi = mid; }
+    return lo < g_nchanged && g_changed[lo][0] < off + len ? lo : -1;
+}
+
+// Cheats writing into main's image (dmnt's WriteCheatProcessMemoryUnsafe on this host). Only the Switch's own image is
+// a cheat's: [0, key page), text, read-only data, data and bss; the key page, the frame step page and the patch areas
+// are the host's and refused. A write into the text (to its last page, which the loader sealed read + execute) must
+// also pass two checks, else the cheat turns off with the reason:
+//   - no word of it is one the rewriter changed or moved (changed_load): the cheat's instruction there would undo a site
+//     (an SVC, a TLS register read, a lock acquire made ldaxr), most often through an on / off pair's restore of the
+//     Switch's original word, or would never run (its copy in the patch area runs instead)
+//   - it goes through the writable alias of main (alias_setup), the same physical pages: the game's own mapping stays
+//     executable and untouched. Without the alias there is no text write: toggling the game's pages writable races
+//     with its running cores (their fetches fault while a page is RW), and on the iPhone the pages are the app's own
+//     signed code, which can never be made writable
+// Data is written through the alias too when there is one, else directly (those pages are read + write). The checks
+// run in a dry run too (main_write_check, before the description), so the preview says the write would stop the cheat
+static uint64_t main_rx_end(void) { static long pg; if (!pg) pg = getpagesize(); return (g_main_mod->text_end + pg - 1) & ~(uint64_t)(pg - 1); }
+static int main_write_check(cheat_t *c, uint64_t addr, uint64_t len) {
+    module_t *m = g_main_mod; uint64_t off = addr - (uint64_t)(uintptr_t)m->base;
+    if (off + len > m->key_page_off) {
+        cheat_kill(c, "write at main+0x%llX is past the game's image (the host's key page and patch area)", (unsigned long long)off);
         return -1;
     }
-    dm_guest_write_prepare((void *)(uintptr_t)addr, len);   // the write-protect dirty tracking must see this write coming
-    const uint8_t *v = src;
-    uint64_t start = addr;                  // kept for the icache invalidate: the fallback loop walks addr past it
-    if (g_alias) {
-        memcpy(g_alias + (size_t)(addr - mb), v, len);   // through the writable alias, the same image offset
-    } else {
-        if (!g_alias_fallback) { g_alias_fallback = 1; LOG("[RED] cheats: no writable alias of main, code pages go through an mprotect toggle that races with the game's own execution"); }
-        for (uint64_t end = addr + len; addr < end;) {
-            uint64_t p0 = addr & ~(uint64_t)(pg - 1), hi = p0 + pg < end ? p0 + pg : end;   // the slice of this page
-            void *page = (void *)(uintptr_t)p0;
-            int code = p0 < mb + rx_end || (p0 >= mb + po && p0 < mb + m->size);
-            if (code) {
-                if (mprotect(page, pg, PROT_READ | PROT_WRITE)) { cheat_kill(c, "mprotect of a code page failed (errno %d)", errno); return -1; }
-                memcpy((void *)(uintptr_t)addr, v + (addr - start), hi - addr);
-                if (mprotect(page, pg, PROT_READ | PROT_EXEC)) { cheat_kill(c, "mprotect restore failed (errno %d)", errno); return -1; }
-            } else memcpy((void *)(uintptr_t)addr, v + (addr - start), hi - addr);
-            addr = hi;
+    if (off < main_rx_end()) {   // the text, to its last page as the loader sealed it
+        if (!g_alias) {
+            cheat_kill(c, "%s", TARGET_OS_IPHONE ? "code writes are not possible on the iPhone (the app's signed code pages)" : "code write without the writable alias of main");
+            return -1;
+        }
+        int k = g_changed_state == 1 ? changed_hit(off, len) : -2;
+        if (k == -2) { cheat_kill(c, "code write refused: no rewriter list of changed words (main.changed.tsv) for this build"); return -1; }
+        if (k >= 0) {
+            cheat_kill(c, "writes main+0x%llX, which the rewriter changed or moved (main+0x%X..+0x%X)", (unsigned long long)off,
+                       g_changed[k][0], g_changed[k][0] + g_changed[k][1]);
+            return -1;
         }
     }
-    sys_icache_invalidate((void *)(uintptr_t)start, len);   // the game's own fetches must see the new instructions
     return 0;
+}
+static void main_write_pages(uint64_t addr, uint64_t len, const void *src) {
+    uint64_t off = addr - (uint64_t)(uintptr_t)g_main_mod->base; int code = off < main_rx_end();
+    dm_guest_write_prepare((void *)(uintptr_t)addr, len);   // the write-protect dirty tracking must see this write coming
+    memcpy(g_alias ? g_alias + (size_t)off : (uint8_t *)(uintptr_t)addr, src, len);
+    if (code) sys_icache_invalidate((void *)(uintptr_t)addr, len);   // the game's own fetches must see the new instructions
 }
 
 // Read len bytes at a guest address without any consequence for a cheat: 0 and the value, or -1 when unmapped (the dry run
@@ -600,7 +633,7 @@ static void value_text(const cheat_t *c, unsigned width, uint64_t v, char *out, 
     char k = c->type[0]; int tw = (int)type_width(c->type);
     if (k == 'f' && tw == (int)width && width == 4) { uint32_t u = (uint32_t)v; float f; memcpy(&f, &u, 4); snprintf(out, n, "%g", f); return; }
     if (k == 'f' && tw == (int)width && width == 8) { double d; memcpy(&d, &v, 8); snprintf(out, n, "%g", d); return; }
-    if (k == 's' && tw == (int)width) { int sh = 64 - 8 * (int)width; snprintf(out, n, "%lld", (long long)((int64_t)(v << sh) >> sh)); return; }
+    if (k == 's' && tw == (int)width && width) { int sh = 64 - 8 * (int)width; snprintf(out, n, "%lld", (long long)((int64_t)(v << sh) >> sh)); return; }
     if (k == 'u' && tw == (int)width) { snprintf(out, n, "%llu", (unsigned long long)v); return; }
     snprintf(out, n, "%llu (0x%llX)", (unsigned long long)v, (unsigned long long)v);
 }
@@ -627,6 +660,7 @@ static void cheat_write(cheat_t *c, uint64_t addr, uint64_t len, uint64_t val) {
             return;
         }
     }
+    if (w.kind == WH_MAIN && main_write_check(c, addr, len)) return;
     if (g_dry) {
         char where[48], now[48], new_[48]; uint64_t cur = 0;
         addr_name(addr, where, sizeof where);
@@ -640,7 +674,7 @@ static void cheat_write(cheat_t *c, uint64_t addr, uint64_t len, uint64_t val) {
                                  w.kind == WH_MAIN ? "main NSO" : w.kind == WH_HEAP ? "heap" : w.kind == WH_MODULE ? w.mod->name : "guest page");
     int bad = 0;
     switch (w.kind) {
-        case WH_MAIN: main_write_pages(c, addr, len, &val); break;
+        case WH_MAIN: main_write_pages(addr, len, &val); break;
         // The heap write happens under the memory lock (dm_guest_heap_write), so a concurrent SetHeapSize cannot shrink it
         // out from under the copy; it only refuses if the span shrank since the check a moment ago: a failed access as ever
         case WH_HEAP: bad = dm_guest_heap_write(addr, &val, len) != 0; break;
@@ -1021,12 +1055,24 @@ void dm_cheats_present(void) {
 // present): a stopped game still changes under its cheats, as on hardware where the cheat process keeps running
 static void *cheat_tick_thread(void *arg) {
     (void)arg;
-    while (atomic_load(&g_inited)) {
+    for (;;) {
         usleep(16667);   // ~60 Hz
         if (now_ns() - atomic_load(&g_present_ns) < 250000000ull) continue;   // presenting again: the hook applies
         cheats_pass();
     }
     return NULL;
+}
+
+// Started with the first file that has a cheat in it (load_all, at launch or on "Reload cheats"), never for a game without
+// one: a run without cheats keeps no thread waking 60 times a second. It runs from then on, standing down while the game
+// presents; a reload that loses the file leaves g_active off and the passes return at once
+static int g_tick_started;
+static void tick_start(void) {
+    if (g_tick_started) return;
+    g_tick_started = 1;
+    pthread_t th; pthread_attr_t a; pthread_attr_init(&a); pthread_attr_setdetachstate(&a, PTHREAD_CREATE_DETACHED);
+    if (pthread_create(&th, &a, cheat_tick_thread, NULL)) LOG("[RED] cheats: cannot start the ~60 Hz apply thread (errno %d), only presents apply", errno);
+    pthread_attr_destroy(&a);
 }
 
 // ---------- the cheat states: <build>.enabled, DM_CHEATS_ON, the folder's flag files ----------
@@ -1120,7 +1166,7 @@ static int states_read(const char *path) {
     FILE *f = fopen(path, "r");
     if (!f) return -1;
     char line[1024]; int n = 0;
-    while (fgets(line, sizeof line, f)) {
+    while (fgets(line, sizeof line, f)) {   // NOLINT(clang-analyzer-unix.BlockInCriticalSection): a file load under the cheats lock; the per-frame pass only trylocks it, so a load never stalls a frame
         char *save = NULL, *s = strtok_r(line, "\r\n", &save);
         if (!s) continue;
         int hit = -1;
@@ -1143,7 +1189,7 @@ static void meta_source(const char *meta_path, char *out, size_t n) {
     FILE *f = fopen(meta_path, "r");
     if (!f) return;
     char line[512];
-    if (fgets(line, sizeof line, f) && !strncmp(line, "# cheat_anchor.py: compiled from ", 33)) {
+    if (fgets(line, sizeof line, f) && !strncmp(line, "# cheat_anchor.py: compiled from ", 33)) {   // NOLINT(clang-analyzer-unix.BlockInCriticalSection): a file load under the cheats lock; the per-frame pass only trylocks it, so a load never stalls a frame
         char *e = strstr(line, " for build ");
         if (e) snprintf(out, n, "%.*s", (int)(e - line - 33), line + 33);
     }
@@ -1266,7 +1312,7 @@ static void values_load(void) {
     FILE *f = fopen(path, "r");
     if (!f) return;
     char line[1024];
-    while (fgets(line, sizeof line, f)) {
+    while (fgets(line, sizeof line, f)) {   // NOLINT(clang-analyzer-unix.BlockInCriticalSection): a file load under the cheats lock; the per-frame pass only trylocks it, so a load never stalls a frame
         char *tab = strchr(line, '\t');
         if (!tab) continue;
         char *save = NULL;
@@ -1512,7 +1558,7 @@ static void meta_version(const char *meta_path, const char *bid, char *out, size
     FILE *f = fopen(meta_path, "r");
     if (!f) return;
     char line[512];
-    while (fgets(line, sizeof line, f) && line[0] == '#') {
+    while (fgets(line, sizeof line, f) && line[0] == '#') {   // NOLINT(clang-analyzer-unix.BlockInCriticalSection): a file load under the cheats lock; the per-frame pass only trylocks it, so a load never stalls a frame
         if (strncmp(line, "# build ", 8) || strncasecmp(line + 8, bid, 16) || line[24] != ' ') continue;
         snprintf(out, n, "%s", line + 25); out[strcspn(out, "\r\n")] = 0;
     }
@@ -1758,8 +1804,11 @@ static void load_all(void) {
     // pick happens before the guest starts; a later "Reload cheats" retries only when no alias mapped the first time
     if (g_main_mod && !g_alias) {
         alias_setup();
-        LOG("cheats: writable alias of main %s", g_alias ? "mapped" : "not mapped (mprotect toggle fallback)");
+        if (g_alias) LOG("cheats: writable alias of main mapped");
+        else if (TARGET_OS_IPHONE) LOG("cheats: the iPhone's code pages are signed: cheats write data only");
+        else LOG("[RED] cheats: no writable alias of main (mach_vm_remap failed): cheats write data only");
     }
+    if (g_alias) changed_load();   // which text words a code write must leave alone (only where code can be written at all)
     parse_file(g_path);
     meta_load(g_path);
     pairs_link();
@@ -1778,6 +1827,7 @@ static void load_all(void) {
         g_have_meta ? ", with its meta file" : "");
     report_build();
     atomic_store(&g_active, g_ncheat > labels);
+    if (atomic_load(&g_active)) tick_start();
     running_update();
 }
 
@@ -1795,7 +1845,7 @@ static void folder_flags(void) {
     if (g_safe) LOG("[RED] cheats: the last run ended without a clean exit while cheats were on: every cheat starts off (the Cheats panel restores them)");
 }
 
-// Read the switches, find the game's file, load it, and start the idle apply thread. Called after load_modules
+// Read the switches, find the game's file and load it (load_all starts the idle apply thread when it has cheats). Called after load_modules
 // (main.c host_preload): the build ID to pick the file by comes from the modules them
 void dm_cheats_init(void) {
     atomic_store(&g_dbg, !!getenv("DM_CHEATS_DEBUG"));
@@ -1829,12 +1879,6 @@ void dm_cheats_init(void) {
         if (g_main_mod) { pthread_mutex_lock(&g_lock); load_all(); pthread_mutex_unlock(&g_lock); }   // load_all maps the writable alias once a file is picked
         atexit(dm_cheats_exit);   // exit() paths (⌘Q, closing the window); dm_host_exit's _exit calls it itself
     }
-    atomic_store(&g_inited, 1);
-    pthread_t th; pthread_attr_t a; pthread_attr_init(&a); pthread_attr_setdetachstate(&a, PTHREAD_CREATE_DETACHED);
-    // The idle thread always runs (it stands down while the presents are recent, and a later "Reload cheats" that
-    // brings cheats in must also get its idle passes)
-    if (pthread_create(&th, &a, cheat_tick_thread, NULL)) LOG("[RED] cheats: cannot start the ~60 Hz apply thread (errno %d), only presents apply", errno);
-    pthread_attr_destroy(&a);
 }
 
 // A clean exit: no cheat runs any more, so the safe-mode flag goes (atexit, and dm_host_exit before its _exit)

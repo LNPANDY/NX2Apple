@@ -12,6 +12,8 @@ name	Pokémon Legends: Z-A
 ipa	PokMonLegendsZA.ipa
 app_category	public.app-category.games
 pad_layout	simple
+# the game sets the near=0 depth mode (nvnDeviceSetDepthMode): the pipeline bases made before it runs take the main0_z vertex entries
+depth_mode	zero
 
 # ---- Versions ----
 build	v393216	2.0.2	main=b1f12fd919eae86ab8a978317677e64b	sdk=df7a3960c74c3a4803f826c587153252

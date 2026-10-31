@@ -3,7 +3,6 @@ ios-game-data-folder
 ios-slim-ipa
 nsp-dotnet-home
 nsp-chain-changed-note
-nsp-work-dir
 bc-cpu-decode
 mac-keymap
 mac-library-folder
@@ -15,8 +14,6 @@ ref-hle-hid-d2r
 fork-patches-stamp
 nsp-dotnet-root-verify
 games-md-gallery
-cheats-engine
-cheats-mac-panel
 front-mac-enter-fullscreen-once-the-app-is-activ
 front-mac-dm-screen
 front-mac-hide-the-pointer-after-a-few-idle-seco

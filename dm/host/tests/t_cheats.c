@@ -17,7 +17,9 @@
 #include "../hle_cheats.c"
 #include <sys/stat.h>
 
-static module_t test_modules[3]; module_t *g_mod = test_modules; int g_nmod;   // the loader's module table (loader.c): "main" and a second module "sdk" here
+// the loader's module table (loader.c allocates it from the NSO list and the NRO manifest), here a fixed array: "main"
+// and the second modules "sdk" and "sdk2"
+static module_t mods[3]; module_t *g_mod = mods; int g_nmod;
 uint64_t now_ns(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return (uint64_t)t.tv_sec * 1000000000ull + (uint64_t)t.tv_nsec; }
 void dm_guest_write_prepare(void *addr, size_t len) { (void)addr; (void)len; }   // no dirty-page tracking in the test
 static uint8_t *heap; static size_t heap_open;   // the guest heap (hle_svc.c): a plain buffer, opened in full
@@ -33,6 +35,8 @@ static int as_ready = 1;   // 0: the block is not reserved yet (a pass before hl
 void svc_guest_range(uint8_t **base, size_t *size) { *base = as_ready ? gas : NULL; *size = as_ready ? GAS : 0; }
 static uint64_t held;                            // the keys "held" for the key-press conditional (hle_hid.c)
 uint64_t dm_cheats_keys(void) { return held; }
+static char moddir[1100];                        // the module folder (loader.c), with the rewriter's main.changed.tsv
+const char *dm_module_dir(void) { return moddir; }
 
 static int checks, fails;
 #define CHECK(c, s) do { checks++; int ok_ = !!(c); fails += !ok_; printf("%s %s\n", ok_ ? "✓" : "✗", s); } while (0)
@@ -52,7 +56,8 @@ static uint16_t rd16(uint64_t off) { uint16_t v; memcpy(&v, img + off, 2); retur
 // Write a file of the cheats folder
 static void put(const char *name, const char *text) {
     char p[1400]; snprintf(p, sizeof p, "%s/%s", g_dir, name);
-    FILE *f = fopen(p, "w"); fputs(text, f); fclose(f);
+    FILE *f = fopen(p, "w"); if (!f) { perror(p); exit(1); }
+    fputs(text, f); fclose(f);
 }
 
 // Read a file of the cheats folder into buf ("" when missing), after the engine's queued writes landed (files_drain: the
@@ -90,6 +95,13 @@ static int at(const char *name, int nth) {
     return -1;
 }
 
+// The entry of this name (its first occurrence); a missing one ends the test, which reads its fields next
+static cheat_t *entry(const char *name) {
+    int i = at(name, 0);
+    if (i < 0) { printf("✗ no entry \"%s\"\n", name); exit(1); }
+    return &g_cheat[i];
+}
+
 // Turn an entry on (toggling it when it is off) and run one pass
 static void on_and_pass(int i) { if (!dm_cheat_on_at(i)) dm_cheat_toggle(i); cheats_pass(); }
 
@@ -117,6 +129,14 @@ int main(void) {
     snprintf(s2->name, sizeof s2->name, "sdk2"); s2->base = sdk2; s2->size = 0x10000; s2->text_end = 0x1000; s2->ro_off = 0x1000; s2->data_off = 0x2000;
     s2->key_page_off = 0x4000; s2->key_page_size = 0x4000; s2->patch_off = 0x8000;
     g_main_mod = m; snprintf(g_build, sizeof g_build, "1111111111111111"); snprintf(g_tid, sizeof g_tid, "0100000000000000");
+    // The rewriter's list: main+0x300..0x307 changed (an SVC site and the word after it, a window), nothing else
+    snprintf(moddir, sizeof moddir, "%s/modules", root); mkdir(moddir, 0755);
+    { char p[1200]; snprintf(p, sizeof p, "%s/main.changed.tsv", moddir); FILE *f = fopen(p, "w"); if (!f) { perror(p); return 1; }
+      fprintf(f, "# BUILD_ID\t1111111111111111aaaaaaaaaaaaaaaa\n0x300\t0x8\n0x3000\t0x4\n"); fclose(f); }
+
+    // ---- no cheats file: nothing is mapped and no thread is started ----
+    fresh("none", NULL); load_all();
+    CHECK(!g_tick_started && !g_alias && !atomic_load(&g_active), "without a cheats file no alias is mapped and no idle thread runs");
 
     // ---- A: store register, its six offset types and the increment ----
     char t[2048];
@@ -176,7 +196,7 @@ int main(void) {
     CHECK(strstr(dm_cheats_report(), "1 headers glued") != NULL, "the report counts the glued header");
     fresh("labels2", "[inline] 04000000 00004078 00000003\n[typo]\n0400000 0000407C 00000001\n[typo2]\nhello world\n[Max 999[A]]\n04000000 00004080 00000004\n");
     load_all();
-    CHECK(g_cheat[at("inline", 0)].nins == 3 && dm_cheat_kind_at(at("inline", 0)) == 0, "code on the header's own line belongs to the entry (dmnt reads on after the header)");
+    CHECK(entry("inline")[0].nins == 3 && dm_cheat_kind_at(at("inline", 0)) == 0, "code on the header's own line belongs to the entry (dmnt reads on after the header)");
     CHECK(dm_cheat_kind_at(at("typo", 0)) == 2 && strstr(dm_cheat_why_at(at("typo", 0)), "malformed line 3"), "a 7-digit word is a typo: the line is malformed, the cheat off");
     CHECK(dm_cheat_kind_at(at("typo2", 0)) == 2 && strstr(dm_cheat_why_at(at("typo2", 0)), "no code words"), "an entry whose lines were all prose is broken, not a label");
     CHECK(at("Max 999[A", 0) >= 0, "a bracket inside a name is not a glued header (the name ends at the first ], as in dmnt)");
@@ -190,14 +210,14 @@ int main(void) {
     CHECK(dm_cheat_kind_at(at("far", 0)) == 0 && dm_cheat_on_at(at("far", 0)) && !strcmp(dm_cheat_why_at(at("far", 0)), " (no effect: 1 access out of mapped memory)"),
           "an out-of-range write is ignored: the cheat stays on, its row carries the count");
     cheats_pass();
-    CHECK(g_cheat[at("far", 0)].fails == 2 && strstr(dm_cheat_why_at(at("far", 0)), "2 accesses"), "the failures are counted pass after pass");
+    CHECK(entry("far")[0].fails == 2 && strstr(dm_cheat_why_at(at("far", 0)), "2 accesses"), "the failures are counted pass after pass");
     cheats_pass();
-    CHECK(g_cheat[at("far", 0)].fails == 3 && strstr(dm_cheat_why_at(at("far", 0)), "2 accesses"), "the note is rewritten sparingly (powers of two, or once a second): 3 still reads 2");
+    CHECK(entry("far")[0].fails == 3 && strstr(dm_cheat_why_at(at("far", 0)), "2 accesses"), "the note is rewritten sparingly (powers of two, or once a second): 3 still reads 2");
     cheats_pass();
-    CHECK(g_cheat[at("far", 0)].fails == 4 && strstr(dm_cheat_why_at(at("far", 0)), "4 accesses"), "and reads 4 at the fourth");
-    g_cheat[at("far", 0)].fails = 1;   // back to the count the dry-run check below expects
+    CHECK(entry("far")[0].fails == 4 && strstr(dm_cheat_why_at(at("far", 0)), "4 accesses"), "and reads 4 at the fourth");
+    entry("far")[0].fails = 1;   // back to the count the dry-run check below expects
     char dry[512]; dm_cheat_preview(at("far", 0), dry, sizeof dry);
-    CHECK(strstr(dry, "write at guest address") && strstr(dry, "fails") && g_cheat[at("far", 0)].fails == 1, "the dry run describes the failure and counts nothing");
+    CHECK(strstr(dry, "write at guest address") && strstr(dry, "fails") && entry("far")[0].fails == 1, "the dry run describes the failure and counts nothing");
     dm_cheat_toggle(at("far", 0));
     CHECK(!dm_cheat_why_at(at("far", 0))[0], "toggling the cheat clears the note");
 
@@ -228,6 +248,31 @@ int main(void) {
     CHECK(!dm_cheat_on_at(yoff) && rd32(0x100) == 0xD503201F && !strcmp(get("1111111111111111.enabled"), ""), "the restore runs one pass, then turns itself off");
     put("1111111111111111.enabled", "Y - off\n"); load_all();
     CHECK(dm_cheat_on_at(yoff) && !dm_cheat_on_at(yon), "a saved state is kept as it is (a hand-made file's off entry the player left on)");
+    CHECK(g_tick_started && g_changed_state == 1 && g_nchanged == 2, "a loaded file starts the idle thread and reads the rewriter's list");
+
+    // ---- code writes the rewriter's sites forbid, and the host's pages past the image ----
+    wr32(0x304, 0x14000123);   // the rewriter's branch to its stub
+    fresh("sites", "[Svc]\n04000000 00000304 D4000001\n[Edge]\n08000000 000002FC D503201F D503201F\n[Near]\n04000000 00000308 D503201F\n"
+                   "[Key]\n04000000 0000C000 00000001\n");
+    load_all();
+    int svc = at("Svc", 0), edge = at("Edge", 0), near = at("Near", 0), key = at("Key", 0);
+    char spv[512]; dm_cheat_preview(svc, spv, sizeof spv);
+    CHECK(strstr(spv, "stops:") && strstr(spv, "rewriter changed") && rd32(0x304) == 0x14000123, "the dry run says a write into a rewritten word would stop the cheat");
+    on_and_pass(svc);
+    CHECK(rd32(0x304) == 0x14000123 && dm_cheat_kind_at(svc) == 2 && strstr(dm_cheat_why_at(svc), "rewriter changed"), "a cheat's original SVC over the rewriter's branch is refused, the cheat off");
+    on_and_pass(edge);
+    CHECK(rd32(0x300) == 0 && dm_cheat_kind_at(edge) == 2, "an 8-byte write whose second word is a changed one is refused");
+    on_and_pass(near);
+    CHECK(rd32(0x308) == 0xD503201F && dm_cheat_kind_at(near) == 0, "the word right after a changed run is the game's own: written");
+    on_and_pass(key);
+    CHECK(dm_cheat_kind_at(key) == 2 && strstr(dm_cheat_why_at(key), "past the game's image"), "a write at the key page (past the image) is refused");
+    wr32(0x308, 0);
+    // without a list (an older rewriter's modules), no text word can be shown safe: code writes are refused, data is not
+    g_changed_state = -1;
+    fresh("nolist", "[Code]\n04000000 00000308 D503201F\n[Data]\n04000000 00004300 00000005\n");
+    load_all(); on_and_pass(at("Code", 0)); on_and_pass(at("Data", 0));
+    CHECK(rd32(0x308) == 0 && strstr(dm_cheat_why_at(at("Code", 0)), "main.changed.tsv") && rd32(0x4300) == 5, "without the rewriter's list code writes are refused, data writes are not");
+    g_changed_state = 1;
 
     // ---- the meta file: values, "set", never-decrease, left-outs, the version, the dry run ----
     fresh("meta", "[Gold]\n04000000 00004090 000001F4\n[HP keeps]\n[Patch]\n14050000 00000200 00000000\n04000000 00000200 52800040\n20000000\n");
@@ -419,26 +464,26 @@ int main(void) {
     CHECK(strstr(dm_cheat_why_at(at("K", 0)), "no effect"), "the chase fails while the pointer is 0: noted");
     { uint64_t p = (uint64_t)(uintptr_t)img + 0x4500, k = (uint64_t)(uintptr_t)img + 0xC000; memcpy(img + 0x44B0, &p, 8); memcpy(img + 0x4500, &k, 8); }
     cheats_pass();   // the pointer now leads to the host's key page: the write is refused for good
-    CHECK(g_cheat[at("K", 0)].dead && dm_cheat_kind_at(at("K", 0)) == 2 && strstr(dm_cheat_why_at(at("K", 0)), "key page"), "a kill after a noted pass keeps its reason");
+    CHECK(entry("K")[0].dead && dm_cheat_kind_at(at("K", 0)) == 2 && strstr(dm_cheat_why_at(at("K", 0)), "key page"), "a kill after a noted pass keeps its reason");
     // a module whose patch area follows its key page (read + execute to the image's end): a write there is refused, one into its data lands
     { uint64_t pp = (uint64_t)(uintptr_t)g_mod[2].base + 0x8000, pd = (uint64_t)(uintptr_t)g_mod[2].base + 0x2000;
       snprintf(t, sizeof t, "[Patch]\n40010000 %08X %08X\n64010000 00000000 00000001\n40020000 %08X %08X\n64020000 00000000 00000005\n", HI(pp), LO(pp), HI(pd), LO(pd)); }
     fresh("patcharea", t); load_all(); dm_cheat_toggle(at("Patch", 0)); cheats_pass();
     { uint32_t gd; memcpy(&gd, g_mod[2].base + 0x2000, 4);
-      CHECK(g_cheat[at("Patch", 0)].fails == 1 && gd == 5, "a write into another module's patch area is refused (counted), one into its data lands"); }
+      CHECK(entry("Patch")[0].fails == 1 && gd == 5, "a write into another module's patch area is refused (counted), one into its data lands"); }
     // region 2 (alias) before the guest block is reserved: the cheat waits silently; afterwards a base that is not the block's partition is refused once
     fresh("alias", "[Al]\n04200000 00000010 00000001\n");   // M = 2
     load_all(); dm_cheat_toggle(at("Al", 0));
     as_ready = 0; cheats_pass(); as_ready = 1;
-    CHECK(g_cheat[at("Al", 0)].fails == 0 && dm_cheat_kind_at(at("Al", 0)) == 0, "region 2 before mem_init: not ready, nothing counted, nothing logged");
+    CHECK(entry("Al")[0].fails == 0 && dm_cheat_kind_at(at("Al", 0)) == 0, "region 2 before mem_init: not ready, nothing counted, nothing logged");
     cheats_pass();   // the test's heap is not the block's partition: a real mismatch, logged once, the cheat stays on
-    CHECK(g_cheat[at("Al", 0)].fails == 0 && dm_cheat_kind_at(at("Al", 0)) == 0, "region 2 with a base off the partition: refused, the cheat stays on");
+    CHECK(entry("Al")[0].fails == 0 && dm_cheat_kind_at(at("Al", 0)) == 0, "region 2 with a base off the partition: refused, the cheat stays on");
     // glued hex words are split as dmnt does; a hex token that is not whole words makes the line malformed
     fresh("glued", "[G]\n0400000000004420 00000003\n04000000 0000442400000004\n[Odd]\n0400000 00004428 00000001\n[Odd2]\n04000000 00004428\n0400000000004428 0000000\n[Prose]\nby dead beef\n04000000 0000442C 00000005\n");
     load_all();
     for (int i = 0; i < g_ncheat; i++) if (!dm_cheat_on_at(i) && dm_cheat_kind_at(i) == 0) dm_cheat_toggle(i);
     cheats_pass();
-    CHECK(g_cheat[at("G", 0)].nins == 6 && rd32(0x4420) == 3 && rd32(0x4424) == 4, "a run of hex digits is cut into 8-digit words, glued or not");
+    CHECK(entry("G")[0].nins == 6 && rd32(0x4420) == 3 && rd32(0x4424) == 4, "a run of hex digits is cut into 8-digit words, glued or not");
     CHECK(dm_cheat_kind_at(at("Odd", 0)) == 2 && strstr(dm_cheat_why_at(at("Odd", 0)), "malformed line 5"), "a 7-digit hex token makes its line malformed, not prose");
     CHECK(dm_cheat_kind_at(at("Odd2", 0)) == 2 && strstr(dm_cheat_why_at(at("Odd2", 0)), "malformed line 8"), "a glued run of 23 digits too");
     CHECK(dm_cheat_kind_at(at("Prose", 0)) == 2 && strstr(dm_cheat_why_at(at("Prose", 0)), "malformed line 10") && rd32(0x442C) == 0, "a line of short hex-looking words (\"dead beef\") is malformed, so the cheat stays off");
@@ -467,7 +512,7 @@ int main(void) {
     cheats_pass();
     int fl = at("Fail", 0), ptr = at("Ptr", 0), farw = at("FarW", 0), stk = at("Stack", 0), mod = at("Module", 0);
     CHECK(rd32(0x43A0) == 0x10 && rd32(0x43A4) == 0 && dm_cheat_kind_at(fl) == 0 && dm_cheat_on_at(fl) && g_cheat[fl].fails == 1, "a failed load leaves the register as it was; the cheat stays on, the failure counted");
-    CHECK(rd32(0x43B8) == 0 && g_cheat[ptr].fails == 1 && strstr(dm_cheat_why_at(ptr), "no effect"), "a pointer the game has not set yet: the chase fails, the cheat waits with a note");
+    CHECK(rd32(0x43B8) == 0 && entry("Ptr")[0].fails == 1 && strstr(dm_cheat_why_at(ptr), "no effect"), "a pointer the game has not set yet: the chase fails, the cheat waits with a note");
     CHECK(rd32(0x43C0) == 1 && g_cheat[farw].fails == 1 && dm_cheat_on_at(farw), "a failed write is a no-op; the next store of the cheat runs");
     CHECK(rd32(0x43C8) == 0x5A5A, "a read of a mapped page of the guest block (a stack, virtual address memory)");
     CHECK(rd32(0x43D0) == (uint32_t)pnone && rd32(0x43D4) == (uint32_t)(pnone >> 32), "a read of an unmapped guest page fails without a fault and keeps the register");
@@ -477,7 +522,7 @@ int main(void) {
     CHECK(rd32(0x43D8) == 0x33 && gotc == 0x33 && gotd == 2 && g_cheat[mod].fails == 1, "another module: its code is readable, never written; its data is written");
     memcpy(img + 0x43B0, &p4300, 8);   // the game sets the pointer
     cheats_pass();
-    CHECK(rd32(0x43B8) == 0xAABBCCDD && !dm_cheat_why_at(ptr)[0] && g_cheat[ptr].fails == 1, "once the pointer is set the chase works and the note goes");
+    CHECK(rd32(0x43B8) == 0xAABBCCDD && !dm_cheat_why_at(ptr)[0] && entry("Ptr")[0].fails == 1, "once the pointer is set the chase works and the note goes");
     char pv2[512]; dm_cheat_preview(fl, pv2, sizeof pv2);
     CHECK(strstr(pv2, "read at guest address 0x10 fails") && g_cheat[fl].fails == 2, "the dry run describes a failed read and counts nothing");
 
@@ -536,7 +581,7 @@ int main(void) {
     CHECK(rd32(0x4680) == 0 && rd32(0x4684) == 0 && rd32(0x4688) == 0x7F800000, "9: a float operation at width 2 gives 0; a division by zero gives an infinity");
     CHECK(dm_cheat_kind_at(at("T9", 0)) == 2 && strstr(dm_cheat_why_at(at("T9", 0)), "truncated"), "9: an immediate cut short marks the cheat at load");
     CHECK(dm_cheat_kind_at(at("Log", 0)) == 2 && strstr(dm_cheat_why_at(at("Log", 0)), "unsupported opcode FFF"), "the debug log is still an unsupported opcode");
-    CHECK(value_word(&g_cheat[at("Math", 0)], 4) && !value_word(&g_cheat[at("Math", 0)], 3), "9: its immediate word is a value word the panel may set, its opcode word is not");
+    CHECK(value_word(entry("Math"), 4) && !value_word(entry("Math"), 3), "9: its immediate word is a value word the panel may set, its opcode word is not");
 
     // ---- C1 / C2: save and restore across the cheats of a pass, every operation; the saved values reset between passes ----
     fresh("save", "[Save]\n"
@@ -603,7 +648,7 @@ int main(void) {
     CHECK(strstr(dm_cheats_report(), "1 cheats over 0x100 words") != NULL, "the report names a cheat over Atmosphère's 0x100 words");
 
     char rmcmd[1100]; snprintf(rmcmd, sizeof rmcmd, "rm -rf '%s'", root);   // the test's cheats folders
-    if (system(rmcmd)) fprintf(stderr, "cannot remove %s\n", root);
+    if (system(rmcmd)) fprintf(stderr, "cannot remove %s\n", root);   // NOLINT(bugprone-command-processor): a fixed rm of the folder mkdtemp made above, no outside input
     printf("%d / %d checks passed\n", checks - fails, checks);
     return fails != 0;
 }

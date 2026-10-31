@@ -32,15 +32,15 @@ zip_store	.pak:.ttf:.txt:.ucas:.utoc:.metallib
 fps_target	60
 
 # ---- Memory ----
-# Unreal Engine 5.6.1: nninitStartup (main+0x13370) reserves one 62 GB region for the engine (-SwitchVirtualAddressSpaceSize= in MB up to 4095, game_args below), and its FMallocBinned3
-# (38 GB of address space) is constructed in place in the bss; the constructor call is cut and the host runs Unreal's heap on a malloc zone (patches.py, hle_uemalloc.c layout UE5_6),
+# Unreal Engine 5.6.1: nninitStartup (main+0x13370) reserves one 62 GB region for the engine, and its FMallocBinned3
+# (38 GB of address space) is constructed in place in the bss; the constructor call is cut and the host runs Unreal's heap on a malloc zone (dm/tools/ue_malloc.py, hle_uemalloc.c layout UE5_6),
 # and the SDK's node area is cut to 62 MB. The engine hands the region out with a page allocator of its own (main+0x13ef0): a bump pointer, and freed blocks kept in free lists by size
 # class, so its address use only grows, and past the region's end OnOutOfMemory (main+0x13c74) aborts. Probed at main+0x13fcc from the save in the first field, through the first battle:
 # a 1 GB block at boot (a static constructor), the high-water mark at +1.50 GB 15 s in, +1.77 GB at 56 s, +2.02 GB at 166 s; a 2 GB region (DRAGON QUEST VII Reimagined's) aborted in that
-# battle. This SDK build aligns regions of 2 MB and more to 2 MB only (VammManager::AllocateAddressRegion, sdk+0x145e00), so the region starts right after the node area: a 4064 MB region
-# in Engage's 5 GB block (256 MB in front + 4.375 GB alias region + 256 MB stack region + 128 MB heap region), as DRAGON QUEST XI S's. On the Mac in the field and the first battle:
+# battle. This SDK build aligns regions of 2 MB and more to 2 MB only (VammManager::AllocateAddressRegion, sdk+0x145e00), so the region starts right after the node area, and
+# the rewriter's engine-wide gate on the store of its size (dm/tools/ue_region.py; hle_svc.c) gives it what the alias region has room for in Engage's 5 GB block (256 MB in front + 4.375 GB alias region
+# + 256 MB stack region + 128 MB heap region): 4.06 GB (until 2026-10-31 -SwitchVirtualAddressSpaceSize=4064 in game_args). On the Mac in the field and the first battle, with 4064 MB:
 # about 1 GB of the alias region mapped, an Unreal heap of 1 GB, 2.2-2.4 GB resident and 1.2-1.5 GB of Metal allocations
-game_args	-SwitchVirtualAddressSpaceSize=4064
 mem_reserve	0x140000000
 mem_alias	0x118000000
 mem_stack	0x10000000

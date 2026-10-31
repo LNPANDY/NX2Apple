@@ -246,7 +246,7 @@ class Regress(unittest.TestCase):
         self.assertEqual(regress.worst('PASS', 'CHANGED', 'REGRESSION'), 'REGRESSION'); self.assertEqual(regress.worst('NEW-FAIL', 'ERROR'), 'ERROR')
 
     def test_selection_keeps_games_without_routes(self):
-        games = [NS(id='a', name='routed', kind='nvn', route=lambda: {'save': 'new'}), NS(id='b', name='unrouted', kind='nvn', route=lambda: None)]
+        games = [NS(id='a', name='routed', kind='nvn', derived=False, route=lambda: {'save': 'new'}), NS(id='b', name='unrouted', kind='nvn', derived=False, route=lambda: None)]
         with patch.object(regress, 'find_games', return_value=games), patch.object(regress, 'say'):
             self.assertEqual(regress.select(NS(games=None), smoke=True), games)
 
@@ -311,6 +311,17 @@ class Regress(unittest.TestCase):
         processes = '100 1 S python3 /source/scripts/regress.py check\n101 100 S python3 /trees/dmsh_build.py\n102 101 R metal /games/title-work/regress/tmp/shader.metal\n103 1 R metal /another/build.metal\n104 100 R make dmhost\n'
         with patch.object(regress, 'sh', return_value=NS(stdout=processes)), patch.object(regress.os, 'getpid', return_value=200):
             self.assertEqual(regress.heavy_jobs(), ['103 metal /another/build.metal', '104 make dmhost'])
+
+    def test_build_profile_runs_only_when_derived_or_unported(self):
+        # A provisional profile the NSP script left from before the game's profile was added must not shadow dm/games' (it lacked OCTOPATH TRAVELER 0's tex_dyn_slots and fps_target)
+        with tempfile.TemporaryDirectory() as td, patch.object(regress, 'REPO', Path(td) / 'repo'):
+            root, gid = Path(td), '0123456789ABCDEF'
+            build = root / f'{gid}_build'; (build / 'profile' / gid).mkdir(parents=True); (build / 'profile' / gid / 'game.tsv').write_text('# Provisional game profile\n')
+            self.assertTrue(regress.Game(root, build).derived)                       # no profile in dm/games: the provisional one
+            (root / 'repo/dm/games' / gid).mkdir(parents=True); (root / 'repo/dm/games' / gid / 'game.tsv').write_text('title_id\t' + gid + '\n')
+            self.assertFalse(regress.Game(root, build).derived)                      # a profile in dm/games: it runs, not the leftover guesses
+            (build / 'profile' / f'{gid}.derived.key').write_text('key\n')
+            self.assertTrue(regress.Game(root, build).derived)                       # derived from it for another version
 
     def test_chain_key_tracks_shader_package_and_split_pairs(self):
         with tempfile.TemporaryDirectory() as td:

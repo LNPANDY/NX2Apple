@@ -32,8 +32,8 @@ struct LibraryGame: Codable, Identifiable, Equatable {
     /// Signed and installed on a paired device (installedDevice is its UDID): Play starts it there.
     var onDevice: Bool { !installedDevice.isEmpty && FileManager.default.fileExists(atPath: iosAppPath + "/Info.plist") }
 
-    /// Cheats are turned off when an iPhone or iPad game starts (iOS does not allow changing the game's code, seedds/nxnative#724),
-    /// so the Cheats sheet says so for a game that has an iOS build. The switches stay usable: the same game may have a Mac build.
+    /// An iPhone or iPad game runs only the cheats that write data. Code writes are refused there (iOS does not allow changing
+    /// the game's code), so the Cheats sheet says so for a game that has an iOS build. The switches stay usable: the same game may have a Mac build.
     var cheatsNeedIOSNote: Bool { hasIOSBuild || onDevice }
     var hasIOSBuild: Bool { hasIPA || hasIOSApp }
     var hasIPA: Bool { !ipaPath.isEmpty && FileManager.default.fileExists(atPath: ipaPath) }

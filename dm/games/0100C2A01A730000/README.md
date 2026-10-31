@@ -50,4 +50,4 @@ General host changes first needed here; each applies to every game:
 ## Open
 
 - Touches as a mouse: not done; it needs testing on the other games that read a mouse and no touch screen (above).
-- Two of the three texture type mismatches above (the cube and 3D textures in the vertex shaders' 2D slots) are bound as is; the 2D array in the pixel shader's 3D slot now gets the zero 3D texture ([A 2D texture in a 3D slot binds the zero 3D texture](../../../docs/reference/rendering.md#a-2d-texture-in-a-3d-slot-binds-the-zero-3d-texture)), not run on this game since.
+- Of the three texture type mismatches above, the cube textures in the vertex shaders' 2D slots now get a 2D view of their first face ([Compatible views for a mismatched declared texture type](../../../docs/reference/rendering.md#compatible-views-for-a-mismatched-declared-texture-type)) and the 3D textures there are bound as is; the 2D array in the pixel shader's 3D slot now gets the zero 3D texture ([A 2D texture in a 3D slot binds the zero 3D texture](../../../docs/reference/rendering.md#a-2d-texture-in-a-3d-slot-binds-the-zero-3d-texture)), not run on this game since.

@@ -428,7 +428,7 @@ final class CheatFilesTests: XCTestCase {
     }
 }
 
-/// Issue #252: cheats are turned off when an iPhone or iPad game starts, so the Cheats sheet carries a note for a game with an iOS build.
+/// Issue #252: an iPhone or iPad game runs data cheats only, so the Cheats sheet carries a note for a game with an iOS build.
 final class CheatsIOSNoteTests: XCTestCase {
     func testNoteShowsOnlyWithAnIOSBuild() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("nxnative-iosnote-" + UUID().uuidString)
@@ -452,9 +452,11 @@ final class CheatsIOSNoteTests: XCTestCase {
     }
 
     func testNoteIsTranslatedWithoutSemicolons() {
-        for lang in [Lang.en, .zh, .sv] {
+        for lang in [Lang.en, .zh, .sv, .de] {
             let text = L10n.string("cheats.iosNote", lang)
-            XCTAssertFalse(text.isEmpty); XCTAssertFalse(text.contains(";")); XCTAssertTrue(text.contains("#724"))
+            XCTAssertFalse(text.isEmpty); XCTAssertFalse(text.contains(";")); XCTAssertTrue(text.contains("iPhone"))
+            XCTAssertFalse(text.contains("#724"), "data cheats run on the iPhone now, only code cheats are refused there")
         }
+        XCTAssertTrue(L10n.string("cheats.iosNote", .en).contains("Mac app"))
     }
 }

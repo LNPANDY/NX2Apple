@@ -238,12 +238,16 @@ To enroll a cut for any game's own module:
 
 ## Cuts and observation gates
 
-### Observation gates where x9–x17 are dead
+### Observation gates on any relocatable instruction
 
 - **Symptom:** `observation gate neither at a function entry nor after a bl`; `observation gate neither at a function entry, after a bl nor before a call` on an epilogue.
-- **Cause:** the host may change x9–x17 in a gate, so a gate sat only where they carry nothing (a function entry, after a `bl`).
-- **Fix:** a site is also accepted when the straight-line code from it to the next `bl` reads none of x9–x17 before writing it (`scratch_dead`); it is tried only after the other two rules fail. `ret` ends the code ahead as a `bl` does: under AAPCS64 none of x9–x17 carries a result, so the straight-line scan (`scratch_dead`) accepts a `ret` too.
-- **Found on:** [DRAGON QUEST VII Reimagined](../../dm/games/0100A9D01C446000/README.md): the gate on `mov x0, x19` at `main+0x32758e4`, after a cut `bl` and an `adrp`. [Pikmin 4](../../dm/games/0100B7C00933A000/README.md): the gate on `ldp x29, x30, [sp, #0x10]` right after the cut allocator constructor call, `main+0x353f78c`; the rule checks the image after the cuts, so the `bl` before it is a `nop` by then (the `ret` case).
+- **Cause:** the rewriter assumed the host may change x9–x17 in a gate. So a gate was placed only where they carry nothing: a function entry, after a `bl`, or (from 2026-10-22, `scratch_dead`) where the straight-line code ahead writes them before reading them. The assumption never held. Since the first host, the gate frame (`dm/host/entry.S`, `_dm_gate`) has saved x0–x28, the vector registers and the flags and restored them, and the gate block borrows only x29 and x30, which it restores from the stack.
+- **Fix:** since 2026-10-31 there is no placement rule: any instruction `site_obs` can relocate takes a gate. A register changes only when the callback writes it (`OBS_STDALLOC_INIT`'s x2, `OBS_UE_REGION`'s size register and x1).
+- **Found on:**
+  - [DRAGON QUEST VII Reimagined](../../dm/games/0100A9D01C446000/README.md): the gate on `mov x0, x19` at `main+0x32758e4`, after a cut `bl` and an `adrp`.
+  - [Pikmin 4](../../dm/games/0100B7C00933A000/README.md): the gate on `ldp x29, x30, [sp, #0x10]` right after the cut allocator constructor call, `main+0x353f78c`.
+  - Both gates were removed on 2026-10-30: the engine-wide allocator rule puts its gate on the cut call itself ([Unreal's FMallocBinned3 replaced by the host allocator](memory.md#unreals-fmallocbinned3-replaced-by-the-host-allocator)).
+  - The engine region's gate sits on a store that reads x10 (`str x1, [x10, #0x280]`, Octopath Traveler 0 `main+0x12e20`), which the old rule refused: [Unreal's engine address region and its options](memory.md#unreals-engine-address-region-and-its-options).
 - **Note:** the gate table takes the original instruction as a word value (`aa1303e0`), the cut table as bytes (`e00313aa`).
 
 ## Functions, unwind entries and data in text

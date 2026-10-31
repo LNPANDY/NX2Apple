@@ -23,10 +23,10 @@ Issue: LNPANDY/NX2Apple#123
  6 files changed, 16 insertions(+), 2 deletions(-)
 
 diff --git a/dm/ios/Sources/main.m b/dm/ios/Sources/main.m
-index 193e2cac..69ec53ed 100644
+index 842fb037..051cd55b 100644
 --- a/dm/ios/Sources/main.m
 +++ b/dm/ios/Sources/main.m
-@@ -197,6 +197,9 @@ static int boot_env(void) {
+@@ -203,6 +203,9 @@ static int boot_env(void) {
      NSString *log = [doc stringByAppendingPathComponent:@"log.txt"], *prev = [doc stringByAppendingPathComponent:@"log.prev.txt"];
      [fm removeItemAtPath:prev error:nil]; [fm moveItemAtPath:log toPath:prev error:nil];
      if (freopen(log.fileSystemRepresentation, "w", stderr)) setvbuf(stderr, NULL, _IOLBF, 0);
@@ -37,7 +37,7 @@ index 193e2cac..69ec53ed 100644
      NSMutableArray<NSString *> *from_file = [NSMutableArray array], *from_launch = [NSMutableArray array];
      for (char **e = environ; *e; e++) {   // set at launch (Xcode, devicectl): before the env files, and the launcher keeps them
 diff --git a/dm/ios/project.yml b/dm/ios/project.yml
-index 5e03e337..2ba50935 100644
+index 16b41655..ed0010a6 100644
 --- a/dm/ios/project.yml
 +++ b/dm/ios/project.yml
 @@ -44,6 +44,7 @@ targets:
@@ -94,7 +94,7 @@ index 6c840f16..aafb8314 100644
      CFArrayRef rules = setting_rules();   // the settings the launch environment already set: the window shows them, fixed
      for (CFIndex i = 0; rules && i < CFArrayGetCount(rules); i++) { char env[128]; if (rule_env(CFArrayGetValueAtIndex(rules, i), env, sizeof env) && getenv(env)) add_key(&g_launch_keys, env); }
 diff --git a/dm/mac/pack_app.py b/dm/mac/pack_app.py
-index 89780c9b..3adf27bb 100755
+index 1a64ae6b..48f2ac94 100755
 --- a/dm/mac/pack_app.py
 +++ b/dm/mac/pack_app.py
 @@ -111,11 +111,18 @@ def settings_rules(listed):   # DMSettings: what the launcher accepts as each se

@@ -743,7 +743,8 @@ static NSArray<NSURL *> *found_cheat_files(NSString *build) {
     }
     for (NSURL *vol in [fm mountedVolumeURLsIncludingResourceValuesForKeys:@[NSURLVolumeIsLocalKey] options:NSVolumeEnumerationSkipHiddenVolumes] ?: @[]) {
         NSNumber *local = nil; [vol getResourceValue:&local forKey:NSURLVolumeIsLocalKey error:nil];
-        if (local.boolValue) [dirs addObject:[vol.path stringByAppendingFormat:@"/atmosphere/contents/%@/cheats", tid]];
+        NSString *root = vol.path;   // nil for a volume without a file-system path: nothing to look in
+        if (local.boolValue && root) [dirs addObject:[root stringByAppendingFormat:@"/atmosphere/contents/%@/cheats", tid]];
     }
     NSMutableArray<NSURL *> *mine = [NSMutableArray array], *rest = [NSMutableArray array];
     NSMutableSet<NSString *> *seen = [NSMutableSet set];
@@ -794,7 +795,7 @@ static NSArray<NSURL *> *found_cheat_files(NSString *build) {
     [m popUpMenuPositioningItem:nil atLocation:NSMakePoint(0, b.bounds.size.height) inView:b];
 }
 // A file picked in Find Cheats…: import it
-- (void)importFound:(NSMenuItem *)it { [self importFiles:@[it.representedObject]]; }
+- (void)importFound:(NSMenuItem *)it { if (it.representedObject) [self importFiles:@[it.representedObject]]; }
 
 // A yes / no question as a modal alert, answered before returning (the import is the player's own action, so a modal
 // question is fine; the keyboard goes back to the game after it): YES for the first button
@@ -887,7 +888,8 @@ static NSArray<NSURL *> *found_cheat_files(NSString *build) {
         [views addObject:v];
     }
     if (f & DM_CHEAT_ONCE) [views addObject:b];
-    NSButton *info = [NSButton buttonWithImage:[NSImage imageWithSystemSymbolName:@"info.circle" accessibilityDescription:@"Details"] target:self action:@selector(infoClicked:)];
+    NSImage *icon = [NSImage imageWithSystemSymbolName:@"info.circle" accessibilityDescription:@"Details"];   // nil only if the symbol is gone
+    NSButton *info = icon ? [NSButton buttonWithImage:icon target:self action:@selector(infoClicked:)] : [NSButton buttonWithTitle:@"i" target:self action:@selector(infoClicked:)];
     info.bordered = NO; info.tag = i; info.toolTip = @"Show what it writes now, and its note";
     [views addObject:info];
     return panel_hrow(views);

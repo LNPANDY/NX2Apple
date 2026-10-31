@@ -148,10 +148,10 @@ index a832ad5a..0f5485df 100644
              raise ValueError(f'bundle ID {bundle_id} is already used by {other}; choose a different --bundle-id for this game')
  
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index 1400e86e..2dc79e65 100644
+index b40da58b..3920afb5 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
-@@ -36,6 +36,7 @@ DM_FS	diagnostic	When set, logs file opens, paths not found or not mounted, and
+@@ -41,6 +41,7 @@ DM_FS	diagnostic	When set, logs file opens, paths not found or not mounted, and
  DM_FSLOG	diagnostic	`=<file>` writes one TSV line per ReadFile: seconds since boot, guest path, offset, length and guest buffer address
  DM_FSLOG_HASH	diagnostic	With `DM_FSLOG`, adds a column with the FNV-1a 64 hash of the bytes read
  DM_FULLSCREEN	player	`1` (any value but `0`) starts the Mac window in fullscreen; `0` or unset, a window. The Mac settings window's Display mode

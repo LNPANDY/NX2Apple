@@ -1,0 +1,47 @@
+# Game profile of Super Monkey Ball Banana Rumble (Switch, update 2.20 = v458752). Plays on the Mac
+# Format: see dm/games/README.md; bring-up and measurements in README.md beside this file
+# Unity 2022.3.30f1 (IL2CPP) with CRIWARE (ADX sound, Sofdec movies decoded by CRI Mana in software) and FMOD, SDK 17.5.8; subsdk0 is the movie module.
+# The shaders are Unity's Shader and ComputeShader objects in the player's serialized files and the StreamingAssets bundles, read by unityfs.py, and the player's GLSLC outputs in main.
+# The game asks for present interval 1 and runs at 60 fps
+
+# ---- Identity ----
+title_id	010031F019294000
+program_id	010031F019294000
+
+# ---- App ----
+# Game name: only a label for profile listings and the Mac window title; the iOS app name is the game name in the base NSP, and the bundle ID comes from the base game title ID (build_ipa.sh / NSP script)
+name	Super Monkey Ball Banana Rumble
+ipa	SuperMonkeyBallBananaRumble.ipa
+app_category	public.app-category.games
+
+# ---- Versions ----
+build	v458752	2.20	main=95548fabbca7a4f723c3468e5cfb34d0	subsdk0=29b829cc3bb8021bbd447c98f71a66f2	sdk=71b1a025aa30641a53aa4fc53ca742a6
+package	v458752
+shader_versions	v458752
+
+# ---- Files ----
+# load order as on Horizon: main, subsdk*, sdk (subsdk0 = NintendoSDK_movie)
+modules	main subsdk0 sdk
+romfs_marker	Data/StreamingAssets/Movie/ev_movie_w07_b.usm
+zip_store	.awb:.bundle:.dat:.json:.png:.unity3d:.usm:.metallib
+
+# ---- Memory ----
+# The NPDM declares 16 MB of system resource, so IsVirtualAddressMemoryEnabled is true: nninitStartup hands application pool − used memory to StandardAllocator as one address
+# region (returning to main+0x10f7140) and never calls SetMemoryHeapSize. The SDK-wide rules cut this sdk build's node area to 62 MB and its region alignment to 2 MB (sdk_patches.py).
+# A 1 GB pool, as the other Unity 2022 games with virtual address memory: the heap check saw the alias region used up to +4.26 GB of 4.38 GB with the hardware pool.
+# The 5 GB block is 256 MB in front + a 4 GB alias region + a 640 MB stack region + 128 MB of heap region (never used). Every other profile has a 256 MB stack region; in it this
+# game's thread stacks (106 MB in its first 30 s, nine of them 8 MB) left an 8 MB stack no free place on some boots, and CreateThread aborted (README.md, Memory)
+sys_resource	0x1000000
+mem_reserve	0x140000000
+mem_alias	0x100000000
+mem_stack	0x28000000
+app_pool	0x40000000
+
+# ---- Graphics ----
+# The game calls nvnDeviceSetDepthMode(near = 0), so its vertex shaders use the main0_z entries; the pipeline bases made before it runs are made for that mode
+depth_mode	zero
+
+# ---- Shader split (shader_split.py; Unity Shader and ComputeShader objects, read by unityfs.py) ----
+# everything is under Data/: the player's serialized files and the StreamingAssets bundles
+shader_groups	/Data/=data
+shader_note	Super Monkey Ball Banana Rumble shaders

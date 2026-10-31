@@ -30,11 +30,11 @@ zip_store	.pak:.ucas:.utoc:.metallib
 
 # ---- Memory ----
 # Unreal Engine 4.26.2: nninitStartup needs virtual address memory, sets a 6 MB heap for the C library's malloc and reserves one address region for the engine, 62 GB. This build reserves
-# it only when -SwitchVirtualAddressSpaceSize= is absent (with the argument the region's base stayed 0 and the first commit failed into Unreal's fatal error), so no game_args: a rewriter cut
-# makes the default 4064 MB (patches.py). Its allocator, an FMallocBinned3 made on the first allocation (GCreateMalloc, main+0x353f770), cuts its pools out of that region; the constructor
-# call is cut and the host runs Unreal's heap on a malloc zone outside the guest block (patches.py, hle_uemalloc.c layout UE4_27), and the SDK's node area is cut to 62 MB with regions of
-# 1 GB and more aligned to 32 MB (dm/tools/sdk_patches.py, the SDK 10.4.8 build). The region then holds what the engine maps itself: on the Mac, from the boot through the opening into
-# the Olimar prologue, up to +1.5 GB of the alias region with 1.0 GB mapped, beside an Unreal heap of 1 GB and 1.7 GB of Metal allocations (about 2.8 GB resident). The 4064 MB region
+# it only when -SwitchVirtualAddressSpaceSize= is absent (with the argument the region's base stayed 0 and the first commit failed into Unreal's fatal error), so no game_args:
+# the rewriter's engine-wide gate on the store of its size (dm/tools/ue_region.py; hle_svc.c) gives it what the alias region has room for, 4.06 GB (until 2026-10-31 a cut of the default to 4064 MB in this build's patches.py). Its allocator, an FMallocBinned3 made on the first allocation (GCreateMalloc, main+0x353f770), cuts its pools out of that region; the constructor
+# call is cut and the host runs Unreal's heap on a malloc zone outside the guest block (the rewriter's engine-wide cut, dm/tools/ue_malloc.py; hle_uemalloc.c layout UE4_27), and the SDK's node
+# area is cut to 62 MB with regions of 4 MB and more aligned to 2 MB, as SDK 20 (dm/tools/sdk_patches.py, the SDK-wide rules, the SDK 10.4.8 build). The region then holds what the engine maps itself: on the Mac, from the boot through the opening into
+# the Olimar prologue, up to +1.5 GB of the alias region with 1.0 GB mapped, beside an Unreal heap of 1 GB and 1.7 GB of Metal allocations (about 2.8 GB resident). The region
 # sits in Engage's 5 GB block (256 MB in front + 4.375 GB alias region + 256 MB stack region + 128 MB heap region), as FINAL FANTASY RESONANCE's
 mem_reserve	0x140000000
 mem_alias	0x118000000
