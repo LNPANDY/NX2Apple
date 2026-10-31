@@ -25,6 +25,7 @@ enum Typography {
     }
 
     private static func ctFont(_ face: CTFontDescriptor?, size: CGFloat, weight: Font.Weight) -> CTFont? {
+        LauncherWork.count(.font)   // before the guard, so the count is the same where Manrope cannot be read
         guard let face else { return nil }
         let variation = CTFontDescriptorCreateCopyWithAttributes(face, [kCTFontVariationAttribute: [0x7767_6874: axis(weight)]] as CFDictionary)
         return CTFontCreateWithFontDescriptor(variation, size, nil)
