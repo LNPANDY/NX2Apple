@@ -83,6 +83,9 @@ class Model(QObject):
     #: Set by the window: asks for a folder (QFileDialog lives in the UI layer) and returns the
     #: path, or '' when the user cancelled. `pick_dep_folder` calls it, so the model stays UI-free.
     ask_folder: Callable[[str], str] | None = None
+    #: Same, for a file ('Metal Developer Tools*.zip' the user downloaded from Apple).
+    ask_file: Callable[[str], str] | None = None
+    _metal_zip: Path | None = None
 
     def __init__(self) -> None:
         super().__init__()
@@ -347,6 +350,16 @@ class Model(QObject):
                 d.last_error, d.fix_hint = p.last_error, p.fix_hint
 
         self.deps = deps
+        # The panel can only show one row at a time; the log keeps every detail, so a report sent
+        # from a handheld always carries the full probe text (the truncated link row is why this
+        # exists).
+        for d in deps:
+            if not d.ok and d.detail:
+                # three placeholders, three args: a mismatch makes t() fall back to the raw
+                # "dependency %@: [%@] %@" line (the report's log had it six times)
+                name = d.title_key.replace('dep.', '').replace('.hint', '')
+                self.log(self.t('dep.row.log', name, d.state.value,
+                                d.detail.replace('\n', ' | ')) + '\n')
         if not pu.IS_WIN:
             # On Windows `_windows_deps` already set python_path (the interpreter the app
             # installed, which find_python without its candidates cannot see) and dotnet_path
@@ -388,7 +401,7 @@ class Model(QObject):
         from .win import toolchain as wtc     # local import: macOS never loads it
 
         out: list[Dep] = []
-        probes = wtc.check_all(deep=True)
+        probes = wtc.check_all(deep=True, t=self.t)   # t: the failure summaries' hint keys reach the panel translated
 
         # Re-do the Python row now that the toolchain can speak: the interpreter this app
         # installed for itself is not on PATH and not in Program Files, so the row built before
@@ -794,8 +807,26 @@ class Model(QObject):
                 elif what == 'ios_sdk':
                     self.log(self.t('dep.iossdk.downloading') + '\n')
                     from .win import sdk_fetch as sf
+                    # clone_sdk runs git, which a fresh machine has none of: the app installs
+                    # PortableGit itself (per-user, no installer) instead of sending the player
+                    # to git-scm.com — the report's SDK row failed three times on exactly that.
+                    if not (wtc.git_exe() or shutil.which('git')):
+                        self.log(self.t('dep.git.downloading') + '\n')
+                        from .win import fetch as wf
+                        git = wf.install_git(log=lambda s: self.log(str(s) + '\n'))
+                        self.log(self.t('dep.git.done', str(git)) + '\n')
                     path = sf.clone_sdk(log=lambda s: self.log(str(s) + '\n'))
                     self.log(self.t('dep.iossdk.done', str(path)) + '\n')
+                    ok = True
+                elif what == 'metal_zip':
+                    # Apple's tools are Apple-ID-gated: the browser download is the licensed
+                    # path, the app does the unpack and remembers the folder.
+                    self.log(self.t('dep.metal.unpacking', self._metal_zip.name) + '\n')
+                    from .win import fetch as wf
+                    dest = wf.install_metal_from_zip(self._metal_zip,
+                                                     log=lambda s: self.log(str(s) + '\n'))
+                    wtc.save_config('metal_dir', str(dest))
+                    self.log(self.t('dep.metal.done', str(dest)) + '\n')
                     ok = True
                 else:
                     self.log(f'unknown Windows install target: {what}\n')
@@ -846,6 +877,19 @@ class Model(QObject):
         if not dep.pick_key:
             return
         from .win import toolchain as wtc
+        if dep.pick_key == 'metal_dir':
+            # The Metal zip is a file, not a folder: the ask_file callback (the window's file
+            # dialog filters *.zip) takes the browser download straight away. An already
+            # unpacked folder is equally accepted.
+            ask_file = self.ask_file
+            if ask_file is None:
+                return
+            picked = ask_file(self.t('dep.pick.metal_dir.title'))
+            if not picked:
+                return
+            if picked.lower().endswith('.zip'):
+                return self.install_metal_zip(Path(picked))
+            return self._save_metal_folder(Path(picked))
         ask = self.ask_folder
         if ask is None:
             return   # no window attached (tests): nothing to ask with
@@ -869,6 +913,29 @@ class Model(QObject):
             self.log(self.t('dep.pick.saved', folder) + '\n')
         self.check_deps()
 
+    def _save_metal_folder(self, folder: Path) -> None:
+        """A folder the user already unpacked: validate the two layouts metal_dir() accepts."""
+        from .win import toolchain as wtc
+        if not (folder / 'bin' / 'metal.exe').is_file() and \
+           not (folder / 'ios' / 'bin' / 'metal.exe').is_file():
+            self.log(self.t('dep.pick.metal.invalid', str(folder)) + '\n')
+            return
+        wtc.save_config('metal_dir', str(folder))
+        self.log(self.t('dep.pick.saved', str(folder)) + '\n')
+        self.check_deps()
+
+    def install_metal_zip(self, zip_path: Path) -> None:
+        """Unpack the Apple zip the player downloaded and remember the folder (the one manual
+        dependency on Windows: Apple-ID-gated, so the app cannot fetch it itself)."""
+        if not zip_path.is_file():
+            self.log(self.t('dep.pick.metal.invalid', str(zip_path)) + '\n')
+            return
+        self._metal_zip = zip_path
+        dep = next((d for d in self.deps if d.id == 'metal'), None)
+        if dep is None:
+            return
+        self._install_win(dep, 'metal_zip')
+
     def _progress_logger(self, label: str):
         """A progress callback that logs at 5% steps, not on every chunk.
 
@@ -888,6 +955,26 @@ class Model(QObject):
             self.log(f'  {label} {pct}%  ({done // 1048576} / {total // 1048576} MB)\n')
 
         return report
+
+    @staticmethod
+    def bundled_wheels() -> Path | None:
+        """The wheel folder shipped in the Windows zip (`wheels/` beside the exe).
+
+        The build packages (lz4, capstone, fonttools, nsz, backports.zstd) are downloaded by the
+        release workflow at packaging time, so the venv step installs from disk with no network
+        and no PyPI — the same "the app carries it" promise the Mac's bundled CPython makes.
+        Source runs have no such folder and fall back to PyPI.
+        """
+        base = getattr(sys, '_MEIPASS', None) or Path(sys.executable).parent
+        w = Path(base) / 'wheels'
+        return w if w.is_dir() and any(w.glob('*.whl')) else None
+
+    @staticmethod
+    def _pip_args(pkgs: list[str], wheels: Path | None) -> list[str]:
+        """pip's arguments: offline from the bundled wheels when they cover the packages."""
+        if wheels:
+            return ['install', '--no-index', '--find-links', str(wheels)] + pkgs
+        return ['install'] + pkgs
 
     def _make_venv(self, base: str) -> bool:
         """Create or reuse the app's venv and install the build packages into it."""
@@ -929,9 +1016,12 @@ class Model(QObject):
         pkgs = ['lz4', 'capstone', 'fonttools', 'zbic', 'nsz']
         if ver < (3, 14):
             pkgs.insert(4, 'backports.zstd')
-        self.log(f'$ {vpy} -m pip install {" ".join(pkgs)}\n')
+        wheels = self.bundled_wheels()
+        args = self._pip_args(pkgs, wheels)
+        self.log(f'$ {vpy} -m pip {" ".join(args)}'
+                 + ('' if wheels else '  (from PyPI)') + '\n')
         try:
-            p = subprocess.Popen([vpy, '-m', 'pip', 'install'] + pkgs, stdout=subprocess.PIPE,
+            p = subprocess.Popen([vpy, '-m', 'pip'] + args, stdout=subprocess.PIPE,
                                  stderr=subprocess.STDOUT, text=True, errors='replace',
                                  env=pu.child_env(), **pu.no_window_kwargs())
             assert p.stdout is not None
@@ -969,10 +1059,18 @@ class Model(QObject):
 
         def run_all() -> None:
             try:
-                attempted: set[str] = set()
+                # attempted is keyed by (id, fix): an id may legitimately come back in a later
+                # pass with a DIFFERENT fix — installing the Python interpreter turns its row
+                # into "pip install the packages", which is exactly the step install-all must
+                # then run (the report: only the interpreter was installed, the packages step
+                # needed a second click on the row).
+                attempted: dict[str, tuple] = {}
                 while True:
-                    rows = [d for d in self.deps if not d.ok and d.install
-                            and d.id not in attempted]
+                    def pending(d) -> bool:
+                        if d.ok or not d.install:
+                            return False
+                        return attempted.get(d.id) != tuple(d.install)
+                    rows = [d for d in self.deps if pending(d)]
                     if not rows:
                         break
                     progressed = False
@@ -980,7 +1078,9 @@ class Model(QObject):
                         live = next((r for r in self.deps if r.id == d.id), None)
                         if live is None or live.ok or not live.install or live.installing:
                             continue
-                        attempted.add(live.id)
+                        if attempted.get(live.id) == tuple(live.install):
+                            continue
+                        attempted[live.id] = tuple(live.install)
                         self.log(f'--- {self.t(live.title_key)} ---\n')
                         self.install_dep(live)
                         progressed = True

@@ -312,7 +312,7 @@ def link(clang: Path, sdk: Path, objs: list[Path], frameworks: list[str], out: P
     """Link the app, then prove the result is an unsigned iOS executable."""
     args = [str(clang), '-target', f'arm64-apple-ios{deployment}', '-isysroot', str(sdk),
             '-fuse-ld=lld', '-fobjc-arc', '-o', str(out), *map(str, objs),
-            '-Wl,-rpath,@executable_path/Frameworks', '-lobjc',
+            '-Wl,-rpath,@executable_path/Frameworks', '-lobjc', '-lSystem',
             *[x for fw in frameworks for x in ('-framework', fw)], *embed_flags]
     if rt_obj:
         args.append(str(rt_obj))

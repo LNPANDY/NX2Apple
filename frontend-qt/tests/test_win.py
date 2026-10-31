@@ -1684,10 +1684,139 @@ class LinkProbeStrategyTest(unittest.TestCase):
                         'the build\'s own invocation must be tried before --ld-path')
         self.assertLess(body.index('f\'--ld-path={lld}\''), body.index("f'-B{lld.parent}'"),
                         '--ld-path before the -B fallback')
-        self.assertIn("env['PATH'] = str(lld.parent)", body,
+        self.assertIn("run_env['PATH'] = str(lld.parent)", body,
                       'the build-style try must put the linker folder on PATH (build_app.link does)')
         self.assertIn('does not run by itself', body,
                       'a linker that cannot start is its own message, before any strategy runs')
+
+    def test_the_failure_summary_names_everything_and_flags_a_non_ascii_sdk(self) -> None:
+        from nspb_qt.win import toolchain as tc
+        attempts = [('fuse-ld', 'exit 1 (0x00000001): (no output)', ['clang', '-fuse-ld=lld']),
+                    ('ld-path', 'exit 1 (0x00000001): (no output)', ['clang', '--ld-path=x']),
+                    ('-B dir', 'exit 1 (0x00000001): (no output)', ['clang', '-Bx'])]
+        plain = Path('C:/sdks/iPhoneOS26.0.sdk')
+        t = lambda key, *a: 'HINT:' + key   # the model's translator, as ui.py receives it
+        summary = tc.link_failure_summary(attempts, 'LLD 23.1.4', ['clang'], plain, t=t)
+        for part in ('link failed 3 ways', 'LLD 23.1.4', 'fuse-ld:', 'ld-path:', '-B dir:',
+                     'try by hand:'):
+            self.assertIn(part, summary, part)
+        self.assertNotIn('dep.fix.nonascii', summary)
+        # The owner's machine: C:\Users\QC-北\... — the SDK itself sits under a non-ASCII path.
+        # The hint is a localization key: the panel must see it translated, never as the raw key.
+        nonascii = Path('C:/Users/QC-北/AppData/Local/NS Port Builder/sdks/iPhoneOS26.0.sdk')
+        hinted = tc.link_failure_summary(attempts, 'LLD 23.1.4', ['clang'], nonascii, t=t)
+        self.assertIn('HINT:dep.fix.nonascii', hinted)
+        self.assertNotIn(' — dep.fix.nonascii', hinted)
+        bare = tc.link_failure_summary(attempts, 'LLD 23.1.4', ['clang'], nonascii)
+        self.assertNotIn('dep.fix.nonascii', bare)
+
+
+class VenvWheelsTest(unittest.TestCase):
+    """The build packages ride in the zip: the venv installs offline from wheels/ beside the
+    exe when it is there, and from PyPI exactly as before when it is not (source runs)."""
+
+    @staticmethod
+    def _pip_args_fn():
+        """model.py imports PySide6, which the CI test job deliberately does not install: run
+        the pure static function by extracting it from the source when Qt is absent."""
+        try:
+            from nspb_qt import model as M
+            return M.Model._pip_args
+        except ImportError:
+            import ast
+            src = (QT / 'nspb_qt' / 'model.py').read_text()
+            tree = ast.parse(src)
+            fn = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)
+                      and n.name == '_pip_args')
+            for n in ast.walk(fn):
+                ast.fix_missing_locations(n)
+            ns: dict = {}
+            exec(compile(ast.fix_missing_locations(ast.Module(body=[fn], type_ignores=[])),
+                         '<model>', 'exec'), ns)
+            return ns['_pip_args']
+
+    def test_offline_args_when_wheels_are_bundled(self) -> None:
+        args = self._pip_args_fn()(['lz4', 'nsz'], Path('C:/app/wheels'))
+        self.assertEqual(args, ['install', '--no-index', '--find-links', 'C:/app/wheels', 'lz4', 'nsz'])
+
+    def test_pypi_args_when_not_bundled(self) -> None:
+        self.assertEqual(self._pip_args_fn()(['lz4'], None), ['install', 'lz4'])
+
+    def test_the_log_row_string_takes_three_args(self) -> None:
+        from nspb_qt.i18n import Lang
+        from nspb_qt.localization import t
+        out = t('dep.row.log', Lang.EN, 'python', 'missing', 'C:/x | found')
+        self.assertEqual(out, 'dependency python: [missing] C:/x | found', 'the report log showed raw %@ placeholders')
+        self.assertTrue(t('dep.row.log', Lang.ZH, 'python', 'missing', 'd'), 'Chinese side is filled too')
+
+
+class MetalPickFlowShapeTest(unittest.TestCase):
+    """The model wiring (source-shape, since model.py needs PySide6): the metal row asks for a
+    file, takes a zip to install_metal_zip, a folder to _save_metal_folder."""
+
+    def test_the_metal_row_routes_zip_and_folder(self) -> None:
+        src = (QT / 'nspb_qt' / 'model.py').read_text()
+        body = src[src.index("if dep.pick_key == 'metal_dir':"):]
+        self.assertIn('ask_file', body, 'the metal row must ask for a file (the zip)')
+        self.assertIn('install_metal_zip', body)
+        self.assertIn('_save_metal_folder', body)
+        self.assertIn("endswith('.zip')", body)
+
+
+class MetalZipInstallTest(unittest.TestCase):
+    """The one manual dependency (Apple-ID-gated Metal tools) handed a downloaded zip: the app
+    unpacks, validates both shipped layouts, and refuses anything else."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+
+    @staticmethod
+    def _fake_tools(root: Path, layout: str) -> Path:
+        bin_ = root / ('ios/bin' if layout == '4.x' else 'bin')
+        bin_.mkdir(parents=True)
+        (bin_ / 'metal.exe').write_bytes(b'MZ')
+        (bin_ / 'metallib.exe').write_bytes(b'MZ')
+        return root
+
+    def test_a_zip_with_the_tools_unpacks_to_the_tools_dir(self) -> None:
+        from nspb_qt.win import fetch as wf
+        tools = self.root / 'tools'
+        src = self._fake_tools(self.root / 'unpacked', '6.x')
+        zip_path = self.root / 'Metal Developer Tools 6.0.zip'
+        import zipfile
+        with zipfile.ZipFile(zip_path, 'w') as z:
+            for f in src.rglob('*'):
+                z.write(f, f.relative_to(src.parent))
+        dest = wf.install_metal_from_zip(zip_path, dest=tools / 'metal-developer-tools')
+        self.assertTrue((dest / 'bin' / 'metal.exe').is_file())
+        self.assertFalse((tools / 'metal-developer-tools-staging').exists(), 'staging is cleaned up')
+
+    def test_a_4x_layout_zip_is_accepted_by_its_ios_folder(self) -> None:
+        from nspb_qt.win import fetch as wf
+        src = self._fake_tools(self.root / 'u4', '4.x')
+        zip_path = self.root / 'metal4.zip'
+        import zipfile
+        with zipfile.ZipFile(zip_path, 'w') as z:
+            for f in src.rglob('*'):
+                z.write(f, f.relative_to(src.parent))
+        dest = wf.install_metal_from_zip(zip_path, dest=self.root / 'tools' / 'm4')
+        self.assertTrue((dest / 'ios' / 'bin' / 'metal.exe').is_file())
+
+    def test_a_zip_without_metal_exe_is_refused_and_leaves_nothing_behind(self) -> None:
+        from nspb_qt.win import fetch as wf
+        zip_path = self.root / 'not-metal.zip'
+        import zipfile
+        with zipfile.ZipFile(zip_path, 'w') as z:
+            (self.root / 'junk').mkdir()
+            (self.root / 'junk' / 'readme.txt').write_text('x', encoding='utf-8')
+            z.write(self.root / 'junk' / 'readme.txt', 'stuff/readme.txt')
+        tools = self.root / 'tools'
+        with self.assertRaises(wf.DownloadError):
+            wf.install_metal_from_zip(zip_path, dest=tools / 'm')
+        self.assertFalse((tools / 'm').exists())
+        self.assertFalse((tools / 'm-staging').exists())
 
 
 class InstallFailureHintTest(unittest.TestCase):
