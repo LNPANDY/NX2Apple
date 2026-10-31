@@ -19,8 +19,8 @@ enum DockProgress {
         iconView.imageScaling = .scaleProportionallyUpOrDown
         tile.addSubview(iconView)
 
-        let inset = size * 0.1
-        let bar = NSProgressIndicator(frame: NSRect(x: inset, y: size * 0.08, width: size - 2 * inset, height: 14))
+        let inset = size * 0.18
+        let bar = NSProgressIndicator(frame: NSRect(x: inset, y: size * 0.17, width: size - 2 * inset, height: 14))
         bar.style = .bar
         bar.isIndeterminate = false
         bar.minValue = 0
