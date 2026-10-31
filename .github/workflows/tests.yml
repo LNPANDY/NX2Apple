@@ -72,62 +72,6 @@ jobs:
           echo "engine=$engine" >> "$GITHUB_OUTPUT"
           echo "engine=$engine"
 
-  host-tests:
-    name: Host unit tests and CPU-only gfx tests
-    runs-on: xcode-27
-    needs: changes
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.engine == 'true') }}
-    timeout-minutes: 20
-    defaults:
-      run:
-        working-directory: engine
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Engine (tools/engine.py sync, issue #214)
-        working-directory: .
-        run: python3 tools/engine.py sync
-      - name: Host unit tests (dm/host/tests)
-        run: |
-          mkdir -p logs
-          make -C dm/host/tests GAME="$GAME" -j3 run 2>&1 | tee logs/host-tests.log
-      - name: ThreadSanitizer (audio, HID and guest memory)
-        run: |
-          make -C dm/host/tests GAME="$GAME" -j3 tsan memory-tsan 2>&1 | tee logs/tsan.log
-      - name: Thermal cap and ThreadSanitizer (concurrent frame-cap readers)
-        run: |
-          make -C dm/gfx/tests GAME="$GAME" -j3 check_t_thermal thermal-tsan 2>&1 | tee logs/thermal.log
-      - name: CPU texture layout and deswizzle tests
-        run: |
-          make -C dm/gfx/tex/tests t_tex 2>&1 | tee logs/texture-build.log
-          dm/gfx/tex/tests/t_tex 2>&1 | tee logs/texture-tests.log
-      - name: CPU-only gfx tests (dm/gfx/tests)
-        run: |
-          mkdir -p logs
-          cd dm/gfx/tests
-          make GAME="$GAME" -j3 t_perf_order
-          ./t_perf_order --cpu 2>&1 | tee ../../../logs/t_perf_order.log
-          make GAME="$GAME" -j3 perf-order-tsan 2>&1 | tee ../../../logs/t_perf_order-tsan.log
-          tests="t_dirty_slots t_dirty_race t_tex_layout t_pace t_fstep t_link_ticks t_cpu_tex t_hmap t_cover t_pso_skey t_refl t_rt_range_ro t_present_rescue t_gpuprof"
-          make GAME="$GAME" -j3 $tests 2>&1 | tee ../../../logs/gfx-build.log
-          failed=0
-          for t in $tests; do
-            echo "::group::$t"
-            ./$t 2>&1 | tee "../../../logs/$t.log" && rc=0 || rc=1   # pipefail: the test's status
-            echo "::endgroup::"
-            if [ "$rc" != 0 ]; then echo "::error::$t failed"; failed=1; fi
-          done
-          exit $failed
-      - name: Direct OpenGL imports and EGL lookup (no GPU)
-        run: make -C dm/gfx/tests GAME="$GAME" gl-imports 2>&1 | tee logs/gl-imports.log
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: failure()
-        with:
-          name: logs-host-tests
-          path: engine/logs
-          retention-days: 7
-
   tool-tests:
     name: Tool tests
     runs-on: xcode-27
@@ -281,30 +225,6 @@ jobs:
           path: logs
           retention-days: 7
 
-  shell-package:
-    name: iOS shell package (frontend-ios, swift test)
-    runs-on: xcode-27
-    needs: changes
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.engine == 'true') }}
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      # The views, the host layer (catalogue from embedded frameworks, the engine launch plan, settings, bookmarks) and the
-      # controller mapping, on the Mac (the package also builds for macOS); the UI tests need a Simulator and stay local
-      - name: Tests
-        working-directory: frontend-ios
-        run: |
-          mkdir -p ../logs
-          swift test 2>&1 | tee ../logs/shell-package-tests.log
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: failure()
-        with:
-          name: logs-shell-package
-          path: logs
-          retention-days: 7
-
   launcher-qt:
     name: Qt front end (frontend-qt tests)
     runs-on: xcode-27
@@ -347,12 +267,15 @@ jobs:
       - name: Tests
         run: python -m unittest discover -s .github/scripts/tests -v
 
-  ios-build:
-    name: Unsigned iOS app (synthetic modules, Swift and link)
+  # host-tests, shell-package and ios-build were three jobs of 95 to 161 s each, and each waited in the xcode-27 queue. They are one job
+  # now, so one slot. The steps keep their names and their logs. A failed step does not stop the next ones (if: !cancelled()),
+  # so one run still shows every failure, and the job fails if any step did. Only the engine-based steps depend on the sync step.
+  engine-checks:
+    name: Host tests, iOS shell package and unsigned iOS app
     runs-on: xcode-27
     needs: changes
     if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.engine == 'true') }}
-    timeout-minutes: 40
+    timeout-minutes: 60
     defaults:
       run:
         working-directory: engine
@@ -360,28 +283,82 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # The views, the host layer (catalogue from embedded frameworks, the engine launch plan, settings, bookmarks) and the
+      # controller mapping, on the Mac (the package also builds for macOS); the UI tests need a Simulator and stay local
+      - name: iOS shell package (frontend-ios, swift test)
+        working-directory: frontend-ios
+        run: |
+          mkdir -p ../logs
+          swift test 2>&1 | tee ../logs/shell-package-tests.log
       - name: Engine (tools/engine.py sync, issue #214)
+        id: sync
+        if: ${{ !cancelled() }}
         working-directory: .
         run: python3 tools/engine.py sync
+      - name: Host unit tests (dm/host/tests)
+        if: ${{ !cancelled() && steps.sync.outcome == 'success' }}
+        run: |
+          mkdir -p logs
+          make -C dm/host/tests GAME="$GAME" -j3 run 2>&1 | tee logs/host-tests.log
+      - name: ThreadSanitizer (audio, HID and guest memory)
+        if: ${{ !cancelled() && steps.sync.outcome == 'success' }}
+        run: |
+          make -C dm/host/tests GAME="$GAME" -j3 tsan memory-tsan 2>&1 | tee logs/tsan.log
+      - name: Thermal cap and ThreadSanitizer (concurrent frame-cap readers)
+        if: ${{ !cancelled() && steps.sync.outcome == 'success' }}
+        run: |
+          make -C dm/gfx/tests GAME="$GAME" -j3 check_t_thermal thermal-tsan 2>&1 | tee logs/thermal.log
+      - name: CPU texture layout and deswizzle tests
+        if: ${{ !cancelled() && steps.sync.outcome == 'success' }}
+        run: |
+          make -C dm/gfx/tex/tests t_tex 2>&1 | tee logs/texture-build.log
+          dm/gfx/tex/tests/t_tex 2>&1 | tee logs/texture-tests.log
+      - name: CPU-only gfx tests (dm/gfx/tests)
+        if: ${{ !cancelled() && steps.sync.outcome == 'success' }}
+        run: |
+          mkdir -p logs
+          cd dm/gfx/tests
+          make GAME="$GAME" -j3 t_perf_order
+          ./t_perf_order --cpu 2>&1 | tee ../../../logs/t_perf_order.log
+          make GAME="$GAME" -j3 perf-order-tsan 2>&1 | tee ../../../logs/t_perf_order-tsan.log
+          tests="t_dirty_slots t_dirty_race t_tex_layout t_pace t_fstep t_link_ticks t_cpu_tex t_hmap t_cover t_pso_skey t_refl t_rt_range_ro t_present_rescue t_gpuprof"
+          make GAME="$GAME" -j3 $tests 2>&1 | tee ../../../logs/gfx-build.log
+          failed=0
+          for t in $tests; do
+            echo "::group::$t"
+            ./$t 2>&1 | tee "../../../logs/$t.log" && rc=0 || rc=1   # pipefail: the test's status
+            echo "::endgroup::"
+            if [ "$rc" != 0 ]; then echo "::error::$t failed"; failed=1; fi
+          done
+          exit $failed
+      - name: Direct OpenGL imports and EGL lookup (no GPU)
+        if: ${{ !cancelled() && steps.sync.outcome == 'success' }}
+        run: make -C dm/gfx/tests GAME="$GAME" gl-imports 2>&1 | tee logs/gl-imports.log
       - name: Install XcodeGen
+        if: ${{ !cancelled() && steps.sync.outcome == 'success' }}
         run: command -v xcodegen || brew install xcodegen
       - name: Build the production iOS project with synthetic inputs
+        if: ${{ !cancelled() && steps.sync.outcome == 'success' }}
         run: |
           mkdir -p logs
           python3 dm/ios/tools/build_smoke.py --output "$RUNNER_TEMP/ios-smoke" 2>&1 | tee logs/ios-build.log
       # Route C M1 (docs/launcher-c-plan.md): XcodeGen and xcodebuild of the DmGame framework target from a synthetic Gen/.
       # test_framework_build.py's packaging half runs in tool-tests; its link half needs xcodegen, installed only here.
       - name: The game framework links the module sections (route C M1)
+        if: ${{ !cancelled() && steps.sync.outcome == 'success' }}
         run: python3 -m unittest -v dm/ios/tests/test_framework_link.py 2>&1 | tee logs/framework-link.log
       # Route C M2: build_shell.sh generates and builds the shell (host, frontend-ios package, a synthetic framework embedded and not
       # linked). make_ext_font.py needs fontTools, which only this step installs
       - name: The shell app embeds a game framework and builds (route C M2)
+        if: ${{ !cancelled() && steps.sync.outcome == 'success' }}
         run: |
           python3 -m pip install --user --break-system-packages fonttools > /dev/null
           python3 -m unittest -v dm/ios/tests/test_shell_build.py 2>&1 | tee logs/shell-build.log
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
         with:
-          name: logs-ios-build
-          path: engine/logs
+          name: logs-engine-checks
+          path: |
+            engine/logs
+            logs
           retention-days: 7
