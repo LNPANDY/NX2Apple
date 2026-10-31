@@ -83,9 +83,11 @@ struct LaunchOptionsView: View {
             HStack(spacing: 14) {
                 Text(m.t("launch.applied")).font(.manrope(12)).foregroundStyle(.secondary).lineLimit(2)
                 Spacer(minLength: 8)
+                // One LauncherControl wide, as the buttons of a setting row: its label fits on one line in every language
                 if let game, let settings, !game.launchOptions.isEmpty || (store?.hasChoices(settings) ?? false) {
                     Button(m.t("launch.reset")) { reset(settings) }
                         .buttonStyle(LauncherSecondaryButtonStyle())
+                        .launcherRowControls()
                         .padTarget("opt.reset", scope: "launch") { reset(settings) }
                 }
                 Button { dismiss() } label: {

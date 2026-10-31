@@ -383,7 +383,7 @@ TABLE: dict[str, tuple[str, str, str, str]] = {
     'library.scrollBack': ('向前滚动', 'Scroll back', 'Rulla bakåt', 'Zurückblättern'),
     'library.scrollForward': ('向后滚动', 'Scroll forward', 'Rulla framåt', 'Weiterblättern'),
     'launch.title': ('启动选项', 'Launch options', 'Startalternativ', 'Startoptionen'),
-    'launch.reset': ('恢复测试默认值', 'Reset to tested defaults', 'Återställ testade standardvärden', 'Auf getestete Standardwerte zurücksetzen'),
+    'launch.reset': ('恢复测试默认值', 'Reset to tested defaults', 'Återställ testade värden', 'Getestete Werte laden'),
     'launch.rowReset': ('恢复此设置的默认值', 'Reset this setting to its default', 'Återställ den här inställningen till standardvärdet', 'Diese Einstellung auf den Standard zurücksetzen'),
     'launch.done': ('完成', 'Done', 'Klar', 'Fertig'),
     'launch.applied': ('已保存到这个游戏应用中，每次启动都会生效。', 'Saved in the game’s app: applies every time it starts.', 'Sparat i spelets app och används vid varje start.', 'In der App des Spiels gesichert: gilt bei jedem Start.'),
