@@ -215,7 +215,7 @@ struct LauncherDropdownList: View {
 
 /// The launcher's dropdown: a button with the current choice that opens a list drawn in the app's own style
 /// (its dark surface, Manrope, a checkmark on the chosen row). It never cuts the label short unless it is given
-/// `fill` (the width of its container). Inside a setting row it is exactly LauncherControl.width wide, its choice at
+/// `fill` (the width of its container). Inside a setting row it is exactly LauncherControl.width wide and LauncherControl.height high, its choice at
 /// the left and the chevron at the right, the choice a little smaller when it does not fit.
 /// `label` names the setting for VoiceOver, which then reads the choice as the value.
 struct LauncherDropdown: View {
@@ -251,12 +251,13 @@ struct LauncherDropdown: View {
                 .rotationEffect(.degrees(open ? 180 : 0))
         }
         .padding(.horizontal, rounded ? 15 : 14).padding(.vertical, rounded ? 9 : 7)
-        .frame(width: width)
+        .frame(width: width, height: width == nil ? nil : LauncherControl.height)
         .frame(maxWidth: fill ? .infinity : nil)
         .background(Color.white.opacity(open ? 0.13 : (rounded ? 0.055 : 0.06)), in: shape)
         .overlay(shape.strokeBorder(Color.white.opacity(open ? 0.18 : 0.10)))
         .foregroundStyle(Color.white.opacity(0.92))
         .contentShape(shape)
+        .launcherMeasured(label: Text(current).font(.manrope(rounded ? 13 : 12.5, .semibold)), room: LauncherControl.choiceWidth)
     }
 
     fileprivate func accessible<V: View>(_ view: V) -> some View {

@@ -8,7 +8,7 @@ import Foundation
 // cannot drift apart. Additional language overlays use English as an explicit safe fallback while
 // they are filled, which lets a new language be added without changing every view first.
 
-enum Lang: String {
+enum Lang: String, CaseIterable {
     case zh, en, sv, de
 
     /// Chinese, Swedish and German devices use their matching catalog; every other device gets English.
@@ -522,20 +522,20 @@ enum L10n {
         "repo.manualHint": ("网络不顺也可以手动：打开", "Flaky network? Do it by hand: open"),
         "repo.manualHint2": ("→ 点绿色 Code 按钮 → Download ZIP，解压后点「选择仓库…」选中解压出的文件夹",
                              "→ the green Code button → Download ZIP, unzip, then pick the unzipped folder with Choose repository…"),
-        "repo.noGit": ("这是 ZIP 下载的副本（无 git 历史），构建不受影响，点「接入 git」转为可更新",
+        "repo.noGit": ("这是 ZIP 下载的副本（无 git 历史），构建不受影响，点「设为可更新」接入 git",
                        "This is a ZIP copy (no git history), and builds work fine. Make updatable connects it to git"),
-        "repo.adopt": ("接入 git（可更新）", "Make updatable (git)"),
+        "repo.adopt": ("设为可更新", "Make updatable"),
         "repo.adopting": ("正在接入 git…", "Connecting git…"),
         "repo.adopted": ("已接入 git，可以更新了，原来的文件保存在分支 %@", "Connected — updates work now. Your previous files are kept on branch %@"),
         "repo.adoptFail": ("接入失败——详情见日志", "Connect failed — see the log"),
         "repo.adoptedAuto": ("打开时已接入 git 并更新到最新版本，原来的文件保存在分支 %@", "Connected to git and updated when the app opened. Your previous files are kept on branch %@"),
-        "repo.adoptFailAuto": ("打开时未能接入 git（网络不通？详情见日志）——点「接入 git」重试",
+        "repo.adoptFailAuto": ("打开时未能接入 git（网络不通？详情见日志）——点「设为可更新」重试",
                                "Could not connect to git when the app opened (offline? see the log) — try Make updatable"),
-        "repo.zipWaits": ("构建运行中，暂不接入 git——构建结束后重启 App 或点「接入 git」",
+        "repo.zipWaits": ("构建运行中，暂不接入 git——构建结束后重启 App 或点「设为可更新」",
                           "A build is running, so the copy is not connected to git yet — restart the app after it, or use Make updatable"),
-        "repo.zipNoAuto": ("这是 ZIP 副本，无法自行更新，构建工具可能比 App 旧：点「接入 git」，或打开「打开时自动更新」",
+        "repo.zipNoAuto": ("这是 ZIP 副本，无法自行更新，构建工具可能比 App 旧：点「设为可更新」，或打开「打开时自动更新」",
                            "This ZIP copy cannot update itself, so its build tools may be older than the app: use Make updatable, or turn on “Update automatically when the app opens”"),
-        "repo.toolsOld": ("构建工具比本 App 旧（缺少 %@）——请更新（点「接入 git」或「拉取更新」）",
+        "repo.toolsOld": ("构建工具比本 App 旧（缺少 %@）——请更新（点「设为可更新」或「拉取更新」）",
                           "The build tools are older than this app (missing %@) — update them (Make updatable or Pull updates)"),
         "library.toolsAdopted": ("构建工具已接入 git 并更新", "Build tools connected to git and updated"),
         "msg.toolsOld": ("构建工具比本 App 旧（缺少 %@），构建未开始——先在设置 → 构建工具中更新",
@@ -1390,7 +1390,7 @@ enum L10n {
         "repo.download": "Hämta förrådet",
         "repo.downloadDone": "Förrådet hämtades till %@",
         "repo.manualHint": "Instabil anslutning? Gör det manuellt: öppna",
-        "repo.adopt": "Gör uppdateringsbart (git)",
+        "repo.adopt": "Gör uppdateringsbart",
         "repo.adopting": "Ansluter git …",
         "repo.adopted": "Ansluten – uppdateringar fungerar nu. Dina tidigare filer finns kvar på grenen %@",
         "repo.adoptFail": "Anslutningen misslyckades – se loggen",
@@ -2235,7 +2235,7 @@ enum L10n {
         "repo.manualHint": "Netzwerk instabil? Erledige es von Hand: Öffne",
         "repo.manualHint2": "→ die grüne Schaltfläche „Code“ → „Download ZIP“, entpacke es und wähle dann den entpackten Ordner mit „Repository wählen …“",
         "repo.noGit": "Dies ist eine ZIP-Kopie (ohne git-Verlauf), und Builds funktionieren damit einwandfrei. „Updatefähig machen“ verbindet sie mit git",
-        "repo.adopt": "Updatefähig machen (git)",
+        "repo.adopt": "Updatefähig machen",
         "repo.adopting": "git wird verbunden …",
         "repo.adopted": "Verbunden. Updates funktionieren jetzt. Deine bisherigen Dateien bleiben im Branch %@ erhalten",
         "repo.adoptFail": "Verbinden fehlgeschlagen. Siehe Protokoll",
