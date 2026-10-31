@@ -4,6 +4,8 @@
 // On hardware this call is one IPC that needs a few hundred bytes of stack; the host's file system take-overs size their buffers by PATH_MAX, and one file open takes 6-7 KB (-fstack-usage: OpenFile 1.3 KB -> host_path_ex 1.9 KB -> path_component 3.2 KB).
 // How: what gets registered is a static stub (one per take-over function, which loads the implementation's address into x16 and jumps to dm_bigstack_enter). The entry looks at the current sp: inside the guest address block (a guest thread stack)
 // it switches to this thread's host stack (512 KB, mapped on first use, with a guard page), calls the implementation with x0-x8 / d0-d7 untouched, and switches back after it returns; outside the guest block (a host thread, or already on the host stack) it jumps straight through.
+// The implementation's own return address is then the instruction after the entry's call, not the game's call site: the entry keeps the game's return address beside the saved sp at the top of the host stack,
+// and dm_bigstack_caller (hle.h) gives it back, so take-overs that log their call site (audio Start / Stop / Close) name the game's code on either path.
 // Only register arguments are carried over: functions with more than 8 integer / 8 floating-point arguments, or variadic ones reading from the stack, cannot use it.
 // iOS does not allow generating executable code at run time, so the stubs are generated at compile time by the macro, not written at run time as DM_HLECOUNT does
 #include <pthread.h>
@@ -36,7 +38,7 @@ uintptr_t dm_bigstack_top(uintptr_t sp) {
     return (uintptr_t)top;
 }
 
-// x16 = implementation. Frame (on the original stack, 0xa0 bytes): +0x00 x0-x8, x16, +0x50 d0-d7, +0x90 x29 / x30. After the switch the original sp is stored at the new stack top and restored when the implementation returns
+// x16 = implementation. Frame (on the original stack, 0xa0 bytes): +0x00 x0-x8, x16, +0x50 d0-d7, +0x90 x29 / x30. After the switch the original sp and the game's return address are stored at the new stack top; the sp is restored when the implementation returns
 __asm__(
     ".text\n"
     ".p2align 2\n"
@@ -69,9 +71,13 @@ __asm__(
     "    ldp d6, d7, [sp, #0x80]\n"
     "    cbz x17, 1f\n"
     "    mov x9, sp\n"
+    "    ldr x10, [x9, #0x98]\n"
     "    mov sp, x17\n"
-    "    stp x9, xzr, [sp, #-16]!\n"
+    "    stp x9, x10, [sp, #-16]!\n"
     "    blr x16\n"
+    ".globl _dm_bigstack_ret\n"
+    ".private_extern _dm_bigstack_ret\n"
+    "_dm_bigstack_ret:\n"
     "    ldr x9, [sp]\n"
     "    mov sp, x9\n"
     "    ldp x29, x30, [sp, #0x90]\n"
@@ -81,3 +87,11 @@ __asm__(
     "    ldp x29, x30, [sp, #0x90]\n"
     "    add sp, sp, #0xa0\n"
     "    br x16\n");
+
+// The return address inside an implementation that came through the switch is _dm_bigstack_ret; the game's own is in the slot the entry stored below this thread's host stack top. Only the outermost
+// take-over of a thread switches (a nested one already runs off the guest block and is jumped to directly), so that slot belongs to the call in progress
+void *dm_bigstack_caller(void *ra) {
+    extern const char dm_bigstack_ret[];
+    void **top = ra == (void *)dm_bigstack_ret ? pthread_getspecific(g_bs_key) : NULL;   // set: a switch happened on this thread
+    return top ? top[-1] : ra;
+}

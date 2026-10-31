@@ -73,6 +73,12 @@ namespace Ryujinx.Graphics.Shader.CodeGen.Spirv
                     context.AddCapability(Capability.Geometry);
                 }
 
+                // nxnative: the sample index (PIXLD.MYINDEX) is a SampleRateShading input
+                if (context.Info.IoDefinitions.Contains(new IoDefinition(StorageKind.Input, IoVariable.SampleId)))
+                {
+                    context.AddCapability(Capability.SampleRateShading);
+                }
+
                 if (context.HostCapabilities.SupportsFragmentShaderInterlock)
                 {
                     context.AddCapability(Capability.FragmentShaderPixelInterlockEXT);

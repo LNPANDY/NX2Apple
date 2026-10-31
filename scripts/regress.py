@@ -373,6 +373,11 @@ def chain_build_locked(tree, g, a, v, inp, key, out):
     mf = out / 'manifest.json'
     if mf.is_file():
         m = json.loads(mf.read_text()); m['secs'] = 0
+        lib = out / f'b-{v}'
+        if g.kind == 'nvn' and m.get('hashes') != NVN_HASHES and (lib / '_b_build.json').is_file():   # made by an older nvn_manifest: its hashes would not compare with this one's
+            say(f'  {g.id}: hashing the outputs of chain {v} again (manifest hashes {m.get("hashes", 1)} → {NVN_HASHES})')
+            m['shaders'] = nvn_manifest(lib, jobs); m['hashes'] = NVN_HASHES
+            mf.write_text(json.dumps({k: x for k, x in m.items() if k != 'secs'}, indent=0))
         # The archive planner and depth mode can change without changing the translation chain.
         if g.kind == 'nvn': m['interface'] = interface_check(tree, g, out)
         return m, out
@@ -411,17 +416,26 @@ def chain_build_locked(tree, g, a, v, inp, key, out):
     m = {'key': key, 'kind': g.kind, 'chain': v, 'inputs': inp, 'tree': tree.id, 'game': g.id, 'total': len(shaders), 'ok': st['ok'], 'failed': len(shaders) - st['ok'],
          'failed_by_status': {k: n for k, n in st.items() if k != 'ok'}, 'build_secs': round(time.time() - t0, 1), 'shaders': shaders}
     if g.kind == 'vk': m['build_failed'] = rc != 0
-    if g.kind == 'nvn': m['interface'] = interface_check(tree, g, out)
+    if g.kind == 'nvn': m['interface'] = interface_check(tree, g, out); m['hashes'] = NVN_HASHES
     mf.write_text(json.dumps(m, indent=0))
     m['secs'] = m['build_secs']
     return m, out
 
 
-def refl_hash(p):
+NVN_HASHES = 2   # how nvn_manifest hashes; a reused manifest of another number is hashed again from its outputs (2: variant reflections without the chain stamps)
+
+
+def refl_canon(p):
+    """A reflection's JSON without the chain stamps (chain, chain_metal, chain_compiler), which every chain change rewrites; None when it does not read"""
     try: j = json.loads(Path(p).read_bytes())
     except (OSError, ValueError): return None
     for k in ('chain', 'chain_metal', 'chain_compiler'): j.pop(k, None)
-    return hashlib.sha256(json.dumps(j, sort_keys=True).encode()).hexdigest()[:16]
+    return json.dumps(j, sort_keys=True).encode()
+
+
+def refl_hash(p):
+    j = refl_canon(p)
+    return j and hashlib.sha256(j).hexdigest()[:16]
 
 
 def nvn_manifest(lib, jobs):
@@ -439,7 +453,11 @@ def nvn_manifest(lib, jobs):
         var = [n for n in names if n not in (f'{k}_b.metal', f'{k}_b.json', f'{k}_b.metallib')]
         if var:
             h = hashlib.sha256()
-            for n in var: h.update(n[16:].encode()); sha256_file(lib / n, h)
+            for n in var:   # reflections without their chain stamps; MSL and metallibs as bytes (a metallib is the only output of some variants, and the same MSL compiles to the same bytes)
+                h.update(n[16:].encode())
+                j = refl_canon(lib / n) if n.endswith('.json') else None
+                if j is None: sha256_file(lib / n, h)
+                else: h.update(j)
             e['var'] = h.hexdigest()[:16]
         return k, e
     with cf.ThreadPoolExecutor(max(2, jobs)) as ex: return dict(ex.map(one, rows))

@@ -36,7 +36,7 @@ index 91224501..e8a645e7 100644
          g_screen_fps = (int)(win.screen ?: NSScreen.mainScreen).maximumFramesPerSecond;
          g_win = win;
 diff --git a/docs/development.md b/docs/development.md
-index 3f122a70..f915286e 100644
+index 4f2b9378..1f760a33 100644
 --- a/docs/development.md
 +++ b/docs/development.md
 @@ -10,7 +10,7 @@ The README covers packing and playing. This page is for working on nxnative itse

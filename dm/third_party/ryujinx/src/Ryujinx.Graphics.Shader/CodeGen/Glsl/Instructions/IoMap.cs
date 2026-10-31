@@ -41,6 +41,7 @@ namespace Ryujinx.Graphics.Shader.CodeGen.Glsl.Instructions
                 IoVariable.PointSize => ("gl_PointSize", AggregateType.FP32),
                 IoVariable.Position => ("gl_Position", AggregateType.Vector4 | AggregateType.FP32),
                 IoVariable.PrimitiveId => GetPrimitiveIdVariableName(definitions.Stage, isOutput),
+                IoVariable.SampleId => ("gl_SampleID", AggregateType.S32),
                 IoVariable.SubgroupEqMask => GetSubgroupMaskVariableName(hostCapabilities.SupportsShaderBallot, "Eq"),
                 IoVariable.SubgroupGeMask => GetSubgroupMaskVariableName(hostCapabilities.SupportsShaderBallot, "Ge"),
                 IoVariable.SubgroupGtMask => GetSubgroupMaskVariableName(hostCapabilities.SupportsShaderBallot, "Gt"),

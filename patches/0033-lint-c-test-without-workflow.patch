@@ -9,7 +9,6 @@ NX2Apple carries no clang-tidy workflow, so the test that compares the baseline'
 Upstream-Status: fork-only
 Reason: the fork's CI runs dm/tools/tests but has no lint-c.yml (the ratchet's baseline counts upstream's sources, not the patched ones)
 Issue: LNPANDY/NX2Apple#123
-
 ---
  dm/tools/tests/test_lint_c.py | 1 +
  1 file changed, 1 insertion(+)

@@ -67,6 +67,23 @@ namespace Ryujinx.Graphics.Shader.Instructions
             EmitR2p(context, value, mask, op.ByteSel, op.Ccpr);
         }
 
+        public static void Pixld(EmitterContext context)
+        {
+            InstPixld op = context.GetOp<InstPixld>();
+
+            // nxnative: PIXLD.MYINDEX is the index of the sample the fragment runs for. GLSLC reads it (RZ, offset 0) for gl_SampleID and to index the driver's sample position
+            // table (c0 + 0x620, 438 pixel shaders of Metroid Prime Remastered's MaterialArchive.arc); a fragment function that reads it runs once per sample, in Metal too
+            // ([[sample_id]]). Upstream wrote nothing, so the register read as 0: sample 0. The other modes (coverage, sample offsets) and an address operand are not implemented.
+            if (op.PixMode == PixMode.MyIndex && op.SrcA == RegisterConsts.RegisterZeroIndex && op.Imm8 == 0 &&
+                op.DestPred == RegisterConsts.PredicateTrueIndex && context.TranslatorContext.Definitions.Stage == ShaderStage.Fragment)
+            {
+                context.Copy(GetDest(op.Dest), context.Load(StorageKind.Input, IoVariable.SampleId));
+                return;
+            }
+
+            context.TranslatorContext.GpuAccessor.Log($"Shader instruction Pixld ({op.PixMode}) is not implemented.");
+        }
+
         public static void S2r(EmitterContext context)
         {
             InstS2r op = context.GetOp<InstS2r>();
