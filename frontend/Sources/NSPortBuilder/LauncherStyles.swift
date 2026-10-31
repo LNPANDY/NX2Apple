@@ -235,6 +235,9 @@ struct LauncherHeroActionLabel: View {
 /// in one column whatever their labels.
 enum LaunchControl {
     static let width: CGFloat = 220
+    /// A slider's value, in percent or in pixels: wide enough for "1920×1080" in 13 pt Manrope semibold with monospaced digits
+    /// (71 pt), so every slider of the sheet is equally long and the reset arrows line up.
+    static let valueWidth: CGFloat = 72
 
     /// Characters the segments of one control share: a segment of 12.5 pt text, 24 pt of padding in 220 pt, takes about 10 with two
     /// choices and 6 with three.

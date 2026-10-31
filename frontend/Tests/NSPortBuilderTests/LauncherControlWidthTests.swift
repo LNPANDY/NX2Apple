@@ -238,6 +238,15 @@ final class LauncherControlWidthTests: XCTestCase {
 
     // MARK: Launch options
 
+    /// Every slider's value has one width, so the sliders are equally long: the widest value, four digits by four in pixels or
+    /// three in percent, fits it on one line.
+    @MainActor func testTheWidestSliderValueFitsItsColumn() {
+        for value in ["8888×8888", "888%"] {
+            let width = NSHostingView(rootView: Text(value).font(.manrope(13, .semibold)).monospacedDigit().fixedSize()).fittingSize.width
+            XCTAssertLessThanOrEqual(width, LaunchControl.valueWidth, value)
+        }
+    }
+
     /// The Launch options sheet at its own size, with a choice made so that Reset to tested defaults shows: in every language
     /// the button is one LauncherControl and its label fits on one line.
     @MainActor func testLaunchOptionsResetFitsInEveryLanguage() throws {

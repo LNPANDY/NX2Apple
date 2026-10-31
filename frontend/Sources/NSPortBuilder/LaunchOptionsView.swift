@@ -223,7 +223,7 @@ struct LaunchOptionsView: View {
                 }
                 Text(pixels ?? "\(Int(((Double(value) ?? 0) * 100).rounded()))%")
                     .font(.manrope(13, .semibold)).monospacedDigit().foregroundStyle(.secondary)
-                    .frame(width: pixels == nil ? 44 : 72, alignment: .trailing)
+                    .frame(width: LaunchControl.valueWidth, alignment: .trailing)
                 ZStack {
                     if Double(value) != Double(s.def) {
                         Button { set(s, s.def) } label: {
