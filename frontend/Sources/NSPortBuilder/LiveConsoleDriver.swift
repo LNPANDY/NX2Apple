@@ -111,6 +111,10 @@ struct ConsolePadSnapshot: Equatable {
         clock = Timer.scheduledTimer(withTimeInterval: 20, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.state.time = Date(); self?.refreshControllers(announce: false) } }   // the battery has no change callback: it is read again each tick
     }
     private var devicePads = false
+    /// Runs before the game is opened and calls its argument when the launch may go on (the window leaves full screen first,
+    /// see ConsoleCoordinator). `gameEnded` runs when the game quit or did not start.
+    var prepareLaunch: (@escaping () -> Void) -> Void = { $0() }
+    var gameEnded: () -> Void = {}
 
     deinit {
         observers.forEach { NotificationCenter.default.removeObserver($0); NSWorkspace.shared.notificationCenter.removeObserver($0) }
@@ -219,11 +223,19 @@ struct ConsolePadSnapshot: Equatable {
         let environment = GameStart.environment(for: game, library: library, controls: controls, repo: repo(), labels: labels, fullscreen: true)
             .merging(FrameTimes.recordingEnvironment(for: game, library: library.folder)) { $1 }   // a frame-time recording, as the desktop Play adds (FrameTimes.swift)
         state.starting = .preparing
+        prepareLaunch { [weak self] in
+            guard let self else { return }
+            guard self.state.startingGameID == gameID else { self.gameEnded(); return }
+            self.openGame(game, environment: environment, gameID: gameID)
+        }
+    }
+
+    private func openGame(_ game: LibraryGame, environment: [String: String], gameID: String) {
         launch(game, environment) { [weak self] pid, error in
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     guard let self, self.state.startingGameID == gameID else { return }
-                    if let error { self.state.returnFromGame(); self.showToast(error.localizedDescription); return }
+                    if let error { self.state.returnFromGame(); self.gameEnded(); self.showToast(error.localizedDescription); return }
                     self.launchedPID = pid
                     if let pid { GameReturnWatcher.shared.didStart(pid: pid) { [weak self] in self?.gameDidTerminate(pid: pid) } }   // the launcher's one watcher and its switch (ReturnAfterPlay.swift)
                     self.state.starting = .opening
@@ -260,6 +272,7 @@ struct ConsolePadSnapshot: Equatable {
         launchedPID = nil
         timeoutTask?.cancel()
         state.returnFromGame()
+        gameEnded()
     }
 
     // MARK: Options

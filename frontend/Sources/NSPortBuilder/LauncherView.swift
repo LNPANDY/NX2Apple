@@ -55,7 +55,7 @@ struct ContentView: View {
     @State private var cheatsFor: UUID?  // the game whose Cheats sheet is open (CheatsView.swift)
     @State private var manageOpenFor: UUID?   // the game whose Manage menu is open (ManageMenu.swift)
     @StateObject private var controls: ControlLayout
-    @StateObject private var gamepad = LauncherGamepad()
+    @StateObject private var gamepad: LauncherGamepad
     @StateObject private var padFocus = PadFocus()
     @StateObject private var row = RowScroller()
     @StateObject private var toolsAge: ToolsAge
@@ -70,7 +70,8 @@ struct ContentView: View {
     init(model: BuildModel? = nil, library: GameLibrary? = nil, initialPage: LauncherPage = .library,
          activeBuildID: UUID? = nil, performStartupChecks: Bool = true, search: String? = nil, olderTools: Set<UUID> = [],
          manageOpen: Bool = false, padRing: Bool = false, onRunSetup: (() -> Void)? = nil,
-         enterConsole: (() -> Void)? = nil, controllerDriver: AnyConsoleDriver? = nil, controls sharedControls: ControlLayout? = nil, qaPrompt: Bool = false) {
+         enterConsole: (() -> Void)? = nil, controllerDriver: AnyConsoleDriver? = nil, controls sharedControls: ControlLayout? = nil, qaPrompt: Bool = false,
+         gamepad: LauncherGamepad? = nil) {
         _consolePrompt = State(initialValue: qaPrompt)   // visual QA: the connect prompt open at launch
         self.onRunSetup = onRunSetup
         let layout = sharedControls ?? ControlLayout()
@@ -81,6 +82,7 @@ struct ContentView: View {
         qaManage = (manageOpen, padRing)
         if let search { _search = State(initialValue: search); _searching = State(initialValue: true) }   // visual QA: the bar with its field open
         _toolsAge = StateObject(wrappedValue: ToolsAge(older: olderTools))   // visual QA: games marked without a checkout to compare
+        _gamepad = StateObject(wrappedValue: gamepad ?? LauncherGamepad())   // LauncherPerformanceTests presses its buttons
         _m = StateObject(wrappedValue: model ?? BuildModel())
         _library = StateObject(wrappedValue: library ?? GameLibrary())
         _page = State(initialValue: initialPage)
@@ -175,6 +177,7 @@ struct ContentView: View {
         .environmentObject(padFocus)
         .manageMenuOverlay(items: manageOpenFor.flatMap { id in library.games.first { $0.id == id } }.map(manageItems),
                            label: m.t("library.manage"), pad: padFocus) { manageOpenFor = nil }
+        .launcherDropdownHost()
         .onChange(of: manageOpenFor) { id in
             padFocus.scope = id != nil ? "manage" : currentPadScope
             if id != nil, padFocus.visible {   // opened by the controller: its focus lands on the first usable row
@@ -262,9 +265,9 @@ struct ContentView: View {
             removing = nil
         }
         .sheet(isPresented: Binding(get: { optionsFor != nil }, set: { if !$0 { optionsFor = nil } })) {
-            if let id = optionsFor { LaunchOptionsView(m: m, library: library, gameID: id).environmentObject(padFocus) }
+            if let id = optionsFor { LaunchOptionsView(m: m, library: library, gameID: id).environmentObject(padFocus).launcherDropdownHost() }
         }
-        .sheet(isPresented: $controlsOpen) { ControlsView(m: m, layout: controls).environmentObject(padFocus) }
+        .sheet(isPresented: $controlsOpen) { ControlsView(m: m, layout: controls).environmentObject(padFocus).launcherDropdownHost() }
         .sheet(isPresented: Binding(get: { freeSpaceFor != nil }, set: { if !$0 { freeSpaceFor = nil } })) {
             if let game = library.games.first(where: { $0.id == freeSpaceFor }) { FreeSpaceView(m: m, game: game).environmentObject(padFocus) }
         }
@@ -288,7 +291,7 @@ struct ContentView: View {
             }
         }
         .sheet(isPresented: Binding(get: { savesFor != nil }, set: { if !$0 { savesFor = nil } })) {
-            if let id = savesFor { SavesView(m: m, library: library, gameID: id).environmentObject(padFocus) }
+            if let id = savesFor { SavesView(m: m, library: library, gameID: id).environmentObject(padFocus).launcherDropdownHost() }
         }
         .onChange(of: savesFor) { id in padFocus.scope = id != nil ? "saves" : currentPadScope }
         .cheatsSheet(for: $cheatsFor, m: m, library: library, pad: padFocus) { currentPadScope }
@@ -513,14 +516,11 @@ struct ContentView: View {
                             .fixedSize(horizontal: false, vertical: true).frame(maxWidth: 460, alignment: .leading)
                     } else {
                     Button { primaryAction(game) } label: {
-                        Label(game.primary == .play ? m.t("library.play")
+                        LauncherHeroActionLabel(
+                            title: game.primary == .play ? m.t("library.play")
                                 : (game.primary == .openOnDevice ? String(format: m.t("dev.open"), m.deviceName(game.installedDevice))
                                    : m.t("library.newBuild")),
-                              systemImage: game.primary == .play ? "play.fill" : (game.primary == .openOnDevice ? "iphone" : "hammer.fill"))
-                            .font(.manrope(18, .bold))
-                            .foregroundStyle(.black).padding(.horizontal, 30).padding(.vertical, 14)
-                            .frame(minWidth: 164)
-                            .background(LauncherPalette.cream, in: Capsule())
+                            symbol: game.primary == .play ? "play.fill" : (game.primary == .openOnDevice ? "iphone" : "hammer.fill"))
                     }
                     .buttonStyle(.plain).disabled(launching || (m.running && !game.isReady))
                     .keyboardShortcut(.return, modifiers: [])
@@ -618,6 +618,7 @@ struct ContentView: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                         HStack(alignment: .top, spacing: 14) {
                             ForEach(filteredGames) { game in
+                                let _ = LauncherWork.count(.card)
                                 let unowned = isUnowned(game)
                                 Button {
                                     if unowned { selectedUnowned = game.titleID } else { selectedUnowned = nil; library.selectedID = game.id }

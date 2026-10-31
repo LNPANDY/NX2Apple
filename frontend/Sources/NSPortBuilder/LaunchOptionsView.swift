@@ -191,7 +191,7 @@ struct LaunchOptionsView: View {
                 .help(m.t("launch.rowReset"))
                 .accessibilityLabel(m.t("launch.rowReset"))
             }
-            control(s, value, pixels: pixels).frame(width: LaunchControl.width, alignment: .trailing)
+            control(s, value, pixels: pixels).launcherRowControls().frame(width: LaunchControl.width, alignment: .trailing)
         }
         .padding(.horizontal, 18).padding(.vertical, 13)
         .frame(minHeight: 52)
@@ -215,16 +215,17 @@ struct LaunchOptionsView: View {
         }
     }
 
-    /// The setting's control, filling the column every row shares (a toggle keeps its size at the column's right edge).
+    /// The setting's control in the column every row shares: a segmented choice or a slider fills it, a dropdown is LauncherControl.width wide
+    /// at its right edge, and a toggle keeps its size there.
     @ViewBuilder private func control(_ s: LaunchSetting, _ value: String, pixels: String?) -> some View {
         HStack(spacing: 10) {
             switch s.kind {
             case "choice":
                 let options = (s.options ?? []).map { (value: $0[0], label: $0.count > 1 ? $0[1] : $0[0]) }
-                if options.count <= 3 {
+                if LaunchControl.isSegmented(env: s.env, labels: options.map(\.label)) {
                     LauncherSegmented(options: options, selection: value) { set(s, $0) }
                 } else {
-                    LauncherMenuPicker(options: options, selection: value, fill: true) { set(s, $0) }
+                    LauncherDropdown(options: options, selection: value, label: s.label) { set(s, $0) }
                 }
             case "range":
                 let lo = s.min ?? 0, hi = s.max ?? 1

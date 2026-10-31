@@ -869,8 +869,14 @@ final class BuildModel: ObservableObject {
         }
         if relaunch {
             appStatus = String(format: t("app.relaunching"), staged.release.tag)
-            NSWorkspace.shared.openApplication(at: placed, configuration: NSWorkspace.OpenConfiguration())
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { exit(0) }
+            // The old instance is still running, so opening the same bundle now would only activate it:
+            // a helper opens the new copy once this process has exited.
+            if AppUpdate.relaunch(placed) {
+                NSApp.terminate(nil)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { exit(0) }
+            } else {
+                appStatus = String(format: t("app.relaunchFail"), staged.release.tag)
+            }
         }
         return true
     }
@@ -1188,6 +1194,12 @@ final class BuildModel: ObservableObject {
         }
         let tidHex = Self.titleID(basePath).map { String(format: "%016llX", $0) } ?? "game"
         let workDir = (outDir.isEmpty ? baseDir : outDir) + "/" + tidHex + "_build"
+        // The build's signing step refuses the attributes a cloud folder adds, after the long steps: stop here instead.
+        if cloudFolderCheck(workDir) {
+            failure = BuildFailure(kind: .cloudFolder, gameName: nil, detail: workDir)
+            fail(failureWhat(failure!))
+            return
+        }
         var inputDir = baseDir
         if dirs.count > 1 || !unpicked.isEmpty {
             // A stable folder per game (#132): the script's fingerprints name its files and its profile path.
@@ -1372,6 +1384,17 @@ final class BuildModel: ObservableObject {
         doneNote = failureWhat(f)
     }
 
+    /// Whether the build folder is in a cloud folder. Tests stand in for the system's answer.
+    var cloudFolderCheck: (String) -> Bool = { CloudFolder.contains($0) }
+
+    /// The Save to folder, picked in a panel. Clears the cloud-folder stop, since the next build looks at the new folder.
+    func chooseBuildFolder() {
+        let d = NSOpenPanel(); d.canChooseDirectories = true; d.canChooseFiles = false
+        guard d.runModal() == .OK, let u = d.url else { return }
+        outDir = u.path
+        if failure?.kind == .cloudFolder { failure = nil; doneNote = "" }
+    }
+
     /// What the classifier may check besides the log: the keys file and where the game files are.
     func failureInputs() -> BuildFailureClassifier.Inputs {
         BuildFailureClassifier.Inputs(keysPath: keysPath, paths: ([basePath, updatePath, gameDir] + dlcPaths).filter { !$0.isEmpty },
@@ -1433,6 +1456,8 @@ final class BuildModel: ObservableObject {
             if let chooseKeys { chooseKeys() } else { pickFiles(kind: .keys) }   // the same picker as the keys row
         case .severalGames, .noTitleID, .diskFull:
             showFailureFolder()
+        case .cloudFolder:
+            chooseBuildFolder()
         case .teamTaken, .noSigningAccount:
             openXcode()
         case .deviceTransfer:
@@ -3039,28 +3064,34 @@ struct BuilderView: View {
     }
 
     /// One line of a card: a status dot (its place kept when there is none, so every title starts on one line),
-    /// the title (with a disclosure chevron beside it when `open` is given), a secondary detail, and its controls,
-    /// whose right edges line up across the card.
+    /// the title (with a disclosure chevron beside it when `open` is given), a secondary detail, and its controls.
+    /// Its buttons and dropdowns are all LauncherControl.width wide, so they line up in one column across the cards.
     private func row<Trailing: View>(_ title: String, detail: String = "", dot: Color? = nil, help: String = "", open: Bool? = nil,
                                      @ViewBuilder trailing: () -> Trailing) -> some View {
         HStack(spacing: 12) {
             Circle().fill(dot ?? .clear).frame(width: 7, height: 7)
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
-                    Text(title).font(.manrope(14))
+                    Text(title).font(.manrope(14)).fixedSize(horizontal: false, vertical: true)
                     if let open {
                         Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).foregroundStyle(.secondary)
                             .rotationEffect(.degrees(open ? 90 : 0))
                     }
                 }
                 if !detail.isEmpty {
-                    // A path is technical text: the system's monospaced face; everything else Manrope
-                    Text(detail).font(detail.hasPrefix("/") || detail.hasPrefix("~") ? .mono(12) : .manrope(12.5)).foregroundStyle(.secondary)
-                        .lineLimit(1).truncationMode(.middle).help(help.isEmpty ? detail : help)
+                    // A path is technical text: the system's monospaced face, on one line, cut in the middle when
+                    // too long. Everything else is prose in Manrope and wraps, so no word is ever cut.
+                    if detail.hasPrefix("/") || detail.hasPrefix("~") {
+                        Text(detail).font(.mono(12)).foregroundStyle(.secondary)
+                            .lineLimit(1).truncationMode(.middle).help(help.isEmpty ? detail : help)
+                    } else {
+                        Text(detail).font(.manrope(12.5)).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true).help(help.isEmpty ? detail : help)
+                    }
                 }
             }
             Spacer(minLength: 12)
-            trailing()
+            trailing().launcherRowControls()
         }
         .padding(.horizontal, 18).padding(.vertical, 13)
         .frame(minHeight: 52)
@@ -3113,7 +3144,7 @@ struct BuilderView: View {
             row(m.t("dev.target"), detail: m.devicesChecked && m.devices.isEmpty ? m.t("dev.noDevices") : "") {
                 if !m.devicesChecked { ProgressView().controlSize(.small) }
                 Button(m.t("dev.refresh")) { m.refreshDevices() }.buttonStyle(.plain).font(.manrope(13)).foregroundStyle(.secondary)
-                LauncherMenuPicker(options: devices, selection: m.installDevice) { m.installDevice = $0 }
+                LauncherDropdown(options: devices, selection: m.installDevice, label: m.t("dev.target")) { m.installDevice = $0 }
             }
             if !m.installDevice.isEmpty {
                 divider
@@ -3121,7 +3152,7 @@ struct BuilderView: View {
                     row(m.t("dev.team"), detail: m.t("dev.noTeam"), dot: LauncherPalette.building) { EmptyView() }
                 } else {
                     row(m.t("dev.team")) {
-                        LauncherMenuPicker(options: teams, selection: m.signingTeam) { m.signingTeam = $0 }
+                        LauncherDropdown(options: teams, selection: m.signingTeam, label: m.t("dev.team")) { m.signingTeam = $0 }
                     }
                 }
             }
@@ -3138,7 +3169,7 @@ struct BuilderView: View {
                     detail: m.gameDir.isEmpty ? m.t("build.folderNote") : m.shortPath(m.gameDir), help: m.gameDir) {
                     Text(m.t(m.gameDir.isEmpty ? "data.choose" : "data.change"))
                         .font(.manrope(13, .semibold)).foregroundStyle(.black)
-                        .padding(.horizontal, 16).padding(.vertical, 8)
+                        .launcherRowControlFrame()
                         .background(LauncherPalette.cream, in: Capsule())
                 }
                 .contentShape(Rectangle())
@@ -3155,10 +3186,7 @@ struct BuilderView: View {
             }
             divider
             row(m.t("build.saveTo"), detail: m.outDir.isEmpty ? m.t("build.saveDefault") : m.shortPath(m.outDir), help: m.outDir) {
-                Button(m.t("data.change")) {
-                    let d = NSOpenPanel(); d.canChooseDirectories = true; d.canChooseFiles = false
-                    if d.runModal() == .OK, let u = d.url { m.outDir = u.path }
-                }
+                Button(m.t("data.change")) { m.chooseBuildFolder() }
             }
         }
         .task(id: KeyCheck.Inputs(keys: m.keysPath, files: [m.basePath, m.updatePath] + m.dlcPaths)) {
@@ -3397,12 +3425,9 @@ struct BuilderView: View {
 
     // ---- Settings ----
 
-    /// Every button of the Settings cards is this wide, so they stand in one column.
-    static let settingsButtonWidth: CGFloat = 150
-
     @ViewBuilder private var settingsPage: some View {
         pageHeading(m.t("settings.heading"), note: m.t("settings.note"))
-        settingsCards.buttonStyle(LauncherSecondaryButtonStyle(minWidth: Self.settingsButtonWidth))
+        settingsCards
     }
 
     @ViewBuilder private var settingsCards: some View {
@@ -3446,17 +3471,14 @@ struct BuilderView: View {
             row(m.t("settings.language"),
                 detail: Lang.saved.map { m.t("settings.language.\($0.rawValue)") }
                     ?? m.t("settings.language.system"), dot: LauncherPalette.ready, help: "") {
-                // The launcher's own list (as in Launch options), drawn like the buttons beside it and as wide
-                LauncherMenuPicker(options: [(value: "", label: m.t("settings.language.system")),
-                                             (value: "zh", label: m.t("settings.language.zh")),
-                                             (value: "en", label: m.t("settings.language.en")),
-                                             (value: "sv", label: m.t("settings.language.sv")),
-                                             (value: "de", label: m.t("settings.language.de"))],
-                                   selection: Lang.saved.map { $0.rawValue } ?? "", fill: true, buttonLike: true) { v in
+                // The launcher's own list, drawn like the buttons beside it and as wide as they are.
+                // The language names are in their own language (see "settings.language.*"), only "system" follows the UI.
+                LauncherDropdown(options: Self.languageCodes.map { (value: $0, label: m.t("settings.language." + ($0.isEmpty ? "system" : $0))) },
+                                 selection: Lang.saved.map { $0.rawValue } ?? "", label: m.t("settings.language"),
+                                 style: .button) { v in
                     Lang.saved = v.isEmpty ? nil : Lang(rawValue: v)
                     m.lang = Lang.initial()
                 }
-                .frame(width: Self.settingsButtonWidth)
                 .padTarget("set.language", scope: "main", activate: { cycleLanguage(1) }, adjust: { cycleLanguage($0) })
             }
             divider
@@ -3518,8 +3540,12 @@ struct BuilderView: View {
     }
 
     /// The interface language one step on (a controller's left / right on the language list).
+    /// The language picker's choices in order, "" being the system's. A new language is one more code here and its
+    /// "settings.language.<code>" entry, which is its own name (Svenska, Deutsch) in every language.
+    static let languageCodes = ["", "zh", "en", "sv", "de"]
+
     private func cycleLanguage(_ by: Int) {
-        let values = ["", "zh", "en", "sv", "de"]
+        let values = Self.languageCodes
         let at = values.firstIndex(of: Lang.saved.map { $0.rawValue } ?? "") ?? 0
         let v = values[(at + by + values.count) % values.count]
         Lang.saved = v.isEmpty ? nil : Lang(rawValue: v)
@@ -3627,7 +3653,7 @@ struct BuilderView: View {
                 }
             }
             divider
-            row(m.t("diag.title"), detail: m.t("diag.note")) { DiagnosticsButton(m: m, game: library.selected, width: Self.settingsButtonWidth) }
+            row(m.t("diag.title"), detail: m.t("diag.note")) { DiagnosticsButton(m: m, game: library.selected) }
         }
     }
 

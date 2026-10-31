@@ -206,6 +206,31 @@ enum AppUpdate {
         }
     }
 
+    /// The shell script behind `relaunch`: wait until `$1` (a pid) has exited, at most `$3` ticks of 0.2 s,
+    /// then open `$2` with `$4`. The paths arrive as arguments, never spliced into the script, so spaces and
+    /// quotes in them are safe.
+    static let relaunchScript = """
+        n=0
+        while kill -0 "$1" 2>/dev/null && [ "$n" -lt "$3" ]; do sleep 0.2; n=$((n+1)); done
+        sleep 0.5
+        exec "$4" "$2"
+        """
+
+    /// Start the new copy once this one is gone. `NSWorkspace.openApplication` cannot do it while the old
+    /// instance runs: LaunchServices finds the same bundle id and only activates that instance. So a detached
+    /// shell waits for the pid to exit, then runs `open`. The caller terminates the app right after.
+    @discardableResult
+    static func relaunch(_ app: URL, afterExitOf pid: Int32 = ProcessInfo.processInfo.processIdentifier,
+                         timeout: TimeInterval = 30, opener: String = "/usr/bin/open") -> Bool {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/sh")
+        p.arguments = ["-c", relaunchScript, "sh", String(pid), app.path, String(Int(timeout / 0.2)), opener]
+        p.standardInput = FileHandle.nullDevice
+        p.standardOutput = FileHandle.nullDevice
+        p.standardError = FileHandle.nullDevice
+        do { try p.run(); return true } catch { return false }
+    }
+
     private static func clearQuarantine(_ app: URL) {
         let x = Process()
         x.executableURL = URL(fileURLWithPath: "/usr/bin/xattr")

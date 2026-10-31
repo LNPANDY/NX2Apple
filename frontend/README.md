@@ -301,3 +301,39 @@ process, including when the window is hidden. Set `NX_LAUNCHER_CAPTURE_DIR` to
 capture the native library, build, settings, empty and active-build views for
 visual QA. Capture fixtures are isolated from the user's library and never run a
 real game build.
+
+### Launcher performance test
+
+`LauncherPerformanceTests` fails when a change makes the launcher slow. It runs in
+CI with the other Swift tests. To run it alone:
+
+```bash
+swift test --package-path frontend --filter LauncherPerformanceTests
+```
+
+The test builds a synthetic library in a temporary folder. It has 30 owned games
+with banners, and every third game is built. The checkout has 150 game profiles.
+One game has two frame time recordings of about 3 MB together. No real game
+files or keys are used. The launcher is hosted in a window and driven with the
+gamepad. The test measures six interactions: a redraw of the library, the three
+tab switches, opening Options and opening Manage. Each one runs five times after
+a warm-up round.
+
+There are two guards per interaction:
+
+- Counts of work on the main thread. `LauncherWork` counts game cards built,
+  Manrope fonts made, `Info.plist` reads and frame time recordings parsed. The
+  counts are the same on every machine. Each budget is about twice what `main`
+  does. `main` makes no new font after the warm-up, so the font budget is a
+  small fixed number. A recording parsed on the main thread always fails.
+- The time the main thread is busy, as the median of the five runs. The budgets
+  are several times what `main` needs on the CI runner.
+
+The test prints a table with the measured values and the budgets. A failure
+names the interaction, the value, the budget and the likely cause. Most often a
+view does work for every game on every redraw. Examples are an eager `HStack`
+over all games, a font made per text, or a file read in a computed property.
+Make that work lazy or cache it. Then profile a release build with the Time
+Profiler to confirm. Raise a budget only when the launcher shows more on purpose,
+and say why in the pull request. The counts exist only in debug builds, so
+`LauncherWork.count` costs nothing in a release build.

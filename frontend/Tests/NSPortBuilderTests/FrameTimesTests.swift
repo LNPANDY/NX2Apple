@@ -46,6 +46,33 @@ final class FrameTimesTests: XCTestCase {
         XCTAssertNil(FrameTimes.Summary([]))
     }
 
+    func testTheChartIsWorkedOutOnceFromTheFrames() {
+        let chart = FrameTimesChart(frames: FrameTimes.parse(tsv))
+        XCTAssertEqual(chart.summary, FrameTimes.Summary(FrameTimes.parse(tsv)))
+        XCTAssertEqual(chart.line.map(\.number), [1, 2, 3, 4], "a short recording is drawn whole")
+        XCTAssertEqual(chart.hitches.map(\.number), [3])
+        XCTAssertEqual(chart.timeSpan, 0...1, "at least a second wide")
+        XCTAssertNil(FrameTimesChart(frames: []).summary)
+    }
+
+    func testALongRecordingIsThinnedWithoutLosingAHitch() {
+        let frames = (1...10_000).map { FrameTimes.Frame(number: $0, time: Double($0) / 60, frameMs: $0 == 4_321 ? 120 : 16.7) }
+        let chart = FrameTimesChart(frames: frames)
+        XCTAssertLessThanOrEqual(chart.line.count, 2_000)
+        XCTAssertTrue(chart.line.contains { $0.number == 4_321 }, "the slowest frame of its stretch stays on the line")
+        XCTAssertEqual(chart.hitches.map(\.number), [4_321])
+    }
+
+    func testReadingARecordingFileGivesTheSameChart() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = dir.appendingPathComponent("2026-10-31 00-30-34.tsv")
+        try tsv.write(to: file, atomically: true, encoding: .utf8)
+        XCTAssertEqual(FrameTimesChart(file: file).line, FrameTimesChart(frames: FrameTimes.parse(tsv)).line)
+        XCTAssertNil(FrameTimesChart(file: dir.appendingPathComponent("missing.tsv")).summary)
+    }
+
     func testNearestRankPercentile() {
         XCTAssertEqual(FrameTimes.percentile([5, 1, 3, 2, 4], 50), 3)
         XCTAssertEqual(FrameTimes.percentile([5, 1, 3, 2, 4], 99), 5)

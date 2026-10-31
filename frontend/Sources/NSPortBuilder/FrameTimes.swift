@@ -20,6 +20,7 @@ enum FrameTimes {
     /// The frames of a recording that have a time and a frame time, in frame order; other rows (the call counts, a line
     /// the host is still writing) are skipped.
     static func parse(_ text: String) -> [Frame] {
+        LauncherWork.count(.frameTimesParse)
         var rows: [Int: [String: Double]] = [:]
         for line in text.split(whereSeparator: \.isNewline) {
             let c = line.split(separator: "\t", omittingEmptySubsequences: false)

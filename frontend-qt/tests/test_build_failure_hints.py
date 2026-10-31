@@ -53,6 +53,8 @@ class Classifier(unittest.TestCase):
                 if f['source'] == 'errno':   # the system's own text, not the script's
                     self.assertEqual(os.strerror(errno.ENOSPC), f['fragment'])
                     continue
+                if f['source'] == 'codesign':   # Apple's text, from a tool the script runs
+                    continue
                 there = f['fragment'] in (ROOT / f['source']).read_text(encoding='utf-8')
                 if f.get('pending_sync'):
                     self.assertFalse(there, f"{f['id']} is in {f['source']} now: remove pending_sync ({f['pending_sync']}) from the fixture")

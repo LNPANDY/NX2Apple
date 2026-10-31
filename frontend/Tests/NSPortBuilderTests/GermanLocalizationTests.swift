@@ -11,7 +11,7 @@ final class GermanLocalizationTests: XCTestCase {
         "onboarding.demo.mario", "console.kind.gamepad", "console.brand", "console.platform.mac",
         "console.platform.iphone", "console.version", "console.fps30", "console.fps60", "saves.toDevice",
         "saves.toMac", "cheats.title", "section.app", "app.version", "nav.builds", "settings.language.zh",
-        "settings.language.en", "library.ok", "build.ios", "data.update", "data.keys", "msg.ipaAt",
+        "settings.language.en", "settings.language.sv", "settings.language.de", "library.ok", "build.ios", "data.update", "data.keys", "msg.ipaAt",
         "dep.iossdk", "dep.tool.xcodegen", "dep.tool.zstd", "dep.tool.spirv-cross", "dep.tool.glslangValidator",
         "dep.glslang", "dep.xcode", "dep.metal", "dep.brew", "dep.xcodegen", "dep.zstd", "dep.spirv.win",
         "dep.zstd.win", "dep.spirv", "dep.dotnet", "dep.phase.download", "dep.python.hint",
@@ -61,7 +61,7 @@ final class GermanLocalizationTests: XCTestCase {
 
     func testGermanCatalogIsUsed() {
         XCTAssertEqual(L10n.string("settings.language.de", .de), "Deutsch")
-        XCTAssertEqual(L10n.string("settings.language.de", .en), "German")
+        XCTAssertEqual(L10n.string("settings.language.de", .en), "Deutsch")
         XCTAssertEqual(L10n.string("onboarding.start", .de), "Los geht\u{2019}s")
         XCTAssertEqual(L10n.string("onboarding.later", .de), "Sp\u{e4}ter einrichten")
         XCTAssertEqual(L10n.string("dep.recheck", .de), "Erneut pr\u{fc}fen")
@@ -74,6 +74,15 @@ final class GermanLocalizationTests: XCTestCase {
             for code in ["zh", "en", "sv", "de"] {
                 let key = "settings.language.\(code)"
                 XCTAssertNotEqual(L10n.string(key, lang), key)
+            }
+        }
+    }
+
+    func testLanguageNamesAreTheLanguagesOwnNames() {
+        let endonyms = ["zh": "中文", "en": "English", "sv": "Svenska", "de": "Deutsch"]
+        for lang: Lang in [.zh, .en, .sv, .de] {
+            for (code, name) in endonyms {
+                XCTAssertEqual(L10n.string("settings.language.\(code)", lang), name, "\(code) in \(lang)")
             }
         }
     }

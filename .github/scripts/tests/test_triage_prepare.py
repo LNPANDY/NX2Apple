@@ -33,6 +33,16 @@ class Form(unittest.TestCase):
         f = dict(GAME, **{'NX2Apple version': '_No response_', 'Copy diagnostics': '_No response_'})
         self.assertEqual(self.missing(form(**f)), ['NX2Apple version', 'Copy diagnostics'])
 
+    def test_empty_fenced_field_is_missing(self):
+        f = dict(GAME, **{'Copy diagnostics': '```markdown\n\n```'})
+        self.assertEqual(self.missing(form(**f)), ['Copy diagnostics'])
+
+    def test_heading_inside_a_fenced_field_stays_in_it(self):
+        diag = '```markdown\n### NX2Apple diagnostics\n\n- App: NX2Apple v0.7.3\n```'
+        sec = tp.sections(form(**dict(GAME, **{'Copy diagnostics': diag})))
+        self.assertEqual(sec['Copy diagnostics'], diag)
+        self.assertNotIn('NX2Apple diagnostics', sec)
+
     def test_idea_is_not_asked_for_diagnostics(self):
         idea = form(**{'This is': 'An idea', 'What happens, or what you would like': 'x', 'NX2Apple version': 'v0.4.9',
                        'Computer and OS': 'Mac, macOS 26', 'Copy diagnostics': '_No response_'})

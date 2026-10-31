@@ -1185,6 +1185,22 @@ void front_run(void (*guest)(void)) {
                 [NSNotificationCenter.defaultCenter addObserverForName:nm object:win queue:nil usingBlock:^(NSNotification *n) { (void)n; want = 0; }];   // the player's own toggle (ours already cleared it)
             dispatch_async(dispatch_get_main_queue(), enter);
         }
+        // The pointer hides after DM_CURSOR_HIDE seconds (3 by default, 0 keeps it) without movement over the game, and comes back with the next movement, click or scroll. macOS
+        // hides it only for a game that asks (a game window does not, and a pointer left over a fullscreen game stays on the picture); it is also shown whenever the window is
+        // not key or the pointer is outside the game view, so the title bar and other windows keep theirs
+        const char *ch = getenv("DM_CURSOR_HIDE"); double idle = ch && *ch ? atof(ch) : 3.0;
+        if (idle > 0) {
+            win.acceptsMouseMovedEvents = YES;
+            __block double last = CACurrentMediaTime(); __block int hidden = 0;
+            void (^show)(void) = ^{ if (hidden) { hidden = 0; [NSCursor unhide]; } };
+            [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskMouseMoved | NSEventMaskLeftMouseDragged | NSEventMaskRightMouseDragged | NSEventMaskOtherMouseDragged |
+                NSEventMaskLeftMouseDown | NSEventMaskRightMouseDown | NSEventMaskOtherMouseDown | NSEventMaskScrollWheel handler:^NSEvent *(NSEvent *e) { last = CACurrentMediaTime(); show(); return e; }];
+            [NSTimer scheduledTimerWithTimeInterval:0.25 repeats:YES block:^(NSTimer *t) {
+                (void)t; NSView *cv = win.contentView;
+                int over = win.isKeyWindow && NSApp.isActive && NSPointInRect([cv convertPoint:win.mouseLocationOutsideOfEventStream fromView:nil], cv.bounds);
+                if (hidden && !over) show();
+                else if (!hidden && over && CACurrentMediaTime() - last >= idle) { hidden = 1; [NSCursor hide]; } }];
+        }
         for (NSNotificationName nm in @[GCControllerDidConnectNotification, GCControllerDidDisconnectNotification])
             [NSNotificationCenter.defaultCenter addObserverForName:nm object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *n) {
                 GCController *c = n.object; int conn = n.name == GCControllerDidConnectNotification;

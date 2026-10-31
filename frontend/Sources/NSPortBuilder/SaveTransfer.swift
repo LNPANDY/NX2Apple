@@ -441,9 +441,9 @@ struct SavesView: View {
             if model.showsSelector {
                 HStack(spacing: 12) {
                     Text(m.t("saves.device")).font(.manrope(13)).foregroundStyle(.secondary)
-                    LauncherMenuPicker(options: model.devices.map { d in
+                    LauncherDropdown(options: model.devices.map { d in
                         (value: d.id, label: d.name + (d.reachable ? "" : " (" + m.t("dev.notConnected") + ")"))
-                    }, selection: model.selected) { model.select($0) }
+                    }, selection: model.selected, label: m.t("saves.device")) { model.select($0) }
                     .padTarget("saves.device", scope: "saves") {}
                 }
                 .padding(.horizontal, 30).padding(.bottom, 16)

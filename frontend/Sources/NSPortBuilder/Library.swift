@@ -27,8 +27,9 @@ struct LibraryGame: Codable, Identifiable, Equatable {
     /// nagging a rebuild. A rebuild stays one click away, and this game's profile changes keep being shown.
     var pinned = false
 
+    /// An empty path means there is no Mac build. It is not read, because URL(fileURLWithPath:) would make it the current folder.
     var isReady: Bool {
-        guard let app = try? MacGameBundle.read(URL(fileURLWithPath: appPath)) else { return false }
+        guard !appPath.isEmpty, let app = try? MacGameBundle.read(URL(fileURLWithPath: appPath)) else { return false }
         return app.titleID == titleID
     }
 
@@ -229,8 +230,9 @@ struct MacGameBundle {
     }
 
     static func read(_ url: URL) throws -> MacGameBundle {
-        guard url.pathExtension.lowercased() == "app",
-              let data = try? Data(contentsOf: url.appendingPathComponent("Contents/Info.plist")),
+        guard url.pathExtension.lowercased() == "app" else { throw Invalid.notGame }
+        LauncherWork.count(.infoPlistRead)
+        guard let data = try? Data(contentsOf: url.appendingPathComponent("Contents/Info.plist")),
               let info = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
               let rawID = info["DMTitleID"] as? String,
               rawID.range(of: "^[0-9A-Fa-f]{16}$", options: .regularExpression) != nil,

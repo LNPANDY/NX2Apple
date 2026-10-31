@@ -325,7 +325,6 @@ extension BuildModel {
 struct DiagnosticsButton: View {
     @ObservedObject var m: BuildModel
     var game: LibraryGame?   // the library's selected game: its log goes in the report
-    let width: CGFloat
     var showCopied = false   // the visual QA's confirmation
     @State private var busy = false
     @State private var copied = false
@@ -334,7 +333,7 @@ struct DiagnosticsButton: View {
         Button(action: copy) {
             if copied || showCopied { Label(m.t("diag.copied"), systemImage: "checkmark") } else { Text(m.t("diag.copy")) }
         }
-        .buttonStyle(LauncherSecondaryButtonStyle(accent: copied || showCopied ? LauncherPalette.ready : nil, minWidth: width))
+        .buttonStyle(LauncherSecondaryButtonStyle(accent: copied || showCopied ? LauncherPalette.ready : nil))
         .disabled(busy)
         .padTarget("set.diagnostics", scope: "main") { if !busy { copy() } }
     }

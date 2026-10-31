@@ -61,6 +61,15 @@ final class LibraryTests: XCTestCase {
         XCTAssertThrowsError(try MacGameBundle.read(app))
     }
 
+    /// A game without a Mac build has an empty path. That path is not read as the current folder, even when the current folder is a game.
+    func testAGameWithoutAnAppIsNotReady() throws {
+        let app = try makeApp(titleID)
+        let previous = FileManager.default.currentDirectoryPath
+        XCTAssertTrue(FileManager.default.changeCurrentDirectoryPath(app.path))
+        defer { FileManager.default.changeCurrentDirectoryPath(previous) }
+        XCTAssertFalse(LibraryGame(titleID: titleID, name: "Hades").isReady)
+    }
+
     func testRejectsUnrelatedApplicationsAndExecutableTraversal() throws {
         let app = try makeApp("not-a-title-id")
         XCTAssertThrowsError(try MacGameBundle.read(app))
@@ -283,11 +292,11 @@ final class LibraryTests: XCTestCase {
         let running = expectation(description: "The stage is reported")
         let started = model.$stages.filter { $0.first?.percent == 25 }.prefix(1).sink { _ in running.fulfill() }
         model.startBuild()
-        wait(for: [running], timeout: 10)
+        wait(for: [running], timeout: 30)   // a CI runner starts the script slowly
         let stopped = expectation(description: "The build ends")
         let ended = model.$running.dropFirst().filter { !$0 }.prefix(1).sink { _ in stopped.fulfill() }
         model.stop()
-        wait(for: [stopped], timeout: 10)
+        wait(for: [stopped], timeout: 30)
         withExtendedLifetime((started, ended)) {}
         RunLoop.main.run(until: Date().addingTimeInterval(0.1))
         XCTAssertTrue(model.stages.isEmpty)
@@ -743,11 +752,11 @@ final class LibraryTests: XCTestCase {
         XCTAssertTrue(model.canBuild)
         window.orderOut(nil) // Registration must work even while the launcher is hidden.
         model.startBuild()
-        wait(for: [completed], timeout: 10)
+        wait(for: [completed], timeout: 30)   // a CI runner runs the script slowly
         withExtendedLifetime(token) {}
         // The library can list the app before the model has taken in the script's exit (a slower Mac, CI): wait for both
         let settled = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in model.done && !model.running }, object: nil)
-        wait(for: [settled], timeout: 10)
+        wait(for: [settled], timeout: 30)
         XCTAssertTrue(model.done)
         XCTAssertFalse(model.running)
         XCTAssertEqual(model.stages.map(\.name), ["Mac app"])   // from the JSON events, which the log shows as text
@@ -1141,9 +1150,9 @@ final class LibraryTests: XCTestCase {
         do {
             try capture("settings-diagnostics", height: 1500, page: .settings)
             let buttons = NSHostingView(rootView: HStack(spacing: 14) {
-                DiagnosticsButton(m: model, width: BuilderView.settingsButtonWidth)
-                DiagnosticsButton(m: model, width: BuilderView.settingsButtonWidth, showCopied: true)
-            }.padding(24).background(LauncherPalette.background).environmentObject(PadFocus()))
+                DiagnosticsButton(m: model)
+                DiagnosticsButton(m: model, showCopied: true)
+            }.launcherRowControls().padding(24).background(LauncherPalette.background).environmentObject(PadFocus()))
             buttons.frame = NSRect(x: 0, y: 0, width: 420, height: 90)
             let window = NSWindow(contentRect: buttons.frame, styleMask: [.titled], backing: .buffered, defer: false)
             window.contentView = buttons
