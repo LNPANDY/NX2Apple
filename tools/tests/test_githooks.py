@@ -179,6 +179,25 @@ class PushedPaths(unittest.TestCase):
             code = H.pre_push([f'refs/heads/feature {head} refs/heads/feature {H.ZERO}'])
         return code, out.getvalue()
 
+    def test_a_push_to_main_is_rejected_before_any_check(self):
+        err = io.StringIO()
+        for remote in ('refs/heads/main',):
+            for local in (f'refs/heads/feature {self.main}', f'HEAD {self.main}'):
+                with mock.patch.object(H, 'sh', side_effect=AssertionError('no check may run')), mock.patch.object(H, 'pushed_paths', side_effect=AssertionError('no diff')), \
+                        contextlib.redirect_stderr(err):
+                    self.assertEqual(H.pre_push([f'{local} {remote} {self.main}']), 1)
+        self.assertIn('pushing to main is not allowed. Open a pull request.', err.getvalue())
+
+    def test_one_push_to_main_among_several_refs_rejects_all(self):
+        lines = [f'refs/heads/feature {self.main} refs/heads/feature {H.ZERO}', f'refs/heads/feature {self.main} refs/heads/main {self.main}']
+        with mock.patch.object(H, 'sh', side_effect=AssertionError('no check may run')), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(H.pre_push(lines), 1)
+
+    def test_other_branches_with_main_in_the_name_are_pushed(self):
+        for remote in ('refs/heads/maintenance', 'refs/heads/feature/main', 'refs/tags/main'):
+            with mock.patch.object(H, 'sh', side_effect=AssertionError('nothing may run')), contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(H.pre_push([f'refs/heads/x {self.main} {remote} {self.main}']), 0)
+
     def test_docs_only_push_runs_nothing(self):
         with mock.patch.object(H, 'sh', side_effect=AssertionError('nothing may run')):
             code, out = self.run_hook('README.md')

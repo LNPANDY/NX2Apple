@@ -68,6 +68,9 @@ def pushed_paths(lines):
 
 
 def pre_push(lines):
+    if any(len(f) == 4 and f[2] == 'refs/heads/main' for f in map(str.split, lines)):
+        print('pre-push: pushing to main is not allowed. Open a pull request.', file=sys.stderr)
+        return 1
     paths = pushed_paths(lines)
     if paths is None: print('pre-push: no base to compare with (is origin/main fetched?), so every check runs')
     return run('pre-push', CHECKS if paths is None else checks_for(paths))

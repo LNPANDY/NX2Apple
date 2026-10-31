@@ -2,7 +2,7 @@
 
 Read [AGENTS.md](../AGENTS.md) (the fork's, at the root) and [CONTRIBUTING.md](../CONTRIBUTING.md) first, and they win over this file.
 
-- First, in your checkout, run `git config core.hooksPath .githooks`. The hooks run the checks before a commit and a push. Keep them installed, never use `--no-verify`, and never push to `main`: every change goes through a PR.
+- First, in your checkout, run `git config core.hooksPath .githooks`. The hooks run the checks before a commit and a push. Keep them installed, never use `--no-verify`, and never push to `main`: every change goes through a PR. The pre-push hook rejects a push to `main` for every tool, and the "Main rule" ruleset on GitHub rejects it for everyone, with no bypass.
 - `frontend/` and `frontend-qt/` are this fork's own: change them directly. `cd frontend && swift test` is the check.
 - The engine (`dm/`, `scripts/`, `docs/`, `ref/`) is not in this repository: it is seedds/nxnative at `.upstream-ref` plus `patches/`, built into `engine/` by `python3 tools/engine.py sync`. Do not add files under those paths in a PR (the `pr-scope` check fails it). A change to the engine is a pull request to seedds/nxnative first, and a patch in `patches/` (a commit in `engine/`, then `python3 tools/engine.py export`) only while the fork has to carry it.
 - Never touch the shader translation chain (`dm/gfx/tools/dmsh_*`, `dm/gfx/nvn/dmsh_chain.h`, `dmsh_chain.lock`, the translator).
