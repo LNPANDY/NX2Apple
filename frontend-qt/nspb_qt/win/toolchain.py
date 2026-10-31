@@ -893,7 +893,7 @@ def ascii_temp_dir(prefix: str = 'nspb-'):
         if not base or not ok(base):
             continue
         try:
-            Path(base).mkdir(parents=True, exist_ok=True)
+            os.makedirs(base, exist_ok=True)
             return _tf.TemporaryDirectory(prefix=prefix, dir=base)
         except OSError:
             continue
@@ -902,7 +902,7 @@ def ascii_temp_dir(prefix: str = 'nspb-'):
     # it says.
     default = tempfile.gettempdir()
     try:
-        Path(default).mkdir(parents=True, exist_ok=True)
+        os.makedirs(default, exist_ok=True)
     except OSError:
         pass
     return _tf.TemporaryDirectory(prefix=prefix, dir=default)
