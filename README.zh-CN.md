@@ -5,6 +5,11 @@
   <img src="frontend/screenshots/logo-light.png" width="360" alt="NX2Apple, by nxnative">
 </picture>
 
+> [!IMPORTANT]
+> **请更新到 0.7.4 —— 否则无法继续构建游戏。 Update to 0.7.4**
+> 从 0.7.4 起引擎不再随仓库提供：0.7.3 及更早版本无法下载或更新仓库（提示 *Repository: not found*），也无法再构建游戏。请在 App 内「设置 → 检查更新」或到[发布页](https://github.com/LNPANDY/NX2Apple/releases/latest)升级；升级后无需再下载仓库。
+> The engine is no longer stored in this repository: versions 0.7.3 and older cannot download or update their repository and can no longer build games. Update in the app or from the [releases page](https://github.com/LNPANDY/NX2Apple/releases/latest).
+
 **你的 Switch 游戏，跑在你的 iPhone 上。**
 
 **不是模拟器。不用命令行。一个 macOS App 点几下就把整个构建做完。**
