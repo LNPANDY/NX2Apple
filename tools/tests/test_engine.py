@@ -22,8 +22,8 @@ def setUpModule():
     if not (SRC / 'AGENTS.md').is_file():
         raise RuntimeError('engine/ is missing: run `python3 tools/engine.py sync` first')
 
-BASE_ENV = dict(os.environ, GIT_AUTHOR_NAME='t', GIT_AUTHOR_EMAIL='t@example.invalid', GIT_COMMITTER_NAME='t', GIT_COMMITTER_EMAIL='t@example.invalid',
-                GIT_CONFIG_GLOBAL='/dev/null', GIT_CONFIG_SYSTEM='/dev/null')
+BASE_ENV = E.P.clean_env(GIT_AUTHOR_NAME='t', GIT_AUTHOR_EMAIL='t@example.invalid', GIT_COMMITTER_NAME='t', GIT_COMMITTER_EMAIL='t@example.invalid',
+                         GIT_CONFIG_GLOBAL='/dev/null', GIT_CONFIG_SYSTEM='/dev/null')   # no GIT_DIR: a test must never reach the repository that runs it
 
 HEADER = 'Upstream-Status: forwarded seedds/nxnative#475\nReason: the fork needs line 2\nIssue: LNPANDY/NX2Apple#1\n'
 
