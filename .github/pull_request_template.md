@@ -26,6 +26,6 @@
 ## Scope
 
 - [ ] No engine file (`dm/`, `scripts/`, `docs/`, `ref/`) is added to the repository: a change there is a patch in `patches/` (a commit in `engine/`, then `tools/engine.py export`, and `tools/engine.py check` passes), with its `Upstream-Status`
-- [ ] A fix to the engine or a game profile is also (or first) a PR at seedds/nxnative: this PR's patch says `forwarded seedds/nxnative#...`
+- [ ] A fix to the engine or a game profile also goes to seedds/nxnative as a PR in parallel: this PR's patch says `forwarded seedds/nxnative#...`, or `pending` until that PR is open
 - [ ] A change to a launcher view has before and after screenshots above
 - [ ] No keys, game files or data extracted from a game in the change or the attachments

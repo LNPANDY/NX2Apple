@@ -38,12 +38,15 @@ Issue: LNPANDY/NX2Apple#<n>
 A status may carry a note in brackets. `tools/patches.py status` lists every patch with its status, reason and age, so the
 list of what the fork carries and why is one command, and it should keep shrinking.
 
-## Upstream first
+## Here first, upstream in parallel
 
-A fix to the engine (`dm/`, `scripts/`, `ref/`), to a game profile (`dm/games/<id>/`) or to upstream's docs is a pull request to
-[seedds/nxnative](https://github.com/seedds/nxnative) first, or at least also. A patch here is only a bridge until upstream has it:
-its status is `forwarded seedds/nxnative#<n>`, and the next bump drops it once the change is in. Do not open a fork patch with
-`pending` for something that belongs upstream. A feature upstream does not want is `fork-only`, with the reason in `Reason:`.
+A fix to the engine (`dm/`, `scripts/`, `ref/`), to a game profile (`dm/games/<id>/`) or to upstream's docs may land here first, as a
+patch in `patches/`. The same change goes to [seedds/nxnative](https://github.com/seedds/nxnative) as a pull request in parallel.
+Nobody has to wait for upstream. A patch here is a bridge until upstream has it, and the next bump drops it once the change is in.
+
+The patch starts as `pending` while the upstream pull request is not open. It becomes `forwarded seedds/nxnative#<n>` once it is.
+If you cannot open the upstream pull request, a maintainer sends it. A feature upstream declines stays here as
+`fork-only (declined seedds/nxnative#N)`, with the reason in `Reason:`.
 
 ## Day to day
 

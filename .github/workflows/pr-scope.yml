@@ -2,9 +2,9 @@
 #
 # The engine is seedds/nxnative at the commit in .upstream-ref plus the patches in patches/. It is built into engine/ by
 # `tools/engine.py sync` and not committed (issue #214, step 2): dm/, scripts/, docs/ and ref/ do not exist in this repository, so a PR
-# that adds files there (a direct edit of the engine, made from an old checkout or by hand) fails with the way out. Engine work is a pull
-# request to seedds/nxnative first, and a commit in engine/ that `tools/engine.py export` turns into a patch when the fork has to carry it
-# before upstream merges. The other half: the series applies cleanly to the pin and every header is complete.
+# that adds files there (a direct edit of the engine, made from an old checkout or by hand) fails with the way out. Engine work is a
+# commit in engine/ that `tools/engine.py export` turns into a patch, and the same change goes to seedds/nxnative as a pull request in parallel.
+# The other half: the series applies cleanly to the pin and every header is complete.
 # A sync PR (branch sync/upstream-*) is checked too, on purpose: it must still apply.
 # The same check is a job in tests.yml; this one starts on the engine's paths and the patch queue only, and says so in its own name.
 name: PR scope (sync safety)
@@ -28,7 +28,7 @@ jobs:
           files=$(git ls-files -- dm scripts docs ref)
           if [ -n "$files" ]; then
             echo "$files" | head -20
-            echo "::error title=Engine files::This PR adds files under dm/, scripts/, docs/ or ref/, which this repository does not commit any more (the engine is seedds/nxnative at .upstream-ref plus patches/, built into engine/ by python3 tools/engine.py sync). Send the change to seedds/nxnative as a pull request first. If the fork has to carry it before upstream merges, make it a patch: commit in engine/, then python3 tools/engine.py export (patches/README.md). Do not copy engine files into the repository."
+            echo "::error title=Engine files::This PR adds files under dm/, scripts/, docs/ or ref/, which this repository does not commit any more (the engine is seedds/nxnative at .upstream-ref plus patches/, built into engine/ by python3 tools/engine.py sync). Make the change a patch: commit in engine/, then python3 tools/engine.py export (patches/README.md). Send the same change to seedds/nxnative as a pull request in parallel. Do not copy engine files into the repository."
             exit 1
           fi
       - name: The series applies to the pin
