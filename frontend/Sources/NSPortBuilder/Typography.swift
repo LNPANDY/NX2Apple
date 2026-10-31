@@ -24,11 +24,18 @@ enum Typography {
         }
     }
 
-    static func font(_ face: CTFontDescriptor?, size: CGFloat, weight: Font.Weight, fallback: Font) -> Font {
-        guard let face else { return fallback }
+    private static func ctFont(_ face: CTFontDescriptor?, size: CGFloat, weight: Font.Weight) -> CTFont? {
+        guard let face else { return nil }
         let variation = CTFontDescriptorCreateCopyWithAttributes(face, [kCTFontVariationAttribute: [0x7767_6874: axis(weight)]] as CFDictionary)
-        return Font(CTFontCreateWithFontDescriptor(variation, size, nil))
+        return CTFontCreateWithFontDescriptor(variation, size, nil)
     }
+
+    static func font(_ face: CTFontDescriptor?, size: CGFloat, weight: Font.Weight, fallback: Font) -> Font {
+        ctFont(face, size: size, weight: weight).map { Font($0) } ?? fallback
+    }
+
+    /// Manrope as a CTFont, to measure how wide a label is set (nil when the face cannot be read).
+    static func manropeFont(size: CGFloat, weight: Font.Weight) -> CTFont? { ctFont(manrope, size: size, weight: weight) }
 
     static func text(_ size: CGFloat, _ weight: Font.Weight) -> Font {
         font(manrope, size: size, weight: weight, fallback: .system(size: size, weight: weight))

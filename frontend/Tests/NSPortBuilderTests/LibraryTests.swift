@@ -1127,9 +1127,9 @@ final class LibraryTests: XCTestCase {
         do {
             try capture("settings-diagnostics", height: 1500, page: .settings)
             let buttons = NSHostingView(rootView: HStack(spacing: 14) {
-                DiagnosticsButton(m: model, width: BuilderView.settingsButtonWidth)
-                DiagnosticsButton(m: model, width: BuilderView.settingsButtonWidth, showCopied: true)
-            }.padding(24).background(LauncherPalette.background).environmentObject(PadFocus()))
+                DiagnosticsButton(m: model)
+                DiagnosticsButton(m: model, showCopied: true)
+            }.launcherRowControls().padding(24).background(LauncherPalette.background).environmentObject(PadFocus()))
             buttons.frame = NSRect(x: 0, y: 0, width: 420, height: 90)
             let window = NSWindow(contentRect: buttons.frame, styleMask: [.titled], backing: .buffered, defer: false)
             window.contentView = buttons

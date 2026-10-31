@@ -62,18 +62,54 @@ struct TitlebarDoubleClick: NSViewRepresentable {
     func updateNSView(_ nsView: NSView, context: Context) {}
 }
 
+/// The width of the button or dropdown at the trailing end of a setting row, the same on every page, so that these
+/// controls stand in one column whatever their labels. A row hands it to its trailing controls (`launcherRowControls()`),
+/// and LauncherSecondaryButtonStyle and LauncherDropdown take it from there. Outside a row they size to their label.
+enum LauncherControl {
+    /// Wide enough for the longest everyday label in every language on one line ("Sök efter uppdateringar", 148 pt in 13 pt
+    /// Manrope semibold, plus the buttons' 15 pt of padding on each side). LauncherControlWidthTests measures them all.
+    static let width: CGFloat = 184
+    /// What the label of a button may take.
+    static let buttonLabelWidth: CGFloat = width - 2 * 15
+}
+
+private struct LauncherControlWidthKey: EnvironmentKey { static let defaultValue: CGFloat? = nil }
+
+extension EnvironmentValues {
+    /// Set inside a setting row: every button and dropdown there is exactly this wide.
+    var launcherControlWidth: CGFloat? {
+        get { self[LauncherControlWidthKey.self] }
+        set { self[LauncherControlWidthKey.self] = newValue }
+    }
+}
+
+extension View {
+    /// The trailing controls of a setting row: buttons and dropdowns take LauncherControl.width.
+    func launcherRowControls() -> some View { environment(\.launcherControlWidth, LauncherControl.width) }
+
+    /// This view as wide as a button of a setting row (for a control drawn by hand, like the cream capsule).
+    func launcherRowControlFrame() -> some View { modifier(LauncherRowControlFrame()) }
+}
+
+private struct LauncherRowControlFrame: ViewModifier {
+    @Environment(\.launcherControlWidth) private var width
+    func body(content: Content) -> some View { content.frame(width: width) }
+}
+
 struct LauncherSecondaryButtonStyle: ButtonStyle {
     /// Text and border in this colour (the build bar's Stop); plain white otherwise.
     var accent: Color? = nil
-    /// At least this wide, the label centred: the buttons of a card line up in one column (Settings).
-    var minWidth: CGFloat? = nil
+    /// Inside a setting row the button is exactly LauncherControl.width wide, its label centred and wrapped to a second
+    /// line when it does not fit: the buttons of a page line up in one column.
+    @Environment(\.launcherControlWidth) private var width
     @Environment(\.isEnabled) private var enabled
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.manrope(13, .semibold))
-            .lineLimit(1)
+            .multilineTextAlignment(.center)
+            .lineLimit(width == nil ? 1 : 2)
             .padding(.horizontal, 15).padding(.vertical, 9)
-            .frame(minWidth: minWidth)
+            .frame(width: width)
             .background(Color.white.opacity(configuration.isPressed ? 0.13 : 0.055), in: RoundedRectangle(cornerRadius: 9))
             .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(accent?.opacity(0.75) ?? Color.white.opacity(0.10)))
             .foregroundStyle(enabled ? (accent ?? Color.white.opacity(0.92)) : .gray)
