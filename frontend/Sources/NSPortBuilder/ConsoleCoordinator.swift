@@ -6,9 +6,9 @@ import AppKit
 /// are sequenced so they do not fight: on entering, the content switches after the window has finished going full screen, and on
 /// leaving, the console fades out first and the window leaves full screen after. A game is started from a window that has left full
 /// screen: a game opened from an app in its own full screen Space can come up as a window, so the window goes back to full screen
-/// once the game has quit.
+/// once the game has quit. In the console the pointer hides after a few idle seconds.
 @MainActor final class ConsoleCoordinator: ObservableObject {
-    @Published private(set) var active = false
+    @Published private(set) var active = false { didSet { if active != oldValue { active ? pointer.start() : pointer.stop() } } }
     /// The launcher is showing (not the guided setup), so the mode can be entered.
     @Published var available = false
     private var enteredFullScreen = false
@@ -20,6 +20,8 @@ import AppKit
     /// Changes the window's full screen state and calls `done` when that animation has finished.
     private let setFullScreen: @MainActor (NSWindow, Bool, @escaping () -> Void) -> Void
     private let fadeSeconds: TimeInterval
+    /// The pointer hides while the console is idle (ConsolePointer.swift).
+    private lazy var pointer = ConsolePointer(window: window)
 
     nonisolated static let transitionSeconds: TimeInterval = 0.4
 
@@ -91,8 +93,11 @@ import AppKit
         }
     }
 
-    private func returnToFullScreen() {
-        if let w = window(), !w.styleMask.contains(.fullScreen) { setFullScreen(w, true) {} }
+    /// The launcher can be asked while the game's Space is still going away, and the system drops that request. A window that is
+    /// still not full screen when the animation is over is asked again, up to three times.
+    private func returnToFullScreen(attempts: Int = 3) {
+        guard attempts > 0, active, let w = window(), !w.styleMask.contains(.fullScreen) else { return }
+        setFullScreen(w, true) { [weak self] in self?.returnToFullScreen(attempts: attempts - 1) }
     }
 }
 
