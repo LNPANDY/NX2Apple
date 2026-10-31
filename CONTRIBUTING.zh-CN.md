@@ -14,3 +14,23 @@
   所有人都受益。
 
 带完整 `Documents/log.txt` 的 issue 会优先看——那份日志通常能直接指出缺的是什么。
+
+## 提 pull request
+
+提 pull request 的基本规则（一个 PR 一项改动、PR 模板、截图、引擎与补丁）见[英文版](CONTRIBUTING.md#a-pull-request)。下面是外部贡献者的 PR 如何处理。
+
+### 修复、功能和想法
+
+修复无需事先询问，直接提交即可。
+
+功能可以直接以 pull request 的形式提交。它需要一个描述该想法的 issue，请在维护者第一次回复后的 48 小时内写好。合并前需要一位维护者认可这个想法。如果始终没有人写这个 issue，PR 会被关闭，并附一条说明，之后可以重新打开。PR 不会因为缺少 issue 而在提交时就被关闭。
+
+想在写代码之前先聊聊想法，请用 [Discussions](https://github.com/LNPANDY/NX2Apple/discussions)。
+
+### 你的 PR 会怎样
+
+来自外部的 pull request 不会自动合并。一位维护者会试用 CI 为这个 PR 构建的应用，也就是 Build Mac app 这次运行的 `NX2Apple-macOS-arm64` 构建产物。同一位维护者也会审查代码。谁先看到，谁来决定。
+
+如果维护者不想要某项改动，会尽早说明，解释原因，并关闭该 PR。他们可以保留其中一部分，并把你列为共同作者。
+
+PR 如果等待作者回复满 30 天，会被关闭，并附一条说明，之后可以重新打开。
