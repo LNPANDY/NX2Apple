@@ -3655,7 +3655,7 @@ struct BuilderView: View {
         // A different channel is asked about first (the alert below): the switch can recompile every game's shaders
         row(m.t("engine.update"), detail: m.t("engine.channelNote"), dot: LauncherPalette.ready) {
             LauncherDropdown(options: EngineChannel.allCases.map { (value: $0.rawValue, label: m.t($0.labelKey)) },
-                             selection: m.engineSelection.channel.rawValue, fill: true) { v in
+                             selection: m.engineSelection.channel.rawValue) { v in
                 if let channel = EngineChannel(rawValue: v) { m.requestEngineChannel(channel) }
             }
             .disabled(!idle)
