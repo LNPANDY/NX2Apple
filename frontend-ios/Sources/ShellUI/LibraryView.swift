@@ -222,25 +222,22 @@ public struct LibraryView: View {
     /// The settings for the selected game: its banner as the header, with the title over it and Back on top, then
     /// the primary action and the setting groups. A panel or the whole screen, the same view.
     /// The settings for the selected game: its banner as the header, with the title below it and Back on top, then
-    /// the primary action and the setting groups. A panel or the whole screen, the same view. Full screen, the banner
-    /// runs under the status bar and the settings scroll under the home indicator, while Back keeps its inset.
+    /// the primary action and the setting groups. A panel or the whole screen, the same view. The banner runs edge to
+    /// edge under the status bar and the settings scroll under the home indicator, while Back, the words and the
+    /// settings keep their insets.
     private func settingsPane(_ selected: GameDetail, floating: Bool, width: CGFloat, insets: EdgeInsets) -> some View {
-        // The bar holds Back and never scrolls: an opaque page-coloured band from the top edge of the screen (under the
-        // status bar) to below the button, so the content scrolls beneath it and never shows through.
-        let barHeight = insets.top + Self.barContentHeight
         return ZStack(alignment: .top) {
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
                         PaneBanner(game: selected.game, width: width + insets.leading + insets.trailing,
-                                   leading: insets.leading, trailing: insets.trailing, topInset: 0).id("set.top")
+                                   leading: insets.leading, trailing: insets.trailing, topInset: insets.top).id("set.top")
                         GameDetailView(detail: selected, actions: actions, showsPrimaryAction: true, showsHeader: false)
                             .padding(.horizontal, 24).padding(.top, 18).padding(.bottom, 32 + insets.bottom)
                             // A phone on its side: a readable column, not rows stretched across the whole width.
                             .frame(maxWidth: 640, alignment: .leading)
                             .padding(.leading, insets.leading).padding(.trailing, insets.trailing)
                     }
-                    .padding(.top, barHeight)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .scrollPosition($settingsPosition)
@@ -265,16 +262,10 @@ public struct LibraryView: View {
                 Spacer(minLength: 0)
             }
             .padding(.leading, 16 + insets.leading).padding(.trailing, 16 + insets.trailing)
-            .frame(height: Self.barContentHeight, alignment: .center)
-            .background(alignment: .top) {
-                ShellPalette.background.overlay(alignment: .bottom) { Rectangle().fill(ShellPalette.hairline).frame(height: 1) }
-                    .ignoresSafeArea(edges: [.top, .horizontal])
-            }
+            .padding(.top, 6)
             .accessibilityElement(children: .contain)
         }
     }
-    /// The settings' top bar below the status bar: the Back button and its margins.
-    private static let barContentHeight: CGFloat = 56
 
     // MARK: Actions and focus
 
