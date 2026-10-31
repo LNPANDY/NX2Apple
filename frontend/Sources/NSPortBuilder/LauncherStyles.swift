@@ -71,6 +71,62 @@ enum LauncherControl {
     static let width: CGFloat = 184
     /// What the label of a button may take.
     static let buttonLabelWidth: CGFloat = width - 2 * 15
+    /// One line of 13 pt Manrope semibold plus 9 pt of padding above and below. A button or dropdown in a row is exactly this
+    /// high, so a label can never make one taller than its neighbours.
+    static let height: CGFloat = 36
+    /// A label that is a little too long shrinks to this share of its size before it is cut.
+    static let minimumLabelScale: CGFloat = 0.85
+    /// The room a dropdown's choice has beside its chevron and the gap to it.
+    static let choiceWidth: CGFloat = buttonLabelWidth - 8 - 10
+}
+
+/// What one button or dropdown in a setting row measured when it was drawn: the width its label wants on a single line, the width
+/// it has, and the size of the whole control. Only collected when `measuresLauncherControls` is set (LauncherControlWidthTests
+/// renders the real pages in every language with it), so the check covers every control a page shows without a list of labels.
+struct LauncherControlSample: Equatable {
+    var labelWidth: CGFloat
+    var room: CGFloat
+    var size: CGSize
+}
+
+struct LauncherControlSamples: PreferenceKey {
+    static var defaultValue: [LauncherControlSample] = []
+    static func reduce(value: inout [LauncherControlSample], nextValue: () -> [LauncherControlSample]) { value += nextValue() }
+}
+
+private struct MeasuresLauncherControlsKey: EnvironmentKey { static let defaultValue = false }
+
+extension EnvironmentValues {
+    var measuresLauncherControls: Bool {
+        get { self[MeasuresLauncherControlsKey.self] }
+        set { self[MeasuresLauncherControlsKey.self] = newValue }
+    }
+}
+
+private struct LauncherControlMeasure<Label: View>: ViewModifier {
+    let label: Label
+    let room: CGFloat
+    @Environment(\.measuresLauncherControls) private var measures
+    @Environment(\.launcherControlWidth) private var width
+    @ViewBuilder func body(content: Content) -> some View {
+        if measures && width != nil {
+            content.background(GeometryReader { box in
+                label.fixedSize().hidden().background(GeometryReader { text in
+                    Color.clear.preference(key: LauncherControlSamples.self,
+                                           value: [LauncherControlSample(labelWidth: text.size.width, room: room, size: box.size)])
+                })
+            })
+        } else {
+            content
+        }
+    }
+}
+
+extension View {
+    /// Reports this control, when it stands in a setting row, and the width its `label` wants (see LauncherControlSample) when a test asks for it.
+    func launcherMeasured<Label: View>(label: Label, room: CGFloat) -> some View {
+        modifier(LauncherControlMeasure(label: label, room: room))
+    }
 }
 
 private struct LauncherControlWidthKey: EnvironmentKey { static let defaultValue: CGFloat? = nil }
@@ -87,34 +143,42 @@ extension View {
     /// The trailing controls of a setting row: buttons and dropdowns take LauncherControl.width.
     func launcherRowControls() -> some View { environment(\.launcherControlWidth, LauncherControl.width) }
 
-    /// This view as wide as a button of a setting row (for a control drawn by hand, like the cream capsule).
+    /// This text as wide and as high as a button of a setting row, on one line (for a control drawn by hand, like the cream capsule).
     func launcherRowControlFrame() -> some View { modifier(LauncherRowControlFrame()) }
 }
 
 private struct LauncherRowControlFrame: ViewModifier {
     @Environment(\.launcherControlWidth) private var width
-    func body(content: Content) -> some View { content.frame(width: width) }
+    func body(content: Content) -> some View {
+        content
+            .lineLimit(1).minimumScaleFactor(width == nil ? 1 : LauncherControl.minimumLabelScale)
+            .padding(.horizontal, 15)
+            .frame(width: width, height: width == nil ? nil : LauncherControl.height)
+            .launcherMeasured(label: content, room: LauncherControl.buttonLabelWidth)
+    }
 }
 
 struct LauncherSecondaryButtonStyle: ButtonStyle {
     /// Text and border in this colour (the build bar's Stop); plain white otherwise.
     var accent: Color? = nil
-    /// Inside a setting row the button is exactly LauncherControl.width wide, its label centred and wrapped to a second
-    /// line when it does not fit: the buttons of a page line up in one column.
+    /// Inside a setting row the button is exactly LauncherControl.width wide and LauncherControl.height high, its label centred on
+    /// one line (a little smaller when it does not fit): the buttons of a page line up in one column and are equally high.
     @Environment(\.launcherControlWidth) private var width
     @Environment(\.isEnabled) private var enabled
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.manrope(13, .semibold))
             .multilineTextAlignment(.center)
-            .lineLimit(width == nil ? 1 : 2)
+            .lineLimit(1)
+            .minimumScaleFactor(width == nil ? 1 : LauncherControl.minimumLabelScale)
             .padding(.horizontal, 15).padding(.vertical, 9)
-            .frame(width: width)
+            .frame(width: width, height: width == nil ? nil : LauncherControl.height)
             .background(Color.white.opacity(configuration.isPressed ? 0.13 : 0.055), in: RoundedRectangle(cornerRadius: 9))
             .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(accent?.opacity(0.75) ?? Color.white.opacity(0.10)))
             .foregroundStyle(enabled ? (accent ?? Color.white.opacity(0.92)) : .gray)
             .opacity(enabled ? 1 : 0.55)
             .contentShape(RoundedRectangle(cornerRadius: 9))
+            .launcherMeasured(label: configuration.label.font(.manrope(13, .semibold)), room: LauncherControl.buttonLabelWidth)
     }
 }
 
@@ -135,6 +199,35 @@ struct LauncherSwitchStyle: ToggleStyle {
         .buttonStyle(.plain)
         .opacity(enabled ? 1 : 0.45)
         .accessibilityAddTraits(configuration.isOn ? .isSelected : [])
+    }
+}
+
+/// The cream button of the library's hero (Play, Build game, Open on a device). It has one size in every state and language, so
+/// the button does not change size when a game goes from not built to built. A long label shrinks, then ends in an ellipsis.
+enum LauncherHeroAction {
+    static let width: CGFloat = 200
+    static let height: CGFloat = 54
+    static let horizontalPadding: CGFloat = 24
+    static let iconSlot: CGFloat = 28
+    static let iconSpacing: CGFloat = 8
+    static let labelWidth = width - 2 * horizontalPadding - iconSlot - iconSpacing
+    static let minimumScale: CGFloat = 0.7
+}
+
+struct LauncherHeroActionLabel: View {
+    let title: String
+    let symbol: String
+
+    var body: some View {
+        HStack(spacing: LauncherHeroAction.iconSpacing) {
+            Image(systemName: symbol).frame(width: LauncherHeroAction.iconSlot)
+            Text(title).lineLimit(1).minimumScaleFactor(LauncherHeroAction.minimumScale)
+        }
+        .font(.manrope(18, .bold))
+        .foregroundStyle(.black)
+        .padding(.horizontal, LauncherHeroAction.horizontalPadding)
+        .frame(width: LauncherHeroAction.width, height: LauncherHeroAction.height)
+        .background(LauncherPalette.cream, in: Capsule())
     }
 }
 

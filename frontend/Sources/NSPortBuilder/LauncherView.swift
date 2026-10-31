@@ -432,14 +432,11 @@ struct ContentView: View {
                     .tracking(-1.6).lineLimit(2).shadow(color: .black.opacity(0.25), radius: 12)
                 HStack(spacing: 18) {
                     Button { primaryAction(game) } label: {
-                        Label(game.primary == .play ? m.t("library.play")
+                        LauncherHeroActionLabel(
+                            title: game.primary == .play ? m.t("library.play")
                                 : (game.primary == .openOnDevice ? String(format: m.t("dev.open"), m.deviceName(game.installedDevice))
                                    : m.t("library.newBuild")),
-                              systemImage: game.primary == .play ? "play.fill" : (game.primary == .openOnDevice ? "iphone" : "hammer.fill"))
-                            .font(.manrope(18, .bold))
-                            .foregroundStyle(.black).padding(.horizontal, 30).padding(.vertical, 14)
-                            .frame(minWidth: 164)
-                            .background(LauncherPalette.cream, in: Capsule())
+                            symbol: game.primary == .play ? "play.fill" : (game.primary == .openOnDevice ? "iphone" : "hammer.fill"))
                     }
                     .buttonStyle(.plain).disabled(launching || (m.running && !game.isReady))
                     .keyboardShortcut(.return, modifiers: [])

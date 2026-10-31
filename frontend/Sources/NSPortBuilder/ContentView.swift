@@ -3166,7 +3166,6 @@ struct BuilderView: View {
                     detail: m.gameDir.isEmpty ? m.t("build.folderNote") : m.shortPath(m.gameDir), help: m.gameDir) {
                     Text(m.t(m.gameDir.isEmpty ? "data.choose" : "data.change"))
                         .font(.manrope(13, .semibold)).foregroundStyle(.black)
-                        .padding(.horizontal, 16).padding(.vertical, 8)
                         .launcherRowControlFrame()
                         .background(LauncherPalette.cream, in: Capsule())
                 }
