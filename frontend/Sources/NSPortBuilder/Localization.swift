@@ -2488,7 +2488,6 @@ enum L10n {
         "dep.show": "Einblenden",
         "dep.pick": "Ordner wählen …",
         "dep.pick.ios_sdk.title": "Ordner des iPhoneOS SDK wählen",
-        "dep.pick.metal_dir.title": "Ordner der Metal Developer Tools wählen",
         "dep.pick.saved": "Gemerkt: %@",
         "dep.pick.iossdk.saved": "SDK gemerkt: %@",
         "dep.pick.iossdk.version": "SDK-Version: %@",
