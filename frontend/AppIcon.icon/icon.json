@@ -119,13 +119,15 @@
     {
       "layers" : [
         {
+          "blend-mode" : "normal",
+          "fill" : "automatic",
           "glass" : false,
           "hidden" : false,
           "image-name" : "glow-soft.svg",
           "name" : "glow",
           "opacity-specializations" : [
             {
-              "value" : 1
+              "value" : 0.37
             },
             {
               "appearance" : "dark",
