@@ -32,6 +32,19 @@ final class LauncherControlWidthTests: XCTestCase {
         }
     }
 
+    /// The library's Owned/Built switch is one LauncherControl wide, so each label fits its half in bold, without shrinking.
+    func testLibraryFilterLabelsFitTheirSegment() throws {
+        let room = (LauncherControl.width - 2 * 3 - 2) / 2 - 2 * 12
+        for filter in LibraryFilter.allCases {
+            for lang in Lang.allCases {
+                let text = L10n.string(filter.labelKey, lang)
+                let font = try XCTUnwrap(Typography.manropeFont(size: 12.5, weight: .bold))
+                let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: [.font: font]))
+                XCTAssertLessThanOrEqual(CTLineGetTypographicBounds(line, nil, nil, nil), room, "\(lang) \(filter.labelKey): \(text)")
+            }
+        }
+    }
+
     // MARK: Real pages
 
     private final class Samples { var all: [LauncherControlSample] = [] }
