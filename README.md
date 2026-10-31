@@ -78,8 +78,9 @@ installs what it can with one click.
    manual ZIP route), checks the tools above and updates itself later. You never need git.
 4. **Build a game.** Pick the game's folder (or its base game, update, DLC and `prod.keys` one by
    one), choose **This Mac** or **iPhone / iPad**, and press build. The page shows the real stages and
-   the time left, and a stopped build continues where it left off. An iPhone build ends with the three
-   steps to put the app on the phone.
+   the time left, and a stopped build continues where it left off. The **iPhone / iPad** target is one
+   app on the device for all your games. The launcher signs it with Xcode, installs it and copies the
+   game in. It needs a device paired with the Mac.
 
 Building by hand from a terminal is in [BUILDING.md](BUILDING.md).
 
@@ -144,7 +145,8 @@ display version must match the profile's, or the build says so.
   AltStore Classic 2.2+, Impactor and Xcode with a Personal Team keep it; SideStore with a free Apple
   ID needs a one-time App ID fix, and Sideloadly drops it ([the steps](ENTITLEMENTS.md)). The
   full measurements are in [GAMES.md](GAMES.md#verified-on).
-- **Unsigned apps.** The launcher and the iPhone builds are not signed for you; you sideload them.
+- **Unsigned launcher.** The launcher is not signed for you, so you sideload it. The iPhone app is signed
+  by Xcode with your own team when the launcher installs it.
 - **Your own files.** No game data, firmware or keys are included or downloaded.
 - **Older shard archives are not read any more.** The first iPhone builds packed Tears of the Kingdom
   into a RomFS shard archive (`romfs.idx`); the build writes a single `romfs.img` now. An iPhone

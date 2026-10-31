@@ -71,8 +71,8 @@ App 自带构建工具和 Python，不需要装 Homebrew 和 Python；.NET SDK 1
 3. **按设置页走。** 启动器会取回构建用的项目（设置页上的「下载仓库」按钮，浅克隆到 `~/NX2Apple`；
    GitHub 不顺手时页面会给出手动 ZIP 的路线），检查上面的工具，之后还会自己更新。全程不需要懂 git。
 4. **构建游戏。** 选好游戏文件夹（或者分别选本体、更新包、DLC 和 `prod.keys`），选择「这台 Mac」或
-   「iPhone / iPad」，按构建。页面显示真实的阶段和剩余时间，中途停止的构建会从上次继续。iPhone 构建
-   结束时会给出装到手机的三步。
+   「iPhone / iPad」，按构建。页面显示真实的阶段和剩余时间，中途停止的构建会从上次继续。「iPhone / iPad」
+   是装在设备上、容纳你所有游戏的一个共用 App。启动器用 Xcode 为它签名、安装并拷入游戏，需要一台与这台 Mac 配对的设备。
 
 在终端里手动构建见 [BUILDING.zh-CN.md](BUILDING.zh-CN.md)。
 
@@ -128,7 +128,7 @@ iPhone 上在「文件」App 里该 App 名字下：`save/` 和 `log.txt`（上�
   约 3.4 GB，不够《王国之泪》用。App 请求了它，AltStore Classic 2.2+、Impactor 和 Xcode + Personal Team
   会保留；SideStore 配合免费 Apple ID 需要对 App ID 做一次性修复，Sideloadly 会丢掉它
   （[步骤](ENTITLEMENTS.md)）。完整的测量见 [GAMES.zh-CN.md](GAMES.zh-CN.md#验证情况)。
-- **App 未签名。** 启动器和 iPhone 构建不会替你签名，需要你自己侧载。
+- **启动器未签名。** 启动器不会替你签名，需要你自己侧载。iPhone 上的 App 在启动器安装时由 Xcode 用你自己的团队签名。
 - **你自己的文件。** 不包含也不下载任何游戏数据、固件或密钥。
 - **旧的分片归档不再被读取。** 最早的 iPhone 构建把《王国之泪》打成 RomFS 分片归档（`romfs.idx`）；现在
   构建写出单个 `romfs.img`。仍保留旧归档的 iPhone 需要通过启动器把游戏数据重新发送一次（`romfs.img`）。

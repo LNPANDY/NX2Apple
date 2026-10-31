@@ -57,8 +57,8 @@ That is the file to attach when the panel and the terminal disagree — a Finder
 launch gives the app a different PATH from the shell's.
 
 A completed Mac build appears in the collection automatically and can be started
-with **Play**. An iPhone build, by default, offers its unsigned IPA and the
-sideloading and RomFS-copy instructions.
+with **Play**. An iPhone or iPad build goes into the shared app on the device
+(see below), and the game appears in the collection with a button that opens it there.
 
 When a build finishes or fails while the app is in the background, a notification
 names the game and the target. Clicking it shows the game in the library, or the
@@ -67,41 +67,34 @@ first build starts, and **Settings → App** turns it off. Notifications need th
 app bundle: started with `swift run` the launcher has no bundle identifier, and
 there are none.
 
-## Install on an iPhone or iPad
+## iPhone and iPad
 
-With Xcode, a development certificate (sign in to Xcode with your Apple ID under
-Settings → Accounts) and a device paired with this Mac, an iPhone build can go
-straight to the device: choose it under **Install on** and the **Signing team**
-next to it. The script then prepares the game's Xcode project
-(`--prepare-xcode --team-id`, the route it offers developers) instead of an IPA,
-`xcodebuild -allowProvisioningUpdates` signs it for that device with the team
-(Xcode makes the provisioning profile), and `xcrun devicectl device install app`
-installs it. The game files take the same route as for sideloading. They are packed into
-`games/<title ID>/romfs.img`, with any DLC in `aoc/` beside it, and the app is built
-without them (`DM_COPY_ROMFS=NO`). After the install, `xcrun devicectl device copy to`
-puts that folder into the app's `Documents/games/<title ID>/`, where the app looks first. devicectl skips files
-that did not change, so a reinstall sends the code and shaders, not the whole game
-again. The first copy of a large game takes a few minutes. The game then appears
-in the collection, and its button opens it on the device.
-
-**iPhone or iPad (one app for all games)** is a third target for the same device. The build
-script makes only the game's framework (`--shell-framework`), and one shared app on the device
-holds every game you add. The launcher keeps the list of games in `shell.json` in the
-`NX2Apple-shell` folder (next to the output folder, saved as `shellRoot`), generates the app's
-project with `dm/ios/tools/build_shell.sh --prepare-xcode`, signs it with `xcodebuild` and
-installs it over the one already there, which keeps the app's Documents. Game data is
-compared with the device by path and size and only what is missing is copied, so a second
-install of the same game copies nothing. The same steps run without the window:
+The **iPhone / iPad** target is one app on the device that holds every game you add. It needs
+Xcode, a development certificate (sign in to Xcode with your Apple ID under Settings → Accounts)
+and a device paired with this Mac. Choose the device under **Install on** and the **Signing team**
+next to it before the build. The build script makes only the game's framework
+(`--shell-framework`), and the shared app holds the games. The launcher keeps the list of games in
+`shell.json` in the `NX2Apple-shell` folder (next to the output folder, saved as `shellRoot`),
+generates the app's project with `dm/ios/tools/build_shell.sh --prepare-xcode`, signs it with
+`xcodebuild -allowProvisioningUpdates` and installs it over the one already there with
+`xcrun devicectl device install app`, which keeps the app's Documents. The game files are packed
+into `games/<title ID>/romfs.img`, with any DLC in `aoc/` beside it. They are compared with the
+device by path and size, and only what is missing is copied to the app's
+`Documents/games/<title ID>/`, so a second install of the same game copies nothing. The first copy
+of a large game takes a few minutes. The same steps run without the window:
 
     NSPortBuilder --install-shell --framework <path> --archive <games/TITLEID folder> --title-id <id> \
         --name <name> --device <udid> --team <team> --repo <repo> [--shell-root <dir>] [--python <path>]
 
 The first time, turn on Developer Mode on the device and trust the developer
 under Settings → General → VPN & Device Management. With a free Apple ID the
-profile expires after seven days. **Don't install, export the IPA** keeps the
-unsigned IPA as before. The devices and teams are read with `devicectl list
-devices` and `security find-identity`. The team is the certificate's
+profile expires after seven days, and **Re-sign** on the game renews it. The devices and teams are
+read with `devicectl list devices` and `security find-identity`. The team is the certificate's
 organizational unit, not the code in its name.
+
+A game that an earlier version built as its own app or IPA stays in the library, marked as an
+older iPhone build. Nothing is deleted. **Build** makes it again for the shared app. A saved
+iPhone target from an earlier version becomes the shared-app target.
 
 **Manage > Show game log** opens the game's latest log in Console. It is `<library folder>/log/<title ID>.log`
 when the app's folder holds the library marker (`.nx2apple-library`), else
@@ -123,7 +116,7 @@ folder beside it (`dm/host/hle_fs.c`), which goes along. The copy is refused whi
 the game runs on the Mac. Close it on the device too, or it writes its own save over the
 copy later. The device side uses the install's route: `devicectl device info files` for
 the date and `devicectl device copy from` / `copy to` with the app's data container. Only
-a game installed from here has a known bundle ID, so a sideloaded IPA has no device side.
+a game installed from here has a known bundle ID, so an app installed another way has no device side.
 
 ## Cheats
 

@@ -154,7 +154,7 @@ final class ShellInstallTests: XCTestCase {
     }
 
     func testEveryLanguageHasTheShellTexts() {
-        for key in ["build.shell", "build.shellNote", "shell.projectStage", "shell.projectFailed", "shell.checkStage", "shell.dataAlready",
+        for key in ["build.iosNote", "shell.projectStage", "shell.projectFailed", "shell.checkStage", "shell.dataAlready",
                     "shell.noFramework", "shell.needsDevice", "shell.copySize", "shell.copyWired", "shell.copyWifi", "shell.copyWifiOne",
                     "shell.copyWifiMinute", "shell.copyNotConnected", "shell.copyWaiting", "shell.copyTitle", "shell.copyContinue",
                     "shell.copyWaitCable", "shell.copySkip", "shell.copyStopWaiting", "shell.retry", "shell.notPaired",
@@ -167,7 +167,7 @@ final class ShellInstallTests: XCTestCase {
                 XCTAssertFalse(text.contains(";") || text.contains("；"), key)
             }
         }
-        XCTAssertEqual(L10n.string("build.shell", .en), "iPhone or iPad (one app for all games)")
+        XCTAssertEqual(L10n.string("build.iosNote", .en), "One app on your iPhone or iPad for all your games.")
     }
 
     // ---- the stand-ins ----
@@ -627,7 +627,7 @@ final class ShellInstallTests: XCTestCase {
         UserDefaults.standard.set(f.root, forKey: "shellRoot")
         let model = BuildModel()
         model.repoPath = f.repo
-        model.target = "ios-shell"
+        model.target = "ios"
         model.outDir = path("out")
         model.pythonPath = "/usr/bin/python3"
         model.dotnetPath = "/usr/bin/true"
@@ -691,7 +691,7 @@ final class ShellInstallTests: XCTestCase {
     @MainActor private func makeModel(_ f: Fixture) throws -> BuildModel {
         let model = BuildModel()
         model.repoPath = f.repo
-        model.target = "ios-shell"
+        model.target = "ios"
         model.outDir = path("out")
         model.pythonPath = "/usr/bin/python3"
         model.dotnetPath = "/usr/bin/true"
@@ -767,7 +767,7 @@ final class ShellInstallTests: XCTestCase {
         let model = BuildModel()
         model.repoPath = temporary.path
         try write(temporary.path + "/dm/tools/nx_extract/Program.cs", "")
-        model.target = "ios-shell"
+        model.target = "ios"
         model.installDevice = ""
         model.startBuild()
         XCTAssertFalse(model.running)

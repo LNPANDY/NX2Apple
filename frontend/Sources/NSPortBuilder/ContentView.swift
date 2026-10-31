@@ -115,12 +115,11 @@ final class BuildModel: ObservableObject {
     @Published var confirmingOverride: BuildFailureKind?
     /// The one-off `--allow-*` of a confirmed "Build anyway": taken by the next build and never stored.
     private(set) var armedOverride: BuildFailureKind?
-    @Published var ipaPath = ""      // captured from the script's "output IPA:" line
     @Published var macAppPath = ""   // --platform mac-app: the .app this build produced
-    /// 'ios' = an IPA for an iPhone; 'mac-app' = a double-clickable Mac app (upstream's
-    /// --platform mac-app). A Mac app is a different output of the same pipeline, not a
+    /// BuildTarget.ios = the game's framework in the one shared app on an iPhone or iPad; BuildTarget.mac = a double-clickable
+    /// Mac app (upstream's --platform mac-app). A Mac app is a different output of the same pipeline, not a
     /// different pipeline: same extraction, rewrite and shaders, then dm/mac/pack_app.py.
-    @Published var target = (UserDefaults.standard.string(forKey: "buildTarget") ?? "ios") {
+    @Published var target = BuildTarget.saved() {
         didSet {
             UserDefaults.standard.set(target, forKey: "buildTarget")
             // A Mac-only setup needs no iOS SDK for a Mac build, but does for an iPhone one (needsIOSPlatform)
@@ -162,21 +161,6 @@ final class BuildModel: ObservableObject {
     fileprivate var shellCopyAnswer: ((ShellCopyDecision) -> Void)?
     let shellWaitCancelled = LockedFlag()
     private var shellRetry: (framework: String, titleID: String, name: String, archive: String)?
-    @Published var transferAsk = false    // the transfer-the-game-files question is up: USB from the Mac is slow, so copying is the player's call
-    private var transferHandler: ((Bool) -> Void)?
-
-    /// Asks whether to copy the game files to the device now, and runs `then` with the answer on the main queue.
-    func askTransfer(_ then: @escaping (Bool) -> Void) {
-        transferHandler = then
-        transferAsk = true
-    }
-
-    func transferAnswer(_ ok: Bool) {
-        guard let then = transferHandler else { return }
-        transferHandler = nil
-        then(ok)
-    }
-    private var bundleID = ""             // from the script's "bundle ID:" line
     var xcrunPath = "/usr/bin/xcrun"      // tests stand in for xcodebuild and devicectl
     var volumesRoot = "/Volumes"          // where external drives are mounted
     var teamsProvider: () -> [SigningTeam] = { DeviceTools.teams() }   // the teams the Mac knows, read when a signing step fails
@@ -185,7 +169,7 @@ final class BuildModel: ObservableObject {
     var openApp: (URL) -> Void = { NSWorkspace.shared.openApplication(at: $0, configuration: NSWorkspace.OpenConfiguration()) }
 
     /// This iPhone build goes straight to a device.
-    var installsDirectly: Bool { target != "mac-app" && !installDevice.isEmpty && !signingTeam.isEmpty }
+    var installsDirectly: Bool { target != BuildTarget.mac && !installDevice.isEmpty && !signingTeam.isEmpty }
 
     func deviceName(_ udid: String) -> String { devices.first { $0.id == udid }?.name ?? "iPhone" }
 
@@ -1216,7 +1200,7 @@ final class BuildModel: ObservableObject {
     func startBuild() {
         guard !running else { return }
         // The shared app needs a device this Mac knows. Found out here, before an hour of building, not after it.
-        if target == "ios-shell", !shellDeviceChecked {
+        if target != BuildTarget.mac, !shellDeviceChecked {
             guard installsDirectly else { doneNote = t("shell.needsDevice"); done = false; return }
             verifyShellDevice()
             return
@@ -1226,7 +1210,7 @@ final class BuildModel: ObservableObject {
         running = true; done = false; doneNote = ""; stages = []; logTail = ""; lineBuf = ""; chainNoteShown = false
         failure = nil; confirmingOverride = nil
         let override = takeOverrideFlag()   // for this build only: the next one asks again
-        installedOn = ""; installedAppPath = ""; bundleID = ""
+        installedOn = ""; installedAppPath = ""
         guard repoOK else {
             fail(repoPath.isEmpty ? t("msg.repoInvalidEmpty") : String(format: t("msg.repoInvalid"), shortPath(repoPath)))
             return
@@ -1332,9 +1316,9 @@ final class BuildModel: ObservableObject {
         var args = [engine + "/" + Self.buildScript, inputDir, "-k", keysPath,
                     "--progress", "json"]
         // A compatibility switch the player turned on: written to a small env file the pipeline
-        // copies into the app bundle (main.m sets one variable per line at boot). Only for an IPA;
+        // copies into the app bundle (main.m sets one variable per line at boot). Only for an iPhone or iPad build;
         // a Mac app runs on this Mac's GPU, which always has BC support.
-        if bcOnCPU && target != "mac-app" {
+        if bcOnCPU && target != BuildTarget.mac {
             let envPath = NSTemporaryDirectory() + "nspb-env-\(UUID().uuidString.prefix(8)).txt"
             do {
                 try "DM_TEX_BC_CPU=1\n".write(toFile: envPath, atomically: true, encoding: .utf8)
@@ -1345,21 +1329,15 @@ final class BuildModel: ObservableObject {
             }
         }
         if hasWorkDir { args += ["--work-dir", workDir] }
-        let macApp = target == "mac-app"
+        let macApp = target == BuildTarget.mac
         if macApp {
             // -o names the .app; the RomFS goes inside it, so the archive step is skipped below.
             args += ["--platform", "mac-app"]
             macAppPath = (outDir.isEmpty ? baseDir : outDir) + "/" + tidHex + ".app"
             args += ["-o", macAppPath]
-        } else if target == "ios-shell" {
+        } else {
             // Only the game's framework: the one shared app is made and signed after the script (installShell)
             args += ShellInstall.buildArguments(workDir: workDir, team: signingTeam)
-        } else if installsDirectly {
-            // The game's Xcode project instead of an IPA, signed for the device after the script (signAndInstall)
-            args += ["--prepare-xcode", "--keep-extracted", "--team-id", signingTeam]
-        } else if !outDir.isEmpty {
-            ipaPath = outDir + "/" + tidHex + ".ipa"
-            args += ["-o", ipaPath]
         }
         // The archive step packs whatever folder the build reported; without --work-dir that is the
         // script's default, which is the same workDir unless a separate output folder was chosen.
@@ -1410,7 +1388,7 @@ final class BuildModel: ObservableObject {
                 }
                 if status.terminationStatus == 0 {
                     self.markAllDone()
-                    if self.target == "mac-app" {
+                    if self.target == BuildTarget.mac {
                         // The .app is self-contained (its RomFS is inside), and the marker file
                         // beside it (.nx2apple-library, a dot file the Finder hides) tells the
                         // game's launcher that this folder is a library: its saves and log live
@@ -1427,19 +1405,14 @@ final class BuildModel: ObservableObject {
                         }
                         self.running = false
                         self.cleanupStaging()
-                    } else if self.target == "ios-shell" {
-                        // The same archive, then the game's framework into the one shared app on the device
+                    } else {
+                        // The game's archive, then its framework into the one shared app on the device
                         let tid = Self.titleID(self.basePath).map { String(format: "%016llX", $0) } ?? "game"
                         let name = ((self.basePath as NSString).lastPathComponent as NSString).deletingPathExtension
                         self.packArchive(workDir: self.effectiveWorkDir) {
                             self.installShell(framework: ShellInstall.frameworkPath(workDir: self.effectiveWorkDir, titleID: tid),
                                               titleID: tid, name: name, archive: $0)
                         }
-                    } else if self.installsDirectly {
-                        // The same archive as for sideloading, then the app without the game files, then the archive into its Documents
-                        self.packArchive(workDir: self.effectiveWorkDir) { self.signAndInstall(archive: $0) }
-                    } else {
-                        self.packArchive(workDir: self.effectiveWorkDir)   // keeps running=true until the archive is done
                     }
                 } else {
                     if let i = self.stages.lastIndex(where: { $0.state == .running }) {
@@ -1487,13 +1460,6 @@ final class BuildModel: ObservableObject {
                 self.startBuild()
             }
         }
-    }
-
-    /// The build's last step is done either way: release the button and show the outcome.
-    func finishBuild(ok: Bool, note: String) {
-        running = false
-        done = ok
-        doneNote = note
     }
 
     /// A failed build's log read for the script's known early stops: the card under the build button then says what
@@ -1721,10 +1687,6 @@ final class BuildModel: ObservableObject {
         }
         append(line + "\n")
         noteChainChange(line)
-        noteBundleID(line)
-        if let range = line.range(of: "output IPA: ") {
-            ipaPath = String(line[range.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
-        }
         guard let s = Self.parseStage(line) else { return }
         if let i = stages.firstIndex(where: { $0.id == s.k }) {
             if !s.name.isEmpty { stages[i].name = s.name }
@@ -1750,12 +1712,6 @@ final class BuildModel: ObservableObject {
         a.alertStyle = .informational
         a.addButton(withTitle: "OK")
         a.runModal()
-    }
-
-    /// The script's "app name: …; version: …; bundle ID: org.nxnative.…" line: the app to open on the device.
-    private func noteBundleID(_ text: String) {
-        guard let range = text.range(of: #"bundle ID: [A-Za-z0-9.\-]+"#, options: .regularExpression) else { return }
-        bundleID = String(text[range].dropFirst("bundle ID: ".count))
     }
 
     /// One event of `--progress json`: the stage list follows it, and the log gets a readable line (no count updates).
@@ -1789,10 +1745,6 @@ final class BuildModel: ObservableObject {
             let msg = e["msg"] as? String ?? ""
             append(msg + "\n")
             noteChainChange(msg)
-            noteBundleID(msg)
-            if let range = msg.range(of: "output IPA: ") {
-                ipaPath = String(msg[range.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
-            }
         default: break
         }
     }
@@ -1881,8 +1833,8 @@ final class BuildModel: ObservableObject {
     /// Pack the extracted RomFS into one romfs.img. The extracted folder is
     /// <work>/extract/v<N>/RomFS where N is the profile's package version, so take
     /// the highest v* that actually has a RomFS instead of hardcoding one game.
-    /// `then` continues the build with the archive's folder (installing on a device) instead of ending it.
-    private func packArchive(workDir: String, then: ((String) -> Void)? = nil) {
+    /// `then` continues the build with the archive's folder (installing on a device).
+    private func packArchive(workDir: String, then: @escaping (String) -> Void) {
         running = true
         let fm = FileManager.default
         let extract = workDir + "/extract"
@@ -1924,10 +1876,7 @@ final class BuildModel: ObservableObject {
                                 detail: String(format: t("prog.archiveReused"), reused)))
             say(String(format: t("msg.archiveReused"), dest))
             placeAddOnContent(workDir: workDir, in: dest)
-            if let then { return then(dest) }
-            cleanupStaging()
-            finishBuild(ok: true, note: t("msg.done"))
-            return
+            return then(dest)
         }
         // One romfs.img instead of a ROMFSARC shard set: upstream reads the image directly
         // (hle_fs.c), one file copies to a phone at full speed where 300,000 did not, and it fits
@@ -1960,10 +1909,7 @@ final class BuildModel: ObservableObject {
                 say(String(format: t("msg.archiveReused"), dest))
                 placeAddOnContent(workDir: workDir, in: dest)
                 archivePath = dest
-                if let then { return then(dest) }
-                cleanupStaging()
-                finishBuild(ok: true, note: t("msg.done"))
-                return
+                return then(dest)
             }
             try? fm.removeItem(atPath: to)
             do {
@@ -1977,9 +1923,7 @@ final class BuildModel: ObservableObject {
                 say(String(format: t("msg.archiveLog"), romfsImage, dest))
                 placeAddOnContent(workDir: workDir, in: dest)
                 archivePath = dest
-                if let then { return then(dest) }
-                cleanupStaging()
-                finishBuild(ok: true, note: t("msg.done"))
+                return then(dest)
             } catch {
                 if let i = stages.firstIndex(where: { $0.id == idx }) {
                     stages[i].state = .failed; stages[i].detail = error.localizedDescription
@@ -2019,118 +1963,23 @@ final class BuildModel: ObservableObject {
                     ? String(format: self.t("prog.archiveDone"), dest)
                     : String(format: self.t("msg.archiveFailed"), st.terminationStatus)
             }
-            if succeeded, let then { return then(dest) }
+            if succeeded { return then(dest) }
             self.cleanupStaging()
             self.running = false
-            self.done = succeeded
+            self.done = false
             if cancelled { self.resetProgress() }
-            self.doneNote = cancelled ? self.t("msg.stopped") : (succeeded ? self.t("msg.done") : self.t("msg.archiveIpaOnly"))
+            self.doneNote = cancelled ? self.t("msg.stopped") : String(format: self.t("msg.archiveFailed"), st.terminationStatus)
         }}
         proc = p
         do { try p.run(); Self.track(p) } catch {
             if let i = stages.firstIndex(where: { $0.id == idx }) {
                 stages[i].state = .failed; stages[i].detail = t("msg.archiveNoStart")
             }
-            running = false; doneNote = t("msg.archiveIpaOnly"); cleanupStaging()
+            running = false; doneNote = t("msg.archiveNoStart"); cleanupStaging()
         }
     }
 
     // MARK: Installing on a device
-
-    /// After the script prepared the Xcode project and the game data is packed: sign the app for the device without the
-    /// game files (DM_COPY_ROMFS=NO), install it, then copy the game's folder (romfs.img, aoc/) into its
-    /// Documents/games/<title ID>/, where the app looks first (main.m), as a sideloaded copy has it. devicectl skips files
-    /// that did not change, so a reinstall sends the code and shaders, not the game again.
-    /// Install the app xcodebuild produced, then copy the game data into it. Shared by the plain
-    /// sign flow and the team-variant retry.
-    private func installBuiltApp(app: String, archive: String, device: String, xcrun: String) {
-        let name = deviceName(device)
-        guard FileManager.default.fileExists(atPath: app) else { return finishInstall(String(format: t("dev.noProject"), shortPath(app))) }
-        runTool(id: 1002, name: String(format: t("dev.installStage"), name),
-                [xcrun, "devicectl", "device", "install", "app", "--device", device, app], step: Self.installStep) { error in
-            if let error {
-                self.finishInstall(String(format: self.t("dev.installFailed"), error))
-                return self.noteInstallFailure(.install, error: error)
-            }
-            guard let bundle = NSDictionary(contentsOfFile: app + "/Info.plist")?["CFBundleIdentifier"] as? String else {
-                return self.finishInstall(String(format: self.t("dev.noProject"), self.shortPath(app + "/Info.plist")))
-            }
-            let tid = Self.titleID(self.basePath).map { String(format: "%016llX", $0) } ?? "game"
-            // Copying the game files over USB is the slowest part of an install and the player may
-            // rather hand the data to the device themselves (a fast external drive in Files), so it
-            // is their call. Without game files there is nothing to ask about.
-            let copy = {
-                self.runTool(id: 1003, name: String(format: self.t("dev.copyStage"), name),
-                             Self.archiveCopy(xcrun: xcrun, device: device, bundle: bundle, archive: archive, titleID: tid), step: Self.installStep) { error in
-                    if let error {
-                        self.finishInstall(String(format: self.t("dev.copyFailed"), error))
-                        return self.noteInstallFailure(.copy, error: error)
-                    }
-                    self.installedOn = device
-                    self.installedAppPath = app
-                    self.finishInstall(nil)
-                }
-            }
-            guard FileManager.default.fileExists(atPath: archive + "/romfs.img") else { return copy() }
-            self.askTransfer { ok in
-                guard ok else {
-                    self.installedOn = device
-                    self.installedAppPath = app
-                    self.running = false
-                    self.done = true
-                    self.doneNote = String(format: self.t("dev.copySkipped"), name)
-                    self.cleanupStaging()
-                    return
-                }
-                copy()
-            }
-        }
-    }
-
-    private func signAndInstall(archive: String) {
-        let work = effectiveWorkDir, project = work + "/xcode/DmIOS.xcodeproj", derived = work + "/xcode-derived-data"
-        let device = installDevice, team = signingTeam, name = deviceName(device), xcrun = xcrunPath
-        guard FileManager.default.fileExists(atPath: project) else { return finishInstall(String(format: t("dev.noProject"), shortPath(project))) }
-        DispatchQueue.global(qos: .userInitiated).async {
-            let scheme = Self.scheme(of: project, xcrun: xcrun)
-            DispatchQueue.main.async {
-                guard let scheme else { return self.finishInstall(String(format: self.t("dev.noProject"), self.shortPath(project))) }
-                // The app's own bundle ID can be taken: App IDs are global and register to the first
-                // team that uses one, so a game built before with another Apple ID fails here for
-                // ever after. The retry appends this team to the identifier — a stable per-team
-                // variant — as a command-line setting, which overrides the project's.
-                func sign(_ extra: [String] = []) -> [String] {
-                    [xcrun, "xcodebuild", "-project", project, "-scheme", scheme, "-configuration", "Release",
-                     "-destination", "id=\(device)", "-derivedDataPath", derived, "-allowProvisioningUpdates",
-                     "DEVELOPMENT_TEAM=\(team)", "DM_COPY_ROMFS=NO"] + extra + ["build"]
-                }
-                let appID = "org.nxnative." + (Self.titleID(self.basePath).map { String(format: "%016llX", $0) } ?? "game").lowercased()
-                let teamVariant = "org.nxnative." + appID.split(separator: ".").last!.appending(".\(team)")
-                func taken(_ e: String?) -> Bool { e.map(BuildFailureClassifier.signingTeamTaken) ?? false }
-                self.runTool(id: 1001, name: String(format: self.t("dev.signStage"), name), sign(), step: Self.xcodeStep) { firstError in
-                    if let firstError, taken(firstError) {
-                        // Once more under this team's own identifier, and the log says why the first try failed.
-                        fputs("signing: " + appID + " is registered to another team; retrying as " + teamVariant + "\n", stderr)
-                        self.runTool(id: 1001, name: String(format: self.t("dev.signStage"), name), sign(["PRODUCT_BUNDLE_IDENTIFIER=" + teamVariant]), step: Self.xcodeStep) { retryError in
-                            if let retryError, !retryError.isEmpty {
-                                self.finishInstall(String(format: self.t("dev.signFailed"), retryError))
-                                self.noteInstallFailure(.sign, error: retryError)
-                            } else {
-                                self.installBuiltApp(app: derived + "/Build/Products/Release-iphoneos/DmIOS.app", archive: archive, device: device, xcrun: xcrun)
-                            }
-                        }
-                        return
-                    }
-                    if let firstError, !firstError.isEmpty {
-                        self.finishInstall(String(format: self.t("dev.signFailed"), firstError))
-                        self.noteInstallFailure(.sign, error: firstError)
-                    } else {
-                        self.installBuiltApp(app: derived + "/Build/Products/Release-iphoneos/DmIOS.app", archive: archive, device: device, xcrun: xcrun)
-                    }
-                }
-            }
-        }
-    }
 
     /// Steps 4 to 7 of the shared app (ShellInstall.swift) for a game whose framework is built and whose archive is packed: the
     /// shell's project, signing, the install over the app that is already there, and the game data the device lacks.
@@ -2248,81 +2097,50 @@ final class BuildModel: ObservableObject {
         [xcrun, "devicectl", "device", "install", "app", "--device", device, app]
     }
 
-    /// Renew an installed app's signature (a free Apple ID's profile lasts 7 days). The same xcodebuild parameters as
+    /// Renew the shared app's signature (a free Apple ID's profile lasts 7 days). The same xcodebuild parameters as
     /// the install, run on the cached project and derived data: Xcode reuses the compiled products and only signs
-    /// again, then devicectl installs the app over itself. PRODUCT_BUNDLE_IDENTIFIER is the installed app's own, so the
-    /// device keeps that app's Documents (game data, saves); a retry under another identifier would lose them.
+    /// again, then devicectl installs the app over itself. PRODUCT_BUNDLE_IDENTIFIER is the one shell.json holds, so the
+    /// device keeps the app's Documents (game data, saves).
     func resignOnDevice(app: String, device: String, then: (() -> Void)? = nil) {
         guard !device.isEmpty, !app.isEmpty else { then?(); return }
         guard !signingTeam.isEmpty else {
             doneNote = t("dev.resignNoTeam")
             then?(); return
         }
-        let shell = ShellInstall.paths(ofApp: app)
-        // The shared app's identifier is the one shell.json holds, the others' is the installed app's own
-        guard let bundle = shell.map({ ShellLibrary.load(root: $0.root).bundleID })
-                ?? (NSDictionary(contentsOfFile: app + "/Info.plist")?["CFBundleIdentifier"] as? String) else {
-            doneNote = String(format: t("dev.noProject"), shortPath(app + "/Info.plist"))
+        // An app from before the shared app has its own project and cannot be signed again here: build the game again
+        guard let shell = ShellInstall.paths(ofApp: app) else {
+            doneNote = t("dev.resignOlder")
             then?(); return
         }
-        guard let paths = shell.map({ (project: $0.project, derived: $0.derived) }) ?? Self.buildPaths(ofApp: app),
-              FileManager.default.fileExists(atPath: paths.project) else {
-            doneNote = String(format: t("dev.resignNoProject"), shortPath(Self.buildPaths(ofApp: app)?.project ?? app))
+        guard FileManager.default.fileExists(atPath: shell.project) else {
+            doneNote = String(format: t("dev.resignNoProject"), shortPath(shell.project))
             then?(); return
         }
         let xcrun = xcrunPath, team = signingTeam, name = deviceName(device)
-        DispatchQueue.global(qos: .userInitiated).async {
-            let scheme = shell != nil ? ShellInstall.scheme : Self.scheme(of: paths.project, xcrun: xcrun)
-            DispatchQueue.main.async {
-                guard let scheme else {
-                    self.doneNote = String(format: self.t("dev.noProject"), self.shortPath(paths.project))
-                    then?(); return
+        let bundle = ShellLibrary.load(root: shell.root).bundleID
+        running = true
+        // The shared app is signed again under the identifier shell.json holds, so the device keeps its Documents
+        let command = ShellInstall.buildCommand(xcrun: xcrun, root: shell.root, device: device, team: team, bundleID: bundle)
+        runTool(id: 1006, name: String(format: t("dev.resignStage"), name),
+                command, step: Self.xcodeStep) { error in
+            if let error, !error.isEmpty {
+                self.running = false
+                self.doneNote = String(format: self.t("dev.resignFailed"), error)
+                then?(); return
+            }
+            self.runTool(id: 1007, name: String(format: self.t("dev.installStage"), name),
+                         Self.reinstallCommand(xcrun: xcrun, device: device, app: app), step: Self.installStep) { installError in
+                self.running = false
+                if let installError {
+                    self.doneNote = String(format: self.t("dev.installFailed"), installError)
+                } else {
+                    self.installedOn = device
+                    self.installedAppPath = app
+                    self.doneNote = String(format: self.t("dev.resigned"), name)
                 }
-                self.running = true
-                // The shared app is signed again under the identifier shell.json holds, so the device keeps its Documents
-                let command = shell.map { ShellInstall.buildCommand(xcrun: xcrun, root: $0.root, device: device, team: team, bundleID: bundle) }
-                    ?? Self.resignCommand(xcrun: xcrun, project: paths.project, scheme: scheme, device: device,
-                                          derived: paths.derived, team: team, bundle: bundle)
-                self.runTool(id: 1006, name: String(format: self.t("dev.resignStage"), name),
-                             command, step: Self.xcodeStep) { error in
-                    if let error, !error.isEmpty {
-                        self.running = false
-                        self.doneNote = String(format: self.t("dev.resignFailed"), error)
-                        then?(); return
-                    }
-                    self.runTool(id: 1007, name: String(format: self.t("dev.installStage"), name),
-                                 Self.reinstallCommand(xcrun: xcrun, device: device, app: app), step: Self.installStep) { installError in
-                        self.running = false
-                        if let installError {
-                            self.doneNote = String(format: self.t("dev.installFailed"), installError)
-                        } else {
-                            self.installedOn = device
-                            self.installedAppPath = app
-                            self.doneNote = String(format: self.t("dev.resigned"), name)
-                        }
-                        then?()
-                    }
-                }
+                then?()
             }
         }
-    }
-
-    /// The xcodebuild parameters of a re-sign: signAndInstall's, plus the installed app's own identifier. The same
-    /// derived data is what keeps Xcode from rebuilding the game's code.
-    nonisolated static func resignCommand(xcrun: String, project: String, scheme: String, device: String, derived: String,
-                                          team: String, bundle: String) -> [String] {
-        [xcrun, "xcodebuild", "-project", project, "-scheme", scheme, "-configuration", "Release",
-         "-destination", "id=\(device)", "-derivedDataPath", derived, "-allowProvisioningUpdates",
-         "DEVELOPMENT_TEAM=\(team)", "DM_COPY_ROMFS=NO", "PRODUCT_BUNDLE_IDENTIFIER=\(bundle)", "build"]
-    }
-
-    /// The cached project and derived data an installed app came from, from the app's own path
-    /// (<work>/xcode-derived-data/Build/Products/Release-iphoneos/DmIOS.app): a re-sign must run there to reuse them.
-    nonisolated static func buildPaths(ofApp app: String) -> (project: String, derived: String)? {
-        guard let marker = app.range(of: "/Build/Products/") else { return nil }
-        let derived = String(app[..<marker.lowerBound])
-        let work = (derived as NSString).deletingLastPathComponent
-        return (work + "/xcode/DmIOS.xcodeproj", derived)
     }
 
     /// Ask where to write the .ipa, then pack the signed app there.
@@ -2377,27 +2195,6 @@ final class BuildModel: ObservableObject {
         let plist = NSDictionary(contentsOfFile: installedAppPath + "/Info.plist")
         let name = (plist?["CFBundleDisplayName"] as? String) ?? (plist?["CFBundleExecutable"] as? String) ?? "DmIOS"
         return name.replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: ":", with: "_") + ".ipa"
-    }
-
-    /// The game's folder (romfs.img, aoc/) into the installed app's Documents, where main.m looks for this game's files first.
-    nonisolated static func archiveCopy(xcrun: String, device: String, bundle: String, archive: String, titleID: String) -> [String] {
-        [xcrun, "devicectl", "device", "copy", "to", "--device", device, "--source", archive,
-         "--destination", "Documents/games/\(titleID)", "--domain-type", "appDataContainer", "--domain-identifier", bundle]
-    }
-
-    /// The scheme the script made for the game ("<name> (<profile>)"), from `xcodebuild -list`.
-    nonisolated static func scheme(of project: String, xcrun: String) -> String? {
-        let p = Process(), out = Pipe()
-        p.executableURL = URL(fileURLWithPath: xcrun)
-        p.arguments = ["xcodebuild", "-list", "-json", "-project", project]
-        p.standardOutput = out; p.standardError = FileHandle.nullDevice
-        guard (try? p.run()) != nil else { return nil }
-        let data = out.fileHandleForReading.readDataToEndOfFile()
-        p.waitUntilExit()
-        let start = data.firstIndex(of: UInt8(ascii: "{")) ?? data.startIndex   // xcodebuild may print a line before the JSON
-        guard let root = try? JSONSerialization.jsonObject(with: data[start...]) as? [String: Any],
-              let schemes = (root["project"] as? [String: Any])?["schemes"] as? [String] else { return nil }
-        return schemes.first { $0 != "DmIOS" } ?? schemes.first
     }
 
     /// What xcodebuild is doing, from the actions it prints.
@@ -2921,7 +2718,7 @@ final class BuildModel: ObservableObject {
     nonisolated static func needsIOSPlatform(defaults: UserDefaults = .standard) -> Bool {
         if OnboardingDefaults.sessionPlatform == "mac" { return false }   // a forced run's choice, not stored yet
         guard defaults.string(forKey: OnboardingDefaults.platform) == "mac" else { return true }
-        return (defaults.string(forKey: "buildTarget") ?? "ios") != "mac-app"
+        return BuildTarget.normalized(defaults.string(forKey: "buildTarget")) != BuildTarget.mac
     }
 
 
@@ -3241,12 +3038,6 @@ struct BuilderView: View {
             if let id, id.hasPrefix("set.") { withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo(id, anchor: .center) } }
         }
         .modifier(GameFilesDrop(enabled: !settings && !m.running, label: m.t("drop.hint")) { m.take(dropped: $0) })   // DropFiles.swift
-        .alert(String(format: m.t("dev.askTransferTitle"), m.deviceName(m.installDevice)), isPresented: $m.transferAsk) {
-            Button(m.t("dev.transferNow")) { m.transferAnswer(true) }
-            Button(m.t("dev.transferSkip"), role: .cancel) { m.transferAnswer(false) }
-        } message: {
-            Text(m.t("dev.askTransferText"))
-        }
         }
         .buttonStyle(LauncherSecondaryButtonStyle())
     }
@@ -3337,7 +3128,7 @@ struct BuilderView: View {
         }
         files.disabled(m.running)
         target
-        if m.target != "mac-app" { install.disabled(m.running) }
+        if m.target != BuildTarget.mac { install.disabled(m.running) }
         logPanel
         action
         ShellCopyCard(m: m)
@@ -3430,12 +3221,11 @@ struct BuilderView: View {
             Text(m.t("section.target")).font(.manrope(15, .semibold)).foregroundStyle(.secondary)
                 .padding(.leading, 2)
             HStack(spacing: 14) {
-                targetCard("mac-app", symbol: "desktopcomputer", title: "build.mac", note: "build.macNote")
-                targetCard("ios", symbol: "iphone", title: "build.ios", note: "build.iosNote")
-                targetCard("ios-shell", symbol: "square.stack.3d.up", title: "build.shell", note: "build.shellNote")
+                targetCard(BuildTarget.mac, symbol: "desktopcomputer", title: "build.mac", note: "build.macNote")
+                targetCard(BuildTarget.ios, symbol: "iphone", title: "build.ios", note: "build.iosNote")
             }
             // A Mac app runs on this Mac's GPU, which always decodes BC textures: the switch is the iPhone's only.
-            if m.target != "mac-app" {
+            if m.target != BuildTarget.mac {
                 VStack(spacing: 0) {
                     HStack(alignment: .center, spacing: 12) {
                         VStack(alignment: .leading, spacing: 3) {
@@ -3481,7 +3271,7 @@ struct BuilderView: View {
     }
 
     @ViewBuilder private var outcome: some View {
-        if m.done && m.target == "mac-app" {
+        if m.done && m.target == BuildTarget.mac {
             group(m.t("section.done")) {
                 row(m.t("library.ready"), detail: m.shortPath(m.macAppPath), dot: LauncherPalette.ready, help: m.macAppPath) {
                     Button(m.t("install.reveal")) { reveal(m.macAppPath) }
@@ -3505,33 +3295,6 @@ struct BuilderView: View {
                     }
                 }
             }
-        } else if m.done && m.target != "mac-app" {
-            group(m.t("install.title")) {
-                VStack(alignment: .leading, spacing: 10) {
-                    guideRow(m.t("install.step1")); guideRow(m.t("install.step2")); guideRow(m.t("install.step3"))
-                }
-                .padding(.horizontal, 18).padding(.vertical, 16)
-                divider
-                row("IPA", detail: m.shortPath(m.ipaPath), dot: LauncherPalette.ready, help: m.ipaPath) {
-                    Button(m.t("install.reveal")) { reveal(m.ipaPath) }
-                }
-                divider
-                row("RomFS", detail: m.shortPath(m.archivePath), dot: LauncherPalette.ready, help: m.archivePath) {
-                    Button(m.t("install.reveal")) { reveal(m.archivePath) }
-                }
-            }
-        }
-    }
-
-    private func guideRow(_ s: String) -> some View {
-        // "1\t…": the tab splits the step number from the text
-        let parts = s.split(separator: "\t", maxSplits: 1)
-        let num = parts.first.map(String.init) ?? ""
-        let text = parts.count > 1 ? String(parts[1]) : s
-        return HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Text(num).font(.manrope(13, .bold)).foregroundStyle(LauncherPalette.cream).frame(width: 14)
-            Text(text).font(.manrope(14)).fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
         }
     }
 

@@ -377,7 +377,7 @@ final class CheatFilesTests: XCTestCase {
         model.deps = [BuildModel.Dep(id: "test", name: "Xcode", hint: "", present: true, installCmd: [])]
         let library = GameLibrary(file: temporary.appendingPathComponent("preview.json"))
         let id = try library.addApp(app)
-        library.recordCompletedIOS(ipa: "", archive: "", app: ios.path, device: "00008150-AAAA", for: id)
+        library.recordCompletedIOS(archive: "", app: ios.path, device: "00008150-AAAA", for: id)
         let support = temporary.appendingPathComponent("Application Support")
         let folder = CheatFiles.macFolder(titleID: game, support: support)
         try write("""
