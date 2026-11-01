@@ -62,7 +62,6 @@ CI writes a short body: the version and the tested candidate. The readable notes
 - People are written as `@login`, the owner as `@LNPANDY`.
 - Every claim comes from the changelog row, the merged pull requests or the issues. Nothing is invented.
 - Write the notes before the final tag is pushed or right after it. Put them in a file and publish with `gh release edit <tag> --notes-file <file>`. Never paste them from a chat, that brings emojis along.
-- The notes of a published release stay as they are, unless a fact in them is wrong.
 
 ## Who tags
 
