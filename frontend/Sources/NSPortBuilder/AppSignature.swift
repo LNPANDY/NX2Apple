@@ -54,12 +54,4 @@ enum AppSignature {
         if days == 0 { return String(format: t("dev.expiryToday"), day) }
         return String(format: t("dev.expiry"), day, days)
     }
-
-    /// The compact form beside a game's status ("3 days left", "expired"): a card has no room for the date.
-    static func short(_ date: Date, _ t: (String) -> String, now: Date = Date()) -> String {
-        let days = daysLeft(to: date, now: now)
-        if days < 0 { return t("dev.expiryExpiredShort") }
-        if days == 0 { return t("dev.expiryTodayShort") }
-        return String(format: t("dev.expiryShort"), days)
-    }
 }
