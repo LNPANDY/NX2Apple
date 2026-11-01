@@ -70,6 +70,10 @@ public struct ShellHostConfig: Sendable {
     @ObservationIgnored private let shellData: BookmarkStore
     @ObservationIgnored private let shellCloud: BookmarkStore
     @ObservationIgnored private var shellChoices: [String]
+    /// The shell data folder the games were matched in by identity, each game's matched folder by title ID, and the scan in flight.
+    @ObservationIgnored private var scannedShellFolder: String?
+    @ObservationIgnored private var shellMatches: [String: URL] = [:]
+    @ObservationIgnored private var shellScan: Task<Void, Never>?
     @ObservationIgnored nonisolated(unsafe) private var defaultsObserver: (any NSObjectProtocol)?
 
     public init(config: ShellHostConfig, launcher: any GameLauncher = StubGameLauncher(), picker: any FolderPicker = NoFolderPicker(),
@@ -97,8 +101,40 @@ public struct ShellHostConfig: Sendable {
     /// Builds the details again, in the same order. A change of a shell folder or of the performance overlay comes through here.
     public func refreshAll() {
         shellChoices = Self.choices(of: shellSettings)
+        startShellScan()
         details = entries.map(detail(for:))
     }
+
+    /// Looks for every game's image by identity in the shell data folder. The drive is read off the main actor: until the scan is
+    /// done the games show what the by-name paths give (usually "Needs game data"), then the details are built again. A new
+    /// folder starts a new scan and drops the old matches, the same folder keeps its matches unless `force`.
+    private func startShellScan(force: Bool = false) {
+        guard case .url(let folder) = shellData.resolve() else {
+            shellScan?.cancel(); scannedShellFolder = nil; shellMatches = [:]; return
+        }
+        if !force && scannedShellFolder == folder.path { return }
+        shellScan?.cancel()
+        scannedShellFolder = folder.path
+        shellMatches = [:]
+        let wanted = entries.compactMap { e in
+            e.problem == nil ? e.manifest.flatMap { m in RomfsIdentity.parse(m.romfsIdentity).map { (m.titleID, $0) } } : nil
+        }
+        guard !wanted.isEmpty else { return }
+        shellScan = Task { [weak self] in
+            let found = await Task.detached(priority: .utility) { () -> [String: URL] in
+                let index = ShellDataIndex(folder: folder)
+                var found: [String: URL] = [:]
+                for (titleID, identity) in wanted where !Task.isCancelled { if let dir = index.folder(matching: identity) { found[titleID] = dir } }
+                return found
+            }.value
+            guard let self, !Task.isCancelled, self.scannedShellFolder == folder.path else { return }
+            self.shellMatches = found
+            if !found.isEmpty { self.details = self.entries.map(self.detail(for:)) }
+        }
+    }
+
+    /// For tests: returns when the scan of the shell data folder is done.
+    func waitForShellScan() async { await shellScan?.value }
 
     private func defaultsDidChange() {
         if Self.choices(of: shellSettings) != shellChoices { refreshAll() }
@@ -116,6 +152,7 @@ public struct ShellHostConfig: Sendable {
         let position = Dictionary(uniqueKeysWithValues: order.enumerated().map { ($1, $0) })
         entries = scanned.sorted { position[$0.id] ?? 0 < position[$1.id] ?? 0 }
         details = built.sorted { position[$0.id] ?? 0 < position[$1.id] ?? 0 }
+        startShellScan(force: true)
     }
 
     private func lastPlayed(_ id: String) -> Date? { LastPlayedStore(defaults: config.defaults(id)).date }
@@ -161,7 +198,7 @@ public struct ShellHostConfig: Sendable {
     private func data(for entry: CatalogueEntry) -> DataResolution {
         guard let manifest = entry.manifest, entry.problem == nil else { return .missing }
         return DataLocator.locate(manifest: manifest, picked: dataStore(entry.id).resolve(), appFolder: appFolder(for: entry.id),
-                                  global: shellData.resolve())
+                                  global: shellData.resolve(), shellMatch: shellMatches[manifest.titleID])
     }
 
     private func image(_ url: URL?) -> Artwork? {
