@@ -32,7 +32,7 @@ Test: dm/host/tests/t_fs_backslash.c (make -C dm/host/tests fs-backslash).
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 
-Upstream-Status: forwarded seedds/nxnative#904
+Upstream-Status: pending
 Reason: games that write save:\name paths (Link's Awakening) keep the saves builds before upstream 7c23cc0 stored under backslash names
 Issue: LNPANDY/NX2Apple#461
 
