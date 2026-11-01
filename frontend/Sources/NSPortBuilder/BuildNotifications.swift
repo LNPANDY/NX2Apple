@@ -27,9 +27,10 @@ enum BuildNotice {
 
     static var hasBundleID: Bool { Bundle.main.bundleIdentifier != nil }
 
-    /// A stopped build was stopped by someone at the app; a build in front of someone needs no notification.
+    /// A stopped build was stopped by someone at the app. The owner's rc8 report: a build that finishes while the
+    /// launcher is in front must still say so — success and failure alike, only a stop stays silent.
     static func shouldNotify(_ outcome: Outcome, enabled: Bool, appActive: Bool, hasBundleID: Bool) -> Bool {
-        outcome != .stopped && enabled && !appActive && hasBundleID
+        outcome != .stopped && enabled && hasBundleID
     }
 
     /// Title and body: the game, the target, and for a failure the reason (the build's own last word).
