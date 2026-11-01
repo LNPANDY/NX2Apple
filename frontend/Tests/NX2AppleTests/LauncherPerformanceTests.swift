@@ -161,6 +161,14 @@ final class LauncherPerformanceTests: XCTestCase {
                         cards: 120, fonts: 20, plistReads: 110, busyMs: 800),
             Interaction(name: "open Manage", action: { pad.perform(.y) }, undo: { pad.perform(.b) },
                         cards: 180, fonts: 20, plistReads: 180, busyMs: 400),
+            // A build writes its log while the player looks at the library. The log is its own store (#387), so no game card
+            // is built for it. Each line is its own turn of the run loop, as the pipe delivers them.
+            Interaction(name: "1000 log lines in a build", action: {
+                for n in 0..<1000 {
+                    model.ingest("[12:00:\(String(format: "%02d", n % 60))] line \(n) of the build script's output\n")
+                    RunLoop.main.run(until: Date().addingTimeInterval(0.0005))
+                }
+            }, cards: 0, fonts: 20, plistReads: 10, busyMs: 1500),
         ]
         let meter = MainThreadMeter()
         defer { meter.stop() }
@@ -204,6 +212,7 @@ final class LauncherPerformanceTests: XCTestCase {
                     + "then profile the release build with the Time Profiler.", step.name, busy, step.busyMs))
             }
         }
+        XCTAssertTrue(model.log.text.contains("line 999 of the build"), "the lines reached the log")
         print(report.joined(separator: "\n"))
         for failure in failures { XCTFail(failure) }
         #endif
