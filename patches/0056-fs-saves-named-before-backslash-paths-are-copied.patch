@@ -1,0 +1,285 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jose Zamora Cifras <44040559+JoseZamoraCifras@users.noreply.github.com>
+Date: Sun, 1 Nov 2026 16:51:58 -0300
+Subject: [PATCH] fs: saves named before backslash paths are copied to their
+ new names at mount
+
+Builds before 7c23cc0 (backslashes separate path components, PR #513) took a
+backslash as part of a name, so a game that opens save:\savedata0.bin stored a
+file named "\savedata0.bin". Since that change the host looks for
+savedata0.bin, finds nothing, and the save looks lost: The Legend of Zelda:
+Link's Awakening (01006BB00C6F0000) shows every file of its file select as
+"New game" while the old files are still in the save folder.
+
+At each transactional save mount, right after the work directory is cloned,
+save_legacy_names clones each entry whose guest name has a backslash (a file,
+or a directory with its tree) to the path that name names now, makes its
+parent directories by exact guest name (a case collision gets an alias, as a
+create does), and marks the old entry with an attribute so that this happens
+once: a copy the game erases later stays erased. It never overwrites an entry
+and keeps the old one, which a build before the change still reads. One log
+line per copy; a name that leads above the save's root, or a copy the disk
+refuses, logs a red line and is tried again at the next mount.
+
+It works in the work directory only, so it rides the save transaction: the
+copies reach the committed save with the game's own Commit, and a kill or a
+remount before that leaves the committed save as it was and does the same
+again. A lookup that falls back to the old name would have had to teach every
+write, create, rename, delete and listing about it, and an erased file would
+have come back.
+
+Test: dm/host/tests/t_fs_backslash.c (make -C dm/host/tests fs-backslash).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+Upstream-Status: pending
+Reason: games that write save:\name paths (Link's Awakening) keep the saves builds before upstream 7c23cc0 stored under backslash names
+Issue: LNPANDY/NX2Apple#TBD (this pull request)
+
+---
+ dm/games/01006BB00C6F0000/README.md |  1 +
+ dm/host/hle_fs.c                    | 60 +++++++++++++++++-
+ dm/host/tests/Makefile              |  7 +++
+ dm/host/tests/t_fs_backslash.c      | 97 +++++++++++++++++++++++++++++
+ docs/reference/services.md          |  9 +++
+ 5 files changed, 173 insertions(+), 1 deletion(-)
+ create mode 100644 dm/host/tests/t_fs_backslash.c
+
+diff --git a/dm/games/01006BB00C6F0000/README.md b/dm/games/01006BB00C6F0000/README.md
+index b5713c0..b232528 100644
+--- a/dm/games/01006BB00C6F0000/README.md
++++ b/dm/games/01006BB00C6F0000/README.md
+@@ -71,6 +71,7 @@ General host changes first needed here; each applies to every game:
+ - **`shader_facts_manual.tsv`** for facts the machine code cannot tell: [dm/games/README.md](../README.md).
+ - **The DeviceSink found by its size** (`capture` in `hle_audren.c`), the SDK 8 parameter size, `oe` notifications, the npad style event: [SDK 8: command IDs numbered differently](../../../docs/reference/audio.md#sdk-8-command-ids-numbered-differently), [SDK 8's longer `AudioRendererParameter`](../../../docs/reference/audio.md#sdk-8s-longer-audiorendererparameter), [The oe notification event and its queue](../../../docs/reference/threads.md#the-oe-notification-event-and-its-queue), [Npad style set update event](../../../docs/reference/services.md#npad-style-set-update-event).
+ - **Jump tables checked on another register** (`jump_offsets`): [Offset jump tables with the bounds check on another register](../../../docs/reference/rewriter.md#offset-jump-tables-with-the-bounds-check-on-another-register).
++- **Saves named by a build before backslash paths** (`save_legacy_names`): the game opens `save:\savedata<n>.bin` and `save:\screenshot<n>.bin`, which builds before backslash paths stored as files named `\savedata<n>.bin`: [Saves named by a build before backslash paths](../../../docs/reference/services.md#saves-named-by-a-build-before-backslash-paths).
+ - **Racy crashes under CPU load and observation gates**: [05, Racy crashes](../../../docs/agents/05-debugging.md#racy-crashes-load-trace-gates).
+ 
+ ## Open
+diff --git a/dm/host/hle_fs.c b/dm/host/hle_fs.c
+index 8d0f361..a07a95c 100644
+--- a/dm/host/hle_fs.c
++++ b/dm/host/hle_fs.c
+@@ -129,6 +129,8 @@ static int dm_fs_test_fail(const char *pt) {
+ }
+ static int in_txn_dir(const char *hp) { return save_txn_from_path(hp); }
+ static int rm_tree(const char *p);
++static int rm_entry(const char *c);
++static void save_legacy_names(const char *work);
+ // Reads and checks a RomFS image's header and index; NULL (and a red line) when it is not a complete image
+ static romfs_img *img_open(const char *path) {
+     romfs_img *m = romfs_image_open(path);
+@@ -220,7 +222,8 @@ static Result mount_ex(const char *name, const char *dir, int ro, int txn) {
+             g_mnt[g_nmnt].txn_root = g_nmnt;
+             atomic_store(&g_mnt[g_nmnt].poison, 0);
+             atomic_store(&g_mnt[g_nmnt].first_write_ns, 0);
+-            strlcpy(g_mnt[g_nmnt].dir, work, sizeof g_mnt[0].dir); }
++            strlcpy(g_mnt[g_nmnt].dir, work, sizeof g_mnt[0].dir);
++            save_legacy_names(work); }
+     } else strlcpy(g_mnt[g_nmnt].dir, dir, sizeof g_mnt[0].dir);
+     g_mnt[g_nmnt].img = NULL;
+     struct stat ist;
+@@ -419,6 +422,61 @@ static int set_guest_name(const char *hp, const char *path) {
+     if (!removexattr(hp, FS_GUEST_NAME, XATTR_NOFOLLOW) || errno == ENOATTR) return 0;
+     return -1;
+ }
++// Saves written before backslashes separated path components (fwd_slashes): those builds took a backslash as part of a name, so The Legend of Zelda: Link's Awakening's
++// save:\savedata0.bin is a file named "\savedata0.bin" in the save folder, which save:/savedata0.bin no longer finds (every file of the file select showed "New game").
++// Right after the mount clones the work directory, each entry whose guest name holds a backslash is cloned (a file, or a directory with its tree) to the path that name
++// names now, unless something is there already, and is then marked (FS_BACKSLASH_COPIED) so that it is done once: a copy the game deletes later (an erased file) does not
++// come back at the next mount. All of it in the work directory: it reaches the committed save with the game's own Commit, and a kill or a remount before that does it
++// again. The old entry stays (a build before the change still reads it), and nothing is overwritten. The caller holds PATH_LOCK
++#define FS_BACKSLASH_COPIED "org.d2rmobile.backslash-copied"
++typedef struct { char *src, *from; } legacy_ent;   // the old entry's host path and guest path
++static int legacy_ent_cmp(const void *a, const void *b) { return strcmp(((const legacy_ent *)a)->from, ((const legacy_ent *)b)->from); }
++// Gathers the old entries below dir (guest path gdir) before anything changes: a directory with an old name is cloned whole, so it is not entered, and symlinks are not followed
++static void legacy_find(const char *dir, const char *gdir, legacy_ent **v, size_t *n, size_t *cap) {
++    DIR *d = opendir(dir); if (!d) return;
++    struct dirent *e; char guest[0x301], hp[1024], gp[1024];
++    while ((e = readdir(d))) {
++        if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..") || !guest_name(dir, e->d_name, guest, sizeof guest)) continue;
++        if (snprintf(hp, sizeof hp, "%s/%s", dir, e->d_name) >= (int)sizeof hp || snprintf(gp, sizeof gp, "%s/%s", gdir, guest) >= (int)sizeof gp) continue;
++        if (!strchr(guest, '\\')) { if (e->d_type == DT_DIR) legacy_find(hp, gp, v, n, cap); continue; }
++        if (getxattr(hp, FS_BACKSLASH_COPIED, NULL, 0, 0, XATTR_NOFOLLOW) >= 0) continue;
++        if (*n == *cap) { legacy_ent *w = realloc(*v, (*cap = *cap ? *cap * 2 : 8) * sizeof *w); if (!w) die("save backslash name allocation failed"); *v = w; }
++        legacy_ent *x = &(*v)[(*n)++];
++        if (!(x->src = strdup(hp)) || !(x->from = strdup(gp))) die("save backslash name allocation failed");
++    }
++    closedir(d);
++}
++// Clones src to the normalized guest path to ("/a/b") under root, making its parent directories as needed, each by its exact guest name as a create does:
++// 1 cloned, 0 the path is there already, -1 failed (errno)
++static int legacy_clone(const char *root, const char *src, const char *to) {
++    char hp[1024]; strlcpy(hp, root, sizeof hp);
++    for (const char *rest = to; *rest; ) {
++        const char *part0 = rest + 1, *end = strchr(part0, '/'); if (!end) end = part0 + strlen(part0);
++        size_t k = end - part0; char part[0x301];
++        if (k >= sizeof part) { errno = ENAMETOOLONG; return -1; }
++        memcpy(part, part0, k); part[k] = 0; rest = end;
++        if (path_component(hp, sizeof hp, part, 0, 0)) { if (!*rest) return 0; continue; }
++        if (errno != ENOENT || !path_component(hp, sizeof hp, part, 1, 0)) return -1;   // a free physical name (another one when APFS matches the name by case)
++        if (*rest ? mkdir(hp, 0755) : clonefile(src, hp, CLONE_NOFOLLOW)) return -1;
++        if (set_guest_name(hp, part)) { int e = errno; rm_entry(hp); errno = e; return -1; }
++        if (!*rest) return 1;
++    }
++    return 0;   // a name of backslashes only: the root
++}
++static void save_legacy_names(const char *work) {
++    legacy_ent *v = NULL; size_t n = 0, cap = 0;
++    legacy_find(work, "", &v, &n, &cap);
++    if (n) qsort(v, n, sizeof *v, legacy_ent_cmp);
++    for (size_t i = 0; i < n; i++) {
++        char fwd[1024], to[1024]; const char *from = v[i].from + 1;   // guest paths without the leading slash in the log
++        int r = norm_rest(fwd_slashes(v[i].from, fwd, sizeof fwd), to, sizeof to) ? legacy_clone(work, v[i].src, to) : -1;
++        if (r < 0) LOG("[RED] save: %s (named by a build before backslashes separated paths) cannot be copied to the path it names now errno=%d: the game does not see it", from, errno);
++        else if (setxattr(v[i].src, FS_BACKSLASH_COPIED, "1", 1, 0, XATTR_NOFOLLOW)) LOG("[RED] save: %s cannot be marked as copied errno=%d: the next mount looks at it again", from, errno);
++        if (r > 0) LOG("save: %s copied to %s (named by a build before backslashes separated paths; the old entry stays)", from, to + 1);
++        free(v[i].src); free(v[i].from);
++    }
++    free(v);
++}
+ static Result err_res(const char *op, const char *path) {
+     if (errno == ENOENT || errno == ENOTDIR) { if (g_flag.fs) LOG("fs %s not found: %s", op, path); return RES_PATH_NOT_FOUND; }   // Logged under DM_FS=1 (the game often probes with "not found", not logged by default)
+     if (errno == EEXIST) return RES_PATH_EXISTS;
+diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
+index 858ee4d..89da7a7 100644
+--- a/dm/host/tests/Makefile
++++ b/dm/host/tests/Makefile
+@@ -124,6 +124,13 @@ $(B)/t_fs_directory: t_fs_directory.c t_fs_stub.c ../hle_fs.c ../romfs_image.h .
+ fs-directory: $(B)/t_fs_directory
+ 	TMPDIR="$(abspath $(B))" $(B)/t_fs_directory
+ run: fs-directory
++# Saves named by a build before backslashes separated path components
++$(B)/t_fs_backslash: t_fs_backslash.c t_fs_stub.c ../hle_fs.c ../romfs_image.h ../save_sync.c ../save_sync.h ../hle_bigstack.c ../hle.h ../dm.h $(GAME_H) ../hle_profile.c ../hle_profile.h | $(B)
++	$(CLANG) -O1 -g -Wall -Werror -Wno-unused-function -I.. $(GINC) -o $@ t_fs_backslash.c t_fs_stub.c ../hle_bigstack.c ../save_sync.c ../hle_profile.c
++.PHONY: fs-backslash
++fs-backslash: $(B)/t_fs_backslash
++	TMPDIR="$(abspath $(B))" $(B)/t_fs_backslash $(QUIET)
++run: fs-backslash
+ $(B)/t_fs_commit_list: t_fs_commit_list.c t_fs_stub.c ../hle_fs.c ../save_sync.c ../save_sync.h ../hle_bigstack.c ../hle.h ../dm.h $(GAME_H) ../hle_profile.c ../hle_profile.h | $(B)
+ 	$(CLANG) -O1 -Wall -Wno-unused-function -I.. $(GINC) -o $@ t_fs_commit_list.c t_fs_stub.c ../hle_bigstack.c ../save_sync.c ../hle_profile.c
+ $(B)/t_fs_commit_list_tsan: t_fs_commit_list.c t_fs_stub.c ../hle_fs.c ../save_sync.c ../save_sync.h ../hle_bigstack.c ../hle.h ../dm.h $(GAME_H) ../hle_profile.c ../hle_profile.h | $(B)
+diff --git a/dm/host/tests/t_fs_backslash.c b/dm/host/tests/t_fs_backslash.c
+new file mode 100644
+index 0000000..ae53f0d
+--- /dev/null
++++ b/dm/host/tests/t_fs_backslash.c
+@@ -0,0 +1,97 @@
++// Saves written before backslashes separated path components: expectations are hand-written; runs real file operations on APFS (clonefile).
++// A build before that change took save:\savedata0.bin as a file named "\savedata0.bin" (The Legend of Zelda: Link's Awakening). The mount copies each such entry to the path
++// its name names now, in the work directory only, never over an existing entry, once (an erased copy stays erased), and keeps the old entry.
++#include <sys/clonefile.h>                // declared before the define, so only hle_fs.c's calls go to the fake
++static int fake_clonefile(const char *src, const char *dst, uint32_t flags);
++#define clonefile fake_clonefile
++#include "../hle_fs.c"
++#undef clonefile
++static int g_clone_backslash_fail;       // 1: cloning an entry with a backslash in its name fails as on a full disk
++static int fake_clonefile(const char *src, const char *dst, uint32_t flags) {
++    if (g_clone_backslash_fail && strchr(src, '\\')) { errno = ENOSPC; return -1; }
++    return clonefile(src, dst, flags);
++}
++struct dm_flags g_flag; uint64_t g_t0_ns;
++uint64_t now_ns(void) { return 0; }
++void dm_guest_write_prepare(void *a, size_t n) { (void)a; (void)n; }
++static int checks, fails;
++#define CHECK(c, text) do { checks++; int ok = !!(c); fails += !ok; printf("%s %s\n", ok ? "✓" : "✗", text); } while (0)
++static void put(const char *dir, const char *name, const char *s) { char p[1300]; snprintf(p, sizeof p, "%s/%s", dir, name); FILE *f = fopen(p, "w"); if (f) { fputs(s, f); fclose(f); } }
++static int same(const char *dir, const char *name, const char *s) {
++    char p[1300], b[64] = {0}; snprintf(p, sizeof p, "%s/%s", dir, name); FILE *f = fopen(p, "r"); if (!f) return 0;
++    size_t k = fread(b, 1, sizeof b - 1, f); fclose(f); return k == strlen(s) && !memcmp(b, s, k);
++}
++static int there(const char *dir, const char *name) { char p[1300]; snprintf(p, sizeof p, "%s/%s", dir, name); return !access(p, F_OK); }
++static int content(const char *path, const char *want) {
++    uint64_t h; if (h_fs_OpenFile(&h, path, MODE_READ)) return 0;
++    char b[64] = {0}; size_t n = 0; Result r = h_fs_ReadFile(&n, h, 0, b, sizeof b);
++    h_fs_CloseFile(h); return !r && n == strlen(want) && !memcmp(b, want, n);
++}
++static int write_text(const char *path, const char *text) {
++    uint64_t h; if (h_fs_OpenFile(&h, path, MODE_WRITE)) return 0;
++    h_fs_SetFileSize(h, (int64_t)strlen(text));
++    Result r = h_fs_WriteFile(h, 0, text, strlen(text), NULL); h_fs_CloseFile(h); return !r;
++}
++static int listed(const char *path, const char *name) {   // how many times the listing has name
++    uint64_t h; if (h_fs_OpenDirectory(&h, path, DIRMODE_DIR | DIRMODE_FILE)) return -1;
++    DirectoryEntry e[32]; int64_t n = 0; int found = 0;
++    h_fs_ReadDirectory(&n, e, h, 32); h_fs_CloseDirectory(h);
++    for (int i = 0; i < n; i++) found += !strcmp(e[i].name, name);
++    return found;
++}
++int main(void) {
++    char root[1024], save[1100], work[1200], p[1300];
++    const char *tmp = getenv("TMPDIR"); snprintf(root, sizeof root, "%s/backslash.XXXXXX", tmp ? tmp : "/private/tmp");
++    if (!mkdtemp(root)) { perror("mkdtemp"); return 2; }
++    snprintf(save, sizeof save, "%s/save", root); snprintf(work, sizeof work, "%s.work", save); mkdir(save, 0755);
++    // The committed save as a build before the change left it
++    put(save, "\\savedata0.bin", "slot0"); put(save, "\\savedata3.bin", "slot3"); put(save, "\\screenshot0.bin", "shot0");
++    put(save, "\\kept.bin", "old"); put(save, "kept.bin", "current");                     // both names: the new one is never overwritten
++    snprintf(p, sizeof p, "%s/\\dir", save); mkdir(p, 0755); put(p, "f", "in-dir");       // save:\dir made as a directory, then save:\dir/f
++    put(save, "\\a\\b.bin", "two");                                                        // save:\a\b.bin: one name with two backslashes
++    snprintf(p, sizeof p, "%s/sub", save); mkdir(p, 0755); put(p, "x\\y.bin", "deep");    // save:/sub/x\y.bin: below an ordinary directory
++    put(save, "case.bin", "lower"); put(save, "\\Case.bin", "upper");                     // the copy's name differs from an entry only by case
++    put(save, "\\..\\up.bin", "up");                                                       // a name that leads above the save's root
++    setenv("DM_SAVE", save, 1);
++    CHECK(h_fs_MountSave("save", NULL) == RES_OK, "mount the save");
++    CHECK(content("save:\\savedata0.bin", "slot0") && content("save:/savedata0.bin", "slot0"), "save:\\savedata0.bin reads the old \\savedata0.bin");
++    CHECK(content("save:\\savedata3.bin", "slot3") && content("save:\\screenshot0.bin", "shot0"), "and so do the other slot and the screenshot");
++    CHECK(content("save:/kept.bin", "current"), "an entry that has the new name already is not overwritten");
++    CHECK(content("save:\\dir\\f", "in-dir"), "a directory with an old name is copied with its files");
++    CHECK(content("save:\\a\\b.bin", "two"), "a name with two backslashes becomes a file in a new directory");
++    CHECK(content("save:/sub/x/y.bin", "deep"), "an old name below an ordinary directory is copied too");
++    CHECK(content("save:/Case.bin", "upper") && content("save:/case.bin", "lower"), "a copy whose name differs from an entry by case only gets an entry of its own");
++    CHECK(!there(root, "up.bin") && !there(work, "up.bin") && h_fs_OpenFile(&(uint64_t){0}, "save:/up.bin", MODE_READ) == RES_PATH_NOT_FOUND, "a name that leads above the root is not copied anywhere");
++    CHECK(there(work, "\\savedata0.bin") && there(work, "\\dir/f"), "the old entries stay");
++    CHECK(!there(save, "savedata0.bin") && same(save, "\\savedata0.bin", "slot0") && !there(save, "dir"), "the committed save is untouched before the game commits");
++    CHECK(h_fs_GetEntryType(&(int32_t){0}, "save:/savedata0.bin") == RES_OK && listed("save:/", "savedata0.bin") == 1, "the copy is listed once");
++
++    g_nmnt = 0;   // a restart before any Commit: the work directory is cloned again from the untouched committed save
++    CHECK(h_fs_MountSave("save", NULL) == RES_OK && content("save:\\savedata0.bin", "slot0"), "a remount before a Commit copies again");
++    CHECK(listed("save:/", "savedata0.bin") == 1 && listed("save:/", "Case.bin") == 1, "still once each, no second alias");
++
++    CHECK(write_text("save:\\savedata0.bin", "progress") && h_fs_Commit("save") == RES_OK, "the game saves slot 0 and commits");
++    CHECK(same(save, "savedata0.bin", "progress") && same(save, "\\savedata0.bin", "slot0"), "the committed save has the new name, and the old entry as it was");
++    CHECK(same(save, "savedata3.bin", "slot3") && same(save, "dir/f", "in-dir"), "with every copy");
++    g_nmnt = 0;
++    CHECK(h_fs_MountSave("save", NULL) == RES_OK && content("save:\\savedata0.bin", "progress"), "after a remount the game reads its own save, not the old entry");
++
++    CHECK(h_fs_DeleteFile("save:\\savedata3.bin") == RES_OK && h_fs_DeleteDirRec("save:\\dir") == RES_OK && h_fs_Commit("save") == RES_OK, "the game erases slot 3 and a directory, and commits");
++    g_nmnt = 0;
++    CHECK(h_fs_MountSave("save", NULL) == RES_OK, "remount");
++    CHECK(h_fs_OpenFile(&(uint64_t){0}, "save:\\savedata3.bin", MODE_READ) == RES_PATH_NOT_FOUND && h_fs_GetEntryType(&(int32_t){0}, "save:\\dir") == RES_PATH_NOT_FOUND, "what the game erased stays erased");
++    CHECK(same(save, "\\savedata3.bin", "slot3"), "while the old entry is still there");
++
++    g_nmnt = 0;   // a copy the disk refuses (full): the mount still works, the old entry is not marked, and the next mount copies it
++    char save2[1100], work2[1200], old[1300]; snprintf(save2, sizeof save2, "%s/save2", root); snprintf(work2, sizeof work2, "%s.work", save2); mkdir(save2, 0755);
++    put(save2, "\\savedata0.bin", "slot0"); snprintf(old, sizeof old, "%s/\\savedata0.bin", work2);
++    setenv("DM_SAVE", save2, 1); g_clone_backslash_fail = 1;
++    CHECK(h_fs_MountSave("save", NULL) == RES_OK && h_fs_OpenFile(&(uint64_t){0}, "save:/savedata0.bin", MODE_READ) == RES_PATH_NOT_FOUND, "the copy fails, the mount does not");
++    CHECK(there(work2, "\\savedata0.bin") && getxattr(old, FS_BACKSLASH_COPIED, NULL, 0, 0, XATTR_NOFOLLOW) < 0, "the old entry is not marked");
++    g_nmnt = 0; g_clone_backslash_fail = 0;
++    CHECK(h_fs_MountSave("save", NULL) == RES_OK && content("save:/savedata0.bin", "slot0"), "the next mount copies it");
++    CHECK(getxattr(old, FS_BACKSLASH_COPIED, NULL, 0, 0, XATTR_NOFOLLOW) >= 0, "and marks it");
++
++    rm_tree(root);
++    printf("== backslash: %d checks, %d failed ==\n", checks, fails); return fails != 0;
++}
+diff --git a/docs/reference/services.md b/docs/reference/services.md
+index 5837cba..326ee8c 100644
+--- a/docs/reference/services.md
++++ b/docs/reference/services.md
+@@ -101,6 +101,15 @@ Most service calls can be found before they crash, before the first boot or the
+ - **Fix:** the guest gets the host's handle shifted left by 4, 16-byte aligned like an AArch64 heap block (`FH_OUT` / `FH_IN`). Each guest path resolver (`img_path`, `host_path_ex`, `set_guest_name`, `dir_snapshot`) turns backslashes into slashes first, so overlays, `..` and guest names see the same path (`hle_fs.c`; `dm/host/tests/t_fs.c`).
+ - **Found on:** Metroid Prime 4: Beyond (SDK 19; bring-up in [issue #229](https://github.com/seedds/nxnative/issues/229), from [PR #513](https://github.com/seedds/nxnative/pull/513)); not in the games table yet.
+ 
++### Saves named by a build before backslash paths
++
++- **Symptom:** after a rebuild on an engine with [backslash paths](#file-handles-with-low-bits-set-and-backslash-paths), a game's save looks lost: Link's Awakening shows every file of its file select as "New game", while its save folder still holds files named `\savedata0.bin` and `\screenshot0.bin`.
++- **Cause:** a build before that change took a backslash as part of a name, so a game that opens `save:\savedata0.bin` wrote a file named `\savedata0.bin`. The host now looks for `savedata0.bin`.
++- **Fix:** at each transactional save mount, right after the work folder is cloned, `save_legacy_names` (`hle_fs.c`) clones each entry whose guest name has a backslash (a file, or a folder with its tree) to the path that name names now, making its parent folders, and marks the old entry (the attribute `org.d2rmobile.backslash-copied`) so that this happens once and a file the game erases later stays erased. It never overwrites an entry and keeps the old one (a build before the change still reads it). It works in the work folder only: the copies reach the committed save with the game's own `Commit`, and a kill before that leaves the committed save as it was, to be copied again at the next mount. Each copy logs one line, `save: \savedata0.bin copied to savedata0.bin (…)`. A name that leads above the save's root, or a copy the disk refuses, logs a red line and is tried again at the next mount.
++- **Check:** `dm/host/tests/t_fs_backslash.c` (`make -C dm/host/tests GAME=<title ID> fs-backslash`).
++- **Found on:** [The Legend of Zelda: Link's Awakening](../../dm/games/01006BB00C6F0000/README.md).
++- **Note:** a save packed for cloud saves (`save_sync.c`) carries only the guest-name attribute, not the mark. A device that receives a save in which the game erased a copied file copies the old entry again.
++
+ ### C library path checks ask the file system's limits
+ 
+ - **Symptom:** Addressables never start (no `StreamingAssets/aa/settings.json` in the `DM_FS=1` output at all), then a null asset crash (`main+0x31100ec`).
