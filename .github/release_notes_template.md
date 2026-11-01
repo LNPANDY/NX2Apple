@@ -76,7 +76,7 @@ Rules (RELEASING.md, "Release notes" has the same list):
 **Install:** download `NX2Apple-macOS-arm64.zip`, unzip, drag it to Applications. 中文：下载后解压，拖进「应用程序」。
 
 <!--
-Last, append the generated notes. They list the merged PRs with their authors and name first-time contributors. They are English only and not edited by hand. They replace a hand-written Credits section. Make them with:
+Last, append the generated notes. They list the merged PRs with their authors and name first-time contributors. They are English only and not edited by hand. They replace a hand-written Credits section. Keep the block unedited and last: its @login mentions and the Full Changelog link (the compare view, so the commit history since the last release) are what list the contributors and the history. Make them with:
   gh api repos/LNPANDY/NX2Apple/releases/generate-notes -f tag_name=<tag> -f previous_tag_name=<previous final tag> --jq .body
 and add the output to the end of the notes file, below the install line. .github/release.yml sets the categories.
 -->
