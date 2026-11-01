@@ -2,6 +2,7 @@ import AppKit
 import Darwin
 import SwiftUI
 import NXCore
+import NXModel
 import NXLauncher
 
 /// `xcrun devicectl` for the save transfer, as one function: the tests hand in a stand-in, so no test ever reaches a device.
@@ -384,6 +385,7 @@ struct SaveTransfer {
 /// A copy asks first, in the sheet itself (a controller reaches it), and says where the save it replaced went.
 struct SavesView: View {
     @ObservedObject var m: BuildModel
+    @EnvironmentObject var loc: Localizer
     @ObservedObject var library: GameLibrary
     let gameID: UUID
     var support: URL? = nil               // the Application Support folder; tests use a temporary one
@@ -424,9 +426,9 @@ struct SavesView: View {
     private var macLocationText: String {
         func shown(_ url: URL) -> String { (url.path as NSString).abbreviatingWithTildeInPath }
         switch model.macLocation {
-        case .library(let url): return String(format: m.t("saves.macLibrary"), shown(url))
-        case .standard(let url): return String(format: m.t("saves.macStandard"), shown(url))
-        case .pending(let url): return String(format: m.t("saves.macPending"), shown(url))
+        case .library(let url): return String(format: loc.t("saves.macLibrary"), shown(url))
+        case .standard(let url): return String(format: loc.t("saves.macStandard"), shown(url))
+        case .pending(let url): return String(format: loc.t("saves.macPending"), shown(url))
         }
     }
     /// The device the sheet asks: its name, or what the launcher recorded when the list has not come yet.
@@ -436,16 +438,16 @@ struct SavesView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(m.t("saves.title")).font(.manrope(26, .heavy)).tracking(-0.6)
+                Text(loc.t("saves.title")).font(.manrope(26, .heavy)).tracking(-0.6)
                 if let game { Text(game.name).font(.manrope(14)).foregroundStyle(.secondary) }
             }
             .padding(.horizontal, 30).padding(.top, 28).padding(.bottom, model.showsSelector ? 12 : 20)
             if model.showsSelector {
                 HStack(spacing: 12) {
-                    Text(m.t("saves.device")).font(.manrope(13)).foregroundStyle(.secondary)
+                    Text(loc.t("saves.device")).font(.manrope(13)).foregroundStyle(.secondary)
                     LauncherDropdown(options: model.devices.map { d in
-                        (value: d.id, label: d.name + (d.reachable ? "" : " (" + m.t("dev.notConnected") + ")"))
-                    }, selection: model.selected, label: m.t("saves.device")) { model.select($0) }
+                        (value: d.id, label: d.name + (d.reachable ? "" : " (" + loc.t("dev.notConnected") + ")"))
+                    }, selection: model.selected, label: loc.t("saves.device")) { model.select($0) }
                     .padTarget("saves.device", scope: "saves") {}
                 }
                 .padding(.horizontal, 30).padding(.bottom, 16)
@@ -460,7 +462,7 @@ struct SavesView: View {
                 if busy {
                     HStack(spacing: 10) {
                         ProgressView().controlSize(.small)
-                        Text(m.t("saves.copying")).font(.manrope(13)).foregroundStyle(.secondary)
+                        Text(loc.t("saves.copying")).font(.manrope(13)).foregroundStyle(.secondary)
                     }
                 } else if let result {
                     Label(result.text, systemImage: result.ok ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
@@ -472,11 +474,11 @@ struct SavesView: View {
             .padding(.horizontal, 30)
             Divider().opacity(0.3)
             HStack(spacing: 14) {
-                Text(String(format: m.t("saves.note"), deviceName)).font(.manrope(12)).foregroundStyle(.secondary)
+                Text(String(format: loc.t("saves.note"), deviceName)).font(.manrope(12)).foregroundStyle(.secondary)
                     .lineLimit(3).fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 8)
                 Button { dismiss() } label: {
-                    Text(m.t("launch.done")).font(.manrope(13.5, .bold)).foregroundStyle(.black)
+                    Text(loc.t("launch.done")).font(.manrope(13.5, .bold)).foregroundStyle(.black)
                         .padding(.horizontal, 22).padding(.vertical, 9)
                         .background(LauncherPalette.cream, in: Capsule())
                 }
@@ -504,23 +506,23 @@ struct SavesView: View {
         let newer = SaveTransfer.newer(mac: macSave.newest, device: deviceSave?.newest)
         let detail: String
         switch side {
-        case .mac: detail = macSave.newest.map { String(format: m.t("saves.saved"), dateText($0)) } ?? m.t("saves.none")
+        case .mac: detail = macSave.newest.map { String(format: loc.t("saves.saved"), dateText($0)) } ?? loc.t("saves.none")
         case .device:
             switch model.deviceState {
-            case .noDevices: detail = m.t("saves.noDevices")
-            case .notConnected: detail = String(format: m.t("saves.notConnected"), deviceName)
-            case .notInstalled: detail = String(format: m.t("saves.notInstalled"), deviceName)
-            case .reading: detail = String(format: m.t("saves.reading"), deviceName)
-            case .failed(let why): detail = String(format: m.t("saves.unreachable"), why)
-            case .timedOut: detail = String(format: m.t("saves.timeout"), deviceName)
-            case .ready(let c): detail = c.newest.map { String(format: m.t("saves.saved"), dateText($0)) } ?? m.t("saves.none")
+            case .noDevices: detail = loc.t("saves.noDevices")
+            case .notConnected: detail = String(format: loc.t("saves.notConnected"), deviceName)
+            case .notInstalled: detail = String(format: loc.t("saves.notInstalled"), deviceName)
+            case .reading: detail = String(format: loc.t("saves.reading"), deviceName)
+            case .failed(let why): detail = String(format: loc.t("saves.unreachable"), why)
+            case .timedOut: detail = String(format: loc.t("saves.timeout"), deviceName)
+            case .ready(let c): detail = c.newest.map { String(format: loc.t("saves.saved"), dateText($0)) } ?? loc.t("saves.none")
             }
         }
         return HStack(spacing: 14) {
             Image(systemName: side == .mac ? "desktopcomputer" : (model.selectedDevice?.model.lowercased().contains("ipad") == true ? "ipad" : "iphone")).font(.system(size: 18, weight: .light))
                 .foregroundStyle(.secondary).frame(width: 26)
             VStack(alignment: .leading, spacing: 3) {
-                Text(side == .mac ? m.t("saves.mac") : deviceName).font(.manrope(14, .medium))
+                Text(side == .mac ? loc.t("saves.mac") : deviceName).font(.manrope(14, .medium))
                 Text(detail).font(.manrope(12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 if side == .mac {
                     Text(macLocationText).font(.manrope(11)).foregroundStyle(.tertiary).lineLimit(2).truncationMode(.middle)
@@ -529,7 +531,7 @@ struct SavesView: View {
             }
             Spacer(minLength: 12)
             if newer == side && (side == .mac || deviceSave != nil) {
-                Text(m.t("saves.newer").uppercased()).font(.manrope(10.5, .bold)).tracking(1.1).foregroundStyle(.black)
+                Text(loc.t("saves.newer").uppercased()).font(.manrope(10.5, .bold)).tracking(1.1).foregroundStyle(.black)
                     .padding(.horizontal, 10).padding(.vertical, 4)
                     .background(LauncherPalette.cream, in: Capsule())
             }
@@ -543,15 +545,15 @@ struct SavesView: View {
         let toDevice = !busy && deviceSave != nil && !macSave.folders.isEmpty
         let toMac = !busy && !(deviceSave?.folders.isEmpty ?? true)
         return HStack(spacing: 10) {
-            Button(String(format: m.t("saves.toDevice"), deviceName)) { ask(.device) }.disabled(!toDevice)
+            Button(String(format: loc.t("saves.toDevice"), deviceName)) { ask(.device) }.disabled(!toDevice)
                 .padTarget("saves.toDevice", scope: "saves") { if toDevice { ask(.device) } }
-            Button(String(format: m.t("saves.toMac"), deviceName)) { ask(.mac) }.disabled(!toMac)
+            Button(String(format: loc.t("saves.toMac"), deviceName)) { ask(.mac) }.disabled(!toMac)
                 .padTarget("saves.toMac", scope: "saves") { if toMac { ask(.mac) } }
             Spacer(minLength: 8)
-            Button(m.t("dev.refresh")) { model.refresh() }.disabled(busy || !model.canRefresh)
+            Button(loc.t("dev.refresh")) { model.refresh() }.disabled(busy || !model.canRefresh)
                 .padTarget("saves.refresh", scope: "saves") { if !busy { model.refresh() } }
             if FileManager.default.fileExists(atPath: transfer.backups.path) {
-                Button(m.t("saves.backups")) { NSWorkspace.shared.open(transfer.backups) }
+                Button(loc.t("saves.backups")) { NSWorkspace.shared.open(transfer.backups) }
                     .padTarget("saves.backups", scope: "saves") { NSWorkspace.shared.open(transfer.backups) }
             }
         }
@@ -561,16 +563,16 @@ struct SavesView: View {
     /// Asking before a copy replaces a save: which one, where its backup goes, and that the game must be closed on the device.
     private func confirmation(_ replacing: SaveTransfer.Side) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(replacing == .device ? String(format: m.t("saves.askToDevice"), deviceName) : String(format: m.t("saves.askToMac"), deviceName))
+            Text(replacing == .device ? String(format: loc.t("saves.askToDevice"), deviceName) : String(format: loc.t("saves.askToMac"), deviceName))
                 .font(.manrope(15, .semibold)).fixedSize(horizontal: false, vertical: true)
-            Text(String(format: m.t("saves.askNote"), deviceName, m.shortPath(transfer.backups.path)))
+            Text(String(format: loc.t("saves.askNote"), deviceName, m.shortPath(transfer.backups.path)))
                 .font(.manrope(12.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 10) {
                 Spacer()
-                Button(m.t("saves.cancel")) { asking = nil }.buttonStyle(LauncherSecondaryButtonStyle())
+                Button(loc.t("saves.cancel")) { asking = nil }.buttonStyle(LauncherSecondaryButtonStyle())
                     .padTarget("saves.cancel", scope: "saves") { asking = nil }
                 Button { copy(replacing) } label: {
-                    Text(m.t("saves.replace")).font(.manrope(13, .bold)).foregroundStyle(.black)
+                    Text(loc.t("saves.replace")).font(.manrope(13, .bold)).foregroundStyle(.black)
                         .padding(.horizontal, 18).padding(.vertical, 9)
                         .background(LauncherPalette.cream, in: RoundedRectangle(cornerRadius: 9))
                 }
@@ -585,7 +587,7 @@ struct SavesView: View {
 
     private func dateText(_ date: Date) -> String {
         let f = DateFormatter()
-        f.locale = m.lang == .zh ? Locale(identifier: "zh_Hans") : (Locale.current.identifier.hasPrefix("zh") ? Locale(identifier: "en_US") : .current)
+        f.locale = loc.lang == .zh ? Locale(identifier: "zh_Hans") : (Locale.current.identifier.hasPrefix("zh") ? Locale(identifier: "en_US") : .current)
         f.dateStyle = .medium; f.timeStyle = .short
         return f.string(from: date)
     }
@@ -593,7 +595,7 @@ struct SavesView: View {
     private func ask(_ replacing: SaveTransfer.Side) {
         result = nil
         guard let game, !SaveTransfer.runningOnMac(titleID: game.titleID) else {
-            result = (String(format: m.t("saves.running"), game?.name ?? ""), false)
+            result = (String(format: loc.t("saves.running"), game?.name ?? ""), false)
             return
         }
         asking = replacing
@@ -604,7 +606,7 @@ struct SavesView: View {
         asking = nil
         guard let game, let transfer = model.found else { return }
         if SaveTransfer.runningOnMac(titleID: game.titleID) {   // started while the question was open
-            result = (String(format: m.t("saves.running"), game.name), false)
+            result = (String(format: loc.t("saves.running"), game.name), false)
             return
         }
         busy = true
@@ -612,8 +614,8 @@ struct SavesView: View {
             let outcome: (String, Bool)
             do {
                 let backup = try replacing == .device ? transfer.macToDevice() : transfer.deviceToMac()
-                outcome = (backup.map { String(format: m.t("saves.copiedBackup"), m.shortPath($0.path)) } ?? m.t("saves.copied"), true)
-            } catch { outcome = (String(format: m.t("saves.failed"), message(error)), false) }
+                outcome = (backup.map { String(format: loc.t("saves.copiedBackup"), m.shortPath($0.path)) } ?? loc.t("saves.copied"), true)
+            } catch { outcome = (String(format: loc.t("saves.failed"), message(error)), false) }
             DispatchQueue.main.async {
                 busy = false
                 result = outcome
@@ -625,10 +627,10 @@ struct SavesView: View {
 
     private func message(_ error: Error) -> String {
         switch error as? SaveTransfer.Failure {
-        case .noMacSave: return m.t("saves.noMacSave")
-        case .noDeviceSave: return String(format: m.t("saves.noDeviceSave"), deviceName)
+        case .noMacSave: return loc.t("saves.noMacSave")
+        case .noDeviceSave: return String(format: loc.t("saves.noDeviceSave"), deviceName)
         case .device(let line): return line
-        case .timeout: return String(format: m.t("saves.timeout"), deviceName)
+        case .timeout: return String(format: loc.t("saves.timeout"), deviceName)
         case nil: return error.localizedDescription
         }
     }

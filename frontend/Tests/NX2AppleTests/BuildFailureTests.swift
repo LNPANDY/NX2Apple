@@ -289,7 +289,7 @@ final class BuildFailureTests: XCTestCase {
             m.doneNote = m.failureWhat(m.failure!)
             try capture(name, width: 760, height: kind == .noTitleID ? 380 : 250, ZStack(alignment: .top) {
                 LauncherPalette.background
-                BuildFailureCard(m: m).padding(24)
+                BuildFailureCard(m: m).environmentObject(m.localizer).padding(24)
             })
         }
         let m = BuildModel()

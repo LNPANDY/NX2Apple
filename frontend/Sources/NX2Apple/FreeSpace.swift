@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import NXCore
+import NXModel
 import NXLauncher
 
 /// The parts of a game's build folder (<output folder>/<title ID>_build) that the next build makes again
@@ -214,6 +215,7 @@ enum BuildFolder {
 /// picks parts and confirms.
 struct FreeSpaceView: View {
     @ObservedObject var m: BuildModel
+    @EnvironmentObject var loc: Localizer
     let game: LibraryGame
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var focus: PadFocus
@@ -237,18 +239,18 @@ struct FreeSpaceView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(m.t("free.title")).font(.manrope(26, .heavy)).tracking(-0.6)
+                Text(loc.t("free.title")).font(.manrope(26, .heavy)).tracking(-0.6)
                 Text(game.name).font(.manrope(14)).foregroundStyle(.secondary)
             }
             .padding(.horizontal, 30).padding(.top, 28).padding(.bottom, 14)
-            Text(m.t("free.note")).font(.manrope(13)).foregroundStyle(.secondary)
+            Text(loc.t("free.note")).font(.manrope(13)).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 30).padding(.bottom, 18)
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     if let survey {
                         if survey.parts.isEmpty {
-                            Text(m.t("free.empty")).font(.manrope(14)).foregroundStyle(.secondary)
+                            Text(loc.t("free.empty")).font(.manrope(14)).foregroundStyle(.secondary)
                         } else {
                             card {
                                 ForEach(survey.parts) { part in
@@ -257,8 +259,8 @@ struct FreeSpaceView: View {
                                 }
                                 HStack(spacing: 16) {
                                     VStack(alignment: .leading, spacing: 3) {
-                                        Text(m.t("free.kept")).font(.manrope(14, .medium)).foregroundStyle(.secondary)
-                                        Text(m.t("free.keptNote")).font(.manrope(12)).foregroundStyle(.secondary)
+                                        Text(loc.t("free.kept")).font(.manrope(14, .medium)).foregroundStyle(.secondary)
+                                        Text(loc.t("free.keptNote")).font(.manrope(12)).foregroundStyle(.secondary)
                                             .fixedSize(horizontal: false, vertical: true)
                                     }
                                     Spacer(minLength: 12)
@@ -268,28 +270,28 @@ struct FreeSpaceView: View {
                             }
                         }
                         if game.isReady {   // pack_app.py clones the game files and shaders into the app on the same APFS volume
-                            Text(m.t("free.clones")).font(.manrope(12)).foregroundStyle(.secondary)
+                            Text(loc.t("free.clones")).font(.manrope(12)).foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true).padding(.horizontal, 2)
                         }
                         Text(survey.folder).font(.system(size: 11, design: .monospaced)).foregroundStyle(.tertiary)
                             .lineLimit(1).truncationMode(.middle).textSelection(.enabled).padding(.horizontal, 2)
                     } else {
-                        HStack(spacing: 10) { ProgressView().controlSize(.small); Text(m.t("free.measuring")).foregroundStyle(.secondary) }
+                        HStack(spacing: 10) { ProgressView().controlSize(.small); Text(loc.t("free.measuring")).foregroundStyle(.secondary) }
                     }
                 }
                 .padding(.horizontal, 30).padding(.bottom, 20)
             }
             Divider().opacity(0.3)
             HStack(spacing: 14) {
-                Text(outcome ?? (m.running ? m.t("free.running") : String(format: m.t("free.selected"), Self.bytes(chosenBytes))))
+                Text(outcome ?? (m.running ? loc.t("free.running") : String(format: loc.t("free.selected"), Self.bytes(chosenBytes))))
                     .font(.manrope(12)).foregroundStyle(.secondary).lineLimit(2)
                 Spacer(minLength: 8)
-                Button(m.t("free.remove")) { confirming = true }
+                Button(loc.t("free.remove")) { confirming = true }
                     .buttonStyle(LauncherSecondaryButtonStyle(accent: LauncherPalette.building))
                     .disabled(chosen.isEmpty || m.running || working)
                     .padTarget("free.remove", scope: "free") { if !chosen.isEmpty && !m.running && !working { confirming = true } }
                 Button { dismiss() } label: {
-                    Text(m.t("free.done")).font(.manrope(13.5, .bold)).foregroundStyle(.black)
+                    Text(loc.t("free.done")).font(.manrope(13.5, .bold)).foregroundStyle(.black)
                         .padding(.horizontal, 22).padding(.vertical, 9)
                         .background(LauncherPalette.cream, in: Capsule())
                 }
@@ -305,10 +307,10 @@ struct FreeSpaceView: View {
         .preferredColorScheme(.dark)
         .tint(LauncherPalette.cream)
         .onAppear { if survey == nil { measure() } }
-        .confirmationDialog(String(format: m.t("free.confirm"), Self.bytes(chosenBytes)), isPresented: $confirming, titleVisibility: .visible) {
-            Button(m.t("free.confirmButton"), role: .destructive) { removeChosen() }
+        .confirmationDialog(String(format: loc.t("free.confirm"), Self.bytes(chosenBytes)), isPresented: $confirming, titleVisibility: .visible) {
+            Button(loc.t("free.confirmButton"), role: .destructive) { removeChosen() }
         } message: {
-            Text(([m.t("free.confirmNote")] + BuildFolderPart.allCases.filter { chosen.contains($0) && !($0 == .oldShaders && chosen.contains(.shaders)) }.map { m.t("free.cost." + $0.rawValue) }).joined(separator: "\n"))
+            Text(([loc.t("free.confirmNote")] + BuildFolderPart.allCases.filter { chosen.contains($0) && !($0 == .oldShaders && chosen.contains(.shaders)) }.map { loc.t("free.cost." + $0.rawValue) }).joined(separator: "\n"))
         }
     }
 
@@ -316,8 +318,8 @@ struct FreeSpaceView: View {
         let on = Binding(get: { chosen.contains(part) }, set: { if $0 { chosen.insert(part) } else { chosen.remove(part) } })
         return HStack(spacing: 16) {
             VStack(alignment: .leading, spacing: 3) {
-                Text(m.t("free.part." + part.rawValue)).font(.manrope(14, .medium))
-                Text(m.t("free.cost." + part.rawValue)).font(.manrope(12)).foregroundStyle(.secondary)
+                Text(loc.t("free.part." + part.rawValue)).font(.manrope(14, .medium))
+                Text(loc.t("free.cost." + part.rawValue)).font(.manrope(12)).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 if part == .oldShaders, let versions = survey?.oldShaders {   // which versions, each with its size
                     Text(versions.map { "\($0.name)  \(Self.bytes($0.bytes))" }.joined(separator: "\n"))
@@ -367,9 +369,9 @@ struct FreeSpaceView: View {
                 survey = after
                 chosen = []
                 switch result {
-                case .success(let freed): outcome = String(format: m.t("free.freed"), Self.bytes(freed))
-                case .failure(FreeSpaceError.buildRunning): outcome = m.t("free.running")
-                case .failure(let error): outcome = String(format: m.t("free.failed"), error.localizedDescription)
+                case .success(let freed): outcome = String(format: loc.t("free.freed"), Self.bytes(freed))
+                case .failure(FreeSpaceError.buildRunning): outcome = loc.t("free.running")
+                case .failure(let error): outcome = String(format: loc.t("free.failed"), error.localizedDescription)
                 }
             }
         }

@@ -739,7 +739,7 @@ final class LibraryTests: XCTestCase {
         if let upscale = LaunchSetting.read(app: library.games.first { $0.id == botwID }!.appPath)?.first(where: { $0.env == "DM_PRESENT_UPSCALE" }) {
             SavedChoices(app: library.games.first { $0.id == botwID }!.appPath, titleID: "01007EF00011E000").set(upscale, "metalfx")
         }
-        try shot("launch-options", LaunchOptionsView(m: model, library: library, gameID: botwID), size: NSSize(width: 600, height: 700), trafficLights: false)   // a sheet: no window controls of its own
+        try shot("launch-options", LaunchOptionsView(m: model, library: library, gameID: botwID).environmentObject(model.localizer), size: NSSize(width: 600, height: 700), trafficLights: false)   // a sheet: no window controls of its own
     }
 
     /// Opt-in native rendering for visual QA; it never touches the user's saved library.
@@ -881,7 +881,7 @@ final class LibraryTests: XCTestCase {
         for (name, running) in [("free-space", false), ("free-space-running", true)] {
             model.running = running
             let sheet = NSHostingView(rootView: FreeSpaceView(m: model, game: library.games[0], survey: measured, chosen: [.extracted, .oldShaders])
-                .environmentObject(PadFocus()))
+                .environmentObject(PadFocus()).environmentObject(model.localizer))
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 690), styleMask: [.titled], backing: .buffered, defer: false)
             window.contentView = sheet
             window.orderFront(nil)
@@ -898,7 +898,7 @@ final class LibraryTests: XCTestCase {
             try FileManager.default.createDirectory(at: dm, withIntermediateDirectories: true)
             try FileManager.default.copyItem(at: URL(fileURLWithPath: json), to: dm.appendingPathComponent("launcher.json"))
             if let fps = LaunchSetting.read(app: first.appPath)?.first(where: { $0.env == "DM_FPS_TARGET" }) { SavedChoices(app: first.appPath, titleID: first.titleID).set(fps, "60") }
-            let host = NSHostingView(rootView: LaunchOptionsView(m: model, library: library, gameID: first.id).environmentObject(PadFocus()))
+            let host = NSHostingView(rootView: LaunchOptionsView(m: model, library: library, gameID: first.id).environmentObject(PadFocus()).environmentObject(model.localizer))
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 700), styleMask: [.titled], backing: .buffered, defer: false)
             window.contentView = host
             window.orderFront(nil)
@@ -909,7 +909,7 @@ final class LibraryTests: XCTestCase {
             window.orderOut(nil)
             // The same sheet with a controller's focus on the console mode row
             let focus = PadFocus()
-            let focused = NSHostingView(rootView: LaunchOptionsView(m: model, library: library, gameID: first.id).environmentObject(focus))
+            let focused = NSHostingView(rootView: LaunchOptionsView(m: model, library: library, gameID: first.id).environmentObject(focus).environmentObject(model.localizer))
             window.contentView = focused
             window.orderFront(nil)
             RunLoop.main.run(until: Date().addingTimeInterval(0.4))
@@ -929,7 +929,7 @@ final class LibraryTests: XCTestCase {
             let layout = ControlLayout(defaults: defaults)
             if let up = ControlLayout.functions.first(where: { $0.id == "RUp" }) { layout.assign(up, key: 34) }
             layout.setSends("A", "B"); layout.setSends("B", "A")
-            let host = NSHostingView(rootView: ControlsView(m: model, layout: layout).environmentObject(PadFocus()))
+            let host = NSHostingView(rootView: ControlsView(layout: layout).environmentObject(PadFocus()).environmentObject(model.localizer))
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 700), styleMask: [.titled], backing: .buffered, defer: false)
             window.contentView = host
             window.orderFront(nil)
@@ -995,7 +995,7 @@ final class LibraryTests: XCTestCase {
                 layout.controllerCategory = { category }
                 layout.setPadMode(mode)
                 let focus = PadFocus()
-                let host = NSHostingView(rootView: ControlsView(m: model, layout: layout).environmentObject(focus))
+                let host = NSHostingView(rootView: ControlsView(layout: layout).environmentObject(focus).environmentObject(model.localizer))
                 let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 700), styleMask: [.titled], backing: .buffered, defer: false)
                 window.contentView = host
                 window.orderFront(nil)
@@ -1015,7 +1015,7 @@ final class LibraryTests: XCTestCase {
             let buttons = NSHostingView(rootView: HStack(spacing: 14) {
                 DiagnosticsButton(m: model)
                 DiagnosticsButton(m: model, showCopied: true)
-            }.launcherRowControls().padding(24).background(LauncherPalette.background).environmentObject(PadFocus()))
+            }.launcherRowControls().padding(24).background(LauncherPalette.background).environmentObject(PadFocus()).environmentObject(model.localizer))
             buttons.frame = NSRect(x: 0, y: 0, width: 420, height: 90)
             let window = NSWindow(contentRect: buttons.frame, styleMask: [.titled], backing: .buffered, defer: false)
             window.contentView = buttons
@@ -1053,7 +1053,7 @@ final class LibraryTests: XCTestCase {
             let host = NSHostingView(rootView: SavesView(m: model, library: library, gameID: game.id, devicectl: device, support: support, listDevices: {
                 [AppleDevice(id: "00008150-AAAA", name: "Zijad\u{2019}s iPhone", model: "iPhone 17", os: "27.0", reachable: true),
                  AppleDevice(id: "00008150-BBBB", name: "Zijad\u{2019}s iPad", model: "iPad Pro", os: "27.0", reachable: true)]
-            }).environmentObject(focus))
+            }).environmentObject(focus).environmentObject(model.localizer))
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 520), styleMask: [.titled], backing: .buffered, defer: false)
             window.contentView = host
             window.orderFront(nil)

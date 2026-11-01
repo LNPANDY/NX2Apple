@@ -13,11 +13,11 @@ The plan and the steps are in [LNPANDY/NX2Apple#387](https://github.com/LNPANDY/
 
 ## Where it stands
 
-Step 1 of #387 made the targets and moved the files that already fit. The rest still lives in the app target and moves with the later steps.
+Step 1 of #387 made the targets and moved the files that already fit. Step 2 moved the language out of `BuildModel` into the `Localizer` store. The rest still lives in the app target and moves with the later steps.
 
-- `BuildModel` and `ContentView.swift` are unchanged. `BuildModel` is the model of the whole launcher and reaches into every layer, so the files that use it cannot leave the app target yet.
+- `BuildModel` is the model of the whole launcher and reaches into every layer, so the files that use it cannot leave the app target yet. It no longer owns the language: it holds the `Localizer` it was given and forwards `lang` and `t()` to it, for the text it writes itself (alerts, status, failures).
 - `NXCore` holds the value types and static functions that need only Foundation: app and engine update parsing, `Localization.swift`, the release notes, the device and signing tools, the cloud folder and saves migration, the bundled tools, input staging, the build target and the pipe reader.
-- `NXModel` is empty. No store exists yet, and every file that was looked at reaches into `BuildModel`, AppKit or SwiftUI types. `NXModel.swift` keeps the target alive.
+- `NXModel` holds `Localizer`: `lang` and `t()`. The app creates one with each `BuildModel`, and `ContentView` hands it to every view as an environment object. A view that shows text declares `@EnvironmentObject var loc: Localizer` and calls `loc.t(...)`. A language change redraws these views and nothing else. No other store exists yet.
 - `NXLauncher` holds the views and styles that do not need `BuildModel`: `LauncherPalette`, `Typography`, `LauncherStyles`, `LauncherDropdown`, `PadFocus` and `EmbeddedFonts`.
 - `NX2Apple` holds everything else, including `BuildModel`.
 

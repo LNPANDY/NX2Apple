@@ -206,7 +206,7 @@ final class ReleaseNotesTests: XCTestCase {
             m.lang = lang
             m.appUpdate = AppUpdate.Release(tag: tag, url: "", digest: nil, notes: notes)
             let width: CGFloat = 560, height: CGFloat = 640
-            let host = NSHostingView(rootView: UpdateSheet(m: m).frame(width: width, height: height))
+            let host = NSHostingView(rootView: UpdateSheet(m: m).environmentObject(m.localizer).frame(width: width, height: height))
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: height), styleMask: [.titled], backing: .buffered, defer: false)
             window.contentView = host
             window.appearance = NSAppearance(named: .darkAqua)

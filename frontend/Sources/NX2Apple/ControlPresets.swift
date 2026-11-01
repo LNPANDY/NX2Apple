@@ -1,6 +1,7 @@
 import GameController
 import SwiftUI
 import NXCore
+import NXModel
 import NXLauncher
 
 /// The controller layouts of the Controls page (#70). Each produces only a DM_PAD_MAP value (dm/host/input_map.h), so the
@@ -49,21 +50,21 @@ extension ControlLayout {
 /// The Controls page's layout choice: a picker, which controller is connected and what Auto picks for it, and a note
 /// on the layout chosen.
 struct PadModeSection: View {
-    @ObservedObject var m: BuildModel
+    @EnvironmentObject var loc: Localizer
     @ObservedObject var layout: ControlLayout
     @State private var category: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(m.t("controls.mode")).font(.manrope(15, .semibold)).foregroundStyle(.secondary).padding(.leading, 2)
+            Text(loc.t("controls.mode")).font(.manrope(15, .semibold)).foregroundStyle(.secondary).padding(.leading, 2)
             HStack(spacing: 16) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(m.t("controls.modeRow")).font(.manrope(14, .medium))
+                    Text(loc.t("controls.modeRow")).font(.manrope(14, .medium))
                     Text(connected).font(.manrope(12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 12)
                 LauncherDropdown(options: PadMode.allCases.map { (value: $0.rawValue, label: label($0)) },
-                                 selection: layout.padMode.rawValue, label: m.t("controls.modeRow"), fill: true) { v in PadMode(rawValue: v).map(layout.setPadMode) }
+                                 selection: layout.padMode.rawValue, label: loc.t("controls.modeRow"), fill: true) { v in PadMode(rawValue: v).map(layout.setPadMode) }
                     .frame(width: 168)   // as wide as the button rows' choices below it
                     .frame(width: LaunchControl.width, alignment: .trailing)
             }
@@ -72,7 +73,7 @@ struct PadModeSection: View {
             .padTarget("pad.mode", scope: "controls", radius: 10, activate: { step(1) }, adjust: step)
             .background(LauncherPalette.surface.opacity(0.75), in: RoundedRectangle(cornerRadius: 14))
             .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.white.opacity(0.06)))
-            Text(m.t("controls.modeNote." + layout.padMode.rawValue)).font(.manrope(12)).foregroundStyle(.secondary)
+            Text(loc.t("controls.modeNote." + layout.padMode.rawValue)).font(.manrope(12)).foregroundStyle(.secondary)
                 .padding(.leading, 2).fixedSize(horizontal: false, vertical: true)
         }
         .onAppear { category = layout.controllerCategory() }
@@ -82,11 +83,11 @@ struct PadModeSection: View {
         }
     }
 
-    private func label(_ mode: PadMode) -> String { m.t("controls.mode." + mode.rawValue) }
+    private func label(_ mode: PadMode) -> String { loc.t("controls.mode." + mode.rawValue) }
 
     private var connected: String {
         let pick = label(ControlLayout.autoMode(category: category))
-        return category.map { String(format: m.t("controls.connected"), $0, pick) } ?? String(format: m.t("controls.noController"), pick)
+        return category.map { String(format: loc.t("controls.connected"), $0, pick) } ?? String(format: loc.t("controls.noController"), pick)
     }
 
     /// A controller's left / right through the layouts.

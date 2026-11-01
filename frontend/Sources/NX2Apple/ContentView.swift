@@ -1,6 +1,7 @@
 import SwiftUI
 import NXCore
 import NXLauncher
+import NXModel
 
 // NS Port Builder: a macOS front end that walks a user through building a playable
 // IPA from their own Switch game files. Not part of the host runtime; drives the
@@ -220,9 +221,9 @@ final class BuildModel: ObservableObject {
     @Published var pythonPath = ""
     @Published var dotnetPath = ""
 
-    /// Interface language: the system's, read at every launch.
-    @Published var lang: Lang = Lang.initial()
-    func t(_ key: String) -> String { L10n.string(key, lang) }
+    /// The language and the strings: views take them from the environment, this model only for the text it writes itself.
+    let localizer: Localizer
+    init(localizer: Localizer = Localizer()) { self.localizer = localizer }
 
     private var proc: Process?
     private var lineBuf = ""
@@ -3044,6 +3045,7 @@ final class BuildModel: ObservableObject {
 
 struct BuilderView: View {
     @ObservedObject var m: BuildModel
+    @EnvironmentObject var loc: Localizer
     @ObservedObject var library: GameLibrary
     var settings = false
     var onViewGame: () -> Void = {}
@@ -3075,7 +3077,7 @@ struct BuilderView: View {
         .onChange(of: padFocus.focused) { id in   // a controller's focus on this page scrolls into view
             if let id, id.hasPrefix("set.") { withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo(id, anchor: .center) } }
         }
-        .modifier(GameFilesDrop(enabled: !settings && !m.running, label: m.t("drop.hint")) { m.take(dropped: $0) })   // DropFiles.swift
+        .modifier(GameFilesDrop(enabled: !settings && !m.running, label: loc.t("drop.hint")) { m.take(dropped: $0) })   // DropFiles.swift
         }
         .buttonStyle(LauncherSecondaryButtonStyle())
     }
@@ -3160,11 +3162,11 @@ struct BuilderView: View {
     // ---- Build game ----
 
     @ViewBuilder private var buildPage: some View {
-        pageHeading(m.t("build.heading"), note: m.t("build.intro"))
+        pageHeading(loc.t("build.heading"), note: loc.t("build.intro"))
         if !m.repoOK || !m.allDepsPresent {
-            group(m.t("section.setup")) {
-                row(m.t("library.setupHint"), dot: LauncherPalette.building) {
-                    Button(m.t("build.setup"), action: onOpenSettings)
+            group(loc.t("section.setup")) {
+                row(loc.t("library.setupHint"), dot: LauncherPalette.building) {
+                    Button(loc.t("build.setup"), action: onOpenSettings)
                 }
             }
         }
@@ -3181,24 +3183,24 @@ struct BuilderView: View {
 
     /// Where an iPhone build goes: exported as an IPA (as before), or signed and installed on a paired device.
     private var install: some View {
-        let devices = [(value: "", label: m.t("dev.none"))] + m.devices.map { d in
-            (value: d.id, label: d.name + (d.reachable ? "" : " (" + m.t("dev.notConnected") + ")"))
+        let devices = [(value: "", label: loc.t("dev.none"))] + m.devices.map { d in
+            (value: d.id, label: d.name + (d.reachable ? "" : " (" + loc.t("dev.notConnected") + ")"))
         }
-        let teams = m.teams.map { (value: $0.id, label: $0.label(personalTeam: m.t("dev.personalTeam"))) }
+        let teams = m.teams.map { (value: $0.id, label: $0.label(personalTeam: loc.t("dev.personalTeam"))) }
         let needsCertificate = m.teams.first { $0.id == m.signingTeam }.map { !$0.hasCertificate } ?? false
-        return group(m.t("dev.section"), footnote: m.installDevice.isEmpty ? "" : (needsCertificate ? m.t("dev.teamNoCert") + " " : "") + m.t("dev.note")) {
-            row(m.t("dev.target"), detail: m.devicesChecked && m.devices.isEmpty ? m.t("dev.noDevices") : "") {
+        return group(loc.t("dev.section"), footnote: m.installDevice.isEmpty ? "" : (needsCertificate ? loc.t("dev.teamNoCert") + " " : "") + loc.t("dev.note")) {
+            row(loc.t("dev.target"), detail: m.devicesChecked && m.devices.isEmpty ? loc.t("dev.noDevices") : "") {
                 if !m.devicesChecked { ProgressView().controlSize(.small) }
-                Button(m.t("dev.refresh")) { m.refreshDevices() }.buttonStyle(.plain).font(.manrope(13)).foregroundStyle(.secondary)
-                LauncherDropdown(options: devices, selection: m.installDevice, label: m.t("dev.target")) { m.installDevice = $0 }
+                Button(loc.t("dev.refresh")) { m.refreshDevices() }.buttonStyle(.plain).font(.manrope(13)).foregroundStyle(.secondary)
+                LauncherDropdown(options: devices, selection: m.installDevice, label: loc.t("dev.target")) { m.installDevice = $0 }
             }
             if !m.installDevice.isEmpty {
                 divider
                 if teams.isEmpty {
-                    row(m.t("dev.team"), detail: m.t("dev.noTeam"), dot: LauncherPalette.building) { EmptyView() }
+                    row(loc.t("dev.team"), detail: loc.t("dev.noTeam"), dot: LauncherPalette.building) { EmptyView() }
                 } else {
-                    row(m.t("dev.team")) {
-                        LauncherDropdown(options: teams, selection: m.signingTeam, label: m.t("dev.team")) { m.signingTeam = $0 }
+                    row(loc.t("dev.team")) {
+                        LauncherDropdown(options: teams, selection: m.signingTeam, label: loc.t("dev.team")) { m.signingTeam = $0 }
                     }
                 }
             }
@@ -3209,11 +3211,11 @@ struct BuilderView: View {
     private var files: some View {
         // The report's own mistake, and a reasonable one: the output folder silently decides where
         // the build cache lives, so changing it threw away a finished build. Say it under Save to, all the time.
-        group(m.t("section.files"), footnote: m.t("msg.workdirHint")) {
+        group(loc.t("section.files"), footnote: loc.t("msg.workdirHint")) {
             Button(action: pickFolder) {
-                row(m.t(m.gameDir.isEmpty ? "build.folderCTA" : "build.folderSelected"),
-                    detail: m.gameDir.isEmpty ? m.t("build.folderNote") : m.shortPath(m.gameDir), help: m.gameDir) {
-                    Text(m.t(m.gameDir.isEmpty ? "data.choose" : "data.change"))
+                row(loc.t(m.gameDir.isEmpty ? "build.folderCTA" : "build.folderSelected"),
+                    detail: m.gameDir.isEmpty ? loc.t("build.folderNote") : m.shortPath(m.gameDir), help: m.gameDir) {
+                    Text(loc.t(m.gameDir.isEmpty ? "data.choose" : "data.change"))
                         .font(.manrope(13, .semibold)).foregroundStyle(.black)
                         .launcherRowControlFrame()
                         .background(LauncherPalette.cream, in: Capsule())
@@ -3223,16 +3225,16 @@ struct BuilderView: View {
             .buttonStyle(.plain)
             ForEach(m.slots.filter { !$0.optional }, id: \.id) { s in
                 divider; slotRow(s)
-                if s.id == "keys", let keyCheck { KeyCheckLine(outcome: keyCheck, t: m.t) }
+                if s.id == "keys", let keyCheck { KeyCheckLine(outcome: keyCheck, t: loc.t) }
             }
             divider
-            disclosure(m.t("build.options"), isOpen: extrasOpen) { extrasOpen.toggle() }
+            disclosure(loc.t("build.options"), isOpen: extrasOpen) { extrasOpen.toggle() }
             if extrasOpen {
                 ForEach(m.slots.filter(\.optional), id: \.id) { s in divider; slotRow(s) }
             }
             divider
-            row(m.t("build.saveTo"), detail: m.outDir.isEmpty ? m.t("build.saveDefault") : m.shortPath(m.outDir), help: m.outDir) {
-                Button(m.t("data.change")) { m.chooseBuildFolder() }
+            row(loc.t("build.saveTo"), detail: m.outDir.isEmpty ? loc.t("build.saveDefault") : m.shortPath(m.outDir), help: m.outDir) {
+                Button(loc.t("data.change")) { m.chooseBuildFolder() }
             }
         }
         .task(id: KeyCheck.Inputs(keys: m.keysPath, files: [m.basePath, m.updatePath] + m.dlcPaths)) {
@@ -3242,13 +3244,13 @@ struct BuilderView: View {
 
     private func slotRow(_ s: Slot) -> some View {
         // An empty prod.keys row says where the file comes from.
-        row(m.t(s.title), detail: s.id == "keys" && s.paths.isEmpty ? m.t("build.keyHint") : s.summary(m.t), dot: s.ok ? LauncherPalette.ready : LauncherPalette.unbuilt,
+        row(loc.t(s.title), detail: s.id == "keys" && s.paths.isEmpty ? loc.t("build.keyHint") : s.summary(loc.t), dot: s.ok ? LauncherPalette.ready : LauncherPalette.unbuilt,
             help: s.paths.joined(separator: "\n")) {
             if !s.paths.isEmpty {
-                Button(m.t("data.clear")) { m.clear(s.id) }.buttonStyle(.plain)
+                Button(loc.t("data.clear")) { m.clear(s.id) }.buttonStyle(.plain)
                     .font(.manrope(13)).foregroundStyle(.secondary)
             }
-            Button(s.paths.isEmpty ? m.t("data.choose") : m.t("data.change")) { m.pickFiles(kind: s.kind) }
+            Button(s.paths.isEmpty ? loc.t("data.choose") : loc.t("data.change")) { m.pickFiles(kind: s.kind) }
         }
     }
 
@@ -3260,7 +3262,7 @@ struct BuilderView: View {
 
     private var target: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(m.t("section.target")).font(.manrope(15, .semibold)).foregroundStyle(.secondary)
+            Text(loc.t("section.target")).font(.manrope(15, .semibold)).foregroundStyle(.secondary)
                 .padding(.leading, 2)
             HStack(spacing: 14) {
                 targetCard(BuildTarget.mac, symbol: "desktopcomputer", title: "build.mac", note: "build.macNote")
@@ -3271,8 +3273,8 @@ struct BuilderView: View {
                 VStack(spacing: 0) {
                     HStack(alignment: .center, spacing: 12) {
                         VStack(alignment: .leading, spacing: 3) {
-                            Text(m.t("opt.bc")).font(.manrope(14))
-                            Text(m.t("opt.bc.note")).font(.manrope(12.5)).foregroundStyle(.secondary)
+                            Text(loc.t("opt.bc")).font(.manrope(14))
+                            Text(loc.t("opt.bc.note")).font(.manrope(12.5)).foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                         Spacer(minLength: 12)
@@ -3299,8 +3301,8 @@ struct BuilderView: View {
                         .frame(width: 18, height: 18)
                 }
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(m.t(title)).font(.manrope(16, .semibold))
-                    Text(m.t(note)).font(.manrope(12.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    Text(loc.t(title)).font(.manrope(16, .semibold))
+                    Text(loc.t(note)).font(.manrope(12.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
             }
             .padding(20).frame(maxWidth: .infinity, alignment: .leading)
@@ -3314,17 +3316,17 @@ struct BuilderView: View {
 
     @ViewBuilder private var outcome: some View {
         if m.done && m.target == BuildTarget.mac {
-            group(m.t("section.done")) {
-                row(m.t("library.ready"), detail: m.shortPath(m.macAppPath), dot: LauncherPalette.ready, help: m.macAppPath) {
-                    Button(m.t("install.reveal")) { reveal(m.macAppPath) }
-                    Button(m.t("build.showLibrary"), action: onViewGame)
+            group(loc.t("section.done")) {
+                row(loc.t("library.ready"), detail: m.shortPath(m.macAppPath), dot: LauncherPalette.ready, help: m.macAppPath) {
+                    Button(loc.t("install.reveal")) { reveal(m.macAppPath) }
+                    Button(loc.t("build.showLibrary"), action: onViewGame)
                 }
             }
         }
         if m.done && !m.installedOn.isEmpty {
-            group(String(format: m.t("dev.installed"), m.deviceName(m.installedOn))) {
-                row(m.t("dev.installedNote"), dot: LauncherPalette.ready) {
-                    Button(String(format: m.t("dev.open"), m.deviceName(m.installedOn))) {
+            group(String(format: loc.t("dev.installed"), m.deviceName(m.installedOn))) {
+                row(loc.t("dev.installedNote"), dot: LauncherPalette.ready) {
+                    Button(String(format: loc.t("dev.open"), m.deviceName(m.installedOn))) {
                         m.openOnDevice(udid: m.installedOn, app: m.installedAppPath) { error in if let error { m.doneNote = error } }
                     }
                 }
@@ -3332,8 +3334,8 @@ struct BuilderView: View {
                 // fast external drive handed to the device is quicker than USB): show where they are.
                 if !m.archivePath.isEmpty {
                     divider
-                    row(m.t("dev.gameData"), detail: m.shortPath(m.archivePath), dot: LauncherPalette.ready, help: m.archivePath) {
-                        Button(m.t("install.reveal")) { reveal(m.archivePath) }
+                    row(loc.t("dev.gameData"), detail: m.shortPath(m.archivePath), dot: LauncherPalette.ready, help: m.archivePath) {
+                        Button(loc.t("install.reveal")) { reveal(m.archivePath) }
                     }
                 }
             }
@@ -3343,7 +3345,7 @@ struct BuilderView: View {
     /// The script's own stages once a build has run, and its log behind a disclosure.
     @ViewBuilder private var progress: some View {
         if m.running || !m.stages.isEmpty {
-            group(m.t("section.progress")) {
+            group(loc.t("section.progress")) {
                 ForEach(Array(m.stages.enumerated()), id: \.element.id) { index, s in
                     if index > 0 { divider }
                     HStack(spacing: 12) {
@@ -3353,7 +3355,7 @@ struct BuilderView: View {
                         Spacer(minLength: 12)
                         if s.state == .running {
                             TimelineView(.periodic(from: Date(), by: 1)) { context in
-                                Text([s.detail, s.clock(at: context.date, left: m.t("prog.eta"))].filter { !$0.isEmpty }.joined(separator: " · "))
+                                Text([s.detail, s.clock(at: context.date, left: loc.t("prog.eta"))].filter { !$0.isEmpty }.joined(separator: " · "))
                                     .font(.manrope(12)).monospacedDigit().foregroundStyle(.secondary).lineLimit(1)
                             }
                         } else if !s.detail.isEmpty { Text(s.detail).font(.manrope(12)).foregroundStyle(.secondary).lineLimit(1) }
@@ -3366,7 +3368,7 @@ struct BuilderView: View {
                     .padding(.horizontal, 18).padding(.vertical, 12)
                 }
                 if m.stages.isEmpty && m.running {
-                    row(m.t("library.preparing")) { ProgressView().controlSize(.small) }
+                    row(loc.t("library.preparing")) { ProgressView().controlSize(.small) }
                 }
             }
         }
@@ -3376,14 +3378,14 @@ struct BuilderView: View {
     /// It used to sit at the bottom of the progress card, which is where a failed build's message
     /// pointed ("see the log below") while the log itself was out of view on a short window (#52).
     @ViewBuilder private var logPanel: some View {
-        group(m.t("section.log")) {
+        group(loc.t("section.log")) {
             if m.shellCopy != nil || m.shellWaiting {
                 // The log below is the build's own output; the data transfer is driven by the app, so
                 // its questions and errors (a locked device, a failed listing) answer here, not in it.
-                Text(m.t("log.transferNote")).font(.manrope(12.5)).foregroundStyle(.secondary)
+                Text(loc.t("log.transferNote")).font(.manrope(12.5)).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true).padding(.horizontal, 14).padding(.top, 2)
             }
-            disclosure(m.t("build.log"), isOpen: logOpen) { logOpen.toggle() }
+            disclosure(loc.t("build.log"), isOpen: logOpen) { logOpen.toggle() }
             if logOpen { logView.padding(.horizontal, 14).padding(.bottom, 14) }
         }
         .onReceive(BuildNotifier.shared.$showLog) { show in   // a clicked notification of a failed build
@@ -3394,7 +3396,7 @@ struct BuilderView: View {
     private var logView: some View {
         ScrollViewReader { sp in
             ScrollView {
-                Text(m.logTail.isEmpty ? m.t("log.placeholder") : m.logTail)
+                Text(m.logTail.isEmpty ? loc.t("log.placeholder") : m.logTail)
                     .font(.mono(11))
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -3417,7 +3419,7 @@ struct BuilderView: View {
             Button {
                 m.running ? m.stop() : m.startBuild()
             } label: {
-                Label(m.running ? m.t(m.stopping ? "library.stopping" : "btn.stop") : (m.done ? m.t("btn.rebuild") : m.t("build.startGame")),
+                Label(m.running ? loc.t(m.stopping ? "library.stopping" : "btn.stop") : (m.done ? loc.t("btn.rebuild") : loc.t("build.startGame")),
                       systemImage: m.running ? "stop.fill" : "hammer.fill")
                     .font(.manrope(15, .semibold)).padding(.horizontal, 24).padding(.vertical, 13)
                     .foregroundStyle(.black).background(m.running ? LauncherPalette.building : LauncherPalette.cream, in: Capsule())
@@ -3436,15 +3438,15 @@ struct BuilderView: View {
             Text(m.doneNote).font(.manrope(13))
                 .foregroundStyle(m.done ? LauncherPalette.ready : LauncherPalette.building).lineLimit(2)
         } else if !m.depsChecked {
-            Text(m.t("status.checkingDeps")).font(.manrope(13)).foregroundStyle(.secondary)
+            Text(loc.t("status.checkingDeps")).font(.manrope(13)).foregroundStyle(.secondary)
         } else if !m.allDepsPresent {
-            Text(m.t("status.installFirst")).font(.manrope(13)).foregroundStyle(LauncherPalette.building)
+            Text(loc.t("status.installFirst")).font(.manrope(13)).foregroundStyle(LauncherPalette.building)
         } else if !m.repoOK {
-            Text(m.t("status.chooseRepo")).font(.manrope(13)).foregroundStyle(LauncherPalette.building)
+            Text(loc.t("status.chooseRepo")).font(.manrope(13)).foregroundStyle(LauncherPalette.building)
         } else if !m.slot("base").ok || !m.slot("keys").ok {
-            Text(m.t("status.needInputs")).font(.manrope(13)).foregroundStyle(.secondary)
+            Text(loc.t("status.needInputs")).font(.manrope(13)).foregroundStyle(.secondary)
         } else {
-            Text(String(format: m.t("status.output"), m.shortPath(m.outDir.isEmpty ? (m.basePath as NSString).deletingLastPathComponent : m.outDir)))
+            Text(String(format: loc.t("status.output"), m.shortPath(m.outDir.isEmpty ? (m.basePath as NSString).deletingLastPathComponent : m.outDir)))
                 .font(.manrope(13)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.head)
         }
     }
@@ -3452,93 +3454,92 @@ struct BuilderView: View {
     // ---- Settings ----
 
     @ViewBuilder private var settingsPage: some View {
-        pageHeading(m.t("settings.heading"), note: m.t("settings.note"))
+        pageHeading(loc.t("settings.heading"), note: loc.t("settings.note"))
         settingsCards
     }
 
     @ViewBuilder private var settingsCards: some View {
-        group(m.t("section.library"), footnote: m.t("library.folderHint")) {
-            row(m.t("library.folderTitle"), detail: library.folder.isEmpty ? m.t("library.folderUnset") : m.shortPath(library.folder),
+        group(loc.t("section.library"), footnote: loc.t("library.folderHint")) {
+            row(loc.t("library.folderTitle"), detail: library.folder.isEmpty ? loc.t("library.folderUnset") : m.shortPath(library.folder),
                 dot: library.folder.isEmpty ? LauncherPalette.unbuilt : LauncherPalette.ready, help: library.folder) {
                 if library.scanning { ProgressView().controlSize(.small) }
                 if !library.folder.isEmpty {
-                    Button(m.t("library.rescan")) { library.discover() }.disabled(library.scanning)
+                    Button(loc.t("library.rescan")) { library.discover() }.disabled(library.scanning)
                         .padTarget("set.rescan", scope: "main") { if !library.scanning { library.discover() } }
                 }
-                Button(m.t("library.chooseFolder"), action: onChooseLibraryFolder)
+                Button(loc.t("library.chooseFolder"), action: onChooseLibraryFolder)
                     .padTarget("set.folder", scope: "main") { onChooseLibraryFolder() }
             }
         }
-        group(m.t("section.controls"), footnote: m.t("controls.settingsHint")) {
-            row(m.t("controls.row"), detail: controlChanges == 0 ? m.t("controls.defaultLayout") : String(format: m.t("controls.changes"), controlChanges)) {
-                Button(m.t("controls.customize"), action: onOpenControls)
+        group(loc.t("section.controls"), footnote: loc.t("controls.settingsHint")) {
+            row(loc.t("controls.row"), detail: controlChanges == 0 ? loc.t("controls.defaultLayout") : String(format: loc.t("controls.changes"), controlChanges)) {
+                Button(loc.t("controls.customize"), action: onOpenControls)
                     .padTarget("set.controls", scope: "main") { onOpenControls() }
             }
             divider
-            row(m.t("console.mergeAll"), detail: m.t("console.mergeNote")) {
+            row(loc.t("console.mergeAll"), detail: loc.t("console.mergeNote")) {
                 Toggle("", isOn: padMerge).labelsHidden().toggleStyle(LauncherSwitchStyle())
                     .padTarget("set.padMerge", scope: "main") { padMerge.wrappedValue.toggle() }
             }
             divider
-            row(m.t("console.controllers"), detail: m.t("console.controllersRowNote")) {
-                Button(m.t("console.controllersOpen"), action: onOpenControllers)
+            row(loc.t("console.controllers"), detail: loc.t("console.controllersRowNote")) {
+                Button(loc.t("console.controllersOpen"), action: onOpenControllers)
                     .padTarget("set.controllers", scope: "main") { onOpenControllers() }
             }
             divider
-            row(m.t("console.promptSetting"), detail: m.t("console.promptSettingNote")) {
+            row(loc.t("console.promptSetting"), detail: loc.t("console.promptSettingNote")) {
                 Toggle("", isOn: $consolePromptOn).labelsHidden().toggleStyle(LauncherSwitchStyle())
                     .padTarget("set.consolePrompt", scope: "main") { consolePromptOn.toggle() }
             }
         }
         tools
-        group(m.t("section.app"), footnote: m.appStatus) {
+        group(loc.t("section.app"), footnote: m.appStatus) {
             // The interface language: the device default unless someone picks one here. Stored as
             // "" (follow), "zh", "en", "sv", "de" or "fr" so a later system-language change still applies.
-            row(m.t("settings.language"),
-                detail: Lang.saved.map { m.t("settings.language.\($0.rawValue)") }
-                    ?? m.t("settings.language.system"), dot: LauncherPalette.ready, help: "") {
+            row(loc.t("settings.language"),
+                detail: Lang.saved.map { loc.t("settings.language.\($0.rawValue)") }
+                    ?? loc.t("settings.language.system"), dot: LauncherPalette.ready, help: "") {
                 // The launcher's own list, drawn like the buttons beside it and as wide as they are.
                 // The language names are in their own language (see "settings.language.*"), only "system" follows the UI.
-                LauncherDropdown(options: Self.languageCodes.map { (value: $0, label: m.t("settings.language." + ($0.isEmpty ? "system" : $0))) },
-                                 selection: Lang.saved.map { $0.rawValue } ?? "", label: m.t("settings.language"),
+                LauncherDropdown(options: Self.languageCodes.map { (value: $0, label: loc.t("settings.language." + ($0.isEmpty ? "system" : $0))) },
+                                 selection: Lang.saved.map { $0.rawValue } ?? "", label: loc.t("settings.language"),
                                  style: .button) { v in
-                    Lang.saved = v.isEmpty ? nil : Lang(rawValue: v)
-                    m.lang = Lang.initial()
+                    loc.choose(v)
                 }
                 .padTarget("set.language", scope: "main", activate: { cycleLanguage(1) }, adjust: { cycleLanguage($0) })
             }
             divider
             // Build notifications (BuildNotifications.swift): none without an app bundle, e.g. under swift run
-            row(m.t("settings.notify"), detail: m.t(BuildNotice.hasBundleID ? "settings.notifyNote" : "settings.notifyUnbundled")) {
+            row(loc.t("settings.notify"), detail: loc.t(BuildNotice.hasBundleID ? "settings.notifyNote" : "settings.notifyUnbundled")) {
                 Toggle("", isOn: $notifyBuilds).toggleStyle(LauncherSwitchStyle()).labelsHidden().disabled(!BuildNotice.hasBundleID)
                     .padTarget("set.notify", scope: "main") { notifyBuilds.toggle() }
             }
             divider
             if let onRunSetup {
-                row(m.t("settings.setup"), detail: m.t("settings.setupNote")) {
-                    Button(m.t("settings.setupBtn"), action: onRunSetup)
+                row(loc.t("settings.setup"), detail: loc.t("settings.setupNote")) {
+                    Button(loc.t("settings.setupBtn"), action: onRunSetup)
                         .padTarget("set.setup", scope: "main") { onRunSetup() }
                 }
                 divider
             }
             // The launcher back in front when a game it started quits (ReturnAfterPlay.swift)
-            row(m.t("settings.returnAfterPlay"), detail: m.t("settings.returnAfterPlayNote")) {
+            row(loc.t("settings.returnAfterPlay"), detail: loc.t("settings.returnAfterPlayNote")) {
                 Toggle("", isOn: $returnAfterPlay).toggleStyle(LauncherSwitchStyle()).labelsHidden()
                     .padTarget("set.returnAfterPlay", scope: "main") { returnAfterPlay.toggle() }
             }
             divider
-            row("NX2Apple", detail: String(format: m.t("app.version"), BuildModel.appVersion),
+            row("NX2Apple", detail: String(format: loc.t("app.version"), BuildModel.appVersion),
                 dot: m.appStaged != nil ? LauncherPalette.ready : nil) {
                 if m.appBusy { ProgressView().controlSize(.small) }
                 if m.appStaged != nil {
                     // Downloaded and verified: it goes in when the app quits; this restarts into it now (not during a build)
-                    Button(m.t("app.restartNow")) { m.restartToUpdate() }.disabled(m.running)
+                    Button(loc.t("app.restartNow")) { m.restartToUpdate() }.disabled(m.running)
                         .padTarget("set.appRestart", scope: "main") { if !m.running { m.restartToUpdate() } }
                 } else if let u = m.appUpdate, m.appInstallability == .ok {
-                    Button(String(format: m.t("app.updateBtn"), u.tag)) { m.performAppUpdate() }.disabled(m.appBusy || m.running)
+                    Button(String(format: loc.t("app.updateBtn"), u.tag)) { m.performAppUpdate() }.disabled(m.appBusy || m.running)
                         .padTarget("set.appUpdate", scope: "main") { if !(m.appBusy || m.running) { m.performAppUpdate() } }
                 } else {
-                    Button(m.t("repo.check")) { m.checkAppUpdate() }.disabled(m.appBusy)
+                    Button(loc.t("repo.check")) { m.checkAppUpdate() }.disabled(m.appBusy)
                         .padTarget("set.appCheck", scope: "main") { if !m.appBusy { m.checkAppUpdate() } }
                 }
             }
@@ -3546,15 +3547,15 @@ struct BuilderView: View {
             if m.appInstallability == .ok {
                 // The uninstaller (Uninstall.swift): state folders and the launcher's own checkout go; the
                 // games folder and prod.keys stay; the app itself goes to the Trash.
-                row(m.t("uninstall.title"), detail: m.t("uninstall.note")) {
-                    Button(m.t("uninstall.button")) { m.uninstallPlan = uninstallPlan() }
+                row(loc.t("uninstall.title"), detail: loc.t("uninstall.note")) {
+                    Button(loc.t("uninstall.button")) { m.uninstallPlan = uninstallPlan() }
                     .disabled(m.running)
                     .padTarget("set.uninstall", scope: "main") { if !m.running { m.uninstallPlan = uninstallPlan() } }
                 }
                 divider
             }
             // A launcher built from the repository never replaces itself (AppUpdate.installability): the switch says so and stays off
-            row(m.t("app.auto"), detail: m.t(m.appInstallability == .ok ? "app.autoNote" : m.appInstallability == .developer ? "app.autoDev" : "app.autoReadOnly")) {
+            row(loc.t("app.auto"), detail: loc.t(m.appInstallability == .ok ? "app.autoNote" : m.appInstallability == .developer ? "app.autoDev" : "app.autoReadOnly")) {
                 Toggle("", isOn: Binding(get: { m.autoUpdateApp && m.appInstallability == .ok }, set: { m.autoUpdateApp = $0 }))
                     .labelsHidden().toggleStyle(LauncherSwitchStyle()).disabled(m.appInstallability != .ok)
                     .padTarget("set.appAuto", scope: "main") { if m.appInstallability == .ok { m.autoUpdateApp.toggle() } }
@@ -3571,8 +3572,7 @@ struct BuilderView: View {
         let values = Self.languageCodes
         let at = values.firstIndex(of: Lang.saved.map { $0.rawValue } ?? "") ?? 0
         let v = values[(at + by + values.count) % values.count]
-        Lang.saved = v.isEmpty ? nil : Lang(rawValue: v)
-        m.lang = Lang.initial()
+        loc.choose(v)
     }
 
     private func uninstallPlan() -> Uninstall.Plan {
@@ -3581,72 +3581,72 @@ struct BuilderView: View {
     }
 
     private var tools: some View {
-        group(m.t("section.tools"), footnote: m.usesEngineStore ? m.engineStatus
-                : (m.repoStatus.isEmpty ? (m.repoOK ? "" : m.t("repo.firstHint")) : m.repoStatus)) {
+        group(loc.t("section.tools"), footnote: m.usesEngineStore ? m.engineStatus
+                : (m.repoStatus.isEmpty ? (m.repoOK ? "" : loc.t("repo.firstHint")) : m.repoStatus)) {
             if m.usesEngineStore {
                 engineRows
             } else {
-            row(m.t("repo.title"),
+            row(loc.t("repo.title"),
                 detail: m.repoOK ? m.shortPath(m.repoPath)
-                    : (m.repoPath.isEmpty ? m.t("repo.notFound") : String(format: m.t("repo.notRepo"), m.shortPath(m.repoPath))),
+                    : (m.repoPath.isEmpty ? loc.t("repo.notFound") : String(format: loc.t("repo.notRepo"), m.shortPath(m.repoPath))),
                 dot: m.repoOK ? LauncherPalette.ready : LauncherPalette.building, help: m.repoPath) {
                 if m.repoBusy { ProgressView().controlSize(.small) }
                 if m.repoOK {
                     if m.repoIsGit {
                         if let n = m.repoBehind, n > 0 {
-                            Button(m.t("repo.pull")) { m.pullRepo() }.disabled(m.repoBusy || m.running)
+                            Button(loc.t("repo.pull")) { m.pullRepo() }.disabled(m.repoBusy || m.running)
                                 .padTarget("set.repoPull", scope: "main") { if !(m.repoBusy || m.running) { m.pullRepo() } }
                         }
-                        Button(m.t("repo.check")) { m.checkRepoUpdates() }.disabled(m.repoBusy || m.running)
+                        Button(loc.t("repo.check")) { m.checkRepoUpdates() }.disabled(m.repoBusy || m.running)
                             .padTarget("set.repoCheck", scope: "main") { if !(m.repoBusy || m.running) { m.checkRepoUpdates() } }
                     } else {
-                        Button(m.t("repo.adopt")) { m.adoptRepoAsGit() }.disabled(m.repoBusy || m.running)
+                        Button(loc.t("repo.adopt")) { m.adoptRepoAsGit() }.disabled(m.repoBusy || m.running)
                             .padTarget("set.repoAdopt", scope: "main") { if !(m.repoBusy || m.running) { m.adoptRepoAsGit() } }
                     }
                 }
                 // Always offered, including when a repository is already configured: a saved path from
                 // an earlier session (an upstream clone, a moved folder) is exactly the state a user
                 // cannot fix without this button — the report had no way to leave the wrong repository.
-                Button(m.t("repo.choose")) { pickRepo() }
+                Button(loc.t("repo.choose")) { pickRepo() }
                 if !m.repoOK {
-                    Button(m.t("repo.download")) { m.cloneRepo() }.disabled(m.repoBusy || m.running)
+                    Button(loc.t("repo.download")) { m.cloneRepo() }.disabled(m.repoBusy || m.running)
                 }
             }
             if !m.repoOK {
                 // GitHub does not load everywhere: the manual route (Code → Download ZIP → unzip →
                 // Choose repository) needs no git at all, and the note says which folder to pick.
                 HStack(spacing: 4) {
-                    Text(m.t("repo.manualHint")).foregroundStyle(.secondary)
+                    Text(loc.t("repo.manualHint")).foregroundStyle(.secondary)
                     Link("github.com/LNPANDY/NX2Apple", destination: URL(string: BuildModel.repoURL.replacingOccurrences(of: ".git", with: ""))!)
-                    Text(m.t("repo.manualHint2")).foregroundStyle(.secondary)
+                    Text(loc.t("repo.manualHint2")).foregroundStyle(.secondary)
                 }
                 .font(.manrope(12)).padding(.horizontal, 18).padding(.bottom, 12)
             }
             if m.repoOK, !m.repoIsGit {
-                Text(m.t(m.autoUpdateRepo ? "repo.noGit" : "repo.zipNoAuto")).font(.manrope(12)).foregroundStyle(.secondary)
+                Text(loc.t(m.autoUpdateRepo ? "repo.noGit" : "repo.zipNoAuto")).font(.manrope(12)).foregroundStyle(.secondary)
                     .padding(.horizontal, 18).padding(.bottom, 12)
             }
             if m.repoOK, !BuildModel.missingTools(in: m.repoPath).isEmpty {
-                Text(String(format: m.t("repo.toolsOld"), BuildModel.missingTools(in: m.repoPath).joined(separator: ", ")))
+                Text(String(format: loc.t("repo.toolsOld"), BuildModel.missingTools(in: m.repoPath).joined(separator: ", ")))
                     .font(.manrope(12)).foregroundStyle(LauncherPalette.building)
                     .padding(.horizontal, 18).padding(.bottom, 12)
             }
             if m.repoOK {   // a ZIP copy too: its adoption at launch follows this switch
                 divider
-                row(m.t("repo.auto"), detail: m.t("repo.autoNote")) {
+                row(loc.t("repo.auto"), detail: loc.t("repo.autoNote")) {
                     Toggle("", isOn: $m.autoUpdateRepo).labelsHidden().toggleStyle(LauncherSwitchStyle())
                 }
             }
             }
             divider
             Button(action: { withAnimation(.easeInOut(duration: 0.18)) { m.toggleDeps() } }) {
-                row(m.t("dep.title"),
-                    detail: !m.depsChecked ? m.t("dep.checking")
-                        : (m.allDepsPresent ? m.t("dep.allReady") : String(format: m.t("dep.missing"), m.deps.filter { !$0.present }.count)),
+                row(loc.t("dep.title"),
+                    detail: !m.depsChecked ? loc.t("dep.checking")
+                        : (m.allDepsPresent ? loc.t("dep.allReady") : String(format: loc.t("dep.missing"), m.deps.filter { !$0.present }.count)),
                     dot: !m.depsChecked ? LauncherPalette.unbuilt : (m.allDepsPresent ? LauncherPalette.ready : LauncherPalette.building),
                     open: m.depsOpen) {
                     if !m.depsChecked { ProgressView().controlSize(.small) }
-                    Button(m.t("dep.recheck")) { m.checkDeps() }
+                    Button(loc.t("dep.recheck")) { m.checkDeps() }
                         .padTarget("set.deps", scope: "main") { m.checkDeps() }
                 }
                 .contentShape(Rectangle())
@@ -3656,13 +3656,13 @@ struct BuilderView: View {
                 ForEach(m.deps, id: \.id) { d in
                     divider
                     VStack(alignment: .leading, spacing: 0) {
-                        row(m.t(d.name), detail: m.shortPath(m.depDetail(d)), dot: d.present && !d.warning ? LauncherPalette.ready : LauncherPalette.building,
-                            help: m.t(d.hint)) {
+                        row(loc.t(d.name), detail: m.shortPath(m.depDetail(d)), dot: d.present && !d.warning ? LauncherPalette.ready : LauncherPalette.building,
+                            help: loc.t(d.hint)) {
                             if d.installing {
                                 ProgressView().controlSize(.small)
-                                Text(m.t("dep.installing")).font(.manrope(12)).foregroundStyle(LauncherPalette.building)
+                                Text(loc.t("dep.installing")).font(.manrope(12)).foregroundStyle(LauncherPalette.building)
                             } else if !d.present {
-                                Button(d.actionLabel.isEmpty ? (d.installCmd.isEmpty ? m.t("dep.openAppStore") : m.t("dep.install")) : m.t(d.actionLabel)) { m.installDep(d) }
+                                Button(d.actionLabel.isEmpty ? (d.installCmd.isEmpty ? loc.t("dep.openAppStore") : loc.t("dep.install")) : loc.t(d.actionLabel)) { m.installDep(d) }
                             }
                         }
                         // Why the last install failed, and what to do about it: the tool's own
@@ -3672,7 +3672,7 @@ struct BuilderView: View {
                                 Text(d.lastError).font(.mono(11)).foregroundStyle(LauncherPalette.building)
                                     .lineLimit(3).help(d.lastError)
                                 if !d.fixHint.isEmpty {
-                                    Text(m.t(d.fixHint)).font(.manrope(11.5)).foregroundStyle(.secondary)
+                                    Text(loc.t(d.fixHint)).font(.manrope(11.5)).foregroundStyle(.secondary)
                                         .fixedSize(horizontal: false, vertical: true)
                                 }
                             }
@@ -3683,27 +3683,27 @@ struct BuilderView: View {
                 }
             }
             divider
-            row(m.t("diag.title"), detail: m.t("diag.note")) { DiagnosticsButton(m: m, game: library.selected) }
+            row(loc.t("diag.title"), detail: loc.t("diag.note")) { DiagnosticsButton(m: m, game: library.selected) }
         }
     }
 
     /// The release app's engine (EngineUpdateModel.swift): which one the build uses, its channel, and the automatic update.
     @ViewBuilder private var engineRows: some View {
         let idle = !(m.engineBusy || m.running)
-        row(m.t("engine.title"), detail: m.engineDetail,
+        row(loc.t("engine.title"), detail: m.engineDetail,
             dot: m.engineSelection.engineID.isEmpty ? LauncherPalette.building : LauncherPalette.ready, help: m.repoPath) {
             if m.engineBusy { ProgressView().controlSize(.small) }
             if let next = m.engineAvailable {
-                Button(String(format: m.t("engine.install"), next.version)) { m.installAvailableEngine() }.disabled(!idle)
+                Button(String(format: loc.t("engine.install"), next.version)) { m.installAvailableEngine() }.disabled(!idle)
                     .padTarget("set.engineInstall", scope: "main") { if idle { m.installAvailableEngine() } }
             }
-            Button(m.t("repo.check")) { m.checkEngineUpdate() }.disabled(!idle)
+            Button(loc.t("repo.check")) { m.checkEngineUpdate() }.disabled(!idle)
                 .padTarget("set.engineCheck", scope: "main") { if idle { m.checkEngineUpdate() } }
         }
         divider
         // A different channel is asked about first (the alert below): the switch can recompile every game's shaders
-        row(m.t("engine.update"), detail: m.t("engine.channelNote"), dot: LauncherPalette.ready) {
-            LauncherDropdown(options: EngineChannel.allCases.map { (value: $0.rawValue, label: m.t($0.labelKey)) },
+        row(loc.t("engine.update"), detail: loc.t("engine.channelNote"), dot: LauncherPalette.ready) {
+            LauncherDropdown(options: EngineChannel.allCases.map { (value: $0.rawValue, label: loc.t($0.labelKey)) },
                              selection: m.engineSelection.channel.rawValue) { v in
                 if let channel = EngineChannel(rawValue: v) { m.requestEngineChannel(channel) }
             }
@@ -3712,22 +3712,22 @@ struct BuilderView: View {
                 if idle { m.requestEngineChannel(m.engineSelection.channel == .stable ? .experimental : .stable) }
             }
         }
-        .alert(m.t("engine.switch.title"), isPresented: Binding(get: { m.confirmingChannel != nil },
+        .alert(loc.t("engine.switch.title"), isPresented: Binding(get: { m.confirmingChannel != nil },
                                                                set: { if !$0 { m.cancelEngineChannel() } })) {
             if let channel = m.confirmingChannel {
-                Button(String(format: m.t("engine.switch.go"), m.t(channel.labelKey))) { m.confirmEngineChannel(channel) }
+                Button(String(format: loc.t("engine.switch.go"), loc.t(channel.labelKey))) { m.confirmEngineChannel(channel) }
             }
-            Button(m.t("engine.switch.cancel"), role: .cancel) { m.cancelEngineChannel() }
+            Button(loc.t("engine.switch.cancel"), role: .cancel) { m.cancelEngineChannel() }
         } message: {
-            Text(m.confirmingChannel.flatMap { m.engineSelection.channel.switchWarningKey(to: $0) }.map { m.t($0) } ?? "")
+            Text(m.confirmingChannel.flatMap { m.engineSelection.channel.switchWarningKey(to: $0) }.map { loc.t($0) } ?? "")
         }
         divider
-        row(m.t("shellCache.row"), detail: m.t("shellCache.note"), detail2: m.shellCachePath) {
-            Button(m.t("shellCache.open")) { m.revealFolder(URL(fileURLWithPath: m.shellCachePath)) }
+        row(loc.t("shellCache.row"), detail: loc.t("shellCache.note"), detail2: m.shellCachePath) {
+            Button(loc.t("shellCache.open")) { m.revealFolder(URL(fileURLWithPath: m.shellCachePath)) }
                 .buttonStyle(LauncherSecondaryButtonStyle())
         }
         divider
-        row(m.t("repo.auto"), detail: m.t("engine.autoNote")) {
+        row(loc.t("repo.auto"), detail: loc.t("engine.autoNote")) {
             Toggle("", isOn: $m.autoUpdateRepo).labelsHidden().toggleStyle(LauncherSwitchStyle())
         }
     }
@@ -3735,7 +3735,7 @@ struct BuilderView: View {
     private func pickRepo() {
         let d = NSOpenPanel()
         d.canChooseDirectories = true; d.canChooseFiles = false
-        d.message = m.t("repo.pickMessage")
+        d.message = loc.t("repo.pickMessage")
         if d.runModal() == .OK, let u = d.url { m.repoPath = u.path }
     }
 }

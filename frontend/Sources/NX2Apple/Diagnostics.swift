@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import NXCore
+import NXModel
 import NXLauncher
 
 /// Copy diagnostics (#69): a short Markdown report for a bug report — the app, the Mac, the checkout and how far behind it
@@ -333,6 +334,7 @@ extension BuildModel {
 /// Settings' Copy diagnostics: the report goes to the clipboard and the button says Copied for a moment.
 struct DiagnosticsButton: View {
     @ObservedObject var m: BuildModel
+    @EnvironmentObject var loc: Localizer
     var game: LibraryGame?   // the library's selected game: its log goes in the report
     var showCopied = false   // the visual QA's confirmation
     @State private var busy = false
@@ -340,7 +342,7 @@ struct DiagnosticsButton: View {
 
     var body: some View {
         Button(action: copy) {
-            if copied || showCopied { Label(m.t("diag.copied"), systemImage: "checkmark") } else { Text(m.t("diag.copy")) }
+            if copied || showCopied { Label(loc.t("diag.copied"), systemImage: "checkmark") } else { Text(loc.t("diag.copy")) }
         }
         .buttonStyle(LauncherSecondaryButtonStyle(accent: copied || showCopied ? LauncherPalette.ready : nil))
         .disabled(busy)

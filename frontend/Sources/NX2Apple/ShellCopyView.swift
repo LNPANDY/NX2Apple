@@ -1,5 +1,6 @@
 import SwiftUI
 import NXCore
+import NXModel
 import NXLauncher
 
 /// Before the shared app's game data goes over USB or Wi-Fi: how much, over which connection, and what to do about it. A cable
@@ -7,19 +8,20 @@ import NXLauncher
 /// device shows up wired). While it waits, the card says so and offers to stop.
 struct ShellCopyCard: View {
     @ObservedObject var m: BuildModel
+    @EnvironmentObject var loc: Localizer
 
     var body: some View {
         if let plan = m.shellCopy {
             card {
-                Text(m.t("shell.copyTitle")).font(.manrope(14, .semibold))
+                Text(loc.t("shell.copyTitle")).font(.manrope(14, .semibold))
                 Text(plan.sizeText).font(.manrope(13)).foregroundStyle(.secondary)
                 Text(plan.connectionText).font(.manrope(13)).fixedSize(horizontal: false, vertical: true)
-                Text(m.t("shell.copyExternalNote")).font(.manrope(12.5)).foregroundStyle(.secondary)
+                Text(loc.t("shell.copyExternalNote")).font(.manrope(12.5)).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true).padding(.top, 1)
                 HStack(spacing: 10) {
-                    Button(m.t("shell.copyStart")) { m.answerShellCopy(.copy) }
-                    if plan.canWaitForCable { Button(m.t("shell.copyWaitCable")) { m.answerShellCopy(.waitForCable) } }
-                    Button(m.t("shell.copySkip")) { m.answerShellCopy(.skip) }
+                    Button(loc.t("shell.copyStart")) { m.answerShellCopy(.copy) }
+                    if plan.canWaitForCable { Button(loc.t("shell.copyWaitCable")) { m.answerShellCopy(.waitForCable) } }
+                    Button(loc.t("shell.copySkip")) { m.answerShellCopy(.skip) }
                 }
                 .buttonStyle(LauncherSecondaryButtonStyle()).padding(.top, 2)
             }
@@ -27,9 +29,9 @@ struct ShellCopyCard: View {
             card {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
-                    Text(String(format: m.t("shell.copyWaiting"), m.deviceName(m.installDevice))).font(.manrope(13))
+                    Text(String(format: loc.t("shell.copyWaiting"), m.deviceName(m.installDevice))).font(.manrope(13))
                 }
-                Button(m.t("shell.copyStopWaiting")) { m.cancelShellWait() }
+                Button(loc.t("shell.copyStopWaiting")) { m.cancelShellWait() }
                     .buttonStyle(LauncherSecondaryButtonStyle()).padding(.top, 2)
             }
         }

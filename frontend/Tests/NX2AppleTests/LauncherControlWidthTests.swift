@@ -273,7 +273,7 @@ final class LauncherControlWidthTests: XCTestCase {
         for lang in Lang.allCases {
             model.lang = lang
             let samples = Samples()
-            let view = LaunchOptionsView(m: model, library: library, gameID: game.id).environmentObject(PadFocus())
+            let view = LaunchOptionsView(m: model, library: library, gameID: game.id).environmentObject(PadFocus()).environmentObject(model.localizer)
                 .environment(\.measuresLauncherControls, true)
                 .onPreferenceChange(LauncherControlSamples.self) { samples.all = $0 }
             let host = NSHostingView(rootView: view)
