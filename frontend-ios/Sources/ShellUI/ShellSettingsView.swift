@@ -4,16 +4,8 @@ import SwiftUI
 /// the library that a change belongs to the shell and not to a game.
 enum ShellSettingsRows {
     static let gameID = "shell"
-    static let language = "shell.language"
     static let hud = "shell.hud"
     static let targetPrefix = "shs.row."
-
-    static func languageRow(_ store: ShellSettingsStore) -> SettingRow {
-        SettingRow(id: language, label: ShellStrings.text("Language"), note: ShellStrings.text("Applies to the whole app."),
-                   kind: .choice([SettingOption("", ShellStrings.text("Follow device")), SettingOption("zh-Hans", "中文"),
-                                  SettingOption("en", "English")]),
-                   value: store.language)
-    }
 
     static func hudRow(_ store: ShellSettingsStore) -> SettingRow {
         SettingRow(id: hud, label: ShellStrings.text("Performance overlay"), note: ShellStrings.text("Used by games that have no choice of their own."),
@@ -23,14 +15,13 @@ enum ShellSettingsRows {
     /// A change of one of the rows, from the row itself or from the list of choices.
     static func apply(_ id: String, value: String, to store: ShellSettingsStore) {
         switch id {
-        case language where value.isEmpty || ShellLanguage.supported.contains(value): store.storeLanguage(value)
         case hud: store.storePerformanceHUD(value == "1")
         default: break
         }
     }
 }
 
-/// The shell's own settings: the game-data folder, the cloud-saves folder, the language and the default performance
+/// The shell's own settings: the game-data folder, the cloud-saves folder and the default performance
 /// overlay. A game's own choices win over these, and these win over the built-in defaults. It looks like a game's
 /// settings and takes a controller the same way, as a panel over the library.
 struct ShellSettingsView: View {
@@ -86,11 +77,7 @@ struct ShellSettingsView: View {
                             }
                         }
                         SettingsGroup(title: ShellStrings.text("Interface")) {
-                            let language = ShellSettingsRows.languageRow(store), hud = ShellSettingsRows.hudRow(store)
-                            SettingControl(gameID: ShellSettingsRows.gameID, row: language, targetPrefix: ShellSettingsRows.targetPrefix) {
-                                ShellSettingsRows.apply(language.id, value: $0, to: store)
-                            }.equatable()
-                            Rectangle().fill(.white.opacity(0.06)).frame(height: 1)
+                            let hud = ShellSettingsRows.hudRow(store)
                             SettingControl(gameID: ShellSettingsRows.gameID, row: hud, targetPrefix: ShellSettingsRows.targetPrefix) {
                                 ShellSettingsRows.apply(hud.id, value: $0, to: store)
                             }.equatable()

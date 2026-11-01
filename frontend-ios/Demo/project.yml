@@ -31,6 +31,10 @@ targets:
         type: folder
         buildPhase: resources
       - path: ../AppIcon.icon   # the app icon, shared with the shell app (dm/ios/project-shell.yml)
+    info:
+      path: Gen/Info.plist
+      properties:
+        CFBundleLocalizations: [en, zh-Hans]   # the string catalogs of ShellUI and ShellHost, so iOS offers them to the package bundles
     dependencies:
       - package: ShellUI
         product: ShellUI

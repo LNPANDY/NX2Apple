@@ -8,19 +8,18 @@ import ShellUI
 
     @Test func theOverlayChoiceIsNilUntilThePlayerMakesOne() {
         let store = shell()
-        #expect(store.performanceHUD == nil && store.gameDefaults.isEmpty && store.language == "")
+        #expect(store.performanceHUD == nil && store.gameDefaults.isEmpty)
         store.storePerformanceHUD(true)
         #expect(store.performanceHUD == true && store.gameDefaults == ["DM_METAL_HUD": "1"])
         store.storePerformanceHUD(false)
         #expect(store.gameDefaults == ["DM_METAL_HUD": "0"])
     }
 
-    @Test func theFolderNamesAndTheLanguageAreKept() {
+    @Test func theFolderNamesAreKept() {
         let store = shell()
         store.storeDataFolderName("Switch")
         store.storeCloudSavesFolderName("Game Saves")
-        store.storeLanguage("zh-Hans")
-        #expect(store.dataFolderName == "Switch" && store.cloudSavesFolderName == "Game Saves" && store.language == "zh-Hans")
+        #expect(store.dataFolderName == "Switch" && store.cloudSavesFolderName == "Game Saves")
     }
 
     @Test func aGameChoiceWinsTheShellDefaultWinsTheBuiltInOne() throws {
