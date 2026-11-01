@@ -401,18 +401,18 @@
         }
       }
     },
-    "Games look for their data here. Each game can have a folder of its own.": {
+    "Games look for their data here. Keep one romfs.img per game in any folder inside. Each game is found by the image itself, so the folder names do not matter. Each game can also have a folder of its own.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Games look for their data here. Each game can have a folder of its own."
+            "value": "Games look for their data here. Keep one romfs.img per game in any folder inside. Each game is found by the image itself, so the folder names do not matter. Each game can also have a folder of its own."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "游戏会在这里查找游戏数据。每个游戏也可以单独指定文件夹。"
+            "value": "游戏会在这里查找游戏数据。请在其中的任意文件夹里为每个游戏放一个 romfs.img。应用会按镜像本身识别游戏，所以文件夹名称不限。每个游戏也可以单独指定文件夹。"
           }
         }
       }
