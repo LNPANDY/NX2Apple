@@ -49,9 +49,9 @@ NX2Apple 用你自己导出的游戏文件，在你的 Mac 和 iPhone 上运行 
 ## 环境要求
 
 - **Apple Silicon Mac。** 启动器支持 **macOS 13 或更新**。构建需要装了 iOS SDK 的 Xcode；NVN 游戏需要
-  [Xcode](https://developer.apple.com/download/all/?q=Xcode%2027.1) 27.1（macOS 26.6 或更新），除非加 `--allow-other-metal`。
-  请从 Apple 的下载页面获取 27.1，而不是 App Store 里更新的 Xcode。如果同时装了更新的 Xcode，把 27.1 改名为
-  `Xcode-27.1.app` 并选中它：`sudo xcode-select -s /Applications/Xcode-27.1.app`。
+  [Xcode](https://developer.apple.com/download/all/?q=Xcode%2027.2) 27.2（macOS 26.6 或更新），除非加 `--allow-other-metal`。
+  请从 Apple 的下载页面获取 27.2，而不是 App Store 里更新的 Xcode。如果同时装了更新的 Xcode，把 27.2 改名为
+  `Xcode-27.2.app` 并选中它：`sudo xcode-select -s /Applications/Xcode-27.2.app`。
 - **你自己的游戏文件**（NSP 或 XCI）和**你自己主机里导出的 `prod.keys`**。本项目不自带、不下载、
   也不替你查找任何东西。一份 `prod.keys` 能解你所有的游戏；新导出的一份覆盖所有零售游戏。
 - 要装到 iPhone 或 iPad：iOS 或 iPadOS 26 或更新，以及较新的设备。更旧的设备未测试。
@@ -95,11 +95,11 @@ App 需要 iOS 或 iPadOS 26 或更新。封面是 Mac 启动器为你自己的�
 
 **在 Mac 上**，构建好的游戏带着封面出现在游戏库里，点 **Play** 启动。**启动选项**（按游戏保存，重新
 构建后仍然保留）可设置帧率、主机模式（底座或掌机）、渲染缩放和超分辨率、游戏语言、操控等；每项的
-作用见 [docs/settings.md](https://github.com/seedds/nxnative/blob/bbc3b73784751d2a706932dc69fd67627e3445d4/docs/settings.md)（英文）。手柄既能操作游戏，也能操作启动器。
+作用见 [docs/settings.md](https://github.com/seedds/nxnative/blob/cd859c38a8f8890ddbb57a23d6f45e23ba9e6651/docs/settings.md)（英文）。手柄既能操作游戏，也能操作启动器。
 
 **在 iPhone 上**，App 在游戏开始前显示同样的设置，点 **Play** 即可。触屏操控有 2D 和 3D 两种布局
 （点顶部中央的按钮切换），连接手柄（Xbox、PlayStation、Switch Pro、MFi）后触屏控件会隐藏。
-触屏、震动和体感见 [docs/playing.md](https://github.com/seedds/nxnative/blob/bbc3b73784751d2a706932dc69fd67627e3445d4/docs/playing.md)（英文）。新场景第一次出现时短促卡顿是正常的：
+触屏、震动和体感见 [docs/playing.md](https://github.com/seedds/nxnative/blob/cd859c38a8f8890ddbb57a23d6f45e23ba9e6651/docs/playing.md)（英文）。新场景第一次出现时短促卡顿是正常的：
 App 会为它编译一次图形并记住。游戏数据（`romfs.img`）可以放在外置硬盘上，用「文件」App 选取。
 
 **游戏语言。** 默认英文。Mac 上用启动选项里的「游戏语言」一行。面板里没有的设置，可以写一个
@@ -125,12 +125,12 @@ iPhone 上在「文件」App 里该 App 名字下：`save/` 和 `log.txt`（上�
 
 | | 游戏 | 运行于 | 状态 |
 |---|---|---|---|
-| <img src="https://raw.githubusercontent.com/seedds/nxnative/bbc3b73784751d2a706932dc69fd67627e3445d4/docs/images/zelda-tears-of-the-kingdom.jpg" width="96" alt=""> | 塞尔达传说：王国之泪 | Mac 和 iPhone | **本 fork 验证**：304,243 个文件，逐字节校验；约 17 GB |
-| <img src="https://raw.githubusercontent.com/seedds/nxnative/bbc3b73784751d2a706932dc69fd67627e3445d4/docs/images/hades-ii.jpg" width="96" alt=""> | Hades II | Mac 和 iPhone | **本 fork 验证** |
-| <img src="https://raw.githubusercontent.com/seedds/nxnative/bbc3b73784751d2a706932dc69fd67627e3445d4/docs/images/animal-crossing-new-horizons.jpg" width="96" alt=""> | 集合啦！动物森友会 | iPhone | **本 fork 验证**：流畅运行 |
-| <img src="https://raw.githubusercontent.com/seedds/nxnative/bbc3b73784751d2a706932dc69fd67627e3445d4/docs/images/super-mario-odyssey.jpg" width="96" alt=""> | 超级马力欧 奥德赛 | iPhone | 上游报告可玩 |
-| <img src="https://raw.githubusercontent.com/seedds/nxnative/bbc3b73784751d2a706932dc69fd67627e3445d4/docs/images/zelda-breath-of-the-wild.jpg" width="96" alt=""> | 塞尔达传说：旷野之息 | iPhone | 上游报告可玩；1.9.0 可 60 fps |
-| <img src="https://raw.githubusercontent.com/seedds/nxnative/bbc3b73784751d2a706932dc69fd67627e3445d4/docs/images/mario-kart-8-deluxe.jpg" width="96" alt=""> | 马力欧卡丁车 8 豪华版 | iPhone | 上游报告可玩 |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/cd859c38a8f8890ddbb57a23d6f45e23ba9e6651/docs/images/zelda-tears-of-the-kingdom.jpg" width="96" alt=""> | 塞尔达传说：王国之泪 | Mac 和 iPhone | **本 fork 验证**：304,243 个文件，逐字节校验；约 17 GB |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/cd859c38a8f8890ddbb57a23d6f45e23ba9e6651/docs/images/hades-ii.jpg" width="96" alt=""> | Hades II | Mac 和 iPhone | **本 fork 验证** |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/cd859c38a8f8890ddbb57a23d6f45e23ba9e6651/docs/images/animal-crossing-new-horizons.jpg" width="96" alt=""> | 集合啦！动物森友会 | iPhone | **本 fork 验证**：流畅运行 |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/cd859c38a8f8890ddbb57a23d6f45e23ba9e6651/docs/images/super-mario-odyssey.jpg" width="96" alt=""> | 超级马力欧 奥德赛 | iPhone | 上游报告可玩 |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/cd859c38a8f8890ddbb57a23d6f45e23ba9e6651/docs/images/zelda-breath-of-the-wild.jpg" width="96" alt=""> | 塞尔达传说：旷野之息 | iPhone | 上游报告可玩；1.9.0 可 60 fps |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/cd859c38a8f8890ddbb57a23d6f45e23ba9e6651/docs/images/mario-kart-8-deluxe.jpg" width="96" alt=""> | 马力欧卡丁车 8 豪华版 | iPhone | 上游报告可玩 |
 
 **[GAMES.zh-CN.md](GAMES.zh-CN.md)**（English: [GAMES.md](GAMES.md)，带截图图库和每款的安装大小）
 有完整表格和每款游戏需要的更新包版本：更新包 NSP 的显示版本必须与 profile 一致，否则构建会提示。
@@ -138,7 +138,7 @@ iPhone 上在「文件」App 里该 App 名字下：`save/` 和 `log.txt`（上�
 ## 限制
 
 - **只支持有 profile 的游戏。** 列表之外的游戏需要单独的 bring-up 工作；起点是
-  [docs/agents](https://github.com/seedds/nxnative/blob/bbc3b73784751d2a706932dc69fd67627e3445d4/docs/agents/README.md)（上游为其他 Switch 游戏写的指南，英文）。
+  [docs/agents](https://github.com/seedds/nxnative/blob/cd859c38a8f8890ddbb57a23d6f45e23ba9e6651/docs/agents/README.md)（上游为其他 Switch 游戏写的指南，英文）。
 - **大体积游戏在 iPhone 上会碰到内存上限。** 没有 Increased Memory Limit entitlement 时 iOS 只给 App
   约 3.4 GB，不够《王国之泪》用。App 请求了它，AltStore Classic 2.2+、Impactor 和 Xcode + Personal Team
   会保留；SideStore 配合免费 Apple ID 需要对 App ID 做一次性修复，Sideloadly 会丢掉它
@@ -156,7 +156,7 @@ iPhone 上在「文件」App 里该 App 名字下：`save/` 和 `log.txt`（上�
   `python3 tools/engine.py sync` 把它构建到 `engine/`。见 [patches/README.md](patches/README.md)。
   `python3 tools/engine.py status` 列出带着的全部补丁。每天一次的任务移动固定提交并开 pull request，
   某个补丁对不上时开一个点名该补丁的 issue。本页指向引擎文档的链接都指向 nxnative 的固定提交。
-- **其他 Switch 游戏：** [docs/agents](https://github.com/seedds/nxnative/blob/bbc3b73784751d2a706932dc69fd67627e3445d4/docs/agents/README.md)（解包、二进制调查、bring-up）。
+- **其他 Switch 游戏：** [docs/agents](https://github.com/seedds/nxnative/blob/cd859c38a8f8890ddbb57a23d6f45e23ba9e6651/docs/agents/README.md)（解包、二进制调查、bring-up）。
 - **版本历史：** [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md)。
 
 ## 致谢
@@ -180,7 +180,7 @@ iPhone 上在「文件」App 里该 App 名字下：`save/` 和 `log.txt`（上�
 - **[SPIRV-Cross](https://github.com/KhronosGroup/SPIRV-Cross)** —— SPIR-V 转 Metal Shading Language。
 - **yuzu**、**deko3d**、**libvpx**、**stb_vorbis**、**libdeflate** —— 各自贡献见上游致谢列表。
 
-`dm/third_party` 里随附了其他项目及其许可证（[列表](https://github.com/seedds/nxnative/blob/bbc3b73784751d2a706932dc69fd67627e3445d4/dm/third_party/README.md)）。
+`dm/third_party` 里随附了其他项目及其许可证（[列表](https://github.com/seedds/nxnative/blob/cd859c38a8f8890ddbb57a23d6f45e23ba9e6651/dm/third_party/README.md)）。
 
 ## 法律
 

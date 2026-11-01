@@ -163,7 +163,7 @@ library manifest is stored at
 ## Launch options
 
 The button beside **Play** opens the game's launch options: the settings the iPhone
-launcher shows before a game starts ([docs/settings.md](https://github.com/seedds/nxnative/blob/bbc3b73784751d2a706932dc69fd67627e3445d4/docs/settings.md)), read
+launcher shows before a game starts ([docs/settings.md](https://github.com/seedds/nxnative/blob/cd859c38a8f8890ddbb57a23d6f45e23ba9e6651/docs/settings.md)), read
 from the list the engine packs into the Mac app (`Contents/Resources/dm/launcher.json`,
 written by `dm/games/settings.py` from `dm/games/settings.tsv`, and the engine change that
 packs it is [seedds/nxnative#352](https://github.com/seedds/nxnative/pull/352), so a
@@ -222,7 +222,7 @@ writes the font into the binary as `Sources/NSPortBuilder/EmbeddedFonts.swift`, 
 installed and no resource bundle beside the executable.
 
 The app icon is `AppIcon.icon`, the Liquid Glass icon made in Icon Composer (the iOS app uses the same file).
-`build-mac-app.yml` compiles it with the `actool` of Xcode 27.1 (the one in Xcode 26.6 throws an exception on this icon) into `Assets.car` (macOS 26 and later) and `AppIcon.icns` (macOS 13 to 25),
+`build-mac-app.yml` compiles it with the `actool` of Xcode 27.2 (the one in Xcode 26.6 throws an exception on this icon) into `Assets.car` (macOS 26 and later) and `AppIcon.icns` (macOS 13 to 25),
 and `Info.plist` names both. To compile it by hand:
 
 ```sh

@@ -46,10 +46,10 @@ index 8a8adb8..223a7f7 100644
  tex_dirty_upload	on
  # 60 fps (30 on the Switch): the host decides each frame's step in whole vsyncs and holds the frame that long (rewriter stubs at FPSLocker's sites, patches.py FRAME_STEP);
 diff --git a/dm/games/game.py b/dm/games/game.py
-index 359d377..a4f228a 100644
+index bc2ad82..2456df0 100644
 --- a/dm/games/game.py
 +++ b/dm/games/game.py
-@@ -128,6 +128,8 @@ def header(g):
+@@ -131,6 +131,8 @@ def header(g):
      if tfu not in ('on', 'off'): sys.exit(f'{g.id}: tex_flush_upload must be on or off: {tfu}')
      tdu = g.get('tex_dirty_upload', 'off')   # with tex_flush_upload: a registered texture the CPU writes after init without any flush is uploaded too (dirty pages, hle_nvn.c nvn_ft_written): on / off
      if tdu not in ('on', 'off') or (tdu == 'on' and tfu != 'on'): sys.exit(f'{g.id}: tex_dirty_upload must be on or off, and needs tex_flush_upload on: {tdu}')
@@ -58,7 +58,7 @@ index 359d377..a4f228a 100644
      tds = g.get('tex_dyn_slots', 'off')   # shaders whose texture handle the translator could not trace to one slot: slot indices in c2, the bound slots in the fallback arrays (nvn_mtl.m): on / off
      if tds not in ('on', 'off'): sys.exit(f'{g.id}: tex_dyn_slots must be on or off: {tds}')
      vcr = g.get('vconv_range', 'off')   # vertex attributes converted on the CPU only over the vertices each draw reads (nvn_mtl.m vc_draw_range): on / off
-@@ -183,6 +185,7 @@ def header(g):
+@@ -186,6 +188,7 @@ def header(g):
           f'#define DM_GAME_SHADER_KEY_SKIP_OFF {sko:#x}', f'#define DM_GAME_SHADER_KEY_SKIP_LEN {skl:#x}',
           f'#define DM_GAME_RENDER_COND {int(rcd == "on")}',
           f'#define DM_GAME_TEX_DIRTY_UPLOAD {int(tdu == "on")}',
@@ -67,7 +67,7 @@ index 359d377..a4f228a 100644
           f'#define DM_GAME_GPU_TS_SEGMENT {int(gts == "segment")}',
           f'#define DM_GAME_VCONV_RANGE {int(vcr == "on")}',
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index 1140f62..a8b3f32 100644
+index 86b8eff..d6aa07b 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
 @@ -20,6 +20,7 @@
@@ -109,7 +109,7 @@ index 1140f62..a8b3f32 100644
      [g_q addResidencySet:g_res];
      [g_q4 addResidencySet:g_res];
      { void crash_set_wait_dump(void (*fn)(void)); void mtl_wait_state_dump(void); crash_set_wait_dump(mtl_wait_state_dump); }
-@@ -1865,7 +1872,12 @@ static MTLTextureUsage img_usage(const tex_t *t, MTLPixelFormat pf) {
+@@ -1899,7 +1906,12 @@ static MTLTextureUsage img_usage(const tex_t *t, MTLPixelFormat pf) {
  static int tex_atomic_capable(id<MTLTexture> base) { return pf_r32i(base.pixelFormat) && (base.usage & MTLTextureUsageShaderWrite); }
  static MTLTextureDescriptor *tex_desc(const tex_t *t, int packaged) {
      uint32_t pf = 0; uint8_t swz[4];
@@ -123,7 +123,7 @@ index 1140f62..a8b3f32 100644
      // Metal's limits: 16384 in 2D, 2048 in 3D, 2048 array layers; beyond them Metal aborts the process on an assertion, so they are caught here with a red line
      if (t->d.width > 16384 || t->d.height > 16384 || t->d.depth > 2048) { RED_ONCE(71, "texture size exceeds Metal limits: %u×%u×%u levels %u format %#x target %d (first case ser=%llu)", t->d.width, t->d.height, t->d.depth, t->d.levels, t->d.format, t->d.target, (unsigned long long)t->serial); return nil; }
      MTLTextureDescriptor *d = [MTLTextureDescriptor new];
-@@ -2331,15 +2343,43 @@ static void rb_swap_rows(uint8_t *p, size_t wb, size_t rows, size_t nz, size_t r
+@@ -2365,15 +2377,43 @@ static void rb_swap_rows(uint8_t *p, size_t wb, size_t rows, size_t nz, size_t r
          if (!(part = malloc(t->L.size ? t->L.size : 1))) MDIE("sparse texture copy of %llu bytes failed", (unsigned long long)t->L.size);
          nvn_sparse_copy(t->pool, part, (uint64_t)(uintptr_t)t->mem, t->L.size); src = part;
      }
@@ -168,7 +168,7 @@ index 1140f62..a8b3f32 100644
              if (nvn_deswizzle(&t->d, l, y, src, (uint8_t *)stg.contents + off, pitch)) { RED_ONCE(9, "deswizzle failed format %#x target %d", t->d.format, t->d.target); break; }
              if (rb_shift) rb_swap_rows((uint8_t *)stg.contents + off, pitch, rows, z, pitch, pitch * rows, rb_shift);
              if (zb && l < 16) { const uint64_t *q = (const uint64_t *)((const uint8_t *)stg.contents + off); size_t nb = pitch * rows * z / 16;
-@@ -2349,6 +2389,7 @@ static void rb_swap_rows(uint8_t *p, size_t wb, size_t rows, size_t nz, size_t r
+@@ -2383,6 +2423,7 @@ static void rb_swap_rows(uint8_t *p, size_t wb, size_t rows, size_t nz, size_t r
              off += pitch * rows * z;
          }
      }
@@ -417,7 +417,7 @@ index 0000000..5fd5efe
 +    return 0;
 +}
 diff --git a/dm/ios/Sources/main.m b/dm/ios/Sources/main.m
-index d88e35c..ddfce1a 100644
+index 85c068c..a5fe462 100644
 --- a/dm/ios/Sources/main.m
 +++ b/dm/ios/Sources/main.m
 @@ -9,6 +9,7 @@
@@ -428,15 +428,15 @@ index d88e35c..ddfce1a 100644
  #include "front.h"
  #include "romfs_image.h"
  #include "DataBookmark.h"
-@@ -253,7 +254,7 @@ static int boot_env(void) {
-     if (!getenv("DM_LANG") && [lang isKindOfClass:NSString.class] && lang.length) setenv("DM_LANG", lang.UTF8String, 0);
-     fprintf(stderr, "boot: game language %s\n", getenv("DM_LANG") ?: "en-US");
+@@ -197,7 +198,7 @@ static void aoc_locate(void) {
+     static char msg[320]; static int done;
+     if (done++) return msg[0] ? msg : NULL;
      id<MTLDevice> gpu = MTLCreateSystemDefaultDevice();   // the system default device, the one the graphics layers take (mtl_init repeats this check for the other routes)
--    if (!gpu.supportsBCTextureCompression) {
-+    if (!gpu.supportsBCTextureCompression && !DM_GAME_TEX_BC_CPU) {   // tex_bc_cpu: nvn_mtl.m decodes BC on the CPU (nvn_bcdec.c)
-         snprintf(g_device_message, sizeof g_device_message, "This device's GPU (%s) cannot read BC-compressed textures, which the games use. It needs an iPhone 15 Pro or newer (A17 Pro chip or later) or an iPad with an M1 chip or later.",
-                  gpu ? gpu.name.UTF8String : "no Metal device");
-         fprintf(stderr, "[RED] boot: %s\n", g_device_message); return 0;
+-    if (gpu.supportsBCTextureCompression) return NULL;
++    if (gpu.supportsBCTextureCompression || DM_GAME_TEX_BC_CPU) return NULL;   // tex_bc_cpu: nvn_mtl.m decodes BC on the CPU (nvn_bcdec.c)
+     snprintf(msg, sizeof msg, "This device's GPU (%s) cannot read BC-compressed textures, which the games use. It needs an iPhone 15 Pro or newer (A17 Pro chip or later) or an iPad with an M1 chip or later.",
+              gpu ? gpu.name.UTF8String : "no Metal device");
+     fprintf(stderr, "[RED] boot: %s\n", msg);
 diff --git a/dm/third_party/bcdec/LICENSE b/dm/third_party/bcdec/LICENSE
 new file mode 100644
 index 0000000..78e53f1
