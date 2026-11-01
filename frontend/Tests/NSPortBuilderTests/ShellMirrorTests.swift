@@ -2,32 +2,58 @@ import XCTest
 @testable import NSPortBuilder
 
 final class ShellMirrorTests: XCTestCase {
-    func testMirrorLinksAndStandsIn() throws {
-        let tmp = NSHomeDirectory() + "/.nspb-mirror-test-\(UUID().uuidString)"
-        try FileManager.default.createDirectory(atPath: tmp + "/fw", withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(atPath: tmp) }
-        let fw = tmp + "/fw/DmGame0100A00019DE0000.framework"
+    private let id = "0100A00019DE0000"
+    private var tmp = ""
+
+    override func setUpWithError() throws {
+        tmp = NSHomeDirectory() + "/.nspb-mirror-test-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: tmp, withIntermediateDirectories: true)
+    }
+
+    override func tearDownWithError() throws { try? FileManager.default.removeItem(atPath: tmp) }
+
+    private func makeFramework() throws -> String {
+        let fw = tmp + "/fw/DmGame\(id).framework"
         try FileManager.default.createDirectory(atPath: fw + "/inside", withIntermediateDirectories: true)
         try "x".write(toFile: fw + "/inside/f", atomically: true, encoding: .utf8)
-        XCTAssertEqual(ShellInstall.titleID(ofFramework: fw), "0100A00019DE0000")
+        return fw
+    }
+
+    func testMirrorIsACopyThatLaterWritesDoNotReach() throws {
+        let fw = try makeFramework()
+        XCTAssertEqual(ShellInstall.titleID(ofFramework: fw), id)
         try ShellInstall.mirrorFramework(framework: fw, root: tmp)
-        let mirror = ShellInstall.mirroredFramework(root: tmp, titleID: "0100A00019DE0000")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: mirror))
-        // 重镜像：删除原 framework 后重新链接不报错
+        let mirror = ShellInstall.mirroredFramework(root: tmp, titleID: id)
+        XCTAssertEqual(try String(contentsOfFile: mirror + "/inside/f"), "x")
+        // an overwrite in place and a new file in the build folder stay out of the mirror
+        try "changed".write(toFile: fw + "/inside/f", atomically: false, encoding: .utf8)
+        try "new".write(toFile: fw + "/inside/g", atomically: true, encoding: .utf8)
+        XCTAssertEqual(try String(contentsOfFile: mirror + "/inside/f"), "x")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: mirror + "/inside/g"))
+        // not a hard link: the file is another inode
+        let a = try FileManager.default.attributesOfItem(atPath: fw + "/inside/f")[.systemFileNumber] as? Int
+        let b = try FileManager.default.attributesOfItem(atPath: mirror + "/inside/f")[.systemFileNumber] as? Int
+        XCTAssertNotEqual(a, b)
+    }
+
+    func testMirrorAgainReplacesThePreviousMirror() throws {
+        let fw = try makeFramework()
         try ShellInstall.mirrorFramework(framework: fw, root: tmp)
-        // dropMissing 的镜像回退：原路径没了，镜像顶上
+        try "changed".write(toFile: fw + "/inside/f", atomically: false, encoding: .utf8)
+        try ShellInstall.mirrorFramework(framework: fw, root: tmp)
+        XCTAssertEqual(try String(contentsOfFile: ShellInstall.mirroredFramework(root: tmp, titleID: id) + "/inside/f"), "changed")
+    }
+
+    func testMirrorOfAMissingFrameworkThrowsAndLeavesNothing() throws {
+        XCTAssertThrowsError(try ShellInstall.mirrorFramework(framework: tmp + "/none/DmGame\(id).framework", root: tmp))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: ShellInstall.mirroredFramework(root: tmp, titleID: id)))
+    }
+
+    func testDropMissingChecksTheOnePath() throws {
         var lib = ShellLibrary()
-        lib.add(.init(titleID: "0100A00019DE0000", name: "Test", framework: fw))
-        try FileManager.default.removeItem(atPath: fw)
-        lib.dropMissing(mirror: { g in
-            let m = ShellInstall.mirroredFramework(root: tmp, titleID: g.titleID)
-            return FileManager.default.fileExists(atPath: m) ? m : nil
-        })
-        XCTAssertEqual(lib.games.count, 1)
-        XCTAssertEqual(lib.games[0].framework, mirror)
-        // 无镜像时才真正剔除
-        try FileManager.default.removeItem(atPath: mirror)
-        lib.dropMissing(mirror: { _ in nil })
-        XCTAssertEqual(lib.games.count, 0)
+        lib.add(.init(titleID: id, name: "Test", framework: tmp + "/gone.framework"))
+        lib.add(.init(titleID: "B", name: "Kept", framework: tmp))
+        lib.dropMissing()
+        XCTAssertEqual(lib.games.map(\.titleID), ["B"])
     }
 }

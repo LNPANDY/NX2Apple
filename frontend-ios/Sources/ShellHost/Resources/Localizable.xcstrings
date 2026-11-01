@@ -17,6 +17,22 @@
         }
       }
     },
+    "%@ (from Settings)": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (from Settings)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@（来自设置）"
+          }
+        }
+      }
+    },
     "%@ appears twice in launcher.json.": {
       "localizations": {
         "en": {

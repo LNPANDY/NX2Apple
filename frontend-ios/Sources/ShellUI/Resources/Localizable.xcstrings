@@ -49,6 +49,22 @@
         }
       }
     },
+    "Applies to the whole app.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Applies to the whole app."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "对整个 App 生效。"
+          }
+        }
+      }
+    },
     "Back": {
       "localizations": {
         "en": {
@@ -337,6 +353,22 @@
         }
       }
     },
+    "Follow device": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Follow device"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跟随设备"
+          }
+        }
+      }
+    },
     "For a bug report": {
       "localizations": {
         "en": {
@@ -349,6 +381,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "用于问题报告"
+          }
+        }
+      }
+    },
+    "From Settings": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "From Settings"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "来自设置"
           }
         }
       }
@@ -381,6 +429,38 @@
           "stringUnit": {
             "state": "translated",
             "value": "游戏设置"
+          }
+        }
+      }
+    },
+    "Games look for their data here. Each game can have a folder of its own.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Games look for their data here. Each game can have a folder of its own."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "游戏会在这里查找游戏数据。每个游戏也可以单独指定文件夹。"
+          }
+        }
+      }
+    },
+    "Games without a folder of their own save here. Choose the same iCloud Drive folder you use on your Mac.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Games without a folder of their own save here. Choose the same iCloud Drive folder you use on your Mac."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有单独指定文件夹的游戏会把存档保存在这里。请选择与 Mac 相同的 iCloud Drive 文件夹。"
           }
         }
       }
@@ -445,6 +525,38 @@
           "stringUnit": {
             "state": "translated",
             "value": "安装本 App 的更新版本以游玩此游戏。"
+          }
+        }
+      }
+    },
+    "Interface": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interface"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "界面"
+          }
+        }
+      }
+    },
+    "Language": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Language"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "语言"
           }
         }
       }
@@ -561,6 +673,22 @@
         }
       }
     },
+    "No folder chosen": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No folder chosen"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未选择文件夹"
+          }
+        }
+      }
+    },
     "Off": {
       "localizations": {
         "en": {
@@ -605,6 +733,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "在手柄上"
+          }
+        }
+      }
+    },
+    "Performance overlay": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Performance overlay"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "性能浮层"
           }
         }
       }
@@ -705,6 +849,22 @@
         }
       }
     },
+    "Remove": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移除"
+          }
+        }
+      }
+    },
     "Reset to tested defaults": {
       "localizations": {
         "en": {
@@ -733,6 +893,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "选择"
+          }
+        }
+      }
+    },
+    "Settings": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Settings"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设置"
           }
         }
       }
@@ -849,6 +1025,22 @@
         }
       }
     },
+    "Use Settings folder": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Settings folder"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用设置中的文件夹"
+          }
+        }
+      }
+    },
     "Use app data": {
       "localizations": {
         "en": {
@@ -861,6 +1053,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "使用应用数据"
+          }
+        }
+      }
+    },
+    "Used by games that have no choice of their own.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Used by games that have no choice of their own."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "游戏未单独设置时使用。"
           }
         }
       }
