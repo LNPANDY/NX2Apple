@@ -49,22 +49,6 @@
         }
       }
     },
-    "Applies to the whole app.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Applies to the whole app."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "对整个 App 生效。"
-          }
-        }
-      }
-    },
     "Back": {
       "localizations": {
         "en": {
@@ -353,22 +337,6 @@
         }
       }
     },
-    "Follow device": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Follow device"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "跟随设备"
-          }
-        }
-      }
-    },
     "For a bug report": {
       "localizations": {
         "en": {
@@ -541,22 +509,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "界面"
-          }
-        }
-      }
-    },
-    "Language": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Language"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "语言"
           }
         }
       }

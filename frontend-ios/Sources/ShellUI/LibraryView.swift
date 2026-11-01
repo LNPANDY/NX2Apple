@@ -36,8 +36,6 @@ public struct LibraryView: View {
     @State private var selectedID: String?
     @State private var settingsOpen: Bool
     @State private var shellSettingsOpen: Bool
-    /// The interface language in force. A change rebuilds the views, so every text is read again in the new language.
-    @State private var shellLanguage = ShellSettingsStore.current.language
     @State private var controllersOpen: Bool
     /// The game whose How to fix or How to update explanation is open.
     @State private var helpGameID: String?
@@ -204,7 +202,6 @@ public struct LibraryView: View {
             .onAppear { self.layout = layout }
             .onChange(of: layout) { _, new in self.layout = new }
         }
-        .id(shellLanguage)
         .animation(reduceMotion ? nil : .smooth(duration: 0.35), value: layout)
         .animation(reduceMotion ? nil : .smooth(duration: 0.3), value: settingsOpen)
         .animation(reduceMotion ? nil : .smooth(duration: 0.3), value: controllersOpen)
@@ -233,10 +230,6 @@ public struct LibraryView: View {
         .onDisappear { targets.values.removeAll() }
         .onChange(of: games.map(\.id)) { _, ids in
             if !ids.contains(selectedID ?? "") { selectedID = ids.first; settingsOpen = false }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
-            let language = ShellSettingsStore.current.language
-            if language != shellLanguage { shellLanguage = language }
         }
     }
 

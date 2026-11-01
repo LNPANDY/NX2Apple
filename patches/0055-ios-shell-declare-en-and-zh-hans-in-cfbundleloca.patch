@@ -1,0 +1,25 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: v0lumehi <aljic.zijad@gmail.com>
+Date: Sun, 1 Nov 2026 16:42:17 +0100
+Subject: [PATCH] ios shell: declare en and zh-Hans in CFBundleLocalizations
+
+Upstream-Status: fork-only
+Reason: Without CFBundleLocalizations iOS never offers zh-Hans to the shell's package bundles, so a device set to Chinese shows English. The shell follows the system language.
+Issue: LNPANDY/NX2Apple#418
+
+---
+ dm/ios/project-shell.yml | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/dm/ios/project-shell.yml b/dm/ios/project-shell.yml
+index 1fc2956..2f92fc4 100644
+--- a/dm/ios/project-shell.yml
++++ b/dm/ios/project-shell.yml
+@@ -48,6 +48,7 @@ targets:
+       path: Gen/Info.plist
+       properties:
+         CFBundleDisplayName: ${DM_SHELL_NAME}
++        CFBundleLocalizations: [en, zh-Hans]   # ShellUI and ShellHost carry en and zh-Hans catalogs, iOS offers only the declared ones to the package bundles
+         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+         CFBundleShortVersionString: $(MARKETING_VERSION)
+         UILaunchScreen: {}

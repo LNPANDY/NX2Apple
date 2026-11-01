@@ -89,13 +89,12 @@ public struct ShellHostConfig: Sendable {
 
     deinit { defaultsObserver.map(NotificationCenter.default.removeObserver) }
 
-    /// What the details show of the shell settings besides the folders: the interface language and the overlay default.
+    /// What the details show of the shell settings besides the folders: the overlay default.
     private static func choices(of settings: ShellSettingsStore) -> [String] {
-        [settings.language, settings.gameDefaults.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: ",")]
+        [settings.gameDefaults.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: ",")]
     }
 
-    /// Builds the details again, in the same order. The texts the host writes follow the interface language, so a
-    /// change of it comes through here, and so does a change of a shell folder or of the performance overlay.
+    /// Builds the details again, in the same order. A change of a shell folder or of the performance overlay comes through here.
     public func refreshAll() {
         shellChoices = Self.choices(of: shellSettings)
         details = entries.map(detail(for:))

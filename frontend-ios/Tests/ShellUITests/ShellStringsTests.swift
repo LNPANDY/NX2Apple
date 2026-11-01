@@ -28,21 +28,20 @@ import Testing
 
     @Test func theSettingsPageTextsAreThere() throws {
         let strings = try table("Localizable", in: "ShellUI")
-        for key in ["Settings", "Done", "Interface", "Language", "Follow device", "Performance overlay", "Game data", "Cloud saves", "Choose folder…"] {
+        for key in ["Settings", "Done", "Interface", "Performance overlay", "Game data", "Cloud saves", "Choose folder…"] {
             #expect(strings[key] != nil, "\(key)")
         }
     }
 
-    @Test func theChosenLanguageSelectsTheStringTable() {
-        func text(_ language: String) -> String {
-            String(localized: "Done", bundle: ShellLanguage.bundle(ShellStrings.bundle, language: language))
+    /// The app follows the system language: iOS picks the lproj of the bundle by the device's list, and the app's
+    /// Info.plist declares en and zh-Hans (CFBundleLocalizations). So both lprojs must be in the package bundle.
+    @Test func bothLanguagesAreCompiledIntoTheBundle() throws {
+        func text(_ language: String) throws -> String {
+            let path = try #require(ShellStrings.bundle.path(forResource: language, ofType: "lproj"), "\(language).lproj")
+            return String(localized: "Done", bundle: try #require(Bundle(path: path)))
         }
-        #expect(ShellLanguage.supported == ["zh-Hans", "en"])
-        #expect(text("en") == "Done")
-        #expect(text("zh-Hans") != "Done" && !text("zh-Hans").isEmpty)
-        #expect(ShellLanguage.bundle(ShellStrings.bundle, language: "") == ShellStrings.bundle, "no choice follows the device")
-        #expect(ShellLanguage.bundle(ShellStrings.bundle, language: "fr") == ShellStrings.bundle, "an unknown choice follows the device")
-        let count = String(localized: "\(3) of \(5)", bundle: ShellLanguage.bundle(ShellStrings.bundle, language: "zh-Hans"))
-        #expect(count != "3 of 5", "an interpolated text is found in the chosen language too")
+        #expect(try text("en") == "Done")
+        #expect(try text("zh-Hans") != "Done")
+        #expect(ShellStrings.bundle.path(forResource: "zh-Hant", ofType: "lproj") == nil, "Traditional Chinese has no catalog and falls back")
     }
 }
