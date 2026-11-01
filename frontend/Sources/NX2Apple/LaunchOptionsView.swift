@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import NXCore
+import NXModel
 import NXLauncher
 
 /// A game's launch options: the settings its Mac app was packed with (dm/launcher.json), drawn as the
@@ -9,6 +10,7 @@ import NXLauncher
 /// app reads at every start; Play passes only the launch overrides (what the list has no row for, the mods) as its environment.
 struct LaunchOptionsView: View {
     @ObservedObject var m: BuildModel
+    @EnvironmentObject var loc: Localizer
     @ObservedObject var library: GameLibrary
     let gameID: UUID
     @Environment(\.dismiss) private var dismiss
@@ -20,7 +22,7 @@ struct LaunchOptionsView: View {
 
     private var game: LibraryGame? { library.games.first { $0.id == gameID } }
     private var settings: [LaunchSetting]? {
-        game.flatMap { LaunchSetting.forMac(app: $0.appPath, titleID: $0.titleID, repo: m.repoPath, labels: m.t) }
+        game.flatMap { LaunchSetting.forMac(app: $0.appPath, titleID: $0.titleID, repo: m.repoPath, labels: loc.t) }
     }
     private var store: SavedChoices? { game.map { SavedChoices(app: $0.appPath, titleID: $0.titleID) } }
     /// A saved choice for a row of the list, else the tested default; what only this launcher has comes from the library.
@@ -40,7 +42,7 @@ struct LaunchOptionsView: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(m.t("launch.title")).font(.manrope(26, .heavy)).tracking(-0.6)
+                    Text(loc.t("launch.title")).font(.manrope(26, .heavy)).tracking(-0.6)
                     if let game { Text(game.name).font(.manrope(14)).foregroundStyle(.secondary) }
                 }
                 Spacer()
@@ -58,11 +60,11 @@ struct LaunchOptionsView: View {
                             card {
                                 Button { withAnimation(.easeInOut(duration: 0.18)) { advancedOpen.toggle() } } label: {
                                     HStack(spacing: 8) {
-                                        Text(m.t("launch.advanced")).font(.manrope(14, .medium))
+                                        Text(loc.t("launch.advanced")).font(.manrope(14, .medium))
                                         Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).foregroundStyle(.secondary)
                                             .rotationEffect(.degrees(advancedOpen ? 90 : 0))
                                         Spacer()
-                                        Text(String(format: m.t("launch.advancedCount"), advanced.count)).font(.manrope(12)).foregroundStyle(.secondary)
+                                        Text(String(format: loc.t("launch.advancedCount"), advanced.count)).font(.manrope(12)).foregroundStyle(.secondary)
                                     }
                                     .padding(.horizontal, 18).frame(minHeight: 52).contentShape(Rectangle())
                                 }
@@ -77,23 +79,23 @@ struct LaunchOptionsView: View {
                 .onChange(of: focus.focused) { id in if let id { withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo(id, anchor: .center) } } }
                 }
             } else {
-                Text(m.t("launch.none")).font(.manrope(14)).foregroundStyle(.secondary)
+                Text(loc.t("launch.none")).font(.manrope(14)).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(30).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
             Divider().opacity(0.3)
             HStack(spacing: 14) {
-                Text(m.t("launch.applied")).font(.manrope(12)).foregroundStyle(.secondary).lineLimit(2)
+                Text(loc.t("launch.applied")).font(.manrope(12)).foregroundStyle(.secondary).lineLimit(2)
                 Spacer(minLength: 8)
                 // One LauncherControl wide, as the buttons of a setting row: its label fits on one line in every language
                 if let game, let settings, !game.launchOptions.isEmpty || (store?.hasChoices(settings) ?? false) {
-                    Button(m.t("launch.reset")) { reset(settings) }
+                    Button(loc.t("launch.reset")) { reset(settings) }
                         .buttonStyle(LauncherSecondaryButtonStyle())
                         .launcherRowControls()
                         .padTarget("opt.reset", scope: "launch") { reset(settings) }
                 }
                 Button { dismiss() } label: {
-                    Text(m.t("launch.done")).font(.manrope(13.5, .bold)).foregroundStyle(.black)
+                    Text(loc.t("launch.done")).font(.manrope(13.5, .bold)).foregroundStyle(.black)
                         .padding(.horizontal, 22).padding(.vertical, 9)
                         .background(LauncherPalette.cream, in: Capsule())
                 }
@@ -145,14 +147,14 @@ struct LaunchOptionsView: View {
     /// The translated heading of a section this launcher knows; a section it does not know is drawn under its own name.
     private func sectionName(_ section: String) -> String {
         let key = "launch.section." + section
-        let name = m.t(key)
+        let name = loc.t(key)
         return name == key ? section : name
     }
 
     /// A setting's text in the launcher's language when this launcher has it (a game's launcher.json is in English), else the list's own.
     private func text(_ key: String, _ fallback: String) -> String {
-        guard m.lang != .en else { return fallback }
-        let translated = m.t(key)
+        guard loc.lang != .en else { return fallback }
+        let translated = loc.t(key)
         return translated == key ? fallback : translated
     }
     private func label(_ s: LaunchSetting) -> String { text("launch.set." + s.env, s.label) }
@@ -183,7 +185,7 @@ struct LaunchOptionsView: View {
                 Text(label(s)).font(.manrope(14, .medium))
                 if let full = s.kind == "range" ? s.pixels(scale: 1, docked: isDocked) : nil {
                     // The render scale in pixels: the share of the game's own size in the console mode chosen
-                    Text(String(format: m.t(isDocked ? "launch.scaleOfDocked" : "launch.scaleOfHandheld"), Int(((Double(value) ?? 1) * 100).rounded()), full))
+                    Text(String(format: loc.t(isDocked ? "launch.scaleOfDocked" : "launch.scaleOfHandheld"), Int(((Double(value) ?? 1) * 100).rounded()), full))
                         .font(.manrope(12)).foregroundStyle(.secondary)
                 } else if !note(s).isEmpty {
                     Text(note(s)).font(.manrope(12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -242,8 +244,8 @@ struct LaunchOptionsView: View {
                                 .foregroundStyle(.secondary).contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
-                        .help(m.t("launch.rowReset"))
-                        .accessibilityLabel(m.t("launch.rowReset"))
+                        .help(loc.t("launch.rowReset"))
+                        .accessibilityLabel(loc.t("launch.rowReset"))
                     }
                 }
                 .frame(width: 16)
@@ -262,13 +264,13 @@ struct LaunchOptionsView: View {
     @ViewBuilder private func modsSection(_ game: LibraryGame) -> some View {
         let list = mods
         VStack(alignment: .leading, spacing: 10) {
-            heading(m.t("launch.mods"))
+            heading(loc.t("launch.mods"))
             card {
                 if list.isEmpty {
                     HStack(spacing: 16) {
                         VStack(alignment: .leading, spacing: 3) {
-                            Text(m.t("launch.modsNone")).font(.manrope(14, .medium))
-                            Text(m.t("launch.modsHow")).font(.manrope(12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                            Text(loc.t("launch.modsNone")).font(.manrope(14, .medium))
+                            Text(loc.t("launch.modsHow")).font(.manrope(12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                         }
                         Spacer()
                     }
@@ -279,7 +281,7 @@ struct LaunchOptionsView: View {
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(mod.name).font(.manrope(14, .medium)).lineLimit(1)
                                 if !mod.usable {
-                                    Text(m.t("launch.modCode")).font(.manrope(12)).foregroundStyle(.secondary)
+                                    Text(loc.t("launch.modCode")).font(.manrope(12)).foregroundStyle(.secondary)
                                 }
                             }
                             Spacer(minLength: 12)
@@ -297,17 +299,17 @@ struct LaunchOptionsView: View {
                 if list.isEmpty { divider }
                 HStack(spacing: 10) {
                     Spacer()
-                    Button(m.t("launch.modsRefresh")) { modsRevision += 1 }
+                    Button(loc.t("launch.modsRefresh")) { modsRevision += 1 }
                         .padTarget("mods.refresh", scope: "launch") { modsRevision += 1 }
-                    Button(m.t("launch.modsOpen")) { openModsFolder() }
+                    Button(loc.t("launch.modsOpen")) { openModsFolder() }
                         .padTarget("mods.open", scope: "launch") { openModsFolder() }
-                    Button(m.t("launch.savesShow")) { showSaves(game) }
+                    Button(loc.t("launch.savesShow")) { showSaves(game) }
                         .padTarget("mods.saves", scope: "launch") { showSaves(game) }
                 }
                 .buttonStyle(LauncherSecondaryButtonStyle())
                 .padding(.horizontal, 18).padding(.vertical, 12)
             }
-            Text(m.t(list.count > 1 ? "launch.modsNoteOrder" : "launch.modsNote")).font(.manrope(12)).foregroundStyle(.secondary)
+            Text(loc.t(list.count > 1 ? "launch.modsNoteOrder" : "launch.modsNote")).font(.manrope(12)).foregroundStyle(.secondary)
                 .padding(.leading, 2).fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -322,10 +324,10 @@ struct LaunchOptionsView: View {
         let on = Binding(get: { _ = frameTimesRevision; return FrameTimes.enabled(titleID: game.titleID) },
                          set: { FrameTimes.setEnabled($0, titleID: game.titleID); frameTimesRevision += 1 })
         VStack(alignment: .leading, spacing: 10) {
-            heading(m.t("launch.frameTimes"))
+            heading(loc.t("launch.frameTimes"))
             card {
                 HStack(spacing: 16) {
-                    Text(m.t("launch.frameTimesRecord")).font(.manrope(14, .medium))
+                    Text(loc.t("launch.frameTimesRecord")).font(.manrope(14, .medium))
                     Spacer(minLength: 12)
                     Toggle("", isOn: on).labelsHidden().toggleStyle(LauncherSwitchStyle())
                 }
@@ -334,25 +336,25 @@ struct LaunchOptionsView: View {
                            activate: { on.wrappedValue.toggle() }, adjust: { _ in on.wrappedValue.toggle() })
                 divider
                 if recent.isEmpty {
-                    Text(m.t("launch.frameTimesNone")).font(.manrope(13)).foregroundStyle(.secondary)
+                    Text(loc.t("launch.frameTimesNone")).font(.manrope(13)).foregroundStyle(.secondary)
                         .padding(.horizontal, 18).padding(.vertical, 12)
                     divider
                 }
                 ForEach(recent, id: \.self) { file in
-                    FrameTimesRecordingView(file: file, t: m.t)
+                    FrameTimesRecordingView(file: file, t: loc.t)
                     divider
                 }
                 HStack(spacing: 10) {
                     Spacer()
-                    Button(m.t("launch.modsRefresh")) { frameTimesRevision += 1 }
+                    Button(loc.t("launch.modsRefresh")) { frameTimesRevision += 1 }
                         .padTarget("frameTimes.refresh", scope: "launch") { frameTimesRevision += 1 }
-                    Button(m.t("launch.frameTimesOpen")) { openFolder(folder) }
+                    Button(loc.t("launch.frameTimesOpen")) { openFolder(folder) }
                         .padTarget("frameTimes.open", scope: "launch") { openFolder(folder) }
                 }
                 .buttonStyle(LauncherSecondaryButtonStyle())
                 .padding(.horizontal, 18).padding(.vertical, 12)
             }
-            Text(m.t("launch.frameTimesNote")).font(.manrope(12)).foregroundStyle(.secondary)
+            Text(loc.t("launch.frameTimesNote")).font(.manrope(12)).foregroundStyle(.secondary)
                 .padding(.leading, 2).fixedSize(horizontal: false, vertical: true)
         }
     }

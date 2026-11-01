@@ -1,6 +1,7 @@
 import SwiftUI
 import UniformTypeIdentifiers
 import NXCore
+import NXModel
 import NXLauncher
 
 enum LauncherPage: String, CaseIterable {
@@ -41,6 +42,7 @@ enum LibraryFilter: String, CaseIterable, Identifiable {
 
 struct ContentView: View {
     @StateObject private var m: BuildModel
+    @ObservedObject private var loc: Localizer   // the strings: handed on to every view below through the environment
     @StateObject private var library: GameLibrary
     @State private var page: LauncherPage = .library
     @State private var search = ""
@@ -91,7 +93,9 @@ struct ContentView: View {
         if let search { _search = State(initialValue: search); _searching = State(initialValue: true) }   // visual QA: the bar with its field open
         _toolsAge = StateObject(wrappedValue: ToolsAge(older: olderTools))   // visual QA: games marked without a checkout to compare
         _gamepad = StateObject(wrappedValue: gamepad ?? LauncherGamepad())   // LauncherPerformanceTests presses its buttons
-        _m = StateObject(wrappedValue: model ?? BuildModel())
+        let model = model ?? BuildModel()
+        _m = StateObject(wrappedValue: model)
+        _loc = ObservedObject(wrappedValue: model.localizer)
         _library = StateObject(wrappedValue: library ?? GameLibrary())
         _page = State(initialValue: initialPage)
         _activeBuildID = State(initialValue: activeBuildID)
@@ -132,7 +136,7 @@ struct ContentView: View {
             if !controllerSheet, let toast = consoleDriver.state.toast { ConsoleToastView(toast: toast) }
         }
         .sheet(isPresented: $controllerSheet) {
-            ConsoleControllersSheet(driver: consoleDriver, lang: m.lang, close: { controllerSheet = false; consoleDriver.back() })
+            ConsoleControllersSheet(driver: consoleDriver, lang: loc.lang, close: { controllerSheet = false; consoleDriver.back() })
                 .environmentObject(padFocus)
         }
         .onChange(of: controllerSheet) { open in
@@ -142,7 +146,7 @@ struct ContentView: View {
         }
         .overlay {
             if consolePrompt, let enterConsole {
-                ConsoleConnectionPrompt(lang: m.lang, enterConsole: { consolePrompt = false; enterConsole() }, dismissPrompt: { consolePrompt = false })
+                ConsoleConnectionPrompt(lang: loc.lang, enterConsole: { consolePrompt = false; enterConsole() }, dismissPrompt: { consolePrompt = false })
             }
         }
         .onChange(of: gamepad.connected) { connected in
@@ -157,6 +161,7 @@ struct ContentView: View {
             if open { padFocus.focused = "console.entry.enter" }
         }
         .environmentObject(padFocus)
+        .environmentObject(loc)
     }
 
     private var launcherBody: some View {
@@ -178,7 +183,7 @@ struct ContentView: View {
         .padScope("main", padFocus)
         .environmentObject(padFocus)
         .manageMenuOverlay(items: manageOpenFor.flatMap { id in library.games.first { $0.id == id } }.map(manageItems),
-                           label: m.t("library.manage"), pad: padFocus) { manageOpenFor = nil }
+                           label: loc.t("library.manage"), pad: padFocus) { manageOpenFor = nil }
         .launcherDropdownHost()
         .onChange(of: manageOpenFor) { id in
             padFocus.scope = id != nil ? "manage" : currentPadScope
@@ -256,44 +261,44 @@ struct ContentView: View {
         .onChange(of: scenePhase) { phase in
             if phase == .active { library.objectWillChange.send() }
         }
-        .alert(m.t("library.error"), isPresented: Binding(
+        .alert(loc.t("library.error"), isPresented: Binding(
             get: { launchError != nil || library.error != nil },
             set: { if !$0 { launchError = nil; library.error = nil } }
         )) {
-            Button(m.t("library.ok")) { launchError = nil; library.error = nil }
+            Button(loc.t("library.ok")) { launchError = nil; library.error = nil }
         } message: { Text(launchError ?? library.error ?? "") }
-        .confirmationDialog(m.t("library.removeQuestion"), isPresented: Binding(
+        .confirmationDialog(loc.t("library.removeQuestion"), isPresented: Binding(
             get: { removing != nil }, set: { if !$0 { removing = nil } }
         ), titleVisibility: .visible) {
-            Button(m.t("library.remove"), role: .destructive) {
+            Button(loc.t("library.remove"), role: .destructive) {
                 if let game = removing { library.remove(game.id) }
                 removing = nil
             }
-        } message: { Text(m.t("library.removeNote")) }
+        } message: { Text(loc.t("library.removeNote")) }
         .sheet(isPresented: Binding(get: { optionsFor != nil }, set: { if !$0 { optionsFor = nil } })) {
             if let id = optionsFor { LaunchOptionsView(m: m, library: library, gameID: id).environmentObject(padFocus).launcherDropdownHost() }
         }
-        .sheet(isPresented: $controlsOpen) { ControlsView(m: m, layout: controls).environmentObject(padFocus).launcherDropdownHost() }
+        .sheet(isPresented: $controlsOpen) { ControlsView(layout: controls).environmentObject(padFocus).launcherDropdownHost() }
         .sheet(isPresented: Binding(get: { freeSpaceFor != nil }, set: { if !$0 { freeSpaceFor = nil } })) {
             if let game = library.games.first(where: { $0.id == freeSpaceFor }) { FreeSpaceView(m: m, game: game).environmentObject(padFocus) }
         }
         .onChange(of: freeSpaceFor) { id in padFocus.scope = id != nil ? "free" : currentPadScope }
         .sheet(isPresented: $m.showUpdateSheet) { UpdateSheet(m: m) }
-        .confirmationDialog(m.t("uninstall.title"), isPresented: Binding(
+        .confirmationDialog(loc.t("uninstall.title"), isPresented: Binding(
             get: { m.uninstallPlan != nil }, set: { if !$0 { m.uninstallPlan = nil } }
         ), titleVisibility: .visible) {
-            Button(m.t("uninstall.confirmButton"), role: .destructive) {
+            Button(loc.t("uninstall.confirmButton"), role: .destructive) {
                 if let plan = m.uninstallPlan {
                     let result = Uninstall.run(plan)
                     m.uninstallPlan = nil
                     if result.failures.isEmpty {
-                        m.appStatus = String(format: m.t("uninstall.done"), result.removed.count)
+                        m.appStatus = String(format: loc.t("uninstall.done"), result.removed.count)
                     } else {
-                        m.appStatus = m.t("uninstall.failed") + "\n" + result.failures.joined(separator: "\n")
+                        m.appStatus = loc.t("uninstall.failed") + "\n" + result.failures.joined(separator: "\n")
                     }
                 }
             }
-        } message: { Text(m.t("uninstall.confirm")) }
+        } message: { Text(loc.t("uninstall.confirm")) }
         .sheet(isPresented: Binding(get: { savesFor != nil }, set: { if !$0 { savesFor = nil } })) {
             if let id = savesFor { SavesView(m: m, library: library, gameID: id).environmentObject(padFocus).launcherDropdownHost() }
         }
@@ -308,8 +313,8 @@ struct ContentView: View {
     }
 
     @ViewBuilder private func navLabel(_ destination: LauncherPage, compact: Bool) -> some View {
-        if compact { Image(systemName: destination.symbol).accessibilityLabel(m.t("nav." + destination.rawValue)) }
-        else { Label(m.t("nav." + destination.rawValue), systemImage: destination.symbol) }
+        if compact { Image(systemName: destination.symbol).accessibilityLabel(loc.t("nav." + destination.rawValue)) }
+        else { Label(loc.t("nav." + destination.rawValue), systemImage: destination.symbol) }
     }
 
     private var topBar: some View {
@@ -338,7 +343,7 @@ struct ContentView: View {
                                             in: RoundedRectangle(cornerRadius: 9))
                                 .contentShape(RoundedRectangle(cornerRadius: 9))   // the whole pill takes the click, not only its text
                         }
-                        .buttonStyle(.plain).help(m.t("nav." + destination.rawValue))
+                        .buttonStyle(.plain).help(loc.t("nav." + destination.rawValue))
                         .accessibilityAddTraits(page == destination ? .isSelected : [])
                         .padTarget("tab." + destination.rawValue, scope: "main") { page = destination }
                     }
@@ -346,15 +351,15 @@ struct ContentView: View {
                     searchField
                     Button { newBuild() } label: {
                         Group {
-                            if compact { Image(systemName: "plus").accessibilityLabel(m.t("library.newBuild")) }
-                            else { Label(m.t("library.newBuild"), systemImage: "plus") }
+                            if compact { Image(systemName: "plus").accessibilityLabel(loc.t("library.newBuild")) }
+                            else { Label(loc.t("library.newBuild"), systemImage: "plus") }
                         }
                             .padding(.horizontal, 12).padding(.vertical, 8)
                             .background(Color.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 8))
                             .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.white.opacity(0.1)))
                             .contentShape(RoundedRectangle(cornerRadius: 8))
                     }
-                    .buttonStyle(.plain).disabled(m.running).help(m.t("library.newBuild")).accessibilityLabel(m.t("library.newBuild"))
+                    .buttonStyle(.plain).disabled(m.running).help(loc.t("library.newBuild")).accessibilityLabel(loc.t("library.newBuild"))
                     .padTarget("top.build", scope: "main", radius: 8) { if !m.running { newBuild() } }
                     .padding(.leading, 12)
                     // A newer release is out: a small icon, last in the bar, opens the update sheet. Without one the bar
@@ -370,8 +375,8 @@ struct ContentView: View {
                         .buttonStyle(.plain)
                         .padTarget("top.update", scope: "main", radius: 17) { m.showUpdateSheet = true }
                         .padding(.leading, 16.5).padding(.trailing, -7.5)
-                        .help(String(format: m.t("update.pill"), update.tag) + "\n" + m.t(readOnly ? "update.readOnlyHint" : "update.pillHelp"))
-                        .accessibilityLabel(String(format: m.t("update.pill"), update.tag))
+                        .help(String(format: loc.t("update.pill"), update.tag) + "\n" + loc.t(readOnly ? "update.readOnlyHint" : "update.pillHelp"))
+                        .accessibilityLabel(String(format: loc.t("update.pill"), update.tag))
                     }
                 }
                 .padding(.leading, 90).padding(.trailing, 24)
@@ -394,9 +399,9 @@ struct ContentView: View {
                     .foregroundStyle(searching ? Color.secondary : Color.primary)
                     .frame(width: searching ? 16 : 40, height: searching ? 16 : 40).contentShape(Rectangle())
             }
-            .buttonStyle(.plain).help(m.t("library.search")).accessibilityLabel(m.t("library.search"))
+            .buttonStyle(.plain).help(loc.t("library.search")).accessibilityLabel(loc.t("library.search"))
             if searching {
-                TextField(m.t("library.search"), text: $search)
+                TextField(loc.t("library.search"), text: $search)
                     .textFieldStyle(.plain).font(.manrope(14))
                     .focused($searchFocused)
                     .onSubmit { if search.isEmpty { closeSearch() } }
@@ -406,7 +411,7 @@ struct ContentView: View {
                 Button { closeSearch() } label: {
                     Image(systemName: "xmark.circle.fill").font(.system(size: 13)).foregroundStyle(.secondary)
                 }
-                .buttonStyle(.plain).help(m.t("library.clearSearch")).accessibilityLabel(m.t("library.clearSearch"))
+                .buttonStyle(.plain).help(loc.t("library.clearSearch")).accessibilityLabel(loc.t("library.clearSearch"))
             }
         }
         .padding(.horizontal, searching ? 12 : 0)
@@ -453,22 +458,22 @@ struct ContentView: View {
             Spacer()
             Image(systemName: "gamecontroller").font(.system(size: 44, weight: .light))
                 .foregroundStyle(LauncherPalette.cream)
-            Text(m.t("library.welcome")).font(.manrope(54, .bold)).tracking(-1.8)
-            Text(m.t("library.welcomeNote")).font(.manrope(17)).foregroundStyle(.secondary)
+            Text(loc.t("library.welcome")).font(.manrope(54, .bold)).tracking(-1.8)
+            Text(loc.t("library.welcomeNote")).font(.manrope(17)).foregroundStyle(.secondary)
                 .frame(maxWidth: 490, alignment: .leading).fixedSize(horizontal: false, vertical: true)
             Button { newBuild() } label: {
-                Label(m.t("library.firstBuild"), systemImage: "plus")
+                Label(loc.t("library.firstBuild"), systemImage: "plus")
                     .font(.manrope(16, .semibold))
                     .padding(.horizontal, 24).padding(.vertical, 15)
                     .foregroundStyle(.black).background(LauncherPalette.cream, in: Capsule())
             }
             .buttonStyle(.plain).padding(.top, 8)
             Button(action: chooseLibraryFolder) {
-                Label(m.t("library.chooseFolder"), systemImage: "folder")
+                Label(loc.t("library.chooseFolder"), systemImage: "folder")
                     .font(.manrope(14)).foregroundStyle(.secondary)
             }.buttonStyle(.plain)
             Spacer()
-            Text(m.t("library.localNote")).font(.manrope(12)).foregroundStyle(.secondary)
+            Text(loc.t("library.localNote")).font(.manrope(12)).foregroundStyle(.secondary)
         }
         .padding(48).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
     }
@@ -494,14 +499,14 @@ struct ContentView: View {
                     status(game, prominent: true)
                     if toolsAge.older.contains(game.id) && !(m.running && activeBuildID == game.id) {
                         Button { configureBuild(game) } label: {
-                            Label(m.t("library.rebuildShort"), systemImage: "arrow.clockwise")
+                            Label(loc.t("library.rebuildShort"), systemImage: "arrow.clockwise")
                                 .font(.manrope(12, .semibold)).foregroundStyle(LauncherPalette.cream)
                                 .padding(.horizontal, 10).padding(.vertical, 4)
                                 .overlay(Capsule().strokeBorder(LauncherPalette.cream.opacity(0.35)))
                                 .contentShape(Capsule())
                         }
                         .buttonStyle(.plain).disabled(m.running || game.inputs["base", default: []].isEmpty)
-                        .help(m.t("library.olderToolsHelp"))
+                        .help(loc.t("library.olderToolsHelp"))
                         .padTarget("hero.rebuild", scope: "main", radius: 12) { if !m.running { configureBuild(game) } }
                     }
                 }
@@ -510,9 +515,9 @@ struct ContentView: View {
                 HStack(spacing: 18) {
                     Button { primaryAction(game) } label: {
                         LauncherHeroActionLabel(
-                            title: game.primary == .play ? m.t("library.play")
-                                : (game.primary == .openOnDevice ? String(format: m.t("dev.open"), m.deviceName(game.installedDevice))
-                                   : m.t("library.newBuild")),
+                            title: game.primary == .play ? loc.t("library.play")
+                                : (game.primary == .openOnDevice ? String(format: loc.t("dev.open"), m.deviceName(game.installedDevice))
+                                   : loc.t("library.newBuild")),
                             symbol: game.primary == .play ? "play.fill" : (game.primary == .openOnDevice ? "iphone" : "hammer.fill"))
                     }
                     .buttonStyle(.plain).disabled(launching || (m.running && !game.isReady))
@@ -525,11 +530,11 @@ struct ContentView: View {
                                 .background(Color.white.opacity(0.10), in: Circle())
                                 .overlay(Circle().strokeBorder(Color.white.opacity(0.14)))
                         }
-                        .buttonStyle(.plain).help(m.t("launch.title")).accessibilityLabel(m.t("launch.title"))
+                        .buttonStyle(.plain).help(loc.t("launch.title")).accessibilityLabel(loc.t("launch.title"))
                         .padTarget("hero.options", scope: "main", radius: 24) { optionsFor = game.id }
                     }
-                    Button { manageOpenFor = manageOpenFor == nil ? game.id : nil } label: { ManageButtonLabel(title: m.t("library.manage")) }
-                        .buttonStyle(.plain).accessibilityLabel(m.t("library.manage"))
+                    Button { manageOpenFor = manageOpenFor == nil ? game.id : nil } label: { ManageButtonLabel(title: loc.t("library.manage")) }
+                        .buttonStyle(.plain).accessibilityLabel(loc.t("library.manage"))
                         .anchorPreference(key: ManageAnchorKey.self, value: .bounds) { $0 }
                         .padTarget("hero.manage", scope: "main", radius: 12) { manageOpenFor = game.id }
                 }
@@ -539,19 +544,19 @@ struct ContentView: View {
                     HStack(spacing: 10) {
                         Image(systemName: "checkmark.seal").font(.system(size: 12))
                             .foregroundStyle(LauncherPalette.cream.opacity(0.7))
-                        Text(signatureExpiry[game.id].map { AppSignature.describe($0, m.t) } ?? m.t("dev.expiryUnknown"))
+                        Text(signatureExpiry[game.id].map { AppSignature.describe($0, loc.t) } ?? loc.t("dev.expiryUnknown"))
                             .font(.manrope(12.5))
                             .foregroundStyle(signatureExpiry[game.id].map { AppSignature.isUrgent($0) } == true
                                              ? LauncherPalette.building : .secondary)
                         Button { resign(game) } label: {
-                            Text(m.t("dev.resign")).font(.manrope(12, .semibold))
+                            Text(loc.t("dev.resign")).font(.manrope(12, .semibold))
                                 .foregroundStyle(LauncherPalette.cream)
                                 .padding(.horizontal, 10).padding(.vertical, 4)
                                 .overlay(Capsule().strokeBorder(LauncherPalette.cream.opacity(0.35)))
                                 .contentShape(Capsule())
                         }
                         .buttonStyle(.plain).disabled(m.running)
-                        .help(m.t("dev.resignHelp"))
+                        .help(loc.t("dev.resignHelp"))
                         .padTarget("hero.resign", scope: "main", radius: 12) { if !m.running { resign(game) } }
                     }
                 }
@@ -572,19 +577,19 @@ struct ContentView: View {
         let heroID = heroGame?.id
         return VStack(alignment: .leading, spacing: 18) {
             HStack(spacing: 16) {
-                Text(m.t("library.collection")).font(.manrope(28, .bold)).tracking(-0.6)
+                Text(loc.t("library.collection")).font(.manrope(28, .bold)).tracking(-0.6)
                 Spacer()
-                LauncherSegmented(options: LibraryFilter.allCases.map { ($0.rawValue, m.t($0.labelKey)) },
+                LauncherSegmented(options: LibraryFilter.allCases.map { ($0.rawValue, loc.t($0.labelKey)) },
                                   selection: libraryFilter.rawValue) { setLibraryFilter(LibraryFilter(rawValue: $0) ?? .owned) }
                     .frame(width: LauncherControl.width)
                     .padTarget("library.filter", scope: "main", radius: 17,
                                activate: { setLibraryFilter(libraryFilter == .owned ? .built : .owned) },
                                adjust: { setLibraryFilter($0 > 0 ? .built : .owned) })
-                Text(String(format: m.t("library.gameCount"), libraryFilter == .owned ? library.games.count : library.games.filter(libraryFilter.includes).count))
+                Text(String(format: loc.t("library.gameCount"), libraryFilter == .owned ? library.games.count : library.games.filter(libraryFilter.includes).count))
                     .font(.manrope(12)).foregroundStyle(.secondary)
             }
             if games.isEmpty {
-                Text(m.t("library.noResults")).foregroundStyle(.secondary).padding(.vertical, 28)
+                Text(loc.t("library.noResults")).foregroundStyle(.secondary).padding(.vertical, 28)
             } else {
                 ScrollViewReader { proxy in
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -655,7 +660,7 @@ struct ContentView: View {
         }
         .buttonStyle(.plain)
         .frame(height: height)
-        .accessibilityLabel(m.t(symbol == "chevron.left" ? "library.scrollBack" : "library.scrollForward"))
+        .accessibilityLabel(loc.t(symbol == "chevron.left" ? "library.scrollBack" : "library.scrollForward"))
         .transition(.opacity)
     }
 
@@ -665,14 +670,14 @@ struct ContentView: View {
         let key = building ? "library.building" : (game.isReady ? "library.ready" : (game.hasIOSBuild ? (game.isOlderIOSBuild ? "library.olderIOS" : "library.readyIOS") : "library.notBuilt"))
         return HStack(spacing: 7) {
             Circle().fill(color).frame(width: prominent ? 9 : 7, height: prominent ? 9 : 7)
-            Text(prominent ? m.t(key).uppercased() : m.t(key))
+            Text(prominent ? loc.t(key).uppercased() : loc.t(key))
                 .font(prominent ? .manrope(12, .bold) : .manrope(13, .medium))
                 .tracking(prominent ? 1.3 : 0)   // the eyebrow: the same face, in tracked capitals
                 .foregroundStyle(color)
             if !building && toolsAge.older.contains(game.id) {   // a quiet note beside the status, not a warning
-                Text("· " + m.t(prominent ? "library.olderTools" : "library.olderToolsShort"))
+                Text("· " + loc.t(prominent ? "library.olderTools" : "library.olderToolsShort"))
                     .font(.manrope(prominent ? 13 : 12)).foregroundStyle(.secondary).lineLimit(1)
-                    .help(m.t("library.olderToolsHelp"))
+                    .help(loc.t("library.olderToolsHelp"))
             }
         }
         .accessibilityElement(children: .combine)
@@ -685,12 +690,12 @@ struct ContentView: View {
                 if m.running {
                     Image(systemName: "wrench.and.screwdriver").font(.system(size: 22, weight: .light)).foregroundStyle(.secondary)
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(m.t(m.shellCopy != nil || m.shellWaiting || m.stages.contains { $0.id == 1003 && $0.state == .running }
+                        Text(loc.t(m.shellCopy != nil || m.shellWaiting || m.stages.contains { $0.id == 1003 && $0.state == .running }
                                  ? "activity.transfer" : (m.target == BuildTarget.mac ? "activity.mac" : "activity.ios"))).font(.manrope(15, .bold))
                         TimelineView(.periodic(from: Date(), by: 1)) { context in   // the clock ticks while a count may stand still
                             Text(m.stages.last(where: { $0.state == .running })
-                                    .map { [$0.name, $0.detail, $0.clock(at: context.date, left: m.t("prog.eta"))].filter { !$0.isEmpty }.joined(separator: " · ") }
-                                 ?? m.t("library.preparing"))
+                                    .map { [$0.name, $0.detail, $0.clock(at: context.date, left: loc.t("prog.eta"))].filter { !$0.isEmpty }.joined(separator: " · ") }
+                                 ?? loc.t("library.preparing"))
                                 .font(.manrope(13)).monospacedDigit().foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
                         }
                     }
@@ -699,21 +704,21 @@ struct ContentView: View {
                     Text(buildProgress.map { "\(Int($0 * 100))%" } ?? "")
                         .font(.manrope(14, .semibold)).monospacedDigit().foregroundStyle(.secondary).frame(width: 46, alignment: .leading)
                     Spacer(minLength: 8)
-                    Button(m.t("library.viewBuild")) { page = .builds }.buttonStyle(LauncherSecondaryButtonStyle())
-                    Button(m.t(m.stopping ? "library.stopping" : "btn.stop")) { m.stop() }
+                    Button(loc.t("library.viewBuild")) { page = .builds }.buttonStyle(LauncherSecondaryButtonStyle())
+                    Button(loc.t(m.stopping ? "library.stopping" : "btn.stop")) { m.stop() }
                         .buttonStyle(LauncherSecondaryButtonStyle(accent: LauncherPalette.building)).disabled(m.stopping)
                 } else {
                     Image(systemName: "desktopcomputer").foregroundStyle(.secondary)
-                    Text(m.t("library.localNote")).font(.manrope(13)).foregroundStyle(.secondary)
+                    Text(loc.t("library.localNote")).font(.manrope(13)).foregroundStyle(.secondary)
                     if let n = m.autoPulled, n > 0 {
                         // The automatic update when the app opened (BuildModel.autoPull): the build tools are the current ones
                         Circle().fill(LauncherPalette.ready).frame(width: 6, height: 6).padding(.leading, 10)
-                        Text(String(format: m.t("library.toolsUpdated"), n)).font(.manrope(13)).foregroundStyle(.secondary)
+                        Text(String(format: loc.t("library.toolsUpdated"), n)).font(.manrope(13)).foregroundStyle(.secondary)
                     }
                     if m.autoAdopted {
                         // A ZIP copy connected to git and updated when the app opened (BuildModel.adoptAtLaunch)
                         Circle().fill(LauncherPalette.ready).frame(width: 6, height: 6).padding(.leading, 10)
-                        Text(m.t("library.toolsAdopted")).font(.manrope(13)).foregroundStyle(.secondary)
+                        Text(loc.t("library.toolsAdopted")).font(.manrope(13)).foregroundStyle(.secondary)
                     }
                     Spacer()
                     if let staged = m.appStaged {
@@ -721,16 +726,16 @@ struct ContentView: View {
                         // This branch only shows with no build running, and restartToUpdate checks again.
                         HStack(spacing: 10) {
                             Circle().fill(LauncherPalette.ready).frame(width: 6, height: 6)
-                            Text(String(format: m.t("library.appReady"), staged.release.tag)).font(.manrope(13)).foregroundStyle(.secondary)
+                            Text(String(format: loc.t("library.appReady"), staged.release.tag)).font(.manrope(13)).foregroundStyle(.secondary)
                         }
-                        Button(m.t("app.restartNow")) { m.restartToUpdate() }.buttonStyle(LauncherSecondaryButtonStyle())
+                        Button(loc.t("app.restartNow")) { m.restartToUpdate() }.buttonStyle(LauncherSecondaryButtonStyle())
                     }
                     if gamepad.connected {
                         // The buttons a controller has here, named as the game names them (A on the right)
                         HStack(spacing: 18) {
-                            padHint(.activate, m.t("pad.play")); padHint(.launchOptions, m.t("pad.options")); padHint(.back, m.t("pad.back"))
-                            padHint(.manage, m.t("pad.manage"))
-                            if enterConsole != nil { padHint(.select, m.t("console.entry")) }
+                            padHint(.activate, loc.t("pad.play")); padHint(.launchOptions, loc.t("pad.options")); padHint(.back, loc.t("pad.back"))
+                            padHint(.manage, loc.t("pad.manage"))
+                            if enterConsole != nil { padHint(.select, loc.t("console.entry")) }
                         }
                     }
                 }
@@ -845,7 +850,7 @@ struct ContentView: View {
 
     /// The Manage menu's rows for a game, wired to the launcher's sheets and actions (ManageItem.list).
     private func manageItems(_ game: LibraryGame) -> [ManageItem] {
-        ManageItem.list(game: game, labels: m.t, running: m.running, olderTools: toolsAge.older.contains(game.id), activeBuildID: activeBuildID,
+        ManageItem.list(game: game, labels: loc.t, running: m.running, olderTools: toolsAge.older.contains(game.id), activeBuildID: activeBuildID,
                         hasBuildFolder: BuildFolder.location(for: game) != nil,
                         hasLog: GameLog.latest(titleID: game.titleID, appPath: game.appPath) != nil,
                         actions: ManageActions(
@@ -883,7 +888,7 @@ struct ContentView: View {
             // The launch options; the app's launcher (dm/mac/launcher.c) keeps a variable that is already set.
             // The keyboard and controller layout (Settings → Controls) goes to every game; a build whose host does not read it plays with the default keys.
             // They stay launch overrides (the environment) for now: DM_KEYMAP and DM_PAD_MAP become saved choices only when seedds/nxnative#386 merges.
-            let environment = GameStart.environment(for: game, library: library, controls: controls, repo: m.repoPath, labels: m.t)   // GameStart.swift: the console mode starts games with the same
+            let environment = GameStart.environment(for: game, library: library, controls: controls, repo: m.repoPath, labels: loc.t)   // GameStart.swift: the console mode starts games with the same
             let withRecording = environment.merging(FrameTimes.recordingEnvironment(for: game, library: library.folder)) { $1 }   // FrameTimes.swift, as console mode does
             if !withRecording.isEmpty { configuration.environment = withRecording }
             NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: game.appPath), configuration: configuration) { app, error in
@@ -948,7 +953,7 @@ struct ContentView: View {
     private func chooseArtwork(_ game: LibraryGame) {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.png, .jpeg, .tiff, .heic]
-        panel.message = m.t("library.artworkHint")
+        panel.message = loc.t("library.artworkHint")
         if panel.runModal() == .OK, let url = panel.url, NSImage(contentsOf: url) != nil {
             library.setArtwork(url.path, for: game.id)
         }
@@ -958,83 +963,11 @@ struct ContentView: View {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
-        panel.message = m.t("library.folderHint")
+        panel.message = loc.t("library.folderHint")
         if !library.folder.isEmpty { panel.directoryURL = URL(fileURLWithPath: library.folder) }
         if panel.runModal() == .OK, let url = panel.url {
             library.setFolder(url)
             if !m.running { m.outDir = url.path }
         }
     }
-}
-
-/// The collection row's scroll state, read from its NSScrollView: SwiftUI's horizontal ScrollView does not
-/// report its offset on macOS 13, so the pager chevrons follow the clip view's bounds instead.
-final class RowScroller: ObservableObject {
-    @Published private(set) var canBack = false
-    @Published private(set) var canForward = false
-    private weak var scrollView: NSScrollView?
-    private var observers: [NSObjectProtocol] = []
-
-    func attach(_ view: NSScrollView) {
-        guard view !== scrollView else { return update() }
-        observers.forEach(NotificationCenter.default.removeObserver)
-        scrollView = view
-        let clip = view.contentView
-        clip.postsBoundsChangedNotifications = true
-        clip.postsFrameChangedNotifications = true
-        view.documentView?.postsFrameChangedNotifications = true
-        observers = [(NSView.boundsDidChangeNotification, clip), (NSView.frameDidChangeNotification, clip),
-                     (NSView.frameDidChangeNotification, view.documentView as Any)].map { name, object in
-            NotificationCenter.default.addObserver(forName: name, object: object, queue: .main) { [weak self] _ in self?.update() }
-        }
-        update()
-    }
-
-    deinit { observers.forEach(NotificationCenter.default.removeObserver) }
-
-    private func update() {
-        guard let view = scrollView, let document = view.documentView else { return }
-        let x = view.contentView.bounds.minX, end = document.frame.width - view.contentView.bounds.width
-        if canBack != (x > 1) { canBack = x > 1 }
-        if canForward != (x < end - 1) { canForward = x < end - 1 }
-    }
-
-    /// Scroll by the whole cards that fit in the row.
-    func page(_ direction: CGFloat, step: CGFloat) {
-        guard let view = scrollView, let document = view.documentView else { return }
-        let clip = view.contentView
-        let distance = max(step, (clip.bounds.width / step).rounded(.down) * step)
-        let target = min(max(0, clip.bounds.minX + direction * distance), max(0, document.frame.width - clip.bounds.width))
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.35
-            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            clip.animator().setBoundsOrigin(NSPoint(x: target, y: clip.bounds.minY))
-        }
-        view.reflectScrolledClipView(clip)
-    }
-}
-
-/// Hands the NSScrollView around this background view to the row's scroller once it is in a window.
-private struct EnclosingScrollView: NSViewRepresentable {
-    let row: RowScroller
-    final class Probe: NSView {
-        var row: RowScroller?
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            DispatchQueue.main.async { [weak self] in
-                if let view = self?.enclosingScrollView { self?.row?.attach(view) }
-            }
-        }
-    }
-    func makeNSView(context: Context) -> Probe { let probe = Probe(); probe.row = row; return probe }
-    func updateNSView(_ probe: Probe, context: Context) {
-        probe.row = row
-        DispatchQueue.main.async { if let view = probe.enclosingScrollView { row.attach(view) } }
-    }
-}
-
-/// The library's collection row reports its height, so the hero above it fills exactly what is left.
-private struct CollectionHeightKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }

@@ -178,7 +178,7 @@ final class FrameTimesTests: XCTestCase {
         FrameTimes.setEnabled(true, titleID: titleID)
         let model = BuildModel()
         model.lang = .en
-        let host = NSHostingView(rootView: LaunchOptionsView(m: model, library: library, gameID: library.games[0].id).environmentObject(PadFocus()))
+        let host = NSHostingView(rootView: LaunchOptionsView(m: model, library: library, gameID: library.games[0].id).environmentObject(PadFocus()).environmentObject(model.localizer))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 1300), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
         window.contentView = host
         window.orderFront(nil)

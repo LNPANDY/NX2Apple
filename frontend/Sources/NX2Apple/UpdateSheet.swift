@@ -1,5 +1,6 @@
 import SwiftUI
 import NXCore
+import NXModel
 import NXLauncher
 
 /// "A new version is out", with what it changes, shown when the app opens or Check for updates finds
@@ -13,6 +14,7 @@ import NXLauncher
 /// ReleaseNotes turns them into blocks with links, and this file only styles those.
 struct UpdateSheet: View {
     @ObservedObject var m: BuildModel
+    @EnvironmentObject var loc: Localizer
     @Environment(\.dismiss) private var dismiss
 
     private var update: AppUpdate.Release? { m.appUpdate }
@@ -20,9 +22,9 @@ struct UpdateSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 6) {
-                Text(m.t("update.title"))
+                Text(loc.t("update.title"))
                     .font(.manrope(24, .heavy)).tracking(-0.5)
-                Text(String(format: m.t("update.fromTo"), BuildModel.appVersion, update?.tag ?? ""))
+                Text(String(format: loc.t("update.fromTo"), BuildModel.appVersion, update?.tag ?? ""))
                     .font(.manrope(13)).foregroundStyle(.secondary)
             }
             .padding(.horizontal, 28).padding(.top, 26).padding(.bottom, 18)
@@ -30,12 +32,12 @@ struct UpdateSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 6) {
                     if let notes = update?.notes, !notes.isEmpty {
-                        let blocks = ReleaseNotes.blocks(from: ReleaseNotes.markdown(notes, for: m.lang))
+                        let blocks = ReleaseNotes.blocks(from: ReleaseNotes.markdown(notes, for: loc.lang))
                         ForEach(Array(blocks.enumerated()), id: \.offset) { index, block in
                             blockView(block, first: index == 0)
                         }
                     } else {
-                        Text(m.t("update.noNotes")).font(.manrope(13)).foregroundStyle(.secondary)
+                        Text(loc.t("update.noNotes")).font(.manrope(13)).foregroundStyle(.secondary)
                     }
                 }
                 .padding(.horizontal, 28).padding(.bottom, 20)
@@ -50,11 +52,11 @@ struct UpdateSheet: View {
             Divider().opacity(0.3)
             HStack(spacing: 12) {
                 if let u = update {
-                    Link(m.t("update.openPage"), destination: URL(string: "https://github.com/LNPANDY/NX2Apple/releases/tag/\(u.tag)")!)
+                    Link(loc.t("update.openPage"), destination: URL(string: "https://github.com/LNPANDY/NX2Apple/releases/tag/\(u.tag)")!)
                         .font(.manrope(12.5))
                 }
                 Spacer(minLength: 8)
-                Button(m.t("update.later")) { dismiss() }
+                Button(loc.t("update.later")) { dismiss() }
                     .buttonStyle(LauncherSecondaryButtonStyle())
                     .keyboardShortcut(.cancelAction)
                 Button {
@@ -63,7 +65,7 @@ struct UpdateSheet: View {
                     // The sheet stays up while it downloads, so a refusal (a macOS too old for the release) is seen here.
                     if m.appStaged != nil { m.installStagedUpdate(relaunch: true); dismiss() } else { m.performAppUpdate() }
                 } label: {
-                    Text(m.t(m.appStaged != nil ? "app.restartNow" : "update.now"))
+                    Text(loc.t(m.appStaged != nil ? "app.restartNow" : "update.now"))
                         .font(.manrope(13.5, .bold)).foregroundStyle(.black)
                         .padding(.horizontal, 20).padding(.vertical, 9)
                         .background(LauncherPalette.cream, in: Capsule())

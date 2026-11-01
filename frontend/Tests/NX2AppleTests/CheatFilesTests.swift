@@ -262,10 +262,10 @@ final class CheatFilesTests: XCTestCase {
 
     func testTheImportMessageSaysWhatCameInAndWhatDidNot() {
         let m = BuildModel(); m.lang = .en
-        XCTAssertEqual(CheatsView.importMessage(.init(imported: ["A", "B"]), m: m).0, "Files imported: 2.")
-        XCTAssertTrue(CheatsView.importMessage(.init(imported: ["A"], skipped: ["x.txt"]), m: m).0.contains("x.txt"))
-        XCTAssertFalse(CheatsView.importMessage(.init(), m: m).1)
-        XCTAssertTrue(CheatsView.importMessage(.init(imported: ["A"]), m: m).1)
+        XCTAssertEqual(CheatsView.importMessage(.init(imported: ["A", "B"]), loc: m.localizer).0, "Files imported: 2.")
+        XCTAssertTrue(CheatsView.importMessage(.init(imported: ["A"], skipped: ["x.txt"]), loc: m.localizer).0.contains("x.txt"))
+        XCTAssertFalse(CheatsView.importMessage(.init(), loc: m.localizer).1)
+        XCTAssertTrue(CheatsView.importMessage(.init(imported: ["A"]), loc: m.localizer).1)
     }
 
     // ---- the copy to the device ----
@@ -417,16 +417,16 @@ final class CheatFilesTests: XCTestCase {
             try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: output.appendingPathComponent(name + ".png"))
             window.orderOut(nil)
         }
-        try shot("cheats", CheatsView(m: model, library: library, gameID: id, devicectl: DeviceControl { _ in (true, "") }, support: support))
-        try shot("cheats-drop", CheatsView(m: model, library: library, gameID: id, support: support, dropped: true))
+        try shot("cheats", CheatsView(m: model, library: library, gameID: id, devicectl: DeviceControl { _ in (true, "") }, support: support).environmentObject(model.localizer))
+        try shot("cheats-drop", CheatsView(m: model, library: library, gameID: id, support: support, dropped: true).environmentObject(model.localizer))
         model.lang = .de
-        try shot("cheats-de", CheatsView(m: model, library: library, gameID: id, support: support))
+        try shot("cheats-de", CheatsView(m: model, library: library, gameID: id, support: support).environmentObject(model.localizer))
         model.lang = .zh
-        try shot("cheats-zh", CheatsView(m: model, library: library, gameID: id, support: support))
+        try shot("cheats-zh", CheatsView(m: model, library: library, gameID: id, support: support).environmentObject(model.localizer))
         model.lang = .en
         try fm.removeItem(at: folder)
         try write("x", ".cheats-running-\(game)", under: folder)
-        try shot("cheats-empty", CheatsView(m: model, library: library, gameID: id, support: support))
+        try shot("cheats-empty", CheatsView(m: model, library: library, gameID: id, support: support).environmentObject(model.localizer))
     }
 }
 

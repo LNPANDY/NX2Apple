@@ -1,5 +1,6 @@
 import SwiftUI
 import NXCore
+import NXModel
 
 // LNPANDY/NX2Apple#449: a build for the iPhone or iPad asks before the long steps when the shell folder holds frameworks of
 // another shader chain than the engine this build uses. Stop leaves every file as it is. Continue deletes the stale frameworks
@@ -52,14 +53,15 @@ extension BuildModel {
 
 private struct StaleFrameworksPrompt: ViewModifier {
     @ObservedObject var m: BuildModel
+    @EnvironmentObject var loc: Localizer
 
     func body(content: Content) -> some View {
-        content.alert(m.t("stale.title"), isPresented: Binding(get: { !m.staleFrameworks.isEmpty },
+        content.alert(loc.t("stale.title"), isPresented: Binding(get: { !m.staleFrameworks.isEmpty },
                                                                 set: { if !$0 { m.stopForStaleFrameworks() } })) {
-            Button(m.t("stale.go")) { m.continueWithStaleFrameworks() }
-            Button(m.t("stale.stop"), role: .cancel) { m.stopForStaleFrameworks() }
+            Button(loc.t("stale.go")) { m.continueWithStaleFrameworks() }
+            Button(loc.t("stale.stop"), role: .cancel) { m.stopForStaleFrameworks() }
         } message: {
-            Text(String(format: m.t("stale.message"), StaleFrameworks.list(m.staleFrameworks)))
+            Text(String(format: loc.t("stale.message"), StaleFrameworks.list(m.staleFrameworks)))
         }
     }
 }

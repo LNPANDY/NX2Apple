@@ -1,11 +1,13 @@
 import SwiftUI
 import NXCore
+import NXModel
 import NXLauncher
 
 /// Under the build button after a stop the script's early checks explain: what happened in plain words, the next step, and the
 /// button that does it (a dependency's own install command, or "Build anyway" for the three stops that have an override).
 struct BuildFailureCard: View {
     @ObservedObject var m: BuildModel
+    @EnvironmentObject var loc: Localizer
     /// The failure to show: the build's (`m.failure`) unless the caller passes another one, such as the engine sync's.
     var failure: BuildFailure?
 
@@ -17,13 +19,13 @@ struct BuildFailureCard: View {
     var body: some View {
         if let f = failure ?? m.failure {
             VStack(alignment: .leading, spacing: 10) {
-                Text(m.t("fail.section")).font(.manrope(15, .semibold)).foregroundStyle(.secondary).padding(.leading, 2)
+                Text(loc.t("fail.section")).font(.manrope(15, .semibold)).foregroundStyle(.secondary).padding(.leading, 2)
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(alignment: .firstTextBaseline, spacing: 10) {
                         Circle().fill(LauncherPalette.building).frame(width: 7, height: 7)
                         Text(m.failureWhat(f)).font(.manrope(14, .semibold)).fixedSize(horizontal: false, vertical: true)
                     }
-                    Text(m.t(f.kind.nextKey)).font(.manrope(13)).foregroundStyle(.secondary)
+                    Text(loc.t(f.kind.nextKey)).font(.manrope(13)).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true).padding(.leading, 17)
                     buttons(f.kind).padding(.leading, 17).padding(.top, 2)
                 }
@@ -32,11 +34,11 @@ struct BuildFailureCard: View {
                 .background(LauncherPalette.surface.opacity(0.75), in: RoundedRectangle(cornerRadius: 14))
                 .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.white.opacity(0.06)))
             }
-            .alert(m.t("fail.confirm.title"), isPresented: Binding(get: { m.confirmingOverride != nil }, set: { if !$0 { m.cancelBuildAnyway() } })) {
-                Button(m.t("fail.confirm.go")) { m.confirmBuildAnyway() }
-                Button(m.t("fail.confirm.cancel"), role: .cancel) { m.cancelBuildAnyway() }
+            .alert(loc.t("fail.confirm.title"), isPresented: Binding(get: { m.confirmingOverride != nil }, set: { if !$0 { m.cancelBuildAnyway() } })) {
+                Button(loc.t("fail.confirm.go")) { m.confirmBuildAnyway() }
+                Button(loc.t("fail.confirm.cancel"), role: .cancel) { m.cancelBuildAnyway() }
             } message: {
-                Text(m.confirmingOverride.map { m.t("fail.\($0.rawValue).risk") } ?? "")
+                Text(m.confirmingOverride.map { loc.t("fail.\($0.rawValue).risk") } ?? "")
             }
         }
     }
@@ -65,11 +67,11 @@ struct BuildFailureCard: View {
             case .shellDataIncomplete:
                 fix(kind, "shell.retry")
             case .engineOffline, .engineSync:
-                Button(m.t("fail.retry")) { m.retryEngineSync() }.disabled(m.engineSyncing)
+                Button(loc.t("fail.retry")) { m.retryEngineSync() }.disabled(m.engineSyncing)
             default: EmptyView()
             }
             if kind.overrideFlag != nil {
-                Button(m.t("fail.buildAnyway")) { m.requestBuildAnyway() }.disabled(m.running)
+                Button(loc.t("fail.buildAnyway")) { m.requestBuildAnyway() }.disabled(m.running)
             }
         }
         .buttonStyle(LauncherSecondaryButtonStyle())
@@ -78,9 +80,9 @@ struct BuildFailureCard: View {
     private func fix(_ kind: BuildFailureKind, _ key: String) -> some View {
         Group {
             if m.fixBusy(kind) {
-                HStack(spacing: 8) { ProgressView().controlSize(.small); Text(m.t("dep.installing")).font(.manrope(12)).foregroundStyle(LauncherPalette.building) }
+                HStack(spacing: 8) { ProgressView().controlSize(.small); Text(loc.t("dep.installing")).font(.manrope(12)).foregroundStyle(LauncherPalette.building) }
             } else {
-                Button(m.t(key)) { m.fixBuildFailure(kind) }.disabled(m.running)
+                Button(loc.t(key)) { m.fixBuildFailure(kind) }.disabled(m.running)
             }
         }
     }
@@ -90,12 +92,13 @@ struct BuildFailureCard: View {
 /// updates), and its failure row when that stops: what happened, what to do, and Try again.
 struct EngineSyncBanner: View {
     @ObservedObject var m: BuildModel
+    @EnvironmentObject var loc: Localizer
 
     var body: some View {
         if m.engineSyncing {
             HStack(spacing: 10) {
                 ProgressView().controlSize(.small)
-                Text(m.t("engine.syncing")).font(.manrope(13)).foregroundStyle(LauncherPalette.building)
+                Text(loc.t("engine.syncing")).font(.manrope(13)).foregroundStyle(LauncherPalette.building)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)
             }

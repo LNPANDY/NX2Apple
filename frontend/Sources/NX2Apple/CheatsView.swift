@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import NXCore
+import NXModel
 import NXLauncher
 
 /// The Cheats sheet (#97): a game's cheat files, an on / off switch per cheat, an import by drop or pick, and a copy to the
@@ -9,6 +10,7 @@ import NXLauncher
 /// starts (or on its own Reload cheats).
 struct CheatsView: View {
     @ObservedObject var m: BuildModel
+    @EnvironmentObject var loc: Localizer
     @ObservedObject var library: GameLibrary
     let gameID: UUID
     var devicectl: DeviceControl? = nil   // tests and the visual QA hand in a stand-in
@@ -42,7 +44,7 @@ struct CheatsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(m.t("cheats.title")).font(.manrope(26, .heavy)).tracking(-0.6)
+                Text(loc.t("cheats.title")).font(.manrope(26, .heavy)).tracking(-0.6)
                 if let game { Text(game.name).font(.manrope(14)).foregroundStyle(.secondary) }
             }
             .padding(.horizontal, 30).padding(.top, 28).padding(.bottom, 16)
@@ -54,7 +56,7 @@ struct CheatsView: View {
                 if busy {
                     HStack(spacing: 10) {
                         ProgressView().controlSize(.small)
-                        Text(m.t("cheats.copying")).font(.manrope(13)).foregroundStyle(.secondary)
+                        Text(loc.t("cheats.copying")).font(.manrope(13)).foregroundStyle(.secondary)
                     }
                 } else if let result {
                     Label(result.text, systemImage: result.ok ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
@@ -66,11 +68,11 @@ struct CheatsView: View {
             Spacer(minLength: 0)
             Divider().opacity(0.3)
             HStack(spacing: 14) {
-                Text(m.t("cheats.note") + ((game?.onDevice ?? false) ? " " + String(format: m.t("cheats.noteDevice"), deviceName) : "")).font(.manrope(12)).foregroundStyle(.secondary)
+                Text(loc.t("cheats.note") + ((game?.onDevice ?? false) ? " " + String(format: loc.t("cheats.noteDevice"), deviceName) : "")).font(.manrope(12)).foregroundStyle(.secondary)
                     .lineLimit(3).fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 8)
                 Button { dismiss() } label: {
-                    Text(m.t("launch.done")).font(.manrope(13.5, .bold)).foregroundStyle(.black)
+                    Text(loc.t("launch.done")).font(.manrope(13.5, .bold)).foregroundStyle(.black)
                         .padding(.horizontal, 22).padding(.vertical, 9)
                         .background(LauncherPalette.cream, in: Capsule())
                 }
@@ -85,7 +87,7 @@ struct CheatsView: View {
         .font(.manrope(13))
         .preferredColorScheme(.dark)
         .tint(LauncherPalette.cream)
-        .modifier(GameFilesDrop(enabled: !busy, label: m.t("cheats.dropHint"), targeted: dropped) { importPaths($0) })
+        .modifier(GameFilesDrop(enabled: !busy, label: loc.t("cheats.dropHint"), targeted: dropped) { importPaths($0) })
         .onAppear(perform: refresh)
     }
 
@@ -103,8 +105,8 @@ struct CheatsView: View {
             HStack(spacing: 14) {
                 Image(systemName: "number").font(.system(size: 16, weight: .light)).foregroundStyle(.secondary).frame(width: 26)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(m.t("cheats.buildLabel")).font(.manrope(14, .medium))
-                    Text(buildID ?? m.t("cheats.buildUnknown")).font(buildID == nil ? .manrope(12) : .system(size: 12.5, design: .monospaced))
+                    Text(loc.t("cheats.buildLabel")).font(.manrope(14, .medium))
+                    Text(buildID ?? loc.t("cheats.buildUnknown")).font(buildID == nil ? .manrope(12) : .system(size: 12.5, design: .monospaced))
                         .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 12)
@@ -114,14 +116,14 @@ struct CheatsView: View {
             HStack(spacing: 14) {
                 Image(systemName: "power").font(.system(size: 16, weight: .light)).foregroundStyle(.secondary).frame(width: 26)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(m.t("cheats.master")).font(.manrope(14, .medium))
+                    Text(loc.t("cheats.master")).font(.manrope(14, .medium))
                     if safeMode {
-                        Text(m.t("cheats.safeMode")).font(.manrope(12)).foregroundStyle(LauncherPalette.building).fixedSize(horizontal: false, vertical: true)
+                        Text(loc.t("cheats.safeMode")).font(.manrope(12)).foregroundStyle(LauncherPalette.building).fixedSize(horizontal: false, vertical: true)
                     }
                 }
                 Spacer(minLength: 12)
                 Toggle("", isOn: Binding(get: { master }, set: { setMaster($0) })).toggleStyle(CheatSwitchStyle()).labelsHidden()
-                    .accessibilityLabel(m.t("cheats.master"))
+                    .accessibilityLabel(loc.t("cheats.master"))
                     .padTarget("cheats.master", scope: "cheats") { setMaster(!master) }
             }
             .padding(.horizontal, 18).padding(.vertical, 11)
@@ -132,7 +134,7 @@ struct CheatsView: View {
     private var iosNoteCard: some View {
         HStack(alignment: .top, spacing: 14) {
             Image(systemName: "info.circle").font(.system(size: 16, weight: .light)).foregroundStyle(.secondary).frame(width: 26)
-            Text(m.t("cheats.iosNote")).font(.manrope(12.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Text(loc.t("cheats.iosNote")).font(.manrope(12.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 18).padding(.vertical, 11)
@@ -144,7 +146,7 @@ struct CheatsView: View {
         card {
             VStack(spacing: 10) {
                 Image(systemName: "square.and.arrow.down").font(.system(size: 26, weight: .light)).foregroundStyle(.secondary)
-                Text(m.t("cheats.empty")).font(.manrope(13)).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                Text(loc.t("cheats.empty")).font(.manrope(13)).foregroundStyle(.secondary).multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity, minHeight: 150).padding(18)
@@ -159,7 +161,7 @@ struct CheatsView: View {
                 Divider().opacity(0.25).padding(.leading, 18)
             }
             if current == nil {
-                Text(buildID == nil ? m.t("cheats.noBuildFile") : String(format: m.t("cheats.noFileForBuild"), buildID ?? ""))
+                Text(buildID == nil ? loc.t("cheats.noBuildFile") : String(format: loc.t("cheats.noFileForBuild"), buildID ?? ""))
                     .font(.manrope(12.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 18).padding(.vertical, 14).frame(maxWidth: .infinity, alignment: .leading)
             } else {
@@ -178,14 +180,14 @@ struct CheatsView: View {
             Image(systemName: "doc.text").font(.system(size: 15, weight: .light)).foregroundStyle(.secondary).frame(width: 26)
             Text(file.buildID + ".txt").font(.system(size: 12.5, design: .monospaced))
             Spacer(minLength: 8)
-            Text((isCurrent ? m.t("cheats.thisBuild") : m.t("cheats.otherBuild")).uppercased()).font(.manrope(10.5, .bold)).tracking(1.1)
+            Text((isCurrent ? loc.t("cheats.thisBuild") : loc.t("cheats.otherBuild")).uppercased()).font(.manrope(10.5, .bold)).tracking(1.1)
                 .foregroundStyle(isCurrent ? .black : .secondary)
                 .padding(.horizontal, 10).padding(.vertical, 4)
                 .background(isCurrent ? AnyShapeStyle(LauncherPalette.cream) : AnyShapeStyle(Color.white.opacity(0.08)), in: Capsule())
         }
         .padding(.horizontal, 18).padding(.vertical, 9)
         .opacity(isCurrent ? 1 : 0.6)
-        .help(isCurrent ? "" : m.t("cheats.otherHint"))
+        .help(isCurrent ? "" : loc.t("cheats.otherHint"))
     }
 
     @ViewBuilder private func cheatRow(_ cheat: CheatFiles.Cheat, index: Int) -> some View {
@@ -203,15 +205,15 @@ struct CheatsView: View {
             HStack(spacing: 10) {
                 Text(cheat.name).font(.manrope(13))
                 Spacer(minLength: 8)
-                Text(m.t("cheats.alwaysOn")).font(.manrope(11.5)).foregroundStyle(.secondary)
+                Text(loc.t("cheats.alwaysOn")).font(.manrope(11.5)).foregroundStyle(.secondary)
             }
             .padding(.horizontal, 18).padding(.vertical, 6)
         case .cheat:
             HStack(spacing: 10) {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(cheat.name).font(.manrope(13)).lineLimit(2)
-                    if cheat.broken { Text(m.t("cheats.broken")).font(.manrope(11.5)).foregroundStyle(LauncherPalette.building) }
-                    else if cheat.once { Text(m.t("cheats.once")).font(.manrope(11.5)).foregroundStyle(.secondary) }
+                    if cheat.broken { Text(loc.t("cheats.broken")).font(.manrope(11.5)).foregroundStyle(LauncherPalette.building) }
+                    else if cheat.once { Text(loc.t("cheats.once")).font(.manrope(11.5)).foregroundStyle(.secondary) }
                 }
                 Spacer(minLength: 8)
                 if cheat.switchable {
@@ -227,13 +229,13 @@ struct CheatsView: View {
     /// Import, the folder, and the copy to the device.
     private var actions: some View {
         HStack(spacing: 10) {
-            Button(m.t("cheats.import")) { pick() }.disabled(busy)
+            Button(loc.t("cheats.import")) { pick() }.disabled(busy)
                 .padTarget("cheats.import", scope: "cheats") { if !busy { pick() } }
-            Button(m.t("cheats.showFolder")) { showFolder() }
+            Button(loc.t("cheats.showFolder")) { showFolder() }
                 .padTarget("cheats.folder", scope: "cheats") { showFolder() }
             Spacer(minLength: 8)
             if game?.onDevice ?? false {
-                Button(String(format: m.t("cheats.toDevice"), deviceName)) { copyToDevice() }.disabled(!canCopy)
+                Button(String(format: loc.t("cheats.toDevice"), deviceName)) { copyToDevice() }.disabled(!canCopy)
                     .padTarget("cheats.toDevice", scope: "cheats") { if canCopy { copyToDevice() } }
             }
         }
@@ -257,13 +259,13 @@ struct CheatsView: View {
         do {
             try cheatFiles.writeEnabled(file.buildID, cheats: cheats, on: next)
             on = next
-            result = game.flatMap { CheatsView.running(game: $0) ? (String(format: m.t("cheats.running"), $0.name), false) : nil }
-        } catch { result = (String(format: m.t("cheats.writeFailed"), error.localizedDescription), false) }
+            result = game.flatMap { CheatsView.running(game: $0) ? (String(format: loc.t("cheats.running"), $0.name), false) : nil }
+        } catch { result = (String(format: loc.t("cheats.writeFailed"), error.localizedDescription), false) }
     }
 
     private func setMaster(_ value: Bool) {
         guard let cheatFiles else { return }
-        do { try cheatFiles.setMaster(value); master = value } catch { result = (String(format: m.t("cheats.writeFailed"), error.localizedDescription), false) }
+        do { try cheatFiles.setMaster(value); master = value } catch { result = (String(format: loc.t("cheats.writeFailed"), error.localizedDescription), false) }
     }
 
     private func pick() {
@@ -271,7 +273,7 @@ struct CheatsView: View {
         panel.canChooseDirectories = true
         panel.canChooseFiles = true
         panel.allowsMultipleSelection = true
-        panel.message = m.t("cheats.pickMessage")
+        panel.message = loc.t("cheats.pickMessage")
         if panel.runModal() == .OK { importPaths(panel.urls.map(\.path)) }
     }
 
@@ -280,16 +282,16 @@ struct CheatsView: View {
         do {
             let outcome = try cheatFiles.importFiles(from: paths.map { URL(fileURLWithPath: $0) })
             refresh()
-            result = Self.importMessage(outcome, m: m)
-        } catch { result = (String(format: m.t("cheats.writeFailed"), error.localizedDescription), false) }
+            result = Self.importMessage(outcome, loc: loc)
+        } catch { result = (String(format: loc.t("cheats.writeFailed"), error.localizedDescription), false) }
     }
 
     /// What an import says: how many files came in, and the ones without a build ID in their name.
-    static func importMessage(_ r: CheatFiles.ImportResult, m: BuildModel) -> (String, Bool) {
+    static func importMessage(_ r: CheatFiles.ImportResult, loc: Localizer) -> (String, Bool) {
         var parts: [String] = []
-        if !r.imported.isEmpty { parts.append(String(format: m.t("cheats.imported"), r.imported.count)) }
-        if !r.skipped.isEmpty { parts.append(String(format: m.t("cheats.notNamed"), r.skipped.prefix(3).joined(separator: ", "))) }
-        if parts.isEmpty { return (m.t("cheats.nothingFound"), false) }
+        if !r.imported.isEmpty { parts.append(String(format: loc.t("cheats.imported"), r.imported.count)) }
+        if !r.skipped.isEmpty { parts.append(String(format: loc.t("cheats.notNamed"), r.skipped.prefix(3).joined(separator: ", "))) }
+        if parts.isEmpty { return (loc.t("cheats.nothingFound"), false) }
         return (parts.joined(separator: " "), !r.imported.isEmpty)
     }
 
@@ -305,10 +307,10 @@ struct CheatsView: View {
         busy = true; result = nil
         DispatchQueue.global(qos: .userInitiated).async {
             let outcome: (String, Bool)
-            do { try transfer.toDevice(); outcome = (String(format: m.t("cheats.copied"), deviceName), true) }
-            catch CheatTransfer.Failure.noFiles { outcome = (m.t("cheats.empty"), false) }
-            catch CheatTransfer.Failure.device(let line) { outcome = (String(format: m.t("cheats.copyFailed"), line), false) }
-            catch { outcome = (String(format: m.t("cheats.copyFailed"), error.localizedDescription), false) }
+            do { try transfer.toDevice(); outcome = (String(format: loc.t("cheats.copied"), deviceName), true) }
+            catch CheatTransfer.Failure.noFiles { outcome = (loc.t("cheats.empty"), false) }
+            catch CheatTransfer.Failure.device(let line) { outcome = (String(format: loc.t("cheats.copyFailed"), line), false) }
+            catch { outcome = (String(format: loc.t("cheats.copyFailed"), error.localizedDescription), false) }
             DispatchQueue.main.async { busy = false; result = outcome; focus.focused = "cheats.done" }
         }
     }

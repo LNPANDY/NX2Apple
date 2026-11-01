@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import NXCore
+import NXModel
 import NXLauncher
 
 /// The player's keyboard and controller layout for every game, passed at Play as the host's DM_KEYMAP and DM_PAD_MAP
@@ -137,7 +138,7 @@ final class ControlLayout: ObservableObject {
 
 /// The Controls sheet: the keyboard's key for each function (click, then press a key) and what each controller button sends.
 struct ControlsView: View {
-    @ObservedObject var m: BuildModel
+    @EnvironmentObject var loc: Localizer
     @ObservedObject var layout: ControlLayout
     @Environment(\.dismiss) private var dismiss
     @State private var listening: String?
@@ -147,17 +148,17 @@ struct ControlsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(m.t("controls.title")).font(.manrope(26, .heavy)).tracking(-0.6)
-                Text(m.t("controls.note")).font(.manrope(14)).foregroundStyle(.secondary)
+                Text(loc.t("controls.title")).font(.manrope(26, .heavy)).tracking(-0.6)
+                Text(loc.t("controls.note")).font(.manrope(14)).foregroundStyle(.secondary)
             }
             .padding(.horizontal, 30).padding(.top, 28).padding(.bottom, 20)
             ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
-                    section(m.t("controls.sticks"), ControlLayout.functions.filter(\.isDirection)) { keyRow($0) }
-                    section(m.t("controls.keyButtons"), ControlLayout.functions.filter { !$0.isDirection }) { keyRow($0) }
-                    PadModeSection(m: m, layout: layout)
-                    section(m.t("controls.pad"), ControlLayout.buttons, note: m.t("controls.padNote")) { padRow($0) }
+                    section(loc.t("controls.sticks"), ControlLayout.functions.filter(\.isDirection)) { keyRow($0) }
+                    section(loc.t("controls.keyButtons"), ControlLayout.functions.filter { !$0.isDirection }) { keyRow($0) }
+                    PadModeSection(layout: layout)
+                    section(loc.t("controls.pad"), ControlLayout.buttons, note: loc.t("controls.padNote")) { padRow($0) }
                 }
                 .padding(.horizontal, 30).padding(.bottom, 24)
             }
@@ -165,15 +166,15 @@ struct ControlsView: View {
             }
             Divider().opacity(0.3)
             HStack(spacing: 14) {
-                Text(m.t("controls.applied")).font(.manrope(12)).foregroundStyle(.secondary).lineLimit(2)
+                Text(loc.t("controls.applied")).font(.manrope(12)).foregroundStyle(.secondary).lineLimit(2)
                 Spacer(minLength: 8)
                 if !layout.isDefault {
-                    Button(m.t("controls.reset")) { stopListening(); layout.resetKeyboard(); layout.resetController() }
+                    Button(loc.t("controls.reset")) { stopListening(); layout.resetKeyboard(); layout.resetController() }
                         .buttonStyle(LauncherSecondaryButtonStyle())
                         .padTarget("controls.reset", scope: "controls") { stopListening(); layout.resetKeyboard(); layout.resetController() }
                 }
                 Button { stopListening(); dismiss() } label: {
-                    Text(m.t("launch.done")).font(.manrope(13.5, .bold)).foregroundStyle(.black)
+                    Text(loc.t("launch.done")).font(.manrope(13.5, .bold)).foregroundStyle(.black)
                         .padding(.horizontal, 22).padding(.vertical, 9)
                         .background(LauncherPalette.cream, in: Capsule())
                 }
@@ -223,17 +224,17 @@ struct ControlsView: View {
     private func keyRow(_ f: ControlLayout.Function) -> some View {
         let on = listening == f.id
         let key = layout.key(f)
-        return line(m.t("controls.fn." + f.id), target: "key." + f.id, activate: { on ? stopListening() : listen(f) }) {
+        return line(loc.t("controls.fn." + f.id), target: "key." + f.id, activate: { on ? stopListening() : listen(f) }) {
             HStack(spacing: 6) {
                 if key != nil && !on {
                     Button { layout.assign(f, key: nil) } label: {
                         Image(systemName: "xmark").font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
                             .frame(width: 22, height: 22).contentShape(Circle())
                     }
-                    .buttonStyle(.plain).help(m.t("controls.clear"))
+                    .buttonStyle(.plain).help(loc.t("controls.clear"))
                 }
                 Button { on ? stopListening() : listen(f) } label: {
-                    Text(on ? m.t("controls.press") : ControlLayout.keyName(key, m.t) ?? m.t("controls.none"))
+                    Text(on ? loc.t("controls.press") : ControlLayout.keyName(key, loc.t) ?? loc.t("controls.none"))
                         .font(.manrope(12.5, on ? .bold : .semibold))
                         .foregroundStyle(on ? Color.black : key == nil ? Color.white.opacity(0.45) : Color.white.opacity(0.92))
                         .frame(maxWidth: .infinity).padding(.vertical, 6)
@@ -249,13 +250,13 @@ struct ControlsView: View {
 
     private func padRow(_ button: String) -> some View {
         let choices = ControlLayout.buttons + ["none"]
-        return line(m.t("controls.fn." + button), target: "pad." + button,
+        return line(loc.t("controls.fn." + button), target: "pad." + button,
                     adjust: { by in
                         let at = choices.firstIndex(of: layout.sends(button)) ?? 0
                         layout.setSends(button, choices[(at + by + choices.count) % choices.count])
                     }) {
-            LauncherDropdown(options: ControlLayout.buttons.map { (value: $0, label: m.t("controls.fn." + $0)) } + [(value: "none", label: m.t("controls.none"))],
-                             selection: layout.sends(button), label: m.t("controls.fn." + button), fill: true) { layout.setSends(button, $0) }
+            LauncherDropdown(options: ControlLayout.buttons.map { (value: $0, label: loc.t("controls.fn." + $0)) } + [(value: "none", label: loc.t("controls.none"))],
+                             selection: layout.sends(button), label: loc.t("controls.fn." + button), fill: true) { layout.setSends(button, $0) }
                 .frame(width: 168)   // the keyboard rows' width (× and key field), and "Right stick press" fits
         }
     }
