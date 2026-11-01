@@ -125,6 +125,30 @@ jobs:
           path: engine/logs
           retention-days: 7
 
+  # The notes of a final release live in release-notes/vX.Y.Z.md and are merged before the tag (RELEASING.md, "Release notes"). A pull request that changes
+  # one is linted here: no emojis or symbols, no semicolons or dashes, English then Chinese, no template leftovers. Nothing runs when no notes file changed.
+  release-notes:
+    name: Release notes lint (release-notes/*.md)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Lint the changed notes files
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          git fetch --no-tags --depth=1 origin "$BASE"
+          files=$(git diff --name-only --diff-filter=d "$BASE" HEAD -- 'release-notes/*.md')
+          if [ -z "$files" ]; then
+            echo "No release notes file changed"
+            exit 0
+          fi
+          echo "$files"
+          echo "$files" | xargs python3 tools/release_notes.py check
+
   patch-queue:
     name: Patch queue (series applies to the pin, tool tests, dry bump against seedds main, issues #123 and #214)
     runs-on: ubuntu-latest
@@ -152,7 +176,7 @@ jobs:
       - name: Install the signing tool's package (tools/release_manifest.py)
         run: python -m pip install -r tools/requirements-release.txt
       - name: Patch, engine and release tool tests
-        run: python -m unittest -v tools/tests/test_patches.py tools/tests/test_engine.py tools/tests/test_release_manifest.py
+        run: python -m unittest -v tools/tests/test_patches.py tools/tests/test_engine.py tools/tests/test_release_manifest.py tools/tests/test_release_notes.py
       - name: Dry bump to seedds main (report only)
         run: python tools/engine.py bump --dry --to main || true
 
