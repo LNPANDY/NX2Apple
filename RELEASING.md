@@ -53,6 +53,17 @@ The build of the final tag looks for the newest `v0.7.6-rcN` on its commit. It d
 
 A final tag on a commit without a candidate fails. In an emergency, a manual run on the tag publishes it anyway: `gh workflow run build-mac-app.yml --ref v0.7.6 -f release_without_rc=true`. Nobody tested that build as a whole, and the release notes say so.
 
+## Release notes
+
+CI writes a short body: the version and the tested candidate. The readable notes are written by a person or an agent from [.github/release_notes_template.md](.github/release_notes_template.md).
+
+- English first, Chinese second, under `## English` and `## 中文`, with the same content in both.
+- No emojis, no pictograms and no symbols in the text. No semicolons (also not the full-width one) and no em-dashes. Plain English and plain Chinese.
+- People are written as `@login`, the owner as `@LNPANDY`.
+- Every claim comes from the changelog row, the merged pull requests or the issues. Nothing is invented.
+- Write the notes before the final tag is pushed or right after it. Put them in a file and publish with `gh release edit <tag> --notes-file <file>`. Never paste them from a chat, that brings emojis along.
+- The notes of a published release stay as they are, unless a fact in them is wrong.
+
 ## Who tags
 
 - Release candidates: LNPANDY or v0lumehi.
