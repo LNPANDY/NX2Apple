@@ -114,8 +114,23 @@ jobs:
             ${{ runner.temp }}/app-icon/AppIcon.icns
           if-no-files-found: error
 
+  # The notes of a final release, written by the Copilot CLI and checked (release-notes.yml, .github/release-notes/README.md). Only a final tag runs it.
+  # A problem with the notes never stops the build: the called workflow cannot fail the run, and the build job below does not read its result.
+  # contents: write is the most a job of the called workflow asks for (its manual publish job), the model job has no permissions at all.
+  notes:
+    if: ${{ github.ref_type == 'tag' && !contains(github.ref_name, '-rc') }}
+    permissions:
+      contents: write
+      pull-requests: read
+    uses: ./.github/workflows/release-notes.yml
+    with:
+      tag: ${{ github.ref_name }}
+      publish: true
+    secrets:
+      COPILOT_TOKEN: ${{ secrets.COPILOT_TOKEN }}
+
   build:
-    needs: [icon-cache, icon]
+    needs: [icon-cache, icon, notes]
     # icon is skipped on a pull request with a cache hit, and that must not skip the build.
     if: ${{ !cancelled() && needs.icon-cache.result == 'success' && (needs.icon.result == 'success' || needs.icon.result == 'skipped') }}
     runs-on: macos-latest
@@ -366,6 +381,15 @@ jobs:
           path: frontend/NX2Apple-macOS-arm64.zip
           if-no-files-found: error
 
+      # The checked text of the model, if there is one (not on a candidate and not when the notes job found nothing to use).
+      - name: Download the model's release notes
+        if: steps.ver.outputs.kind == 'final'
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-notes
+          path: ${{ runner.temp }}/model-notes
+
       - name: Attach to the release
         if: steps.ver.outputs.kind == 'rc' || steps.ver.outputs.kind == 'final'
         shell: bash
@@ -402,20 +426,34 @@ jobs:
               notes="$notes"$'\n\n'"Published without a release candidate (release_without_rc)."
             fi
             if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-              # The body is the reviewed release-notes/<tag>.md plus GitHub's generated notes (contributors, Full Changelog). Without that file
-              # it is the short body above plus the generated notes. If the tool fails for any reason, the release gets the short body
-              # alone: a problem with the notes never stops a release. The release is created only when it does not exist, so notes someone
-              # edited by hand are never overwritten.
+              # The body is the reviewed release-notes/<tag>.md if there is one, else the checked text of the model (release-notes.yml), plus
+              # GitHub's generated notes (contributors, Full Changelog). With neither it is the short body above plus the generated notes. If the
+              # tool fails for any reason, the release gets the short body alone: a problem with the notes never stops a release. The release
+              # is created only when it does not exist, so notes someone edited by hand are never overwritten.
               printf '%s\n' "$notes" > "$RUNNER_TEMP/short-notes.md"
               body="$RUNNER_TEMP/short-notes.md"
+              notes_file="release-notes/$GITHUB_REF_NAME.md" model=""
+              if [ ! -f "$notes_file" ] && [ -s "$RUNNER_TEMP/model-notes/model.md" ]; then
+                notes_file="$RUNNER_TEMP/model-notes/model.md" model=yes
+              elif [ ! -f "$notes_file" ]; then
+                echo "::warning title=Release notes::No reviewed notes file and no checked text of the model for $GITHUB_REF_NAME (the job summary of the notes job says why), so it gets the short body."
+              fi
+              title=""
               if previous=$(python tools/release_notes.py previous "$GITHUB_REF_NAME") && \
-                 python tools/release_notes.py build "$GITHUB_REF_NAME" --previous "$previous" --file "release-notes/$GITHUB_REF_NAME.md" \
+                 python tools/release_notes.py build "$GITHUB_REF_NAME" --previous "$previous" --file "$notes_file" \
                    --short-body "$RUNNER_TEMP/short-notes.md" --out "$RUNNER_TEMP/release-body.md"; then
                 body="$RUNNER_TEMP/release-body.md"
+                if [ -n "$model" ]; then
+                  title=$(python .github/scripts/notes_finish.py title "$notes_file" "$GITHUB_REF_NAME")
+                fi
               else
                 echo "::warning title=Release notes::tools/release_notes.py failed, so $GITHUB_REF_NAME gets the short body. Fix the notes with: gh release edit $GITHUB_REF_NAME --notes-file <file> (RELEASING.md, Release notes)"
               fi
               gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" --notes-file "$body"
+              # The title of the model's text (vX.Y.Z: English / Chinese) when its first line can be read. A failure here leaves the tag as the title.
+              if [ -n "$title" ]; then
+                gh release edit "$GITHUB_REF_NAME" --title "$title" || echo "::warning title=Release notes::the release title could not be set"
+              fi
             fi
           fi
           # All three names, one build: NX2Apple is current. The older two keep self-update working
