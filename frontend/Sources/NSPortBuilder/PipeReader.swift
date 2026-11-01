@@ -17,3 +17,4 @@ enum PipeReader {
         }
     }
 }
+// measure: one changed file

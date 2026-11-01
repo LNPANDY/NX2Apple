@@ -89,3 +89,20 @@ jobs:
           name: logs-launcher
           path: logs
           retention-days: 7
+
+  parallel:
+    name: Measure parallel tests (temporary)
+    runs-on: xcode-27
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Engine
+        run: python3 tools/engine.py sync
+      - name: Build tests
+        working-directory: frontend
+        run: swift build --build-tests 2>&1 | tail -3
+      - name: Tests in parallel
+        working-directory: frontend
+        run: swift test --skip-build --parallel 2>&1 | tail -40
