@@ -162,7 +162,7 @@ index 70789d3..710e59a 100644
 +// action (re-send the game data as romfs.img from the launcher), or NULL. The launcher's Game data section shows it.
 +const char *dm_old_archive_message(void);
 diff --git a/dm/ios/Sources/Launcher.swift b/dm/ios/Sources/Launcher.swift
-index f2cb6c1..44af3cc 100644
+index 924e2e0..ebaa055 100644
 --- a/dm/ios/Sources/Launcher.swift
 +++ b/dm/ios/Sources/Launcher.swift
 @@ -10,6 +10,64 @@ import os
@@ -230,7 +230,7 @@ index f2cb6c1..44af3cc 100644
  /// Cloud saves: an iCloud Drive folder shared with the Mac app (chosen in its settings window's
  /// Cloud saves too). The host brings the save in from there when the game starts and
  /// sends it there after each save (dm/host/save_sync.h); the folder is a bookmark (CloudSaves.m).
-@@ -60,14 +118,14 @@ private struct CloudSavesSection: View {
+@@ -61,14 +119,14 @@ private struct CloudSavesSection: View {
      }
  }
  
@@ -247,7 +247,7 @@ index f2cb6c1..44af3cc 100644
          let picker = UIDocumentPickerViewController(forOpeningContentTypes: types, asCopy: false)
          picker.allowsMultipleSelection = false
          picker.delegate = context.coordinator
-@@ -128,6 +186,7 @@ private struct LauncherView: View {
+@@ -129,6 +187,7 @@ private struct LauncherView: View {
                      } footer: {
                          Text("Brings back all settings this game was tested with.")
                      }
@@ -256,12 +256,12 @@ index f2cb6c1..44af3cc 100644
                      Section {
                          HStack {
 diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
-index 56c8add..0469c90 100644
+index b941e77..df1983d 100644
 --- a/dm/ios/Sources/front_ios.m
 +++ b/dm/ios/Sources/front_ios.m
 @@ -21,6 +21,7 @@
  const char *front_ios_boot_message(void);   // main.m: why a build that keeps the game files off the IPA found none usable (NULL = the generic hint)
- const char *front_ios_device_message(void);   // main.m: why this device cannot run the games (its GPU has no BC textures; NULL = supported)
+ const char *front_ios_device_check(void);   // main.m: why this device cannot run the games (its GPU has no BC textures; NULL = supported); makes the first Metal device
  bool dm_show_launcher(void *view_controller, void (*done)(void));   // Launcher.swift: false = no launcher (no dm/launcher.json, or DM_LAUNCHER=0)
 +int dm_locate_game_data(void);   // main.m: (re)decide where the game data is; NO when there still is none
  
@@ -275,7 +275,7 @@ index 56c8add..0469c90 100644
  - (void)startGame;
  @end
  static DmRootVC *g_root;
-@@ -93,6 +95,14 @@ - (void)viewDidLoad {
+@@ -95,6 +97,14 @@ - (void)viewDidLoad {
  // The game view, the pad and the frame-rate counter are made once the launcher has set the switches they read (DM_SHOW_FPS, DM_METAL_HUD); the host's loading began at app launch (main.m)
  - (void)startGame {
      if (self.game) return;
@@ -288,9 +288,9 @@ index 56c8add..0469c90 100644
 +        [self.view addSubview:lb]; return;
 +    }
      dm_cloud_saves_env();   // DM_SAVE_SYNC from the launcher's Cloud saves pick, before the game's first save mount reads it (CloudSaves.m, save_sync.h)
-     front_hud_env();   // before the game view makes its device (an env file's DM_METAL_HUD sets it in main.m already)
-     self.game = [[DmGameView alloc] initWithFrame:self.view.bounds];
-@@ -128,7 +138,8 @@ - (void)viewDidAppear:(BOOL)a {
+     front_hud_env();   // before the process's first Metal device, which reads MTL_HUD_ENABLED (an env file's DM_METAL_HUD sets it in main.m already; GitHub issue #840)
+     const char *dev = front_ios_device_check();   // that first device: a GPU without BC textures is refused here, not at launch, so the launcher's HUD switch counts
+@@ -132,7 +142,8 @@ - (void)viewDidAppear:(BOOL)a {
      }
      if (self.launched || !front_ios_boot_ok()) return;
      self.launched = YES; g_root = self;
@@ -301,7 +301,7 @@ index 56c8add..0469c90 100644
  - (BOOL)prefersHomeIndicatorAutoHidden { return YES; }
  - (UIRectEdge)preferredScreenEdgesDeferringSystemGestures { return UIRectEdgeAll; }   // Edge gestures need two swipes, to avoid accidental exits
 diff --git a/dm/ios/Sources/main.m b/dm/ios/Sources/main.m
-index d0211f4..d88e35c 100644
+index 7afe1c3..85c068c 100644
 --- a/dm/ios/Sources/main.m
 +++ b/dm/ios/Sources/main.m
 @@ -8,9 +8,10 @@
@@ -438,10 +438,10 @@ index d0211f4..d88e35c 100644
  // Add-on content (DLC): each DLC's RomFS image at <dir>/<index>.img (or a legacy <index>/ folder). Like the game files, Documents/aoc comes before <App>/aoc.
  // A DM_AOC_DIR that is already set (env.txt, the launch environment) wins. The host mounts and counts the DLC from DM_AOC_DIR (hle_fs.c, hle_misc.c)
  static void aoc_locate(void) {
-@@ -165,16 +258,28 @@ static int boot_env(void) {
-                  gpu ? gpu.name.UTF8String : "no Metal device");
-         fprintf(stderr, "[RED] boot: %s\n", g_device_message); return 0;
-     }
+@@ -168,16 +261,28 @@ static int boot_env(void) {
+     NSString *lang = [NSBundle.mainBundle objectForInfoDictionaryKey:@"DMLanguage"];
+     if (!getenv("DM_LANG") && [lang isKindOfClass:NSString.class] && lang.length) setenv("DM_LANG", lang.UTF8String, 0);
+     fprintf(stderr, "boot: game language %s\n", getenv("DM_LANG") ?: "en-US");
 +    // No game data yet is not fatal: the launcher comes up all the same, and its Game data section
 +    // is where a location gets picked; dm_locate_game_data() looks again when Play is pressed.
 +    NSString *gdir = game_dir_for(dm_profile()->id);

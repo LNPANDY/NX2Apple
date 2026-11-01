@@ -23,8 +23,8 @@ concurrency:
 env:
   GAME: 010015100B514000   # Super Mario Bros. Wonder: the profile the host and gfx tests are built for (any profile does; the tests are about code, not the game)
   # One toolchain everywhere (upstream's dm/tools/tests/test_ci_toolchain.py keeps the name in step
-  # with README and the NSP script): the xcode-27 image is GitHub-hosted, arm64, macOS 27 + Xcode 27.1.
-  DEVELOPER_DIR: /Applications/Xcode_27.1.app/Contents/Developer
+  # with README and the NSP script): the xcode-27 image is GitHub-hosted, arm64, macOS 27 + Xcode 27.2.
+  DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
 
 defaults:
   run:

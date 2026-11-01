@@ -61,7 +61,7 @@ enum BuildFailureClassifier {
         ("nsp.damaged", .damagedNSP, "files fail the NCA's hash check"),
         ("arm32.program", .a32Program, "is a 32-bit ARM program"),
         ("keys.missing", .keys, "(?m)^\\[RED\\] no such file: "),
-        ("games.several", .severalGames, "more than one game in the folder, keep one game per folder"),
+        ("games.several", .severalGames, "more than one game in the folder"),
         ("games.noTitleID", .noTitleID, "no NSP with a readable title ID in "),
         ("disk.low", .diskFull, "less than [0-9]+ GB free on the volume of "),
         ("disk.full", .diskFull, "No space left on device"),

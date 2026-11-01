@@ -16,10 +16,10 @@ Issue: LNPANDY/NX2Apple#272
  3 files changed, 25 insertions(+)
 
 diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
-index 6706ced..99d217d 100644
+index 7b8d20c..e3b5211 100644
 --- a/dm/host/front_mac.m
 +++ b/dm/host/front_mac.m
-@@ -1192,6 +1192,22 @@ void front_run(void (*guest)(void)) {
+@@ -1270,6 +1270,22 @@ void front_run(void (*guest)(void)) {
                  (void)n; want = 0; entering = 0; g_fs_failed = nil; }];   // startup succeeded: later manual refusals have no startup request to retry
              dispatch_async(dispatch_get_main_queue(), enter);
          }
@@ -43,7 +43,7 @@ index 6706ced..99d217d 100644
              [NSNotificationCenter.defaultCenter addObserverForName:nm object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *n) {
                  GCController *c = n.object; int conn = n.name == GCControllerDidConnectNotification;
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index f05c13a..5ce83dd 100644
+index d83ac4a..b14a397 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
 @@ -20,6 +20,7 @@ DM_CHEATS_WINDOW	switch	`1` opens the Mac Cheats panel beside the game from the
@@ -55,10 +55,10 @@ index f05c13a..5ce83dd 100644
  DM_DBG_AU_FRAMES	diagnostic	`=<frames>` asks the Mac's Core Audio output for that many frames per callback instead of about 5 ms (1024 reproduces the iOS default that caused crackling)
  DM_DETCLOCK	switch	`=<step ns>`: from the first present on, the guest clock advances a fixed step per present instead of following the wall clock, and the random source becomes a fixed-seed stream (replay and test runs)
 diff --git a/docs/reference/frame-rate.md b/docs/reference/frame-rate.md
-index 62fa9a9..93f4a16 100644
+index fc69884..f999f52 100644
 --- a/docs/reference/frame-rate.md
 +++ b/docs/reference/frame-rate.md
-@@ -227,6 +227,14 @@ Frame pacing: the host's frame step, engine frame limiters, present intervals an
+@@ -250,6 +250,14 @@ Frame pacing: the host's frame step, engine frame limiters, present intervals an
  - **Check:** the reporter confirmed that the deferred request entered fullscreen on its first attempt and stayed there, without a refusal. A harness of the startup callbacks checks both readiness orders, bounded refusal recovery, and cancellation before startup or a queued retry, plus later manual failures after successful startup.
  - **Not checked:** the revised lifecycle handling in a real game through the launcher's console mode; native refusal recovery (the reporter's deferred request succeeded without it).
  

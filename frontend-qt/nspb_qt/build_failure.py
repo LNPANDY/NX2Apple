@@ -42,7 +42,7 @@ TABLE: list[tuple[str, str, str]] = [
     ('nsp.damaged', DAMAGED_NSP, r"files fail the NCA's hash check"),
     ('arm32.program', A32_PROGRAM, r'is a 32-bit ARM program'),
     ('keys.missing', KEYS, r'(?m)^\[RED\] no such file: '),
-    ('games.several', SEVERAL_GAMES, r'more than one game in the folder, keep one game per folder'),
+    ('games.several', SEVERAL_GAMES, r'more than one game in the folder'),
     ('games.noTitleID', NO_TITLE_ID, r'no NSP with a readable title ID in '),
     ('disk.low', DISK_FULL, r'less than [0-9]+ GB free on the volume of '),
     ('disk.full', DISK_FULL, r'No space left on device'),
