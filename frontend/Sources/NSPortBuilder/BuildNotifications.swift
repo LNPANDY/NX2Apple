@@ -72,24 +72,16 @@ final class BuildNotifier: NSObject, ObservableObject, UNUserNotificationCenterD
     func watch(_ m: BuildModel, library: GameLibrary) {
         guard watching == nil, BuildNotice.hasBundleID else { return }
         UNUserNotificationCenter.current().delegate = self
-        watching = m.$running.removeDuplicates().dropFirst().sink { [weak self, weak m, weak library] running in
+        watching = m.$done.removeDuplicates().dropFirst().sink { [weak self, weak m, weak library] done in
             guard let self, let m, let library else { return }
-            if running {
-                // The first build is when someone has a reason to say yes; the system asks only once.
-                if BuildNotice.enabled { UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in } }
-                return
-            }
-            // Published before the change lands: Stop is still visible now, the outcome only once the handler that
-            // ended the build has finished (it sets done and its note after running).
+            if m.running { return }   // a reset between builds: done flips false while nothing has ended yet
+            // `done` is the chain's own verdict: the Mac target sets it when the .app exists, the iPhone target
+            // when the pack-install chain finished (its script ends earlier, with `running` false while work goes
+            // on — a `running`-based notice read that window as a failure, and a done-based one missed nothing).
             let stopped = m.stopping
             DispatchQueue.main.async {
-                // The iPhone target's build ends its script and then packs the image and installs
-                // into the shell: `running` flips false while `done` is still false, and the real
-                // outcome lands when that chain finishes. No failed stage means the build is between
-                // its phases, not over — stay quiet and let the chain's own end decide.
-                if !stopped && !m.done && !m.stages.contains(where: { $0.state == .failed }) { return }
                 let outcome: BuildNotice.Outcome = stopped ? .stopped
-                    : m.done ? .finished : .failed(reason: BuildNotice.failureReason(note: m.doneNote, stages: m.stages))
+                    : done ? .finished : .failed(reason: BuildNotice.failureReason(note: m.doneNote, stages: m.stages))
                 guard BuildNotice.shouldNotify(outcome, enabled: BuildNotice.enabled, appActive: NSApp.isActive, hasBundleID: true) else { return }
                 self.post(outcome, m: m, library: library)
             }

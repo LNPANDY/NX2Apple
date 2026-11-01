@@ -157,12 +157,15 @@ public struct ShellActions {
     public var onShowLog: (String) -> Void
     public var onAppUpdate: () -> Void
     public var onBack: () -> Void
+    public var onPickShellData: () -> Void
+    public var onPickShellCloud: () -> Void
     public init(onSelect: @escaping (String) -> Void = { _ in }, onPlay: @escaping (String) -> Void = { _ in },
                 onChange: @escaping (String, String, String) -> Void = { _, _, _ in },
                 onPickGameData: @escaping (String) -> Void = { _ in }, onUseAppData: @escaping (String) -> Void = { _ in },
                 onPickCloudSaves: @escaping (String) -> Void = { _ in }, onDisableCloudSaves: @escaping (String) -> Void = { _ in },
                 onResetDefaults: @escaping (String) -> Void = { _ in }, onShowLog: @escaping (String) -> Void = { _ in },
-                onAppUpdate: @escaping () -> Void = {}, onBack: @escaping () -> Void = {}) {
+                onAppUpdate: @escaping () -> Void = {}, onBack: @escaping () -> Void = {},
+                onPickShellData: @escaping () -> Void = {}, onPickShellCloud: @escaping () -> Void = {}) {
         self.onSelect = onSelect
         self.onPlay = onPlay
         self.onChange = onChange
@@ -174,5 +177,7 @@ public struct ShellActions {
         self.onShowLog = onShowLog
         self.onAppUpdate = onAppUpdate
         self.onBack = onBack
+        self.onPickShellData = onPickShellData
+        self.onPickShellCloud = onPickShellCloud
     }
 }
