@@ -1,4 +1,5 @@
 import Foundation
+import NXCore
 
 /// Which library games were built with older build tools (LNPANDY/NX2Apple#65, after seedds/nxnative#209): a finished build
 /// records the engine's commit (LibraryGame.toolsCommit); once the engine has moved on, a game is marked when files a build uses
@@ -45,19 +46,19 @@ final class ToolsAge: ObservableObject {
     }
 
     /// The engine's commit (the pin plus the series), for a git engine only (an engine tree has no history to compare against).
-    nonisolated static func head(repo: String) -> String? {
+    nonisolated static func head(repo: String, git: GitCheckout = SystemGitCheckout()) -> String? {
         let engine = EngineLayout.root(repo)
-        guard !engine.isEmpty, FileManager.default.fileExists(atPath: engine + "/.git"), let git = BuildModel.gitBinary() else { return nil }
-        let r = BuildModel.runQuiet([git, "-C", engine, "rev-parse", "HEAD"], env: BuildModel.gitEnv())
+        guard !engine.isEmpty, FileManager.default.fileExists(atPath: engine + "/.git"), git.binary != nil else { return nil }
+        let r = git.run(engine, ["rev-parse", "HEAD"])
         let commit = r.out.trimmingCharacters(in: .whitespacesAndNewlines)
         return r.ok && !commit.isEmpty ? commit : nil
     }
 
     /// The files changed between a recorded commit and the engine's HEAD; nil when git cannot tell (a commit the engine does not
     /// have, as for a game built before step 2 or after engine/ was made anew), which marks nothing rather than everything.
-    nonisolated static func changedFiles(since commit: String, repo: String) -> [String]? {
-        guard let git = BuildModel.gitBinary() else { return nil }
-        let r = BuildModel.runQuiet([git, "-C", EngineLayout.root(repo), "diff", "--name-only", "--no-renames", commit, "HEAD", "--"], env: BuildModel.gitEnv())
+    nonisolated static func changedFiles(since commit: String, repo: String, git: GitCheckout = SystemGitCheckout()) -> [String]? {
+        guard git.binary != nil else { return nil }
+        let r = git.run(EngineLayout.root(repo), ["diff", "--name-only", "--no-renames", commit, "HEAD", "--"])
         guard r.ok else { return nil }
         return r.out.split(separator: "\n").map(String.init).filter { !$0.isEmpty }
     }

@@ -167,7 +167,7 @@ final class EngineLayoutTests: XCTestCase {
         let tools = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().appendingPathComponent("tools").path
         let code = "import sys; sys.path.insert(0, sys.argv[1]); import engine, pathlib; print(engine.stamp_key(pathlib.Path(sys.argv[2])))"
-        let r = BuildModel.runQuiet(["/usr/bin/env", "python3", "-c", code, tools, repo], env: ["PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"])
+        let r = SystemProcessRunner().runQuiet(["/usr/bin/env", "python3", "-c", code, tools, repo], env: ["PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"])
         try XCTSkipUnless(r.ok, "python3 did not run: \(r.out)")
         XCTAssertEqual(r.out.trimmingCharacters(in: .whitespacesAndNewlines), EngineLayout.stampKey(repo))
     }

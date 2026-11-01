@@ -29,25 +29,12 @@ final class RepoToolsTests: XCTestCase {
     }
 
     @discardableResult private func git(_ args: String..., in dir: URL) throws -> String {
-        let r = BuildModel.runQuiet(["/usr/bin/git", "-C", dir.path] + args, env: BuildModel.gitEnv())
+        let r = SystemProcessRunner().runQuiet(["/usr/bin/git", "-C", dir.path] + args, env: SystemGitCheckout.environment())
         guard r.ok else { throw NSError(domain: "git", code: 1, userInfo: [NSLocalizedDescriptionKey: "git \(args.joined(separator: " ")): \(r.out)"]) }
         return r.out.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    // MARK: the decision
-
-    func testAdoptionDecision() {
-        func decide(isRepo: Bool = true, isGit: Bool = false, running: Bool = false, busy: Bool = false, auto: Bool = true) -> BuildModel.ZipAdoption {
-            BuildModel.zipAdoption(isRepo: isRepo, isGit: isGit, buildRunning: running, repoBusy: busy, autoUpdate: auto)
-        }
-        XCTAssertEqual(decide(), .adopt, "a ZIP copy is connected")
-        XCTAssertEqual(decide(isGit: true), .notNeeded, "a git checkout is the normal update's business")
-        XCTAssertEqual(decide(isRepo: false), .notNeeded, "no valid repository, nothing to adopt")
-        XCTAssertEqual(decide(running: true), .waitsForBuild, "never while a build runs")
-        XCTAssertEqual(decide(busy: true), .waitsForBuild)
-        XCTAssertEqual(decide(auto: false), .autoUpdateOff, "the player turned the automatic update off")
-        XCTAssertEqual(decide(running: true, auto: false), .waitsForBuild)
-    }
+    // The decision (GitRules.zipAdoption) is tested in NXCoreTests/GitCheckoutTests.
 
     // MARK: the missing-tool check
 
@@ -113,7 +100,7 @@ final class RepoToolsTests: XCTestCase {
         let m = openZip(f, auto: true)
         XCTAssertTrue(m.repoIsGit)
         XCTAssertTrue(m.autoAdopted)
-        XCTAssertEqual(m.repoStatus, String(format: m.t("repo.adoptedAuto"), BuildModel.zipCopyBranch()))
+        XCTAssertEqual(m.repoStatus, String(format: m.t("repo.adoptedAuto"), GitRules.zipCopyBranch()))
         XCTAssertEqual(BuildModel.missingTools(in: f.zip.path), [], "the tools of origin/main are there now")
         XCTAssertEqual(try git("rev-parse", "--abbrev-ref", "HEAD", in: f.zip), "main")
         XCTAssertEqual(try String(contentsOf: f.zip.appendingPathComponent(BuildModel.buildScript), encoding: .utf8), "new")
@@ -126,7 +113,7 @@ final class RepoToolsTests: XCTestCase {
         try write(["dm/mine/notes.txt"], in: f.zip, text: "mine")                                       // a file origin does not have
         try write(["dm/tools/build/huge.bin"], in: f.zip, text: "build output")
         let m = openZip(f, auto: true)
-        let branch = BuildModel.zipCopyBranch()
+        let branch = GitRules.zipCopyBranch()
         XCTAssertEqual(try git("show", "main:" + BuildModel.buildScript, in: f.zip), "new", "main has origin's version")
         XCTAssertEqual(try String(contentsOf: f.zip.appendingPathComponent(BuildModel.buildScript), encoding: .utf8), "new")
         XCTAssertEqual(try git("show", branch + ":" + BuildModel.buildScript, in: f.zip), "my tweak", "the branch has the edit")

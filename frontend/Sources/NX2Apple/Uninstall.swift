@@ -1,4 +1,5 @@
 import AppKit
+import NXCore
 
 /// Uninstalling the launcher (NX Play's Uninstall): everything the app put outside its bundle, with the
 /// player's games and keys left alone. What goes:
@@ -53,9 +54,9 @@ enum Uninstall {
         return p.count >= f.count && Array(p.prefix(f.count)) == f
     }
 
-    nonisolated static func gitOrigin(_ checkout: String) -> String? {
-        guard let git = BuildModel.gitBinary() else { return nil }
-        let r = BuildModel.runQuiet([git, "-C", checkout, "remote", "get-url", "origin"], env: BuildModel.gitEnv())
+    nonisolated static func gitOrigin(_ checkout: String, git: GitCheckout = SystemGitCheckout()) -> String? {
+        guard git.binary != nil else { return nil }
+        let r = git.run(checkout, ["remote", "get-url", "origin"])
         let url = r.out.trimmingCharacters(in: .whitespacesAndNewlines)
         return r.ok && !url.isEmpty ? url : nil
     }
