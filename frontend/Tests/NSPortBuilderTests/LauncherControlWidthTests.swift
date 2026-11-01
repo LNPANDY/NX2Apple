@@ -283,8 +283,13 @@ final class LauncherControlWidthTests: XCTestCase {
             window.orderOut(nil)
             XCTAssertFalse(samples.all.isEmpty, "\(lang): the sheet showed no Reset to tested defaults")
             for sample in samples.all {
-                XCTAssertEqual(sample.size.width, LauncherControl.width, "\(lang)")
-                XCTAssertEqual(sample.size.height, LauncherControl.height, "\(lang)")
+                if sample.room == LauncherControl.buttonLabelWidth {
+                    XCTAssertEqual(sample.size.width, LauncherControl.width, "\(lang)")
+                    XCTAssertEqual(sample.size.height, LauncherControl.height, "\(lang)")
+                } else {
+                    // A choice with labels too long for the segmented control (French "Plein écran") is a dropdown as wide as one.
+                    XCTAssertEqual(sample.size.width, LaunchControl.width, "\(lang)")
+                }
                 XCTAssertLessThanOrEqual(sample.labelWidth, sample.room, "\(lang): \(L10n.string("launch.reset", lang))")
             }
         }

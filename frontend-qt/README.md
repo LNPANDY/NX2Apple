@@ -51,7 +51,8 @@ the bundle's `fonts` folder (`build-qt.yml`). If the file is missing the system 
   the RomFS archive and reports where the IPA and archive landed.
 - `--work-dir` is passed only when the checkout's script declares it (an upstream checkout has
   no such option — issue #5).
-- Bilingual: Chinese on Chinese devices, English elsewhere, and the header button switches.
+- Languages: Chinese, Swedish, German or French on devices in those languages, English elsewhere, and the
+  header button switches.
 
 ## What is not there yet
 
