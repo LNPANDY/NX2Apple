@@ -19,11 +19,11 @@ a porting gap: an M3-or-newer Apple TV should get past it.
 
 Co-Authored-By: Claude Code <noreply@anthropic.com>
 
-Upstream-Status: pending
+Upstream-Status: forwarded seedds/nxnative#868
 Reason: a tvOS target for Apple TV: the iOS front end builds and runs on tvOS with these guards, which is the first slice of LNPANDY/NX2Apple#163 (the tvOS target and pipeline flags)
 Issue: LNPANDY/NX2Apple#163
 
-Upstream-Status: pending
+Upstream-Status: forwarded seedds/nxnative#868
 Reason: TODO: why the fork carries this
 Issue: TODO: LNPANDY/NX2Apple#<n>
 
