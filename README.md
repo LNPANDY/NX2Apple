@@ -23,9 +23,9 @@
 
 #### 🆕 Latest highlights
 
-- **Guided first run** — a setup wizard walks a new player through Xcode, keys and games; the build tools and a Python ship inside the app, so nobody installs Homebrew.
+- **One app for iPhone and iPad**: build a game with the iPhone / iPad target and it lands in one shell app that holds all your games. An art-led library with the key art, Cover Flow when the phone is on its side, settings for each game, and controller or keyboard control. It follows the system language (English and Simplified Chinese).
 - **Saves that follow you** — Mac ⇄ iPhone saves sync through one iCloud Drive folder, a deleted app reinstalls in seconds, and a free Apple ID's 7-day signature renews in place.
-- **One app for iPhone and iPad**: a library of all your games with their key art, Cover Flow when the phone is on its side, settings for each game, and controller or keyboard control. It follows the system language (English and Simplified Chinese).
+- **Guided first run** — a setup wizard walks a new player through Xcode, keys and games; the build tools and a Python ship inside the app, so nobody installs Homebrew.
 - **Console mode** — plug in a controller, press Select: the library goes full screen, controller-first, like a Switch home menu.
 
 Every release is in the [changelog](CHANGELOG.md). 中文用户请看这里：[简体中文 README](README.zh-CN.md)。
