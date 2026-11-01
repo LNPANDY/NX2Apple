@@ -23,6 +23,9 @@ import AppKit
     /// The pointer hides while the console is idle (ConsolePointer.swift).
     private lazy var pointer = ConsolePointer(window: window)
 
+    /// The pointer is hidden right now: a game started from the console gets DM_CURSOR_HIDDEN then.
+    var pointerHidden: Bool { pointer.isHidden }
+
     nonisolated static let transitionSeconds: TimeInterval = 0.4
 
     init(window: @escaping () -> NSWindow? = { NSApp.keyWindow ?? NSApp.windows.first { $0.canBecomeMain } },
