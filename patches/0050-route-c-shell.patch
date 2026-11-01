@@ -16,16 +16,16 @@ Reason: the route C shell (M2): its library is the fork's frontend-ios package a
 Issue: LNPANDY/NX2Apple#144
 ---
  dm/ios/Shell/Shell-Bridging-Header.h |   2 +
- dm/ios/Shell/ShellApp.swift          |  73 ++++++++++++
+ dm/ios/Shell/ShellApp.swift          |  73 +++++++++++
  dm/ios/Shell/ShellEngine.h           |  10 ++
- dm/ios/Shell/ShellMain.m             | 172 +++++++++++++++++++++++++++
+ dm/ios/Shell/ShellMain.m             | 173 +++++++++++++++++++++++++++
  dm/ios/Sources/front_ios.m           |   1 +
  dm/ios/project-shell.yml             | 114 ++++++++++++++++++
- dm/ios/tests/test_shell_build.py     | 159 +++++++++++++++++++++++++
+ dm/ios/tests/test_shell_build.py     | 172 ++++++++++++++++++++++++++
  dm/ios/tools/build_ipa.sh            |  39 +++++-
  dm/ios/tools/build_shell.sh          | 117 ++++++++++++++++++
  dm/ios/tools/gen_manifest.py         |   9 +-
- 10 files changed, 692 insertions(+), 4 deletions(-)
+ 10 files changed, 706 insertions(+), 4 deletions(-)
  create mode 100644 dm/ios/Shell/Shell-Bridging-Header.h
  create mode 100644 dm/ios/Shell/ShellApp.swift
  create mode 100644 dm/ios/Shell/ShellEngine.h
@@ -139,10 +139,10 @@ index 0000000..40f6f04
 +void dm_shell_present_game(void);
 diff --git a/dm/ios/Shell/ShellMain.m b/dm/ios/Shell/ShellMain.m
 new file mode 100644
-index 0000000..a031206
+index 0000000..2f86093
 --- /dev/null
 +++ b/dm/ios/Shell/ShellMain.m
-@@ -0,0 +1,172 @@
+@@ -0,0 +1,173 @@
 +// Route C shell (docs/launcher-c-plan.md M2): the app that hosts the engine and several games' frameworks. It starts on the
 +// library (frontend-ios's ShellHost views, ShellApp.swift) instead of booting a game at launch as dm/ios/Sources/main.m does, and
 +// when the player presses Play, dm_shell_start_game() does what main.m's boot_env() does before UIApplicationMain, for the chosen
@@ -151,7 +151,7 @@ index 0000000..a031206
 +// dm_main on the big-stack thread through front_ios_boot() below.
 +// One game per process: dm_profile() and dm_host_preload_start() run once, so returning to the library is a relaunch of the app.
 +// This file provides the symbols front_ios.m takes from main.m and Launcher.swift in the one-game app (front_ios_boot,
-+// front_ios_boot_ok, front_ios_boot_message, dm_locate_game_data, dm_show_launcher): the shell compiles front_ios.m unchanged.
++// front_ios_boot_ok, front_ios_boot_message, front_ios_device_message, dm_locate_game_data, dm_show_launcher): the shell compiles front_ios.m unchanged.
 +#import <UIKit/UIKit.h>
 +#include <dlfcn.h>
 +#include <pthread.h>
@@ -252,6 +252,7 @@ index 0000000..a031206
 +}
 +int front_ios_boot_ok(void) { return g_boot_ok; }
 +const char *front_ios_boot_message(void) { return NULL; }
++const char *front_ios_device_message(void) { return NULL; }   // main.m says why the GPU cannot run the games (no BC textures, seedds#704), the shell does its own device handling: NULL = supported
 +// The shell found the data before Play (DataLocator, EngineLaunchPlan): DM_ROMFS is set and the game view only checks it is still there
 +int dm_locate_game_data(void) {
 +    const char *r = getenv("DM_ROMFS"); struct stat st;
@@ -449,10 +450,10 @@ index 0000000..1fc2956
 +      config: Release
 diff --git a/dm/ios/tests/test_shell_build.py b/dm/ios/tests/test_shell_build.py
 new file mode 100644
-index 0000000..9582898
+index 0000000..042513f
 --- /dev/null
 +++ b/dm/ios/tests/test_shell_build.py
-@@ -0,0 +1,159 @@
+@@ -0,0 +1,172 @@
 +"""Route C shell (docs/launcher-c-plan.md M2): dm/ios/tools/build_shell.sh, off a device.
 +
 +The checks of the frameworks it is given run anywhere: a manifest of another shader chain, two frameworks of one title, a folder
@@ -465,6 +466,7 @@ index 0000000..9582898
 +import json
 +import os
 +import plistlib
++import re
 +import shutil
 +import subprocess
 +import sys
@@ -564,6 +566,18 @@ index 0000000..9582898
 +        r = run_script('--sign', [framework(self.root)], self.shell)
 +        self.assertNotEqual(r.returncode, 0)
 +        self.assertIn('usage', r.stdout)
++
++
++class ShellMainProvidesWhatFrontIosTakes(unittest.TestCase):
++    """front_ios.m is compiled into the shell unchanged and main.m is not linked, so ShellMain.m has to define every function
++    front_ios.m declares as coming from main.m (a missing one is a link error of every shell build, found only on a device build)."""
++    def test_every_symbol_front_ios_takes_from_main_m_is_defined(self):
++        front = (REPO / 'dm/ios/Sources/front_ios.m').read_text()
++        wanted = re.findall(r'^[A-Za-z_][\w \t\*]*?\b(\w+)\([^)]*\);[ \t]*//[^\n]*\bmain\.m\b', front, re.M)
++        self.assertIn('front_ios_boot_message', wanted)   # the scan finds the declarations at all
++        shell = (REPO / 'dm/ios/Shell/ShellMain.m').read_text()
++        missing = [n for n in dict.fromkeys(wanted) if not re.search(r'^[A-Za-z_][\w \t\*]*?\b' + n + r'\([^)]*\)[ \t]*\{', shell, re.M)]
++        self.assertEqual(missing, [], 'ShellMain.m does not define what front_ios.m takes from main.m')
 +
 +
 +@unittest.skipUnless(HAS_TOOLS and font_python(), 'needs macOS, XcodeGen, an iPhoneOS SDK and a python with fontTools')

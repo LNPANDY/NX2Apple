@@ -21,6 +21,22 @@ def title_id(name: str) -> int | None:
     return int(m.group(1), 16) if m else None
 
 
+def build_key(path: str) -> str:
+    """The name of a game's work folder and output (<key>_build, <key>.app), the same rule as the Mac launcher's
+    buildKey: the title ID in the file name, else the cleaned file name stem plus a short FNV-1a hash of it. Two games
+    never share a folder (and its shader cache), the same file name always gets the same one (#382)."""
+    name = Path(path).name
+    tid = title_id(name)
+    if tid is not None:
+        return f'{tid:016X}'
+    stem = name.rsplit('.', 1)[0] if '.' in name else name
+    h = 2166136261
+    for byte in stem.encode('utf-8'):
+        h = ((h ^ byte) * 16777619) & 0xFFFFFFFF
+    clean = ''.join(c if (c.isascii() and (c.isalnum() or c in '-_')) else '_' for c in stem)[:40]
+    return f'{clean or "game"}-{h:08x}'
+
+
 def update_version(name: str) -> int:
     """The version in a file name ([v65536], else a _v65536 or ' v65536' token), 0 when absent."""
     m = _BRACKET_VERSION.search(name) or _TOKEN_VERSION.search(name)

@@ -76,3 +76,26 @@ class InputsTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class BuildKeyTests(unittest.TestCase):
+    """#382: no more `game_build` for every file name without a title ID. Same cases as the Mac BuildKeyTests."""
+
+    def test_title_id_name_keeps_its_folder(self):
+        self.assertEqual(inputs.build_key('/x/Game [01007EF00011E000][v0].nsp'), '01007EF00011E000')
+
+    def test_different_names_differ_same_name_repeats(self):
+        a, b = inputs.build_key('/x/Zelda.nsp'), inputs.build_key('/x/Mario.nsp')
+        self.assertNotEqual(a, b)
+        self.assertNotEqual(a, 'game')
+        self.assertEqual(a, inputs.build_key('/other/Zelda.nsp'))
+        self.assertTrue(a.startswith('Zelda-'))
+
+    def test_odd_characters_are_sanitized(self):
+        import re
+        for name in ('Pokémon: Sword ../.. §.nsp', '日本語.nsp', 'a b.nsp'):
+            self.assertRegex(inputs.build_key('/x/' + name), r'^[A-Za-z0-9_-]+$')
+        self.assertNotEqual(inputs.build_key('a b.nsp'), inputs.build_key('a_b.nsp'))
+
+    def test_matches_the_mac_hash(self):
+        self.assertEqual(inputs.build_key('Zelda.nsp'), 'Zelda-74c1008b')
