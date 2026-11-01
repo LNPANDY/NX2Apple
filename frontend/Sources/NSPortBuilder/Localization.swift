@@ -2324,7 +2324,7 @@ enum L10n {
         "settings.heading": "Einstellungen",
         "shellCache.row": "Cachedateien",
         "shellCache.open": "Ordner öffnen",
-        "shellCache.note": "Gespiegelte Frameworks, shell.json und der Banner-Cache. Löschen bedeutet: das Framework jedes Spiels kommt bei der nächsten Installation wieder aus dessen Build-Ordner; ist der auch weg, muss das Spiel neu gebaut werden.",
+        "shellCache.note": "Gespiegelte Frameworks, shell.json und der Banner-Cache. Löschen bedeutet: das Framework jedes Spiels kommt bei der nächsten Installation wieder aus dessen Build-Ordner. Ist der auch weg, muss das Spiel neu gebaut werden.",
         "settings.note": "Speicherort der Bibliothek, Build-Werkzeuge und Updates.",
         "settings.appNote": "Baue deine Spiele für Apple-Geräte",
         "build.compatibility": "Unterstützung für ältere iPhones",
