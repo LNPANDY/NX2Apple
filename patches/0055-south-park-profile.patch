@@ -15,8 +15,8 @@ Tested on the Mac: title, menus, New Game, cinematics, character creation and th
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 
-Upstream-Status: pending
-Reason: new game profile and the Snowdrop zlib shader cache it needs; meant for upstream
+Upstream-Status: forwarded seedds/nxnative#843
+Reason: new game profile and the Snowdrop zlib shader cache it needs; goes when seedds/nxnative#843 merges
 Issue: LNPANDY/NX2Apple#377
 
 ---
