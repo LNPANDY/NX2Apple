@@ -55,11 +55,12 @@ missing piece.
 
 This section is for contributions from outside. The maintainers (v0lumehi and LNPANDY) keep their own rules, see "When a PR merges".
 
-We want to help you build what fits and to spare you work that cannot go in. The launcher code is being reorganized, so many open PRs will need a rebase, and a change is easier to land when we agree on the design before the code is written. So new features and proposals are talked about first. Fixes stay welcome without asking. There are three sizes:
+We want to help you build what fits and to spare you work that cannot go in. The launcher code is being reorganized, so many open PRs will need a rebase, and a change is easier to land when we agree on the design before the code is written. So features and proposals are always talked about first. Fixes stay welcome without asking.
 
-- **Small: open a PR directly, no asking.** A fix, a test, docs, a typo, a report that a game works.
-- **Medium: talk first.** A feature, a change to how the launcher works or looks, a new setting, a new dependency, a new way to build or install. Open an issue with the form "Launcher problem or idea" (`This is: An idea`), or an idea in [Discussions](https://github.com/LNPANDY/NX2Apple/discussions) (Ideas). A maintainer says "go" by adding the label `help wanted` to the issue. Then build it, and link that issue in your PR. A feature PR without a linked issue that has the go is not reviewed. It is closed with a friendly note after 14 days, and you can reopen it once the go is there.
-- **Large: talk first, with a short design note.** Architecture, or a change across the Mac launcher, the Windows launcher and the iOS shell. The same steps as Medium, and the issue also holds a short design note: what you want to change, why, and the alternatives you looked at. A draft PR as a sketch is fine, but it waits for the go like any other.
+- **A fix is welcome as a PR without asking.** Tests that cover a fix, typos and corrections in docs count as fixes. A report that a game works stays a report (an issue, or the entry in [GAMES.md](GAMES.md)), not a feature.
+- **Anything that is not a fix is a feature or a proposal, and is discussed first.** That means a new feature, a change to how the launcher works or looks, a new setting, a new dependency, a new way to build or install, a refactor, a new doc page. Open an issue with the form "Launcher problem or idea" (`This is: An idea`), or an idea in [Discussions](https://github.com/LNPANDY/NX2Apple/discussions) (Ideas). A maintainer says "go" by adding the label `help wanted` to the issue. Then build it, and link that issue in your PR. A feature PR without a linked issue that has the go is not reviewed. It is closed with a friendly note after 14 days, and you can reopen it once the go is there. A draft PR as a sketch is fine, but it waits for the go like any other. For a change that touches several front ends or the architecture, the issue also holds a short design note: what you want to change, why, and the alternatives you looked at.
+
+If it is unclear whether something is a fix, ask in an issue. The maintainers decide.
 
 A new game profile or an engine fix goes to seedds/nxnative first, see "Helping with games".
 
