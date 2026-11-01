@@ -4,7 +4,7 @@
 # the bundle, plutil the version, codesign, ditto) and uploaded by hand — and one release went
 # out without it. The native app is the one macOS users actually run, so "the release has no
 # nxnative-macOS-arm64.zip" is not a cosmetic gap: the app's own updater looks for exactly that
-# asset name (ContentView.checkAppUpdate), finds a newer tag with no such asset, and reports
+# asset name (AppUpdateStore.checkForUpdate), finds a newer tag with no such asset, and reports
 # "up to date" — a silent failure of the update path for every existing install. Copies from before
 # the app was renamed (NS Port Builder) look for NS-Port-Builder-macOS-arm64.zip, so that one goes up too.
 #
@@ -195,11 +195,11 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          # The app reads its version from ContentView.appVersion, and the bundle plist must agree or the updater compares the wrong number.
+          # The app reads its version from AppUpdateStore.appVersion, and the bundle plist must agree or the updater compares the wrong number.
           # Take the tag, and fail loudly on a mismatch rather than shipping a bundle that calls itself something else.
           # A release candidate vX.Y.Z-rcN is the build of the release X.Y.Z: its bundle says X.Y.Z, because the final tag ships these
           # exact files and the updater (AppUpdate.bundleProblem) accepts only a bundle whose version is the release's.
-          src=$(sed -n 's/.*static let appVersion = "\(.*\)".*/\1/p' frontend/Sources/NX2Apple/ContentView.swift)
+          src=$(sed -n 's/.*static let appVersion = "\(.*\)".*/\1/p' frontend/Sources/NXModel/AppUpdateStore.swift)
           kind=build rc=""
           if [ "$REF_TYPE" != "tag" ]; then
             v="$src"
@@ -216,7 +216,7 @@ jobs:
             fi
           fi
           if [ "$v" != "$src" ]; then
-            echo "::error::tag says $v but ContentView.appVersion says $src: bump the source first"
+            echo "::error::tag says $v but AppUpdateStore.appVersion says $src: bump the source first"
             exit 1
           fi
           echo "$kind: version $v${rc:+, release candidate $rc}"

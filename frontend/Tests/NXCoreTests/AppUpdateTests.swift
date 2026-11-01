@@ -1,8 +1,6 @@
 import XCTest
 import CryptoKit
-@testable import NX2Apple
 @testable import NXCore
-@testable import NXLauncher
 
 /// The self-update's rules on bundles in a temporary folder: never the running app, never the network.
 final class AppUpdateTests: XCTestCase {
@@ -127,15 +125,15 @@ final class AppUpdateTests: XCTestCase {
         let source = temporary.appendingPathComponent("source-os", isDirectory: true)
         let archive = try zip(try makeApp(in: source, minOS: "26.6"))
         let release = AppUpdate.Release(tag: "v0.4.8", url: "https://example.invalid/a.zip", digest: try digest(archive))
-        func attempt(_ running: OperatingSystemVersion) throws -> Result<AppUpdate.Staged, BuildModel.StageFailure> {
+        func attempt(_ running: OperatingSystemVersion) throws -> Result<AppUpdate.Staged, AppUpdate.StageFailure> {
             let copy = temporary.appendingPathComponent("copy-" + UUID().uuidString + ".zip")
             try FileManager.default.copyItem(at: archive, to: copy)
             let root = temporary.appendingPathComponent("stage-" + UUID().uuidString, isDirectory: true)
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-            return BuildModel.stage(zip: copy, release: release, in: root, expectedID: bundleID, requireDigest: true, runningOS: running)
+            return AppUpdate.stage(zip: copy, release: release, in: root, expectedID: bundleID, requireDigest: true, runningOS: running)
         }
         XCTAssertEqual(try attempt(os(15, 5)).failure, .needsNewerMacOS("26.6"))
-        XCTAssertEqual(BuildModel.StageFailure.needsNewerMacOS("26.6").key, "app.needsNewerMacOS")
+        XCTAssertEqual(AppUpdate.StageFailure.needsNewerMacOS("26.6").key, "app.needsNewerMacOS")
         XCTAssertNil(try attempt(os(26, 6)).failure)
     }
 
@@ -145,7 +143,7 @@ final class AppUpdateTests: XCTestCase {
         let release = AppUpdate.Release(tag: "v0.4.8", url: "https://example.invalid/NX2Apple-macOS-arm64.zip", digest: try digest(archive))
         let root = temporary.appendingPathComponent("stage-ok", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        let staged = try BuildModel.stage(zip: archive, release: release, in: root, expectedID: bundleID, requireDigest: true).get()
+        let staged = try AppUpdate.stage(zip: archive, release: release, in: root, expectedID: bundleID, requireDigest: true).get()
         XCTAssertEqual(staged.release, release)
         XCTAssertEqual(staged.app.lastPathComponent, "NX2Apple.app")
         XCTAssertEqual(try marker(staged.app), "new")
@@ -153,13 +151,13 @@ final class AppUpdateTests: XCTestCase {
 
     func testStagingRefusesMismatchMissingDigestAndWrongApp() throws {
         let source = temporary.appendingPathComponent("source", isDirectory: true)
-        func attempt(_ digest: String?, automatic: Bool, id: String? = nil) throws -> Result<AppUpdate.Staged, BuildModel.StageFailure> {
+        func attempt(_ digest: String?, automatic: Bool, id: String? = nil) throws -> Result<AppUpdate.Staged, AppUpdate.StageFailure> {
             let dir = source.appendingPathComponent(UUID().uuidString)
             let archive = try zip(try makeApp(in: dir, id: id))
             let root = temporary.appendingPathComponent("stage-" + UUID().uuidString, isDirectory: true)
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
             let release = AppUpdate.Release(tag: "v0.4.8", url: "https://example.invalid/a.zip", digest: digest == "self" ? try self.digest(archive) : digest)
-            return BuildModel.stage(zip: archive, release: release, in: root, expectedID: bundleID, requireDigest: automatic)
+            return AppUpdate.stage(zip: archive, release: release, in: root, expectedID: bundleID, requireDigest: automatic)
         }
         let wrong = "sha256:" + String(repeating: "0", count: 64)
         XCTAssertEqual(try attempt(wrong, automatic: true).failure, .mismatch)
@@ -208,10 +206,10 @@ final class AppUpdateTests: XCTestCase {
             ["name": "nxnative-macOS-arm64.zip", "browser_download_url": "https://example.invalid/old.zip", "digest": "sha256:aa"],
             ["name": "NX2Apple-macOS-arm64.zip", "browser_download_url": "https://example.invalid/new.zip", "digest": "sha256:bb"],
         ]]
-        XCTAssertEqual(BuildModel.appRelease(fromJSON: json), AppUpdate.Release(tag: "v0.4.8", url: "https://example.invalid/new.zip", digest: "sha256:bb"))
+        XCTAssertEqual(AppUpdate.release(fromJSON: json), AppUpdate.Release(tag: "v0.4.8", url: "https://example.invalid/new.zip", digest: "sha256:bb"))
         let legacy: [String: Any] = ["tag_name": "v0.4.8", "assets": [["name": "NS-Port-Builder-macOS-arm64.zip", "browser_download_url": "https://example.invalid/legacy.zip"]]]
-        XCTAssertEqual(BuildModel.appRelease(fromJSON: legacy)?.digest, nil)
-        XCTAssertNil(BuildModel.appRelease(fromJSON: ["tag_name": "v0.4.8", "assets": []]))
+        XCTAssertEqual(AppUpdate.release(fromJSON: legacy)?.digest, nil)
+        XCTAssertNil(AppUpdate.release(fromJSON: ["tag_name": "v0.4.8", "assets": []]))
     }
 
     // ---- when ----
@@ -264,32 +262,6 @@ final class AppUpdateTests: XCTestCase {
         XCTAssertThrowsError(try AppUpdate.install(staged, over: current, buildRunning: true, trashOld: false)) {
             XCTAssertEqual($0 as? AppUpdate.InstallError, .buildRunning)
         }
-        XCTAssertEqual(try marker(current), "old")
-    }
-
-    func testModelWaitsForTheBuild() throws {
-        let current = try makeApp("Current", in: temporary.appendingPathComponent("Applications"), marker: "old")
-        let staged = try makeApp("Staged", in: temporary.appendingPathComponent("staged"), marker: "new")
-        let model = BuildModel()
-        model.lang = .en
-        model.appInstallability = .ok
-        model.appStaged = AppUpdate.Staged(release: AppUpdate.Release(tag: "v0.4.8", url: "", digest: nil), app: staged)
-        model.running = true
-        XCTAssertFalse(model.mayInstallAppUpdate)
-        XCTAssertFalse(model.installStagedUpdate(relaunch: false, at: current))
-        model.restartToUpdate()   // refused before it gets as far as a relaunch
-        XCTAssertEqual(try marker(current), "old")
-        XCTAssertNotNil(model.appStaged)   // still waiting for the quit
-        XCTAssertEqual(model.appStatus, L10n.string("app.waitForBuild", .en))
-    }
-
-    func testDeveloperModelNeverInstalls() throws {
-        let current = try makeApp("Current", in: temporary.appendingPathComponent("Applications"), marker: "old")
-        let staged = try makeApp("Staged", in: temporary.appendingPathComponent("staged"), marker: "new")
-        let model = BuildModel()
-        model.appInstallability = .developer
-        model.appStaged = AppUpdate.Staged(release: AppUpdate.Release(tag: "v0.4.8", url: "", digest: nil), app: staged)
-        XCTAssertFalse(model.installStagedUpdate(relaunch: false, at: current))
         XCTAssertEqual(try marker(current), "old")
     }
 
@@ -374,17 +346,17 @@ private extension Result {
 /// date" leaves that install stuck for ever.
 final class UpdateCheckTests: XCTestCase {
     func testAVersionComparisonReadsTheNumbers() {
-        XCTAssertTrue(BuildModel.isNewer("v0.4.8", than: "0.4.6"))
-        XCTAssertTrue(BuildModel.isNewer("v0.4.10", than: "0.4.8"), "0.4.10 is newer than 0.4.8, not older")
-        XCTAssertFalse(BuildModel.isNewer("v0.4.8", than: "0.4.8"))
-        XCTAssertFalse(BuildModel.isNewer("v0.4.6", than: "0.4.8"))
+        XCTAssertTrue(AppUpdate.isNewer("v0.4.8", than: "0.4.6"))
+        XCTAssertTrue(AppUpdate.isNewer("v0.4.10", than: "0.4.8"), "0.4.10 is newer than 0.4.8, not older")
+        XCTAssertFalse(AppUpdate.isNewer("v0.4.8", than: "0.4.8"))
+        XCTAssertFalse(AppUpdate.isNewer("v0.4.6", than: "0.4.8"))
     }
 
     /// The asset names this app will accept, oldest first. A release that carries any of them can
     /// update every install back to 0.4.5; one that carries none leaves those installs stuck, which
-    /// is why checkAppUpdate has to say so rather than report "up to date".
+    /// is why the check has to say so rather than report "up to date".
     func testTheAssetNamesCoverEveryInstallThatCanStillUpdate() {
-        let names = BuildModel.appAssetNames
+        let names = AppUpdate.assetNames
         XCTAssertTrue(names.contains("NX2Apple-macOS-arm64.zip"), "the current name")
         XCTAssertTrue(names.contains("nxnative-macOS-arm64.zip"), "installs from before the rename to NX2Apple")
         XCTAssertTrue(names.contains("NS-Port-Builder-macOS-arm64.zip"), "installs from before the rename to nxnative")
