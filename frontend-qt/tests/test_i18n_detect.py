@@ -38,9 +38,11 @@ class Detect(unittest.TestCase):
         self.assertEqual(Lang.ZH.other, Lang.EN)
         self.assertEqual(Lang.EN.other, Lang.SV)
         self.assertEqual(Lang.SV.other, Lang.DE)
-        self.assertEqual(Lang.DE.other, Lang.ZH)
+        self.assertEqual(Lang.DE.other, Lang.FR)
+        self.assertEqual(Lang.FR.other, Lang.ZH)
         self.assertEqual(Lang.SV.toggle_label, 'Deutsch')
-        self.assertEqual(Lang.DE.toggle_label, '中文')
+        self.assertEqual(Lang.DE.toggle_label, 'Français')
+        self.assertEqual(Lang.FR.toggle_label, '中文')
 
     def test_german_is_recognised_by_tag_and_windows_name(self):
         for tag in ('de_DE', 'de-AT', 'de_CH.UTF-8', 'de'):
@@ -106,7 +108,8 @@ class Detect(unittest.TestCase):
         self.assertEqual(asked, [0x00000059], "the ISO 639 code is what the prefix test can read")
 
     def test_a_windows_display_name_still_selects_the_language(self):
-        for name, want in (('zh', Lang.ZH), ('zh-Hans', Lang.ZH), ('sv', Lang.SV), ('de', Lang.DE), ('de-DE', Lang.DE), ('en-US', Lang.EN)):
+        for name, want in (('zh', Lang.ZH), ('zh-Hans', Lang.ZH), ('sv', Lang.SV), ('de', Lang.DE), ('de-DE', Lang.DE),
+                           ('fr', Lang.FR), ('fr-CA', Lang.FR), ('fry', Lang.EN), ('en-US', Lang.EN)):
             lang, _ = self.win_language(name)
             self.assertEqual(lang, want, name)
 
@@ -114,6 +117,13 @@ class Detect(unittest.TestCase):
         lang, asked = self.win_language('de', langid=0x07)   # German primary language id
         self.assertEqual(asked, [0x00000059])
         self.assertEqual(lang, Lang.DE)
+
+    def test_french_is_recognised(self):
+        for name in ('fr_FR', 'fr-CA', 'fr_BE.UTF-8', 'French_France', 'French (Canada)_Canada'):
+            self.assertEqual(detect(name), Lang.FR, name)
+        self.assertEqual(detect('French_France', platform='win32'), Lang.FR)
+        self.assertEqual(detect('', env={'LANG': 'fr_FR.UTF-8'}), Lang.FR)
+        self.assertEqual(detect('English_United States', env={'NSPB_LANG': 'fr'}), Lang.FR)
 
     def test_an_empty_locale_falls_through_to_the_environment(self):
         self.assertEqual(detect('', env={'LANG': 'zh_CN.UTF-8'}), Lang.ZH)

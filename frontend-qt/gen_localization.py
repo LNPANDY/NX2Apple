@@ -38,6 +38,7 @@ def main() -> None:
         raise SystemExit(f'no strings found in {SWIFT}')
     swedish = overlay(text, 'sv')
     german = overlay(text, 'de')
+    french = overlay(text, 'fr')
     lines = [
         '"""Localised strings, generated from the SwiftUI app\'s Localization.swift.',
         '',
@@ -47,14 +48,14 @@ def main() -> None:
         '',
         'from .i18n import Lang',
         '',
-        '# key: (Chinese, English, Swedish, German); a missing overlay entry is the English text',
-        'TABLE: dict[str, tuple[str, str, str, str]] = {',
+        '# key: (Chinese, English, Swedish, German, French); a missing overlay entry is the English text',
+        'TABLE: dict[str, tuple[str, str, str, str, str]] = {',
     ]
     for key, zh, en in rows:
         # Swift Unicode escapes keep the shared table ASCII without losing translations.
         zh, en = unescape(zh), unescape(en)
-        sv, de = swedish.get(key, en), german.get(key, en)
-        lines.append(f'    {key!r}: ({zh!r}, {en!r}, {sv!r}, {de!r}),')
+        sv, de, fr = swedish.get(key, en), german.get(key, en), french.get(key, en)
+        lines.append(f'    {key!r}: ({zh!r}, {en!r}, {sv!r}, {de!r}, {fr!r}),')
     lines += [
         '}',
         '',
@@ -65,8 +66,8 @@ def main() -> None:
         '    The Swift table uses %@ as its placeholder (String(format:)); the Qt side uses',
         '    Python\'s %s, so the placeholder is translated here rather than in every call site.',
         '    """',
-        '    zh, en, sv, de = TABLE.get(key, (key, key, key, key))',
-        '    s = {Lang.ZH: zh, Lang.EN: en, Lang.SV: sv, Lang.DE: de}[lang]',
+        '    zh, en, sv, de, fr = TABLE.get(key, (key, key, key, key, key))',
+        '    s = {Lang.ZH: zh, Lang.EN: en, Lang.SV: sv, Lang.DE: de, Lang.FR: fr}[lang]',
         '    if not args:',
         '        return s',
         '    py = s.replace("%@", "%s")   # %d is the same in both; %@ is Swift-only',
