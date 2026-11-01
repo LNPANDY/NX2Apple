@@ -57,7 +57,7 @@ struct TypeRole {
     var tracking: CGFloat = 0
 }
 
-/// The type scale, derived from the Mac launcher's (frontend/Sources/NSPortBuilder): the same face from the same file,
+/// The type scale, derived from the Mac launcher's (frontend/Sources): the same face from the same file,
 /// the same weight for the same role, the same tracking for capitals, sizes adapted to iOS. Every role scales with
 /// Dynamic Type through its text style.
 ///

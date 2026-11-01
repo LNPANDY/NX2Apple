@@ -81,4 +81,4 @@ NX_ONBOARDING_CAPTURE_DIR="$PWD/.build/onboarding-captures" swift test --filter 
 
 The last command optionally captures all six screens at minimum window size in English and Simplified Chinese. It only hosts mock SwiftUI views. The normal suite skips that capture unless requested.
 
-Files added: `OnboardingState.swift`, `MockOnboardingDriver.swift`, `OnboardingView.swift`, `OnboardingTests.swift`, and this note. Files changed: `NSPortBuilderApp.swift` (demo branch) and `Localization.swift` (both languages).
+Files added: `OnboardingState.swift`, `MockOnboardingDriver.swift`, `OnboardingView.swift`, `OnboardingTests.swift`, and this note. Files changed: `NX2AppleApp.swift` (demo branch) and `Localization.swift` (both languages).

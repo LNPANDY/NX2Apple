@@ -188,7 +188,7 @@ jobs:
       - name: Publish to the engine-experimental pre-release
         if: steps.published.outputs.same != 'yes'
         run: |
-          APPV=$(sed -n 's/.*static let appVersion = "\(.*\)".*/\1/p' frontend/Sources/NSPortBuilder/ContentView.swift)
+          APPV=$(sed -n 's/.*static let appVersion = "\(.*\)".*/\1/p' frontend/Sources/NX2Apple/ContentView.swift)
           python tools/release_manifest.py publish \
             --engine-zip "$RUNNER_TEMP/engine-out/NX2Apple-engine.zip" \
             --version "$APPV-experimental" --channel experimental --tag engine-experimental \

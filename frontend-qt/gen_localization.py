@@ -10,7 +10,7 @@ import re
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-SWIFT = HERE.parent / 'frontend' / 'Sources' / 'NSPortBuilder' / 'Localization.swift'
+SWIFT = HERE.parent / 'frontend' / 'Sources' / 'NXCore' / 'Localization.swift'
 OUT = HERE / 'nspb_qt' / 'localization.py'
 
 PAIR = re.compile(r'"([^"]+)":\s*\(\s*"((?:[^"\\]|\\.)*)"\s*,\s*"((?:[^"\\]|\\.)*)"\s*\)', re.S)

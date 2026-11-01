@@ -21,7 +21,7 @@ def plist_keys(text):
 
 class TryLocal(unittest.TestCase):
     def test_version_is_app_version_plus_local(self):
-        src = re.search(r'static let appVersion = "(.*)"', (ROOT / 'frontend/Sources/NSPortBuilder/ContentView.swift').read_text()).group(1)
+        src = re.search(r'static let appVersion = "(.*)"', (ROOT / 'frontend/Sources/NX2Apple/ContentView.swift').read_text()).group(1)
         self.assertEqual(run('--print-version'), src + '-local')
 
     def test_cache_key_follows_the_script_and_its_pins(self):
