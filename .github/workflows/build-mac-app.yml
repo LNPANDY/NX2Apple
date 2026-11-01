@@ -401,8 +401,22 @@ jobs:
             else
               notes="$notes"$'\n\n'"Published without a release candidate (release_without_rc)."
             fi
-            gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || \
-              gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" --notes "$notes"
+            if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+              # The body is the reviewed release-notes/<tag>.md plus GitHub's generated notes (contributors, Full Changelog). Without that file
+              # it is the short body above plus the generated notes. If the tool fails for any reason, the release gets the short body
+              # alone: a problem with the notes never stops a release. The release is created only when it does not exist, so notes someone
+              # edited by hand are never overwritten.
+              printf '%s\n' "$notes" > "$RUNNER_TEMP/short-notes.md"
+              body="$RUNNER_TEMP/short-notes.md"
+              if previous=$(python tools/release_notes.py previous "$GITHUB_REF_NAME") && \
+                 python tools/release_notes.py build "$GITHUB_REF_NAME" --previous "$previous" --file "release-notes/$GITHUB_REF_NAME.md" \
+                   --short-body "$RUNNER_TEMP/short-notes.md" --out "$RUNNER_TEMP/release-body.md"; then
+                body="$RUNNER_TEMP/release-body.md"
+              else
+                echo "::warning title=Release notes::tools/release_notes.py failed, so $GITHUB_REF_NAME gets the short body. Fix the notes with: gh release edit $GITHUB_REF_NAME --notes-file <file> (RELEASING.md, Release notes)"
+              fi
+              gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" --notes-file "$body"
+            fi
           fi
           # All three names, one build: NX2Apple is current. The older two keep self-update working
           # for installs from before each rename (an app replaces the bundle at its own path).
