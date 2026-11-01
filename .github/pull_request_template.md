@@ -6,7 +6,7 @@
 - [ ] Fix
 - [ ] Feature
 
-Feature from outside: the issue with the go is linked (see CONTRIBUTING.md).
+Feature from outside: the issue in a milestone is linked.
 
 ## What and why
 
