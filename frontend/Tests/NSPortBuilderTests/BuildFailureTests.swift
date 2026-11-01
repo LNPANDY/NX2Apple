@@ -53,6 +53,11 @@ final class BuildFailureTests: XCTestCase {
         }
     }
 
+    func testTheOlderSeveralGamesMessageStillClassifies() {   // the stable and experimental engine channels can still serve the text before the pin of cd859c38
+        let log = "[RED] more than one game in the folder, keep one game per folder: 0100000000010000, 01006F8002326000"
+        XCTAssertEqual(BuildFailureClassifier.classify(log).kind, .severalGames)
+    }
+
     func testTheFailureIsFoundAboveTheLastLine() {
         let log = "[3/9] extract\n[RED] the NSP is damaged: 2 files fail the NCA's hash check (x)\n---- last lines of /w/extract.log ----\n[RED] nx_extract exit code 3 (full output: /w/extract.log)\n"
         XCTAssertEqual(BuildFailureClassifier.classify(log).kind, .damagedNSP)

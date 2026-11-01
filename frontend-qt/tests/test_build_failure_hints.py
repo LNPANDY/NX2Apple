@@ -98,6 +98,10 @@ class Rows(unittest.TestCase):
             self.assertEqual(bf.classify(fixture(pid)['text']).kind, kind, pid)
         self.assertEqual(bf.classify('copying: no such file: x').kind, bf.UNKNOWN)
 
+    def test_the_older_several_games_message_still_classifies(self):   # the stable and experimental engine channels can still serve the text before the pin of cd859c38
+        log = '[RED] more than one game in the folder, keep one game per folder: 0100000000010000, 01006F8002326000'
+        self.assertEqual(bf.classify(log).kind, bf.SEVERAL_GAMES)
+
     def test_details(self):
         self.assertEqual(bf.classify(fixture('disk.low')['text']).detail, fixture('disk.low')['gb'])
         self.assertIsNone(bf.classify(fixture('disk.full')['text']).detail)
