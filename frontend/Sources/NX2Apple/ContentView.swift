@@ -177,74 +177,23 @@ final class BuildModel: ObservableObject {
 
     /// The language and the strings: views take them from the environment, this model only for the text it writes itself.
     let localizer: Localizer
-    init(localizer: Localizer = Localizer()) { self.localizer = localizer }
+    /// The services: the only places that start a process (`ProcessRunner`) and that run git (`GitCheckout`). Tests pass in fakes.
+    let runner: ProcessRunner
+    let gitCheckout: GitCheckout
+    init(localizer: Localizer = Localizer(), runner: ProcessRunner = SystemProcessRunner(), gitCheckout: GitCheckout? = nil) {
+        self.localizer = localizer
+        self.runner = runner
+        self.gitCheckout = gitCheckout ?? SystemGitCheckout(runner: runner)
+        _ = Self.endGroupsWhenQuitting
+    }
 
-    private var proc: Process?
+    private var proc: RunningProcess?
     private var staging: String?
 
-    // ---- Process groups: Stop and quitting end the whole build ----
-    // The script runs its tools as children (the shader split with its workers, dotnet, xcodebuild) and cleans
-    // them up only on Ctrl-C: a SIGTERM to the script alone leaves them running, orphaned. So each build process
-    // starts in a process group of its own, and Stop, quitting the app or a SIGTERM to it end the whole group.
-
-    /// The groups of the builds running now (their leaders' PIDs).
-    private static var groups = Set<pid_t>()
-    private static let groupsLock = NSLock()
-    private static let exitHandlers: Void = {
-        NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: nil) { _ in endAllGroups() }
-        signal(SIGTERM, SIG_IGN)   // handled below: end the builds, then exit
-        let source = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .global())
-        source.setEventHandler { endAllGroups(); exit(0) }
-        source.resume()
-        sigtermSource = source
+    /// The process groups of the builds are `ProcessGroups` (NXCore). Quitting the app ends them: the notification is AppKit's.
+    private static let endGroupsWhenQuitting: Void = {
+        NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: nil) { _ in ProcessGroups.endAll() }
     }()
-    private static var sigtermSource: DispatchSourceSignal?
-
-    /// Run `p` as the leader of a new process group: Python sets the group, then execs into the real command.
-    /// It also restores SIGTERM and SIGINT to their defaults first: the app ignores SIGTERM (to end its builds before
-    /// it exits), and an ignored signal is inherited across exec, which would make Stop's SIGTERM do nothing.
-    nonisolated static func inOwnGroup(_ p: Process, python: String) {
-        let command = p.executableURL?.path ?? python
-        let start = "import os, signal, sys; signal.signal(signal.SIGTERM, signal.SIG_DFL); signal.signal(signal.SIGINT, signal.SIG_DFL); "
-            + "os.setpgid(0, 0); os.execv(sys.argv[1], sys.argv[1:])"
-        p.arguments = ["-c", start, command] + (p.arguments ?? [])
-        p.executableURL = URL(fileURLWithPath: python)
-    }
-
-    static func track(_ p: Process) {
-        _ = exitHandlers
-        groupsLock.lock(); groups.insert(p.processIdentifier); groupsLock.unlock()
-    }
-
-    static func untrack(_ p: Process) {
-        groupsLock.lock(); groups.remove(p.processIdentifier); groupsLock.unlock()
-    }
-
-    /// A build's process group is still running (the app update waits for it: its relaunch would end the build).
-    static var buildProcessesAlive: Bool {
-        groupsLock.lock(); defer { groupsLock.unlock() }
-        return groups.contains { killpg($0, 0) == 0 }
-    }
-
-    /// SIGTERM to every process of the group, SIGKILL 5 s later to whatever is left of it.
-    nonisolated static func endGroup(_ leader: pid_t) {
-        guard leader > 1 else { return }
-        killpg(leader, SIGTERM)
-        DispatchQueue.global().asyncAfter(deadline: .now() + 5) {
-            if killpg(leader, 0) == 0 { killpg(leader, SIGKILL) }
-        }
-    }
-
-    private static func endAllGroups() {
-        groupsLock.lock(); let all = groups; groupsLock.unlock()
-        for leader in all {
-            killpg(leader, SIGTERM)
-        }
-        if !all.isEmpty {
-            usleep(1_500_000)   // the app is about to exit: one grace period for the whole set, then kill what remains
-            for leader in all where killpg(leader, 0) == 0 { killpg(leader, SIGKILL) }
-        }
-    }
 
     /// The checkout of this repository the app drives. A released .app ships on its own,
     /// so the path is not known at build time: look next to the app bundle, walk up from
@@ -359,39 +308,16 @@ final class BuildModel: ObservableObject {
     var pendingEngine: (engine: EngineUpdate.Engine, channel: EngineChannel)?
     var usesEngineStore: Bool { engineBundle != nil }
 
-    nonisolated static func gitBinary() -> String? {
-        for c in ["/usr/bin/git", "/opt/homebrew/bin/git", "/usr/local/bin/git"]
-            where FileManager.default.isExecutableFile(atPath: c) { return c }
-        return nil
-    }
-    nonisolated static func gitEnv() -> [String: String] {
-        ["PATH": "/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin", "HOME": NSHomeDirectory()]
-    }
-
     /// The PATH of the processes that run the build, installing packages and writing the RomFS image: the bundled tools in front of
     /// `base` (BundledTools.swift), which is Homebrew's folders and the system's. One place, so that no environment forgets the bundle.
     nonisolated static func toolPath(_ base: String = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin", python: String? = nil) -> String {
         BundledTools.path(base, python: python)
     }
 
-    /// Run a command with all output captured (no streaming; fetch / rev-list / pull print little).
-    nonisolated static func runQuiet(_ args: [String], env: [String: String]) -> (ok: Bool, out: String) {
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: args[0])
-        p.arguments = Array(args.dropFirst())
-        p.environment = env
-        p.standardInput = FileHandle.nullDevice
-        let pipe = Pipe(); p.standardOutput = pipe; p.standardError = pipe
-        do { try p.run() } catch { return (false, error.localizedDescription) }
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        p.waitUntilExit()
-        return (p.terminationStatus == 0, String(data: data, encoding: .utf8) ?? "")
-    }
-
     /// First-time flow: clone the project to ~/nxnative (the discovery seeds cover it) and select it.
     func cloneRepo() {
         guard !running, !repoBusy, !usesEngineStore else { return }
-        guard let git = Self.gitBinary() else { repoStatus = t("repo.gitMissing"); return }
+        guard gitCheckout.binary != nil else { repoStatus = t("repo.gitMissing"); return }
         let dest = NSHomeDirectory() + "/NX2Apple"
         if FileManager.default.fileExists(atPath: dest) {
             if Self.isRepo(dest) { repoPath = dest; repoStatus = ""; checkRepoUpdates() }
@@ -400,10 +326,9 @@ final class BuildModel: ObservableObject {
         }
         repoBusy = true; repoStatus = t("repo.downloading")
         append("git clone --depth 1 \(Self.repoURL) \(dest)\n")
+        let checkout = gitCheckout
         DispatchQueue.global().async {
-            // Shallow: a quarter of the bytes and a third of the time of a full clone, and fetch /
-            // pull keep working on it (verified); the history is of no use to someone who wants to build.
-            let ok = Self.runCaptured([git, "clone", "--depth", "1", "--single-branch", "--progress", Self.repoURL, dest], env: Self.gitEnv()) {
+            let ok = checkout.clone(url: Self.repoURL, into: dest) {
                 line in DispatchQueue.main.async { self.append(line + "\n") }
             }
             DispatchQueue.main.async {
@@ -424,20 +349,15 @@ final class BuildModel: ObservableObject {
     /// error noise when offline — it only fills repoBehind when it can.
     func checkRepoUpdates(silent: Bool = false) {
         guard repoOK, repoIsGit, !usesEngineStore else { return }   // a release app updates its engine by version instead
-        guard !running, !repoBusy, let git = Self.gitBinary() else {
-            if !silent, Self.gitBinary() == nil { repoStatus = t("repo.gitMissing") }
+        guard !running, !repoBusy, gitCheckout.binary != nil else {
+            if !silent, gitCheckout.binary == nil { repoStatus = t("repo.gitMissing") }
             return
         }
         repoBusy = true
         if !silent { repoStatus = t("repo.checking") }
-        let dir = repoPath
+        let dir = repoPath, checkout = gitCheckout
         DispatchQueue.global().async {
-            let fetched = Self.runQuiet([git, "-C", dir, "fetch", "origin", "main"], env: Self.gitEnv())
-            var behind = -1
-            if fetched.ok {
-                let count = Self.runQuiet([git, "-C", dir, "rev-list", "--count", "HEAD..origin/main"], env: Self.gitEnv())
-                if count.ok { behind = Int(count.out.trimmingCharacters(in: .whitespacesAndNewlines)) ?? -1 }
-            }
+            let behind = checkout.behind(dir) ?? -1
             DispatchQueue.main.async {
                 self.repoBusy = false
                 if behind >= 0 {
@@ -462,11 +382,11 @@ final class BuildModel: ObservableObject {
     }
 
     func pullRepo() {
-        guard !running, !repoBusy, !usesEngineStore, repoOK, repoIsGit, let git = Self.gitBinary() else { return }
+        guard !running, !repoBusy, !usesEngineStore, repoOK, repoIsGit, gitCheckout.binary != nil else { return }
         repoBusy = true; repoStatus = t("repo.pulling")
-        let dir = repoPath
+        let dir = repoPath, checkout = gitCheckout
         DispatchQueue.global().async {
-            let r = Self.runQuiet([git, "-C", dir, "pull", "--ff-only", "origin", "main"], env: Self.gitEnv())
+            let r = checkout.pull(dir)
             DispatchQueue.main.async {
                 self.repoBusy = false
                 if r.ok {
@@ -485,14 +405,11 @@ final class BuildModel: ObservableObject {
     /// to its tracked files and no build running, so a checkout someone works in is never touched. Settings says what
     /// happened (or why not), and the library's activity line names the new commits.
     func autoPull(_ behind: Int) {
-        guard !running, !repoBusy, !usesEngineStore, repoOK, repoIsGit, let git = Self.gitBinary() else { return }
+        guard !running, !repoBusy, !usesEngineStore, repoOK, repoIsGit, gitCheckout.binary != nil else { return }
         repoBusy = true
-        let dir = repoPath
+        let dir = repoPath, checkout = gitCheckout
         DispatchQueue.global().async {
-            let branch = Self.runQuiet([git, "-C", dir, "rev-parse", "--abbrev-ref", "HEAD"], env: Self.gitEnv())
-            let status = Self.runQuiet([git, "-C", dir, "status", "--porcelain", "--untracked-files=no"], env: Self.gitEnv())
-            let allowed = branch.ok && status.ok && Self.autoPullAllowed(branch: branch.out, status: status.out)
-            let pulled = allowed ? Self.runQuiet([git, "-C", dir, "pull", "--ff-only", "origin", "main"], env: Self.gitEnv()) : nil
+            let pulled = checkout.autoPull(dir)
             DispatchQueue.main.async {
                 self.repoBusy = false
                 guard let pulled else { self.repoStatus = self.t("repo.autoSkipped"); return }
@@ -508,41 +425,16 @@ final class BuildModel: ObservableObject {
         }
     }
 
-    /// A checkout the automatic update may move: on main, with no changes to tracked files (untracked files stay; a pull
-    /// that would overwrite one fails as a fast-forward and says so).
-    nonisolated static func autoPullAllowed(branch: String, status: String) -> Bool {
-        branch.trimmingCharacters(in: .whitespacesAndNewlines) == "main" && status.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    /// The local branch that keeps a ZIP copy as it was when it is connected to git.
-    nonisolated static func zipCopyBranch(date: Date = Date()) -> String {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX"); f.dateFormat = "yyyy-MM-dd"
-        return "zip-copy-" + f.string(from: date)
-    }
-
-    /// What the launch does with the configured repository when it is a copy without .git (#87: a ZIP copy never updated
-    /// itself, so its build tools were older than the app).
-    enum ZipAdoption: Equatable { case notNeeded, adopt, waitsForBuild, autoUpdateOff }
-
-    /// Pure: adopt a valid checkout without .git into git, but never while a build runs (or another repository task),
-    /// and not when the player turned the automatic update off.
-    nonisolated static func zipAdoption(isRepo: Bool, isGit: Bool, buildRunning: Bool, repoBusy: Bool, autoUpdate: Bool) -> ZipAdoption {
-        guard isRepo, !isGit else { return .notNeeded }
-        if buildRunning || repoBusy { return .waitsForBuild }
-        return autoUpdate ? .adopt : .autoUpdateOff
-    }
-
     /// The launch-time step for a ZIP copy; a git checkout is left to checkRepoUpdates. Settings and the library's
     /// activity line say what happened.
     func adoptAtLaunch(remote: String = BuildModel.repoURL) {
         guard !usesEngineStore else { return }
-        switch Self.zipAdoption(isRepo: repoOK, isGit: repoIsGit, buildRunning: running, repoBusy: repoBusy, autoUpdate: autoUpdateRepo) {
+        switch GitRules.zipAdoption(isRepo: repoOK, isGit: repoIsGit, buildRunning: running, repoBusy: repoBusy, autoUpdate: autoUpdateRepo) {
         case .notNeeded: break
         case .waitsForBuild: repoStatus = t("repo.zipWaits")
         case .autoUpdateOff: break   // Settings says so next to the repository (repo.zipNoAuto): the player chose this
         case .adopt:
-            if Self.gitBinary() == nil { repoStatus = t("repo.gitMissing") }
+            if gitCheckout.binary == nil { repoStatus = t("repo.gitMissing") }
             else { adoptRepoAsGit(automatic: true, remote: remote) }
         }
     }
@@ -556,37 +448,12 @@ final class BuildModel: ObservableObject {
     /// outside the repository.
     /// `automatic`: the launch-time adoption (adoptAtLaunch); `remote` is GitHub unless a test points it at a local repository.
     func adoptRepoAsGit(automatic: Bool = false, remote: String = BuildModel.repoURL) {
-        guard !running, !repoBusy, !usesEngineStore, repoOK, !repoIsGit, let git = Self.gitBinary() else { return }
+        guard !running, !repoBusy, !usesEngineStore, repoOK, !repoIsGit, gitCheckout.binary != nil else { return }
         repoBusy = true; repoStatus = t("repo.adopting")
-        let dir = repoPath
+        let dir = repoPath, checkout = gitCheckout
         DispatchQueue.global().async {
-            var out = "", ok = true
-            let branch = Self.zipCopyBranch()
-            func run(_ args: [String]) -> (ok: Bool, out: String) {
-                let r = Self.runQuiet([git, "-C", dir] + args, env: Self.gitEnv())
-                out += "$ git \(args.joined(separator: " "))\n\(r.out)\n"
-                return r
-            }
-            // Nothing in the folder changes before the fetch has worked, so an offline failure leaves the copy as it was.
-            ok = run(["init"]).ok && run(["remote", "add", "origin", remote]).ok && run(["fetch", "--depth", "1", "origin", "main"]).ok
-            if ok {
-                let tree = run(["ls-tree", "-r", "-z", "--name-only", "origin/main"])
-                let present = tree.out.split(separator: "\0").map(String.init).filter { FileManager.default.fileExists(atPath: dir + "/" + $0) }
-                let list = NSTemporaryDirectory() + "nspb-zip-paths-\(UUID().uuidString.prefix(8)).txt"
-                defer { try? FileManager.default.removeItem(atPath: list) }
-                let identity = ["-c", "user.name=NX2Apple", "-c", "user.email=nx2apple@localhost", "-c", "commit.gpgsign=false"]
-                ok = tree.ok
-                    && run(["symbolic-ref", "HEAD", "refs/heads/" + branch]).ok
-                    && ((try? Data(present.joined(separator: "\0").utf8).write(to: URL(fileURLWithPath: list))) != nil)
-                    && run(["add", "--pathspec-from-file=" + list, "--pathspec-file-nul"]).ok
-                    && run(identity + ["commit", "--allow-empty", "-m", "The ZIP copy as it was before it was connected to git"]).ok
-                    && run(["checkout", "-f", "-B", "main", "origin/main"]).ok
-            }
-            if ok { _ = Self.runQuiet([git, "-C", dir, "branch", "--set-upstream-to=origin/main", "main"], env: Self.gitEnv()) }   // checkout -B usually set it
-            // A failed adoption (offline) must not leave the .git that `git init` made: the copy would count as a
-            // checkout from then on, and neither the launch nor the button would try again. The guard above
-            // means there was no .git before, so this removes only what this call created.
-            if !ok { try? FileManager.default.removeItem(atPath: dir + "/.git") }
+            let branch = GitRules.zipCopyBranch()
+            let (ok, out) = checkout.adopt(dir, remote: remote, branch: branch)
             DispatchQueue.main.async {
                 self.repoBusy = false
                 self.append(out + "\n")
@@ -624,7 +491,7 @@ final class BuildModel: ObservableObject {
         var tail = ""   // what failureKind reads when the sync stops (only touched on the main queue)
         DispatchQueue.global().async {
             let py = chosen.isEmpty ? Toolchain.findPython().path : chosen
-            let ok = EngineLayout.runSync(repo: repo, python: py) { line in
+            let ok = EngineLayout.runSync(repo: repo, python: py, runner: self.runner) { line in
                 DispatchQueue.main.async { self.append(line + "\n"); tail = String((tail + line + "\n").suffix(4000)) }
             }
             DispatchQueue.main.async {
@@ -837,7 +704,8 @@ final class BuildModel: ObservableObject {
     /// A downloaded zip to a staged app: its digest first, then unzip (ditto, as the release was packed), then the app inside.
     nonisolated static func stage(zip: URL, release: AppUpdate.Release, in root: URL, expectedID: String,
                                   requireDigest: Bool,
-                                  runningOS: OperatingSystemVersion = ProcessInfo.processInfo.operatingSystemVersion) -> Result<AppUpdate.Staged, StageFailure> {
+                                  runningOS: OperatingSystemVersion = ProcessInfo.processInfo.operatingSystemVersion,
+                                  runner: ProcessRunner = SystemProcessRunner()) -> Result<AppUpdate.Staged, StageFailure> {
         let fm = FileManager.default
         switch AppUpdate.checkDigest(zip, expected: release.digest) {
         case .match: break
@@ -847,14 +715,11 @@ final class BuildModel: ObservableObject {
         let dir = root.appendingPathComponent("app", isDirectory: true)
         try? fm.removeItem(at: dir)
         try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
-        let unzip = Process()
-        unzip.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
-        unzip.arguments = ["-x", "-k", zip.path, dir.path]
-        do { try unzip.run() } catch { return .failure(.unpack) }
-        unzip.waitUntilExit()
+        let unzip = runner.capture(ProcessLaunch(executable: "/usr/bin/ditto", arguments: ["-x", "-k", zip.path, dir.path]))
+        guard unzip.started else { return .failure(.unpack) }
         try? fm.removeItem(at: zip)
         // The archive holds one app: NX2Apple.app, or the bundle under an older name in a release from before a rename
-        guard unzip.terminationStatus == 0,
+        guard unzip.status == 0,
               let app = ((try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []).first(where: { $0.pathExtension == "app" })
         else { return .failure(.unpack) }
         if AppUpdate.bundleProblem(app, expectedID: expectedID, tag: release.tag) != nil {
@@ -871,7 +736,7 @@ final class BuildModel: ObservableObject {
 
     /// No build of this app is running: none in the model, and no process group of one still alive (a stopped
     /// build's tools can take a moment to go).
-    var mayInstallAppUpdate: Bool { !running && !Self.buildProcessesAlive }
+    var mayInstallAppUpdate: Bool { !running && !ProcessGroups.buildProcessesAlive }
 
     /// Swap the staged app in. `relaunch` (Restart now, the Update button) opens the new copy and exits; at quit
     /// the next launch is the new version. Refused while a build runs.
@@ -1142,7 +1007,7 @@ final class BuildModel: ObservableObject {
         }
         if compressed, !Toolchain.runOK(py, ["-c", "import nsz"]) {
             say(t("msg.installingNsz"))
-            let r = Self.runCaptured([py, "-m", "pip", "install", "nsz"],
+            let r = runner.runCaptured([py, "-m", "pip", "install", "nsz"],
                                      env: ["PATH": Self.toolPath(python: py),
                                            "HOME": NSHomeDirectory()].merging(BundledTools.environment(for: py)) { $1 }) { line in
                 DispatchQueue.main.async { self.append(line + "\n") }
@@ -1187,10 +1052,6 @@ final class BuildModel: ObservableObject {
         say(String(format: t("msg.running"), py) + " " + args.joined(separator: " "))
         lastBuildCommand = [py] + args
 
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: py)
-        p.arguments = args
-        p.currentDirectoryURL = URL(fileURLWithPath: engine)
         // The root of the runtime the apphost looks for: derived from the detected installation,
         // not assumed to be ~/.dotnet (Homebrew keeps it in …/opt/dotnet/libexec). Only set when the
         // derivation actually answered — a wrong root is worse than none, and the pipeline derives
@@ -1209,12 +1070,8 @@ final class BuildModel: ObservableObject {
         // The bundled Python lives inside the signed app: a .pyc written there would change what the signature seals
         // (the packages are compiled at bundle time), and a user site must not shadow its pinned packages.
         denv.merge(BundledTools.environment(for: py)) { $1 }
-        p.environment = denv
-        Self.inOwnGroup(p, python: py)
-        let pipe = Pipe()
-        p.standardOutput = pipe; p.standardError = pipe
-        p.terminationHandler = { [weak self] status in
-            Self.untrack(status)
+        let launch = ProcessLaunch(executable: py, arguments: args, environment: denv, directory: engine, groupPython: py)
+        let onExit: (Int32) -> Void = { [weak self] status in
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.running = false
@@ -1226,7 +1083,7 @@ final class BuildModel: ObservableObject {
                     self.cleanupStaging()
                     return
                 }
-                if status.terminationStatus == 0 {
+                if status == 0 {
                     self.markAllDone()
                     if self.target == BuildTarget.mac {
                         // The .app is self-contained (its RomFS is inside), and the marker file
@@ -1257,13 +1114,13 @@ final class BuildModel: ObservableObject {
                 } else {
                     if let i = self.stages.lastIndex(where: { $0.state == .running }) {
                         self.stages[i].state = .failed
-                        self.stages[i].detail = String(format: self.t("msg.exitCode"), status.terminationStatus)
+                        self.stages[i].detail = String(format: self.t("msg.exitCode"), status)
                         self.noteFailure()
                     } else {
                         // The last real line says more than the exit code alone, and the message
                         // points at the log: "Build failed (exit code 1)" with nothing else sent a
                         // reporter looking for a log that a short window had below the fold (#52)
-                        self.doneNote = String(format: self.t("msg.buildFailed"), status.terminationStatus)
+                        self.doneNote = String(format: self.t("msg.buildFailed"), status)
                         if let last = BuildProgress.lastMeaningfulLine(self.logTail) {
                             self.doneNote = String(format: self.t("msg.buildFailedReason"), last)
                         }
@@ -1273,12 +1130,12 @@ final class BuildModel: ObservableObject {
                 }
             }
         }
-        PipeReader.attach(to: pipe.fileHandleForReading) { [weak self] d in
-            guard let s = String(data: d, encoding: .utf8) else { return }
-            DispatchQueue.main.async { self?.ingest(s) }
-        }
-        proc = p
-        do { try p.run(); Self.track(p) } catch { fail(String(format: t("msg.launchFailed"), error.localizedDescription)) }
+        do {
+            proc = try runner.start(launch, onOutput: { [weak self] d in
+                guard let s = String(data: d, encoding: .utf8) else { return }
+                DispatchQueue.main.async { self?.ingest(s) }
+            }, onExit: onExit)
+        } catch { fail(String(format: t("msg.launchFailed"), error.localizedDescription)) }
     }
 
     private var shellDeviceChecked = false
@@ -1469,7 +1326,7 @@ final class BuildModel: ObservableObject {
     func stop() {
         guard running, !stopping, let proc, proc.isRunning else { return }
         stopping = true
-        Self.endGroup(proc.processIdentifier)   // the script and every tool it started
+        ProcessGroups.endGroup(proc.processIdentifier)   // the script and every tool it started
     }
 
     private func cleanupStaging() {
@@ -1692,24 +1549,17 @@ final class BuildModel: ObservableObject {
             }
             return
         }
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: pythonPath.isEmpty ? "/usr/bin/python3" : pythonPath)
         // dest/romfs.img: one file, which main.m's per-game lookup takes before any folder.
         let engine = EngineLayout.root(repoPath)
-        p.arguments = [engine + "/" + Self.romfsImageTool, "--reuse", romfs, dest + "/romfs.img"]
-        let romfsPy = p.executableURL!.path
-        p.environment = ["PATH": Self.toolPath("/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin", python: romfsPy), "PYTHONPATH": engine + "/dm/tools"]
-            .merging(BundledTools.environment(for: romfsPy)) { $1 }
-        Self.inOwnGroup(p, python: p.executableURL!.path)
-        let pipe = Pipe(); p.standardOutput = pipe; p.standardError = pipe
-        PipeReader.attach(to: pipe.fileHandleForReading) { [weak self] d in
-            guard let s = String(data: d, encoding: .utf8) else { return }
-            DispatchQueue.main.async { self?.append(s) }
-        }
-        p.terminationHandler = { [weak self] st in Self.untrack(st); DispatchQueue.main.async {
+        let romfsPy = pythonPath.isEmpty ? "/usr/bin/python3" : pythonPath
+        let launch = ProcessLaunch(executable: romfsPy, arguments: [engine + "/" + Self.romfsImageTool, "--reuse", romfs, dest + "/romfs.img"],
+                                   environment: ["PATH": Self.toolPath("/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin", python: romfsPy), "PYTHONPATH": engine + "/dm/tools"]
+                                       .merging(BundledTools.environment(for: romfsPy)) { $1 },
+                                   groupPython: romfsPy)
+        let onExit: (Int32) -> Void = { [weak self] st in DispatchQueue.main.async {
             guard let self else { return }
             let cancelled = self.stopping
-            let succeeded = st.terminationStatus == 0 && !cancelled
+            let succeeded = st == 0 && !cancelled
             self.stopping = false
             if succeeded {
                 self.archivePath = dest
@@ -1720,17 +1570,21 @@ final class BuildModel: ObservableObject {
                 self.stages[i].state = succeeded ? .done : .failed
                 self.stages[i].detail = succeeded
                     ? String(format: self.t("prog.archiveDone"), dest)
-                    : String(format: self.t("msg.archiveFailed"), st.terminationStatus)
+                    : String(format: self.t("msg.archiveFailed"), st)
             }
             if succeeded { return then(dest) }
             self.cleanupStaging()
             self.running = false
             self.done = false
             if cancelled { self.resetProgress() }
-            self.doneNote = cancelled ? self.t("msg.stopped") : String(format: self.t("msg.archiveFailed"), st.terminationStatus)
+            self.doneNote = cancelled ? self.t("msg.stopped") : String(format: self.t("msg.archiveFailed"), st)
         }}
-        proc = p
-        do { try p.run(); Self.track(p) } catch {
+        do {
+            proc = try runner.start(launch, onOutput: { [weak self] d in
+                guard let s = String(data: d, encoding: .utf8) else { return }
+                DispatchQueue.main.async { self?.append(s) }
+            }, onExit: onExit)
+        } catch {
             if let i = stages.firstIndex(where: { $0.id == idx }) {
                 stages[i].state = .failed; stages[i].detail = t("msg.archiveNoStart")
             }
@@ -1764,8 +1618,8 @@ final class BuildModel: ObservableObject {
                                          started: s.state == .running ? Date() : nil))
             }
         } }
-        installer.processStarted = { p in DispatchQueue.main.async { self.proc = p; Self.track(p) } }
-        installer.processEnded = { p in Self.untrack(p) }
+        installer.processStarted = { p in DispatchQueue.main.async { self.proc = p; ProcessGroups.track(p) } }
+        installer.processEnded = { p in ProcessGroups.untrack(p) }
         // The size and the connection are shown with Continue, "Wait for a cable" and "Not now" (ShellCopyCard)
         installer.decideCopy = { plan in
             let answered = DispatchSemaphore(value: 0)
@@ -1969,14 +1823,10 @@ final class BuildModel: ObservableObject {
             stages.append(Stage(id: id, name: name, state: .running, started: Date()))
         }
         append("[\(name)] \(command.joined(separator: " "))\n")
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: command[0])
-        p.arguments = Array(command.dropFirst())
-        p.environment = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "HOME": NSHomeDirectory(), "USER": NSUserName(), "LANG": "en_US.UTF-8"]
-        Self.inOwnGroup(p, python: pythonPath.isEmpty ? "/usr/bin/python3" : pythonPath)
-        let pipe = Pipe(); p.standardOutput = pipe; p.standardError = pipe
+        let launch = ProcessLaunch(command, environment: ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "HOME": NSHomeDirectory(), "USER": NSUserName(), "LANG": "en_US.UTF-8"],
+                                   groupPython: pythonPath.isEmpty ? "/usr/bin/python3" : pythonPath)
         var buffer = "", lastError = ""
-        PipeReader.attach(to: pipe.fileHandleForReading) { [weak self] d in
+        let onOutput: (Data) -> Void = { [weak self] d in
             guard let chunk = String(data: d, encoding: .utf8) else { return }
             DispatchQueue.main.async {
                 guard let self else { return }
@@ -1992,45 +1842,36 @@ final class BuildModel: ObservableObject {
                 }
             }
         }
-        p.terminationHandler = { [weak self] status in
-            Self.untrack(status)
+        let onExit: (Int32) -> Void = { [weak self] status in
             DispatchQueue.main.async {
                 guard let self else { return }
-                pipe.fileHandleForReading.readabilityHandler = nil
                 if self.stopping {
                     self.stopping = false; self.running = false
                     self.resetProgress(); self.doneNote = self.t("msg.stopped"); self.cleanupStaging()
                     return
                 }
-                let ok = status.terminationStatus == 0
+                let ok = status == 0
                 if let i = self.stages.firstIndex(where: { $0.id == id }) {
                     self.stages[i].state = ok ? .done : .failed
                     if ok { self.stages[i].percent = 100; self.stages[i].detail = "" }
                 }
-                then(ok ? nil : (lastError.isEmpty ? String(format: self.t("msg.exitCode"), status.terminationStatus) : lastError))
+                then(ok ? nil : (lastError.isEmpty ? String(format: self.t("msg.exitCode"), status) : lastError))
             }
         }
-        proc = p
-        do { try p.run(); Self.track(p) } catch { then(error.localizedDescription) }
+        do { proc = try runner.start(launch, onOutput: onOutput, onExit: onExit) } catch { then(error.localizedDescription) }
     }
 
     /// Start the game on the device it was installed on.
     func openOnDevice(udid: String, app: String, completion: @escaping (String?) -> Void) {
         let info = NSDictionary(contentsOfFile: app + "/Info.plist")
         guard let bundle = info?["CFBundleIdentifier"] as? String else { return completion(String(format: t("dev.noProject"), shortPath(app))) }
-        let xcrun = xcrunPath
+        let launch = ProcessLaunch(executable: xcrunPath, arguments: ["devicectl", "device", "process", "launch", "--device", udid, bundle], mergesErrors: true)
+        let runner = runner
         DispatchQueue.global(qos: .userInitiated).async {
-            let p = Process(), out = Pipe()
-            p.executableURL = URL(fileURLWithPath: xcrun)
-            p.arguments = ["devicectl", "device", "process", "launch", "--device", udid, bundle]
-            p.standardOutput = out; p.standardError = out
+            let r = runner.capture(launch)
             var message: String?
-            do {
-                try p.run()
-                let text = String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-                p.waitUntilExit()
-                if p.terminationStatus != 0 { message = text.split(separator: "\n").last(where: { $0.contains("rror") }).map(String.init) ?? text }
-            } catch { message = error.localizedDescription }
+            if !r.started { message = r.out }
+            else if r.status != 0 { message = r.out.split(separator: "\n").last(where: { $0.contains("rror") }).map(String.init) ?? r.out }
             DispatchQueue.main.async { completion(message) }
         }
     }
@@ -2170,7 +2011,7 @@ final class BuildModel: ObservableObject {
                 ok = r.ok
             } else {
                 let collected = LineBox()
-                ok = Self.runCaptured(["/bin/bash", "-c",
+                ok = self.runner.runCaptured(["/bin/bash", "-c",
                      cmd.map { $0.contains(" ") ? "'" + $0 + "'" : $0 }.joined(separator: " ")],
                      env: ["PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
                            "HOME": NSHomeDirectory(), "NONINTERACTIVE": "1", "USER": NSUserName()])
@@ -2201,27 +2042,6 @@ final class BuildModel: ObservableObject {
         private var box: [String] = []
         func append(_ l: String) { lock.lock(); box.append(l); lock.unlock() }
         var lines: [String] { lock.lock(); defer { lock.unlock() }; return box }
-    }
-
-    /// Run a command, streaming its output line by line to `line`. Returns success.
-    nonisolated static func runCaptured(_ args: [String], env: [String: String], line: @escaping (String) -> Void) -> Bool {
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: args[0])
-        p.arguments = Array(args.dropFirst())
-        p.environment = env
-        let out = Pipe(), err = Pipe()
-        p.standardOutput = out; p.standardError = err; p.standardInput = FileHandle.nullDevice
-        do { try p.run() } catch { line("could not start \(args[0]): \(error.localizedDescription)"); return false }
-        for h in [out.fileHandleForReading, err.fileHandleForReading] {
-            PipeReader.attach(to: h) { d in
-                if let s = String(data: d, encoding: .utf8) {
-                    for l in s.split(separator: "\n") { line(String(l)) }
-                }
-            }
-        }
-        p.waitUntilExit()
-        out.fileHandleForReading.readabilityHandler = nil; err.fileHandleForReading.readabilityHandler = nil
-        return p.terminationStatus == 0
     }
 
     var allDepsPresent: Bool { depsChecked && deps.allSatisfy { $0.present } }

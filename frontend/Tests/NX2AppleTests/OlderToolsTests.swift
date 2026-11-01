@@ -20,7 +20,7 @@ final class OlderToolsTests: XCTestCase {
     }
 
     @discardableResult private func git(_ args: String..., in dir: URL) throws -> String {
-        let r = BuildModel.runQuiet(["/usr/bin/git", "-C", dir.path] + args, env: BuildModel.gitEnv())
+        let r = SystemProcessRunner().runQuiet(["/usr/bin/git", "-C", dir.path] + args, env: SystemGitCheckout.environment())
         guard r.ok else { throw NSError(domain: "git", code: 1, userInfo: [NSLocalizedDescriptionKey: "git \(args.joined(separator: " ")): \(r.out)"]) }
         return r.out.trimmingCharacters(in: .whitespacesAndNewlines)
     }

@@ -22,7 +22,7 @@ final class RepoAutoUpdateTests: XCTestCase {
     }
 
     @discardableResult private func git(_ args: String..., in dir: URL) throws -> String {
-        let r = BuildModel.runQuiet(["/usr/bin/git", "-C", dir.path] + args, env: BuildModel.gitEnv())
+        let r = SystemProcessRunner().runQuiet(["/usr/bin/git", "-C", dir.path] + args, env: SystemGitCheckout.environment())
         guard r.ok else { throw NSError(domain: "git", code: 1, userInfo: [NSLocalizedDescriptionKey: "git \(args.joined(separator: " ")): \(r.out)"]) }
         return r.out.trimmingCharacters(in: .whitespacesAndNewlines)
     }
@@ -71,12 +71,5 @@ final class RepoAutoUpdateTests: XCTestCase {
         XCTAssertNil(m.autoPulled)
         XCTAssertEqual(m.repoStatus, m.t("repo.autoSkipped"))
         XCTAssertEqual(try git("log", "-1", "--format=%s", in: checkout), "one")
-    }
-
-    func testOnlyMainWithoutTrackedChangesMayBeMoved() {
-        XCTAssertTrue(BuildModel.autoPullAllowed(branch: "main\n", status: ""))
-        XCTAssertFalse(BuildModel.autoPullAllowed(branch: "device-install", status: ""))
-        XCTAssertFalse(BuildModel.autoPullAllowed(branch: "main", status: " M scripts/build_ipa_from_nsp.py\n"))
-        XCTAssertFalse(BuildModel.autoPullAllowed(branch: "HEAD", status: ""), "a detached HEAD is not main")
     }
 }

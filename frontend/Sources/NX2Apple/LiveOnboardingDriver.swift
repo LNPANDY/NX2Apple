@@ -85,26 +85,15 @@ struct OnboardingEnvironment {
     static func liveProbe() async -> XcodeProbe {
         await Task.detached {
             var probe = XcodeProbe()
-            let p = Process()
-            p.executableURL = URL(fileURLWithPath: "/usr/bin/xcode-select"); p.arguments = ["-p"]
-            let pipe = Pipe(); p.standardOutput = pipe; p.standardError = FileHandle.nullDevice
-            var selected = ""
-            if (try? p.run()) != nil {
-                let data = pipe.fileHandleForReading.readDataToEndOfFile(); p.waitUntilExit()
-                if p.terminationStatus == 0 { selected = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "" }
-            }
+            let runner = SystemProcessRunner()
+            let selected = runner.output("/usr/bin/xcode-select", ["-p"])?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             if let r = selected.range(of: ".app/Contents/Developer") {
                 probe.selectedIsXcode = true
                 probe.appPath = String(selected[..<r.lowerBound]) + ".app"
             } else { probe.appPath = xcodeApps().first }
             if let dir = probe.developerDir {
-                let v = Process()
-                v.executableURL = URL(fileURLWithPath: "/usr/bin/xcodebuild"); v.arguments = ["-version"]
-                v.environment = ["DEVELOPER_DIR": dir, "PATH": "/usr/bin:/bin"]
-                let out = Pipe(); v.standardOutput = out; v.standardError = FileHandle.nullDevice
-                if (try? v.run()) != nil {
-                    let data = out.fileHandleForReading.readDataToEndOfFile(); v.waitUntilExit()
-                    if v.terminationStatus == 0 { probe.version = OnboardingNVN.xcodeVersion(from: String(data: data, encoding: .utf8) ?? "") }
+                if let text = runner.output("/usr/bin/xcodebuild", ["-version"], env: ["DEVELOPER_DIR": dir, "PATH": "/usr/bin:/bin"]) {
+                    probe.version = OnboardingNVN.xcodeVersion(from: text)
                 }
             }
             if probe.selectedIsXcode {
@@ -123,7 +112,7 @@ struct OnboardingEnvironment {
                 var text: String { lock.lock(); defer { lock.unlock() }; return buffer }
             }
             let box = Box()
-            let ok = BuildModel.runCaptured(command, env: ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "HOME": NSHomeDirectory(), "USER": NSUserName()]) { l in
+            let ok = SystemProcessRunner().runCaptured(command, env: ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "HOME": NSHomeDirectory(), "USER": NSUserName()]) { l in
                 box.add(l)
                 line(l)
             }
