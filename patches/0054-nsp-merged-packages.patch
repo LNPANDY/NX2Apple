@@ -13,8 +13,8 @@ Tested: Mario Kart 8 Deluxe from one merged NSP (base, update, DLC) builds for t
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 
-Upstream-Status: forwarded seedds/nxnative#842
-Reason: merged NSPs and XCIs with an update are common dumps; goes when seedds/nxnative#842 merges
+Upstream-Status: backport 8ef752a2
+Reason: merged NSPs and XCIs with an update are common dumps; upstream took it as 8ef752a2 (seedds/nxnative#842), so the next bump drops this patch
 Issue: LNPANDY/NX2Apple#376
 
 ---
