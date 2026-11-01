@@ -6,7 +6,7 @@ Subject: [PATCH] front-mac: start with the pointer hidden when the launcher
 
 The launcher's console hides the pointer after a few idle seconds. The game is a new process whose pointer is visible until its own first idle wait ends, so the pointer showed up between the launcher and the game. DM_CURSOR_HIDDEN=1 starts the game with it hidden, and the not-over rule waits until the pointer has been over the new window once.
 
-Upstream-Status: pending
+Upstream-Status: forwarded seedds/nxnative#839
 Reason: The launcher console hides the pointer, the game it starts shows it again for its first idle seconds
 Issue: LNPANDY/NX2Apple#368
 
