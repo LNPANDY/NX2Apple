@@ -66,6 +66,7 @@ final class BuildFailureRowsTests: XCTestCase {
         XCTAssertEqual(low, BuildFailure(kind: .diskFull, gameName: nil, detail: try fixture("disk.low").gb))
         XCTAssertEqual(BuildFailureClassifier.classify(try fixture("disk.full").text), BuildFailure(kind: .diskFull, gameName: nil, detail: nil))
         let m = BuildModel()
+        m.lang = .en   // the English text, whatever the Mac's language
         XCTAssertTrue(m.failureWhat(low).contains("40 GB"), m.failureWhat(low))
         XCTAssertFalse(m.failureWhat(BuildFailure(kind: .diskFull, gameName: nil)).contains("GB"))
     }

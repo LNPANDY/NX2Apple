@@ -81,9 +81,11 @@ extension LibraryGame {
 /// One row of the app's `dm/launcher.json` (dm/games/settings.py), the list the iPhone launcher shows
 /// (dm/ios/Sources/LauncherSettings.swift). Each sets an environment variable the game reads at start.
 struct LaunchSetting: Decodable, Identifiable {
-    let env, kind, label, note, def: String
+    let env, kind: String
+    var label, note: String   // var: localized() puts the launcher's language in place of the build's English
+    let def: String
     let section: String?
-    let options: [[String]]?   // choice: [value, label]
+    var options: [[String]]?   // choice: [value, label]
     let min, max, step: Double?   // range
     let on, off: String?   // toggle: the values the variable takes
     /// "basic" for a setting shown first (settings.tsv's level column, seedds/nxnative#399); without it, `basicByDefault` decides.
@@ -130,7 +132,7 @@ struct LaunchSetting: Decodable, Identifiable {
     /// DM_FULLSCREEN in front_mac.m; a list from settings.tsv will carry it as a platform:mac row), and the render scale's
     /// base size from the game's profile in the repository when the list does not carry it (render_base).
     static func forMac(app: String, titleID: String, repo: String, labels: (String) -> String) -> [LaunchSetting]? {
-        guard var list = read(app: app) else { return nil }
+        guard var list = read(app: app)?.map({ $0.localized(labels) }) else { return nil }
         if !list.contains(where: { $0.env == "DM_FULLSCREEN" }) {
             let display = LaunchSetting(env: "DM_FULLSCREEN", kind: "choice", label: labels("launch.display"), note: "", def: "",
                                         section: "Game", options: [["", labels("launch.display.window")], ["1", labels("launch.display.fullscreen")]],
@@ -141,6 +143,21 @@ struct LaunchSetting: Decodable, Identifiable {
             list[i].base = base
         }
         return list
+    }
+
+    /// The row in the launcher's language: launch.set.<VAR> for the label, launch.set.<VAR>.note for the note and
+    /// launch.opt.<VAR>.<value> for a choice. launcher.json carries English only; a key the table does not have (a row
+    /// a newer build adds) keeps the build's own text rather than showing the key.
+    func localized(_ labels: (String) -> String) -> LaunchSetting {
+        func text(_ key: String, _ fallback: String) -> String {
+            let s = labels(key)
+            return s == key ? fallback : s
+        }
+        var s = self
+        s.label = text("launch.set." + env, label)
+        if !note.isEmpty { s.note = text("launch.set.\(env).note", note) }
+        s.options = options?.map { $0.count > 1 ? [$0[0], text("launch.opt.\(env).\($0[0])", $0[1])] : $0 }
+        return s
     }
 
     /// render_base in the game's profile ("1600x900 1280x720": docked, then handheld).
@@ -225,7 +242,7 @@ struct MacGameBundle {
 
     enum Invalid: LocalizedError {
         case notGame
-        var errorDescription: String? { "Choose a complete nxnative Mac game app built by the NSP pipeline." }
+        var errorDescription: String? { L10n.string("library.notGame", Lang.initial()) }
     }
 
     static func read(_ url: URL) throws -> MacGameBundle {

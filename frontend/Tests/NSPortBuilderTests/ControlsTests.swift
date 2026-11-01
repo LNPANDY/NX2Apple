@@ -61,5 +61,22 @@ final class ControlsTests: XCTestCase {
         for f in ControlLayout.functions { XCTAssertNotNil(L10n.table["controls.fn." + f.id], f.id) }
         XCTAssertEqual(ControlLayout.keyName(49), "Space")
         XCTAssertEqual(ControlLayout.keyName(126), "↑")
+        XCTAssertEqual(ControlLayout.keyName(49, { L10n.string($0, .zh) }), "空格")
+        XCTAssertEqual(ControlLayout.keyName(83, { L10n.string($0, .sv) }), "Numeriskt 1")
+        XCTAssertEqual(ControlLayout.keyName(0, { L10n.string($0, .zh) }), "A", "a letter stays a letter")
+        XCTAssertEqual(ControlLayout.keyName(200, { L10n.string($0, .sv) }), "Tangent 200")
+    }
+}
+
+final class StageNameTests: XCTestCase {
+    func testTheScriptsStageNamesAreShownInTheLaunchersLanguage() {
+        let zh = { (k: String) in L10n.string(k, .zh) }, sv = { (k: String) in L10n.string(k, .sv) }
+        XCTAssertEqual(Stage.localizedName("Mac shaders", zh), "Mac 着色器")
+        XCTAssertEqual(Stage.localizedName("iOS shaders", zh), "iOS 着色器")
+        XCTAssertEqual(Stage.localizedName("survey: code modules", sv), "Kartläggning: kodmoduler")
+        XCTAssertEqual(Stage.localizedName("extract v1.2.0", sv), "Extrahera v1.2.0", "the version is kept")
+        XCTAssertEqual(Stage.localizedName("Vulkan shader capture", zh), "Vulkan 着色器捕获")
+        XCTAssertEqual(Stage.localizedName("a stage added later", zh), "a stage added later", "an unknown name stays as the script wrote it")
+        XCTAssertEqual(Stage.localizedName("Mac app", { $0 }), "Mac app")
     }
 }
