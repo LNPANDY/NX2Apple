@@ -1,0 +1,175 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: TeeJayBaker <Tom_John_baker@yahoo.com>
+Date: Sun, 1 Nov 2026 14:46:19 +0000
+Subject: [PATCH] Launcher: a Frame rate choice for games shown at every
+ display tick (present_interval display)
+
+A profile with present_interval display and no fps_target runs at 60 fps by showing a frame at
+every display tick where the game asks for two (Monster Train 2, Overcooked! All You Can Eat).
+Their players had no 30 fps choice in the launcher: only DM_PRESENT_INTERVAL=game in an env file,
+while every fps_target game offers Frame rate 30 / 60. 30 is the Switch's rate and uses less
+power (Overcooked on an M1 Pro: about 0.15 W of CPU at 30 fps, 0.86 W at 60).
+
+settings.tsv: a Frame rate row for DM_PRESENT_INTERVAL (game = 30 fps, display = 60 fps, default
+display), shown for DM_GAME_PRESENT_DISPLAY==1&DM_GAME_FPS_TARGET==0, so a game with both keys
+keeps its one DM_FPS_TARGET row. settings.py: a condition of several joined by & holds when all do.
+
+Tests: test_launcher_settings.py (Monster Train 2 and Overcooked get the row; Monster Hunter Rise,
+display with fps_target, keeps only DM_FPS_TARGET; Super Mario Bros. Wonder gets neither),
+test_settings.py, test_docs.py. Not run in a front end.
+
+Upstream-Status: forwarded seedds/nxnative#836
+Reason: Monster Train 2 and Overcooked run at 60 fps with no 30 fps choice in the launcher
+Issue: LNPANDY/NX2Apple#369
+
+---
+ dm/games/010051701FB46000/README.md      | 2 +-
+ dm/games/010051701FB46000/game.tsv       | 2 +-
+ dm/games/0100F28011892000/README.md      | 2 +-
+ dm/games/0100F28011892000/game.tsv       | 2 +-
+ dm/games/README.md                       | 2 +-
+ dm/games/settings.py                     | 1 +
+ dm/games/settings.tsv                    | 3 ++-
+ dm/tools/tests/test_launcher_settings.py | 9 +++++++++
+ docs/settings.md                         | 3 ++-
+ 9 files changed, 19 insertions(+), 7 deletions(-)
+
+diff --git a/dm/games/010051701FB46000/README.md b/dm/games/010051701FB46000/README.md
+index c50630ff..04fc660f 100644
+--- a/dm/games/010051701FB46000/README.md
++++ b/dm/games/010051701FB46000/README.md
+@@ -19,7 +19,7 @@ Update 1.1.1 (v131072) over the base game, SDK 18.3.5. Unity 2022.3.54f1 IL2CPP
+ 
+ - **Current:** 60 fps (30 on the Switch). The game asks for present interval 2 (Unity's 30 fps setting) and nothing else holds it at 30: `present_interval display` presents a frame every display tick, and the iPhone's display link runs at 60 Hz. The GPU takes about 2 ms a frame in battle and on the route map (M4 Pro).
+ - Its animations follow the time that passed (Unity's `deltaTime`; the PC versions run at any refresh rate). From one save, screenshots every third of a second through the move to the merchant (its fade-in, the greeting) match at 30 and 60 fps: mean difference 3.9, against 11.0 (up to 89 in the fade) for what frame counting would show.
+-- `DM_PRESENT_INTERVAL=game` (`Documents/env.txt` on the iPhone) keeps 30 and saves power.
++- The launcher's **Frame rate** at 30 fps (`DM_PRESENT_INTERVAL=game`) keeps the Switch's 30 and saves power.
+ - **Resolved: `[RED] fs ReadFile into … failed at +0 (EFAULT): VM region … protection 1`, now and then at 60 fps** (two runs in three as the route map loads, never at 30 fps). The destination was texture pool memory, which the dirty-page tracker write-protects after each upload (`nvn_dirty.c`); `ReadFile` lifts the protection first, but the graphics layer can protect the pages again before `pread` writes them, and at 60 fps uploads come twice as often. On EFAULT the host now prepares the rest of the buffer again and reads on, up to eight times (`h_fs_ReadFile`; the first case is logged, `[fs] ReadFile … prepared again`). Four runs at 60 fps: one retry, no failed read.
+ 
+ ## Memory
+diff --git a/dm/games/010051701FB46000/game.tsv b/dm/games/010051701FB46000/game.tsv
+index 3c6b1b43..292a6ecb 100644
+--- a/dm/games/010051701FB46000/game.tsv
++++ b/dm/games/010051701FB46000/game.tsv
+@@ -45,7 +45,7 @@ pad_layout	full
+ # 60 fps (30 on the Switch): the game asks for present interval 2, which display mode ignores, and nothing else in Unity holds it at 30 (about 60 fps on the Mac, the GPU at about
+ # 2 ms a frame in battle and on the map). Its animations follow the time that really passed (Unity's deltaTime; the PC versions run at any refresh rate): from the same save, screenshots
+ # at the same moments of the move to the merchant (its fade-in, the greeting) match at 30 and 60 fps (mean difference 3.9), while frame counting would have put 60 fps twice as far
+-# (11.0, up to 89 in the fade). DM_PRESENT_INTERVAL=game (Documents/env.txt on the iPhone) keeps 30 and saves power
++# (11.0, up to 89 in the fade). The launcher's Frame rate at 30 fps (DM_PRESENT_INTERVAL=game) keeps 30 and saves power
+ present_interval	display
+ 
+ # ---- Shader split (shader_split.py; Unity Shader and ComputeShader objects, read by unityfs.py) ----
+diff --git a/dm/games/0100F28011892000/README.md b/dm/games/0100F28011892000/README.md
+index 23aadb8c..7debfb6c 100644
+--- a/dm/games/0100F28011892000/README.md
++++ b/dm/games/0100F28011892000/README.md
+@@ -39,7 +39,7 @@ Update 1.0.11 (v720896) over the base game, SDK 10.4.1. Unity 2019.4.11f1 IL2CPP
+ ## Frame rate
+ 
+ - **Current:** 60 fps (30 on the Switch). The game asks for present interval 2 (Unity's 30 fps setting) and nothing else holds it at 30: `present_interval display` presents a frame every display tick. On an M1 Pro (macOS 26.7.2), over 16,200 frames: 59.9–60.0 fps, frame time p50 16.7 ms, p95 16.9–20.5 ms; GPU p50 up to 8.8 ms, p95 up to 16 ms; CPU energy about 0.86 W.
+-- `DM_PRESENT_INTERVAL=game` keeps 30 and saves power: frame time p50 33.4 ms, p95 36.5 ms; GPU p50 7–9 ms, p95 11–12 ms; CPU energy about 0.15 W.
++- The launcher's **Frame rate** at 30 fps (`DM_PRESENT_INTERVAL=game`) keeps the Switch's 30 and saves power: frame time p50 33.4 ms, p95 36.5 ms; GPU p50 7–9 ms, p95 11–12 ms; CPU energy about 0.15 W.
+ 
+ ## Audio
+ 
+diff --git a/dm/games/0100F28011892000/game.tsv b/dm/games/0100F28011892000/game.tsv
+index 915714f8..bab7d549 100644
+--- a/dm/games/0100F28011892000/game.tsv
++++ b/dm/games/0100F28011892000/game.tsv
+@@ -35,7 +35,7 @@ app_pool	0xCD500000
+ 
+ # ---- Frame rate ----
+ # The game asks for present interval 2 (30 fps on the Switch) and holds nothing else at 30: one frame per display tick gives 60 fps on the Mac (README.md, Frame rate).
+-# DM_PRESENT_INTERVAL=game keeps 30 and saves power
++# The launcher's Frame rate at 30 fps (DM_PRESENT_INTERVAL=game) keeps 30 and saves power
+ present_interval	display
+ 
+ # ---- Shader split ----
+diff --git a/dm/games/README.md b/dm/games/README.md
+index 8eb38ffe..d2e55107 100644
+--- a/dm/games/README.md
++++ b/dm/games/README.md
+@@ -185,7 +185,7 @@ One row per profile; the notes are each profile's `README.md`.
+ | `game_env` | `KEY=VALUE` pairs, separated by spaces, that the game's `getenv` returns (`hle_os.c`; any other name goes to the SDK's own `getenv`, whose environment is empty as on Horizon). For runtimes that take their settings from the environment. Absolum (.NET NativeAOT) sets `DOTNET_GCRegionRange=60000000`: the GC reserves 5 × its heap hard limit as its region range otherwise, 3.75 GB, which only the Switch's 64 GB alias region holds. `DM_GAME_ENV` overrides it, also from `Documents/env.txt` |
+ | `mem_map_limit` | `on` / `off` (the default): `MapPhysicalMemory` fails with ResultLimitReached when it would take the process past the application pool (the pool less the used memory `GetInfo` reports), as on Horizon (`hle_svc.c`). Pokémon Legends: Z-A allocates and frees everything it can at startup and the SDK keeps the freed pages mapped until a map fails, then unmaps them and retries; without the limit they stay mapped and the game maps past the pool. Off by default: Ace Attorney Investigations Collection maps a little more than the 1 GB pool its profile reports |
+ | `stdalloc_cap` | With virtual address memory, the address space `StandardAllocator::Initialize(nullptr, size)` gets when `size` is more than the alias region has room for (`hle_svc.c` "StandardAllocator's address space", a gate the rewriter places by symbol in every `sdk`). Default `0`: the room, the alias region less the regions already made (at least the 62 MB node area) and 256 MB for the regions made after it. Needed when those need more (Absolum's .NET garbage collector takes 1.5 GB after its `malloc`): the NSP script's address region check sets it in a provisional or derived profile from what it measured, and checks a value set by hand. A request that fits is never changed |
+-| `present_interval` | `game` (the default): frames are paced by the present interval the game sets, as on the Switch (a frame presented with interval 2 stays on screen for two display ticks; a game that keeps asking for 2 for a second gets the 30 fps target, and on iOS the display link then runs at 30 Hz; Mario 1.2.1 switches to 2 for single frames after a slow one; Engage asks for 2 on the Switch, and a rewriter cut on its 2.0.0 `main` makes it ask for 1, see `0100A6301214E000/game.tsv`). `display`: one frame per display tick whatever the game asks, which is only right for games whose logic does not count frames (D2R's runs on its own 25 Hz clock; Monster Train 2 asks for 2 and steps by Unity's frame time, so it runs at 60 fps: screenshots at the same moments match at 30 and 60 fps). `DM_PRESENT_INTERVAL=game` / `display` overrides it, also from `Documents/env.txt` |
++| `present_interval` | `game` (the default): frames are paced by the present interval the game sets, as on the Switch (a frame presented with interval 2 stays on screen for two display ticks; a game that keeps asking for 2 for a second gets the 30 fps target, and on iOS the display link then runs at 30 Hz; Mario 1.2.1 switches to 2 for single frames after a slow one; Engage asks for 2 on the Switch, and a rewriter cut on its 2.0.0 `main` makes it ask for 1, see `0100A6301214E000/game.tsv`). `display`: one frame per display tick whatever the game asks, which is only right for games whose logic does not count frames (D2R's runs on its own 25 Hz clock; Monster Train 2 asks for 2 and steps by Unity's frame time, so it runs at 60 fps: screenshots at the same moments match at 30 and 60 fps). `DM_PRESENT_INTERVAL=game` / `display` overrides it, also from `Documents/env.txt`; with `display` and no `fps_target`, the launcher's Frame rate sets it (30 fps = `game`) |
+ | `present_snap` | `on` / `off` (the default): present snapshots by default (`nvn_mtl.m` `mtl_snap_on`, a ring of 2 host textures): each present is copied and the game's swapchain texture is free at once, so the GPU does not idle between frames ([Present snapshots](../../docs/reference/frame-rate.md#present-snapshots-the-games-swapchain-texture-free-at-once)). A setting the game was tested with: the iOS launcher's **Frame buffering** defaults to it, and `DM_PRESENT_SNAP` / `Documents/env.txt` override it. Breath of the Wild sets it on |
+ | `pso_mtl4` | `on` / `off` (the default): on iOS, render pipelines through MTL4Compiler by default, with the pipeline archive, the prepare step, the hybrid pipelines and the prebuild (on by default on the Mac; `DM_PSO_MTL4=1` / `0` overrides). A setting the game was tested with on an iPhone. It also gives the app the [pipeline archive made offline](../../docs/development.md#the-pipeline-archive-made-offline) (`build_ipa.sh` builds it for `g18p` unless `DM_PSO_GPUS` says otherwise; without the key, none) and the pulling libraries (`_bp`). Breath of the Wild sets it on |
+ | `enc_thread` | `on` / `off` (the default): on the Mac, Metal encoding on its own thread by default, as on iOS for every game (`nvn_rec.h` `rec_on`; `DM_NVN_ENC_THREAD=1` / `0` and the launcher's Encode thread override it). For a game that waits on its fence every frame, whose submit thread would otherwise also encode before the wait: Need for Speed: Hot Pursuit Remastered's 60 fps frame took 18.1 ms with encoding on the submit thread and 16.7 on its own |
+diff --git a/dm/games/settings.py b/dm/games/settings.py
+index d16b9cb9..815e3185 100644
+--- a/dm/games/settings.py
++++ b/dm/games/settings.py
+@@ -69,6 +69,7 @@ def build(gid, patched, control):
+         return macros[name].strip('"')
+ 
+     def shown(cond, n):
++        if '&' in cond: return all(shown(c, n) for c in cond.split('&'))
+         if cond == 'always': return True
+         if cond == 'languages>1': return len(langs) > 1
+         if cond.startswith('fixups:'): return cond[7:] in keys
+diff --git a/dm/games/settings.tsv b/dm/games/settings.tsv
+index 00e1ddd1..12135328 100644
+--- a/dm/games/settings.tsv
++++ b/dm/games/settings.tsv
+@@ -7,7 +7,7 @@
+ #             toggle: values - (on sets 1, off 0) or <on>/<off>, the two values the variable takes (on/off)
+ #   default   a value (a toggle's: 1 on, 0 off); DM_GAME_<NAME>: the host's own default from the game profile (game_profile.h, game.py); build:<VAR>: the IPA build's setting (build_ipa.sh)
+ #             <ios>|<mac> selects the platform's default before resolving a profile macro or build variable
+-#   shown     always; DM_GAME_<NAME>!=<value> or ==<value>; fixups:<KEY>: main's rewriter table has that key (a stub in the game's build, patch_nso.py); languages>1; gfxapi:<API>: the packer's GFXAPI;
++#   shown     always; DM_GAME_<NAME>!=<value> or ==<value>; several joined by & must all hold; fixups:<KEY>: main's rewriter table has that key (a stub in the game's build, patch_nso.py); languages>1; gfxapi:<API>: the packer's GFXAPI;
+ #             platform:<ios | mac>: the app's platform (SETTINGS_PLATFORM, ios when unset), for a switch only that platform's front end reads
+ #   section   Game, Controls or Performance: a heading on the single settings screen. Rows appear in table order within each section
+ #             Reset to tested defaults clears all launcher choices; values fixed by an env file stay
+@@ -15,6 +15,7 @@
+ #   meta      optional, key=value pairs separated by ; (settings.py META lists the keys; docs/frontends.md, The settings list, describes them):
+ #             level=basic  a setting a front end shows first;  needs=<VAR>=<value>  a sub-setting, drawn only while the row that sets <VAR> has that value
+ DM_FPS_TARGET	choice	30=30 fps,60=60 fps	DM_GAME_FPS_TARGET	DM_GAME_FPS_TARGET!=0	Game	Frame rate		level=basic
++DM_PRESENT_INTERVAL	choice	game=30 fps,display=60 fps	display	DM_GAME_PRESENT_DISPLAY==1&DM_GAME_FPS_TARGET==0	Game	Frame rate		level=basic
+ DM_DYNAMIC_RESOLUTION	toggle	-	0	fixups:DYNAMIC_RESOLUTION	Game	Dynamic resolution	Adjusts resolution between 70% and 100% under load. Turn off to keep full resolution for the selected console mode.
+ DM_RENDER_SCALE	range	0.5:1.0:0.05	1.0	fixups:RENDER_SCALE	Game	Render scale		level=basic
+ DM_OPMODE	choice	1=Docked,0=Handheld	DM_GAME_OPMODE	always	Game	Console mode		level=basic
+diff --git a/dm/tools/tests/test_launcher_settings.py b/dm/tools/tests/test_launcher_settings.py
+index cd43d2d7..79c13368 100644
+--- a/dm/tools/tests/test_launcher_settings.py
++++ b/dm/tools/tests/test_launcher_settings.py
+@@ -53,6 +53,15 @@ class LauncherSettingsTests(unittest.TestCase):
+         self.assertNotIn('DM_FPS_HOLD', wonder)   # no frame step, as the Frame rate row
+         self.assertIn('first start', botw['DM_PSO_PREBUILD']['note'])   # it runs once in the prepare step, before the first frame
+ 
++    def test_frame_rate_of_a_game_shown_every_display_tick(self):   # present_interval display without fps_target: 30 is the interval the game asks for
++        mt2, mhr, wonder = build('010051701FB46000', 'nvn'), build('0100B04011742000', 'nvn'), build(WONDER, 'nvn')
++        for s in (mt2['DM_PRESENT_INTERVAL'], build('0100F28011892000', 'nvn')['DM_PRESENT_INTERVAL']):   # Monster Train 2, Overcooked! All You Can Eat
++            self.assertEqual((s['kind'], s['section'], s['default'], s['label']), ('choice', 'Game', 'display', 'Frame rate'))
++            self.assertEqual(s['options'], [['game', '30 fps'], ['display', '60 fps']])
++        self.assertNotIn('DM_FPS_TARGET', mt2)
++        self.assertEqual(('DM_FPS_TARGET' in mhr, 'DM_PRESENT_INTERVAL' in mhr), (True, False))   # Monster Hunter Rise: present_interval display with fps_target, one Frame rate row
++        self.assertFalse({'DM_FPS_TARGET', 'DM_PRESENT_INTERVAL'} & set(wonder))
++
+     def test_hold_frames_takes_on_and_off(self):   # the host reads DM_FPS_HOLD as on / off (hle_nvn.c), not 1 / 0
+         s = build(BOTW, 'nvn')['DM_FPS_HOLD']
+         self.assertEqual((s['on'], s['off'], s['default']), ('on', 'off', 'on'))
+diff --git a/docs/settings.md b/docs/settings.md
+index 0f992d4c..0809de8a 100644
+--- a/docs/settings.md
++++ b/docs/settings.md
+@@ -22,7 +22,7 @@ A Mac app carries the same list (`Contents/Resources/dm/launcher.json`), without
+ 
+ ### Frame rate
+ 
+-Games whose speed the app controls (Breath of the Wild, Tears of the Kingdom and a few others) offer **30 fps** or **60 fps**. 60 is smoother; 30 is what the Switch ran and uses less power, so the phone stays cooler and the battery lasts longer. The game runs at real speed either way.
++Games whose speed the app controls (Breath of the Wild, Tears of the Kingdom and a few others) offer **30 fps** or **60 fps**. 60 is smoother; 30 is what the Switch ran and uses less power, so the phone stays cooler and the battery lasts longer. The game runs at real speed either way. Games that reach 60 by showing a new frame at every refresh, where the Switch showed each frame for two (Monster Train 2, Overcooked! All You Can Eat), offer the same choice.
+ 
+ ### Render scale
+ 
+@@ -218,6 +218,7 @@ A line like `DM_PRESENT_SNAP=0` in `Documents/env.txt` (in the Files app, under
+ | Setting | Variable | Values |
+ |---|---|---|
+ | Frame rate | `DM_FPS_TARGET` | `30`, `60` |
++| Frame rate (a game shown at every refresh) | `DM_PRESENT_INTERVAL` | `game` 30 fps, `display` 60 fps |
+ | Render scale | `DM_RENDER_SCALE` | `0.5` to `1.0` |
+ | Console mode | `DM_OPMODE` | `1` docked, `0` handheld |
+ | Game language | `DM_LANG` | a language code, such as `ja` |
