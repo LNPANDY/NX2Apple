@@ -126,7 +126,12 @@ final class BuildModel: ObservableObject {
     /// The shell folder of the install and of the cache row: the saved one, else next to the output folder (or the game's folder).
     var shellRoot: String { ShellLibrary.resolveRoot(parent: outDir.isEmpty ? (basePath as NSString).deletingLastPathComponent : outDir) }
     @Published var stopping = false
-    @Published var logTail = ""
+    /// The build log. Not published: only `BuildLogView` observes it (#387), so a log line redraws the log and nothing else.
+    let log = BuildLog()
+    var logTail: String {
+        get { BuildLog.onMain { log.text } }
+        set { BuildLog.onMain { log.set(newValue) } }
+    }
     @Published var done = false
     @Published var doneNote = ""
     /// What the NSP script stopped on, when it is one of the known early stops (BuildFailure.swift). nil for a build that
@@ -226,7 +231,6 @@ final class BuildModel: ObservableObject {
     init(localizer: Localizer = Localizer()) { self.localizer = localizer }
 
     private var proc: Process?
-    private var lineBuf = ""
     private var staging: String?
 
     // ---- Process groups: Stop and quitting end the whole build ----
@@ -1247,7 +1251,7 @@ final class BuildModel: ObservableObject {
         shellDeviceChecked = false
         if target != BuildTarget.mac, askAboutStaleFrameworks() { return }   // StaleFrameworksPrompt.swift (#449)
         stopping = false
-        running = true; done = false; doneNote = ""; stages = []; logTail = ""; lineBuf = ""; chainNoteShown = false
+        running = true; done = false; doneNote = ""; stages = []; BuildLog.onMain { log.clear() }; chainNoteShown = false
         failure = nil; confirmingOverride = nil
         let override = takeOverrideFlag()   // for this build only: the next one asks again
         installedOn = ""; installedAppPath = ""
@@ -1677,7 +1681,7 @@ final class BuildModel: ObservableObject {
     }
 
     /// A stopped build leaves no half-finished stages behind: the progress starts empty again.
-    private func resetProgress() { stages = []; logTail = ""; lineBuf = "" }
+    private func resetProgress() { stages = []; BuildLog.onMain { log.clear() } }
 
     private func markAllDone() { for i in stages.indices where stages[i].state != .failed { stages[i].state = .done } }
 
@@ -1695,10 +1699,7 @@ final class BuildModel: ObservableObject {
     }
 
     private func say(_ s: String) { append(s + "\n") }
-    private func append(_ s: String) {
-        logTail += s
-        if logTail.count > 12000 { logTail = String(logTail.suffix(9000)) }
-    }
+    private func append(_ s: String) { BuildLog.onMain { log.append(s) } }
 
     /// Split into lines (the pipe delivers arbitrary chunks) and turn the script's progress into the stage list.
     /// `--progress json` writes one event per line (stage, step, progress with done / total / frac / eta, stage_end,
@@ -1706,18 +1707,12 @@ final class BuildModel: ObservableObject {
     /// The older `--progress lines` form is still understood:
     ///   [12:00:01] [2/7] extract v720896 …
     ///   [12:00:20] ✓ [2/7] extract v720896 (0:19): 30,000 files, 3.4 GB
-    private func ingest(_ chunk: String) {
-        lineBuf += chunk
-        while let i = lineBuf.firstIndex(of: "\n") {
-            let line = String(lineBuf[..<i]).replacingOccurrences(of: "\r", with: "")
-            lineBuf = String(lineBuf[lineBuf.index(after: i)...])
-            handle(line)
-        }
+    func ingest(_ chunk: String) {
+        for line in BuildLog.onMain({ log.feed(chunk) }) { handle(line) }
     }
 
     private func flushLines() {
-        guard !lineBuf.isEmpty else { return }
-        handle(lineBuf); lineBuf = ""
+        if let rest = BuildLog.onMain({ log.flush() }) { handle(rest) }
     }
 
     private func handle(_ line: String) {
@@ -3394,21 +3389,7 @@ struct BuilderView: View {
     }
 
     private var logView: some View {
-        ScrollViewReader { sp in
-            ScrollView {
-                Text(m.logTail.isEmpty ? loc.t("log.placeholder") : m.logTail)
-                    .font(.mono(11))
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .foregroundStyle(.secondary)
-                    .padding(12)
-                    .id("end")
-            }
-            .frame(height: 220)
-            .background(Color.black.opacity(0.35), in: RoundedRectangle(cornerRadius: 10))
-            .onChange(of: m.logTail) { _ in sp.scrollTo("end", anchor: .bottom) }
-            .onAppear { sp.scrollTo("end", anchor: .bottom) }
-        }
+        BuildLogView(log: m.log,placeholder: loc.t("log.placeholder"))
     }
 
     /// The page's conclusion, at the end of its column: what is still missing, and the button.
