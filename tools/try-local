@@ -1,0 +1,206 @@
+#!/usr/bin/env bash
+# Build the Mac app from this checkout on this Mac, without CI, and open it. Like tools/try-pr, for a change that is not pushed yet.
+#
+#   tools/try-local              build, unpack into a new folder under $TMPDIR, open
+#
+# Options:
+#   --dir DIR    put the app into DIR (empty or new). Default: a new folder under $TMPDIR
+#   --no-open    build only
+#   --clean      drop the cache of the bundled tools and the icon (~/Library/Caches/NX2Apple-try-local) and exit
+#   --own-repo   let the app choose its engine as it always does, instead of the engine tree bundled in this build
+#
+# What it builds: the same app as the job `build` of .github/workflows/build-mac-app.yml: the engine tree (tools/engine.py tree), the
+# launcher (swift build -c release), the bundled tools and Python (frontend/tools/bundle_tools.sh), the iPhone shell package, Info.plist,
+# an ad-hoc signature, and frontend/tools/check_bundle.sh. The version is <appVersion>-local.
+# It is NOT a release. It writes no latest.json, signs nothing with an engine key, touches no tag, uploads nothing. An rc tag still
+# needs CI and the owner's ENGINE_SIGNING_KEY. Without a latest.json the app has no manifest to check: it opens with the engine it
+# carries (launch arguments as in tools/try-pr: the stable channel, its engine_id, no engine or app update for this run).
+#
+# Time: the first run builds zstd, glslang, spirv-cross and downloads Python and xcodegen (the slow part). They are cached in
+# ~/Library/Caches/NX2Apple-try-local, keyed by the hash of bundle_tools.sh and bundled-python/requirements.txt (its pins). The next
+# run copies them. The icon is cached the same way, by AppIcon.icon and the Xcode version. The icon needs an Xcode whose actool reads
+# AppIcon.icon (the workflow uses Xcode 27.1). If actool fails here, the app gets the generic icon and the script says so.
+# The elapsed time of each step and the total are printed.
+#
+# Needs an Apple silicon Mac with Xcode (swift, actool), cmake and python3. The test app has the bundle id of the installed app
+# (org.nxnative.NSPortBuilder): it shares its settings and ~/Library/Application Support/NS Port Builder, .../NX2Apple and .../nxnative
+# with an installed NX2Apple, as with tools/try-pr (see its header). A setting you change in the test app stays changed.
+set -euo pipefail
+
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+CACHE=${NX2APPLE_TRY_LOCAL_CACHE:-$HOME/Library/Caches/NX2Apple-try-local}
+
+usage() { sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+die() { echo "try-local: $*" >&2; exit 1; }
+note() { echo "try-local: $*"; }
+
+# Pure parts (tools/tests/test_try_local.py runs them).
+cache_key() {   # the bundled tools depend on the script, its pins file and the CPU
+    cat "$ROOT/frontend/tools/bundle_tools.sh" "$ROOT/frontend/bundled-python/requirements.txt" <(uname -m) | shasum -a 256 | cut -c1-16
+}
+app_version() {
+    local src
+    src=$(sed -n 's/.*static let appVersion = "\(.*\)".*/\1/p' "$ROOT/frontend/Sources/NSPortBuilder/ContentView.swift")
+    [ -n "$src" ] || die "no appVersion in ContentView.swift"
+    echo "$src-local"
+}
+
+dir="" open_app=1 own_repo=0 clean=0 print=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -h|--help) usage 0 ;;
+        --dir) [ $# -ge 2 ] || usage 1; dir=$2; shift ;;
+        --no-open) open_app=0 ;;
+        --own-repo) own_repo=1 ;;
+        --clean) clean=1 ;;
+        --print-cache-key) print=key ;;
+        --print-version) print=version ;;
+        *) usage 1 ;;
+    esac
+    shift
+done
+case "$print" in key) cache_key; exit 0 ;; version) app_version; exit 0 ;; esac
+if [ "$clean" = 1 ]; then rm -rf "$CACHE"; note "removed $CACHE"; exit 0; fi
+
+[ "$(uname -m)" = arm64 ] || die "this builds the arm64 app: run it on an Apple silicon Mac"
+for c in swift cmake python3 codesign; do command -v "$c" > /dev/null || die "needs $c"; done
+
+if [ -z "$dir" ]; then
+    dir=$(mktemp -d "${TMPDIR:-/tmp}/nx2apple-local.XXXXXX")
+else
+    mkdir -p "$dir"
+    [ -z "$(ls -A "$dir")" ] || die "$dir is not empty"
+fi
+dir=$(cd "$dir" && pwd)
+trap 'status=$?; [ "$status" = 0 ] || rm -rf "$dir"' EXIT
+work="$dir/work"; mkdir -p "$work"
+app="$dir/NX2Apple.app"
+
+total_start=$SECONDS
+step_start=$SECONDS
+step() { step_start=$SECONDS; note "== $*"; }
+done_step() { note "   $((SECONDS - step_start)) s"; }
+
+V=$(app_version)
+cd "$ROOT"
+
+step "engine tree (tools/engine.py tree)"
+python3 tools/engine.py -q sync
+python3 tools/engine.py tree --out "$work/engine-tree"
+done_step
+
+step "swift build -c release"
+( cd frontend && swift build -c release )
+done_step
+
+step "bundled tools and Python"
+key=$(cache_key)
+tools_cache="$CACHE/tools-$key"
+if [ -f "$tools_cache/.complete" ]; then
+    note "cache hit $key"
+else
+    note "cache miss $key: building them (the slow part, once per change of bundle_tools.sh or its pins)"
+    mkdir -p "$CACHE"
+    rm -rf "$tools_cache.part"; mkdir -p "$tools_cache.part"
+    frontend/tools/bundle_tools.sh "$tools_cache.part/res" "$CACHE/work"
+    touch "$tools_cache.part/.complete"
+    rm -rf "$tools_cache"; mv "$tools_cache.part" "$tools_cache"
+    # Keep only the newest entry. The checksummed downloads stay for the next raised pin, the build folders go.
+    for old in "$CACHE"/tools-*; do [ "$old" = "$tools_cache" ] || rm -rf "$old"; done
+    rm -rf "$CACHE"/work/*-build "$CACHE"/work/zstd "$CACHE"/work/glslang "$CACHE"/work/spirv-cross "$CACHE"/work/xcodegen "$CACHE"/work/python-x
+fi
+done_step
+
+step "app icon (actool)"
+xcodev=$(xcodebuild -version 2> /dev/null | tr '\n' ' ' || echo unknown)
+icon_cache="$CACHE/icon-$(find frontend/AppIcon.icon -type f -print0 | sort -z | xargs -0 shasum -a 256 | shasum -a 256 | cut -c1-16)-$(printf '%s' "$xcodev" | shasum | cut -c1-8)"
+have_icon=0
+if [ -f "$icon_cache/Assets.car" ] && [ -f "$icon_cache/AppIcon.icns" ]; then
+    note "cache hit"; have_icon=1
+else
+    out="$work/app-icon"; mkdir -p "$out"
+    if xcrun actool frontend/AppIcon.icon --compile "$out" --platform macosx --minimum-deployment-target 13.0 \
+        --app-icon AppIcon --output-partial-info-plist "$out/partial.plist" > "$work/actool.log" 2>&1 \
+        && [ -f "$out/Assets.car" ] && [ -f "$out/AppIcon.icns" ]; then
+        mkdir -p "$icon_cache"; cp "$out/Assets.car" "$out/AppIcon.icns" "$icon_cache/"; have_icon=1
+    else
+        note "actool ($xcodev) could not compile AppIcon.icon, the app gets the generic icon. The workflow uses Xcode 27.1. Last lines:"
+        tail -5 "$work/actool.log" | sed 's/^/    /' >&2
+    fi
+fi
+done_step
+
+step "assemble the bundle (mirrors the step 'Assemble the bundle' of build-mac-app.yml)"
+mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+cp frontend/.build/release/NSPortBuilder "$app/Contents/MacOS/NSPortBuilder"
+if [ "$have_icon" = 1 ]; then cp "$icon_cache/Assets.car" "$icon_cache/AppIcon.icns" "$app/Contents/Resources/"; fi
+ditto "$tools_cache/res/tools" "$app/Contents/Resources/tools"
+ditto "$tools_cache/res/python" "$app/Contents/Resources/python"
+ditto "$work/engine-tree" "$app/Contents/Resources/engine"
+frontend/tools/sign_engine_tree.sh "$app/Contents/Resources/engine" "$work/engine-tree"
+rsync -a --exclude .build --exclude .swiftpm frontend-ios/ "$app/Contents/Resources/frontend-ios/"
+cat > "$app/Contents/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleExecutable</key><string>NSPortBuilder</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
+  <key>CFBundleIconName</key><string>AppIcon</string>
+  <key>CFBundleIdentifier</key><string>org.nxnative.NSPortBuilder</string>
+  <key>CFBundleName</key><string>NX2Apple</string>
+  <key>CFBundleDisplayName</key><string>NX2Apple</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>$V</string>
+  <key>CFBundleVersion</key><string>$V</string>
+  <key>CFBundleDevelopmentRegion</key><string>en</string>
+  <key>CFBundleLocalizations</key><array><string>en</string><string>zh-Hans</string><string>sv</string><string>de</string><string>fr</string></array>
+  <key>LSMinimumSystemVersion</key><string>13.0</string>
+  <key>NSHighResolutionCapable</key><true/>
+</dict>
+</plist>
+PLIST
+plutil -lint "$app/Contents/Info.plist" > /dev/null
+codesign --force --deep --sign - "$app"
+codesign -v --deep --strict "$app"
+done_step
+
+step "check the bundle (check_bundle.sh, as in the workflow)"
+frontend/tools/check_bundle.sh "$app" > "$work/check.log" 2>&1 || { cat "$work/check.log"; die "the bundle check failed"; }
+note "$(grep -c '^ok' "$work/check.log") checks ok"
+E="$app/Contents/Resources/engine"
+cmp "$E/.engine-id" "$work/engine-tree/.engine-id"
+cmp "$E/.upstream-ref" .upstream-ref
+test -f "$E/scripts/build_ipa_from_nsp.py" && test -f "$E/dm/tools/romfs_image.py" && test -f "$E/dm/fork_patches.txt"
+test -f "$app/Contents/Resources/frontend-ios/Package.swift" && test -d "$app/Contents/Resources/frontend-ios/AppIcon.icon"
+test ! -e "$E/.git"
+frontend/tools/sign_engine_tree.sh --check "$E" "$work/engine-tree"
+done_step
+
+rm -rf "$work"
+xattr -dr com.apple.quarantine "$app" 2> /dev/null || true
+engine_id=$(cat "$app/Contents/Resources/engine/.engine-id")
+note "NX2Apple $V built from $(git rev-parse --short=12 HEAD)$(git diff --quiet HEAD -- 2> /dev/null || echo ' + uncommitted changes')"
+note "engine_id $engine_id (Contents/Resources/engine). Not a release: no latest.json, no engine signature"
+note "total $((SECONDS - total_start)) s"
+
+args=(-autoUpdateApp '<false/>')
+if [ "$own_repo" = 0 ]; then
+    args+=(-engineChannel stable -engineID "$engine_id" -autoUpdateRepo '<false/>')
+    mine=$(defaults read org.nxnative.NSPortBuilder engineID 2> /dev/null || true)
+    if [ -n "$mine" ] && [ "$mine" != "$engine_id" ]; then args+=(-enginePreviousID "$mine"); fi
+    if [ "$(defaults read org.nxnative.NSPortBuilder engineChannel 2> /dev/null || true)" = experimental ]; then
+        note "your installed app follows the experimental channel. The test app saves stable: pick experimental again in Settings afterwards"
+    fi
+fi
+
+note "built into $dir (delete it when you are done: rm -rf $(printf '%q' "$dir"))"
+if [ "$open_app" = 0 ]; then
+    note "not opened (--no-open). To open it: open -n $(printf '%q' "$app") --args$(printf ' %q' "${args[@]}")"
+    exit 0
+fi
+if pgrep -x NSPortBuilder > /dev/null; then
+    die "NX2Apple is running. Quit it first: both copies would share one set of settings and saves"
+fi
+note "it shares settings and Application Support with an installed NX2Apple (see the top of tools/try-pr)"
+open -n "$app" --args "${args[@]}"
