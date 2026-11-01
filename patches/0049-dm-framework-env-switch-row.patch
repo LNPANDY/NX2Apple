@@ -16,10 +16,10 @@ Issue: LNPANDY/NX2Apple#144
  1 file changed, 8 insertions(+)
 
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index 6993f8dc..ec096fad 100644
+index 5ce83dd..7f026a7 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
-@@ -34,9 +34,12 @@ DM_FD_LOG	diagnostic	`=<seconds>` logs, every that many seconds, the number and
+@@ -35,9 +35,12 @@ DM_FD_LOG	diagnostic	`=<seconds>` logs, every that many seconds, the number and
  DM_FIXED_TIME	switch	`=<seconds>`: the user clock always returns that time and the host time zone is pinned to UTC, for deterministic comparison
  DM_FONT_DIR	path	Folder of the shared-font stand-ins (`standard.ttf`, `nintendo_ext.ttf` with the button icons); the app, the Mac launcher and the NSP script set it
  DM_FORCE_STRICT	diagnostic	`=1` makes the loader fail on forced-hook entries no module references, instead of only noting them (for checking a mistyped list)
@@ -32,7 +32,7 @@ index 6993f8dc..ec096fad 100644
  DM_FS	diagnostic	When set, logs file opens, paths not found or not mounted, and a read summary every 64 MiB or 1000 reads
  DM_FSLOG	diagnostic	`=<file>` writes one TSV line per ReadFile: seconds since boot, guest path, offset, length and guest buffer address
  DM_FSLOG_HASH	diagnostic	With `DM_FSLOG`, adds a column with the FNV-1a 64 hash of the bytes read
-@@ -60,6 +63,7 @@ DM_GPU_CAPTURE_KEEP	diagnostic	Before each GPU capture, prunes the capture folde
+@@ -61,6 +64,7 @@ DM_GPU_CAPTURE_KEEP	diagnostic	Before each GPU capture, prunes the capture folde
  DM_GUEST_SPAWN_TEST	diagnostic	`=1` runs a self-test before `nnMain`: a host-started guest thread does SDK malloc / free and locks an `nn::os` mutex, and the result is logged; `=2` also keeps a resident thread
  DM_HITCH_DUMP	diagnostic	`=<ms>[:<s>]`: when no frame has been presented for that long (from s seconds on), logs every guest thread once per stall: wait, last SVC, pc, lr, frames and registers
  DM_HLECOUNT	diagnostic	`=<file>` (`%d` = process ID) writes at exit a TSV of how many times the guest called each HLE function, zero counts included
@@ -40,7 +40,7 @@ index 6993f8dc..ec096fad 100644
  DM_ICON	path	`=<image>` gives `build_ipa.sh` another app icon (default the `icon.jpg` beside the RomFS)
  DM_IMPORTS	diagnostic	When set, logs each import the loader binds to a host function and each forced takeover
  DM_KBD	switch	`=<text>`: the system keyboard returns that text as OK without showing an input box; unset with no window, it returns cancel
-@@ -273,6 +277,10 @@ DM_SF_TRACE	diagnostic	`=1` logs every request on the game's own HIPC client ses
+@@ -275,6 +279,10 @@ DM_SF_TRACE	diagnostic	`=1` logs every request on the game's own HIPC client ses
  DM_SHAKE_G	switch	`=<G>`: on iOS, the acceleration beyond gravity above which a flick of the phone shakes the controller's six-axis sensor (default 1.5)
  DM_SHARED_FONT	path	Font file served for every shared-font type except the Nintendo extension (default `$DM_FONT_DIR/standard.ttf`, then macOS's Arial Unicode)
  DM_SHARED_FONT_EXT	path	Font file served for shared-font type 5, the Nintendo extension with the button icons (default `$DM_FONT_DIR/nintendo_ext.ttf`, made by `make_ext_font.py`)

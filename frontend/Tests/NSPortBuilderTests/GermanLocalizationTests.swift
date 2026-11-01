@@ -17,7 +17,7 @@ final class GermanLocalizationTests: XCTestCase {
         "dep.zstd.win", "dep.spirv", "dep.dotnet", "dep.phase.download", "dep.python.hint",
         "controls.fn.A", "controls.fn.B", "controls.fn.X", "controls.fn.Y", "controls.fn.L", "controls.fn.R",
         "controls.fn.ZL", "controls.fn.ZR", "controls.fn.Plus", "controls.fn.Minus", "launch.mods",
-        "update.pill",
+        "update.pill", "launch.opt.DM_OPMODE.0", "launch.opt.DM_PRESENT_UPSCALE.off",
     ]
 
     /// printf-style placeholders in order: %@, %d, %ld, %lld, %.0f and %.1f, positional %1$@, and %%.

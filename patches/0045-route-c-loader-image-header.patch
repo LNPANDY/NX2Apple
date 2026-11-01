@@ -18,7 +18,6 @@ lint_python.py (no Python touched, 0 new findings).
 Upstream-Status: forwarded seedds/nxnative#729
 Reason: carried until seedds/nxnative#729 lands: the game framework (0046) calls the setter it adds
 Issue: LNPANDY/NX2Apple#144
-
 ---
  dm/host/loader.c       | 10 +++++++++-
  dm/host/loader_image.h | 19 +++++++++++++++++++
@@ -26,7 +25,7 @@ Issue: LNPANDY/NX2Apple#144
  create mode 100644 dm/host/loader_image.h
 
 diff --git a/dm/host/loader.c b/dm/host/loader.c
-index 0a4a9ee6..efb8814d 100644
+index fb14972..ae0a76f 100644
 --- a/dm/host/loader.c
 +++ b/dm/host/loader.c
 @@ -10,9 +10,15 @@
@@ -45,7 +44,7 @@ index 0a4a9ee6..efb8814d 100644
  // Stable module addresses live in g_mod; lookup order follows activation, including unload/reload.
  static module_t **g_loaded; static int g_nloaded, g_mod_capacity;
  static pthread_rwlock_t g_modules_mu = PTHREAD_RWLOCK_INITIALIZER;
-@@ -516,7 +522,9 @@ static void remap_at(module_t *m, vm_address_t to, const void *from, unsigned lo
+@@ -522,7 +528,9 @@ static void remap_at(module_t *m, vm_address_t to, const void *from, unsigned lo
      if (kr != KERN_SUCCESS || a != to) die("%s vm_remap %p → %#lx (%#lx bytes) failed: %d", m->name, from, (unsigned long)to, size, kr);
      if ((cur & need) != need) die("%s permissions after vm_remap %#x, missing %#x", m->name, cur, need);
  }
@@ -58,7 +57,7 @@ index 0a4a9ee6..efb8814d 100644
  // 32 bytes of name, then the offset and length of its x0, W and x1 pieces in their sections (u64 each). A module name never holds an underscore, so these names meet no module's
 diff --git a/dm/host/loader_image.h b/dm/host/loader_image.h
 new file mode 100644
-index 00000000..1c00a832
+index 0000000..1c00a83
 --- /dev/null
 +++ b/dm/host/loader_image.h
 @@ -0,0 +1,19 @@

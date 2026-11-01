@@ -17,7 +17,7 @@ Issue: LNPANDY/NX2Apple#123
  docs/launcher-c-design.md   | 339 ++++++++++++++++++++++++++++++++++++
  docs/launcher-c-plan.md     | 233 +++++++++++++++++++++++++
  docs/probe-dlopen.md        |  64 +++++--
- 8 files changed, 1149 insertions(+), 15 deletions(-)
+ 8 files changed, 1169 insertions(+), 15 deletions(-)
  create mode 100644 docs/MULTIPLAYER.md
  create mode 100644 docs/RELEASE-NOTES-GUIDE.md
  create mode 100644 docs/RELEASE_NOTES.md
@@ -951,7 +951,7 @@ index 0000000..476a1c1
 +> **Update (merged):** the dlopen probe now exists — `dm/ios/probe/` with `build_probe.sh`, committed alongside this document, and `probe-out/DmProbe.ipa` is built. W1 step 1 is done. What remains is running it on an iOS 26 device and reading `Documents/probe-log.txt`.
 diff --git a/docs/launcher-c-plan.md b/docs/launcher-c-plan.md
 new file mode 100644
-index 00000000..de255fff
+index 0000000..dececce
 --- /dev/null
 +++ b/docs/launcher-c-plan.md
 @@ -0,0 +1,233 @@

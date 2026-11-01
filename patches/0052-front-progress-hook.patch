@@ -11,7 +11,6 @@ their screens exactly as they are. A launcher that holds several games in one ap
 Upstream-Status: forwarded seedds/nxnative#742
 Reason: the route C shell draws the prepare step's progress in its own look (frontend-ios) until upstream has the hook
 Issue: LNPANDY/NX2Apple#144
-
 ---
  dm/host/front.h            | 4 ++++
  dm/host/front_mac.m        | 3 +++
@@ -19,7 +18,7 @@ Issue: LNPANDY/NX2Apple#144
  3 files changed, 10 insertions(+)
 
 diff --git a/dm/host/front.h b/dm/host/front.h
-index 9cbc4a4a..9a51d7ee 100644
+index 9cbc4a4..9a51d7e 100644
 --- a/dm/host/front.h
 +++ b/dm/host/front.h
 @@ -22,6 +22,10 @@ void front_screen_match(int fps);
@@ -34,10 +33,10 @@ index 9cbc4a4a..9a51d7ee 100644
  // Text input box (for the software keyboard swkbd): the main thread shows a native input box and the calling thread blocks until the user confirms / cancels.
  // All text is UTF-8; max_chars is the maximum character count (0 = unlimited, only a hint for the front end; truncation is done uniformly by the caller hle_swkbd.c in UTF-16 units).
 diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
-index 99c18f7d..182e32df 100644
+index 99d217d..4964915 100644
 --- a/dm/host/front_mac.m
 +++ b/dm/host/front_mac.m
-@@ -1226,9 +1226,12 @@ void front_run(void (*guest)(void)) {
+@@ -1249,9 +1249,12 @@ void front_run(void (*guest)(void)) {
      NSTextField *t = [NSTextField labelWithString:@""]; t.frame = r; t.alignment = NSTextAlignmentCenter; t.textColor = c;
      t.font = [NSFont monospacedDigitSystemFontOfSize:size weight:w]; return t;
  }
@@ -51,10 +50,10 @@ index 99c18f7d..182e32df 100644
          if (!tt) { [g_prog removeFromSuperview]; g_prog = nil; return; }
          if (!g_prog) {
 diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
-index a6f188eb..ec3d5548 100644
+index 0469c90..d45f2e3 100644
 --- a/dm/ios/Sources/front_ios.m
 +++ b/dm/ios/Sources/front_ios.m
-@@ -166,9 +166,12 @@ static void front_ios_power_watch(void) {
+@@ -225,9 +225,12 @@ static void front_ios_power_watch(void) {
  
  // Progress screen of the prepare step (front.h front_progress): a dark view over the game's view and the pad, the title, a bar and a count, centered; UIKit views, so it draws while the game's thread waits
  static UIView *g_prog; static UILabel *g_prog_count; static UIProgressView *g_prog_bar; static UILabel *g_prog_title;

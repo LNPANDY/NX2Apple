@@ -106,7 +106,7 @@ index beffeea..fb74e5b 100644
      dm_pad_set_player(p, m, pad_axis(g.leftThumbstick.xAxis.value), pad_axis(g.leftThumbstick.yAxis.value), pad_axis(g.rightThumbstick.xAxis.value), pad_axis(g.rightThumbstick.yAxis.value));
  }
  // Home and Capture: without this macOS takes them as system gestures (Home opens the Games app); the host gives them no function
-@@ -190,7 +186,7 @@ static int g_mouse_down;   // the mouse holds the touch (DmGameView)
+@@ -190,7 +186,7 @@ static void pads_changed(GCController *gone) {
  static void input_release(void) {
      g_input_on = 0;
      dm_motion_pro_active(0);
@@ -224,7 +224,7 @@ index 0000000..56fa499
 +}
 +static int pad_map_is_default(const pad_map *m) { for (int b = 0; b < IM_BUTTONS; b++) if (m->to[b] != b) return 0; return 1; }
 diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
-index 5169f88..49be130 100644
+index 099bcfe..97d104c 100644
 --- a/dm/host/tests/Makefile
 +++ b/dm/host/tests/Makefile
 @@ -12,7 +12,7 @@ QUIET = $(if $(findstring -fsanitize,$(SAN)),,2>/dev/null)
@@ -236,7 +236,7 @@ index 5169f88..49be130 100644
  	$(B)/t_language
  	$(B)/t_heap_size
  	$(B)/t_touch
-@@ -52,6 +52,8 @@ run: $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture
+@@ -53,6 +53,8 @@ run: $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture
  	$(B)/t_motion_pro
  	$(B)/t_motion_pro_mac
  	TMPDIR="$(abspath $(B))" $(B)/t_hid
@@ -245,7 +245,7 @@ index 5169f88..49be130 100644
  	$(B)/t_haptics
  	$(B)/t_haptics_apple
  	TMPDIR="$(abspath $(B))" $(B)/t_cheats $(QUIET)
-@@ -171,6 +173,10 @@ $(B)/t_motion_pro: t_motion_pro.c ../motion_pro.h | $(B)
+@@ -175,6 +177,10 @@ $(B)/t_motion_pro: t_motion_pro.c ../motion_pro.h | $(B)
  	$(CLANG) -O1 -g -Wall -Werror -fsanitize=address,undefined -o $@ t_motion_pro.c
  $(B)/t_motion_pro_mac: t_motion_pro_mac.m ../motion_pro_mac.h ../motion_pro.h ../dm_input.h | $(B)
  	$(CLANG) -O1 -g -fobjc-arc -Wall -Werror -Wno-unused-function -fsanitize=address,undefined -I.. -o $@ t_motion_pro_mac.m -framework Foundation -framework GameController -framework IOKit

@@ -22,7 +22,6 @@ The manifest block's FW_SLIM is renamed FW_COPY_ROMFS: it holds DM_COPY_ROMFS's 
 Upstream-Status: fork-only (waits for the runtime profile, seedds/nxnative#492)
 Reason: opt-in game framework for the launcher (route C M1): it carries profile.tsv and sets DM_PROFILE, which exist only with the runtime-profile patch (seedds/nxnative#492 is still a design note), so it goes upstream after that
 Issue: LNPANDY/NX2Apple#144
-
 ---
  dm/ios/tools/build_ipa.sh     |  53 ++++++++++++++++-
  dm/ios/tools/compile_check.py |  22 ++++---
@@ -32,7 +31,7 @@ Issue: LNPANDY/NX2Apple#144
  create mode 100644 dm/ios/tools/gen_manifest.py
 
 diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index 92fd85d4..db6471e7 100755
+index a95b210..47e4eac 100755
 --- a/dm/ios/tools/build_ipa.sh
 +++ b/dm/ios/tools/build_ipa.sh
 @@ -7,6 +7,9 @@
@@ -65,7 +64,7 @@ index 92fd85d4..db6471e7 100755
    cd "$IOS" || die "cd $IOS"
    DM_SCHEME_NAME="$(echo "$DM_DISPLAY_NAME" | tr '/:' '__') ($GAME)"   # the scheme file is named after it
  
-@@ -121,6 +128,33 @@ if [ -f "$ICON" ]; then
+@@ -124,6 +131,33 @@ if [ -f "$ICON" ]; then
    echo "DM_APPICON = AppIcon" >> Gen/dm.xcconfig
    t "app icon: $ICON"
  else t "no app icon ($ICON not found): the home-screen icon stays blank"; fi
@@ -99,7 +98,7 @@ index 92fd85d4..db6471e7 100755
  # A prepared Xcode project is signed in Xcode, so it asks for the Increased Memory Limit capability the bigger games need (see the README); DM_ENTITLEMENTS=another plist, or empty for none.
  # The unsigned IPA carries the same request in its executable's ad-hoc signature below; the install tool replaces that signature.
  if [ "$PREPARE_XCODE" = YES ] && [ -n "${DM_ENTITLEMENTS-default}" ]; then
-@@ -132,7 +166,10 @@ if [ "$PREPARE_XCODE" = YES ] && [ -n "${DM_ENTITLEMENTS-default}" ]; then
+@@ -135,7 +169,10 @@ if [ "$PREPARE_XCODE" = YES ] && [ -n "${DM_ENTITLEMENTS-default}" ]; then
  fi
  # DM_COPY_ROMFS=NO also for the prepared project: its Copy game resources phase (stage_resources.sh) then leaves the game files out and writes the image's identity; Gen/dm.xcconfig is made again by every run
  [ "${DM_COPY_ROMFS:-YES}" != NO ] || [ "$PREPARE_XCODE" != YES ] || echo "DM_COPY_ROMFS = NO" >> Gen/dm.xcconfig
@@ -111,7 +110,7 @@ index 92fd85d4..db6471e7 100755
  # DMCommit / DMChain: the checkout that built the app (+dirty with uncommitted changes to tracked files) and the shader chain it carries, which the host logs at start (main.c)
  COMMIT=$(git -C "$DM" rev-parse --short=12 HEAD 2> /dev/null) && { [ -z "$(git -C "$DM" status --porcelain --untracked-files=no 2> /dev/null)" ] || COMMIT=$COMMIT+dirty
    /usr/libexec/PlistBuddy -c "Add :DMCommit string $COMMIT" Gen/Info.plist > /dev/null || die "DMCommit"; t "source: $COMMIT"; }
-@@ -163,6 +200,18 @@ APP=$DD/Build/Products/Release-iphoneos/DmIOS.app
+@@ -166,6 +203,18 @@ APP=$DD/Build/Products/Release-iphoneos/DmIOS.app
  # the app sets DM_AOC_DIR at launch, the host reports them as owned and mounts them from it) and the RomFS
  rm -rf "$APP/msl" "$O/Payload"   # Payload/: what the copy-and-zip packing left behind, as was out.ipa (and its index) unless it is the IPA packed here, which a repeat pack reuses
  [ "$O/out.ipa" -ef "$OUT_IPA" ] || rm -f "$O/out.ipa"; [ "$O/out.ipa.idx" -ef "$OUT_IPA.idx" ] || rm -f "$O/out.ipa.idx"
@@ -131,7 +130,7 @@ index 92fd85d4..db6471e7 100755
  # the entitlements of the signature they replace; the Xcode project gets them through CODE_SIGN_ENTITLEMENTS, above). The executable gets an ad-hoc signature that carries them: the sideloader
  # replaces the signature and keeps the entitlements. Only the executable is signed: the bundle's resources are packed from elsewhere and the signature is replaced anyway
 diff --git a/dm/ios/tools/compile_check.py b/dm/ios/tools/compile_check.py
-index 3f4d547b..11bf1189 100755
+index a7c7b82..f366ecb 100755
 --- a/dm/ios/tools/compile_check.py
 +++ b/dm/ios/tools/compile_check.py
 @@ -4,7 +4,9 @@
@@ -173,7 +172,7 @@ index 3f4d547b..11bf1189 100755
  sys.exit(1 if bad else 0)
 diff --git a/dm/ios/tools/gen_manifest.py b/dm/ios/tools/gen_manifest.py
 new file mode 100644
-index 00000000..ec2c33be
+index 0000000..ec2c33b
 --- /dev/null
 +++ b/dm/ios/tools/gen_manifest.py
 @@ -0,0 +1,105 @@
@@ -283,10 +282,10 @@ index 00000000..ec2c33be
 +if __name__ == '__main__':
 +    main()
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index bfbacea1..9a53bdbd 100755
+index ffcee75..58233ee 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
-@@ -2133,6 +2133,7 @@ def parse_args(argv):
+@@ -2219,6 +2219,7 @@ def parse_args(argv):
      ap.add_argument('--romfs', choices=('bundle', 'separate'), help='bundle = the game files go into the IPA (default: the ROMFS setting, bundle); separate = they stay out of the IPA and the Xcode app: the build is small and fast, and the RomFS image '
                      'is copied to the phone once per game version with the scripts/push_romfs.sh command printed at the end (the app refuses an image of another version)')
      ap.add_argument('--prepare-xcode', action='store_true', help='prepare a per-game Xcode project and add it to the shared workspace instead of packing an IPA (requires keeping extracted files)')
@@ -294,7 +293,7 @@ index bfbacea1..9a53bdbd 100755
      ap.add_argument('--platform', choices=('ios', 'mac', 'mac-app'), help='ios = the IPA (or the Xcode project); mac = for development: build only what running the game on this Mac needs (the Mac shaders and the Mac host, '
                      'no iOS shaders, Xcode project or IPA), keep the extracted files and print the command that runs the game; mac-app = what mac builds, then a self-contained, double-clickable '
                      'Mac app of the game (default: <game name>.app in the NSP folder, -o names another) (default: the PLATFORM setting, ios)')
-@@ -2233,6 +2234,7 @@ def main(args=None):
+@@ -2319,6 +2320,7 @@ def main(args=None):
      mac_pack = platform == 'mac-app'
      if args.mac_sign and not mac_pack: raise BuildError('--mac-sign signs the Mac app: it needs --platform mac-app')
      if mac and prepare_xcode: raise BuildError(f'--prepare-xcode makes an iPhone project: it cannot be combined with --platform {platform}')
@@ -302,7 +301,7 @@ index bfbacea1..9a53bdbd 100755
      if mac and not apple_silicon(): raise BuildError(f'--platform {platform} runs the game in the Mac host, which runs the game\'s own arm64 code natively: it needs a Mac with Apple silicon, and this Mac has an Intel processor')
      check_native_python()
      keep = KEEP_EXTRACTED if args.keep_extracted is None else args.keep_extracted
-@@ -2500,6 +2502,7 @@ def main(args=None):
+@@ -2584,6 +2586,7 @@ def main(args=None):
      say('preparing the Xcode project' if prepare_xcode else f'building the IPA → {out_ipa}')
      ipa_env = dict(env, GAME=g.id, W=str(work / 'ipa'), PATCHED=str(patched), ROMFS=str(rfs.source(game)), MSL_IOS=str(ios), GFXAPI=gfx, FONT_PY=py, DM_DISPLAY_NAME=app_name, DM_BUNDLE_ID=bundle_id, AOC=str(aoc or ''), DM_XCODE_DERIVED_DATA=str(work / 'xcode-derived-data'), DM_TEAM_ID=team_id, DM_LANG=lang)
      if prepare_xcode: ipa_env['DM_XCODE_PROJECT_DIR'] = str(project.parent)

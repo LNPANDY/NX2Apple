@@ -56,7 +56,29 @@ jobs:
   # The app icon is AppIcon.icon (Icon Composer). The actool of Xcode 26.6 (the default on macos-latest) throws an exception on it, the one of
   # Xcode 27.1 compiles it. So actool runs on the xcode-27 runner, as in tests.yml, and the build job takes the two files it writes. Assets.car is
   # the icon for macOS 26 and later (Liquid Glass), AppIcon.icns the one for macOS 13 to 25.
+  #
+  # On a pull request the icon is cached by the hash of frontend/AppIcon.icon. The icon-cache job looks the cache up on ubuntu-latest, which
+  # queues in seconds, and the icon job (the scarce xcode-27 runner) runs only on a miss. A tag (rc or final) always compiles the icon.
+  icon-cache:
+    runs-on: ubuntu-latest
+    outputs:
+      hit: ${{ steps.lookup.outputs.cache-hit }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: frontend/AppIcon.icon
+      - id: lookup
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          lookup-only: true
+          path: icon-cache
+          key: app-icon-${{ hashFiles('frontend/AppIcon.icon/**') }}-xcode-27.1
+
   icon:
+    needs: icon-cache
+    if: ${{ startsWith(github.ref, 'refs/tags/') || needs.icon-cache.outputs.hit != 'true' }}
     runs-on: xcode-27
     env:
       DEVELOPER_DIR: /Applications/Xcode_27.1.app/Contents/Developer
@@ -74,6 +96,15 @@ jobs:
           xcrun actool frontend/AppIcon.icon --compile "$OUT" --platform macosx --minimum-deployment-target 13.0 \
             --app-icon AppIcon --output-partial-info-plist "$OUT/partial.plist"
           ls -la "$OUT/Assets.car" "$OUT/AppIcon.icns"
+          mkdir -p icon-cache
+          cp "$OUT/Assets.car" "$OUT/AppIcon.icns" icon-cache/
+
+      - name: Cache the icon (pull requests and main, never a tag)
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: icon-cache
+          key: app-icon-${{ hashFiles('frontend/AppIcon.icon/**') }}-xcode-27.1
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -84,12 +115,28 @@ jobs:
           if-no-files-found: error
 
   build:
-    needs: icon
+    needs: [icon-cache, icon]
+    # icon is skipped on a pull request with a cache hit, and that must not skip the build.
+    if: ${{ !cancelled() && needs.icon-cache.result == 'success' && (needs.icon.result == 'success' || needs.icon.result == 'skipped') }}
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      - name: Restore the cached icon (not on a tag)
+        id: icon-cache
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: icon-cache
+          key: app-icon-${{ hashFiles('frontend/AppIcon.icon/**') }}-xcode-27.1
+
+      - name: Take the icon from the cache
+        if: ${{ steps.icon-cache.outputs.cache-hit == 'true' }}
+        run: mkdir -p "$RUNNER_TEMP/app-icon" && cp icon-cache/Assets.car icon-cache/AppIcon.icns "$RUNNER_TEMP/app-icon/"
+
+      - name: Take the icon from the icon job (a tag, or a cache miss)
+        if: ${{ steps.icon-cache.outputs.cache-hit != 'true' }}
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: app-icon
           path: ${{ runner.temp }}/app-icon
