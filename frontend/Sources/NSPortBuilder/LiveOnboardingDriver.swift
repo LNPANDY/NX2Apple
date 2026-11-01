@@ -18,7 +18,7 @@ struct XcodeProbe: Equatable {
     var selectedIsXcode = false     // `xcode-select -p` points into an Xcode.app, not the Command Line Tools
     var licenseAccepted = false
     var firstLaunchDone = false
-    var version: String?            // from `xcodebuild -version` of appPath ("27.1"); nil when unreadable
+    var version: String?            // from `xcodebuild -version` of appPath ("27.2"); nil when unreadable
     var developerDir: String? { appPath.map { $0 + "/Contents/Developer" } }
     var needsAdmin: Bool { !(selectedIsXcode && licenseAccepted && firstLaunchDone) }
 }
