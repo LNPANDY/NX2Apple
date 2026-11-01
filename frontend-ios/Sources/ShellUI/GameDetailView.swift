@@ -49,7 +49,11 @@ public struct GameDetailView: View {
                           note: detail.cloudNote.isEmpty ? ShellStrings.text("Choose the same iCloud Drive folder you use on your Mac.") : detail.cloudNote) {
                     Button(ShellStrings.text("Choose folder…")) { actions.onPickCloudSaves(detail.id) }
                         .buttonStyle(ShellButtonStyle(fills: true)).shellTarget("set.cloud") { actions.onPickCloudSaves(detail.id) }
-                    if detail.cloudSaves != nil && !detail.cloudFromShell {
+                    if detail.cloudCanUseShell {
+                        Button(ShellStrings.text("Use Settings folder")) { actions.onUseShellCloud(detail.id) }
+                            .buttonStyle(ShellButtonStyle(fills: true)).shellTarget("set.cloud.shell") { actions.onUseShellCloud(detail.id) }
+                    }
+                    if detail.cloudSaves != nil {
                         Button(ShellStrings.text("Turn off")) { actions.onDisableCloudSaves(detail.id) }
                             .buttonStyle(ShellButtonStyle(fills: true)).accessibilityLabel(ShellStrings.text("Turn off cloud saves"))
                             .shellTarget("set.cloud.off") { actions.onDisableCloudSaves(detail.id) }
@@ -208,6 +212,7 @@ struct SettingControl: View, Equatable {
         VStack(alignment: .leading, spacing: 4) {
             Text(row.label).shellType(ShellType.settingLabel).fixedSize(horizontal: false, vertical: true)
             if !row.note.isEmpty { Text(row.note).shellType(ShellType.note).foregroundStyle(.white.opacity(0.5)).fixedSize(horizontal: false, vertical: true) }
+            if row.fromShell { FromSettingsMark() }
         }
     }
     /// The Mac's segmented choice, across the whole card: a dim track, equal segments, the chosen value in cream.
@@ -252,6 +257,14 @@ struct SettingControl: View, Equatable {
         .overlay(Circle().strokeBorder(.white.opacity(0.10)))
         .accessibilityLabel(ShellStrings.text(symbol == "minus" ? "Decrease" : "Increase") + " " + row.label)
         .shellTarget("\(targetPrefix)\(row.id).\(symbol)", enabled: row.enabled, radius: 22, action: action)
+    }
+}
+
+/// Says that a row shows the shell settings' choice, because the game has none of its own.
+struct FromSettingsMark: View {
+    var body: some View {
+        Text(ShellStrings.text("From Settings")).shellType(ShellType.note).foregroundStyle(ShellPalette.cream.opacity(0.75))
+            .fixedSize(horizontal: false, vertical: true)
     }
 }
 

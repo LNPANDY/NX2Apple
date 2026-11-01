@@ -6,6 +6,9 @@ import ShellUI
 /// `cloudSavesBookmark`, so the engine can read the same names later.
 public enum GameDefaults {
     public static let suitePrefix = "dev.nx2apple.shell.game."
+    /// True when the player turned cloud saves off for this game. It wins over the shell's cloud-saves folder, and
+    /// choosing a folder for the game clears it.
+    public static let cloudSavesOffKey = "cloudSavesOff"
     public static func suite(for titleID: String) -> UserDefaults {
         UserDefaults(suiteName: suitePrefix + titleID) ?? .standard
     }
@@ -38,6 +41,11 @@ public struct GameSettingsStore {
 
     public func value(of setting: LauncherSetting) -> String { saved(setting) ?? fallback(setting) }
 
+    /// True when the row shows the shell's choice: the game has none saved and the shell asks for a value the game offers.
+    public func isFromShell(_ setting: LauncherSetting) -> Bool {
+        saved(setting) == nil && shell[setting.env].map(setting.accepts) == true
+    }
+
     public func values() -> [String: String] {
         Dictionary(uniqueKeysWithValues: profile.settings.map { ($0.env, value(of: $0)) })
     }
@@ -57,8 +65,9 @@ public struct GameSettingsStore {
         for setting in profile.settings { defaults.removeObject(forKey: setting.defaultsKey) }
     }
 
+    /// Any saved choice can be forgotten by the reset, also one that keeps the game's default against the shell's.
     public var hasModifiedSettings: Bool {
-        profile.settings.contains { setting in saved(setting).map { !setting.isDefault($0) } ?? false }
+        profile.settings.contains { saved($0) != nil }
     }
 }
 
@@ -66,7 +75,7 @@ public struct GameSettingsStore {
 public enum SettingsPresenter {
     /// A row with `needs` (`<VAR>=<value>`) is drawn only while the row that sets that variable has that value. A row
     /// naming a variable the list does not have stays drawn. Sections come in the list's order.
-    public static func sections(profile: LauncherProfile, values: [String: String]) -> [SettingSection] {
+    public static func sections(profile: LauncherProfile, values: [String: String], fromShell: Set<String> = []) -> [SettingSection] {
         func visible(_ s: LauncherSetting) -> Bool {
             guard let needs = s.needs, let eq = needs.firstIndex(of: "=") else { return true }
             guard let v = values[String(needs[..<eq])] else { return true }
@@ -75,18 +84,18 @@ public enum SettingsPresenter {
         var titles: [String] = []
         for s in profile.settings where !titles.contains(s.sectionTitle) { titles.append(s.sectionTitle) }
         return titles.compactMap { title in
-            let rows = profile.settings.filter { $0.sectionTitle == title && visible($0) }.map { row($0, value: values[$0.env] ?? $0.def) }
+            let rows = profile.settings.filter { $0.sectionTitle == title && visible($0) }.map { row($0, value: values[$0.env] ?? $0.def, fromShell: fromShell.contains($0.env)) }
             return rows.isEmpty ? nil : SettingSection(id: title, title: title, rows: rows)
         }
     }
 
-    static func row(_ s: LauncherSetting, value: String) -> SettingRow {
+    static func row(_ s: LauncherSetting, value: String, fromShell: Bool = false) -> SettingRow {
         let kind: SettingKind
         switch s.kind {
         case "toggle": kind = .toggle(on: s.onValue, off: s.offValue)
         case "range": kind = .range(min: s.min ?? 0, max: s.max ?? 1, step: s.step ?? 0.1, unit: s.env.hasSuffix("SCALE") ? "×" : "")
         default: kind = .choice((s.options ?? []).map { SettingOption($0[0], $0[1]) })
         }
-        return SettingRow(id: s.env, label: s.label, note: s.note, kind: kind, value: value)
+        return SettingRow(id: s.env, label: s.label, note: s.note, kind: kind, value: value, fromShell: fromShell)
     }
 }

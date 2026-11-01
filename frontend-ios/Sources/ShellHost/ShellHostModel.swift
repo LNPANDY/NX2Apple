@@ -144,6 +144,21 @@ public struct ShellHostConfig: Sendable {
         return s
     }
 
+    private enum CloudSaves { case off, own(URL), stale, shell(URL), none }
+
+    /// Where the game's cloud saves go: off when the player turned them off for the game, then the game's own folder,
+    /// then the shell settings' folder.
+    private func cloudSaves(_ id: String) -> CloudSaves {
+        if config.defaults(id).bool(forKey: GameDefaults.cloudSavesOffKey) { return .off }
+        switch cloudStore(id).resolve() {
+        case .url(let url): return .own(url)
+        case .stale: return .stale
+        case .none:
+            if case .url(let url) = shellCloud.resolve() { return .shell(url) }
+            return .none
+        }
+    }
+
     private func data(for entry: CatalogueEntry) -> DataResolution {
         guard let manifest = entry.manifest, entry.problem == nil else { return .missing }
         return DataLocator.locate(manifest: manifest, picked: dataStore(entry.id).resolve(), appFolder: appFolder(for: entry.id),
@@ -172,17 +187,21 @@ public struct ShellHostConfig: Sendable {
         var cloud: String?
         var cloudNote = ""
         var cloudFromShell = false
-        switch cloudStore(entry.id).resolve() {
-        case .url(let url): cloud = url.lastPathComponent
+        switch cloudSaves(entry.id) {
+        case .own(let url): cloud = url.lastPathComponent
         case .stale: cloudNote = hostText("The folder you chose before is no longer readable. Please choose it again.")
-        case .none:
-            if case .url(let url) = shellCloud.resolve() { cloud = url.lastPathComponent; cloudFromShell = true }
+        case .shell(let url): cloud = hostText("\(url.lastPathComponent) (from Settings)"); cloudFromShell = true
+        case .off, .none: break
         }
+        var shellFolder = false
+        if case .url = shellCloud.resolve() { shellFolder = true }
+        let fromShell = Set(profile.settings.filter(store.isFromShell).map(\.env))
         return GameDetail(
-            game: tile, sections: SettingsPresenter.sections(profile: profile, values: store.values()),
+            game: tile, sections: SettingsPresenter.sections(profile: profile, values: store.values(), fromShell: fromShell),
             dataSource: dataSource(data), dataNote: dataNote(data, found: data.found),
             cloudSaves: cloud, cloudNote: cloudNote, dlc: dlc(data), hasModifiedSettings: store.hasModifiedSettings,
-            dataFromShell: data.source == .shell, cloudFromShell: cloudFromShell)
+            dataFromShell: data.source == .shell, cloudFromShell: cloudFromShell,
+            cloudCanUseShell: shellFolder && !cloudFromShell)
     }
 
     private func dataSource(_ data: DataResolution) -> String {
@@ -224,7 +243,10 @@ public struct ShellHostConfig: Sendable {
             onShowLog: { [weak self] id in self?.showLog(id) },
             onAppUpdate: { [weak self] in self?.appUpdate() },
             onPickShellData: { [weak self] in self.map { model in Task { await model.pickShellDataNow() } } },
-            onPickShellCloud: { [weak self] in self.map { model in Task { await model.pickShellCloudNow() } } })
+            onPickShellCloud: { [weak self] in self.map { model in Task { await model.pickShellCloudNow() } } },
+            onUseShellCloud: { [weak self] id in self?.useShellCloudSaves(id) },
+            onClearShellData: { [weak self] in self?.clearShellData() },
+            onClearShellCloud: { [weak self] in self?.clearShellCloud() })
     }
 
     public func change(_ id: String, setting: String, value: String) {
@@ -269,7 +291,8 @@ public struct ShellHostConfig: Sendable {
 
     func pickCloudSavesNow(_ id: String) async {
         guard let url = await picker.pickFolder() else { return }
-        if !cloudStore(id).store(url) { notice = hostText("That folder could not be remembered. Try a different one.") }
+        if cloudStore(id).store(url) { config.defaults(id).removeObject(forKey: GameDefaults.cloudSavesOffKey) }
+        else { notice = hostText("That folder could not be remembered. Try a different one.") }
         refresh(id)
     }
 
@@ -289,7 +312,27 @@ public struct ShellHostConfig: Sendable {
 
     public func disableCloudSaves(_ id: String) {
         cloudStore(id).clear()
+        config.defaults(id).set(true, forKey: GameDefaults.cloudSavesOffKey)
         refresh(id)
+    }
+
+    /// The game follows the shell settings' cloud-saves folder again.
+    public func useShellCloudSaves(_ id: String) {
+        cloudStore(id).clear()
+        config.defaults(id).removeObject(forKey: GameDefaults.cloudSavesOffKey)
+        refresh(id)
+    }
+
+    func clearShellData() {
+        shellData.clear()
+        shellSettings.clearDataFolderName()
+        refreshAll()
+    }
+
+    func clearShellCloud() {
+        shellCloud.clear()
+        shellSettings.clearCloudSavesFolderName()
+        refreshAll()
     }
 
     public func showLog(_ id: String) {
@@ -316,10 +359,9 @@ public struct ShellHostConfig: Sendable {
         guard let entry = entry(id), let manifest = entry.manifest, let profile = entry.profile, let framework = entry.frameworkURL,
               details.first(where: { $0.id == id })?.game.state == .playable, let dataURL = data(for: entry).url else { return }
         var cloud: URL?
-        switch cloudStore(id).resolve() {
-        case .url(let url): cloud = url
-        case .stale: break
-        case .none: if case .url(let url) = shellCloud.resolve() { cloud = url }
+        switch cloudSaves(id) {
+        case .own(let url), .shell(let url): cloud = url
+        case .off, .stale, .none: break
         }
         // Remembered when Play is triggered, even if the launcher then fails (the stub). The order changes at the next load.
         LastPlayedStore(defaults: config.defaults(id)).record(config.now())

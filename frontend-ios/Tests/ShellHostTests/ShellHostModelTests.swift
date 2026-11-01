@@ -235,8 +235,8 @@ final class Clock: @unchecked Sendable { var date: Date; init(_ d: Date) { date 
         await model.pickShellCloudNow()
         #expect(shell.cloudSavesFolderName == "Shared Saves" && shell.cloudSavesBookmark != nil)
         var orbit = try detail(model)
-        #expect(orbit.cloudSaves == "Shared Saves" && orbit.cloudFromShell)
-        #expect(try detail(model, Fixtures.chain).cloudSaves == "Shared Saves")
+        #expect(orbit.cloudSaves == "Shared Saves (from Settings)" && orbit.cloudFromShell)
+        #expect(try detail(model, Fixtures.chain).cloudSaves == "Shared Saves (from Settings)")
         await model.playNow(Fixtures.orbit)
         #expect(launcher.launched.last?.cloudSavesURL?.lastPathComponent == "Shared Saves")
         // The game's own folder wins
@@ -246,9 +246,90 @@ final class Clock: @unchecked Sendable { var date: Date; init(_ d: Date) { date 
         #expect(orbit.cloudSaves == "Own Saves" && !orbit.cloudFromShell)
         await own2.playNow(Fixtures.orbit)
         #expect(launcher.launched.last?.cloudSavesURL?.lastPathComponent == "Own Saves")
-        // Turning the game's folder off falls back to the shell's, and the game's setting stays untouched in between
+        // Turning the game's folder off means off, though the shell has a folder
         own2.actions.onDisableCloudSaves(Fixtures.orbit)
-        #expect(try detail(own2).cloudSaves == "Shared Saves")
+        #expect(try detail(own2).cloudSaves == nil)
+    }
+
+    @Test func aGameCanTurnCloudSavesOffAndFollowTheShellFolderAgain() async throws {
+        let box = try Sandbox()
+        try box.giveAppData()
+        let shared = box.root.appendingPathComponent("iCloud/Shared Saves", isDirectory: true)
+        let own = box.root.appendingPathComponent("iCloud/Own Saves", isDirectory: true)
+        for folder in [shared, own] { try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true) }
+        let launcher = RecordingLauncher()
+        let shell = shellSettings()
+        let model = ShellHostModel(config: box.config(), launcher: launcher, picker: FakePicker(url: shared), shellSettings: shell)
+        #expect(try !detail(model).cloudCanUseShell, "no shell folder to follow")
+        await model.pickShellCloudNow()
+        model.actions.onDisableCloudSaves(Fixtures.orbit)
+        var orbit = try detail(model)
+        #expect(orbit.cloudSaves == nil && !orbit.cloudFromShell && orbit.cloudCanUseShell)
+        #expect(try detail(model, Fixtures.chain).cloudSaves == "Shared Saves (from Settings)", "another game is not affected")
+        await model.playNow(Fixtures.orbit)
+        #expect(launcher.launched.last?.cloudSavesURL == nil)
+        // The off choice survives a new session
+        let again = ShellHostModel(config: box.config(), launcher: launcher, shellSettings: shell)
+        #expect(try detail(again).cloudSaves == nil)
+        // Choosing a folder for the game clears it
+        let picking = ShellHostModel(config: box.config(), launcher: launcher, picker: FakePicker(url: own), shellSettings: shell)
+        await picking.pickCloudSavesNow(Fixtures.orbit)
+        orbit = try detail(picking)
+        #expect(orbit.cloudSaves == "Own Saves" && orbit.cloudCanUseShell)
+        await picking.playNow(Fixtures.orbit)
+        #expect(launcher.launched.last?.cloudSavesURL?.lastPathComponent == "Own Saves")
+        // Following the shell again
+        picking.actions.onUseShellCloud(Fixtures.orbit)
+        orbit = try detail(picking)
+        #expect(orbit.cloudSaves == "Shared Saves (from Settings)" && orbit.cloudFromShell && !orbit.cloudCanUseShell)
+        await picking.playNow(Fixtures.orbit)
+        #expect(launcher.launched.last?.cloudSavesURL?.lastPathComponent == "Shared Saves")
+        // Off with a game folder that the player picks later, and off again from the shell folder
+        picking.actions.onDisableCloudSaves(Fixtures.orbit)
+        picking.actions.onUseShellCloud(Fixtures.orbit)
+        #expect(try detail(picking).cloudFromShell)
+    }
+
+    @Test func theShellFoldersCanBeRemoved() async throws {
+        let box = try Sandbox()
+        try box.giveAppData()
+        let drive = box.root.appendingPathComponent("Drive/Switch", isDirectory: true)
+        try box.write("", to: drive.appendingPathComponent("fixture.marker"))
+        let shared = box.root.appendingPathComponent("iCloud/Shared Saves", isDirectory: true)
+        try FileManager.default.createDirectory(at: shared, withIntermediateDirectories: true)
+        let shell = shellSettings()
+        let model = ShellHostModel(config: box.config(), picker: FakePicker(url: shared), shellSettings: shell)
+        await model.pickShellCloudNow()
+        let data = ShellHostModel(config: box.config(), picker: FakePicker(url: drive), shellSettings: shell)
+        await data.pickShellDataNow()
+        #expect(shell.cloudSavesFolderName != nil && shell.cloudSavesBookmark != nil && shell.dataFolderName != nil && shell.dataBookmark != nil)
+        model.actions.onClearShellCloud()
+        #expect(shell.cloudSavesFolderName == nil && shell.cloudSavesBookmark == nil)
+        #expect(try detail(model).cloudSaves == nil && !detail(model).cloudCanUseShell)
+        #expect(shell.dataFolderName != nil, "the other folder stays")
+        model.actions.onClearShellData()
+        #expect(shell.dataFolderName == nil && shell.dataBookmark == nil)
+        #expect(try detail(model).game.state == .playable, "the app folder has the data")
+        #expect(try !detail(model).dataFromShell)
+    }
+
+    @Test func aRowShowsThatItsValueComesFromTheShellUntilTheGameChoosesItself() throws {
+        let box = try Sandbox()
+        try box.giveAppData()
+        try giveOrbitAnOverlayRow(box)
+        let shell = shellSettings()
+        let model = ShellHostModel(config: box.config(), shellSettings: shell)
+        func row() throws -> SettingRow { try #require(detail(model).sections.flatMap(\.rows).first { $0.id == "DM_METAL_HUD" }) }
+        #expect(try !row().fromShell, "the shell has no choice")
+        shell.storePerformanceHUD(true)
+        model.refreshAll()
+        #expect(try row().fromShell && row().value == "1")
+        #expect(try !detail(model).hasModifiedSettings)
+        model.actions.onChange(Fixtures.orbit, "DM_METAL_HUD", "0")
+        #expect(try !row().fromShell && row().value == "0", "the game's own choice")
+        #expect(try detail(model).hasModifiedSettings, "the explicit off can be reset")
+        model.actions.onResetDefaults(Fixtures.orbit)
+        #expect(try row().fromShell && row().value == "1" && !detail(model).hasModifiedSettings)
     }
 
     @Test func theShellDataFolderIsNotPresentedAsThePlayersPickForTheGame() async throws {
