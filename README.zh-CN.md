@@ -5,11 +5,6 @@
   <img src="frontend/screenshots/logo-light.png" width="360" alt="NX2Apple, by nxnative">
 </picture>
 
-> [!IMPORTANT]
-> **请更新到 0.7.4 —— 否则无法继续构建游戏。 Update to 0.7.4**
-> 从 0.7.4 起引擎不再随仓库提供：0.7.3 及更早版本无法下载或更新仓库（提示 *Repository: not found*），也无法再构建游戏。请在 App 内「设置 → 检查更新」或到[发布页](https://github.com/LNPANDY/NX2Apple/releases/latest)升级；升级后无需再下载仓库。
-> The engine is no longer stored in this repository: versions 0.7.3 and older cannot download or update their repository and can no longer build games. Update in the app or from the [releases page](https://github.com/LNPANDY/NX2Apple/releases/latest).
-
 **你的 Switch 游戏，跑在你的 iPhone 上。**
 
 **不是模拟器。不用命令行。一个 macOS App 点几下就把整个构建做完。**
@@ -30,6 +25,7 @@
 
 - **引导式首次启动**：安装向导带新玩家走完 Xcode、密钥和游戏；构建工具和 Python 直接内置在 App 里，不用装 Homebrew
 - **存档跟着走**：Mac ⇄ iPhone 存档通过同一个 iCloud Drive 文件夹自动同步；删掉的 App 几秒重装；免费 Apple ID 的 7 天签名原地续签
+- **iPhone 和 iPad 共用一个 App**：游戏库带着所有游戏的封面，手机横过来是 Cover Flow，每个游戏有自己的设置，手柄和键盘都能操作。界面跟随系统语言（英文和简体中文）
 - **主机模式**：插上手柄按 Select，游戏库变全屏封面墙，手柄操作——就像 Switch 主菜单
 
 所有版本见[更新日志](CHANGELOG.zh-CN.md)。English readers — the [English README](README.md) covers everything.
@@ -58,7 +54,7 @@ NX2Apple 用你自己导出的游戏文件，在你的 Mac 和 iPhone 上运行 
   `Xcode-27.1.app` 并选中它：`sudo xcode-select -s /Applications/Xcode-27.1.app`。
 - **你自己的游戏文件**（NSP 或 XCI）和**你自己主机里导出的 `prod.keys`**。本项目不自带、不下载、
   也不替你查找任何东西。一份 `prod.keys` 能解你所有的游戏；新导出的一份覆盖所有零售游戏。
-- 要装到 iPhone：iOS 26 或更新，以及较新的手机。更旧的设备未测试。
+- 要装到 iPhone 或 iPad：iOS 或 iPadOS 26 或更新，以及较新的设备。更旧的设备未测试。
 
 App 自带构建工具和 Python，不需要装 Homebrew 和 Python；.NET SDK 10 仍由 App 帮你安装。启动器的依赖页会逐项检查，能装的一键安装。
 
@@ -75,6 +71,25 @@ App 自带构建工具和 Python，不需要装 Homebrew 和 Python；.NET SDK 1
    是装在设备上、容纳你所有游戏的一个共用 App。启动器用 Xcode 为它签名、安装并拷入游戏，需要一台与这台 Mac 配对的设备。
 
 在终端里手动构建见 [BUILDING.zh-CN.md](BUILDING.zh-CN.md)。
+
+## iPhone 和 iPad 上的 App
+
+「iPhone / iPad」目标会构建一个共用的外壳 App，和 Mac 启动器一样容纳你所有的游戏。游戏库用封面展示每个游戏。
+竖屏时是单列，选中的游戏在顶部。横过来是 Cover Flow。iPad 显示网格。
+
+<img src="frontend/screenshots/ios-library-zh.webp" width="100%" alt="竖屏的 iPhone App：带大图的游戏库和两个游戏封面、一个游戏的设置、一个需要游戏数据的游戏">
+
+<img src="frontend/screenshots/ios-cover-flow-zh.webp" width="100%" alt="横屏的 iPhone App：Cover Flow 里有旷野之息、Hades 和王国之泪的封面">
+
+- **从 Mac 添加游戏。** 用「iPhone / iPad」目标构建游戏，启动器会把它拷进 App。重新签名和重装 App 都会保留游戏数据和存档。
+- **游玩。** 选一个游戏，点 **Play**。缺少游戏数据或需要更新 App 的游戏，会在它的卡片上说明并给出解决办法。
+- **每个游戏的设置。** 设置按钮（手柄上按 X）打开该游戏的启动选项。**重置**会把所有选择恢复为默认。
+- **手柄或键盘。** 整个 App 都能用手柄操作：方向键和摇杆移动，A 选择，B 返回，X 打开设置，Y 列出手柄。外接键盘的用法相同。
+- **游戏数据文件夹。** 每个游戏可以从你在「文件」App 里选的文件夹（例如外置硬盘）读取数据，也可以用 App 自己的文件夹。
+- **云存档。** 为游戏选一个 iCloud Drive 文件夹，存档就和 Mac 保持同步。
+- **语言。** App 跟随系统语言，英文或简体中文。
+
+App 需要 iOS 或 iPadOS 26 或更新。封面是 Mac 启动器为你自己的游戏缓存的 eShop 横幅。
 
 ## 游玩
 
