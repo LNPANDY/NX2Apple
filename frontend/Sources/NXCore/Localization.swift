@@ -4218,7 +4218,7 @@ package enum L10n {
     ]
 
     package static func string(_ key: String, _ lang: Lang) -> String {
-        guard let row = table[key] else { return key }   // shows up in the UI rather than a blank control
+        guard let row = table[key] else { return extra(key, lang) }   // shows up in the UI rather than a blank control
         switch lang {
         case .zh: return row.zh
         case .en: return row.en
