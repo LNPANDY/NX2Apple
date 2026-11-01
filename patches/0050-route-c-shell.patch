@@ -36,7 +36,7 @@ Issue: LNPANDY/NX2Apple#144
 
 diff --git a/dm/ios/Shell/Shell-Bridging-Header.h b/dm/ios/Shell/Shell-Bridging-Header.h
 new file mode 100644
-index 00000000..bf778b2c
+index 0000000..bf778b2
 --- /dev/null
 +++ b/dm/ios/Shell/Shell-Bridging-Header.h
 @@ -0,0 +1,2 @@
@@ -44,7 +44,7 @@ index 00000000..bf778b2c
 +#include "ShellEngine.h"
 diff --git a/dm/ios/Shell/ShellApp.swift b/dm/ios/Shell/ShellApp.swift
 new file mode 100644
-index 00000000..8dbe45f0
+index 0000000..8dbe45f
 --- /dev/null
 +++ b/dm/ios/Shell/ShellApp.swift
 @@ -0,0 +1,73 @@
@@ -123,7 +123,7 @@ index 00000000..8dbe45f0
 +}
 diff --git a/dm/ios/Shell/ShellEngine.h b/dm/ios/Shell/ShellEngine.h
 new file mode 100644
-index 00000000..40f6f04e
+index 0000000..40f6f04
 --- /dev/null
 +++ b/dm/ios/Shell/ShellEngine.h
 @@ -0,0 +1,10 @@
@@ -139,7 +139,7 @@ index 00000000..40f6f04e
 +void dm_shell_present_game(void);
 diff --git a/dm/ios/Shell/ShellMain.m b/dm/ios/Shell/ShellMain.m
 new file mode 100644
-index 00000000..a0312068
+index 0000000..a031206
 --- /dev/null
 +++ b/dm/ios/Shell/ShellMain.m
 @@ -0,0 +1,172 @@
@@ -316,10 +316,10 @@ index 00000000..a0312068
 +    @autoreleasepool { return UIApplicationMain(argc, argv, nil, NSStringFromClass(App.class)); }
 +}
 diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
-index ec3d5548..0184365d 100644
+index d45f2e3..04a0f51 100644
 --- a/dm/ios/Sources/front_ios.m
 +++ b/dm/ios/Sources/front_ios.m
-@@ -88,6 +88,7 @@ static void launcher_done(void) { [g_root startGame]; }
+@@ -109,6 +109,7 @@ - (void)startGame {
      [self.view addSubview:self.game];
      g_layer = (CAMetalLayer *)self.game.layer;
      if (getenv("DM_METAL_HUD") && atoi(getenv("DM_METAL_HUD"))) { g_layer.developerHUDProperties = @{@"mode": @"default"}; LOG("front end: Metal performance HUD on (DM_METAL_HUD)"); }   // Apple's HUD over the game: frame rate, frame and GPU time, memory
@@ -329,7 +329,7 @@ index ec3d5548..0184365d 100644
      self.pad.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
 diff --git a/dm/ios/project-shell.yml b/dm/ios/project-shell.yml
 new file mode 100644
-index 00000000..1fc29561
+index 0000000..1fc2956
 --- /dev/null
 +++ b/dm/ios/project-shell.yml
 @@ -0,0 +1,114 @@
@@ -449,7 +449,7 @@ index 00000000..1fc29561
 +      config: Release
 diff --git a/dm/ios/tests/test_shell_build.py b/dm/ios/tests/test_shell_build.py
 new file mode 100644
-index 00000000..9582898b
+index 0000000..9582898
 --- /dev/null
 +++ b/dm/ios/tests/test_shell_build.py
 @@ -0,0 +1,159 @@
@@ -613,7 +613,7 @@ index 00000000..9582898b
 +if __name__ == '__main__':
 +    unittest.main()
 diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index db6471e7..0db39f9f 100755
+index 47e4eac..b089a94 100755
 --- a/dm/ios/tools/build_ipa.sh
 +++ b/dm/ios/tools/build_ipa.sh
 @@ -10,6 +10,9 @@
@@ -639,7 +639,7 @@ index db6471e7..0db39f9f 100755
  OUT_IPA=${1:-$(dirname "$W")/$(gp ipa)}; O=$W/build/ios/pkg; DD=$O/dd
  XCODE_DD=${DM_XCODE_DERIVED_DATA:-$W/build/ios/xcode-dd}
  MODS=$(gp modules); MARKER=$(gp romfs_marker)
-@@ -139,7 +148,9 @@ else t "no app icon ($ICON not found): the home-screen icon stays blank"; fi
+@@ -142,7 +151,9 @@ else t "no app icon ($ICON not found): the home-screen icon stays blank"; fi
  if [ "$FRAMEWORK" = 1 ]; then
    rm -rf Gen/framework && mkdir -p Gen/framework/dm || die "mkdir Gen/framework"
    cp -R Gen/dm/. Gen/framework/dm/ || die "copy the framework tables"
@@ -650,7 +650,7 @@ index db6471e7..0db39f9f 100755
    python3 "$DM/games/game.py" profile "$GAME" Gen/framework/profile.tsv > /dev/null || die "game profile"
    # The manifest names the game data this framework was built for: the RomFS image's identity (dm/host/romfs_identity.h), as the
    # pack step's romfs.id does. That step's default is repeated here because the manifest is a build resource and has to exist now.
-@@ -151,7 +162,7 @@ if [ "$FRAMEWORK" = 1 ]; then
+@@ -154,7 +165,7 @@ if [ "$FRAMEWORK" = 1 ]; then
    NRO_TABLE=$PATCHED/nro.tsv; [ -f "$NRO_TABLE" ] || NRO_TABLE=   # the NRO modules gen_embed.py packs: nro_count in the manifest
    python3 tools/gen_manifest.py Gen/framework/game.manifest.json --game "$GAME" --name "$DM_DISPLAY_NAME" \
      --display-version "$DM_APP_VERSION" --package-version "${PKG:-}" --modules "$MODS" ${NRO_TABLE:+--nro-table "$NRO_TABLE"} \
@@ -659,7 +659,7 @@ index db6471e7..0db39f9f 100755
    printf 'OTHER_LDFLAGS = $(inherited) %s\n' "$F" > Gen/framework.xcconfig || die "framework link flags"
    t "framework: Gen/framework (modules $MODS, profile.tsv, game.manifest.json)"
  fi
-@@ -185,6 +196,30 @@ if [ "$PREPARE_XCODE" = YES ]; then
+@@ -188,6 +199,30 @@ if [ "$PREPARE_XCODE" = YES ]; then
    exit 0
  fi
  
@@ -692,7 +692,7 @@ index db6471e7..0db39f9f 100755
  xcodebuild -project DmIOS.xcodeproj -scheme DmIOS -configuration Release -destination 'generic/platform=iOS' -derivedDataPath "$DD" \
 diff --git a/dm/ios/tools/build_shell.sh b/dm/ios/tools/build_shell.sh
 new file mode 100755
-index 00000000..d3cc308b
+index 0000000..d3cc308
 --- /dev/null
 +++ b/dm/ios/tools/build_shell.sh
 @@ -0,0 +1,117 @@
@@ -814,7 +814,7 @@ index 00000000..d3cc308b
 +done < "$FWLIST"
 +t "done: $APP ($(du -sh "$APP" | cut -f1)), unsigned"
 diff --git a/dm/ios/tools/gen_manifest.py b/dm/ios/tools/gen_manifest.py
-index ec2c33be..e1d302ff 100644
+index ec2c33b..e1d302f 100644
 --- a/dm/ios/tools/gen_manifest.py
 +++ b/dm/ios/tools/gen_manifest.py
 @@ -48,6 +48,8 @@ def manifest(args):

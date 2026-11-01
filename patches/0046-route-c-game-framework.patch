@@ -24,7 +24,6 @@ Route C M1, docs/launcher-c-plan.md.
 Upstream-Status: fork-only (waits for the runtime profile, seedds/nxnative#492)
 Reason: opt-in game framework for the launcher (route C M1): it carries profile.tsv and sets DM_PROFILE, which exist only with the runtime-profile patch (seedds/nxnative#492 is still a design note), so it goes upstream after that
 Issue: LNPANDY/NX2Apple#144
-
 ---
  dm/ios/Sources/FrameworkBootstrap.h |  25 +++++
  dm/ios/Sources/FrameworkBootstrap.m |  47 +++++++++
@@ -39,7 +38,7 @@ Issue: LNPANDY/NX2Apple#144
 
 diff --git a/dm/ios/Sources/FrameworkBootstrap.h b/dm/ios/Sources/FrameworkBootstrap.h
 new file mode 100644
-index 00000000..01f399d0
+index 0000000..01f399d
 --- /dev/null
 +++ b/dm/ios/Sources/FrameworkBootstrap.h
 @@ -0,0 +1,25 @@
@@ -70,7 +69,7 @@ index 00000000..01f399d0
 +#endif
 diff --git a/dm/ios/Sources/FrameworkBootstrap.m b/dm/ios/Sources/FrameworkBootstrap.m
 new file mode 100644
-index 00000000..b354e253
+index 0000000..b354e25
 --- /dev/null
 +++ b/dm/ios/Sources/FrameworkBootstrap.m
 @@ -0,0 +1,47 @@
@@ -122,7 +121,7 @@ index 00000000..b354e253
 +}
 +#endif
 diff --git a/dm/ios/Sources/main.m b/dm/ios/Sources/main.m
-index 7e4d49a3..58fa9691 100644
+index 7e4d49a..58fa969 100644
 --- a/dm/ios/Sources/main.m
 +++ b/dm/ios/Sources/main.m
 @@ -18,6 +18,14 @@
@@ -180,7 +179,7 @@ index 7e4d49a3..58fa9691 100644
      NSString *per_game_aoc = [gdir stringByAppendingPathComponent:@"aoc"];
 diff --git a/dm/ios/framework/DmGameMarker.m b/dm/ios/framework/DmGameMarker.m
 new file mode 100644
-index 00000000..2f638688
+index 0000000..2f63868
 --- /dev/null
 +++ b/dm/ios/framework/DmGameMarker.m
 @@ -0,0 +1,10 @@
@@ -196,7 +195,7 @@ index 00000000..2f638688
 +const char dmgame_image_marker[] = "DmGame";
 diff --git a/dm/ios/project-framework.yml b/dm/ios/project-framework.yml
 new file mode 100644
-index 00000000..e1191f79
+index 0000000..e1191f7
 --- /dev/null
 +++ b/dm/ios/project-framework.yml
 @@ -0,0 +1,144 @@

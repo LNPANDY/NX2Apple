@@ -163,7 +163,7 @@ library manifest is stored at
 ## Launch options
 
 The button beside **Play** opens the game's launch options: the settings the iPhone
-launcher shows before a game starts ([docs/settings.md](https://github.com/seedds/nxnative/blob/c5fe6b5dbcb245f9116b1b380cc71ecd4c6c4f11/docs/settings.md)), read
+launcher shows before a game starts ([docs/settings.md](https://github.com/seedds/nxnative/blob/bbc3b73784751d2a706932dc69fd67627e3445d4/docs/settings.md)), read
 from the list the engine packs into the Mac app (`Contents/Resources/dm/launcher.json`,
 written by `dm/games/settings.py` from `dm/games/settings.tsv`, and the engine change that
 packs it is [seedds/nxnative#352](https://github.com/seedds/nxnative/pull/352), so a
