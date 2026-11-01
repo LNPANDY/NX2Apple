@@ -12,9 +12,9 @@ Issue: seedds/nxnative#888
 
 ---
  dm/tools/patch_nso.py            | 14 +++++++++++++-
- dm/tools/tests/test_tail_call.py | 27 +++++++++++++++++++++++++--
+ dm/tools/tests/test_tail_call.py | 28 ++++++++++++++++++++++++++--
  docs/reference/rewriter.md       |  8 ++++++++
- 3 files changed, 46 insertions(+), 3 deletions(-)
+ 3 files changed, 47 insertions(+), 3 deletions(-)
 
 diff --git a/dm/tools/patch_nso.py b/dm/tools/patch_nso.py
 index 6bd6f8f..e00912c 100644
@@ -48,10 +48,17 @@ index 6bd6f8f..e00912c 100644
      suffix = insl[j + 1:]
      if suffix[0].mnemonic != 'bl' or any(p.mnemonic != 'udf' for p in suffix[1:]): return False
 diff --git a/dm/tools/tests/test_tail_call.py b/dm/tools/tests/test_tail_call.py
-index a1e27dd..1be4d48 100644
+index a1e27dd..1a743af 100644
 --- a/dm/tools/tests/test_tail_call.py
 +++ b/dm/tools/tests/test_tail_call.py
-@@ -10,12 +10,12 @@ from capstone import Cs, CS_ARCH_ARM64, CS_MODE_ARM
+@@ -4,18 +4,19 @@ from pathlib import Path
+ import re
+ import struct
+ import sys
++from typing import Callable, cast
+ import unittest
+ 
+ from capstone import Cs, CS_ARCH_ARM64, CS_MODE_ARM
  
  TOOLS = Path(__file__).resolve().parents[1]
  sys.path.insert(0, str(TOOLS))
@@ -66,7 +73,7 @@ index a1e27dd..1be4d48 100644
  
  # Standard frame, null guard to error block, pointer load, argument move,
  # frame restore, tail jump, error call, trap padding.
-@@ -73,6 +73,29 @@ class TailCall(unittest.TestCase):
+@@ -73,6 +74,29 @@ class TailCall(unittest.TestCase):
          # Keep the framed fallback's boundary even when a null guard is present.
          self.assertFalse(self.check([0xb4000061, 0xf9400812, 0xd61f0240, 0x94000400], 2))
  
@@ -91,7 +98,7 @@ index a1e27dd..1be4d48 100644
 +        self.assertFalse(self.check([LDP(18, 17, 0, 16), BR(18), 0x94000400], 1))
 +        ins = decode([LDP(18, 17, 0, 16), ADDI(0, 0, 8), BR(18), 0])
 +        del ins[1]
-+        self.assertFalse(scope['tail_call'](ins, 1))
++        self.assertFalse(cast(Callable[[list, int], bool], scope['tail_call'])(ins, 1))
 +
      def test_stores_must_not_overwrite_saved_frame(self):
          for base in (31, 29):   # sp and the unchanged frame pointer
