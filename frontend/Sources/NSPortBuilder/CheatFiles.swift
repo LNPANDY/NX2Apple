@@ -371,8 +371,8 @@ struct CheatFiles {
 }
 
 /// The folder copied to the iPhone or iPad the launcher installed the game on, the way the Saves sheet copies saves
-/// (SaveTransfer: `devicectl device copy to` with the app's data container). The device's folder is replaced by the Mac's, so the
-/// device holds the same files and switches and nothing older beside them.
+/// (SaveTransfer: `devicectl device copy to` with the app's data container). The Mac's files are merged into the device's folder
+/// and nothing is deleted there, so a file the Mac no longer has can stay (#250: devicectl's wipe flag deletes the siblings).
 struct CheatTransfer {
     let files: CheatFiles
     let device: String    // the device's UDID
@@ -405,7 +405,7 @@ struct CheatTransfer {
         guard r.ok else { throw Failure.device(SaveTransfer.lastLine(r.output)) }
     }
 
-    /// The save transfer's copy-to-device command: the destination is the folder itself, and what the Mac does not have goes.
+    /// The save transfer's copy-to-device command: the destination is the folder itself, merged into without deleting anything (a file the Mac no longer has can stay).
     static func copyCommand(device: String, bundle: String, source: String, destination: String) -> [String] {
         SaveTransfer.copyToCommand(device: device, bundle: bundle, source: source, destination: destination)
     }

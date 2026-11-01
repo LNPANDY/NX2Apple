@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
 
 from . import platform_util as pu
 from .model import DepState, Model
-from .style import GREEN, MUTED, ORANGE, RED
+from .style import CARD_EDGE, GREEN, MUTED, ORANGE, RED
 
 
 class MainWindow(QMainWindow):
@@ -77,6 +77,8 @@ class MainWindow(QMainWindow):
         self.m.finished.connect(self._on_finished)
 
         self._refresh_all()
+        self.m.ask_folder = lambda title: self._ask_folder(title)
+        self.m.ask_file = lambda title: self._ask_file(title)
         self.m.check_deps()
 
     # ---------------------------------------------------------------- header
@@ -84,20 +86,6 @@ class MainWindow(QMainWindow):
     def _build_header(self) -> None:
         row = QHBoxLayout()
         row.setSpacing(8)
-        badge = QLabel('🎮')
-        badge.setFixedSize(40, 40)
-        badge.setAlignment(Qt.AlignCenter)
-        badge.setStyleSheet(f'background: {GREEN}; border-radius: 10px; font-size: 18px;')
-        row.addWidget(badge)
-        left = QVBoxLayout()
-        left.setSpacing(3)
-        self.title = QLabel('NS Port Builder')
-        self.title.setObjectName('title')
-        self.subtitle = QLabel(self.m.t('app.subtitle'))
-        self.subtitle.setObjectName('subtitle')
-        left.addWidget(self.title)
-        left.addWidget(self.subtitle)
-        row.addLayout(left)
         row.addStretch(1)
         self.lang_btn = QPushButton(self.m.lang.toggle_label)
         self.lang_btn.clicked.connect(self._toggle_lang)
@@ -172,6 +160,46 @@ class MainWindow(QMainWindow):
         self.repo_status = QLabel('')
         self.repo_status.setObjectName('note')
         lay.addWidget(self.repo_status)
+        # The engine's online sync (first start, after updates): a status line while it runs, and its failure row with Try again.
+        self.engine_status = QLabel('')
+        self.engine_status.setObjectName('note')
+        self.engine_status.setWordWrap(True)
+        self.engine_status.hide()
+        lay.addWidget(self.engine_status)
+        self.engine_failure_box = QFrame()
+        self.engine_failure_box.setObjectName('card')
+        fbox = QVBoxLayout(self.engine_failure_box)
+        fbox.setContentsMargins(12, 8, 12, 8)
+        fbox.setSpacing(4)
+        self.engine_failure_what = QLabel('')
+        self.engine_failure_what.setWordWrap(True)
+        self.engine_failure_what.setStyleSheet(f'color: {ORANGE}; font-weight: 600;')
+        self.engine_failure_next = QLabel('')
+        self.engine_failure_next.setWordWrap(True)
+        self.engine_failure_next.setObjectName('note')
+        self.engine_retry_btn = QPushButton(self.m.t('fail.retry'))
+        self._translatable.append((self.engine_retry_btn, 'fail.retry'))
+        self.engine_retry_btn.clicked.connect(self.m.retry_engine_sync)
+        retry_row = QHBoxLayout()
+        retry_row.addWidget(self.engine_retry_btn)
+        retry_row.addStretch(1)
+        fbox.addWidget(self.engine_failure_what)
+        fbox.addWidget(self.engine_failure_next)
+        fbox.addLayout(retry_row)
+        self.engine_failure_box.hide()
+        lay.addWidget(self.engine_failure_box)
+
+    def _show_engine_sync(self) -> None:
+        """The status line while tools/engine.py sync runs, or its failure row (what happened, what to do, Try again)."""
+        self.engine_status.setVisible(self.m.engine_syncing)
+        self.engine_status.setText(self.m.t('engine.syncing') if self.m.engine_syncing else '')
+        f = self.m.engine_failure
+        if f is None or self.m.engine_syncing:
+            self.engine_failure_box.hide()
+            return
+        self.engine_failure_what.setText(self.m.t(f.what_key))
+        self.engine_failure_next.setText(self.m.t(f.next_key))
+        self.engine_failure_box.show()
 
     def _build_inputs(self) -> None:
         box, lay = self._card('data.title', 'data.note')
@@ -352,7 +380,7 @@ class MainWindow(QMainWindow):
         self.failure_box.hide()
         outer.addWidget(self.failure_box)
 
-    _FIX_BUTTONS = {'translator': 'fail.translator.button', 'iosSDK': 'fail.iosSDK.button',
+    _FIX_BUTTONS = {'translator': 'fail.translator.button', 'zbic': 'fail.zbic.button', 'iosSDK': 'fail.iosSDK.button',
                     'keys': 'fail.keys.button', 'severalGames': 'fail.showFolder', 'noTitleID': 'fail.showFolder',
                     'diskFull': 'fail.showFolder'}
 
@@ -402,13 +430,12 @@ class MainWindow(QMainWindow):
     def _separator() -> QFrame:
         line = QFrame()
         line.setFrameShape(QFrame.HLine)
-        line.setStyleSheet('color: #31373f;')
+        line.setStyleSheet(f'color: {CARD_EDGE};')
         return line
 
     # ---------------------------------------------------------------- refresh
 
     def _refresh_all(self) -> None:
-        self.subtitle.setText(self.m.t('app.subtitle'))
         self.lang_btn.setText(self.m.lang.toggle_label)
         # everything built once at start-up re-reads its string here: the language toggle emits
         # repoChanged, and without this the card titles, the notes and the buttons kept their
@@ -416,6 +443,7 @@ class MainWindow(QMainWindow):
         for w, key in self._translatable:
             w.setText(self.m.t(key))
         self._show_failure()
+        self._show_engine_sync()
         full = (pu.short_path(self.m.repo_path) if self.m.repo_ok
                 else (self.m.repo_path or self.m.t('repo.notFound')))
         self.repo_path_label.setText(full)
@@ -433,6 +461,7 @@ class MainWindow(QMainWindow):
         busy = self.m.repo_busy or self.m.running
         for b in (self.download_btn, self.update_btn, self.choose_btn):
             b.setEnabled(not busy)
+        self.engine_retry_btn.setEnabled(not self.m.engine_syncing)
         if getattr(self.m, 'log_path', None):
             self.log_path_label.setText(self.m.t('log.at', str(self.m.log_path)))
         self._refresh_inputs()
@@ -497,6 +526,21 @@ class MainWindow(QMainWindow):
                     detail = self.m.t(detail)
             elif detail:
                 detail = pu.short_path(detail)
+            # A long detail (the link probe's three-attempt report) would be elided to nothing on
+            # one line: it moves into its own wrapped block under the row, where it is readable.
+            if len(detail) > 140 or '\n' in detail:
+                head = QLabel(detail[:120] + '…')
+                head.setObjectName('mono')
+                head.setTextInteractionFlags(Qt.TextSelectableByMouse)
+                h.addWidget(head, 1)
+                note = QLabel(detail)
+                note.setObjectName('mono')
+                note.setWordWrap(True)
+                note.setTextInteractionFlags(Qt.TextSelectableByMouse)
+                note.setContentsMargins(20, 0, 0, 4)
+                self.deps_container.addWidget(row)
+                self.deps_container.addWidget(note)
+                continue
             lab = QLabel(detail)
             lab.setObjectName('mono')
             lab.setTextInteractionFlags(Qt.TextSelectableByMouse)
@@ -511,8 +555,9 @@ class MainWindow(QMainWindow):
                     h.addWidget(btn)
                 if d.pick_key:
                     # Apple-licensed pieces cannot be downloaded by the app: Choose points at a
-                    # copy the user already has (validated, remembered in toolchain.json).
-                    pick = QPushButton(self.m.t('dep.pick'))
+                    # copy the user already has — an unpacked folder, or (Metal) the downloaded
+                    # zip, which the app unpacks and remembers.
+                    pick = QPushButton(self.m.t('dep.pick.metal' if d.pick_key == 'metal_dir' else 'dep.pick'))
                     pick.clicked.connect(lambda _=False, dep=d: self.m.pick_dep_folder(dep))
                     h.addWidget(pick)
                 if not d.install and not d.pick_key:
@@ -685,6 +730,14 @@ class MainWindow(QMainWindow):
             self._failed = False
             self.failure_box.hide()
             self.m.start_build()
+
+    def _ask_folder(self, title: str) -> str:
+        d = QFileDialog.getExistingDirectory(self, title)
+        return d or ''
+
+    def _ask_file(self, title: str) -> str:
+        d, _ = QFileDialog.getOpenFileName(self, title, '', 'Metal tools zip (*.zip)')
+        return d or ''
 
     def _choose_repo(self) -> None:
         d = QFileDialog.getExistingDirectory(self, self.m.t('repo.pickMessage'))

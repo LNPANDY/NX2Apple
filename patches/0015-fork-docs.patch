@@ -1,146 +1,34 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: v0lumehi <aljic.zijad@googlemail.com>
 Date: Wed, 28 Oct 2026 13:33:56 +0100
-Subject: [PATCH] Fork documents and badge data
+Subject: [PATCH] Fork documents
 
-Roadmap, multiplayer notes, release notes and guide, work in progress, launcher design, badge JSON.
+Roadmap, multiplayer notes, release notes and guide, work in progress, launcher design.
 
 Upstream-Status: fork-only
-Reason: The fork's own planning and release documents and its README badges
+Reason: The fork's own planning and release documents
 Issue: LNPANDY/NX2Apple#123
 ---
- dm/ios/ENTITLEMENTS.md      | 100 +++++++++++
  docs/MULTIPLAYER.md         | 139 +++++++++++++++
  docs/RELEASE-NOTES-GUIDE.md | 105 +++++++++++
  docs/RELEASE_NOTES.md       |  77 ++++++++
  docs/ROADMAP.md             | 139 +++++++++++++++
  docs/WORK-IN-PROGRESS.md    |  88 ++++++++++
- docs/badges/games.json      |   6 +
- docs/badges/verified.json   |   6 +
  docs/launcher-c-design.md   | 339 ++++++++++++++++++++++++++++++++++++
- docs/launcher-c-plan.md     | 213 ++++++++++++++++++++++
+ docs/launcher-c-plan.md     | 233 +++++++++++++++++++++++++
  docs/probe-dlopen.md        |  64 +++++--
- 11 files changed, 1261 insertions(+), 15 deletions(-)
- create mode 100644 dm/ios/ENTITLEMENTS.md
+ 8 files changed, 1169 insertions(+), 15 deletions(-)
  create mode 100644 docs/MULTIPLAYER.md
  create mode 100644 docs/RELEASE-NOTES-GUIDE.md
  create mode 100644 docs/RELEASE_NOTES.md
  create mode 100644 docs/ROADMAP.md
  create mode 100644 docs/WORK-IN-PROGRESS.md
- create mode 100644 docs/badges/games.json
- create mode 100644 docs/badges/verified.json
  create mode 100644 docs/launcher-c-design.md
  create mode 100644 docs/launcher-c-plan.md
 
-diff --git a/dm/ios/ENTITLEMENTS.md b/dm/ios/ENTITLEMENTS.md
-new file mode 100644
-index 00000000..5808b59e
---- /dev/null
-+++ b/dm/ios/ENTITLEMENTS.md
-@@ -0,0 +1,100 @@
-+# Increased Memory Limit
-+
-+The app asks for `com.apple.developer.kernel.increased-memory-limit`. `build_ipa.sh` writes the
-+entitlements file itself (`DM_ENTITLEMENTS=<plist>` gives another one, an empty value none): into the
-+unsigned IPA's placeholder signature (below), and for a prepared Xcode project as `Gen/DmIOS.entitlements`
-+through `CODE_SIGN_ENTITLEMENTS` in its `Gen/dm.xcconfig`.
-+
-+## Why it matters
-+
-+iOS gives an app a per-process physical-memory budget and kills it (jetsam, SIGKILL, no crash
-+report) when it goes over. On current iPhones that budget is about **3.3 GB** without the
-+entitlement and **6–8 GB** with it, depending on the device.
-+
-+Measured here, both on a 12 GB iPhone:
-+
-+| Game | Peak resident | Headroom | Result |
-+|---|---|---|---|
-+| Tears of the Kingdom | 3,342 MB | 33 MB | killed entering the world map |
-+| Hades II | — | — | asks for a 3.10 GB heap, which is at the budget limit |
-+
-+Lowering the render scale to 0.5 did not change the Tears of the Kingdom outcome, so the limit is
-+the guest heap rather than the GPU. The only way past it is a higher budget.
-+
-+## What the entitlement needs
-+
-+Two conditions, both required:
-+
-+1. **The signature carries it.** `build_ipa.sh` builds unsigned (the sideloader re-signs), so what
-+   matters is whether the sideloader copies unknown entitlements from the IPA into its own signature
-+   instead of dropping them.
-+2. **The App ID has it enabled.** The provisioning profile a sideloader generates only includes
-+   entitlements the App ID is registered for. The sideloader has to ask Apple for it.
-+
-+## Which sideloaders keep it
-+
-+Reported by [playport.dev](https://playport.dev/) (a different project with the same requirement):
-+
-+| Sideloader | Keeps the entitlement |
-+|---|---|
-+| AltStore Classic 2.2 or later | Yes |
-+| Impactor (from a computer) | Yes |
-+| Xcode with a Personal Team | Yes |
-+| SideStore 0.7.0, free Apple ID | Not by default — see below |
-+| Sideloadly and others | Check the tool. Sideloadly does not enable it |
-+
-+## SideStore with a free Apple ID
-+
-+The entitlement attaches to the App ID, so it survives the weekly refresh once set. One-time fix:
-+
-+1. Install this app through SideStore, so its App ID has been created with Apple.
-+2. Sideload **GetMoreRam** and sign in with the same Apple ID SideStore uses.
-+3. In GetMoreRam open **App IDs**, tap **Refresh**, select this app's App ID, then
-+   **Add Increased Memory Limit**.
-+4. Reinstall the app from SideStore (it upgrades in place, and `Documents/`, the RomFS archive and the
-+   saves, is preserved).
-+5. Confirm: `Documents/log.txt` should now show a much larger `headroom to the system memory limit`
-+   in the `memory up to frame N` lines. GetMoreRam uses one of a free Apple ID's three app slots, so
-+   delete it afterwards if you need the slot back.
-+
-+## Checking whether it took effect
-+
-+Launch the game, let it run a few hundred frames, then read the memory line in `Documents/log.txt`:
-+
-+```
-+memory up to frame 600: resident 3342 MB, ... headroom to the system memory limit 33 MB
-+```
-+
-+`resident + headroom` is the budget the kernel enforces:
-+
-+- ≈ 3,375 MB → the entitlement is not in effect.
-+- ≈ 6,000–8,000 MB → it is.
-+
-+`os_proc_available_memory()` is what produces that number (`dm/gfx/nvn/nvn_mtl.m`), and it reports
-+the distance to the budget the kernel enforces.
-+
-+## Why the placeholder signature matters
-+
-+`build_ipa.sh` builds unsigned. A sideloader decides which entitlements to carry by reading them
-+from the signature it is replacing — an unsigned binary has none, so the request would be lost no
-+matter what sits in the bundle. The script therefore embeds the entitlement with an
-+ad-hoc signature (`codesign --force --sign - --entitlements …`, no certificate needed): the
-+sideloader strips that signature and swaps in the user's own, but it now sees the entitlement and
-+carries it over. Check any built IPA with:
-+
-+```bash
-+codesign -d --entitlements :- Payload/DmIOS.app/DmIOS | grep increased-memory-limit
-+```
-+
-+Measured here (12 GB iPhone, AltStore Classic 2.3): before the placeholder signature the budget was
-+3,375 MB and Hades II died entering a larger scene. After it the game runs. If the budget stays at
-+3,375 MB with a signed IPA, the remaining step is on the App ID — enable the capability with a tool
-+like GetMoreRam (same Apple ID as the sideloader, App IDs → Refresh → select the app → Add
-+Increased Memory Limit), then reinstall so the profile picks it up.
-+
-+## Xcode route
-+
-+A project prepared with `--prepare-xcode` already carries the entitlement (`Gen/DmIOS.entitlements`).
-+With a Personal Team and a real device, build from there. That is the one route where the app is
-+signed at build time, so no re-signing step can drop the entitlement. The Mac launcher's
-+**Install on** uses this route.
 diff --git a/docs/MULTIPLAYER.md b/docs/MULTIPLAYER.md
 new file mode 100644
-index 00000000..f29c8188
+index 0000000..8b5460c
 --- /dev/null
 +++ b/docs/MULTIPLAYER.md
 @@ -0,0 +1,139 @@
@@ -253,7 +141,7 @@ index 00000000..f29c8188
 +| Layer | Content | Where it would live |
 +|---|---|---|
 +| 1. BSD sockets | `socket`/`bind`/`sendto`/`recvfrom`/`poll`/`select` over the virtual network, with the errno conventions the SDK expects | new `dm/host/hle_bsd.c` (replaces the offline stubs in `hle_offline.c`) |
-+| 2. Virtual network | address/MASK/gateway, per-port socket registry, broadcast rules, receive queues, wake-on-packet for `poll` | new `dm/host/dm_vnet.c` |
++| 2. Virtual network | address/mask/gateway, per-port socket registry, broadcast rules, receive queues, wake-on-packet for `poll` | new `dm/host/dm_vnet.c` |
 +| 3. Transports | lan-play framing and reassembly, LAN broadcast, wireless via mDNS | one file per transport |
 +| 4. `ldn` / `nifm` | make the game believe a session can exist, per-game payload mapping | `hle_ldn.c`, and per-game code |
 +
@@ -285,7 +173,7 @@ index 00000000..f29c8188
 +  clients for it), and the constant table above matches what mush8 implements.
 diff --git a/docs/RELEASE-NOTES-GUIDE.md b/docs/RELEASE-NOTES-GUIDE.md
 new file mode 100644
-index 00000000..ba1f3323
+index 0000000..ba1f332
 --- /dev/null
 +++ b/docs/RELEASE-NOTES-GUIDE.md
 @@ -0,0 +1,105 @@
@@ -396,7 +284,7 @@ index 00000000..ba1f3323
 +into two lists.
 diff --git a/docs/RELEASE_NOTES.md b/docs/RELEASE_NOTES.md
 new file mode 100644
-index 00000000..2f1132cb
+index 0000000..2f1132c
 --- /dev/null
 +++ b/docs/RELEASE_NOTES.md
 @@ -0,0 +1,77 @@
@@ -479,7 +367,7 @@ index 00000000..2f1132cb
 +- **GabeThe21stGamer**：暴露了旧工具与无证书两条路径的报告（#87），以及免证书安装的免费 Apple ID 实测。
 diff --git a/docs/ROADMAP.md b/docs/ROADMAP.md
 new file mode 100644
-index 00000000..25ab8a5c
+index 0000000..25ab8a5
 --- /dev/null
 +++ b/docs/ROADMAP.md
 @@ -0,0 +1,139 @@
@@ -624,7 +512,7 @@ index 00000000..25ab8a5c
 +carrier).
 diff --git a/docs/WORK-IN-PROGRESS.md b/docs/WORK-IN-PROGRESS.md
 new file mode 100644
-index 00000000..7364c2c8
+index 0000000..7364c2c
 --- /dev/null
 +++ b/docs/WORK-IN-PROGRESS.md
 @@ -0,0 +1,88 @@
@@ -716,33 +604,9 @@ index 00000000..7364c2c8
 +- Pick from A first if you are the one with the hardware, otherwise B.
 +- C is a menu, not a queue: each entry names its own blocker.
 +- Anything finished goes to the top table with its commit, so the list stays short.
-diff --git a/docs/badges/games.json b/docs/badges/games.json
-new file mode 100644
-index 00000000..2c116f37
---- /dev/null
-+++ b/docs/badges/games.json
-@@ -0,0 +1,6 @@
-+{
-+  "schemaVersion": 1,
-+  "label": "games",
-+  "message": "94",
-+  "color": "blue"
-+}
-diff --git a/docs/badges/verified.json b/docs/badges/verified.json
-new file mode 100644
-index 00000000..92b31479
---- /dev/null
-+++ b/docs/badges/verified.json
-@@ -0,0 +1,6 @@
-+{
-+  "schemaVersion": 1,
-+  "label": "verified on an iPhone",
-+  "message": "3",
-+  "color": "success"
-+}
 diff --git a/docs/launcher-c-design.md b/docs/launcher-c-design.md
 new file mode 100644
-index 00000000..476a1c1e
+index 0000000..476a1c1
 --- /dev/null
 +++ b/docs/launcher-c-design.md
 @@ -0,0 +1,339 @@
@@ -1087,18 +951,24 @@ index 00000000..476a1c1e
 +> **Update (merged):** the dlopen probe now exists — `dm/ios/probe/` with `build_probe.sh`, committed alongside this document, and `probe-out/DmProbe.ipa` is built. W1 step 1 is done. What remains is running it on an iOS 26 device and reading `Documents/probe-log.txt`.
 diff --git a/docs/launcher-c-plan.md b/docs/launcher-c-plan.md
 new file mode 100644
-index 00000000..e6e253c5
+index 0000000..dececce
 --- /dev/null
 +++ b/docs/launcher-c-plan.md
-@@ -0,0 +1,213 @@
+@@ -0,0 +1,233 @@
 +# Route C implementation plan — shell app + per-game framework
 +
-+Status: **the dlopen gate is open** (device run on iOS 27.0.1, [probe-dlopen.md](probe-dlopen.md)),
-+design in [launcher-c-design.md](launcher-c-design.md). This plan turns the design into
-+milestones with a testable artifact each. The probe proved a one-function framework loads and
-+runs, but **the real payload is still unproven** (a framework with the game's ~100 MB of `__DM*W`
-+sections / up to 255 sections, `vm_remap` of its signed `__TEXT` with copy=FALSE,
-+`getsectiondata` on a dylib header). M1 exists to prove exactly that.
++Status (2026-10-30): **M1, M2 and M3 run on a device.** The shell app (`dm/ios/tools/build_shell.sh`,
++`dm/ios/project-shell.yml`, `dm/ios/Shell/`) holds Breath of the Wild's `DmGame01007EF00011E000.framework` and
++Hades' `DmGame0100535012974000.framework` (`build_ipa.sh DM_FRAMEWORK_ONLY`, the NSP script's `--shell-framework`),
++installed by the Mac launcher's one-app target on an iPhone 17 Pro Max (iOS 27.0.1). The library lists both from
++the embedded frameworks, each game's data sits in `Documents/games/<title ID>/`, and Play loads the chosen
++framework (`boot: game framework …`, the module bases from its sections), points `DM_PROFILE` at its
++`profile.tsv` and reaches the game's frame loop: Breath of the Wild (NVN, both DLC) and Hades (Vulkan) on one host
++binary, which reads every game value from the runtime profile (patch 0053). The per-game settings (language,
++performance HUD) reach the engine. Open: M4 (external drive, per-game msl/pso/profile overrides, DLC beyond
++`aoc/`), M5 (incremental frameworks, broken-framework tolerance on a device, re-sign timing), the shell's own
++"Preparing shaders" screen (the front ends' progress hook, patch 0052, forwarded as seedds/nxnative#742). The
++dlopen gate: [probe-dlopen.md](probe-dlopen.md), the design: [launcher-c-design.md](launcher-c-design.md).
 +
 +## Milestones
 +
@@ -1160,6 +1030,20 @@ index 00000000..e6e253c5
 +  game (SSBU) shows `__DATA,__dm_nro_tab` and `nro.tsv` working, and iOS 26 and 27 pass if available.
 +
 +## M2 — shell + one framework
++
++**As built (2026-10-30).** The project lives in `dm/ios/project-shell.yml` beside `build_ipa.sh`, because
++the host is compiled from `dm/host`'s Makefile per build (`gen_build.py`) and the glue in `dm/ios/Shell/`
++calls the engine's internals. The views have no engine dependency and stay the Swift package `frontend-ios/`
++(ShellUI, ShellHost, ShellControllers), linked into the app as a local package by its absolute path, so the
++demo and the package tests build without the engine. `GameCatalogue` reads `Frameworks/*.framework` with a
++manifest, `EngineLaunchPlan` (ShellHost) computes the environment of the table below from the game, its data
++folder and the player's per-game settings (the per-game app's `launcher.<VAR>` keys), and `ShellMain.m` sets it,
++dlopens the framework, calls `dm_set_game_image_header` and `dm_host_preload_start` with
++`argv = [dmhost, <framework>/dm, <manifest modules>]`, then front_ios.m's unchanged game view takes the window.
++Each framework is self-contained: code, tables, `profile.tsv`, `dm/launcher.json`, `msl/`, `pso/`, icon and
++banner. The game data stays in Documents. The plan's separate `GameManifest.swift`, `GameLibrary.swift`,
++`GameData.m`, `GameLauncher.m` and `BootState.m` became ShellHost types and `ShellMain.m`, and `main.m`,
++`Launcher.swift` and `LauncherSettings.swift` are not changed (the default path is untouched).
 +
 +`DmShell.app` lists one game. Play sets the environment, `dlopen`s the framework, calls
 +`dm_set_game_image_header` + `dm_host_preload_start`, then shows the existing game view.
@@ -1305,7 +1189,7 @@ index 00000000..e6e253c5
 +- `docs/development.md`, `docs/reference/packing.md`, `docs/frontends.md`: `--framework`,
 +  `build_shell.sh`, `pack_launcher_ipa.py`, signing order, incremental cache, and what the shell is.
 diff --git a/docs/probe-dlopen.md b/docs/probe-dlopen.md
-index 625759c0..f50079dd 100644
+index 625759c..f50079d 100644
 --- a/docs/probe-dlopen.md
 +++ b/docs/probe-dlopen.md
 @@ -7,10 +7,10 @@ iPhone, can a sideloaded IPA — installed outside the App Store review with Alt

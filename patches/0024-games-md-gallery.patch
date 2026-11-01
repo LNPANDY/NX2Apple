@@ -10,16 +10,16 @@ Upstream-Status: fork-only
 Reason: README is the fork's short player page: the games gallery is written to GAMES.md (it would be most of the README) and the update history is CHANGELOG.md
 Issue: LNPANDY/NX2Apple#123
 ---
- dm/tools/docs_gallery.py    | 14 +++++++-------
- dm/tools/tests/test_docs.py |  4 ++--
+ dm/tools/docs_gallery.py    | 26 +++++++++++++++++---------
+ dm/tools/tests/test_docs.py |  6 +++---
  docs/RELEASE-NOTES-GUIDE.md |  8 ++++----
- 3 files changed, 13 insertions(+), 13 deletions(-)
+ 3 files changed, 24 insertions(+), 16 deletions(-)
 
 diff --git a/dm/tools/docs_gallery.py b/dm/tools/docs_gallery.py
-index 32f39659..001561ce 100644
+index 32f3965..5994375 100644
 --- a/dm/tools/docs_gallery.py
 +++ b/dm/tools/docs_gallery.py
-@@ -1,15 +1,15 @@
+@@ -1,15 +1,23 @@
  #!/usr/bin/env python3
 -# Writes the games gallery in README.md (between its gallery markers) from docs/images/gallery.tsv: one cell per row of the table, three to a row, in the table's order.
 +# Writes the games gallery in GAMES.md (between its gallery markers) from docs/images/gallery.tsv: one cell per row of the table, three to a row, in the table's order.
@@ -35,10 +35,31 @@ index 32f39659..001561ce 100644
  TABLE = REPO / 'docs' / 'images' / 'gallery.tsv'
 -OUT = REPO / 'README.md'
 +OUT = REPO / 'GAMES.md'
++BLOB = RAW = ''   # the links are relative to GAMES.md's folder, which holds the engine
++if not OUT.exists() and (REPO.parent / '.upstream-ref').is_file():
++    # In engine/ (NX2Apple's tools/engine.py sync) GAMES.md is the checkout's, one folder up, and the checkout holds no engine files: the
++    # game notes and images are seedds/nxnative's, at the commit the checkout is pinned to (.upstream-ref).
++    OUT = REPO.parent / 'GAMES.md'
++    pin = (REPO.parent / '.upstream-ref').read_text(encoding='utf-8').strip()
++    BLOB = f'https://github.com/seedds/nxnative/blob/{pin}/'
++    RAW = f'https://raw.githubusercontent.com/seedds/nxnative/{pin}/'
  BEGIN = '<!-- gallery: written by dm/tools/docs_gallery.py from docs/images/gallery.tsv; change the table, then run it -->'
  END = '<!-- end of gallery -->'
  PER_ROW = 3
-@@ -49,21 +49,21 @@ def gallery():
+@@ -38,10 +46,10 @@ def rows():
+ def cell(image, name, note, tid):
+     # Attributes use double quotes; apostrophes in existing captions need no escaping.
+     image, name, note = (html.escape(s, quote=False).replace('"', '&quot;') for s in (image, name, note))
+-    caption = f'<a href="dm/games/{tid}/README.md">{name}</a>'
++    caption = f'<a href="{BLOB}dm/games/{tid}/README.md">{name}</a>'
+     detail = f'<br>{note}' if note else ''   # a game with no remark has only its caption
+     # <small> is one step below the body text; <sub> would be smaller still and lower the baseline.
+-    return f'<td align="center" valign="top" width="33%"><img src="docs/images/{image}" width="256" alt="{name}"><br><small><b>{caption}</b>{detail}</small></td>'
++    return f'<td align="center" valign="top" width="33%"><img src="{RAW}docs/images/{image}" width="256" alt="{name}"><br><small><b>{caption}</b>{detail}</small></td>'
+ 
+ 
+ def gallery():
+@@ -49,21 +57,21 @@ def gallery():
      lines = ['<table>']
      for i in range(0, len(r), PER_ROW):
          row = [cell(*x) for x in r[i:i + PER_ROW]]
@@ -65,7 +86,7 @@ index 32f39659..001561ce 100644
      else:
          OUT.write_text(text, encoding='utf-8')
 diff --git a/dm/tools/tests/test_docs.py b/dm/tools/tests/test_docs.py
-index af73c087..dbb6e331 100644
+index af73c08..0dacd10 100644
 --- a/dm/tools/tests/test_docs.py
 +++ b/dm/tools/tests/test_docs.py
 @@ -1,7 +1,7 @@
@@ -86,8 +107,17 @@ index af73c087..dbb6e331 100644
  
      def test_plain_text_captions_and_no_remark(self):
          image, tid = docs_gallery.rows()[0][::3]
+@@ -105,7 +105,7 @@ class Gallery(unittest.TestCase):
+             with patch.object(docs_gallery, 'TABLE', table):
+                 text = docs_gallery.gallery()
+                 self.assertIn('alt="A &amp; B: &quot;Adventure&quot; &lt;2&gt;"', text)
+-                self.assertIn(f'<br><small><b><a href="dm/games/{tid}/README.md">A &amp; B: &quot;Adventure&quot; &lt;2&gt;</a></b></small></td>', text)
++                self.assertIn(f'<br><small><b><a href="{docs_gallery.BLOB}dm/games/{tid}/README.md">A &amp; B: &quot;Adventure&quot; &lt;2&gt;</a></b></small></td>', text)
+             self.assertIn('Game</a></b><br>60 fps &amp; more</small></td>', docs_gallery.cell(image, 'Game', '60 fps & more', tid))
+ 
+     def test_reversed_markers_fail_before_writing(self):
 diff --git a/docs/RELEASE-NOTES-GUIDE.md b/docs/RELEASE-NOTES-GUIDE.md
-index ba1f3323..116d6e85 100644
+index ba1f332..116d6e8 100644
 --- a/docs/RELEASE-NOTES-GUIDE.md
 +++ b/docs/RELEASE-NOTES-GUIDE.md
 @@ -53,11 +53,11 @@ same section order, and a reader picks one and reads straight through.

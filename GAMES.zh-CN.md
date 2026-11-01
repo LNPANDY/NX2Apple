@@ -1,6 +1,6 @@
 # 游戏
 
-本 fork 有 profile 的全部游戏，以及每款需要的更新包。玩家主页是 [README.zh-CN.md](README.zh-CN.md)。[dm/games/README.md](dm/games/README.md)（英文）是引擎对每款游戏的笔记。截图和 IPA 大小在英文页的[图库](GAMES.md#gallery)里。English: [GAMES.md](GAMES.md).
+本 fork 有 profile 的全部游戏，以及每款需要的更新包。玩家主页是 [README.zh-CN.md](README.zh-CN.md)。[dm/games/README.md](https://github.com/seedds/nxnative/blob/bbc3b73784751d2a706932dc69fd67627e3445d4/dm/games/README.md)（英文）是引擎对每款游戏的笔记。截图和 IPA 大小在英文页的[图库](GAMES.md#gallery)里。English: [GAMES.md](GAMES.md).
 
 ## 实测游戏
 
@@ -142,4 +142,4 @@ ad-hoc 签名——无签名的二进制没有可供侧载工具读取 entitleme
 **AltStore Classic 2.2+**、**Impactor** 和 **Xcode + Personal Team** 会保留它。**SideStore**
 配合免费 Apple ID 需要对 App ID 做一次性修复，**Sideloadly** 不会。步骤和判断方法（log.txt 里
 resident + headroom：约 3,375 MB = 未生效，6–8 GB = 已生效）见
-[dm/ios/ENTITLEMENTS.md](dm/ios/ENTITLEMENTS.md)。
+[ENTITLEMENTS.md](ENTITLEMENTS.md)。

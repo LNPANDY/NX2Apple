@@ -61,27 +61,5 @@ final class SignatureTests: XCTestCase {
         XCTAssertTrue(today.contains("today"), today)
         let zh = AppSignature.describe(inThree, { L10n.string($0, .zh) }, now: now, locale: Locale(identifier: "zh_CN"))
         XCTAssertTrue(zh.contains("剩 3 天"), zh)
-        XCTAssertEqual(AppSignature.short(inThree, { L10n.string($0, .en) }, now: now), "3 days of signature left")
-        XCTAssertEqual(AppSignature.short(yesterday, { L10n.string($0, .en) }, now: now), "signature expired")
-    }
-
-    /// The re-sign is the install's xcodebuild line plus the installed app's own bundle ID: the same derived data makes
-    /// Xcode reuse the compiled game, and the identifier keeps the app's Documents.
-    func testTheResignCommandMatchesTheInstallPlusTheBundleID() {
-        let command = BuildModel.resignCommand(xcrun: "/x", project: "/w/xcode/DmIOS.xcodeproj", scheme: "Test (0100)",
-                                               device: "UDID", derived: "/w/xcode-derived-data", team: "TEAM123456",
-                                               bundle: "org.nxnative.test")
-        XCTAssertEqual(command, ["/x", "xcodebuild", "-project", "/w/xcode/DmIOS.xcodeproj", "-scheme", "Test (0100)",
-                                 "-configuration", "Release", "-destination", "id=UDID", "-derivedDataPath", "/w/xcode-derived-data",
-                                 "-allowProvisioningUpdates", "DEVELOPMENT_TEAM=TEAM123456", "DM_COPY_ROMFS=NO",
-                                 "PRODUCT_BUNDLE_IDENTIFIER=org.nxnative.test", "build"])
-    }
-
-    /// An installed app's path names its work folder, and with it the project and derived data a re-sign must reuse.
-    func testBuildPathsComeFromTheInstalledApp() {
-        let paths = BuildModel.buildPaths(ofApp: "/Users/x/0100_build/xcode-derived-data/Build/Products/Release-iphoneos/DmIOS.app")
-        XCTAssertEqual(paths?.project, "/Users/x/0100_build/xcode/DmIOS.xcodeproj")
-        XCTAssertEqual(paths?.derived, "/Users/x/0100_build/xcode-derived-data")
-        XCTAssertNil(BuildModel.buildPaths(ofApp: "/elsewhere/DmIOS.app"))
     }
 }

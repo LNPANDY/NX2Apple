@@ -384,7 +384,7 @@ def install_python(dest: Path | None = None,
     survives app updates like every other tool the app fetches.
 
     `Include_pip=1` matters: the interpreter alone is not enough, the build needs lz4, capstone,
-    fonttools and nsz, and the front end installs those into a venv made from this interpreter.
+    fonttools, zbic and nsz, and the front end installs those into a venv made from this interpreter.
     The bootstrapper blocks until the install finishes, so the caller can probe the result.
     """
     log = log or (lambda s: None)
@@ -558,3 +558,51 @@ def _download_unverified(url: str, dest: Path, log: Callable[[str], None],
     except (urllib.error.URLError, OSError) as e:
         tmp.unlink(missing_ok=True)
         raise DownloadError(f'download failed: {url}: {e}') from e
+
+
+def install_metal_from_zip(zip_path: Path, dest: Path | None = None,
+                           log: Callable[[str], None] | None = None) -> Path:
+    """Unpack a "Metal Developer Tools for Windows" zip the user downloaded from Apple, and
+    return the folder to write into `toolchain.json` as `metal_dir`.
+
+    Apple's tools are Apple-ID-gated and cannot be downloaded by the app; the browser download
+    is the licensed path, and this is the app doing the unpack the user would otherwise do by
+    hand — into `tools_dir()`, the same place the other toolchains live, surviving app updates.
+    The zip is validated before anything is remembered: it must contain `metal.exe` (5.x/6.x in
+    `bin/`, 4.x in `ios/bin/`), matching `toolchain.metal_dir()`'s two accepted layouts.
+    """
+    import zipfile as _zf
+    src = Path(zip_path)
+    if not src.is_file():
+        raise DownloadError(f'{src} does not exist')
+    if log:
+        log(f'unpacking {src.name} …')
+    dest = Path(dest) if dest else tc.tools_dir() / 'metal-developer-tools'
+    staging = dest.parent / (dest.name + '-staging')
+    shutil.rmtree(staging, ignore_errors=True)
+    staging.mkdir(parents=True)
+    try:
+        with _zf.ZipFile(src) as z:
+            bad = [i.filename for i in z.infolist() if i.filename.startswith('/') or '..' in Path(i.filename).parts]
+            if bad:
+                raise DownloadError(f'unsafe paths inside {src.name}: {bad[:3]}')
+            z.extractall(staging)
+    except _zf.BadZipFile as e:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise DownloadError(f'{src.name} is not a zip file ({e})') from e
+
+    def has_metal(root: Path) -> bool:
+        return (root / 'bin' / 'metal.exe').is_file() or (root / 'ios' / 'bin' / 'metal.exe').is_file()
+
+    roots = [staging] + [p for p in staging.iterdir() if p.is_dir()]   # zip may or may not carry a top folder
+    hit = next((r for r in roots if has_metal(r)), None)
+    if hit is None:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise DownloadError(f'{src.name} does not look like Metal Developer Tools '
+                            '(no metal.exe in bin/ or ios/bin/)')
+    shutil.rmtree(dest, ignore_errors=True)
+    hit.rename(dest)
+    shutil.rmtree(staging, ignore_errors=True)
+    if log:
+        log(f'Metal Developer Tools unpacked to {dest}')
+    return dest

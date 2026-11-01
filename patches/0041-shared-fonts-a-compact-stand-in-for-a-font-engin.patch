@@ -1,0 +1,312 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Iheb Nachet <inachet3@gmail.com>
+Date: Sat, 31 Oct 2026 14:36:22 +0100
+Subject: [PATCH] Shared fonts: a compact stand-in for a font engine that
+ cannot load the standard one
+
+Mario Tennis Aces (SDK 4) crashed at main+0x3eacbc (address 0x38) right after the shared
+fonts loaded. It loads the standard shared font into iType engines with 50 KB work
+buffers (main+0x3ebf8c) without checking the error; the host's stand-in, macOS's Arial
+Unicode (23 MB), fails there with error 201 (out of memory), and the "?" glyph lookup
+(main+0x3ee4dc) then finds no font and returns null. A failed load also leaves the
+engine's buffer used up, so a second LoadFont in it fails whatever the font.
+
+h_font_LoadFont now, when the engine reports an error after loading the host's
+standard stand-in and holds no other font, calls Finalize and Initialize on the same
+work buffer (recorded by a new Initialize takeover) and loads a compact stand-in:
+DM_SHARED_FONT_SMALL, $DM_FONT_DIR/standard_small.ttf or macOS's Arial. Engines that
+load the standard stand-in keep it, so no game loses coverage.
+
+dm/tools/compact_font.py downloads standard_small.ttf, Noto Sans Regular (0.6 MB, SIL
+Open Font License in its name table), from a pinned commit of the Noto project, checks
+its SHA-256 and caches it in ~/Library/Caches/nxnative/fonts. The NSP script's Mac host
+stage and build_ipa.sh fetch it into the app's dm/font; offline the build goes on
+without it. docs/reference/services.md has the entry; t_shared_font covers the retry.
+
+Upstream-Status: forwarded seedds/nxnative#797
+Reason: Mario Tennis Aces crashes at main+0x3eacbc: Arial Unicode does not fit its 50 KB font engines
+Issue: LNPANDY/NX2Apple#313
+---
+ dm/host/hle_sdk16.c           | 63 +++++++++++++++++++++++++++++++++--
+ dm/host/tests/t_shared_font.c | 58 +++++++++++++++++++++++++++++++-
+ dm/ios/tools/build_ipa.sh     |  3 ++
+ dm/tools/compact_font.py      | 48 ++++++++++++++++++++++++++
+ docs/reference/services.md    |  8 +++++
+ scripts/build_ipa_from_nsp.py | 10 ++++++
+ 6 files changed, 187 insertions(+), 3 deletions(-)
+ create mode 100644 dm/tools/compact_font.py
+
+diff --git a/dm/host/hle_sdk16.c b/dm/host/hle_sdk16.c
+index 4119648..20d28b3 100644
+--- a/dm/host/hle_sdk16.c
++++ b/dm/host/hle_sdk16.c
+@@ -103,15 +103,74 @@ static const void *font_payload(const void *p) {
+     pthread_mutex_unlock(&font_mu);
+     return r;
+ }
++// The compact stand-in, for a font engine that cannot load the standard one: DM_SHARED_FONT_SMALL or $DM_FONT_DIR/standard_small.ttf (Noto Sans Regular, 0.6 MB, which
++//   dm/tools/compact_font.py downloads at build time), then macOS's Arial. Mario Tennis Aces (SDK 4) loads the standard font into engines with 50 KB work buffers (main+0x3ebf8c),
++//   where Arial Unicode (23 MB) fails with error 201; its "?" glyph lookup (main+0x3ee4dc) then finds no font and main+0x3eacbc crashed at address 0x38
++static font_t small_f;
++static int small_done;
++static font_t font_small(void) {
++    pthread_mutex_lock(&font_mu);
++    if (!small_done) { small_done = 1; small_f = font_first("DM_SHARED_FONT_SMALL", "standard_small.ttf", "/System/Library/Fonts/Supplemental/Arial.ttf");
++                 if (!small_f.p) LOG("[RED] no compact shared font (dm/tools/compact_font.py fetches DM_FONT_DIR/standard_small.ttf)"); }
++    font_t f = small_f;
++    pthread_mutex_unlock(&font_mu);
++    return f;
++}
++static int font_is_std(const void *p) {
++    pthread_mutex_lock(&font_mu);
++    int r = p && std_f.p && (p == std_f.p || p == std_f.p + 8);
++    pthread_mutex_unlock(&font_mu);
++    return r;
++}
+ static uint32_t (*font_load)(void *, char *, const void *, unsigned, unsigned);
++static uint32_t (*font_err)(void *);
++static uint32_t (*font_init)(void *, void *, unsigned);
++static void (*font_fini)(void *);
+ static pthread_once_t font_load_once = PTHREAD_ONCE_INIT;
+ static void font_load_init(void) {
+     font_load = guest_sym("_ZN2nn6fontll18ScalableFontEngine8LoadFontEPcPKvjj");
+     if (!font_load) die("ScalableFontEngine::LoadFont not found in the guest");
++    font_err = guest_sym("_ZN2nn6fontll18ScalableFontEngine8GetErrorEv");
++    font_init = guest_sym("_ZN2nn6fontll18ScalableFontEngine10InitializeEPvj");
++    font_fini = guest_sym("_ZN2nn6fontll18ScalableFontEngine8FinalizeEv");
++}
++// Each engine's work buffer as Initialize got it, and whether a font loaded into it since. The engine is Monotype iType (LoadFont = FSS_load_font, GetError = FS_error, Initialize = FS_init_ex
++//   on the work buffer): a load that runs out of the buffer (error 201) leaves it used up, and the compact font then failed the same way in that engine. So the retry starts from a clean
++//   engine (Finalize, then Initialize on the same buffer), which only an engine with no font loaded yet can afford
++typedef struct { void *self, *buf; unsigned size; int fonts; } font_eng_t;
++static font_eng_t font_eng[64];
++static int font_neng;
++static font_eng_t *font_eng_of(void *self, int add) {   // with font_mu held
++    for (int i = 0; i < font_neng; i++) if (font_eng[i].self == self) return &font_eng[i];
++    if (!add) return NULL;
++    font_eng_t *e = &font_eng[font_neng < 64 ? font_neng++ : 63];   // a 65th engine reuses the last slot: it may only lose its retry
++    *e = (font_eng_t){self, NULL, 0, 0};
++    return e;
++}
++HLE_FORCE("_ZN2nn6fontll18ScalableFontEngine10InitializeEPvj", "font engine initialize: the SDK's, with the work buffer recorded for the compact shared font's retry (h_font_LoadFont)", uint32_t, h_font_Initialize, void *self, void *buf, unsigned size) {
++    pthread_once(&font_load_once, font_load_init);
++    if (!font_init) die("ScalableFontEngine::Initialize not found in the guest");
++    pthread_mutex_lock(&font_mu); font_eng_t *e = font_eng_of(self, 1); e->buf = buf; e->size = size; e->fonts = 0; pthread_mutex_unlock(&font_mu);
++    return font_init(self, buf, size);
+ }
+-HLE_FORCE("_ZN2nn6fontll18ScalableFontEngine8LoadFontEPcPKvjj", "shared font BFTTF allocation base → TTF payload; parsing and errors stay in the SDK", uint32_t, h_font_LoadFont, void *self, char *name, const void *data, unsigned index, unsigned capacity) {
++// The standard stand-in is loaded first; only when the engine then reports an error, and holds no other font, is it started afresh and given the compact one, so every game that loads the
++// standard stand-in keeps its full coverage
++HLE_FORCE("_ZN2nn6fontll18ScalableFontEngine8LoadFontEPcPKvjj", "shared font BFTTF allocation base → TTF payload, the compact stand-in when the engine cannot load the standard one; parsing and errors stay in the SDK", uint32_t, h_font_LoadFont, void *self, char *name, const void *data, unsigned index, unsigned capacity) {
+     pthread_once(&font_load_once, font_load_init);
+-    return font_load(self, name, font_payload(data), index, capacity);
++    uint32_t r = font_load(self, name, font_payload(data), index, capacity), e = font_err ? font_err(self) : 0;
++    pthread_mutex_lock(&font_mu);
++    font_eng_t *g = font_eng_of(self, 0), eng = g ? *g : (font_eng_t){0};
++    if (g && !e) g->fonts++;
++    pthread_mutex_unlock(&font_mu);
++    if (!e || !font_is_std(data) || !g || eng.fonts || !eng.buf || !font_fini) return r;
++    font_t s = font_small(); if (!s.p) return r;
++    font_fini(self); font_init(self, eng.buf, eng.size);
++    r = font_load(self, name, s.p + 8, index, capacity);
++    uint32_t e2 = font_err(self);
++    if (!e2) { pthread_mutex_lock(&font_mu); if ((g = font_eng_of(self, 0))) g->fonts++; pthread_mutex_unlock(&font_mu); }
++    static _Atomic int n;
++    if (!atomic_fetch_add(&n, 1) || e2) LOG("%sshared font: LoadFont failed with %u on the standard stand-in, the compact one gives %u (engine %p, work buffer %u bytes)", e2 ? "[RED] " : "", e, e2, self, eng.size);
++    return r;
+ }
+ // The address points straight at the TTF (past the 8-byte header) and the size excludes the header, except for a game on SDK 11 or later whose main imports ScalableFontEngineHelper::Decode
+ //   (dm_sdk_major, dm_main_imports; the profile's shared_font overrides). Super Mario 3D World + Bowser's Fury (SDK 10) records shared fonts as type 0 (main+0x975658), calls no Decode and hands the address
+diff --git a/dm/host/tests/t_shared_font.c b/dm/host/tests/t_shared_font.c
+index 8b1e0f6..acbef28 100644
+--- a/dm/host/tests/t_shared_font.c
++++ b/dm/host/tests/t_shared_font.c
+@@ -12,14 +12,29 @@ static char *seen_name;
+ static const void *seen_data;
+ static unsigned seen_index, seen_capacity;
+ static uint32_t status;
++// A model of the iType engine: GetError reads what the last LoadFont left, engine_err for any font but the compact stand-in and small_err for it; a failed load leaves the engine
++// used up (every later load fails with 201) until Initialize starts it afresh
++static uint32_t engine_err, small_err, cur_err;
++static int used_up, inits, finis;
++static void *init_buf;
++static unsigned init_size;
++static const void *small_payload;
+ #define CHECK(c, msg) do { checks++; if (!(c)) { fails++; fprintf(stderr, "FAIL: %s\n", msg); } } while (0)
+ static uint32_t original(void *self, char *name, const void *data, unsigned index, unsigned capacity) {
+     calls++; seen_self = self; seen_name = name; seen_data = data;
+     seen_index = index; seen_capacity = capacity;
++    cur_err = used_up ? 201 : data && data == small_payload ? small_err : engine_err;
++    if (cur_err) used_up = 1;
+     return status;
+ }
++static uint32_t get_error(void *self) { (void)self; return cur_err; }
++static uint32_t init_engine(void *self, void *buf, unsigned size) { (void)self; inits++; used_up = 0; cur_err = 0; init_buf = buf; init_size = size; return 0; }
++static void fini_engine(void *self) { (void)self; finis++; }
+ void *guest_sym(const char *name) {
+     lookups++;
++    if (!strcmp(name, "_ZN2nn6fontll18ScalableFontEngine8GetErrorEv")) return get_error;
++    if (!strcmp(name, "_ZN2nn6fontll18ScalableFontEngine10InitializeEPvj")) return init_engine;
++    if (!strcmp(name, "_ZN2nn6fontll18ScalableFontEngine8FinalizeEv")) return fini_engine;
+     CHECK(!strcmp(name, "_ZN2nn6fontll18ScalableFontEngine8LoadFontEPcPKvjj"), "original symbol lookup");
+     return missing ? NULL : original;
+ }
+@@ -78,8 +93,49 @@ int main(void) {
+     ext_f = std_f;
+     CHECK(load(&self, name, standard, 0, 0) == status && seen_data == standard + 8, "extension fallback to standard");
+     CHECK(seen_index == 0 && seen_capacity == 0, "zero unsigned arguments preserved");
+-    CHECK(lookups == 1, "original resolved once");
++    CHECK(lookups == 4, "LoadFont, GetError, Initialize and Finalize resolved once");
+     CHECK(!memcmp(standard, unrelated, sizeof standard) && !memcmp(extension, unrelated, sizeof extension), "input bytes unchanged");
++    // The compact stand-in: tried only for the host's standard font, only when the engine reports an error after loading it, only in an engine the host saw initialized and that holds
++    // no font yet, and only when there is one; the engine is started afresh on its own work buffer first
++    uint32_t (*init)(void *, void *, unsigned) = NULL; count = 0;
++    for (size_t i = 0; e && i < bytes / sizeof *e; i++) if (!strcmp(e[i].name, "_ZN2nn6fontll18ScalableFontEngine10InitializeEPvj")) { init = e[i].fn; count++; }
++    CHECK(count == 1 && init, "exact Initialize forced registration exists once");
++    if (!init) return 1;
++    ext_f = (font_t){extension, sizeof extension};
++    uint8_t compact[64] = {0}, work[32]; memcpy(compact, &marker, 4);
++    small_done = 1; small_f = (font_t){0}; small_payload = compact + 8; status = 7;
++    int eng, n, i0;
++    CHECK(init(&eng, work, sizeof work) == 0 && inits == 1 && init_buf == work && init_size == sizeof work, "Initialize forwards its arguments");
++    engine_err = 201; small_err = 0; n = calls;
++    CHECK(load(&eng, name, standard, 3, 5) == status && calls == n + 1 && seen_data == standard + 8 && finis == 0, "no compact stand-in: the failed load stands");
++    small_f = (font_t){compact, sizeof compact};
++    const void *std_in[] = {standard, standard + 8};
++    for (unsigned i = 0; i < 2; i++) {
++        init(&eng, work, sizeof work); n = calls; i0 = inits; int f0 = finis;
++        CHECK(load(&eng, name, std_in[i], 3, 5) == status && calls == n + 2, "a failed standard load is made again");
++        CHECK(finis == f0 + 1 && inits == i0 + 1 && init_buf == work && init_size == sizeof work, "after Finalize and Initialize on the engine's own work buffer");
++        CHECK(seen_data == compact + 8 && seen_self == &eng && seen_name == name && seen_index == 3 && seen_capacity == 5, "with the compact payload, other arguments as given");
++        CHECK(get_error(&eng) == 0, "the compact font loads in the fresh engine");
++    }
++    n = calls; i0 = inits;
++    CHECK(load(&eng, name, standard, 3, 5) == status && calls == n + 1 && inits == i0, "an engine that holds a font is never started afresh");
++    init(&eng, work, sizeof work); engine_err = 0;
++    CHECK(load(&eng, name, unrelated, 3, 5) == status && get_error(&eng) == 0, "the game's own font loads");
++    engine_err = 201; n = calls; i0 = inits;
++    CHECK(load(&eng, name, standard, 3, 5) == status && calls == n + 1 && inits == i0, "nor one that loaded the game's own font");
++    int other_eng; used_up = 0; n = calls; i0 = inits;
++    CHECK(load(&other_eng, name, standard, 3, 5) == status && calls == n + 1 && inits == i0, "an engine initialized out of the host's sight is left as it is");
++    const void *other[] = {extension, extension + 8, unrelated, NULL};
++    for (unsigned i = 0; i < sizeof other / sizeof *other; i++) {
++        init(&eng, work, sizeof work); n = calls;
++        load(&eng, name, other[i], 3, 5);
++        CHECK(calls == n + 1, "only the standard stand-in is replaced");
++    }
++    init(&eng, work, sizeof work); engine_err = 0; n = calls;
++    CHECK(load(&eng, name, standard, 3, 5) == status && calls == n + 1 && seen_data == standard + 8, "a standard load without an error is kept");
++    init(&eng, work, sizeof work); engine_err = 201; small_err = 201; n = calls;
++    CHECK(load(&eng, name, standard, 3, 5) == status && calls == n + 2 && get_error(&eng) == 201, "a compact load that fails too is not tried a third time");
++    CHECK(!memcmp(compact + 8, unrelated + 8, sizeof compact - 8), "compact bytes unchanged");
+     printf("shared font: %d checks, %d failed\n", checks, fails);
+     return fails != 0;
+ }
+diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
+index 92fd85d..a95b210 100755
+--- a/dm/ios/tools/build_ipa.sh
++++ b/dm/ios/tools/build_ipa.sh
+@@ -109,6 +109,9 @@ if [ "$GFXAPI" = vulkan ]; then MSLDIR=vk; elif [ "$GFXAPI" = gl ]; then MSLDIR=
+ # Shared-font stand-ins: standard = macOS's Arial Unicode (absent on iOS), Nintendo extension = button icons generated by make_ext_font.py (needs fontTools; FONT_PY names a python that has it)
+ mkdir -p Gen/dm/font && cp "${STD_FONT:-/System/Library/Fonts/Supplemental/Arial Unicode.ttf}" Gen/dm/font/standard.ttf || die "copy standard font (STD_FONT=a TTF)"
+ "${FONT_PY:-python3}" "$DM/tools/make_ext_font.py" Gen/dm/font/nintendo_ext.ttf > /dev/null || die "make_ext_font.py (pip install fonttools, or FONT_PY=python with fontTools)"
++# The compact stand-in for a font engine that cannot load the standard one (hle_sdk16.c h_font_LoadFont; Noto Sans, downloaded once into a cache). Offline the app goes without it,
++# and such a game finds no glyph on the phone, which has no Arial to fall back on
++python3 "$DM/tools/compact_font.py" Gen/dm/font/standard_small.ttf > /dev/null || t "compact shared font: not fetched (offline?); a game whose font engine cannot load the standard one finds no glyph"
+ # App icon: the game's own icon (icon.jpg saved from the control data by nx_extract, the English 256x256 one). DM_ICON can point at another image; by default the icon.jpg next to the RomFS is used.
+ # It is scaled to a 1024x1024 PNG in the asset catalog Gen/Assets.xcassets (a single-size app icon; actool generates the other sizes); with neither, no icon is set and the home-screen icon is blank.
+ # The catalog is always created (the project always lists it, see project.yml); without an icon it stays empty and DM_APPICON is not set
+diff --git a/dm/tools/compact_font.py b/dm/tools/compact_font.py
+new file mode 100644
+index 0000000..c255d91
+--- /dev/null
++++ b/dm/tools/compact_font.py
+@@ -0,0 +1,48 @@
++#!/usr/bin/env python3
++# Fetch the compact stand-in for the standard shared font (standard_small.ttf): Noto Sans Regular, 0.6 MB, 3,884 glyphs (Latin, Greek, Cyrillic). The host gives it to a game's font engine
++# only when that engine fails to load the standard stand-in (hle_sdk16.c h_font_LoadFont): Mario Tennis Aces loads the shared font into engines with 50 KB work buffers, where Arial Unicode
++# (23 MB) fails with error 201 and the game then crashes looking up the "?" glyph. The file comes from the Noto project at a fixed commit and is checked against its SHA-256; it is kept in a
++# cache (DM_FONT_CACHE, else ~/Library/Caches/nxnative/fonts), so only the first build downloads it. The font carries its licence (SIL Open Font License 1.1) in its name table (IDs 0, 13, 14).
++# Usage: compact_font.py out.ttf; exit status 1 when it cannot be had (offline and not cached): the host then falls back to macOS's Arial
++import hashlib, os, shutil, sys, tempfile, urllib.request
++from pathlib import Path
++
++URL = ('https://raw.githubusercontent.com/notofonts/notofonts.github.io/412a7edb2c8c535d1066157e5b17e661fd5591fe/'
++       'fonts/NotoSans/hinted/ttf/NotoSans-Regular.ttf')
++SHA256 = '478c558ea716033cd60c03438f628dfa75694dcf6b5f6d505a2f05fd2b4f3823'
++TIMEOUT = 30   # seconds without data before the download gives up
++
++
++def digest(p):
++    return hashlib.sha256(p.read_bytes()).hexdigest()
++
++
++def cached():
++    """The verified font in the cache, downloaded there first when it is not; raises OSError (or ValueError on a wrong digest) when it cannot be had"""
++    d = Path(os.environ.get('DM_FONT_CACHE') or Path.home() / 'Library/Caches/nxnative/fonts')
++    f = d / f'NotoSans-Regular-{SHA256[:16]}.ttf'
++    if f.is_file() and digest(f) == SHA256: return f
++    d.mkdir(parents=True, exist_ok=True)
++    fd, tmp = tempfile.mkstemp(dir=d, suffix='.part')
++    try:
++        with os.fdopen(fd, 'wb') as out, urllib.request.urlopen(URL, timeout=TIMEOUT) as r: shutil.copyfileobj(r, out)
++        if digest(Path(tmp)) != SHA256: raise ValueError(f'{URL}: SHA-256 is not {SHA256}')
++        os.replace(tmp, f)   # only a verified file takes the cache name
++    finally:
++        if os.path.exists(tmp): os.unlink(tmp)
++    return f
++
++
++def main():
++    if len(sys.argv) != 2: sys.exit('usage: compact_font.py out.ttf')
++    try: src = cached()
++    except (OSError, ValueError) as e:
++        print(f'[YELLOW] compact shared font not fetched ({e}); the host falls back to macOS\'s Arial', file=sys.stderr); return 1
++    out = Path(sys.argv[1]); out.parent.mkdir(parents=True, exist_ok=True)
++    shutil.copyfile(src, out)
++    print(f'{out}: Noto Sans Regular, {out.stat().st_size} bytes (from {src})')
++    return 0
++
++
++if __name__ == '__main__':
++    sys.exit(main())
+diff --git a/docs/reference/services.md b/docs/reference/services.md
+index 0608442..c2d6367 100644
+--- a/docs/reference/services.md
++++ b/docs/reference/services.md
+@@ -627,6 +627,14 @@ Most service calls can be found before they crash, before the first boot or the
+ - **Fix:** the iOS app ships `dm/font/standard.ttf` and `dm/font/nintendo_ext.ttf` (copied / generated by `build_ipa.sh`) and sets `DM_FONT_DIR`.
+ - **Found on:** every game on iOS (general).
+ 
++### Shared font too large for the game's font engine
++
++- **Symptom:** crash at address 0x38 after the shared fonts load, looking up the "?" glyph (a font cache lookup returning null), with `ScalableFontEngine::LoadFont` failing with error 201 on the standard stand-in in some engines while it loads in others; the log shows `shared font: LoadFont failed with 201`.
++- **Cause:** the SDK's font engine is Monotype iType (`LoadFont` = `FSS_load_font`, `GetError` = `FS_error`, `Initialize` = `FS_init_ex` on a work buffer the game allocates). A game sizes those buffers for Nintendo's standard font, and the host's stand-in, macOS's Arial Unicode (23 MB), does not fit a small one: Mario Tennis Aces (SDK 4) gives its extra engines 50 KB each (`main+0x3ebf8c`), loads the standard font into every one without checking the error, and its "?" lookup (`main+0x3ee4dc`, `CheckGlyphExist` in each engine) then finds no font, so `main+0x3eacbc` dereferences null. A failed load also leaves the buffer used up: a second `LoadFont` in the same engine fails with 201 whatever the font.
++- **Fix:** a workaround for the stand-in's size, since the host has no font of the original's size and coverage (Nintendo's standard font also covers Japanese, so a Latin-only stand-in cannot replace Arial Unicode for every game). `h_font_LoadFont` loads the standard stand-in as before; when the engine then reports an error, the font was the host's standard one, and the engine holds no other font, it calls `Finalize` and `Initialize` on the same work buffer (recorded by the `Initialize` takeover) and loads the compact stand-in instead: `DM_SHARED_FONT_SMALL` or `$DM_FONT_DIR/standard_small.ttf`, Noto Sans Regular (0.6 MB, Latin, Greek and Cyrillic, SIL Open Font License in its name table), which `dm/tools/compact_font.py` downloads at build time (a pinned commit, checked against its SHA-256, cached in `~/Library/Caches/nxnative/fonts`), then macOS's Arial. Engines that load the standard stand-in keep it; a build without network access goes on without the compact font. Open: a stand-in matching the original's coverage at its size would make the retry unnecessary.
++- **Check:** in Mario Tennis Aces 1.0.0 the compact font loads with error 0 in the 51,200-byte engines (121 loads in all), and the game reaches its opening movie.
++- **Found on:** Mario Tennis Aces (0100BDE00862A000) 1.0.0 (no profile).
++
+ ## C library, time and random numbers
+ 
+ ### Time zone rules, calendar conversion and the network clock
+diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
+index 42c631b..ffcee75 100755
+--- a/scripts/build_ipa_from_nsp.py
++++ b/scripts/build_ipa_from_nsp.py
+@@ -2084,6 +2084,16 @@ def mac_host(py, repo, work, env, logs, g):
+         rmtree(kf); font.mkdir(parents=True, exist_ok=True)
+         run([py, repo / 'dm/tools/make_ext_font.py', ttf], logs / 'make_ext_font.log', env=env)
+         kf.write_text(f'{key}\n')
++    # The compact stand-in for a font engine that cannot load the standard one (compact_font.py: downloaded once into a cache, checked against its SHA-256). Without it (offline) the host
++    # falls back to macOS's Arial, so the build goes on
++    small, sk = font / 'standard_small.ttf', font / 'standard_small.key'
++    key = fingerprint(('files', [repo / 'dm/tools/compact_font.py']))
++    if not (small.is_file() and reused(sk, key) is not None):
++        PROG.set(step='compact font')
++        rmtree(sk); rmtree(small)
++        run([py, repo / 'dm/tools/compact_font.py', small], logs / 'compact_font.log', env=env, ok=(1,))
++        if small.is_file(): sk.write_text(f'{key}\n')
++        else: say(f'[YELLOW] no compact shared font (see {logs / "compact_font.log"}): a game whose font engine cannot load the standard one gets macOS\'s Arial')
+     PROG.end(str(host))
+     return host, font
+ 

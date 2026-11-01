@@ -83,6 +83,11 @@ final class BuildNotifier: NSObject, ObservableObject, UNUserNotificationCenterD
             // ended the build has finished (it sets done and its note after running).
             let stopped = m.stopping
             DispatchQueue.main.async {
+                // The iPhone target's build ends its script and then packs the image and installs
+                // into the shell: `running` flips false while `done` is still false, and the real
+                // outcome lands when that chain finishes. No failed stage means the build is between
+                // its phases, not over — stay quiet and let the chain's own end decide.
+                if !stopped && !m.done && !m.stages.contains(where: { $0.state == .failed }) { return }
                 let outcome: BuildNotice.Outcome = stopped ? .stopped
                     : m.done ? .finished : .failed(reason: BuildNotice.failureReason(note: m.doneNote, stages: m.stages))
                 guard BuildNotice.shouldNotify(outcome, enabled: BuildNotice.enabled, appActive: NSApp.isActive, hasBundleID: true) else { return }

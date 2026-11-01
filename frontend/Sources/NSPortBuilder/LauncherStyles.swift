@@ -62,23 +62,123 @@ struct TitlebarDoubleClick: NSViewRepresentable {
     func updateNSView(_ nsView: NSView, context: Context) {}
 }
 
+/// The width of the button or dropdown at the trailing end of a setting row, the same on every page, so that these
+/// controls stand in one column whatever their labels. A row hands it to its trailing controls (`launcherRowControls()`),
+/// and LauncherSecondaryButtonStyle and LauncherDropdown take it from there. Outside a row they size to their label.
+enum LauncherControl {
+    /// Wide enough for the longest everyday label in every language on one line ("Sök efter uppdateringar", 148 pt in 13 pt
+    /// Manrope semibold, plus the buttons' 15 pt of padding on each side). LauncherControlWidthTests measures them all.
+    static let width: CGFloat = 184
+    /// What the label of a button may take.
+    static let buttonLabelWidth: CGFloat = width - 2 * 15
+    /// One line of 13 pt Manrope semibold plus 9 pt of padding above and below. A button or dropdown in a row is exactly this
+    /// high, so a label can never make one taller than its neighbours.
+    static let height: CGFloat = 36
+    /// A label that is a little too long shrinks to this share of its size before it is cut.
+    static let minimumLabelScale: CGFloat = 0.85
+    /// The room a dropdown's choice has beside its chevron and the gap to it.
+    static let choiceWidth: CGFloat = buttonLabelWidth - 8 - 10
+}
+
+/// What one button or dropdown in a setting row measured when it was drawn: the width its label wants on a single line, the width
+/// it has, and the size of the whole control. Only collected when `measuresLauncherControls` is set (LauncherControlWidthTests
+/// renders the real pages in every language with it), so the check covers every control a page shows without a list of labels.
+struct LauncherControlSample: Equatable {
+    var labelWidth: CGFloat
+    var room: CGFloat
+    var size: CGSize
+}
+
+struct LauncherControlSamples: PreferenceKey {
+    static var defaultValue: [LauncherControlSample] = []
+    static func reduce(value: inout [LauncherControlSample], nextValue: () -> [LauncherControlSample]) { value += nextValue() }
+}
+
+private struct MeasuresLauncherControlsKey: EnvironmentKey { static let defaultValue = false }
+
+extension EnvironmentValues {
+    var measuresLauncherControls: Bool {
+        get { self[MeasuresLauncherControlsKey.self] }
+        set { self[MeasuresLauncherControlsKey.self] = newValue }
+    }
+}
+
+private struct LauncherControlMeasure<Label: View>: ViewModifier {
+    let label: Label
+    let room: CGFloat
+    @Environment(\.measuresLauncherControls) private var measures
+    @Environment(\.launcherControlWidth) private var width
+    @ViewBuilder func body(content: Content) -> some View {
+        if measures && width != nil {
+            content.background(GeometryReader { box in
+                label.fixedSize().hidden().background(GeometryReader { text in
+                    Color.clear.preference(key: LauncherControlSamples.self,
+                                           value: [LauncherControlSample(labelWidth: text.size.width, room: room, size: box.size)])
+                })
+            })
+        } else {
+            content
+        }
+    }
+}
+
+extension View {
+    /// Reports this control, when it stands in a setting row, and the width its `label` wants (see LauncherControlSample) when a test asks for it.
+    func launcherMeasured<Label: View>(label: Label, room: CGFloat) -> some View {
+        modifier(LauncherControlMeasure(label: label, room: room))
+    }
+}
+
+private struct LauncherControlWidthKey: EnvironmentKey { static let defaultValue: CGFloat? = nil }
+
+extension EnvironmentValues {
+    /// Set inside a setting row: every button and dropdown there is exactly this wide.
+    var launcherControlWidth: CGFloat? {
+        get { self[LauncherControlWidthKey.self] }
+        set { self[LauncherControlWidthKey.self] = newValue }
+    }
+}
+
+extension View {
+    /// The trailing controls of a setting row: buttons and dropdowns take LauncherControl.width.
+    func launcherRowControls() -> some View { environment(\.launcherControlWidth, LauncherControl.width) }
+
+    /// This text as wide and as high as a button of a setting row, on one line (for a control drawn by hand, like the cream capsule).
+    func launcherRowControlFrame() -> some View { modifier(LauncherRowControlFrame()) }
+}
+
+private struct LauncherRowControlFrame: ViewModifier {
+    @Environment(\.launcherControlWidth) private var width
+    func body(content: Content) -> some View {
+        content
+            .lineLimit(1).minimumScaleFactor(width == nil ? 1 : LauncherControl.minimumLabelScale)
+            .padding(.horizontal, 15)
+            .frame(width: width, height: width == nil ? nil : LauncherControl.height)
+            .launcherMeasured(label: content, room: LauncherControl.buttonLabelWidth)
+    }
+}
+
 struct LauncherSecondaryButtonStyle: ButtonStyle {
     /// Text and border in this colour (the build bar's Stop); plain white otherwise.
     var accent: Color? = nil
-    /// At least this wide, the label centred: the buttons of a card line up in one column (Settings).
-    var minWidth: CGFloat? = nil
+    /// Inside a setting row the button is exactly LauncherControl.width wide and LauncherControl.height high, its label centred on
+    /// one line (a little smaller when it does not fit): the buttons of a page line up in one column and are equally high.
+    @Environment(\.launcherControlWidth) private var width
     @Environment(\.isEnabled) private var enabled
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.manrope(13, .semibold))
+            .multilineTextAlignment(.center)
             .lineLimit(1)
+            .minimumScaleFactor(width == nil ? 1 : LauncherControl.minimumLabelScale)
             .padding(.horizontal, 15).padding(.vertical, 9)
-            .frame(minWidth: minWidth)
+            .frame(width: width, height: width == nil ? nil : LauncherControl.height)
             .background(Color.white.opacity(configuration.isPressed ? 0.13 : 0.055), in: RoundedRectangle(cornerRadius: 9))
             .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(accent?.opacity(0.75) ?? Color.white.opacity(0.10)))
             .foregroundStyle(enabled ? (accent ?? Color.white.opacity(0.92)) : .gray)
             .opacity(enabled ? 1 : 0.55)
             .contentShape(RoundedRectangle(cornerRadius: 9))
+            .launcherMeasured(label: configuration.label.font(.manrope(13, .semibold)), room: LauncherControl.buttonLabelWidth)
     }
 }
 
@@ -102,10 +202,52 @@ struct LauncherSwitchStyle: ToggleStyle {
     }
 }
 
+/// The cream button of the library's hero (Play, Build game, Open on a device). It has one size in every state and language, so
+/// the button does not change size when a game goes from not built to built. A long label shrinks, then ends in an ellipsis.
+enum LauncherHeroAction {
+    static let width: CGFloat = 200
+    static let height: CGFloat = 54
+    static let horizontalPadding: CGFloat = 24
+    static let iconSlot: CGFloat = 28
+    static let iconSpacing: CGFloat = 8
+    static let labelWidth = width - 2 * horizontalPadding - iconSlot - iconSpacing
+    static let minimumScale: CGFloat = 0.7
+}
+
+struct LauncherHeroActionLabel: View {
+    let title: String
+    let symbol: String
+
+    var body: some View {
+        HStack(spacing: LauncherHeroAction.iconSpacing) {
+            Image(systemName: symbol).frame(width: LauncherHeroAction.iconSlot)
+            Text(title).lineLimit(1).minimumScaleFactor(LauncherHeroAction.minimumScale)
+        }
+        .font(.manrope(18, .bold))
+        .foregroundStyle(.black)
+        .padding(.horizontal, LauncherHeroAction.horizontalPadding)
+        .frame(width: LauncherHeroAction.width, height: LauncherHeroAction.height)
+        .background(LauncherPalette.cream, in: Capsule())
+    }
+}
+
 /// The width of a launch option's control (choices, list, slider with its value), so the controls of a card line up
 /// in one column whatever their labels.
 enum LaunchControl {
     static let width: CGFloat = 220
+    /// A slider's value, in percent or in pixels: wide enough for "1920×1080" in 13 pt Manrope semibold with monospaced digits
+    /// (71 pt), so every slider of the sheet is equally long and the reset arrows line up.
+    static let valueWidth: CGFloat = 72
+
+    /// Characters the segments of one control share: a segment of 12.5 pt text, 24 pt of padding in 220 pt, takes about 10 with two
+    /// choices and 6 with three.
+    static let segmentedCharacters = 20
+
+    /// Segmented for two or three short labels, a menu otherwise. The game's language (DM_LANG) is always a menu, as on the iPhone.
+    static func isSegmented(env: String, labels: [String]) -> Bool {
+        guard env != "DM_LANG", labels.count <= 3 else { return false }
+        return labels.allSatisfy { $0.count <= segmentedCharacters / max(labels.count, 1) }
+    }
 }
 
 /// Two or three choices side by side; the chosen one is a cream pill. Each choice takes an equal share of the width
@@ -134,55 +276,6 @@ struct LauncherSegmented: View {
         .padding(3)
         .background(Color.white.opacity(0.06), in: Capsule())
         .overlay(Capsule().strokeBorder(Color.white.opacity(0.08)))
-    }
-}
-
-/// A longer list of choices: a pill with the current one that opens the list. With `fill` it takes the width it is
-/// given, the chevron at its right end; `buttonLike` draws it as LauncherSecondaryButtonStyle draws a button (Settings).
-struct LauncherMenuPicker: View {
-    let options: [(value: String, label: String)]
-    let selection: String
-    var fill = false
-    var buttonLike = false
-    let choose: (String) -> Void
-    @State private var open = false
-    var body: some View {
-        Button { open.toggle() } label: {
-            HStack(spacing: 8) {
-                Text(options.first { $0.value == selection }?.label ?? selection).font(.manrope(buttonLike ? 13 : 12.5, .semibold)).lineLimit(1)
-                if fill { Spacer(minLength: 0) }
-                Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, buttonLike ? 15 : 14).padding(.vertical, buttonLike ? 9 : 7)
-            .frame(maxWidth: fill ? .infinity : nil)
-            .background(Color.white.opacity(buttonLike ? 0.055 : 0.06), in: RoundedRectangle(cornerRadius: buttonLike ? 9 : 99))
-            .overlay(RoundedRectangle(cornerRadius: buttonLike ? 9 : 99).strokeBorder(Color.white.opacity(0.10)))
-            .foregroundStyle(Color.white.opacity(0.92))
-            .contentShape(RoundedRectangle(cornerRadius: buttonLike ? 9 : 99))
-        }
-        .buttonStyle(.plain)
-        .popover(isPresented: $open, arrowEdge: .bottom) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 2) {
-                    ForEach(options, id: \.value) { o in
-                        Button { choose(o.value); open = false } label: {
-                            HStack {
-                                Text(o.label).font(.manrope(13, o.value == selection ? .bold : .regular))
-                                Spacer(minLength: 16)
-                                if o.value == selection { Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)).foregroundStyle(LauncherPalette.cream) }
-                            }
-                            .padding(.horizontal, 12).padding(.vertical, 7)
-                            .background(o.value == selection ? Color.white.opacity(0.07) : .clear, in: RoundedRectangle(cornerRadius: 7))
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(6)
-            }
-            .frame(width: 240, height: min(CGFloat(options.count) * 33 + 12, 320))
-            .preferredColorScheme(.dark)
-        }
     }
 }
 

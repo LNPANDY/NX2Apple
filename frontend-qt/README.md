@@ -5,7 +5,7 @@ counterpart: same job, same strings, built with PySide6 so Windows users get a n
 
 ## Why a second front end
 
-The build pipeline (`scripts/build_ipa_from_nsp.py`) is Python and runs on both systems, but
+The build pipeline (`scripts/build_ipa_from_nsp.py` of the engine) is Python and runs on both systems, but
 the SwiftUI app cannot: it needs macOS. Rather than maintain two unrelated GUIs, this one is
 written once and runs everywhere Python and Qt do.
 
@@ -30,6 +30,13 @@ python3 -m venv .venv
 From this folder. It looks for the repository checkout next to itself, in `~/NX2Apple`, or
 wherever `NSPB_REPO` points, and the repository group lets you pick it by hand.
 
+## Look
+
+`nspb_qt/style.py` follows the Mac launcher: near-black background, cream accent, the state colours
+of its `LauncherPalette`, and the Manrope typeface (SIL OFL 1.1). The font is not copied here: a
+source run loads `../frontend/fonts/Manrope.ttf`, and the Windows build adds it and its licence to
+the bundle's `fonts` folder (`build-qt.yml`). If the file is missing the system font is used.
+
 ## What works today
 
 - Dependency detection per platform: Python + packages, .NET SDK, and either **Xcode + iOS SDK +
@@ -44,7 +51,8 @@ wherever `NSPB_REPO` points, and the repository group lets you pick it by hand.
   the RomFS archive and reports where the IPA and archive landed.
 - `--work-dir` is passed only when the checkout's script declares it (an upstream checkout has
   no such option — issue #5).
-- Bilingual: Chinese on Chinese devices, English elsewhere, and the header button switches.
+- Languages: Chinese, Swedish, German or French on devices in those languages, English elsewhere, and the
+  header button switches.
 
 ## What is not there yet
 
@@ -118,7 +126,7 @@ Run this first if you prefer the command line. It lists what is missing and wher
 python -m nspb_qt.win.doctor
 ```
 
-1. **Python 3.10+**, then `pip install PySide6 lz4 capstone fonttools pillow`
+1. **Python 3.10+**, then `pip install PySide6 lz4 capstone fonttools zbic pillow`
    (and `backports.zstd` before Python 3.14).
 2. **.NET SDK 10** — the app downloads it (the zip, not the installer: no administrator rights,
    about 287 MB), or get it from <https://dotnet.microsoft.com/download/dotnet/10.0> (SDK, x64).

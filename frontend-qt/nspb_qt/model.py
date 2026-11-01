@@ -16,7 +16,9 @@ from pathlib import Path
 from PySide6.QtCore import QSettings, Q_ARG, QMetaObject, QObject, Qt, QThread, Signal, Slot
 
 from . import build_failure as bf
+from . import engine
 from . import input_staging
+from . import inputs
 from . import platform_util as pu
 from .i18n import Lang
 from .localization import t
@@ -81,6 +83,9 @@ class Model(QObject):
     #: Set by the window: asks for a folder (QFileDialog lives in the UI layer) and returns the
     #: path, or '' when the user cancelled. `pick_dep_folder` calls it, so the model stays UI-free.
     ask_folder: Callable[[str], str] | None = None
+    #: Same, for a file ('Metal Developer Tools*.zip' the user downloaded from Apple).
+    ask_file: Callable[[str], str] | None = None
+    _metal_zip: Path | None = None
 
     def __init__(self) -> None:
         super().__init__()
@@ -94,6 +99,8 @@ class Model(QObject):
         self.stages: list[Stage] = []
         self.running = False
         self.log_tail = ''
+        self.engine_syncing = False   # tools/engine.py sync runs: the window shows a status line
+        self.engine_failure: bf.Failure | None = None   # how the last sync stopped (engine.py's failure_kind), shown as a failure row with Try again
         self.failure: bf.Failure | None = None   # the script's known early stop (build_failure.py), None for any other
         self.override = bf.OverrideState()      # "Build anyway": one confirmed --allow-* for the next build
         self._last_error = ''   # the last real log line: the failure note names it (issue #52)
@@ -152,7 +159,48 @@ class Model(QObject):
 
     @staticmethod
     def is_repo(d: str) -> bool:
-        return bool(d) and Path(d, 'dm', 'tools', 'nx_extract', 'Program.cs').is_file()
+        return engine.is_checkout(d)   # a checkout with tools/engine.py, a synced engine/, or an engine tree (#214)
+
+    @property
+    def engine_path(self) -> str:
+        """The folder holding dm/ and scripts/: the checkout's engine/, or an engine tree itself (engine.py's rule)."""
+        return engine.engine_root(self.repo_path)
+
+    def sync_engine(self, then: Callable[[bool], None] | None = None) -> None:
+        """Run `tools/engine.py sync` on a thread when engine/ is stale (after a pull, at the start, before a build that
+        needs it). A no-op for a checkout from before #214 or a current engine/. `then(ok)` runs after it."""
+        if getattr(self, '_engine_syncing', False):
+            if then: then(True)
+            return
+        if not engine.is_stale(self.repo_path):
+            self.engine_failure = None
+            if then: then(True)
+            return
+        py = self.python_path or ('python' if pu.IS_WIN else '/usr/bin/python3')
+        cmd = engine.sync_command(self.repo_path, py)
+        self._engine_syncing = True
+        self.engine_syncing = True
+        self.engine_failure = None
+        self.log('$ ' + ' '.join(cmd) + '\n')
+        self.repoChanged.emit()   # the window shows the status line
+
+        def work() -> None:
+            ok, kind = engine.run_sync(cmd, self.repo_path, self.log, env=pu.child_env(), **pu.no_window_kwargs())
+            self._engine_syncing = False
+            self.engine_syncing = False
+            self.engine_failure = None if ok else bf.Failure(kind or engine.ENGINE_SYNC)
+            self.repoChanged.emit()
+            if then: then(ok)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def retry_engine_sync(self) -> None:
+        """The failure row's Try again: clears the row and runs the sync again."""
+        if self.engine_syncing:
+            return
+        self.engine_failure = None
+        self.sync_engine()
+        self.repoChanged.emit()
 
     def _find_repo(self) -> str:
         saved = os.environ.get('NSPB_REPO', '')
@@ -182,7 +230,9 @@ class Model(QObject):
     def supports_work_dir(self) -> bool:
         """Whether the checkout's build script declares --work-dir (an upstream checkout or an
         old ZIP does not; passing it there stops at argparse — issue #5)."""
-        f = Path(self.repo_path, 'scripts', 'build_ipa_from_nsp.py')
+        f = Path(self.engine_path, 'scripts', 'build_ipa_from_nsp.py')
+        if not f.is_file() and engine.has_engine_tool(self.repo_path):
+            return True   # engine/ is not made yet: the fork's engine always has --work-dir (patch 0007)
         try:
             text = f.read_text(encoding='utf-8', errors='replace')
         except OSError:
@@ -193,6 +243,7 @@ class Model(QObject):
 
     def check_deps(self) -> None:
         self.deps_checked = False
+        self.sync_engine()   # at the start: a checkout whose engine/ is missing or older than its pin (#214)
         threading.Thread(target=self._check_deps_worker, daemon=True).start()
 
     def _check_deps_worker(self) -> None:
@@ -226,7 +277,7 @@ class Model(QObject):
             return Dep('python', 'dep.python', 'dep.python.hint', DepState.MISSING,
                        f'dep.python.missing:{py} ({py_ver})',
                        install=[py, '-m', 'pip', 'install', 'lz4', 'capstone', 'fonttools',
-                                'backports.zstd', 'nsz'])
+                                'zbic', 'backports.zstd', 'nsz'])
         if pu.IS_WIN:
             return Dep('python', 'dep.python', 'dep.python.hint', DepState.MISSING,
                        f'dep.python.none:{py or "python3"}',
@@ -299,6 +350,16 @@ class Model(QObject):
                 d.last_error, d.fix_hint = p.last_error, p.fix_hint
 
         self.deps = deps
+        # The panel can only show one row at a time; the log keeps every detail, so a report sent
+        # from a handheld always carries the full probe text (the truncated link row is why this
+        # exists).
+        for d in deps:
+            if not d.ok and d.detail:
+                # three placeholders, three args: a mismatch makes t() fall back to the raw
+                # "dependency %@: [%@] %@" line (the report's log had it six times)
+                name = d.title_key.replace('dep.', '').replace('.hint', '')
+                self.log(self.t('dep.row.log', name, d.state.value,
+                                d.detail.replace('\n', ' | ')) + '\n')
         if not pu.IS_WIN:
             # On Windows `_windows_deps` already set python_path (the interpreter the app
             # installed, which find_python without its candidates cannot see) and dotnet_path
@@ -340,7 +401,7 @@ class Model(QObject):
         from .win import toolchain as wtc     # local import: macOS never loads it
 
         out: list[Dep] = []
-        probes = wtc.check_all(deep=True)
+        probes = wtc.check_all(deep=True, t=self.t)   # t: the failure summaries' hint keys reach the panel translated
 
         # Re-do the Python row now that the toolchain can speak: the interpreter this app
         # installed for itself is not on PATH and not in Program Files, so the row built before
@@ -526,6 +587,7 @@ class Model(QObject):
             self.repo_busy = False
             if ok and self.is_repo(target):
                 self.repo_path = target
+                self.sync_engine()
             elif not ok:
                 shutil.rmtree(target, ignore_errors=True)   # a failed clone leaves a stub
             self.repoChanged.emit()
@@ -616,6 +678,7 @@ class Model(QObject):
                 if stream(['pull', '--ff-only', 'origin', 'main'], 'pull'):
                     self.repo_behind = 0
                     self.repo_status = self.t('repo.pulled')
+                    self.sync_engine()   # the pull may have moved the pin or the patches
                 else:
                     self.repo_status = self.t('repo.pullFail')
                 self.log(self.repo_status + '\n')
@@ -744,8 +807,26 @@ class Model(QObject):
                 elif what == 'ios_sdk':
                     self.log(self.t('dep.iossdk.downloading') + '\n')
                     from .win import sdk_fetch as sf
+                    # clone_sdk runs git, which a fresh machine has none of: the app installs
+                    # PortableGit itself (per-user, no installer) instead of sending the player
+                    # to git-scm.com — the report's SDK row failed three times on exactly that.
+                    if not (wtc.git_exe() or shutil.which('git')):
+                        self.log(self.t('dep.git.downloading') + '\n')
+                        from .win import fetch as wf
+                        git = wf.install_git(log=lambda s: self.log(str(s) + '\n'))
+                        self.log(self.t('dep.git.done', str(git)) + '\n')
                     path = sf.clone_sdk(log=lambda s: self.log(str(s) + '\n'))
                     self.log(self.t('dep.iossdk.done', str(path)) + '\n')
+                    ok = True
+                elif what == 'metal_zip':
+                    # Apple's tools are Apple-ID-gated: the browser download is the licensed
+                    # path, the app does the unpack and remembers the folder.
+                    self.log(self.t('dep.metal.unpacking', self._metal_zip.name) + '\n')
+                    from .win import fetch as wf
+                    dest = wf.install_metal_from_zip(self._metal_zip,
+                                                     log=lambda s: self.log(str(s) + '\n'))
+                    wtc.save_config('metal_dir', str(dest))
+                    self.log(self.t('dep.metal.done', str(dest)) + '\n')
                     ok = True
                 else:
                     self.log(f'unknown Windows install target: {what}\n')
@@ -796,6 +877,19 @@ class Model(QObject):
         if not dep.pick_key:
             return
         from .win import toolchain as wtc
+        if dep.pick_key == 'metal_dir':
+            # The Metal zip is a file, not a folder: the ask_file callback (the window's file
+            # dialog filters *.zip) takes the browser download straight away. An already
+            # unpacked folder is equally accepted.
+            ask_file = self.ask_file
+            if ask_file is None:
+                return
+            picked = ask_file(self.t('dep.pick.metal_dir.title'))
+            if not picked:
+                return
+            if picked.lower().endswith('.zip'):
+                return self.install_metal_zip(Path(picked))
+            return self._save_metal_folder(Path(picked))
         ask = self.ask_folder
         if ask is None:
             return   # no window attached (tests): nothing to ask with
@@ -819,6 +913,29 @@ class Model(QObject):
             self.log(self.t('dep.pick.saved', folder) + '\n')
         self.check_deps()
 
+    def _save_metal_folder(self, folder: Path) -> None:
+        """A folder the user already unpacked: validate the two layouts metal_dir() accepts."""
+        from .win import toolchain as wtc
+        if not (folder / 'bin' / 'metal.exe').is_file() and \
+           not (folder / 'ios' / 'bin' / 'metal.exe').is_file():
+            self.log(self.t('dep.pick.metal.invalid', str(folder)) + '\n')
+            return
+        wtc.save_config('metal_dir', str(folder))
+        self.log(self.t('dep.pick.saved', str(folder)) + '\n')
+        self.check_deps()
+
+    def install_metal_zip(self, zip_path: Path) -> None:
+        """Unpack the Apple zip the player downloaded and remember the folder (the one manual
+        dependency on Windows: Apple-ID-gated, so the app cannot fetch it itself)."""
+        if not zip_path.is_file():
+            self.log(self.t('dep.pick.metal.invalid', str(zip_path)) + '\n')
+            return
+        self._metal_zip = zip_path
+        dep = next((d for d in self.deps if d.id == 'metal'), None)
+        if dep is None:
+            return
+        self._install_win(dep, 'metal_zip')
+
     def _progress_logger(self, label: str):
         """A progress callback that logs at 5% steps, not on every chunk.
 
@@ -838,6 +955,26 @@ class Model(QObject):
             self.log(f'  {label} {pct}%  ({done // 1048576} / {total // 1048576} MB)\n')
 
         return report
+
+    @staticmethod
+    def bundled_wheels() -> Path | None:
+        """The wheel folder shipped in the Windows zip (`wheels/` beside the exe).
+
+        The build packages (lz4, capstone, fonttools, nsz, backports.zstd) are downloaded by the
+        release workflow at packaging time, so the venv step installs from disk with no network
+        and no PyPI — the same "the app carries it" promise the Mac's bundled CPython makes.
+        Source runs have no such folder and fall back to PyPI.
+        """
+        base = getattr(sys, '_MEIPASS', None) or Path(sys.executable).parent
+        w = Path(base) / 'wheels'
+        return w if w.is_dir() and any(w.glob('*.whl')) else None
+
+    @staticmethod
+    def _pip_args(pkgs: list[str], wheels: Path | None) -> list[str]:
+        """pip's arguments: offline from the bundled wheels when they cover the packages."""
+        if wheels:
+            return ['install', '--no-index', '--find-links', str(wheels)] + pkgs
+        return ['install'] + pkgs
 
     def _make_venv(self, base: str) -> bool:
         """Create or reuse the app's venv and install the build packages into it."""
@@ -876,12 +1013,15 @@ class Model(QObject):
                 self.log('venv creation failed\n')
                 return False
         ver = pu._ver_tuple(pu._python_version(vpy))
-        pkgs = ['lz4', 'capstone', 'fonttools', 'nsz']
+        pkgs = ['lz4', 'capstone', 'fonttools', 'zbic', 'nsz']
         if ver < (3, 14):
-            pkgs.insert(3, 'backports.zstd')
-        self.log(f'$ {vpy} -m pip install {" ".join(pkgs)}\n')
+            pkgs.insert(4, 'backports.zstd')
+        wheels = self.bundled_wheels()
+        args = self._pip_args(pkgs, wheels)
+        self.log(f'$ {vpy} -m pip {" ".join(args)}'
+                 + ('' if wheels else '  (from PyPI)') + '\n')
         try:
-            p = subprocess.Popen([vpy, '-m', 'pip', 'install'] + pkgs, stdout=subprocess.PIPE,
+            p = subprocess.Popen([vpy, '-m', 'pip'] + args, stdout=subprocess.PIPE,
                                  stderr=subprocess.STDOUT, text=True, errors='replace',
                                  env=pu.child_env(), **pu.no_window_kwargs())
             assert p.stdout is not None
@@ -919,10 +1059,18 @@ class Model(QObject):
 
         def run_all() -> None:
             try:
-                attempted: set[str] = set()
+                # attempted is keyed by (id, fix): an id may legitimately come back in a later
+                # pass with a DIFFERENT fix — installing the Python interpreter turns its row
+                # into "pip install the packages", which is exactly the step install-all must
+                # then run (the report: only the interpreter was installed, the packages step
+                # needed a second click on the row).
+                attempted: dict[str, tuple] = {}
                 while True:
-                    rows = [d for d in self.deps if not d.ok and d.install
-                            and d.id not in attempted]
+                    def pending(d) -> bool:
+                        if d.ok or not d.install:
+                            return False
+                        return attempted.get(d.id) != tuple(d.install)
+                    rows = [d for d in self.deps if pending(d)]
                     if not rows:
                         break
                     progressed = False
@@ -930,7 +1078,9 @@ class Model(QObject):
                         live = next((r for r in self.deps if r.id == d.id), None)
                         if live is None or live.ok or not live.install or live.installing:
                             continue
-                        attempted.add(live.id)
+                        if attempted.get(live.id) == tuple(live.install):
+                            continue
+                        attempted[live.id] = tuple(live.install)
                         self.log(f'--- {self.t(live.title_key)} ---\n')
                         self.install_dep(live)
                         progressed = True
@@ -947,6 +1097,13 @@ class Model(QObject):
                 self._install_all_running = False
 
         threading.Thread(target=run_all, daemon=True).start()
+
+    @Slot(bool)
+    def _build_after_sync(self, ok: bool) -> None:
+        if ok and not engine.needs_sync_before_build(self.repo_path):
+            self.start_build()
+        else:
+            self.finished.emit(False, self.t('msg.repoInvalidEmpty'))
 
     @Slot(str)
     def _emit_log(self, s: str) -> None:
@@ -994,13 +1151,10 @@ class Model(QObject):
             elif p.is_dir():
                 files += [q for q in sorted(p.iterdir()) if q.is_file()]
         self.keys_path = next((str(f) for f in files if f.name.lower() == 'prod.keys'), self.keys_path)
-        nsps = [f for f in files if f.suffix.lower() in ('.nsp', '.xci', '.nsz', '.xcz')]
-        updates = [f for f in nsps if '[upd]' in f.name.lower() or 'update' in f.name.lower()]
-        dlcs = [f for f in nsps if '[dlc]' in f.name.lower() or 'addon' in f.name.lower()]
-        bases = [f for f in nsps if f not in updates and f not in dlcs]
-        self.base_path = str(bases[0]) if bases else ''
-        self.update_path = str(updates[0]) if updates else ''
-        self.dlc_paths = [str(f) for f in dlcs]
+        found = inputs.classify(files)
+        self.base_path = str(found['base']) if found['base'] else ''
+        self.update_path = str(found['update']) if found['update'] else ''
+        self.dlc_paths = [str(f) for f in found['dlc']]
         self.repoChanged.emit()
 
     @property
@@ -1016,13 +1170,16 @@ class Model(QObject):
         if not self.repo_ok:
             self.finished.emit(False, self.t('msg.repoInvalidEmpty'))
             return
+        if engine.needs_sync_before_build(self.repo_path):
+            # engine/ is the only engine and is stale or missing: make it, then build (a failed sync names its fix in the log)
+            self.sync_engine(lambda ok: QMetaObject.invokeMethod(self, '_build_after_sync', Qt.QueuedConnection, Q_ARG(bool, ok)))
+            return
         py = self.python_path or ('python' if pu.IS_WIN else '/usr/bin/python3')
         base_dir = str(Path(self.base_path).parent)
         all_files = [self.base_path, self.update_path] + self.dlc_paths
         dirs = {str(Path(f).parent) for f in all_files if f}
 
-        tid = self._title_id(self.base_path)
-        tid_hex = f'{tid:016X}' if tid else 'game'
+        tid_hex = inputs.build_key(self.base_path)
         work_dir = str(Path(self.out_dir or base_dir, f'{tid_hex}_build'))
 
         input_dir = base_dir
@@ -1050,8 +1207,8 @@ class Model(QObject):
             entry = ['-m', 'nspb_qt.win.driver']
             cwd = str(Path(__file__).resolve().parents[1])
         else:
-            entry = [str(Path(self.repo_path, 'scripts', 'build_ipa_from_nsp.py'))]
-            cwd = self.repo_path
+            entry = [str(Path(self.engine_path, 'scripts', 'build_ipa_from_nsp.py'))]
+            cwd = self.engine_path
         args = entry + [input_dir, '-k', self.keys_path, '--progress', 'lines']
         has_work_dir = self.supports_work_dir()
         if has_work_dir:
@@ -1104,7 +1261,7 @@ class Model(QObject):
                     self.log(f'[shim] {why}\n')
             except Exception as e:      # a broken shim must be visible, not fatal
                 self.log(f'[shim] could not prepare the Windows shim: {e}\n')
-            env['NSPB_REPO'] = self.repo_path
+            env['NSPB_REPO'] = self.engine_path
 
         def work() -> None:
             ok = False
@@ -1185,6 +1342,10 @@ class Model(QObject):
             row = next((d for d in self.deps if d.id == 'dotnet'), None)
             if row:
                 self.install_dep(row)
+        elif f.kind == bf.ZBIC:
+            # the python row's own fix (a venv with the packages, zbic among them): the row may read OK, so the command is built here
+            self.install_dep(Dep('python', 'dep.python', 'dep.python.hint', DepState.MISSING,
+                                 install=[self.python_path, '-m', 'pip', 'install', 'zbic']))
         elif f.kind == bf.IOS_SDK and not pu.IS_WIN:
             self.install_dep(Dep('xcode', 'dep.xcode', 'dep.xcode.hint', DepState.MISSING,
                                  install=['/usr/bin/xcodebuild', '-downloadPlatform', 'iOS']))
@@ -1250,9 +1411,9 @@ class Model(QObject):
         self.stagesChanged.emit()
 
         def work_() -> None:
-            args = [self.python_path, str(Path(self.repo_path, 'dm', 'tools', 'romfs_image.py')),
+            args = [self.python_path, str(Path(self.engine_path, 'dm', 'tools', 'romfs_image.py')),
                     '--reuse', romfs, str(Path(dest, 'romfs.img'))]
-            env = pu.child_env({'PYTHONPATH': str(Path(self.repo_path, 'dm', 'tools'))})
+            env = pu.child_env({'PYTHONPATH': str(Path(self.engine_path, 'dm', 'tools'))})
             ok = True
             try:
                 p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -1276,13 +1437,5 @@ class Model(QObject):
 
     @staticmethod
     def _title_id(nsp: str) -> int | None:
-        """The title ID from a dump's file name: the 16 hex digits in [0100…], which every
-        dumper puts there."""
-        import re
-        m = re.search(r'\[([0-9A-Fa-f]{16})\]', Path(nsp).name)
-        if not m:
-            return None
-        try:
-            return int(m.group(1), 16)
-        except ValueError:
-            return None
+        """The title ID from a dump's file name: bracketed [0100…] or a bare 16-digit ID."""
+        return inputs.title_id(Path(nsp).name)

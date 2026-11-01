@@ -1,0 +1,135 @@
+"""Where the engine of a checkout is, and whether it needs `tools/engine.py sync` (LNPANDY/NX2Apple#214).
+
+The engine is not committed: it is built into `<checkout>/engine/` (seedds/nxnative at `.upstream-ref` plus `patches/`) by
+`tools/engine.py sync`. The rule, the same as the Mac launcher's (frontend/Sources/NSPortBuilder/Engine.swift). The sync is for
+checkouts (a release carries the engine tree instead, #227): it downloads the pinned commit from GitHub, and a failed one becomes a
+failure row (`failure_kind`):
+
+- a checkout of this repository (it has tools/engine.py and .upstream-ref): engine/, which the caller syncs first when it is stale
+  or missing,
+- else a folder that is an engine tree itself (dm/ at its root: the engine a release carries or installs, or a seedds/nxnative
+  clone): that folder,
+- else engine/ as it is.
+
+`stamp_key` is tools/engine.py's: a digest of the pin and the series, compared with the stamp sync wrote into engine/.git, so
+the launcher can tell a stale engine without starting Python. Pure stdlib, no Qt.
+"""
+from __future__ import annotations
+
+import hashlib
+import subprocess
+from pathlib import Path
+from typing import Callable
+
+MARKER = ('dm', 'tools', 'nx_extract', 'Program.cs')   # the file that tells an engine tree (as BuildModel.is_repo always did)
+STAMP = Path('.git', 'nx2apple-stamp')
+
+
+def _series(root: Path) -> list[str]:
+    out = []
+    for line in (root / 'patches' / 'series').read_text(encoding='utf-8').splitlines():
+        line = line.split('#', 1)[0].strip()
+        if line:
+            out.append(line)
+    return out
+
+
+def stamp_key(root: str | Path) -> str:
+    root = Path(root)
+    h = hashlib.sha256()
+    h.update(b'pin ' + (root / '.upstream-ref').read_text(encoding='utf-8').strip().encode() + b'\n')
+    for name in _series(root):
+        data = (root / 'patches' / name).read_bytes()
+        h.update(b'patch ' + name.encode() + b'\n' + hashlib.sha256(data).hexdigest().encode() + b'\n')
+    return h.hexdigest()
+
+
+def has_engine_tool(repo: str) -> bool:
+    """A checkout with tools/engine.py: it can make its engine/ (the layout of #214)."""
+    return bool(repo) and Path(repo, 'tools', 'engine.py').is_file() and Path(repo, '.upstream-ref').is_file()
+
+
+def _head(eng: Path) -> str:
+    """HEAD of engine/ read from its files (no git process): the detached id, or the id its branch points to."""
+    git = eng / '.git'
+    try:
+        head = (git / 'HEAD').read_text(encoding='utf-8').strip()
+    except OSError:
+        return ''
+    if not head.startswith('ref: '):
+        return head
+    ref = head[5:]
+    try:
+        return (git / ref).read_text(encoding='utf-8').strip()
+    except OSError:
+        pass
+    try:
+        for line in (git / 'packed-refs').read_text(encoding='utf-8').splitlines():
+            if line.endswith(' ' + ref):
+                return line.split(' ', 1)[0]
+    except OSError:
+        pass
+    return ''
+
+
+def is_stale(repo: str) -> bool:
+    """True when the checkout can make engine/ and engine/ is missing or not built from the current pin and series."""
+    if not has_engine_tool(repo):
+        return False
+    eng = Path(repo, 'engine')
+    try:
+        stamp = dict(l.split(' ', 1) for l in (eng / STAMP).read_text(encoding='utf-8').splitlines() if ' ' in l)
+        return stamp.get('key') != stamp_key(repo) or stamp.get('head') != _head(eng)
+    except (OSError, ValueError):
+        return True
+
+
+def engine_root(repo: str) -> str:
+    """The folder holding dm/ and scripts/ for this checkout (see the module's rule)."""
+    if not repo:
+        return repo
+    eng = Path(repo, 'engine')
+    if has_engine_tool(repo):
+        return str(eng)
+    if Path(repo, *MARKER).is_file():
+        return repo
+    return str(eng) if eng.joinpath(*MARKER).is_file() else repo
+
+
+def is_checkout(d: str) -> bool:
+    """A folder the launcher can build from: a checkout with tools/engine.py to make engine/, a synced engine/, or an engine tree."""
+    return bool(d) and (Path(d, *MARKER).is_file() or Path(d, 'engine', *MARKER).is_file() or has_engine_tool(d))
+
+
+def needs_sync_before_build(repo: str) -> bool:
+    """engine/ is the only engine and it is stale or missing: the build syncs it first."""
+    return has_engine_tool(repo) and is_stale(repo)
+
+
+def sync_command(repo: str, python: str) -> list[str]:
+    return [python, str(Path(repo, 'tools', 'engine.py')), 'sync']
+
+
+ENGINE_OFFLINE = 'engineOffline'   # the fetch of the pinned commit failed: no network, GitHub unreachable, a proxy
+ENGINE_SYNC = 'engineSync'         # any other stop of the sync
+
+
+def failure_kind(log: str) -> str:
+    """What a failed sync was, from its output: tools/engine.py says "cannot fetch" when the pinned commit cannot be fetched."""
+    return ENGINE_OFFLINE if 'cannot fetch ' in log else ENGINE_SYNC
+
+
+def run_sync(cmd: list[str], cwd: str, line: Callable[[str], None], **popen) -> tuple[bool, str | None]:
+    """Run the sync command, pass its lines on, and return (ok, failure kind or None). Blocking: call it off the UI thread."""
+    tail = ''
+    try:
+        p = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors='replace', **popen)
+        assert p.stdout is not None
+        for out in p.stdout:
+            line(out)
+            tail = (tail + out)[-4000:]
+        ok = p.wait() == 0
+    except OSError as e:
+        line(f'{e}\n')
+        return False, ENGINE_SYNC
+    return ok, None if ok else failure_kind(tail)

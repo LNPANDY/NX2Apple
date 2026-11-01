@@ -1,31 +1,39 @@
-"""Language choice: Chinese and Swedish devices use their matching catalog."""
+"""Language choice: Chinese, Swedish, German and French devices use their matching catalog."""
 from __future__ import annotations
 
 import locale
 import os
+import re
 import sys
 from enum import Enum
+
+# "fr" alone or followed by a separator (fr_FR, fr-CA, fr_BE.UTF-8), and not a longer code such as
+# "fry" (Frisian); Windows spells the locale out ("French_France"), matched by name instead.
+_FRENCH = re.compile(r'fr(?![a-z])')
 
 
 class Lang(Enum):
     ZH = 'zh'
     EN = 'en'
     SV = 'sv'
+    DE = 'de'
+    FR = 'fr'
 
     @property
     def other(self) -> 'Lang':
-        return {Lang.ZH: Lang.EN, Lang.EN: Lang.SV, Lang.SV: Lang.ZH}[self]
+        return {Lang.ZH: Lang.EN, Lang.EN: Lang.SV, Lang.SV: Lang.DE, Lang.DE: Lang.FR, Lang.FR: Lang.ZH}[self]
 
     @property
     def toggle_label(self) -> str:
-        return {Lang.ZH: 'EN', Lang.EN: 'Svenska', Lang.SV: '中文'}[self]
+        return {Lang.ZH: 'EN', Lang.EN: 'Svenska', Lang.SV: 'Deutsch', Lang.DE: 'Français', Lang.FR: '中文'}[self]
 
     @staticmethod
     def initial() -> 'Lang':
-        """Saved choice, else the device language: any Chinese variant is Chinese, everything
-        else is English (the same rule the SwiftUI app uses)."""
+        """Saved choice, else the device language: Chinese, Swedish, German and French (by language
+        code or Windows locale name) use their own catalog, everything else is English (the same
+        rule the SwiftUI app uses)."""
         saved = os.environ.get('NSPB_LANG', '')
-        if saved in ('zh', 'en', 'sv'):
+        if saved in ('zh', 'en', 'sv', 'de', 'fr'):
             return Lang(saved)
         if sys.platform.startswith('win'):
             # Ask Windows first, and always — not only when locale.getlocale() came back empty.
@@ -41,13 +49,23 @@ class Lang(Enum):
             # (the Windows report of "the exe is still not Chinese").
             import ctypes
             try:
-                lang = ctypes.windll.kernel32.GetUserDefaultUILanguage() & 0xFF   # primary id
+                lang = ctypes.windll.kernel32.GetUserDefaultUILanguage() & 0x3FF   # LANGID: the primary language
                 buf = ctypes.create_unicode_buffer(85)
-                if ctypes.windll.kernel32.GetLocaleInfoW(lang, 0x00000002, buf, 85):   # LOCALE_SISO639LANGNAME
-                    low = buf.value.lower()
+                # LOCALE_SISO639LANGNAME (0x59) is the ISO 639 code ("zh", "sv", "de"). 0x02 (LOCALE_SLANGUAGE)
+                # is the *localized display name* — "中文(简体，中国)" — so a Chinese Windows never matched
+                # the prefix test here and the early return handed that user an English interface.
+                if ctypes.windll.kernel32.GetLocaleInfoW(lang, 0x00000059, buf, 85):
+                    low = buf.value.strip().lower()
                     if low.startswith('zh'):
                         return Lang.ZH
-                    return Lang.SV if low.startswith('sv') else Lang.EN
+                    if low.startswith('sv'):
+                        return Lang.SV
+                    if re.match(r'de($|[^a-z])', low):
+                        return Lang.DE
+                    if _FRENCH.match(low):
+                        return Lang.FR
+                    if low:                    # a real code we do not translate: this device is neither
+                        return Lang.EN
             except Exception:
                 pass          # fall through to the environment
         try:
@@ -60,4 +78,8 @@ class Lang(Enum):
         low = tag.lower()
         if low.startswith('zh') or 'chinese' in low:
             return Lang.ZH
-        return Lang.SV if low.startswith('sv') or 'swedish' in low else Lang.EN
+        if low.startswith('sv') or 'swedish' in low:
+            return Lang.SV
+        if re.match(r'de($|[^a-z])', low) or 'german' in low or 'deutsch' in low:
+            return Lang.DE
+        return Lang.FR if _FRENCH.match(low) or 'french' in low else Lang.EN

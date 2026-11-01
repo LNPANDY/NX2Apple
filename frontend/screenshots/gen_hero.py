@@ -22,7 +22,7 @@ CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 def repo_numbers() -> tuple[int, int]:
     """(game profiles, verified on an iPhone): the dm/games/0100… folders, and GAMES.md's games
     table rows that say they were verified."""
-    games = sum(1 for d in (REPO / 'dm/games').iterdir() if d.is_dir() and d.name.startswith('0100'))
+    games = sum(1 for d in (REPO / 'engine/dm/games').iterdir() if d.is_dir() and d.name.startswith('0100'))
     readme = (REPO / 'GAMES.md').read_text(encoding='utf-8')
     verified = sum(1 for ln in readme.splitlines()
                    if ln.startswith('| ') and ln.count('`') >= 2
@@ -125,11 +125,20 @@ def render(page: str, out: Path, w: int, h: int) -> None:
     print('saved', out.relative_to(REPO))
 
 
+def app_icon() -> Path:
+    """The 256 px icon from the compiled frontend/AppIcon.icon (actool needs Xcode 26 or later)."""
+    out = Path(tempfile.mkdtemp())
+    subprocess.run(['xcrun', 'actool', str(REPO / 'frontend/AppIcon.icon'), '--compile', str(out), '--platform', 'macosx',
+                    '--minimum-deployment-target', '13.0', '--app-icon', 'AppIcon',
+                    '--output-partial-info-plist', str(out / 'partial.plist')], check=True, stdout=subprocess.DEVNULL)
+    subprocess.run(['iconutil', '-c', 'iconset', str(out / 'AppIcon.icns'), '-o', str(out / 'icon.iconset')], check=True)
+    return out / 'icon.iconset/icon_128x128@2x.png'
+
+
 def main() -> int:
     if not Path(CHROME).exists():
         sys.exit('needs Google Chrome in /Applications (it renders the HTML)')
-    common = {'font': (REPO / 'frontend/fonts/Manrope.ttf').as_uri(),
-              'icon': (REPO / 'frontend/icon.iconset/icon_256x256@2x.png').as_uri()}
+    common = {'font': (REPO / 'frontend/fonts/Manrope.ttf').as_uri(), 'icon': app_icon().as_uri()}
     games, verified = repo_numbers()
     w, h = 1050, 350   # 2100x700 at 2x, the banner's old size
     for lang in TEXT.values():

@@ -111,8 +111,9 @@ final class ControlLayout: ObservableObject {
         if let data = try? JSONEncoder().encode(Saved(keys: keys.mapValues { $0 ?? -1 }, pad: pad, mode: padMode.rawValue)) { defaults.set(data, forKey: "controlLayout") }
     }
 
-    /// A key's name on a US keyboard, by virtual key code (the host reads codes, so the name is only for the label).
-    static func keyName(_ code: Int?) -> String? {
+    /// A key's name on a US keyboard, by virtual key code (the host reads codes, so the name is only for the label), in the
+    /// launcher's language through `t` where the key has a word for a name (key.<name>, key.keypad, key.code).
+    static func keyName(_ code: Int?, _ t: (String) -> String = { $0 }) -> String? {
         guard let code else { return nil }
         let names: [Int: String] = [
             0: "A", 1: "S", 2: "D", 3: "F", 4: "H", 5: "G", 6: "Z", 7: "X", 8: "C", 9: "V", 11: "B", 12: "Q", 13: "W", 14: "E", 15: "R",
@@ -125,7 +126,10 @@ final class ControlLayout: ObservableObject {
             113: "F15", 115: "Home", 116: "Page Up", 117: "Forward Delete", 118: "F4", 119: "End", 120: "F2", 121: "Page Down", 122: "F1",
             123: "←", 124: "→", 125: "↓", 126: "↑",
         ]
-        return names[code] ?? "Key \(code)"
+        func known(_ key: String) -> String? { let s = t(key); return s == key ? nil : s }
+        guard let name = names[code] else { return known("key.code").map { String(format: $0, code) } ?? "Key \(code)" }
+        if name.hasPrefix("Keypad "), let f = known("key.keypad") { return String(format: f, String(name.dropFirst("Keypad ".count))) }
+        return known("key." + name.lowercased().replacingOccurrences(of: " ", with: "_")) ?? name
     }
 }
 
@@ -227,7 +231,7 @@ struct ControlsView: View {
                     .buttonStyle(.plain).help(m.t("controls.clear"))
                 }
                 Button { on ? stopListening() : listen(f) } label: {
-                    Text(on ? m.t("controls.press") : ControlLayout.keyName(key) ?? m.t("controls.none"))
+                    Text(on ? m.t("controls.press") : ControlLayout.keyName(key, m.t) ?? m.t("controls.none"))
                         .font(.manrope(12.5, on ? .bold : .semibold))
                         .foregroundStyle(on ? Color.black : key == nil ? Color.white.opacity(0.45) : Color.white.opacity(0.92))
                         .frame(maxWidth: .infinity).padding(.vertical, 6)
@@ -248,8 +252,8 @@ struct ControlsView: View {
                         let at = choices.firstIndex(of: layout.sends(button)) ?? 0
                         layout.setSends(button, choices[(at + by + choices.count) % choices.count])
                     }) {
-            LauncherMenuPicker(options: ControlLayout.buttons.map { (value: $0, label: m.t("controls.fn." + $0)) } + [(value: "none", label: m.t("controls.none"))],
-                               selection: layout.sends(button), fill: true) { layout.setSends(button, $0) }
+            LauncherDropdown(options: ControlLayout.buttons.map { (value: $0, label: m.t("controls.fn." + $0)) } + [(value: "none", label: m.t("controls.none"))],
+                             selection: layout.sends(button), label: m.t("controls.fn." + button), fill: true) { layout.setSends(button, $0) }
                 .frame(width: 168)   // the keyboard rows' width (× and key field), and "Right stick press" fits
         }
     }

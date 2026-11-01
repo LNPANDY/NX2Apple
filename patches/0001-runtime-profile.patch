@@ -11,26 +11,26 @@ Upstream-Status: pending (design note seedds/nxnative#492)
 Reason: One host binary for every game: the profile constants are read at run time (DM_PROFILE, dm_profile()), not only as compile-time macros; the launcher needs it
 Issue: LNPANDY/NX2Apple#123
 ---
- dm/games/game.py                 |  34 +++++
+ dm/games/game.py                 |  34 ++++
  dm/host/dm.h                     |   1 +
  dm/host/hle_fpslock.c            |   2 +-
  dm/host/hle_fs.c                 |   2 +-
  dm/host/hle_os.c                 |   4 +-
- dm/host/hle_profile.c            | 242 +++++++++++++++++++++++++++++++
- dm/host/hle_profile.h            |  37 +++++
- dm/host/hle_svc.c                |  34 ++---
+ dm/host/hle_profile.c            | 281 +++++++++++++++++++++++++++++++
+ dm/host/hle_profile.h            |  37 ++++
+ dm/host/hle_svc.c                |  34 ++--
  dm/host/loader.c                 |   2 +-
- dm/host/tests/Makefile           |  58 ++++----
- dm/host/tests/t_layout_runtime.c | 103 +++++++++++++
+ dm/host/tests/Makefile           |  60 +++----
+ dm/host/tests/t_layout_runtime.c | 103 +++++++++++
  dm/ios/Sources/DmGamepad.m       |   2 +-
  docs/env_switches.tsv            |   1 +
- 13 files changed, 470 insertions(+), 52 deletions(-)
+ 13 files changed, 510 insertions(+), 53 deletions(-)
  create mode 100644 dm/host/hle_profile.c
  create mode 100644 dm/host/hle_profile.h
  create mode 100644 dm/host/tests/t_layout_runtime.c
 
 diff --git a/dm/games/game.py b/dm/games/game.py
-index b86f1a2e..7a505e2a 100644
+index 5d04719..359d377 100644
 --- a/dm/games/game.py
 +++ b/dm/games/game.py
 @@ -199,6 +199,40 @@ if __name__ == '__main__':
@@ -75,7 +75,7 @@ index b86f1a2e..7a505e2a 100644
          print(load(a[1]).dir)
      elif len(a) == 3 and a[0] == 'link':   # link → the profile folder (replaced when it points elsewhere)
 diff --git a/dm/host/dm.h b/dm/host/dm.h
-index 53332280..a0ba4241 100644
+index 25be8aa..3ad1bb2 100644
 --- a/dm/host/dm.h
 +++ b/dm/host/dm.h
 @@ -7,6 +7,7 @@
@@ -87,20 +87,20 @@ index 53332280..a0ba4241 100644
  // Explicit host work does not occupy a guest core (Metal submission, or a blocked native codec lock). A contended host mutex must count as blocked: a signal's same-core handoff
  // can otherwise wait forever for a peer that needs the signaller's native lock. Uncontended locks retain guest ordering; the counter nests inside existing host work.
 diff --git a/dm/host/hle_fpslock.c b/dm/host/hle_fpslock.c
-index 571b22cc..baa3686f 100644
+index b2d07fb..eea8efc 100644
 --- a/dm/host/hle_fpslock.c
 +++ b/dm/host/hle_fpslock.c
-@@ -220,7 +220,7 @@ void dm_fps_lock_tick(void) {
-             for (int k = 0; k < NLOCKS; k++) if (!strcmp(g_mod[i].build_id, k_locks[k].build)) { rows[nrow++] = k; base = g_mod[i].base; }
+@@ -207,7 +207,7 @@ void dm_fps_lock_tick(void) {
+             for (int k = 0; k < nue; k++) { rows[nrow++] = &ue[k]; base = g_mod[i].base; }
          }
-         fb_find(); if (!nrow && !nier && !fb.n) return;
+         fb_find(); if (!nrow && !nier && !fb.n && !ue_missing) return;
 -        const char *e = getenv("DM_FPS_TARGET"); int t = e ? atoi(e) : DM_GAME_FPS_TARGET; src = e ? "DM_FPS_TARGET" : "game profile fps_target";
 +        const char *e = getenv("DM_FPS_TARGET"); int t = e ? atoi(e) : dm_profile()->fps_target; src = e ? "DM_FPS_TARGET" : "game profile fps_target";
          if (t != 0 && t != 30 && t != 60) { LOG("[RED] DM_FPS_TARGET=%s: must be 0, 30 or 60; leaving the game's frame limit", e); t = 0; }
-         if (!t) { for (int r = 0; r < nrow; r++) LOG("main: %s left as the game sets it (%s)", k_locks[rows[r]].what, src); if (nier) LOG("main: NieR frame interval left as the game sets it (%s)", src);
-                   if (fb.n) LOG("main: Frostbite simulation rate left as the game sets it (%s)", src); return; }
+         if (t && ue_missing) LOG("[RED] main: Unreal %s not found by the rewriter (ue_cvar.py NAMES; game profile ue_fps_cvar): the game's own frame limit stays", DM_GAME_UE_FPS_CVAR);
+         if (!nrow && !nier && !fb.n) return;
 diff --git a/dm/host/hle_fs.c b/dm/host/hle_fs.c
-index 92fc9561..f4fe8061 100644
+index 92fc956..f4fe806 100644
 --- a/dm/host/hle_fs.c
 +++ b/dm/host/hle_fs.c
 @@ -590,7 +590,7 @@ HLE_FORCE("_ZN2nn2fs14ExtendSaveDataERKNS_7account3UidEll", "fsp-srv; extend sav
@@ -113,7 +113,7 @@ index 92fc9561..f4fe8061 100644
  HLE_FORCE("_ZN2nn2fs21MountSaveDataReadOnlyEPKcNS_13ApplicationIdERKNS_7account3UidE", "fsp-srv; another program's save data: none", Result, h_fs_MountSaveRO, const char *name, uint64_t app, const void *uid) {
      (void)uid; LOG("[RED] fs read-only mount of another program's save data %s: program %016llx, the host has none", name, (unsigned long long)app); return 0x7d402u;   // fs ResultTargetNotFound
 diff --git a/dm/host/hle_os.c b/dm/host/hle_os.c
-index 2d1afec7..14b3ee58 100644
+index 2d1afec..14b3ee5 100644
 --- a/dm/host/hle_os.c
 +++ b/dm/host/hle_os.c
 @@ -120,7 +120,7 @@ HLE_FORCE("_ZN2nn6crypto36GenerateCryptographicallyRandomBytesEPvm", "csrng serv
@@ -136,10 +136,10 @@ index 2d1afec7..14b3ee58 100644
  HLE_FORCE("_ZN2nn3mem17StandardAllocator8AllocateEm", "passed straight to the SDK; with the profile's alloc_big_align (13 Sentinels, Unicorn Overlord) allocations ≥ 64 KB are 64 KB aligned (memory pool start)", void *, h_mem_SAAllocate, void *self, size_t size) {
 diff --git a/dm/host/hle_profile.c b/dm/host/hle_profile.c
 new file mode 100644
-index 00000000..03ce4268
+index 0000000..93c7ad5
 --- /dev/null
 +++ b/dm/host/hle_profile.c
-@@ -0,0 +1,242 @@
+@@ -0,0 +1,281 @@
 +// Runtime game profile: see hle_profile.h. One IPA for every game reads its layout, switches and tables from DM_PROFILE
 +// instead of having them compiled in (game_profile.h stays the fallback, so a build without DM_PROFILE is unchanged).
 +#include "dm.h"
@@ -167,8 +167,11 @@ index 00000000..03ce4268
 +}
 +
 +// ---- defaults: exactly what game_profile.h (generated from game.tsv) compiles in ----
-+// A profile header may be partial (the unit tests' synthetic one carries only the memory constants), so every group is guarded:
-+// a missing macro means "the game does not set this key", which is also what game.py leaves out when game.tsv has no such row.
++// A profile header may be partial (the unit tests' synthetic one carries only the memory constants, and game.py leaves a macro
++// out when game.tsv has no such row), so every macro is guarded on its own: a missing one means "the game does not set this key".
++// One shared guard per block was enough while the header defined the whole block, and broke when upstream dropped Wonder's
++// feedback_snap row (2026-10-30): the header still defined DM_GAME_PRESENT_DISPLAY, so the block's defaults were skipped and
++// DM_GAME_FEEDBACK_SNAP stayed undeclared.
 +#ifndef DM_GAME_ID
 +#define DM_GAME_ID ""
 +#define DM_GAME_NAME ""
@@ -193,23 +196,59 @@ index 00000000..03ce4268
 +#endif
 +#ifndef DM_GAME_PRESENT_DISPLAY
 +#define DM_GAME_PRESENT_DISPLAY 0
++#endif
++#ifndef DM_GAME_CORE_PREEMPT
 +#define DM_GAME_CORE_PREEMPT 0
++#endif
++#ifndef DM_GAME_ALLOC_BIG_ALIGN
 +#define DM_GAME_ALLOC_BIG_ALIGN 0
++#endif
++#ifndef DM_GAME_FPS_TARGET
 +#define DM_GAME_FPS_TARGET 0
++#endif
++#ifndef DM_GAME_FPS_HOLD
 +#define DM_GAME_FPS_HOLD 1
++#endif
++#ifndef DM_GAME_PRESENT_SNAP
 +#define DM_GAME_PRESENT_SNAP 0
++#endif
++#ifndef DM_GAME_PSO_MTL4
 +#define DM_GAME_PSO_MTL4 0
++#endif
++#ifndef DM_GAME_PAD_LAYOUT
 +#define DM_GAME_PAD_LAYOUT 0
++#endif
++#ifndef DM_GAME_OPMODE
 +#define DM_GAME_OPMODE 1
++#endif
++#ifndef DM_GAME_PERF_BOOST
 +#define DM_GAME_PERF_BOOST 0
++#endif
++#ifndef DM_GAME_FEEDBACK_SNAP
 +#define DM_GAME_FEEDBACK_SNAP ""
++#endif
++#ifndef DM_GAME_TEX_FLUSH_UPLOAD
 +#define DM_GAME_TEX_FLUSH_UPLOAD 0
++#endif
++#ifndef DM_GAME_RENDER_COND
 +#define DM_GAME_RENDER_COND 0
++#endif
++#ifndef DM_GAME_TEX_DIRTY_UPLOAD
 +#define DM_GAME_TEX_DIRTY_UPLOAD 0
++#endif
++#ifndef DM_GAME_TEX_DYN_SLOTS
 +#define DM_GAME_TEX_DYN_SLOTS 0
++#endif
++#ifndef DM_GAME_GPU_TS_SEGMENT
 +#define DM_GAME_GPU_TS_SEGMENT 0
++#endif
++#ifndef DM_GAME_VCONV_RANGE
 +#define DM_GAME_VCONV_RANGE 0
++#endif
++#ifndef DM_GAME_ARGS
 +#define DM_GAME_ARGS ""
++#endif
++#ifndef DM_GAME_ENV
 +#define DM_GAME_ENV ""
 +#endif
 +static void defaults(void) {
@@ -384,7 +423,7 @@ index 00000000..03ce4268
 +}
 diff --git a/dm/host/hle_profile.h b/dm/host/hle_profile.h
 new file mode 100644
-index 00000000..a2febeb3
+index 0000000..a2febeb
 --- /dev/null
 +++ b/dm/host/hle_profile.h
 @@ -0,0 +1,37 @@
@@ -426,7 +465,7 @@ index 00000000..a2febeb3
 +const struct dm_profile *dm_profile(void);   // loaded once; never NULL
 +void dm_profile_log(void);                   // one line per differing value (called after loading)
 diff --git a/dm/host/hle_svc.c b/dm/host/hle_svc.c
-index 84f55398..085cc71f 100644
+index 4f440a0..5e7eb0e 100644
 --- a/dm/host/hle_svc.c
 +++ b/dm/host/hle_svc.c
 @@ -16,7 +16,7 @@
@@ -438,7 +477,7 @@ index 84f55398..085cc71f 100644
  static uint8_t *g_as;              // ASLR region base = the whole block
  static size_t g_reserve;           // its size: RESERVE, or more with a DM_ALIAS_SIZE alias region
  static uint8_t *g_heap; static _Atomic size_t g_heap_cur; static size_t g_heap_cap;
-@@ -33,15 +33,15 @@ static void *alias_windows_thread(void *arg);
+@@ -41,15 +41,15 @@ static void *alias_windows_thread(void *arg);
  static void *regions_thread(void *arg);
  static void mem_init_once(void) {
      size_t pg = (size_t)getpagesize();
@@ -459,7 +498,7 @@ index 84f55398..085cc71f 100644
      g_as = mmap(NULL, g_reserve, PROT_NONE, MAP_PRIVATE | MAP_ANON, -1, 0);
      if (g_as == MAP_FAILED) die("reserve guest AS");
      // Fixed partition (all inside the reserved block): alias 2.875 GB, stack 256 MB, heap the remaining 1.625 GB.
-@@ -51,7 +51,7 @@ static void mem_init_once(void) {
+@@ -59,7 +59,7 @@ static void mem_init_once(void) {
      //   got no address, were skipped, and crashed on a null pointer when used (main +0x373e04). So alias = node area + 1.75 GB + slack; the heap needs only 1.47 GB, and 2.625 GB is plenty.
      // The alias and stack sizes come from the game profile (mem_alias / mem_stack), the heap takes the rest; Mario: alias 0xB8000000, stack 0x10000000 → stack at +0xC8000000, heap at +0xD8000000
      g_alias = g_as + 0x10000000; g_alias_cap = alias;
@@ -468,7 +507,7 @@ index 84f55398..085cc71f 100644
      g_heap  = g_stack + g_stack_cap; g_heap_cap  = g_reserve - (size_t)(g_heap - g_as);
      if (!(g_alias_bits = calloc((g_alias_cap >> 18) + 1, sizeof *g_alias_bits))) die("alias region page bitmap calloc");
      if (!(g_alias_exposed = calloc(g_alias_cap / pg / 64 + 1, sizeof *g_alias_exposed))) die("alias exposure bitmap calloc");
-@@ -70,7 +70,7 @@ static void mem_init(void) {
+@@ -78,7 +78,7 @@ static void mem_init(void) {
  // and hands the whole block to its own StandardAllocator (main+0x32137a0) -- so heap size = pool − image footprint, it has only as much as the host reports.
  // Previously 3 GB was reported here and SetHeapSize never failed: the heap was about 150 MB smaller than on the real device, at the run entry peak the main heap had only about 18 MB left, and under high local load a timing shift made a 128 KB request return null,
  // which the guest writes to without a null check (CRASH main+0x1b36138, re-verified after merge with inv_tap).
@@ -477,7 +516,7 @@ index 84f55398..085cc71f 100644
  static size_t image_bytes(void) { size_t n = 0; for (int i = 0; i < g_nmod; i++) if (!g_mod[i].nro) n += g_mod[i].size;   // an NRO lives in memory the game allocated (its image and bss buffers)
      return (n + 0x1fffff) & ~(size_t)0x1fffff; }
  // Giant bss (modules with the patch area before the base, patch_nso.py FAR): the image bytes beyond the file part. Used memory was reported as "heap + 64 MB", where the 64 MB covers ordinary modules' code and data (Mario's two modules are about 74 MB together,
-@@ -416,11 +416,11 @@ uint64_t svc_dispatch(int num, uint64_t *regs, uint64_t orig_addr) {
+@@ -459,11 +459,11 @@ uint64_t svc_dispatch(int num, uint64_t *regs, uint64_t orig_addr) {
              // Logged once (Mario's retries would repeat it): a game that sizes its heap as pool − used memory and does not retry stops here when its modules are larger than the used memory reported
              // (profile mem_used; the NSP script's probe boot reads this line, and sets mem_used when no SetHeapSize succeeds afterwards)
              static int once; if (!once++) LOG("[mem] SetHeapSize %#zx + modules %#zx > app pool %#llx (used memory reported %#llx + bss %#zx)", size, image_bytes() - big_bss_bytes(),
@@ -492,7 +531,7 @@ index 84f55398..085cc71f 100644
              pthread_mutex_unlock(&g_map_lock); regs[0] = 0x10801; return 0;
          }
          int rc = 0;
-@@ -564,8 +564,8 @@ uint64_t svc_dispatch(int num, uint64_t *regs, uint64_t orig_addr) {
+@@ -607,8 +607,8 @@ uint64_t svc_dispatch(int num, uint64_t *regs, uint64_t orig_addr) {
          // and maps new ones for later allocations, until a map fails: then it unmaps the cached block and retries (measured on the Mac: the refused 4 MB map at +0x43e2c000 was followed by
          // UnmapPhysicalMemory of the 3.15 GB block and the same map again). Without the limit the mapped total went past the pool in the first minute and the freed block stayed mapped.
          // Off by default: Ace Attorney Investigations Collection maps a little more than the 1 GB pool its profile reports
@@ -503,7 +542,7 @@ index 84f55398..085cc71f 100644
              if (need && need > room) {
                  pthread_mutex_unlock(&g_map_lock);
                  static _Atomic int nref; if (atomic_fetch_add(&nref, 1) < 8) LOG("[mem] MapPhysicalMemory +%#zx refused: %.2f GB mapped, the application pool is full (ResultLimitReached, the SDK frees cached pages and retries)",
-@@ -627,16 +627,16 @@ uint64_t svc_dispatch(int num, uint64_t *regs, uint64_t orig_addr) {
+@@ -670,16 +670,16 @@ uint64_t svc_dispatch(int num, uint64_t *regs, uint64_t orig_addr) {
          case I_StackAddr: v = (uint64_t)g_stack; break;   case I_StackSize: v = g_stack_cap; break;
          case I_TotalMem: case I_TotalNonSys: v = APP_POOL; break;
          case I_UsedMem:  case I_UsedNonSys:  pthread_mutex_lock(&g_map_lock);
@@ -525,10 +564,10 @@ index 84f55398..085cc71f 100644
          // nn::os::GetFreeThreadCount (SDK 11+): the thread resource limit less the threads alive, as the kernel answers it (Atmosphère kern_svc_info.cpp). pm gives an application a limit of
          // 96 threads (pm_spec.cpp BaseApplicationThreads; a boost raises it to 256). Monster Train 2's Unity 2022.3 player creates a thread only when this is at least 1: the 0 it got here
 diff --git a/dm/host/loader.c b/dm/host/loader.c
-index e0e89096..0a4a9ee6 100644
+index 6771666..fb14972 100644
 --- a/dm/host/loader.c
 +++ b/dm/host/loader.c
-@@ -233,7 +233,7 @@ static void install_fps_state(module_t *m) {
+@@ -239,7 +239,7 @@ static void install_fps_state(module_t *m) {
  // DM_RENDER_SCALE (Launcher.swift), and nothing reads the page before the game runs
  void dm_fps_state_apply(void) {
      if (!dm_fps_state) return;
@@ -538,10 +577,10 @@ index e0e89096..0a4a9ee6 100644
      float f = (float)t; memcpy(dm_fps_state, &f, sizeof f);
      // Render scale of the 3D views (the stubs at Tears of the Kingdom's main+0xd5cc0, Breath of the Wild's main+0x1266880): 1.0 keeps the game's own size and dynamic resolution;
 diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
-index b063d216..d648b693 100644
+index b639c75..099bcfe 100644
 --- a/dm/host/tests/Makefile
 +++ b/dm/host/tests/Makefile
-@@ -54,7 +54,7 @@ run: $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture
+@@ -61,7 +61,7 @@ run: $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture
  run: $(B)/t_nro
  run: $(B)/t_symbols
  $(B)/t_symbols: t_symbols.c ../hle.c ../loader.c ../hle.h ../dm.h $(GAME_H) | $(B)
@@ -550,7 +589,7 @@ index b063d216..d648b693 100644
  .PHONY: symbols
  symbols: $(B)/t_symbols
  	$(B)/t_symbols
-@@ -72,12 +72,12 @@ $(B)/t_audren_layout: t_audren_layout.c ../hle_audren.c ../hle.h ../dm.h $(GAME_
+@@ -79,12 +79,12 @@ $(B)/t_audren_layout: t_audren_layout.c ../hle_audren.c ../hle.h ../dm.h $(GAME_
  audren-layout: $(B)/t_audren_layout
  	$(B)/t_audren_layout
  $(B)/t_system_event: t_system_event.c ../hle_thread.c ../hle_sdk16.c ../hle.h ../dm.h $(GAME_H) | $(B)
@@ -565,7 +604,7 @@ index b063d216..d648b693 100644
  .PHONY: nro
  nro: $(B)/t_nro
  	$(B)/t_nro
-@@ -85,7 +85,7 @@ nro: $(B)/t_nro
+@@ -98,7 +98,7 @@ cheats: $(B)/t_cheats
  $(GAME_H): FORCE
  	$(MAKE) -C .. game_profile GAME=$(GAME)
  $(B)/t_heap_size: t_heap_size.c ../hle_svc.c ../dm.h $(GAME_H) | $(B)
@@ -574,7 +613,7 @@ index b063d216..d648b693 100644
  .PHONY: heap_size
  heap_size: $(B)/t_heap_size
  	$(B)/t_heap_size
-@@ -95,20 +95,20 @@ $(B)/t_gesture: t_gesture.c ../hle_touch.c ../front.h ../dm.h $(GAME_H) | $(B)
+@@ -108,20 +108,20 @@ $(B)/t_gesture: t_gesture.c ../hle_touch.c ../front.h ../dm.h $(GAME_H) | $(B)
  	$(CLANG) -O1 -Wall -Wno-unused-function -I.. $(GINC) -o $@ t_gesture.c ../hle_touch.c
  $(B)/t_thread_leak: t_thread_leak.c ../thread.c ../dm.h $(GAME_H) | $(B)
  	$(CLANG) -O1 -Wno-unused-function -I.. $(GINC) -o $@ t_thread_leak.c
@@ -605,8 +644,8 @@ index b063d216..d648b693 100644
  .PHONY: save-sync
  save-sync: $(B)/t_save_sync
  	TMPDIR="$(abspath $(B))" $(B)/t_save_sync $(QUIET)
-@@ -126,7 +126,7 @@ $(B)/t_audio_spsc_tsan: t_audio_spsc.c ../hle_audio.c ../hle.h ../dm.h $(GAME_H)
- 	$(CLANG) -O1 -g -O1 -fsanitize=thread -Wno-unused-function -I.. $(GINC) -o $@ t_audio_spsc.c -framework AudioToolbox
+@@ -142,7 +142,7 @@ $(B)/t_audio_spsc_tsan: t_audio_spsc.c ../hle_audio.c ../hle_bigstack.c ../hle.h
+ 	$(CLANG) -O1 -g -O1 -fsanitize=thread -Wno-unused-function -I.. $(GINC) -o $@ t_audio_spsc.c ../hle_bigstack.c -framework AudioToolbox
  run: $(B)/t_fpslock
  $(B)/t_fpslock: t_fpslock.c ../hle_fpslock.c ../hle.h ../dm.h $(GAME_H) | $(B)
 -	$(CLANG) -O1 -g -Wno-unused-function $(GINC) -o $@ t_fpslock.c
@@ -614,19 +653,22 @@ index b063d216..d648b693 100644
  run: $(B)/t_uecvar
  $(B)/t_uecvar: t_uecvar.c ../hle_uecvar.c ../hle.h ../dm.h $(GAME_H) | $(B)
  	$(CLANG) -O1 -g -Wno-unused-function $(GINC) -o $@ t_uecvar.c
-@@ -137,9 +137,9 @@ $(B)/t_altstack: t_altstack.c t_altstack_stub.c ../crash.c ../dm.h $(GAME_H) | $
+@@ -156,12 +156,12 @@ $(B)/t_altstack: t_altstack.c t_altstack_stub.c ../crash.c ../dm.h $(GAME_H) | $
  $(B)/t_pctl: t_pctl.c ../hle_misc.c ../hle.h ../dm.h $(GAME_H) | $(B)
  	$(CLANG) -O1 -Wall -Werror -Wno-unused-function -I.. $(GINC) -o $@ t_pctl.c
  $(B)/t_shared_font: t_shared_font.c ../hle_sdk16.c ../hle.h ../dm.h $(GAME_H) | $(B)
 -	$(CLANG) -O1 -Wall -Werror -Wno-unused-function -Wno-frame-address -I.. $(GINC) -o $@ t_shared_font.c
 +	$(CLANG) -O1 -Wall -Werror -Wno-unused-function -Wno-frame-address -I.. $(GINC) -o $@ t_shared_font.c ../hle_profile.c
+ run: $(B)/t_nv
+ $(B)/t_nv: t_nv.c ../../gfx/hle_nv.c ../hle.h ../dm.h $(GAME_H) | $(B)
+ 	$(CLANG) -O1 -g -Wall -Werror -Wno-unused-function -I.. $(GINC) -o $@ t_nv.c
  $(B)/t_language: t_language.c ../hle_sdk16.c ../hle.h ../dm.h $(GAME_H) | $(B)
 -	$(CLANG) -O1 -g -Wall -Werror -Wno-unused-function -Wno-frame-address -fsanitize=address,undefined -I.. $(GINC) -o $@ t_language.c
 +	$(CLANG) -O1 -g -Wall -Werror -Wno-unused-function -Wno-frame-address -fsanitize=address,undefined -I.. $(GINC) -o $@ t_language.c ../hle_profile.c
  $(B)/t_motion: t_motion.c ../motion_fusion.h | $(B)
  	$(CLANG) -O1 -Wall -Werror -Wno-unused-function -o $@ t_motion.c -lm
  run: $(B)/t_motion_apple
-@@ -161,13 +161,13 @@ $(B)/t_haptics_apple: t_haptics_apple.m ../haptics_apple.m ../haptics_apple.h ..
+@@ -186,15 +186,15 @@ $(B)/t_haptics_apple: t_haptics_apple.m ../haptics_apple.m ../haptics_apple.h ..
  $(B)/t_time: t_time.c ../hle_time.c ../hle.h ../dm.h $(GAME_H) | $(B)
  	$(CLANG) -O1 -Wall -Werror -Wno-unused-function -I.. $(GINC) -o $@ t_time.c
  $(B)/t_oe: t_oe.c ../hle_oe.c ../hle.h ../dm.h $(GAME_H) | $(B)
@@ -638,13 +680,16 @@ index b063d216..d648b693 100644
  $(B)/t_condvar_old: t_condvar.c t_condvar_stub.c ../hle_thread.c ../dm.h $(GAME_H) | $(B)
 -	$(CLANG) -O1 -Wno-unused-function -DDM_TEST_HOOKS -DDM_TEST_CV_OLD_ORDER -I.. $(GINC) -o $@ t_condvar.c t_condvar_stub.c ../hle_thread.c
 +	$(CLANG) -O1 -Wno-unused-function -DDM_TEST_HOOKS -DDM_TEST_CV_OLD_ORDER -I.. $(GINC) -o $@ t_condvar.c t_condvar_stub.c ../hle_thread.c ../hle_profile.c
+ $(B)/t_pollwait: t_pollwait.c t_condvar_stub.c ../hle_thread.c ../dm.h $(GAME_H) | $(B)
+-	$(CLANG) -O1 -g -Wall -Werror -Wno-unused-function -I.. $(GINC) -o $@ t_pollwait.c t_condvar_stub.c
++	$(CLANG) -O1 -g -Wall -Werror -Wno-unused-function -I.. $(GINC) -o $@ t_pollwait.c t_condvar_stub.c ../hle_profile.c
  $(B)/t_preempt: t_preempt.c t_condvar_stub.c ../hle_thread.c ../dm.h $(GAME_H) | $(B)
 -	$(CLANG) -O1 -g -Wall -Werror -Wno-unused-function -I.. $(GINC) -o $@ t_preempt.c t_condvar_stub.c
 +	$(CLANG) -O1 -g -Wall -Werror -Wno-unused-function -I.. $(GINC) -o $@ t_preempt.c t_condvar_stub.c ../hle_profile.c
  .PHONY: preempt
  preempt: $(B)/t_preempt
  	$(B)/t_preempt
-@@ -189,7 +189,7 @@ $(B):
+@@ -220,7 +220,7 @@ $(B):
  	mkdir -p $@
  .PHONY: run tsan
  $(B)/t_resolution: t_resolution.c ../hle_fpslock.c ../hle.h ../dm.h $(GAME_H) | $(B)
@@ -653,8 +698,8 @@ index b063d216..d648b693 100644
  .PHONY: resolution
  run: resolution
  resolution: $(B)/t_resolution
-@@ -202,17 +202,17 @@ tsan: $(B)/t_audio_spsc_tsan $(B)/t_hid_tsan
- 	$(B)/t_hid_tsan
+@@ -233,17 +233,17 @@ tsan: $(B)/t_audio_spsc_tsan $(B)/t_hid_tsan
+ 	TMPDIR="$(abspath $(B))" $(B)/t_hid_tsan
  
  MEM_FLAGS = -O1 -Wall -Werror -Wno-unused-function -Imemory_profile -I..
 -MEM_DEPS = t_svc_memory.c memory_profile/game_profile.h ../hle_svc.c ../hle_guestthread.c ../hle.h ../dm.h
@@ -677,7 +722,7 @@ index b063d216..d648b693 100644
  .PHONY: memory memory-tsan memory-dirty memory-profile
  memory: $(B)/t_svc_memory $(B)/t_svc_memory_unlimited $(B)/t_svc_memory_16k
  	$(B)/t_svc_memory
-@@ -228,7 +228,7 @@ run: memory memory-dirty memory-profile
+@@ -259,7 +259,7 @@ run: memory memory-dirty memory-profile
  
  # A native blocking notification wait must release the thread's guest core.
  $(B)/t_notify_sched: t_notify_sched.c t_condvar_stub.c ../hle_thread.c ../hle_oe.c ../hle.h ../dm.h $(GAME_H) | $(B)
@@ -688,7 +733,7 @@ index b063d216..d648b693 100644
  	$(B)/t_notify_sched
 diff --git a/dm/host/tests/t_layout_runtime.c b/dm/host/tests/t_layout_runtime.c
 new file mode 100644
-index 00000000..20b210d4
+index 0000000..20b210d
 --- /dev/null
 +++ b/dm/host/tests/t_layout_runtime.c
 @@ -0,0 +1,103 @@
@@ -796,10 +841,10 @@ index 00000000..20b210d4
 +    return bad ? 1 : 0;
 +}
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index 2c79941f..c08c1b25 100644
+index a079d7f..3747fc9 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
-@@ -192,7 +192,7 @@ - (instancetype)initWithFrame:(CGRect)f {
+@@ -193,7 +193,7 @@ - (instancetype)initWithFrame:(CGRect)f {
          }
          _swap = shape(_controls); _swapLabel = label(_swap, @"");
          NSNumber *saved = [NSUserDefaults.standardUserDefaults objectForKey:k_layout_key];
@@ -809,10 +854,10 @@ index 2c79941f..c08c1b25 100644
          _full = l == 1; _tap = l == 2;
          [self applyLayout];
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index b8d7259f..16972e4f 100644
+index 87909a2..07dac57 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
-@@ -211,6 +211,7 @@ DM_PROBE_LIMIT	diagnostic	Maximum printed hits per guest probe; 0 or absent leav
+@@ -216,6 +216,7 @@ DM_PROBE_LIMIT	diagnostic	Maximum printed hits per guest probe; 0 or absent leav
  DM_PROBE_POLL	diagnostic	`=<address>[+<length>]` (hex, 4 bytes by default, up to 8): a host thread spins on the bytes and on each change snapshots every thread's pc, lr and frames, for writes the watch misses
  DM_PROBE_WATCH	diagnostic	`=<address>[+<length>]` (hex, 8 bytes by default): write-protects that host page and reports who writes these bytes, without a debugger
  DM_PROBE_X2	diagnostic	`=<bytes>` (hex): probe hits also dump that many bytes of the memory x2 points to

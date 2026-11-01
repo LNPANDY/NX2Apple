@@ -7,6 +7,10 @@ struct AppleDevice: Identifiable, Equatable {
     let model: String
     let os: String
     let reachable: Bool     // connected now, by cable or the local network
+    var transport = ""      // devicectl's connectionProperties.transportType: "wired" (cable), "localNetwork" (Wi-Fi), "" when not connected
+
+    var wired: Bool { transport == "wired" }
+    var overNetwork: Bool { transport == "localNetwork" }
 }
 
 /// A team the launcher can sign for: from a development certificate in the keychain, from an account signed in to
@@ -42,10 +46,11 @@ struct XcodeTeam: Equatable {
 /// it only reads what is paired and what can sign.
 enum DeviceTools {
     /// The paired physical iPhones and iPads, reachable ones first.
-    static func devices(xcrun: String = "/usr/bin/xcrun") -> [AppleDevice] {
+    /// `timeout` ends a listing that hangs (the Saves sheet asks with one), as no devices.
+    static func devices(xcrun: String = "/usr/bin/xcrun", timeout: TimeInterval? = nil) -> [AppleDevice] {
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("nxnative-devices-\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: file) }
-        guard run(xcrun, ["devicectl", "list", "devices", "--json-output", file.path]) != nil,
+        guard run(xcrun, ["devicectl", "list", "devices", "--json-output", file.path], timeout: timeout) != nil,
               let data = try? Data(contentsOf: file) else { return [] }
         return parseDevices(data)
     }
@@ -63,7 +68,8 @@ enum DeviceTools {
             return AppleDevice(id: udid, name: properties["name"] as? String ?? udid,
                                model: hardware["marketingName"] as? String ?? "",
                                os: properties["osVersionNumber"] as? String ?? "",
-                               reachable: connection["transportType"] is String)
+                               reachable: connection["transportType"] is String,
+                               transport: connection["transportType"] as? String ?? "")
         }
         return devices.sorted { ($0.reachable ? 0 : 1, $0.name) < ($1.reachable ? 0 : 1, $1.name) }
     }
@@ -145,7 +151,7 @@ enum DeviceTools {
         return subject[range].split(separator: "=").last.map { $0.trimmingCharacters(in: .whitespaces) }
     }
 
-    private static func run(_ tool: String, _ args: [String], input: String? = nil) -> String? {
+    private static func run(_ tool: String, _ args: [String], input: String? = nil, timeout: TimeInterval? = nil) -> String? {
         let p = Process(), out = Pipe(), inPipe = Pipe()
         p.executableURL = URL(fileURLWithPath: tool)
         p.arguments = args
@@ -153,6 +159,12 @@ enum DeviceTools {
         p.standardError = FileHandle.nullDevice
         p.standardInput = input == nil ? FileHandle.nullDevice : inPipe
         do { try p.run() } catch { return nil }
+        if let timeout {
+            DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
+                if p.isRunning { p.terminate() }
+                DispatchQueue.global().asyncAfter(deadline: .now() + 2) { if p.isRunning { kill(p.processIdentifier, SIGKILL) } }
+            }
+        }
         if let input { inPipe.fileHandleForWriting.write(Data(input.utf8)); try? inPipe.fileHandleForWriting.close() }
         let data = out.fileHandleForReading.readDataToEndOfFile()
         p.waitUntilExit()

@@ -1,0 +1,982 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: v0lumehi <aljic.zijad@gmail.com>
+Date: Fri, 30 Oct 2026 20:53:43 +0100
+Subject: [PATCH] Runtime profile: every host site reads dm_profile(), the
+ compiled macros are only its defaults
+
+One host binary now runs another game's profile completely: main.c (module fallback, game_args), the save sync's title ID, core
+preemption, display versions and the shared font, Unreal's texture pool, the operation and performance mode, StandardAllocator's
+cap, the cheats' title and regions, the NVN API version, the texture upload switches, the shader key skip, frame pacing, the app
+pool, conditional rendering, BC on the CPU, GPU timestamps, dynamic texture slots, vertex conversion, the pipeline archive switch,
+present snapshots, the encode thread and the capture title. New profile keys: stdalloc_cap, shader_key_skip, tex_bc_cpu,
+ue_texture_pool, enc_thread. game.py profile writes every key, with the none spellings where the game sets none, so a second
+game's file never inherits the first game's compiled values. Hot paths read a cached pointer (dm_prof()). t_profile_runtime and
+test_game_profile.py check it.
+
+Upstream-Status: fork-only (completes 0001 runtime-profile, design note seedds/nxnative#492)
+Reason: the route C shell runs several games on one host binary, so no host site may keep the compiled game's values. It builds on the runtime profile of 0001 and goes upstream with it
+Issue: LNPANDY/NX2Apple#144
+---
+ dm/games/game.py                    |   7 +-
+ dm/gfx/nvn/hle_nvn.c                |  39 ++++++-----
+ dm/gfx/nvn/nvn_capture.h            |   2 +-
+ dm/gfx/nvn/nvn_capture.inc          |   2 +-
+ dm/gfx/nvn/nvn_mtl.m                |  25 +++----
+ dm/gfx/nvn/nvn_rec.h                |   2 +-
+ dm/gfx/tests/Makefile               |   8 +--
+ dm/gfx/tests/t_host_stubs.c         |   2 +
+ dm/host/front_mac.m                 |   8 +--
+ dm/host/hle_cheats.c                |  14 ++--
+ dm/host/hle_fs.c                    |   4 +-
+ dm/host/hle_oe.c                    |   4 +-
+ dm/host/hle_profile.c               |  35 +++++++++-
+ dm/host/hle_profile.h               |  13 +++-
+ dm/host/hle_sdk16.c                 |  17 ++---
+ dm/host/hle_svc.c                   |   4 +-
+ dm/host/hle_thread.c                |   2 +-
+ dm/host/hle_uecvar.c                |   4 +-
+ dm/host/main.c                      |  14 ++--
+ dm/host/tests/Makefile              |  13 +++-
+ dm/host/tests/t_profile_runtime.c   | 100 ++++++++++++++++++++++++++++
+ dm/tools/tests/test_game_profile.py |  54 +++++++++++++++
+ 22 files changed, 291 insertions(+), 82 deletions(-)
+ create mode 100644 dm/host/tests/t_profile_runtime.c
+ create mode 100644 dm/tools/tests/test_game_profile.py
+
+diff --git a/dm/games/game.py b/dm/games/game.py
+index a4f228a..0c58fc5 100644
+--- a/dm/games/game.py
++++ b/dm/games/game.py
+@@ -214,7 +214,8 @@ if __name__ == '__main__':
+                 ('shared_font', 'SHARED_FONT_TTF'), ('pad_layout', 'PAD_LAYOUT'), ('op_mode', 'OPMODE'), ('perf_mode', 'PERF_BOOST'),
+                 ('feedback_snap', 'FEEDBACK_SNAP'), ('tex_flush_upload', 'TEX_FLUSH_UPLOAD'), ('render_cond', 'RENDER_COND'),
+                 ('tex_dirty_upload', 'TEX_DIRTY_UPLOAD'), ('tex_dyn_slots', 'TEX_DYN_SLOTS'), ('gpu_timestamps', 'GPU_TS_SEGMENT'),
+-                ('vconv_range', 'VCONV_RANGE'), ('game_args', 'ARGS'), ('game_env', 'ENV')]
++                ('vconv_range', 'VCONV_RANGE'), ('stdalloc_cap', 'STDALLOC_CAP'), ('tex_bc_cpu', 'TEX_BC_CPU'), ('ue_texture_pool', 'UE_TEXTURE_POOL'),
++                ('enc_thread', 'ENC_THREAD'), ('game_args', 'ARGS'), ('game_env', 'ENV')]
+         def val(macro):   # the header's C spelling → the file's plain spelling
+             v = M.get('DM_GAME_' + macro)
+             if v is None: return None
+@@ -230,7 +231,9 @@ if __name__ == '__main__':
+             v = val(macro)
+             if v is not None: L.append(f'{key}\t{v}')
+         api = [val('NVN_API_MAJOR'), val('NVN_API_MINOR')]
+-        if api[0] is not None: L.append(f'device_api\t{api[0]}.{api[1] or 0}')
++        L.append(f'device_api\t{api[0]}.{api[1] or 0}' if api[0] is not None else 'device_api\t0.0')   # 0.0 = by the SDK version: a key left out would keep the compiled game's value
++        if val('SHARED_FONT_TTF') is None: L.append('shared_font\tauto')   # by the SDK version, likewise
++        L.append(f'shader_key_skip\t{val("SHADER_KEY_SKIP_OFF")}+{val("SHADER_KEY_SKIP_LEN")}')   # 0x0+0x0 = none: written always, a key left out would keep the compiled game's
+         for b, d in re.findall(r'\{"([0-9a-f]+)", "([^"]*)"\}', M.get('DM_GAME_DISPLAY_VERSIONS', '')):
+             L.append(f'display_version\t{b}\t{d}')
+         text = '\n'.join(L) + '\n'
+diff --git a/dm/gfx/nvn/hle_nvn.c b/dm/gfx/nvn/hle_nvn.c
+index 2dd6644..2e114ef 100644
+--- a/dm/gfx/nvn/hle_nvn.c
++++ b/dm/gfx/nvn/hle_nvn.c
+@@ -153,11 +153,9 @@ static const int g_devinfo[] = {
+ __attribute__((weak)) int dm_sdk_major(void) { return 0; }   // loader.c; graphics unit tests have no loader
+ __attribute__((weak)) int dm_glslc_gpu_code(int *major, int *minor) { *major = *minor = 0; return 0; }   // hle_glslc.c: the game's own GLSLC's GPU code version
+ static void nvn_api(int api[2]) {
+-#ifdef DM_GAME_NVN_API_MAJOR
+-    api[0] = DM_GAME_NVN_API_MAJOR; api[1] = DM_GAME_NVN_API_MINOR; LOG("[nvn] device API %d.%d (game profile device_api)", api[0], api[1]);
+-#else
+-    int m = dm_sdk_major(); api[0] = DM_SDK_OLD(m) ? 53 : g_devinfo[0]; api[1] = DM_SDK_OLD(m) ? 313 : g_devinfo[1]; LOG("[nvn] device API %d.%d (SDK %d)", api[0], api[1], m);
+-#endif
++    const struct dm_profile *P = dm_profile();
++    if (P->nvn_api_major) { api[0] = P->nvn_api_major; api[1] = P->nvn_api_minor; LOG("[nvn] device API %d.%d (game profile device_api)", api[0], api[1]); }
++    else { int m = dm_sdk_major(); api[0] = DM_SDK_OLD(m) ? 53 : g_devinfo[0]; api[1] = DM_SDK_OLD(m) ? 313 : g_devinfo[1]; LOG("[nvn] device API %d.%d (SDK %d)", api[0], api[1], m); }
+ }
+ NVN(nvnDeviceGetInteger, void, const NVNdevice *d, NVNdeviceInfo what, int *out) {
+     (void)d;
+@@ -333,16 +331,16 @@ typedef struct { const uint8_t *mem; uint64_t size; tex_t t; uint64_t stamp; con
+ static flush_tex *g_ft; static size_t g_nft, g_cft; static pthread_mutex_t g_ft_mu = PTHREAD_MUTEX_INITIALIZER;
+ static void ft_add(const tex_t *t) {
+     // Buffer textures are views onto the pool buffer the GPU reads directly (tex_mtl in nvn_mtl.m); an upload would push Age of Calamity's 1,048,576-texel R32F one through tex_desc, past Metal's 2D limit
+-    if (!DM_GAME_TEX_FLUSH_UPLOAD || !t->mem || !t->pool || t->has_layout || t->d.target == NVN_TEXTURE_TARGET_BUFFER || (t->pool->flags & NVN_MEMORY_POOL_FLAGS_CPU_NO_ACCESS) ||
++    if (!dm_prof()->tex_flush_upload || !t->mem || !t->pool || t->has_layout || t->d.target == NVN_TEXTURE_TARGET_BUFFER || (t->pool->flags & NVN_MEMORY_POOL_FLAGS_CPU_NO_ACCESS) ||
+         (t->d.flags & (NVN_TEXTURE_FLAGS_LINEAR | NVN_TEXTURE_FLAGS_LINEAR_RENDER_TARGET | NVN_TEXTURE_FLAGS_COMPRESSIBLE))) return;
+     pthread_mutex_lock(&g_ft_mu);
+     if (g_nft == g_cft && !(g_ft = realloc(g_ft, (g_cft = g_cft ? 2 * g_cft : 1024) * sizeof *g_ft))) die("flush_tex allocation failed");
+-    uint64_t st = nvn_dirty_now(); if (DM_GAME_TEX_DIRTY_UPLOAD) nvn_dirty_protect(t->mem, t->L.size);   // see nvn_ft_written
++    uint64_t st = nvn_dirty_now(); if (dm_prof()->tex_dirty_upload) nvn_dirty_protect(t->mem, t->L.size);   // see nvn_ft_written
+     g_ft[g_nft++] = (flush_tex){t->mem, t->L.size, *t, st, nvn_dirty_span(t->mem, t->L.size)};
+     pthread_mutex_unlock(&g_ft_mu);
+ }
+ static void ft_del(uint64_t serial) {
+-    if (!DM_GAME_TEX_FLUSH_UPLOAD || !serial) return;
++    if (!dm_prof()->tex_flush_upload || !serial) return;
+     pthread_mutex_lock(&g_ft_mu);
+     for (size_t i = 0; i < g_nft; i++) if (g_ft[i].t.serial == serial) { g_ft[i] = g_ft[--g_nft]; break; }
+     pthread_mutex_unlock(&g_ft_mu);
+@@ -351,7 +349,7 @@ static void ft_del(uint64_t serial) {
+ // natively; its 121-layer ASTC terrain material arrays, 42 MB each). They stayed GPU-only textures with content 0, which ASTC decodes as the error colour, and the cave came out magenta.
+ // ft_add write-protects a registered texture's pages, and on its first resolution (tex_mtl, submit thread) a write since then makes it CPU-written like a flushed one
+ int nvn_ft_written(const tex_t *t) {
+-    if (!DM_GAME_TEX_DIRTY_UPLOAD || !t->serial) return 0;
++    if (!dm_prof()->tex_dirty_upload || !t->serial) return 0;
+     int r = 0; pthread_mutex_lock(&g_ft_mu);
+     for (size_t i = 0; i < g_nft; i++) if (g_ft[i].t.serial == t->serial) {
+         if (nvn_dirty_since_span(g_ft[i].span, g_ft[i].mem, g_ft[i].size, g_ft[i].stamp)) { r = 1; g_ft[i] = g_ft[--g_nft]; }
+@@ -361,7 +359,7 @@ int nvn_ft_written(const tex_t *t) {
+     return r;
+ }
+ int nvn_ft_tracked(uint64_t serial) {   // registered and not resolved yet: its storage holds whatever the CPU has written (nvn_tex_mirror_b2t / nvn_tex_mirror_t2t)
+-    if (!DM_GAME_TEX_FLUSH_UPLOAD || !serial) return 0;
++    if (!dm_prof()->tex_flush_upload || !serial) return 0;
+     int r = 0; pthread_mutex_lock(&g_ft_mu);
+     for (size_t i = 0; i < g_nft; i++) if (g_ft[i].t.serial == serial) { r = 1; break; }
+     pthread_mutex_unlock(&g_ft_mu);
+@@ -376,7 +374,7 @@ int nvn_ft_tracked(uint64_t serial) {   // registered and not resolved yet: its
+ // Checking every texture at every submission cost TOTK 0.4 ms of submit CPU per frame on the Mac; this way a texture is picked up a few submissions later at most
+ enum { FT_POLL_BYTES = 128 << 20 };
+ void nvn_ft_poll(void) {
+-    if (!DM_GAME_TEX_DIRTY_UPLOAD) return;
++    if (!dm_prof()->tex_dirty_upload) return;
+     static uint64_t gen; static size_t cur, left;
+     static tex_t *hit; static size_t chit; size_t nhit = 0;
+     uint64_t now = nvn_dirty_now(), scanned = 0;
+@@ -394,7 +392,7 @@ void nvn_ft_poll(void) {
+     for (size_t i = 0; i < nhit; i++) if (!mtl_tex_gpu_owned(hit[i].serial)) mtl_tex_cpu_written(&hit[i]);   // outside g_ft_mu: the ownership check takes the replay's serial table lock
+ }
+ static void ft_flush(const uint8_t *a, uint64_t n) {
+-    if (!DM_GAME_TEX_FLUSH_UPLOAD || !a || !n) return;
++    if (!dm_prof()->tex_flush_upload || !a || !n) return;
+     pthread_mutex_lock(&g_ft_mu);
+     for (size_t i = 0; i < g_nft;)
+         if (g_ft[i].mem < a + n && a < g_ft[i].mem + g_ft[i].size) { mtl_tex_cpu_written(&g_ft[i].t); g_ft[i] = g_ft[--g_nft]; } else i++;
+@@ -618,8 +616,9 @@ static int keys_hash(const NVNshaderData *sd, int mapped, uint8_t out[8]) {
+     uint8_t md[CC_SHA256_DIGEST_LENGTH]; CC_SHA256_CTX hc; CC_SHA256_Init(&hc);
+     // Profile key shader_key_skip: bytes of the control section hashed as zeros (shader_split.py key_ctl). Batman: Arkham Knight's engine shares one control section among shaders whose
+     // sections differ only in GLSLC's compile information (+0x778..+0x791, +0x7d0..+0x7e7): it hands a program the section of an earlier shader with the same rest, so the bytes there name another shader
+-    if (DM_GAME_SHADER_KEY_SKIP_LEN && DM_GAME_SHADER_KEY_SKIP_OFF + DM_GAME_SHADER_KEY_SKIP_LEN <= nctl) {
+-        uint8_t ctl[0x880]; memcpy(ctl, sd->control, nctl); memset(ctl + DM_GAME_SHADER_KEY_SKIP_OFF, 0, DM_GAME_SHADER_KEY_SKIP_LEN);
++    const struct dm_profile *P = dm_prof();
++    if (P->shader_skip_len && P->shader_skip_off + P->shader_skip_len <= nctl) {
++        uint8_t ctl[0x880]; memcpy(ctl, sd->control, nctl); memset(ctl + P->shader_skip_off, 0, P->shader_skip_len);
+         CC_SHA256_Update(&hc, ctl, nctl);
+     } else CC_SHA256_Update(&hc, sd->control, nctl);
+     if (code) CC_SHA256_Update(&hc, (const void *)(uintptr_t)sd->data, ncode);
+@@ -1649,7 +1648,7 @@ static int g_present_cap = -1;
+ static int fps_present_cap(void) {
+     if (dm_fps_state) return fps_step_cap();
+     if (g_present_cap < 0) {
+-        const char *e=getenv("DM_FPS_TARGET");int t=e?atoi(e):DM_GAME_FPS_TARGET;
++        const char *e=getenv("DM_FPS_TARGET");int t=e?atoi(e):dm_prof()->fps_target;
+         g_present_cap=t==30||t==60?t:0;
+     }
+     return g_present_cap;
+@@ -1669,7 +1668,7 @@ static void present_cfg(const win_t *o) {
+     // with a fixed hard floor of 60 fps; the logic stays at 25 ticks, and the client's frame-counted UI logic is unaffected -
+     // with the same save and the same input, the UI message streams of the two modes match message by message. Proof (before character select): r9 game / display 60 ×3 / display 120 ×2, 6 groups in total, uicmp consistent
+     // (the save indicator is exempted as a timing race), and the timing differences of key messages are within game mode's own noise band; proof after entering a run is still missing, pending action script coverage
+-    const char *m = getenv("DM_PRESENT_INTERVAL"); g_display_mode = m ? !strcmp(m, "display") : DM_GAME_PRESENT_DISPLAY;
++    const char *m = getenv("DM_PRESENT_INTERVAL"); g_display_mode = m ? !strcmp(m, "display") : dm_prof()->present_display;
+     LOG("[nvn] present tick %d Hz, interval mode %s (%s; present interval set by the game %d; %s)", g_hz, g_display_mode ? "display (one frame per tick, a cut)" : "game (original semantics)",
+         m ? "DM_PRESENT_INTERVAL" : "game profile present_interval", o->interval, scr > 0 ? "window, fixed 60 Hz" : "no window, fixed 60 Hz");
+ }
+@@ -1733,7 +1732,7 @@ static int fstep_cpu_slowed(uint64_t presents) {
+ static int fstep_hold(void) {
+     static int h = -1;
+     if (h < 0) {
+-        const char *e = getenv("DM_FPS_HOLD"); h = e ? strcmp(e, "off") != 0 : DM_GAME_FPS_HOLD;
++        const char *e = getenv("DM_FPS_HOLD"); h = e ? strcmp(e, "off") != 0 : dm_prof()->fps_hold;
+         if (!h) LOG("[nvn] frame step: frames are not held longer than the cap's vsyncs (%s)", e ? "DM_FPS_HOLD" : "game profile fps_hold");
+     }
+     return h;
+@@ -2043,7 +2042,7 @@ static uint8_t *vpool_reserve(pool_t *o) {   // → the reserved range, or NULL
+     pthread_mutex_lock(&g_vp_mu);
+     if (g_nvp == g_cvp && !(g_vp = realloc(g_vp, (g_cvp = g_cvp ? 2 * g_cvp : 64) * sizeof *g_vp))) die("sparse pool table allocation failed");
+     g_vp[g_nvp++] = v; o->vp = v;
+-    o->vmode = o->size > DM_GAME_APP_POOL ? 2 : 0;
++    o->vmode = o->size > dm_prof()->app_pool ? 2 : 0;
+     pthread_mutex_unlock(&g_vp_mu);
+     if (o->vmode == 2) LOG("[nvn] virtual pool %p (%#llx bytes, flags %#x): sparse, own address range %p+%#llx, physical pages are remapped into it", (const void *)o, (unsigned long long)o->size, o->flags, a, (unsigned long long)len);
+     return a;
+@@ -2468,11 +2467,11 @@ NVN(nvnCommandBufferClearBuffer, void, NVNcommandBuffer *c, NVNbufferAddress a,
+ // State the replay layer does not have yet: logged once (conditional rendering is treated as "always draw")
+ // Render enable (profile render_cond, see OP_RENDER_COND in nvn_mtl.m): recorded and evaluated at replay; without the key everything draws, as before
+ NVN(nvnCommandBufferSetRenderEnable, void, NVNcommandBuffer *c, uint32_t en) {
+-    if (DM_GAME_RENDER_COND) *REC(c, OP_RENDER_COND, p_render_cond) = (p_render_cond){(en & 0xff) ? 2 : 3, 0, 0};
++    if (dm_prof()->render_cond) *REC(c, OP_RENDER_COND, p_render_cond) = (p_render_cond){(en & 0xff) ? 2 : 3, 0, 0};
+     else if (!(en & 0xff)) ONCE_LOG("[RED] SetRenderEnable(false): the host draws anyway for now");
+ }
+ NVN(nvnCommandBufferSetRenderEnableConditional, void, NVNcommandBuffer *c, NVNconditionalRenderMode m, NVNbufferAddress a) {
+-    if (DM_GAME_RENDER_COND) *REC(c, OP_RENDER_COND, p_render_cond) = (p_render_cond){(int)m & 1, 0, a};
++    if (dm_prof()->render_cond) *REC(c, OP_RENDER_COND, p_render_cond) = (p_render_cond){(int)m & 1, 0, a};
+     else ONCE_LOG("[RED] SetRenderEnableConditional: the host draws anyway for now");
+ }
+ // Fire Emblem: Three Houses turns depth clamp on for its scenes; ignored, the ground right under its close-up battle cameras was clipped away and the lighting pass painted the sky's fog colour there
+diff --git a/dm/gfx/nvn/nvn_capture.h b/dm/gfx/nvn/nvn_capture.h
+index bbf4d95..7f037b4 100644
+--- a/dm/gfx/nvn/nvn_capture.h
++++ b/dm/gfx/nvn/nvn_capture.h
+@@ -68,7 +68,7 @@ typedef struct { uint32_t index; int32_t n; uint64_t pool; int64_t off; int32_t
+ typedef struct { int32_t tid; uint8_t ok, has_v, gone, pad; tex_t t; view_t v; } cap_treg;
+ typedef struct { int32_t sid, pad; samp_par p; } cap_sreg;
+ // per texture the frame reaches: live = initialized and not finalized (mtl_tex_init); cpu = its host texture is uploaded from its pool (CPU-written, or a texture the
+-// flush tracking of DM_GAME_TEX_DIRTY_UPLOAD made packaged): the replay marks it CPU-written so it takes the same path
++// flush tracking of the profile's tex_dirty_upload made packaged): the replay marks it CPU-written so it takes the same path
+ enum { CAP_TK_LIVE = 1, CAP_TK_CPU = 2 };
+ typedef struct { tex_t t; uint32_t kind, pad; } cap_tknd;   // t: relocated
+ typedef struct { tex_t t; uint32_t pixfmt, type, width, height, depth, levels, slices, samples, nsub, pad; } cap_tpix;   // t: relocated, the texture to create and fill
+diff --git a/dm/gfx/nvn/nvn_capture.inc b/dm/gfx/nvn/nvn_capture.inc
+index 3d64318..04f308a 100644
+--- a/dm/gfx/nvn/nvn_capture.inc
++++ b/dm/gfx/nvn/nvn_capture.inc
+@@ -329,7 +329,7 @@ static void cap_head(void) {
+     char exe[1024]; uint32_t en = sizeof exe; char commit[128] = "unknown";
+     if (!_NSGetExecutablePath(exe, &en)) { char cmd[1400], *d = dirname(exe); snprintf(cmd, sizeof cmd, "git -C '%s' describe --always --dirty --abbrev=12 2>/dev/null", d);
+         FILE *p = popen(cmd, "r"); if (p) { if (fgets(commit, sizeof commit, p)) commit[strcspn(commit, "\n")] = 0; else strlcpy(commit, "unknown", sizeof commit); pclose(p); } }
+-    KV("format\t%u\n", CAP_VERSION); KV("iface\t%d\n", CAP_IFACE); KV("chain\t%s\n", DMSH_CHAIN); KV("commit\t%s\n", commit); KV("title\t%s\n", DM_GAME_ID); KV("build\t%s\n", dm_main_build());
++    KV("format\t%u\n", CAP_VERSION); KV("iface\t%d\n", CAP_IFACE); KV("chain\t%s\n", DMSH_CHAIN); KV("commit\t%s\n", commit); KV("title\t%s\n", dm_profile()->id); KV("build\t%s\n", dm_main_build());
+     KV("frame\t%d\n", g_cap_frame); KV("frames\t1\n"); KV("mtl_frame\t%llu\n", (unsigned long long)atomic_load(&g_cur_frame));   // the replay layer's frame number: the replayer takes it, so frame-keyed diagnostics (DM_NVN_TEXDUMP, DM_NVN_PASSDUMP) select the same frame
+     for (char **e = *_NSGetEnviron(); *e; e++) if (!strncmp(*e, "DM_", 3) && strncmp(*e, "DM_NVN_CAPTURE=", 15)) KV("env\t%s\n", *e);
+ #undef KV
+diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
+index a8b3f32..4ccb061 100644
+--- a/dm/gfx/nvn/nvn_mtl.m
++++ b/dm/gfx/nvn/nvn_mtl.m
+@@ -402,7 +402,7 @@ void mtl_init(void) {
+     if (!g_dev) MDIE("no Metal device");
+     if (!g_dev.hasUnifiedMemory) MDIE("needs a unified-memory device (zero-copy memory pools)");
+     g_bc_gpu = [g_dev supportsBCTextureCompression];
+-    g_bc_cpu = !g_bc_gpu && DM_GAME_TEX_BC_CPU;
++    g_bc_cpu = !g_bc_gpu && dm_prof()->tex_bc_cpu;
+     if (g_bc_cpu) MLOG("BC textures: this GPU has no BC support, decoding them on the CPU (profile tex_bc_cpu)");
+     g_q = [g_dev newCommandQueue];
+     // A device without Metal 4 (the paravirtualized GPU of a virtual Mac, such as GitHub's macos-26 runner: no residency set, no MTL4CommandQueue) cannot run the NVN layer. The GL and
+@@ -1296,7 +1296,7 @@ static void post(post_op o) {
+ // so a game that waits for the fence reads one submission's reports together; a segment whose feedback has not arrived by then takes the last segment's times
+ #define SEG_CLK_N 1024
+ struct seg_clk { _Atomic int refs; _Atomic uint64_t t[SEG_CLK_N][2]; };   // per submission (g_sclk, allocated at its first cut): guest ns of each cut segment's GPU start / end (0 = no feedback yet)
+-static int seg_ts(void) { static int v = -1; if (v < 0) { const char *e = getenv("DM_NVN_GPU_TS"); v = e && *e ? !strcmp(e, "segment") : DM_GAME_GPU_TS_SEGMENT; MLOG("counter timestamps: %s (profile key gpu_timestamps; DM_NVN_GPU_TS=segment / submission)", v ? "GPU start / end time of their segment" : "one time for the whole submission"); } return v; }
++static int seg_ts(void) { static int v = -1; if (v < 0) { const char *e = getenv("DM_NVN_GPU_TS"); v = e && *e ? !strcmp(e, "segment") : dm_prof()->gpu_ts_segment; MLOG("counter timestamps: %s (profile key gpu_timestamps; DM_NVN_GPU_TS=segment / submission)", v ? "GPU start / end time of their segment" : "one time for the whole submission"); } return v; }
+ static void seg_clk_put(seg_clk *c) { if (c && atomic_fetch_sub(&c->refs, 1) == 1) free(c); }
+ static uint64_t gpu_s_guest_ns(double s) {   // a feedback GPU time (seconds on the mach absolute time base) on the guest clock; 0 when unknown
+     static mach_timebase_info_data_t tb; if (!tb.denom) mach_timebase_info(&tb);
+@@ -1481,7 +1481,7 @@ static void post_run(post_rec *r, uint64_t c0, uint64_t c1) {
+             free(l); uint64_t rec[2] = {sum, gpu_ticks()}; memcpy((void *)ops[i].addr, rec, sizeof rec);
+         }
+         else if (ops[i].kind == 4) mirror_rb_land(ops[i].vis);
+-        else { uint64_t t = rep_ticks(&ops[i], sc, seg_last, c0, c1), rec[2] = {(ops[i].type == 0 || ops[i].type == 0x10) && !DM_GAME_RENDER_COND ? t : 0, t}; memcpy((void *)ops[i].addr, rec, sizeof rec); }   // render_cond: a timestamp report's counter field is 0, as on the GPU (see rc_value)
++        else { uint64_t t = rep_ticks(&ops[i], sc, seg_last, c0, c1), rec[2] = {(ops[i].type == 0 || ops[i].type == 0x10) && !dm_prof()->render_cond ? t : 0, t}; memcpy((void *)ops[i].addr, rec, sizeof rec); }   // render_cond: a timestamp report's counter field is 0, as on the GPU (see rc_value)
+     }
+     free(ops); seg_clk_put(sc); r->ops = NULL; r->sc = NULL;
+     atomic_store(&r->claimed, 1);
+@@ -2678,7 +2678,7 @@ static void sparse_view(NvPkg *pk, const tex_t *t) {
+         }
+     }
+     id have = tex_get(t->serial);
+-    if (!packaged && !have && DM_GAME_TEX_DIRTY_UPLOAD && t->mem && on_sub_thread()) { int nvn_ft_written(const tex_t *); packaged = nvn_ft_written(t); }   // first use of a texture the CPU wrote since init without a flush (hle_nvn.c)
++    if (!packaged && !have && dm_prof()->tex_dirty_upload && t->mem && on_sub_thread()) { int nvn_ft_written(const tex_t *); packaged = nvn_ft_written(t); }   // first use of a texture the CPU wrote since init without a flush (hle_nvn.c)
+     if (!packaged && !have && on_sub_thread() && tex_cpu_content(t)) { mtl_tex_cpu_written(t); packaged = 1; }   // storage the CPU wrote before its first use (tex_cpu_content)
+     if (packaged) {
+         NvPkg *pk = [have isKindOfClass:[NvPkg class]] ? have : nil;   // resolved as GPU-only before the CPU wrote it: dropped and rebuilt as packaged
+@@ -3673,7 +3673,7 @@ static int clear_rect_zero(int i) {
+ static void shmap_load(void) {
+     if (g_shmap) return;
+     const char *e = getenv("DM_NVN_SHMAP");
+-    NSString *path = e ? @(e) : exe_rel("../games/" DM_GAME_ID "/shader_map.tsv");   // default: the current game profile folder (Mac: dm/games/<id>; on iOS main.m sets DM_NVN_SHMAP)
++    NSString *path = e ? @(e) : exe_rel([NSString stringWithFormat:@"../games/%s/shader_map.tsv", dm_profile()->id].UTF8String);   // default: the current game profile folder (Mac: dm/games/<id>; on iOS main.m sets DM_NVN_SHMAP)
+     NSString *txt = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil];
+     if (!txt) MDIE("cannot read the shader map %s (DM_NVN_SHMAP can name another)", path.UTF8String);
+     g_shmap = [NSMutableDictionary dictionary];
+@@ -3695,7 +3695,7 @@ static void shmap_load(void) {
+         if (c.count == 2 && [c[0] isEqual:@"game"]) st_game = c[1]; else if (c.count == 2 && [c[0] isEqual:@"inputs"]) st_inputs = c[1];
+     }
+     if (!st_inputs) MLOG("[RED] shader library %s has no stamp (inputs.tsv): no full dmsh_build.py run made it as it is, so c1_full.tsv and cb_extent.tsv are not taken", g_msl_dir.UTF8String);
+-    else if (st_game && ![st_game isEqual:@DM_GAME_ID]) MLOG("[RED] shader library %s was built for game %s, not " DM_GAME_ID, g_msl_dir.UTF8String, st_game.UTF8String);
++    else if (st_game && ![st_game isEqual:@(dm_profile()->id)]) MLOG("[RED] shader library %s was built for game %s, not %s", g_msl_dir.UTF8String, st_game.UTF8String, dm_profile()->id);
+     else MLOG("shader library stamp: game %s, inputs %s", st_game.UTF8String, st_inputs.UTF8String);
+     NSString *cp = [[path stringByDeletingLastPathComponent] stringByAppendingPathComponent:@"c1_full.tsv"];   // Same directory as the mapping table (Mac: dm/games/<id>; iOS: dm/ inside the App, copied along by build_ipa.sh)
+     NSString *ct = cp ? [NSString stringWithContentsOfFile:cp encoding:NSUTF8StringEncoding error:nil] : nil;
+@@ -3944,7 +3944,7 @@ @implementation FnDev @end
+     if (stage == 0 && [j[@"layer_from"] isKindOfClass:[NSDictionary class]]) { o->lay_loc = [j[@"layer_from"][@"loc"] intValue]; o->lay_comp = [[j[@"layer_from"][@"comp"] description] UTF8String][0]; }
+     char err[160];
+     if (nvn_refl_from_json(j, &o->rf, err, sizeof err)) { MLOG("[RED] shader %s reflection conversion failed: %s", pc.UTF8String, err); return nil; }
+-    if (o->rf.dyn && !DM_GAME_TEX_DYN_SLOTS) {   // dynamic texture handles (TEXD / SAMPD) only where the profile says the game picks them from c2's tables, as before otherwise
++    if (o->rf.dyn && !dm_prof()->tex_dyn_slots) {   // dynamic texture handles (TEXD / SAMPD) only where the profile says the game picks them from c2's tables, as before otherwise
+         // (rf.c1 is freed by dealloc when o goes: freeing it here too was a double free, which aborted FINAL FANTASY RESONANCE at its first such shader)
+         MLOG("[RED] shader %s reflection conversion failed: a texture handle the translator could not trace to one slot (profile key tex_dyn_slots off)", pc.UTF8String); return nil; }
+     if (rt_range_on()) o->range_ro=rt_range_bindings_ro(j);
+@@ -5248,7 +5248,7 @@ static void vconv_fill(int f, uint64_t src, uint32_t stride, uint64_t nv, float
+ typedef struct { uint32_t mn, mx; uint64_t stamp, seen, lo, n; const void *span; int gpuw; } ir_ent;   // gpuw: a GPU write was queued on the indices: never trusted again
+ static nvn_hmap g_ir = {.klen = sizeof(ir_key)};
+ static uint64_t g_vc_rgn[VC_RGN / 64], g_vc_stat, g_vc_conv, g_vc_whole, g_vc_checks, g_vc_bad;   // g_vc_rgn: 1 MB regions holding a kept index range (hashed); g_vc_conv / g_vc_whole: vertices converted / in the bound ranges
+-static int vc_on(void) { static int v = -1; if (v < 0) { const char *e = getenv("DM_NVN_VCONV_RANGE"); v = e && *e ? atoi(e) != 0 : DM_GAME_VCONV_RANGE; MLOG("vertex conversion of the draw's vertices only: %s", v ? "on" : "off"); } return v; }
++static int vc_on(void) { static int v = -1; if (v < 0) { const char *e = getenv("DM_NVN_VCONV_RANGE"); v = e && *e ? atoi(e) != 0 : dm_prof()->vconv_range; MLOG("vertex conversion of the draw's vertices only: %s", v ? "on" : "off"); } return v; }
+ static int vc_check(void) { static int v = -1; if (v < 0) { const char *e = getenv("DM_NVN_VCONV_CHECK"); v = e && *e && atoi(e); } return v; }
+ static inline uint32_t vc_rgn(uint64_t r) { return (uint32_t)((r * 0x9E3779B97F4A7C15ull) >> 48) & (VC_RGN - 1); }
+ static void vc_rgn_mark(uint64_t lo, uint64_t n) { for (uint64_t r = lo >> 20; r <= (lo + n - 1) >> 20; r++) { uint32_t b = vc_rgn(r); g_vc_rgn[b >> 6] |= 1ull << (b & 63); } }
+@@ -5689,7 +5689,7 @@ static int pso4_on(void) {
+     if (v < 0) {
+         const char *e = getenv("DM_PSO_MTL4");
+ #if TARGET_OS_IPHONE
+-        v = e ? !strcmp(e, "1") : DM_GAME_PSO_MTL4;   // the profile's pso_mtl4
++        v = e ? !strcmp(e, "1") : dm_prof()->pso_mtl4;   // the profile's pso_mtl4
+         if (!v) MLOG("render pipelines through the MTLDevice (iOS: DM_PSO_MTL4=1 or the profile key pso_mtl4 on turns on the Metal 4 bases, the pipeline archive and the hybrid pipelines)");
+ #else
+         v = !(e && !strcmp(e, "0"));
+@@ -10020,7 +10020,7 @@ void mtl_read_texels(const tex_t *t, unsigned level, unsigned layer0, const NVNc
+     // textures from the CPU, reads them back with ReadTexels on its own thread before any draw uses them, and copies the blocks into its 5120x5120 roughness atlas. Read from the
+     // never-uploaded host texture they were zeros, the atlas stayed empty, and the opening cave's stone blocks got roughness 0 and no torch light
+     int nvn_ft_written(const tex_t *);
+-    if (tex_from_storage(t) || (DM_GAME_TEX_DIRTY_UPLOAD && t->mem && nvn_ft_written(t))) {
++    if (tex_from_storage(t) || (dm_prof()->tex_dirty_upload && t->mem && nvn_ft_written(t))) {
+         // A sparse pool's texture is read through a copy gathered from its page table, unmapped pages as 0, as pkg_upload_ uploads it: where nothing is mapped its address range is
+         // inaccessible (reading the storage directly stopped the host with SIGBUS)
+         const uint8_t *mem = t->mem; uint8_t *part = NULL;
+@@ -10723,7 +10723,7 @@ void mtl_exec(const uint8_t *p) {
+                 PD("Y signal_event cmd=%p dst=%p mode=%u value=%u", p, val, m, v); mtl_sub_event(val, m, v); break; }
+             case OP_REPORT_COUNTER: { uint64_t t, ad; memcpy(&t, a, 8); memcpy(&ad, (const uint8_t *)a + 8, 8); g_cnt_report[t & 31]++;
+                 PD("Q report type=%llu cmd=%p dst=%#llx", (unsigned long long)t, p, (unsigned long long)ad);
+-                if (DM_GAME_RENDER_COND) rc_note(ad, t == 0 || t == 0x10 ? 1 : 2);
++                if (dm_prof()->render_cond) rc_note(ad, t == 0 || t == 0x10 ? 1 : 2);
+                 if (t == NVN_COUNTER_TYPE_SAMPLES_PASSED) { post((post_op){3, NULL, 0, 0, ad, (uint32_t)t, vis_snapshot()}); g_vis_cur = -1; }
+                 else mtl_sub_counter(ad, (uint32_t)t);
+                 break; }
+@@ -11773,9 +11773,10 @@ uint64_t mtl_present_ext(uint64_t serial, double period, void *ev, uint64_t ev_v
+ int mtl_snap_on(void) {
+     static int v = -1; if (v >= 0) return v;
+     const char *e = getenv("DM_PRESENT_SNAP");
+-    int n = e ? atoi(e) : DM_GAME_PRESENT_SNAP ? 2 : 0;   // the profile's present_snap (a ring of 2)
++    int n = e ? atoi(e) : dm_prof()->present_snap ? 2 : 0;   // the profile's present_snap (a ring of 2)
+     v = n > 0; g_snap_n = n < 2 ? 2 : n > SNAP_MAX ? SNAP_MAX : n;
+     if (v) MLOG("present snapshots (DM_PRESENT_SNAP=%d): each present is copied into a ring of %d host textures and the game's texture is free at once", n, g_snap_n);
++    else MLOG("present snapshots off (%s): the screen shows the game's own texture", e ? "DM_PRESENT_SNAP" : "game profile present_snap");   // Frame buffering off: the log says so too
+     return v;
+ }
+ static void snap_commit_wait(uint64_t v) { if (v) rec_note_wait(&g_snap_cmt, v); }
+diff --git a/dm/gfx/nvn/nvn_rec.h b/dm/gfx/nvn/nvn_rec.h
+index c584ab2..a4c591e 100644
+--- a/dm/gfx/nvn/nvn_rec.h
++++ b/dm/gfx/nvn/nvn_rec.h
+@@ -82,7 +82,7 @@ static inline int rec_on(void) {
+ #if TARGET_OS_IPHONE
+     g_rec = !e || atoi(e) > 0;
+ #else
+-    g_rec = e ? atoi(e) > 0 : DM_GAME_ENC_THREAD;   // the profile's enc_thread: Need for Speed: Hot Pursuit Remastered waits on its fence each frame, so encoding on its thread took its 60 fps frame from 18.1 to 16.7 ms
++    g_rec = e ? atoi(e) > 0 : dm_prof()->enc_thread;   // the profile's enc_thread: Need for Speed: Hot Pursuit Remastered waits on its fence each frame, so encoding on its thread took its 60 fps frame from 18.1 to 16.7 ms
+ #endif
+     if (g_rec) MLOG("Metal encoding runs on its own thread (DM_NVN_ENC_THREAD=0 turns it off)");
+     return g_rec;
+diff --git a/dm/gfx/tests/Makefile b/dm/gfx/tests/Makefile
+index 8b9c607..f3c9649 100644
+--- a/dm/gfx/tests/Makefile
++++ b/dm/gfx/tests/Makefile
+@@ -47,10 +47,10 @@ t_transform_feedback: t_transform_feedback.m $(MTL_T_DEP)
+ .PHONY: check_t_transform_feedback
+ check_t_transform_feedback: t_transform_feedback
+ 	DM_TEST_TRANSFORM_FEEDBACK=$(CURDIR)/t_transform_feedback MTL_DEBUG_LAYER=1 python3 -m unittest test_transform_feedback.py
+-t_gfx_suspend: t_gfx_suspend.c ../nvn/hle_nvn.c ../../host/crash.c ../../host/hle_bigstack.c $(GFX) $(GFX_H)
+-	clang $(CFLAGS) -fobjc-arc -o $@ t_gfx_suspend.c ../../host/crash.c ../../host/hle_bigstack.c $(GFX) $(FW)
+-t_nvn: t_nvn.c ../nvn/hle_nvn.c ../../host/crash.c ../../host/hle_bigstack.c $(GFX) $(GFX_H)
+-	clang $(CFLAGS) -fobjc-arc -o $@ t_nvn.c ../../host/crash.c ../../host/hle_bigstack.c $(GFX) $(FW)
++t_gfx_suspend: t_gfx_suspend.c ../nvn/hle_nvn.c ../../host/crash.c ../../host/hle_bigstack.c ../../host/hle_profile.c $(GFX) $(GFX_H)
++	clang $(CFLAGS) -fobjc-arc -o $@ t_gfx_suspend.c ../../host/crash.c ../../host/hle_bigstack.c ../../host/hle_profile.c $(GFX) $(FW)
++t_nvn: t_nvn.c ../nvn/hle_nvn.c ../../host/crash.c ../../host/hle_bigstack.c ../../host/hle_profile.c $(GFX) $(GFX_H)
++	clang $(CFLAGS) -fobjc-arc -o $@ t_nvn.c ../../host/crash.c ../../host/hle_bigstack.c ../../host/hle_profile.c $(GFX) $(FW)
+ t_dirty_slots: t_dirty_slots.c ../nvn/nvn_dirty.c ../../host/crash.c ../nvn/nvn_dirty.h $(GAME_H)
+ 	clang $(CFLAGS) -o $@ t_dirty_slots.c ../../host/crash.c ../nvn/nvn_dirty.c
+ t_dirty_race: t_dirty_race.c ../nvn/nvn_dirty.c ../../host/crash.c ../nvn/nvn_dirty.h $(GAME_H)
+diff --git a/dm/gfx/tests/t_host_stubs.c b/dm/gfx/tests/t_host_stubs.c
+index 8f9b3f8..24d3c63 100644
+--- a/dm/gfx/tests/t_host_stubs.c
++++ b/dm/gfx/tests/t_host_stubs.c
+@@ -4,3 +4,5 @@ __attribute__((weak)) uint64_t g_t0_ns;   // process start time (host main.c), r
+ __attribute__((weak)) _Atomic uint64_t dm_present_ns;   // when the last present was made, for DM_HITCH_DUMP (hle_thread.c)
+ __attribute__((weak)) int dm_guest_as_contains(uintptr_t address) { (void)address; return 0; }   // no guest address space (hle_bigstack.c)
+ __attribute__((weak)) void dm_vi_layer_crop(int c[4]) { c[0] = c[1] = c[2] = c[3] = 0; }   // no vi layer crop (hle_vi.c), read by hle_nvn's present
++// The runtime profile the NVN layer reads (dm_profile in hle_profile.c): no DM_PROFILE in a test, so these are the compiled game_profile.h values
++#include "../../host/hle_profile.c"
+diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
+index 4964915..0338444 100644
+--- a/dm/host/front_mac.m
++++ b/dm/host/front_mac.m
+@@ -728,7 +728,7 @@ - (BOOL)control:(NSControl *)c textView:(NSTextView *)tv doCommandBySelector:(SE
+ // the path came in. build: this build's ID (read from the engine on the main thread by the caller). Runs on a background
+ // queue (findCheats:): it touches only the file system and Foundation, never AppKit or the cheats engine
+ static NSArray<NSURL *> *found_cheat_files(NSString *build) {
+-    NSString *tid = [NSString stringWithFormat:@"%016llX", (unsigned long long)DM_GAME_PROGRAM_ID];
++    NSString *tid = [NSString stringWithFormat:@"%016llX", (unsigned long long)dm_profile()->program_id];
+     NSString *as = [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Application Support"];
+     NSMutableArray<NSString *> *dirs = [NSMutableArray array];
+     NSFileManager *fm = NSFileManager.defaultManager;
+@@ -816,7 +816,7 @@ - (BOOL)importFiles:(NSArray<NSURL *> *)urls {
+     const char *dirc = dm_cheats_dir_path();
+     if (!dirc || !*dirc || strlen(dm_cheats_build()) != 16) { NSBeep(); return NO; }   // no folder, or no build ID to name a file by
+     NSString *dir = engine_str(dirc), *build = engine_str(dm_cheats_build());
+-    NSString *tid = [NSString stringWithFormat:@"%016llX", (unsigned long long)DM_GAME_PROGRAM_ID];
++    NSString *tid = [NSString stringWithFormat:@"%016llX", (unsigned long long)dm_profile()->program_id];
+     NSFileManager *fm = NSFileManager.defaultManager;
+     [fm createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil];
+     BOOL any = NO;
+@@ -1113,7 +1113,7 @@ void front_run(void (*guest)(void)) {
+         NSWindow *win = [[NSWindow alloc] initWithContentRect:r
+                                                     styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskResizable
+                                                       backing:NSBackingStoreBuffered defer:NO];
+-        win.title = @DM_GAME_NAME;   // the game profile's name (game name label)
++        win.title = @(dm_profile()->name);   // the game profile's name (game name label)
+         // Fullscreen: without FullScreenPrimary the green button only zooms the window. The present path already scales
+         // the game picture to fit the drawable with black bars around it, so fullscreen keeps the game's aspect ratio.
+         win.collectionBehavior = NSWindowCollectionBehaviorFullScreenPrimary;
+@@ -1151,7 +1151,7 @@ void front_run(void (*guest)(void)) {
+         // Main menu: AppKit runs ⌘ shortcuts only through menu items, so ⌘Q quits and ⌃⌘F toggles fullscreen from here (AppKit shows the item as Globe-F and keeps ⌃⌘F as a hidden twin)
+         NSMenu *bar = [NSMenu new], *app = [NSMenu new], *wm = [[NSMenu alloc] initWithTitle:@"Window"];
+         [[bar addItemWithTitle:@"" action:nil keyEquivalent:@""] setSubmenu:app];
+-        [app addItemWithTitle:@"Quit " DM_GAME_NAME action:@selector(terminate:) keyEquivalent:@"q"];
++        [app addItemWithTitle:[@"Quit " stringByAppendingString:@(dm_profile()->name)] action:@selector(terminate:) keyEquivalent:@"q"];
+         // Cheats (hle_cheats.c): the rows rebuild on every open through the delegate, the same rows the file reload changes
+         g_cheats_menu = [DmCheatsMenuDelegate new];
+         NSMenu *cm = [[NSMenu alloc] initWithTitle:@"Cheats"];
+diff --git a/dm/host/hle_cheats.c b/dm/host/hle_cheats.c
+index 0e8ef70..5908a8d 100644
+--- a/dm/host/hle_cheats.c
++++ b/dm/host/hle_cheats.c
+@@ -129,7 +129,7 @@ static char g_dir[1024];       // cheats folder (DM_CHEATS or <DM_ROOT>/cheats),
+ static char g_path[2048];      // the loaded file (logged; "Reload cheats" re-reads exactly this path)
+ static char g_build[17];       // the loaded file's build ID: main's build ID cut to 16 hex digits, upper case as the
+                                // cheat files name it (dmnt matches the file name case-insensitively on disk)
+-static char g_tid[17];         // this game's title ID (the profile's DM_GAME_PROGRAM_ID), for the Atmosphère tree
++static char g_tid[17];         // this game's title ID (the profile's program_id), for the Atmosphère tree
+ static char g_others[OTHER_MAX][17]; static int g_nothers;   // builds on disk that are not this game's build
+ static char g_other_ver[OTHER_MAX][24];                      // their display versions, from their meta files ("" unknown)
+ static char g_version[24];     // this build's display version (the profile's build rows, else the meta file), "" unknown
+@@ -619,7 +619,7 @@ static void addr_name(uint64_t addr, char *out, size_t n) {
+     where_t w;
+     uint64_t ab = region_base(2);
+     if (where_get(addr, 1, &w) || w.kind == WH_GUEST) {
+-        if (ab && addr >= ab && addr - ab < (uint64_t)DM_GAME_MEM_ALIAS) snprintf(out, n, "alias+0x%llX", (unsigned long long)(addr - ab));
++        if (ab && addr >= ab && addr - ab < dm_profile()->mem_alias) snprintf(out, n, "alias+0x%llX", (unsigned long long)(addr - ab));
+         else snprintf(out, n, "0x%llX", (unsigned long long)addr);
+     } else snprintf(out, n, "%s+0x%llX", w.kind == WH_MAIN ? "main" : w.kind == WH_HEAP ? "heap" : w.mod->name, (unsigned long long)(addr - w.base));
+ }
+@@ -719,7 +719,7 @@ static uint64_t region_base(int m) {
+     uint64_t hb; size_t hopen;
+     switch (m) {
+         case 1: dm_guest_heap_range(&hb, &hopen); return hb && hopen ? hb : 0;
+-        case 2: dm_guest_heap_range(&hb, &hopen); return hb ? hb - (uint64_t)DM_GAME_MEM_STACK - (uint64_t)DM_GAME_MEM_ALIAS : 0;
++        case 2: dm_guest_heap_range(&hb, &hopen); return hb ? hb - dm_profile()->mem_stack - dm_profile()->mem_alias : 0;
+         case 3: { uint8_t *as = NULL; size_t n = 0; svc_guest_range(&as, &n); return (uint64_t)(uintptr_t)as; }
+         case 4: return 0;
+         default: return g_main_mod ? (uint64_t)(uintptr_t)g_main_mod->base : 0;
+@@ -1731,11 +1731,9 @@ static void report_build(void) {
+ 
+ // This build's display version from the profile's build rows (by the whole main build ID), as GetDisplayVersion answers it
+ static void profile_version(void) {
+-#ifdef DM_GAME_DISPLAY_VERSIONS
+-    static const struct { const char *build, *ver; } k[] = {DM_GAME_DISPLAY_VERSIONS};
++    const struct dm_profile *p = dm_profile();
+     const char *bid = dm_main_build();
+-    for (unsigned j = 0; j < sizeof k / sizeof *k; j++) if (!strcasecmp(bid, k[j].build)) snprintf(g_version, sizeof g_version, "%s", k[j].ver);
+-#endif
++    for (int j = 0; j < p->nver; j++) if (!strcasecmp(bid, p->ver[j].build)) snprintf(g_version, sizeof g_version, "%s", p->ver[j].ver);
+ }
+ 
+ // The anchored sources (*.cheats.toml) in the folder, for the panel's "compile them for this build" hint
+@@ -1853,7 +1851,7 @@ void dm_cheats_init(void) {
+     e = getenv("DM_CHEATS");
+     if (e && *e) snprintf(g_dir, sizeof g_dir, "%s", e);
+     else { e = getenv("DM_ROOT"); if (e && *e) snprintf(g_dir, sizeof g_dir, "%s/cheats", e); }
+-    snprintf(g_tid, sizeof g_tid, "%016llX", (unsigned long long)DM_GAME_PROGRAM_ID);
++    snprintf(g_tid, sizeof g_tid, "%016llX", (unsigned long long)dm_profile()->program_id);
+     // g_build: the main NSO's first 16 hex digits, upper case like the menu and the brief state them; the candidate
+     // match itself is case-insensitive (name_is_build lower-cases both sides)
+     const char *bid = dm_main_build();
+diff --git a/dm/host/hle_fs.c b/dm/host/hle_fs.c
+index f4fe806..0f64dc1 100644
+--- a/dm/host/hle_fs.c
++++ b/dm/host/hle_fs.c
+@@ -601,7 +601,7 @@ HLE_FORCE("_ZN2nn2fs13MountSaveDataEPKcRKNS_7account3UidE", "fsp-srv; save data
+     const char *d = getenv("DM_SAVE");
+     if (!d) die("DM_SAVE is not set: point it at a writable copy of a save directory");
+     char dd[1024]; strlcpy(dd, d, sizeof dd); size_t L = strlen(dd); while (L > 1 && dd[L - 1] == '/') dd[--L] = 0;   // strip trailing slashes (.work / .new are appended at the same level)
+-    save_sync_mount(dd, DM_GAME_ID);   // DM_SAVE_SYNC: the cloud's save comes in before the work directory is cloned from the committed one (save_sync.h)
++    save_sync_mount(dd, dm_profile()->id);   // DM_SAVE_SYNC: the cloud's save comes in before the work directory is cloned from the committed one (save_sync.h)
+     return mount_ex(name, dd, 0, 1);
+ }
+ // Device save data: one save for the console instead of one per user. Animal Crossing: New Horizons keeps its island there (3.0.3's main mounts no account save data at all); the host
+@@ -614,7 +614,7 @@ HLE_FORCE("_ZN2nn2fs19MountDeviceSaveDataEPKc", "fsp-srv; device save data → t
+     const char *d = getenv("DM_SAVE");
+     if (!d) die("DM_SAVE is not set: point it at a writable copy of a save directory");
+     char dd[1024]; strlcpy(dd, d, sizeof dd); size_t L = strlen(dd); while (L > 1 && dd[L - 1] == '/') dd[--L] = 0;
+-    save_sync_mount(dd, DM_GAME_ID);   // the cloud's save holds both, so it comes in at whichever of the two mounts first
++    save_sync_mount(dd, dm_profile()->id);   // the cloud's save holds both, so it comes in at whichever of the two mounts first
+     strlcat(dd, "_device", sizeof dd);
+     return mount_ex(name, dd, 0, 1);
+ }
+diff --git a/dm/host/hle_oe.c b/dm/host/hle_oe.c
+index 71a90bc..0750f48 100644
+--- a/dm/host/hle_oe.c
++++ b/dm/host/hle_oe.c
+@@ -8,7 +8,7 @@
+ static _Atomic int g_opmode = -1;
+ int dm_opmode(void) {
+     int m = g_opmode;
+-    if (m < 0) { const char *e = getenv("DM_OPMODE"); int v = e ? atoi(e) : DM_GAME_OPMODE; int exp = -1; atomic_compare_exchange_strong(&g_opmode, &exp, v); m = g_opmode; }
++    if (m < 0) { const char *e = getenv("DM_OPMODE"); int v = e ? atoi(e) : dm_profile()->opmode; int exp = -1; atomic_compare_exchange_strong(&g_opmode, &exp, v); m = g_opmode; }
+     return m;
+ }
+ // ---------- System notification queue (AppletMessage): front end state changes → fetched by the game every frame with TryPopNotificationMessage ----------
+@@ -140,7 +140,7 @@ HLE_FORCE("_ZN2nn2oe16GetOperationModeEv", "operation mode query; a fixed value
+ // Profile perf_mode boost: Boost whatever the operation mode, a combination a Switch 1 never reports, so a profile choice and not a default. Rhythm Heaven Groove keeps one flag per mode
+ //   (main+0xa764 / main+0xa784): console means a TV, which gets a latency calibration (main+0x20d0, scene script main+0x4c0820), and Boost alone picks its 1920x1080 draw size
+ //   (table main+0xada6d0, else 1280x720). Handheld with Boost: no TV calibration on a phone, full-size drawing
+-HLE_FORCE("_ZN2nn2oe18GetPerformanceModeEv", "performance mode query; same as the operation mode (profile perf_mode boost: Boost)", int, h_oe_GetPerfMode, void) { return DM_GAME_PERF_BOOST ? 1 : opmode(); }
++HLE_FORCE("_ZN2nn2oe18GetPerformanceModeEv", "performance mode query; same as the operation mode (profile perf_mode boost: Boost)", int, h_oe_GetPerfMode, void) { return dm_profile()->perf_boost ? 1 : opmode(); }
+ // SDK 11 calls of Monster Hunter Rise: the CPU overclock query reads an apm session the host never opened (null read in sdk+0x35258 at the start of nnMain, main+0x6bc8650);
+ // the default display resolution is the TV's (1080p docked) or the panel's (720p handheld) and only changes with the operation mode
+ // Taiko Risshiden V DX (SDK 12.3.3) turns it on in nnMain (main+0x2e1e4c): the setter goes through the same apm session (null read at sdk+0x362b8). The host does not scale clocks;
+diff --git a/dm/host/hle_profile.c b/dm/host/hle_profile.c
+index 93c7ad5..6b28585 100644
+--- a/dm/host/hle_profile.c
++++ b/dm/host/hle_profile.c
+@@ -103,6 +103,22 @@ static uint64_t num(const char *v, uint64_t dflt) {
+ #ifndef DM_GAME_VCONV_RANGE
+ #define DM_GAME_VCONV_RANGE 0
+ #endif
++#ifndef DM_GAME_STDALLOC_CAP
++#define DM_GAME_STDALLOC_CAP 0ull
++#endif
++#ifndef DM_GAME_SHADER_KEY_SKIP_LEN
++#define DM_GAME_SHADER_KEY_SKIP_OFF 0
++#define DM_GAME_SHADER_KEY_SKIP_LEN 0
++#endif
++#ifndef DM_GAME_TEX_BC_CPU
++#define DM_GAME_TEX_BC_CPU 0
++#endif
++#ifndef DM_GAME_UE_TEXTURE_POOL
++#define DM_GAME_UE_TEXTURE_POOL 0
++#endif
++#ifndef DM_GAME_ENC_THREAD
++#define DM_GAME_ENC_THREAD 0
++#endif
+ #ifndef DM_GAME_ARGS
+ #define DM_GAME_ARGS ""
+ #endif
+@@ -142,6 +158,8 @@ static void defaults(void) {
+ #else
+     P.nvn_api_major = 0; P.nvn_api_minor = 0;
+ #endif
++    P.stdalloc_cap = DM_GAME_STDALLOC_CAP; P.shader_skip_off = DM_GAME_SHADER_KEY_SKIP_OFF; P.shader_skip_len = DM_GAME_SHADER_KEY_SKIP_LEN;
++    P.tex_bc_cpu = DM_GAME_TEX_BC_CPU; P.ue_texture_pool = DM_GAME_UE_TEXTURE_POOL; P.enc_thread = DM_GAME_ENC_THREAD;
+     copy_str(P.args, sizeof P.args, DM_GAME_ARGS);
+     copy_str(P.genv, sizeof P.genv, DM_GAME_ENV);
+     copy_str(P.source, sizeof P.source, "compiled game_profile.h");
+@@ -172,6 +190,8 @@ static void set_kv(const char *k, const char *v) {
+     else if (!strcmp(k, "sys_resource")) P.sys_resource = num(v, P.sys_resource);
+     else if (!strcmp(k, "mem_map_limit")) P.mem_map_limit = truthy(v);
+     else if (!strcmp(k, "display_version")) {   // build<TAB>version; one row per build (game.tsv's build rows give the same)
++        static int own;   // the file's rows replace the compiled game's, they do not join them
++        if (!own) { own = 1; P.nver = 0; }
+         const char *t = strchr(v, '\t'); if (t && P.nver < DM_PROF_MAX_VER) {
+             size_t n = (size_t)(t - v); if (n >= sizeof P.ver[0].build) n = sizeof P.ver[0].build - 1;
+             memcpy(P.ver[P.nver].build, v, n); P.ver[P.nver].build[n] = 0;
+@@ -188,7 +208,7 @@ static void set_kv(const char *k, const char *v) {
+     else if (!strcmp(k, "fps_hold")) P.fps_hold = truthy(v);
+     else if (!strcmp(k, "present_snap")) P.present_snap = truthy(v);
+     else if (!strcmp(k, "pso_mtl4")) P.pso_mtl4 = truthy(v);
+-    else if (!strcmp(k, "shared_font")) P.shared_font_ttf = !strcmp(v, "ttf") || !strcmp(v, "1");
++    else if (!strcmp(k, "shared_font")) P.shared_font_ttf = !strcmp(v, "auto") || !strcmp(v, "-1") ? -1 : !strcmp(v, "ttf") || !strcmp(v, "1");   // auto: by the SDK version (hle_sdk16.c)
+     else if (!strcmp(k, "pad_layout")) P.pad_layout = !strcmp(v, "full") || !strcmp(v, "1") ? 1 : !strcmp(v, "touch") || !strcmp(v, "2") ? 2 : 0;
+     else if (!strcmp(k, "op_mode")) P.opmode = !strcmp(v, "console") ? 1 : !strcmp(v, "handheld") ? 0 : truthy(v);
+     else if (!strcmp(k, "perf_mode")) P.perf_boost = !strcmp(v, "boost") ? 1 : !strcmp(v, "follow") ? 0 : truthy(v);
+@@ -200,6 +220,15 @@ static void set_kv(const char *k, const char *v) {
+     else if (!strcmp(k, "gpu_timestamps")) P.gpu_ts_segment = !strcmp(v, "segment") || !strcmp(v, "1");
+     else if (!strcmp(k, "vconv_range")) P.vconv_range = truthy(v);
+     else if (!strcmp(k, "device_api")) { char *e; P.nvn_api_major = (int)strtol(v, &e, 10); if (e && *e == '.') P.nvn_api_minor = atoi(e + 1); }
++    else if (!strcmp(k, "stdalloc_cap")) P.stdalloc_cap = num(v, P.stdalloc_cap);
++    else if (!strcmp(k, "shader_key_skip")) {   // <offset>+<length>; empty or 0+0 = none
++        char *e; uint64_t o = strtoull(v, &e, 0);
++        if (e != v && *e == '+') { uint64_t l = strtoull(e + 1, NULL, 0); P.shader_skip_off = (uint32_t)o; P.shader_skip_len = (uint32_t)l; }
++        else P.shader_skip_off = P.shader_skip_len = 0;
++    }
++    else if (!strcmp(k, "tex_bc_cpu")) P.tex_bc_cpu = truthy(v);
++    else if (!strcmp(k, "ue_texture_pool")) P.ue_texture_pool = (int)num(v, (uint64_t)P.ue_texture_pool);
++    else if (!strcmp(k, "enc_thread")) P.enc_thread = truthy(v);
+     else if (!strcmp(k, "game_args")) copy_str(P.args, sizeof P.args, v);
+     else if (!strcmp(k, "game_env")) copy_str(P.genv, sizeof P.genv, v);
+     // any other key (ipa, zip_store, shader_*, build, package, ...) is not a host constant: ignored
+@@ -236,7 +265,7 @@ static void read_env(void) {
+     static const char *keys[] = {"TITLE_ID","NAME","ROMFS_MARKER","PROGRAM_ID","MODULES","MEM_RESERVE","MEM_ALIAS","MEM_STACK","APP_POOL",
+         "MEM_USED","SYS_RESOURCE","MEM_MAP_LIMIT","PRESENT_INTERVAL","CORE_PREEMPT","ALLOC_BIG_ALIGN","FPS_TARGET","FPS_HOLD","PRESENT_SNAP",
+         "PSO_MTL4","SHARED_FONT","PAD_LAYOUT","OP_MODE","PERF_MODE","FEEDBACK_SNAP","TEX_FLUSH_UPLOAD","RENDER_COND","TEX_DIRTY_UPLOAD",
+-        "TEX_DYN_SLOTS","GPU_TIMESTAMPS","VCONV_RANGE","DEVICE_API","GAME_ARGS","GAME_ENV", NULL};
++        "TEX_DYN_SLOTS","GPU_TIMESTAMPS","VCONV_RANGE","DEVICE_API","STDALLOC_CAP","SHADER_KEY_SKIP","TEX_BC_CPU","UE_TEXTURE_POOL","ENC_THREAD","GAME_ARGS","GAME_ENV", NULL};
+     char k[64], name[96];
+     for (int i = 0; keys[i]; i++) {
+         snprintf(k, sizeof k, "%s", keys[i]);
+@@ -278,4 +307,6 @@ void dm_profile_log(void) {
+     LOG("  graphics flush %d dirty %d rcond %d dynslots %d gputs %d vconv %d nvn_api %d.%d  versions %d",
+         p->tex_flush_upload, p->tex_dirty_upload, p->render_cond, p->tex_dyn_slots, p->gpu_ts_segment, p->vconv_range,
+         p->nvn_api_major, p->nvn_api_minor, p->nver);
++    LOG("  more stdalloc_cap %#llx key_skip %#x+%#x bc_cpu %d ue_pool %d enc_thread %d",
++        (unsigned long long)p->stdalloc_cap, p->shader_skip_off, p->shader_skip_len, p->tex_bc_cpu, p->ue_texture_pool, p->enc_thread);
+ }
+diff --git a/dm/host/hle_profile.h b/dm/host/hle_profile.h
+index a2febeb..5afd846 100644
+--- a/dm/host/hle_profile.h
++++ b/dm/host/hle_profile.h
+@@ -3,6 +3,7 @@
+ // game profile, dm/games/game.py profile <id> <out.tsv>) → DM_PROF_<KEY> environment variables.
+ // The per-knob switches the host already reads (DM_FPS_TARGET, DM_OPMODE, DM_PRESENT_INTERVAL, DM_NVN_API, ...) still win over
+ // all of these: each site reads them after the profile.
++// A key a profile file leaves out keeps the compiled value, so dm/games/game.py profile writes every key (also the "decide by the SDK" ones).
+ // A build with no DM_PROFILE set behaves exactly as the compile-time profile did.
+ #pragma once
+ #include <stdint.h>
+@@ -29,9 +30,19 @@ struct dm_profile {
+     char feedback_snap[DM_PROF_STR];
+     int tex_flush_upload, render_cond, tex_dirty_upload, tex_dyn_slots, gpu_ts_segment, vconv_range;
+     int nvn_api_major, nvn_api_minor;   // major 0 = decide by the SDK version (hle_nvn.c nvn_api)
++    uint64_t stdalloc_cap;       // StandardAllocator's address space (hle_svc.c); 0 = what the alias region has room for
++    uint32_t shader_skip_off, shader_skip_len;   // shader_key_skip <offset>+<length>: control bytes the shader keys hash as zeros (len 0 = none)
++    int tex_bc_cpu, ue_texture_pool, enc_thread;   // ue_texture_pool in MB (0 = the game's own pool)
+     char args[512], genv[1024];  // game_args / game_env
+     char source[512];            // DM_PROFILE, or "compiled defaults"
+ };
+ 
+ const struct dm_profile *dm_profile(void);   // loaded once; never NULL
+-void dm_profile_log(void);                   // one line per differing value (called after loading)
++void dm_profile_log(void);
++// The same pointer, cached per translation unit: for the hot paths (per draw, per texture) that cannot afford the function call.
++// dm_profile() is first called from main() before any thread starts, so the cache never sees a half-loaded profile.
++static inline const struct dm_profile *dm_prof(void) {
++    static const struct dm_profile *p;
++    if (__builtin_expect(!p, 0)) p = dm_profile();
++    return p;
++}                   // one line per differing value (called after loading)
+diff --git a/dm/host/hle_sdk16.c b/dm/host/hle_sdk16.c
+index 20d28b3..38dff5a 100644
+--- a/dm/host/hle_sdk16.c
++++ b/dm/host/hle_sdk16.c
+@@ -14,10 +14,10 @@
+ HLE_FORCE("_ZN2nn2oe15SetCpuBoostModeENS0_12CpuBoostModeE", "CPU boost mode; the host does not scale clocks", void, h_oe_CpuBoost, int m) { (void)m; }
+ // DisplayVersion = char[16] (the application's display version): the value from that version's control data (NACP), chosen by main's build ID (the game profile's build rows); unknown builds get 1.0.0
+ HLE_FORCE("_ZN2nn2oe17GetDisplayVersionEPNS0_14DisplayVersionE", "display version (by the main build ID)", void, h_oe_DispVer, char *v) {
+-    static const struct { const char *build, *ver; } k[] = {DM_GAME_DISPLAY_VERSIONS};
++    const struct dm_profile *p = dm_profile();
+     const char *ver = "1.0.0";
+     for (int i = 0; i < g_nmod; i++) if (!strcmp(g_mod[i].name, "main"))
+-        for (unsigned j = 0; j < sizeof k / sizeof *k; j++) if (!strcmp(g_mod[i].build_id, k[j].build)) ver = k[j].ver;
++        for (int j = 0; j < p->nver; j++) if (!strcmp(g_mod[i].build_id, p->ver[j].build)) ver = p->ver[j].ver;
+     memset(v, 0, 16); strlcpy(v, ver, 16);
+ }
+ HLE_FORCE("_ZN2nn2oe24GetExpectedVolumeBalanceEPfS1_", "system / application volume balance; the host always reports 1:1", void, h_oe_GetVolBal, float *sys, float *app) { *sys = 1.0f; *app = 1.0f; }
+@@ -182,12 +182,13 @@ HLE_FORCE("_ZN2nn6fontll18ScalableFontEngine8LoadFontEPcPKvjj", "shared font BFT
+ static size_t font_skip(void) {
+     static int skip = -1;
+     if (skip < 0) {
+-#ifdef DM_GAME_SHARED_FONT_TTF
+-        skip = DM_GAME_SHARED_FONT_TTF ? 8 : 0; LOG("shared font: %s (game profile shared_font)", skip ? "the TTF itself" : "BFTTF header + TTF");
+-#else
+-        int m = dm_sdk_major(), dec = dm_main_imports("_ZN2nn6fontll24ScalableFontEngineHelper6Decode"); skip = DM_SDK_OLD(m) || !dec ? 8 : 0;
+-        LOG("shared font: %s (SDK %d, main %s ScalableFontEngineHelper::Decode)", skip ? "the TTF itself" : "BFTTF header + TTF", m, dec ? "imports" : "does not import");
+-#endif
++        int ttf = dm_profile()->shared_font_ttf;   // -1: the profile does not say, the SDK version decides
++        if (ttf >= 0) {
++            skip = ttf ? 8 : 0; LOG("shared font: %s (game profile shared_font)", skip ? "the TTF itself" : "BFTTF header + TTF");
++        } else {
++            int m = dm_sdk_major(), dec = dm_main_imports("_ZN2nn6fontll24ScalableFontEngineHelper6Decode"); skip = DM_SDK_OLD(m) || !dec ? 8 : 0;
++            LOG("shared font: %s (SDK %d, main %s ScalableFontEngineHelper::Decode)", skip ? "the TTF itself" : "BFTTF header + TTF", m, dec ? "imports" : "does not import");
++        }
+     }
+     return (size_t)skip;
+ }
+diff --git a/dm/host/hle_svc.c b/dm/host/hle_svc.c
+index 5e7eb0e..b02ed7e 100644
+--- a/dm/host/hle_svc.c
++++ b/dm/host/hle_svc.c
+@@ -366,11 +366,11 @@ static uint64_t alias_room(void) {
+ static void stdalloc_init(uint64_t *r, int param) {
+     (void)param;
+     if (r[1]) return;   // a heap over memory the game passes in: no address region
+-    uint64_t cap = DM_GAME_STDALLOC_CAP ? DM_GAME_STDALLOC_CAP : alias_room();
++    uint64_t cap = dm_profile()->stdalloc_cap ? dm_profile()->stdalloc_cap : alias_room();
+     if (!cap || r[2] <= cap) return;
+     char who[40]; uint64_t via; guest_caller(r, who, sizeof who, &via);
+     LOG("[mem] StandardAllocator::Initialize(nullptr, %.2f GB) returning to %s: %.2f GB of address space, %s", r[2] / 1073741824.0, who, cap / 1073741824.0,
+-        DM_GAME_STDALLOC_CAP ? "the profile's stdalloc_cap" : "what the alias region has room for (the profile key stdalloc_cap sets it)");
++        dm_profile()->stdalloc_cap ? "the profile's stdalloc_cap" : "what the alias region has room for (the profile key stdalloc_cap sets it)");
+     r[2] = cap;
+ }
+ // ---- Unreal's engine region ----
+diff --git a/dm/host/hle_thread.c b/dm/host/hle_thread.c
+index eb40a83..8701e3b 100644
+--- a/dm/host/hle_thread.c
++++ b/dm/host/hle_thread.c
+@@ -478,7 +478,7 @@ static void hitch_init(void) {
+ uint32_t svc_thread_main_init(void) {
+     pthread_key_create(&g_keythr, NULL);
+     qos_map_init();
+-    { const char *e = getenv("DM_PREEMPT"); g_core_preempt = e ? atoi(e) != 0 : DM_GAME_CORE_PREEMPT; }
++    { const char *e = getenv("DM_PREEMPT"); g_core_preempt = e ? atoi(e) != 0 : dm_profile()->core_preempt; }
+     pause_install();
+     hitch_init();
+     thr_t *t = calloc(1, sizeof *t);
+diff --git a/dm/host/hle_uecvar.c b/dm/host/hle_uecvar.c
+index e575d5f..cffd142 100644
+--- a/dm/host/hle_uecvar.c
++++ b/dm/host/hle_uecvar.c
+@@ -24,8 +24,8 @@ void dm_ue_cvar_tick(void) {
+     if (state < 0) {
+         state = 0;
+         const char *e = getenv("DM_UE_TEXTURE_POOL");
+-        target = e ? atoi(e) : TARGET_OS_IPHONE ? 0 : DM_GAME_UE_TEXTURE_POOL; src = e ? "DM_UE_TEXTURE_POOL" : "game profile ue_texture_pool";
+-        if (target <= 0) { if (DM_GAME_UE_TEXTURE_POOL) LOG("main: Unreal r.Streaming.PoolSize left as the game sets it (%s)", e ? src : "iOS without DM_UE_TEXTURE_POOL"); return; }
++        target = e ? atoi(e) : TARGET_OS_IPHONE ? 0 : dm_profile()->ue_texture_pool; src = e ? "DM_UE_TEXTURE_POOL" : "game profile ue_texture_pool";
++        if (target <= 0) { if (dm_profile()->ue_texture_pool) LOG("main: Unreal r.Streaming.PoolSize left as the game sets it (%s)", e ? src : "iOS without DM_UE_TEXTURE_POOL"); return; }
+         obj_off = dm_ue_cvar("r.Streaming.PoolSize");
+         if (!obj_off) { LOG("[RED] main: Unreal r.Streaming.PoolSize not found in main by the rewriter (ue_cvar.py; %s %d MB not applied)", src, target); return; }
+         LOG("main: Unreal r.Streaming.PoolSize at main+%#llx, raised to %d MB (%s)", (unsigned long long)obj_off, target, src);
+diff --git a/dm/host/main.c b/dm/host/main.c
+index 341493a..42aa7a3 100644
+--- a/dm/host/main.c
++++ b/dm/host/main.c
+@@ -79,7 +79,8 @@ static void host_preload(int argc, char **argv) {
+     {   // Which build this is: the commit the packer stamped into the app (DMCommit; a run outside an app has none), the shader chain the host loads, the profile
+         CFBundleRef b = CFBundleGetMainBundle(); CFTypeRef c = b ? CFBundleGetValueForInfoDictionaryKey(b, CFSTR("DMCommit")) : NULL; char cs[64] = "not recorded";
+         if (c && CFGetTypeID(c) == CFStringGetTypeID()) CFStringGetCString((CFStringRef)c, cs, sizeof cs, kCFStringEncodingUTF8);
+-        LOG("build: commit %s, shader chain %s, profile %s", cs, DMSH_CHAIN, DM_GAME_ID);
++        LOG("build: commit %s, shader chain %s, profile %s", cs, DMSH_CHAIN, dm_profile()->id);
++        if (getenv("DM_PROFILE")) dm_profile_log();   // a runtime profile: say what it holds
+     }
+     const char *race = getenv("DM_TEST_KEYRACE");
+     if (race && *race) {
+@@ -91,16 +92,17 @@ static void host_preload(int argc, char **argv) {
+     }
+     { void dm_term_install(void); dm_term_install(); }   // SIGTERM graceful exit (hle_lifecycle.c)
+     { void crash_set_dump_hook(void (*)(void)); void svc_thread_dump(void); crash_set_dump_hook(svc_thread_dump); }   // Dump guest thread state on a crash
+-    const char *names[argc + DM_GAME_NMOD]; int n = 0;
++    const struct dm_profile *prof = dm_profile();   // the game this process runs: the DM_PROFILE file, else the compiled profile
++    const char *names[argc + DM_PROF_MAX_MOD]; int n = 0;
+     int i = 2;
+     for (; i < argc && strcmp(argv[i], "--"); i++) names[n++] = argv[i];
+     if (i < argc && !strcmp(argv[i], "--")) for (i++; i < argc && g_argc < 63; i++) g_argv[g_argc++] = argv[i];
+-    else if (*DM_GAME_ARGS) {   // no "--" on the command line (the iOS app, the NSP script's Mac runs): the game profile's game_args, split at spaces
+-        char *s = strdup(DM_GAME_ARGS);
++    else if (*prof->args) {   // no "--" on the command line (the iOS app, the NSP script's Mac runs): the game profile's game_args, split at spaces
++        char *s = strdup(prof->args);
+         for (char *t = strtok(s, " "); t && g_argc < 63; t = strtok(NULL, " ")) g_argv[g_argc++] = t;
+-        LOG("game arguments from the game profile: %s", DM_GAME_ARGS);
++        LOG("game arguments from the game profile: %s", prof->args);
+     }
+-    if (!n) { static const char *def[] = DM_GAME_MODULES; for (int k = 0; k < DM_GAME_NMOD; k++) names[n++] = def[k]; }   // default module list from the game profile's modules (Mario: main sdk)
++    if (!n) for (int k = 0; k < prof->nmod; k++) names[n++] = prof->modules[k];   // default module list from the game profile's modules (Mario: main sdk)
+     load_modules(argv[1], names, n);
+     dm_cheats_init();   // the Atmosphère cheat files for this build (hle_cheats.c): picked by first 16 hex digits of main's build ID, which the loader knows now
+     dm_sdk_major();   // logs the SDK version, which SDK-dependent behaviour follows (loader.c)
+diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
+index 97d104c..574472a 100644
+--- a/dm/host/tests/Makefile
++++ b/dm/host/tests/Makefile
+@@ -12,7 +12,7 @@ QUIET = $(if $(findstring -fsanitize,$(SAN)),,2>/dev/null)
+ GINC = $(if $(strip $(GAME)),-I../gen/$(GAME) -I../../games/$(GAME),$(error GAME is not set: make GAME=<base game title ID>: $(shell python3 ../../games/game.py list | awk -F'\t' '{printf "%s (%s)  ", $$1, $$3}')))
+ $(B)/t_fs $(B)/t_fs_case $(B)/t_fs_commit_list $(B)/t_fs_commit_list_tsan: ../romfs_image.h
+ GAME_H = ../gen/$(GAME)/game_profile.h
+-run: $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture $(B)/t_oe $(B)/t_fs $(B)/t_fs_commit_list $(B)/t_thread_leak $(B)/t_fs_case $(B)/t_audio $(B)/t_audio_spsc $(B)/t_swkbd $(B)/t_altstack $(B)/t_condvar $(B)/t_condvar_old $(B)/t_pollwait $(B)/t_pctl $(B)/t_time $(B)/t_shared_font $(B)/t_vorbis $(B)/t_vorbis_divides $(B)/t_hid $(B)/t_haptics $(B)/t_haptics_apple $(B)/t_cheats $(B)/t_input_map $(B)/t_launcher_contract
++run: $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture $(B)/t_oe $(B)/t_fs $(B)/t_fs_commit_list $(B)/t_thread_leak $(B)/t_fs_case $(B)/t_audio $(B)/t_audio_spsc $(B)/t_swkbd $(B)/t_altstack $(B)/t_condvar $(B)/t_condvar_old $(B)/t_pollwait $(B)/t_pctl $(B)/t_time $(B)/t_shared_font $(B)/t_vorbis $(B)/t_vorbis_divides $(B)/t_hid $(B)/t_haptics $(B)/t_haptics_apple $(B)/t_cheats $(B)/t_profile_runtime $(B)/t_input_map $(B)/t_launcher_contract
+ 	$(B)/t_language
+ 	$(B)/t_heap_size
+ 	$(B)/t_touch
+@@ -41,6 +41,7 @@ run: $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture
+ 	$(B)/t_pctl
+ 	$(B)/t_time
+ 	$(B)/t_shared_font
++	TMPDIR="$(abspath $(B))" $(B)/t_profile_runtime
+ 	$(B)/t_system_event
+ 	$(B)/t_vorbis
+ 	$(B)/t_vorbis_divides
+@@ -92,7 +93,7 @@ nro: $(B)/t_nro
+ 	$(B)/t_nro
+ # the cheat engine (hle_cheats.c, compiled into the test with stubs for the loader, the heap and the keys)
+ $(B)/t_cheats: t_cheats.c ../hle_cheats.c ../dm.h ../dm_input.h $(GAME_H) | $(B)
+-	$(CLANG) -O1 -g -Wall -Werror -Wno-unused-function -I.. $(GINC) -o $@ t_cheats.c
++	$(CLANG) -O1 -g -Wall -Werror -Wno-unused-function -I.. $(GINC) -o $@ t_cheats.c ../hle_profile.c
+ .PHONY: cheats
+ cheats: $(B)/t_cheats
+ 	TMPDIR="$(abspath $(B))" $(B)/t_cheats
+@@ -147,7 +148,7 @@ $(B)/t_fpslock: t_fpslock.c ../hle_fpslock.c ../hle.h ../dm.h $(GAME_H) | $(B)
+ 	$(CLANG) -O1 -g -Wno-unused-function $(GINC) -o $@ t_fpslock.c ../hle_profile.c
+ run: $(B)/t_uecvar
+ $(B)/t_uecvar: t_uecvar.c ../hle_uecvar.c ../hle.h ../dm.h $(GAME_H) | $(B)
+-	$(CLANG) -O1 -g -Wno-unused-function $(GINC) -o $@ t_uecvar.c
++	$(CLANG) -O1 -g -Wno-unused-function $(GINC) -o $@ t_uecvar.c ../hle_profile.c
+ $(B)/t_swkbd: t_swkbd.c ../hle_swkbd.c ../hle.h ../dm.h $(GAME_H) | $(B)
+ 	$(CLANG) -O1 -Wno-unused-function -I.. $(GINC) -o $@ t_swkbd.c ../hle_swkbd.c
+ run: $(B)/t_bigstack
+@@ -312,3 +313,9 @@ coverage:
+ 	rm -rf $(B)/cov/prof
+ 	LLVM_PROFILE_FILE="$(call cov_profile,$(B)/cov)" $(MAKE) -i B=$(B)/cov SAN="$(COV_FLAGS)" run
+ 	@$(call cov_export,$(B)/cov)
++# the runtime profile (hle_profile.c): a DM_PROFILE file, DM_PROF_* variables and the compiled fallback
++$(B)/t_profile_runtime: t_profile_runtime.c ../hle_profile.c ../hle_profile.h ../dm.h $(GAME_H) | $(B)
++	$(CLANG) -O1 -g -Wall -Werror -Wno-unused-function -I.. $(GINC) -o $@ t_profile_runtime.c ../hle_profile.c
++.PHONY: profile-runtime
++profile-runtime: $(B)/t_profile_runtime
++	TMPDIR="$(abspath $(B))" $(B)/t_profile_runtime
+diff --git a/dm/host/tests/t_profile_runtime.c b/dm/host/tests/t_profile_runtime.c
+new file mode 100644
+index 0000000..c4b4194
+--- /dev/null
++++ b/dm/host/tests/t_profile_runtime.c
+@@ -0,0 +1,100 @@
++// The runtime profile (hle_profile.c): a DM_PROFILE file whose values differ from the compiled game_profile.h reaches dm_profile(),
++// and without DM_PROFILE the compiled values come back. One process per case (the profile loads once), the test re-execs itself.
++// Build: clang -O1 -I.. -I../gen/<game> -o build/t_profile_runtime t_profile_runtime.c ../hle_profile.c
++#include "../dm.h"
++#include "../hle_profile.h"
++#include <assert.h>
++#include <errno.h>
++#include <sys/wait.h>
++#include <unistd.h>
++
++struct dm_flags g_flag;
++
++#define CHECK(c) do { if (!(c)) { printf("[RED] %s:%d: %s\n", __FILE__, __LINE__, #c); return 1; } } while (0)
++
++static int child_file(const char *path) {
++    setenv("DM_PROFILE", path, 1);
++    const struct dm_profile *p = dm_profile();
++    CHECK(p == dm_prof());
++    CHECK(!strcmp(p->id, "0100000000001234") && !strcmp(p->name, "Runtime Test"));
++    CHECK(p->program_id == 0x0100000000001234ull);
++    CHECK(p->nmod == 3 && !strcmp(p->modules[0], "main") && !strcmp(p->modules[1], "subsdk0") && !strcmp(p->modules[2], "sdk"));
++    CHECK(!strcmp(p->args, "-foo=1 -bar"));
++    CHECK(p->stdalloc_cap == 0x180000000ull);
++    CHECK(p->shader_skip_off == 0x770 && p->shader_skip_len == 0x78);
++    CHECK(p->tex_bc_cpu == 1 && p->ue_texture_pool == 1000 && p->enc_thread == 1 && p->core_preempt == 1 && p->fps_target == 30);
++    CHECK(p->shared_font_ttf == 1 && p->nvn_api_major == 55 && p->nvn_api_minor == 12);
++    CHECK(p->nver == 1 && !strcmp(p->ver[0].build, "abcd") && !strcmp(p->ver[0].ver, "2.0.1"));
++    return 0;
++}
++// the "none" spellings game.py writes for a game that leaves a key out: they must undo the compiled game's value
++static int child_none(const char *path) {
++    setenv("DM_PROFILE", path, 1);
++    const struct dm_profile *p = dm_profile();
++    CHECK(p->shader_skip_len == 0 && p->shared_font_ttf == -1 && p->nvn_api_major == 0 && p->stdalloc_cap == 0);
++    CHECK(p->tex_bc_cpu == 0 && p->ue_texture_pool == 0 && p->enc_thread == 0);
++    return 0;
++}
++static int child_env(void) {   // DM_PROF_<KEY> wins over the file and over the compiled profile
++    unsetenv("DM_PROFILE");
++    setenv("DM_PROF_STDALLOC_CAP", "0x40000000", 1); setenv("DM_PROF_SHADER_KEY_SKIP", "0x30+0x10", 1); setenv("DM_PROF_ENC_THREAD", "1", 1);
++    const struct dm_profile *p = dm_profile();
++    CHECK(p->stdalloc_cap == 0x40000000ull && p->shader_skip_off == 0x30 && p->shader_skip_len == 0x10 && p->enc_thread == 1);
++    return 0;
++}
++static int child_compiled(void) {   // no DM_PROFILE: exactly the header
++    unsetenv("DM_PROFILE");
++    const struct dm_profile *p = dm_profile();
++    static const char *m[] = DM_GAME_MODULES;
++    CHECK(!strcmp(p->id, DM_GAME_ID) && !strcmp(p->name, DM_GAME_NAME) && p->program_id == DM_GAME_PROGRAM_ID);
++    CHECK(p->nmod == DM_GAME_NMOD);
++    for (int i = 0; i < p->nmod; i++) CHECK(!strcmp(p->modules[i], m[i]));
++    CHECK(!strcmp(p->args, DM_GAME_ARGS));
++    CHECK(p->stdalloc_cap == DM_GAME_STDALLOC_CAP);
++    CHECK(p->shader_skip_off == DM_GAME_SHADER_KEY_SKIP_OFF && p->shader_skip_len == DM_GAME_SHADER_KEY_SKIP_LEN);
++    CHECK(p->tex_bc_cpu == DM_GAME_TEX_BC_CPU && p->ue_texture_pool == DM_GAME_UE_TEXTURE_POOL && p->enc_thread == DM_GAME_ENC_THREAD);
++    CHECK(p->core_preempt == DM_GAME_CORE_PREEMPT && p->fps_target == DM_GAME_FPS_TARGET);
++#ifdef DM_GAME_NVN_API_MAJOR
++    CHECK(p->nvn_api_major == DM_GAME_NVN_API_MAJOR && p->nvn_api_minor == DM_GAME_NVN_API_MINOR);
++#else
++    CHECK(p->nvn_api_major == 0);
++#endif
++#ifdef DM_GAME_SHARED_FONT_TTF
++    CHECK(p->shared_font_ttf == DM_GAME_SHARED_FONT_TTF);
++#else
++    CHECK(p->shared_font_ttf == -1);
++#endif
++    return 0;
++}
++
++static int write_file(const char *path, const char *body) {
++    FILE *f = fopen(path, "w");
++    if (!f) { printf("[RED] cannot write %s (errno %d)\n", path, errno); return 1; }
++    fputs(body, f); fclose(f); return 0;
++}
++
++int main(int argc, char **argv) {
++    if (argc > 2 && !strcmp(argv[1], "file")) return child_file(argv[2]);
++    if (argc > 2 && !strcmp(argv[1], "none")) return child_none(argv[2]);
++    if (argc > 1 && !strcmp(argv[1], "env")) return child_env();
++    if (argc > 1 && !strcmp(argv[1], "compiled")) return child_compiled();
++    char dir[256]; snprintf(dir, sizeof dir, "%s/t_profile_runtime.XXXXXX", getenv("TMPDIR") ?: "/tmp");
++    if (!mkdtemp(dir)) { printf("[RED] mkdtemp failed\n"); return 1; }
++    char full[300], none[300]; snprintf(full, sizeof full, "%s/full.tsv", dir); snprintf(none, sizeof none, "%s/none.tsv", dir);
++    if (write_file(full, "# values that differ from any compiled profile\n"
++            "title_id\t0100000000001234\nprogram_id\t0x0100000000001234\nname\tRuntime Test\nmodules\tmain subsdk0 sdk\ngame_args\t-foo=1 -bar\n"
++            "stdalloc_cap\t0x180000000\nshader_key_skip\t0x770+0x78\ntex_bc_cpu\t1\nue_texture_pool\t1000\nenc_thread\t1\ncore_preempt\t1\nfps_target\t30\n"
++            "shared_font\tttf\ndevice_api\t55.12\nbuild\tabcd\t2.0.1\tdisplay\n")) return 1;
++    if (write_file(none, "shader_key_skip\t0x0+0x0\nshared_font\tauto\ndevice_api\t0.0\nstdalloc_cap\t0x0\ntex_bc_cpu\t0\nue_texture_pool\t0\nenc_thread\t0\n")) return 1;
++    const char *cases[][2] = {{"file", full}, {"none", none}, {"env", NULL}, {"compiled", NULL}};
++    int bad = 0;
++    for (int i = 0; i < 4; i++) {
++        pid_t pid = fork();
++        if (!pid) { execl(argv[0], argv[0], cases[i][0], cases[i][1], (char *)NULL); _exit(3); }
++        int st = 0; waitpid(pid, &st, 0);
++        if (!WIFEXITED(st) || WEXITSTATUS(st)) { printf("%-8s FAILED\n", cases[i][0]); bad++; } else printf("%-8s OK\n", cases[i][0]);
++    }
++    unlink(full); unlink(none); rmdir(dir);
++    printf(bad ? "[RED] %d profile case(s) failed\n" : "runtime profile OK\n", bad);
++    return bad ? 1 : 0;
++}
+diff --git a/dm/tools/tests/test_game_profile.py b/dm/tools/tests/test_game_profile.py
+new file mode 100644
+index 0000000..46e8f89
+--- /dev/null
++++ b/dm/tools/tests/test_game_profile.py
+@@ -0,0 +1,54 @@
++"""game.py profile: the runtime profile file the host reads from DM_PROFILE (dm/host/hle_profile.c set_kv) carries every key the host reads, with the "none" spellings
++for a key the game leaves out (the host keeps the compiled game's value for a key the file lacks, so a second game's file must say it has none). No game files needed."""
++import subprocess
++import sys
++import tempfile
++import unittest
++from pathlib import Path
++
++REPO = Path(__file__).resolve().parents[3]
++sys.path.insert(0, str(REPO / 'dm/games'))
++import game  # pyright: ignore[reportMissingImports]  (dm/games, put on sys.path above)
++
++KEYS = ('title_id', 'program_id', 'modules', 'stdalloc_cap', 'shader_key_skip', 'tex_bc_cpu', 'ue_texture_pool', 'enc_thread', 'core_preempt', 'fps_target', 'device_api', 'game_args')
++
++
++def profile(gid):
++    with tempfile.TemporaryDirectory() as d:
++        out = Path(d) / 'profile.tsv'
++        subprocess.run([sys.executable, str(REPO / 'dm/games/game.py'), 'profile', gid, str(out)], check=True, capture_output=True)
++        rows = {}
++        for ln in out.read_text().splitlines():
++            if ln and not ln.startswith('#'):
++                k, _, v = ln.partition('\t'); rows.setdefault(k, v)
++        return rows
++
++
++class GameProfileTest(unittest.TestCase):
++    def test_every_game_writes_every_key(self):
++        for g in game.all_games():
++            rows = profile(g.id)
++            for k in KEYS: self.assertIn(k, rows, f'{g.id}: {k}')
++            self.assertRegex(rows['shader_key_skip'], r'^0x[0-9a-f]+\+0x[0-9a-f]+$', g.id)
++            self.assertIn('shared_font', rows, g.id)   # ttf / bfttf as 1 / 0, or auto
++
++    def test_values_follow_game_tsv(self):
++        for g in game.all_games():
++            rows = profile(g.id)
++            sks = g.get('shader_key_skip', '')
++            if sks:
++                off, _, ln = sks.partition('+')
++                self.assertEqual(int(rows['shader_key_skip'].split('+')[0], 0), int(off, 0), g.id)
++                self.assertEqual(int(rows['shader_key_skip'].split('+')[1], 0), int(ln, 0), g.id)
++            else:
++                self.assertEqual(rows['shader_key_skip'], '0x0+0x0', g.id)
++            self.assertEqual(int(rows['stdalloc_cap'], 0), int(g.get('stdalloc_cap', '0'), 0), g.id)
++            self.assertEqual(int(rows['ue_texture_pool']), int(g.get('ue_texture_pool', '0')), g.id)
++            self.assertEqual(int(rows['tex_bc_cpu']), int(g.get('tex_bc_cpu', 'off') == 'on'), g.id)
++            self.assertEqual(int(rows['enc_thread']), int(g.get('enc_thread', 'off') == 'on'), g.id)
++            self.assertEqual(rows['device_api'] == '0.0', not g.get('device_api', ''), g.id)
++            self.assertEqual(rows['shared_font'] == 'auto', not g.get('shared_font', ''), g.id)
++
++
++if __name__ == '__main__':
++    unittest.main()

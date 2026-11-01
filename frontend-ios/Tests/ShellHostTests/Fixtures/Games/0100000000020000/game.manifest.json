@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "title_id": "0100000000020000",
+  "name": "Chain Fixture",
+  "display_version": "1.0.0",
+  "package_version": "65536",
+  "modules": [
+    "main",
+    "sdk"
+  ],
+  "nro_count": 0,
+  "chain": "b-0000ff",
+  "loader": "FR",
+  "framework": "DmGame.framework",
+  "framework_executable": "DmGame",
+  "image_marker": "dmgame_image_marker",
+  "profile": "profile.tsv",
+  "shader_map": "dm/shader_map.tsv",
+  "launcher": "dm/launcher.json",
+  "romfs_marker": "fixture.marker",
+  "romfs_identity": "DMROMFSID1 fixture",
+  "min_os": "26.0"
+}

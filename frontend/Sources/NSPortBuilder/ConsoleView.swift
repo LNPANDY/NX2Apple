@@ -139,16 +139,10 @@ enum ConsoleInput {
                                 Text(game.title).font(.manrope(compact ? 36 : min(64, size.width / 24), .bold))
                                     .tracking(-1.6).lineLimit(2).fixedSize(horizontal: false, vertical: true)
                                     .accessibilityAddTraits(.isHeader)
-                                HStack(spacing: 12) {
-                                    if !game.version.isEmpty { Text(String(format: t("console.version"), game.version)).monospacedDigit().lineLimit(1)
-                                        .foregroundStyle(.white.opacity(0.6)).frame(width: compact ? 116 : 150, alignment: .leading) }   // fixed, so the badges stay put
-                                    ForEach(game.platforms, id: \.self) { platform in
-                                        Text(t(platform.labelKey)).font(.manrope(compact ? 13 : 17, .semibold))
-                                            .padding(.horizontal, 12).padding(.vertical, 5)
-                                            .background(.white.opacity(0.08), in: Capsule())
-                                    }
+                                if !game.version.isEmpty {
+                                    Text(String(format: t("console.version"), game.version)).monospacedDigit().lineLimit(1)
+                                        .font(.manrope(compact ? 14 : 18)).foregroundStyle(.white.opacity(0.6))
                                 }
-                                .font(.manrope(compact ? 14 : 18))
                             }
                             .id(game.id).transition(.opacity)
                             }
@@ -494,6 +488,7 @@ struct ConsoleGameTile: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             ConsoleArtwork(image: game.artwork, title: game.title).aspectRatio(1.8, contentMode: .fit)
+                .opacity(game.status == .ready ? 1 : 0.45)   // not playable on this Mac: dimmed, its status on top
                 .overlay(alignment: .bottomLeading) {
                     if game.status != .ready {
                         Text(L10n.string(game.status.labelKey, lang)).font(.manrope(compact ? 14 : 18, .semibold))

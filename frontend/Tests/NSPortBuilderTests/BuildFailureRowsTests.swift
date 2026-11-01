@@ -38,6 +38,19 @@ final class BuildFailureRowsTests: XCTestCase {
         XCTAssertEqual(BuildFailureClassifier.classify("[RED] the iOS SDK is not installed", inputs: inputs).kind, .iosSDK, "a known stop keeps its own row")
     }
 
+    func testAMissingZbicPackageIsItsOwnRowWithAnInstallButton() throws {
+        let log = "[3/9] extract\n" + (try fixture("zbic.missing").text) + "\n"
+        XCTAssertEqual(BuildFailureClassifier.classify(log).kind, .zbic)
+        XCTAssertEqual(BuildFailureClassifier.classify("[RED] the zbic package decoded it").kind, .unknown)
+        XCTAssertTrue(L10n.table["fail.zbic.next"]?.en.contains("pip install zbic") ?? false)
+        XCTAssertEqual(L10n.table["fail.zbic.button"]?.en, "Install zbic")
+        let m = BuildModel()
+        m.logTail = log
+        m.noteFailure()
+        XCTAssertEqual(m.failure?.kind, .zbic)
+        XCTAssertFalse(m.fixBusy(.zbic))
+    }
+
     func testSeveralGamesAndNoTitleID() throws {
         XCTAssertEqual(BuildFailureClassifier.classify(try fixture("games.several").text).kind, .severalGames)
         let none = try fixture("games.noTitleID")
@@ -53,6 +66,7 @@ final class BuildFailureRowsTests: XCTestCase {
         XCTAssertEqual(low, BuildFailure(kind: .diskFull, gameName: nil, detail: try fixture("disk.low").gb))
         XCTAssertEqual(BuildFailureClassifier.classify(try fixture("disk.full").text), BuildFailure(kind: .diskFull, gameName: nil, detail: nil))
         let m = BuildModel()
+        m.lang = .en   // the English text, whatever the Mac's language
         XCTAssertTrue(m.failureWhat(low).contains("40 GB"), m.failureWhat(low))
         XCTAssertFalse(m.failureWhat(BuildFailure(kind: .diskFull, gameName: nil)).contains("GB"))
     }
@@ -66,7 +80,9 @@ final class BuildFailureRowsTests: XCTestCase {
         try FileManager.default.createDirectory(at: volumes.appendingPathComponent("Games"), withIntermediateDirectories: true)
         XCTAssertEqual(BuildFailureClassifier.classify(log, inputs: .init(keysPath: "", paths: [gone], volumes: volumes.path)).kind, .noTitleID, "the drive is there")
         XCTAssertEqual(BuildFailureClassifier.classify(log, inputs: .init(keysPath: "/Users/x/prod.keys", paths: ["/Users/x/g.nsp"], volumes: volumes.path)).kind, .noTitleID, "a path off /Volumes is no drive")
-        XCTAssertTrue(BuildModel().failureWhat(f).contains("“Games”"))
+        let m = BuildModel()
+        m.lang = .en   // the quotes are English ones whatever the device language is
+        XCTAssertTrue(m.failureWhat(f).contains("“Games”"))
     }
 
     func testTheInstallStepsThatFailedBecomeRows() {
@@ -101,8 +117,8 @@ final class BuildFailureRowsTests: XCTestCase {
     }
 
     func testTheNewRowsAreInAllThreeLanguagesWithoutSemicolonsOrTheProductName() {
-        var keys = ["fail.showFolder", "fail.openXcode", "fail.retry", "fail.keys.button", "fail.driveMissing.whatNamed", "fail.diskFull.whatNeeds"]
-        let kinds = BuildFailureTests.stateKinds.union([.keys, .severalGames, .noTitleID, .diskFull])
+        var keys = ["fail.showFolder", "fail.openXcode", "fail.retry", "fail.keys.button", "fail.driveMissing.whatNamed", "fail.diskFull.whatNeeds", "fail.cloudFolder.button", "engine.syncing"]
+        let kinds = BuildFailureTests.stateKinds.union([.keys, .severalGames, .noTitleID, .diskFull, .cloudFolder])
         for k in BuildFailureKind.allCases where kinds.contains(k) { keys += [k.whatKey, k.nextKey] }
         for key in keys {
             let row = L10n.table[key]
@@ -187,6 +203,7 @@ final class BuildFailureRowsTests: XCTestCase {
 
     func testTryAgainStartsANewBuildAndClearsTheCard() {
         let m = BuildModel()
+        m.target = BuildTarget.mac   // the iPhone / iPad target stops first, at the device check
         m.failure = BuildFailure(kind: .deviceTransfer, gameName: nil)
         m.fixBuildFailure(.deviceTransfer)   // no repository here: the build stops at once, but it has started and dropped the old card
         XCTAssertNil(m.failure)

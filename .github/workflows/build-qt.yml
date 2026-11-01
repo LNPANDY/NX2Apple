@@ -38,10 +38,22 @@ jobs:
       - name: Generate the localisation table
         run: python frontend-qt/gen_localization.py
 
+      # The build packages ride in the zip: the venv step then installs from disk (--no-index),
+      # so a fresh machine needs no PyPI round-trip for lz4/capstone/fonttools/nsz. The runner's
+      # Python is the version these wheels target (3.12), matching the interpreter the app
+      # installs for its venv.
+      # Exact versions, wheels only: the zip ships these to players, so the supply is pinned
+      # (hash-locking the full closure can follow the Mac bundled-Python pattern if wanted).
+      - name: Download the venv wheels
+        run: "python -m pip download --only-binary=:all: lz4==4.4.5 capstone==5.0.9 fonttools==4.68.0 zbic==1.0.1.post1 backports.zstd==1.8.0 nsz==5.0.0 -d frontend-qt/wheels"
+
       - name: Build
         working-directory: frontend-qt
         shell: bash
         run: |
+          # Manrope (the Mac launcher's typeface, SIL OFL 1.1) goes into the bundle's fonts folder
+          # with its licence; style.load_font() looks for it there.
+          PATHSEP=';'
           # --windowed: no console window. --name: the exe/bundle name.
           # --collect-all PySide6 copies the whole PySide6 package and OVERRIDES
           # --exclude-module (measured: the package stayed 247 MB with 38 exclusions in
@@ -103,6 +115,8 @@ jobs:
             --exclude-module PySide6.QtHttpServer \
             --exclude-module PySide6.QtGraphs \
             --exclude-module PySide6.QtGraphsWidgets \
+            --add-data "../frontend/fonts/Manrope.ttf${PATHSEP}fonts" \
+            --add-data "../frontend/fonts/Manrope-OFL.txt${PATHSEP}fonts" \
             --paths . \
             run_gui.py
 
@@ -123,6 +137,7 @@ jobs:
         shell: bash
         run: |
           cd frontend-qt/dist
+          cp -r ../wheels "NS Port Builder/wheels"
           powershell -Command "Compress-Archive -Path 'NS Port Builder' -DestinationPath '../NS-Port-Builder-qt-windows-x64.zip'"
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

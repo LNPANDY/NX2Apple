@@ -4,23 +4,35 @@ import AppKit
 /// Enters and leaves the console mode: the window content switches (RootView, with a short calm transition) and the window goes
 /// full screen for the mode, then back to what it was. A window that was already full screen is left that way. The two animations
 /// are sequenced so they do not fight: on entering, the content switches after the window has finished going full screen, and on
-/// leaving, the console fades out first and the window leaves full screen after.
+/// leaving, the console fades out first and the window leaves full screen after. A game is started from a window that has left full
+/// screen: a game opened from an app in its own full screen Space can come up as a window, so the window goes back to full screen
+/// once the game has quit. In the console the pointer hides after a few idle seconds.
 @MainActor final class ConsoleCoordinator: ObservableObject {
-    @Published private(set) var active = false
+    @Published private(set) var active = false { didSet { if active != oldValue { active ? pointer.start() : pointer.stop() } } }
     /// The launcher is showing (not the guided setup), so the mode can be entered.
     @Published var available = false
     private var enteredFullScreen = false
     private var entering = false
+    private var leftForGame = false
+    private var activationObserver: NSObjectProtocol?
+    private let appIsActive: () -> Bool
     private let window: () -> NSWindow?
     /// Changes the window's full screen state and calls `done` when that animation has finished.
     private let setFullScreen: @MainActor (NSWindow, Bool, @escaping () -> Void) -> Void
     private let fadeSeconds: TimeInterval
+    /// The pointer hides while the console is idle (ConsolePointer.swift).
+    private lazy var pointer = ConsolePointer(window: window)
+
+    /// The pointer is hidden right now: a game started from the console gets DM_CURSOR_HIDDEN then.
+    var pointerHidden: Bool { pointer.isHidden }
 
     nonisolated static let transitionSeconds: TimeInterval = 0.4
 
     init(window: @escaping () -> NSWindow? = { NSApp.keyWindow ?? NSApp.windows.first { $0.canBecomeMain } },
          setFullScreen: @escaping @MainActor (NSWindow, Bool, @escaping () -> Void) -> Void = ConsoleCoordinator.toggleFullScreen,
-         fadeSeconds: TimeInterval = ConsoleCoordinator.transitionSeconds + 0.05) {
+         fadeSeconds: TimeInterval = ConsoleCoordinator.transitionSeconds + 0.05,
+         appIsActive: @escaping () -> Bool = { NSApp?.isActive ?? true }) {
+        self.appIsActive = appIsActive
         self.window = window
         self.setFullScreen = setFullScreen
         self.fadeSeconds = fadeSeconds
@@ -58,6 +70,38 @@ import AppKit
     }
 
     func toggle() { active ? exit() : enter() }
+
+    /// Takes the window out of full screen and then calls `launch`, which starts the game. A window that is not full screen calls it at once.
+    func leaveFullScreenForGame(then launch: @escaping () -> Void) {
+        guard active, let w = window(), w.styleMask.contains(.fullScreen) else { launch(); return }
+        leftForGame = true
+        setFullScreen(w, false) { launch() }
+    }
+
+    /// The game has quit or did not start: the window goes back to full screen if it left for the game and the console is still showing.
+    /// A launcher that is not the active app waits until it is, so it does not pull the player into a Space from behind another app.
+    func resumeFullScreenAfterGame() {
+        guard leftForGame else { return }
+        leftForGame = false
+        guard active else { return }
+        if appIsActive() { returnToFullScreen(); return }
+        if let activationObserver { NotificationCenter.default.removeObserver(activationObserver) }
+        activationObserver = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                if let token = self.activationObserver { NotificationCenter.default.removeObserver(token) }
+                self.activationObserver = nil
+                if self.active { self.returnToFullScreen() }
+            }
+        }
+    }
+
+    /// The launcher can be asked while the game's Space is still going away, and the system drops that request. A window that is
+    /// still not full screen when the animation is over is asked again, up to three times.
+    private func returnToFullScreen(attempts: Int = 3) {
+        guard attempts > 0, active, let w = window(), !w.styleMask.contains(.fullScreen) else { return }
+        setFullScreen(w, true) { [weak self] in self?.returnToFullScreen(attempts: attempts - 1) }
+    }
 }
 
 /// The calm switch between the desktop and the console: opacity with a little scale, blur or movement. Reduce Motion gets a plain fade.

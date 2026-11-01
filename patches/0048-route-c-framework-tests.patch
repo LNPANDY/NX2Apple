@@ -1,0 +1,420 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LNPANDY <lnp-andy@hotmail.com>
+Date: Fri, 30 Oct 2026 16:15:06 +0100
+Subject: [PATCH] Tests: the framework's packaging, its linked sections, and
+ --prepare-xcode --framework
+
+test_framework_build.py: gen_manifest.py's schema and refusals; build_ipa.sh's
+--prepare-xcode copies project-framework.yml in with DM_FRAMEWORK=1 and project.yml
+without it; on a stand-in app and framework, the framework is packed at
+Frameworks/DmGame.framework with its resources, its signature carries no
+entitlements, the app's keeps the Increased Memory Limit request, and a default
+pack has no Frameworks/ entry.
+
+test_framework_link.py (skipped without XcodeGen and an iPhoneOS SDK) builds the
+DmGame target from a synthetic Gen with two stand-in modules and reads it back with
+otool: __TEXT,__dm<mod>x0, __DM<mod>W,__img, __TEXT,__dm<mod>x1 for each, the NRO
+pieces and __DATA,__dm_nro_tab, install name @rpath/DmGame.framework/DmGame, and
+the tables/profile/manifest at the framework's root. The generated project shows
+the app's Embed Frameworks phase and @executable_path/Frameworks rpath.
+
+test_xcode_workflow.py: --prepare-xcode --framework passes DM_FRAMEWORK=1 to the
+build. CI runs the link test in the ios-build job, which installs XcodeGen.
+
+Route C M1, docs/launcher-c-plan.md.
+
+Upstream-Status: fork-only (waits for the runtime profile, seedds/nxnative#492)
+Reason: opt-in game framework for the launcher (route C M1): it carries profile.tsv and sets DM_PROFILE, which exist only with the runtime-profile patch (seedds/nxnative#492 is still a design note), so it goes upstream after that
+Issue: LNPANDY/NX2Apple#144
+---
+ dm/ios/tests/test_framework_build.py | 211 +++++++++++++++++++++++++++
+ dm/ios/tests/test_framework_link.py  | 125 ++++++++++++++++
+ dm/ios/tests/test_xcode_workflow.py  |  11 +-
+ 3 files changed, 345 insertions(+), 2 deletions(-)
+ create mode 100644 dm/ios/tests/test_framework_build.py
+ create mode 100644 dm/ios/tests/test_framework_link.py
+
+diff --git a/dm/ios/tests/test_framework_build.py b/dm/ios/tests/test_framework_build.py
+new file mode 100644
+index 0000000..fee9e53
+--- /dev/null
++++ b/dm/ios/tests/test_framework_build.py
+@@ -0,0 +1,211 @@
++"""Route C M1 (docs/launcher-c-plan.md): the opt-in framework build's packaging and signing, off a device.
++
++Three parts, each on synthetic inputs, no game files or Xcode:
++  - gen_manifest.py writes the schema's keys, and refuses values the schema cannot carry;
++  - build_ipa.sh's --prepare-xcode block copies project-framework.yml in as the project when DM_FRAMEWORK=1, and
++    project.yml when it is not (the default template is never edited);
++  - the framework is signed before the app's executable, the framework's signature carries no entitlements, the app's
++    keeps the Increased Memory Limit request, and the packed IPA has the framework where the app dlopens it. A default
++    pack (no DM_FRAMEWORK) still has no Frameworks/ entry at all.
++Only the signing and packing steps run (a stand-in app and framework, no Xcode); codesign is required for the last part.
++"""
++import json
++import os
++from pathlib import Path
++import shutil
++import subprocess
++import sys
++import tempfile
++import unittest
++import zipfile
++
++REPO = Path(__file__).resolve().parents[3]
++sys.path.insert(0, str(REPO / 'dm/games'))
++import game
++
++GAME = '010015100B514000'
++SCRIPT = (REPO / 'dm/ios/tools/build_ipa.sh').read_text()
++# The three steps, each self-contained: the framework's signature, the app executable's entitlements, the pack.
++FRAMEWORK_SIGNING = SCRIPT[SCRIPT.index('# Route C: the framework is signed first'):SCRIPT.index('# The entitlements of an unsigned IPA')]
++SIGNING = SCRIPT[SCRIPT.index('# The entitlements of an unsigned IPA'):SCRIPT.index('\nP=Payload/DmIOS.app\n')]
++PACKING = SCRIPT[SCRIPT.index('\nP=Payload/DmIOS.app\n'):]
++PREPARE = SCRIPT[SCRIPT.index('if [ "$PREPARE_XCODE" = YES ]; then'):SCRIPT.index('\nelse DM_SCHEME_NAME=DmIOS; fi')] + '\nfi\n'
++PREAMBLE = 'set -u\nt() { :; }; die() { echo "$*" >&2; exit 1; }\ngp() { python3 "$PROFILE_TOOL" "$GAME" "$1"; }\n'
++CAN_SIGN = sys.platform == 'darwin' and shutil.which('codesign') and shutil.which('cc')
++
++
++def run_step(script, root, **extra):
++    env = {k: v for k, v in os.environ.items() if not k.startswith('DM_') and k not in ('IOS_PULL', 'AOC', 'PSO', 'FRAMEWORK')}
++    env.update(GAME=GAME, DM=str(root / 'dm'), PROFILE_TOOL=str(REPO / 'dm/games/game.py'), **extra)
++    return subprocess.run(['/bin/bash', '-c', PREAMBLE + script], cwd=root, env=env, capture_output=True, text=True)
++
++
++class ManifestTests(unittest.TestCase):
++    def manifest(self, *extra, nro=True):
++        """gen_manifest.py's output for the fixture's profile; a two-row nro.tsv (one loadable, one refused)."""
++        with tempfile.TemporaryDirectory() as temporary:
++            root = Path(temporary)
++            (root / 'nro.tsv').write_text('# name\tpath\nnrotest\tfixture.nro\nrefused\tonline.nro\n')
++            out = root / 'game.manifest.json'
++            args = [sys.executable, str(REPO / 'dm/ios/tools/gen_manifest.py'), str(out), '--game', GAME, '--name', 'Fixture Game',
++                    '--display-version', '1.2.1', '--package-version', 'v327680', '--modules', 'main sdk', '--chain', 'b-fixture',
++                    '--romfs-marker', 'System/Resource/marker', '--romfs-identity', 'DMROMFSID1 title=x size=1 index=2', *extra]
++            if nro: args += ['--nro-table', str(root / 'nro.tsv')]
++            result = subprocess.run(args, capture_output=True, text=True)
++            return result, (json.loads(out.read_text()) if out.exists() else None)
++
++    def test_the_schema_keys_and_values(self):
++        result, data = self.manifest()
++        self.assertEqual(result.returncode, 0, result.stderr)
++        self.assertEqual(list(data), ['schema', 'title_id', 'name', 'display_version', 'package_version', 'modules', 'nro_count',
++                                      'chain', 'loader', 'framework', 'framework_executable', 'image_marker', 'profile', 'shader_map',
++                                      'launcher', 'romfs_marker', 'romfs_identity', 'min_os'])
++        self.assertEqual(data['schema'], 1)
++        self.assertEqual(data['title_id'], GAME)
++        self.assertEqual(data['modules'], ['main', 'sdk'])
++        self.assertEqual(data['nro_count'], 1, 'the refused row is not an NRO gen_embed.py packs')
++        self.assertEqual(data['chain'], 'b-fixture')
++        self.assertEqual(data['loader'], 'FR')
++        self.assertEqual(data['framework'], 'DmGame.framework')
++        self.assertEqual(data['framework_executable'], 'DmGame')
++        self.assertEqual(data['image_marker'], 'dmgame_image_marker')
++        self.assertEqual(data['profile'], 'profile.tsv')
++        self.assertEqual(data['shader_map'], 'dm/shader_map.tsv')
++        self.assertEqual(data['launcher'], 'dm/launcher.json')
++        self.assertEqual(data['romfs_marker'], 'System/Resource/marker')
++        self.assertEqual(data['romfs_identity'], 'DMROMFSID1 title=x size=1 index=2')
++        self.assertEqual(data['min_os'], '26.0')
++
++    def test_a_romfs_folder_has_no_identity_and_no_nro_table_counts_zero(self):
++        result, data = self.manifest('--romfs-identity', '', nro=False)
++        self.assertEqual(result.returncode, 0, result.stderr)
++        self.assertEqual(data['romfs_identity'], '')
++        self.assertEqual(data['nro_count'], 0)
++
++    def test_values_the_schema_cannot_carry_are_refused(self):
++        cases = [('--game', '1234'), ('--modules', ''), ('--modules', 'main_sdk'), ('--chain', 'fixture'),
++                 ('--romfs-identity', 'not-an-identity')]
++        for flag, value in cases:
++            with self.subTest(flag=flag, value=value):
++                base = [sys.executable, str(REPO / 'dm/ios/tools/gen_manifest.py'), '/dev/null', '--game', GAME, '--name', 'x',
++                        '--display-version', '1', '--package-version', 'v0', '--modules', 'main', '--chain', 'b-1',
++                        '--romfs-marker', 'marker', '--romfs-identity', 'DMROMFSID1 title=x size=1 index=2']
++                base[base.index(flag) + 1] = value
++                self.assertNotEqual(subprocess.run(base, capture_output=True).returncode, 0)
++
++
++class ProjectTemplateTests(unittest.TestCase):
++    """build_ipa.sh --prepare-xcode copies the template the build asks for in as project.yml."""
++
++    def prepare(self, framework):
++        with tempfile.TemporaryDirectory() as temporary:
++            root = Path(temporary).resolve()
++            source = root / 'ios'
++            for name in ('Sources', 'tools', 'framework'):
++                (source / name).mkdir(parents=True)
++            (source / 'project.yml').write_text('name: default\n')
++            (source / 'project-framework.yml').write_text('name: framework\n')
++            environment = dict(IOS_SOURCE=str(source), DM_XCODE_PROJECT_DIR=str(root / 'xcode'), W=str(root), GAME=GAME,
++                               DM_DISPLAY_NAME='Fixture Game', FRAMEWORK=str(framework))
++            result = subprocess.run(['/bin/bash', '-c', PREAMBLE + 'PREPARE_XCODE=YES\n' + PREPARE], env=environment, capture_output=True, text=True)
++            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
++            copied = (root / 'xcode/project.yml').read_text()
++            linked = (root / 'xcode/framework').is_symlink()
++            return copied, linked
++
++    def test_framework_mode_selects_project_framework_yml(self):
++        self.assertEqual(self.prepare(1), ('name: framework\n', True))
++
++    def test_the_default_mode_still_selects_project_yml(self):
++        self.assertEqual(self.prepare(0), ('name: default\n', False))
++
++
++class FrameworkPackagingTests(unittest.TestCase):
++    """The signing and pack steps on a stand-in app; no Xcode, no game files."""
++
++    def stand_in(self, root, compiled):
++        header = root / 'dm/host/gen' / GAME / 'game_profile.h'
++        header.parent.mkdir(parents=True)
++        header.write_text(game.header(game.Game(REPO / 'dm/games' / GAME)))
++        for folder in ('DmIOS.app', 'shaders/b-fixture', 'romfs', 'aoc/0', 'pkg'): (root / folder).mkdir(parents=True)
++        (root / 'shaders/b-fixture/fixture_b.metallib').write_text('lib')
++        (root / 'romfs/marker').write_text('romfs')
++        (root / 'aoc/0/file').write_text('aoc')
++        (root / 'tools').symlink_to(REPO / 'dm/ios/tools', target_is_directory=True)
++        (root / 'dm/tools').symlink_to(REPO / 'dm/tools', target_is_directory=True)
++        if compiled:   # only the signing step needs a Mach-O executable
++            (root / 'main.c').write_text('int main(void) { return 0; }\n')
++            subprocess.run(['cc', '-o', str(root / 'DmIOS.app/DmIOS'), str(root / 'main.c')], check=True)
++        else:
++            (root / 'DmIOS.app/DmIOS').write_text('app')
++        (root / 'DmIOS.app/Info.plist').write_text(
++            '<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict>' +
++            '<key>CFBundleExecutable</key><string>DmIOS</string>' +
++            '<key>CFBundleIdentifier</key><string>org.nxnative.fixture</string></dict></plist>\n')
++
++    def framework(self, root):
++        """What project-framework.yml embeds: the dylib, its Info.plist and the resources at the framework's root."""
++        framework = root / 'DmIOS.app/Frameworks/DmGame.framework'
++        (framework / 'dm').mkdir(parents=True)
++        (root / 'marker.c').write_text('const char dmgame_image_marker[] = "DmGame";\n')
++        subprocess.run(['cc', '-dynamiclib', '-install_name', '@rpath/DmGame.framework/DmGame',
++                        '-o', str(framework / 'DmGame'), str(root / 'marker.c')], check=True)
++        (framework / 'Info.plist').write_text(
++            '<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict>' +
++            '<key>CFBundleExecutable</key><string>DmGame</string>' +
++            '<key>CFBundleIdentifier</key><string>org.nxnative.fixture.DmGame</string>' +
++            '<key>CFBundlePackageType</key><string>FMWK</string>' +
++            '<key>CFBundleVersion</key><string>1.0</string></dict></plist>\n')
++        (framework / 'dm/shader_map.tsv').write_text('key\tfixture\n')
++        (framework / 'profile.tsv').write_text('id\t' + GAME + '\n')
++        (framework / 'game.manifest.json').write_text('{"schema": 1}\n')
++        return framework
++
++    def pack(self, framework):
++        """Sign what the build signs and pack a stand-in app; the files outlive the call for the caller's checks."""
++        root = Path(tempfile.mkdtemp()).resolve()
++        self.addCleanup(shutil.rmtree, root)
++        self.stand_in(root, compiled=framework)
++        signing = []
++        if framework:
++            self.framework(root)
++            signing = [(FRAMEWORK_SIGNING, dict(FRAMEWORK='1')), (SIGNING, {})]   # the build's order: framework, then the app's executable
++        for script, extra in signing:
++            result = run_step(script, root, APP=str(root / 'DmIOS.app'), O=str(root / 'pkg'), **extra)
++            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
++        result = run_step(PACKING, root, APP=str(root / 'DmIOS.app'), MSL_IOS=str(root / 'shaders'), MSLDIR='b-fixture',
++                          ROMFS=str(root / 'romfs'), AOC=str(root / 'aoc'), OUT_IPA=str(root / 'out.ipa'), O=str(root / 'pkg'),
++                          DM_APP_VERSION='1.2.1', PKG='v327680')
++        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
++        with zipfile.ZipFile(root / 'out.ipa') as archive:
++            names = set(archive.namelist())
++            archive.extractall(root / 'extracted')
++        return names, root
++
++    def test_the_default_build_has_no_frameworks(self):
++        names, _ = self.pack(framework=False)
++        self.assertFalse([n for n in names if '/Frameworks/' in n], 'the default project has no framework target')
++        self.assertIn('Payload/DmIOS.app/DmIOS', names)
++
++    @unittest.skipUnless(CAN_SIGN, 'needs macOS codesign and a C compiler')
++    def test_the_framework_is_packed_and_signed_without_entitlements(self):
++        names, root = self.pack(framework=True)
++        base = 'Payload/DmIOS.app/Frameworks/DmGame.framework'
++        for name in ('DmGame', 'Info.plist', 'dm/shader_map.tsv', 'profile.tsv', 'game.manifest.json'):
++            self.assertIn(f'{base}/{name}', names)
++        extracted = root / 'extracted/Payload/DmIOS.app'
++
++        def entitlements(path):
++            return subprocess.run(['codesign', '-d', '--entitlements', ':-', str(path)], capture_output=True, text=True).stdout
++
++        self.assertEqual(entitlements(extracted / 'Frameworks/DmGame.framework/DmGame'), '',
++                         'a dylib cannot carry entitlements; the request belongs to the app')
++        self.assertIn('com.apple.developer.kernel.increased-memory-limit', entitlements(extracted / 'DmIOS'),
++                      'the app executable keeps the Increased Memory Limit request')
++        verified = subprocess.run(['codesign', '-vvv', '--verify', '--strict', str(extracted / 'Frameworks/DmGame.framework')],
++                                  capture_output=True, text=True)
++        self.assertEqual(verified.returncode, 0, verified.stdout + verified.stderr)
++
++
++if __name__ == '__main__':
++    unittest.main()
+diff --git a/dm/ios/tests/test_framework_link.py b/dm/ios/tests/test_framework_link.py
+new file mode 100644
+index 0000000..ccbba80
+--- /dev/null
++++ b/dm/ios/tests/test_framework_link.py
+@@ -0,0 +1,125 @@
++"""Route C M1 (docs/launcher-c-plan.md): xcodebuild links the game's modules into DmGame.framework, off a device.
++
++Builds the framework target of project-framework.yml from a synthetic Gen/ (two 64 KB stand-in modules: main and one NRO) and
++reads the linked dylib back with otool: the three section blocks of each module are in the framework (__TEXT,__dm<mod>x0,
++__DM<mod>W,__img, __TEXT,__dm<mod>x1), the NRO pieces with them (__TEXT,__dm_nro_x0, __DM_NRO_W,__img, __TEXT,__dm_nro_x1) and
++__DATA,__dm_nro_tab lists them; the install name is @rpath/DmGame.framework/DmGame; the framework carries its dm/ tables,
++profile.tsv and game.manifest.json at its root. The generated project also shows what the app does with it: an Embed Frameworks
++phase and LD_RUNPATH_SEARCH_PATHS @executable_path/Frameworks. No game files, shaders or signing are involved.
++
++Needs macos, XcodeGen and an iPhoneOS SDK; skipped otherwise (CI's tool tests run without a device but with both).
++"""
++import json
++import os
++from pathlib import Path
++import plistlib
++import shutil
++import subprocess
++import sys
++import tempfile
++import unittest
++
++REPO = Path(__file__).resolve().parents[3]
++GAME = '010015100B514000'
++HAS_TOOLS = (sys.platform == 'darwin' and shutil.which('xcodegen') and shutil.which('xcodebuild')
++             and subprocess.run(['xcrun', '--sdk', 'iphoneos', '--show-sdk-path'], capture_output=True).returncode == 0)
++
++
++def run(*command, cwd=None, env=None):
++    return subprocess.run([str(c) for c in command], cwd=cwd, env=env, capture_output=True, text=True)
++
++
++def fail_tail(result):
++    return '\n'.join((result.stdout + result.stderr).splitlines()[-40:])
++
++
++def sections(binary):
++    """(segment, section) pairs from otool -l: a section block names its segment first."""
++    out = run('otool', '-l', binary).stdout
++    pairs, segment = set(), None
++    for line in out.splitlines():
++        words = line.split()
++        if len(words) == 2 and words[0] == 'segname': segment = words[1]
++        elif len(words) == 2 and words[0] == 'sectname' and segment: pairs.add((segment, words[1]))
++    return pairs
++
++
++@unittest.skipUnless(HAS_TOOLS, 'needs macOS, XcodeGen and an iPhoneOS SDK')
++class FrameworkLinkTests(unittest.TestCase):
++    def test_the_framework_carries_the_module_sections_and_the_loader_tables(self):
++        root = Path(tempfile.mkdtemp()).resolve()
++        self.addCleanup(shutil.rmtree, root)
++        project, gen = root / 'project', root / 'project/Gen'
++        (gen / 'dm').mkdir(parents=True)
++        (gen / 'src').mkdir()
++        (gen / 'main').mkdir()
++        (gen / 'Assets.xcassets').mkdir()
++        (gen / 'Assets.xcassets/Contents.json').write_text(json.dumps({'info': {'author': 'xcode', 'version': 1}}))
++        (gen / 'src/fixture.c').write_text('/* stand-in: the app target is not built here */\n')
++        (gen / 'main/main.c').write_text('int dm_main(int argc, char **argv) { (void)argc; (void)argv; return 0; }\n')
++        for name in ('Sources', 'tools', 'framework'):
++            (project / name).symlink_to(REPO / 'dm/ios' / name, target_is_directory=True)
++        shutil.copyfile(REPO / 'dm/ios/project-framework.yml', project / 'project.yml')
++
++        # Two stand-in modules with the rewriter's four boundary keys; the NRO is listed in nro.tsv, so gen_embed.py packs it
++        patched = root / 'patched'
++        patched.mkdir()
++        for name in ('main', 'nrotest'):
++            (patched / f'{name}.patched.bin').write_bytes(bytes(0x10000))
++            (patched / f'{name}.fixups.tsv').write_text('# TEXT_END 0x4000\n# PATCH_OFF 0xc000\n# KEY_PAGE_OFF 0x8000\n# KEY_PAGE_SIZE 0x4000\n')
++        (patched / 'nro.tsv').write_text('nrotest\tfixture.nro\n')
++        flags = run(sys.executable, REPO / 'dm/ios/tools/gen_embed.py', patched, gen / 'embed.S', 'main', 'nrotest')
++        self.assertEqual(flags.returncode, 0, fail_tail(flags))
++        # The app target's config is not used by `xcodebuild -target DmGame`; it only has to exist (xcodegen's configFiles)
++        (gen / 'dm.xcconfig').write_text('HEADER_SEARCH_PATHS = $(inherited)\nOTHER_CFLAGS = $(inherited)\nDM_FRAMEWORKS =\nOTHER_LDFLAGS = $(inherited)\n')
++        (gen / 'framework.xcconfig').write_text(f'OTHER_LDFLAGS = $(inherited) {flags.stdout.strip()}\n')
++        (gen / 'framework/dm').mkdir(parents=True)
++        for name in ('main.fixups.tsv', 'nrotest.fixups.tsv', 'nro.tsv'):
++            shutil.copyfile(patched / name, gen / 'dm' / name)
++        (gen / 'dm/shader_map.tsv').write_text('key\tfixture\n')
++        for name in ('main.fixups.tsv', 'nrotest.fixups.tsv', 'nro.tsv', 'shader_map.tsv'):
++            shutil.copyfile(gen / 'dm' / name, gen / 'framework/dm' / name)
++        profile = run(sys.executable, REPO / 'dm/games/game.py', 'profile', GAME, gen / 'framework/profile.tsv')
++        self.assertEqual(profile.returncode, 0, fail_tail(profile))
++        chain = next(line.split('"')[1] for line in (REPO / 'dm/gfx/nvn/dmsh_chain.h').read_text().splitlines()
++                     if line.startswith('#define DMSH_CHAIN "'))
++        manifest = run(sys.executable, REPO / 'dm/ios/tools/gen_manifest.py', gen / 'framework/game.manifest.json', '--game', GAME,
++                       '--name', 'Fixture Game', '--display-version', '1.0', '--package-version', 'v0', '--modules', 'main',
++                       '--nro-table', patched / 'nro.tsv', '--chain', 'b-' + chain, '--romfs-marker', 'marker')
++        self.assertEqual(manifest.returncode, 0, fail_tail(manifest))
++
++        env = dict(os.environ, GAME=GAME, DM_GAME=GAME, DM_BUNDLE_ID='org.nxnative.fixture', DM_DISPLAY_NAME='Fixture Game',
++                   DM_APP_VERSION='1.0', DM_APP_CATEGORY='action', DM_TEAM_ID='', DM_SCHEME_NAME='DmIOS', DM_APPICON='',
++                   DM_SHOW_FPS='NO', DM_LANG='en-US')
++        generated = run('xcodegen', 'generate', cwd=project, env=env)
++        self.assertEqual(generated.returncode, 0, fail_tail(generated))
++        pbx = (project / 'DmIOS.xcodeproj/project.pbxproj').read_text()
++        self.assertIn('Embed Frameworks', pbx)                     # the app embeds the framework ...
++        self.assertIn('@executable_path/Frameworks', pbx)          # ... and can find it by that path
++        self.assertIn('LD_RUNPATH_SEARCH_PATHS', pbx)
++
++        derived = root / 'derived'
++        built = run('xcodebuild', '-project', project / 'DmIOS.xcodeproj', '-target', 'DmGame', '-configuration', 'Release',
++                    '-destination', 'generic/platform=iOS',
++                    f'SYMROOT={derived}/Build/Products', f'OBJROOT={derived}/Build/Intermediates.noindex',
++                    'CODE_SIGNING_ALLOWED=NO', 'CODE_SIGNING_REQUIRED=NO', 'CODE_SIGN_IDENTITY=', 'build', cwd=project, env=env)
++        self.assertEqual(built.returncode, 0, fail_tail(built))
++        framework = derived / 'Build/Products/Release-iphoneos/DmGame.framework'
++        binary = framework / 'DmGame'
++        self.assertTrue(binary.is_file(), f'no {binary}')
++        self.assertEqual(plistlib.loads((framework / 'Info.plist').read_bytes())['CFBundleExecutable'], 'DmGame')
++        for name in ('dm/shader_map.tsv', 'dm/nro.tsv', 'dm/main.fixups.tsv', 'profile.tsv', 'game.manifest.json'):
++            self.assertTrue((framework / name).is_file(), f'the framework is missing {name}')
++        self.assertEqual(json.loads((framework / 'game.manifest.json').read_text())['nro_count'], 1)
++
++        got = sections(binary)
++        for pair in [('__TEXT', '__dmmainx0'), ('__DMmainW', '__img'), ('__TEXT', '__dmmainx1'),
++                     ('__TEXT', '__dmnrotestx0'), ('__DMnrotestW', '__img'), ('__TEXT', '__dmnrotestx1'),
++                     ('__TEXT', '__dm_nro_x0'), ('__DM_NRO_W', '__img'), ('__TEXT', '__dm_nro_x1'),
++                     ('__DATA', '__dm_nro_tab')]:
++            self.assertIn(pair, got, f'{pair[0]},{pair[1]} is not a section of the framework')
++        self.assertIn('@rpath/DmGame.framework/DmGame', run('otool', '-D', binary).stdout)
++
++
++if __name__ == '__main__':
++    unittest.main()
+diff --git a/dm/ios/tests/test_xcode_workflow.py b/dm/ios/tests/test_xcode_workflow.py
+index 2881f08..98b0e62 100644
+--- a/dm/ios/tests/test_xcode_workflow.py
++++ b/dm/ios/tests/test_xcode_workflow.py
+@@ -29,7 +29,12 @@ class XcodePipelineTests(unittest.TestCase):
+                 with self.subTest(graphics=graphics, derived=derived):
+                     self.prepare_fixture(graphics, derived)
+ 
+-    def prepare_fixture(self, graphics, derived):
++    def test_prepare_with_framework_asks_for_the_framework_project(self):
++        # --framework (route C, docs/launcher-c-plan.md M1): build_ipa.sh gets DM_FRAMEWORK=1 and copies
++        # project-framework.yml in as the project (test_framework_build.py checks that copy on the script itself)
++        self.prepare_fixture('nvn', False, framework=True)
++
++    def prepare_fixture(self, graphics, derived, framework=False):
+         with tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
+             root = Path(temporary).resolve()
+             (root / 'prod.keys').touch()
+@@ -75,7 +80,8 @@ class XcodePipelineTests(unittest.TestCase):
+             try:
+                 with redirect_stdout(output):
+                     code = build.cli([str(root), '-k', str(root / 'prod.keys'), '--prepare-xcode',
+-                                      '--language', 'ja', '--no-show-fps', '--no-motion', '--progress', 'json'])
++                                      '--language', 'ja', '--no-show-fps', '--no-motion', '--progress', 'json']
++                                     + (['--framework'] if framework else []))
+             finally:
+                 progress.close()
+             self.assertEqual(code, 0)
+@@ -92,6 +98,7 @@ class XcodePipelineTests(unittest.TestCase):
+             self.assertEqual(environment['GFXAPI'], graphics)
+             self.assertEqual(environment['DM_BUNDLE_ID'], 'com.example.saved')
+             self.assertEqual(environment['DM_TEAM_ID'], 'ABCDEFGHIJ')
++            self.assertEqual(environment.get('DM_FRAMEWORK'), '1' if framework else None)
+             self.assertEqual(Path(environment['DM_XCODE_PROJECT_DIR']), root / f'{registered.id}_build/xcode')
+             register.assert_called_once()
+             self.assertEqual(mocks['derive_profile'].call_count, int(derived))

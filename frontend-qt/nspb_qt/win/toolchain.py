@@ -893,7 +893,7 @@ def ascii_temp_dir(prefix: str = 'nspb-'):
         if not base or not ok(base):
             continue
         try:
-            Path(base).mkdir(parents=True, exist_ok=True)
+            os.makedirs(base, exist_ok=True)
             return _tf.TemporaryDirectory(prefix=prefix, dir=base)
         except OSError:
             continue
@@ -902,7 +902,7 @@ def ascii_temp_dir(prefix: str = 'nspb-'):
     # it says.
     default = tempfile.gettempdir()
     try:
-        Path(default).mkdir(parents=True, exist_ok=True)
+        os.makedirs(default, exist_ok=True)
     except OSError:
         pass
     return _tf.TemporaryDirectory(prefix=prefix, dir=default)
@@ -939,7 +939,38 @@ def probe_metal(sdk: Path) -> tuple[bool, str]:
         return True, f'{lib.stat().st_size} byte metallib for {tgt}'
 
 
-def probe_link(sdk: Path) -> tuple[bool, str]:
+def link_attempt_summary(r: subprocess.CompletedProcess) -> str:
+    """One failed strategy: the exit code plus the output's last lines (all of them, not just
+    one — '(no output)' alone was the report's whole diagnostic)."""
+    lines = (r.stderr or r.stdout or '').strip().splitlines() or ['(no output)']
+    tail = ' | '.join(l.strip() for l in lines[-3:])
+    return f'exit {r.returncode} (0x{r.returncode & 0xFFFFFFFF:08x}): {tail[:500]}'
+
+
+def link_failure_summary(attempts: list[tuple[str, str, list[str]]], lld_line: str,
+                         base: list[str], sdk: Path,
+                         verbose: list[str] | None = None,
+                         t=None) -> str:
+    """Every failed strategy, the linker's self-check, the exact command to try by hand, and —
+    when the SDK lives under a non-ASCII path — the one hint that has fixed this exact shape
+    before: ld64.lld's Windows port can fail to open narrow-char paths silently, while clang's
+    front end (the compile probe) handles them fine. `t` is the model's translator: the hint is
+    a localization key and must reach the panel translated, not as a raw key.
+    """
+    parts = [f'link failed {len(attempts)} ways; ld64.lld self-check: {lld_line[:140]}']
+    for how, summary, _cmd in attempts:
+        parts.append(f'{how}: {summary}')
+    parts.append('try by hand: ' + ' '.join([*base, '-fuse-ld=lld', '-o', '%TEMP%\\probe.exe', '<probe.c>']))
+    try:
+        str(sdk).encode('ascii')
+    except UnicodeEncodeError:
+        if t: parts.append(t('dep.fix.nonascii'))
+    if verbose:
+        parts.append('verbose: ' + ' | '.join(verbose))
+    return ' — '.join(parts)
+
+
+def probe_link(sdk: Path, t=None) -> tuple[bool, str]:
     """Link a tiny executable for iOS and check it is an arm64 MH_EXECUTE with an iOS platform.
 
     Only the linker and the SDK's stubs are exercised, not the game's own code: an undefined
@@ -965,6 +996,16 @@ def probe_link(sdk: Path) -> tuple[bool, str]:
     if v.returncode != 0:
         return False, (f'{lld.name} does not run by itself (exit {v.returncode}): {lld_line[:200]}'
                        ' — reinstall LLVM-MinGW')
+    # The link needs libSystem's stub from the SDK that a hollow or partial download lacks; its
+    # absence reads as "undefined symbol: puts" (libc) at link time while the COMPILE probe
+    # stays green (it needs headers only). Name it before blaming the linker. iOS executables
+    # use LC_MAIN, so a real SDK ships no crt*.o at all — checking for one rejected complete SDKs.
+    missing = [n for n, there in (
+        ('usr/lib/libSystem.tbd', (sdk / 'usr' / 'lib' / 'libSystem.tbd').is_file()),
+    ) if not there]
+    if missing:
+        return False, (f'SDK is missing {", ".join(missing)}: the download is incomplete — '
+                       're-download the SDK in the app, or use the xip route (doctor --sdk-xip)')
 
     src = '#include <stdio.h>\nint main(void) { puts("probe"); return 0; }\n'
     with ascii_temp_dir('nspb-link-') as td:
@@ -974,41 +1015,40 @@ def probe_link(sdk: Path) -> tuple[bool, str]:
         target = f'-target arm64-apple-ios{IOS_DEPLOYMENT}'.split()
         base = [str(clang), *target, '-isysroot', str(sdk)]
 
-        def run(extra: list[str], env: dict[str, str] | None) -> subprocess.CompletedProcess:
+        # Strategies, in order: the build's own shape first (build_app.link drives the linker
+        # with -fuse-ld=lld and the linker's folder on PATH — if the probe cannot link that way,
+        # neither can the build), then naming the linker directly, then -B as clang's last
+        # resort. Each failure is kept; all three failing produces the full report.
+        attempts: list[tuple[str, str, list[str]]] = []   # (strategy, summary, command)
+        for how, extra, env in (
+                ('fuse-ld (build-style)', ['-fuse-ld=lld'], None),
+                ('ld-path', ['-fuse-ld=lld', f'--ld-path={lld}'], None),
+                ('-B dir', [f'-B{lld.parent}', '-fuse-ld=lld'], None),
+                # Apple's driver adds libSystem itself; a cross driver that does not leaves
+                # every libc symbol undefined (the report: puts). Name it explicitly.
+                ('explicit -lSystem', ['-fuse-ld=lld', '-lSystem'], None)):
+            run_env = dict(os.environ)   # a child on Windows needs the full env (SystemRoot etc.)
+            if extra[:1] == ['-fuse-ld=lld'] and how.startswith('fuse-ld'):
+                run_env['PATH'] = str(lld.parent) + os.pathsep + run_env.get('PATH', '')
             cmd = [*base, *extra, '-o', str(out), str(c)]
-            return subprocess.run(cmd, capture_output=True, text=True, timeout=180,
-                                  env=env, **no_window())
-
-        def summary(r: subprocess.CompletedProcess) -> str:
-            # the exit code is the evidence: 0xC0000135 (STATUS_DLL_NOT_FOUND) reads as "a DLL is
-            # missing", not "the linker is bad"; an empty stream pair stays honest as (no output)
-            tail = ((r.stderr or r.stdout or '').strip().splitlines() or ['(no output)'])[-1]
-            return f'exit {r.returncode} (0x{r.returncode & 0xFFFFFFFF:08x}): {tail[:400]}'
-
-        # Strategy 1 — the build's own shape (build_app.link): -fuse-ld=lld and the linker's
-        # folder on PATH. If the machine's PATH handling differs from the probe's assumptions,
-        # this is what the build would do, so it is the first thing to try.
-        env = dict(os.environ)   # a child on Windows needs the full env (SystemRoot etc.)
-        env['PATH'] = str(lld.parent) + os.pathsep + env.get('PATH', '')
-        r = run(['-fuse-ld=lld'], env)
-        if r.returncode == 0:
-            how = 'fuse-ld (build-style)'
-        else:
-            first = summary(r)
-            # Strategy 2 — name the linker directly (--ld-path), bypassing every lookup.
-            r = run(['-fuse-ld=lld', f'--ld-path={lld}'], dict(os.environ))
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=180,
+                               env=run_env, **no_window())
             if r.returncode == 0:
-                how = 'ld-path'
-            else:
-                second = summary(r)
-                # Strategy 3 — -fuse-ld=full or the absolute path as -B: clang's last resort
-                r = run([f'-B{lld.parent}', '-fuse-ld=lld'], dict(os.environ))
-                if r.returncode == 0:
-                    how = '-B dir'
-                else:
-                    third = summary(r)
-                    return False, (f'link failed 3 ways; ld64.lld self-check: {lld_line[:120]}; '
-                                   f'fuse-ld {first}; ld-path {second}; -B {third}')
+                how_ok = how
+                break
+            attempts.append((how, link_attempt_summary(r), cmd))
+        else:
+            # One more run, verbose: the driver's own link command, the runtime libs it adds
+            # (-lSystem, crt) and the library search paths — the three things that decide whether
+            # libc (puts) resolves. Capped, since -v prints hundreds of lines.
+            rv = subprocess.run([*base, '-fuse-ld=lld', '-v', '-o', str(out), str(c)],
+                                capture_output=True, text=True, timeout=180,
+                                env=dict(os.environ), **no_window())
+            interesting = [l.strip() for l in (rv.stderr or rv.stdout or '').splitlines()
+                           if any(k in l for k in ('-lSystem', 'crt', 'Library search',
+                                                   'ld64.lld', 'error'))][:12]
+            return False, link_failure_summary(attempts, lld_line, base, sdk,
+                                               verbose=interesting, t=t)
         try:
             data = out.read_bytes()
         except OSError as e:
@@ -1023,7 +1063,7 @@ def probe_link(sdk: Path) -> tuple[bool, str]:
         plat = macho_platform(data)
         if plat is not None and plat != PLATFORM_IOS:
             return False, f'platform {plat} is not iOS ({PLATFORM_IOS})'
-        return True, f'arm64 MH_EXECUTE{"" if plat is None else f", platform {plat}"}, {len(data)} bytes ({how})'
+        return True, f'arm64 MH_EXECUTE{"" if plat is None else f", platform {plat}"}, {len(data)} bytes ({how_ok})'
 
 
 def macho_platform(data: bytes) -> int | None:
@@ -1051,7 +1091,7 @@ def macho_platform(data: bytes) -> int | None:
 
 # ---------------------------------------------------------------- the whole picture
 
-def check_all(deep: bool = False) -> list[Probe]:
+def check_all(deep: bool = False, t=None) -> list[Probe]:
     """Every component, in the order the dependency panel shows them.
 
     `deep` adds the compile / link / Metal probes. They take a few seconds, so the panel runs
@@ -1168,7 +1208,7 @@ def check_all(deep: bool = False) -> list[Probe]:
             # compiler); this one adds the SDK to the same probe shape the build uses
             ok, detail = probe_compile(sdk, clang)
             out.append(Probe('probe_compile', 'cross-compile probe', 'ok' if ok else 'wrong', detail))
-            ok2, detail2 = probe_link(sdk)
+            ok2, detail2 = probe_link(sdk, t=t)
             out.append(Probe('probe_link', 'cross-link probe', 'ok' if ok2 else 'wrong', detail2))
         if sdk and metal_ok:
             ok3, detail3 = probe_metal(sdk)

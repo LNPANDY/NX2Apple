@@ -1,0 +1,76 @@
+{
+  "schema": 1,
+  "game": "0100000000030000",
+  "settings": [
+    {
+      "env": "DM_OPMODE",
+      "kind": "choice",
+      "section": "Game",
+      "label": "Play mode",
+      "note": "Docked or handheld.",
+      "default": "1",
+      "options": [
+        [
+          "1",
+          "Docked"
+        ],
+        [
+          "0",
+          "Handheld"
+        ]
+      ],
+      "level": "basic"
+    },
+    {
+      "env": "DM_SHOW_FPS",
+      "kind": "toggle",
+      "section": "Game",
+      "label": "Show frame rate",
+      "note": "",
+      "default": "0",
+      "on": "1",
+      "off": "0"
+    },
+    {
+      "env": "DM_UPSCALER",
+      "kind": "choice",
+      "section": "Performance",
+      "label": "Upscaler",
+      "note": "",
+      "default": "off",
+      "options": [
+        [
+          "off",
+          "Off"
+        ],
+        [
+          "fsr",
+          "FSR"
+        ]
+      ]
+    },
+    {
+      "env": "DM_UPSCALER_SHARPNESS",
+      "kind": "range",
+      "section": "Performance",
+      "label": "Sharpness",
+      "note": "",
+      "default": "0.5",
+      "min": 0,
+      "max": 1,
+      "step": 0.1,
+      "needs": "DM_UPSCALER=fsr"
+    },
+    {
+      "env": "DM_RENDER_SCALE",
+      "kind": "range",
+      "section": "Performance",
+      "label": "Render scale",
+      "note": "",
+      "default": "1.0",
+      "min": 0.5,
+      "max": 1.5,
+      "step": 0.05
+    }
+  ]
+}

@@ -122,6 +122,18 @@ struct ConsoleControllerChips: View {
     @EnvironmentObject private var pad: PadFocus
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private func t(_ key: String) -> String { L10n.string(key, lang) }
+    /// The chip's spoken label: name, kind, player, battery. Built in steps with explicit types: as one `+` chain
+    /// the release build's type checker ran out of time on it on a CI runner.
+    private func chipLabel(_ controller: ConsoleController) -> String {
+        let player: Int? = merged ? 1 : controller.player
+        let playerText: String = player.map { String(format: t("console.player"), $0) } ?? t("console.unassigned")
+        var parts: [String] = [controller.name, t(controller.kind.labelKey), playerText]
+        if let percent = controller.batteryPercent {
+            parts.append(String(format: t(controller.charging ? "console.batteryCharging" : "console.batteryLevel"), percent))
+        }
+        return parts.joined(separator: ", ")
+    }
+
     private var row: some View {
         HStack(spacing: 8) {
             if controllers.isEmpty {
@@ -130,7 +142,7 @@ struct ConsoleControllerChips: View {
                 }
             }
             ForEach(controllers) { controller in
-                chip(id: controller.id, label: controller.name + ", " + t(controller.kind.labelKey) + ", " + ((merged ? 1 : controller.player).map { String(format: t("console.player"), $0) } ?? t("console.unassigned")) + (controller.batteryPercent.map { ", " + String(format: t(controller.charging ? "console.batteryCharging" : "console.batteryLevel"), $0) } ?? "")) {
+                chip(id: controller.id, label: chipLabel(controller)) {
                     HStack(spacing: compact ? 5 : 8) {
                         Image(systemName: controller.kind.symbol).accessibilityHidden(true)
                         Text((merged ? 1 : controller.player).map { String(format: t("console.playerShort"), $0) } ?? "\u{2014}")   // the full "Unassigned" is in the Controllers list

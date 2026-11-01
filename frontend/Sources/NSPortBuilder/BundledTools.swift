@@ -3,7 +3,7 @@ import Foundation
 /// The build tools and the Python that the release app carries in Contents/Resources (frontend/tools/bundle_tools.sh fills them in):
 ///
 ///     tools/bin   zstd, glslangValidator, spirv-cross, xcodegen
-///     python/     a relocatable CPython with lz4, capstone, fontTools and nsz installed
+///     python/     a relocatable CPython with lz4, capstone, fontTools, zbic and nsz installed
 ///
 /// Every function takes the resources folder as a parameter (the tests pass a fake bundle) and defaults to this app's own. There is
 /// none under `swift run` or in a build that predates the bundle, and each function then answers nil, so everything else behaves as

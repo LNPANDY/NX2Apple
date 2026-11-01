@@ -1,0 +1,82 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LNPANDY <lnp-andy@hotmail.com>
+Date: Thu, 29 Oct 2026 00:08:14 +0800
+Subject: [PATCH] Loader: the image the game's module sections are read from
+ can be set
+
+The iOS loader reads the game's embedded module sections (__TEXT,__dm<mod>x0, __DM<mod>W,__img, __TEXT,__dm<mod>x1 and the
+packed NRO sections) from a fixed &_mh_execute_header, so they must be linked into the app executable. An embedder that links
+them into another image of the app (a framework it dlopen()s from its signed bundle) had no way to say so.
+
+dm_set_game_image_header() (loader_image.h) names that image's mach header. IMAGE_MH, used by map_image() and nro_pieces(),
+reads it, and unset it is still &_mh_execute_header, so every existing build behaves exactly as before. The host's own tables
+(__DATA,swforce in force_init(), __DATA,swhle in hle.c) stay the executable's. Nothing calls the setter in this change.
+
+Checked: make -C dm/host/tests GAME=010015100B514000 run (includes t_nro and t_symbols, which compile loader.c), and
+lint_python.py (no Python touched, 0 new findings).
+
+Upstream-Status: forwarded seedds/nxnative#729
+Reason: carried until seedds/nxnative#729 lands: the game framework (0046) calls the setter it adds
+Issue: LNPANDY/NX2Apple#144
+---
+ dm/host/loader.c       | 10 +++++++++-
+ dm/host/loader_image.h | 19 +++++++++++++++++++
+ 2 files changed, 28 insertions(+), 1 deletion(-)
+ create mode 100644 dm/host/loader_image.h
+
+diff --git a/dm/host/loader.c b/dm/host/loader.c
+index fb14972..ae0a76f 100644
+--- a/dm/host/loader.c
++++ b/dm/host/loader.c
+@@ -10,9 +10,15 @@
+ #include <mach-o/getsect.h>
+ #include <mach-o/ldsyms.h>
+ #include "hle.h"
++#include "loader_image.h"
+ 
+ module_t *g_mod;
+ int g_nmod;
++// The image whose sections carry the game's modules (loader_image.h): the executable itself unless a framework build
++// (build_ipa.sh DM_FRAMEWORK=1) hands in DmGame.framework's header after dlopen, before loading starts. Only the module
++// sections are read from it; the host's own tables (__DATA,swforce in force_init, __DATA,swhle in hle.c) stay in the executable.
++static const void *g_module_image_mh;
++void dm_set_game_image_header(const void *mh) { g_module_image_mh = mh; }
+ // Stable module addresses live in g_mod; lookup order follows activation, including unload/reload.
+ static module_t **g_loaded; static int g_nloaded, g_mod_capacity;
+ static pthread_rwlock_t g_modules_mu = PTHREAD_RWLOCK_INITIALIZER;
+@@ -522,7 +528,9 @@ static void remap_at(module_t *m, vm_address_t to, const void *from, unsigned lo
+     if (kr != KERN_SUCCESS || a != to) die("%s vm_remap %p → %#lx (%#lx bytes) failed: %d", m->name, from, (unsigned long)to, size, kr);
+     if ((cur & need) != need) die("%s permissions after vm_remap %#x, missing %#x", m->name, cur, need);
+ }
+-#define IMAGE_MH (&_mh_execute_header)
++// The image the module sections are read from: the executable's own embedded segments in the default build, or the
++// framework's when dm_set_game_image_header() named one. getsectiondata() works on any loaded image's header
++#define IMAGE_MH ((const struct mach_header_64 *)(g_module_image_mh ? g_module_image_mh : (const void *)&_mh_execute_header))
+ // The NRO modules (loader.c "NRO modules") are packed instead of getting sections of their own: a Mach-O file has at most 255 sections, and Super Smash Bros. Ultimate's 98 NROs would
+ // take 294. gen_embed.py puts their pieces one after another, each 16K aligned, in __TEXT,__dm_nro_x0 / __DM_NRO_W,__img / __TEXT,__dm_nro_x1, and __DATA,__dm_nro_tab lists them:
+ // 32 bytes of name, then the offset and length of its x0, W and x1 pieces in their sections (u64 each). A module name never holds an underscore, so these names meet no module's
+diff --git a/dm/host/loader_image.h b/dm/host/loader_image.h
+new file mode 100644
+index 0000000..1c00a83
+--- /dev/null
++++ b/dm/host/loader_image.h
+@@ -0,0 +1,19 @@
++// The mach header the iOS loader reads the game's embedded module sections from (loader.c: map_image, nro_pieces).
++// The default build compiles those sections into the executable itself and reads &_mh_execute_header. A framework
++// build (DM_FRAMEWORK=1) compiles them into DmIOS.app/Frameworks/DmGame.framework instead:
++// iOS may not map new executable code from disk, so the framework is dlopen()ed from the signed bundle and its
++// header, taken from dladdr of a marker the framework exports, is handed here before dm_host_preload_start() runs.
++// Horizon's own rtld has no such indirection; it exists only because the image that carries the code is chosen at
++// build time (the executable) or at launch (the framework).
++// Set once, before loading starts: the loader reads it on the preload thread and every later module (NRO) load.
++#pragma once
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++void dm_set_game_image_header(const void *mh);
++
++#ifdef __cplusplus
++}
++#endif

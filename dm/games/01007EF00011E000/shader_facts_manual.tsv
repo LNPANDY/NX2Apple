@@ -1,7 +1,0 @@
-# Hand-written translation facts, merged over the generated rows of shader_facts.tsv by dm/gfx/tools/shader_split.py: key <TAB> facts JSON (same format)
-# This game has no PC version, so the translator has no fragment output types and declares every output float; Metal refuses a pipeline whose float output meets an integer attachment
-# (the host's red line then prints the row to add here).
-# 8e2cc2671cae6020 (agl_common BAHS@0x453f0 in Bootup_Graphics.pack, pixel): the BC4 block encoder. It writes 8-byte blocks through an RGBA16UI view into a 32x32 BC4 texture (nvn_mtl.m bcrt_attach)
-8e2cc2671cae6020	{"fout":{"0":"uint"}}
-# 93aa5e22a8202409 (agl_common BAHS@0x44918 in Bootup_Graphics.pack, pixel): the same BC4 block encoder for a 2D source (8e2cc2671cae6020 reads a 3D one); its pipeline failed in an iPhone run once the BC4 target was attached
-93aa5e22a8202409	{"fout":{"0":"uint"}}

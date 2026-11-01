@@ -84,6 +84,20 @@ import SwiftUI
         XCTAssertEqual(launches.first?.environment, expected, "the same function the desktop Play uses, with the console's fullscreen")
     }
 
+    func testAGameStartsWithThePointerHiddenWhenTheConsoleHadItHidden() throws {
+        var launches: [Launch] = []
+        let (driver, _, _) = try makeDriver { launches.append($0) }
+        let id = try XCTUnwrap(driver.state.games.first?.id)
+        driver.pointerHidden = { true }
+        driver.play(id)
+        XCTAssertEqual(launches.last?.environment["DM_CURSOR_HIDDEN"], "1", "the new process would show the pointer until its own idle wait ends")
+        driver.state.returnFromGame()
+        driver.pointerHidden = { false }
+        driver.play(id)
+        XCTAssertEqual(launches.count, 2)
+        XCTAssertNil(launches.last?.environment["DM_CURSOR_HIDDEN"], "a visible pointer stays the game's default")
+    }
+
     func testConsoleLaunchesFullscreenOverTheSavedDisplayChoice() throws {
         var launches: [Launch] = []
         let (driver, library, _) = try makeDriver { launches.append($0) }
@@ -172,6 +186,86 @@ import SwiftUI
         XCTAssertEqual(calls, [true], "the window has not left full screen yet")
         try await Task.sleep(nanoseconds: 150_000_000)
         coordinator.toggle()
+    }
+
+    func testAGameStartsFromAWindowThatLeftFullScreenAndFullScreenReturnsAfterIt() throws {
+        var calls: [Bool] = []
+        var active = true
+        final class FakeWindow: NSWindow {
+            var isFull = true
+            override var styleMask: NSWindow.StyleMask {
+                get { isFull ? super.styleMask.union(.fullScreen) : super.styleMask }
+                set { super.styleMask = newValue.subtracting(.fullScreen) }
+            }
+        }
+        let window = FakeWindow(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: true)
+        let coordinator = ConsoleCoordinator(window: { window }, setFullScreen: { _, on, done in
+            calls.append(on)
+            window.isFull = on
+            done()
+        }, fadeSeconds: 0.05, appIsActive: { active })
+        coordinator.available = true
+        coordinator.enter()
+        XCTAssertTrue(coordinator.active, "the window was full screen already")
+        var launched = 0
+        coordinator.leaveFullScreenForGame { launched += 1 }
+        XCTAssertEqual(calls, [false], "the window leaves full screen first")
+        XCTAssertEqual(launched, 1, "the game starts after that")
+        active = false
+        coordinator.resumeFullScreenAfterGame()
+        XCTAssertEqual(calls, [false], "a launcher behind another app waits")
+        NotificationCenter.default.post(name: NSApplication.didBecomeActiveNotification, object: nil)
+        XCTAssertEqual(calls, [false, true], "full screen is back once the launcher is active")
+        coordinator.leaveFullScreenForGame { launched += 1 }
+        coordinator.exit()
+        coordinator.resumeFullScreenAfterGame()
+        XCTAssertEqual(calls, [false, true, false], "a console that was left is not put back into full screen")
+        var windowed = 0
+        coordinator.leaveFullScreenForGame { windowed += 1 }
+        XCTAssertEqual(windowed, 1, "a window that is not full screen starts the game at once")
+        XCTAssertEqual(calls, [false, true, false])
+    }
+
+    func testFullScreenIsAskedAgainWhenTheSystemDroppedTheFirstRequest() throws {
+        final class FakeWindow: NSWindow {
+            var isFull = true
+            override var styleMask: NSWindow.StyleMask {
+                get { isFull ? super.styleMask.union(.fullScreen) : super.styleMask }
+                set { super.styleMask = newValue.subtracting(.fullScreen) }
+            }
+        }
+        var calls: [Bool] = []
+        var dropped = 2
+        let window = FakeWindow(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: true)
+        let coordinator = ConsoleCoordinator(window: { window }, setFullScreen: { _, on, done in
+            calls.append(on)
+            if on, dropped > 0 { dropped -= 1 } else { window.isFull = on }
+            done()
+        }, appIsActive: { true })
+        coordinator.available = true
+        coordinator.enter()
+        coordinator.leaveFullScreenForGame {}
+        coordinator.resumeFullScreenAfterGame()
+        XCTAssertEqual(calls, [false, true, true, true], "two requests were dropped, the third one worked")
+        XCTAssertTrue(window.isFull)
+    }
+
+    func testPlayWaitsForTheLaunchHookAndReportsTheEnd() async throws {
+        var launches: [Launch] = []
+        let (driver, _, _) = try makeDriver { launches.append($0) }
+        var release: (() -> Void)?
+        var ended = 0
+        driver.prepareLaunch = { release = $0 }
+        driver.gameEnded = { ended += 1 }
+        let id = try XCTUnwrap(driver.state.games.first?.id)
+        driver.play(id)
+        XCTAssertTrue(launches.isEmpty, "the game is not opened before the hook says so")
+        XCTAssertEqual(driver.state.starting, .preparing)
+        release?()
+        XCTAssertEqual(launches.count, 1)
+        for _ in 0..<50 where driver.state.starting != .opening { try await Task.sleep(nanoseconds: 20_000_000) }
+        driver.gameDidTerminate(pid: 4242)
+        XCTAssertEqual(ended, 1)
     }
 
     func testControllerPromptOncePerSessionAndSetting() {

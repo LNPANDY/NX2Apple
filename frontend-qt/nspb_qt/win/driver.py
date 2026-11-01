@@ -56,7 +56,9 @@ REFUSED_OPTIONS = {
 
 
 def repo_dir() -> Path:
-    return Path(__file__).resolve().parents[3]
+    """The engine's folder: the checkout's engine/ (LNPANDY/NX2Apple#214, made by tools/engine.py sync)."""
+    from .. import engine
+    return Path(engine.engine_root(str(Path(__file__).resolve().parents[3])))
 
 
 def load_upstream(repo: Path) -> ModuleType:
@@ -72,7 +74,7 @@ def load_upstream(repo: Path) -> ModuleType:
         _install_pwd_stub()
     path = repo / 'scripts' / 'build_ipa_from_nsp.py'
     if not path.is_file():
-        raise SystemExit(f'not a repository checkout: {path} is missing')
+        raise SystemExit(f'no engine: {path} is missing. Run `python3 tools/engine.py sync` in the checkout first.')
     spec = importlib.util.spec_from_file_location('nspb_upstream_build_ipa_from_nsp', path)
     if spec is None or spec.loader is None:
         raise SystemExit(f'cannot load {path}')

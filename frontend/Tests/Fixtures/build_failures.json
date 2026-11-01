@@ -21,6 +21,13 @@
   "text": "[RED] the shader translator does not start ([Errno 8] Exec format error: '/r/dm/gfx/tools/dmsh_xlate_bin'): /r/dm/gfx/tools/dmsh_xlate_bin"
  },
  {
+  "id": "zbic.missing",
+  "kind": "zbic",
+  "source": "dm/tools/nso.py",
+  "fragment": "need the zbic package",
+  "text": "[RED] text segment: ZBIC (zstd) segments need the zbic package (python3 -m pip install zbic)"
+ },
+ {
   "id": "ios.sdk",
   "kind": "iosSDK",
   "source": "scripts/build_ipa_from_nsp.py",
@@ -99,5 +106,12 @@
   "source": "errno",
   "fragment": "No space left on device",
   "text": "[RED] OSError: [Errno 28] No space left on device"
+ },
+ {
+  "id": "icloud.detritus",
+  "kind": "cloudFolder",
+  "source": "codesign",
+  "fragment": "resource fork, Finder information, or similar detritus not allowed",
+  "text": "CodeSign /Users/x/Library/Mobile\\ Documents/com~apple~CloudDocs/Downloads/0100152000022000_build/xcode-derived-data/Build/Products/Release-iphoneos/DmIOS.app (in target 'DmIOS' from project 'DmIOS')\n/Users/x/Library/Mobile Documents/com~apple~CloudDocs/Downloads/0100152000022000_build/xcode-derived-data/Build/Products/Release-iphoneos/DmIOS.app: resource fork, Finder information, or similar detritus not allowed\nCommand CodeSign failed with a nonzero exit code"
  }
 ]

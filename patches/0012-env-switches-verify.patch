@@ -16,7 +16,7 @@ Issue: LNPANDY/NX2Apple#123
  3 files changed, 54 insertions(+), 1 deletion(-)
 
 diff --git a/dm/tools/env_switches.py b/dm/tools/env_switches.py
-index 29dc91dc..8606f369 100644
+index 29dc91d..8606f36 100644
 --- a/dm/tools/env_switches.py
 +++ b/dm/tools/env_switches.py
 @@ -72,7 +72,37 @@ def rows():
@@ -58,7 +58,7 @@ index 29dc91dc..8606f369 100644
      if unread: print('quoted in the docs but read nowhere (check that each mention says it was removed): ' + ' '.join(unread))
      if sys.argv[1:] == ['--check']:
 diff --git a/dm/tools/tests/test_env_switches.py b/dm/tools/tests/test_env_switches.py
-index 604494c9..e6a5ac1e 100644
+index 604494c..e6a5ac1 100644
 --- a/dm/tools/tests/test_env_switches.py
 +++ b/dm/tools/tests/test_env_switches.py
 @@ -1,8 +1,12 @@
@@ -100,7 +100,7 @@ index 604494c9..e6a5ac1e 100644
  if __name__ == '__main__':
      unittest.main()
 diff --git a/docs/agents/README.md b/docs/agents/README.md
-index c039cf61..4b077bcc 100644
+index b43f8ba..8b83575 100644
 --- a/docs/agents/README.md
 +++ b/docs/agents/README.md
 @@ -23,6 +23,8 @@ Everything here was learned on Diablo II: Resurrected (SDK ~12, NVN 53, the orig

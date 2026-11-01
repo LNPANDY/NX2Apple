@@ -92,7 +92,7 @@ body:
     id: fork-patches
     attributes:
       label: Fork patches line
-      description: "The patches your build carries beyond upstream's engine: the first line of the game app's log (`fork patches: ...`), or the contents of `dm/fork_patches.txt` in the NX2Apple folder you built from. Optional."
+      description: "The patches your build carries beyond upstream's engine: the first line of the game app's log (`fork patches: ...`), or the contents of `engine/dm/fork_patches.txt` (`dm/fork_patches.txt` in an older copy) in the NX2Apple folder you built from. Optional."
       placeholder: "fork patches: runtime-profile, ios-game-data-folder, ..."
     validations:
       required: false

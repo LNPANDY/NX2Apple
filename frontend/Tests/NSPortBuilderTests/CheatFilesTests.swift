@@ -292,9 +292,28 @@ final class CheatFilesTests: XCTestCase {
         XCTAssertEqual(args[args.firstIndex(of: "--destination")! + 1], "Documents/games/\(titleID)/cheats")
         XCTAssertEqual(args[args.firstIndex(of: "--domain-identifier")! + 1], "com.example.game")
         XCTAssertEqual(args[args.firstIndex(of: "--domain-type")! + 1], "appDataContainer")
-        XCTAssertEqual(args[args.firstIndex(of: "--remove-existing-content")! + 1], "true", "the device holds the Mac's files and nothing older")
+        XCTAssertFalse(args.contains("--remove-existing-content"), "devicectl's flag also deletes the destination's siblings (#250)")
         XCTAssertEqual(args[args.firstIndex(of: "--device")! + 1], "00008150-AAAA")
         XCTAssertEqual(try fm.contentsOfDirectory(atPath: temporary.path).filter { $0.hasPrefix("nxnative-cheats-") }, [], "the staged copy is removed")
+    }
+
+    /// #250: the cheats push must leave the game's romfs.img, aoc/ and save beside the cheats folder on the device.
+    func testTheCheatsPushLeavesTheGameDataBesideIt() throws {
+        try write("[A]\n00000000\n", "\(build).txt")
+        let device = SaveTransferTests.FakeDevice(temporary.appendingPathComponent("container"))
+        let game = device.container.appendingPathComponent("Documents/games/\(titleID)")
+        for (name, text) in [("romfs.img", "img"), ("aoc/a.bin", "dlc"), ("save/data.bin", "save"), ("cheats/old.txt", "old")] {
+            let url = game.appendingPathComponent(name)
+            try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data(text.utf8).write(to: url)
+        }
+        try CheatTransfer(files: files, device: "00008150-AAAA", bundle: "com.example.game", devicectl: device.control, scratch: temporary).toDevice()
+        func read(_ n: String) -> String? { (try? Data(contentsOf: game.appendingPathComponent(n))).map { String(decoding: $0, as: UTF8.self) } }
+        XCTAssertEqual(read("romfs.img"), "img")
+        XCTAssertEqual(read("aoc/a.bin"), "dlc")
+        XCTAssertEqual(read("save/data.bin"), "save")
+        XCTAssertNotNil(read("cheats/\(build).txt"))
+        XCTAssertFalse(device.calls.contains { $0.contains("--remove-existing-content") })
     }
 
     func testAFailedCopyNamesDevicectlsLastLineAndAnEmptyFolderIsRefused() throws {
@@ -358,7 +377,7 @@ final class CheatFilesTests: XCTestCase {
         model.deps = [BuildModel.Dep(id: "test", name: "Xcode", hint: "", present: true, installCmd: [])]
         let library = GameLibrary(file: temporary.appendingPathComponent("preview.json"))
         let id = try library.addApp(app)
-        library.recordCompletedIOS(ipa: "", archive: "", app: ios.path, device: "00008150-AAAA", for: id)
+        library.recordCompletedIOS(archive: "", app: ios.path, device: "00008150-AAAA", for: id)
         let support = temporary.appendingPathComponent("Application Support")
         let folder = CheatFiles.macFolder(titleID: game, support: support)
         try write("""
@@ -398,13 +417,46 @@ final class CheatFilesTests: XCTestCase {
         }
         try shot("cheats", CheatsView(m: model, library: library, gameID: id, devicectl: DeviceControl { _ in (true, "") }, support: support))
         try shot("cheats-drop", CheatsView(m: model, library: library, gameID: id, support: support, dropped: true))
-        model.lang = .sv
-        try shot("cheats-sv", CheatsView(m: model, library: library, gameID: id, support: support))
+        model.lang = .de
+        try shot("cheats-de", CheatsView(m: model, library: library, gameID: id, support: support))
         model.lang = .zh
         try shot("cheats-zh", CheatsView(m: model, library: library, gameID: id, support: support))
         model.lang = .en
         try fm.removeItem(at: folder)
         try write("x", ".cheats-running-\(game)", under: folder)
         try shot("cheats-empty", CheatsView(m: model, library: library, gameID: id, support: support))
+    }
+}
+
+/// Issue #252: an iPhone or iPad game runs data cheats only, so the Cheats sheet carries a note for a game with an iOS build.
+final class CheatsIOSNoteTests: XCTestCase {
+    func testNoteShowsOnlyWithAnIOSBuild() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("nxnative-iosnote-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let ipa = dir.appendingPathComponent("Game.ipa")
+        try Data("x".utf8).write(to: ipa)
+        let ios = dir.appendingPathComponent("Game.app")
+        try FileManager.default.createDirectory(at: ios, withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: ios.appendingPathComponent("Info.plist"))
+
+        var game = LibraryGame(titleID: "0100F2C0115B6000", name: "Game", appPath: "/gone/Game.app")
+        XCTAssertFalse(game.cheatsNeedIOSNote, "a Mac-only game has no note")
+        game.ipaPath = ipa.path
+        XCTAssertTrue(game.cheatsNeedIOSNote, "a built IPA gets it")
+        game.ipaPath = dir.appendingPathComponent("gone.ipa").path
+        XCTAssertFalse(game.cheatsNeedIOSNote, "an IPA that is gone does not")
+        game.iosAppPath = ios.path
+        game.installedDevice = "device"
+        XCTAssertTrue(game.cheatsNeedIOSNote, "a game installed on a device gets it")
+    }
+
+    func testNoteIsTranslatedWithoutSemicolons() {
+        for lang in [Lang.en, .zh, .sv, .de] {
+            let text = L10n.string("cheats.iosNote", lang)
+            XCTAssertFalse(text.isEmpty); XCTAssertFalse(text.contains(";")); XCTAssertTrue(text.contains("iPhone"))
+            XCTAssertFalse(text.contains("#724"), "data cheats run on the iPhone now, only code cheats are refused there")
+        }
+        XCTAssertTrue(L10n.string("cheats.iosNote", .en).contains("Mac app"))
     }
 }

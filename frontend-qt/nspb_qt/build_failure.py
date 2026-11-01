@@ -6,7 +6,7 @@ last line of the log. The classifier reads the whole log tail: for a damaged NSP
 
 TABLE is the same table as BuildFailure.swift's (a test compares the two). frontend/Tests/Fixtures/
 build_failures.json holds the script's real message for every row, and a test checks that each fragment is
-still in the vendored script, so a sync that rewords a message fails there.
+still in the engine's script, so a sync that rewords a message fails there.
 """
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ from dataclasses import dataclass
 
 ROSETTA = 'rosetta'
 TRANSLATOR = 'translator'
+ZBIC = 'zbic'
 IOS_SDK = 'iosSDK'
 CLT_SELECTED = 'cltSelected'
 OTHER_METAL = 'otherMetal'
@@ -25,6 +26,7 @@ KEYS = 'keys'
 SEVERAL_GAMES = 'severalGames'
 NO_TITLE_ID = 'noTitleID'
 DISK_FULL = 'diskFull'
+CLOUD_FOLDER = 'cloudFolder'
 UNKNOWN = 'unknown'
 
 # (id, kind, regular expression searched in the log)
@@ -32,6 +34,7 @@ TABLE: list[tuple[str, str, str]] = [
     ('rosetta.intel', ROSETTA, r'is an Intel one running under Rosetta'),
     ('translator.run', TRANSLATOR, r'the shader translator does not run'),
     ('translator.start', TRANSLATOR, r'the shader translator does not start'),
+    ('zbic.missing', ZBIC, r'need the zbic package'),
     ('ios.sdk', IOS_SDK, r'the iOS SDK is not installed'),
     ('clt.selected', CLT_SELECTED, r'the selected developer folder is the Command Line Tools'),
     ('metal.other', OTHER_METAL, r'Metal compiler is not the one the shaders were tested with'),
@@ -43,6 +46,7 @@ TABLE: list[tuple[str, str, str]] = [
     ('games.noTitleID', NO_TITLE_ID, r'no NSP with a readable title ID in '),
     ('disk.low', DISK_FULL, r'less than [0-9]+ GB free on the volume of '),
     ('disk.full', DISK_FULL, r'No space left on device'),
+    ('icloud.detritus', CLOUD_FOLDER, r'resource fork, Finder information, or similar detritus not allowed'),
 ]
 
 # The script's override for a stop, offered as "Build anyway". The others cannot be built around.
@@ -52,10 +56,12 @@ OVERRIDE_FLAGS = {
     DAMAGED_NSP: '--allow-damaged',
 }
 
-KINDS = [ROSETTA, TRANSLATOR, IOS_SDK, CLT_SELECTED, OTHER_METAL, SHADER_REGRESSION, DAMAGED_NSP, A32_PROGRAM,
-         KEYS, SEVERAL_GAMES, NO_TITLE_ID, DISK_FULL]
+KINDS = [ROSETTA, TRANSLATOR, ZBIC, IOS_SDK, CLT_SELECTED, OTHER_METAL, SHADER_REGRESSION, DAMAGED_NSP, A32_PROGRAM,
+         KEYS, SEVERAL_GAMES, NO_TITLE_ID, DISK_FULL, CLOUD_FOLDER]
 # The Swift app has four more rows that no log line sets (a drive that is gone, a signing team, a device transfer):
 # they belong to the Mac launcher's install on a device and to /Volumes, which this front end does not have.
+# cloudFolder is a row of the table, so it is here, but the check that stops a build before it starts is the Mac launcher's.
+# The engine's online sync has two more (engine.py's ENGINE_OFFLINE and ENGINE_SYNC): no log line of the script sets them either.
 
 _A32_NAME = re.compile(r'^(?:\[RED\] )?(.+?) \([0-9A-Fa-f]{16}\) is a 32-bit ARM program', re.M)
 

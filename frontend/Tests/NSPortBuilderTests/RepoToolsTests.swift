@@ -69,6 +69,7 @@ final class RepoToolsTests: XCTestCase {
         try write(["dm/tools/nx_extract/Program.cs", BuildModel.buildScript], in: repo)
         let m = BuildModel()
         m.repoPath = repo.path
+        m.target = BuildTarget.mac
         m.startBuild()
         XCTAssertFalse(m.running, "no build was started")
         XCTAssertTrue(m.doneNote.contains(BuildModel.romfsImageTool), m.doneNote)

@@ -44,7 +44,12 @@ struct RootView: View {
         .background(LauncherPalette.background)
         .preferredColorScheme(.dark)
         .frame(minWidth: 900, idealWidth: 1280, minHeight: 680, idealHeight: 900)
-        .task { await decide() }
+        .task {
+            shared.console.prepareLaunch = { [console] launch in console.leaveFullScreenForGame(then: launch) }
+            shared.console.pointerHidden = { [console] in console.pointerHidden }
+            shared.console.gameEnded = { [console] in console.resumeFullScreenAfterGame() }
+            await decide()
+        }
         .onChange(of: mode) { console.available = $0 == .launcher }
     }
 

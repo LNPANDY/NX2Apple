@@ -294,10 +294,68 @@ final class AppUpdateTests: XCTestCase {
     func testEveryUpdateStringHasBothLanguages() {
         for key in ["app.staging", "app.ready", "app.restartNow", "app.waitForBuild", "app.stageNetFail", "app.noDigest",
                     "app.digestMismatch", "app.unpackFail", "app.notOurApp", "app.devBuild", "app.readOnly", "app.auto",
-                    "app.autoNote", "app.autoDev", "app.autoReadOnly", "library.appReady"] {
+                    "app.autoNote", "app.autoDev", "app.autoReadOnly", "library.appReady", "app.relaunchFail"] {
             XCTAssertNotNil(L10n.table[key], key)
         }
         XCTAssertTrue(L10n.selfCheck().isEmpty)
+    }
+}
+
+/// Restart now: a detached shell waits for the old process to exit, then opens the new copy.
+final class RelaunchTests: XCTestCase {
+    private var dir: URL!
+
+    override func setUpWithError() throws {
+        dir = FileManager.default.temporaryDirectory.appendingPathComponent("nxnative-relaunch-tests-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    }
+
+    override func tearDownWithError() throws {
+        try FileManager.default.removeItem(at: dir)
+    }
+
+    /// An opener that records its argument instead of launching anything.
+    private func fakeOpener(into log: URL) throws -> String {
+        let script = dir.appendingPathComponent("fake open.sh")
+        try "#!/bin/sh\nprintf '%s' \"$1\" > \"\(log.path)\"\n".write(to: script, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+        return script.path
+    }
+
+    private func wait(for url: URL, seconds: TimeInterval) -> String? {
+        let end = Date().addingTimeInterval(seconds)
+        while Date() < end {
+            // The shell creates the file before it writes into it: an empty read is not the answer yet.
+            if let text = try? String(contentsOf: url, encoding: .utf8), !text.isEmpty { return text }
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        return nil
+    }
+
+    func testTheNewCopyOpensOnlyAfterTheOldProcessHasExited() throws {
+        let log = dir.appendingPathComponent("opened.txt")
+        let app = dir.appendingPathComponent("My Games & \"Apps\"/NX2Apple.app")
+        let old = Process()
+        old.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        old.arguments = ["1.5"]
+        try old.run()
+        XCTAssertTrue(AppUpdate.relaunch(app, afterExitOf: old.processIdentifier, opener: try fakeOpener(into: log)))
+        Thread.sleep(forTimeInterval: 0.8)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: log.path), "the old process is still running")
+        old.waitUntilExit()
+        XCTAssertEqual(wait(for: log, seconds: 5), app.path, "a path with spaces, an ampersand and quotes arrives whole")
+    }
+
+    func testItOpensAnywayWhenTheOldProcessDoesNotExit() throws {
+        let log = dir.appendingPathComponent("opened.txt")
+        let app = dir.appendingPathComponent("NX2Apple.app")
+        let old = Process()
+        old.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        old.arguments = ["30"]
+        try old.run()
+        defer { old.terminate() }
+        XCTAssertTrue(AppUpdate.relaunch(app, afterExitOf: old.processIdentifier, timeout: 1, opener: try fakeOpener(into: log)))
+        XCTAssertEqual(wait(for: log, seconds: 5), app.path, "the wait ends at the timeout")
     }
 }
 

@@ -4,6 +4,15 @@ import Combine
 @testable import NSPortBuilder
 
 final class ConsoleTests: XCTestCase {
+    /// The games ready on this Mac come first. The rest follow in their own order, each with its status.
+    func testReadyGamesComeFirst() {
+        func game(_ id: String, _ status: ConsoleGame.Status) -> ConsoleGame {
+            ConsoleGame(id: id, title: id, version: "", platforms: [.mac], artwork: nil, status: status)
+        }
+        let games = [game("a", .needsBuild), game("b", .ready), game("c", .iphoneOnly), game("d", .ready), game("e", .broken("x"))]
+        XCTAssertEqual(ConsoleGame.readyFirst(games).map(\.id), ["b", "d", "a", "c", "e"])
+    }
+
     @MainActor func testScenariosAndBoundedFocus() {
         let driver = MockConsoleDriver(animated: false)
         XCTAssertEqual(driver.state.games.count, 12)
@@ -16,7 +25,7 @@ final class ConsoleTests: XCTestCase {
         state.moveFocus(-100)
         XCTAssertEqual(state.focusedGame?.id, "demo.0")
         state.moveFocus(100)
-        XCTAssertEqual(state.focusedGame?.id, "demo.11")
+        XCTAssertEqual(state.focusedGame?.id, "demo.9", "the games this Mac cannot play come last")
         XCTAssertEqual(MockConsoleDriver(scenario: .few, animated: false).state.games.count, 2)
         var empty = MockConsoleDriver(scenario: .empty, animated: false).state
         empty.moveFocus(1)
@@ -193,7 +202,7 @@ final class ConsoleTests: XCTestCase {
         guard let directory = ProcessInfo.processInfo.environment["NX_CONSOLE_CAPTURE_DIR"] else { throw XCTSkip("Set NX_CONSOLE_CAPTURE_DIR for desktop captures") }
         let output = URL(fileURLWithPath: directory)
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
-        for lang in [Lang.en, .zh] {
+        for lang in CaptureLanguage.all([.en, .zh]) {
             for width: CGFloat in [900, 1280] {
                 let model = BuildModel()
                 model.lang = lang
@@ -227,7 +236,7 @@ final class ConsoleTests: XCTestCase {
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         NSApplication.shared.setActivationPolicy(.accessory)
         let sizes: [(String, CGFloat, CGFloat)] = [("tv", 1920, 1080), ("mac", 1280, 800), ("compact", 390, 844)]
-        for lang in [Lang.en, .zh] {
+        for lang in CaptureLanguage.all([.en, .zh]) {
             for (name, width, height) in sizes {
                 for screen in ["full", "few", "empty", "controllers", "controllersMixed", "mixedHome", "controllerDesktop", "connectedToast", "starting", "options", "needsBuild", "needsData", "broken", "desktop", "prompt"] {
                     let driver = MockConsoleDriver(scenario: MockConsoleDriver.Scenario(rawValue: screen) ?? (screen == "mixedHome" || screen == "controllerDesktop" || screen == "connectedToast" ? .controllersMixed : .full), lang: lang, animated: false)

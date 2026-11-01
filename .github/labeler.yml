@@ -1,0 +1,18 @@
+launcher:
+  - changed-files:
+      - any-glob-to-any-file: 'frontend/**'
+windows:
+  - changed-files:
+      - any-glob-to-any-file: 'frontend-qt/**'
+ios:
+  - changed-files:
+      - any-glob-to-any-file: 'frontend-ios/**'
+patch-queue:
+  - changed-files:
+      - any-glob-to-any-file: ['patches/**', '.upstream-ref']
+documentation:
+  - changed-files:
+      - any-glob-to-any-file: ['docs/**', '**/*.md']
+ci:
+  - changed-files:
+      - any-glob-to-any-file: '.github/**'

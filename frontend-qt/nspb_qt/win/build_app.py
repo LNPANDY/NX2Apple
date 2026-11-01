@@ -45,6 +45,12 @@ else:                                       # pragma: no cover - script mode
 
 HERE = Path(__file__).resolve().parent
 
+
+def _engine_root() -> str:
+    """The engine's folder when NSPB_REPO is unset: the checkout's engine/ (LNPANDY/NX2Apple#214, made by tools/engine.py sync)."""
+    from nspb_qt import engine
+    return engine.engine_root(str(Path(__file__).resolve().parents[3]))
+
 #: Frameworks the app links. `Cocoa` is a macOS framework and is dropped; the rest is
 #: `dm/host/Makefile`'s link line minus Cocoa, plus what the UIKit side and the launcher use
 #: (Xcode would add UIKit through Swift module autolinking).
@@ -306,7 +312,7 @@ def link(clang: Path, sdk: Path, objs: list[Path], frameworks: list[str], out: P
     """Link the app, then prove the result is an unsigned iOS executable."""
     args = [str(clang), '-target', f'arm64-apple-ios{deployment}', '-isysroot', str(sdk),
             '-fuse-ld=lld', '-fobjc-arc', '-o', str(out), *map(str, objs),
-            '-Wl,-rpath,@executable_path/Frameworks', '-lobjc',
+            '-Wl,-rpath,@executable_path/Frameworks', '-lobjc', '-lSystem',
             *[x for fw in frameworks for x in ('-framework', fw)], *embed_flags]
     if rt_obj:
         args.append(str(rt_obj))
@@ -443,7 +449,7 @@ def main(argv: list[str] | None = None) -> int:
         die('--prepare-xcode generates an Xcode project, which needs a Mac with Xcode and '
             'xcodegen; on Windows the IPA is packed directly (drop the option)')
     env = os.environ
-    repo = Path(env.get('NSPB_REPO') or Path(__file__).resolve().parents[3])
+    repo = Path(env.get('NSPB_REPO') or _engine_root())
 
     game = env.get('GAME') or die('GAME is not set (the game profile ID)')
     w = Path(env.get('W') or die('W is not set (the work folder)'))

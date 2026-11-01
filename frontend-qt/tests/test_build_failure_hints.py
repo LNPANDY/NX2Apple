@@ -22,6 +22,7 @@ sys.path.insert(0, str(ROOT / 'frontend-qt'))
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
 from nspb_qt import build_failure as bf  # noqa: E402
+from nspb_qt.i18n import Lang  # noqa: E402
 from nspb_qt.localization import TABLE  # noqa: E402
 
 FIXTURES = json.loads((ROOT / 'frontend/Tests/Fixtures/build_failures.json').read_text(encoding='utf-8'))
@@ -45,14 +46,16 @@ class Classifier(unittest.TestCase):
     def test_every_kind_is_reachable(self):
         self.assertEqual({k for _, k, _ in bf.TABLE}, set(bf.KINDS))
 
-    def test_the_vendored_scripts_still_say_what_the_patterns_expect(self):
+    def test_the_engines_scripts_still_say_what_the_patterns_expect(self):
         """A sync that rewords a message must fail here, not turn a hint into the raw last line."""
         for f in FIXTURES:
             with self.subTest(pattern=f['id']):
                 if f['source'] == 'errno':   # the system's own text, not the script's
                     self.assertEqual(os.strerror(errno.ENOSPC), f['fragment'])
                     continue
-                there = f['fragment'] in (ROOT / f['source']).read_text(encoding='utf-8')
+                if f['source'] == 'codesign':   # Apple's text, from a tool the script runs
+                    continue
+                there = f['fragment'] in (ROOT / 'engine' / f['source']).read_text(encoding='utf-8')
                 if f.get('pending_sync'):
                     self.assertFalse(there, f"{f['id']} is in {f['source']} now: remove pending_sync ({f['pending_sync']}) from the fixture")
                 else:
@@ -118,12 +121,28 @@ class Rows(unittest.TestCase):
         for key in ('fail.showFolder', 'fail.keys.button', 'fail.diskFull.whatNeeds'):
             self.assertIn(key, TABLE)
             self.assertTrue(TABLE[key][2] and TABLE[key][2] != TABLE[key][1], key)   # Swedish present
+            self.assertTrue(TABLE[key][3] and TABLE[key][3] != TABLE[key][1], key)   # German present
+
+    def test_a_missing_zbic_package_is_its_own_row(self):
+        log = '[3/9] extract\n' + fixture('zbic.missing')['text'] + '\n'
+        self.assertEqual(bf.classify(log).kind, bf.ZBIC)
+        self.assertEqual(bf.classify('[RED] the zbic package decoded it').kind, bf.UNKNOWN)
+        self.assertIn('pip install zbic', TABLE['fail.zbic.next'][1])
+        self.assertIn('zbic', TABLE['fail.zbic.button'][1])
+
+    def test_the_python_probe_and_the_venv_install_name_zbic(self):
+        pkg = ROOT / 'frontend-qt/nspb_qt'
+        self.assertIn('import lz4, capstone, fontTools, zbic', (pkg / 'platform_util.py').read_text(encoding='utf-8'))
+        model = (pkg / 'model.py').read_text(encoding='utf-8')
+        self.assertIn("pkgs = ['lz4', 'capstone', 'fonttools', 'zbic', 'nsz']", model)
+        self.assertIn("'zbic', 'backports.zstd', 'nsz'", model)
 
     @unittest.skipIf(importlib.util.find_spec('PySide6') is None, 'PySide6 is not installed')
     def test_show_folder_opens_the_game_folder_and_for_a_full_disk_the_build_folder(self):
         import tempfile
         from nspb_qt.model import Model
         m = Model()
+        m.lang = Lang.EN   # these assertions read English whatever the device language is
         with tempfile.TemporaryDirectory() as d:
             m.base_path = str(Path(d, 'game.nsp'))
             self.assertEqual(m.failure_folder(bf.Failure(bf.NO_TITLE_ID, detail='/x')), d)
@@ -176,7 +195,8 @@ class Strings(unittest.TestCase):
         keys = ['fail.section', 'fail.buildAnyway', 'fail.confirm.title', 'fail.confirm.go', 'fail.confirm.cancel',
                 'fail.override.note', 'fail.a32Program.whatNamed', 'fail.translator.button', 'fail.iosSDK.button',
                 'fail.cltSelected.button', 'dep.metal.other', 'dep.fix.metalPin']
-        for kind in bf.KINDS:
+        keys += ['fail.retry', 'engine.syncing']
+        for kind in bf.KINDS + ['engineOffline', 'engineSync']:   # the last two are the engine sync's rows (engine.py's failure_kind)
             keys += [f'fail.{kind}.what', f'fail.{kind}.next']
             if kind in bf.OVERRIDE_FLAGS:
                 keys.append(f'fail.{kind}.risk')
@@ -184,7 +204,7 @@ class Strings(unittest.TestCase):
             with self.subTest(key=key):
                 self.assertIn(key, TABLE)
                 row = TABLE[key]
-                zh, en = row[0], row[1]   # the table may carry a third (Swedish) element
+                zh, en = row[0], row[1]   # the table carries more columns (Swedish, German)
                 self.assertTrue(zh and en)
                 for text in (zh, en):
                     self.assertNotIn(';', text)
@@ -219,6 +239,7 @@ class Window(unittest.TestCase):
         from nspb_qt.model import Model
         from nspb_qt.ui import MainWindow
         m = Model()
+        m.lang = Lang.EN   # these assertions read English whatever the device language is
         w = MainWindow(m)
         # A window left alive is destroyed by PySide after the QApplication at interpreter exit,
         # which segfaults. Delete it (and the model) while the app is still there.

@@ -20,7 +20,7 @@ Issue: LNPANDY/NX2Apple#123
  5 files changed, 53 insertions(+), 7 deletions(-)
 
 diff --git a/dm/ios/tests/test_ipa_unsigned.py b/dm/ios/tests/test_ipa_unsigned.py
-index 028d5067..42086883 100644
+index 028d506..4208688 100644
 --- a/dm/ios/tests/test_ipa_unsigned.py
 +++ b/dm/ios/tests/test_ipa_unsigned.py
 @@ -54,8 +54,13 @@ class UnsignedIpaTests(unittest.TestCase):
@@ -59,7 +59,7 @@ index 028d5067..42086883 100644
      def test_slim_ipa_of_a_folder_has_no_identity(self):
          self.assertNotIn('Payload/DmIOS.app/romfs.id', self.pack(DM_COPY_ROMFS='NO'))
 diff --git a/dm/ios/tests/test_profile_pack.py b/dm/ios/tests/test_profile_pack.py
-index 40db2b76..0407560d 100644
+index 40db2b7..0407560 100644
 --- a/dm/ios/tests/test_profile_pack.py
 +++ b/dm/ios/tests/test_profile_pack.py
 @@ -53,7 +53,8 @@ class ProfilePackTests(unittest.TestCase):
@@ -73,7 +73,7 @@ index 40db2b76..0407560d 100644
  
  
 diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index 1bb65f08..6a338846 100755
+index 1bb65f0..6a33884 100755
 --- a/dm/ios/tools/build_ipa.sh
 +++ b/dm/ios/tools/build_ipa.sh
 @@ -178,6 +178,9 @@ if [ -n "${DM_ENTITLEMENTS-default}" ]; then
@@ -100,7 +100,7 @@ index 1bb65f08..6a338846 100755
  MAPS+=("$P/msl/$MSLDIR=$MSL_IOS/$MSLDIR" "$P=$APP")
  t "pack IPA (already-compressed game files stored, everything else deflated)"
 diff --git a/dm/ios/tools/xcode_projects.py b/dm/ios/tools/xcode_projects.py
-index a832ad5a..0f5485df 100644
+index a832ad5..0f5485d 100644
 --- a/dm/ios/tools/xcode_projects.py
 +++ b/dm/ios/tools/xcode_projects.py
 @@ -33,10 +33,42 @@ def workspace_projects(workspace):
@@ -148,10 +148,10 @@ index a832ad5a..0f5485df 100644
              raise ValueError(f'bundle ID {bundle_id} is already used by {other}; choose a different --bundle-id for this game')
  
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index 16972e4f..cabeee77 100644
+index 07dac57..1cee0c6 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
-@@ -36,6 +36,7 @@ DM_FS	diagnostic	When set, logs file opens, paths not found or not mounted, and
+@@ -41,6 +41,7 @@ DM_FS	diagnostic	When set, logs file opens, paths not found or not mounted, and
  DM_FSLOG	diagnostic	`=<file>` writes one TSV line per ReadFile: seconds since boot, guest path, offset, length and guest buffer address
  DM_FSLOG_HASH	diagnostic	With `DM_FSLOG`, adds a column with the FNV-1a 64 hash of the bytes read
  DM_FULLSCREEN	player	`1` (any value but `0`) starts the Mac window in fullscreen; `0` or unset, a window. The Mac settings window's Display mode
