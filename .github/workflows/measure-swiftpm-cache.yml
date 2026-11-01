@@ -1,0 +1,91 @@
+name: Measure SwiftPM cache (temporary)
+
+on:
+  push:
+    branches: [ci/swiftpm-cache]
+
+permissions:
+  contents: read
+
+env:
+  GAME: 010015100B514000
+  DEVELOPER_DIR: /Applications/Xcode_27.1.app/Contents/Developer
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  launcher:
+    name: Measure launcher cache (temporary)
+    runs-on: xcode-27
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Engine (tools/engine.py sync, issue #214; the launcher's tests read engine/)
+        run: python3 tools/engine.py sync
+      # The build folder holds the debug build, and on main the release build too. A pull request restores the newest cache of main and
+      # saves none, so the caches of a main push are not pushed out by one per pull request push. The rest of the key is the inputs that
+      # change the objects: Xcode, Package.swift, the sources.
+      - name: Restore the SwiftPM build folder
+        id: swiftpm
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: frontend/.build
+          key: swiftpm-${{ runner.os }}-${{ runner.arch }}-${{ env.DEVELOPER_DIR }}-${{ hashFiles('frontend/Package.swift') }}-${{ hashFiles('frontend/Sources/**', 'frontend/Tests/**') }}
+          restore-keys: swiftpm-${{ runner.os }}-${{ runner.arch }}-${{ env.DEVELOPER_DIR }}-
+      # checkout gives every file the time of the checkout, so SwiftPM would see every source as changed and compile all of it again. A file
+      # whose content is the same as in the cached build gets the modification time it had then. A changed file keeps the new one.
+      - name: Give the unchanged sources their old modification time
+        working-directory: frontend
+        run: |
+          mkdir -p .build
+          python3 - <<'PY'
+          import hashlib, json, os
+          stamps = ".build/source-stamps.json"
+          old = json.load(open(stamps)) if os.path.exists(stamps) else {}
+          paths = ["Package.swift"]
+          for top in ("Sources", "Tests"):
+              for root, _, names in os.walk(top):
+                  paths += [os.path.join(root, n) for n in names]
+          new = {}
+          restored = 0
+          for path in sorted(paths):
+              digest = hashlib.sha256(open(path, "rb").read()).hexdigest()
+              before = old.get(path)
+              if before and before["sha256"] == digest:
+                  os.utime(path, ns=(before["mtime_ns"], before["mtime_ns"]))
+                  restored += 1
+              new[path] = {"sha256": digest, "mtime_ns": os.stat(path).st_mtime_ns}
+          json.dump(new, open(stamps, "w"))
+          print(f"{restored} of {len(paths)} files keep their old modification time")
+          PY
+      # swift test builds the package in debug, so a pull request does not build it again. The release build (optimizer, whole-module
+      # compile, the code outside #if DEBUG) runs on main and on tags. build-mac-app.yml also builds the release for a PR that touches frontend/.
+      - name: Release build
+        if: ${{ github.event_name != 'pull_request' }}
+        working-directory: frontend
+        run: |
+          mkdir -p ../logs
+          swift build -c release 2>&1 | tee ../logs/launcher-build.log
+      # The opt-in tests (a real games folder, the README screenshots, the visual QA capture) skip without their variables; the process
+      # fixtures stand in for the NSP script, xcodebuild and devicectl, so nothing is built, signed or installed
+      - name: Tests
+        working-directory: frontend
+        run: |
+          mkdir -p ../logs
+          swift test 2>&1 | tee ../logs/launcher-tests.log
+      - name: Save the SwiftPM build folder
+        if: ${{ github.event_name != 'pull_request' && steps.swiftpm.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: frontend/.build
+          key: ${{ steps.swiftpm.outputs.cache-primary-key }}
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure()
+        with:
+          name: logs-launcher
+          path: logs
+          retention-days: 7
