@@ -1,0 +1,53 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: v0lumehi <aljic.zijad@gmail.com>
+Date: Sun, 1 Nov 2026 01:07:04 +0100
+Subject: [PATCH] pad_apple: tell a Nintendo pad the way the launcher does
+
+A pad counted as Nintendo only when productCategory was exactly "Switch Pro Controller" or contained "Joy-Con". Any other Nintendo pad was mapped by position, so A and B (X and Y) came out swapped in game. Match case-insensitively without '-' and spaces on "nintendo", "switch" or "joycon". Xbox and PlayStation pads are unchanged.
+
+Upstream-Status: forwarded seedds/nxnative#835
+Reason: Nintendo pads are told apart by the launcher's rule, so the in-game A and B follow the pad's labels
+Issue: LNPANDY/NX2Apple#346
+
+---
+ dm/host/pad_apple.h         | 6 +++++-
+ dm/host/tests/t_pad_apple.m | 4 ++--
+ 2 files changed, 7 insertions(+), 3 deletions(-)
+
+diff --git a/dm/host/pad_apple.h b/dm/host/pad_apple.h
+index 65fdd53..33ad0a8 100644
+--- a/dm/host/pad_apple.h
++++ b/dm/host/pad_apple.h
+@@ -9,9 +9,13 @@
+ #include <stdint.h>
+ #include "dm_input.h"
+ 
++// A Nintendo pad by its productCategory, the way the Mac launcher tells one (ConsoleGlyphs.Family): lowercase, without '-' and spaces, it names "nintendo", "switch" or
++// "joycon". This covers "Switch Pro Controller", "Nintendo Switch Joy-Con (L/R)", "Nintendo Switch 2 Pro Controller" and a pad that spells them otherwise.
+ static inline int dm_pad_labelled(GCController *c) {
+     NSString *k = c.productCategory;
+-    return [k isEqualToString:@"Switch Pro Controller"] || [k containsString:@"Joy-Con"];
++    if (!k.length) return 0;
++    k = [[[k lowercaseString] stringByReplacingOccurrencesOfString:@"-" withString:@""] stringByReplacingOccurrencesOfString:@" " withString:@""];
++    return [k containsString:@"nintendo"] || [k containsString:@"switch"] || [k containsString:@"joycon"];
+ }
+ // DM_BTN_A / B / X / Y of the pad's pressed face buttons
+ static inline uint64_t dm_pad_face(GCExtendedGamepad *g) {
+diff --git a/dm/host/tests/t_pad_apple.m b/dm/host/tests/t_pad_apple.m
+index 56f246d..b8083d2 100644
+--- a/dm/host/tests/t_pad_apple.m
++++ b/dm/host/tests/t_pad_apple.m
+@@ -30,11 +30,11 @@ static uint64_t face(NSString *category, char pressed) {
+ }
+ 
+ int main(void) { @autoreleasepool {
+-    for (NSString *k in @[@"Xbox One", @"DualSense", @"HID"]) {   // by position: buttonA bottom (B), buttonB right (A), buttonX left (Y), buttonY top (X)
++    for (NSString *k in @[@"Xbox One", @"DualSense", @"HID", @"Xbox Wireless Controller", @"DualSense Wireless Controller", @"Extended Gamepad"]) {   // by position: buttonA bottom (B), buttonB right (A), buttonX left (Y), buttonY top (X)
+         assert(face(k, 'A') == DM_BTN_B); assert(face(k, 'B') == DM_BTN_A); assert(face(k, 'X') == DM_BTN_Y); assert(face(k, 'Y') == DM_BTN_X);
+     }
+     assert(face(nil, 'B') == DM_BTN_A);   // no category: by position
+-    for (NSString *k in @[@"Switch Pro Controller", @"Nintendo Switch Joy-Con (L/R)", @"Nintendo Switch Joy-Con (R)"]) {   // by label
++    for (NSString *k in @[@"Switch Pro Controller", @"Nintendo Switch Joy-Con (L/R)", @"Nintendo Switch Joy-Con (R)", @"JoyCon", @"nintendo switch pro controller", @"Nintendo Switch 2 Pro Controller"]) {   // by label
+         assert(face(k, 'A') == DM_BTN_A); assert(face(k, 'B') == DM_BTN_B); assert(face(k, 'X') == DM_BTN_X); assert(face(k, 'Y') == DM_BTN_Y);
+     }
+     TestPad *g = [TestPad new];   // nothing pressed, buttons nil: none
