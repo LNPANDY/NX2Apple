@@ -13,7 +13,7 @@ final class GermanLocalizationTests: XCTestCase {
         "onboarding.demo.mario", "console.kind.gamepad", "console.brand", "console.platform.mac",
         "console.platform.iphone", "console.version", "console.fps30", "console.fps60", "saves.toDevice",
         "saves.toMac", "cheats.title", "section.app", "app.version", "nav.builds", "settings.language.zh",
-        "settings.language.en", "settings.language.sv", "settings.language.de", "settings.language.fr", "library.ok", "build.ios", "data.update", "data.keys",
+        "settings.language.en", "settings.language.sv", "settings.language.de", "settings.language.fr", "settings.language.it", "library.ok", "build.ios", "data.update", "data.keys",
         "dep.iossdk", "dep.tool.xcodegen", "dep.tool.zstd", "dep.tool.spirv-cross", "dep.tool.glslangValidator",
         "dep.glslang", "dep.xcode", "dep.metal", "dep.brew", "dep.xcodegen", "dep.zstd", "dep.spirv.win",
         "dep.zstd.win", "dep.spirv", "dep.dotnet", "dep.phase.download", "dep.python.hint",
@@ -73,8 +73,8 @@ final class GermanLocalizationTests: XCTestCase {
     }
 
     func testLanguageNamesExistInEveryLanguage() {
-        for lang: Lang in [.zh, .en, .sv, .de, .fr] {
-            for code in ["zh", "en", "sv", "de", "fr"] {
+        for lang: Lang in Lang.allCases {
+            for code in ["zh", "en", "sv", "de", "fr", "it"] {
                 let key = "settings.language.\(code)"
                 XCTAssertNotEqual(L10n.string(key, lang), key)
             }
@@ -82,8 +82,8 @@ final class GermanLocalizationTests: XCTestCase {
     }
 
     func testLanguageNamesAreTheLanguagesOwnNames() {
-        let endonyms = ["zh": "中文", "en": "English", "sv": "Svenska", "de": "Deutsch"]
-        for lang: Lang in [.zh, .en, .sv, .de] {
+        let endonyms = ["zh": "中文", "en": "English", "sv": "Svenska", "de": "Deutsch", "fr": "Français", "it": "Italiano"]
+        for lang: Lang in Lang.allCases {
             for (code, name) in endonyms {
                 XCTAssertEqual(L10n.string("settings.language.\(code)", lang), name, "\(code) in \(lang)")
             }
@@ -91,7 +91,7 @@ final class GermanLocalizationTests: XCTestCase {
     }
 }
 
-/// The opt-in capture tests render in English (and Chinese). Set `NX_CAPTURE_LANG=de` (or `sv`, `zh`)
+/// The opt-in capture tests render in English (and Chinese). Set `NX_CAPTURE_LANG=de` (or `sv`, `it`, `zh`)
 /// to render them all in that language instead, for example into /tmp/de-shots.
 enum CaptureLanguage {
     private static var chosen: Lang? { ProcessInfo.processInfo.environment["NX_CAPTURE_LANG"].flatMap { Lang(rawValue: $0) } }

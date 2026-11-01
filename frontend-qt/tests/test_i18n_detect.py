@@ -39,10 +39,12 @@ class Detect(unittest.TestCase):
         self.assertEqual(Lang.EN.other, Lang.SV)
         self.assertEqual(Lang.SV.other, Lang.DE)
         self.assertEqual(Lang.DE.other, Lang.FR)
-        self.assertEqual(Lang.FR.other, Lang.ZH)
+        self.assertEqual(Lang.FR.other, Lang.IT)
+        self.assertEqual(Lang.IT.other, Lang.ZH)
         self.assertEqual(Lang.SV.toggle_label, 'Deutsch')
         self.assertEqual(Lang.DE.toggle_label, 'Français')
-        self.assertEqual(Lang.FR.toggle_label, '中文')
+        self.assertEqual(Lang.FR.toggle_label, 'Italiano')
+        self.assertEqual(Lang.IT.toggle_label, '中文')
 
     def test_german_is_recognised_by_tag_and_windows_name(self):
         for tag in ('de_DE', 'de-AT', 'de_CH.UTF-8', 'de'):
@@ -109,7 +111,7 @@ class Detect(unittest.TestCase):
 
     def test_a_windows_display_name_still_selects_the_language(self):
         for name, want in (('zh', Lang.ZH), ('zh-Hans', Lang.ZH), ('sv', Lang.SV), ('de', Lang.DE), ('de-DE', Lang.DE),
-                           ('fr', Lang.FR), ('fr-CA', Lang.FR), ('fry', Lang.EN), ('en-US', Lang.EN)):
+                           ('fr', Lang.FR), ('fr-CA', Lang.FR), ('fry', Lang.EN), ('it', Lang.IT), ('it-IT', Lang.IT), ('en-US', Lang.EN)):
             lang, _ = self.win_language(name)
             self.assertEqual(lang, want, name)
 
@@ -124,6 +126,15 @@ class Detect(unittest.TestCase):
         self.assertEqual(detect('French_France', platform='win32'), Lang.FR)
         self.assertEqual(detect('', env={'LANG': 'fr_FR.UTF-8'}), Lang.FR)
         self.assertEqual(detect('English_United States', env={'NSPB_LANG': 'fr'}), Lang.FR)
+
+    def test_italian_is_recognised_by_tag_and_windows_name(self):
+        for tag in ('it_IT', 'it-CH', 'it_IT.UTF-8', 'it'):
+            self.assertEqual(detect(tag), Lang.IT, tag)
+        self.assertEqual(detect('Italian_Italy', platform='win32'), Lang.IT)
+        self.assertEqual(detect('Italiano (Italia)', platform='win32'), Lang.IT)
+        self.assertEqual(detect('en_US', env={'NSPB_LANG': 'it'}), Lang.IT)
+        for tag in ('iu_CA', 'ita'):   # Inuktitut, and a three-letter word that is not a tag
+            self.assertEqual(detect(tag), Lang.EN, tag)
 
     def test_an_empty_locale_falls_through_to_the_environment(self):
         self.assertEqual(detect('', env={'LANG': 'zh_CN.UTF-8'}), Lang.ZH)

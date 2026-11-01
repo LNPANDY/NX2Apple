@@ -9,7 +9,7 @@ final class SourceSizeTests: XCTestCase {
     private static let aboveTheLimit: [String: Int] = [
         "NX2Apple/ContentView.swift": 3749,
         "NX2Apple/LauncherView.swift": 973,
-        "NXCore/Localization.swift": 4237,
+        "NXCore/Localization.swift": 4236,
     ]
 
     private func sources() -> URL {

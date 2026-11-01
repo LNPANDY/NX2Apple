@@ -1,7 +1,7 @@
 import Foundation
 
-// The app's interface language follows the system at every launch: Chinese, Swedish, German and French variants
-// select their matching catalogs; other languages use English. The Settings picker can override
+// The app's interface language follows the system at every launch: Chinese, Swedish, German, French and Italian
+// variants select their matching catalogs; other languages use English. The Settings picker can override
 // that choice without changing the device language.
 //
 // Every user-visible string lives in the table below, so the shared Chinese and English catalogs
@@ -9,14 +9,15 @@ import Foundation
 // they are filled, which lets a new language be added without changing every view first.
 
 package enum Lang: String, CaseIterable {
-    case zh, en, sv, de, fr
+    case zh, en, sv, de, fr, it
 
-    /// Chinese, Swedish, German and French devices use their matching catalog; every other device gets English.
+    /// Chinese, Swedish, German, French and Italian devices use their matching catalog; every other device gets English.
     package static func device() -> Lang {
         guard let first = Locale.preferredLanguages.first?.lowercased() else { return .en }
         if first.hasPrefix("sv") { return .sv }
         if first.hasPrefix("de") { return .de }
         if first.hasPrefix("fr") { return .fr }
+        if first.hasPrefix("it") { return .it }
         return first.hasPrefix("zh") ? .zh : .en
     }
 
@@ -25,16 +26,9 @@ package enum Lang: String, CaseIterable {
     /// The picker exists because the device language is not always the one someone wants to read
     /// this app in (a Chinese Windows display language on hardware bought abroad, a Mac kept in
     /// English by habit). "Follow the system" stays the default; the states are stored as
-    /// "" (follow), "zh", "en", "sv", "de" or "fr".
+    /// "" (follow), "zh", "en", "sv", "de", "fr" or "it", which are the raw values.
     package static func initial() -> Lang {
-        switch UserDefaults.standard.string(forKey: "appLanguage") ?? "" {
-        case "zh": return .zh
-        case "en": return .en
-        case "sv": return .sv
-        case "de": return .de
-        case "fr": return .fr
-        default: return device()
-        }
+        Lang(rawValue: UserDefaults.standard.string(forKey: "appLanguage") ?? "") ?? device()
     }
 
     /// The stored choice, or nil when following the system.
@@ -504,6 +498,7 @@ package enum L10n {
         "settings.language.sv": ("Svenska", "Svenska"),
         "settings.language.de": ("Deutsch", "Deutsch"),
         "settings.language.fr": ("Français", "Français"),
+        "settings.language.it": ("Italiano", "Italiano"),
         "settings.appNote2": ("构建你自己的 Switch 游戏", "Build your own Switch games"),
         "library.setupHint": ("\u{9996}\u{6b21}\u{6784}\u{5efa}\u{524d}\u{ff0c}\u{8bf7}\u{5b8c}\u{6210}\u{4ee5}\u{4e0b}\u{8bbe}\u{7f6e}\u{3002}", "Before your first build, finish the setup below."),
         "library.ready": ("\u{53ef}\u{5728} Mac \u{4e0a}\u{8fd0}\u{884c}", "Ready on Mac"),
@@ -1254,6 +1249,7 @@ package enum L10n {
         "settings.returnAfterPlayNote": "När ett spel som startats med Spela eller i konsolläget avslutas kommer startprogrammet fram, så att du kan välja nästa",
         "settings.language.de": "Deutsch",
         "settings.language.fr": "Français",
+        "settings.language.it": "Italiano",
         "settings.heading": "Inställningar",
         "shellCache.row": "Cachefiler",
         "shellCache.open": "Öppna mapp",
@@ -3104,6 +3100,7 @@ package enum L10n {
         "fail.shellDataIncomplete.what": "Die Spieldaten auf dem Gerät sind unvollständig.",
         "fail.shellDataIncomplete.next": "Das Spiel ist noch nicht spielbereit. Entsperre das Gerät und lass es verbunden, dann versuche es erneut. Nur fehlende oder unvollständige Dateien werden kopiert.",
         "settings.language.fr": "Français",
+        "settings.language.it": "Italiano",
         // Launch options, build stages, key names (LaunchSetting.localized, Stage.localizedName, ControlLayout.keyName)
         "launch.opt.DM_FPS_TARGET.30": "30 fps",
         "launch.opt.DM_FPS_TARGET.60": "60 fps",
@@ -3552,6 +3549,7 @@ package enum L10n {
         "settings.language.en": "English",
         "settings.language.sv": "Svenska",
         "settings.language.fr": "Français",
+        "settings.language.it": "Italiano",
         "saves.macLibrary": "Dans le dossier de la bibliothèque\u{a0}: %@",
         "saves.macStandard": "À l’emplacement par défaut\u{a0}: %@",
         "saves.macPending": "À l’emplacement par défaut\u{a0}: %@. Le jeu la copie dans le dossier de la bibliothèque à son prochain lancement.",
@@ -4225,6 +4223,7 @@ package enum L10n {
         case .sv: return sv[key] ?? row.en
         case .de: return de[key] ?? row.en
         case .fr: return fr[key] ?? row.en
+        case .it: return it[key] ?? row.en
         }
     }
 
