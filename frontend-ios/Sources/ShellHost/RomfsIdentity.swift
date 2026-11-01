@@ -7,7 +7,8 @@ struct RomfsIdentity: Equatable, Sendable {
     var size: UInt64
     var index: UInt64
 
-    private static let offsetBasis: UInt64 = 0xcbf29ce484222325, prime: UInt64 = 0x100000001b3, chunk: UInt64 = 1 << 20
+    static let chunkSize: UInt64 = 1 << 20
+    private static let offsetBasis: UInt64 = 0xcbf29ce484222325, prime: UInt64 = 0x100000001b3
 
     /// FNV-1a 64 over the little-endian 64-bit words of `bytes`, zero-padded to a multiple of 8 (`romfs_id_mix`).
     static func mix(_ hash: UInt64, _ bytes: [UInt8]) -> UInt64 {
@@ -41,7 +42,9 @@ struct RomfsIdentity: Equatable, Sendable {
     }
 
     /// The identity of the image at `url`, nil for a missing, cut off or invalid image (`romfs_id_of_image`).
-    static func ofImage(at url: URL) -> RomfsIdentity? {
+    /// The index is mixed in chunks of `chunk` bytes, each read completely first (a read may return less, on a file provider or an
+    /// external drive) and only the last chunk padded, as `romfs_id_of_image` does. The chunk is a parameter for tests.
+    static func ofImage(at url: URL, chunk: UInt64 = chunkSize) -> RomfsIdentity? {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
         defer { try? handle.close() }
         guard let total = try? handle.seekToEnd(), (try? handle.seek(toOffset: 0)) != nil,
@@ -55,9 +58,14 @@ struct RomfsIdentity: Equatable, Sendable {
             try handle.seek(toOffset: indexOffset)
             var left = indexSize
             while left > 0 {
-                guard let data = try handle.read(upToCount: Int(min(left, chunk))), !data.isEmpty else { return nil }
-                hash = mix(hash, [UInt8](data))
-                left -= UInt64(data.count)
+                let want = Int(min(left, chunk))
+                var piece = Data()
+                while piece.count < want {
+                    guard let part = try handle.read(upToCount: want - piece.count), !part.isEmpty else { return nil }   // cut off
+                    piece.append(part)
+                }
+                hash = mix(hash, [UInt8](piece))
+                left -= UInt64(want)
             }
         } catch { return nil }
         return RomfsIdentity(size: total, index: hash)

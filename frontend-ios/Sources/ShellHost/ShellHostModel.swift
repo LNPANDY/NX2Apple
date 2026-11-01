@@ -120,6 +120,8 @@ public struct ShellHostConfig: Sendable {
             e.problem == nil ? e.manifest.flatMap { m in RomfsIdentity.parse(m.romfsIdentity).map { (m.titleID, $0) } } : nil
         }
         guard !wanted.isEmpty else { return }
+        // `shellData.resolve()` above opened the bookmark's security scope and `BookmarkStore` keeps it open while this folder is
+        // chosen (until another is stored or it is cleared), so the detached scan and its header reads run inside it.
         shellScan = Task { [weak self] in
             let found = await Task.detached(priority: .utility) { () -> [String: URL] in
                 let index = ShellDataIndex(folder: folder)

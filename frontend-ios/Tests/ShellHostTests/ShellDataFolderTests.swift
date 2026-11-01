@@ -49,6 +49,22 @@ import ShellUI
         #expect(RomfsIdentity.parse("DMROMFSID1 fixture") == nil && RomfsIdentity.parse("DMROMFSID1 size=5") == nil && RomfsIdentity.parse("size=5 index=ab") == nil)
     }
 
+    /// An index of 3 MiB and 5 bytes spans four 1 MiB chunks, the last one padded. The expected value is what `romfs_id_of_image` gives
+    /// for this image. A smaller chunk (a multiple of 8) must give the same hash.
+    @Test func aLargeIndexHashesTheSameInAnyChunkSize() throws {
+        let box = try Sandbox()
+        let index = (0..<(3 * (1 << 20) + 5)).map { UInt8(truncatingIfNeeded: $0 &* 31 &+ 7) }
+        let url = box.root.appendingPathComponent("big.img")
+        try place(Self.dmromfs(index, data: [UInt8](repeating: 0x42, count: 16)), at: url)
+        let want = RomfsIdentity(size: 3_145_781, index: 0x3a99427aa95b96e1)
+        #expect(RomfsIdentity.ofImage(at: url) == want)
+        #expect(RomfsIdentity.ofImage(at: url, chunk: 4096) == want)
+        #expect(RomfsIdentity.ofImage(at: url, chunk: 8) == want)
+        // Cut off inside the index: not an image.
+        try Data(contentsOf: url).prefix(2_000_000).write(to: url)
+        #expect(RomfsIdentity.ofImage(at: url) == nil)
+    }
+
     @Test func anInvalidOrCutOffImageHasNoIdentity() throws {
         let box = try Sandbox()
         let good = Self.dmromfs(Self.indexA)
