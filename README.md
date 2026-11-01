@@ -30,6 +30,7 @@
 
 - **Guided first run** — a setup wizard walks a new player through Xcode, keys and games; the build tools and a Python ship inside the app, so nobody installs Homebrew.
 - **Saves that follow you** — Mac ⇄ iPhone saves sync through one iCloud Drive folder, a deleted app reinstalls in seconds, and a free Apple ID's 7-day signature renews in place.
+- **One app for iPhone and iPad**: a library of all your games with their key art, Cover Flow when the phone is on its side, settings for each game, and controller or keyboard control. It follows the system language (English and Simplified Chinese).
 - **Console mode** — plug in a controller, press Select: the library goes full screen, controller-first, like a Switch home menu.
 
 Every release is in the [changelog](CHANGELOG.md). 中文用户请看这里：[简体中文 README](README.zh-CN.md)。
@@ -61,7 +62,7 @@ launcher and a short list of patches, and follows nxnative every day.
 - **Your own game dumps** (NSP or XCI) and **your own `prod.keys`** from your own console. Nothing is
   bundled, downloaded or looked up for you. The same `prod.keys` opens every one of your games; a
   current dump covers all retail titles.
-- For an iPhone: iOS 26 or later and a recent phone. Older devices are untested.
+- For an iPhone or iPad: iOS or iPadOS 26 or later and a recent device. Older devices are untested.
 
 The app carries its own build tools and Python, so no Homebrew and no Python install; the .NET SDK 10
 is the one tool it still installs for you. The launcher's dependency page checks each requirement and
@@ -83,6 +84,34 @@ installs what it can with one click.
    game in. It needs a device paired with the Mac.
 
 Building by hand from a terminal is in [BUILDING.md](BUILDING.md).
+
+## The iPhone and iPad app
+
+The **iPhone / iPad** target builds one shell app that holds all your games, the way the Mac launcher
+does. Its library shows each game with its key art. In portrait it is one column with the chosen game
+at the top. On its side it is a Cover Flow. An iPad shows a grid.
+
+<img src="frontend/screenshots/ios-library-en.webp" width="100%" alt="The iPhone app in portrait: the library with a hero and two game covers, one game's settings, and a game that needs its game data">
+
+<img src="frontend/screenshots/ios-cover-flow-en.webp" width="100%" alt="The iPhone app on its side: Cover Flow with the covers of Breath of the Wild, Hades and Tears of the Kingdom">
+
+- **Add games from the Mac.** Build a game with the **iPhone / iPad** target and the launcher copies it
+  into the app. Re-signing and reinstalling the app keeps your game data and saves.
+- **Play.** Pick a game and tap **Play**. A game that is missing its data, or needs a newer app,
+  says so on its card and offers the fix.
+- **Settings for each game.** The settings button (or X on a controller) opens that game's launch
+  options. **Reset** puts every choice back to its default.
+- **Controller or keyboard.** The whole app works from a controller: the D-pad and stick move, A
+  picks, B goes back, X opens the settings and Y lists the controllers. A hardware keyboard works the
+  same way.
+- **Game data folder.** Each game can read its data from a folder you pick in the Files app, for
+  example on an external drive, or from the app's own folder.
+- **Cloud saves.** Pick an iCloud Drive folder for a game's saves to keep them in step with the Mac.
+- **Language.** The app follows the system language, English or Simplified Chinese. There is no
+  language picker.
+
+The app needs iOS or iPadOS 26 or later. The covers are the eShop banners the Mac launcher caches
+for your own games.
 
 ## How to play
 
