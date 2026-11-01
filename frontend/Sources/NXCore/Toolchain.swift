@@ -31,16 +31,8 @@ package enum Toolchain {
     /// live instead of trusting `which` — that is why .NET (in ~/.dotnet) and the
     /// Python packages (in /usr/local/bin/python3, not /usr/bin/python3) used to show
     /// as missing while a terminal could see them.
-    package static func runOK(_ tool: String, _ args: [String], env: [String: String]? = nil) -> Bool {
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: tool)
-        p.arguments = args
-        if let env { p.environment = env }
-        p.standardOutput = Pipe(); p.standardError = Pipe()
-        p.standardInput = FileHandle.nullDevice
-        do { try p.run() } catch { return false }
-        p.waitUntilExit()
-        return p.terminationStatus == 0
+    package static func runOK(_ tool: String, _ args: [String], env: [String: String]? = nil, runner: ProcessRunner = SystemProcessRunner()) -> Bool {
+        runner.runOK(tool, args, env: env)
     }
 
     package static func firstExisting(_ paths: [String]) -> String? {
@@ -134,22 +126,15 @@ package enum Toolchain {
     /// Create the venv (reusing an existing one) and install the packages into it. Returns the
     /// combined output so a failure can be shown instead of swallowed — the pip output used to go
     /// to a pipe nobody read, and `externally-managed-environment` never reached the user.
-    package static func makeVenv(base: String) -> (ok: Bool, log: String) {
+    package static func makeVenv(base: String, runner: ProcessRunner = SystemProcessRunner()) -> (ok: Bool, log: String) {
         var log = ""
         func run(_ exe: String, _ args: [String]) -> Bool {
-            let p = Process(); p.executableURL = URL(fileURLWithPath: exe); p.arguments = args
-            let out = Pipe(), err = Pipe()
-            p.standardOutput = out; p.standardError = err; p.standardInput = FileHandle.nullDevice
-            p.environment = ["PATH": BundledTools.path("/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin", python: base), "HOME": NSHomeDirectory()].merging(BundledTools.environment(for: base)) { $1 }
-            do { try p.run() } catch { log += "could not start \(exe): \(error.localizedDescription)\n"; return false }
-            // both pipes are drained on this thread (before waitUntilExit, so the child cannot
-            // block on a full pipe), and the log string keeps a single owner
-            let outData = out.fileHandleForReading.readDataToEndOfFile()
-            let errData = err.fileHandleForReading.readDataToEndOfFile()
-            p.waitUntilExit()
-            log += String(data: outData, encoding: .utf8) ?? ""
-            log += String(data: errData, encoding: .utf8) ?? ""
-            return p.terminationStatus == 0
+            let env = ["PATH": BundledTools.path("/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin", python: base), "HOME": NSHomeDirectory()].merging(BundledTools.environment(for: base)) { $1 }
+            let r = runner.capture(ProcessLaunch(executable: exe, arguments: args, environment: env))
+            if !r.started { log += "could not start \(exe): \(r.out)\n"; return false }
+            log += r.out
+            log += r.err
+            return r.ok
         }
         let vpy = venvPython()
         // An existing venv below minPython (built from Apple's 3.9 by an older app, issue #75) is
@@ -186,18 +171,9 @@ package enum Toolchain {
     }
 
     /// "3.12.4" → (3, 12). nil when the interpreter cannot be run.
-    package static func pythonVersion(_ path: String) -> (Int, Int)? {
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: path)
-        p.arguments = ["-c", "import sys; print('%d.%d' % sys.version_info[:2])"]
-        p.environment = ProcessInfo.processInfo.environment.merging(BundledTools.environment(for: path)) { $1 }
-        let pipe = Pipe()
-        p.standardOutput = pipe; p.standardError = Pipe()
-        p.standardInput = FileHandle.nullDevice
-        guard (try? p.run()) != nil else { return nil }
-        p.waitUntilExit()
-        guard p.terminationStatus == 0 else { return nil }
-        let out = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+    package static func pythonVersion(_ path: String, runner: ProcessRunner = SystemProcessRunner()) -> (Int, Int)? {
+        let env = ProcessInfo.processInfo.environment.merging(BundledTools.environment(for: path)) { $1 }
+        guard let out = runner.output(path, ["-c", "import sys; print('%d.%d' % sys.version_info[:2])"], env: env) else { return nil }
         let parts = out.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: ".")
         guard parts.count == 2, let a = Int(parts[0]), let b = Int(parts[1]) else { return nil }
         return (a, b)
@@ -277,17 +253,8 @@ package enum Toolchain {
         }
         cands += uvPythonCandidates()
         cands += versionManagerPythonCandidates()
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/usr/bin/which")
-        p.arguments = ["-a", "python3"]
-        let pipe = Pipe()
-        p.standardOutput = pipe; p.standardError = Pipe()
-        p.standardInput = FileHandle.nullDevice
-        if (try? p.run()) != nil {
-            p.waitUntilExit()
-            let out = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-            cands += out.split(separator: "\n").map(String.init)
-        }
+        let which = SystemProcessRunner().capture(ProcessLaunch(executable: "/usr/bin/which", arguments: ["-a", "python3"]))
+        if which.started { cands += which.out.split(separator: "\n").map(String.init) }
         return cands
     }
 
@@ -336,17 +303,8 @@ package enum Toolchain {
         return nil
     }
 
-    package static func dotnetRoot(for dotnet: String) -> String? {
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: dotnet)
-        p.arguments = ["--list-runtimes"]
-        let pipe = Pipe()
-        p.standardOutput = pipe; p.standardError = Pipe(); p.standardInput = FileHandle.nullDevice
-        p.environment = ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin", "TMPDIR": NSTemporaryDirectory()]
-        guard (try? p.run()) != nil else { return nil }
-        p.waitUntilExit()
-        guard p.terminationStatus == 0 else { return nil }
-        let out = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+    package static func dotnetRoot(for dotnet: String, runner: ProcessRunner = SystemProcessRunner()) -> String? {
+        guard let out = runner.output(dotnet, ["--list-runtimes"], env: ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin", "TMPDIR": NSTemporaryDirectory()]) else { return nil }
         // No directory fallback: for Homebrew's symlink layout the binary's directory is not the root,
         // and a wrong DOTNET_ROOT is worse than none (the apphost stops searching once it is set).
         // When this returns nil the pipeline derives and verifies a root itself.
@@ -371,18 +329,8 @@ package enum Toolchain {
     /// Whether the selected developer directory exists (`xcode-select -p`), which is the same
     /// source of truth xcodebuild and xcrun use — so an Xcode beta, a custom location, or a
     /// Command Line Tools-only setup is reported for what it is instead of "no Xcode".
-    package static func developerDir() -> String? {
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/usr/bin/xcode-select")
-        p.arguments = ["-p"]
-        let pipe = Pipe()
-        p.standardOutput = pipe
-        p.standardError = FileHandle.nullDevice
-        do { try p.run() } catch { return nil }
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        p.waitUntilExit()
-        guard p.terminationStatus == 0,
-              let dir = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+    package static func developerDir(runner: ProcessRunner = SystemProcessRunner()) -> String? {
+        guard let dir = runner.output("/usr/bin/xcode-select", ["-p"])?.trimmingCharacters(in: .whitespacesAndNewlines),
               !dir.isEmpty else { return nil }
         var isDir: ObjCBool = false
         return FileManager.default.fileExists(atPath: dir, isDirectory: &isDir) && isDir.boolValue ? dir : nil
@@ -460,17 +408,9 @@ package enum Toolchain {
     }
 
     /// First line of a tool's output (the Metal compiler's version line), nil when it does not run or says nothing.
-    package static func firstOutputLine(_ tool: String, _ args: [String]) -> String? {
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: tool)
-        p.arguments = args
-        let out = Pipe()
-        p.standardOutput = out; p.standardError = Pipe(); p.standardInput = FileHandle.nullDevice
-        do { try p.run() } catch { return nil }
-        let data = out.fileHandleForReading.readDataToEndOfFile()
-        p.waitUntilExit()
-        guard p.terminationStatus == 0 else { return nil }
-        return String(decoding: data, as: UTF8.self).split(separator: "\n", omittingEmptySubsequences: true).first.map(String.init)
+    package static func firstOutputLine(_ tool: String, _ args: [String], runner: ProcessRunner = SystemProcessRunner()) -> String? {
+        guard let out = runner.output(tool, args) else { return nil }
+        return out.split(separator: "\n", omittingEmptySubsequences: true).first.map(String.init)
     }
 
     package static func pythonDetail(py: String, ok: Bool) -> String {

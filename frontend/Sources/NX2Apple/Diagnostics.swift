@@ -217,10 +217,10 @@ struct Diagnostics {
     }
 
     /// The commit, branch and distance from main of a checkout, from its own refs.
-    static func git(_ repo: String) -> (commit: String?, branch: String?, behind: [(ref: String, count: Int)], lastFetch: Date?) {
-        guard !repo.isEmpty, FileManager.default.fileExists(atPath: repo + "/.git"), let git = BuildModel.gitBinary() else { return (nil, nil, [], nil) }
+    static func git(_ repo: String, checkout: GitCheckout = SystemGitCheckout()) -> (commit: String?, branch: String?, behind: [(ref: String, count: Int)], lastFetch: Date?) {
+        guard !repo.isEmpty, FileManager.default.fileExists(atPath: repo + "/.git"), checkout.binary != nil else { return (nil, nil, [], nil) }
         func run(_ args: [String]) -> String? {
-            let r = BuildModel.runQuiet([git, "-C", repo] + args, env: BuildModel.gitEnv())
+            let r = checkout.run(repo, args)
             let s = r.out.trimmingCharacters(in: .whitespacesAndNewlines)
             return r.ok && !s.isEmpty ? s : nil
         }
@@ -250,13 +250,14 @@ struct Diagnostics {
         return (pins["metal_macosx"], pins["metal_iphoneos"])
     }
 
-    /// A command's output when it exits 0, trimmed; nil when it fails or prints nothing. The tests stand in for BuildModel.runQuiet.
+    /// A command's output when it exits 0, trimmed; nil when it fails or prints nothing. The tests stand in for the ProcessRunner.
     typealias Probe = (_ args: [String]) -> String?
 
-    static func probe(env: [String: String] = ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin", "TMPDIR": NSTemporaryDirectory()]) -> Probe {
+    static func probe(env: [String: String] = ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin", "TMPDIR": NSTemporaryDirectory()],
+                      runner: ProcessRunner = SystemProcessRunner()) -> Probe {
         { args in
             guard FileManager.default.isExecutableFile(atPath: args[0]) else { return nil }
-            let r = BuildModel.runQuiet(args, env: env)
+            let r = runner.runQuiet(args, env: env)
             let s = r.out.trimmingCharacters(in: .whitespacesAndNewlines)
             return r.ok && !s.isEmpty ? s : nil
         }
@@ -285,9 +286,9 @@ struct Diagnostics {
     }
 
     /// What a tool prints for its version, nil when it does not run.
-    static func version(_ tool: String, _ args: [String], env: [String: String]) -> String? {
+    static func version(_ tool: String, _ args: [String], env: [String: String], runner: ProcessRunner = SystemProcessRunner()) -> String? {
         guard FileManager.default.isExecutableFile(atPath: tool) else { return nil }
-        let r = BuildModel.runQuiet([tool] + args, env: env)
+        let r = runner.runQuiet([tool] + args, env: env)
         let s = r.out.trimmingCharacters(in: .whitespacesAndNewlines)
         return r.ok && !s.isEmpty ? String(s.split(separator: "\n").last ?? "") : nil
     }
