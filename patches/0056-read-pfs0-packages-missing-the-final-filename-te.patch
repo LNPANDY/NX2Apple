@@ -1,0 +1,260 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: steven_mac <dengh5955@gmail.com>
+Date: Mon, 2 Nov 2026 01:35:14 +0800
+Subject: [PATCH] Read PFS0 packages missing the final filename terminator
+
+Bound filename reads by the PFS0 string table and provide LibHac with a virtual terminated header. Keep package bytes and payload-relative offsets unchanged, while rejecting truncated tables and invalid name offsets. Cover the scanner and storage reader with synthetic fixtures.
+
+Upstream-Status: forwarded seedds/nxnative#886
+Reason: Accept legacy NSZ PFS0 string tables without rewriting owned game packages.
+Issue: seedds/nxnative#886
+
+---
+ dm/tools/nx_extract/Program.cs              | 27 +++++++++-
+ dm/tools/tests/fixtures/Pfs0StorageTests.cs | 56 +++++++++++++++++++++
+ dm/tools/tests/test_nsp_scan.py             | 25 +++++++++
+ dm/tools/tests/test_pfs0_storage.py         | 38 ++++++++++++++
+ docs/reference/packing.md                   |  9 ++++
+ scripts/build_ipa_from_nsp.py               | 12 ++++-
+ 6 files changed, 165 insertions(+), 2 deletions(-)
+ create mode 100644 dm/tools/tests/fixtures/Pfs0StorageTests.cs
+ create mode 100644 dm/tools/tests/test_pfs0_storage.py
+
+diff --git a/dm/tools/nx_extract/Program.cs b/dm/tools/nx_extract/Program.cs
+index 870cf5c..27bcf01 100644
+--- a/dm/tools/nx_extract/Program.cs
++++ b/dm/tools/nx_extract/Program.cs
+@@ -13,6 +13,7 @@
+ // The base game may also be a cartridge dump (.xci, Monster Hunter Rise): its secure partition holds the NCAs, which carry their keys in the key area (no ticket).
+ //   When the cartridge also carries an update (1G+1U), only the base game's NCAs (those its Application content meta lists) are read; the update comes from the update NSP.
+ using System;
++using System.Buffers.Binary;
+ using System.Collections.Generic;
+ using System.IO;
+ using System.Runtime.InteropServices;
+@@ -124,6 +125,30 @@ static class P {
+         return Damaged();
+     }
+ 
++    internal static IStorage PackageStorage(IStorage source) {
++        source.GetSize(out long size).ThrowIfFailure();
++        if (size < 16) throw new InvalidDataException("truncated PFS0 header");
++        byte[] first = new byte[16]; source.Read(0, first).ThrowIfFailure();
++        if (!first.AsSpan(0, 4).SequenceEqual("PFS0"u8)) return source;
++        uint count = BinaryPrimitives.ReadUInt32LittleEndian(first.AsSpan(4));
++        uint strings = BinaryPrimitives.ReadUInt32LittleEndian(first.AsSpan(8));
++        long headerSize = 16 + 24L * count + strings;
++        if (headerSize > size || headerSize >= int.MaxValue) throw new InvalidDataException("invalid PFS0 file-name table size");
++        byte[] header = new byte[(int)headerSize + 1];
++        source.Read(0, header.AsSpan(0, (int)headerSize)).ThrowIfFailure();
++        for (int i = 0; i < count; i++) {
++            uint offset = BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(16 + 24 * i + 16));
++            if (offset >= strings) throw new InvalidDataException("PFS0 file-name offset outside the string table");
++        }
++        if (strings == 0 || header[(int)headerSize - 1] == 0) return source;
++        // Older NSZ writers omitted the last NUL. Insert it in a virtual header, leaving the source and NCA bytes untouched.
++        BinaryPrimitives.WriteUInt32LittleEndian(header.AsSpan(8), strings + 1);
++        Console.WriteLine("PFS0: reading a missing final file-name terminator through an in-memory header");
++        return new LibHac.Tools.FsSystem.ConcatenationStorage(new IStorage[] {
++            new MemoryStorage(header), new SubStorage(source, headerSize, size - headerSize)
++        }, false);
++    }
++
+     // Open an NSP (PFS0) or the secure partition of an XCI, import the common tickets, list all NCAs. With a content meta type, only the NCAs that the package's content metas of
+     // that type list (when it has one): a cartridge dump with its update on it (1G+1U) holds the update's NCAs beside the base game's, its Program NCA under the same title ID
+     static List<Nca> OpenNsp(KeySet ks, string path, ContentMetaType? only = null) {
+@@ -134,7 +159,7 @@ static class P {
+             if (!xci.HasPartition(XciPartitionType.Secure)) throw new Exception($"no secure partition in {path}");
+             pfs = xci.OpenPartition(XciPartitionType.Secure);
+         } else {
+-            var p = new PartitionFileSystem(); p.Initialize(st0).ThrowIfFailure(); pfs = p;
++            var p = new PartitionFileSystem(); p.Initialize(PackageStorage(st0)).ThrowIfFailure(); pfs = p;
+         }
+         var ncas = new List<Nca>(); var ids = new List<string>();   // ids: content IDs (the file names' hex)
+         foreach (DirectoryEntryEx e in pfs.EnumerateEntries("*", SearchOptions.Default)) {
+diff --git a/dm/tools/tests/fixtures/Pfs0StorageTests.cs b/dm/tools/tests/fixtures/Pfs0StorageTests.cs
+new file mode 100644
+index 0000000..7a45b59
+--- /dev/null
++++ b/dm/tools/tests/fixtures/Pfs0StorageTests.cs
+@@ -0,0 +1,56 @@
++using System;
++using System.Buffers.Binary;
++using System.Linq;
++using System.Text;
++using System.IO;
++using LibHac.Common;
++using LibHac.Fs;
++using LibHac.Fs.Fsa;
++using LibHac.FsSystem;
++using LibHac.Tools.Fs;
++using LibHac.Tools.FsSystem;
++
++class Pfs0StorageTests {
++    static void Check(bool ok) { if (!ok) throw new Exception("PFS0 storage check failed"); }
++    static byte[] Package(bool terminated) {
++        byte[] names = Encoding.ASCII.GetBytes("first.bin\0last.bin" + (terminated ? "\0" : ""));
++        byte[] result = new byte[16 + 48 + names.Length + 6];
++        "PFS0"u8.CopyTo(result); BinaryPrimitives.WriteUInt32LittleEndian(result.AsSpan(4), 2);
++        BinaryPrimitives.WriteUInt32LittleEndian(result.AsSpan(8), (uint)names.Length);
++        BinaryPrimitives.WriteUInt64LittleEndian(result.AsSpan(24), 3);
++        BinaryPrimitives.WriteUInt64LittleEndian(result.AsSpan(40), 3);
++        BinaryPrimitives.WriteUInt64LittleEndian(result.AsSpan(48), 3);
++        BinaryPrimitives.WriteUInt32LittleEndian(result.AsSpan(56), 10);
++        names.CopyTo(result, 64); new byte[] {1, 2, 3, 4, 5, 6}.CopyTo(result, 64 + names.Length);
++        return result;
++    }
++    static void ReadPackage(bool terminated) {
++        byte[] bytes = Package(terminated), before = (byte[])bytes.Clone();
++        using var original = new MemoryStorage(bytes);
++        using var storage = P.PackageStorage(original);
++        Check(ReferenceEquals(original, storage) == terminated);
++        using var fs = new PartitionFileSystem(); fs.Initialize(storage).ThrowIfFailure();
++        Check(fs.EnumerateEntries("*", SearchOptions.Default).Select(e => e.Name).SequenceEqual(new[] {"first.bin", "last.bin"}));
++        foreach (var pair in new[] {("/first.bin", new byte[] {1, 2, 3}), ("/last.bin", new byte[] {4, 5, 6})}) {
++            using var file = new UniqueRef<IFile>(); fs.OpenFile(ref file.Ref, pair.Item1.ToU8Span(), OpenMode.Read).ThrowIfFailure();
++            byte[] data = new byte[3]; file.Get.Read(out long read, 0, data, ReadOption.None).ThrowIfFailure();
++            Check(read == 3 && data.SequenceEqual(pair.Item2));
++        }
++        Check(bytes.SequenceEqual(before));
++        storage.GetSize(out long size).ThrowIfFailure();
++        byte[] all = new byte[(int)size]; storage.Read(0, all).ThrowIfFailure();
++        Check(all.AsSpan(all.Length - 6).SequenceEqual(new byte[] {1, 2, 3, 4, 5, 6}));
++    }
++    static void Main() {
++        ReadPackage(true); ReadPackage(false);
++        byte[] empty = new byte[16]; "PFS0"u8.CopyTo(empty);
++        using (var storage = new MemoryStorage(empty)) Check(ReferenceEquals(storage, P.PackageStorage(storage)));
++        foreach (var bytes in new[] {Package(false)[..20], Package(false)}) {
++            if (bytes.Length > 20) BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(56), uint.MaxValue);
++            using var storage = new MemoryStorage(bytes);
++            try { P.PackageStorage(storage); throw new Exception("invalid header accepted"); }
++            catch (InvalidDataException) { }
++        }
++        Console.WriteLine("PFS0 storage checks passed");
++    }
++}
+diff --git a/dm/tools/tests/test_nsp_scan.py b/dm/tools/tests/test_nsp_scan.py
+index fd5f5fc..0e88c0f 100644
+--- a/dm/tools/tests/test_nsp_scan.py
++++ b/dm/tools/tests/test_nsp_scan.py
+@@ -46,6 +46,31 @@ class Scan(unittest.TestCase):
+         self.assertEqual(nsp.scan_nsps(self.tmp)[1]['base'], base)
+         self.assertEqual(self.said, [])
+ 
++    def test_missing_final_name_terminator(self):
++        for extension in ('.nsp', '.nsz'):
++            with self.subTest(extension=extension):
++                base = self.tmp / ('base' + extension)
++                names = [f'{APP:016x}0000000000000011.tik', 'last.nca']
++                pfs0(base, names)
++                data = bytearray(base.read_bytes())
++                struct.pack_into('<I', data, 8, struct.unpack_from('<I', data, 8)[0] - 1)
++                base.write_bytes(data[:-1])
++                before = base.read_bytes()
++                self.assertEqual(nsp.pfs0_names(base), names)
++                self.assertEqual(nsp.title_of(base), APP)
++                self.assertEqual(base.read_bytes(), before)
++
++    def test_invalid_name_table_is_rejected(self):
++        base = self.tmp / 'base.nsp'
++        pfs0(base, ['last.nca'])
++        data = bytearray(base.read_bytes())
++        for broken in (data[:12], data[:-2]):
++            base.write_bytes(broken)
++            with self.assertRaises(nsp.BuildError): nsp.pfs0_names(base)
++        struct.pack_into('<I', data, 16 + 16, 0xffffffff)
++        base.write_bytes(data)
++        with self.assertRaises(nsp.BuildError): nsp.pfs0_names(base)
++
+ 
+ class TitleFromPackage(unittest.TestCase):
+     """A package with neither a ticket nor a [title ID] in its name (a standard-crypto dump, a repack: LNPANDY/NX2Apple#177) is asked for its title ID. The reader itself (nx_extract --title,
+diff --git a/dm/tools/tests/test_pfs0_storage.py b/dm/tools/tests/test_pfs0_storage.py
+new file mode 100644
+index 0000000..c4d060a
+--- /dev/null
++++ b/dm/tools/tests/test_pfs0_storage.py
+@@ -0,0 +1,38 @@
++"""LibHac reads a missing final PFS0 name terminator through a read-only header view.
++Synthetic packages only: no keys or game data, and the production nx_extract source is compiled unchanged.
++"""
++import os
++from pathlib import Path
++import shutil
++import subprocess
++import tempfile
++import unittest
++import xml.etree.ElementTree as ET
++from xml.sax.saxutils import escape
++
++ROOT = Path(__file__).resolve().parents[3]
++DOTNET = shutil.which('dotnet')
++
++
++@unittest.skipUnless(DOTNET, '.NET SDK 10 is required')
++class Pfs0Storage(unittest.TestCase):
++    def test_read_only_header_and_payload(self):
++        assert DOTNET is not None
++        with tempfile.TemporaryDirectory() as tmp:
++            tmp = Path(tmp)
++            package = ET.parse(ROOT / 'dm/tools/nx_extract/nx_extract.csproj').find('.//PackageReference[@Include="LibHac"]')
++            assert package is not None
++            version = package.attrib['Version']
++            (tmp / 'test.csproj').write_text(f'''<Project Sdk="Microsoft.NET.Sdk">
++<PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><AllowUnsafeBlocks>true</AllowUnsafeBlocks><StartupObject>Pfs0StorageTests</StartupObject></PropertyGroup>
++<ItemGroup><PackageReference Include="LibHac" Version="{escape(version)}" />
++<Compile Include="{escape(str(ROOT / 'dm/tools/nx_extract/Program.cs'))}" />
++<Compile Include="{escape(str(ROOT / 'dm/tools/tests/fixtures/Pfs0StorageTests.cs'))}" /></ItemGroup></Project>''')
++            result = subprocess.run([DOTNET, 'run', '--project', str(tmp / 'test.csproj'), '-v:q'],
++                                    capture_output=True, text=True, timeout=120, env=dict(os.environ, DOTNET_NOLOGO='1'))
++            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
++            self.assertIn('PFS0 storage checks passed', result.stdout)
++
++
++if __name__ == '__main__':
++    unittest.main()
+diff --git a/docs/reference/packing.md b/docs/reference/packing.md
+index 4a60ae9..7e76199 100644
+--- a/docs/reference/packing.md
++++ b/docs/reference/packing.md
+@@ -1,5 +1,14 @@
+ # Packing
+ 
++## Game packages
++
++### PFS0 file-name table missing its final NUL
++
++- **Symptom:** package identification stops with `ValueError: subsection not found` in `pfs0_names`, or LibHac reports `ResultFsPathNotFound` opening the last file of an NSP.
++- **Cause:** older NSZ writers omitted the final NUL in the PFS0 string table. The final name is bounded by the table length, but the Python scanner required a terminator and LibHac reads names as NUL-terminated strings.
++- **Fix:** the scanner accepts the table boundary as the end of the final name. `nx_extract` supplies LibHac with a virtual header containing the missing NUL followed by the original payload storage. File offsets remain relative to that payload, and the source package and encrypted NCA bytes are unchanged. Truncated tables and out-of-table name offsets still fail. Synthetic package tests cover both readers and payload preservation.
++- **Found on:** Moving Out 2 (`010065D018172000`), base 1.1.254 NSP and update 1.3.315 NSZ. Package reading was checked, not gameplay.
++
+ ## Build tools
+ 
+ ### Homebrew .NET is on PATH but apphosts cannot find the runtime
+diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
+index a287425..f4c448e 100755
+--- a/scripts/build_ipa_from_nsp.py
++++ b/scripts/build_ipa_from_nsp.py
+@@ -422,9 +422,19 @@ def pfs0_names(path):   # NSP = PFS0: list the file names inside
+     with open(path, 'rb') as f:
+         h = f.read(16)
+         if h[:4] != b'PFS0': return []
++        if len(h) != 16: raise BuildError(f'truncated PFS0 header: {path.name}')
+         n, st = struct.unpack_from('<II', h, 4)
++        if n * 0x18 + st > os.fstat(f.fileno()).st_size - 16:
++            raise BuildError(f'truncated PFS0 file-name table: {path.name}')
+         ent, strs = f.read(n * 0x18), f.read(st)
+-    return [strs[o:strs.index(b'\0', o)].decode(errors='replace') for o in (struct.unpack_from('<I', ent, i * 0x18 + 0x10)[0] for i in range(n))]
++    names = []
++    for i in range(n):
++        o = struct.unpack_from('<I', ent, i * 0x18 + 0x10)[0]
++        if o >= len(strs): raise BuildError(f'PFS0 file-name offset outside the string table: {path.name}')
++        # Older NSZ writers omitted the final NUL: the string table itself still bounds the name.
++        end = strs.find(b'\0', o)
++        names.append(strs[o:end if end >= 0 else len(strs)].decode(errors='replace'))
++    return names
+ 
+ 
+ def is_package(path):   # what nx_extract's OpenNsp opens: an XCI / XCZ by the card header's magic at 0x100, else a PFS0 (NSP, NSZ)
