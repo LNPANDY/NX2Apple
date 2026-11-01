@@ -19,7 +19,7 @@
 # Time: the first run builds zstd, glslang, spirv-cross and downloads Python and xcodegen (the slow part). They are cached in
 # ~/Library/Caches/NX2Apple-try-local, keyed by the hash of bundle_tools.sh and bundled-python/requirements.txt (its pins). The next
 # run copies them. The icon is cached the same way, by AppIcon.icon and the Xcode version. The icon needs an Xcode whose actool reads
-# AppIcon.icon (the workflow uses Xcode 27.1). If actool fails here, the app gets the generic icon and the script says so.
+# AppIcon.icon (the workflow uses Xcode 27.2). If actool fails here, the app gets the generic icon and the script says so.
 # The elapsed time of each step and the total are printed.
 #
 # Needs an Apple silicon Mac with Xcode (swift, actool), cmake and python3. The test app has the bundle id of the installed app
@@ -124,7 +124,7 @@ else
         && [ -f "$out/Assets.car" ] && [ -f "$out/AppIcon.icns" ]; then
         mkdir -p "$icon_cache"; cp "$out/Assets.car" "$out/AppIcon.icns" "$icon_cache/"; have_icon=1
     else
-        note "actool ($xcodev) could not compile AppIcon.icon, the app gets the generic icon. The workflow uses Xcode 27.1. Last lines:"
+        note "actool ($xcodev) could not compile AppIcon.icon, the app gets the generic icon. The workflow uses Xcode 27.2. Last lines:"
         tail -5 "$work/actool.log" | sed 's/^/    /' >&2
     fi
 fi

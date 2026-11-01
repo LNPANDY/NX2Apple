@@ -49,9 +49,9 @@ NX2Apple 用你自己导出的游戏文件，在你的 Mac 和 iPhone 上运行 
 ## 环境要求
 
 - **Apple Silicon Mac。** 启动器支持 **macOS 13 或更新**。构建需要装了 iOS SDK 的 Xcode；NVN 游戏需要
-  [Xcode](https://developer.apple.com/download/all/?q=Xcode%2027.1) 27.1（macOS 26.6 或更新），除非加 `--allow-other-metal`。
-  请从 Apple 的下载页面获取 27.1，而不是 App Store 里更新的 Xcode。如果同时装了更新的 Xcode，把 27.1 改名为
-  `Xcode-27.1.app` 并选中它：`sudo xcode-select -s /Applications/Xcode-27.1.app`。
+  [Xcode](https://developer.apple.com/download/all/?q=Xcode%2027.2) 27.2（macOS 26.6 或更新），除非加 `--allow-other-metal`。
+  请从 Apple 的下载页面获取 27.2，而不是 App Store 里更新的 Xcode。如果同时装了更新的 Xcode，把 27.2 改名为
+  `Xcode-27.2.app` 并选中它：`sudo xcode-select -s /Applications/Xcode-27.2.app`。
 - **你自己的游戏文件**（NSP 或 XCI）和**你自己主机里导出的 `prod.keys`**。本项目不自带、不下载、
   也不替你查找任何东西。一份 `prod.keys` 能解你所有的游戏；新导出的一份覆盖所有零售游戏。
 - 要装到 iPhone 或 iPad：iOS 或 iPadOS 26 或更新，以及较新的设备。更旧的设备未测试。

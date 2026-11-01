@@ -222,7 +222,7 @@ writes the font into the binary as `Sources/NSPortBuilder/EmbeddedFonts.swift`, 
 installed and no resource bundle beside the executable.
 
 The app icon is `AppIcon.icon`, the Liquid Glass icon made in Icon Composer (the iOS app uses the same file).
-`build-mac-app.yml` compiles it with the `actool` of Xcode 27.1 (the one in Xcode 26.6 throws an exception on this icon) into `Assets.car` (macOS 26 and later) and `AppIcon.icns` (macOS 13 to 25),
+`build-mac-app.yml` compiles it with the `actool` of Xcode 27.2 (the one in Xcode 26.6 throws an exception on this icon) into `Assets.car` (macOS 26 and later) and `AppIcon.icns` (macOS 13 to 25),
 and `Info.plist` names both. To compile it by hand:
 
 ```sh

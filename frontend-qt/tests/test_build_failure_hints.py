@@ -222,7 +222,7 @@ class Strings(unittest.TestCase):
             self.assertIn('one build', en)
 
     def test_the_hints_say_what_the_task_asks(self):
-        self.assertIn('Xcode 27.1 (macOS 26.6 or later)', TABLE['fail.otherMetal.next'][1])
+        self.assertIn('Xcode 27.2 (macOS 26.6 or later)', TABLE['fail.otherMetal.next'][1])
         self.assertIn("32-bit and can't run on Apple silicon", TABLE['fail.a32Program.what'][1])
 
 

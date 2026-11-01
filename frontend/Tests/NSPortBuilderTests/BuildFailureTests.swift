@@ -113,7 +113,7 @@ final class BuildFailureTests: XCTestCase {
     }
 
     func testTheOtherMetalHintNamesXcode27() {
-        XCTAssertTrue(L10n.table["fail.otherMetal.next"]!.en.contains("Xcode 27.1 (macOS 26.6 or later)"))
+        XCTAssertTrue(L10n.table["fail.otherMetal.next"]!.en.contains("Xcode 27.2 (macOS 26.6 or later)"))
         XCTAssertTrue(L10n.table["fail.a32Program.what"]!.en.contains("32-bit and can't run on Apple silicon"))
     }
 
