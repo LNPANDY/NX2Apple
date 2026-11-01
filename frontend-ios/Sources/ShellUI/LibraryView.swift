@@ -35,6 +35,9 @@ public struct LibraryView: View {
     public var input: ShellInput?
     @State private var selectedID: String?
     @State private var settingsOpen: Bool
+    @State private var shellSettingsOpen: Bool
+    /// The interface language in force. A change rebuilds the views, so every text is read again in the new language.
+    @State private var shellLanguage = ShellSettingsStore.current.language
     @State private var controllersOpen: Bool
     /// The game whose How to fix or How to update explanation is open.
     @State private var helpGameID: String?
@@ -59,7 +62,7 @@ public struct LibraryView: View {
 
     public init(games: [GameDetail], controllers: [ControllerInfo] = [], actions: ShellActions = ShellActions(),
                 input: ShellInput? = nil, initialSelection: String? = nil, initialDetailOpen: Bool = false,
-                initialControllersOpen: Bool = false, initialFocusVisible: Bool = false) {
+                initialControllersOpen: Bool = false, initialShellSettingsOpen: Bool = false, initialFocusVisible: Bool = false) {
         self.games = games
         self.controllers = controllers
         self.actions = actions
@@ -68,6 +71,7 @@ public struct LibraryView: View {
         _selectedID = State(initialValue: first)
         _settingsOpen = State(initialValue: initialDetailOpen)
         _controllersOpen = State(initialValue: initialControllersOpen)
+        _shellSettingsOpen = State(initialValue: initialShellSettingsOpen)
         _focus = State(initialValue: FocusAppearance(id: initialFocusVisible ? "lib.tile.\(first ?? "")" : nil, visible: initialFocusVisible))
         _touchMode = State(initialValue: !initialFocusVisible)
     }
@@ -91,7 +95,10 @@ public struct LibraryView: View {
                 if games.isEmpty {
                     EmptyLibraryView()
                         .overlay(alignment: .topTrailing) {
-                            ControllerChip(count: controllers.count, action: openControllers).padding(.top, 6).padding(.trailing, 16)
+                            HStack(spacing: 10) {
+                                ControllerChip(count: controllers.count, action: openControllers)
+                                ShellSettingsChip(action: openShellSettings)
+                            }.padding(.top, 6).padding(.trailing, 16)
                         }
                 } else if let selected {
                     library(selected, layout: layout, size: geometry.size, insets: insets)
@@ -163,29 +170,45 @@ public struct LibraryView: View {
                         .accessibilityAddTraits(.isModal)
                         .transition(.move(edge: .trailing).combined(with: .opacity))
                 }
+                if shellSettingsOpen {
+                    Color.black.opacity(0.55 * (1 - min(1, edgeDrag / min(width, 520)))).ignoresSafeArea().accessibilityHidden(true)
+                        .onTapGesture { back() }
+                    ShellSettingsView(actions: actions, onClose: closeShellSettings)
+                        .frame(width: min(width, 520))
+                        .frame(maxHeight: .infinity)
+                        .background { ShellPalette.background.ignoresSafeArea() }
+                        .overlay(alignment: .leading) { Rectangle().fill(ShellPalette.hairline).frame(width: 1).ignoresSafeArea() }
+                        .offset(x: edgeDrag)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        .accessibilityAddTraits(.isModal)
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                }
             }
             .transformPreference(FocusTargets.self) { values in
                 values = values.filter { target in
                     if controllersOpen { return target.id.hasPrefix("ctl.") }
+                    if shellSettingsOpen { return target.id.hasPrefix("shs.") }
                     if helpGameID != nil { return target.id.hasPrefix("help.") }
                     if choice != nil { return target.id.hasPrefix("pick.") }
-                    return !target.id.hasPrefix("ctl.") && !target.id.hasPrefix("help.") && !target.id.hasPrefix("pick.")
+                    return !target.id.hasPrefix("ctl.") && !target.id.hasPrefix("help.") && !target.id.hasPrefix("pick.") && !target.id.hasPrefix("shs.")
                 }
             }
             .coordinateSpace(name: "shell")
             .background {
-                EdgeSwipeBack(enabled: (settingsOpen || controllersOpen) && choice == nil && helpGameID == nil,
+                EdgeSwipeBack(enabled: (settingsOpen || controllersOpen || shellSettingsOpen) && choice == nil && helpGameID == nil,
                               changed: { edgeDrag = $0 },
-                              ended: { finishEdgeSwipe(travel: $0, velocity: $1, span: controllersOpen ? min(width, 520) : pane) },
+                              ended: { finishEdgeSwipe(travel: $0, velocity: $1, span: controllersOpen || shellSettingsOpen ? min(width, 520) : pane) },
                               cancelled: cancelEdgeSwipe)
             }
             .onPreferenceChange(FocusTargets.self) { all in targets.values = all.filter { $0.frame.width > 1 } }
             .onAppear { self.layout = layout }
             .onChange(of: layout) { _, new in self.layout = new }
         }
+        .id(shellLanguage)
         .animation(reduceMotion ? nil : .smooth(duration: 0.35), value: layout)
         .animation(reduceMotion ? nil : .smooth(duration: 0.3), value: settingsOpen)
         .animation(reduceMotion ? nil : .smooth(duration: 0.3), value: controllersOpen)
+        .animation(reduceMotion ? nil : .smooth(duration: 0.3), value: shellSettingsOpen)
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: helpGameID)
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: choice)
         .environment(\.shellPickChoice, { request in openChoice(request) })
@@ -211,18 +234,24 @@ public struct LibraryView: View {
         .onChange(of: games.map(\.id)) { _, ids in
             if !ids.contains(selectedID ?? "") { selectedID = ids.first; settingsOpen = false }
         }
+        .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
+            let language = ShellSettingsStore.current.language
+            if language != shellLanguage { shellLanguage = language }
+        }
     }
 
     @ViewBuilder private func library(_ selected: GameDetail, layout: ShellLayout, size: CGSize, insets: EdgeInsets) -> some View {
         if layout.isCoverFlow {
             CoverFlowView(games: games, selected: selected, controllers: controllers.count, showsHints: !touchMode, screenInsets: insets,
-                          select: select, primary: primary, openSettings: openSettings, openControllers: openControllers)
+                          select: select, primary: primary, openSettings: openSettings, openControllers: openControllers,
+                          openShellSettings: openShellSettings)
                 .equatable()
                 .transition(.opacity)
         } else {
             PortraitLibrary(games: games, selected: selected, wide: layout == .grid, size: size, topInset: insets.top, bottomInset: insets.bottom,
                             controllers: controllers.count, select: select, primary: primary,
-                            openSettings: openSettings, openControllers: openControllers, position: $libraryPosition)
+                            openSettings: openSettings, openControllers: openControllers, openShellSettings: openShellSettings,
+                            position: $libraryPosition)
                 .equatable()
                 .transition(.opacity)
         }
@@ -317,6 +346,7 @@ public struct LibraryView: View {
         withAnimation(reduceMotion ? nil : .smooth(duration: 0.25)) { edgeDrag = 0 }
     }
     private func openSettings() {
+        guard !shellSettingsOpen else { return }
         noteTouch()
         settingsOpen = true
         focus.id = "set.back"
@@ -325,7 +355,9 @@ public struct LibraryView: View {
         settingsOpen = false
         focus.id = "lib.settings"
     }
-    private func openControllers() { noteTouch(); controllersOpen = true; focus.id = "ctl.close" }
+    private func openControllers() { guard !shellSettingsOpen else { return }; noteTouch(); controllersOpen = true; focus.id = "ctl.close" }
+    private func openShellSettings() { noteTouch(); shellSettingsOpen = true; focus.id = "shs.close" }
+    private func closeShellSettings() { shellSettingsOpen = false; focus.id = "lib.shellSettings" }
     private func openHelp(_ id: String) { returnFocus = focus.id; helpGameID = id; focus.id = "help.done" }
     private func closeHelp() { helpGameID = nil; focus.id = returnFocus }
     private func openChoice(_ request: ChoiceRequest) {
@@ -337,18 +369,22 @@ public struct LibraryView: View {
     private func closeChoice() {
         guard let request = choice else { return }
         choice = nil
-        focus.id = "set.row.\(request.row.id)"
+        focus.id = (request.gameID == ShellSettingsRows.gameID ? ShellSettingsRows.targetPrefix : "set.row.") + request.row.id
     }
     private func pickChoice(_ value: String) {
         noteTouch()
         guard let request = choice else { return }
-        if value != request.row.value { actions.onChange(request.gameID, request.row.id, value) }
+        if value != request.row.value {
+            if request.gameID == ShellSettingsRows.gameID { ShellSettingsRows.apply(request.row.id, value: value, to: .current) }
+            else { actions.onChange(request.gameID, request.row.id, value) }
+        }
         closeChoice()
     }
     private func back() {
         if choice != nil { closeChoice() }
         else if helpGameID != nil { closeHelp() }
         else if controllersOpen { controllersOpen = false; focus.id = "lib.controllers" }
+        else if shellSettingsOpen { closeShellSettings() }
         else if settingsOpen { closeSettings() }
         else { actions.onBack() }
     }
@@ -390,6 +426,7 @@ public struct LibraryView: View {
         if let choice { return "pick.\(choice.row.value)" }
         if helpGameID != nil { return "help.done" }
         if controllersOpen { return "ctl.close" }
+        if shellSettingsOpen { return "shs.close" }
         if settingsOpen { return "set.back" }
         return selected.map { "lib.tile.\($0.id)" } ?? "lib.controllers"
     }

@@ -31,7 +31,7 @@ func demoText(_ key: String.LocalizationValue) -> String {
             GameDetail(game: tile, sections: [
                 SettingSection(id: "game", title: demoText("Game"), rows: [
                     SettingRow(id: "DM_OPERATION_MODE", label: demoText("Play mode"), note: demoText("The game's display and performance profile."), kind: .choice([SettingOption("handheld", demoText("Handheld")), SettingOption("docked", demoText("Docked"))]), value: "handheld"),
-                    SettingRow(id: "DM_SHOW_FPS", label: demoText("Show frame rate"), kind: .toggle(on: "1", off: "0"), value: "0"),
+                    SettingRow(id: "DM_SHOW_FPS", label: demoText("Show frame rate"), kind: .toggle(on: "1", off: "0"), value: "1", fromShell: tile.id == "orbit"),
                     SettingRow(id: "DM_LANGUAGE", label: demoText("Language"), kind: .choice([SettingOption("en-US", demoText("American English")), SettingOption("en-GB", demoText("British English")), SettingOption("ja", demoText("Japanese")), SettingOption("fr", demoText("French")), SettingOption("de", demoText("German")), SettingOption("es-419", demoText("Latin American Spanish")), SettingOption("es", demoText("Spanish")), SettingOption("it", demoText("Italian")), SettingOption("nl", demoText("Dutch")), SettingOption("fr-CA", demoText("Canadian French")), SettingOption("ru", demoText("Russian")), SettingOption("ko", demoText("Korean")), SettingOption("zh-Hant", demoText("Traditional Chinese")), SettingOption("zh-Hans", demoText("Simplified Chinese")), SettingOption("pt-BR", demoText("Brazilian Portuguese"))]), value: "en-US")
                 ]),
                 SettingSection(id: "controls", title: demoText("Controls"), rows: [
@@ -43,7 +43,8 @@ func demoText(_ key: String.LocalizationValue) -> String {
                 ])
             ], dataSource: tile.state == .needsGameData ? "" : demoText("This app's folder"), dataNote: demoText("Choose a RomFS folder or romfs.img on this device, an external drive, or iCloud Drive."),
                        cloudSaves: tile.id == "orbit" ? demoText("iCloud Drive / Game Saves") : nil,
-                       dlc: tile.id == "orbit" ? demoText("2 additional content packs") : demoText("No additional content"), hasModifiedSettings: true)
+                       dlc: tile.id == "orbit" ? demoText("2 additional content packs") : demoText("No additional content"), hasModifiedSettings: true,
+                       cloudFromShell: tile.id == "orbit")
         }
     }
     static let controllers = [

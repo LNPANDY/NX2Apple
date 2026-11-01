@@ -242,13 +242,19 @@ struct LauncherDropdown: View {
         let rounded = style == .button
         let shape = RoundedRectangle(cornerRadius: rounded ? 9 : 99)
         let width = fill ? nil : rowWidth
-        return HStack(spacing: 8) {
+        return HStack(spacing: 0) {
             Text(current).font(.manrope(rounded ? 13 : 12.5, .semibold)).lineLimit(1)
                 .minimumScaleFactor(width == nil ? 1 : 0.85)
                 .fixedSize(horizontal: !fill && width == nil, vertical: false)
-            if fill || width != nil { Spacer(minLength: 0) }
-            Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
-                .rotationEffect(.degrees(open ? 180 : 0))
+                .frame(maxWidth: fill || width != nil ? .infinity : nil, alignment: .center)   // the words centre across the whole button
+                .padding(.leading, fill || width != nil ? 14 : 0)   // room so the chevron never crowds them
+            if fill || width != nil {
+                Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
+                    .rotationEffect(.degrees(open ? 180 : 0)).padding(.trailing, 14)
+            } else {
+                Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
+                    .rotationEffect(.degrees(open ? 180 : 0)).padding(.leading, 8)
+            }
         }
         .padding(.horizontal, rounded ? 15 : 14).padding(.vertical, rounded ? 9 : 7)
         .frame(width: width, height: width == nil ? nil : LauncherControl.height)

@@ -1179,8 +1179,7 @@ class Model(QObject):
         all_files = [self.base_path, self.update_path] + self.dlc_paths
         dirs = {str(Path(f).parent) for f in all_files if f}
 
-        tid = self._title_id(self.base_path)
-        tid_hex = f'{tid:016X}' if tid else 'game'
+        tid_hex = inputs.build_key(self.base_path)
         work_dir = str(Path(self.out_dir or base_dir, f'{tid_hex}_build'))
 
         input_dir = base_dir

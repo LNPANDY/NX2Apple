@@ -9,6 +9,10 @@ import Foundation
 /// shader again without it takes long).
 ///
 /// What stays in either case is `BuildFolder`'s: logs/, profile/, run/, nsp/ and the staged inputs, which no part names.
+///
+/// For an iPhone or iPad build the game's framework (`shell-framework/DmGame<title ID>.framework`) lives in the build folder until the
+/// installer mirrors it into the shell folder (`ShellInstall.mirrorFramework`). The mirror is the primary copy, so the folder is
+/// removed only when the mirror is complete. Else the folder stays and the log says why. The Mac app holds everything itself.
 enum BuildCleanup {
     static let defaultsKey = "keepBuildFiles"
 
@@ -23,6 +27,8 @@ enum BuildCleanup {
         var protecting: [String] = []
         /// An IPA exists outside the build folder, so what packing it left in ipa/ is not needed for it.
         var ipaWritten = false
+        /// The game's framework in the shell folder, which must be complete before the build folder goes (iPhone and iPad). nil for the Mac app.
+        var requiredMirror: String?
     }
 
     struct Outcome: Equatable {
@@ -31,6 +37,16 @@ enum BuildCleanup {
         var removed: [Item] = []
         var freed: Int64 = 0
         var failure: String?
+        /// The mirror that was missing or incomplete, so the build folder was kept.
+        var keptForMirror: String?
+    }
+
+    /// Whether a mirrored framework is a complete copy: the folder holds the framework's binary (`DmGame<title ID>`) and its manifest.
+    nonisolated static func mirrorComplete(_ mirror: String, fm: FileManager = .default) -> Bool {
+        let name = ((mirror as NSString).lastPathComponent as NSString).deletingPathExtension
+        var isDir: ObjCBool = false
+        func isFile(_ entry: String) -> Bool { fm.fileExists(atPath: mirror + "/" + entry, isDirectory: &isDir) && !isDir.boolValue }
+        return !name.isEmpty && isFile(name) && isFile("game.manifest.json")
     }
 
     /// What is removed whatever the setting says, because nothing needs it after a successful build: the scratch folder, and
@@ -56,6 +72,10 @@ enum BuildCleanup {
         var isDir: ObjCBool = false
         guard root.hasSuffix("_build"), root.split(separator: "/").count > 1,
               FileManager.default.fileExists(atPath: root, isDirectory: &isDir), isDir.boolValue else { return outcome }
+        if !plan.keepFiles, let mirror = plan.requiredMirror, !mirrorComplete(mirror) {
+            outcome.keptForMirror = mirror
+            return outcome
+        }
         let protecting = kept(plan, root: root)
         var failures: [String] = []
 
@@ -89,6 +109,7 @@ enum BuildCleanup {
         if !names.isEmpty {
             lines.append(String(format: t("cleanup.removed"), names.joined(separator: ", "), FreeSpaceView.bytes(outcome.freed)))
         }
+        if let mirror = outcome.keptForMirror { lines.append(String(format: t("cleanup.keptNoMirror"), mirror)) }
         if let failure = outcome.failure { lines.append(String(format: t("free.failed"), failure)) }
         return lines
     }
@@ -118,7 +139,8 @@ extension BuildModel {
             work: effectiveWorkDir, keepFiles: keepBuildFiles,
             protecting: BuildFolder.protectedPaths(app: macAppPath, ipa: "", iosApp: installedAppPath, archive: out + "/games/" + tid,
                                                    output: out, titleID: tid, inputs: slots.flatMap { $0.paths })
-                + [out + "/" + tid + ".app", out + "/" + tid + ".ipa"])
+                + [out + "/" + tid + ".app", out + "/" + tid + ".ipa"],
+            requiredMirror: target == BuildTarget.mac ? nil : ShellInstall.mirroredFramework(root: shellRoot, titleID: Self.buildKey(basePath)))
     }
 
     /// Called whenever `running` turns false. The build may go on in the next step (it turns true again at once), so the decision waits one turn.

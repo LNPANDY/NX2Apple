@@ -29,9 +29,9 @@ struct ShellLibrary: Codable, Equatable {
         if let i = games.firstIndex(where: { $0.titleID == game.titleID }) { games[i] = game } else { games.append(game) }
     }
 
-    /// Drops the games whose framework folder is gone (a deleted build folder), so the shell is never built against a missing one.
+    /// Drops the games whose framework folder is gone, so the shell is never built against a missing one.
     mutating func dropMissing(exists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }) {
-        games.removeAll { !exists($0.framework) }
+        games = games.filter { exists($0.framework) }
     }
 
     static func stateFile(root: String) -> String { root + "/shell.json" }
@@ -70,6 +70,34 @@ enum ShellInstall {
     static func derivedData(root: String) -> String { root + "/derived-data" }
     static func appPath(root: String) -> String { derivedData(root: root) + "/Build/Products/Release-iphoneos/" + appName }
 
+    /// The folder that mirrors every game's framework inside the shell folder: a game survives its build folder's deletion here.
+    static func frameworksMirror(root: String) -> String { root + "/frameworks" }
+    static func mirroredFramework(root: String, titleID: String) -> String {
+        frameworksMirror(root: root) + "/DmGame\(titleID).framework"
+    }
+
+    /// Mirrors a framework into the shell folder as a copy. On APFS the copy is a clone: it costs no space, and a later write to
+    /// the build folder does not reach it. On another volume it is a real copy. It replaces the previous mirror, so a rebuilt
+    /// game's mirror follows, and a failed copy leaves no half mirror behind.
+    static func mirrorFramework(framework: String, root: String, titleID: String? = nil) throws {
+        let fm = FileManager.default
+        let mirror = mirroredFramework(root: root, titleID: titleID ?? Self.titleID(ofFramework: framework))
+        try fm.createDirectory(atPath: (mirror as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+        try? fm.removeItem(atPath: mirror)
+        do { try fm.copyItem(atPath: framework, toPath: mirror) }
+        catch {
+            try? fm.removeItem(atPath: mirror)
+            throw error
+        }
+    }
+
+    /// The title ID a framework path carries (`DmGame0100…framework`, the build script's name).
+    static func titleID(ofFramework framework: String) -> String {
+        let name = (framework as NSString).lastPathComponent
+        return name.hasPrefix("DmGame") && name.hasSuffix(".framework")
+            ? String(name.dropFirst("DmGame".count).dropLast(".framework".count)) : ""
+    }
+
     /// The framework the build script's `--shell-framework <folder>` writes for a game.
     static func frameworkPath(workDir: String, titleID: String) -> String {
         workDir + "/shell-framework/DmGame\(titleID).framework"
@@ -86,9 +114,17 @@ enum ShellInstall {
         ["/bin/bash", repo + "/dm/ios/tools/build_shell.sh", "--prepare-xcode"]
     }
 
+    /// The `frontend-ios` Swift package the shell project links (build_shell.sh's DM_SHELL_PACKAGE). The script defaults to
+    /// `frontend-ios` beside `dm/`, which is the engine root, and an engine tree has none since #214. So: the release app's
+    /// Contents/Resources/frontend-ios, else the source checkout's `frontend-ios` (`repo`). nil when neither has a Package.swift.
+    static func shellPackage(resources: String?, repo: String, fm: FileManager = .default) -> String? {
+        ([resources, repo].compactMap { $0 }.filter { !$0.isEmpty }).map { $0 + "/frontend-ios" }
+            .first { fm.fileExists(atPath: $0 + "/Package.swift") }
+    }
+
     /// What build_shell.sh reads. `path` is the build's own tool PATH (xcodegen must be found on it).
     static func projectEnvironment(root: String, frameworks: [String], bundleID: String, team: String, python: String,
-                                   path: String, home: String, user: String, tmp: String? = nil) -> [String: String] {
+                                   path: String, home: String, user: String, tmp: String? = nil, package: String? = nil) -> [String: String] {
         var env = ["SHELL_DIR": projectFolder(root: root),
                    "DM_SHELL_FRAMEWORKS": frameworks.joined(separator: "\n"),
                    "DM_BUNDLE_ID": bundleID,
@@ -97,6 +133,7 @@ enum ShellInstall {
                    "FONT_PY": python,
                    "PATH": path, "HOME": home, "USER": user, "LANG": "en_US.UTF-8"]
         if let tmp { env["TMPDIR"] = tmp }
+        if let package { env["DM_SHELL_PACKAGE"] = package }
         return env
     }
 
@@ -290,6 +327,8 @@ struct ShellStage {
 struct ShellInstaller {
     var xcrun = "/usr/bin/xcrun"
     var repo: String
+    /// The app's Contents/Resources, where a release app carries frontend-ios. Nil for a launcher run from a checkout.
+    var resources: String? = Bundle.main.resourceURL?.path
     var python: String
     var root: String
     var device: String
@@ -337,6 +376,29 @@ struct ShellInstaller {
 
     private struct ToolResult { var status: Int32; var output: String; var lastError: String? }
 
+    /// The mirror in the shell folder is the primary copy of a game's framework: shell.json points there. A game whose
+    /// framework is in its build folder is mirrored now, so a game built before the mirror existed gets one too. A game whose
+    /// build folder is gone plays from the mirror it already has. A failed mirror is logged and the game keeps its build path.
+    private func mirrorFrameworks(_ library: inout ShellLibrary) {
+        let fm = FileManager.default
+        for i in library.games.indices {
+            let game = library.games[i]
+            let mirror = ShellInstall.mirroredFramework(root: root, titleID: game.titleID)
+            if game.framework == mirror { continue }
+            if fm.fileExists(atPath: game.framework) {
+                do {
+                    try ShellInstall.mirrorFramework(framework: game.framework, root: root, titleID: game.titleID)
+                    library.games[i].framework = mirror
+                } catch {
+                    log("library: \(game.titleID)'s framework could not be mirrored at \(mirror), it stays at \(game.framework): \(error.localizedDescription)\n")
+                }
+            } else if fm.fileExists(atPath: mirror) {
+                log("library: \(game.titleID)'s build folder is gone, its framework is the mirror at \(mirror)\n")
+                library.games[i].framework = mirror
+            }
+        }
+    }
+
     func install(framework: String, titleID: String, name: String, archive: String) -> Outcome {
         guard FileManager.default.fileExists(atPath: framework) else {
             return Outcome(ok: false, message: fmt("shell.noFramework", framework))
@@ -347,6 +409,7 @@ struct ShellInstaller {
         var library = ShellLibrary.load(root: root)
         library.team = team
         library.add(.init(titleID: titleID, name: name, framework: framework))
+        mirrorFrameworks(&library)
         library.dropMissing()
         // The 16:9 banner of the shell's library for every game in it (ShellHost reads <framework>/banner.<ext>, the square
         // icon.png is the fallback): a game rebuilt since its last install gets its banner back too
@@ -361,9 +424,13 @@ struct ShellInstaller {
         }
 
         // 4: the project
+        guard let package = ShellInstall.shellPackage(resources: resources, repo: repo) else {
+            let looked = ([resources, repo].compactMap { $0 }.filter { !$0.isEmpty }).map { $0 + "/frontend-ios" }.joined(separator: ", ")
+            return Outcome(ok: false, message: fmt("shell.projectFailed", "no frontend-ios Swift package (Package.swift) in " + looked))
+        }
         var env = ShellInstall.projectEnvironment(root: root, frameworks: library.games.map(\.framework), bundleID: library.bundleID,
                                                   team: team, python: python, path: toolPath, home: NSHomeDirectory(), user: NSUserName(),
-                                                  tmp: NSTemporaryDirectory())
+                                                  tmp: NSTemporaryDirectory(), package: package)
         env.merge(BundledTools.environment(for: python)) { $1 }
         let projectName = t("shell.projectStage")
         begin(Self.projectStageID, projectName)

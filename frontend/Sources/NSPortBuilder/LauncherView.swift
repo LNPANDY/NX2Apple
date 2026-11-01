@@ -681,14 +681,6 @@ struct ContentView: View {
                     .font(.manrope(prominent ? 13 : 12)).foregroundStyle(.secondary).lineLimit(1)
                     .help(m.t("library.olderToolsHelp"))
             }
-            // A free Apple ID's profile lasts 7 days: the card says when it runs out, the hero offers to renew it.
-            if !building, let expiry = signatureExpiry[game.id] {
-                Text("· " + AppSignature.short(expiry, m.t))
-                    .font(.manrope(prominent ? 13 : 12))
-                    .foregroundStyle(AppSignature.isUrgent(expiry) ? LauncherPalette.building : .secondary)
-                    .lineLimit(1)
-                    .help(AppSignature.describe(expiry, m.t))
-            }
         }
         .accessibilityElement(children: .combine)
     }
@@ -700,7 +692,8 @@ struct ContentView: View {
                 if m.running {
                     Image(systemName: "wrench.and.screwdriver").font(.system(size: 22, weight: .light)).foregroundStyle(.secondary)
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(m.t(m.target == BuildTarget.mac ? "activity.mac" : "activity.ios")).font(.manrope(15, .bold))
+                        Text(m.t(m.shellCopy != nil || m.shellWaiting || m.stages.contains { $0.id == 1003 && $0.state == .running }
+                                 ? "activity.transfer" : (m.target == BuildTarget.mac ? "activity.mac" : "activity.ios"))).font(.manrope(15, .bold))
                         TimelineView(.periodic(from: Date(), by: 1)) { context in   // the clock ticks while a count may stand still
                             Text(m.stages.last(where: { $0.state == .running })
                                     .map { [$0.name, $0.detail, $0.clock(at: context.date, left: m.t("prog.eta"))].filter { !$0.isEmpty }.joined(separator: " · ") }

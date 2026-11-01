@@ -22,6 +22,19 @@ struct Stage: Identifiable {
     var eta: Double? = nil     // the script's estimate of the seconds left, as of etaAt
     var etaAt: Date? = nil
 
+    /// A stage's name in the launcher's language. The script names its stages in English (PROG.stage in
+    /// build_ipa_from_nsp.py): stage.<name> in the table, "extract <name>" and "<API> shader capture" with their
+    /// part kept; a name the table does not know (a newer script's) is shown as the script wrote it.
+    static func localizedName(_ name: String, _ t: (String) -> String) -> String {
+        func known(_ key: String) -> String? { let s = t(key); return s == key ? nil : s }
+        let key = "stage." + name.lowercased().replacingOccurrences(of: "[^a-z0-9]+", with: "_", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "_"))
+        if let s = known(key) { return s }
+        if name.hasPrefix("extract "), let f = known("stage.extract") { return String(format: f, String(name.dropFirst("extract ".count))) }
+        if name.hasSuffix(" shader capture"), let f = known("stage.capture") { return String(format: f, String(name.dropLast(" shader capture".count))) }
+        return name
+    }
+
     /// "3:42" since the stage began, then "1 min left" while the script's estimate, counted down from when it came,
     /// lasts: the estimate only arrives with a new count, so one taken as it was would stand still with the count.
     func clock(at now: Date, left: String) -> String {
@@ -104,6 +117,10 @@ final class BuildModel: ObservableObject {
     @Published var stages: [Stage] = []
     private var chainNoteShown = false   // the shader-chain notice shows once per build
     @Published var running = false { didSet { if !running { scheduleCleanup() } } }   // BuildCleanup.swift
+    /// The shell folder the cache row shows: the frameworks' mirror, shell.json and the banner cache live here.
+    var shellCachePath: String { shellRoot }
+    /// The shell folder of the install and of the cache row: the saved one, else next to the output folder (or the game's folder).
+    var shellRoot: String { ShellLibrary.resolveRoot(parent: outDir.isEmpty ? (basePath as NSString).deletingLastPathComponent : outDir) }
     @Published var stopping = false
     @Published var logTail = ""
     @Published var done = false
@@ -681,7 +698,7 @@ final class BuildModel: ObservableObject {
     // The rules (what is verified, which copies replace themselves, never during a build) are in AppUpdate.swift.
 
     /// Bump together with each release tag; the update check compares it with the latest release.
-    static let appVersion = "0.7.5"
+    static let appVersion = "1.0.0"
     /// The update checkAppUpdate found: the tag, the asset to download, its digest, and the release
     /// notes the sheet shows. The notes are why the sheet exists — "update available" alone told a
     /// user nothing about what they would get.
@@ -1188,11 +1205,29 @@ final class BuildModel: ObservableObject {
     func clear(_ id: String) { updateSlot(id) { $0.paths = []; $0.problem = "" } }
 
     /// The title ID in a file name: `[0100F2C0115B6000]` first, else a bare 16-digit ID that starts with 01 as a token
-    /// (start of the name or after `_`, space, `-`, `.`, `(`, `[`), like `01007EF00011E000_v0_420d1c5034ab.nsp`.
-    nonisolated static func titleID(_ name: String) -> UInt64? {
+    /// (start of the name or after `_`, space, `-`, `.`, `(`, `[`). Only the file name counts, so a full path works and a folder named with an ID never
+    /// stands in for the file (#382). Like `01007EF00011E000_v0_420d1c5034ab.nsp`.
+    nonisolated static func titleID(_ path: String) -> UInt64? {
+        let name = (path as NSString).lastPathComponent
         let found = firstGroup(#"\[([0-9A-Fa-f]{16})\]"#, in: name)
             ?? firstGroup(#"(?:^|[_ \-.(\[])(01[0-9A-Fa-f]{14})(?![0-9A-Fa-f])"#, in: name)
         return found.flatMap { UInt64($0, radix: 16) }
+    }
+
+    /// The name of a game's work folder and output (`<key>_build`, `<key>.app`). The title ID in the file name when there
+    /// is one, so `<ID>_build` stays what the library looks for. Else the file name without its extension, cut to letters,
+    /// digits, `-` and `_`, plus a short hash of the full name: two games never share a folder (and so a shader cache),
+    /// the same file name always gets the same one (a rebuild reuses its cache). Never a constant.
+    nonisolated static func buildKey(_ path: String) -> String {
+        let name = (path as NSString).lastPathComponent
+        if let id = titleID(name) { return String(format: "%016llX", id) }
+        let stem = (name as NSString).deletingPathExtension
+        var hash: UInt32 = 2166136261   // FNV-1a, stable across runs (Hashable is seeded per launch)
+        for byte in stem.utf8 { hash = (hash ^ UInt32(byte)) &* 16777619 }
+        let clean = String(stem.unicodeScalars.map { c in
+            c.isASCII && (CharacterSet.alphanumerics.contains(c) || c == "-" || c == "_") ? Character(c) : "_"
+        }).prefix(40)
+        return (clean.isEmpty ? "game" : String(clean)) + "-" + String(format: "%08x", hash)
     }
 
     var repoOK: Bool { Self.isRepo(repoPath) }
@@ -1271,7 +1306,7 @@ final class BuildModel: ObservableObject {
                 staged.append(baseDir + "/" + f)
             }
         }
-        let tidHex = Self.titleID(basePath).map { String(format: "%016llX", $0) } ?? "game"
+        let tidHex = Self.buildKey(basePath)
         let workDir = (outDir.isEmpty ? baseDir : outDir) + "/" + tidHex + "_build"
         // The build's signing step refuses the attributes a cloud folder adds, after the long steps: stop here instead.
         if cloudFolderCheck(workDir) {
@@ -1415,11 +1450,11 @@ final class BuildModel: ObservableObject {
                         self.cleanupStaging()
                     } else {
                         // The game's archive, then its framework into the one shared app on the device
-                        let tid = Self.titleID(self.basePath).map { String(format: "%016llX", $0) } ?? "game"
+                        let tid = Self.buildKey(self.basePath)
                         let name = ((self.basePath as NSString).lastPathComponent as NSString).deletingPathExtension
+                        let fw = ShellInstall.frameworkPath(workDir: self.effectiveWorkDir, titleID: tid)
                         self.packArchive(workDir: self.effectiveWorkDir) {
-                            self.installShell(framework: ShellInstall.frameworkPath(workDir: self.effectiveWorkDir, titleID: tid),
-                                              titleID: tid, name: name, archive: $0)
+                            self.installShell(framework: fw, titleID: tid, name: name, archive: $0)
                         }
                     }
                 } else {
@@ -1697,12 +1732,12 @@ final class BuildModel: ObservableObject {
         noteChainChange(line)
         guard let s = Self.parseStage(line) else { return }
         if let i = stages.firstIndex(where: { $0.id == s.k }) {
-            if !s.name.isEmpty { stages[i].name = s.name }
+            if !s.name.isEmpty { stages[i].name = Stage.localizedName(s.name, t) }
             if s.state != .pending { stages[i].state = s.state }
             if !s.detail.isEmpty { stages[i].detail = s.detail }
             stages[i].percent = s.percent
         } else if s.state != .pending {
-            stages.append(Stage(id: s.k, name: s.name, state: s.state, detail: s.detail, percent: s.percent, started: Date()))
+            stages.append(Stage(id: s.k, name: Stage.localizedName(s.name, t), state: s.state, detail: s.detail, percent: s.percent, started: Date()))
             stages.sort { $0.id < $1.id }
         }
     }
@@ -1727,14 +1762,14 @@ final class BuildModel: ObservableObject {
         let k = (e["k"] as? NSNumber)?.intValue ?? 0
         func stage(_ update: (inout Stage) -> Void) {
             if let i = stages.firstIndex(where: { $0.id == k }) { update(&stages[i]) }
-            else { var s = Stage(id: k, name: e["name"] as? String ?? ""); update(&s); stages.append(s); stages.sort { $0.id < $1.id } }
+            else { var s = Stage(id: k, name: Stage.localizedName(e["name"] as? String ?? "", t)); update(&s); stages.append(s); stages.sort { $0.id < $1.id } }
         }
         switch kind {
         case "stage":
             let name = e["name"] as? String ?? "", step = e["step"] as? String ?? ""
             let n = (e["n"] as? NSNumber)?.intValue ?? 0
             append("[\(k)/\(n)] \(name)" + (step.isEmpty ? "" : " · \(step)") + " …\n")
-            stage { $0.name = name; $0.state = .running; $0.detail = step; $0.percent = nil; $0.started = Date(); $0.eta = nil }
+            stage { $0.name = Stage.localizedName(name, t); $0.state = .running; $0.detail = step; $0.percent = nil; $0.started = Date(); $0.eta = nil }
         case "step":
             let step = e["step"] as? String ?? ""
             append("    · \(step)\n")
@@ -1864,7 +1899,7 @@ final class BuildModel: ObservableObject {
         // exposes on an external drive) then needs no renaming, and several games' folders can sit
         // side by side in one app.
         let gamesRoot = (outDir.isEmpty ? (basePath as NSString).deletingLastPathComponent : outDir) + "/games"
-        let tid = Self.titleID(basePath).map { String(format: "%016llX", $0) } ?? "game"
+        let tid = Self.buildKey(basePath)
         // games/<id>/ holds romfs.img and aoc/ side by side: main.m's per-game lookup takes the
         // image, and the host mounts DLC from aoc/<index>.img (hle_fs.c aoc_dir). One folder, which
         // the user copies to the phone or keeps on an external drive as a whole.
@@ -1996,7 +2031,7 @@ final class BuildModel: ObservableObject {
         if dataOnly { failure = nil; done = false; doneNote = "" }
         shellRetry = (framework, titleID, name, archive)
         let python = pythonPath.isEmpty ? Self.findPython().path : pythonPath
-        let root = ShellLibrary.resolveRoot(parent: outDir.isEmpty ? (basePath as NSString).deletingLastPathComponent : outDir)
+        let root = shellRoot
         var installer = ShellInstaller(xcrun: xcrunPath, repo: repoPath, python: python, root: root, device: installDevice, team: signingTeam)
         installer.deviceName = deviceName(installDevice)
         installer.lang = lang
@@ -3077,7 +3112,7 @@ struct BuilderView: View {
     /// One line of a card: a status dot (its place kept when there is none, so every title starts on one line),
     /// the title (with a disclosure chevron beside it when `open` is given), a secondary detail, and its controls.
     /// Its buttons and dropdowns are all LauncherControl.width wide, so they line up in one column across the cards.
-    private func row<Trailing: View>(_ title: String, detail: String = "", dot: Color? = nil, help: String = "", open: Bool? = nil,
+    private func row<Trailing: View>(_ title: String, detail: String = "", detail2: String = "", dot: Color? = nil, help: String = "", open: Bool? = nil,
                                      @ViewBuilder trailing: () -> Trailing) -> some View {
         HStack(spacing: 12) {
             Circle().fill(dot ?? .clear).frame(width: 7, height: 7)
@@ -3099,6 +3134,10 @@ struct BuilderView: View {
                         Text(detail).font(.manrope(12.5)).foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true).help(help.isEmpty ? detail : help)
                     }
+                }
+                if !detail2.isEmpty {
+                    Text(detail2).font(.mono(12)).foregroundStyle(.secondary)
+                        .lineLimit(1).truncationMode(.middle).help(detail2)
                 }
             }
             Spacer(minLength: 12)
@@ -3343,6 +3382,12 @@ struct BuilderView: View {
     /// pointed ("see the log below") while the log itself was out of view on a short window (#52).
     @ViewBuilder private var logPanel: some View {
         group(m.t("section.log")) {
+            if m.shellCopy != nil || m.shellWaiting {
+                // The log below is the build's own output; the data transfer is driven by the app, so
+                // its questions and errors (a locked device, a failed listing) answer here, not in it.
+                Text(m.t("log.transferNote")).font(.manrope(12.5)).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true).padding(.horizontal, 14).padding(.top, 2)
+            }
             disclosure(m.t("build.log"), isOpen: logOpen) { logOpen.toggle() }
             if logOpen { logView.padding(.horizontal, 14).padding(.bottom, 14) }
         }
@@ -3463,7 +3508,7 @@ struct BuilderView: View {
         tools
         group(m.t("section.app"), footnote: m.appStatus) {
             // The interface language: the device default unless someone picks one here. Stored as
-            // "" (follow), "zh", "en", "sv" or "de" so a later system-language change still applies.
+            // "" (follow), "zh", "en", "sv", "de" or "fr" so a later system-language change still applies.
             row(m.t("settings.language"),
                 detail: Lang.saved.map { m.t("settings.language.\($0.rawValue)") }
                     ?? m.t("settings.language.system"), dot: LauncherPalette.ready, help: "") {
@@ -3535,7 +3580,7 @@ struct BuilderView: View {
     /// The interface language one step on (a controller's left / right on the language list).
     /// The language picker's choices in order, "" being the system's. A new language is one more code here and its
     /// "settings.language.<code>" entry, which is its own name (Svenska, Deutsch) in every language.
-    static let languageCodes = ["", "zh", "en", "sv", "de"]
+    static let languageCodes = ["", "zh", "en", "sv", "de", "fr"]
 
     private func cycleLanguage(_ by: Int) {
         let values = Self.languageCodes
@@ -3674,7 +3719,7 @@ struct BuilderView: View {
         // A different channel is asked about first (the alert below): the switch can recompile every game's shaders
         row(m.t("engine.update"), detail: m.t("engine.channelNote"), dot: LauncherPalette.ready) {
             LauncherDropdown(options: EngineChannel.allCases.map { (value: $0.rawValue, label: m.t($0.labelKey)) },
-                             selection: m.engineSelection.channel.rawValue, fill: true) { v in
+                             selection: m.engineSelection.channel.rawValue) { v in
                 if let channel = EngineChannel(rawValue: v) { m.requestEngineChannel(channel) }
             }
             .disabled(!idle)
@@ -3692,10 +3737,17 @@ struct BuilderView: View {
             Text(m.confirmingChannel.flatMap { m.engineSelection.channel.switchWarningKey(to: $0) }.map { m.t($0) } ?? "")
         }
         divider
+        row(m.t("shellCache.row"), detail: m.t("shellCache.note"), detail2: m.shellCachePath) {
+            Button(m.t("shellCache.open")) { m.revealFolder(URL(fileURLWithPath: m.shellCachePath)) }
+                .buttonStyle(LauncherSecondaryButtonStyle())
+        }
+        divider
         row(m.t("repo.auto"), detail: m.t("engine.autoNote")) {
             Toggle("", isOn: $m.autoUpdateRepo).labelsHidden().toggleStyle(LauncherSwitchStyle())
         }
     }
+
+
 
     private func pickRepo() {
         let d = NSOpenPanel()

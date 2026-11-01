@@ -61,7 +61,5 @@ final class SignatureTests: XCTestCase {
         XCTAssertTrue(today.contains("today"), today)
         let zh = AppSignature.describe(inThree, { L10n.string($0, .zh) }, now: now, locale: Locale(identifier: "zh_CN"))
         XCTAssertTrue(zh.contains("剩 3 天"), zh)
-        XCTAssertEqual(AppSignature.short(inThree, { L10n.string($0, .en) }, now: now), "3 days of signature left")
-        XCTAssertEqual(AppSignature.short(yesterday, { L10n.string($0, .en) }, now: now), "signature expired")
     }
 }

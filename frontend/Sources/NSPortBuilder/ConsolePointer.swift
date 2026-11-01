@@ -5,7 +5,8 @@ import AppKit
 /// NSCursor.hide the launcher has outstanding, so hide and unhide stay balanced.
 struct PointerIdle: Equatable {
     enum Step { case none, hide, show }
-    var idleSeconds: TimeInterval = 3
+    /// The timer looks every `ConsolePointer.pollSeconds`, so the pointer is gone 1.25 to 1.5 seconds after the last movement.
+    var idleSeconds: TimeInterval = 1.25
     private(set) var hidden = false
     private var lastLocation: CGPoint?
     private var lastActivity: TimeInterval = 0
@@ -31,9 +32,10 @@ struct PointerIdle: Equatable {
     private mutating func show() -> Step { hidden = false; return .show }
 }
 
-/// Hides the pointer over the console after a few idle seconds. It watches the pointer position on a short timer, so it needs
+/// Hides the pointer over the console after about a second and a half of idle time. It watches the pointer position on a short timer, so it needs
 /// no tracking area or mouse-moved events from the window.
 @MainActor final class ConsolePointer {
+    static let pollSeconds: TimeInterval = 0.25
     private var idle = PointerIdle()
     private var timer: Timer?
     private var monitor: Any?
@@ -47,9 +49,12 @@ struct PointerIdle: Equatable {
         self.show = show
     }
 
+    /// The pointer is hidden right now.
+    var isHidden: Bool { idle.hidden }
+
     func start() {
         guard timer == nil else { return }
-        timer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
+        timer = Timer.scheduledTimer(withTimeInterval: Self.pollSeconds, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.look() }
         }
         monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel]) { [weak self] event in

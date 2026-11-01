@@ -8,6 +8,12 @@
             "state": "translated",
             "value": "%lld of %lld"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "第 %lld 个，共 %lld"
+          }
         }
       }
     },
@@ -17,6 +23,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "A little room for adventure"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "给冒险留一点空间"
           }
         }
       }
@@ -28,6 +40,28 @@
             "state": "translated",
             "value": "App update needed"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要更新 App"
+          }
+        }
+      }
+    },
+    "Applies to the whole app.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Applies to the whole app."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "对整个 App 生效。"
+          }
         }
       }
     },
@@ -37,6 +71,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Back"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "返回"
           }
         }
       }
@@ -48,6 +88,12 @@
             "state": "translated",
             "value": "Brings back the settings this game was tested with."
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "恢复此游戏测试时使用的设置。"
+          }
         }
       }
     },
@@ -57,6 +103,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Build this game again on your Mac and install it on this device. The Mac app checks every file while it builds, so the new copy is complete."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Mac 上重新构建此游戏并安装到本设备。Mac 应用构建时会检查每个文件，新副本是完整的。"
           }
         }
       }
@@ -68,6 +120,12 @@
             "state": "translated",
             "value": "Charging"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "充电中"
+          }
         }
       }
     },
@@ -77,6 +135,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Choose"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择"
           }
         }
       }
@@ -88,6 +152,12 @@
             "state": "translated",
             "value": "Choose folder…"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择文件夹…"
+          }
         }
       }
     },
@@ -97,6 +167,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Choose game data…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择游戏数据…"
           }
         }
       }
@@ -108,6 +184,12 @@
             "state": "translated",
             "value": "Choose the same iCloud Drive folder you use on your Mac."
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择与 Mac 上相同的 iCloud Drive 文件夹。"
+          }
         }
       }
     },
@@ -117,6 +199,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Choose this game's data to get ready to play."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择此游戏的数据以开始游戏。"
           }
         }
       }
@@ -128,6 +216,12 @@
             "state": "translated",
             "value": "Choose…"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择…"
+          }
         }
       }
     },
@@ -137,6 +231,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Close controllers"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭手柄列表"
           }
         }
       }
@@ -148,6 +248,12 @@
             "state": "translated",
             "value": "Cloud saves"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "云存档"
+          }
         }
       }
     },
@@ -157,6 +263,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Connect a controller in Bluetooth settings. Touch controls are always available in the library."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在蓝牙设置中连接手柄。触屏控制始终可用。"
           }
         }
       }
@@ -168,6 +280,12 @@
             "state": "translated",
             "value": "Controllers"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手柄"
+          }
         }
       }
     },
@@ -177,6 +295,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Decrease"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "减小"
           }
         }
       }
@@ -188,15 +312,11 @@
             "state": "translated",
             "value": "Details"
           }
-        }
-      }
-    },
-    "Title ID %@": {
-      "localizations": {
-        "en": {
+        },
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Title ID %@"
+            "value": "详情"
           }
         }
       }
@@ -208,6 +328,12 @@
             "state": "translated",
             "value": "Done"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完成"
+          }
         }
       }
     },
@@ -217,6 +343,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "Double-tap to select"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "轻点两下以选择"
+          }
+        }
+      }
+    },
+    "Follow device": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Follow device"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跟随设备"
           }
         }
       }
@@ -228,6 +376,28 @@
             "state": "translated",
             "value": "For a bug report"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用于问题报告"
+          }
+        }
+      }
+    },
+    "From Settings": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "From Settings"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "来自设置"
+          }
         }
       }
     },
@@ -237,6 +407,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Game data"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "游戏数据"
           }
         }
       }
@@ -248,6 +424,44 @@
             "state": "translated",
             "value": "Game settings"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "游戏设置"
+          }
+        }
+      }
+    },
+    "Games look for their data here. Each game can have a folder of its own.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Games look for their data here. Each game can have a folder of its own."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "游戏会在这里查找游戏数据。每个游戏也可以单独指定文件夹。"
+          }
+        }
+      }
+    },
+    "Games without a folder of their own save here. Choose the same iCloud Drive folder you use on your Mac.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Games without a folder of their own save here. Choose the same iCloud Drive folder you use on your Mac."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有单独指定文件夹的游戏会把存档保存在这里。请选择与 Mac 相同的 iCloud Drive 文件夹。"
+          }
         }
       }
     },
@@ -257,6 +471,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "How to fix"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "如何修复"
           }
         }
       }
@@ -268,6 +488,12 @@
             "state": "translated",
             "value": "How to update"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "如何更新"
+          }
         }
       }
     },
@@ -277,6 +503,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Increase"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "增大"
           }
         }
       }
@@ -288,6 +520,44 @@
             "state": "translated",
             "value": "Install a newer version of this app to play this game."
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安装本 App 的更新版本以游玩此游戏。"
+          }
+        }
+      }
+    },
+    "Interface": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interface"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "界面"
+          }
+        }
+      }
+    },
+    "Language": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Language"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "语言"
+          }
         }
       }
     },
@@ -297,6 +567,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Library"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "游戏库"
           }
         }
       }
@@ -308,6 +584,12 @@
             "state": "translated",
             "value": "Move between controls"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在控件之间移动"
+          }
         }
       }
     },
@@ -317,6 +599,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Needs game data"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要游戏数据"
           }
         }
       }
@@ -328,6 +616,12 @@
             "state": "translated",
             "value": "No additional content"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无附加内容"
+          }
         }
       }
     },
@@ -337,6 +631,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "No battery level"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无电量信息"
           }
         }
       }
@@ -348,6 +648,12 @@
             "state": "translated",
             "value": "No controllers connected"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未连接手柄"
+          }
         }
       }
     },
@@ -357,6 +663,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "No data selected"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未选择数据"
+          }
+        }
+      }
+    },
+    "No folder chosen": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No folder chosen"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未选择文件夹"
           }
         }
       }
@@ -368,6 +696,12 @@
             "state": "translated",
             "value": "Off"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关"
+          }
         }
       }
     },
@@ -377,6 +711,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "On"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开"
           }
         }
       }
@@ -388,6 +728,28 @@
             "state": "translated",
             "value": "On a controller"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在手柄上"
+          }
+        }
+      }
+    },
+    "Performance overlay": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Performance overlay"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "性能浮层"
+          }
         }
       }
     },
@@ -397,6 +759,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Play"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开始"
           }
         }
       }
@@ -408,6 +776,12 @@
             "state": "translated",
             "value": "Played %@"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 玩过"
+          }
         }
       }
     },
@@ -417,6 +791,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Played today"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今天玩过"
           }
         }
       }
@@ -428,6 +808,12 @@
             "state": "translated",
             "value": "Played yesterday"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "昨天玩过"
+          }
         }
       }
     },
@@ -437,6 +823,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ready to play"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "随时可玩"
           }
         }
       }
@@ -448,6 +840,28 @@
             "state": "translated",
             "value": "Recently played"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最近游玩"
+          }
+        }
+      }
+    },
+    "Remove": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移除"
+          }
         }
       }
     },
@@ -457,6 +871,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Reset to tested defaults"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "恢复测试默认值"
           }
         }
       }
@@ -468,6 +888,28 @@
             "state": "translated",
             "value": "Select"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择"
+          }
+        }
+      }
+    },
+    "Settings": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Settings"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设置"
+          }
         }
       }
     },
@@ -477,6 +919,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Show log"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示日志"
           }
         }
       }
@@ -488,6 +936,28 @@
             "state": "translated",
             "value": "This game needs a newer version of this app. Update it with the Mac app on your Mac, then install it on this device again."
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此游戏需要本 App 的更新版本。请在 Mac 应用中更新。"
+          }
+        }
+      }
+    },
+    "Title ID %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Title ID %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Title ID %@"
+          }
         }
       }
     },
@@ -497,6 +967,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Turn off"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭"
           }
         }
       }
@@ -508,6 +984,12 @@
             "state": "translated",
             "value": "Turn off cloud saves"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭云存档"
+          }
         }
       }
     },
@@ -517,6 +999,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Unavailable"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不可用"
           }
         }
       }
@@ -528,6 +1016,28 @@
             "state": "translated",
             "value": "Update app"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新 App"
+          }
+        }
+      }
+    },
+    "Use Settings folder": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Settings folder"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用设置中的文件夹"
+          }
         }
       }
     },
@@ -537,6 +1047,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "Use app data"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用应用数据"
+          }
+        }
+      }
+    },
+    "Used by games that have no choice of their own.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Used by games that have no choice of their own."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "游戏未单独设置时使用。"
           }
         }
       }
@@ -548,6 +1080,12 @@
             "state": "translated",
             "value": "Version %@"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "版本 %@"
+          }
         }
       }
     },
@@ -558,6 +1096,12 @@
             "state": "translated",
             "value": "Your games"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的游戏"
+          }
         }
       }
     },
@@ -567,6 +1111,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Your games will appear here when they are included in this app."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "游戏加入此 App 后会显示在这里。"
           }
         }
       }

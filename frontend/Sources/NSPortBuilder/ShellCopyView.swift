@@ -12,8 +12,10 @@ struct ShellCopyCard: View {
                 Text(m.t("shell.copyTitle")).font(.manrope(14, .semibold))
                 Text(plan.sizeText).font(.manrope(13)).foregroundStyle(.secondary)
                 Text(plan.connectionText).font(.manrope(13)).fixedSize(horizontal: false, vertical: true)
+                Text(m.t("shell.copyExternalNote")).font(.manrope(12.5)).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true).padding(.top, 1)
                 HStack(spacing: 10) {
-                    Button(m.t("shell.copyContinue")) { m.answerShellCopy(.copy) }
+                    Button(m.t("shell.copyStart")) { m.answerShellCopy(.copy) }
                     if plan.canWaitForCable { Button(m.t("shell.copyWaitCable")) { m.answerShellCopy(.waitForCable) } }
                     Button(m.t("shell.copySkip")) { m.answerShellCopy(.skip) }
                 }

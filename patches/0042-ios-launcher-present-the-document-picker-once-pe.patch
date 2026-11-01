@@ -16,7 +16,6 @@ bookmark ("launcher: cloud-save folder set to ...").
 Upstream-Status: forwarded seedds/nxnative#800
 Reason: One tap on Choose a folder in iCloud Drive presented a document picker per Section row. The pickers invalidated each other and Open did nothing. The Game data hunk is fork-only, because that section comes from patch 0003
 Issue: LNPANDY/NX2Apple#315
-
 ---
  dm/ios/Sources/Launcher.swift | 46 ++++++++++++++++++-----------------
  1 file changed, 24 insertions(+), 22 deletions(-)

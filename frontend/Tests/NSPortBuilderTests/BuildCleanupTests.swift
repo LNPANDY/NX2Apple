@@ -49,6 +49,21 @@ final class BuildCleanupTests: XCTestCase {
                           ipaWritten: ipa)
     }
 
+    private var shellRoot: URL { temporary.appendingPathComponent("shell folder") }
+    private var mirror: String { ShellInstall.mirroredFramework(root: shellRoot.path, titleID: titleID) }
+
+    /// The game's framework as the installer's mirror leaves it: the binary and the manifest.
+    private func writeMirror(binary: Bool = true) throws {
+        try file("DmGame\(titleID).framework/game.manifest.json", in: shellRoot.appendingPathComponent("frameworks"))
+        if binary { try file("DmGame\(titleID).framework/DmGame\(titleID)", in: shellRoot.appendingPathComponent("frameworks")) }
+    }
+
+    private func iPhonePlan(keep: Bool = false) -> BuildCleanup.Plan {
+        var p = plan(keep: keep)
+        p.requiredMirror = mirror
+        return p
+    }
+
     private func assertOutputsStay(file: StaticString = #filePath, line: UInt = #line) {
         for path in [titleID + ".app/Contents/Info.plist", titleID + ".ipa", "games/\(titleID)/romfs.img", "games/\(titleID)/aoc/1.img", "Hades [\(titleID)].nsp"] {
             XCTAssertTrue(exists(path, in: out), path, file: file, line: line)
@@ -89,6 +104,51 @@ final class BuildCleanupTests: XCTestCase {
         XCTAssertEqual(outcome.removed.map(\.part), [nil])
     }
 
+    func testIPhoneBuildFolderIsRemovedWhenTheMirrorIsComplete() throws {
+        try fixture()
+        try writeMirror()
+        let outcome = BuildCleanup.run(iPhonePlan())
+        XCTAssertNil(outcome.keptForMirror)
+        XCTAssertNil(outcome.failure)
+        for path in ["extract", "shader", "xcode", "aoc"] { XCTAssertFalse(exists(path), path) }
+        assertOutputsStay()
+        XCTAssertTrue(FileManager.default.fileExists(atPath: mirror + "/DmGame\(titleID)"), "the mirror is never touched")
+    }
+
+    func testIPhoneBuildFolderStaysWhenTheMirrorIsMissing() throws {
+        try fixture()
+        let outcome = BuildCleanup.run(iPhonePlan())
+        XCTAssertEqual(outcome.keptForMirror, mirror)
+        for path in ["extract/v0/RomFS.img", "shader/package.bin", "xcode/DmIOS.xcodeproj/project.pbxproj", "aoc/1.img"] { XCTAssertTrue(exists(path), path) }
+        assertOutputsStay()
+        let lines = BuildCleanup.logLines(outcome) { L10n.string($0, .en) }
+        XCTAssertEqual(lines.count, 1)
+        XCTAssertTrue(lines[0].hasPrefix("Kept the build folder") && lines[0].contains(mirror), lines[0])
+    }
+
+    func testIPhoneBuildFolderStaysWhenTheMirrorHasNoBinary() throws {
+        try fixture()
+        try writeMirror(binary: false)
+        let outcome = BuildCleanup.run(iPhonePlan())
+        XCTAssertEqual(outcome.keptForMirror, mirror)
+        XCTAssertTrue(exists("extract/v0/RomFS.img"))
+        XCTAssertTrue(BuildCleanup.mirrorComplete(mirror) == false)
+    }
+
+    func testTheMacAppNeedsNoMirror() throws {
+        try fixture()
+        let outcome = BuildCleanup.run(plan(keep: false))
+        XCTAssertNil(outcome.keptForMirror)
+        XCTAssertFalse(exists("extract"))
+    }
+
+    func testWithTheSettingOnTheMirrorIsNotAskedFor() throws {
+        try fixture()
+        let outcome = BuildCleanup.run(iPhonePlan(keep: true))
+        XCTAssertNil(outcome.keptForMirror)
+        XCTAssertTrue(exists("extract/v0/RomFS.img"))
+    }
+
     func testThePackedIPACopyStaysWhenNoIPAWasWritten() throws {
         try fixture()
         _ = BuildCleanup.run(plan(keep: true, ipa: false))
@@ -124,8 +184,8 @@ final class BuildCleanupTests: XCTestCase {
     }
 
     func testTheNewStringsExistInEveryLanguageWithoutSemicolons() {
-        for key in ["settings.keepBuild", "settings.keepBuildNote", "section.buildFiles", "settings.keepBuildOff", "settings.keepBuildOn", "build.rebuildLong", "cleanup.removed", "cleanup.item", "cleanup.scratch"] {
-            for lang in [Lang.zh, .en, .sv] {
+        for key in ["settings.keepBuild", "settings.keepBuildNote", "section.buildFiles", "settings.keepBuildOff", "settings.keepBuildOn", "build.rebuildLong", "cleanup.removed", "cleanup.item", "cleanup.scratch", "cleanup.keptNoMirror", "msg.workdirHint"] {
+            for lang in [Lang.zh, .en, .sv, .de, .fr] {
                 let text = L10n.string(key, lang)
                 XCTAssertNotEqual(text, key, "\(key) \(lang)")
                 XCTAssertFalse(text.contains(";") || text.contains("；"), "\(key) \(lang)")
@@ -134,11 +194,13 @@ final class BuildCleanupTests: XCTestCase {
     }
 
     func testTheBuildPageHintNoLongerPromisesReuse() {
-        let hint = [Lang.zh, .en, .sv].map { L10n.string("msg.workdirHint", $0) }
+        let hint = [Lang.zh, .en, .sv, .de, .fr].map { L10n.string("msg.workdirHint", $0) }
         XCTAssertTrue(hint[1].contains("Keep build files"))
         XCTAssertTrue(hint[2].contains("Behåll byggfiler"))
         XCTAssertTrue(hint[0].contains("保留构建文件"))
-        for lang in [Lang.zh, .en, .sv] {
+        XCTAssertTrue(hint[3].contains("Build-Dateien behalten"))
+        XCTAssertTrue(hint[4].contains("Conserver les fichiers de compilation"))
+        for lang in [Lang.zh, .en, .sv, .de, .fr] {
             XCTAssertFalse(L10n.string("msg.workdirHint", lang).contains(";"), "\(lang)")
         }
     }
@@ -175,10 +237,11 @@ final class BuildCleanupTests: XCTestCase {
         model.lang = .en
         model.effectiveWorkDir = build.path
         model.outDir = out.path
-        let oldKeep = model.keepBuildFiles
+        let oldKeep = model.keepBuildFiles, oldTarget = model.target
         let oldOut = UserDefaults.standard.object(forKey: "buildOutputDirectory")
-        defer { model.keepBuildFiles = oldKeep; UserDefaults.standard.set(oldOut, forKey: "buildOutputDirectory") }
+        defer { model.keepBuildFiles = oldKeep; model.target = oldTarget; UserDefaults.standard.set(oldOut, forKey: "buildOutputDirectory") }
         model.keepBuildFiles = false
+        model.target = BuildTarget.mac
 
         func settle() { RunLoop.main.run(until: Date().addingTimeInterval(0.6)) }
         // failed: the script exited with an error, nothing armed
@@ -200,6 +263,44 @@ final class BuildCleanupTests: XCTestCase {
         model.running = false; settle()
         XCTAssertFalse(exists("extract"))
         XCTAssertFalse(model.cleaningUp)
+        XCTAssertTrue(model.logTail.contains("Cleaned up the build folder"), model.logTail)
+        assertOutputsStay()
+    }
+
+    /// An iPhone or iPad build is cleaned up only once the install has mirrored the game's framework into the shell folder.
+    @MainActor func testTheIPhoneBuildFolderGoesOnlyAfterTheMirrorExists() throws {
+        try fixture()
+        let defaults = UserDefaults.standard
+        let old = ["buildOutputDirectory", "shellRoot", OnboardingDefaults.platform].map { ($0, defaults.object(forKey: $0)) }
+        defaults.removeObject(forKey: OnboardingDefaults.platform)   // a target change would otherwise re-check the tools
+        defaults.set(shellRoot.path, forKey: "shellRoot")
+        let model = BuildModel()
+        let oldKeep = model.keepBuildFiles, oldTarget = model.target
+        defer {
+            model.keepBuildFiles = oldKeep; model.target = oldTarget
+            for (key, value) in old { defaults.set(value, forKey: key) }
+        }
+        model.lang = .en
+        model.keepBuildFiles = false
+        model.target = BuildTarget.ios
+        model.effectiveWorkDir = build.path
+        model.outDir = out.path
+        model.slots[0].paths = [out.path + "/Hades [\(titleID)][v0].nsp"]
+        func settle() { RunLoop.main.run(until: Date().addingTimeInterval(0.6)) }
+
+        // the build succeeded but the framework was not mirrored: the folder stays and the log says why
+        model.armCleanup()
+        XCTAssertEqual(model.cleanupPlan?.requiredMirror, mirror)
+        model.done = true; model.running = true; model.running = false; settle()
+        XCTAssertTrue(exists("extract/v0/RomFS.img"))
+        XCTAssertTrue(model.logTail.contains("Kept the build folder"), model.logTail)
+        XCTAssertFalse(model.logTail.contains("Cleaned up"), model.logTail)
+
+        // mirrored: the folder goes
+        try writeMirror()
+        model.armCleanup()
+        model.running = true; model.running = false; settle()
+        XCTAssertFalse(exists("extract"))
         XCTAssertTrue(model.logTail.contains("Cleaned up the build folder"), model.logTail)
         assertOutputsStay()
     }

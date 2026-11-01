@@ -26,7 +26,6 @@ without it. docs/reference/services.md has the entry; t_shared_font covers the r
 Upstream-Status: forwarded seedds/nxnative#797
 Reason: Mario Tennis Aces crashes at main+0x3eacbc: Arial Unicode does not fit its 50 KB font engines
 Issue: LNPANDY/NX2Apple#313
-
 ---
  dm/host/hle_sdk16.c           | 63 +++++++++++++++++++++++++++++++++--
  dm/host/tests/t_shared_font.c | 58 +++++++++++++++++++++++++++++++-
@@ -291,10 +290,10 @@ index 0608442..c2d6367 100644
  
  ### Time zone rules, calendar conversion and the network clock
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index 600fd55..f1e6eeb 100755
+index 42c631b..ffcee75 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
-@@ -2028,6 +2028,16 @@ def mac_host(py, repo, work, env, logs, g):
+@@ -2084,6 +2084,16 @@ def mac_host(py, repo, work, env, logs, g):
          rmtree(kf); font.mkdir(parents=True, exist_ok=True)
          run([py, repo / 'dm/tools/make_ext_font.py', ttf], logs / 'make_ext_font.log', env=env)
          kf.write_text(f'{key}\n')

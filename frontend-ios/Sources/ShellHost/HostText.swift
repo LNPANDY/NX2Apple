@@ -3,7 +3,7 @@ import ShellUI
 
 /// The host layer's own words, from `Resources/Localizable.xcstrings` (English source, like ShellUI).
 func hostText(_ key: String.LocalizationValue) -> String {
-    String(localized: key, bundle: .module)
+    String(localized: key, bundle: ShellLanguage.bundle(.module))
 }
 
 /// What is wrong with a bundle that cannot run at all. Each cause has one plain sentence for the player.

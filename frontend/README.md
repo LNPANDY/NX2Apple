@@ -163,7 +163,7 @@ library manifest is stored at
 ## Launch options
 
 The button beside **Play** opens the game's launch options: the settings the iPhone
-launcher shows before a game starts ([docs/settings.md](https://github.com/seedds/nxnative/blob/c5fe6b5dbcb245f9116b1b380cc71ecd4c6c4f11/docs/settings.md)), read
+launcher shows before a game starts ([docs/settings.md](https://github.com/seedds/nxnative/blob/bbc3b73784751d2a706932dc69fd67627e3445d4/docs/settings.md)), read
 from the list the engine packs into the Mac app (`Contents/Resources/dm/launcher.json`,
 written by `dm/games/settings.py` from `dm/games/settings.tsv`, and the engine change that
 packs it is [seedds/nxnative#352](https://github.com/seedds/nxnative/pull/352), so a
@@ -302,11 +302,12 @@ nothing changes: Homebrew's tools, a system Python or the launcher's venv. To tr
 
 The interface follows the system language at every launch: any Chinese variant
 (Simplified, Traditional, Hong Kong, Taiwan) gets Chinese, Swedish gets Swedish, German gets
-German, and every other language gets English. Settings > Language overrides that. Strings live in
-`Sources/NSPortBuilder/Localization.swift`: the table holds Chinese and English, and Swedish (`sv`)
-and German (`de`) are overlays below it. A string added to the table needs its German entry, and
-`GermanLocalizationTests` fails until it has one (it also checks that the format placeholders match
-the English text). Regenerate the Qt table after editing it with
+German, French gets French, and every other language gets English. Settings > Language overrides
+that. Strings live in `Sources/NSPortBuilder/Localization.swift`: the table holds Chinese and
+English, and Swedish (`sv`), German (`de`) and French (`fr`) are overlays below it. A string added
+to the table needs its German and French entries, and `GermanLocalizationTests` and
+`FrenchLocalizationTests` fail until it has them (they also check that the format placeholders
+match the English text). Regenerate the Qt table after editing it with
 `python3 frontend-qt/gen_localization.py` from the repository root.
 
 ## Verification

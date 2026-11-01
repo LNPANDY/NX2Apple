@@ -63,6 +63,45 @@ final class ShellInstallTests: XCTestCase {
 
     // ---- the commands ----
 
+    // ---- the iOS shell package (DM_SHELL_PACKAGE) ----
+
+    private func makeTree(_ files: [String]) throws -> String {
+        let dir = NSTemporaryDirectory() + "shellpkg-" + UUID().uuidString
+        for f in files {
+            try FileManager.default.createDirectory(atPath: (dir + "/" + f as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+            FileManager.default.createFile(atPath: dir + "/" + f, contents: Data())
+        }
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(atPath: dir) }
+        return dir
+    }
+
+    func testShellPackagePrefersTheBundleThenTheCheckout() throws {
+        let bundle = try makeTree(["frontend-ios/Package.swift"])
+        let checkout = try makeTree(["frontend-ios/Package.swift"])
+        XCTAssertEqual(ShellInstall.shellPackage(resources: bundle, repo: checkout), bundle + "/frontend-ios")
+        XCTAssertEqual(ShellInstall.shellPackage(resources: nil, repo: checkout), checkout + "/frontend-ios")
+        let bare = try makeTree([])
+        XCTAssertEqual(ShellInstall.shellPackage(resources: bare, repo: checkout), checkout + "/frontend-ios")
+        XCTAssertNil(ShellInstall.shellPackage(resources: bare, repo: bare))
+        XCTAssertNil(ShellInstall.shellPackage(resources: nil, repo: ""))
+    }
+
+    /// The failure of the report: the repo is an engine in the store (no frontend-ios in it), the release app carries the package.
+    func testStoreEngineGetsTheBundledPackage() throws {
+        let store = try makeTree(["engine/id/dm/ios/tools/build_shell.sh"]) + "/engine/id"
+        let bundle = try makeTree(["frontend-ios/Package.swift", "frontend-ios/AppIcon.icon/icon.json"])
+        let package = try XCTUnwrap(ShellInstall.shellPackage(resources: bundle, repo: store))
+        let env = ShellInstall.projectEnvironment(root: "/R", frameworks: [], bundleID: "b", team: "T", python: "/py", path: "/p",
+                                                  home: "/h", user: "u", package: package)
+        let path = try XCTUnwrap(env["DM_SHELL_PACKAGE"])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: path + "/Package.swift"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: path + "/AppIcon.icon"))
+        XCTAssertFalse(path.hasPrefix(store))
+        XCTAssertNil(ShellInstall.projectEnvironment(root: "/R", frameworks: [], bundleID: "b", team: "T", python: "/py", path: "/p",
+                                                     home: "/h", user: "u")["DM_SHELL_PACKAGE"])
+    }
+
     func testCommandsAreExact() {
         let root = "/R/NX2Apple-shell"
         XCTAssertEqual(ShellInstall.buildArguments(workDir: "/W", team: "T"), ["--shell-framework", "/W/shell-framework", "--team-id", "T"])
@@ -272,6 +311,7 @@ final class ShellInstallTests: XCTestCase {
         env | sort > "\(state)/shell-env.txt"
         if [ "${DM_ENTITLEMENTS+set}" = set ] && [ -z "$DM_ENTITLEMENTS" ]; then touch "$SHELL_DIR/entitlements-empty"; else rm -f "$SHELL_DIR/entitlements-empty"; fi
         """)
+        try write(repo + "/frontend-ios/Package.swift", "// swift-tools-version: 5.9\n")
         return repo
     }
 
@@ -313,6 +353,7 @@ final class ShellInstallTests: XCTestCase {
         var i = ShellInstaller(xcrun: f.xcrun, repo: f.repo, python: "/usr/bin/python3", root: f.root, device: device, team: team)
         i.deviceName = "Z"
         i.pollInterval = 0.02
+        i.resources = nil
         return i
     }
 
@@ -327,8 +368,62 @@ final class ShellInstallTests: XCTestCase {
         return (status, output)
     }
 
+    private func mirrored(_ root: String, _ id: String? = nil) -> String { ShellInstall.mirroredFramework(root: root, titleID: id ?? titleID) }
+
     private var calls: [String] { ((try? String(contentsOfFile: state + "/calls.txt", encoding: .utf8)) ?? "").split(separator: "\n").map(String.init) }
     private func copies() -> [String] { calls.filter { $0.hasPrefix("devicectl device copy to") } }
+
+    // ---- the mirror in the shell folder is the primary copy ----
+
+    func testInstallMirrorsTheBuildAndShellJsonPointsAtTheMirror() throws {
+        let f = try makeFixture()
+        let r = run(f)
+        XCTAssertEqual(r.status, 0, r.output)
+        let mirror = mirrored(f.root)
+        XCTAssertEqual(try String(contentsOfFile: mirror + "/game.manifest.json"), "{}")
+        XCTAssertEqual(ShellLibrary.load(root: f.root).games.map(\.framework), [mirror])
+        // a later write to the build folder does not reach the mirror
+        try write(f.framework + "/game.manifest.json", "changed")
+        XCTAssertEqual(try String(contentsOfFile: mirror + "/game.manifest.json"), "{}")
+    }
+
+    func testInstallMirrorsAGameBuiltBeforeTheMirrorExisted() throws {
+        let f = try makeFixture()
+        let otherID = "0100AAAA00000000"
+        let other = path("work2/shell-framework/DmGame\(otherID).framework")
+        try write(other + "/game.manifest.json", "other")
+        var library = ShellLibrary()
+        library.add(.init(titleID: otherID, name: "Other", framework: other))   // what an install before the mirror wrote
+        try library.save(root: f.root)
+        let r = run(f)
+        XCTAssertEqual(r.status, 0, r.output)
+        let saved = ShellLibrary.load(root: f.root)
+        XCTAssertEqual(Set(saved.games.map(\.framework)), [mirrored(f.root), mirrored(f.root, otherID)])
+        XCTAssertEqual(try String(contentsOfFile: mirrored(f.root, otherID) + "/game.manifest.json"), "other")
+    }
+
+    func testGameWithoutBuildFolderPlaysFromItsMirrorAndOneWithNeitherIsDropped() throws {
+        let f = try makeFixture()
+        let keptID = "0100BBBB00000000", lostID = "0100CCCC00000000"
+        try write(mirrored(f.root, keptID) + "/game.manifest.json", "kept")
+        var library = ShellLibrary()
+        library.add(.init(titleID: keptID, name: "Kept", framework: path("gone/DmGame\(keptID).framework")))
+        library.add(.init(titleID: lostID, name: "Lost", framework: path("gone/DmGame\(lostID).framework")))
+        try library.save(root: f.root)
+        let r = run(f)
+        XCTAssertEqual(r.status, 0, r.output)
+        XCTAssertEqual(Set(ShellLibrary.load(root: f.root).games.map(\.titleID)), [titleID, keptID])
+        XCTAssertEqual(ShellLibrary.load(root: f.root).games.first { $0.titleID == keptID }?.framework, mirrored(f.root, keptID))
+    }
+
+    func testFailedMirrorIsLoggedAndTheGameKeepsItsBuildPath() throws {
+        let f = try makeFixture()
+        try write(f.root + "/frameworks", "a file where the mirror folder should be")
+        let r = run(f)
+        XCTAssertEqual(r.status, 0, r.output)
+        XCTAssertTrue(r.output.contains("\(titleID)'s framework could not be mirrored"), r.output)
+        XCTAssertEqual(ShellLibrary.load(root: f.root).games.map(\.framework), [f.framework])
+    }
 
     func testTheFakeDeviceWipesSiblingsWithRemoveExistingContent() throws {
         let f = try makeFixture()
@@ -361,12 +456,12 @@ final class ShellInstallTests: XCTestCase {
         XCTAssertEqual(copies().count, 2)
         XCTAssertEqual(try String(contentsOfFile: save), "my save")
         let env = try String(contentsOfFile: state + "/shell-env.txt")
-        for line in ["DM_BUNDLE_ID=org.nxnative.shell", "DM_SHELL_FRAMEWORKS=\(f.framework)", "DM_TEAM_ID=TEAM123456",
-                     "SHELL_DIR=\(f.root)/project", "DM_XCODE_DERIVED_DATA=\(f.root)/derived-data", "FONT_PY=/usr/bin/python3"] {
+        for line in ["DM_BUNDLE_ID=org.nxnative.shell", "DM_SHELL_FRAMEWORKS=\(mirrored(f.root))", "DM_TEAM_ID=TEAM123456",
+                     "SHELL_DIR=\(f.root)/project", "DM_XCODE_DERIVED_DATA=\(f.root)/derived-data", "FONT_PY=/usr/bin/python3", "DM_SHELL_PACKAGE=\(f.repo)/frontend-ios"] {
             XCTAssertTrue(env.contains(line), line)
         }
         let library = ShellLibrary.load(root: f.root)
-        XCTAssertEqual(library.games, [.init(titleID: titleID, name: "Test Game", framework: f.framework)])
+        XCTAssertEqual(library.games, [.init(titleID: titleID, name: "Test Game", framework: mirrored(f.root))])
         XCTAssertEqual(library.team, team)
 
         // second run, same data: nothing is copied
@@ -423,6 +518,15 @@ final class ShellInstallTests: XCTestCase {
         XCTAssertEqual(r.status, 1)
         XCTAssertTrue(r.output.contains("FAIL: The shared app could not be prepared: games of different profiles in one shell: A (x), B (y)"), r.output)
         XCTAssertFalse(calls.contains { $0.hasPrefix("xcodebuild") || $0.hasPrefix("devicectl device") })   // nothing was signed or installed
+    }
+
+    func testMissingShellPackageStopsBeforeTheScript() throws {
+        let f = try makeFixture()
+        try fm.removeItem(atPath: f.repo + "/frontend-ios")
+        let r = run(f)
+        XCTAssertEqual(r.status, 1)
+        XCTAssertTrue(r.output.contains("FAIL: The shared app could not be prepared: no frontend-ios Swift package"), r.output)
+        XCTAssertFalse(fm.fileExists(atPath: state + "/shell-env.txt"), "build_shell.sh must not run")
     }
 
     func testCLIChecksItsArguments() throws {

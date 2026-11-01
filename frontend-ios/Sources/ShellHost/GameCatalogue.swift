@@ -173,8 +173,10 @@ public enum GameCatalogue {
 public enum DataSource: Equatable, Sendable {
     /// The app's own `Documents/games/<title ID>/`.
     case app
-    /// A folder the player picked, through a bookmark.
+    /// A folder the player picked for this game, through a bookmark.
     case picked
+    /// The data folder the player picked once for every game, in the shell's settings.
+    case shell
 }
 
 public struct DataResolution: Equatable, Sendable {
@@ -190,13 +192,19 @@ public struct DataResolution: Equatable, Sendable {
 /// The same order as the per-game app's `romfs_locate` (dm/ios/Sources/main.m): the picked location first, then the
 /// app's `Documents/games/<title ID>/`, each accepted only when it holds the game's image or marker.
 public enum DataLocator {
-    public static func locate(manifest: GameManifest, picked: BookmarkResolution, appFolder: URL, fileManager fm: FileManager = .default) -> DataResolution {
+    public static func locate(manifest: GameManifest, picked: BookmarkResolution, appFolder: URL, fileManager fm: FileManager = .default,
+                              global: BookmarkResolution = .none) -> DataResolution {
         var result = DataResolution.missing
         switch picked {
         case .stale: result.pickedIsStale = true
         case .url(let url):
             if let dir = holder(of: url, manifest: manifest, fm) { result.url = dir; result.source = .picked; return result }
         case .none: break
+        }
+        switch global {   // the shell-level data folder: the game's own bookmark wins, this backs it up
+        case .url(let url):
+            if let dir = holder(of: url, manifest: manifest, fm) { result.url = dir; result.source = .shell; return result }
+        case .stale, .none: break
         }
         if let dir = holder(of: appFolder, manifest: manifest, fm) { result.url = dir; result.source = .app }
         return result

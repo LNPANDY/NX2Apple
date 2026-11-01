@@ -55,13 +55,16 @@ public struct SettingRow: Identifiable, Equatable, Sendable {
     public var value: String
     /// The caller resolves dependencies and locks before supplying rows.
     public var enabled: Bool
-    public init(id: String, label: String, note: String = "", kind: SettingKind, value: String, enabled: Bool = true) {
+    /// The value is the shell settings' choice, because the game has none of its own.
+    public var fromShell: Bool
+    public init(id: String, label: String, note: String = "", kind: SettingKind, value: String, enabled: Bool = true, fromShell: Bool = false) {
         self.id = id
         self.label = label
         self.note = note
         self.kind = kind
         self.value = value
         self.enabled = enabled
+        self.fromShell = fromShell
     }
 }
 
@@ -82,8 +85,14 @@ public struct GameDetail: Identifiable, Equatable, Sendable {
     public var cloudNote: String
     public var dlc: String
     public var hasModifiedSettings: Bool
+    /// The data or cloud-saves folder is the shell settings' one, not one the player picked for this game.
+    public var dataFromShell: Bool
+    public var cloudFromShell: Bool
+    /// The shell settings have a cloud-saves folder this game does not use now, so the game can follow it.
+    public var cloudCanUseShell: Bool
     public init(game: GameTile, sections: [SettingSection] = [], dataSource: String = "", dataNote: String = "",
-                cloudSaves: String? = nil, cloudNote: String = "", dlc: String = "", hasModifiedSettings: Bool = false) {
+                cloudSaves: String? = nil, cloudNote: String = "", dlc: String = "", hasModifiedSettings: Bool = false,
+                dataFromShell: Bool = false, cloudFromShell: Bool = false, cloudCanUseShell: Bool = false) {
         self.game = game
         self.sections = sections
         self.dataSource = dataSource
@@ -92,6 +101,9 @@ public struct GameDetail: Identifiable, Equatable, Sendable {
         self.cloudNote = cloudNote
         self.dlc = dlc
         self.hasModifiedSettings = hasModifiedSettings
+        self.dataFromShell = dataFromShell
+        self.cloudFromShell = cloudFromShell
+        self.cloudCanUseShell = cloudCanUseShell
     }
 }
 
@@ -157,12 +169,20 @@ public struct ShellActions {
     public var onShowLog: (String) -> Void
     public var onAppUpdate: () -> Void
     public var onBack: () -> Void
+    public var onPickShellData: () -> Void
+    public var onPickShellCloud: () -> Void
+    public var onUseShellCloud: (String) -> Void
+    public var onClearShellData: () -> Void
+    public var onClearShellCloud: () -> Void
     public init(onSelect: @escaping (String) -> Void = { _ in }, onPlay: @escaping (String) -> Void = { _ in },
                 onChange: @escaping (String, String, String) -> Void = { _, _, _ in },
                 onPickGameData: @escaping (String) -> Void = { _ in }, onUseAppData: @escaping (String) -> Void = { _ in },
                 onPickCloudSaves: @escaping (String) -> Void = { _ in }, onDisableCloudSaves: @escaping (String) -> Void = { _ in },
                 onResetDefaults: @escaping (String) -> Void = { _ in }, onShowLog: @escaping (String) -> Void = { _ in },
-                onAppUpdate: @escaping () -> Void = {}, onBack: @escaping () -> Void = {}) {
+                onAppUpdate: @escaping () -> Void = {}, onBack: @escaping () -> Void = {},
+                onPickShellData: @escaping () -> Void = {}, onPickShellCloud: @escaping () -> Void = {},
+                onUseShellCloud: @escaping (String) -> Void = { _ in }, onClearShellData: @escaping () -> Void = {},
+                onClearShellCloud: @escaping () -> Void = {}) {
         self.onSelect = onSelect
         self.onPlay = onPlay
         self.onChange = onChange
@@ -174,5 +194,10 @@ public struct ShellActions {
         self.onShowLog = onShowLog
         self.onAppUpdate = onAppUpdate
         self.onBack = onBack
+        self.onPickShellData = onPickShellData
+        self.onPickShellCloud = onPickShellCloud
+        self.onUseShellCloud = onUseShellCloud
+        self.onClearShellData = onClearShellData
+        self.onClearShellCloud = onClearShellCloud
     }
 }
