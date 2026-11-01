@@ -117,6 +117,8 @@ final class BuildModel: ObservableObject {
     @Published var stages: [Stage] = []
     private var chainNoteShown = false   // the shader-chain notice shows once per build
     @Published var running = false
+    /// The shell folder the cache row shows: the frameworks' mirror, shell.json and the banner cache live here.
+    var shellCachePath: String { ShellLibrary.resolveRoot(parent: outDir.isEmpty ? (basePath as NSString).deletingLastPathComponent : outDir) }
     @Published var stopping = false
     @Published var logTail = ""
     @Published var done = false
@@ -1440,9 +1442,11 @@ final class BuildModel: ObservableObject {
                         // The game's archive, then its framework into the one shared app on the device
                         let tid = Self.buildKey(self.basePath)
                         let name = ((self.basePath as NSString).lastPathComponent as NSString).deletingPathExtension
+                        let fw = ShellInstall.frameworkPath(workDir: self.effectiveWorkDir, titleID: tid)
                         self.packArchive(workDir: self.effectiveWorkDir) {
-                            self.installShell(framework: ShellInstall.frameworkPath(workDir: self.effectiveWorkDir, titleID: tid),
-                                              titleID: tid, name: name, archive: $0)
+                            // The mirror in the shell folder is what survives a deleted build folder (#398).
+                            try? ShellInstall.mirrorFramework(framework: fw, root: ShellLibrary.resolveRoot(parent: (self.basePath as NSString).deletingLastPathComponent))
+                            self.installShell(framework: fw, titleID: tid, name: name, archive: $0)
                         }
                     }
                 } else {
@@ -3100,7 +3104,7 @@ struct BuilderView: View {
     /// One line of a card: a status dot (its place kept when there is none, so every title starts on one line),
     /// the title (with a disclosure chevron beside it when `open` is given), a secondary detail, and its controls.
     /// Its buttons and dropdowns are all LauncherControl.width wide, so they line up in one column across the cards.
-    private func row<Trailing: View>(_ title: String, detail: String = "", dot: Color? = nil, help: String = "", open: Bool? = nil,
+    private func row<Trailing: View>(_ title: String, detail: String = "", detail2: String = "", dot: Color? = nil, help: String = "", open: Bool? = nil,
                                      @ViewBuilder trailing: () -> Trailing) -> some View {
         HStack(spacing: 12) {
             Circle().fill(dot ?? .clear).frame(width: 7, height: 7)
@@ -3122,6 +3126,10 @@ struct BuilderView: View {
                         Text(detail).font(.manrope(12.5)).foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true).help(help.isEmpty ? detail : help)
                     }
+                }
+                if !detail2.isEmpty {
+                    Text(detail2).font(.mono(12)).foregroundStyle(.secondary)
+                        .lineLimit(1).truncationMode(.middle).help(detail2)
                 }
             }
             Spacer(minLength: 12)
@@ -3366,6 +3374,12 @@ struct BuilderView: View {
     /// pointed ("see the log below") while the log itself was out of view on a short window (#52).
     @ViewBuilder private var logPanel: some View {
         group(m.t("section.log")) {
+            if m.shellCopy != nil || m.shellWaiting {
+                // The log below is the build's own output; the data transfer is driven by the app, so
+                // its questions and errors (a locked device, a failed listing) answer here, not in it.
+                Text(m.t("log.transferNote")).font(.manrope(12.5)).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true).padding(.horizontal, 14).padding(.top, 2)
+            }
             disclosure(m.t("build.log"), isOpen: logOpen) { logOpen.toggle() }
             if logOpen { logView.padding(.horizontal, 14).padding(.bottom, 14) }
         }
@@ -3704,10 +3718,17 @@ struct BuilderView: View {
             Text(m.confirmingChannel.flatMap { m.engineSelection.channel.switchWarningKey(to: $0) }.map { m.t($0) } ?? "")
         }
         divider
+        row(m.t("shellCache.row"), detail: m.t("shellCache.note"), detail2: m.shellCachePath) {
+            Button(m.t("shellCache.open")) { m.revealFolder(URL(fileURLWithPath: m.shellCachePath)) }
+                .buttonStyle(LauncherSecondaryButtonStyle())
+        }
+        divider
         row(m.t("repo.auto"), detail: m.t("engine.autoNote")) {
             Toggle("", isOn: $m.autoUpdateRepo).labelsHidden().toggleStyle(LauncherSwitchStyle())
         }
     }
+
+
 
     private func pickRepo() {
         let d = NSOpenPanel()
