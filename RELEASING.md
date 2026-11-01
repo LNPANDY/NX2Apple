@@ -57,6 +57,8 @@ A final tag on a commit without a candidate fails. In an emergency, a manual run
 
 CI writes a short body: the version and the tested candidate. The readable notes are written by a person or an agent from [.github/release_notes_template.md](.github/release_notes_template.md).
 
+The notes of a final release are a file in the repository, `release-notes/vX.Y.Z.md`, in the form of the template (the Chinese part, then the English part, no generated block). Merge it in a normal pull request before the final tag is pushed. When the final tag is built, CI creates the release with that file, a `---` line and GitHub's generated notes appended (`python3 tools/release_notes.py build`, the previous tag is the newest final tag before this one). `python3 tools/release_notes.py check release-notes/vX.Y.Z.md` runs the rules below and also runs in the pull request CI. Without the file CI writes the short body (the version and the tested candidate) and appends the generated notes. If the tool fails, the release gets the short body and CI prints a warning: a notes problem never stops a release. CI creates the release only when it does not exist, so notes edited by hand are never overwritten, and `gh release edit <tag> --notes-file <file>` stays the way to fix them later.
+
 - Chinese first, English second, under `## 中文` and `## English`, with the same content in both. Each part has one bullet per change, grouped in bold: a notice, Highlights, New, Fixed, Known issues, Requires.
 - No emojis, no pictograms and no symbols in the text. No semicolons (also not the full-width one) and no em-dashes. Plain English and plain Chinese.
 - People are written as `@login`, the owner as `@LNPANDY`.
