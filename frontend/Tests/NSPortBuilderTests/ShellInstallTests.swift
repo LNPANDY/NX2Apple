@@ -63,6 +63,45 @@ final class ShellInstallTests: XCTestCase {
 
     // ---- the commands ----
 
+    // ---- the iOS shell package (DM_SHELL_PACKAGE) ----
+
+    private func makeTree(_ files: [String]) throws -> String {
+        let dir = NSTemporaryDirectory() + "shellpkg-" + UUID().uuidString
+        for f in files {
+            try FileManager.default.createDirectory(atPath: (dir + "/" + f as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+            FileManager.default.createFile(atPath: dir + "/" + f, contents: Data())
+        }
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(atPath: dir) }
+        return dir
+    }
+
+    func testShellPackagePrefersTheBundleThenTheCheckout() throws {
+        let bundle = try makeTree(["frontend-ios/Package.swift"])
+        let checkout = try makeTree(["frontend-ios/Package.swift"])
+        XCTAssertEqual(ShellInstall.shellPackage(resources: bundle, repo: checkout), bundle + "/frontend-ios")
+        XCTAssertEqual(ShellInstall.shellPackage(resources: nil, repo: checkout), checkout + "/frontend-ios")
+        let bare = try makeTree([])
+        XCTAssertEqual(ShellInstall.shellPackage(resources: bare, repo: checkout), checkout + "/frontend-ios")
+        XCTAssertNil(ShellInstall.shellPackage(resources: bare, repo: bare))
+        XCTAssertNil(ShellInstall.shellPackage(resources: nil, repo: ""))
+    }
+
+    /// The failure of the report: the repo is an engine in the store (no frontend-ios in it), the release app carries the package.
+    func testStoreEngineGetsTheBundledPackage() throws {
+        let store = try makeTree(["engine/id/dm/ios/tools/build_shell.sh"]) + "/engine/id"
+        let bundle = try makeTree(["frontend-ios/Package.swift", "frontend-ios/AppIcon.icon/icon.json"])
+        let package = try XCTUnwrap(ShellInstall.shellPackage(resources: bundle, repo: store))
+        let env = ShellInstall.projectEnvironment(root: "/R", frameworks: [], bundleID: "b", team: "T", python: "/py", path: "/p",
+                                                  home: "/h", user: "u", package: package)
+        let path = try XCTUnwrap(env["DM_SHELL_PACKAGE"])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: path + "/Package.swift"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: path + "/AppIcon.icon"))
+        XCTAssertFalse(path.hasPrefix(store))
+        XCTAssertNil(ShellInstall.projectEnvironment(root: "/R", frameworks: [], bundleID: "b", team: "T", python: "/py", path: "/p",
+                                                     home: "/h", user: "u")["DM_SHELL_PACKAGE"])
+    }
+
     func testCommandsAreExact() {
         let root = "/R/NX2Apple-shell"
         XCTAssertEqual(ShellInstall.buildArguments(workDir: "/W", team: "T"), ["--shell-framework", "/W/shell-framework", "--team-id", "T"])
@@ -272,6 +311,7 @@ final class ShellInstallTests: XCTestCase {
         env | sort > "\(state)/shell-env.txt"
         if [ "${DM_ENTITLEMENTS+set}" = set ] && [ -z "$DM_ENTITLEMENTS" ]; then touch "$SHELL_DIR/entitlements-empty"; else rm -f "$SHELL_DIR/entitlements-empty"; fi
         """)
+        try write(repo + "/frontend-ios/Package.swift", "// swift-tools-version: 5.9\n")
         return repo
     }
 
@@ -313,6 +353,7 @@ final class ShellInstallTests: XCTestCase {
         var i = ShellInstaller(xcrun: f.xcrun, repo: f.repo, python: "/usr/bin/python3", root: f.root, device: device, team: team)
         i.deviceName = "Z"
         i.pollInterval = 0.02
+        i.resources = nil
         return i
     }
 
@@ -362,7 +403,7 @@ final class ShellInstallTests: XCTestCase {
         XCTAssertEqual(try String(contentsOfFile: save), "my save")
         let env = try String(contentsOfFile: state + "/shell-env.txt")
         for line in ["DM_BUNDLE_ID=org.nxnative.shell", "DM_SHELL_FRAMEWORKS=\(f.framework)", "DM_TEAM_ID=TEAM123456",
-                     "SHELL_DIR=\(f.root)/project", "DM_XCODE_DERIVED_DATA=\(f.root)/derived-data", "FONT_PY=/usr/bin/python3"] {
+                     "SHELL_DIR=\(f.root)/project", "DM_XCODE_DERIVED_DATA=\(f.root)/derived-data", "FONT_PY=/usr/bin/python3", "DM_SHELL_PACKAGE=\(f.repo)/frontend-ios"] {
             XCTAssertTrue(env.contains(line), line)
         }
         let library = ShellLibrary.load(root: f.root)
@@ -423,6 +464,15 @@ final class ShellInstallTests: XCTestCase {
         XCTAssertEqual(r.status, 1)
         XCTAssertTrue(r.output.contains("FAIL: The shared app could not be prepared: games of different profiles in one shell: A (x), B (y)"), r.output)
         XCTAssertFalse(calls.contains { $0.hasPrefix("xcodebuild") || $0.hasPrefix("devicectl device") })   // nothing was signed or installed
+    }
+
+    func testMissingShellPackageStopsBeforeTheScript() throws {
+        let f = try makeFixture()
+        try fm.removeItem(atPath: f.repo + "/frontend-ios")
+        let r = run(f)
+        XCTAssertEqual(r.status, 1)
+        XCTAssertTrue(r.output.contains("FAIL: The shared app could not be prepared: no frontend-ios Swift package"), r.output)
+        XCTAssertFalse(fm.fileExists(atPath: state + "/shell-env.txt"), "build_shell.sh must not run")
     }
 
     func testCLIChecksItsArguments() throws {

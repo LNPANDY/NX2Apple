@@ -86,9 +86,17 @@ enum ShellInstall {
         ["/bin/bash", repo + "/dm/ios/tools/build_shell.sh", "--prepare-xcode"]
     }
 
+    /// The `frontend-ios` Swift package the shell project links (build_shell.sh's DM_SHELL_PACKAGE). The script defaults to
+    /// `frontend-ios` beside `dm/`, which is the engine root, and an engine tree has none since #214. So: the release app's
+    /// Contents/Resources/frontend-ios, else the source checkout's `frontend-ios` (`repo`). nil when neither has a Package.swift.
+    static func shellPackage(resources: String?, repo: String, fm: FileManager = .default) -> String? {
+        ([resources, repo].compactMap { $0 }.filter { !$0.isEmpty }).map { $0 + "/frontend-ios" }
+            .first { fm.fileExists(atPath: $0 + "/Package.swift") }
+    }
+
     /// What build_shell.sh reads. `path` is the build's own tool PATH (xcodegen must be found on it).
     static func projectEnvironment(root: String, frameworks: [String], bundleID: String, team: String, python: String,
-                                   path: String, home: String, user: String, tmp: String? = nil) -> [String: String] {
+                                   path: String, home: String, user: String, tmp: String? = nil, package: String? = nil) -> [String: String] {
         var env = ["SHELL_DIR": projectFolder(root: root),
                    "DM_SHELL_FRAMEWORKS": frameworks.joined(separator: "\n"),
                    "DM_BUNDLE_ID": bundleID,
@@ -97,6 +105,7 @@ enum ShellInstall {
                    "FONT_PY": python,
                    "PATH": path, "HOME": home, "USER": user, "LANG": "en_US.UTF-8"]
         if let tmp { env["TMPDIR"] = tmp }
+        if let package { env["DM_SHELL_PACKAGE"] = package }
         return env
     }
 
@@ -290,6 +299,8 @@ struct ShellStage {
 struct ShellInstaller {
     var xcrun = "/usr/bin/xcrun"
     var repo: String
+    /// The app's Contents/Resources, where a release app carries frontend-ios. Nil for a launcher run from a checkout.
+    var resources: String? = Bundle.main.resourceURL?.path
     var python: String
     var root: String
     var device: String
@@ -361,9 +372,13 @@ struct ShellInstaller {
         }
 
         // 4: the project
+        guard let package = ShellInstall.shellPackage(resources: resources, repo: repo) else {
+            let looked = ([resources, repo].compactMap { $0 }.filter { !$0.isEmpty }).map { $0 + "/frontend-ios" }.joined(separator: ", ")
+            return Outcome(ok: false, message: fmt("shell.projectFailed", "no frontend-ios Swift package (Package.swift) in " + looked))
+        }
         var env = ShellInstall.projectEnvironment(root: root, frameworks: library.games.map(\.framework), bundleID: library.bundleID,
                                                   team: team, python: python, path: toolPath, home: NSHomeDirectory(), user: NSUserName(),
-                                                  tmp: NSTemporaryDirectory())
+                                                  tmp: NSTemporaryDirectory(), package: package)
         env.merge(BundledTools.environment(for: python)) { $1 }
         let projectName = t("shell.projectStage")
         begin(Self.projectStageID, projectName)
