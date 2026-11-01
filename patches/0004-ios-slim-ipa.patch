@@ -73,10 +73,10 @@ index 40db2b7..0407560 100644
  
  
 diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index 1bb65f0..6a33884 100755
+index cd8bb1e..8f42405 100755
 --- a/dm/ios/tools/build_ipa.sh
 +++ b/dm/ios/tools/build_ipa.sh
-@@ -178,6 +178,9 @@ if [ -n "${DM_ENTITLEMENTS-default}" ]; then
+@@ -182,6 +182,9 @@ if [ -n "${DM_ENTITLEMENTS-default}" ]; then
  fi
  P=Payload/DmIOS.app
  MAPS=()
@@ -86,7 +86,7 @@ index 1bb65f0..6a33884 100755
  if [ "${DM_COPY_ROMFS:-YES}" = NO ]; then
    t "no game files in the IPA (DM_COPY_ROMFS=NO): the app takes Documents/romfs.img (scripts/push_romfs.sh)"
    # The image's identity (dm/host/romfs_identity.h) goes into the app as romfs.id: main.m then uses only a Documents/romfs.img with the same size and index hash, and says so when it is another version or missing.
-@@ -187,7 +190,11 @@ if [ "${DM_COPY_ROMFS:-YES}" = NO ]; then
+@@ -191,7 +194,11 @@ if [ "${DM_COPY_ROMFS:-YES}" = NO ]; then
      MAPS=("$P/romfs.id=$O/romfs.id"); t "game files identity: $(cat "$O/romfs.id")"
    fi
  elif [ -f "$ROMFS" ]; then MAPS=("$P/romfs.img=$ROMFS"); else MAPS=("$P/romfs=$ROMFS"); fi
@@ -148,7 +148,7 @@ index a832ad5..0f5485d 100644
              raise ValueError(f'bundle ID {bundle_id} is already used by {other}; choose a different --bundle-id for this game')
  
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index 07dac57..1cee0c6 100644
+index 6e6e706..f0cbbba 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
 @@ -41,6 +41,7 @@ DM_FS	diagnostic	When set, logs file opens, paths not found or not mounted, and
