@@ -1195,8 +1195,10 @@ final class BuildModel: ObservableObject {
     func clear(_ id: String) { updateSlot(id) { $0.paths = []; $0.problem = "" } }
 
     /// The title ID in a file name: `[0100F2C0115B6000]` first, else a bare 16-digit ID that starts with 01 as a token
-    /// (start of the name or after `_`, space, `-`, `.`, `(`, `[`), like `01007EF00011E000_v0_420d1c5034ab.nsp`.
-    nonisolated static func titleID(_ name: String) -> UInt64? {
+    /// (start of the name or after `_`, space, `-`, `.`, `(`, `[`). Only the file name counts, so a full path works and a folder named with an ID never
+    /// stands in for the file (#382). Like `01007EF00011E000_v0_420d1c5034ab.nsp`.
+    nonisolated static func titleID(_ path: String) -> UInt64? {
+        let name = (path as NSString).lastPathComponent
         let found = firstGroup(#"\[([0-9A-Fa-f]{16})\]"#, in: name)
             ?? firstGroup(#"(?:^|[_ \-.(\[])(01[0-9A-Fa-f]{14})(?![0-9A-Fa-f])"#, in: name)
         return found.flatMap { UInt64($0, radix: 16) }
@@ -1207,7 +1209,7 @@ final class BuildModel: ObservableObject {
     /// digits, `-` and `_`, plus a short hash of the full name: two games never share a folder (and so a shader cache),
     /// the same file name always gets the same one (a rebuild reuses its cache). Never a constant.
     nonisolated static func buildKey(_ path: String) -> String {
-        let name = (path as NSString).lastPathComponent   // a bare ID is a token, so a "/" before it would hide it
+        let name = (path as NSString).lastPathComponent
         if let id = titleID(name) { return String(format: "%016llX", id) }
         let stem = (name as NSString).deletingPathExtension
         var hash: UInt32 = 2166136261   // FNV-1a, stable across runs (Hashable is seeded per launch)
