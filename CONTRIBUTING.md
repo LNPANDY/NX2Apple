@@ -66,6 +66,16 @@ A new game profile or an engine fix goes to seedds/nxnative first, see "Helping 
 
 PRs opened before this rule keep the old path: an issue within 48 hours of the first reply from a maintainer, and one maintainer agrees to the idea before the PR merges.
 
+### Where we would love help
+
+The [milestones](https://github.com/LNPANDY/NX2Apple/milestones) are the plan, and you are welcome to take an issue from one. Some issues are for the maintainers.
+
+- Issues with the label [`help wanted`](https://github.com/LNPANDY/NX2Apple/labels/help%20wanted) carry a maintainer's go already. Build one straight away and link the issue in your PR.
+- For any other issue in a milestone, comment that you would like to take it. A maintainer answers with a go or with a pointer, so two people do not build the same thing.
+- [`good first issue`](https://github.com/LNPANDY/NX2Apple/labels/good%20first%20issue) marks the easy starts.
+- Start from the problem, not the solution. Say what you want to do and what is in the way, which is what the form asks. The maintainers may point to a planned way to do it.
+- If a maintainer cannot take an idea, they say so early and explain why, see [What happens to your PR](#what-happens-to-your-pr).
+
 ### What happens to your PR
 
 A pull request from outside never merges automatically. One maintainer tries the app that CI built for the PR, which is the `NX2Apple-macOS-arm64` artifact of the Build Mac app run. The same maintainer reviews the code. Whoever looks first decides.

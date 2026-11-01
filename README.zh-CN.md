@@ -151,6 +151,7 @@ iPhone 上在「文件」App 里该 App 名字下：`save/` 和 `log.txt`（上�
 ## 给开发者
 
 - **从源码构建：** [BUILDING.zh-CN.md](BUILDING.zh-CN.md)。**报告或修复问题：** [CONTRIBUTING.zh-CN.md](CONTRIBUTING.zh-CN.md)。
+- **哪里需要帮忙：** [里程碑](https://github.com/LNPANDY/NX2Apple/milestones)就是计划，怎么从中认领一个 issue 见 [CONTRIBUTING.md](CONTRIBUTING.md#where-we-would-love-help)。
 - **本 fork 对上游改了什么：** 引擎（`dm/`、`scripts/`、`docs/`、`ref/`）不提交在本仓库里。它是 nxnative
   在固定提交（`.upstream-ref`）上的内容，加一组补丁，每个补丁写明本 fork 为什么带着它，
   `python3 tools/engine.py sync` 把它构建到 `engine/`。见 [patches/README.md](patches/README.md)。

@@ -178,6 +178,7 @@ display version must match the profile's, or the build says so.
 ## For developers
 
 - **Build from source:** [BUILDING.md](BUILDING.md). **Report or fix something:** [CONTRIBUTING.md](CONTRIBUTING.md).
+- **Where help is wanted:** the [milestones](https://github.com/LNPANDY/NX2Apple/milestones) are the plan, and [CONTRIBUTING.md](CONTRIBUTING.md#where-we-would-love-help) says how to take an issue from one.
 - **What this fork changes in upstream:** the engine (`dm/`, `scripts/`, `docs/`, `ref/`) is not
   committed here. It is nxnative at a pinned commit (`.upstream-ref`) plus a queue of patches, each
   saying why the fork carries it, and `python3 tools/engine.py sync` builds it into `engine/`.
