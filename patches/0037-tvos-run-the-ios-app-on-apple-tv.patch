@@ -1,0 +1,291 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: wu <wuwei.vip@gmail.com>
+Date: Sun, 1 Nov 2026 19:23:22 +0800
+Subject: [PATCH] tvOS: run the iOS app on Apple TV
+
+Build the iOS front end for tvOS: guard the APIs tvOS does not have (the
+Files document picker and cloud saves, the shake and phone-gyro motion
+sensors, haptics, screen brightness, the external-display scene accessory,
+interface orientation, sigaltstack, Slider/Stepper and insetGrouped in the
+SwiftUI launcher) with TARGET_OS_TV / os(tvOS), accept the appletvos
+platform in stage_resources.sh, and drop IOKit from the iOS link line
+(the tvOS SDK has no IOKit; nothing in the host links against it).
+
+Verified on an AppleTV11,1 (A12, tvOS 26.6): the app builds, signs with a
+free personal team, installs over a network-dev tunnel and launches; the
+launcher runs with a controller. The game itself stops at the engine's
+Metal 4 requirement (A12 has no Metal 4), which is a hardware limit, not
+a porting gap: an M3-or-newer Apple TV should get past it.
+
+Co-Authored-By: Claude Code <noreply@anthropic.com>
+
+Upstream-Status: pending
+Reason: a tvOS target for Apple TV: the iOS front end builds and runs on tvOS with these guards, which is the first slice of LNPANDY/NX2Apple#163 (the tvOS target and pipeline flags)
+Issue: LNPANDY/NX2Apple#163
+
+Upstream-Status: pending
+Reason: TODO: why the fork carries this
+Issue: TODO: LNPANDY/NX2Apple#<n>
+
+---
+ dm/host/crash.c                  | 12 ++++++++++--
+ dm/ios/Sources/DmGamepad.m       | 20 +++++++++++++++++++-
+ dm/ios/Sources/Launcher.swift    |  6 +++++-
+ dm/ios/Sources/LauncherRow.swift |  7 +++++++
+ dm/ios/Sources/front_ios.m       |  7 ++++++-
+ dm/ios/Sources/main.m            |  3 +++
+ dm/ios/tools/stage_resources.sh  |  2 +-
+ 7 files changed, 51 insertions(+), 6 deletions(-)
+
+diff --git a/dm/host/crash.c b/dm/host/crash.c
+index 026e4d7..2c8723d 100644
+--- a/dm/host/crash.c
++++ b/dm/host/crash.c
+@@ -184,14 +184,22 @@ static void on_crash(int sig, siginfo_t *si, void *uc_) {
+ }
+ // The signal alternate stack is per thread: every guest thread must call this when it starts running (only then can the crash state be printed on the alternate stack on a stack overflow)
+ // The alternate stack is released when the thread exits: the pthread key destructor is called at thread exit (disable the alternate stack first, then free). The game frequently starts short-lived threads, and without releasing each one leaks 64 KiB.
++#if TARGET_OS_TV
++#define DM_NO_ALTSTACK 1
++#endif
++#ifndef DM_NO_ALTSTACK
++#define DM_ALTSTACK_SET(ss) sigaltstack(&(ss), 0)
++#else
++#define DM_ALTSTACK_SET(ss) ((void)0)
++#endif
+ static pthread_key_t g_altstack_key;
+ static pthread_once_t g_altstack_once = PTHREAD_ONCE_INIT;
+-static void altstack_free(void *p) { stack_t off = {.ss_flags = SS_DISABLE}; sigaltstack(&off, 0); free(p); }
++static void altstack_free(void *p) { stack_t off = {.ss_flags = SS_DISABLE}; DM_ALTSTACK_SET(off); free(p); }
+ static void altstack_key_init(void) { if (pthread_key_create(&g_altstack_key, altstack_free)) die("altstack key"); }
+ void crash_thread_init(void) {
+     pthread_once(&g_altstack_once, altstack_key_init);
+     if (pthread_getspecific(g_altstack_key)) return;                 // Repeated calls on the same thread do not allocate again
+-    stack_t ss = {.ss_sp = malloc(65536), .ss_size = 65536}; sigaltstack(&ss, 0);
++    stack_t ss = {.ss_sp = malloc(65536), .ss_size = 65536}; DM_ALTSTACK_SET(ss);
+     pthread_setspecific(g_altstack_key, ss.ss_sp);
+ }
+ void crash_install(void) {
+diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
+index 395e2e6..d4d51e3 100644
+--- a/dm/ios/Sources/DmGamepad.m
++++ b/dm/ios/Sources/DmGamepad.m
+@@ -18,8 +18,11 @@
+ //   Each physical controller is a player of its own (local co-op), as on the Mac: the first one connected is player 1, together with the touch gamepad, the next player 2, and so on up to 8; see "Physical controllers" below.
+ //   Shaking the phone shakes the controller (DM_BTN_SHAKE: its six-axis sensor, hle_hid.c), whichever controls are in use; see "Shaking the phone" below.
+ #import <UIKit/UIKit.h>
++#import <TargetConditionals.h>
+ #import <GameController/GameController.h>
++#if !TARGET_OS_TV
+ #import <CoreMotion/CoreMotion.h>
++#endif
+ #import <CoreText/CoreText.h>
+ #include <pthread.h>
+ #include "dm.h"
+@@ -45,6 +48,7 @@
+     pthread_mutex_unlock(&g_mu);
+ }
+ 
++#if !TARGET_OS_TV   // tvOS: no motion sensors on the Apple TV remote-less box; shake/gyro are phone features
+ // ---- Shaking the phone ----
+ // The accelerometer at 60 Hz (no gyroscope, no permission prompt): gravity is followed by a slow low-pass (about 0.8 s), and a sample whose acceleration beyond it exceeds DM_SHAKE_G
+ // (1.5 G by default; Documents/env.txt overrides) is a hit. The controller is shaken until 120 ms after the last hit: a flick is one shake (the host finishes it as a whole cycle)
+@@ -107,6 +111,7 @@ static void phone_motion_start(UIView *body) {
+         dm_motion_set_switch(0, as, ws);
+     }];
+ }
++#endif
+ 
+ // ---- Layout constants (in u; x measured from the outer edge, the right half mirrors) ----
+ static const CGFloat
+@@ -163,7 +168,9 @@ @implementation DmGamepad {
+     NSDate *_swapDown;                               // when the layout button went down: a long press opens the editor (or resets inside it)
+     NSMutableDictionary<NSString *, CAShapeLayer *> *_ghosts;   // dashed outlines of the movable groups, visible only while editing
+     NSMutableDictionary<NSString *, NSArray<NSNumber *> *> *_draft;   // the editor's unsaved positions: group → [x, y] in screen fractions
++#if !TARGET_OS_TV
+     UIImpactFeedbackGenerator *_touchFeedback;       // one short feedback per touch-control press edge
++#endif
+     unsigned _hapticSticks;
+     BOOL _stickShown;                              // the left stick was held at the last refresh
+     BOOL _full, _tap;                              // the 3D layout / the Tap layout is current
+@@ -188,12 +195,17 @@ @implementation DmGamepad {
+ 
+ - (instancetype)initWithFrame:(CGRect)f {
+     if ((self = [super initWithFrame:f])) {
+-        self.multipleTouchEnabled = YES; self.opaque = NO; self.backgroundColor = UIColor.clearColor;
++        #if !TARGET_OS_TV
++        self.multipleTouchEnabled = YES;
++        #endif
++        self.opaque = NO; self.backgroundColor = UIColor.clearColor;
++#if !TARGET_OS_TV
+         const char *feedback = getenv("DM_TOUCH_HAPTICS");
+         if (!feedback || atoi(feedback)) {
+             _touchFeedback = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleLight];
+             [_touchFeedback prepare];
+         }
++#endif
+         _owner = [NSMapTable strongToStrongObjectsMapTable]; _faceOf = [NSMapTable strongToStrongObjectsMapTable];
+         static dispatch_once_t once;
+         dispatch_once(&once, ^{
+@@ -230,8 +242,10 @@ - (instancetype)initWithFrame:(CGRect)f {
+         [nc addObserver:self selector:@selector(padsChanged:) name:GCControllerDidDisconnectNotification object:nil];
+         pads_start();
+         [self padsChanged:nil];
++#if !TARGET_OS_TV
+         motion_start();
+         phone_motion_start(self);
++#endif
+     }
+     return self;
+ }
+@@ -409,9 +423,11 @@ - (void)recompute {
+     BOOL changed = face != _faceBits || dpad != _dpadBits || btn != _btnBits || swap != _swapHeld;
+     uint64_t pressed = (face | dpad | btn) & ~(_faceBits | _dpadBits | _btnBits);
+     unsigned gripping = (_stick[0] ? 1u : 0) | (_stick[1] ? 2u : 0);
++#if !TARGET_OS_TV
+     if (pressed || (swap && !_swapHeld) || (gripping & ~_hapticSticks)) {
+         [_touchFeedback impactOccurredWithIntensity:0.6]; [_touchFeedback prepare];
+     }
++#endif
+     _hapticSticks = gripping;
+     _faceBits = face; _dpadBits = dpad; _btnBits = btn; _swapHeld = swap;
+     pthread_mutex_lock(&g_mu);
+@@ -534,7 +550,9 @@ static void placeLabel(CATextLayer *t, CGPoint c, CGFloat fs) {
+ 
+ - (void)layoutSubviews {
+     [super layoutSubviews];
++#if !TARGET_OS_TV
+     UIWindowScene *ws = self.window.windowScene; if (ws) atomic_store(&g_iface_orient, (int)ws.effectiveGeometry.interfaceOrientation);
++#endif
+     CGFloat u = self.u;
+     [CATransaction begin]; [CATransaction setDisableActions:YES];
+     _controls.frame = self.layer.bounds;
+diff --git a/dm/ios/Sources/Launcher.swift b/dm/ios/Sources/Launcher.swift
+index 44af3cc..4571cb8 100644
+--- a/dm/ios/Sources/Launcher.swift
++++ b/dm/ios/Sources/Launcher.swift
+@@ -16,6 +16,7 @@ private func info(_ key: String) -> Any? { Bundle.main.object(forInfoDictionaryK
+ /// picker — so a game's RomFS kept on an external drive or in iCloud Drive could not be used at all
+ /// before this. Picking an image (romfs.img) or a folder stores a bookmark (DataBookmark.m), and
+ /// romfs_locate() prefers it from the next launch on.
++#if !os(tvOS)   // tvOS has no Files/document picker: game data and cloud saves are pushed into the container instead
+ private struct GameDataSection: View {
+     @State private var picked: String = ""
+     @State private var note: String = ""
+@@ -148,6 +149,7 @@ private struct DocumentPicker: UIViewControllerRepresentable {
+         func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) { onCancel() }
+     }
+ }
++#endif
+ 
+ private struct LauncherView: View {
+     @ObservedObject var m: LauncherModel
+@@ -186,8 +188,10 @@ private struct LauncherView: View {
+                     } footer: {
+                         Text("Brings back all settings this game was tested with.")
+                     }
++                    #if !os(tvOS)
+                     GameDataSection()
+                     CloudSavesSection()
++                    #endif
+                     Section {
+                         HStack {
+                             Text("Memory available")
+@@ -196,7 +200,7 @@ private struct LauncherView: View {
+                         }
+                     }
+                 }
+-                .listStyle(.insetGrouped)
++                .listStyle(.grouped)
+                 .contentMargins(.horizontal, 12, for: .scrollContent)
+                 .frame(width: geometry.size.width * 2 / 3)
+             }
+diff --git a/dm/ios/Sources/LauncherRow.swift b/dm/ios/Sources/LauncherRow.swift
+index 82fa3b3..260b945 100644
+--- a/dm/ios/Sources/LauncherRow.swift
++++ b/dm/ios/Sources/LauncherRow.swift
+@@ -45,9 +45,16 @@ struct SettingRow: View {
+                         Spacer()
+                         Text(percentage).monospacedDigit().foregroundStyle(.secondary)
+                     }
++#if os(tvOS)
++                    HStack {
++                        Button { rangeValue.wrappedValue = max((s.min ?? 0), rangeValue.wrappedValue - (s.step ?? 0.05)) } label: { Image(systemName: "minus.circle") }
++                        Button { rangeValue.wrappedValue = min((s.max ?? 1), rangeValue.wrappedValue + (s.step ?? 0.05)) } label: { Image(systemName: "plus.circle") }
++                    }
++#else
+                     Slider(value: rangeValue, in: (s.min ?? 0)...(s.max ?? 1), step: s.step ?? 0.05)
+                         .accessibilityLabel(s.label)
+                         .accessibilityValue(percentage)
++#endif
+                 }
+             default:
+                 Toggle(isOn: Binding(get: { (m.values[s.env] ?? s.def) == s.onValue }, set: { m.values[s.env] = $0 ? s.onValue : s.offValue })) {
+diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
+index 0469c90..8ab1cb3 100644
+--- a/dm/ios/Sources/front_ios.m
++++ b/dm/ios/Sources/front_ios.m
+@@ -1,6 +1,7 @@
+ // iOS front end (the iOS implementation of front.h): a centered 16:9 Metal view (black bars on both sides) + a full-screen virtual gamepad layer (DmGamepad.m, controls drawn over the picture);
+ // with a TV connected the Metal view is on the TV and the phone shows the pad (DmTVSceneDelegate).
+ // The host runs on the big-stack thread started by main.m; front_run runs the guest directly on the calling thread.
++#include <TargetConditionals.h>
+ #import <UIKit/UIKit.h>
+ #import <QuartzCore/CAMetalLayer.h>
+ #import <Metal/Metal.h>
+@@ -84,7 +85,7 @@ - (void)viewDidLoad {
+         [self.view addSubview:lb]; return;
+     }
+     front_ios_audio_watch();
+-#if defined(__IPHONE_27_0)   // compiled only with an SDK that has the scene accessory API
++#if defined(__IPHONE_27_0) && !TARGET_OS_TV   // compiled only with an SDK that has the scene accessory API (tvOS has none)
+     if (@available(iOS 27.0, *)) {   // iOS 27 offers a TV scene only to a registered scene accessory, no longer from the Info.plist entry alone (that path stays for iOS 26)
+         UISceneConfiguration *c = [[UISceneConfiguration alloc] initWithName:@"TV" sessionRole:UIWindowSceneSessionRoleExternalDisplayNonInteractive];
+         c.delegateClass = NSClassFromString(@"DmTVSceneDelegate");
+@@ -194,8 +195,12 @@ - (void)sceneDidDisconnect:(UIScene *)s { if (g_tv == self.window) tv_detach();
+ int dm_low_power_now(void) { return NSProcessInfo.processInfo.lowPowerModeEnabled; }   // the frame step does not probe in it (hle_nvn.c fstep_cpu_slowed)
+ double dm_brightness_now(void) { return g_brightness; }
+ static void front_ios_power_watch(void) {
++    #if !TARGET_OS_TV
+     g_brightness = UIScreen.mainScreen.brightness;
++    #endif
++#if !TARGET_OS_TV
+     [NSNotificationCenter.defaultCenter addObserverForName:UIScreenBrightnessDidChangeNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *n) { (void)n; g_brightness = UIScreen.mainScreen.brightness; }];
++#endif
+     [NSNotificationCenter.defaultCenter addObserverForName:NSProcessInfoThermalStateDidChangeNotification object:nil queue:nil usingBlock:^(NSNotification *n) {
+         (void)n; LOG("front end: thermal state → %d (%.0f s after launch)", dm_thermal_now(), (now_ns() - g_t0_ns) / 1e9); }];
+     [NSNotificationCenter.defaultCenter addObserverForName:NSProcessInfoPowerStateDidChangeNotification object:nil queue:nil usingBlock:^(NSNotification *n) {
+diff --git a/dm/ios/Sources/main.m b/dm/ios/Sources/main.m
+index 051cd55..d0b87b3 100644
+--- a/dm/ios/Sources/main.m
++++ b/dm/ios/Sources/main.m
+@@ -1,5 +1,6 @@
+ // iOS App entry: set the environment (game files, saves, shader libraries), write the host log to Documents/log.txt, create the window (front_ios.m), then run the host's dm_main on a big-stack thread.
+ // The game files (RomFS) ship inside the App at <App>/romfs; Documents/romfs.img (one image, scripts/push_romfs.sh; its name in any letter case) or a Documents/romfs folder is also accepted (lets you swap them without reinstalling).
++#include <TargetConditionals.h>
+ #import <UIKit/UIKit.h>
+ #import <Metal/Metal.h>
+ #include <pthread.h>
+@@ -282,7 +283,9 @@ static int boot_env(void) {
+ 
+ static void *boot_thread(void *p) {
+     (void)p;
++#if !TARGET_OS_TV
+     static char alt[65536]; stack_t ss = {.ss_sp = alt, .ss_size = sizeof alt}; sigaltstack(&ss, 0);   // crash printing must work on the host thread too
++#endif
+     int rc = dm_main(g_argc, g_argv);
+     fprintf(stderr, "boot: dm_main returned %d\n", rc);
+     return NULL;
+diff --git a/dm/ios/tools/stage_resources.sh b/dm/ios/tools/stage_resources.sh
+index 6527bc6..e2eebb6 100644
+--- a/dm/ios/tools/stage_resources.sh
++++ b/dm/ios/tools/stage_resources.sh
+@@ -4,7 +4,7 @@
+ set -eu
+ [ "${DM_COPY_GAME_RESOURCES:-YES}" != NO ] || exit 0
+ die() { echo "[RED] $*" >&2; exit 1; }
+-[ "${PLATFORM_NAME:-}" = iphoneos ] || die 'This game needs a physical iPhone or iPad; choose a device, not a simulator.'
++[ "${PLATFORM_NAME:-}" = iphoneos ] || [ "${PLATFORM_NAME:-}" = appletvos ] || die 'This game needs a physical iPhone or iPad; choose a device, not a simulator.'
+ [ -f "${SRCROOT:?}/Gen/resources.env" ] || die 'Missing game resource paths; run build_ipa_from_nsp.py --prepare-xcode first.'
+ source "$SRCROOT/Gen/resources.env"
+ APP="${TARGET_BUILD_DIR:?}/${UNLOCALIZED_RESOURCES_FOLDER_PATH:?}"
