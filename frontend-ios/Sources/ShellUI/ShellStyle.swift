@@ -13,7 +13,8 @@ public enum ShellPalette {
 }
 
 enum ShellStrings {
-    static func text(_ key: String.LocalizationValue) -> String { String(localized: key, bundle: .module) }
+    static var bundle: Bundle { .module }
+    static func text(_ key: String.LocalizationValue) -> String { String(localized: key, bundle: ShellLanguage.bundle(bundle)) }
 }
 
 @MainActor public enum ShellFonts {

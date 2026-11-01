@@ -173,8 +173,10 @@ public enum GameCatalogue {
 public enum DataSource: Equatable, Sendable {
     /// The app's own `Documents/games/<title ID>/`.
     case app
-    /// A folder the player picked, through a bookmark.
+    /// A folder the player picked for this game, through a bookmark.
     case picked
+    /// The data folder the player picked once for every game, in the shell's settings.
+    case shell
 }
 
 public struct DataResolution: Equatable, Sendable {
@@ -201,7 +203,7 @@ public enum DataLocator {
         }
         switch global {   // the shell-level data folder: the game's own bookmark wins, this backs it up
         case .url(let url):
-            if let dir = holder(of: url, manifest: manifest, fm) { result.url = dir; result.source = .picked; return result }
+            if let dir = holder(of: url, manifest: manifest, fm) { result.url = dir; result.source = .shell; return result }
         case .stale, .none: break
         }
         if let dir = holder(of: appFolder, manifest: manifest, fm) { result.url = dir; result.source = .app }
