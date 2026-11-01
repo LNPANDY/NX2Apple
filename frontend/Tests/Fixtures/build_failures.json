@@ -81,8 +81,8 @@
   "id": "games.several",
   "kind": "severalGames",
   "source": "scripts/build_ipa_from_nsp.py",
-  "fragment": "more than one game in the folder, keep one game per folder",
-  "text": "[RED] more than one game in the folder, keep one game per folder: 0100000000010000, 01006F8002326000"
+  "fragment": "more than one game in the folder",
+  "text": "[RED] more than one game in the folder: 0100000000010000, 01006F8002326000; keep one game per folder, or name the one to pack with --title-id / TITLE_ID (a cartridge dump that holds two games)"
  },
  {
   "id": "games.noTitleID",

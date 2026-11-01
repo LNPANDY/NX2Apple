@@ -25,7 +25,7 @@ Issue: LNPANDY/NX2Apple#144
  create mode 100644 dm/host/loader_image.h
 
 diff --git a/dm/host/loader.c b/dm/host/loader.c
-index fb14972..ae0a76f 100644
+index f381ac2..94e62a2 100644
 --- a/dm/host/loader.c
 +++ b/dm/host/loader.c
 @@ -10,9 +10,15 @@
@@ -44,7 +44,7 @@ index fb14972..ae0a76f 100644
  // Stable module addresses live in g_mod; lookup order follows activation, including unload/reload.
  static module_t **g_loaded; static int g_nloaded, g_mod_capacity;
  static pthread_rwlock_t g_modules_mu = PTHREAD_RWLOCK_INITIALIZER;
-@@ -522,7 +528,9 @@ static void remap_at(module_t *m, vm_address_t to, const void *from, unsigned lo
+@@ -541,7 +547,9 @@ static void remap_at(module_t *m, vm_address_t to, const void *from, unsigned lo
      if (kr != KERN_SUCCESS || a != to) die("%s vm_remap %p → %#lx (%#lx bytes) failed: %d", m->name, from, (unsigned long)to, size, kr);
      if ((cur & need) != need) die("%s permissions after vm_remap %#x, missing %#x", m->name, cur, need);
  }

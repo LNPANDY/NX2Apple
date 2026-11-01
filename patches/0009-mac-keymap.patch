@@ -9,7 +9,7 @@ Upstream-Status: forwarded seedds/nxnative#386
 Reason: The launcher's Controls page: DM_KEYMAP and DM_PAD_MAP move buttons to other keys and controller buttons (open upstream, #386)
 Issue: LNPANDY/NX2Apple#386
 ---
- dm/host/front_mac.m                 | 42 +++++++--------
+ dm/host/front_mac.m                 | 54 ++++++++++---------
  dm/host/input_map.h                 | 82 +++++++++++++++++++++++++++++
  dm/host/tests/Makefile              |  8 ++-
  dm/host/tests/t_input_map.c         | 43 +++++++++++++++
@@ -17,21 +17,21 @@ Issue: LNPANDY/NX2Apple#386
  dm/tools/impact_map.tsv             |  1 +
  docs/development.md                 |  2 +
  docs/env_switches.tsv               |  2 +
- 8 files changed, 193 insertions(+), 22 deletions(-)
+ 8 files changed, 200 insertions(+), 27 deletions(-)
  create mode 100644 dm/host/input_map.h
  create mode 100644 dm/host/tests/t_input_map.c
  create mode 100644 dm/host/tests/t_launcher_contract.c
 
 diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
-index beffeea..fb74e5b 100644
+index 714987f..6123890 100644
 --- a/dm/host/front_mac.m
 +++ b/dm/host/front_mac.m
 @@ -4,7 +4,8 @@
  // Cheats (hle_cheats.c): the Cheats menu's rows toggle, reload (⌘R) and open the cheats folder; its first item "Show Cheats
  // Window" (⌘⇧C, or DM_CHEATS_WINDOW=1 at launch) opens a Cheats panel beside the game: sections, search, the master switch,
  // safe mode, values, details and the import of cheat files (see the code below).
--// Key map (Nintendo layout): WASD left stick, arrow keys D-pad, J=A K=B U=X I=Y, Q=L E=R, Z=ZL C=ZR, F=press left stick G=press right stick, Return=+ Tab=−, Space=shake the controller.
-+// Key map (Nintendo layout): WASD left stick, arrow keys D-pad, J=A K=B U=X I=Y, Q=L E=R, Z=ZL C=ZR, F=press left stick G=press right stick, Return=+ Tab=−, Space=shake the controller;
+-// Key map (Nintendo layout): WASD left stick, arrow keys D-pad (with Shift held: the right stick, for the camera), J=A K=B U=X I=Y, Q=L E=R, Z=ZL C=ZR, F=press left stick G=press right stick, Return=+ Tab=−, Space=shake the controller.
++// Key map (Nintendo layout): WASD left stick, arrow keys D-pad (with Shift held: the right stick, for the camera), J=A K=B U=X I=Y, Q=L E=R, Z=ZL C=ZR, F=press left stick G=press right stick, Return=+ Tab=−, Space=shake the controller;
 +// DM_KEYMAP moves a function to another key (the right stick too), DM_PAD_MAP changes what a controller's buttons send (input_map.h).
  // Controllers: face buttons as on the iPhone, by position (right A, bottom B, top X, left Y) or on a Nintendo pad by its labels (pad_apple.h), shoulders L R, triggers ZL ZR, Menu + Options −, both sticks and their presses.
  // Each controller is a player of its own (local co-op): the first one connected is player 1, together with the keyboard, the next player 2, and so on up to 8 (pad_slots.h);
@@ -44,24 +44,27 @@ index beffeea..fb74e5b 100644
  #include "haptics_apple.h"
  #include "motion_apple.h"
  #include "motion_pro_mac.h"
-@@ -27,7 +29,6 @@
+@@ -28,8 +30,7 @@
  
  static CAMetalLayer *g_layer;
  static uint64_t g_btn;
 -static int g_w, g_a, g_s, g_d;
+-static int g_rl, g_ru, g_rr, g_rd;   // arrow keys pressed with Shift held: the right stick (each goes back up as it went down, whatever Shift does meanwhile)
++static int8_t g_shift_fn[IM_KEYS];   // a D-pad key pressed with Shift held: the right-stick function it holds until released, plus 1 (0: none)
  static int g_input_on = 1;   // main thread: the game window is key, so its keyboard, mouse and controllers reach the game (input_release / input_resume)
  
  void *front_metal_layer(void) { return (__bridge void *)g_layer; }
-@@ -91,27 +92,20 @@ void front_screen_match(int fps) {
-     if (!g_layer || g_match_want == fps) return;   // no window (a windowless run's main thread runs the guest), or the rate as before
-     g_match_want = fps; dispatch_async(dispatch_get_main_queue(), ^{ screen_match_apply(); });
+@@ -107,33 +108,28 @@ static void cursor_hide_for_input(void) {
+     NSView *v = g_win.contentView;
+     if (NSPointInRect([v convertPoint:g_win.mouseLocationOutsideOfEventStream fromView:nil], v.bounds)) [NSCursor setHiddenUntilMouseMoves:YES];
  }
 +// Keyboard: each key holds one function of the key map (input_map.h; DM_KEYMAP changes it), the held functions make the buttons and both sticks
 +static key_map g_keys;
 +static uint32_t g_held_fn;   // bit f: a key holding function f is down
  static void push(void) {
 -    int32_t lx = (g_d - g_a) * 32767, ly = (g_w - g_s) * 32767;
--    dm_input_set(g_btn, lx, ly, 0, 0);
+-    int32_t rx = (g_rr - g_rl) * 32767, ry = (g_ru - g_rd) * 32767;
+-    dm_input_set(g_btn, lx, ly, rx, ry);
 -}
 -static int key_bit(unsigned short code) {
 -    switch (code) {
@@ -79,44 +82,51 @@ index beffeea..fb74e5b 100644
  }
  static void on_key(NSEvent *e, int down) {
      if (!g_input_on) return;
--    unsigned short c = e.keyCode;
+     unsigned short c = e.keyCode;
 -    switch (c) { case 13: g_w = down; break; case 0: g_a = down; break; case 1: g_s = down; break; case 2: g_d = down; break; }
+-    // An arrow key pressed with Shift held is the right stick until it is released; without Shift, the D-pad. The keyboard had no right stick: a 3D game's camera
++    int f = key_map_fn(&g_keys, c); if (f < 0) return;
++    // A D-pad key pressed with Shift held is the matching right-stick direction until it is released; without Shift, the D-pad. The keyboard had no right stick: a 3D game's camera
+     // could be turned only with a controller (Donkey Kong Bananza)
+-    int *rs = c == 123 ? &g_rl : c == 126 ? &g_ru : c == 124 ? &g_rr : c == 125 ? &g_rd : NULL;
+-    if (rs && (down ? (e.modifierFlags & NSEventModifierFlagShift) != 0 : *rs)) { *rs = down; push(); return; }
 -    int b = key_bit(c);
 -    uint64_t m = b >= 0 ? 1ull << b : c == 49 ? DM_BTN_SHAKE : 0;   // Space: shaken while held
 -    g_btn = down ? (g_btn | m) : (g_btn & ~m);
-+    int f = key_map_fn(&g_keys, e.keyCode); if (f < 0) return;
+-    if (down && (m || c == 13 || c == 0 || c == 1 || c == 2)) cursor_hide_for_input();   // a key the game takes (WASD: the left stick)
++    if (c < IM_KEYS) {
++        if (down && f >= 12 && f <= 15 && (e.modifierFlags & NSEventModifierFlagShift)) g_shift_fn[c] = (int8_t)((f == 12 ? IM_RLEFT : f == 13 ? IM_RUP : f == 14 ? IM_RRIGHT : IM_RDOWN) + 1);
++        if (g_shift_fn[c]) { int rf = g_shift_fn[c] - 1; g_held_fn = down ? (g_held_fn | 1u << rf) : (g_held_fn & ~(1u << rf)); if (!down) g_shift_fn[c] = 0; push(); return; }
++    }
 +    g_held_fn = down ? (g_held_fn | 1u << f) : (g_held_fn & ~(1u << f));
 +    g_btn = (g_held_fn & 0xffff) | (g_held_fn >> IM_SHAKE & 1 ? DM_BTN_SHAKE : 0);
++    if (down) cursor_hide_for_input();   // a key the game takes
      push();
  }
  
-@@ -123,6 +117,7 @@ static void on_key(NSEvent *e, int down) {
+@@ -145,9 +141,11 @@ static void on_key(NSEvent *e, int down) {
  static pad_slots g_slots;
  static GCController *g_held[DM_PLAYERS];   // the controller of each slot, kept alive while it holds it (the slot table keys on its pointer)
  static int g_merge, g_kbd_own;
 +static pad_map g_padmap;   // DM_PAD_MAP (input_map.h): what each button sends, applied to every controller
  static int32_t pad_axis(float v) { return (int32_t)(fmaxf(-1.f, fminf(1.f, v)) * DM_STICK_MAX); }
- static void pad_read(GCExtendedGamepad *g) {
-     if (!g_input_on) return;
-@@ -134,6 +129,7 @@ static void pad_read(GCExtendedGamepad *g) {
-     K(g.buttonMenu, DM_BTN_PLUS); K(g.buttonOptions, DM_BTN_MINUS); K(g.leftThumbstickButton, DM_BTN_LS); K(g.rightThumbstickButton, DM_BTN_RS);   // nil on pads without them: not pressed
-     K(g.dpad.left, DM_BTN_LEFT); K(g.dpad.up, DM_BTN_UP); K(g.dpad.right, DM_BTN_RIGHT); K(g.dpad.down, DM_BTN_DOWN);
-     #undef K
-+    m = pad_map_apply(&g_padmap, m);
-     dm_pad_set_player(p, m, pad_axis(g.leftThumbstick.xAxis.value), pad_axis(g.leftThumbstick.yAxis.value), pad_axis(g.rightThumbstick.xAxis.value), pad_axis(g.rightThumbstick.yAxis.value));
- }
- // Home and Capture: without this macOS takes them as system gestures (Home opens the Games app); the host gives them no function
-@@ -190,7 +186,7 @@ static void pads_changed(GCController *gone) {
- static void input_release(void) {
+ // A controller's state for player p, GameController or raw HID: a pressed button or a stick past 15% hides the pointer (cursor_hide_for_input), a resting stick's drift does not
+ static void pad_set(int p, uint64_t m, int32_t lx, int32_t ly, int32_t rx, int32_t ry) {
++    m = pad_map_apply(&g_padmap, m);   // DM_PAD_MAP
+     const int32_t dead = DM_STICK_MAX * 15 / 100;
+     if (m || abs(lx) > dead || abs(ly) > dead || abs(rx) > dead || abs(ry) > dead) cursor_hide_for_input();
+     dm_pad_set_player(p, m, lx, ly, rx, ry);
+@@ -235,7 +233,7 @@ static void input_release(void) {
+     display_awake(0);
      g_input_on = 0;
      dm_motion_pro_active(0);
--    g_btn = 0; g_w = g_a = g_s = g_d = 0; push();
-+    g_btn = 0; g_held_fn = 0; push();
+-    g_btn = 0; g_w = g_a = g_s = g_d = 0; g_rl = g_ru = g_rr = g_rd = 0; push();
++    g_btn = 0; g_held_fn = 0; memset(g_shift_fn, 0, sizeof g_shift_fn); push();
      if (g_mouse_down) { g_mouse_down = 0; dm_touch_set(NULL, 0); }
-     if (g_merge) { for (GCController *c in GCController.controllers) if (c.extendedGamepad) { dm_pad_set(0, 0, 0, 0, 0); break; } }
-     else for (int p = 0; p < DM_PLAYERS; p++) if (g_held[p]) dm_pad_set_player(p, 0, 0, 0, 0, 0);
-@@ -202,6 +198,10 @@ static void input_resume(void) {
-     else for (int p = 0; p < DM_PLAYERS; p++) if (g_held[p].extendedGamepad) pad_read(g_held[p].extendedGamepad);
+     if (g_merge) { if (merge_pads_left(nil)) dm_pad_set(0, 0, 0, 0, 0); return; }
+     for (int p = 0; p < DM_PLAYERS; p++) if (g_held[p]) dm_pad_set_player(p, 0, 0, 0, 0, 0);
+@@ -275,6 +273,10 @@ static void hidpad_detach(hid_pad *d) {   // d is already off g_hidpads
+     dm_pad_players(pad_slot_mask(&g_slots));
  }
  static void pads_start(void) {
 +    key_map_default(&g_keys); pad_map_default(&g_padmap);
@@ -126,12 +136,12 @@ index beffeea..fb74e5b 100644
      const char *e = getenv("DM_PAD_MERGE"); g_merge = e && atoi(e);
      e = getenv("DM_KBD_PLAYER"); g_kbd_own = !g_merge && e && !strcmp(e, "own");
      static const char kbd = 0;
-@@ -1255,7 +1255,7 @@ int front_text_input(const char *title, const char *sub, const char *guide, cons
+@@ -1333,7 +1335,7 @@ int front_text_input(const char *title, const char *sub, const char *guide, cons
      dispatch_sync(dispatch_get_main_queue(), ^{
          // The box takes the keyboard and the mouse, so the game window never sees the key-up of the button or the touch-up of the click that opened it: nothing may stay pressed
          // while it is up, or the game reads the stuck button / touch the moment the box closes (Stardew Valley's character creation re-opened the keyboard endlessly)
--        g_btn = 0; g_w = g_a = g_s = g_d = 0; push();
-+        g_btn = 0; g_held_fn = 0; push();
+-        g_btn = 0; g_w = g_a = g_s = g_d = 0; g_rl = g_ru = g_rr = g_rd = 0; push();
++        g_btn = 0; g_held_fn = 0; memset(g_shift_fn, 0, sizeof g_shift_fn); push();
          dm_touch_set(NULL, 0);
          int min_chars = g_swkbd_min_chars > 0 ? g_swkbd_min_chars : 0;
          NSString *info = [NSString stringWithFormat:@"%s%s%s", sub ? sub : "", sub && *sub && guide && *guide ? "\n" : "", guide ? guide : ""];
@@ -224,28 +234,28 @@ index 0000000..56fa499
 +}
 +static int pad_map_is_default(const pad_map *m) { for (int b = 0; b < IM_BUTTONS; b++) if (m->to[b] != b) return 0; return 1; }
 diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
-index 099bcfe..97d104c 100644
+index fdd2817..61529d6 100644
 --- a/dm/host/tests/Makefile
 +++ b/dm/host/tests/Makefile
 @@ -12,7 +12,7 @@ QUIET = $(if $(findstring -fsanitize,$(SAN)),,2>/dev/null)
  GINC = $(if $(strip $(GAME)),-I../gen/$(GAME) -I../../games/$(GAME),$(error GAME is not set: make GAME=<base game title ID>: $(shell python3 ../../games/game.py list | awk -F'\t' '{printf "%s (%s)  ", $$1, $$3}')))
  $(B)/t_fs $(B)/t_fs_case $(B)/t_fs_commit_list $(B)/t_fs_commit_list_tsan: ../romfs_image.h
  GAME_H = ../gen/$(GAME)/game_profile.h
--run: $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture $(B)/t_oe $(B)/t_fs $(B)/t_fs_commit_list $(B)/t_thread_leak $(B)/t_fs_case $(B)/t_audio $(B)/t_audio_spsc $(B)/t_swkbd $(B)/t_altstack $(B)/t_condvar $(B)/t_condvar_old $(B)/t_pollwait $(B)/t_pctl $(B)/t_time $(B)/t_shared_font $(B)/t_vorbis $(B)/t_vorbis_divides $(B)/t_hid $(B)/t_haptics $(B)/t_haptics_apple $(B)/t_cheats
-+run: $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture $(B)/t_oe $(B)/t_fs $(B)/t_fs_commit_list $(B)/t_thread_leak $(B)/t_fs_case $(B)/t_audio $(B)/t_audio_spsc $(B)/t_swkbd $(B)/t_altstack $(B)/t_condvar $(B)/t_condvar_old $(B)/t_pollwait $(B)/t_pctl $(B)/t_time $(B)/t_shared_font $(B)/t_vorbis $(B)/t_vorbis_divides $(B)/t_hid $(B)/t_haptics $(B)/t_haptics_apple $(B)/t_cheats $(B)/t_input_map $(B)/t_launcher_contract
+-run: $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture $(B)/t_oe $(B)/t_fs $(B)/t_fs_commit_list $(B)/t_thread_leak $(B)/t_fs_case $(B)/t_audio $(B)/t_audio_spsc $(B)/t_swkbd $(B)/t_altstack $(B)/t_condvar $(B)/t_condvar_old $(B)/t_pollwait $(B)/t_pctl $(B)/t_time $(B)/t_shared_font $(B)/t_vorbis $(B)/t_vorbis_divides $(B)/t_hid $(B)/t_haptics $(B)/t_haptics_apple $(B)/t_cheats $(B)/t_pad_hid
++run: $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture $(B)/t_oe $(B)/t_fs $(B)/t_fs_commit_list $(B)/t_thread_leak $(B)/t_fs_case $(B)/t_audio $(B)/t_audio_spsc $(B)/t_swkbd $(B)/t_altstack $(B)/t_condvar $(B)/t_condvar_old $(B)/t_pollwait $(B)/t_pctl $(B)/t_time $(B)/t_shared_font $(B)/t_vorbis $(B)/t_vorbis_divides $(B)/t_hid $(B)/t_haptics $(B)/t_haptics_apple $(B)/t_cheats $(B)/t_pad_hid $(B)/t_input_map $(B)/t_launcher_contract
  	$(B)/t_language
  	$(B)/t_heap_size
  	$(B)/t_touch
-@@ -53,6 +53,8 @@ run: $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture
- 	$(B)/t_motion_pro
+@@ -57,6 +57,8 @@ run: $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture
  	$(B)/t_motion_pro_mac
  	TMPDIR="$(abspath $(B))" $(B)/t_hid
+ 	$(B)/t_pad_hid
 +	$(B)/t_input_map
 +	$(B)/t_launcher_contract
  	$(B)/t_haptics
  	$(B)/t_haptics_apple
  	TMPDIR="$(abspath $(B))" $(B)/t_cheats $(QUIET)
-@@ -175,6 +177,10 @@ $(B)/t_motion_pro: t_motion_pro.c ../motion_pro.h | $(B)
+@@ -196,6 +198,10 @@ $(B)/t_motion_pro: t_motion_pro.c ../motion_pro.h | $(B)
  	$(CLANG) -O1 -g -Wall -Werror -fsanitize=address,undefined -o $@ t_motion_pro.c
  $(B)/t_motion_pro_mac: t_motion_pro_mac.m ../motion_pro_mac.h ../motion_pro.h ../dm_input.h | $(B)
  	$(CLANG) -O1 -g -fobjc-arc -Wall -Werror -Wno-unused-function -fsanitize=address,undefined -I.. -o $@ t_motion_pro_mac.m -framework Foundation -framework GameController -framework IOKit
@@ -359,7 +369,7 @@ index 4961987..de8c929 100644
  dm/host/motion_apple.h	hle:*SixAxisSensor*	controller motion supplied by GameController
  dm/host/pad_apple.h	hle:*hid*	controller face buttons from GameController
 diff --git a/docs/development.md b/docs/development.md
-index 5232a58..d3ebdd2 100644
+index 48dcbd1..b069427 100644
 --- a/docs/development.md
 +++ b/docs/development.md
 @@ -14,6 +14,8 @@ The README covers packing and playing. This page is for working on nxnative itse
@@ -372,10 +382,10 @@ index 5232a58..d3ebdd2 100644
  
  How a Switch with Atmosphère runs cheats, and where this host differs, is in [Cheats on a Switch](reference/cheats.md).
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index 1cee0c6..36c1374 100644
+index f0cbbba..bcb7056 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
-@@ -64,6 +64,7 @@ DM_ICON	path	`=<image>` gives `build_ipa.sh` another app icon (default the `icon
+@@ -67,6 +67,7 @@ DM_ICON	path	`=<image>` gives `build_ipa.sh` another app icon (default the `icon
  DM_IMPORTS	diagnostic	When set, logs each import the loader binds to a host function and each forced takeover
  DM_KBD	switch	`=<text>`: the system keyboard returns that text as OK without showing an input box; unset with no window, it returns cancel
  DM_KBD_PLAYER	switch	`own` makes the Mac keyboard player 1 on its own, with controllers from player 2 on (by default the first controller shares player 1 with the keyboard)
@@ -383,7 +393,7 @@ index 1cee0c6..36c1374 100644
  DM_KEYS	switch	Scripted input: `<seconds or f<frame>>:<key>[+key][~hold or ~f<frames>][*count/interval],…` presses buttons, sticks, touches and `Shake` at those times; `=@<file>` reads the steps from the file
  DM_LANG	player	Game language as a language code (default `en-US`; the iOS app sets the one the IPA was packed with)
  DM_LAUNCHER	switch	`0` skips the iOS settings screen or the Mac settings window and starts the game at once, with the saved choices (on the Mac also `--no-launcher`)
-@@ -192,6 +193,7 @@ DM_OODLE_JOB	path	`=<job file>`: the host runs the game's own Oodle decoder on e
+@@ -197,6 +198,7 @@ DM_OODLE_JOB	path	`=<job file>`: the host runs the game's own Oodle decoder on e
  DM_OODLE_MODULES	path	The rewritten modules the Mac host's Oodle tool mode loads when `shader_split.py` decodes Trinity packs; set by the NSP script
  DM_OODLE_SERVE	switch	`=1`: the host answers decode requests on stdin / stdout with the game's own Oodle (or LZ5) decoder from the guest main thread before the SDK starts, until stdin ends
  DM_OPMODE	player	The operation mode the game sees: `0` handheld, `1` console (default: the profile's `op_mode`, console unless set); read once at startup

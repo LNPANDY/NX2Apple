@@ -15,7 +15,7 @@ Issue: seedds/nxnative#717
  2 files changed, 68 insertions(+), 6 deletions(-)
 
 diff --git a/dm/gfx/tools/own_compilers.py b/dm/gfx/tools/own_compilers.py
-index fc0a062..374f766 100644
+index d0e967d..415bdd1 100644
 --- a/dm/gfx/tools/own_compilers.py
 +++ b/dm/gfx/tools/own_compilers.py
 @@ -2,6 +2,8 @@
@@ -82,14 +82,14 @@ index fc0a062..374f766 100644
  
  if __name__ == '__main__':
 diff --git a/dm/tools/tests/test_own_compilers.py b/dm/tools/tests/test_own_compilers.py
-index 4d4f6d3..7d08101 100644
+index 860e241..0b1fd07 100644
 --- a/dm/tools/tests/test_own_compilers.py
 +++ b/dm/tools/tests/test_own_compilers.py
 @@ -25,6 +25,8 @@ nsp = importlib.util.module_from_spec(spec); spec.loader.exec_module(nsp)
  
  with open(dmsh_chain.LOCK) as _f: LOCKED = dict(l.rstrip('\n').split('\t', 1) for l in _f if '\t' in l and not l.startswith('#'))
  OTHER = 'Apple metal version 32023.850 (metalfe-32023.850.10)'   # Xcode 26's, say
-+NEWER = 'Apple metal version 32023.922 (metalfe-32023.922.4)'   # Xcode 27.2's auto-updated compiler: the recorded generation, newer than the lock
++NEWER = 'Apple metal version 32023.923 (metalfe-32023.923.1)'   # a later auto-updated compiler: the recorded generation, newer than the lock (Xcode 27.2's own 32023.922 is the lock now)
 +FOREIGN = 'Apple metal version 32024.100 (metalfe-32024.100.1)'   # another toolchain generation, however new
  
  
@@ -120,7 +120,7 @@ index 4d4f6d3..7d08101 100644
 +            with self.subTest(other=other):
 +                with self.assertRaises(SystemExit) as e: self.check([mismatch('metal_macosx', other)])
 +                self.assertTrue(str(e.exception.code).startswith('[RED] '))
-+        self.assertEqual(own_compilers.metal_key(LOCKED['metal_macosx']), (32023, 921, 6))
++        self.assertEqual(own_compilers.metal_key(LOCKED['metal_macosx']), (32023, 922, 4))
 +        self.assertIsNone(own_compilers.metal_key('Apple metal 32023.922'))
 +
 +    def test_newer_and_stopping_together(self):   # a newer macOS compiler and an older iOS one: the iOS mismatch stops, both notes reach the log

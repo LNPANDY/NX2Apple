@@ -54,7 +54,7 @@ concurrency:
 
 jobs:
   # The app icon is AppIcon.icon (Icon Composer). The actool of Xcode 26.6 (the default on macos-latest) throws an exception on it, the one of
-  # Xcode 27.1 compiles it. So actool runs on the xcode-27 runner, as in tests.yml, and the build job takes the two files it writes. Assets.car is
+  # Xcode 27.2 compiles it. So actool runs on the xcode-27 runner, as in tests.yml, and the build job takes the two files it writes. Assets.car is
   # the icon for macOS 26 and later (Liquid Glass), AppIcon.icns the one for macOS 13 to 25.
   #
   # On a pull request the icon is cached by the hash of frontend/AppIcon.icon. The icon-cache job looks the cache up on ubuntu-latest, which
@@ -74,14 +74,14 @@ jobs:
         with:
           lookup-only: true
           path: icon-cache
-          key: app-icon-${{ hashFiles('frontend/AppIcon.icon/**') }}-xcode-27.1
+          key: app-icon-${{ hashFiles('frontend/AppIcon.icon/**') }}-xcode-27.2
 
   icon:
     needs: icon-cache
     if: ${{ startsWith(github.ref, 'refs/tags/') || needs.icon-cache.outputs.hit != 'true' }}
     runs-on: xcode-27
     env:
-      DEVELOPER_DIR: /Applications/Xcode_27.1.app/Contents/Developer
+      DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -104,7 +104,7 @@ jobs:
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: icon-cache
-          key: app-icon-${{ hashFiles('frontend/AppIcon.icon/**') }}-xcode-27.1
+          key: app-icon-${{ hashFiles('frontend/AppIcon.icon/**') }}-xcode-27.2
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -128,7 +128,7 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: icon-cache
-          key: app-icon-${{ hashFiles('frontend/AppIcon.icon/**') }}-xcode-27.1
+          key: app-icon-${{ hashFiles('frontend/AppIcon.icon/**') }}-xcode-27.2
 
       - name: Take the icon from the cache
         if: ${{ steps.icon-cache.outputs.cache-hit == 'true' }}
