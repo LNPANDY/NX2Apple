@@ -7,16 +7,16 @@ enum OnboardingStep: String, CaseIterable, Codable {
     var titleKey: String { "onboarding.\(rawValue).title" }
 }
 
-/// What NVN games' shaders need: the Metal compiler of Xcode 27.1, which itself needs macOS 26.6.
+/// What NVN games' shaders need: the Metal compiler of Xcode 27.2, which itself needs macOS 26.6.
 enum OnboardingNVN {
-    static let minimumXcode = [27, 1]
+    static let minimumXcode = [27, 2]
     static let minimumOS = OperatingSystemVersion(majorVersion: 26, minorVersion: 6, patchVersion: 0)
 
     static func osTooOld(_ v: OperatingSystemVersion) -> Bool {
         (v.majorVersion, v.minorVersion, v.patchVersion) < (minimumOS.majorVersion, minimumOS.minorVersion, minimumOS.patchVersion)
     }
 
-    /// `xcodebuild -version` prints "Xcode 27.1" first. An unreadable version is not reported as too old.
+    /// `xcodebuild -version` prints "Xcode 27.2" first. An unreadable version is not reported as too old.
     static func xcodeVersion(from output: String) -> String? {
         for line in output.split(whereSeparator: \.isNewline) where line.hasPrefix("Xcode ") {
             let v = line.dropFirst(6).split(separator: " ").first.map(String.init) ?? ""
@@ -127,7 +127,7 @@ struct OnboardingState: Equatable {
     var games: Games = .empty
     var done: Done = .celebrating
     var exit: Exit? = nil
-    /// NVN games need the Metal compiler of Xcode 27.1, which needs macOS 26.6. Hints only: setup continues either way.
+    /// NVN games need the Metal compiler of Xcode 27.2, which needs macOS 26.6. Hints only: setup continues either way.
     var osTooOldForNVN = false
     var xcodeTooOldForNVN = false
 

@@ -427,7 +427,7 @@ import XCTest
         XCTAssertFalse(defaults.bool(forKey: OnboardingDefaults.inProgress))
     }
 
-    // MARK: NVN hints (macOS 26.6 / Xcode 27.1)
+    // MARK: NVN hints (macOS 26.6 / Xcode 27.2)
 
     func testOSHintFollowsMacOSVersion() {
         let fake = Fake()
@@ -440,7 +440,7 @@ import XCTest
 
     func testXcodeHintFollowsProbeVersion() async {
         let fake = Fake()
-        for (version, old) in [("26.4", true), ("27.0", true), ("27", true), ("27.1", false), ("27.2", false), ("28.0", false), (nil, false)] as [(String?, Bool)] {
+        for (version, old) in [("26.4", true), ("27.0", true), ("27", true), ("27.1", true), ("27.2", false), ("27.3", false), ("28.0", false), (nil, false)] as [(String?, Bool)] {
             fake.probe.version = version
             let (driver, _) = make(fake, deps: [dep("metal", present: true), dep("xcode", present: true)])
             await driver.refreshXcode()
