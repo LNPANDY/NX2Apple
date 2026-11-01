@@ -3104,7 +3104,7 @@ struct BuilderView: View {
     /// One line of a card: a status dot (its place kept when there is none, so every title starts on one line),
     /// the title (with a disclosure chevron beside it when `open` is given), a secondary detail, and its controls.
     /// Its buttons and dropdowns are all LauncherControl.width wide, so they line up in one column across the cards.
-    private func row<Trailing: View>(_ title: String, detail: String = "", dot: Color? = nil, help: String = "", open: Bool? = nil,
+    private func row<Trailing: View>(_ title: String, detail: String = "", detail2: String = "", dot: Color? = nil, help: String = "", open: Bool? = nil,
                                      @ViewBuilder trailing: () -> Trailing) -> some View {
         HStack(spacing: 12) {
             Circle().fill(dot ?? .clear).frame(width: 7, height: 7)
@@ -3126,6 +3126,10 @@ struct BuilderView: View {
                         Text(detail).font(.manrope(12.5)).foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true).help(help.isEmpty ? detail : help)
                     }
+                }
+                if !detail2.isEmpty {
+                    Text(detail2).font(.mono(12)).foregroundStyle(.secondary)
+                        .lineLimit(1).truncationMode(.middle).help(detail2)
                 }
             }
             Spacer(minLength: 12)
@@ -3714,7 +3718,7 @@ struct BuilderView: View {
             Text(m.confirmingChannel.flatMap { m.engineSelection.channel.switchWarningKey(to: $0) }.map { m.t($0) } ?? "")
         }
         divider
-        row(m.t("shellCache.row"), detail: m.t("shellCache.note") + "\n" + m.shellCachePath) {
+        row(m.t("shellCache.row"), detail: m.t("shellCache.note"), detail2: m.shellCachePath) {
             Button(m.t("shellCache.open")) { m.revealFolder(URL(fileURLWithPath: m.shellCachePath)) }
                 .buttonStyle(LauncherSecondaryButtonStyle())
         }

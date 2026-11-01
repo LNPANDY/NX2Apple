@@ -35,6 +35,7 @@ public struct LibraryView: View {
     public var input: ShellInput?
     @State private var selectedID: String?
     @State private var settingsOpen: Bool
+    @State private var shellSettingsOpen = false
     @State private var controllersOpen: Bool
     /// The game whose How to fix or How to update explanation is open.
     @State private var helpGameID: String?
@@ -91,7 +92,12 @@ public struct LibraryView: View {
                 if games.isEmpty {
                     EmptyLibraryView()
                         .overlay(alignment: .topTrailing) {
-                            ControllerChip(count: controllers.count, action: openControllers).padding(.top, 6).padding(.trailing, 16)
+                            HStack(spacing: 10) {
+                                Button { shellSettingsOpen = true } label: {
+                                    Image(systemName: "gearshape")
+                                }.buttonStyle(ChipButtonStyle()).accessibilityLabel(ShellStrings.text("Settings"))
+                                ControllerChip(count: controllers.count, action: openControllers)
+                            }.padding(.top, 6).padding(.trailing, 16)
                         }
                 } else if let selected {
                     library(selected, layout: layout, size: geometry.size, insets: insets)
@@ -210,6 +216,11 @@ public struct LibraryView: View {
         .onDisappear { targets.values.removeAll() }
         .onChange(of: games.map(\.id)) { _, ids in
             if !ids.contains(selectedID ?? "") { selectedID = ids.first; settingsOpen = false }
+        }
+        .sheet(isPresented: $shellSettingsOpen) {
+            ShellSettingsView(store: ShellSettingsStore()) { key in
+                if key == "data" { actions.onPickShellData() } else { actions.onPickShellCloud() }
+            }
         }
     }
 
