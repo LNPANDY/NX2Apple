@@ -20,7 +20,7 @@ public struct EngineLaunchPlan: Equatable, Sendable {
     /// The save and temp folders.
     public var foldersToCreate: [URL]
 
-    public static func make(game: LaunchableGame, appResources: URL, documents: URL, envFileText: String?,
+    public static func make(game: LaunchableGame, appResources: URL, documents: URL, envFileText: String?, shellPerformanceHUD: Bool? = nil,
                             fileManager fm: FileManager = .default) -> EngineLaunchPlan {
         let manifest = game.manifest, fw = game.frameworkURL, gdir = game.appFolder
         func isDirectory(_ url: URL) -> Bool {
@@ -48,6 +48,8 @@ public struct EngineLaunchPlan: Equatable, Sendable {
         // The shell already showed its own settings, the per-game launcher screen stays out of the way.
         env["DM_LAUNCHER"] = "0"
         for (key, value) in game.environment { env[key] = value }
+        // The shell-level default applies only when the game's own settings left the HUD unset (#398's settings page).
+        if env["DM_METAL_HUD"] == nil, let hud = shellPerformanceHUD { env["DM_METAL_HUD"] = hud ? "1" : "0" }
 
         var fromFile: [String] = []
         for (key, value) in parseEnvFile(envFileText ?? "") where env[key] == nil {
