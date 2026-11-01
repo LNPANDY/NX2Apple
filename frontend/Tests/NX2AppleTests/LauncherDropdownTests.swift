@@ -55,7 +55,7 @@ final class LauncherDropdownTests: XCTestCase {
         XCTAssertEqual(BuilderView.languageCodes.first, "")
         for code in BuilderView.languageCodes.dropFirst() {
             XCTAssertNotNil(Lang(rawValue: code), code)
-            for lang: Lang in [.zh, .en, .sv, .de] { XCTAssertNotEqual(L10n.string("settings.language." + code, lang), "settings.language." + code) }
+            for lang: Lang in [.zh, .en, .sv, .de, .it] { XCTAssertNotEqual(L10n.string("settings.language." + code, lang), "settings.language." + code) }
         }
     }
 
@@ -75,23 +75,23 @@ final class LauncherDropdownTests: XCTestCase {
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory)
-        let options = [(value: "", label: L10n.string("settings.language.system", .de)), (value: "zh", label: L10n.string("settings.language.zh", .de)),
-                       (value: "en", label: L10n.string("settings.language.en", .de)), (value: "sv", label: L10n.string("settings.language.sv", .de)),
-                       (value: "de", label: L10n.string("settings.language.de", .de))]
-        let width: CGFloat = 620, height: CGFloat = 330
+        // The picker's own list (every language it offers), in German unless NX_CAPTURE_LANG names another.
+        let lang = CaptureLanguage.current(.de)
+        let options = BuilderView.languageCodes.map { (value: $0, label: L10n.string("settings.language." + ($0.isEmpty ? "system" : $0), lang)) }
+        let width: CGFloat = 620, height: CGFloat = 170 + LauncherDropdownLayout.contentHeight(rows: options.count)
         let rows = VStack(alignment: .trailing, spacing: 6) {
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(L10n.string("settings.language", .de)).font(.manrope(14))
-                    Text(L10n.string("settings.language.system", .de)).font(.manrope(12.5)).foregroundStyle(.secondary)
+                    Text(L10n.string("settings.language", lang)).font(.manrope(14))
+                    Text(L10n.string("settings.language.system", lang)).font(.manrope(12.5)).foregroundStyle(.secondary)
                 }
                 Spacer()
-                LauncherDropdown(options: options, selection: "", label: "Sprache", style: .button) { _ in }
+                LauncherDropdown(options: options, selection: "", label: L10n.string("settings.language", lang), style: .button) { _ in }
                     .launcherRowControls()
             }
             .padding(.horizontal, 18).padding(.vertical, 13)
             .background(LauncherPalette.surface.opacity(0.75), in: RoundedRectangle(cornerRadius: 14))
-            LauncherDropdownList(options: options, selection: "de", label: "Sprache", choose: { _ in }, close: {})
+            LauncherDropdownList(options: options, selection: lang.rawValue, label: L10n.string("settings.language", lang), choose: { _ in }, close: {})
                 .frame(width: LauncherDropdownLayout.width(labels: options.map(\.label), button: 150), height: LauncherDropdownLayout.contentHeight(rows: options.count))
                 .launcherDropdownSurface()
         }

@@ -18,7 +18,7 @@ PLACEHOLDER = re.compile(r'%(?:\d+\$)?(?:\.\d+)?l{0,2}[@dfs%]')
 
 class FrenchTable(unittest.TestCase):
     def test_every_row_has_french_and_its_placeholders(self):
-        for key, (_, en, _, _, fr) in TABLE.items():
+        for key, (_, en, _, _, fr, _) in TABLE.items():
             self.assertTrue(fr, key)
             self.assertEqual(PLACEHOLDER.findall(fr), PLACEHOLDER.findall(en), key)
 

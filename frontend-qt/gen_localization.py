@@ -12,6 +12,8 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 SWIFT = HERE.parent / 'frontend' / 'Sources' / 'NXCore' / 'Localization.swift'
 OUT = HERE / 'nspb_qt' / 'localization.py'
+# The Italian overlay is in two files of its own (a Swift file stays under 800 lines): itFirst, then itRest.
+ITALIAN = [(SWIFT.with_name('LocalizationItalian.swift'), 'itFirst'), (SWIFT.with_name('LocalizationItalianMore.swift'), 'itRest')]
 
 PAIR = re.compile(r'"([^"]+)":\s*\(\s*"((?:[^"\\]|\\.)*)"\s*,\s*"((?:[^"\\]|\\.)*)"\s*\)', re.S)
 OVERLAY = re.compile(r'"([^"]+)":\s*"((?:[^"\\]|\\.)*)"')
@@ -39,6 +41,7 @@ def main() -> None:
     swedish = overlay(text, 'sv')
     german = overlay(text, 'de')
     french = overlay(text, 'fr')
+    italian = {k: v for path, name in ITALIAN for k, v in overlay(path.read_text(encoding='utf-8'), name).items()}
     lines = [
         '"""Localised strings, generated from the SwiftUI app\'s Localization.swift.',
         '',
@@ -48,14 +51,14 @@ def main() -> None:
         '',
         'from .i18n import Lang',
         '',
-        '# key: (Chinese, English, Swedish, German, French); a missing overlay entry is the English text',
-        'TABLE: dict[str, tuple[str, str, str, str, str]] = {',
+        '# key: (Chinese, English, Swedish, German, French, Italian); a missing overlay entry is the English text',
+        'TABLE: dict[str, tuple[str, str, str, str, str, str]] = {',
     ]
     for key, zh, en in rows:
         # Swift Unicode escapes keep the shared table ASCII without losing translations.
         zh, en = unescape(zh), unescape(en)
-        sv, de, fr = swedish.get(key, en), german.get(key, en), french.get(key, en)
-        lines.append(f'    {key!r}: ({zh!r}, {en!r}, {sv!r}, {de!r}, {fr!r}),')
+        sv, de, fr, it = swedish.get(key, en), german.get(key, en), french.get(key, en), italian.get(key, en)
+        lines.append(f'    {key!r}: ({zh!r}, {en!r}, {sv!r}, {de!r}, {fr!r}, {it!r}),')
     lines += [
         '}',
         '',
@@ -66,8 +69,8 @@ def main() -> None:
         '    The Swift table uses %@ as its placeholder (String(format:)); the Qt side uses',
         '    Python\'s %s, so the placeholder is translated here rather than in every call site.',
         '    """',
-        '    zh, en, sv, de, fr = TABLE.get(key, (key, key, key, key, key))',
-        '    s = {Lang.ZH: zh, Lang.EN: en, Lang.SV: sv, Lang.DE: de, Lang.FR: fr}[lang]',
+        '    zh, en, sv, de, fr, it = TABLE.get(key, (key, key, key, key, key, key))',
+        '    s = {Lang.ZH: zh, Lang.EN: en, Lang.SV: sv, Lang.DE: de, Lang.FR: fr, Lang.IT: it}[lang]',
         '    if not args:',
         '        return s',
         '    py = s.replace("%@", "%s")   # %d is the same in both; %@ is Swift-only',

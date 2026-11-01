@@ -126,6 +126,7 @@ class Rows(unittest.TestCase):
             self.assertIn(key, TABLE)
             self.assertTrue(TABLE[key][2] and TABLE[key][2] != TABLE[key][1], key)   # Swedish present
             self.assertTrue(TABLE[key][3] and TABLE[key][3] != TABLE[key][1], key)   # German present
+            self.assertTrue(TABLE[key][5] and TABLE[key][5] != TABLE[key][1], key)   # Italian present
 
     def test_a_missing_zbic_package_is_its_own_row(self):
         log = '[3/9] extract\n' + fixture('zbic.missing')['text'] + '\n'

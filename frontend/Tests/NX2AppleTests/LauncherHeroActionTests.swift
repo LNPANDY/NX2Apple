@@ -7,7 +7,7 @@ import XCTest
 
 /// The hero's cream button has one size (LauncherHeroAction) whatever the game's state and the language.
 final class LauncherHeroActionTests: XCTestCase {
-    private let languages: [Lang] = [.zh, .en, .sv, .de]
+    private let languages: [Lang] = [.zh, .en, .sv, .de, .it]
 
     private func width(_ text: String) throws -> CGFloat {
         let font = try XCTUnwrap(Typography.manropeFont(size: 18, weight: .bold))
