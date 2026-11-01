@@ -16,7 +16,7 @@ final class FrenchLocalizationTests: XCTestCase {
         "dep.spirv.win", "dep.zstd.win", "dep.python.hint", "controls.mode.auto", "controls.fn.A",
         "controls.fn.B", "controls.fn.X", "controls.fn.Y", "controls.fn.L", "controls.fn.R",
         "controls.fn.ZL", "controls.fn.ZR", "controls.fn.Plus", "controls.fn.Minus", "launch.mods",
-        "pad.options", "engine.channel.stable", "launch.opt.DM_PRESENT_UPSCALE.off", "launch.opt.DM_PRESENT_UPSCALE.metalfx", "key.tab",
+        "pad.options", "cleanup.item", "engine.channel.stable", "launch.opt.DM_PRESENT_UPSCALE.off", "launch.opt.DM_PRESENT_UPSCALE.metalfx", "key.tab",
     ]
 
     /// %@, %d, %ld, %%, positional %1$@ and float %.1f: what String(format:) reads.

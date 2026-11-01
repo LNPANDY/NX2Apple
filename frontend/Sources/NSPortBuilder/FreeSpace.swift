@@ -80,10 +80,18 @@ enum BuildFolder {
     nonisolated static func protectedPaths(for game: LibraryGame) -> [String] {
         let out = game.outputDirectory.isEmpty
             ? game.inputs["base", default: []].first.map { ($0 as NSString).deletingLastPathComponent } ?? "" : game.outputDirectory
-        var paths = [game.appPath, game.ipaPath, game.iosAppPath, game.archivePath]
-        if !game.archivePath.isEmpty { paths.append(game.archivePath + "/romfs.img") }
-        if !out.isEmpty { paths.append(out + "/games/" + game.titleID) }
-        paths += game.inputs.values.flatMap { $0 }
+        return protectedPaths(app: game.appPath, ipa: game.ipaPath, iosApp: game.iosAppPath, archive: game.archivePath,
+                              output: out, titleID: game.titleID, inputs: game.inputs.values.flatMap { $0 })
+    }
+
+    /// The one list of what is never removed, for the sheet (a library game's recorded paths) and for the cleanup after a build
+    /// (the running build's paths): the finished apps and IPA, the archive folder and its romfs.img, `<output>/games/<title ID>`, and the inputs.
+    nonisolated static func protectedPaths(app: String, ipa: String, iosApp: String, archive: String, output: String,
+                                           titleID: String, inputs: [String]) -> [String] {
+        var paths = [app, ipa, iosApp, archive]
+        if !archive.isEmpty { paths.append(archive + "/romfs.img") }
+        if !output.isEmpty { paths.append(output + "/games/" + titleID) }
+        paths += inputs
         return paths.filter { !$0.isEmpty }.map(resolved)
     }
 
@@ -172,7 +180,7 @@ enum BuildFolder {
         return freed
     }
 
-    private nonisolated static func removeTree(_ path: String, protecting: [String], freed: inout Int64, failures: inout [String]) {
+    nonisolated static func removeTree(_ path: String, protecting: [String], freed: inout Int64, failures: inout [String]) {
         if protecting.contains(where: { path == $0 || path.hasPrefix($0 + "/") }) { return }
         if protecting.contains(where: { $0.hasPrefix(path + "/") }) {   // something to keep lies inside: go in, around it
             for name in (try? FileManager.default.contentsOfDirectory(atPath: path)) ?? [] {
