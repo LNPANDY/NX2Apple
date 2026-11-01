@@ -42,6 +42,11 @@ on:
 permissions: {}
 
 env:
+  # The model ids to try, newest Sonnet first, separated by spaces. The CLI lists no models and has no alias for "the newest Sonnet", so the
+  # write job takes the first id the account accepts: only the error `Model "<id>" from --model flag is not available.` moves on to the next
+  # one. No Haiku and no `auto` (notes_model.py refuses them). To update: put a new id in front when GitHub's supported models page lists
+  # a newer Sonnet, and drop ids that are gone. The repository variable RELEASE_NOTES_MODEL replaces the whole list with one id.
+  NOTES_MODEL_CANDIDATES: claude-sonnet-5.5 claude-sonnet-5 claude-sonnet-4.6 claude-sonnet-4.5
   TAG: ${{ inputs.tag }}
   PUBLISH: ${{ inputs.publish }}
 
@@ -69,7 +74,9 @@ jobs:
       - name: Prepare the data for the model
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python3 -I .github/scripts/notes_gather.py --repo "$GITHUB_REPOSITORY" --tag "$TAG" --out "$RUNNER_TEMP/notes"
+        run: |
+          python3 -I .github/scripts/notes_gather.py --repo "$GITHUB_REPOSITORY" --tag "$TAG" --out "$RUNNER_TEMP/notes"
+          cp .github/scripts/notes_model.py "$RUNNER_TEMP/notes/"   # the write job has no checkout
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: notes-input
@@ -113,28 +120,20 @@ jobs:
         if: steps.secret.outputs.set == 'true'
         env:
           COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_TOKEN }}
-          # Optional repository variable (a model id). Unset, the default is the newest Sonnet class model Copilot lists (Claude Sonnet 5.5): the
-          # notes need a stronger model than the triage's Haiku for the English and the Chinese text. Never a Haiku. Bump on purpose.
-          NOTES_MODEL: ${{ vars.RELEASE_NOTES_MODEL || 'claude-sonnet-5.5' }}
+          NOTES_MODEL_VAR: ${{ vars.RELEASE_NOTES_MODEL }}   # optional repository variable (a model id): that id alone, no fallback
         run: |
           # An empty directory holds nothing to read. The model can only call `view`; shell, file writes and URLs are denied
-          # (deny rules win over --allow-all-tools, which prompt mode needs), no MCP servers, no repository instructions.
-          mkdir -p "$RUNNER_TEMP/empty"
+          # (deny rules win over --allow-all-tools, which prompt mode needs), no MCP servers, no repository instructions. The flags are in notes_model.py.
+          mkdir -p "$RUNNER_TEMP/empty" "$RUNNER_TEMP/out"
           cd "$RUNNER_TEMP/empty"
-          [[ "$NOTES_MODEL" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] || { echo "::error::RELEASE_NOTES_MODEL is not a model id"; exit 1; }
-          model=(--model "$NOTES_MODEL")   # one argument, never part of a shell string
-          echo "model: $NOTES_MODEL"
           # prompt.txt is at most 90000 bytes (notes_gather.py), below the 128 KiB limit of one argument
-          timeout 600 copilot "${model[@]}" -p "$(cat "$RUNNER_TEMP/notes/prompt.txt")" --silent --no-ask-user --no-custom-instructions \
-            --no-auto-update --disable-builtin-mcps --disable-client-telemetry \
-            --available-tools=view --allow-all-tools --deny-tool=shell --deny-tool=write --deny-tool=url \
-            --secret-env-vars=COPILOT_GITHUB_TOKEN > "$RUNNER_TEMP/notes/answer.txt"
-          echo "ran=true" >> "$GITHUB_OUTPUT"
+          python3 -I "$RUNNER_TEMP/notes/notes_model.py" --prompt "$RUNNER_TEMP/notes/prompt.txt" --out "$RUNNER_TEMP/out/answer.txt" \
+            --candidates "$NOTES_MODEL_CANDIDATES" --override "$NOTES_MODEL_VAR"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: steps.copilot.outputs.ran == 'true'
         with:
           name: notes-answer
-          path: ${{ runner.temp }}/notes/answer.txt
+          path: ${{ runner.temp }}/out
           retention-days: 3
 
   check:
@@ -174,6 +173,7 @@ jobs:
               mv "$out/model.md" "$out/rejected.md"
             fi
           fi
+          model=$(cat "$RUNNER_TEMP/answer/model.txt" 2> /dev/null || true)
           title=""
           if [ -f "$out/model.md" ]; then
             title=$(python3 -I .github/scripts/notes_finish.py title "$out/model.md" "$TAG")
@@ -181,6 +181,8 @@ jobs:
           fi
           {
             echo "## Release notes for $TAG"
+            echo
+            echo "Model used: ${model:-none (no model answered, see the log of the write job)}"
             echo
             if [ -n "$reason" ]; then
               echo "No model text is used: $reason. The release gets the short body, or a reviewed release-notes/$TAG.md if there is one."
