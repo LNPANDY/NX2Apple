@@ -11,3 +11,4 @@ Read [AGENTS.md](../AGENTS.md) (the fork's, at the root) and [CONTRIBUTING.md](.
 - You work on a Linux runner and cannot build or run the macOS app. The macOS jobs of `tests.yml` are the check: do not claim a Swift or Metal change works until they are green.
 - A PR that changes the launcher needs before and after screenshots. You cannot capture them on a Linux runner: say so under Screenshots and ask for them in the PR (CONTRIBUTING.md, "For AI agents and other tools").
 - Issues and PRs follow the forms and the PR template (CONTRIBUTING.md, "For AI agents and other tools").
+- Release notes follow `.github/release_notes_template.md`, Chinese first, then English, no emojis.

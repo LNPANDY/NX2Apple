@@ -53,6 +53,17 @@ The build of the final tag looks for the newest `v0.7.6-rcN` on its commit. It d
 
 A final tag on a commit without a candidate fails. In an emergency, a manual run on the tag publishes it anyway: `gh workflow run build-mac-app.yml --ref v0.7.6 -f release_without_rc=true`. Nobody tested that build as a whole, and the release notes say so.
 
+## Release notes
+
+CI writes a short body: the version and the tested candidate. The readable notes are written by a person or an agent from [.github/release_notes_template.md](.github/release_notes_template.md).
+
+- Chinese first, English second, under `## 中文` and `## English`, with the same content in both. Each part has one bullet per change, grouped in bold: a notice, Highlights, New, Fixed, Known issues, Requires.
+- No emojis, no pictograms and no symbols in the text. No semicolons (also not the full-width one) and no em-dashes. Plain English and plain Chinese.
+- People are written as `@login`, the owner as `@LNPANDY`.
+- Every claim comes from the changelog row, the merged pull requests or the issues. Nothing is invented.
+- Write the notes before the final tag is pushed or right after it. Put them in a file and publish with `gh release edit <tag> --notes-file <file>`. Never paste them from a chat, that brings emojis along.
+- After the two parts, append the generated notes: `gh api repos/LNPANDY/NX2Apple/releases/generate-notes -f tag_name=<tag> -f previous_tag_name=<previous final tag> --jq .body`, written into the notes file before `gh release edit`. They are English only and not edited by hand. They list the merged pull requests with their authors and name first-time contributors, so they replace a hand-written Credits section. [.github/release.yml](.github/release.yml) sets their categories. Keep the generated block unedited and last: its `@login` mentions and the Full Changelog link (the compare view, so the commit history since the last release) are what list the contributors and the history. Titles of pull requests show up as written, so write them without em-dashes.
+
 ## Who tags
 
 - Release candidates: LNPANDY or v0lumehi.
