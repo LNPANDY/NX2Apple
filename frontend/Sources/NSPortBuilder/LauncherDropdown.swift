@@ -243,6 +243,7 @@ struct LauncherDropdown: View {
         let shape = RoundedRectangle(cornerRadius: rounded ? 9 : 99)
         let width = fill ? nil : rowWidth
         return HStack(spacing: 8) {
+            if fill || width != nil { Spacer(minLength: 0) }   // a fixed-width dropdown centres its words
             Text(current).font(.manrope(rounded ? 13 : 12.5, .semibold)).lineLimit(1)
                 .minimumScaleFactor(width == nil ? 1 : 0.85)
                 .fixedSize(horizontal: !fill && width == nil, vertical: false)

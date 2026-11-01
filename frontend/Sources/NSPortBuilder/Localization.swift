@@ -466,7 +466,7 @@ enum L10n {
         "launch.set.DM_OPMODE": ("主机模式", "Console mode"),
         "launch.opt.DM_OPMODE.1": ("底座模式", "Docked"),
         "launch.opt.DM_OPMODE.0": ("掌机模式", "Handheld"),
-        "launch.set.DM_PRESENT_UPSCALE": ("放大", "Upscaling"),
+        "launch.set.DM_PRESENT_UPSCALE": ("超分", "Upscaling"),
         "launch.set.DM_PRESENT_UPSCALE.note": ("占用更多 GPU 时间，可能增加发热。", "Uses more GPU time and can increase heat."),
         "launch.opt.DM_PRESENT_UPSCALE.off": ("标准", "Standard"),
         "launch.set.DM_LANG": ("游戏语言", "Game language"),

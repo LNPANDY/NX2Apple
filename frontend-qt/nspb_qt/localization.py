@@ -421,7 +421,7 @@ TABLE: dict[str, tuple[str, str, str, str, str]] = {
     'launch.set.DM_OPMODE': ('主机模式', 'Console mode', 'Konsolläge', 'Konsolenmodus', 'Mode de la console'),
     'launch.opt.DM_OPMODE.1': ('底座模式', 'Docked', 'Dockad', 'Angedockt', 'TV'),
     'launch.opt.DM_OPMODE.0': ('掌机模式', 'Handheld', 'Handhållen', 'Handheld', 'Portable'),
-    'launch.set.DM_PRESENT_UPSCALE': ('放大', 'Upscaling', 'Uppskalning', 'Hochskalierung', 'Mise à l’échelle'),
+    'launch.set.DM_PRESENT_UPSCALE': ('超分', 'Upscaling', 'Uppskalning', 'Hochskalierung', 'Mise à l’échelle'),
     'launch.set.DM_PRESENT_UPSCALE.note': ('占用更多 GPU 时间，可能增加发热。', 'Uses more GPU time and can increase heat.', 'Använder mer GPU-tid och kan öka värmen.', 'Braucht mehr GPU-Zeit und kann die Wärme erhöhen.', 'Utilise plus de temps GPU et peut faire chauffer davantage.'),
     'launch.opt.DM_PRESENT_UPSCALE.off': ('标准', 'Standard', 'Standard', 'Standard', 'Standard'),
     'launch.set.DM_LANG': ('游戏语言', 'Game language', 'Spelspråk', 'Spielsprache', 'Langue du jeu'),
