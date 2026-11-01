@@ -387,7 +387,7 @@ final class GameLibrary: ObservableObject {
                 continue
             }
             guard packages.contains(url.pathExtension.lowercased()),
-                  let id = BuildModel.titleID(url.lastPathComponent), id & 0xfff == 0 else { continue }
+                  let id = TitleID.parse(url.lastPathComponent), id & 0xfff == 0 else { continue }
             let tid = String(format: "%016llX", id)
             guard result[tid] == nil else { continue }
             var game = LibraryGame(titleID: tid, name: title(for: url.path, repo: repo, titleID: tid))
@@ -397,7 +397,7 @@ final class GameLibrary: ObservableObject {
             // root or at a folder that holds no more of them (issue: an auto-scanned game found no update or DLC).
             let family = { (name: String) -> Bool in
                 guard packages.contains((name as NSString).pathExtension.lowercased()),
-                      let other = BuildModel.titleID(name) else { return false }
+                      let other = TitleID.parse(name) else { return false }
                 return other == id || (other >= id + 0x800 && other < id + 0x1000) || (other >= id + 0x1000 && other < id + 0x2000)
             }
             var gameRoot = url.deletingLastPathComponent()
@@ -424,15 +424,15 @@ final class GameLibrary: ObservableObject {
                 }
             }
             let familyOf = { (u: URL, lo: UInt64, hi: UInt64) -> Bool in
-                guard let other = BuildModel.titleID(u.lastPathComponent) else { return false }
+                guard let other = TitleID.parse(u.lastPathComponent) else { return false }
                 return other >= lo && other < hi
             }
-            let isBase = { (u: URL) -> Bool in BuildModel.titleID(u.lastPathComponent) == id }
+            let isBase = { (u: URL) -> Bool in TitleID.parse(u.lastPathComponent) == id }
             game.inputs["base"] = ([url] + found.filter(isBase))
-                .sorted { BuildModel.updateVersion($0.lastPathComponent) > BuildModel.updateVersion($1.lastPathComponent) }
+                .sorted { TitleID.updateVersion($0.lastPathComponent) > TitleID.updateVersion($1.lastPathComponent) }
                 .prefix(1).map(\.path)
             game.inputs["update"] = found.filter { familyOf($0, id + 0x800, id + 0x1000) }
-                .sorted { BuildModel.updateVersion($0.lastPathComponent) > BuildModel.updateVersion($1.lastPathComponent) }.prefix(1).map(\.path)
+                .sorted { TitleID.updateVersion($0.lastPathComponent) > TitleID.updateVersion($1.lastPathComponent) }.prefix(1).map(\.path)
             game.inputs["dlc"] = found.filter { familyOf($0, id + 0x1000, id + 0x2000) }.map(\.path).sorted()
             game.inputs["keys"] = [gameRoot.appendingPathComponent("prod.keys"), root.appendingPathComponent("keys/prod.keys"), root.appendingPathComponent("prod.keys"), gameRoot.appendingPathComponent("keys/prod.keys")]
                 .filter { FileManager.default.fileExists(atPath: $0.path) }.prefix(1).map(\.path)
@@ -492,7 +492,7 @@ final class GameLibrary: ObservableObject {
 
     @discardableResult func rememberInputs(_ model: BuildModel) -> UUID? {
         guard !model.basePath.isEmpty else { return nil }
-        let titleID = BuildModel.titleID(model.basePath).map { String(format: "%016llX", $0) }
+        let titleID = TitleID.parse(model.basePath).map { String(format: "%016llX", $0) }
             ?? URL(fileURLWithPath: model.basePath).standardizedFileURL.path
         var game = games.first { $0.titleID == titleID } ?? LibraryGame(titleID: titleID, name: Self.title(for: model.basePath, repo: model.repoPath, titleID: titleID))
         game.inputs = Dictionary(uniqueKeysWithValues: model.slots.map { ($0.id, $0.paths) })

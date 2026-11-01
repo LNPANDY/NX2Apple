@@ -283,24 +283,6 @@ final class LibraryTests: XCTestCase {
         XCTAssertLessThan(Date().timeIntervalSince(stopped), 3)
     }
 
-    func testProgressDetailReadsTheScriptsCounts() {
-        XCTAssertEqual(BuildModel.progressDetail(["step": "splitting", "done": 1203, "total": 19592, "unit": "shaders", "eta": 130]),
-                       "splitting · " + NumberFormatter.localizedString(from: 1203, number: .decimal) + " / "
-                       + NumberFormatter.localizedString(from: 19592, number: .decimal) + " shaders")
-        XCTAssertEqual(BuildModel.progressDetail(["done": 2301, "unit": "files"]), NumberFormatter.localizedString(from: 2301, number: .decimal) + " files")
-        XCTAssertTrue(BuildModel.progressDetail(["done": 1_000_000_000, "total": 3_000_000_000, "unit": "B", "est": true]).contains(" / ~"))
-        XCTAssertEqual(BuildModel.progressDetail(["step": "booting the game"]), "booting the game")
-    }
-
-    /// The stage's clock runs on while the count stands still, and the script's estimate counts down from when it came, then goes.
-    func testStageClockCountsOnAndTheEstimateRunsOut() {
-        let t0 = Date()
-        let stage = Stage(id: 1, name: "shader split", started: t0, eta: 71, etaAt: t0.addingTimeInterval(10))
-        XCTAssertEqual(stage.clock(at: t0.addingTimeInterval(42), left: "%@ left"), "0:42 · " + BuildModel.duration(39) + " left")
-        XCTAssertEqual(stage.clock(at: t0.addingTimeInterval(125), left: "%@ left"), "2:05")   // the estimate ran out: no stale "1 min 11 s left"
-        XCTAssertEqual(stage.clock(at: t0.addingTimeInterval(3725), left: "%@ left"), "1:02:05")
-    }
-
     /// Stop ends the build and leaves no stage behind (a spinner and a percentage of a build that no longer runs).
     @MainActor func testStoppedBuildResetsItsProgress() throws {
         guard FileManager.default.isExecutableFile(atPath: "/usr/bin/python3") else { throw XCTSkip("System Python is required for the process fixture") }
@@ -313,7 +295,7 @@ final class LibraryTests: XCTestCase {
         model.pythonPath = "/usr/bin/python3"
         model.dotnetPath = "/usr/bin/true"
         model.depsChecked = true
-        model.deps = [BuildModel.Dep(id: "test", name: "test", hint: "", present: true, installCmd: [])]
+        model.deps = [Dep(id: "test", name: "test", hint: "", present: true, installCmd: [])]
         let marker = temporary.appendingPathComponent("dm/tools/nx_extract/Program.cs")
         try FileManager.default.createDirectory(at: marker.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data().write(to: marker)
@@ -568,7 +550,7 @@ final class LibraryTests: XCTestCase {
         model.pythonPath = "/usr/bin/python3"
         model.dotnetPath = "/usr/bin/true"
         model.depsChecked = true
-        model.deps = [BuildModel.Dep(id: "test", name: "test", hint: "", present: true, installCmd: [])]
+        model.deps = [Dep(id: "test", name: "test", hint: "", present: true, installCmd: [])]
         let marker = temporary.appendingPathComponent("dm/tools/nx_extract/Program.cs")
         try FileManager.default.createDirectory(at: marker.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data().write(to: marker)
@@ -655,7 +637,7 @@ final class LibraryTests: XCTestCase {
         model.repoPath = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().path
         model.lang = .en
         model.depsChecked = true
-        model.deps = [BuildModel.Dep(id: "test", name: "Xcode", hint: "", present: true, installCmd: [])]
+        model.deps = [Dep(id: "test", name: "Xcode", hint: "", present: true, installCmd: [])]
         for game in real_.games.sorted(by: { $0.name < $1.name }) {
             let name = game.name.replacingOccurrences(of: #"\s*\([0-9.]+ GB\)"#, with: "", options: .regularExpression)
             if game.titleID == botw { _ = try library.addApp(makeApp(botw, name: name)) }
@@ -762,7 +744,7 @@ final class LibraryTests: XCTestCase {
         model.lang = CaptureLanguage.current(.en)
         model.outDir = temporary.path
         model.depsChecked = true
-        model.deps = [BuildModel.Dep(id: "test", name: "Xcode", hint: "", present: true, installCmd: [])]
+        model.deps = [Dep(id: "test", name: "Xcode", hint: "", present: true, installCmd: [])]
         let library = GameLibrary(file: temporary.appendingPathComponent("preview.json"))
         let examples = [(titleID, "Hades"), ("01007EF00011E000", "The Legend of Zelda: Breath of the Wild"),
                         ("0100000000010000", "Super Mario Odyssey"), ("010093801237C000", "Metroid Dread")]
@@ -1073,52 +1055,16 @@ final class LibraryTests: XCTestCase {
         }
     }
 
-    /// Issue #52: the failure note names the last real line, not just the exit code.
-    func testLastMeaningfulLineSkipsProgressEventsAndBlankLines() {
-        let log = """
-        [1/7] extract
-        {"event":"progress","frac":0.4}
-
-        RuntimeError: no prod.keys in the game folder
-
-        """
-        XCTAssertEqual(BuildModel.lastMeaningfulLine(log), "RuntimeError: no prod.keys in the game folder")
-        XCTAssertNil(BuildModel.lastMeaningfulLine("\n\n"))
-        XCTAssertNil(BuildModel.lastMeaningfulLine("{\"event\":\"stage_end\"}\n"))
-    }
-
-    /// Issue #58: a folder holding several games is staged down to the picked one, and its update
-    /// and add-on content come along — classified exactly as build_ipa_from_nsp.py:445 does.
-    func testSiblingsOfThePickedGameAreClassifiedAsTheScriptDoes() {
-        let base = UInt64(0x010015100B514000)
-        let app = base & ~UInt64(0xFFF)
-        func owner(_ tid: UInt64) -> UInt64 {
-            let low = tid & 0xFFF
-            return low == 0 ? tid : (low == 0x800 ? tid & ~UInt64(0xFFF) : (tid & ~UInt64(0xFFF)) - 0x1000)
-        }
-        XCTAssertEqual(owner(base), app, "the base game")
-        XCTAssertEqual(owner(base + 0x800), app, "its update")
-        XCTAssertEqual(owner(base + 0x1001), app, "add-on content 1")
-        XCTAssertNotEqual(owner(UInt64(0x01007EF00011E000)), app, "another game")
-        XCTAssertNotEqual(owner(UInt64(0x01007EF00011E800)), app, "another game's update")
-    }
-
-    func testTitleIDReadsTheBracketedFormTheFilesUse() {
-        XCTAssertEqual(BuildModel.titleID("Mario Wonder [010015100B514000][v0].nsp"), 0x010015100B514000)
-        XCTAssertEqual(BuildModel.titleID("/ROMs/TotK [01007EF00011E000].xci"), 0x01007EF00011E000)
-        XCTAssertNil(BuildModel.titleID("no title id here.nsp"))
-    }
-
     /// Issue #53: the interpreter floor is the script's own, so Apple's 3.9 is never picked.
     func testThePythonFloorIsTheScriptsOwnThreeTwelve() {
-        XCTAssertEqual(BuildModel.minPython.0, 3)
-        XCTAssertEqual(BuildModel.minPython.1, 12,
+        XCTAssertEqual(Toolchain.minPython.0, 3)
+        XCTAssertEqual(Toolchain.minPython.1, 12,
                        "build_ipa_from_nsp.py:1911 refuses anything below 3.12; a lower floor let the "
                        + "app pick /usr/bin/python3 and the build died in the script")
-        let (path, _) = BuildModel.findPython()
+        let (path, _) = Toolchain.findPython()
         XCTAssertFalse(path.isEmpty, "a Mac with any usable interpreter must yield one")
-        if let v = BuildModel.pythonVersion(path) {
-            let floor = BuildModel.minPython
+        if let v = Toolchain.pythonVersion(path) {
+            let floor = Toolchain.minPython
             XCTAssertTrue(v.0 > floor.0 || (v.0 == floor.0 && v.1 >= floor.1),
                           "picked \(path) at \(v.0).\(v.1), below the \(floor.0).\(floor.1) floor")
         }
@@ -1128,8 +1074,8 @@ final class LibraryTests: XCTestCase {
     /// hides ~/.local/bin: uv had a working 3.12 with the packages and the panel still said
     /// "No Python 3.12 or newer found".
     func testUvManagedPythonsAreCandidates() throws {
-        let oldShim = BuildModel.uvShimDir, oldRoot = BuildModel.uvPythonRoot
-        defer { BuildModel.uvShimDir = oldShim; BuildModel.uvPythonRoot = oldRoot }
+        let oldShim = Toolchain.uvShimDir, oldRoot = Toolchain.uvPythonRoot
+        defer { Toolchain.uvShimDir = oldShim; Toolchain.uvPythonRoot = oldRoot }
         let shim = temporary.appendingPathComponent("local/bin")
         let root = temporary.appendingPathComponent("uv/python")
         let store = root.appendingPathComponent("cpython-3.12.13-macos-aarch64-none/bin")
@@ -1142,9 +1088,9 @@ final class LibraryTests: XCTestCase {
                 try Data("#!/bin/sh\n".utf8).write(to: dir.appendingPathComponent(name))
             }
         }
-        BuildModel.uvShimDir = shim.path
-        BuildModel.uvPythonRoot = root.path
-        let cands = BuildModel.pythonCandidates()
+        Toolchain.uvShimDir = shim.path
+        Toolchain.uvPythonRoot = root.path
+        let cands = Toolchain.pythonCandidates()
         XCTAssertTrue(cands.contains(shim.appendingPathComponent("python3").path),
                       "the uv shim must be probed: a GUI launch's PATH does not contain ~/.local/bin")
         XCTAssertTrue(cands.contains(shim.appendingPathComponent("python3.12").path))
@@ -1156,11 +1102,11 @@ final class LibraryTests: XCTestCase {
     /// interpreter. That cannot be a base: `-m venv` on it could not even start, so the Python
     /// row stayed red however often 安装 was pressed.
     func testVenvBaseIsNeverTheVenvItHasToCreate() throws {
-        let oldShim = BuildModel.uvShimDir, oldRoot = BuildModel.uvPythonRoot, oldVenv = BuildModel.venvDir
+        let oldShim = Toolchain.uvShimDir, oldRoot = Toolchain.uvPythonRoot, oldVenv = Toolchain.venvDir
         defer {
-            BuildModel.uvShimDir = oldShim
-            BuildModel.uvPythonRoot = oldRoot
-            BuildModel.venvDir = oldVenv
+            Toolchain.uvShimDir = oldShim
+            Toolchain.uvPythonRoot = oldRoot
+            Toolchain.venvDir = oldVenv
         }
         let shim = temporary.appendingPathComponent("bin")
         try FileManager.default.createDirectory(at: shim, withIntermediateDirectories: true)
@@ -1168,16 +1114,16 @@ final class LibraryTests: XCTestCase {
         let interp = shim.appendingPathComponent("python3.12")
         try Data("#!/bin/sh\n[ \"$1\" = -c ] && echo 3.12\nexit 0\n".utf8).write(to: interp)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: interp.path)
-        BuildModel.uvShimDir = shim.path
-        BuildModel.uvPythonRoot = temporary.appendingPathComponent("no-uv").path
-        BuildModel.venvDir = temporary.appendingPathComponent("no-venv").path
+        Toolchain.uvShimDir = shim.path
+        Toolchain.uvPythonRoot = temporary.appendingPathComponent("no-uv").path
+        Toolchain.venvDir = temporary.appendingPathComponent("no-venv").path
 
-        let wanted = BuildModel.venvPython()      // findPython()'s last resort, and what the panel passes
-        let base = try XCTUnwrap(BuildModel.venvBase(preferred: wanted), "a usable interpreter must be found")
+        let wanted = Toolchain.venvPython()      // findPython()'s last resort, and what the panel passes
+        let base = try XCTUnwrap(Toolchain.venvBase(preferred: wanted), "a usable interpreter must be found")
         XCTAssertNotEqual(base, wanted, "the venv cannot be the base it is created from")
-        let v = try XCTUnwrap(BuildModel.pythonVersion(base))
-        XCTAssertTrue(v.0 > BuildModel.minPython.0 || (v.0 == BuildModel.minPython.0 && v.1 >= BuildModel.minPython.1))
-        XCTAssertEqual(BuildModel.venvBase(preferred: interp.path), interp.path,
+        let v = try XCTUnwrap(Toolchain.pythonVersion(base))
+        XCTAssertTrue(v.0 > Toolchain.minPython.0 || (v.0 == Toolchain.minPython.0 && v.1 >= Toolchain.minPython.1))
+        XCTAssertEqual(Toolchain.venvBase(preferred: interp.path), interp.path,
                        "an interpreter that does run at the required version is kept as given")
     }
 

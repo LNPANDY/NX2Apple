@@ -244,7 +244,7 @@ final class BuildFailureTests: XCTestCase {
         let dep = BuildModel.metalDep(runs: false, lock: Self.lock, now: ["macosx": nil, "iphoneos": nil], needsIOS: true)
         XCTAssertFalse(dep.present)
         XCTAssertFalse(dep.warning)
-        XCTAssertEqual(dep.installCmd, BuildModel.metalToolchainCmd)
+        XCTAssertEqual(dep.installCmd, Toolchain.metalToolchainCmd)
     }
 
     func testWithoutALockThereIsNothingToCompare() {
@@ -295,7 +295,7 @@ final class BuildFailureTests: XCTestCase {
         let m = BuildModel()
         m.lang = .en
         m.depsChecked = true
-        m.deps = [BuildModel.Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint", present: true, installCmd: []),
+        m.deps = [Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint", present: true, installCmd: []),
                   BuildModel.metalDep(runs: true, lock: Self.lock, now: ["macosx": Self.other, "iphoneos": Self.other], needsIOS: true)]
         try capture("deps-metal-warning", width: 760, height: 260, ZStack(alignment: .top) {
             LauncherPalette.background

@@ -24,9 +24,9 @@ final class BundledToolsTests: XCTestCase {
         return url.path
     }
     private func installAllTools() throws {
-        for (_, binary, _) in BuildModel.brewDeps { try install("tools/bin/" + binary) }
+        for (_, binary, _) in Toolchain.brewDeps { try install("tools/bin/" + binary) }
     }
-    private func row(_ rows: [BuildModel.Dep], _ pkg: String) -> BuildModel.Dep? { rows.first { $0.id == "brew:" + pkg } }
+    private func row(_ rows: [Dep], _ pkg: String) -> Dep? { rows.first { $0.id == "brew:" + pkg } }
 
     // ---- what the bundle holds ----
 
@@ -105,34 +105,34 @@ final class BundledToolsTests: XCTestCase {
     // ---- the dependency rows ----
 
     func testWithoutABundleTheRowsAreHomebrews() {
-        let rows = BuildModel.toolDeps(resources: nil, installed: { "/opt/homebrew/bin/" + $0 }, brew: "/opt/homebrew/bin/brew")
-        XCTAssertEqual(rows.map { $0.id }, ["brew"] + BuildModel.brewDeps.map { "brew:" + $0.formula })
+        let rows = Toolchain.toolDeps(resources: nil, installed: { "/opt/homebrew/bin/" + $0 }, brew: "/opt/homebrew/bin/brew")
+        XCTAssertEqual(rows.map { $0.id }, ["brew"] + Toolchain.brewDeps.map { "brew:" + $0.formula })
         XCTAssertTrue(rows.allSatisfy { $0.present })
         XCTAssertEqual(row(rows, "zstd")?.detail, "/opt/homebrew/bin/zstd")
         XCTAssertEqual(row(rows, "glslang")?.detail, "/opt/homebrew/bin/glslangValidator")
     }
 
     func testWithoutABundleOrHomebrewTheRowsAreMissing() {
-        let rows = BuildModel.toolDeps(resources: nil, installed: { _ in nil }, brew: nil)
+        let rows = Toolchain.toolDeps(resources: nil, installed: { _ in nil }, brew: nil)
         XCTAssertFalse(rows.first { $0.id == "brew" }!.present)
-        XCTAssertTrue(BuildModel.brewDeps.allSatisfy { row(rows, $0.formula)?.present == false })
+        XCTAssertTrue(Toolchain.brewDeps.allSatisfy { row(rows, $0.formula)?.present == false })
     }
 
     func testBundledToolsArePresentAndNeedNoHomebrew() throws {
         try installAllTools()
-        let rows = BuildModel.toolDeps(resources: root, installed: { _ in nil }, brew: nil)
+        let rows = Toolchain.toolDeps(resources: root, installed: { _ in nil }, brew: nil)
         XCTAssertNil(rows.first { $0.id == "brew" }, "nothing needs Homebrew")
-        XCTAssertEqual(rows.count, BuildModel.brewDeps.count)
+        XCTAssertEqual(rows.count, Toolchain.brewDeps.count)
         XCTAssertTrue(rows.allSatisfy { $0.present && $0.detail == "dep.bundled" })
-        XCTAssertEqual(rows.map { $0.name }, BuildModel.brewDeps.map { "dep.tool." + $0.binary }, "named by the tool, not \"brew: …\"")
-        for (_, binary, _) in BuildModel.brewDeps {
+        XCTAssertEqual(rows.map { $0.name }, Toolchain.brewDeps.map { "dep.tool." + $0.binary }, "named by the tool, not \"brew: …\"")
+        for (_, binary, _) in Toolchain.brewDeps {
             for lang in [Lang.en, .zh] { XCTAssertEqual(L10n.string("dep.tool." + binary, lang), binary) }
         }
     }
 
     func testBundledWinsOverHomebrews() throws {
         try installAllTools()
-        let rows = BuildModel.toolDeps(resources: root, installed: { "/opt/homebrew/bin/" + $0 }, brew: "/opt/homebrew/bin/brew")
+        let rows = Toolchain.toolDeps(resources: root, installed: { "/opt/homebrew/bin/" + $0 }, brew: "/opt/homebrew/bin/brew")
         XCTAssertTrue(rows.allSatisfy { $0.detail == "dep.bundled" })
         XCTAssertNil(rows.first { $0.id == "brew" })
     }
@@ -140,7 +140,7 @@ final class BundledToolsTests: XCTestCase {
     func testOneMissingToolBringsBackTheHomebrewRowForThatTool() throws {
         try installAllTools()
         try FileManager.default.removeItem(at: root.appendingPathComponent("tools/bin/spirv-cross"))
-        let rows = BuildModel.toolDeps(resources: root, installed: { _ in nil }, brew: nil)
+        let rows = Toolchain.toolDeps(resources: root, installed: { _ in nil }, brew: nil)
         XCTAssertEqual(rows.first?.id, "brew")
         XCTAssertFalse(rows.first!.present)
         XCTAssertEqual(row(rows, "spirv-cross")?.present, false)
@@ -152,7 +152,7 @@ final class BundledToolsTests: XCTestCase {
     func testAMissingBundledToolFallsBackToHomebrewsCopy() throws {
         try installAllTools()
         try FileManager.default.removeItem(at: root.appendingPathComponent("tools/bin/xcodegen"))
-        let rows = BuildModel.toolDeps(resources: root, installed: { $0 == "xcodegen" ? "/opt/homebrew/bin/xcodegen" : nil },
+        let rows = Toolchain.toolDeps(resources: root, installed: { $0 == "xcodegen" ? "/opt/homebrew/bin/xcodegen" : nil },
                                        brew: "/opt/homebrew/bin/brew")
         XCTAssertEqual(row(rows, "xcodegen")?.detail, "/opt/homebrew/bin/xcodegen")
         XCTAssertEqual(row(rows, "xcodegen")?.present, true)
@@ -175,47 +175,47 @@ final class BundledToolsTests: XCTestCase {
             exit 0
 
             """)
-        let found = BuildModel.findPython(resources: root)
+        let found = Toolchain.findPython(resources: root)
         XCTAssertEqual(found.path, py)
         XCTAssertTrue(found.ok)
     }
 
     func testFindPythonSkipsABundledOneThatDoesNotRun() throws {
         let py = try install("python/bin/python3", script: "#!/bin/sh\nexit 1\n")
-        XCTAssertNotEqual(BuildModel.findPython(resources: root).path, py)
+        XCTAssertNotEqual(Toolchain.findPython(resources: root).path, py)
     }
 
     func testFindPythonSkipsABundledOneThatIsTooOld() throws {
         let py = try install("python/bin/python3", script: "#!/bin/sh\ncase \"$2\" in *sys.version_info*) echo 3.9;; esac\nexit 0\n")
-        XCTAssertNotEqual(BuildModel.findPython(resources: root).path, py)
+        XCTAssertNotEqual(Toolchain.findPython(resources: root).path, py)
     }
 
     /// The order of #107 and #154: the bundled Python (when it runs, is new enough and imports the
     /// packages) beats a working uv interpreter; a damaged bundled one falls through to uv's.
     func testBundledPythonBeatsUvAndAUvOneIsNextWhenItFails() throws {
-        let oldShim = BuildModel.uvShimDir, oldRoot = BuildModel.uvPythonRoot
-        defer { BuildModel.uvShimDir = oldShim; BuildModel.uvPythonRoot = oldRoot }
+        let oldShim = Toolchain.uvShimDir, oldRoot = Toolchain.uvPythonRoot
+        defer { Toolchain.uvShimDir = oldShim; Toolchain.uvPythonRoot = oldRoot }
         let good = "#!/bin/sh\ncase \"$2\" in *sys.version_info*) echo 3.13;; esac\nexit 0\n"
         let shim = root.appendingPathComponent("uvhome/.local/bin")
         try FileManager.default.createDirectory(at: shim, withIntermediateDirectories: true)
         let uvPy = shim.appendingPathComponent("python3")
         try Data(good.utf8).write(to: uvPy)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: uvPy.path)
-        BuildModel.uvShimDir = shim.path
-        BuildModel.uvPythonRoot = root.appendingPathComponent("uvhome/none").path
+        Toolchain.uvShimDir = shim.path
+        Toolchain.uvPythonRoot = root.appendingPathComponent("uvhome/none").path
         let bundled = try install("python/bin/python3", script: good)
-        XCTAssertEqual(BuildModel.findPython(resources: root).path, bundled)
+        XCTAssertEqual(Toolchain.findPython(resources: root).path, bundled)
         try Data("#!/bin/sh\nexit 1\n".utf8).write(to: URL(fileURLWithPath: bundled))
-        XCTAssertTrue(BuildModel.pythonCandidates().contains(uvPy.path))
-        let next = BuildModel.findPython(resources: root)
+        XCTAssertTrue(Toolchain.pythonCandidates().contains(uvPy.path))
+        let next = Toolchain.findPython(resources: root)
         XCTAssertNotEqual(next.path, bundled)
     }
 
     // ---- the interpreter probe ----
 
     func testTheProbeRequiresZbicAndThePipPackagesInstallIt() {
-        XCTAssertTrue(BuildModel.importProbe.contains("zbic"))
-        for v in [(3, 12), (3, 13), (3, 14), (3, 15)] { XCTAssertTrue(BuildModel.pipPackages(v).contains("zbic"), "\(v)") }
+        XCTAssertTrue(Toolchain.importProbe.contains("zbic"))
+        for v in [(3, 12), (3, 13), (3, 14), (3, 15)] { XCTAssertTrue(Toolchain.pipPackages(v).contains("zbic"), "\(v)") }
     }
 
     func testAPythonWithoutZbicFailsTheProbe() throws {
@@ -232,9 +232,9 @@ final class BundledToolsTests: XCTestCase {
         let old = ProcessInfo.processInfo.environment["PYTHONPATH"]
         setenv("PYTHONPATH", dir.path, 1)
         defer { if let old { setenv("PYTHONPATH", old, 1) } else { unsetenv("PYTHONPATH") } }
-        XCTAssertFalse(BuildModel.importsOK(py), "zbic is missing")
+        XCTAssertFalse(Toolchain.importsOK(py), "zbic is missing")
         try Data().write(to: dir.appendingPathComponent("zbic.py"))
-        XCTAssertTrue(BuildModel.importsOK(py), "everything the probe names is there")
+        XCTAssertTrue(Toolchain.importsOK(py), "everything the probe names is there")
     }
 
     // ---- the pinned packages ----
@@ -247,7 +247,7 @@ final class BundledToolsTests: XCTestCase {
         // a requirement starts at column 0, its --hash lines are indented continuations
         let pins = text.split(separator: "\n").filter { !$0.hasPrefix("#") && !$0.hasPrefix(" ") && !$0.isEmpty }
         let names = Set(pins.map { String($0.split(separator: "=", maxSplits: 1)[0]).lowercased() })
-        for pkg in BuildModel.pipPackages((3, 13)) {
+        for pkg in Toolchain.pipPackages((3, 13)) {
             XCTAssertTrue(names.contains(pkg.lowercased()), "\(pkg) is installed by the launcher's venv but not pinned for the bundle")
         }
         XCTAssertTrue(pins.allSatisfy { $0.contains("==") }, "every bundled package has an exact version")

@@ -449,7 +449,7 @@ struct ShellInstaller {
         func sign(_ bundleID: String) -> ToolResult {
             begin(Self.signStageID, signName)
             return run(ShellInstall.buildCommand(xcrun: xcrun, root: root, device: device, team: team, bundleID: bundleID),
-                       env: nil, label: signName, step: BuildModel.xcodeStep)
+                       env: nil, label: signName, step: BuildProgress.xcodeStep)
         }
         var bundleID = library.bundleID
         var built = sign(bundleID)
@@ -488,7 +488,7 @@ struct ShellInstaller {
         }
         let installName = fmt("dev.installStage", deviceName)
         begin(Self.installStageID, installName)
-        let installed = run(ShellInstall.installCommand(xcrun: xcrun, device: device, app: app), env: nil, label: installName, step: BuildModel.installStep)
+        let installed = run(ShellInstall.installCommand(xcrun: xcrun, device: device, app: app), env: nil, label: installName, step: BuildProgress.installStep)
         if installed.status != 0 {
             let why = installed.lastError ?? fmt("msg.exitCode", installed.status)
             end(Self.installStageID, installName, ok: false, detail: why)
@@ -578,7 +578,7 @@ struct ShellInstaller {
                              percent: Double(i) / Double(missing.count) * 100))
             let r = run(ShellInstall.copyCommand(xcrun: xcrun, device: device, bundleID: bundleID, titleID: titleID,
                                                  source: archive + "/" + path, relativePath: path),
-                        env: nil, label: copyName, step: BuildModel.installStep)
+                        env: nil, label: copyName, step: BuildProgress.installStep)
             if r.status != 0 {
                 let why = r.lastError ?? fmt("msg.exitCode", r.status)
                 end(Self.copyStageID, copyName, ok: false, detail: why)
@@ -680,7 +680,7 @@ enum ShellCLI {
         let archive = o["archive"]!
         let root = o["shell-root"] ?? ShellLibrary.resolveRoot(
             defaults: defaults, parent: ((archive as NSString).deletingLastPathComponent as NSString).deletingLastPathComponent)
-        let python = o["python"] ?? BuildModel.findPython().path
+        let python = o["python"] ?? Toolchain.findPython().path
         var installer = ShellInstaller(xcrun: o["xcrun"] ?? "/usr/bin/xcrun", repo: o["repo"]!, python: python, root: root,
                                        device: o["device"]!, team: o["team"]!)
         installer.deviceName = o["device"]!

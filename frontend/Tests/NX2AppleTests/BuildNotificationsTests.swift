@@ -60,7 +60,7 @@ final class BuildNotificationsTests: XCTestCase {
         let model = BuildModel()
         model.lang = CaptureLanguage.current(.en)
         model.depsChecked = true
-        model.deps = [BuildModel.Dep(id: "test", name: "Xcode", hint: "", present: true, installCmd: [])]
+        model.deps = [Dep(id: "test", name: "Xcode", hint: "", present: true, installCmd: [])]
         let library = GameLibrary(file: temporary.appendingPathComponent("preview.json"))
         let host = NSHostingView(rootView: ContentView(model: model, library: library, initialPage: .settings, performStartupChecks: false))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1440, height: 1500), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
