@@ -6,16 +6,14 @@ import SwiftUI
 final class BuildNotificationsTests: XCTestCase {
     private func en(_ key: String) -> String { L10n.string(key, .en) }
 
-    func testOnlyAFinishedOrFailedBuildInTheBackgroundIsNotified() {
-        let failed = BuildNotice.Outcome.failed(reason: "Build failed (exit code 1)")
-        XCTAssertTrue(BuildNotice.shouldNotify(.finished, enabled: true, appActive: false, hasBundleID: true))
-        XCTAssertTrue(BuildNotice.shouldNotify(failed, enabled: true, appActive: false, hasBundleID: true))
-        XCTAssertFalse(BuildNotice.shouldNotify(.finished, enabled: true, appActive: true, hasBundleID: true), "a build someone is watching")
-        XCTAssertFalse(BuildNotice.shouldNotify(.stopped, enabled: true, appActive: false, hasBundleID: true), "Stop was pressed at the app")
-        XCTAssertFalse(BuildNotice.shouldNotify(failed, enabled: false, appActive: false, hasBundleID: true), "switched off in Settings")
-        XCTAssertFalse(BuildNotice.shouldNotify(.finished, enabled: true, appActive: false, hasBundleID: false), "swift run: no bundle, no notification center")
+    func testOnlyAFinishedOrFailedBuildIsNotified() {
+        // The owner's rc8 report: a build that finishes in the foreground must announce itself too.
+        XCTAssertFalse(BuildNotice.shouldNotify(.stopped, enabled: true, appActive: true, hasBundleID: true), "a stop is silent")
+        XCTAssertTrue(BuildNotice.shouldNotify(.finished, enabled: true, appActive: true, hasBundleID: true), "success announces in the foreground")
+        XCTAssertTrue(BuildNotice.shouldNotify(.finished, enabled: true, appActive: false, hasBundleID: true), "success announces in the background")
+        XCTAssertFalse(BuildNotice.shouldNotify(.finished, enabled: false, appActive: false, hasBundleID: true), "disabled stays quiet")
+        XCTAssertFalse(BuildNotice.shouldNotify(.finished, enabled: true, appActive: false, hasBundleID: false), "no bundle ID stays quiet")
     }
-
     func testNotificationsAreOnUntilSwitchedOff() {
         let saved = UserDefaults.standard.object(forKey: BuildNotice.defaultsKey)
         defer { UserDefaults.standard.set(saved, forKey: BuildNotice.defaultsKey) }
