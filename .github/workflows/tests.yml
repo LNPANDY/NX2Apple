@@ -243,9 +243,11 @@ jobs:
           path: logs
           retention-days: 7
 
+  # Runs on Linux, not xcode-27: the tests mock the system calls and nothing here needs macOS, so the job does not take one of the 5 macOS slots
+  # the account has. The tests that need clang find the one GitHub installs on ubuntu-latest.
   launcher-qt:
     name: Qt front end (frontend-qt tests)
-    runs-on: xcode-27
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
