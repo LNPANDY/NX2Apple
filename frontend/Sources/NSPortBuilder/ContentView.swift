@@ -1445,7 +1445,7 @@ final class BuildModel: ObservableObject {
                         let fw = ShellInstall.frameworkPath(workDir: self.effectiveWorkDir, titleID: tid)
                         self.packArchive(workDir: self.effectiveWorkDir) {
                             // The mirror in the shell folder is what survives a deleted build folder (#398).
-                            try? ShellInstall.mirrorFramework(framework: fw, root: ShellLibrary.resolveRoot(parent: (self.basePath as NSString).deletingLastPathComponent))
+                            try? ShellInstall.moveFrameworkIntoCache(framework: fw, root: ShellLibrary.resolveRoot(parent: (self.basePath as NSString).deletingLastPathComponent))
                             self.installShell(framework: fw, titleID: tid, name: name, archive: $0)
                         }
                     }
