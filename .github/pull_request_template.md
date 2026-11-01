@@ -6,6 +6,8 @@
 - [ ] Fix
 - [ ] Feature
 
+Feature from outside: the issue with the go is linked.
+
 ## What and why
 
 <!-- The symptom or the need, the cause, and the change. Link the issue (Fixes #...). -->
