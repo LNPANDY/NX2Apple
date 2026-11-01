@@ -58,6 +58,7 @@ A final tag on a commit without a candidate fails. In an emergency, a manual run
 CI writes a short body: the version and the tested candidate. The readable notes are written by a person or an agent from [.github/release_notes_template.md](.github/release_notes_template.md).
 
 - English first, Chinese second, under `## English` and `## 中文`, with the same content in both. Each part has one bullet per change, grouped in bold: a notice, Highlights, New, Fixed, Known issues, Requires.
+- The release title is `vX.Y.Z: the one thing this release is about / the same in Chinese`, for example `v1.0.0: The iPhone and iPad app / iPhone 和 iPad 版发布`. English first, a colon after the version, ` / ` between the languages, no dash of any kind, no emoji, no semicolon. CI creates the final release with the tag alone as its title, so set the title together with the notes: `gh release edit <tag> --title "<title>" --notes-file <file>`.
 - No emojis, no pictograms and no symbols in the text. No semicolons (also not the full-width one) and no em-dashes. Plain English and plain Chinese.
 - People are written as `@login`, the owner as `@LNPANDY`.
 - Every claim comes from the changelog row, the merged pull requests or the issues. Nothing is invented.
