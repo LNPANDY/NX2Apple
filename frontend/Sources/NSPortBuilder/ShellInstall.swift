@@ -83,16 +83,16 @@ enum ShellInstall {
         frameworksMirror(root: root) + "/DmGame\(titleID).framework"
     }
 
-    /// Moves a freshly built framework into the shell folder — its permanent home. The build folder's copy
-    /// is not kept: the build script makes a new one whenever it runs again, and the cache holds the one the
-    /// shell installs from. One copy per game, and a deleted build folder costs nothing.
-    static func moveFrameworkIntoCache(framework: String, root: String) throws {
+    /// Mirrors a freshly built framework into the shell folder: a hard link when both live on one volume (no extra space),
+    /// a copy otherwise. Re-links over the previous mirror, so a rebuilt game's mirror follows.
+    static func mirrorFramework(framework: String, root: String) throws {
         let fm = FileManager.default
-        let cache = frameworksMirror(root: root) + "/" + (framework as NSString).lastPathComponent
-        let parent = (cache as NSString).deletingLastPathComponent
+        let mirror = mirroredFramework(root: root, titleID: Self.titleID(ofFramework: framework))
+        let parent = (mirror as NSString).deletingLastPathComponent
         try? fm.createDirectory(atPath: parent, withIntermediateDirectories: true)
-        try? fm.removeItem(atPath: cache)
-        try fm.moveItem(atPath: framework, toPath: cache)
+        try? fm.removeItem(atPath: mirror)
+        do { try fm.linkItem(atPath: framework, toPath: mirror) }
+        catch { try fm.copyItem(atPath: framework, toPath: mirror) }   // another volume: a real copy
     }
 
     /// The title ID a framework path carries (`DmGame0100…framework`, the build script's name).
@@ -381,11 +381,6 @@ struct ShellInstaller {
     private struct ToolResult { var status: Int32; var output: String; var lastError: String? }
 
     func install(framework: String, titleID: String, name: String, archive: String) -> Outcome {
-        // The cache folder is every framework's home. The caller passes the build path; the cache copy is
-        // the one that exists after the move, and an old game's framework lives only there.
-        var framework = framework
-        let cached = ShellInstall.mirroredFramework(root: root, titleID: titleID)
-        if FileManager.default.fileExists(atPath: cached) { framework = cached }
         guard FileManager.default.fileExists(atPath: framework) else {
             return Outcome(ok: false, message: fmt("shell.noFramework", framework))
         }
