@@ -368,8 +368,62 @@ final class ShellInstallTests: XCTestCase {
         return (status, output)
     }
 
+    private func mirrored(_ root: String, _ id: String? = nil) -> String { ShellInstall.mirroredFramework(root: root, titleID: id ?? titleID) }
+
     private var calls: [String] { ((try? String(contentsOfFile: state + "/calls.txt", encoding: .utf8)) ?? "").split(separator: "\n").map(String.init) }
     private func copies() -> [String] { calls.filter { $0.hasPrefix("devicectl device copy to") } }
+
+    // ---- the mirror in the shell folder is the primary copy ----
+
+    func testInstallMirrorsTheBuildAndShellJsonPointsAtTheMirror() throws {
+        let f = try makeFixture()
+        let r = run(f)
+        XCTAssertEqual(r.status, 0, r.output)
+        let mirror = mirrored(f.root)
+        XCTAssertEqual(try String(contentsOfFile: mirror + "/game.manifest.json"), "{}")
+        XCTAssertEqual(ShellLibrary.load(root: f.root).games.map(\.framework), [mirror])
+        // a later write to the build folder does not reach the mirror
+        try write(f.framework + "/game.manifest.json", "changed")
+        XCTAssertEqual(try String(contentsOfFile: mirror + "/game.manifest.json"), "{}")
+    }
+
+    func testInstallMirrorsAGameBuiltBeforeTheMirrorExisted() throws {
+        let f = try makeFixture()
+        let otherID = "0100AAAA00000000"
+        let other = path("work2/shell-framework/DmGame\(otherID).framework")
+        try write(other + "/game.manifest.json", "other")
+        var library = ShellLibrary()
+        library.add(.init(titleID: otherID, name: "Other", framework: other))   // what an install before the mirror wrote
+        try library.save(root: f.root)
+        let r = run(f)
+        XCTAssertEqual(r.status, 0, r.output)
+        let saved = ShellLibrary.load(root: f.root)
+        XCTAssertEqual(Set(saved.games.map(\.framework)), [mirrored(f.root), mirrored(f.root, otherID)])
+        XCTAssertEqual(try String(contentsOfFile: mirrored(f.root, otherID) + "/game.manifest.json"), "other")
+    }
+
+    func testGameWithoutBuildFolderPlaysFromItsMirrorAndOneWithNeitherIsDropped() throws {
+        let f = try makeFixture()
+        let keptID = "0100BBBB00000000", lostID = "0100CCCC00000000"
+        try write(mirrored(f.root, keptID) + "/game.manifest.json", "kept")
+        var library = ShellLibrary()
+        library.add(.init(titleID: keptID, name: "Kept", framework: path("gone/DmGame\(keptID).framework")))
+        library.add(.init(titleID: lostID, name: "Lost", framework: path("gone/DmGame\(lostID).framework")))
+        try library.save(root: f.root)
+        let r = run(f)
+        XCTAssertEqual(r.status, 0, r.output)
+        XCTAssertEqual(Set(ShellLibrary.load(root: f.root).games.map(\.titleID)), [titleID, keptID])
+        XCTAssertEqual(ShellLibrary.load(root: f.root).games.first { $0.titleID == keptID }?.framework, mirrored(f.root, keptID))
+    }
+
+    func testFailedMirrorIsLoggedAndTheGameKeepsItsBuildPath() throws {
+        let f = try makeFixture()
+        try write(f.root + "/frameworks", "a file where the mirror folder should be")
+        let r = run(f)
+        XCTAssertEqual(r.status, 0, r.output)
+        XCTAssertTrue(r.output.contains("\(titleID)'s framework could not be mirrored"), r.output)
+        XCTAssertEqual(ShellLibrary.load(root: f.root).games.map(\.framework), [f.framework])
+    }
 
     func testTheFakeDeviceWipesSiblingsWithRemoveExistingContent() throws {
         let f = try makeFixture()
@@ -402,12 +456,12 @@ final class ShellInstallTests: XCTestCase {
         XCTAssertEqual(copies().count, 2)
         XCTAssertEqual(try String(contentsOfFile: save), "my save")
         let env = try String(contentsOfFile: state + "/shell-env.txt")
-        for line in ["DM_BUNDLE_ID=org.nxnative.shell", "DM_SHELL_FRAMEWORKS=\(f.framework)", "DM_TEAM_ID=TEAM123456",
+        for line in ["DM_BUNDLE_ID=org.nxnative.shell", "DM_SHELL_FRAMEWORKS=\(mirrored(f.root))", "DM_TEAM_ID=TEAM123456",
                      "SHELL_DIR=\(f.root)/project", "DM_XCODE_DERIVED_DATA=\(f.root)/derived-data", "FONT_PY=/usr/bin/python3", "DM_SHELL_PACKAGE=\(f.repo)/frontend-ios"] {
             XCTAssertTrue(env.contains(line), line)
         }
         let library = ShellLibrary.load(root: f.root)
-        XCTAssertEqual(library.games, [.init(titleID: titleID, name: "Test Game", framework: f.framework)])
+        XCTAssertEqual(library.games, [.init(titleID: titleID, name: "Test Game", framework: mirrored(f.root))])
         XCTAssertEqual(library.team, team)
 
         // second run, same data: nothing is copied

@@ -118,7 +118,9 @@ final class BuildModel: ObservableObject {
     private var chainNoteShown = false   // the shader-chain notice shows once per build
     @Published var running = false
     /// The shell folder the cache row shows: the frameworks' mirror, shell.json and the banner cache live here.
-    var shellCachePath: String { ShellLibrary.resolveRoot(parent: outDir.isEmpty ? (basePath as NSString).deletingLastPathComponent : outDir) }
+    var shellCachePath: String { shellRoot }
+    /// The shell folder of the install and of the cache row: the saved one, else next to the output folder (or the game's folder).
+    var shellRoot: String { ShellLibrary.resolveRoot(parent: outDir.isEmpty ? (basePath as NSString).deletingLastPathComponent : outDir) }
     @Published var stopping = false
     @Published var logTail = ""
     @Published var done = false
@@ -1444,8 +1446,6 @@ final class BuildModel: ObservableObject {
                         let name = ((self.basePath as NSString).lastPathComponent as NSString).deletingPathExtension
                         let fw = ShellInstall.frameworkPath(workDir: self.effectiveWorkDir, titleID: tid)
                         self.packArchive(workDir: self.effectiveWorkDir) {
-                            // The mirror in the shell folder is what survives a deleted build folder (#398).
-                            try? ShellInstall.mirrorFramework(framework: fw, root: ShellLibrary.resolveRoot(parent: (self.basePath as NSString).deletingLastPathComponent))
                             self.installShell(framework: fw, titleID: tid, name: name, archive: $0)
                         }
                     }
@@ -2023,7 +2023,7 @@ final class BuildModel: ObservableObject {
         if dataOnly { failure = nil; done = false; doneNote = "" }
         shellRetry = (framework, titleID, name, archive)
         let python = pythonPath.isEmpty ? Self.findPython().path : pythonPath
-        let root = ShellLibrary.resolveRoot(parent: outDir.isEmpty ? (basePath as NSString).deletingLastPathComponent : outDir)
+        let root = shellRoot
         var installer = ShellInstaller(xcrun: xcrunPath, repo: repoPath, python: python, root: root, device: installDevice, team: signingTeam)
         installer.deviceName = deviceName(installDevice)
         installer.lang = lang
