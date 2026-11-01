@@ -84,6 +84,20 @@ import SwiftUI
         XCTAssertEqual(launches.first?.environment, expected, "the same function the desktop Play uses, with the console's fullscreen")
     }
 
+    func testAGameStartsWithThePointerHiddenWhenTheConsoleHadItHidden() throws {
+        var launches: [Launch] = []
+        let (driver, _, _) = try makeDriver { launches.append($0) }
+        let id = try XCTUnwrap(driver.state.games.first?.id)
+        driver.pointerHidden = { true }
+        driver.play(id)
+        XCTAssertEqual(launches.last?.environment["DM_CURSOR_HIDDEN"], "1", "the new process would show the pointer until its own idle wait ends")
+        driver.state.returnFromGame()
+        driver.pointerHidden = { false }
+        driver.play(id)
+        XCTAssertEqual(launches.count, 2)
+        XCTAssertNil(launches.last?.environment["DM_CURSOR_HIDDEN"], "a visible pointer stays the game's default")
+    }
+
     func testConsoleLaunchesFullscreenOverTheSavedDisplayChoice() throws {
         var launches: [Launch] = []
         let (driver, library, _) = try makeDriver { launches.append($0) }

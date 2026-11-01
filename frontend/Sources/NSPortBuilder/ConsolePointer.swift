@@ -49,6 +49,9 @@ struct PointerIdle: Equatable {
         self.show = show
     }
 
+    /// The pointer is hidden right now.
+    var isHidden: Bool { idle.hidden }
+
     func start() {
         guard timer == nil else { return }
         timer = Timer.scheduledTimer(withTimeInterval: Self.pollSeconds, repeats: true) { [weak self] _ in

@@ -115,6 +115,8 @@ struct ConsolePadSnapshot: Equatable {
     /// see ConsoleCoordinator). `gameEnded` runs when the game quit or did not start.
     var prepareLaunch: (@escaping () -> Void) -> Void = { $0() }
     var gameEnded: () -> Void = {}
+    /// Whether the console has the pointer hidden right now (ConsolePointer.swift).
+    var pointerHidden: () -> Bool = { false }
 
     deinit {
         observers.forEach { NotificationCenter.default.removeObserver($0); NSWorkspace.shared.notificationCenter.removeObserver($0) }
@@ -221,6 +223,7 @@ struct ConsolePadSnapshot: Equatable {
         state.play(gameID)
         guard state.startingGameID == gameID, let game = library.games.first(where: { $0.id.uuidString == gameID }) else { return }
         let environment = GameStart.environment(for: game, library: library, controls: controls, repo: repo(), labels: labels, fullscreen: true)
+            .merging(pointerHidden() ? ["DM_CURSOR_HIDDEN": "1"] : [:]) { $1 }   // the game is a new process: without this its pointer shows until its own idle wait ends
             .merging(FrameTimes.recordingEnvironment(for: game, library: library.folder)) { $1 }   // a frame-time recording, as the desktop Play adds (FrameTimes.swift)
         state.starting = .preparing
         prepareLaunch { [weak self] in

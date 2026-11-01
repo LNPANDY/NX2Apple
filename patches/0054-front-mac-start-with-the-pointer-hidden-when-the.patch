@@ -1,0 +1,55 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: v0lumehi <aljic.zijad@gmail.com>
+Date: Sun, 1 Nov 2026 01:58:50 +0100
+Subject: [PATCH] front-mac: start with the pointer hidden when the launcher
+ asks (DM_CURSOR_HIDDEN)
+
+The launcher's console hides the pointer after a few idle seconds. The game is a new process whose pointer is visible until its own first idle wait ends, so the pointer showed up between the launcher and the game. DM_CURSOR_HIDDEN=1 starts the game with it hidden, and the not-over rule waits until the pointer has been over the new window once.
+
+Upstream-Status: forwarded seedds/nxnative#839
+Reason: The launcher console hides the pointer, the game it starts shows it again for its first idle seconds
+Issue: LNPANDY/NX2Apple#368
+
+---
+ dm/host/front_mac.m   | 9 +++++++--
+ docs/env_switches.tsv | 1 +
+ 2 files changed, 8 insertions(+), 2 deletions(-)
+
+diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
+index 0338444..2e31039 100644
+--- a/dm/host/front_mac.m
++++ b/dm/host/front_mac.m
+@@ -1198,14 +1198,19 @@ void front_run(void (*guest)(void)) {
+         const char *ch = getenv("DM_CURSOR_HIDE"); double idle = ch && *ch ? atof(ch) : 3.0;
+         if (idle > 0) {
+             win.acceptsMouseMovedEvents = YES;
+-            __block double last = CACurrentMediaTime(); __block int hidden = 0;
++            __block double last = CACurrentMediaTime(); __block int hidden = 0, armed = 0;
+             void (^show)(void) = ^{ if (hidden) { hidden = 0; [NSCursor unhide]; } };
++            // DM_CURSOR_HIDDEN=1: the launcher's console had the pointer hidden when it started this game, so it starts hidden here too and does not flash up until the first idle poll.
++            // The not-over rule below waits (armed) until the game window has been under the pointer once, as a new window is not key yet when the timer first runs
++            const char *hs = getenv("DM_CURSOR_HIDDEN");
++            if (hs && !strcmp(hs, "1")) { hidden = 1; armed = 1; [NSCursor hide]; }
+             [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskMouseMoved | NSEventMaskLeftMouseDragged | NSEventMaskRightMouseDragged | NSEventMaskOtherMouseDragged |
+                 NSEventMaskLeftMouseDown | NSEventMaskRightMouseDown | NSEventMaskOtherMouseDown | NSEventMaskScrollWheel handler:^NSEvent *(NSEvent *e) { last = CACurrentMediaTime(); show(); return e; }];
+             [NSTimer scheduledTimerWithTimeInterval:0.25 repeats:YES block:^(NSTimer *t) {
+                 (void)t; NSView *cv = win.contentView;
+                 int over = win.isKeyWindow && NSApp.isActive && NSPointInRect([cv convertPoint:win.mouseLocationOutsideOfEventStream fromView:nil], cv.bounds);
+-                if (hidden && !over) show();
++                if (over) armed = 0;
++                if (hidden && !over && !armed) show();
+                 else if (!hidden && over && CACurrentMediaTime() - last >= idle) { hidden = 1; [NSCursor hide]; } }];
+         }
+         for (NSNotificationName nm in @[GCControllerDidConnectNotification, GCControllerDidDisconnectNotification])
+diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
+index 7f026a7..1785974 100644
+--- a/docs/env_switches.tsv
++++ b/docs/env_switches.tsv
+@@ -21,6 +21,7 @@ DM_COPY_GAME_RESOURCES	switch	`NO` skips the Xcode build phase that copies the g
+ DM_COPY_ROMFS	switch	`NO` keeps the game files out of the app, in the Xcode build phase (`stage_resources.sh`) and in the unsigned IPA of `build_ipa.sh` (on by default): `main.m` takes the validated `Documents/romfs.img` copied by `scripts/push_romfs.sh`, then a `Documents/romfs` folder; the build writes the image's identity as `romfs.id` into the app, and `main.m` uses only a matching image (`--romfs separate` of the NSP script sets this)
+ DM_CTL	diagnostic	`=<file>` (Mac): the host polls the file every 100 ms and runs each appended line: button presses, `shot`, `passdump`, `texdump`, `env KEY=VALUE`, `peek`, `memdump`, `drag` and more
++DM_CURSOR_HIDDEN	player	`=1` (Mac) starts the game with the pointer already hidden, as the launcher sets it when its console had hidden the pointer, so it does not show up for a moment between the two windows. The usual rule of `DM_CURSOR_HIDE` takes over once the pointer is over the game window
+ DM_CURSOR_HIDE	player	`=<seconds>` hides the Mac pointer after that many seconds without movement over the game window (3 by default) and shows it again on the next movement, click or scroll; `0` keeps it
+ DM_DBG	diagnostic	When set, prints the guest's `svcOutputDebugString` text to stderr as `[guest]` lines
+ DM_DBG_AU_FRAMES	diagnostic	`=<frames>` asks the Mac's Core Audio output for that many frames per callback instead of about 5 ms (1024 reproduces the iOS default that caused crackling)
+ DM_DETCLOCK	switch	`=<step ns>`: from the first present on, the guest clock advances a fixed step per present instead of following the wall clock, and the random source becomes a fixed-seed stream (replay and test runs)
