@@ -117,6 +117,8 @@ final class BuildModel: ObservableObject {
     @Published var stages: [Stage] = []
     private var chainNoteShown = false   // the shader-chain notice shows once per build
     @Published var running = false
+    /// The shell folder the cache row shows: the frameworks' mirror, shell.json and the banner cache live here.
+    var shellCachePath: String { ShellLibrary.resolveRoot(parent: outDir.isEmpty ? (basePath as NSString).deletingLastPathComponent : outDir) }
     @Published var stopping = false
     @Published var logTail = ""
     @Published var done = false
@@ -1440,9 +1442,11 @@ final class BuildModel: ObservableObject {
                         // The game's archive, then its framework into the one shared app on the device
                         let tid = Self.buildKey(self.basePath)
                         let name = ((self.basePath as NSString).lastPathComponent as NSString).deletingPathExtension
+                        let fw = ShellInstall.frameworkPath(workDir: self.effectiveWorkDir, titleID: tid)
                         self.packArchive(workDir: self.effectiveWorkDir) {
-                            self.installShell(framework: ShellInstall.frameworkPath(workDir: self.effectiveWorkDir, titleID: tid),
-                                              titleID: tid, name: name, archive: $0)
+                            // The mirror in the shell folder is what survives a deleted build folder (#398).
+                            try? ShellInstall.mirrorFramework(framework: fw, root: ShellLibrary.resolveRoot(parent: (self.basePath as NSString).deletingLastPathComponent))
+                            self.installShell(framework: fw, titleID: tid, name: name, archive: $0)
                         }
                     }
                 } else {
@@ -3710,10 +3714,17 @@ struct BuilderView: View {
             Text(m.confirmingChannel.flatMap { m.engineSelection.channel.switchWarningKey(to: $0) }.map { m.t($0) } ?? "")
         }
         divider
+        row(m.t("shellCache.row"), detail: m.t("shellCache.note") + "\n" + m.shellCachePath) {
+            Button(m.t("shellCache.open")) { m.revealFolder(URL(fileURLWithPath: m.shellCachePath)) }
+                .buttonStyle(LauncherSecondaryButtonStyle())
+        }
+        divider
         row(m.t("repo.auto"), detail: m.t("engine.autoNote")) {
             Toggle("", isOn: $m.autoUpdateRepo).labelsHidden().toggleStyle(LauncherSwitchStyle())
         }
     }
+
+
 
     private func pickRepo() {
         let d = NSOpenPanel()
