@@ -5,7 +5,7 @@ import NXLauncher
 
 // Game files dropped on the Builds page (issue #68): NSP, NSZ and XCI files, a folder, prod.keys, in any
 // mix. They are sorted into the slots by the same classification as Choose game folder
-// (BuildModel.classify), so a drop and a picked folder never disagree about what is the update.
+// (GameInputs.classify), so a drop and a picked folder never disagree about what is the update.
 
 extension BuildModel {
     /// One dropped folder is the same as choosing it; anything else (files, several folders, a mix) is added to
@@ -16,13 +16,13 @@ extension BuildModel {
             return FileManager.default.fileExists(atPath: p, isDirectory: &d) && d.boolValue
         }
         if paths.count == 1, isFolder(paths[0]) { scan(folder: paths[0]); return }
-        var found = Self.classify(paths.flatMap { isFolder($0) ? Self.inputFiles(in: $0) : [$0] })
+        var found = GameInputs.classify(paths.flatMap { isFolder($0) ? GameInputs.inputFiles(in: $0) : [$0] })
         // update and add-on files of another game than the base (the dropped one, else the one already chosen)
         let baseName = (found.base ?? (basePath.isEmpty ? nil : basePath)).map { ($0 as NSString).lastPathComponent }
         var rejected: [InputKind: String] = [:]
         func fits(_ path: String, _ kind: InputKind) -> Bool {
             let name = (path as NSString).lastPathComponent
-            guard let why = Self.rowMismatch(kind, name: name, base: baseName) else { return true }
+            guard let why = GameInputs.rowMismatch(kind, name: name, base: baseName) else { return true }
             if rejected[kind] == nil { rejected[kind] = rowProblemText(why, name: name) }
             return false
         }
@@ -35,7 +35,7 @@ extension BuildModel {
     }
 
     /// The slots after a drop of `found`. Nothing usable in it leaves the slots as they were, but says so on an empty base row.
-    nonisolated static func merged(_ slots: [Slot], with found: FoundInputs) -> [Slot] {
+    nonisolated static func merged(_ slots: [Slot], with found: GameInputs.Found) -> [Slot] {
         slots.map { s in
             var s = s
             switch s.id {

@@ -1,7 +1,5 @@
 import XCTest
-@testable import NX2Apple
 @testable import NXCore
-@testable import NXLauncher
 
 /// #111: the repo-root Brewfile is the one list of Homebrew tools, and the launcher's dependency check offers the same.
 final class BrewfileTests: XCTestCase {
@@ -25,7 +23,7 @@ final class BrewfileTests: XCTestCase {
     }
 
     func testBrewfileFormulaeAreTheLaunchersDependencies() throws {
-        let launcher = Set(BuildModel.brewDeps.map { $0.formula })
+        let launcher = Set(Toolchain.brewDeps.map { $0.formula })
         XCTAssertEqual(Set(try entries("brew")), launcher)
         XCTAssertEqual(try entries("brew").count, launcher.count, "a formula is listed twice")
     }
