@@ -1202,6 +1202,22 @@ final class BuildModel: ObservableObject {
         return found.flatMap { UInt64($0, radix: 16) }
     }
 
+    /// The name of a game's work folder and output (`<key>_build`, `<key>.app`). The title ID in the file name when there
+    /// is one, so `<ID>_build` stays what the library looks for. Else the file name without its extension, cut to letters,
+    /// digits, `-` and `_`, plus a short hash of the full name: two games never share a folder (and so a shader cache),
+    /// the same file name always gets the same one (a rebuild reuses its cache). Never a constant.
+    nonisolated static func buildKey(_ path: String) -> String {
+        let name = (path as NSString).lastPathComponent   // a bare ID is a token, so a "/" before it would hide it
+        if let id = titleID(name) { return String(format: "%016llX", id) }
+        let stem = (name as NSString).deletingPathExtension
+        var hash: UInt32 = 2166136261   // FNV-1a, stable across runs (Hashable is seeded per launch)
+        for byte in stem.utf8 { hash = (hash ^ UInt32(byte)) &* 16777619 }
+        let clean = String(stem.unicodeScalars.map { c in
+            c.isASCII && (CharacterSet.alphanumerics.contains(c) || c == "-" || c == "_") ? Character(c) : "_"
+        }).prefix(40)
+        return (clean.isEmpty ? "game" : String(clean)) + "-" + String(format: "%08x", hash)
+    }
+
     var repoOK: Bool { Self.isRepo(repoPath) }
     /// A clone has .git; a GitHub "Download ZIP" copy does not (everything builds, but there is
     /// nothing to fetch or pull — the update buttons hide and the note says to re-download instead).
@@ -1277,7 +1293,7 @@ final class BuildModel: ObservableObject {
                 staged.append(baseDir + "/" + f)
             }
         }
-        let tidHex = Self.titleID(basePath).map { String(format: "%016llX", $0) } ?? "game"
+        let tidHex = Self.buildKey(basePath)
         let workDir = (outDir.isEmpty ? baseDir : outDir) + "/" + tidHex + "_build"
         // The build's signing step refuses the attributes a cloud folder adds, after the long steps: stop here instead.
         if cloudFolderCheck(workDir) {
@@ -1420,7 +1436,7 @@ final class BuildModel: ObservableObject {
                         self.cleanupStaging()
                     } else {
                         // The game's archive, then its framework into the one shared app on the device
-                        let tid = Self.titleID(self.basePath).map { String(format: "%016llX", $0) } ?? "game"
+                        let tid = Self.buildKey(self.basePath)
                         let name = ((self.basePath as NSString).lastPathComponent as NSString).deletingPathExtension
                         self.packArchive(workDir: self.effectiveWorkDir) {
                             self.installShell(framework: ShellInstall.frameworkPath(workDir: self.effectiveWorkDir, titleID: tid),
@@ -1869,7 +1885,7 @@ final class BuildModel: ObservableObject {
         // exposes on an external drive) then needs no renaming, and several games' folders can sit
         // side by side in one app.
         let gamesRoot = (outDir.isEmpty ? (basePath as NSString).deletingLastPathComponent : outDir) + "/games"
-        let tid = Self.titleID(basePath).map { String(format: "%016llX", $0) } ?? "game"
+        let tid = Self.buildKey(basePath)
         // games/<id>/ holds romfs.img and aoc/ side by side: main.m's per-game lookup takes the
         // image, and the host mounts DLC from aoc/<index>.img (hle_fs.c aoc_dir). One folder, which
         // the user copies to the phone or keeps on an external drive as a whole.
