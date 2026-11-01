@@ -1,0 +1,238 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: TeeJayBaker <Tom_John_baker@yahoo.com>
+Date: Sat, 31 Oct 2026 21:09:38 +0000
+Subject: [PATCH] shader_split: Unity profile keys for the player's hardware
+ tier and for variants and passes it never draws
+
+Unity compiles each variant once per hardware tier and ships keyword variants whatever the scenes
+enable. Overcooked! All You Can Eat (Unity 2019.4.11f1) splits to 520,394 shaders this way, 2.3 GB of
+package and 293k pipeline pairs, a shader build of many hours.
+
+Three optional profile keys, read by shader_split.py:
+- unity_tier: keep only the programs of the tier the player runs (unity_code_blobs)
+- unity_skip_keywords: leave out programs compiled with a keyword the game data never enables
+  (unity_skipped, global or local keywords)
+- unity_skip_passes: leave out passes by LightMode tag; META is drawn only by the editor's
+  lightmapper (unity_pass_drawn)
+
+Without the keys every program is read as before, so the committed tables of the other Unity
+profiles split unchanged. Tests in dm/gfx/tests/test_unity_tier.py; the findings are in
+docs/reference/shaders.md and the keys in dm/games/README.md.
+
+Upstream-Status: forwarded seedds/nxnative#836
+Reason: Unity profile keys that leave out shader tiers, keyword variants and passes a game never draws
+Issue: LNPANDY/NX2Apple#369
+
+---
+ dm/games/README.md              |  3 ++
+ dm/games/game.py                |  2 +
+ dm/gfx/tests/test_unity_tier.py | 68 +++++++++++++++++++++++++++++++++
+ dm/gfx/tools/shader_split.py    | 28 +++++++++++---
+ dm/tools/docs_patches.py        |  2 +-
+ docs/reference/shaders.md       | 24 ++++++++++++
+ 6 files changed, 121 insertions(+), 6 deletions(-)
+ create mode 100644 dm/gfx/tests/test_unity_tier.py
+
+diff --git a/dm/games/README.md b/dm/games/README.md
+index 25059ea..e01c03f 100644
+--- a/dm/games/README.md
++++ b/dm/games/README.md
+@@ -208,6 +208,9 @@ One row per profile; the notes are each profile's `README.md`.
+ | `gpu_timestamps` | What a timestamp report (`nvnCommandBufferReportCounter`) records: `submission` (the default) = the time the whole submission completed, the same for every report in it; `segment` = the GPU start (`TIMESTAMP_TOP`) or end (the other types) of the segment the report was encoded in (the host commits a submission in segments of 64 draws, `sub_cut` in `nvn_mtl.m`), so two reports of one submission bracket the GPU time between them, as on hardware. Breath of the Wild needs `segment`: its frame-interval controller and its dynamic resolution read the GPU time between the frame's first and last report, and with one time for both they read 0 (the game kept 60 fps in slow motion when the GPU could not keep up). `DM_NVN_GPU_TS=segment` / `submission` overrides it, also from `Documents/env.txt` |
+ | `vconv_range` | `on` / `off` (the default): vertex attributes the replay converts on the CPU (integer shader inputs fed float-type formats and the like, `vconv_bind` in `nvn_mtl.m`) are converted only over the vertices each draw reads (first / count, or the smallest and largest index of a direct indexed draw, kept while the index pages stay unwritten) instead of the whole bound range. Age of Calamity binds whole mesh pools: in a battle that was millions of vertices a frame. Indirect draws, per-instance streams and indices with a GPU write queued on them keep the whole range. `DM_NVN_VCONV_CHECK=1` scans the indices again at every reuse and reports differences; `DM_NVN_VCONV_RANGE=0` / `1` overrides it |
+ | `shader_key_skip` | `<offset>+<length>` (none by default): control-section bytes every shader key hashes as zeros, in `shader_split.py` (`key_ctl`) and the host (`hle_nvn.c` `keys_hash`), for an engine that shares one control section among shaders that differ only there. Batman: Arkham Knight: `0x770+0x78`, GLSLC's compile information (+0x778..+0x791 and +0x7d0..+0x7e7); without it the game asks for shaders the map does not have, each the control section of one record with the code area of another. It must stay clear of `+0x700..+0x75f`, which the tools read; it is a shader chain input, as every `shader_*` key |
++| `unity_tier` | `0`, `1` or `2` (every tier by default): `shader_split.py` keeps only the Unity programs of that hardware tier, the one the player runs ([Unity programs for every hardware tier](../../docs/reference/shaders.md#unity-programs-for-every-hardware-tier)) |
++| `unity_skip_keywords` | Unity keywords, space-separated (none by default): `shader_split.py` leaves out every Unity program compiled with one of them. Only for a keyword the game data shows is never enabled ([Unity variants and passes the player never draws](../../docs/reference/shaders.md#unity-variants-and-passes-the-player-never-draws)): a program the player asks for that is not built is not drawn |
++| `unity_skip_passes` | Pass `LightMode` tags, space-separated, any case (none by default): `shader_split.py` leaves out the programs of Unity passes with one of them. `META` is the one the player never draws ([Unity variants and passes the player never draws](../../docs/reference/shaders.md#unity-variants-and-passes-the-player-never-draws)) |
+ | `shader_groups`, `shader_note` | `shader_split.py` source groups and the map header note (Engage: `engine` for `data.unity3d` and `Resources/`, `assets` for the Addressables bundles) |
+ 
+ ### What the game files decide at every build
+diff --git a/dm/games/game.py b/dm/games/game.py
+index 0c58fc5..465df7e 100644
+--- a/dm/games/game.py
++++ b/dm/games/game.py
+@@ -122,6 +122,8 @@ def header(g):
+     if sks and (not m or not 0x30 <= int(m[1], 0) or not 0 < int(m[2], 0) or int(m[1], 0) + int(m[2], 0) > 0x880 or (int(m[1], 0) < 0x760 and int(m[1], 0) + int(m[2], 0) > 0x700)):   # not over +0x700..+0x75f, the code area and compute fields the tools read
+         sys.exit(f'{g.id}: shader_key_skip takes <offset>+<length> within the first 0x880 bytes of the control section, past its header (+0x30) and clear of +0x700..+0x75f: {sks}')
+     sko, skl = (int(m[1], 0), int(m[2], 0)) if m else (0, 0)
++    ut = g.get('unity_tier', '')   # the Unity hardware tier the player runs (shader_split.py unity_code_blobs); none: every tier
++    if ut not in ('', '0', '1', '2'): sys.exit(f'{g.id}: unity_tier must be 0, 1 or 2: {ut}')
+     rcd = g.get('render_cond', 'off')   # NVN conditional rendering evaluated at replay, timestamp reports with counter 0 (nvn_mtl.m OP_RENDER_COND): on / off
+     if rcd not in ('on', 'off'): sys.exit(f'{g.id}: render_cond must be on or off: {rcd}')
+     tfu = g.get('tex_flush_upload', 'off')   # textures written by the CPU into a pool and published with nvnMemoryPoolFlushMappedRange are uploaded like packaged ones (hle_nvn.c): on / off
+diff --git a/dm/gfx/tests/test_unity_tier.py b/dm/gfx/tests/test_unity_tier.py
+new file mode 100644
+index 0000000..6824a19
+--- /dev/null
++++ b/dm/gfx/tests/test_unity_tier.py
+@@ -0,0 +1,68 @@
++"""The profile's unity_tier keeps only the programs of the hardware tier the player runs, unity_skip_keywords and unity_skip_passes leave out variants and passes it never draws."""
++import os
++from pathlib import Path
++import sys
++import unittest
++from unittest import mock
++
++os.environ.setdefault('DM_GAME', '010015100B514000')
++sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
++import shader_split as split
++
++
++def legacy(*subs):   # (blob index, tier) per subprogram, Unity before 2022
++    return {'m_ParsedForm': {'m_SubShaders': [{'m_Passes': [
++        {'progVertex': {'m_SubPrograms': [{'m_BlobIndex': b, 'm_ShaderHardwareTier': t} for b, t in subs]}}]}]}}
++
++
++def passes(*modes):   # (LightMode, blob index, tier) per pass, the tag in m_State as Unity 2019.4 keeps it
++    return {'m_ParsedForm': {'m_SubShaders': [{'m_Passes': [
++        {'m_State': {'m_Tags': {'tags': [{'first': 'LIGHTMODE', 'second': m}]}}, 'progVertex': {'m_SubPrograms': [{'m_BlobIndex': b, 'm_ShaderHardwareTier': t}]}}
++        for m, b, t in modes]}]}}
++
++
++def player(*tiers):   # blob indices per tier, Unity 2022's m_PlayerSubPrograms
++    return {'m_ParsedForm': {'m_SubShaders': [{'m_Passes': [
++        {'progVertex': {'m_ParameterBlobIndices': [], 'm_PlayerSubPrograms': [[{'m_BlobIndex': b} for b in t] for t in tiers]}}]}]}}
++
++
++class UnityTierTests(unittest.TestCase):
++    def setUp(self):   # the keys as a profile without them sets them, whichever profile DM_GAME names
++        for k in ('UNITY_SKIP_KW', 'UNITY_SKIP_PASSES'):
++            p = mock.patch.object(split, k, frozenset()); p.start(); self.addCleanup(p.stop)
++
++    def blobs(self, obj, tier):
++        with mock.patch.object(split, 'UNITY_TIER', tier): return split.unity_code_blobs(obj)
++
++    def test_without_the_key_every_tier_is_read(self):
++        self.assertIsNone(self.blobs(legacy((0, 0), (1, 1), (2, 2)), -1))
++        self.assertEqual(self.blobs(player([0], [1], [2]), -1), {0, 1, 2})
++
++    def test_legacy_keeps_the_tier_and_shared_blobs(self):
++        # Overcooked's form: one blob per tier; another game shares one blob among all three
++        self.assertEqual(self.blobs(legacy((0, 0), (1, 1), (2, 2)), 2), {2})
++        self.assertEqual(self.blobs(legacy((5, 0), (5, 1), (5, 2)), 2), {5})
++
++    def test_player_subprograms_by_tier(self):
++        self.assertEqual(self.blobs(player([0], [1], [2, 3]), 2), {2, 3})
++        self.assertEqual(self.blobs(player([0, 1]), 2), {0, 1})   # fewer tiers listed than asked for: all of them
++
++    def test_skip_keywords_global_or_local(self):
++        with mock.patch.object(split, 'UNITY_SKIP_KW', frozenset({'DIRLIGHTMAP_SEPARATE'})):
++            self.assertTrue(split.unity_skipped(['DIRECTIONAL', 'DIRLIGHTMAP_SEPARATE'], []))   # Unity 2019.4: global keywords only
++            self.assertTrue(split.unity_skipped([], ['DIRLIGHTMAP_SEPARATE']))
++            self.assertFalse(split.unity_skipped(['DIRECTIONAL', 'DIRLIGHTMAP_OFF'], []))
++        self.assertFalse(split.unity_skipped(['DIRLIGHTMAP_SEPARATE'], []))   # no key: nothing is left out
++
++    def test_skip_passes_by_lightmode(self):
++        o = passes(('FORWARDBASE', 0, 2), ('META', 1, 2), ('FORWARDBASE', 2, 1))
++        with mock.patch.object(split, 'UNITY_SKIP_PASSES', frozenset({'META'})):
++            self.assertEqual(self.blobs(o, 2), {0})
++            self.assertEqual(self.blobs(o, -1), {0, 2})   # every tier, still without the Meta pass
++        with mock.patch.object(split, 'UNITY_SKIP_PASSES', frozenset()):
++            self.assertEqual(self.blobs(o, 2), {0, 1})
++            self.assertIsNone(self.blobs(o, -1))
++
++
++if __name__ == '__main__':
++    unittest.main()
+diff --git a/dm/gfx/tools/shader_split.py b/dm/gfx/tools/shader_split.py
+index c98ff43..feda6a8 100644
+--- a/dm/gfx/tools/shader_split.py
++++ b/dm/gfx/tools/shader_split.py
+@@ -62,6 +62,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__))); import uepak
+ GAME = _game.load()   # the current game profile (DM_GAME, required): source group rules and the table header note
+ GROUPS, NOTE = GAME.pairs('shader_groups'), GAME.get('shader_note')
+ KEY_SKIP = tuple(int(x, 0) for x in GAME.get('shader_key_skip', '0+0').split('+'))   # control bytes the keys hash as zeros (key_ctl); dm/games/game.py checks the form
++UNITY_TIER = int(GAME.get('unity_tier', '-1'))   # the Unity hardware tier the player runs (unity_code_blobs); -1: every tier, as the committed tables were split
++UNITY_SKIP_KW = frozenset(GAME.get('unity_skip_keywords', '').split())   # Unity keywords the game data never enables: programs compiled with any of them are left out (unity_shaders)
++UNITY_SKIP_PASSES = frozenset(GAME.get('unity_skip_passes', '').upper().split())   # pass LightMode tags the player never draws (Meta: the editor's lightmapper only): their programs are left out (unity_code_blobs)
+ # The sources are what the game files hold, with no profile switch: GLSLC outputs in main (glslc_shaders), the outputs the game compiles at run time when a capture is there (DM_GLSLC_CAPTURE,
+ # hle_glslc.c), the shader code archives of Unreal paks once decoded on the Mac (uepak.py, DM_OODLE_JOB, hle_oodle.c); the NSP script decides from the files which of the last two to make
+ 
+@@ -2147,11 +2150,25 @@ def unity_stages(o):
+ def unity_code_blobs(o):
+     """Shader object → the subprogram indices that hold program code, or None when every entry does (before Unity 2022). Unity 2022 also keeps the parameters of each program in the blob
+     as entries of their own (m_ParameterBlobIndices of each program), and the player's programs are m_PlayerSubPrograms[tier][].m_BlobIndex (Ace Attorney Investigations Collection, Unity 2022.3).
+-    Both fields came together: UnityPy's type trees for 2020.3.18 (Engage) and 2021.3 have neither, so older games read every entry as before"""
+-    progs = [p.get(f) or {} for sub in (o.get('m_ParsedForm') or {}).get('m_SubShaders', []) for p in sub.get('m_Passes', [])
++    Both fields came together: UnityPy's type trees for 2020.3.18 (Engage) and 2021.3 have neither, so older games read every entry as before.
++    With the profile's unity_tier, only that tier's programs: Unity compiles each variant once per hardware tier and the player runs one. Overcooked! All You Can Eat (2019.4.11f1) has
++    503,394 bundle programs, 167,798 per tier with no key shared between tiers, and the 132 its title loaded on the Mac were all tier 2 (Unity's Tier3)"""
++    progs = [p.get(f) or {} for sub in (o.get('m_ParsedForm') or {}).get('m_SubShaders', []) for p in sub.get('m_Passes', []) if unity_pass_drawn(p)
+              for f in ('progVertex', 'progFragment', 'progGeometry', 'progHull', 'progDomain')]
+-    if not any('m_ParameterBlobIndices' in p for p in progs): return None
+-    return {sp['m_BlobIndex'] for p in progs for tier in p.get('m_PlayerSubPrograms', []) for sp in tier}
++    if any('m_ParameterBlobIndices' in p for p in progs):
++        tiers = lambda p: p.get('m_PlayerSubPrograms', [])
++        return {sp['m_BlobIndex'] for p in progs for t, tier in enumerate(tiers(p)) if UNITY_TIER in (-1, t) or len(tiers(p)) <= UNITY_TIER for sp in tier}
++    if UNITY_TIER == -1 and not UNITY_SKIP_PASSES: return None
++    return {sp['m_BlobIndex'] for p in progs for sp in p.get('m_SubPrograms', []) if sp.get('m_ShaderHardwareTier', UNITY_TIER) in (UNITY_TIER, -1) or UNITY_TIER == -1}
++
++def unity_pass_drawn(p):
++    """False for a pass whose LightMode tag is in the profile's unity_skip_passes. Unity draws a LightMode=Meta pass only in the editor, to feed albedo and emission to the
++    lightmapper; Overcooked! All You Can Eat ships 2,736 tier-2 Meta programs of its Standard variants"""
++    tags = [t for m in (p, p.get('m_State') or {}) for t in (m.get('m_Tags') or {}).get('tags') or []]   # Unity 2019.4 keeps them in m_State, as {first, second} entries
++    return not any(t['first'].upper() == 'LIGHTMODE' and t['second'].upper() in UNITY_SKIP_PASSES for t in tags)
++
++def unity_skipped(kw, lkw):   # a program compiled with a keyword of the profile's unity_skip_keywords (global or local)
++    return not UNITY_SKIP_KW.isdisjoint(kw + lkw)
+ 
+ def unity_compute(x, base, trees):
+     """ComputeShader objects (class 72) of a serialized file → [(where, 'cs', control, code)]: each kernel variant's code is a program code with one stage, compute (Monster Train 2,
+@@ -2214,7 +2231,8 @@ def unity_shaders(d, label, out, trees):
+             legacy = {}
+             for plat, k, sp in unityfs.shader_programs(o, unity_code_blobs(o)):
+                 where = f'{label}{":" + node if node else ""}#{name}#var{plat}.{k}'
+-                code = unityfs.subprogram(sp)[4]
++                _, _, kw, lkw, code, _ = unityfs.subprogram(sp)
++                if unity_skipped(kw, lkw): continue
+                 programs = unity_program(code, where, stages.get(k))
+                 out.extend((where, st, ctl, cd) for st, ctl, cd in programs)
+                 if len(code) >= 0x14 and code[0x10:0x14] == CTL_MAGIC: legacy[plat, k] = programs[0]
+diff --git a/dm/tools/docs_patches.py b/dm/tools/docs_patches.py
+index 27e718c..aefad71 100644
+--- a/dm/tools/docs_patches.py
++++ b/dm/tools/docs_patches.py
+@@ -19,7 +19,7 @@ HOST_EXT = ('.c', '.m', '.mm', '.h', '.swift')
+ # What a build-keyed host table does (the table's name in the source; a row of another table is listed under its own name)
+ TABLES = {'k_locks': 'engine frame limit set to fps_target', 'k_ue': "Unreal's allocator on a host malloc zone", 'k_nier_dr': 'frame interval and dynamic-resolution floor'}
+ # Profile keys that are not behaviour switches: per-game data or controls, not something the host does differently
+-NOT_SWITCHES = {'pad_layout', 'depth_mode', 'mem_used', 'sys_resource'}
++NOT_SWITCHES = {'pad_layout', 'depth_mode', 'mem_used', 'sys_resource', 'unity_tier'}
+ 
+ # ---- Binding: what a patch's correctness is anchored to, from the loosest (GitHub issue #635). A patch is at its goal when its binding is the loosest it could have; the gap between the two
+ # is the work list. A patch file's BINDING is a list of {'what', 'now', 'goal', 'purpose', 'why'} with an optional 'blocked' (why the gap cannot close yet) or 'kept' (why it stays
+diff --git a/docs/reference/shaders.md b/docs/reference/shaders.md
+index 6447339..9c09281 100644
+--- a/docs/reference/shaders.md
++++ b/docs/reference/shaders.md
+@@ -322,6 +322,30 @@ Finding, keying and translating shaders (`dm/gfx/tools/shader_split.py`, `dmsh_b
+ - BALL x PIT keeps most of its shaders in the player's loose serialized files (`resources.assets`, `sharedassets1.assets`, the built-in resources), which have no type trees; they borrow the `Shader` tree its 10 shader bundles carry (`shader_split.py` defers a file that raises `NoTree` to a second pass), so it needed no layout either.
+ - **Found on:** [Hollow Knight: Silksong](../../dm/games/010013C00E930000/README.md) (Unity 6000.0.50f1): 2,450 stage shaders: 1,189 vertex, 1,193 pixel, 67 compute and one geometry shader, which does not build; 11 of them are the player's own in `main`. [BALL x PIT](../../dm/games/010086A022444000/README.md) (6000.0.62f1): 38,099 shaders, most of them in the loose files. [Silver Pines](../../dm/games/0100D5B026844000/README.md) (6000.3.15f1): 56,386 stage shaders in its Addressables bundles, read with no change.
+ 
++### Unity programs for every hardware tier
++
++- **Symptom:** a Unity game's split finds several times the shaders of comparable games, and the shader build runs for hours.
++- **Cause:** Unity compiles each shader variant once per graphics hardware tier (a subprogram's `m_ShaderHardwareTier`, or the tier index of `m_PlayerSubPrograms` from Unity 2022) and ships all three when their code differs, while the player runs one. The tier is found by checking the keys of the shaders a run loads (`DM_PSO_RECORD`) against each key's tier; on the Switch it was tier 2 (Unity's Tier3).
++- **Fix:** the profile key `unity_tier` ([dm/games/README.md](../../dm/games/README.md)): `unity_code_blobs` in `shader_split.py` keeps only that tier's programs and those the tiers share. Without the key every tier is read, so other profiles split as before. A game whose tiers compile to the same code shares one program among them, and the key changes nothing there.
++- **Found on:** Overcooked! All You Can Eat (Unity 2019.4.11f1): 520,394 shaders, 173,454 with the key.
++
++### Unity variants and passes the player never draws
++
++- **Symptom:** after [the tier filter](#unity-programs-for-every-hardware-tier), most of a Unity game's shaders are still keyword variants or passes its scenes never use.
++- **Cause:** shaders with explicit `multi_compile` lists are built for every keyword combination, whatever the scenes enable, and Unity ships the editor-only `LightMode=Meta` pass (the lightmapper's albedo and emission) with its programs. Unity sets the lighting keywords per renderer and light from the scene data, so whether a game can enable one is readable from its bundles:
++
++  | Keyword | Enabled only when |
++  |---|---|
++  | `DIRLIGHTMAP_SEPARATE` | a scene's `LightmapSettings.m_LightmapsMode` is 2 (separate directional) |
++  | `DIRLIGHTMAP_COMBINED` | a renderer's lightmap is directional |
++  | `DYNAMICLIGHTMAP_ON` | a renderer has a realtime lightmap (`m_LightmapIndexDynamic` other than 0xFFFF) |
++  | `POINT_COOKIE`, `DIRECTIONAL_COOKIE` | a `Light` has a cookie texture (`m_Cookie`) |
++
++  Unity 2019.4 keeps a pass's tags in `m_State.m_Tags` as `{first, second}` entries, with the key `LIGHTMODE` and the value upper-cased (`META`, `FORWARDBASE`, `FORWARDADD`, `SHADOWCASTER`).
++- **Fix:** the profile keys `unity_skip_keywords` and `unity_skip_passes` ([dm/games/README.md](../../dm/games/README.md)): `unity_skipped` and `unity_pass_drawn` in `shader_split.py` leave those programs out; a program shared with a kept pass stays. A left-out keyword variant has a twin with the `_OFF` keyword or without it, which Unity picks when the keyword is not enabled.
++- **Limits:** the data shows what the scenes set, not what scripts change at run time (a script can give a light a cookie). A left-out variant the player asks for is not drawn, and the host logs `failed to load shader <key>_b`; each profile that uses the keys notes what was checked.
++- **Found on:** Overcooked! All You Can Eat (Unity 2019.4.11f1): 173,454 shaders with `unity_tier`, 45,221 with both keys.
++
+ ### Unity ComputeShader objects
+ 
+ - **Symptom:** the 3D battle scene was black behind a correct UI, with `[RED] shader 854a8afc9d07f88d is not in the shader map` and `the dispatched program has no compute shader`.
