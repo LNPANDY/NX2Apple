@@ -26,7 +26,7 @@
 #   - a push to main, or a pull request, that touches the paths below → artifact only (NX2Apple-macOS-arm64), which tools/try-pr opens.
 #     Nothing is published
 #   - workflow_dispatch      → artifact only, or on a tag ref the same as a push of that tag
-name: Build nxnative (native macOS)
+name: Build the NX2Apple app (macOS)
 
 on:
   push:
