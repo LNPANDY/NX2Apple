@@ -17,6 +17,7 @@ struct PortraitLibrary: View, Equatable {
     let primary: (GameDetail) -> Void
     let openSettings: () -> Void
     let openControllers: () -> Void
+    let openShellSettings: () -> Void
     @Binding var position: ScrollPosition
     @State private var rowID: String?
     /// Set while the row itself chose the game, so it does not scroll under the finger.
@@ -78,7 +79,10 @@ struct PortraitLibrary: View, Equatable {
             .ignoresSafeArea(edges: wide ? [.top, .bottom] : .top)
             .safeAreaInset(edge: .bottom, spacing: 0) { if !wide { bottomBar } }
             .overlay(alignment: .topTrailing) {
-                ControllerChip(count: controllers, action: openControllers).padding(.top, 6).padding(.trailing, 16)
+                HStack(spacing: 10) {
+                    ControllerChip(count: controllers, action: openControllers)
+                    ShellSettingsChip(action: openShellSettings)
+                }.padding(.top, 6).padding(.trailing, 16)
             }
             .onChange(of: focus.id) { _, id in
                 guard let id, id.hasPrefix("lib.tile.") || id.hasPrefix("lib.recent.") else { return }

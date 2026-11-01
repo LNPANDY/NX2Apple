@@ -82,6 +82,7 @@ struct DemoScreen: View {
                     actions: actions, input: input, initialSelection: initialSelection,
                     initialDetailOpen: scenario == "settings",
                     initialControllersOpen: scenario.hasPrefix("controllers"),
+                    initialShellSettingsOpen: scenario == "shell-settings",
                     initialFocusVisible: scenario == "focus")
     }
 
@@ -152,7 +153,9 @@ struct DemoScreen: View {
             }
         }, onShowLog: { _ in notice = demoText("Show log requested. The host supplies the log.") },
                      onAppUpdate: { notice = demoText("App update requested. The host supplies update instructions.") },
-                     onBack: { notice = demoText("Back requested.") })
+                     onBack: { notice = demoText("Back requested.") },
+                     onPickShellData: { notice = demoText("Choose game data requested. The host supplies the picker.") },
+                     onPickShellCloud: { notice = demoText("Choose cloud folder requested. The host supplies the picker.") })
     }
 }
 

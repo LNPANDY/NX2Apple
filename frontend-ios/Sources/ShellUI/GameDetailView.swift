@@ -34,7 +34,7 @@ public struct GameDetailView: View {
                     Button(ShellStrings.text("Choose…")) { actions.onPickGameData(detail.id) }
                         .buttonStyle(ShellButtonStyle(fills: true)).accessibilityLabel(ShellStrings.text("Choose game data…"))
                         .shellTarget("set.data") { actions.onPickGameData(detail.id) }
-                    if !detail.dataSource.isEmpty {
+                    if !detail.dataSource.isEmpty && !detail.dataFromShell {
                         Button(ShellStrings.text("Use app data")) { actions.onUseAppData(detail.id) }
                             .buttonStyle(ShellButtonStyle(fills: true)).shellTarget("set.appdata") { actions.onUseAppData(detail.id) }
                     }
@@ -49,7 +49,7 @@ public struct GameDetailView: View {
                           note: detail.cloudNote.isEmpty ? ShellStrings.text("Choose the same iCloud Drive folder you use on your Mac.") : detail.cloudNote) {
                     Button(ShellStrings.text("Choose folder…")) { actions.onPickCloudSaves(detail.id) }
                         .buttonStyle(ShellButtonStyle(fills: true)).shellTarget("set.cloud") { actions.onPickCloudSaves(detail.id) }
-                    if detail.cloudSaves != nil {
+                    if detail.cloudSaves != nil && !detail.cloudFromShell {
                         Button(ShellStrings.text("Turn off")) { actions.onDisableCloudSaves(detail.id) }
                             .buttonStyle(ShellButtonStyle(fills: true)).accessibilityLabel(ShellStrings.text("Turn off cloud saves"))
                             .shellTarget("set.cloud.off") { actions.onDisableCloudSaves(detail.id) }
@@ -103,9 +103,22 @@ public struct GameDetailView: View {
     private var divider: some View { Rectangle().fill(.white.opacity(0.06)).frame(height: 1) }
 
     private func group<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        SettingsGroup(title: title, content: content)
+    }
+}
+
+/// A titled card of rows, for the game settings and the shell settings alike.
+struct SettingsGroup<Content: View>: View {
+    let title: String
+    private let content: Content
+    init(title: String, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.content = content()
+    }
+    var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             SectionHeading(title: title)
-            VStack(alignment: .leading, spacing: 14) { content() }
+            VStack(alignment: .leading, spacing: 14) { content }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .shellCard()
         }
@@ -113,7 +126,7 @@ public struct GameDetailView: View {
 }
 
 /// Where something comes from (game data, a cloud folder) and the buttons that change it.
-private struct SourceRow<Buttons: View>: View {
+struct SourceRow<Buttons: View>: View {
     let symbol: String
     let title: String
     let note: String
@@ -138,10 +151,12 @@ private struct SourceRow<Buttons: View>: View {
     }
 }
 
-private struct SettingControl: View, Equatable {
+struct SettingControl: View, Equatable {
     /// Part of the comparison: two games can have identical rows, and the row must report to its own game.
     let gameID: String
     let row: SettingRow
+    /// The focus ids of the row's controls start with this, so a panel can tell its own from the library's.
+    var targetPrefix = "set.row."
     let change: (String) -> Void
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool { lhs.gameID == rhs.gameID && lhs.row == rhs.row }
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -154,7 +169,7 @@ private struct SettingControl: View, Equatable {
             case .toggle(let on, let off):
                 Toggle(isOn: Binding(get: { row.value == on }, set: { change($0 ? on : off) })) { label }
                     .toggleStyle(CreamToggleStyle())
-                    .shellTarget("set.row.\(row.id)", enabled: row.enabled) { change(row.value == on ? off : on) }
+                    .shellTarget("\(targetPrefix)\(row.id)", enabled: row.enabled) { change(row.value == on ? off : on) }
             case .choice(let options):
                 let labels = options.map(\.label)
                 let scale = ChoicePresentation.textScale(typeSize)
@@ -212,7 +227,7 @@ private struct SettingControl: View, Equatable {
                         .buttonStyle(.plain)
                         .accessibilityLabel(row.label + ", " + option.label)
                         .accessibilityAddTraits(chosen ? .isSelected : [])
-                        .shellTarget("set.row.\(row.id).\(option.id)", enabled: row.enabled, radius: 8) { change(option.id) }
+                        .shellTarget("\(targetPrefix)\(row.id).\(option.id)", enabled: row.enabled, radius: 8) { change(option.id) }
                     }
                 }
             }
@@ -226,7 +241,7 @@ private struct SettingControl: View, Equatable {
         ChoiceValueRow(row: row, valueLabel: options.first { $0.id == row.value }?.label ?? row.value) {
             pickChoice?(ChoiceRequest(gameID: gameID, row: row))
         }
-        .shellTarget("set.row.\(row.id)", enabled: row.enabled, radius: 11) { pickChoice?(ChoiceRequest(gameID: gameID, row: row)) }
+        .shellTarget("\(targetPrefix)\(row.id)", enabled: row.enabled, radius: 11) { pickChoice?(ChoiceRequest(gameID: gameID, row: row)) }
     }
     private func rangeButton(_ symbol: String, min: Double, max: Double, delta: Double) -> some View {
         let action = { change(String(Swift.min(max, Swift.max(min, (Double(row.value) ?? min) + delta)))) }
@@ -236,7 +251,7 @@ private struct SettingControl: View, Equatable {
         .buttonStyle(.plain).background(.white.opacity(0.055), in: Circle())
         .overlay(Circle().strokeBorder(.white.opacity(0.10)))
         .accessibilityLabel(ShellStrings.text(symbol == "minus" ? "Decrease" : "Increase") + " " + row.label)
-        .shellTarget("set.row.\(row.id).\(symbol)", enabled: row.enabled, radius: 22, action: action)
+        .shellTarget("\(targetPrefix)\(row.id).\(symbol)", enabled: row.enabled, radius: 22, action: action)
     }
 }
 

@@ -1,79 +1,104 @@
 import SwiftUI
-import ShellUI
-import UniformTypeIdentifiers
 
-/// The shell-level settings: the game-data folder, the cloud-saves folder, the interface language and the default
-/// performance HUD (ShellSettingsStore). A game's own settings and bookmarks win over these; these win over the
-/// built-in defaults. The rows reuse the game settings' components, and the pickers use the same security-scoped
-/// bookmarks as a game's own picks (BookmarkStore).
-public struct ShellSettingsView: View {
-    @State private var store: ShellSettingsStore
-    @State private var dataNote = ""
-    @State private var cloudNote = ""
-    @State private var language: String
-    @State private var hudOn: Bool
-    private let pickFolder: (String) -> Void   // key ("data" | "cloud"), the host runs the picker
+/// The rows of the shell settings, in the game settings' own model so the same controls draw them. The game ID tells
+/// the library that a change belongs to the shell and not to a game.
+enum ShellSettingsRows {
+    static let gameID = "shell"
+    static let language = "shell.language"
+    static let hud = "shell.hud"
+    static let targetPrefix = "shs.row."
 
-    public init(store: ShellSettingsStore = ShellSettingsStore(),
-                pickFolder: @escaping (String) -> Void) {
-        _store = State(initialValue: store)
-        _language = State(initialValue: store.language)
-        _hudOn = State(initialValue: store.performanceHUD ?? false)
-        self.pickFolder = pickFolder
+    static func languageRow(_ store: ShellSettingsStore) -> SettingRow {
+        SettingRow(id: language, label: ShellStrings.text("Language"), note: ShellStrings.text("Applies to the whole app."),
+                   kind: .choice([SettingOption("", ShellStrings.text("Follow device")), SettingOption("zh-Hans", "中文"),
+                                  SettingOption("en", "English")]),
+                   value: store.language)
     }
 
-    public var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                section(title: zh("游戏数据")) {
-                    row(label: zh("统一游戏数据目录"), note: dataNote.isEmpty ? zh("新游戏优先在这里找游戏数据。每个游戏也可以单独指定。") : dataNote) {
-                        Button(zh("选择文件夹…")) { pickFolder("data") }
-                    }
-                }
-                section(title: zh("云存档")) {
-                    row(label: zh("统一云存档目录"), note: cloudNote.isEmpty ? zh("选择与 Mac 相同的 iCloud Drive 文件夹，所有游戏默认共享它的存档结构。") : cloudNote) {
-                        Button(zh("选择文件夹…")) { pickFolder("cloud") }
-                    }
-                }
-                section(title: zh("界面")) {
-                    row(label: zh("界面语言"), note: "") {
-                        Picker("", selection: $language) {
-                            Text(zh("跟随设备")).tag("")
-                            Text("中文").tag("zh-Hans")
-                            Text("English").tag("en")
+    static func hudRow(_ store: ShellSettingsStore) -> SettingRow {
+        SettingRow(id: hud, label: ShellStrings.text("Performance overlay"), note: ShellStrings.text("Used by games that have no choice of their own."),
+                   kind: .toggle(on: "1", off: "0"), value: store.performanceHUD == true ? "1" : "0")
+    }
+
+    /// A change of one of the rows, from the row itself or from the list of choices.
+    static func apply(_ id: String, value: String, to store: ShellSettingsStore) {
+        switch id {
+        case language where value.isEmpty || ShellLanguage.supported.contains(value): store.storeLanguage(value)
+        case hud: store.storePerformanceHUD(value == "1")
+        default: break
+        }
+    }
+}
+
+/// The shell's own settings: the game-data folder, the cloud-saves folder, the language and the default performance
+/// overlay. A game's own choices win over these, and these win over the built-in defaults. It looks like a game's
+/// settings and takes a controller the same way, as a panel over the library.
+struct ShellSettingsView: View {
+    var store: ShellSettingsStore = .current
+    var actions: ShellActions
+    var onClose: () -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.shellFocus) private var focus
+    /// Counts the changes in the defaults, so the rows read the store again.
+    @State private var revision = 0
+
+    var body: some View {
+        let _ = revision
+        GeometryReader { geometry in
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 30) {
+                        HStack(alignment: .center) {
+                            Text(ShellStrings.text("Settings")).shellType(ShellType.pageTitle)
+                                .lineLimit(1).minimumScaleFactor(0.7).accessibilityAddTraits(.isHeader)
+                            Spacer(minLength: 8)
+                            Button(action: onClose) { Text(ShellStrings.text("Done")) }
+                                .buttonStyle(ChipButtonStyle())
+                                .accessibilityIdentifier("shellSettings.close")
+                                .shellTarget("shs.close", radius: 22, action: onClose)
+                        }.id("shs.top")
+                        SettingsGroup(title: ShellStrings.text("Game data")) {
+                            SourceRow(symbol: "folder", title: store.dataFolderName ?? ShellStrings.text("No folder chosen"),
+                                      note: ShellStrings.text("Games look for their data here. Each game can have a folder of its own.")) {
+                                Button(ShellStrings.text("Choose folder…")) { actions.onPickShellData() }
+                                    .buttonStyle(ShellButtonStyle(fills: true)).accessibilityIdentifier("shellSettings.data")
+                                    .shellTarget("shs.data") { actions.onPickShellData() }
+                            }
                         }
-                        .pickerStyle(.menu).onChange(of: language) { _, v in store.storeLanguage(v) }
+                        SettingsGroup(title: ShellStrings.text("Cloud saves")) {
+                            SourceRow(symbol: store.cloudSavesFolderName == nil ? "icloud.slash" : "icloud",
+                                      title: store.cloudSavesFolderName ?? ShellStrings.text("Off"),
+                                      note: ShellStrings.text("Games without a folder of their own save here. Choose the same iCloud Drive folder you use on your Mac.")) {
+                                Button(ShellStrings.text("Choose folder…")) { actions.onPickShellCloud() }
+                                    .buttonStyle(ShellButtonStyle(fills: true)).accessibilityIdentifier("shellSettings.cloud")
+                                    .shellTarget("shs.cloud") { actions.onPickShellCloud() }
+                            }
+                        }
+                        SettingsGroup(title: ShellStrings.text("Interface")) {
+                            let language = ShellSettingsRows.languageRow(store), hud = ShellSettingsRows.hudRow(store)
+                            SettingControl(gameID: ShellSettingsRows.gameID, row: language, targetPrefix: ShellSettingsRows.targetPrefix) {
+                                ShellSettingsRows.apply(language.id, value: $0, to: store)
+                            }.equatable()
+                            Rectangle().fill(.white.opacity(0.06)).frame(height: 1)
+                            SettingControl(gameID: ShellSettingsRows.gameID, row: hud, targetPrefix: ShellSettingsRows.targetPrefix) {
+                                ShellSettingsRows.apply(hud.id, value: $0, to: store)
+                            }.equatable()
+                        }
                     }
-                    row(label: zh("默认性能浮层"), note: zh("游戏未单独设置时使用。")) {
-                        Toggle("", isOn: $hudOn).onChange(of: hudOn) { _, v in store.storePerformanceHUD(v) }
+                    .padding(24).padding(.bottom, geometry.safeAreaInsets.bottom).frame(maxWidth: 640)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .scrollIndicators(.hidden)
+                .ignoresSafeArea(edges: .bottom)
+                .onChange(of: focus.id) { _, id in
+                    guard let id, id.hasPrefix("shs.") else { return }
+                    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.18)) {
+                        proxy.scrollTo(id == "shs.close" ? "shs.top" : id, anchor: id == "shs.close" ? .top : .center)
                     }
                 }
             }
-            .padding(20)
         }
-        .navigationTitle(zh("设置"))
+        .foregroundStyle(.white).preferredColorScheme(.dark)
+        .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in revision += 1 }
     }
-
-    @ViewBuilder private func section<Content: View>(title: String, @ViewBuilder _ content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(title).font(.headline).foregroundStyle(.secondary)
-            content()
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
-        .background(.background.opacity(0.6), in: RoundedRectangle(cornerRadius: 14))
-    }
-
-    @ViewBuilder private func row<Content: View>(label: String, note: String, @ViewBuilder _ control: () -> Content) -> some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(label)
-                if !note.isEmpty { Text(note).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
-            }
-            Spacer()
-            control()
-        }
-    }
-
-    private func zh(_ s: String) -> String { s }   // the words are already the device-language pair; Localizable covers them
 }

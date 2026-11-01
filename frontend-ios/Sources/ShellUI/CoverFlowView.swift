@@ -15,6 +15,7 @@ struct CoverFlowView: View, Equatable {
     let primary: (GameDetail) -> Void
     let openSettings: () -> Void
     let openControllers: () -> Void
+    let openShellSettings: () -> Void
     @State private var centredID: String?
     /// How far the carousel is scrolled: 0 with the first card in the middle.
     @State private var scrolled: CGFloat = 0
@@ -106,6 +107,7 @@ struct CoverFlowView: View, Equatable {
                 .accessibilityIdentifier("settings.open")
                 .shellTarget("lib.settings", radius: 22, action: openSettings)
             ControllerChip(count: controllers, action: openControllers)
+            ShellSettingsChip(action: openShellSettings)
         }
         // On a phone on its side the hints share the row. At the largest sizes they would wrap into a tall block and the
         // title and chips, centred in it, would sink away from the top edge, so the row stops growing at xxLarge, as the
@@ -391,5 +393,17 @@ struct ControllerChip: View {
         .accessibilityLabel(ShellStrings.text("Controllers") + ", \(count)")
         .accessibilityIdentifier("controllers.open")
         .shellTarget("lib.controllers", radius: 22, action: action)
+    }
+}
+
+/// The gear at the top-right corner, which opens the shell's own settings.
+struct ShellSettingsChip: View {
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) { Image(systemName: "gearshape").frame(minWidth: 18) }
+            .buttonStyle(ChipButtonStyle())
+            .accessibilityLabel(ShellStrings.text("Settings"))
+            .accessibilityIdentifier("shellSettings.open")
+            .shellTarget("lib.shellSettings", radius: 22, action: action)
     }
 }
