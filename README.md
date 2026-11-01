@@ -119,7 +119,7 @@ anything extracted from a game.
 
 ## Games
 
-94 games have a profile. Three are verified end to end on this fork (built, installed and played on a
+95 games have a profile. Three are verified end to end on this fork (built, installed and played on a
 phone), 45 more are reported playable on an iPhone upstream, and the rest have a profile that has not
 been tried on a phone yet. A few of them:
 

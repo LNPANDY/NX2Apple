@@ -199,7 +199,7 @@ Screenshots, with a note where a game has one (a frame rate, a limit). The block
 ## Verified games
 
 **3 verified end to end on this fork** (build → install → play on a real iPhone), **45 reported
-playable upstream**, **94 profiles** in total. The full table with the exact update version each
+playable upstream**, **95 profiles** in total. The full table with the exact update version each
 game needs is [below](#profiles).
 
 | Game | Verified here | Notes |
@@ -212,7 +212,7 @@ game needs is [below](#profiles).
 
 ## Profiles
 
-94 game profiles ship with this repository. A profile is what makes a build possible —
+95 game profiles ship with this repository. A profile is what makes a build possible —
 the game's build IDs, memory layout, shader tables and per-game switches — and this fork adds the
 RomFS archive layer on top, so a large game can be installed at all.
 
@@ -311,6 +311,7 @@ update layers over it). "无（v0）" = the base game alone is enough.
 | Stardew Valley | `0100E65002BB8000` | 1.6.15.13 (v1310720) | Playable on an iPhone (upstream) |
 | Xenoblade Chronicles 2 | `0100E95004038000` | 2.1.0 (v983040) | Profile present, not verified on a phone |
 | Paper Mario: The Thousand-Year Door | `0100ECD018EBE000` | 1.0.1 (v65536) | Profile present, not verified on a phone |
+| Overcooked! All You Can Eat | `0100F28011892000` | 1.0.11 (v720896) | Profile present, not verified on a phone |
 | The Legend of Zelda: Tears of the Kingdom | `0100F2C0115B6000` | 1.4.3 (v720896) | **Verified here** — builds, installs and runs on an iPhone, 304,243 files into 127 archive shards, byte-verified |
 | Pokémon Legends: Z-A | `0100F43008C44000` | 2.0.2 (v393216) | Profile present, not verified on a phone |
 | Brain Memory Training Academy | `0100F5D01DA3A000` | 无（v0） | Profile present, not verified on a phone |
