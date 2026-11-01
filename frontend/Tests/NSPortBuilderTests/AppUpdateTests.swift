@@ -325,7 +325,8 @@ final class RelaunchTests: XCTestCase {
     private func wait(for url: URL, seconds: TimeInterval) -> String? {
         let end = Date().addingTimeInterval(seconds)
         while Date() < end {
-            if let text = try? String(contentsOf: url, encoding: .utf8) { return text }
+            // The shell creates the file before it writes into it: an empty read is not the answer yet.
+            if let text = try? String(contentsOf: url, encoding: .utf8), !text.isEmpty { return text }
             Thread.sleep(forTimeInterval: 0.05)
         }
         return nil
