@@ -166,6 +166,123 @@ final class Clock: @unchecked Sendable { var date: Date; init(_ d: Date) { date 
         #expect(orbit.dataNote.contains("no longer readable"))
     }
 
+    private func shellSettings() -> ShellSettingsStore { ShellSettingsStore(defaults: UserDefaults(suiteName: "t-shell-\(UUID().uuidString)")!) }
+
+    /// The orbit fixture with a performance overlay row of its own, like a game whose list has `DM_METAL_HUD`.
+    private func giveOrbitAnOverlayRow(_ box: Sandbox) throws {
+        let url = box.games.appendingPathComponent(Fixtures.orbit).appendingPathComponent("launcher.json")
+        var json = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        var settings = try #require(json["settings"] as? [[String: Any]])
+        settings.append(["env": "DM_METAL_HUD", "kind": "toggle", "section": "Performance", "label": "Overlay", "note": "", "default": "0", "on": "1", "off": "0"])
+        json["settings"] = settings
+        try JSONSerialization.data(withJSONObject: json).write(to: url)
+    }
+
+    @Test func theShellOverlayChoiceReachesTheEngineUnlessTheGameChoseItself() async throws {
+        let box = try Sandbox()
+        try box.giveAppData()
+        try giveOrbitAnOverlayRow(box)
+        let shell = shellSettings()
+        shell.storePerformanceHUD(true)
+        let launcher = RecordingLauncher()
+        let model = ShellHostModel(config: box.config(), launcher: launcher, shellSettings: shell)
+        #expect(try value(model, "DM_METAL_HUD") == "1", "the page shows what the engine will get")
+        await model.playNow(Fixtures.orbit)
+        let first = try #require(launcher.launched.last)
+        #expect(first.environment["DM_METAL_HUD"] == "1")
+        let plan = EngineLaunchPlan.make(game: first, appResources: box.root, documents: box.root, envFileText: "DM_METAL_HUD=0\n")
+        #expect(plan.environment["DM_METAL_HUD"] == "1")
+        model.actions.onChange(Fixtures.orbit, "DM_METAL_HUD", "0")
+        #expect(try value(model, "DM_METAL_HUD") == "0")
+        await model.playNow(Fixtures.orbit)
+        #expect(launcher.launched.last?.environment["DM_METAL_HUD"] == "0", "the game's choice wins over the shell's")
+    }
+
+    @Test func aGameWithoutAnOverlayRowStillGetsTheShellChoice() async throws {
+        let box = try Sandbox()
+        try box.giveAppData()
+        let shell = shellSettings()
+        let launcher = RecordingLauncher()
+        let model = ShellHostModel(config: box.config(), launcher: launcher, shellSettings: shell)
+        await model.playNow(Fixtures.orbit)
+        #expect(launcher.launched.last?.environment["DM_METAL_HUD"] == nil, "no shell choice, nothing is set")
+        shell.storePerformanceHUD(false)
+        await model.playNow(Fixtures.orbit)
+        #expect(launcher.launched.last?.environment["DM_METAL_HUD"] == "0")
+    }
+
+    @Test func aChangedShellOverlayChoiceUpdatesTheDetails() throws {
+        let box = try Sandbox()
+        try giveOrbitAnOverlayRow(box)
+        let shell = shellSettings()
+        let model = ShellHostModel(config: box.config(), shellSettings: shell)
+        #expect(try value(model, "DM_METAL_HUD") == "0")
+        shell.storePerformanceHUD(true)
+        NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: nil)
+        #expect(try value(model, "DM_METAL_HUD") == "1")
+    }
+
+    @Test func theShellCloudFolderBacksAGameWithoutOne() async throws {
+        let box = try Sandbox()
+        try box.giveAppData()
+        let shared = box.root.appendingPathComponent("iCloud/Shared Saves", isDirectory: true)
+        let own = box.root.appendingPathComponent("iCloud/Own Saves", isDirectory: true)
+        for folder in [shared, own] { try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true) }
+        let shell = shellSettings()
+        let launcher = RecordingLauncher()
+        let model = ShellHostModel(config: box.config(), launcher: launcher, picker: FakePicker(url: shared), shellSettings: shell)
+        #expect(try detail(model).cloudSaves == nil)
+        await model.pickShellCloudNow()
+        #expect(shell.cloudSavesFolderName == "Shared Saves" && shell.cloudSavesBookmark != nil)
+        var orbit = try detail(model)
+        #expect(orbit.cloudSaves == "Shared Saves" && orbit.cloudFromShell)
+        #expect(try detail(model, Fixtures.chain).cloudSaves == "Shared Saves")
+        await model.playNow(Fixtures.orbit)
+        #expect(launcher.launched.last?.cloudSavesURL?.lastPathComponent == "Shared Saves")
+        // The game's own folder wins
+        let own2 = ShellHostModel(config: box.config(), launcher: launcher, picker: FakePicker(url: own), shellSettings: shell)
+        await own2.pickCloudSavesNow(Fixtures.orbit)
+        orbit = try detail(own2)
+        #expect(orbit.cloudSaves == "Own Saves" && !orbit.cloudFromShell)
+        await own2.playNow(Fixtures.orbit)
+        #expect(launcher.launched.last?.cloudSavesURL?.lastPathComponent == "Own Saves")
+        // Turning the game's folder off falls back to the shell's, and the game's setting stays untouched in between
+        own2.actions.onDisableCloudSaves(Fixtures.orbit)
+        #expect(try detail(own2).cloudSaves == "Shared Saves")
+    }
+
+    @Test func theShellDataFolderIsNotPresentedAsThePlayersPickForTheGame() async throws {
+        let box = try Sandbox()
+        let drive = box.root.appendingPathComponent("Drive/Switch", isDirectory: true)
+        try box.write("", to: drive.appendingPathComponent("fixture.marker"))
+        let shell = shellSettings()
+        let model = ShellHostModel(config: box.config(), picker: FakePicker(url: drive), shellSettings: shell)
+        #expect(try detail(model).game.state == .needsGameData)
+        await model.pickShellDataNow()
+        #expect(shell.dataFolderName == "Switch")
+        let orbit = try detail(model)
+        #expect(orbit.game.state == .playable && orbit.dataFromShell)
+        #expect(orbit.dataSource == "Switch (from Settings)")
+        #expect(box.defaults(Fixtures.orbit).data(forKey: "pickedDataBookmark") == nil, "nothing is stored for the game")
+        // A folder the player picks for the game takes over
+        let own = box.root.appendingPathComponent("Own/Orbit", isDirectory: true)
+        try box.write("", to: own.appendingPathComponent("fixture.marker"))
+        await ShellHostModel(config: box.config(), picker: FakePicker(url: own), shellSettings: shell).pickGameDataNow(Fixtures.orbit)
+        let again = try detail(ShellHostModel(config: box.config(), shellSettings: shell))
+        #expect(again.dataSource == "Orbit" && !again.dataFromShell)
+    }
+
+    @Test func theShellFolderPickersReportAFailureAndKeepTheOldChoice() async throws {
+        let box = try Sandbox()
+        let missing = box.root.appendingPathComponent("not-there", isDirectory: true)
+        let shell = shellSettings()
+        let model = ShellHostModel(config: box.config(), picker: FakePicker(url: missing), shellSettings: shell)
+        await model.pickShellDataNow()
+        #expect(model.notice != nil && shell.dataFolderName == nil && shell.dataBookmark == nil)
+        await ShellHostModel(config: box.config(), picker: FakePicker(url: nil), shellSettings: shell).pickShellCloudNow()
+        #expect(shell.cloudSavesFolderName == nil)
+    }
+
     @Test func showLogReadsTheGamesLogOrSaysThereIsNone() throws {
         let box = try Sandbox()
         let model = ShellHostModel(config: box.config())

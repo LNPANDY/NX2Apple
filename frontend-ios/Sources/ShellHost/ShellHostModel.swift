@@ -65,12 +65,44 @@ public struct ShellHostConfig: Sendable {
     @ObservationIgnored private var dataStores: [String: BookmarkStore] = [:]
     @ObservationIgnored private var cloudStores: [String: BookmarkStore] = [:]
     @ObservationIgnored private var artwork: [URL: Artwork] = [:]
+    /// The shell-level settings every game falls back to (game > shell > built-in).
+    @ObservationIgnored public let shellSettings: ShellSettingsStore
+    @ObservationIgnored private let shellData: BookmarkStore
+    @ObservationIgnored private let shellCloud: BookmarkStore
+    @ObservationIgnored private var shellChoices: [String]
+    @ObservationIgnored nonisolated(unsafe) private var defaultsObserver: (any NSObjectProtocol)?
 
-    public init(config: ShellHostConfig, launcher: any GameLauncher = StubGameLauncher(), picker: any FolderPicker = NoFolderPicker()) {
+    public init(config: ShellHostConfig, launcher: any GameLauncher = StubGameLauncher(), picker: any FolderPicker = NoFolderPicker(),
+                shellSettings: ShellSettingsStore = .current) {
         self.config = config
         self.launcher = launcher
         self.picker = picker
+        self.shellSettings = shellSettings
+        shellData = BookmarkStore(defaults: shellSettings.defaults, key: ShellSettingsStore.dataFolderKey)
+        shellCloud = BookmarkStore(defaults: shellSettings.defaults, key: ShellSettingsStore.cloudSavesKey)
+        shellChoices = Self.choices(of: shellSettings)
         reload()
+        defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.defaultsDidChange() }
+        }
+    }
+
+    deinit { defaultsObserver.map(NotificationCenter.default.removeObserver) }
+
+    /// What the details show of the shell settings besides the folders: the interface language and the overlay default.
+    private static func choices(of settings: ShellSettingsStore) -> [String] {
+        [settings.language, settings.gameDefaults.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: ",")]
+    }
+
+    /// Builds the details again, in the same order. The texts the host writes follow the interface language, so a
+    /// change of it comes through here, and so does a change of a shell folder or of the performance overlay.
+    public func refreshAll() {
+        shellChoices = Self.choices(of: shellSettings)
+        details = entries.map(detail(for:))
+    }
+
+    private func defaultsDidChange() {
+        if Self.choices(of: shellSettings) != shellChoices { refreshAll() }
     }
 
     // MARK: Catalogue
@@ -112,27 +144,10 @@ public struct ShellHostConfig: Sendable {
         return s
     }
 
-    /// The shell-level settings every game falls back to (ShellSettingsStore: game > shell > built-in).
-    public private(set) var shellSettings = ShellSettingsStore()
-
-    /// The shell-level data folder as a bookmark resolution, for the locator's global source.
-    private func globalData() -> BookmarkResolution {
-        guard let data = shellSettings.dataBookmark else { return .none }
-        // BookmarkStore reads through UserDefaults; a volatile in-memory store carrying just the global bookmark
-        // keeps that contract. The resolution is cheap, so no caching is needed.
-        let name = "shell-global-data"
-        UserDefaults().removePersistentDomain(forName: name)   // start clean every call
-        let suite = UserDefaults(suiteName: name) ?? .standard
-        suite.set(data, forKey: BookmarkStore.gameDataKey)
-        let resolution = BookmarkStore(defaults: suite, key: BookmarkStore.gameDataKey).resolve()
-        UserDefaults().removePersistentDomain(forName: name)
-        return resolution
-    }
-
     private func data(for entry: CatalogueEntry) -> DataResolution {
         guard let manifest = entry.manifest, entry.problem == nil else { return .missing }
         return DataLocator.locate(manifest: manifest, picked: dataStore(entry.id).resolve(), appFolder: appFolder(for: entry.id),
-                                  global: globalData())
+                                  global: shellData.resolve())
     }
 
     private func image(_ url: URL?) -> Artwork? {
@@ -153,24 +168,28 @@ public struct ShellHostConfig: Sendable {
         guard let profile = entry.profile, entry.problem == nil else {
             return GameDetail(game: tile, dataNote: dataNote(data, found: false))
         }
-        let store = GameSettingsStore(profile: profile, defaults: config.defaults(entry.id))
+        let store = GameSettingsStore(profile: profile, defaults: config.defaults(entry.id), shell: shellSettings.gameDefaults)
         var cloud: String?
         var cloudNote = ""
+        var cloudFromShell = false
         switch cloudStore(entry.id).resolve() {
         case .url(let url): cloud = url.lastPathComponent
         case .stale: cloudNote = hostText("The folder you chose before is no longer readable. Please choose it again.")
-        case .none: break
+        case .none:
+            if case .url(let url) = shellCloud.resolve() { cloud = url.lastPathComponent; cloudFromShell = true }
         }
         return GameDetail(
             game: tile, sections: SettingsPresenter.sections(profile: profile, values: store.values()),
             dataSource: dataSource(data), dataNote: dataNote(data, found: data.found),
-            cloudSaves: cloud, cloudNote: cloudNote, dlc: dlc(data), hasModifiedSettings: store.hasModifiedSettings)
+            cloudSaves: cloud, cloudNote: cloudNote, dlc: dlc(data), hasModifiedSettings: store.hasModifiedSettings,
+            dataFromShell: data.source == .shell, cloudFromShell: cloudFromShell)
     }
 
     private func dataSource(_ data: DataResolution) -> String {
         switch data.source {
         case .app: hostText("This app's folder")
         case .picked: data.url?.lastPathComponent ?? ""
+        case .shell: hostText("\(data.url?.lastPathComponent ?? "") (from Settings)")
         case nil: ""
         }
     }
@@ -203,12 +222,14 @@ public struct ShellHostConfig: Sendable {
             onDisableCloudSaves: { [weak self] id in self?.disableCloudSaves(id) },
             onResetDefaults: { [weak self] id in self?.resetDefaults(id) },
             onShowLog: { [weak self] id in self?.showLog(id) },
-            onAppUpdate: { [weak self] in self?.appUpdate() })
+            onAppUpdate: { [weak self] in self?.appUpdate() },
+            onPickShellData: { [weak self] in self.map { model in Task { await model.pickShellDataNow() } } },
+            onPickShellCloud: { [weak self] in self.map { model in Task { await model.pickShellCloudNow() } } })
     }
 
     public func change(_ id: String, setting: String, value: String) {
         guard let profile = entry(id)?.profile else { return }
-        GameSettingsStore(profile: profile, defaults: config.defaults(id)).set(setting, to: value)
+        GameSettingsStore(profile: profile, defaults: config.defaults(id), shell: shellSettings.gameDefaults).set(setting, to: value)
         refresh(id)
     }
 
@@ -252,6 +273,20 @@ public struct ShellHostConfig: Sendable {
         refresh(id)
     }
 
+    func pickShellDataNow() async {
+        guard let url = await picker.pickFolder() else { return }
+        guard shellData.store(url) else { notice = hostText("That folder could not be remembered. Try a different one."); return }
+        shellSettings.storeDataFolderName(url.lastPathComponent)
+        refreshAll()
+    }
+
+    func pickShellCloudNow() async {
+        guard let url = await picker.pickFolder() else { return }
+        guard shellCloud.store(url) else { notice = hostText("That folder could not be remembered. Try a different one."); return }
+        shellSettings.storeCloudSavesFolderName(url.lastPathComponent)
+        refreshAll()
+    }
+
     public func disableCloudSaves(_ id: String) {
         cloudStore(id).clear()
         refresh(id)
@@ -281,15 +316,27 @@ public struct ShellHostConfig: Sendable {
         guard let entry = entry(id), let manifest = entry.manifest, let profile = entry.profile, let framework = entry.frameworkURL,
               details.first(where: { $0.id == id })?.game.state == .playable, let dataURL = data(for: entry).url else { return }
         var cloud: URL?
-        if case .url(let url) = cloudStore(id).resolve() { cloud = url }
+        switch cloudStore(id).resolve() {
+        case .url(let url): cloud = url
+        case .stale: break
+        case .none: if case .url(let url) = shellCloud.resolve() { cloud = url }
+        }
         // Remembered when Play is triggered, even if the launcher then fails (the stub). The order changes at the next load.
         LastPlayedStore(defaults: config.defaults(id)).record(config.now())
         refresh(id)
         let game = LaunchableGame(
             titleID: id, name: entry.title, manifest: manifest, directory: entry.directory, frameworkURL: framework, dataURL: dataURL,
-            appFolder: appFolder(for: id), environment: GameSettingsStore(profile: profile, defaults: config.defaults(id)).values(), cloudSavesURL: cloud)
+            appFolder: appFolder(for: id), environment: launchEnvironment(profile: profile, id: id), cloudSavesURL: cloud)
         do { try await launcher.launch(game) }
         catch { notice = error.localizedDescription }
+    }
+
+    /// A game's values for the engine: its own choices, then the shell's defaults. A game whose settings list has no
+    /// performance overlay row still gets the shell's choice.
+    func launchEnvironment(profile: LauncherProfile, id: String) -> [String: String] {
+        var env = GameSettingsStore(profile: profile, defaults: config.defaults(id), shell: shellSettings.gameDefaults).values()
+        for (key, value) in shellSettings.gameDefaults where env[key] == nil { env[key] = value }
+        return env
     }
 
     // MARK: Controllers

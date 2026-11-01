@@ -82,8 +82,12 @@ public struct GameDetail: Identifiable, Equatable, Sendable {
     public var cloudNote: String
     public var dlc: String
     public var hasModifiedSettings: Bool
+    /// The data or cloud-saves folder is the shell settings' one, not one the player picked for this game.
+    public var dataFromShell: Bool
+    public var cloudFromShell: Bool
     public init(game: GameTile, sections: [SettingSection] = [], dataSource: String = "", dataNote: String = "",
-                cloudSaves: String? = nil, cloudNote: String = "", dlc: String = "", hasModifiedSettings: Bool = false) {
+                cloudSaves: String? = nil, cloudNote: String = "", dlc: String = "", hasModifiedSettings: Bool = false,
+                dataFromShell: Bool = false, cloudFromShell: Bool = false) {
         self.game = game
         self.sections = sections
         self.dataSource = dataSource
@@ -92,6 +96,8 @@ public struct GameDetail: Identifiable, Equatable, Sendable {
         self.cloudNote = cloudNote
         self.dlc = dlc
         self.hasModifiedSettings = hasModifiedSettings
+        self.dataFromShell = dataFromShell
+        self.cloudFromShell = cloudFromShell
     }
 }
 

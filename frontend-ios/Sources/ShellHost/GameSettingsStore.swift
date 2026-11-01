@@ -13,30 +13,42 @@ public enum GameDefaults {
 
 /// A game's saved choices over its `launcher.json`. As in dm/ios/Sources/LauncherSettings.swift, only a choice that
 /// differs from the tested default is stored (a setting left alone follows a later build's defaults), a saved value
-/// the game no longer offers reads as the default, and reset forgets every saved choice.
+/// the game no longer offers reads as the default, and reset forgets every saved choice. A setting the player left alone
+/// takes the shell's default for its variable (`shell`) when the game offers that value: game > shell > built-in.
 public struct GameSettingsStore {
     public let profile: LauncherProfile
     private let defaults: UserDefaults
+    private let shell: [String: String]
 
-    public init(profile: LauncherProfile, defaults: UserDefaults) {
+    public init(profile: LauncherProfile, defaults: UserDefaults, shell: [String: String] = [:]) {
         self.profile = profile
         self.defaults = defaults
+        self.shell = shell
     }
 
     /// The saved value as a string, as launcher.c reads it (not `string(forKey:)`, which turns a number into one).
-    public func value(of setting: LauncherSetting) -> String {
-        let saved = defaults.object(forKey: setting.defaultsKey) as? String
-        return saved.flatMap { setting.accepts($0) ? $0 : nil } ?? setting.def
+    private func saved(_ setting: LauncherSetting) -> String? {
+        (defaults.object(forKey: setting.defaultsKey) as? String).flatMap { setting.accepts($0) ? $0 : nil }
     }
+
+    /// What the game does without a saved choice: the shell's default when the game offers it, else its own.
+    private func fallback(_ setting: LauncherSetting) -> String {
+        shell[setting.env].flatMap { setting.accepts($0) ? $0 : nil } ?? setting.def
+    }
+
+    public func value(of setting: LauncherSetting) -> String { saved(setting) ?? fallback(setting) }
 
     public func values() -> [String: String] {
         Dictionary(uniqueKeysWithValues: profile.settings.map { ($0.env, value(of: $0)) })
     }
 
-    /// Saves a choice. False when the game has no such setting or does not offer the value.
+    /// Saves a choice. False when the game has no such setting or does not offer the value. A choice equal to what the
+    /// game does anyway is forgotten, so it follows a later default. The game's own default is still saved when the shell
+    /// asks for something else, or the shell's value would win again.
     @discardableResult public func set(_ env: String, to value: String) -> Bool {
         guard let setting = profile.settings.first(where: { $0.env == env }), setting.accepts(value) else { return false }
-        if setting.isDefault(value) { defaults.removeObject(forKey: setting.defaultsKey) } else { defaults.set(value, forKey: setting.defaultsKey) }
+        let follows = shell[setting.env].flatMap { setting.accepts($0) ? $0 : nil }.map { $0 == value } ?? setting.isDefault(value)
+        if follows { defaults.removeObject(forKey: setting.defaultsKey) } else { defaults.set(value, forKey: setting.defaultsKey) }
         return true
     }
 
@@ -46,7 +58,7 @@ public struct GameSettingsStore {
     }
 
     public var hasModifiedSettings: Bool {
-        profile.settings.contains { !$0.isDefault(value(of: $0)) }
+        profile.settings.contains { setting in saved(setting).map { !setting.isDefault($0) } ?? false }
     }
 }
 
