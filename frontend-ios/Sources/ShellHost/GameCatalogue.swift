@@ -190,7 +190,10 @@ public struct DataResolution: Equatable, Sendable {
 }
 
 /// The same order as the per-game app's `romfs_locate` (dm/ios/Sources/main.m): the picked location first, then the
-/// app's `Documents/games/<title ID>/`, each accepted only when it holds the game's image or marker.
+/// app's `Documents/games/<title ID>/`, each accepted only when it holds the game's image or marker. It differs in the
+/// shell-level folder, which the per-game app has no counterpart for: one folder serves every game, so it is searched as
+/// `<folder>/<title ID>/` first (one `romfs.img` per game, DLC in `aoc/` beside it), then as the folder itself, the
+/// layout for a single game. The order is the game's own pick, the shell folder, then the app folder.
 public enum DataLocator {
     public static func locate(manifest: GameManifest, picked: BookmarkResolution, appFolder: URL, fileManager fm: FileManager = .default,
                               global: BookmarkResolution = .none) -> DataResolution {
@@ -203,7 +206,10 @@ public enum DataLocator {
         }
         switch global {   // the shell-level data folder: the game's own bookmark wins, this backs it up
         case .url(let url):
-            if let dir = holder(of: url, manifest: manifest, fm) { result.url = dir; result.source = .shell; return result }
+            let titleFolder = url.appendingPathComponent(manifest.titleID, isDirectory: true)
+            if let dir = holder(of: titleFolder, manifest: manifest, fm) ?? holder(of: url, manifest: manifest, fm) {
+                result.url = dir; result.source = .shell; return result
+            }
         case .stale, .none: break
         }
         if let dir = holder(of: appFolder, manifest: manifest, fm) { result.url = dir; result.source = .app }
