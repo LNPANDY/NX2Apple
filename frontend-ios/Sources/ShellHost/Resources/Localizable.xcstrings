@@ -8,6 +8,12 @@
             "state": "translated",
             "value": "\"%@\" is not a DM_ switch."
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\"%@\" 不是 DM_ 开关。"
+          }
         }
       }
     },
@@ -17,6 +23,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ appears twice in launcher.json."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 在 launcher.json 中出现了两次。"
           }
         }
       }
@@ -28,6 +40,12 @@
             "state": "translated",
             "value": "%@ has a wrong or missing value at \"%@\"."
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 的 \"%@\" 值错误或缺失。"
+          }
         }
       }
     },
@@ -37,6 +55,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ has no \"%@\"%@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 缺少 \"%@\"%@。"
           }
         }
       }
@@ -48,6 +72,12 @@
             "state": "translated",
             "value": "%@ has the unknown kind \"%@\"."
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 的类型 \"%@\" 未知。"
+          }
         }
       }
     },
@@ -57,6 +87,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ is a choice without [value, label] options."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 是没有 [value, label] 选项的选择项。"
           }
         }
       }
@@ -68,6 +104,12 @@
             "state": "translated",
             "value": "%@ is a range without min, max and step."
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 是缺少 min、max、step 的范围项。"
+          }
         }
       }
     },
@@ -77,6 +119,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ is not in this game's folder. Install the game again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 不在此游戏的文件夹中。请重新安装游戏。"
           }
         }
       }
@@ -88,6 +136,12 @@
             "state": "translated",
             "value": "%@ is not valid JSON."
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 不是有效的 JSON。"
+          }
         }
       }
     },
@@ -97,6 +151,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "%lld additional content packs"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 个附加内容包"
           }
         }
       }
@@ -108,6 +168,12 @@
             "state": "translated",
             "value": "1 additional content pack"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 个附加内容包"
+          }
         }
       }
     },
@@ -117,6 +183,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Can't read this game"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法读取此游戏"
           }
         }
       }
@@ -128,6 +200,12 @@
             "state": "translated",
             "value": "Choose a RomFS folder or romfs.img on this device, an external drive, or iCloud Drive."
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此设备、外置硬盘或 Mac 上选择 RomFS 文件夹或 romfs.img。iOS 启动器会记住该位置。"
+          }
         }
       }
     },
@@ -137,6 +215,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Done"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完成"
           }
         }
       }
@@ -148,6 +232,12 @@
             "state": "translated",
             "value": "Game code missing"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "游戏代码缺失"
+          }
         }
       }
     },
@@ -157,6 +247,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Game files damaged"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "游戏文件已损坏"
           }
         }
       }
@@ -168,6 +264,12 @@
             "state": "translated",
             "value": "Game manifest missing"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "游戏清单缺失"
+          }
         }
       }
     },
@@ -177,6 +279,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Launching is not available yet."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "启动功能尚不可用。"
           }
         }
       }
@@ -188,6 +296,12 @@
             "state": "translated",
             "value": "Manifest not supported"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清单不受支持"
+          }
         }
       }
     },
@@ -197,6 +311,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "No additional content"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无附加内容"
           }
         }
       }
@@ -208,6 +328,12 @@
             "state": "translated",
             "value": "No game data for %@ was found in that folder."
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在该文件夹中未找到 %@ 的游戏数据。"
+          }
         }
       }
     },
@@ -217,6 +343,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "No update address is set up for this app."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 App 未设置更新地址。"
           }
         }
       }
@@ -228,6 +360,12 @@
             "state": "translated",
             "value": "OK"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "好"
+          }
         }
       }
     },
@@ -237,6 +375,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Only the end of the log is shown."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅显示日志末尾部分。"
           }
         }
       }
@@ -248,6 +392,12 @@
             "state": "translated",
             "value": "Player %@"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "玩家 %@"
+          }
         }
       }
     },
@@ -257,6 +407,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Settings list damaged"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设置列表已损坏"
           }
         }
       }
@@ -268,6 +424,12 @@
             "state": "translated",
             "value": "Settings list missing"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设置列表缺失"
+          }
         }
       }
     },
@@ -277,6 +439,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Settings list not supported"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设置列表不受支持"
           }
         }
       }
@@ -288,6 +456,12 @@
             "state": "translated",
             "value": "Shell"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "壳"
+          }
         }
       }
     },
@@ -297,6 +471,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "That folder could not be remembered. Try a different one."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法记住该文件夹。请换一个试试。"
           }
         }
       }
@@ -308,6 +488,12 @@
             "state": "translated",
             "value": "That location could not be remembered. Try a different one."
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法记住该位置。请换一个试试。"
+          }
         }
       }
     },
@@ -317,6 +503,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "The folder is named %@ but the manifest says %@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文件夹名为 %@，但清单显示 %@。"
           }
         }
       }
@@ -328,6 +520,12 @@
             "state": "translated",
             "value": "The folder you chose before is no longer readable. Please choose it again."
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "之前选择的文件夹已无法读取。请重新选择。"
+          }
         }
       }
     },
@@ -337,6 +535,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "The game's code is missing from this app. Rebuild and reinstall it."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 App 中缺少游戏代码。请重新构建并安装。"
           }
         }
       }
@@ -348,6 +552,12 @@
             "state": "translated",
             "value": "The game's manifest"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "游戏清单"
+          }
         }
       }
     },
@@ -357,6 +567,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "The location you picked before is no longer readable (the app was signed differently). Please choose it again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "之前选择的位置已无法读取（App 被重签）。请重新选择。"
           }
         }
       }
@@ -368,6 +584,12 @@
             "state": "translated",
             "value": "The manifest lists no modules."
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清单中未列出任何模块。"
+          }
         }
       }
     },
@@ -377,6 +599,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "The settings list"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设置列表"
           }
         }
       }
@@ -388,6 +616,12 @@
             "state": "translated",
             "value": "This app's folder"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本 App 的文件夹"
+          }
         }
       }
     },
@@ -397,6 +631,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "This app's folder has no data for this game yet. Copy it to games/%@ in this app's folder in Files."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本 App 的文件夹中还没有此游戏的数据。请拷贝到 games/%@，或点「使用应用数据」。"
           }
         }
       }
@@ -408,6 +648,12 @@
             "state": "translated",
             "value": "This game has no launcher.json."
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此游戏没有 launcher.json。"
+          }
         }
       }
     },
@@ -417,6 +663,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "This game has no log yet. It appears after the game has run."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此游戏还没有日志。运行一次后会出现。"
           }
         }
       }
@@ -428,6 +680,12 @@
             "state": "translated",
             "value": "This game was built for a different version of this app. Update the app or rebuild the game in the launcher on your Mac."
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此游戏是为本 App 的其它版本构建的。请更新 App 或在 Mac 启动器中重新构建。"
+          }
         }
       }
     },
@@ -437,6 +695,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "This game's files are damaged. Rebuild the game in the launcher on your Mac."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此游戏文件已损坏。请在 Mac 上的启动器中重新构建。"
           }
         }
       }
@@ -448,6 +712,12 @@
             "state": "translated",
             "value": "This game's folder has no game.manifest.json."
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此游戏的文件夹中没有 game.manifest.json。"
+          }
         }
       }
     },
@@ -457,6 +727,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "This game's manifest is damaged. Rebuild the game in the launcher on your Mac."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此游戏的清单已损坏。请在 Mac 上的启动器中重新构建。"
           }
         }
       }
@@ -468,6 +744,12 @@
             "state": "translated",
             "value": "This game's manifest is missing. Rebuild the game in the launcher on your Mac."
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此游戏的清单缺失。请在 Mac 上的启动器中重新构建。"
+          }
         }
       }
     },
@@ -477,6 +759,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "This game's settings list is damaged. Rebuild the game in the launcher on your Mac."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此游戏的设置列表已损坏。请在 Mac 上的启动器中重新构建。"
           }
         }
       }
@@ -488,6 +776,12 @@
             "state": "translated",
             "value": "This game's settings list is missing. Rebuild the game in the launcher on your Mac."
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此游戏的设置列表缺失。请在 Mac 上的启动器中重新构建。"
+          }
         }
       }
     },
@@ -497,6 +791,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Unknown game"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知游戏"
           }
         }
       }
@@ -508,6 +808,12 @@
             "state": "translated",
             "value": "chain \"%@\" is not of the form b-<hex>."
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "chain \"%@\" 不符合 b-<十六进制> 格式。"
+          }
         }
       }
     },
@@ -517,6 +823,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "framework \"%@\" is not a .framework name."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "framework \"%@\" 不是 .framework 名称。"
           }
         }
       }
@@ -528,6 +840,12 @@
             "state": "translated",
             "value": "game \"%@\" in launcher.json is not 16 hex digits."
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "launcher.json 中的 game \"%@\" 不是 16 位十六进制。"
+          }
         }
       }
     },
@@ -537,6 +855,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "game.manifest.json has schema %lld, this app reads schema %lld."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "game.manifest.json 的 schema 为 %lld，本 App 读取 %lld。"
           }
         }
       }
@@ -548,6 +872,12 @@
             "state": "translated",
             "value": "launcher.json has schema %lld, this app reads schema 1."
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "launcher.json 的 schema 为 %lld，本 App 读取 1。"
+          }
         }
       }
     },
@@ -557,6 +887,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "launcher.json is for %@, the manifest for %@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "launcher.json 属于 %@，而清单属于 %@。"
           }
         }
       }
@@ -568,6 +904,12 @@
             "state": "translated",
             "value": "loader \"%@\" is neither FR nor FH."
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "loader \"%@\" 既不是 FR 也不是 FH。"
+          }
         }
       }
     },
@@ -577,6 +919,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "title_id \"%@\" is not 16 hex digits."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "title_id \"%@\" 不是 16 位十六进制。"
           }
         }
       }

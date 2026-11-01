@@ -3366,6 +3366,12 @@ struct BuilderView: View {
     /// pointed ("see the log below") while the log itself was out of view on a short window (#52).
     @ViewBuilder private var logPanel: some View {
         group(m.t("section.log")) {
+            if m.shellCopy != nil || m.shellWaiting {
+                // The log below is the build's own output; the data transfer is driven by the app, so
+                // its questions and errors (a locked device, a failed listing) answer here, not in it.
+                Text(m.t("log.transferNote")).font(.manrope(12.5)).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true).padding(.horizontal, 14).padding(.top, 2)
+            }
             disclosure(m.t("build.log"), isOpen: logOpen) { logOpen.toggle() }
             if logOpen { logView.padding(.horizontal, 14).padding(.bottom, 14) }
         }
