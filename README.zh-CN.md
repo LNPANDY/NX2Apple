@@ -23,9 +23,9 @@
 
 #### 🆕 最近重点更新
 
-- **引导式首次启动**：安装向导带新玩家走完 Xcode、密钥和游戏；构建工具和 Python 直接内置在 App 里，不用装 Homebrew
+- **iPhone 和 iPad 共用一个 App**：用「iPhone / iPad」目标构建的游戏都装进同一个壳 App。游戏库以封面为主，手机横过来是 Cover Flow，每个游戏有自己的设置，手柄和键盘都能操作。界面跟随系统语言（英文和简体中文）
 - **存档跟着走**：Mac ⇄ iPhone 存档通过同一个 iCloud Drive 文件夹自动同步；删掉的 App 几秒重装；免费 Apple ID 的 7 天签名原地续签
-- **iPhone 和 iPad 共用一个 App**：游戏库带着所有游戏的封面，手机横过来是 Cover Flow，每个游戏有自己的设置，手柄和键盘都能操作。界面跟随系统语言（英文和简体中文）
+- **引导式首次启动**：安装向导带新玩家走完 Xcode、密钥和游戏；构建工具和 Python 直接内置在 App 里，不用装 Homebrew
 - **主机模式**：插上手柄按 Select，游戏库变全屏封面墙，手柄操作——就像 Switch 主菜单
 
 所有版本见[更新日志](CHANGELOG.zh-CN.md)。English readers — the [English README](README.md) covers everything.
