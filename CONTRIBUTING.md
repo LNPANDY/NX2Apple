@@ -71,7 +71,6 @@ PRs opened before this rule keep the old path: an issue within 48 hours of the f
 The [milestones](https://github.com/LNPANDY/NX2Apple/milestones) are the plan, and anyone can take any open issue in one that nobody has taken. An issue in a milestone is a go already.
 
 - To take one, comment that you will build it. A maintainer assigns it to you, so two people do not build the same thing. Link the issue in your PR.
-- [`good first issue`](https://github.com/LNPANDY/NX2Apple/labels/good%20first%20issue) marks the easy starts.
 - Start from the problem, not the solution. Say what you want to do and what is in the way, which is what the form asks. The maintainers may point to a planned way to do it.
 - If a maintainer cannot take an idea, they say so early and explain why, see [What happens to your PR](#what-happens-to-your-pr).
 
