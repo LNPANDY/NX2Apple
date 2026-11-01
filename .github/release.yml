@@ -1,0 +1,32 @@
+changelog:
+  exclude:
+    labels:
+      - dependencies
+      - ci
+      - no-triage
+      - duplicate
+      - invalid
+      - wontfix
+    authors:
+      - dependabot
+      - dependabot[bot]
+      - github-actions
+      - github-actions[bot]
+      - copilot
+  categories:
+    - title: Fixes
+      labels:
+        - bug
+    - title: Features
+      labels:
+        - enhancement
+    - title: Patch queue and engine
+      labels:
+        - patch-queue
+        - upstream
+    - title: Documentation
+      labels:
+        - documentation
+    - title: Other changes
+      labels:
+        - "*"
