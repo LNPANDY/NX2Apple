@@ -121,7 +121,7 @@ index 0000000..b354e25
 +}
 +#endif
 diff --git a/dm/ios/Sources/main.m b/dm/ios/Sources/main.m
-index 7e4d49a..58fa969 100644
+index 487a711..7a44642 100644
 --- a/dm/ios/Sources/main.m
 +++ b/dm/ios/Sources/main.m
 @@ -18,6 +18,14 @@
@@ -139,7 +139,7 @@ index 7e4d49a..58fa969 100644
  
  extern char **environ;
  
-@@ -221,6 +229,14 @@ static int boot_env(void) {
+@@ -230,6 +238,14 @@ static int boot_env(void) {
      // First line of the log: the fork's patches this build carries (Info.plist DMForkPatches), so a report says whether it comes from a build beyond upstream's support
      NSString *fork_patches = [NSBundle.mainBundle objectForInfoDictionaryKey:@"DMForkPatches"];
      fprintf(stderr, "fork patches: %s\n", [fork_patches isKindOfClass:NSString.class] && fork_patches.length ? fork_patches.UTF8String : "none");
@@ -154,7 +154,7 @@ index 7e4d49a..58fa969 100644
      // Environment switch files (for on-device diagnostics: a sideloaded app cannot be given environment variables from outside): one KEY=VALUE per line, # starts a comment; Documents/env.txt takes precedence over dm/env.txt in the bundle (put there by build_ipa.sh's DM_ENV_FILE)
      NSMutableArray<NSString *> *from_file = [NSMutableArray array], *from_launch = [NSMutableArray array];
      for (char **e = environ; *e; e++) {   // set at launch (Xcode, devicectl): before the env files, and the launcher keeps them
-@@ -269,14 +285,20 @@ static int boot_env(void) {
+@@ -272,14 +288,20 @@ static int boot_env(void) {
      BOOL per_game = [romfs hasPrefix:gdir];   // messaging nil is NO here: no data means the shared layout
      if (!set_data_env(romfs, NO)) { if (!romfs) romfs_identity_report(doc);   // a slim build says why its romfs.img was not used
          fprintf(stderr, "boot: no game data yet (Documents/romfs.img, Documents/romfs or <App>/romfs); the launcher asks for it\n"); }

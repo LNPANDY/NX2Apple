@@ -1,0 +1,238 @@
+# The notes of a final release, written by the GitHub Copilot CLI and checked before they are used (see .github/release-notes/README.md).
+#
+# Three jobs, each with the least it needs. The changelog rows and the pull request titles are untrusted text, so the model never holds a write token:
+#   gather  contents: read, pull-requests: read, no secrets   the changelog rows, the merged pull requests since the previous final tag, the template
+#   write   no permissions, the model token                   the Copilot CLI answers one text. It can only read (--available-tools=view), in an empty directory
+#   check   contents: read, no model token                     tools/release_notes.py check on the answer, then the artifact and the job summary
+# A fourth job, publish, runs only in a manual run with publish true: it puts a checked text into an existing release.
+#
+# Called by build-mac-app.yml in the build of a final tag (publish true): the build job downloads the artifact `release-notes` and builds the body
+# with tools/release_notes.py build. Run by hand (workflow_dispatch) with publish false, it writes the result to the job summary and to the artifact
+# `release-notes-preview` and publishes nothing, so it can be tried on an existing release.
+# A problem with the notes never stops a release: the write job cannot fail the run, and a text that fails the check is not used.
+name: release-notes
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: The final tag (vX.Y.Z)
+        required: true
+        type: string
+      publish:
+        description: Hand the text to the release build (the artifact release-notes)
+        required: false
+        default: true
+        type: boolean
+    secrets:
+      COPILOT_TOKEN:
+        required: false
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "A final tag such as v1.0.0 (Use workflow from: the branch that holds the changelog row, usually main)"
+        required: true
+        type: string
+      publish:
+        description: "false (the default): the result goes to the job summary and an artifact only. true: also put a checked text into the existing release of the tag"
+        required: false
+        default: false
+        type: boolean
+
+permissions: {}
+
+env:
+  # The model ids to try, newest Sonnet first, separated by spaces. The CLI lists no models and has no alias for "the newest Sonnet", so the
+  # write job takes the first id the account accepts: only the error `Model "<id>" from --model flag is not available.` moves on to the next
+  # one. No Haiku and no `auto` (notes_model.py refuses them). To update: put a new id in front when GitHub's supported models page lists
+  # a newer Sonnet, and drop ids that are gone. The repository variable RELEASE_NOTES_MODEL replaces the whole list with one id.
+  NOTES_MODEL_CANDIDATES: claude-sonnet-5.5 claude-sonnet-5 claude-sonnet-4.6 claude-sonnet-4.5
+  TAG: ${{ inputs.tag }}
+  PUBLISH: ${{ inputs.publish }}
+
+defaults:
+  run:
+    shell: bash
+
+# Actions are pinned to commit SHAs (the tag in the comment), as in issue-triage.yml.
+jobs:
+  gather:
+    name: Gather (read only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true   # a problem with the notes never stops a release; check says why there is no text
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Tag
+        run: |
+          [[ "$TAG" =~ ^v[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,4}$ ]] || { echo "::error::$TAG is not a final tag (vX.Y.Z)"; exit 1; }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Prepare the data for the model
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 -I .github/scripts/notes_gather.py --repo "$GITHUB_REPOSITORY" --tag "$TAG" --out "$RUNNER_TEMP/notes"
+          cp .github/scripts/notes_model.py "$RUNNER_TEMP/notes/"   # the write job has no checkout
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: notes-input
+          path: ${{ runner.temp }}/notes
+          retention-days: 3
+
+  write:
+    name: Write (model, no write token)
+    needs: gather
+    if: needs.gather.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    continue-on-error: true
+    permissions: {}
+    outputs:
+      ran: ${{ steps.copilot.outputs.ran }}
+    env:
+      COPILOT_TOKEN_SET: ${{ secrets.COPILOT_TOKEN != '' }}
+    steps:
+      - name: Secret check
+        id: secret
+        run: |
+          if [ "$COPILOT_TOKEN_SET" != "true" ]; then
+            echo "::warning title=Release notes::COPILOT_TOKEN is not set, so the model writes nothing. It is a fine-grained PAT with only the 'Copilot Requests' permission."
+          fi
+          echo "set=$COPILOT_TOKEN_SET" >> "$GITHUB_OUTPUT"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: steps.secret.outputs.set == 'true'
+        with:
+          name: notes-input
+          path: ${{ runner.temp }}/notes
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: steps.secret.outputs.set == 'true'
+        with:
+          node-version: '22'
+      - name: Install the Copilot CLI
+        if: steps.secret.outputs.set == 'true'
+        run: npm install --global --ignore-scripts @github/copilot@1.0.105   # pinned: bump on purpose, with issue-triage.yml
+      - name: Ask Copilot
+        id: copilot
+        if: steps.secret.outputs.set == 'true'
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_TOKEN }}
+          NOTES_MODEL_VAR: ${{ vars.RELEASE_NOTES_MODEL }}   # optional repository variable (a model id): that id alone, no fallback
+        run: |
+          # An empty directory holds nothing to read. The model can only call `view`; shell, file writes and URLs are denied
+          # (deny rules win over --allow-all-tools, which prompt mode needs), no MCP servers, no repository instructions. The flags are in notes_model.py.
+          mkdir -p "$RUNNER_TEMP/empty" "$RUNNER_TEMP/out"
+          cd "$RUNNER_TEMP/empty"
+          # prompt.txt is at most 90000 bytes (notes_gather.py), below the 128 KiB limit of one argument
+          python3 -I "$RUNNER_TEMP/notes/notes_model.py" --prompt "$RUNNER_TEMP/notes/prompt.txt" --out "$RUNNER_TEMP/out/answer.txt" \
+            --candidates "$NOTES_MODEL_CANDIDATES" --override "$NOTES_MODEL_VAR"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: steps.copilot.outputs.ran == 'true'
+        with:
+          name: notes-answer
+          path: ${{ runner.temp }}/out
+          retention-days: 3
+
+  check:
+    name: Check (no model token)
+    needs: [gather, write]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: needs.write.outputs.ran == 'true'
+        with:
+          name: notes-answer
+          path: ${{ runner.temp }}/answer
+      - name: Check the answer
+        env:
+          RAN: ${{ needs.write.outputs.ran }}
+        run: |
+          # The gather and write jobs are continue-on-error, so their result says nothing: no answer means one of them did not finish
+          # (the secret COPILOT_TOKEN is not set, or the data or the Copilot CLI failed: their logs say which).
+          out="$RUNNER_TEMP/result"
+          mkdir -p "$out"
+          reason=""
+          if [ "$RAN" != true ]; then
+            reason="the model wrote nothing (COPILOT_TOKEN is not set, or the gather or write job failed, see their logs)"
+          elif ! python3 -I .github/scripts/notes_finish.py clean "$RUNNER_TEMP/answer/answer.txt" "$out/model.md"; then
+            reason="the answer is empty"
+          else
+            cp "$RUNNER_TEMP/answer/answer.txt" "$out/answer.txt"
+            if ! python3 -I tools/release_notes.py check "$out/model.md" > "$out/check.txt" 2>&1; then
+              reason="the text fails tools/release_notes.py check"
+              mv "$out/model.md" "$out/rejected.md"
+            fi
+          fi
+          model=$(cat "$RUNNER_TEMP/answer/model.txt" 2> /dev/null || true)
+          title=""
+          if [ -f "$out/model.md" ]; then
+            title=$(python3 -I .github/scripts/notes_finish.py title "$out/model.md" "$TAG")
+            [ -n "$title" ] && printf '%s\n' "$title" > "$out/title.txt"
+          fi
+          {
+            echo "## Release notes for $TAG"
+            echo
+            echo "Model used: ${model:-none (no model answered, see the log of the write job)}"
+            echo
+            if [ -n "$reason" ]; then
+              echo "No model text is used: $reason. The release gets the short body, or a reviewed release-notes/$TAG.md if there is one."
+              if [ -f "$out/check.txt" ]; then echo; echo '```'; cat "$out/check.txt"; echo '```'; fi
+            else
+              echo "The text passed the check. Release title: ${title:-not readable from the first line, so the title stays the tag}"
+              echo
+              echo "Publish: $PUBLISH. The generated block of contributors and the Full Changelog link are added by the release build."
+              echo
+              echo '---'
+              echo
+              cat "$out/model.md"
+            fi
+          } > "$out/status.md"
+          cat "$out/status.md" >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "$reason" ]; then
+            echo "::warning title=Release notes::No model text for $TAG: $reason"
+          fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ inputs.publish && 'release-notes' || 'release-notes-preview' }}
+          path: ${{ runner.temp }}/result
+          retention-days: 7
+
+  publish:
+    name: Publish (manual run with publish true)
+    needs: check
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-notes
+          path: ${{ runner.temp }}/result
+      - name: Edit the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          result="$RUNNER_TEMP/result"
+          [ -s "$result/model.md" ] || { echo "::error::no checked text, nothing to publish (see the job summary of the check job)"; exit 1; }
+          gh release view "$TAG" > /dev/null
+          previous=$(python3 -I tools/release_notes.py previous "$TAG")
+          python3 -I tools/release_notes.py build "$TAG" --previous "$previous" --file "$result/model.md" --out "$RUNNER_TEMP/release-body.md"
+          title=$(python3 -I .github/scripts/notes_finish.py title "$result/model.md" "$TAG")
+          args=(--notes-file "$RUNNER_TEMP/release-body.md")
+          [ -n "$title" ] && args+=(--title "$title")
+          gh release edit "$TAG" "${args[@]}"

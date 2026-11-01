@@ -20,7 +20,8 @@ import XCTest
     private func launch(_ arguments: [String]) {
         app.terminate()
         // TEST_RUNNER_SHOT_REAL_ART=1: the demo reads real game art from the host (see RealArt.swift).
-        app.launchArguments = arguments + ((ProcessInfo.processInfo.environment["SHOT_REAL_ART"] ?? "").isEmpty ? [] : ["--real-art"])
+        let language = ProcessInfo.processInfo.environment["SHOT_LANG"] ?? ""   // TEST_RUNNER_SHOT_LANG=zh-Hans
+        app.launchArguments = arguments + (language.isEmpty ? [] : ["-AppleLanguages", "(\(language))"]) + ((ProcessInfo.processInfo.environment["SHOT_REAL_ART"] ?? "").isEmpty ? [] : ["--real-art"])
         app.launch()
         _ = app.buttons["controllers.open"].firstMatch.waitForExistence(timeout: 10)
             || app.buttons["controllers.close"].waitForExistence(timeout: 2)
@@ -43,6 +44,17 @@ import XCTest
         app.scrollViews.element(boundBy: app.scrollViews.count - 1).swipeUp()
         sleep(1)
         appShot("settings-scrolled-top-bar")
+    }
+
+    /// The shell's own settings page (the game-data and cloud-saves folders), opened from the library.
+    func testShellSettings() {
+        launch(["--screen", "library"])
+        let open = app.buttons["shellSettings.open"].firstMatch
+        XCTAssertTrue(open.waitForExistence(timeout: 5))
+        open.tap()
+        XCTAssertTrue(app.buttons["shellSettings.data"].waitForExistence(timeout: 5))
+        sleep(1)
+        shot("shell-settings")
     }
 
     func testCaptureMatrix() {

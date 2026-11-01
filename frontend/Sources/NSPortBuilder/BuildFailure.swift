@@ -61,7 +61,7 @@ enum BuildFailureClassifier {
         ("nsp.damaged", .damagedNSP, "files fail the NCA's hash check"),
         ("arm32.program", .a32Program, "is a 32-bit ARM program"),
         ("keys.missing", .keys, "(?m)^\\[RED\\] no such file: "),
-        ("games.several", .severalGames, "more than one game in the folder, keep one game per folder"),
+        ("games.several", .severalGames, "more than one game in the folder"),
         ("games.noTitleID", .noTitleID, "no NSP with a readable title ID in "),
         ("disk.low", .diskFull, "less than [0-9]+ GB free on the volume of "),
         ("disk.full", .diskFull, "No space left on device"),
@@ -167,8 +167,8 @@ enum MetalPin {
 
     /// `now`: the compilers found, by SDK name (macosx, iphoneos), nil for one that did not answer.
     /// An iOS compiler is compared only when `iOS` (the build is for an iPhone).
-    /// A newer compiler of the recorded generation is not a mismatch: Xcode's auto-update bumps it (the lock's 32023.921 to
-    /// 27.2's 32023.922) and a player cannot hold Xcode back — the engine's gate builds with a note (own_compilers.py, #242).
+    /// A newer compiler of the recorded generation is not a mismatch: Xcode's auto-update bumps it
+    /// and a player cannot hold Xcode back — the engine's gate builds with a note (own_compilers.py, #242).
     static func mismatches(lock: String, now: [String: String?], iOS: Bool) -> [Mismatch] {
         let pinned = pins(lock: lock)
         var out: [Mismatch] = []

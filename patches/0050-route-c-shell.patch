@@ -139,7 +139,7 @@ index 0000000..40f6f04
 +void dm_shell_present_game(void);
 diff --git a/dm/ios/Shell/ShellMain.m b/dm/ios/Shell/ShellMain.m
 new file mode 100644
-index 0000000..2f86093
+index 0000000..08d6cf5
 --- /dev/null
 +++ b/dm/ios/Shell/ShellMain.m
 @@ -0,0 +1,173 @@
@@ -151,7 +151,7 @@ index 0000000..2f86093
 +// dm_main on the big-stack thread through front_ios_boot() below.
 +// One game per process: dm_profile() and dm_host_preload_start() run once, so returning to the library is a relaunch of the app.
 +// This file provides the symbols front_ios.m takes from main.m and Launcher.swift in the one-game app (front_ios_boot,
-+// front_ios_boot_ok, front_ios_boot_message, front_ios_device_message, dm_locate_game_data, dm_show_launcher): the shell compiles front_ios.m unchanged.
++// front_ios_boot_ok, front_ios_boot_message, front_ios_device_check, dm_locate_game_data, dm_show_launcher): the shell compiles front_ios.m unchanged.
 +#import <UIKit/UIKit.h>
 +#include <dlfcn.h>
 +#include <pthread.h>
@@ -252,7 +252,7 @@ index 0000000..2f86093
 +}
 +int front_ios_boot_ok(void) { return g_boot_ok; }
 +const char *front_ios_boot_message(void) { return NULL; }
-+const char *front_ios_device_message(void) { return NULL; }   // main.m says why the GPU cannot run the games (no BC textures, seedds#704), the shell does its own device handling: NULL = supported
++const char *front_ios_device_check(void) { return NULL; }   // main.m checks the GPU for the games (no BC textures, seedds#704) when Play is pressed, the shell does its own device handling: NULL = supported
 +// The shell found the data before Play (DataLocator, EngineLaunchPlan): DM_ROMFS is set and the game view only checks it is still there
 +int dm_locate_game_data(void) {
 +    const char *r = getenv("DM_ROMFS"); struct stat st;
@@ -317,10 +317,10 @@ index 0000000..2f86093
 +    @autoreleasepool { return UIApplicationMain(argc, argv, nil, NSStringFromClass(App.class)); }
 +}
 diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
-index d45f2e3..04a0f51 100644
+index c560abb..57b08e9 100644
 --- a/dm/ios/Sources/front_ios.m
 +++ b/dm/ios/Sources/front_ios.m
-@@ -109,6 +109,7 @@ - (void)startGame {
+@@ -113,6 +113,7 @@ - (void)startGame {
      [self.view addSubview:self.game];
      g_layer = (CAMetalLayer *)self.game.layer;
      if (getenv("DM_METAL_HUD") && atoi(getenv("DM_METAL_HUD"))) { g_layer.developerHUDProperties = @{@"mode": @"default"}; LOG("front end: Metal performance HUD on (DM_METAL_HUD)"); }   // Apple's HUD over the game: frame rate, frame and GPU time, memory
@@ -627,7 +627,7 @@ index 0000000..042513f
 +if __name__ == '__main__':
 +    unittest.main()
 diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index 47e4eac..b089a94 100755
+index e310b47..dae55ee 100755
 --- a/dm/ios/tools/build_ipa.sh
 +++ b/dm/ios/tools/build_ipa.sh
 @@ -10,6 +10,9 @@
@@ -653,7 +653,7 @@ index 47e4eac..b089a94 100755
  OUT_IPA=${1:-$(dirname "$W")/$(gp ipa)}; O=$W/build/ios/pkg; DD=$O/dd
  XCODE_DD=${DM_XCODE_DERIVED_DATA:-$W/build/ios/xcode-dd}
  MODS=$(gp modules); MARKER=$(gp romfs_marker)
-@@ -142,7 +151,9 @@ else t "no app icon ($ICON not found): the home-screen icon stays blank"; fi
+@@ -146,7 +155,9 @@ else t "no app icon ($ICON not found): the home-screen icon stays blank"; fi
  if [ "$FRAMEWORK" = 1 ]; then
    rm -rf Gen/framework && mkdir -p Gen/framework/dm || die "mkdir Gen/framework"
    cp -R Gen/dm/. Gen/framework/dm/ || die "copy the framework tables"
@@ -664,7 +664,7 @@ index 47e4eac..b089a94 100755
    python3 "$DM/games/game.py" profile "$GAME" Gen/framework/profile.tsv > /dev/null || die "game profile"
    # The manifest names the game data this framework was built for: the RomFS image's identity (dm/host/romfs_identity.h), as the
    # pack step's romfs.id does. That step's default is repeated here because the manifest is a build resource and has to exist now.
-@@ -154,7 +165,7 @@ if [ "$FRAMEWORK" = 1 ]; then
+@@ -158,7 +169,7 @@ if [ "$FRAMEWORK" = 1 ]; then
    NRO_TABLE=$PATCHED/nro.tsv; [ -f "$NRO_TABLE" ] || NRO_TABLE=   # the NRO modules gen_embed.py packs: nro_count in the manifest
    python3 tools/gen_manifest.py Gen/framework/game.manifest.json --game "$GAME" --name "$DM_DISPLAY_NAME" \
      --display-version "$DM_APP_VERSION" --package-version "${PKG:-}" --modules "$MODS" ${NRO_TABLE:+--nro-table "$NRO_TABLE"} \
@@ -673,7 +673,7 @@ index 47e4eac..b089a94 100755
    printf 'OTHER_LDFLAGS = $(inherited) %s\n' "$F" > Gen/framework.xcconfig || die "framework link flags"
    t "framework: Gen/framework (modules $MODS, profile.tsv, game.manifest.json)"
  fi
-@@ -188,6 +199,30 @@ if [ "$PREPARE_XCODE" = YES ]; then
+@@ -192,6 +203,30 @@ if [ "$PREPARE_XCODE" = YES ]; then
    exit 0
  fi
  

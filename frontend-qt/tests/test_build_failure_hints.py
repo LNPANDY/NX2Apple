@@ -98,6 +98,10 @@ class Rows(unittest.TestCase):
             self.assertEqual(bf.classify(fixture(pid)['text']).kind, kind, pid)
         self.assertEqual(bf.classify('copying: no such file: x').kind, bf.UNKNOWN)
 
+    def test_the_older_several_games_message_still_classifies(self):   # the stable and experimental engine channels can still serve the text before the pin of cd859c38
+        log = '[RED] more than one game in the folder, keep one game per folder: 0100000000010000, 01006F8002326000'
+        self.assertEqual(bf.classify(log).kind, bf.SEVERAL_GAMES)
+
     def test_details(self):
         self.assertEqual(bf.classify(fixture('disk.low')['text']).detail, fixture('disk.low')['gb'])
         self.assertIsNone(bf.classify(fixture('disk.full')['text']).detail)
@@ -218,7 +222,7 @@ class Strings(unittest.TestCase):
             self.assertIn('one build', en)
 
     def test_the_hints_say_what_the_task_asks(self):
-        self.assertIn('Xcode 27.1 (macOS 26.6 or later)', TABLE['fail.otherMetal.next'][1])
+        self.assertIn('Xcode 27.2 (macOS 26.6 or later)', TABLE['fail.otherMetal.next'][1])
         self.assertIn("32-bit and can't run on Apple silicon", TABLE['fail.a32Program.what'][1])
 
 

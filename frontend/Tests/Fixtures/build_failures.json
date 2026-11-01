@@ -46,7 +46,7 @@
   "kind": "otherMetal",
   "source": "dm/gfx/tools/own_compilers.py",
   "fragment": "Metal compiler is not the one the shaders were tested with",
-  "text": "[RED] this Mac's Metal compiler is not the one the shaders were tested with (dm/gfx/tools/dmsh_chain.lock): metal_macosx Apple metal version 32023.883 (metalfe-32023.883.5) (tested: Apple metal version 32023.921 (metalfe-32023.921.6)). Untested compilers are unsupported (GitHub issue #242). Install Xcode 27.1 (macOS 26.6 or later) and its Metal toolchain (xcodebuild -downloadComponent MetalToolchain), or set ALLOW_OTHER_METAL = True (--allow-other-metal) to build with this one anyway"
+  "text": "[RED] this Mac's Metal compiler is not the one the shaders were tested with (dm/gfx/tools/dmsh_chain.lock): metal_macosx Apple metal version 32023.883 (metalfe-32023.883.5) (tested: Apple metal version 32023.922 (metalfe-32023.922.4)). Untested compilers are unsupported (GitHub issue #242). Install Xcode 27.2 (macOS 26.6 or later) and its Metal toolchain (xcodebuild -downloadComponent MetalToolchain), or set ALLOW_OTHER_METAL = True (--allow-other-metal) to build with this one anyway"
  },
  {
   "id": "shaders.regression",
@@ -81,8 +81,8 @@
   "id": "games.several",
   "kind": "severalGames",
   "source": "scripts/build_ipa_from_nsp.py",
-  "fragment": "more than one game in the folder, keep one game per folder",
-  "text": "[RED] more than one game in the folder, keep one game per folder: 0100000000010000, 01006F8002326000"
+  "fragment": "more than one game in the folder",
+  "text": "[RED] more than one game in the folder: 0100000000010000, 01006F8002326000; keep one game per folder, or name the one to pack with --title-id / TITLE_ID (a cartridge dump that holds two games)"
  },
  {
   "id": "games.noTitleID",
