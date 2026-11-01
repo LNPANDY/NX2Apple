@@ -1,7 +1,7 @@
 """Where the engine of a checkout is, and whether it needs `tools/engine.py sync` (LNPANDY/NX2Apple#214).
 
 The engine is not committed: it is built into `<checkout>/engine/` (seedds/nxnative at `.upstream-ref` plus `patches/`) by
-`tools/engine.py sync`. The rule, the same as the Mac launcher's (frontend/Sources/NSPortBuilder/Engine.swift). The sync is for
+`tools/engine.py sync`. The rule, the same as the Mac launcher's (frontend/Sources/NX2Apple/Engine.swift). The sync is for
 checkouts (a release carries the engine tree instead, #227): it downloads the pinned commit from GitHub, and a failed one becomes a
 failure row (`failure_kind`):
 

@@ -96,7 +96,7 @@ def pin(root):
 
 def stamp_key(root):
     """The digest of what engine/ is built from: the pin, and each patch of the series by name and content, in order.
-    frontend/Sources/NSPortBuilder/Engine.swift and frontend-qt/nspb_qt/engine.py compute the same, so the launchers can
+    frontend/Sources/NX2Apple/Engine.swift and frontend-qt/nspb_qt/engine.py compute the same, so the launchers can
     tell a stale engine/ without starting Python."""
     h = hashlib.sha256()
     h.update(b'pin ' + pin(root).encode() + b'\n')

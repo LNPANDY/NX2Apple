@@ -172,7 +172,7 @@ jobs:
           # frontend/engine-signing.pub: a manifest signed with any other key would be rejected by every installed app.
           # With no secret yet the engine is published unsigned; signing becomes mandatory before any download source
           # other than GitHub is added (LNPANDY/NX2Apple#268, Cloudflare R2).
-          grep -q 'static let publicKey = "PVCqIahW5HtyZPq76zTSFBa' frontend/Sources/NSPortBuilder/EngineManifest.swift || {
+          grep -q 'static let publicKey = "PVCqIahW5HtyZPq76zTSFBa' frontend/Sources/NXCore/EngineManifest.swift || {
             echo '::error title=Signing key::EngineManifest.publicKey is empty — generate a pair (python3 tools/release_manifest.py keygen), commit the public half and put the private half in the ENGINE_SIGNING_KEY secret'
             exit 1
           }
@@ -199,7 +199,7 @@ jobs:
           # Take the tag, and fail loudly on a mismatch rather than shipping a bundle that calls itself something else.
           # A release candidate vX.Y.Z-rcN is the build of the release X.Y.Z: its bundle says X.Y.Z, because the final tag ships these
           # exact files and the updater (AppUpdate.bundleProblem) accepts only a bundle whose version is the release's.
-          src=$(sed -n 's/.*static let appVersion = "\(.*\)".*/\1/p' frontend/Sources/NSPortBuilder/ContentView.swift)
+          src=$(sed -n 's/.*static let appVersion = "\(.*\)".*/\1/p' frontend/Sources/NX2Apple/ContentView.swift)
           kind=build rc=""
           if [ "$REF_TYPE" != "tag" ]; then
             v="$src"
@@ -285,7 +285,7 @@ jobs:
           APP="NX2Apple.app"
           rm -rf "$APP"
           mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-          cp .build/release/NSPortBuilder "$APP/Contents/MacOS/NSPortBuilder"
+          cp .build/release/NX2Apple "$APP/Contents/MacOS/NSPortBuilder"
           # Assets.car and AppIcon.icns come from the icon job (AppIcon.icon compiled by actool). Info.plist names both
           # (CFBundleIconName for macOS 26 and later, CFBundleIconFile for 13 to 25).
           cp "$RUNNER_TEMP/app-icon/Assets.car" "$RUNNER_TEMP/app-icon/AppIcon.icns" "$APP/Contents/Resources/"

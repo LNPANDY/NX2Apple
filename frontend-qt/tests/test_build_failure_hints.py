@@ -26,7 +26,7 @@ from nspb_qt.i18n import Lang  # noqa: E402
 from nspb_qt.localization import TABLE  # noqa: E402
 
 FIXTURES = json.loads((ROOT / 'frontend/Tests/Fixtures/build_failures.json').read_text(encoding='utf-8'))
-SWIFT = (ROOT / 'frontend/Sources/NSPortBuilder/BuildFailure.swift').read_text(encoding='utf-8')
+SWIFT = (ROOT / 'frontend/Sources/NX2Apple/BuildFailure.swift').read_text(encoding='utf-8')
 
 
 def fixture(pattern_id: str) -> dict:

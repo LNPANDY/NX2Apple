@@ -40,7 +40,7 @@ cache_key() {   # the bundled tools depend on the script, its pins file and the 
 }
 app_version() {
     local src
-    src=$(sed -n 's/.*static let appVersion = "\(.*\)".*/\1/p' "$ROOT/frontend/Sources/NSPortBuilder/ContentView.swift")
+    src=$(sed -n 's/.*static let appVersion = "\(.*\)".*/\1/p' "$ROOT/frontend/Sources/NX2Apple/ContentView.swift")
     [ -n "$src" ] || die "no appVersion in ContentView.swift"
     echo "$src-local"
 }
@@ -132,7 +132,7 @@ done_step
 
 step "assemble the bundle (mirrors the step 'Assemble the bundle' of build-mac-app.yml)"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
-cp frontend/.build/release/NSPortBuilder "$app/Contents/MacOS/NSPortBuilder"
+cp frontend/.build/release/NX2Apple "$app/Contents/MacOS/NSPortBuilder"
 if [ "$have_icon" = 1 ]; then cp "$icon_cache/Assets.car" "$icon_cache/AppIcon.icns" "$app/Contents/Resources/"; fi
 ditto "$tools_cache/res/tools" "$app/Contents/Resources/tools"
 ditto "$tools_cache/res/python" "$app/Contents/Resources/python"

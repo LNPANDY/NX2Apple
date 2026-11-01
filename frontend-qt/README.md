@@ -74,7 +74,7 @@ nspb_qt/
   ui.py             the window
   platform_util.py  per-OS paths, tool discovery, child environment
   i18n.py           language choice
-  localization.py   generated from ../frontend/Sources/NSPortBuilder/Localization.swift
+  localization.py   generated from ../frontend/Sources/NXCore/Localization.swift
   win/              the Windows build path; imported only when sys.platform is win32
 gen_localization.py regenerates localization.py
 tests/test_win.py   the Windows-path tests that can run on macOS

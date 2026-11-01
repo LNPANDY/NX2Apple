@@ -218,7 +218,7 @@ their chosen path.
 The interface is set in Manrope (SIL Open Font License, with its license in `fonts/`):
 headings, text and a game's status line, whose capitals are the same face, tracked.
 Paths and the build log use the system's monospaced face. `python3 fonts/embed_fonts.py`
-writes the font into the binary as `Sources/NSPortBuilder/EmbeddedFonts.swift`, so the app needs no font
+writes the font into the binary as `Sources/NXLauncher/EmbeddedFonts.swift`, so the app needs no font
 installed and no resource bundle beside the executable.
 
 The app icon is `AppIcon.icon`, the Liquid Glass icon made in Icon Composer (the iOS app uses the same file).
@@ -303,7 +303,7 @@ nothing changes: Homebrew's tools, a system Python or the launcher's venv. To tr
 The interface follows the system language at every launch: any Chinese variant
 (Simplified, Traditional, Hong Kong, Taiwan) gets Chinese, Swedish gets Swedish, German gets
 German, French gets French, and every other language gets English. Settings > Language overrides
-that. Strings live in `Sources/NSPortBuilder/Localization.swift`: the table holds Chinese and
+that. Strings live in `Sources/NXCore/Localization.swift`: the table holds Chinese and
 English, and Swedish (`sv`), German (`de`) and French (`fr`) are overlays below it. A string added
 to the table needs its German and French entries, and `GermanLocalizationTests` and
 `FrenchLocalizationTests` fail until it has them (they also check that the format placeholders

@@ -1,7 +1,7 @@
 """Visual language: the Mac launcher's near-black look with a cream accent, in Qt style sheets.
 
 The palette, the Manrope typeface and the control shapes follow the SwiftUI launcher
-(`frontend/Sources/NSPortBuilder/LauncherView.swift` LauncherPalette and `LauncherStyles.swift`),
+(`frontend/Sources/NXLauncher/LauncherPalette.swift` and `frontend/Sources/NX2Apple/LauncherStyles.swift`),
 so the two front ends stay recognisable as the same product. The translucent white fills of the
 Mac controls are pre-mixed here into opaque colours, since a Qt style sheet has no cheap overlay.
 """
