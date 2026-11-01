@@ -40,8 +40,8 @@ cache_key() {   # the bundled tools depend on the script, its pins file and the 
 }
 app_version() {
     local src
-    src=$(sed -n 's/.*static let appVersion = "\(.*\)".*/\1/p' "$ROOT/frontend/Sources/NX2Apple/ContentView.swift")
-    [ -n "$src" ] || die "no appVersion in ContentView.swift"
+    src=$(sed -n 's/.*static let appVersion = "\(.*\)".*/\1/p' "$ROOT/frontend/Sources/NXModel/AppUpdateStore.swift")
+    [ -n "$src" ] || die "no appVersion in AppUpdateStore.swift"
     echo "$src-local"
 }
 

@@ -1,5 +1,4 @@
-import AppKit
-import NXCore
+import Foundation
 
 /// Uninstalling the launcher (NX Play's Uninstall): everything the app put outside its bundle, with the
 /// player's games and keys left alone. What goes:
@@ -13,21 +12,25 @@ import NXCore
 /// What stays: the games folder and everything in it, the build output folder, `prod.keys`, Homebrew, and the
 /// app itself, which goes to the Trash when the player confirms — never deleted. A folder that holds the games
 /// folder or the build output folder stays as a whole.
-enum Uninstall {
-    struct Plan: Equatable {
-        var stateFolders: [String] = []
-        var checkouts: [String] = []
+package enum Uninstall {
+    package struct Plan: Equatable {
+        package var stateFolders: [String] = []
+        package var checkouts: [String] = []
         /// The UserDefaults domain with the launcher's settings, nil when there is none to remove.
-        var defaultsDomain: String?
+        package var defaultsDomain: String?
         /// Where the app lives now (goes to the Trash, not deleted).
-        var app: String = Bundle.main.bundlePath
+        package var app: String = Bundle.main.bundlePath
+
+        package init(stateFolders: [String] = [], checkouts: [String] = [], defaultsDomain: String? = nil, app: String = Bundle.main.bundlePath) {
+            self.stateFolders = stateFolders; self.checkouts = checkouts; self.defaultsDomain = defaultsDomain; self.app = app
+        }
     }
 
     /// The paths this install would remove, computed before anything is offered: the launcher's state
     /// folders that exist, and a checkout that is the launcher's own download (the clone destination
     /// `cloneRepo` uses) rather than one the player picked from anywhere on disk.
     /// `home` is passed in (NSHomeDirectory() at the call site): a computed home is not testable.
-    nonisolated static func plan(home: String, gamesFolder: String, outputFolder: String = "", checkouts: [String],
+    nonisolated package static func plan(home: String, gamesFolder: String, outputFolder: String = "", checkouts: [String],
                                  defaultsDomain: String? = nil) -> Plan {
         let fm = FileManager.default
         var p = Plan(defaultsDomain: defaultsDomain)
@@ -48,13 +51,13 @@ enum Uninstall {
     }
 
     /// Whether `path` is `folder` or lies inside it, after resolving symbolic links and `..`.
-    nonisolated static func contains(_ folder: String, _ path: String) -> Bool {
+    nonisolated package static func contains(_ folder: String, _ path: String) -> Bool {
         let f = URL(fileURLWithPath: folder).resolvingSymlinksInPath().standardizedFileURL.pathComponents
         let p = URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL.pathComponents
         return p.count >= f.count && Array(p.prefix(f.count)) == f
     }
 
-    nonisolated static func gitOrigin(_ checkout: String, git: GitCheckout = SystemGitCheckout()) -> String? {
+    nonisolated package static func gitOrigin(_ checkout: String, git: GitCheckout = SystemGitCheckout()) -> String? {
         guard git.binary != nil else { return nil }
         let r = git.run(checkout, ["remote", "get-url", "origin"])
         let url = r.out.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -63,7 +66,7 @@ enum Uninstall {
 
     /// Remove the plan's folders. The games folder and the app are never touched here. Returns what was
     /// removed and what failed (in use, permissions), so the confirmation can say so honestly.
-    nonisolated static func run(_ plan: Plan, movingAppToTrash: Bool = true) -> (removed: [String], failures: [String]) {
+    nonisolated package static func run(_ plan: Plan, movingAppToTrash: Bool = true) -> (removed: [String], failures: [String]) {
         let fm = FileManager.default
         var removed: [String] = [], failures: [String] = []
         for folder in plan.stateFolders + plan.checkouts {
@@ -82,7 +85,7 @@ enum Uninstall {
     }
 
     /// To the Trash, like the Finder's delete: recoverable, never `removeItem`.
-    nonisolated static func trash(_ path: String) -> Bool {
+    nonisolated package static func trash(_ path: String) -> Bool {
         var url: NSURL?
         do {
             try FileManager.default.trashItem(at: URL(fileURLWithPath: path), resultingItemURL: &url)

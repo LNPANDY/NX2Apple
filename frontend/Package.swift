@@ -14,6 +14,8 @@ let package = Package(
         .executableTarget(name: "NX2Apple", dependencies: ["NXLauncher", "NXModel", "NXCore"], path: "Sources/NX2Apple"),
         // Tests of the pure logic: they link NXCore only, so they run without SwiftUI.
         .testTarget(name: "NXCoreTests", dependencies: ["NXCore"]),
+        // Tests of the stores: they link NXModel and NXCore, never SwiftUI.
+        .testTarget(name: "NXModelTests", dependencies: ["NXModel", "NXCore"]),
         .testTarget(name: "NX2AppleTests", dependencies: ["NX2Apple", "NXLauncher", "NXModel", "NXCore"])
     ],
     swiftLanguageModes: [.v5]

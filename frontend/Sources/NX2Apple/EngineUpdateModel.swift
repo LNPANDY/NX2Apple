@@ -1,5 +1,6 @@
 import Foundation
 import NXCore
+import NXModel
 import NXLauncher
 
 // The release app's engine in the model: which tree the build reads, the launch check, the channel switch and what
@@ -12,7 +13,7 @@ extension BuildModel {
     func prepareEngine() {
         guard let bundled = engineBundle, !engineBusy, let id = EngineStore.identity(of: bundled) else { return }
         let selected = engineSelection.engineID
-        let appMovedOn = engineSelection.channel == .stable && selected != id && engineSelection.version != BuildModel.appVersion
+        let appMovedOn = engineSelection.channel == .stable && selected != id && engineSelection.version != AppUpdateStore.appVersion
         if !appMovedOn, engineStore.isUsable(selected), let dir = engineStore.directory(for: selected) {
             repoPath = dir.path
             checkEngineUpdate(automatic: true)
@@ -28,7 +29,7 @@ extension BuildModel {
                 switch result {
                 case .success:
                     // The app's engine is the stable one of this release. A player on experimental gets theirs from the check.
-                    let engine = EngineUpdate.Engine(id: id, version: BuildModel.appVersion)
+                    let engine = EngineUpdate.Engine(id: id, version: AppUpdateStore.appVersion)
                     if self.running {   // a build started from the old folder while the copy ran
                         self.pendingEngine = (engine, self.engineSelection.channel)
                         self.engineStatus = ""
@@ -80,7 +81,7 @@ extension BuildModel {
         if !quiet { engineStatus = t(channel == engineSelection.channel ? "engine.checking" : "engine.switching") }
         let store = engineStore, bundled = engineBundle, current = engineSelection.engineID, transport = engineTransport
         DispatchQueue.global(qos: .userInitiated).async {
-            let outcome = EngineUpdate.run(channel: channel, appVersion: BuildModel.appVersion, current: current, store: store,
+            let outcome = EngineUpdate.run(channel: channel, appVersion: AppUpdateStore.appVersion, current: current, store: store,
                                            bundled: bundled, install: install, transport: transport)
             DispatchQueue.main.async {
                 self.engineBusy = false

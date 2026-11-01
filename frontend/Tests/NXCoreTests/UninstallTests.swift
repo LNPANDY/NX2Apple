@@ -1,7 +1,5 @@
 import XCTest
-@testable import NX2Apple
 @testable import NXCore
-@testable import NXLauncher
 
 /// The uninstall plan (Uninstall.swift): what goes, what stays. The removal runs in a temporary folder,
 /// so the real state and checkout are never touched.
