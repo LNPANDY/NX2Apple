@@ -119,6 +119,7 @@ final class BuildModel: ObservableObject {
     @Published var stages: [Stage] = []
     private var chainNoteShown = false   // the shader-chain notice shows once per build
     @Published var running = false
+    @Published var staleFrameworks: [StaleFrameworks.Entry] = []   // the prompt of StaleFrameworksPrompt.swift (#449)
     /// The shell folder the cache row shows: the frameworks' mirror, shell.json and the banner cache live here.
     var shellCachePath: String { shellRoot }
     /// The shell folder of the install and of the cache row: the saved one, else next to the output folder (or the game's folder).
@@ -1243,6 +1244,7 @@ final class BuildModel: ObservableObject {
             return
         }
         shellDeviceChecked = false
+        if target != BuildTarget.mac, askAboutStaleFrameworks() { return }   // StaleFrameworksPrompt.swift (#449)
         stopping = false
         running = true; done = false; doneNote = ""; stages = []; logTail = ""; lineBuf = ""; chainNoteShown = false
         failure = nil; confirmingOverride = nil
@@ -2758,7 +2760,6 @@ final class BuildModel: ObservableObject {
         return BuildTarget.normalized(defaults.string(forKey: "buildTarget")) != BuildTarget.mac
     }
 
-
     /// The rows for the build tools (xcodegen, zstd, spirv-cross, glslangValidator) and the Homebrew row they may need.
     /// A tool the app carries counts as present and says "bundled"; otherwise Homebrew's copy counts (`installed` answers
     /// a binary name with its path in a Homebrew folder, or nil). The Homebrew row appears only when some tool is neither
@@ -3427,6 +3428,7 @@ struct BuilderView: View {
             .keyboardShortcut(.return, modifiers: .command)
         }
         .padding(.top, 2)
+        .staleFrameworksPrompt(m)
     }
 
     @ViewBuilder private var statusText: some View {
@@ -3729,8 +3731,6 @@ struct BuilderView: View {
             Toggle("", isOn: $m.autoUpdateRepo).labelsHidden().toggleStyle(LauncherSwitchStyle())
         }
     }
-
-
 
     private func pickRepo() {
         let d = NSOpenPanel()
