@@ -102,8 +102,7 @@ at the top. On its side it is a Cover Flow. An iPad shows a grid.
 - **Game data folder.** Each game can read its data from a folder you pick in the Files app, for
   example on an external drive, or from the app's own folder.
 - **Cloud saves.** Pick an iCloud Drive folder for a game's saves to keep them in step with the Mac.
-- **Language.** The app follows the system language, English or Simplified Chinese. There is no
-  language picker.
+- **Language.** The app follows the system language, English or Simplified Chinese.
 
 The app needs iOS or iPadOS 26 or later. The covers are the eShop banners the Mac launcher caches
 for your own games.
