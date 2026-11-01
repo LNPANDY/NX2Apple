@@ -172,6 +172,19 @@ jobs:
       - name: Engine (tools/engine.py sync, issue #214)
         working-directory: .
         run: python3 tools/engine.py sync
+      # The libvpx objects are the same on every run until libvpx, the Makefile rules or the compiler change, so the key is the hash of
+      # those inputs and the Xcode path. make decides by mtime and a restored object is older than this run's fresh sources, so a hit touches them.
+      - name: Cache the libvpx build (dm/host/gen/vpx)
+        id: vpx
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: engine/dm/host/gen/vpx
+          key: libvpx-${{ runner.os }}-${{ runner.arch }}-${{ env.DEVELOPER_DIR }}-${{ hashFiles('engine/dm/third_party/libvpx/**', 'engine/dm/host/Makefile', 'engine/dm/mac/min_os.mk') }}
+      - name: Mark the cached libvpx objects as current
+        if: ${{ steps.vpx.outputs.cache-hit == 'true' }}
+        run: |
+          find dm/host/gen/vpx -name '*.o' -exec touch {} +
+          find dm/host/gen/vpx -name '*.a' -exec touch {} +
       - name: Mac host for three profiles (Vulkan, NVN, OpenGL)
         run: |
           mkdir -p logs
@@ -208,7 +221,10 @@ jobs:
           persist-credentials: false
       - name: Engine (tools/engine.py sync, issue #214; the launcher's tests read engine/)
         run: python3 tools/engine.py sync
+      # swift test builds the package in debug, so a pull request does not build it again. The release build (optimizer, whole-module
+      # compile, the code outside #if DEBUG) runs on main and on tags. build-mac-app.yml also builds the release for a PR that touches frontend/.
       - name: Release build
+        if: ${{ github.event_name != 'pull_request' }}
         working-directory: frontend
         run: |
           mkdir -p ../logs
@@ -217,7 +233,9 @@ jobs:
       # fixtures stand in for the NSP script, xcodebuild and devicectl, so nothing is built, signed or installed
       - name: Tests
         working-directory: frontend
-        run: swift test 2>&1 | tee ../logs/launcher-tests.log
+        run: |
+          mkdir -p ../logs
+          swift test 2>&1 | tee ../logs/launcher-tests.log
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
         with:
