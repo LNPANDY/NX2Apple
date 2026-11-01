@@ -1,0 +1,117 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: steven_mac <dengh5955@gmail.com>
+Date: Mon, 2 Nov 2026 01:53:02 +0800
+Subject: [PATCH] Recognize unframed pointer tail calls before zero trap
+ padding
+
+Accept paired pointer loads and recognize a padded tail only for contiguous straight-line thunks that preserve SP, FP and LR. Keep rejecting unproven control flow, frame changes and pointer clobbers. Moving Out 2 1.3.315 rewrites successfully; Cuphead runtime outputs remain byte-identical.
+
+Upstream-Status: forwarded seedds/nxnative#888
+Reason: Rewrite proven unframed pointer tails with zero trap padding instead of rejecting them as jump tables.
+Issue: seedds/nxnative#888
+
+---
+ dm/tools/patch_nso.py            | 14 +++++++++++++-
+ dm/tools/tests/test_tail_call.py | 27 +++++++++++++++++++++++++--
+ docs/reference/rewriter.md       |  8 ++++++++
+ 3 files changed, 46 insertions(+), 3 deletions(-)
+
+diff --git a/dm/tools/patch_nso.py b/dm/tools/patch_nso.py
+index 6bd6f8f..e00912c 100644
+--- a/dm/tools/patch_nso.py
++++ b/dm/tools/patch_nso.py
+@@ -978,13 +978,25 @@ def tail_call_at_end(insl, j):
+         if 'x18' not in [p.reg_name(r) for r in p.regs_access()[1]]: continue
+         return p.mnemonic == 'ldr' and bool(re.fullmatch(r'x18, \[(x\d+|sp)(, #(0x[0-9a-f]+|\d+))?\]', p.op_str))
+     return False
++def tail_call_padded(insl, j):
++    """An unframed, straight-line pointer thunk ending in br x18 and zero trap padding."""
++    if j + 1 >= len(insl) or any(p.mnemonic != 'udf' or p.op_str != '#0' for p in insl[j + 1:]): return False
++    if any(b.address != a.address + 4 for a, b in zip(insl, insl[1:])): return False
++    for p in insl[:j]:
++        if p.mnemonic not in ('mov', 'ldr', 'ldrh', 'ldp', 'add', 'str', 'stp'): return False
++        if {p.reg_name(r) for r in p.regs_access()[1]} & {'sp', 'wsp', 'fp', 'lr', 'x29', 'w29', 'x30', 'w30'}: return False
++    for p in reversed(insl[:j]):
++        if not {'x18', 'w18'} & {p.reg_name(r) for r in p.regs_access()[1]}: continue
++        return p.mnemonic in ('ldr', 'ldp') and bool(re.fullmatch(r'x18, (x\d+, )?\[(x\d+|sp)(, #(0x[0-9a-f]+|\d+))?\]', p.op_str))
++    return False
+ def tail_call(insl, j):
+-    """Keep the existing terminal-tail rule; extend only the framed thunk with
++    """Handle terminal and padded pointer tails, plus the framed thunk with
+     a separate error call after its tail jump (Warm Snow, Unity IL2CPP).
+     The whole thunk must decode contiguously, restore its frame, and contain
+     only one forward null guard, this tail jump, and the trailing error call.
+     This deliberately does not generalize arbitrary mid-function br x18."""
+     if j + 1 == len(insl): return tail_call_at_end(insl, j)
++    if tail_call_padded(insl, j): return True
+     if j < 4 or any(b.address != a.address + 4 for a, b in zip(insl, insl[1:])): return False
+     suffix = insl[j + 1:]
+     if suffix[0].mnemonic != 'bl' or any(p.mnemonic != 'udf' for p in suffix[1:]): return False
+diff --git a/dm/tools/tests/test_tail_call.py b/dm/tools/tests/test_tail_call.py
+index a1e27dd..1be4d48 100644
+--- a/dm/tools/tests/test_tail_call.py
++++ b/dm/tools/tests/test_tail_call.py
+@@ -10,12 +10,12 @@ from capstone import Cs, CS_ARCH_ARM64, CS_MODE_ARM
+ 
+ TOOLS = Path(__file__).resolve().parents[1]
+ sys.path.insert(0, str(TOOLS))
+-from nso_asm import STP, STUR, STRX
++from nso_asm import ADDI, BR, LDP, LDP_POST, LDRX, STP, STP_PRE, STUR, STRX
+ 
+ tree = ast.parse((TOOLS / 'patch_nso.py').read_text())
+ scope = {'re': re}
+ exec(compile(ast.Module(body=[n for n in tree.body if isinstance(n, ast.FunctionDef)
+-    and n.name in ('tail_call', 'tail_call_at_end')], type_ignores=[]), str(TOOLS / 'patch_nso.py'), 'exec'), scope)
++    and n.name in ('tail_call', 'tail_call_at_end', 'tail_call_padded')], type_ignores=[]), str(TOOLS / 'patch_nso.py'), 'exec'), scope)
+ 
+ # Standard frame, null guard to error block, pointer load, argument move,
+ # frame restore, tail jump, error call, trap padding.
+@@ -73,6 +73,29 @@ class TailCall(unittest.TestCase):
+         # Keep the framed fallback's boundary even when a null guard is present.
+         self.assertFalse(self.check([0xb4000061, 0xf9400812, 0xd61f0240, 0x94000400], 2))
+ 
++    def test_padded_straight_line_pointer_tail(self):
++        for load in (LDRX(18, 0, 3), LDP(18, 17, 0, 16)):
++            words = [ADDI(0, 0, 8), load, STP(1, 2, 31, 8), BR(18)]
++            for padding in (1, 2, 3):
++                with self.subTest(load=hex(load), padding=padding):
++                    self.assertTrue(self.check(words + [0] * padding, 3))
++            self.assertEqual(self.check([load, BR(18)], 1), load == LDRX(18, 0, 3))
++
++    def test_padded_tail_requires_straight_line_and_no_frame(self):
++        for word in (0xb4000061, 0x94000400, 0x14000001, BR(0), 0xd63f0000,
++                     0xd65f03c0, 0, ADDI(31, 31, 16), STP_PRE(29, 30, 31, -16),
++                     LDP_POST(0, 1, 31, 16), LDP(29, 30, 31, 0), 0xaa0003fd,
++                     0xaa0003fe, 0x110003ff, 0x2a0003fd, 0x2a0003fe):
++            with self.subTest(word=hex(word)):
++                self.assertFalse(self.check([word, LDP(18, 17, 0, 16), BR(18), 0], 2))
++        for word in (0x52800012, 0xaa0003f2, 0x2a0003f2, ADDI(18, 18, 4)):
++            self.assertFalse(self.check([LDP(18, 17, 0, 16), word, BR(18), 0], 2))
++        self.assertFalse(self.check([LDP(18, 17, 0, 16), BR(18), 1], 1))
++        self.assertFalse(self.check([LDP(18, 17, 0, 16), BR(18), 0x94000400], 1))
++        ins = decode([LDP(18, 17, 0, 16), ADDI(0, 0, 8), BR(18), 0])
++        del ins[1]
++        self.assertFalse(scope['tail_call'](ins, 1))
++
+     def test_stores_must_not_overwrite_saved_frame(self):
+         for base in (31, 29):   # sp and the unchanged frame pointer
+             for word in (STRX(0, base), STRX(0, base, 1), STUR(0, base, 15),
+diff --git a/docs/reference/rewriter.md b/docs/reference/rewriter.md
+index c2cc12e..4f16551 100644
+--- a/docs/reference/rewriter.md
++++ b/docs/reference/rewriter.md
+@@ -175,6 +175,14 @@ To enroll a cut for any game's own module:
+ - **Found on:** [Ace Attorney Investigations Collection](../../dm/games/010005501E68C000/README.md) (Unity 2022.3 IL2CPP): `main+0x1d271bc` and `+0x204ebec`.
+ - **Check:** every module the rewriter accepted before comes out byte-identical.
+ 
++### Unframed pointer tail calls followed by zero trap padding
++
++- **Symptom:** `AssertionError: jump table d29e68` while rewriting Moving Out 2 1.3.315.
++- **Cause:** the function loads its method pointer with `ldp x18,x17,[x17,#0x138]`, moves caller stack arguments and ends with `br x18`, followed by one `udf #0` padding word before the next unwind entry. The terminal-tail rule accepted only `ldr` and required the branch to be the last decoded instruction.
++- **Fix:** for a tail followed by zero trap padding, accept a plain paired pointer load as well as a single load, with contiguous decoding, straight-line argument moves and memory transfers, and no writes to SP, FP or LR, including their 32-bit aliases and writeback. The last write to either `x18` or `w18` must be the pointer load. Branches, calls, nonzero traps, decoding gaps and framed thunks do not match this fallback. The terminal-tail rule and other nonterminal-tail checks are unchanged.
++- **Found on:** Moving Out 2 1.3.315, `main` build `c552b6464e7348a7bb261a708b353137`, at `+0xd29e68`. This is a rewrite-stage finding, not gameplay validation or a game profile.
++- **Check:** `dm/tools/tests/test_tail_call.py` covers synthetic paired loads, zero padding, argument stores and rejection of control flow, frame changes, pointer clobbers and missing instructions.
++
+ ### Loaded method-pointer tail call before an error block
+ 
+ - **Symptom:** `jump table 53e9c` while rewriting Warm Snow 2.1.4's Unity IL2CPP `main`.
