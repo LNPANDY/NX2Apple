@@ -6,8 +6,9 @@ A release starts as a release candidate. Players get the exact files of the cand
 
 ### Cutting a candidate
 
-1. The version bump goes to `main` first: `static let appVersion` in `frontend/Sources/NSPortBuilder/ContentView.swift`, and the changelog.
-2. Tag a commit on `main` as `vX.Y.Z-rcN`, with N from 1: `git tag v0.7.6-rc1 <commit> && git push origin v0.7.6-rc1`.
+1. Before `-rc1`, bump the engine pin, so the candidate carries the current engine. The nightly sync job opens the pull request `sync/upstream-<sha>` when seedds/nxnative has news. If it has not, `python3 tools/engine.py bump --dry --to main` shows which patches would conflict, and `python3 tools/engine.py bump --to <sha>` moves the pin. Merge that pull request before the version bump.
+2. The version bump goes to `main` next: `static let appVersion` in `frontend/Sources/NSPortBuilder/ContentView.swift`, and the changelog.
+3. Tag a commit on `main` as `vX.Y.Z-rcN`, with N from 1: `git tag v0.7.6-rc1 <commit> && git push origin v0.7.6-rc1`.
 
 `build-mac-app.yml` checks that the tag without `-rcN` is `appVersion`. The app inside says `0.7.6`, not `0.7.6-rc1`. The final release ships this bundle, and the app's own update installs only a bundle whose version is the release's.
 
@@ -24,6 +25,8 @@ The release notes name the engine build: version, pin, `engine_id`, and the SHA-
 The candidate never touches the pre-release `engine-experimental`, which serves `main`.
 
 A candidate is built once. A second run of the same tag fails once the app is uploaded, because a rebuild would not be the same bytes. A broken build or a fix is the next candidate, `rc2`.
+
+The pin stays between candidates. The final release ships the engine of its candidate, and its build stops when the engine zip differs. Bump the pin for `rc2` or later only for an engine fix that the release needs, and test that candidate as a whole again. A patch added to `patches/` also changes the `engine_id`, so a candidate with a new patch is tested as a whole too. Any other bump goes to `main` after the final tag, before the first candidate of the next version.
 
 ### Testing a candidate
 
