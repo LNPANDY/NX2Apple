@@ -385,6 +385,22 @@
         }
       }
     },
+    "From Settings": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "From Settings"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "来自设置"
+          }
+        }
+      }
+    },
     "Game data": {
       "localizations": {
         "en": {
@@ -833,6 +849,22 @@
         }
       }
     },
+    "Remove": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移除"
+          }
+        }
+      }
+    },
     "Reset to tested defaults": {
       "localizations": {
         "en": {
@@ -989,6 +1021,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "更新 App"
+          }
+        }
+      }
+    },
+    "Use Settings folder": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Settings folder"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用设置中的文件夹"
           }
         }
       }

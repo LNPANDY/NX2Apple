@@ -63,6 +63,11 @@ struct ShellSettingsView: View {
                                 Button(ShellStrings.text("Choose folder…")) { actions.onPickShellData() }
                                     .buttonStyle(ShellButtonStyle(fills: true)).accessibilityIdentifier("shellSettings.data")
                                     .shellTarget("shs.data") { actions.onPickShellData() }
+                                if store.dataFolderName != nil {
+                                    Button(ShellStrings.text("Remove")) { actions.onClearShellData() }
+                                        .buttonStyle(ShellButtonStyle(fills: true)).accessibilityIdentifier("shellSettings.data.remove")
+                                        .shellTarget("shs.data.remove") { actions.onClearShellData() }
+                                }
                             }
                         }
                         SettingsGroup(title: ShellStrings.text("Cloud saves")) {
@@ -72,6 +77,12 @@ struct ShellSettingsView: View {
                                 Button(ShellStrings.text("Choose folder…")) { actions.onPickShellCloud() }
                                     .buttonStyle(ShellButtonStyle(fills: true)).accessibilityIdentifier("shellSettings.cloud")
                                     .shellTarget("shs.cloud") { actions.onPickShellCloud() }
+                                if store.cloudSavesFolderName != nil {
+                                    Button(ShellStrings.text("Turn off")) { actions.onClearShellCloud() }
+                                        .buttonStyle(ShellButtonStyle(fills: true)).accessibilityIdentifier("shellSettings.cloud.off")
+                                        .accessibilityLabel(ShellStrings.text("Turn off cloud saves"))
+                                        .shellTarget("shs.cloud.off") { actions.onClearShellCloud() }
+                                }
                             }
                         }
                         SettingsGroup(title: ShellStrings.text("Interface")) {

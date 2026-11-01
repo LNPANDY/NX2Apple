@@ -34,6 +34,8 @@ public final class ShellSettingsStore: @unchecked Sendable {
 
     public func storeDataFolderName(_ name: String) { defaults.set(name, forKey: Self.dataFolderNameKey) }
     public func storeCloudSavesFolderName(_ name: String) { defaults.set(name, forKey: Self.cloudSavesNameKey) }
+    public func clearDataFolderName() { defaults.removeObject(forKey: Self.dataFolderNameKey) }
+    public func clearCloudSavesFolderName() { defaults.removeObject(forKey: Self.cloudSavesNameKey) }
     public func storeLanguage(_ code: String) { defaults.set(code, forKey: Self.languageKey) }
     public func storePerformanceHUD(_ on: Bool) { defaults.set(on, forKey: Self.performanceHUDKey) }
 

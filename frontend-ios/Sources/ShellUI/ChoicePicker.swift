@@ -169,6 +169,7 @@ struct ChoiceValueRow: View {
                     if !row.note.isEmpty {
                         Text(row.note).shellType(ShellType.note).foregroundStyle(.white.opacity(0.5)).fixedSize(horizontal: false, vertical: true)
                     }
+                    if row.fromShell { FromSettingsMark() }
                 }
                 Spacer(minLength: 8)
                 Text(valueLabel).shellText(14.5, .semibold).foregroundStyle(ShellPalette.cream)
