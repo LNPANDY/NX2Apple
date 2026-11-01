@@ -126,7 +126,7 @@ jobs:
           retention-days: 7
 
   # The notes of a final release live in release-notes/vX.Y.Z.md and are merged before the tag (RELEASING.md, "Release notes"). A pull request that changes
-  # one is linted here: no emojis or symbols, no semicolons or dashes, Chinese then English, no template leftovers. Nothing runs when no notes file changed.
+  # one is linted here: no emojis or symbols, no semicolons or dashes, English then Chinese, no template leftovers. Nothing runs when no notes file changed.
   release-notes:
     name: Release notes lint (release-notes/*.md)
     runs-on: ubuntu-latest

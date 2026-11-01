@@ -2,13 +2,13 @@
 """The notes of a final release: a reviewed file per version plus the notes GitHub generates (RELEASING.md, "Release notes").
 
 release-notes/vX.Y.Z.md is written by a person or an agent in a normal pull request before the final tag, in the form of
-.github/release_notes_template.md (a Chinese part, then an English part, no generated block). When the final tag is built, CI runs `build`:
+.github/release_notes_template.md (an English part, then a Chinese part, no generated block). When the final tag is built, CI runs `build`:
 the file, a `---` line, then the generated notes (merged pull requests with their authors, first-time contributors, the Full Changelog link)
 appended unchanged.
 
 Subcommands (Python 3.9+, no packages):
   check FILE...                lint notes files: no emojis, pictograms or symbols, no semicolons (also the full-width one), no em-dashes or
-                               en-dashes, a `## 中文` and then a `## English` section, no template comments or placeholders, no generated block.
+                               en-dashes, a `## English` and then a `## 中文` section, no template comments or placeholders, no generated block.
                                Exit 1 when any file has a problem, and print every problem as file:line.
   previous TAG [--remote R]    print the newest final tag (no `-rc`) before TAG, read from `git ls-remote --tags R` (default origin).
                                Prints nothing when there is none.
@@ -103,8 +103,8 @@ def check_text(text):
         problems.append((1, 'the section "%s" is missing' % HEADING_ZH))
     if en is None:
         problems.append((1, 'the section "%s" is missing' % HEADING_EN))
-    if zh is not None and en is not None and zh > en:
-        problems.append((zh, 'the Chinese part comes first: "%s" before "%s"' % (HEADING_ZH, HEADING_EN)))
+    if zh is not None and en is not None and en > zh:
+        problems.append((en, 'the English part comes first: "%s" before "%s"' % (HEADING_EN, HEADING_ZH)))
     if zh is not None and en is not None:
         lines = text.splitlines()
         first, second = sorted((zh, en))

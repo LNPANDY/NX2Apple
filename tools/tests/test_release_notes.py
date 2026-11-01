@@ -15,17 +15,6 @@ N = importlib.import_module('release_notes')
 
 GOOD = """**v1.2.3: the iPhone app.**
 
-## 中文
-
-**重点**
-
-**iPhone 应用**
-- 现在可以在 iPhone 上运行游戏
-- 支持手柄
-
-**修复**
-- **修复崩溃**：启动时崩溃，现在不会了（#12）
-
 ## English
 
 **Highlights**
@@ -36,6 +25,17 @@ GOOD = """**v1.2.3: the iPhone app.**
 
 **Fixed**
 - **Crash fixed**: it crashed at launch, now it does not (#12)
+
+## 中文
+
+**重点**
+
+**iPhone 应用**
+- 现在可以在 iPhone 上运行游戏
+- 支持手柄
+
+**修复**
+- **修复崩溃**：启动时崩溃，现在不会了（#12）
 
 ---
 
@@ -85,10 +85,11 @@ class Check(unittest.TestCase):
     def test_sections(self):
         self.assertTrue(any('中文' in m and 'missing' in m for m in problems(GOOD.replace('## 中文', '## Chinese'))))
         self.assertTrue(any('English' in m and 'missing' in m for m in problems(GOOD.replace('## English', '## Englisch'))))
-        zh, en = GOOD.split('## English')
-        swapped = '## English' + en.split('---')[0] + '\n' + zh.replace('## 中文', '## 中文', 1)
-        self.assertTrue(any('comes first' in m for m in problems(swapped)))
-        self.assertTrue(any('empty' in m for m in problems(GOOD.split('**重点**')[0] + '## English\n\ntext\n')))
+        head, rest = GOOD.split('## English')
+        en, zh = rest.split('## 中文')
+        swapped = head + '## 中文' + zh.split('---')[0] + '\n## English' + en
+        self.assertTrue(any('English part comes first' in m for m in problems(swapped)))
+        self.assertTrue(any('empty' in m for m in problems(GOOD.split('**Highlights**')[0] + '## 中文\n\ntext\n')))
 
     def test_leftovers(self):
         for bad in ('<!-- a comment -->', 'vX.Y.Z', 'X.Y.Z', 'see #N', 'TODO', 'One point', '一个要点'):
