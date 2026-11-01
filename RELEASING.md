@@ -57,7 +57,7 @@ A final tag on a commit without a candidate fails. In an emergency, a manual run
 
 CI writes a short body: the version and the tested candidate. The readable notes are written by a person or an agent from [.github/release_notes_template.md](.github/release_notes_template.md).
 
-- Chinese first, English second, under `## 中文` and `## English`, with the same content in both. Each part has one bullet per change, grouped in bold: a notice, Highlights, New, Fixed, Known issues, Requires.
+- English first, Chinese second, under `## English` and `## 中文`, with the same content in both. Each part has one bullet per change, grouped in bold: a notice, Highlights, New, Fixed, Known issues, Requires.
 - No emojis, no pictograms and no symbols in the text. No semicolons (also not the full-width one) and no em-dashes. Plain English and plain Chinese.
 - People are written as `@login`, the owner as `@LNPANDY`.
 - Every claim comes from the changelog row, the merged pull requests or the issues. Nothing is invented.

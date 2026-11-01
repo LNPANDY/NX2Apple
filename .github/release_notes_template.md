@@ -3,7 +3,7 @@ Template for the notes of a release. Copy it to a file, fill it in, delete these
 Publish with `gh release edit <tag> --notes-file <file>`. Never paste notes from a chat: pasted text brings emojis along.
 
 Rules (RELEASING.md, "Release notes" has the same list):
-- Chinese first, English second, with the same content in both.
+- English first, then Chinese, with the same content in both.
 - No emojis, no pictograms and no symbols in the text (no warning signs, no flags, no arrows).
 - No semicolons (also not the full-width one), no em-dashes (also not the Chinese double dash).
 - Plain English and plain Chinese. Short sentences.
@@ -16,39 +16,12 @@ Rules (RELEASING.md, "Release notes" has the same list):
 <!-- One line: the version and what it is about. -->
 **vX.Y.Z: the one thing this release is about.**
 
-## 中文
-
-<!-- First paragraph, only when players must act, for example "update now". Bold, plain words, no symbol. Delete it when no action is needed. -->
-**App 版本是 0.7.3 或更早？请立即更新。** 一句话说明什么会出问题，一句话说明更新后会怎样。详情：链接。
-
-<!-- The headline feature: a heading line and 3 to 5 sub-bullets. Delete the group when there is no headline feature. -->
-**重点**
-
-**功能的名称**
-- 一个要点
-- 一个要点
-- 一个要点
-
-<!-- One bullet per change: a bold lead, a colon, one or two plain sentences, the numbers as #N. -->
-**新增**
-- **改动的标题**：玩家现在能做什么，一两句话（#N、#M）
-
-**修复**
-- **修复的标题**：原来哪里出错，现在会怎样（#N）
-
-**已知问题**
-- **问题的标题**：哪里还不能用，暂时怎么办（#N）
-
-<!-- Write "暂无已知问题" when there are none. -->
-
-**系统要求**
-- iOS 或 iPadOS 26 或更新版本
-
 ## English
 
-<!-- The same content as the Chinese part, in the same order, with the same numbers. -->
+<!-- First paragraph, only when players must act, for example "update now". Bold, plain words, no symbol. Delete it when no action is needed. -->
 **On 0.7.3 or older? Update now.** One sentence on what breaks and one on what the update does. Details: link.
 
+<!-- The headline feature: a heading line and 3 to 5 sub-bullets. Delete the group when there is no headline feature. -->
 **Highlights**
 
 **Name of the feature**
@@ -56,6 +29,7 @@ Rules (RELEASING.md, "Release notes" has the same list):
 - One point
 - One point
 
+<!-- One bullet per change: a bold lead, a colon, one or two plain sentences, the numbers as #N. -->
 **New**
 - **Lead of the change**: what a player can do now, in one or two sentences (#N, #M)
 
@@ -69,6 +43,33 @@ Rules (RELEASING.md, "Release notes" has the same list):
 
 **Requires**
 - iOS or iPadOS 26 or later
+
+## 中文
+
+<!-- The same content as the English part, in the same order, with the same numbers. -->
+
+**App 版本是 0.7.3 或更早？请立即更新。** 一句话说明什么会出问题，一句话说明更新后会怎样。详情：链接。
+
+**重点**
+
+**功能的名称**
+- 一个要点
+- 一个要点
+- 一个要点
+
+**新增**
+- **改动的标题**：玩家现在能做什么，一两句话（#N、#M）
+
+**修复**
+- **修复的标题**：原来哪里出错，现在会怎样（#N）
+
+**已知问题**
+- **问题的标题**：哪里还不能用，暂时怎么办（#N）
+
+<!-- Write "暂无已知问题" when there are none. -->
+
+**系统要求**
+- iOS 或 iPadOS 26 或更新版本
 
 ---
 
