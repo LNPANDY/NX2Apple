@@ -68,7 +68,7 @@ final class EngineUpdateModelTests: XCTestCase {
         let failures: [EngineUpdate.Failure] = [.network, .noManifest, .unsigned(.absent), .badManifest(.notJSON),
                                                 .wrongChannel("x"), .download, .digest, .install(.move)]
         for key in failures.map(EngineUpdate.key) + ["engine.switch.toExperimental", "engine.switch.toStable"] {
-            for lang: Lang in [.zh, .en, .sv, .de] { XCTAssertNotEqual(L10n.string(key, lang), key, key) }
+            for lang: Lang in [.zh, .en, .sv, .de, .it] { XCTAssertNotEqual(L10n.string(key, lang), key, key) }
         }
         for c in EngineChannel.allCases { XCTAssertNotNil(L10n.table[c.labelKey], c.labelKey) }
         XCTAssertEqual(L10n.string("engine.channel.experimental", .zh), "实验版")

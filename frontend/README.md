@@ -302,11 +302,12 @@ nothing changes: Homebrew's tools, a system Python or the launcher's venv. To tr
 
 The interface follows the system language at every launch: any Chinese variant
 (Simplified, Traditional, Hong Kong, Taiwan) gets Chinese, Swedish gets Swedish, German gets
-German, French gets French, and every other language gets English. Settings > Language overrides
+German, French gets French, Italian gets Italian, and every other language gets English. Settings > Language overrides
 that. Strings live in `Sources/NXCore/Localization.swift`: the table holds Chinese and
-English, and Swedish (`sv`), German (`de`) and French (`fr`) are overlays below it. A string added
-to the table needs its German and French entries, and `GermanLocalizationTests` and
-`FrenchLocalizationTests` fail until it has them (they also check that the format placeholders
+English, and Swedish (`sv`), German (`de`) and French (`fr`) are overlays below it. Italian (`it`) is an overlay
+of its own in `LocalizationItalian.swift` and `LocalizationItalianMore.swift`, as a Swift file stays under 800 lines. A string added
+to the table needs its German, French and Italian entries, and `GermanLocalizationTests`, `FrenchLocalizationTests` and
+`ItalianLocalizationTests` fail until it has them (they also check that the format placeholders
 match the English text). Regenerate the Qt table after editing it with
 `python3 frontend-qt/gen_localization.py` from the repository root.
 
