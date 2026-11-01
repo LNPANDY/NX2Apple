@@ -112,9 +112,27 @@ public struct ShellHostConfig: Sendable {
         return s
     }
 
+    /// The shell-level settings every game falls back to (ShellSettingsStore: game > shell > built-in).
+    public private(set) var shellSettings = ShellSettingsStore()
+
+    /// The shell-level data folder as a bookmark resolution, for the locator's global source.
+    private func globalData() -> BookmarkResolution {
+        guard let data = shellSettings.dataBookmark else { return .none }
+        // BookmarkStore reads through UserDefaults; a volatile in-memory store carrying just the global bookmark
+        // keeps that contract. The resolution is cheap, so no caching is needed.
+        let name = "shell-global-data"
+        UserDefaults().removePersistentDomain(forName: name)   // start clean every call
+        let suite = UserDefaults(suiteName: name) ?? .standard
+        suite.set(data, forKey: BookmarkStore.gameDataKey)
+        let resolution = BookmarkStore(defaults: suite, key: BookmarkStore.gameDataKey).resolve()
+        UserDefaults().removePersistentDomain(forName: name)
+        return resolution
+    }
+
     private func data(for entry: CatalogueEntry) -> DataResolution {
         guard let manifest = entry.manifest, entry.problem == nil else { return .missing }
-        return DataLocator.locate(manifest: manifest, picked: dataStore(entry.id).resolve(), appFolder: appFolder(for: entry.id))
+        return DataLocator.locate(manifest: manifest, picked: dataStore(entry.id).resolve(), appFolder: appFolder(for: entry.id),
+                                  global: globalData())
     }
 
     private func image(_ url: URL?) -> Artwork? {
