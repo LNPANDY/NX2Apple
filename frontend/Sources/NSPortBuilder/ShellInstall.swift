@@ -29,16 +29,9 @@ struct ShellLibrary: Codable, Equatable {
         if let i = games.firstIndex(where: { $0.titleID == game.titleID }) { games[i] = game } else { games.append(game) }
     }
 
-    /// Drops the games whose framework folder is gone (a deleted build folder) and has no mirror in the shell folder,
-    /// so the shell is never built against a missing one. A mirrored framework is used in place of the lost one.
-    mutating func dropMissing(exists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) },
-                              mirror: ((Game) -> String?)? = nil) {
-        var out: [Game] = []
-        for g in games {
-            if exists(g.framework) { out.append(g); continue }
-            if let m = mirror?(g) { out.append(Game(titleID: g.titleID, name: g.name, framework: m)) }
-        }
-        games = out
+    /// Drops the games whose framework folder is gone, so the shell is never built against a missing one.
+    mutating func dropMissing(exists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }) {
+        games = games.filter { exists($0.framework) }
     }
 
     static func stateFile(root: String) -> String { root + "/shell.json" }
@@ -83,16 +76,19 @@ enum ShellInstall {
         frameworksMirror(root: root) + "/DmGame\(titleID).framework"
     }
 
-    /// Mirrors a freshly built framework into the shell folder: a hard link when both live on one volume (no extra space),
-    /// a copy otherwise. Re-links over the previous mirror, so a rebuilt game's mirror follows.
-    static func mirrorFramework(framework: String, root: String) throws {
+    /// Mirrors a framework into the shell folder as a copy. On APFS the copy is a clone: it costs no space, and a later write to
+    /// the build folder does not reach it. On another volume it is a real copy. It replaces the previous mirror, so a rebuilt
+    /// game's mirror follows, and a failed copy leaves no half mirror behind.
+    static func mirrorFramework(framework: String, root: String, titleID: String? = nil) throws {
         let fm = FileManager.default
-        let mirror = mirroredFramework(root: root, titleID: Self.titleID(ofFramework: framework))
-        let parent = (mirror as NSString).deletingLastPathComponent
-        try? fm.createDirectory(atPath: parent, withIntermediateDirectories: true)
+        let mirror = mirroredFramework(root: root, titleID: titleID ?? Self.titleID(ofFramework: framework))
+        try fm.createDirectory(atPath: (mirror as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
         try? fm.removeItem(atPath: mirror)
-        do { try fm.linkItem(atPath: framework, toPath: mirror) }
-        catch { try fm.copyItem(atPath: framework, toPath: mirror) }   // another volume: a real copy
+        do { try fm.copyItem(atPath: framework, toPath: mirror) }
+        catch {
+            try? fm.removeItem(atPath: mirror)
+            throw error
+        }
     }
 
     /// The title ID a framework path carries (`DmGame0100…framework`, the build script's name).
@@ -380,6 +376,29 @@ struct ShellInstaller {
 
     private struct ToolResult { var status: Int32; var output: String; var lastError: String? }
 
+    /// The mirror in the shell folder is the primary copy of a game's framework: shell.json points there. A game whose
+    /// framework is in its build folder is mirrored now, so a game built before the mirror existed gets one too. A game whose
+    /// build folder is gone plays from the mirror it already has. A failed mirror is logged and the game keeps its build path.
+    private func mirrorFrameworks(_ library: inout ShellLibrary) {
+        let fm = FileManager.default
+        for i in library.games.indices {
+            let game = library.games[i]
+            let mirror = ShellInstall.mirroredFramework(root: root, titleID: game.titleID)
+            if game.framework == mirror { continue }
+            if fm.fileExists(atPath: game.framework) {
+                do {
+                    try ShellInstall.mirrorFramework(framework: game.framework, root: root, titleID: game.titleID)
+                    library.games[i].framework = mirror
+                } catch {
+                    log("library: \(game.titleID)'s framework could not be mirrored at \(mirror), it stays at \(game.framework): \(error.localizedDescription)\n")
+                }
+            } else if fm.fileExists(atPath: mirror) {
+                log("library: \(game.titleID)'s build folder is gone, its framework is the mirror at \(mirror)\n")
+                library.games[i].framework = mirror
+            }
+        }
+    }
+
     func install(framework: String, titleID: String, name: String, archive: String) -> Outcome {
         guard FileManager.default.fileExists(atPath: framework) else {
             return Outcome(ok: false, message: fmt("shell.noFramework", framework))
@@ -390,15 +409,8 @@ struct ShellInstaller {
         var library = ShellLibrary.load(root: root)
         library.team = team
         library.add(.init(titleID: titleID, name: name, framework: framework))
-        library.dropMissing(mirror: { g in
-            // The build folder is gone, the mirror in the shell folder stands in for the framework.
-            let m = ShellInstall.mirroredFramework(root: root, titleID: g.titleID)
-            if FileManager.default.fileExists(atPath: m) {
-                log("library: \(g.titleID)'s framework is mirrored at \(m)\n")
-                return m
-            }
-            return nil
-        })
+        mirrorFrameworks(&library)
+        library.dropMissing()
         // The 16:9 banner of the shell's library for every game in it (ShellHost reads <framework>/banner.<ext>, the square
         // icon.png is the fallback): a game rebuilt since its last install gets its banner back too
         for game in library.games {
@@ -406,11 +418,6 @@ struct ShellInstaller {
             if let banner = ShellInstall.placeBanner(titleID: game.titleID, framework: game.framework, banners: banners, picked: picked) {
                 log("banner: \(game.titleID) \(banner)\n")
             }
-        }
-        // A game whose build folder is gone plays from the mirror: the framework path points there.
-        for i in library.games.indices where !FileManager.default.fileExists(atPath: library.games[i].framework) {
-            let m = ShellInstall.mirroredFramework(root: root, titleID: library.games[i].titleID)
-            if FileManager.default.fileExists(atPath: m) { library.games[i].framework = m }
         }
         do { try library.save(root: root) } catch {
             return Outcome(ok: false, message: fmt("shell.projectFailed", error.localizedDescription))
