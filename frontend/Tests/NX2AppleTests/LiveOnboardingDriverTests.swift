@@ -20,8 +20,8 @@ import XCTest
         var os = OperatingSystemVersion(majorVersion: 26, minorVersion: 6, patchVersion: 0)
     }
 
-    func dep(_ id: String, present: Bool) -> BuildModel.Dep {
-        BuildModel.Dep(id: id, name: "dep." + (id.hasPrefix("brew:") ? String(id.dropFirst(5)) : id), hint: "", present: present, installCmd: ["/usr/bin/true"])
+    func dep(_ id: String, present: Bool) -> Dep {
+        Dep(id: id, name: "dep." + (id.hasPrefix("brew:") ? String(id.dropFirst(5)) : id), hint: "", present: present, installCmd: ["/usr/bin/true"])
     }
 
     var defaults: UserDefaults!
@@ -39,7 +39,7 @@ import XCTest
         addTeardownBlock { [home] in try? FileManager.default.removeItem(at: home!) }
     }
 
-    func make(_ fake: Fake, deps: [BuildModel.Dep], step: OnboardingStep? = nil, platform: OnboardingPlatform? = nil) -> (LiveOnboardingDriver, BuildModel) {
+    func make(_ fake: Fake, deps: [Dep], step: OnboardingStep? = nil, platform: OnboardingPlatform? = nil) -> (LiveOnboardingDriver, BuildModel) {
         if let platform { defaults.set(platform.rawValue, forKey: OnboardingDefaults.platform) }
         if let step { defaults.set(step.rawValue, forKey: OnboardingDefaults.step); defaults.set(true, forKey: OnboardingDefaults.inProgress) }
         let model = BuildModel()
@@ -204,7 +204,7 @@ import XCTest
         driver.finishXcodeSetup()
         await driver.settle()
         XCTAssertEqual(fake.adminCalls.count, 1)
-        XCTAssertEqual(fake.commands, [BuildModel.metalToolchainCmd, BuildModel.iosPlatformCmd])
+        XCTAssertEqual(fake.commands, [Toolchain.metalToolchainCmd, Toolchain.iosPlatformCmd])
         XCTAssertEqual(driver.state.xcode, .ready)
         XCTAssertEqual(driver.state.setup[.ios], .done)
         _ = model
@@ -220,7 +220,7 @@ import XCTest
         await driver.refreshXcode()
         driver.finishXcodeSetup()
         await driver.settle()
-        XCTAssertEqual(fake.commands, [BuildModel.metalToolchainCmd])
+        XCTAssertEqual(fake.commands, [Toolchain.metalToolchainCmd])
         XCTAssertEqual(driver.state.xcode, .ready)
     }
 

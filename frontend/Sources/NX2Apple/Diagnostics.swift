@@ -26,7 +26,7 @@ struct Diagnostics {
         var engine: String?                  // the release app's engine: "<channel> <version> (<engine_id>)"
         var python: String
         var pythonVersion: String?
-        var pythonIsVenv = false             // the launcher's own venv (BuildModel.venvDir)
+        var pythonIsVenv = false             // the launcher's own venv (Toolchain.venvDir)
         var dotnet: String
         var dotnetVersion: String?
         var depsChecked = true
@@ -191,7 +191,7 @@ struct Diagnostics {
     }
 
     /// A dependency row in English: its name and what the check said (a path, or a message with its argument).
-    static func dependency(_ d: BuildModel.Dep) -> Dependency {
+    static func dependency(_ d: Dep) -> Dependency {
         let en = { (key: String) in L10n.string(key, .en) }
         var detail = d.detail
         if let colon = detail.firstIndex(of: ":"), !detail.hasPrefix("/"), L10n.table[String(detail[..<colon])] != nil {
@@ -296,7 +296,7 @@ struct Diagnostics {
 extension BuildModel {
     /// The report, read in the background and handed back on the main thread.
     func diagnostics(game: LibraryGame? = nil, _ done: @escaping (String) -> Void) {
-        let repo = repoOK ? repoPath : "", python = pythonPath.isEmpty ? Self.findPython().path : pythonPath, dotnet = dotnetPath
+        let repo = repoOK ? repoPath : "", python = pythonPath.isEmpty ? Toolchain.findPython().path : pythonPath, dotnet = dotnetPath
         let rows = depsChecked ? deps.map(Diagnostics.dependency) : [], checked = depsChecked
         let command = lastBuildCommand, log = logTail, xcrun = xcrunPath
         let sel = engineSelection
@@ -317,7 +317,7 @@ extension BuildModel {
                 engine: engine,
                 python: python,
                 pythonVersion: Diagnostics.version(python, ["-c", "import sys; print(sys.version.split()[0])"], env: env),
-                pythonIsVenv: python == Self.venvPython(),
+                pythonIsVenv: python == Toolchain.venvPython(),
                 dotnet: dotnet,
                 dotnetVersion: dotnet.isEmpty ? nil : Diagnostics.version(dotnet, ["--version"], env: dotnetEnv),
                 depsChecked: checked, deps: rows,

@@ -174,7 +174,7 @@ final class KeyCheckTests: XCTestCase {
         model.lang = CaptureLanguage.current(.en)
         model.outDir = temporary.path
         model.depsChecked = true
-        model.deps = [BuildModel.Dep(id: "test", name: "Xcode", hint: "", present: true, installCmd: [])]
+        model.deps = [Dep(id: "test", name: "Xcode", hint: "", present: true, installCmd: [])]
         let library = GameLibrary(file: temporary.appendingPathComponent("preview.json"))
         let base = try pfs0([("a.nca", ncaHeader(generation: 0x0C))], name: "Metroid Dread [010093801237C000].nsp")
         let update = try pfs0([("b.nca", ncaHeader(generation: 0x13))], name: "Metroid Dread [010093801237C800][v327680].nsp")
