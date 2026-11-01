@@ -6,7 +6,7 @@
 - [ ] Fix
 - [ ] Feature
 
-Feature from outside: the issue with the go is linked.
+Feature from outside: the issue with the go is linked (see CONTRIBUTING.md).
 
 ## What and why
 
