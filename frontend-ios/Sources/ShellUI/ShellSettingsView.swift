@@ -50,7 +50,7 @@ struct ShellSettingsView: View {
                         }.id("shs.top")
                         SettingsGroup(title: ShellStrings.text("Game data")) {
                             SourceRow(symbol: "folder", title: store.dataFolderName ?? ShellStrings.text("No folder chosen"),
-                                      note: ShellStrings.text("Games look for their data here. Each game can have a folder of its own.")) {
+                                      note: ShellStrings.text("Games look for their data here. Keep one romfs.img per game in any folder inside. Each game is found by the image itself, so the folder names do not matter. Each game can also have a folder of its own.")) {
                                 Button(ShellStrings.text("Choose folder…")) { actions.onPickShellData() }
                                     .buttonStyle(ShellButtonStyle(fills: true)).accessibilityIdentifier("shellSettings.data")
                                     .shellTarget("shs.data") { actions.onPickShellData() }
