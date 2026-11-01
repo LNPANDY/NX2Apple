@@ -681,14 +681,6 @@ struct ContentView: View {
                     .font(.manrope(prominent ? 13 : 12)).foregroundStyle(.secondary).lineLimit(1)
                     .help(m.t("library.olderToolsHelp"))
             }
-            // A free Apple ID's profile lasts 7 days: the card says when it runs out, the hero offers to renew it.
-            if !building, let expiry = signatureExpiry[game.id] {
-                Text("· " + AppSignature.short(expiry, m.t))
-                    .font(.manrope(prominent ? 13 : 12))
-                    .foregroundStyle(AppSignature.isUrgent(expiry) ? LauncherPalette.building : .secondary)
-                    .lineLimit(1)
-                    .help(AppSignature.describe(expiry, m.t))
-            }
         }
         .accessibilityElement(children: .combine)
     }
