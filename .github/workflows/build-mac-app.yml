@@ -231,16 +231,11 @@ jobs:
           # itself: --deep below does not reach code that sits in Resources).
           tools/bundle_tools.sh "$APP/Contents/Resources" "$RUNNER_TEMP/bundle-tools-work"
           # The engine tree (Contents/ is read-only once signed: the launcher copies it to ~/Library/Application Support/NX2Apple/ on first
-          # use). Its Mach-O files (the shader translator, spirv-cross) are signed on their own like the bundled tools: --deep does not reach
-          # code in Resources. The zip asset keeps them as upstream built them. spirv-cross stays as built (the linker signed it already):
-          # dmsh_chain.lock records its exact bytes, and signing it again changes them, so every build in the app stopped with
-          # "translation chain tools do not match the lock file".
+          # use). --deep does not reach code in Resources, but its Mach-O files (the shader translator, spirv-cross) are kept as upstream built
+          # them, already signed: re-signing rewrote spirv-cross, which dmsh_chain.lock pins by its bytes, and stopped every shader build from
+          # the bundled engine (own_compilers.py exit code 1). sign_engine_tree.sh signs only a Mach-O file without any signature and checks the rest.
           ditto "$RUNNER_TEMP/engine-tree" "$APP/Contents/Resources/engine"
-          while IFS= read -r -d '' f; do
-            case "$f" in */dm/gfx/tools/spirv_cross_bin/spirv-cross) continue ;; esac
-            if file -b "$f" | grep -q 'Mach-O'; then codesign --force --sign - "$f" 2> /dev/null; fi
-          done < <(find "$APP/Contents/Resources/engine" -type f -perm -u+x -print0)
-          cmp "$RUNNER_TEMP/engine-tree/dm/gfx/tools/spirv_cross_bin/spirv-cross" "$APP/Contents/Resources/engine/dm/gfx/tools/spirv_cross_bin/spirv-cross"
+          tools/sign_engine_tree.sh "$APP/Contents/Resources/engine" "$RUNNER_TEMP/engine-tree"
           V="${{ steps.ver.outputs.version }}"
           cat > "$APP/Contents/Info.plist" <<PLIST
           <?xml version="1.0" encoding="UTF-8"?>
@@ -283,6 +278,8 @@ jobs:
           cmp "$E/.upstream-ref" ../.upstream-ref
           test -f "$E/scripts/build_ipa_from_nsp.py" && test -f "$E/dm/tools/romfs_image.py" && test -f "$E/dm/fork_patches.txt"
           test ! -e "$E/.git"
+          # The engine files are the zip asset's, byte for byte, and spirv-cross matches dmsh_chain.lock, so a shader build from the bundled engine starts.
+          tools/sign_engine_tree.sh --check "$E" "$RUNNER_TEMP/engine-tree"
           echo "engine in the bundle: $(cat "$E/.engine-id")"
 
       - name: Package
