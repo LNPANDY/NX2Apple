@@ -23,8 +23,7 @@ Check = namedtuple('Check', 'name prefixes command cwd sync')
 
 CHECKS = (
     Check('patch queue', ('patches/', '.upstream-ref'), 'python3 tools/engine.py check', '.', False),
-    Check('Qt front end', ('frontend-qt/',), 'python3 -m unittest discover -s frontend-qt/tests'
-          ' && python3 frontend-qt/gen_localization.py && git diff --exit-code HEAD -- frontend-qt/nspb_qt/localization.py', '.', True),
+    Check('Qt front end', ('frontend-qt/', 'frontend/l10n/', 'frontend/Sources/', 'frontend/Tests/l10n-key-rules.json'), 'python3 -m unittest discover -s frontend-qt/tests', '.', True),
     Check('tools', ('tools/',), 'python3 -m unittest discover tools/tests', '.', True),
     Check('triage scripts', ('.github/scripts/',), 'python3 -m unittest discover -s .github/scripts/tests', '.', True),
     Check('Mac launcher (slow)', ('frontend/',), 'swift build && swift test', 'frontend', True),

@@ -3,6 +3,7 @@ import SwiftUI
 import XCTest
 @testable import NX2Apple
 @testable import NXCore
+import NXModel
 @testable import NXLauncher
 
 /// Guards the launcher against changes that make it slow. A synthetic library (30 owned games with banners, every third one
@@ -13,7 +14,7 @@ import XCTest
 /// Info.plist reads and frame time recordings parsed. The counts do not depend on the machine, so they catch work that grows
 /// with the library long before a stopwatch would. The second guard is the time the main thread is busy, the median of
 /// several rounds, with budgets far above what main needs on CI. See "Launcher performance test" in frontend/README.md.
-final class LauncherPerformanceTests: XCTestCase {
+@MainActor final class LauncherPerformanceTests: XCTestCase {
     private var temporary: URL!
 
     override func setUpWithError() throws {
@@ -133,16 +134,14 @@ final class LauncherPerformanceTests: XCTestCase {
         NSApplication.shared.setActivationPolicy(.accessory)
         let saved = ["repoPath", "buildOutputDirectory"].map { ($0, UserDefaults.standard.object(forKey: $0)) }
         defer { for (key, value) in saved { UserDefaults.standard.set(value, forKey: key) } }
-        let model = BuildModel()
-        model.repoPath = world.repo.path
+        let modelStores = LauncherStores(); let model = modelStores.build
+        modelStores.repo.path = world.repo.path
         model.lang = .en
         let library = GameLibrary(file: world.libraryFile)
         library.selectedID = world.selected
         let pad = LauncherGamepad()
-        let host = NSHostingView(rootView: ContentView(model: model, library: library, performStartupChecks: false, gamepad: pad))
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1280, height: 900), styleMask: [.titled, .closable, .resizable],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
+        let host = NSHostingView(rootView: LauncherView(stores: modelStores, library: library, performStartupChecks: false, gamepad: pad))
+        let window = OffscreenWindow(size: NSSize(width: 1280, height: 900), styleMask: [.titled, .closable, .resizable])
         window.contentView = host
         window.orderFront(nil)
         defer { window.orderOut(nil) }
@@ -161,6 +160,14 @@ final class LauncherPerformanceTests: XCTestCase {
                         cards: 120, fonts: 20, plistReads: 110, busyMs: 800),
             Interaction(name: "open Manage", action: { pad.perform(.y) }, undo: { pad.perform(.b) },
                         cards: 180, fonts: 20, plistReads: 180, busyMs: 400),
+            // A build writes its log while the player looks at the library. The log is its own store (#387), so no game card
+            // is built for it. Each line is its own turn of the run loop, as the pipe delivers them.
+            Interaction(name: "1000 log lines in a build", action: {
+                for n in 0..<1000 {
+                    model.ingest("[12:00:\(String(format: "%02d", n % 60))] line \(n) of the build script's output\n")
+                    RunLoop.main.run(until: Date().addingTimeInterval(0.0005))
+                }
+            }, cards: 0, fonts: 20, plistReads: 10, busyMs: 1500),
         ]
         let meter = MainThreadMeter()
         defer { meter.stop() }
@@ -192,7 +199,7 @@ final class LauncherPerformanceTests: XCTestCase {
             }
             if plists > step.plistReads {
                 failures.append("\(step.name): \(plists) Info.plist reads, budget \(step.plistReads). LibraryGame.isReady and "
-                    + "ContentView.status read the app bundle on every call. Call them less often per redraw or cache the result.")
+                    + "LauncherView.status read the app bundle on every call. Call them less often per redraw or cache the result.")
             }
             if parses > 0 {
                 failures.append("\(step.name): \(parses) frame time recordings parsed on the main thread, budget 0. "
@@ -204,6 +211,7 @@ final class LauncherPerformanceTests: XCTestCase {
                     + "then profile the release build with the Time Profiler.", step.name, busy, step.busyMs))
             }
         }
+        XCTAssertTrue(model.log.text.contains("line 999 of the build"), "the lines reached the log")
         print(report.joined(separator: "\n"))
         for failure in failures { XCTFail(failure) }
         #endif

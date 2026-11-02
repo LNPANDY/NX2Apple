@@ -40,8 +40,8 @@ cache_key() {   # the bundled tools depend on the script, its pins file and the 
 }
 app_version() {
     local src
-    src=$(sed -n 's/.*static let appVersion = "\(.*\)".*/\1/p' "$ROOT/frontend/Sources/NX2Apple/ContentView.swift")
-    [ -n "$src" ] || die "no appVersion in ContentView.swift"
+    src=$(sed -n 's/.*static let appVersion = "\(.*\)".*/\1/p' "$ROOT/frontend/Sources/NXModel/AppUpdateStore.swift")
+    [ -n "$src" ] || die "no appVersion in AppUpdateStore.swift"
     echo "$src-local"
 }
 
@@ -139,6 +139,7 @@ ditto "$tools_cache/res/python" "$app/Contents/Resources/python"
 ditto "$work/engine-tree" "$app/Contents/Resources/engine"
 frontend/tools/sign_engine_tree.sh "$app/Contents/Resources/engine" "$work/engine-tree"
 rsync -a --exclude .build --exclude .swiftpm frontend-ios/ "$app/Contents/Resources/frontend-ios/"
+rsync -a frontend/l10n/ "$app/Contents/Resources/l10n/"
 cat > "$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -173,6 +174,7 @@ cmp "$E/.engine-id" "$work/engine-tree/.engine-id"
 cmp "$E/.upstream-ref" .upstream-ref
 test -f "$E/scripts/build_ipa_from_nsp.py" && test -f "$E/dm/tools/romfs_image.py" && test -f "$E/dm/fork_patches.txt"
 test -f "$app/Contents/Resources/frontend-ios/Package.swift" && test -d "$app/Contents/Resources/frontend-ios/AppIcon.icon"
+diff -r frontend/l10n "$app/Contents/Resources/l10n"
 test ! -e "$E/.git"
 frontend/tools/sign_engine_tree.sh --check "$E" "$work/engine-tree"
 done_step

@@ -40,9 +40,14 @@ enum LibraryFilter: String, CaseIterable, Identifiable {
     }
 }
 
-struct ContentView: View {
-    @StateObject private var m: BuildModel
+struct LauncherView: View {
+    private let stores: LauncherStores   // the wiring: the stores below are its, the views take what they show
+    @StateObject private var m: BuildStore   // the build: the stages, the failure, the inputs
+    @ObservedObject private var devices: DeviceStore   // the copy card and the activity line while the data goes over
     @ObservedObject private var loc: Localizer   // the strings: handed on to every view below through the environment
+    @ObservedObject private var updates: AppUpdateStore   // the app's self-update: the update icon, the sheet, the uninstall dialog
+    @ObservedObject private var repo: RepoStore   // the repository: the activity line, and the checks that follow a change of it
+    @ObservedObject private var engine: EngineSyncStore   // the engine: the sync banner, and the checks that follow a sync
     @StateObject private var library: GameLibrary
     @State private var page: LauncherPage = .library
     @State private var search = ""
@@ -77,7 +82,7 @@ struct ContentView: View {
     private let qaManage: (open: Bool, ring: Bool)   // visual QA: the Manage menu open at launch, with the controller's focus ring or without
     @Environment(\.scenePhase) private var scenePhase
 
-    init(model: BuildModel? = nil, library: GameLibrary? = nil, initialPage: LauncherPage = .library,
+    init(stores: LauncherStores? = nil, library: GameLibrary? = nil, initialPage: LauncherPage = .library,
          activeBuildID: UUID? = nil, performStartupChecks: Bool = true, search: String? = nil, olderTools: Set<UUID> = [],
          manageOpen: Bool = false, padRing: Bool = false, onRunSetup: (() -> Void)? = nil,
          enterConsole: (() -> Void)? = nil, controllerDriver: AnyConsoleDriver? = nil, controls sharedControls: ControlLayout? = nil, qaPrompt: Bool = false,
@@ -93,12 +98,12 @@ struct ContentView: View {
         if let search { _search = State(initialValue: search); _searching = State(initialValue: true) }   // visual QA: the bar with its field open
         _toolsAge = StateObject(wrappedValue: ToolsAge(older: olderTools))   // visual QA: games marked without a checkout to compare
         _gamepad = StateObject(wrappedValue: gamepad ?? LauncherGamepad())   // LauncherPerformanceTests presses its buttons
-        let model = model ?? BuildModel()
-        _m = StateObject(wrappedValue: model)
-        _loc = ObservedObject(wrappedValue: model.localizer)
+        let stores = stores ?? LauncherStores(); self.stores = stores
+        _m = StateObject(wrappedValue: stores.build); _loc = ObservedObject(wrappedValue: stores.localizer)
+        _updates = ObservedObject(wrappedValue: stores.appUpdates); _devices = ObservedObject(wrappedValue: stores.deviceStore)
+        _repo = ObservedObject(wrappedValue: stores.repo); _engine = ObservedObject(wrappedValue: stores.engineSync)
         _library = StateObject(wrappedValue: library ?? GameLibrary())
-        _page = State(initialValue: initialPage)
-        _activeBuildID = State(initialValue: activeBuildID)
+        _page = State(initialValue: initialPage); _activeBuildID = State(initialValue: activeBuildID)
         self.performStartupChecks = performStartupChecks
     }
 
@@ -168,14 +173,14 @@ struct ContentView: View {
         VStack(spacing: 0) {
             topBar
             Divider().opacity(0.3)
-            EngineSyncBanner(m: m)
+            EngineSyncBanner(engine: engine, m: m)
             if page == .library {
                 libraryPage
             } else {
-                BuilderView(m: m, library: library, settings: page == .settings, onViewGame: { page = .library },
-                            onOpenSettings: { page = .settings }, onChooseLibraryFolder: chooseLibraryFolder,
-                            onOpenControls: { controlsOpen = true }, onOpenControllers: { controllerSheet = true }, onRunSetup: onRunSetup, controlChanges: controls.changeCount,
-                            padMerge: Binding(get: { controls.padMerge }, set: { setPadMerge($0) }))
+                CardPages(settings: page == .settings, build: m, updates: updates, repo: repo, engine: engine, dependencies: stores.dependencies, devices: devices,
+                          library: library, diagnostics: stores.diagnostics, onViewGame: { page = .library }, onOpenSettings: { page = .settings },
+                          onChooseLibraryFolder: chooseLibraryFolder, onOpenControls: { controlsOpen = true }, onOpenControllers: { controllerSheet = true }, onRunSetup: onRunSetup, controlChanges: controls.changeCount,
+                          padMerge: Binding(get: { controls.padMerge }, set: { setPadMerge($0) }))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             if m.running || page == .library { activityBar }
@@ -208,13 +213,13 @@ struct ContentView: View {
             }
             refreshArtwork()
             readSignatures()
-            if performStartupChecks { library.discover(); fetchArtwork(); m.refreshDevices(); checkTools() }
+            if performStartupChecks { library.discover(); fetchArtwork(); _ = stores.deviceStore.refresh(); checkTools() }
             if performStartupChecks {
-                m.checkDeps()
-                if m.usesEngineStore { m.prepareEngine() }   // the release app: its engine store, never git (EngineUpdateModel.swift)
-                else { m.syncEngine() }   // a checkout whose engine/ is missing or older than its pin (#214)
-                if m.repoOK && m.repoIsGit { m.checkRepoUpdates(silent: true) } else { m.adoptAtLaunch() }
-                m.checkAppUpdate(silent: true)
+                _ = stores.dependencies.check()
+                if engine.usesEngineStore { engine.prepareEngine() }   // the release app: its engine store, never git
+                else { engine.syncEngine() }   // a checkout whose engine/ is missing or older than its pin (#214)
+                if repo.isRepo && repo.isGit { repo.checkForUpdates(silent: true) } else { repo.adoptAtLaunch() }
+                updates.checkForUpdate(silent: true)
                 BuildNotifier.shared.watch(m, library: library)   // BuildNotifications.swift
             }
         }
@@ -229,21 +234,20 @@ struct ContentView: View {
             readSignatures()
             if performStartupChecks { fetchArtwork() }
         }
-        .onChange(of: m.repoPath) { _ in refreshArtwork(); if performStartupChecks { checkTools() } }
+        .onChange(of: repo.path) { _ in refreshArtwork(); if performStartupChecks { checkTools() } }
         // A clone, pull or update check has finished (the automatic pull at launch among them): the checkout may have moved
-        .onReceive(m.$repoBusy.removeDuplicates().dropFirst()) { busy in if !busy && performStartupChecks { checkTools() } }
-        // The engine was made or moved by a sync (its HEAD is what ToolsAge compares)
-        .onReceive(m.$engineSyncing.removeDuplicates().dropFirst()) { syncing in if !syncing && performStartupChecks { checkTools() } }
+        .onReceive(repo.$busy.removeDuplicates().dropFirst()) { busy in if !busy && performStartupChecks { checkTools() } }
+        .onReceive(engine.$syncing.removeDuplicates().dropFirst()) { syncing in if !syncing && performStartupChecks { checkTools() } }   // a sync made or moved the engine (its HEAD is what ToolsAge compares)
         .onChange(of: library.selectedID) { _ in resignNote = nil }   // the last re-sign's note belongs to its game
         .onChange(of: buildProgress) { progress in if m.running { DockProgress.update(progress) } }
         .onReceive(m.$running.removeDuplicates()) { running in
             if !running { DockProgress.update(nil) }
             if running && activeBuildID == nil { activeBuildID = library.rememberInputs(m) }
-            if running && activeBuildID != nil {   // the tools this build runs: a pull waits for the build (pullRepo, autoPull)
+            if running && activeBuildID != nil {   // the tools this build runs: a pull waits for the build (RepoStore.pull, autoPull)
                 buildCommit = ""
-                let repo = m.repoPath
+                let dir = repo.path
                 DispatchQueue.global(qos: .utility).async {
-                    let commit = ToolsAge.head(repo: repo) ?? ""
+                    let commit = ToolsAge.head(repo: dir) ?? ""
                     DispatchQueue.main.async { buildCommit = commit }
                 }
             }
@@ -251,7 +255,7 @@ struct ContentView: View {
                 DispatchQueue.main.async {
                     if m.done { recordBuild() }
                     activeBuildID = nil
-                    m.applyPendingEngine()   // an engine installed during the build takes over once it is recorded
+                    engine.applyPendingEngine()   // an engine installed during the build takes over once it is recorded
                 }
             }
         }
@@ -283,20 +287,12 @@ struct ContentView: View {
             if let game = library.games.first(where: { $0.id == freeSpaceFor }) { FreeSpaceView(m: m, game: game).environmentObject(padFocus) }
         }
         .onChange(of: freeSpaceFor) { id in padFocus.scope = id != nil ? "free" : currentPadScope }
-        .sheet(isPresented: $m.showUpdateSheet) { UpdateSheet(m: m) }
+        .sheet(isPresented: $updates.showUpdateSheet) { UpdateSheet(updates: updates) }
         .confirmationDialog(loc.t("uninstall.title"), isPresented: Binding(
-            get: { m.uninstallPlan != nil }, set: { if !$0 { m.uninstallPlan = nil } }
+            get: { updates.uninstallPlan != nil }, set: { if !$0 { updates.uninstallPlan = nil } }
         ), titleVisibility: .visible) {
             Button(loc.t("uninstall.confirmButton"), role: .destructive) {
-                if let plan = m.uninstallPlan {
-                    let result = Uninstall.run(plan)
-                    m.uninstallPlan = nil
-                    if result.failures.isEmpty {
-                        m.appStatus = String(format: loc.t("uninstall.done"), result.removed.count)
-                    } else {
-                        m.appStatus = loc.t("uninstall.failed") + "\n" + result.failures.joined(separator: "\n")
-                    }
-                }
+                updates.confirmUninstall()
             }
         } message: { Text(loc.t("uninstall.confirm")) }
         .sheet(isPresented: Binding(get: { savesFor != nil }, set: { if !$0 { savesFor = nil } })) {
@@ -364,16 +360,16 @@ struct ContentView: View {
                     .padding(.leading, 12)
                     // A newer release is out: a small icon, last in the bar, opens the update sheet. Without one the bar
                     // stays as it is.
-                    if let update = m.appUpdate {
-                        let readOnly = m.appInstallability == .readOnly
-                        Button { m.showUpdateSheet = true } label: {
+                    if let update = updates.update {
+                        let readOnly = updates.installability == .readOnly
+                        Button { updates.showUpdateSheet = true } label: {
                             Image(systemName: readOnly ? "exclamationmark.arrow.circlepath" : "arrow.down.circle")
                                 .font(.system(size: 18, weight: .medium))
                                 .foregroundStyle(readOnly ? LauncherPalette.building : LauncherPalette.ready)
                                 .frame(width: 34, height: 34).contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
-                        .padTarget("top.update", scope: "main", radius: 17) { m.showUpdateSheet = true }
+                        .padTarget("top.update", scope: "main", radius: 17) { updates.showUpdateSheet = true }
                         .padding(.leading, 16.5).padding(.trailing, -7.5)
                         .help(String(format: loc.t("update.pill"), update.tag) + "\n" + loc.t(readOnly ? "update.readOnlyHint" : "update.pillHelp"))
                         .accessibilityLabel(String(format: loc.t("update.pill"), update.tag))
@@ -516,7 +512,7 @@ struct ContentView: View {
                     Button { primaryAction(game) } label: {
                         LauncherHeroActionLabel(
                             title: game.primary == .play ? loc.t("library.play")
-                                : (game.primary == .openOnDevice ? String(format: loc.t("dev.open"), m.deviceName(game.installedDevice))
+                                : (game.primary == .openOnDevice ? String(format: loc.t("dev.open"), devices.deviceName(game.installedDevice))
                                    : loc.t("library.newBuild")),
                             symbol: game.primary == .play ? "play.fill" : (game.primary == .openOnDevice ? "iphone" : "hammer.fill"))
                     }
@@ -690,7 +686,7 @@ struct ContentView: View {
                 if m.running {
                     Image(systemName: "wrench.and.screwdriver").font(.system(size: 22, weight: .light)).foregroundStyle(.secondary)
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(loc.t(m.shellCopy != nil || m.shellWaiting || m.stages.contains { $0.id == 1003 && $0.state == .running }
+                        Text(loc.t(devices.shellCopy != nil || devices.shellWaiting || m.stages.contains { $0.id == 1003 && $0.state == .running }
                                  ? "activity.transfer" : (m.target == BuildTarget.mac ? "activity.mac" : "activity.ios"))).font(.manrope(15, .bold))
                         TimelineView(.periodic(from: Date(), by: 1)) { context in   // the clock ticks while a count may stand still
                             Text(m.stages.last(where: { $0.state == .running })
@@ -710,25 +706,23 @@ struct ContentView: View {
                 } else {
                     Image(systemName: "desktopcomputer").foregroundStyle(.secondary)
                     Text(loc.t("library.localNote")).font(.manrope(13)).foregroundStyle(.secondary)
-                    if let n = m.autoPulled, n > 0 {
-                        // The automatic update when the app opened (BuildModel.autoPull): the build tools are the current ones
+                    if let n = repo.autoPulled, n > 0 {   // the automatic update when the app opened (RepoStore.autoPull): the tools are current
                         Circle().fill(LauncherPalette.ready).frame(width: 6, height: 6).padding(.leading, 10)
                         Text(String(format: loc.t("library.toolsUpdated"), n)).font(.manrope(13)).foregroundStyle(.secondary)
                     }
-                    if m.autoAdopted {
-                        // A ZIP copy connected to git and updated when the app opened (BuildModel.adoptAtLaunch)
+                    if repo.autoAdopted {   // a ZIP copy connected and updated when the app opened (RepoStore.adoptAtLaunch)
                         Circle().fill(LauncherPalette.ready).frame(width: 6, height: 6).padding(.leading, 10)
                         Text(loc.t("library.toolsAdopted")).font(.manrope(13)).foregroundStyle(.secondary)
                     }
                     Spacer()
-                    if let staged = m.appStaged {
-                        // A downloaded, verified update (BuildModel.stageAppUpdate): it goes in when the app quits, or now.
-                        // This branch only shows with no build running, and restartToUpdate checks again.
+                    if let staged = updates.staged {
+                        // A downloaded, verified update (AppUpdateStore.stage): it goes in when the app quits, or now.
+                        // This branch only shows with no build running, and restartNow checks again.
                         HStack(spacing: 10) {
                             Circle().fill(LauncherPalette.ready).frame(width: 6, height: 6)
                             Text(String(format: loc.t("library.appReady"), staged.release.tag)).font(.manrope(13)).foregroundStyle(.secondary)
                         }
-                        Button(loc.t("app.restartNow")) { m.restartToUpdate() }.buttonStyle(LauncherSecondaryButtonStyle())
+                        Button(loc.t("app.restartNow")) { updates.restartNow() }.buttonStyle(LauncherSecondaryButtonStyle())
                     }
                     if gamepad.connected {
                         // The buttons a controller has here, named as the game names them (A on the right)
@@ -888,7 +882,7 @@ struct ContentView: View {
             // The launch options; the app's launcher (dm/mac/launcher.c) keeps a variable that is already set.
             // The keyboard and controller layout (Settings → Controls) goes to every game; a build whose host does not read it plays with the default keys.
             // They stay launch overrides (the environment) for now: DM_KEYMAP and DM_PAD_MAP become saved choices only when seedds/nxnative#386 merges.
-            let environment = GameStart.environment(for: game, library: library, controls: controls, repo: m.repoPath, labels: loc.t)   // GameStart.swift: the console mode starts games with the same
+            let environment = GameStart.environment(for: game, library: library, controls: controls, repo: stores.repo.path, labels: loc.t)   // GameStart.swift: the console mode starts games with the same
             let withRecording = environment.merging(FrameTimes.recordingEnvironment(for: game, library: library.folder)) { $1 }   // FrameTimes.swift, as console mode does
             if !withRecording.isEmpty { configuration.environment = withRecording }
             NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: game.appPath), configuration: configuration) { app, error in
@@ -910,7 +904,7 @@ struct ContentView: View {
         guard !apps.isEmpty else { signatureExpiry = [:]; return }
         DispatchQueue.global(qos: .utility).async {
             var found: [UUID: Date] = [:]
-            for (id, path) in apps { if let date = AppSignature.expiration(ofApp: path) { found[id] = date } }
+            for (id, path) in apps { if let date = AppSignature.expiration(ofApp: path, runner: stores.runner) { found[id] = date } }
             DispatchQueue.main.async { signatureExpiry = found }
         }
     }
@@ -921,7 +915,7 @@ struct ContentView: View {
         resignNote = nil
         m.resignOnDevice(app: game.iosAppPath, device: game.installedDevice) {
             resignNote = m.doneNote
-            signatureExpiry[game.id] = AppSignature.expiration(ofApp: game.iosAppPath)
+            signatureExpiry[game.id] = AppSignature.expiration(ofApp: game.iosAppPath, runner: stores.runner)
         }
     }
 
@@ -933,11 +927,11 @@ struct ContentView: View {
         if performStartupChecks { checkTools() }
     }
 
-    private func checkTools() { toolsAge.check(games: library.games, repo: m.repoPath) }
+    private func checkTools() { toolsAge.check(games: library.games, repo: stores.repo.path) }
 
     private func refreshArtwork() {
         artwork = Dictionary(uniqueKeysWithValues: library.games.compactMap { game in
-            GameLibrary.artwork(for: game, repo: m.repoPath).map { (game.id, $0) }
+            GameLibrary.artwork(for: game, repo: stores.repo.path).map { (game.id, $0) }
         })
     }
 

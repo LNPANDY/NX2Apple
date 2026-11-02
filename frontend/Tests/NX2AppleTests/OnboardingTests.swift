@@ -160,11 +160,9 @@ final class OnboardingTests: XCTestCase {
     }
 
     func testSwedishUsesItsCatalog() {
-        XCTAssertEqual(L10n.string("settings.language.sv", .sv), "Svenska")
         XCTAssertEqual(L10n.string("onboarding.start", .sv), "Kom igång")
         XCTAssertEqual(L10n.string("onboarding.xcode.ready", .sv), "Xcode är klart.")
         XCTAssertEqual(L10n.string("dep.python", .sv), "Python + paket")
-        XCTAssertNotEqual(L10n.string("settings.language.sv", .sv), "settings.language.sv")
     }
 
     /// The same opt-in native capture path as the launcher's other visual QA tests.
@@ -190,8 +188,7 @@ final class OnboardingTests: XCTestCase {
                 let driver = MockOnboardingDriver(state: s, lang: lang, animated: false)
                 let view = OnboardingView(driver: driver, lang: lang)
                 let host = NSHostingView(rootView: view)
-                let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 680),
-                                      styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+                let window = OffscreenWindow(size: NSSize(width: 900, height: 680), styleMask: [.titled, .closable, .resizable])
                 window.contentView = host
                 window.orderFront(nil)
                 RunLoop.main.run(until: Date().addingTimeInterval(0.4))
@@ -199,7 +196,7 @@ final class OnboardingTests: XCTestCase {
                 let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
                 host.cacheDisplay(in: host.bounds, to: rep)
                 try XCTUnwrap(rep.representation(using: .png, properties: [:]))
-                    .write(to: output.appendingPathComponent("\(step.rawValue)-\(lang.rawValue).png"))
+                    .write(to: output.appendingPathComponent("\(step.rawValue)-\(lang.code).png"))
                 window.orderOut(nil)
             }
         }
@@ -214,8 +211,7 @@ final class OnboardingTests: XCTestCase {
             s.background = [.python: .done, .dotnet: .running(0.5), .tools: .queued]
             let driver = MockOnboardingDriver(state: s, lang: .en, animated: false)
             let host = NSHostingView(rootView: OnboardingView(driver: driver, lang: .en))
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 680),
-                                  styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+            let window = OffscreenWindow(size: NSSize(width: 900, height: 680), styleMask: [.titled, .closable, .resizable])
             window.contentView = host
             window.orderFront(nil)
             RunLoop.main.run(until: Date().addingTimeInterval(0.4))
@@ -236,8 +232,7 @@ final class OnboardingTests: XCTestCase {
                 s.osTooOldForNVN = true; s.xcodeTooOldForNVN = true
                 let driver = MockOnboardingDriver(state: s, lang: lang, animated: false)
                 let host = NSHostingView(rootView: OnboardingView(driver: driver, lang: lang))
-                let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 680),
-                                      styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+                let window = OffscreenWindow(size: NSSize(width: 900, height: 680), styleMask: [.titled, .closable, .resizable])
                 window.contentView = host
                 window.orderFront(nil)
                 RunLoop.main.run(until: Date().addingTimeInterval(0.4))
@@ -245,7 +240,7 @@ final class OnboardingTests: XCTestCase {
                 let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
                 host.cacheDisplay(in: host.bounds, to: rep)
                 try XCTUnwrap(rep.representation(using: .png, properties: [:]))
-                    .write(to: output.appendingPathComponent("nvn-hint-\(step.rawValue)-\(lang.rawValue).png"))
+                    .write(to: output.appendingPathComponent("nvn-hint-\(step.rawValue)-\(lang.code).png"))
                 window.orderOut(nil)
             }
         }

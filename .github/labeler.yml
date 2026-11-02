@@ -3,7 +3,7 @@ launcher:
       - any-glob-to-any-file: 'frontend/**'
 windows:
   - changed-files:
-      - any-glob-to-any-file: 'frontend-qt/**'
+      - any-glob-to-any-file: ['frontend-qt/**', 'frontend/l10n/**']
 ios:
   - changed-files:
       - any-glob-to-any-file: 'frontend-ios/**'

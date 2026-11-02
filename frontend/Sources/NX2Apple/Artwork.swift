@@ -1,12 +1,12 @@
 import AppKit
+import NXCore
 
 /// Official key art for a game, by title ID: the eShop banner (1920×1080, Nintendo's image CDN) that the
 /// community title database blawar/titledb lists for each title. The region list is large (about 90 MB), so
 /// it is fetched only while a game in the library has no banner yet, reduced to title ID → banner URL and
 /// kept beside the library; each banner is downloaded once into the same folder.
 actor ArtworkStore {
-    static let shared = ArtworkStore(directory: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        .appendingPathComponent("NS Port Builder/artwork"))
+    static let shared = ArtworkStore(directory: BannerCache.directory)
 
     static let titleListURL = URL(string: "https://raw.githubusercontent.com/blawar/titledb/master/US.en.json")!
     static let imageHosts: Set<String> = ["img-eshop.cdn.nintendo.net"]
@@ -35,8 +35,7 @@ actor ArtworkStore {
 
     /// Where a title's banner is kept; nil while it has none.
     nonisolated static func cachedBanner(_ titleID: String, in directory: URL = ArtworkStore.shared.directory) -> URL? {
-        let url = directory.appendingPathComponent(titleID.uppercased() + ".jpg")
-        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+        BannerCache.cached(titleID, in: directory)
     }
 
     /// Download the banners the given titles lack. Returns the title IDs that got one.

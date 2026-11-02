@@ -1,12 +1,13 @@
 import XCTest
 @testable import NX2Apple
 @testable import NXCore
+import NXModel
 @testable import NXLauncher
 
 /// #214: which engine the launcher builds from. A checkout of this repository builds from its engine/ (synced first when it is stale or
 /// missing, there is no committed tree), a folder that is an engine tree itself (an installed release's engine) from that folder.
 /// The stamp key matches tools/engine.py's.
-final class EngineLayoutTests: XCTestCase {
+@MainActor final class EngineLayoutTests: XCTestCase {
     private var root: URL!
     private var repo: String { root.path }
     private let pin = String(repeating: "a", count: 40)
@@ -42,7 +43,7 @@ final class EngineLayoutTests: XCTestCase {
 
     func testAnEngineTreeIsItsOwnRoot() throws {
         try touch(EngineLayout.marker)
-        XCTAssertTrue(BuildModel.isRepo(repo))
+        XCTAssertTrue(RepoLayout.isRepo(repo))
         XCTAssertEqual(EngineLayout.root(repo), repo)
         XCTAssertFalse(EngineLayout.isStale(repo))
         XCTAssertFalse(EngineLayout.needsSyncBeforeBuild(repo))
@@ -53,11 +54,11 @@ final class EngineLayoutTests: XCTestCase {
         try syncedEngine()
         XCTAssertFalse(EngineLayout.isStale(repo))
         XCTAssertEqual(EngineLayout.root(repo), repo + "/engine")
-        XCTAssertEqual(BuildModel.missingTools(in: repo), BuildModel.requiredTools)   // looked for under engine/, which lacks them here
+        XCTAssertEqual(RepoLayout.missingTools(in: repo), RepoLayout.requiredTools)   // looked for under engine/, which lacks them here
         try touch("engine/scripts/build_ipa_from_nsp.py", "p.add_argument('--work-dir')\n")
         try touch("engine/dm/tools/romfs_image.py")
-        XCTAssertEqual(BuildModel.missingTools(in: repo), [])
-        XCTAssertTrue(BuildModel.repoSupportsWorkDir(repo))
+        XCTAssertEqual(RepoLayout.missingTools(in: repo), [])
+        XCTAssertTrue(RepoLayout.supportsWorkDir(repo))
     }
 
     func testAStaleEngineIsStillTheCheckoutsEngineAndTheBuildSyncsItFirst() throws {
@@ -78,9 +79,9 @@ final class EngineLayoutTests: XCTestCase {
 
     func testACheckoutWithoutAnEngineIsSyncedBeforeABuild() throws {
         try newLayout()
-        XCTAssertTrue(BuildModel.isRepo(repo))
+        XCTAssertTrue(RepoLayout.isRepo(repo))
         XCTAssertTrue(EngineLayout.needsSyncBeforeBuild(repo))
-        XCTAssertTrue(BuildModel.repoSupportsWorkDir(repo))   // the fork's engine always has --work-dir
+        XCTAssertTrue(RepoLayout.supportsWorkDir(repo))   // the fork's engine always has --work-dir
         XCTAssertEqual(EngineLayout.root(repo), repo + "/engine")
         try syncedEngine()
         XCTAssertFalse(EngineLayout.needsSyncBeforeBuild(repo))
@@ -107,49 +108,49 @@ final class EngineLayoutTests: XCTestCase {
     }
 
     /// A checkout whose tools/engine.py is `script` (a stand-in for the real one) and a model on it.
-    private func model(engineScript script: String) throws -> BuildModel {
+    private func model(engineScript script: String) throws -> LauncherStores {
         try newLayout()
         try touch("tools/engine.py", script)
-        let m = BuildModel()
-        m.repoPath = repo
-        m.pythonPath = "/usr/bin/python3"
-        return m
+        let mStores = LauncherStores()
+        mStores.repo.path = repo
+        mStores.dependencies.pythonPath = "/usr/bin/python3"
+        return mStores
     }
 
-    private func waitForSync(_ m: BuildModel, file: StaticString = #filePath, line: UInt = #line) {
+    private func waitForSync(_ mStores: LauncherStores, file: StaticString = #filePath, line: UInt = #line) {
         let deadline = Date().addingTimeInterval(20)
-        while m.engineSyncing && Date() < deadline { RunLoop.current.run(until: Date().addingTimeInterval(0.05)) }
-        XCTAssertFalse(m.engineSyncing, "the sync did not end", file: file, line: line)
+        while mStores.engineSync.syncing && Date() < deadline { RunLoop.current.run(until: Date().addingTimeInterval(0.05)) }
+        XCTAssertFalse(mStores.engineSync.syncing, "the sync did not end", file: file, line: line)
     }
 
     func testNoNetworkShowsTheStatusThenTheOfflineRowAndRetryRunsTheSyncAgain() throws {
         let counter = root.appendingPathComponent("runs.txt").path
-        let m = try model(engineScript: """
+        let mStores = try model(engineScript: """
             import sys
             open(\(String(reflecting: counter)), 'a').write('x')
             print('engine: cannot fetch aaaaaaaaaaaa from https://github.com/seedds/nxnative.git: Could not resolve host: github.com')
             sys.exit(2)
             """)
-        XCTAssertNil(m.engineFailure)
-        m.syncEngine()
-        XCTAssertTrue(m.engineSyncing, "the status line shows while the engine is fetched")
-        waitForSync(m)
-        XCTAssertEqual(m.engineFailure?.kind, .engineOffline)
-        XCTAssertTrue(m.logTail.contains("cannot fetch"), "the log has the tool's line")
-        m.retryEngineSync()
-        XCTAssertNil(m.engineFailure, "Try again clears the row")
-        XCTAssertTrue(m.engineSyncing)
-        waitForSync(m)
-        XCTAssertEqual(m.engineFailure?.kind, .engineOffline)
+        XCTAssertNil(mStores.engineSync.failure)
+        mStores.engineSync.syncEngine()
+        XCTAssertTrue(mStores.engineSync.syncing, "the status line shows while the engine is fetched")
+        waitForSync(mStores)
+        XCTAssertEqual(mStores.engineSync.failure?.kind, .engineOffline)
+        XCTAssertTrue(mStores.build.logTail.contains("cannot fetch"), "the log has the tool's line")
+        mStores.engineSync.retrySync()
+        XCTAssertNil(mStores.engineSync.failure, "Try again clears the row")
+        XCTAssertTrue(mStores.engineSync.syncing)
+        waitForSync(mStores)
+        XCTAssertEqual(mStores.engineSync.failure?.kind, .engineOffline)
         XCTAssertEqual(try String(contentsOfFile: counter, encoding: .utf8), "xx", "the retry ran the tool again")
     }
 
     func testASyncThatWorksLeavesNoRow() throws {
-        let m = try model(engineScript: "print('engine: ready')\n")
-        m.engineFailure = BuildFailure(kind: .engineOffline, gameName: nil)
-        m.syncEngine()
-        waitForSync(m)
-        XCTAssertNil(m.engineFailure)
+        let mStores = try model(engineScript: "print('engine: ready')\n")
+        mStores.engineSync.failure = BuildFailure(kind: .engineOffline, gameName: nil)
+        mStores.engineSync.syncEngine()
+        waitForSync(mStores)
+        XCTAssertNil(mStores.engineSync.failure)
     }
 
     func testOfflineRowsHaveARetryButtonAndTheStatusLineHasText() {
@@ -167,7 +168,7 @@ final class EngineLayoutTests: XCTestCase {
         let tools = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().appendingPathComponent("tools").path
         let code = "import sys; sys.path.insert(0, sys.argv[1]); import engine, pathlib; print(engine.stamp_key(pathlib.Path(sys.argv[2])))"
-        let r = BuildModel.runQuiet(["/usr/bin/env", "python3", "-c", code, tools, repo], env: ["PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"])
+        let r = SystemProcessRunner().runQuiet(["/usr/bin/env", "python3", "-c", code, tools, repo], env: ["PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"])
         try XCTSkipUnless(r.ok, "python3 did not run: \(r.out)")
         XCTAssertEqual(r.out.trimmingCharacters(in: .whitespacesAndNewlines), EngineLayout.stampKey(repo))
     }

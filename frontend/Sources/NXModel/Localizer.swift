@@ -3,11 +3,11 @@ import Combine
 import NXCore
 
 /// The interface language and the strings for it (LNPANDY/NX2Apple#387). Views take it from the environment, so a language change
-/// redraws the views that show text and nothing else. `BuildModel` gets it through its init for the strings it writes itself.
+/// redraws the views that show text and nothing else. `BuildStore` gets it through its init for the strings it writes itself.
 ///
 /// The language choice is stored by `Lang.saved` (UserDefaults key `appLanguage`): "" follows the system. `choose()` writes it.
 ///
-/// `lang` and `t()` are not tied to the main actor, because `BuildModel` writes status text from background queues. The value is
+/// `lang` and `t()` are not tied to the main actor, because the stores write status text from background queues. The value is
 /// behind a lock, and a change sends `objectWillChange` for the views.
 @MainActor package final class Localizer: ObservableObject {
     /// Holds the language where any thread may read it.
@@ -39,9 +39,9 @@ import NXCore
     /// The string for `key` in the current language. An unknown key comes back as itself, so it shows up in the UI.
     nonisolated package func t(_ key: String) -> String { L10n.string(key, lang) }
 
-    /// Settings' choice: "" follows the system, else a `Lang` raw value. It is stored, and the language changes now.
+    /// Settings' choice: "" follows the system, else a language code. It is stored, and the language changes now.
     package func choose(_ code: String) {
-        Lang.saved = Lang(rawValue: code)
+        Lang.saved = Lang.find(code)
         lang = Lang.initial()
     }
 }

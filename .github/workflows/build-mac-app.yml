@@ -4,7 +4,7 @@
 # the bundle, plutil the version, codesign, ditto) and uploaded by hand — and one release went
 # out without it. The native app is the one macOS users actually run, so "the release has no
 # nxnative-macOS-arm64.zip" is not a cosmetic gap: the app's own updater looks for exactly that
-# asset name (ContentView.checkAppUpdate), finds a newer tag with no such asset, and reports
+# asset name (AppUpdateStore.checkForUpdate), finds a newer tag with no such asset, and reports
 # "up to date" — a silent failure of the update path for every existing install. Copies from before
 # the app was renamed (NS Port Builder) look for NS-Port-Builder-macOS-arm64.zip, so that one goes up too.
 #
@@ -133,7 +133,11 @@ jobs:
     needs: [icon-cache, icon, notes]
     # icon is skipped on a pull request with a cache hit, and that must not skip the build.
     if: ${{ !cancelled() && needs.icon-cache.result == 'success' && (needs.icon.result == 'success' || needs.icon.result == 'skipped') }}
-    runs-on: macos-latest
+    # The same runner and compiler as tests.yml: the app that is shipped is compiled by the Xcode that the tests ran with. On macos-latest (Xcode 26.6)
+    # a closure that Xcode 27.2 accepts failed only here, in #467, after the tests had passed.
+    runs-on: xcode-27
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -195,11 +199,11 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          # The app reads its version from ContentView.appVersion, and the bundle plist must agree or the updater compares the wrong number.
+          # The app reads its version from AppUpdateStore.appVersion, and the bundle plist must agree or the updater compares the wrong number.
           # Take the tag, and fail loudly on a mismatch rather than shipping a bundle that calls itself something else.
           # A release candidate vX.Y.Z-rcN is the build of the release X.Y.Z: its bundle says X.Y.Z, because the final tag ships these
           # exact files and the updater (AppUpdate.bundleProblem) accepts only a bundle whose version is the release's.
-          src=$(sed -n 's/.*static let appVersion = "\(.*\)".*/\1/p' frontend/Sources/NX2Apple/ContentView.swift)
+          src=$(sed -n 's/.*static let appVersion = "\(.*\)".*/\1/p' frontend/Sources/NXModel/AppUpdateStore.swift)
           kind=build rc=""
           if [ "$REF_TYPE" != "tag" ]; then
             v="$src"
@@ -216,7 +220,7 @@ jobs:
             fi
           fi
           if [ "$v" != "$src" ]; then
-            echo "::error::tag says $v but ContentView.appVersion says $src: bump the source first"
+            echo "::error::tag says $v but AppUpdateStore.appVersion says $src: bump the source first"
             exit 1
           fi
           echo "$kind: version $v${rc:+, release candidate $rc}"
@@ -301,6 +305,8 @@ jobs:
           # The iPhone shell's Swift package: build_shell.sh links it by DM_SHELL_PACKAGE and the launcher passes this folder (the engine has
           # none since #214). The step runs in frontend/, the package is one level up. No .build or .swiftpm.
           rsync -a --exclude .build --exclude .swiftpm ../frontend-ios/ "$APP/Contents/Resources/frontend-ios/"
+          # The launcher's texts, one JSON file per language (#388): L10n reads Contents/Resources/l10n, not SwiftPM resources (this step builds the bundle by hand).
+          rsync -a l10n/ "$APP/Contents/Resources/l10n/"
           V="${{ steps.ver.outputs.version }}"
           cat > "$APP/Contents/Info.plist" <<PLIST
           <?xml version="1.0" encoding="UTF-8"?>
@@ -346,6 +352,8 @@ jobs:
           test -f "$E/scripts/build_ipa_from_nsp.py" && test -f "$E/dm/tools/romfs_image.py" && test -f "$E/dm/fork_patches.txt"
           # The iPhone shell's package (DM_SHELL_PACKAGE): the project template links it and its AppIcon.icon.
           test -f "NX2Apple.app/Contents/Resources/frontend-ios/Package.swift" && test -d "NX2Apple.app/Contents/Resources/frontend-ios/AppIcon.icon"
+          # The language files: every one is there and identical to the checkout's (check_bundle.sh also reads them as JSON).
+          diff -r l10n NX2Apple.app/Contents/Resources/l10n
           test ! -e "$E/.git"
           # The engine files are the zip asset's, byte for byte, and spirv-cross matches dmsh_chain.lock, so a shader build from the bundled engine starts.
           tools/sign_engine_tree.sh --check "$E" "$RUNNER_TEMP/engine-tree"

@@ -7,7 +7,7 @@ A release starts as a release candidate. Players get the exact files of the cand
 ### Cutting a candidate
 
 1. Before `-rc1`, bump the engine pin, so the candidate carries the current engine. The nightly sync job opens the pull request `sync/upstream-<sha>` when seedds/nxnative has news. If it has not, `python3 tools/engine.py bump --dry --to main` shows which patches would conflict, and `python3 tools/engine.py bump --to <sha>` moves the pin. Merge that pull request before the version bump.
-2. The version bump goes to `main` next: `static let appVersion` in `frontend/Sources/NX2Apple/ContentView.swift`, and the changelog.
+2. The version bump goes to `main` next: `static let appVersion` in `frontend/Sources/NXModel/AppUpdateStore.swift`, and the changelog.
 3. Tag a commit on `main` as `vX.Y.Z-rcN`, with N from 1: `git tag v0.7.6-rc1 <commit> && git push origin v0.7.6-rc1`.
 
 `build-mac-app.yml` checks that the tag without `-rcN` is `appVersion`. The app inside says `0.7.6`, not `0.7.6-rc1`. The final release ships this bundle, and the app's own update installs only a bundle whose version is the release's.
