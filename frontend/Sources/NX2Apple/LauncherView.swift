@@ -177,7 +177,7 @@ struct ContentView: View {
             if page == .library {
                 libraryPage
             } else {
-                BuilderView(m: m, updates: updates, repo: repo, engine: engine, dependencies: m.dependencies, library: library, settings: page == .settings, onViewGame: { page = .library },
+                BuilderView(m: m, updates: updates, repo: repo, engine: engine, dependencies: m.dependencies, devices: m.deviceStore, library: library, settings: page == .settings, onViewGame: { page = .library },
                             onOpenSettings: { page = .settings }, onChooseLibraryFolder: chooseLibraryFolder,
                             onOpenControls: { controlsOpen = true }, onOpenControllers: { controllerSheet = true }, onRunSetup: onRunSetup, controlChanges: controls.changeCount,
                             padMerge: Binding(get: { controls.padMerge }, set: { setPadMerge($0) }))
@@ -213,7 +213,7 @@ struct ContentView: View {
             }
             refreshArtwork()
             readSignatures()
-            if performStartupChecks { library.discover(); fetchArtwork(); m.refreshDevices(); checkTools() }
+            if performStartupChecks { library.discover(); fetchArtwork(); _ = m.deviceStore.refresh(); checkTools() }
             if performStartupChecks {
                 _ = m.dependencies.check()
                 if engine.usesEngineStore { engine.prepareEngine() }   // the release app: its engine store, never git
@@ -686,7 +686,7 @@ struct ContentView: View {
                 if m.running {
                     Image(systemName: "wrench.and.screwdriver").font(.system(size: 22, weight: .light)).foregroundStyle(.secondary)
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(loc.t(m.shellCopy != nil || m.shellWaiting || m.stages.contains { $0.id == 1003 && $0.state == .running }
+                        Text(loc.t(m.deviceStore.shellCopy != nil || m.deviceStore.shellWaiting || m.stages.contains { $0.id == 1003 && $0.state == .running }
                                  ? "activity.transfer" : (m.target == BuildTarget.mac ? "activity.mac" : "activity.ios"))).font(.manrope(15, .bold))
                         TimelineView(.periodic(from: Date(), by: 1)) { context in   // the clock ticks while a count may stand still
                             Text(m.stages.last(where: { $0.state == .running })
@@ -904,7 +904,7 @@ struct ContentView: View {
         guard !apps.isEmpty else { signatureExpiry = [:]; return }
         DispatchQueue.global(qos: .utility).async {
             var found: [UUID: Date] = [:]
-            for (id, path) in apps { if let date = AppSignature.expiration(ofApp: path) { found[id] = date } }
+            for (id, path) in apps { if let date = AppSignature.expiration(ofApp: path, runner: m.runner) { found[id] = date } }
             DispatchQueue.main.async { signatureExpiry = found }
         }
     }
@@ -915,7 +915,7 @@ struct ContentView: View {
         resignNote = nil
         m.resignOnDevice(app: game.iosAppPath, device: game.installedDevice) {
             resignNote = m.doneNote
-            signatureExpiry[game.id] = AppSignature.expiration(ofApp: game.iosAppPath)
+            signatureExpiry[game.id] = AppSignature.expiration(ofApp: game.iosAppPath, runner: m.runner)
         }
     }
 
