@@ -727,7 +727,7 @@
   "msg.stagingFailed": "Impossible de créer des liens dans le dossier de préparation (fichiers sur des volumes différents ?)",
   "msg.stopped": "Arrêté",
   "msg.toolsOld": "Compilation non lancée : les outils de compilation sont plus anciens que cette app (il manque %@). Mettez-les d’abord à jour dans Réglages → Outils de compilation",
-  "msg.workdirHint": "Astuce : le dossier de sortie contient aussi le cache de compilation (<sortie>/<ID>_build). Pour réutiliser une compilation existante, pointez de nouveau vers le même dossier : un nouveau dossier repart de zéro.",
+  "msg.workdirHint": "Astuce : le dossier de sortie contient aussi le cache de compilation (<sortie>/<ID>_build). Pour réutiliser une compilation existante, pointez de nouveau vers le même dossier : un nouveau dossier repart de zéro. Lorsque le dossier de sortie se trouve sur un disque externe, la première compilation est nettement plus lente (pire en exFAT ou sur un disque dur).",
   "nav.builds": "Compilations",
   "nav.library": "Bibliothèque",
   "nav.settings": "Réglages",
