@@ -974,6 +974,8 @@
   "shell.exportDone": "Die IPA-Datei ist fertig: %@",
   "shell.exportFailed": "Die IPA-Datei konnte nicht erstellt werden: %@",
   "shell.exportPackStage": "IPA-Datei packen",
+  "shell.frameworkIncomplete": "Die Dateien von %1$@ sind unvollständig, %2$@ fehlt. Baue das Spiel erneut.",
+  "shell.gameLeftOut": "%1$@ ist nicht in der gemeinsamen App, weil seine Dateien unvollständig sind (%2$@ fehlt). Baue dieses Spiel erneut, um es wieder hinzuzufügen.",
   "shell.modeExport": "Als IPA exportieren",
   "shell.modeInstall": "Auf Gerät installieren",
   "shell.modeTitle": "Installieren oder exportieren",

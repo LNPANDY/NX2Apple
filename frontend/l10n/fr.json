@@ -973,6 +973,8 @@
   "shell.exportDone": "L’IPA est prêt : %@",
   "shell.exportFailed": "L’IPA n’a pas pu être créé : %@",
   "shell.exportPackStage": "Empaqueter l’IPA",
+  "shell.frameworkIncomplete": "Les fichiers de %1$@ sont incomplets, %2$@ manque. Reconstruisez le jeu.",
+  "shell.gameLeftOut": "%1$@ a été laissé hors de l’app partagée car ses fichiers sont incomplets (%2$@ manque). Reconstruisez ce jeu pour le rajouter.",
   "shell.modeExport": "Exporter en IPA",
   "shell.modeInstall": "Installer sur l’appareil",
   "shell.modeTitle": "Installer ou exporter",

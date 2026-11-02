@@ -48,15 +48,23 @@ extension ShellInstaller {
     package static let exportBuildStageID = 1012, exportPackStageID = 1013
 
     /// Steps 3 and 4 of the install, which the export shares: the library with this game, and the shell's project.
-    /// Exactly one of `failure` and (`library`, `env`) is set.
+    /// Exactly one of `failure` and (`library`, `env`) is set. `notes` name the games left out because their framework is incomplete.
     func prepareShell(framework: String, titleID: String, name: String)
-        -> (library: ShellLibrary?, env: [String: String]?, failure: Outcome?) {
+        -> (library: ShellLibrary?, env: [String: String]?, failure: Outcome?, notes: [String]) {
         // 3: the library
+        ShellInstall.sweepDiscarded(in: ShellInstall.frameworksMirror(root: root))
         var library = ShellLibrary.load(root: root)
         if !team.isEmpty { library.team = team }   // the export has no team: keep the one an install stored
         library.add(.init(titleID: titleID, name: name, framework: framework))
         mirrorFrameworks(&library)
         library.dropMissing()
+        let checked = leaveOutIncomplete(&library, titleID: titleID, name: name)   // ShellFrameworks.swift
+        if let why = checked.failure {
+            let projectName = t("shell.projectStage")
+            begin(Self.projectStageID, projectName)
+            end(Self.projectStageID, projectName, ok: false, detail: why)
+            return (nil, nil, Outcome(ok: false, message: fmt("shell.projectFailed", why)), [])
+        }
         // The 16:9 banner of the shell's library for every game in it (ShellHost reads <framework>/banner.<ext>, the square
         // icon.png is the fallback): a game rebuilt since its last install gets its banner back too
         for game in library.games {
@@ -66,13 +74,13 @@ extension ShellInstaller {
             }
         }
         do { try library.save(root: root) } catch {
-            return (nil, nil, Outcome(ok: false, message: fmt("shell.projectFailed", error.localizedDescription)))
+            return (nil, nil, Outcome(ok: false, message: fmt("shell.projectFailed", error.localizedDescription)), [])
         }
 
         // 4: the project
         guard let package = ShellInstall.shellPackage(resources: resources, repo: repo) else {
             let looked = ([resources, repo].compactMap { $0 }.filter { !$0.isEmpty }).map { $0 + "/frontend-ios" }.joined(separator: ", ")
-            return (nil, nil, Outcome(ok: false, message: fmt("shell.projectFailed", "no frontend-ios Swift package (Package.swift) in " + looked)))
+            return (nil, nil, Outcome(ok: false, message: fmt("shell.projectFailed", "no frontend-ios Swift package (Package.swift) in " + looked)), [])
         }
         var env = ShellInstall.projectEnvironment(root: root, frameworks: library.games.map(\.framework), bundleID: library.bundleID,
                                                   team: team, python: python, path: toolPath, home: NSHomeDirectory(), user: NSUserName(),
@@ -84,10 +92,10 @@ extension ShellInstaller {
         if project.status != 0 {
             let why = ShellInstall.scriptFailure(project.output) ?? fmt("msg.exitCode", project.status)
             end(Self.projectStageID, projectName, ok: false, detail: why)
-            return (nil, nil, Outcome(ok: false, message: fmt("shell.projectFailed", why)))
+            return (nil, nil, Outcome(ok: false, message: fmt("shell.projectFailed", why)), [])
         }
         end(Self.projectStageID, projectName, ok: true)
-        return (library, env, nil)
+        return (library, env, nil, checked.notes)
     }
 
     /// The export: the library and the project, the unsigned build, the entitlements, the IPA. Needs no device and no team.
@@ -146,7 +154,7 @@ extension ShellInstaller {
             return Outcome(ok: false, message: fmt("shell.exportFailed", why))
         }
         end(Self.exportPackStageID, packName, ok: true)
-        var outcome = Outcome(ok: true, message: fmt("shell.exportDone", ipa), bundleID: library.bundleID)
+        var outcome = Outcome(ok: true, message: ([fmt("shell.exportDone", ipa)] + prepared.notes).joined(separator: "\n"), bundleID: library.bundleID)
         outcome.ipaPath = ipa
         return outcome
     }

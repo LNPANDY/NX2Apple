@@ -1099,6 +1099,8 @@
   "shell.exportDone": "IPA 已就绪：%@",
   "shell.exportFailed": "无法生成 IPA：%@",
   "shell.exportPackStage": "打包 IPA",
+  "shell.frameworkIncomplete": "%1$@ 的文件不完整，缺少 %2$@。请重新构建这个游戏。",
+  "shell.gameLeftOut": "%1$@ 的文件不完整（缺少 %2$@），已从共用应用中移除。重新构建这个游戏即可将它加回来。",
   "shell.modeExport": "导出为 IPA",
   "shell.modeInstall": "安装到设备",
   "shell.modeTitle": "安装或导出",

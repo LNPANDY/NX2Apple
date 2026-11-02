@@ -124,6 +124,7 @@ import NXModel
         guard fm.isExecutableFile(atPath: "/usr/bin/python3") else { throw XCTSkip("System Python is required for the process fixture") }
         let framework = path("work/shell-framework/DmGame\(titleID).framework")
         try write(framework + "/game.manifest.json", "{}")
+        try write(framework + "/DmGame\(titleID)", "executable")
         return Fixture(xcrun: try makeXcrun(), repo: try makeRepo(entitlements: entitlements), framework: framework, root: path("NX2Apple-shell"))
     }
 
@@ -216,6 +217,75 @@ import NXModel
         XCTAssertFalse(outcome.ok)
         XCTAssertTrue(calls.isEmpty)
         XCTAssertFalse(fm.fileExists(atPath: state + "/shell-env.txt"))
+    }
+
+    // ---- a framework that a cut-off delete or copy left incomplete ----
+
+    /// v1.0.2-rc1: the launcher was quit while the stale prompt deleted Breath of the Wild's framework (a minute for its shader files).
+    /// shell.json still named the half framework, and the next build of Hades failed at "Prepare the shared app" with only its path.
+    func testAnotherGamesIncompleteFrameworkIsLeftOutNamedAndNotShipped() throws {
+        let f = try makeFixture()
+        let otherID = "01007EF00011E000"
+        let half = ShellInstall.mirroredFramework(root: f.root, titleID: otherID)
+        try write(half + "/Info.plist", "plist")
+        try write(half + "/msl/b-e65a4ebd3322/0000.metallib", "shader")
+        var library = ShellLibrary()
+        library.add(.init(titleID: otherID, name: "Zelda Breath of the Wild", framework: half))
+        try library.save(root: f.root)
+        var logged = ""
+        var i = installer(f)
+        i.log = { logged += $0 }
+        i.banners = URL(fileURLWithPath: path("banners"))
+        let outcome = i.export(framework: f.framework, titleID: titleID, name: "Hades")
+        XCTAssertTrue(outcome.ok, outcome.message)
+        let env = try String(contentsOfFile: state + "/shell-env.txt", encoding: .utf8)
+        XCTAssertFalse(env.contains(otherID), "the half framework does not go into the app: " + env)
+        XCTAssertEqual(ShellLibrary.load(root: f.root).games.map(\.titleID), [titleID])
+        let note = String(format: L10n.string("shell.gameLeftOut", .en), "Zelda Breath of the Wild", "game.manifest.json")
+        XCTAssertTrue(outcome.message.hasSuffix(note), outcome.message)
+        XCTAssertTrue(logged.contains(note), logged)
+        XCTAssertFalse(fm.fileExists(atPath: half), "the half mirror is taken away")
+    }
+
+    func testTheBuiltGamesOwnIncompleteFrameworkStopsWithItsNameAndTheMissingFile() throws {
+        let f = try makeFixture()
+        try fm.removeItem(atPath: f.framework + "/DmGame\(titleID)")
+        var stages: [ShellStage] = []
+        var i = installer(f)
+        i.stage = { stages.append($0) }
+        i.lang = .de
+        let outcome = i.export(framework: f.framework, titleID: titleID, name: "Hades")
+        XCTAssertFalse(outcome.ok)
+        let why = String(format: L10n.string("shell.frameworkIncomplete", .de), "Hades", "DmGame\(titleID)")
+        XCTAssertEqual(outcome.message, String(format: L10n.string("shell.projectFailed", .de), why))
+        XCTAssertEqual(stages.last?.id, ShellInstaller.projectStageID)
+        XCTAssertEqual(stages.last?.state, .failed)
+        XCTAssertEqual(stages.last?.detail, why)
+        XCTAssertFalse(fm.fileExists(atPath: state + "/shell-env.txt"), "build_shell.sh never runs")
+    }
+
+    func testTheCheckNamesTheManifestThenTheExecutableTheManifestNames() throws {
+        let fw = path("check/DmGame\(titleID).framework")
+        try fm.createDirectory(atPath: fw, withIntermediateDirectories: true)
+        XCTAssertEqual(ShellInstall.missingFile(inFramework: fw, titleID: titleID), "game.manifest.json")
+        try write(fw + "/game.manifest.json", "not json")
+        XCTAssertEqual(ShellInstall.missingFile(inFramework: fw, titleID: titleID), "game.manifest.json")
+        try write(fw + "/game.manifest.json", #"{"framework_executable": "Other"}"#)
+        XCTAssertEqual(ShellInstall.missingFile(inFramework: fw, titleID: titleID), "Other")
+        try write(fw + "/Other", "executable")
+        XCTAssertNil(ShellInstall.missingFile(inFramework: fw, titleID: titleID))
+        try write(fw + "/game.manifest.json", "{}")
+        XCTAssertEqual(ShellInstall.missingFile(inFramework: fw, titleID: titleID), "DmGame\(titleID)")
+    }
+
+    func testTheNewTextsNameGameAndFileInEveryLanguage() {
+        for lang in Lang.all {
+            for key in ["shell.frameworkIncomplete", "shell.gameLeftOut"] {
+                let text = L10n.string(key, lang)
+                XCTAssertTrue(text.contains("%1$@") && text.contains("%2$@"), "\(key) in \(lang)")
+                XCTAssertFalse(text.contains(";") || text.contains("；") || text.contains("—"), "\(key) in \(lang)")
+            }
+        }
     }
 
     // ---- step 3: the game data to the device ----
@@ -524,7 +594,7 @@ import NXModel
         open('\(state)/script.txt', 'w').write(' '.join(sys.argv[1:]))
         work = pathlib.Path(sys.argv[sys.argv.index('--work-dir') + 1])
         fw = pathlib.Path(sys.argv[sys.argv.index('--shell-framework') + 1]) / 'DmGame\(titleID).framework'
-        fw.mkdir(parents=True); (fw / 'game.manifest.json').write_text('{}')
+        fw.mkdir(parents=True); (fw / 'game.manifest.json').write_text('{}'); (fw / 'DmGame\(titleID)').write_text('executable')
         (work / 'extract/v0/RomFS').mkdir(parents=True); (work / 'extract/v0/RomFS/data.bin').write_bytes(b'game')
         print(json.dumps(dict(ev='stage', k=1, n=1, name='framework')), flush=True)
         print(json.dumps(dict(ev='stage_end', k=1, name='framework', ok=True, summary='', elapsed=1)), flush=True)
