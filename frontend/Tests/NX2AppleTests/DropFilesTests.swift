@@ -24,84 +24,6 @@ final class DropFilesTests: XCTestCase {
         return path
     }
 
-    /// The per-row Choose… dialog must not grey out compressed dumps (issue #236).
-    func testChooseDialogOffersCompressedDumps() {
-        XCTAssertEqual(Set(BuildModel.allowedFileTypes(for: .base)), ["nsp", "xci", "nsz", "xcz"])
-        XCTAssertEqual(BuildModel.allowedFileTypes(for: .update), BuildModel.allowedFileTypes(for: .base))
-        XCTAssertEqual(Set(BuildModel.allowedFileTypes(for: .dlc)), ["nsp", "nsz"])
-        XCTAssertEqual(BuildModel.allowedFileTypes(for: .keys), ["keys"])
-    }
-
-    func testADroppedMixedSetIsSortedByTitleID() throws {
-        let base = try file("Game [0100000000010000][v0].nsp", size: 64)
-        let repack = try file("Game [0100000000010000].nsz", size: 32)
-        let old = try file("Game [0100000000010800][v65536].nsp")
-        let new = try file("Game [0100000000010800][v131072].nsz")
-        let dlc1 = try file("Game DLC [0100000000011001].nsp"), dlc2 = try file("Game DLC [0100000000011002].xci")
-        let keys = try file("prod.keys")
-        let unfinished = try file("Game [0100000000010000].xci", size: 0)
-        let unnamed = try file("game.nsp"), text = try file("readme.txt")
-        let found = BuildModel.classify([dlc2, text, old, repack, unfinished, base, keys, new, unnamed, dlc1])
-        XCTAssertEqual(found, BuildModel.FoundInputs(base: base, update: new, dlc: [dlc1, dlc2], keys: keys),
-                       "the largest base, the newest update, every add-on sorted, the keys")
-        XCTAssertEqual(BuildModel.classify([text, unnamed]), BuildModel.FoundInputs())
-        XCTAssertFalse(BuildModel.FoundInputs(keys: keys).anyGame)
-    }
-
-    /// The names from issue #237: the title ID bare at the start of the name, the version as a `_vN` token.
-    func testBareTitleIDNamesAreClassified() throws {
-        let base = try file("01007EF00011E000_v0_420d1c5034ab.nsp", size: 64)
-        let old = try file("01007EF00011E800_v1048576_48d51e6d7ff4.nsp")
-        let new = try file("01007EF00011E800_v1114112_038ff9df0888.nsp")
-        let dlc1 = try file("01007EF00011F001_v196608_8a46aae731b8.nsp")
-        let dlc2 = try file("01007EF00011F002_v196608_193e5731baf2.nsp")
-        let found = BuildModel.classify([dlc2, old, base, dlc1, new])
-        XCTAssertEqual(found, BuildModel.FoundInputs(base: base, update: new, dlc: [dlc1, dlc2]))
-        XCTAssertEqual(found.updateCount, 2)
-        XCTAssertEqual(found.updateVersion, 1114112)
-        // bracket names keep working, and win when a name has both
-        XCTAssertEqual(BuildModel.titleID("Game [0100F2C0115B6000][v0].nsp"), 0x0100F2C0115B6000)
-        XCTAssertEqual(BuildModel.titleID("Game 0100AAAA00000000 [0100F2C0115B6000].nsp"), 0x0100F2C0115B6000)
-        XCTAssertEqual(BuildModel.updateVersion("Game [v65536] _v1.nsp"), 65536)
-        XCTAssertEqual(BuildModel.updateVersion("Game v131072.nsp"), 131072)
-        XCTAssertEqual(BuildModel.updateVersion("01007EF00011E800_v1114112_038ff9df0888.nsp"), 1114112)
-        XCTAssertEqual(BuildModel.updateVersion("game.nsp"), 0)
-        // token separators, and only IDs that look like Switch title IDs
-        XCTAssertEqual(BuildModel.titleID("Game (01007EF00011E000).nsp"), 0x01007EF00011E000)
-        XCTAssertEqual(BuildModel.titleID("Game-01007EF00011E000.nsp"), 0x01007EF00011E000)
-        XCTAssertNil(BuildModel.titleID("0200000000000000_v0.nsp"))
-        XCTAssertNil(BuildModel.titleID("x01007EF00011E000.nsp"), "not a token")
-        XCTAssertNil(BuildModel.titleID("01007EF00011E0001.nsp"), "17 digits")
-        // another game's update and DLC in the same folder are not taken for this base
-        let other = try file("0100AAAA00000800_v65536_aaaaaaaaaaaa.nsp")
-        let otherDLC = try file("0100AAAA00001001_v0_bbbbbbbbbbbb.nsp")
-        XCTAssertEqual(BuildModel.classify([base, new, dlc1, other, otherDLC]).update, new)
-        XCTAssertEqual(BuildModel.classify([base, new, dlc1, other, otherDLC]).dlc, [dlc1])
-    }
-
-    func testRowChecks() throws {
-        let base = "01007EF00011E000_v0_420d1c5034ab.nsp"
-        let update = "01007EF00011E800_v1114112_038ff9df0888.nsp"
-        let dlc = "01007EF00011F001_v196608_8a46aae731b8.nsp"
-        func check(_ kind: InputKind, _ name: String, _ b: String? = base) -> BuildModel.RowMismatch? {
-            BuildModel.rowMismatch(kind, name: name, base: b)
-        }
-        XCTAssertNil(check(.update, update))
-        XCTAssertNil(check(.dlc, dlc))
-        XCTAssertNil(check(.base, base, nil))
-        XCTAssertEqual(check(.dlc, update), .notDLC(0x01007EF00011E800), "the reporter's update in the DLC row")
-        XCTAssertEqual(check(.update, dlc), .notUpdate(0x01007EF00011F001))
-        XCTAssertEqual(check(.dlc, base), .notDLC(0x01007EF00011E000))
-        XCTAssertEqual(check(.update, base), .notUpdate(0x01007EF00011E000))
-        XCTAssertEqual(check(.base, update, nil), .notBase(0x01007EF00011E800))
-        XCTAssertEqual(check(.base, dlc, nil), .notBase(0x01007EF00011F001))
-        XCTAssertEqual(check(.update, "0100AAAA00000800_v1.nsp"), .otherGame)
-        XCTAssertEqual(check(.dlc, "0100AAAA00001001_v1.nsp"), .otherGame)
-        XCTAssertNil(check(.update, "0100AAAA00000800_v1.nsp", nil), "no base chosen yet")
-        XCTAssertNil(check(.dlc, "game.nsp"), "no title ID in the name: the build script reads it from the package")
-        XCTAssertNil(check(.keys, "prod.keys"))
-    }
-
     func testPickedFilesThatDoNotFitTheRowAreNotTaken() throws {
         let m = BuildModel()
         let base = try file("01007EF00011E000_v0_420d1c5034ab.nsp")
@@ -213,7 +135,7 @@ final class DropFilesTests: XCTestCase {
         model.lang = CaptureLanguage.current(.en)
         model.outDir = temporary.path
         model.depsChecked = true
-        model.deps = [BuildModel.Dep(id: "test", name: "Xcode", hint: "", present: true, installCmd: [])]
+        model.deps = [Dep(id: "test", name: "Xcode", hint: "", present: true, installCmd: [])]
         let library = GameLibrary(file: temporary.appendingPathComponent("preview.json"))
         // the page as a drag shows it: the highlight drawn over the Builds page
         let page = BuilderView(m: model, library: library).environmentObject(PadFocus()).environmentObject(model.localizer)

@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import NXCore
 import UserNotifications
 
 // A notification when a build finishes or fails (issue #64): a build takes long enough that people switch
@@ -90,7 +91,7 @@ final class BuildNotifier: NSObject, ObservableObject, UNUserNotificationCenterD
     }
 
     private func post(_ outcome: BuildNotice.Outcome, m: BuildModel, library: GameLibrary) {
-        let titleID = BuildModel.titleID(m.basePath).map { String(format: "%016llX", $0) } ?? ""
+        let titleID = TitleID.parse(m.basePath).map { String(format: "%016llX", $0) } ?? ""
         let game = library.games.first { $0.titleID == titleID }
         let name = game?.name ?? GameLibrary.title(for: m.basePath, repo: m.repoPath, titleID: titleID)
         let text = BuildNotice.text(outcome, game: name, target: m.target, device: m.installedOn.isEmpty ? nil : m.deviceName(m.installedOn), m.t)

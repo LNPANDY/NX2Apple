@@ -13,7 +13,7 @@ extension BuildModel {
         guard let chain = StaleFrameworks.currentChain(engineRoot: EngineLayout.root(repoPath)) else { return [] }
         let root = shellRoot
         let known = ShellLibrary.load(root: root).games.map { (titleID: $0.titleID, name: $0.name, framework: $0.framework) }
-        return StaleFrameworks.find(root: root, chain: chain, known: known, except: Self.buildKey(basePath))
+        return StaleFrameworks.find(root: root, chain: chain, known: known, except: TitleID.buildKey(basePath))
     }
 
     /// True when the build must wait for the player's answer: the prompt is showing (`staleFrameworks` is set).

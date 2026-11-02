@@ -217,6 +217,6 @@ final class BuildFailureRowsTests: XCTestCase {
         m.openApp = { opened.append($0) }
         m.failure = BuildFailure(kind: .teamTaken, gameName: nil)
         m.fixBuildFailure(.teamTaken)
-        if let xcode = BuildModel.installedXcode() { XCTAssertEqual(opened, [URL(fileURLWithPath: xcode)]) } else { XCTAssertTrue(opened.isEmpty) }
+        if let xcode = Toolchain.installedXcode() { XCTAssertEqual(opened, [URL(fileURLWithPath: xcode)]) } else { XCTAssertTrue(opened.isEmpty) }
     }
 }

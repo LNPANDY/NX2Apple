@@ -73,8 +73,8 @@ final class LauncherControlWidthTests: XCTestCase {
         // The names of devices and teams are the user's own, so the scenarios use short ones: only the launcher's words are measured.
         let team = SigningTeam(id: "E75GJAP35S", identity: "Apple Development: Mia (ABCDE12345)")
         let release = AppUpdate.Release(tag: "v9.9.9", url: "https://example.org/app.zip", digest: nil)
-        func missing(_ id: String, action: String = "", command: [String] = []) -> BuildModel.Dep {
-            BuildModel.Dep(id: id, name: "dep.xcode", hint: "dep.xcode.hint", present: false, actionLabel: action, installCmd: command)
+        func missing(_ id: String, action: String = "", command: [String] = []) -> Dep {
+            Dep(id: id, name: "dep.xcode", hint: "dep.xcode.hint", present: false, actionLabel: action, installCmd: command)
         }
         return [
             Scenario(name: "settings without a repository", page: .settings, atLeast: 4) { m, _, _ in
@@ -85,7 +85,7 @@ final class LauncherControlWidthTests: XCTestCase {
                 m.repoPath = try self.makeRepo(directory, git: false)
                 m.appInstallability = .ok
                 m.depsChecked = true
-                m.deps = [BuildModel.Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint", present: true, installCmd: [])]
+                m.deps = [Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint", present: true, installCmd: [])]
                 library.setFolder(directory)
             },
             Scenario(name: "settings with a clone that is behind and an app update", page: .settings, atLeast: 6) { m, _, directory in

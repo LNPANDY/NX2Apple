@@ -738,7 +738,7 @@ final class ShellInstallTests: XCTestCase {
         model.pythonPath = "/usr/bin/python3"
         model.dotnetPath = "/usr/bin/true"
         model.depsChecked = true
-        model.deps = [BuildModel.Dep(id: "test", name: "test", hint: "", present: true, installCmd: [])]
+        model.deps = [Dep(id: "test", name: "test", hint: "", present: true, installCmd: [])]
         model.installDevice = device
         model.signingTeam = team
         model.xcrunPath = f.xcrun
@@ -802,7 +802,7 @@ final class ShellInstallTests: XCTestCase {
         model.pythonPath = "/usr/bin/python3"
         model.dotnetPath = "/usr/bin/true"
         model.depsChecked = true
-        model.deps = [BuildModel.Dep(id: "test", name: "test", hint: "", present: true, installCmd: [])]
+        model.deps = [Dep(id: "test", name: "test", hint: "", present: true, installCmd: [])]
         model.installDevice = device
         model.signingTeam = team
         model.xcrunPath = f.xcrun
