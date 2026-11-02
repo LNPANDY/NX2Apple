@@ -7,15 +7,10 @@ import NXCore
 extension BuildStore {
     // MARK: Installing on a device
 
-    /// Steps 4 to 7 of the shared app (ShellInstall.swift) for a game whose framework is built and whose archive is packed: the
-    /// shell's project, signing, the install over the app that is already there, and the game data the device lacks.
-    package func installShell(framework: String, titleID: String, name: String, archive: String, dataOnly: Bool = false) {
-        running = true
-        if dataOnly { failure = nil; done = false; doneNote = "" }
-        shellRetry = (framework, titleID, name, archive)
+    /// The installer with this store's tools, log, stages and process hand-off wired in. The install and the export (BuildStore+Export.swift) share it.
+    func makeInstaller() -> ShellInstaller {
         let python = deps.pythonPath.isEmpty ? Toolchain.findPython().path : deps.pythonPath
-        let root = shellRoot
-        var installer = ShellInstaller(xcrun: devices.xcrun, repo: repo.path, python: python, root: root, device: devices.installDevice, team: devices.signingTeam)
+        var installer = ShellInstaller(xcrun: devices.xcrun, repo: repo.path, python: python, root: shellRoot, device: devices.installDevice, team: devices.signingTeam)
         installer.deviceName = devices.deviceName(devices.installDevice)
         installer.lang = localizer.lang
         installer.ownGroup = true
@@ -38,6 +33,17 @@ extension BuildStore {
         installer.decideCopy = { plan in target.askCopy(plan) }
         installer.waiting = { on in target.setWaiting(on) }
         installer.waitCancelled = { target.waitCancelled }
+        return installer
+    }
+
+    /// Steps 4 to 7 of the shared app (ShellInstall.swift) for a game whose framework is built and whose archive is packed: the
+    /// shell's project, signing, the install over the app that is already there, and the game data the device lacks.
+    package func installShell(framework: String, titleID: String, name: String, archive: String, dataOnly: Bool = false) {
+        running = true
+        if dataOnly { failure = nil; done = false; doneNote = "" }
+        shellRetry = (framework, titleID, name, archive)
+        let installer = makeInstaller()
+        let target = devices
         let device = devices.installDevice
         DispatchQueue.global(qos: .userInitiated).async {
             let result = dataOnly ? installer.installData(titleID: titleID, archive: archive)

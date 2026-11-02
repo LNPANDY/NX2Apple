@@ -142,7 +142,7 @@ package enum ShellInstall {
 
     /// The part of the build script's argument list that makes the game's framework instead of an Xcode project.
     package static func buildArguments(workDir: String, team: String) -> [String] {
-        ["--shell-framework", workDir + "/shell-framework", "--team-id", team]
+        ["--shell-framework", workDir + "/shell-framework"] + (team.isEmpty ? [] : ["--team-id", team])
     }
 
     // ---- 4: the project ----
@@ -262,7 +262,8 @@ package enum ShellInstall {
     package static func localFiles(in archive: String) -> [String: Int64] {
         let fm = FileManager.default
         var found: [String: Int64] = [:]
-        for case let path as String in fm.enumerator(atPath: archive) ?? FileManager.DirectoryEnumerator() {
+        guard let enumerator = fm.enumerator(atPath: archive) else { return found }   // a folder that is not there holds nothing
+        for case let path as String in enumerator {
             if path.split(separator: "/").contains(where: { $0.hasPrefix(".") }) { continue }
             var isDirectory: ObjCBool = false
             guard fm.fileExists(atPath: archive + "/" + path, isDirectory: &isDirectory), !isDirectory.boolValue,
@@ -370,6 +371,8 @@ package struct ShellInstaller {
     /// player cancelled.
     package var waiting: (Bool) -> Void = { _ in }
     package var waitCancelled: () -> Bool = { false }
+    /// The bytes copied so far and the bytes to copy, told before each file and after it (the data send shows them).
+    package var copyProgress: (Int64, Int64) -> Void = { _, _ in }
     /// Seconds between two looks at `devicectl list devices` while waiting for a cable.
     package var pollInterval: TimeInterval = 4
     /// Where the eShop banners are cached (ArtworkStore), read only: the game's goes into its framework for the shell's library.
@@ -386,6 +389,14 @@ package struct ShellInstaller {
         package var message: String
         package var step: BuildFailureClassifier.InstallStep? = nil   // the failed device step, for the failure card
         package var appPath = ""
+        /// The IPA of an export (ShellExport.swift).
+        package var ipaPath = ""
+        /// devicectl's own words for a copy that failed (the data copy of `sendData` shows them).
+        package var detail = ""
+        /// The data send: what the copy meant (`ShellExport.swift`), the copies of the shared app when there are several, the app's name.
+        package var dataFailure: ShellInstall.DataFailure? = nil
+        package var apps: [InstalledApp] = []
+        package var appName = ""
         package var bundleID = ""
         package var copied = 0
         package var copySkipped = false
@@ -402,15 +413,15 @@ package struct ShellInstaller {
 
     package static let projectStageID = 1010, signStageID = 1001, installStageID = 1002, copyStageID = 1003, checkStageID = 1011
 
-    private func t(_ key: String) -> String { L10n.string(key, lang) }
-    private func fmt(_ key: String, _ args: CVarArg...) -> String { String(format: t(key), arguments: args) }
+    func t(_ key: String) -> String { L10n.string(key, lang) }
+    func fmt(_ key: String, _ args: CVarArg...) -> String { String(format: t(key), arguments: args) }
 
-    private struct ToolResult { var status: Int32; var output: String; var lastError: String? }
+    struct ToolResult { var status: Int32; var output: String; var lastError: String? }
 
     /// The mirror in the shell folder is the primary copy of a game's framework: shell.json points there. A game whose
     /// framework is in its build folder is mirrored now, so a game built before the mirror existed gets one too. A game whose
     /// build folder is gone plays from the mirror it already has. A failed mirror is logged and the game keeps its build path.
-    private func mirrorFrameworks(_ library: inout ShellLibrary) {
+    func mirrorFrameworks(_ library: inout ShellLibrary) {
         let fm = FileManager.default
         for i in library.games.indices {
             let game = library.games[i]
@@ -436,42 +447,10 @@ package struct ShellInstaller {
         }
         // A device this Mac never paired is found out now, not after the signing: nothing is built for it
         if let refused = pairingRefusal() { return refused }
-        // 3: the library
-        var library = ShellLibrary.load(root: root)
-        library.team = team
-        library.add(.init(titleID: titleID, name: name, framework: framework))
-        mirrorFrameworks(&library)
-        library.dropMissing()
-        // The 16:9 banner of the shell's library for every game in it (ShellHost reads <framework>/banner.<ext>, the square
-        // icon.png is the fallback): a game rebuilt since its last install gets its banner back too
-        for game in library.games {
-            let picked = game.titleID == titleID ? pickedArtwork : nil
-            if let banner = ShellInstall.placeBanner(titleID: game.titleID, framework: game.framework, banners: banners, picked: picked) {
-                log("banner: \(game.titleID) \(banner)\n")
-            }
-        }
-        do { try library.save(root: root) } catch {
-            return Outcome(ok: false, message: fmt("shell.projectFailed", error.localizedDescription))
-        }
-
-        // 4: the project
-        guard let package = ShellInstall.shellPackage(resources: resources, repo: repo) else {
-            let looked = ([resources, repo].compactMap { $0 }.filter { !$0.isEmpty }).map { $0 + "/frontend-ios" }.joined(separator: ", ")
-            return Outcome(ok: false, message: fmt("shell.projectFailed", "no frontend-ios Swift package (Package.swift) in " + looked))
-        }
-        var env = ShellInstall.projectEnvironment(root: root, frameworks: library.games.map(\.framework), bundleID: library.bundleID,
-                                                  team: team, python: python, path: toolPath, home: NSHomeDirectory(), user: NSUserName(),
-                                                  tmp: NSTemporaryDirectory(), package: package)
-        env.merge(BundledTools.environment(for: python)) { $1 }
+        // 3 and 4: the library and the project
+        let prepared = prepareShell(framework: framework, titleID: titleID, name: name)
+        guard var library = prepared.library, let env = prepared.env else { return prepared.failure! }
         let projectName = t("shell.projectStage")
-        begin(Self.projectStageID, projectName)
-        let project = run(ShellInstall.projectCommand(repo: repo), env: env, label: projectName, step: { _ in nil })
-        if project.status != 0 {
-            let why = ShellInstall.scriptFailure(project.output) ?? fmt("msg.exitCode", project.status)
-            end(Self.projectStageID, projectName, ok: false, detail: why)
-            return Outcome(ok: false, message: fmt("shell.projectFailed", why))
-        }
-        end(Self.projectStageID, projectName, ok: true)
 
         // 5: sign and build, with one retry under this team's own identifier
         let signName = fmt("dev.signStage", deviceName)
@@ -541,7 +520,7 @@ package struct ShellInstaller {
     }
 
     /// The pairing steps as a failure when this Mac does not know the device, else nil.
-    private func pairingRefusal() -> Outcome? {
+    func pairingRefusal() -> Outcome? {
         guard connection() == .notPaired else { return nil }
         return Outcome(ok: false, message: fmt("shell.notPaired", deviceName), failure: .devicePairing)
     }
@@ -550,7 +529,7 @@ package struct ShellInstaller {
         ShellInstall.connection(of: device, in: DeviceTools.devices(xcrun: xcrun, timeout: 20, runner: runner))
     }
 
-    private func copyGameData(titleID: String, archive: String, app: String, bundleID: String, outcome start: Outcome) -> Outcome {
+    func copyGameData(titleID: String, archive: String, app: String, bundleID: String, outcome start: Outcome) -> Outcome {
         var outcome = start
         let checkName = fmt("shell.checkStage", deviceName)
         begin(Self.checkStageID, checkName)
@@ -602,7 +581,9 @@ package struct ShellInstaller {
         }
         let copyName = fmt("dev.copyStage", deviceName)
         begin(Self.copyStageID, copyName)
+        var copiedBytes: Int64 = 0
         for (i, path) in missing.enumerated() {
+            copyProgress(copiedBytes, needed)
             stage(ShellStage(id: Self.copyStageID, name: copyName, state: .running, detail: "\(i + 1)/\(missing.count)",
                              percent: Double(i) / Double(missing.count) * 100))
             let r = run(ShellInstall.copyCommand(xcrun: xcrun, device: device, bundleID: bundleID, titleID: titleID,
@@ -613,11 +594,15 @@ package struct ShellInstaller {
                 end(Self.copyStageID, copyName, ok: false, detail: why)
                 // The file that failed may be on the device in part. The next listing sees its size is not the local one and copies it
                 // again, so a Retry finishes the data. Nothing here marks the game as ready.
-                return Outcome(ok: false, message: fmt("shell.copyIncomplete", deviceName, why), appPath: app, bundleID: bundleID, copied: i,
-                               failure: .shellDataIncomplete)
+                var incomplete = Outcome(ok: false, message: fmt("shell.copyIncomplete", deviceName, why), appPath: app, bundleID: bundleID, copied: i,
+                                         failure: .shellDataIncomplete)
+                incomplete.detail = why
+                return incomplete
             }
             outcome.copied = i + 1
+            copiedBytes += local[path] ?? 0
         }
+        copyProgress(needed, needed)
         end(Self.copyStageID, copyName, ok: true)
         return outcome
     }
@@ -637,14 +622,14 @@ package struct ShellInstaller {
                              sizeText: fmt("shell.copySize", ShellInstall.sizeText(bytes), files), connectionText: connectionText)
     }
 
-    private func begin(_ id: Int, _ name: String) { stage(ShellStage(id: id, name: name, state: .running)) }
-    private func end(_ id: Int, _ name: String, ok: Bool, detail: String = "") {
+    func begin(_ id: Int, _ name: String) { stage(ShellStage(id: id, name: name, state: .running)) }
+    func end(_ id: Int, _ name: String, ok: Bool, detail: String = "") {
         stage(ShellStage(id: id, name: name, state: ok ? .done : .failed, detail: detail, percent: ok ? 100 : nil))
     }
 
     /// One tool, blocking: its output lines go to `log`, the last error line is kept. `env` nil is the plain tool environment of the
     /// per-game install (xcodebuild, devicectl).
-    private func run(_ command: [String], env: [String: String]?, label: String,
+    func run(_ command: [String], env: [String: String]?, label: String,
                      step: (String) -> (detail: String, percent: Double?)?) -> ToolResult {
         log("[\(label)] \(command.joined(separator: " "))\n")
         var output = "", lastError: String?

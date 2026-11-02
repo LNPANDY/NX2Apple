@@ -32,6 +32,10 @@ package struct FilePick: Equatable {
     /// The paired devices the last listing found.
     var devices: [AppleDevice] { get }
     var signingTeam: String { get }
+    /// The build exports the shared app as an IPA instead of installing it.
+    var exportIPA: Bool { get }
+    /// The folder the game data is copied to (a drive), empty when none is chosen.
+    var driveFolder: String { get set }
     var xcrun: String { get }
     var readTeams: @Sendable () -> [SigningTeam] { get }
     func deviceName(_ udid: String) -> String
@@ -128,8 +132,12 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     // folder (romfs.img, aoc/) into its Documents, as a sideloaded copy has it. Without a device or a team the build stays an unsigned IPA, as before.
     @Published package var installedOn = ""       // the device the last build went to (its UDID)
     @Published package var installedAppPath = ""  // the signed app that went there
+    @Published package var exportedIPAPath = ""   // the unsigned IPA of an export (#416)
+    @Published package var send: DataSend = .idle  // step 3 of the export: the game data on its way (BuildStore+Send.swift)
+    @Published package var drive: DriveState?      // the chosen folder's volume and what stops the copy (BuildStore+Send.swift)
     var shellRetry: (framework: String, titleID: String, name: String, archive: String)?
     var shellDeviceChecked = false
+    package let driveCancel = LockedFlag()   // Stop of the copy to a drive (BuildStore+Send.swift)
 
     // ---- The app's side: AppKit and the wiring, as closures ----
     package var chooseKeys: (() -> Void)?          // tests stand in for the file picker
@@ -187,6 +195,8 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     package func t(_ key: String) -> String { localizer.t(key) }
 
     /// This iPhone build goes straight to a device.
+    /// An iPhone or iPad build that makes the shared app as an unsigned IPA (#416): no device, no team.
+    package var exportsShell: Bool { target != BuildTarget.mac && devices.exportIPA }
     package var installsDirectly: Bool { target != BuildTarget.mac && !devices.installDevice.isEmpty && !devices.signingTeam.isEmpty }
 
     /// Home shown as ~ (shorter in a one-line row, and it keeps the account name out of screenshots).

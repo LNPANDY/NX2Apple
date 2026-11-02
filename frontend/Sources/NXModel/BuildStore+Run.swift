@@ -8,7 +8,7 @@ extension BuildStore {
     package func startBuild() {
         guard !running else { return }
         // The shared app needs a device this Mac knows. Found out here, before an hour of building, not after it.
-        if target != BuildTarget.mac, !shellDeviceChecked {
+        if target != BuildTarget.mac, !shellDeviceChecked, !exportsShell {
             guard installsDirectly else { doneNote = t("shell.needsDevice"); done = false; return }
             verifyShellDevice()
             return
@@ -19,7 +19,7 @@ extension BuildStore {
         running = true; done = false; doneNote = ""; stages = []; log.clear(); chainNoteShown = false
         failure = nil; confirmingOverride = nil
         let override = takeOverrideFlag()   // for this build only: the next one asks again
-        installedOn = ""; installedAppPath = ""
+        installedOn = ""; installedAppPath = ""; exportedIPAPath = ""; send = .idle
         guard repo.isRepo else {
             fail(repo.path.isEmpty ? t("msg.repoInvalidEmpty") : String(format: t("msg.repoInvalid"), shortPath(repo.path)))
             return
@@ -149,7 +149,7 @@ extension BuildStore {
             args += ["-o", macAppPath]
         } else {
             // Only the game's framework: the one shared app is made and signed after the script (installShell)
-            args += ShellInstall.buildArguments(workDir: workDir, team: devices.signingTeam)
+            args += ShellInstall.buildArguments(workDir: workDir, team: exportsShell ? "" : devices.signingTeam)
         }
         // The archive step packs whatever folder the build reported; without --work-dir that is the
         // script's default, which is the same workDir unless a separate output folder was chosen.
@@ -215,7 +215,8 @@ extension BuildStore {
                         let name = ((self.basePath as NSString).lastPathComponent as NSString).deletingPathExtension
                         let fw = ShellInstall.frameworkPath(workDir: self.effectiveWorkDir, titleID: tid)
                         self.packArchive(workDir: self.effectiveWorkDir) {
-                            self.installShell(framework: fw, titleID: tid, name: name, archive: $0)
+                            if self.exportsShell { self.exportShell(framework: fw, titleID: tid, name: name) }
+                            else { self.installShell(framework: fw, titleID: tid, name: name, archive: $0) }
                         }
                     }
                 } else {

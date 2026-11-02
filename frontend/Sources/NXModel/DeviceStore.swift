@@ -2,6 +2,12 @@ import Foundation
 import Combine
 import NXCore
 
+/// The two places step 3 of the export sends the game data to.
+package enum SendWhere {
+    package static let device = "device"
+    package static let drive = "drive"
+}
+
 /// The devices (LNPANDY/NX2Apple#387, step 7): the iPhones and iPads paired with this Mac, the teams it can sign for, the device and
 /// the team the player chose to install on, and the copy flow of the shared app (the question before the game data goes over, and
 /// the wait for a cable). It follows `AppUpdateStore` (`frontend/ARCHITECTURE.md`, "Stores").
@@ -18,6 +24,9 @@ import NXCore
 @MainActor package final class DeviceStore: ObservableObject {
     nonisolated package static let deviceKey = "installDevice"
     nonisolated package static let teamKey = "signingTeam"
+    nonisolated package static let exportKey = "exportIPA"
+    nonisolated package static let sendWhereKey = "sendWhere"
+    nonisolated package static let driveFolderKey = "driveFolder"
 
     @Published package var devices: [AppleDevice] = []
     @Published package var teams: [SigningTeam] = []
@@ -30,6 +39,18 @@ import NXCore
     /// The team ID the build is signed for. Saved when it changes.
     @Published package var signingTeam: String {
         didSet { defaults.set(signingTeam, forKey: Self.teamKey) }
+    }
+    /// The build makes the shared app as an unsigned IPA instead of installing it (#416). Needs no device and no team. Saved when it changes.
+    @Published package var exportIPA: Bool {
+        didSet { defaults.set(exportIPA, forKey: Self.exportKey) }
+    }
+    /// Where step 3 of the export sends the game data: `SendWhere.device` or `.drive`. Saved when it changes.
+    @Published package var sendWhere: String {
+        didSet { defaults.set(sendWhere, forKey: Self.sendWhereKey) }
+    }
+    /// The folder (a drive) the game data is copied to. Saved when it changes.
+    @Published package var driveFolder: String {
+        didSet { defaults.set(driveFolder, forKey: Self.driveFolderKey) }
     }
     /// The shared app's copy question: the size and the connection (nil: none is up).
     @Published package private(set) var shellCopy: ShellCopyPlan?
@@ -58,6 +79,9 @@ import NXCore
         self.readTeams = readTeams ?? { DeviceTools.teams(runner: runner) }
         self.installDevice = defaults.string(forKey: Self.deviceKey) ?? ""
         self.signingTeam = defaults.string(forKey: Self.teamKey) ?? ""
+        self.exportIPA = defaults.bool(forKey: Self.exportKey)
+        self.sendWhere = defaults.string(forKey: Self.sendWhereKey) ?? SendWhere.device
+        self.driveFolder = defaults.string(forKey: Self.driveFolderKey) ?? ""
     }
 
     /// A device's name for a message, "iPhone" when this Mac has not listed it.
