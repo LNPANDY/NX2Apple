@@ -70,10 +70,7 @@ final class BuildModel: ObservableObject {
     private var chainNoteShown = false   // the shader-chain notice shows once per build
     @Published var running = false
     @Published var staleFrameworks: [StaleFrameworks.Entry] = []   // the prompt of StaleFrameworksPrompt.swift (#449)
-    /// The shell folder the cache row shows: the frameworks' mirror, shell.json and the banner cache live here.
-    var shellCachePath: String { shellRoot }
-    /// The shell folder of the install and of the cache row: the saved one, else next to the output folder (or the game's folder).
-    var shellRoot: String { ShellLibrary.resolveRoot(parent: outDir.isEmpty ? (basePath as NSString).deletingLastPathComponent : outDir) }
+    // The shell folder (shellCachePath, shellRoot): ShellRoot.swift.
     @Published var stopping = false
     /// The build log. Not published: only `BuildLogView` observes it (#387), so a log line redraws the log and nothing else.
     let log = BuildLog()
@@ -1112,6 +1109,9 @@ final class BuildModel: ObservableObject {
             fail(failureWhat(failure!))
             return
         }
+        // The shared app's own folder is decided before the long steps too: one on a read-only volume (a saved
+        // /NX2Apple-shell, a DMG chosen as Save to) failed at the last step after the whole build (#492).
+        if target != BuildTarget.mac, let why = shellRootProblem() { fail(why); return }
         var inputDir = baseDir
         if dirs.count > 1 || !unpicked.isEmpty {
             // A stable folder per game (#132): the script's fingerprints name its files and its profile path.
