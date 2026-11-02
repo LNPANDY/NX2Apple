@@ -1516,7 +1516,7 @@ final class BuildModel: ObservableObject {
 
     /// The Save to folder, picked in a panel. Clears the cloud-folder stop, since the next build looks at the new folder.
     func chooseBuildFolder() {
-        let d = NSOpenPanel(); d.canChooseDirectories = true; d.canChooseFiles = false
+        let d = NSOpenPanel(); d.canChooseDirectories = true; d.canChooseFiles = false; d.canCreateDirectories = true
         guard d.runModal() == .OK, let u = d.url else { return }
         outDir = u.path
         if failure?.kind == .cloudFolder { failure = nil; doneNote = "" }
