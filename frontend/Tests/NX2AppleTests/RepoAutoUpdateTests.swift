@@ -49,9 +49,9 @@ final class RepoAutoUpdateTests: XCTestCase {
     @MainActor private func open(_ checkout: URL) -> BuildModel {
         let m = BuildModel()
         m.repoPath = checkout.path
-        m.autoUpdateRepo = true
-        m.checkRepoUpdates(silent: true)   // what the library does when the app opens
-        let settled = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in !m.repoBusy && m.repoBehind != nil && (m.autoPulled != nil || !m.repoStatus.isEmpty) }, object: nil)
+        m.repo.autoUpdate = true
+        m.repo.checkForUpdates(silent: true)   // what the library does when the app opens
+        let settled = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in !m.repo.busy && m.repo.behind != nil && (m.repo.autoPulled != nil || !m.repo.status.isEmpty) }, object: nil)
         wait(for: [settled], timeout: 20)
         return m
     }
@@ -59,8 +59,8 @@ final class RepoAutoUpdateTests: XCTestCase {
     @MainActor func testACleanCheckoutOnMainIsUpdatedWhenTheAppOpens() throws {
         let checkout = try fixture()
         let m = open(checkout)
-        XCTAssertEqual(m.autoPulled, 1)
-        XCTAssertEqual(m.repoBehind, 0)
+        XCTAssertEqual(m.repo.autoPulled, 1)
+        XCTAssertEqual(m.repo.behind, 0)
         XCTAssertEqual(try git("log", "-1", "--format=%s", in: checkout), "two")
     }
 
@@ -68,8 +68,8 @@ final class RepoAutoUpdateTests: XCTestCase {
         let checkout = try fixture()
         try "mine".write(to: checkout.appendingPathComponent("dm/tools/nx_extract/Program.cs"), atomically: true, encoding: .utf8)
         let m = open(checkout)
-        XCTAssertNil(m.autoPulled)
-        XCTAssertEqual(m.repoStatus, m.t("repo.autoSkipped"))
+        XCTAssertNil(m.repo.autoPulled)
+        XCTAssertEqual(m.repo.status, m.t("repo.autoSkipped"))
         XCTAssertEqual(try git("log", "-1", "--format=%s", in: checkout), "one")
     }
 }

@@ -47,7 +47,7 @@ extension BuildModel {
     /// Ask the selected channel for its engine. `automatic` is the launch check: it installs only with automatic
     /// updates on, and it says nothing when the engine is current or the network is down.
     func checkEngineUpdate(automatic: Bool = false) {
-        runEngineUpdate(channel: engineSelection.channel, install: automatic ? autoUpdateRepo : true, quiet: automatic)
+        runEngineUpdate(channel: engineSelection.channel, install: automatic ? MainActor.assumeIsolated { repo.autoUpdate } : true, quiet: automatic)
     }
 
     /// Install the engine the launch check found (automatic updates off).

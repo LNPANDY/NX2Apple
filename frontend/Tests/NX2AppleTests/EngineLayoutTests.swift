@@ -42,7 +42,7 @@ final class EngineLayoutTests: XCTestCase {
 
     func testAnEngineTreeIsItsOwnRoot() throws {
         try touch(EngineLayout.marker)
-        XCTAssertTrue(BuildModel.isRepo(repo))
+        XCTAssertTrue(RepoLayout.isRepo(repo))
         XCTAssertEqual(EngineLayout.root(repo), repo)
         XCTAssertFalse(EngineLayout.isStale(repo))
         XCTAssertFalse(EngineLayout.needsSyncBeforeBuild(repo))
@@ -53,11 +53,11 @@ final class EngineLayoutTests: XCTestCase {
         try syncedEngine()
         XCTAssertFalse(EngineLayout.isStale(repo))
         XCTAssertEqual(EngineLayout.root(repo), repo + "/engine")
-        XCTAssertEqual(BuildModel.missingTools(in: repo), BuildModel.requiredTools)   // looked for under engine/, which lacks them here
+        XCTAssertEqual(RepoLayout.missingTools(in: repo), RepoLayout.requiredTools)   // looked for under engine/, which lacks them here
         try touch("engine/scripts/build_ipa_from_nsp.py", "p.add_argument('--work-dir')\n")
         try touch("engine/dm/tools/romfs_image.py")
-        XCTAssertEqual(BuildModel.missingTools(in: repo), [])
-        XCTAssertTrue(BuildModel.repoSupportsWorkDir(repo))
+        XCTAssertEqual(RepoLayout.missingTools(in: repo), [])
+        XCTAssertTrue(RepoLayout.supportsWorkDir(repo))
     }
 
     func testAStaleEngineIsStillTheCheckoutsEngineAndTheBuildSyncsItFirst() throws {
@@ -78,9 +78,9 @@ final class EngineLayoutTests: XCTestCase {
 
     func testACheckoutWithoutAnEngineIsSyncedBeforeABuild() throws {
         try newLayout()
-        XCTAssertTrue(BuildModel.isRepo(repo))
+        XCTAssertTrue(RepoLayout.isRepo(repo))
         XCTAssertTrue(EngineLayout.needsSyncBeforeBuild(repo))
-        XCTAssertTrue(BuildModel.repoSupportsWorkDir(repo))   // the fork's engine always has --work-dir
+        XCTAssertTrue(RepoLayout.supportsWorkDir(repo))   // the fork's engine always has --work-dir
         XCTAssertEqual(EngineLayout.root(repo), repo + "/engine")
         try syncedEngine()
         XCTAssertFalse(EngineLayout.needsSyncBeforeBuild(repo))
