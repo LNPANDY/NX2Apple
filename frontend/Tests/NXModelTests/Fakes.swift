@@ -7,6 +7,8 @@ final class FakeProcessRunner: ProcessRunner, @unchecked Sendable {
     private var recorded: [ProcessLaunch] = []
     /// The answer for a launch. The default is a run that exits 0 and prints nothing.
     var answer: (ProcessLaunch) -> ProcessResult = { _ in ProcessResult() }
+    /// The lines a streamed launch prints, and whether it exits 0. The default is a run that prints nothing and succeeds.
+    var streamAnswer: (ProcessLaunch) -> (lines: [String], ok: Bool) = { _ in ([], true) }
 
     var launches: [ProcessLaunch] { lock.lock(); defer { lock.unlock() }; return recorded }
     /// Each launch as one line: the tool's name and its arguments.
@@ -19,7 +21,9 @@ final class FakeProcessRunner: ProcessRunner, @unchecked Sendable {
 
     func stream(_ launch: ProcessLaunch, line: @escaping (String) -> Void) -> Bool {
         lock.lock(); recorded.append(launch); lock.unlock()
-        return true
+        let result = streamAnswer(launch)
+        result.lines.forEach(line)
+        return result.ok
     }
 
     func start(_ launch: ProcessLaunch, onOutput: @escaping (Data) -> Void, onExit: @escaping (Int32) -> Void) throws -> RunningProcess {

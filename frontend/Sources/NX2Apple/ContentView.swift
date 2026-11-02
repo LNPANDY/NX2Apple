@@ -56,7 +56,7 @@ struct Slot: Identifiable {
 
 // MARK: - Model
 
-final class BuildModel: ObservableObject {
+final class BuildModel: ObservableObject, PythonLocation {
     @Published var gameDir = ""
     @Published var slots: [Slot] = [
         Slot(id: "base", kind: .base, title: "data.base", optional: false),
@@ -209,9 +209,9 @@ final class BuildModel: ObservableObject {
         let store = RepoStore(
             localizer: localizer, git: gitCheckout,
             buildRunning: { [unowned self] in running },
-            isReleaseApp: { [unowned self] in usesEngineStore },
+            isReleaseApp: { [unowned self] in MainActor.assumeIsolated { engineSync.usesEngineStore } },
             log: { [unowned self] in append($0) },
-            didMove: { [unowned self] in syncEngine() })   // the pull may have moved the pin or the patches
+            didMove: { [unowned self] in MainActor.assumeIsolated { _ = engineSync.syncEngine() } })   // the pull may have moved the pin or the patches
         // The build state that reads the repository (`canBuild`, the setup rows) is still here: a change of the repository
         // redraws what observes this model, as it did when the repository's state was published by it. Goes with the build store.
         repoChanges = store.objectWillChange.sink { [unowned self] _ in objectWillChange.send() }
@@ -227,70 +227,30 @@ final class BuildModel: ObservableObject {
     var repoOK: Bool { MainActor.assumeIsolated { repo.isRepo } }
     var repoIsGit: Bool { MainActor.assumeIsolated { repo.isGit } }
 
-    // ---- The release app's engine (EngineUpdater.swift, EngineUpdateModel.swift) ----
+    // ---- The engine (`EngineSyncStore`, NXModel) ----
+    // It owns the engine selection, the sync of a checkout's engine/ and the engine switch of the release app. The model creates it
+    // with its services and wires what reaches back here: the repository and the interpreter to read, where the build's tools
+    // are read from, whether a build runs, the automatic update and the log.
 
-    /// The engine tree inside the app bundle. nil for a launcher built from the repository, which keeps its checkout and git.
-    /// A release app builds from the engine store instead, and never clones or pulls.
-    var engineBundle: URL? = EngineBundle.tree(in: Bundle.main.resourceURL)
-    var engineStore = EngineStore()
-    var engineTransport: EngineTransport = URLSessionEngineTransport()
-    @Published var engineSelection = EngineSelection.load()
-    @Published var engineBusy = false
-    @Published var engineStatus = ""
-    /// A newer engine the launch check found while automatic updates are off: Settings offers it.
-    @Published var engineAvailable: EngineUpdate.Engine?
-    /// The channel the player picked and is asked to confirm (the switch can change the shader chain).
-    @Published var confirmingChannel: EngineChannel?
-    /// An installed engine that waits for the running build to end before the build tools switch to it.
-    var pendingEngine: (engine: EngineUpdate.Engine, channel: EngineChannel)?
-    var usesEngineStore: Bool { engineBundle != nil }
+    /// Created on first use, on the main thread, because its closures reach back to this model.
+    private(set) lazy var engineSync: EngineSyncStore = MainActor.assumeIsolated {
+        let store = EngineSyncStore(
+            localizer: localizer, runner: runner, repo: repo, python: self,
+            setRepoPath: { [unowned self] in repoPath = $0 },
+            buildRunning: { [unowned self] in running },
+            autoUpdate: { [unowned self] in MainActor.assumeIsolated { repo.autoUpdate } },
+            log: { [unowned self] in append($0) })
+        // The build state that reads the engine's paths (`canBuild`, the setup rows) is still here: a change of the engine redraws
+        // what observes this model, as it did when the engine's state was published by it. Goes with the build store.
+        engineChanges = store.objectWillChange.sink { [unowned self] _ in objectWillChange.send() }
+        return store
+    }
+    private var engineChanges: AnyCancellable?
 
     /// The PATH of the processes that run the build, installing packages and writing the RomFS image: the bundled tools in front of
     /// `base` (BundledTools.swift), which is Homebrew's folders and the system's. One place, so that no environment forgets the bundle.
     nonisolated static func toolPath(_ base: String = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin", python: String? = nil) -> String {
         BundledTools.path(base, python: python)
-    }
-
-    /// What waits for the running `tools/engine.py sync` (nil: none runs), and whether another one is due when it ends.
-    private var engineSyncWaiting: [(Bool) -> Void]?
-    private var engineSyncAgain = false
-    /// A sync runs: the launcher shows a status line with a spinner (EngineSyncBanner).
-    @Published var engineSyncing = false
-    /// How the last sync stopped (no network or GitHub unreachable, or another stop), as a failure row with a retry button. nil: none.
-    @Published var engineFailure: BuildFailure?
-
-    /// `tools/engine.py sync` when engine/ is stale (#214, Engine.swift): at launch, after a clone, a pull or an adoption, and before a
-    /// build that has no other engine. Checkouts only: a release app carries its engine tree (#227) and never syncs. A no-op for a current engine/ or a folder
-    /// that is an engine tree. `then(ok)` runs on the main queue.
-    func syncEngine(then: ((Bool) -> Void)? = nil) {
-        if engineSyncWaiting != nil { engineSyncAgain = true; if let then { engineSyncWaiting?.append(then) }; return }
-        guard EngineLayout.isStale(repoPath) else { engineFailure = nil; then?(true); return }
-        engineSyncWaiting = then.map { [$0] } ?? []
-        engineSyncing = true; engineFailure = nil
-        let repo = repoPath, chosen = pythonPath
-        append("$ python3 tools/engine.py sync\n")
-        var tail = ""   // what failureKind reads when the sync stops (only touched on the main queue)
-        DispatchQueue.global().async {
-            let py = chosen.isEmpty ? Toolchain.findPython().path : chosen
-            let ok = EngineLayout.runSync(repo: repo, python: py, runner: self.runner) { line in
-                DispatchQueue.main.async { self.append(line + "\n"); tail = String((tail + line + "\n").suffix(4000)) }
-            }
-            DispatchQueue.main.async {
-                let waiting = self.engineSyncWaiting ?? [], again = self.engineSyncAgain && ok
-                self.engineSyncWaiting = nil; self.engineSyncAgain = false
-                self.engineSyncing = false
-                self.engineFailure = ok ? nil : BuildFailure(kind: EngineLayout.failureKind(tail), gameName: nil)
-                if again { self.syncEngine { ok in waiting.forEach { $0(ok) } } } else { waiting.forEach { $0(ok) } }
-                self.objectWillChange.send()   // repoOK and the engine's paths may have changed
-            }
-        }
-    }
-
-    /// The failure row's Try again: clears the row and runs the sync again.
-    func retryEngineSync() {
-        guard !engineSyncing else { return }
-        engineFailure = nil
-        syncEngine()
     }
 
     // ---- App self-update (GitHub Releases) ----
@@ -430,10 +390,12 @@ final class BuildModel: ObservableObject {
         let py = pythonPath.isEmpty ? Toolchain.findPython().path : pythonPath
         // engine/ is the only engine and is stale or missing (#214): make it, then start again
         if EngineLayout.needsSyncBeforeBuild(repoPath) {
-            syncEngine { ok in
-                self.running = false
-                if ok && !EngineLayout.needsSyncBeforeBuild(self.repoPath) { self.startBuild() }
-                else { self.fail(String(format: self.t("msg.toolsOld"), "engine/ (python3 tools/engine.py sync, see the log)")) }
+            MainActor.assumeIsolated {
+                engineSync.syncEngine { ok in
+                    self.running = false
+                    if ok && !EngineLayout.needsSyncBeforeBuild(self.repoPath) { self.startBuild() }
+                    else { self.fail(String(format: self.t("msg.toolsOld"), "engine/ (python3 tools/engine.py sync, see the log)")) }
+                }
             }
             return
         }
@@ -1575,6 +1537,7 @@ struct BuilderView: View {
     @ObservedObject var m: BuildModel
     @ObservedObject var updates: AppUpdateStore   // the app's self-update (Settings, "NX2Apple" section)
     @ObservedObject var repo: RepoStore   // the repository (Settings, "Tools" section, and the setup hint)
+    @ObservedObject var engine: EngineSyncStore   // the engine (Settings, "Tools" section)
     @EnvironmentObject var loc: Localizer
     @ObservedObject var library: GameLibrary
     var settings = false
@@ -2097,9 +2060,9 @@ struct BuilderView: View {
     }
 
     private var tools: some View {
-        group(loc.t("section.tools"), footnote: m.usesEngineStore ? m.engineStatus
+        group(loc.t("section.tools"), footnote: engine.usesEngineStore ? engine.status
                 : (repo.status.isEmpty ? (repo.isRepo ? "" : loc.t("repo.firstHint")) : repo.status)) {
-            if m.usesEngineStore {
+            if engine.usesEngineStore {
                 engineRows
             } else {
             row(loc.t("repo.title"),
@@ -2203,39 +2166,39 @@ struct BuilderView: View {
         }
     }
 
-    /// The release app's engine (EngineUpdateModel.swift): which one the build uses, its channel, and the automatic update.
+    /// The release app's engine (EngineSyncStore): which one the build uses, its channel, and the automatic update.
     @ViewBuilder private var engineRows: some View {
-        let idle = !(m.engineBusy || m.running)
-        row(loc.t("engine.title"), detail: m.engineDetail,
-            dot: m.engineSelection.engineID.isEmpty ? LauncherPalette.building : LauncherPalette.ready, help: repo.path) {
-            if m.engineBusy { ProgressView().controlSize(.small) }
-            if let next = m.engineAvailable {
-                Button(String(format: loc.t("engine.install"), next.version)) { m.installAvailableEngine() }.disabled(!idle)
-                    .padTarget("set.engineInstall", scope: "main") { if idle { m.installAvailableEngine() } }
+        let idle = !(engine.busy || m.running)
+        row(loc.t("engine.title"), detail: engine.detail,
+            dot: engine.selection.engineID.isEmpty ? LauncherPalette.building : LauncherPalette.ready, help: repo.path) {
+            if engine.busy { ProgressView().controlSize(.small) }
+            if let next = engine.available {
+                Button(String(format: loc.t("engine.install"), next.version)) { engine.installAvailable() }.disabled(!idle)
+                    .padTarget("set.engineInstall", scope: "main") { if idle { engine.installAvailable() } }
             }
-            Button(loc.t("repo.check")) { m.checkEngineUpdate() }.disabled(!idle)
-                .padTarget("set.engineCheck", scope: "main") { if idle { m.checkEngineUpdate() } }
+            Button(loc.t("repo.check")) { engine.checkForUpdate() }.disabled(!idle)
+                .padTarget("set.engineCheck", scope: "main") { if idle { engine.checkForUpdate() } }
         }
         divider
         // A different channel is asked about first (the alert below): the switch can recompile every game's shaders
         row(loc.t("engine.update"), detail: loc.t("engine.channelNote"), dot: LauncherPalette.ready) {
             LauncherDropdown(options: EngineChannel.allCases.map { (value: $0.rawValue, label: loc.t($0.labelKey)) },
-                             selection: m.engineSelection.channel.rawValue) { v in
-                if let channel = EngineChannel(rawValue: v) { m.requestEngineChannel(channel) }
+                             selection: engine.selection.channel.rawValue) { v in
+                if let channel = EngineChannel(rawValue: v) { engine.requestChannel(channel) }
             }
             .disabled(!idle)
             .padTarget("set.engineChannel", scope: "main") {
-                if idle { m.requestEngineChannel(m.engineSelection.channel == .stable ? .experimental : .stable) }
+                if idle { engine.requestChannel(engine.selection.channel == .stable ? .experimental : .stable) }
             }
         }
-        .alert(loc.t("engine.switch.title"), isPresented: Binding(get: { m.confirmingChannel != nil },
-                                                               set: { if !$0 { m.cancelEngineChannel() } })) {
-            if let channel = m.confirmingChannel {
-                Button(String(format: loc.t("engine.switch.go"), loc.t(channel.labelKey))) { m.confirmEngineChannel(channel) }
+        .alert(loc.t("engine.switch.title"), isPresented: Binding(get: { engine.confirmingChannel != nil },
+                                                               set: { if !$0 { engine.cancelChannel() } })) {
+            if let channel = engine.confirmingChannel {
+                Button(String(format: loc.t("engine.switch.go"), loc.t(channel.labelKey))) { engine.confirmChannel(channel) }
             }
-            Button(loc.t("engine.switch.cancel"), role: .cancel) { m.cancelEngineChannel() }
+            Button(loc.t("engine.switch.cancel"), role: .cancel) { engine.cancelChannel() }
         } message: {
-            Text(m.confirmingChannel.flatMap { m.engineSelection.channel.switchWarningKey(to: $0) }.map { loc.t($0) } ?? "")
+            Text(engine.confirmingChannel.flatMap { engine.selection.channel.switchWarningKey(to: $0) }.map { loc.t($0) } ?? "")
         }
         divider
         row(loc.t("shellCache.row"), detail: loc.t("shellCache.note"), detail2: m.shellCachePath) {

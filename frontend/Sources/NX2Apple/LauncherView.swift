@@ -45,6 +45,7 @@ struct ContentView: View {
     @ObservedObject private var loc: Localizer   // the strings: handed on to every view below through the environment
     @ObservedObject private var updates: AppUpdateStore   // the app's self-update: the update icon, the sheet, the uninstall dialog
     @ObservedObject private var repo: RepoStore   // the repository: the activity line, and the checks that follow a change of it
+    @ObservedObject private var engine: EngineSyncStore   // the engine: the sync banner, and the checks that follow a sync
     @StateObject private var library: GameLibrary
     @State private var page: LauncherPage = .library
     @State private var search = ""
@@ -99,7 +100,7 @@ struct ContentView: View {
         _m = StateObject(wrappedValue: model)
         _loc = ObservedObject(wrappedValue: model.localizer)
         _updates = ObservedObject(wrappedValue: model.appUpdates)
-        _repo = ObservedObject(wrappedValue: model.repo)
+        _repo = ObservedObject(wrappedValue: model.repo); _engine = ObservedObject(wrappedValue: model.engineSync)
         _library = StateObject(wrappedValue: library ?? GameLibrary())
         _page = State(initialValue: initialPage)
         _activeBuildID = State(initialValue: activeBuildID)
@@ -172,11 +173,11 @@ struct ContentView: View {
         VStack(spacing: 0) {
             topBar
             Divider().opacity(0.3)
-            EngineSyncBanner(m: m)
+            EngineSyncBanner(engine: engine, m: m)
             if page == .library {
                 libraryPage
             } else {
-                BuilderView(m: m, updates: updates, repo: repo, library: library, settings: page == .settings, onViewGame: { page = .library },
+                BuilderView(m: m, updates: updates, repo: repo, engine: engine, library: library, settings: page == .settings, onViewGame: { page = .library },
                             onOpenSettings: { page = .settings }, onChooseLibraryFolder: chooseLibraryFolder,
                             onOpenControls: { controlsOpen = true }, onOpenControllers: { controllerSheet = true }, onRunSetup: onRunSetup, controlChanges: controls.changeCount,
                             padMerge: Binding(get: { controls.padMerge }, set: { setPadMerge($0) }))
@@ -215,8 +216,8 @@ struct ContentView: View {
             if performStartupChecks { library.discover(); fetchArtwork(); m.refreshDevices(); checkTools() }
             if performStartupChecks {
                 m.checkDeps()
-                if m.usesEngineStore { m.prepareEngine() }   // the release app: its engine store, never git (EngineUpdateModel.swift)
-                else { m.syncEngine() }   // a checkout whose engine/ is missing or older than its pin (#214)
+                if engine.usesEngineStore { engine.prepareEngine() }   // the release app: its engine store, never git
+                else { engine.syncEngine() }   // a checkout whose engine/ is missing or older than its pin (#214)
                 if repo.isRepo && repo.isGit { repo.checkForUpdates(silent: true) } else { repo.adoptAtLaunch() }
                 updates.checkForUpdate(silent: true)
                 BuildNotifier.shared.watch(m, library: library)   // BuildNotifications.swift
@@ -236,8 +237,7 @@ struct ContentView: View {
         .onChange(of: repo.path) { _ in refreshArtwork(); if performStartupChecks { checkTools() } }
         // A clone, pull or update check has finished (the automatic pull at launch among them): the checkout may have moved
         .onReceive(repo.$busy.removeDuplicates().dropFirst()) { busy in if !busy && performStartupChecks { checkTools() } }
-        // The engine was made or moved by a sync (its HEAD is what ToolsAge compares)
-        .onReceive(m.$engineSyncing.removeDuplicates().dropFirst()) { syncing in if !syncing && performStartupChecks { checkTools() } }
+        .onReceive(engine.$syncing.removeDuplicates().dropFirst()) { syncing in if !syncing && performStartupChecks { checkTools() } }   // a sync made or moved the engine (its HEAD is what ToolsAge compares)
         .onChange(of: library.selectedID) { _ in resignNote = nil }   // the last re-sign's note belongs to its game
         .onChange(of: buildProgress) { progress in if m.running { DockProgress.update(progress) } }
         .onReceive(m.$running.removeDuplicates()) { running in
@@ -255,7 +255,7 @@ struct ContentView: View {
                 DispatchQueue.main.async {
                     if m.done { recordBuild() }
                     activeBuildID = nil
-                    m.applyPendingEngine()   // an engine installed during the build takes over once it is recorded
+                    engine.applyPendingEngine()   // an engine installed during the build takes over once it is recorded
                 }
             }
         }
