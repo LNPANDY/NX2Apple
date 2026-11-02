@@ -198,7 +198,7 @@ import NXModel
     func testEveryLanguageHasTheShellTexts() {
         for key in ["build.iosNote", "shell.projectStage", "shell.projectFailed", "shell.checkStage", "shell.dataAlready",
                     "shell.noFramework", "shell.needsDevice", "shell.copySize", "shell.copyWired", "shell.copyWifi", "shell.copyWifiOne",
-                    "shell.copyWifiMinute", "shell.copyNotConnected", "shell.copyWaiting", "shell.copyTitle", "shell.copyContinue",
+                    "shell.copyWifiMinute", "shell.copyNotConnected", "shell.copyWaiting", "shell.copyTitle",
                     "shell.copyWaitCable", "shell.copySkip", "shell.copyStopWaiting", "shell.retry", "shell.notPaired",
                     "shell.copyIncomplete", "fail.devicePairing.what", "fail.devicePairing.next", "fail.shellDataIncomplete.what",
                     "fail.shellDataIncomplete.next"] {

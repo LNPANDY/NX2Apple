@@ -317,6 +317,11 @@ may miss a key and then show the English text, and `GermanLocalizationTests` and
 `FrenchLocalizationTests` check the entries they have (placeholders match the English text). The Windows
 launcher reads the same files, so one edit serves both.
 
+`LocalizationKeyTests` (Mac) and `test_localization_keys.py` (Qt) keep the code and `en.json` in step: a key a lookup
+names must exist, a key en.json has must be used by one of the two front ends, and a key built from a prefix and a variable
+(`"fail." + kind + ".what"`) needs a line in `frontend/Tests/l10n-key-rules.json` (`dynamicKeys`). A key that is only
+kept on purpose goes into `unusedAllowed` there, with the reason. Remove an unused key from every language file.
+
 The app finds the files in `Contents/Resources/l10n` (`build-mac-app.yml` and `tools/try-local` copy the
 folder there, the same way as the engine and the bundled tools, not as SwiftPM resources). `swift run` finds
 `frontend/l10n` by walking up from the executable, and `swift test` takes it from the source path.

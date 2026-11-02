@@ -160,11 +160,9 @@ final class OnboardingTests: XCTestCase {
     }
 
     func testSwedishUsesItsCatalog() {
-        XCTAssertEqual(L10n.string("settings.language.sv", .sv), "Svenska")
         XCTAssertEqual(L10n.string("onboarding.start", .sv), "Kom igång")
         XCTAssertEqual(L10n.string("onboarding.xcode.ready", .sv), "Xcode är klart.")
         XCTAssertEqual(L10n.string("dep.python", .sv), "Python + paket")
-        XCTAssertNotEqual(L10n.string("settings.language.sv", .sv), "settings.language.sv")
     }
 
     /// The same opt-in native capture path as the launcher's other visual QA tests.

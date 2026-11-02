@@ -15,7 +15,6 @@ from nspb_qt.l10n import TABLE, t   # noqa: E402
 class FrenchTable(unittest.TestCase):
     def test_t_reads_the_french_column(self):
         self.assertEqual(t('onboarding.start', Lang('fr')), 'Commencer')
-        self.assertEqual(t('settings.language.fr', Lang('fr')), 'Français')
         self.assertEqual(t('dep.install.begin', Lang('fr'), 'zstd'), 'Installation de zstd…')
 
 
