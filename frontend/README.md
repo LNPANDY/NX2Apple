@@ -311,11 +311,39 @@ shows), the lowercased locale prefixes that select it (`locales`) and optionally
 `Sources/NXCore/Localization.swift` keeps only `Lang` (a language is its code, and `Lang.all` is the list
 of files) and the lookup, and `LocalizationFiles.swift` reads the files once, at the first lookup. A new
 language is one new file under `l10n/`: the picker, the device detection and the lookup find it with no
-change in Swift (the iOS shell's own texts are not in the files yet, that is a later step of #388). A new string is a line in
+change in Swift, and the iOS shell offers it too (below). A new string is a line in
 `l10n/en.json` and one in `l10n/zh.json`: English and Chinese have every key. Swedish, German and French
 may miss a key and then show the English text, and `GermanLocalizationTests` and
 `FrenchLocalizationTests` check the entries they have (placeholders match the English text). The Windows
 launcher reads the same files, so one edit serves both.
+
+`LocalizationKeyTests` (Mac) and `test_localization_keys.py` (Qt) keep the code and `en.json` in step: a key a lookup
+names must exist, a key en.json has must be used by one of the two front ends, and a key built from a prefix and a variable
+(`"fail." + kind + ".what"`) needs a line in `frontend/Tests/l10n-key-rules.json` (`dynamicKeys`). A key that is only
+kept on purpose goes into `unusedAllowed` there, with the reason. Remove an unused key from every language file.
+
+The iOS shell's texts are in the same files, under `ios.ui.` (ShellUI) and `ios.host.` (ShellHost). The Mac and the
+Windows launcher never show them. Xcode needs a string catalog per target, so
+`python3 tools/l10n_shell_catalogs.py` writes `frontend-ios/Sources/ShellUI/Resources/Localizable.xcstrings` and
+`frontend-ios/Sources/ShellHost/Resources/Localizable.xcstrings` from the files (the catalogs are not edited by hand).
+The Swift code asks for a shell text by its English words (`ShellStrings.text("Done")`), so the catalog's key is the English
+text of the JSON key, and each language file that has the JSON key adds a localization (`zh.json` becomes `zh-Hans`, every other
+code stays as it is). A new shell text is a line in `en.json` and `zh.json` under the prefix, the same words in the Swift call
+and `python3 tools/l10n_shell_catalogs.py`. A new language file shows up in both catalogs with no change in the tool. A language
+that has no line for a key shows the English text, as in the launchers. `tools/tests/test_l10n_shell_catalogs.py` fails when a
+committed catalog differs from what the files give, and when the app's `CFBundleLocalizations` (the Demo app, `tools/try-local`
+and the shell app of the engine, patch 0056) do not list every file, because iOS offers a language to the shell only when the
+app declares it. The key checks treat the `ios.*` keys as used (`catalogKeys` in `frontend/Tests/l10n-key-rules.json`).
+
+A game's settings rows (section, label, note, option labels) are not shell texts. They come from the game's `launcher.json`,
+which is English and owned by seedds/nxnative, so its format stays. The shell looks each text up in the ShellUI catalog by its
+English words, and a text with no entry shows English. The catalog gets these texts from the lines the Mac launcher already
+translates (`launch.section.*`, `launch.set.*`, `launch.opt.*`), so there is one translation of each. `ios.setting.*` has the
+few texts upstream's `settings.tsv` words differently from the Mac's table (a semicolon in a note, for example): the English
+is upstream's, the translation is the same as the Mac's. When a pin bump adds or changes a text in `dm/games/settings.tsv` or the
+game language names in `dm/tools/nacp.py`, `tools/tests/test_launcher_texts.py` fails and names the text that has no Chinese
+entry. Add the line to `en.json` and `zh.json` (and to the other languages that have the `launch.*` lines), run
+`python3 tools/l10n_shell_catalogs.py` and `python3 tools/tests/test_launcher_texts.py --write`.
 
 The app finds the files in `Contents/Resources/l10n` (`build-mac-app.yml` and `tools/try-local` copy the
 folder there, the same way as the engine and the bundled tools, not as SwiftPM resources). `swift run` finds

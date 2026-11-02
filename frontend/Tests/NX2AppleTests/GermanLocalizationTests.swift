@@ -10,10 +10,9 @@ final class GermanLocalizationTests: XCTestCase {
     private let sameAsEnglish: Set<String> = [
         "onboarding.platform.mac", "onboarding.platform.iphone", "onboarding.setup.metal",
         "onboarding.background.python", "onboarding.background.dotnet", "onboarding.games.version",
-        "onboarding.demo.mario", "console.kind.gamepad", "console.brand", "console.platform.mac",
+        "onboarding.demo.mario", "msg.ipaAt", "console.kind.gamepad", "console.platform.mac",
         "console.platform.iphone", "console.version", "console.fps30", "console.fps60", "saves.toDevice",
-        "saves.toMac", "cheats.title", "section.app", "app.version", "nav.builds", "settings.language.zh",
-        "settings.language.en", "settings.language.sv", "settings.language.de", "settings.language.fr", "library.ok", "build.ios", "data.update", "data.keys",
+        "saves.toMac", "cheats.title", "section.app", "app.version", "nav.builds", "library.ok", "build.ios", "data.update", "data.keys",
         "dep.iossdk", "dep.tool.xcodegen", "dep.tool.zstd", "dep.tool.spirv-cross", "dep.tool.glslangValidator",
         "dep.glslang", "dep.xcode", "dep.metal", "dep.brew", "dep.xcodegen", "dep.zstd", "dep.spirv.win",
         "dep.zstd.win", "dep.spirv", "dep.dotnet", "dep.phase.download", "dep.python.hint",
@@ -42,8 +41,7 @@ final class GermanLocalizationTests: XCTestCase {
     }
 
     func testGermanCatalogIsUsed() {
-        XCTAssertEqual(L10n.string("settings.language.de", .de), "Deutsch")
-        XCTAssertEqual(L10n.string("settings.language.de", .en), "Deutsch")
+        XCTAssertEqual(Lang("de").name, "Deutsch")
         XCTAssertEqual(L10n.string("onboarding.start", .de), "Los geht\u{2019}s")
         XCTAssertEqual(L10n.string("onboarding.later", .de), "Sp\u{e4}ter einrichten")
         XCTAssertEqual(L10n.string("dep.recheck", .de), "Erneut pr\u{fc}fen")
@@ -51,22 +49,10 @@ final class GermanLocalizationTests: XCTestCase {
         XCTAssertEqual(Lang.find("de"), .de)
     }
 
-    func testLanguageNamesExistInEveryLanguage() {
-        for lang: Lang in [.zh, .en, .sv, .de, .fr] {
-            for code in ["zh", "en", "sv", "de", "fr"] {
-                let key = "settings.language.\(code)"
-                XCTAssertNotEqual(L10n.string(key, lang), key)
-            }
-        }
-    }
-
+    /// The picker shows each language by its own name, which comes from the `_language` entry of its file.
     func testLanguageNamesAreTheLanguagesOwnNames() {
-        let endonyms = ["zh": "中文", "en": "English", "sv": "Svenska", "de": "Deutsch"]
-        for lang: Lang in [.zh, .en, .sv, .de] {
-            for (code, name) in endonyms {
-                XCTAssertEqual(L10n.string("settings.language.\(code)", lang), name, "\(code) in \(lang)")
-            }
-        }
+        let endonyms = ["zh": "中文", "en": "English", "sv": "Svenska", "de": "Deutsch", "fr": "Français"]
+        for (code, name) in endonyms { XCTAssertEqual(Lang(code).name, name, code) }
     }
 }
 

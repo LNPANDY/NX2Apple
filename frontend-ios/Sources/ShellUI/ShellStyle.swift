@@ -15,6 +15,14 @@ public enum ShellPalette {
 enum ShellStrings {
     static var bundle: Bundle { .module }
     static func text(_ key: String.LocalizationValue) -> String { String(localized: key, bundle: bundle) }
+
+    /// A text of a game's `launcher.json` (section, label, note, option label) in the player's language. The file is English and
+    /// not ours to change, so the catalog is keyed by that English text. The key is used as it is (a `%` in a note is not a format).
+    /// A text with no entry, and an empty one, stays as it is: the player reads English, never a key. `bundle` is a language's
+    /// `.lproj` in tests.
+    static func setting(_ text: String, bundle: Bundle = ShellStrings.bundle) -> String {
+        text.isEmpty ? text : bundle.localizedString(forKey: text, value: text, table: nil)
+    }
 }
 
 @MainActor public enum ShellFonts {
