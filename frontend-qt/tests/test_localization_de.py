@@ -1,7 +1,8 @@
-"""The Qt table carries a complete German column, read from the same file the Swift launcher reads (frontend/l10n/de.json)."""
+"""The Qt table carries a German column that is real German, read from the same file the Swift launcher reads (frontend/l10n/de.json).
+
+Completeness and placeholders for every language are in test_localization_rules.py."""
 from __future__ import annotations
 
-import re
 import sys
 import unittest
 from pathlib import Path
@@ -12,19 +13,12 @@ sys.path.insert(0, str(ROOT / 'frontend-qt'))
 from nspb_qt.i18n import Lang   # noqa: E402
 from nspb_qt.l10n import TABLE, t   # noqa: E402
 
-PLACEHOLDER = re.compile(r'%(?:\d+\$)?(?:\.\d+)?(?:ll|l)?[@dsf%]')
-
 
 class German(unittest.TestCase):
-    def test_every_key_has_german_text_that_is_not_the_english_fallback(self):
+    def test_no_german_prose_is_left_in_english(self):
         # dep.python.hint is a list of package names, the same in every language
         prose = [k for k, row in TABLE.items() if row['de'] == row['en'] and len(row['en']) > 30 and k != 'dep.python.hint']
         self.assertEqual(prose, [], 'English text left in the German column')
-        self.assertTrue(all(row['de'] for row in TABLE.values()))
-
-    def test_placeholders_match_english_in_count_and_order(self):
-        for key, row in TABLE.items():
-            self.assertEqual(PLACEHOLDER.findall(row['de']), PLACEHOLDER.findall(row['en']), key)
 
     def test_german_has_no_semicolons_and_no_added_product_name(self):
         for key, row in TABLE.items():
