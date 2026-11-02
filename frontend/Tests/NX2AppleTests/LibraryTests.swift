@@ -358,8 +358,7 @@ final class LibraryTests: XCTestCase {
     /// An action on the installed app names what is missing instead of doing nothing, and a failed reinstall is a note on
     /// the installed app, not a failed build (the app is still on the device).
     @MainActor func testReinstallAndSaveReportAMissingSignedApp() throws {
-        let model = BuildModel()
-        model.xcrunPath = "/usr/bin/true"
+        let model = BuildModel(xcrun: "/usr/bin/true")
         model.installedOn = "00008150-AAAA"
         model.installedAppPath = temporary.path + "/gone/DmShell.app"
         var reported = expectation(description: "Reinstall says what is missing")
@@ -839,21 +838,21 @@ final class LibraryTests: XCTestCase {
         // An iPhone build with a paired device and a team (example values)
         let previousTarget = model.target
         model.target = "ios"
-        model.devicesChecked = true
-        model.devices = [AppleDevice(id: "00008150-AAAA", name: "iPhone", model: "iPhone 17 Pro Max", os: "27.0", reachable: true),
+        model.deviceStore.checked = true
+        model.deviceStore.devices = [AppleDevice(id: "00008150-AAAA", name: "iPhone", model: "iPhone 17 Pro Max", os: "27.0", reachable: true),
                          AppleDevice(id: "00008110-BBBB", name: "iPad mini", model: "iPad mini", os: "26.2", reachable: false)]
-        model.teams = [SigningTeam(id: "TEAM123456", identity: "Apple Development: Jo Doe (ABCDE12345)")]
+        model.deviceStore.teams = [SigningTeam(id: "TEAM123456", identity: "Apple Development: Jo Doe (ABCDE12345)")]
         let previousDevice = model.installDevice, previousTeam = model.signingTeam
         model.installDevice = "00008150-AAAA"; model.signingTeam = "TEAM123456"
         try capture("build-install", height: 1300, page: .builds)
         // #87: signed in to Xcode, no certificate yet (a free personal team and a paid one), and neither account nor certificate
-        model.teams = [SigningTeam(id: "FGHIJ67890", identity: "", name: "Jo Doe", personal: true),
+        model.deviceStore.teams = [SigningTeam(id: "FGHIJ67890", identity: "", name: "Jo Doe", personal: true),
                        SigningTeam(id: "KLMNO11111", identity: "", name: "Studio Ltd")]
         model.signingTeam = "FGHIJ67890"
         try capture("build-install-xcode-team", height: 1300, page: .builds)
-        model.teams = []; model.signingTeam = ""
+        model.deviceStore.teams = []; model.signingTeam = ""
         try capture("build-install-no-team", height: 1300, page: .builds)
-        model.teams = [SigningTeam(id: "TEAM123456", identity: "Apple Development: Jo Doe (ABCDE12345)")]
+        model.deviceStore.teams = [SigningTeam(id: "TEAM123456", identity: "Apple Development: Jo Doe (ABCDE12345)")]
         model.signingTeam = "TEAM123456"
         model.installDevice = previousDevice; model.signingTeam = previousTeam; model.target = previousTarget
         // The Free space sheet with a measured build folder (example sizes), two parts picked, then while a build runs

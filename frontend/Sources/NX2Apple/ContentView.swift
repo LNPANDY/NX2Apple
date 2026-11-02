@@ -120,46 +120,42 @@ final class BuildModel: ObservableObject {
     // (--prepare-xcode, the route its README gives developers), xcodebuild signs it for that device with the
     // team (Xcode makes the provisioning profile) without the game files, devicectl installs it and copies the game's
     // folder (romfs.img, aoc/) into its Documents, as a sideloaded copy has it. Without a device or a team the build stays an unsigned IPA, as before.
-    @Published var devices: [AppleDevice] = []
-    @Published var teams: [SigningTeam] = []
-    @Published var devicesChecked = false
-    @Published var installDevice = UserDefaults.standard.string(forKey: "installDevice") ?? "" {
-        didSet { UserDefaults.standard.set(installDevice, forKey: "installDevice") }
-    }
-    @Published var signingTeam = UserDefaults.standard.string(forKey: "signingTeam") ?? "" {
-        didSet { UserDefaults.standard.set(signingTeam, forKey: "signingTeam") }
-    }
     @Published var installedOn = ""       // the device the last build went to (its UDID)
     @Published var installedAppPath = ""  // the signed app that went there
-    /// The shared app's copy question: the size and the connection (nil: none is up).
-    @Published var shellCopy: ShellCopyPlan?
-    @Published var shellWaiting = false   // waiting for a cable before the game data goes over
-    fileprivate var shellCopyAnswer: ((ShellCopyDecision) -> Void)?
-    let shellWaitCancelled = LockedFlag()
     private var shellRetry: (framework: String, titleID: String, name: String, archive: String)?
-    var xcrunPath = "/usr/bin/xcrun"      // tests stand in for xcodebuild and devicectl
-    var volumesRoot = "/Volumes"          // where external drives are mounted
-    var teamsProvider: () -> [SigningTeam] = { DeviceTools.teams() }   // the teams the Mac knows, read when a signing step fails
     var chooseKeys: (() -> Void)?          // tests stand in for the file picker
     var revealFolder: (URL) -> Void = { NSWorkspace.shared.open($0) }
     var openApp: (URL) -> Void = { NSWorkspace.shared.openApplication(at: $0, configuration: NSWorkspace.OpenConfiguration()) }
 
+    // ---- The devices (`DeviceStore`, NXModel) ----
+    // It owns the paired devices, the signing teams, the install target and the copy flow of the shared app (the question before the game
+    // data goes over, the wait for a cable). The model creates it with its runner and `xcrun`. The device the last build went to
+    // (`installedOn`), the retry and the install itself belong to the build run and stay here until the build store.
+
+    /// Created on first use, on the main thread.
+    private(set) lazy var deviceStore: DeviceStore = MainActor.assumeIsolated {
+        let store = DeviceStore(runner: runner, xcrun: xcrunPath)
+        // The build state that reads the install target (`installsDirectly`, the start of a build) is still here: a change of the
+        // devices redraws what observes this model, as it did when they were published by it. Goes with the build store.
+        deviceChanges = store.objectWillChange.sink { [unowned self] _ in objectWillChange.send() }
+        return store
+    }
+    private var deviceChanges: AnyCancellable?
+
+    /// The device and the team a build installs on, for the build code in this model. The views take the store.
+    var installDevice: String {
+        get { MainActor.assumeIsolated { deviceStore.installDevice } }
+        set { MainActor.assumeIsolated { deviceStore.installDevice = newValue } }
+    }
+    var signingTeam: String {
+        get { MainActor.assumeIsolated { deviceStore.signingTeam } }
+        set { MainActor.assumeIsolated { deviceStore.signingTeam = newValue } }
+    }
+
     /// This iPhone build goes straight to a device.
     var installsDirectly: Bool { target != BuildTarget.mac && !installDevice.isEmpty && !signingTeam.isEmpty }
 
-    func deviceName(_ udid: String) -> String { devices.first { $0.id == udid }?.name ?? "iPhone" }
-
-    /// The paired devices and the signing teams, read in the background (devicectl can take a few seconds).
-    func refreshDevices() {
-        let xcrun = xcrunPath
-        DispatchQueue.global(qos: .userInitiated).async {
-            let devices = DeviceTools.devices(xcrun: xcrun), teams = DeviceTools.teams()
-            DispatchQueue.main.async {
-                self.devices = devices; self.teams = teams; self.devicesChecked = true
-                if !teams.contains(where: { $0.id == self.signingTeam }) { self.signingTeam = teams.first?.id ?? "" }
-            }
-        }
-    }
+    func deviceName(_ udid: String) -> String { MainActor.assumeIsolated { deviceStore.deviceName(udid) } }
 
     // ---- The dependencies (`DependencyStore`, NXModel) ----
     // It owns the rows of the tools panel, the Python and dotnet paths and the installs. The model creates it with its services and
@@ -194,10 +190,15 @@ final class BuildModel: ObservableObject {
     let gitCheckout: GitCheckout
     /// Where the self-update looks for releases (the real one is GitHub's).
     let releases: ReleaseSource
+    /// `xcrun`, which runs xcodebuild and devicectl: a test points it at a stand-in. `volumesRoot` is where external drives are mounted.
+    let xcrunPath: String
+    let volumesRoot: String
     init(localizer: Localizer = Localizer(), runner: ProcessRunner = SystemProcessRunner(), gitCheckout: GitCheckout? = nil,
-         releases: ReleaseSource = GitHubReleases()) {
+         releases: ReleaseSource = GitHubReleases(), xcrun: String = "/usr/bin/xcrun", volumesRoot: String = "/Volumes") {
         self.localizer = localizer
         self.runner = runner
+        self.xcrunPath = xcrun
+        self.volumesRoot = volumesRoot
         self.releases = releases
         self.gitCheckout = gitCheckout ?? SystemGitCheckout(runner: runner)
         _ = Self.endGroupsWhenQuitting
@@ -619,9 +620,9 @@ final class BuildModel: ObservableObject {
     /// Looks the device up in `devicectl list devices` (in the background), then starts the build, or says how to pair it.
     private func verifyShellDevice() {
         running = true; done = false; doneNote = ""; failure = nil; stages = []
-        let xcrun = xcrunPath, device = installDevice
+        let xcrun = xcrunPath, device = installDevice, runner = runner
         DispatchQueue.global(qos: .userInitiated).async {
-            let link = ShellInstall.connection(of: device, in: DeviceTools.devices(xcrun: xcrun, timeout: 20))
+            let link = ShellInstall.connection(of: device, in: DeviceTools.devices(xcrun: xcrun, timeout: 20, runner: runner))
             DispatchQueue.main.async {
                 self.running = false
                 if link == .notPaired {
@@ -664,7 +665,8 @@ final class BuildModel: ObservableObject {
     /// A failed step of an install on a device, as a card when the launcher can say more than the tool's line.
     /// Called after `finishInstall`, which put the tool's own error into the note.
     func noteInstallFailure(_ step: BuildFailureClassifier.InstallStep, error: String) {
-        let listed = teamsProvider().contains { $0.id == signingTeam }
+        let teamsOfMac = MainActor.assumeIsolated { deviceStore.readTeams }
+        let listed = teamsOfMac().contains { $0.id == signingTeam }
         guard let f = BuildFailureClassifier.classifyInstall(step, error: error, teamListed: listed) else { failure = nil; return }
         failure = f
         doneNote = failureWhat(f)
@@ -1102,28 +1104,19 @@ final class BuildModel: ObservableObject {
                                          started: s.state == .running ? Date() : nil))
             }
         } }
-        installer.processStarted = { p in DispatchQueue.main.async { self.proc = p; ProcessGroups.track(p) } }
-        installer.processEnded = { p in ProcessGroups.untrack(p) }
+        installer.runner = runner
+        installer.processStarted = { p in DispatchQueue.main.async { self.proc = p } }
         // The size and the connection are shown with Continue, "Wait for a cable" and "Not now" (ShellCopyCard)
-        installer.decideCopy = { plan in
-            let answered = DispatchSemaphore(value: 0)
-            var answer = ShellCopyDecision.skip
-            DispatchQueue.main.async {
-                self.shellWaitCancelled.set(false)
-                self.shellCopyAnswer = { answer = $0; answered.signal() }
-                self.shellCopy = plan
-            }
-            answered.wait()
-            return answer
-        }
-        installer.waiting = { on in DispatchQueue.main.async { self.shellWaiting = on } }
-        installer.waitCancelled = { self.shellWaitCancelled.value }
+        let devices = deviceStore
+        installer.decideCopy = { plan in devices.askCopy(plan) }
+        installer.waiting = { on in devices.setWaiting(on) }
+        installer.waitCancelled = { devices.waitCancelled }
         let device = installDevice
         DispatchQueue.global(qos: .userInitiated).async {
             let result = dataOnly ? installer.installData(titleID: titleID, archive: archive)
                                   : installer.install(framework: framework, titleID: titleID, name: name, archive: archive)
             DispatchQueue.main.async {
-                self.shellCopy = nil; self.shellWaiting = false
+                MainActor.assumeIsolated { devices.copyEnded() }
                 if self.stopping {
                     self.stopping = false; self.running = false
                     self.resetProgress(); self.doneNote = self.t("msg.stopped"); self.cleanupStaging()
@@ -1141,17 +1134,6 @@ final class BuildModel: ObservableObject {
             }
         }
     }
-
-    /// What the player picked on the copy card (Continue, wait for a cable, not now), handed to the install waiting for it.
-    func answerShellCopy(_ decision: ShellCopyDecision) {
-        guard let answer = shellCopyAnswer else { return }
-        shellCopyAnswer = nil
-        shellCopy = nil
-        answer(decision)
-    }
-
-    /// "Stop waiting" while the install waits for a cable: the poll ends at its next look and the game data stays for later.
-    func cancelShellWait() { shellWaitCancelled.set(true) }
 
     /// Retry after game data that went over in part: only the data step runs again (listing, diff, copy).
     func retryShellData() {
@@ -1383,6 +1365,7 @@ struct BuilderView: View {
     @ObservedObject var repo: RepoStore   // the repository (Settings, "Tools" section, and the setup hint)
     @ObservedObject var engine: EngineSyncStore   // the engine (Settings, "Tools" section)
     @ObservedObject var dependencies: DependencyStore   // the tools (Settings, "Tools" section, and the setup hint and status)
+    @ObservedObject var devices: DeviceStore   // the install target (the Builds page) and the copy card
     @EnvironmentObject var loc: Localizer
     @ObservedObject var library: GameLibrary
     var settings = false
@@ -1513,7 +1496,7 @@ struct BuilderView: View {
         if m.target != BuildTarget.mac { install.disabled(m.running) }
         logPanel
         action
-        ShellCopyCard(m: m)
+        ShellCopyCard(devices: devices)
         BuildFailureCard(m: m)
         outcome
         progress
@@ -1521,29 +1504,30 @@ struct BuilderView: View {
 
     /// Where an iPhone build goes: exported as an IPA (as before), or signed and installed on a paired device.
     private var install: some View {
-        let devices = [(value: "", label: loc.t("dev.none"))] + m.devices.map { d in
+        let devices = devices
+        let options = [(value: "", label: loc.t("dev.none"))] + devices.devices.map { d in
             (value: d.id, label: d.name + (d.reachable ? "" : " (" + loc.t("dev.notConnected") + ")"))
         }
-        let teams = m.teams.map { (value: $0.id, label: $0.label(personalTeam: loc.t("dev.personalTeam"))) }
-        let needsCertificate = m.teams.first { $0.id == m.signingTeam }.map { !$0.hasCertificate } ?? false
-        return group(loc.t("dev.section"), footnote: m.installDevice.isEmpty ? "" : (needsCertificate ? loc.t("dev.teamNoCert") + " " : "") + loc.t("dev.note")) {
-            row(loc.t("dev.target"), detail: m.devicesChecked && m.devices.isEmpty ? loc.t("dev.noDevices") : "") {
-                if !m.devicesChecked { ProgressView().controlSize(.small) }
-                Button(loc.t("dev.refresh")) { m.refreshDevices() }.buttonStyle(.plain).font(.manrope(13)).foregroundStyle(.secondary)
-                LauncherDropdown(options: devices, selection: m.installDevice, label: loc.t("dev.target")) { m.installDevice = $0 }
+        let teams = devices.teams.map { (value: $0.id, label: $0.label(personalTeam: loc.t("dev.personalTeam"))) }
+        let needsCertificate = devices.teams.first { $0.id == devices.signingTeam }.map { !$0.hasCertificate } ?? false
+        return group(loc.t("dev.section"), footnote: devices.installDevice.isEmpty ? "" : (needsCertificate ? loc.t("dev.teamNoCert") + " " : "") + loc.t("dev.note")) {
+            row(loc.t("dev.target"), detail: devices.checked && devices.devices.isEmpty ? loc.t("dev.noDevices") : "") {
+                if !devices.checked { ProgressView().controlSize(.small) }
+                Button(loc.t("dev.refresh")) { _ = devices.refresh() }.buttonStyle(.plain).font(.manrope(13)).foregroundStyle(.secondary)
+                LauncherDropdown(options: options, selection: devices.installDevice, label: loc.t("dev.target")) { devices.installDevice = $0 }
             }
-            if !m.installDevice.isEmpty {
+            if !devices.installDevice.isEmpty {
                 divider
                 if teams.isEmpty {
                     row(loc.t("dev.team"), detail: loc.t("dev.noTeam"), dot: LauncherPalette.building) { EmptyView() }
                 } else {
                     row(loc.t("dev.team")) {
-                        LauncherDropdown(options: teams, selection: m.signingTeam, label: loc.t("dev.team")) { m.signingTeam = $0 }
+                        LauncherDropdown(options: teams, selection: devices.signingTeam, label: loc.t("dev.team")) { devices.signingTeam = $0 }
                     }
                 }
             }
         }
-        .onAppear { if !m.devicesChecked { m.refreshDevices() } }
+        .onAppear { if !devices.checked { _ = devices.refresh() } }
     }
 
     private var files: some View {
@@ -1717,7 +1701,7 @@ struct BuilderView: View {
     /// pointed ("see the log below") while the log itself was out of view on a short window (#52).
     @ViewBuilder private var logPanel: some View {
         group(loc.t("section.log")) {
-            if m.shellCopy != nil || m.shellWaiting {
+            if devices.shellCopy != nil || devices.shellWaiting {
                 // The log below is the build's own output; the data transfer is driven by the app, so
                 // its questions and errors (a locked device, a failed listing) answer here, not in it.
                 Text(loc.t("log.transferNote")).font(.manrope(12.5)).foregroundStyle(.secondary)
@@ -2062,12 +2046,4 @@ struct BuilderView: View {
         d.message = loc.t("repo.pickMessage")
         if d.runModal() == .OK, let u = d.url { repo.path = u.path }
     }
-}
-
-/// A flag two threads share (the cancel button on the main thread, the install's wait loop on a background one).
-final class LockedFlag: @unchecked Sendable {
-    private let lock = NSLock()
-    private var flag = false
-    func set(_ value: Bool) { lock.lock(); flag = value; lock.unlock() }
-    var value: Bool { lock.lock(); defer { lock.unlock() }; return flag }
 }

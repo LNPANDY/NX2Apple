@@ -26,6 +26,14 @@ final class FakeProcessRunner: ProcessRunner, @unchecked Sendable {
         return result.ok
     }
 
+    func streamLines(_ launch: ProcessLaunch, started: @escaping (RunningProcess) -> Void, line: @escaping (String) -> Void) -> ProcessResult {
+        lock.lock(); recorded.append(launch); lock.unlock()
+        let result = streamAnswer(launch)
+        started(FakeRunningProcess())
+        result.lines.forEach(line)
+        return ProcessResult(status: result.ok ? 0 : 1)
+    }
+
     func start(_ launch: ProcessLaunch, onOutput: @escaping (Data) -> Void, onExit: @escaping (Int32) -> Void) throws -> RunningProcess {
         throw CocoaError(.fileNoSuchFile)
     }
@@ -61,4 +69,9 @@ final class FakeReleaseSource: ReleaseSource, @unchecked Sendable {
         if let digest { a["digest"] = digest }
         return try! JSONSerialization.data(withJSONObject: ["tag_name": tag, "body": notes, "assets": [a]])
     }
+}
+
+final class FakeRunningProcess: RunningProcess {
+    var processIdentifier: Int32 { 0 }
+    var isRunning: Bool { false }
 }

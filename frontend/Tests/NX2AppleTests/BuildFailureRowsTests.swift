@@ -185,19 +185,19 @@ final class BuildFailureRowsTests: XCTestCase {
         XCTAssertEqual(shown, ["/Users/x/Games/Zelda"], "the folder the message names")
     }
 
-    func testAnInstallStepThatFailedShowsItsRow() {
+    @MainActor func testAnInstallStepThatFailedShowsItsRow() {
         let m = BuildModel()
         m.signingTeam = "TEAM123456"
-        m.teamsProvider = { [SigningTeam(id: "TEAM123456", identity: "")] }
+        m.deviceStore.readTeams = { [SigningTeam(id: "TEAM123456", identity: "")] }
         m.noteInstallFailure(.sign, error: "error: Failed to register bundle identifier: cannot be registered to your development team")
         XCTAssertEqual(m.failure?.kind, .teamTaken)
         XCTAssertEqual(m.doneNote, m.t("fail.teamTaken.what"))
-        m.teamsProvider = { [] }
+        m.deviceStore.readTeams = { [] }
         m.noteInstallFailure(.sign, error: "error: x")
         XCTAssertEqual(m.failure?.kind, .noSigningAccount)
         m.noteInstallFailure(.install, error: "ERROR: The device is not connected.")
         XCTAssertEqual(m.failure?.kind, .deviceTransfer)
-        m.teamsProvider = { [SigningTeam(id: "TEAM123456", identity: "")] }
+        m.deviceStore.readTeams = { [SigningTeam(id: "TEAM123456", identity: "")] }
         m.failure = BuildFailure(kind: .teamTaken, gameName: nil)
         m.noteInstallFailure(.sign, error: "error: x")
         XCTAssertNil(m.failure, "an unknown signing error leaves the tool's line")

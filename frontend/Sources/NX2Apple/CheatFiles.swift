@@ -1,4 +1,5 @@
 import Foundation
+import NXCore
 
 /// A game's cheat files, as the host reads them (dm/host/hle_cheats.c, and docs/frontends.md "Cheats", the contract for front
 /// ends): Atmosphere-format `<build ID>.txt` files in a folder, and the player's switches beside them in `<build ID>.enabled`.

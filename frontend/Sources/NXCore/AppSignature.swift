@@ -10,19 +10,11 @@ package enum AppSignature {
 
     /// `ExpirationDate` of the app's embedded.mobileprovision, read through `security cms -D` (the profile is a
     /// CMS-wrapped property list); nil when the app carries no profile or it cannot be read.
-    package static func expiration(ofApp app: String) -> Date? {
+    package static func expiration(ofApp app: String, runner: ProcessRunner = SystemProcessRunner()) -> Date? {
         let profile = app + "/" + profileName
         guard FileManager.default.fileExists(atPath: profile) else { return nil }
-        let p = Process(), out = Pipe()
-        p.executableURL = URL(fileURLWithPath: "/usr/bin/security")
-        p.arguments = ["cms", "-D", "-i", profile]
-        p.standardOutput = out
-        p.standardError = FileHandle.nullDevice
-        guard (try? p.run()) != nil else { return nil }
-        let data = out.fileHandleForReading.readDataToEndOfFile()
-        p.waitUntilExit()
-        guard p.terminationStatus == 0 else { return nil }
-        return expiration(fromProfile: data)
+        guard let out = runner.output("/usr/bin/security", ["cms", "-D", "-i", profile]) else { return nil }
+        return expiration(fromProfile: Data(out.utf8))
     }
 
     /// The profile plist's ExpirationDate. Split out so the parse is tested without a signed app.
