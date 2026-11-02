@@ -11,6 +11,7 @@ name: PR scope (sync safety)
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths: ['dm/**', 'scripts/**', 'docs/**', 'ref/**', 'patches/**', '.upstream-ref', 'tools/**']
 
 permissions:
