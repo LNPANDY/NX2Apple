@@ -16,8 +16,10 @@ from nspb_qt.l10n import TABLE, t   # noqa: E402
 
 class German(unittest.TestCase):
     def test_no_german_prose_is_left_in_english(self):
-        # dep.python.hint is a list of package names, the same in every language
-        prose = [k for k, row in TABLE.items() if row['de'] == row['en'] and len(row['en']) > 30 and k != 'dep.python.hint']
+        # dep.python.hint is a list of package names, the same in every language. ios.* are the iOS shell's texts: the launcher never
+        # shows them, and a language without them falls back to English in the shell too (tools/l10n_shell_catalogs.py)
+        prose = [k for k, row in TABLE.items() if row['de'] == row['en'] and len(row['en']) > 30 and k != 'dep.python.hint'
+                 and not k.startswith('ios.')]
         self.assertEqual(prose, [], 'English text left in the German column')
 
     def test_german_has_no_semicolons_and_no_added_product_name(self):

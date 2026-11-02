@@ -3,7 +3,9 @@
 1. A key that code names in a lookup (`t('key')`, `self.m.t('key')`, `L10n.string("key", ...)`) is in en.json.
 2. A key that code builds at run time (a prefix and a variable) starts with an entry of `dynamicKeys` in
    frontend/Tests/l10n-key-rules.json, and every entry has a key in en.json and a place in the sources that builds it.
-3. A key of en.json that no source mentions, literally or under a `dynamicKeys` entry, fails, unless it is in `unusedAllowed`.
+3. A key of en.json that no source mentions, literally or under a `dynamicKeys` or `catalogKeys` entry, fails, unless it is in
+   `unusedAllowed`. `catalogKeys` are the iOS shell's texts (`ios.*`): tools/l10n_shell_catalogs.py writes them into the shell's
+   string catalogs, and tools/tests/test_l10n_shell_catalogs.py checks that the catalogs are current.
 
 The sources are both front ends, so a key only the Windows launcher or only the Mac launcher uses is used. The Mac launcher
 runs the same rules in frontend/Tests/NXCoreTests/LocalizationKeyTests.swift.
@@ -47,6 +49,7 @@ class LocalizationKeys(unittest.TestCase):
         cls.keys = {k for k in en if k != '_language'}
         rules = json.loads(RULES.read_text(encoding='utf-8'))
         cls.dynamic = [(d['prefix'], d['suffix']) for d in rules['dynamicKeys']]
+        cls.catalog = [c['prefix'] for c in rules['catalogKeys']]
         cls.allowed = {a['key'] for a in rules['unusedAllowed']}
         cls.rules = rules
         cls.text = {p: p.read_text(encoding='utf-8') for p in source_files()}
@@ -63,7 +66,8 @@ class LocalizationKeys(unittest.TestCase):
                     cls.looked_up.append((path, DYNAMIC.split(body)[0] if built else body, built))
 
     def covered(self, key: str) -> bool:
-        return any(key.startswith(p) and key.endswith(s) and len(key) >= len(p) + len(s) for p, s in self.dynamic)
+        return (any(key.startswith(p) and key.endswith(s) and len(key) >= len(p) + len(s) for p, s in self.dynamic)
+                or any(key.startswith(p) for p in self.catalog))
 
     def test_the_sources_were_found(self):
         self.assertTrue(any(p.suffix == '.py' for p in self.text), 'no Python sources')
@@ -85,6 +89,11 @@ class LocalizationKeys(unittest.TestCase):
             self.assertTrue(matching, f'dynamicKeys {prefix!r} {suffix!r} has no key in en.json')
             # Built in a lookup or anywhere else (a Dep's name, a labelKey), so the check is that a string literal starts with it
             self.assertTrue(any(f'"{prefix}' in t or f"'{prefix}" in t for t in self.text.values()), f'no source has a string that starts with {prefix!r}')
+
+    def test_every_catalog_prefix_has_keys_and_a_reason(self):
+        for entry in self.rules['catalogKeys']:
+            self.assertTrue(any(k.startswith(entry['prefix']) for k in self.keys), f'catalogKeys {entry["prefix"]!r} has no key in en.json')
+            self.assertTrue(entry.get('why', '').strip(), f'catalogKeys {entry["prefix"]!r} has no reason')
 
     def test_no_key_is_unused(self):
         unused = sorted(k for k in self.keys if k not in self.literals and not self.covered(k) and k not in self.allowed)

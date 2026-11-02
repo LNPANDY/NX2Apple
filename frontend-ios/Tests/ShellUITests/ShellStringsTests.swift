@@ -2,7 +2,8 @@ import Foundation
 import Testing
 @testable import ShellUI
 
-/// Every text of the shell comes in English and in Simplified Chinese, the two languages the interface language can pick.
+/// Every text of the shell comes in English and in Simplified Chinese, the two languages that have every key. The catalogs are generated
+/// from `frontend/l10n/*.json` (`tools/l10n_shell_catalogs.py`): another language may miss a text and then shows English.
 @Suite struct ShellStringsTests {
     private static let languages = ["en", "zh-Hans"]
 

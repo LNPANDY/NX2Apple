@@ -6,7 +6,9 @@ import XCTest
 /// 1. A key that code names in a lookup (`t("key")`, `loc.t("key")`, `L10n.string("key", ...)`, `t('key')` in Python) is in en.json.
 /// 2. A key that code builds at run time (a prefix and a variable) starts with an entry of `dynamicKeys` in
 ///    `frontend/Tests/l10n-key-rules.json`, and every entry has a key in en.json and a place in the sources that builds it.
-/// 3. A key of en.json that no source mentions, literally or under a `dynamicKeys` entry, fails, unless it is in `unusedAllowed`.
+/// 3. A key of en.json that no source mentions, literally or under a `dynamicKeys` or `catalogKeys` entry, fails, unless it is in
+///    `unusedAllowed`. `catalogKeys` are the iOS shell's texts (`ios.*`): `tools/l10n_shell_catalogs.py` writes them into the shell's
+///    string catalogs, and `tools/tests/test_l10n_shell_catalogs.py` checks that the catalogs are current.
 ///
 /// The sources are both front ends, so a key only the Windows launcher or only the Mac launcher uses is used. The Qt front end
 /// runs the same rules in `frontend-qt/tests/test_localization_keys.py`, from the same rules file.
@@ -14,7 +16,9 @@ final class LocalizationKeyTests: XCTestCase {
     private struct Rules: Decodable {
         struct Dynamic: Decodable { let prefix: String; let suffix: String; let why: String }
         struct Allowed: Decodable { let key: String; let why: String }
+        struct Catalog: Decodable { let prefix: String; let why: String }
         let dynamicKeys: [Dynamic]
+        let catalogKeys: [Catalog]
         let unusedAllowed: [Allowed]
     }
 
@@ -29,6 +33,7 @@ final class LocalizationKeyTests: XCTestCase {
 
         func covered(_ key: String) -> Bool {
             rules.dynamicKeys.contains { key.hasPrefix($0.prefix) && key.hasSuffix($0.suffix) && key.count >= $0.prefix.count + $0.suffix.count }
+                || rules.catalogKeys.contains { key.hasPrefix($0.prefix) }
         }
     }
 
@@ -107,6 +112,14 @@ final class LocalizationKeyTests: XCTestCase {
             XCTAssertTrue(scan.sources.values.contains { $0.contains("\"" + entry.prefix) || $0.contains("'" + entry.prefix) },
                           "no source has a string that starts with \(entry.prefix)")
             XCTAssertFalse(entry.why.trimmingCharacters(in: .whitespaces).isEmpty, "dynamicKeys \(entry.prefix) has no reason")
+        }
+    }
+
+    func testEveryCatalogPrefixHasKeysAndAReason() {
+        let scan = Self.scan
+        for entry in scan.rules.catalogKeys {
+            XCTAssertTrue(scan.keys.contains { $0.hasPrefix(entry.prefix) }, "catalogKeys \(entry.prefix) has no key in en.json")
+            XCTAssertFalse(entry.why.trimmingCharacters(in: .whitespaces).isEmpty, "catalogKeys \(entry.prefix) has no reason")
         }
     }
 

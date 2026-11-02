@@ -100,7 +100,7 @@ Choice rows with 2 to 4 short labels that fit their equal segment (`ChoicePresen
 
 Controller first: the D-pad and stick move a cream focus ring, A activates, B backs out, X opens settings, Y opens controllers. In Cover Flow, left and right move the carousel by one card and the focused card is always the middle one. A hardware keyboard works the same way: arrows, Return, Escape, O for settings and Y for controllers. Touch hides the focus ring and the controller hints until the next press. In Cover Flow the centred card is the button: a tap does what the game needs, a tap on a side card brings it to the middle, a long press opens its settings.
 
-Manrope and its SIL OFL licence are bundled and registered at runtime, with the system font as fallback. Reduce Motion turns the Cover Flow tilt and the slides into plain crossfades. Shell strings are in `Resources/Localizable.xcstrings`.
+Manrope and its SIL OFL licence are bundled and registered at runtime, with the system font as fallback. Reduce Motion turns the Cover Flow tilt and the slides into plain crossfades. Shell strings are lines of `frontend/l10n/<code>.json` (`ios.ui.*` for ShellUI, `ios.host.*` for ShellHost), and `Resources/Localizable.xcstrings` of ShellUI and ShellHost is generated from them by `python3 tools/l10n_shell_catalogs.py`. Do not edit the catalogs by hand, see `frontend/README.md`, section "Language".
 
 ## Demo
 

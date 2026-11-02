@@ -1,7 +1,8 @@
 import Foundation
 import ShellUI
 
-/// The host layer's own words, from `Resources/Localizable.xcstrings` (English source, like ShellUI).
+/// The host layer's own words, from `Resources/Localizable.xcstrings` (English source, like ShellUI). The catalog is generated from
+/// `frontend/l10n/*.json` (`ios.host.*`) by `tools/l10n_shell_catalogs.py`: change a text there, not in the catalog.
 func hostText(_ key: String.LocalizationValue) -> String {
     String(localized: key, bundle: .module)
 }
