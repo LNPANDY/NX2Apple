@@ -1,4 +1,5 @@
-# When the child of a stacked PR is closed, merged or retargeted, its parent may be the tip of the stack now. The parent's heavy jobs were skipped
+# When the child of a stacked PR is closed, merged or retargeted, its parent may be the tip of the stack now. When a child is opened or reopened,
+# its parent is no longer the tip, and its Stack job is re-run so that heavy jobs started earlier are skipped (only if the parent's runs finished). The parent's heavy jobs were skipped
 # while it had a child, and nothing re-triggers them. This workflow re-runs the `Stack` job of the parent's latest runs (tests, the app build),
 # which decides again, live, and starts the heavy jobs that depend on it. See .github/scripts/stack_rerun.py and CONTRIBUTING.md, "CI on stacks".
 #
@@ -10,7 +11,7 @@ name: Stack parent re-run
 
 on:
   pull_request_target:
-    types: [closed, edited]
+    types: [opened, reopened, closed, edited]
 
 permissions: {}
 
@@ -20,9 +21,9 @@ concurrency:
 
 jobs:
   rerun:
-    name: Re-run the parent of a closed or retargeted PR
+    name: Re-run the parent of an opened, closed or retargeted PR
     # A title or body edit has no `changes.base`.
-    if: ${{ github.event.action == 'closed' || github.event.changes.base != null }}
+    if: ${{ github.event.action != 'edited' || github.event.changes.base != null }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
