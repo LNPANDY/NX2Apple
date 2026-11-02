@@ -2,9 +2,10 @@ import XCTest
 import SwiftUI
 @testable import NX2Apple
 @testable import NXCore
+import NXModel
 
 /// LNPANDY/NX2Apple#449: a shell folder with one framework of the current chain and one of the old chain.
-final class StaleFrameworksTests: XCTestCase {
+@MainActor final class StaleFrameworksTests: XCTestCase {
     private let current = "b-b7cd656abd7c"
     private let old = "b-e65a4ebd3322"
     private let oldID = "0100A00019DE0000"
@@ -79,7 +80,7 @@ final class StaleFrameworksTests: XCTestCase {
     func testStopLeavesEveryFileAsItWas() throws {
         let (stale, fresh) = try shell()
         let before = try Data(contentsOf: URL(fileURLWithPath: ShellLibrary.stateFile(root: tmp + "/shell")))
-        let model = BuildModel()
+        let modelStores = LauncherStores(); let model = modelStores.build
         model.staleFrameworks = found()
         XCTAssertFalse(model.staleFrameworks.isEmpty)
         model.stopForStaleFrameworks()
@@ -91,7 +92,7 @@ final class StaleFrameworksTests: XCTestCase {
 
     func testContinueRemovesTheStaleFrameworkAndKeepsTheCurrentOne() throws {
         let (stale, fresh) = try shell()
-        let failed = BuildModel.removeStaleFrameworks(found(), root: tmp + "/shell")
+        let failed = BuildStore.removeStaleFrameworks(found(), root: tmp + "/shell")
         XCTAssertEqual(failed, [])
         XCTAssertFalse(exists(stale))
         XCTAssertTrue(exists(fresh))
@@ -101,7 +102,7 @@ final class StaleFrameworksTests: XCTestCase {
 
     func testContinueStartsTheBuildAndTheModelEndsWithoutAPrompt() throws {
         _ = try shell()
-        let model = BuildModel()
+        let modelStores = LauncherStores(); let model = modelStores.build
         model.staleFrameworks = found()
         var started = false
         UserDefaults.standard.set(tmp + "/shell", forKey: "shellRoot")
@@ -113,7 +114,7 @@ final class StaleFrameworksTests: XCTestCase {
     }
 
     func testAllFiveLanguagesHaveTheTextsAndNoneUsesASemicolon() {
-        for lang in Lang.allCases {
+        for lang in Lang.all {
             for key in ["stale.title", "stale.message", "stale.go", "stale.stop", "stale.removeFailed"] {
                 let text = L10n.string(key, lang)
                 XCTAssertNotEqual(text, key, "\(key) in \(lang)")
@@ -131,7 +132,7 @@ final class StaleFrameworksTests: XCTestCase {
         guard let directory = ProcessInfo.processInfo.environment["NX_LAUNCHER_CAPTURE_DIR"] else { throw XCTSkip("Set NX_LAUNCHER_CAPTURE_DIR to capture native views") }
         let output = URL(fileURLWithPath: directory)
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
-        let lang = ProcessInfo.processInfo.environment["NX_CAPTURE_LANG"].flatMap { Lang(rawValue: $0) } ?? .en
+        let lang = ProcessInfo.processInfo.environment["NX_CAPTURE_LANG"].flatMap { Lang.find($0) } ?? .en
         let entries = [StaleFrameworks.Entry(titleID: oldID, name: "Super Mario Odyssey", chain: old, paths: []),
                        StaleFrameworks.Entry(titleID: newID, name: "Hades", chain: old, paths: [])]
         let alert = VStack(spacing: 12) {
@@ -150,14 +151,14 @@ final class StaleFrameworksTests: XCTestCase {
         NSApplication.shared.setActivationPolicy(.accessory)
         let host = NSHostingView(rootView: alert)
         host.frame = NSRect(origin: .zero, size: host.fittingSize)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        let window = OffscreenWindow(size: host.frame.size)
         window.contentView = host
         window.orderFront(nil)
         RunLoop.main.run(until: Date().addingTimeInterval(0.4))
         host.layoutSubtreeIfNeeded()
         let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
         host.cacheDisplay(in: host.bounds, to: rep)
-        try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: output.appendingPathComponent("stale-frameworks-\(lang.rawValue).png"))
+        try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: output.appendingPathComponent("stale-frameworks-\(lang.code).png"))
         window.orderOut(nil)
     }
 }

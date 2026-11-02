@@ -26,7 +26,7 @@ struct Diagnostics {
         var engine: String?                  // the release app's engine: "<channel> <version> (<engine_id>)"
         var python: String
         var pythonVersion: String?
-        var pythonIsVenv = false             // the launcher's own venv (BuildModel.venvDir)
+        var pythonIsVenv = false             // the launcher's own venv (Toolchain.venvDir)
         var dotnet: String
         var dotnetVersion: String?
         var depsChecked = true
@@ -191,7 +191,7 @@ struct Diagnostics {
     }
 
     /// A dependency row in English: its name and what the check said (a path, or a message with its argument).
-    static func dependency(_ d: BuildModel.Dep) -> Dependency {
+    static func dependency(_ d: Dep) -> Dependency {
         let en = { (key: String) in L10n.string(key, .en) }
         var detail = d.detail
         if let colon = detail.firstIndex(of: ":"), !detail.hasPrefix("/"), L10n.table[String(detail[..<colon])] != nil {
@@ -217,10 +217,10 @@ struct Diagnostics {
     }
 
     /// The commit, branch and distance from main of a checkout, from its own refs.
-    static func git(_ repo: String) -> (commit: String?, branch: String?, behind: [(ref: String, count: Int)], lastFetch: Date?) {
-        guard !repo.isEmpty, FileManager.default.fileExists(atPath: repo + "/.git"), let git = BuildModel.gitBinary() else { return (nil, nil, [], nil) }
+    static func git(_ repo: String, checkout: GitCheckout = SystemGitCheckout()) -> (commit: String?, branch: String?, behind: [(ref: String, count: Int)], lastFetch: Date?) {
+        guard !repo.isEmpty, FileManager.default.fileExists(atPath: repo + "/.git"), checkout.binary != nil else { return (nil, nil, [], nil) }
         func run(_ args: [String]) -> String? {
-            let r = BuildModel.runQuiet([git, "-C", repo] + args, env: BuildModel.gitEnv())
+            let r = checkout.run(repo, args)
             let s = r.out.trimmingCharacters(in: .whitespacesAndNewlines)
             return r.ok && !s.isEmpty ? s : nil
         }
@@ -250,13 +250,14 @@ struct Diagnostics {
         return (pins["metal_macosx"], pins["metal_iphoneos"])
     }
 
-    /// A command's output when it exits 0, trimmed; nil when it fails or prints nothing. The tests stand in for BuildModel.runQuiet.
+    /// A command's output when it exits 0, trimmed; nil when it fails or prints nothing. The tests stand in for the ProcessRunner.
     typealias Probe = (_ args: [String]) -> String?
 
-    static func probe(env: [String: String] = ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin", "TMPDIR": NSTemporaryDirectory()]) -> Probe {
+    static func probe(env: [String: String] = ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin", "TMPDIR": NSTemporaryDirectory()],
+                      runner: ProcessRunner = SystemProcessRunner()) -> Probe {
         { args in
             guard FileManager.default.isExecutableFile(atPath: args[0]) else { return nil }
-            let r = BuildModel.runQuiet(args, env: env)
+            let r = runner.runQuiet(args, env: env)
             let s = r.out.trimmingCharacters(in: .whitespacesAndNewlines)
             return r.ok && !s.isEmpty ? s : nil
         }
@@ -285,21 +286,21 @@ struct Diagnostics {
     }
 
     /// What a tool prints for its version, nil when it does not run.
-    static func version(_ tool: String, _ args: [String], env: [String: String]) -> String? {
+    static func version(_ tool: String, _ args: [String], env: [String: String], runner: ProcessRunner = SystemProcessRunner()) -> String? {
         guard FileManager.default.isExecutableFile(atPath: tool) else { return nil }
-        let r = BuildModel.runQuiet([tool] + args, env: env)
+        let r = runner.runQuiet([tool] + args, env: env)
         let s = r.out.trimmingCharacters(in: .whitespacesAndNewlines)
         return r.ok && !s.isEmpty ? String(s.split(separator: "\n").last ?? "") : nil
     }
 }
 
-extension BuildModel {
+extension LauncherStores {
     /// The report, read in the background and handed back on the main thread.
     func diagnostics(game: LibraryGame? = nil, _ done: @escaping (String) -> Void) {
-        let repo = repoOK ? repoPath : "", python = pythonPath.isEmpty ? Self.findPython().path : pythonPath, dotnet = dotnetPath
-        let rows = depsChecked ? deps.map(Diagnostics.dependency) : [], checked = depsChecked
-        let command = lastBuildCommand, log = logTail, xcrun = xcrunPath
-        let sel = engineSelection
+        let repo = self.repo.isRepo ? self.repo.path : "", python = dependencies.pythonPath.isEmpty ? Toolchain.findPython().path : dependencies.pythonPath, dotnet = dependencies.dotnetPath
+        let checked = dependencies.checked, rows = checked ? dependencies.deps.map(Diagnostics.dependency) : []
+        let command = build.lastBuildCommand, log = build.logTail, xcrun = deviceStore.xcrun
+        let (sel, usesEngineStore) = (engineSync.selection, engineSync.usesEngineStore)
         let engine = usesEngineStore && !sel.engineID.isEmpty ? "\(sel.channel.rawValue) \(sel.version) (\(sel.engineID))" : nil
         DispatchQueue.global(qos: .userInitiated).async {
             let git = Diagnostics.git(repo)
@@ -310,14 +311,14 @@ extension BuildModel {
             let read = { (file: String) in try? String(contentsOfFile: engine + "/" + file, encoding: .utf8) }
             let pins = read("dm/gfx/tools/dmsh_chain.lock").map(Diagnostics.chainPins) ?? (nil, nil)
             let inputs = Diagnostics.Inputs(
-                appVersion: Self.appVersion,
+                appVersion: AppUpdateStore.appVersion,
                 macOS: ProcessInfo.processInfo.operatingSystemVersionString,
                 chip: Diagnostics.chip(),
                 repoPath: repo, commit: git.commit, branch: git.branch, behind: git.behind, lastFetch: git.lastFetch,
                 engine: engine,
                 python: python,
                 pythonVersion: Diagnostics.version(python, ["-c", "import sys; print(sys.version.split()[0])"], env: env),
-                pythonIsVenv: python == Self.venvPython(),
+                pythonIsVenv: python == Toolchain.venvPython(),
                 dotnet: dotnet,
                 dotnetVersion: dotnet.isEmpty ? nil : Diagnostics.version(dotnet, ["--version"], env: dotnetEnv),
                 depsChecked: checked, deps: rows,
@@ -333,7 +334,7 @@ extension BuildModel {
 
 /// Settings' Copy diagnostics: the report goes to the clipboard and the button says Copied for a moment.
 struct DiagnosticsButton: View {
-    @ObservedObject var m: BuildModel
+    let report: (LibraryGame?, @escaping (String) -> Void) -> Void
     @EnvironmentObject var loc: Localizer
     var game: LibraryGame?   // the library's selected game: its log goes in the report
     var showCopied = false   // the visual QA's confirmation
@@ -351,7 +352,7 @@ struct DiagnosticsButton: View {
 
     private func copy() {
         busy = true
-        m.diagnostics(game: game) { report in
+        report(game) { report in
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(report, forType: .string)
             busy = false

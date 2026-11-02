@@ -3,9 +3,10 @@ import SwiftUI
 import Combine
 @testable import NX2Apple
 @testable import NXCore
+import NXModel
 @testable import NXLauncher
 
-final class ConsoleTests: XCTestCase {
+@MainActor final class ConsoleTests: XCTestCase {
     /// The games ready on this Mac come first. The rest follow in their own order, each with its status.
     func testReadyGamesComeFirst() {
         func game(_ id: String, _ status: ConsoleGame.Status) -> ConsoleGame {
@@ -206,22 +207,21 @@ final class ConsoleTests: XCTestCase {
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         for lang in CaptureLanguage.all([.en, .zh]) {
             for width: CGFloat in [900, 1280] {
-                let model = BuildModel()
+                let modelStores = LauncherStores(); let model = modelStores.build
                 model.lang = lang
                 let library = GameLibrary(file: output.appendingPathComponent("unused-library.json"))
                 let driver = MockConsoleDriver(scenario: .controllersMixed, lang: lang, animated: false)
                 driver.back()
-                let view = ContentView(model: model, library: library, performStartupChecks: false, controllerDriver: AnyConsoleDriver(driver))
+                let view = LauncherView(stores: modelStores, library: library, performStartupChecks: false, controllerDriver: AnyConsoleDriver(driver))
                 let host = NSHostingView(rootView: view)
-                let window = NSWindow(contentRect: NSRect(x: -10000, y: 0, width: width, height: 800), styleMask: [.borderless], backing: .buffered, defer: false)
-                window.isReleasedWhenClosed = false
+                let window = OffscreenWindow(size: NSSize(width: width, height: 800), styleMask: [.borderless])
                 window.contentView = host
                 window.orderBack(nil)
                 RunLoop.main.run(until: Date().addingTimeInterval(0.2))
                 host.layoutSubtreeIfNeeded()
                 let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
                 host.cacheDisplay(in: host.bounds, to: rep)
-                try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: output.appendingPathComponent("desktop-\(Int(width))-\(lang.rawValue).png"))
+                try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: output.appendingPathComponent("desktop-\(Int(width))-\(lang.code).png"))
                 window.orderOut(nil)
                 window.contentView = nil
                 window.close()
@@ -259,8 +259,7 @@ final class ConsoleTests: XCTestCase {
                         view = AnyView(ConsoleConnectionPrompt(lang: lang, enterConsole: {}, dismissPrompt: {}).environmentObject(PadFocus()).preferredColorScheme(.dark))
                     } else { view = AnyView(ConsoleView(driver: driver, lang: lang).transaction { $0.disablesAnimations = true }) }
                     let host = NSHostingView(rootView: view.frame(width: width, height: height))
-                    let window = NSWindow(contentRect: NSRect(x: -10000, y: 0, width: width, height: height), styleMask: [.borderless], backing: .buffered, defer: false)
-                    window.isReleasedWhenClosed = false
+                    let window = OffscreenWindow(size: NSSize(width: width, height: height), styleMask: [.borderless])
                     window.contentView = host
                     window.orderBack(nil)
                     RunLoop.main.run(until: Date().addingTimeInterval(0.12))
@@ -268,7 +267,7 @@ final class ConsoleTests: XCTestCase {
                     let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
                     host.cacheDisplay(in: host.bounds, to: rep)
                     try XCTUnwrap(rep.representation(using: .png, properties: [:]))
-                        .write(to: output.appendingPathComponent("\(screen)-\(name)-\(lang.rawValue).png"))
+                        .write(to: output.appendingPathComponent("\(screen)-\(name)-\(lang.code).png"))
                     window.orderOut(nil)
                     window.contentView = nil
                     window.close()
@@ -285,8 +284,7 @@ final class ConsoleTests: XCTestCase {
         let (width, height): (CGFloat, CGFloat) = (1280, 800)
         let driver = MockConsoleDriver(scenario: .full, lang: .en, animated: false)
         let host = NSHostingView(rootView: ConsoleView(driver: driver, lang: .en).transaction { $0.disablesAnimations = true }.frame(width: width, height: height))
-        let window = NSWindow(contentRect: NSRect(x: -10000, y: 0, width: width, height: height), styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
+        let window = OffscreenWindow(size: NSSize(width: width, height: height), styleMask: [.borderless])
         window.contentView = host
         window.orderBack(nil)
         defer { window.orderOut(nil); window.contentView = nil; window.close() }

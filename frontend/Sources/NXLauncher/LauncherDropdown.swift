@@ -226,14 +226,17 @@ package struct LauncherDropdownList: View {
 /// `label` names the setting for VoiceOver, which then reads the choice as the value.
 package struct LauncherDropdown: View {
     package init(options: [(value: String, label: String)], selection: String, label: String = "", style: LauncherDropdownStyle = .pill,
-                  fill: Bool = false, choose: @escaping (String) -> Void) {
-        self.options = options; self.selection = selection; self.label = label; self.style = style; self.fill = fill; self.choose = choose
+                  fill: Bool = false, leading: Bool = false, choose: @escaping (String) -> Void) {
+        self.options = options; self.selection = selection; self.label = label; self.style = style; self.fill = fill; self.leading = leading
+        self.choose = choose
     }
     package let options: [(value: String, label: String)]
     package let selection: String
     package var label = ""
     package var style: LauncherDropdownStyle = .pill
     package var fill = false
+    /// With `fill`: the choice starts at the left, like the text of a field (the export's device, LNPANDY/NX2Apple#416).
+    package var leading = false
     package let choose: (String) -> Void
     @Environment(\.launcherDropdownHost) private var host
     @State private var id = UUID()
@@ -256,8 +259,8 @@ package struct LauncherDropdown: View {
             Text(current).font(.manrope(rounded ? 13 : 12.5, .semibold)).lineLimit(1)
                 .minimumScaleFactor(width == nil ? 1 : 0.85)
                 .fixedSize(horizontal: !fill && width == nil, vertical: false)
-                .frame(maxWidth: fill || width != nil ? .infinity : nil, alignment: .center)   // the words centre across the whole button
-                .padding(.leading, fill || width != nil ? 14 : 0)   // room so the chevron never crowds them
+                .frame(maxWidth: fill || width != nil ? .infinity : nil, alignment: fill && leading ? .leading : .center)   // the words centre across the whole button
+                .padding(.leading, (fill && !leading) || width != nil ? 14 : 0)   // room so the chevron never crowds them
             if fill || width != nil {
                 Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
                     .rotationEffect(.degrees(open ? 180 : 0)).padding(.trailing, 14)
@@ -267,7 +270,7 @@ package struct LauncherDropdown: View {
             }
         }
         .padding(.horizontal, rounded ? 15 : 14).padding(.vertical, rounded ? 9 : 7)
-        .frame(width: width, height: width == nil ? nil : LauncherControl.height)
+        .frame(width: width, height: width != nil || (fill && rounded) ? LauncherControl.height : nil)   // a filling button as high as a row's buttons
         .frame(maxWidth: fill ? .infinity : nil)
         .background(Color.white.opacity(open ? 0.13 : (rounded ? 0.055 : 0.06)), in: shape)
         .overlay(shape.strokeBorder(Color.white.opacity(open ? 0.18 : 0.10)))

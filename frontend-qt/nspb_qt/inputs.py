@@ -1,5 +1,5 @@
 """Sorting a folder's game files into base, update and DLC by the title ID in their names.
-The same rules as the Mac launcher's BuildModel.classify, so both front ends agree."""
+The same rules as the Mac launcher's GameInputs.classify, so both front ends agree."""
 from __future__ import annotations
 
 import re

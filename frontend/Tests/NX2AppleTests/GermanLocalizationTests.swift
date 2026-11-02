@@ -3,17 +3,16 @@ import XCTest
 @testable import NXCore
 @testable import NXLauncher
 
-/// The German catalog (L10n.de) has to be complete and has to keep the rules of the shared table.
-/// A string added to the table later needs its German entry, and this fails until it has one.
+/// The German catalog (L10n.de) has to read as German and keep the text rules of the shared table.
+/// Completeness and placeholders for every language are in NXCoreTests/LocalizationRulesTests.swift.
 final class GermanLocalizationTests: XCTestCase {
     /// Keys whose German text is the English text on purpose: names, units and button letters.
     private let sameAsEnglish: Set<String> = [
         "onboarding.platform.mac", "onboarding.platform.iphone", "onboarding.setup.metal",
         "onboarding.background.python", "onboarding.background.dotnet", "onboarding.games.version",
-        "onboarding.demo.mario", "console.kind.gamepad", "console.brand", "console.platform.mac",
+        "onboarding.demo.mario", "msg.ipaAt", "console.kind.gamepad", "console.platform.mac",
         "console.platform.iphone", "console.version", "console.fps30", "console.fps60", "saves.toDevice",
-        "saves.toMac", "cheats.title", "section.app", "app.version", "nav.builds", "settings.language.zh",
-        "settings.language.en", "settings.language.sv", "settings.language.de", "settings.language.fr", "library.ok", "build.ios", "data.update", "data.keys",
+        "saves.toMac", "cheats.title", "section.app", "app.version", "nav.builds", "library.ok", "build.ios", "data.update", "data.keys",
         "dep.iossdk", "dep.tool.xcodegen", "dep.tool.zstd", "dep.tool.spirv-cross", "dep.tool.glslangValidator",
         "dep.glslang", "dep.xcode", "dep.metal", "dep.brew", "dep.xcodegen", "dep.zstd", "dep.spirv.win",
         "dep.zstd.win", "dep.spirv", "dep.dotnet", "dep.phase.download", "dep.python.hint",
@@ -23,30 +22,9 @@ final class GermanLocalizationTests: XCTestCase {
         "launch.opt.DM_FPS_TARGET.30", "launch.opt.DM_FPS_TARGET.60", "launch.opt.DM_PRESENT_UPSCALE.metalfx",
     ]
 
-    /// printf-style placeholders in order: %@, %d, %ld, %lld, %.0f and %.1f, positional %1$@, and %%.
-    private func placeholders(_ s: String) -> [String] {
-        let re = try! NSRegularExpression(pattern: "%(?:[0-9]+\\$)?(?:\\.[0-9]+)?(?:ll|l)?[@dsf%]")
-        return re.matches(in: s, range: NSRange(s.startIndex..., in: s)).map { String(s[Range($0.range, in: s)!]) }
-    }
-
-    func testEveryKeyHasAGermanEntry() {
-        for key in L10n.table.keys.sorted() {
-            let de = L10n.de[key]
-            XCTAssertNotNil(de, "\(key) has no German text")
-            XCTAssertFalse(de?.isEmpty ?? true, key)
-        }
-        for key in L10n.de.keys { XCTAssertNotNil(L10n.table[key], "\(key) is German text for a key that does not exist") }
-    }
-
     func testGermanIsNotLeftInEnglish() {
         for (key, row) in L10n.table where !sameAsEnglish.contains(key) {
             XCTAssertNotEqual(L10n.de[key], row.en, "\(key) has the English text in the German table")
-        }
-    }
-
-    func testFormatPlaceholdersMatchEnglishInCountAndOrder() {
-        for (key, row) in L10n.table {
-            XCTAssertEqual(placeholders(L10n.string(key, .de)), placeholders(row.en), key)
         }
     }
 
@@ -63,38 +41,25 @@ final class GermanLocalizationTests: XCTestCase {
     }
 
     func testGermanCatalogIsUsed() {
-        XCTAssertEqual(L10n.string("settings.language.de", .de), "Deutsch")
-        XCTAssertEqual(L10n.string("settings.language.de", .en), "Deutsch")
+        XCTAssertEqual(Lang("de").name, "Deutsch")
         XCTAssertEqual(L10n.string("onboarding.start", .de), "Los geht\u{2019}s")
         XCTAssertEqual(L10n.string("onboarding.later", .de), "Sp\u{e4}ter einrichten")
         XCTAssertEqual(L10n.string("dep.recheck", .de), "Erneut pr\u{fc}fen")
         XCTAssertEqual(L10n.string("saves.cancel", .de), "Abbrechen")
-        XCTAssertEqual(Lang(rawValue: "de"), .de)
+        XCTAssertEqual(Lang.find("de"), .de)
     }
 
-    func testLanguageNamesExistInEveryLanguage() {
-        for lang: Lang in [.zh, .en, .sv, .de, .fr] {
-            for code in ["zh", "en", "sv", "de", "fr"] {
-                let key = "settings.language.\(code)"
-                XCTAssertNotEqual(L10n.string(key, lang), key)
-            }
-        }
-    }
-
+    /// The picker shows each language by its own name, which comes from the `_language` entry of its file.
     func testLanguageNamesAreTheLanguagesOwnNames() {
-        let endonyms = ["zh": "中文", "en": "English", "sv": "Svenska", "de": "Deutsch"]
-        for lang: Lang in [.zh, .en, .sv, .de] {
-            for (code, name) in endonyms {
-                XCTAssertEqual(L10n.string("settings.language.\(code)", lang), name, "\(code) in \(lang)")
-            }
-        }
+        let endonyms = ["zh": "中文", "en": "English", "sv": "Svenska", "de": "Deutsch", "fr": "Français"]
+        for (code, name) in endonyms { XCTAssertEqual(Lang(code).name, name, code) }
     }
 }
 
 /// The opt-in capture tests render in English (and Chinese). Set `NX_CAPTURE_LANG=de` (or `sv`, `zh`)
 /// to render them all in that language instead, for example into /tmp/de-shots.
 enum CaptureLanguage {
-    private static var chosen: Lang? { ProcessInfo.processInfo.environment["NX_CAPTURE_LANG"].flatMap { Lang(rawValue: $0) } }
+    private static var chosen: Lang? { ProcessInfo.processInfo.environment["NX_CAPTURE_LANG"].flatMap { Lang.find($0) } }
     static func current(_ fallback: Lang) -> Lang { chosen ?? fallback }
     static func all(_ fallback: [Lang]) -> [Lang] { chosen.map { [$0] } ?? fallback }
 }
