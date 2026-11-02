@@ -54,7 +54,7 @@ Persist the current step and selections before handling `skipForLater`, then inj
 
 ## The real driver
 
-`LiveOnboardingDriver` (`LiveOnboardingDriver.swift`) implements the contract over the launcher's own `LauncherStores` (its `BuildStore` and `DependencyStore`) and `GameLibrary`, which `RootView` shares with `ContentView`. Everything it does to the machine goes through `OnboardingEnvironment`, so the tests use fakes.
+`LiveOnboardingDriver` (`LiveOnboardingDriver.swift`) implements the contract over the launcher's own `LauncherStores` (its `BuildStore` and `DependencyStore`) and `GameLibrary`, which `RootView` shares with `LauncherView`. Everything it does to the machine goes through `OnboardingEnvironment`, so the tests use fakes.
 
 - When it shows: on launch, unless `onboarding.completed` is set or setup is already complete (all tools present, a keys file known, a games folder set, and a complete one is marked done without being shown). Settings has "Run setup again". Set up later stores the step, platform and an in-progress flag in `UserDefaults`, and the next launch resumes there and revalidates (a stored step past Xcode returns to Xcode when Xcode no longer holds).
 - Detection and installs are `DependencyStore.check` / `deps` / `install`, one install at a time (Python, .NET, then Homebrew and the formulas). Homebrew waits for Xcode to be ready. The xcode row asks for the iOS SDK only when the stored platform is not Mac-only or builds target an iPhone (`LauncherStores.needsIOSPlatform`).

@@ -140,7 +140,7 @@ import NXModel
         let library = GameLibrary(file: world.libraryFile)
         library.selectedID = world.selected
         let pad = LauncherGamepad()
-        let host = NSHostingView(rootView: ContentView(stores: modelStores, library: library, performStartupChecks: false, gamepad: pad))
+        let host = NSHostingView(rootView: LauncherView(stores: modelStores, library: library, performStartupChecks: false, gamepad: pad))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1280, height: 900), styleMask: [.titled, .closable, .resizable],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -201,7 +201,7 @@ import NXModel
             }
             if plists > step.plistReads {
                 failures.append("\(step.name): \(plists) Info.plist reads, budget \(step.plistReads). LibraryGame.isReady and "
-                    + "ContentView.status read the app bundle on every call. Call them less often per redraw or cache the result.")
+                    + "LauncherView.status read the app bundle on every call. Call them less often per redraw or cache the result.")
             }
             if parses > 0 {
                 failures.append("\(step.name): \(parses) frame time recordings parsed on the main thread, budget 0. "

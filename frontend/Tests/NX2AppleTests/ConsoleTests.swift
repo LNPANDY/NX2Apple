@@ -212,7 +212,7 @@ import NXModel
                 let library = GameLibrary(file: output.appendingPathComponent("unused-library.json"))
                 let driver = MockConsoleDriver(scenario: .controllersMixed, lang: lang, animated: false)
                 driver.back()
-                let view = ContentView(stores: modelStores, library: library, performStartupChecks: false, controllerDriver: AnyConsoleDriver(driver))
+                let view = LauncherView(stores: modelStores, library: library, performStartupChecks: false, controllerDriver: AnyConsoleDriver(driver))
                 let host = NSHostingView(rootView: view)
                 let window = NSWindow(contentRect: NSRect(x: -10000, y: 0, width: width, height: 800), styleMask: [.borderless], backing: .buffered, defer: false)
                 window.isReleasedWhenClosed = false

@@ -162,7 +162,7 @@ import NXModel
         try scenario.set(modelStores, library, directory)
         model.lang = lang
         let samples = Samples()
-        let view = ContentView(stores: modelStores, library: library, initialPage: scenario.page, activeBuildID: nil, performStartupChecks: false,
+        let view = LauncherView(stores: modelStores, library: library, initialPage: scenario.page, activeBuildID: nil, performStartupChecks: false,
                                search: nil, olderTools: [], manageOpen: false, padRing: false)
             .environment(\.measuresLauncherControls, true)
             .onPreferenceChange(LauncherControlSamples.self) { samples.all = $0 }

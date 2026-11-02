@@ -36,7 +36,7 @@ struct RootView: View {
                             .onAppear { shared.console.reloadCovers() }
                             .transition(CalmTransition.console)
                     } else {
-                        ContentView(stores: stores, library: library, onRunSetup: runSetupAgain, enterConsole: { console.enter() },
+                        LauncherView(stores: stores, library: library, onRunSetup: runSetupAgain, enterConsole: { console.enter() },
                                     controllerDriver: AnyConsoleDriver(shared.console), controls: shared.controls)
                             .transition(CalmTransition.desktop)
                     }

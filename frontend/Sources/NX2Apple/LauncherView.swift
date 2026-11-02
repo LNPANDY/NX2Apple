@@ -40,7 +40,7 @@ enum LibraryFilter: String, CaseIterable, Identifiable {
     }
 }
 
-struct ContentView: View {
+struct LauncherView: View {
     private let stores: LauncherStores   // the wiring: the stores below are its, the views take what they show
     @StateObject private var m: BuildStore   // the build: the stages, the failure, the inputs
     @ObservedObject private var devices: DeviceStore   // the copy card and the activity line while the data goes over

@@ -183,7 +183,7 @@ import NXModel
             model.slots[0].paths = [base]
             model.slots[1].paths = withUpdate ? [update] : []
             model.slots[3].paths = [try keysFile(keys)]
-            let host = NSHostingView(rootView: ContentView(stores: modelStores, library: library, initialPage: .builds, performStartupChecks: false))
+            let host = NSHostingView(rootView: LauncherView(stores: modelStores, library: library, initialPage: .builds, performStartupChecks: false))
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1440, height: 1024), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
             window.contentView = host
             window.orderFront(nil)

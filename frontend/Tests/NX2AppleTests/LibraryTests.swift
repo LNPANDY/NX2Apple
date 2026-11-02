@@ -584,7 +584,7 @@ import NXModel
         model.slots[0].paths = [base.path]
         model.slots[3].paths = [keys.path]
         let library = GameLibrary(file: temporary.appendingPathComponent("library.json"))
-        let host = NSHostingView(rootView: ContentView(stores: modelStores, library: library, initialPage: .builds, performStartupChecks: false))
+        let host = NSHostingView(rootView: LauncherView(stores: modelStores, library: library, initialPage: .builds, performStartupChecks: false))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1100, height: 800), styleMask: [.titled], backing: .buffered, defer: false)
         window.contentView = host
         window.orderFront(nil)
@@ -703,7 +703,7 @@ import NXModel
                         Stage(id: 3, name: "rewrite", state: .done, detail: "main, subsdk0, sdk"),
                         Stage(id: 4, name: "shader split", state: .running, detail: "splitting · 10,577 / 41,062 files · 41s left", percent: 26)]
         library.selectedID = botwID
-        try shot("library", ContentView(stores: modelStores, library: library, activeBuildID: totkID, performStartupChecks: false), size: window)
+        try shot("library", LauncherView(stores: modelStores, library: library, activeBuildID: totkID, performStartupChecks: false), size: window)
         model.running = false; model.stages = []
 
         // The build page, ready to start: example paths, not the user's
@@ -716,7 +716,7 @@ import NXModel
         model.slots[0].paths = [nsp.path]; model.slots[1].paths = [update.path]; model.slots[3].paths = [keys.path]
         model.gameDir = "/Volumes/Games/Tears of the Kingdom"
         model.outDir = "/Volumes/Games"
-        try shot("build", ContentView(stores: modelStores, library: library, initialPage: .builds, performStartupChecks: false), size: NSSize(width: 1280, height: 940))
+        try shot("build", LauncherView(stores: modelStores, library: library, initialPage: .builds, performStartupChecks: false), size: NSSize(width: 1280, height: 940))
 
         if let upscale = LaunchSetting.read(app: library.games.first { $0.id == botwID }!.appPath)?.first(where: { $0.env == "DM_PRESENT_UPSCALE" }) {
             SavedChoices(app: library.games.first { $0.id == botwID }!.appPath, titleID: "01007EF00011E000").set(upscale, "metalfx")
@@ -760,7 +760,7 @@ import NXModel
         func capture(_ name: String, width: CGFloat = 1440, height: CGFloat = 1024, page: LauncherPage = .library, activeID: UUID? = nil, empty: Bool = false,
                      search: String? = nil, older: Set<UUID> = [], manageOpen: Bool = false, padRing: Bool = false, only: GameLibrary? = nil) throws {
             let store = only ?? (empty ? GameLibrary(file: temporary.appendingPathComponent("empty.json")) : library)
-            let view = ContentView(stores: modelStores, library: store, initialPage: page, activeBuildID: activeID, performStartupChecks: false, search: search,
+            let view = LauncherView(stores: modelStores, library: store, initialPage: page, activeBuildID: activeID, performStartupChecks: false, search: search,
                                    olderTools: older, manageOpen: manageOpen, padRing: padRing)
             let host = NSHostingView(rootView: view)
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: height),
@@ -927,7 +927,7 @@ import NXModel
             _ = crowded.rememberInputs(model)
         }
         model.slots[0].paths = []
-        let view = ContentView(stores: modelStores, library: crowded, performStartupChecks: false)
+        let view = LauncherView(stores: modelStores, library: crowded, performStartupChecks: false)
         let crowdedHost = NSHostingView(rootView: view)
         let crowdedWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1280, height: 900), styleMask: [.titled], backing: .buffered, defer: false)
         crowdedWindow.contentView = crowdedHost
