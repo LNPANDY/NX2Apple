@@ -891,7 +891,12 @@ final class ShellInstallTests: XCTestCase {
         }
         finish { model.installShell(framework: f.framework, titleID: titleID, name: "Test Game", archive: f.archive) }
         XCTAssertEqual(model.failure?.kind, .shellDataIncomplete)
-        XCTAssertTrue(model.doneNote.hasPrefix(String(format: model.t("shell.copyIncomplete"), model.deviceName(model.installDevice), "").components(separatedBy: ": ").first ?? "-"), model.doneNote)
+        // The sentence before the tool's error, in every language: it used to split the English template on ": ", which
+        // never matches a full-width colon (a Chinese macOS ran this test red on main).
+        let marker = "\u{1}"
+        let prefix = String(format: model.t("shell.copyIncomplete"), model.deviceName(model.installDevice), marker)
+            .components(separatedBy: marker).first ?? "-"
+        XCTAssertTrue(model.doneNote.hasPrefix(prefix), model.doneNote)
         XCTAssertFalse(model.done)
         XCTAssertEqual(plans.count, 1)
         XCTAssertEqual(plans.first?.connection, .wired)
