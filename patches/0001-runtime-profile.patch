@@ -7,7 +7,7 @@ The host reads a game profile at run time (hle_profile.c), with the compiled gam
 DM_PROF_<key> overrides on top. game.py gains a "profile" subcommand that writes the file.
 Touches every file that used a DM_GAME_* macro for the memory layout, game_env, alloc_big_align and the program id.
 
-Upstream-Status: pending (design note seedds/nxnative#492)
+Upstream-Status: fork-only (declined seedds/nxnative#492)
 Reason: One host binary for every game: the profile constants are read at run time (DM_PROFILE, dm_profile()), not only as compile-time macros; the launcher needs it
 Issue: LNPANDY/NX2Apple#123
 ---
@@ -75,7 +75,7 @@ index 6089fe9..bc2ad82 100644
          print(load(a[1]).dir)
      elif len(a) == 3 and a[0] == 'link':   # link → the profile folder (replaced when it points elsewhere)
 diff --git a/dm/host/dm.h b/dm/host/dm.h
-index c33ee06..bd7ecf6 100644
+index 84b5321..402a3aa 100644
 --- a/dm/host/dm.h
 +++ b/dm/host/dm.h
 @@ -7,6 +7,7 @@
@@ -100,7 +100,7 @@ index 9a8b631..0b70203 100644
          if (t && ue_missing) LOG("[RED] main: Unreal %s not found by the rewriter (ue_cvar.py NAMES; game profile ue_fps_cvar): the game's own frame limit stays", DM_GAME_UE_FPS_CVAR);
          if (!nrow && !nier && !fb.n) return;
 diff --git a/dm/host/hle_fs.c b/dm/host/hle_fs.c
-index 80a055b..ab8a182 100644
+index 8d0077d..84b2c74 100644
 --- a/dm/host/hle_fs.c
 +++ b/dm/host/hle_fs.c
 @@ -592,7 +592,7 @@ HLE_FORCE("_ZN2nn2fs14ExtendSaveDataERKNS_7account3UidEll", "fsp-srv; extend sav
@@ -465,7 +465,7 @@ index 0000000..a2febeb
 +const struct dm_profile *dm_profile(void);   // loaded once; never NULL
 +void dm_profile_log(void);                   // one line per differing value (called after loading)
 diff --git a/dm/host/hle_svc.c b/dm/host/hle_svc.c
-index 8939b05..ff2e3a3 100644
+index 15d4ccc..4955a89 100644
 --- a/dm/host/hle_svc.c
 +++ b/dm/host/hle_svc.c
 @@ -16,7 +16,7 @@
@@ -516,7 +516,7 @@ index 8939b05..ff2e3a3 100644
  static size_t image_bytes(void) { size_t n = 0; for (int i = 0; i < g_nmod; i++) if (!g_mod[i].nro) n += g_mod[i].size;   // an NRO lives in memory the game allocated (its image and bss buffers)
      return (n + 0x1fffff) & ~(size_t)0x1fffff; }
  // Giant bss (modules with the patch area before the base, patch_nso.py FAR): the image bytes beyond the file part. Used memory was reported as "heap + 64 MB", where the 64 MB covers ordinary modules' code and data (Mario's two modules are about 74 MB together,
-@@ -461,11 +461,11 @@ uint64_t svc_dispatch(int num, uint64_t *regs, uint64_t orig_addr) {
+@@ -471,11 +471,11 @@ uint64_t svc_dispatch(int num, uint64_t *regs, uint64_t orig_addr) {
              // Logged once (Mario's retries would repeat it): a game that sizes its heap as pool − used memory and does not retry stops here when its modules are larger than the used memory reported
              // (profile mem_used; the NSP script's probe boot reads this line, and sets mem_used when no SetHeapSize succeeds afterwards)
              static int once; if (!once++) LOG("[mem] SetHeapSize %#zx + modules %#zx > app pool %#llx (used memory reported %#llx + bss %#zx)", size, image_bytes() - big_bss_bytes(),
@@ -531,7 +531,7 @@ index 8939b05..ff2e3a3 100644
              pthread_mutex_unlock(&g_map_lock); regs[0] = 0x10801; return 0;
          }
          int rc = 0;
-@@ -609,8 +609,8 @@ uint64_t svc_dispatch(int num, uint64_t *regs, uint64_t orig_addr) {
+@@ -619,8 +619,8 @@ uint64_t svc_dispatch(int num, uint64_t *regs, uint64_t orig_addr) {
          // and maps new ones for later allocations, until a map fails: then it unmaps the cached block and retries (measured on the Mac: the refused 4 MB map at +0x43e2c000 was followed by
          // UnmapPhysicalMemory of the 3.15 GB block and the same map again). Without the limit the mapped total went past the pool in the first minute and the freed block stayed mapped.
          // Off by default: Ace Attorney Investigations Collection maps a little more than the 1 GB pool its profile reports
@@ -542,7 +542,7 @@ index 8939b05..ff2e3a3 100644
              if (need && need > room) {
                  pthread_mutex_unlock(&g_map_lock);
                  static _Atomic int nref; if (atomic_fetch_add(&nref, 1) < 8) LOG("[mem] MapPhysicalMemory +%#zx refused: %.2f GB mapped, the application pool is full (ResultLimitReached, the SDK frees cached pages and retries)",
-@@ -672,16 +672,16 @@ uint64_t svc_dispatch(int num, uint64_t *regs, uint64_t orig_addr) {
+@@ -686,16 +686,16 @@ uint64_t svc_dispatch(int num, uint64_t *regs, uint64_t orig_addr) {
          case I_StackAddr: v = (uint64_t)g_stack; break;   case I_StackSize: v = g_stack_cap; break;
          case I_TotalMem: case I_TotalNonSys: v = APP_POOL; break;
          case I_UsedMem:  case I_UsedNonSys:  pthread_mutex_lock(&g_map_lock);
@@ -564,10 +564,10 @@ index 8939b05..ff2e3a3 100644
          // nn::os::GetFreeThreadCount (SDK 11+): the thread resource limit less the threads alive, as the kernel answers it (Atmosphère kern_svc_info.cpp). pm gives an application a limit of
          // 96 threads (pm_spec.cpp BaseApplicationThreads; a boost raises it to 256). Monster Train 2's Unity 2022.3 player creates a thread only when this is at least 1: the 0 it got here
 diff --git a/dm/host/loader.c b/dm/host/loader.c
-index d0dfd19..f381ac2 100644
+index 05d17aa..2cc2900 100644
 --- a/dm/host/loader.c
 +++ b/dm/host/loader.c
-@@ -258,7 +258,7 @@ static void install_fps_state(module_t *m) {
+@@ -297,7 +297,7 @@ static void install_fps_state(module_t *m) {
  // DM_RENDER_SCALE (Launcher.swift), and nothing reads the page before the game runs
  void dm_fps_state_apply(void) {
      if (!dm_fps_state) return;
@@ -577,7 +577,7 @@ index d0dfd19..f381ac2 100644
      float f = (float)t; memcpy(dm_fps_state, &f, sizeof f);
      // Render scale of the 3D views (the stubs at Tears of the Kingdom's main+0xd5cc0, Breath of the Wild's main+0x1266880): 1.0 keeps the game's own size and dynamic resolution;
 diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
-index e21ca9a..fdd2817 100644
+index ba96248..9b7b2d5 100644
 --- a/dm/host/tests/Makefile
 +++ b/dm/host/tests/Makefile
 @@ -65,7 +65,7 @@ run: $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture
@@ -707,7 +707,7 @@ index e21ca9a..fdd2817 100644
  .PHONY: preempt
  preempt: $(B)/t_preempt
  	$(B)/t_preempt
-@@ -245,7 +245,7 @@ $(B):
+@@ -247,7 +247,7 @@ $(B):
  	mkdir -p $@
  .PHONY: run tsan
  $(B)/t_resolution: t_resolution.c ../hle_fpslock.c ../hle.h ../dm.h $(GAME_H) | $(B)
@@ -716,7 +716,7 @@ index e21ca9a..fdd2817 100644
  .PHONY: resolution
  run: resolution
  resolution: $(B)/t_resolution
-@@ -258,17 +258,17 @@ tsan: $(B)/t_audio_spsc_tsan $(B)/t_hid_tsan
+@@ -260,17 +260,17 @@ tsan: $(B)/t_audio_spsc_tsan $(B)/t_hid_tsan
  	TMPDIR="$(abspath $(B))" $(B)/t_hid_tsan
  
  MEM_FLAGS = -O1 -Wall -Werror -Wno-unused-function -Imemory_profile -I..
@@ -740,7 +740,7 @@ index e21ca9a..fdd2817 100644
  .PHONY: memory memory-tsan memory-dirty memory-profile
  memory: $(B)/t_svc_memory $(B)/t_svc_memory_unlimited $(B)/t_svc_memory_16k
  	$(B)/t_svc_memory
-@@ -284,7 +284,7 @@ run: memory memory-dirty memory-profile
+@@ -286,7 +286,7 @@ run: memory memory-dirty memory-profile
  
  # A native blocking notification wait must release the thread's guest core.
  $(B)/t_notify_sched: t_notify_sched.c t_condvar_stub.c ../hle_thread.c ../hle_oe.c ../hle.h ../dm.h $(GAME_H) | $(B)
@@ -872,10 +872,10 @@ index a079d7f..3747fc9 100644
          _full = l == 1; _tap = l == 2;
          [self applyLayout];
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index fd7da19..6e6e706 100644
+index 95001cf..8f79420 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
-@@ -221,6 +221,7 @@ DM_PROBE_LIMIT	diagnostic	Maximum printed hits per guest probe; 0 or absent leav
+@@ -225,6 +225,7 @@ DM_PROBE_LIMIT	diagnostic	Maximum printed hits per guest probe; 0 or absent leav
  DM_PROBE_POLL	diagnostic	`=<address>[+<length>]` (hex, 4 bytes by default, up to 8): a host thread spins on the bytes and on each change snapshots every thread's pc, lr and frames, for writes the watch misses
  DM_PROBE_WATCH	diagnostic	`=<address>[+<length>]` (hex, 8 bytes by default): write-protects that host page and reports who writes these bytes, without a debugger
  DM_PROBE_X2	diagnostic	`=<bytes>` (hex): probe hits also dump that many bytes of the memory x2 points to

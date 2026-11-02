@@ -12,20 +12,20 @@ the real GameLauncher: Play sets the game's environment, dlopens its framework, 
 host, then front_ios.m's game view takes the window. One game per process.
 
 Upstream-Status: fork-only
-Reason: the route C shell (M2): its library is the fork's frontend-ios package and its frameworks build on the route C patches 0046 to 0049, which wait for the runtime profile (seedds/nxnative#492)
+Reason: the route C shell (M2): its library is the fork's frontend-ios package and its frameworks build on the route C patches 0046 to 0049, which build on the runtime profile (declined in seedds/nxnative#492)
 Issue: LNPANDY/NX2Apple#144
 ---
  dm/ios/Shell/Shell-Bridging-Header.h |   2 +
- dm/ios/Shell/ShellApp.swift          |  73 +++++++++++
+ dm/ios/Shell/ShellApp.swift          |  73 ++++++++++++
  dm/ios/Shell/ShellEngine.h           |  10 ++
- dm/ios/Shell/ShellMain.m             | 173 +++++++++++++++++++++++++++
+ dm/ios/Shell/ShellMain.m             | 172 +++++++++++++++++++++++++++
  dm/ios/Sources/front_ios.m           |   1 +
  dm/ios/project-shell.yml             | 114 ++++++++++++++++++
- dm/ios/tests/test_shell_build.py     | 172 ++++++++++++++++++++++++++
+ dm/ios/tests/test_shell_build.py     | 172 +++++++++++++++++++++++++++
  dm/ios/tools/build_ipa.sh            |  39 +++++-
  dm/ios/tools/build_shell.sh          | 117 ++++++++++++++++++
  dm/ios/tools/gen_manifest.py         |   9 +-
- 10 files changed, 706 insertions(+), 4 deletions(-)
+ 10 files changed, 705 insertions(+), 4 deletions(-)
  create mode 100644 dm/ios/Shell/Shell-Bridging-Header.h
  create mode 100644 dm/ios/Shell/ShellApp.swift
  create mode 100644 dm/ios/Shell/ShellEngine.h
@@ -139,10 +139,10 @@ index 0000000..40f6f04
 +void dm_shell_present_game(void);
 diff --git a/dm/ios/Shell/ShellMain.m b/dm/ios/Shell/ShellMain.m
 new file mode 100644
-index 0000000..08d6cf5
+index 0000000..0cb8cdd
 --- /dev/null
 +++ b/dm/ios/Shell/ShellMain.m
-@@ -0,0 +1,173 @@
+@@ -0,0 +1,172 @@
 +// Route C shell (docs/launcher-c-plan.md M2): the app that hosts the engine and several games' frameworks. It starts on the
 +// library (frontend-ios's ShellHost views, ShellApp.swift) instead of booting a game at launch as dm/ios/Sources/main.m does, and
 +// when the player presses Play, dm_shell_start_game() does what main.m's boot_env() does before UIApplicationMain, for the chosen
@@ -161,7 +161,6 @@ index 0000000..08d6cf5
 +#include <sys/stat.h>
 +#include <unistd.h>
 +#include "front.h"
-+#include "loader_image.h"
 +#include "ShellEngine.h"
 +#import "DmShell-Swift.h"
 +
