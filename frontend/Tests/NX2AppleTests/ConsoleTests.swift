@@ -214,8 +214,7 @@ import NXModel
                 driver.back()
                 let view = LauncherView(stores: modelStores, library: library, performStartupChecks: false, controllerDriver: AnyConsoleDriver(driver))
                 let host = NSHostingView(rootView: view)
-                let window = NSWindow(contentRect: NSRect(x: -10000, y: 0, width: width, height: 800), styleMask: [.borderless], backing: .buffered, defer: false)
-                window.isReleasedWhenClosed = false
+                let window = OffscreenWindow(size: NSSize(width: width, height: 800), styleMask: [.borderless])
                 window.contentView = host
                 window.orderBack(nil)
                 RunLoop.main.run(until: Date().addingTimeInterval(0.2))
@@ -260,8 +259,7 @@ import NXModel
                         view = AnyView(ConsoleConnectionPrompt(lang: lang, enterConsole: {}, dismissPrompt: {}).environmentObject(PadFocus()).preferredColorScheme(.dark))
                     } else { view = AnyView(ConsoleView(driver: driver, lang: lang).transaction { $0.disablesAnimations = true }) }
                     let host = NSHostingView(rootView: view.frame(width: width, height: height))
-                    let window = NSWindow(contentRect: NSRect(x: -10000, y: 0, width: width, height: height), styleMask: [.borderless], backing: .buffered, defer: false)
-                    window.isReleasedWhenClosed = false
+                    let window = OffscreenWindow(size: NSSize(width: width, height: height), styleMask: [.borderless])
                     window.contentView = host
                     window.orderBack(nil)
                     RunLoop.main.run(until: Date().addingTimeInterval(0.12))
@@ -286,8 +284,7 @@ import NXModel
         let (width, height): (CGFloat, CGFloat) = (1280, 800)
         let driver = MockConsoleDriver(scenario: .full, lang: .en, animated: false)
         let host = NSHostingView(rootView: ConsoleView(driver: driver, lang: .en).transaction { $0.disablesAnimations = true }.frame(width: width, height: height))
-        let window = NSWindow(contentRect: NSRect(x: -10000, y: 0, width: width, height: height), styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
+        let window = OffscreenWindow(size: NSSize(width: width, height: height), styleMask: [.borderless])
         window.contentView = host
         window.orderBack(nil)
         defer { window.orderOut(nil); window.contentView = nil; window.close() }
