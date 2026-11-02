@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import platform_util as pu
+from .build_notes import chain_changed
 from .model import DepState, Model
 from .style import CARD_EDGE, GREEN, MUTED, ORANGE, RED
 
@@ -685,11 +686,9 @@ class MainWindow(QMainWindow):
         self.log.moveCursor(self.log.textCursor().MoveOperation.End)
         self.log.insertPlainText(s)
         self.log.moveCursor(self.log.textCursor().MoveOperation.End)
-        # The script marks a shader-chain bump with this tag: the cached libraries cannot be
-        # reused and this build recompiles them. A popup, not a log line — the report's question
-        # ("why is it building shaders again, the artifacts are on the drive") came from exactly
-        # this moment passing unnoticed. Once per build: the log chunks arrive in pieces.
-        if '[NOTE] chain-changed' in s and not getattr(self, '_chain_note_shown', False):
+        # A new shader translator: show a popup, once per build.
+        # Why a popup: a report asked why the shaders were building again, because the log line went unnoticed.
+        if chain_changed(s) and not getattr(self, '_chain_note_shown', False):
             self._chain_note_shown = True
             from PySide6.QtWidgets import QMessageBox
             QMessageBox.information(self, 'NS Port Builder', self.m.t('msg.chainChanged'))
@@ -728,6 +727,7 @@ class MainWindow(QMainWindow):
             self.footer.setText('')
             self.footer.setStyleSheet('')
             self._failed = False
+            self._chain_note_shown = False
             self.failure_box.hide()
             self.m.start_build()
 
