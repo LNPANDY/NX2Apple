@@ -1,11 +1,12 @@
 import XCTest
 @testable import NX2Apple
 @testable import NXCore
+import NXModel
 @testable import NXLauncher
 
 /// The failure rows for keys, game files and the build's own steps (issue #141): what sets each one, that its text names the
 /// action, and that its button does it. The log lines are the script's real messages (Tests/Fixtures/build_failures.json).
-final class BuildFailureRowsTests: XCTestCase {
+@MainActor final class BuildFailureRowsTests: XCTestCase {
     func fixture(_ id: String) throws -> BuildFailureTests.Fixture {
         try XCTUnwrap(BuildFailureTests().fixtures().first { $0.id == id }, id)
     }
@@ -46,7 +47,7 @@ final class BuildFailureRowsTests: XCTestCase {
         XCTAssertEqual(BuildFailureClassifier.classify("[RED] the zbic package decoded it").kind, .unknown)
         XCTAssertTrue(L10n.table["fail.zbic.next"]?.en.contains("pip install zbic") ?? false)
         XCTAssertEqual(L10n.table["fail.zbic.button"]?.en, "Install zbic")
-        let m = BuildModel()
+        let mStores = LauncherStores(); let m = mStores.build
         m.logTail = log
         m.noteFailure()
         XCTAssertEqual(m.failure?.kind, .zbic)
@@ -67,7 +68,7 @@ final class BuildFailureRowsTests: XCTestCase {
         let low = BuildFailureClassifier.classify(try fixture("disk.low").text)
         XCTAssertEqual(low, BuildFailure(kind: .diskFull, gameName: nil, detail: try fixture("disk.low").gb))
         XCTAssertEqual(BuildFailureClassifier.classify(try fixture("disk.full").text), BuildFailure(kind: .diskFull, gameName: nil, detail: nil))
-        let m = BuildModel()
+        let mStores = LauncherStores(); let m = mStores.build
         m.lang = .en   // the English text, whatever the Mac's language
         XCTAssertTrue(m.failureWhat(low).contains("40 GB"), m.failureWhat(low))
         XCTAssertFalse(m.failureWhat(BuildFailure(kind: .diskFull, gameName: nil)).contains("GB"))
@@ -82,7 +83,7 @@ final class BuildFailureRowsTests: XCTestCase {
         try FileManager.default.createDirectory(at: volumes.appendingPathComponent("Games"), withIntermediateDirectories: true)
         XCTAssertEqual(BuildFailureClassifier.classify(log, inputs: .init(keysPath: "", paths: [gone], volumes: volumes.path)).kind, .noTitleID, "the drive is there")
         XCTAssertEqual(BuildFailureClassifier.classify(log, inputs: .init(keysPath: "/Users/x/prod.keys", paths: ["/Users/x/g.nsp"], volumes: volumes.path)).kind, .noTitleID, "a path off /Volumes is no drive")
-        let m = BuildModel()
+        let mStores = LauncherStores(); let m = mStores.build
         m.lang = .en   // the quotes are English ones whatever the device language is
         XCTAssertTrue(m.failureWhat(f).contains("“Games”"))
     }
@@ -142,7 +143,7 @@ final class BuildFailureRowsTests: XCTestCase {
 
     func testAFailedBuildShowsTheRowForItsLogLine() throws {
         for (id, kind) in [("keys.missing", BuildFailureKind.keys), ("games.several", .severalGames), ("games.noTitleID", .noTitleID), ("disk.low", .diskFull), ("disk.full", .diskFull)] {
-            let m = BuildModel()
+            let mStores = LauncherStores(); let m = mStores.build
             m.logTail = try fixture(id).text + "\n"
             m.noteFailure()
             XCTAssertEqual(m.failure?.kind, kind, id)
@@ -151,7 +152,7 @@ final class BuildFailureRowsTests: XCTestCase {
     }
 
     func testTheKeysButtonOpensTheKeysPicker() {
-        let m = BuildModel()
+        let mStores = LauncherStores(); let m = mStores.build
         var opened = 0
         m.chooseKeys = { opened += 1 }
         m.failure = BuildFailure(kind: .keys, gameName: nil)
@@ -161,7 +162,7 @@ final class BuildFailureRowsTests: XCTestCase {
 
     func testShowFolderRevealsTheGameFolderAndForAFullDiskTheBuildFolder() throws {
         let dir = try tempFolder()
-        let m = BuildModel()
+        let mStores = LauncherStores(); let m = mStores.build
         var shown: [String] = []
         m.revealFolder = { shown.append($0.path) }
         m.gameDir = dir.path
@@ -186,25 +187,25 @@ final class BuildFailureRowsTests: XCTestCase {
     }
 
     @MainActor func testAnInstallStepThatFailedShowsItsRow() {
-        let m = BuildModel()
-        m.signingTeam = "TEAM123456"
-        m.deviceStore.readTeams = { [SigningTeam(id: "TEAM123456", identity: "")] }
+        let mStores = LauncherStores(); let m = mStores.build
+        mStores.deviceStore.signingTeam = "TEAM123456"
+        mStores.deviceStore.readTeams = { [SigningTeam(id: "TEAM123456", identity: "")] }
         m.noteInstallFailure(.sign, error: "error: Failed to register bundle identifier: cannot be registered to your development team")
         XCTAssertEqual(m.failure?.kind, .teamTaken)
         XCTAssertEqual(m.doneNote, m.t("fail.teamTaken.what"))
-        m.deviceStore.readTeams = { [] }
+        mStores.deviceStore.readTeams = { [] }
         m.noteInstallFailure(.sign, error: "error: x")
         XCTAssertEqual(m.failure?.kind, .noSigningAccount)
         m.noteInstallFailure(.install, error: "ERROR: The device is not connected.")
         XCTAssertEqual(m.failure?.kind, .deviceTransfer)
-        m.deviceStore.readTeams = { [SigningTeam(id: "TEAM123456", identity: "")] }
+        mStores.deviceStore.readTeams = { [SigningTeam(id: "TEAM123456", identity: "")] }
         m.failure = BuildFailure(kind: .teamTaken, gameName: nil)
         m.noteInstallFailure(.sign, error: "error: x")
         XCTAssertNil(m.failure, "an unknown signing error leaves the tool's line")
     }
 
     func testTryAgainStartsANewBuildAndClearsTheCard() {
-        let m = BuildModel()
+        let mStores = LauncherStores(); let m = mStores.build
         m.target = BuildTarget.mac   // the iPhone / iPad target stops first, at the device check
         m.failure = BuildFailure(kind: .deviceTransfer, gameName: nil)
         m.fixBuildFailure(.deviceTransfer)   // no repository here: the build stops at once, but it has started and dropped the old card
@@ -212,7 +213,7 @@ final class BuildFailureRowsTests: XCTestCase {
     }
 
     func testTheXcodeButtonOpensXcodeWhenItIsInstalled() {
-        let m = BuildModel()
+        let mStores = LauncherStores(); let m = mStores.build
         var opened: [URL] = []
         m.openApp = { opened.append($0) }
         m.failure = BuildFailure(kind: .teamTaken, gameName: nil)

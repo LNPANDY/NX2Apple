@@ -3,11 +3,12 @@ import SwiftUI
 import Combine
 @testable import NX2Apple
 @testable import NXCore
+import NXModel
 @testable import NXLauncher
 
 /// The player-mode setting's plumbing and the controller path into console mode (the same LauncherGamepad.perform
 /// closure the desktop launcher and the onboarding use). A real controller still needs a manual check.
-final class ConsolePadTests: XCTestCase {
+@MainActor final class ConsolePadTests: XCTestCase {
     private func freshDefaults() -> UserDefaults {
         let name = "ConsolePadTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: name)!
@@ -202,9 +203,9 @@ final class ConsolePadTests: XCTestCase {
         let library = GameLibrary(file: output.appendingPathComponent("unused-library.json"))
         // the bottom right shows the Home hint and the Console mode button while a controller is connected (this Mac's, when one is)
         for width: CGFloat in [1280, 900] {
-            try shot(AnyView(ContentView(model: BuildModel(), library: library, performStartupChecks: false, enterConsole: {})), "desktop-bar-\(Int(width))", width, 720)
+            try shot(AnyView(ContentView(stores: LauncherStores(), library: library, performStartupChecks: false, enterConsole: {})), "desktop-bar-\(Int(width))", width, 720)
         }
-        try shot(AnyView(ContentView(model: BuildModel(), library: library, performStartupChecks: false, enterConsole: {}, qaPrompt: true)), "prompt-windowed", 1000, 720)
+        try shot(AnyView(ContentView(stores: LauncherStores(), library: library, performStartupChecks: false, enterConsole: {}, qaPrompt: true)), "prompt-windowed", 1000, 720)
         for lang in [Lang.en, .zh] {
             try shot(AnyView(ConsoleConnectionPrompt(lang: lang, enterConsole: {}, dismissPrompt: {}).environmentObject(PadFocus()).preferredColorScheme(.dark)), "prompt-\(lang.rawValue)", 900, 500)
         }

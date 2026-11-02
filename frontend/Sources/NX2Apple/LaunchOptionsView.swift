@@ -9,7 +9,7 @@ import NXLauncher
 /// under Advanced settings. A row of the list is a saved choice in the app's own preferences domain (SavedChoices.swift), which the
 /// app reads at every start; Play passes only the launch overrides (what the list has no row for, the mods) as its environment.
 struct LaunchOptionsView: View {
-    @ObservedObject var m: BuildModel
+    @ObservedObject var m: BuildStore
     @EnvironmentObject var loc: Localizer
     @ObservedObject var library: GameLibrary
     let gameID: UUID
@@ -22,7 +22,7 @@ struct LaunchOptionsView: View {
 
     private var game: LibraryGame? { library.games.first { $0.id == gameID } }
     private var settings: [LaunchSetting]? {
-        game.flatMap { LaunchSetting.forMac(app: $0.appPath, titleID: $0.titleID, repo: m.repoPath, labels: loc.t) }
+        game.flatMap { LaunchSetting.forMac(app: $0.appPath, titleID: $0.titleID, repo: m.repo.path, labels: loc.t) }
     }
     private var store: SavedChoices? { game.map { SavedChoices(app: $0.appPath, titleID: $0.titleID) } }
     /// A saved choice for a row of the list, else the tested default; what only this launcher has comes from the library.

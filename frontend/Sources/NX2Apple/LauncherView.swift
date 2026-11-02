@@ -41,7 +41,9 @@ enum LibraryFilter: String, CaseIterable, Identifiable {
 }
 
 struct ContentView: View {
-    @StateObject private var m: BuildModel
+    private let stores: LauncherStores   // the wiring: the stores below are its, the views take what they show
+    @StateObject private var m: BuildStore   // the build: the stages, the failure, the inputs
+    @ObservedObject private var devices: DeviceStore   // the copy card and the activity line while the data goes over
     @ObservedObject private var loc: Localizer   // the strings: handed on to every view below through the environment
     @ObservedObject private var updates: AppUpdateStore   // the app's self-update: the update icon, the sheet, the uninstall dialog
     @ObservedObject private var repo: RepoStore   // the repository: the activity line, and the checks that follow a change of it
@@ -80,7 +82,7 @@ struct ContentView: View {
     private let qaManage: (open: Bool, ring: Bool)   // visual QA: the Manage menu open at launch, with the controller's focus ring or without
     @Environment(\.scenePhase) private var scenePhase
 
-    init(model: BuildModel? = nil, library: GameLibrary? = nil, initialPage: LauncherPage = .library,
+    init(stores: LauncherStores? = nil, library: GameLibrary? = nil, initialPage: LauncherPage = .library,
          activeBuildID: UUID? = nil, performStartupChecks: Bool = true, search: String? = nil, olderTools: Set<UUID> = [],
          manageOpen: Bool = false, padRing: Bool = false, onRunSetup: (() -> Void)? = nil,
          enterConsole: (() -> Void)? = nil, controllerDriver: AnyConsoleDriver? = nil, controls sharedControls: ControlLayout? = nil, qaPrompt: Bool = false,
@@ -96,14 +98,12 @@ struct ContentView: View {
         if let search { _search = State(initialValue: search); _searching = State(initialValue: true) }   // visual QA: the bar with its field open
         _toolsAge = StateObject(wrappedValue: ToolsAge(older: olderTools))   // visual QA: games marked without a checkout to compare
         _gamepad = StateObject(wrappedValue: gamepad ?? LauncherGamepad())   // LauncherPerformanceTests presses its buttons
-        let model = model ?? BuildModel()
-        _m = StateObject(wrappedValue: model)
-        _loc = ObservedObject(wrappedValue: model.localizer)
-        _updates = ObservedObject(wrappedValue: model.appUpdates)
-        _repo = ObservedObject(wrappedValue: model.repo); _engine = ObservedObject(wrappedValue: model.engineSync)
+        let stores = stores ?? LauncherStores(); self.stores = stores
+        _m = StateObject(wrappedValue: stores.build); _loc = ObservedObject(wrappedValue: stores.localizer)
+        _updates = ObservedObject(wrappedValue: stores.appUpdates); _devices = ObservedObject(wrappedValue: stores.deviceStore)
+        _repo = ObservedObject(wrappedValue: stores.repo); _engine = ObservedObject(wrappedValue: stores.engineSync)
         _library = StateObject(wrappedValue: library ?? GameLibrary())
-        _page = State(initialValue: initialPage)
-        _activeBuildID = State(initialValue: activeBuildID)
+        _page = State(initialValue: initialPage); _activeBuildID = State(initialValue: activeBuildID)
         self.performStartupChecks = performStartupChecks
     }
 
@@ -177,7 +177,7 @@ struct ContentView: View {
             if page == .library {
                 libraryPage
             } else {
-                BuilderView(m: m, updates: updates, repo: repo, engine: engine, dependencies: m.dependencies, devices: m.deviceStore, library: library, settings: page == .settings, onViewGame: { page = .library },
+                BuilderView(m: m, updates: updates, repo: repo, engine: engine, dependencies: stores.dependencies, devices: devices, diagnostics: stores.diagnostics, library: library, settings: page == .settings, onViewGame: { page = .library },
                             onOpenSettings: { page = .settings }, onChooseLibraryFolder: chooseLibraryFolder,
                             onOpenControls: { controlsOpen = true }, onOpenControllers: { controllerSheet = true }, onRunSetup: onRunSetup, controlChanges: controls.changeCount,
                             padMerge: Binding(get: { controls.padMerge }, set: { setPadMerge($0) }))
@@ -213,9 +213,9 @@ struct ContentView: View {
             }
             refreshArtwork()
             readSignatures()
-            if performStartupChecks { library.discover(); fetchArtwork(); _ = m.deviceStore.refresh(); checkTools() }
+            if performStartupChecks { library.discover(); fetchArtwork(); _ = stores.deviceStore.refresh(); checkTools() }
             if performStartupChecks {
-                _ = m.dependencies.check()
+                _ = stores.dependencies.check()
                 if engine.usesEngineStore { engine.prepareEngine() }   // the release app: its engine store, never git
                 else { engine.syncEngine() }   // a checkout whose engine/ is missing or older than its pin (#214)
                 if repo.isRepo && repo.isGit { repo.checkForUpdates(silent: true) } else { repo.adoptAtLaunch() }
@@ -512,7 +512,7 @@ struct ContentView: View {
                     Button { primaryAction(game) } label: {
                         LauncherHeroActionLabel(
                             title: game.primary == .play ? loc.t("library.play")
-                                : (game.primary == .openOnDevice ? String(format: loc.t("dev.open"), m.deviceName(game.installedDevice))
+                                : (game.primary == .openOnDevice ? String(format: loc.t("dev.open"), devices.deviceName(game.installedDevice))
                                    : loc.t("library.newBuild")),
                             symbol: game.primary == .play ? "play.fill" : (game.primary == .openOnDevice ? "iphone" : "hammer.fill"))
                     }
@@ -686,7 +686,7 @@ struct ContentView: View {
                 if m.running {
                     Image(systemName: "wrench.and.screwdriver").font(.system(size: 22, weight: .light)).foregroundStyle(.secondary)
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(loc.t(m.deviceStore.shellCopy != nil || m.deviceStore.shellWaiting || m.stages.contains { $0.id == 1003 && $0.state == .running }
+                        Text(loc.t(devices.shellCopy != nil || devices.shellWaiting || m.stages.contains { $0.id == 1003 && $0.state == .running }
                                  ? "activity.transfer" : (m.target == BuildTarget.mac ? "activity.mac" : "activity.ios"))).font(.manrope(15, .bold))
                         TimelineView(.periodic(from: Date(), by: 1)) { context in   // the clock ticks while a count may stand still
                             Text(m.stages.last(where: { $0.state == .running })
@@ -882,7 +882,7 @@ struct ContentView: View {
             // The launch options; the app's launcher (dm/mac/launcher.c) keeps a variable that is already set.
             // The keyboard and controller layout (Settings → Controls) goes to every game; a build whose host does not read it plays with the default keys.
             // They stay launch overrides (the environment) for now: DM_KEYMAP and DM_PAD_MAP become saved choices only when seedds/nxnative#386 merges.
-            let environment = GameStart.environment(for: game, library: library, controls: controls, repo: m.repoPath, labels: loc.t)   // GameStart.swift: the console mode starts games with the same
+            let environment = GameStart.environment(for: game, library: library, controls: controls, repo: stores.repo.path, labels: loc.t)   // GameStart.swift: the console mode starts games with the same
             let withRecording = environment.merging(FrameTimes.recordingEnvironment(for: game, library: library.folder)) { $1 }   // FrameTimes.swift, as console mode does
             if !withRecording.isEmpty { configuration.environment = withRecording }
             NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: game.appPath), configuration: configuration) { app, error in
@@ -904,7 +904,7 @@ struct ContentView: View {
         guard !apps.isEmpty else { signatureExpiry = [:]; return }
         DispatchQueue.global(qos: .utility).async {
             var found: [UUID: Date] = [:]
-            for (id, path) in apps { if let date = AppSignature.expiration(ofApp: path, runner: m.runner) { found[id] = date } }
+            for (id, path) in apps { if let date = AppSignature.expiration(ofApp: path, runner: stores.runner) { found[id] = date } }
             DispatchQueue.main.async { signatureExpiry = found }
         }
     }
@@ -915,7 +915,7 @@ struct ContentView: View {
         resignNote = nil
         m.resignOnDevice(app: game.iosAppPath, device: game.installedDevice) {
             resignNote = m.doneNote
-            signatureExpiry[game.id] = AppSignature.expiration(ofApp: game.iosAppPath, runner: m.runner)
+            signatureExpiry[game.id] = AppSignature.expiration(ofApp: game.iosAppPath, runner: stores.runner)
         }
     }
 
@@ -927,11 +927,11 @@ struct ContentView: View {
         if performStartupChecks { checkTools() }
     }
 
-    private func checkTools() { toolsAge.check(games: library.games, repo: m.repoPath) }
+    private func checkTools() { toolsAge.check(games: library.games, repo: stores.repo.path) }
 
     private func refreshArtwork() {
         artwork = Dictionary(uniqueKeysWithValues: library.games.compactMap { game in
-            GameLibrary.artwork(for: game, repo: m.repoPath).map { (game.id, $0) }
+            GameLibrary.artwork(for: game, repo: stores.repo.path).map { (game.id, $0) }
         })
     }
 

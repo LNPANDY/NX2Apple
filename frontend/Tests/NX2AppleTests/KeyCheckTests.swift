@@ -2,10 +2,11 @@ import XCTest
 import SwiftUI
 @testable import NX2Apple
 @testable import NXCore
+import NXModel
 @testable import NXLauncher
 
 /// prod.keys against the game files before a build (issue #63). Every key here is made up for the test.
-final class KeyCheckTests: XCTestCase {
+@MainActor final class KeyCheckTests: XCTestCase {
     private var temporary: URL!
     private let headerKey = (0..<32).map { UInt8(0xA0 ^ $0) }
 
@@ -170,11 +171,11 @@ final class KeyCheckTests: XCTestCase {
         NSApplication.shared.setActivationPolicy(.accessory)
         let oldOutput = UserDefaults.standard.object(forKey: "buildOutputDirectory")
         defer { UserDefaults.standard.set(oldOutput, forKey: "buildOutputDirectory") }
-        let model = BuildModel()
+        let modelStores = LauncherStores(); let model = modelStores.build
         model.lang = CaptureLanguage.current(.en)
         model.outDir = temporary.path
-        MainActor.assumeIsolated { model.dependencies.checked = true }
-        MainActor.assumeIsolated { model.dependencies.deps = [Dep(id: "test", name: "Xcode", hint: "", present: true, installCmd: [])] }
+        MainActor.assumeIsolated { modelStores.dependencies.checked = true }
+        MainActor.assumeIsolated { modelStores.dependencies.deps = [Dep(id: "test", name: "Xcode", hint: "", present: true, installCmd: [])] }
         let library = GameLibrary(file: temporary.appendingPathComponent("preview.json"))
         let base = try pfs0([("a.nca", ncaHeader(generation: 0x0C))], name: "Metroid Dread [010093801237C000].nsp")
         let update = try pfs0([("b.nca", ncaHeader(generation: 0x13))], name: "Metroid Dread [010093801237C800][v327680].nsp")
@@ -182,7 +183,7 @@ final class KeyCheckTests: XCTestCase {
             model.slots[0].paths = [base]
             model.slots[1].paths = withUpdate ? [update] : []
             model.slots[3].paths = [try keysFile(keys)]
-            let host = NSHostingView(rootView: ContentView(model: model, library: library, initialPage: .builds, performStartupChecks: false))
+            let host = NSHostingView(rootView: ContentView(stores: modelStores, library: library, initialPage: .builds, performStartupChecks: false))
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1440, height: 1024), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
             window.contentView = host
             window.orderFront(nil)

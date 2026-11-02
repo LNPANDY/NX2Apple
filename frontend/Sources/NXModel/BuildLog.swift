@@ -2,7 +2,7 @@ import Foundation
 import Combine
 
 /// The text of the build log (LNPANDY/NX2Apple#387). It is a store of its own, so a line from the build script invalidates
-/// the views that show the log and nothing else: `BuildModel` holds it in a `let` and does not publish it, and no view above
+/// the views that show the log and nothing else: `BuildStore` holds it in a `let` and does not publish it, and no view above
 /// the log observes it. The failure classifier reads `text` once, when a build stops.
 ///
 /// `text` keeps the tail: past `limit` characters it shrinks to the last `keep`. The pipe delivers arbitrary chunks, so
@@ -49,13 +49,4 @@ import Combine
 
     /// Replaces the text (tests set a log to classify).
     package func set(_ s: String) { text = s }
-
-    /// Runs `body` as the main actor's. `BuildModel` is not `@MainActor` yet and every call that reaches the log runs on the
-    /// main queue already (pipe output is hopped over, the rest is UI actions). This is `MainActor.assumeIsolated` for
-    /// macOS 13. Drop it when `BuildModel` is `@MainActor`.
-    nonisolated package static func onMain<T>(_ body: @MainActor () -> T) -> T {
-        dispatchPrecondition(condition: .onQueue(.main))
-        typealias Plain = () -> T
-        return withoutActuallyEscaping(body) { unsafeBitCast($0, to: Plain.self)() }
-    }
 }

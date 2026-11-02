@@ -3,9 +3,10 @@ import SwiftUI
 import Combine
 @testable import NX2Apple
 @testable import NXCore
+import NXModel
 @testable import NXLauncher
 
-final class ConsoleTests: XCTestCase {
+@MainActor final class ConsoleTests: XCTestCase {
     /// The games ready on this Mac come first. The rest follow in their own order, each with its status.
     func testReadyGamesComeFirst() {
         func game(_ id: String, _ status: ConsoleGame.Status) -> ConsoleGame {
@@ -206,12 +207,12 @@ final class ConsoleTests: XCTestCase {
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         for lang in CaptureLanguage.all([.en, .zh]) {
             for width: CGFloat in [900, 1280] {
-                let model = BuildModel()
+                let modelStores = LauncherStores(); let model = modelStores.build
                 model.lang = lang
                 let library = GameLibrary(file: output.appendingPathComponent("unused-library.json"))
                 let driver = MockConsoleDriver(scenario: .controllersMixed, lang: lang, animated: false)
                 driver.back()
-                let view = ContentView(model: model, library: library, performStartupChecks: false, controllerDriver: AnyConsoleDriver(driver))
+                let view = ContentView(stores: modelStores, library: library, performStartupChecks: false, controllerDriver: AnyConsoleDriver(driver))
                 let host = NSHostingView(rootView: view)
                 let window = NSWindow(contentRect: NSRect(x: -10000, y: 0, width: width, height: 800), styleMask: [.borderless], backing: .buffered, defer: false)
                 window.isReleasedWhenClosed = false

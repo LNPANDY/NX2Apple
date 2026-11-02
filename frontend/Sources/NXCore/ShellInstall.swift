@@ -1,6 +1,4 @@
 import Foundation
-import NXCore
-import NXLauncher
 
 // Route C: one app on the iPhone or iPad that holds several games. The build script makes only each game's framework
 // (`--shell-framework`), and this file does the rest: the shell's library file (shell.json), the shell's Xcode project
@@ -9,43 +7,49 @@ import NXLauncher
 // runs under the build model (on a background queue) and from the terminal (`NSPortBuilder --install-shell`).
 
 /// The shell's library: which games are in it, and the bundle ID the app has on the device. It lives in `<shell root>/shell.json`.
-struct ShellLibrary: Codable, Equatable {
-    struct Game: Codable, Equatable {
-        var titleID: String
-        var name: String
-        var framework: String
+package struct ShellLibrary: Codable, Equatable {
+    package struct Game: Codable, Equatable {
+        package var titleID: String
+        package var name: String
+        package var framework: String
+
+        package init(titleID: String, name: String, framework: String) { self.titleID = titleID; self.name = name; self.framework = framework }
     }
 
-    static let defaultBundleID = "org.nxnative.shell"
+    package init(bundleID: String = ShellLibrary.defaultBundleID, team: String = "", games: [Game] = []) {
+        self.bundleID = bundleID; self.team = team; self.games = games
+    }
 
-    var bundleID = ShellLibrary.defaultBundleID
-    var team = ""
-    var games: [Game] = []
+    package static let defaultBundleID = "org.nxnative.shell"
+
+    package var bundleID = ShellLibrary.defaultBundleID
+    package var team = ""
+    package var games: [Game] = []
 
     /// The identifier a team falls back to when `org.nxnative.shell` is registered to another team (the same per-team variant the
     /// per-game install uses). Once stored in shell.json it stays: the app's Documents (game data, saves) belong to the identifier.
-    static func teamVariant(team: String) -> String { defaultBundleID + "." + team }
+    package static func teamVariant(team: String) -> String { defaultBundleID + "." + team }
 
     /// Adding a game replaces the entry with the same title ID (a rebuilt game has a new framework folder), otherwise appends.
-    mutating func add(_ game: Game) {
+    package mutating func add(_ game: Game) {
         if let i = games.firstIndex(where: { $0.titleID == game.titleID }) { games[i] = game } else { games.append(game) }
     }
 
     /// Drops the games whose framework folder is gone, so the shell is never built against a missing one.
-    mutating func dropMissing(exists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }) {
+    package mutating func dropMissing(exists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }) {
         games = games.filter { exists($0.framework) }
     }
 
-    static func stateFile(root: String) -> String { root + "/shell.json" }
+    package static func stateFile(root: String) -> String { root + "/shell.json" }
 
     /// The file's library, or a fresh one when there is none (or it cannot be read: the next save writes a valid one).
-    static func load(root: String) -> ShellLibrary {
+    package static func load(root: String) -> ShellLibrary {
         guard let data = FileManager.default.contents(atPath: stateFile(root: root)),
               let library = try? JSONDecoder().decode(ShellLibrary.self, from: data) else { return ShellLibrary() }
         return library
     }
 
-    func save(root: String) throws {
+    package func save(root: String) throws {
         try FileManager.default.createDirectory(atPath: root, withIntermediateDirectories: true)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
@@ -54,7 +58,7 @@ struct ShellLibrary: Codable, Equatable {
 
     /// The shell root: the saved one (`shellRoot` in `defaults`), else `<parent>/NX2Apple-shell`, which is then saved so the shell
     /// stays where it was first made, whatever output folder a later build uses.
-    static func resolveRoot(defaults: UserDefaults = .standard, parent: String) -> String {
+    package static func resolveRoot(defaults: UserDefaults = .standard, parent: String) -> String {
         if let saved = defaults.string(forKey: "shellRoot"), !saved.isEmpty { return saved }
         let root = parent + "/NX2Apple-shell"
         defaults.set(root, forKey: "shellRoot")
@@ -63,25 +67,25 @@ struct ShellLibrary: Codable, Equatable {
 }
 
 /// The commands and parsers of the shell install, as pure functions.
-enum ShellInstall {
-    static let appName = "DmShell.app"
-    static let scheme = "DmShell"
-    static let projectName = "DmShell.xcodeproj"
+package enum ShellInstall {
+    package static let appName = "DmShell.app"
+    package static let scheme = "DmShell"
+    package static let projectName = "DmShell.xcodeproj"
 
-    static func projectFolder(root: String) -> String { root + "/project" }
-    static func derivedData(root: String) -> String { root + "/derived-data" }
-    static func appPath(root: String) -> String { derivedData(root: root) + "/Build/Products/Release-iphoneos/" + appName }
+    package static func projectFolder(root: String) -> String { root + "/project" }
+    package static func derivedData(root: String) -> String { root + "/derived-data" }
+    package static func appPath(root: String) -> String { derivedData(root: root) + "/Build/Products/Release-iphoneos/" + appName }
 
     /// The folder that mirrors every game's framework inside the shell folder: a game survives its build folder's deletion here.
-    static func frameworksMirror(root: String) -> String { root + "/frameworks" }
-    static func mirroredFramework(root: String, titleID: String) -> String {
+    package static func frameworksMirror(root: String) -> String { root + "/frameworks" }
+    package static func mirroredFramework(root: String, titleID: String) -> String {
         frameworksMirror(root: root) + "/DmGame\(titleID).framework"
     }
 
     /// Mirrors a framework into the shell folder as a copy. On APFS the copy is a clone: it costs no space, and a later write to
     /// the build folder does not reach it. On another volume it is a real copy. It replaces the previous mirror, so a rebuilt
     /// game's mirror follows, and a failed copy leaves no half mirror behind.
-    static func mirrorFramework(framework: String, root: String, titleID: String? = nil) throws {
+    package static func mirrorFramework(framework: String, root: String, titleID: String? = nil) throws {
         let fm = FileManager.default
         let mirror = mirroredFramework(root: root, titleID: titleID ?? Self.titleID(ofFramework: framework))
         try fm.createDirectory(atPath: (mirror as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
@@ -94,38 +98,38 @@ enum ShellInstall {
     }
 
     /// The title ID a framework path carries (`DmGame0100…framework`, the build script's name).
-    static func titleID(ofFramework framework: String) -> String {
+    package static func titleID(ofFramework framework: String) -> String {
         let name = (framework as NSString).lastPathComponent
         return name.hasPrefix("DmGame") && name.hasSuffix(".framework")
             ? String(name.dropFirst("DmGame".count).dropLast(".framework".count)) : ""
     }
 
     /// The framework the build script's `--shell-framework <folder>` writes for a game.
-    static func frameworkPath(workDir: String, titleID: String) -> String {
+    package static func frameworkPath(workDir: String, titleID: String) -> String {
         workDir + "/shell-framework/DmGame\(titleID).framework"
     }
 
     /// The part of the build script's argument list that makes the game's framework instead of an Xcode project.
-    static func buildArguments(workDir: String, team: String) -> [String] {
+    package static func buildArguments(workDir: String, team: String) -> [String] {
         ["--shell-framework", workDir + "/shell-framework", "--team-id", team]
     }
 
     // ---- 4: the project ----
 
-    static func projectCommand(repo: String) -> [String] {
+    package static func projectCommand(repo: String) -> [String] {
         ["/bin/bash", repo + "/dm/ios/tools/build_shell.sh", "--prepare-xcode"]
     }
 
     /// The `frontend-ios` Swift package the shell project links (build_shell.sh's DM_SHELL_PACKAGE). The script defaults to
     /// `frontend-ios` beside `dm/`, which is the engine root, and an engine tree has none since #214. So: the release app's
     /// Contents/Resources/frontend-ios, else the source checkout's `frontend-ios` (`repo`). nil when neither has a Package.swift.
-    static func shellPackage(resources: String?, repo: String, fm: FileManager = .default) -> String? {
+    package static func shellPackage(resources: String?, repo: String, fm: FileManager = .default) -> String? {
         ([resources, repo].compactMap { $0 }.filter { !$0.isEmpty }).map { $0 + "/frontend-ios" }
             .first { fm.fileExists(atPath: $0 + "/Package.swift") }
     }
 
     /// What build_shell.sh reads. `path` is the build's own tool PATH (xcodegen must be found on it).
-    static func projectEnvironment(root: String, frameworks: [String], bundleID: String, team: String, python: String,
+    package static func projectEnvironment(root: String, frameworks: [String], bundleID: String, team: String, python: String,
                                    path: String, home: String, user: String, tmp: String? = nil, package: String? = nil) -> [String: String] {
         var env = ["SHELL_DIR": projectFolder(root: root),
                    "DM_SHELL_FRAMEWORKS": frameworks.joined(separator: "\n"),
@@ -143,32 +147,32 @@ enum ShellInstall {
 
     /// `bundleID` goes in as PRODUCT_BUNDLE_IDENTIFIER every time: the identifier stored in shell.json is the one the device's
     /// copy of the app has, and installing under another would start an app with empty Documents.
-    static func buildCommand(xcrun: String, root: String, device: String, team: String, bundleID: String) -> [String] {
+    package static func buildCommand(xcrun: String, root: String, device: String, team: String, bundleID: String) -> [String] {
         [xcrun, "xcodebuild", "-project", projectFolder(root: root) + "/" + projectName, "-scheme", scheme,
          "-configuration", "Release", "-destination", "id=\(device)", "-derivedDataPath", derivedData(root: root),
          "-allowProvisioningUpdates", "DEVELOPMENT_TEAM=\(team)", "PRODUCT_BUNDLE_IDENTIFIER=\(bundleID)", "build"]
     }
 
     /// Installing over the existing app keeps its Documents.
-    static func installCommand(xcrun: String, device: String, app: String) -> [String] {
+    package static func installCommand(xcrun: String, device: String, app: String) -> [String] {
         [xcrun, "devicectl", "device", "install", "app", "--device", device, app]
     }
 
     // ---- 7: the game data ----
 
-    static func gameFolder(titleID: String) -> String { "Documents/games/\(titleID)" }
+    package static func gameFolder(titleID: String) -> String { "Documents/games/\(titleID)" }
 
     /// Kept free beyond the data on the device (the game's saves, shader caches, the system).
-    static let freeSpaceMargin: Int64 = 2_000_000_000
+    package static let freeSpaceMargin: Int64 = 2_000_000_000
 
     /// The shell's own log from the device (Documents/shell-log.txt, written at every start).
-    static func shellLogCommand(xcrun: String, device: String, bundleID: String, destination: String) -> [String] {
+    package static func shellLogCommand(xcrun: String, device: String, bundleID: String, destination: String) -> [String] {
         [xcrun, "devicectl", "device", "copy", "from", "--device", device, "--domain-type", "appDataContainer",
          "--domain-identifier", bundleID, "--source", "Documents/shell-log.txt", "--destination", destination]
     }
 
     /// The last "shell: free space <bytes> bytes" line of the shell's log, nil without one.
-    static func freeSpace(inShellLog text: String?) -> Int64? {
+    package static func freeSpace(inShellLog text: String?) -> Int64? {
         guard let text else { return nil }
         return text.split(separator: "\n").reversed().lazy.compactMap { line -> Int64? in
             guard line.hasPrefix("shell: free space ") else { return nil }
@@ -177,7 +181,7 @@ enum ShellInstall {
     }
 
     /// xcodebuild's words when the provisioning profile lacks the Increased Memory Limit the shell asks for.
-    static func memoryCapabilityMissing(_ output: String) -> Bool {
+    package static func memoryCapabilityMissing(_ output: String) -> Bool {
         output.contains("doesn't include the Increased Memory Limit capability") || output.contains("doesn't include the com.apple.developer.kernel.increased-memory-limit entitlement")
     }
 
@@ -186,7 +190,7 @@ enum ShellInstall {
     /// banner is removed and the library shows the framework's icon.png. Returns the picture used.
     @discardableResult static func placeBanner(titleID: String, framework: String, banners: URL, picked: String?,
                                                fm: FileManager = .default) -> String? {
-        let source = [picked, ArtworkStore.cachedBanner(titleID, in: banners)?.path].compactMap { $0 }.first { !$0.isEmpty && fm.fileExists(atPath: $0) }
+        let source = [picked, BannerCache.cached(titleID, in: banners)?.path].compactMap { $0 }.first { !$0.isEmpty && fm.fileExists(atPath: $0) }
         for ext in ["png", "jpg", "jpeg", "heic", "webp"] { try? fm.removeItem(atPath: framework + "/banner." + ext) }
         guard let source else { return nil }
         let ext = (source as NSString).pathExtension.lowercased()
@@ -195,14 +199,14 @@ enum ShellInstall {
     }
 
     /// devicectl's recursive listing of the game's folder in the app's container, written as JSON to `json`.
-    static func listCommand(xcrun: String, device: String, bundleID: String, titleID: String, json: String) -> [String] {
+    package static func listCommand(xcrun: String, device: String, bundleID: String, titleID: String, json: String) -> [String] {
         [xcrun, "devicectl", "device", "info", "files", "--device", device, "--domain-type", "appDataContainer",
          "--domain-identifier", bundleID, "--subdirectory", gameFolder(titleID: titleID), "--json-output", json]
     }
 
     /// One file into the game's folder. A file destination creates the parent folders and names the file. Never
     /// `--remove-existing-content true`: on a real device it deletes the destination's siblings too (#266).
-    static func copyCommand(xcrun: String, device: String, bundleID: String, titleID: String, source: String, relativePath: String) -> [String] {
+    package static func copyCommand(xcrun: String, device: String, bundleID: String, titleID: String, source: String, relativePath: String) -> [String] {
         [xcrun, "devicectl", "device", "copy", "to", "--device", device, "--source", source,
          "--destination", gameFolder(titleID: titleID) + "/" + relativePath,
          "--domain-type", "appDataContainer", "--domain-identifier", bundleID]
@@ -210,7 +214,7 @@ enum ShellInstall {
 
     /// The device's files (path relative to the game's folder → size) from the listing JSON. The error JSON of a folder that does
     /// not exist (or an app that is new) and anything unreadable mean "nothing on the device": an empty list.
-    static func parseListing(_ data: Data?) -> [String: Int64] {
+    package static func parseListing(_ data: Data?) -> [String: Int64] {
         guard let data, let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let files = (root["result"] as? [String: Any])?["files"] as? [[String: Any]] else { return [:] }
         var found: [String: Int64] = [:]
@@ -224,7 +228,7 @@ enum ShellInstall {
     }
 
     /// The archive folder's files (relative path → size), without dot files (.packstamp) and without folders.
-    static func localFiles(in archive: String) -> [String: Int64] {
+    package static func localFiles(in archive: String) -> [String: Int64] {
         let fm = FileManager.default
         var found: [String: Int64] = [:]
         for case let path as String in fm.enumerator(atPath: archive) ?? FileManager.DirectoryEnumerator() {
@@ -240,13 +244,13 @@ enum ShellInstall {
     /// The local files to copy: missing on the device, or of another size. Sorted, so the copies run in a stable order.
     /// Path and size only: a file with the same size and other content stays. A hash comparison (a manifest the device keeps next to
     /// the game's folder) can close that gap later.
-    static func filesToCopy(local: [String: Int64], device: [String: Int64]) -> [String] {
+    package static func filesToCopy(local: [String: Int64], device: [String: Int64]) -> [String] {
         local.filter { device[$0.key] != $0.value }.map(\.key).sorted()
     }
 
     /// The reason the build_shell.sh run failed, for the player: its last `[RED]` line (the refusals, for example two different
     /// games in one shell), else its last `FAIL:` line, else the last line it printed.
-    static func scriptFailure(_ output: String) -> String? {
+    package static func scriptFailure(_ output: String) -> String? {
         let lines = output.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         if let red = lines.last(where: { $0.contains("[RED]") }), let r = red.range(of: "[RED]") {
             return String(red[r.upperBound...]).trimmingCharacters(in: .whitespaces)
@@ -260,9 +264,9 @@ enum ShellInstall {
     // ---- the connection of the copy ----
 
     /// How the device is connected to this Mac (`ShellConnection`, NXCore).
-    typealias Connection = ShellConnection
+    package typealias Connection = ShellConnection
 
-    static func connection(of udid: String, in devices: [AppleDevice]) -> Connection {
+    package static func connection(of udid: String, in devices: [AppleDevice]) -> Connection {
         guard let device = devices.first(where: { $0.id == udid }) else { return .notPaired }
         if device.wired { return .wired }
         if device.overNetwork { return .network }
@@ -271,12 +275,12 @@ enum ShellInstall {
 
     /// Minutes a copy of `bytes` takes over Wi-Fi, as a range: devicectl over the local network does about 17 to 25 MB/s, so
     /// 15 GB is 10 to 15 minutes. At least one minute.
-    static func wifiEstimate(bytes: Int64) -> (low: Int, high: Int) {
+    package static func wifiEstimate(bytes: Int64) -> (low: Int, high: Int) {
         let low = max(1, Int((Double(bytes) / 25e6 / 60).rounded()))
         return (low, max(low, Int((Double(bytes) / 17e6 / 60).rounded())))
     }
 
-    static func sizeText(_ bytes: Int64) -> String {
+    package static func sizeText(_ bytes: Int64) -> String {
         // Decimal units as devicectl and the Finder count, and the same text in every locale
         if bytes >= 1_000_000_000 { return String(format: "%.1f GB", Double(bytes) / 1e9) }
         if bytes >= 1_000_000 { return String(format: "%.0f MB", Double(bytes) / 1e6) }
@@ -285,7 +289,7 @@ enum ShellInstall {
 
     /// An installed app's shell paths, from its own path (<root>/derived-data/Build/Products/Release-iphoneos/DmShell.app), nil for
     /// any other app. A re-sign runs on that project and derived data.
-    static func paths(ofApp app: String) -> (root: String, project: String, derived: String)? {
+    package static func paths(ofApp app: String) -> (root: String, project: String, derived: String)? {
         guard (app as NSString).lastPathComponent == appName, let marker = app.range(of: "/Build/Products/") else { return nil }
         let derived = String(app[..<marker.lowerBound])
         guard (derived as NSString).lastPathComponent == "derived-data" else { return nil }
@@ -295,64 +299,77 @@ enum ShellInstall {
 }
 
 /// One stage of the install, as the model and the terminal show it.
-struct ShellStage {
-    var id: Int
-    var name: String
-    var state: StepState
-    var detail = ""
-    var percent: Double? = nil
+package struct ShellStage {
+    package var id: Int
+    package var name: String
+    package var state: StepState
+    package var detail = ""
+    package var percent: Double? = nil
+
+    package init(id: Int, name: String, state: StepState, detail: String = "", percent: Double? = nil) {
+        self.id = id; self.name = name; self.state = state; self.detail = detail; self.percent = percent
+    }
 }
 
 /// Steps 3 to 7: the shell's library, its project, signing, the install and the game data, blocking. A tool that fails ends the
 /// install with its own last error line.
-struct ShellInstaller {
-    var xcrun = "/usr/bin/xcrun"
-    var repo: String
+package struct ShellInstaller {
+    package var xcrun = "/usr/bin/xcrun"
+    package var repo: String
     /// The app's Contents/Resources, where a release app carries frontend-ios. Nil for a launcher run from a checkout.
-    var resources: String? = Bundle.main.resourceURL?.path
-    var python: String
-    var root: String
-    var device: String
-    var team: String
-    var deviceName = "iPhone"
-    var lang: Lang = .en
+    package var resources: String? = Bundle.main.resourceURL?.path
+    package var python: String
+    package var root: String
+    package var device: String
+    package var team: String
+    package var deviceName = "iPhone"
+    package var lang: Lang = .en
     /// Run tools in a process group of their own (the model's Stop ends the group). The terminal does not need it.
-    var ownGroup = false
-    var toolPath = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-    var log: (String) -> Void = { _ in }
-    var stage: (ShellStage) -> Void = { _ in }
+    package var ownGroup = false
+    package var toolPath = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+    package var log: (String) -> Void = { _ in }
+    package var stage: (ShellStage) -> Void = { _ in }
     /// Told when a tool has started, so Stop can end it (the model keeps it).
-    var processStarted: (RunningProcess) -> Void = { _ in }
+    package var processStarted: (RunningProcess) -> Void = { _ in }
     /// Starts every tool and the device listing (`ProcessRunner`, NXCore). A test passes in a fake.
-    var runner: ProcessRunner = SystemProcessRunner()
+    package var runner: ProcessRunner = SystemProcessRunner()
     /// Asked once, only when something must be copied, with the size and the connection. The terminal answers `.copy`.
-    var decideCopy: (ShellCopyPlan) -> ShellCopyDecision = { _ in .copy }
+    package var decideCopy: (ShellCopyPlan) -> ShellCopyDecision = { _ in .copy }
     /// While waiting for a cable: told true when the wait starts and false when it ends, and asked between polls whether the
     /// player cancelled.
-    var waiting: (Bool) -> Void = { _ in }
-    var waitCancelled: () -> Bool = { false }
+    package var waiting: (Bool) -> Void = { _ in }
+    package var waitCancelled: () -> Bool = { false }
     /// Seconds between two looks at `devicectl list devices` while waiting for a cable.
-    var pollInterval: TimeInterval = 4
+    package var pollInterval: TimeInterval = 4
     /// Where the eShop banners are cached (ArtworkStore), read only: the game's goes into its framework for the shell's library.
-    var banners: URL = ArtworkStore.shared.directory
+    package var banners: URL = BannerCache.directory
     /// A picture the player chose for the game in the library, which wins over the cached banner (nil: none).
-    var pickedArtwork: String? = nil
+    package var pickedArtwork: String? = nil
 
-    struct Outcome {
-        var ok: Bool
-        var message: String
-        var step: BuildFailureClassifier.InstallStep? = nil   // the failed device step, for the failure card
-        var appPath = ""
-        var bundleID = ""
-        var copied = 0
-        var copySkipped = false
-        /// The card the launcher shows for the failure, when it has words for it.
-        var failure: BuildFailureKind? = nil
-        /// Signed without the Increased Memory Limit, because the team's profile cannot carry it yet.
-        var noMemoryCapability = false
+    package init(xcrun: String = "/usr/bin/xcrun", repo: String, python: String, root: String, device: String, team: String) {
+        self.xcrun = xcrun; self.repo = repo; self.python = python; self.root = root; self.device = device; self.team = team
     }
 
-    static let projectStageID = 1010, signStageID = 1001, installStageID = 1002, copyStageID = 1003, checkStageID = 1011
+    package struct Outcome {
+        package var ok: Bool
+        package var message: String
+        package var step: BuildFailureClassifier.InstallStep? = nil   // the failed device step, for the failure card
+        package var appPath = ""
+        package var bundleID = ""
+        package var copied = 0
+        package var copySkipped = false
+        /// The card the launcher shows for the failure, when it has words for it.
+        package var failure: BuildFailureKind? = nil
+        /// Signed without the Increased Memory Limit, because the team's profile cannot carry it yet.
+        package var noMemoryCapability = false
+
+        package init(ok: Bool, message: String, step: BuildFailureClassifier.InstallStep? = nil, appPath: String = "", bundleID: String = "", copied: Int = 0, copySkipped: Bool = false, failure: BuildFailureKind? = nil, noMemoryCapability: Bool = false) {
+            self.ok = ok; self.message = message; self.step = step; self.appPath = appPath; self.bundleID = bundleID; self.copied = copied
+            self.copySkipped = copySkipped; self.failure = failure; self.noMemoryCapability = noMemoryCapability
+        }
+    }
+
+    package static let projectStageID = 1010, signStageID = 1001, installStageID = 1002, copyStageID = 1003, checkStageID = 1011
 
     private func t(_ key: String) -> String { L10n.string(key, lang) }
     private func fmt(_ key: String, _ args: CVarArg...) -> String { String(format: t(key), arguments: args) }
@@ -382,7 +399,7 @@ struct ShellInstaller {
         }
     }
 
-    func install(framework: String, titleID: String, name: String, archive: String) -> Outcome {
+    package func install(framework: String, titleID: String, name: String, archive: String) -> Outcome {
         guard FileManager.default.fileExists(atPath: framework) else {
             return Outcome(ok: false, message: fmt("shell.noFramework", framework))
         }
@@ -485,7 +502,7 @@ struct ShellInstaller {
 
     /// Step 7 on its own, for a Retry after a copy that failed midway: the listing, the diff and the copy, nothing else. The app
     /// is on the device already, under the identifier shell.json holds.
-    func installData(titleID: String, archive: String) -> Outcome {
+    package func installData(titleID: String, archive: String) -> Outcome {
         if let refused = pairingRefusal() { return refused }
         let bundleID = ShellLibrary.load(root: root).bundleID, app = ShellInstall.appPath(root: root)
         return copyGameData(titleID: titleID, archive: archive, app: app, bundleID: bundleID,
@@ -614,52 +631,3 @@ struct ShellInstaller {
     }
 }
 
-/// `NSPortBuilder --install-shell ...`: steps 3 to 7 without a window and without questions, for a terminal or a script.
-enum ShellCLI {
-    static let usage = "NSPortBuilder --install-shell --framework <path> --archive <games/TITLEID folder> --title-id <id> --name <name> "
-        + "--device <udid> --team <team> --repo <repo> [--shell-root <dir>] [--python <path>]"
-
-    /// The options as a dictionary, nil when an option has no value.
-    static func parse(_ args: [String]) -> [String: String]? {
-        var options: [String: String] = [:]
-        var i = 0
-        while i < args.count {
-            let a = args[i]
-            if a == "--install-shell" { i += 1; continue }
-            guard a.hasPrefix("--"), i + 1 < args.count else { return nil }
-            options[String(a.dropFirst(2))] = args[i + 1]
-            i += 2
-        }
-        return options
-    }
-
-    /// Exit status: 0 installed, 1 failed (or wrong usage). `out` gets every line, stage lines and tool output alike.
-    /// `--xcrun` is for the tests, which stand in for xcodebuild and devicectl.
-    static func run(_ args: [String], defaults: UserDefaults = .standard, out: @escaping (String) -> Void = { fputs($0, stdout); fflush(stdout) }) -> Int32 {
-        let required = ["framework", "archive", "title-id", "name", "device", "team", "repo"]
-        guard let o = parse(args), required.allSatisfy({ !(o[$0] ?? "").isEmpty }) else {
-            out("usage: " + usage + "\n")
-            return 1
-        }
-        let archive = o["archive"]!
-        let root = o["shell-root"] ?? ShellLibrary.resolveRoot(
-            defaults: defaults, parent: ((archive as NSString).deletingLastPathComponent as NSString).deletingLastPathComponent)
-        let python = o["python"] ?? Toolchain.findPython().path
-        var installer = ShellInstaller(xcrun: o["xcrun"] ?? "/usr/bin/xcrun", repo: o["repo"]!, python: python, root: root,
-                                       device: o["device"]!, team: o["team"]!)
-        installer.deviceName = o["device"]!
-        installer.toolPath = BuildModel.toolPath("/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin", python: python)
-        installer.log = out
-        installer.stage = { s in
-            switch s.state {
-            case .running: if s.detail.isEmpty { out("==> \(s.name)\n") }
-            case .done: out("==> \(s.name): done\n")
-            case .failed: out("==> \(s.name): FAILED \(s.detail)\n")
-            case .pending: break
-            }
-        }
-        let result = installer.install(framework: o["framework"]!, titleID: o["title-id"]!, name: o["name"]!, archive: archive)
-        out((result.ok ? "OK: " : "FAIL: ") + result.message + "\n")
-        return result.ok ? 0 : 1
-    }
-}

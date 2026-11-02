@@ -3,9 +3,10 @@ import SwiftUI
 import Combine
 @testable import NX2Apple
 @testable import NXCore
+import NXModel
 @testable import NXLauncher
 
-final class LibraryTests: XCTestCase {
+@MainActor final class LibraryTests: XCTestCase {
     private var temporary: URL!
     private let titleID = "0100535012974000"
 
@@ -288,14 +289,14 @@ final class LibraryTests: XCTestCase {
         guard FileManager.default.isExecutableFile(atPath: "/usr/bin/python3") else { throw XCTSkip("System Python is required for the process fixture") }
         let saved = ["repoPath", "buildTarget", "buildOutputDirectory"].map { ($0, UserDefaults.standard.object(forKey: $0)) }
         defer { for (key, value) in saved { UserDefaults.standard.set(value, forKey: key) } }
-        let model = BuildModel()
-        model.repoPath = temporary.path
+        let modelStores = LauncherStores(); let model = modelStores.build
+        modelStores.repo.path = temporary.path
         model.target = "mac-app"
         model.outDir = temporary.path
-        MainActor.assumeIsolated { model.dependencies.pythonPath = "/usr/bin/python3" }
-        MainActor.assumeIsolated { model.dependencies.dotnetPath = "/usr/bin/true" }
-        MainActor.assumeIsolated { model.dependencies.checked = true }
-        MainActor.assumeIsolated { model.dependencies.deps = [Dep(id: "test", name: "test", hint: "", present: true, installCmd: [])] }
+        MainActor.assumeIsolated { modelStores.dependencies.pythonPath = "/usr/bin/python3" }
+        MainActor.assumeIsolated { modelStores.dependencies.dotnetPath = "/usr/bin/true" }
+        MainActor.assumeIsolated { modelStores.dependencies.checked = true }
+        MainActor.assumeIsolated { modelStores.dependencies.deps = [Dep(id: "test", name: "test", hint: "", present: true, installCmd: [])] }
         let marker = temporary.appendingPathComponent("dm/tools/nx_extract/Program.cs")
         try FileManager.default.createDirectory(at: marker.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data().write(to: marker)
@@ -358,7 +359,7 @@ final class LibraryTests: XCTestCase {
     /// An action on the installed app names what is missing instead of doing nothing, and a failed reinstall is a note on
     /// the installed app, not a failed build (the app is still on the device).
     @MainActor func testReinstallAndSaveReportAMissingSignedApp() throws {
-        let model = BuildModel(xcrun: "/usr/bin/true")
+        let modelStores = LauncherStores(xcrun: "/usr/bin/true"); let model = modelStores.build
         model.installedOn = "00008150-AAAA"
         model.installedAppPath = temporary.path + "/gone/DmShell.app"
         var reported = expectation(description: "Reinstall says what is missing")
@@ -381,16 +382,16 @@ final class LibraryTests: XCTestCase {
         let info: [String: Any] = ["CFBundleDisplayName": "Zelda: Echoes/of Wisdom"]
         try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
             .write(to: app.appendingPathComponent("Info.plist"))
-        let model = BuildModel()
+        let modelStores = LauncherStores(); let model = modelStores.build
         model.installedAppPath = app.path
         XCTAssertEqual(model.defaultIPAName(), "Zelda_ Echoes_of Wisdom.ipa")
     }
 
     /// The two commands the actions build: a plain devicectl install of the cached app, and ditto's Payload archive.
     func testTheReinstallAndIPARecipes() {
-        XCTAssertEqual(BuildModel.reinstallCommand(xcrun: "/x", device: "D", app: "/a/DmIOS.app"),
+        XCTAssertEqual(BuildCommands.reinstallCommand(xcrun: "/x", device: "D", app: "/a/DmIOS.app"),
                        ["/x", "devicectl", "device", "install", "app", "--device", "D", "/a/DmIOS.app"])
-        XCTAssertEqual(BuildModel.ipaCommand(payload: "/t/Payload", ipa: "/o/Game.ipa"),
+        XCTAssertEqual(BuildCommands.ipaCommand(payload: "/t/Payload", ipa: "/o/Game.ipa"),
                        ["/usr/bin/ditto", "-c", "-k", "--norsrc", "--keepParent", "/t/Payload", "/o/Game.ipa"])
     }
 
@@ -399,15 +400,15 @@ final class LibraryTests: XCTestCase {
     @MainActor func testResignOfAnOlderAppAsksForANewBuild() throws {
         let savedTeam = UserDefaults.standard.string(forKey: "signingTeam")
         defer { UserDefaults.standard.set(savedTeam, forKey: "signingTeam") }
-        let model = BuildModel()
+        let modelStores = LauncherStores(); let model = modelStores.build
         let older = temporary.appendingPathComponent("0100_build/xcode-derived-data/Build/Products/Release-iphoneos/DmIOS.app").path
-        model.signingTeam = "TEAM123456"
+        modelStores.deviceStore.signingTeam = "TEAM123456"
         var reported = expectation(description: "Older app reported")
         model.resignOnDevice(app: older, device: "00008150-AAAA") { reported.fulfill() }
         wait(for: [reported], timeout: 10)
         XCTAssertEqual(model.doneNote, model.t("dev.resignOlder"))
         XCTAssertFalse(model.running)
-        model.signingTeam = ""
+        modelStores.deviceStore.signingTeam = ""
         reported = expectation(description: "Missing team reported")
         model.resignOnDevice(app: older, device: "00008150-AAAA") { reported.fulfill() }
         wait(for: [reported], timeout: 10)
@@ -418,8 +419,8 @@ final class LibraryTests: XCTestCase {
     @MainActor func testResignReportsAMissingSharedProject() throws {
         let savedTeam = UserDefaults.standard.string(forKey: "signingTeam")
         defer { UserDefaults.standard.set(savedTeam, forKey: "signingTeam") }
-        let model = BuildModel()
-        model.signingTeam = "TEAM123456"
+        let modelStores = LauncherStores(); let model = modelStores.build
+        modelStores.deviceStore.signingTeam = "TEAM123456"
         let shared = temporary.appendingPathComponent("shell/derived-data/Build/Products/Release-iphoneos/DmShell.app")
         let reported = expectation(description: "Missing project reported")
         model.resignOnDevice(app: shared.path, device: "00008150-AAAA") { reported.fulfill() }
@@ -541,15 +542,15 @@ final class LibraryTests: XCTestCase {
         app.setActivationPolicy(.accessory)
         let saved = ["repoPath", "buildTarget", "buildOutputDirectory"].map { ($0, UserDefaults.standard.object(forKey: $0)) }
         defer { for (key, value) in saved { UserDefaults.standard.set(value, forKey: key) } }
-        let model = BuildModel()
+        let modelStores = LauncherStores(); let model = modelStores.build
         model.lang = .en   // the script's stage name as English shows it, whatever the Mac's language
-        model.repoPath = temporary.path
+        modelStores.repo.path = temporary.path
         model.target = "mac-app"
         model.outDir = temporary.path
-        MainActor.assumeIsolated { model.dependencies.pythonPath = "/usr/bin/python3" }
-        MainActor.assumeIsolated { model.dependencies.dotnetPath = "/usr/bin/true" }
-        MainActor.assumeIsolated { model.dependencies.checked = true }
-        MainActor.assumeIsolated { model.dependencies.deps = [Dep(id: "test", name: "test", hint: "", present: true, installCmd: [])] }
+        MainActor.assumeIsolated { modelStores.dependencies.pythonPath = "/usr/bin/python3" }
+        MainActor.assumeIsolated { modelStores.dependencies.dotnetPath = "/usr/bin/true" }
+        MainActor.assumeIsolated { modelStores.dependencies.checked = true }
+        MainActor.assumeIsolated { modelStores.dependencies.deps = [Dep(id: "test", name: "test", hint: "", present: true, installCmd: [])] }
         let marker = temporary.appendingPathComponent("dm/tools/nx_extract/Program.cs")
         try FileManager.default.createDirectory(at: marker.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data().write(to: marker)
@@ -583,7 +584,7 @@ final class LibraryTests: XCTestCase {
         model.slots[0].paths = [base.path]
         model.slots[3].paths = [keys.path]
         let library = GameLibrary(file: temporary.appendingPathComponent("library.json"))
-        let host = NSHostingView(rootView: ContentView(model: model, library: library, initialPage: .builds, performStartupChecks: false))
+        let host = NSHostingView(rootView: ContentView(stores: modelStores, library: library, initialPage: .builds, performStartupChecks: false))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1100, height: 800), styleMask: [.titled], backing: .buffered, defer: false)
         window.contentView = host
         window.orderFront(nil)
@@ -632,11 +633,11 @@ final class LibraryTests: XCTestCase {
         let real_ = GameLibrary(file: real)
         let library = GameLibrary(file: copy)
         let botw = "01007EF00011E000", totk = "0100F2C0115B6000"
-        let model = BuildModel()
-        model.repoPath = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().path
+        let modelStores = LauncherStores(); let model = modelStores.build
+        modelStores.repo.path = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().path
         model.lang = .en
-        MainActor.assumeIsolated { model.dependencies.checked = true }
-        MainActor.assumeIsolated { model.dependencies.deps = [Dep(id: "test", name: "Xcode", hint: "", present: true, installCmd: [])] }
+        MainActor.assumeIsolated { modelStores.dependencies.checked = true }
+        MainActor.assumeIsolated { modelStores.dependencies.deps = [Dep(id: "test", name: "Xcode", hint: "", present: true, installCmd: [])] }
         for game in real_.games.sorted(by: { $0.name < $1.name }) {
             let name = game.name.replacingOccurrences(of: #"\s*\([0-9.]+ GB\)"#, with: "", options: .regularExpression)
             if game.titleID == botw { _ = try library.addApp(makeApp(botw, name: name)) }
@@ -702,7 +703,7 @@ final class LibraryTests: XCTestCase {
                         Stage(id: 3, name: "rewrite", state: .done, detail: "main, subsdk0, sdk"),
                         Stage(id: 4, name: "shader split", state: .running, detail: "splitting · 10,577 / 41,062 files · 41s left", percent: 26)]
         library.selectedID = botwID
-        try shot("library", ContentView(model: model, library: library, activeBuildID: totkID, performStartupChecks: false), size: window)
+        try shot("library", ContentView(stores: modelStores, library: library, activeBuildID: totkID, performStartupChecks: false), size: window)
         model.running = false; model.stages = []
 
         // The build page, ready to start: example paths, not the user's
@@ -715,12 +716,12 @@ final class LibraryTests: XCTestCase {
         model.slots[0].paths = [nsp.path]; model.slots[1].paths = [update.path]; model.slots[3].paths = [keys.path]
         model.gameDir = "/Volumes/Games/Tears of the Kingdom"
         model.outDir = "/Volumes/Games"
-        try shot("build", ContentView(model: model, library: library, initialPage: .builds, performStartupChecks: false), size: NSSize(width: 1280, height: 940))
+        try shot("build", ContentView(stores: modelStores, library: library, initialPage: .builds, performStartupChecks: false), size: NSSize(width: 1280, height: 940))
 
         if let upscale = LaunchSetting.read(app: library.games.first { $0.id == botwID }!.appPath)?.first(where: { $0.env == "DM_PRESENT_UPSCALE" }) {
             SavedChoices(app: library.games.first { $0.id == botwID }!.appPath, titleID: "01007EF00011E000").set(upscale, "metalfx")
         }
-        try shot("launch-options", LaunchOptionsView(m: model, library: library, gameID: botwID).environmentObject(model.localizer), size: NSSize(width: 600, height: 700), trafficLights: false)   // a sheet: no window controls of its own
+        try shot("launch-options", LaunchOptionsView(m: model, library: library, gameID: botwID).environmentObject(modelStores.localizer), size: NSSize(width: 600, height: 700), trafficLights: false)   // a sheet: no window controls of its own
     }
 
     /// Opt-in native rendering for visual QA; it never touches the user's saved library.
@@ -731,7 +732,7 @@ final class LibraryTests: XCTestCase {
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory)
         let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().path
-        let model = BuildModel()
+        let modelStores = LauncherStores(); let model = modelStores.build
         // Restore any preferences changed while preparing isolated preview data.
         let oldRepo = UserDefaults.standard.object(forKey: "repoPath")
         let oldOutput = UserDefaults.standard.object(forKey: "buildOutputDirectory")
@@ -739,11 +740,11 @@ final class LibraryTests: XCTestCase {
             UserDefaults.standard.set(oldRepo, forKey: "repoPath")
             UserDefaults.standard.set(oldOutput, forKey: "buildOutputDirectory")
         }
-        model.repoPath = repo
+        modelStores.repo.path = repo
         model.lang = CaptureLanguage.current(.en)
         model.outDir = temporary.path
-        MainActor.assumeIsolated { model.dependencies.checked = true }
-        MainActor.assumeIsolated { model.dependencies.deps = [Dep(id: "test", name: "Xcode", hint: "", present: true, installCmd: [])] }
+        MainActor.assumeIsolated { modelStores.dependencies.checked = true }
+        MainActor.assumeIsolated { modelStores.dependencies.deps = [Dep(id: "test", name: "Xcode", hint: "", present: true, installCmd: [])] }
         let library = GameLibrary(file: temporary.appendingPathComponent("preview.json"))
         let examples = [(titleID, "Hades"), ("01007EF00011E000", "The Legend of Zelda: Breath of the Wild"),
                         ("0100000000010000", "Super Mario Odyssey"), ("010093801237C000", "Metroid Dread")]
@@ -759,7 +760,7 @@ final class LibraryTests: XCTestCase {
         func capture(_ name: String, width: CGFloat = 1440, height: CGFloat = 1024, page: LauncherPage = .library, activeID: UUID? = nil, empty: Bool = false,
                      search: String? = nil, older: Set<UUID> = [], manageOpen: Bool = false, padRing: Bool = false, only: GameLibrary? = nil) throws {
             let store = only ?? (empty ? GameLibrary(file: temporary.appendingPathComponent("empty.json")) : library)
-            let view = ContentView(model: model, library: store, initialPage: page, activeBuildID: activeID, performStartupChecks: false, search: search,
+            let view = ContentView(stores: modelStores, library: store, initialPage: page, activeBuildID: activeID, performStartupChecks: false, search: search,
                                    olderTools: older, manageOpen: manageOpen, padRing: padRing)
             let host = NSHostingView(rootView: view)
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: height),
@@ -792,31 +793,31 @@ final class LibraryTests: XCTestCase {
                 try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
                 try Data([0]).write(to: url)
             }
-            let previous = (model.repoPath, model.repo.autoUpdate, model.repo.status, model.repo.autoAdopted, model.doneNote)
-            defer { (model.repoPath, model.repo.autoUpdate, model.repo.status, model.repo.autoAdopted, model.doneNote) = previous }
-            model.repoPath = zip.path
-            model.repo.autoUpdate = false
+            let previous = (modelStores.repo.path, modelStores.repo.autoUpdate, modelStores.repo.status, modelStores.repo.autoAdopted, model.doneNote)
+            defer { (modelStores.repo.path, modelStores.repo.autoUpdate, modelStores.repo.status, modelStores.repo.autoAdopted, model.doneNote) = previous }
+            modelStores.repo.path = zip.path
+            modelStores.repo.autoUpdate = false
             try capture("settings-zip-auto-off", page: .settings)
-            model.repo.autoUpdate = true
-            model.repo.status = String(format: model.t("repo.adoptedAuto"), "zip-copy-2026-10-27")
-            model.repo.autoAdopted = true
+            modelStores.repo.autoUpdate = true
+            modelStores.repo.status = String(format: model.t("repo.adoptedAuto"), "zip-copy-2026-10-27")
+            modelStores.repo.autoAdopted = true
             try capture("library-adopted")
-            model.repo.autoAdopted = false
-            model.repo.status = ""
+            modelStores.repo.autoAdopted = false
+            modelStores.repo.status = ""
             try capture("settings-zip-old-tools", page: .settings)
             model.startBuild()   // refuses: the copy lacks romfs_image.py
             try capture("build-tools-old", height: 1500, page: .builds)
         }
         do {   // a released copy with an update downloaded and verified: Restart now in Settings and in the activity line
-            let previous = (model.appUpdates.installability, model.appUpdates.update, model.appUpdates.staged, model.appUpdates.status)
-            defer { (model.appUpdates.installability, model.appUpdates.update, model.appUpdates.staged, model.appUpdates.status) = previous }
+            let previous = (modelStores.appUpdates.installability, modelStores.appUpdates.update, modelStores.appUpdates.staged, modelStores.appUpdates.status)
+            defer { (modelStores.appUpdates.installability, modelStores.appUpdates.update, modelStores.appUpdates.staged, modelStores.appUpdates.status) = previous }
             let release = AppUpdate.Release(tag: "v0.4.8", url: "https://example.invalid/NX2Apple-macOS-arm64.zip", digest: nil)
-            model.appUpdates.installability = .ok
-            model.appUpdates.update = release
-            model.appUpdates.status = String(format: model.t("app.found"), release.tag)
+            modelStores.appUpdates.installability = .ok
+            modelStores.appUpdates.update = release
+            modelStores.appUpdates.status = String(format: model.t("app.found"), release.tag)
             try capture("settings-update-found", page: .settings)
-            model.appUpdates.staged = AppUpdate.Staged(release: release, app: temporary.appendingPathComponent("NX2Apple.app"))
-            model.appUpdates.status = String(format: model.t("app.ready"), release.tag)
+            modelStores.appUpdates.staged = AppUpdate.Staged(release: release, app: temporary.appendingPathComponent("NX2Apple.app"))
+            modelStores.appUpdates.status = String(format: model.t("app.ready"), release.tag)
             try capture("settings-update-ready", page: .settings)
             try capture("library-update-ready")
         }
@@ -838,23 +839,23 @@ final class LibraryTests: XCTestCase {
         // An iPhone build with a paired device and a team (example values)
         let previousTarget = model.target
         model.target = "ios"
-        model.deviceStore.checked = true
-        model.deviceStore.devices = [AppleDevice(id: "00008150-AAAA", name: "iPhone", model: "iPhone 17 Pro Max", os: "27.0", reachable: true),
+        modelStores.deviceStore.checked = true
+        modelStores.deviceStore.devices = [AppleDevice(id: "00008150-AAAA", name: "iPhone", model: "iPhone 17 Pro Max", os: "27.0", reachable: true),
                          AppleDevice(id: "00008110-BBBB", name: "iPad mini", model: "iPad mini", os: "26.2", reachable: false)]
-        model.deviceStore.teams = [SigningTeam(id: "TEAM123456", identity: "Apple Development: Jo Doe (ABCDE12345)")]
-        let previousDevice = model.installDevice, previousTeam = model.signingTeam
-        model.installDevice = "00008150-AAAA"; model.signingTeam = "TEAM123456"
+        modelStores.deviceStore.teams = [SigningTeam(id: "TEAM123456", identity: "Apple Development: Jo Doe (ABCDE12345)")]
+        let previousDevice = modelStores.deviceStore.installDevice, previousTeam = modelStores.deviceStore.signingTeam
+        modelStores.deviceStore.installDevice = "00008150-AAAA"; modelStores.deviceStore.signingTeam = "TEAM123456"
         try capture("build-install", height: 1300, page: .builds)
         // #87: signed in to Xcode, no certificate yet (a free personal team and a paid one), and neither account nor certificate
-        model.deviceStore.teams = [SigningTeam(id: "FGHIJ67890", identity: "", name: "Jo Doe", personal: true),
+        modelStores.deviceStore.teams = [SigningTeam(id: "FGHIJ67890", identity: "", name: "Jo Doe", personal: true),
                        SigningTeam(id: "KLMNO11111", identity: "", name: "Studio Ltd")]
-        model.signingTeam = "FGHIJ67890"
+        modelStores.deviceStore.signingTeam = "FGHIJ67890"
         try capture("build-install-xcode-team", height: 1300, page: .builds)
-        model.deviceStore.teams = []; model.signingTeam = ""
+        modelStores.deviceStore.teams = []; modelStores.deviceStore.signingTeam = ""
         try capture("build-install-no-team", height: 1300, page: .builds)
-        model.deviceStore.teams = [SigningTeam(id: "TEAM123456", identity: "Apple Development: Jo Doe (ABCDE12345)")]
-        model.signingTeam = "TEAM123456"
-        model.installDevice = previousDevice; model.signingTeam = previousTeam; model.target = previousTarget
+        modelStores.deviceStore.teams = [SigningTeam(id: "TEAM123456", identity: "Apple Development: Jo Doe (ABCDE12345)")]
+        modelStores.deviceStore.signingTeam = "TEAM123456"
+        modelStores.deviceStore.installDevice = previousDevice; modelStores.deviceStore.signingTeam = previousTeam; model.target = previousTarget
         // The Free space sheet with a measured build folder (example sizes), two parts picked, then while a build runs
         let measured = BuildFolderSurvey(folder: "/Volumes/Games/Hades/\(titleID)_build",
                                          sizes: [.extracted: 9_800_000_000, .shaders: 5_850_000_000, .oldShaders: 4_400_000_000, .xcode: 2_100_000_000, .caches: 610_000_000], kept: 48_000_000,
@@ -862,7 +863,7 @@ final class LibraryTests: XCTestCase {
         for (name, running) in [("free-space", false), ("free-space-running", true)] {
             model.running = running
             let sheet = NSHostingView(rootView: FreeSpaceView(m: model, game: library.games[0], survey: measured, chosen: [.extracted, .oldShaders])
-                .environmentObject(PadFocus()).environmentObject(model.localizer))
+                .environmentObject(PadFocus()).environmentObject(modelStores.localizer))
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 690), styleMask: [.titled], backing: .buffered, defer: false)
             window.contentView = sheet
             window.orderFront(nil)
@@ -879,7 +880,7 @@ final class LibraryTests: XCTestCase {
             try FileManager.default.createDirectory(at: dm, withIntermediateDirectories: true)
             try FileManager.default.copyItem(at: URL(fileURLWithPath: json), to: dm.appendingPathComponent("launcher.json"))
             if let fps = LaunchSetting.read(app: first.appPath)?.first(where: { $0.env == "DM_FPS_TARGET" }) { SavedChoices(app: first.appPath, titleID: first.titleID).set(fps, "60") }
-            let host = NSHostingView(rootView: LaunchOptionsView(m: model, library: library, gameID: first.id).environmentObject(PadFocus()).environmentObject(model.localizer))
+            let host = NSHostingView(rootView: LaunchOptionsView(m: model, library: library, gameID: first.id).environmentObject(PadFocus()).environmentObject(modelStores.localizer))
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 700), styleMask: [.titled], backing: .buffered, defer: false)
             window.contentView = host
             window.orderFront(nil)
@@ -890,7 +891,7 @@ final class LibraryTests: XCTestCase {
             window.orderOut(nil)
             // The same sheet with a controller's focus on the console mode row
             let focus = PadFocus()
-            let focused = NSHostingView(rootView: LaunchOptionsView(m: model, library: library, gameID: first.id).environmentObject(focus).environmentObject(model.localizer))
+            let focused = NSHostingView(rootView: LaunchOptionsView(m: model, library: library, gameID: first.id).environmentObject(focus).environmentObject(modelStores.localizer))
             window.contentView = focused
             window.orderFront(nil)
             RunLoop.main.run(until: Date().addingTimeInterval(0.4))
@@ -910,7 +911,7 @@ final class LibraryTests: XCTestCase {
             let layout = ControlLayout(defaults: defaults)
             if let up = ControlLayout.functions.first(where: { $0.id == "RUp" }) { layout.assign(up, key: 34) }
             layout.setSends("A", "B"); layout.setSends("B", "A")
-            let host = NSHostingView(rootView: ControlsView(layout: layout).environmentObject(PadFocus()).environmentObject(model.localizer))
+            let host = NSHostingView(rootView: ControlsView(layout: layout).environmentObject(PadFocus()).environmentObject(modelStores.localizer))
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 700), styleMask: [.titled], backing: .buffered, defer: false)
             window.contentView = host
             window.orderFront(nil)
@@ -926,7 +927,7 @@ final class LibraryTests: XCTestCase {
             _ = crowded.rememberInputs(model)
         }
         model.slots[0].paths = []
-        let view = ContentView(model: model, library: crowded, performStartupChecks: false)
+        let view = ContentView(stores: modelStores, library: crowded, performStartupChecks: false)
         let crowdedHost = NSHostingView(rootView: view)
         let crowdedWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1280, height: 900), styleMask: [.titled], backing: .buffered, defer: false)
         crowdedWindow.contentView = crowdedHost
@@ -976,7 +977,7 @@ final class LibraryTests: XCTestCase {
                 layout.controllerCategory = { category }
                 layout.setPadMode(mode)
                 let focus = PadFocus()
-                let host = NSHostingView(rootView: ControlsView(layout: layout).environmentObject(focus).environmentObject(model.localizer))
+                let host = NSHostingView(rootView: ControlsView(layout: layout).environmentObject(focus).environmentObject(modelStores.localizer))
                 let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 700), styleMask: [.titled], backing: .buffered, defer: false)
                 window.contentView = host
                 window.orderFront(nil)
@@ -994,9 +995,9 @@ final class LibraryTests: XCTestCase {
         do {
             try capture("settings-diagnostics", height: 1500, page: .settings)
             let buttons = NSHostingView(rootView: HStack(spacing: 14) {
-                DiagnosticsButton(m: model)
-                DiagnosticsButton(m: model, showCopied: true)
-            }.launcherRowControls().padding(24).background(LauncherPalette.background).environmentObject(PadFocus()).environmentObject(model.localizer))
+                DiagnosticsButton(report: modelStores.diagnostics)
+                DiagnosticsButton(report: modelStores.diagnostics, showCopied: true)
+            }.launcherRowControls().padding(24).background(LauncherPalette.background).environmentObject(PadFocus()).environmentObject(modelStores.localizer))
             buttons.frame = NSRect(x: 0, y: 0, width: 420, height: 90)
             let window = NSWindow(contentRect: buttons.frame, styleMask: [.titled], backing: .buffered, defer: false)
             window.contentView = buttons
@@ -1034,7 +1035,7 @@ final class LibraryTests: XCTestCase {
             let host = NSHostingView(rootView: SavesView(m: model, library: library, gameID: game.id, devicectl: device, support: support, listDevices: {
                 [AppleDevice(id: "00008150-AAAA", name: "Zijad\u{2019}s iPhone", model: "iPhone 17", os: "27.0", reachable: true),
                  AppleDevice(id: "00008150-BBBB", name: "Zijad\u{2019}s iPad", model: "iPad Pro", os: "27.0", reachable: true)]
-            }).environmentObject(focus).environmentObject(model.localizer))
+            }).environmentObject(focus).environmentObject(modelStores.localizer))
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 520), styleMask: [.titled], backing: .buffered, defer: false)
             window.contentView = host
             window.orderFront(nil)
@@ -1128,21 +1129,21 @@ final class LibraryTests: XCTestCase {
 
     /// Issue #73: the extraction writes RomFS.img now, not a RomFS folder. The archive step looked
     /// only for the folder, so every build ended with "archive skipped" after a successful build.
-    /// This drives BuildModel.extractedVersion — the function the archive step calls — rather than
+    /// This drives RomFSArchive.extractedVersion — the function the archive step calls — rather than
     /// restating its predicate, so changing the production code changes what this checks.
     func testTheExtractionIsFoundAsEitherAFolderOrAnImage() throws {
         let work = FileManager.default.temporaryDirectory.appendingPathComponent("nspb-extract-" + UUID().uuidString)
         let extract = work.appendingPathComponent("extract")
         defer { try? FileManager.default.removeItem(at: work) }
         try FileManager.default.createDirectory(at: extract.appendingPathComponent("v0"), withIntermediateDirectories: true)
-        XCTAssertNil(BuildModel.extractedVersion(in: extract.path), "an empty version folder holds neither shape")
+        XCTAssertNil(RomFSArchive.extractedVersion(in: extract.path), "an empty version folder holds neither shape")
         // what the rewriter writes today
         try Data([0x44, 0x4d, 0x52, 0x4f, 0x4d, 0x46, 0x53, 0x31])
             .write(to: extract.appendingPathComponent("v0").appendingPathComponent("RomFS.img"))
-        XCTAssertEqual(BuildModel.extractedVersion(in: extract.path), "v0", "RomFS.img alone must count")
+        XCTAssertEqual(RomFSArchive.extractedVersion(in: extract.path), "v0", "RomFS.img alone must count")
         // and the older shape still works, with the highest version winning
         try FileManager.default.createDirectory(at: extract.appendingPathComponent("v1").appendingPathComponent("RomFS"),
                                                 withIntermediateDirectories: true)
-        XCTAssertEqual(BuildModel.extractedVersion(in: extract.path), "v1")
+        XCTAssertEqual(RomFSArchive.extractedVersion(in: extract.path), "v1")
     }
 }

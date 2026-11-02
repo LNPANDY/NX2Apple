@@ -28,7 +28,7 @@ from nspb_qt.localization import TABLE  # noqa: E402
 FIXTURES = json.loads((ROOT / 'frontend/Tests/Fixtures/build_failures.json').read_text(encoding='utf-8'))
 # the table is the classifier's (the app target), the kinds and their override flags are NXCore's
 SWIFT = ''.join((ROOT / 'frontend/Sources' / f).read_text(encoding='utf-8')
-                for f in ('NX2Apple/BuildFailure.swift', 'NXCore/BuildFailureKind.swift'))
+                for f in ('NXCore/BuildFailureClassifier.swift', 'NXCore/BuildFailureKind.swift'))
 
 
 def fixture(pattern_id: str) -> dict:

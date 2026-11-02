@@ -1,6 +1,7 @@
 import XCTest
 @testable import NX2Apple
 @testable import NXCore
+import NXModel
 @testable import NXLauncher
 
 /// The release app carries its build tools and a Python (BundledTools.swift): the dependency check prefers them to Homebrew's and to
@@ -98,8 +99,8 @@ final class BundledToolsTests: XCTestCase {
 
     func testBuildToolPathKeepsTheHomebrewBaseWithoutABundle() {
         // under `swift test` there is no bundle: the helper is the old string
-        XCTAssertEqual(BuildModel.toolPath(), "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin")
-        XCTAssertEqual(BuildModel.toolPath("/usr/bin:/bin"), "/usr/bin:/bin")
+        XCTAssertEqual(BuildCommands.toolPath(), "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin")
+        XCTAssertEqual(BuildCommands.toolPath("/usr/bin:/bin"), "/usr/bin:/bin")
     }
 
     // ---- the dependency rows ----

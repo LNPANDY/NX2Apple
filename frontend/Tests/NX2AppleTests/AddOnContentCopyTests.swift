@@ -1,6 +1,7 @@
 import XCTest
 @testable import NX2Apple
 @testable import NXCore
+import NXModel
 @testable import NXLauncher
 
 /// The slim default leaves DLC images in the work folder, and the archive step copies them into the game folder
@@ -15,7 +16,7 @@ final class AddOnContentCopyTests: XCTestCase {
         try fm.createDirectory(at: dest, withIntermediateDirectories: true)
         try Data([2]).write(to: work.appendingPathComponent("2.img"))
         try Data([9]).write(to: dest.appendingPathComponent("1.img"))   // from an earlier build
-        XCTAssertEqual(BuildModel.copyAddOnContent(from: work.path, to: dest.path), 1)
+        XCTAssertEqual(RomFSArchive.copyAddOnContent(from: work.path, to: dest.path), 1)
         XCTAssertEqual(try fm.contentsOfDirectory(atPath: dest.path), ["2.img"])
     }
 
@@ -25,7 +26,7 @@ final class AddOnContentCopyTests: XCTestCase {
         defer { try? fm.removeItem(at: root) }
         let dest = root.appendingPathComponent("aoc")
         try fm.createDirectory(at: dest, withIntermediateDirectories: true)
-        XCTAssertEqual(BuildModel.copyAddOnContent(from: root.appendingPathComponent("none").path, to: dest.path), 0)
+        XCTAssertEqual(RomFSArchive.copyAddOnContent(from: root.appendingPathComponent("none").path, to: dest.path), 0)
         XCTAssertTrue(fm.fileExists(atPath: dest.path))
     }
 }

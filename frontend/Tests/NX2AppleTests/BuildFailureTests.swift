@@ -2,11 +2,12 @@ import SwiftUI
 import XCTest
 @testable import NX2Apple
 @testable import NXCore
+import NXModel
 @testable import NXLauncher
 
 /// The script's early stops, turned into hints. The fixture holds the real message of every pattern, copied from the script
 /// (Tests/Fixtures/build_failures.json, shared with the Qt front end's test).
-final class BuildFailureTests: XCTestCase {
+@MainActor final class BuildFailureTests: XCTestCase {
     struct Fixture: Decodable {
         let id: String, kind: String, source: String, fragment: String, text: String
         let game: String?, folder: String?, gb: String?
@@ -134,7 +135,7 @@ final class BuildFailureTests: XCTestCase {
     }
 
     func testNothingIsArmedUntilTheConfirmation() {
-        let m = BuildModel()
+        let mStores = LauncherStores(); let m = mStores.build
         m.failure = BuildFailure(kind: .otherMetal, gameName: nil)
         m.requestBuildAnyway()
         XCTAssertEqual(m.confirmingOverride, .otherMetal)
@@ -146,7 +147,7 @@ final class BuildFailureTests: XCTestCase {
     }
 
     func testAConfirmedOverrideServesOneBuildOnly() {
-        let m = BuildModel()
+        let mStores = LauncherStores(); let m = mStores.build
         m.target = BuildTarget.mac   // the iPhone / iPad target stops first, at the device check
         m.failure = BuildFailure(kind: .damagedNSP, gameName: nil)
         m.requestBuildAnyway()
@@ -158,7 +159,7 @@ final class BuildFailureTests: XCTestCase {
     }
 
     func testAStopWithoutAnOverrideCannotBeBuiltAnyway() {
-        let m = BuildModel()
+        let mStores = LauncherStores(); let m = mStores.build
         for k in BuildFailureKind.allCases where k.overrideFlag == nil {
             m.failure = BuildFailure(kind: k, gameName: nil)
             m.requestBuildAnyway()
@@ -167,7 +168,7 @@ final class BuildFailureTests: XCTestCase {
     }
 
     func testAFailedBuildShowsTheHintInsteadOfTheLastLine() {
-        let m = BuildModel()
+        let mStores = LauncherStores(); let m = mStores.build
         m.logTail = "[RED] the iOS SDK is not installed: install the iOS platform in Xcode\n"
         m.noteFailure()
         XCTAssertEqual(m.failure?.kind, .iosSDK)
@@ -253,10 +254,10 @@ final class BuildFailureTests: XCTestCase {
     }
 
     @MainActor func testTheMetalRowsDetailReadsInTheLauncher() {
-        let m = BuildModel()
+        let mStores = LauncherStores(); let m = mStores.build
         let dep = DependencyCheck.metalDep(runs: true, lock: Self.lock, now: ["macosx": Self.other], needsIOS: false)
-        XCTAssertTrue(m.dependencies.detail(of: dep).contains(Self.other), m.dependencies.detail(of: dep))
-        XCTAssertTrue(m.dependencies.detail(of: dep).contains(Self.pinned), m.dependencies.detail(of: dep))
+        XCTAssertTrue(mStores.dependencies.detail(of: dep).contains(Self.other), mStores.dependencies.detail(of: dep))
+        XCTAssertTrue(mStores.dependencies.detail(of: dep).contains(Self.pinned), mStores.dependencies.detail(of: dep))
     }
 
     /// Opt-in native rendering for pull request screenshots (NX_LAUNCHER_CAPTURE_DIR), the way LibraryTests renders the launcher.
@@ -283,41 +284,42 @@ final class BuildFailureTests: XCTestCase {
                                    ("hint-other-metal-zh", .otherMetal, .zh)]
                                   + [BuildFailureKind.keys, .severalGames, .noTitleID, .driveMissing, .diskFull, .teamTaken, .noSigningAccount, .deviceTransfer].flatMap { k in
                                       [("row-\(k.rawValue)", k, Lang.en), ("row-\(k.rawValue)-zh", k, Lang.zh)] } {
-            let m = BuildModel()
+            let mStores = LauncherStores(); let m = mStores.build
             m.lang = CaptureLanguage.current(lang)
             m.failure = BuildFailure(kind: kind, gameName: nil, detail: kind == .diskFull ? "40" : kind == .driveMissing ? "Games" : nil)
             m.doneNote = m.failureWhat(m.failure!)
             try capture(name, width: 760, height: kind == .noTitleID ? 380 : 250, ZStack(alignment: .top) {
                 LauncherPalette.background
-                BuildFailureCard(m: m).environmentObject(m.localizer).padding(24)
+                BuildFailureCard(m: m).environmentObject(mStores.localizer).padding(24)
             })
         }
-        let m = BuildModel()
+        let mStores = LauncherStores(); let m = mStores.build
         m.lang = .en
-        MainActor.assumeIsolated { m.dependencies.checked = true }
-        MainActor.assumeIsolated { m.dependencies.deps = [Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint", present: true, installCmd: []),
+        MainActor.assumeIsolated { mStores.dependencies.checked = true }
+        MainActor.assumeIsolated { mStores.dependencies.deps = [Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint", present: true, installCmd: []),
                   DependencyCheck.metalDep(runs: true, lock: Self.lock, now: ["macosx": Self.other, "iphoneos": Self.other], needsIOS: true)] }
         try capture("deps-metal-warning", width: 760, height: 260, ZStack(alignment: .top) {
             LauncherPalette.background
-            MetalRowPreview(m: m).padding(24)
+            MetalRowPreview(dependencies: mStores.dependencies, t: m.t).padding(24)
         })
     }
 }
 
 /// The dependency panel's rows as the Settings card draws them, for the screenshot (the card itself is private to BuilderView).
 private struct MetalRowPreview: View {
-    @ObservedObject var m: BuildModel
+    @ObservedObject var dependencies: DependencyStore
+    let t: (String) -> String
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ForEach(m.dependencies.deps, id: \.id) { d in
+            ForEach(dependencies.deps, id: \.id) { d in
                 HStack(alignment: .top, spacing: 12) {
                     Circle().fill(d.present && !d.warning ? LauncherPalette.ready : LauncherPalette.building).frame(width: 7, height: 7).padding(.top, 6)
                     VStack(alignment: .leading, spacing: 3) {
-                        Text(m.t(d.name)).font(.manrope(14, .semibold))
-                        Text(m.dependencies.detail(of: d)).font(.manrope(12.5)).foregroundStyle(.secondary)
+                        Text(t(d.name)).font(.manrope(14, .semibold))
+                        Text(dependencies.detail(of: d)).font(.manrope(12.5)).foregroundStyle(.secondary)
                         if !d.lastError.isEmpty {
                             Text(d.lastError).font(.mono(11)).foregroundStyle(LauncherPalette.building)
-                            Text(m.t(d.fixHint)).font(.manrope(11.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                            Text(t(d.fixHint)).font(.manrope(11.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                         }
                     }
                     Spacer()

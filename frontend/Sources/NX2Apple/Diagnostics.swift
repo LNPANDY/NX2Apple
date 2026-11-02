@@ -294,13 +294,13 @@ struct Diagnostics {
     }
 }
 
-extension BuildModel {
+extension LauncherStores {
     /// The report, read in the background and handed back on the main thread.
     func diagnostics(game: LibraryGame? = nil, _ done: @escaping (String) -> Void) {
-        let repo = repoOK ? repoPath : "", python = pythonPath.isEmpty ? Toolchain.findPython().path : pythonPath, dotnet = dotnetPath
-        let checked = depsChecked, rows = checked ? MainActor.assumeIsolated { dependencies.deps }.map(Diagnostics.dependency) : []
-        let command = lastBuildCommand, log = logTail, xcrun = xcrunPath
-        let (sel, usesEngineStore) = MainActor.assumeIsolated { (engineSync.selection, engineSync.usesEngineStore) }
+        let repo = self.repo.isRepo ? self.repo.path : "", python = dependencies.pythonPath.isEmpty ? Toolchain.findPython().path : dependencies.pythonPath, dotnet = dependencies.dotnetPath
+        let checked = dependencies.checked, rows = checked ? dependencies.deps.map(Diagnostics.dependency) : []
+        let command = build.lastBuildCommand, log = build.logTail, xcrun = deviceStore.xcrun
+        let (sel, usesEngineStore) = (engineSync.selection, engineSync.usesEngineStore)
         let engine = usesEngineStore && !sel.engineID.isEmpty ? "\(sel.channel.rawValue) \(sel.version) (\(sel.engineID))" : nil
         DispatchQueue.global(qos: .userInitiated).async {
             let git = Diagnostics.git(repo)
@@ -334,7 +334,7 @@ extension BuildModel {
 
 /// Settings' Copy diagnostics: the report goes to the clipboard and the button says Copied for a moment.
 struct DiagnosticsButton: View {
-    @ObservedObject var m: BuildModel
+    let report: (LibraryGame?, @escaping (String) -> Void) -> Void
     @EnvironmentObject var loc: Localizer
     var game: LibraryGame?   // the library's selected game: its log goes in the report
     var showCopied = false   // the visual QA's confirmation
@@ -352,7 +352,7 @@ struct DiagnosticsButton: View {
 
     private func copy() {
         busy = true
-        m.diagnostics(game: game) { report in
+        report(game) { report in
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(report, forType: .string)
             busy = false

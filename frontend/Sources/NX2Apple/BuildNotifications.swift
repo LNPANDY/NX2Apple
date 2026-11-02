@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import NXCore
+import NXModel
 import UserNotifications
 
 // A notification when a build finishes or fails (issue #64): a build takes long enough that people switch
@@ -71,10 +72,10 @@ final class BuildNotifier: NSObject, ObservableObject, UNUserNotificationCenterD
 
     /// Follows the model's builds: asks for permission when one starts, notifies when it ends. Only from the real
     /// app's window (not previews or tests), and only with a bundle identifier (see the top of this file).
-    func watch(_ m: BuildModel, library: GameLibrary) {
+    @MainActor func watch(_ m: BuildStore, library: GameLibrary) {
         guard watching == nil, BuildNotice.hasBundleID else { return }
         UNUserNotificationCenter.current().delegate = self
-        watching = m.$done.removeDuplicates().dropFirst().sink { [weak self, weak m, weak library] done in
+        watching = m.$done.removeDuplicates().dropFirst().sink { [weak self, weak m, weak library] done in MainActor.assumeIsolated {
             guard let self, let m, let library else { return }
             if m.running { return }   // a reset between builds: done flips false while nothing has ended yet
             // `done` is the chain's own verdict: the Mac target sets it when the .app exists, the iPhone target
@@ -82,19 +83,21 @@ final class BuildNotifier: NSObject, ObservableObject, UNUserNotificationCenterD
             // on — a `running`-based notice read that window as a failure, and a done-based one missed nothing).
             let stopped = m.stopping
             DispatchQueue.main.async {
-                let outcome: BuildNotice.Outcome = stopped ? .stopped
-                    : done ? .finished : .failed(reason: BuildNotice.failureReason(note: m.doneNote, stages: m.stages))
-                guard BuildNotice.shouldNotify(outcome, enabled: BuildNotice.enabled, appActive: NSApp.isActive, hasBundleID: true) else { return }
-                self.post(outcome, m: m, library: library)
+                MainActor.assumeIsolated {
+                    let outcome: BuildNotice.Outcome = stopped ? .stopped
+                        : done ? .finished : .failed(reason: BuildNotice.failureReason(note: m.doneNote, stages: m.stages))
+                    guard BuildNotice.shouldNotify(outcome, enabled: BuildNotice.enabled, appActive: NSApp.isActive, hasBundleID: true) else { return }
+                    self.post(outcome, m: m, library: library)
+                }
             }
-        }
+        } }
     }
 
-    private func post(_ outcome: BuildNotice.Outcome, m: BuildModel, library: GameLibrary) {
+    @MainActor private func post(_ outcome: BuildNotice.Outcome, m: BuildStore, library: GameLibrary) {
         let titleID = TitleID.parse(m.basePath).map { String(format: "%016llX", $0) } ?? ""
         let game = library.games.first { $0.titleID == titleID }
-        let name = game?.name ?? GameLibrary.title(for: m.basePath, repo: m.repoPath, titleID: titleID)
-        let text = BuildNotice.text(outcome, game: name, target: m.target, device: m.installedOn.isEmpty ? nil : m.deviceName(m.installedOn), m.t)
+        let name = game?.name ?? GameLibrary.title(for: m.basePath, repo: m.repo.path, titleID: titleID)
+        let text = BuildNotice.text(outcome, game: name, target: m.target, device: m.installedOn.isEmpty ? nil : m.devices.deviceName(m.installedOn), m.t)
         let content = UNMutableNotificationContent()
         content.title = text.title
         content.body = text.body

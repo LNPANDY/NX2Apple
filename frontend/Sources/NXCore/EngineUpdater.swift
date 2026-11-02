@@ -208,7 +208,7 @@ package protocol EngineTransport {
     func download(from url: URL, to destination: URL) -> Bool
 }
 
-/// URLSession, waited on from a background queue as the app update does (BuildModel.downloadAndStage).
+/// URLSession, waited on from a background queue as the app update does (AppUpdateStore).
 /// Nothing is cached: the experimental release replaces its files under the same names.
 package struct URLSessionEngineTransport: EngineTransport {
     private let session: URLSession = {
