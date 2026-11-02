@@ -1,7 +1,8 @@
 # Daily: follow upstream seedds/nxnative as a patch queue (issue #123, patches/README.md). The engine
 # is upstream at a pinned commit (.upstream-ref) plus the patches in patches/; tools/engine.py bump
 # moves the pin, re-applies the series, drops the patches that landed upstream, and leaves the rest
-# for review. The PR touches only .upstream-ref and patches/ (the repository commits no engine files,
+# for review, and prints the list of upstream commits that probably matter to the front ends (#464), which goes into the PR body.
+# The PR touches only .upstream-ref and patches/ (the repository commits no engine files,
 # issue #214), and the checks run on engine/ (tools/engine.py sync).
 # Nothing is pushed to main (it is protected): the result is a pull request from the branch
 # sync/upstream-<short sha> (or, when a patch no longer applies, an issue naming it).
@@ -103,10 +104,14 @@ jobs:
             echo "Upstream: https://github.com/seedds/nxnative/compare/${OLD:0:12}...${NEW:0:12}"
             echo
             echo '```'
-            tail -40 bump.log
+            sed '/^## Candidate commits/,$d' bump.log | tail -40
             echo '```'
             echo
             echo "Patches listed under dropped landed upstream; their files are deleted from patches/. \`tools/engine.py status\` lists what is still carried."
+            # The upstream commits that probably matter to the front ends and the players (tools/bump_candidates.py, #464): the section
+            # that bump prints last. A PR body holds 65536 characters at most.
+            echo
+            sed -n '/^## Candidate commits/,$p' bump.log | head -c 50000 || true   # head may close the pipe (pipefail)
           } > body.md
           gh pr create -R "${{ github.repository }}" --base main --head "sync/upstream-$SHORT" \
             --title "Sync upstream $SHORT" --body-file body.md || echo "PR creation failed; the branch is pushed"
