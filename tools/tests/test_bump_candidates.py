@@ -248,7 +248,7 @@ class Rules(unittest.TestCase):
         c = B.context(B.REPO)
         self.assertTrue(c['patch_paths'], 'no patch file read')
         self.assertIn('DM_FPS_TARGET', c['launch_vars'])
-        self.assertTrue(c['fragments'], 'no failure row read from BuildFailure.swift')
+        self.assertTrue(c['fragments'], 'no failure row read from BuildFailureClassifier.swift')
 
 
 class Sources(unittest.TestCase):

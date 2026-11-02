@@ -15,9 +15,9 @@ A commit is a candidate when it
   - has a `Breaking:` line or a "For front ends" section in its message (listed first),
   - touches the shader chain (dmsh_chain.h, dmsh_chain.lock) or own_compilers.py (a chain move or a tool requirement),
   - changes a row of docs/env_switches.tsv (removed or rewritten, a new row alone is no candidate), flagged when the variable is a
-    `launch.set.<VAR>` key of the launcher (frontend/Sources/NXCore/Localization.swift, dm/launcher.json),
+    `launch.set.<VAR>` key of the launcher (frontend/l10n/en.json, dm/launcher.json),
   - touches scripts/build_ipa_from_nsp.py (an argument, the setting block, an exit or an error text), or adds or removes a line
-    with `[RED]` or one of the texts that the failure rows of frontend/Sources/NX2Apple/BuildFailure.swift match,
+    with `[RED]` or one of the texts that the failure rows of frontend/Sources/NXCore/BuildFailureClassifier.swift match,
   - touches docs/frontends.md or dm/launcher.json, or a line that writes a JSON progress event or game.manifest.json,
   - touches a binary layout without a version (romfs_image.h, romfs_image.py, romfs.py),
   - or touches a source file that one of our patches in patches/*.patch changes (read from the `diff --git` headers; documents, tests
@@ -34,9 +34,9 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 UPSTREAM = 'seedds/nxnative'
-LOCALIZATION = 'frontend/Sources/NXCore/Localization.swift'
+LOCALIZATION = 'frontend/l10n/en.json'
 LAUNCHER_JSON = 'dm/launcher.json'                 # in the engine, read from engine/ when it is there
-BUILD_FAILURE = 'frontend/Sources/NX2Apple/BuildFailure.swift'
+BUILD_FAILURE = 'frontend/Sources/NXCore/BuildFailureClassifier.swift'
 
 CHAIN = ('dmsh_chain.h', 'dmsh_chain.lock')        # compared by file name: the header is in dm/gfx/nvn, the lock in dm/gfx/tools
 OWN_COMPILERS = 'own_compilers.py'
@@ -123,7 +123,7 @@ def patch_paths(root):
 
 
 def launch_vars(root):
-    """The variables the launcher offers: `launch.set.<VAR>` in Localization.swift and in the engine's launcher.json."""
+    """The variables the launcher offers: `launch.set.<VAR>` in frontend/l10n/en.json and in the engine's launcher.json."""
     found = set()
     for rel in (LOCALIZATION, 'engine/' + LAUNCHER_JSON):
         p = Path(root) / rel
@@ -133,7 +133,7 @@ def launch_vars(root):
 
 
 def failure_fragments(root):
-    """The texts that the failure rows match (the third field of each row in BuildFailure.swift), as compiled regexes."""
+    """The texts that the failure rows match (the third field of each row in BuildFailureClassifier.swift), as compiled regexes."""
     p = Path(root) / BUILD_FAILURE
     if not p.is_file(): return []
     out = []
