@@ -292,10 +292,10 @@ final class LibraryTests: XCTestCase {
         model.repoPath = temporary.path
         model.target = "mac-app"
         model.outDir = temporary.path
-        model.pythonPath = "/usr/bin/python3"
-        model.dotnetPath = "/usr/bin/true"
-        model.depsChecked = true
-        model.deps = [Dep(id: "test", name: "test", hint: "", present: true, installCmd: [])]
+        MainActor.assumeIsolated { model.dependencies.pythonPath = "/usr/bin/python3" }
+        MainActor.assumeIsolated { model.dependencies.dotnetPath = "/usr/bin/true" }
+        MainActor.assumeIsolated { model.dependencies.checked = true }
+        MainActor.assumeIsolated { model.dependencies.deps = [Dep(id: "test", name: "test", hint: "", present: true, installCmd: [])] }
         let marker = temporary.appendingPathComponent("dm/tools/nx_extract/Program.cs")
         try FileManager.default.createDirectory(at: marker.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data().write(to: marker)
@@ -547,10 +547,10 @@ final class LibraryTests: XCTestCase {
         model.repoPath = temporary.path
         model.target = "mac-app"
         model.outDir = temporary.path
-        model.pythonPath = "/usr/bin/python3"
-        model.dotnetPath = "/usr/bin/true"
-        model.depsChecked = true
-        model.deps = [Dep(id: "test", name: "test", hint: "", present: true, installCmd: [])]
+        MainActor.assumeIsolated { model.dependencies.pythonPath = "/usr/bin/python3" }
+        MainActor.assumeIsolated { model.dependencies.dotnetPath = "/usr/bin/true" }
+        MainActor.assumeIsolated { model.dependencies.checked = true }
+        MainActor.assumeIsolated { model.dependencies.deps = [Dep(id: "test", name: "test", hint: "", present: true, installCmd: [])] }
         let marker = temporary.appendingPathComponent("dm/tools/nx_extract/Program.cs")
         try FileManager.default.createDirectory(at: marker.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data().write(to: marker)
@@ -636,8 +636,8 @@ final class LibraryTests: XCTestCase {
         let model = BuildModel()
         model.repoPath = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().path
         model.lang = .en
-        model.depsChecked = true
-        model.deps = [Dep(id: "test", name: "Xcode", hint: "", present: true, installCmd: [])]
+        MainActor.assumeIsolated { model.dependencies.checked = true }
+        MainActor.assumeIsolated { model.dependencies.deps = [Dep(id: "test", name: "Xcode", hint: "", present: true, installCmd: [])] }
         for game in real_.games.sorted(by: { $0.name < $1.name }) {
             let name = game.name.replacingOccurrences(of: #"\s*\([0-9.]+ GB\)"#, with: "", options: .regularExpression)
             if game.titleID == botw { _ = try library.addApp(makeApp(botw, name: name)) }
@@ -743,8 +743,8 @@ final class LibraryTests: XCTestCase {
         model.repoPath = repo
         model.lang = CaptureLanguage.current(.en)
         model.outDir = temporary.path
-        model.depsChecked = true
-        model.deps = [Dep(id: "test", name: "Xcode", hint: "", present: true, installCmd: [])]
+        MainActor.assumeIsolated { model.dependencies.checked = true }
+        MainActor.assumeIsolated { model.dependencies.deps = [Dep(id: "test", name: "Xcode", hint: "", present: true, installCmd: [])] }
         let library = GameLibrary(file: temporary.appendingPathComponent("preview.json"))
         let examples = [(titleID, "Hades"), ("01007EF00011E000", "The Legend of Zelda: Breath of the Wild"),
                         ("0100000000010000", "Super Mario Odyssey"), ("010093801237C000", "Metroid Dread")]
