@@ -247,6 +247,30 @@ import NXModel
         XCTAssertFalse(fm.fileExists(atPath: half), "the half mirror is taken away")
     }
 
+    /// Build A (Breath of the Wild) is stopped while the build script copies its framework, then build B (Hades) runs. A's framework
+    /// in its build folder is half written, and a library entry from before the mirror still points there. B's shared app leaves A out,
+    /// does not mirror the half framework and does not delete it either: the build folder belongs to A's next build.
+    func testAStoppedBuildsHalfFrameworkInItsBuildFolderIsLeftOutOfTheNextGamesSharedApp() throws {
+        let f = try makeFixture()
+        let otherID = "01007EF00011E000"
+        let half = path("botw/01007EF00011E000_build/shell-framework/DmGame\(otherID).framework")
+        try write(half + "/Info.plist", "plist")
+        try write(half + "/pso/archive.tsv", "pso")
+        var library = ShellLibrary()
+        library.add(.init(titleID: otherID, name: "Zelda Breath of the Wild", framework: half))
+        try library.save(root: f.root)
+        var i = installer(f)
+        i.banners = URL(fileURLWithPath: path("banners"))
+        let outcome = i.export(framework: f.framework, titleID: titleID, name: "Hades")
+        XCTAssertTrue(outcome.ok, outcome.message)
+        let env = try String(contentsOfFile: state + "/shell-env.txt", encoding: .utf8)
+        XCTAssertFalse(env.contains(otherID), env)
+        XCTAssertEqual(ShellLibrary.load(root: f.root).games.map(\.titleID), [titleID])
+        XCTAssertTrue(outcome.message.contains(String(format: L10n.string("shell.gameLeftOut", .en), "Zelda Breath of the Wild", "game.manifest.json")), outcome.message)
+        XCTAssertFalse(fm.fileExists(atPath: ShellInstall.mirroredFramework(root: f.root, titleID: otherID)), "the half framework is not mirrored")
+        XCTAssertTrue(fm.fileExists(atPath: half + "/Info.plist"), "the build folder is left to A's next build")
+    }
+
     func testTheBuiltGamesOwnIncompleteFrameworkStopsWithItsNameAndTheMissingFile() throws {
         let f = try makeFixture()
         try fm.removeItem(atPath: f.framework + "/DmGame\(titleID)")
