@@ -104,6 +104,7 @@ final class EngineUpdaterTests: XCTestCase {
     }
 
     /// The archive has to be the engine the manifest names, or the store would hold the wrong files under its name.
+    // expects: engine-03
     func testATreeWithAnotherIdentityIsRefused() throws {
         let archive = try zip(makeTree(id: id("b")))
         XCTAssertThrowsError(try EngineInstaller.install(zip: archive, engineID: id("a"), store: store)) {

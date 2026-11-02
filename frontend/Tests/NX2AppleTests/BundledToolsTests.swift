@@ -118,6 +118,7 @@ final class BundledToolsTests: XCTestCase {
         XCTAssertTrue(BuildModel.brewDeps.allSatisfy { row(rows, $0.formula)?.present == false })
     }
 
+    // expects: build-07
     func testBundledToolsArePresentAndNeedNoHomebrew() throws {
         try installAllTools()
         let rows = BuildModel.toolDeps(resources: root, installed: { _ in nil }, brew: nil)

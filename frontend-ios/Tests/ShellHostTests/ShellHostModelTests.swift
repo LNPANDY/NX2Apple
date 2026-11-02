@@ -157,6 +157,7 @@ final class Clock: @unchecked Sendable { var date: Date; init(_ d: Date) { date 
         #expect(box.defaults(Fixtures.orbit).data(forKey: "cloudSavesBookmark") == nil)
     }
 
+    // expects: cloud-saves-07
     @Test func aStaleCloudFolderAsksForANewChoice() throws {
         let box = try Sandbox()
         box.defaults(Fixtures.orbit).set(Data("junk".utf8), forKey: "cloudSavesBookmark")

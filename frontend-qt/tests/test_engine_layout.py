@@ -59,6 +59,7 @@ class EngineLayoutTests(unittest.TestCase):
         self.assertEqual(engine.engine_root(str(self.r)), str(self.r / 'engine'))   # no committed tree to fall back to
         self.assertTrue(engine.needs_sync_before_build(str(self.r)))
 
+    # expects: engine-05
     def test_a_commit_made_in_engine_makes_it_stale(self):
         self.new_layout()
         self.synced_engine()

@@ -27,6 +27,7 @@ final class FrenchLocalizationTests: XCTestCase {
         return re.matches(in: s, range: NSRange(s.startIndex..., in: s)).map { String(s[Range($0.range, in: s)!]) }
     }
 
+    // expects: localization-02
     func testEveryKeyHasFrenchText() {
         let missing = L10n.table.keys.filter { L10n.fr[$0] == nil }.sorted()
         XCTAssertEqual(missing, [], "keys without a French entry")

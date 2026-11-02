@@ -146,6 +146,7 @@ final class SaveTransferTests: XCTestCase {
         return (library, app, support, t)
     }
 
+    // expects: saves-01
     func testALibraryFolderGameReadsItsSaveBesideTheApp() throws {
         let l = try layout(marker: true)
         let beside = l.library.appendingPathComponent("save/\(titleID)")
@@ -218,6 +219,7 @@ final class SaveTransferTests: XCTestCase {
         }
     }
 
+    // expects: saves-02
     func testDeviceToMacBacksUpTheMacSaveAndReplacesIt() throws {
         let device = FakeDevice(temporary.appendingPathComponent("container"))
         let t = setUp(device: device)
@@ -276,6 +278,7 @@ final class SaveTransferTests: XCTestCase {
     }
 
     /// #250: a save push must leave the game data in Documents and the game's folder where they are.
+    // expects: saves-03
     func testMacToDeviceLeavesTheGameDataOnTheDevice() throws {
         let device = FakeDevice(temporary.appendingPathComponent("container"))
         let t = setUp(device: device)

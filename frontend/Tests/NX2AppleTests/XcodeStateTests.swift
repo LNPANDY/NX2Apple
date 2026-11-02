@@ -11,6 +11,7 @@ final class XcodeStateTests: XCTestCase {
                                              xcodeApp: "/Applications/Xcode.app", iosSDK: true), .ready)
     }
 
+    // expects: setup-03
     func testXcodeSelectedWithoutTheIOSPlatformAsksForTheDownload() {
         XCTAssertEqual(BuildModel.xcodeState(selected: "/Applications/Xcode.app/Contents/Developer",
                                              xcodeApp: "/Applications/Xcode.app", iosSDK: false),

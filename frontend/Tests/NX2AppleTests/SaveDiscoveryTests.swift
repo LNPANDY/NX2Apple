@@ -252,6 +252,7 @@ final class SaveDiscoveryTests: XCTestCase {
         wait("ready") { m.deviceSave != nil }
     }
 
+    // expects: saves-04
     func testACommandThatTimedOutIsATimeoutNotAnEmptySave() throws {
         let timedOut = DeviceControl { _ in (false, DeviceControl.timedOut) }
         let t = SaveTransfer(titleID: titleID, macSave: temporary.appendingPathComponent("save"), device: "PHONE", bundle: "x", devicectl: timedOut)

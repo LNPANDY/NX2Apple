@@ -124,6 +124,7 @@ import XCTest
         XCTAssertGreaterThan(LiveOnboardingDriver.neededGB(xcodeMissing: false, includesIOS: true), mac)
     }
 
+    // expects: setup-02
     func testAnAlreadyCompleteSetupIsNeverShown() {
         XCTAssertFalse(OnboardingLaunch.shouldShow(completed: true, setupComplete: false))
         XCTAssertFalse(OnboardingLaunch.shouldShow(completed: false, setupComplete: true), "complete: marked done, not shown")

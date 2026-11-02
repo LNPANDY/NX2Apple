@@ -69,6 +69,7 @@ final class EngineLayoutTests: XCTestCase {
         XCTAssertTrue(EngineLayout.needsSyncBeforeBuild(repo))
     }
 
+    // expects: engine-05
     func testACommitInEngineMakesItStale() throws {
         try newLayout()
         try syncedEngine()

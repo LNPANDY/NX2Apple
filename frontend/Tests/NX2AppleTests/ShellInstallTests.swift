@@ -65,6 +65,7 @@ final class ShellInstallTests: XCTestCase {
 
     /// #492: the Settings page reads the path before a game is chosen; the empty parent put the shell at the root of the
     /// read-only system volume, where the write failed after the whole build.
+    // expects: install-02
     func testAnEmptyOrRootParentNeverSavesTheShellAtTheVolumeRoot() {
         let defaults = UserDefaults(suiteName: "nspb-shell-" + UUID().uuidString)!
         let home = "/Users/tester"
@@ -144,6 +145,7 @@ final class ShellInstallTests: XCTestCase {
                                                      home: "/h", user: "u")["DM_SHELL_PACKAGE"])
     }
 
+    // expects: install-01
     func testCommandsAreExact() {
         let root = "/R/NX2Apple-shell"
         XCTAssertEqual(ShellInstall.buildArguments(workDir: "/W", team: "T"), ["--shell-framework", "/W/shell-framework", "--team-id", "T"])

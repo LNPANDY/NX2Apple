@@ -53,6 +53,7 @@ class Detect(unittest.TestCase):
         for tag in ('dv_MV', 'default'):   # not German
             self.assertEqual(detect(tag), Lang.EN, tag)
 
+    # expects: localization-05
     def test_a_saved_choice_wins(self):
         self.assertEqual(detect('English_United States', env={'NSPB_LANG': 'zh'}), Lang.ZH)
         self.assertEqual(detect('Chinese (Simplified)_China', env={'NSPB_LANG': 'en'}), Lang.EN)

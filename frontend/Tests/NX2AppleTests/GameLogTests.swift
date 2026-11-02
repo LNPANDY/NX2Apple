@@ -33,6 +33,7 @@ final class GameLogTests: XCTestCase {
         XCTAssertEqual(GameLog.folders(appPath: "", home: home).map(\.path), [home + "/Library/Logs/nxnative"])
     }
 
+    // expects: library-04
     func testAnAppInALibraryFolderWithTheMarkerLogsBesideItFirst() throws {
         try write(library.appendingPathComponent(GameLog.marker), "")
         let folders = GameLog.folders(appPath: library.appendingPathComponent("Hades.app").path, home: home)

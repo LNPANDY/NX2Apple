@@ -74,6 +74,7 @@ final class ControlPresetsTests: XCTestCase {
         XCTAssertTrue(layout().isDefault)
     }
 
+    // expects: controllers-01
     func testSettingsSavedBeforeTheLayoutsStillLoad() throws {
         defaults.set(Data(#"{"keys":{"A":40,"B":-1},"pad":{"A":"B","B":"A","Minus":"none"}}"#.utf8), forKey: "controlLayout")
         let old = layout()

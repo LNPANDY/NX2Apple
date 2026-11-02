@@ -19,6 +19,7 @@ final class XcodeTeamsTests: XCTestCase {
             + "<key>teamName</key><string>\(name)</string>" + (type.map { "<key>teamType</key><string>\($0)</string>" } ?? "") + "</dict>"
     }
 
+    // expects: install-03
     func testTheCurrentShapeAccountIdentifierToTeams() {
         let data = plist("""
         <key>IDEProvisioningTeamByIdentifier</key><dict>

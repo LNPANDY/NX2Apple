@@ -81,6 +81,7 @@ final class SavedChoicesTests: XCTestCase {
         XCTAssertEqual(store.value(list[0]), "60"); XCTAssertEqual(store.value(list[2]), "off")
     }
 
+    // expects: settings-01
     func testMigrationMovesLegacyOptionsOnceAndOnlyWhereTheDomainHasNone() throws {
         let path = try app([fps, scale, hold])
         let file = temporary.appendingPathComponent("library.json")
@@ -164,6 +165,7 @@ final class SavedChoicesTests: XCTestCase {
         XCTAssertTrue(none.isEmpty)
     }
 
+    // expects: settings-02
     func testStartEnvironmentSkipsTheAppsWindowAndPassesOnlyOverrides() throws {
         let path = try app([fps, scale])
         let settings = try XCTUnwrap(LaunchSetting.forMac(app: path, titleID: titleID, repo: "", labels: { $0 }))

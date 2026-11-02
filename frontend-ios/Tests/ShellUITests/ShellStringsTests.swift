@@ -13,6 +13,7 @@ import Testing
         return try #require(json["strings"] as? [String: Any])
     }
 
+    // expects: localization-04
     @Test(arguments: ["ShellUI", "ShellHost"]) func everyKeyHasEveryLanguage(folder: String) throws {
         let strings = try table("Localizable", in: folder)
         #expect(!strings.isEmpty)

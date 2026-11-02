@@ -29,6 +29,7 @@ final class GermanLocalizationTests: XCTestCase {
         return re.matches(in: s, range: NSRange(s.startIndex..., in: s)).map { String(s[Range($0.range, in: s)!]) }
     }
 
+    // expects: localization-01
     func testEveryKeyHasAGermanEntry() {
         for key in L10n.table.keys.sorted() {
             let de = L10n.de[key]
@@ -44,6 +45,7 @@ final class GermanLocalizationTests: XCTestCase {
         }
     }
 
+    // expects: localization-03
     func testFormatPlaceholdersMatchEnglishInCountAndOrder() {
         for (key, row) in L10n.table {
             XCTAssertEqual(placeholders(L10n.string(key, .de)), placeholders(row.en), key)

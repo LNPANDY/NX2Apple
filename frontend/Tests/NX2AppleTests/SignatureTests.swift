@@ -41,6 +41,7 @@ final class SignatureTests: XCTestCase {
         XCTAssertEqual(AppSignature.daysLeft(to: now, now: now), 0)
     }
 
+    // expects: install-04
     func testTwoDaysOrFewerIsUrgent() throws {
         let now = Date()
         let day: TimeInterval = 24 * 3600

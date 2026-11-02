@@ -106,6 +106,7 @@ final class CloudFolderTests: XCTestCase {
 
     // ---- before the build
 
+    // expects: build-03
     @MainActor func testABuildInACloudFolderStopsBeforeItStarts() throws {
         let repo = home.appendingPathComponent("repo")
         for f in BuildModel.requiredTools + ["dm/tools/nx_extract/Program.cs"] {

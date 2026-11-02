@@ -26,6 +26,7 @@ class InputsTests(unittest.TestCase):
         p.write_bytes(b'x' * size)
         return p
 
+    # expects: build-08
     def test_reporter_folder(self):
         base = self.make('01007EF00011E000_v0_420d1c5034ab.nsp', 64)
         old = self.make('01007EF00011E800_v1048576_48d51e6d7ff4.nsp')

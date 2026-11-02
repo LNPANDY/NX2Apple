@@ -160,6 +160,7 @@ final class ConsolePadTests: XCTestCase {
 
     /// One mapping serves every family: GameController reports Xbox and PlayStation buttons by position (A is the bottom button,
     /// the cross) and a Nintendo-layout controller by its printed label (A on the right). The glyph is that same element.
+    // expects: controllers-02
     func testConfirmAndBackFollowTheLabelOnEveryFamily() {
         XCTAssertEqual(LauncherGamepad.face(for: .a), .a)
         XCTAssertEqual(LauncherGamepad.face(for: .b), .b)

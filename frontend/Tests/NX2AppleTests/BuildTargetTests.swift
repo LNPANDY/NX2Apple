@@ -25,6 +25,7 @@ final class BuildTargetTests: XCTestCase {
         XCTAssertEqual(BuildTarget.normalized("mac-app"), BuildTarget.mac)
     }
 
+    // expects: settings-04
     func testTheSavedChoiceIsMigratedAndStoredAgain() throws {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: "nspb-target-" + UUID().uuidString))
         XCTAssertEqual(BuildTarget.saved(defaults), BuildTarget.ios, "nothing stored yet")

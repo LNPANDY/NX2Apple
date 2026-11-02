@@ -109,6 +109,7 @@ class Sync(Fixture):
         self.tool('sync')
         self.assertEqual(git(self.r, 'status', '--porcelain'), '')
 
+    # expects: engine-04
     def test_a_changed_series_or_pin_makes_it_stale_and_sync_rebuilds(self):
         self.tool('sync')
         self.add_patch('0002-b.patch', 'dm/b.c', 'b1\nb2 fork\n', 'Change b2', header=HEADER.replace('#1', '#2'))

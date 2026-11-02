@@ -46,3 +46,6 @@ frontend/NX2Apple.app/
 /scripts/
 /docs/
 /ref/
+
+# tools/verify reports and logs (never committed)
+tools/verify/out/

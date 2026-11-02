@@ -48,6 +48,7 @@ import ShellUI
         #expect(defaults.object(forKey: "launcher.DM_OPMODE") == nil)
     }
 
+    // expects: settings-05
     @Test func aSavedValueTheGameNoLongerOffersReadsAsTheDefault() throws {
         let box = try Sandbox()
         let defaults = box.defaults(Fixtures.orbit)

@@ -40,6 +40,7 @@ class TryLocal(unittest.TestCase):
         theirs = WORKFLOW.read_text().split("<<PLIST\n", 1)[1].split("\n          PLIST\n", 1)[0]
         self.assertEqual(plist_keys(mine), plist_keys(theirs))
 
+    # expects: release-01
     def test_it_never_signs_or_publishes(self):
         text = SCRIPT.read_text()
         for word in ('release_manifest.py', 'gh release', 'git tag', 'git push', 'ENGINE_SIGNING_KEY'):

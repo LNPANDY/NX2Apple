@@ -109,6 +109,7 @@ final class KeyCheckTests: XCTestCase {
         XCTAssertEqual(KeyCheck.run(.init(keys: master, files: [base, update])), .fits)
     }
 
+    // expects: build-05
     func testAWrongHeaderKeyIsRejected() throws {
         let nsp = try pfs0([("a.nca", ncaHeader(generation: 0x13))])
         let other = (0..<32).map { UInt8(0x30 + $0) }

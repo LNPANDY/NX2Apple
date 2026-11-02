@@ -22,6 +22,7 @@ final class BuildFailureTests: XCTestCase {
         return try JSONDecoder().decode([Fixture].self, from: Data(contentsOf: url))
     }
 
+    // expects: build-01
     func testEveryPatternHasItsRealMessageAndMatchesIt() throws {
         let fx = try fixtures()
         for row in BuildFailureClassifier.table {
@@ -42,6 +43,7 @@ final class BuildFailureTests: XCTestCase {
     static let stateKinds: Set<BuildFailureKind> = [.driveMissing, .teamTaken, .noSigningAccount, .deviceTransfer, .devicePairing, .shellDataIncomplete, .engineOffline, .engineSync]
 
     /// A bump of the pin or a patch that rewords a message must fail here, not turn a hint into the raw last line.
+    // expects: build-02
     func testTheEnginesScriptsStillSayWhatThePatternsExpect() throws {
         for f in try fixtures() {
             if f.source == "errno" {   // the system's own text, not the script's

@@ -40,6 +40,7 @@ The candidate's signed `latest.json` names the `engine_id` the release carries. 
 - The launch arguments keep the launch check online, and it installs nothing. On a Mac whose settings are on the stable channel, opening the app without arguments runs the normal first start. It must land on the same `engine_id`.
 - Without the arguments the app follows the channel and engine saved in its settings. The experimental channel serves the engine of `main`.
 - Test the whole app on a Mac, and build and install games for iPhone or iPad with it.
+- `python3 tools/verify all --candidate <DIR of try-pr>` runs every test suite, checks this Mac and the candidate's engine, and asks the manual checks. Its report goes into `tools/verify/out/`. See [tools/verify/README.md](tools/verify/README.md).
 
 The test app has the bundle id of an installed NX2Apple (`org.nxnative.NSPortBuilder`). It shares its settings and `~/Library/Application Support` (`NS Port Builder`, `NX2Apple` with the engine store, `nxnative`). A setting changed in the test app stays changed. The test app saves its engine choice. An installed release app goes back to its own engine at its next start. If it followed the experimental channel, pick that again in Settings.
 

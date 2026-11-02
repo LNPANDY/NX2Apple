@@ -3,6 +3,7 @@ import Testing
 import ShellUI
 @testable import ShellHost
 
+    // expects: library-05
 @Suite struct CatalogueStateTests {
     @Test func scansEveryBundleAndKeepsTheBrokenOnes() throws {
         let entries = GameCatalogue.scan(root: Fixtures.gamesURL)

@@ -99,6 +99,7 @@ final class EngineManifestTests: XCTestCase {
         return (sig.base64EncodedString(), key.publicKey.rawRepresentation.base64EncodedString())
     }
 
+    // expects: engine-02
     func testAValidSignatureVerifiesAndATamperedManifestDoesNot() throws {
         let data = json()
         let (sig, pub) = try signed(data)

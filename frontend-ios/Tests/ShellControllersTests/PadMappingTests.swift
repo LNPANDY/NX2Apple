@@ -3,6 +3,7 @@ import ShellUI
 @testable import ShellControllers
 
 final class PadMappingTests: XCTestCase {
+    // expects: controllers-03
     func testButtonsMapLikeTheMacConsole() {
         XCTAssertEqual(PadMapper.action(for: .a), .activate)
         XCTAssertEqual(PadMapper.action(for: .b), .back)

@@ -154,6 +154,7 @@ final class FreeSpaceTests: XCTestCase {
         for path in ["shader/package.bin", "pso", "xcode", "tools", "patched_v0", "logs"] { XCTAssertTrue(exists(path), path) }
     }
 
+    // expects: build-06
     func testTheFinishedAppTheArchiveAndTheNSPsAreNeverRemoved() throws {
         let game = try fixture()
         try BuildFolder.remove(Set(BuildFolderPart.allCases), in: build.path, protecting: BuildFolder.protectedPaths(for: game), buildRunning: false)

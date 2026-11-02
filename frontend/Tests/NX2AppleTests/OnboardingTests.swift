@@ -57,6 +57,7 @@ final class OnboardingTests: XCTestCase {
         XCTAssertFalse(s.canAdvance)
     }
 
+    // expects: setup-01
     func testKeysAndGamesNeverAdvanceBeforeValidation() {
         var s = OnboardingState()
         s.step = .keys

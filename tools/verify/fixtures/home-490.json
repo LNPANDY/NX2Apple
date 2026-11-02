@@ -1,0 +1,22 @@
+{
+  "about": "The Mac of #490, as far as the issue shows it: a game whose env.txt from 1.0.0 syncs through iCloud Drive/nxnative_launcher and keeps its save there (DM_SAVE), saved choices that env.txt hides, and the iPhone syncing the same game through another folder with a newer save. The iPhone's folder name is a stand-in, the issue does not name it. Run: python3 tools/verify local --fixture home-490",
+  "files": {
+    "Library/Application Support/nxnative/01006BB00C6F0000/env.txt": "DM_FPS_TARGET=60\nDM_METAL_HUD=1\nDM_OPMODE=1\nDM_RENDER_SCALE=1.00\nDM_PRESENT_UPSCALE=metalfx\nDM_FULLSCREEN=1\nDM_SAVE=$HOME/Library/Mobile Documents/com~apple~CloudDocs/nxnative_launcher/The Legend of Zelda Links Awakening/save\nDM_SAVE_SYNC=$HOME/Library/Mobile Documents/com~apple~CloudDocs/nxnative_launcher\n",
+    "Library/Mobile Documents/com~apple~CloudDocs/nxnative_launcher/01006BB00C6F0000/save.dmsync": "the Mac's packed save (stand-in)\n",
+    "Library/Mobile Documents/com~apple~CloudDocs/nxnative Saves/01006BB00C6F0000/save.dmsync": "the iPhone's packed save (stand-in)\n"
+  },
+  "folders": [
+    "Library/Mobile Documents/com~apple~CloudDocs/nxnative_launcher/The Legend of Zelda Links Awakening/save"
+  ],
+  "mtimes": {
+    "Library/Mobile Documents/com~apple~CloudDocs/nxnative_launcher/01006BB00C6F0000/save.dmsync": "2026-10-31T20:00:00",
+    "Library/Mobile Documents/com~apple~CloudDocs/nxnative Saves/01006BB00C6F0000/save.dmsync": "2026-11-02T09:30:00"
+  },
+  "preferences": {
+    "org.nxnative.01006bb00c6f0000": {
+      "launcher.DM_PRESENT_UPSCALE": "metalfx",
+      "launcher.DM_METAL_HUD": "1",
+      "launcher.DM_LANG": "de"
+    }
+  }
+}

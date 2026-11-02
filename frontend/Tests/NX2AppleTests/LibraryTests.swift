@@ -86,6 +86,7 @@ final class LibraryTests: XCTestCase {
     }
 
     /// A game without a Mac build has an empty path. That path is not read as the current folder, even when the current folder is a game.
+    // expects: library-03
     func testAGameWithoutAnAppIsNotReady() throws {
         let app = try makeApp(titleID)
         let previous = FileManager.default.currentDirectoryPath
@@ -103,6 +104,7 @@ final class LibraryTests: XCTestCase {
         XCTAssertThrowsError(try MacGameBundle.read(app))
     }
 
+    // expects: library-02
     func testCollectionPersistsPathsAndRemovalLeavesFilesAlone() throws {
         let app = try makeApp(titleID)
         let file = temporary.appendingPathComponent("state/library.json")
@@ -159,6 +161,7 @@ final class LibraryTests: XCTestCase {
         XCTAssertEqual(library.selectedID, library.games[0].id)
     }
 
+    // expects: library-01
     func testRebuildingSameGameKeepsOneEntryAndCustomArtwork() throws {
         let app = try makeApp(titleID)
         let library = GameLibrary(file: temporary.appendingPathComponent("library.json"))
@@ -204,6 +207,7 @@ final class LibraryTests: XCTestCase {
         XCTAssertFalse(store.hasChoices(settings))
     }
 
+    // expects: settings-03
     func testLaunchOptionTheBuildNoLongerOffersFallsBackToItsDefault() throws {
         let app = try makeApp(titleID)
         try writeSettings(app)

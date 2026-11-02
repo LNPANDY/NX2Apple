@@ -64,6 +64,7 @@ final class RepoAutoUpdateTests: XCTestCase {
         XCTAssertEqual(try git("log", "-1", "--format=%s", in: checkout), "two")
     }
 
+    // expects: app-update-03
     @MainActor func testACheckoutWithLocalChangesIsLeftAsItIs() throws {
         let checkout = try fixture()
         try "mine".write(to: checkout.appendingPathComponent("dm/tools/nx_extract/Program.cs"), atomically: true, encoding: .utf8)

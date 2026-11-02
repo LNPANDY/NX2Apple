@@ -66,6 +66,7 @@ class Manifest(unittest.TestCase):
 
     # ---- the shape the launcher decodes ----
 
+    # expects: app-update-04
     def test_the_manifest_has_every_field_the_launcher_decodes(self):
         out = self.publish('--app-zip', str(self.app))
         m = json.loads((out / 'latest.json').read_text())
@@ -142,6 +143,7 @@ class Manifest(unittest.TestCase):
         os.environ[R.KEY_ENV] = '   '
         self.assertEqual(R.main(['check-key', '--pub', str(self.pubfile)]), 0)
 
+    # expects: release-02
     def test_a_release_fails_when_the_key_is_not_the_one_in_the_repository(self):
         os.environ[R.KEY_ENV] = new_key()[1]
         self.assertEqual(R.main(['check-key', '--pub', str(self.pubfile)]), 2)

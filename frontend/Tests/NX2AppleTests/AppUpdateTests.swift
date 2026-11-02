@@ -123,6 +123,7 @@ final class AppUpdateTests: XCTestCase {
         XCTAssertNil(AppUpdate.minimumOSAbove(os(13, 0), app: try makeApp("Junk", minOS: "later")))  // unreadable: not a reason to refuse
     }
 
+    // expects: app-update-02
     func testStagingRefusesAReleaseThisMacCannotOpen() throws {
         let source = temporary.appendingPathComponent("source-os", isDirectory: true)
         let archive = try zip(try makeApp(in: source, minOS: "26.6"))
@@ -139,6 +140,7 @@ final class AppUpdateTests: XCTestCase {
         XCTAssertNil(try attempt(os(26, 6)).failure)
     }
 
+    // expects: app-update-01
     func testStagingVerifiesDigestAndBundle() throws {
         let source = temporary.appendingPathComponent("source", isDirectory: true)
         let archive = try zip(try makeApp(in: source))

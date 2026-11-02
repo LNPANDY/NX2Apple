@@ -32,6 +32,7 @@ final class DropFilesTests: XCTestCase {
         XCTAssertEqual(BuildModel.allowedFileTypes(for: .keys), ["keys"])
     }
 
+    // expects: build-04
     func testADroppedMixedSetIsSortedByTitleID() throws {
         let base = try file("Game [0100000000010000][v0].nsp", size: 64)
         let repack = try file("Game [0100000000010000].nsz", size: 32)
