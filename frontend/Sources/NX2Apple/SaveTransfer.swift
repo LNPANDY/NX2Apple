@@ -5,48 +5,6 @@ import NXCore
 import NXModel
 import NXLauncher
 
-/// `xcrun devicectl` for the save transfer, as one function: the tests hand in a stand-in, so no test ever reaches a device.
-/// It takes devicectl's arguments and returns whether it exited 0 and what it printed.
-struct DeviceControl {
-    let run: ([String]) -> (ok: Bool, output: String)
-
-    /// What a command that ran out of time prints in place of devicectl's own output (and what a stand-in prints to say the same).
-    static let timedOut = "devicectl timed out"
-
-    /// Every command has a deadline: devicectl's own (`--timeout`), and behind it one on the process, because CoreDevice can
-    /// stall on a paired device whose connection is not ready, and a command that never returns leaves the Saves sheet at
-    /// "Reading..." for good. A copy gets the longer deadline, a query the shorter one.
-    static func xcrun(_ path: String, queryTimeout: TimeInterval = 10, copyTimeout: TimeInterval = 180) -> DeviceControl {
-        DeviceControl { args in
-            let timeout = args.starts(with: ["device", "copy"]) ? copyTimeout : queryTimeout
-            let p = Process(), out = Pipe()
-            p.executableURL = URL(fileURLWithPath: path)
-            p.arguments = ["devicectl", "--timeout", String(max(1, Int(timeout.rounded(.up))))] + args
-            p.standardOutput = out; p.standardError = out; p.standardInput = FileHandle.nullDevice
-            do { try p.run() } catch { return (false, error.localizedDescription) }
-            let fired = Fired()
-            let deadline = DispatchWorkItem {
-                fired.set()
-                if p.isRunning { p.terminate() }
-                DispatchQueue.global().asyncAfter(deadline: .now() + 2) { if p.isRunning { kill(p.processIdentifier, SIGKILL) } }
-            }
-            DispatchQueue.global().asyncAfter(deadline: .now() + timeout + 2, execute: deadline)
-            let data = out.fileHandleForReading.readDataToEndOfFile()
-            p.waitUntilExit()
-            deadline.cancel()
-            if fired.value { return (false, timedOut) }
-            return (p.terminationStatus == 0, String(decoding: data, as: UTF8.self))
-        }
-    }
-
-    private final class Fired {
-        private let lock = NSLock()
-        private var flag = false
-        func set() { lock.lock(); flag = true; lock.unlock() }
-        var value: Bool { lock.lock(); defer { lock.unlock() }; return flag }
-    }
-}
-
 /// A game's save on this Mac and in its app on a paired iPhone or iPad (#66), copied either way over the route the install
 /// takes (devicectl and the app's data container). The save that is replaced is backed up on the Mac
 /// first, so a copy in the wrong direction loses nothing.
@@ -405,10 +363,10 @@ struct SavesView: View {
         let game = library.games.first { $0.id == gameID } ?? LibraryGame(titleID: "", name: "")
         let mac = support.map { SaveTransfer.macSave(titleID: game.titleID, appPath: game.appPath, support: $0) }
             ?? SaveTransfer.macSave(titleID: game.titleID, appPath: game.appPath)
-        let control = devicectl ?? .xcrun(m.xcrunPath)
+        let control = devicectl ?? .xcrun(m.xcrunPath, runner: m.runner)
         let template = SaveTransfer(titleID: game.titleID, macSave: mac.save, legacySave: mac.legacy, device: "", bundle: "", devicectl: control)
-        let known = m.devices, xcrun = m.xcrunPath
-        let list: () -> [AppleDevice] = listDevices ?? (devicectl == nil ? { DeviceTools.devices(xcrun: xcrun, timeout: 10) } : { known })
+        let known = MainActor.assumeIsolated { m.deviceStore.devices }, xcrun = m.xcrunPath, runner = m.runner
+        let list: () -> [AppleDevice] = listDevices ?? (devicectl == nil ? { DeviceTools.devices(xcrun: xcrun, timeout: 10, runner: runner) } : { known })
         let key = "saveTransfer.device." + game.titleID
         _model = StateObject(wrappedValue: SavesModel(
             template: template, name: game.name,

@@ -771,7 +771,7 @@ final class ShellInstallTests: XCTestCase {
         let keysSaved = ["repoPath", "buildTarget", "buildOutputDirectory", "installDevice", "signingTeam", "shellRoot"].map { ($0, UserDefaults.standard.object(forKey: $0)) }
         defer { for (key, value) in keysSaved { UserDefaults.standard.set(value, forKey: key) } }
         UserDefaults.standard.set(f.root, forKey: "shellRoot")
-        let model = BuildModel()
+        let model = BuildModel(xcrun: f.xcrun)
         model.repoPath = f.repo
         model.target = "ios"
         model.outDir = path("out")
@@ -781,7 +781,6 @@ final class ShellInstallTests: XCTestCase {
         model.dependencies.deps = [Dep(id: "test", name: "test", hint: "", present: true, installCmd: [])]
         model.installDevice = device
         model.signingTeam = team
-        model.xcrunPath = f.xcrun
         try write(f.repo + "/dm/tools/nx_extract/Program.cs", "")
         for tool in RepoLayout.requiredTools.filter({ $0 != RepoLayout.buildScript }) { try write(f.repo + "/" + tool, "") }
         // the packer stand-in writes the image from the extracted RomFS
@@ -803,7 +802,7 @@ final class ShellInstallTests: XCTestCase {
 
         let finished = expectation(description: "Installed")
         let token = model.$done.filter { $0 }.prefix(1).sink { _ in finished.fulfill() }
-        let asked = model.$shellCopy.compactMap { $0 }.prefix(1).sink { _ in model.answerShellCopy(.copy) }
+        let asked = model.deviceStore.$shellCopy.compactMap { $0 }.prefix(1).sink { _ in model.deviceStore.answerCopy(.copy) }
         model.startBuild()
         wait(for: [finished], timeout: 30)
         withExtendedLifetime(token) {}; withExtendedLifetime(asked) {}
@@ -835,7 +834,7 @@ final class ShellInstallTests: XCTestCase {
     }
 
     @MainActor private func makeModel(_ f: Fixture) throws -> BuildModel {
-        let model = BuildModel()
+        let model = BuildModel(xcrun: f.xcrun)
         model.repoPath = f.repo
         model.target = "ios"
         model.outDir = path("out")
@@ -845,7 +844,6 @@ final class ShellInstallTests: XCTestCase {
         model.dependencies.deps = [Dep(id: "test", name: "test", hint: "", present: true, installCmd: [])]
         model.installDevice = device
         model.signingTeam = team
-        model.xcrunPath = f.xcrun
         try write(f.repo + "/dm/tools/nx_extract/Program.cs", "")
         for tool in RepoLayout.requiredTools.filter({ $0 != RepoLayout.buildScript }) { try write(f.repo + "/" + tool, "") }
         try write(f.repo + "/scripts/build_ipa_from_nsp.py", "open('\(state)/script.txt', 'w').write('ran')\n")
@@ -881,7 +879,7 @@ final class ShellInstallTests: XCTestCase {
         let model = try makeModel(f)
         try write(state + "/fail-on", "romfs.img")
         var plans: [ShellCopyPlan] = []
-        let asked = model.$shellCopy.compactMap { $0 }.sink { plans.append($0); model.answerShellCopy(.copy) }
+        let asked = model.deviceStore.$shellCopy.compactMap { $0 }.sink { plans.append($0); model.deviceStore.answerCopy(.copy) }
         func finish(_ start: () -> Void) {
             let ended = expectation(description: "Ended")
             let token = model.$running.dropFirst().filter { !$0 }.prefix(1).sink { _ in ended.fulfill() }

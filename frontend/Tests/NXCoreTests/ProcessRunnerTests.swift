@@ -108,6 +108,65 @@ final class ProcessRunnerTests: XCTestCase {
         XCTAssertFalse(alive, "an ended process is no longer tracked")
     }
 
+    // MARK: Timeout, input and whole lines
+
+    func testCaptureEndsARunThatOutlastsItsTimeout() {
+        let start = Date()
+        let r = real.capture(ProcessLaunch(executable: "/bin/sleep", arguments: ["30"], timeout: 0.3))
+        XCTAssertTrue(r.started)
+        XCTAssertTrue(r.timedOut)
+        XCTAssertFalse(r.ok)
+        XCTAssertLessThan(Date().timeIntervalSince(start), 10)
+    }
+
+    func testCaptureWithATimeoutLeavesAFastRunAlone() {
+        let r = real.capture(ProcessLaunch(executable: "/bin/echo", arguments: ["quick"], timeout: 30))
+        XCTAssertTrue(r.ok)
+        XCTAssertFalse(r.timedOut)
+        XCTAssertEqual(r.out, "quick\n")
+    }
+
+    func testCaptureWritesTheInputToStandardInputAndClosesIt() {
+        let r = real.capture(ProcessLaunch(executable: "/bin/cat", input: "from the test\nsecond"))
+        XCTAssertTrue(r.ok)
+        XCTAssertEqual(r.out, "from the test\nsecond")
+    }
+
+    func testStreamLinesAssemblesWholeLinesAcrossChunksAndKeepsEmptyOnes() {
+        let lines = Collected()
+        var started = 0
+        let r = real.streamLines(ProcessLaunch(["/bin/sh", "-c", "printf 'a'; sleep 0.2; printf 'b\\n\\nc\\n'; echo err >&2; printf 'tail'"]),
+                                 started: { _ in started += 1 }) { lines.add($0) }
+        XCTAssertTrue(r.started)
+        XCTAssertEqual(r.status, 0)
+        XCTAssertEqual(started, 1)
+        XCTAssertEqual(lines.values.filter { $0 != "err" }, ["ab", "", "c", "tail"], "stderr is merged in, so 'err' may sit anywhere")
+        XCTAssertTrue(lines.values.contains("err"))
+    }
+
+    func testStreamLinesGivesTheExitStatusAndReportsAToolThatDoesNotStart() {
+        XCTAssertEqual(real.streamLines(ProcessLaunch(["/bin/sh", "-c", "exit 7"]), started: { _ in }, line: { _ in }).status, 7)
+        var started = false
+        let r = real.streamLines(ProcessLaunch(["/nonexistent/tool"]), started: { _ in started = true }, line: { _ in })
+        XCTAssertFalse(r.started)
+        XCTAssertFalse(r.out.isEmpty)
+        XCTAssertFalse(started)
+    }
+
+    func testStreamLinesInAGroupIsTrackedWhileItRunsAndLetGoAfter() throws {
+        guard FileManager.default.isExecutableFile(atPath: "/usr/bin/python3") else { throw XCTSkip("System Python is required") }
+        var alive = false
+        let r = real.streamLines(ProcessLaunch(["/bin/sh", "-c", "sleep 0.3"], groupPython: "/usr/bin/python3"),
+                                 started: { p in
+                                     var tries = 0
+                                     while getpgid(p.processIdentifier) != p.processIdentifier && tries < 100 { usleep(20_000); tries += 1 }
+                                     alive = ProcessGroups.buildProcessesAlive
+                                 }, line: { _ in })
+        XCTAssertEqual(r.status, 0)
+        XCTAssertTrue(alive, "the group is tracked while the tool runs")
+        XCTAssertFalse(ProcessGroups.buildProcessesAlive)
+    }
+
     // MARK: The helpers over a fake
 
     func testRunQuietAsksForOneMergedRunWithTheGivenEnvironment() {
