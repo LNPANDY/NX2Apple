@@ -1,14 +1,23 @@
 """Build-script notes that the Qt window shows as popups. No Qt in here, so the tests run anywhere.
 
-The Mac app matches the same text (`NXCore/BuildNotes.swift`).
+The Mac app gets the same news as the `shaders_stale` event. The Qt window runs the build with `--progress lines`, which sends no
+events, so it reads the note that build_ipa_from_nsp.py prints after the event, in every progress mode.
 """
 from __future__ import annotations
 
-# Printed by build_ipa_from_nsp.py before it rebuilds the shader libraries (with the `shaders_stale` event), then its reason
+# The note's start, then its reason
 STALE_SHADERS = '[NOTE] cached shader libraries cannot be reused'
-CHAIN_REASON = 'the translation chain changed'   # the reason the popup's text describes: a new shader translator
+REASONS = {
+    'the translation chain changed': 'chain',           # a new shader translator
+    "the game profile's shader inputs changed": 'inputs',
+}
+# The popup's text for each reason, as the Mac app picks it
+TEXT = {'chain': 'msg.shadersStale.chain', 'inputs': 'msg.shadersStale.inputs'}
+TITLE = 'msg.shadersStale.title'
 
 
-def chain_changed(text: str) -> bool:
-    """Whether text holds the note for a changed shader translator."""
-    return STALE_SHADERS in text and CHAIN_REASON in text
+def stale_reason(text: str) -> str | None:
+    """The reason of the stale-shaders note in text, as the event names it: 'chain' or 'inputs'. None when text holds no note."""
+    if STALE_SHADERS not in text:
+        return None
+    return next((reason for words, reason in REASONS.items() if words in text), None)

@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import platform_util as pu
-from .build_notes import chain_changed
+from .build_notes import TEXT, TITLE, stale_reason
 from .model import DepState, Model
 from .style import CARD_EDGE, GREEN, MUTED, ORANGE, RED
 
@@ -686,12 +686,15 @@ class MainWindow(QMainWindow):
         self.log.moveCursor(self.log.textCursor().MoveOperation.End)
         self.log.insertPlainText(s)
         self.log.moveCursor(self.log.textCursor().MoveOperation.End)
-        # A new shader translator: show a popup, once per build.
+        # The shaders are rebuilt: show a popup, once per build.
         # Why a popup: a report asked why the shaders were building again, because the log line went unnoticed.
-        if chain_changed(s) and not getattr(self, '_chain_note_shown', False):
-            self._chain_note_shown = True
+        reason = stale_reason(s)
+        if reason and not getattr(self, '_stale_shaders_shown', False):
+            self._stale_shaders_shown = True
             from PySide6.QtWidgets import QMessageBox
-            QMessageBox.information(self, 'NS Port Builder', self.m.t('msg.chainChanged'))
+            box = QMessageBox(QMessageBox.Icon.Information, 'NS Port Builder', self.m.t(TITLE), parent=self)
+            box.setInformativeText(self.m.t(TEXT[reason]))
+            box.exec()
 
     def _on_finished(self, ok: bool, note: str) -> None:
         if ok:
@@ -727,7 +730,7 @@ class MainWindow(QMainWindow):
             self.footer.setText('')
             self.footer.setStyleSheet('')
             self._failed = False
-            self._chain_note_shown = False
+            self._stale_shaders_shown = False
             self.failure_box.hide()
             self.m.start_build()
 
