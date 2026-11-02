@@ -479,6 +479,8 @@ import NXModel
                 if isRequired && lang != .en && !key.hasPrefix("shell.export") { XCTAssertNotEqual(text, L10n.string(key, .en), "\(key) in \(lang.code) is English") }
             }
         }
+        // a language file without these keys (no catalog at all here) shows the English text, never the key
+        for key in keys { XCTAssertEqual(L10n.string(key, Lang("xx")), L10n.string(key, .en), key) }
         // the arguments the code passes
         XCTAssertEqual(L10n.string("shell.step1Done", .en).components(separatedBy: "%@").count, 2)
         for lang in Lang.all {
