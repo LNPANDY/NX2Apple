@@ -81,10 +81,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     var chainNoteShown = false   // the shader-chain notice shows once per build
     @Published package var running = false
     @Published package var staleFrameworks: [StaleFrameworks.Entry] = []   // the prompt of StaleFrameworksPrompt.swift (#449)
-    /// The shell folder the cache row shows: the frameworks' mirror, shell.json and the banner cache live here.
-    package var shellCachePath: String { shellRoot }
-    /// The shell folder of the install and of the cache row: the saved one, else next to the output folder (or the game's folder).
-    package var shellRoot: String { ShellLibrary.resolveRoot(defaults: defaults, parent: outDir.isEmpty ? (basePath as NSString).deletingLastPathComponent : outDir) }
+    // The shell folder (shellCachePath, shellRoot, shellRootProblem): BuildStore+ShellRoot.swift.
     @Published package var stopping = false
     /// The build log. Not published: only `BuildLogView` observes it (#387), so a log line redraws the log and nothing else.
     package let log: BuildLog
