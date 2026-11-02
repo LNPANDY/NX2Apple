@@ -143,7 +143,7 @@ import NXModel
             .modifier(GameFilesDrop(enabled: true, label: model.t("drop.hint"), targeted: true) { _ in })
             .frame(width: 1100, height: 760).background(LauncherPalette.background).environment(\.colorScheme, .dark)
         let host = NSHostingView(rootView: page)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1100, height: 760), styleMask: [.titled], backing: .buffered, defer: false)
+        let window = OffscreenWindow(size: NSSize(width: 1100, height: 760))
         window.contentView = host
         window.orderFront(nil)
         RunLoop.main.run(until: Date().addingTimeInterval(0.5))
