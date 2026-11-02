@@ -133,7 +133,11 @@ jobs:
     needs: [icon-cache, icon, notes]
     # icon is skipped on a pull request with a cache hit, and that must not skip the build.
     if: ${{ !cancelled() && needs.icon-cache.result == 'success' && (needs.icon.result == 'success' || needs.icon.result == 'skipped') }}
-    runs-on: macos-latest
+    # The same runner and compiler as tests.yml: the app that is shipped is compiled by the Xcode that the tests ran with. On macos-latest (Xcode 26.6)
+    # a closure that Xcode 27.2 accepts failed only here, in #467, after the tests had passed.
+    runs-on: xcode-27
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
