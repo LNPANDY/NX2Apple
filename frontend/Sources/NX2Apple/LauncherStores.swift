@@ -98,7 +98,7 @@ import NXModel
             return p.urls.map(\.path)
         }
         build.chooseFolder = {
-            let d = NSOpenPanel(); d.canChooseDirectories = true; d.canChooseFiles = false
+            let d = Self.buildFolderPanel()
             guard d.runModal() == .OK, let u = d.url else { return nil }
             return u.path
         }
@@ -120,6 +120,13 @@ import NXModel
         }
         build.revealFolder = { NSWorkspace.shared.open($0) }
         build.openApp = { NSWorkspace.shared.openApplication(at: $0, configuration: NSWorkspace.OpenConfiguration()) }
+    }
+
+    /// The panel of the Build tab's Save to folder. It can make a folder, because the folder for the IPA often does not exist yet.
+    static func buildFolderPanel() -> NSOpenPanel {
+        let d = NSOpenPanel()
+        d.canChooseDirectories = true; d.canChooseFiles = false; d.canCreateDirectories = true
+        return d
     }
 
     /// Whether the xcode row asks for the iOS SDK. Always, as before, unless the guided setup stored a Mac-only choice
