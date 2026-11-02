@@ -1090,6 +1090,7 @@
   "shell.projectFailed": "The shared app could not be prepared: %@",
   "shell.projectStage": "Prepare the shared app",
   "shell.retry": "Retry",
+  "shell.rootUnwritable": "The shared app is saved to %@, and that folder cannot be written (a read-only volume or no permission). Choose another folder under Save to first.",
   "shellCache.note": "The cache of the iPhone frameworks, kept so several games can be installed. Delete it and installing a new game removes the older games from the shell.",
   "shellCache.open": "Open folder",
   "shellCache.row": "Cache files",

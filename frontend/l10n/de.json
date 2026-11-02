@@ -966,6 +966,7 @@
   "shell.projectFailed": "Die gemeinsame App konnte nicht vorbereitet werden: %@",
   "shell.projectStage": "Gemeinsame App vorbereiten",
   "shell.retry": "Erneut versuchen",
+  "shell.rootUnwritable": "Die gemeinsame App wird in %@ gespeichert, und dieser Ordner ist nicht beschreibbar (schreibgeschütztes Volume oder keine Berechtigung). Wähle zuerst unter Speichern unter einen anderen Ordner.",
   "shellCache.note": "Der iPhone-Frameworks-Cache, aufbewahrt für die Installation mehrerer Spiele. Beim Löschen entfernt die Installation eines neuen Spiels die älteren Spiele aus der Shell.",
   "shellCache.open": "Ordner öffnen",
   "shellCache.row": "Cachedateien",
