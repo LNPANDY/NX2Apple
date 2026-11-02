@@ -171,7 +171,7 @@ import SwiftUI
     func testEnteringAndLeavingConsoleModeRestoresTheWindowInOrder() async throws {
         var calls: [Bool] = []
         var finishEntering: (() -> Void)?
-        let window = NSWindow(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: true)
+        let window = OffscreenWindow(size: .zero)
         let coordinator = ConsoleCoordinator(window: { window }, setFullScreen: { _, on, done in calls.append(on); if on { finishEntering = done } else { done() } }, fadeSeconds: 0.05)
         coordinator.enter()
         XCTAssertFalse(coordinator.active, "not while the guided setup shows")
