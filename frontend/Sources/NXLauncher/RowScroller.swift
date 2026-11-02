@@ -2,13 +2,14 @@ import SwiftUI
 
 /// The collection row's scroll state, read from its NSScrollView: SwiftUI's horizontal ScrollView does not
 /// report its offset on macOS 13, so the pager chevrons follow the clip view's bounds instead.
-final class RowScroller: ObservableObject {
-    @Published private(set) var canBack = false
-    @Published private(set) var canForward = false
+package final class RowScroller: ObservableObject {
+    package init() {}
+    @Published package private(set) var canBack = false
+    @Published package private(set) var canForward = false
     private weak var scrollView: NSScrollView?
     private var observers: [NSObjectProtocol] = []
 
-    func attach(_ view: NSScrollView) {
+    package func attach(_ view: NSScrollView) {
         guard view !== scrollView else { return update() }
         observers.forEach(NotificationCenter.default.removeObserver)
         scrollView = view
@@ -33,7 +34,7 @@ final class RowScroller: ObservableObject {
     }
 
     /// Scroll by the whole cards that fit in the row.
-    func page(_ direction: CGFloat, step: CGFloat) {
+    package func page(_ direction: CGFloat, step: CGFloat) {
         guard let view = scrollView, let document = view.documentView else { return }
         let clip = view.contentView
         let distance = max(step, (clip.bounds.width / step).rounded(.down) * step)
@@ -48,26 +49,27 @@ final class RowScroller: ObservableObject {
 }
 
 /// Hands the NSScrollView around this background view to the row's scroller once it is in a window.
-struct EnclosingScrollView: NSViewRepresentable {
+package struct EnclosingScrollView: NSViewRepresentable {
     let row: RowScroller
-    final class Probe: NSView {
-        var row: RowScroller?
-        override func viewDidMoveToWindow() {
+    package init(row: RowScroller) { self.row = row }
+    package final class Probe: NSView {
+        package var row: RowScroller?
+        package override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             DispatchQueue.main.async { [weak self] in
                 if let view = self?.enclosingScrollView { self?.row?.attach(view) }
             }
         }
     }
-    func makeNSView(context: Context) -> Probe { let probe = Probe(); probe.row = row; return probe }
-    func updateNSView(_ probe: Probe, context: Context) {
+    package func makeNSView(context: Context) -> Probe { let probe = Probe(); probe.row = row; return probe }
+    package func updateNSView(_ probe: Probe, context: Context) {
         probe.row = row
         DispatchQueue.main.async { if let view = probe.enclosingScrollView { row.attach(view) } }
     }
 }
 
 /// The library's collection row reports its height, so the hero above it fills exactly what is left.
-struct CollectionHeightKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+package struct CollectionHeightKey: PreferenceKey {
+    package static var defaultValue: CGFloat = 0
+    package static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }

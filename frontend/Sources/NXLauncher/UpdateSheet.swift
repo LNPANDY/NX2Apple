@@ -12,14 +12,16 @@ import NXLauncher
 /// docs/RELEASE-NOTES-GUIDE.md). The sheet does not try to translate them; it shows the lines that
 /// match the interface language and falls back to the whole body when it cannot tell them apart.
 /// ReleaseNotes turns them into blocks with links, and this file only styles those.
-struct UpdateSheet: View {
+package struct UpdateSheet: View {
     @ObservedObject var updates: AppUpdateStore
     @EnvironmentObject var loc: Localizer
     @Environment(\.dismiss) private var dismiss
 
+    package init(updates: AppUpdateStore) { self.updates = updates }
+
     private var update: AppUpdate.Release? { updates.update }
 
-    var body: some View {
+    package var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 6) {
                 Text(loc.t("update.title"))

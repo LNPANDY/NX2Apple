@@ -6,11 +6,13 @@ import NXLauncher
 /// Before the shared app's game data goes over USB or Wi-Fi: how much, over which connection, and what to do about it. A cable
 /// gets one short note. Wi-Fi gets an estimate with Continue and a way to wait for a cable (the copy then starts by itself when the
 /// device shows up wired). While it waits, the card says so and offers to stop.
-struct ShellCopyCard: View {
+package struct ShellCopyCard: View {
     @ObservedObject var devices: DeviceStore
     @EnvironmentObject var loc: Localizer
 
-    var body: some View {
+    package init(devices: DeviceStore) { self.devices = devices }
+
+    package var body: some View {
         if let plan = devices.shellCopy {
             card {
                 Text(loc.t("shell.copyTitle")).font(.manrope(14, .semibold))

@@ -18,5 +18,5 @@ private struct StaleFrameworksPrompt: ViewModifier {
 }
 
 extension View {
-    func staleFrameworksPrompt(_ m: BuildStore) -> some View { modifier(StaleFrameworksPrompt(m: m)) }
+    package func staleFrameworksPrompt(_ m: BuildStore) -> some View { modifier(StaleFrameworksPrompt(m: m)) }
 }

@@ -305,7 +305,7 @@ import NXModel
     }
 }
 
-/// The dependency panel's rows as the Settings card draws them, for the screenshot (the card itself is private to BuilderView).
+/// The dependency panel's rows as the Settings card draws them, for the screenshot (the card itself is ToolsCard in NXLauncher).
 private struct MetalRowPreview: View {
     @ObservedObject var dependencies: DependencyStore
     let t: (String) -> String

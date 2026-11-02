@@ -8,19 +8,19 @@ import NXLauncher
 // (GameInputs.classify), so a drop and a picked folder never disagree about what is the update.
 
 /// The Builds page as a drop target: a highlight while files are dragged over it, the files to the model when dropped.
-struct GameFilesDrop: ViewModifier {
+package struct GameFilesDrop: ViewModifier {
     let enabled: Bool
     let label: String
     let onDrop: ([String]) -> Void
     @State private var targeted: Bool
 
     /// `targeted` starts the highlight on (visual QA renders it without a drag).
-    init(enabled: Bool, label: String, targeted: Bool = false, onDrop: @escaping ([String]) -> Void) {
+    package init(enabled: Bool, label: String, targeted: Bool = false, onDrop: @escaping ([String]) -> Void) {
         self.enabled = enabled; self.label = label; self.onDrop = onDrop
         _targeted = State(initialValue: targeted)
     }
 
-    func body(content: Content) -> some View {
+    package func body(content: Content) -> some View {
         content
             .overlay {
                 if targeted && enabled {
@@ -47,7 +47,7 @@ struct GameFilesDrop: ViewModifier {
     }
 
     /// The file URLs of a drop, delivered on the main queue once all have loaded.
-    static func paths(from providers: [NSItemProvider], then done: @escaping ([String]) -> Void) {
+    package static func paths(from providers: [NSItemProvider], then done: @escaping ([String]) -> Void) {
         let group = DispatchGroup()
         let lock = NSLock()
         var paths: [String] = []

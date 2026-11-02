@@ -63,9 +63,9 @@ final class BuildNotifier: NSObject, ObservableObject, UNUserNotificationCenterD
         var game: UUID?
     }
 
-    /// Where a clicked notification asks the window to go (ContentView takes it and clears it).
+    /// Where a clicked notification asks the window to go (LauncherView takes it and clears it).
     @Published var route: Route?
-    /// The Builds page opens its log when this is set (BuilderView clears it).
+    /// The Builds page opens its log when this is set (BuildPage clears it through LogCard).
     @Published var showLog = false
 
     private var watching: AnyCancellable?

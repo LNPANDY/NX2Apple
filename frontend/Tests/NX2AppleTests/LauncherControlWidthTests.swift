@@ -20,12 +20,12 @@ import NXModel
     // MARK: Languages
 
     func testThePickerOffersEveryLanguage() {
-        let offered = Set(BuilderView.languageCodes.filter { !$0.isEmpty })
+        let offered = Set(AppCard.languageCodes.filter { !$0.isEmpty })
         XCTAssertEqual(offered, Set(Lang.allCases.map(\.rawValue)), "Settings > Language lists the launcher's languages")
     }
 
     func testDropdownChoicesFitBesideTheChevron() throws {
-        for code in BuilderView.languageCodes {
+        for code in AppCard.languageCodes {
             let key = "settings.language." + (code.isEmpty ? "system" : code)
             XCTAssertNotNil(L10n.table[key], key)
             for lang in Lang.allCases {

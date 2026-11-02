@@ -5,7 +5,7 @@ import NXLauncher
 
 /// Under the build button after a stop the script's early checks explain: what happened in plain words, the next step, and the
 /// button that does it (a dependency's own install command, or "Build anyway" for the three stops that have an override).
-struct BuildFailureCard: View {
+package struct BuildFailureCard: View {
     @ObservedObject var m: BuildStore
     /// Where the engine's failure row retries. nil for a failure of a build.
     var engine: EngineSyncStore?
@@ -13,13 +13,13 @@ struct BuildFailureCard: View {
     /// The failure to show: the build's (`m.failure`) unless the caller passes another one, such as the engine sync's.
     var failure: BuildFailure?
 
-    init(m: BuildStore, engine: EngineSyncStore? = nil, failure: BuildFailure? = nil) {
+    package init(m: BuildStore, engine: EngineSyncStore? = nil, failure: BuildFailure? = nil) {
         self.m = m
         self.engine = engine
         self.failure = failure
     }
 
-    var body: some View {
+    package var body: some View {
         if let f = failure ?? m.failure {
             VStack(alignment: .leading, spacing: 10) {
                 Text(loc.t("fail.section")).font(.manrope(15, .semibold)).foregroundStyle(.secondary).padding(.leading, 2)
@@ -93,12 +93,17 @@ struct BuildFailureCard: View {
 
 /// Above every page of the launcher while the engine is fetched and patched (tools/engine.py sync, run for a checkout at launch and after
 /// updates), and its failure row when that stops: what happened, what to do, and Try again.
-struct EngineSyncBanner: View {
+package struct EngineSyncBanner: View {
     @ObservedObject var engine: EngineSyncStore
     let m: BuildStore
     @EnvironmentObject var loc: Localizer
 
-    var body: some View {
+    package init(engine: EngineSyncStore, m: BuildStore) {
+        self.engine = engine
+        self.m = m
+    }
+
+    package var body: some View {
         if engine.syncing {
             HStack(spacing: 10) {
                 ProgressView().controlSize(.small)

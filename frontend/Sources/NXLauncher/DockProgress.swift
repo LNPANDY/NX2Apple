@@ -4,15 +4,15 @@ import AppKit
 /// native gray progress bar along its bottom, so a build's progress is visible from wherever the
 /// launcher was left. macOS has no public API for the App Store bar, so this is a plain
 /// NSProgressIndicator on the Dock tile.
-enum DockProgress {
+package enum DockProgress {
     /// The text for a progress fraction (accessibility label); nil clears the tile. Pure, so tests run it.
-    static func percentText(_ fraction: Double?) -> String? {
+    package static func percentText(_ fraction: Double?) -> String? {
         guard let fraction, fraction.isFinite, fraction >= 0, fraction <= 1 else { return nil }
         return "\(Int((fraction * 100).rounded()))%"
     }
 
     /// The tile's view: the app icon with a bar style progress indicator near its bottom edge.
-    static func makeTileView(fraction: Double, icon: NSImage, size: CGFloat = 128) -> NSView {
+    package static func makeTileView(fraction: Double, icon: NSImage, size: CGFloat = 128) -> NSView {
         let tile = NSView(frame: NSRect(x: 0, y: 0, width: size, height: size))
         let iconView = NSImageView(frame: tile.bounds)
         iconView.image = icon
@@ -40,7 +40,7 @@ enum DockProgress {
     }
 
     /// The view drawn to an image with its colors turned to gray.
-    static func grayImage(of view: NSView) -> NSImage {
+    package static func grayImage(of view: NSView) -> NSImage {
         guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return NSImage() }
         view.cacheDisplay(in: view.bounds, to: rep)
         let color = NSImage(size: view.bounds.size)
@@ -54,7 +54,7 @@ enum DockProgress {
     }
 
     /// Reflects the running build on the Dock tile; nil restores the plain icon.
-    static func update(_ fraction: Double?) {
+    package static func update(_ fraction: Double?) {
         let dock = NSApplication.shared.dockTile
         guard let fraction, percentText(fraction) != nil else {
             dock.contentView = nil
