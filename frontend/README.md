@@ -300,15 +300,28 @@ nothing changes: Homebrew's tools, a system Python or the launcher's venv. To tr
 
 ## Language
 
-The interface follows the system language at every launch: any Chinese variant
-(Simplified, Traditional, Hong Kong, Taiwan) gets Chinese, Swedish gets Swedish, German gets
-German, French gets French, and every other language gets English. Settings > Language overrides
-that. Strings live in `Sources/NXCore/Localization.swift`: the table holds Chinese and
-English, and Swedish (`sv`), German (`de`) and French (`fr`) are overlays below it. A string added
-to the table needs its German and French entries, and `GermanLocalizationTests` and
-`FrenchLocalizationTests` fail until it has them (they also check that the format placeholders
-match the English text). Regenerate the Qt table after editing it with
-`python3 frontend-qt/gen_localization.py` from the repository root.
+The interface follows the system language at every launch: a device language that has a file in
+`l10n/` gets that language (any Chinese variant gets Chinese, Swedish gets Swedish, German gets German,
+French gets French) and every other language gets English. Settings > Language overrides
+that. The texts and the language list are not in Swift. Every language is one JSON file in `l10n/`
+(`en.json`, `zh.json`, `sv.json`, `de.json`, `fr.json`): a flat object with the keys sorted, UTF-8 text
+without escapes, and a `_language` entry. It holds the language's own name (`name`, which the picker
+shows), the lowercased locale prefixes that select it (`locales`) and optionally its place in the picker
+(`order`, languages without one come last by code).
+`Sources/NXCore/Localization.swift` keeps only `Lang` (a language is its code, and `Lang.all` is the list
+of files) and the lookup, and `LocalizationFiles.swift` reads the files once, at the first lookup. A new
+language is one new file under `l10n/`: the picker, the device detection and the lookup find it with no
+change in Swift (the iOS shell's own texts are not in the files yet, that is a later step of #388). A new string is a line in
+`l10n/en.json` and one in `l10n/zh.json`: English and Chinese have every key. Swedish, German and French
+may miss a key and then show the English text, and `GermanLocalizationTests` and
+`FrenchLocalizationTests` check the entries they have (placeholders match the English text). The Windows
+launcher reads the same files, so one edit serves both.
+
+The app finds the files in `Contents/Resources/l10n` (`build-mac-app.yml` and `tools/try-local` copy the
+folder there, the same way as the engine and the bundled tools, not as SwiftPM resources). `swift run` finds
+`frontend/l10n` by walking up from the executable, and `swift test` takes it from the source path.
+`NX_L10N_DIR` names another folder for a try-out. A missing or broken file does not stop the app: the
+lookup shows the English text, then the key, and one line goes to standard error.
 
 ## Verification
 

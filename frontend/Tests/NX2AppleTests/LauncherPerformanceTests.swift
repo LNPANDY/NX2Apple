@@ -3,6 +3,7 @@ import SwiftUI
 import XCTest
 @testable import NX2Apple
 @testable import NXCore
+import NXModel
 @testable import NXLauncher
 
 /// Guards the launcher against changes that make it slow. A synthetic library (30 owned games with banners, every third one
@@ -13,7 +14,7 @@ import XCTest
 /// Info.plist reads and frame time recordings parsed. The counts do not depend on the machine, so they catch work that grows
 /// with the library long before a stopwatch would. The second guard is the time the main thread is busy, the median of
 /// several rounds, with budgets far above what main needs on CI. See "Launcher performance test" in frontend/README.md.
-final class LauncherPerformanceTests: XCTestCase {
+@MainActor final class LauncherPerformanceTests: XCTestCase {
     private var temporary: URL!
 
     override func setUpWithError() throws {
@@ -133,13 +134,13 @@ final class LauncherPerformanceTests: XCTestCase {
         NSApplication.shared.setActivationPolicy(.accessory)
         let saved = ["repoPath", "buildOutputDirectory"].map { ($0, UserDefaults.standard.object(forKey: $0)) }
         defer { for (key, value) in saved { UserDefaults.standard.set(value, forKey: key) } }
-        let model = BuildModel()
-        model.repoPath = world.repo.path
+        let modelStores = LauncherStores(); let model = modelStores.build
+        modelStores.repo.path = world.repo.path
         model.lang = .en
         let library = GameLibrary(file: world.libraryFile)
         library.selectedID = world.selected
         let pad = LauncherGamepad()
-        let host = NSHostingView(rootView: ContentView(model: model, library: library, performStartupChecks: false, gamepad: pad))
+        let host = NSHostingView(rootView: LauncherView(stores: modelStores, library: library, performStartupChecks: false, gamepad: pad))
         let window = OffscreenWindow(size: NSSize(width: 1280, height: 900), styleMask: [.titled, .closable, .resizable])
         window.contentView = host
         window.orderFront(nil)
@@ -198,7 +199,7 @@ final class LauncherPerformanceTests: XCTestCase {
             }
             if plists > step.plistReads {
                 failures.append("\(step.name): \(plists) Info.plist reads, budget \(step.plistReads). LibraryGame.isReady and "
-                    + "ContentView.status read the app bundle on every call. Call them less often per redraw or cache the result.")
+                    + "LauncherView.status read the app bundle on every call. Call them less often per redraw or cache the result.")
             }
             if parses > 0 {
                 failures.append("\(step.name): \(parses) frame time recordings parsed on the main thread, budget 0. "

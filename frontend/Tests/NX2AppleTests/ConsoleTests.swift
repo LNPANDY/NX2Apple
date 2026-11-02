@@ -3,9 +3,10 @@ import SwiftUI
 import Combine
 @testable import NX2Apple
 @testable import NXCore
+import NXModel
 @testable import NXLauncher
 
-final class ConsoleTests: XCTestCase {
+@MainActor final class ConsoleTests: XCTestCase {
     /// The games ready on this Mac come first. The rest follow in their own order, each with its status.
     func testReadyGamesComeFirst() {
         func game(_ id: String, _ status: ConsoleGame.Status) -> ConsoleGame {
@@ -206,12 +207,12 @@ final class ConsoleTests: XCTestCase {
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         for lang in CaptureLanguage.all([.en, .zh]) {
             for width: CGFloat in [900, 1280] {
-                let model = BuildModel()
+                let modelStores = LauncherStores(); let model = modelStores.build
                 model.lang = lang
                 let library = GameLibrary(file: output.appendingPathComponent("unused-library.json"))
                 let driver = MockConsoleDriver(scenario: .controllersMixed, lang: lang, animated: false)
                 driver.back()
-                let view = ContentView(model: model, library: library, performStartupChecks: false, controllerDriver: AnyConsoleDriver(driver))
+                let view = LauncherView(stores: modelStores, library: library, performStartupChecks: false, controllerDriver: AnyConsoleDriver(driver))
                 let host = NSHostingView(rootView: view)
                 let window = OffscreenWindow(size: NSSize(width: width, height: 800), styleMask: [.borderless])
                 window.contentView = host
@@ -220,7 +221,7 @@ final class ConsoleTests: XCTestCase {
                 host.layoutSubtreeIfNeeded()
                 let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
                 host.cacheDisplay(in: host.bounds, to: rep)
-                try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: output.appendingPathComponent("desktop-\(Int(width))-\(lang.rawValue).png"))
+                try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: output.appendingPathComponent("desktop-\(Int(width))-\(lang.code).png"))
                 window.orderOut(nil)
                 window.contentView = nil
                 window.close()
@@ -266,7 +267,7 @@ final class ConsoleTests: XCTestCase {
                     let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
                     host.cacheDisplay(in: host.bounds, to: rep)
                     try XCTUnwrap(rep.representation(using: .png, properties: [:]))
-                        .write(to: output.appendingPathComponent("\(screen)-\(name)-\(lang.rawValue).png"))
+                        .write(to: output.appendingPathComponent("\(screen)-\(name)-\(lang.code).png"))
                     window.orderOut(nil)
                     window.contentView = nil
                     window.close()

@@ -305,6 +305,8 @@ jobs:
           # The iPhone shell's Swift package: build_shell.sh links it by DM_SHELL_PACKAGE and the launcher passes this folder (the engine has
           # none since #214). The step runs in frontend/, the package is one level up. No .build or .swiftpm.
           rsync -a --exclude .build --exclude .swiftpm ../frontend-ios/ "$APP/Contents/Resources/frontend-ios/"
+          # The launcher's texts, one JSON file per language (#388): L10n reads Contents/Resources/l10n, not SwiftPM resources (this step builds the bundle by hand).
+          rsync -a l10n/ "$APP/Contents/Resources/l10n/"
           V="${{ steps.ver.outputs.version }}"
           cat > "$APP/Contents/Info.plist" <<PLIST
           <?xml version="1.0" encoding="UTF-8"?>
@@ -350,6 +352,8 @@ jobs:
           test -f "$E/scripts/build_ipa_from_nsp.py" && test -f "$E/dm/tools/romfs_image.py" && test -f "$E/dm/fork_patches.txt"
           # The iPhone shell's package (DM_SHELL_PACKAGE): the project template links it and its AppIcon.icon.
           test -f "NX2Apple.app/Contents/Resources/frontend-ios/Package.swift" && test -d "NX2Apple.app/Contents/Resources/frontend-ios/AppIcon.icon"
+          # The language files: every one is there and identical to the checkout's (check_bundle.sh also reads them as JSON).
+          diff -r l10n NX2Apple.app/Contents/Resources/l10n
           test ! -e "$E/.git"
           # The engine files are the zip asset's, byte for byte, and spirv-cross matches dmsh_chain.lock, so a shader build from the bundled engine starts.
           tools/sign_engine_tree.sh --check "$E" "$RUNNER_TEMP/engine-tree"

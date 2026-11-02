@@ -3,8 +3,8 @@ import XCTest
 @testable import NXCore
 @testable import NXLauncher
 
-/// The French overlay covers the whole table. A key added later without its French entry fails here,
-/// which is the point: the overlay would otherwise show it in English without anyone noticing.
+/// The French overlay reads as French: nothing is left in English but the listed names. Completeness and placeholders for every
+/// language are in NXCoreTests/LocalizationRulesTests.swift.
 final class FrenchLocalizationTests: XCTestCase {
     /// Keys whose French text is the English one on purpose: names, units, button letters, codes.
     static let sameAsEnglish: Set<String> = [
@@ -21,33 +21,13 @@ final class FrenchLocalizationTests: XCTestCase {
         "pad.options", "engine.channel.stable", "launch.opt.DM_PRESENT_UPSCALE.off", "launch.opt.DM_PRESENT_UPSCALE.metalfx", "key.tab",
     ]
 
-    /// %@, %d, %ld, %%, positional %1$@ and float %.1f: what String(format:) reads.
-    static func placeholders(_ s: String) -> [String] {
-        let re = try! NSRegularExpression(pattern: "%(?:\\d+\\$)?(?:\\.\\d+)?l{0,2}[@dfs%]")
-        return re.matches(in: s, range: NSRange(s.startIndex..., in: s)).map { String(s[Range($0.range, in: s)!]) }
-    }
-
-    func testEveryKeyHasFrenchText() {
-        let missing = L10n.table.keys.filter { L10n.fr[$0] == nil }.sorted()
-        XCTAssertEqual(missing, [], "keys without a French entry")
-        let extra = L10n.fr.keys.filter { L10n.table[$0] == nil }.sorted()
-        XCTAssertEqual(extra, [], "French entries for keys the table does not have")
-    }
-
     func testNothingIsLeftInEnglishButTheListedNames() {
         let english = L10n.table.compactMap { key, row in L10n.fr[key] == row.en ? key : nil }
         XCTAssertEqual(Set(english), Self.sameAsEnglish)
     }
 
-    func testPlaceholdersMatchTheEnglishText() {
-        for (key, row) in L10n.table {
-            guard let fr = L10n.fr[key] else { continue }
-            XCTAssertEqual(Self.placeholders(fr), Self.placeholders(row.en), key)
-        }
-    }
-
     func testFrenchIsSelectedAndReadsItsCatalog() {
-        XCTAssertEqual(Lang(rawValue: "fr"), .fr)
+        XCTAssertEqual(Lang.find("fr"), .fr)
         XCTAssertEqual(L10n.string("settings.language.fr", .fr), "Français")
         XCTAssertEqual(L10n.string("settings.language.fr", .en), "Français", "a language's name is in that language")
         XCTAssertEqual(L10n.string("onboarding.start", .fr), "Commencer")

@@ -1596,7 +1596,7 @@ class PlatformIsolationTest(unittest.TestCase):
 class LocalizationTest(unittest.TestCase):
     def test_every_windows_dep_key_exists_in_both_languages(self) -> None:
         from nspb_qt.i18n import Lang
-        from nspb_qt.localization import TABLE, t
+        from nspb_qt.l10n import TABLE, t
         keys = ['dep.llvm', 'dep.llvm.hint', 'dep.lld', 'dep.lld.hint',
                 'dep.probe.compile', 'dep.probe.compile.hint',
                 'dep.probe.link', 'dep.probe.link.hint',
@@ -1605,21 +1605,21 @@ class LocalizationTest(unittest.TestCase):
                 'dep.iossdk', 'dep.iossdk.hint', 'dep.metal', 'dep.metal.hint']
         for k in keys:
             self.assertIn(k, TABLE, f'{k} missing from the table')
-            zh = t(k, Lang.ZH)
-            en = t(k, Lang.EN)
+            zh = t(k, Lang('zh'))
+            en = t(k, Lang('en'))
             self.assertTrue(zh and zh != k, f'{k} has no Chinese text')
             self.assertTrue(en and en != k, f'{k} has no English text')
 
     def test_the_guidance_and_pick_keys_exist_in_both_languages(self) -> None:
         from nspb_qt.i18n import Lang
-        from nspb_qt.localization import TABLE, t
+        from nspb_qt.l10n import TABLE, t
         keys = ['dep.guide.iossdk', 'dep.guide.metal', 'dep.pick', 'dep.hide', 'dep.show',
                 'dep.pick.ios_sdk.title', 'dep.pick.metal_dir.title',
                 'dep.pick.saved', 'dep.pick.iossdk.saved', 'dep.pick.iossdk.version',
                 'dep.pick.iossdk.invalid', 'dep.fix.network', 'dep.fix.diskspace', 'dep.fix.log']
         for k in keys:
             self.assertIn(k, TABLE, f'{k} missing from the table')
-            zh, en = t(k, Lang.ZH), t(k, Lang.EN)
+            zh, en = t(k, Lang('zh')), t(k, Lang('en'))
             self.assertTrue(zh and zh != k and en and en != k, f'{k} is not bilingual')
 
 
@@ -1744,10 +1744,10 @@ class VenvWheelsTest(unittest.TestCase):
 
     def test_the_log_row_string_takes_three_args(self) -> None:
         from nspb_qt.i18n import Lang
-        from nspb_qt.localization import t
-        out = t('dep.row.log', Lang.EN, 'python', 'missing', 'C:/x | found')
+        from nspb_qt.l10n import t
+        out = t('dep.row.log', Lang('en'), 'python', 'missing', 'C:/x | found')
         self.assertEqual(out, 'dependency python: [missing] C:/x | found', 'the report log showed raw %@ placeholders')
-        self.assertTrue(t('dep.row.log', Lang.ZH, 'python', 'missing', 'd'), 'Chinese side is filled too')
+        self.assertTrue(t('dep.row.log', Lang('zh'), 'python', 'missing', 'd'), 'Chinese side is filled too')
 
 
 class MetalPickFlowShapeTest(unittest.TestCase):

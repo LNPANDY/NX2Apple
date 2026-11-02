@@ -3,13 +3,14 @@ import SwiftUI
 import XCTest
 @testable import NX2Apple
 @testable import NXCore
+import NXModel
 @testable import NXLauncher
 
 /// The buttons and dropdowns in the setting rows share one width and one height (LauncherControl) and show their label on one
 /// line. Nothing here lists labels: the real Settings and Builds pages are drawn in every language the launcher has, and each
 /// control reports what it measured (LauncherControlSample), so a new button, a new string or a new language is checked as soon as
 /// a page shows it.
-final class LauncherControlWidthTests: XCTestCase {
+@MainActor final class LauncherControlWidthTests: XCTestCase {
     private func width(_ text: String, size: CGFloat = 13) throws -> CGFloat {
         let font = try XCTUnwrap(Typography.manropeFont(size: size, weight: .semibold))
         let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: [.font: font]))
@@ -19,18 +20,19 @@ final class LauncherControlWidthTests: XCTestCase {
     // MARK: Languages
 
     func testThePickerOffersEveryLanguage() {
-        let offered = Set(BuilderView.languageCodes.filter { !$0.isEmpty })
-        XCTAssertEqual(offered, Set(Lang.allCases.map(\.rawValue)), "Settings > Language lists the launcher's languages")
+        let offered = Set(AppCard.languageCodes.filter { !$0.isEmpty })
+        XCTAssertEqual(offered, Set(Lang.all.map(\.code)), "Settings > Language lists the launcher's languages")
     }
 
     func testDropdownChoicesFitBesideTheChevron() throws {
-        for code in BuilderView.languageCodes {
-            let key = "settings.language." + (code.isEmpty ? "system" : code)
-            XCTAssertNotNil(L10n.table[key], key)
-            for lang in Lang.allCases {
-                let text = L10n.string(key, lang)
-                XCTAssertLessThanOrEqual(try width(text), LauncherControl.choiceWidth, "\(lang) \(key): \(text)")
-            }
+        // The languages show their own names, from the files. Only "system" follows the UI language.
+        for lang in Lang.all {
+            XCTAssertLessThanOrEqual(try width(lang.name), LauncherControl.choiceWidth, "\(lang.code): \(lang.name)")
+        }
+        XCTAssertNotNil(L10n.table["settings.language.system"])
+        for lang in Lang.all {
+            let text = L10n.string("settings.language.system", lang)
+            XCTAssertLessThanOrEqual(try width(text), LauncherControl.choiceWidth, "\(lang.code) system: \(text)")
         }
     }
 
@@ -38,7 +40,7 @@ final class LauncherControlWidthTests: XCTestCase {
     func testLibraryFilterLabelsFitTheirSegment() throws {
         let room = (LauncherControl.width - 2 * 3 - 2) / 2 - 2 * 12
         for filter in LibraryFilter.allCases {
-            for lang in Lang.allCases {
+            for lang in Lang.all {
                 let text = L10n.string(filter.labelKey, lang)
                 let font = try XCTUnwrap(Typography.manropeFont(size: 12.5, weight: .bold))
                 let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: [.font: font]))
@@ -56,7 +58,7 @@ final class LauncherControlWidthTests: XCTestCase {
         let page: LauncherPage
         /// The controls this state must show at least, so that a page that draws nothing cannot pass.
         let atLeast: Int
-        let set: (BuildModel, GameLibrary, URL) throws -> Void
+        let set: (LauncherStores, GameLibrary, URL) throws -> Void
     }
 
     private func makeRepo(_ directory: URL, git: Bool) throws -> String {
@@ -77,76 +79,76 @@ final class LauncherControlWidthTests: XCTestCase {
             Dep(id: id, name: "dep.xcode", hint: "dep.xcode.hint", present: false, actionLabel: action, installCmd: command)
         }
         return [
-            Scenario(name: "settings without a repository", page: .settings, atLeast: 4) { m, _, _ in
-                m.repoPath = ""
-                MainActor.assumeIsolated { m.appUpdates.installability = .ok }
+            Scenario(name: "settings without a repository", page: .settings, atLeast: 4) { s, _, _ in
+                s.repo.path = ""
+                MainActor.assumeIsolated { s.appUpdates.installability = .ok }
             },
-            Scenario(name: "settings with a ZIP copy and a library folder", page: .settings, atLeast: 6) { m, library, directory in
-                m.repoPath = try self.makeRepo(directory, git: false)
-                MainActor.assumeIsolated { m.appUpdates.installability = .ok }
-                m.depsChecked = true
-                m.deps = [Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint", present: true, installCmd: [])]
+            Scenario(name: "settings with a ZIP copy and a library folder", page: .settings, atLeast: 6) { s, library, directory in
+                s.repo.path = try self.makeRepo(directory, git: false)
+                MainActor.assumeIsolated { s.appUpdates.installability = .ok }
+                MainActor.assumeIsolated { s.dependencies.checked = true }
+                MainActor.assumeIsolated { s.dependencies.deps = [Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint", present: true, installCmd: [])] }
                 library.setFolder(directory)
             },
-            Scenario(name: "settings with a clone that is behind and an app update", page: .settings, atLeast: 6) { m, _, directory in
-                m.repoPath = try self.makeRepo(directory, git: true)
-                m.repoBehind = 2
-                MainActor.assumeIsolated { m.appUpdates.installability = .ok }
-                MainActor.assumeIsolated { m.appUpdates.update = release }
+            Scenario(name: "settings with a clone that is behind and an app update", page: .settings, atLeast: 6) { s, _, directory in
+                s.repo.path = try self.makeRepo(directory, git: true)
+                MainActor.assumeIsolated { s.repo.behind = 2 }
+                MainActor.assumeIsolated { s.appUpdates.installability = .ok }
+                MainActor.assumeIsolated { s.appUpdates.update = release }
             },
-            Scenario(name: "settings with an update ready to restart into", page: .settings, atLeast: 4) { m, _, directory in
-                m.repoPath = try self.makeRepo(directory, git: true)
-                MainActor.assumeIsolated { m.appUpdates.installability = .ok }
-                MainActor.assumeIsolated { m.appUpdates.staged = AppUpdate.Staged(release: release, app: directory.appendingPathComponent("NX2Apple.app")) }
+            Scenario(name: "settings with an update ready to restart into", page: .settings, atLeast: 4) { s, _, directory in
+                s.repo.path = try self.makeRepo(directory, git: true)
+                MainActor.assumeIsolated { s.appUpdates.installability = .ok }
+                MainActor.assumeIsolated { s.appUpdates.staged = AppUpdate.Staged(release: release, app: directory.appendingPathComponent("NX2Apple.app")) }
             },
-            Scenario(name: "settings with every kind of missing tool", page: .settings, atLeast: 6) { m, _, directory in
-                m.repoPath = try self.makeRepo(directory, git: true)
-                m.depsChecked = true
-                m.deps = [missing("a"), missing("b", command: ["brew", "install", "x"]), missing("c", action: "dep.xcode.fix", command: ["x"])]
-                m.depsExpanded = true
+            Scenario(name: "settings with every kind of missing tool", page: .settings, atLeast: 6) { s, _, directory in
+                s.repo.path = try self.makeRepo(directory, git: true)
+                MainActor.assumeIsolated { s.dependencies.checked = true }
+                MainActor.assumeIsolated { s.dependencies.deps = [missing("a"), missing("b", command: ["brew", "install", "x"]), missing("c", action: "dep.xcode.fix", command: ["x"])] }
+                MainActor.assumeIsolated { s.dependencies.expanded = true }
             },
-            Scenario(name: "builds without a repository", page: .builds, atLeast: 4) { m, _, _ in
-                m.repoPath = ""
-                m.target = "mac-app"
+            Scenario(name: "builds without a repository", page: .builds, atLeast: 4) { s, _, _ in
+                s.repo.path = ""
+                s.build.target = "mac-app"
             },
-            Scenario(name: "builds with files chosen for a Mac app", page: .builds, atLeast: 5) { m, _, directory in
-                m.repoPath = try self.makeRepo(directory, git: true)
-                m.target = "mac-app"
-                m.gameDir = directory.path
-                m.outDir = directory.path
-                m.slots[0].paths = [directory.appendingPathComponent("Hades [0100535012974000].nsp").path]
-                m.slots[1].paths = [directory.appendingPathComponent("Hades update [0100535012974800].nsp").path]
+            Scenario(name: "builds with files chosen for a Mac app", page: .builds, atLeast: 5) { s, _, directory in
+                s.repo.path = try self.makeRepo(directory, git: true)
+                s.build.target = "mac-app"
+                s.build.gameDir = directory.path
+                s.build.outDir = directory.path
+                s.build.slots[0].paths = [directory.appendingPathComponent("Hades [0100535012974000].nsp").path]
+                s.build.slots[1].paths = [directory.appendingPathComponent("Hades update [0100535012974800].nsp").path]
             },
-            Scenario(name: "builds for an iPhone with a device and a team", page: .builds, atLeast: 6) { m, _, directory in
-                m.repoPath = try self.makeRepo(directory, git: true)
-                m.target = "ios"
-                m.devicesChecked = true
-                m.devices = [device]
-                m.teams = [team]
-                m.installDevice = device.id
-                m.signingTeam = team.id
+            Scenario(name: "builds for an iPhone with a device and a team", page: .builds, atLeast: 6) { s, _, directory in
+                s.repo.path = try self.makeRepo(directory, git: true)
+                s.build.target = "ios"
+                MainActor.assumeIsolated { s.deviceStore.checked = true }
+                MainActor.assumeIsolated { s.deviceStore.devices = [device] }
+                MainActor.assumeIsolated { s.deviceStore.teams = [team] }
+                s.deviceStore.installDevice = device.id
+                s.deviceStore.signingTeam = team.id
             },
-            Scenario(name: "a finished Mac app build", page: .builds, atLeast: 6) { m, _, directory in
-                m.repoPath = try self.makeRepo(directory, git: true)
-                m.target = "mac-app"
-                m.done = true
-                m.macAppPath = directory.appendingPathComponent("Hades.app").path
+            Scenario(name: "a finished Mac app build", page: .builds, atLeast: 6) { s, _, directory in
+                s.repo.path = try self.makeRepo(directory, git: true)
+                s.build.target = "mac-app"
+                s.build.done = true
+                s.build.macAppPath = directory.appendingPathComponent("Hades.app").path
             },
-            Scenario(name: "a build installed on an iPhone", page: .builds, atLeast: 6) { m, _, directory in
-                m.repoPath = try self.makeRepo(directory, git: true)
-                m.target = "ios"
-                m.done = true
-                m.devicesChecked = true
-                m.devices = [device]
-                m.installedOn = device.id
-                m.archivePath = directory.appendingPathComponent("romfs").path
+            Scenario(name: "a build installed on an iPhone", page: .builds, atLeast: 6) { s, _, directory in
+                s.repo.path = try self.makeRepo(directory, git: true)
+                s.build.target = "ios"
+                s.build.done = true
+                MainActor.assumeIsolated { s.deviceStore.checked = true }
+                MainActor.assumeIsolated { s.deviceStore.devices = [device] }
+                s.build.installedOn = device.id
+                s.build.archivePath = directory.appendingPathComponent("romfs").path
             },
-            Scenario(name: "a finished iPhone build without an install", page: .builds, atLeast: 6) { m, _, directory in
-                m.repoPath = try self.makeRepo(directory, git: true)
-                m.target = "ios"
-                m.done = true
-                m.devicesChecked = true
-                m.archivePath = directory.appendingPathComponent("romfs").path
+            Scenario(name: "a finished iPhone build without an install", page: .builds, atLeast: 6) { s, _, directory in
+                s.repo.path = try self.makeRepo(directory, git: true)
+                s.build.target = "ios"
+                s.build.done = true
+                MainActor.assumeIsolated { s.deviceStore.checked = true }
+                s.build.archivePath = directory.appendingPathComponent("romfs").path
             },
         ]
     }
@@ -156,12 +158,12 @@ final class LauncherControlWidthTests: XCTestCase {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("control-width-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
-        let model = BuildModel()
+        let modelStores = LauncherStores(); let model = modelStores.build
         let library = GameLibrary(file: directory.appendingPathComponent("library.json"))
-        try scenario.set(model, library, directory)
+        try scenario.set(modelStores, library, directory)
         model.lang = lang
         let samples = Samples()
-        let view = ContentView(model: model, library: library, initialPage: scenario.page, activeBuildID: nil, performStartupChecks: false,
+        let view = LauncherView(stores: modelStores, library: library, initialPage: scenario.page, activeBuildID: nil, performStartupChecks: false,
                                search: nil, olderTools: [], manageOpen: false, padRing: false)
             .environment(\.measuresLauncherControls, true)
             .onPreferenceChange(LauncherControlSamples.self) { samples.all = $0 }
@@ -182,7 +184,7 @@ final class LauncherControlWidthTests: XCTestCase {
         let saved = keys.map { ($0, UserDefaults.standard.object(forKey: $0)) }
         defer { for (key, value) in saved { UserDefaults.standard.set(value, forKey: key) } }
         for scenario in scenarios {
-            for lang in Lang.allCases {
+            for lang in Lang.all {
                 let samples = try measure(scenario, lang)
                 let at = "\(lang), \(scenario.name)"
                 XCTAssertGreaterThanOrEqual(samples.count, scenario.atLeast, "\(at): the page showed fewer controls than expected")
@@ -269,11 +271,11 @@ final class LauncherControlWidthTests: XCTestCase {
         let file = directory.appendingPathComponent("library.json")
         try JSONEncoder().encode(Snapshot(games: [game], folder: directory.path)).write(to: file)
         let library = GameLibrary(file: file)
-        let model = BuildModel()
-        for lang in Lang.allCases {
+        let modelStores = LauncherStores(); let model = modelStores.build
+        for lang in Lang.all {
             model.lang = lang
             let samples = Samples()
-            let view = LaunchOptionsView(m: model, library: library, gameID: game.id).environmentObject(PadFocus()).environmentObject(model.localizer)
+            let view = LaunchOptionsView(m: model, library: library, gameID: game.id).environmentObject(PadFocus()).environmentObject(modelStores.localizer)
                 .environment(\.measuresLauncherControls, true)
                 .onPreferenceChange(LauncherControlSamples.self) { samples.all = $0 }
             let host = NSHostingView(rootView: view)

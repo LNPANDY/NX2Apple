@@ -1,7 +1,8 @@
-"""The generated Qt table carries a complete German column, the same one the Swift table has."""
+"""The Qt table carries a German column that is real German, read from the same file the Swift launcher reads (frontend/l10n/de.json).
+
+Completeness and placeholders for every language are in test_localization_rules.py."""
 from __future__ import annotations
 
-import re
 import sys
 import unittest
 from pathlib import Path
@@ -10,40 +11,31 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'frontend-qt'))
 
 from nspb_qt.i18n import Lang   # noqa: E402
-from nspb_qt.localization import TABLE, t   # noqa: E402
-from gen_localization import unescape   # noqa: E402
-
-PLACEHOLDER = re.compile(r'%(?:\d+\$)?(?:\.\d+)?(?:ll|l)?[@dsf%]')
+from nspb_qt.l10n import TABLE, t   # noqa: E402
 
 
 class German(unittest.TestCase):
-    def test_every_key_has_german_text_that_is_not_the_english_fallback(self):
+    def test_no_german_prose_is_left_in_english(self):
         # dep.python.hint is a list of package names, the same in every language
-        prose = [k for k, row in TABLE.items() if row[3] == row[1] and len(row[1]) > 30 and k != 'dep.python.hint']
+        prose = [k for k, row in TABLE.items() if row['de'] == row['en'] and len(row['en']) > 30 and k != 'dep.python.hint']
         self.assertEqual(prose, [], 'English text left in the German column')
-        self.assertTrue(all(row[3] for row in TABLE.values()))
-
-    def test_placeholders_match_english_in_count_and_order(self):
-        for key, row in TABLE.items():
-            self.assertEqual(PLACEHOLDER.findall(row[3]), PLACEHOLDER.findall(row[1]), key)
 
     def test_german_has_no_semicolons_and_no_added_product_name(self):
         for key, row in TABLE.items():
-            self.assertNotIn(';', row[3], key)
-            self.assertNotIn('；', row[3], key)
-            if 'NX2Apple' not in row[1]:
-                self.assertNotIn('NX2Apple', row[3], key)
+            self.assertNotIn(';', row['de'], key)
+            self.assertNotIn('；', row['de'], key)
+            if 'NX2Apple' not in row['en']:
+                self.assertNotIn('NX2Apple', row['de'], key)
 
     def test_t_picks_the_german_column(self):
-        self.assertEqual(t('settings.language.de', Lang.DE), 'Deutsch')
-        self.assertEqual(t('dep.recheck', Lang.DE), 'Erneut prüfen')
-        self.assertEqual(t('onboarding.stepCount', Lang.DE, 2, 5), 'Schritt 2 von 5')
-        self.assertEqual(t('dep.recheck', Lang.EN), 'Check again')
+        self.assertEqual(t('settings.language.de', Lang('de')), 'Deutsch')
+        self.assertEqual(t('dep.recheck', Lang('de')), 'Erneut prüfen')
+        self.assertEqual(t('onboarding.stepCount', Lang('de'), 2, 5), 'Schritt 2 von 5')
+        self.assertEqual(t('dep.recheck', Lang('en')), 'Check again')
 
-    def test_escapes_of_the_swift_table_become_text(self):
-        self.assertEqual(unescape('a\\tb\\u{e4}'), 'a\tb\u00e4')   # no table entry carries a tab any more
-        self.assertIn('\n', t('fail.noTitleID.next', Lang.DE))
-        self.assertNotIn('\\\\', t('dep.spirv.hint.win', Lang.DE))
+    def test_newlines_and_backslashes_of_the_files_are_text(self):
+        self.assertIn('\n', t('fail.noTitleID.next', Lang('de')))
+        self.assertNotIn('\\\\', t('dep.spirv.hint.win', Lang('de')))
 
 
 if __name__ == '__main__':

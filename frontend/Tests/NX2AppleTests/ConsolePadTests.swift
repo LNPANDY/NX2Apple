@@ -3,11 +3,12 @@ import SwiftUI
 import Combine
 @testable import NX2Apple
 @testable import NXCore
+import NXModel
 @testable import NXLauncher
 
 /// The player-mode setting's plumbing and the controller path into console mode (the same LauncherGamepad.perform
 /// closure the desktop launcher and the onboarding use). A real controller still needs a manual check.
-final class ConsolePadTests: XCTestCase {
+@MainActor final class ConsolePadTests: XCTestCase {
     private func freshDefaults() -> UserDefaults {
         let name = "ConsolePadTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: name)!
@@ -93,7 +94,7 @@ final class ConsolePadTests: XCTestCase {
         let output = URL(fileURLWithPath: directory)
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         NSApplication.shared.setActivationPolicy(.accessory)
-        let repo = BuildModel.findRepo()
+        let repo = RepoLayout.find()
         for (sizeName, width, height) in [("1920", CGFloat(1920), CGFloat(1080)), ("compact", 390, 844)] {
             for (name, scenario, family) in [("home", MockConsoleDriver.Scenario.full, ConsoleGlyphs.Family.xbox), ("home-dualsense", .full, .playStation), ("home-keyboard", .full, .keyboard),
                                              ("controllers", .controllersMixed, .xbox), ("home-4pads", .controllersMixed, .xbox), ("controllers-wired", .controllers, .xbox), ("options", .full, .xbox), ("empty", .empty, .xbox), ("starting", .starting, .xbox)] {
@@ -199,11 +200,11 @@ final class ConsolePadTests: XCTestCase {
         let library = GameLibrary(file: output.appendingPathComponent("unused-library.json"))
         // the bottom right shows the Home hint and the Console mode button while a controller is connected (this Mac's, when one is)
         for width: CGFloat in [1280, 900] {
-            try shot(AnyView(ContentView(model: BuildModel(), library: library, performStartupChecks: false, enterConsole: {})), "desktop-bar-\(Int(width))", width, 720)
+            try shot(AnyView(LauncherView(stores: LauncherStores(), library: library, performStartupChecks: false, enterConsole: {})), "desktop-bar-\(Int(width))", width, 720)
         }
-        try shot(AnyView(ContentView(model: BuildModel(), library: library, performStartupChecks: false, enterConsole: {}, qaPrompt: true)), "prompt-windowed", 1000, 720)
+        try shot(AnyView(LauncherView(stores: LauncherStores(), library: library, performStartupChecks: false, enterConsole: {}, qaPrompt: true)), "prompt-windowed", 1000, 720)
         for lang in [Lang.en, .zh] {
-            try shot(AnyView(ConsoleConnectionPrompt(lang: lang, enterConsole: {}, dismissPrompt: {}).environmentObject(PadFocus()).preferredColorScheme(.dark)), "prompt-\(lang.rawValue)", 900, 500)
+            try shot(AnyView(ConsoleConnectionPrompt(lang: lang, enterConsole: {}, dismissPrompt: {}).environmentObject(PadFocus()).preferredColorScheme(.dark)), "prompt-\(lang.code)", 900, 500)
         }
     }
 

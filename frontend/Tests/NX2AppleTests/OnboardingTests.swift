@@ -198,7 +198,7 @@ final class OnboardingTests: XCTestCase {
                 let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
                 host.cacheDisplay(in: host.bounds, to: rep)
                 try XCTUnwrap(rep.representation(using: .png, properties: [:]))
-                    .write(to: output.appendingPathComponent("\(step.rawValue)-\(lang.rawValue).png"))
+                    .write(to: output.appendingPathComponent("\(step.rawValue)-\(lang.code).png"))
                 window.orderOut(nil)
             }
         }
@@ -242,7 +242,7 @@ final class OnboardingTests: XCTestCase {
                 let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
                 host.cacheDisplay(in: host.bounds, to: rep)
                 try XCTUnwrap(rep.representation(using: .png, properties: [:]))
-                    .write(to: output.appendingPathComponent("nvn-hint-\(step.rawValue)-\(lang.rawValue).png"))
+                    .write(to: output.appendingPathComponent("nvn-hint-\(step.rawValue)-\(lang.code).png"))
                 window.orderOut(nil)
             }
         }
