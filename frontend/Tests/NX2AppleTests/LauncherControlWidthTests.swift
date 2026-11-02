@@ -120,9 +120,9 @@ final class LauncherControlWidthTests: XCTestCase {
             Scenario(name: "builds for an iPhone with a device and a team", page: .builds, atLeast: 6) { m, _, directory in
                 m.repoPath = try self.makeRepo(directory, git: true)
                 m.target = "ios"
-                m.devicesChecked = true
-                m.devices = [device]
-                m.teams = [team]
+                MainActor.assumeIsolated { m.deviceStore.checked = true }
+                MainActor.assumeIsolated { m.deviceStore.devices = [device] }
+                MainActor.assumeIsolated { m.deviceStore.teams = [team] }
                 m.installDevice = device.id
                 m.signingTeam = team.id
             },
@@ -136,8 +136,8 @@ final class LauncherControlWidthTests: XCTestCase {
                 m.repoPath = try self.makeRepo(directory, git: true)
                 m.target = "ios"
                 m.done = true
-                m.devicesChecked = true
-                m.devices = [device]
+                MainActor.assumeIsolated { m.deviceStore.checked = true }
+                MainActor.assumeIsolated { m.deviceStore.devices = [device] }
                 m.installedOn = device.id
                 m.archivePath = directory.appendingPathComponent("romfs").path
             },
@@ -145,7 +145,7 @@ final class LauncherControlWidthTests: XCTestCase {
                 m.repoPath = try self.makeRepo(directory, git: true)
                 m.target = "ios"
                 m.done = true
-                m.devicesChecked = true
+                MainActor.assumeIsolated { m.deviceStore.checked = true }
                 m.archivePath = directory.appendingPathComponent("romfs").path
             },
         ]

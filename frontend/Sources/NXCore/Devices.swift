@@ -54,10 +54,11 @@ package struct XcodeTeam: Equatable {
 package enum DeviceTools {
     /// The paired physical iPhones and iPads, reachable ones first.
     /// `timeout` ends a listing that hangs (the Saves sheet asks with one), as no devices.
-    package static func devices(xcrun: String = "/usr/bin/xcrun", timeout: TimeInterval? = nil) -> [AppleDevice] {
+    package static func devices(xcrun: String = "/usr/bin/xcrun", timeout: TimeInterval? = nil,
+                                runner: ProcessRunner = SystemProcessRunner()) -> [AppleDevice] {
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("nxnative-devices-\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: file) }
-        guard run(xcrun, ["devicectl", "list", "devices", "--json-output", file.path], timeout: timeout) != nil,
+        guard run(xcrun, ["devicectl", "list", "devices", "--json-output", file.path], timeout: timeout, runner: runner) != nil,
               let data = try? Data(contentsOf: file) else { return [] }
         return parseDevices(data)
     }
@@ -83,8 +84,8 @@ package enum DeviceTools {
 
     /// Every team the launcher can offer: the teams of the Apple IDs signed in to Xcode plus the teams of development
     /// certificates in the keychain, one entry per team ID. A team with a certificate comes first (it can sign at once).
-    package static func teams() -> [SigningTeam] {
-        merge(certificates: certificateTeams(), xcode: xcodeTeams())
+    package static func teams(runner: ProcessRunner = SystemProcessRunner()) -> [SigningTeam] {
+        merge(certificates: certificateTeams(runner: runner), xcode: xcodeTeams(runner: runner))
     }
 
     /// Pure: union by team ID. The certificate gives the identity, Xcode gives the team's name and whether it is a free one.
@@ -102,8 +103,8 @@ package enum DeviceTools {
 
     /// The teams of the accounts signed in to Xcode, from its preferences (read only; nothing of the account but the
     /// teams is looked at).
-    package static func xcodeTeams() -> [XcodeTeam] {
-        guard let plist = run("/usr/bin/defaults", ["export", "com.apple.dt.Xcode", "-"]) else { return [] }
+    package static func xcodeTeams(runner: ProcessRunner = SystemProcessRunner()) -> [XcodeTeam] {
+        guard let plist = run("/usr/bin/defaults", ["export", "com.apple.dt.Xcode", "-"], runner: runner) else { return [] }
         return xcodeTeams(fromPlist: Data(plist.utf8))
     }
 
@@ -132,12 +133,12 @@ package enum DeviceTools {
     }
 
     /// The development identities that can sign for a device, with their teams (one per team ID).
-    package static func certificateTeams() -> [SigningTeam] {
-        guard let list = run("/usr/bin/security", ["find-identity", "-v", "-p", "codesigning"]) else { return [] }
+    package static func certificateTeams(runner: ProcessRunner = SystemProcessRunner()) -> [SigningTeam] {
+        guard let list = run("/usr/bin/security", ["find-identity", "-v", "-p", "codesigning"], runner: runner) else { return [] }
         var seen = Set<String>()
         return identities(list).compactMap { identity in
-            guard let pem = run("/usr/bin/security", ["find-certificate", "-c", identity, "-p"]),
-                  let subject = run("/usr/bin/openssl", ["x509", "-noout", "-subject"], input: pem),
+            guard let pem = run("/usr/bin/security", ["find-certificate", "-c", identity, "-p"], runner: runner),
+                  let subject = run("/usr/bin/openssl", ["x509", "-noout", "-subject"], input: pem, runner: runner),
                   let team = team(fromSubject: subject), seen.insert(team).inserted else { return nil }
             return SigningTeam(id: team, identity: identity)
         }
@@ -158,23 +159,10 @@ package enum DeviceTools {
         return subject[range].split(separator: "=").last.map { $0.trimmingCharacters(in: .whitespaces) }
     }
 
-    private static func run(_ tool: String, _ args: [String], input: String? = nil, timeout: TimeInterval? = nil) -> String? {
-        let p = Process(), out = Pipe(), inPipe = Pipe()
-        p.executableURL = URL(fileURLWithPath: tool)
-        p.arguments = args
-        p.standardOutput = out
-        p.standardError = FileHandle.nullDevice
-        p.standardInput = input == nil ? FileHandle.nullDevice : inPipe
-        do { try p.run() } catch { return nil }
-        if let timeout {
-            DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
-                if p.isRunning { p.terminate() }
-                DispatchQueue.global().asyncAfter(deadline: .now() + 2) { if p.isRunning { kill(p.processIdentifier, SIGKILL) } }
-            }
-        }
-        if let input { inPipe.fileHandleForWriting.write(Data(input.utf8)); try? inPipe.fileHandleForWriting.close() }
-        let data = out.fileHandleForReading.readDataToEndOfFile()
-        p.waitUntilExit()
-        return p.terminationStatus == 0 ? String(decoding: data, as: UTF8.self) : nil
+    /// The tool's stdout when it exits 0 within `timeout`, nil otherwise (its errors are thrown away).
+    private static func run(_ tool: String, _ args: [String], input: String? = nil, timeout: TimeInterval? = nil,
+                            runner: ProcessRunner) -> String? {
+        let r = runner.capture(ProcessLaunch(executable: tool, arguments: args, timeout: timeout, input: input))
+        return r.ok ? r.out : nil
     }
 }

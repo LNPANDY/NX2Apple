@@ -259,12 +259,8 @@ enum ShellInstall {
 
     // ---- the connection of the copy ----
 
-    /// How the device is connected to this Mac, from `devicectl list devices` (connectionProperties.transportType: "wired" for a
-    /// cable, "localNetwork" for Wi-Fi, absent when the device is not reachable). A device the list does not show, or shows
-    /// unpaired, was never paired with this Mac.
-    enum Connection: Equatable {
-        case wired, network, other, notConnected, notPaired
-    }
+    /// How the device is connected to this Mac (`ShellConnection`, NXCore).
+    typealias Connection = ShellConnection
 
     static func connection(of udid: String, in devices: [AppleDevice]) -> Connection {
         guard let device = devices.first(where: { $0.id == udid }) else { return .notPaired }
@@ -298,23 +294,6 @@ enum ShellInstall {
     }
 }
 
-/// What the player is told before the game data goes over: how much, and over which connection. The GUI shows it with its
-/// buttons, the terminal prints it and copies.
-struct ShellCopyPlan: Equatable {
-    var files: Int
-    var bytes: Int64
-    var connection: ShellInstall.Connection
-    var deviceName: String
-    /// "15 GB in 2 files."
-    var sizeText: String
-    /// The cable note, or the Wi-Fi hint with its estimate.
-    var connectionText: String
-    /// Whether waiting for a cable is offered (the device is on Wi-Fi, or not connected).
-    var canWaitForCable: Bool { connection == .network || connection == .notConnected }
-}
-
-enum ShellCopyDecision: Equatable { case copy, skip, waitForCable }
-
 /// One stage of the install, as the model and the terminal show it.
 struct ShellStage {
     var id: Int
@@ -342,8 +321,10 @@ struct ShellInstaller {
     var toolPath = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
     var log: (String) -> Void = { _ in }
     var stage: (ShellStage) -> Void = { _ in }
-    var processStarted: (Process) -> Void = { _ in }
-    var processEnded: (Process) -> Void = { _ in }
+    /// Told when a tool has started, so Stop can end it (the model keeps it).
+    var processStarted: (RunningProcess) -> Void = { _ in }
+    /// Starts every tool and the device listing (`ProcessRunner`, NXCore). A test passes in a fake.
+    var runner: ProcessRunner = SystemProcessRunner()
     /// Asked once, only when something must be copied, with the size and the connection. The terminal answers `.copy`.
     var decideCopy: (ShellCopyPlan) -> ShellCopyDecision = { _ in .copy }
     /// While waiting for a cable: told true when the wait starts and false when it ends, and asked between polls whether the
@@ -518,7 +499,7 @@ struct ShellInstaller {
     }
 
     private func connection() -> ShellInstall.Connection {
-        ShellInstall.connection(of: device, in: DeviceTools.devices(xcrun: xcrun, timeout: 20))
+        ShellInstall.connection(of: device, in: DeviceTools.devices(xcrun: xcrun, timeout: 20, runner: runner))
     }
 
     private func copyGameData(titleID: String, archive: String, app: String, bundleID: String, outcome start: Outcome) -> Outcome {
@@ -618,35 +599,18 @@ struct ShellInstaller {
     private func run(_ command: [String], env: [String: String]?, label: String,
                      step: (String) -> (detail: String, percent: Double?)?) -> ToolResult {
         log("[\(label)] \(command.joined(separator: " "))\n")
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: command[0])
-        p.arguments = Array(command.dropFirst())
-        p.environment = env ?? ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "HOME": NSHomeDirectory(), "USER": NSUserName(), "LANG": "en_US.UTF-8"]
-        p.standardInput = FileHandle.nullDevice
-        if ownGroup { ProcessGroups.inOwnGroup(p, python: python) }
-        let pipe = Pipe(); p.standardOutput = pipe; p.standardError = pipe
-        do { try p.run() } catch { return ToolResult(status: 127, output: error.localizedDescription, lastError: error.localizedDescription) }
-        processStarted(p)
-        var output = "", pending = "", lastError: String?
-        func consume(_ line: String) {
+        var output = "", lastError: String?
+        let launch = ProcessLaunch(
+            executable: command[0], arguments: Array(command.dropFirst()),
+            environment: env ?? ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "HOME": NSHomeDirectory(), "USER": NSUserName(), "LANG": "en_US.UTF-8"],
+            groupPython: ownGroup ? python : nil)
+        let result = runner.streamLines(launch, started: processStarted) { line in
             log(line + "\n")
             output += line + "\n"
             if line.contains("error:") || line.hasPrefix("ERROR:") { lastError = line.trimmingCharacters(in: .whitespaces) }
         }
-        let handle = pipe.fileHandleForReading
-        while true {
-            let data = handle.availableData
-            if data.isEmpty { break }
-            pending += String(decoding: data, as: UTF8.self)
-            while let nl = pending.firstIndex(of: "\n") {
-                consume(String(pending[..<nl]))
-                pending = String(pending[pending.index(after: nl)...])
-            }
-        }
-        if !pending.isEmpty { consume(pending) }
-        p.waitUntilExit()
-        processEnded(p)
-        return ToolResult(status: p.terminationStatus, output: output, lastError: lastError)
+        guard result.started else { return ToolResult(status: 127, output: result.out, lastError: result.out) }
+        return ToolResult(status: result.status, output: output, lastError: lastError)
     }
 }
 
