@@ -34,3 +34,6 @@
 0054-front-mac-start-with-the-pointer-hidden-when-the.patch
 0055-ios-shell-declare-en-and-zh-hans-in-cfbundleloca.patch
 0056-ios-shell-declare-every-language-of-frontend-l10.patch
+0057-mac-app-keep-the-finder-files-of-an-exfat-volume.patch
+0058-read-pfs0-packages-missing-the-final-filename-te.patch
+0059-recognize-unframed-pointer-tail-calls-before-zer.patch
