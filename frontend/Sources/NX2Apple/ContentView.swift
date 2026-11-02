@@ -56,7 +56,7 @@ struct Slot: Identifiable {
 
 // MARK: - Model
 
-final class BuildModel: ObservableObject, PythonLocation {
+final class BuildModel: ObservableObject {
     @Published var gameDir = ""
     @Published var slots: [Slot] = [
         Slot(id: "base", kind: .base, title: "data.base", optional: false),
@@ -99,7 +99,7 @@ final class BuildModel: ObservableObject, PythonLocation {
         didSet {
             UserDefaults.standard.set(target, forKey: "buildTarget")
             // A Mac-only setup needs no iOS SDK for a Mac build, but does for an iPhone one (needsIOSPlatform)
-            if oldValue != target, UserDefaults.standard.string(forKey: OnboardingDefaults.platform) == "mac" { checkDeps() }
+            if oldValue != target, UserDefaults.standard.string(forKey: OnboardingDefaults.platform) == "mac" { MainActor.assumeIsolated { _ = dependencies.check() } }
         }
     }
     /// Decode BC-compressed textures on the CPU. Only relevant for GPUs without BC support
@@ -161,20 +161,31 @@ final class BuildModel: ObservableObject, PythonLocation {
         }
     }
 
-    @Published var deps: [Dep] = []
-    @Published var depsChecked = false
-    /// Whether the dependency list is expanded. nil = not chosen yet: open while something is
-    /// missing (that is when the rows matter), collapsed once everything is green — a set-up
-    /// machine never needs the rows again. A manual toggle overrides and is remembered.
-    @Published var depsExpanded: Bool? = UserDefaults.standard.object(forKey: "depsExpanded") as? Bool {
-        didSet { if let v = depsExpanded { UserDefaults.standard.set(v, forKey: "depsExpanded") } }
+    // ---- The dependencies (`DependencyStore`, NXModel) ----
+    // It owns the rows of the tools panel, the Python and dotnet paths and the installs. The model creates it with its services and
+    // wires what reaches back here: the repository to read, the guided setup's platform choice, the App Store, the log and the note
+    // after a failed install. The build reads it through `DependencyStatus` (`depStatus`), not the store.
+
+    /// Created on first use, on the main thread, because its closures reach back to this model.
+    private(set) lazy var dependencies: DependencyStore = MainActor.assumeIsolated {
+        let store = DependencyStore(
+            localizer: localizer, runner: runner, repo: repo,
+            needsIOS: { Self.needsIOSPlatform() },
+            openAppStore: { NSWorkspace.shared.open(URL(fileURLWithPath: "/Applications/App Store.app")) },
+            log: { [unowned self] in append($0) },
+            installFailed: { [unowned self] in doneNote = $0 })
+        // The build state that reads the tools (`canBuild`, the setup rows) is still here: a change of the rows redraws what observes
+        // this model, as it did when they were published by it. Goes with the build store.
+        dependencyChanges = store.objectWillChange.sink { [unowned self] _ in objectWillChange.send() }
+        return store
     }
-    var depsOpen: Bool { depsExpanded ?? !(depsChecked && allDepsPresent) }
-    func toggleDeps() {
-        depsExpanded = !(depsExpanded ?? !allDepsPresent)
-    }
-    @Published var pythonPath = ""
-    @Published var dotnetPath = ""
+    private var dependencyChanges: AnyCancellable?
+    /// What the build code in this model asks about the tools. The views take the store itself.
+    private var depStatus: DependencyStatus { MainActor.assumeIsolated { dependencies } }
+    var pythonPath: String { MainActor.assumeIsolated { depStatus.pythonPath } }
+    var dotnetPath: String { MainActor.assumeIsolated { depStatus.dotnetPath } }
+    var depsChecked: Bool { MainActor.assumeIsolated { depStatus.checked } }
+    var allDepsPresent: Bool { MainActor.assumeIsolated { depStatus.allPresent } }
 
     /// The language and the strings: views take them from the environment, this model only for the text it writes itself.
     let localizer: Localizer
@@ -235,7 +246,7 @@ final class BuildModel: ObservableObject, PythonLocation {
     /// Created on first use, on the main thread, because its closures reach back to this model.
     private(set) lazy var engineSync: EngineSyncStore = MainActor.assumeIsolated {
         let store = EngineSyncStore(
-            localizer: localizer, runner: runner, repo: repo, python: self,
+            localizer: localizer, runner: runner, repo: repo, python: dependencies,
             setRepoPath: { [unowned self] in repoPath = $0 },
             buildRunning: { [unowned self] in running },
             autoUpdate: { [unowned self] in MainActor.assumeIsolated { repo.autoUpdate } },
@@ -692,15 +703,15 @@ final class BuildModel: ObservableObject, PythonLocation {
     func fixBuildFailure(_ kind: BuildFailureKind) {
         switch kind {
         case .translator:
-            if let d = deps.first(where: { $0.id == "dotnet" }) { installDep(d) }
+            installRow("dotnet")
         case .iosSDK:
-            installDep(Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint", present: false, installCmd: Toolchain.iosPlatformCmd))
+            installRow(Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint", present: false, installCmd: Toolchain.iosPlatformCmd))
         case .cltSelected:
             if let xcode = Toolchain.installedXcode() {
-                installDep(Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint", present: false, installCmd: Toolchain.selectXcodeCmd(xcode)))
+                installRow(Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint", present: false, installCmd: Toolchain.selectXcodeCmd(xcode)))
             }
         case .zbic:
-            if let d = deps.first(where: { $0.id == "python" }) { installDep(d) }   // the venv install, which now names zbic
+            installRow("python")   // the venv install, which now names zbic
         case .keys:
             if let chooseKeys { chooseKeys() } else { pickFiles(kind: .keys) }   // the same picker as the keys row
         case .severalGames, .noTitleID, .diskFull:
@@ -740,7 +751,15 @@ final class BuildModel: ObservableObject, PythonLocation {
     func fixBusy(_ kind: BuildFailureKind) -> Bool {
         guard [.translator, .iosSDK, .cltSelected, .zbic].contains(kind) else { return false }
         let id = kind == .translator ? "dotnet" : kind == .zbic ? "python" : "xcode"
-        return deps.first { $0.id == id }?.installing ?? false
+        return MainActor.assumeIsolated { dependencies.isInstalling(id) }
+    }
+
+    /// The row `id` of the tools panel installs, or the row given (a fix the panel has no row for).
+    private func installRow(_ id: String) {
+        MainActor.assumeIsolated { if let d = dependencies.deps.first(where: { $0.id == id }) { _ = dependencies.install(d) } }
+    }
+    private func installRow(_ dep: Dep) {
+        MainActor.assumeIsolated { _ = dependencies.install(dep) }
     }
 
     /// (file count, bytes) of a RomFS tree — the reuse fingerprint's content part.
@@ -1351,184 +1370,9 @@ final class BuildModel: ObservableObject, PythonLocation {
         return BuildTarget.normalized(defaults.string(forKey: "buildTarget")) != BuildTarget.mac
     }
 
-    /// The Metal toolchain row. A compiler that does not run is the missing-toolchain row with its install button. One that differs from the
-    /// lock's pin is a warning and not a blocker: the row stays present, and its error and hint lines (the install failures' fields) say that
-    /// NVN games will stop. Pure over its inputs, so tests give it version strings.
-    nonisolated static func metalDep(runs: Bool, lock: String?, now: [String: String?], needsIOS: Bool) -> Dep {
-        var dep = Dep(id: "metal", name: "dep.metal", hint: "dep.metal.hint", present: runs, installCmd: Toolchain.metalToolchainCmd)
-        guard runs, let lock, let m = MetalPin.mismatches(lock: lock, now: now, iOS: needsIOS).first else { return dep }
-        dep.warning = true
-        dep.detail = "dep.metal.other:" + m.now + ":" + m.pinned
-        dep.lastError = "metal_" + m.sdk + ": " + m.now
-        dep.fixHint = "dep.fix.metalPin"
-        return dep
-    }
-
-    nonisolated static func detectDepsSync(needsIOS: Bool = BuildModel.needsIOSPlatform(), repo: String = "") -> [Dep] {
-        var out: [Dep] = []
-
-        // Xcode.app alone is not enough: since Xcode 15 the iOS platform ships as a separate
-        // download, so a fresh install has xcodebuild but no iOS SDK and the build dies deep in
-        // xcodebuild. Ask for the SDK version itself — that is the check that matches the name.
-        // And ask xcode-select where Xcode is, not a fixed path: a beta lives at
-        // /Applications/Xcode-beta.app and the hard-coded check called that "no Xcode" (#21).
-        let selected = Toolchain.developerDir()
-        let xcodeApp = Toolchain.installedXcode()
-        let sdkenv = Toolchain.runOK("/usr/bin/xcrun", ["--sdk", "iphoneos", "--show-sdk-version"])
-        // A Mac-only setup does not need the iOS platform (onboarding's platform choice, #120); a
-        // Mac build still needs a selected Xcode, so the CommandLineTools state is reported either way.
-        switch Toolchain.xcodeState(selected: selected, xcodeApp: xcodeApp, iosSDK: !needsIOS || sdkenv) {
-        case .ready:
-            out.append(Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint", present: true, installCmd: []))
-        case .noIOSSDK:
-            out.append(Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint", present: false,
-                           detail: "dep.xcode.noSDK", installCmd: Toolchain.iosPlatformCmd))
-        case .commandLineToolsOnly(let xcode):
-            out.append(Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint", present: false,
-                           detail: "dep.xcode.notSelected", actionLabel: "dep.xcode.fix",
-                           installCmd: Toolchain.selectXcodeCmd(xcode)))
-        case .notInstalled:
-            out.append(Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint", present: false, installCmd: []))
-        }
-
-        let macMetal = Toolchain.firstOutputLine("/usr/bin/xcrun", ["-sdk", "macosx", "metal", "--version"])
-        let lock = repo.isEmpty ? nil : try? String(contentsOfFile: EngineLayout.root(repo) + "/" + MetalPin.lockPath, encoding: .utf8)
-        let iosMetal = needsIOS && lock != nil ? Toolchain.firstOutputLine("/usr/bin/xcrun", ["-sdk", "iphoneos", "metal", "--version"]) : nil
-        out.append(metalDep(runs: macMetal != nil, lock: lock, now: ["macosx": macMetal, "iphoneos": iosMetal], needsIOS: needsIOS))
-
-        out += Toolchain.toolDeps(resources: BundledTools.resources,
-                        installed: { Toolchain.firstExisting(["/opt/homebrew/bin/\($0)", "/usr/local/bin/\($0)"]) },
-                        brew: Toolchain.firstExisting(["/opt/homebrew/bin/brew", "/usr/local/bin/brew"]))
-
-        let (dn, dnOK) = Toolchain.findDotnet()
-        out.append(Dep(id: "dotnet", name: "dep.dotnet", hint: "dep.dotnet.hint",
-                       present: dnOK, detail: dnOK ? dn : "dep.dotnet.missing",
-                       installCmd: ["/bin/bash", "-c",
-                         "curl -sSL https://dot.net/v1/dotnet-install.sh -o /tmp/di.sh && chmod +x /tmp/di.sh && /tmp/di.sh --channel 10.0 --install-dir $HOME/.dotnet"]))
-
-        let (py, pyOK) = Toolchain.findPython()
-        // A too-old interpreter is a different problem from a missing package: say which one it is,
-        // because the fix differs (install a newer Python vs pip install into this one).
-        // A version we cannot read means no interpreter ran at all (py is then the venv
-        // that does not exist yet), which is not the same as one that is too old.
-        let pyDetail = Toolchain.pythonDetail(py: py, ok: pyOK)
-        out.append(Dep(id: "python", name: "dep.python", hint: "dep.python.hint",
-                       present: pyOK, detail: pyDetail,
-                       installCmd: [py, "-m", "pip", "install", "--user", "lz4", "capstone", "fonttools", "zbic", "backports.zstd"]))
-        return out
-    }
-
-    func checkDeps() {
-        depsChecked = false
-        DispatchQueue.global(qos: .userInitiated).async {
-            let d = Self.detectDepsSync(repo: self.repoPath)
-            Self.writeDepsReport(d)
-            let (py, _) = Toolchain.findPython()
-            let (dn, _) = Toolchain.findDotnet()
-            DispatchQueue.main.async {
-                self.deps = d
-                self.pythonPath = py                     // the interpreter the build runs under
-                self.dotnetPath = FileManager.default.isExecutableFile(atPath: dn) ? dn : ""
-                self.depsChecked = true
-            }
-        }
-    }
-
-    /// Write what the panel just decided beside library.json (`deps-check.txt`).
-    ///
-    /// The panel is the only place those verdicts appear, so "it says Python is missing" cannot be
-    /// checked afterwards: the interpreter that was tried, and the environment a Finder launch
-    /// gives the app (its PATH is /usr/bin:/bin:/usr/sbin:/sbin, unlike the terminal's), are both
-    /// invisible in a bug report. This file has them — paths and versions only, never key material.
-    nonisolated static func writeDepsReport(_ deps: [Dep]) {
-        let dir = (Toolchain.venvDir as NSString).deletingLastPathComponent
-        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
-        var out = "NX2Apple \(AppUpdateStore.appVersion) dependency check\n"
-        out += "date: \(ISO8601DateFormatter().string(from: Date()))\n"
-        out += "HOME: \(NSHomeDirectory())\n"
-        out += "PATH: \(ProcessInfo.processInfo.environment["PATH"] ?? "(unset)")\n"
-        let chosen = Toolchain.findPython()
-        let bundled = BundledTools.python()
-        out += "python chosen: \(chosen.path) (\(chosen.ok ? "ok" : "not usable")\(chosen.path == bundled ? ", bundled with the app" : ""))\n"
-        out += "bundled python: \(bundled ?? "(none: not the release app)")\n"
-        out += "python candidates (after the bundled one, in search order):\n"
-        for c in Toolchain.pythonCandidates() { out += "  \(c)\n" }
-        out += "rows:\n"
-        for d in deps { out += "  \(d.id): \(d.present ? "ok" : "MISSING") \(d.detail)\n" }
-        try? out.write(toFile: dir + "/deps-check.txt", atomically: true, encoding: .utf8)
-    }
-
-    func installDep(_ dep: Dep) {
-        guard !dep.installCmd.isEmpty else {
-            NSWorkspace.shared.open(URL(fileURLWithPath: "/Applications/App Store.app"))
-            return   // Xcode comes from the App Store; the user re-checks when it is done
-        }
-        guard let i = deps.firstIndex(where: { $0.id == dep.id }) else { return }
-        deps[i].installing = true
-        let cmd = dep.installCmd
-        DispatchQueue.global(qos: .userInitiated).async {
-            var ok = true
-            if dep.id == "python" {
-                // A venv of our own rather than pip --user: Homebrew's Python is externally
-                // managed (PEP 668) and refuses --user, which used to fail silently.
-                let r = Toolchain.makeVenv(base: self.pythonPath)
-                DispatchQueue.main.async { self.append("\n--- 安装输出 ---\n" + r.log) }
-                ok = r.ok
-            } else {
-                let collected = LineBox()
-                ok = self.runner.runCaptured(["/bin/bash", "-c",
-                     cmd.map { $0.contains(" ") ? "'" + $0 + "'" : $0 }.joined(separator: " ")],
-                     env: ["PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
-                           "HOME": NSHomeDirectory(), "NONINTERACTIVE": "1", "USER": NSUserName()])
-                { line in
-                    collected.append(line)
-                    DispatchQueue.main.async { self.append(line + "\n") }
-                }
-                let (error, fix) = BuildProgress.failureInfo(collected.lines)
-                DispatchQueue.main.async {
-                    if let j = self.deps.firstIndex(where: { $0.id == dep.id }) {
-                        self.deps[j].lastError = ok ? "" : error
-                        self.deps[j].fixHint = ok ? "" : fix
-                    }
-                }
-            }
-            DispatchQueue.main.async {
-                if let j = self.deps.firstIndex(where: { $0.id == dep.id }) { self.deps[j].installing = false }
-                if ok, let j = self.deps.firstIndex(where: { $0.id == dep.id }) { self.deps[j].lastError = ""; self.deps[j].fixHint = "" }
-                if !ok { self.doneNote = String(format: self.t("dep.install.fail"), self.t(dep.name)) }
-                self.checkDeps()
-            }
-        }
-    }
-
-    /// The output lines seen so far, from the pipe's threads and read on the main queue.
-    final class LineBox: @unchecked Sendable {
-        private let lock = NSLock()
-        private var box: [String] = []
-        func append(_ l: String) { lock.lock(); box.append(l); lock.unlock() }
-        var lines: [String] { lock.lock(); defer { lock.unlock() }; return box }
-    }
-
-    var allDepsPresent: Bool { depsChecked && deps.allSatisfy { $0.present } }
-
     /// Home shown as ~ (shorter in a one-line row, and it keeps the account name out of
     /// screenshots).
     func shortPath(_ path: String) -> String { RepoLayout.shortPath(path) }
-
-    /// A dependency row's second column: a path when there is one, else the translated hint.
-    /// `detail` carries either a real path, an L10n key, or "key:argument[:argument…]".
-    func depDetail(_ d: Dep) -> String {
-        let raw = d.detail
-        if raw.isEmpty { return t(d.hint) }
-        if raw.hasPrefix("/") || raw.hasPrefix("~") { return raw }
-        if let colon = raw.firstIndex(of: ":") {
-            let key = String(raw[..<colon]), arg = String(raw[raw.index(after: colon)...])
-            let args = arg.components(separatedBy: ":").map { shortPath($0) as CVarArg }
-            if L10n.table[key] != nil { return String(format: t(key), arguments: args) }
-        }
-        if L10n.table[raw] != nil { return t(raw) }
-        return raw
-    }
 }
 
 // MARK: - View
@@ -1538,6 +1382,7 @@ struct BuilderView: View {
     @ObservedObject var updates: AppUpdateStore   // the app's self-update (Settings, "NX2Apple" section)
     @ObservedObject var repo: RepoStore   // the repository (Settings, "Tools" section, and the setup hint)
     @ObservedObject var engine: EngineSyncStore   // the engine (Settings, "Tools" section)
+    @ObservedObject var dependencies: DependencyStore   // the tools (Settings, "Tools" section, and the setup hint and status)
     @EnvironmentObject var loc: Localizer
     @ObservedObject var library: GameLibrary
     var settings = false
@@ -1656,7 +1501,7 @@ struct BuilderView: View {
 
     @ViewBuilder private var buildPage: some View {
         pageHeading(loc.t("build.heading"), note: loc.t("build.intro"))
-        if !repo.isRepo || !m.allDepsPresent {
+        if !repo.isRepo || !dependencies.allPresent {
             group(loc.t("section.setup")) {
                 row(loc.t("library.setupHint"), dot: LauncherPalette.building) {
                     Button(loc.t("build.setup"), action: onOpenSettings)
@@ -1916,9 +1761,9 @@ struct BuilderView: View {
         if !m.doneNote.isEmpty {
             Text(m.doneNote).font(.manrope(13))
                 .foregroundStyle(m.done ? LauncherPalette.ready : LauncherPalette.building).lineLimit(2)
-        } else if !m.depsChecked {
+        } else if !dependencies.checked {
             Text(loc.t("status.checkingDeps")).font(.manrope(13)).foregroundStyle(.secondary)
-        } else if !m.allDepsPresent {
+        } else if !dependencies.allPresent {
             Text(loc.t("status.installFirst")).font(.manrope(13)).foregroundStyle(LauncherPalette.building)
         } else if !repo.isRepo {
             Text(loc.t("status.chooseRepo")).font(.manrope(13)).foregroundStyle(LauncherPalette.building)
@@ -2118,30 +1963,30 @@ struct BuilderView: View {
             }
             }
             divider
-            Button(action: { withAnimation(.easeInOut(duration: 0.18)) { m.toggleDeps() } }) {
+            Button(action: { withAnimation(.easeInOut(duration: 0.18)) { dependencies.toggle() } }) {
                 row(loc.t("dep.title"),
-                    detail: !m.depsChecked ? loc.t("dep.checking")
-                        : (m.allDepsPresent ? loc.t("dep.allReady") : String(format: loc.t("dep.missing"), m.deps.filter { !$0.present }.count)),
-                    dot: !m.depsChecked ? LauncherPalette.unbuilt : (m.allDepsPresent ? LauncherPalette.ready : LauncherPalette.building),
-                    open: m.depsOpen) {
-                    if !m.depsChecked { ProgressView().controlSize(.small) }
-                    Button(loc.t("dep.recheck")) { m.checkDeps() }
-                        .padTarget("set.deps", scope: "main") { m.checkDeps() }
+                    detail: !dependencies.checked ? loc.t("dep.checking")
+                        : (dependencies.allPresent ? loc.t("dep.allReady") : String(format: loc.t("dep.missing"), dependencies.deps.filter { !$0.present }.count)),
+                    dot: !dependencies.checked ? LauncherPalette.unbuilt : (dependencies.allPresent ? LauncherPalette.ready : LauncherPalette.building),
+                    open: dependencies.open) {
+                    if !dependencies.checked { ProgressView().controlSize(.small) }
+                    Button(loc.t("dep.recheck")) { _ = dependencies.check() }
+                        .padTarget("set.deps", scope: "main") { _ = dependencies.check() }
                 }
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            if m.depsOpen {
-                ForEach(m.deps, id: \.id) { d in
+            if dependencies.open {
+                ForEach(dependencies.deps, id: \.id) { d in
                     divider
                     VStack(alignment: .leading, spacing: 0) {
-                        row(loc.t(d.name), detail: m.shortPath(m.depDetail(d)), dot: d.present && !d.warning ? LauncherPalette.ready : LauncherPalette.building,
+                        row(loc.t(d.name), detail: m.shortPath(dependencies.detail(of: d)), dot: d.present && !d.warning ? LauncherPalette.ready : LauncherPalette.building,
                             help: loc.t(d.hint)) {
                             if d.installing {
                                 ProgressView().controlSize(.small)
                                 Text(loc.t("dep.installing")).font(.manrope(12)).foregroundStyle(LauncherPalette.building)
                             } else if !d.present {
-                                Button(d.actionLabel.isEmpty ? (d.installCmd.isEmpty ? loc.t("dep.openAppStore") : loc.t("dep.install")) : loc.t(d.actionLabel)) { m.installDep(d) }
+                                Button(d.actionLabel.isEmpty ? (d.installCmd.isEmpty ? loc.t("dep.openAppStore") : loc.t("dep.install")) : loc.t(d.actionLabel)) { _ = dependencies.install(d) }
                             }
                         }
                         // Why the last install failed, and what to do about it: the tool's own

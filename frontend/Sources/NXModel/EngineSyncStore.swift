@@ -2,12 +2,6 @@ import Foundation
 import Combine
 import NXCore
 
-/// Where the Python interpreter is, for a store that only needs to read it. `BuildModel` provides it today, the dependency
-/// store takes it over. Empty: not found yet, and the user of it looks for one itself.
-package protocol PythonLocation: AnyObject {
-    var pythonPath: String { get }
-}
-
 /// The engine (LNPANDY/NX2Apple#387, step 7): which engine the launcher builds with and how it gets it. It follows
 /// `AppUpdateStore` (`frontend/ARCHITECTURE.md`, "Stores").
 ///

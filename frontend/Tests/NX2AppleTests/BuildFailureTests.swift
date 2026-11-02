@@ -199,7 +199,7 @@ final class BuildFailureTests: XCTestCase {
     }
 
     func testTheTestedCompilerIsNoWarning() {
-        let dep = BuildModel.metalDep(runs: true, lock: Self.lock, now: ["macosx": Self.pinned, "iphoneos": Self.pinned], needsIOS: true)
+        let dep = DependencyCheck.metalDep(runs: true, lock: Self.lock, now: ["macosx": Self.pinned, "iphoneos": Self.pinned], needsIOS: true)
         XCTAssertTrue(dep.present)
         XCTAssertFalse(dep.warning)
         XCTAssertTrue(dep.lastError.isEmpty)
@@ -207,7 +207,7 @@ final class BuildFailureTests: XCTestCase {
 
     func testANewerCompilerOfTheGenerationIsNoWarning() {   // Xcode 27.2's auto-update: the engine's gate builds with a note, so the row stays green
         XCTAssertTrue(MetalPin.mismatches(lock: Self.lock, now: ["macosx": Self.newer, "iphoneos": Self.newer], iOS: true).isEmpty)
-        XCTAssertFalse(BuildModel.metalDep(runs: true, lock: Self.lock, now: ["macosx": Self.newer], needsIOS: true).warning)
+        XCTAssertFalse(DependencyCheck.metalDep(runs: true, lock: Self.lock, now: ["macosx": Self.newer], needsIOS: true).warning)
     }
 
     func testAnOlderOrForeignGenerationStaysAWarning() {
@@ -224,7 +224,7 @@ final class BuildFailureTests: XCTestCase {
     }
 
     func testAnotherCompilerIsAWarningAndNotABlocker() {
-        let dep = BuildModel.metalDep(runs: true, lock: Self.lock, now: ["macosx": Self.other, "iphoneos": nil], needsIOS: false)
+        let dep = DependencyCheck.metalDep(runs: true, lock: Self.lock, now: ["macosx": Self.other, "iphoneos": nil], needsIOS: false)
         XCTAssertTrue(dep.present, "a warning never blocks")
         XCTAssertTrue(dep.warning)
         XCTAssertEqual(dep.fixHint, "dep.fix.metalPin")
@@ -234,29 +234,29 @@ final class BuildFailureTests: XCTestCase {
 
     func testTheIPhoneCompilerCountsOnlyForAnIPhoneBuild() {
         let now: [String: String?] = ["macosx": Self.pinned, "iphoneos": Self.other]
-        XCTAssertFalse(BuildModel.metalDep(runs: true, lock: Self.lock, now: now, needsIOS: false).warning)
-        let ios = BuildModel.metalDep(runs: true, lock: Self.lock, now: now, needsIOS: true)
+        XCTAssertFalse(DependencyCheck.metalDep(runs: true, lock: Self.lock, now: now, needsIOS: false).warning)
+        let ios = DependencyCheck.metalDep(runs: true, lock: Self.lock, now: now, needsIOS: true)
         XCTAssertTrue(ios.warning)
         XCTAssertTrue(ios.lastError.hasPrefix("metal_iphoneos:"))
     }
 
     func testAMissingCompilerKeepsTheInstallRow() {
-        let dep = BuildModel.metalDep(runs: false, lock: Self.lock, now: ["macosx": nil, "iphoneos": nil], needsIOS: true)
+        let dep = DependencyCheck.metalDep(runs: false, lock: Self.lock, now: ["macosx": nil, "iphoneos": nil], needsIOS: true)
         XCTAssertFalse(dep.present)
         XCTAssertFalse(dep.warning)
         XCTAssertEqual(dep.installCmd, Toolchain.metalToolchainCmd)
     }
 
     func testWithoutALockThereIsNothingToCompare() {
-        XCTAssertFalse(BuildModel.metalDep(runs: true, lock: nil, now: ["macosx": Self.other], needsIOS: true).warning)
+        XCTAssertFalse(DependencyCheck.metalDep(runs: true, lock: nil, now: ["macosx": Self.other], needsIOS: true).warning)
         XCTAssertTrue(MetalPin.mismatches(lock: "", now: ["macosx": Self.other], iOS: true).isEmpty)
     }
 
-    func testTheMetalRowsDetailReadsInTheLauncher() {
+    @MainActor func testTheMetalRowsDetailReadsInTheLauncher() {
         let m = BuildModel()
-        let dep = BuildModel.metalDep(runs: true, lock: Self.lock, now: ["macosx": Self.other], needsIOS: false)
-        XCTAssertTrue(m.depDetail(dep).contains(Self.other), m.depDetail(dep))
-        XCTAssertTrue(m.depDetail(dep).contains(Self.pinned), m.depDetail(dep))
+        let dep = DependencyCheck.metalDep(runs: true, lock: Self.lock, now: ["macosx": Self.other], needsIOS: false)
+        XCTAssertTrue(m.dependencies.detail(of: dep).contains(Self.other), m.dependencies.detail(of: dep))
+        XCTAssertTrue(m.dependencies.detail(of: dep).contains(Self.pinned), m.dependencies.detail(of: dep))
     }
 
     /// Opt-in native rendering for pull request screenshots (NX_LAUNCHER_CAPTURE_DIR), the way LibraryTests renders the launcher.
@@ -294,9 +294,9 @@ final class BuildFailureTests: XCTestCase {
         }
         let m = BuildModel()
         m.lang = .en
-        m.depsChecked = true
-        m.deps = [Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint", present: true, installCmd: []),
-                  BuildModel.metalDep(runs: true, lock: Self.lock, now: ["macosx": Self.other, "iphoneos": Self.other], needsIOS: true)]
+        MainActor.assumeIsolated { m.dependencies.checked = true }
+        MainActor.assumeIsolated { m.dependencies.deps = [Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint", present: true, installCmd: []),
+                  DependencyCheck.metalDep(runs: true, lock: Self.lock, now: ["macosx": Self.other, "iphoneos": Self.other], needsIOS: true)] }
         try capture("deps-metal-warning", width: 760, height: 260, ZStack(alignment: .top) {
             LauncherPalette.background
             MetalRowPreview(m: m).padding(24)
@@ -309,12 +309,12 @@ private struct MetalRowPreview: View {
     @ObservedObject var m: BuildModel
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ForEach(m.deps, id: \.id) { d in
+            ForEach(m.dependencies.deps, id: \.id) { d in
                 HStack(alignment: .top, spacing: 12) {
                     Circle().fill(d.present && !d.warning ? LauncherPalette.ready : LauncherPalette.building).frame(width: 7, height: 7).padding(.top, 6)
                     VStack(alignment: .leading, spacing: 3) {
                         Text(m.t(d.name)).font(.manrope(14, .semibold))
-                        Text(m.depDetail(d)).font(.manrope(12.5)).foregroundStyle(.secondary)
+                        Text(m.dependencies.detail(of: d)).font(.manrope(12.5)).foregroundStyle(.secondary)
                         if !d.lastError.isEmpty {
                             Text(d.lastError).font(.mono(11)).foregroundStyle(LauncherPalette.building)
                             Text(m.t(d.fixHint)).font(.manrope(11.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
