@@ -95,6 +95,17 @@ A feature from the maintainers (v0lumehi and LNPANDY) merges after 48 hours. A f
 
 A patch in `patches/` takes the next free number from `patches/series` on `main` at merge time. Whoever merges renumbers the patch and notes it in the PR. You do not need to rebase to chase free numbers.
 
+### CI on stacks
+
+The maintainers work in stacks: one PR per step, each based on the head branch of the one below, with a PR of its own for traceability. GitHub has 5 macOS runners for the whole account, so the heavy checks run once, on the tip of a stack (the PR that no other open PR is based on).
+
+- **What runs where.** Every PR runs the cheap checks (Patch queue, Qt front end, Triage script tests, Changed areas). The jobs that take a macOS runner (Mac launcher with `swift test`, Tool tests, the engine jobs) run on the tip. The app build (`Build the NX2Apple app (macOS)`) runs on the tip only when the PR changes a file that goes into the packaging (`.github/scripts/build_wanted.py` lists them) or has the label `full-build`. A push to `main`, a tag and a manual run always run everything. The changed files are counted against `main`, so the tip counts every PR below it.
+- **Why a lower PR shows "skipped".** Its `Stack` job found an open PR on top of it and skipped the heavy jobs. The job summary says `Not the tip of a stack: heavy checks run on #N`. A skipped job counts as passed for the required checks, so the PR can merge. The checks are skipped per job, never per workflow, because a workflow that does not start reports nothing and blocks the merge.
+- **When a PR becomes the tip.** If its child is closed, merged or retargeted, `Stack parent re-run` re-runs the `Stack` job of the parent's latest runs, and the heavy jobs start. If a parent still shows skipped (its run was still going when the child closed), open the run and press "Re-run all jobs", or run `gh run rerun <run id> --job <id of the Stack job>`.
+- **Force a run.** Add the label `full-build`, then re-run the `Build the NX2Apple app (macOS)` run (the label is read when the job runs, not when the run starts). Or start the workflow by hand: `gh workflow run build-mac-app.yml --ref <branch>`. A run by hand is always the tip.
+- **Merge a stack through its top PR.** Use the async API on the tip, it merges the PRs below it too: `gh api -X PUT repos/LNPANDY/NX2Apple/pulls/<n>/merge-async -f merge_method=merge -f merge_action=direct_merge`. The required checks of every PR in the stack must have reported, and a skipped heavy job has.
+- **If the lookup fails** (GitHub API down), the PR counts as the tip and CI runs. A broken lookup never skips a check.
+
 ## For AI agents and other tools
 
 Issue forms and the PR template apply in the browser only. `gh issue create`, the API and MCP tools skip the forms, so follow them yourself:
