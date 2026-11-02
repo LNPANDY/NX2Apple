@@ -28,7 +28,6 @@ class German(unittest.TestCase):
                 self.assertNotIn('NX2Apple', row['de'], key)
 
     def test_t_picks_the_german_column(self):
-        self.assertEqual(t('settings.language.de', Lang('de')), 'Deutsch')
         self.assertEqual(t('dep.recheck', Lang('de')), 'Erneut prüfen')
         self.assertEqual(t('onboarding.stepCount', Lang('de'), 2, 5), 'Schritt 2 von 5')
         self.assertEqual(t('dep.recheck', Lang('en')), 'Check again')

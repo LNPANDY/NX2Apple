@@ -10,9 +10,8 @@ final class FrenchLocalizationTests: XCTestCase {
     static let sameAsEnglish: Set<String> = [
         "onboarding.platform.mac", "onboarding.platform.iphone", "onboarding.background.python",
         "onboarding.background.dotnet", "onboarding.games.version", "onboarding.demo.mario",
-        "console.brand", "console.platform.mac", "console.platform.iphone", "console.version",
-        "saves.toDevice", "saves.toMac", "section.app", "app.version", "settings.language.zh",
-        "settings.language.en", "settings.language.sv", "settings.language.de", "settings.language.fr", "library.ok",
+        "console.platform.mac", "console.platform.iphone", "console.version",
+        "saves.toDevice", "saves.toMac", "section.app", "app.version", "library.ok",
         "build.ios", "data.keys", "dep.tool.xcodegen",
         "dep.tool.zstd", "dep.tool.spirv-cross", "dep.tool.glslangValidator", "diag.title", "dep.brew",
         "dep.spirv.win", "dep.zstd.win", "dep.python.hint", "controls.mode.auto", "controls.fn.A",
@@ -28,8 +27,7 @@ final class FrenchLocalizationTests: XCTestCase {
 
     func testFrenchIsSelectedAndReadsItsCatalog() {
         XCTAssertEqual(Lang.find("fr"), .fr)
-        XCTAssertEqual(L10n.string("settings.language.fr", .fr), "Français")
-        XCTAssertEqual(L10n.string("settings.language.fr", .en), "Français", "a language's name is in that language")
+        XCTAssertEqual(Lang("fr").name, "Français", "a language's name is in that language")
         XCTAssertEqual(L10n.string("onboarding.start", .fr), "Commencer")
         XCTAssertEqual(L10n.string("onboarding.platform.title", .fr), "Où voulez-vous jouer\u{a0}?")
         XCTAssertEqual(String(format: L10n.string("onboarding.stepCount", .fr), 2, 6), "Étape 2 sur 6")
