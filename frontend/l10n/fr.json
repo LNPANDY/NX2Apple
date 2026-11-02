@@ -382,7 +382,7 @@
   "dev.noDevices": "Aucun iPhone ni iPad jumelé avec ce Mac (nécessite Xcode).",
   "dev.noProject": "Introuvable : %@",
   "dev.noTeam": "Aucun identifiant Apple dans Xcode et aucun certificat de développement. Ouvrez Xcode → Settings → Apple Accounts (les menus d’Xcode sont uniquement en anglais), connectez-vous avec votre identifiant Apple, sélectionnez Personal Team → Download Manual Profiles. Le certificat n’apparaît pas immédiatement — attendez environ 30 secondes, puis appuyez sur Vérifier à nouveau. S’il n’apparaît toujours pas, cliquez sur + dans Manage Certificates pour créer manuellement un certificat Apple Development.",
-  "dev.none": "Ne pas installer, exporter l’IPA",
+  "dev.none": "Choisir un appareil",
   "dev.notConnected": "non connecté",
   "dev.note": "Xcode signe le jeu pour cet appareil et l’y installe, puis copie les données du jeu (romfs.img) dans les Documents de l’app, comme pour un sideload. La première copie d’un gros jeu prend quelques minutes. La première fois, activez le mode développeur sur l’appareil et faites confiance au développeur (Réglages → Général → VPN et gestion de l’appareil).",
   "dev.open": "Ouvrir sur %@",
