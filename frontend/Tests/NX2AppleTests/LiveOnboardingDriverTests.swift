@@ -43,7 +43,7 @@ import XCTest
         if let platform { defaults.set(platform.rawValue, forKey: OnboardingDefaults.platform) }
         if let step { defaults.set(step.rawValue, forKey: OnboardingDefaults.step); defaults.set(true, forKey: OnboardingDefaults.inProgress) }
         let model = BuildModel()
-        model.deps = deps; model.depsChecked = true
+        model.dependencies.deps = deps; model.dependencies.checked = true
         var env = OnboardingEnvironment()
         env.defaults = defaults
         env.home = home.path
@@ -57,7 +57,7 @@ import XCTest
         env.detectDeps = { m in fake.onDetect(m) }
         env.installDep = { m, d in
             fake.installed.append(d.id)
-            if let i = m.deps.firstIndex(where: { $0.id == d.id }) { m.deps[i].installing = true }
+            if let i = m.dependencies.deps.firstIndex(where: { $0.id == d.id }) { m.dependencies.deps[i].installing = true }
         }
         env.openURL = { fake.opened.append($0) }
         env.keyCheck = { _, _ in fake.keyOutcome }
@@ -198,7 +198,7 @@ import XCTest
         let (driver, model) = make(fake, deps: [dep("metal", present: false), dep("xcode", present: false)], step: .xcode, platform: .both)
         fake.onDetect = { m in   // what the admin step and the downloads change
             fake.probe.selectedIsXcode = true; fake.probe.licenseAccepted = true; fake.probe.firstLaunchDone = true
-            if !fake.commands.isEmpty { for i in m.deps.indices { m.deps[i].present = true } }
+            if !fake.commands.isEmpty { for i in m.dependencies.deps.indices { m.dependencies.deps[i].present = true } }
         }
         await driver.refreshXcode()
         driver.finishXcodeSetup()
@@ -215,7 +215,7 @@ import XCTest
         let (driver, _) = make(fake, deps: [dep("metal", present: false), dep("xcode", present: true)], step: .xcode, platform: .mac)
         fake.onDetect = { m in
             fake.probe.selectedIsXcode = true; fake.probe.licenseAccepted = true; fake.probe.firstLaunchDone = true
-            if !fake.commands.isEmpty { for i in m.deps.indices { m.deps[i].present = true } }
+            if !fake.commands.isEmpty { for i in m.dependencies.deps.indices { m.dependencies.deps[i].present = true } }
         }
         await driver.refreshXcode()
         driver.finishXcodeSetup()
@@ -290,9 +290,9 @@ import XCTest
         await driver.settle()
         XCTAssertEqual(fake.installed, ["python"])
         func finish(_ id: String) async {   // the install ended and detection ran again
-            model.depsChecked = false
-            for i in model.deps.indices { model.deps[i].installing = false; if model.deps[i].id == id { model.deps[i].present = true } }
-            model.depsChecked = true
+            model.dependencies.checked = false
+            for i in model.dependencies.deps.indices { model.dependencies.deps[i].installing = false; if model.dependencies.deps[i].id == id { model.dependencies.deps[i].present = true } }
+            model.dependencies.checked = true
             await driver.settle()
         }
         await finish("python"); XCTAssertEqual(fake.installed, ["python", "dotnet"])
@@ -322,9 +322,9 @@ import XCTest
                                                  dep("dotnet", present: false), dep("python", present: false)], step: .xcode, platform: .mac)
         driver.activate()
         await driver.settle()
-        model.depsChecked = false
-        for i in model.deps.indices { model.deps[i].installing = false }   // python's install ended, still missing
-        model.depsChecked = true
+        model.dependencies.checked = false
+        for i in model.dependencies.deps.indices { model.dependencies.deps[i].installing = false }   // python's install ended, still missing
+        model.dependencies.checked = true
         await driver.settle()
         guard case let .failed(failure) = driver.state.background[.python] else { return XCTFail("\(String(describing: driver.state.background[.python]))") }
         XCTAssertTrue(failure.message.contains(L10n.string("dep.python", model.lang)))

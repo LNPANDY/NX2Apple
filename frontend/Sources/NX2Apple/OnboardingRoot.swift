@@ -66,7 +66,7 @@ struct RootView: View {
         let env = OnboardingEnvironment()
         let keysKnown = model.slot("keys").ok || !env.keyCandidates(gamesFolder: library.folder).isEmpty || library.games.contains(where: \.isReady)
         let gamesKnown = !library.folder.isEmpty || !library.games.isEmpty
-        let complete = OnboardingLaunch.setupComplete(depsPresent: model.allDepsPresent, keysKnown: keysKnown, gamesKnown: gamesKnown)
+        let complete = OnboardingLaunch.setupComplete(depsPresent: model.dependencies.allPresent, keysKnown: keysKnown, gamesKnown: gamesKnown)
         if OnboardingLaunch.shouldShow(completed: false, setupComplete: complete) {
             show(fresh: false)
         } else {

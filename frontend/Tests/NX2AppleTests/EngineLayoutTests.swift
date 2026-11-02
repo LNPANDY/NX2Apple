@@ -112,7 +112,7 @@ import XCTest
         try touch("tools/engine.py", script)
         let m = BuildModel()
         m.repoPath = repo
-        m.pythonPath = "/usr/bin/python3"
+        m.dependencies.pythonPath = "/usr/bin/python3"
         return m
     }
 

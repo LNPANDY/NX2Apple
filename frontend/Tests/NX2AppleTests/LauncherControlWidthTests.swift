@@ -84,8 +84,8 @@ final class LauncherControlWidthTests: XCTestCase {
             Scenario(name: "settings with a ZIP copy and a library folder", page: .settings, atLeast: 6) { m, library, directory in
                 m.repoPath = try self.makeRepo(directory, git: false)
                 MainActor.assumeIsolated { m.appUpdates.installability = .ok }
-                m.depsChecked = true
-                m.deps = [Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint", present: true, installCmd: [])]
+                MainActor.assumeIsolated { m.dependencies.checked = true }
+                MainActor.assumeIsolated { m.dependencies.deps = [Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint", present: true, installCmd: [])] }
                 library.setFolder(directory)
             },
             Scenario(name: "settings with a clone that is behind and an app update", page: .settings, atLeast: 6) { m, _, directory in
@@ -101,9 +101,9 @@ final class LauncherControlWidthTests: XCTestCase {
             },
             Scenario(name: "settings with every kind of missing tool", page: .settings, atLeast: 6) { m, _, directory in
                 m.repoPath = try self.makeRepo(directory, git: true)
-                m.depsChecked = true
-                m.deps = [missing("a"), missing("b", command: ["brew", "install", "x"]), missing("c", action: "dep.xcode.fix", command: ["x"])]
-                m.depsExpanded = true
+                MainActor.assumeIsolated { m.dependencies.checked = true }
+                MainActor.assumeIsolated { m.dependencies.deps = [missing("a"), missing("b", command: ["brew", "install", "x"]), missing("c", action: "dep.xcode.fix", command: ["x"])] }
+                MainActor.assumeIsolated { m.dependencies.expanded = true }
             },
             Scenario(name: "builds without a repository", page: .builds, atLeast: 4) { m, _, _ in
                 m.repoPath = ""
