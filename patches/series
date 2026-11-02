@@ -33,3 +33,8 @@
 0053-runtime-profile-every-site.patch
 0054-front-mac-start-with-the-pointer-hidden-when-the.patch
 0055-ios-shell-declare-en-and-zh-hans-in-cfbundleloca.patch
+0056-shader-split-scimitar-forge-archives-and-raw-con.patch
+0057-mac-app-programs-of-a-multi-program-application.patch
+0058-nvn-mtl-a-stage-keeps-its-program-s-shaders-afte.patch
+0059-nvn-mtl-write-image-buffer-textures-below-16-byt.patch
+0060-dm-ctl-shots-n-folder-captures-consecutive-frame.patch

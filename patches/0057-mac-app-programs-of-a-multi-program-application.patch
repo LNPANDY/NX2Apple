@@ -1,0 +1,595 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Faris Benhaddou <farisbenhaddou@gmail.com>
+Date: Mon, 2 Nov 2026 09:01:00 +0300
+Subject: [PATCH] Mac app: programs of a multi-program application switch in
+ one window
+
+The Ezio Collection is four programs (the menu with AC II, Brotherhood,
+Revelations and a fourth), and the menu starts a game with ExecuteProgram,
+which was a red stub. The NSP build now extracts and rewrites every program
+(nx_extract --program / --programs), sizes the heap for the largest, and
+packs each into Resources/dm/p<N> with its RomFS (Info.plist DMPrograms).
+ExecuteProgram writes the next program and its launch parameter to
+DM_PROGRAM_HANDOFF and signals the launcher, which starts the next host with
+DM_LAUNCH_PARAM / DM_PREV_PROGRAM (TryPopLaunchParameter,
+GetPreviousProgramIndex) and the old window's place. The new host takes over
+the window when its window exists (not at its first frame, which left the
+Ubisoft logo movie behind the old black window) and the old host yields
+activation and exits, so the switch looks like the Switch's: one window, no
+app restart.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+Upstream-Status: pending
+Reason: The Ezio Collection's menu starts each game with ExecuteProgram, which was a stub: multi-program applications switch programs in one window
+Issue: LNPANDY/NX2Apple#483
+
+---
+ dm/gfx/nvn/nvn_mtl.m               |  2 +
+ dm/host/front_mac.m                | 57 ++++++++++++++++++++--
+ dm/host/hle_oe.c                   | 46 +++++++++++++++---
+ dm/mac/launcher.c                  | 47 +++++++++++++++++-
+ dm/mac/pack_app.py                 | 20 +++++++-
+ dm/tools/nx_extract/Program.cs     | 13 ++++-
+ dm/tools/tests/test_nsp_mac_app.py | 77 ++++++++++++++++++++++++++++++
+ docs/reference/services.md         |  1 +
+ scripts/build_ipa_from_nsp.py      | 52 ++++++++++++++++----
+ 9 files changed, 293 insertions(+), 22 deletions(-)
+
+diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
+index be4a638..f3feaf1 100644
+--- a/dm/gfx/nvn/nvn_mtl.m
++++ b/dm/gfx/nvn/nvn_mtl.m
+@@ -11685,10 +11685,12 @@ static void present_gpu_note(double s, int fx) {
+     MLOG("present command buffer GPU time over 600 presents %s: p50 %.3f ms, p95 %.3f ms, max %.3f ms", fx ? "through MetalFX" : "through the bilinear pass", a[299], a[569], a[599]);
+     n[fx] = 0;
+ }
++__attribute__((weak)) void dm_front_first_present(void) {}   // the Mac front end ends the program that started this one here (front_mac.m)
+ static double g_link_it_tin;   // Enqueue time of the frame the display-link callback is presenting (read and written only on the display-link thread)
+ static int present_now(const tex_t *t, double period, uint64_t frame, uint64_t ticket, const int crop[4], id<CAMetalDrawable> supplied, double target_ts) {
+     if (g_present_stall_ns) { struct timespec ts = {0, (long)g_present_stall_ns}; nanosleep(&ts, NULL); }
+     g_present_n++;
++    if (g_present_n == 1) dm_front_first_present();   // a program another one started (ExecuteProgram): the old host's window closes now (front_mac.m)
+     if (bootprof() && (g_present_n == 1 || g_present_n % 120 == 0)) {
+         if (g_present_n == 1) g_bp_first_present = bp_now() - g_bp_t0;
+         MLOG("[bootprof] t=%.3f s present #%llu: metallibs loaded %llu / %.1f ms; pipelines created %llu / %.1f ms (all synchronous on the submit thread); prewarmed and used: shaders %llu / render pipelines %llu / compute pipelines %llu; "
+diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
+index 525765e..fb6d5b1 100644
+--- a/dm/host/front_mac.m
++++ b/dm/host/front_mac.m
+@@ -1178,13 +1178,60 @@ - (BOOL)windowShouldClose:(NSWindow *)w {
+ }
+ @end
+ 
++// ---- Program hand-over (oe::ExecuteProgram, hle_oe.c; dm/mac/launcher.c): the game window never closes ----
++// The old host: its window goes black and its sound stops, and its place ("x y w h fullscreen") goes to the launcher, which starts the next program's host with it in DM_WINDOW_PLACE and
++// DM_HANDOFF_FROM=<old host's pid>. The new host opens its window there, in front without a Dock icon (an accessory app while the old one runs). With its window in place it sends
++// the old host SIGUSR2: the old host gives up activation to the new pid (the launcher wrote it to <DM_PROGRAM_HANDOFF>.next) and exits, and the new host becomes a regular app and takes focus
++void dm_host_shutdown(const char *why);   // hle_lifecycle.c
++void dm_front_handoff_begin(char *place, size_t n) {
++    dispatch_sync(dispatch_get_main_queue(), ^{
++        if (!g_win) { if (n) *place = 0; return; }
++        NSRect f = g_win.frame; int fs = (g_win.styleMask & NSWindowStyleMaskFullScreen) != 0;
++        snprintf(place, n, "%.0f %.0f %.0f %.0f %d", f.origin.x, f.origin.y, f.size.width, f.size.height, fs);
++        g_win.backgroundColor = NSColor.blackColor; g_layer.hidden = YES;   // the Switch's black screen between programs
++    });
++    dm_audio_suspend(1);
++    static dispatch_source_t src; signal(SIGUSR2, SIG_IGN);
++    src = dispatch_source_create(DISPATCH_SOURCE_TYPE_SIGNAL, SIGUSR2, 0, dispatch_get_main_queue());
++    dispatch_source_set_event_handler(src, ^{
++        char p[1100]; snprintf(p, sizeof p, "%s.next", getenv("DM_PROGRAM_HANDOFF")); FILE *f = fopen(p, "r"); int pid = 0;
++        if (f) { if (fscanf(f, "%d", &pid) != 1) pid = 0; fclose(f); }
++        NSRunningApplication *next = pid > 0 ? [NSRunningApplication runningApplicationWithProcessIdentifier:pid] : nil;
++        if (next) { if (@available(macOS 14.0, *)) [NSApp yieldActivationToApplication:next]; }
++        [g_win orderOut:nil];
++        dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{ dm_host_shutdown("the next program's first frame (hand-over)"); });
++    });
++    dispatch_resume(src);
++}
++// The new host takes over as soon as its window is in place, not at its first frame: both windows are black then, and a window that waits behind macOS's activation is "covered",
++// its display link firing about once a second; Assassin's Creed II's Ubisoft logo movie played in that time and showed black (its sound played). The first present calls it too (no window)
++static void handoff_take_over(const char *why) {
++    static int once; const char *from = getenv("DM_HANDOFF_FROM"); pid_t old = from ? (pid_t)atoi(from) : 0;
++    if (old <= 0 || once++) return;
++    LOG("front end: %s, ending the program that started this one (pid %d)", why, (int)old);
++    kill(old, SIGUSR2);
++    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
++        for (int i = 0; i < 300 && !kill(old, 0); i++) usleep(10000);   // until it has gone (3 s at most)
++        dispatch_async(dispatch_get_main_queue(), ^{
++            [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
++            if (@available(macOS 14.0, *)) [NSApp activate]; else [NSApp activateIgnoringOtherApps:YES];
++            [g_win makeKeyAndOrderFront:nil];
++            LOG("front end: hand-over done, this window has the focus");
++        });
++    });
++}
++void dm_front_first_present(void) { handoff_take_over("first frame on screen"); }
++
+ void front_run(void (*guest)(void)) {
+     // A game: tell macOS its work is latency-critical, so the system does not trade its frame time for power while the frame rate is capped
+     static id activity; activity = [[NSProcessInfo processInfo] beginActivityWithOptions:NSActivityUserInitiated | NSActivityLatencyCritical reason:@"game"];
+     if (!getenv("DM_WINDOW")) { guest(); return; }
+     @autoreleasepool {
+         [NSApplication sharedApplication];
+-        [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
++        const char *from = getenv("DM_HANDOFF_FROM"), *place = getenv("DM_WINDOW_PLACE"); int handoff = from && atoi(from) > 0;
++        double px, py, pw, ph; int pfs = 0, placed = place && sscanf(place, "%lf %lf %lf %lf %d", &px, &py, &pw, &ph, &pfs) == 5 && pw > 0 && ph > 0;
++        if (placed && pfs) setenv("DM_FULLSCREEN", "1", 1);   // the old window was fullscreen: this one enters it too
++        [NSApp setActivationPolicy:handoff ? NSApplicationActivationPolicyAccessory : NSApplicationActivationPolicyRegular];   // no second Dock icon while the old host runs
+         NSRect r = NSMakeRect(0, 0, 1280, 720);
+         NSWindow *win = [[NSWindow alloc] initWithContentRect:r
+                                                     styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskResizable
+@@ -1215,10 +1262,14 @@ void front_run(void (*guest)(void)) {
+                 LOG("front end: window on screen %lu '%s' (DM_SCREEN)", id, on.localizedName.UTF8String);
+             } else LOG("front end: DM_SCREEN=%s ignored, no connected screen has that number", want_scr);
+         }
+-        [win makeKeyAndOrderFront:nil];
++        if (placed && !pfs) { [win setFrame:NSMakeRect(px, py, pw, ph) display:NO]; LOG("front end: window where the previous program's was (DM_WINDOW_PLACE %s)", place); }
++        win.backgroundColor = NSColor.blackColor;
++        if (handoff) [win orderFrontRegardless];   // over the old host's black window; focus comes at the first frame (dm_front_first_present)
++        else [win makeKeyAndOrderFront:nil];
+         screen_refresh(win.screen ?: NSScreen.mainScreen);
+         g_win = win;
+-        [NSApp activateIgnoringOtherApps:YES];
++        if (!handoff) [NSApp activateIgnoringOtherApps:YES];
++        else handoff_take_over("window in place");
+         // A host another process starts (scripts/regress.py) is not activated (its focus state stays 2), so its window opened wherever it landed in the window order, and behind
+         // another app's window macOS fires its display link about once a second: Breath of the Wild stepped up to 3 vsyncs at boot and never came back (20 fps runs).
+         // DM_WINDOW_TOP=1 orders it in front without activation and keeps it above other apps' windows; the log names every change of the window's visibility either way
+diff --git a/dm/host/hle_oe.c b/dm/host/hle_oe.c
+index 1e97a64..88c61f1 100644
+--- a/dm/host/hle_oe.c
++++ b/dm/host/hle_oe.c
+@@ -2,6 +2,8 @@
+ // oe::Initialize is in hle_sdkinit.c, not here.
+ // Environment switches: DM_OPMODE=0 handheld / 1 console (default: the profile's op_mode, console unless set; console corresponds to the console-mode render profile); DM_LANG=language code (default en-US; the iOS app sets it from the IPA's DMLanguage, main.m).
+ #include "hle.h"
++#include <signal.h>
++#include <unistd.h>
+ 
+ // The operation mode is runtime state (the front end can change it: iOS overheat downgrade switches to handheld): the single source is here, taken once from DM_OPMODE at startup, the environment variable is not read again afterwards
+ #include <stdatomic.h>
+@@ -104,14 +106,46 @@ HLE_FORCE("_ZN2nn2oe15EnableRecordingEv", "video recording switch; the host has
+ // Applet resource user ID (ARUID, the number am assigns to this process): the host has no am, and the SDK's own getter returns 0. SDK 20's OpenAudioRenderer (the CPU rendering + manual execution path, sdk+0x221730)
+ //   aborts when it gets 0 (The Legend of Zelda: Breath of the Wild 1.9.0); SDK 16 did not check. Report a fixed non-zero ID, used only as an identifier
+ HLE_FORCE("_ZN2nn6applet23GetAppletResourceUserIdEv", "applet resource user ID; the host returns a fixed non-zero value", uint64_t, h_applet_Aruid, void) { return 0x80; }
+-// Launch parameter (present only when another program launched this one with one; returns bool): the host never passes one
+-HLE_FORCE("_ZN2nn2oe21TryPopLaunchParameterEPmPvm", "launch parameter: none", unsigned, h_oe_PopLaunchParam, size_t *out, void *buf, size_t n) { (void)buf; (void)n; if (out) *out = 0; return 0; }
++// Launch parameter (present only when another program launched this one with one; returns bool): the one the launcher hands over in DM_LAUNCH_PARAM (hex), from the program that
++// called ExecuteProgram (Assassin's Creed: The Ezio Collection's menu passes 80 bytes to the game it starts, and the game passes some back to the menu); popped once, as am does
++static _Atomic int g_param_popped;
++HLE_FORCE("_ZN2nn2oe21TryPopLaunchParameterEPmPvm", "launch parameter: DM_LAUNCH_PARAM from the program that started this one, once", unsigned, h_oe_PopLaunchParam, size_t *out, void *buf, size_t n) {
++    const char *h = getenv("DM_LAUNCH_PARAM"); size_t len = h ? strlen(h) / 2 : 0;
++    if (out) *out = 0;
++    if (!len || atomic_exchange(&g_param_popped, 1)) return 0;
++    if (len > n) { LOG("[RED] oe::TryPopLaunchParameter: %zu bytes of launch parameter, the game's buffer holds %zu; cut", len, n); len = n; }
++    for (size_t i = 0; i < len; i++) { unsigned v; sscanf(h + 2 * i, "%2x", &v); ((uint8_t *)buf)[i] = (uint8_t)v; }
++    if (out) *out = len;
++    LOG("oe::TryPopLaunchParameter: %zu bytes from program %s: %.*s", len, getenv("DM_PREV_PROGRAM") ? getenv("DM_PREV_PROGRAM") : "?", (int)(2 * len), h);   // in full, to start the program the same way again
++    return 1;
++}
+ // Tears of the Kingdom (SDK 20.5.22): the index of the program that launched this one in a multi-program application. The SDK asks the applet proxy, which the host never opens
+ // (null read in applet::GetPreviousProgramIndex right after the window setup); -1 = launched from the home menu
+-HLE_FORCE("_ZN2nn2oe23GetPreviousProgramIndexEv", "previous program index: launched from HOME, -1", int, h_oe_PrevProgram, void) { return -1; }
+-// Launch another program of a multi-program application (Octopath Traveler 0 imports it); on hardware it does not return. The host has only this program: logged, and the game carries on
+-HLE_FORCE("_ZN2nn2oe14ExecuteProgramEiPKvm", "launch another program of the application: the host runs only this one (logged)", void, h_oe_ExecProgram, int index, const void *param, size_t n) {
+-    (void)param; LOG("[RED] oe::ExecuteProgram(%d, %zu bytes of parameters): the host runs only this program; the game carries on", index, n);
++// The launcher sets DM_PREV_PROGRAM when it starts this program for another one's ExecuteProgram
++HLE_FORCE("_ZN2nn2oe23GetPreviousProgramIndexEv", "previous program index: DM_PREV_PROGRAM, else launched from HOME, -1", int, h_oe_PrevProgram, void) { const char *e = getenv("DM_PREV_PROGRAM"); return e ? atoi(e) : -1; }
++// Launch another program of a multi-program application (Octopath Traveler 0 imports it; Assassin's Creed: The Ezio Collection's menu starts each game with it); on hardware it does not return.
++// From a Mac app that carries the program (the launcher lists them in DM_PROGRAMS and names the hand-over file in DM_PROGRAM_HANDOFF, dm/mac/launcher.c): the index, the parameter (hex)
++// and this window's place go into the file, the window goes black and quiet (dm_front_handoff_begin), the launcher is told (SIGUSR1) and starts the program; the new host ends this one
++// (SIGUSR2, dm_front_handoff_end) once its first frame is on screen, so the game window never closes. This thread waits there, as the program never returns from the call.
++// Without the program (a run outside such an app, an index the app does not carry): logged, and the game carries on
++__attribute__((weak)) void dm_front_handoff_begin(char *place, size_t n) { if (n) *place = 0; }   // a front end without a window keeps this one (front_mac.m has its own)
++HLE_FORCE("_ZN2nn2oe14ExecuteProgramEiPKvm", "launch another program of the application: the launcher starts it in a new host, which takes over the window (dm/mac/launcher.c)", void, h_oe_ExecProgram, int index, const void *param, size_t n) {
++    const char *list = getenv("DM_PROGRAMS"), *file = getenv("DM_PROGRAM_HANDOFF"); char want[16]; snprintf(want, sizeof want, " %d ", index);
++    char have[256]; snprintf(have, sizeof have, " %s ", list ? list : "");
++    if (!file || !*file || !strstr(have, want)) {
++        LOG("[RED] oe::ExecuteProgram(%d, %zu bytes of parameters): %s; the game carries on", index, n, !file || !*file ? "the host runs only this program (no launcher hand-over, DM_PROGRAM_HANDOFF)" : "this app does not carry that program (DM_PROGRAMS)");
++        return;
++    }
++    char place[128] = ""; dm_front_handoff_begin(place, sizeof place);   // the window goes black, the sound stops; its frame and fullscreen state for the next host
++    char tmp[1024]; snprintf(tmp, sizeof tmp, "%s.partial", file);
++    FILE *f = fopen(tmp, "w");
++    if (!f) { LOG("[RED] oe::ExecuteProgram(%d): cannot write the hand-over file %s; the game carries on", index, tmp); return; }
++    fprintf(f, "program %d\nparam ", index);
++    for (size_t i = 0; i < n; i++) fprintf(f, "%02x", ((const uint8_t *)param)[i]);
++    fprintf(f, "\nwindow %s\n", place); fclose(f); rename(tmp, file);
++    LOG("oe::ExecuteProgram(%d, %zu bytes of parameters): handed to the launcher (window %s)", index, n, *place ? place : "none");
++    kill(getppid(), SIGUSR1);
++    for (;;) pause();   // the new host ends this process
+ }
+ HLE_FORCE("_ZN2nn2oe16DisableRecordingEv", "video recording switch; the host has no system recording", void, h_oe_DisableRec, void) {}
+ // Silence the game's sound in system video captures (through am; FINAL FANTASY RESONANCE imports both): the host records nothing
+diff --git a/dm/mac/launcher.c b/dm/mac/launcher.c
+index aafb831..c977abf 100644
+--- a/dm/mac/launcher.c
++++ b/dm/mac/launcher.c
+@@ -40,6 +40,8 @@ static void add_key(char **list, const char *k) {   // a space-separated list of
+ }
+ 
+ static void forward(int sig) { if (g_child > 0) kill(g_child, sig); }
++static volatile sig_atomic_t g_handoff; static int g_program; static pid_t g_old;   // g_old: the previous program's host until it has exited   // a host asked for another program (SIGUSR1, the hand-over file); the program the current host runs
++static void on_handoff(int sig) { (void)sig; g_handoff = 1; }
+ 
+ static int info_string(const char *key, char *out, size_t n) {   // a string key of the bundle's Info.plist
+     CFBundleRef b = CFBundleGetMainBundle(); if (!b) return 0;
+@@ -292,11 +294,52 @@ int main(int argc, char **argv) {
+     struct sigaction sa = {.sa_handler = forward};   // no SA_RESTART: waitpid below sees EINTR and waits again
+     sigemptyset(&sa.sa_mask);
+     sigaction(SIGTERM, &sa, NULL); sigaction(SIGINT, &sa, NULL); sigaction(SIGHUP, &sa, NULL);
+-    char *host_argv[] = {host, dm, NULL};
++    // A multi-program application (Info.plist DMPrograms, "0 1 2 3": Assassin's Creed: The Ezio Collection's menu and AC2, then Brotherhood and the others): program 0 is Resources/dm with
++    // Resources/romfs.img, program N Resources/dm/p<N> (its own main beside the shared sdk) with Resources/romfs_p<N>.img. A host whose game calls oe::ExecuteProgram writes the hand-over file
++    // (DM_PROGRAM_HANDOFF) and sends SIGUSR1; the next program's host starts with the launch parameter (DM_LAUNCH_PARAM), the index it came from (DM_PREV_PROGRAM), the old window's place
++    // (DM_WINDOW_PLACE) and the old host's pid (DM_HANDOFF_FROM), which it ends once its first frame is on screen (dm/host/front_mac.m). The session ends when the current host exits
++    char programs[256] = ""; info_string("DMPrograms", programs, sizeof programs);
++    char handoff[PATH_MAX]; snprintf(handoff, sizeof handoff, "%s/program_handoff.txt", temp); unlink(handoff);
++    if (*programs) { setenv("DM_PROGRAMS", programs, 1); setenv("DM_PROGRAM_HANDOFF", handoff, 1); fprintf(stderr, "launcher: programs %s\n", programs); }
++    struct sigaction su = {.sa_handler = on_handoff}; sigemptyset(&su.sa_mask); sigaction(SIGUSR1, &su, NULL);
++    char moddir[PATH_MAX]; snprintf(moddir, sizeof moddir, "%s", dm);
++    char *host_argv[] = {host, moddir, NULL};
+     int err = posix_spawn(&g_child, host, NULL, NULL, host_argv, environ);
+     if (err) { fprintf(stderr, "[RED] launcher: cannot start %s: %s\n", host, strerror(err)); return 1; }
+     int status;
+-    while (waitpid(g_child, &status, 0) < 0) if (errno != EINTR) return 1;
++    for (;;) {
++        if (g_handoff) {
++            g_handoff = 0;
++            int prog = -1; char param[1024] = "", place[256] = "", ln[1200]; FILE *f = fopen(handoff, "r");
++            while (f && fgets(ln, sizeof ln, f)) {
++                ln[strcspn(ln, "\n")] = 0;
++                if (!strncmp(ln, "program ", 8)) prog = atoi(ln + 8);
++                else if (!strncmp(ln, "param ", 6)) snprintf(param, sizeof param, "%s", ln + 6);
++                else if (!strncmp(ln, "window ", 7)) snprintf(place, sizeof place, "%s", ln + 7);
++            }
++            if (f) fclose(f);
++            unlink(handoff);
++            if (prog == 0) { snprintf(moddir, sizeof moddir, "%s", dm); snprintf(p, sizeof p, "%s/romfs.img", res); }
++            else { snprintf(moddir, sizeof moddir, "%s/p%d", dm, prog); snprintf(p, sizeof p, "%s/romfs_p%d.img", res, prog); }
++            if (prog < 0 || stat(moddir, &st) || stat(p, &st)) { fprintf(stderr, "[RED] launcher: a hand-over to program %d, which this app does not carry (%s, %s)\n", prog, moddir, p); continue; }
++            char ps[16], from[16]; snprintf(ps, sizeof ps, "%d", g_program); snprintf(from, sizeof from, "%d", (int)g_child);
++            setenv("DM_ROMFS", p, 1); setenv("DM_PREV_PROGRAM", ps, 1); setenv("DM_HANDOFF_FROM", from, 1); setenv("DM_WINDOW_PLACE", place, 1);
++            if (*param) setenv("DM_LAUNCH_PARAM", param, 1); else unsetenv("DM_LAUNCH_PARAM");
++            pid_t next; err = posix_spawn(&next, host, NULL, NULL, host_argv, environ);
++            if (err) { fprintf(stderr, "[RED] launcher: cannot start program %d: %s\n", prog, strerror(err)); continue; }
++            char np[PATH_MAX + 8]; snprintf(np, sizeof np, "%s.next", handoff); FILE *nf = fopen(np, "w"); if (nf) { fprintf(nf, "%d\n", (int)next); fclose(nf); }
++            fprintf(stderr, "launcher: program %d → %d (host %d → %d, %zu bytes of launch parameter, window %s)\n", g_program, prog, (int)g_child, (int)next, strlen(param) / 2, *place ? place : "none");
++            g_old = g_child; g_program = prog; g_child = next;
++        }
++        pid_t done = waitpid(-1, &status, WNOHANG);   // polled: a SIGUSR1 between the check above and a blocking wait would wait for good
++        if (!done) { usleep(20000); continue; }
++        if (done < 0) { if (errno == EINTR) continue; return 1; }
++        if (done == g_child) break;
++        if (done == g_old) g_old = 0;
++        fprintf(stderr, "launcher: the previous program's host %d exited (%d)\n", (int)done, WIFEXITED(status) ? WEXITSTATUS(status) : -1);
++        if (!save_sync_after_exit(getenv("DM_SAVE"), id)) fprintf(stderr, "launcher: the save did not reach the cloud; it goes at the next start\n");
++    }
++    if (g_old > 0) { kill(g_old, SIGTERM); while (waitpid(g_old, NULL, 0) < 0 && errno == EINTR) {} }   // the new host ended before its first frame: the old one, still waiting, goes too
+     // Cloud saves (DM_SAVE_SYNC, dm/host/save_sync.h): what the host committed and had not sent yet goes now, after a crash too (the committed save is whole whatever the host was doing)
+     // DM_SAVE as the host had it: an env file or the launch environment may have set another folder than this app's own
+     if (!save_sync_after_exit(getenv("DM_SAVE"), id)) fprintf(stderr, "launcher: the save did not reach the cloud; it goes at the next start\n");
+diff --git a/dm/mac/pack_app.py b/dm/mac/pack_app.py
+index 48f2ac9..5a015a5 100755
+--- a/dm/mac/pack_app.py
++++ b/dm/mac/pack_app.py
+@@ -194,7 +194,14 @@ def selected_inputs(a):
+     files += [Path(p) for p in (a.env_file, a.settings, a.icon) if p]
+     for p in files:
+         if not p.is_file(): raise SystemExit(f'no input file at {p}')
+-    return mods, msls, pso, tables, pairs, fonts, files
++    progs = []   # (index, its modules, its RomFS) of the other programs (--program)
++    for i, pd, rf in a.program:
++        if not i.isdigit() or int(i) < 1: raise SystemExit(f'--program takes an index from 1: {i}')
++        pm = sorted({p for pat in MODULE_FILES for p in Path(pd).glob(pat)})
++        if not any(p.name == 'main.patched.bin' for p in pm): raise SystemExit(f'no rewritten main of program {i} in {pd}')
++        if not Path(rf).is_file(): raise SystemExit(f'no RomFS image of program {i} at {rf}')
++        progs.append((int(i), pm, Path(rf))); files += pm + [Path(rf)]
++    return mods, msls, pso, tables, pairs, fonts, files, progs
+ 
+ 
+ def replace_app(tmp, out):
+@@ -220,7 +227,8 @@ def pack(a):
+         a = argparse.Namespace(**vars(a))
+         for name in ('out', 'host', 'patched', 'romfs', 'msl', 'tables', 'font', 'aoc', 'pso', 'pso_pairs', 'env_file', 'settings', 'icon'):
+             if getattr(a, name): setattr(a, name, str(Path(getattr(a, name)).resolve()))
+-        mods, msls, pso, tables, pairs, fonts, files = selected_inputs(a)
++        a.program = [[i, str(Path(pd).resolve()), str(Path(rf).resolve())] for i, pd, rf in a.program]
++        mods, msls, pso, tables, pairs, fonts, files, progs = selected_inputs(a)
+         clang = Path(run(['xcrun', '--find', 'clang']).strip()).resolve()
+         swiftc = Path(run(['xcrun', '--find', 'swiftc']).strip())   # not resolved: the driver is a link to swift-frontend, which acts by its name
+         sdk = Path(run(['xcrun', '--sdk', 'macosx', '--show-sdk-path']).strip()).resolve()
+@@ -268,10 +276,16 @@ def pack(a):
+     if aoc: step('add-on content'); copy([aoc], res / 'aoc', clone['aoc'])
+     if pso: step('pipeline archive'); (res / 'pso').mkdir(); copy(pso, res / 'pso', clone['pso'])
+     step('game files'); copy([romfs], res / ('romfs.img' if romfs.is_file() else 'romfs'), clone['romfs'])
++    for i, pm, rf in progs:   # the other programs: each its own main beside clones of program 0's other modules (the same sdk build), and its own RomFS
++        step(f'program {i}'); pdir = dm / f'p{i}'; pdir.mkdir()
++        own = {p.name for p in pm}
++        copy([p for p in mods if p.name not in own and not p.name.startswith('main.')] + pm, pdir, clone['mods'])
++        copy([rf], res / f'romfs_p{i}.img', clone['romfs'])
+     icon = bool(a.icon)
+     if icon: step('icon'); make_icns(a.icon, res / 'AppIcon.icns')
+     info = info_plist(a, minos, icon)
+     info['DMModuleFiles'] = [p.name for p in mods]
++    if progs: info['DMPrograms'] = ' '.join(['0'] + [str(i) for i, _, _ in progs])   # the launcher's hand-over between programs (launcher.c)
+     commit = source_commit()
+     if commit: info['DMCommit'] = commit
+     if msl_dst.name.startswith('b-'): info['DMChain'] = msl_dst.name[2:]   # the library chain the app carries (a Vulkan or GL game's vk / gl has none)
+@@ -313,6 +327,8 @@ def parse(argv):
+     ap.add_argument('--version'); ap.add_argument('--bundle-id'); ap.add_argument('--category'); ap.add_argument('--lang'); ap.add_argument('--marker', help='the profile\'s romfs_marker')
+     ap.add_argument('--icon', help='the game icon (icon.jpg from the control data)')
+     ap.add_argument('--sign', default='-', help='codesign identity (default: - = ad-hoc)')
++    ap.add_argument('--program', nargs=3, action='append', default=[], metavar=('INDEX', 'PATCHED', 'ROMFS'),
++                    help='another program of a multi-program application: its rewritten modules (Resources/dm/p<INDEX>) and RomFS (Resources/romfs_p<INDEX>.img); repeat per program')
+     return ap.parse_args(argv)
+ 
+ 
+diff --git a/dm/tools/nx_extract/Program.cs b/dm/tools/nx_extract/Program.cs
+index f5beaa1..de9e79b 100644
+--- a/dm/tools/nx_extract/Program.cs
++++ b/dm/tools/nx_extract/Program.cs
+@@ -9,6 +9,8 @@
+ // Add-on content: nx_extract <prod.keys> --aoc <DLC NSP> <output dir> writes the RomFS of the DLC's data NCA to <output dir> (the packing script puts it at aoc/<index>/, the host mounts it through DM_AOC_DIR).
+ // Title ID of a package: nx_extract <prod.keys> --title <NSP, NSZ, XCI or XCZ> prints "title <16 hex digits>", the lowest title ID of the package's meta NCAs (the base game's, before its update's or a DLC's),
+ //   read from the meta NCA's header with the keys' header_key. For a package without a ticket and without a [title ID] in its name (the NSP script's title_of); exit code 5 when it has no meta NCA.
++// A multi-program application (Assassin's Creed: The Ezio Collection: the menu and AC2 at index 0, the other games at 1-3) has a Program NCA per index, title ID of index 0 + the index:
++//   --program <index> extracts that one (its update's NCA of the same title ID over it), nx_extract <prod.keys> --programs <base NSP> prints "programs <count>".
+ // Title keys come from the common tickets (.tik) inside the NSPs, so only prod.keys is needed; key values are never printed.
+ // The base game may also be a cartridge dump (.xci, Monster Hunter Rise): its secure partition holds the NCAs, which carry their keys in the key area (no ticket).
+ //   When the cartridge also carries an update (1G+1U), only the base game's NCAs (those its Application content meta lists) are read; the update comes from the update NSP.
+@@ -41,18 +43,27 @@ static class P {
+         // always names the one it packs. Without it every Application content meta's NCAs are kept and the lowest Program NCA is the game
+         ulong? app = null; int ai = Array.IndexOf(a, "--app");
+         if (ai >= 0 && ai + 1 < a.Length) { app = Convert.ToUInt64(a[ai + 1], 16); var rest = new List<string>(a); rest.RemoveRange(ai, 2); a = rest.ToArray(); }
++        int program = 0, pi = Array.IndexOf(a, "--program");   // program index of a multi-program application (title ID of index 0 + the index): Assassin's Creed: The Ezio Collection's games are 1-3
++        if (pi >= 0) { if (pi + 1 >= a.Length || !int.TryParse(a[pi + 1], out program) || program < 0 || program > 15) { Console.Error.WriteLine("--program takes a program index 0-15"); return 2; } var l = new List<string>(a); l.RemoveRange(pi, 2); a = l.ToArray(); }
+         if (a.Length == 3 && a[1] == "--title") return Title(ExternalKeyReader.ReadKeyFile(a[0]), a[2]);
+         if (a.Length == 3 && a[1] == "--contents") return Contents(ExternalKeyReader.ReadKeyFile(a[0]), a[2]);
+-        if (a.Length < 4) { Console.Error.WriteLine("usage: nx_extract <prod.keys> <base.nsp> <update.nsp|-> <out dir> [base RomFS dir] [--app <title ID>] [--romfs-image|--manifest] [--allow-damaged]\n       nx_extract <prod.keys> --aoc <dlc.nsp> <out dir or image> [<DLC title ID>] [--romfs-image]\n       nx_extract <prod.keys> --title <nsp|nsz|xci|xcz>\n       nx_extract <prod.keys> --contents <nsp|nsz|xci|xcz>"); return 2; }
++        if (a.Length == 3 && a[1] == "--programs") {   // the program count of a base game package ("programs N"; 1 for most games)
++            int c = OpenNsp(ExternalKeyReader.ReadKeyFile(a[0]), a[2], ContentMetaType.Application).FindAll(n => n.Header.ContentType == NcaContentType.Program).Count;
++            Console.WriteLine($"programs {c}"); return c > 0 ? 0 : 5;
++        }
++        if (a.Length < 4) { Console.Error.WriteLine("usage: nx_extract <prod.keys> <base.nsp> <update.nsp|-> <out dir> [base RomFS dir] [--app <title ID>] [--romfs-image|--manifest] [--allow-damaged] [--program <index>]\n       nx_extract <prod.keys> --aoc <dlc.nsp> <out dir or image> [<DLC title ID>] [--romfs-image]\n       nx_extract <prod.keys> --title <nsp|nsz|xci|xcz>\n       nx_extract <prod.keys> --contents <nsp|nsz|xci|xcz>\n       nx_extract <prod.keys> --programs <base.nsp>"); return 2; }
+         KeySet ks = ExternalKeyReader.ReadKeyFile(a[0]);
+         if (a[1] == "--aoc") return Aoc(ks, a[2], a[3], image, a.Length > 4 ? Convert.ToUInt64(a[4], 16) : null);
+         // each by its own content meta: a merged package (base game + update + DLC in one NSP, a cartridge dump with its update) is given as both the base game and the update,
+         // and the base game's Program NCA and the update's have the same title ID, so without the filter the update would be layered on itself or on the wrong base
+         var basePkg = OpenNsp(ks, a[1], ContentMetaType.Application, app); var updPkg = a[2] == "-" ? null : OpenNsp(ks, a[2], ContentMetaType.Patch, app | 0x800);
+         Nca baseProg = Pick(basePkg, NcaContentType.Program) ?? throw new Exception("no Program NCA in the base NSP");
++        if (program > 0) baseProg = Pick(basePkg, NcaContentType.Program, baseProg.Header.TitleId + (ulong)program) ?? throw new Exception($"no Program NCA of program index {program} in the base NSP");
+         Nca updProg = updPkg == null ? null : Pick(updPkg, NcaContentType.Program, baseProg.Header.TitleId) ?? throw new Exception("no Program NCA of the base game's program in the update NSP");
+         Nca ctrl = Pick(updPkg ?? basePkg, NcaContentType.Control, baseProg.Header.TitleId);
+         Console.WriteLine($"title {baseProg.Header.TitleId:x16}" + (updProg != null ? $", update {updProg.Header.TitleId:x16}" : ""));
++        int nprog = basePkg.FindAll(n => n.Header.ContentType == NcaContentType.Program).Count;
++        if (nprog > 1) Console.WriteLine($"programs {nprog}");   // a multi-program application: the build extracts each index (--program)
+         string outDir = a[3], cmpDir = a.Length > 4 ? a[4] : null;
+         if (ctrl != null) {   // control data (NACP): display version and game name; a raw copy goes to <output dir>/control.nacp for naming the app
+             byte[] nacp = Nacp(ctrl);
+diff --git a/dm/tools/tests/test_nsp_mac_app.py b/dm/tools/tests/test_nsp_mac_app.py
+index 958926b..8a4d029 100644
+--- a/dm/tools/tests/test_nsp_mac_app.py
++++ b/dm/tools/tests/test_nsp_mac_app.py
+@@ -653,6 +653,83 @@ class App(unittest.TestCase):
+         self.assertFalse((self.tmp / 'Copy.app/Contents/stale').exists()); self.assertFalse((self.tmp / 'Copy.app/Contents/Resources/AppIcon.icns').exists())
+ 
+ 
++PROGRAM_HOST_C = r"""#include <signal.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <unistd.h>
++extern char **environ;
++static void done(int s) { (void)s; _exit(0); }
++int main(int argc, char **argv) {
++    (void)argc; const char *prev = getenv("DM_PREV_PROGRAM");
++    char p[1024]; snprintf(p, sizeof p, "%s/host_run_%s.txt", getenv("HOME"), prev ? "next" : "first"); FILE *f = fopen(p, "w");
++    for (char **e = environ; *e; e++) fprintf(f, "%s\n", *e);
++    fprintf(f, "argv1=%s\n", argv[1]); fclose(f);
++    if (!prev) {   // program 0: ExecuteProgram(1, 3 bytes) as hle_oe.c does it, then wait for the next host's SIGUSR2
++        signal(SIGUSR2, done);
++        char t[1100]; snprintf(t, sizeof t, "%s.partial", getenv("DM_PROGRAM_HANDOFF")); f = fopen(t, "w");
++        fprintf(f, "program 1\nparam 0a0b0c\nwindow 10 20 640 360 0\n"); fclose(f); rename(t, getenv("DM_PROGRAM_HANDOFF"));
++        kill(getppid(), SIGUSR1);
++        for (;;) pause();
++    }
++    if (getenv("STANDIN_NO_FRAME")) return 7;
++    usleep(200000); kill(atoi(getenv("DM_HANDOFF_FROM")), SIGUSR2);   // its first frame: the old host goes
++    usleep(300000); return 7;
++}
++"""
++
++
++class Programs(unittest.TestCase):   # a multi-program application (Assassin's Creed: The Ezio Collection): each program's files in the app, and the launcher's hand-over from one host to the next
++    @classmethod
++    def setUpClass(cls):
++        cls.tmp = Path(tempfile.mkdtemp(dir=TEST_ROOT)).resolve(); t = cls.tmp
++        (t / 'host.c').write_text(PROGRAM_HOST_C)
++        subprocess.run(['xcrun', 'clang', '-arch', 'arm64', '-o', t / 'dmhost', t / 'host.c'], check=True)
++        for d in ('patched', 'patched1', 'romfs/a', 'cache/b-0123456789ab', 'profile', 'font', 'home'): (t / d).mkdir(parents=True)
++        for d, code in (('patched', b'menu'), ('patched1', b'game')):
++            for n, b in (('main.patched.bin', code), ('main.fixups.tsv', b'f'), ('sdk.patched.bin', b'sdk'), ('sdk.fixups.tsv', b'f')): (t / d / n).write_bytes(b)
++        (t / 'romfs/a/x').write_bytes(b'menu data'); (t / 'romfs_p1.img').write_bytes(b'image of program 1')
++        (t / 'cache/b-0123456789ab/k_b.metallib').write_bytes(b'lib'); (t / 'profile/shader_map.tsv').write_text('m'); (t / 'font/nintendo_ext.ttf').write_bytes(b'ttf')
++        cls.app = t / 'Programs.app'
++        a = pack_app.parse([str(cls.app), '--host', str(t / 'dmhost'), '--patched', str(t / 'patched'), '--romfs', str(t / 'romfs'), '--msl', str(t / 'cache/b-0123456789ab'),
++                            '--tables', str(t / 'profile'), '--font', str(t / 'font'), '--title-id', TID.lower(), '--name', 'Programs', '--program', '1', str(t / 'patched1'), str(t / 'romfs_p1.img')])
++        with contextlib.redirect_stdout(io.StringIO()): pack_app.pack(a)
++
++    @classmethod
++    def tearDownClass(cls): shutil.rmtree(cls.tmp)
++
++    def run_of(self, which):
++        out = {}
++        for ln in (self.tmp / f'home/host_run_{which}.txt').read_text().splitlines():
++            k, _, v = ln.partition('='); out[k] = v
++        return out
++
++    def test_layout(self):
++        res = self.app / 'Contents/Resources'
++        self.assertEqual((res / 'dm/p1/main.patched.bin').read_bytes(), b'game'); self.assertEqual((res / 'dm/main.patched.bin').read_bytes(), b'menu')
++        self.assertTrue((res / 'dm/p1/sdk.patched.bin').is_file()); self.assertEqual((res / 'romfs_p1.img').read_bytes(), b'image of program 1')
++        self.assertEqual(plistlib.loads((self.app / 'Contents/Info.plist').read_bytes())['DMPrograms'], '0 1')
++
++    def test_handoff(self):   # program 0 asks for program 1: the next host gets its modules, its RomFS, the parameter, the window's place and the old pid; the session ends with the new host
++        home = self.tmp / 'home'
++        p = subprocess.run([self.app / 'Contents/MacOS/nxnative'], env=dict(HOME=str(home), PATH='/usr/bin:/bin', DM_LAUNCHER='0'), capture_output=True, timeout=30)
++        self.assertEqual(p.returncode, 7)
++        first, nxt, res = self.run_of('first'), self.run_of('next'), self.app / 'Contents/Resources'
++        self.assertEqual((first['argv1'], first['DM_PROGRAMS']), (str(res / 'dm'), '0 1'))
++        self.assertEqual((nxt['argv1'], nxt['DM_ROMFS'], nxt['DM_LAUNCH_PARAM'], nxt['DM_PREV_PROGRAM'], nxt['DM_WINDOW_PLACE']),
++                         (str(res / 'dm/p1'), str(res / 'romfs_p1.img'), '0a0b0c', '0', '10 20 640 360 0'))
++        self.assertTrue(nxt['DM_HANDOFF_FROM'].isdigit())
++        log = (home / f'Library/Logs/nxnative/{TID}.log').read_text()
++        self.assertIn('launcher: program 0 → 1', log); self.assertIn("the previous program's host", log)
++
++    def test_new_host_ends_first(self):   # the next program's host exits before its first frame: the old host, still waiting for SIGUSR2, is ended with the session
++        env = dict(HOME=str(self.tmp / 'home'), PATH='/usr/bin:/bin', DM_LAUNCHER='0', STANDIN_NO_FRAME='1')
++        p = subprocess.run([self.app / 'Contents/MacOS/nxnative'], env=env, capture_output=True, timeout=30)
++        self.assertEqual(p.returncode, 7)
++        old = int(self.run_of('next')['DM_HANDOFF_FROM'])
++        with self.assertRaises(ProcessLookupError): os.kill(old, 0)
++
++
+ class Script(unittest.TestCase):
+     def test_options(self):
+         a = nsp.parse_args(['--platform', 'mac-app', '--mac-sign', 'Developer ID Application: X (T)', '-o', '/tmp/x.app'])
+diff --git a/docs/reference/services.md b/docs/reference/services.md
+index 5837cba..e4f0825 100644
+--- a/docs/reference/services.md
++++ b/docs/reference/services.md
+@@ -443,6 +443,7 @@ Most service calls can be found before they crash, before the first boot or the
+ - **Cause:** the game makes three textures of `swkbd::InlineKeyboard::GetWindowSize`, and the host answered 0 × 0 (its creation function returns null for a size of 0, `main+0x77112b8`).
+ - **Fix:** it is 1280 × 720 as on hardware now. SDK 11 adds keyboard setters (window mode, key top alpha / scale / position, touch, hardware keyboard, user words, dictionaries; ignored) and two callbacks the applet makes from `Calc`: finished-initialize after `Initialize` and released-user-words after `UnsetUserWordInfo`. The host makes them on the next `Calc`.
+ - **Found on:** [Monster Hunter Rise](../../dm/games/0100B04011742000/README.md).
++- **Multi-program applications** (`oe::ExecuteProgram`, `oe::TryPopLaunchParameter`, `oe::GetPreviousProgramIndex`): Assassin's Creed: The Ezio Collection is four programs (title IDs `…2000` to `…2003`: its menu with AC2, then Brotherhood and the others), and the menu starts a game with `ExecuteProgram(index, 80 bytes)`, which the game reads back with `TryPopLaunchParameter`. Before, the host logged `[RED] oe::ExecuteProgram(2, 80 bytes of parameters)` and the menu showed "Loading" for good. A Mac app now carries every program (`build_ipa_from_nsp.py` extracts each with `nx_extract --program`, rewrites it and splits its main's shaders; `pack_app.py --program` puts it in `Resources/dm/p<index>/` and `Resources/romfs_p<index>.img`; Info.plist `DMPrograms`). The host writes the index, the parameter and its window's place to the launcher's hand-over file (`DM_PROGRAM_HANDOFF`), turns its window black and its sound off and signals the launcher (`SIGUSR1`); the launcher starts the program's host with `DM_LAUNCH_PARAM`, `DM_PREV_PROGRAM`, `DM_WINDOW_PLACE` and `DM_HANDOFF_FROM`, whose first frame ends the old host (`SIGUSR2`), so the window stays where it was. Every program runs with the one profile, so `mem_used` covers the largest (Brotherhood's main is 7 MB larger than the menu's: its `SetHeapSize` failed with the menu's). A run outside such an app, or an index the app does not carry, logs the call and the game carries on.
+ 
+ ### Inline keyboard text callbacks and `Calc` states
+ 
+diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
+index 15b5b71..c9d5d33 100755
+--- a/scripts/build_ipa_from_nsp.py
++++ b/scripts/build_ipa_from_nsp.py
+@@ -1107,6 +1107,26 @@ def extract_dump(ex, name, src, app):   # one version of a dump folder (src: bas
+     try: pack_dump.pack_version(src, app, dst, say=lambda s: None)
+     except pack_dump.Error as e: raise BuildError(str(e)) from e
+     PROG.end(amount((dst / 'RomFS.img').stat().st_size, 'B'))
++
++
++def program_count(nx, keys, base, logs):   # the Program NCAs of the base game package (nx_extract --programs): more than one in a multi-program application
++    run([nx, keys, '--programs', base], logs / 'programs.log')
++    m = re.search(r'^programs (\d+)$', (logs / 'programs.log').read_text(errors='replace'), re.M)
++    return int(m[1]) if m else 1
++
++
++def extract_program(nx, keys, ex, name, index, base, upd, logs):
++    """Program <index> of a multi-program application (nx_extract --program; Assassin's Creed: The Ezio Collection's Brotherhood and the others at 1-3, its menu and AC2 at 0) → <ex>/<name>_p<index>:
++    its ExeFS (its own main beside the same sdk build) and its RomFS image, written whole (swap_in) and reused when both are there"""
++    dst, log = ex / f'{name}_p{index}', logs / f'extract_{name}_p{index}.log'
++    PROG.stage(f'extract {name} program {index}')
++    if (dst / 'ExeFS' / 'main').is_file() and (dst / 'RomFS.img').is_file():
++        say(f'reusing the extracted program {index} of {name}: {dst}'); PROG.end('reused'); return dst
++    tmp = ex / (dst.name + '.partial'); rmtree(tmp)
++    run([nx, keys, base, upd or '-', tmp, '--romfs-image', '--program', str(index)] + (['--allow-damaged'] if ALLOW_DAMAGED else []), log)
++    swap_in(tmp, dst)
++    n, b = extracted(log) or (0, 0)
++    PROG.end(f'{n:,} files, {amount(b, "B")}')
+     return dst
+ 
+ 
+@@ -1548,8 +1568,9 @@ def chain_tables(py, repo, sh, env, logs, g, chain):
+     return True
+ 
+ 
+-def refine_after_rewrite(g, ex_dir, patched, reg=None):
+-    """Refresh computed mem_used for the current modules; explicit profile values always win."""
++def refine_after_rewrite(g, ex_dir, patched, reg=None, others=()):
++    """Refresh computed mem_used for the current modules; explicit profile values always win. others: the rewritten modules of a multi-program application's other programs, which
++    run with the same profile: the largest program's modules count (Brotherhood's main is 7 MB larger than the menu's, and its heap request failed against the menu's mem_used)"""
+     for profile in (reg, g) if reg else (g,):
+         section, reason = '', ''
+         for line in (profile.dir / 'game.tsv').read_text(encoding='utf-8').splitlines():
+@@ -1559,7 +1580,7 @@ def refine_after_rewrite(g, ex_dir, patched, reg=None):
+                 if not computed: return g
+             reason = line
+     if pg.npdm(ex_dir / 'ExeFS/main.npdm')[0]: return g
+-    used = pg.mem_used(patched, g.words('modules')) or 0x4000000
++    used = max(pg.mem_used(d, g.words('modules')) or 0x4000000 for d in (patched, *others))
+     if int(g.get('mem_used', '0x4000000'), 0) == used: return g
+     say(f'mem_used {used:#x}: from the current rewritten modules (64 MB when the default covers them)')
+     return set_keys(g, {'mem_used': (f'{used:#x}', 'used memory for the current rewritten modules, at least the default 64 MB')}, 'After the rewrite')
+@@ -2251,11 +2272,12 @@ def mac_app_name(name):   # the app's file name: the game name with the characte
+     return re.sub(r'\s*[:/]\s*', ' - ', name).strip(' .-') or 'nxnative'
+ 
+ 
+-def mac_app(py, repo, out, app, work, game, patched, host, font, msl, aoc, gfx, lang, g, name, version, bundle_id, icon, sign, env, logs, env_file='', gpus=''):
++def mac_app(py, repo, out, app, work, game, patched, host, font, msl, aoc, gfx, lang, g, name, version, bundle_id, icon, sign, env, logs, env_file='', gpus='', programs=None):
+     """The last stage of PLATFORM 'mac-app': pack the Mac app (dm/mac/pack_app.py) from what a Mac-only build made: the Mac host and font (mac_host), the packed version's RomFS and rewritten
+     modules, the Mac shader libraries (msl: <shader>/cache, whose b-<chain> goes in, or a Vulkan or GL game's <shader>, whose vk / gl goes in), the DLC, the profile's tables (with the shader pairs
+     the pipeline prebuild reads), the pipeline archive made offline for this Mac (mac_pso; gpus: --gpu / PSO_GPUS), the launcher settings and an environment file.
+-    The save and the log go to the player's Library, keyed by the folder's title ID (app); a new app replaces the old one only when it is complete"""
++    The save and the log go to the player's Library, keyed by the folder's title ID (app); a new app replaces the old one only when it is complete. programs: {index: (rewritten modules, RomFS image)}
++    of a multi-program application's other programs, which the launcher starts when a program asks (oe::ExecuteProgram)"""
+     lib = msl / (f'b-{chain_of(repo)}' if gfx == 'nvn' else 'vk' if gfx == 'vulkan' else 'gl')
+     pso = mac_pso(py, repo, work, lib, g, gpus, env, logs) if gfx == 'nvn' and g.table('shader_pairs.tsv').is_file() else None   # a stage of its own, before the app's
+     PROG.stage('Mac app', step='starting')
+@@ -2269,6 +2291,7 @@ def mac_app(py, repo, out, app, work, game, patched, host, font, msl, aoc, gfx,
+                    ('--pso', pso), ('--pso-pairs', split_pairs if gfx == 'nvn' and not g.table('pso_pairs.tsv').is_file() and split_pairs.is_file() else None),
+                    ('--env-file', Path(os.path.expanduser(env_file)).resolve() if env_file else None), ('--settings', settings)):
+         if v: cmd += [opt, v]
++    for i, (pp, rf) in sorted((programs or {}).items()): cmd += ['--program', str(i), pp, rf]
+     unchanged = False
+     def line(ln):
+         nonlocal unchanged
+@@ -2568,6 +2591,13 @@ def main(args=None):
+     for ver in versions:   # each merged version streams directly into its own image
+         b, u = picks[ver]
+         dirs[ver] = extract_dump(ex, ver, u or b, app) if dump else extract(nx, keys, ex, ver, b, u, None, logs, g, app)
++    # a multi-program application: the other programs of the packed version, which its programs start with oe::ExecuteProgram. Only the Mac app carries them (its launcher starts each in a host of its own)
++    nprog = 1 if dump else program_count(nx, keys, picks[pkg_ver][0], logs)
++    pdirs = {}
++    if nprog > 1 and mac_pack and not dump:
++        PROG.add(2 * (nprog - 1))   # each one's extraction and rewrite
++        for i in range(1, nprog): pdirs[i] = extract_program(nx, keys, ex, pkg_ver, i, *picks[pkg_ver], logs)
++    elif nprog > 1: say(f'[RED] the game has {nprog} programs, which its programs start with oe::ExecuteProgram: only a Mac app (--platform mac-app) carries the other {nprog - 1}; this build runs program 0 alone')
+     check_versions_aarch64(dirs, logs, g, nacp.name(dirs[versions[0]] / 'control.nacp') or f'{app:016X}')   # before build_mismatch, derive_profile and build_sources read the modules
+     bad = [] if derived else [f'{v}: {x}' for v in versions for x in build_mismatch(dirs[v], v, g)]   # every module's build ID must be the one the profile registers for its version
+     if bad and provisional: raise BuildError(f'not the builds provisional game profile {g.id} registers: {"; ".join(bad)}')
+@@ -2621,10 +2651,15 @@ def main(args=None):
+ 
+     patched = work / f'patched_{pkg_ver}'
+     g = rewrite(py, repo, game / 'ExeFS', patched, env, logs, g, provisional)
++    ppatched = {}   # the other programs' rewritten modules, each with its own logs
++    for i, d in pdirs.items():
++        (logs / f'p{i}').mkdir(parents=True, exist_ok=True)
++        ppatched[i] = work / f'patched_{pkg_ver}_p{i}'
++        rewrite(py, repo, d / 'ExeFS', ppatched[i], env, logs / f'p{i}', g, provisional)
+     chain_header(py, repo, env, logs)   # before any host is built
+     if provisional or derived:   # the keys that need the rewritten modules, then (provisional) the heap check (both only change keys the host is built with, not the rewrite or the shader steps)
+         provisional_prep(py, repo, env, logs, g)
+-        g = refine_after_rewrite(g, game, patched, reg if derived else None)
++        g = refine_after_rewrite(g, game, patched, reg if derived else None, ppatched.values())
+         if provisional and heapck and pg.heap_check_needed(game / 'ExeFS'):
+             if apple_silicon(): PROG.add(1); g = heap_check(repo, game, patched, work, env, logs, g)
+             else: say('no heap check: it boots the game in the Mac host, which needs a Mac with Apple silicon; the profile keeps its guessed heap keys')
+@@ -2656,7 +2691,8 @@ def main(args=None):
+             return g
+         derive_dlc = (lambda: derive_shader_tables('the installed DLC shader content differs from the registered tables')) if not own else None
+         derive_compute = (lambda: derive_shader_tables('the reader decoded additional compute kernels from this registered build')) if not own else None
+-        pkey = split_shaders(py, repo, [rfs.source(dirs[v]) for v in sv], [dirs[v] / 'ExeFS/main' for v in sv], sh / 'pkg', env, logs, g, own, oodle, dlc_roms, derive_dlc, derive_compute)
++        pkey = split_shaders(py, repo, [rfs.source(dirs[v]) for v in sv] + [rfs.source(d) for d in pdirs.values()], [dirs[v] / 'ExeFS/main' for v in sv] + [d / 'ExeFS/main' for d in pdirs.values()],
++                             sh / 'pkg', env, logs, g, own, oodle, dlc_roms, derive_dlc, derive_compute)   # the other programs' mains hold shaders of their own
+         ios = build_shaders(py, repo, sh, xlate, env, logs, g, pkey, mac)
+     icon = next((d / 'icon.jpg' for d in (game, base) if (d / 'icon.jpg').exists()), None)   # the game icon nx_extract saved from the control data (English, icon.jpg); the packed version's first, then the base game's
+     motion = MOTION if args.motion is None else args.motion
+@@ -2666,7 +2702,7 @@ def main(args=None):
+         host, font = mac_host(py, repo, work, env, logs, g)
+         if not icon: say('no game icon: a dump folder has no control data; the app\'s icon will be blank' if dump else '[RED] no game icon in the extraction (an older extraction did not save it: delete extract/ and run again); the app\'s icon will be blank')
+         mac_app(py, repo, out_ipa, app, work, game, patched, host, font, ios, aoc, gfx, lang, g, app_name, app_version, bundle_id, icon, args.mac_sign or MAC_SIGN, env, logs, env_file,
+-                (args.gpu or PSO_GPUS).strip())
++                (args.gpu or PSO_GPUS).strip(), {i: (ppatched[i], d / 'RomFS.img') for i, d in pdirs.items()})
+         rmtree(work / 'tmp')
+         say(f'done: {out_ipa} ({tree_size(out_ipa)[1] / 2**30:.1f} GB); '
+             f'open it from Finder. Its save is in ~/Library/Application Support/nxnative/{app:016X}/, its log in ~/Library/Logs/nxnative/{app:016X}.log')
