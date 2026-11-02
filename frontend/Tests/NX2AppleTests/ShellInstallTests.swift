@@ -145,6 +145,28 @@ import NXModel
                                                      home: "/h", user: "u")["DM_SHELL_PACKAGE"])
     }
 
+    /// #515: a file name without a title ID gives a build key the build never names its framework after. The handoff takes the
+    /// framework the build wrote, and its title ID, not the key.
+    func testBuiltFrameworkIsTheOneTheBuildWrote() throws {
+        let name = "The_Legend_of_Zelda_Breath_of_the_Wild-7603d90e"
+        let key = TitleID.buildKey("/in/" + name + ".nsp")
+        XCTAssertFalse(key.hasPrefix("01"))
+        let work = try makeTree(["shell-framework/DmGame01007EF00011E000.framework/game.manifest.json", "shell-framework/notes.txt"])
+        let fw = try XCTUnwrap(ShellInstall.builtFramework(workDir: work))
+        XCTAssertEqual(fw, work + "/shell-framework/DmGame01007EF00011E000.framework")
+        XCTAssertNotEqual(fw, ShellInstall.frameworkPath(workDir: work, titleID: key))
+        XCTAssertEqual(ShellInstall.titleID(ofFramework: fw), "01007EF00011E000")
+
+        // An older build's framework beside it: the newest one is the build's
+        let old = work + "/shell-framework/DmGame0100000000010000.framework"
+        try FileManager.default.createDirectory(atPath: old, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSinceNow: -3600)], ofItemAtPath: old)
+        XCTAssertEqual(ShellInstall.builtFramework(workDir: work), fw)
+
+        XCTAssertNil(ShellInstall.builtFramework(workDir: try makeTree(["shell-framework/notes.txt"])))
+        XCTAssertNil(ShellInstall.builtFramework(workDir: try makeTree([])))
+    }
+
     func testCommandsAreExact() {
         let root = "/R/NX2Apple-shell"
         XCTAssertEqual(ShellInstall.buildArguments(workDir: "/W", team: "T"), ["--shell-framework", "/W/shell-framework", "--team-id", "T"])
