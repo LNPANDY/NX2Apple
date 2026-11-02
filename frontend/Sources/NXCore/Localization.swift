@@ -741,7 +741,7 @@ package enum L10n {
         "opt.title": ("构建选项", "Build options"),
         "opt.note": ("按输出类型", "per output"),
         "opt.bc": ("兼容老设备（A15 / A16 及更早）", "Older devices (A15 / A16 and earlier)"),
-        "opt.bc.note": ("在不支持 BC 纹理压缩的 GPU 上于 CPU 解压：iPhone 13 及更早、A16 的 iPad。新设备请保持关闭——GPU 路径更快",
+        "opt.bc.note": ("在不支持 BC 纹理压缩的 GPU 上用 CPU 解压：iPhone 13 及更早、A16 的 iPad。新设备请保持关闭——GPU 路径更快",
                         "Decode BC textures on the CPU for GPUs without BC support: iPhone 13 and earlier, A16 iPads. Leave off on newer devices — the GPU path is faster"),
         "opt.macNoBc": ("Mac App 用这台 Mac 的 GPU，不需要兼容选项", "A Mac app uses this Mac's GPU, so no compatibility option is needed"),
         "msg.bcOn": ("兼容老设备：BC 纹理将在 CPU 上解压", "Older-device mode: BC textures will be decoded on the CPU"),
