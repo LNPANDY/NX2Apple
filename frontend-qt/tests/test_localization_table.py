@@ -18,20 +18,20 @@ from nspb_qt.l10n import TABLE, load, t   # noqa: E402
 class Files(unittest.TestCase):
     def test_the_checkout_has_all_five_languages_and_english_and_chinese_have_every_key(self):
         loaded = load(str(ROOT / 'frontend' / 'l10n'))
-        self.assertEqual(sorted(loaded), sorted(l10n.CODES))
+        self.assertEqual(sorted(loaded), ['de', 'en', 'fr', 'sv', 'zh'])
         self.assertEqual(set(loaded['en']), set(loaded['zh']))
         self.assertNotIn('_language', loaded['en'])
         self.assertEqual(set(TABLE), set(loaded['en']))
 
     def test_tabs_newlines_and_backslashes_are_the_text_they_mean(self):
-        for column, text in enumerate(TABLE['fail.noTitleID.next']):
-            self.assertIn('\n', text, column)
-        self.assertIn('C:\\VulkanSDK\\', TABLE['dep.spirv.hint.win'][1])
-        self.assertNotIn('\\\\', TABLE['dep.spirv.hint.win'][1])
+        for code, text in TABLE['fail.noTitleID.next'].items():
+            self.assertIn('\n', text, code)
+        self.assertIn('C:\\VulkanSDK\\', TABLE['dep.spirv.hint.win']['en'])
+        self.assertNotIn('\\\\', TABLE['dep.spirv.hint.win']['en'])
 
     def test_the_stale_frameworks_texts_are_there(self):
-        self.assertEqual(t('stale.go', Lang.DE), 'Fortfahren')
-        self.assertEqual(t('stale.go', Lang.ZH), '继续')
+        self.assertEqual(t('stale.go', Lang('de')), 'Fortfahren')
+        self.assertEqual(t('stale.go', Lang('zh')), '继续')
 
     def test_a_language_without_the_key_shows_english_and_an_unknown_key_shows_itself(self):
         with tempfile.TemporaryDirectory() as d:
@@ -39,9 +39,8 @@ class Files(unittest.TestCase):
                 (Path(d) / f'{code}.json').write_text(json.dumps({'_language': {'name': code, 'locales': [code]}, **body}), encoding='utf-8')
             reports: list[str] = []
             table = l10n._table(load(d, report=reports.append))
-            self.assertEqual(table['a'], ('甲', 'A', 'A', 'A', 'A'))
-            self.assertEqual(len(reports), 2, reports)   # de.json and fr.json are missing
-
+            self.assertEqual(table['a'], {'zh': '甲', 'en': 'A', 'sv': 'A'})
+            self.assertEqual(reports, [])   # de and fr have no file, so they are not languages here
     def test_nothing_found_or_a_broken_file_reports_and_loads_nothing(self):
         reports: list[str] = []
         self.assertEqual(load(None, report=reports.append), {})
@@ -50,7 +49,7 @@ class Files(unittest.TestCase):
             (Path(d) / 'en.json').write_text('{ not json', encoding='utf-8')
             reports.clear()
             self.assertEqual(load(d, report=reports.append), {})
-            self.assertEqual(len(reports), 5)
+            self.assertEqual(len(reports), 2, reports)   # en.json is broken and zh.json is missing
             self.assertEqual(l10n._table({}), {})
 
 

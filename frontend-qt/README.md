@@ -17,8 +17,10 @@ written once and runs everywhere Python and Qt do.
 | Build logic | runs the Python scripts | runs the same scripts |
 
 The strings are **read** from `../frontend/l10n/<code>.json`, one file per language, so the two front
-ends cannot drift apart: a new string is a line in `en.json` and in `zh.json`. A frozen build carries the
-folder as `l10n` (`build-qt.yml` adds it with `--add-data`).
+ends cannot drift apart: a new string is a line in `en.json` and in `zh.json`. The language list comes
+from the files too (`Lang.all()`, each language's own name and the locale names that select it,
+Windows ones such as `german` included, are in its `_language` entry), so a new language is one new file
+and no change here. A frozen build carries the folder as `l10n` (`build-qt.yml` adds it with `--add-data`).
 
 ## Run it
 
@@ -52,8 +54,8 @@ the bundle's `fonts` folder (`build-qt.yml`). If the file is missing the system 
   the RomFS archive and reports where the IPA and archive landed.
 - `--work-dir` is passed only when the checkout's script declares it (an upstream checkout has
   no such option — issue #5).
-- Languages: Chinese, Swedish, German or French on devices in those languages, English elsewhere, and the
-  header button switches.
+- Languages: every language that has a file in `frontend/l10n` (today Chinese, Swedish, German and French)
+  on devices in that language, English elsewhere, and the header button cycles through them.
 
 ## What is not there yet
 

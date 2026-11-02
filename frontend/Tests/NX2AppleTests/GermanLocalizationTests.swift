@@ -69,7 +69,7 @@ final class GermanLocalizationTests: XCTestCase {
         XCTAssertEqual(L10n.string("onboarding.later", .de), "Sp\u{e4}ter einrichten")
         XCTAssertEqual(L10n.string("dep.recheck", .de), "Erneut pr\u{fc}fen")
         XCTAssertEqual(L10n.string("saves.cancel", .de), "Abbrechen")
-        XCTAssertEqual(Lang(rawValue: "de"), .de)
+        XCTAssertEqual(Lang.find("de"), .de)
     }
 
     func testLanguageNamesExistInEveryLanguage() {
@@ -94,7 +94,7 @@ final class GermanLocalizationTests: XCTestCase {
 /// The opt-in capture tests render in English (and Chinese). Set `NX_CAPTURE_LANG=de` (or `sv`, `zh`)
 /// to render them all in that language instead, for example into /tmp/de-shots.
 enum CaptureLanguage {
-    private static var chosen: Lang? { ProcessInfo.processInfo.environment["NX_CAPTURE_LANG"].flatMap { Lang(rawValue: $0) } }
+    private static var chosen: Lang? { ProcessInfo.processInfo.environment["NX_CAPTURE_LANG"].flatMap { Lang.find($0) } }
     static func current(_ fallback: Lang) -> Lang { chosen ?? fallback }
     static func all(_ fallback: [Lang]) -> [Lang] { chosen.map { [$0] } ?? fallback }
 }

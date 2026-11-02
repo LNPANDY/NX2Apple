@@ -13,7 +13,53 @@ import Foundation
 /// A missing or broken file never stops the app. That language has no texts, a lookup falls back to English and then to the key, and
 /// the problem is written to standard error once (the files are read once, at the first lookup).
 package enum LocalizationFiles {
-    package static let codes = ["en", "zh", "sv", "de", "fr"]
+    /// What a file says about its language in `_language`. A file without it still works as a catalog: its name is its code and its
+    /// only locale prefix is its code.
+    package struct Language: Equatable, Sendable {
+        package let code: String
+        /// The language's own name, which the picker shows (Svenska, Deutsch).
+        package let name: String
+        /// The lowercased prefixes that select it: a language tag (`de`, so `de-AT`) or, on Windows, a locale name (`german`).
+        package let locales: [String]
+        /// Where the picker puts it. Languages without one come after those with one, by code.
+        package let order: Int?
+    }
+
+    /// The codes of the language files in `directory`: the names of its `*.json` files, sorted.
+    package static func codes(in directory: URL) -> [String] {
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
+        return names.filter { $0.hasSuffix(".json") && !$0.hasPrefix(".") }.map { String($0.dropLast(5)) }.sorted()
+    }
+
+    /// One file's `_language` entry, with the defaults above for a missing or odd one.
+    package static func language(code: String, in file: URL) -> Language {
+        var name = code
+        var locales = [code]
+        var order: Int?
+        if let data = try? Data(contentsOf: file),
+           let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+           let entry = object["_language"] as? [String: Any] {
+            if let n = entry["name"] as? String, !n.isEmpty { name = n }
+            let given = (entry["locales"] as? [Any])?.compactMap { ($0 as? String)?.lowercased() }.filter { !$0.isEmpty } ?? []
+            if !given.isEmpty { locales = given }
+            order = entry["order"] as? Int
+        }
+        return Language(code: code, name: name, locales: locales, order: order)
+    }
+
+    /// Every language in `directory` in picker order: those with an `order` by it, then the rest by code.
+    package static func languages(from directory: URL? = directory()) -> [Language] {
+        guard let directory else { return [] }
+        let all = codes(in: directory).map { language(code: $0, in: directory.appendingPathComponent("\($0).json")) }
+        return all.sorted {
+            switch ($0.order, $1.order) {
+            case let (a?, b?) where a != b: return a < b
+            case (_?, nil): return true
+            case (nil, _?): return false
+            default: return $0.code < $1.code
+            }
+        }
+    }
 
     /// The folder with the language files, nil when none of the places has `en.json`.
     package static func directory(environment: [String: String] = ProcessInfo.processInfo.environment,
@@ -57,7 +103,7 @@ package enum LocalizationFiles {
             return [:]
         }
         var out: [String: [String: String]] = [:]
-        for code in codes {
+        for code in codes(in: directory) {
             if let texts = texts(in: directory.appendingPathComponent("\(code).json"), report: report) { out[code] = texts }
         }
         return out

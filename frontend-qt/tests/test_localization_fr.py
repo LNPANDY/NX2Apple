@@ -18,14 +18,15 @@ PLACEHOLDER = re.compile(r'%(?:\d+\$)?(?:\.\d+)?l{0,2}[@dfs%]')
 
 class FrenchTable(unittest.TestCase):
     def test_every_row_has_french_and_its_placeholders(self):
-        for key, (_, en, _, _, fr) in TABLE.items():
+        for key, row in TABLE.items():
+            en, fr = row['en'], row['fr']
             self.assertTrue(fr, key)
             self.assertEqual(PLACEHOLDER.findall(fr), PLACEHOLDER.findall(en), key)
 
     def test_t_reads_the_french_column(self):
-        self.assertEqual(t('onboarding.start', Lang.FR), 'Commencer')
-        self.assertEqual(t('settings.language.fr', Lang.FR), 'Français')
-        self.assertEqual(t('dep.install.begin', Lang.FR, 'zstd'), 'Installation de zstd…')
+        self.assertEqual(t('onboarding.start', Lang('fr')), 'Commencer')
+        self.assertEqual(t('settings.language.fr', Lang('fr')), 'Français')
+        self.assertEqual(t('dep.install.begin', Lang('fr'), 'zstd'), 'Installation de zstd…')
 
 
 if __name__ == '__main__':

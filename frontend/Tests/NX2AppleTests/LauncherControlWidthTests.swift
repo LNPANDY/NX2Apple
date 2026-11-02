@@ -21,17 +21,18 @@ import NXModel
 
     func testThePickerOffersEveryLanguage() {
         let offered = Set(AppCard.languageCodes.filter { !$0.isEmpty })
-        XCTAssertEqual(offered, Set(Lang.allCases.map(\.rawValue)), "Settings > Language lists the launcher's languages")
+        XCTAssertEqual(offered, Set(Lang.all.map(\.code)), "Settings > Language lists the launcher's languages")
     }
 
     func testDropdownChoicesFitBesideTheChevron() throws {
-        for code in AppCard.languageCodes {
-            let key = "settings.language." + (code.isEmpty ? "system" : code)
-            XCTAssertNotNil(L10n.table[key], key)
-            for lang in Lang.allCases {
-                let text = L10n.string(key, lang)
-                XCTAssertLessThanOrEqual(try width(text), LauncherControl.choiceWidth, "\(lang) \(key): \(text)")
-            }
+        // The languages show their own names, from the files. Only "system" follows the UI language.
+        for lang in Lang.all {
+            XCTAssertLessThanOrEqual(try width(lang.name), LauncherControl.choiceWidth, "\(lang.code): \(lang.name)")
+        }
+        XCTAssertNotNil(L10n.table["settings.language.system"])
+        for lang in Lang.all {
+            let text = L10n.string("settings.language.system", lang)
+            XCTAssertLessThanOrEqual(try width(text), LauncherControl.choiceWidth, "\(lang.code) system: \(text)")
         }
     }
 
@@ -39,7 +40,7 @@ import NXModel
     func testLibraryFilterLabelsFitTheirSegment() throws {
         let room = (LauncherControl.width - 2 * 3 - 2) / 2 - 2 * 12
         for filter in LibraryFilter.allCases {
-            for lang in Lang.allCases {
+            for lang in Lang.all {
                 let text = L10n.string(filter.labelKey, lang)
                 let font = try XCTUnwrap(Typography.manropeFont(size: 12.5, weight: .bold))
                 let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: [.font: font]))
@@ -183,7 +184,7 @@ import NXModel
         let saved = keys.map { ($0, UserDefaults.standard.object(forKey: $0)) }
         defer { for (key, value) in saved { UserDefaults.standard.set(value, forKey: key) } }
         for scenario in scenarios {
-            for lang in Lang.allCases {
+            for lang in Lang.all {
                 let samples = try measure(scenario, lang)
                 let at = "\(lang), \(scenario.name)"
                 XCTAssertGreaterThanOrEqual(samples.count, scenario.atLeast, "\(at): the page showed fewer controls than expected")
@@ -271,7 +272,7 @@ import NXModel
         try JSONEncoder().encode(Snapshot(games: [game], folder: directory.path)).write(to: file)
         let library = GameLibrary(file: file)
         let modelStores = LauncherStores(); let model = modelStores.build
-        for lang in Lang.allCases {
+        for lang in Lang.all {
             model.lang = lang
             let samples = Samples()
             let view = LaunchOptionsView(m: model, library: library, gameID: game.id).environmentObject(PadFocus()).environmentObject(modelStores.localizer)

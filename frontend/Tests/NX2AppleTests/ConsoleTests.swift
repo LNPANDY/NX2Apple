@@ -222,7 +222,7 @@ import NXModel
                 host.layoutSubtreeIfNeeded()
                 let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
                 host.cacheDisplay(in: host.bounds, to: rep)
-                try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: output.appendingPathComponent("desktop-\(Int(width))-\(lang.rawValue).png"))
+                try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: output.appendingPathComponent("desktop-\(Int(width))-\(lang.code).png"))
                 window.orderOut(nil)
                 window.contentView = nil
                 window.close()
@@ -269,7 +269,7 @@ import NXModel
                     let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
                     host.cacheDisplay(in: host.bounds, to: rep)
                     try XCTUnwrap(rep.representation(using: .png, properties: [:]))
-                        .write(to: output.appendingPathComponent("\(screen)-\(name)-\(lang.rawValue).png"))
+                        .write(to: output.appendingPathComponent("\(screen)-\(name)-\(lang.code).png"))
                     window.orderOut(nil)
                     window.contentView = nil
                     window.close()

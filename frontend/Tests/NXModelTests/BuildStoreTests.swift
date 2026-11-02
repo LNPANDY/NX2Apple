@@ -314,9 +314,9 @@ import XCTest
 
     func testWhatTheStoreWritesItselfIsInTheLanguageOfTheLocalizer() {
         let store = makeStore()
-        localizer.lang = .de
-        XCTAssertEqual(store.lang, .de)
-        XCTAssertEqual(store.t("shell.needsDevice"), L10n.string("shell.needsDevice", .de))
+        localizer.lang = Lang("de")
+        XCTAssertEqual(store.lang, Lang("de"))
+        XCTAssertEqual(store.t("shell.needsDevice"), L10n.string("shell.needsDevice", Lang("de")))
     }
 
     func testAStoppedBuildWithNothingRunningDoesNothing() {

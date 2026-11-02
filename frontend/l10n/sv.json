@@ -1,6 +1,7 @@
 {
   "_language": {
     "name": "Svenska",
+    "order": 2,
     "locales": [
       "sv",
       "swedish"

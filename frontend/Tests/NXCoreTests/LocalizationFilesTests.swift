@@ -21,11 +21,11 @@ final class LocalizationFilesTests: XCTestCase {
 
     func testTheCheckoutHasAllFiveLanguagesWithTheSameKeysInEnglishAndChinese() throws {
         let loaded = LocalizationFiles.load()
-        for code in LocalizationFiles.codes { XCTAssertFalse(loaded[code]?.isEmpty ?? true, "\(code).json was not read") }
+        for code in ["en", "zh", "sv", "de", "fr"] { XCTAssertFalse(loaded[code]?.isEmpty ?? true, "\(code).json was not read") }
         XCTAssertEqual(Set(loaded["en"]!.keys), Set(loaded["zh"]!.keys), "English and Chinese need every key")
         XCTAssertNil(loaded["en"]!["_language"], "_language is not a text")
-        XCTAssertEqual(L10n.string("stale.go", .de), "Fortfahren")
-        XCTAssertEqual(L10n.string("no.such.key", .fr), "no.such.key")
+        XCTAssertEqual(L10n.string("stale.go", Lang("de")), "Fortfahren")
+        XCTAssertEqual(L10n.string("no.such.key", Lang("fr")), "no.such.key")
     }
 
     func testEnvironmentFolderComesFirstThenTheAppsResources() throws {
@@ -59,6 +59,7 @@ final class LocalizationFilesTests: XCTestCase {
         XCTAssertEqual(loaded["en"], ["a": "A"])
         XCTAssertNil(loaded["zh"])
         XCTAssertNil(loaded["fr"])
-        XCTAssertEqual(reports.count, 5, "n is not a text, zh.json is broken, sv, de and fr are missing: \(reports)")
+        // A language with no file is not a language, so only the two problems are reported.
+        XCTAssertEqual(reports.count, 2, "n is not a text and zh.json is broken: \(reports)")
     }
 }

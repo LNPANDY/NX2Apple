@@ -54,8 +54,9 @@ final class LauncherDropdownTests: XCTestCase {
     func testEveryLanguageInThePickerHasAName() {
         XCTAssertEqual(AppCard.languageCodes.first, "")
         for code in AppCard.languageCodes.dropFirst() {
-            XCTAssertNotNil(Lang(rawValue: code), code)
-            for lang: Lang in [.zh, .en, .sv, .de] { XCTAssertNotEqual(L10n.string("settings.language." + code, lang), "settings.language." + code) }
+            let lang = try? XCTUnwrap(Lang.find(code), code)
+            XCTAssertEqual(lang?.name.isEmpty, false, code)
+            XCTAssertNotEqual(lang?.name, code, "\(code) has a name of its own")
         }
     }
 

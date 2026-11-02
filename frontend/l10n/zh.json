@@ -1,6 +1,7 @@
 {
   "_language": {
     "name": "中文",
+    "order": 0,
     "locales": [
       "zh",
       "chinese"

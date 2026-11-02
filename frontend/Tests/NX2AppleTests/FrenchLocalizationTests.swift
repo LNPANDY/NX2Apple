@@ -47,7 +47,7 @@ final class FrenchLocalizationTests: XCTestCase {
     }
 
     func testFrenchIsSelectedAndReadsItsCatalog() {
-        XCTAssertEqual(Lang(rawValue: "fr"), .fr)
+        XCTAssertEqual(Lang.find("fr"), .fr)
         XCTAssertEqual(L10n.string("settings.language.fr", .fr), "Français")
         XCTAssertEqual(L10n.string("settings.language.fr", .en), "Français", "a language's name is in that language")
         XCTAssertEqual(L10n.string("onboarding.start", .fr), "Commencer")

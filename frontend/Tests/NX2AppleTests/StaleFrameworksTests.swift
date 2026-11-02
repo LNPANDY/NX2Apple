@@ -114,7 +114,7 @@ import NXModel
     }
 
     func testAllFiveLanguagesHaveTheTextsAndNoneUsesASemicolon() {
-        for lang in Lang.allCases {
+        for lang in Lang.all {
             for key in ["stale.title", "stale.message", "stale.go", "stale.stop", "stale.removeFailed"] {
                 let text = L10n.string(key, lang)
                 XCTAssertNotEqual(text, key, "\(key) in \(lang)")
@@ -132,7 +132,7 @@ import NXModel
         guard let directory = ProcessInfo.processInfo.environment["NX_LAUNCHER_CAPTURE_DIR"] else { throw XCTSkip("Set NX_LAUNCHER_CAPTURE_DIR to capture native views") }
         let output = URL(fileURLWithPath: directory)
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
-        let lang = ProcessInfo.processInfo.environment["NX_CAPTURE_LANG"].flatMap { Lang(rawValue: $0) } ?? .en
+        let lang = ProcessInfo.processInfo.environment["NX_CAPTURE_LANG"].flatMap { Lang.find($0) } ?? .en
         let entries = [StaleFrameworks.Entry(titleID: oldID, name: "Super Mario Odyssey", chain: old, paths: []),
                        StaleFrameworks.Entry(titleID: newID, name: "Hades", chain: old, paths: [])]
         let alert = VStack(spacing: 12) {
@@ -158,7 +158,7 @@ import NXModel
         host.layoutSubtreeIfNeeded()
         let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
         host.cacheDisplay(in: host.bounds, to: rep)
-        try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: output.appendingPathComponent("stale-frameworks-\(lang.rawValue).png"))
+        try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: output.appendingPathComponent("stale-frameworks-\(lang.code).png"))
         window.orderOut(nil)
     }
 }

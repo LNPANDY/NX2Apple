@@ -39,9 +39,9 @@ import NXCore
     /// The string for `key` in the current language. An unknown key comes back as itself, so it shows up in the UI.
     nonisolated package func t(_ key: String) -> String { L10n.string(key, lang) }
 
-    /// Settings' choice: "" follows the system, else a `Lang` raw value. It is stored, and the language changes now.
+    /// Settings' choice: "" follows the system, else a language code. It is stored, and the language changes now.
     package func choose(_ code: String) {
-        Lang.saved = Lang(rawValue: code)
+        Lang.saved = Lang.find(code)
         lang = Lang.initial()
     }
 }

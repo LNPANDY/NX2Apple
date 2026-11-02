@@ -26,21 +26,27 @@ package struct AppCard: View {
         self.uninstallPlan = uninstallPlan
     }
 
-    /// The language picker's choices in order, "" being the system's. A new language is one more code here and its
-    /// "settings.language.<code>" entry, which is its own name (Svenska, Deutsch) in every language.
-    package static let languageCodes = ["", "zh", "en", "sv", "de", "fr"]
+    /// The language picker's choices in order, "" being the system's. The rest is the language files in `frontend/l10n`, each shown
+    /// by its own name (`Lang.name`, from `_language`: Svenska, Deutsch), so a new language is a new file and nothing here.
+    package static let languageCodes = languageCodes(among: LocalizationFiles.languages())
+
+    package static func languageCodes(among languages: [LocalizationFiles.Language]) -> [String] { [""] + languages.map(\.code) }
+
+    /// What the picker shows for a choice: "system" follows the UI language, a language shows its own name.
+    private func languageLabel(_ code: String) -> String {
+        code.isEmpty ? loc.t("settings.language.system") : (Lang.find(code)?.name ?? code)
+    }
 
     package var body: some View {
         CardGroup(loc.t("section.app"), footnote: updates.status) {
             // The interface language: the device default unless someone picks one here. Stored as
-            // "" (follow), "zh", "en", "sv", "de" or "fr" so a later system-language change still applies.
+            // "" (follow) or a language code so a later system-language change still applies.
             CardRow(loc.t("settings.language"),
-                detail: Lang.saved.map { loc.t("settings.language.\($0.rawValue)") }
-                    ?? loc.t("settings.language.system"), dot: LauncherPalette.ready, help: "") {
+                detail: languageLabel(Lang.saved?.code ?? ""), dot: LauncherPalette.ready, help: "") {
                 // The launcher's own list, drawn like the buttons beside it and as wide as they are.
-                // The language names are in their own language (see "settings.language.*"), only "system" follows the UI.
-                LauncherDropdown(options: Self.languageCodes.map { (value: $0, label: loc.t("settings.language." + ($0.isEmpty ? "system" : $0))) },
-                                 selection: Lang.saved.map { $0.rawValue } ?? "", label: loc.t("settings.language"),
+                // The language names are in their own language (from the files), only "system" follows the UI.
+                LauncherDropdown(options: Self.languageCodes.map { (value: $0, label: languageLabel($0)) },
+                                 selection: Lang.saved?.code ?? "", label: loc.t("settings.language"),
                                  style: .button) { v in
                     loc.choose(v)
                 }
@@ -104,7 +110,7 @@ package struct AppCard: View {
     /// The interface language one step on (a controller's left / right on the language list).
     private func cycleLanguage(_ by: Int) {
         let values = Self.languageCodes
-        let at = values.firstIndex(of: Lang.saved.map { $0.rawValue } ?? "") ?? 0
+        let at = values.firstIndex(of: Lang.saved?.code ?? "") ?? 0
         let v = values[(at + by + values.count) % values.count]
         loc.choose(v)
     }

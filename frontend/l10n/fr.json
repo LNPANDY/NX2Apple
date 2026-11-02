@@ -1,6 +1,7 @@
 {
   "_language": {
     "name": "Français",
+    "order": 4,
     "locales": [
       "fr",
       "french"
