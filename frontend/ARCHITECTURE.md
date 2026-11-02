@@ -80,7 +80,7 @@ A view observes only the stores it shows. A change in one store invalidates only
 
 ## File size
 
-No Swift file under `frontend/Sources` is above 800 lines. `SourceSizeTests` fails otherwise. The files that are above it today are listed in that test with their size, and they may only shrink. When one drops to 800 lines or fewer, remove its entry.
+No Swift file under `frontend/Sources` is above 800 lines. `SourceSizeTests` fails otherwise. No file is above it today, so `SourceSizeTests.aboveTheLimit` is empty. A file that cannot be split gets an entry there with its size, and it may only shrink. `LauncherView.swift` was the last one: its Library page (the hero, the collection row and the status line) moved to `LauncherView+Library.swift` as an extension, and `LauncherPage` and `LibraryFilter` moved to `LauncherPage.swift`. The state stays in `LauncherView`, so a member the extension reads is internal, not private.
 
 ## Names that stay
 

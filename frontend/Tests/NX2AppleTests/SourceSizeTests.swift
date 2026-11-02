@@ -6,9 +6,7 @@ final class SourceSizeTests: XCTestCase {
     private static let limit = 800
 
     /// Path under frontend/Sources → its line count when the limit came in. Lower the number when the file shrinks.
-    private static let aboveTheLimit: [String: Int] = [
-        "NX2Apple/LauncherView.swift": 967,
-    ]
+    private static let aboveTheLimit: [String: Int] = [:]
 
     private func sources() -> URL {
         var url = URL(fileURLWithPath: #filePath)
