@@ -2,10 +2,11 @@ import XCTest
 import SwiftUI
 @testable import NX2Apple
 @testable import NXCore
+import NXModel
 @testable import NXLauncher
 
 /// Frame-time recordings (DM_NVN_TSV): reading the host's timing rows and summing them up as scripts/bench.py does.
-final class FrameTimesTests: XCTestCase {
+@MainActor final class FrameTimesTests: XCTestCase {
     /// Rows as the host writes them (dm/gfx/nvn/hle_nvn.c): frame, @metric, value; call-count rows and junk in between.
     private let tsv = """
     1\t@t_s\t0.000
@@ -176,10 +177,10 @@ final class FrameTimesTests: XCTestCase {
         let saved = UserDefaults.standard.object(forKey: key)
         defer { UserDefaults.standard.set(saved, forKey: key) }
         FrameTimes.setEnabled(true, titleID: titleID)
-        let model = BuildModel()
+        let modelStores = LauncherStores(); let model = modelStores.build
         model.lang = .en
-        let host = NSHostingView(rootView: LaunchOptionsView(m: model, library: library, gameID: library.games[0].id).environmentObject(PadFocus()).environmentObject(model.localizer))
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 1300), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+        let host = NSHostingView(rootView: LaunchOptionsView(m: model, library: library, gameID: library.games[0].id).environmentObject(PadFocus()).environmentObject(modelStores.localizer))
+        let window = OffscreenWindow(size: NSSize(width: 900, height: 1300), styleMask: [.titled, .closable, .resizable])
         window.contentView = host
         window.orderFront(nil)
         RunLoop.main.run(until: Date().addingTimeInterval(1.0))
@@ -192,7 +193,7 @@ final class FrameTimesTests: XCTestCase {
         let rows = NSHostingView(rootView: VStack(spacing: 0) {
             ForEach(FrameTimes.recordings(in: folder), id: \.self) { FrameTimesRecordingView(file: $0, t: model.t) }
         }.frame(width: 760).background(Color(white: 0.09)))
-        let rowsWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 760, height: 520), styleMask: [.titled], backing: .buffered, defer: false)
+        let rowsWindow = OffscreenWindow(size: NSSize(width: 760, height: 520))
         rowsWindow.contentView = rows
         rowsWindow.orderFront(nil)
         RunLoop.main.run(until: Date().addingTimeInterval(1.0))

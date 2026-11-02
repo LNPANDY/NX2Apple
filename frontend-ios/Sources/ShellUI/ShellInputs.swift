@@ -38,7 +38,9 @@ public struct GameTile: Identifiable, Equatable, Sendable {
 public struct SettingOption: Identifiable, Equatable, Sendable {
     public var id: String
     public var label: String
-    public init(_ value: String, _ label: String) { id = value; self.label = label }
+    /// The label is a text of the game's launcher.json: it is shown in the player's language when the catalog has it.
+    public init(_ value: String, _ label: String) { self.init(value, label, in: ShellStrings.bundle) }
+    init(_ value: String, _ label: String, in bundle: Bundle) { id = value; self.label = ShellStrings.setting(label, bundle: bundle) }
 }
 
 public enum SettingKind: Equatable, Sendable {
@@ -57,10 +59,14 @@ public struct SettingRow: Identifiable, Equatable, Sendable {
     public var enabled: Bool
     /// The value is the shell settings' choice, because the game has none of its own.
     public var fromShell: Bool
+    /// Label and note are texts of the game's launcher.json: shown in the player's language when the catalog has them.
     public init(id: String, label: String, note: String = "", kind: SettingKind, value: String, enabled: Bool = true, fromShell: Bool = false) {
+        self.init(id: id, label: label, note: note, kind: kind, value: value, enabled: enabled, fromShell: fromShell, in: ShellStrings.bundle)
+    }
+    init(id: String, label: String, note: String = "", kind: SettingKind, value: String, enabled: Bool = true, fromShell: Bool = false, in bundle: Bundle) {
         self.id = id
-        self.label = label
-        self.note = note
+        self.label = ShellStrings.setting(label, bundle: bundle)
+        self.note = ShellStrings.setting(note, bundle: bundle)
         self.kind = kind
         self.value = value
         self.enabled = enabled
@@ -72,7 +78,13 @@ public struct SettingSection: Identifiable, Equatable, Sendable {
     public var id: String
     public var title: String
     public var rows: [SettingRow]
-    public init(id: String, title: String, rows: [SettingRow]) { self.id = id; self.title = title; self.rows = rows }
+    /// The id stays the section's name in launcher.json, the title is that name in the player's language when the catalog has it.
+    public init(id: String, title: String, rows: [SettingRow]) { self.init(id: id, title: title, rows: rows, in: ShellStrings.bundle) }
+    init(id: String, title: String, rows: [SettingRow], in bundle: Bundle) {
+        self.id = id
+        self.title = ShellStrings.setting(title, bundle: bundle)
+        self.rows = rows
+    }
 }
 
 public struct GameDetail: Identifiable, Equatable, Sendable {

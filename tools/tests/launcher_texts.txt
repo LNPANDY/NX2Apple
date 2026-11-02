@@ -1,0 +1,50 @@
+30 fps
+60 fps
+Adjusts resolution between 70% and 100% under load. Turn off to keep full resolution for the selected console mode.
+American English
+Brazilian Portuguese
+British English
+Canadian French
+Console mode
+Controls
+Display mode
+Docked
+Dutch
+Dynamic resolution
+Encode thread
+Frame buffering
+Frame rate
+Frame-rate counter
+French
+Fullscreen
+Game
+Game language
+Game rumble
+German
+Handheld
+Hold frames when late
+Italian
+Japanese
+Keeps a pipeline archive; uses more memory.
+Korean
+Latin American Spanish
+Metal 4 pipelines
+MetalFX
+Performance
+Performance HUD
+Pipeline prebuild
+Portuguese
+Render scale
+Rumble cutoff
+Rumble strength
+Russian
+Simplified Chinese
+Spanish
+Standard
+The first start waits a few minutes for it, once.
+Touch feedback
+Traditional Chinese
+Up to one frame more display latency.
+Upscaling
+Uses more GPU time and can increase heat.
+Window

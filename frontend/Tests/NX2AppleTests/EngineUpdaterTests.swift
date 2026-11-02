@@ -4,7 +4,7 @@ import XCTest
 @testable import NXCore
 @testable import NXLauncher
 
-/// Channels, asset URLs, the installer and the update check (EngineUpdater.swift, EngineUpdateModel.swift). The
+/// Channels, asset URLs, the installer and the update check (EngineUpdater.swift in NXCore, EngineSyncStore in NXModel). The
 /// archive is built here with `ditto`, so the unpack path is real. Nothing touches the network.
 final class EngineUpdaterTests: XCTestCase {
     private var root: URL!

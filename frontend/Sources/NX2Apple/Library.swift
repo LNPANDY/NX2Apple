@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import NXCore
+import NXModel
 import NXLauncher
 
 /// Only paths and presentation metadata live here. Game data stays on its original drive.
@@ -296,9 +297,7 @@ final class GameLibrary: ObservableObject {
     /// A path on an external volume (`/Volumes/<name>/...`) whose mount point is absent: the drive is not connected, so the file is
     /// not known to be gone and its path must stay.
     static func onUnmountedVolume(_ path: String, volumes: String = "/Volumes") -> Bool {
-        let prefix = volumes.hasSuffix("/") ? volumes : volumes + "/"
-        guard path.hasPrefix(prefix), let name = path.dropFirst(prefix.count).split(separator: "/").first else { return false }
-        return !FileManager.default.fileExists(atPath: prefix + name)
+        VolumePath.onUnmounted(path, volumes: volumes)
     }
 
     /// Forgets a remembered Mac app, IPA or iOS app that is gone from disk, so nothing points at it. A file on a drive that is not
@@ -387,7 +386,7 @@ final class GameLibrary: ObservableObject {
                 continue
             }
             guard packages.contains(url.pathExtension.lowercased()),
-                  let id = BuildModel.titleID(url.lastPathComponent), id & 0xfff == 0 else { continue }
+                  let id = TitleID.parse(url.lastPathComponent), id & 0xfff == 0 else { continue }
             let tid = String(format: "%016llX", id)
             guard result[tid] == nil else { continue }
             var game = LibraryGame(titleID: tid, name: title(for: url.path, repo: repo, titleID: tid))
@@ -397,7 +396,7 @@ final class GameLibrary: ObservableObject {
             // root or at a folder that holds no more of them (issue: an auto-scanned game found no update or DLC).
             let family = { (name: String) -> Bool in
                 guard packages.contains((name as NSString).pathExtension.lowercased()),
-                      let other = BuildModel.titleID(name) else { return false }
+                      let other = TitleID.parse(name) else { return false }
                 return other == id || (other >= id + 0x800 && other < id + 0x1000) || (other >= id + 0x1000 && other < id + 0x2000)
             }
             var gameRoot = url.deletingLastPathComponent()
@@ -424,15 +423,15 @@ final class GameLibrary: ObservableObject {
                 }
             }
             let familyOf = { (u: URL, lo: UInt64, hi: UInt64) -> Bool in
-                guard let other = BuildModel.titleID(u.lastPathComponent) else { return false }
+                guard let other = TitleID.parse(u.lastPathComponent) else { return false }
                 return other >= lo && other < hi
             }
-            let isBase = { (u: URL) -> Bool in BuildModel.titleID(u.lastPathComponent) == id }
+            let isBase = { (u: URL) -> Bool in TitleID.parse(u.lastPathComponent) == id }
             game.inputs["base"] = ([url] + found.filter(isBase))
-                .sorted { BuildModel.updateVersion($0.lastPathComponent) > BuildModel.updateVersion($1.lastPathComponent) }
+                .sorted { TitleID.updateVersion($0.lastPathComponent) > TitleID.updateVersion($1.lastPathComponent) }
                 .prefix(1).map(\.path)
             game.inputs["update"] = found.filter { familyOf($0, id + 0x800, id + 0x1000) }
-                .sorted { BuildModel.updateVersion($0.lastPathComponent) > BuildModel.updateVersion($1.lastPathComponent) }.prefix(1).map(\.path)
+                .sorted { TitleID.updateVersion($0.lastPathComponent) > TitleID.updateVersion($1.lastPathComponent) }.prefix(1).map(\.path)
             game.inputs["dlc"] = found.filter { familyOf($0, id + 0x1000, id + 0x2000) }.map(\.path).sorted()
             game.inputs["keys"] = [gameRoot.appendingPathComponent("prod.keys"), root.appendingPathComponent("keys/prod.keys"), root.appendingPathComponent("prod.keys"), gameRoot.appendingPathComponent("keys/prod.keys")]
                 .filter { FileManager.default.fileExists(atPath: $0.path) }.prefix(1).map(\.path)
@@ -444,7 +443,7 @@ final class GameLibrary: ObservableObject {
         return result.values.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 
-    func discover(repo: String = BuildModel.findRepo()) {
+    func discover(repo: String = RepoLayout.find()) {
         guard !folder.isEmpty, !scanning else { return }
         scanning = true
         let root = URL(fileURLWithPath: folder), installed = applicationFolders
@@ -490,11 +489,11 @@ final class GameLibrary: ObservableObject {
         return game.id
     }
 
-    @discardableResult func rememberInputs(_ model: BuildModel) -> UUID? {
+    @MainActor @discardableResult func rememberInputs(_ model: BuildStore) -> UUID? {
         guard !model.basePath.isEmpty else { return nil }
-        let titleID = BuildModel.titleID(model.basePath).map { String(format: "%016llX", $0) }
+        let titleID = TitleID.parse(model.basePath).map { String(format: "%016llX", $0) }
             ?? URL(fileURLWithPath: model.basePath).standardizedFileURL.path
-        var game = games.first { $0.titleID == titleID } ?? LibraryGame(titleID: titleID, name: Self.title(for: model.basePath, repo: model.repoPath, titleID: titleID))
+        var game = games.first { $0.titleID == titleID } ?? LibraryGame(titleID: titleID, name: Self.title(for: model.basePath, repo: model.repo.path, titleID: titleID))
         game.inputs = Dictionary(uniqueKeysWithValues: model.slots.map { ($0.id, $0.paths) })
         game.outputDirectory = model.outDir
         if !model.gameDir.isEmpty { game.sourceFolder = model.gameDir }

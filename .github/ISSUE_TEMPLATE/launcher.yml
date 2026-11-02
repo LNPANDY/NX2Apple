@@ -47,7 +47,7 @@ body:
     id: diagnostics
     attributes:
       label: Copy diagnostics
-      description: For a problem, Settings > Copy diagnostics, pasted here. Keys are left out and your home folder is shortened to `~`. Not needed for an idea.
+      description: For a problem, Settings > Copy diagnostics, pasted here. Keys are left out and your home folder is shortened to `~`. Not needed for an idea. If the problem needs a game's log, attach the whole file instead of pasting it (drag it into this box). A pasted text can hold at most 65,536 characters in total. The log is `log/<title ID>.log` next to the game's app or `~/Library/Logs/nxnative/<title ID>.log` on a Mac, and `log.txt` in the Files app on an iPhone.
       render: markdown
     validations:
       required: false

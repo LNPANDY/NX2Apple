@@ -35,9 +35,6 @@ jobs:
           # install produced a 591 MB bundle with the same exclusions in place.
           python -m pip install PySide6-Essentials pyinstaller
 
-      - name: Generate the localisation table
-        run: python frontend-qt/gen_localization.py
-
       # The build packages ride in the zip: the venv step then installs from disk (--no-index),
       # so a fresh machine needs no PyPI round-trip for lz4/capstone/fonttools/nsz. The runner's
       # Python is the version these wheels target (3.12), matching the interpreter the app
@@ -52,7 +49,8 @@ jobs:
         shell: bash
         run: |
           # Manrope (the Mac launcher's typeface, SIL OFL 1.1) goes into the bundle's fonts folder
-          # with its licence; style.load_font() looks for it there.
+          # with its licence; style.load_font() looks for it there. The language files (frontend/l10n, the ones the
+          # Mac launcher reads too) go into the bundle's l10n folder; nspb_qt/l10n.py looks for them there.
           PATHSEP=';'
           # --windowed: no console window. --name: the exe/bundle name.
           # --collect-all PySide6 copies the whole PySide6 package and OVERRIDES
@@ -117,6 +115,7 @@ jobs:
             --exclude-module PySide6.QtGraphsWidgets \
             --add-data "../frontend/fonts/Manrope.ttf${PATHSEP}fonts" \
             --add-data "../frontend/fonts/Manrope-OFL.txt${PATHSEP}fonts" \
+            --add-data "../frontend/l10n${PATHSEP}l10n" \
             --paths . \
             run_gui.py
 

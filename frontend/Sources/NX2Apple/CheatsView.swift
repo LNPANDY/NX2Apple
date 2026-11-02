@@ -9,7 +9,7 @@ import NXLauncher
 /// docs/frontends.md "Cheats"), so this is only the view. It never touches a running game: the host reads the files when it
 /// starts (or on its own Reload cheats).
 struct CheatsView: View {
-    @ObservedObject var m: BuildModel
+    @ObservedObject var m: BuildStore
     @EnvironmentObject var loc: Localizer
     @ObservedObject var library: GameLibrary
     let gameID: UUID
@@ -28,7 +28,7 @@ struct CheatsView: View {
     @State private var result: (text: String, ok: Bool)?
 
     private var game: LibraryGame? { library.games.first { $0.id == gameID } }
-    private var deviceName: String { game.map { m.deviceName($0.installedDevice) } ?? "iPhone" }
+    private var deviceName: String { game.map { m.devices.deviceName($0.installedDevice) } ?? "iPhone" }
 
     private var cheatFiles: CheatFiles? {
         guard let game else { return nil }
@@ -303,7 +303,7 @@ struct CheatsView: View {
 
     private func copyToDevice() {
         guard let cheatFiles, let game else { return }
-        let transfer = CheatTransfer(files: cheatFiles, device: game.installedDevice, bundle: bundle, devicectl: devicectl ?? .xcrun(m.xcrunPath))
+        let transfer = CheatTransfer(files: cheatFiles, device: game.installedDevice, bundle: bundle, devicectl: devicectl ?? .xcrun(m.devices.xcrun))
         busy = true; result = nil
         DispatchQueue.global(qos: .userInitiated).async {
             let outcome: (String, Bool)
@@ -320,7 +320,7 @@ struct CheatsView: View {
 
 extension View {
     /// The Cheats sheet of the game `id` names, with the controller's scope following it (the launcher's other sheets do the same inline).
-    func cheatsSheet(for id: Binding<UUID?>, m: BuildModel, library: GameLibrary, pad: PadFocus, restoreScope: @escaping () -> String) -> some View {
+    func cheatsSheet(for id: Binding<UUID?>, m: BuildStore, library: GameLibrary, pad: PadFocus, restoreScope: @escaping () -> String) -> some View {
         sheet(isPresented: Binding(get: { id.wrappedValue != nil }, set: { if !$0 { id.wrappedValue = nil } })) {
             if let game = id.wrappedValue { CheatsView(m: m, library: library, gameID: game).environmentObject(pad) }
         }

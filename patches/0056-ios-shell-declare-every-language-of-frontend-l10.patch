@@ -1,0 +1,26 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: v0lumehi <aljic.zijad@gmail.com>
+Date: Mon, 2 Nov 2026 06:47:05 +0100
+Subject: [PATCH] ios shell: declare every language of frontend/l10n in
+ CFBundleLocalizations
+
+Upstream-Status: fork-only
+Reason: The shell's texts are the language files of the launcher, and iOS offers a language to the package bundles only when the app declares it. The list was en and zh-Hans, so Swedish, German and French devices got English.
+Issue: LNPANDY/NX2Apple#388
+---
+ dm/ios/project-shell.yml | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/dm/ios/project-shell.yml b/dm/ios/project-shell.yml
+index 2f92fc4..0f82937 100644
+--- a/dm/ios/project-shell.yml
++++ b/dm/ios/project-shell.yml
+@@ -48,7 +48,7 @@ targets:
+       path: Gen/Info.plist
+       properties:
+         CFBundleDisplayName: ${DM_SHELL_NAME}
+-        CFBundleLocalizations: [en, zh-Hans]   # ShellUI and ShellHost carry en and zh-Hans catalogs, iOS offers only the declared ones to the package bundles
++        CFBundleLocalizations: [en, de, fr, sv, zh-Hans]   # one per file of frontend/l10n (tools/l10n_shell_catalogs.py), iOS offers only the declared ones to the package bundles
+         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+         CFBundleShortVersionString: $(MARKETING_VERSION)
+         UILaunchScreen: {}

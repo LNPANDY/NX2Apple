@@ -2,10 +2,11 @@ import XCTest
 import SwiftUI
 @testable import NX2Apple
 @testable import NXCore
+import NXModel
 @testable import NXLauncher
 
 /// When a build notification is posted and what it says (issue #64). Nothing here touches the notification center.
-final class BuildNotificationsTests: XCTestCase {
+@MainActor final class BuildNotificationsTests: XCTestCase {
     private func en(_ key: String) -> String { L10n.string(key, .en) }
 
     func testOnlyAFinishedOrFailedBuildIsNotified() {
@@ -57,13 +58,13 @@ final class BuildNotificationsTests: XCTestCase {
         let temporary = FileManager.default.temporaryDirectory.appendingPathComponent("nxnative-notify-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: temporary) }
-        let model = BuildModel()
+        let modelStores = LauncherStores(); let model = modelStores.build
         model.lang = CaptureLanguage.current(.en)
-        model.depsChecked = true
-        model.deps = [BuildModel.Dep(id: "test", name: "Xcode", hint: "", present: true, installCmd: [])]
+        MainActor.assumeIsolated { modelStores.dependencies.checked = true }
+        MainActor.assumeIsolated { modelStores.dependencies.deps = [Dep(id: "test", name: "Xcode", hint: "", present: true, installCmd: [])] }
         let library = GameLibrary(file: temporary.appendingPathComponent("preview.json"))
-        let host = NSHostingView(rootView: ContentView(model: model, library: library, initialPage: .settings, performStartupChecks: false))
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1440, height: 1500), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+        let host = NSHostingView(rootView: LauncherView(stores: modelStores, library: library, initialPage: .settings, performStartupChecks: false))
+        let window = OffscreenWindow(size: NSSize(width: 1440, height: 1500), styleMask: [.titled, .closable, .resizable])
         window.contentView = host
         window.orderFront(nil)
         RunLoop.main.run(until: Date().addingTimeInterval(0.5))

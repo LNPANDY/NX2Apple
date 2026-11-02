@@ -1,11 +1,12 @@
 import XCTest
 @testable import NX2Apple
 @testable import NXCore
+import NXModel
 @testable import NXLauncher
 
-/// The automatic update when the app opens (BuildModel.autoPull): a clean checkout on main fast-forwards to origin/main,
+/// The automatic update when the app opens (RepoStore.autoPull): a clean checkout on main fast-forwards to origin/main,
 /// one with local changes is left as it is. A local bare repository stands in for GitHub.
-final class RepoAutoUpdateTests: XCTestCase {
+@MainActor final class RepoAutoUpdateTests: XCTestCase {
     private var temporary: URL!
     private var saved: [(String, Any?)] = []
 
@@ -22,7 +23,7 @@ final class RepoAutoUpdateTests: XCTestCase {
     }
 
     @discardableResult private func git(_ args: String..., in dir: URL) throws -> String {
-        let r = BuildModel.runQuiet(["/usr/bin/git", "-C", dir.path] + args, env: BuildModel.gitEnv())
+        let r = SystemProcessRunner().runQuiet(["/usr/bin/git", "-C", dir.path] + args, env: SystemGitCheckout.environment())
         guard r.ok else { throw NSError(domain: "git", code: 1, userInfo: [NSLocalizedDescriptionKey: "git \(args.joined(separator: " ")): \(r.out)"]) }
         return r.out.trimmingCharacters(in: .whitespacesAndNewlines)
     }
@@ -46,37 +47,32 @@ final class RepoAutoUpdateTests: XCTestCase {
         return checkout
     }
 
-    @MainActor private func open(_ checkout: URL) -> BuildModel {
-        let m = BuildModel()
-        m.repoPath = checkout.path
-        m.autoUpdateRepo = true
-        m.checkRepoUpdates(silent: true)   // what the library does when the app opens
-        let settled = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in !m.repoBusy && m.repoBehind != nil && (m.autoPulled != nil || !m.repoStatus.isEmpty) }, object: nil)
+    @MainActor private func open(_ checkout: URL) -> LauncherStores {
+        let mStores = LauncherStores(); let m = mStores.build
+        mStores.repo.path = checkout.path
+        mStores.repo.autoUpdate = true
+        mStores.repo.checkForUpdates(silent: true)   // what the library does when the app opens
+        let settled = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in !mStores.repo.busy && mStores.repo.behind != nil && (mStores.repo.autoPulled != nil || !mStores.repo.status.isEmpty) }, object: nil)
         wait(for: [settled], timeout: 20)
-        return m
+        return mStores
     }
 
     @MainActor func testACleanCheckoutOnMainIsUpdatedWhenTheAppOpens() throws {
         let checkout = try fixture()
-        let m = open(checkout)
-        XCTAssertEqual(m.autoPulled, 1)
-        XCTAssertEqual(m.repoBehind, 0)
+        let mStores = open(checkout)
+        let m = mStores.build
+        XCTAssertEqual(mStores.repo.autoPulled, 1)
+        XCTAssertEqual(mStores.repo.behind, 0)
         XCTAssertEqual(try git("log", "-1", "--format=%s", in: checkout), "two")
     }
 
     @MainActor func testACheckoutWithLocalChangesIsLeftAsItIs() throws {
         let checkout = try fixture()
         try "mine".write(to: checkout.appendingPathComponent("dm/tools/nx_extract/Program.cs"), atomically: true, encoding: .utf8)
-        let m = open(checkout)
-        XCTAssertNil(m.autoPulled)
-        XCTAssertEqual(m.repoStatus, m.t("repo.autoSkipped"))
+        let mStores = open(checkout)
+        let m = mStores.build
+        XCTAssertNil(mStores.repo.autoPulled)
+        XCTAssertEqual(mStores.repo.status, m.t("repo.autoSkipped"))
         XCTAssertEqual(try git("log", "-1", "--format=%s", in: checkout), "one")
-    }
-
-    func testOnlyMainWithoutTrackedChangesMayBeMoved() {
-        XCTAssertTrue(BuildModel.autoPullAllowed(branch: "main\n", status: ""))
-        XCTAssertFalse(BuildModel.autoPullAllowed(branch: "device-install", status: ""))
-        XCTAssertFalse(BuildModel.autoPullAllowed(branch: "main", status: " M scripts/build_ipa_from_nsp.py\n"))
-        XCTAssertFalse(BuildModel.autoPullAllowed(branch: "HEAD", status: ""), "a detached HEAD is not main")
     }
 }

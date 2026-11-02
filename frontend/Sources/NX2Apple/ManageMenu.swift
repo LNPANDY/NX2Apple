@@ -54,7 +54,7 @@ struct ManageItem: Identifiable {
     var padID: String { "manage." + id }
 }
 
-/// What a controller's button does around the Manage menu; the rest of the launcher's routing stays in ContentView.padAction.
+/// What a controller's button does around the Manage menu; the rest of the launcher's routing stays in LauncherView.padAction.
 enum ManagePad {
     enum Route: Equatable {
         case open       // Y: open the selected game's menu

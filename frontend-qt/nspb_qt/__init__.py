@@ -7,6 +7,6 @@ same localisation strings, built with PySide6 so Windows users get a native wind
 Layout mirrors the SwiftUI app so the two stay recognisable:
     model.py        state, dependency detection, build runner (Qt signals, no UI)
     ui.py           the window
-    localization.py the zh/en table (shared keys with the SwiftUI app)
+    l10n.py         the texts, read from ../frontend/l10n (the SwiftUI app reads the same files)
     platform_*.py   per-OS paths and tool discovery
 """

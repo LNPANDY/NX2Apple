@@ -23,10 +23,12 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
 from nspb_qt import build_failure as bf  # noqa: E402
 from nspb_qt.i18n import Lang  # noqa: E402
-from nspb_qt.localization import TABLE  # noqa: E402
+from nspb_qt.l10n import TABLE  # noqa: E402
 
 FIXTURES = json.loads((ROOT / 'frontend/Tests/Fixtures/build_failures.json').read_text(encoding='utf-8'))
-SWIFT = (ROOT / 'frontend/Sources/NX2Apple/BuildFailure.swift').read_text(encoding='utf-8')
+# the table is the classifier's (the app target), the kinds and their override flags are NXCore's
+SWIFT = ''.join((ROOT / 'frontend/Sources' / f).read_text(encoding='utf-8')
+                for f in ('NXCore/BuildFailureClassifier.swift', 'NXCore/BuildFailureKind.swift'))
 
 
 def fixture(pattern_id: str) -> dict:
@@ -119,20 +121,20 @@ class Rows(unittest.TestCase):
                  bf.NO_TITLE_ID: ['Rename the file', '0100XXXXXXXXXXXX', 'exact package', 'iCloud', 'Show folder'],
                  bf.DISK_FULL: ['Free up space', '_build']}
         for kind, ws in words.items():
-            en = TABLE[f'fail.{kind}.next'][1]
+            en = TABLE[f'fail.{kind}.next']['en']
             for w in ws:
                 self.assertIn(w, en, kind)
         for key in ('fail.showFolder', 'fail.keys.button', 'fail.diskFull.whatNeeds'):
             self.assertIn(key, TABLE)
-            self.assertTrue(TABLE[key][2] and TABLE[key][2] != TABLE[key][1], key)   # Swedish present
-            self.assertTrue(TABLE[key][3] and TABLE[key][3] != TABLE[key][1], key)   # German present
+            self.assertTrue(TABLE[key]['sv'] and TABLE[key]['sv'] != TABLE[key]['en'], key)   # Swedish present
+            self.assertTrue(TABLE[key]['de'] and TABLE[key]['de'] != TABLE[key]['en'], key)   # German present
 
     def test_a_missing_zbic_package_is_its_own_row(self):
         log = '[3/9] extract\n' + fixture('zbic.missing')['text'] + '\n'
         self.assertEqual(bf.classify(log).kind, bf.ZBIC)
         self.assertEqual(bf.classify('[RED] the zbic package decoded it').kind, bf.UNKNOWN)
-        self.assertIn('pip install zbic', TABLE['fail.zbic.next'][1])
-        self.assertIn('zbic', TABLE['fail.zbic.button'][1])
+        self.assertIn('pip install zbic', TABLE['fail.zbic.next']['en'])
+        self.assertIn('zbic', TABLE['fail.zbic.button']['en'])
 
     def test_the_python_probe_and_the_venv_install_name_zbic(self):
         pkg = ROOT / 'frontend-qt/nspb_qt'
@@ -146,7 +148,7 @@ class Rows(unittest.TestCase):
         import tempfile
         from nspb_qt.model import Model
         m = Model()
-        m.lang = Lang.EN   # these assertions read English whatever the device language is
+        m.lang = Lang('en')   # these assertions read English whatever the device language is
         with tempfile.TemporaryDirectory() as d:
             m.base_path = str(Path(d, 'game.nsp'))
             self.assertEqual(m.failure_folder(bf.Failure(bf.NO_TITLE_ID, detail='/x')), d)
@@ -208,7 +210,7 @@ class Strings(unittest.TestCase):
             with self.subTest(key=key):
                 self.assertIn(key, TABLE)
                 row = TABLE[key]
-                zh, en = row[0], row[1]   # the table carries more columns (Swedish, German)
+                zh, en = row['zh'], row['en']   # the table carries more columns (Swedish, German)
                 self.assertTrue(zh and en)
                 for text in (zh, en):
                     self.assertNotIn(';', text)
@@ -217,13 +219,13 @@ class Strings(unittest.TestCase):
 
     def test_the_risk_text_states_the_risk_and_that_it_is_one_build(self):
         for kind in bf.OVERRIDE_FLAGS:
-            en = TABLE[f'fail.{kind}.risk'][1]
+            en = TABLE[f'fail.{kind}.risk']['en']
             self.assertIn('untested', en)
             self.assertIn('one build', en)
 
     def test_the_hints_say_what_the_task_asks(self):
-        self.assertIn('Xcode 27.2 (macOS 26.6 or later)', TABLE['fail.otherMetal.next'][1])
-        self.assertIn("32-bit and can't run on Apple silicon", TABLE['fail.a32Program.what'][1])
+        self.assertIn('Xcode 27.2 (macOS 26.6 or later)', TABLE['fail.otherMetal.next']['en'])
+        self.assertIn("32-bit and can't run on Apple silicon", TABLE['fail.a32Program.what']['en'])
 
 
 try:
@@ -243,7 +245,7 @@ class Window(unittest.TestCase):
         from nspb_qt.model import Model
         from nspb_qt.ui import MainWindow
         m = Model()
-        m.lang = Lang.EN   # these assertions read English whatever the device language is
+        m.lang = Lang('en')   # these assertions read English whatever the device language is
         w = MainWindow(m)
         # A window left alive is destroyed by PySide after the QApplication at interpreter exit,
         # which segfaults. Delete it (and the model) while the app is still there.

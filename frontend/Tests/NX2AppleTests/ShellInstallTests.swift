@@ -2,13 +2,14 @@ import XCTest
 import Combine
 @testable import NX2Apple
 @testable import NXCore
+import NXModel
 @testable import NXLauncher
 
 /// Route C: one app on the device for several games. The commands and parsers are checked as pure functions, and the whole path
 /// after the build runs headless against a stand-in `xcrun` that models devicectl on a folder (a fake device container): an install
 /// keeps the container, a copy to a file creates the parents, and `--remove-existing-content true` wipes the destination's siblings,
 /// as it does on a real device. No test reaches a device or a real game.
-final class ShellInstallTests: XCTestCase {
+@MainActor final class ShellInstallTests: XCTestCase {
     private var temporary: URL!
     private let fm = FileManager.default
     private let titleID = "0100535012974000"
@@ -61,6 +62,46 @@ final class ShellInstallTests: XCTestCase {
         let defaults = UserDefaults(suiteName: "nspb-shell-" + UUID().uuidString)!
         XCTAssertEqual(ShellLibrary.resolveRoot(defaults: defaults, parent: "/Volumes/A"), "/Volumes/A/NX2Apple-shell")
         XCTAssertEqual(ShellLibrary.resolveRoot(defaults: defaults, parent: "/Volumes/B"), "/Volumes/A/NX2Apple-shell")
+    }
+
+    /// #492: the Settings page reads the path before a game is chosen; the empty parent put the shell at the root of the
+    /// read-only system volume, where the write failed after the whole build.
+    func testAnEmptyOrRootParentNeverSavesTheShellAtTheVolumeRoot() {
+        let defaults = UserDefaults(suiteName: "nspb-shell-" + UUID().uuidString)!
+        let home = "/Users/tester"
+        XCTAssertEqual(ShellLibrary.resolveRoot(defaults: defaults, parent: "", home: home), "/Users/tester/NX2Apple-shell")
+        XCTAssertEqual(defaults.string(forKey: "shellRoot"), "/Users/tester/NX2Apple-shell")
+        defaults.removeObject(forKey: "shellRoot")
+        XCTAssertEqual(ShellLibrary.resolveRoot(defaults: defaults, parent: "/", home: home), "/Users/tester/NX2Apple-shell")
+        defaults.removeObject(forKey: "shellRoot")
+        XCTAssertEqual(ShellLibrary.resolveRoot(defaults: defaults, parent: "relative/games", home: home), "/Users/tester/NX2Apple-shell")
+    }
+
+    func testASavedRootAtTheVolumeRootIsRepaired() {
+        let defaults = UserDefaults(suiteName: "nspb-shell-" + UUID().uuidString)!
+        defaults.set("/NX2Apple-shell", forKey: "shellRoot")
+        XCTAssertEqual(ShellLibrary.resolveRoot(defaults: defaults, parent: "/Users/tester/games"),
+                       "/Users/tester/games/NX2Apple-shell")
+        XCTAssertEqual(defaults.string(forKey: "shellRoot"), "/Users/tester/games/NX2Apple-shell")   // the bad value is replaced
+    }
+
+    func testThePreviewDoesNotSaveARoot() {
+        let defaults = UserDefaults(suiteName: "nspb-shell-" + UUID().uuidString)!
+        XCTAssertEqual(ShellLibrary.previewRoot(defaults: defaults, parent: "/Volumes/A"), "/Volumes/A/NX2Apple-shell")
+        XCTAssertNil(defaults.string(forKey: "shellRoot"))
+        defaults.set("/Volumes/A/NX2Apple-shell", forKey: "shellRoot")
+        XCTAssertEqual(ShellLibrary.previewRoot(defaults: defaults, parent: "/Volumes/B"), "/Volumes/A/NX2Apple-shell")
+    }
+
+    func testRootNeedsAWritableParent() throws {
+        let parent = NSTemporaryDirectory() + "nspb-shell-parent-" + UUID().uuidString
+        try FileManager.default.createDirectory(atPath: parent, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: parent) }
+        XCTAssertTrue(ShellInstall.canWriteRoot(parent + "/NX2Apple-shell"))
+        XCTAssertFalse(ShellInstall.canWriteRoot(NSTemporaryDirectory() + "nspb-missing-" + UUID().uuidString + "/NX2Apple-shell"))
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: parent)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: parent) }
+        XCTAssertFalse(ShellInstall.canWriteRoot(parent + "/NX2Apple-shell"))
     }
 
     // ---- the commands ----
@@ -197,7 +238,7 @@ final class ShellInstallTests: XCTestCase {
     func testEveryLanguageHasTheShellTexts() {
         for key in ["build.iosNote", "shell.projectStage", "shell.projectFailed", "shell.checkStage", "shell.dataAlready",
                     "shell.noFramework", "shell.needsDevice", "shell.copySize", "shell.copyWired", "shell.copyWifi", "shell.copyWifiOne",
-                    "shell.copyWifiMinute", "shell.copyNotConnected", "shell.copyWaiting", "shell.copyTitle", "shell.copyContinue",
+                    "shell.copyWifiMinute", "shell.copyNotConnected", "shell.copyWaiting", "shell.copyTitle",
                     "shell.copyWaitCable", "shell.copySkip", "shell.copyStopWaiting", "shell.retry", "shell.notPaired",
                     "shell.copyIncomplete", "fail.devicePairing.what", "fail.devicePairing.next", "fail.shellDataIncomplete.what",
                     "fail.shellDataIncomplete.next"] {
@@ -731,19 +772,18 @@ final class ShellInstallTests: XCTestCase {
         let keysSaved = ["repoPath", "buildTarget", "buildOutputDirectory", "installDevice", "signingTeam", "shellRoot"].map { ($0, UserDefaults.standard.object(forKey: $0)) }
         defer { for (key, value) in keysSaved { UserDefaults.standard.set(value, forKey: key) } }
         UserDefaults.standard.set(f.root, forKey: "shellRoot")
-        let model = BuildModel()
-        model.repoPath = f.repo
+        let modelStores = LauncherStores(xcrun: f.xcrun); let model = modelStores.build
+        modelStores.repo.path = f.repo
         model.target = "ios"
         model.outDir = path("out")
-        model.pythonPath = "/usr/bin/python3"
-        model.dotnetPath = "/usr/bin/true"
-        model.depsChecked = true
-        model.deps = [BuildModel.Dep(id: "test", name: "test", hint: "", present: true, installCmd: [])]
-        model.installDevice = device
-        model.signingTeam = team
-        model.xcrunPath = f.xcrun
+        modelStores.dependencies.pythonPath = "/usr/bin/python3"
+        modelStores.dependencies.dotnetPath = "/usr/bin/true"
+        modelStores.dependencies.checked = true
+        modelStores.dependencies.deps = [Dep(id: "test", name: "test", hint: "", present: true, installCmd: [])]
+        modelStores.deviceStore.installDevice = device
+        modelStores.deviceStore.signingTeam = team
         try write(f.repo + "/dm/tools/nx_extract/Program.cs", "")
-        for tool in BuildModel.requiredTools.filter({ $0 != BuildModel.buildScript }) { try write(f.repo + "/" + tool, "") }
+        for tool in RepoLayout.requiredTools.filter({ $0 != RepoLayout.buildScript }) { try write(f.repo + "/" + tool, "") }
         // the packer stand-in writes the image from the extracted RomFS
         try write(f.repo + "/dm/tools/romfs_image.py", "import sys\nopen(sys.argv[3], 'wb').write(b'image')\n")
         try write(f.repo + "/scripts/build_ipa_from_nsp.py", """
@@ -763,7 +803,7 @@ final class ShellInstallTests: XCTestCase {
 
         let finished = expectation(description: "Installed")
         let token = model.$done.filter { $0 }.prefix(1).sink { _ in finished.fulfill() }
-        let asked = model.$shellCopy.compactMap { $0 }.prefix(1).sink { _ in model.answerShellCopy(.copy) }
+        let asked = modelStores.deviceStore.$shellCopy.compactMap { $0 }.prefix(1).sink { _ in modelStores.deviceStore.answerCopy(.copy) }
         model.startBuild()
         wait(for: [finished], timeout: 30)
         withExtendedLifetime(token) {}; withExtendedLifetime(asked) {}
@@ -794,25 +834,24 @@ final class ShellInstallTests: XCTestCase {
         XCTAssertEqual(model.doneNote, String(format: model.t("dev.resigned"), "iPhone"))
     }
 
-    @MainActor private func makeModel(_ f: Fixture) throws -> BuildModel {
-        let model = BuildModel()
-        model.repoPath = f.repo
+    @MainActor private func makeModel(_ f: Fixture) throws -> LauncherStores {
+        let modelStores = LauncherStores(xcrun: f.xcrun); let model = modelStores.build
+        modelStores.repo.path = f.repo
         model.target = "ios"
         model.outDir = path("out")
-        model.pythonPath = "/usr/bin/python3"
-        model.dotnetPath = "/usr/bin/true"
-        model.depsChecked = true
-        model.deps = [BuildModel.Dep(id: "test", name: "test", hint: "", present: true, installCmd: [])]
-        model.installDevice = device
-        model.signingTeam = team
-        model.xcrunPath = f.xcrun
+        modelStores.dependencies.pythonPath = "/usr/bin/python3"
+        modelStores.dependencies.dotnetPath = "/usr/bin/true"
+        modelStores.dependencies.checked = true
+        modelStores.dependencies.deps = [Dep(id: "test", name: "test", hint: "", present: true, installCmd: [])]
+        modelStores.deviceStore.installDevice = device
+        modelStores.deviceStore.signingTeam = team
         try write(f.repo + "/dm/tools/nx_extract/Program.cs", "")
-        for tool in BuildModel.requiredTools.filter({ $0 != BuildModel.buildScript }) { try write(f.repo + "/" + tool, "") }
+        for tool in RepoLayout.requiredTools.filter({ $0 != RepoLayout.buildScript }) { try write(f.repo + "/" + tool, "") }
         try write(f.repo + "/scripts/build_ipa_from_nsp.py", "open('\(state)/script.txt', 'w').write('ran')\n")
         let base = temporary.appendingPathComponent("Test [\(titleID)].nsp"), keys = temporary.appendingPathComponent("prod.keys")
         try Data([0]).write(to: base); try Data().write(to: keys)
         model.slots[0].paths = [base.path]; model.slots[3].paths = [keys.path]
-        return model
+        return modelStores
     }
 
     /// An unknown device stops the build before the script runs: no hour of building for a device that cannot be installed on.
@@ -821,14 +860,15 @@ final class ShellInstallTests: XCTestCase {
         try writeDevices(state + "/devices-default.json", [("00008150-OTHER", "wired")])
         let saved = ["repoPath", "buildTarget", "buildOutputDirectory", "installDevice", "signingTeam"].map { ($0, UserDefaults.standard.object(forKey: $0)) }
         defer { for (key, value) in saved { UserDefaults.standard.set(value, forKey: key) } }
-        let model = try makeModel(f)
+        let modelStores = try makeModel(f)
+        let model = modelStores.build
         model.startBuild()
         let stopped = expectation(description: "Checked")
         let token = model.$running.dropFirst().filter { !$0 }.prefix(1).sink { _ in stopped.fulfill() }
         wait(for: [stopped], timeout: 20)
         withExtendedLifetime(token) {}
         XCTAssertEqual(model.failure?.kind, .devicePairing)
-        XCTAssertEqual(model.doneNote, String(format: model.t("shell.notPaired"), model.deviceName(model.installDevice)), "the pairing steps, in the app's language")
+        XCTAssertEqual(model.doneNote, String(format: model.t("shell.notPaired"), modelStores.deviceStore.deviceName(modelStores.deviceStore.installDevice)), "the pairing steps, in the app's language")
         XCTAssertFalse(fm.fileExists(atPath: state + "/script.txt"), "the build script did not start")
     }
 
@@ -838,10 +878,11 @@ final class ShellInstallTests: XCTestCase {
         let saved = ["repoPath", "buildTarget", "buildOutputDirectory", "installDevice", "signingTeam", "shellRoot"].map { ($0, UserDefaults.standard.object(forKey: $0)) }
         defer { for (key, value) in saved { UserDefaults.standard.set(value, forKey: key) } }
         UserDefaults.standard.set(f.root, forKey: "shellRoot")
-        let model = try makeModel(f)
+        let modelStores = try makeModel(f)
+        let model = modelStores.build
         try write(state + "/fail-on", "romfs.img")
         var plans: [ShellCopyPlan] = []
-        let asked = model.$shellCopy.compactMap { $0 }.sink { plans.append($0); model.answerShellCopy(.copy) }
+        let asked = modelStores.deviceStore.$shellCopy.compactMap { $0 }.sink { plans.append($0); modelStores.deviceStore.answerCopy(.copy) }
         func finish(_ start: () -> Void) {
             let ended = expectation(description: "Ended")
             let token = model.$running.dropFirst().filter { !$0 }.prefix(1).sink { _ in ended.fulfill() }
@@ -851,7 +892,12 @@ final class ShellInstallTests: XCTestCase {
         }
         finish { model.installShell(framework: f.framework, titleID: titleID, name: "Test Game", archive: f.archive) }
         XCTAssertEqual(model.failure?.kind, .shellDataIncomplete)
-        XCTAssertTrue(model.doneNote.hasPrefix(String(format: model.t("shell.copyIncomplete"), model.deviceName(model.installDevice), "").components(separatedBy: ": ").first ?? "-"), model.doneNote)
+        // The sentence before the tool's error, in every language: it used to split the English template on ": ", which
+        // never matches a full-width colon (a Chinese macOS ran this test red on main).
+        let marker = "\u{1}"
+        let prefix = String(format: model.t("shell.copyIncomplete"), modelStores.deviceStore.deviceName(modelStores.deviceStore.installDevice), marker)
+            .components(separatedBy: marker).first ?? "-"
+        XCTAssertTrue(model.doneNote.hasPrefix(prefix), model.doneNote)
         XCTAssertFalse(model.done)
         XCTAssertEqual(plans.count, 1)
         XCTAssertEqual(plans.first?.connection, .wired)
@@ -870,11 +916,11 @@ final class ShellInstallTests: XCTestCase {
     @MainActor func testShellTargetWithoutDeviceStopsBeforeBuilding() throws {
         let saved = ["repoPath", "buildTarget", "installDevice", "signingTeam"].map { ($0, UserDefaults.standard.object(forKey: $0)) }
         defer { for (key, value) in saved { UserDefaults.standard.set(value, forKey: key) } }
-        let model = BuildModel()
-        model.repoPath = temporary.path
+        let modelStores = LauncherStores(); let model = modelStores.build
+        modelStores.repo.path = temporary.path
         try write(temporary.path + "/dm/tools/nx_extract/Program.cs", "")
         model.target = "ios"
-        model.installDevice = ""
+        modelStores.deviceStore.installDevice = ""
         model.startBuild()
         XCTAssertFalse(model.running)
         XCTAssertEqual(model.doneNote, model.t("shell.needsDevice"))

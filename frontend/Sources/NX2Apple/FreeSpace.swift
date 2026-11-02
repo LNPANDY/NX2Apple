@@ -97,14 +97,7 @@ enum BuildFolder {
     /// The shader chain version of the checkout the launcher builds with: DMSH_CHAIN in dm/gfx/nvn/dmsh_chain.h, read as
     /// the NSP script's chain_of() does (`#define DMSH_CHAIN "(.*)"`). nil when the header is missing or has none, and then no
     /// shader version counts as old.
-    nonisolated static func currentChain(repo: String) -> String? {
-        guard !repo.isEmpty, let text = try? String(contentsOfFile: EngineLayout.root(repo) + "/dm/gfx/nvn/dmsh_chain.h", encoding: .utf8),
-              let range = text.range(of: #"#define DMSH_CHAIN "(.*)""#, options: .regularExpression) else { return nil }
-        let line = text[range]
-        guard let open = line.firstIndex(of: "\""), let close = line.lastIndex(of: "\""), open < close else { return nil }
-        let chain = String(line[line.index(after: open)..<close])
-        return chain.isEmpty ? nil : chain
-    }
+    nonisolated static func currentChain(repo: String) -> String? { EngineLayout.shaderChain(repo: repo) }
 
     /// The entries of the build folder that hold the libraries of chain versions other than `chain`, relative to it:
     /// shader/cache/b-<old> (Mac) and shader/ios/b-<old> (iPhone) with shader/ios/b-<old>.key and shader/mac-b-<old>.key, the
@@ -214,7 +207,7 @@ enum BuildFolder {
 /// The game's Free space sheet: the parts of its build folder with their sizes and what removing each costs; the player
 /// picks parts and confirms.
 struct FreeSpaceView: View {
-    @ObservedObject var m: BuildModel
+    @ObservedObject var m: BuildStore
     @EnvironmentObject var loc: Localizer
     let game: LibraryGame
     @Environment(\.dismiss) private var dismiss
@@ -225,7 +218,7 @@ struct FreeSpaceView: View {
     @State private var working = false
     @State private var outcome: String?
 
-    init(m: BuildModel, game: LibraryGame, survey: BuildFolderSurvey? = nil, chosen: Set<BuildFolderPart> = []) {
+    init(m: BuildStore, game: LibraryGame, survey: BuildFolderSurvey? = nil, chosen: Set<BuildFolderPart> = []) {
         self.m = m
         self.game = game
         _survey = State(initialValue: survey)   // visual QA: a measured folder without one on disk
@@ -234,7 +227,7 @@ struct FreeSpaceView: View {
 
     /// The old shader versions are part of the shader output, so choosing both counts them once.
     private var chosenBytes: Int64 { chosen.reduce(0) { $0 + ($1 == .oldShaders && chosen.contains(.shaders) ? 0 : survey?.sizes[$1] ?? 0) } }
-    private var chain: String? { BuildFolder.currentChain(repo: m.repoPath) }
+    private var chain: String? { BuildFolder.currentChain(repo: m.repo.path) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
