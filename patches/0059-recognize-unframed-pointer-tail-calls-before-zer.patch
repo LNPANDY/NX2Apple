@@ -16,10 +16,10 @@ Issue: seedds/nxnative#888
  3 files changed, 46 insertions(+), 2 deletions(-)
 
 diff --git a/dm/tools/patch_nso.py b/dm/tools/patch_nso.py
-index a76ee6e..545602b 100644
+index 561d4db..cbae949 100644
 --- a/dm/tools/patch_nso.py
 +++ b/dm/tools/patch_nso.py
-@@ -978,6 +978,17 @@ def tail_call_at_end(insl, j):
+@@ -1006,6 +1006,17 @@ def tail_call_at_end(insl, j):
          if 'x18' not in [p.reg_name(r) for r in p.regs_access()[1]]: continue
          return p.mnemonic == 'ldr' and bool(re.fullmatch(r'x18, \[(x\d+|sp)(, #(0x[0-9a-f]+|\d+))?\]', p.op_str))
      return False
@@ -37,7 +37,7 @@ index a76ee6e..545602b 100644
  def tail_call(insl, j):
      """Keep the terminal rule, which proves no frame. A br x18 with code after it is a tail call only when the frame is provably gone: a jump inside a function needs that function's frame.
      A wrong accept is silent, where a rejection stops at `jump table <addr>`, so anything not proven here is rejected. Two forms (Warm Snow and Ori and the Blind Forest, Unity IL2CPP):
-@@ -985,6 +996,7 @@ def tail_call(insl, j):
+@@ -1013,6 +1024,7 @@ def tail_call(insl, j):
      before the br, the pair saved to and restored from one slot, whose body may branch and call (lazy init, loops) and whose other paths may follow the br. Either way nothing writes sp, x29
      or x30 on the way, no stack store touches the pair, and from the restore to the br every path runs straight"""
      if j + 1 == len(insl): return tail_call_at_end(insl, j)
@@ -102,10 +102,10 @@ index d7b14cf..8af0c9c 100644
          for base in (31, 29):   # sp and the unchanged frame pointer
              for word in (STRX(0, base), STRX(0, base, 1), STUR(0, base, 15),
 diff --git a/docs/reference/rewriter.md b/docs/reference/rewriter.md
-index 7ee61f1..4544e1a 100644
+index e6c7ebd..7bf0c81 100644
 --- a/docs/reference/rewriter.md
 +++ b/docs/reference/rewriter.md
-@@ -175,6 +175,14 @@ To enroll a cut for any game's own module:
+@@ -191,6 +191,14 @@ To enroll a cut for any game's own module:
  - **Found on:** [Ace Attorney Investigations Collection](../../dm/games/010005501E68C000/README.md) (Unity 2022.3 IL2CPP): `main+0x1d271bc` and `+0x204ebec`.
  - **Check:** every module the rewriter accepted before comes out byte-identical.
  

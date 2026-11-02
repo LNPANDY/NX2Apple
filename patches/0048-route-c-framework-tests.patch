@@ -23,8 +23,8 @@ build. CI runs the link test in the ios-build job, which installs XcodeGen.
 
 Route C M1, docs/launcher-c-plan.md.
 
-Upstream-Status: fork-only (waits for the runtime profile, seedds/nxnative#492)
-Reason: opt-in game framework for the launcher (route C M1): it carries profile.tsv and sets DM_PROFILE, which exist only with the runtime-profile patch (seedds/nxnative#492 is still a design note), so it goes upstream after that
+Upstream-Status: fork-only (builds on 0001 runtime-profile, declined seedds/nxnative#492)
+Reason: opt-in game framework for the launcher (route C M1): it carries profile.tsv and sets DM_PROFILE, which exist only with the runtime-profile patch (seedds/nxnative#492 was declined), so it stays a fork patch
 Issue: LNPANDY/NX2Apple#144
 ---
  dm/ios/tests/test_framework_build.py | 211 +++++++++++++++++++++++++++

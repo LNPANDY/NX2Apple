@@ -37,7 +37,7 @@ Issue: LNPANDY/NX2Apple#313
  create mode 100644 dm/tools/compact_font.py
 
 diff --git a/dm/host/hle_sdk16.c b/dm/host/hle_sdk16.c
-index 1e0fd2b..d4aa0fc 100644
+index be94a15..265aee2 100644
 --- a/dm/host/hle_sdk16.c
 +++ b/dm/host/hle_sdk16.c
 @@ -103,15 +103,74 @@ static const void *font_payload(const void *p) {
@@ -271,7 +271,7 @@ index 0000000..c255d91
 +if __name__ == '__main__':
 +    sys.exit(main())
 diff --git a/docs/reference/services.md b/docs/reference/services.md
-index 2ff40ab..5837cba 100644
+index 5541257..ce87fd2 100644
 --- a/docs/reference/services.md
 +++ b/docs/reference/services.md
 @@ -680,6 +680,14 @@ Most service calls can be found before they crash, before the first boot or the
@@ -290,10 +290,10 @@ index 2ff40ab..5837cba 100644
  
  ### Time zone rules, calendar conversion and the network clock
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index 492f238..2085bfd 100755
+index 20ba99c..990dbf4 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
-@@ -2164,6 +2164,16 @@ def mac_host(py, repo, work, env, logs, g):
+@@ -2212,6 +2212,16 @@ def mac_host(py, repo, work, env, logs, g):
          rmtree(kf); font.mkdir(parents=True, exist_ok=True)
          run([py, repo / 'dm/tools/make_ext_font.py', ttf], logs / 'make_ext_font.log', env=env)
          kf.write_text(f'{key}\n')

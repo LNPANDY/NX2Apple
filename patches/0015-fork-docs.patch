@@ -951,7 +951,7 @@ index 0000000..476a1c1
 +> **Update (merged):** the dlopen probe now exists — `dm/ios/probe/` with `build_probe.sh`, committed alongside this document, and `probe-out/DmProbe.ipa` is built. W1 step 1 is done. What remains is running it on an iOS 26 device and reading `Documents/probe-log.txt`.
 diff --git a/docs/launcher-c-plan.md b/docs/launcher-c-plan.md
 new file mode 100644
-index 0000000..dececce
+index 0000000..3c3d980
 --- /dev/null
 +++ b/docs/launcher-c-plan.md
 @@ -0,0 +1,233 @@
@@ -993,7 +993,7 @@ index 0000000..dececce
 +  `profile.tsv`, `game.manifest.json`), `embed: true`, `link: false`, app RPATH
 +  `@executable_path/Frameworks`.
 +- `dm/ios/framework/DmGameMarker.m`: `dmgame_image_marker` — only for `dlsym`/`dladdr`.
-+- `dm/host/loader_image.h`: `void dm_set_game_image_header(const void *mh);`
++- `dm/host/front.h`: `void dm_set_game_image_header(const void *mh);`
 +- `dm/ios/Sources/FrameworkBootstrap.m/.h`: `dlopen` → `dlsym(marker)` → `dladdr` →
 +  `dm_set_game_image_header(info.dli_fbase)`, and it logs `[RED]` on failure.
 +- `dm/ios/tools/gen_manifest.py`: builds `game.manifest.json` (schema below).
