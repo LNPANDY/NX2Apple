@@ -37,15 +37,14 @@ package struct InstallCard: View {
             CardRow(loc.t("shell.modeTitle")) {
                 LauncherSegmented(options: [("install", loc.t("shell.modeInstall")), ("export", loc.t("shell.modeExport"))],
                                   selection: devices.exportIPA ? "export" : "install") { devices.exportIPA = $0 == "export" }
-                    .frame(width: 330)
+                    .frame(width: ExportGrid.switchWidth)
             }
             CardDivider()
             if devices.exportIPA {
                 ExportSteps(build: build, devices: devices)
             } else {
                 CardRow(loc.t("dev.target"), detail: devices.checked && devices.devices.isEmpty ? loc.t("dev.noDevices") : "") {
-                    if !devices.checked { ProgressView().controlSize(.small) }
-                    Button(loc.t("dev.refresh")) { _ = devices.refresh() }.buttonStyle(.plain).font(.manrope(13)).foregroundStyle(.secondary)
+                    RefreshDevicesButton(devices: devices)
                     LauncherDropdown(options: options, selection: devices.installDevice, label: loc.t("dev.target")) { devices.installDevice = $0 }
                 }
                 if !devices.installDevice.isEmpty {

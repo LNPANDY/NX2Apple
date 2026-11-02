@@ -9,7 +9,7 @@ import NXModel
 /// Visual QA of LNPANDY/NX2Apple#416 (matched by --filter testRenderExportStatesForVisualQA).
 final class ShellExportCaptureTests: XCTestCase {
     /// The Install card in every state of the export, for the pull request's screenshots: ready, exported, sending, done, app not found,
-    /// refused, drive and FAT32. Also the card with the install flow, which the segmented switch changed.
+    /// refused, several apps, drive, copying, copied, FAT32 and the drive before an export. Also the card with the install flow, which the segmented switch changed.
     @MainActor func testRenderExportStatesForVisualQA() throws {
         guard let directory = ProcessInfo.processInfo.environment["NX_LAUNCHER_CAPTURE_DIR"] else { throw XCTSkip("Set NX_LAUNCHER_CAPTURE_DIR to capture native views") }
         let output = URL(fileURLWithPath: directory)
@@ -18,12 +18,14 @@ final class ShellExportCaptureTests: XCTestCase {
         let lang = ProcessInfo.processInfo.environment["NX_CAPTURE_LANG"].flatMap { Lang.find($0) } ?? .en
         let saved = ["buildTarget", "installDevice", "exportIPA", "sendWhere", "driveFolder", "shellRoot"].map { ($0, UserDefaults.standard.object(forKey: $0)) }
         defer { for (key, value) in saved { UserDefaults.standard.set(value, forKey: key) } }
-        let ipa = fm.temporaryDirectory.appendingPathComponent("NX2Apple-capture-\(UUID().uuidString).ipa")
+        let shellFolder = fm.temporaryDirectory.appendingPathComponent("NX2Apple-capture-\(UUID().uuidString)")
+        try fm.createDirectory(at: shellFolder, withIntermediateDirectories: true)
+        let ipa = shellFolder.appendingPathComponent("NX2Apple.ipa")   // the name an export writes
         fm.createFile(atPath: ipa.path, contents: nil)
         let handle = try FileHandle(forWritingTo: ipa)
-        try handle.truncate(atOffset: 1_200_000_000)   // a sparse file of the size the card shows
+        try handle.truncate(atOffset: 184_000_000)   // a sparse file of the size the card shows
         try handle.close()
-        defer { try? fm.removeItem(at: ipa) }
+        defer { try? fm.removeItem(at: shellFolder) }
 
         let stores = LauncherStores(); let model = stores.build
         stores.localizer.lang = lang
@@ -66,13 +68,25 @@ final class ShellExportCaptureTests: XCTestCase {
         try shot("5-app-not-found", card())
         model.send = .refused(detail: "ERROR: Failed to copy: the app does not allow access to its data container (get-task-allow). (com.apple.dt.CoreDeviceError error 7)")
         try shot("6-refused", card())
+        model.send = .chooseApp([InstalledApp(bundle: "org.nxnative.shell.ABCDE12345", name: "NX2Apple"),
+                                 InstalledApp(bundle: "org.nxnative.shell", name: "NX2Apple")])
+        try shot("6b-choose-app", card())
         model.send = .idle
         stores.deviceStore.sendWhere = SendWhere.drive
         stores.deviceStore.driveFolder = "/Volumes/GameDrive/Switch"
         model.drive = DriveState(volume: DriveCopy.Volume(freeBytes: 412_000_000_000, fileSystem: "exfat", readOnly: false), needed: 12_400_000_000, problem: nil)
         try shot("7-drive", card())
+        model.send = .copying(done: 5_300_000_000, total: 12_400_000_000)
+        try shot("8-drive-copying", card())
+        model.send = .copied(folder: "/Volumes/GameDrive/Switch/0100000000010000")
+        try shot("9-drive-done", card())
+        model.send = .idle
         model.drive = DriveState(volume: DriveCopy.Volume(freeBytes: 412_000_000_000, fileSystem: "msdos", readOnly: false), needed: 12_400_000_000,
                                  problem: .fat32(largest: 12_000_000_000))
-        try shot("8-fat32", card())
+        try shot("10-fat32", card())
+        model.exportedIPAPath = ""
+        stores.deviceStore.driveFolder = ""
+        model.drive = nil
+        try shot("11-drive-before-export", card())
     }
 }

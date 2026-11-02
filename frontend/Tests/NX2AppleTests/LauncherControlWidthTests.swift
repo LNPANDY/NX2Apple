@@ -128,6 +128,25 @@ import NXModel
                 s.deviceStore.installDevice = device.id
                 s.deviceStore.signingTeam = team.id
             },
+            Scenario(name: "builds exporting an IPA, sent to a device", page: .builds, atLeast: 6) { s, _, directory in
+                s.repo.path = try self.makeRepo(directory, git: true)
+                s.build.target = "ios"
+                MainActor.assumeIsolated { s.deviceStore.checked = true }
+                MainActor.assumeIsolated { s.deviceStore.devices = [device] }
+                s.deviceStore.installDevice = device.id
+                s.deviceStore.exportIPA = true
+                s.deviceStore.sendWhere = SendWhere.device
+                s.build.exportedIPAPath = directory.appendingPathComponent("NX2Apple.ipa").path
+            },
+            Scenario(name: "builds exporting an IPA, copied to a drive", page: .builds, atLeast: 6) { s, _, directory in
+                s.repo.path = try self.makeRepo(directory, git: true)
+                s.build.target = "ios"
+                MainActor.assumeIsolated { s.deviceStore.checked = true }
+                s.deviceStore.exportIPA = true
+                s.deviceStore.sendWhere = SendWhere.drive
+                s.build.exportedIPAPath = directory.appendingPathComponent("NX2Apple.ipa").path
+                s.build.send = .copying(done: 1, total: 2)
+            },
             Scenario(name: "a finished Mac app build", page: .builds, atLeast: 6) { s, _, directory in
                 s.repo.path = try self.makeRepo(directory, git: true)
                 s.build.target = "mac-app"
@@ -180,7 +199,7 @@ import NXModel
     /// Settings and Builds, in every language: each button and dropdown of a row is LauncherControl.width wide and
     /// LauncherControl.height high, and its label fits on one line.
     @MainActor func testEveryRowControlOnTheRealPagesFitsInEveryLanguage() throws {
-        let keys = ["repoPath", "depsExpanded", "buildTarget", "installDevice", "signingTeam", "buildOutputDirectory", "autoUpdateRepo"]
+        let keys = ["repoPath", "depsExpanded", "buildTarget", "installDevice", "signingTeam", "buildOutputDirectory", "autoUpdateRepo", "exportIPA", "sendWhere"]
         let saved = keys.map { ($0, UserDefaults.standard.object(forKey: $0)) }
         defer { for (key, value) in saved { UserDefaults.standard.set(value, forKey: key) } }
         for scenario in scenarios {
