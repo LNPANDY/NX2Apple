@@ -37,6 +37,12 @@
             "value": "30 i/s"
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "30 fps"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -69,6 +75,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "60 i/s"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "60 fps"
           }
         },
         "sv": {
@@ -121,6 +133,12 @@
             "value": "Ajuste la résolution entre 70 % et 100 % selon la charge. Désactivez pour garder la pleine résolution du mode choisi."
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Regola la risoluzione tra il 70% e il 100% sotto carico. Disattivala per mantenere la risoluzione piena della modalità console scelta."
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -153,6 +171,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Anglais (États-Unis)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inglese americano"
           }
         },
         "sv": {
@@ -221,6 +245,12 @@
             "value": "Portugais (Brésil)"
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Portoghese brasiliano"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -271,6 +301,12 @@
             "value": "Anglais (Royaume-Uni)"
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inglese britannico"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -319,6 +355,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Français (Canada)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Francese canadese"
           }
         },
         "sv": {
@@ -515,6 +557,12 @@
             "value": "Mode de la console"
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modalità console"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -563,6 +611,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Commandes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comandi"
           }
         },
         "sv": {
@@ -631,6 +685,12 @@
             "value": "Mode d’affichage"
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modalità di visualizzazione"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -660,6 +720,12 @@
           }
         },
         "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TV"
+          }
+        },
+        "it": {
           "stringUnit": {
             "state": "translated",
             "value": "TV"
@@ -731,6 +797,12 @@
             "value": "Néerlandais"
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Olandese"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -765,6 +837,12 @@
             "value": "Résolution dynamique"
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Risoluzione dinamica"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -797,6 +875,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Thread d’encodage"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thread di codifica"
           }
         },
         "sv": {
@@ -849,6 +933,12 @@
             "value": "Mise en mémoire tampon"
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buffer dei fotogrammi"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -881,6 +971,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Fréquence d’images"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frequenza fotogrammi"
           }
         },
         "sv": {
@@ -917,6 +1013,12 @@
             "value": "Compteur d’images par seconde"
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contatore fotogrammi"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -949,6 +1051,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Français"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Francese"
           }
         },
         "sv": {
@@ -1001,6 +1109,12 @@
             "value": "Plein écran"
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schermo intero"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -1033,6 +1147,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Jeu"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gioco"
           }
         },
         "sv": {
@@ -1085,6 +1205,12 @@
             "value": "Langue du jeu"
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lingua del gioco"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -1117,6 +1243,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Vibrations du jeu"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vibrazione del gioco"
           }
         },
         "sv": {
@@ -1201,6 +1333,12 @@
             "value": "Allemand"
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tedesco"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -1235,6 +1373,12 @@
             "value": "Portable"
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Portatile"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -1267,6 +1411,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Maintenir l’image en cas de retard"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantieni i fotogrammi in ritardo"
           }
         },
         "sv": {
@@ -1383,6 +1533,12 @@
             "value": "Italien"
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Italiano"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -1415,6 +1571,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Japonais"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Giapponese"
           }
         },
         "sv": {
@@ -1451,6 +1613,12 @@
             "value": "Conserve une archive de pipelines et utilise plus de mémoire."
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conserva un archivio delle pipeline e usa più memoria."
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -1483,6 +1651,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Conserve une archive de pipelines et utilise plus de mémoire."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conserva un archivio delle pipeline e usa più memoria."
           }
         },
         "sv": {
@@ -1519,6 +1693,12 @@
             "value": "Coréen"
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coreano"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -1551,6 +1731,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Espagnol (Amérique latine)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spagnolo latinoamericano"
           }
         },
         "sv": {
@@ -1603,6 +1789,12 @@
             "value": "Pipelines Metal 4"
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pipeline Metal 4"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -1632,6 +1824,12 @@
           }
         },
         "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MetalFX"
+          }
+        },
+        "it": {
           "stringUnit": {
             "state": "translated",
             "value": "MetalFX"
@@ -1831,6 +2029,12 @@
             "value": "Performances"
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prestazioni"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -1863,6 +2067,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "HUD de performances"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HUD prestazioni"
           }
         },
         "sv": {
@@ -1913,6 +2123,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Précompilation des pipelines"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Precompilazione pipeline"
           }
         },
         "sv": {
@@ -2013,6 +2229,12 @@
             "value": "Portugais"
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Portoghese"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -2095,6 +2317,12 @@
             "value": "Échelle de rendu"
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scala di rendering"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -2145,6 +2373,12 @@
             "value": "Seuil des vibrations"
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Soglia della vibrazione"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -2179,6 +2413,12 @@
             "value": "Intensité des vibrations"
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Intensità della vibrazione"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -2211,6 +2451,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Russe"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Russo"
           }
         },
         "sv": {
@@ -2295,6 +2541,12 @@
             "value": "Chinois simplifié"
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cinese semplificato"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -2329,6 +2581,12 @@
             "value": "Espagnol"
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spagnolo"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -2358,6 +2616,12 @@
           }
         },
         "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard"
+          }
+        },
+        "it": {
           "stringUnit": {
             "state": "translated",
             "value": "Standard"
@@ -2395,6 +2659,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Le premier démarrage l’attend quelques minutes, une seule fois."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il primo avvio la attende per qualche minuto, una volta sola."
           }
         },
         "sv": {
@@ -2463,6 +2733,12 @@
             "value": "Retour tactile"
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Feedback al tocco"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -2495,6 +2771,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Chinois traditionnel"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cinese tradizionale"
           }
         },
         "sv": {
@@ -2579,6 +2861,12 @@
             "value": "Jusqu’à une image de latence d’affichage en plus."
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fino a un fotogramma in più di latenza dello schermo."
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -2627,6 +2915,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Mise à l’échelle"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upscaling"
           }
         },
         "sv": {
@@ -2711,6 +3005,12 @@
             "value": "Utilise plus de temps GPU et peut faire chauffer davantage."
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa più tempo della GPU e può aumentare il calore."
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -2759,6 +3059,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Fenêtre"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finestra"
           }
         },
         "sv": {

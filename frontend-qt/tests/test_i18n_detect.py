@@ -39,10 +39,12 @@ class Detect(unittest.TestCase):
         self.assertEqual(Lang('en').other, Lang('sv'))
         self.assertEqual(Lang('sv').other, Lang('de'))
         self.assertEqual(Lang('de').other, Lang('fr'))
-        self.assertEqual(Lang('fr').other, Lang('zh'))
+        self.assertEqual(Lang('fr').other, Lang('it'))
+        self.assertEqual(Lang('it').other, Lang('zh'))
         self.assertEqual(Lang('sv').toggle_label, 'Deutsch')
         self.assertEqual(Lang('de').toggle_label, 'Français')
-        self.assertEqual(Lang('fr').toggle_label, '中文')
+        self.assertEqual(Lang('fr').toggle_label, 'Italiano')
+        self.assertEqual(Lang('it').toggle_label, '中文')
 
     def test_german_is_recognised_by_tag_and_windows_name(self):
         for tag in ('de_DE', 'de-AT', 'de_CH.UTF-8', 'de'):
