@@ -64,8 +64,54 @@ class Rerun(unittest.TestCase):
         self.assertEqual(fake.calls, [])
 
     def test_other_actions_do_nothing(self):
-        _, fake, _ = run({'ACTION': 'opened', 'BASE_REF': 'v0lumehi/b'})
+        _, fake, _ = run({'ACTION': 'synchronize', 'BASE_REF': 'v0lumehi/b'})
         self.assertEqual(fake.calls, [])
+
+    def test_opened_child_reruns_the_stack_job_of_a_finished_parent(self):
+        code, fake, out = run({'ACTION': 'opened', 'BASE_REF': 'v0lumehi/b'})
+        self.assertEqual(code, 0)
+        self.assertEqual(fake.reruns(), [('run', 'rerun', '10', '--repo', 'LNPANDY/NX2Apple', '--job', '77'),
+                                         ('run', 'rerun', '11', '--repo', 'LNPANDY/NX2Apple', '--job', '77')])
+        self.assertIn('open child now', out)
+
+    def test_opened_child_does_not_ask_for_other_children(self):
+        _, fake, _ = run({'ACTION': 'opened', 'BASE_REF': 'v0lumehi/b'}, children=[{'number': 500, 'headRefName': 'x', 'isCrossRepository': False}])
+        self.assertEqual(len(fake.reruns()), 2)
+
+    def test_opened_child_with_a_running_parent_run_changes_nothing(self):
+        runs = [{'databaseId': 10, 'workflowName': 'tests', 'status': 'in_progress'},
+                {'databaseId': 11, 'workflowName': 'Build the NX2Apple app (macOS)', 'status': 'completed'}]
+        code, fake, out = run({'ACTION': 'opened', 'BASE_REF': 'v0lumehi/b'}, runs=runs)
+        self.assertEqual(code, 0)
+        self.assertEqual(fake.reruns(), [])
+        self.assertIn('started before this child existed', out)
+        self.assertIn('run 10', out)
+        self.assertNotIn('run 11', out)
+
+    def test_opened_child_with_a_queued_parent_run_changes_nothing(self):
+        runs = [{'databaseId': 10, 'workflowName': 'tests', 'status': 'queued'}]
+        _, fake, out = run({'ACTION': 'opened', 'BASE_REF': 'v0lumehi/b'}, runs=runs)
+        self.assertEqual(fake.reruns(), [])
+        self.assertIn('run 10', out)
+        self.assertFalse([c for c in fake.calls if c[0] == 'run' and c[1] == 'cancel'])
+
+    def test_opened_child_on_main_has_no_parent(self):
+        _, fake, out = run({'ACTION': 'opened', 'BASE_REF': 'main'}, parents=[])
+        self.assertEqual(fake.reruns(), [])
+        self.assertIn('nothing to do', out)
+
+    def test_reopened_child_reruns_like_an_opened_one(self):
+        _, fake, _ = run({'ACTION': 'reopened', 'BASE_REF': 'v0lumehi/b'})
+        self.assertEqual(len(fake.reruns()), 2)
+
+    def test_opened_child_with_a_fork_parent_is_ignored(self):
+        _, fake, _ = run({'ACTION': 'opened', 'BASE_REF': 'v0lumehi/b'}, parents=[{**PARENT, 'isCrossRepository': True}])
+        self.assertEqual(fake.reruns(), [])
+
+    def test_opened_dry_run_does_not_rerun(self):
+        _, fake, out = run({'ACTION': 'opened', 'BASE_REF': 'v0lumehi/b', 'DRY_RUN': '1'})
+        self.assertEqual(fake.reruns(), [])
+        self.assertIn('re-running', out)
 
     def test_no_open_parent(self):
         _, fake, out = run({'ACTION': 'closed', 'BASE_REF': 'main'}, parents=[])
