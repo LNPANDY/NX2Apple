@@ -31,39 +31,66 @@ def commit(files, message='a change', sha='1' * 40):
 
 
 def rows(c, **kw):
+    """The rows of the first table's kind: matched for a reason other than a patched file."""
+    return [r for r in B.find_candidates([c], ctx(**kw)) if r['likely']]
+
+
+def all_rows(c, **kw):
     return B.find_candidates([c], ctx(**kw))
 
 
 class V101Range(unittest.TestCase):
     """The reading of the 53 commits by hand (the v1.0.1 bump, #464) is the ground truth."""
     def setUp(self):
-        self.rows = {r['sha'][:8]: r for r in B.find_candidates(FIX['commits'], fixture_ctx())}
+        self.all = B.find_candidates(FIX['commits'], fixture_ctx())
+        self.rows = {r['sha'][:8]: r for r in self.all}
+        self.t1 = B.group_rows(self.all)
+        self.t1_shas = {s[:8] for g in self.t1 for s in g['shas']}
+        self.t2 = [r['sha'][:8] for r in self.all if not r['likely']]
 
     def test_range_is_the_53_commits(self):
         self.assertEqual(len(FIX['commits']), 53)
 
-    def test_the_commits_found_by_hand_are_listed(self):
+    def test_the_commits_found_by_hand_are_in_the_first_table(self):
         by_hand = {
             'd76c45f7': 'chain and Xcode 27.2', 'd3995ca4': 'chain', 'a7bd05f4': 'chain', 'fdb3710d': 'chain', '5251763d': 'chain',
             'c4b0618c': 'chain', '4de40e62': 'chain', '0e8503e7': 'chain',
             '8ef752a2': 'NSP script, --title-id', '99947471': 'NSP script, folder input', '105f417b': 'DM_PSO_GPUS row, script',
             '68e8dc23': 'pso_offline free-space text', 'cd859c38': 'RomFS.img entry layout',
-            '70ca6164': 'fps cap (hle_nvn.c, hle_fpslock.c are patched)', '5fd06dd1': 'APFS text (hle_fs.c is patched)',
             'cadd4be6': 'DM_PRESENT_LATENCY row', 'f4bfc015': 'DM_PRESENT_LATENCY row', 'aea257b9': 'DM_NVN_UNWRITTEN_DC row',
-            '9f74a1d6': 'front_ios.m, main.m are patched', 'c1df4dda': 'front_mac.m is patched', 'c0f34133': 'front_mac.m',
-            '8482873b': 'front_mac.m', 'a5281d01': 'raw HID pads (front_mac.m is patched)', 'dad38db6': 'Launcher.swift is patched',
-            '8dd0c98a': 'Switch 2 bring-up',
+            '8dd0c98a': 'Switch 2 bring-up (pack_dump.py)',
         }
         for sha, why in by_hand.items():
-            self.assertIn(sha, self.rows, f'{sha} ({why}) is missing')
+            self.assertIn(sha, self.t1_shas, f'{sha} ({why}) is not in table 1')
 
-    def test_the_commits_with_no_dependency_are_not_listed(self):
+    def test_the_hand_found_ones_that_only_hook_a_patched_file_are_in_the_second_table(self):
+        for sha in ('70ca6164', '5fd06dd1', '9f74a1d6', 'c1df4dda', 'c0f34133', '8482873b', 'a5281d01', 'dad38db6'):
+            self.assertIn(sha, self.t2, sha)
+            self.assertNotIn(sha, self.t1_shas, sha)
+
+    def test_a_commit_is_in_one_table_only(self):
+        self.assertFalse(self.t1_shas & set(self.t2))
+        self.assertEqual(len(self.t1_shas) + len(self.t2), len(self.all))
+
+    def test_the_commits_with_no_dependency_are_in_neither_table(self):
         for sha in ('d2a86b05', 'ba10db3d', '97f1514a', 'b99fca20', 'caac52fb', '588e01a5', '0e16e0e0', 'ecc41fa8', 'b8ffaf8b', '088429f4'):
             self.assertNotIn(sha, self.rows, f'{sha} is listed')
 
-    def test_the_list_is_the_fixture_s_own_ground_truth(self):
-        self.assertEqual(sorted(self.rows), sorted(FIX['listed']))
-        self.assertEqual(sorted(set(c['sha'][:8] for c in FIX['commits']) - set(self.rows)), sorted(FIX['not_listed']))
+    def test_the_split_is_the_fixture_s_own_ground_truth(self):
+        self.assertEqual([[s[:8] for s in g['shas']] for g in self.t1], FIX['table1'])
+        self.assertEqual(self.t2, FIX['table2'])
+        listed = self.t1_shas | set(self.t2)
+        self.assertEqual(sorted(set(c['sha'][:8] for c in FIX['commits']) - listed), sorted(FIX['not_listed']))
+        self.assertEqual((len(self.t1), len(self.t1_shas), len(self.t2)), (11, 17, 21))
+
+    def test_the_chain_moves_are_one_row_with_the_first_and_the_last_value(self):
+        g = next(g for g in self.t1 if len(g['shas']) > 1)
+        self.assertEqual([s[:8] for s in g['shas']], ['d3995ca4', 'a7bd05f4', 'fdb3710d', '5251763d', 'c4b0618c', '4de40e62', '0e8503e7'])
+        self.assertEqual(g['chain'], ('a7dbbce711c3', 'b7cd656abd7c'))
+        self.assertEqual(g['title'], 'Shader chain moves 7 times')
+        self.assertIn('from `a7dbbce711c3` to `b7cd656abd7c`', g['why'][0])
+        first = next(g for g in self.t1 if g['shas'] == [FIX['commits'][6]['sha']])   # d76c45f7, the Xcode pin: its own row (not consecutive)
+        self.assertEqual(first['chain'], ('e65a4ebd3322', 'a7dbbce711c3'))
 
     def test_the_xcode_pin_row_names_the_chain_and_the_requirement(self):
         why = '; '.join(self.rows['d76c45f7']['why'])
@@ -80,17 +107,24 @@ class V101Range(unittest.TestCase):
         self.assertIn('the setting block', '; '.join(self.rows['8ef752a2']['why']))
 
     def test_the_order_is_the_range_order(self):
-        shas = [r['sha'][:8] for r in B.find_candidates(FIX['commits'], fixture_ctx())]
+        shas = [r['sha'][:8] for r in self.all]
         order = [c['sha'][:8] for c in FIX['commits']]
         self.assertEqual(shas, sorted(shas, key=order.index))
 
-    def test_the_table(self):
-        t = B.format_table(B.find_candidates(FIX['commits'], fixture_ctx()), FIX['old'], FIX['new'], 53)
-        self.assertIn('## Candidate commits (38 of 53)', t)
+    def test_the_tables(self):
+        t = B.format_tables(self.all, FIX['old'], FIX['new'], 53)
         self.assertIn('not a verdict', t)
+        self.assertIn('### Likely matters to the front ends (11 rows, 17 commits)', t)
         self.assertIn('| Commit | Title | Files | Why | Handled |', t)
-        self.assertEqual(len([l for l in t.splitlines() if l.startswith('| `')]), 38)
-        self.assertTrue(all(l.endswith('| |') for l in t.splitlines() if l.startswith('| `')), 'the Handled column is empty')
+        first, second = t.split('<details>')
+        self.assertEqual(len([l for l in first.splitlines() if l.startswith('| ')]) - 1, 11)
+        self.assertTrue(all(l.endswith('| |') for l in first.splitlines() if l.startswith('| `')), 'the Handled column is empty')
+        self.assertIn('<summary>Touches files our patches change (21 commits)</summary>', second)
+        self.assertIn('already apply the patches and fail on a conflict', second)
+        self.assertEqual(len([l for l in second.splitlines() if l.startswith('| `')]), 21)
+        self.assertTrue(second.rstrip().endswith('</details>'))
+        for sha in self.t1_shas: self.assertNotIn(f'`{sha}`', second)   # not repeated
+        self.assertIn('| `c87bb116` | Drain GPU completion temporaries on guest waiters (#818) | nvn_mtl.m (0008, 0053) |', second)
         self.assertIn('https://github.com/seedds/nxnative/compare/bbc3b7378475...cd859c38a8f8', t)
 
 
@@ -162,9 +196,28 @@ class Rules(unittest.TestCase):
 
     def test_patched_files_count_but_documents_tests_and_makefiles_do_not(self):
         paths = {'dm/host/front_mac.m': ['0009', '0032'], 'docs/development.md': ['0005'], 'dm/host/tests/Makefile': ['0001']}
-        got = rows(commit([('dm/host/front_mac.m', '')]), patch_paths=paths)
-        self.assertEqual(got[0]['why'], ['files our patches change: front_mac.m (0009, 0032)'])
-        self.assertEqual(rows(commit([('docs/development.md', ''), ('dm/host/tests/Makefile', '')]), patch_paths=paths), [])
+        got = all_rows(commit([('dm/host/front_mac.m', '')]), patch_paths=paths)
+        self.assertEqual(got[0]['patched'], ['front_mac.m (0009, 0032)'])
+        self.assertFalse(got[0]['likely'])   # the second table only
+        self.assertEqual(rows(commit([('dm/host/front_mac.m', '')]), patch_paths=paths), [])
+        self.assertEqual(all_rows(commit([('docs/development.md', ''), ('dm/host/tests/Makefile', '')]), patch_paths=paths), [])
+
+    def test_a_commit_with_a_likely_reason_and_a_patched_file_is_one_row_of_the_first_table(self):
+        paths = {'dm/host/front_mac.m': ['0009']}
+        got = B.find_candidates([commit([('dm/host/front_mac.m', ''), ('docs/frontends.md', '')])], ctx(patch_paths=paths))
+        self.assertEqual(len(got), 1)
+        self.assertTrue(got[0]['likely'])
+        self.assertEqual(got[0]['files'], ['docs/frontends.md'])
+
+    def test_consecutive_chain_commits_group_and_others_break_the_run(self):
+        def chain(n, old, new, sha): return commit([('dm/gfx/nvn/dmsh_chain.h', f'-#define DMSH_CHAIN "{old}"\n+#define DMSH_CHAIN "{new}"')], sha=sha * 40)
+        cs = [chain(1, 'aaa111', 'bbb222', 'a'), chain(2, 'bbb222', 'ccc333', 'b'), commit([('docs/frontends.md', '')], sha='c' * 40), chain(3, 'ccc333', 'ddd444', 'd')]
+        g = B.group_rows(B.find_candidates(cs, ctx()))
+        self.assertEqual([len(x['shas']) for x in g], [2, 1, 1])
+        self.assertEqual(g[0]['chain'], ('aaa111', 'ccc333'))
+        self.assertEqual(g[0]['title'], 'Shader chain moves 2 times')
+        self.assertIn('from `ccc333` to `ddd444`', g[2]['why'][0])
+        self.assertEqual(B.group_rows(B.find_candidates([commit([('dm/gfx/tools/dmsh_chain.lock', '')])], ctx()))[0]['chain'], None)   # a lock alone has no value to show
 
     def test_patch_headers_are_read(self):
         with tempfile.TemporaryDirectory() as t:

@@ -317,7 +317,7 @@
     },
     {
      "filename": "dm/gfx/nvn/dmsh_chain.h",
-     "patch": "@@ lines that match nothing left out @@"
+     "patch": "-#define DMSH_CHAIN \"e65a4ebd3322\"\n+#define DMSH_CHAIN \"a7dbbce711c3\""
     },
     {
      "filename": "dm/gfx/tools/dmsh_chain.lock",
@@ -419,7 +419,7 @@
     },
     {
      "filename": "dm/games/01007EF00011E000/validated.tsv",
-     "patch": "@@ lines that match nothing left out @@"
+     "patch": "+# mode <TAB> chain=<DMSH_CHAIN> commit=<short SHA>[+dirty] date=<UTC day> machine=<model> macos=<version>. No game data."
     },
     {
      "filename": "dm/games/0100F2C0115B6000/README.md",
@@ -963,7 +963,7 @@
     },
     {
      "filename": "dm/gfx/tests/t_pso_warm.m",
-     "patch": "@@ lines that match nothing left out @@"
+     "patch": "+    NSDictionary *reflection = @{@\"chain\": @DMSH_CHAIN, @\"gs_slice\": @{@\"loc\": @0, @\"comp\": @\"x\"}};"
     },
     {
      "filename": "docs/agents/symptoms.md",
@@ -1247,7 +1247,7 @@
     },
     {
      "filename": "dm/gfx/nvn/dmsh_chain.h",
-     "patch": "@@ lines that match nothing left out @@"
+     "patch": "-#define DMSH_CHAIN \"a7dbbce711c3\"\n+#define DMSH_CHAIN \"a04dd83b4c5e\""
     },
     {
      "filename": "dm/gfx/nvn/hle_nvn.c",
@@ -1437,7 +1437,7 @@
     },
     {
      "filename": "dm/gfx/nvn/dmsh_chain.h",
-     "patch": "@@ lines that match nothing left out @@"
+     "patch": "-#define DMSH_CHAIN \"a04dd83b4c5e\"\n+#define DMSH_CHAIN \"7c03ff9e58ee\""
     },
     {
      "filename": "dm/gfx/nvn/hle_nvn.c",
@@ -1567,7 +1567,7 @@
     },
     {
      "filename": "dm/gfx/nvn/dmsh_chain.h",
-     "patch": "@@ lines that match nothing left out @@"
+     "patch": "-#define DMSH_CHAIN \"7c03ff9e58ee\"\n+#define DMSH_CHAIN \"e68addf45840\""
     },
     {
      "filename": "dm/gfx/nvn/hle_nvn.c",
@@ -1691,7 +1691,7 @@
     },
     {
      "filename": "dm/gfx/nvn/dmsh_chain.h",
-     "patch": "@@ lines that match nothing left out @@"
+     "patch": "-#define DMSH_CHAIN \"e68addf45840\"\n+#define DMSH_CHAIN \"2e793ae7a284\""
     },
     {
      "filename": "dm/gfx/tools/dmsh_chain.lock",
@@ -1761,7 +1761,7 @@
     },
     {
      "filename": "dm/gfx/nvn/dmsh_chain.h",
-     "patch": "@@ lines that match nothing left out @@"
+     "patch": "-#define DMSH_CHAIN \"2e793ae7a284\"\n+#define DMSH_CHAIN \"826206e471c2\""
     },
     {
      "filename": "dm/gfx/nvn/hle_nvn.c",
@@ -1951,7 +1951,7 @@
     },
     {
      "filename": "dm/gfx/nvn/dmsh_chain.h",
-     "patch": "@@ lines that match nothing left out @@"
+     "patch": "-#define DMSH_CHAIN \"826206e471c2\"\n+#define DMSH_CHAIN \"d0e99bd4b2fe\""
     },
     {
      "filename": "dm/gfx/nvn/hle_nvn.c",
@@ -2113,7 +2113,7 @@
    "files": [
     {
      "filename": "dm/gfx/nvn/dmsh_chain.h",
-     "patch": "@@ lines that match nothing left out @@"
+     "patch": "-#define DMSH_CHAIN \"d0e99bd4b2fe\"\n+#define DMSH_CHAIN \"b7cd656abd7c\""
     },
     {
      "filename": "dm/gfx/nvn/nvn_geometry.inc",
@@ -2350,18 +2350,54 @@
    ]
   }
  ],
- "listed": [
-  "105f417b",
+ "table1": [
+  [
+   "105f417b"
+  ],
+  [
+   "d76c45f7"
+  ],
+  [
+   "aea257b9"
+  ],
+  [
+   "cadd4be6"
+  ],
+  [
+   "8ef752a2"
+  ],
+  [
+   "f4bfc015"
+  ],
+  [
+   "68e8dc23"
+  ],
+  [
+   "8dd0c98a"
+  ],
+  [
+   "d3995ca4",
+   "a7bd05f4",
+   "fdb3710d",
+   "5251763d",
+   "c4b0618c",
+   "4de40e62",
+   "0e8503e7"
+  ],
+  [
+   "99947471"
+  ],
+  [
+   "cd859c38"
+  ]
+ ],
+ "table2": [
   "c87bb116",
   "4a1f6830",
-  "d76c45f7",
-  "aea257b9",
   "ffdf67de",
-  "cadd4be6",
   "28035370",
   "70ca6164",
   "07fc83d4",
-  "8ef752a2",
   "9f74a1d6",
   "d138ee87",
   "5fd06dd1",
@@ -2371,24 +2407,12 @@
   "c1df4dda",
   "c0f34133",
   "792df9fb",
-  "f4bfc015",
   "8482873b",
   "94484212",
   "5ce955ad",
-  "68e8dc23",
   "dad38db6",
-  "8dd0c98a",
-  "d3995ca4",
-  "a7bd05f4",
-  "fdb3710d",
-  "5251763d",
-  "c4b0618c",
-  "4de40e62",
-  "0e8503e7",
   "a1b9a2ae",
-  "99947471",
-  "f634de70",
-  "cd859c38"
+  "f634de70"
  ],
  "not_listed": [
   "ecc41fa8",

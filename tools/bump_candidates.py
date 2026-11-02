@@ -6,6 +6,11 @@ shader chain, change a script message that a failure row matches, or rewrite a s
 commits between two pins and prints the ones that touch something we depend on, as a Markdown table with an empty `Handled`
 column. It is a list of candidates, not a verdict: a person reads those commits and writes "handled" or an issue number.
 
+The output is two tables. The first, "Likely matters to the front ends", has the commits that match any rule below except the last one,
+with consecutive commits that move the shader chain folded into one row (every sha, the chain value before and after, the other reasons).
+The second, a collapsed list, has the commits whose only match is a file that one of our patches changes: bump and sync already apply the
+patches and fail on a conflict. A commit of the first table is not repeated in the second.
+
 A commit is a candidate when it
   - has a `Breaking:` line or a "For front ends" section in its message (listed first),
   - touches the shader chain (dmsh_chain.h, dmsh_chain.lock) or own_compilers.py (a chain move or a tool requirement),
@@ -189,7 +194,7 @@ def file_reasons(f, ctx):
     name, patch = f['filename'], f.get('patch') or ''
     base = name.rsplit('/', 1)[-1]
     why = []
-    if base in CHAIN: why.append('shader chain moves: every game built with the old chain is rebuilt (#449)')
+    if base in CHAIN: why.append(CHAIN_WHY)
     if base == OWN_COMPILERS: why.append('tool requirement or chain input (own_compilers.py): a new minimum, or a rebuild')
     if name == ENV_TSV:
         if not patch: why.append('env_switches.tsv changed (no diff to read)')
@@ -216,23 +221,64 @@ def file_reasons(f, ctx):
     return why
 
 
+CHAIN_WHY = 'shader chain moves: every game built with the old chain is rebuilt (#449)'
+
+
+def chain_values(files):
+    """(before, after) of DMSH_CHAIN from the diff of dmsh_chain.h in a commit's files, or None."""
+    for f in files:
+        if f['filename'].rsplit('/', 1)[-1] == 'dmsh_chain.h':
+            old = re.search(r'^-#define DMSH_CHAIN "([0-9a-f]+)"', f.get('patch') or '', re.M)
+            new = re.search(r'^\+#define DMSH_CHAIN "([0-9a-f]+)"', f.get('patch') or '', re.M)
+            if old and new: return old.group(1), new.group(1)
+    return None
+
+
 def find_candidates(commits, ctx):
-    """Rows {sha, title, files, why, breaking} for the commits that touch something we depend on. Breaking ones first, then in range order."""
+    """One row per commit that touches something we depend on, in range order, the ones with a Breaking: line first:
+    {sha, title, files, why, breaking, likely, patched, chain, chain_only (the chain moves)}. `likely` is false when the only match is a file one of our
+    patches changes (`patched`: [file (patch numbers)]), the second table. Grouping into table rows is group_rows."""
     rows = []
     for c in commits:
-        files, whys = [], []
+        files, whys, patched = [], [], []
         for f in c['files']:
             w = file_reasons(f, ctx)
-            if w:
+            hooks = [x[len(HOOK):] for x in w if x.startswith(HOOK)]
+            rest = [x for x in w if not x.startswith(HOOK)]
+            patched += hooks
+            if rest:
                 files.append(f['filename'])
-                whys += [x for x in w if x not in whys]
-        hooks = [w[len(HOOK):] for w in whys if w.startswith(HOOK)]
-        whys = [w for w in whys if not w.startswith(HOOK)] + (['files our patches change: ' + ', '.join(hooks)] if hooks else [])
+                whys += [x for x in rest if x not in whys]
         brk = breaking(c['message'])
         if brk: whys.insert(0, 'the message says Breaking: or has a "For front ends" section')
-        if files or brk:
-            rows.append({'sha': c['sha'], 'title': c['message'].splitlines()[0] if c['message'] else '', 'files': files, 'why': whys, 'breaking': brk})
+        if files or brk or patched:
+            rows.append({'sha': c['sha'], 'title': c['message'].splitlines()[0] if c['message'] else '', 'files': files, 'why': whys, 'breaking': brk,
+                         'likely': bool(files or brk), 'patched': patched, 'chain': chain_values(c['files']),
+                         'chain_only': CHAIN_WHY in whys and not brk})
     return sorted(rows, key=lambda r: not r['breaking'])   # sorted is stable
+
+
+def group_rows(rows):
+    """Table 1: the likely rows, where consecutive commits that move the shader chain become one row with every sha, the chain value before the
+    first and after the last, the number of moves and the other reasons of the members."""
+    out = []
+    for r in (r for r in rows if r['likely']):
+        r = dict(r, shas=[r['sha']])
+        if r['chain_only'] and out and out[-1]['chain_only']:
+            g = out[-1]
+            g['shas'].append(r['sha'])
+            g['files'] = sorted(set(g['files']) | set(r['files']))
+            g['why'] += [w for w in r['why'] if w not in g['why']]
+            g['chain'] = (g['chain'][0], r['chain'][1]) if g['chain'] and r['chain'] else None
+        else:
+            out.append(r)
+    for g in out:
+        if g['chain_only']:
+            n = len(g['shas'])
+            if n > 1: g['title'] = f'Shader chain moves {n} times'
+            val = f' from `{g["chain"][0]}` to `{g["chain"][1]}`' if g['chain'] else ''
+            g['why'] = [f'DMSH_CHAIN{val}: every game built with the old chain is rebuilt (#449)'] + [w for w in g['why'] if w != CHAIN_WHY]
+    return out
 
 
 # ---- the output ----
@@ -241,23 +287,39 @@ def _cell(s):
     return s.replace('|', '\\|').replace('\n', ' ')
 
 
-def format_table(rows, old, new, total):
-    out = [f'## Candidate commits ({len(rows)} of {total}), `{old[:12]}...{new[:12]}`',
+def format_tables(rows, old, new, total):
+    t1 = group_rows(rows)
+    t2 = [r for r in rows if not r['likely']]
+    n1 = sum(len(g['shas']) for g in t1)
+    out = [f'## Candidate commits, `{old[:12]}...{new[:12]}`',
            '',
-           f'This is a list of candidates, not a verdict. It lists the commits that touch something the front ends or the players depend on '
-           f'(the shader chain, env rows, the NSP script, the launcher interface, binary layouts, files our patches change). '
-           f'A commit that is not here can still matter: read the compare when in doubt. Write "handled" or an issue number in the last column.',
+           f'This is a list of candidates, not a verdict. {n1 + len(t2)} of the {total} commits touch something the front ends or the players depend on. '
+           f'A commit that is in neither table can still matter: read the compare when in doubt. Write "handled" or an issue number in the last column of the first table.',
            '',
            f'Upstream: https://github.com/{UPSTREAM}/compare/{old[:12]}...{new[:12]}',
+           '',
+           f'### Likely matters to the front ends ({len(t1)} rows, {n1} commits)',
            '']
-    if not rows:
-        return '\n'.join(out + ['No commit of the range matches.', ''])
-    out += ['| Commit | Title | Files | Why | Handled |', '|---|---|---|---|---|']
-    for r in rows:
-        files = r['files'][:4]
-        more = f' (+{len(r["files"]) - 4} more)' if len(r['files']) > 4 else ''
-        out.append(f'| `{r["sha"][:8]}` | {_cell(r["title"][:90])} | {_cell(", ".join("`" + f + "`" for f in files) + more)} | {_cell("; ".join(r["why"][:3]))} | |')
-    return '\n'.join(out + [''])
+    if t1:
+        out += ['| Commit | Title | Files | Why | Handled |', '|---|---|---|---|---|']
+        for r in t1:
+            files = r['files'][:4]
+            more = f' (+{len(r["files"]) - 4} more)' if len(r['files']) > 4 else ''
+            shas = ', '.join(f'`{s[:8]}`' for s in r['shas'])
+            out.append(f'| {shas} | {_cell(r["title"][:90])} | {_cell(", ".join("`" + f + "`" for f in files) + more)} | {_cell("; ".join(r["why"][:4]))} | |')
+    else:
+        out.append('No commit of the range matches.')
+    out += ['', '<details>', f'<summary>Touches files our patches change ({len(t2)} commits)</summary>', '',
+            '`tools/engine.py bump` and `sync` already apply the patches and fail on a conflict, so these need no reading, unless a patch did not conflict '
+            'but its behavior might have shifted.', '']
+    if t2:
+        out += ['| Commit | Title | Patched file (patches) |', '|---|---|---|']
+        for r in t2:
+            p = r['patched']
+            out.append(f'| `{r["sha"][:8]}` | {_cell(r["title"][:90])} | {_cell(", ".join(p[:3]) + (f" (+{len(p) - 3} more)" if len(p) > 3 else ""))} |')
+    else:
+        out.append('None.')
+    return '\n'.join(out + ['', '</details>', ''])
 
 
 def report(root, old, new, eng=None, api=None):
@@ -268,7 +330,7 @@ def report(root, old, new, eng=None, api=None):
         commits = fetch_commits(old, new, eng, api)
     except Exception as e:
         return f'## Candidate commits\n\nNot made: {e}\n\nRun `python3 tools/engine.py candidates --from {old[:12]} --to {new[:12]}` when `gh` can reach GitHub.\n'
-    return format_table(find_candidates(commits, context(root)), old, new, len(commits))
+    return format_tables(find_candidates(commits, context(root)), old, new, len(commits))
 
 
 def main(argv=None):
