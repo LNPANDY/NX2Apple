@@ -3,7 +3,7 @@ From: Haseenesss <Haseenesss@gmail.com>
 Date: Mon, 2 Nov 2026 17:58:55 +0900
 Subject: [PATCH] ios: apply controller button mappings to physical gamepads
 
-Upstream-Status: pending
+Upstream-Status: forwarded seedds/nxnative#955 (on #386, patch 0009)
 Reason: the iOS host ignores DM_PAD_MAP, so the shell's button mapping (global and per game) never reaches physical controllers. The Mac host applies it already
 Issue: LNPANDY/NX2Apple#494
 
