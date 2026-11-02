@@ -821,6 +821,7 @@
   "shell.projectFailed": "Den gemensamma appen kunde inte förberedas: %@",
   "shell.projectStage": "Förbereder den gemensamma appen",
   "shell.retry": "Försök igen",
+  "shell.rootUnwritable": "Den gemensamma appen sparas i %@, och mappen går inte att skriva i (skrivskyddad volym eller ingen behörighet). Välj en annan mapp under Spara till först.",
   "shellCache.note": "iPhone-framework-cachen, bevarad för installation av flera spel. Raderar du den tar installationen av ett nytt spel bort äldre spel från skalet.",
   "shellCache.open": "Öppna mapp",
   "shellCache.row": "Cachefiler",
