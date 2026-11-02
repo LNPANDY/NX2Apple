@@ -601,6 +601,7 @@
   "ios.host.unknownKind": "%@ has the unknown kind \"%@\".",
   "ios.host.valueFromSettings": "%@ (from Settings)",
   "ios.host.wrongValueAt": "%@ has a wrong or missing value at \"%@\".",
+  "ios.setting.DM_PSO_MTL4.note": "Keeps a pipeline archive; uses more memory.",
   "ios.ui.appUpdateNeeded": "App update needed",
   "ios.ui.back": "Back",
   "ios.ui.charging": "Charging",

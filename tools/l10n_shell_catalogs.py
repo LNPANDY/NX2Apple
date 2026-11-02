@@ -6,6 +6,12 @@ The shell's texts are lines of `frontend/l10n/<code>.json`, next to the launcher
     ios.ui.*    ShellUI,   frontend-ios/Sources/ShellUI/Resources/Localizable.xcstrings
     ios.host.*  ShellHost, frontend-ios/Sources/ShellHost/Resources/Localizable.xcstrings
 
+The rows of a game's settings screen are not the shell's texts. They come from the game's `launcher.json` (seedds/nxnative, English, its
+format is not ours to change), and the shell shows them in the player's language by their English text, through the ShellUI catalog:
+the section, label, note and option labels the Mac launcher already translates (`launch.section.*`, `launch.set.*`, `launch.opt.*`)
+go into the ShellUI catalog too, with no second copy of the translation, plus the few `ios.setting.*` lines for a text upstream writes
+differently from the Mac's table. A text with no catalog entry shows as it is, in English. See "Game settings" in frontend-ios/README.md.
+
 The Swift code asks for a text by its English words (`ShellStrings.text("Done")`, `Text("Settings")`), which is what an Xcode
 string catalog keys on. So the catalog's key is the English text of the JSON key (`%@` and `%lld` stay as they are), and every
 language file that has the JSON key adds one localization. The languages are the files of the folder: a new `<code>.json` shows
@@ -30,6 +36,16 @@ CATALOGS = {
     'ShellUI': 'ios.ui.',
     'ShellHost': 'ios.host.',
 }
+
+# More prefixes whose texts go into a catalog. Two keys with the same English text share an entry when every language reads the same.
+EXTRA_PREFIXES = {
+    'ShellUI': ('ios.setting.', 'launch.section.', 'launch.set.', 'launch.opt.'),
+}
+
+
+def prefixes(target: str) -> tuple[str, ...]:
+    return (CATALOGS[target], *EXTRA_PREFIXES.get(target, ()))
+
 
 # The language code of a file and the code Xcode and iOS know it by. Every other code is the same in both.
 APPLE_CODES = {'zh': 'zh-Hans'}
@@ -63,21 +79,25 @@ def apple_codes(languages: dict[str, dict[str, str]]) -> list[str]:
     return [SOURCE_LANGUAGE, *codes]
 
 
-def build(languages: dict[str, dict[str, str]], prefix: str) -> dict:
-    """One catalog: the English text of each `prefix*` key is the key, each language that has the JSON key is a localization."""
+def build(languages: dict[str, dict[str, str]], prefix: str | tuple[str, ...]) -> dict:
+    """One catalog: the English text of each `prefix*` key is the key, each language that has the JSON key is a localization.
+    Two keys with the same English text and the same translations are one entry, with different ones they cannot both be."""
     english = languages[SOURCE_LANGUAGE]
     strings: dict[str, dict] = {}
     owner: dict[str, str] = {}
     for json_key in sorted(k for k in english if k.startswith(prefix)):
         text = english[json_key]
-        if text in owner:
-            raise SystemExit(f'{json_key} and {owner[text]} have the same English text {text!r}: one catalog key cannot carry both')
-        owner[text] = json_key
         localizations = {}
         for code, texts in languages.items():
             if json_key in texts:
                 localizations[apple_code(code)] = {'stringUnit': {'state': 'translated', 'value': texts[json_key]}}
-        strings[text] = {'localizations': dict(sorted(localizations.items(), key=lambda item: (item[0] != SOURCE_LANGUAGE, item[0])))}
+        entry = {'localizations': dict(sorted(localizations.items(), key=lambda item: (item[0] != SOURCE_LANGUAGE, item[0])))}
+        if text in owner:
+            if strings[text] != entry:
+                raise SystemExit(f'{json_key} and {owner[text]} have the same English text {text!r} and different translations: one catalog key cannot carry both')
+            continue
+        owner[text] = json_key
+        strings[text] = entry
     return {'sourceLanguage': SOURCE_LANGUAGE, 'strings': strings, 'version': '1.0'}
 
 
@@ -88,7 +108,7 @@ def render(catalog: dict) -> str:
 
 def expected(l10n: Path = L10N) -> dict[str, str]:
     languages = load_languages(l10n)
-    return {target: render(build(languages, prefix)) for target, prefix in CATALOGS.items()}
+    return {target: render(build(languages, prefixes(target))) for target in CATALOGS}
 
 
 def main(argv: list[str] | None = None) -> int:

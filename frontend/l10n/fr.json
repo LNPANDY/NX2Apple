@@ -543,6 +543,7 @@
   "free.selected": "%@ sélectionnés",
   "free.title": "Libérer de l’espace",
   "install.reveal": "Afficher dans le Finder",
+  "ios.setting.DM_PSO_MTL4.note": "Conserve une archive de pipelines et utilise plus de mémoire.",
   "key.clear": "Effacer",
   "key.code": "Touche %ld",
   "key.delete": "Supprimer",

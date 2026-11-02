@@ -64,7 +64,7 @@ class CommittedCatalogs(unittest.TestCase):
                 self.assertIn('zh-Hans', entry['localizations'], f'{target}: {key} has no Chinese text')
 
     def test_every_ios_key_belongs_to_a_catalog(self):
-        prefixes = tuple(C.CATALOGS.values())
+        prefixes = tuple(p for target in C.CATALOGS for p in C.prefixes(target))
         for code, texts in self.languages.items():
             stray = sorted(k for k in texts if k.startswith('ios.') and not k.startswith(prefixes))
             self.assertEqual(stray, [], f'{code}.json has ios.* keys that no catalog takes')
@@ -123,10 +123,15 @@ class Generator(unittest.TestCase):
         self.assertEqual(list(strings), ['"%@" is %lld of %.1f'])
         self.assertEqual(strings['"%@" is %lld of %.1f']['localizations']['zh-Hans']['stringUnit']['value'], '"%@" 是 %lld / %.1f')
 
-    def test_two_keys_with_the_same_english_text_in_one_catalog_fail(self):
+    def test_two_keys_with_the_same_english_text_and_different_translations_in_one_catalog_fail(self):
         folder = self.folder(en={'ios.ui.a': 'Same', 'ios.ui.b': 'Same'}, zh={'ios.ui.a': 'x', 'ios.ui.b': 'y'})
         with self.assertRaises(SystemExit):
             C.build(C.load_languages(folder), 'ios.ui.')
+
+    def test_two_keys_with_the_same_english_text_and_the_same_translations_are_one_entry(self):
+        folder = self.folder(en={'ios.ui.a': 'Same', 'launch.set.b': 'Same'}, zh={'ios.ui.a': 'x', 'launch.set.b': 'x'})
+        strings = C.build(C.load_languages(folder), ('ios.ui.', 'launch.set.'))['strings']
+        self.assertEqual(list(strings), ['Same'])
 
     def test_the_output_is_stable(self):
         folder = self.folder(en={'ios.ui.b': 'B', 'ios.ui.a': 'A'}, zh={'ios.ui.b': 'b', 'ios.ui.a': 'a'})

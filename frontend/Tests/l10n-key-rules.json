@@ -36,7 +36,8 @@
   ],
   "catalogKeys": [
     {"prefix": "ios.ui.", "why": "ShellUI, frontend-ios/Sources/ShellUI/Resources/Localizable.xcstrings"},
-    {"prefix": "ios.host.", "why": "ShellHost, frontend-ios/Sources/ShellHost/Resources/Localizable.xcstrings"}
+    {"prefix": "ios.host.", "why": "ShellHost, frontend-ios/Sources/ShellHost/Resources/Localizable.xcstrings"},
+    {"prefix": "ios.setting.", "why": "a game's settings text that upstream's launcher.json writes differently from launch.*, ShellUI catalog"}
   ],
   "unusedAllowed": []
 }

@@ -602,6 +602,7 @@
   "ios.host.unknownKind": "%@ 的类型 \"%@\" 未知。",
   "ios.host.valueFromSettings": "%@（来自设置）",
   "ios.host.wrongValueAt": "%@ 的 \"%@\" 值错误或缺失。",
+  "ios.setting.DM_PSO_MTL4.note": "保留管线存档，占用更多内存。",
   "ios.ui.appUpdateNeeded": "需要更新 App",
   "ios.ui.back": "返回",
   "ios.ui.charging": "充电中",

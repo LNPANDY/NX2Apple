@@ -335,6 +335,16 @@ committed catalog differs from what the files give, and when the app's `CFBundle
 and the shell app of the engine, patch 0056) do not list every file, because iOS offers a language to the shell only when the
 app declares it. The key checks treat the `ios.*` keys as used (`catalogKeys` in `frontend/Tests/l10n-key-rules.json`).
 
+A game's settings rows (section, label, note, option labels) are not shell texts. They come from the game's `launcher.json`,
+which is English and owned by seedds/nxnative, so its format stays. The shell looks each text up in the ShellUI catalog by its
+English words, and a text with no entry shows English. The catalog gets these texts from the lines the Mac launcher already
+translates (`launch.section.*`, `launch.set.*`, `launch.opt.*`), so there is one translation of each. `ios.setting.*` has the
+few texts upstream's `settings.tsv` words differently from the Mac's table (a semicolon in a note, for example): the English
+is upstream's, the translation is the same as the Mac's. When a pin bump adds or changes a text in `dm/games/settings.tsv` or the
+game language names in `dm/tools/nacp.py`, `tools/tests/test_launcher_texts.py` fails and names the text that has no Chinese
+entry. Add the line to `en.json` and `zh.json` (and to the other languages that have the `launch.*` lines), run
+`python3 tools/l10n_shell_catalogs.py` and `python3 tools/tests/test_launcher_texts.py --write`.
+
 The app finds the files in `Contents/Resources/l10n` (`build-mac-app.yml` and `tools/try-local` copy the
 folder there, the same way as the engine and the bundled tools, not as SwiftPM resources). `swift run` finds
 `frontend/l10n` by walking up from the executable, and `swift test` takes it from the source path.
