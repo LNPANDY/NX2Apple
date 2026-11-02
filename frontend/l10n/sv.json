@@ -574,7 +574,7 @@
   "msg.stagingFailed": "Kunde inte skapa en länk i mellanlagringsmappen. Ligger filerna på olika diskar?",
   "msg.stopped": "Stoppad",
   "msg.toolsOld": "Byggverktygen är äldre än appen och saknar %@. Bygget startade inte. Uppdatera först under Inställningar → Byggverktyg.",
-  "msg.workdirHint": "Tips: ”Utdatamapp” är också platsen för byggcachen (utdatamapp/<ID>_build). Välj samma plats som förra bygget för att återanvända befintliga byggresurser, så körs inte uppackning och shaders igen. En ny plats börjar från början.",
+  "msg.workdirHint": "Tips: ”Utdatamapp” är också platsen för byggcachen (utdatamapp/<ID>_build). Välj samma plats som förra bygget för att återanvända befintliga byggresurser, så körs inte uppackning och shaders igen. En ny plats börjar från början. När utdatamappen ligger på en extern disk går den första byggnationen märkbart långsammare (värre på exFAT eller en hårddisk).",
   "nav.builds": "Byggen",
   "nav.library": "Bibliotek",
   "nav.settings": "Inställningar",
