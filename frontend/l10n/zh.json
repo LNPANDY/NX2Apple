@@ -960,7 +960,7 @@
   "onboarding.xcode.settingUp": "正在完成 Xcode 设置…",
   "onboarding.xcode.title": "准备好你的 Mac。",
   "opt.bc": "兼容老设备（A15 / A16 及更早）",
-  "opt.bc.note": "在不支持 BC 纹理压缩的 GPU 上于 CPU 解压：iPhone 13 及更早、A16 的 iPad。新设备请保持关闭——GPU 路径更快",
+  "opt.bc.note": "在不支持 BC 纹理压缩的 GPU 上用 CPU 解压：iPhone 13 及更早、A16 的 iPad。新设备请保持关闭——GPU 路径更快",
   "pad.back": "返回",
   "pad.manage": "管理",
   "pad.options": "启动选项",
