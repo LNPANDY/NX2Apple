@@ -63,6 +63,46 @@ final class ShellInstallTests: XCTestCase {
         XCTAssertEqual(ShellLibrary.resolveRoot(defaults: defaults, parent: "/Volumes/B"), "/Volumes/A/NX2Apple-shell")
     }
 
+    /// #492: the Settings page reads the path before a game is chosen; the empty parent put the shell at the root of the
+    /// read-only system volume, where the write failed after the whole build.
+    func testAnEmptyOrRootParentNeverSavesTheShellAtTheVolumeRoot() {
+        let defaults = UserDefaults(suiteName: "nspb-shell-" + UUID().uuidString)!
+        let home = "/Users/tester"
+        XCTAssertEqual(ShellLibrary.resolveRoot(defaults: defaults, parent: "", home: home), "/Users/tester/NX2Apple-shell")
+        XCTAssertEqual(defaults.string(forKey: "shellRoot"), "/Users/tester/NX2Apple-shell")
+        defaults.removeObject(forKey: "shellRoot")
+        XCTAssertEqual(ShellLibrary.resolveRoot(defaults: defaults, parent: "/", home: home), "/Users/tester/NX2Apple-shell")
+        defaults.removeObject(forKey: "shellRoot")
+        XCTAssertEqual(ShellLibrary.resolveRoot(defaults: defaults, parent: "relative/games", home: home), "/Users/tester/NX2Apple-shell")
+    }
+
+    func testASavedRootAtTheVolumeRootIsRepaired() {
+        let defaults = UserDefaults(suiteName: "nspb-shell-" + UUID().uuidString)!
+        defaults.set("/NX2Apple-shell", forKey: "shellRoot")
+        XCTAssertEqual(ShellLibrary.resolveRoot(defaults: defaults, parent: "/Users/tester/games"),
+                       "/Users/tester/games/NX2Apple-shell")
+        XCTAssertEqual(defaults.string(forKey: "shellRoot"), "/Users/tester/games/NX2Apple-shell")   // the bad value is replaced
+    }
+
+    func testThePreviewDoesNotSaveARoot() {
+        let defaults = UserDefaults(suiteName: "nspb-shell-" + UUID().uuidString)!
+        XCTAssertEqual(ShellLibrary.previewRoot(defaults: defaults, parent: "/Volumes/A"), "/Volumes/A/NX2Apple-shell")
+        XCTAssertNil(defaults.string(forKey: "shellRoot"))
+        defaults.set("/Volumes/A/NX2Apple-shell", forKey: "shellRoot")
+        XCTAssertEqual(ShellLibrary.previewRoot(defaults: defaults, parent: "/Volumes/B"), "/Volumes/A/NX2Apple-shell")
+    }
+
+    func testRootNeedsAWritableParent() throws {
+        let parent = NSTemporaryDirectory() + "nspb-shell-parent-" + UUID().uuidString
+        try FileManager.default.createDirectory(atPath: parent, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: parent) }
+        XCTAssertTrue(ShellInstall.canWriteRoot(parent + "/NX2Apple-shell"))
+        XCTAssertFalse(ShellInstall.canWriteRoot(NSTemporaryDirectory() + "nspb-missing-" + UUID().uuidString + "/NX2Apple-shell"))
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: parent)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: parent) }
+        XCTAssertFalse(ShellInstall.canWriteRoot(parent + "/NX2Apple-shell"))
+    }
+
     // ---- the commands ----
 
     // ---- the iOS shell package (DM_SHELL_PACKAGE) ----
@@ -849,7 +889,12 @@ final class ShellInstallTests: XCTestCase {
         }
         finish { model.installShell(framework: f.framework, titleID: titleID, name: "Test Game", archive: f.archive) }
         XCTAssertEqual(model.failure?.kind, .shellDataIncomplete)
-        XCTAssertTrue(model.doneNote.hasPrefix(String(format: model.t("shell.copyIncomplete"), model.deviceName(model.installDevice), "").components(separatedBy: ": ").first ?? "-"), model.doneNote)
+        // The sentence before the tool's error, in every language: it used to split the English template on ": ", which
+        // never matches a full-width colon (a Chinese macOS ran this test red on main).
+        let marker = "\u{1}"
+        let prefix = String(format: model.t("shell.copyIncomplete"), model.deviceName(model.installDevice), marker)
+            .components(separatedBy: marker).first ?? "-"
+        XCTAssertTrue(model.doneNote.hasPrefix(prefix), model.doneNote)
         XCTAssertFalse(model.done)
         XCTAssertEqual(plans.count, 1)
         XCTAssertEqual(plans.first?.connection, .wired)
