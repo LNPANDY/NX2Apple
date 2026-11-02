@@ -46,7 +46,7 @@ struct OnboardingEnvironment {
     /// Detection again, finished when it has published (`BuildModel.checkDeps`).
     var detectDeps: (BuildModel) async -> Void = { await $0.refreshDepsAndWait() }
     /// One install through the launcher's own mechanics (`BuildModel.installDep`); its end shows as a new detection.
-    var installDep: (BuildModel, BuildModel.Dep) -> Void = { $0.installDep($1) }
+    var installDep: (BuildModel, Dep) -> Void = { $0.installDep($1) }
     var openURL: (URL) -> Void = { NSWorkspace.shared.open($0) }
     var keyCheck: (_ keys: String, _ base: String) async -> KeyCheck.Outcome = { keys, base in
         await Task.detached { KeyCheck.run(KeyCheck.Inputs(keys: keys, files: base.isEmpty ? [] : [base])) }.value
@@ -79,7 +79,7 @@ struct OnboardingEnvironment {
     /// Xcode*.app that really work: the App Store creates the folder while Xcode is still downloading, so only an
     /// `xcodebuild -version` that exits 0 counts.
     static func xcodeApps(in directory: String = "/Applications") -> [String] {
-        xcodeFolders(in: directory).filter { BuildModel.runOK($0 + "/Contents/Developer/usr/bin/xcodebuild", ["-version"]) }
+        xcodeFolders(in: directory).filter { Toolchain.runOK($0 + "/Contents/Developer/usr/bin/xcodebuild", ["-version"]) }
     }
 
     static func liveProbe() async -> XcodeProbe {
@@ -108,8 +108,8 @@ struct OnboardingEnvironment {
                 }
             }
             if probe.selectedIsXcode {
-                probe.licenseAccepted = BuildModel.runOK("/usr/bin/xcodebuild", ["-license", "check"])
-                probe.firstLaunchDone = BuildModel.runOK("/usr/bin/xcodebuild", ["-checkFirstLaunchStatus"])
+                probe.licenseAccepted = Toolchain.runOK("/usr/bin/xcodebuild", ["-license", "check"])
+                probe.firstLaunchDone = Toolchain.runOK("/usr/bin/xcodebuild", ["-checkFirstLaunchStatus"])
             }
             return probe
         }.value
@@ -466,7 +466,7 @@ enum OnboardingLaunch {
 
     // MARK: Xcode
 
-    private func dep(_ id: String) -> BuildModel.Dep? { model.deps.first { $0.id == id } }
+    private func dep(_ id: String) -> Dep? { model.deps.first { $0.id == id } }
 
     /// Every detection that finished: Xcode's state, the background tasks, and the next install.
     func modelDidRefresh() async {
@@ -536,12 +536,12 @@ enum OnboardingLaunch {
         }
         let metalMissing = !(dep("metal")?.present ?? false)
         if metalMissing {
-            let r = await download(.metal, BuildModel.metalToolchainCmd)
+            let r = await download(.metal, Toolchain.metalToolchainCmd)
             if !r.ok { return fail("onboarding.error.metal", r.output) }
         }
         let iosMissing = includesIOS && !(dep("xcode")?.present ?? false)
         if iosMissing {
-            let r = await download(.ios, BuildModel.iosPlatformCmd)
+            let r = await download(.ios, Toolchain.iosPlatformCmd)
             if !r.ok { return fail("onboarding.error.ios", r.output) }
         }
         await env.detectDeps(model)
@@ -582,7 +582,7 @@ enum OnboardingLaunch {
 
     /// The "tools" card is Homebrew and the brew formulas the build uses: every row that is none of Xcode, Python or .NET.
     private static let handled: Set<String> = ["xcode", "metal", "python", "dotnet"]
-    private func deps(for task: OnboardingBackgroundTask) -> [BuildModel.Dep] {
+    private func deps(for task: OnboardingBackgroundTask) -> [Dep] {
         switch task {
         case .python: return model.deps.filter { $0.id == "python" }
         case .dotnet: return model.deps.filter { $0.id == "dotnet" }

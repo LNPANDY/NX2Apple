@@ -53,7 +53,7 @@ struct BuildFailureCard: View {
             case .iosSDK:
                 fix(kind, "fail.iosSDK.button")
             case .cltSelected:
-                if BuildModel.installedXcode() != nil { fix(kind, "fail.cltSelected.button") }
+                if Toolchain.installedXcode() != nil { fix(kind, "fail.cltSelected.button") }
             case .keys:
                 fix(kind, "fail.keys.button")
             case .severalGames, .noTitleID, .diskFull:
@@ -61,7 +61,7 @@ struct BuildFailureCard: View {
             case .cloudFolder:
                 fix(kind, "fail.cloudFolder.button")
             case .teamTaken, .noSigningAccount:
-                if BuildModel.installedXcode() != nil { fix(kind, "fail.openXcode") }
+                if Toolchain.installedXcode() != nil { fix(kind, "fail.openXcode") }
             case .deviceTransfer, .devicePairing:
                 fix(kind, "fail.retry")
             case .shellDataIncomplete:
