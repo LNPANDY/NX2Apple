@@ -8,7 +8,10 @@
 name: tests
 
 on:
+  # Explicit types: the default three plus ready_for_review. Not `edited` or `labeled`: GitHub sends `edited` when it retargets a stack, and a
+  # second run for the same head only cancels the first (2026-11-02, two runs of this workflow started in the same second).
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [main]
   workflow_dispatch:
@@ -16,9 +19,11 @@ on:
 permissions:
   contents: read
 
+# A newer run for the same pull request replaces the older one, which is cancelled, and the newer one reports. Every push to main, every tag and
+# every manual run keeps its own group (run_id), so none of them is ever cancelled.
 concurrency:
-  group: tests-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   GAME: 010015100B514000   # Super Mario Bros. Wonder: the profile the host and gfx tests are built for (any profile does; the tests are about code, not the game)
@@ -32,30 +37,71 @@ defaults:
 
 # Actions are pinned to commit SHAs (the tag in the comment): a tag can be moved, a SHA cannot. Dependabot (github-actions) can raise them.
 jobs:
+  # Stacks: the maintainers open one PR per step, each based on the head branch of the one below. The heavy jobs (the ones that take an
+  # xcode-27 runner) run on the tip of a stack only, see .github/scripts/stack_tip.py and CONTRIBUTING.md, "CI on stacks". The PRs below
+  # the tip report these jobs as skipped by a job-level if, which counts as passed. Never skip a workflow as a whole: its required checks
+  # would never report and the merge of the stack would wait for them. A failed lookup counts as the tip.
+  stack:
+    name: Stack (is this the tip?)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      is_tip: ${{ steps.tip.outputs.is_tip }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+      - id: tip
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          BASE_REPO: ${{ github.event.pull_request.base.repo.full_name }}
+        run: python3 .github/scripts/stack_tip.py
+
   # Which areas the change touches, so a launcher-only or Qt-only PR skips the engine jobs on the scarce xcode-27 runners.
   # Everything but a pull request (push to main, workflow_dispatch) reports every area as changed. So does any failure to
   # find the diff. The jobs that wait for this one run when it did not succeed, so a broken filter never skips a check.
   # The five required checks (patch-queue, launcher, launcher-qt, tool-tests, triage-scripts) either do not wait for it
   # or are skipped by a job-level if, never by a paths: filter on the workflow (no run would leave the check pending).
+  # The diff is taken against the default branch, not the PR's base: the tip of a stack then counts the changes of every PR below it,
+  # whose own heavy jobs were skipped.
   changes:
     name: Changed areas
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
     outputs:
       engine: ${{ steps.diff.outputs.engine }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
       - name: Which areas changed
         id: diff
         env:
+          GH_TOKEN: ${{ github.token }}
           EVENT: ${{ github.event_name }}
-          BASE: ${{ github.event.pull_request.base.sha }}
+          REPO: ${{ github.repository }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           engine=true
           if [ "$EVENT" = pull_request ]; then
-            if git fetch --no-tags --depth=1 origin "$BASE" && files=$(git diff --name-only "$BASE" HEAD); then
+            files=''
+            complete=false
+            for page in 1 2 3; do
+              got=$(gh api "repos/$REPO/compare/$DEFAULT_BRANCH...$HEAD_SHA?per_page=100&page=$page" --jq '.files[].filename') || { files=''; break; }
+              files="$files$got"$'\n'
+              [ "$(echo "$got" | grep -c .)" -lt 100 ] && { complete=true; break; }
+            done
+            if [ "$complete" = true ]; then
               echo "$files"
               # What the engine jobs read: engine/ is made from .upstream-ref and patches/ by tools/engine.py (dm/, scripts/ and docs/ are
               # listed in case a change reaches them), the iOS shell package, and this file. A launcher (frontend/) or Qt (frontend-qt/)
@@ -66,7 +112,7 @@ jobs:
                 engine=false
               fi
             else
-              echo "::warning::No diff against the base, so every area counts as changed"
+              echo "::warning::No complete diff against $DEFAULT_BRANCH, so every area counts as changed"
             fi
           fi
           echo "engine=$engine" >> "$GITHUB_OUTPUT"
@@ -75,8 +121,8 @@ jobs:
   tool-tests:
     name: Tool tests
     runs-on: xcode-27
-    needs: changes
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.engine == 'true') }}
+    needs: [stack, changes]
+    if: ${{ !cancelled() && (needs.stack.result != 'success' || needs.stack.outputs.is_tip == 'true') && (needs.changes.result != 'success' || needs.changes.outputs.engine == 'true') }}
     timeout-minutes: 15
     defaults:
       run:
@@ -183,8 +229,8 @@ jobs:
   build:
     name: Build check (Mac host, gfx tests, iOS sources)
     runs-on: xcode-27
-    needs: changes
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.engine == 'true') }}
+    needs: [stack, changes]
+    if: ${{ !cancelled() && (needs.stack.result != 'success' || needs.stack.outputs.is_tip == 'true') && (needs.changes.result != 'success' || needs.changes.outputs.engine == 'true') }}
     timeout-minutes: 40
     defaults:
       run:
@@ -237,6 +283,8 @@ jobs:
 
   launcher:
     name: Mac launcher (frontend, swift test)
+    needs: stack
+    if: ${{ !cancelled() && (needs.stack.result != 'success' || needs.stack.outputs.is_tip == 'true') }}
     runs-on: xcode-27
     timeout-minutes: 20
     steps:
@@ -246,7 +294,7 @@ jobs:
       - name: Engine (tools/engine.py sync, issue #214; the launcher's tests read engine/)
         run: python3 tools/engine.py sync
       # swift test builds the package in debug, so a pull request does not build it again. The release build (optimizer, whole-module
-      # compile, the code outside #if DEBUG) runs on main and on tags. build-mac-app.yml also builds the release for a PR that touches frontend/.
+      # compile, the code outside #if DEBUG) runs on main and on tags. build-mac-app.yml builds the release app for a PR that changes the packaging.
       - name: Release build
         if: ${{ github.event_name != 'pull_request' }}
         working-directory: frontend
@@ -309,8 +357,8 @@ jobs:
   engine-checks:
     name: Host tests, iOS shell package and unsigned iOS app
     runs-on: xcode-27
-    needs: changes
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.engine == 'true') }}
+    needs: [stack, changes]
+    if: ${{ !cancelled() && (needs.stack.result != 'success' || needs.stack.outputs.is_tip == 'true') && (needs.changes.result != 'success' || needs.changes.outputs.engine == 'true') }}
     timeout-minutes: 60
     defaults:
       run:
