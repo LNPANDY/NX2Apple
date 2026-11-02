@@ -23,7 +23,7 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
 from nspb_qt import build_failure as bf  # noqa: E402
 from nspb_qt.i18n import Lang  # noqa: E402
-from nspb_qt.localization import TABLE  # noqa: E402
+from nspb_qt.l10n import TABLE  # noqa: E402
 
 FIXTURES = json.loads((ROOT / 'frontend/Tests/Fixtures/build_failures.json').read_text(encoding='utf-8'))
 # the table is the classifier's (the app target), the kinds and their override flags are NXCore's

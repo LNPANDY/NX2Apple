@@ -1,4 +1,4 @@
-"""The generated Qt table carries the French column of Localization.swift, complete."""
+"""The Qt table carries the French column, read from frontend/l10n/fr.json, complete."""
 from __future__ import annotations
 
 import re
@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'frontend-qt'))
 
 from nspb_qt.i18n import Lang   # noqa: E402
-from nspb_qt.localization import TABLE, t   # noqa: E402
+from nspb_qt.l10n import TABLE, t   # noqa: E402
 
 # %@, %d, %ld, %%, positional %1$@ and float %.1f, as in FrenchLocalizationTests.swift
 PLACEHOLDER = re.compile(r'%(?:\d+\$)?(?:\.\d+)?l{0,2}[@dfs%]')

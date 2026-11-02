@@ -1,4 +1,4 @@
-"""The generated Qt table carries a complete German column, the same one the Swift table has."""
+"""The Qt table carries a complete German column, read from the same file the Swift launcher reads (frontend/l10n/de.json)."""
 from __future__ import annotations
 
 import re
@@ -10,8 +10,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'frontend-qt'))
 
 from nspb_qt.i18n import Lang   # noqa: E402
-from nspb_qt.localization import TABLE, t   # noqa: E402
-from gen_localization import unescape   # noqa: E402
+from nspb_qt.l10n import TABLE, t   # noqa: E402
 
 PLACEHOLDER = re.compile(r'%(?:\d+\$)?(?:\.\d+)?(?:ll|l)?[@dsf%]')
 
@@ -40,8 +39,7 @@ class German(unittest.TestCase):
         self.assertEqual(t('onboarding.stepCount', Lang.DE, 2, 5), 'Schritt 2 von 5')
         self.assertEqual(t('dep.recheck', Lang.EN), 'Check again')
 
-    def test_escapes_of_the_swift_table_become_text(self):
-        self.assertEqual(unescape('a\\tb\\u{e4}'), 'a\tb\u00e4')   # no table entry carries a tab any more
+    def test_newlines_and_backslashes_of_the_files_are_text(self):
         self.assertIn('\n', t('fail.noTitleID.next', Lang.DE))
         self.assertNotIn('\\\\', t('dep.spirv.hint.win', Lang.DE))
 

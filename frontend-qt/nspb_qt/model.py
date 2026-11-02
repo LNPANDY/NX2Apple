@@ -21,7 +21,7 @@ from . import input_staging
 from . import inputs
 from . import platform_util as pu
 from .i18n import Lang
-from .localization import t
+from .l10n import t
 
 
 # ---------------------------------------------------------------- dependency rows
