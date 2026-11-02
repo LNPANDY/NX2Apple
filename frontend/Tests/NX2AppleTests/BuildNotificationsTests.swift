@@ -59,8 +59,8 @@ final class BuildNotificationsTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: temporary) }
         let model = BuildModel()
         model.lang = CaptureLanguage.current(.en)
-        model.depsChecked = true
-        model.deps = [Dep(id: "test", name: "Xcode", hint: "", present: true, installCmd: [])]
+        MainActor.assumeIsolated { model.dependencies.checked = true }
+        MainActor.assumeIsolated { model.dependencies.deps = [Dep(id: "test", name: "Xcode", hint: "", present: true, installCmd: [])] }
         let library = GameLibrary(file: temporary.appendingPathComponent("preview.json"))
         let host = NSHostingView(rootView: ContentView(model: model, library: library, initialPage: .settings, performStartupChecks: false))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1440, height: 1500), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)

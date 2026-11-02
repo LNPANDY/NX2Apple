@@ -298,7 +298,7 @@ extension BuildModel {
     /// The report, read in the background and handed back on the main thread.
     func diagnostics(game: LibraryGame? = nil, _ done: @escaping (String) -> Void) {
         let repo = repoOK ? repoPath : "", python = pythonPath.isEmpty ? Toolchain.findPython().path : pythonPath, dotnet = dotnetPath
-        let rows = depsChecked ? deps.map(Diagnostics.dependency) : [], checked = depsChecked
+        let checked = depsChecked, rows = checked ? MainActor.assumeIsolated { dependencies.deps }.map(Diagnostics.dependency) : []
         let command = lastBuildCommand, log = logTail, xcrun = xcrunPath
         let (sel, usesEngineStore) = MainActor.assumeIsolated { (engineSync.selection, engineSync.usesEngineStore) }
         let engine = usesEngineStore && !sel.engineID.isEmpty ? "\(sel.channel.rawValue) \(sel.version) (\(sel.engineID))" : nil

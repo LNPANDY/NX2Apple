@@ -375,8 +375,8 @@ final class CheatFilesTests: XCTestCase {
 
         let model = BuildModel()
         model.lang = .en
-        model.depsChecked = true
-        model.deps = [Dep(id: "test", name: "Xcode", hint: "", present: true, installCmd: [])]
+        MainActor.assumeIsolated { model.dependencies.checked = true }
+        MainActor.assumeIsolated { model.dependencies.deps = [Dep(id: "test", name: "Xcode", hint: "", present: true, installCmd: [])] }
         let library = GameLibrary(file: temporary.appendingPathComponent("preview.json"))
         let id = try library.addApp(app)
         library.recordCompletedIOS(archive: "", app: ios.path, device: "00008150-AAAA", for: id)
