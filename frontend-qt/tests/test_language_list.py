@@ -1,6 +1,6 @@
 """The language list comes from frontend/l10n (LNPANDY/NX2Apple#388, step 2): the language button, the detection and the names.
 
-The five real files are used, and a sixth language is a temporary `xx.json` in a temporary folder that NX_L10N_DIR names.
+The real files are used, and one more language is a temporary `xx.json` in a temporary folder that NX_L10N_DIR names.
 """
 from __future__ import annotations
 
@@ -47,11 +47,11 @@ OLD_INPUTS = [
 
 
 class PickerList(unittest.TestCase):
-    def test_the_button_cycles_the_five_languages_in_the_order_it_always_had(self):
-        self.assertEqual([lang.code for lang in Lang.all()], ['zh', 'en', 'sv', 'de', 'fr'])
-        self.assertEqual([lang.name for lang in Lang.all()], ['中文', 'English', 'Svenska', 'Deutsch', 'Français'])
-        self.assertEqual([Lang(c).other.code for c in ('zh', 'en', 'sv', 'de', 'fr')], ['en', 'sv', 'de', 'fr', 'zh'])
-        self.assertEqual([Lang(c).toggle_label for c in ('zh', 'en', 'sv', 'de', 'fr')], ['EN', 'Svenska', 'Deutsch', 'Français', '中文'])
+    def test_the_button_cycles_the_five_languages_in_the_order_it_always_had_then_italian(self):
+        self.assertEqual([lang.code for lang in Lang.all()], ['zh', 'en', 'sv', 'de', 'fr', 'it'])
+        self.assertEqual([lang.name for lang in Lang.all()], ['中文', 'English', 'Svenska', 'Deutsch', 'Français', 'Italiano'])
+        self.assertEqual([Lang(c).other.code for c in ('zh', 'en', 'sv', 'de', 'fr', 'it')], ['en', 'sv', 'de', 'fr', 'it', 'zh'])
+        self.assertEqual([Lang(c).toggle_label for c in ('zh', 'en', 'sv', 'de', 'fr', 'it')], ['EN', 'Svenska', 'Deutsch', 'Français', 'Italiano', '中文'])
 
     def test_find_knows_a_code_only_when_a_file_has_it(self):
         self.assertEqual(Lang.find('sv'), Lang('sv'))
@@ -65,8 +65,14 @@ class PickerList(unittest.TestCase):
 
 class Detection(unittest.TestCase):
     def test_every_input_the_old_detection_handled_selects_the_same_language(self):
+        # A language whose file came after the five may claim an input the old code gave English: it_it is Italian now.
+        added = {lang.code for lang in Lang.all()} - {'zh', 'en', 'sv', 'de', 'fr'}
         for low in OLD_INPUTS:
-            self.assertEqual(Lang.detect(low).code, detected_before(low), low)
+            got, before = Lang.detect(low).code, detected_before(low)
+            if before == 'en' and got in added:
+                continue
+            self.assertEqual(got, before, low)
+        self.assertEqual(Lang.detect('it_it').code, 'it')
 
     def test_every_locale_a_file_lists_selects_that_file(self):
         for lang in Lang.all():
@@ -90,9 +96,9 @@ class SixthLanguage(unittest.TestCase):
         (Path(self.tmp) / 'xx.json').write_text(
             json.dumps({'_language': {'name': 'Xenia', 'locales': ['xx', 'xenian']}, 'onboarding.start': 'Go'}), encoding='utf-8')
 
-    def test_it_is_in_the_list_after_the_five_and_a_prefix_selects_it(self):
+    def test_it_is_in_the_list_after_the_ordered_ones_and_a_prefix_selects_it(self):
         languages, catalogs = l10n.read(self.tmp)
-        self.assertEqual([lang.code for lang in languages], ['zh', 'en', 'sv', 'de', 'fr', 'xx'])
+        self.assertEqual([lang.code for lang in languages], ['zh', 'en', 'sv', 'de', 'fr', 'it', 'xx'])
         self.assertEqual(languages[-1].name, 'Xenia')
         self.assertEqual(Lang.detect('xx_yy', languages), Lang('xx'))
         self.assertEqual(Lang.detect('xenian_land', languages), Lang('xx'))
@@ -111,7 +117,7 @@ class SixthLanguage(unittest.TestCase):
         return out.stdout.strip()
 
     def test_the_app_picks_it_up_from_nx_l10n_dir(self):
-        listing = self.run_in_new_process('from nspb_qt.i18n import Lang\nprint([(l.code, l.name) for l in Lang.all()][-1], Lang("fr").other.name)')
+        listing = self.run_in_new_process('from nspb_qt.i18n import Lang\nprint([(l.code, l.name) for l in Lang.all()][-1], Lang.all()[-2].other.name)')
         self.assertEqual(listing, "('xx', 'Xenia') Xenia")
         self.assertEqual(self.run_in_new_process('from nspb_qt.i18n import Lang\nprint(Lang.initial().code)', NSPB_LANG='xx'), 'xx')
         device = 'import locale\nlocale.getlocale = lambda *a: ("xx_YY", None)   # the device language\nfrom nspb_qt.i18n import Lang\nprint(Lang.initial().code)'
