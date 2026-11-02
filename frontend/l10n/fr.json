@@ -965,6 +965,7 @@
   "shell.projectFailed": "L’app partagée n’a pas pu être préparée : %@",
   "shell.projectStage": "Préparation de l’app partagée",
   "shell.retry": "Réessayer",
+  "shell.rootUnwritable": "L’app partagée est enregistrée dans %@, et ce dossier n’est pas accessible en écriture (volume en lecture seule ou autorisation manquante). Choisissez d’abord un autre dossier sous Enregistrer dans.",
   "shellCache.note": "Le cache des frameworks iPhone, conservé pour installer plusieurs jeux. Le supprimer fait qu’installer un nouveau jeu retire les jeux plus anciens de la coque.",
   "shellCache.open": "Ouvrir le dossier",
   "shellCache.row": "Fichiers de cache",

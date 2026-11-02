@@ -965,6 +965,7 @@
   "shell.projectFailed": "无法准备共用应用：%@",
   "shell.projectStage": "准备共用应用",
   "shell.retry": "重试",
+  "shell.rootUnwritable": "共用应用要保存在 %@，但那里无法写入（只读卷或没有权限）。请先在“保存到”里换一个目录。",
   "shellCache.note": "iPhone 端 Framework 缓存，多游戏安装需保留。删除缓存后，安装新游戏，老游戏会消失。",
   "shellCache.open": "打开目录",
   "shellCache.row": "缓存文件",
