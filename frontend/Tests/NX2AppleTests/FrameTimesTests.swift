@@ -179,7 +179,7 @@ final class FrameTimesTests: XCTestCase {
         let model = BuildModel()
         model.lang = .en
         let host = NSHostingView(rootView: LaunchOptionsView(m: model, library: library, gameID: library.games[0].id).environmentObject(PadFocus()).environmentObject(model.localizer))
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 1300), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+        let window = OffscreenWindow(size: NSSize(width: 900, height: 1300), styleMask: [.titled, .closable, .resizable])
         window.contentView = host
         window.orderFront(nil)
         RunLoop.main.run(until: Date().addingTimeInterval(1.0))
@@ -192,7 +192,7 @@ final class FrameTimesTests: XCTestCase {
         let rows = NSHostingView(rootView: VStack(spacing: 0) {
             ForEach(FrameTimes.recordings(in: folder), id: \.self) { FrameTimesRecordingView(file: $0, t: model.t) }
         }.frame(width: 760).background(Color(white: 0.09)))
-        let rowsWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 760, height: 520), styleMask: [.titled], backing: .buffered, defer: false)
+        let rowsWindow = OffscreenWindow(size: NSSize(width: 760, height: 520))
         rowsWindow.contentView = rows
         rowsWindow.orderFront(nil)
         RunLoop.main.run(until: Date().addingTimeInterval(1.0))
