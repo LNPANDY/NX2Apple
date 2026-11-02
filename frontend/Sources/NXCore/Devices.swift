@@ -66,15 +66,28 @@ package enum DeviceTools {
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let result = root["result"] as? [String: Any], let list = result["devices"] as? [[String: Any]] else { return [] }
         let devices: [AppleDevice] = list.compactMap { d in
-            let hardware = d["hardwareProperties"] as? [String: Any] ?? [:]
-            let properties = d["deviceProperties"] as? [String: Any] ?? [:]
-            let connection = d["connectionProperties"] as? [String: Any] ?? [:]
-            guard hardware["reality"] as? String == "physical", hardware["platform"] as? String == "iOS",
+            // Xcode 27.2 deprecates hardwareProperties, deviceProperties and connectionProperties for `properties`
+            // (connection, hardware, software, state), and a device may carry only the new one. Read the old block, else the new.
+            let new = d["properties"] as? [String: Any] ?? [:]
+            func block(_ old: String, _ key: String) -> [String: Any] {
+                (d[old] as? [String: Any] ?? [:]).merging(new[key] as? [String: Any] ?? [:]) { old, _ in old }
+            }
+            let hardware = block("hardwareProperties", "hardware")
+            let connection = block("connectionProperties", "connection")
+            let device = d["deviceProperties"] as? [String: Any] ?? [:]
+            let software = new["software"] as? [String: Any] ?? [:]
+            let state = new["state"] as? [String: Any] ?? [:]
+            // A missing reality is physical: only a device that says "simulated" is left out.
+            guard hardware["reality"] as? String != "simulated", hardware["platform"] as? String == "iOS",
                   connection["pairingState"] as? String == "paired",
                   let udid = hardware["udid"] as? String, !udid.isEmpty else { return nil }
-            return AppleDevice(id: udid, name: properties["name"] as? String ?? udid,
+            // osVersionNumber is a string in the old block and {"stringValue": "26.2.1", ...} in `software`.
+            let os = device["osVersionNumber"] as? String
+                ?? (software["osVersionNumber"] as? [String: Any])?["stringValue"] as? String
+                ?? software["osVersionNumber"] as? String ?? ""
+            return AppleDevice(id: udid, name: device["name"] as? String ?? state["name"] as? String ?? udid,
                                model: hardware["marketingName"] as? String ?? "",
-                               os: properties["osVersionNumber"] as? String ?? "",
+                               os: os,
                                reachable: connection["transportType"] is String,
                                transport: connection["transportType"] as? String ?? "")
         }
