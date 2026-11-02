@@ -331,6 +331,34 @@ import NXModel
         XCTAssertEqual(model.doneNote, model.t("msg.stopped"))
     }
 
+    /// Xcode 27.2 may give a device only in `properties`, without `reality`. A missing reality is physical, a simulated one,
+    /// another platform and an unpaired device are left out (#488).
+    func testDevicesAreReadFromTheOldAndTheNewDevicectlLayout() {
+        func parse(_ device: String) -> [AppleDevice] {
+            DeviceTools.parseDevices(Data("{\"result\": {\"devices\": [\(device)]}}".utf8))
+        }
+        let old = parse("""
+        {"hardwareProperties": {"reality": "physical", "platform": "iOS", "udid": "OLD-1", "marketingName": "iPhone 17"},
+         "deviceProperties": {"name": "Old", "osVersionNumber": "26.1"}, "connectionProperties": {"pairingState": "paired", "transportType": "wired"}}
+        """)
+        XCTAssertEqual(old, [AppleDevice(id: "OLD-1", name: "Old", model: "iPhone 17", os: "26.1", reachable: true, transport: "wired")])
+        let new = parse("""
+        {"properties": {"hardware": {"platform": "iOS", "udid": "NEW-1", "marketingName": "iPad mini"},
+         "software": {"osVersionNumber": {"stringValue": "26.2.1", "components": [26, 2, 1]}}, "state": {"name": "Pad"},
+         "connection": {"pairingState": "paired", "transportType": "localNetwork"}}}
+        """)
+        XCTAssertEqual(new, [AppleDevice(id: "NEW-1", name: "Pad", model: "iPad mini", os: "26.2.1", reachable: true, transport: "localNetwork")])
+        XCTAssertEqual(parse("""
+        {"properties": {"hardware": {"reality": "simulated", "platform": "iOS", "udid": "SIM-1"}, "connection": {"pairingState": "paired"}}}
+        """), [])
+        XCTAssertEqual(parse("""
+        {"properties": {"hardware": {"platform": "watchOS", "udid": "WATCH-1"}, "connection": {"pairingState": "paired"}}}
+        """), [])
+        XCTAssertEqual(parse("""
+        {"properties": {"hardware": {"platform": "iOS", "udid": "UN-1"}, "connection": {"pairingState": "unpaired"}}}
+        """), [])
+    }
+
     func testPairedDevicesAndSigningTeamsAreRead() {
         let json = """
         {"result": {"devices": [

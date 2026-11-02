@@ -56,11 +56,31 @@ package struct ShellLibrary: Codable, Equatable {
         try encoder.encode(self).write(to: URL(fileURLWithPath: Self.stateFile(root: root)), options: .atomic)
     }
 
+    /// The folder a shell root may live in: an absolute path that is not the root of a volume. `""` (no game or output
+    /// folder chosen yet) and `/` both gave `/NX2Apple-shell` on the read-only system volume (#492); `home` stands in.
+    package static func parentFolder(_ parent: String, home: String = NSHomeDirectory()) -> String {
+        let path = (parent as NSString).expandingTildeInPath
+        return path.hasPrefix("/") && path != "/" ? path : home
+    }
+
+    /// Whether a saved root can be used as it is: an absolute path below a volume root. `/NX2Apple-shell` came from an
+    /// empty parent and is repaired instead of used (#492).
+    package static func rootIsUsable(_ root: String) -> Bool {
+        root.hasPrefix("/") && (root as NSString).pathComponents.filter { $0 != "/" }.count >= 2
+    }
+
+    /// The root the next install would use, without saving it. The Settings page shows it before any game is chosen,
+    /// and that look must not decide where builds save (#492).
+    package static func previewRoot(defaults: UserDefaults = .standard, parent: String, home: String = NSHomeDirectory()) -> String {
+        if let saved = defaults.string(forKey: "shellRoot"), rootIsUsable(saved) { return saved }
+        return parentFolder(parent, home: home) + "/NX2Apple-shell"
+    }
+
     /// The shell root: the saved one (`shellRoot` in `defaults`), else `<parent>/NX2Apple-shell`, which is then saved so the shell
-    /// stays where it was first made, whatever output folder a later build uses.
-    package static func resolveRoot(defaults: UserDefaults = .standard, parent: String) -> String {
-        if let saved = defaults.string(forKey: "shellRoot"), !saved.isEmpty { return saved }
-        let root = parent + "/NX2Apple-shell"
+    /// stays where it was first made, whatever output folder a later build uses. A saved root at a volume root is repaired.
+    package static func resolveRoot(defaults: UserDefaults = .standard, parent: String, home: String = NSHomeDirectory()) -> String {
+        if let saved = defaults.string(forKey: "shellRoot"), rootIsUsable(saved) { return saved }
+        let root = parentFolder(parent, home: home) + "/NX2Apple-shell"
         defaults.set(root, forKey: "shellRoot")
         return root
     }
@@ -73,6 +93,17 @@ package enum ShellInstall {
     package static let projectName = "DmShell.xcodeproj"
 
     package static func projectFolder(root: String) -> String { root + "/project" }
+
+    /// Whether the shell root can be written, checked before an hour of building: a folder on a read-only volume (or a
+    /// file where the folder goes) only failed at the last step otherwise (#492).
+    package static func canWriteRoot(_ root: String, fm: FileManager = .default) -> Bool {
+        var isDir: ObjCBool = false
+        if fm.fileExists(atPath: root, isDirectory: &isDir) { return isDir.boolValue && fm.isWritableFile(atPath: root) }
+        let parent = (root as NSString).deletingLastPathComponent
+        guard fm.fileExists(atPath: parent, isDirectory: &isDir), isDir.boolValue else { return false }
+        return fm.isWritableFile(atPath: parent)
+    }
+
     package static func derivedData(root: String) -> String { root + "/derived-data" }
     package static func appPath(root: String) -> String { derivedData(root: root) + "/Build/Products/Release-iphoneos/" + appName }
 
