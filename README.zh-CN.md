@@ -18,6 +18,7 @@
 
 [![English](https://img.shields.io/badge/🇺🇸_English-available-green)](README.md)
 [![简体中文](https://img.shields.io/badge/🇨🇳_简体中文-当前-blue)](README.zh-CN.md)
+[![Italiano](https://img.shields.io/badge/🇮🇹_Italiano-available-green)](README.it.md)
 
 <img src="frontend/screenshots/hero-features.png" width="100%" alt="NX2Apple — Switch 游戏装进 iPhone 和 Mac">
 
