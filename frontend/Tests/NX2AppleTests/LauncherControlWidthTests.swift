@@ -79,11 +79,11 @@ final class LauncherControlWidthTests: XCTestCase {
         return [
             Scenario(name: "settings without a repository", page: .settings, atLeast: 4) { m, _, _ in
                 m.repoPath = ""
-                m.appInstallability = .ok
+                MainActor.assumeIsolated { m.appUpdates.installability = .ok }
             },
             Scenario(name: "settings with a ZIP copy and a library folder", page: .settings, atLeast: 6) { m, library, directory in
                 m.repoPath = try self.makeRepo(directory, git: false)
-                m.appInstallability = .ok
+                MainActor.assumeIsolated { m.appUpdates.installability = .ok }
                 m.depsChecked = true
                 m.deps = [Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint", present: true, installCmd: [])]
                 library.setFolder(directory)
@@ -91,13 +91,13 @@ final class LauncherControlWidthTests: XCTestCase {
             Scenario(name: "settings with a clone that is behind and an app update", page: .settings, atLeast: 6) { m, _, directory in
                 m.repoPath = try self.makeRepo(directory, git: true)
                 m.repoBehind = 2
-                m.appInstallability = .ok
-                m.appUpdate = release
+                MainActor.assumeIsolated { m.appUpdates.installability = .ok }
+                MainActor.assumeIsolated { m.appUpdates.update = release }
             },
             Scenario(name: "settings with an update ready to restart into", page: .settings, atLeast: 4) { m, _, directory in
                 m.repoPath = try self.makeRepo(directory, git: true)
-                m.appInstallability = .ok
-                m.appStaged = AppUpdate.Staged(release: release, app: directory.appendingPathComponent("NX2Apple.app"))
+                MainActor.assumeIsolated { m.appUpdates.installability = .ok }
+                MainActor.assumeIsolated { m.appUpdates.staged = AppUpdate.Staged(release: release, app: directory.appendingPathComponent("NX2Apple.app")) }
             },
             Scenario(name: "settings with every kind of missing tool", page: .settings, atLeast: 6) { m, _, directory in
                 m.repoPath = try self.makeRepo(directory, git: true)

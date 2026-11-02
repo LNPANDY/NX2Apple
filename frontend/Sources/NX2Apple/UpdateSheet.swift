@@ -4,7 +4,7 @@ import NXModel
 import NXLauncher
 
 /// "A new version is out", with what it changes, shown when the app opens or Check for updates finds
-/// one. The app already had the update machinery (checkAppUpdate / performAppUpdate); what it lacked
+/// one. The app already had the update machinery (AppUpdateStore.checkForUpdate / performUpdate); what it lacked
 /// was a reason to press the button: the status line said a tag name and nothing else, and a user who
 /// was working fine had no way to tell whether the new version mattered to them.
 ///
@@ -13,18 +13,18 @@ import NXLauncher
 /// match the interface language and falls back to the whole body when it cannot tell them apart.
 /// ReleaseNotes turns them into blocks with links, and this file only styles those.
 struct UpdateSheet: View {
-    @ObservedObject var m: BuildModel
+    @ObservedObject var updates: AppUpdateStore
     @EnvironmentObject var loc: Localizer
     @Environment(\.dismiss) private var dismiss
 
-    private var update: AppUpdate.Release? { m.appUpdate }
+    private var update: AppUpdate.Release? { updates.update }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 6) {
                 Text(loc.t("update.title"))
                     .font(.manrope(24, .heavy)).tracking(-0.5)
-                Text(String(format: loc.t("update.fromTo"), BuildModel.appVersion, update?.tag ?? ""))
+                Text(String(format: loc.t("update.fromTo"), updates.version, update?.tag ?? ""))
                     .font(.manrope(13)).foregroundStyle(.secondary)
             }
             .padding(.horizontal, 28).padding(.top, 26).padding(.bottom, 18)
@@ -44,7 +44,7 @@ struct UpdateSheet: View {
             }
             .frame(maxHeight: 340)
 
-            if let blocked = m.appUpdateBlocked {
+            if let blocked = updates.blocked {
                 Text(blocked).font(.manrope(12.5)).foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 28).padding(.bottom, 12)
@@ -63,15 +63,15 @@ struct UpdateSheet: View {
                     // Automatic mode has already downloaded and staged the release, so the action is
                     // to swap it in now; otherwise this downloads, verifies and installs as before.
                     // The sheet stays up while it downloads, so a refusal (a macOS too old for the release) is seen here.
-                    if m.appStaged != nil { m.installStagedUpdate(relaunch: true); dismiss() } else { m.performAppUpdate() }
+                    if updates.staged != nil { updates.install(relaunch: true); dismiss() } else { updates.performUpdate() }
                 } label: {
-                    Text(loc.t(m.appStaged != nil ? "app.restartNow" : "update.now"))
+                    Text(loc.t(updates.staged != nil ? "app.restartNow" : "update.now"))
                         .font(.manrope(13.5, .bold)).foregroundStyle(.black)
                         .padding(.horizontal, 20).padding(.vertical, 9)
                         .background(LauncherPalette.cream, in: Capsule())
                 }
                 .buttonStyle(.plain)
-                .disabled(m.appBusy)
+                .disabled(updates.busy)
                 .keyboardShortcut(.defaultAction)
             }
             .padding(.horizontal, 28).padding(.vertical, 16)

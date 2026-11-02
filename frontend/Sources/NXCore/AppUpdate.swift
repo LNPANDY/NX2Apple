@@ -1,9 +1,9 @@
 import Foundation
 import CryptoKit
 
-// The launcher's self-update, the parts that decide what may be installed and when. BuildModel drives it
-// (checkAppUpdate, stageAppUpdate, installStagedUpdate); everything here works on paths it is given, so the
-// tests run it on bundles in a temporary folder, never on the running app or the network.
+// The launcher's self-update, the parts that decide what may be installed and when. `AppUpdateStore` (NXModel) drives it;
+// everything here works on data and paths it is given, so the tests run it on bundles in a temporary folder, never on the
+// running app or the network.
 //
 // The rules:
 //   - What is installed is what GitHub says the release is: the zip's SHA-256 matches the asset's `digest`
@@ -174,7 +174,8 @@ package enum AppUpdate {
     }
 
     /// Install the staged app and return where it ended up (the caller relaunches that path).
-    package static func install(_ staged: URL, over current: URL, buildRunning: Bool, trashOld: Bool = true) throws -> URL {
+    package static func install(_ staged: URL, over current: URL, buildRunning: Bool, trashOld: Bool = true,
+                                runner: ProcessRunner = SystemProcessRunner()) throws -> URL {
         guard !buildRunning else { throw InstallError.buildRunning }
         let fm = FileManager.default
         let dir = current.deletingLastPathComponent()
@@ -186,7 +187,7 @@ package enum AppUpdate {
             // app is exiting anyway.
             try? fm.removeItem(at: target)
             try fm.copyItem(at: staged, to: target)
-            clearQuarantine(target)
+            clearQuarantine(target, runner: runner)
             if trashOld { try? fm.trashItem(at: current, resultingItemURL: nil) }
             return target
         }
@@ -202,7 +203,7 @@ package enum AppUpdate {
             if fm.fileExists(atPath: backup.path) {
                 if trashOld { try? fm.trashItem(at: backup, resultingItemURL: nil) } else { try? fm.removeItem(at: backup) }
             }
-            clearQuarantine(placed ?? current)
+            clearQuarantine(placed ?? current, runner: runner)
             return current
         } catch {
             try? fm.removeItem(at: incoming)
@@ -235,10 +236,123 @@ package enum AppUpdate {
         do { try p.run(); return true } catch { return false }
     }
 
-    private static func clearQuarantine(_ app: URL) {
-        let x = Process()
-        x.executableURL = URL(fileURLWithPath: "/usr/bin/xattr")
-        x.arguments = ["-dr", "com.apple.quarantine", app.path]
-        try? x.run(); x.waitUntilExit()
+    private static func clearQuarantine(_ app: URL, runner: ProcessRunner) {
+        _ = runner.capture(ProcessLaunch(executable: "/usr/bin/xattr", arguments: ["-dr", "com.apple.quarantine", app.path]))
+    }
+
+    // ---- Which release is the latest ----
+
+    /// The download names this build accepts, newest first. Every release must carry at least one of
+    /// them or an install from that era cannot update itself: NX2Apple is current, nxnative is for
+    /// installs from before the rename to NX2Apple, NS-Port-Builder for installs before that.
+    package static let assetNames = ["NX2Apple-macOS-arm64.zip", "nxnative-macOS-arm64.zip", "NS-Port-Builder-macOS-arm64.zip"]
+
+    /// `tag` ("v0.4.10") is a later version than `current` ("0.4.8"), compared number by number.
+    package static func isNewer(_ tag: String, than current: String) -> Bool {
+        func nums(_ s: String) -> [Int] { s.split(separator: ".").map { Int($0.filter { $0.isNumber }) ?? 0 } }
+        let a = nums(tag), b = nums(current)
+        for i in 0..<max(a.count, b.count) {
+            let x = i < a.count ? a[i] : 0, y = i < b.count ? b[i] : 0
+            if x != y { return x > y }
+        }
+        return false
+    }
+
+    /// The release's asset this app installs, with its digest: NX2Apple-macOS-arm64.zip, or the zip under an older
+    /// name (releases from before each rename).
+    package static func release(fromJSON obj: [String: Any]) -> Release? {
+        let tag = obj["tag_name"] as? String ?? ""
+        guard let assets = obj["assets"] as? [[String: Any]] else { return nil }
+        for name in assetNames {
+            for a in assets where (a["name"] as? String) == name {
+                if let u = a["browser_download_url"] as? String { return Release(tag: tag, url: u, digest: a["digest"] as? String) }
+            }
+        }
+        return nil
+    }
+
+    /// What the check of the latest release found.
+    package enum Check: Equatable {
+        /// The answer never came (no network, a timeout).
+        case unreachable
+        case upToDate
+        /// A newer release exists, with the asset this app installs and the notes.
+        case found(Release)
+        /// A newer release exists but carries no download this build can name. That is NOT "up to date": it is the
+        /// difference between a user who updates and one who sits on 0.4.6 for ever, because 0.4.6 and 0.4.7 look for
+        /// exactly "NS-Port-Builder-macOS-arm64.zip" and would report "up to date" and stop.
+        case noAsset(tag: String)
+    }
+
+    /// The answer of GitHub's "latest release" call (`nil` when there was none) against the running version.
+    package static func check(latest data: Data?, current: String) -> Check {
+        guard let data else { return .unreachable }
+        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return .upToDate }
+        let tag = obj["tag_name"] as? String ?? ""
+        guard isNewer(tag, than: current) else { return .upToDate }
+        guard var r = release(fromJSON: obj) else { return .noAsset(tag: tag) }
+        r.notes = (obj["body"] as? String) ?? ""
+        return .found(r)
+    }
+
+    // ---- What was downloaded, to a staged app ----
+
+    /// Why staging stopped: each case is the localization key of its message (a format with the release's tag).
+    package enum StageFailure: Error, Equatable {
+        case network, noDigest, mismatch, unpack, notOurApp
+        /// The release's LSMinimumSystemVersion is above the running macOS (the string is that minimum).
+        case needsNewerMacOS(String)
+
+        package var key: String {
+            switch self {
+            case .network: return "app.stageNetFail"
+            case .noDigest: return "app.noDigest"
+            case .mismatch: return "app.digestMismatch"
+            case .unpack: return "app.unpackFail"
+            case .notOurApp: return "app.notOurApp"
+            case .needsNewerMacOS: return "app.needsNewerMacOS"
+            }
+        }
+    }
+
+    /// The folder staging works in, in the temporary directory and emptied first.
+    package static func freshStagingRoot(in temporary: URL = FileManager.default.temporaryDirectory) -> URL {
+        let fm = FileManager.default
+        let root = temporary.appendingPathComponent("nspb-update", isDirectory: true)
+        try? fm.removeItem(at: root)
+        try? fm.createDirectory(at: root, withIntermediateDirectories: true)
+        return root
+    }
+
+    /// A downloaded zip to a staged app: its digest first, then unzip (ditto, as the release was packed), then the app inside.
+    package static func stage(zip: URL, release: Release, in root: URL, expectedID: String, requireDigest: Bool,
+                              runningOS: OperatingSystemVersion = ProcessInfo.processInfo.operatingSystemVersion,
+                              runner: ProcessRunner = SystemProcessRunner()) -> Result<Staged, StageFailure> {
+        let fm = FileManager.default
+        switch checkDigest(zip, expected: release.digest) {
+        case .match: break
+        case .mismatch: try? fm.removeItem(at: zip); return .failure(.mismatch)
+        case .missing: if requireDigest { try? fm.removeItem(at: zip); return .failure(.noDigest) }
+        }
+        let dir = root.appendingPathComponent("app", isDirectory: true)
+        try? fm.removeItem(at: dir)
+        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        let unzip = runner.capture(ProcessLaunch(executable: "/usr/bin/ditto", arguments: ["-x", "-k", zip.path, dir.path]))
+        guard unzip.started else { return .failure(.unpack) }
+        try? fm.removeItem(at: zip)
+        // The archive holds one app: NX2Apple.app, or the bundle under an older name in a release from before a rename
+        guard unzip.status == 0,
+              let app = ((try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []).first(where: { $0.pathExtension == "app" })
+        else { return .failure(.unpack) }
+        if bundleProblem(app, expectedID: expectedID, tag: release.tag) != nil {
+            try? fm.removeItem(at: dir)
+            return .failure(.notOurApp)
+        }
+        // Not a release this Mac cannot open: it would replace a launcher that works with an app that will not start
+        if let min = minimumOSAbove(runningOS, app: app) {
+            try? fm.removeItem(at: dir)
+            return .failure(.needsNewerMacOS(min))
+        }
+        return .success(Staged(release: release, app: app))
     }
 }

@@ -809,15 +809,15 @@ final class LibraryTests: XCTestCase {
             try capture("build-tools-old", height: 1500, page: .builds)
         }
         do {   // a released copy with an update downloaded and verified: Restart now in Settings and in the activity line
-            let previous = (model.appInstallability, model.appUpdate, model.appStaged, model.appStatus)
-            defer { (model.appInstallability, model.appUpdate, model.appStaged, model.appStatus) = previous }
+            let previous = (model.appUpdates.installability, model.appUpdates.update, model.appUpdates.staged, model.appUpdates.status)
+            defer { (model.appUpdates.installability, model.appUpdates.update, model.appUpdates.staged, model.appUpdates.status) = previous }
             let release = AppUpdate.Release(tag: "v0.4.8", url: "https://example.invalid/NX2Apple-macOS-arm64.zip", digest: nil)
-            model.appInstallability = .ok
-            model.appUpdate = release
-            model.appStatus = String(format: model.t("app.found"), release.tag)
+            model.appUpdates.installability = .ok
+            model.appUpdates.update = release
+            model.appUpdates.status = String(format: model.t("app.found"), release.tag)
             try capture("settings-update-found", page: .settings)
-            model.appStaged = AppUpdate.Staged(release: release, app: temporary.appendingPathComponent("NX2Apple.app"))
-            model.appStatus = String(format: model.t("app.ready"), release.tag)
+            model.appUpdates.staged = AppUpdate.Staged(release: release, app: temporary.appendingPathComponent("NX2Apple.app"))
+            model.appUpdates.status = String(format: model.t("app.ready"), release.tag)
             try capture("settings-update-ready", page: .settings)
             try capture("library-update-ready")
         }

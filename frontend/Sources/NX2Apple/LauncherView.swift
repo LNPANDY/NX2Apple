@@ -43,6 +43,7 @@ enum LibraryFilter: String, CaseIterable, Identifiable {
 struct ContentView: View {
     @StateObject private var m: BuildModel
     @ObservedObject private var loc: Localizer   // the strings: handed on to every view below through the environment
+    @ObservedObject private var updates: AppUpdateStore   // the app's self-update: the update icon, the sheet, the uninstall dialog
     @StateObject private var library: GameLibrary
     @State private var page: LauncherPage = .library
     @State private var search = ""
@@ -96,6 +97,7 @@ struct ContentView: View {
         let model = model ?? BuildModel()
         _m = StateObject(wrappedValue: model)
         _loc = ObservedObject(wrappedValue: model.localizer)
+        _updates = ObservedObject(wrappedValue: model.appUpdates)
         _library = StateObject(wrappedValue: library ?? GameLibrary())
         _page = State(initialValue: initialPage)
         _activeBuildID = State(initialValue: activeBuildID)
@@ -172,7 +174,7 @@ struct ContentView: View {
             if page == .library {
                 libraryPage
             } else {
-                BuilderView(m: m, library: library, settings: page == .settings, onViewGame: { page = .library },
+                BuilderView(m: m, updates: updates, library: library, settings: page == .settings, onViewGame: { page = .library },
                             onOpenSettings: { page = .settings }, onChooseLibraryFolder: chooseLibraryFolder,
                             onOpenControls: { controlsOpen = true }, onOpenControllers: { controllerSheet = true }, onRunSetup: onRunSetup, controlChanges: controls.changeCount,
                             padMerge: Binding(get: { controls.padMerge }, set: { setPadMerge($0) }))
@@ -214,7 +216,7 @@ struct ContentView: View {
                 if m.usesEngineStore { m.prepareEngine() }   // the release app: its engine store, never git (EngineUpdateModel.swift)
                 else { m.syncEngine() }   // a checkout whose engine/ is missing or older than its pin (#214)
                 if m.repoOK && m.repoIsGit { m.checkRepoUpdates(silent: true) } else { m.adoptAtLaunch() }
-                m.checkAppUpdate(silent: true)
+                updates.checkForUpdate(silent: true)
                 BuildNotifier.shared.watch(m, library: library)   // BuildNotifications.swift
             }
         }
@@ -283,20 +285,12 @@ struct ContentView: View {
             if let game = library.games.first(where: { $0.id == freeSpaceFor }) { FreeSpaceView(m: m, game: game).environmentObject(padFocus) }
         }
         .onChange(of: freeSpaceFor) { id in padFocus.scope = id != nil ? "free" : currentPadScope }
-        .sheet(isPresented: $m.showUpdateSheet) { UpdateSheet(m: m) }
+        .sheet(isPresented: $updates.showUpdateSheet) { UpdateSheet(updates: updates) }
         .confirmationDialog(loc.t("uninstall.title"), isPresented: Binding(
-            get: { m.uninstallPlan != nil }, set: { if !$0 { m.uninstallPlan = nil } }
+            get: { updates.uninstallPlan != nil }, set: { if !$0 { updates.uninstallPlan = nil } }
         ), titleVisibility: .visible) {
             Button(loc.t("uninstall.confirmButton"), role: .destructive) {
-                if let plan = m.uninstallPlan {
-                    let result = Uninstall.run(plan)
-                    m.uninstallPlan = nil
-                    if result.failures.isEmpty {
-                        m.appStatus = String(format: loc.t("uninstall.done"), result.removed.count)
-                    } else {
-                        m.appStatus = loc.t("uninstall.failed") + "\n" + result.failures.joined(separator: "\n")
-                    }
-                }
+                updates.confirmUninstall()
             }
         } message: { Text(loc.t("uninstall.confirm")) }
         .sheet(isPresented: Binding(get: { savesFor != nil }, set: { if !$0 { savesFor = nil } })) {
@@ -364,16 +358,16 @@ struct ContentView: View {
                     .padding(.leading, 12)
                     // A newer release is out: a small icon, last in the bar, opens the update sheet. Without one the bar
                     // stays as it is.
-                    if let update = m.appUpdate {
-                        let readOnly = m.appInstallability == .readOnly
-                        Button { m.showUpdateSheet = true } label: {
+                    if let update = updates.update {
+                        let readOnly = updates.installability == .readOnly
+                        Button { updates.showUpdateSheet = true } label: {
                             Image(systemName: readOnly ? "exclamationmark.arrow.circlepath" : "arrow.down.circle")
                                 .font(.system(size: 18, weight: .medium))
                                 .foregroundStyle(readOnly ? LauncherPalette.building : LauncherPalette.ready)
                                 .frame(width: 34, height: 34).contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
-                        .padTarget("top.update", scope: "main", radius: 17) { m.showUpdateSheet = true }
+                        .padTarget("top.update", scope: "main", radius: 17) { updates.showUpdateSheet = true }
                         .padding(.leading, 16.5).padding(.trailing, -7.5)
                         .help(String(format: loc.t("update.pill"), update.tag) + "\n" + loc.t(readOnly ? "update.readOnlyHint" : "update.pillHelp"))
                         .accessibilityLabel(String(format: loc.t("update.pill"), update.tag))
@@ -721,14 +715,14 @@ struct ContentView: View {
                         Text(loc.t("library.toolsAdopted")).font(.manrope(13)).foregroundStyle(.secondary)
                     }
                     Spacer()
-                    if let staged = m.appStaged {
-                        // A downloaded, verified update (BuildModel.stageAppUpdate): it goes in when the app quits, or now.
-                        // This branch only shows with no build running, and restartToUpdate checks again.
+                    if let staged = updates.staged {
+                        // A downloaded, verified update (AppUpdateStore.stage): it goes in when the app quits, or now.
+                        // This branch only shows with no build running, and restartNow checks again.
                         HStack(spacing: 10) {
                             Circle().fill(LauncherPalette.ready).frame(width: 6, height: 6)
                             Text(String(format: loc.t("library.appReady"), staged.release.tag)).font(.manrope(13)).foregroundStyle(.secondary)
                         }
-                        Button(loc.t("app.restartNow")) { m.restartToUpdate() }.buttonStyle(LauncherSecondaryButtonStyle())
+                        Button(loc.t("app.restartNow")) { updates.restartNow() }.buttonStyle(LauncherSecondaryButtonStyle())
                     }
                     if gamepad.connected {
                         // The buttons a controller has here, named as the game names them (A on the right)

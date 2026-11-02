@@ -180,9 +180,13 @@ final class BuildModel: ObservableObject {
     /// The services: the only places that start a process (`ProcessRunner`) and that run git (`GitCheckout`). Tests pass in fakes.
     let runner: ProcessRunner
     let gitCheckout: GitCheckout
-    init(localizer: Localizer = Localizer(), runner: ProcessRunner = SystemProcessRunner(), gitCheckout: GitCheckout? = nil) {
+    /// Where the self-update looks for releases (the real one is GitHub's).
+    let releases: ReleaseSource
+    init(localizer: Localizer = Localizer(), runner: ProcessRunner = SystemProcessRunner(), gitCheckout: GitCheckout? = nil,
+         releases: ReleaseSource = GitHubReleases()) {
         self.localizer = localizer
         self.runner = runner
+        self.releases = releases
         self.gitCheckout = gitCheckout ?? SystemGitCheckout(runner: runner)
         _ = Self.endGroupsWhenQuitting
     }
@@ -513,299 +517,25 @@ final class BuildModel: ObservableObject {
     }
 
     // ---- App self-update (GitHub Releases) ----
-    // The rules (what is verified, which copies replace themselves, never during a build) are in AppUpdate.swift.
+    // `AppUpdateStore` (NXModel) owns it: the check, the staged update, the update sheet, the uninstall plan and the version.
+    // The model creates it with its services and wires the two things that need AppKit, quitting and the quit notification.
 
-    /// Bump together with each release tag; the update check compares it with the latest release.
-    static let appVersion = "1.0.1"
-    /// The update checkAppUpdate found: the tag, the asset to download, its digest, and the release
-    /// notes the sheet shows. The notes are why the sheet exists — "update available" alone told a
-    /// user nothing about what they would get.
-    @Published var appUpdate: AppUpdate.Release?
-    @Published var appBusy = false
-    /// Whether the "a new version is out" sheet is up: opened by the launch check and by Check for
-    /// updates, so a user learns what changed before deciding, not after downloading.
-    @Published var showUpdateSheet = false
-    /// The uninstall row's dialog: computed when the row is pressed, run when the player confirms.
-    @Published var uninstallPlan: Uninstall.Plan?
-    @Published var appStatus = ""
-    /// Set when the last update attempt was refused (a release this macOS cannot open, a bad download); the update sheet shows it.
-    @Published var appUpdateBlocked: String?
-    /// Download a new release by itself and install it when the app quits (Settings; on by default). Off, the
-    /// Update button in Settings works as before: download, swap in, relaunch.
-    @Published var autoUpdateApp = UserDefaults.standard.object(forKey: "autoUpdateApp") as? Bool ?? true {
-        didSet {
-            UserDefaults.standard.set(autoUpdateApp, forKey: "autoUpdateApp")
-            if autoUpdateApp, appStaged == nil, let u = appUpdate { stageAppUpdate(u, automatic: true) }
-        }
-    }
-    /// The release that is downloaded, verified and unpacked: it goes in when the app quits, or with Restart now.
-    @Published var appStaged: AppUpdate.Staged?
-    /// Where a rename-era install put the new app (the old bundle name is gone): Settings shows it,
-    /// because the Dock entry pointing at the old path is stale until the player re-pins it.
-    static var noteRenamedInstall: String?
-    /// Whether this copy may replace itself; a launcher built from the repository never does (tests set it).
-    var appInstallability = AppUpdate.installability(Bundle.main.bundleURL, appVersion: BuildModel.appVersion)
-    private var quitObserver: NSObjectProtocol?
-
-    /// The download names this build accepts, newest first. Every release must carry at least one of
-    /// them or an install from that era cannot update itself: NX2Apple is current, nxnative is for
-    /// installs from before the rename to NX2Apple, NS-Port-Builder for installs before that.
-    nonisolated static let appAssetNames = ["NX2Apple-macOS-arm64.zip", "nxnative-macOS-arm64.zip",
-                                           "NS-Port-Builder-macOS-arm64.zip"]
-
-    nonisolated static func isNewer(_ tag: String, than current: String) -> Bool {
-        func nums(_ s: String) -> [Int] { s.split(separator: ".").map { Int($0.filter { $0.isNumber }) ?? 0 } }
-        let a = nums(tag), b = nums(current)
-        for i in 0..<max(a.count, b.count) {
-            let x = i < a.count ? a[i] : 0, y = i < b.count ? b[i] : 0
-            if x != y { return x > y }
-        }
-        return false
-    }
-
-    /// The release's asset this app installs, with its digest: NX2Apple-macOS-arm64.zip, or the zip under an older
-    /// name (releases from before each rename).
-    nonisolated static func appRelease(fromJSON obj: [String: Any]) -> AppUpdate.Release? {
-        let tag = obj["tag_name"] as? String ?? ""
-        guard let assets = obj["assets"] as? [[String: Any]] else { return nil }
-        for name in ["NX2Apple-macOS-arm64.zip", "nxnative-macOS-arm64.zip", "NS-Port-Builder-macOS-arm64.zip"] {
-            for a in assets where (a["name"] as? String) == name {
-                if let u = a["browser_download_url"] as? String { return AppUpdate.Release(tag: tag, url: u, digest: a["digest"] as? String) }
-            }
-        }
-        return nil
-    }
-
-    /// Ask GitHub for the latest release. `silent` (the launch check) only surfaces a found update;
-    /// "up to date" and network failures stay quiet. A slow or blocked network just times out.
-    /// With automatic updates on, a found release is downloaded and staged in the background.
-    func checkAppUpdate(silent: Bool = false) {
-        guard !appBusy else { return }
-        appBusy = true
-        if !silent { appStatus = t("app.checking") }
-        URLSession.shared.dataTask(with: URL(string: "https://api.github.com/repos/LNPANDY/NX2Apple/releases/latest")!) { data, _, _ in
-            var found: AppUpdate.Release?
-            // A newer release whose download this build cannot name is NOT "up to date". That
-            // distinction is the difference between a user who updates and one who sits on 0.4.6
-            // for ever: 0.4.6 and 0.4.7 look for exactly "NS-Port-Builder-macOS-arm64.zip", and if a
-            // release ever ships without that name they report "已是最新" and stop.
-            var newerTag: String?
-            if let d = data, let obj = try? JSONSerialization.jsonObject(with: d) as? [String: Any] {
-                let tag = obj["tag_name"] as? String ?? ""
-                if Self.isNewer(tag, than: Self.appVersion) {
-                    newerTag = tag
-                    if var r = Self.appRelease(fromJSON: obj) {
-                        r.notes = (obj["body"] as? String) ?? ""
-                        found = r
-                    }
-                }
-            }
-            DispatchQueue.main.async {
-                self.appBusy = false
-                if let f = found {
-                    self.appUpdate = f
-                    switch self.appInstallability {
-                    case .developer: self.appStatus = String(format: self.t("app.devBuild"), f.tag)
-                    case .readOnly: self.appStatus = String(format: self.t("app.readOnly"), f.tag)
-                    case .ok:
-                        if self.appStaged?.release == f { self.appStatus = String(format: self.t("app.ready"), f.tag) }
-                        else if self.autoUpdateApp { self.stageAppUpdate(f, automatic: true) }
-                        else { self.appStatus = String(format: self.t("app.found"), f.tag) }
-                        // The sheet opens either way: it is the only place the release notes appear,
-                        // and "a new version is out" without saying what changed is what made people
-                        // press Update blindly or not at all. In automatic mode it is also where
-                        // Restart now lives, and it says the download is already running.
-                        self.showUpdateSheet = true
-                    }
-                } else if !silent {
-                    if data == nil {
-                        self.appStatus = self.t("app.netFail")
-                    } else if let tag = newerTag {
-                        // The release exists; this app just cannot find its own asset name in it.
-                        self.appStatus = String(format: self.t("app.noAsset"), tag)
-                        self.appUpdate = nil
-                    } else {
-                        self.appStatus = self.t("app.upToDate")
-                    }
-                }
-            }
-        }.resume()
-    }
-
-    /// Download the release, check it against its digest, unpack it and check the app inside, all in the background;
-    /// the result waits in appStaged. `automatic` (the switch) refuses a release whose digest GitHub did not give;
-    /// the Update button accepts it, as before. `then` gets the staged copy (the button installs it at once).
-    func stageAppUpdate(_ release: AppUpdate.Release, automatic: Bool, then: ((AppUpdate.Staged) -> Void)? = nil) {
-        guard !appBusy, appInstallability == .ok, let url = URL(string: release.url) else { return }
-        appBusy = true
-        appUpdateBlocked = nil
-        appStatus = String(format: t(automatic ? "app.staging" : "app.downloading"), release.tag)
-        let expectedID = Bundle.main.bundleIdentifier ?? ""
-        DispatchQueue.global().async {
-            let result = Self.downloadAndStage(release, from: url, expectedID: expectedID, requireDigest: automatic)
-            DispatchQueue.main.async {
-                self.appBusy = false
-                switch result {
-                case .success(let staged):
-                    self.appStaged = staged
-                    self.appStatus = String(format: self.t("app.ready"), release.tag)
-                    self.installAtQuit()
-                    then?(staged)
-                case .failure(let why):
-                    if case .needsNewerMacOS(let min) = why {
-                        // Nothing was installed: the running version stays, and says why
-                        let now = AppUpdate.describe(ProcessInfo.processInfo.operatingSystemVersion)
-                        self.appStatus = String(format: self.t(why.key), release.tag, min, now)
-                    } else {
-                        self.appStatus = String(format: self.t(why.key), release.tag)
-                    }
-                    self.appUpdateBlocked = self.appStatus
-                }
-            }
-        }
-    }
-
-    /// Why staging stopped: each case is the localization key of its message (a format with the release's tag).
-    enum StageFailure: Error, Equatable {
-        case network, noDigest, mismatch, unpack, notOurApp
-        /// The release's LSMinimumSystemVersion is above the running macOS (the string is that minimum).
-        case needsNewerMacOS(String)
-
-        var key: String {
-            switch self {
-            case .network: return "app.stageNetFail"
-            case .noDigest: return "app.noDigest"
-            case .mismatch: return "app.digestMismatch"
-            case .unpack: return "app.unpackFail"
-            case .notOurApp: return "app.notOurApp"
-            case .needsNewerMacOS: return "app.needsNewerMacOS"
-            }
-        }
-    }
-
-    /// The background part of staging, in a folder of its own in the temporary directory (emptied first).
-    nonisolated static func downloadAndStage(_ release: AppUpdate.Release, from url: URL, expectedID: String,
-                                             requireDigest: Bool) -> Result<AppUpdate.Staged, StageFailure> {
-        let fm = FileManager.default
-        let root = fm.temporaryDirectory.appendingPathComponent("nspb-update", isDirectory: true)
-        try? fm.removeItem(at: root)
-        try? fm.createDirectory(at: root, withIntermediateDirectories: true)
-        let zip = root.appendingPathComponent("update.zip")
-        let sem = DispatchSemaphore(value: 0)
-        URLSession.shared.downloadTask(with: url) { local, response, _ in
-            if let local, (response as? HTTPURLResponse)?.statusCode ?? 200 == 200 { try? FileManager.default.moveItem(at: local, to: zip) }
-            sem.signal()
-        }.resume()
-        sem.wait()
-        guard fm.fileExists(atPath: zip.path) else { return .failure(.network) }
-        return stage(zip: zip, release: release, in: root, expectedID: expectedID, requireDigest: requireDigest)
-    }
-
-    /// A downloaded zip to a staged app: its digest first, then unzip (ditto, as the release was packed), then the app inside.
-    nonisolated static func stage(zip: URL, release: AppUpdate.Release, in root: URL, expectedID: String,
-                                  requireDigest: Bool,
-                                  runningOS: OperatingSystemVersion = ProcessInfo.processInfo.operatingSystemVersion,
-                                  runner: ProcessRunner = SystemProcessRunner()) -> Result<AppUpdate.Staged, StageFailure> {
-        let fm = FileManager.default
-        switch AppUpdate.checkDigest(zip, expected: release.digest) {
-        case .match: break
-        case .mismatch: try? fm.removeItem(at: zip); return .failure(.mismatch)
-        case .missing: if requireDigest { try? fm.removeItem(at: zip); return .failure(.noDigest) }
-        }
-        let dir = root.appendingPathComponent("app", isDirectory: true)
-        try? fm.removeItem(at: dir)
-        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
-        let unzip = runner.capture(ProcessLaunch(executable: "/usr/bin/ditto", arguments: ["-x", "-k", zip.path, dir.path]))
-        guard unzip.started else { return .failure(.unpack) }
-        try? fm.removeItem(at: zip)
-        // The archive holds one app: NX2Apple.app, or the bundle under an older name in a release from before a rename
-        guard unzip.status == 0,
-              let app = ((try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []).first(where: { $0.pathExtension == "app" })
-        else { return .failure(.unpack) }
-        if AppUpdate.bundleProblem(app, expectedID: expectedID, tag: release.tag) != nil {
-            try? fm.removeItem(at: dir)
-            return .failure(.notOurApp)
-        }
-        // Not a release this Mac cannot open: it would replace a launcher that works with an app that will not start
-        if let min = AppUpdate.minimumOSAbove(runningOS, app: app) {
-            try? fm.removeItem(at: dir)
-            return .failure(.needsNewerMacOS(min))
-        }
-        return .success(AppUpdate.Staged(release: release, app: app))
-    }
-
-    /// No build of this app is running: none in the model, and no process group of one still alive (a stopped
-    /// build's tools can take a moment to go).
-    var mayInstallAppUpdate: Bool { !running && !ProcessGroups.buildProcessesAlive }
-
-    /// Swap the staged app in. `relaunch` (Restart now, the Update button) opens the new copy and exits; at quit
-    /// the next launch is the new version. Refused while a build runs.
-    @discardableResult
-    func installStagedUpdate(relaunch: Bool, at current: URL = Bundle.main.bundleURL) -> Bool {
-        guard let staged = appStaged, appInstallability == .ok else { return false }
-        let placed: URL
-        do {
-            placed = try AppUpdate.install(staged.app, over: current, buildRunning: !mayInstallAppUpdate)
-        } catch AppUpdate.InstallError.failed(let why) {
-            appStatus = String(format: t("app.installFail"), why)
-            return false
-        } catch {
-            appStatus = t("app.waitForBuild")
-            return false
-        }
-        appStaged = nil
-        // A rename era (nxnative → NS Port Builder → NX2Apple) installs under the release's own
-        // bundle name; the Dock entry pointing at the old path goes stale once, so the log says
-        // where the new copy landed instead of leaving the player to find it.
-        if placed != current {
-            fputs("launcher: the update was installed as \(placed.lastPathComponent) (the app was renamed); "
-                + "the previous \(current.lastPathComponent) was removed — re-pin it in the Dock\n", stderr)
-            Self.noteRenamedInstall = placed.path
-        }
-        if relaunch {
-            appStatus = String(format: t("app.relaunching"), staged.release.tag)
-            // The old instance is still running, so opening the same bundle now would only activate it:
-            // a helper opens the new copy once this process has exited.
-            if AppUpdate.relaunch(placed) {
+    /// Created on first use, on the main thread, because its closures reach back to this model (`running`).
+    private(set) lazy var appUpdates: AppUpdateStore = MainActor.assumeIsolated {
+        let store = AppUpdateStore(
+            localizer: localizer, runner: runner, releases: releases,
+            buildRunning: { [unowned self] in running || ProcessGroups.buildProcessesAlive },
+            terminate: {
                 NSApp.terminate(nil)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { exit(0) }
-            } else {
-                appStatus = String(format: t("app.relaunchFail"), staged.release.tag)
-            }
+            })
+        // The staged update goes in as the app quits, so the next launch is the new version without interrupting anyone.
+        quitObserver = NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: nil) { [weak store] _ in
+            MainActor.assumeIsolated { store?.appWillTerminate() }
         }
-        return true
+        return store
     }
-
-    /// Restart now (Settings, the library's activity line): install and relaunch, never during a build.
-    func restartToUpdate() {
-        guard appStaged != nil else { return }
-        guard mayInstallAppUpdate else { appStatus = t("app.waitForBuild"); return }
-        installStagedUpdate(relaunch: true)
-    }
-
-    /// The staged update goes in as the app quits, so the next launch is the new version without interrupting
-    /// anyone. A build running at that moment is being ended by the same quit (exitHandlers): the swap then waits
-    /// for a later quit (the next launch stages the release again) rather than run while the build's tools are alive.
-    private func installAtQuit() {
-        guard quitObserver == nil else { return }
-        quitObserver = NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: nil) { [weak self] _ in
-            guard let self, self.autoUpdateApp, self.appStaged != nil, self.mayInstallAppUpdate else { return }
-            self.installStagedUpdate(relaunch: false)
-        }
-    }
-
-    /// The Update button (automatic updates off, or a release they would not take): download and verify, swap in,
-    /// relaunch. A staged copy of the same release goes in as it is. Not during a build: the relaunch would end it.
-    func performAppUpdate() {
-        guard let upd = appUpdate, !appBusy, appInstallability == .ok else { return }
-        guard mayInstallAppUpdate else { appStatus = t("app.waitForBuild"); return }
-        if appStaged?.release == upd { installStagedUpdate(relaunch: true); return }
-        stageAppUpdate(upd, automatic: false) { [weak self] _ in
-            guard let self else { return }
-            self.appStatus = self.t("app.installing")
-            self.installStagedUpdate(relaunch: true)
-        }
-    }
+    private var quitObserver: NSObjectProtocol?
 
     var basePath: String { slot("base").paths.first ?? "" }
     var keysPath: String { slot("keys").paths.first ?? "" }
@@ -1978,7 +1708,7 @@ final class BuildModel: ObservableObject {
     nonisolated static func writeDepsReport(_ deps: [Dep]) {
         let dir = (Toolchain.venvDir as NSString).deletingLastPathComponent
         try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
-        var out = "NX2Apple \(appVersion) dependency check\n"
+        var out = "NX2Apple \(AppUpdateStore.appVersion) dependency check\n"
         out += "date: \(ISO8601DateFormatter().string(from: Date()))\n"
         out += "HOME: \(NSHomeDirectory())\n"
         out += "PATH: \(ProcessInfo.processInfo.environment["PATH"] ?? "(unset)")\n"
@@ -2073,6 +1803,7 @@ final class BuildModel: ObservableObject {
 
 struct BuilderView: View {
     @ObservedObject var m: BuildModel
+    @ObservedObject var updates: AppUpdateStore   // the app's self-update (Settings, "NX2Apple" section)
     @EnvironmentObject var loc: Localizer
     @ObservedObject var library: GameLibrary
     var settings = false
@@ -2507,7 +2238,7 @@ struct BuilderView: View {
             }
         }
         tools
-        group(loc.t("section.app"), footnote: m.appStatus) {
+        group(loc.t("section.app"), footnote: updates.status) {
             // The interface language: the device default unless someone picks one here. Stored as
             // "" (follow), "zh", "en", "sv", "de" or "fr" so a later system-language change still applies.
             row(loc.t("settings.language"),
@@ -2542,37 +2273,37 @@ struct BuilderView: View {
                     .padTarget("set.returnAfterPlay", scope: "main") { returnAfterPlay.toggle() }
             }
             divider
-            row("NX2Apple", detail: String(format: loc.t("app.version"), BuildModel.appVersion),
-                dot: m.appStaged != nil ? LauncherPalette.ready : nil) {
-                if m.appBusy { ProgressView().controlSize(.small) }
-                if m.appStaged != nil {
+            row("NX2Apple", detail: String(format: loc.t("app.version"), updates.version),
+                dot: updates.staged != nil ? LauncherPalette.ready : nil) {
+                if updates.busy { ProgressView().controlSize(.small) }
+                if updates.staged != nil {
                     // Downloaded and verified: it goes in when the app quits; this restarts into it now (not during a build)
-                    Button(loc.t("app.restartNow")) { m.restartToUpdate() }.disabled(m.running)
-                        .padTarget("set.appRestart", scope: "main") { if !m.running { m.restartToUpdate() } }
-                } else if let u = m.appUpdate, m.appInstallability == .ok {
-                    Button(String(format: loc.t("app.updateBtn"), u.tag)) { m.performAppUpdate() }.disabled(m.appBusy || m.running)
-                        .padTarget("set.appUpdate", scope: "main") { if !(m.appBusy || m.running) { m.performAppUpdate() } }
+                    Button(loc.t("app.restartNow")) { updates.restartNow() }.disabled(m.running)
+                        .padTarget("set.appRestart", scope: "main") { if !m.running { updates.restartNow() } }
+                } else if let u = updates.update, updates.installability == .ok {
+                    Button(String(format: loc.t("app.updateBtn"), u.tag)) { updates.performUpdate() }.disabled(updates.busy || m.running)
+                        .padTarget("set.appUpdate", scope: "main") { if !(updates.busy || m.running) { updates.performUpdate() } }
                 } else {
-                    Button(loc.t("repo.check")) { m.checkAppUpdate() }.disabled(m.appBusy)
-                        .padTarget("set.appCheck", scope: "main") { if !m.appBusy { m.checkAppUpdate() } }
+                    Button(loc.t("repo.check")) { updates.checkForUpdate() }.disabled(updates.busy)
+                        .padTarget("set.appCheck", scope: "main") { if !updates.busy { updates.checkForUpdate() } }
                 }
             }
             divider
-            if m.appInstallability == .ok {
+            if updates.installability == .ok {
                 // The uninstaller (Uninstall.swift): state folders and the launcher's own checkout go; the
                 // games folder and prod.keys stay; the app itself goes to the Trash.
                 row(loc.t("uninstall.title"), detail: loc.t("uninstall.note")) {
-                    Button(loc.t("uninstall.button")) { m.uninstallPlan = uninstallPlan() }
+                    Button(loc.t("uninstall.button")) { updates.uninstallPlan = uninstallPlan() }
                     .disabled(m.running)
-                    .padTarget("set.uninstall", scope: "main") { if !m.running { m.uninstallPlan = uninstallPlan() } }
+                    .padTarget("set.uninstall", scope: "main") { if !m.running { updates.uninstallPlan = uninstallPlan() } }
                 }
                 divider
             }
             // A launcher built from the repository never replaces itself (AppUpdate.installability): the switch says so and stays off
-            row(loc.t("app.auto"), detail: loc.t(m.appInstallability == .ok ? "app.autoNote" : m.appInstallability == .developer ? "app.autoDev" : "app.autoReadOnly")) {
-                Toggle("", isOn: Binding(get: { m.autoUpdateApp && m.appInstallability == .ok }, set: { m.autoUpdateApp = $0 }))
-                    .labelsHidden().toggleStyle(LauncherSwitchStyle()).disabled(m.appInstallability != .ok)
-                    .padTarget("set.appAuto", scope: "main") { if m.appInstallability == .ok { m.autoUpdateApp.toggle() } }
+            row(loc.t("app.auto"), detail: loc.t(updates.installability == .ok ? "app.autoNote" : updates.installability == .developer ? "app.autoDev" : "app.autoReadOnly")) {
+                Toggle("", isOn: Binding(get: { updates.automatic && updates.installability == .ok }, set: { updates.automatic = $0 }))
+                    .labelsHidden().toggleStyle(LauncherSwitchStyle()).disabled(updates.installability != .ok)
+                    .padTarget("set.appAuto", scope: "main") { if updates.installability == .ok { updates.automatic.toggle() } }
             }
         }
     }
