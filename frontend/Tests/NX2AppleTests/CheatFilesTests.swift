@@ -408,7 +408,7 @@ final class CheatFilesTests: XCTestCase {
 
         func shot(_ name: String, _ view: some View, height: CGFloat = 700) throws {
             let host = NSHostingView(rootView: view.environmentObject(PadFocus()))
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: height), styleMask: [.titled], backing: .buffered, defer: false)
+            let window = OffscreenWindow(size: NSSize(width: 600, height: height))
             window.contentView = host
             window.orderFront(nil)
             RunLoop.main.run(until: Date().addingTimeInterval(0.6))
