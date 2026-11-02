@@ -623,7 +623,7 @@ struct ShellInstaller {
         p.arguments = Array(command.dropFirst())
         p.environment = env ?? ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "HOME": NSHomeDirectory(), "USER": NSUserName(), "LANG": "en_US.UTF-8"]
         p.standardInput = FileHandle.nullDevice
-        if ownGroup { BuildModel.inOwnGroup(p, python: python) }
+        if ownGroup { ProcessGroups.inOwnGroup(p, python: python) }
         let pipe = Pipe(); p.standardOutput = pipe; p.standardError = pipe
         do { try p.run() } catch { return ToolResult(status: 127, output: error.localizedDescription, lastError: error.localizedDescription) }
         processStarted(p)

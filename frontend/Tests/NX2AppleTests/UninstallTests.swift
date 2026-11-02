@@ -36,8 +36,8 @@ final class UninstallTests: XCTestCase {
 
     private func originFixture(checkout: URL) throws {
         let git = "/usr/bin/git"
-        _ = BuildModel.runQuiet([git, "-C", checkout.path, "init", "-b", "main"], env: BuildModel.gitEnv())
-        _ = BuildModel.runQuiet([git, "-C", checkout.path, "remote", "add", "origin", "https://github.com/LNPANDY/NX2Apple.git"], env: BuildModel.gitEnv())
+        _ = SystemProcessRunner().runQuiet([git, "-C", checkout.path, "init", "-b", "main"], env: SystemGitCheckout.environment())
+        _ = SystemProcessRunner().runQuiet([git, "-C", checkout.path, "remote", "add", "origin", "https://github.com/LNPANDY/NX2Apple.git"], env: SystemGitCheckout.environment())
     }
 
     func testThePlanTakesStateAndItsOwnCheckoutAndLeavesGamesAndKeys() throws {
@@ -68,7 +68,7 @@ final class UninstallTests: XCTestCase {
     func testARepoWithoutOurOriginIsNotTouched() throws {
         let checkout = home.appendingPathComponent("NX2Apple").path
         let git = "/usr/bin/git"
-        _ = BuildModel.runQuiet([git, "-C", checkout, "remote", "add", "origin", "https://github.com/someone/else.git"], env: BuildModel.gitEnv())
+        _ = SystemProcessRunner().runQuiet([git, "-C", checkout, "remote", "add", "origin", "https://github.com/someone/else.git"], env: SystemGitCheckout.environment())
         let plan = Uninstall.plan(home: home.path, gamesFolder: games.path, checkouts: [checkout])
         XCTAssertTrue(plan.checkouts.isEmpty, "a fork with another origin is the player's own work")
     }

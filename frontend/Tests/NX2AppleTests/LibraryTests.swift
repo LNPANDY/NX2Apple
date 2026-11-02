@@ -259,7 +259,7 @@ final class LibraryTests: XCTestCase {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/bin/sh")
         p.arguments = ["-c", "sleep 60 & sleep 60 & wait"]
-        BuildModel.inOwnGroup(p, python: "/usr/bin/python3")
+        ProcessGroups.inOwnGroup(p, python: "/usr/bin/python3")
         try p.run()
         func members() -> Int {
             let ps = Process(), out = Pipe()
@@ -273,7 +273,7 @@ final class LibraryTests: XCTestCase {
         while members() < 3 && tries < 50 { usleep(100_000); tries += 1 }
         XCTAssertEqual(members(), 3)   // the shell and its two children, in the leader's group
         let stopped = Date()
-        BuildModel.endGroup(p.processIdentifier)
+        ProcessGroups.endGroup(p.processIdentifier)
         p.waitUntilExit()
         tries = 0
         while members() > 0 && tries < 30 { usleep(100_000); tries += 1 }

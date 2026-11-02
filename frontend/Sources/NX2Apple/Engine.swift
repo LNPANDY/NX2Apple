@@ -108,9 +108,9 @@ enum EngineLayout {
     }
 
     /// Run the sync and stream its lines (blocking: call it off the main thread). git comes from the system's or Homebrew's PATH.
-    static func runSync(repo: String, python: String, line: @escaping (String) -> Void) -> Bool {
+    static func runSync(repo: String, python: String, runner: ProcessRunner = SystemProcessRunner(), line: @escaping (String) -> Void) -> Bool {
         let env = ["PATH": BuildModel.toolPath("/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin", python: python), "HOME": NSHomeDirectory(),
                    "LANG": "en_US.UTF-8", "TMPDIR": NSTemporaryDirectory()].merging(BundledTools.environment(for: python)) { $1 }
-        return BuildModel.runCaptured(syncArguments(repo: repo, python: python), env: env, line: line)
+        return runner.runCaptured(syncArguments(repo: repo, python: python), env: env, line: line)
     }
 }
