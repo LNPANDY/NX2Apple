@@ -16,7 +16,7 @@ final class ShellExportCaptureTests: XCTestCase {
         let fm = FileManager.default
         try fm.createDirectory(at: output, withIntermediateDirectories: true)
         let lang = ProcessInfo.processInfo.environment["NX_CAPTURE_LANG"].flatMap { Lang.find($0) } ?? .en
-        let saved = ["buildTarget", "installDevice", "exportIPA", "sendWhere", "driveFolder", "shellRoot"].map { ($0, UserDefaults.standard.object(forKey: $0)) }
+        let saved = ["buildTarget", "installDevice", "exportIPA", "exportOneGame", "sendWhere", "driveFolder", "shellRoot"].map { ($0, UserDefaults.standard.object(forKey: $0)) }
         defer { for (key, value) in saved { UserDefaults.standard.set(value, forKey: key) } }
         let shellFolder = fm.temporaryDirectory.appendingPathComponent("NX2Apple-capture-\(UUID().uuidString)")
         try fm.createDirectory(at: shellFolder, withIntermediateDirectories: true)
@@ -35,11 +35,15 @@ final class ShellExportCaptureTests: XCTestCase {
         stores.deviceStore.checked = true
         stores.deviceStore.installDevice = "DEV-1"
         stores.deviceStore.sendWhere = SendWhere.device
+        stores.deviceStore.exportOneGame = false
         func shot<V: View>(_ name: String, _ view: V) throws {
             let framed = view.environmentObject(stores.localizer).padding(24).frame(width: 760).background(Color(white: 0.09)).environment(\.colorScheme, .dark)
             NSApplication.shared.setActivationPolicy(.accessory)
             let host = NSHostingView(rootView: framed)
             host.frame = NSRect(origin: .zero, size: host.fittingSize)
+            // the fitting size can round above the laid-out card: the page colour, not white, fills the rest
+            host.wantsLayer = true
+            host.layer?.backgroundColor = NSColor(white: 0.09, alpha: 1).cgColor
             let window = OffscreenWindow(size: host.frame.size)
             window.contentView = host
             window.orderFront(nil)
@@ -88,5 +92,15 @@ final class ShellExportCaptureTests: XCTestCase {
         stores.deviceStore.driveFolder = ""
         model.drive = nil
         try shot("11-drive-before-export", card())
+        // One game's own IPA with its game data inside (#540): two steps, no step 3
+        stores.deviceStore.exportOneGame = true
+        try shot("12-one-game-ready", card())
+        let oneGame = shellFolder.appendingPathComponent("0100000000010000.ipa")   // the name a one-game export writes
+        fm.createFile(atPath: oneGame.path, contents: nil)
+        let big = try FileHandle(forWritingTo: oneGame)
+        try big.truncate(atOffset: 5_900_000_000)
+        try big.close()
+        model.exportedIPAPath = oneGame.path
+        try shot("13-one-game-exported", card())
     }
 }

@@ -41,6 +41,13 @@ package struct InstallCard: View {
             }
             CardDivider()
             if devices.exportIPA {
+                // What the IPA holds: the shared app by default, one game with its data inside as the other choice (#540)
+                CardRow(loc.t("shell.ipaKind"), detail: devices.exportOneGame ? loc.t("shell.ipaOneGameNote") : loc.t("shell.ipaSharedNote")) {
+                    LauncherSegmented(options: [("shared", loc.t("shell.ipaShared")), ("one", loc.t("shell.ipaOneGame"))],
+                                      selection: devices.exportOneGame ? "one" : "shared") { pickKind($0 == "one") }
+                        .frame(width: ExportGrid.switchWidth)
+                }
+                CardDivider()
                 ExportSteps(build: build, devices: devices)
             } else {
                 CardRow(loc.t("dev.target"), detail: devices.checked && devices.devices.isEmpty ? loc.t("dev.noDevices") : "") {
@@ -60,5 +67,13 @@ package struct InstallCard: View {
             }
         }
         .onAppear { if !devices.checked { _ = devices.refresh() } }
+    }
+
+    /// The other kind of IPA: the IPA of the last export is not the one this choice makes, so step 1 starts again.
+    private func pickKind(_ oneGame: Bool) {
+        guard oneGame != devices.exportOneGame else { return }
+        devices.exportOneGame = oneGame
+        build.exportedIPAPath = ""
+        build.send = .idle
     }
 }

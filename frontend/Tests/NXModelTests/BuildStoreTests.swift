@@ -34,6 +34,7 @@ import XCTest
         var installDevice = ""
         var signingTeam = ""
         var exportIPA = false
+        var exportOneGame = false
         var driveFolder = ""
         var devices: [AppleDevice] = []
         var xcrun = "/usr/bin/true"

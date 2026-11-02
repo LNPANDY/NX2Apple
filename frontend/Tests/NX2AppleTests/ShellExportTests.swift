@@ -588,7 +588,7 @@ import NXModel
 
     // ---- the choice in the build ----
 
-    private let savedKeys = ["repoPath", "buildTarget", "buildOutputDirectory", "installDevice", "signingTeam", "shellRoot", "exportIPA"]
+    private let savedKeys = ["repoPath", "buildTarget", "buildOutputDirectory", "installDevice", "signingTeam", "shellRoot", "exportIPA", "exportOneGame"]
 
     /// An iPhone build with the export chosen and no device and no team runs the script without `--team-id`, then ends with the IPA
     /// instead of the "needs a device and a signing team" stop.
@@ -645,6 +645,79 @@ import NXModel
         XCTAssertFalse(calls.contains { $0.hasPrefix("devicectl") })
         XCTAssertTrue(fm.fileExists(atPath: model.archivePath + "/romfs.img"), "the game data is packed beside the IPA, not in it")
         XCTAssertFalse(try entries(ofZip: model.exportedIPAPath).contains { $0.hasSuffix("romfs.img") })
+    }
+
+    /// One game's own IPA (#540): the script runs without `--shell-framework`, packs the game data into the IPA it names, and the
+    /// build ends with that IPA. No shared app, no archive, no shell.json, no stale prompt.
+    @MainActor func testOneGameExportBuildsTheGamesOwnIPAWithItsDataInside() throws {
+        let f = try makeFixture()
+        let saved = savedKeys.map { ($0, UserDefaults.standard.object(forKey: $0)) }
+        defer { for (key, value) in saved { UserDefaults.standard.set(value, forKey: key) } }
+        UserDefaults.standard.set(f.root, forKey: "shellRoot")
+        let stores = LauncherStores(xcrun: f.xcrun); let model = stores.build
+        stores.repo.path = f.repo
+        model.target = "ios"
+        model.outDir = path("out")
+        stores.dependencies.pythonPath = "/usr/bin/python3"
+        stores.dependencies.dotnetPath = "/usr/bin/true"
+        stores.dependencies.checked = true
+        stores.dependencies.deps = [Dep(id: "test", name: "test", hint: "", present: true, installCmd: [])]
+        stores.deviceStore.installDevice = ""
+        stores.deviceStore.signingTeam = ""
+        stores.deviceStore.exportIPA = true
+        stores.deviceStore.exportOneGame = true
+        XCTAssertTrue(model.exportsOneGame)
+        try write(f.repo + "/dm/tools/nx_extract/Program.cs", "")
+        for tool in RepoLayout.requiredTools.filter({ $0 != RepoLayout.buildScript }) { try write(f.repo + "/" + tool, "") }
+        try write(f.repo + "/scripts/build_ipa_from_nsp.py", """
+        import sys, os, json, pathlib
+        open('\(state)/script.txt', 'w').write(' '.join(sys.argv[1:]))
+        open('\(state)/full-romfs.txt', 'w').write(os.environ.get('DM_FULL_ROMFS', ''))
+        ipa = pathlib.Path(sys.argv[sys.argv.index('-o') + 1]); ipa.parent.mkdir(parents=True, exist_ok=True); ipa.write_bytes(b'ipa')
+        print(json.dumps(dict(ev='stage', k=1, n=1, name='ipa')), flush=True)
+        print(json.dumps(dict(ev='stage_end', k=1, name='ipa', ok=True, summary='', elapsed=1)), flush=True)
+        """)
+        let base = temporary.appendingPathComponent("Test [\(titleID)].nsp"), keys = temporary.appendingPathComponent("prod.keys")
+        try Data([0]).write(to: base); try Data().write(to: keys)
+        model.slots[0].paths = [base.path]; model.slots[3].paths = [keys.path]
+
+        let finished = expectation(description: "Exported")
+        let token = model.$done.filter { $0 }.prefix(1).sink { _ in finished.fulfill() }
+        model.startBuild()
+        wait(for: [finished], timeout: 30)
+        withExtendedLifetime(token) {}
+
+        let script = try String(contentsOfFile: state + "/script.txt")
+        let ipa = path("out", "\(titleID).ipa")
+        XCTAssertTrue(script.contains("--platform ios --romfs bundle -o " + ipa), script)
+        XCTAssertFalse(script.contains("--shell-framework") || script.contains("--team-id"), script)
+        XCTAssertEqual(try String(contentsOfFile: state + "/full-romfs.txt"), "1", "the fork's build_ipa.sh packs the game data only with DM_FULL_ROMFS=1")
+        XCTAssertEqual(model.exportedIPAPath, ipa)
+        XCTAssertEqual(model.doneNote, String(format: model.t("shell.exportDone"), ipa))
+        XCTAssertFalse(model.running)
+        XCTAssertTrue(model.staleFrameworks.isEmpty)
+        XCTAssertFalse(fm.fileExists(atPath: ShellLibrary.stateFile(root: f.root)), "the shared app is not touched")
+        XCTAssertTrue(calls.isEmpty, "no xcodebuild for a shared app and no device")
+        XCTAssertEqual(model.archivePath, "", "the game data is inside the IPA, nothing is packed beside it")
+    }
+
+    func testOneGameChoiceIsOffAtFirstSavedAndOnlyCountsForAnExport() throws {
+        let saved = savedKeys.map { ($0, UserDefaults.standard.object(forKey: $0)) }
+        defer { for (key, value) in saved { UserDefaults.standard.set(value, forKey: key) } }
+        UserDefaults.standard.removeObject(forKey: DeviceStore.oneGameKey)
+        let stores = LauncherStores(); let model = stores.build
+        XCTAssertFalse(stores.deviceStore.exportOneGame, "the shared app stays the default")
+        model.target = "ios"
+        stores.deviceStore.exportOneGame = true
+        XCTAssertTrue(UserDefaults.standard.bool(forKey: DeviceStore.oneGameKey))
+        stores.deviceStore.exportIPA = false
+        XCTAssertFalse(model.exportsOneGame, "installing on a device is always the shared app")
+        stores.deviceStore.exportIPA = true
+        XCTAssertTrue(model.exportsOneGame)
+        model.target = BuildTarget.mac
+        XCTAssertFalse(model.exportsOneGame)
+        XCTAssertEqual(OneGameIPA.arguments(ipa: "/O/0100.ipa"), ["--platform", "ios", "--romfs", "bundle", "-o", "/O/0100.ipa"])
+        XCTAssertEqual(OneGameIPA.path(folder: "/O", titleID: "0100"), "/O/0100.ipa")
     }
 
     /// The choice is saved and a build without it still asks for a device and a team.
