@@ -464,14 +464,19 @@ import NXModel
                     "shell.sendProgress", "shell.sendDone", "shell.sendNoApp", "shell.sendSeveral", "shell.sendRefused", "shell.sendFinderSteps",
                     "shell.sendShowData", "shell.sendDetails", "shell.driveNone", "shell.driveChoose", "shell.driveCopy", "shell.driveNote", "shell.driveFat32",
                     "shell.driveReadOnly", "shell.driveNoSpace", "shell.driveProgress", "shell.driveDone", "shell.driveFailed"]
-        XCTAssertEqual(Lang.all.count, 5)
+        // The five languages the launcher ships with must have every text, translated. Any other language file (it, for one) may leave a key out:
+        // that key then shows the English text, and nothing here asks for it.
+        let required = ["zh", "en", "sv", "de", "fr"]
+        XCTAssertTrue(required.allSatisfy { code in Lang.all.contains { $0.code == code } }, "all five required languages exist")
         for key in keys {
             for lang in Lang.all {
+                let isRequired = required.contains(lang.code)
                 let text = L10n.string(key, lang)
                 XCTAssertNotEqual(text, key, "\(key) in \(lang.code)")
+                if isRequired { XCTAssertNotNil(L10n.catalogs[lang.code]?[key], "\(key) is missing in \(lang.code)") }
                 XCTAssertFalse(text.contains(";") || text.contains("；"), "\(key) in \(lang.code)")
                 XCTAssertFalse(text.contains("NX2Apple"), "\(key) in \(lang.code): no product name in a screen")
-                if lang != .en && !key.hasPrefix("shell.export") { XCTAssertNotEqual(text, L10n.string(key, .en), "\(key) in \(lang.code) is English") }
+                if isRequired && lang != .en && !key.hasPrefix("shell.export") { XCTAssertNotEqual(text, L10n.string(key, .en), "\(key) in \(lang.code) is English") }
             }
         }
         // the arguments the code passes
