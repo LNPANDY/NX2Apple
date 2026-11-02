@@ -465,7 +465,7 @@ index 0000000..a2febeb
 +const struct dm_profile *dm_profile(void);   // loaded once; never NULL
 +void dm_profile_log(void);                   // one line per differing value (called after loading)
 diff --git a/dm/host/hle_svc.c b/dm/host/hle_svc.c
-index 8939b05..ff2e3a3 100644
+index 15d4ccc..4955a89 100644
 --- a/dm/host/hle_svc.c
 +++ b/dm/host/hle_svc.c
 @@ -16,7 +16,7 @@
@@ -516,7 +516,7 @@ index 8939b05..ff2e3a3 100644
  static size_t image_bytes(void) { size_t n = 0; for (int i = 0; i < g_nmod; i++) if (!g_mod[i].nro) n += g_mod[i].size;   // an NRO lives in memory the game allocated (its image and bss buffers)
      return (n + 0x1fffff) & ~(size_t)0x1fffff; }
  // Giant bss (modules with the patch area before the base, patch_nso.py FAR): the image bytes beyond the file part. Used memory was reported as "heap + 64 MB", where the 64 MB covers ordinary modules' code and data (Mario's two modules are about 74 MB together,
-@@ -461,11 +461,11 @@ uint64_t svc_dispatch(int num, uint64_t *regs, uint64_t orig_addr) {
+@@ -471,11 +471,11 @@ uint64_t svc_dispatch(int num, uint64_t *regs, uint64_t orig_addr) {
              // Logged once (Mario's retries would repeat it): a game that sizes its heap as pool − used memory and does not retry stops here when its modules are larger than the used memory reported
              // (profile mem_used; the NSP script's probe boot reads this line, and sets mem_used when no SetHeapSize succeeds afterwards)
              static int once; if (!once++) LOG("[mem] SetHeapSize %#zx + modules %#zx > app pool %#llx (used memory reported %#llx + bss %#zx)", size, image_bytes() - big_bss_bytes(),
@@ -531,7 +531,7 @@ index 8939b05..ff2e3a3 100644
              pthread_mutex_unlock(&g_map_lock); regs[0] = 0x10801; return 0;
          }
          int rc = 0;
-@@ -609,8 +609,8 @@ uint64_t svc_dispatch(int num, uint64_t *regs, uint64_t orig_addr) {
+@@ -619,8 +619,8 @@ uint64_t svc_dispatch(int num, uint64_t *regs, uint64_t orig_addr) {
          // and maps new ones for later allocations, until a map fails: then it unmaps the cached block and retries (measured on the Mac: the refused 4 MB map at +0x43e2c000 was followed by
          // UnmapPhysicalMemory of the 3.15 GB block and the same map again). Without the limit the mapped total went past the pool in the first minute and the freed block stayed mapped.
          // Off by default: Ace Attorney Investigations Collection maps a little more than the 1 GB pool its profile reports
@@ -542,7 +542,7 @@ index 8939b05..ff2e3a3 100644
              if (need && need > room) {
                  pthread_mutex_unlock(&g_map_lock);
                  static _Atomic int nref; if (atomic_fetch_add(&nref, 1) < 8) LOG("[mem] MapPhysicalMemory +%#zx refused: %.2f GB mapped, the application pool is full (ResultLimitReached, the SDK frees cached pages and retries)",
-@@ -672,16 +672,16 @@ uint64_t svc_dispatch(int num, uint64_t *regs, uint64_t orig_addr) {
+@@ -686,16 +686,16 @@ uint64_t svc_dispatch(int num, uint64_t *regs, uint64_t orig_addr) {
          case I_StackAddr: v = (uint64_t)g_stack; break;   case I_StackSize: v = g_stack_cap; break;
          case I_TotalMem: case I_TotalNonSys: v = APP_POOL; break;
          case I_UsedMem:  case I_UsedNonSys:  pthread_mutex_lock(&g_map_lock);
@@ -862,7 +862,7 @@ diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
 index a079d7f..3747fc9 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
-@@ -193,7 +193,7 @@ - (instancetype)initWithFrame:(CGRect)f {
+@@ -193,7 +193,7 @@ static BOOL fullOnly(int b) { return b == B_LS || b == B_RS || b >= B_LEFT; }
          }
          _swap = shape(_controls); _swapLabel = label(_swap, @"");
          NSNumber *saved = [NSUserDefaults.standardUserDefaults objectForKey:k_layout_key];

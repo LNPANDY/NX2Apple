@@ -259,7 +259,7 @@ diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
 index b941e77..df1983d 100644
 --- a/dm/ios/Sources/front_ios.m
 +++ b/dm/ios/Sources/front_ios.m
-@@ -21,6 +21,7 @@
+@@ -21,6 +21,7 @@ int front_ios_boot_ok(void);
  const char *front_ios_boot_message(void);   // main.m: why a build that keeps the game files off the IPA found none usable (NULL = the generic hint)
  const char *front_ios_device_check(void);   // main.m: why this device cannot run the games (its GPU has no BC textures; NULL = supported); makes the first Metal device
  bool dm_show_launcher(void *view_controller, void (*done)(void));   // Launcher.swift: false = no launcher (no dm/launcher.json, or DM_LAUNCHER=0)
@@ -267,7 +267,7 @@ index b941e77..df1983d 100644
  
  static CAMetalLayer *g_layer;
  static void front_ios_power_watch(void);
-@@ -64,6 +65,7 @@ @interface DmRootVC : UIViewController
+@@ -64,6 +65,7 @@ static void tv_attach(void);
  @property (nonatomic, strong) UILabel *fps;
  @property (nonatomic) BOOL launched;
  @property (nonatomic, strong) id tv;   // the TV scene accessory's registration (iOS 27)
@@ -275,7 +275,7 @@ index b941e77..df1983d 100644
  - (void)startGame;
  @end
  static DmRootVC *g_root;
-@@ -95,6 +97,14 @@ - (void)viewDidLoad {
+@@ -95,6 +97,14 @@ static void launcher_done(void) { [g_root startGame]; }
  // The game view, the pad and the frame-rate counter are made once the launcher has set the switches they read (DM_SHOW_FPS, DM_METAL_HUD); the host's loading began at app launch (main.m)
  - (void)startGame {
      if (self.game) return;
@@ -290,7 +290,7 @@ index b941e77..df1983d 100644
      dm_cloud_saves_env();   // DM_SAVE_SYNC from the launcher's Cloud saves pick, before the game's first save mount reads it (CloudSaves.m, save_sync.h)
      front_hud_env();   // before the process's first Metal device, which reads MTL_HUD_ENABLED (an env file's DM_METAL_HUD sets it in main.m already; GitHub issue #840)
      const char *dev = front_ios_device_check();   // that first device: a GPU without BC textures is refused here, not at launch, so the launcher's HUD switch counts
-@@ -132,7 +142,8 @@ - (void)viewDidAppear:(BOOL)a {
+@@ -132,7 +142,8 @@ static void launcher_done(void) { [g_root startGame]; }
      }
      if (self.launched || !front_ios_boot_ok()) return;
      self.launched = YES; g_root = self;
@@ -355,7 +355,7 @@ index 7afe1c3..85c068c 100644
  // The images in Documents: romfs.img in any letter case, romfs.img itself first. The NSP script writes the image as RomFS.img (extract/<version>/RomFS.img) and the Mac's
  // file system ignores letter case, but iOS's does not: a copy made through Finder or the Files app keeps the source's name, which an exact lookup of romfs.img never finds
  static NSArray<NSString *> *romfs_document_images(NSString *doc) {
-@@ -56,6 +89,31 @@ static int romfs_identity_accepts(NSString *img) {
+@@ -56,6 +89,31 @@ static NSArray<NSString *> *romfs_document_images(NSString *doc) {
  static NSString *romfs_locate(void) {
      NSFileManager *fm = NSFileManager.defaultManager;
      NSString *doc = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES)[0];
@@ -387,7 +387,7 @@ index 7afe1c3..85c068c 100644
      for (NSString *img in romfs_document_images(doc)) {
          if (!romfs_image_complete(img) || !romfs_identity_accepts(img)) continue;
          // A folder copy from before images is now dead weight of up to many GB (often cut off partway). Deleting its 300,000 files here took longer than iOS allows an app to start
-@@ -71,13 +129,48 @@ static int romfs_identity_accepts(NSString *img) {
+@@ -71,13 +129,48 @@ static NSString *romfs_locate(void) {
      }
      NSString *bundledImage = [NSBundle.mainBundle.resourcePath stringByAppendingPathComponent:@"romfs.img"];
      NSString *documentFolder = [doc stringByAppendingPathComponent:@"romfs"];

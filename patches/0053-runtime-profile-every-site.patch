@@ -251,7 +251,7 @@ index d6aa07b..be4a638 100644
      if (g_bc_cpu) MLOG("BC textures: this GPU has no BC support, decoding them on the CPU (profile tex_bc_cpu)");
      g_q = [g_dev newCommandQueue];
      // A device without Metal 4 (the paravirtualized GPU of a virtual Mac, such as GitHub's macos-26 runner: no residency set, no MTL4CommandQueue) cannot run the NVN layer. The GL and
-@@ -1326,7 +1326,7 @@ static void post(post_op o) {
+@@ -1326,7 +1326,7 @@ static uint64_t gpu_ticks(void) { uint64_t g = guest_ns(); if (!g) { struct time
  // so a game that waits for the fence reads one submission's reports together; a segment whose feedback has not arrived by then takes the last segment's times
  #define SEG_CLK_N 1024
  struct seg_clk { _Atomic int refs; _Atomic uint64_t t[SEG_CLK_N][2]; };   // per submission (g_sclk, allocated at its first cut): guest ns of each cut segment's GPU start / end (0 = no feedback yet)
@@ -269,7 +269,7 @@ index d6aa07b..be4a638 100644
      }
      free(ops); seg_clk_put(sc); r->ops = NULL; r->sc = NULL;
      atomic_store(&r->claimed, 1);
-@@ -2712,7 +2712,7 @@ static void sparse_view(NvPkg *pk, const tex_t *t) {
+@@ -2712,7 +2712,7 @@ static id<MTLTexture> tex_mtl_(const tex_t *ct) {
          }
      }
      id have = tex_get(t->serial);
@@ -278,7 +278,7 @@ index d6aa07b..be4a638 100644
      if (!packaged && !have && on_sub_thread() && tex_cpu_content(t)) { mtl_tex_cpu_written(t); packaged = 1; }   // storage the CPU wrote before its first use (tex_cpu_content)
      if (packaged) {
          NvPkg *pk = [have isKindOfClass:[NvPkg class]] ? have : nil;   // resolved as GPU-only before the CPU wrote it: dropped and rebuilt as packaged
-@@ -3729,7 +3729,7 @@ static int clear_rect_zero(int i) {
+@@ -3729,7 +3729,7 @@ static void shmap_load(void) { shmap_read_once(); static int warmed; if (!warmed
  static void shmap_read(void) {
      if (g_shmap) return;
      const char *e = getenv("DM_NVN_SHMAP");
@@ -296,7 +296,7 @@ index d6aa07b..be4a638 100644
      else MLOG("shader library stamp: game %s, inputs %s", st_game.UTF8String, st_inputs.UTF8String);
      NSString *cp = [[path stringByDeletingLastPathComponent] stringByAppendingPathComponent:@"c1_full.tsv"];   // Same directory as the mapping table (Mac: dm/games/<id>; iOS: dm/ inside the App, copied along by build_ipa.sh)
      NSString *ct = cp ? [NSString stringWithContentsOfFile:cp encoding:NSUTF8StringEncoding error:nil] : nil;
-@@ -4000,7 +4000,7 @@ @implementation FnDev @end
+@@ -4000,7 +4000,7 @@ static NvShader *shader_load(NSString *pc, int stage, int layer) {
      if (stage == 0 && [j[@"layer_from"] isKindOfClass:[NSDictionary class]]) { o->lay_loc = [j[@"layer_from"][@"loc"] intValue]; o->lay_comp = [[j[@"layer_from"][@"comp"] description] UTF8String][0]; }
      char err[160];
      if (nvn_refl_from_json(j, &o->rf, err, sizeof err)) { MLOG("[RED] shader %s reflection conversion failed: %s", pc.UTF8String, err); return nil; }
@@ -305,7 +305,7 @@ index d6aa07b..be4a638 100644
          // (rf.c1 is freed by dealloc when o goes: freeing it here too was a double free, which aborted FINAL FANTASY RESONANCE at its first such shader)
          MLOG("[RED] shader %s reflection conversion failed: a texture handle the translator could not trace to one slot (profile key tex_dyn_slots off)", pc.UTF8String); return nil; }
      if (rt_range_on()) o->range_ro=rt_range_bindings_ro(j);
-@@ -5308,7 +5308,7 @@ static void vconv_fill(int f, uint64_t src, uint32_t stride, uint64_t nv, float
+@@ -5308,7 +5308,7 @@ typedef struct { uint64_t ibuf; int32_t count, itype; } ir_key;
  typedef struct { uint32_t mn, mx; uint64_t stamp, seen, lo, n; const void *span; int gpuw; } ir_ent;   // gpuw: a GPU write was queued on the indices: never trusted again
  static nvn_hmap g_ir = {.klen = sizeof(ir_key)};
  static uint64_t g_vc_rgn[VC_RGN / 64], g_vc_stat, g_vc_conv, g_vc_whole, g_vc_checks, g_vc_bad;   // g_vc_rgn: 1 MB regions holding a kept index range (hashed); g_vc_conv / g_vc_whole: vertices converted / in the bound ranges
@@ -341,7 +341,7 @@ index d6aa07b..be4a638 100644
                  if (t == NVN_COUNTER_TYPE_SAMPLES_PASSED) { post((post_op){3, NULL, 0, 0, ad, (uint32_t)t, vis_snapshot()}); g_vis_cur = -1; }
                  else mtl_sub_counter(ad, (uint32_t)t);
                  break; }
-@@ -12063,9 +12063,10 @@ uint64_t mtl_present_ext(uint64_t serial, double period, void *ev, uint64_t ev_v
+@@ -12063,9 +12063,10 @@ static int g_snap_n = 2;
  int mtl_snap_on(void) {
      static int v = -1; if (v >= 0) return v;
      const char *e = getenv("DM_PRESENT_SNAP");
@@ -399,7 +399,7 @@ diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
 index 369936d..e3e9e11 100644
 --- a/dm/host/front_mac.m
 +++ b/dm/host/front_mac.m
-@@ -804,7 +804,7 @@ - (BOOL)control:(NSControl *)c textView:(NSTextView *)tv doCommandBySelector:(SE
+@@ -804,7 +804,7 @@ static NSTextField *panel_note(NSString *text) {
  // the path came in. build: this build's ID (read from the engine on the main thread by the caller). Runs on a background
  // queue (findCheats:): it touches only the file system and Foundation, never AppKit or the cheats engine
  static NSArray<NSURL *> *found_cheat_files(NSString *build) {
@@ -408,7 +408,7 @@ index 369936d..e3e9e11 100644
      NSString *as = [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Application Support"];
      NSMutableArray<NSString *> *dirs = [NSMutableArray array];
      NSFileManager *fm = NSFileManager.defaultManager;
-@@ -892,7 +892,7 @@ - (BOOL)importFiles:(NSArray<NSURL *> *)urls {
+@@ -892,7 +892,7 @@ static NSArray<NSURL *> *found_cheat_files(NSString *build) {
      const char *dirc = dm_cheats_dir_path();
      if (!dirc || !*dirc || strlen(dm_cheats_build()) != 16) { NSBeep(); return NO; }   // no folder, or no build ID to name a file by
      NSString *dir = engine_str(dirc), *build = engine_str(dm_cheats_build());
@@ -690,10 +690,10 @@ index d4aa0fc..d298257 100644
      return (size_t)skip;
  }
 diff --git a/dm/host/hle_svc.c b/dm/host/hle_svc.c
-index ff2e3a3..e5c0e2e 100644
+index 4955a89..1ed628e 100644
 --- a/dm/host/hle_svc.c
 +++ b/dm/host/hle_svc.c
-@@ -368,11 +368,11 @@ static uint64_t alias_room(void) {
+@@ -378,11 +378,11 @@ static uint64_t alias_room(void) {
  static void stdalloc_init(uint64_t *r, int param) {
      (void)param;
      if (r[1]) return;   // a heap over memory the game passes in: no address region

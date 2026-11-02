@@ -357,10 +357,10 @@ index 0000000..136b403
 +    return fails != 0;
 +}
 diff --git a/dm/tools/impact_map.tsv b/dm/tools/impact_map.tsv
-index 4961987..de8c929 100644
+index 96ef450..adba1e0 100644
 --- a/dm/tools/impact_map.tsv
 +++ b/dm/tools/impact_map.tsv
-@@ -125,6 +125,7 @@ dm/host/main.c	*:*	the host's start
+@@ -126,6 +126,7 @@ dm/host/main.c	*:*	the host's start
  dm/host/loader.c	*:*	module loading
  dm/host/hle.c	hle:*	the HLE tables
  dm/host/front_mac.m	present:*	the Mac front end

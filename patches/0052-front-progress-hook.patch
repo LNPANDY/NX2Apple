@@ -36,7 +36,7 @@ diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
 index e3b5211..369936d 100644
 --- a/dm/host/front_mac.m
 +++ b/dm/host/front_mac.m
-@@ -1329,9 +1329,12 @@ void front_run(void (*guest)(void)) {
+@@ -1329,9 +1329,12 @@ static NSTextField *prog_label(NSRect r, CGFloat size, NSFontWeight w, NSColor *
      NSTextField *t = [NSTextField labelWithString:@""]; t.frame = r; t.alignment = NSTextAlignmentCenter; t.textColor = c;
      t.font = [NSFont monospacedDigitSystemFontOfSize:size weight:w]; return t;
  }
@@ -53,7 +53,7 @@ diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
 index df1983d..c560abb 100644
 --- a/dm/ios/Sources/front_ios.m
 +++ b/dm/ios/Sources/front_ios.m
-@@ -229,9 +229,12 @@ static void front_ios_power_watch(void) {
+@@ -229,9 +229,12 @@ static UILabel *front_ios_fps_label(void) {
  
  // Progress screen of the prepare step (front.h front_progress): a dark view over the game's view and the pad, the title, a bar and a count, centered; UIKit views, so it draws while the game's thread waits
  static UIView *g_prog; static UILabel *g_prog_count; static UIProgressView *g_prog_bar; static UILabel *g_prog_title;

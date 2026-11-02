@@ -320,7 +320,7 @@ diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
 index c560abb..57b08e9 100644
 --- a/dm/ios/Sources/front_ios.m
 +++ b/dm/ios/Sources/front_ios.m
-@@ -113,6 +113,7 @@ - (void)startGame {
+@@ -113,6 +113,7 @@ static void launcher_done(void) { [g_root startGame]; }
      [self.view addSubview:self.game];
      g_layer = (CAMetalLayer *)self.game.layer;
      if (getenv("DM_METAL_HUD") && atoi(getenv("DM_METAL_HUD"))) { g_layer.developerHUDProperties = @{@"mode": @"default"}; LOG("front end: Metal performance HUD on (DM_METAL_HUD)"); }   // Apple's HUD over the game: frame rate, frame and GPU time, memory
