@@ -20,7 +20,11 @@ Subcommands (Python 3.9+, stdlib and git):
   check                        headers valid, no patch touches the shader chain or the generated files, the series applies
                                cleanly to the pin with no empty patch
   bump --to SHA|main [--dry]   move the pin: re-apply the series on the new commit, drop the patches upstream has, write
-                               patches/ and .upstream-ref
+                               patches/ and .upstream-ref, then print the candidate list (below; also with --dry)
+  candidates [--from SHA] --to SHA|main
+                               the upstream commits between two pins that probably change what the front ends and the players
+                               depend on, as a Markdown table (tools/bump_candidates.py, LNPANDY/NX2Apple#464). A list of
+                               candidates, not a verdict; needs `gh` for the commits' files, never fails the bump
   refresh WORKTREE --to SHA    after a conflicting bump was resolved by hand in WORKTREE: its commits become the series
   relink                       make the links to seedds/nxnative in the README and the other pages point at the pinned commit (bump and
                                refresh do it, check fails while a page names another commit)
@@ -50,6 +54,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 P = importlib.import_module('patches')   # tools/patches.py: the headers, apply_series, generate, the chain rule
+C = importlib.import_module('bump_candidates')   # tools/bump_candidates.py: the commits of a pin move that front ends depend on (#464)
 
 REPO = Path(__file__).resolve().parent.parent
 UPSTREAM_URL = 'https://github.com/seedds/nxnative.git'
@@ -552,16 +557,25 @@ def cmd_bump(a):
                 f'  resolve it there, `git am --continue`, apply the rest with `git am -3 <patches>`, then run\n'
                 f'  tools/engine.py refresh {s.dir} --to {sha[:12]}')
             return 1
-        if a.dry: return 0
+        if a.dry: say('\n' + C.report(root, old, sha, eng)); return 0
         P.write_series(root, s.dir, applied, landed, patches)
         (root / '.upstream-ref').write_text(sha + '\n')
         s.close()
         pages = relink(root)
         say('wrote patches/ and .upstream-ref' + (f', and moved the links into seedds/nxnative to the new pin in {", ".join(p.name for p in pages)}' if pages else '') +
             '; `python3 tools/engine.py sync` builds engine/ on the new pin')
+        say('\n' + C.report(root, old, sha, eng))   # last, under a heading: the sync workflow lifts it into the pull request
         return 0
     except BaseException:
         s.close(); raise
+
+
+def cmd_candidates(a):
+    root = a.root
+    old = a.old or pin(root)
+    sha = a.to if re.fullmatch(r'[0-9a-f]{40}', a.to) else resolve_target(scratch_root(root), a.to)
+    say(C.report(root, old, sha, scratch_root(root)))
+    return 0
 
 
 def cmd_refresh(a):
@@ -601,6 +615,7 @@ def main(argv=None):
     sub.add_parser('status').set_defaults(f=cmd_status)
     sub.add_parser('check').set_defaults(f=cmd_check)
     s = sub.add_parser('bump'); s.add_argument('--to', required=True, help='the new upstream commit, or a branch such as main'); s.add_argument('--dry', action='store_true'); s.set_defaults(f=cmd_bump)
+    s = sub.add_parser('candidates'); s.add_argument('--from', dest='old', help='the old pin (default: .upstream-ref)'); s.add_argument('--to', required=True, help='the new upstream commit, or a branch such as main'); s.set_defaults(f=cmd_candidates)
     sub.add_parser('relink').set_defaults(f=cmd_relink)
     s = sub.add_parser('refresh'); s.add_argument('worktree'); s.add_argument('--to', required=True); s.set_defaults(f=cmd_refresh)
     a = ap.parse_args(argv)

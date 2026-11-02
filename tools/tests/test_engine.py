@@ -50,14 +50,14 @@ class Fixture(unittest.TestCase):
         self.r = self.tmp / 'repo'; self.r.mkdir()
         git(self.r, 'init', '-q', '-b', 'main')
         (self.r / 'tools').mkdir()
-        for f in ('engine.py', 'patches.py'): shutil.copy(TOOLS / f, self.r / 'tools' / f)
+        for f in ('engine.py', 'patches.py', 'bump_candidates.py'): shutil.copy(TOOLS / f, self.r / 'tools' / f)
         shutil.copy(REPO / '.ignore', self.r / '.ignore')
         (self.r / '.gitignore').write_text('/engine/\n__pycache__/\n')
         (self.r / '.upstream-ref').write_text(self.up1 + '\n')
         (self.r / 'patches').mkdir()
         self.add_patch('0001-line-2.patch', 'dm/a.c', 'line1\nline2 fork\nline3\nline4\nline5\nline6\nline7\n', 'Make line 2 the fork\'s')
         git(self.r, 'add', '-A'); git(self.r, 'commit', '-q', '-m', 'fork')
-        self.env = dict(BASE_ENV, NX2APPLE_ENGINE_URL=str(self.up), PATCHES_TMP=str(self.tmp))
+        self.env = dict(BASE_ENV, NX2APPLE_ENGINE_URL=str(self.up), PATCHES_TMP=str(self.tmp), NX2APPLE_NO_CANDIDATES='1')
         self.eng = self.r / 'engine'
 
     def wu(self, path, text, root=None):
@@ -295,6 +295,18 @@ class CheckAndBump(Fixture):
         self.assertFalse((self.r / 'patches/0001-line-2.patch').exists())
         self.tool('sync')
         self.assertEqual((self.eng / 'dm/fork_patches.txt').read_text(), '')
+
+    def test_bump_ends_with_the_candidate_list_also_when_it_cannot_be_made(self):
+        # LNPANDY/NX2Apple#464: the sync workflow cuts the pull request's table from the line `## Candidate commits` on. The lookup is off here
+        # (no network in tests), so the section says why; the exit code stays 0.
+        self.tool('sync')
+        up2 = self.up_commit('dm/b.c', 'b1\nb2\nb3\n', 'upstream 2')
+        for args in (('bump', '--dry', '--to', up2), ('bump', '--to', up2)):
+            out = self.tool(*args)
+            self.assertIn('\n## Candidate commits\n', out)
+            self.assertIn('Not made: NX2APPLE_NO_CANDIDATES is set', out.split('## Candidate commits', 1)[1])
+        out = self.tool('candidates', '--from', self.up1, '--to', up2)
+        self.assertTrue(out.startswith('## Candidate commits'))
 
 
 class Relink(Fixture):
