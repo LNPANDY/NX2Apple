@@ -300,7 +300,7 @@ extension BuildModel {
         let repo = repoOK ? repoPath : "", python = pythonPath.isEmpty ? Toolchain.findPython().path : pythonPath, dotnet = dotnetPath
         let rows = depsChecked ? deps.map(Diagnostics.dependency) : [], checked = depsChecked
         let command = lastBuildCommand, log = logTail, xcrun = xcrunPath
-        let sel = engineSelection
+        let (sel, usesEngineStore) = MainActor.assumeIsolated { (engineSync.selection, engineSync.usesEngineStore) }
         let engine = usesEngineStore && !sel.engineID.isEmpty ? "\(sel.channel.rawValue) \(sel.version) (\(sel.engineID))" : nil
         DispatchQueue.global(qos: .userInitiated).async {
             let git = Diagnostics.git(repo)
