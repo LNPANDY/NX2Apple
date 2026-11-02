@@ -25,6 +25,7 @@ package enum SendWhere {
     nonisolated package static let deviceKey = "installDevice"
     nonisolated package static let teamKey = "signingTeam"
     nonisolated package static let exportKey = "exportIPA"
+    nonisolated package static let oneGameKey = "exportOneGame"
     nonisolated package static let sendWhereKey = "sendWhere"
     nonisolated package static let driveFolderKey = "driveFolder"
 
@@ -43,6 +44,10 @@ package enum SendWhere {
     /// The build makes the shared app as an unsigned IPA instead of installing it (#416). Needs no device and no team. Saved when it changes.
     @Published package var exportIPA: Bool {
         didSet { defaults.set(exportIPA, forKey: Self.exportKey) }
+    }
+    /// The export makes one game's own IPA with its game data inside, instead of the shared app (#540). Off unless the player picks it.
+    @Published package var exportOneGame: Bool {
+        didSet { defaults.set(exportOneGame, forKey: Self.oneGameKey) }
     }
     /// Where step 3 of the export sends the game data: `SendWhere.device` or `.drive`. Saved when it changes.
     @Published package var sendWhere: String {
@@ -80,6 +85,7 @@ package enum SendWhere {
         self.installDevice = defaults.string(forKey: Self.deviceKey) ?? ""
         self.signingTeam = defaults.string(forKey: Self.teamKey) ?? ""
         self.exportIPA = defaults.bool(forKey: Self.exportKey)
+        self.exportOneGame = defaults.bool(forKey: Self.oneGameKey)
         self.sendWhere = defaults.string(forKey: Self.sendWhereKey) ?? SendWhere.device
         self.driveFolder = defaults.string(forKey: Self.driveFolderKey) ?? ""
     }

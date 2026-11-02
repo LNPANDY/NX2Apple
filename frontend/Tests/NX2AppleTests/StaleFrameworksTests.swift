@@ -100,6 +100,33 @@ import NXModel
         XCTAssertEqual(found(), [], "the shared app now holds only games of the current chain")
     }
 
+    /// v1.0.2-rc1: deleting a framework's shader files in place took a minute, and a launcher quit in that minute left half of it
+    /// where shell.json pointed. Now the folder is renamed away in one step and its files go in the background.
+    func testContinueTakesTheFrameworkAwayInOneStepAndLeavesNoHalfFramework() throws {
+        let (stale, fresh) = try shell()
+        for i in 0..<300 { try "shader".write(toFile: stale + "/msl-\(i).metallib", atomically: false, encoding: .utf8) }
+        XCTAssertEqual(BuildStore.removeStaleFrameworks(found(), root: tmp + "/shell"), [])
+        XCTAssertFalse(exists(stale))
+        XCTAssertTrue(exists(fresh))
+        let left = try FileManager.default.contentsOfDirectory(atPath: tmp + "/shell/frameworks")
+        XCTAssertTrue(left.allSatisfy { $0 == "DmGame\(newID).framework" || $0.hasPrefix(ShellInstall.discardPrefix) }, "\(left)")
+        XCTAssertFalse(left.contains { $0.hasPrefix(ShellInstall.discardPrefix) && $0.hasSuffix(".framework") })
+        XCTAssertEqual(found(), [])
+    }
+
+    func testWhatACutOffDeleteLeftIsSweptAndNeverTakenForAFramework() throws {
+        _ = try framework(newID, name: "Fresh Game", chain: current)
+        let leftover = tmp + "/shell/frameworks/" + ShellInstall.discardPrefix + "cut-off"
+        try FileManager.default.createDirectory(atPath: leftover + "/msl", withIntermediateDirectories: true)
+        try JSONSerialization.data(withJSONObject: ["title_id": oldID, "chain": old]).write(to: URL(fileURLWithPath: leftover + "/game.manifest.json"))
+        XCTAssertEqual(found(), [])
+        ShellInstall.sweepDiscarded(in: tmp + "/shell/frameworks")
+        let deadline = Date().addingTimeInterval(10)
+        while exists(leftover), Date() < deadline { RunLoop.current.run(until: Date().addingTimeInterval(0.05)) }
+        XCTAssertFalse(exists(leftover))
+        XCTAssertTrue(exists(tmp + "/shell/frameworks/DmGame\(newID).framework"))
+    }
+
     func testContinueStartsTheBuildAndTheModelEndsWithoutAPrompt() throws {
         _ = try shell()
         let modelStores = LauncherStores(); let model = modelStores.build

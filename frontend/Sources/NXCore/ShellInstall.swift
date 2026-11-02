@@ -115,15 +115,20 @@ package enum ShellInstall {
 
     /// Mirrors a framework into the shell folder as a copy. On APFS the copy is a clone: it costs no space, and a later write to
     /// the build folder does not reach it. On another volume it is a real copy. It replaces the previous mirror, so a rebuilt
-    /// game's mirror follows, and a failed copy leaves no half mirror behind.
+    /// game's mirror follows. The copy goes to a hidden folder first and is renamed into place when it is whole, so a failed or
+    /// interrupted copy never leaves a half mirror where shell.json points (ShellFrameworks.swift).
     package static func mirrorFramework(framework: String, root: String, titleID: String? = nil) throws {
         let fm = FileManager.default
         let mirror = mirroredFramework(root: root, titleID: titleID ?? Self.titleID(ofFramework: framework))
-        try fm.createDirectory(atPath: (mirror as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
-        try? fm.removeItem(atPath: mirror)
-        do { try fm.copyItem(atPath: framework, toPath: mirror) }
-        catch {
-            try? fm.removeItem(atPath: mirror)
+        let folder = (mirror as NSString).deletingLastPathComponent
+        try fm.createDirectory(atPath: folder, withIntermediateDirectories: true)
+        let copy = folder + "/" + discardPrefix + UUID().uuidString
+        do {
+            try fm.copyItem(atPath: framework, toPath: copy)
+            guard discard(mirror) else { throw CocoaError(.fileWriteNoPermission, userInfo: [NSFilePathErrorKey: mirror]) }
+            try fm.moveItem(atPath: copy, toPath: mirror)
+        } catch {
+            try? fm.removeItem(atPath: copy)
             throw error
         }
     }
@@ -507,7 +512,9 @@ package struct ShellInstaller {
         // 7: the game data, only what the device does not have yet
         var outcome = Outcome(ok: true, message: fmt("dev.installed", deviceName), appPath: app, bundleID: bundleID)
         outcome.noMemoryCapability = noMemoryCapability
-        return copyGameData(titleID: titleID, archive: archive, app: app, bundleID: bundleID, outcome: outcome)
+        var result = copyGameData(titleID: titleID, archive: archive, app: app, bundleID: bundleID, outcome: outcome)
+        if result.ok, !prepared.notes.isEmpty { result.message = ([result.message] + prepared.notes).joined(separator: "\n") }
+        return result
     }
 
     /// Step 7 on its own, for a Retry after a copy that failed midway: the listing, the diff and the copy, nothing else. The app

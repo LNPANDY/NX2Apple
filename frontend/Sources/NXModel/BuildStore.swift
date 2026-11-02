@@ -34,6 +34,8 @@ package struct FilePick: Equatable {
     var signingTeam: String { get }
     /// The build exports the shared app as an IPA instead of installing it.
     var exportIPA: Bool { get }
+    /// The export makes one game's own IPA with its game data inside (#540).
+    var exportOneGame: Bool { get }
     /// The folder the game data is copied to (a drive), empty when none is chosen.
     var driveFolder: String { get set }
     var xcrun: String { get }
@@ -103,6 +105,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     /// The one-off `--allow-*` of a confirmed "Build anyway": taken by the next build and never stored.
     package var armedOverride: BuildFailureKind?
     @Published package var macAppPath = ""   // --platform mac-app: the .app this build produced
+    package var oneGameIPAPath = ""   // the IPA a one-game export writes (#540), empty for any other build
     /// BuildTarget.ios = the game's framework in the one shared app on an iPhone or iPad; BuildTarget.mac = a double-clickable
     /// Mac app (upstream's --platform mac-app). A Mac app is a different output of the same pipeline, not a
     /// different pipeline: same extraction, rewrite and shaders, then dm/mac/pack_app.py.
@@ -197,6 +200,8 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     /// This iPhone build goes straight to a device.
     /// An iPhone or iPad build that makes the shared app as an unsigned IPA (#416): no device, no team.
     package var exportsShell: Bool { target != BuildTarget.mac && devices.exportIPA }
+    /// An export of one game's own IPA with the game data inside (#540): the engine's one-game app, no shared app, nothing to send.
+    package var exportsOneGame: Bool { exportsShell && devices.exportOneGame }
     package var installsDirectly: Bool { target != BuildTarget.mac && !devices.installDevice.isEmpty && !devices.signingTeam.isEmpty }
 
     /// Home shown as ~ (shorter in a one-line row, and it keeps the account name out of screenshots).

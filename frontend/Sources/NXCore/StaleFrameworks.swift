@@ -66,15 +66,14 @@ package enum StaleFrameworks {
             ? String(name.dropFirst("DmGame".count).dropLast(".framework".count)) : name
     }
 
-    /// Deletes the stale frameworks' folders and nothing else. Returns the folders it could not delete.
+    /// Takes the stale frameworks' folders away and nothing else. Returns the folders it could not take away.
+    /// A framework holds tens of thousands of shader files: deleting them in place took a minute on an external disk, on the main
+    /// thread, and a launcher quit in that minute left a framework without its manifest and executable that the shell library
+    /// still named (the next build failed at "Prepare the shared app"). So each folder is first renamed out of the way, which is
+    /// one step that cannot stop halfway, and the files are deleted afterwards in the background (`ShellInstall.discard`).
     @discardableResult
     package static func remove(_ entries: [Entry]) -> [String] {
-        var failed: [String] = []
-        for path in entries.flatMap(\.paths) {
-            do { try FileManager.default.removeItem(atPath: path) }
-            catch { if FileManager.default.fileExists(atPath: path) { failed.append(path) } }
-        }
-        return failed
+        entries.flatMap(\.paths).filter { !ShellInstall.discard($0) }
     }
 
     /// The names the prompt lists, one per line.

@@ -371,6 +371,7 @@ import NXModel
         guard fm.isExecutableFile(atPath: "/usr/bin/python3") else { throw XCTSkip("System Python is required for the process fixture") }
         let framework = path("work/shell-framework/DmGame\(titleID).framework")
         try write(framework + "/game.manifest.json", "{}")
+        try write(framework + "/DmGame\(titleID)", "executable")
         let archive = path("out/games", titleID)
         try write(archive + "/romfs.img", "0123456789")
         try write(archive + "/aoc/1.img", "abcd")
@@ -434,7 +435,8 @@ import NXModel
         let f = try makeFixture()
         let otherID = "0100AAAA00000000"
         let other = path("work2/shell-framework/DmGame\(otherID).framework")
-        try write(other + "/game.manifest.json", "other")
+        try write(other + "/game.manifest.json", #"{"name": "other"}"#)
+        try write(other + "/DmGame\(otherID)", "executable")
         var library = ShellLibrary()
         library.add(.init(titleID: otherID, name: "Other", framework: other))   // what an install before the mirror wrote
         try library.save(root: f.root)
@@ -442,13 +444,14 @@ import NXModel
         XCTAssertEqual(r.status, 0, r.output)
         let saved = ShellLibrary.load(root: f.root)
         XCTAssertEqual(Set(saved.games.map(\.framework)), [mirrored(f.root), mirrored(f.root, otherID)])
-        XCTAssertEqual(try String(contentsOfFile: mirrored(f.root, otherID) + "/game.manifest.json"), "other")
+        XCTAssertEqual(try String(contentsOfFile: mirrored(f.root, otherID) + "/game.manifest.json"), #"{"name": "other"}"#)
     }
 
     func testGameWithoutBuildFolderPlaysFromItsMirrorAndOneWithNeitherIsDropped() throws {
         let f = try makeFixture()
         let keptID = "0100BBBB00000000", lostID = "0100CCCC00000000"
-        try write(mirrored(f.root, keptID) + "/game.manifest.json", "kept")
+        try write(mirrored(f.root, keptID) + "/game.manifest.json", #"{"name": "kept"}"#)
+        try write(mirrored(f.root, keptID) + "/DmGame\(keptID)", "executable")
         var library = ShellLibrary()
         library.add(.init(titleID: keptID, name: "Kept", framework: path("gone/DmGame\(keptID).framework")))
         library.add(.init(titleID: lostID, name: "Lost", framework: path("gone/DmGame\(lostID).framework")))
@@ -791,7 +794,7 @@ import NXModel
         open('\(state)/script.txt', 'w').write(' '.join(sys.argv[1:]))
         work = pathlib.Path(sys.argv[sys.argv.index('--work-dir') + 1])
         fw = pathlib.Path(sys.argv[sys.argv.index('--shell-framework') + 1]) / 'DmGame\(titleID).framework'
-        fw.mkdir(parents=True); (fw / 'game.manifest.json').write_text('{}')
+        fw.mkdir(parents=True); (fw / 'game.manifest.json').write_text('{}'); (fw / 'DmGame\(titleID)').write_text('executable')
         (work / 'extract/v0/RomFS').mkdir(parents=True); (work / 'extract/v0/RomFS/data.bin').write_bytes(b'game')
         print(json.dumps(dict(ev='stage', k=1, n=1, name='framework')), flush=True)
         print(json.dumps(dict(ev='stage_end', k=1, name='framework', ok=True, summary='', elapsed=1)), flush=True)

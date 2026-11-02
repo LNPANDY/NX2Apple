@@ -3,7 +3,8 @@ import NXCore
 import NXModel
 
 /// The export of the shared app as an IPA, in three steps (LNPANDY/NX2Apple#416): export it, install it with another tool, send the
-/// game data. Shown by the Install card when its switch says "Export as IPA". Observes the build store (the steps' state) and the
+/// game data. Shown by the Install card when its switch says "Export as IPA". One game's own IPA (#540) holds its game data, so it has
+/// the first two steps only. Observes the build store (the steps' state) and the
 /// device store (the device and the place the data goes to).
 ///
 /// The grid (ExportGrid): a step's number sits where a card row's dot sits, and everything that belongs to the step (its title, text,
@@ -30,11 +31,13 @@ package struct ExportSteps: View {
     private var inert: Bool { !exported && !sentDone }
     private var toDrive: Bool { devices.sendWhere == SendWhere.drive }
     private var gameName: String { ((build.basePath as NSString).lastPathComponent as NSString).deletingPathExtension }
+    private var oneGame: Bool { devices.exportOneGame }
 
     package var body: some View {
         VStack(spacing: 0) {
             step(1, exported ? .done : .current, title: loc.t("shell.step1Title"),
-                 sub: exported ? String(format: loc.t("shell.step1Done"), build.exportedIPAText) : loc.t("shell.step1Sub")) {
+                 sub: exported ? String(format: loc.t(oneGame ? "shell.oneGameDone" : "shell.step1Done"), build.exportedIPAText)
+                               : loc.t(oneGame ? "shell.oneGameSub" : "shell.step1Sub")) {
                 if exported {
                     action(loc.t("shell.showInFinder")) { revealInFinder(build.exportedIPAPath) }
                 } else {
@@ -42,24 +45,29 @@ package struct ExportSteps: View {
                 }
             }
             CardDivider()
-            step(2, sentDone ? .done : exported ? .current : .upcoming, title: loc.t("shell.step2Title"), sub: loc.t("shell.step2Sub")) { EmptyView() }
-            CardDivider()
-            VStack(alignment: .leading, spacing: 0) {
-                step(3, sentDone ? .done : exported ? .current : .upcoming, title: loc.t("shell.step3Title"), sub: loc.t("shell.step3Sub")) {
-                    LauncherSegmented(options: [(SendWhere.device, loc.t("shell.whereDevice")), (SendWhere.drive, loc.t("shell.whereDrive"))],
-                                      selection: devices.sendWhere) { devices.sendWhere = $0; build.refreshDrive() }
-                        .frame(width: ExportGrid.switchWidth)
-                        .opacity(inert ? ExportGrid.quiet : 1)
-                }
-                VStack(alignment: .leading, spacing: ExportGrid.noteGap) {
-                    if toDrive { driveRow; driveStatus } else { deviceRow; deviceStatus }
-                }
-                .padding(.leading, ExportGrid.axis).padding(.trailing, ExportGrid.inset).padding(.bottom, ExportGrid.inset)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .animation(.easeInOut(duration: 0.18), value: statusKind)
-            }
-            .disabled(inert)
+            step(2, sentDone ? .done : exported ? .current : .upcoming, title: loc.t("shell.step2Title"),
+                 sub: loc.t(oneGame ? "shell.oneGameStep2Sub" : "shell.step2Sub")) { EmptyView() }
+            if !oneGame { CardDivider(); sendStep }
         }
+    }
+
+    /// Step 3, the game data to the device or a drive: only for the shared app, whose IPA leaves the data out.
+    private var sendStep: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            step(3, sentDone ? .done : exported ? .current : .upcoming, title: loc.t("shell.step3Title"), sub: loc.t("shell.step3Sub")) {
+                LauncherSegmented(options: [(SendWhere.device, loc.t("shell.whereDevice")), (SendWhere.drive, loc.t("shell.whereDrive"))],
+                                  selection: devices.sendWhere) { devices.sendWhere = $0; build.refreshDrive() }
+                    .frame(width: ExportGrid.switchWidth)
+                    .opacity(inert ? ExportGrid.quiet : 1)
+            }
+            VStack(alignment: .leading, spacing: ExportGrid.noteGap) {
+                if toDrive { driveRow; driveStatus } else { deviceRow; deviceStatus }
+            }
+            .padding(.leading, ExportGrid.axis).padding(.trailing, ExportGrid.inset).padding(.bottom, ExportGrid.inset)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .animation(.easeInOut(duration: 0.18), value: statusKind)
+        }
+        .disabled(inert)
     }
 
     // MARK: A step
