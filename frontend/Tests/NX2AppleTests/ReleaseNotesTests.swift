@@ -207,7 +207,7 @@ final class ReleaseNotesTests: XCTestCase {
             m.appUpdates.update = AppUpdate.Release(tag: tag, url: "", digest: nil, notes: notes)
             let width: CGFloat = 560, height: CGFloat = 640
             let host = NSHostingView(rootView: UpdateSheet(updates: m.appUpdates).environmentObject(m.localizer).frame(width: width, height: height))
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: height), styleMask: [.titled], backing: .buffered, defer: false)
+            let window = OffscreenWindow(size: NSSize(width: width, height: height))
             window.contentView = host
             window.appearance = NSAppearance(named: .darkAqua)
             window.orderFront(nil)
