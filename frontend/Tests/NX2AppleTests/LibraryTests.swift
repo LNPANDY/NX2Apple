@@ -613,7 +613,7 @@ import NXModel
         model.slots[3].paths = [keys.path]
         let library = GameLibrary(file: temporary.appendingPathComponent("library.json"))
         let host = NSHostingView(rootView: ContentView(stores: modelStores, library: library, initialPage: .builds, performStartupChecks: false))
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1100, height: 800), styleMask: [.titled], backing: .buffered, defer: false)
+        let window = OffscreenWindow(size: NSSize(width: 1100, height: 800))
         window.contentView = host
         window.orderFront(nil)
         defer { window.orderOut(nil) }
@@ -684,7 +684,7 @@ import NXModel
         /// The view at 2× in a window-shaped frame: rounded corners, the traffic lights, a soft shadow, transparent around.
         func shot<V: View>(_ name: String, _ view: V, size: NSSize, trafficLights: Bool = true) throws {
             let host = NSHostingView(rootView: view)
-            let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled], backing: .buffered, defer: false)
+            let window = OffscreenWindow(size: size)
             window.contentView = host
             window.orderFront(nil)
             RunLoop.main.run(until: Date().addingTimeInterval(1.2))   // artwork, layout
@@ -791,8 +791,7 @@ import NXModel
             let view = ContentView(stores: modelStores, library: store, initialPage: page, activeBuildID: activeID, performStartupChecks: false, search: search,
                                    olderTools: older, manageOpen: manageOpen, padRing: padRing)
             let host = NSHostingView(rootView: view)
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: height),
-                                  styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+            let window = OffscreenWindow(size: NSSize(width: width, height: height), styleMask: [.titled, .closable, .resizable])
             window.contentView = host
             window.orderFront(nil)
             RunLoop.main.run(until: Date().addingTimeInterval(0.5))
@@ -892,7 +891,7 @@ import NXModel
             model.running = running
             let sheet = NSHostingView(rootView: FreeSpaceView(m: model, game: library.games[0], survey: measured, chosen: [.extracted, .oldShaders])
                 .environmentObject(PadFocus()).environmentObject(modelStores.localizer))
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 690), styleMask: [.titled], backing: .buffered, defer: false)
+            let window = OffscreenWindow(size: NSSize(width: 560, height: 690))
             window.contentView = sheet
             window.orderFront(nil)
             RunLoop.main.run(until: Date().addingTimeInterval(0.4))
@@ -909,7 +908,7 @@ import NXModel
             try FileManager.default.copyItem(at: URL(fileURLWithPath: json), to: dm.appendingPathComponent("launcher.json"))
             if let fps = LaunchSetting.read(app: first.appPath)?.first(where: { $0.env == "DM_FPS_TARGET" }) { SavedChoices(app: first.appPath, titleID: first.titleID).set(fps, "60") }
             let host = NSHostingView(rootView: LaunchOptionsView(m: model, library: library, gameID: first.id).environmentObject(PadFocus()).environmentObject(modelStores.localizer))
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 700), styleMask: [.titled], backing: .buffered, defer: false)
+            let window = OffscreenWindow(size: NSSize(width: 600, height: 700))
             window.contentView = host
             window.orderFront(nil)
             RunLoop.main.run(until: Date().addingTimeInterval(0.5))
@@ -940,7 +939,7 @@ import NXModel
             if let up = ControlLayout.functions.first(where: { $0.id == "RUp" }) { layout.assign(up, key: 34) }
             layout.setSends("A", "B"); layout.setSends("B", "A")
             let host = NSHostingView(rootView: ControlsView(layout: layout).environmentObject(PadFocus()).environmentObject(modelStores.localizer))
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 700), styleMask: [.titled], backing: .buffered, defer: false)
+            let window = OffscreenWindow(size: NSSize(width: 600, height: 700))
             window.contentView = host
             window.orderFront(nil)
             RunLoop.main.run(until: Date().addingTimeInterval(0.5))
@@ -957,7 +956,7 @@ import NXModel
         model.slots[0].paths = []
         let view = ContentView(stores: modelStores, library: crowded, performStartupChecks: false)
         let crowdedHost = NSHostingView(rootView: view)
-        let crowdedWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1280, height: 900), styleMask: [.titled], backing: .buffered, defer: false)
+        let crowdedWindow = OffscreenWindow(size: NSSize(width: 1280, height: 900))
         crowdedWindow.contentView = crowdedHost
         crowdedWindow.orderFront(nil)
         RunLoop.main.run(until: Date().addingTimeInterval(0.5))
@@ -980,7 +979,7 @@ import NXModel
             LauncherProgressBar(value: nil, height: 6).frame(width: 180)
         }.padding(30).background(LauncherPalette.background))
         bars.frame = NSRect(x: 0, y: 0, width: 540, height: 130)
-        let barsWindow = NSWindow(contentRect: bars.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        let barsWindow = OffscreenWindow(size: bars.frame.size)
         barsWindow.contentView = bars
         barsWindow.orderFront(nil)
         RunLoop.main.run(until: Date().addingTimeInterval(0.3))
@@ -1006,7 +1005,7 @@ import NXModel
                 layout.setPadMode(mode)
                 let focus = PadFocus()
                 let host = NSHostingView(rootView: ControlsView(layout: layout).environmentObject(focus).environmentObject(modelStores.localizer))
-                let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 700), styleMask: [.titled], backing: .buffered, defer: false)
+                let window = OffscreenWindow(size: NSSize(width: 600, height: 700))
                 window.contentView = host
                 window.orderFront(nil)
                 RunLoop.main.run(until: Date().addingTimeInterval(0.4))
@@ -1027,7 +1026,7 @@ import NXModel
                 DiagnosticsButton(report: modelStores.diagnostics, showCopied: true)
             }.launcherRowControls().padding(24).background(LauncherPalette.background).environmentObject(PadFocus()).environmentObject(modelStores.localizer))
             buttons.frame = NSRect(x: 0, y: 0, width: 420, height: 90)
-            let window = NSWindow(contentRect: buttons.frame, styleMask: [.titled], backing: .buffered, defer: false)
+            let window = OffscreenWindow(size: buttons.frame.size)
             window.contentView = buttons
             window.orderFront(nil)
             RunLoop.main.run(until: Date().addingTimeInterval(0.3))
@@ -1064,7 +1063,7 @@ import NXModel
                 [AppleDevice(id: "00008150-AAAA", name: "Zijad\u{2019}s iPhone", model: "iPhone 17", os: "27.0", reachable: true),
                  AppleDevice(id: "00008150-BBBB", name: "Zijad\u{2019}s iPad", model: "iPad Pro", os: "27.0", reachable: true)]
             }).environmentObject(focus).environmentObject(modelStores.localizer))
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 520), styleMask: [.titled], backing: .buffered, defer: false)
+            let window = OffscreenWindow(size: NSSize(width: 600, height: 520))
             window.contentView = host
             window.orderFront(nil)
             RunLoop.main.run(until: Date().addingTimeInterval(0.6))

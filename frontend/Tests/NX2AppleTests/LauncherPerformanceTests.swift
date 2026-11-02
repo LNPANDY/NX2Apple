@@ -141,9 +141,7 @@ import NXModel
         library.selectedID = world.selected
         let pad = LauncherGamepad()
         let host = NSHostingView(rootView: ContentView(stores: modelStores, library: library, performStartupChecks: false, gamepad: pad))
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1280, height: 900), styleMask: [.titled, .closable, .resizable],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
+        let window = OffscreenWindow(size: NSSize(width: 1280, height: 900), styleMask: [.titled, .closable, .resizable])
         window.contentView = host
         window.orderFront(nil)
         defer { window.orderOut(nil) }

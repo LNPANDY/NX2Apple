@@ -151,7 +151,7 @@ import NXModel
         NSApplication.shared.setActivationPolicy(.accessory)
         let host = NSHostingView(rootView: alert)
         host.frame = NSRect(origin: .zero, size: host.fittingSize)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        let window = OffscreenWindow(size: host.frame.size)
         window.contentView = host
         window.orderFront(nil)
         RunLoop.main.run(until: Date().addingTimeInterval(0.4))
