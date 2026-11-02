@@ -138,7 +138,7 @@ final class DropFilesTests: XCTestCase {
         model.deps = [Dep(id: "test", name: "Xcode", hint: "", present: true, installCmd: [])]
         let library = GameLibrary(file: temporary.appendingPathComponent("preview.json"))
         // the page as a drag shows it: the highlight drawn over the Builds page
-        let page = BuilderView(m: model, library: library).environmentObject(PadFocus()).environmentObject(model.localizer)
+        let page = BuilderView(m: model, updates: model.appUpdates, library: library).environmentObject(PadFocus()).environmentObject(model.localizer)
             .modifier(GameFilesDrop(enabled: true, label: model.t("drop.hint"), targeted: true) { _ in })
             .frame(width: 1100, height: 760).background(LauncherPalette.background).environment(\.colorScheme, .dark)
         let host = NSHostingView(rootView: page)
