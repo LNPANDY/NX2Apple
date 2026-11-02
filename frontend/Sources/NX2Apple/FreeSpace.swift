@@ -97,14 +97,7 @@ enum BuildFolder {
     /// The shader chain version of the checkout the launcher builds with: DMSH_CHAIN in dm/gfx/nvn/dmsh_chain.h, read as
     /// the NSP script's chain_of() does (`#define DMSH_CHAIN "(.*)"`). nil when the header is missing or has none, and then no
     /// shader version counts as old.
-    nonisolated static func currentChain(repo: String) -> String? {
-        guard !repo.isEmpty, let text = try? String(contentsOfFile: EngineLayout.root(repo) + "/dm/gfx/nvn/dmsh_chain.h", encoding: .utf8),
-              let range = text.range(of: #"#define DMSH_CHAIN "(.*)""#, options: .regularExpression) else { return nil }
-        let line = text[range]
-        guard let open = line.firstIndex(of: "\""), let close = line.lastIndex(of: "\""), open < close else { return nil }
-        let chain = String(line[line.index(after: open)..<close])
-        return chain.isEmpty ? nil : chain
-    }
+    nonisolated static func currentChain(repo: String) -> String? { EngineLayout.shaderChain(repo: repo) }
 
     /// The entries of the build folder that hold the libraries of chain versions other than `chain`, relative to it:
     /// shader/cache/b-<old> (Mac) and shader/ios/b-<old> (iPhone) with shader/ios/b-<old>.key and shader/mac-b-<old>.key, the

@@ -7,12 +7,15 @@ import NXLauncher
 /// button that does it (a dependency's own install command, or "Build anyway" for the three stops that have an override).
 struct BuildFailureCard: View {
     @ObservedObject var m: BuildModel
+    /// Where the engine's failure row retries. nil for a failure of a build.
+    var engine: EngineSyncStore?
     @EnvironmentObject var loc: Localizer
     /// The failure to show: the build's (`m.failure`) unless the caller passes another one, such as the engine sync's.
     var failure: BuildFailure?
 
-    init(m: BuildModel, failure: BuildFailure? = nil) {
+    init(m: BuildModel, engine: EngineSyncStore? = nil, failure: BuildFailure? = nil) {
         self.m = m
+        self.engine = engine
         self.failure = failure
     }
 
@@ -67,7 +70,7 @@ struct BuildFailureCard: View {
             case .shellDataIncomplete:
                 fix(kind, "shell.retry")
             case .engineOffline, .engineSync:
-                Button(loc.t("fail.retry")) { m.retryEngineSync() }.disabled(m.engineSyncing)
+                Button(loc.t("fail.retry")) { engine?.retrySync() }.disabled(engine?.syncing ?? false)
             default: EmptyView()
             }
             if kind.overrideFlag != nil {
@@ -91,11 +94,12 @@ struct BuildFailureCard: View {
 /// Above every page of the launcher while the engine is fetched and patched (tools/engine.py sync, run for a checkout at launch and after
 /// updates), and its failure row when that stops: what happened, what to do, and Try again.
 struct EngineSyncBanner: View {
-    @ObservedObject var m: BuildModel
+    @ObservedObject var engine: EngineSyncStore
+    let m: BuildModel
     @EnvironmentObject var loc: Localizer
 
     var body: some View {
-        if m.engineSyncing {
+        if engine.syncing {
             HStack(spacing: 10) {
                 ProgressView().controlSize(.small)
                 Text(loc.t("engine.syncing")).font(.manrope(13)).foregroundStyle(LauncherPalette.building)
@@ -104,8 +108,8 @@ struct EngineSyncBanner: View {
             }
             .padding(.horizontal, 24).padding(.vertical, 10)
             .accessibilityIdentifier("engine.syncing")
-        } else if let f = m.engineFailure {
-            BuildFailureCard(m: m, failure: f).padding(.horizontal, 24).padding(.vertical, 10)
+        } else if let f = engine.failure {
+            BuildFailureCard(m: m, engine: engine, failure: f).padding(.horizontal, 24).padding(.vertical, 10)
         }
     }
 }

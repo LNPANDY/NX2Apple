@@ -1,6 +1,4 @@
 import Foundation
-import NXCore
-import NXLauncher
 
 /// Which engine the launcher follows, and where its manifest lives.
 ///
@@ -8,18 +6,18 @@ import NXLauncher
 /// - `experimental` ("实验版") is the tree built from the newest upstream pin. The release workflow publishes it
 ///   from main after an upstream bump passed CI, as a pre-release under a fixed tag. It is opt-in and never
 ///   carries the app. CI compiles it, applies the patches and runs the host tests. Nobody has played it.
-enum EngineChannel: String, CaseIterable {
+package enum EngineChannel: String, CaseIterable {
     case stable, experimental
 
     /// The pre-release tag the experimental engine is published under. The tag is fixed, so the launcher's URL
     /// never changes. The assets inside are uploaded again with each publish.
-    static let experimentalTag = "engine-experimental"
+    package static let experimentalTag = "engine-experimental"
     /// Where this repository's release assets live.
-    static let releaseBase = "https://github.com/LNPANDY/NX2Apple/releases/download/"
+    package static let releaseBase = "https://github.com/LNPANDY/NX2Apple/releases/download/"
 
     /// The manifest for this channel. `version` is the running app's release version, which names the
     /// stable tag (`v0.7.2`); the experimental channel ignores it.
-    func manifestURL(version: String) -> URL? {
+    package func manifestURL(version: String) -> URL? {
         switch self {
         case .stable: return URL(string: Self.releaseBase + "v" + version + "/latest.json")
         case .experimental: return URL(string: Self.releaseBase + Self.experimentalTag + "/latest.json")
@@ -27,29 +25,29 @@ enum EngineChannel: String, CaseIterable {
     }
 
     /// The detached signature next to the manifest (`latest.json.sig`, base64 of the Ed25519 signature).
-    func signatureURL(version: String) -> URL? {
+    package func signatureURL(version: String) -> URL? {
         manifestURL(version: version).flatMap { URL(string: $0.absoluteString + ".sig") }
     }
 
     /// The localization key of this channel's name in Settings.
-    var labelKey: String { "engine.channel." + rawValue }
+    package var labelKey: String { "engine.channel." + rawValue }
 
     /// The localization key of the warning shown before switching from `self` to `other`, nil when nothing changes.
     /// Each switch can bring another shader chain, and then every game compiles its shaders again on its next build.
-    func switchWarningKey(to other: EngineChannel) -> String? {
+    package func switchWarningKey(to other: EngineChannel) -> String? {
         guard other != self else { return nil }
         return other == .experimental ? "engine.switch.toExperimental" : "engine.switch.toStable"
     }
 
     /// Where an asset of this channel lives when the manifest names no source. A manifest that lists
     /// sources wins: that is how a mirror is introduced without a new launcher.
-    func assetURL(_ name: String, version: String, sources: [String]) -> URL? {
+    package func assetURL(_ name: String, version: String, sources: [String]) -> URL? {
         assetURLs(name, version: version, sources: sources).first
     }
 
     /// Every place an asset is tried, in order: the manifest's sources, then this channel's release on GitHub
     /// when no source already is it.
-    func assetURLs(_ name: String, version: String, sources: [String]) -> [URL] {
+    package func assetURLs(_ name: String, version: String, sources: [String]) -> [URL] {
         let tag = self == .stable ? "v" + version : Self.experimentalTag
         var bases = sources.map { $0.hasSuffix("/") ? $0 : $0 + "/" }
         let github = Self.releaseBase + tag + "/"
@@ -60,9 +58,9 @@ enum EngineChannel: String, CaseIterable {
 
 /// The engine tree the release app carries in `Contents/Resources/engine` (the release workflow puts it there).
 /// A launcher built from the repository has none, and keeps working on its checkout with git.
-enum EngineBundle {
+package enum EngineBundle {
     /// The bundled tree, when it is complete and names itself. nil: no engine in this app.
-    static func tree(in resources: URL?) -> URL? {
+    package static func tree(in resources: URL?) -> URL? {
         guard let dir = resources?.appendingPathComponent("engine", isDirectory: true),
               let id = EngineStore.identity(of: dir), EngineStore.isComplete(dir, id: id) else { return nil }
         return dir
@@ -72,8 +70,8 @@ enum EngineBundle {
 /// Installing an engine tree into the store. Every tree is unpacked or copied into a hidden folder beside the others
 /// and renamed into place only when it is complete, so an interrupted download never leaves a tree that looks usable.
 /// A tree is never changed once it is in place: the same id is the same files.
-enum EngineInstaller {
-    enum Failure: Error, Equatable {
+package enum EngineInstaller {
+    package enum Failure: Error, Equatable {
         case unpack                 // ditto failed: not a zip, or out of space
         case incomplete(String)     // the tree lacks what the launcher runs by path
         case wrongEngine(String)    // the tree's .engine-id is not the one the manifest names
@@ -84,7 +82,7 @@ enum EngineInstaller {
     /// Unpack `zip` into `<store>/<engineID>/`. The archive's root is the tree itself
     /// (`scripts/`, `dm/`, `.upstream-ref`, `.engine-id`, ...), as `tools/engine.py tree` builds it.
     @discardableResult
-    static func install(zip: URL, engineID: String, store: EngineStore) throws -> URL {
+    package static func install(zip: URL, engineID: String, store: EngineStore) throws -> URL {
         guard store.directory(for: engineID) != nil else { throw Failure.badID(engineID) }
         if store.isUsable(engineID), let dest = store.directory(for: engineID) { return dest }
         let fm = FileManager.default
@@ -116,7 +114,7 @@ enum EngineInstaller {
     /// Copy a tree that is already on disk (the one in the app bundle) into the store. The bundle is read-only and
     /// signed, so the build never runs in it.
     @discardableResult
-    static func seed(from tree: URL, engineID: String, store: EngineStore) throws -> URL {
+    package static func seed(from tree: URL, engineID: String, store: EngineStore) throws -> URL {
         guard store.directory(for: engineID) != nil else { throw Failure.badID(engineID) }
         if store.isUsable(engineID), let dest = store.directory(for: engineID) { return dest }
         let fm = FileManager.default
@@ -151,25 +149,32 @@ enum EngineInstaller {
 }
 
 /// Which channel and engine the launcher is on, remembered between launches.
-struct EngineSelection: Equatable {
-    var channel: EngineChannel
-    var engineID: String       // empty: nothing installed by the launcher yet
-    var version: String        // the manifest's version of that engine, for Settings
-    var previousID: String     // the one kept for a build that was already running
+package struct EngineSelection: Equatable {
+    package var channel: EngineChannel
+    package var engineID: String       // empty: nothing installed by the launcher yet
+    package var version: String        // the manifest's version of that engine, for Settings
+    package var previousID: String     // the one kept for a build that was already running
 
     private static let channelKey = "engineChannel"
     private static let idKey = "engineID"
     private static let versionKey = "engineVersion"
     private static let previousKey = "enginePreviousID"
 
-    static func load(_ defaults: UserDefaults = .standard) -> EngineSelection {
+    package init(channel: EngineChannel, engineID: String, version: String, previousID: String) {
+        self.channel = channel
+        self.engineID = engineID
+        self.version = version
+        self.previousID = previousID
+    }
+
+    package static func load(_ defaults: UserDefaults = .standard) -> EngineSelection {
         EngineSelection(channel: EngineChannel(rawValue: defaults.string(forKey: channelKey) ?? "") ?? .stable,
                         engineID: defaults.string(forKey: idKey) ?? "",
                         version: defaults.string(forKey: versionKey) ?? "",
                         previousID: defaults.string(forKey: previousKey) ?? "")
     }
 
-    func save(_ defaults: UserDefaults = .standard) {
+    package func save(_ defaults: UserDefaults = .standard) {
         defaults.set(channel.rawValue, forKey: Self.channelKey)
         defaults.set(engineID, forKey: Self.idKey)
         defaults.set(version, forKey: Self.versionKey)
@@ -177,27 +182,27 @@ struct EngineSelection: Equatable {
     }
 
     /// Move to a newly installed engine, keeping the one we came from.
-    mutating func switched(to id: String, version: String) {
+    package mutating func switched(to id: String, version: String) {
         if !engineID.isEmpty, engineID != id { previousID = engineID }
         engineID = id
         self.version = version
     }
 
     /// The trees the store keeps: this one and the one before it.
-    var kept: Set<String> { Set([engineID, previousID].filter { !$0.isEmpty }) }
+    package var kept: Set<String> { Set([engineID, previousID].filter { !$0.isEmpty }) }
 }
 
 // ---- Fetching ----
 
 /// What a request for one file gave.
-enum EngineFetch<Value> {
+package enum EngineFetch<Value> {
     case ok(Value)
     case missing        // HTTP 404: the release has no such file
     case failed         // offline, a timeout, any other status
 }
 
 /// The network, as the updater sees it. Tests replace it with files in memory.
-protocol EngineTransport {
+package protocol EngineTransport {
     func data(from url: URL) -> EngineFetch<Data>
     /// Download to `destination` (which does not exist yet). true when the whole file arrived.
     func download(from url: URL, to destination: URL) -> Bool
@@ -205,7 +210,7 @@ protocol EngineTransport {
 
 /// URLSession, waited on from a background queue as the app update does (BuildModel.downloadAndStage).
 /// Nothing is cached: the experimental release replaces its files under the same names.
-struct URLSessionEngineTransport: EngineTransport {
+package struct URLSessionEngineTransport: EngineTransport {
     private let session: URLSession = {
         let c = URLSessionConfiguration.ephemeral
         c.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
@@ -213,7 +218,9 @@ struct URLSessionEngineTransport: EngineTransport {
         return URLSession(configuration: c)
     }()
 
-    func data(from url: URL) -> EngineFetch<Data> {
+    package init() {}
+
+    package func data(from url: URL) -> EngineFetch<Data> {
         var result: EngineFetch<Data> = .failed
         let sem = DispatchSemaphore(value: 0)
         session.dataTask(with: url) { data, response, _ in
@@ -225,7 +232,7 @@ struct URLSessionEngineTransport: EngineTransport {
         return result
     }
 
-    func download(from url: URL, to destination: URL) -> Bool {
+    package func download(from url: URL, to destination: URL) -> Bool {
         var ok = false
         let sem = DispatchSemaphore(value: 0)
         session.downloadTask(with: url) { local, response, _ in
@@ -242,16 +249,21 @@ struct URLSessionEngineTransport: EngineTransport {
 /// One engine update: read the channel's manifest, check its signature, and put its engine into the store, from the
 /// store itself, from the app bundle or from a download whose SHA-256 matches. Runs on a background queue, touches
 /// no UI state, and returns what the model shows.
-enum EngineUpdate {
+package enum EngineUpdate {
     /// An engine as Settings names it.
-    struct Engine: Equatable {
-        let id: String
-        let version: String
+    package struct Engine: Equatable {
+        package let id: String
+        package let version: String
+
+        package init(id: String, version: String) {
+            self.id = id
+            self.version = version
+        }
     }
 
-    enum Via: Equatable { case store, bundle, download }
+    package enum Via: Equatable { case store, bundle, download }
 
-    enum Failure: Error, Equatable {
+    package enum Failure: Error, Equatable {
         case network                                    // the manifest did not arrive
         case noManifest                                 // this channel has no latest.json
         case unsigned(EngineManifest.Signature)         // a key is built in and the signature is absent or wrong
@@ -262,16 +274,16 @@ enum EngineUpdate {
         case install(EngineInstaller.Failure)
     }
 
-    enum Outcome: Equatable {
+    package enum Outcome: Equatable {
         case current(Engine)                            // the selected tree is the channel's engine
         case available(Engine)                          // a newer one exists and `install` was off
         case installed(Engine, Via)
         case failed(Failure)
     }
 
-    static let assetPrefix = ".download-"
+    package static let assetPrefix = ".download-"
 
-    static func run(channel: EngineChannel, appVersion: String, current: String, store: EngineStore, bundled: URL?,
+    package static func run(channel: EngineChannel, appVersion: String, current: String, store: EngineStore, bundled: URL?,
                     publicKey: String = EngineManifest.publicKey, install: Bool, transport: EngineTransport) -> Outcome {
         guard let manifestURL = channel.manifestURL(version: appVersion) else { return .failed(.noManifest) }
         let bundledID = bundled.flatMap { EngineStore.identity(of: $0) }
@@ -342,13 +354,13 @@ enum EngineUpdate {
 
     /// The shader chain before and after a switch, when it changed. Every game then compiles its shaders again on
     /// its next build, which the player is told.
-    static func chainChange(from old: String, to new: String) -> (old: String, new: String)? {
-        guard let a = BuildFolder.currentChain(repo: old), let b = BuildFolder.currentChain(repo: new), a != b else { return nil }
+    package static func chainChange(from old: String, to new: String) -> (old: String, new: String)? {
+        guard let a = EngineLayout.shaderChain(repo: old), let b = EngineLayout.shaderChain(repo: new), a != b else { return nil }
         return (a, b)
     }
 
     /// The localization key of a failure's message.
-    static func key(_ failure: Failure) -> String {
+    package static func key(_ failure: Failure) -> String {
         switch failure {
         case .network: return "engine.fail.network"
         case .noManifest: return "engine.fail.noManifest"
