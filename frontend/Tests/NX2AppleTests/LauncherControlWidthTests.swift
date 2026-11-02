@@ -167,7 +167,7 @@ import NXModel
             .environment(\.measuresLauncherControls, true)
             .onPreferenceChange(LauncherControlSamples.self) { samples.all = $0 }
         let host = NSHostingView(rootView: view)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1100, height: 2600), styleMask: [.titled], backing: .buffered, defer: false)
+        let window = OffscreenWindow(size: NSSize(width: 1100, height: 2600))
         window.contentView = host
         window.orderFront(nil)
         defer { window.orderOut(nil) }
@@ -205,7 +205,7 @@ import NXModel
         let samples = Samples()
         let host = NSHostingView(rootView: view.launcherRowControls().environment(\.measuresLauncherControls, true)
             .onPreferenceChange(LauncherControlSamples.self) { samples.all = $0 }.frame(width: 400, height: 200))
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 200), styleMask: [.titled], backing: .buffered, defer: false)
+        let window = OffscreenWindow(size: NSSize(width: 400, height: 200))
         window.contentView = host
         window.orderFront(nil)
         defer { window.orderOut(nil) }
@@ -278,7 +278,7 @@ import NXModel
                 .environment(\.measuresLauncherControls, true)
                 .onPreferenceChange(LauncherControlSamples.self) { samples.all = $0 }
             let host = NSHostingView(rootView: view)
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 700), styleMask: [.titled], backing: .buffered, defer: false)
+            let window = OffscreenWindow(size: NSSize(width: 600, height: 700))
             window.contentView = host
             window.orderFront(nil)
             RunLoop.main.run(until: Date().addingTimeInterval(0.3))
