@@ -214,7 +214,7 @@ index 0000000..c4d060a
 +if __name__ == '__main__':
 +    unittest.main()
 diff --git a/docs/reference/packing.md b/docs/reference/packing.md
-index caf0c50..93e46f2 100644
+index f145154..4b81b7b 100644
 --- a/docs/reference/packing.md
 +++ b/docs/reference/packing.md
 @@ -1,5 +1,14 @@
@@ -233,7 +233,7 @@ index caf0c50..93e46f2 100644
  
  ### Homebrew .NET is on PATH but apphosts cannot find the runtime
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index e740af7..4ea5b42 100755
+index 75b9b17..cb1febc 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
 @@ -427,9 +427,19 @@ def pfs0_names(path):   # NSP = PFS0: list the file names inside

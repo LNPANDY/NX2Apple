@@ -22,7 +22,6 @@ Strip again afterwards: codesign sets an attribute on what it signs.
 Upstream-Status: forwarded seedds/nxnative#991
 Reason: a build folder or an app on exFAT keeps every file's attributes in a ._name file beside it: the inputs, the copies and codesign all break on them (issue #486)
 Issue: LNPANDY/NX2Apple#486
-
 ---
  dm/mac/pack_app.py                 | 38 ++++++++++++++++++++++--------
  dm/tools/tests/test_nsp_mac_app.py | 18 +++++++++++++-
