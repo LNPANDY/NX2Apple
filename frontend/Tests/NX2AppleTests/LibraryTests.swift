@@ -299,7 +299,7 @@ final class LibraryTests: XCTestCase {
         let marker = temporary.appendingPathComponent("dm/tools/nx_extract/Program.cs")
         try FileManager.default.createDirectory(at: marker.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data().write(to: marker)
-        try BuildModel.requiredTools.filter { $0 != BuildModel.buildScript }.forEach { tool in   // the other files the build checks for (#87)
+        try RepoLayout.requiredTools.filter { $0 != RepoLayout.buildScript }.forEach { tool in   // the other files the build checks for (#87)
             let url = temporary.appendingPathComponent(tool)
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             try Data().write(to: url)
@@ -554,7 +554,7 @@ final class LibraryTests: XCTestCase {
         let marker = temporary.appendingPathComponent("dm/tools/nx_extract/Program.cs")
         try FileManager.default.createDirectory(at: marker.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data().write(to: marker)
-        try BuildModel.requiredTools.filter { $0 != BuildModel.buildScript }.forEach { tool in   // the other files the build checks for (#87)
+        try RepoLayout.requiredTools.filter { $0 != RepoLayout.buildScript }.forEach { tool in   // the other files the build checks for (#87)
             let url = temporary.appendingPathComponent(tool)
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             try Data().write(to: url)
@@ -788,22 +788,22 @@ final class LibraryTests: XCTestCase {
         try capture("settings", page: .settings)
         do {   // #87: a ZIP copy older than the app (no romfs_image.py), without git: auto-update off, then connected at launch, then a build refused
             let zip = temporary.appendingPathComponent("NX2Apple-0.4.5")
-            for f in ["dm/tools/nx_extract/Program.cs", BuildModel.buildScript] {
+            for f in ["dm/tools/nx_extract/Program.cs", RepoLayout.buildScript] {
                 let url = zip.appendingPathComponent(f)
                 try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
                 try Data([0]).write(to: url)
             }
-            let previous = (model.repoPath, model.autoUpdateRepo, model.repoStatus, model.autoAdopted, model.doneNote)
-            defer { (model.repoPath, model.autoUpdateRepo, model.repoStatus, model.autoAdopted, model.doneNote) = previous }
+            let previous = (model.repoPath, model.repo.autoUpdate, model.repo.status, model.repo.autoAdopted, model.doneNote)
+            defer { (model.repoPath, model.repo.autoUpdate, model.repo.status, model.repo.autoAdopted, model.doneNote) = previous }
             model.repoPath = zip.path
-            model.autoUpdateRepo = false
+            model.repo.autoUpdate = false
             try capture("settings-zip-auto-off", page: .settings)
-            model.autoUpdateRepo = true
-            model.repoStatus = String(format: model.t("repo.adoptedAuto"), "zip-copy-2026-10-27")
-            model.autoAdopted = true
+            model.repo.autoUpdate = true
+            model.repo.status = String(format: model.t("repo.adoptedAuto"), "zip-copy-2026-10-27")
+            model.repo.autoAdopted = true
             try capture("library-adopted")
-            model.autoAdopted = false
-            model.repoStatus = ""
+            model.repo.autoAdopted = false
+            model.repo.status = ""
             try capture("settings-zip-old-tools", page: .settings)
             model.startBuild()   // refuses: the copy lacks romfs_image.py
             try capture("build-tools-old", height: 1500, page: .builds)

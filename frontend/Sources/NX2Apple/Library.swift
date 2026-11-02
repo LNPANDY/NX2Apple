@@ -444,7 +444,7 @@ final class GameLibrary: ObservableObject {
         return result.values.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 
-    func discover(repo: String = BuildModel.findRepo()) {
+    func discover(repo: String = RepoLayout.find()) {
         guard !folder.isEmpty, !scanning else { return }
         scanning = true
         let root = URL(fileURLWithPath: folder), installed = applicationFolders

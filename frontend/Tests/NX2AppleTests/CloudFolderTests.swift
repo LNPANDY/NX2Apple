@@ -108,7 +108,7 @@ final class CloudFolderTests: XCTestCase {
 
     @MainActor func testABuildInACloudFolderStopsBeforeItStarts() throws {
         let repo = home.appendingPathComponent("repo")
-        for f in BuildModel.requiredTools + ["dm/tools/nx_extract/Program.cs"] {
+        for f in RepoLayout.requiredTools + ["dm/tools/nx_extract/Program.cs"] {
             let url = repo.appendingPathComponent(f)
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             try "x".write(to: url, atomically: true, encoding: .utf8)

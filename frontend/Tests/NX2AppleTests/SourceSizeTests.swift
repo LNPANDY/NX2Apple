@@ -7,7 +7,7 @@ final class SourceSizeTests: XCTestCase {
 
     /// Path under frontend/Sources → its line count when the limit came in. Lower the number when the file shrinks.
     private static let aboveTheLimit: [String: Int] = [
-        "NX2Apple/ContentView.swift": 2494,
+        "NX2Apple/ContentView.swift": 2265,
         "NX2Apple/LauncherView.swift": 967,
         "NXCore/Localization.swift": 4237,
     ]

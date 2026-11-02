@@ -743,7 +743,7 @@ final class ShellInstallTests: XCTestCase {
         model.signingTeam = team
         model.xcrunPath = f.xcrun
         try write(f.repo + "/dm/tools/nx_extract/Program.cs", "")
-        for tool in BuildModel.requiredTools.filter({ $0 != BuildModel.buildScript }) { try write(f.repo + "/" + tool, "") }
+        for tool in RepoLayout.requiredTools.filter({ $0 != RepoLayout.buildScript }) { try write(f.repo + "/" + tool, "") }
         // the packer stand-in writes the image from the extracted RomFS
         try write(f.repo + "/dm/tools/romfs_image.py", "import sys\nopen(sys.argv[3], 'wb').write(b'image')\n")
         try write(f.repo + "/scripts/build_ipa_from_nsp.py", """
@@ -807,7 +807,7 @@ final class ShellInstallTests: XCTestCase {
         model.signingTeam = team
         model.xcrunPath = f.xcrun
         try write(f.repo + "/dm/tools/nx_extract/Program.cs", "")
-        for tool in BuildModel.requiredTools.filter({ $0 != BuildModel.buildScript }) { try write(f.repo + "/" + tool, "") }
+        for tool in RepoLayout.requiredTools.filter({ $0 != RepoLayout.buildScript }) { try write(f.repo + "/" + tool, "") }
         try write(f.repo + "/scripts/build_ipa_from_nsp.py", "open('\(state)/script.txt', 'w').write('ran')\n")
         let base = temporary.appendingPathComponent("Test [\(titleID)].nsp"), keys = temporary.appendingPathComponent("prod.keys")
         try Data([0]).write(to: base); try Data().write(to: keys)

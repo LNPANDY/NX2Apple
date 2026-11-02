@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 import NXCore
 import NXLauncher
@@ -199,100 +200,32 @@ final class BuildModel: ObservableObject {
         NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: nil) { _ in ProcessGroups.endAll() }
     }()
 
-    /// The checkout of this repository the app drives. A released .app ships on its own,
-    /// so the path is not known at build time: look next to the app bundle, walk up from
-    /// it, then fall back to a saved choice. A repository is identified by
-    /// dm/tools/nx_extract/Program.cs, which only exists in a real checkout.
-    @Published var repoPath: String = BuildModel.findRepo() {
-        didSet { UserDefaults.standard.set(repoPath, forKey: "repoPath") }
+    // ---- The repository (`RepoStore`, NXModel) ----
+    // It owns the path, the status line, the update check, the pull and the automatic update. The model creates it with its services
+    // and wires what reaches back here: whether a build runs, the log, and the engine sync that follows a clone, a pull or an adoption.
+
+    /// Created on first use, on the main thread, because its closures reach back to this model.
+    private(set) lazy var repo: RepoStore = MainActor.assumeIsolated {
+        let store = RepoStore(
+            localizer: localizer, git: gitCheckout,
+            buildRunning: { [unowned self] in running },
+            isReleaseApp: { [unowned self] in usesEngineStore },
+            log: { [unowned self] in append($0) },
+            didMove: { [unowned self] in syncEngine() })   // the pull may have moved the pin or the patches
+        // The build state that reads the repository (`canBuild`, the setup rows) is still here: a change of the repository
+        // redraws what observes this model, as it did when the repository's state was published by it. Goes with the build store.
+        repoChanges = store.objectWillChange.sink { [unowned self] _ in objectWillChange.send() }
+        return store
     }
+    private var repoChanges: AnyCancellable?
 
-    nonisolated static func isRepo(_ dir: String) -> Bool {
-        EngineLayout.isCheckout(dir)   // a checkout with tools/engine.py, a synced engine/, or an engine tree (#214)
+    /// The checkout the build reads, for the build code in this model. The views take it from `repo`.
+    var repoPath: String {
+        get { MainActor.assumeIsolated { repo.path } }
+        set { MainActor.assumeIsolated { repo.path = newValue } }
     }
-
-    /// Every file of the repository the launcher itself runs by path: one list, next to the calls that use it
-    /// (the build script in startBuild, the RomFS archive in the archive step). A copy older than this app lacks some of
-    /// them (#87: romfs_image.py exists since v0.4.8, so a build ran 70 minutes and failed at its last step). A new
-    /// tool the launcher calls goes into this list and is then checked before every build.
-    nonisolated static let buildScript = "scripts/build_ipa_from_nsp.py"
-    nonisolated static let romfsImageTool = "dm/tools/romfs_image.py"
-    nonisolated static let requiredTools = [buildScript, romfsImageTool]
-
-    /// The tools of `requiredTools` that `dir` does not have (empty: the build tools are as new as this app needs).
-    nonisolated static func missingTools(in dir: String) -> [String] {
-        let root = EngineLayout.root(dir)   // the checkout's engine/, or an engine tree itself (Engine.swift)
-        return requiredTools.filter { !FileManager.default.fileExists(atPath: root + "/" + $0) }
-    }
-
-    /// Whether the checkout's build script has this fork's `--work-dir` (issue #5): an upstream
-    /// nxnative checkout, or a ZIP of an older release, stops with "unrecognized arguments" when the
-    /// app passes it. Read from the script's own argparse rather than assumed — the option is the
-    /// fork's, not upstream's.
-    nonisolated static func repoSupportsWorkDir(_ dir: String) -> Bool {
-        let script = EngineLayout.root(dir) + "/" + buildScript
-        if !FileManager.default.fileExists(atPath: script), EngineLayout.hasEngineTool(dir) { return true }   // engine/ not made yet: the fork's engine has it
-        guard let text = try? String(contentsOfFile: script, encoding: .utf8) else { return false }
-        return text.contains("'--work-dir'") || text.contains("\"--work-dir\"")
-    }
-
-    nonisolated static func findRepo() -> String {
-        // A candidate that is merely a repository (an upstream nxnative clone) must lose to one
-        // carrying this fork's `--work-dir`: building from an upstream checkout fails with
-        // "unrecognized arguments" after the app has already picked it — and a saved path from an
-        // earlier session pointed at exactly such a clone, so every build said 仓库不是最新版本
-        // (the report's build log). The fork check is the script's own argparse, not a name match,
-        // so a checkout under any folder name ranks correctly.
-        let saved = UserDefaults.standard.string(forKey: "repoPath").flatMap { isRepo($0) ? $0 : nil }
-        var seeds: [String] = []
-        // the app bundle: …/frontend/NX2Apple.app/Contents/MacOS — the checkout it ships from wins
-        let bundle = Bundle.main.bundleURL.standardizedFileURL
-        seeds.append(bundle.deletingLastPathComponent().path)
-        seeds.append(bundle.deletingLastPathComponent().deletingLastPathComponent()
-                         .deletingLastPathComponent().deletingLastPathComponent().path)
-        seeds.append(FileManager.default.currentDirectoryPath)
-        for base in ["/ZCodeProject/", "/", "/Documents/", "/Desktop/"] {
-            seeds.append(NSHomeDirectory() + base + "nxnative-romfs-archive")   // clones made before the rename still resolve
-            seeds.append(NSHomeDirectory() + base + "NX2Apple")
-            seeds.append(NSHomeDirectory() + base + "nxnative")                 // an upstream clone: last resort
-        }
-        var seen = Set<String>()
-        var repos: [String] = []
-        for s in seeds where !s.isEmpty && seen.insert(s).inserted {
-            var d = s
-            for _ in 0..<5 {                       // walk up a few levels from each seed
-                if isRepo(d) { repos.append(d); break }
-                let up = (d as NSString).deletingLastPathComponent
-                if up == d || up == "/" { break }
-                d = up
-            }
-        }
-        let forks = repos.filter { repoSupportsWorkDir($0) }
-        if let saved, repoSupportsWorkDir(saved) { return saved }   // the player's own fork checkout
-        if let f = forks.first, f != saved {
-            if let saved { fputs("launcher: using the fork checkout \(f); the saved repository \(saved) is an upstream clone without --work-dir\n", stderr) }
-            return f
-        }
-        return saved ?? repos.first ?? ""
-    }
-
-    // ---- Repository download and updates (a clone is the scripts' home; not everyone has git habits) ----
-
-    static let repoURL = "https://github.com/LNPANDY/NX2Apple.git"
-    /// Clone/pull/check in flight; the buttons disable and the status line says what is happening.
-    @Published var repoBusy = false
-    @Published var repoStatus = ""
-    /// nil = not checked yet, 0 = up to date, n = n commits behind origin/main.
-    @Published var repoBehind: Int?
-    /// Pull origin/main by itself when the app opens (Settings; on by default), so the build tools are the current ones:
-    /// a checkout days behind built with tools main had already fixed (spirv-cross without its x bit, #41).
-    @Published var autoUpdateRepo = UserDefaults.standard.object(forKey: "autoUpdateRepo") as? Bool ?? true {
-        didSet { UserDefaults.standard.set(autoUpdateRepo, forKey: "autoUpdateRepo") }
-    }
-    /// The commits the automatic update brought when the app opened; the library's activity line names them. nil: none.
-    @Published var autoPulled: Int?
-    /// A copy without .git was connected to git and brought to the current version when the app opened (adoptAtLaunch).
-    @Published var autoAdopted = false
+    var repoOK: Bool { MainActor.assumeIsolated { repo.isRepo } }
+    var repoIsGit: Bool { MainActor.assumeIsolated { repo.isGit } }
 
     // ---- The release app's engine (EngineUpdater.swift, EngineUpdateModel.swift) ----
 
@@ -316,162 +249,6 @@ final class BuildModel: ObservableObject {
     /// `base` (BundledTools.swift), which is Homebrew's folders and the system's. One place, so that no environment forgets the bundle.
     nonisolated static func toolPath(_ base: String = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin", python: String? = nil) -> String {
         BundledTools.path(base, python: python)
-    }
-
-    /// First-time flow: clone the project to ~/nxnative (the discovery seeds cover it) and select it.
-    func cloneRepo() {
-        guard !running, !repoBusy, !usesEngineStore else { return }
-        guard gitCheckout.binary != nil else { repoStatus = t("repo.gitMissing"); return }
-        let dest = NSHomeDirectory() + "/NX2Apple"
-        if FileManager.default.fileExists(atPath: dest) {
-            if Self.isRepo(dest) { repoPath = dest; repoStatus = ""; checkRepoUpdates() }
-            else { repoStatus = String(format: t("repo.destBusy"), shortPath(dest)) }
-            return
-        }
-        repoBusy = true; repoStatus = t("repo.downloading")
-        append("git clone --depth 1 \(Self.repoURL) \(dest)\n")
-        let checkout = gitCheckout
-        DispatchQueue.global().async {
-            let ok = checkout.clone(url: Self.repoURL, into: dest) {
-                line in DispatchQueue.main.async { self.append(line + "\n") }
-            }
-            DispatchQueue.main.async {
-                self.repoBusy = false
-                if ok && Self.isRepo(dest) {
-                    self.repoPath = dest
-                    self.repoStatus = String(format: self.t("repo.downloadDone"), self.shortPath(dest))
-                    self.syncEngine()
-                } else {
-                    self.repoStatus = self.t("repo.downloadFail")
-                    try? FileManager.default.removeItem(atPath: dest)   // a failed clone leaves an empty folder
-                }
-            }
-        }
-    }
-
-    /// Compare the checkout with origin/main. `silent` is the launch-time check: no status text, no
-    /// error noise when offline — it only fills repoBehind when it can.
-    func checkRepoUpdates(silent: Bool = false) {
-        guard repoOK, repoIsGit, !usesEngineStore else { return }   // a release app updates its engine by version instead
-        guard !running, !repoBusy, gitCheckout.binary != nil else {
-            if !silent, gitCheckout.binary == nil { repoStatus = t("repo.gitMissing") }
-            return
-        }
-        repoBusy = true
-        if !silent { repoStatus = t("repo.checking") }
-        let dir = repoPath, checkout = gitCheckout
-        DispatchQueue.global().async {
-            let behind = checkout.behind(dir) ?? -1
-            DispatchQueue.main.async {
-                self.repoBusy = false
-                if behind >= 0 {
-                    self.repoBehind = behind
-                    if !silent { self.repoStatus = behind == 0 ? self.t("repo.upToDate") : String(format: self.t("repo.behind"), behind) }
-                    else if behind > 0 && self.autoUpdateRepo { self.autoPull(behind) }   // the check when the app opens
-                } else if !silent {
-                    self.repoStatus = self.t("repo.netFail")
-                }
-            }
-        }
-    }
-
-    /// Fast-forward the checkout to origin/main. The build keeps everything it needs under
-    /// <id>_build/ outside the repository, so a pull never disturbs a previous build's files.
-    /// The status line for a failed pull. A diverged checkout ("Not possible to fast-forward") has its
-    /// own commit history — a clone someone worked in, or an old upstream checkout — and no amount of
-    /// pulling fixes that; the actionable answer is the repository picker, which is always offered now.
-    func pullFailureMessage(_ gitOutput: String) -> String {
-        let diverged = gitOutput.contains("fast-forward") || gitOutput.contains("Diverging")
-        return t(diverged ? "repo.pullDiverged" : "repo.pullFail")
-    }
-
-    func pullRepo() {
-        guard !running, !repoBusy, !usesEngineStore, repoOK, repoIsGit, gitCheckout.binary != nil else { return }
-        repoBusy = true; repoStatus = t("repo.pulling")
-        let dir = repoPath, checkout = gitCheckout
-        DispatchQueue.global().async {
-            let r = checkout.pull(dir)
-            DispatchQueue.main.async {
-                self.repoBusy = false
-                if r.ok {
-                    self.repoBehind = 0; self.repoStatus = self.t("repo.pulled")
-                    if !r.out.isEmpty { self.append(r.out + "\n") }
-                    self.syncEngine()   // the pull may have moved the pin or the patches
-                } else {
-                    self.repoStatus = self.pullFailureMessage(r.out)
-                    self.append(r.out + "\n")
-                }
-            }
-        }
-    }
-
-    /// The automatic update when the app opens: a fast-forward to origin/main, only for a checkout on main with no changes
-    /// to its tracked files and no build running, so a checkout someone works in is never touched. Settings says what
-    /// happened (or why not), and the library's activity line names the new commits.
-    func autoPull(_ behind: Int) {
-        guard !running, !repoBusy, !usesEngineStore, repoOK, repoIsGit, gitCheckout.binary != nil else { return }
-        repoBusy = true
-        let dir = repoPath, checkout = gitCheckout
-        DispatchQueue.global().async {
-            let pulled = checkout.autoPull(dir)
-            DispatchQueue.main.async {
-                self.repoBusy = false
-                guard let pulled else { self.repoStatus = self.t("repo.autoSkipped"); return }
-                if pulled.ok {
-                    self.repoBehind = 0; self.autoPulled = behind
-                    self.repoStatus = String(format: self.t("repo.autoPulled"), behind)
-                    self.syncEngine()
-                } else {
-                    self.repoStatus = self.pullFailureMessage(pulled.out)
-                    self.append(pulled.out + "\n")
-                }
-            }
-        }
-    }
-
-    /// The launch-time step for a ZIP copy; a git checkout is left to checkRepoUpdates. Settings and the library's
-    /// activity line say what happened.
-    func adoptAtLaunch(remote: String = BuildModel.repoURL) {
-        guard !usesEngineStore else { return }
-        switch GitRules.zipAdoption(isRepo: repoOK, isGit: repoIsGit, buildRunning: running, repoBusy: repoBusy, autoUpdate: autoUpdateRepo) {
-        case .notNeeded: break
-        case .waitsForBuild: repoStatus = t("repo.zipWaits")
-        case .autoUpdateOff: break   // Settings says so next to the repository (repo.zipNoAuto): the player chose this
-        case .adopt:
-            if gitCheckout.binary == nil { repoStatus = t("repo.gitMissing") }
-            else { adoptRepoAsGit(automatic: true, remote: remote) }
-        }
-    }
-
-    /// A ZIP copy has no .git: adopt it into git in place (init, remote, fetch, checkout) so the
-    /// update buttons work and the folder keeps its path. The copy may hold the player's own edits (a tweaked game
-    /// profile), and the checkout resets every tracked file to origin/main, so the copy is recorded first: after the
-    /// fetch, the files of the copy that origin/main also has are committed on the local branch `zip-copy-<date>`
-    /// (fixed local author, no git identity needed). Only those paths: a build folder or any other file that origin/main
-    /// does not track is never committed (and the checkout leaves such files where they are). The build's own files live
-    /// outside the repository.
-    /// `automatic`: the launch-time adoption (adoptAtLaunch); `remote` is GitHub unless a test points it at a local repository.
-    func adoptRepoAsGit(automatic: Bool = false, remote: String = BuildModel.repoURL) {
-        guard !running, !repoBusy, !usesEngineStore, repoOK, !repoIsGit, gitCheckout.binary != nil else { return }
-        repoBusy = true; repoStatus = t("repo.adopting")
-        let dir = repoPath, checkout = gitCheckout
-        DispatchQueue.global().async {
-            let branch = GitRules.zipCopyBranch()
-            let (ok, out) = checkout.adopt(dir, remote: remote, branch: branch)
-            DispatchQueue.main.async {
-                self.repoBusy = false
-                self.append(out + "\n")
-                if ok && self.repoIsGit {
-                    // the checkout is origin/main as just fetched: up to date, nothing left to pull
-                    self.repoBehind = 0
-                    self.repoStatus = String(format: self.t(automatic ? "repo.adoptedAuto" : "repo.adopted"), branch)
-                    if automatic { self.autoAdopted = true }
-                    self.syncEngine()
-                } else {
-                    self.repoStatus = self.t(automatic ? "repo.adoptFailAuto" : "repo.adoptFail")
-                }
-            }
-        }
     }
 
     /// What waits for the running `tools/engine.py sync` (nil: none runs), and whether another one is due when it ends.
@@ -623,10 +400,6 @@ final class BuildModel: ObservableObject {
 
     func clear(_ id: String) { updateSlot(id) { $0.paths = []; $0.problem = "" } }
 
-    var repoOK: Bool { Self.isRepo(repoPath) }
-    /// A clone has .git; a GitHub "Download ZIP" copy does not (everything builds, but there is
-    /// nothing to fetch or pull — the update buttons hide and the note says to re-download instead).
-    var repoIsGit: Bool { FileManager.default.fileExists(atPath: repoPath + "/.git") }
     var canBuild: Bool { repoOK && slot("base").ok && slot("keys").ok && allDepsPresent && !running }
 
     // MARK: Build
@@ -665,7 +438,7 @@ final class BuildModel: ObservableObject {
             return
         }
         // The tools this app runs, before a build that takes an hour finds one missing at its last step (#87)
-        let missing = Self.missingTools(in: repoPath)
+        let missing = RepoLayout.missingTools(in: repoPath)
         if !missing.isEmpty {
             fail(String(format: t("msg.toolsOld"), missing.joined(separator: ", ")))
             return
@@ -724,7 +497,7 @@ final class BuildModel: ObservableObject {
         // option and would stop with "unrecognized arguments" (issue #5), so ask the script; without
         // it the script's own default (<input>/<title ID>_build) is used and the archive step follows
         // whatever folder the build reports.
-        let hasWorkDir = Self.repoSupportsWorkDir(repoPath)
+        let hasWorkDir = RepoLayout.supportsWorkDir(repoPath)
         if !hasWorkDir {
             say(t("msg.noWorkDir"))
         }
@@ -748,7 +521,7 @@ final class BuildModel: ObservableObject {
             }
         }
         let engine = EngineLayout.root(repoPath)   // the checkout's engine/ (#214)
-        var args = [engine + "/" + Self.buildScript, inputDir, "-k", keysPath,
+        var args = [engine + "/" + RepoLayout.buildScript, inputDir, "-k", keysPath,
                     "--progress", "json"]
         // A compatibility switch the player turned on: written to a small env file the pipeline
         // copies into the app bundle (main.m sets one variable per line at boot). Only for an iPhone or iPad build;
@@ -1282,7 +1055,7 @@ final class BuildModel: ObservableObject {
         // dest/romfs.img: one file, which main.m's per-game lookup takes before any folder.
         let engine = EngineLayout.root(repoPath)
         let romfsPy = pythonPath.isEmpty ? "/usr/bin/python3" : pythonPath
-        let launch = ProcessLaunch(executable: romfsPy, arguments: [engine + "/" + Self.romfsImageTool, "--reuse", romfs, dest + "/romfs.img"],
+        let launch = ProcessLaunch(executable: romfsPy, arguments: [engine + "/" + RepoLayout.romfsImageTool, "--reuse", romfs, dest + "/romfs.img"],
                                    environment: ["PATH": Self.toolPath("/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin", python: romfsPy), "PYTHONPATH": engine + "/dm/tools"]
                                        .merging(BundledTools.environment(for: romfsPy)) { $1 },
                                    groupPython: romfsPy)
@@ -1778,10 +1551,7 @@ final class BuildModel: ObservableObject {
 
     /// Home shown as ~ (shorter in a one-line row, and it keeps the account name out of
     /// screenshots).
-    func shortPath(_ path: String) -> String {
-        let home = NSHomeDirectory()
-        return path.hasPrefix(home) ? "~" + path.dropFirst(home.count) : path
-    }
+    func shortPath(_ path: String) -> String { RepoLayout.shortPath(path) }
 
     /// A dependency row's second column: a path when there is one, else the translated hint.
     /// `detail` carries either a real path, an L10n key, or "key:argument[:argument…]".
@@ -1804,6 +1574,7 @@ final class BuildModel: ObservableObject {
 struct BuilderView: View {
     @ObservedObject var m: BuildModel
     @ObservedObject var updates: AppUpdateStore   // the app's self-update (Settings, "NX2Apple" section)
+    @ObservedObject var repo: RepoStore   // the repository (Settings, "Tools" section, and the setup hint)
     @EnvironmentObject var loc: Localizer
     @ObservedObject var library: GameLibrary
     var settings = false
@@ -1922,7 +1693,7 @@ struct BuilderView: View {
 
     @ViewBuilder private var buildPage: some View {
         pageHeading(loc.t("build.heading"), note: loc.t("build.intro"))
-        if !m.repoOK || !m.allDepsPresent {
+        if !repo.isRepo || !m.allDepsPresent {
             group(loc.t("section.setup")) {
                 row(loc.t("library.setupHint"), dot: LauncherPalette.building) {
                     Button(loc.t("build.setup"), action: onOpenSettings)
@@ -2186,7 +1957,7 @@ struct BuilderView: View {
             Text(loc.t("status.checkingDeps")).font(.manrope(13)).foregroundStyle(.secondary)
         } else if !m.allDepsPresent {
             Text(loc.t("status.installFirst")).font(.manrope(13)).foregroundStyle(LauncherPalette.building)
-        } else if !m.repoOK {
+        } else if !repo.isRepo {
             Text(loc.t("status.chooseRepo")).font(.manrope(13)).foregroundStyle(LauncherPalette.building)
         } else if !m.slot("base").ok || !m.slot("keys").ok {
             Text(loc.t("status.needInputs")).font(.manrope(13)).foregroundStyle(.secondary)
@@ -2322,64 +2093,64 @@ struct BuilderView: View {
 
     private func uninstallPlan() -> Uninstall.Plan {
         Uninstall.plan(home: NSHomeDirectory(), gamesFolder: library.folder, outputFolder: m.outDir,
-                       checkouts: [m.repoPath], defaultsDomain: Bundle.main.bundleIdentifier)
+                       checkouts: [repo.path], defaultsDomain: Bundle.main.bundleIdentifier)
     }
 
     private var tools: some View {
         group(loc.t("section.tools"), footnote: m.usesEngineStore ? m.engineStatus
-                : (m.repoStatus.isEmpty ? (m.repoOK ? "" : loc.t("repo.firstHint")) : m.repoStatus)) {
+                : (repo.status.isEmpty ? (repo.isRepo ? "" : loc.t("repo.firstHint")) : repo.status)) {
             if m.usesEngineStore {
                 engineRows
             } else {
             row(loc.t("repo.title"),
-                detail: m.repoOK ? m.shortPath(m.repoPath)
-                    : (m.repoPath.isEmpty ? loc.t("repo.notFound") : String(format: loc.t("repo.notRepo"), m.shortPath(m.repoPath))),
-                dot: m.repoOK ? LauncherPalette.ready : LauncherPalette.building, help: m.repoPath) {
-                if m.repoBusy { ProgressView().controlSize(.small) }
-                if m.repoOK {
-                    if m.repoIsGit {
-                        if let n = m.repoBehind, n > 0 {
-                            Button(loc.t("repo.pull")) { m.pullRepo() }.disabled(m.repoBusy || m.running)
-                                .padTarget("set.repoPull", scope: "main") { if !(m.repoBusy || m.running) { m.pullRepo() } }
+                detail: repo.isRepo ? m.shortPath(repo.path)
+                    : (repo.path.isEmpty ? loc.t("repo.notFound") : String(format: loc.t("repo.notRepo"), m.shortPath(repo.path))),
+                dot: repo.isRepo ? LauncherPalette.ready : LauncherPalette.building, help: repo.path) {
+                if repo.busy { ProgressView().controlSize(.small) }
+                if repo.isRepo {
+                    if repo.isGit {
+                        if let n = repo.behind, n > 0 {
+                            Button(loc.t("repo.pull")) { repo.pull() }.disabled(repo.busy || m.running)
+                                .padTarget("set.repoPull", scope: "main") { if !(repo.busy || m.running) { repo.pull() } }
                         }
-                        Button(loc.t("repo.check")) { m.checkRepoUpdates() }.disabled(m.repoBusy || m.running)
-                            .padTarget("set.repoCheck", scope: "main") { if !(m.repoBusy || m.running) { m.checkRepoUpdates() } }
+                        Button(loc.t("repo.check")) { repo.checkForUpdates() }.disabled(repo.busy || m.running)
+                            .padTarget("set.repoCheck", scope: "main") { if !(repo.busy || m.running) { repo.checkForUpdates() } }
                     } else {
-                        Button(loc.t("repo.adopt")) { m.adoptRepoAsGit() }.disabled(m.repoBusy || m.running)
-                            .padTarget("set.repoAdopt", scope: "main") { if !(m.repoBusy || m.running) { m.adoptRepoAsGit() } }
+                        Button(loc.t("repo.adopt")) { repo.adoptAsGit() }.disabled(repo.busy || m.running)
+                            .padTarget("set.repoAdopt", scope: "main") { if !(repo.busy || m.running) { repo.adoptAsGit() } }
                     }
                 }
                 // Always offered, including when a repository is already configured: a saved path from
                 // an earlier session (an upstream clone, a moved folder) is exactly the state a user
                 // cannot fix without this button — the report had no way to leave the wrong repository.
                 Button(loc.t("repo.choose")) { pickRepo() }
-                if !m.repoOK {
-                    Button(loc.t("repo.download")) { m.cloneRepo() }.disabled(m.repoBusy || m.running)
+                if !repo.isRepo {
+                    Button(loc.t("repo.download")) { repo.clone() }.disabled(repo.busy || m.running)
                 }
             }
-            if !m.repoOK {
+            if !repo.isRepo {
                 // GitHub does not load everywhere: the manual route (Code → Download ZIP → unzip →
                 // Choose repository) needs no git at all, and the note says which folder to pick.
                 HStack(spacing: 4) {
                     Text(loc.t("repo.manualHint")).foregroundStyle(.secondary)
-                    Link("github.com/LNPANDY/NX2Apple", destination: URL(string: BuildModel.repoURL.replacingOccurrences(of: ".git", with: ""))!)
+                    Link("github.com/LNPANDY/NX2Apple", destination: URL(string: RepoStore.url.replacingOccurrences(of: ".git", with: ""))!)
                     Text(loc.t("repo.manualHint2")).foregroundStyle(.secondary)
                 }
                 .font(.manrope(12)).padding(.horizontal, 18).padding(.bottom, 12)
             }
-            if m.repoOK, !m.repoIsGit {
-                Text(loc.t(m.autoUpdateRepo ? "repo.noGit" : "repo.zipNoAuto")).font(.manrope(12)).foregroundStyle(.secondary)
+            if repo.isRepo, !repo.isGit {
+                Text(loc.t(repo.autoUpdate ? "repo.noGit" : "repo.zipNoAuto")).font(.manrope(12)).foregroundStyle(.secondary)
                     .padding(.horizontal, 18).padding(.bottom, 12)
             }
-            if m.repoOK, !BuildModel.missingTools(in: m.repoPath).isEmpty {
-                Text(String(format: loc.t("repo.toolsOld"), BuildModel.missingTools(in: m.repoPath).joined(separator: ", ")))
+            if repo.isRepo, !RepoLayout.missingTools(in: repo.path).isEmpty {
+                Text(String(format: loc.t("repo.toolsOld"), RepoLayout.missingTools(in: repo.path).joined(separator: ", ")))
                     .font(.manrope(12)).foregroundStyle(LauncherPalette.building)
                     .padding(.horizontal, 18).padding(.bottom, 12)
             }
-            if m.repoOK {   // a ZIP copy too: its adoption at launch follows this switch
+            if repo.isRepo {   // a ZIP copy too: its adoption at launch follows this switch
                 divider
                 row(loc.t("repo.auto"), detail: loc.t("repo.autoNote")) {
-                    Toggle("", isOn: $m.autoUpdateRepo).labelsHidden().toggleStyle(LauncherSwitchStyle())
+                    Toggle("", isOn: $repo.autoUpdate).labelsHidden().toggleStyle(LauncherSwitchStyle())
                 }
             }
             }
@@ -2436,7 +2207,7 @@ struct BuilderView: View {
     @ViewBuilder private var engineRows: some View {
         let idle = !(m.engineBusy || m.running)
         row(loc.t("engine.title"), detail: m.engineDetail,
-            dot: m.engineSelection.engineID.isEmpty ? LauncherPalette.building : LauncherPalette.ready, help: m.repoPath) {
+            dot: m.engineSelection.engineID.isEmpty ? LauncherPalette.building : LauncherPalette.ready, help: repo.path) {
             if m.engineBusy { ProgressView().controlSize(.small) }
             if let next = m.engineAvailable {
                 Button(String(format: loc.t("engine.install"), next.version)) { m.installAvailableEngine() }.disabled(!idle)
@@ -2473,7 +2244,7 @@ struct BuilderView: View {
         }
         divider
         row(loc.t("repo.auto"), detail: loc.t("engine.autoNote")) {
-            Toggle("", isOn: $m.autoUpdateRepo).labelsHidden().toggleStyle(LauncherSwitchStyle())
+            Toggle("", isOn: $repo.autoUpdate).labelsHidden().toggleStyle(LauncherSwitchStyle())
         }
     }
 
@@ -2481,7 +2252,7 @@ struct BuilderView: View {
         let d = NSOpenPanel()
         d.canChooseDirectories = true; d.canChooseFiles = false
         d.message = loc.t("repo.pickMessage")
-        if d.runModal() == .OK, let u = d.url { m.repoPath = u.path }
+        if d.runModal() == .OK, let u = d.url { repo.path = u.path }
     }
 }
 
