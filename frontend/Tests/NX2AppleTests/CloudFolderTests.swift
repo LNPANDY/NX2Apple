@@ -1,11 +1,12 @@
 import XCTest
 @testable import NX2Apple
 @testable import NXCore
+import NXModel
 @testable import NXLauncher
 
 /// #263: a build folder in iCloud Drive fails at the signing step ("resource fork, Finder information, or similar detritus not
 /// allowed"). The launcher says so before the build starts, and reads the same words from a log.
-final class CloudFolderTests: XCTestCase {
+@MainActor final class CloudFolderTests: XCTestCase {
     private var home: URL!
     private var saved: [(String, Any?)] = []
 
@@ -113,9 +114,9 @@ final class CloudFolderTests: XCTestCase {
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             try "x".write(to: url, atomically: true, encoding: .utf8)
         }
-        let m = BuildModel()
+        let mStores = LauncherStores(); let m = mStores.build
         m.target = BuildTarget.mac   // the iPhone / iPad target stops first, at the device check
-        m.repoPath = repo.path
+        mStores.repo.path = repo.path
         m.outDir = ""
         m.updateSlot("base") { $0.paths = ["/Games/Game [0100152000022000].nsp"] }
         var asked: [String] = []

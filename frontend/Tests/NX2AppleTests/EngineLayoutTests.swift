@@ -1,6 +1,7 @@
 import XCTest
 @testable import NX2Apple
 @testable import NXCore
+import NXModel
 @testable import NXLauncher
 
 /// #214: which engine the launcher builds from. A checkout of this repository builds from its engine/ (synced first when it is stale or
@@ -107,49 +108,49 @@ import XCTest
     }
 
     /// A checkout whose tools/engine.py is `script` (a stand-in for the real one) and a model on it.
-    private func model(engineScript script: String) throws -> BuildModel {
+    private func model(engineScript script: String) throws -> LauncherStores {
         try newLayout()
         try touch("tools/engine.py", script)
-        let m = BuildModel()
-        m.repoPath = repo
-        m.dependencies.pythonPath = "/usr/bin/python3"
-        return m
+        let mStores = LauncherStores()
+        mStores.repo.path = repo
+        mStores.dependencies.pythonPath = "/usr/bin/python3"
+        return mStores
     }
 
-    private func waitForSync(_ m: BuildModel, file: StaticString = #filePath, line: UInt = #line) {
+    private func waitForSync(_ mStores: LauncherStores, file: StaticString = #filePath, line: UInt = #line) {
         let deadline = Date().addingTimeInterval(20)
-        while m.engineSync.syncing && Date() < deadline { RunLoop.current.run(until: Date().addingTimeInterval(0.05)) }
-        XCTAssertFalse(m.engineSync.syncing, "the sync did not end", file: file, line: line)
+        while mStores.engineSync.syncing && Date() < deadline { RunLoop.current.run(until: Date().addingTimeInterval(0.05)) }
+        XCTAssertFalse(mStores.engineSync.syncing, "the sync did not end", file: file, line: line)
     }
 
     func testNoNetworkShowsTheStatusThenTheOfflineRowAndRetryRunsTheSyncAgain() throws {
         let counter = root.appendingPathComponent("runs.txt").path
-        let m = try model(engineScript: """
+        let mStores = try model(engineScript: """
             import sys
             open(\(String(reflecting: counter)), 'a').write('x')
             print('engine: cannot fetch aaaaaaaaaaaa from https://github.com/seedds/nxnative.git: Could not resolve host: github.com')
             sys.exit(2)
             """)
-        XCTAssertNil(m.engineSync.failure)
-        m.engineSync.syncEngine()
-        XCTAssertTrue(m.engineSync.syncing, "the status line shows while the engine is fetched")
-        waitForSync(m)
-        XCTAssertEqual(m.engineSync.failure?.kind, .engineOffline)
-        XCTAssertTrue(m.logTail.contains("cannot fetch"), "the log has the tool's line")
-        m.engineSync.retrySync()
-        XCTAssertNil(m.engineSync.failure, "Try again clears the row")
-        XCTAssertTrue(m.engineSync.syncing)
-        waitForSync(m)
-        XCTAssertEqual(m.engineSync.failure?.kind, .engineOffline)
+        XCTAssertNil(mStores.engineSync.failure)
+        mStores.engineSync.syncEngine()
+        XCTAssertTrue(mStores.engineSync.syncing, "the status line shows while the engine is fetched")
+        waitForSync(mStores)
+        XCTAssertEqual(mStores.engineSync.failure?.kind, .engineOffline)
+        XCTAssertTrue(mStores.build.logTail.contains("cannot fetch"), "the log has the tool's line")
+        mStores.engineSync.retrySync()
+        XCTAssertNil(mStores.engineSync.failure, "Try again clears the row")
+        XCTAssertTrue(mStores.engineSync.syncing)
+        waitForSync(mStores)
+        XCTAssertEqual(mStores.engineSync.failure?.kind, .engineOffline)
         XCTAssertEqual(try String(contentsOfFile: counter, encoding: .utf8), "xx", "the retry ran the tool again")
     }
 
     func testASyncThatWorksLeavesNoRow() throws {
-        let m = try model(engineScript: "print('engine: ready')\n")
-        m.engineSync.failure = BuildFailure(kind: .engineOffline, gameName: nil)
-        m.engineSync.syncEngine()
-        waitForSync(m)
-        XCTAssertNil(m.engineSync.failure)
+        let mStores = try model(engineScript: "print('engine: ready')\n")
+        mStores.engineSync.failure = BuildFailure(kind: .engineOffline, gameName: nil)
+        mStores.engineSync.syncEngine()
+        waitForSync(mStores)
+        XCTAssertNil(mStores.engineSync.failure)
     }
 
     func testOfflineRowsHaveARetryButtonAndTheStatusLineHasText() {

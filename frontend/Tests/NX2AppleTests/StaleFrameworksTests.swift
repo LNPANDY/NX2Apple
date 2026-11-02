@@ -2,9 +2,10 @@ import XCTest
 import SwiftUI
 @testable import NX2Apple
 @testable import NXCore
+import NXModel
 
 /// LNPANDY/NX2Apple#449: a shell folder with one framework of the current chain and one of the old chain.
-final class StaleFrameworksTests: XCTestCase {
+@MainActor final class StaleFrameworksTests: XCTestCase {
     private let current = "b-b7cd656abd7c"
     private let old = "b-e65a4ebd3322"
     private let oldID = "0100A00019DE0000"
@@ -79,7 +80,7 @@ final class StaleFrameworksTests: XCTestCase {
     func testStopLeavesEveryFileAsItWas() throws {
         let (stale, fresh) = try shell()
         let before = try Data(contentsOf: URL(fileURLWithPath: ShellLibrary.stateFile(root: tmp + "/shell")))
-        let model = BuildModel()
+        let modelStores = LauncherStores(); let model = modelStores.build
         model.staleFrameworks = found()
         XCTAssertFalse(model.staleFrameworks.isEmpty)
         model.stopForStaleFrameworks()
@@ -91,7 +92,7 @@ final class StaleFrameworksTests: XCTestCase {
 
     func testContinueRemovesTheStaleFrameworkAndKeepsTheCurrentOne() throws {
         let (stale, fresh) = try shell()
-        let failed = BuildModel.removeStaleFrameworks(found(), root: tmp + "/shell")
+        let failed = BuildStore.removeStaleFrameworks(found(), root: tmp + "/shell")
         XCTAssertEqual(failed, [])
         XCTAssertFalse(exists(stale))
         XCTAssertTrue(exists(fresh))
@@ -101,7 +102,7 @@ final class StaleFrameworksTests: XCTestCase {
 
     func testContinueStartsTheBuildAndTheModelEndsWithoutAPrompt() throws {
         _ = try shell()
-        let model = BuildModel()
+        let modelStores = LauncherStores(); let model = modelStores.build
         model.staleFrameworks = found()
         var started = false
         UserDefaults.standard.set(tmp + "/shell", forKey: "shellRoot")

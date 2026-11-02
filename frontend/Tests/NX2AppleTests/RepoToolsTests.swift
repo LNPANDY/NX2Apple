@@ -1,11 +1,12 @@
 import XCTest
 @testable import NX2Apple
 @testable import NXCore
+import NXModel
 @testable import NXLauncher
 
 /// #87: a ZIP copy of the repository is connected to git when the app opens, and a build does not start with build tools
 /// older than the app. Temporary folders and a local repository stand in for the user's copy and for GitHub.
-final class RepoToolsTests: XCTestCase {
+@MainActor final class RepoToolsTests: XCTestCase {
     private var temporary: URL!
     private var saved: [(String, Any?)] = []
 
@@ -56,8 +57,8 @@ final class RepoToolsTests: XCTestCase {
     @MainActor func testABuildWithOldToolsRefusesToStart() throws {
         let repo = temporary.appendingPathComponent("old")
         try write(["dm/tools/nx_extract/Program.cs", RepoLayout.buildScript], in: repo)
-        let m = BuildModel()
-        m.repoPath = repo.path
+        let mStores = LauncherStores(); let m = mStores.build
+        mStores.repo.path = repo.path
         m.target = BuildTarget.mac
         m.startBuild()
         XCTAssertFalse(m.running, "no build was started")
@@ -82,25 +83,26 @@ final class RepoToolsTests: XCTestCase {
         return (origin, zip)
     }
 
-    @MainActor private func openZip(_ f: (origin: URL, zip: URL), auto: Bool, remote: String? = nil) -> BuildModel {
-        let m = BuildModel()
-        m.repoPath = f.zip.path
-        m.repo.autoUpdate = auto
-        m.repo.adoptAtLaunch(remote: remote ?? "file://" + f.origin.path)
-        guard auto else { return m }   // nothing runs, nothing to wait for
-        let settled = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in !m.repo.busy && !m.repo.status.isEmpty && m.repo.status != m.t("repo.adopting") }, object: nil)
+    @MainActor private func openZip(_ f: (origin: URL, zip: URL), auto: Bool, remote: String? = nil) -> LauncherStores {
+        let mStores = LauncherStores(); let m = mStores.build
+        mStores.repo.path = f.zip.path
+        mStores.repo.autoUpdate = auto
+        mStores.repo.adoptAtLaunch(remote: remote ?? "file://" + f.origin.path)
+        guard auto else { return mStores }   // nothing runs, nothing to wait for
+        let settled = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in !mStores.repo.busy && !mStores.repo.status.isEmpty && mStores.repo.status != m.t("repo.adopting") }, object: nil)
         wait(for: [settled], timeout: 20)
-        return m
+        return mStores
     }
 
     @MainActor func testAZipCopyIsConnectedAndUpdatedAtLaunch() throws {
         guard FileManager.default.isExecutableFile(atPath: "/usr/bin/git") else { throw XCTSkip("git is required for the fixture") }
         let f = try fixture()
         XCTAssertEqual(RepoLayout.missingTools(in: f.zip.path), [RepoLayout.romfsImageTool])
-        let m = openZip(f, auto: true)
-        XCTAssertTrue(m.repoIsGit)
-        XCTAssertTrue(m.repo.autoAdopted)
-        XCTAssertEqual(m.repo.status, String(format: m.t("repo.adoptedAuto"), GitRules.zipCopyBranch()))
+        let mStores = openZip(f, auto: true)
+        let m = mStores.build
+        XCTAssertTrue(mStores.repo.isGit)
+        XCTAssertTrue(mStores.repo.autoAdopted)
+        XCTAssertEqual(mStores.repo.status, String(format: m.t("repo.adoptedAuto"), GitRules.zipCopyBranch()))
         XCTAssertEqual(RepoLayout.missingTools(in: f.zip.path), [], "the tools of origin/main are there now")
         XCTAssertEqual(try git("rev-parse", "--abbrev-ref", "HEAD", in: f.zip), "main")
         XCTAssertEqual(try String(contentsOf: f.zip.appendingPathComponent(RepoLayout.buildScript), encoding: .utf8), "new")
@@ -112,7 +114,8 @@ final class RepoToolsTests: XCTestCase {
         try "my tweak".write(to: f.zip.appendingPathComponent(RepoLayout.buildScript), atomically: true, encoding: .utf8)   // an edited tracked file
         try write(["dm/mine/notes.txt"], in: f.zip, text: "mine")                                       // a file origin does not have
         try write(["dm/tools/build/huge.bin"], in: f.zip, text: "build output")
-        let m = openZip(f, auto: true)
+        let mStores = openZip(f, auto: true)
+        let m = mStores.build
         let branch = GitRules.zipCopyBranch()
         XCTAssertEqual(try git("show", "main:" + RepoLayout.buildScript, in: f.zip), "new", "main has origin's version")
         XCTAssertEqual(try String(contentsOf: f.zip.appendingPathComponent(RepoLayout.buildScript), encoding: .utf8), "new")
@@ -121,25 +124,27 @@ final class RepoToolsTests: XCTestCase {
                        ["dm/tools/nx_extract/Program.cs", RepoLayout.buildScript].sorted(), "only paths origin tracks are recorded")
         XCTAssertEqual(try git("log", "-1", "--format=%an", branch, in: f.zip), "NX2Apple")
         XCTAssertTrue(FileManager.default.fileExists(atPath: f.zip.appendingPathComponent("dm/mine/notes.txt").path), "untracked files stay where they are")
-        XCTAssertTrue(m.repo.status.contains(branch), m.repo.status)
+        XCTAssertTrue(mStores.repo.status.contains(branch), mStores.repo.status)
     }
 
     @MainActor func testWithTheAutomaticUpdateOffTheZipCopyIsLeftAlone() throws {
         guard FileManager.default.isExecutableFile(atPath: "/usr/bin/git") else { throw XCTSkip("git is required for the fixture") }
         let f = try fixture()
-        let m = openZip(f, auto: false)
-        XCTAssertFalse(m.repoIsGit)
-        XCTAssertFalse(m.repo.autoAdopted)
-        XCTAssertTrue(m.repo.status.isEmpty, "Settings says it next to the repository (repo.zipNoAuto), not as a status")
+        let mStores = openZip(f, auto: false)
+        let m = mStores.build
+        XCTAssertFalse(mStores.repo.isGit)
+        XCTAssertFalse(mStores.repo.autoAdopted)
+        XCTAssertTrue(mStores.repo.status.isEmpty, "Settings says it next to the repository (repo.zipNoAuto), not as a status")
         XCTAssertEqual(RepoLayout.missingTools(in: f.zip.path), [RepoLayout.romfsImageTool])
     }
 
     @MainActor func testAnUnreachableOriginSaysWhyAndLeavesTheCopyUsable() throws {
         guard FileManager.default.isExecutableFile(atPath: "/usr/bin/git") else { throw XCTSkip("git is required for the fixture") }
         let f = try fixture()
-        let m = openZip(f, auto: true, remote: "file://" + temporary.appendingPathComponent("does-not-exist.git").path)
-        XCTAssertEqual(m.repo.status, m.t("repo.adoptFailAuto"))
-        XCTAssertFalse(m.repo.autoAdopted)
+        let mStores = openZip(f, auto: true, remote: "file://" + temporary.appendingPathComponent("does-not-exist.git").path)
+        let m = mStores.build
+        XCTAssertEqual(mStores.repo.status, m.t("repo.adoptFailAuto"))
+        XCTAssertFalse(mStores.repo.autoAdopted)
         XCTAssertTrue(RepoLayout.isRepo(f.zip.path), "the files are still there")
         XCTAssertEqual(try String(contentsOf: f.zip.appendingPathComponent(RepoLayout.buildScript), encoding: .utf8), "old", "nothing was changed")
         XCTAssertFalse(FileManager.default.fileExists(atPath: f.zip.appendingPathComponent(".git").path))

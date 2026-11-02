@@ -7,7 +7,7 @@ import Foundation
 /// The player no longer fetches the repository: the release ships an engine tree — the repository minus
 /// the launcher sources (`dm/`, `scripts/`, `docs/`, `ref/`, `.upstream-ref`, `dm/fork_patches.txt`) —
 /// and the launcher unpacks it next to its own Application Support folder. That folder then *is* the
-/// checkout the build reads (`BuildModel.repoPath`), so `isRepo`, the build script and the RomFS tool
+/// checkout the build reads (`RepoStore.path`), so `isRepo`, the build script and the RomFS tool
 /// keep working unchanged.
 ///
 /// Two channels, one manifest shape: `stable` is the engine that shipped with this release, `experimental` is the

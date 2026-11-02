@@ -2,10 +2,11 @@ import XCTest
 import SwiftUI
 @testable import NX2Apple
 @testable import NXCore
+import NXModel
 @testable import NXLauncher
 
 /// Files dropped on the Builds page (issue #68), sorted by the same classification as Choose game folder.
-final class DropFilesTests: XCTestCase {
+@MainActor final class DropFilesTests: XCTestCase {
     private var temporary: URL!
 
     override func setUpWithError() throws {
@@ -25,7 +26,7 @@ final class DropFilesTests: XCTestCase {
     }
 
     func testPickedFilesThatDoNotFitTheRowAreNotTaken() throws {
-        let m = BuildModel()
+        let mStores = LauncherStores(); let m = mStores.build
         let base = try file("01007EF00011E000_v0_420d1c5034ab.nsp")
         let update = try file("01007EF00011E800_v1114112_038ff9df0888.nsp")
         let dlc1 = try file("01007EF00011F001_v196608_8a46aae731b8.nsp")
@@ -62,7 +63,7 @@ final class DropFilesTests: XCTestCase {
         let new = try file("01007EF00011E800_v1114112_038ff9df0888.nsp", in: "reporter")
         _ = try file("01007EF00011F001_v196608_8a46aae731b8.nsp", in: "reporter")
         _ = try file("01007EF00011F002_v196608_193e5731baf2.nsp", in: "reporter")
-        let m = BuildModel()
+        let mStores = LauncherStores(); let m = mStores.build
         m.lang = .en
         m.scan(folder: folder.path)
         XCTAssertEqual(m.updatePath, new)
@@ -71,11 +72,11 @@ final class DropFilesTests: XCTestCase {
         XCTAssertTrue(m.slot("update").summary(m.t).contains("the newest of 2"))
         XCTAssertFalse(m.slot("update").note.contains(";"))
         XCTAssertTrue(m.slot("dlc").summary(m.t).hasPrefix("2 files"))
-        XCTAssertTrue(BuildModel().slot("dlc").summary(m.t).contains("several files"))
+        XCTAssertTrue(LauncherStores().build.slot("dlc").summary(m.t).contains("several files"))
     }
 
     func testDroppedFilesJoinWhatIsAlreadyChosen() throws {
-        let m = BuildModel()
+        let mStores = LauncherStores(); let m = mStores.build
         let base = try file("Game [0100000000010000].nsp", in: "base")
         let dlc1 = try file("Game DLC [0100000000011001].nsp", in: "dlc")
         m.take(dropped: [base, dlc1])
@@ -95,7 +96,7 @@ final class DropFilesTests: XCTestCase {
         m.take(dropped: [try file("cover.jpg")])
         XCTAssertEqual(m.basePath, base)
         XCTAssertEqual(m.slot("base").problem, "")
-        let empty = BuildModel()
+        let emptyStores = LauncherStores(); let empty = emptyStores.build
         empty.take(dropped: [try file("notes.txt")])
         XCTAssertEqual(empty.slot("base").problem, "data.noNsp")
     }
@@ -106,7 +107,7 @@ final class DropFilesTests: XCTestCase {
         let keys = try file("prod.keys", in: "Game")
         try file("Game [0100000000010800][v999999].nsp", in: "Game/0100000000010000_build")   // the pipeline's own folder is pruned
         let folder = temporary.appendingPathComponent("Game").path
-        let m = BuildModel()
+        let mStores = LauncherStores(); let m = mStores.build
         m.take(dropped: [folder])
         XCTAssertEqual(m.gameDir, folder)
         XCTAssertEqual(m.basePath, base)
@@ -114,7 +115,7 @@ final class DropFilesTests: XCTestCase {
         XCTAssertEqual(m.keysPath, keys)
 
         // a folder with a file beside it: the folder's files and the file, added to what is chosen
-        let other = BuildModel()
+        let otherStores = LauncherStores(); let other = otherStores.build
         let dlc = try file("Game DLC [0100000000011001].nsp", in: "elsewhere")
         other.take(dropped: [folder, dlc])
         XCTAssertEqual(other.basePath, base)
@@ -131,14 +132,14 @@ final class DropFilesTests: XCTestCase {
         NSApplication.shared.setActivationPolicy(.accessory)
         let oldOutput = UserDefaults.standard.object(forKey: "buildOutputDirectory")
         defer { UserDefaults.standard.set(oldOutput, forKey: "buildOutputDirectory") }
-        let model = BuildModel()
+        let modelStores = LauncherStores(); let model = modelStores.build
         model.lang = CaptureLanguage.current(.en)
         model.outDir = temporary.path
-        MainActor.assumeIsolated { model.dependencies.checked = true }
-        MainActor.assumeIsolated { model.dependencies.deps = [Dep(id: "test", name: "Xcode", hint: "", present: true, installCmd: [])] }
+        MainActor.assumeIsolated { modelStores.dependencies.checked = true }
+        MainActor.assumeIsolated { modelStores.dependencies.deps = [Dep(id: "test", name: "Xcode", hint: "", present: true, installCmd: [])] }
         let library = GameLibrary(file: temporary.appendingPathComponent("preview.json"))
         // the page as a drag shows it: the highlight drawn over the Builds page
-        let page = BuilderView(m: model, updates: model.appUpdates, repo: model.repo, engine: model.engineSync, dependencies: model.dependencies, devices: model.deviceStore, library: library).environmentObject(PadFocus()).environmentObject(model.localizer)
+        let page = BuilderView(m: model, updates: modelStores.appUpdates, repo: modelStores.repo, engine: modelStores.engineSync, dependencies: modelStores.dependencies, devices: modelStores.deviceStore, library: library).environmentObject(PadFocus()).environmentObject(modelStores.localizer)
             .modifier(GameFilesDrop(enabled: true, label: model.t("drop.hint"), targeted: true) { _ in })
             .frame(width: 1100, height: 760).background(LauncherPalette.background).environment(\.colorScheme, .dark)
         let host = NSHostingView(rootView: page)

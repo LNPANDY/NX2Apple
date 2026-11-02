@@ -1,13 +1,12 @@
 import Foundation
-import NXCore
 
-enum BuildFailureClassifier {
+package enum BuildFailureClassifier {
     /// One row per message of the script. The pattern is a stable part of the text in scripts/build_ipa_from_nsp.py,
     /// dm/gfx/tools/own_compilers.py or dm/tools/nx_extract/Program.cs (regular expressions, searched in the log).
     /// Frontend/Tests/Fixtures/build_failures.json holds the real message for every row, and a test checks that each
     /// fragment is still in the engine's script, so a sync that rewords a message fails there instead of turning a
     /// hint into the raw last line. The Qt front end has the same table (nspb_qt/build_failure.py, compared by a test).
-    static let table: [(id: String, kind: BuildFailureKind, pattern: String)] = [
+    package static let table: [(id: String, kind: BuildFailureKind, pattern: String)] = [
         ("rosetta.intel", .rosetta, "is an Intel one running under Rosetta"),
         ("translator.run", .translator, "the shader translator does not run"),
         ("translator.start", .translator, "the shader translator does not start"),
@@ -28,16 +27,21 @@ enum BuildFailureClassifier {
 
     /// What the launcher itself knows when the log says nothing it can use. The keys file and the game files are checked
     /// first: a drive that is not connected makes every later message ("not a folder", a dangling link) a consequence.
-    struct Inputs {
-        var keysPath = ""
-        var paths: [String] = []          // the picked game files and the game folder
-        var volumes = "/Volumes"
-        var isReadable: (String) -> Bool = { FileManager.default.isReadableFile(atPath: $0) }
+    package struct Inputs {
+        package var keysPath = ""
+        package var paths: [String] = []          // the picked game files and the game folder
+        package var volumes = "/Volumes"
+        package var isReadable: (String) -> Bool = { FileManager.default.isReadableFile(atPath: $0) }
+
+        package init(keysPath: String = "", paths: [String] = [], volumes: String = "/Volumes",
+                     isReadable: @escaping (String) -> Bool = { FileManager.default.isReadableFile(atPath: $0) }) {
+            self.keysPath = keysPath; self.paths = paths; self.volumes = volumes; self.isReadable = isReadable
+        }
     }
 
     /// `unknown` when no row matches: the caller then keeps showing the last line of the log.
-    static func classify(_ log: String, inputs: Inputs = Inputs()) -> BuildFailure {
-        for path in [inputs.keysPath] + inputs.paths where !path.isEmpty && GameLibrary.onUnmountedVolume(path, volumes: inputs.volumes) {
+    package static func classify(_ log: String, inputs: Inputs = Inputs()) -> BuildFailure {
+        for path in [inputs.keysPath] + inputs.paths where !path.isEmpty && VolumePath.onUnmounted(path, volumes: inputs.volumes) {
             let prefix = inputs.volumes.hasSuffix("/") ? inputs.volumes : inputs.volumes + "/"
             let name = path.dropFirst(prefix.count).split(separator: "/").first.map(String.init)
             return BuildFailure(kind: .driveMissing, gameName: nil, detail: name)
@@ -65,11 +69,11 @@ enum BuildFailureClassifier {
 
     /// A step of the install on a device that failed, with the tool's last error line. The sign step's own retry (the team's
     /// variant of the bundle ID) has run already when this is called.
-    enum InstallStep { case sign, install, copy }
+    package enum InstallStep { case sign, install, copy }
 
     /// nil when the launcher has no better words than the tool's own line. `teamListed`: whether the chosen team is still one
     /// the Mac knows (an account signed in to Xcode, or a development certificate in the keychain).
-    static func classifyInstall(_ step: InstallStep, error: String, teamListed: Bool) -> BuildFailure? {
+    package static func classifyInstall(_ step: InstallStep, error: String, teamListed: Bool) -> BuildFailure? {
         if error.contains("No space left on device") { return BuildFailure(kind: .diskFull, gameName: nil) }
         switch step {
         case .sign:
@@ -81,12 +85,12 @@ enum BuildFailureClassifier {
     }
 
     /// xcodebuild's words when the app's identifier is registered to another team.
-    static func signingTeamTaken(_ error: String) -> Bool {
+    package static func signingTeamTaken(_ error: String) -> Bool {
         error.contains("cannot be registered to your development team") || error.contains("No profiles for 'org.nxnative.")
     }
 
     /// "<name> (<title ID>) is a 32-bit ARM program": the name is "?" when the extraction has none.
-    static func gameName(in log: String) -> String? {
+    package static func gameName(in log: String) -> String? {
         guard let r = log.range(of: #"(?m)^(?:\[RED\] )?.+? \([0-9A-Fa-f]{16}\) is a 32-bit ARM program"#, options: .regularExpression) else { return nil }
         var line = String(log[r])
         if line.hasPrefix("[RED] ") { line.removeFirst(6) }
@@ -96,7 +100,7 @@ enum BuildFailureClassifier {
     }
 
     /// The build arguments with the one-off override added: exactly one `--allow-*`, or none.
-    static func arguments(_ args: [String], adding flag: String?) -> [String] {
+    package static func arguments(_ args: [String], adding flag: String?) -> [String] {
         let rest = args.filter { !$0.hasPrefix("--allow-") }
         guard let flag, flag.hasPrefix("--allow-") else { return rest }
         return rest + [flag]

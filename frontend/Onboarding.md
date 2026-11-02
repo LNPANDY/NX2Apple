@@ -1,6 +1,6 @@
 # First-run UI preview
 
-With a recognized `NSPB_ONBOARDING_DEMO` value the app shows a scripted preview of the guided setup. The preview never instantiates `BuildModel`, detects tools, reads selected files, installs anything or opens the App Store. Its exit screen stands in for opening the library. Without it, `RootView` (`OnboardingRoot.swift`) runs the real flow described under "The real driver" below, or opens the launcher.
+With a recognized `NSPB_ONBOARDING_DEMO` value the app shows a scripted preview of the guided setup. The preview never instantiates `LauncherStores`, detects tools, reads selected files, installs anything or opens the App Store. Its exit screen stands in for opening the library. Without it, `RootView` (`OnboardingRoot.swift`) runs the real flow described under "The real driver" below, or opens the launcher.
 
 From the repository root, enter `frontend`, then run one scenario:
 
@@ -54,12 +54,12 @@ Persist the current step and selections before handling `skipForLater`, then inj
 
 ## The real driver
 
-`LiveOnboardingDriver` (`LiveOnboardingDriver.swift`) implements the contract over the launcher's own `BuildModel` and `GameLibrary`, which `RootView` shares with `ContentView`. Everything it does to the machine goes through `OnboardingEnvironment`, so the tests use fakes.
+`LiveOnboardingDriver` (`LiveOnboardingDriver.swift`) implements the contract over the launcher's own `LauncherStores` (its `BuildStore` and `DependencyStore`) and `GameLibrary`, which `RootView` shares with `ContentView`. Everything it does to the machine goes through `OnboardingEnvironment`, so the tests use fakes.
 
 - When it shows: on launch, unless `onboarding.completed` is set or setup is already complete (all tools present, a keys file known, a games folder set, and a complete one is marked done without being shown). Settings has "Run setup again". Set up later stores the step, platform and an in-progress flag in `UserDefaults`, and the next launch resumes there and revalidates (a stored step past Xcode returns to Xcode when Xcode no longer holds).
-- Detection and installs are `DependencyStore.check` / `deps` / `install`, one install at a time (Python, .NET, then Homebrew and the formulas). Homebrew waits for Xcode to be ready. The xcode row asks for the iOS SDK only when the stored platform is not Mac-only or builds target an iPhone (`BuildModel.needsIOSPlatform`).
+- Detection and installs are `DependencyStore.check` / `deps` / `install`, one install at a time (Python, .NET, then Homebrew and the formulas). Homebrew waits for Xcode to be ready. The xcode row asks for the iOS SDK only when the stored platform is not Mac-only or builds target an iPhone (`LauncherStores.needsIOSPlatform`).
 - Xcode: missing opens the App Store and polls /Applications for it, and setup is one administrator prompt (`OnboardingAdmin.source`: `xcode-select -s`, `xcodebuild -license accept`, `-runFirstLaunch`), then the Metal Toolchain and, for iPhone or both, the iOS platform without it. A cancelled prompt returns to `needsSetup`.
-- Keys are found in `~/.switch`, `~/Downloads` and the games folder, checked by `KeyCheck`, and only the path goes into the keys slot. Games use `GameLibrary.sourceGames`, `BuildModel.scan` and `GameLibrary.setFolder`.
+- Keys are found in `~/.switch`, `~/Downloads` and the games folder, checked by `KeyCheck`, and only the path goes into the keys slot. Games use `GameLibrary.sourceGames`, `BuildStore.scan` and `GameLibrary.setFolder`.
 
 ## NVN hints
 

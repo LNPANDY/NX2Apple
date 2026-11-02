@@ -6,14 +6,14 @@ import NXLauncher
 /// Under the build button after a stop the script's early checks explain: what happened in plain words, the next step, and the
 /// button that does it (a dependency's own install command, or "Build anyway" for the three stops that have an override).
 struct BuildFailureCard: View {
-    @ObservedObject var m: BuildModel
+    @ObservedObject var m: BuildStore
     /// Where the engine's failure row retries. nil for a failure of a build.
     var engine: EngineSyncStore?
     @EnvironmentObject var loc: Localizer
     /// The failure to show: the build's (`m.failure`) unless the caller passes another one, such as the engine sync's.
     var failure: BuildFailure?
 
-    init(m: BuildModel, engine: EngineSyncStore? = nil, failure: BuildFailure? = nil) {
+    init(m: BuildStore, engine: EngineSyncStore? = nil, failure: BuildFailure? = nil) {
         self.m = m
         self.engine = engine
         self.failure = failure
@@ -95,7 +95,7 @@ struct BuildFailureCard: View {
 /// updates), and its failure row when that stops: what happened, what to do, and Try again.
 struct EngineSyncBanner: View {
     @ObservedObject var engine: EngineSyncStore
-    let m: BuildModel
+    let m: BuildStore
     @EnvironmentObject var loc: Localizer
 
     var body: some View {

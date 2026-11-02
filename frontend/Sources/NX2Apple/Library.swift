@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import NXCore
+import NXModel
 import NXLauncher
 
 /// Only paths and presentation metadata live here. Game data stays on its original drive.
@@ -296,9 +297,7 @@ final class GameLibrary: ObservableObject {
     /// A path on an external volume (`/Volumes/<name>/...`) whose mount point is absent: the drive is not connected, so the file is
     /// not known to be gone and its path must stay.
     static func onUnmountedVolume(_ path: String, volumes: String = "/Volumes") -> Bool {
-        let prefix = volumes.hasSuffix("/") ? volumes : volumes + "/"
-        guard path.hasPrefix(prefix), let name = path.dropFirst(prefix.count).split(separator: "/").first else { return false }
-        return !FileManager.default.fileExists(atPath: prefix + name)
+        VolumePath.onUnmounted(path, volumes: volumes)
     }
 
     /// Forgets a remembered Mac app, IPA or iOS app that is gone from disk, so nothing points at it. A file on a drive that is not
@@ -490,11 +489,11 @@ final class GameLibrary: ObservableObject {
         return game.id
     }
 
-    @discardableResult func rememberInputs(_ model: BuildModel) -> UUID? {
+    @MainActor @discardableResult func rememberInputs(_ model: BuildStore) -> UUID? {
         guard !model.basePath.isEmpty else { return nil }
         let titleID = TitleID.parse(model.basePath).map { String(format: "%016llX", $0) }
             ?? URL(fileURLWithPath: model.basePath).standardizedFileURL.path
-        var game = games.first { $0.titleID == titleID } ?? LibraryGame(titleID: titleID, name: Self.title(for: model.basePath, repo: model.repoPath, titleID: titleID))
+        var game = games.first { $0.titleID == titleID } ?? LibraryGame(titleID: titleID, name: Self.title(for: model.basePath, repo: model.repo.path, titleID: titleID))
         game.inputs = Dictionary(uniqueKeysWithValues: model.slots.map { ($0.id, $0.paths) })
         game.outputDirectory = model.outDir
         if !model.gameDir.isEmpty { game.sourceFolder = model.gameDir }

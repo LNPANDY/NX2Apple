@@ -342,7 +342,7 @@ struct SaveTransfer {
 /// The Saves sheet: the game's save on this Mac and on the device it was installed on, which is newer, and a copy either way.
 /// A copy asks first, in the sheet itself (a controller reaches it), and says where the save it replaced went.
 struct SavesView: View {
-    @ObservedObject var m: BuildModel
+    @ObservedObject var m: BuildStore
     @EnvironmentObject var loc: Localizer
     @ObservedObject var library: GameLibrary
     let gameID: UUID
@@ -357,21 +357,21 @@ struct SavesView: View {
 
     /// `devicectl` and `listDevices` are what tests and the visual QA hand in as stand-ins: with a stand-in devicectl and no
     /// device list, the devices are the ones the launcher already knows, so nothing asks the system for them.
-    init(m: BuildModel, library: GameLibrary, gameID: UUID, devicectl: DeviceControl? = nil, support: URL? = nil,
+    init(m: BuildStore, library: GameLibrary, gameID: UUID, devicectl: DeviceControl? = nil, support: URL? = nil,
          listDevices: (() -> [AppleDevice])? = nil, timeout: TimeInterval = 30) {
         self.m = m; self.library = library; self.gameID = gameID; self.support = support
         let game = library.games.first { $0.id == gameID } ?? LibraryGame(titleID: "", name: "")
         let mac = support.map { SaveTransfer.macSave(titleID: game.titleID, appPath: game.appPath, support: $0) }
             ?? SaveTransfer.macSave(titleID: game.titleID, appPath: game.appPath)
-        let control = devicectl ?? .xcrun(m.xcrunPath, runner: m.runner)
+        let control = devicectl ?? .xcrun(m.devices.xcrun, runner: m.runner)
         let template = SaveTransfer(titleID: game.titleID, macSave: mac.save, legacySave: mac.legacy, device: "", bundle: "", devicectl: control)
-        let known = MainActor.assumeIsolated { m.deviceStore.devices }, xcrun = m.xcrunPath, runner = m.runner
+        let known = m.devices.devices, xcrun = m.devices.xcrun, runner = m.runner
         let list: () -> [AppleDevice] = listDevices ?? (devicectl == nil ? { DeviceTools.devices(xcrun: xcrun, timeout: 10, runner: runner) } : { known })
         let key = "saveTransfer.device." + game.titleID
         _model = StateObject(wrappedValue: SavesModel(
             template: template, name: game.name,
             recordedBundle: NSDictionary(contentsOfFile: game.iosAppPath + "/Info.plist")?["CFBundleIdentifier"] as? String,
-            recordedDevice: game.installedDevice, installTarget: m.installDevice,
+            recordedDevice: game.installedDevice, installTarget: m.devices.installDevice,
             remembered: UserDefaults.standard.string(forKey: key) ?? "",
             rememberChoice: { UserDefaults.standard.set($0, forKey: key) },
             listDevices: list, timeout: timeout))
@@ -390,7 +390,7 @@ struct SavesView: View {
         }
     }
     /// The device the sheet asks: its name, or what the launcher recorded when the list has not come yet.
-    private var deviceName: String { model.selectedDevice?.name ?? game.map { m.deviceName($0.installedDevice) } ?? "iPhone" }
+    private var deviceName: String { model.selectedDevice?.name ?? game.map { m.devices.deviceName($0.installedDevice) } ?? "iPhone" }
     private var transfer: SaveTransfer { model.found ?? model.template }
 
     var body: some View {
