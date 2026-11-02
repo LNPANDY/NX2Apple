@@ -33,7 +33,7 @@ class BuildNotesTest(unittest.TestCase):
         """An engine update that rewords the note fails here, instead of losing the popup."""
         text = SCRIPT.read_text(encoding='utf-8')
         self.assertIn(bn.STALE_SHADERS, text)
-        self.assertIn(bn.CHAIN_CHANGED, text)
+        self.assertIn(bn.CHAIN_REASON, text)
 
 
 if __name__ == '__main__':

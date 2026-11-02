@@ -275,13 +275,13 @@ func hop(_ body: @escaping @MainActor () -> Void) {
         }
     }
 
-    /// The script marks a shader-chain bump with this tag: the cached libraries cannot be
-    /// reused and this build recompiles them. An alert, not a log line — the report's question
+    /// The script notes a shader-chain bump: the cached libraries cannot be reused and this
+    /// build recompiles them. An alert, not a log line — the report's question
     /// ("why is it building shaders again, the artifacts are on the drive") came from exactly
     /// this moment passing unnoticed. Once per build: the pipe delivers arbitrary chunks.
     /// (A plain line, or the message of a `say` event in `--progress json`.)
     package func noteChainChange(_ text: String) {
-        guard text.contains("[NOTE] chain-changed"), !chainNoteShown else { return }
+        guard BuildNotes.chainChanged(text), !chainNoteShown else { return }
         chainNoteShown = true
         showNotice(t("msg.chainChanged"))
     }

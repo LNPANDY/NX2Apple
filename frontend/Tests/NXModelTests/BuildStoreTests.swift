@@ -200,8 +200,9 @@ import XCTest
         let store = makeStore()
         var notices: [String] = []
         store.showNotice = { notices.append($0) }
-        store.ingest("{\"ev\":\"say\",\"msg\":\"[NOTE] chain-changed: recompiling\"}\n")
-        store.ingest("[NOTE] chain-changed again\n")
+        let note = "[NOTE] cached shader libraries cannot be reused (b-4e0dd2535996 -> b-b7cd656abd7c): the translation chain changed"
+        store.ingest("{\"ev\":\"say\",\"msg\":\"\(note)\"}\n")
+        store.ingest(note + " again\n")
         XCTAssertEqual(notices, [store.t("msg.chainChanged")])
     }
 
