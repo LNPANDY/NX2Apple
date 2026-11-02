@@ -62,8 +62,7 @@ final class ConsolePadTests: XCTestCase {
         let driver = MockConsoleDriver(scenario: .full, animated: false)
         let gamepad = LauncherGamepad()
         let host = NSHostingView(rootView: ConsoleView(driver: driver, gamepad: gamepad).frame(width: 1280, height: 800))
-        let window = NSWindow(contentRect: NSRect(x: -10000, y: 0, width: 1280, height: 800), styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
+        let window = OffscreenWindow(size: NSSize(width: 1280, height: 800), styleMask: [.borderless])
         window.contentView = host
         window.orderBack(nil)
         defer { window.orderOut(nil); window.contentView = nil; window.close() }
@@ -102,8 +101,7 @@ final class ConsolePadTests: XCTestCase {
                 if name == "options" { driver.openOptions("demo.0") }
                 if name == "home-4pads" { driver.back() }
                 let host = NSHostingView(rootView: ConsoleView(driver: driver, lang: .en, glyphs: .init(family: family)).transaction { $0.disablesAnimations = true }.frame(width: width, height: height))
-                let window = NSWindow(contentRect: NSRect(x: -10000, y: 0, width: width, height: height), styleMask: [.borderless], backing: .buffered, defer: false)
-                window.isReleasedWhenClosed = false
+                let window = OffscreenWindow(size: NSSize(width: width, height: height), styleMask: [.borderless])
                 window.contentView = host
                 window.orderBack(nil)
                 RunLoop.main.run(until: Date().addingTimeInterval(0.25))
@@ -187,8 +185,7 @@ final class ConsolePadTests: XCTestCase {
         func shot(_ view: AnyView, _ name: String, _ width: CGFloat, _ height: CGFloat) throws {
             // a titled window, as the launcher's own screenshots use: the launcher draws under its transparent title bar
             let host = NSHostingView(rootView: view)
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: height), styleMask: [.titled], backing: .buffered, defer: false)
-            window.isReleasedWhenClosed = false
+            let window = OffscreenWindow(size: NSSize(width: width, height: height))
             window.contentView = host
             window.orderFront(nil)
             RunLoop.main.run(until: Date().addingTimeInterval(1.0))
