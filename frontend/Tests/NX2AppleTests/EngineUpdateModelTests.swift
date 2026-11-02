@@ -3,17 +3,15 @@ import XCTest
 @testable import NXCore
 @testable import NXLauncher
 
-/// The engine in the model (EngineUpdateModel.swift): what the release app does with an update check's outcome, and
-/// that it never runs git. Nothing here touches the network or the store.
+/// The engine in the model: that the release app never runs git, and the engine strings. What the app does with an update check's
+/// outcome is `EngineSyncStore`, tested in NXModelTests. Nothing here touches the network or the store.
 final class EngineUpdateModelTests: XCTestCase {
     private let root = URL(fileURLWithPath: "/nonexistent-engine-bundle")
-
-    private func id(_ c: Character) -> String { String(repeating: c, count: 40) + "-0123456789ab" }
 
     /// A launcher built from the repository keeps git, the release app never touches it.
     @MainActor func testTheReleaseAppNeverRunsGit() {
         let m = BuildModel()
-        m.engineBundle = root
+        m.engineSync.bundle = root
         m.repo.clone()
         m.repo.pull()
         m.repo.autoPull(3)
@@ -21,45 +19,6 @@ final class EngineUpdateModelTests: XCTestCase {
         m.repo.checkForUpdates()
         XCTAssertFalse(m.repo.busy)
         XCTAssertEqual(m.repo.status, "")
-    }
-
-    func testAnEngineInstalledDuringABuildWaits() {
-        let m = BuildModel()
-        m.lang = .en
-        m.engineBundle = root
-        m.running = true
-        let path = m.repoPath
-        m.applyEngineOutcome(.installed(.init(id: id("a"), version: "0.7.4"), .download), channel: .stable, quiet: false)
-        XCTAssertEqual(m.repoPath, path, "the running build keeps its tools")
-        XCTAssertEqual(m.pendingEngine?.engine.id, id("a"))
-        XCTAssertEqual(m.engineStatus, String(format: L10n.string("engine.waitsForBuild", .en), "0.7.4"))
-        m.checkEngineUpdate()
-        XCTAssertFalse(m.engineBusy, "no check while a build runs")
-    }
-
-    func testTheLaunchCheckIsQuietWhenOffline() {
-        let m = BuildModel()
-        m.lang = .en
-        m.applyEngineOutcome(.failed(.network), channel: .stable, quiet: true)
-        XCTAssertEqual(m.engineStatus, "")
-        m.applyEngineOutcome(.failed(.digest), channel: .stable, quiet: true)
-        XCTAssertEqual(m.engineStatus, L10n.string("engine.fail.digest", .en))
-        m.applyEngineOutcome(.failed(.noManifest), channel: .experimental, quiet: false)
-        XCTAssertEqual(m.engineStatus, "The Experimental channel has no engine for this app version yet")
-    }
-
-    func testChangingTheChannelAsksFirst() {
-        let m = BuildModel()
-        m.engineBundle = root
-        m.engineSelection.channel = .stable
-        m.requestEngineChannel(.stable)
-        XCTAssertNil(m.confirmingChannel, "the same channel asks nothing")
-        m.requestEngineChannel(.experimental)
-        XCTAssertEqual(m.confirmingChannel, .experimental)
-        XCTAssertEqual(m.engineSelection.channel, .stable, "nothing changes before the answer")
-        m.cancelEngineChannel()
-        XCTAssertNil(m.confirmingChannel)
-        XCTAssertEqual(m.engineSelection.channel, .stable)
     }
 
     // MARK: Strings

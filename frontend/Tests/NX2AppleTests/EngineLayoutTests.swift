@@ -6,7 +6,7 @@ import XCTest
 /// #214: which engine the launcher builds from. A checkout of this repository builds from its engine/ (synced first when it is stale or
 /// missing, there is no committed tree), a folder that is an engine tree itself (an installed release's engine) from that folder.
 /// The stamp key matches tools/engine.py's.
-final class EngineLayoutTests: XCTestCase {
+@MainActor final class EngineLayoutTests: XCTestCase {
     private var root: URL!
     private var repo: String { root.path }
     private let pin = String(repeating: "a", count: 40)
@@ -118,8 +118,8 @@ final class EngineLayoutTests: XCTestCase {
 
     private func waitForSync(_ m: BuildModel, file: StaticString = #filePath, line: UInt = #line) {
         let deadline = Date().addingTimeInterval(20)
-        while m.engineSyncing && Date() < deadline { RunLoop.current.run(until: Date().addingTimeInterval(0.05)) }
-        XCTAssertFalse(m.engineSyncing, "the sync did not end", file: file, line: line)
+        while m.engineSync.syncing && Date() < deadline { RunLoop.current.run(until: Date().addingTimeInterval(0.05)) }
+        XCTAssertFalse(m.engineSync.syncing, "the sync did not end", file: file, line: line)
     }
 
     func testNoNetworkShowsTheStatusThenTheOfflineRowAndRetryRunsTheSyncAgain() throws {
@@ -130,26 +130,26 @@ final class EngineLayoutTests: XCTestCase {
             print('engine: cannot fetch aaaaaaaaaaaa from https://github.com/seedds/nxnative.git: Could not resolve host: github.com')
             sys.exit(2)
             """)
-        XCTAssertNil(m.engineFailure)
-        m.syncEngine()
-        XCTAssertTrue(m.engineSyncing, "the status line shows while the engine is fetched")
+        XCTAssertNil(m.engineSync.failure)
+        m.engineSync.syncEngine()
+        XCTAssertTrue(m.engineSync.syncing, "the status line shows while the engine is fetched")
         waitForSync(m)
-        XCTAssertEqual(m.engineFailure?.kind, .engineOffline)
+        XCTAssertEqual(m.engineSync.failure?.kind, .engineOffline)
         XCTAssertTrue(m.logTail.contains("cannot fetch"), "the log has the tool's line")
-        m.retryEngineSync()
-        XCTAssertNil(m.engineFailure, "Try again clears the row")
-        XCTAssertTrue(m.engineSyncing)
+        m.engineSync.retrySync()
+        XCTAssertNil(m.engineSync.failure, "Try again clears the row")
+        XCTAssertTrue(m.engineSync.syncing)
         waitForSync(m)
-        XCTAssertEqual(m.engineFailure?.kind, .engineOffline)
+        XCTAssertEqual(m.engineSync.failure?.kind, .engineOffline)
         XCTAssertEqual(try String(contentsOfFile: counter, encoding: .utf8), "xx", "the retry ran the tool again")
     }
 
     func testASyncThatWorksLeavesNoRow() throws {
         let m = try model(engineScript: "print('engine: ready')\n")
-        m.engineFailure = BuildFailure(kind: .engineOffline, gameName: nil)
-        m.syncEngine()
+        m.engineSync.failure = BuildFailure(kind: .engineOffline, gameName: nil)
+        m.engineSync.syncEngine()
         waitForSync(m)
-        XCTAssertNil(m.engineFailure)
+        XCTAssertNil(m.engineSync.failure)
     }
 
     func testOfflineRowsHaveARetryButtonAndTheStatusLineHasText() {
