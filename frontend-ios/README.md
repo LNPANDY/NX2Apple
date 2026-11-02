@@ -33,7 +33,7 @@ All boundary types are in `Sources/ShellUI/ShellInputs.swift` and `ShellArtwork.
 - `ShellActions`: selection, Play, setting changes, game-data and cloud-folder requests, reset, log, app update and Back. The game ID is always passed.
 - `ShellInput`: an optional semantic controller event with an increasing sequence and the device that sent it (`InputDevice`: a controller family or the keyboard), so the hints draw that device's glyphs.
 
-`ShellControllers` is a separate library target, not part of the views: `GamepadAdapter` reads every GameController controller (D-pad and left stick with a deadzone and the Mac's repeat on hold, A activates, B goes back, X and Menu open game settings, Y opens Controllers, by label so each family confirms with its own button) and reports `ShellInput` actions and the connected controllers with their battery. Its pure mapping (`PadMapper`, `RepeatTiming`) is unit tested. The demo uses it, the real shell can too.
+`ShellControllers` is a separate library target, not part of the views: `GamepadAdapter` reads every GameController controller (D-pad and left stick with a deadzone and the Mac's repeat on hold, A activates, B goes back, X and Menu open game settings, Y opens Controllers, by label so each family confirms with its own button) and reports `ShellInput` actions and the connected controllers with their battery. Its pure mapping (`PadMapper`, `RepeatTiming`) is unit tested. The Controllers page also edits global physical-controller button mappings, including Swap A and B. These affect games only. Shell menus keep A to confirm and B to go back. Each game's Controller settings can follow global, override individual buttons, disable a button, or explicitly turn the swap off. The demo uses it, the real shell can too.
 
 ```swift
 LibraryView(
@@ -63,7 +63,7 @@ The caller returns changed values through `games`. The views keep no second copy
 | `FolderPicker` | `DocumentFolderPicker` is a `UIDocumentPickerViewController` for a folder, opened in place. Tests use a fake. | `DocumentPicker` in `dm/ios/Sources/Launcher.swift` |
 | Log | Show log reads the tail (256 KB) of `log.txt` in the game's data folder, else the app's folder, into a read-only sheet. | |
 | Update | `ShellHostConfig.updateURL` is opened by Update app. | |
-| Controllers | `ShellHostModel.startControllers()` runs `GamepadAdapter` and fills `controllers` (`ControllerInfo`) and `input` (`ShellInput`). | |
+| Controllers | `ShellHostModel.startControllers()` runs `GamepadAdapter` and fills `controllers` (`ControllerInfo`) and `input` (`ShellInput`). Global mappings are stored in `ShellSettingsStore.padMap`, individual overrides in the game's suite under `GameDefaults.padMapKey`. At launch, each button resolves game > global > default and is passed to the engine as `DM_PAD_MAP`. A profile's own `DM_PAD_MAP` row takes precedence. Touch controls and shell navigation keep their original mapping. | |
 
 ```swift
 let config = ShellHostConfig(gamesRoot: gamesURL, appDataRoot: ShellHostConfig.defaultAppDataRoot(),

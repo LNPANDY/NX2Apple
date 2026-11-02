@@ -57,6 +57,23 @@ import XCTest
         shot("shell-settings")
     }
 
+    /// The two mapping entry points, including the real host's per-game rows.
+    func testCapturePadMapping() {
+        XCUIDevice.shared.orientation = .portrait
+        launch(["--screen", "controllers"])
+        let globalSwap = app.descendants(matching: .any).matching(identifier: "ctl.swapAB").firstMatch
+        XCTAssertTrue(globalSwap.waitForExistence(timeout: 5))
+        for _ in 0..<3 where !globalSwap.isHittable { app.scrollViews.element(boundBy: app.scrollViews.count - 1).swipeUp() }
+        XCTAssertTrue(globalSwap.isHittable)
+        shot("controllers-button-mapping")
+        launch(["--host", "--screen", "settings", "--select", "0100000000010000"])
+        let gameSwap = app.descendants(matching: .any).matching(identifier: "setting.pad.swapAB").firstMatch
+        XCTAssertTrue(gameSwap.waitForExistence(timeout: 5))
+        for _ in 0..<5 where !gameSwap.isHittable { app.scrollViews.element(boundBy: app.scrollViews.count - 1).swipeUp() }
+        XCTAssertTrue(gameSwap.isHittable)
+        shot("game-controller-mapping")
+    }
+
     func testCaptureMatrix() {
         for orientation in [UIDeviceOrientation.portrait, .landscapeLeft] {
             XCUIDevice.shared.orientation = orientation

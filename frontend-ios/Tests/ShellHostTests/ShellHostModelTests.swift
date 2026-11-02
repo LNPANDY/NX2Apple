@@ -30,6 +30,92 @@ final class Clock: @unchecked Sendable { var date: Date; init(_ d: Date) { date 
         try detail(model, game).sections.flatMap(\.rows).first { $0.id == setting }?.value
     }
 
+    @Test func padOverridesPersistMergeAndReset() async throws {
+        let box = try Sandbox()
+        try box.giveAppData()
+        let shell = shellSettings()
+        let launcher = RecordingLauncher()
+        let model = ShellHostModel(config: box.config(), launcher: launcher, shellSettings: shell)
+        func row(_ id: String) throws -> SettingRow {
+            try #require(detail(model).sections.flatMap(\.rows).first { $0.id == id })
+        }
+        #expect(try row("pad.A").fromShell && row("pad.swapAB").value == "follow")
+        await model.playNow(Fixtures.orbit)
+        #expect(launcher.launched.last?.environment["DM_PAD_MAP"] == nil)
+        model.actions.onGlobalPadMapChange("swapAB", "1")
+        #expect(model.globalPadMap.swapAB)
+        #expect(try !detail(model).hasModifiedSettings)
+        if case .choice(let options) = try row("pad.A").kind { #expect(options.first?.label == "Follow global (B)") }
+        await model.playNow(Fixtures.orbit)
+        #expect(launcher.launched.last?.environment["DM_PAD_MAP"] == "A=B,B=A")
+        model.actions.onChange(Fixtures.orbit, "pad.A", "Y")
+        let gameStore = GamePadMapStore(defaults: box.defaults(Fixtures.orbit))
+        #expect(gameStore.entries == ["A": "Y"] && gameStore.swapValue == "custom")
+        #expect(try !row("pad.A").fromShell && row("pad.B").fromShell && detail(model).hasModifiedSettings)
+        await model.playNow(Fixtures.orbit)
+        #expect(launcher.launched.last?.environment["DM_PAD_MAP"] == "A=Y,B=A")
+        model.actions.onChange(Fixtures.orbit, "pad.swapAB", "off")
+        #expect(gameStore.entries == ["A": "A", "B": "B"])
+        await model.playNow(Fixtures.orbit)
+        #expect(launcher.launched.last?.environment["DM_PAD_MAP"] == nil)
+        let again = ShellHostModel(config: box.config(), shellSettings: shell)
+        #expect(try detail(again).hasModifiedSettings)
+        model.actions.onChange(Fixtures.orbit, "pad.X", "none")
+        model.actions.onChange(Fixtures.orbit, "pad.swapAB", "follow")
+        #expect(gameStore.entries == ["X": "none"])
+        await model.playNow(Fixtures.orbit)
+        #expect(launcher.launched.last?.environment["DM_PAD_MAP"] == "A=B,B=A,X=none")
+        #expect(GamePadMapStore(defaults: box.defaults(Fixtures.chain)).entries.isEmpty)
+        model.actions.onResetDefaults(Fixtures.orbit)
+        #expect(gameStore.entries.isEmpty)
+        #expect(try !detail(model).hasModifiedSettings && row("pad.X").fromShell)
+        model.actions.onGlobalPadMapReset()
+        #expect(model.globalPadMap.entries.isEmpty)
+        await model.playNow(Fixtures.orbit)
+        #expect(launcher.launched.last?.environment["DM_PAD_MAP"] == nil)
+    }
+
+    @Test func padRowsFollowGlobalChangesAndRejectInvalidValues() throws {
+        let box = try Sandbox()
+        let shell = shellSettings()
+        let model = ShellHostModel(config: box.config(), shellSettings: shell)
+        model.actions.onGlobalPadMapChange("X", "none")
+        for detail in model.details where detail.sections.contains(where: { $0.id == "pad" }) {
+            let row = try #require(detail.sections.flatMap(\.rows).first { $0.id == "pad.X" })
+            #expect(row.fromShell)
+            if case .choice(let options) = row.kind { #expect(options.first?.label == "Follow global (None)") }
+        }
+        let store = GamePadMapStore(defaults: box.defaults(Fixtures.orbit))
+        model.change(Fixtures.orbit, setting: "pad.unknown", value: "A")
+        model.change(Fixtures.orbit, setting: "pad.A", value: "bad")
+        #expect(store.entries.isEmpty)
+        model.change(Fixtures.orbit, setting: "pad.A", value: "A")
+        #expect(store.entries == ["A": "A"])
+        model.change(Fixtures.orbit, setting: "pad.A", value: "follow")
+        #expect(store.entries.isEmpty)
+        model.change(Fixtures.orbit, setting: "pad.swapAB", value: "on")
+        #expect(store.swapValue == "on")
+    }
+
+    @Test func profilePadMapRowWinsShellMapping() throws {
+        let box = try Sandbox()
+        let file = box.games.appendingPathComponent(Fixtures.orbit).appendingPathComponent("launcher.json")
+        var json = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
+        var settings = try #require(json["settings"] as? [[String: Any]])
+        settings.append(["env": "DM_PAD_MAP", "kind": "choice", "label": "Buttons", "note": "", "default": "X=Y",
+                         "options": [["X=Y", "Custom"], ["", "Default"]]])
+        json["settings"] = settings
+        try JSONSerialization.data(withJSONObject: json).write(to: file)
+        let profile = try LauncherProfile.parse(Data(contentsOf: file))
+        let shell = shellSettings()
+        shell.setPadSwapAB(true)
+        let model = ShellHostModel(config: box.config(), shellSettings: shell)
+        #expect(model.launchEnvironment(profile: profile, id: Fixtures.orbit)["DM_PAD_MAP"] == "X=Y")
+        #expect(try !detail(model).sections.contains { $0.id == "pad" })
+        model.change(Fixtures.orbit, setting: "DM_PAD_MAP", value: "")
+        #expect(model.launchEnvironment(profile: profile, id: Fixtures.orbit)["DM_PAD_MAP"] == "")
+    }
+
     @Test func buildsTilesAndDetailsFromTheBundles() throws {
         let box = try Sandbox()
         let model = ShellHostModel(config: box.config())
@@ -37,7 +123,7 @@ final class Clock: @unchecked Sendable { var date: Date; init(_ d: Date) { date 
         let orbit = try detail(model)
         #expect(orbit.game.title == "Orbit Fixture" && orbit.game.subtitle == "Version 1.0.0" && orbit.game.recentlyPlayed == nil)
         #expect(orbit.game.state == .needsGameData)
-        #expect(orbit.sections.map(\.title) == ["Game", "Performance"])
+        #expect(orbit.sections.map(\.title) == ["Game", "Performance", "Controller"])
         #expect(orbit.dataSource == "" && !orbit.dataNote.isEmpty)
         #expect(orbit.cloudSaves == nil && orbit.dlc == "No additional content")
         #expect(try detail(model, Fixtures.chain).game.state == .needsAppUpdate)

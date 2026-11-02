@@ -174,6 +174,8 @@ public struct ShellActions {
     public var onUseShellCloud: (String) -> Void
     public var onClearShellData: () -> Void
     public var onClearShellCloud: () -> Void
+    public var onGlobalPadMapChange: (String, String) -> Void
+    public var onGlobalPadMapReset: () -> Void
     public init(onSelect: @escaping (String) -> Void = { _ in }, onPlay: @escaping (String) -> Void = { _ in },
                 onChange: @escaping (String, String, String) -> Void = { _, _, _ in },
                 onPickGameData: @escaping (String) -> Void = { _ in }, onUseAppData: @escaping (String) -> Void = { _ in },
@@ -182,7 +184,9 @@ public struct ShellActions {
                 onAppUpdate: @escaping () -> Void = {}, onBack: @escaping () -> Void = {},
                 onPickShellData: @escaping () -> Void = {}, onPickShellCloud: @escaping () -> Void = {},
                 onUseShellCloud: @escaping (String) -> Void = { _ in }, onClearShellData: @escaping () -> Void = {},
-                onClearShellCloud: @escaping () -> Void = {}) {
+                onClearShellCloud: @escaping () -> Void = {},
+                onGlobalPadMapChange: @escaping (String, String) -> Void = { _, _ in },
+                onGlobalPadMapReset: @escaping () -> Void = {}) {
         self.onSelect = onSelect
         self.onPlay = onPlay
         self.onChange = onChange
@@ -199,5 +203,7 @@ public struct ShellActions {
         self.onUseShellCloud = onUseShellCloud
         self.onClearShellData = onClearShellData
         self.onClearShellCloud = onClearShellCloud
+        self.onGlobalPadMapChange = onGlobalPadMapChange
+        self.onGlobalPadMapReset = onGlobalPadMapReset
     }
 }

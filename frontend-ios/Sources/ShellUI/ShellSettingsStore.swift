@@ -4,6 +4,7 @@ import Foundation
 /// and the default performance HUD. A game's own settings and bookmarks win over these, and
 /// these win over the built-in defaults (ShellSettingsStore priority: game > shell > built-in).
 public final class ShellSettingsStore: @unchecked Sendable {
+    public static let padMapKey = "padMap"
     public static let suiteName = "shell-settings"
     public static let dataFolderKey = "globalDataBookmark"
     public static let cloudSavesKey = "globalCloudSavesBookmark"
@@ -36,6 +37,20 @@ public final class ShellSettingsStore: @unchecked Sendable {
     public func clearCloudSavesFolderName() { defaults.removeObject(forKey: Self.cloudSavesNameKey) }
     public func storePerformanceHUD(_ on: Bool) { defaults.set(on, forKey: Self.performanceHUDKey) }
 
+    public var padMap: PadMap { PadMap(defaults.dictionary(forKey: Self.padMapKey) as? [String: String] ?? [:]) }
+    public func setPadButton(_ button: String, to output: String) {
+        var map = padMap
+        map.set(button, to: output)
+        defaults.set(map.entries, forKey: Self.padMapKey)
+    }
+    public func setPadSwapAB(_ on: Bool) {
+        var map = padMap
+        map.setSwapAB(on)
+        defaults.set(map.entries, forKey: Self.padMapKey)
+    }
+    public func resetPadMap() { defaults.removeObject(forKey: Self.padMapKey) }
+
+    /// DM_PAD_MAP is deliberately excluded. The host merges it per button at launch.
     /// The shell's value for each `DM_*` switch a game's own settings leave alone.
     public var gameDefaults: [String: String] {
         performanceHUD.map { ["DM_METAL_HUD": $0 ? "1" : "0"] } ?? [:]

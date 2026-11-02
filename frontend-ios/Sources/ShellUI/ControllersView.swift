@@ -2,15 +2,26 @@ import SwiftUI
 
 /// Connected controllers with their player and battery, and the buttons the shell listens to.
 public struct ControllersView: View {
+    static let mappingID = "global-pad"
+    public var padMap: PadMap
+    public var onChange: (String, String) -> Void
+    public var onReset: () -> Void
+    @Environment(\.shellFocus) private var focus
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     public var controllers: [ControllerInfo]
     public var onBack: () -> Void
-    public init(controllers: [ControllerInfo], onBack: @escaping () -> Void = {}) {
+    public init(controllers: [ControllerInfo], onBack: @escaping () -> Void = {}, padMap: PadMap = PadMap(),
+                onChange: @escaping (String, String) -> Void = { _, _ in }, onReset: @escaping () -> Void = {}) {
+        self.padMap = padMap
+        self.onChange = onChange
+        self.onReset = onReset
         self.controllers = controllers
         self.onBack = onBack
     }
     public var body: some View {
         // Scrolls under the home indicator to the bottom edge, with room for the last row to clear it.
         GeometryReader { geometry in
+        ScrollViewReader { proxy in
         ScrollView {
             VStack(alignment: .leading, spacing: 30) {
                 HStack(alignment: .center) {
@@ -21,7 +32,7 @@ public struct ControllersView: View {
                         .buttonStyle(RoundIconButtonStyle(size: 44))
                         .accessibilityLabel(ShellStrings.text("Close controllers"))
                         .accessibilityIdentifier("controllers.close")
-                        .shellTarget("ctl.close", radius: 22, action: onBack)
+                        .shellTarget("ctl.close", radius: 22, action: onBack).id("ctl.close")
                 }
                 if controllers.isEmpty {
                     VStack(alignment: .leading, spacing: 12) {
@@ -43,6 +54,7 @@ public struct ControllersView: View {
                         .background(ShellPalette.surface, in: RoundedRectangle(cornerRadius: 16))
                         .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(ShellPalette.hairline))
                 }
+                mapping
                 VStack(alignment: .leading, spacing: 14) {
                     SectionHeading(title: ShellStrings.text("On a controller"))
                     hint(Image(systemName: "dpad"), ShellStrings.text("Move between controls"))
@@ -56,9 +68,35 @@ public struct ControllersView: View {
         }
         .scrollIndicators(.hidden)
         .ignoresSafeArea(edges: .bottom)
+        .onChange(of: focus.id) { _, id in
+            guard let id, id.hasPrefix("ctl."), !id.hasPrefix("ctl.pick.") else { return }
+            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) {
+                proxy.scrollTo(id, anchor: id == "ctl.close" ? .top : .center)
+            }
+        }
+        }
         }
         .foregroundStyle(.white).preferredColorScheme(.dark)
     }
+    private var mapping: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            SectionHeading(title: ShellStrings.text("Button mapping"))
+            let swap = SettingRow(id: "swapAB", label: ShellStrings.text("Swap A and B"),
+                                  note: ShellStrings.text("Only affects physical controllers in games, not shell menus. Each game can override these settings."),
+                                  kind: .toggle(on: "1", off: "0"), value: padMap.swapAB ? "1" : "0")
+            SettingControl(gameID: Self.mappingID, row: swap, targetPrefix: "ctl.row.") { onChange("swapAB", $0) }
+                .accessibilityIdentifier("ctl.swapAB").id("ctl.row.swapAB")
+            ForEach(PadMap.buttons, id: \.self) { button in
+                let row = SettingRow(id: button, label: PadMap.label(button), kind: .choice(PadMap.options), value: padMap.output(for: button))
+                SettingControl(gameID: Self.mappingID, row: row, targetPrefix: "ctl.row.") { onChange(button, $0) }
+                    .accessibilityIdentifier("ctl.\(button)").id("ctl.row.\(button)")
+            }
+            Button(action: onReset) { Text(ShellStrings.text("Reset to default")) }
+                .buttonStyle(ChipButtonStyle()).accessibilityIdentifier("ctl.reset")
+                .shellTarget("ctl.reset", action: onReset).id("ctl.reset")
+        }
+    }
+
     private func hint(_ icon: some View, _ label: String) -> some View {
         HStack(spacing: 14) {
             icon.frame(width: 22).foregroundStyle(.white.opacity(0.75))

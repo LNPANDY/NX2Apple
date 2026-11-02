@@ -31,6 +31,7 @@ enum ShellLayout: Equatable {
 public struct LibraryView: View {
     public let games: [GameDetail]
     public let controllers: [ControllerInfo]
+    public let globalPadMap: PadMap
     public var actions: ShellActions
     public var input: ShellInput?
     @State private var selectedID: String?
@@ -60,9 +61,11 @@ public struct LibraryView: View {
 
     public init(games: [GameDetail], controllers: [ControllerInfo] = [], actions: ShellActions = ShellActions(),
                 input: ShellInput? = nil, initialSelection: String? = nil, initialDetailOpen: Bool = false,
-                initialControllersOpen: Bool = false, initialShellSettingsOpen: Bool = false, initialFocusVisible: Bool = false) {
+                initialControllersOpen: Bool = false, initialShellSettingsOpen: Bool = false, initialFocusVisible: Bool = false,
+                globalPadMap: PadMap = PadMap()) {
         self.games = games
         self.controllers = controllers
+        self.globalPadMap = globalPadMap
         self.actions = actions
         self.input = input
         let first = initialSelection ?? games.first?.id
@@ -146,19 +149,12 @@ public struct LibraryView: View {
                         .accessibilityAddTraits(.isModal)
                         .transition(.opacity.combined(with: .scale(scale: 0.96)))
                 }
-                if let choice {
-                    Color.black.opacity(0.55).ignoresSafeArea().accessibilityHidden(true)
-                        .onTapGesture { closeChoice() }
-                        .transition(.opacity)
-                    ChoicePickerView(request: choice, pick: pickChoice, close: closeChoice)
-                        .padding(.horizontal, 16).padding(.vertical, 12)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .transition(.opacity.combined(with: .scale(scale: 0.96)))
-                }
                 if controllersOpen {
                     Color.black.opacity(0.55 * (1 - min(1, edgeDrag / min(width, 520)))).ignoresSafeArea().accessibilityHidden(true)
                         .onTapGesture { back() }
-                    ControllersView(controllers: controllers, onBack: back)
+                    ControllersView(controllers: controllers, onBack: back, padMap: globalPadMap,
+                                    onChange: actions.onGlobalPadMapChange, onReset: actions.onGlobalPadMapReset)
+                        .accessibilityHidden(choice != nil)
                         .frame(width: min(width, 520))
                         .frame(maxHeight: .infinity)
                         .background { ShellPalette.background.ignoresSafeArea() }
@@ -181,13 +177,22 @@ public struct LibraryView: View {
                         .accessibilityAddTraits(.isModal)
                         .transition(.move(edge: .trailing).combined(with: .opacity))
                 }
+                if let choice {
+                    Color.black.opacity(0.55).ignoresSafeArea().accessibilityHidden(true)
+                        .onTapGesture { closeChoice() }
+                        .transition(.opacity)
+                    ChoicePickerView(request: choice, pick: pickChoice, close: closeChoice)
+                        .padding(.horizontal, 16).padding(.vertical, 12)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                }
             }
             .transformPreference(FocusTargets.self) { values in
                 values = values.filter { target in
+                    if let choice { return target.id.hasPrefix(choice.gameID == ControllersView.mappingID ? "ctl.pick." : "pick.") }
                     if controllersOpen { return target.id.hasPrefix("ctl.") }
                     if shellSettingsOpen { return target.id.hasPrefix("shs.") }
                     if helpGameID != nil { return target.id.hasPrefix("help.") }
-                    if choice != nil { return target.id.hasPrefix("pick.") }
                     return !target.id.hasPrefix("ctl.") && !target.id.hasPrefix("help.") && !target.id.hasPrefix("pick.") && !target.id.hasPrefix("shs.")
                 }
             }
@@ -357,18 +362,19 @@ public struct LibraryView: View {
         noteTouch()
         returnFocus = focus.id
         choice = request
-        focus.id = "pick.\(request.row.value)"
+        focus.id = (request.gameID == ControllersView.mappingID ? "ctl.pick." : "pick.") + request.row.value
     }
     private func closeChoice() {
         guard let request = choice else { return }
         choice = nil
-        focus.id = (request.gameID == ShellSettingsRows.gameID ? ShellSettingsRows.targetPrefix : "set.row.") + request.row.id
+        focus.id = (request.gameID == ControllersView.mappingID ? "ctl.row." : request.gameID == ShellSettingsRows.gameID ? ShellSettingsRows.targetPrefix : "set.row.") + request.row.id
     }
     private func pickChoice(_ value: String) {
         noteTouch()
         guard let request = choice else { return }
         if value != request.row.value {
-            if request.gameID == ShellSettingsRows.gameID { ShellSettingsRows.apply(request.row.id, value: value, to: .current) }
+            if request.gameID == ControllersView.mappingID { actions.onGlobalPadMapChange(request.row.id, value) }
+            else if request.gameID == ShellSettingsRows.gameID { ShellSettingsRows.apply(request.row.id, value: value, to: .current) }
             else { actions.onChange(request.gameID, request.row.id, value) }
         }
         closeChoice()
@@ -416,7 +422,7 @@ public struct LibraryView: View {
         if let id = focus.id, id.hasPrefix("lib.tile.") { select(String(id.dropFirst("lib.tile.".count))) }
     }
     private var defaultFocus: String? {
-        if let choice { return "pick.\(choice.row.value)" }
+        if let choice { return (choice.gameID == ControllersView.mappingID ? "ctl.pick." : "pick.") + choice.row.value }
         if helpGameID != nil { return "help.done" }
         if controllersOpen { return "ctl.close" }
         if shellSettingsOpen { return "shs.close" }
