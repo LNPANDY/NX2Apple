@@ -63,6 +63,46 @@ final class ShellInstallTests: XCTestCase {
         XCTAssertEqual(ShellLibrary.resolveRoot(defaults: defaults, parent: "/Volumes/B"), "/Volumes/A/NX2Apple-shell")
     }
 
+    /// #492: the Settings page reads the path before a game is chosen; the empty parent put the shell at the root of the
+    /// read-only system volume, where the write failed after the whole build.
+    func testAnEmptyOrRootParentNeverSavesTheShellAtTheVolumeRoot() {
+        let defaults = UserDefaults(suiteName: "nspb-shell-" + UUID().uuidString)!
+        let home = "/Users/tester"
+        XCTAssertEqual(ShellLibrary.resolveRoot(defaults: defaults, parent: "", home: home), "/Users/tester/NX2Apple-shell")
+        XCTAssertEqual(defaults.string(forKey: "shellRoot"), "/Users/tester/NX2Apple-shell")
+        defaults.removeObject(forKey: "shellRoot")
+        XCTAssertEqual(ShellLibrary.resolveRoot(defaults: defaults, parent: "/", home: home), "/Users/tester/NX2Apple-shell")
+        defaults.removeObject(forKey: "shellRoot")
+        XCTAssertEqual(ShellLibrary.resolveRoot(defaults: defaults, parent: "relative/games", home: home), "/Users/tester/NX2Apple-shell")
+    }
+
+    func testASavedRootAtTheVolumeRootIsRepaired() {
+        let defaults = UserDefaults(suiteName: "nspb-shell-" + UUID().uuidString)!
+        defaults.set("/NX2Apple-shell", forKey: "shellRoot")
+        XCTAssertEqual(ShellLibrary.resolveRoot(defaults: defaults, parent: "/Users/tester/games"),
+                       "/Users/tester/games/NX2Apple-shell")
+        XCTAssertEqual(defaults.string(forKey: "shellRoot"), "/Users/tester/games/NX2Apple-shell")   // the bad value is replaced
+    }
+
+    func testThePreviewDoesNotSaveARoot() {
+        let defaults = UserDefaults(suiteName: "nspb-shell-" + UUID().uuidString)!
+        XCTAssertEqual(ShellLibrary.previewRoot(defaults: defaults, parent: "/Volumes/A"), "/Volumes/A/NX2Apple-shell")
+        XCTAssertNil(defaults.string(forKey: "shellRoot"))
+        defaults.set("/Volumes/A/NX2Apple-shell", forKey: "shellRoot")
+        XCTAssertEqual(ShellLibrary.previewRoot(defaults: defaults, parent: "/Volumes/B"), "/Volumes/A/NX2Apple-shell")
+    }
+
+    func testRootNeedsAWritableParent() throws {
+        let parent = NSTemporaryDirectory() + "nspb-shell-parent-" + UUID().uuidString
+        try FileManager.default.createDirectory(atPath: parent, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: parent) }
+        XCTAssertTrue(ShellInstall.canWriteRoot(parent + "/NX2Apple-shell"))
+        XCTAssertFalse(ShellInstall.canWriteRoot(NSTemporaryDirectory() + "nspb-missing-" + UUID().uuidString + "/NX2Apple-shell"))
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: parent)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: parent) }
+        XCTAssertFalse(ShellInstall.canWriteRoot(parent + "/NX2Apple-shell"))
+    }
+
     // ---- the commands ----
 
     // ---- the iOS shell package (DM_SHELL_PACKAGE) ----
