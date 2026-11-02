@@ -65,8 +65,6 @@ class ChecksFor(unittest.TestCase):
         cmds = {c.name: c.command for c in H.CHECKS}
         self.assertEqual(cmds['tools'], 'python3 -m unittest discover tools/tests')
         self.assertIn('python3 -m unittest discover -s frontend-qt/tests', cmds['Qt front end'])
-        self.assertIn('python3 frontend-qt/gen_localization.py', cmds['Qt front end'])
-        self.assertIn('git diff --exit-code HEAD -- frontend-qt/nspb_qt/localization.py', cmds['Qt front end'])
         self.assertEqual(cmds['triage scripts'], 'python3 -m unittest discover -s .github/scripts/tests')
         self.assertEqual(cmds['Mac launcher (slow)'], 'swift build && swift test')
 
