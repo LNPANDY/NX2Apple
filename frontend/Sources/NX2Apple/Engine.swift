@@ -19,14 +19,8 @@ import NXLauncher
 /// or one a launcher cloned): it downloads the pinned engine from GitHub (about 80 MB) and shows a failure row when that does not work.
 /// A release app carries the engine tree instead (`Contents/Resources/engine`, built by `tools/engine.py tree`, #227) and takes updates
 /// from the release's `latest.json`: no git, no sync.
-enum EngineLayout {
-    /// The file that tells an engine tree (BuildModel.isRepo always looked for it).
-    static let marker = "dm/tools/nx_extract/Program.cs"
-
-    static func hasEngineTool(_ repo: String) -> Bool {
-        let fm = FileManager.default
-        return !repo.isEmpty && fm.fileExists(atPath: repo + "/tools/engine.py") && fm.fileExists(atPath: repo + "/.upstream-ref")
-    }
+extension EngineLayout {
+    // `marker`, `hasEngineTool`, `root` and `isCheckout` are in NXCore (EngineLayout.swift): the repository store needs them.
 
     static func series(_ repo: String) -> [String]? {
         guard let text = try? String(contentsOfFile: repo + "/patches/series", encoding: .utf8) else { return nil }
@@ -74,21 +68,6 @@ enum EngineLayout {
             if kv.count == 2 { stamp[String(kv[0])] = String(kv[1]) }
         }
         return stamp["key"] != stampKey(repo) || stamp["head"] != head(eng)
-    }
-
-    /// The folder holding dm/ and scripts/ for this checkout (see the rule above).
-    static func root(_ repo: String) -> String {
-        guard !repo.isEmpty else { return repo }
-        let fm = FileManager.default
-        if hasEngineTool(repo) { return repo + "/engine" }
-        if fm.fileExists(atPath: repo + "/" + marker) { return repo }
-        return fm.fileExists(atPath: repo + "/engine/" + marker) ? repo + "/engine" : repo
-    }
-
-    /// A folder the launcher can build from: a checkout with tools/engine.py to make engine/, a synced engine/, or an engine tree.
-    static func isCheckout(_ dir: String) -> Bool {
-        let fm = FileManager.default
-        return !dir.isEmpty && (fm.fileExists(atPath: dir + "/" + marker) || fm.fileExists(atPath: dir + "/engine/" + marker) || hasEngineTool(dir))
     }
 
     /// engine/ is the only engine and it is stale or missing: the build syncs it first.

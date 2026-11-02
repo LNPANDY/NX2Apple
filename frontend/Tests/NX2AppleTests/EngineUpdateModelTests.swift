@@ -11,16 +11,16 @@ final class EngineUpdateModelTests: XCTestCase {
     private func id(_ c: Character) -> String { String(repeating: c, count: 40) + "-0123456789ab" }
 
     /// A launcher built from the repository keeps git, the release app never touches it.
-    func testTheReleaseAppNeverRunsGit() {
+    @MainActor func testTheReleaseAppNeverRunsGit() {
         let m = BuildModel()
         m.engineBundle = root
-        m.cloneRepo()
-        m.pullRepo()
-        m.autoPull(3)
-        m.adoptRepoAsGit()
-        m.checkRepoUpdates()
-        XCTAssertFalse(m.repoBusy)
-        XCTAssertEqual(m.repoStatus, "")
+        m.repo.clone()
+        m.repo.pull()
+        m.repo.autoPull(3)
+        m.repo.adoptAsGit()
+        m.repo.checkForUpdates()
+        XCTAssertFalse(m.repo.busy)
+        XCTAssertEqual(m.repo.status, "")
     }
 
     func testAnEngineInstalledDuringABuildWaits() {

@@ -90,7 +90,7 @@ final class LauncherControlWidthTests: XCTestCase {
             },
             Scenario(name: "settings with a clone that is behind and an app update", page: .settings, atLeast: 6) { m, _, directory in
                 m.repoPath = try self.makeRepo(directory, git: true)
-                m.repoBehind = 2
+                MainActor.assumeIsolated { m.repo.behind = 2 }
                 MainActor.assumeIsolated { m.appUpdates.installability = .ok }
                 MainActor.assumeIsolated { m.appUpdates.update = release }
             },

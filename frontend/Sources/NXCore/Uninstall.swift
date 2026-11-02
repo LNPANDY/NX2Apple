@@ -28,7 +28,7 @@ package enum Uninstall {
 
     /// The paths this install would remove, computed before anything is offered: the launcher's state
     /// folders that exist, and a checkout that is the launcher's own download (the clone destination
-    /// `cloneRepo` uses) rather than one the player picked from anywhere on disk.
+    /// `RepoStore.clone` uses) rather than one the player picked from anywhere on disk.
     /// `home` is passed in (NSHomeDirectory() at the call site): a computed home is not testable.
     nonisolated package static func plan(home: String, gamesFolder: String, outputFolder: String = "", checkouts: [String],
                                  defaultsDomain: String? = nil) -> Plan {

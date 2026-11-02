@@ -44,6 +44,7 @@ struct ContentView: View {
     @StateObject private var m: BuildModel
     @ObservedObject private var loc: Localizer   // the strings: handed on to every view below through the environment
     @ObservedObject private var updates: AppUpdateStore   // the app's self-update: the update icon, the sheet, the uninstall dialog
+    @ObservedObject private var repo: RepoStore   // the repository: the activity line, and the checks that follow a change of it
     @StateObject private var library: GameLibrary
     @State private var page: LauncherPage = .library
     @State private var search = ""
@@ -98,6 +99,7 @@ struct ContentView: View {
         _m = StateObject(wrappedValue: model)
         _loc = ObservedObject(wrappedValue: model.localizer)
         _updates = ObservedObject(wrappedValue: model.appUpdates)
+        _repo = ObservedObject(wrappedValue: model.repo)
         _library = StateObject(wrappedValue: library ?? GameLibrary())
         _page = State(initialValue: initialPage)
         _activeBuildID = State(initialValue: activeBuildID)
@@ -174,7 +176,7 @@ struct ContentView: View {
             if page == .library {
                 libraryPage
             } else {
-                BuilderView(m: m, updates: updates, library: library, settings: page == .settings, onViewGame: { page = .library },
+                BuilderView(m: m, updates: updates, repo: repo, library: library, settings: page == .settings, onViewGame: { page = .library },
                             onOpenSettings: { page = .settings }, onChooseLibraryFolder: chooseLibraryFolder,
                             onOpenControls: { controlsOpen = true }, onOpenControllers: { controllerSheet = true }, onRunSetup: onRunSetup, controlChanges: controls.changeCount,
                             padMerge: Binding(get: { controls.padMerge }, set: { setPadMerge($0) }))
@@ -215,7 +217,7 @@ struct ContentView: View {
                 m.checkDeps()
                 if m.usesEngineStore { m.prepareEngine() }   // the release app: its engine store, never git (EngineUpdateModel.swift)
                 else { m.syncEngine() }   // a checkout whose engine/ is missing or older than its pin (#214)
-                if m.repoOK && m.repoIsGit { m.checkRepoUpdates(silent: true) } else { m.adoptAtLaunch() }
+                if repo.isRepo && repo.isGit { repo.checkForUpdates(silent: true) } else { repo.adoptAtLaunch() }
                 updates.checkForUpdate(silent: true)
                 BuildNotifier.shared.watch(m, library: library)   // BuildNotifications.swift
             }
@@ -231,9 +233,9 @@ struct ContentView: View {
             readSignatures()
             if performStartupChecks { fetchArtwork() }
         }
-        .onChange(of: m.repoPath) { _ in refreshArtwork(); if performStartupChecks { checkTools() } }
+        .onChange(of: repo.path) { _ in refreshArtwork(); if performStartupChecks { checkTools() } }
         // A clone, pull or update check has finished (the automatic pull at launch among them): the checkout may have moved
-        .onReceive(m.$repoBusy.removeDuplicates().dropFirst()) { busy in if !busy && performStartupChecks { checkTools() } }
+        .onReceive(repo.$busy.removeDuplicates().dropFirst()) { busy in if !busy && performStartupChecks { checkTools() } }
         // The engine was made or moved by a sync (its HEAD is what ToolsAge compares)
         .onReceive(m.$engineSyncing.removeDuplicates().dropFirst()) { syncing in if !syncing && performStartupChecks { checkTools() } }
         .onChange(of: library.selectedID) { _ in resignNote = nil }   // the last re-sign's note belongs to its game
@@ -241,11 +243,11 @@ struct ContentView: View {
         .onReceive(m.$running.removeDuplicates()) { running in
             if !running { DockProgress.update(nil) }
             if running && activeBuildID == nil { activeBuildID = library.rememberInputs(m) }
-            if running && activeBuildID != nil {   // the tools this build runs: a pull waits for the build (pullRepo, autoPull)
+            if running && activeBuildID != nil {   // the tools this build runs: a pull waits for the build (RepoStore.pull, autoPull)
                 buildCommit = ""
-                let repo = m.repoPath
+                let dir = repo.path
                 DispatchQueue.global(qos: .utility).async {
-                    let commit = ToolsAge.head(repo: repo) ?? ""
+                    let commit = ToolsAge.head(repo: dir) ?? ""
                     DispatchQueue.main.async { buildCommit = commit }
                 }
             }
@@ -704,13 +706,11 @@ struct ContentView: View {
                 } else {
                     Image(systemName: "desktopcomputer").foregroundStyle(.secondary)
                     Text(loc.t("library.localNote")).font(.manrope(13)).foregroundStyle(.secondary)
-                    if let n = m.autoPulled, n > 0 {
-                        // The automatic update when the app opened (BuildModel.autoPull): the build tools are the current ones
+                    if let n = repo.autoPulled, n > 0 {   // the automatic update when the app opened (RepoStore.autoPull): the tools are current
                         Circle().fill(LauncherPalette.ready).frame(width: 6, height: 6).padding(.leading, 10)
                         Text(String(format: loc.t("library.toolsUpdated"), n)).font(.manrope(13)).foregroundStyle(.secondary)
                     }
-                    if m.autoAdopted {
-                        // A ZIP copy connected to git and updated when the app opened (BuildModel.adoptAtLaunch)
+                    if repo.autoAdopted {   // a ZIP copy connected and updated when the app opened (RepoStore.adoptAtLaunch)
                         Circle().fill(LauncherPalette.ready).frame(width: 6, height: 6).padding(.leading, 10)
                         Text(loc.t("library.toolsAdopted")).font(.manrope(13)).foregroundStyle(.secondary)
                     }
