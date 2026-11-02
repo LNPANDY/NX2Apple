@@ -90,6 +90,14 @@ import XCTest
         XCTAssertEqual(again.signingTeam, "ABCDE12345")
     }
 
+    func testTheExportChoiceIsOffAtFirstAndSaved() {
+        let store = makeStore()
+        XCTAssertFalse(store.exportIPA)
+        store.exportIPA = true
+        XCTAssertTrue(defaults.bool(forKey: DeviceStore.exportKey))
+        XCTAssertTrue(makeStore().exportIPA)
+    }
+
     func testADeviceNameFallsBackToIPhoneForOneThatIsNotListed() async {
         let store = makeStore()
         XCTAssertEqual(store.deviceName("UDID-1"), "iPhone")

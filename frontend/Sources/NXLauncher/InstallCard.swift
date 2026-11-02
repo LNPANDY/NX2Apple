@@ -2,8 +2,9 @@ import SwiftUI
 import NXCore
 import NXModel
 
-/// Where an iPhone build goes: exported as an IPA (as before), or signed and installed on a paired device. Shown for the iPhone
-/// target only. Observes the device store, and the build store for the target and whether a build runs.
+/// Where an iPhone build goes: signed and installed on a paired device ("Install on device"), or exported as an unsigned IPA for
+/// another tool to sign, with the game data sent afterwards ("Export as IPA", ExportSteps). Shown for the iPhone target only. Observes the
+/// device store, and the build store for the target and whether a build runs.
 package struct InstallCard: View {
     @ObservedObject var devices: DeviceStore
     @ObservedObject var build: BuildStore
@@ -15,7 +16,12 @@ package struct InstallCard: View {
     }
 
     package var body: some View {
-        if build.target != BuildTarget.mac { card.disabled(build.running) }
+        if build.target != BuildTarget.mac { card.disabled(build.running && !sending) }
+    }
+
+    /// The copy of the game data runs on the build store's `running` flag too, and its own buttons must stay usable (Stop).
+    private var sending: Bool {
+        switch build.send { case .sending, .copying: return true; default: return false }
     }
 
     private var card: some View {
@@ -24,19 +30,32 @@ package struct InstallCard: View {
         }
         let teams = devices.teams.map { (value: $0.id, label: $0.label(personalTeam: loc.t("dev.personalTeam"))) }
         let needsCertificate = devices.teams.first { $0.id == devices.signingTeam }.map { !$0.hasCertificate } ?? false
-        return CardGroup(loc.t("dev.section"), footnote: devices.installDevice.isEmpty ? "" : (needsCertificate ? loc.t("dev.teamNoCert") + " " : "") + loc.t("dev.note")) {
-            CardRow(loc.t("dev.target"), detail: devices.checked && devices.devices.isEmpty ? loc.t("dev.noDevices") : "") {
-                if !devices.checked { ProgressView().controlSize(.small) }
-                Button(loc.t("dev.refresh")) { _ = devices.refresh() }.buttonStyle(.plain).font(.manrope(13)).foregroundStyle(.secondary)
-                LauncherDropdown(options: options, selection: devices.installDevice, label: loc.t("dev.target")) { devices.installDevice = $0 }
+        let footnote = devices.exportIPA ? ""
+            : devices.installDevice.isEmpty ? "" : (needsCertificate ? loc.t("dev.teamNoCert") + " " : "") + loc.t("dev.note")
+        return CardGroup(loc.t("dev.section"), footnote: footnote) {
+            // The two ways, a switch of their own: exporting is never chosen for the player (#416)
+            CardRow(loc.t("shell.modeTitle")) {
+                LauncherSegmented(options: [("install", loc.t("shell.modeInstall")), ("export", loc.t("shell.modeExport"))],
+                                  selection: devices.exportIPA ? "export" : "install") { devices.exportIPA = $0 == "export" }
+                    .frame(width: 330)
             }
-            if !devices.installDevice.isEmpty {
-                CardDivider()
-                if teams.isEmpty {
-                    CardRow(loc.t("dev.team"), detail: loc.t("dev.noTeam"), dot: LauncherPalette.building) { EmptyView() }
-                } else {
-                    CardRow(loc.t("dev.team")) {
-                        LauncherDropdown(options: teams, selection: devices.signingTeam, label: loc.t("dev.team")) { devices.signingTeam = $0 }
+            CardDivider()
+            if devices.exportIPA {
+                ExportSteps(build: build, devices: devices)
+            } else {
+                CardRow(loc.t("dev.target"), detail: devices.checked && devices.devices.isEmpty ? loc.t("dev.noDevices") : "") {
+                    if !devices.checked { ProgressView().controlSize(.small) }
+                    Button(loc.t("dev.refresh")) { _ = devices.refresh() }.buttonStyle(.plain).font(.manrope(13)).foregroundStyle(.secondary)
+                    LauncherDropdown(options: options, selection: devices.installDevice, label: loc.t("dev.target")) { devices.installDevice = $0 }
+                }
+                if !devices.installDevice.isEmpty {
+                    CardDivider()
+                    if teams.isEmpty {
+                        CardRow(loc.t("dev.team"), detail: loc.t("dev.noTeam"), dot: LauncherPalette.building) { EmptyView() }
+                    } else {
+                        CardRow(loc.t("dev.team")) {
+                            LauncherDropdown(options: teams, selection: devices.signingTeam, label: loc.t("dev.team")) { devices.signingTeam = $0 }
+                        }
                     }
                 }
             }

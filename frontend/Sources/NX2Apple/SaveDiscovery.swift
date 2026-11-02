@@ -2,29 +2,14 @@ import Foundation
 import NXCore
 import NXLauncher
 
-/// An app installed on a device, as `devicectl device info apps` lists it.
-struct InstalledApp: Equatable {
-    let bundle: String
-    let name: String
-}
-
 /// Finding the game on the device itself, so the Saves sheet needs neither the launcher's install record nor the signed app
 /// it cached (#250): a game exported as an IPA and signed by another tool (LCSign, Sideloadly, AltStore) has a data container
 /// the Mac can read all the same, under whatever bundle ID that tool gave it.
 enum SaveDiscovery {
-    static func listCommand(device: String, json: String) -> [String] {
-        ["device", "info", "apps", "--device", device, "--include-default-apps", "--include-removable-apps", "--json-output", json]
-    }
+    static func listCommand(device: String, json: String) -> [String] { InstalledApps.listArguments(device: device, json: json) }
 
-    /// `result.apps` of the listing. nil for JSON that cannot be read.
-    static func parseApps(_ data: Data) -> [InstalledApp]? {
-        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let result = root["result"] as? [String: Any], let list = result["apps"] as? [[String: Any]] else { return nil }
-        return list.compactMap { app in
-            guard let bundle = app["bundleIdentifier"] as? String, !bundle.isEmpty else { return nil }
-            return InstalledApp(bundle: bundle, name: app["name"] as? String ?? "")
-        }
-    }
+    /// `result.apps` of the listing (NXCore, shared with the shared app's data send). nil for JSON that cannot be read.
+    static func parseApps(_ data: Data) -> [InstalledApp]? { InstalledApps.parse(data) }
 
     /// The apps on the device. A failure is the device's (not connected, locked, timed out), never "no apps".
     static func apps(device: String, devicectl: DeviceControl, scratch: URL = FileManager.default.temporaryDirectory) throws -> [InstalledApp] {

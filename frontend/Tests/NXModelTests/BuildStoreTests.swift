@@ -33,6 +33,8 @@ import XCTest
     private final class FakeDevices: InstallTarget {
         var installDevice = ""
         var signingTeam = ""
+        var exportIPA = false
+        var driveFolder = ""
         var devices: [AppleDevice] = []
         var xcrun = "/usr/bin/true"
         var readTeams: @Sendable () -> [SigningTeam] = { [] }
@@ -89,6 +91,19 @@ import XCTest
         XCTAssertFalse(store.canBuild, "a tool is missing")
         deps.allPresent = true; store.running = true
         XCTAssertFalse(store.canBuild, "a build runs")
+    }
+
+    /// #416: the export choice is not an install, so the stop for a missing device and team does not apply to it.
+    func testTheExportChoiceNeedsNoDeviceAndNoTeam() {
+        let store = makeStore()
+        store.target = "ios"
+        devices.exportIPA = true
+        XCTAssertTrue(store.exportsShell)
+        XCTAssertFalse(store.installsDirectly)
+        store.startBuild()
+        XCTAssertNotEqual(store.doneNote, store.t("shell.needsDevice"))
+        store.target = BuildTarget.mac
+        XCTAssertFalse(store.exportsShell, "a Mac app is never an IPA")
     }
 
     func testAnIPhoneBuildWithoutADeviceStopsBeforeTheLongSteps() {
