@@ -98,7 +98,7 @@ final class LauncherDropdownTests: XCTestCase {
         }
         .padding(24)
         let host = NSHostingView(rootView: ZStack { LauncherPalette.background; rows }.preferredColorScheme(.dark).frame(width: width, height: height))
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: height), styleMask: [.titled], backing: .buffered, defer: false)
+        let window = OffscreenWindow(size: NSSize(width: width, height: height))
         window.contentView = host
         window.appearance = NSAppearance(named: .darkAqua)
         window.orderFront(nil)
