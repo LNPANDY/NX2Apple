@@ -222,7 +222,7 @@ final class BuildModel: ObservableObject {
             buildRunning: { [unowned self] in running },
             isReleaseApp: { [unowned self] in MainActor.assumeIsolated { engineSync.usesEngineStore } },
             log: { [unowned self] in append($0) },
-            didMove: { [unowned self] in MainActor.assumeIsolated { engineSync.syncEngine() } })   // the pull may have moved the pin or the patches
+            didMove: { [unowned self] in MainActor.assumeIsolated { _ = engineSync.syncEngine() } })   // the pull may have moved the pin or the patches
         // The build state that reads the repository (`canBuild`, the setup rows) is still here: a change of the repository
         // redraws what observes this model, as it did when the repository's state was published by it. Goes with the build store.
         repoChanges = store.objectWillChange.sink { [unowned self] _ in objectWillChange.send() }
