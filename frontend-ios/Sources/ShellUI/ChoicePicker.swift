@@ -73,7 +73,6 @@ struct ChoicePickerView: View {
     let request: ChoiceRequest
     let pick: (String) -> Void
     let close: () -> Void
-    private var prefix: String { request.gameID == ControllersView.mappingID ? "ctl.pick." : "pick." }
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.shellFocus) private var focus
 
@@ -109,7 +108,7 @@ struct ChoicePickerView: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel(ShellStrings.text("Close"))
                 .accessibilityIdentifier("choice.close")
-                .shellTarget("\(prefix)close", radius: 22, action: close)
+                .shellTarget("pick.close", radius: 22, action: close)
             }
             .padding(.horizontal, 20).padding(.top, 14).padding(.bottom, 8)
             Rectangle().fill(ShellPalette.hairline).frame(height: 1)
@@ -117,11 +116,11 @@ struct ChoicePickerView: View {
                 ScrollViewReader { proxy in
                     ScrollView { list }
                         .scrollIndicators(.hidden)
-                        .onAppear { proxy.scrollTo("\(prefix)\(request.row.value)", anchor: .center) }
+                        .onAppear { proxy.scrollTo("pick.\(request.row.value)", anchor: .center) }
                         .onChange(of: focus.id) { _, id in
-                            guard let id, id.hasPrefix(prefix) else { return }
+                            guard let id, id.hasPrefix("pick.") else { return }
                             withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) {
-                                proxy.scrollTo(id, anchor: id == "\(prefix)close" ? .top : .center)
+                                proxy.scrollTo(id, anchor: id == "pick.close" ? .top : .center)
                             }
                         }
                 }
@@ -150,7 +149,7 @@ struct ChoicePickerView: View {
                 .accessibilityLabel(option.label)
                 .accessibilityAddTraits(chosen ? .isSelected : [])
                 .accessibilityIdentifier("choice.option.\(option.id)")
-                .shellTarget("\(prefix)\(option.id)", radius: 10) { pick(option.id) }
+                .shellTarget("pick.\(option.id)", radius: 10) { pick(option.id) }
             }
         }
         .padding(10)
@@ -161,6 +160,7 @@ struct ChoicePickerView: View {
 struct ChoiceValueRow: View {
     let row: SettingRow
     let valueLabel: String
+    var hint = ShellStrings.text("Opens the list of choices")
     let open: () -> Void
     var body: some View {
         Button(action: open) {
@@ -186,6 +186,6 @@ struct ChoiceValueRow: View {
         .buttonStyle(.plain)
         .accessibilityLabel(row.label)
         .accessibilityValue(valueLabel)
-        .accessibilityHint(ShellStrings.text("Opens the list of choices"))
+        .accessibilityHint(hint)
     }
 }

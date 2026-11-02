@@ -2,19 +2,15 @@ import SwiftUI
 
 /// Connected controllers with their player and battery, and the buttons the shell listens to.
 public struct ControllersView: View {
-    static let mappingID = "global-pad"
+    /// The ID the shell's own button mapping goes by where a game's ID would.
+    public static let mappingID = "global-pad"
     public var padMap: PadMap
-    public var onChange: (String, String) -> Void
-    public var onReset: () -> Void
     @Environment(\.shellFocus) private var focus
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     public var controllers: [ControllerInfo]
     public var onBack: () -> Void
-    public init(controllers: [ControllerInfo], onBack: @escaping () -> Void = {}, padMap: PadMap = PadMap(),
-                onChange: @escaping (String, String) -> Void = { _, _ in }, onReset: @escaping () -> Void = {}) {
+    public init(controllers: [ControllerInfo], onBack: @escaping () -> Void = {}, padMap: PadMap = PadMap()) {
         self.padMap = padMap
-        self.onChange = onChange
-        self.onReset = onReset
         self.controllers = controllers
         self.onBack = onBack
     }
@@ -69,7 +65,7 @@ public struct ControllersView: View {
         .scrollIndicators(.hidden)
         .ignoresSafeArea(edges: .bottom)
         .onChange(of: focus.id) { _, id in
-            guard let id, id.hasPrefix("ctl."), !id.hasPrefix("ctl.pick.") else { return }
+            guard let id, id.hasPrefix("ctl.") else { return }
             withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) {
                 proxy.scrollTo(id, anchor: id == "ctl.close" ? .top : .center)
             }
@@ -78,22 +74,12 @@ public struct ControllersView: View {
         }
         .foregroundStyle(.white).preferredColorScheme(.dark)
     }
+    /// The mapping and the test, each a compact row that opens a card of its own.
     private var mapping: some View {
         VStack(alignment: .leading, spacing: 14) {
             SectionHeading(title: ShellStrings.text("Button mapping"))
-            let swap = SettingRow(id: "swapAB", label: ShellStrings.text("Swap A and B"),
-                                  note: ShellStrings.text("Only affects physical controllers in games, not shell menus. Each game can override these settings."),
-                                  kind: .toggle(on: "1", off: "0"), value: padMap.swapAB ? "1" : "0")
-            SettingControl(gameID: Self.mappingID, row: swap, targetPrefix: "ctl.row.") { onChange("swapAB", $0) }
-                .accessibilityIdentifier("ctl.swapAB").id("ctl.row.swapAB")
-            ForEach(PadMap.buttons, id: \.self) { button in
-                let row = SettingRow(id: button, label: PadMap.label(button), kind: .choice(PadMap.options), value: padMap.output(for: button))
-                SettingControl(gameID: Self.mappingID, row: row, targetPrefix: "ctl.row.") { onChange(button, $0) }
-                    .accessibilityIdentifier("ctl.\(button)").id("ctl.row.\(button)")
-            }
-            Button(action: onReset) { Text(ShellStrings.text("Reset to default")) }
-                .buttonStyle(ChipButtonStyle()).accessibilityIdentifier("ctl.reset")
-                .shellTarget("ctl.reset", action: onReset).id("ctl.reset")
+            PadMappingEntryRow(gameID: Self.mappingID, rows: PadMappingRows.global(padMap), targetID: "ctl.mapping").id("ctl.mapping")
+            ButtonTestEntryRow().id("ctl.test")
         }
     }
 
@@ -102,6 +88,18 @@ public struct ControllersView: View {
             icon.frame(width: 22).foregroundStyle(.white.opacity(0.75))
             Text(label).shellText(14.5).foregroundStyle(.white.opacity(0.7))
         }.accessibilityElement(children: .combine)
+    }
+}
+
+/// The row that opens the button test.
+private struct ButtonTestEntryRow: View {
+    @Environment(\.shellOpenButtonTest) private var openTest
+    var body: some View {
+        let row = SettingRow(id: "buttonTest", label: ShellStrings.text("Button test"),
+                             note: ShellStrings.text("See each button light up as you press it."), kind: .choice([]), value: "")
+        ChoiceValueRow(row: row, valueLabel: "", hint: ShellStrings.text("Opens the button test")) { openTest?() }
+            .shellTarget("ctl.test", radius: 11) { openTest?() }
+            .accessibilityIdentifier("buttonTest.open")
     }
 }
 

@@ -16,6 +16,7 @@ public struct GamePadMapStore {
         return "custom"
     }
     public func change(_ setting: String, value: String) {
+        if setting == PadMappingRows.resetID { reset(); return }
         var map = entries
         if setting == "pad.swapAB" {
             switch value {

@@ -30,4 +30,26 @@ import Testing
         map.setSwapAB(false)
         #expect(map.envValue == "X=none")
     }
+    @Test func globalRowsMarkWhatDiffersFromTheDefault() {
+        var map = PadMap()
+        let untouched = PadMappingRows.global(map).allSatisfy { $0.fromShell }
+        #expect(untouched)
+        #expect(PadMappingRows.summary(PadMappingRows.global(map), game: false) == "Default")
+        map.setSwapAB(true)
+        let rows = PadMappingRows.global(map)
+        let ids = Array(rows.map { $0.id }.prefix(3)), changed = rows.filter { !$0.fromShell }.map { $0.id }
+        #expect(ids == ["swapAB", "A", "B"])
+        #expect(changed == ["swapAB", "A", "B"])
+        #expect(PadMappingRows.summary(rows, game: false) == "Swap A and B: On")
+        map.set("X", to: "none")
+        #expect(PadMappingRows.summary(PadMappingRows.global(map), game: false) == "Custom")
+    }
+    @Test func aGameWithoutItsOwnMappingFollowsGlobal() {
+        let rows = [SettingRow(id: "pad.swapAB", label: "Swap A and B", kind: .choice([]), value: "follow", fromShell: true),
+                    SettingRow(id: "pad.A", label: "A", kind: .choice([]), value: "follow", fromShell: true)]
+        #expect(PadMappingRows.summary(rows, game: true) == "Follow global")
+        var custom = rows
+        custom[1].fromShell = false
+        #expect(PadMappingRows.summary(custom, game: true) == "Custom")
+    }
 }

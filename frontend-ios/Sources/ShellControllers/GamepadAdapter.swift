@@ -21,6 +21,14 @@ public struct ConnectedController: Equatable, Sendable {
 @MainActor public final class GamepadAdapter {
     public var onInput: (ShellInput.Action, InputDevice) -> Void = { _, _ in }
     public var onControllersChange: ([ConnectedController]) -> Void = { _ in }
+    /// Every state of any controller, for the button test. Nil (the default) reports none. Set, it reports the state of
+    /// the first controller at once, then each change of whichever controller moved.
+    public var onSnapshot: ((PadSnapshot) -> Void)? {
+        didSet {
+            guard let onSnapshot, let pad = GCController.controllers().first else { return }
+            onSnapshot(Self.snapshot(of: pad.physicalInputProfile, name: Self.name(of: pad)))
+        }
+    }
 
     private var mapper = PadMapper()
     private var observers: [NSObjectProtocol] = []
@@ -75,9 +83,14 @@ public struct ConnectedController: Equatable, Sendable {
         for pad in GCController.controllers() {
             let id = Self.id(of: pad)
             let family = ControllerFamily(productCategory: pad.productCategory)
+            let name = Self.name(of: pad)
             pad.physicalInputProfile.valueDidChangeHandler = { [weak self] profile, _ in
                 let state = Self.state(of: profile)
-                MainActor.assumeIsolated { self?.read(state, controller: id, family: family) }
+                let snapshot = Self.snapshot(of: profile, name: name)
+                MainActor.assumeIsolated {
+                    self?.onSnapshot?(snapshot)
+                    self?.read(state, controller: id, family: family)
+                }
             }
         }
         publish()
@@ -95,6 +108,32 @@ public struct ConnectedController: Equatable, Sendable {
                                             (GCInputLeftShoulder, .leftShoulder), (GCInputRightShoulder, .rightShoulder)]
         for (name, button) in names where pressed(name) { buttons.insert(button) }
         return PadState(x: x, y: y, buttons: buttons)
+    }
+
+    private nonisolated static func name(of pad: GCController) -> String { pad.vendorName ?? pad.productCategory }
+
+    /// Everything the button test draws, by GameController's names: buttonA is the bottom face button on the drawing.
+    private nonisolated static func snapshot(of pad: GCPhysicalInputProfile, name: String) -> PadSnapshot {
+        func pressed(_ name: String) -> Bool { pad.buttons[name]?.isPressed ?? false }
+        let names: [(String, PadElement)] = [(GCInputButtonA, .a), (GCInputButtonB, .b), (GCInputButtonX, .x), (GCInputButtonY, .y),
+                                             (GCInputLeftShoulder, .leftBumper), (GCInputRightShoulder, .rightBumper),
+                                             (GCInputLeftTrigger, .leftTrigger), (GCInputRightTrigger, .rightTrigger),
+                                             (GCInputLeftThumbstickButton, .leftStick), (GCInputRightThumbstickButton, .rightStick),
+                                             (GCInputButtonOptions, .view), (GCInputButtonMenu, .menu), (GCInputButtonHome, .home)]
+        var held = Set(names.filter { pressed($0.0) }.map(\.1))
+        if let dpad = pad.dpads[GCInputDirectionPad] {
+            if dpad.up.isPressed { held.insert(.up) }
+            if dpad.down.isPressed { held.insert(.down) }
+            if dpad.left.isPressed { held.insert(.left) }
+            if dpad.right.isPressed { held.insert(.right) }
+        }
+        func stick(_ name: String) -> CGPoint {
+            guard let s = pad.dpads[name] else { return .zero }
+            return CGPoint(x: Double(s.xAxis.value), y: Double(s.yAxis.value))
+        }
+        return PadSnapshot(name: name, pressed: held, leftStick: stick(GCInputLeftThumbstick), rightStick: stick(GCInputRightThumbstick),
+                           leftTrigger: Double(pad.buttons[GCInputLeftTrigger]?.value ?? 0),
+                           rightTrigger: Double(pad.buttons[GCInputRightTrigger]?.value ?? 0))
     }
 
     private func read(_ state: PadState, controller: String, family: ControllerFamily) {

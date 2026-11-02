@@ -57,21 +57,37 @@ import XCTest
         shot("shell-settings")
     }
 
-    /// The two mapping entry points, including the real host's per-game rows.
+    /// The mapping rows in Controllers and in a game's settings, the card each opens, a button's options and the test.
     func testCapturePadMapping() {
         XCUIDevice.shared.orientation = .portrait
+        func reveal(_ element: XCUIElement) {
+            XCTAssertTrue(element.waitForExistence(timeout: 5))
+            for _ in 0..<5 where !element.isHittable { app.scrollViews.element(boundBy: app.scrollViews.count - 1).swipeUp() }
+            XCTAssertTrue(element.isHittable)
+        }
         launch(["--screen", "controllers"])
-        let globalSwap = app.descendants(matching: .any).matching(identifier: "ctl.swapAB").firstMatch
-        XCTAssertTrue(globalSwap.waitForExistence(timeout: 5))
-        for _ in 0..<3 where !globalSwap.isHittable { app.scrollViews.element(boundBy: app.scrollViews.count - 1).swipeUp() }
-        XCTAssertTrue(globalSwap.isHittable)
+        let open = app.descendants(matching: .any).matching(identifier: "padMapping.open").firstMatch
+        reveal(open)
         shot("controllers-button-mapping")
+        open.tap()
+        XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "padMapping.card").firstMatch.waitForExistence(timeout: 5))
+        sleep(1)
+        shot("controllers-button-mapping-card")
+        app.buttons["padMapping.row.A"].tap()
+        XCTAssertTrue(app.buttons["padMapping.option.B"].waitForExistence(timeout: 5))
+        sleep(1)
+        shot("controllers-button-mapping-options")
+        launch(["--screen", "controllers-test"])
+        XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "buttonTest").firstMatch.waitForExistence(timeout: 5))
+        shot("controllers-button-test")
         launch(["--host", "--screen", "settings", "--select", "0100000000010000"])
-        let gameSwap = app.descendants(matching: .any).matching(identifier: "setting.pad.swapAB").firstMatch
-        XCTAssertTrue(gameSwap.waitForExistence(timeout: 5))
-        for _ in 0..<5 where !gameSwap.isHittable { app.scrollViews.element(boundBy: app.scrollViews.count - 1).swipeUp() }
-        XCTAssertTrue(gameSwap.isHittable)
+        let game = app.descendants(matching: .any).matching(identifier: "padMapping.open").firstMatch
+        reveal(game)
         shot("game-controller-mapping")
+        game.tap()
+        XCTAssertTrue(app.buttons["padMapping.row.pad.swapAB"].waitForExistence(timeout: 5))
+        sleep(1)
+        shot("game-controller-mapping-card")
     }
 
     func testCaptureMatrix() {

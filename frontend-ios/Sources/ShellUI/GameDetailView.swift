@@ -20,10 +20,15 @@ public struct GameDetailView: View {
             if showsHeader || showsPrimaryAction { header }
             ForEach(detail.sections) { section in
                 group(section.title) {
-                    ForEach(section.rows) { row in
-                        // Equatable on its row: a change re-renders the changed row only, not every row of the game.
-                        SettingControl(gameID: detail.id, row: row) { actions.onChange(detail.id, row.id, $0) }.equatable()
-                        if row.id != section.rows.last?.id { divider }
+                    // The button mapping is one row here and opens a card of its own, as a long choice list does.
+                    if section.id == PadMappingRows.sectionID {
+                        PadMappingEntryRow(gameID: detail.id, rows: section.rows, targetID: "set.row.padMapping")
+                    } else {
+                        ForEach(section.rows) { row in
+                            // Equatable on its row: a change re-renders the changed row only, not every row of the game.
+                            SettingControl(gameID: detail.id, row: row) { actions.onChange(detail.id, row.id, $0) }.equatable()
+                            if row.id != section.rows.last?.id { divider }
+                        }
                     }
                 }
             }

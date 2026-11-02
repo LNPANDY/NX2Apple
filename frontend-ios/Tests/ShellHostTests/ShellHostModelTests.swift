@@ -95,6 +95,9 @@ final class Clock: @unchecked Sendable { var date: Date; init(_ d: Date) { date 
         #expect(store.entries.isEmpty)
         model.change(Fixtures.orbit, setting: "pad.swapAB", value: "on")
         #expect(store.swapValue == "on")
+        // The mapping card's reset forgets the game's mapping only, not its other settings.
+        model.change(Fixtures.orbit, setting: PadMappingRows.resetID, value: "")
+        #expect(store.entries.isEmpty && store.swapValue == "follow")
     }
 
     @Test func profilePadMapRowWinsShellMapping() throws {

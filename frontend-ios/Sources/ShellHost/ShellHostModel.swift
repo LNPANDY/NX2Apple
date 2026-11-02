@@ -59,6 +59,8 @@ public struct ShellHostConfig: Sendable {
     public var log: LogPresentation?
 
     public private(set) var globalPadMap = PadMap()
+    /// The last controller state, sent only while the button test is open.
+    public private(set) var padSnapshot: PadSnapshot?
 
     @ObservationIgnored private let config: ShellHostConfig
     @ObservationIgnored private let launcher: any GameLauncher
@@ -299,7 +301,8 @@ public struct ShellHostConfig: Sendable {
                 else { self.shellSettings.setPadButton(setting, to: value) }
                 self.refreshAll()
             },
-            onGlobalPadMapReset: { [weak self] in self?.shellSettings.resetPadMap(); self?.refreshAll() })
+            onGlobalPadMapReset: { [weak self] in self?.shellSettings.resetPadMap(); self?.refreshAll() },
+            onButtonTest: { [weak self] open in self?.buttonTest(open) })
     }
 
     public func change(_ id: String, setting: String, value: String) {
@@ -459,6 +462,12 @@ public struct ShellHostConfig: Sendable {
     }
 
     public func stopControllers() { adapter.stop() }
+
+    /// The button test opened or closed: the adapter reports every controller state in between.
+    public func buttonTest(_ open: Bool) {
+        adapter.onSnapshot = open ? { [weak self] in self?.padSnapshot = $0 } : nil
+        if !open { padSnapshot = nil }
+    }
 
     static func info(for c: ConnectedController) -> ControllerInfo {
         ControllerInfo(id: c.id, name: c.name, player: hostText("Player \(c.player)"), batteryPercent: c.batteryPercent, charging: c.charging)
