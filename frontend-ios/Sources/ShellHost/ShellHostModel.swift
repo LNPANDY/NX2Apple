@@ -466,7 +466,8 @@ public struct ShellHostConfig: Sendable {
     static var touchHint: String { hostText("Right stick: drag here") }
 
     /// DM_HOME_QUIT_TEXT: the game's quit prompt in the player's language, one text per line in the engine's order (home_quit.h): the hold
-    /// indicator, the title with the game's name, the note, Quit and Cancel. The engine draws it when the quit control is tapped or Home is held.
+    /// indicator, the title with the game's name, the note, Quit and Cancel. The engine draws it when Quit is picked in the in-game menu (the gear)
+    /// or Home is held. The menu item reads the title without its question mark.
     static func quitPromptText(gameName: String) -> String {
         [hostText("Keep holding to quit"), hostText("Quit \(gameName)?"),
          hostText("Unsaved progress will be lost. The app closes and opens on your games next time."), hostText("Quit"), hostText("Cancel")]

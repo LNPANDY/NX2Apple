@@ -61,30 +61,25 @@ final class Clock: @unchecked Sendable { var date: Date; init(_ d: Date) { date 
         #expect(hint == ShellHostModel.touchHint && !hint.isEmpty)
     }
 
-    /// The quit prompt's words reach the engine with the game's name in the title, five lines in home_quit.h's order (patch 0068), and the
-    /// quit control's choice from the shell's settings.
+    /// The quit prompt's words reach the engine with the game's name in the title, five lines in home_quit.h's order (patch 0068): the
+    /// engine draws the prompt when Quit is picked in the in-game menu or Home is held.
     @Test func everyGameGetsTheQuitPromptInThePlayersLanguage() async throws {
         let box = try Sandbox()
         try box.giveAppData()
-        let shell = shellSettings()
         let launcher = RecordingLauncher()
-        let model = ShellHostModel(config: box.config(), launcher: launcher, shellSettings: shell)
+        let model = ShellHostModel(config: box.config(), launcher: launcher, shellSettings: shellSettings())
         await model.playNow(Fixtures.orbit)
         let text = try #require(launcher.launched.last?.environment["DM_HOME_QUIT_TEXT"])
         let lines = text.components(separatedBy: "\n")
         let name = try #require(launcher.launched.last?.name)
         #expect(lines.count == 5 && lines.allSatisfy { !$0.isEmpty } && lines[1].contains(name))
-        #expect(launcher.launched.last?.environment["DM_TOUCH_EXIT"] == nil, "the quit control is on by default")
-        shell.storeTouchQuit(false)
-        await model.playNow(Fixtures.orbit)
-        #expect(launcher.launched.last?.environment["DM_TOUCH_EXIT"] == "0")
     }
 
     /// The prompt's texts in every language: no semicolon, no line break (one text per line in DM_HOME_QUIT_TEXT), the title keeps the game's name.
     @Test func theQuitPromptTextsFollowTheTextRules() throws {
         let l10n = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().appendingPathComponent("frontend/l10n")
-        let keys = ["ios.host.quitHold", "ios.host.quitTitle", "ios.host.quitNote", "ios.host.quitButton", "ios.host.quitCancel", "ios.ui.touchQuit", "ios.ui.touchQuitNote"]
+        let keys = ["ios.host.quitHold", "ios.host.quitTitle", "ios.host.quitNote", "ios.host.quitButton", "ios.host.quitCancel"]
         for file in try FileManager.default.contentsOfDirectory(at: l10n, includingPropertiesForKeys: nil) where file.pathExtension == "json" {
             let strings = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
             for key in keys {
