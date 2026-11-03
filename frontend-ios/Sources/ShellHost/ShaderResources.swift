@@ -16,12 +16,16 @@ actor ShaderResources {
             try? fm.removeItem(at: partial)
         }
 
-        let override = game.appFolder.appendingPathComponent("msl", isDirectory: true)
-        if (try? override.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true { return nil }
+        // The launch plan already knows how to use an explicit setting, player shaders, or the loose framework tree.
+        guard game.environment["DM_MSL_DIR"] == nil else { return nil }
+        for folder in [game.appFolder, game.frameworkURL] {
+            let msl = folder.appendingPathComponent("msl", isDirectory: true)
+            if (try? msl.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true { return nil }
+        }
 
         let files = try fm.contentsOfDirectory(at: game.frameworkURL, includingPropertiesForKeys: nil)
         let archives = files.filter { $0.pathExtension == "aar" && Self.hasUUIDName($0.deletingPathExtension().lastPathComponent, prefix: "msl-") }
-        guard let archive = archives.first else { return nil }   // Older IPAs and direct installs have loose shaders.
+        guard let archive = archives.first else { return nil }
         guard archives.count == 1 else { throw CocoaError(.fileReadCorruptFile) }
 
         let destination = cache.appendingPathComponent(archive.deletingPathExtension().lastPathComponent, isDirectory: true)
