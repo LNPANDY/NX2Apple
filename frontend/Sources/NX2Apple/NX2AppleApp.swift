@@ -10,6 +10,9 @@ enum Entry {
         if CommandLine.arguments.contains("--install-shell") {
             exit(ShellCLI.run(Array(CommandLine.arguments.dropFirst())))
         }
+        // A shared app's folder that an older version made inside the output folder moves to Application Support once (#427).
+        // Here and not in the stores: a test that builds the stores must never move a folder in the real home.
+        ShellRootMigration.migrateSavedRoot()
         NX2AppleApp.main()
     }
 }

@@ -58,10 +58,18 @@ import NXModel
         XCTAssertEqual(Set(json?.keys.map { $0 } ?? []), ["bundleID", "team", "games"])
     }
 
-    func testShellRootIsDerivedOnceAndKept() throws {
+    /// #427: the default no longer depends on the output folder, and what is saved stays.
+    func testShellRootDefaultsToApplicationSupportAndIsKept() throws {
         let defaults = UserDefaults(suiteName: "nspb-shell-" + UUID().uuidString)!
-        XCTAssertEqual(ShellLibrary.resolveRoot(defaults: defaults, parent: "/Volumes/A"), "/Volumes/A/NX2Apple-shell")
-        XCTAssertEqual(ShellLibrary.resolveRoot(defaults: defaults, parent: "/Volumes/B"), "/Volumes/A/NX2Apple-shell")
+        let home = temporary.path + "/home"
+        XCTAssertEqual(ShellLibrary.resolveRoot(defaults: defaults, parent: "/Volumes/A", home: home),
+                       home + "/Library/Application Support/NX2Apple/shell")
+        XCTAssertEqual(ShellLibrary.resolveRoot(defaults: defaults, parent: "/Volumes/B", home: home),
+                       home + "/Library/Application Support/NX2Apple/shell")
+        XCTAssertEqual(defaults.string(forKey: "shellRoot"), home + "/Library/Application Support/NX2Apple/shell")
+        // a root the player chose themselves is not touched
+        defaults.set("/Volumes/Games/Cache/shell", forKey: "shellRoot")
+        XCTAssertEqual(ShellLibrary.resolveRoot(defaults: defaults, parent: "/Volumes/B", home: home), "/Volumes/Games/Cache/shell")
     }
 
     /// #492: the Settings page reads the path before a game is chosen; the empty parent put the shell at the root of the
@@ -69,28 +77,29 @@ import NXModel
     func testAnEmptyOrRootParentNeverSavesTheShellAtTheVolumeRoot() {
         let defaults = UserDefaults(suiteName: "nspb-shell-" + UUID().uuidString)!
         let home = "/Users/tester"
-        XCTAssertEqual(ShellLibrary.resolveRoot(defaults: defaults, parent: "", home: home), "/Users/tester/NX2Apple-shell")
-        XCTAssertEqual(defaults.string(forKey: "shellRoot"), "/Users/tester/NX2Apple-shell")
-        defaults.removeObject(forKey: "shellRoot")
-        XCTAssertEqual(ShellLibrary.resolveRoot(defaults: defaults, parent: "/", home: home), "/Users/tester/NX2Apple-shell")
-        defaults.removeObject(forKey: "shellRoot")
-        XCTAssertEqual(ShellLibrary.resolveRoot(defaults: defaults, parent: "relative/games", home: home), "/Users/tester/NX2Apple-shell")
+        let root = "/Users/tester/Library/Application Support/NX2Apple/shell"
+        for parent in ["", "/", "relative/games"] {
+            XCTAssertEqual(ShellLibrary.resolveRoot(defaults: defaults, parent: parent, home: home), root)
+            XCTAssertEqual(defaults.string(forKey: "shellRoot"), root)
+            defaults.removeObject(forKey: "shellRoot")
+        }
     }
 
     func testASavedRootAtTheVolumeRootIsRepaired() {
         let defaults = UserDefaults(suiteName: "nspb-shell-" + UUID().uuidString)!
         defaults.set("/NX2Apple-shell", forKey: "shellRoot")
-        XCTAssertEqual(ShellLibrary.resolveRoot(defaults: defaults, parent: "/Users/tester/games"),
-                       "/Users/tester/games/NX2Apple-shell")
-        XCTAssertEqual(defaults.string(forKey: "shellRoot"), "/Users/tester/games/NX2Apple-shell")   // the bad value is replaced
+        XCTAssertEqual(ShellLibrary.resolveRoot(defaults: defaults, parent: "/Users/tester/games", home: "/Users/tester"),
+                       "/Users/tester/Library/Application Support/NX2Apple/shell")
+        XCTAssertEqual(defaults.string(forKey: "shellRoot"), "/Users/tester/Library/Application Support/NX2Apple/shell")   // the bad value is replaced
     }
 
     func testThePreviewDoesNotSaveARoot() {
         let defaults = UserDefaults(suiteName: "nspb-shell-" + UUID().uuidString)!
-        XCTAssertEqual(ShellLibrary.previewRoot(defaults: defaults, parent: "/Volumes/A"), "/Volumes/A/NX2Apple-shell")
+        XCTAssertEqual(ShellLibrary.previewRoot(defaults: defaults, parent: "/Volumes/A", home: "/Users/tester"),
+                       "/Users/tester/Library/Application Support/NX2Apple/shell")
         XCTAssertNil(defaults.string(forKey: "shellRoot"))
         defaults.set("/Volumes/A/NX2Apple-shell", forKey: "shellRoot")
-        XCTAssertEqual(ShellLibrary.previewRoot(defaults: defaults, parent: "/Volumes/B"), "/Volumes/A/NX2Apple-shell")
+        XCTAssertEqual(ShellLibrary.previewRoot(defaults: defaults, parent: "/Volumes/B"), "/Volumes/A/NX2Apple-shell")   // an old root shows until it moves
     }
 
     func testRootNeedsAWritableParent() throws {
@@ -398,7 +407,7 @@ import NXModel
         try write(archive + "/romfs.img", "0123456789")
         try write(archive + "/aoc/1.img", "abcd")
         try write(archive + "/.packstamp", "stamp")
-        let made = Fixture(xcrun: try makeXcrun(), repo: try makeRepo(), framework: framework, archive: archive, root: path("NX2Apple-shell"))
+        let made = Fixture(xcrun: try makeXcrun(), repo: try makeRepo(), framework: framework, archive: archive, root: path("shell-root"))
         try writeDevices(state + "/devices-default.json", [(device, "wired")])
         return made
     }

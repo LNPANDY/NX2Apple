@@ -125,7 +125,7 @@ import NXModel
         let framework = path("work/shell-framework/DmGame\(titleID).framework")
         try write(framework + "/game.manifest.json", "{}")
         try write(framework + "/DmGame\(titleID)", "executable")
-        return Fixture(xcrun: try makeXcrun(), repo: try makeRepo(entitlements: entitlements), framework: framework, root: path("NX2Apple-shell"))
+        return Fixture(xcrun: try makeXcrun(), repo: try makeRepo(entitlements: entitlements), framework: framework, root: path("shell-root"))
     }
 
     /// No device and no team: the installer is made the way the export needs it.

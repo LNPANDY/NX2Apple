@@ -69,18 +69,36 @@ package struct ShellLibrary: Codable, Equatable {
         root.hasPrefix("/") && (root as NSString).pathComponents.filter { $0 != "/" }.count >= 2
     }
 
-    /// The root the next install would use, without saving it. The Settings page shows it before any game is chosen,
-    /// and that look must not decide where builds save (#492).
+    /// The root the next install would use, without saving it or moving anything. The Settings page shows it before any game is
+    /// chosen, and that look must not decide where builds save (#492). Since #427 the default no longer depends on the output
+    /// folder: it is `ShellRootMigration.defaultRoot`. A root saved by an older version shows until `resolveRoot` moves it.
     package static func previewRoot(defaults: UserDefaults = .standard, parent: String, home: String = NSHomeDirectory()) -> String {
         if let saved = defaults.string(forKey: "shellRoot"), rootIsUsable(saved) { return saved }
-        return parentFolder(parent, home: home) + "/NX2Apple-shell"
+        return ShellRootMigration.defaultRoot(home: home)
     }
 
-    /// The shell root: the saved one (`shellRoot` in `defaults`), else `<parent>/NX2Apple-shell`, which is then saved so the shell
-    /// stays where it was first made, whatever output folder a later build uses. A saved root at a volume root is repaired.
+    /// The shell root: the saved one (`shellRoot` in `defaults`), else `~/Library/Application Support/NX2Apple/shell`, which is then
+    /// saved. A root that an older version made inside the output folder (`<folder>/NX2Apple-shell`) moves there once, when that is
+    /// safe (`ShellRootMigration`), and otherwise stays where it is. `parent` is where an older version would have made it. A saved
+    /// root at a volume root is repaired (#492).
     package static func resolveRoot(defaults: UserDefaults = .standard, parent: String, home: String = NSHomeDirectory()) -> String {
-        if let saved = defaults.string(forKey: "shellRoot"), rootIsUsable(saved) { return saved }
-        let root = parentFolder(parent, home: home) + "/NX2Apple-shell"
+        if let saved = defaults.string(forKey: "shellRoot"), rootIsUsable(saved) {
+            return ShellRootMigration.isLegacy(saved, home: home) ? settle(legacy: saved, defaults: defaults, home: home) : saved
+        }
+        let legacy = parentFolder(parent, home: home) + "/" + ShellRootMigration.legacyName
+        if FileManager.default.fileExists(atPath: legacy) { return settle(legacy: legacy, defaults: defaults, home: home) }
+        let root = ShellRootMigration.defaultRoot(home: home)
+        defaults.set(root, forKey: "shellRoot")
+        return root
+    }
+
+    /// Moves an old root to the default place and saves the answer. When the old folder has to stay, it stays the saved root.
+    private static func settle(legacy: String, defaults: UserDefaults, home: String) -> String {
+        let root: String
+        switch ShellRootMigration.migrate(from: legacy, to: ShellRootMigration.defaultRoot(home: home)) {
+        case .moved, .nothingToMove: root = ShellRootMigration.defaultRoot(home: home)
+        case .left: root = legacy
+        }
         defaults.set(root, forKey: "shellRoot")
         return root
     }
