@@ -6,7 +6,7 @@ import Combine
 import NXModel
 @testable import NXLauncher
 
-@MainActor final class LibraryTests: XCTestCase {
+@MainActor final class LibraryTests: IsolatedDefaultsTestCase {
     private var temporary: URL!
     private let titleID = "0100535012974000"
 
@@ -287,9 +287,7 @@ import NXModel
     /// Stop ends the build and leaves no stage behind (a spinner and a percentage of a build that no longer runs).
     @MainActor func testStoppedBuildResetsItsProgress() throws {
         guard FileManager.default.isExecutableFile(atPath: "/usr/bin/python3") else { throw XCTSkip("System Python is required for the process fixture") }
-        let saved = ["repoPath", "buildTarget", "buildOutputDirectory"].map { ($0, UserDefaults.standard.object(forKey: $0)) }
-        defer { for (key, value) in saved { UserDefaults.standard.set(value, forKey: key) } }
-        let modelStores = LauncherStores(); let model = modelStores.build
+        let modelStores = LauncherStores(defaults: testDefaults); let model = modelStores.build
         modelStores.repo.path = temporary.path
         model.target = "mac-app"
         model.outDir = temporary.path
@@ -387,7 +385,7 @@ import NXModel
     /// An action on the installed app names what is missing instead of doing nothing, and a failed reinstall is a note on
     /// the installed app, not a failed build (the app is still on the device).
     @MainActor func testReinstallAndSaveReportAMissingSignedApp() throws {
-        let modelStores = LauncherStores(xcrun: "/usr/bin/true"); let model = modelStores.build
+        let modelStores = LauncherStores(xcrun: "/usr/bin/true", defaults: testDefaults); let model = modelStores.build
         model.installedOn = "00008150-AAAA"
         model.installedAppPath = temporary.path + "/gone/DmShell.app"
         var reported = expectation(description: "Reinstall says what is missing")
@@ -410,7 +408,7 @@ import NXModel
         let info: [String: Any] = ["CFBundleDisplayName": "Zelda: Echoes/of Wisdom"]
         try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
             .write(to: app.appendingPathComponent("Info.plist"))
-        let modelStores = LauncherStores(); let model = modelStores.build
+        let modelStores = LauncherStores(defaults: testDefaults); let model = modelStores.build
         model.installedAppPath = app.path
         XCTAssertEqual(model.defaultIPAName(), "Zelda_ Echoes_of Wisdom.ipa")
     }
@@ -426,9 +424,7 @@ import NXModel
     /// An app from before the shared app has no project to sign again: the note says to build the game again. Without a team
     /// the note asks for one first.
     @MainActor func testResignOfAnOlderAppAsksForANewBuild() throws {
-        let savedTeam = UserDefaults.standard.string(forKey: "signingTeam")
-        defer { UserDefaults.standard.set(savedTeam, forKey: "signingTeam") }
-        let modelStores = LauncherStores(); let model = modelStores.build
+        let modelStores = LauncherStores(defaults: testDefaults); let model = modelStores.build
         let older = temporary.appendingPathComponent("0100_build/xcode-derived-data/Build/Products/Release-iphoneos/DmIOS.app").path
         modelStores.deviceStore.signingTeam = "TEAM123456"
         var reported = expectation(description: "Older app reported")
@@ -445,9 +441,7 @@ import NXModel
 
     /// The shared app's project is gone (the shell folder was removed): the note names it.
     @MainActor func testResignReportsAMissingSharedProject() throws {
-        let savedTeam = UserDefaults.standard.string(forKey: "signingTeam")
-        defer { UserDefaults.standard.set(savedTeam, forKey: "signingTeam") }
-        let modelStores = LauncherStores(); let model = modelStores.build
+        let modelStores = LauncherStores(defaults: testDefaults); let model = modelStores.build
         modelStores.deviceStore.signingTeam = "TEAM123456"
         let shared = temporary.appendingPathComponent("shell/derived-data/Build/Products/Release-iphoneos/DmShell.app")
         let reported = expectation(description: "Missing project reported")
@@ -568,9 +562,7 @@ import NXModel
         guard FileManager.default.isExecutableFile(atPath: "/usr/bin/python3") else { throw XCTSkip("System Python is required for the process fixture") }
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory)
-        let saved = ["repoPath", "buildTarget", "buildOutputDirectory"].map { ($0, UserDefaults.standard.object(forKey: $0)) }
-        defer { for (key, value) in saved { UserDefaults.standard.set(value, forKey: key) } }
-        let modelStores = LauncherStores(); let model = modelStores.build
+        let modelStores = LauncherStores(defaults: testDefaults); let model = modelStores.build
         model.lang = .en   // the script's stage name as English shows it, whatever the Mac's language
         modelStores.repo.path = temporary.path
         model.target = "mac-app"
@@ -653,15 +645,13 @@ import NXModel
         let output = URL(fileURLWithPath: directory)
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         NSApplication.shared.setActivationPolicy(.accessory)
-        let saved = ["repoPath", "buildTarget", "buildOutputDirectory"].map { ($0, UserDefaults.standard.object(forKey: $0)) }
-        defer { for (key, value) in saved { UserDefaults.standard.set(value, forKey: key) } }
         let real = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("NS Port Builder/library.json")
         let copy = temporary.appendingPathComponent("library.json")
         // The games, without the user's folders: names and title IDs only, and BotW as a finished Mac build (a fixture app)
         let real_ = GameLibrary(file: real)
         let library = GameLibrary(file: copy)
         let botw = "01007EF00011E000", totk = "0100F2C0115B6000"
-        let modelStores = LauncherStores(); let model = modelStores.build
+        let modelStores = LauncherStores(defaults: testDefaults); let model = modelStores.build
         modelStores.repo.path = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().path
         model.lang = .en
         MainActor.assumeIsolated { modelStores.dependencies.checked = true }
@@ -760,14 +750,7 @@ import NXModel
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory)
         let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().path
-        let modelStores = LauncherStores(); let model = modelStores.build
-        // Restore any preferences changed while preparing isolated preview data.
-        let oldRepo = UserDefaults.standard.object(forKey: "repoPath")
-        let oldOutput = UserDefaults.standard.object(forKey: "buildOutputDirectory")
-        defer {
-            UserDefaults.standard.set(oldRepo, forKey: "repoPath")
-            UserDefaults.standard.set(oldOutput, forKey: "buildOutputDirectory")
-        }
+        let modelStores = LauncherStores(defaults: testDefaults); let model = modelStores.build
         modelStores.repo.path = repo
         model.lang = CaptureLanguage.current(.en)
         model.outDir = temporary.path

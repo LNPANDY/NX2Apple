@@ -6,7 +6,7 @@ import Combine
 import NXModel
 @testable import NXLauncher
 
-@MainActor final class ConsoleTests: XCTestCase {
+@MainActor final class ConsoleTests: IsolatedDefaultsTestCase {
     /// The games ready on this Mac come first. The rest follow in their own order, each with its status.
     func testReadyGamesComeFirst() {
         func game(_ id: String, _ status: ConsoleGame.Status) -> ConsoleGame {
@@ -207,7 +207,7 @@ import NXModel
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         for lang in CaptureLanguage.all([.en, .zh]) {
             for width: CGFloat in [900, 1280] {
-                let modelStores = LauncherStores(); let model = modelStores.build
+                let modelStores = LauncherStores(defaults: testDefaults); let model = modelStores.build
                 model.lang = lang
                 let library = GameLibrary(file: output.appendingPathComponent("unused-library.json"))
                 let driver = MockConsoleDriver(scenario: .controllersMixed, lang: lang, animated: false)

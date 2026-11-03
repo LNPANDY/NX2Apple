@@ -10,7 +10,7 @@ import NXModel
 /// line. Nothing here lists labels: the real Settings and Builds pages are drawn in every language the launcher has, and each
 /// control reports what it measured (LauncherControlSample), so a new button, a new string or a new language is checked as soon as
 /// a page shows it.
-@MainActor final class LauncherControlWidthTests: XCTestCase {
+@MainActor final class LauncherControlWidthTests: IsolatedDefaultsTestCase {
     private func width(_ text: String, size: CGFloat = 13) throws -> CGFloat {
         let font = try XCTUnwrap(Typography.manropeFont(size: size, weight: .semibold))
         let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: [.font: font]))
@@ -177,7 +177,7 @@ import NXModel
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("control-width-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
-        let modelStores = LauncherStores(); let model = modelStores.build
+        let modelStores = LauncherStores(defaults: testDefaults); let model = modelStores.build
         let library = GameLibrary(file: directory.appendingPathComponent("library.json"))
         try scenario.set(modelStores, library, directory)
         model.lang = lang
@@ -200,8 +200,6 @@ import NXModel
     /// LauncherControl.height high, and its label fits on one line.
     @MainActor func testEveryRowControlOnTheRealPagesFitsInEveryLanguage() throws {
         let keys = ["repoPath", "depsExpanded", "buildTarget", "installDevice", "signingTeam", "buildOutputDirectory", "autoUpdateRepo", "exportIPA", "sendWhere"]
-        let saved = keys.map { ($0, UserDefaults.standard.object(forKey: $0)) }
-        defer { for (key, value) in saved { UserDefaults.standard.set(value, forKey: key) } }
         for scenario in scenarios {
             for lang in Lang.all {
                 let samples = try measure(scenario, lang)
@@ -290,7 +288,7 @@ import NXModel
         let file = directory.appendingPathComponent("library.json")
         try JSONEncoder().encode(Snapshot(games: [game], folder: directory.path)).write(to: file)
         let library = GameLibrary(file: file)
-        let modelStores = LauncherStores(); let model = modelStores.build
+        let modelStores = LauncherStores(defaults: testDefaults); let model = modelStores.build
         for lang in Lang.all {
             model.lang = lang
             let samples = Samples()

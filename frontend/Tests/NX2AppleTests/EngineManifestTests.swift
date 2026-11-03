@@ -6,7 +6,7 @@ import XCTest
 
 /// The release manifest and the engine store (EngineManifest.swift). Everything is driven from bytes and
 /// temporary folders here: no network, no release.
-final class EngineManifestTests: XCTestCase {
+final class EngineManifestTests: IsolatedDefaultsTestCase {
     private lazy var digest = String(repeating: "a", count: 64)
     private let pin = String(repeating: "e", count: 40)
     private var engineID: String { pin + "-0123456789ab" }

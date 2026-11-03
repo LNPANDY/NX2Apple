@@ -7,7 +7,7 @@ import NXModel
 @testable import NXLauncher
 
 /// Visual QA of LNPANDY/NX2Apple#416 (matched by --filter testRenderExportStatesForVisualQA).
-final class ShellExportCaptureTests: XCTestCase {
+final class ShellExportCaptureTests: IsolatedDefaultsTestCase {
     /// The Install card in every state of the export, for the pull request's screenshots: ready, exported, sending, done, app not found,
     /// refused, several apps, drive, copying, copied, FAT32 and the drive before an export. Also the card with the install flow, which the segmented switch changed.
     @MainActor func testRenderExportStatesForVisualQA() throws {
@@ -16,8 +16,6 @@ final class ShellExportCaptureTests: XCTestCase {
         let fm = FileManager.default
         try fm.createDirectory(at: output, withIntermediateDirectories: true)
         let lang = ProcessInfo.processInfo.environment["NX_CAPTURE_LANG"].flatMap { Lang.find($0) } ?? .en
-        let saved = ["buildTarget", "installDevice", "exportIPA", "exportOneGame", "sendWhere", "driveFolder", "shellRoot"].map { ($0, UserDefaults.standard.object(forKey: $0)) }
-        defer { for (key, value) in saved { UserDefaults.standard.set(value, forKey: key) } }
         let shellFolder = fm.temporaryDirectory.appendingPathComponent("NX2Apple-capture-\(UUID().uuidString)")
         try fm.createDirectory(at: shellFolder, withIntermediateDirectories: true)
         let ipa = shellFolder.appendingPathComponent("NX2Apple.ipa")   // the name an export writes
@@ -27,7 +25,7 @@ final class ShellExportCaptureTests: XCTestCase {
         try handle.close()
         defer { try? fm.removeItem(at: shellFolder) }
 
-        let stores = LauncherStores(); let model = stores.build
+        let stores = LauncherStores(defaults: testDefaults); let model = stores.build
         stores.localizer.lang = lang
         model.target = "ios"
         model.slots[0].paths = ["/Games/Super Mario Odyssey [0100000000010000].nsp"]

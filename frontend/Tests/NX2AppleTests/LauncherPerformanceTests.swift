@@ -14,7 +14,7 @@ import NXModel
 /// Info.plist reads and frame time recordings parsed. The counts do not depend on the machine, so they catch work that grows
 /// with the library long before a stopwatch would. The second guard is the time the main thread is busy, the median of
 /// several rounds, with budgets far above what main needs on CI. See "Launcher performance test" in frontend/README.md.
-@MainActor final class LauncherPerformanceTests: XCTestCase {
+@MainActor final class LauncherPerformanceTests: IsolatedDefaultsTestCase {
     private var temporary: URL!
 
     override func setUpWithError() throws {
@@ -132,9 +132,7 @@ import NXModel
         #else
         let world = try makeWorld(owned: 30, catalogue: 150)
         NSApplication.shared.setActivationPolicy(.accessory)
-        let saved = ["repoPath", "buildOutputDirectory"].map { ($0, UserDefaults.standard.object(forKey: $0)) }
-        defer { for (key, value) in saved { UserDefaults.standard.set(value, forKey: key) } }
-        let modelStores = LauncherStores(); let model = modelStores.build
+        let modelStores = LauncherStores(defaults: testDefaults); let model = modelStores.build
         modelStores.repo.path = world.repo.path
         model.lang = .en
         let library = GameLibrary(file: world.libraryFile)

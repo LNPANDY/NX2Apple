@@ -4,7 +4,7 @@ import SwiftUI
 @testable import NXCore
 @testable import NXLauncher
 
-final class OnboardingTests: XCTestCase {
+final class OnboardingTests: IsolatedDefaultsTestCase {
     func testNextBackAndGates() {
         var s = OnboardingState()
         XCTAssertTrue(s.primaryEnabled)
