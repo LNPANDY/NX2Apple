@@ -277,6 +277,7 @@ enum ConsoleInput {
             case .controllers: controllers(compact: compact)
             case let .explanation(id):
                 if let game = state.games.first(where: { $0.id == id }) { explanation(game, compact: compact) }
+            case .homeButtonHint: homeButtonHint(compact: compact)
             }
         }
         .padScope(sheet.scope, pad)
@@ -351,6 +352,31 @@ enum ConsoleInput {
         .padding(compact ? 24 : 40)
     }
 
+    /// Shown once, after a game quit, when that game reported that the system keeps the Home button for itself (#336): what the
+    /// button does in a game, why it does not now, and the way to the setting. A opens Settings, B or "Not now" closes it.
+    private func homeButtonHint(compact: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 24) {
+            Image(systemName: "house.circle").font(.system(size: compact ? 44 : 60, weight: .light))
+                .foregroundStyle(LauncherPalette.cream).accessibilityHidden(true)
+            Text(t("console.homeHint.body")).font(.manrope(compact ? 20 : 26)).fixedSize(horizontal: false, vertical: true)
+            Text(t("console.homeHint.how")).font(.manrope(compact ? 17 : 21)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 24)
+            // Both buttons take the sheet's full width, so their width never follows the label or the language (ConsoleButtonWidths)
+            VStack(spacing: 14) {
+                primaryButton(t("console.homeHint.open"), id: "console.homeHint.open", scope: "console.homeHint") { driver.openHomeButtonSettings() }
+                    .background(ConsoleButtonWidths.reader("console.homeHint.open"))
+                Button { driver.back() } label: {
+                    Text(t("console.homeHint.later")).font(.manrope(21, .semibold)).foregroundStyle(.white.opacity(0.85))
+                        .multilineTextAlignment(.center).lineLimit(2).minimumScaleFactor(0.8).padding(.horizontal, 20)
+                        .frame(maxWidth: .infinity, minHeight: 60).background(.white.opacity(0.08), in: Capsule()).contentShape(Capsule())
+                }
+                .buttonStyle(.plain).padTarget("console.homeHint.later", scope: "console.homeHint", radius: 32, activate: { driver.back() })
+                .background(ConsoleButtonWidths.reader("console.homeHint.later"))
+            }
+        }
+        .padding(compact ? 24 : 40)
+    }
+
     private func empty(compact: Bool) -> some View {
         VStack(spacing: 24) {
             Image(systemName: "rectangle.stack").font(.system(size: compact ? 44 : 64, weight: .light)).foregroundStyle(LauncherPalette.cream.opacity(0.65)).accessibilityHidden(true)
@@ -401,6 +427,7 @@ enum ConsoleInput {
     private func primaryButton(_ label: String, id: String, scope: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(label).font(.manrope(21, .bold)).foregroundStyle(LauncherPalette.background)
+                .multilineTextAlignment(.center).lineLimit(2).minimumScaleFactor(0.8).padding(.horizontal, 20)   // a long label wraps or shrinks, the button keeps its width
                 .frame(maxWidth: .infinity, minHeight: 60).background(LauncherPalette.cream, in: Capsule()).contentShape(Capsule())
         }
         .buttonStyle(.plain).padTarget(id, scope: scope, radius: 32, activate: action)
@@ -410,6 +437,7 @@ enum ConsoleInput {
         case .controllers: return "console.controllers"
         case .options: return "console.options"
         case .explanation: return "console.explanationTitle"
+        case .homeButtonHint: return "console.homeHint.title"
         }
     }
     private func resetFocus() {
@@ -419,6 +447,7 @@ enum ConsoleInput {
         case let .options(id): pad.focused = state.games.first { $0.id == id }?.visibleSettings.first.map { "console.option." + $0.env } ?? "console.options.play"
         case .controllers: pad.focused = "console.player.\(state.assigningPlayer ?? 1)"
         case .explanation: pad.focused = "console.explanation.desktop"
+        case .homeButtonHint: pad.focused = "console.homeHint.open"
         case nil: pad.focused = state.exited ? "console.return" : state.focusedGame.map { "console.game." + $0.id } ?? "console.empty.desktop"
         }
     }
@@ -474,6 +503,13 @@ struct ConsoleArtwork: View {
             }
         }
     }
+}
+
+/// The width each button of the Home button hint was drawn at, by its pad id: ConsoleTests checks that it is the same in every language.
+struct ConsoleButtonWidths: PreferenceKey {
+    static var defaultValue: [String: CGFloat] = [:]
+    static func reduce(value: inout [String: CGFloat], nextValue: () -> [String: CGFloat]) { value.merge(nextValue()) { _, new in new } }
+    static func reader(_ id: String) -> some View { GeometryReader { g in Color.clear.preference(key: ConsoleButtonWidths.self, value: [id: g.size.width]) } }
 }
 
 private struct ConsoleTileFramesKey: PreferenceKey {

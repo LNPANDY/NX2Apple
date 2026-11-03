@@ -119,6 +119,7 @@ import NXModel
             a.runModal()
         }
         build.revealFolder = { NSWorkspace.shared.open($0) }
+        build.revealItem = { NSWorkspace.shared.activateFileViewerSelecting([$0]) }
         build.openApp = { NSWorkspace.shared.openApplication(at: $0, configuration: NSWorkspace.OpenConfiguration()) }
     }
 

@@ -12,11 +12,11 @@ package enum DataSend: Equatable {
     case sending(done: Int64, total: Int64, note: String)
     /// The game data is in the app named `app`.
     case sent(app: String)
-    /// The device lists no copy of the shared app: install the IPA first.
+    /// The device lists no copy of the shared app: install the IPA first, or copy with Finder when another tool installed it under its own ID.
     case appNotFound
     /// Several copies of the shared app: the player picks one.
     case chooseApp([InstalledApp])
-    /// devicectl refused. `detail` is its own text, for a bug report.
+    /// The device listed the app but refused the copy. `detail` is devicectl's own text, for a bug report. The Finder way is offered.
     case refused(detail: String)
     /// Anything else the copy said (the device is locked, not connected, out of space).
     case failed(String)
@@ -24,6 +24,27 @@ package enum DataSend: Equatable {
     case copying(done: Int64, total: Int64)
     /// The game data is on the drive, in this folder.
     case copied(folder: String)
+}
+
+extension DataSend {
+    /// What step 3 shows when a send to the device ended. `notConnected` is the text for a device that was not connected, so nothing was
+    /// copied. A refusal and an app the device does not list are their own states, which offer the Finder way (#491). Every other failure
+    /// shows the copy's own sentence (no space, the app list could not be read).
+    package static func after(_ result: ShellInstaller.Outcome, notConnected: String) -> DataSend {
+        if result.copySkipped { return .failed(notConnected) }
+        if result.ok { return .sent(app: result.appName) }
+        if !result.apps.isEmpty { return .chooseApp(result.apps) }
+        switch result.dataFailure {
+        case .appNotFound: return .appNotFound
+        case .refused: return .refused(detail: result.detail)
+        case .noAppList, nil: return .failed(result.message)
+        }
+    }
+
+    /// The copy to the device did not work and Finder can do it: the second way, offered only now.
+    package var offersFinder: Bool {
+        switch self { case .appNotFound, .refused: return true; default: return false }
+    }
 }
 
 /// The chosen drive folder as the card shows it: its volume, the size the game data needs, and what stops the copy.
@@ -88,28 +109,24 @@ extension BuildStore {
                     self.resetProgress(); self.send = .idle; self.doneNote = self.t("msg.stopped")
                     return
                 }
-                if result.ok && !result.copySkipped {
-                    self.send = .sent(app: result.appName.isEmpty ? "" : result.appName)
-                } else if result.copySkipped {
-                    self.send = .failed(String(format: self.t("shell.copyNotConnected"), self.devices.deviceName(device)))
-                } else if !result.apps.isEmpty {
-                    self.send = .chooseApp(result.apps)
-                } else if result.dataFailure == .appNotFound {
-                    self.send = .appNotFound
-                } else if result.dataFailure == .refused {
-                    self.send = .refused(detail: result.detail)
-                } else {
-                    if let kind = result.failure { self.failure = BuildFailure(kind: kind, gameName: nil) }
-                    self.send = .failed(result.message)
-                }
+                self.send = .after(result, notConnected: String(format: self.t("shell.copyNotConnected"), self.devices.deviceName(device)))
+                if case .failed = self.send, !result.copySkipped, let kind = result.failure { self.failure = BuildFailure(kind: kind, gameName: nil) }
             }
         }
     }
 
-    /// Opens the game's data folder in the Finder, for the way that needs no devicectl.
-    package func showGameDataInFinder() {
-        guard !archivePath.isEmpty else { return }
-        revealFolder(URL(fileURLWithPath: archivePath))
+    /// What the player drags onto the app in Finder: the game's folder, named after its title ID, with `romfs.img` and the add-on content
+    /// beside it, as the copy to the device sends them. The folder and not the image alone, so the add-on content comes along and the
+    /// shell's data picker, which picks folders, can pick it. None for one game's own IPA, which holds its data, and before a build packed it.
+    package static func finderItem(archive: String, oneGame: Bool) -> String? {
+        oneGame || archive.isEmpty ? nil : archive
+    }
+
+    /// The Finder way, after the copy to the device did not work: a Finder window with the game's folder selected, ready to drag.
+    package func copyWithFinder(oneGame: Bool) {
+        guard send.offersFinder, let item = Self.finderItem(archive: archivePath, oneGame: oneGame) else { return }
+        revealItem(URL(fileURLWithPath: item))
+        finderShown = true
     }
 
     // MARK: To a drive or folder

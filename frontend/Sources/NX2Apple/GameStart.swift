@@ -20,6 +20,7 @@ enum GameStart {
                                                 appReadsStore: SavedChoices.appReadsStore(app: game.appPath))
         if fullscreen, settings.contains(where: { $0.env == "DM_FULLSCREEN" }) { environment["DM_FULLSCREEN"] = "1" }
         if let id = displayID(of: screen) { environment["DM_SCREEN"] = String(id) }
+        environment["DM_HOME_QUIT_TEXT"] = HomeButtonHint.promptText(gameName: game.name, labels: labels)   // the game's Home button quit prompt in the launcher's language (#336)
         return environment
     }
 
