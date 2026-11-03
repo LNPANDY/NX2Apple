@@ -481,6 +481,46 @@
         }
       }
     },
+    "Some files of %@ could not be deleted.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einige Dateien von %@ konnten nicht gelöscht werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Some files of %@ could not be deleted."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Certains fichiers de %@ n’ont pas pu être supprimés."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alcuni file di %@ non sono stati eliminati."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Några filer för %@ kunde inte raderas."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 的部分文件无法删除。"
+          }
+        }
+      }
+    },
     "That folder could not be remembered. Try a different one.": {
       "localizations": {
         "en": {

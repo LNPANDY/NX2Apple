@@ -8,18 +8,18 @@ dm/tools/env_switches.py --check lists it as a switch the code reads but
 docs/env_switches.tsv does not describe. One row, class `switch`, with
 what `=1` does and that the default keeps the in-executable build.
 
-Upstream-Status: fork-only (waits for the runtime profile, seedds/nxnative#492)
-Reason: opt-in game framework for the launcher (route C M1): it carries profile.tsv and sets DM_PROFILE, which exist only with the runtime-profile patch (seedds/nxnative#492 is still a design note), so it goes upstream after that
+Upstream-Status: fork-only (builds on 0001 runtime-profile, declined seedds/nxnative#492)
+Reason: opt-in game framework for the launcher (route C M1): it carries profile.tsv and sets DM_PROFILE, which exist only with the runtime-profile patch (seedds/nxnative#492 was declined), so it stays a fork patch
 Issue: LNPANDY/NX2Apple#144
 ---
  docs/env_switches.tsv | 8 ++++++++
  1 file changed, 8 insertions(+)
 
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index b14a397..234f438 100644
+index 5335a6c..7b36162 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
-@@ -35,9 +35,12 @@ DM_FD_LOG	diagnostic	`=<seconds>` logs, every that many seconds, the number and
+@@ -36,9 +36,12 @@ DM_FD_LOG	diagnostic	`=<seconds>` logs, every that many seconds, the number and
  DM_FIXED_TIME	switch	`=<seconds>`: the user clock always returns that time and the host time zone is pinned to UTC, for deterministic comparison
  DM_FONT_DIR	path	Folder of the shared-font stand-ins (`standard.ttf`, `nintendo_ext.ttf` with the button icons); the app, the Mac launcher and the NSP script set it
  DM_FORCE_STRICT	diagnostic	`=1` makes the loader fail on forced-hook entries no module references, instead of only noting them (for checking a mistyped list)
@@ -32,7 +32,7 @@ index b14a397..234f438 100644
  DM_FS	diagnostic	When set, logs file opens, paths not found or not mounted, and a read summary every 64 MiB or 1000 reads
  DM_FSLOG	diagnostic	`=<file>` writes one TSV line per ReadFile: seconds since boot, guest path, offset, length and guest buffer address
  DM_FSLOG_HASH	diagnostic	With `DM_FSLOG`, adds a column with the FNV-1a 64 hash of the bytes read
-@@ -64,6 +67,7 @@ DM_HID_MAP	switch	`=<map>` such as `A=1,B=2,X=4,Y=5`: which HID button usage pre
+@@ -65,6 +68,7 @@ DM_HID_MAP	switch	`=<map>` such as `A=1,B=2,X=4,Y=5`: which HID button usage pre
  DM_HID_PADS	switch	`0` stops reading raw HID gamepads that GameController does not list, such as an 8BitDo in its own mode (`pad_hid_mac.h`); Mac only
  DM_HITCH_DUMP	diagnostic	`=<ms>[:<s>]`: when no frame has been presented for that long (from s seconds on), logs every guest thread once per stall: wait, last SVC, pc, lr, frames and registers
  DM_HLECOUNT	diagnostic	`=<file>` (`%d` = process ID) writes at exit a TSV of how many times the guest called each HLE function, zero counts included
@@ -40,7 +40,7 @@ index b14a397..234f438 100644
  DM_ICON	path	`=<image>` gives `build_ipa.sh` another app icon (default the `icon.jpg` beside the RomFS)
  DM_IMPORTS	diagnostic	When set, logs each import the loader binds to a host function and each forced takeover
  DM_KBD	switch	`=<text>`: the system keyboard returns that text as OK without showing an input box; unset with no window, it returns cancel
-@@ -280,6 +284,10 @@ DM_SF_TRACE	diagnostic	`=1` logs every request on the game's own HIPC client ses
+@@ -284,6 +288,10 @@ DM_SF_TRACE	diagnostic	`=1` logs every request on the game's own HIPC client ses
  DM_SHAKE_G	switch	`=<G>`: on iOS, the acceleration beyond gravity above which a flick of the phone shakes the controller's six-axis sensor (default 1.5)
  DM_SHARED_FONT	path	Font file served for every shared-font type except the Nintendo extension (default `$DM_FONT_DIR/standard.ttf`, then macOS's Arial Unicode)
  DM_SHARED_FONT_EXT	path	Font file served for shared-font type 5, the Nintendo extension with the button icons (default `$DM_FONT_DIR/nintendo_ext.ttf`, made by `make_ext_font.py`)

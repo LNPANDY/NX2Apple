@@ -1,6 +1,7 @@
 import XCTest
 @testable import NX2Apple
 @testable import NXCore
+import NXModel
 @testable import NXLauncher
 
 /// The real driver's logic over fakes: no xcodebuild, sudo, App Store, network or installs run here.
@@ -13,15 +14,15 @@ import XCTest
         var commandResult: (ok: Bool, output: String) = (true, "")
         var installed: [String] = []
         var opened: [URL] = []
-        var onDetect: (BuildModel) -> Void = { _ in }
+        var onDetect: (DependencyStore) -> Void = { _ in }
         var keyOutcome = KeyCheck.Outcome.fits
         var games: [LibraryGame] = []
         var xcodeWorks: Bool?   // nil: follows the probe
         var os = OperatingSystemVersion(majorVersion: 26, minorVersion: 6, patchVersion: 0)
     }
 
-    func dep(_ id: String, present: Bool) -> BuildModel.Dep {
-        BuildModel.Dep(id: id, name: "dep." + (id.hasPrefix("brew:") ? String(id.dropFirst(5)) : id), hint: "", present: present, installCmd: ["/usr/bin/true"])
+    func dep(_ id: String, present: Bool) -> Dep {
+        Dep(id: id, name: "dep." + (id.hasPrefix("brew:") ? String(id.dropFirst(5)) : id), hint: "", present: present, installCmd: ["/usr/bin/true"])
     }
 
     var defaults: UserDefaults!
@@ -39,11 +40,11 @@ import XCTest
         addTeardownBlock { [home] in try? FileManager.default.removeItem(at: home!) }
     }
 
-    func make(_ fake: Fake, deps: [BuildModel.Dep], step: OnboardingStep? = nil, platform: OnboardingPlatform? = nil) -> (LiveOnboardingDriver, BuildModel) {
+    func make(_ fake: Fake, deps: [Dep], step: OnboardingStep? = nil, platform: OnboardingPlatform? = nil) -> (LiveOnboardingDriver, BuildStore) {
         if let platform { defaults.set(platform.rawValue, forKey: OnboardingDefaults.platform) }
         if let step { defaults.set(step.rawValue, forKey: OnboardingDefaults.step); defaults.set(true, forKey: OnboardingDefaults.inProgress) }
-        let model = BuildModel()
-        model.deps = deps; model.depsChecked = true
+        let modelStores = LauncherStores(); let model = modelStores.build
+        modelStores.dependencies.deps = deps; modelStores.dependencies.checked = true
         var env = OnboardingEnvironment()
         env.defaults = defaults
         env.home = home.path
@@ -55,9 +56,9 @@ import XCTest
         env.runAdmin = { fake.adminCalls.append($0); return fake.admin }
         env.run = { cmd, line in fake.commands.append(cmd); line("Downloading Metal Toolchain: 45.5% (1 MB of 2 MB)"); return fake.commandResult }
         env.detectDeps = { m in fake.onDetect(m) }
-        env.installDep = { m, d in
+        env.installDep = { dependencies, d in
             fake.installed.append(d.id)
-            if let i = m.deps.firstIndex(where: { $0.id == d.id }) { m.deps[i].installing = true }
+            if let i = dependencies.deps.firstIndex(where: { $0.id == d.id }) { dependencies.deps[i].installing = true }
         }
         env.openURL = { fake.opened.append($0) }
         env.keyCheck = { _, _ in fake.keyOutcome }
@@ -65,21 +66,21 @@ import XCTest
         env.fetchArtwork = { _ in }
         env.pollInterval = 0.01; env.advanceDelay = 0
         let library = GameLibrary(file: home.appendingPathComponent("library.json"))
-        return (LiveOnboardingDriver(model: model, library: library, env: env), model)
+        return (LiveOnboardingDriver(stores: modelStores, library: library, env: env), model)
     }
 
     // MARK: Pure parts
 
     func testIOSRequirementFollowsThePlatformAndKeepsOldBehaviourWithoutAChoice() {
-        XCTAssertTrue(BuildModel.needsIOSPlatform(defaults: defaults), "no stored choice: the iOS SDK stays required")
+        XCTAssertTrue(LauncherStores.needsIOSPlatform(defaults: defaults), "no stored choice: the iOS SDK stays required")
         defaults.set("mac", forKey: OnboardingDefaults.platform)
         defaults.set("mac-app", forKey: "buildTarget")
-        XCTAssertFalse(BuildModel.needsIOSPlatform(defaults: defaults), "Mac only, Mac builds: no iOS SDK")
+        XCTAssertFalse(LauncherStores.needsIOSPlatform(defaults: defaults), "Mac only, Mac builds: no iOS SDK")
         defaults.set("ios", forKey: "buildTarget")
-        XCTAssertTrue(BuildModel.needsIOSPlatform(defaults: defaults), "an iPhone build still needs it")
+        XCTAssertTrue(LauncherStores.needsIOSPlatform(defaults: defaults), "an iPhone build still needs it")
         for value in ["iphone", "both"] {
             defaults.set(value, forKey: OnboardingDefaults.platform); defaults.set("mac-app", forKey: "buildTarget")
-            XCTAssertTrue(BuildModel.needsIOSPlatform(defaults: defaults))
+            XCTAssertTrue(LauncherStores.needsIOSPlatform(defaults: defaults))
         }
     }
 
@@ -151,7 +152,7 @@ import XCTest
         env.freeBytes = { 100_000_000_000 }; env.xcodeProbe = { fake.probe }; env.xcodeInstalled = { true }; env.xcodeFolderExists = { true }
         env.detectDeps = { _ in }; env.installDep = { _, d in fake.installed.append(d.id) }
         env.advanceDelay = 0
-        let driver = LiveOnboardingDriver(model: model, library: GameLibrary(file: home.appendingPathComponent("l.json")), env: env, ephemeral: true)
+        let driver = LiveOnboardingDriver(stores: live.stores, library: GameLibrary(file: home.appendingPathComponent("l.json")), env: env, ephemeral: true)
         XCTAssertEqual(driver.state.step, .welcome, "a forced run starts from Welcome whatever is stored")
         driver.start(); driver.choosePlatform(.mac)
         driver.next()
@@ -161,7 +162,7 @@ import XCTest
         XCTAssertNil(defaults.string(forKey: OnboardingDefaults.step))
         XCTAssertNil(defaults.string(forKey: OnboardingDefaults.platform))
         XCTAssertFalse(defaults.bool(forKey: OnboardingDefaults.inProgress))
-        XCTAssertTrue(BuildModel.needsIOSPlatform(defaults: defaults) == false, "the session's Mac-only choice is in effect")
+        XCTAssertTrue(LauncherStores.needsIOSPlatform(defaults: defaults) == false, "the session's Mac-only choice is in effect")
         driver.retry(.xcode)
         await driver.settle()
         XCTAssertEqual(fake.installed, ["python"])
@@ -204,7 +205,7 @@ import XCTest
         driver.finishXcodeSetup()
         await driver.settle()
         XCTAssertEqual(fake.adminCalls.count, 1)
-        XCTAssertEqual(fake.commands, [BuildModel.metalToolchainCmd, BuildModel.iosPlatformCmd])
+        XCTAssertEqual(fake.commands, [Toolchain.metalToolchainCmd, Toolchain.iosPlatformCmd])
         XCTAssertEqual(driver.state.xcode, .ready)
         XCTAssertEqual(driver.state.setup[.ios], .done)
         _ = model
@@ -220,7 +221,7 @@ import XCTest
         await driver.refreshXcode()
         driver.finishXcodeSetup()
         await driver.settle()
-        XCTAssertEqual(fake.commands, [BuildModel.metalToolchainCmd])
+        XCTAssertEqual(fake.commands, [Toolchain.metalToolchainCmd])
         XCTAssertEqual(driver.state.xcode, .ready)
     }
 
@@ -290,9 +291,9 @@ import XCTest
         await driver.settle()
         XCTAssertEqual(fake.installed, ["python"])
         func finish(_ id: String) async {   // the install ended and detection ran again
-            model.depsChecked = false
-            for i in model.deps.indices { model.deps[i].installing = false; if model.deps[i].id == id { model.deps[i].present = true } }
-            model.depsChecked = true
+            driver.stores.dependencies.checked = false
+            for i in driver.stores.dependencies.deps.indices { driver.stores.dependencies.deps[i].installing = false; if driver.stores.dependencies.deps[i].id == id { driver.stores.dependencies.deps[i].present = true } }
+            driver.stores.dependencies.checked = true
             await driver.settle()
         }
         await finish("python"); XCTAssertEqual(fake.installed, ["python", "dotnet"])
@@ -322,9 +323,9 @@ import XCTest
                                                  dep("dotnet", present: false), dep("python", present: false)], step: .xcode, platform: .mac)
         driver.activate()
         await driver.settle()
-        model.depsChecked = false
-        for i in model.deps.indices { model.deps[i].installing = false }   // python's install ended, still missing
-        model.depsChecked = true
+        driver.stores.dependencies.checked = false
+        for i in driver.stores.dependencies.deps.indices { driver.stores.dependencies.deps[i].installing = false }   // python's install ended, still missing
+        driver.stores.dependencies.checked = true
         await driver.settle()
         guard case let .failed(failure) = driver.state.background[.python] else { return XCTFail("\(String(describing: driver.state.background[.python]))") }
         XCTAssertTrue(failure.message.contains(L10n.string("dep.python", model.lang)))

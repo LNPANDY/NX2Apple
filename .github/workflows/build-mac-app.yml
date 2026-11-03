@@ -4,7 +4,7 @@
 # the bundle, plutil the version, codesign, ditto) and uploaded by hand — and one release went
 # out without it. The native app is the one macOS users actually run, so "the release has no
 # nxnative-macOS-arm64.zip" is not a cosmetic gap: the app's own updater looks for exactly that
-# asset name (ContentView.checkAppUpdate), finds a newer tag with no such asset, and reports
+# asset name (AppUpdateStore.checkForUpdate), finds a newer tag with no such asset, and reports
 # "up to date" — a silent failure of the update path for every existing install. Copies from before
 # the app was renamed (NS Port Builder) look for NS-Port-Builder-macOS-arm64.zip, so that one goes up too.
 #
@@ -23,8 +23,9 @@
 #     that names the engine the release X.Y.Z will carry (RELEASING.md)
 #   - push a tag vX.Y.Z      → the release: it ships the files of the newest release candidate on the same commit, its engine checked against this build.
 #     A commit without a release candidate fails, unless a manual run on the tag sets release_without_rc
-#   - a push to main, or a pull request, that touches the paths below → artifact only (NX2Apple-macOS-arm64), which tools/try-pr opens.
-#     Nothing is published
+#   - a push to main that touches the paths below → artifact only (NX2Apple-macOS-arm64), which tools/try-pr opens. Nothing is published
+#   - a pull request → the same artifact, but only on the tip of its stack and only when it changes a packaging file (.github/scripts/build_wanted.py
+#     lists them) or has the label full-build. Every other PR reports the job as skipped (CONTRIBUTING.md, "CI on stacks")
 #   - workflow_dispatch      → artifact only, or on a tag ref the same as a push of that tag
 name: Build the NX2Apple app (macOS)
 
@@ -34,8 +35,11 @@ on:
     tags: ['v*']
     # GitHub does not evaluate path filters for tag pushes: every v* tag builds. On main only a change to these paths builds.
     paths: ['frontend/**', 'tools/engine.py', 'tools/release_manifest.py', 'tools/requirements-release.txt', 'patches/**', '.upstream-ref', '.github/workflows/build-mac-app.yml']
+  # No paths filter here: a workflow that does not start reports nothing. The `stack` job decides per job whether a pull request builds the app
+  # (it is the tip of its stack, and it changes a packaging file or has the label full-build), see .github/scripts/build_wanted.py.
+  # Explicit types: not `edited` or `labeled` (GitHub sends `edited` when it retargets a stack, and the second run only cancels the first).
   pull_request:
-    paths: ['frontend/**', 'tools/engine.py', 'tools/release_manifest.py', 'tools/requirements-release.txt', 'patches/**', '.upstream-ref', '.github/workflows/build-mac-app.yml']
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
     inputs:
       release_without_rc:
@@ -46,13 +50,51 @@ on:
 permissions:
   contents: write
 
-# A newer push to a pull request replaces its running build. Every commit on main and every tag keeps its own run: each main commit has its
-# app artifact, and a release is never cancelled halfway.
+# A newer run for a pull request replaces its running build and reports instead. Every commit on main and every tag keeps its own run: each main
+# commit has its app artifact, and a release is never cancelled halfway.
 concurrency:
-  group: build-mac-app-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # The app build is the second macOS job of a pull request, so it runs on the tip of a stack only (stack_tip.py), and only when the PR
+  # changes what goes into the packaging or has the label full-build (build_wanted.py). `swift test` (tests.yml) runs on every tip.
+  # Push to main, a tag and workflow_dispatch always build. A skipped job still reports, and a failed lookup builds (fail open).
+  stack:
+    name: Stack (tip, packaging)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      is_tip: ${{ steps.tip.outputs.is_tip }}
+      build: ${{ steps.wanted.outputs.build }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+      - id: tip
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          BASE_REPO: ${{ github.event.pull_request.base.repo.full_name }}
+        run: python3 .github/scripts/stack_tip.py
+      - id: wanted
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: python3 .github/scripts/build_wanted.py
+
   # The app icon is AppIcon.icon (Icon Composer). The actool of Xcode 26.6 (the default on macos-latest) throws an exception on it, the one of
   # Xcode 27.2 compiles it. So actool runs on the xcode-27 runner, as in tests.yml, and the build job takes the two files it writes. Assets.car is
   # the icon for macOS 26 and later (Liquid Glass), AppIcon.icns the one for macOS 13 to 25.
@@ -60,6 +102,8 @@ jobs:
   # On a pull request the icon is cached by the hash of frontend/AppIcon.icon. The icon-cache job looks the cache up on ubuntu-latest, which
   # queues in seconds, and the icon job (the scarce xcode-27 runner) runs only on a miss. A tag (rc or final) always compiles the icon.
   icon-cache:
+    needs: stack
+    if: ${{ !cancelled() && (needs.stack.result != 'success' || (needs.stack.outputs.is_tip == 'true' && needs.stack.outputs.build == 'true')) }}
     runs-on: ubuntu-latest
     outputs:
       hit: ${{ steps.lookup.outputs.cache-hit }}
@@ -130,9 +174,10 @@ jobs:
       COPILOT_TOKEN: ${{ secrets.COPILOT_TOKEN }}
 
   build:
-    needs: [icon-cache, icon, notes]
-    # icon is skipped on a pull request with a cache hit, and that must not skip the build.
-    if: ${{ !cancelled() && needs.icon-cache.result == 'success' && (needs.icon.result == 'success' || needs.icon.result == 'skipped') }}
+    needs: [stack, icon-cache, icon, notes]
+    # icon is skipped on a pull request with a cache hit, and that must not skip the build. icon-cache and icon are skipped with the stack
+    # decision (not the tip, or no packaging change), so the build is skipped then too, and reports as skipped.
+    if: ${{ !cancelled() && (needs.stack.result != 'success' || (needs.stack.outputs.is_tip == 'true' && needs.stack.outputs.build == 'true')) && needs.icon-cache.result == 'success' && (needs.icon.result == 'success' || needs.icon.result == 'skipped') }}
     # The same runner and compiler as tests.yml: the app that is shipped is compiled by the Xcode that the tests ran with. On macos-latest (Xcode 26.6)
     # a closure that Xcode 27.2 accepts failed only here, in #467, after the tests had passed.
     runs-on: xcode-27
@@ -199,11 +244,11 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          # The app reads its version from ContentView.appVersion, and the bundle plist must agree or the updater compares the wrong number.
+          # The app reads its version from AppUpdateStore.appVersion, and the bundle plist must agree or the updater compares the wrong number.
           # Take the tag, and fail loudly on a mismatch rather than shipping a bundle that calls itself something else.
           # A release candidate vX.Y.Z-rcN is the build of the release X.Y.Z: its bundle says X.Y.Z, because the final tag ships these
           # exact files and the updater (AppUpdate.bundleProblem) accepts only a bundle whose version is the release's.
-          src=$(sed -n 's/.*static let appVersion = "\(.*\)".*/\1/p' frontend/Sources/NX2Apple/ContentView.swift)
+          src=$(sed -n 's/.*static let appVersion = "\(.*\)".*/\1/p' frontend/Sources/NXModel/AppUpdateStore.swift)
           kind=build rc=""
           if [ "$REF_TYPE" != "tag" ]; then
             v="$src"
@@ -220,7 +265,7 @@ jobs:
             fi
           fi
           if [ "$v" != "$src" ]; then
-            echo "::error::tag says $v but ContentView.appVersion says $src: bump the source first"
+            echo "::error::tag says $v but AppUpdateStore.appVersion says $src: bump the source first"
             exit 1
           fi
           echo "$kind: version $v${rc:+, release candidate $rc}"
@@ -305,6 +350,8 @@ jobs:
           # The iPhone shell's Swift package: build_shell.sh links it by DM_SHELL_PACKAGE and the launcher passes this folder (the engine has
           # none since #214). The step runs in frontend/, the package is one level up. No .build or .swiftpm.
           rsync -a --exclude .build --exclude .swiftpm ../frontend-ios/ "$APP/Contents/Resources/frontend-ios/"
+          # The launcher's texts, one JSON file per language (#388): L10n reads Contents/Resources/l10n, not SwiftPM resources (this step builds the bundle by hand).
+          rsync -a l10n/ "$APP/Contents/Resources/l10n/"
           V="${{ steps.ver.outputs.version }}"
           cat > "$APP/Contents/Info.plist" <<PLIST
           <?xml version="1.0" encoding="UTF-8"?>
@@ -321,7 +368,7 @@ jobs:
             <key>CFBundleShortVersionString</key><string>$V</string>
             <key>CFBundleVersion</key><string>$V</string>
             <key>CFBundleDevelopmentRegion</key><string>en</string>
-            <key>CFBundleLocalizations</key><array><string>en</string><string>zh-Hans</string><string>sv</string><string>de</string><string>fr</string></array>
+            <key>CFBundleLocalizations</key><array><string>en</string><string>zh-Hans</string><string>sv</string><string>de</string><string>fr</string><string>it</string></array>
             <key>LSMinimumSystemVersion</key><string>13.0</string>
             <key>NSHighResolutionCapable</key><true/>
           </dict>
@@ -350,6 +397,8 @@ jobs:
           test -f "$E/scripts/build_ipa_from_nsp.py" && test -f "$E/dm/tools/romfs_image.py" && test -f "$E/dm/fork_patches.txt"
           # The iPhone shell's package (DM_SHELL_PACKAGE): the project template links it and its AppIcon.icon.
           test -f "NX2Apple.app/Contents/Resources/frontend-ios/Package.swift" && test -d "NX2Apple.app/Contents/Resources/frontend-ios/AppIcon.icon"
+          # The language files: every one is there and identical to the checkout's (check_bundle.sh also reads them as JSON).
+          diff -r l10n NX2Apple.app/Contents/Resources/l10n
           test ! -e "$E/.git"
           # The engine files are the zip asset's, byte for byte, and spirv-cross matches dmsh_chain.lock, so a shader build from the bundled engine starts.
           tools/sign_engine_tree.sh --check "$E" "$RUNNER_TEMP/engine-tree"

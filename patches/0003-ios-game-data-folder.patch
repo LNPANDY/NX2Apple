@@ -256,7 +256,7 @@ index 924e2e0..ebaa055 100644
                      Section {
                          HStack {
 diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
-index b941e77..df1983d 100644
+index 1a994ee..c560abb 100644
 --- a/dm/ios/Sources/front_ios.m
 +++ b/dm/ios/Sources/front_ios.m
 @@ -21,6 +21,7 @@

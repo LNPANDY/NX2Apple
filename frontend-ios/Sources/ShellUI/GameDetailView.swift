@@ -9,6 +9,7 @@ public struct GameDetailView: View {
     public var showsPrimaryAction: Bool
     /// Off where the game's cover and title are already in view, as beside the library's hero.
     public var showsHeader: Bool
+    @Environment(\.shellAskDelete) private var askDelete
     public init(detail: GameDetail, actions: ShellActions = ShellActions(), showsPrimaryAction: Bool = true, showsHeader: Bool = true) {
         self.detail = detail
         self.actions = actions
@@ -72,6 +73,17 @@ public struct GameDetailView: View {
                     .shellTarget("set.reset", enabled: detail.hasModifiedSettings) { actions.onResetDefaults(detail.id) }
                 Text(ShellStrings.text("Brings back the settings this game was tested with."))
                     .shellText(12.5).foregroundStyle(.white.opacity(0.45)).fixedSize(horizontal: false, vertical: true)
+            }
+            if let askDelete {
+                // Last and apart from the rest: the one action here that removes something. It only asks, the question names what goes.
+                VStack(alignment: .leading, spacing: 10) {
+                    Button(ShellStrings.text("Delete game…")) { askDelete(detail.game) }
+                        .buttonStyle(ShellButtonStyle(fills: true, destructive: true))
+                        .accessibilityIdentifier("set.delete")
+                        .shellTarget("set.delete") { askDelete(detail.game) }
+                    Text(ShellStrings.text("Deletes the game’s data on this device. You choose whether its saves go too."))
+                        .shellText(12.5).foregroundStyle(.white.opacity(0.45)).fixedSize(horizontal: false, vertical: true)
+                }
             }
         }.foregroundStyle(.white)
     }

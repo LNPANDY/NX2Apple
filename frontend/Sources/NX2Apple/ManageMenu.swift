@@ -15,6 +15,7 @@ struct ManageActions {
     var showLog: () -> Void = {}
     var freeSpace: () -> Void = {}
     var remove: () -> Void = {}
+    var delete: () -> Void = {}
 }
 
 /// One row of the Manage menu.
@@ -45,8 +46,12 @@ struct ManageItem: Identifiable {
                                hint: hasLog ? nil : t("library.showLog.none"), run: a.showLog))
         }
         if hasBuildFolder { items.append(.init(id: "freeSpace", symbol: "externaldrive", title: t("free.menu"), run: a.freeSpace)) }
-        items.append(.init(id: "remove", symbol: "trash", title: t("library.remove"), enabled: game.id != activeBuildID,
+        items.append(.init(id: "remove", symbol: "rectangle.stack.badge.minus", title: t("library.remove"), enabled: game.id != activeBuildID,
                            destructive: true, separatorBefore: true, run: a.remove))
+        // Delete moves the game's files to the Trash (GameDeletion). Off while any build runs: it may write into the build folder
+        // or the shared app's folder.
+        items.append(.init(id: "delete", symbol: "trash", title: t("delete.menu"), enabled: !running, destructive: true,
+                           hint: running ? t("delete.busy") : nil, run: a.delete))
         return items
     }
 
@@ -54,7 +59,7 @@ struct ManageItem: Identifiable {
     var padID: String { "manage." + id }
 }
 
-/// What a controller's button does around the Manage menu; the rest of the launcher's routing stays in ContentView.padAction.
+/// What a controller's button does around the Manage menu; the rest of the launcher's routing stays in LauncherView.padAction.
 enum ManagePad {
     enum Route: Equatable {
         case open       // Y: open the selected game's menu
@@ -119,8 +124,8 @@ struct ManageButtonLabel: View {
     }
 }
 
-/// The dropdown: the app's dark surface with its border and radius, a symbol and a label per row, Remove in red under a
-/// divider. Arrow keys move, Return activates, Esc closes (a local key monitor while it is open: the hero's Play button
+/// The dropdown: the app's dark surface with its border and radius, a symbol and a label per row, Remove and Delete in red
+/// under a divider. Arrow keys move, Return activates, Esc closes (a local key monitor while it is open: the hero's Play button
 /// owns Return otherwise); a controller moves by PadFocus in the "manage" scope.
 struct ManageMenuPanel: View {
     static let width: CGFloat = 250

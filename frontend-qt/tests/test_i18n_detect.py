@@ -35,38 +35,40 @@ def detect(locale_name: str, platform: str = 'darwin', env: dict | None = None) 
 
 class Detect(unittest.TestCase):
     def test_language_button_cycles_through_each_available_language(self):
-        self.assertEqual(Lang.ZH.other, Lang.EN)
-        self.assertEqual(Lang.EN.other, Lang.SV)
-        self.assertEqual(Lang.SV.other, Lang.DE)
-        self.assertEqual(Lang.DE.other, Lang.FR)
-        self.assertEqual(Lang.FR.other, Lang.ZH)
-        self.assertEqual(Lang.SV.toggle_label, 'Deutsch')
-        self.assertEqual(Lang.DE.toggle_label, 'Français')
-        self.assertEqual(Lang.FR.toggle_label, '中文')
+        self.assertEqual(Lang('zh').other, Lang('en'))
+        self.assertEqual(Lang('en').other, Lang('sv'))
+        self.assertEqual(Lang('sv').other, Lang('de'))
+        self.assertEqual(Lang('de').other, Lang('fr'))
+        self.assertEqual(Lang('fr').other, Lang('it'))
+        self.assertEqual(Lang('it').other, Lang('zh'))
+        self.assertEqual(Lang('sv').toggle_label, 'Deutsch')
+        self.assertEqual(Lang('de').toggle_label, 'Français')
+        self.assertEqual(Lang('fr').toggle_label, 'Italiano')
+        self.assertEqual(Lang('it').toggle_label, '中文')
 
     def test_german_is_recognised_by_tag_and_windows_name(self):
         for tag in ('de_DE', 'de-AT', 'de_CH.UTF-8', 'de'):
-            self.assertEqual(detect(tag), Lang.DE, tag)
-        self.assertEqual(detect('German_Germany', platform='win32'), Lang.DE)
-        self.assertEqual(detect('en_US', env={'NSPB_LANG': 'de'}), Lang.DE)
-        self.assertEqual(detect('Deutsch (Deutschland)', platform='win32'), Lang.DE)
+            self.assertEqual(detect(tag), Lang('de'), tag)
+        self.assertEqual(detect('German_Germany', platform='win32'), Lang('de'))
+        self.assertEqual(detect('en_US', env={'NSPB_LANG': 'de'}), Lang('de'))
+        self.assertEqual(detect('Deutsch (Deutschland)', platform='win32'), Lang('de'))
         for tag in ('dv_MV', 'default'):   # not German
-            self.assertEqual(detect(tag), Lang.EN, tag)
+            self.assertEqual(detect(tag), Lang('en'), tag)
 
     def test_a_saved_choice_wins(self):
-        self.assertEqual(detect('English_United States', env={'NSPB_LANG': 'zh'}), Lang.ZH)
-        self.assertEqual(detect('Chinese (Simplified)_China', env={'NSPB_LANG': 'en'}), Lang.EN)
+        self.assertEqual(detect('English_United States', env={'NSPB_LANG': 'zh'}), Lang('zh'))
+        self.assertEqual(detect('Chinese (Simplified)_China', env={'NSPB_LANG': 'en'}), Lang('en'))
 
     def test_the_windows_locale_name_is_recognised(self):
         for name in ('Chinese (Simplified)_China', 'Chinese (Traditional)_Taiwan', 'Chinese_China'):
-            self.assertEqual(detect(name, platform='win32'), Lang.ZH, name)
+            self.assertEqual(detect(name, platform='win32'), Lang('zh'), name)
         for name in ('English_United States', 'Japanese_Japan'):
-            self.assertEqual(detect(name, platform='win32'), Lang.EN, name)
+            self.assertEqual(detect(name, platform='win32'), Lang('en'), name)
 
     def test_a_bcp47_tag_still_works(self):
         for tag in ('zh_CN', 'zh-Hans', 'zh'):
-            self.assertEqual(detect(tag), Lang.ZH, tag)
-        self.assertEqual(detect('en_US'), Lang.EN)
+            self.assertEqual(detect(tag), Lang('zh'), tag)
+        self.assertEqual(detect('en_US'), Lang('en'))
 
     def test_windows_is_asked_before_the_environment(self):
         """The API decides on Windows even though locale.getlocale() returned a name — that was the bug."""
@@ -81,7 +83,7 @@ class Detect(unittest.TestCase):
              mock.patch.dict(sys.modules, {'ctypes': fake}), \
              mock.patch('locale.getlocale', return_value=('English_United States', None)), \
              mock.patch.object(sys, 'platform', 'win32'):
-            self.assertEqual(Lang.initial(), Lang.ZH)
+            self.assertEqual(Lang.initial(), Lang('zh'))
 
     def win_language(self, kind_value: str, langid: int = 0x04) -> tuple[Lang, list[int]]:
         """Lang.initial() on Windows, with GetLocaleInfoW answering `kind_value`; the kinds it was asked for come back too."""
@@ -108,29 +110,29 @@ class Detect(unittest.TestCase):
         self.assertEqual(asked, [0x00000059], "the ISO 639 code is what the prefix test can read")
 
     def test_a_windows_display_name_still_selects_the_language(self):
-        for name, want in (('zh', Lang.ZH), ('zh-Hans', Lang.ZH), ('sv', Lang.SV), ('de', Lang.DE), ('de-DE', Lang.DE),
-                           ('fr', Lang.FR), ('fr-CA', Lang.FR), ('fry', Lang.EN), ('en-US', Lang.EN)):
+        for name, want in (('zh', Lang('zh')), ('zh-Hans', Lang('zh')), ('sv', Lang('sv')), ('de', Lang('de')), ('de-DE', Lang('de')),
+                           ('fr', Lang('fr')), ('fr-CA', Lang('fr')), ('fry', Lang('en')), ('en-US', Lang('en'))):
             lang, _ = self.win_language(name)
             self.assertEqual(lang, want, name)
 
     def test_windows_german_is_asked_for_the_iso_code_and_selects_german(self):
         lang, asked = self.win_language('de', langid=0x07)   # German primary language id
         self.assertEqual(asked, [0x00000059])
-        self.assertEqual(lang, Lang.DE)
+        self.assertEqual(lang, Lang('de'))
 
     def test_french_is_recognised(self):
         for name in ('fr_FR', 'fr-CA', 'fr_BE.UTF-8', 'French_France', 'French (Canada)_Canada'):
-            self.assertEqual(detect(name), Lang.FR, name)
-        self.assertEqual(detect('French_France', platform='win32'), Lang.FR)
-        self.assertEqual(detect('', env={'LANG': 'fr_FR.UTF-8'}), Lang.FR)
-        self.assertEqual(detect('English_United States', env={'NSPB_LANG': 'fr'}), Lang.FR)
+            self.assertEqual(detect(name), Lang('fr'), name)
+        self.assertEqual(detect('French_France', platform='win32'), Lang('fr'))
+        self.assertEqual(detect('', env={'LANG': 'fr_FR.UTF-8'}), Lang('fr'))
+        self.assertEqual(detect('English_United States', env={'NSPB_LANG': 'fr'}), Lang('fr'))
 
     def test_an_empty_locale_falls_through_to_the_environment(self):
-        self.assertEqual(detect('', env={'LANG': 'zh_CN.UTF-8'}), Lang.ZH)
-        self.assertEqual(detect('', env={'LANG': 'en_US.UTF-8'}), Lang.EN)
+        self.assertEqual(detect('', env={'LANG': 'zh_CN.UTF-8'}), Lang('zh'))
+        self.assertEqual(detect('', env={'LANG': 'en_US.UTF-8'}), Lang('en'))
 
     def test_no_signal_at_all_is_english(self):
-        self.assertEqual(detect(''), Lang.EN)
+        self.assertEqual(detect(''), Lang('en'))
 
 
 if __name__ == '__main__':

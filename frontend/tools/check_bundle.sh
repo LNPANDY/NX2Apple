@@ -39,6 +39,11 @@ done < <(find "$RES/tools" "$RES/python" -type f -print0)
 # the icon: Assets.car (macOS 26 and later) and AppIcon.icns (13 to 25), and the two Info.plist keys that point at them
 if [ -d "$APP/Contents" ]; then
     for f in Assets.car AppIcon.icns; do [ -s "$RES/$f" ] && ok "$f is in the bundle" || bad "$f is missing from Resources"; done
+    # the launcher's texts (#388): Contents/Resources/l10n, one JSON file per language, each a JSON object with an English text of its own
+    for c in en zh sv de fr; do
+        v=$(clean "$PY" -I -c "import json, sys; d = json.load(open(sys.argv[1], encoding='utf-8')); assert isinstance(d, dict) and len(d) > 1 and '_language' in d" "$RES/l10n/$c.json" 2>&1) \
+            && ok "l10n/$c.json is in the bundle and reads as JSON" || bad "l10n/$c.json is missing or broken: $v"
+    done
     for k in CFBundleIconName CFBundleIconFile; do
         v=$(/usr/libexec/PlistBuddy -c "Print :$k" "$APP/Contents/Info.plist" 2>&1)
         [ "$v" = AppIcon ] && ok "Info.plist $k = $v" || bad "Info.plist $k is '$v', not AppIcon"

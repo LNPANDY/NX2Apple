@@ -20,7 +20,10 @@ public struct EngineLaunchPlan: Equatable, Sendable {
     /// The save and temp folders.
     public var foldersToCreate: [URL]
 
-    public static func make(game: LaunchableGame, appResources: URL, documents: URL, envFileText: String?,
+    /// `envFileText` is the shared `Documents/env.txt`. `gameEnvFileText` is the game's own `Documents/games/<title ID>/env.txt`
+    /// (#557), read from `game.appFolder` when it is nil. A key in the game's file wins over the shared file, and the launch
+    /// environment (the player's settings, the paths above) wins over both.
+    public static func make(game: LaunchableGame, appResources: URL, documents: URL, envFileText: String?, gameEnvFileText: String? = nil,
                             fileManager fm: FileManager = .default) -> EngineLaunchPlan {
         let manifest = game.manifest, fw = game.frameworkURL, gdir = game.appFolder
         func isDirectory(_ url: URL) -> Bool {
@@ -50,9 +53,12 @@ public struct EngineLaunchPlan: Equatable, Sendable {
         for (key, value) in game.environment { env[key] = value }
 
         var fromFile: [String] = []
-        for (key, value) in parseEnvFile(envFileText ?? "") where env[key] == nil {
-            env[key] = value
-            fromFile.append(key)
+        let ownText = gameEnvFileText ?? fm.contents(atPath: gdir.appendingPathComponent("env.txt").path).flatMap { String(data: $0, encoding: .utf8) }
+        for text in [ownText, envFileText] {
+            for (key, value) in parseEnvFile(text ?? "") where env[key] == nil {
+                env[key] = value
+                fromFile.append(key)
+            }
         }
         env["DM_ENV_FILE_KEYS"] = fromFile.joined(separator: " ")
 

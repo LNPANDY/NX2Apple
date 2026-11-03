@@ -49,7 +49,7 @@ class BuildFailure(unittest.TestCase):
         from nspb_qt.model import Model
         from nspb_qt.ui import MainWindow
         m = Model()
-        m.lang = Lang.EN   # these assertions read English whatever the device language is
+        m.lang = Lang('en')   # these assertions read English whatever the device language is
         w = MainWindow(m)
         # Delete while the app exists: PySide destroys leftovers after it at exit and segfaults.
         self.addCleanup(self._delete, m, w)

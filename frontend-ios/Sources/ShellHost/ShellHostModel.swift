@@ -153,7 +153,7 @@ public struct ShellHostConfig: Sendable {
     /// Reads the games folder again and sorts the library (see `LibraryOrder`). Only this and the first load re-sort:
     /// a change to one game updates it in place.
     public func reload() {
-        let scanned = GameCatalogue.scan(root: config.gamesRoot)
+        let scanned = GameCatalogue.scan(root: config.gamesRoot).filter { !isDeleted($0) }
         let built = scanned.map(detail(for:))
         let order = LibraryOrder.ids(of: built.map(\.game), lastPlayed: Dictionary(uniqueKeysWithValues: scanned.compactMap { e in
             lastPlayed(e.id).map { (e.id, $0) } }))
@@ -302,7 +302,8 @@ public struct ShellHostConfig: Sendable {
                 self.refreshAll()
             },
             onGlobalPadMapReset: { [weak self] in self?.shellSettings.resetPadMap(); self?.refreshAll() },
-            onButtonTest: { [weak self] open in self?.buttonTest(open) })
+            onButtonTest: { [weak self] open in self?.buttonTest(open) },
+            onDeleteGame: { [weak self] id, saves in self?.deleteGame(id, saves: saves) })
     }
 
     public func change(_ id: String, setting: String, value: String) {
@@ -405,6 +406,33 @@ public struct ShellHostConfig: Sendable {
         let found = folders.lazy.compactMap { LogReader.read($0.appendingPathComponent("log.txt")) }.first
             ?? (LogReader.isRun(of: id, engine) ? LogReader.read(engine) : nil)
         log = LogPresentation(gameID: id, title: entry.title, text: found?.text, truncated: found?.truncated ?? false)
+    }
+
+    // MARK: Delete
+
+    /// Deletes the game's folder in this app (its saves only when `saves`), forgets the folder the player picked for its data
+    /// (that folder is the player's and is not touched) and when it was played, and takes the game off the list. The game's
+    /// framework inside the app stays: see `GameDeletion`.
+    public func deleteGame(_ id: String, saves: Bool) {
+        guard let entry = entry(id) else { return }
+        let failed = GameDeletion.delete(in: appFolder(for: id), saves: saves)
+        dataStore(id).clear()
+        let defaults = config.defaults(id)
+        defaults.removeObject(forKey: LastPlayedStore.key)
+        defaults.set(GameDeletion.stamp(entry), forKey: GameDeletion.deletedKey)
+        reload()
+        if !failed.isEmpty { notice = hostText("Some files of \(entry.title) could not be deleted.") }
+    }
+
+    /// Deleted, and still the same build with no game data in its folder. A new build or game data in the folder brings the
+    /// game back, and the mark is dropped.
+    private func isDeleted(_ entry: CatalogueEntry) -> Bool {
+        let defaults = config.defaults(entry.id)
+        guard let deleted = defaults.string(forKey: GameDeletion.deletedKey) else { return false }
+        let hasData = entry.manifest.map { DataLocator.holder(of: appFolder(for: entry.id), manifest: $0, .default) != nil } ?? false
+        if deleted == GameDeletion.stamp(entry) && !hasData { return true }
+        defaults.removeObject(forKey: GameDeletion.deletedKey)
+        return false
     }
 
     public func appUpdate() {

@@ -9,8 +9,17 @@ import AppKit
 /// once the game has quit. In the console the pointer hides after a few idle seconds.
 @MainActor final class ConsoleCoordinator: ObservableObject {
     @Published private(set) var active = false { didSet { if active != oldValue { active ? pointer.start() : pointer.stop() } } }
-    /// The launcher is showing (not the guided setup), so the mode can be entered.
-    @Published var available = false
+    /// The launcher is showing (not the guided setup), so the mode can be entered. The first time it is, the Settings switch
+    /// "Start in console mode" enters it (#336), with or without a controller: it is the player's own choice.
+    @Published var available = false {
+        didSet {
+            guard available, !startHandled else { return }
+            startHandled = true
+            if ConsolePrompt.shouldStartInConsole(setting: startInConsole(), handled: false) { enter() }
+        }
+    }
+    private var startHandled = false
+    private let startInConsole: () -> Bool
     private var enteredFullScreen = false
     private var entering = false
     private var leftForGame = false
@@ -31,7 +40,9 @@ import AppKit
     init(window: @escaping () -> NSWindow? = { NSApp.keyWindow ?? NSApp.windows.first { $0.canBecomeMain } },
          setFullScreen: @escaping @MainActor (NSWindow, Bool, @escaping () -> Void) -> Void = ConsoleCoordinator.toggleFullScreen,
          fadeSeconds: TimeInterval = ConsoleCoordinator.transitionSeconds + 0.05,
-         appIsActive: @escaping () -> Bool = { NSApp?.isActive ?? true }) {
+         appIsActive: @escaping () -> Bool = { NSApp?.isActive ?? true },
+         startInConsole: @escaping () -> Bool = { ConsolePrompt.startInConsole }) {
+        self.startInConsole = startInConsole
         self.appIsActive = appIsActive
         self.window = window
         self.setFullScreen = setFullScreen
@@ -124,8 +135,14 @@ struct CalmTransition: ViewModifier {
 }
 
 /// The controller-connect prompt: once per session, and never when the player turned it off in Settings.
+/// On top of it, "Start in console mode" (`startKey`) enters the mode when the launcher starts, no controller needed.
 enum ConsolePrompt {
     static let defaultsKey = "consolePrompt"
+    static let startKey = "consoleStartAtLaunch"
+    static var startInConsole: Bool { UserDefaults.standard.bool(forKey: startKey) }
+    /// Once per launch of the app: the first time the launcher is showing, and only when the player turned the setting on.
+    /// Leaving the mode afterwards is respected until the next launch.
+    static func shouldStartInConsole(setting: Bool, handled: Bool) -> Bool { setting && !handled }
     private(set) static var shownThisSession = false
     static var enabled: Bool { UserDefaults.standard.object(forKey: defaultsKey) as? Bool ?? true }
     static func shouldShow(enabled: Bool, shown: Bool) -> Bool { enabled && !shown }

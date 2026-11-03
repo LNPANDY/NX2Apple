@@ -1,0 +1,43 @@
+{
+  "_about": "Read by LocalizationKeyTests.swift (Mac launcher) and frontend-qt/tests/test_localization_keys.py (Qt front end), LNPANDY/NX2Apple#388. A key that code builds at run time (a prefix plus a variable) must start with one of the dynamicKeys, and every entry needs at least one key in frontend/l10n/en.json and one place in the sources that builds it. A key of en.json that no source mentions and no dynamicKeys entry covers fails the tests unless it is in unusedAllowed, with the reason. The iOS shell's texts (catalogKeys) are not looked up by key in any source: tools/l10n_shell_catalogs.py writes them into the shell's string catalogs, and tools/tests/test_l10n_shell_catalogs.py checks that those files are current, so a key under a catalogKeys prefix counts as used.",
+  "dynamicKeys": [
+    {"prefix": "console.kind.", "suffix": "", "why": "the controller kinds, ConsoleState.swift"},
+    {"prefix": "console.platform.", "suffix": "", "why": "the platforms of a game, ConsoleState.swift"},
+    {"prefix": "controls.fn.", "suffix": "", "why": "the label of each controller button, Controls.swift"},
+    {"prefix": "controls.mode.", "suffix": "", "why": "the name of each control preset, ControlPresets.swift"},
+    {"prefix": "controls.modeNote.", "suffix": "", "why": "the note of each control preset, ControlPresets.swift"},
+    {"prefix": "dep.metal.", "suffix": "", "why": "a dependency detail \"key:value\", Toolchain.swift and DependencyCheck.swift"},
+    {"prefix": "dep.pick.", "suffix": "", "why": "the text of a dependency choice, model.py"},
+    {"prefix": "dep.probe.", "suffix": ".hint", "why": "the hint of each compiler probe, model.py"},
+    {"prefix": "dep.python.", "suffix": "", "why": "a dependency detail \"key:value\", Toolchain.swift"},
+    {"prefix": "dep.spirv", "suffix": ".hint", "why": "the hint of a build tool is its key plus \".hint\", Toolchain.swift and model.py"},
+    {"prefix": "dep.tool.", "suffix": "", "why": "the name of each tool, Toolchain.swift"},
+    {"prefix": "dep.xcodegen", "suffix": ".hint", "why": "the hint of a build tool is its key plus \".hint\", Toolchain.swift and model.py"},
+    {"prefix": "dep.zstd", "suffix": ".hint", "why": "the hint of a build tool is its key plus \".hint\", Toolchain.swift and model.py"},
+    {"prefix": "engine.channel.", "suffix": "", "why": "the name of each engine channel, EngineUpdater.swift"},
+    {"prefix": "fail.", "suffix": ".next", "why": "what to do after each kind of build failure, BuildFailureKind.swift and build_failure.py"},
+    {"prefix": "fail.", "suffix": ".risk", "why": "the risk of a fix for each kind of build failure"},
+    {"prefix": "fail.", "suffix": ".what", "why": "what happened for each kind of build failure"},
+    {"prefix": "filter.", "suffix": "", "why": "the library filters, LauncherView.swift"},
+    {"prefix": "free.cost.", "suffix": "", "why": "the cost line of each freeable part, FreeSpace.swift"},
+    {"prefix": "free.part.", "suffix": "", "why": "the name of each freeable part, FreeSpace.swift"},
+    {"prefix": "key.", "suffix": "", "why": "the name of each keyboard key, Controls.swift"},
+    {"prefix": "keycheck.part.", "suffix": "", "why": "the name of each part of a game the key check reads, KeyCheck.swift"},
+    {"prefix": "launch.opt.", "suffix": "", "why": "the choices of a launch setting, LaunchOptionsView.swift"},
+    {"prefix": "launch.section.", "suffix": "", "why": "the section titles of the launch options, LaunchOptionsView.swift"},
+    {"prefix": "launch.set.", "suffix": "", "why": "the name and note of each launch setting, LaunchOptionsView.swift"},
+    {"prefix": "nav.", "suffix": "", "why": "the main pages, LauncherView.swift"},
+    {"prefix": "onboarding.", "suffix": ".note", "why": "the note of each onboarding step, OnboardingView.swift"},
+    {"prefix": "onboarding.", "suffix": ".title", "why": "the title of each onboarding step, OnboardingState.swift"},
+    {"prefix": "onboarding.background.", "suffix": "", "why": "the background tasks of the onboarding, OnboardingState.swift"},
+    {"prefix": "onboarding.platform.", "suffix": "", "why": "the platform choices of the onboarding, OnboardingView.swift"},
+    {"prefix": "onboarding.setup.", "suffix": "", "why": "the Xcode setup tasks of the onboarding, OnboardingState.swift"},
+    {"prefix": "stage.", "suffix": "", "why": "the name of each build stage, BuildProgress.swift"}
+  ],
+  "catalogKeys": [
+    {"prefix": "ios.ui.", "why": "ShellUI, frontend-ios/Sources/ShellUI/Resources/Localizable.xcstrings"},
+    {"prefix": "ios.host.", "why": "ShellHost, frontend-ios/Sources/ShellHost/Resources/Localizable.xcstrings"},
+    {"prefix": "ios.setting.", "why": "a game's settings text that upstream's launcher.json writes differently from launch.*, ShellUI catalog"}
+  ],
+  "unusedAllowed": []
+}
