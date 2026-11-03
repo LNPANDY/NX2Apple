@@ -531,6 +531,46 @@
         }
       }
     },
+    "Right stick: drag here": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rechter Stick: hier ziehen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Right stick: drag here"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stick droit : glissez ici"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Levetta destra: trascina qui"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Höger spak: dra här"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右摇杆：在此拖动"
+          }
+        }
+      }
+    },
     "Same as all games": {
       "localizations": {
         "de": {
