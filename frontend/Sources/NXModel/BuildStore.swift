@@ -136,7 +136,11 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     @Published package var installedOn = ""       // the device the last build went to (its UDID)
     @Published package var installedAppPath = ""  // the signed app that went there
     @Published package var exportedIPAPath = ""   // the unsigned IPA of an export (#416)
-    @Published package var send: DataSend = .idle  // step 3 of the export: the game data on its way (BuildStore+Send.swift)
+    @Published package var send: DataSend = .idle {  // step 3 of the export: the game data on its way (BuildStore+Send.swift)
+        didSet { if send != oldValue { finderShown = false } }
+    }
+    /// The player chose the Finder way after the copy to the device did not work: step 3 shows its three steps (#491).
+    @Published package var finderShown = false
     @Published package var drive: DriveState?      // the chosen folder's volume and what stops the copy (BuildStore+Send.swift)
     var shellRetry: (framework: String, titleID: String, name: String, archive: String)?
     var shellDeviceChecked = false
@@ -157,6 +161,8 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     /// A notice the player must see (the shader chain changed): an alert.
     package var showNotice: (String) -> Void = { _ in }
     package var revealFolder: (URL) -> Void = { _ in }
+    /// A Finder window with this file or folder selected (`activateFileViewerSelecting`).
+    package var revealItem: (URL) -> Void = { _ in }
     package var openApp: (URL) -> Void = { _ in }
     /// Whether the build folder is in a cloud folder. Tests stand in for the system's answer.
     package var cloudFolderCheck: (String) -> Bool = { CloudFolder.contains($0) }

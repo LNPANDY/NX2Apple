@@ -89,10 +89,14 @@ import NXModel
             sys.exit(1)   # no shell log
         elif a[:4] == ['devicectl', 'device', 'copy', 'to']:
             if os.path.exists('\(state)/refuse'):
-                print('ERROR: Failed to copy: the app does not allow access to its data container (get-task-allow). (com.apple.dt.CoreDeviceError error 7)', flush=True)
+                words = open('\(state)/refuse').read()
+                print(words or 'ERROR: Failed to copy: the app does not allow access to its data container (get-task-allow). (com.apple.dt.CoreDeviceError error 7)', flush=True)
                 sys.exit(1)
             print('Copied', flush=True)
         elif a[:4] == ['devicectl', 'device', 'info', 'apps']:
+            if os.path.exists('\(state)/apps-locked'):
+                print('ERROR: The device is locked. (com.apple.dt.CoreDeviceError error 4)', flush=True)
+                sys.exit(1)
             src = '\(state)/apps.json'
             if os.path.exists(src): open(val('--json-output'), 'w').write(open(src).read())
             else: json.dump({'result': {'apps': []}}, open(val('--json-output'), 'w'))
@@ -422,13 +426,107 @@ import NXModel
         XCTAssertNil(outcome.failure, "the install's Retry card does not fit")
     }
 
-    /// The failure table: only a missing app is told apart, every other devicectl error is a refusal shown with its own words.
-    func testTheFailureTable() {
-        XCTAssertEqual(ShellInstall.dataFailure(copyError: "ERROR: The application is not installed on the device."), .appNotFound)
-        XCTAssertEqual(ShellInstall.dataFailure(copyError: "ERROR: No such app: org.nxnative.shell"), .appNotFound)
-        XCTAssertEqual(ShellInstall.dataFailure(copyError: "ERROR: Failed to copy: the app does not allow access to its data container (get-task-allow)."), .refused)
-        XCTAssertEqual(ShellInstall.dataFailure(copyError: "ERROR: Operation not permitted (NSPOSIXErrorDomain error 1)"), .refused)
-        XCTAssertEqual(ShellInstall.dataFailure(copyError: ""), .refused)
+    /// #491: the device listed the app, so a copy that fails is a refusal whatever devicectl says, even words that sound like a missing app.
+    /// Before, such words said "Install the IPA first" to a player whose app was installed, and the Finder way was not offered.
+    func testACopyIntoAListedAppThatFailsIsAlwaysARefusal() throws {
+        let f = try makeFixture()
+        let archive = try makeArchive()
+        try listApps([("org.nxnative.shell", "NX2Apple")])
+        for words in ["ERROR: Could not find the app's data container. (com.apple.dt.CoreDeviceError error 3)",
+                      "ERROR: The application is not installed on the device.", "ERROR: Operation not permitted (NSPOSIXErrorDomain error 1)"] {
+            try write(state + "/refuse", words)
+            let outcome = sender(f).sendData(titleID: titleID, archive: archive)
+            XCTAssertEqual(outcome.dataFailure, .refused, words)
+            XCTAssertEqual(outcome.detail, words)
+            XCTAssertEqual(DataSend.after(outcome, notConnected: "x"), .refused(detail: words))
+        }
+    }
+
+    /// An app list the device does not give is said in plain words, with the device's name, not as devicectl's raw line.
+    func testAnUnreadableAppListIsSaidInPlainWords() throws {
+        let f = try makeFixture()
+        let archive = try makeArchive()
+        try write(state + "/apps-locked", "")
+        let outcome = sender(f).sendData(titleID: titleID, archive: archive)
+        XCTAssertFalse(outcome.ok)
+        XCTAssertEqual(outcome.dataFailure, .noAppList)
+        XCTAssertEqual(outcome.message, String(format: L10n.string("shell.sendListFailed", .en), "Z"))
+        XCTAssertTrue(outcome.detail.contains("locked"), outcome.detail)
+        XCTAssertEqual(DataSend.after(outcome, notConnected: "x"), .failed(outcome.message))
+        XCTAssertFalse(DataSend.after(outcome, notConnected: "x").offersFinder, "a locked device is not a case for Finder")
+    }
+
+    /// The mapping from the end of a send to what step 3 shows. Only a refusal and an app the device does not list offer the Finder way.
+    func testTheEndOfASendMapsToItsStateAndOnlyFailuresOfTheCopyOfferFinder() {
+        var sent = ShellInstaller.Outcome(ok: true, message: "")
+        sent.appName = "App"
+        XCTAssertEqual(DataSend.after(sent, notConnected: "off"), .sent(app: "App"))
+        let skipped = ShellInstaller.Outcome(ok: true, message: "", copySkipped: true)
+        XCTAssertEqual(DataSend.after(skipped, notConnected: "off"), .failed("off"))
+        var several = ShellInstaller.Outcome(ok: false, message: "")
+        several.apps = [InstalledApp(bundle: "org.nxnative.shell", name: "A"), InstalledApp(bundle: "org.nxnative.shell.T", name: "B")]
+        XCTAssertEqual(DataSend.after(several, notConnected: "off"), .chooseApp(several.apps))
+        var none = ShellInstaller.Outcome(ok: false, message: "")
+        none.dataFailure = .appNotFound
+        XCTAssertEqual(DataSend.after(none, notConnected: "off"), .appNotFound)
+        var refused = ShellInstaller.Outcome(ok: false, message: "")
+        refused.dataFailure = .refused; refused.detail = "ERROR: no"
+        XCTAssertEqual(DataSend.after(refused, notConnected: "off"), .refused(detail: "ERROR: no"))
+        let space = ShellInstaller.Outcome(ok: false, message: "No space")
+        XCTAssertEqual(DataSend.after(space, notConnected: "off"), .failed("No space"))
+
+        let offers: [DataSend] = [.appNotFound, .refused(detail: "")]
+        let others: [DataSend] = [.idle, .sending(done: 0, total: 1, note: ""), .sent(app: ""), .chooseApp([]), .failed("x"),
+                                  .copying(done: 0, total: 1), .copied(folder: "/f")]
+        XCTAssertTrue(offers.allSatisfy(\.offersFinder))
+        XCTAssertFalse(others.contains(where: \.offersFinder), "never a second button while the first way works")
+    }
+
+    /// What Finder shows selected: the game's own folder (romfs.img and its add-on content), named by its title ID. One game's own IPA
+    /// holds its data, so it has nothing to drag.
+    func testFinderShowsTheGamesFolderForTheSharedAppAndNothingForOneGame() {
+        let archive = path("out/games", titleID)
+        XCTAssertEqual(BuildStore.finderItem(archive: archive, oneGame: false), archive)
+        XCTAssertEqual((BuildStore.finderItem(archive: archive, oneGame: false)! as NSString).lastPathComponent, titleID)
+        XCTAssertNil(BuildStore.finderItem(archive: archive, oneGame: true))
+        XCTAssertNil(BuildStore.finderItem(archive: "", oneGame: false), "nothing packed yet")
+    }
+
+    /// Copy with Finder selects the folder in Finder and opens the three steps. A new send closes them again. Before a failure it does nothing.
+    func testCopyWithFinderRevealsTheFolderAndOpensTheSteps() throws {
+        let saved = savedKeys.map { ($0, UserDefaults.standard.object(forKey: $0)) }
+        defer { for (key, value) in saved { UserDefaults.standard.set(value, forKey: key) } }
+        let stores = LauncherStores(); let model = stores.build
+        var revealed: [URL] = []
+        model.revealItem = { revealed.append($0) }
+        model.archivePath = path("out/games", titleID)
+        model.copyWithFinder(oneGame: false)
+        XCTAssertTrue(revealed.isEmpty, "only after the copy to the device did not work")
+        XCTAssertFalse(model.finderShown)
+        model.send = .refused(detail: "ERROR: no")
+        model.copyWithFinder(oneGame: false)
+        XCTAssertEqual(revealed.map(\.path), [path("out/games", titleID)])
+        XCTAssertTrue(model.finderShown)
+        model.send = .sending(done: 0, total: 0, note: "")
+        XCTAssertFalse(model.finderShown, "a new send closes the steps")
+        model.send = .appNotFound
+        model.copyWithFinder(oneGame: true)
+        XCTAssertEqual(revealed.count, 1, "one game's own IPA has nothing to drag")
+        XCTAssertFalse(model.finderShown)
+    }
+
+    /// The Finder way's texts: every required language, the same number of %@ as English, and step 3 names the shell's own button.
+    func testTheFinderWayTextsFitEveryLanguage() {
+        let keys = ["shell.sendFinder", "shell.sendFinderStep1", "shell.sendFinderStep2", "shell.sendFinderStep3", "shell.sendListFailed",
+                    "shell.sendRefused", "shell.sendNoApp"]
+        func placeholders(_ text: String) -> Int { text.components(separatedBy: "%@").count - 1 }
+        for key in keys {
+            for lang in Lang.all {
+                XCTAssertEqual(placeholders(L10n.string(key, lang)), placeholders(L10n.string(key, .en)), "\(key) in \(lang.code)")
+            }
+        }
+        XCTAssertEqual(placeholders(L10n.string("shell.sendFinderStep3", .en)), 2)
+        XCTAssertNotEqual(L10n.string("ios.ui.chooseGameData", .en), "ios.ui.chooseGameData", "step 3 names a button the shell has")
     }
 
     func testTheSendButtonsNeedTheIPAAndTheirPlace() throws {
@@ -578,8 +676,8 @@ import NXModel
         let keys = ["shell.exportBuildStage", "shell.exportDone", "shell.exportFailed", "shell.exportPackStage", "shell.modeTitle", "shell.modeInstall",
                     "shell.modeExport", "shell.step1Title", "shell.step1Sub", "shell.step1Button", "shell.step1Done", "shell.showInFinder", "shell.step2Title",
                     "shell.step2Sub", "shell.step3Title", "shell.step3Sub", "shell.whereDevice", "shell.whereDrive", "shell.sendButton", "shell.sendStage",
-                    "shell.sendProgress", "shell.sendDone", "shell.sendNoApp", "shell.sendSeveral", "shell.sendRefused", "shell.sendFinderSteps",
-                    "shell.sendShowData", "shell.sendDetails", "shell.driveNone", "shell.driveChoose", "shell.driveCopy", "shell.driveNote", "shell.driveFat32",
+                    "shell.sendProgress", "shell.sendDone", "shell.sendNoApp", "shell.sendSeveral", "shell.sendRefused", "shell.sendFinder",
+                    "shell.sendFinderStep1", "shell.sendFinderStep2", "shell.sendFinderStep3", "shell.sendListFailed", "shell.sendDetails", "shell.driveNone", "shell.driveChoose", "shell.driveCopy", "shell.driveNote", "shell.driveFat32",
                     "shell.driveReadOnly", "shell.driveNoSpace", "shell.driveProgress", "shell.driveDone", "shell.driveFailed"]
         // The five languages the launcher ships with must have every text, translated. Any other language file (it, for one) may leave a key out:
         // that key then shows the English text, and nothing here asks for it.
