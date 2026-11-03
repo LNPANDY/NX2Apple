@@ -14,7 +14,6 @@
 [![Issues](https://img.shields.io/github/issues/LNPANDY/NX2Apple)](https://github.com/LNPANDY/NX2Apple/issues)
 [![License](https://img.shields.io/github/license/LNPANDY/NX2Apple)](LICENSE)
 [![Spiele](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FLNPANDY%2FNX2Apple%2Fmain%2F.github%2Fbadges%2Fgames.json)](.github/badges/games.json)
-[![Verifiziert](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FLNPANDY%2FNX2Apple%2Fmain%2F.github%2Fbadges%2Fverified.json)](.github/badges/verified.json)
 
 [![中文](https://img.shields.io/badge/🇨🇳_中文-available-green)](README.zh-CN.md)
 [![English](https://img.shields.io/badge/🇺🇸_English-available-green)](README.md)
@@ -157,9 +156,8 @@ angesehen. Hänge niemals Schlüssel, Spieldateien oder etwas aus einem Spiel Ex
 
 ## Spiele
 
-94 Spiele haben ein Profil. Drei sind in diesem Fork von Anfang bis Ende verifiziert (gebaut, installiert und
-auf einem Handy gespielt), 45 weitere gelten upstream auf einem iPhone als spielbar, und für die übrigen gibt
-es ein Profil, das noch nicht auf einem Handy ausprobiert wurde. Einige davon:
+130 Spiele haben ein Profil. Einige gelten upstream auf einem iPhone als spielbar, und die meisten haben
+ein Profil, das noch nicht auf einem Handy ausprobiert wurde. Einige davon:
 
 | | Spiel | Wo es läuft | Status |
 |---|---|---|---|
