@@ -121,8 +121,12 @@ extension ShellInstaller {
             return Outcome(ok: false, message: fmt("dev.noProject", app))
         }
         end(Self.exportBuildStageID, buildName, ok: true)
+        return packExport(app: URL(fileURLWithPath: app), library: library, notes: prepared.notes)
+    }
 
-        // The IPA: Payload/<app>.app in a stage folder, zipped
+    /// Stage and zip Payload/<app>.app. Signing can add _CodeSignature/ and CodeResources, so reserve two ZIP32 entries.
+    func packExport(app: URL, library: ShellLibrary, notes: [String] = [], entryLimit: Int = Int(UInt16.max) - 2) -> Outcome {
+        let fm = FileManager.default
         let packName = t("shell.exportPackStage")
         begin(Self.exportPackStageID, packName)
         let stage = ShellInstall.exportStage(root: root), ipa = ShellInstall.ipaPath(root: root)
@@ -131,8 +135,10 @@ extension ShellInstaller {
             try? fm.removeItem(atPath: stage)
             try? fm.removeItem(atPath: ipa)
             try fm.createDirectory(atPath: stage + "/Payload", withIntermediateDirectories: true)
-            try fm.copyItem(at: URL(fileURLWithPath: app), to: stagedApp)
-            try packShaderLibraries(in: stagedApp, label: packName)
+            try fm.copyItem(at: app, to: stagedApp)
+            if try Self.exceedsEntryLimit(in: stagedApp.deletingLastPathComponent(), limit: entryLimit) {
+                try packShaderLibraries(in: stagedApp, games: library.games, label: packName)
+            }
         } catch {
             try? fm.removeItem(atPath: stage)
             end(Self.exportPackStageID, packName, ok: false, detail: error.localizedDescription)
@@ -157,21 +163,40 @@ extension ShellInstaller {
             return Outcome(ok: false, message: fmt("shell.exportFailed", why))
         }
         end(Self.exportPackStageID, packName, ok: true)
-        var outcome = Outcome(ok: true, message: ([fmt("shell.exportDone", ipa)] + prepared.notes).joined(separator: "\n"), bundleID: library.bundleID)
+        var outcome = Outcome(ok: true, message: ([fmt("shell.exportDone", ipa)] + notes).joined(separator: "\n"), bundleID: library.bundleID)
         outcome.ipaPath = ipa
         return outcome
     }
 
-    /// A game's shader files can exceed the sideloader's 16-bit ZIP entry count. Keep one archive per game
-    /// in the staged IPA. Its name identifies this export when the shell prepares the shaders for play.
-    private func packShaderLibraries(in stagedApp: URL, label: String) throws {
+    private static func exceedsEntryLimit(in payload: URL, limit: Int) throws -> Bool {
+        var failure: Error?
+        guard let entries = FileManager.default.enumerator(at: payload, includingPropertiesForKeys: [], errorHandler: { _, error in
+            failure = error
+            return false
+        }) else {
+            throw failure ?? CocoaError(.fileReadUnknown, userInfo: [NSFilePathErrorKey: payload.path])
+        }
+        var count = 1   // ditto --keepParent writes Payload/ itself, then DmShell.app/ and its descendants.
+        while count <= limit, entries.nextObject() != nil { count += 1 }
+        if let failure { throw failure }
+        return count > limit
+    }
+
+    /// Keep a large IPA within the sideloader's 16-bit entry count. Only the games in the shell library
+    /// know how to unpack an archive. Leave other frameworks' resources in their original layout.
+    private func packShaderLibraries(in stagedApp: URL, games: [ShellLibrary.Game], label: String) throws {
         let fm = FileManager.default
         let frameworks = stagedApp.appendingPathComponent("Frameworks")
-        guard fm.fileExists(atPath: frameworks.path) else { return }
-        for framework in try fm.contentsOfDirectory(at: frameworks, includingPropertiesForKeys: nil) where framework.pathExtension == "framework" {
+        for game in games {
+            let framework = frameworks.appendingPathComponent(URL(fileURLWithPath: game.framework).lastPathComponent)
             let shaders = framework.appendingPathComponent("msl")
             var directory: ObjCBool = false
             guard fm.fileExists(atPath: shaders.path, isDirectory: &directory), directory.boolValue else { continue }
+            // A re-used framework can already contain a packed copy. The loose tree supplies this export's contents.
+            for old in try fm.contentsOfDirectory(at: framework, includingPropertiesForKeys: nil) where old.pathExtension == "aar" {
+                let stem = old.deletingPathExtension().lastPathComponent
+                if stem.hasPrefix("msl-"), UUID(uuidString: String(stem.dropFirst(4))) != nil { try fm.removeItem(at: old) }
+            }
             let archive = framework.appendingPathComponent("msl-\(UUID().uuidString).aar")
             let result = run(["/usr/bin/aa", "archive", "-d", shaders.path, "-o", archive.path, "-a", "lzfse"],
                              env: nil, label: label, step: { _ in nil })
