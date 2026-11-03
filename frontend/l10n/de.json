@@ -1042,7 +1042,7 @@
   "shell.modeInstall": "Auf Gerät installieren",
   "shell.modeTitle": "Installieren oder exportieren",
   "shell.needsDevice": "Die gemeinsame App braucht ein Gerät und ein Signier-Team. Wähle sie zuerst unter Installieren auf.",
-  "shell.noFramework": "Das Framework des Spiels wurde nicht gefunden: %@",
+  "shell.noFramework": "Der Build von %1$@ ist fertig, aber sein Framework liegt nicht im Ordner %2$@. Baue das Spiel erneut. Wenn es wieder passiert, kopiere das Build-Protokoll und eröffne ein Issue.",
   "shell.noSpace": "Nicht genug Platz auf %@: Die Spieldaten brauchen %.1f GB und auf dem Gerät sind %.1f GB frei. Gib Speicher frei und installiere dann erneut",
   "shell.notPaired": "%@ ist nicht mit diesem Mac gekoppelt. Schließe es mit einem Kabel an, tippe auf dem Gerät auf Vertrauen und gib den Code ein. Starte dann erneut.",
   "shell.oneGameDone": "%@, nicht signiert. Die Spieldaten sind enthalten.",

@@ -1041,7 +1041,7 @@
   "shell.modeInstall": "Installa sul dispositivo",
   "shell.modeTitle": "Installa o esporta",
   "shell.needsDevice": "L’app condivisa richiede un dispositivo e un team di firma. Prima sceglili in Installa su.",
-  "shell.noFramework": "Framework del gioco non trovato: %@",
+  "shell.noFramework": "La compilazione di %1$@ è terminata, ma il suo framework non è nella cartella %2$@. Compila di nuovo il gioco. Se succede di nuovo, copia il log di compilazione e apri una issue.",
   "shell.noSpace": "Spazio insufficiente su %@: i dati di gioco richiedono %.1f GB e il dispositivo ha %.1f GB liberi. Libera spazio, poi installa di nuovo",
   "shell.notPaired": "%@ non è abbinato a questo Mac. Collegalo con un cavo, tocca Autorizza sul dispositivo e inserisci il codice. Poi ricomincia.",
   "shell.oneGameDone": "%@, non firmata. I dati di gioco sono inclusi.",

@@ -40,7 +40,7 @@ package struct ActionCard: View {
     @ViewBuilder private var statusText: some View {
         if !build.doneNote.isEmpty {
             Text(build.doneNote).font(.manrope(13))
-                .foregroundStyle(build.done ? LauncherPalette.ready : LauncherPalette.building).lineLimit(2)
+                .foregroundStyle(build.done ? LauncherPalette.ready : LauncherPalette.building).lineLimit(3)
         } else if !dependencies.checked {
             Text(loc.t("status.checkingDeps")).font(.manrope(13)).foregroundStyle(.secondary)
         } else if !dependencies.allPresent {
