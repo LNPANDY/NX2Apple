@@ -1,6 +1,6 @@
 # Changelog
 
-The release history of NX2Apple, newest first. Every release, with its full text, is on the [releases page](https://github.com/LNPANDY/NX2Apple/releases). 中文：[CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
+The release history of NX2Apple, newest first. Every release, with its full text, is on the [releases page](https://github.com/LNPANDY/NX2Apple/releases).
 
 Newest first. The fork follows upstream daily, so its game list and host fixes arrive automatically.
 
