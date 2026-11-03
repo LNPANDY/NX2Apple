@@ -48,6 +48,15 @@ final class Clock: @unchecked Sendable { var date: Date; init(_ d: Date) { date 
         shell.storeTouchStick("higher")
         await model.playNow(Fixtures.orbit)
         #expect(launcher.launched.last?.environment["DM_TOUCH_STICK"] == "higher")
+        #expect(launcher.launched.last?.environment["DM_TOUCH_LAYOUT"] == nil, "no arrangement: nothing is passed")
+        var layout = TouchLayout()
+        layout[.threeD, .face] = TouchLayout.Offset(dx: -2, dy: -1)
+        shell.storeTouchLayout(layout)
+        await model.playNow(Fixtures.orbit)
+        #expect(launcher.launched.last?.environment["DM_TOUCH_LAYOUT"] == "1;3d/face:-2,-1")
+        shell.resetTouchLayout(.threeD)
+        await model.playNow(Fixtures.orbit)
+        #expect(launcher.launched.last?.environment["DM_TOUCH_LAYOUT"] == nil, "reset: the engine's built-in layout")
     }
 
     /// The engine draws the right-stick hint's words as they come (patch 0067), so the shell hands them over in the player's language.
@@ -59,6 +68,35 @@ final class Clock: @unchecked Sendable { var date: Date; init(_ d: Date) { date 
         await model.playNow(Fixtures.orbit)
         let hint = try #require(launcher.launched.last?.environment["DM_TOUCH_HINT"])
         #expect(hint == ShellHostModel.touchHint && !hint.isEmpty)
+    }
+
+    /// The quit prompt's words reach the engine with the game's name in the title, five lines in home_quit.h's order (patch 0068): the
+    /// engine draws the prompt when Quit is picked in the in-game menu or Home is held.
+    @Test func everyGameGetsTheQuitPromptInThePlayersLanguage() async throws {
+        let box = try Sandbox()
+        try box.giveAppData()
+        let launcher = RecordingLauncher()
+        let model = ShellHostModel(config: box.config(), launcher: launcher, shellSettings: shellSettings())
+        await model.playNow(Fixtures.orbit)
+        let text = try #require(launcher.launched.last?.environment["DM_HOME_QUIT_TEXT"])
+        let lines = text.components(separatedBy: "\n")
+        let name = try #require(launcher.launched.last?.name)
+        #expect(lines.count == 5 && lines.allSatisfy { !$0.isEmpty } && lines[1].contains(name))
+    }
+
+    /// The prompt's texts in every language: no semicolon, no line break (one text per line in DM_HOME_QUIT_TEXT), the title keeps the game's name.
+    @Test func theQuitPromptTextsFollowTheTextRules() throws {
+        let l10n = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("frontend/l10n")
+        let keys = ["ios.host.quitHold", "ios.host.quitTitle", "ios.host.quitNote", "ios.host.quitButton", "ios.host.quitCancel"]
+        for file in try FileManager.default.contentsOfDirectory(at: l10n, includingPropertiesForKeys: nil) where file.pathExtension == "json" {
+            let strings = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
+            for key in keys {
+                let text = try #require(strings[key] as? String, "\(file.lastPathComponent) lacks \(key)")
+                #expect(!text.contains(";") && !text.contains("；") && !text.contains("\n"), "\(file.lastPathComponent) \(key): \(text)")
+            }
+            #expect((strings["ios.host.quitTitle"] as? String)?.contains("%@") == true, "\(file.lastPathComponent): the title names the game")
+        }
     }
 
     /// Every language's words fit the right third of a small phone (the engine's test gives them about 30 characters) and follow

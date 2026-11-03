@@ -20,10 +20,10 @@ Issue: seedds/nxnative#886
  create mode 100644 dm/tools/tests/test_pfs0_storage.py
 
 diff --git a/dm/tools/nx_extract/Program.cs b/dm/tools/nx_extract/Program.cs
-index f5beaa1..974f76d 100644
+index 6ba155b..96964ff 100644
 --- a/dm/tools/nx_extract/Program.cs
 +++ b/dm/tools/nx_extract/Program.cs
-@@ -13,6 +13,7 @@
+@@ -16,6 +16,7 @@
  // The base game may also be a cartridge dump (.xci, Monster Hunter Rise): its secure partition holds the NCAs, which carry their keys in the key area (no ticket).
  //   When the cartridge also carries an update (1G+1U), only the base game's NCAs (those its Application content meta lists) are read; the update comes from the update NSP.
  using System;
@@ -31,7 +31,7 @@ index f5beaa1..974f76d 100644
  using System.Collections.Generic;
  using System.IO;
  using System.Runtime.InteropServices;
-@@ -157,6 +158,30 @@ static class P {
+@@ -216,6 +217,30 @@ static class P {
          }
      }
  
@@ -61,8 +61,8 @@ index f5beaa1..974f76d 100644
 +
      // Open an NSP (PFS0) or the secure partition of an XCI, import the common tickets, list all NCAs. With a content meta type, only the NCAs that the package's content metas of
      // that type list (when it has one), and with a title ID only that title's: a cartridge dump with its update on it (1G+1U) or a merged NSP holds the update's NCAs beside the
-     // base game's, its Program NCA under the same title ID; a cartridge with two games holds two Application content metas
-@@ -168,7 +193,7 @@ static class P {
+     // base game's, its Program NCA under the same title ID; a cartridge with two games holds two Application content metas. ncz: an NSZ's or XCZ's compressed NCAs too, by their
+@@ -228,7 +253,7 @@ static class P {
              if (!xci.HasPartition(XciPartitionType.Secure)) throw new Exception($"no secure partition in {path}");
              pfs = xci.OpenPartition(XciPartitionType.Secure);
          } else {
@@ -134,7 +134,7 @@ index 0000000..7a45b59
 +    }
 +}
 diff --git a/dm/tools/tests/test_nsp_scan.py b/dm/tools/tests/test_nsp_scan.py
-index c21f062..c7caf13 100644
+index 559354b..4ea2390 100644
 --- a/dm/tools/tests/test_nsp_scan.py
 +++ b/dm/tools/tests/test_nsp_scan.py
 @@ -46,6 +46,31 @@ class Scan(unittest.TestCase):
@@ -214,7 +214,7 @@ index 0000000..c4d060a
 +if __name__ == '__main__':
 +    unittest.main()
 diff --git a/docs/reference/packing.md b/docs/reference/packing.md
-index f145154..4b81b7b 100644
+index 2f96f9b..8f30a6d 100644
 --- a/docs/reference/packing.md
 +++ b/docs/reference/packing.md
 @@ -1,5 +1,14 @@
@@ -233,10 +233,10 @@ index f145154..4b81b7b 100644
  
  ### Homebrew .NET is on PATH but apphosts cannot find the runtime
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index 75b9b17..cb1febc 100755
+index 3ab23ef..f9dc7e4 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
-@@ -427,9 +427,19 @@ def pfs0_names(path):   # NSP = PFS0: list the file names inside
+@@ -430,9 +430,19 @@ def pfs0_names(path):   # NSP = PFS0: list the file names inside
      with open(path, 'rb') as f:
          h = f.read(16)
          if h[:4] != b'PFS0': return []

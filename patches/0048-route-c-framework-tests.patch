@@ -383,7 +383,7 @@ index 0000000..ccbba80
 +if __name__ == '__main__':
 +    unittest.main()
 diff --git a/dm/ios/tests/test_xcode_workflow.py b/dm/ios/tests/test_xcode_workflow.py
-index 2881f08..98b0e62 100644
+index b13fd02..5806781 100644
 --- a/dm/ios/tests/test_xcode_workflow.py
 +++ b/dm/ios/tests/test_xcode_workflow.py
 @@ -29,7 +29,12 @@ class XcodePipelineTests(unittest.TestCase):
@@ -400,7 +400,7 @@ index 2881f08..98b0e62 100644
          with tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
              root = Path(temporary).resolve()
              (root / 'prod.keys').touch()
-@@ -75,7 +80,8 @@ class XcodePipelineTests(unittest.TestCase):
+@@ -80,7 +85,8 @@ class XcodePipelineTests(unittest.TestCase):
              try:
                  with redirect_stdout(output):
                      code = build.cli([str(root), '-k', str(root / 'prod.keys'), '--prepare-xcode',
@@ -410,7 +410,7 @@ index 2881f08..98b0e62 100644
              finally:
                  progress.close()
              self.assertEqual(code, 0)
-@@ -92,6 +98,7 @@ class XcodePipelineTests(unittest.TestCase):
+@@ -97,6 +103,7 @@ class XcodePipelineTests(unittest.TestCase):
              self.assertEqual(environment['GFXAPI'], graphics)
              self.assertEqual(environment['DM_BUNDLE_ID'], 'com.example.saved')
              self.assertEqual(environment['DM_TEAM_ID'], 'ABCDEFGHIJ')

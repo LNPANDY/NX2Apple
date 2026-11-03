@@ -62,6 +62,25 @@ import ShellUI
         #expect(store.defaults.object(forKey: ShellSettingsStore.touchStickKey) == nil && store.gameDefaults == ["DM_TOUCH_SIZE": "small"])
     }
 
+    /// The arrangement (#414) is stored as the engine's value and goes to every game as DM_TOUCH_LAYOUT. Reset removes it per layout.
+    @Test func theArrangementGoesToEveryGameAndResetRemovesIt() {
+        let store = shell()
+        #expect(store.touchLayout.isEmpty && store.gameDefaults["DM_TOUCH_LAYOUT"] == nil, "settings saved before the editor: the built-in layout")
+        var layout = TouchLayout()
+        layout[.twoD, .stick] = TouchLayout.Offset(dx: 1, dy: -2)
+        layout[.threeD, .a] = TouchLayout.Offset(dx: -1, dy: 0)
+        store.storeTouchLayout(layout)
+        #expect(store.defaults.string(forKey: ShellSettingsStore.touchLayoutKey) == "1;2d/stick:1,-2;3d/a:-1,0")
+        #expect(ShellSettingsStore(defaults: store.defaults).touchLayout == layout)
+        #expect(store.gameDefaults == ["DM_TOUCH_LAYOUT": "1;2d/stick:1,-2;3d/a:-1,0"])
+        store.resetTouchLayout(.twoD)
+        #expect(store.gameDefaults == ["DM_TOUCH_LAYOUT": "1;3d/a:-1,0"])
+        store.resetTouchLayout(.threeD)
+        #expect(store.defaults.object(forKey: ShellSettingsStore.touchLayoutKey) == nil && store.gameDefaults.isEmpty)
+        store.defaults.set("1;2d/a:99,0", forKey: ShellSettingsStore.touchLayoutKey)
+        #expect(store.touchLayout.isEmpty && store.gameDefaults.isEmpty, "a stored value the engine would ignore is not passed")
+    }
+
     @Test func theFolderNamesAreKept() {
         let store = shell()
         store.storeDataFolderName("Switch")

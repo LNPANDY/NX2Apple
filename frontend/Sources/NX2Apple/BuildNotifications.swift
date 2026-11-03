@@ -94,9 +94,9 @@ final class BuildNotifier: NSObject, ObservableObject, UNUserNotificationCenterD
     }
 
     @MainActor private func post(_ outcome: BuildNotice.Outcome, m: BuildStore, library: GameLibrary) {
-        let titleID = TitleID.parse(m.basePath).map { String(format: "%016llX", $0) } ?? ""
+        let titleID = m.gameTitleID ?? ""
         let game = library.games.first { $0.titleID == titleID }
-        let name = game?.name ?? GameLibrary.title(for: m.basePath, repo: m.repo.path, titleID: titleID)
+        let name = game?.name ?? GameLibrary.title(for: m.gameFolder?.folder ?? m.basePath, repo: m.repo.path, titleID: titleID)
         let text = BuildNotice.text(outcome, game: name, target: m.target, device: m.installedOn.isEmpty ? nil : m.devices.deviceName(m.installedOn), m.t)
         let content = UNMutableNotificationContent()
         content.title = text.title

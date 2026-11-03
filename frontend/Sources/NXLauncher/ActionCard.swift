@@ -47,10 +47,12 @@ package struct ActionCard: View {
             Text(loc.t("status.installFirst")).font(.manrope(13)).foregroundStyle(LauncherPalette.building)
         } else if !repo.isRepo {
             Text(loc.t("status.chooseRepo")).font(.manrope(13)).foregroundStyle(LauncherPalette.building)
-        } else if !build.slot("base").ok || !build.slot("keys").ok {
+        } else if build.gameFolderRefused {
+            Text(loc.t("status.fixFolder")).font(.manrope(13)).foregroundStyle(.secondary)
+        } else if !build.inputsReady {
             Text(loc.t("status.needInputs")).font(.manrope(13)).foregroundStyle(.secondary)
         } else {
-            Text(String(format: loc.t("status.output"), build.shortPath(build.outDir.isEmpty ? (build.basePath as NSString).deletingLastPathComponent : build.outDir)))
+            Text(String(format: loc.t("status.output"), build.shortPath(build.outDir.isEmpty ? build.inputFolder : build.outDir)))
                 .font(.manrope(13)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.head)
         }
     }
