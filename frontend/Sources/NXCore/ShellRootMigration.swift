@@ -23,7 +23,8 @@ package enum ShellRootMigration {
 
     /// At launch: a saved root of the old kind moves now, so every screen shows the same folder from the start.
     package static func migrateSavedRoot(defaults: UserDefaults = .standard, home: String = NSHomeDirectory()) {
-        guard let saved = defaults.string(forKey: "shellRoot"), isLegacy(saved, home: home) else { return }
+        guard let saved = defaults.string(forKey: "shellRoot"), isLegacy(saved, home: home),
+              !defaults.bool(forKey: ShellRootMove.pickedKey) else { return }
         _ = ShellLibrary.resolveRoot(defaults: defaults, parent: "", home: home)
     }
 

@@ -141,6 +141,10 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     var shellRetry: (framework: String, titleID: String, name: String, archive: String)?
     var shellDeviceChecked = false
     package let driveCancel = LockedFlag()   // Stop of the copy to a drive (BuildStore+Send.swift)
+    @Published package var shellMove: ShellMove = .idle   // Move cache folder (BuildStore+ShellRoot.swift, #427)
+    package let shellMoveStop = LockedFlag()
+    /// The home folder the default shell root is in. Tests use a temporary one, so they never touch the real Application Support.
+    package var home = NSHomeDirectory()
 
     // ---- The app's side: AppKit and the wiring, as closures ----
     package var chooseKeys: (() -> Void)?          // tests stand in for the file picker
@@ -228,6 +232,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     package func fail(_ why: String) { running = false; doneNote = why; say("✗ " + why); cleanupStaging() }
 
     package func stop() {
+        if case .moving = shellMove { stopShellMove(); return }
         guard running, !stopping, let proc, proc.isRunning else { return }
         stopping = true
         ProcessGroups.endGroup(proc.processIdentifier)   // the script and every tool it started
