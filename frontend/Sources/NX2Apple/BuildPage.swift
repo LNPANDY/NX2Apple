@@ -33,6 +33,7 @@ struct BuildPage: View {
         if !running || showRunningSetup {
             SetupHintCard(repo: repo, dependencies: dependencies, onOpenSettings: onOpenSettings)
             FilesCard(build: build, extrasOpen: $extrasOpen)
+            OfflineBuildCard(build: build)
             TargetCard(build: build)
         }
         InstallCard(devices: devices, build: build, showLocked: showRunningSetup)

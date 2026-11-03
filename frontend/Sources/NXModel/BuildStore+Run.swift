@@ -269,6 +269,10 @@ extension BuildStore {
             do {
                 let app = try await Task.detached { try output.finish() }.value
                 macAppPath = app.path
+                if !offlineSaveFolder.isEmpty || !offlineCacheFolder.isEmpty {
+                    finishOfflineApp()
+                    return
+                }
                 say("✓ " + shortPath(app.path))
                 done = true
                 doneNote = t("msg.macAppDone")
