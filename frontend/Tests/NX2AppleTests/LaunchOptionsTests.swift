@@ -1,4 +1,5 @@
 import XCTest
+import SwiftUI
 @testable import NX2Apple
 @testable import NXCore
 @testable import NXLauncher
@@ -133,5 +134,26 @@ final class LaunchOptionsTests: IsolatedDefaultsTestCase {
         XCTAssertFalse(segmented("DM_X", ["American English", "Japanese"]), "a label that does not fit its segment")
         XCTAssertFalse(segmented("DM_X", ["One", "Two", "Seven tens"]), "three segments are narrower than two")
         XCTAssertFalse(segmented("DM_X", ["A", "B", "C", "D"]), "four or more are a menu")
+    }
+
+    func testControlsRenderWithReduceMotionSupport() {
+        var on = false
+        let sw = Toggle("Setting", isOn: Binding(get: { on }, set: { on = $0 })).toggleStyle(LauncherSwitchStyle())
+        let seg = LauncherSegmented(options: [("1", "A"), ("2", "B")], selection: "1", choose: { _ in })
+        let progress = LauncherProgressBar(value: 0.5)
+        let barIndeterminate = LauncherProgressBar(value: nil)
+        let disclosure = CardDisclosure("Title", isOpen: false, toggle: {})
+
+        let hostSw = NSHostingView(rootView: sw)
+        let hostSeg = NSHostingView(rootView: seg)
+        let hostProgress = NSHostingView(rootView: progress)
+        let hostBar = NSHostingView(rootView: barIndeterminate)
+        let hostDisc = NSHostingView(rootView: disclosure)
+
+        XCTAssertNotNil(hostSw.fittingSize)
+        XCTAssertNotNil(hostSeg.fittingSize)
+        XCTAssertNotNil(hostProgress.fittingSize)
+        XCTAssertNotNil(hostBar.fittingSize)
+        XCTAssertNotNil(hostDisc.fittingSize)
     }
 }
