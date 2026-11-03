@@ -153,6 +153,46 @@
         }
       }
     },
+    "Also delete saves": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auch Spielstände löschen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Also delete saves"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supprimer aussi les sauvegardes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elimina anche i salvataggi"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Radera även sparfiler"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同时删除存档"
+          }
+        }
+      }
+    },
     "American English": {
       "localizations": {
         "de": {
@@ -373,6 +413,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "加拿大法语"
+          }
+        }
+      }
+    },
+    "Cancel": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abbrechen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Annuler"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Annulla"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avbryt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消"
           }
         }
       }
@@ -645,6 +725,206 @@
           "stringUnit": {
             "state": "translated",
             "value": "减小"
+          }
+        }
+      }
+    },
+    "Delete game": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spiel löschen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete game"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supprimer le jeu"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elimina gioco"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Radera spelet"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除游戏"
+          }
+        }
+      }
+    },
+    "Delete game and saves": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spiel und Spielstände löschen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete game and saves"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supprimer le jeu et les sauvegardes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elimina gioco e salvataggi"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Radera spelet och sparfilerna"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除游戏和存档"
+          }
+        }
+      }
+    },
+    "Delete game…": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spiel löschen …"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete game…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supprimer le jeu…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elimina gioco…"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Radera spelet …"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除游戏…"
+          }
+        }
+      }
+    },
+    "Delete “%@”?": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„%@“ löschen?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete “%@”?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supprimer « %@ » ?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eliminare “%@”?"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Radera ”%@”?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除“%@”？"
+          }
+        }
+      }
+    },
+    "Deletes the game’s data on this device. You choose whether its saves go too.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Löscht die Spieldaten auf diesem Gerät. Du entscheidest, ob die Spielstände mitgehen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deletes the game’s data on this device. You choose whether its saves go too."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supprime les données du jeu sur cet appareil. Vous choisissez si ses sauvegardes partent aussi."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elimina i dati del gioco su questo dispositivo. Scegli tu se eliminare anche i salvataggi."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Raderar speldatan på den här enheten. Du väljer om sparfilerna också ska bort."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除这台设备上的游戏数据。是否一并删除存档由你决定。"
           }
         }
       }
@@ -2473,6 +2753,86 @@
         }
       }
     },
+    "Saves are deleted too and cannot be brought back.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Spielstände werden auch gelöscht und lassen sich nicht wiederherstellen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saves are deleted too and cannot be brought back."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les sauvegardes sont aussi supprimées et ne peuvent pas être récupérées."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anche i salvataggi vengono eliminati e non si possono recuperare."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sparfilerna raderas också och kan inte återställas."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "存档也会被删除，且无法恢复。"
+          }
+        }
+      }
+    },
+    "Saves stay unless you choose to delete them too.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spielstände bleiben, außer du löschst sie ausdrücklich mit."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saves stay unless you choose to delete them too."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les sauvegardes restent, sauf si vous choisissez de les supprimer aussi."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I salvataggi restano, a meno che tu non scelga di eliminarli."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sparfilerna ligger kvar om du inte väljer att radera dem också."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "除非你选择一并删除，否则存档会保留。"
+          }
+        }
+      }
+    },
     "Select": {
       "localizations": {
         "en": {
@@ -2677,6 +3037,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "首次启动需要等待几分钟，仅此一次。"
+          }
+        }
+      }
+    },
+    "The game’s data on this device is deleted and the game leaves the list. A folder you chose yourself is not touched. Send the game data from your Mac again to bring it back.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Spieldaten auf diesem Gerät werden gelöscht und das Spiel verschwindet aus der Liste. Ein Ordner, den du selbst gewählt hast, bleibt unberührt. Sende die Spieldaten erneut von deinem Mac, um es zurückzuholen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The game’s data on this device is deleted and the game leaves the list. A folder you chose yourself is not touched. Send the game data from your Mac again to bring it back."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les données du jeu sur cet appareil sont supprimées et le jeu quitte la liste. Un dossier que vous avez choisi vous-même n’est pas touché. Envoyez à nouveau les données du jeu depuis votre Mac pour le retrouver."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I dati del gioco su questo dispositivo vengono eliminati e il gioco esce dall’elenco. Una cartella scelta da te non viene toccata. Invia di nuovo i dati del gioco dal Mac per riaverlo."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Speldatan på den här enheten raderas och spelet försvinner från listan. En mapp du själv har valt rörs inte. Skicka speldatan från din Mac igen för att få tillbaka det."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台设备上的游戏数据会被删除，游戏也会从列表中移除。你自己选择的文件夹不受影响。从 Mac 再次发送游戏数据即可恢复。"
           }
         }
       }

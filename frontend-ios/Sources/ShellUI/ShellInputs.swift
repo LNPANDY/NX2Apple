@@ -186,6 +186,8 @@ public struct ShellActions {
     public var onUseShellCloud: (String) -> Void
     public var onClearShellData: () -> Void
     public var onClearShellCloud: () -> Void
+    /// Deletes the game's data on this device and takes it off the list. `saves`: its saves go too.
+    public var onDeleteGame: (_ gameID: String, _ saves: Bool) -> Void
     public init(onSelect: @escaping (String) -> Void = { _ in }, onPlay: @escaping (String) -> Void = { _ in },
                 onChange: @escaping (String, String, String) -> Void = { _, _, _ in },
                 onPickGameData: @escaping (String) -> Void = { _ in }, onUseAppData: @escaping (String) -> Void = { _ in },
@@ -194,7 +196,7 @@ public struct ShellActions {
                 onAppUpdate: @escaping () -> Void = {}, onBack: @escaping () -> Void = {},
                 onPickShellData: @escaping () -> Void = {}, onPickShellCloud: @escaping () -> Void = {},
                 onUseShellCloud: @escaping (String) -> Void = { _ in }, onClearShellData: @escaping () -> Void = {},
-                onClearShellCloud: @escaping () -> Void = {}) {
+                onClearShellCloud: @escaping () -> Void = {}, onDeleteGame: @escaping (String, Bool) -> Void = { _, _ in }) {
         self.onSelect = onSelect
         self.onPlay = onPlay
         self.onChange = onChange
@@ -211,5 +213,6 @@ public struct ShellActions {
         self.onUseShellCloud = onUseShellCloud
         self.onClearShellData = onClearShellData
         self.onClearShellCloud = onClearShellCloud
+        self.onDeleteGame = onDeleteGame
     }
 }
