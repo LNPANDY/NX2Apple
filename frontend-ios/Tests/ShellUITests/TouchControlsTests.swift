@@ -69,6 +69,31 @@ import Testing
         }
     }
 
+    /// The quit control (#421, patch 0068): on unless the player turns it off, and only off reaches the engine, as DM_TOUCH_EXIT=0.
+    @Test func theQuitRowIsOnByDefaultAndOffReachesTheEngine() {
+        let store = store()
+        let row = ShellSettingsRows.touchQuitRow(store)
+        guard case .toggle(let on, let off) = row.kind else { Issue.record("not a toggle"); return }
+        #expect(on == "1" && off == "0" && row.value == "1" && store.touchQuit && store.gameDefaults["DM_TOUCH_EXIT"] == nil)
+        ShellSettingsRows.apply(row.id, value: "0", to: store)
+        #expect(!store.touchQuit && ShellSettingsRows.touchQuitRow(store).value == "0" && store.gameDefaults["DM_TOUCH_EXIT"] == "0")
+        ShellSettingsRows.apply(row.id, value: "1", to: store)
+        #expect(store.touchQuit && store.defaults.object(forKey: ShellSettingsStore.touchQuitKey) == nil, "on is the default and is not stored")
+    }
+
+    /// The preview draws the quit control where the engine does (DmPadGeometry.h: 116 u left of the midline, level with −, radius 13 u), clear
+    /// of − and the layout button at every size, and not at all when it is off.
+    @Test(arguments: ShellSettingsStore.touchSizes)
+    func thePreviewShowsTheQuitControlLeftOfMinus(size: String) {
+        let g = TouchPadPreviewGeometry(size: size)
+        #expect(g.quitCentre == CGPoint(x: 466 - 116 * g.u, y: 22 * g.u))
+        let quits = g.shapes.compactMap { shape -> CGRect? in if case .quit = shape { return TouchPadPreviewGeometry.bounds(shape) }; return nil }
+        #expect(quits.count == 1)
+        let others = g.shapes.filter { if case .quit = $0 { return false }; return true }.map(TouchPadPreviewGeometry.bounds)
+        for box in others { #expect(!box.intersects(quits[0]), "\(size): the quit control meets \(box)") }
+        #expect(!TouchPadPreviewGeometry(size: size, quit: false).shapes.contains { if case .quit = $0 { return true }; return false })
+    }
+
     @Test func theSizesKeepTheirOrder() {
         #expect(TouchPadPreviewGeometry(size: "small").u < TouchPadPreviewGeometry(size: "medium").u)
         #expect(TouchPadPreviewGeometry(size: "large").u > TouchPadPreviewGeometry(size: "medium").u)

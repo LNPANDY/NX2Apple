@@ -3,7 +3,7 @@ import SwiftUI
 /// Where the touch controls sit on an iPhone Pro Max held sideways (932 x 430 points, the side insets of the Dynamic Island and the home
 /// indicator), for the preview in the settings. It mirrors the engine's `DmPadGeometry.h` (patch 0065) for that one screen, in the 3D
 /// layout so every control shows: the same constants in u, the bottom corners halfway into the side insets, the left stick's place (patch
-/// 0066). The engine stays the truth on the device, where a choice that does not fit a screen moves toward the built-in layout.
+/// 0066), the quit control left of − (patch 0068). The engine stays the truth on the device, where a choice that does not fit a screen moves toward the built-in layout.
 struct TouchPadPreviewGeometry: Equatable {
     static let screen = CGSize(width: 932, height: 430)
     static let insets = (left: 59.0, right: 59.0, bottom: 21.0)
@@ -14,6 +14,7 @@ struct TouchPadPreviewGeometry: Equatable {
         case pill(CGRect, label: String)
         case dpad(CGPoint, CGFloat)
         case ring(CGPoint, CGFloat, knob: CGFloat)
+        case quit(CGPoint, CGFloat)
     }
 
     /// DM_TOUCH_SIZE's scale: small 0.8, medium 1, large 1.2.
@@ -22,7 +23,9 @@ struct TouchPadPreviewGeometry: Equatable {
     let u: CGFloat
     /// DM_TOUCH_STICK: corner, higher or inward.
     let place: String
-    init(size: String, stick: String = "corner") { u = Self.scale(size); place = stick }
+    /// DM_TOUCH_EXIT: the quit control is drawn.
+    let quit: Bool
+    init(size: String, stick: String = "corner", quit: Bool = true) { u = Self.scale(size); place = stick; self.quit = quit }
 
     private var safe: CGRect { CGRect(x: Self.insets.left, y: 0, width: Self.screen.width - Self.insets.left - Self.insets.right, height: Self.screen.height) }
     private var corner: CGRect {
@@ -49,6 +52,9 @@ struct TouchPadPreviewGeometry: Equatable {
     /// The D-pad sits inward of the stick and moves with it when the stick moves inward.
     var dpad: CGPoint { side(corner, right: false, 231 * u + (place == "inward" ? shift.dx : 0), corner.maxY - 64 * u) }
 
+    /// The quit control: in the top row, 116 u left of the midline (DmPadGeometry.h DM_PAD_EXIT_DX), radius 13 u.
+    var quitCentre: CGPoint { CGPoint(x: safe.midX - 116 * u, y: 22 * u) }
+
     var shapes: [Shape] {
         var out: [Shape] = []
         let f = face, gap = 50 * u
@@ -65,13 +71,14 @@ struct TouchPadPreviewGeometry: Equatable {
             out.append(.pill(CGRect(x: x - w / 2, y: 22 * u - h / 2, width: w, height: h), label: right ? "+" : "−"))
         }
         out.append(.circle(CGPoint(x: safe.midX, y: 22 * u), 15 * u, label: nil))
+        if quit { out.append(.quit(quitCentre, 13 * u)) }
         return out
     }
 
     /// The bounding box of a shape, for the tests.
     static func bounds(_ shape: Shape) -> CGRect {
         switch shape {
-        case .circle(let c, let r, _), .ring(let c, let r, _): CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r)
+        case .circle(let c, let r, _), .ring(let c, let r, _), .quit(let c, let r): CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r)
         case .drop(let c, let r, _, _): CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r)
         case .dpad(let c, let r): CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r)
         case .pill(let rect, _): rect
@@ -92,9 +99,10 @@ struct TouchControlsNote: View {
 struct TouchControlsPreview: View {
     var size: String
     var stick = "corner"
+    var quit = true
 
     var body: some View {
-        let geometry = TouchPadPreviewGeometry(size: size, stick: stick)
+        let geometry = TouchPadPreviewGeometry(size: size, stick: stick, quit: quit)
         let home = TouchPadPreviewGeometry(size: size).stick
         Canvas { context, canvas in
             let k = canvas.width / TouchPadPreviewGeometry.screen.width
@@ -113,7 +121,7 @@ struct TouchControlsPreview: View {
         )
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(.white.opacity(0.14), lineWidth: 3))
-        .animation(.smooth(duration: 0.2), value: size + stick)
+        .animation(.smooth(duration: 0.2), value: size + stick + (quit ? "q" : ""))
         .accessibilityElement()
         .accessibilityLabel(ShellStrings.text("Preview of the touch controls"))
         .accessibilityIdentifier("touch.preview")
@@ -145,6 +153,13 @@ struct TouchControlsPreview: View {
         case .pill(let rect, let name):
             key(Path(roundedRect: rect, cornerRadius: rect.height / 2))
             label(name, CGPoint(x: rect.midX, y: rect.midY), rect.height * 0.64)
+        case .quit(let c, let r):
+            key(Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r)))
+            let h = r * 0.42
+            var x = Path()
+            x.move(to: CGPoint(x: c.x - h, y: c.y - h)); x.addLine(to: CGPoint(x: c.x + h, y: c.y + h))
+            x.move(to: CGPoint(x: c.x + h, y: c.y - h)); x.addLine(to: CGPoint(x: c.x - h, y: c.y + h))
+            context.stroke(x, with: .color(Self.text), style: StrokeStyle(lineWidth: 1.8 * r / 13, lineCap: .round))
         case .dpad(let c, let r):
             let w = r * 17 / 48, inner = r * 11 / 48
             for turn in 0..<4 {

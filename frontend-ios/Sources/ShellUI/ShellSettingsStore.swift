@@ -17,6 +17,7 @@ public final class ShellSettingsStore: @unchecked Sendable {
     public static let touchStickKey = "touchStick"               // corner, higher or inward: DM_TOUCH_STICK for every game
     /// Where the left stick sits, as the engine reads DM_TOUCH_STICK. The corner is the built-in place and is never stored.
     public static let touchStickPlaces = ["corner", "higher", "inward"]
+    public static let touchQuitKey = "touchQuit"                 // false: DM_TOUCH_EXIT=0 for every game. On is the engine's default and is never stored.
 
     /// The store the app reads and writes. Tests and previews swap it.
     nonisolated(unsafe) public static var current = ShellSettingsStore()
@@ -63,6 +64,12 @@ public final class ShellSettingsStore: @unchecked Sendable {
         if place == "corner" { defaults.removeObject(forKey: Self.touchStickKey) } else { defaults.set(place, forKey: Self.touchStickKey) }
     }
 
+    /// The touch controls' quit control (a small × at the top, then the quit prompt) in every game. On unless the player turned it off.
+    public var touchQuit: Bool { defaults.object(forKey: Self.touchQuitKey) as? Bool ?? true }
+    public func storeTouchQuit(_ on: Bool) {
+        if on { defaults.removeObject(forKey: Self.touchQuitKey) } else { defaults.set(false, forKey: Self.touchQuitKey) }
+    }
+
     public var padMap: PadMap { PadMap(defaults.dictionary(forKey: Self.padMapKey) as? [String: String] ?? [:]) }
     public func setPadButton(_ button: String, to output: String) {
         var map = padMap
@@ -82,6 +89,7 @@ public final class ShellSettingsStore: @unchecked Sendable {
         var values = performanceHUD.map { ["DM_METAL_HUD": $0 ? "1" : "0"] } ?? [:]
         if touchSize != "medium" { values["DM_TOUCH_SIZE"] = touchSize }
         if touchStick != "corner" { values["DM_TOUCH_STICK"] = touchStick }
+        if !touchQuit { values["DM_TOUCH_EXIT"] = "0" }
         return values
     }
 }

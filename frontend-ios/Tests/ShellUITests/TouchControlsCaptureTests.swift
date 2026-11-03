@@ -62,15 +62,24 @@ final class TouchControlsCaptureTests: XCTestCase {
         }
     }
 
-    private func captureGroup(_ name: String, _ values: [String: String]) throws {
-        let s = store(values)
+    /// The quit control on (the default) and off (#421).
+    func testCaptureTheQuitControl() throws {
+        try captureGroup("touch-quit-on", [:])
+        let off = store(); off.storeTouchQuit(false)
+        try captureGroup("touch-quit-off", off)
+    }
+
+    private func captureGroup(_ name: String, _ s: ShellSettingsStore) throws {
         let group = SettingsGroup(title: ShellStrings.text("Touch controls")) {
-            TouchControlsPreview(size: s.touchSize, stick: s.touchStick)
+            TouchControlsPreview(size: s.touchSize, stick: s.touchStick, quit: s.touchQuit)
             TouchControlsNote()
             SettingControl(gameID: ShellSettingsRows.gameID, row: ShellSettingsRows.touchSizeRow(s), change: { _ in })
             SettingControl(gameID: ShellSettingsRows.gameID, row: ShellSettingsRows.touchStickRow(s), change: { _ in })
+            SettingControl(gameID: ShellSettingsRows.gameID, row: ShellSettingsRows.touchQuitRow(s), change: { _ in })
         }.padding(24)
-        try capture(name, width: 402, height: 640, group)
+        try capture(name, width: 402, height: 800, group)
     }
+
+    private func captureGroup(_ name: String, _ values: [String: String]) throws { try captureGroup(name, store(values)) }
 }
 #endif

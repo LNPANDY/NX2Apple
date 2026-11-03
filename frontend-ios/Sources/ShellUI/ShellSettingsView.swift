@@ -7,6 +7,7 @@ enum ShellSettingsRows {
     static let hud = "shell.hud"
     static let touchSize = "shell.touchSize"
     static let touchStick = "shell.touchStick"
+    static let touchQuit = "shell.touchQuit"
     static let targetPrefix = "shs.row."
 
     static func hudRow(_ store: ShellSettingsStore) -> SettingRow {
@@ -30,6 +31,14 @@ enum ShellSettingsRows {
                    value: store.touchStick)
     }
 
+    /// The quit control in every game: a small × at the top of the touch controls that opens the quit prompt. On by default, because a
+    /// player without a controller has no other way back to the library, and a stray tap only opens the prompt, which a second tap closes.
+    static func touchQuitRow(_ store: ShellSettingsStore) -> SettingRow {
+        SettingRow(id: touchQuit, label: ShellStrings.text("Quit button"),
+                   note: ShellStrings.text("A small × at the top. Tap it, then Quit, to leave the game. With a controller, hold the Home button."),
+                   kind: .toggle(on: "1", off: "0"), value: store.touchQuit ? "1" : "0")
+    }
+
     /// Under the preview: the rows are for every game, and the engine keeps the controls apart on a screen too small for a
     /// choice. A note of its own, not the rows', so the segments keep the card's width.
     static var touchNote: String { ShellStrings.text("For every game. On a screen too small for a choice, the controls stay closer to where they were.") }
@@ -40,6 +49,7 @@ enum ShellSettingsRows {
         case hud: store.storePerformanceHUD(value == "1")
         case touchSize: store.storeTouchSize(value)
         case touchStick: store.storeTouchStick(value)
+        case touchQuit: store.storeTouchQuit(value == "1")
         default: break
         }
     }
@@ -101,9 +111,9 @@ struct ShellSettingsView: View {
                             }
                         }
                         SettingsGroup(title: ShellStrings.text("Touch controls")) {
-                            TouchControlsPreview(size: store.touchSize, stick: store.touchStick)
+                            TouchControlsPreview(size: store.touchSize, stick: store.touchStick, quit: store.touchQuit)
                             TouchControlsNote()
-                            ForEach([ShellSettingsRows.touchSizeRow(store), ShellSettingsRows.touchStickRow(store)]) { row in
+                            ForEach([ShellSettingsRows.touchSizeRow(store), ShellSettingsRows.touchStickRow(store), ShellSettingsRows.touchQuitRow(store)]) { row in
                                 SettingControl(gameID: ShellSettingsRows.gameID, row: row, targetPrefix: ShellSettingsRows.targetPrefix) {
                                     ShellSettingsRows.apply(row.id, value: $0, to: store)
                                 }.equatable()

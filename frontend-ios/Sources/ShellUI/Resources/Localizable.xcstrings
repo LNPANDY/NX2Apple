@@ -193,6 +193,46 @@
         }
       }
     },
+    "A small × at the top. Tap it, then Quit, to leave the game. With a controller, hold the Home button.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein kleines × oben. Tippe darauf und dann auf Beenden, um das Spiel zu verlassen. Mit einem Controller hältst du die Home-Taste."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A small × at the top. Tap it, then Quit, to leave the game. With a controller, hold the Home button."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un petit × en haut. Touchez-le, puis Quitter, pour quitter le jeu. Avec une manette, maintenez le bouton Home."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una piccola × in alto. Toccala, poi Esci, per lasciare il gioco. Con un controller, tieni premuto il tasto Home."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ett litet × högst upp. Tryck på det och sedan på Avsluta för att lämna spelet. Med en handkontroll håller du in hemknappen."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "屏幕顶部的小 ×。点按它，再点“退出”即可离开游戏。使用手柄时，按住 Home 键。"
+          }
+        }
+      }
+    },
     "Adjusts resolution between 70% and 100% under load. Turn off to keep full resolution for the selected console mode.": {
       "localizations": {
         "de": {
@@ -4669,6 +4709,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "把 A 放到下方按键，与 Xbox 和 PlayStation 手柄的确认键位置一致。"
+          }
+        }
+      }
+    },
+    "Quit button": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beenden-Taste"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quit button"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bouton Quitter"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pulsante Esci"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avsluta-knapp"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "退出按钮"
           }
         }
       }
