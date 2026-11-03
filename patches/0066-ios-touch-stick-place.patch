@@ -1,0 +1,155 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: v0lumehi <aljic.zijad@gmail.com>
+Date: Tue, 3 Nov 2026 18:24:38 +0100
+Subject: [PATCH] ios: place the left touch stick higher or further in
+ (DM_TOUCH_STICK)
+
+Players on large phones find the left stick too low in the corner
+(LNPANDY/NX2Apple#558). DM_TOUCH_STICK=corner|higher|inward moves it: higher
+lifts it up to 70 u toward the shoulders, inward moves it up to 60 u toward
+the middle and takes the D-pad of the 3D layout along, which sits inward
+of it. The diamond, the shoulders and the top row keep their place.
+
+The move shrinks in steps until no drawn control overlaps another and
+everything stays inside the safe area. On a screen with no room the stick
+stays in the corner. Drawing, the hit-test and the grab read the same
+place. test_pad_geometry.py checks every place on every screen, size and
+layout, that the stick really moves on the phones and that the right side
+does not.
+
+Upstream-Status: pending (on seedds/nxnative#683)
+Reason: Players on large phones want the left touch stick higher or further in (#558)
+Issue: LNPANDY/NX2Apple#558
+---
+ dm/ios/Sources/DmGamepad.m                    |  7 ++++--
+ dm/ios/Sources/DmPadGeometry.h                | 23 +++++++++++++++++
+ .../tests/pad_geometry/pad_geometry_check.m   | 25 +++++++++++++++++--
+ 3 files changed, 51 insertions(+), 4 deletions(-)
+
+diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
+index 6396f99..0b36d0a 100644
+--- a/dm/ios/Sources/DmGamepad.m
++++ b/dm/ios/Sources/DmGamepad.m
+@@ -10,7 +10,7 @@
+ //   Touch-down ownership: the menu button where it is nearer than a locked key (a view of its own, DmMenuButton), locked keys next (shoulders, − / +, L3 / R3), then whichever of the diamond, the D-pad and the left stick has the smallest distance / grab radius (the left stick's grab circle borders the D-pad),
+ //     then in 3D the right stick for a touch in the right third.
+ //   Everything hugs the edges and corners to leave the picture room; controls sit over the picture, one CAShapeLayer each: a press only swaps the fill, a stick only moves its knob, nothing redraws the whole screen.
+-//   Where each control sits is DmPadGeometry.h (pure, tested on the Mac); the player picks the size there through DM_TOUCH_SIZE (small, medium, large; a size that does not fit the screen moves toward medium).
++//   Where each control sits is DmPadGeometry.h (pure, tested on the Mac); the player picks the size there through DM_TOUCH_SIZE (small, medium, large; a size that does not fit the screen moves toward medium) and the left stick's place through DM_TOUCH_STICK (corner, higher, inward).
+ //   Touches no control takes (in 3D, those outside the right third) go to the game's touch screen when DmLayout assigns a local game viewport (pushGame; Super Mario Galaxy's pointer in handheld mode).
+ //   The virtual gamepad (all but the menu button) hides while a physical controller is connected and comes back when it is removed; unclaimed touches go to the game only when a local game viewport exists. Physical controllers keep every button (D-pad and right stick included) and map by position: bottom = B, right = A, left = Y, top = X (same positions as on a Switch controller); a Nintendo pad maps by its labels (pad_apple.h).
+ //   Each physical controller is a player of its own (local co-op), as on the Mac: the first one connected is player 1, together with the touch gamepad, the next player 2, and so on up to 8; see "Physical controllers" below.
+@@ -157,7 +157,7 @@ @implementation DmGamepad {
+     CALayer *_controls;                            // holds every control layer: hidden while a physical controller is connected (the view itself stays, for game touches)
+     BOOL _padOff;                                  // a physical controller is connected: every touch goes to the game
+     DmLayout _layout;
+-    DmPadOptions _opts;                            // the player's options from the environment (DM_TOUCH_SIZE)
++    DmPadOptions _opts;                            // the player's options from the environment (DM_TOUCH_SIZE, DM_TOUCH_STICK)
+     DmPadGeo _geo; CGRect _geoBounds; UIEdgeInsets _geoInsets; BOOL _geoFull, _geoValid;   // where the controls are, and what it was computed for
+     UITouch *_game[16];                           // touches on the game's touch screen by finger slot
+ }
+@@ -182,6 +182,9 @@ - (instancetype)initWithFrame:(CGRect)f {
+         const char *size = getenv("DM_TOUCH_SIZE");
+         _opts.scale = dm_pad_size_scale(size);
+         if (size && *size) LOG("front end: touch controls size %s (DM_TOUCH_SIZE)", _opts.scale < 1 ? "small" : _opts.scale > 1 ? "large" : "medium");
++        const char *stick = getenv("DM_TOUCH_STICK");
++        _opts.stick = dm_pad_stick_place(stick);
++        if (stick && *stick) LOG("front end: left stick %s (DM_TOUCH_STICK)", _opts.stick == DM_PAD_STICK_HIGHER ? "higher" : _opts.stick == DM_PAD_STICK_INWARD ? "inward" : "in the corner");
+         [self registerForTraitChanges:@[UITraitDisplayScale.class] withHandler:^(id<UITraitEnvironment> environment, UITraitCollection *previous) {
+             [(UIView *)environment setNeedsLayout];
+         }];
+diff --git a/dm/ios/Sources/DmPadGeometry.h b/dm/ios/Sources/DmPadGeometry.h
+index 92697ef..86083ad 100644
+--- a/dm/ios/Sources/DmPadGeometry.h
++++ b/dm/ios/Sources/DmPadGeometry.h
+@@ -2,6 +2,7 @@
+ // and the player's options, so the placement is tested without a device (dm/ios/tests/test_pad_geometry.py).
+ //   Every length is in u (1 = 430 points tall, iPhone Pro Max landscape), x measured from the outer edge, the right half mirrors.
+ //   The options come from the environment (the shell's settings, Documents/env.txt): DM_TOUCH_SIZE = small | medium | large scales u.
++//   DM_TOUCH_STICK = corner | higher | inward places the left stick (inward takes the D-pad along); the right-hand controls never move.
+ //   An option never moves a control off the screen or onto another one: a size that does not fit falls back step by step to the size that does
+ //   (dm_pad_geo_fits: every drawn shape inside its rectangle, no two drawn shapes overlap).
+ #pragma once
+@@ -14,8 +15,10 @@ NS_ASSUME_NONNULL_BEGIN
+ enum { DM_PAD_ZL = 0, DM_PAD_L, DM_PAD_ZR, DM_PAD_R };   // the order of DmPadGeo.drop
+ enum { DM_PAD_MINUS = 0, DM_PAD_PLUS };                  // the order of DmPadGeo.pill
+ 
++enum { DM_PAD_STICK_CORNER = 0, DM_PAD_STICK_HIGHER, DM_PAD_STICK_INWARD };   // DM_TOUCH_STICK
+ typedef struct {
+     CGFloat scale;   // DM_TOUCH_SIZE: 0.8 small, 1 medium (the built-in size), 1.2 large
++    int stick;       // DM_TOUCH_STICK: where the left stick sits (the D-pad moves with it when it moves inward); the right-hand controls keep their place
+ } DmPadOptions;
+ 
+ typedef struct {
+@@ -53,6 +56,14 @@ static inline CGFloat dm_pad_size_scale(const char *_Nullable v) {
+     return 1;
+ }
+ 
++// DM_TOUCH_STICK: corner (also unset, empty or unknown), higher or inward.
++static inline int dm_pad_stick_place(const char *_Nullable v) {
++    if (v && !strcmp(v, "higher")) return DM_PAD_STICK_HIGHER;
++    if (v && !strcmp(v, "inward")) return DM_PAD_STICK_INWARD;
++    return DM_PAD_STICK_CORNER;
++}
++static const CGFloat DM_PAD_STICK_UP = 70, DM_PAD_STICK_IN = 60;   // how far higher / inward moves the left stick (in u), at most
++
+ static inline CGPoint dm_pad_side(CGRect s, int right, CGFloat dx, CGFloat y) { return CGPointMake(right ? CGRectGetMaxX(s) - dx : CGRectGetMinX(s) + dx, y); }
+ 
+ // The geometry at one unit, with no fitting.
+@@ -170,6 +181,18 @@ static inline DmPadGeo dm_pad_geo(CGRect bounds, UIEdgeInsets insets, DmLayout l
+         scale = scale > 1 ? fmax(1, scale - 0.05) : fmin(1, scale + 0.05);
+         g = dm_pad_geo_at(bounds, insets, layout, full, u0 * scale);
+     }
++    // The left stick's place: higher lifts it toward the shoulders, inward moves it (and the D-pad, which sits inward of it) toward the
++    // middle. The move shrinks in steps until nothing overlaps; on a screen with no room the stick stays in the corner.
++    if (o.stick != DM_PAD_STICK_CORNER) {
++        BOOL up = o.stick == DM_PAD_STICK_HIGHER;
++        CGPoint stick = g.stick, dpad = g.dpad;
++        for (CGFloat d = (up ? DM_PAD_STICK_UP : DM_PAD_STICK_IN) * g.u; d > 0; d -= 2 * g.u) {
++            if (up) g.stick = CGPointMake(stick.x, stick.y - d);
++            else { g.stick = CGPointMake(stick.x + d, stick.y); g.dpad = CGPointMake(dpad.x + d, dpad.y); }
++            if (dm_pad_geo_fits(&g, full)) return g;
++        }
++        g.stick = stick; g.dpad = dpad;
++    }
+     return g;
+ }
+ 
+diff --git a/dm/ios/tests/pad_geometry/pad_geometry_check.m b/dm/ios/tests/pad_geometry/pad_geometry_check.m
+index f02eccc..dc17483 100644
+--- a/dm/ios/tests/pad_geometry/pad_geometry_check.m
++++ b/dm/ios/tests/pad_geometry/pad_geometry_check.m
+@@ -76,10 +76,31 @@ int main(void) {
+         if (!p.portrait || !NEAR(p.face.x, CGRectGetMinX(s) + 0.72 * s.size.width) || !NEAR(p.stick.x, CGRectGetMinX(s) + 0.28 * s.size.width)) FAIL("portrait: thumbs moved");
+     }
+ 
+-    // Every size on every screen, 2D and 3D: inside, and no overlap.
++    // Every size and stick place on every screen, 2D and 3D: inside, and no overlap.
++    static const char *places[] = {"corner", "higher", "inward"};
++    if (dm_pad_stick_place(NULL) != DM_PAD_STICK_CORNER || dm_pad_stick_place("left") != DM_PAD_STICK_CORNER || dm_pad_stick_place("higher") != DM_PAD_STICK_HIGHER
++        || dm_pad_stick_place("inward") != DM_PAD_STICK_INWARD) FAIL("DM_TOUCH_STICK: corner is the default");
+     for (int i = 0; i < nscreens; i++)
+         for (int full = 0; full < 2; full++)
+-            for (int z = 0; z < 3; z++) check_fits(&screens[i], full, k_sizes[z], (DmPadOptions){dm_pad_size_scale(k_sizes[z])});
++            for (int z = 0; z < 3; z++)
++                for (int p = 0; p < 3; p++) {
++                    char what[64]; snprintf(what, sizeof what, "%s %s", k_sizes[z], places[p]);
++                    check_fits(&screens[i], full, what, (DmPadOptions){dm_pad_size_scale(k_sizes[z]), dm_pad_stick_place(places[p])});
++                }
++
++    // The stick moves where asked on the phones, and nothing on the right moves with it.
++    for (int i = 0; i <= 4; i++)
++        for (int full = 0; full < 2; full++)
++            for (int z = 0; z < 3; z++) {
++                DmPadOptions o = {dm_pad_size_scale(k_sizes[z]), DM_PAD_STICK_CORNER};
++                DmPadGeo c = geo(&screens[i], full, o);
++                o.stick = DM_PAD_STICK_HIGHER; DmPadGeo h = geo(&screens[i], full, o);
++                o.stick = DM_PAD_STICK_INWARD; DmPadGeo n = geo(&screens[i], full, o);
++                if (!(c.stick.y - h.stick.y >= 30 * c.u) || h.stick.x != c.stick.x) FAIL("%s %s %s: higher lifts the stick only %.1f", screens[i].name, full ? "3D" : "2D", k_sizes[z], c.stick.y - h.stick.y);
++                if (!(n.stick.x - c.stick.x >= 30 * c.u) || n.stick.y != c.stick.y) FAIL("%s %s %s: inward moves the stick only %.1f", screens[i].name, full ? "3D" : "2D", k_sizes[z], n.stick.x - c.stick.x);
++                if (full && !NEAR(n.dpad.x - c.dpad.x, n.stick.x - c.stick.x)) FAIL("%s 3D %s: the D-pad does not move with the stick", screens[i].name, k_sizes[z]);
++                if (!CGPointEqualToPoint(h.face, c.face) || !CGPointEqualToPoint(n.face, c.face) || !CGPointEqualToPoint(n.drop[DM_PAD_R], c.drop[DM_PAD_R])) FAIL("%s: the right side moved", screens[i].name);
++            }
+ 
+     // Picture Fill (DM_PICTURE_FIT) only makes the game rectangle larger: the controls keep the full view and their places.
+     for (int i = 0; i < nscreens; i++) {

@@ -23,6 +23,7 @@ import json
 import os
 import subprocess
 import sys
+import shutil
 import tempfile
 import unittest
 import zipfile
@@ -33,7 +34,7 @@ HERE = Path(__file__).resolve().parent
 QT = HERE.parent
 sys.path.insert(0, str(QT))
 
-from nspb_qt.win import build_app, fix_ipa_modes, shim  # noqa: E402
+from nspb_qt.win import build_app, fix_ipa_modes, sdk_fetch, shim  # noqa: E402
 from nspb_qt.win import toolchain as tc  # noqa: E402
 
 
@@ -1621,6 +1622,79 @@ class LocalizationTest(unittest.TestCase):
             self.assertIn(k, TABLE, f'{k} missing from the table')
             zh, en = t(k, Lang('zh')), t(k, Lang('en'))
             self.assertTrue(zh and zh != k and en and en != k, f'{k} is not bilingual')
+
+
+class SymlinkMaterializeTest(unittest.TestCase):
+    """The SDK git route on Windows: symlinks checked out as text stubs get their targets copied
+    over them, so ld64.lld finds a real `--- !tapi-tbd` file instead of 15 bytes of path text."""
+
+    def _git(self, *args: str, cwd: Path) -> None:
+        env = dict(os.environ, GIT_AUTHOR_NAME='t', GIT_AUTHOR_EMAIL='t@t',
+                   GIT_COMMITTER_NAME='t', GIT_COMMITTER_EMAIL='t@t')
+        r = subprocess.run(['git', *args], cwd=cwd, capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 0, r.stderr or r.stdout)
+
+    def test_a_windows_text_stub_gets_its_target_copied_over(self) -> None:
+        if shutil.which('git') is None:
+            self.skipTest('git is not on PATH')
+        base = Path(tempfile.mkdtemp(prefix='nspb-symlink-'))
+        self.addCleanup(shutil.rmtree, base, ignore_errors=True)
+        remote, work = base / 'remote', base / 'work'
+        (remote / 'usr/lib').mkdir(parents=True)
+        tbd = '--- !tapi-tbd-v3\narchs: [arm64]\ninstall-name: /usr/lib/libSystem.B.dylib\n'
+        (remote / 'usr/lib/libSystem.B.tbd').write_text(tbd)
+        (remote / 'usr/lib/libSystem.tbd').symlink_to('libSystem.B.tbd')
+        self._git('init', '-q', cwd=remote)
+        self._git('add', '.', cwd=remote)
+        self._git('commit', '-qm', 'sdk', cwd=remote)
+        # A Windows plain clone checks the symlink out as a text file holding the target's path.
+        self._git('-c', 'core.symlinks=false', 'clone', '-q', str(remote), str(work), cwd=base)
+        stub = work / 'usr/lib/libSystem.tbd'
+        self.assertEqual(stub.read_text(), 'libSystem.B.tbd')   # the broken shape the log showed
+        log: list[str] = []
+        fixed = sdk_fetch.materialize_symlinks(work, '', log.append)
+        self.assertEqual(fixed, 1)
+        self.assertFalse(stub.is_symlink())
+        self.assertEqual(stub.read_text(), tbd)
+        self.assertTrue((work / 'usr/lib/libSystem.B.tbd').exists())
+
+    def test_a_real_symlink_is_left_alone(self) -> None:
+        # macOS and Linux check the SDK's symlinks out as symlinks: nothing to materialize.
+        if shutil.which('git') is None:
+            self.skipTest('git is not on PATH')
+        base = Path(tempfile.mkdtemp(prefix='nspb-symlink-'))
+        self.addCleanup(shutil.rmtree, base, ignore_errors=True)
+        repo = base / 'sdk'
+        (repo / 'usr/lib').mkdir(parents=True)
+        (repo / 'usr/lib/libSystem.B.tbd').write_text('--- !tapi-tbd-v3\n')
+        (repo / 'usr/lib/libSystem.tbd').symlink_to('libSystem.B.tbd')
+        self._git('init', '-q', cwd=repo)
+        self._git('add', '.', cwd=repo)
+        self._git('commit', '-qm', 'sdk', cwd=repo)
+        log: list[str] = []
+        self.assertEqual(sdk_fetch.materialize_symlinks(repo, '', log.append), 0)
+        self.assertTrue((repo / 'usr/lib/libSystem.tbd').is_symlink())
+        self.assertEqual(log, [])
+
+    def test_a_stub_whose_target_is_missing_is_reported_and_left(self) -> None:
+        # The target was deleted after a broken checkout: nothing to copy, said so in the log.
+        if shutil.which('git') is None:
+            self.skipTest('git is not on PATH')
+        base = Path(tempfile.mkdtemp(prefix='nspb-symlink-'))
+        self.addCleanup(shutil.rmtree, base, ignore_errors=True)
+        remote, work = base / 'remote', base / 'work'
+        (remote / 'usr/lib').mkdir(parents=True)
+        (remote / 'usr/lib/libSystem.B.tbd').write_text('--- !tapi-tbd-v3\n')
+        (remote / 'usr/lib/libSystem.tbd').symlink_to('libSystem.B.tbd')
+        self._git('init', '-q', cwd=remote)
+        self._git('add', '.', cwd=remote)
+        self._git('commit', '-qm', 'sdk', cwd=remote)
+        self._git('-c', 'core.symlinks=false', 'clone', '-q', str(remote), str(work), cwd=base)
+        (work / 'usr/lib/libSystem.B.tbd').unlink()
+        log: list[str] = []
+        self.assertEqual(sdk_fetch.materialize_symlinks(work, '', log.append), 0)
+        self.assertTrue(any('missing' in l for l in log))
+
 
 
 class SaveConfigTest(unittest.TestCase):

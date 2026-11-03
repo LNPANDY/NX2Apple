@@ -1,0 +1,596 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: v0lumehi <aljic.zijad@gmail.com>
+Date: Tue, 3 Nov 2026 18:23:54 +0100
+Subject: [PATCH] ios: touch controls size (DM_TOUCH_SIZE) on a tested geometry
+
+The virtual gamepad's placement moves out of DmGamepad.m into
+DmPadGeometry.h: pure functions of the view's bounds, its safe area, the
+DmLayout split and the player's options. Drawing, the hit-test and the
+grab read the same values, as before. The built-in size is unchanged.
+
+DM_TOUCH_SIZE=small|medium|large scales every control (0.8, 1, 1.2). A
+size that does not fit the screen moves toward medium in steps: every
+drawn control stays inside the safe area (the bottom corners reach
+halfway into the side insets, as always) and no two overlap.
+
+dm/ios/tests/test_pad_geometry.py builds the header on the Mac with a
+small UIKit stand-in and checks iPhone and iPad in landscape, iPad and
+split windows in portrait, and iPhone Duo's inner display in portrait,
+landscape and tabletop, in 2D and 3D and every size. It also pins the
+built-in layout on iPhone Pro Max to the points it has always used.
+
+Upstream-Status: pending (on seedds/nxnative#683)
+Reason: Players ask for smaller or larger touch controls (#347), and the placement needs tests without a device
+Issue: LNPANDY/NX2Apple#347
+---
+ dm/ios/Sources/DmGamepad.m                    | 118 +++++-------
+ dm/ios/Sources/DmPadGeometry.h                | 176 ++++++++++++++++++
+ dm/ios/tests/pad_geometry/UIKit/UIKit.h       |  11 ++
+ .../tests/pad_geometry/pad_geometry_check.m   | 102 ++++++++++
+ dm/ios/tests/test_pad_geometry.py             |  34 ++++
+ 5 files changed, 369 insertions(+), 72 deletions(-)
+ create mode 100644 dm/ios/Sources/DmPadGeometry.h
+ create mode 100644 dm/ios/tests/pad_geometry/UIKit/UIKit.h
+ create mode 100644 dm/ios/tests/pad_geometry/pad_geometry_check.m
+ create mode 100644 dm/ios/tests/test_pad_geometry.py
+
+diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
+index 8a9f009..6396f99 100644
+--- a/dm/ios/Sources/DmGamepad.m
++++ b/dm/ios/Sources/DmGamepad.m
+@@ -10,6 +10,7 @@
+ //   Touch-down ownership: the menu button where it is nearer than a locked key (a view of its own, DmMenuButton), locked keys next (shoulders, − / +, L3 / R3), then whichever of the diamond, the D-pad and the left stick has the smallest distance / grab radius (the left stick's grab circle borders the D-pad),
+ //     then in 3D the right stick for a touch in the right third.
+ //   Everything hugs the edges and corners to leave the picture room; controls sit over the picture, one CAShapeLayer each: a press only swaps the fill, a stick only moves its knob, nothing redraws the whole screen.
++//   Where each control sits is DmPadGeometry.h (pure, tested on the Mac); the player picks the size there through DM_TOUCH_SIZE (small, medium, large; a size that does not fit the screen moves toward medium).
+ //   Touches no control takes (in 3D, those outside the right third) go to the game's touch screen when DmLayout assigns a local game viewport (pushGame; Super Mario Galaxy's pointer in handheld mode).
+ //   The virtual gamepad (all but the menu button) hides while a physical controller is connected and comes back when it is removed; unclaimed touches go to the game only when a local game viewport exists. Physical controllers keep every button (D-pad and right stick included) and map by position: bottom = B, right = A, left = Y, top = X (same positions as on a Switch controller); a Nintendo pad maps by its labels (pad_apple.h).
+ //   Each physical controller is a player of its own (local co-op), as on the Mac: the first one connected is player 1, together with the touch gamepad, the next player 2, and so on up to 8; see "Physical controllers" below.
+@@ -31,6 +32,7 @@
+ #include "input_map.h"
+ #include <stdatomic.h>
+ #import "DmLayout.h"
++#import "DmPadGeometry.h"
+ #import "DmGameMenu.h"
+ 
+ enum { B_A = 0, B_B, B_X, B_Y, B_LS, B_RS, B_L, B_R, B_ZL, B_ZR, B_PLUS, B_MINUS, B_LEFT, B_UP, B_RIGHT, B_DOWN, B_N };
+@@ -108,27 +110,19 @@ static void phone_motion_start(UIView *body) {
+     }];
+ }
+ 
+-// ---- Layout constants (in u; x measured from the outer edge, the right half mirrors) ----
++// ---- Layout constants ----
++// Where each control is drawn (in u, x measured from the outer edge, the right half mirrors) is DmPadGeometry.h: pure functions of the bounds, the safe area,
++// the DmLayout split and the player's options (DM_TOUCH_SIZE), tested on the Mac (dm/ios/tests/test_pad_geometry.py). Drawing, the hit-test and the grab all read it.
++// The bottom-corner controls reach halfway into the side safe-area inset (in landscape there is only the rounded screen corner there; the Dynamic Island is mid-edge);
++// the stick's ring is as large as the whole diamond (key distance + key radius), the knob a little larger than a diamond key; the D-pad sits inward of and below the
++// left stick, as on a Pro Controller. The menu button is at the top centre, level with - / +, and takes a touch within 1.6 times its radius (at least 22 points, half of a 44-point target). What stays here is how touches are taken:
+ static const CGFloat
+-    K_ZL_X = 44, K_ZL_Y = 40, K_ZL_R = 26,          // ZL / ZR: centre from the outer edge and the top, radius
+-    K_L_X = 44, K_L_Y = 108, K_L_R = 24,            // L / R: same column as ZL / ZR
+-    K_DROP_TIP = 1.45,                              // teardrop tip distance from the centre (times the radius)
+-    K_CORNER_IN = 0.5,                              // how far the bottom-corner controls reach into the side safe-area inset (in landscape there is only the rounded screen corner there; the Dynamic Island is mid-edge)
+-    K_FACE_X = 81, K_PAD_Y = 82,                    // diamond centre from the outer edge; diamond and stick centre from the bottom (B's lower edge about 5 above it)
+-    K_FACE_GAP = 50, K_FACE_R = 27,                 // diamond: key distance from the centre, key radius
+-    K_PILL_DX = 52, K_PILL_Y = 22, K_PILL_W = 50, K_PILL_H = 28,   // − / +: centre from the screen's midline (the middle goes to the layout button) and from the top, size
+-    K_MENU_R = 15,                                  // menu button: top centre, level with − / +; it takes a touch within 1.6 times this (at least 22 points, half of a 44-point target)
+-    K_STICK_X = 81, K_STICK_R = 77, K_KNOB_R = 30,  // left stick: mirrors the diamond, the ring as large as the whole diamond (key distance + key radius), the knob a little larger than a diamond key
+     K_STICK_GRAB = 1.4,                             // how near the ring centre a touch-down grabs a stick (times the ring radius)
+     K_FULL = 0.8,                                   // full tilt at this fraction of the ring radius (the knob still travels to the ring edge)
+     K_DEAD = 0.1,                                   // stick dead zone (times the ring radius)
+-    // controls only the 3D layout has
+-    K_LOW_X = 231, K_LOW_Y = 64,                    // D-pad centre from the outer edge and the bottom (inward of and below the left stick, as on a Pro Controller)
+-    K_DPAD_R = 48, K_ARM_W = 17, K_ARM_IN = 11,     // D-pad: arm outer edge from the centre, half-width, tip from the centre
+     K_DPAD_GRAB = 1.3,                              // D-pad grab radius (times the outer edge)
+     K_RSTICK_R = 60,                                // right stick (not drawn): radius around its centre, the touch-down point
+-    K_RSWIPE = 1.0 / 3,                             // right stick area: this fraction of the screen width from the right edge (not in u)
+-    K_CLICK_X = 102, K_CLICK_R = 17;                // L3 / R3: centre from the outer edge (level with ZL / ZR), radius
++    K_RSWIPE = 1.0 / 3;                             // right stick area: this fraction of the screen width from the right edge (not in u)
+ static const int k_btns[] = {B_ZL, B_L, B_ZR, B_R, B_MINUS, B_PLUS, B_LS, B_RS};   // keys locked at touch-down (L3 / R3 only in the 3D layout)
+ static NSString *const k_layout_key = @"DmPadLayout";   // NSUserDefaults: 0 = 2D, 1 = 3D, 2 = Tap (DM_GAME_PAD_LAYOUT's numbers)
+ int dm_opmode(void);   // hle_oe.c: 0 = handheld
+@@ -163,7 +157,9 @@ @implementation DmGamepad {
+     CALayer *_controls;                            // holds every control layer: hidden while a physical controller is connected (the view itself stays, for game touches)
+     BOOL _padOff;                                  // a physical controller is connected: every touch goes to the game
+     DmLayout _layout;
+-    UITouch *_game[16];                            // touches on the game's touch screen by finger slot
++    DmPadOptions _opts;                            // the player's options from the environment (DM_TOUCH_SIZE)
++    DmPadGeo _geo; CGRect _geoBounds; UIEdgeInsets _geoInsets; BOOL _geoFull, _geoValid;   // where the controls are, and what it was computed for
++    UITouch *_game[16];                           // touches on the game's touch screen by finger slot
+ }
+ 
+ static UIColor *k_idle, *k_on, *k_line, *k_ringFill, *k_text, *k_textOn;
+@@ -183,6 +179,9 @@ @implementation DmGamepad {
+ - (instancetype)initWithFrame:(CGRect)f {
+     if ((self = [super initWithFrame:f])) {
+         _layout = dm_layout(self.bounds, UIEdgeInsetsZero, NO, CGRectNull);
++        const char *size = getenv("DM_TOUCH_SIZE");
++        _opts.scale = dm_pad_size_scale(size);
++        if (size && *size) LOG("front end: touch controls size %s (DM_TOUCH_SIZE)", _opts.scale < 1 ? "small" : _opts.scale > 1 ? "large" : "medium");
+         [self registerForTraitChanges:@[UITraitDisplayScale.class] withHandler:^(id<UITraitEnvironment> environment, UITraitCollection *previous) {
+             [(UIView *)environment setNeedsLayout];
+         }];
+@@ -259,68 +258,43 @@ - (void)setTouchFeedback:(BOOL)on {
+ - (void)arrange:(DmLayout)layout {
+     if (CGRectEqualToRect(_layout.controls, layout.controls) && CGRectEqualToRect(_layout.game, layout.game) && _layout.separated == layout.separated && _layout.topSafeOnly == layout.topSafeOnly) return;
+     [self reset];   // A finger held across a pose change must not leave a key or game touch stuck.
+-    _layout = layout;
++    _layout = layout; _geoValid = NO;
+     [self setNeedsLayout];
+ }
+-- (CGRect)safe { return CGRectIntersection(_layout.controls, UIEdgeInsetsInsetRect(self.bounds, dm_game_safe_insets(self.bounds, self.safeAreaInsets, _layout.topSafeOnly))); }
+-- (CGRect)corner { if (_layout.separated) return self.safe; UIEdgeInsets i = self.safeAreaInsets; i.left *= K_CORNER_IN; i.right *= K_CORNER_IN; return UIEdgeInsetsInsetRect(self.bounds, i); }   // the rectangle the bottom-corner controls use
+-- (CGFloat)u { if (_layout.separated) { CGRect s = self.safe; return MIN(MIN(s.size.height / 430.0, s.size.width / 700.0), 1.3); } return MIN(self.bounds.size.height / 430.0, 1.3); }   // 1 = 430 points tall (iPhone Pro Max landscape)
+-static CGPoint side(CGRect s, int right, CGFloat dx, CGFloat y) { return CGPointMake(right ? CGRectGetMaxX(s) - dx : CGRectGetMinX(s) + dx, y); }
+-- (BOOL)portraitControls { return _layout.separated && self.bounds.size.height > self.bounds.size.width; }
+-- (CGPoint)portraitThumbCenter:(BOOL)right {
+-    CGRect s = self.safe;
+-    return CGPointMake(CGRectGetMinX(s) + s.size.width * (right ? 0.72 : 0.28),
+-                       CGRectGetMinY(s) + s.size.height * 0.58);
+-}
+-- (CGPoint)faceCenter { CGRect s = self.corner; CGFloat u = self.u;
+-    if (self.portraitControls) return [self portraitThumbCenter:YES];
+-    CGFloat edge = _layout.separated ? self.faceGap + self.faceHitR : 0;
+-    return side(s, 1, MAX(K_FACE_X * u, edge), CGRectGetMaxY(s) - MAX(K_PAD_Y * u, edge)); }
+-- (CGFloat)faceGap { return K_FACE_GAP * self.u; }
+-- (CGFloat)faceR { return K_FACE_R * self.u; }
+-- (CGFloat)faceHitR { return MAX(self.faceR * 1.25, _layout.separated ? 22 : 0); }
+-- (CGPoint)facePos:(int)b { CGPoint c = self.faceCenter; CGFloat g = self.faceGap;
+-    switch (b) { case B_A: return CGPointMake(c.x + g, c.y); case B_B: return CGPointMake(c.x, c.y + g); case B_X: return CGPointMake(c.x, c.y - g); default: return CGPointMake(c.x - g, c.y); } }
+-- (CGPoint)stickHome {
+-    if (self.portraitControls) {
+-        CGPoint p = [self portraitThumbCenter:NO];
+-        if (_full) p.x -= self.dpadR + 6 * self.u;
+-        return p;
++- (const DmPadGeo *)geo {   // DmPadGeometry.h, computed again whenever the bounds, the safe area, the split or the layout changed
++    CGRect b = self.bounds; UIEdgeInsets i = self.safeAreaInsets;
++    if (!_geoValid || !CGRectEqualToRect(b, _geoBounds) || !UIEdgeInsetsEqualToEdgeInsets(i, _geoInsets) || _geoFull != _full) {
++        _geo = dm_pad_geo(b, i, _layout, _full, _opts);
++        _geoBounds = b; _geoInsets = i; _geoFull = _full; _geoValid = YES;
+     }
+-    CGRect s = self.corner;
+-    return side(s, 0, K_STICK_X * self.u, CGRectGetMaxY(s) - K_PAD_Y * self.u);
+-}
++    return &_geo;
++}
++- (CGFloat)u { return self.geo->u; }   // 1 = 430 points tall (iPhone Pro Max landscape), times the player's size
++- (CGPoint)faceCenter { return self.geo->face; }
++- (CGFloat)faceGap { return self.geo->faceGap; }
++- (CGFloat)faceR { return self.geo->faceR; }
++- (CGFloat)faceHitR { return self.geo->faceHitR; }
++- (CGPoint)facePos:(int)b { return dm_pad_face_key(self.geo, b - B_A); }   // B_A..B_Y are A, B, X, Y: the geometry's order
++- (CGPoint)stickHome { return self.geo->stick; }
+ - (CGPoint)stickCentre:(int)i { return i ? _rCentre : self.stickHome; }
+-- (CGFloat)stickR:(int)i { return (i ? K_RSTICK_R : K_STICK_R) * self.u; }
++- (CGFloat)stickR:(int)i { return i ? K_RSTICK_R * self.u : self.geo->stickR; }
+ - (BOOL)inRightArea:(CGPoint)p { CGRect b = _layout.controls; return p.x >= CGRectGetMaxX(b) - b.size.width * K_RSWIPE; }
+-- (CGPoint)dpadCenter {
+-    if (self.portraitControls) {
+-        CGPoint p = [self portraitThumbCenter:NO];
+-        p.x += [self stickR:0] + 6 * self.u;
+-        return p;
+-    }
+-    CGRect s = self.corner; CGFloat u = self.u;
+-    return side(s, 0, K_LOW_X * u, CGRectGetMaxY(s) - K_LOW_Y * u);
+-}
+-- (CGFloat)dpadR { return K_DPAD_R * self.u; }
++- (CGPoint)dpadCenter { return self.geo->dpad; }
++- (CGFloat)dpadR { return self.geo->dpadR; }
+ static BOOL isDrop(int b) { return b == B_ZL || b == B_L || b == B_ZR || b == B_R; }
+ static BOOL isClick(int b) { return b == B_LS || b == B_RS; }
+-- (CGPoint)dropCenter:(int)b { CGRect s = self.safe; CGFloat u = self.u; BOOL z = b == B_ZL || b == B_ZR;
+-    CGFloat edge = _layout.separated ? 22 : 0;
+-    return side(s, b == B_ZR || b == B_R, MAX((z ? K_ZL_X : K_L_X) * u, edge), CGRectGetMinY(s) + MAX((z ? K_ZL_Y : K_L_Y) * u, edge)); }
+-- (CGFloat)dropR:(int)b { return (b == B_ZL || b == B_ZR ? K_ZL_R : K_L_R) * self.u; }
+-- (CGPoint)clickCenter:(int)b { CGRect s = self.safe; CGFloat u = self.u; CGFloat edge = _layout.separated ? 22 : 0;
+-    return side(s, b == B_RS, MAX(K_CLICK_X * u, edge), CGRectGetMinY(s) + MAX(K_ZL_Y * u, edge)); }
+-- (CGRect)pillRect:(int)b { CGRect s = self.safe; CGFloat u = self.u, w = K_PILL_W * u, h = K_PILL_H * u;
+-    CGPoint c = CGPointMake(CGRectGetMidX(s) + (b == B_PLUS ? K_PILL_DX : -K_PILL_DX) * u, CGRectGetMinY(s) + MAX(K_PILL_Y * u, _layout.separated ? 14 : 0));   // − on the left, + on the right
+-    return CGRectMake(c.x - w / 2, c.y - h / 2, w, h); }
+-- (CGPoint)menuCenter { CGRect s = self.safe; return CGPointMake(CGRectGetMidX(s), CGRectGetMinY(s) + MAX(K_PILL_Y * self.u, _layout.separated ? 14 : 0)); }
++static int dropIndex(int b) { return b == B_ZL ? DM_PAD_ZL : b == B_L ? DM_PAD_L : b == B_ZR ? DM_PAD_ZR : DM_PAD_R; }
++- (CGPoint)dropCenter:(int)b { return self.geo->drop[dropIndex(b)]; }
++- (CGFloat)dropR:(int)b { return self.geo->dropR[dropIndex(b)]; }
++- (CGPoint)clickCenter:(int)b { return self.geo->click[b == B_RS]; }
++- (CGRect)pillRect:(int)b { return self.geo->pill[b == B_PLUS ? DM_PAD_PLUS : DM_PAD_MINUS]; }
++- (CGPoint)menuCenter { return self.geo->swap; }
+ 
+ static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y); }
+ - (CGFloat)buttonDistance:(int)b point:(CGPoint)p {
+     CGFloat u = self.u;
+     if (isDrop(b)) return dist(p, [self dropCenter:b]) / MAX([self dropR:b] * 1.35, _layout.separated ? 22 : 0);
+-    if (isClick(b)) return dist(p, [self clickCenter:b]) / MAX(K_CLICK_R * u * 1.35, _layout.separated ? 22 : 0);
++    if (isClick(b)) return dist(p, [self clickCenter:b]) / MAX(self.geo->clickR * 1.35, _layout.separated ? 22 : 0);
+     CGRect r = CGRectInset([self pillRect:b], -8 * u, -8 * u);
+     if (!_layout.separated && !CGRectContainsPoint(r, p)) return CGFLOAT_MAX;
+     CGFloat w = MAX(r.size.width, _layout.separated ? 28 : 0), h = MAX(r.size.height, _layout.separated ? 28 : 0);
+@@ -338,7 +312,7 @@ - (int)btnAt:(CGPoint)p {   // Locked at touch-down; nearest normalized target w
+     }
+     return best;
+ }
+-- (CGFloat)menuDistance:(CGPoint)p { return dist(p, self.menuCenter) / MAX(K_MENU_R * self.u * 1.6, 22); }
++- (CGFloat)menuDistance:(CGPoint)p { return dist(p, self.menuCenter) / MAX(self.geo->swapR * 1.6, 22); }
+ - (BOOL)menuTakes:(CGPoint)p {   // the menu button takes a touch in its hit circle unless a locked key's target is nearer (the drawn keys are hidden in Tap and with a controller)
+     CGFloat d = [self menuDistance:p]; if (d > 1) return NO;
+     if (_tap || _padOff || (_layout.separated && !CGRectContainsPoint(_layout.controls, p))) return YES;
+@@ -466,7 +440,7 @@ - (void)reset { [_owner removeAllObjects]; [_faceOf removeAllObjects]; _stick[0]
+ // ---- Shapes ----
+ static CGPathRef circlePath(CGPoint c, CGFloat r) { return CGPathCreateWithEllipseInRect(CGRectMake(c.x - r, c.y - r, 2 * r, 2 * r), NULL); }
+ static CGPathRef dropPath(CGPoint c, CGFloat r, CGFloat tipAngle, CGFloat round) {   // teardrop: circle + two tangents meeting at the tip, tip slightly rounded
+-    CGFloat d = r * K_DROP_TIP, th = acos(r / d);
++    CGFloat d = r * DM_PAD_DROP_TIP, th = acos(r / d);
+     CGPoint tip = CGPointMake(c.x + d * cos(tipAngle), c.y + d * sin(tipAngle));
+     CGPoint p1 = CGPointMake(c.x + r * cos(tipAngle + th), c.y + r * sin(tipAngle + th)), p2 = CGPointMake(c.x + r * cos(tipAngle - th), c.y + r * sin(tipAngle - th));
+     CGMutablePathRef p = CGPathCreateMutable();
+@@ -509,20 +483,20 @@ - (void)layoutSubviews {
+             BOOL right = b == B_ZR || b == B_R; CGPoint c = [self dropCenter:b];
+             setPath(_key[b], dropPath(c, [self dropR:b], right ? -M_PI_4 : -3 * M_PI_4, 4 * u)); placeLabel(_label[b], c, 16 * u);   // tip toward the near top corner
+         } else if (isClick(b)) {
+-            CGPoint c = [self clickCenter:b]; setPath(_key[b], circlePath(c, K_CLICK_R * u)); placeLabel(_label[b], c, 13 * u);
++            CGPoint c = [self clickCenter:b]; setPath(_key[b], circlePath(c, self.geo->clickR)); placeLabel(_label[b], c, 13 * u);
+         } else {
+             CGRect rc = [self pillRect:b];
+             setPath(_key[b], CGPathCreateWithRoundedRect(rc, rc.size.height / 2, rc.size.height / 2, NULL)); placeLabel(_label[b], CGPointMake(CGRectGetMidX(rc), CGRectGetMidY(rc)), 18 * u);
+         }
+     }
+     static const struct { int b; CGFloat angle; } arms[] = {{B_UP, 0}, {B_RIGHT, M_PI_2}, {B_DOWN, M_PI}, {B_LEFT, -M_PI_2}};   // the same arm in 90° steps
+-    for (int i = 0; i < 4; i++) setPath(_key[arms[i].b], armPath(self.dpadCenter, self.dpadR, K_ARM_W * u, K_ARM_IN * u, arms[i].angle, 6 * u));
+-    CGFloat mr = K_MENU_R * u; CGPoint mc = self.menuCenter;
++    for (int i = 0; i < 4; i++) setPath(_key[arms[i].b], armPath(self.dpadCenter, self.dpadR, self.geo->armW, self.geo->armIn, arms[i].angle, 6 * u));
++    CGFloat mr = self.geo->swapR; CGPoint mc = self.menuCenter;
+     _menu.frame = CGRectMake(mc.x - mr, mc.y - mr, 2 * mr, 2 * mr); _menu.layer.cornerRadius = mr;
+     _menu.layer.shadowPath = [UIBezierPath bezierPathWithOvalInRect:_menu.bounds].CGPath;
+     [_menu setImage:[UIImage systemImageNamed:@"gearshape.fill" withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:13 * u weight:UIImageSymbolWeightSemibold]] forState:UIControlStateNormal];
+     setPath(_ring, circlePath(self.stickHome, [self stickR:0]));
+-    CGFloat k = K_KNOB_R * u; _knob.bounds = CGRectMake(0, 0, 2 * k, 2 * k);
++    CGFloat k = self.geo->knobR; _knob.bounds = CGRectMake(0, 0, 2 * k, 2 * k);
+     setPath(_knob, circlePath(CGPointMake(k, k), k));
+     CAShapeLayer *in = (CAShapeLayer *)_knob.sublayers.firstObject; CGPathRef ip = circlePath(CGPointMake(k, k), k * 0.62);
+     in.frame = _knob.bounds; in.path = ip; CGPathRelease(ip);
+diff --git a/dm/ios/Sources/DmPadGeometry.h b/dm/ios/Sources/DmPadGeometry.h
+new file mode 100644
+index 0000000..92697ef
+--- /dev/null
++++ b/dm/ios/Sources/DmPadGeometry.h
+@@ -0,0 +1,176 @@
++// Where the virtual gamepad's controls are drawn (DmGamepad.m), as pure functions of the view's bounds, its safe-area insets, the DmLayout split
++// and the player's options, so the placement is tested without a device (dm/ios/tests/test_pad_geometry.py).
++//   Every length is in u (1 = 430 points tall, iPhone Pro Max landscape), x measured from the outer edge, the right half mirrors.
++//   The options come from the environment (the shell's settings, Documents/env.txt): DM_TOUCH_SIZE = small | medium | large scales u.
++//   An option never moves a control off the screen or onto another one: a size that does not fit falls back step by step to the size that does
++//   (dm_pad_geo_fits: every drawn shape inside its rectangle, no two drawn shapes overlap).
++#pragma once
++#import "DmLayout.h"
++#include <math.h>
++#include <string.h>
++
++NS_ASSUME_NONNULL_BEGIN
++
++enum { DM_PAD_ZL = 0, DM_PAD_L, DM_PAD_ZR, DM_PAD_R };   // the order of DmPadGeo.drop
++enum { DM_PAD_MINUS = 0, DM_PAD_PLUS };                  // the order of DmPadGeo.pill
++
++typedef struct {
++    CGFloat scale;   // DM_TOUCH_SIZE: 0.8 small, 1 medium (the built-in size), 1.2 large
++} DmPadOptions;
++
++typedef struct {
++    CGFloat u;                            // the unit every size below is a multiple of
++    CGRect safe, corner;                  // the top row lives in safe, the bottom-corner controls in corner (reaching halfway into the side insets)
++    BOOL portrait;                        // separated and taller than wide: both thumbs' clusters sit in the controls region's middle band
++    CGPoint face; CGFloat faceGap, faceR, faceHitR;   // the A B X Y diamond: centre, key distance from it, key radius, hit radius
++    CGPoint stick; CGFloat stickR, knobR;             // the left stick: ring centre and radius, knob radius
++    CGPoint dpad; CGFloat dpadR, armW, armIn;         // the D-pad (3D only): centre, arm outer edge, arm half-width, arm tip from the centre
++    CGPoint drop[4]; CGFloat dropR[4];                // ZL, L, ZR, R: teardrop centres and radii
++    CGPoint click[2]; CGFloat clickR;                 // L3, R3 (3D only)
++    CGRect pill[2];                                   // −, +
++    CGPoint swap; CGFloat swapR;                      // the menu button
++} DmPadGeo;
++
++// Layout constants (in u), the values DmGamepad.m has always used.
++static const CGFloat
++    DM_PAD_ZL_X = 44, DM_PAD_ZL_Y = 40, DM_PAD_ZL_R = 26,     // ZL / ZR: centre from the outer edge and the top, radius
++    DM_PAD_L_X = 44, DM_PAD_L_Y = 108, DM_PAD_L_R = 24,       // L / R: same column as ZL / ZR
++    DM_PAD_DROP_TIP = 1.45,                                   // teardrop tip distance from the centre (times the radius)
++    DM_PAD_CORNER_IN = 0.5,                                   // how far the bottom-corner controls reach into the side safe-area inset
++    DM_PAD_FACE_X = 81, DM_PAD_Y = 82,                        // diamond centre from the outer edge; diamond and stick centre from the bottom
++    DM_PAD_FACE_GAP = 50, DM_PAD_FACE_R = 27,                 // diamond: key distance from the centre, key radius
++    DM_PAD_PILL_DX = 52, DM_PAD_PILL_Y = 22, DM_PAD_PILL_W = 50, DM_PAD_PILL_H = 28,   // − / +: centre from the midline and from the top, size
++    DM_PAD_SWAP_R = 15,                                       // menu button: top centre, level with − / +
++    DM_PAD_STICK_X = 81, DM_PAD_STICK_R = 77, DM_PAD_KNOB_R = 30,   // left stick: mirrors the diamond
++    DM_PAD_LOW_X = 231, DM_PAD_LOW_Y = 64,                    // D-pad centre from the outer edge and the bottom
++    DM_PAD_DPAD_R = 48, DM_PAD_ARM_W = 17, DM_PAD_ARM_IN = 11,
++    DM_PAD_CLICK_X = 102, DM_PAD_CLICK_R = 17;                // L3 / R3: centre from the outer edge (level with ZL / ZR), radius
++
++// DM_TOUCH_SIZE: small, medium (also unset, empty or unknown) or large.
++static inline CGFloat dm_pad_size_scale(const char *_Nullable v) {
++    if (v && !strcmp(v, "small")) return 0.8;
++    if (v && !strcmp(v, "large")) return 1.2;
++    return 1;
++}
++
++static inline CGPoint dm_pad_side(CGRect s, int right, CGFloat dx, CGFloat y) { return CGPointMake(right ? CGRectGetMaxX(s) - dx : CGRectGetMinX(s) + dx, y); }
++
++// The geometry at one unit, with no fitting.
++static inline DmPadGeo dm_pad_geo_at(CGRect bounds, UIEdgeInsets insets, DmLayout layout, BOOL full, CGFloat u) {
++    DmPadGeo g; memset(&g, 0, sizeof g);
++    BOOL sep = layout.separated;
++    g.u = u;
++    g.safe = CGRectIntersection(layout.controls, UIEdgeInsetsInsetRect(bounds, dm_game_safe_insets(bounds, insets, layout.topSafeOnly)));
++    UIEdgeInsets ci = insets; ci.left *= DM_PAD_CORNER_IN; ci.right *= DM_PAD_CORNER_IN;
++    g.corner = sep ? g.safe : UIEdgeInsetsInsetRect(bounds, ci);
++    g.portrait = sep && bounds.size.height > bounds.size.width;
++    CGRect s = g.safe, c = g.corner;
++    CGPoint thumbL = CGPointMake(CGRectGetMinX(s) + s.size.width * 0.28, CGRectGetMinY(s) + s.size.height * 0.58);
++    CGPoint thumbR = CGPointMake(CGRectGetMinX(s) + s.size.width * 0.72, thumbL.y);
++    g.faceGap = DM_PAD_FACE_GAP * u; g.faceR = DM_PAD_FACE_R * u; g.faceHitR = MAX(g.faceR * 1.25, sep ? 22 : 0);
++    g.stickR = DM_PAD_STICK_R * u; g.knobR = DM_PAD_KNOB_R * u;
++    g.dpadR = DM_PAD_DPAD_R * u; g.armW = DM_PAD_ARM_W * u; g.armIn = DM_PAD_ARM_IN * u;
++    if (g.portrait) {
++        g.face = thumbR;
++        g.stick = thumbL; if (full) g.stick.x -= g.dpadR + 6 * u;
++        g.dpad = CGPointMake(thumbL.x + g.stickR + 6 * u, thumbL.y);
++    } else {
++        CGFloat edge = sep ? g.faceGap + g.faceHitR : 0;
++        g.face = dm_pad_side(c, 1, MAX(DM_PAD_FACE_X * u, edge), CGRectGetMaxY(c) - MAX(DM_PAD_Y * u, edge));
++        g.stick = dm_pad_side(c, 0, DM_PAD_STICK_X * u, CGRectGetMaxY(c) - DM_PAD_Y * u);
++        g.dpad = dm_pad_side(c, 0, DM_PAD_LOW_X * u, CGRectGetMaxY(c) - DM_PAD_LOW_Y * u);
++    }
++    CGFloat edge = sep ? 22 : 0;
++    for (int i = 0; i < 4; i++) {
++        BOOL z = i == DM_PAD_ZL || i == DM_PAD_ZR;
++        g.drop[i] = dm_pad_side(s, i >= DM_PAD_ZR, MAX((z ? DM_PAD_ZL_X : DM_PAD_L_X) * u, edge), CGRectGetMinY(s) + MAX((z ? DM_PAD_ZL_Y : DM_PAD_L_Y) * u, edge));
++        g.dropR[i] = (z ? DM_PAD_ZL_R : DM_PAD_L_R) * u;
++    }
++    for (int i = 0; i < 2; i++) g.click[i] = dm_pad_side(s, i, MAX(DM_PAD_CLICK_X * u, edge), CGRectGetMinY(s) + MAX(DM_PAD_ZL_Y * u, edge));
++    g.clickR = DM_PAD_CLICK_R * u;
++    CGFloat top = CGRectGetMinY(s) + MAX(DM_PAD_PILL_Y * u, sep ? 14 : 0), w = DM_PAD_PILL_W * u, h = DM_PAD_PILL_H * u;
++    for (int i = 0; i < 2; i++) {
++        CGFloat x = CGRectGetMidX(s) + (i == DM_PAD_PLUS ? DM_PAD_PILL_DX : -DM_PAD_PILL_DX) * u;   // − on the left, + on the right
++        g.pill[i] = CGRectMake(x - w / 2, top - h / 2, w, h);
++    }
++    g.swap = CGPointMake(CGRectGetMidX(s), top); g.swapR = DM_PAD_SWAP_R * u;
++    return g;
++}
++
++// The face key positions: A right, B bottom, X top, Y left (i = 0..3 in that order).
++static inline CGPoint dm_pad_face_key(const DmPadGeo *g, int i) {
++    CGPoint c = g->face; CGFloat d = g->faceGap;
++    switch (i) { case 0: return CGPointMake(c.x + d, c.y); case 1: return CGPointMake(c.x, c.y + d); case 2: return CGPointMake(c.x, c.y - d); default: return CGPointMake(c.x - d, c.y); }
++}
++static inline CGPoint dm_pad_drop_tip(const DmPadGeo *g, int i) {
++    CGFloat a = i >= DM_PAD_ZR ? -M_PI_4 : -3 * M_PI_4, d = g->dropR[i] * DM_PAD_DROP_TIP;   // tip toward the near top corner
++    return CGPointMake(g->drop[i].x + d * cos(a), g->drop[i].y + d * sin(a));
++}
++
++// The drawn shapes as circles and rectangles, for the fit test and for tests: each with the rectangle it must stay inside.
++typedef struct { CGPoint c; CGFloat r; CGRect rect; BOOL isRect; CGRect within; int id; } DmPadShape;
++enum { DM_PAD_SHAPE_FACE = 0, DM_PAD_SHAPE_STICK = 4, DM_PAD_SHAPE_DPAD, DM_PAD_SHAPE_DROP, DM_PAD_SHAPE_TIP = 10, DM_PAD_SHAPE_CLICK = 14, DM_PAD_SHAPE_PILL = 16, DM_PAD_SHAPE_SWAP = 18 };
++static inline int dm_pad_shapes(const DmPadGeo *g, BOOL full, DmPadShape out[_Nonnull 20]) {
++    int n = 0;
++    for (int i = 0; i < 4; i++) out[n++] = (DmPadShape){dm_pad_face_key(g, i), g->faceR, CGRectNull, NO, g->corner, DM_PAD_SHAPE_FACE + i};
++    out[n++] = (DmPadShape){g->stick, g->stickR, CGRectNull, NO, g->corner, DM_PAD_SHAPE_STICK};
++    if (full) out[n++] = (DmPadShape){g->dpad, hypot(g->dpadR, g->armW), CGRectNull, NO, g->corner, DM_PAD_SHAPE_DPAD};
++    for (int i = 0; i < 4; i++) {
++        out[n++] = (DmPadShape){g->drop[i], g->dropR[i], CGRectNull, NO, g->safe, DM_PAD_SHAPE_DROP + i};
++        out[n++] = (DmPadShape){dm_pad_drop_tip(g, i), 0, CGRectNull, NO, g->safe, DM_PAD_SHAPE_TIP + i};
++    }
++    if (full) for (int i = 0; i < 2; i++) out[n++] = (DmPadShape){g->click[i], g->clickR, CGRectNull, NO, g->safe, DM_PAD_SHAPE_CLICK + i};
++    for (int i = 0; i < 2; i++) out[n++] = (DmPadShape){CGPointZero, 0, g->pill[i], YES, g->safe, DM_PAD_SHAPE_PILL + i};
++    out[n++] = (DmPadShape){g->swap, g->swapR, CGRectNull, NO, g->safe, DM_PAD_SHAPE_SWAP};
++    return n;
++}
++static inline BOOL dm_pad_shape_inside(const DmPadShape *s) {
++    const CGFloat e = 0.5;
++    CGRect b = s->isRect ? s->rect : CGRectMake(s->c.x - s->r, s->c.y - s->r, 2 * s->r, 2 * s->r);
++    return CGRectGetMinX(b) >= CGRectGetMinX(s->within) - e && CGRectGetMaxX(b) <= CGRectGetMaxX(s->within) + e
++        && CGRectGetMinY(b) >= CGRectGetMinY(s->within) - e && CGRectGetMaxY(b) <= CGRectGetMaxY(s->within) + e;
++}
++static inline BOOL dm_pad_shapes_overlap(const DmPadShape *a, const DmPadShape *b) {
++    const CGFloat e = 0.5;
++    if (a->isRect && b->isRect) return CGRectIntersectsRect(CGRectInset(a->rect, e, e), CGRectInset(b->rect, e, e));
++    if (a->isRect || b->isRect) {
++        const DmPadShape *r = a->isRect ? a : b, *c = a->isRect ? b : a;
++        CGFloat nx = fmax(CGRectGetMinX(r->rect), fmin(c->c.x, CGRectGetMaxX(r->rect))), ny = fmax(CGRectGetMinY(r->rect), fmin(c->c.y, CGRectGetMaxY(r->rect)));
++        return hypot(c->c.x - nx, c->c.y - ny) < c->r - e;
++    }
++    return hypot(a->c.x - b->c.x, a->c.y - b->c.y) < a->r + b->r - e;
++}
++// A teardrop's tip belongs to its own circle; the tips are points, so they only count when they land inside another shape.
++static inline BOOL dm_pad_same_control(const DmPadShape *a, const DmPadShape *b) {
++    return (a->id >= DM_PAD_SHAPE_DROP && a->id < DM_PAD_SHAPE_TIP && b->id == a->id + 4) || (b->id >= DM_PAD_SHAPE_DROP && b->id < DM_PAD_SHAPE_TIP && a->id == b->id + 4);
++}
++// Every drawn shape inside its rectangle and no two overlapping.
++static inline BOOL dm_pad_geo_fits(const DmPadGeo *g, BOOL full) {
++    DmPadShape s[20]; int n = dm_pad_shapes(g, full, s);
++    for (int i = 0; i < n; i++) {
++        if (!dm_pad_shape_inside(&s[i])) return NO;
++        for (int j = i + 1; j < n; j++) if (!dm_pad_same_control(&s[i], &s[j]) && dm_pad_shapes_overlap(&s[i], &s[j])) return NO;
++    }
++    return YES;
++}
++
++// The unit of the built-in size: the screen height (inside the controls region when it is split off), up to 1.3.
++static inline CGFloat dm_pad_base_unit(CGRect bounds, UIEdgeInsets insets, DmLayout layout) {
++    if (!layout.separated) return MIN(bounds.size.height / 430.0, 1.3);
++    CGRect s = CGRectIntersection(layout.controls, UIEdgeInsetsInsetRect(bounds, dm_game_safe_insets(bounds, insets, layout.topSafeOnly)));
++    return MIN(MIN(s.size.height / 430.0, s.size.width / 700.0), 1.3);
++}
++
++// The geometry the gamepad draws: the player's size, moved toward the built-in size in steps until it fits (a large size that does
++// not fit gets smaller; a small one in a split region whose minimum edges crowd it gets larger). The built-in size is never changed.
++static inline DmPadGeo dm_pad_geo(CGRect bounds, UIEdgeInsets insets, DmLayout layout, BOOL full, DmPadOptions o) {
++    CGFloat u0 = dm_pad_base_unit(bounds, insets, layout), scale = o.scale > 0 ? o.scale : 1;
++    DmPadGeo g = dm_pad_geo_at(bounds, insets, layout, full, u0 * scale);
++    while (scale != 1 && !dm_pad_geo_fits(&g, full)) {
++        scale = scale > 1 ? fmax(1, scale - 0.05) : fmin(1, scale + 0.05);
++        g = dm_pad_geo_at(bounds, insets, layout, full, u0 * scale);
++    }
++    return g;
++}
++
++NS_ASSUME_NONNULL_END
+diff --git a/dm/ios/tests/pad_geometry/UIKit/UIKit.h b/dm/ios/tests/pad_geometry/UIKit/UIKit.h
+new file mode 100644
+index 0000000..6643574
+--- /dev/null
++++ b/dm/ios/tests/pad_geometry/UIKit/UIKit.h
+@@ -0,0 +1,11 @@
++// The few UIKit names DmLayout.h and DmPadGeometry.h use, so their pure geometry builds and runs on the Mac (test_pad_geometry.py).
++#pragma once
++#import <Foundation/Foundation.h>
++#import <CoreGraphics/CoreGraphics.h>
++typedef struct { CGFloat top, left, bottom, right; } UIEdgeInsets;
++static const UIEdgeInsets UIEdgeInsetsZero = {0, 0, 0, 0};
++static inline UIEdgeInsets UIEdgeInsetsMake(CGFloat t, CGFloat l, CGFloat b, CGFloat r) { return (UIEdgeInsets){t, l, b, r}; }
++static inline CGRect UIEdgeInsetsInsetRect(CGRect r, UIEdgeInsets i) {
++    r.origin.x += i.left; r.origin.y += i.top; r.size.width -= i.left + i.right; r.size.height -= i.top + i.bottom; return r;
++}
++@class UIView;
+diff --git a/dm/ios/tests/pad_geometry/pad_geometry_check.m b/dm/ios/tests/pad_geometry/pad_geometry_check.m
+new file mode 100644
+index 0000000..f02eccc
+--- /dev/null
++++ b/dm/ios/tests/pad_geometry/pad_geometry_check.m
+@@ -0,0 +1,102 @@
++// The virtual gamepad's placement (DmPadGeometry.h) on the screens it runs on, checked on the Mac: built and run by test_pad_geometry.py.
++// Every line that starts with FAIL is a broken rule; the exit status is the number of them (capped).
++#import <UIKit/UIKit.h>
++#import "DmPadGeometry.h"
++#include <stdio.h>
++
++typedef struct { const char *name; CGRect bounds; UIEdgeInsets insets; BOOL partiallyOpen; CGRect division; } Screen;
++
++static int g_fail;
++#define FAIL(...) do { printf("FAIL: "); printf(__VA_ARGS__); printf("\n"); g_fail++; } while (0)
++#define NEAR(a, b) (fabs((a) - (b)) < 0.01)
++
++static const char *k_sizes[] = {"small", "medium", "large"};
++
++static DmPadGeo geo(const Screen *s, BOOL full, DmPadOptions o) {
++    return dm_pad_geo(s->bounds, s->insets, dm_layout(s->bounds, s->insets, s->partiallyOpen, s->division), full, o);
++}
++
++static void check_fits(const Screen *s, BOOL full, const char *size, DmPadOptions o) {
++    DmPadGeo g = geo(s, full, o);
++    DmPadShape sh[20]; int n = dm_pad_shapes(&g, full, sh);
++    for (int i = 0; i < n; i++) {
++        if (!dm_pad_shape_inside(&sh[i])) FAIL("%s %s %s: shape %d leaves its rectangle", s->name, full ? "3D" : "2D", size, sh[i].id);
++        for (int j = i + 1; j < n; j++)
++            if (!dm_pad_same_control(&sh[i], &sh[j]) && dm_pad_shapes_overlap(&sh[i], &sh[j]))
++                FAIL("%s %s %s: shapes %d and %d overlap", s->name, full ? "3D" : "2D", size, sh[i].id, sh[j].id);
++    }
++    // Nothing outside the screen at all, side insets included only up to the corner rule.
++    CGRect b = s->bounds;
++    for (int i = 0; i < n; i++) {
++        CGRect r = sh[i].isRect ? sh[i].rect : CGRectMake(sh[i].c.x - sh[i].r, sh[i].c.y - sh[i].r, 2 * sh[i].r, 2 * sh[i].r);
++        if (!CGRectContainsRect(CGRectInset(b, -0.5, -0.5), r)) FAIL("%s %s %s: shape %d is off the screen", s->name, full ? "3D" : "2D", size, sh[i].id);
++    }
++}
++
++int main(void) {
++    const Screen screens[] = {
++        // iPhone landscape (the phone's only orientation): the Dynamic Island or notch on one side, the home indicator at the bottom.
++        {"iPhone SE landscape", {{0, 0}, {667, 375}}, {0, 0, 0, 0}, NO, CGRectNull},
++        {"iPhone mini landscape", {{0, 0}, {812, 375}}, {0, 50, 21, 50}, NO, CGRectNull},
++        {"iPhone landscape", {{0, 0}, {852, 393}}, {0, 59, 21, 59}, NO, CGRectNull},
++        {"iPhone Pro Max landscape", {{0, 0}, {932, 430}}, {0, 59, 21, 59}, NO, CGRectNull},
++        {"iPhone 17 Pro Max landscape", {{0, 0}, {956, 440}}, {0, 62, 20, 62}, NO, CGRectNull},
++        // iPad: every orientation; portrait splits the picture from the controls.
++        {"iPad mini landscape", {{0, 0}, {1133, 744}}, {24, 0, 20, 0}, NO, CGRectNull},
++        {"iPad Pro 13 landscape", {{0, 0}, {1376, 1032}}, {24, 0, 20, 0}, NO, CGRectNull},
++        {"iPad mini portrait", {{0, 0}, {744, 1133}}, {24, 0, 20, 0}, NO, CGRectNull},
++        {"iPad Pro 13 portrait", {{0, 0}, {1032, 1376}}, {24, 0, 20, 0}, NO, CGRectNull},
++        // Split portrait windows the Duo harness uses, and iPhone Duo's inner display (patch 0061): portrait with the fold, tabletop half open.
++        {"portrait 390x844", {{0, 0}, {390, 844}}, {59, 0, 34, 0}, NO, CGRectNull},
++        {"portrait 320x568", {{0, 0}, {320, 568}}, {50, 0, 24, 0}, NO, CGRectNull},
++        {"Duo inner portrait", {{0, 0}, {669, 951}}, {62, 0, 34, 0}, NO, {{0, 455.5}, {669, 40}}},
++        {"Duo inner landscape", {{0, 0}, {951, 669}}, {0, 62, 20, 62}, NO, CGRectNull},
++        {"Duo tabletop", {{0, 0}, {951, 669}}, {0, 62, 20, 62}, YES, {{0, 314.5}, {951, 40}}},
++    };
++    int nscreens = (int)(sizeof screens / sizeof *screens);
++
++    // Option parsing.
++    if (dm_pad_size_scale(NULL) != 1 || dm_pad_size_scale("") != 1 || dm_pad_size_scale("medium") != 1 || dm_pad_size_scale("huge") != 1) FAIL("DM_TOUCH_SIZE: medium is the default");
++    if (!(dm_pad_size_scale("small") < 1) || !(dm_pad_size_scale("large") > 1)) FAIL("DM_TOUCH_SIZE: small is smaller and large larger");
++
++    // The built-in size is the layout DmGamepad.m has always drawn: iPhone Pro Max landscape, centres in points.
++    {
++        DmPadGeo g = geo(&screens[3], YES, (DmPadOptions){1});
++        if (!NEAR(g.u, 1)) FAIL("Pro Max: u %.3f, want 1", g.u);
++        if (!NEAR(g.face.x, 932 - 29.5 - 81) || !NEAR(g.face.y, 430 - 21 - 82)) FAIL("Pro Max: diamond at %.1f %.1f", g.face.x, g.face.y);
++        if (!NEAR(g.stick.x, 29.5 + 81) || !NEAR(g.stick.y, 430 - 21 - 82)) FAIL("Pro Max: stick at %.1f %.1f", g.stick.x, g.stick.y);
++        if (!NEAR(g.dpad.x, 29.5 + 231) || !NEAR(g.dpad.y, 430 - 21 - 64)) FAIL("Pro Max: D-pad at %.1f %.1f", g.dpad.x, g.dpad.y);
++        if (!NEAR(g.drop[DM_PAD_ZL].x, 59 + 44) || !NEAR(g.drop[DM_PAD_ZL].y, 40) || !NEAR(g.drop[DM_PAD_R].x, 932 - 59 - 44) || !NEAR(g.drop[DM_PAD_R].y, 108)) FAIL("Pro Max: shoulders moved");
++        if (!NEAR(g.click[1].x, 932 - 59 - 102) || !NEAR(g.pill[DM_PAD_PLUS].origin.x, 466 + 52 - 25) || !NEAR(g.swap.x, 466) || !NEAR(g.swap.y, 22)) FAIL("Pro Max: top row moved");
++        if (!NEAR(g.stickR, 77) || !NEAR(g.faceR, 27) || !NEAR(g.dpadR, 48)) FAIL("Pro Max: sizes changed");
++        // Portrait split (the Duo harness's numbers): the thumbs' centres at 28 % and 72 % of the controls, 58 % down.
++        DmLayout l = dm_layout(screens[9].bounds, screens[9].insets, NO, CGRectNull);
++        DmPadGeo p = dm_pad_geo(screens[9].bounds, screens[9].insets, l, NO, (DmPadOptions){1});
++        CGRect s = p.safe;
++        if (!p.portrait || !NEAR(p.face.x, CGRectGetMinX(s) + 0.72 * s.size.width) || !NEAR(p.stick.x, CGRectGetMinX(s) + 0.28 * s.size.width)) FAIL("portrait: thumbs moved");
++    }
++
++    // Every size on every screen, 2D and 3D: inside, and no overlap.
++    for (int i = 0; i < nscreens; i++)
++        for (int full = 0; full < 2; full++)
++            for (int z = 0; z < 3; z++) check_fits(&screens[i], full, k_sizes[z], (DmPadOptions){dm_pad_size_scale(k_sizes[z])});
++
++    // Picture Fill (DM_PICTURE_FIT) only makes the game rectangle larger: the controls keep the full view and their places.
++    for (int i = 0; i < nscreens; i++) {
++        DmLayout fit = dm_layout(screens[i].bounds, screens[i].insets, screens[i].partiallyOpen, screens[i].division);
++        DmLayout fill = dm_layout_picture(fit, screens[i].bounds, YES);
++        DmPadGeo a = dm_pad_geo(screens[i].bounds, screens[i].insets, fit, YES, (DmPadOptions){1.2}), b = dm_pad_geo(screens[i].bounds, screens[i].insets, fill, YES, (DmPadOptions){1.2});
++        if (!CGPointEqualToPoint(a.face, b.face) || !CGPointEqualToPoint(a.stick, b.stick) || a.u != b.u) FAIL("%s: the picture fill moved the controls", screens[i].name);
++    }
++
++    // The sizes keep their order everywhere, and on a phone in landscape large really is larger and small smaller.
++    for (int i = 0; i < nscreens; i++)
++        for (int full = 0; full < 2; full++) {
++            CGFloat us = geo(&screens[i], full, (DmPadOptions){0.8}).u, um = geo(&screens[i], full, (DmPadOptions){1}).u, ul = geo(&screens[i], full, (DmPadOptions){1.2}).u;
++            if (!(us < um) || ul < um) FAIL("%s %s: sizes out of order (%.3f %.3f %.3f)", screens[i].name, full ? "3D" : "2D", us, um, ul);
++            if (i <= 4 && !(ul > um * 1.15)) FAIL("%s %s: large is not larger (%.3f vs %.3f)", screens[i].name, full ? "3D" : "2D", ul, um);
++        }
++
++    if (!g_fail) printf("ok: %d screens\n", nscreens);
++    return g_fail > 100 ? 100 : g_fail;
++}
+diff --git a/dm/ios/tests/test_pad_geometry.py b/dm/ios/tests/test_pad_geometry.py
+new file mode 100644
+index 0000000..9854dfd
+--- /dev/null
++++ b/dm/ios/tests/test_pad_geometry.py
+@@ -0,0 +1,34 @@
++"""The virtual gamepad's placement (dm/ios/Sources/DmPadGeometry.h), built and run on the Mac.
++
++pad_geometry/pad_geometry_check.m runs the same pure functions DmGamepad.m draws, hit-tests and grabs with, on the iPhone, iPad
++and iPhone Duo screens (portrait, landscape, tabletop), in the 2D and the 3D layout and every DM_TOUCH_SIZE: every control stays
++inside the safe area (the bottom corners reach halfway into the side insets, as always), no two drawn controls overlap, and the
++built-in size is the layout the gamepad has always drawn. pad_geometry/UIKit/UIKit.h stands in for the few UIKit names the
++headers use, so no simulator is needed.
++"""
++import shutil
++import subprocess
++import sys
++import tempfile
++import unittest
++from pathlib import Path
++
++IOS = Path(__file__).resolve().parents[1]
++HERE = Path(__file__).resolve().parent / "pad_geometry"
++
++
++@unittest.skipUnless(sys.platform == "darwin" and shutil.which("clang"), "needs clang and the Mac's CoreGraphics")
++class PadGeometryTests(unittest.TestCase):
++    def test_every_screen_size_and_layout(self):
++        with tempfile.TemporaryDirectory() as tmp:
++            exe = Path(tmp) / "pad_geometry_check"
++            subprocess.run(["clang", "-x", "objective-c", "-fobjc-arc", "-Wall", "-Werror", "-Wno-unused-function",
++                            "-I", str(HERE), "-I", str(IOS / "Sources"), str(HERE / "pad_geometry_check.m"),
++                            "-framework", "Foundation", "-framework", "CoreGraphics", "-o", str(exe)], check=True)
++            run = subprocess.run([str(exe)], capture_output=True, text=True)
++            self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
++            self.assertIn("ok:", run.stdout)
++
++
++if __name__ == "__main__":
++    unittest.main()

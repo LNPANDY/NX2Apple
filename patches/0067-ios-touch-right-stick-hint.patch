@@ -1,0 +1,181 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: v0lumehi <aljic.zijad@gmail.com>
+Date: Tue, 3 Nov 2026 18:25:07 +0100
+Subject: [PATCH] ios: say where the 3D layout's undrawn right stick is, once
+ per launch
+
+Players read the 3D layout as having no right stick: it answers anywhere
+in the right third of the screen but is drawn nowhere (LNPANDY/NX2Apple#414,
+#347, seedds/nxnative#788). The first time the 3D layout shows in a launch,
+a few words say where it is, for two seconds, then fade. Words only, in a
+dim capsule: a ring or a knob would read as a fixed stick to hit. A touch
+on the right stick ends it at once, a connected controller holds it back.
+
+DM_TOUCH_HINT carries the words, so a front end shows them in the player's
+language. Empty turns the hint off. Without it the words are English
+("Right stick: drag here").
+
+dm_pad_hint_rect places it in the right third, between the top row and
+the diamond, inside the safe area and clear of every control, or not at
+all when there is no room. test_pad_geometry.py checks that on every
+screen and size, and that every phone in landscape has room for a short
+and a long wording.
+
+Upstream-Status: pending (on seedds/nxnative#683)
+Reason: Players read the 3D layout as having no right stick (#414, #347)
+Issue: LNPANDY/NX2Apple#414
+---
+ dm/ios/Sources/DmGamepad.m                    | 48 ++++++++++++++++++-
+ dm/ios/Sources/DmPadGeometry.h                | 22 +++++++++
+ .../tests/pad_geometry/pad_geometry_check.m   | 18 +++++++
+ 3 files changed, 87 insertions(+), 1 deletion(-)
+
+diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
+index 0b36d0a..5d3d239 100644
+--- a/dm/ios/Sources/DmGamepad.m
++++ b/dm/ios/Sources/DmGamepad.m
+@@ -7,6 +7,7 @@
+ //   3D (full, Pro Controller style): everything in 2D (left stick and diamond keep their place and size), plus a D-pad (inward of and below the left stick, 8-way), a right stick that is not drawn
+ //     (a touch landing in the right third of the screen on no control holds it: centred where it lands, the centre dragged along once the finger passes the stick radius) and L3 / R3 (small round keys in the top row, inward of ZL / ZR).
+ //     Breath of the Wild crouches with L3 and uses the scope with R3; 3D World and Breath of the Wild turn the camera with the right stick.
++//     The first time the 3D layout shows in a launch, a few words (DM_TOUCH_HINT) say where the undrawn right stick is, for two seconds; see "The right-stick hint".
+ //   Touch-down ownership: the menu button where it is nearer than a locked key (a view of its own, DmMenuButton), locked keys next (shoulders, − / +, L3 / R3), then whichever of the diamond, the D-pad and the left stick has the smallest distance / grab radius (the left stick's grab circle borders the D-pad),
+ //     then in 3D the right stick for a touch in the right third.
+ //   Everything hugs the edges and corners to leave the picture room; controls sit over the picture, one CAShapeLayer each: a press only swaps the fill, a stick only moves its knob, nothing redraws the whole screen.
+@@ -149,6 +150,7 @@ @implementation DmGamepad {
+     NSMapTable<UITouch *, NSNumber *> *_faceOf;    // which keys each touch on the diamond currently holds
+     CAShapeLayer *_key[B_N]; CATextLayer *_label[B_N];   // one layer per key
+     CAShapeLayer *_ring, *_knob;                   // the left stick (the right one is not drawn)
++    CALayer *_hint; CATextLayer *_hintText; NSString *_hintWords;   // the 3D layout's right-stick hint: words only, once per launch (see "The right-stick hint")
+     DmMenuButton *_menu;                           // opens the in-game menu (GameMenu.swift)
+     UIImpactFeedbackGenerator *_touchFeedback;       // one short feedback per touch-control press edge
+     unsigned _hapticSticks;
+@@ -219,6 +221,11 @@ - (instancetype)initWithFrame:(CGRect)f {
+         __weak DmGamepad *weakSelf = self;
+         [_menu addAction:[UIAction actionWithHandler:^(UIAction *a) { (void)a; [weakSelf reset]; }] forControlEvents:UIControlEventMenuActionTriggered];   // the menu opens: release every key and touch first
+         [self addSubview:_menu];
++        const char *hint = getenv("DM_TOUCH_HINT");   // the shell passes the player's language; empty turns the hint off
++        _hintWords = hint ? [NSString stringWithUTF8String:hint] : @"Right stick: drag here";
++        _hint = [CALayer layer]; _hint.backgroundColor = [UIColor colorWithWhite:0 alpha:0.5].CGColor; _hint.opacity = 0; _hint.hidden = YES;
++        _hintText = [CATextLayer layer]; _hintText.string = _hintWords; _hintText.alignmentMode = kCAAlignmentCenter;
++        _hintText.foregroundColor = [UIColor colorWithWhite:1 alpha:0.9].CGColor; [_hint addSublayer:_hintText]; [_controls addSublayer:_hint];
+         NSNumber *saved = [NSUserDefaults.standardUserDefaults objectForKey:k_layout_key];
+         int l = saved ? (int)saved.integerValue : dm_profile()->pad_layout;
+         if (l == 2 && dm_opmode() != 0) l = 0;   // Tap only in handheld mode (env.txt's DM_OPMODE may have changed it)
+@@ -404,7 +411,7 @@ - (void)touchesBegan:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e {
+         CGFloat f = dist(p, self.faceCenter) / (self.faceGap + MAX(self.faceR * 1.6, self.faceHitR)); if (f <= best) { best = f; kind = C_FACE; }
+         if (_full) { CGFloat d = dist(p, self.dpadCenter) / MAX(self.dpadR * K_DPAD_GRAB, _layout.separated ? 22 : 0); if (d < best) { best = d; kind = C_DPAD; } }
+         if (!_stick[0]) { CGFloat s = dist(p, self.stickHome) / MAX([self stickR:0] * K_STICK_GRAB, _layout.separated ? 22 : 0); if (s < best) { best = s; kind = C_STICK; } }
+-        if (kind == C_NONE && _full && !_stick[1] && [self inRightArea:p]) { kind = C_STICK; idx = 1; _rCentre = p; }   // the right stick: centred where the touch lands
++        if (kind == C_NONE && _full && !_stick[1] && [self inRightArea:p]) { kind = C_STICK; idx = 1; _rCentre = p; [self hideHint]; }   // the right stick: centred where the touch lands (the hint's job is done)
+         if (kind == C_FACE) { [_owner setObject:@(C_FACE) forKey:t]; [_faceOf setObject:@([self faceAt:p]) forKey:t]; }
+         else if (kind == C_DPAD) [_owner setObject:@(C_DPAD) forKey:t];
+         else if (kind == C_STICK) { [_owner setObject:@(C_STICK | (uint64_t)idx << 8) forKey:t]; _stick[idx] = t; _stickNow[idx] = p; }
+@@ -504,8 +511,47 @@ - (void)layoutSubviews {
+     CAShapeLayer *in = (CAShapeLayer *)_knob.sublayers.firstObject; CGPathRef ip = circlePath(CGPointMake(k, k), k * 0.62);
+     in.frame = _knob.bounds; in.path = ip; CGPathRelease(ip);
+     [CATransaction commit];
++    [self placeHint];
+     [self refresh];
+ }
++
++// ---- The right-stick hint ----
++// The 3D layout's right stick is not drawn (it answers anywhere in the right third), and players read the layout as having none (GitHub issues #347, #414).
++// So the first time the 3D layout shows in a launch, a few words say where it is, for two seconds, then fade. Words only: a ring or a knob would read as
++// a fixed stick that has to be hit. It sits in the right third between the top row and the diamond, clear of every control (dm_pad_hint_rect); with no
++// room, or with a controller connected, it waits. A touch on the right stick ends it at once. DM_TOUCH_HINT carries the words (the shell's language),
++// empty turns it off; without it the words are English.
++static BOOL g_hintShown;   // once per launch
++- (void)placeHint {
++    if (g_hintShown && _hint.hidden) return;
++    if (!_full || _tap || _padOff || !_hintWords.length || CGRectIsEmpty(self.bounds)) { if (!_hint.hidden) [self hideHint]; return; }
++    CGFloat u = self.u, fs = fmin(fmax(15 * u, 13), 20);
++    UIFont *font = [UIFont systemFontOfSize:fs weight:UIFontWeightSemibold];
++    CGSize t = [_hintWords sizeWithAttributes:@{NSFontAttributeName: font}];
++    CGSize box = CGSizeMake(ceil(t.width) + 2 * fs, ceil(t.height) + fs * 0.8);
++    CGRect area = _layout.controls;
++    CGRect r = dm_pad_hint_rect(self.geo, CGRectGetMaxX(area) - area.size.width * K_RSWIPE, box);
++    if (CGRectIsNull(r)) { if (!_hint.hidden) [self hideHint]; return; }
++    [CATransaction begin]; [CATransaction setDisableActions:YES];
++    _hint.frame = r; _hint.cornerRadius = box.height / 2;
++    CTFontRef f = CTFontCreateUIFontForLanguage(kCTFontUIFontEmphasizedSystem, fs, NULL); _hintText.font = f; _hintText.fontSize = fs; CFRelease(f);
++    _hintText.contentsScale = MAX(self.traitCollection.displayScale, 1);
++    _hintText.frame = CGRectMake(0, (box.height - ceil(t.height)) / 2, box.width, ceil(t.height));
++    [CATransaction commit];
++    if (g_hintShown) return;   // already on screen: only follow the layout
++    g_hintShown = YES;
++    LOG("front end: right-stick hint shown");
++    _hint.hidden = NO; _hint.opacity = 1;
++    __weak DmGamepad *weak = self;
++    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ [weak hideHint]; });
++}
++- (void)hideHint {
++    if (_hint.hidden) return;
++    [CATransaction begin]; [CATransaction setAnimationDuration:0.4];
++    [CATransaction setCompletionBlock:^{ self->_hint.hidden = YES; }];
++    _hint.opacity = 0;   // an implicit fade
++    [CATransaction commit];
++}
+ - (void)safeAreaInsetsDidChange { [super safeAreaInsetsDidChange]; [self setNeedsLayout]; }
+ - (void)refresh {   // pressed state → fill, sticks → knob position
+     uint64_t all = _faceBits | _dpadBits | _btnBits;
+diff --git a/dm/ios/Sources/DmPadGeometry.h b/dm/ios/Sources/DmPadGeometry.h
+index 86083ad..a0b915b 100644
+--- a/dm/ios/Sources/DmPadGeometry.h
++++ b/dm/ios/Sources/DmPadGeometry.h
+@@ -196,4 +196,26 @@ static inline DmPadGeo dm_pad_geo(CGRect bounds, UIEdgeInsets insets, DmLayout l
+     return g;
+ }
+ 
++// Where the 3D layout's right-stick hint goes: a few words, no shape, in the area the undrawn right stick answers in (x from areaMinX to
++// the right edge), between the top row and the diamond, inside the safe area and clear of every drawn control (a gap of 6 u around it).
++// text is the label's size including its padding. CGRectNull when there is no room: the hint is then not shown.
++static inline CGRect dm_pad_hint_rect(const DmPadGeo *g, CGFloat areaMinX, CGSize text) {
++    CGRect s = g->safe; CGFloat gap = 6 * g->u;
++    CGFloat left = MAX(areaMinX, CGRectGetMinX(s)), right = CGRectGetMaxX(s);
++    if (right - left < text.width) { left = right - text.width; if (left < CGRectGetMinX(s)) return CGRectNull; }
++    CGFloat top = CGRectGetMinY(s);   // below the right half of the top row
++    for (int i = DM_PAD_ZR; i <= DM_PAD_R; i++) top = MAX(top, g->drop[i].y + g->dropR[i]);
++    top = MAX(top, g->click[1].y + g->clickR);
++    top = MAX(top, CGRectGetMaxY(g->pill[DM_PAD_PLUS]));
++    CGFloat bottom = g->face.y - g->faceGap - g->faceR;   // above the diamond's X
++    CGFloat x = (left + right) / 2 - text.width / 2, y = (top + bottom) / 2 - text.height / 2;
++    x = fmax(left, fmin(x, right - text.width));
++    CGRect r = CGRectMake(x, y, text.width, text.height);
++    DmPadShape sh[20]; int n = dm_pad_shapes(g, YES, sh);
++    DmPadShape me = {CGPointZero, 0, CGRectInset(r, -gap, -gap), YES, s, -1};
++    if (!CGRectContainsRect(s, r)) return CGRectNull;
++    for (int i = 0; i < n; i++) if (dm_pad_shapes_overlap(&me, &sh[i])) return CGRectNull;
++    return r;
++}
++
+ NS_ASSUME_NONNULL_END
+diff --git a/dm/ios/tests/pad_geometry/pad_geometry_check.m b/dm/ios/tests/pad_geometry/pad_geometry_check.m
+index dc17483..7bf7e8f 100644
+--- a/dm/ios/tests/pad_geometry/pad_geometry_check.m
++++ b/dm/ios/tests/pad_geometry/pad_geometry_check.m
+@@ -118,6 +118,24 @@ int main(void) {
+             if (i <= 4 && !(ul > um * 1.15)) FAIL("%s %s: large is not larger (%.3f vs %.3f)", screens[i].name, full ? "3D" : "2D", ul, um);
+         }
+ 
++    // The 3D layout's right-stick hint: in the right third, inside the safe area, clear of every control; on every phone in landscape
++    // and every size it has room for a short and a long wording.
++    for (int i = 0; i < nscreens; i++)
++        for (int z = 0; z < 3; z++)
++            for (int w = 0; w < 2; w++) {
++                DmLayout l = dm_layout(screens[i].bounds, screens[i].insets, screens[i].partiallyOpen, screens[i].division);
++                DmPadGeo g = dm_pad_geo(screens[i].bounds, screens[i].insets, l, YES, (DmPadOptions){dm_pad_size_scale(k_sizes[z]), 0});
++                CGFloat areaMinX = CGRectGetMaxX(l.controls) - l.controls.size.width / 3;
++                CGSize text = CGSizeMake(w ? fmax(300 * g.u, 280) : 150 * g.u, fmax(30 * g.u, 28));   // the long one: about 30 characters at the label's 13 to 20 points
++                CGRect r = dm_pad_hint_rect(&g, areaMinX, text);
++                if (CGRectIsNull(r)) { if (i <= 6 || i == 12) FAIL("%s %s: no room for the hint (%s)", screens[i].name, k_sizes[z], w ? "long" : "short"); continue; }
++                if (CGRectGetMinX(r) < areaMinX - 0.5 && CGRectGetMaxX(r) < CGRectGetMaxX(g.safe) - 0.5) FAIL("%s %s: the hint is not at the right edge's area", screens[i].name, k_sizes[z]);
++                if (!CGRectContainsRect(g.safe, r)) FAIL("%s %s: the hint leaves the safe area", screens[i].name, k_sizes[z]);
++                DmPadShape sh[20]; int n = dm_pad_shapes(&g, YES, sh);
++                DmPadShape me = {CGPointZero, 0, r, YES, g.safe, -1};
++                for (int k = 0; k < n; k++) if (dm_pad_shapes_overlap(&me, &sh[k])) FAIL("%s %s: the hint covers shape %d", screens[i].name, k_sizes[z], sh[k].id);
++            }
++
+     if (!g_fail) printf("ok: %d screens\n", nscreens);
+     return g_fail > 100 ? 100 : g_fail;
+ }

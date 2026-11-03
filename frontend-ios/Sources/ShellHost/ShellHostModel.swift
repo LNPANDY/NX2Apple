@@ -462,11 +462,16 @@ public struct ShellHostConfig: Sendable {
         catch { notice = error.localizedDescription }
     }
 
+    /// The right-stick hint's words: a few, no semicolon, short enough for the right third of a small phone.
+    static var touchHint: String { hostText("Right stick: drag here") }
+
     /// A game's values for the engine: its own choices, then the shell's defaults. A game whose settings list has no
     /// performance overlay row still gets the shell's choice.
     func launchEnvironment(profile: LauncherProfile, id: String) -> [String: String] {
         var env = GameSettingsStore(profile: profile, defaults: config.defaults(id), shell: shellSettings.gameDefaults).values()
         for (key, value) in shellSettings.gameDefaults where env[key] == nil { env[key] = value }
+        // The words the engine shows once per launch where the 3D layout's undrawn right stick is (patch 0067), in the player's language.
+        env["DM_TOUCH_HINT"] = Self.touchHint
         // A launcher.json DM_PAD_MAP row is authoritative, including an empty value.
         if !profile.settings.contains(where: { $0.env == "DM_PAD_MAP" }) {
             env["DM_PAD_MAP"] = PadMap.merged(global: shellSettings.padMap,

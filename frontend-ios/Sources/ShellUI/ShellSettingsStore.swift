@@ -1,7 +1,7 @@
 import Foundation
 
-/// The shell-level settings, one suite shared by every game: the game-data folder, the cloud-saves folder
-/// and the default performance HUD. A game's own settings and bookmarks win over these, and
+/// The shell-level settings, one suite shared by every game: the game-data folder, the cloud-saves folder,
+/// the default performance HUD and the touch controls. A game's own settings and bookmarks win over these, and
 /// these win over the built-in defaults (ShellSettingsStore priority: game > shell > built-in).
 public final class ShellSettingsStore: @unchecked Sendable {
     public static let padMapKey = "padMap"
@@ -11,6 +11,12 @@ public final class ShellSettingsStore: @unchecked Sendable {
     public static let performanceHUDKey = "performanceHUD"       // true/false; a game's own row wins when set
     public static let dataFolderNameKey = "globalDataFolderName"
     public static let cloudSavesNameKey = "globalCloudSavesFolderName"
+    public static let touchSizeKey = "touchSize"                 // small, medium or large: DM_TOUCH_SIZE for every game
+    /// The touch controls' sizes, as the engine reads DM_TOUCH_SIZE. Medium is the built-in size and is never stored.
+    public static let touchSizes = ["small", "medium", "large"]
+    public static let touchStickKey = "touchStick"               // corner, higher or inward: DM_TOUCH_STICK for every game
+    /// Where the left stick sits, as the engine reads DM_TOUCH_STICK. The corner is the built-in place and is never stored.
+    public static let touchStickPlaces = ["corner", "higher", "inward"]
 
     /// The store the app reads and writes. Tests and previews swap it.
     nonisolated(unsafe) public static var current = ShellSettingsStore()
@@ -37,6 +43,26 @@ public final class ShellSettingsStore: @unchecked Sendable {
     public func clearCloudSavesFolderName() { defaults.removeObject(forKey: Self.cloudSavesNameKey) }
     public func storePerformanceHUD(_ on: Bool) { defaults.set(on, forKey: Self.performanceHUDKey) }
 
+    /// The touch controls' size for every game: small, medium (the built-in size) or large.
+    public var touchSize: String {
+        let value = defaults.string(forKey: Self.touchSizeKey) ?? "medium"
+        return Self.touchSizes.contains(value) ? value : "medium"
+    }
+    public func storeTouchSize(_ size: String) {
+        guard Self.touchSizes.contains(size) else { return }
+        if size == "medium" { defaults.removeObject(forKey: Self.touchSizeKey) } else { defaults.set(size, forKey: Self.touchSizeKey) }
+    }
+
+    /// Where the left stick sits in every game: in the corner (the built-in place), higher, or further in.
+    public var touchStick: String {
+        let value = defaults.string(forKey: Self.touchStickKey) ?? "corner"
+        return Self.touchStickPlaces.contains(value) ? value : "corner"
+    }
+    public func storeTouchStick(_ place: String) {
+        guard Self.touchStickPlaces.contains(place) else { return }
+        if place == "corner" { defaults.removeObject(forKey: Self.touchStickKey) } else { defaults.set(place, forKey: Self.touchStickKey) }
+    }
+
     public var padMap: PadMap { PadMap(defaults.dictionary(forKey: Self.padMapKey) as? [String: String] ?? [:]) }
     public func setPadButton(_ button: String, to output: String) {
         var map = padMap
@@ -53,6 +79,9 @@ public final class ShellSettingsStore: @unchecked Sendable {
     /// DM_PAD_MAP is deliberately excluded. The host merges it per button at launch.
     /// The shell's value for each `DM_*` switch a game's own settings leave alone.
     public var gameDefaults: [String: String] {
-        performanceHUD.map { ["DM_METAL_HUD": $0 ? "1" : "0"] } ?? [:]
+        var values = performanceHUD.map { ["DM_METAL_HUD": $0 ? "1" : "0"] } ?? [:]
+        if touchSize != "medium" { values["DM_TOUCH_SIZE"] = touchSize }
+        if touchStick != "corner" { values["DM_TOUCH_STICK"] = touchStick }
+        return values
     }
 }

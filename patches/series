@@ -37,3 +37,6 @@
 0059-recognize-unframed-pointer-tail-calls-before-zer.patch
 0060-ios-shell-declare-italian-in-cfbundlelocalizatio.patch
 0062-ios-apply-controller-button-mappings-to-physical.patch
+0065-ios-touch-controls-size.patch
+0066-ios-touch-stick-place.patch
+0067-ios-touch-right-stick-hint.patch
