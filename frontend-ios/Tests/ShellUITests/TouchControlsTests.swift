@@ -54,7 +54,7 @@ import Testing
         #expect(store.touchStick == "higher" && store.gameDefaults["DM_TOUCH_STICK"] == "higher")
     }
 
-    /// The preview moves only the left stick (and for inward the D-pad with it), as the engine does (DmPadGeometry.h, patch 0065).
+    /// The preview moves only the left stick (and for inward the D-pad with it), as the engine does (DmPadGeometry.h, patch 0066).
     @Test(arguments: ShellSettingsStore.touchSizes)
     func thePreviewMovesTheStickAndNothingOnTheRight(size: String) {
         let corner = TouchPadPreviewGeometry(size: size), higher = TouchPadPreviewGeometry(size: size, stick: "higher"),

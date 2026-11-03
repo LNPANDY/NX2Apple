@@ -196,9 +196,13 @@ struct SettingControl: View, Equatable {
                 let scale = ChoicePresentation.textScale(typeSize)
                 switch ChoicePresentation.resolve(labels: labels, width: width, textScale: scale) {
                 case .segmented:
-                    // Equal segments across the card. If the real layout still cannot hold them, the compact row.
+                    // Equal segments across the card. If the real layout still cannot hold them, the compact row. Only the segments
+                    // decide: the label wraps to the card, so a long note (Picture, #545) does not push the row into the list.
                     ViewThatFits(in: .horizontal) {
-                        VStack(alignment: .leading, spacing: 12) { label; segmented([options]) }
+                        VStack(alignment: .leading, spacing: 12) {
+                            label.frame(minWidth: 0, idealWidth: 0, maxWidth: .infinity, alignment: .leading)
+                            segmented([options])
+                        }
                         valueRow(options)
                     }
                 case .list:

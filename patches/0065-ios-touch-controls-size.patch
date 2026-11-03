@@ -22,21 +22,20 @@ built-in layout on iPhone Pro Max to the points it has always used.
 Upstream-Status: pending (on seedds/nxnative#683)
 Reason: Players ask for smaller or larger touch controls (#347), and the placement needs tests without a device
 Issue: LNPANDY/NX2Apple#347
-
 ---
  dm/ios/Sources/DmGamepad.m                    | 118 +++++-------
  dm/ios/Sources/DmPadGeometry.h                | 176 ++++++++++++++++++
  dm/ios/tests/pad_geometry/UIKit/UIKit.h       |  11 ++
- .../tests/pad_geometry/pad_geometry_check.m   |  94 ++++++++++
+ .../tests/pad_geometry/pad_geometry_check.m   | 102 ++++++++++
  dm/ios/tests/test_pad_geometry.py             |  34 ++++
- 5 files changed, 361 insertions(+), 72 deletions(-)
+ 5 files changed, 369 insertions(+), 72 deletions(-)
  create mode 100644 dm/ios/Sources/DmPadGeometry.h
  create mode 100644 dm/ios/tests/pad_geometry/UIKit/UIKit.h
  create mode 100644 dm/ios/tests/pad_geometry/pad_geometry_check.m
  create mode 100644 dm/ios/tests/test_pad_geometry.py
 
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index 39ad3f2..ec35bb3 100644
+index 9f51749..3ea60b6 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
 @@ -9,6 +9,7 @@
@@ -214,7 +213,7 @@ index 39ad3f2..ec35bb3 100644
  - (BOOL)inSwap:(CGPoint)p { return [self swapDistance:p] <= 1; }
  - (uint64_t)faceAt:(CGPoint)p {   // keys under the finger in the diamond (between two keys both count)
      uint64_t m = 0; CGFloat r = self.faceHitR;
-@@ -443,7 +417,7 @@ - (void)reset { [_owner removeAllObjects]; [_faceOf removeAllObjects]; _stick[0]
+@@ -442,7 +416,7 @@ - (void)reset { [_owner removeAllObjects]; [_faceOf removeAllObjects]; _stick[0]
  // ---- Shapes ----
  static CGPathRef circlePath(CGPoint c, CGFloat r) { return CGPathCreateWithEllipseInRect(CGRectMake(c.x - r, c.y - r, 2 * r, 2 * r), NULL); }
  static CGPathRef dropPath(CGPoint c, CGFloat r, CGFloat tipAngle, CGFloat round) {   // teardrop: circle + two tangents meeting at the tip, tip slightly rounded
@@ -223,7 +222,7 @@ index 39ad3f2..ec35bb3 100644
      CGPoint tip = CGPointMake(c.x + d * cos(tipAngle), c.y + d * sin(tipAngle));
      CGPoint p1 = CGPointMake(c.x + r * cos(tipAngle + th), c.y + r * sin(tipAngle + th)), p2 = CGPointMake(c.x + r * cos(tipAngle - th), c.y + r * sin(tipAngle - th));
      CGMutablePathRef p = CGPathCreateMutable();
-@@ -487,17 +461,17 @@ - (void)layoutSubviews {
+@@ -486,17 +460,17 @@ - (void)layoutSubviews {
              BOOL right = b == B_ZR || b == B_R; CGPoint c = [self dropCenter:b];
              setPath(_key[b], dropPath(c, [self dropR:b], right ? -M_PI_4 : -3 * M_PI_4, 4 * u)); placeLabel(_label[b], c, 16 * u);   // tip toward the near top corner
          } else if (isClick(b)) {
@@ -446,10 +445,10 @@ index 0000000..6643574
 +@class UIView;
 diff --git a/dm/ios/tests/pad_geometry/pad_geometry_check.m b/dm/ios/tests/pad_geometry/pad_geometry_check.m
 new file mode 100644
-index 0000000..f5b7112
+index 0000000..f02eccc
 --- /dev/null
 +++ b/dm/ios/tests/pad_geometry/pad_geometry_check.m
-@@ -0,0 +1,94 @@
+@@ -0,0 +1,102 @@
 +// The virtual gamepad's placement (DmPadGeometry.h) on the screens it runs on, checked on the Mac: built and run by test_pad_geometry.py.
 +// Every line that starts with FAIL is a broken rule; the exit status is the number of them (capped).
 +#import <UIKit/UIKit.h>
@@ -532,6 +531,14 @@ index 0000000..f5b7112
 +    for (int i = 0; i < nscreens; i++)
 +        for (int full = 0; full < 2; full++)
 +            for (int z = 0; z < 3; z++) check_fits(&screens[i], full, k_sizes[z], (DmPadOptions){dm_pad_size_scale(k_sizes[z])});
++
++    // Picture Fill (DM_PICTURE_FIT) only makes the game rectangle larger: the controls keep the full view and their places.
++    for (int i = 0; i < nscreens; i++) {
++        DmLayout fit = dm_layout(screens[i].bounds, screens[i].insets, screens[i].partiallyOpen, screens[i].division);
++        DmLayout fill = dm_layout_picture(fit, screens[i].bounds, YES);
++        DmPadGeo a = dm_pad_geo(screens[i].bounds, screens[i].insets, fit, YES, (DmPadOptions){1.2}), b = dm_pad_geo(screens[i].bounds, screens[i].insets, fill, YES, (DmPadOptions){1.2});
++        if (!CGPointEqualToPoint(a.face, b.face) || !CGPointEqualToPoint(a.stick, b.stick) || a.u != b.u) FAIL("%s: the picture fill moved the controls", screens[i].name);
++    }
 +
 +    // The sizes keep their order everywhere, and on a phone in landscape large really is larger and small smaller.
 +    for (int i = 0; i < nscreens; i++)

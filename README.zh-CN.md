@@ -113,6 +113,10 @@ App 会为它编译一次图形并记住。游戏数据（`romfs.img`）可以�
 一次才有该项。iPhone 上同样的行写在 `Documents/env.txt` 里（`DM_FPS_TARGET=30` 限帧省电，
 `DM_OPMODE=0` 选掌机模式）。该文件对共享 App 里的每个游戏都生效。只属于某一个游戏的行（例如 mod 的
 `DM_ROMFS_OVERLAY`）写在 `Documents/games/<title ID>/env.txt` 里。两个文件设置了同一个键时，以该游戏的文件为准。
+Mod 更简单：把它的文件夹放进 `Documents/games/<title ID>/mods/<mod 名>/`（RomFS 文件放在其中的 `romfs/`
+文件夹里，或直接放在该文件夹里）。之后 Shell 只为这个游戏设置 `DM_ROMFS_OVERLAY`。有多个 mod 时，替换同一文件的
+情况下按名称排在前面的生效。同一个键被多处设置时的优先顺序：Shell 自己的设置、该游戏的 `env.txt`、该游戏的
+`mods/` 文件夹、共享的 `Documents/env.txt`。
 
 **存档和日志。** 放在游戏库文件夹里的 Mac 游戏，存档和日志在 App 旁边（`log/<title ID>.log`）；否则在
 `~/Library/Application Support/nxnative/<title ID>/` 和 `~/Library/Logs/nxnative/<title ID>.log`。
