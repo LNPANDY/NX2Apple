@@ -67,7 +67,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
 /// - AppKit reaches it as closures: the file and folder pickers (`choosePaths`, `chooseFolder`, `chooseSaveLocation`), the notice
 ///   (`showNotice`), the Finder (`revealFolder`, `openApp`), and `targetChanged`, which the app answers with a new dependency check.
 /// - It checks the conditions for its own actions: `canBuild` and the start of a build (`startBuild`).
-/// - The pieces live in the `BuildStore+` files: `Inputs`, `Run`, `Failure`, `Archive`, `Install`, `Stale`, `DropFiles`.
+/// - The pieces live in the `BuildStore+` files: `Inputs`, `Run`, `Failure`, `Archive`, `Install`, `Stale`, `DropFiles`, `GameEngine`.
 @MainActor package final class BuildStore: ObservableObject {
     nonisolated package static let outputKey = "buildOutputDirectory"
     nonisolated package static let targetKey = "buildTarget"
@@ -154,6 +154,22 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     /// The home folder the default shell root is in. Tests use a temporary one, so they never touch the real Application Support.
     package var home = NSHomeDirectory()
 
+    // ---- The game engine file (BuildStore+GameEngine.swift) ----
+    /// The kept game engine files, by title ID.
+    @Published package var gameEngines: [String: GameArchiveLibrary.Stored] = [:]
+    /// Why the last pick was not taken, or that it is for another game: the row shows it.
+    @Published package var gameEngineProblem = ""
+    /// The question before a build with a game engine file (GameEnginePrompt.swift).
+    @Published package var gameEngineQuestion: GameEngineQuestion?
+    /// The title ID of the last file picked: the one used when the base game's file name has no title ID.
+    package var pickedGameEngine: String?
+    /// Where the kept files are, and where a build's engine copy goes.
+    package let gameEngineRoot: String
+    package let gameEngineTreeRoot: String
+    var gameEngineConfirmed = false
+    var gameEngineWarnings: [GameArchive.Warning] = []
+    var gameEngineTree: String?
+
     // ---- The app's side: AppKit and the wiring, as closures ----
     package var chooseKeys: (() -> Void)?          // tests stand in for the file picker
     /// The open panel: the paths the player picked, none when they cancelled.
@@ -188,9 +204,12 @@ func hop(_ body: @escaping @MainActor () -> Void) {
 
     /// - Parameters:
     ///   - volumesRoot: where external drives are mounted (the failure classifier reads it).
+    ///   - gameEngineRoot: where the kept game engine files are. `gameEngineTreeRoot`: where a build's engine copy goes.
     ///   - targetChanged: see the property of the same name.
     package init(localizer: Localizer, runner: ProcessRunner, log: BuildLog = BuildLog(), repo: RepoLocation, deps: DependencyInstalling,
                  engine: EngineSyncing, devices: InstallTarget, defaults: UserDefaults = .standard, volumesRoot: String = "/Volumes",
+                 gameEngineRoot: String = GameArchiveLibrary.defaultRoot,
+                 gameEngineTreeRoot: String = NSTemporaryDirectory() + "NX2Apple-game-engine",
                  targetChanged: @escaping () -> Void = {}) {
         self.localizer = localizer
         self.runner = runner
@@ -202,6 +221,9 @@ func hop(_ body: @escaping @MainActor () -> Void) {
         self.defaults = defaults
         self.volumesRoot = volumesRoot
         self.targetChanged = targetChanged
+        self.gameEngineRoot = gameEngineRoot
+        self.gameEngineTreeRoot = gameEngineTreeRoot
+        gameEngines = GameArchiveLibrary.load(root: gameEngineRoot)
         outDir = defaults.string(forKey: Self.outputKey) ?? ""
         target = BuildTarget.saved(defaults)
         bcOnCPU = defaults.bool(forKey: Self.bcOnCPUKey)

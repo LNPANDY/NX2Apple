@@ -36,6 +36,7 @@ struct FilesCard: View {
             CardDisclosure(loc.t("build.options"), isOpen: extrasOpen) { extrasOpen.toggle() }
             if extrasOpen {
                 ForEach(build.slots.filter(\.optional), id: \.id) { s in CardDivider(); slotRow(s) }
+                CardDivider(); gameEngineRow
             }
             CardDivider()
             CardRow(loc.t("build.saveTo"), detail: build.outDir.isEmpty ? loc.t("build.saveDefault") : build.shortPath(build.outDir), help: build.outDir) {
@@ -62,6 +63,20 @@ struct FilesCard: View {
             if folderText == nil {
                 Button(s.paths.isEmpty ? loc.t("data.choose") : loc.t("data.change")) { build.pickFiles(kind: s.kind) }
             }
+        }
+    }
+
+    /// The game engine file (.nxgame): optional, kept per game (BuildStore+GameEngine.swift).
+    private var gameEngineRow: some View {
+        let file = build.gameEngine
+        return CardRow(loc.t("data.engineFile"), detail: build.gameEngineSummary,
+                       dot: file != nil && build.gameEngineProblem.isEmpty ? LauncherPalette.ready : LauncherPalette.unbuilt,
+                       help: file.map { "\($0.manifest.name) (\($0.titleID))\n\(loc.t("data.engineFileBase")) \($0.manifest.baseLabel)" } ?? "") {
+            if file != nil {
+                Button(loc.t("data.clear")) { build.clearGameEngine() }.buttonStyle(.plain)
+                    .font(.manrope(13)).foregroundStyle(.secondary)
+            }
+            Button(file == nil ? loc.t("data.choose") : loc.t("data.change")) { build.pickGameEngine() }
         }
     }
 

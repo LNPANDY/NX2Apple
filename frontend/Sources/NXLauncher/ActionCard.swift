@@ -35,6 +35,7 @@ package struct ActionCard: View {
         }
         .padding(.top, 2)
         .staleFrameworksPrompt(build)
+        .gameEnginePrompt(build)
     }
 
     @ViewBuilder private var statusText: some View {

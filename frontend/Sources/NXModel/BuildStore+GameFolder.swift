@@ -39,8 +39,9 @@ extension BuildStore {
 
     /// What the engine lacks for this folder: the packer (an older engine), or a profile for the game. nil without an engine yet:
     /// the build asks again before it starts.
-    package func gameFolderEngineProblem(_ contents: GameFolder.Contents) -> String? {
-        let engine = EngineLayout.root(repo.path)
+    /// `engineRoot`: the engine the build runs from, when it is not the launcher's (a game engine file's copy, BuildStore+GameEngine.swift).
+    package func gameFolderEngineProblem(_ contents: GameFolder.Contents, engineRoot: String? = nil) -> String? {
+        let engine = engineRoot ?? EngineLayout.root(repo.path)
         guard !engine.isEmpty, FileManager.default.fileExists(atPath: engine + "/dm") else { return nil }
         if contents.nup != nil ? !GameFolder.engineBuildsNUPs(engine) : !GameFolder.engineBuildsFolders(engine) {
             return t(contents.nup != nil ? "folder.engineOldNUP" : "folder.engineOld")

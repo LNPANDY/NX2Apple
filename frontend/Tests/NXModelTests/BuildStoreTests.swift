@@ -67,9 +67,10 @@ import XCTest
         try? FileManager.default.removeItem(at: temporary)
     }
 
-    private func makeStore(targetChanged: @escaping () -> Void = {}) -> BuildStore {
-        BuildStore(localizer: localizer, runner: FakeProcessRunner(), repo: repo, deps: deps, engine: engine, devices: devices,
-                   defaults: defaults, targetChanged: targetChanged)
+    private func makeStore(runner: ProcessRunner = FakeProcessRunner(), targetChanged: @escaping () -> Void = {}) -> BuildStore {
+        BuildStore(localizer: localizer, runner: runner, repo: repo, deps: deps, engine: engine, devices: devices,
+                   defaults: defaults, gameEngineRoot: temporary.appendingPathComponent("game-engines").path,
+                   gameEngineTreeRoot: temporary.appendingPathComponent("game-engine-trees").path, targetChanged: targetChanged)
     }
 
     private func file(_ name: String) throws -> String {
@@ -432,5 +433,101 @@ import XCTest
         XCTAssertNil(store.confirmShellMove())
         XCTAssertFalse(store.running)
         XCTAssertNil(defaults.string(forKey: "shellRoot"))
+    }
+
+    // MARK: The game engine file (BuildStore+GameEngine.swift)
+
+    private nonisolated static let gameTID = "0100ABCD12340000"
+
+    /// A `.nxgame` as tools/game_archive.py makes it (the game's folder only), zipped by ditto. Made for engine `p1-aaaaaaaaaaaa`.
+    private func gameEngineFile(titleID: String = BuildStoreTests.gameTID, name: String = "a") throws -> String {
+        let content = temporary.appendingPathComponent("content-" + name).path
+        let rel = "game/dm/games/\(titleID)/game.tsv", text = "title_id\t\(titleID)\n"
+        try FileManager.default.createDirectory(atPath: content + "/game/dm/games/" + titleID, withIntermediateDirectories: true)
+        try text.write(toFile: content + "/" + rel, atomically: true, encoding: .utf8)
+        let manifest = """
+            {"format": 1, "title_id": "\(titleID)", "name": "A Test Game", "updates": [65536], "base": {"commit": "c", "remote": "r",
+             "pin": "p1", "engine_id": "p1-aaaaaaaaaaaa"}, "author": "someone", "files": {"\(rel)": "\(GameArchive.hex(Data(text.utf8)))"}}
+            """
+        try manifest.write(toFile: content + "/manifest.json", atomically: true, encoding: .utf8)
+        let zip = temporary.appendingPathComponent(name + ".nxgame").path
+        XCTAssertTrue(SystemProcessRunner().capture(ProcessLaunch(executable: "/usr/bin/ditto", arguments: ["-c", "-k", content, zip])).status == 0)
+        return zip
+    }
+
+    private func setBase(_ store: BuildStore, _ name: String, update: String? = nil) throws {
+        let base = try file(name)
+        store.updateSlot("base") { $0.paths = [base] }
+        let u = try update.map(file)
+        store.updateSlot("update") { $0.paths = u.map { [$0] } ?? [] }
+    }
+
+    func testGameEngineIsKeptPerGame() throws {
+        let store = makeStore(runner: SystemProcessRunner())
+        try setBase(store, "Game [\(Self.gameTID)].nsp")
+        XCTAssertNil(store.gameEngine)
+        XCTAssertEqual(store.gameEngineSummary, localizer.t("data.engineFileNone"))
+        store.takeGameEngine(try gameEngineFile())
+        XCTAssertEqual(store.gameEngineProblem, "")
+        XCTAssertEqual(store.gameEngine?.titleID, Self.gameTID)
+        XCTAssertTrue(store.gameEngineSummary.contains("A Test Game"))
+        // a new launcher finds it for the game
+        let again = makeStore(runner: SystemProcessRunner())
+        try setBase(again, "Game [\(Self.gameTID)].nsp")
+        XCTAssertEqual(again.gameEngine?.sha256, store.gameEngine?.sha256)
+        again.clearGameEngine()
+        XCTAssertNil(again.gameEngine)
+        XCTAssertNil(makeStore().gameEngines[Self.gameTID])
+    }
+
+    func testGameEngineForAnotherGameIsNotUsedForThisOne() throws {
+        let store = makeStore(runner: SystemProcessRunner())
+        try setBase(store, "Other [0100000000010000].nsp")
+        store.takeGameEngine(try gameEngineFile())
+        XCTAssertNil(store.gameEngine)
+        XCTAssertTrue(store.gameEngineProblem.contains(Self.gameTID), store.gameEngineProblem)
+        store.takeGameEngine(temporary.appendingPathComponent("missing.nxgame").path)
+        XCTAssertTrue(store.gameEngineProblem.hasPrefix(String(format: localizer.t("data.engineFileBad"), "")), store.gameEngineProblem)
+    }
+
+    func testGameEngineAsksOnFirstUseAndWhenTheUpdateDoesNotMatch() throws {
+        let engineRoot = temporary.appendingPathComponent("engine").path
+        try FileManager.default.createDirectory(atPath: engineRoot + "/dm", withIntermediateDirectories: true)
+        try "p1-aaaaaaaaaaaa\n".write(toFile: engineRoot + "/.engine-id", atomically: true, encoding: .utf8)
+        try "p1\n".write(toFile: engineRoot + "/.upstream-ref", atomically: true, encoding: .utf8)
+        repo.path = engineRoot
+        let store = makeStore(runner: SystemProcessRunner())
+        try setBase(store, "Game [\(Self.gameTID)].nsp", update: "Game [\(Self.gameTID.dropLast(3))800][v65536].nsp")
+        store.takeGameEngine(try gameEngineFile())
+        XCTAssertTrue(store.askAboutGameEngine())
+        XCTAssertEqual(store.gameEngineQuestion?.firstUse, true)
+        XCTAssertEqual(store.gameEngineQuestion?.warnings, [])
+        XCTAssertTrue(store.gameEngineMessage(store.gameEngineQuestion!).contains("someone"))
+        store.declineGameEngine()
+        XCTAssertNil(store.gameEngineQuestion)
+        // accepted before, everything matches: no question
+        defaults.set([store.gameEngine!.sha256], forKey: BuildStore.gameEngineAcceptedKey)
+        XCTAssertFalse(store.askAboutGameEngine())
+        // another update: asked again, with the warning
+        try setBase(store, "Game [\(Self.gameTID)].nsp", update: "Game [\(Self.gameTID.dropLast(3))800][v131072].nsp")
+        XCTAssertTrue(store.askAboutGameEngine())
+        XCTAssertEqual(store.gameEngineQuestion?.firstUse, false)
+        XCTAssertEqual(store.gameEngineQuestion?.warnings, [.otherUpdate(131072, [65536])])
+        XCTAssertTrue(store.gameEngineMessage(store.gameEngineQuestion!).contains("v131072"))
+    }
+
+    func testGameEngineTreeIsTheEngineOfTheBuild() throws {
+        let engineRoot = temporary.appendingPathComponent("engine").path
+        try FileManager.default.createDirectory(atPath: engineRoot + "/dm/games/0100000000010000", withIntermediateDirectories: true)
+        let store = makeStore(runner: SystemProcessRunner())
+        XCTAssertEqual(store.engineForBuild(engineRoot), engineRoot)   // no file: the launcher's engine
+        try setBase(store, "Game [\(Self.gameTID)].nsp")
+        store.takeGameEngine(try gameEngineFile())
+        let tree = try XCTUnwrap(store.engineForBuild(engineRoot))
+        XCTAssertNotEqual(tree, engineRoot)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: tree + "/dm/games/\(Self.gameTID)/game.tsv"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: tree + "/dm/games/0100000000010000"))
+        store.finishGameEngineTree(keep: false)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: tree))
     }
 }

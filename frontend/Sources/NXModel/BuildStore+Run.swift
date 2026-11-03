@@ -15,6 +15,7 @@ extension BuildStore {
         }
         shellDeviceChecked = false
         if target != BuildTarget.mac, !exportsOneGame, askAboutStaleFrameworks() { return }   // StaleFrameworksPrompt.swift (#449)
+        if askAboutGameEngine() { return }   // a game engine file used for the first time, or one that does not match (GameEnginePrompt.swift)
         stopping = false
         running = true; done = false; doneNote = ""; stages = []; log.clear(); chainNoteShown = false
         failure = nil; confirmingOverride = nil
@@ -44,6 +45,8 @@ extension BuildStore {
             fail(String(format: t("msg.toolsOld"), missing.joined(separator: ", ")))
             return
         }
+        // The engine this build runs from: the launcher's, or a copy of it with the game engine file applied (BuildStore+GameEngine.swift)
+        guard let engineRoot = engineForBuild(EngineLayout.root(repo.path)) else { return }
 
         // One folder when everything lives together; otherwise a staging folder of symlinks. A folder
         // that holds other games too (a ROMs folder with one file per game) is staged as well: the
@@ -51,7 +54,7 @@ extension BuildStore {
         // folder"), even when only the base game was picked (issue #58; ufooer's PR #31).
         // A game folder (BuildStore+GameFolder.swift) goes to the script as it is: the engine must have its packer and the game's profile.
         let folder = gameFolder
-        if let folder, let why = gameFolderEngineProblem(folder) { fail(why); return }
+        if let folder, let why = gameFolderEngineProblem(folder, engineRoot: engineRoot) { finishGameEngineTree(keep: false); fail(why); return }
         let baseDir = inputFolder
         let allPaths = folder != nil ? [] : [basePath, updatePath] + dlcPaths
         let dirs = Set(allPaths.filter { !$0.isEmpty }.map { ($0 as NSString).deletingLastPathComponent })
@@ -127,9 +130,8 @@ extension BuildStore {
                 return
             }
         }
-        let engine = EngineLayout.root(repo.path)   // the checkout's engine/ (#214)
         // A game folder's files are not encrypted: the script ignores -k for it, and the launcher does not ask for the keys.
-        var args = [engine + "/" + RepoLayout.buildScript, inputDir] + (folder != nil ? [] : ["-k", keysPath]) + ["--progress", "json"]
+        var args = [engineRoot + "/" + RepoLayout.buildScript, inputDir] + (folder != nil ? [] : ["-k", keysPath]) + ["--progress", "json"]
         // A compatibility switch the player turned on: written to a small env file the pipeline
         // copies into the app bundle (main.m sets one variable per line at boot). Only for an iPhone or iPad build;
         // a Mac app runs on this Mac's GPU, which always has BC support.
@@ -186,12 +188,13 @@ extension BuildStore {
         // (the packages are compiled at bundle time), and a user site must not shadow its pinned packages.
         denv.merge(BundledTools.environment(for: py)) { $1 }
         if !oneGameIPAPath.isEmpty { denv.merge(OneGameIPA.environment) { $1 } }
-        let launch = ProcessLaunch(executable: py, arguments: args, environment: denv, directory: engine, groupPython: py)
+        let launch = ProcessLaunch(executable: py, arguments: args, environment: denv, directory: engineRoot, groupPython: py)
         let onExit: @Sendable (Int32) -> Void = { [weak self] status in
             hop {
                 guard let self else { return }
                 self.running = false
                 self.flushLines()
+                self.finishGameEngineTree(keep: status != 0 && !self.stopping)
                 if self.stopping {
                     self.stopping = false
                     self.resetProgress()
