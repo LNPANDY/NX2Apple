@@ -10,7 +10,7 @@ extension Lang {
 }
 
 /// The language list comes from the files (LNPANDY/NX2Apple#388, step 2): the picker, the device detection and the names.
-final class LanguageListTests: XCTestCase {
+final class LanguageListTests: IsolatedDefaultsTestCase {
     private var temporary: URL!
 
     override func setUpWithError() throws {

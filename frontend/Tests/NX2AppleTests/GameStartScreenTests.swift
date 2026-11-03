@@ -5,7 +5,7 @@ import XCTest
 @testable import NXLauncher
 
 /// DM_SCREEN in the launch environment (front_mac.m opens the game's window on that NSScreenNumber).
-@MainActor final class GameStartScreenTests: XCTestCase {
+@MainActor final class GameStartScreenTests: IsolatedDefaultsTestCase {
     private func number(_ screen: NSScreen) -> NSNumber? { screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber }
 
     func testDisplayIDIsTheScreenNumber() throws {

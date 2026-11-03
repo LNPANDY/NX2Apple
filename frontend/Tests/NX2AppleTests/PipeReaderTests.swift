@@ -5,7 +5,7 @@ import XCTest
 
 /// The build log pipes (#201): at end of output the read handler must remove itself, or the dispatch source
 /// fires on the closed pipe forever and pins a CPU core.
-final class PipeReaderTests: XCTestCase {
+final class PipeReaderTests: IsolatedDefaultsTestCase {
     func testHandlerDetachesAtEndOfOutputAndKeepsAllOutput() throws {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/bin/sh")

@@ -9,7 +9,7 @@ import XCTest
 /// runs it for --platform mac-app (GFXAPI=nvn SETTINGS_PLATFORM=mac DM_LANG=zh-Hans) for profile 01008CF01BAAC000 (Zelda: Echoes of
 /// Wisdom) over a control.nacp built for the test (no game files): only the SupportedLanguageFlag at 0x302C, set to en-US, ja, fr, de,
 /// es, it, pt, ru, ko, zh-Hant and zh-Hans. Regenerate it the same way when settings.py or settings.tsv changes the rows.
-final class MacAppLanguageTests: XCTestCase {
+final class MacAppLanguageTests: IsolatedDefaultsTestCase {
     private var temporary: URL!
     private let titleID = "01008CF01BAAC000"
     private var bundleID: String { "org.nxnative.frontendtests.lang." + temporary.lastPathComponent }

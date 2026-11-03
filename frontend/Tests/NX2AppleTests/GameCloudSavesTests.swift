@@ -7,7 +7,7 @@ import XCTest
 
 /// #499: the Mac launcher shows and sets a game's cloud saves folder where dm/mac/launcher.c reads it, and reads the last
 /// session's sync from the game's log.
-final class GameCloudSavesTests: XCTestCase {
+final class GameCloudSavesTests: IsolatedDefaultsTestCase {
     private var root: URL!
     private let titleID = "0100535012974000"
     private var preference: String?
@@ -104,7 +104,7 @@ final class GameCloudSavesTests: XCTestCase {
         let output = URL(fileURLWithPath: directory)
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         NSApplication.shared.setActivationPolicy(.accessory)
-        let localizer = LauncherStores().localizer
+        let localizer = LauncherStores(defaults: testDefaults).localizer
         localizer.lang = CaptureLanguage.current(.en)
         let game = LibraryGame(titleID: titleID, name: "Hades")
         let drive = "/Users/jo/Library/Mobile Documents/com~apple~CloudDocs"

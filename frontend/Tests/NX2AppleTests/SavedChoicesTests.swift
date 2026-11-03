@@ -5,7 +5,7 @@ import XCTest
 
 /// The launch options as saved choices in the app's own preferences domain, and launcher.json schema 1. Every app here has a
 /// bundle ID of this run, so nothing touches a real game's domain; tearDown removes it.
-final class SavedChoicesTests: XCTestCase {
+final class SavedChoicesTests: IsolatedDefaultsTestCase {
     private var temporary: URL!
     private let titleID = "01007EF00011E000"
     private var bundleID: String { "org.nxnative.frontendtests.saved." + temporary.lastPathComponent }

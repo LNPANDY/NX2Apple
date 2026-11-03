@@ -3,7 +3,7 @@ import XCTest
 @testable import NXModel
 
 /// LNPANDY/NX2Apple#387, step 3: the build log is a store of its own and needs no SwiftUI.
-@MainActor final class BuildLogTests: XCTestCase {
+@MainActor final class BuildLogTests: IsolatedDefaultsTestCase {
     func testAppendAddsText() {
         let log = BuildLog()
         log.append("one\n")

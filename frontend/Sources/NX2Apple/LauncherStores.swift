@@ -26,8 +26,10 @@ import NXModel
     /// - Parameters:
     ///   - xcrun: runs xcodebuild and devicectl: a test points it at a stand-in.
     ///   - volumesRoot: where external drives are mounted.
+    ///   - defaults: where the stores keep their settings: a test passes its own suite, so it neither reads nor writes the shared ones.
     init(localizer: Localizer = Localizer(), runner: ProcessRunner = SystemProcessRunner(), gitCheckout: GitCheckout? = nil,
-         releases: ReleaseSource = GitHubReleases(), xcrun: String = "/usr/bin/xcrun", volumesRoot: String = "/Volumes") {
+         releases: ReleaseSource = GitHubReleases(), xcrun: String = "/usr/bin/xcrun", volumesRoot: String = "/Volumes",
+         defaults: UserDefaults = .standard) {
         _ = Self.endGroupsWhenQuitting
         let git = gitCheckout ?? SystemGitCheckout(runner: runner)
         self.localizer = localizer; self.runner = runner; self.gitCheckout = git; self.releases = releases
@@ -35,38 +37,38 @@ import NXModel
         let laterBuild = Later<BuildStore>(), laterEngine = Later<EngineSyncStore>()
 
         let repo = RepoStore(
-            localizer: localizer, git: git,
+            localizer: localizer, git: git, defaults: defaults,
             buildRunning: { laterBuild.value?.running ?? false },
             isReleaseApp: { laterEngine.value?.usesEngineStore ?? false },
             log: { log.append($0) },
             didMove: { _ = laterEngine.value?.syncEngine() })   // the pull may have moved the pin or the patches
         let dependencies = DependencyStore(
-            localizer: localizer, runner: runner, repo: repo,
-            needsIOS: { Self.needsIOSPlatform() },
+            localizer: localizer, runner: runner, repo: repo, defaults: defaults,
+            needsIOS: { Self.needsIOSPlatform(defaults: defaults) },
             openAppStore: { NSWorkspace.shared.open(URL(fileURLWithPath: "/Applications/App Store.app")) },
             log: { log.append($0) },
             installFailed: { laterBuild.value?.note($0) })
         let engineSync = EngineSyncStore(
-            localizer: localizer, runner: runner, repo: repo, python: dependencies,
+            localizer: localizer, runner: runner, repo: repo, python: dependencies, defaults: defaults,
             setRepoPath: { repo.path = $0 },
             buildRunning: { laterBuild.value?.running ?? false },
             autoUpdate: { repo.autoUpdate },
             log: { log.append($0) })
         laterEngine.value = engineSync
-        let devices = DeviceStore(runner: runner, xcrun: xcrun)
+        let devices = DeviceStore(runner: runner, xcrun: xcrun, defaults: defaults)
         let updates = AppUpdateStore(
-            localizer: localizer, runner: runner, releases: releases,
+            localizer: localizer, runner: runner, releases: releases, defaults: defaults,
             buildRunning: { (laterBuild.value?.running ?? false) || ProcessGroups.buildProcessesAlive },
             terminate: {
                 NSApp.terminate(nil)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { exit(0) }
             })
         let build = BuildStore(
-            localizer: localizer, runner: runner, log: log, repo: repo, deps: dependencies, engine: engineSync, devices: devices,
+            localizer: localizer, runner: runner, log: log, repo: repo, deps: dependencies, engine: engineSync, devices: devices, defaults: defaults,
             volumesRoot: volumesRoot,
             targetChanged: {
                 // A Mac-only setup needs no iOS SDK for a Mac build, but does for an iPhone one (needsIOSPlatform)
-                if UserDefaults.standard.string(forKey: OnboardingDefaults.platform) == "mac" { _ = dependencies.check() }
+                if defaults.string(forKey: OnboardingDefaults.platform) == "mac" { _ = dependencies.check() }
             })
         laterBuild.value = build
         self.repo = repo; self.engineSync = engineSync; self.dependencies = dependencies; self.deviceStore = devices
