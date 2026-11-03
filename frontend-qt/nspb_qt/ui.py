@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QProgressBar, QPushButton, QScrollArea, QSizePolicy, QTextEdit, QVBoxLayout, QWidget,
 )
 
+from . import inputs
 from . import platform_util as pu
 from .model import DepState, Model
 from .style import CARD_EDGE, GREEN, MUTED, ORANGE, RED
@@ -472,6 +473,19 @@ class MainWindow(QMainWindow):
                                   else self.m.t('data.folderHint'))
         vals = {'base': self.m.base_path, 'update': self.m.update_path, 'keys': self.m.keys_path}
         for key, (dot, val) in self.input_rows.items():
+            folder_text = self.m.input_row_text(key)
+            if folder_text is not None:    # a game folder or a NUP: what it holds, and no keys needed
+                dot.setText('●')
+                dot.setStyleSheet(f'color: {GREEN};')
+                val.setText(folder_text)
+                val.setStyleSheet(f'color: {MUTED};')
+                continue
+            if key == 'base' and self.m.game_folder_problem:   # refused: the reason, on the base row
+                dot.setText('✕')
+                dot.setStyleSheet(f'color: {RED};')
+                val.setText(self.m.game_folder_problem)
+                val.setStyleSheet(f'color: {ORANGE};')
+                continue
             if key == 'dlc':
                 n = len(self.m.dlc_paths)
                 text = (Path(self.m.dlc_paths[0]).name + (f'  +{n - 1}' if n > 1 else '')) if n else ''
@@ -754,6 +768,10 @@ class MainWindow(QMainWindow):
         path, _ = QFileDialog.getOpenFileName(self, self.m.t('data.choose'))
         if not path:
             return
+        if key == 'base' and inputs.is_game_folder_candidate(path):   # a .nup file
+            self.m.take_game_folder(path)
+            return
+        self.m.leave_game_folder()   # picking packages leaves the game-folder mode
         if key == 'base':
             self.m.base_path = path
         elif key == 'update':
