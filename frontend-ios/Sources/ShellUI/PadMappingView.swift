@@ -86,7 +86,8 @@ struct PadMappingEntryRow: View {
     }
 }
 
-/// The button mapping in a card of its own. The list: Swap A and B as a segmented choice, then the 16 buttons in four
+/// The button mapping in a card of its own. The list: the controller drawing for touch and VoiceOver (no live input, no
+/// focus target), Swap A and B as a segmented choice, then the 16 buttons in four
 /// grouped cards (face buttons, shoulders and triggers, D-pad, more), each row the button's glyph, where it sits and what it
 /// sends, a cream dot on a row that differs. Reset stays in a footer under the scrolling list. A row picked shows the
 /// buttons it can send as a grid of glyphs, in the same groups. D-pad and keys move through `map.` targets, A picks, B goes
@@ -98,8 +99,6 @@ struct PadMappingCard: View {
     /// The shell's map, which a game's rows follow until they are changed. Nil on the shell's own card.
     var inherited: PadMap?
     let openRow: String?
-    /// The buttons held on a connected controller, lit on the drawing. Empty without one.
-    var held: Set<PadElement> = []
     let open: (String) -> Void
     let pick: (String, String) -> Void
     let backToList: () -> Void
@@ -239,16 +238,17 @@ struct PadMappingCard: View {
         .padding(.horizontal, 20).padding(.vertical, 18)
     }
 
-    /// The controller as the button test draws it, with the Switch names of its places. A tap on a button opens its choices,
-    /// as its row does. A cream ring marks a changed button, a button held on a connected controller lights up. The rows
-    /// below stay the way for a controller and say the same in words.
+    /// The controller as the button test draws it, with the Switch names of its places, for touch and VoiceOver: a tap on a
+    /// button opens its choices, as its row does, and a cream ring marks a changed button. It never shows what a controller
+    /// presses and is no focus target. The card is a menu, so a controller moves through the rows below, A picks and B
+    /// closes. Trying buttons is the button test's job, which takes the controller's input for itself (#495).
     private var drawing: some View {
         func row(_ e: PadElement) -> SettingRow? {
             PadMap.button(at: e).flatMap { button in rows.first { PadMappingRows.button(of: $0) == button } }
         }
         let marked = Set(rows.filter { !$0.fromShell }.compactMap { PadMap.element(of: PadMappingRows.button(of: $0)) })
         return VStack(spacing: 10) {
-            XboxControllerDiagram(snapshot: PadSnapshot(pressed: held), switchNames: true, marked: marked,
+            XboxControllerDiagram(snapshot: PadSnapshot(), switchNames: true, marked: marked,
                                   tap: { e in if let row = row(e) { open(row.id) } },
                                   value: { e in
                                       guard let row = row(e) else { return "" }
