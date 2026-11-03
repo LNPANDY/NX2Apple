@@ -6,6 +6,25 @@ import ShellUI
 @Suite struct ShellSettingsStoreTests {
     private func shell() -> ShellSettingsStore { ShellSettingsStore(defaults: UserDefaults(suiteName: "t-shell-\(UUID().uuidString)")!) }
 
+    @Test func padMapPersistsAndResetsWithoutChangingOtherSettings() {
+        let store = shell()
+        #expect(store.padMap.envValue == nil)
+        store.storePerformanceHUD(true)
+        store.setPadSwapAB(true)
+        store.setPadButton("X", to: "none")
+        let again = ShellSettingsStore(defaults: store.defaults)
+        #expect(again.padMap.envValue == "A=B,B=A,X=none")
+        #expect(again.gameDefaults["DM_PAD_MAP"] == nil)
+        store.setPadSwapAB(false)
+        #expect(again.padMap.envValue == "X=none")
+        store.setPadButton("X", to: "X")
+        #expect(again.padMap.envValue == nil)
+        store.setPadButton("A", to: "Y")
+        store.resetPadMap()
+        #expect(again.padMap.entries.isEmpty && again.performanceHUD == true)
+        #expect(store.defaults.object(forKey: ShellSettingsStore.padMapKey) == nil)
+    }
+
     @Test func theOverlayChoiceIsNilUntilThePlayerMakesOne() {
         let store = shell()
         #expect(store.performanceHUD == nil && store.gameDefaults.isEmpty)

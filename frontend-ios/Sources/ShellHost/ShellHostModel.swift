@@ -58,6 +58,10 @@ public struct ShellHostConfig: Sendable {
     /// The log the host view shows in a read-only sheet.
     public var log: LogPresentation?
 
+    public private(set) var globalPadMap = PadMap()
+    /// The last controller state, sent only while the button test is open.
+    public private(set) var padSnapshot: PadSnapshot?
+
     @ObservationIgnored private let config: ShellHostConfig
     @ObservationIgnored private let launcher: any GameLauncher
     @ObservationIgnored private let picker: any FolderPicker
@@ -85,6 +89,7 @@ public struct ShellHostConfig: Sendable {
         shellData = BookmarkStore(defaults: shellSettings.defaults, key: ShellSettingsStore.dataFolderKey)
         shellCloud = BookmarkStore(defaults: shellSettings.defaults, key: ShellSettingsStore.cloudSavesKey)
         shellChoices = Self.choices(of: shellSettings)
+        globalPadMap = shellSettings.padMap
         reload()
         defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.defaultsDidChange() }
@@ -93,13 +98,14 @@ public struct ShellHostConfig: Sendable {
 
     deinit { defaultsObserver.map(NotificationCenter.default.removeObserver) }
 
-    /// What the details show of the shell settings besides the folders: the overlay default.
+    /// Shell choices that change the displayed game defaults.
     private static func choices(of settings: ShellSettingsStore) -> [String] {
-        [settings.gameDefaults.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: ",")]
+        [settings.gameDefaults.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: ","), settings.padMap.envValue ?? ""]
     }
 
-    /// Builds the details again, in the same order. A change of a shell folder or of the performance overlay comes through here.
+    /// Rebuilds the details in place after a shell folder, overlay or controller mapping changes.
     public func refreshAll() {
+        globalPadMap = shellSettings.padMap
         shellChoices = Self.choices(of: shellSettings)
         startShellScan()
         details = entries.map(detail(for:))
@@ -234,10 +240,14 @@ public struct ShellHostConfig: Sendable {
         var shellFolder = false
         if case .url = shellCloud.resolve() { shellFolder = true }
         let fromShell = Set(profile.settings.filter(store.isFromShell).map(\.env))
+        let pad = GamePadMapStore(defaults: config.defaults(entry.id))
+        let sections = SettingsPresenter.sections(profile: profile, values: store.values(), fromShell: fromShell)
+        // A profile-provided DM_PAD_MAP row owns the mapping, so do not offer conflicting shell overrides.
+        let padSections = profile.settings.contains { $0.env == "DM_PAD_MAP" } ? [] : [pad.section()]
         return GameDetail(
-            game: tile, sections: SettingsPresenter.sections(profile: profile, values: store.values(), fromShell: fromShell),
+            game: tile, sections: sections + padSections,
             dataSource: dataSource(data), dataNote: dataNote(data, found: data.found),
-            cloudSaves: cloud, cloudNote: cloudNote, dlc: dlc(data), hasModifiedSettings: store.hasModifiedSettings,
+            cloudSaves: cloud, cloudNote: cloudNote, dlc: dlc(data), hasModifiedSettings: store.hasModifiedSettings || !pad.entries.isEmpty,
             dataFromShell: data.source == .shell, cloudFromShell: cloudFromShell,
             cloudCanUseShell: shellFolder && !cloudFromShell)
     }
@@ -285,18 +295,31 @@ public struct ShellHostConfig: Sendable {
             onUseShellCloud: { [weak self] id in self?.useShellCloudSaves(id) },
             onClearShellData: { [weak self] in self?.clearShellData() },
             onClearShellCloud: { [weak self] in self?.clearShellCloud() },
+            onGlobalPadMapChange: { [weak self] setting, value in
+                guard let self else { return }
+                if setting == "swapAB" { self.shellSettings.setPadSwapAB(value == "1") }
+                else { self.shellSettings.setPadButton(setting, to: value) }
+                self.refreshAll()
+            },
+            onGlobalPadMapReset: { [weak self] in self?.shellSettings.resetPadMap(); self?.refreshAll() },
+            onButtonTest: { [weak self] open in self?.buttonTest(open) },
             onDeleteGame: { [weak self] id, saves in self?.deleteGame(id, saves: saves) })
     }
 
     public func change(_ id: String, setting: String, value: String) {
         guard let profile = entry(id)?.profile else { return }
-        GameSettingsStore(profile: profile, defaults: config.defaults(id), shell: shellSettings.gameDefaults).set(setting, to: value)
+        if setting.hasPrefix("pad.") {
+            GamePadMapStore(defaults: config.defaults(id)).change(setting, value: value)
+        } else {
+            GameSettingsStore(profile: profile, defaults: config.defaults(id), shell: shellSettings.gameDefaults).set(setting, to: value)
+        }
         refresh(id)
     }
 
     public func resetDefaults(_ id: String) {
         guard let profile = entry(id)?.profile else { return }
         GameSettingsStore(profile: profile, defaults: config.defaults(id)).reset()
+        GamePadMapStore(defaults: config.defaults(id)).reset()
         refresh(id)
     }
 
@@ -444,6 +467,11 @@ public struct ShellHostConfig: Sendable {
     func launchEnvironment(profile: LauncherProfile, id: String) -> [String: String] {
         var env = GameSettingsStore(profile: profile, defaults: config.defaults(id), shell: shellSettings.gameDefaults).values()
         for (key, value) in shellSettings.gameDefaults where env[key] == nil { env[key] = value }
+        // A launcher.json DM_PAD_MAP row is authoritative, including an empty value.
+        if !profile.settings.contains(where: { $0.env == "DM_PAD_MAP" }) {
+            env["DM_PAD_MAP"] = PadMap.merged(global: shellSettings.padMap,
+                                            game: GamePadMapStore(defaults: config.defaults(id)).entries).envValue
+        }
         return env
     }
 
@@ -462,6 +490,12 @@ public struct ShellHostConfig: Sendable {
     }
 
     public func stopControllers() { adapter.stop() }
+
+    /// The button test opened or closed: the adapter reports every controller state in between.
+    public func buttonTest(_ open: Bool) {
+        adapter.onSnapshot = open ? { [weak self] in self?.padSnapshot = $0 } : nil
+        if !open { padSnapshot = nil }
+    }
 
     static func info(for c: ConnectedController) -> ControllerInfo {
         ControllerInfo(id: c.id, name: c.name, player: hostText("Player \(c.player)"), batteryPercent: c.batteryPercent, charging: c.charging)

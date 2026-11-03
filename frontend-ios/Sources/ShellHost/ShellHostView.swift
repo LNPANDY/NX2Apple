@@ -6,15 +6,18 @@ import ShellUI
 public struct ShellHostView: View {
     @Bindable private var model: ShellHostModel
     private let initialSelection: String?
+    private let initialDetailOpen: Bool
 
-    public init(model: ShellHostModel, initialSelection: String? = nil) {
+    public init(model: ShellHostModel, initialSelection: String? = nil, initialDetailOpen: Bool = false) {
         self.model = model
         self.initialSelection = initialSelection
+        self.initialDetailOpen = initialDetailOpen
     }
 
     public var body: some View {
         LibraryView(games: model.details, controllers: model.controllers, actions: model.actions, input: model.input,
-                    initialSelection: initialSelection)
+                    initialSelection: initialSelection, initialDetailOpen: initialDetailOpen, globalPadMap: model.globalPadMap,
+                    padSnapshot: model.padSnapshot)
             .sheet(item: $model.log) { LogView(log: $0) }
             .alert(Text(verbatim: hostText("Shell")), isPresented: Binding(get: { model.notice != nil }, set: { if !$0 { model.notice = nil } })) {
                 Button(hostText("OK")) { model.notice = nil }

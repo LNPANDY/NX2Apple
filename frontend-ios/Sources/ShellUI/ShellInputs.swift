@@ -1,4 +1,5 @@
 import Foundation
+import CoreGraphics
 
 /// The caller supplies display data. These types never load, validate, or store game data.
 public enum GameState: Equatable, Sendable {
@@ -168,6 +169,31 @@ public struct ShellInput: Equatable, Sendable {
     }
 }
 
+/// A controller element the button test lights up, named by its place on an Xbox controller (GameController's names).
+public enum PadElement: String, CaseIterable, Sendable {
+    case a, b, x, y, leftBumper, rightBumper, leftTrigger, rightTrigger, leftStick, rightStick, view, menu, home, up, down, left, right
+}
+
+/// A controller's whole state for the button test: what is held, the sticks from -1 to 1 (up is positive) and the
+/// triggers from 0 to 1. The host sends it only while the test is open.
+public struct PadSnapshot: Equatable, Sendable {
+    public var name: String
+    public var pressed: Set<PadElement>
+    public var leftStick: CGPoint
+    public var rightStick: CGPoint
+    public var leftTrigger: Double
+    public var rightTrigger: Double
+    public init(name: String = "", pressed: Set<PadElement> = [], leftStick: CGPoint = .zero, rightStick: CGPoint = .zero,
+                leftTrigger: Double = 0, rightTrigger: Double = 0) {
+        self.name = name
+        self.pressed = pressed
+        self.leftStick = leftStick
+        self.rightStick = rightStick
+        self.leftTrigger = leftTrigger
+        self.rightTrigger = rightTrigger
+    }
+}
+
 /// All effects leave the package through these closures. The game ID is always explicit.
 public struct ShellActions {
     public var onSelect: (String) -> Void
@@ -186,6 +212,10 @@ public struct ShellActions {
     public var onUseShellCloud: (String) -> Void
     public var onClearShellData: () -> Void
     public var onClearShellCloud: () -> Void
+    public var onGlobalPadMapChange: (String, String) -> Void
+    public var onGlobalPadMapReset: () -> Void
+    /// The button test or the mapping card opened (true) or closed: the host sends `PadSnapshot`s only in between.
+    public var onButtonTest: (Bool) -> Void
     /// Deletes the game's data on this device and takes it off the list. `saves`: its saves go too.
     public var onDeleteGame: (_ gameID: String, _ saves: Bool) -> Void
     public init(onSelect: @escaping (String) -> Void = { _ in }, onPlay: @escaping (String) -> Void = { _ in },
@@ -196,7 +226,10 @@ public struct ShellActions {
                 onAppUpdate: @escaping () -> Void = {}, onBack: @escaping () -> Void = {},
                 onPickShellData: @escaping () -> Void = {}, onPickShellCloud: @escaping () -> Void = {},
                 onUseShellCloud: @escaping (String) -> Void = { _ in }, onClearShellData: @escaping () -> Void = {},
-                onClearShellCloud: @escaping () -> Void = {}, onDeleteGame: @escaping (String, Bool) -> Void = { _, _ in }) {
+                onClearShellCloud: @escaping () -> Void = {},
+                onGlobalPadMapChange: @escaping (String, String) -> Void = { _, _ in },
+                onGlobalPadMapReset: @escaping () -> Void = {}, onButtonTest: @escaping (Bool) -> Void = { _ in },
+                onDeleteGame: @escaping (String, Bool) -> Void = { _, _ in }) {
         self.onSelect = onSelect
         self.onPlay = onPlay
         self.onChange = onChange
@@ -213,6 +246,9 @@ public struct ShellActions {
         self.onUseShellCloud = onUseShellCloud
         self.onClearShellData = onClearShellData
         self.onClearShellCloud = onClearShellCloud
+        self.onGlobalPadMapChange = onGlobalPadMapChange
+        self.onGlobalPadMapReset = onGlobalPadMapReset
+        self.onButtonTest = onButtonTest
         self.onDeleteGame = onDeleteGame
     }
 }
