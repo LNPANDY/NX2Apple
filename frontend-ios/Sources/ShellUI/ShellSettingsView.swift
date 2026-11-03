@@ -101,13 +101,14 @@ struct ShellSettingsView: View {
                             }
                         }
                         SettingsGroup(title: ShellStrings.text("Touch controls")) {
-                            TouchControlsPreview(size: store.touchSize, stick: store.touchStick)
+                            TouchControlsPreview(size: store.touchSize, stick: store.touchStick, layout: store.touchLayout)
                             TouchControlsNote()
                             ForEach([ShellSettingsRows.touchSizeRow(store), ShellSettingsRows.touchStickRow(store)]) { row in
                                 SettingControl(gameID: ShellSettingsRows.gameID, row: row, targetPrefix: ShellSettingsRows.targetPrefix) {
                                     ShellSettingsRows.apply(row.id, value: $0, to: store)
                                 }.equatable()
                             }
+                            TouchArrangeRow(arranged: !store.touchLayout.isEmpty)
                         }
                         SettingsGroup(title: ShellStrings.text("Interface")) {
                             let hud = ShellSettingsRows.hudRow(store)
