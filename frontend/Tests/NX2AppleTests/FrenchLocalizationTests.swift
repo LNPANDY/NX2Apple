@@ -5,7 +5,7 @@ import XCTest
 
 /// The French overlay reads as French: nothing is left in English but the listed names. Completeness and placeholders for every
 /// language are in NXCoreTests/LocalizationRulesTests.swift.
-final class FrenchLocalizationTests: XCTestCase {
+final class FrenchLocalizationTests: IsolatedDefaultsTestCase {
     /// Keys whose French text is the English one on purpose: names, units, button letters, codes.
     static let sameAsEnglish: Set<String> = [
         "onboarding.platform.mac", "onboarding.platform.iphone", "onboarding.background.python",

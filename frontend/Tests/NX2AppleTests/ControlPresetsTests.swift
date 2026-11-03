@@ -5,7 +5,7 @@ import XCTest
 
 /// Issue #70: the controller layouts and the DM_PAD_MAP each passes. Controllers are stand-in product categories; nothing
 /// reads a real controller.
-final class ControlPresetsTests: XCTestCase {
+final class ControlPresetsTests: IsolatedDefaultsTestCase {
     private var defaults: UserDefaults!
     private let suite = "nxnative-control-presets-tests"
 

@@ -6,7 +6,7 @@ import XCTest
 /// The `DM_SAVE_SYNC=icloud` keyword changed meaning in the engine (NX2Apple Saves became nxnative Saves). A player whose Mac app
 /// uses the keyword and whose iPhone app a bookmark to NX2Apple Saves must keep both on that folder. A folder chosen in either
 /// app's window is already a path and is never touched.
-final class CloudSavesMigrationTests: XCTestCase {
+final class CloudSavesMigrationTests: IsolatedDefaultsTestCase {
     private var temporary: URL!
     private var drive: URL { temporary.appendingPathComponent("CloudDocs") }
     private var support: URL { temporary.appendingPathComponent("nxnative") }

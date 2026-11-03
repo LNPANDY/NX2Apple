@@ -5,7 +5,7 @@ import XCTest
 
 /// The German catalog (L10n.de) has to read as German and keep the text rules of the shared table.
 /// Completeness and placeholders for every language are in NXCoreTests/LocalizationRulesTests.swift.
-final class GermanLocalizationTests: XCTestCase {
+final class GermanLocalizationTests: IsolatedDefaultsTestCase {
     /// Keys whose German text is the English text on purpose: names, units and button letters.
     private let sameAsEnglish: Set<String> = [
         "onboarding.platform.mac", "onboarding.platform.iphone", "onboarding.setup.metal",

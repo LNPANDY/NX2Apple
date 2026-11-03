@@ -5,7 +5,7 @@ import XCTest
 
 /// The staging folder for files picked from several folders (#132): the same selection stages to the same
 /// paths with the same dates, and the folder holds exactly the current selection.
-final class InputStagingTests: XCTestCase {
+final class InputStagingTests: IsolatedDefaultsTestCase {
     private var temporary: URL!
     private var a: URL { temporary.appendingPathComponent("one") }
     private var b: URL { temporary.appendingPathComponent("two") }

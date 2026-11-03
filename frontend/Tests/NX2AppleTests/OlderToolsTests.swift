@@ -5,7 +5,7 @@ import XCTest
 
 /// Games built with older build tools (ToolsAge, #65): a local git repository stands in for the checkout; a game is marked
 /// only when files a build uses changed since the commit its build recorded.
-final class OlderToolsTests: XCTestCase {
+final class OlderToolsTests: IsolatedDefaultsTestCase {
     private var temporary: URL!
     private let titleID = "0100535012974000"
 

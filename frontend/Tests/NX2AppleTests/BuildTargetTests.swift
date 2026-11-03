@@ -5,7 +5,7 @@ import XCTest
 
 /// The launcher builds for this Mac or for the one shared app on an iPhone or iPad. Settings and library files written
 /// when one IPA per game was a target still load, and older single-IPA builds stay in the library.
-final class BuildTargetTests: XCTestCase {
+final class BuildTargetTests: IsolatedDefaultsTestCase {
     private var temporary: URL!
 
     override func setUpWithError() throws {

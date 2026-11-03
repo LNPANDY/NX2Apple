@@ -4,7 +4,7 @@ import XCTest
 @testable import NXLauncher
 
 /// The Dock tile's text for a running build (DockProgress): the text is pure, the tile view is built without a Dock.
-final class DockProgressTests: XCTestCase {
+final class DockProgressTests: IsolatedDefaultsTestCase {
     func testThePercentTextForAProgressFraction() {
         XCTAssertEqual(DockProgress.percentText(0), "0%")
         XCTAssertEqual(DockProgress.percentText(0.404), "40%", "rounded, never 40.4%")

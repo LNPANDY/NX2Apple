@@ -6,7 +6,7 @@ import NXModel
 @testable import NXLauncher
 
 /// prod.keys against the game files before a build (issue #63). Every key here is made up for the test.
-@MainActor final class KeyCheckTests: XCTestCase {
+@MainActor final class KeyCheckTests: IsolatedDefaultsTestCase {
     private var temporary: URL!
     private let headerKey = (0..<32).map { UInt8(0xA0 ^ $0) }
 
@@ -169,9 +169,7 @@ import NXModel
         let output = URL(fileURLWithPath: directory)
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         NSApplication.shared.setActivationPolicy(.accessory)
-        let oldOutput = UserDefaults.standard.object(forKey: "buildOutputDirectory")
-        defer { UserDefaults.standard.set(oldOutput, forKey: "buildOutputDirectory") }
-        let modelStores = LauncherStores(); let model = modelStores.build
+        let modelStores = LauncherStores(defaults: testDefaults); let model = modelStores.build
         model.lang = CaptureLanguage.current(.en)
         model.outDir = temporary.path
         MainActor.assumeIsolated { modelStores.dependencies.checked = true }

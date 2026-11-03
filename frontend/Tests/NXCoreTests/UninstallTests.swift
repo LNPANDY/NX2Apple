@@ -28,7 +28,6 @@ final class UninstallTests: XCTestCase {
 
     /// Uninstall computes from NSHomeDirectory: the tests point it at the temporary folder.
     private func setHome(_ path: String) {
-        UserDefaults.standard.set(path, forKey: "NSGlobalDomain_home")   // not read by the app; the env below is
         setenv("HOME", path, 1)
     }
 

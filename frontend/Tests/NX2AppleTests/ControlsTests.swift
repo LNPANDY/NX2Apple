@@ -4,7 +4,7 @@ import XCTest
 @testable import NXLauncher
 
 /// The Controls page's layout and the DM_KEYMAP / DM_PAD_MAP it passes (read by dm/host/input_map.h).
-final class ControlsTests: XCTestCase {
+final class ControlsTests: IsolatedDefaultsTestCase {
     private var defaults: UserDefaults!
     private let suite = "nxnative-controls-tests"
 
@@ -70,7 +70,7 @@ final class ControlsTests: XCTestCase {
     }
 }
 
-final class StageNameTests: XCTestCase {
+final class StageNameTests: IsolatedDefaultsTestCase {
     func testTheScriptsStageNamesAreShownInTheLaunchersLanguage() {
         let zh = { (k: String) in L10n.string(k, .zh) }, sv = { (k: String) in L10n.string(k, .sv) }
         XCTAssertEqual(Stage.localizedName("Mac shaders", zh), "Mac 着色器")
