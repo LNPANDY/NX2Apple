@@ -92,8 +92,9 @@ func describe(_ error: Error, file: String, cause: ProblemCause) -> GameProblem 
     func path(_ c: [CodingKey]) -> String { c.map { $0.stringValue }.joined(separator: ".") }
     switch e {
     case .keyNotFound(let key, let c):
-        let at = c.codingPath.isEmpty ? "" : " (in \(path(c.codingPath)))"
-        return GameProblem(cause: cause, reason: short, detail: hostText("\(file) has no \"\(key.stringValue)\"\(at)."))
+        let detail = c.codingPath.isEmpty ? hostText("\(file) has no \"\(key.stringValue)\".")
+            : hostText("\(file) has no \"\(key.stringValue)\" (in \(path(c.codingPath))).")
+        return GameProblem(cause: cause, reason: short, detail: detail)
     case .typeMismatch(_, let c), .valueNotFound(_, let c):
         return GameProblem(cause: cause, reason: short, detail: hostText("\(file) has a wrong or missing value at \"\(path(c.codingPath))\"."))
     case .dataCorrupted:

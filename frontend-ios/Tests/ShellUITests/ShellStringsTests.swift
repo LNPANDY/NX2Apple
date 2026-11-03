@@ -2,10 +2,26 @@ import Foundation
 import Testing
 @testable import ShellUI
 
-/// Every text of the shell comes in English and in Simplified Chinese, the two languages that have every key. The catalogs are generated
-/// from `frontend/l10n/*.json` (`tools/l10n_shell_catalogs.py`): another language may miss a text and then shows English.
+/// Every text of the shell comes in all six languages of the app. The catalogs are generated from `frontend/l10n/*.json`
+/// (`tools/l10n_shell_catalogs.py`), so a new `ios.*` key without all six fails here and in `tools/tests/test_l10n_shell_catalogs.py`.
 @Suite struct ShellStringsTests {
-    private static let languages = ["en", "zh-Hans"]
+    private static let languages = ["en", "zh-Hans", "de", "sv", "fr", "it"]
+
+    /// Texts a language writes exactly as English does, by English text, with the languages that do. Names, units and words that are
+    /// the same in that language. Anything else equal to English is a text nobody translated. Reviewed with each new entry.
+    private static let cognates: [String: Set<String>] = [
+        "30 fps": ["de", "sv", "it"], "60 fps": ["de", "sv", "it"],   // a unit
+        "MetalFX": ["de", "sv", "fr", "it"],                          // a name
+        "Standard": ["de", "sv", "fr", "it"],                         // launch.opt: the game's standard mode, a word in each
+        "Controller": ["de", "it"],
+        "Handheld": ["de"],
+        "Interface": ["fr"],
+        "Layout": ["sv"],
+        "Upscaling": ["it"],
+        "Minus": ["de", "sv"], "Plus": ["de", "sv", "fr"],            // the Switch's buttons
+        "Version %@": ["de", "sv", "fr"],
+        "OK": ["de", "sv", "fr", "it"],
+    ]
 
     private func table(_ name: String, in folder: String) throws -> [String: Any] {
         let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -25,6 +41,22 @@ import Testing
                 #expect(!value.isEmpty && unit?["state"] as? String == "translated", "\(folder): \"\(key)\" lacks \(language)")
             }
         }
+    }
+
+    /// German, Swedish, French and Italian are not left in English, except the listed cognates. The list is exact, so an entry that is
+    /// no longer needed fails too.
+    @Test func nothingIsLeftInEnglishButTheListedCognates() throws {
+        var same: [String: Set<String>] = [:]
+        for folder in ["ShellUI", "ShellHost"] {
+            for (key, entry) in try table("Localizable", in: folder) {
+                let localizations = ((entry as? [String: Any])?["localizations"] as? [String: Any]) ?? [:]
+                for language in ["de", "sv", "fr", "it"] {
+                    let value = ((localizations[language] as? [String: Any])?["stringUnit"] as? [String: Any])?["value"] as? String
+                    if value == key { same[key, default: []].insert(language) }
+                }
+            }
+        }
+        #expect(same == Self.cognates)
     }
 
     @Test func theSettingsPageTextsAreThere() throws {
@@ -82,14 +114,14 @@ import Testing
     }
 
     /// The app follows the system language: iOS picks the lproj of the bundle by the device's list, and the app's
-    /// Info.plist declares en and zh-Hans (CFBundleLocalizations). So both lprojs must be in the package bundle.
-    @Test func bothLanguagesAreCompiledIntoTheBundle() throws {
+    /// Info.plist declares every language file (CFBundleLocalizations). So every lproj must be in the package bundle.
+    @Test func everyLanguageIsCompiledIntoTheBundle() throws {
         func text(_ language: String) throws -> String {
             let path = try #require(ShellStrings.bundle.path(forResource: language, ofType: "lproj"), "\(language).lproj")
             return String(localized: "Done", bundle: try #require(Bundle(path: path)))
         }
         #expect(try text("en") == "Done")
-        #expect(try text("zh-Hans") != "Done")
+        for language in Self.languages where language != "en" { #expect(try text(language) != "Done", "\(language)") }
         #expect(ShellStrings.bundle.path(forResource: "zh-Hant", ofType: "lproj") == nil, "Traditional Chinese has no catalog and falls back")
     }
 
@@ -107,11 +139,9 @@ import Testing
         keys.formUnion(["Move up", "Move down", "Move left", "Move right", "Reset this control", "Reset all controls", "Moved", "In its place"])
         #expect(keys.contains("Done") && keys.contains("Put every control of the %@ layout back in its built-in place?"), "\(keys.sorted())")
         let strings = try table("Localizable", in: "ShellUI")
-        // Names that read the same in some languages: the language files leave them out on purpose (GermanLocalizationTests).
-        keys.subtract(["Minus", "Plus"])
         for key in keys.sorted() {
             let localizations = ((strings[key] as? [String: Any])?["localizations"] as? [String: Any]) ?? [:]
-            for language in ["en", "zh-Hans", "de", "sv", "fr", "it"] {
+            for language in Self.languages {
                 let value = ((localizations[language] as? [String: Any])?["stringUnit"] as? [String: Any])?["value"] as? String ?? ""
                 #expect(!value.isEmpty, "\"\(key)\" lacks \(language)")
             }
@@ -124,7 +154,7 @@ import Testing
             (((strings[key] as? [String: Any])?["localizations"] as? [String: Any])?[language] as? [String: Any])
                 .flatMap { ($0["stringUnit"] as? [String: Any])?["value"] as? String }
         }
-        for language in ["en", "zh-Hans", "de", "sv", "fr", "it"] {
+        for language in Self.languages {
             let one = try #require(value("Reset this control", language)), all = try #require(value("Reset all controls", language))
             #expect(one != all, "\(language)")
         }
