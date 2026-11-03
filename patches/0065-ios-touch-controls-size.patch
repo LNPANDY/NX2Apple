@@ -1,6 +1,6 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: v0lumehi <aljic.zijad@gmail.com>
-Date: Tue, 3 Nov 2026 15:11:04 +0100
+Date: Tue, 3 Nov 2026 18:23:54 +0100
 Subject: [PATCH] ios: touch controls size (DM_TOUCH_SIZE) on a tested geometry
 
 The virtual gamepad's placement moves out of DmGamepad.m into
@@ -35,26 +35,26 @@ Issue: LNPANDY/NX2Apple#347
  create mode 100644 dm/ios/tests/test_pad_geometry.py
 
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index 9f51749..3ea60b6 100644
+index 8a9f009..6396f99 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
-@@ -9,6 +9,7 @@
- //   Touch-down ownership: locked keys first (shoulders, − / +, the layout button, L3 / R3), then whichever of the diamond, the D-pad and the left stick has the smallest distance / grab radius (the left stick's grab circle borders the D-pad),
+@@ -10,6 +10,7 @@
+ //   Touch-down ownership: the menu button where it is nearer than a locked key (a view of its own, DmMenuButton), locked keys next (shoulders, − / +, L3 / R3), then whichever of the diamond, the D-pad and the left stick has the smallest distance / grab radius (the left stick's grab circle borders the D-pad),
  //     then in 3D the right stick for a touch in the right third.
  //   Everything hugs the edges and corners to leave the picture room; controls sit over the picture, one CAShapeLayer each: a press only swaps the fill, a stick only moves its knob, nothing redraws the whole screen.
 +//   Where each control sits is DmPadGeometry.h (pure, tested on the Mac); the player picks the size there through DM_TOUCH_SIZE (small, medium, large; a size that does not fit the screen moves toward medium).
  //   Touches no control takes (in 3D, those outside the right third) go to the game's touch screen when DmLayout assigns a local game viewport (pushGame; Super Mario Galaxy's pointer in handheld mode).
- //   The virtual gamepad (layout button included) hides while a physical controller is connected and comes back when it is removed; unclaimed touches go to the game only when a local game viewport exists. Physical controllers keep every button (D-pad and right stick included) and map by position: bottom = B, right = A, left = Y, top = X (same positions as on a Switch controller); a Nintendo pad maps by its labels (pad_apple.h).
+ //   The virtual gamepad (all but the menu button) hides while a physical controller is connected and comes back when it is removed; unclaimed touches go to the game only when a local game viewport exists. Physical controllers keep every button (D-pad and right stick included) and map by position: bottom = B, right = A, left = Y, top = X (same positions as on a Switch controller); a Nintendo pad maps by its labels (pad_apple.h).
  //   Each physical controller is a player of its own (local co-op), as on the Mac: the first one connected is player 1, together with the touch gamepad, the next player 2, and so on up to 8; see "Physical controllers" below.
-@@ -30,6 +31,7 @@
+@@ -31,6 +32,7 @@
  #include "input_map.h"
  #include <stdatomic.h>
  #import "DmLayout.h"
 +#import "DmPadGeometry.h"
+ #import "DmGameMenu.h"
  
  enum { B_A = 0, B_B, B_X, B_Y, B_LS, B_RS, B_L, B_R, B_ZL, B_ZR, B_PLUS, B_MINUS, B_LEFT, B_UP, B_RIGHT, B_DOWN, B_N };
- enum { C_NONE = 0, C_STICK, C_DPAD, C_FACE, C_BTN, C_SWAP, C_GAME };   // which control a touch holds; C_GAME: none, the touch goes to the game's touch screen (finger slot << 8)
-@@ -106,27 +108,19 @@ static void phone_motion_start(UIView *body) {
+@@ -108,27 +110,19 @@ static void phone_motion_start(UIView *body) {
      }];
  }
  
@@ -64,7 +64,7 @@ index 9f51749..3ea60b6 100644
 +// the DmLayout split and the player's options (DM_TOUCH_SIZE), tested on the Mac (dm/ios/tests/test_pad_geometry.py). Drawing, the hit-test and the grab all read it.
 +// The bottom-corner controls reach halfway into the side safe-area inset (in landscape there is only the rounded screen corner there; the Dynamic Island is mid-edge);
 +// the stick's ring is as large as the whole diamond (key distance + key radius), the knob a little larger than a diamond key; the D-pad sits inward of and below the
-+// left stick, as on a Pro Controller. What stays here is how touches are taken:
++// left stick, as on a Pro Controller. The menu button is at the top centre, level with - / +, and takes a touch within 1.6 times its radius (at least 22 points, half of a 44-point target). What stays here is how touches are taken:
  static const CGFloat
 -    K_ZL_X = 44, K_ZL_Y = 40, K_ZL_R = 26,          // ZL / ZR: centre from the outer edge and the top, radius
 -    K_L_X = 44, K_L_Y = 108, K_L_R = 24,            // L / R: same column as ZL / ZR
@@ -73,7 +73,7 @@ index 9f51749..3ea60b6 100644
 -    K_FACE_X = 81, K_PAD_Y = 82,                    // diamond centre from the outer edge; diamond and stick centre from the bottom (B's lower edge about 5 above it)
 -    K_FACE_GAP = 50, K_FACE_R = 27,                 // diamond: key distance from the centre, key radius
 -    K_PILL_DX = 52, K_PILL_Y = 22, K_PILL_W = 50, K_PILL_H = 28,   // − / +: centre from the screen's midline (the middle goes to the layout button) and from the top, size
--    K_SWAP_R = 15,                                  // layout button: top centre, level with − / +
+-    K_MENU_R = 15,                                  // menu button: top centre, level with − / +; it takes a touch within 1.6 times this (at least 22 points, half of a 44-point target)
 -    K_STICK_X = 81, K_STICK_R = 77, K_KNOB_R = 30,  // left stick: mirrors the diamond, the ring as large as the whole diamond (key distance + key radius), the knob a little larger than a diamond key
      K_STICK_GRAB = 1.4,                             // how near the ring centre a touch-down grabs a stick (times the ring radius)
      K_FULL = 0.8,                                   // full tilt at this fraction of the ring radius (the knob still travels to the ring edge)
@@ -89,7 +89,7 @@ index 9f51749..3ea60b6 100644
  static const int k_btns[] = {B_ZL, B_L, B_ZR, B_R, B_MINUS, B_PLUS, B_LS, B_RS};   // keys locked at touch-down (L3 / R3 only in the 3D layout)
  static NSString *const k_layout_key = @"DmPadLayout";   // NSUserDefaults: 0 = 2D, 1 = 3D, 2 = Tap (DM_GAME_PAD_LAYOUT's numbers)
  int dm_opmode(void);   // hle_oe.c: 0 = handheld
-@@ -153,7 +147,9 @@ @implementation DmGamepad {
+@@ -163,7 +157,9 @@ @implementation DmGamepad {
      CALayer *_controls;                            // holds every control layer: hidden while a physical controller is connected (the view itself stays, for game touches)
      BOOL _padOff;                                  // a physical controller is connected: every touch goes to the game
      DmLayout _layout;
@@ -100,7 +100,7 @@ index 9f51749..3ea60b6 100644
  }
  
  static UIColor *k_idle, *k_on, *k_line, *k_ringFill, *k_text, *k_textOn;
-@@ -173,6 +169,9 @@ @implementation DmGamepad {
+@@ -183,6 +179,9 @@ @implementation DmGamepad {
  - (instancetype)initWithFrame:(CGRect)f {
      if ((self = [super initWithFrame:f])) {
          _layout = dm_layout(self.bounds, UIEdgeInsetsZero, NO, CGRectNull);
@@ -110,7 +110,7 @@ index 9f51749..3ea60b6 100644
          [self registerForTraitChanges:@[UITraitDisplayScale.class] withHandler:^(id<UITraitEnvironment> environment, UITraitCollection *previous) {
              [(UIView *)environment setNeedsLayout];
          }];
-@@ -234,68 +233,43 @@ - (void)nextLayout {   // 2D → 3D (→ Tap in handheld mode) → 2D: release e
+@@ -259,68 +258,43 @@ - (void)setTouchFeedback:(BOOL)on {
  - (void)arrange:(DmLayout)layout {
      if (CGRectEqualToRect(_layout.controls, layout.controls) && CGRectEqualToRect(_layout.game, layout.game) && _layout.separated == layout.separated && _layout.topSafeOnly == layout.topSafeOnly) return;
      [self reset];   // A finger held across a pose change must not leave a key or game touch stuck.
@@ -187,13 +187,13 @@ index 9f51749..3ea60b6 100644
 -- (CGRect)pillRect:(int)b { CGRect s = self.safe; CGFloat u = self.u, w = K_PILL_W * u, h = K_PILL_H * u;
 -    CGPoint c = CGPointMake(CGRectGetMidX(s) + (b == B_PLUS ? K_PILL_DX : -K_PILL_DX) * u, CGRectGetMinY(s) + MAX(K_PILL_Y * u, _layout.separated ? 14 : 0));   // − on the left, + on the right
 -    return CGRectMake(c.x - w / 2, c.y - h / 2, w, h); }
--- (CGPoint)swapCenter { CGRect s = self.safe; return CGPointMake(CGRectGetMidX(s), CGRectGetMinY(s) + MAX(K_PILL_Y * self.u, _layout.separated ? 14 : 0)); }
+-- (CGPoint)menuCenter { CGRect s = self.safe; return CGPointMake(CGRectGetMidX(s), CGRectGetMinY(s) + MAX(K_PILL_Y * self.u, _layout.separated ? 14 : 0)); }
 +static int dropIndex(int b) { return b == B_ZL ? DM_PAD_ZL : b == B_L ? DM_PAD_L : b == B_ZR ? DM_PAD_ZR : DM_PAD_R; }
 +- (CGPoint)dropCenter:(int)b { return self.geo->drop[dropIndex(b)]; }
 +- (CGFloat)dropR:(int)b { return self.geo->dropR[dropIndex(b)]; }
 +- (CGPoint)clickCenter:(int)b { return self.geo->click[b == B_RS]; }
 +- (CGRect)pillRect:(int)b { return self.geo->pill[b == B_PLUS ? DM_PAD_PLUS : DM_PAD_MINUS]; }
-+- (CGPoint)swapCenter { return self.geo->swap; }
++- (CGPoint)menuCenter { return self.geo->swap; }
  
  static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y); }
  - (CGFloat)buttonDistance:(int)b point:(CGPoint)p {
@@ -204,16 +204,16 @@ index 9f51749..3ea60b6 100644
      CGRect r = CGRectInset([self pillRect:b], -8 * u, -8 * u);
      if (!_layout.separated && !CGRectContainsPoint(r, p)) return CGFLOAT_MAX;
      CGFloat w = MAX(r.size.width, _layout.separated ? 28 : 0), h = MAX(r.size.height, _layout.separated ? 28 : 0);
-@@ -313,7 +287,7 @@ - (int)btnAt:(CGPoint)p {   // Locked at touch-down; nearest normalized target w
+@@ -338,7 +312,7 @@ - (int)btnAt:(CGPoint)p {   // Locked at touch-down; nearest normalized target w
      }
      return best;
  }
--- (CGFloat)swapDistance:(CGPoint)p { return dist(p, self.swapCenter) / MAX(K_SWAP_R * self.u * 1.6, _layout.separated ? 14 : 0); }
-+- (CGFloat)swapDistance:(CGPoint)p { return dist(p, self.swapCenter) / MAX(self.geo->swapR * 1.6, _layout.separated ? 14 : 0); }
- - (BOOL)inSwap:(CGPoint)p { return [self swapDistance:p] <= 1; }
- - (uint64_t)faceAt:(CGPoint)p {   // keys under the finger in the diamond (between two keys both count)
-     uint64_t m = 0; CGFloat r = self.faceHitR;
-@@ -442,7 +416,7 @@ - (void)reset { [_owner removeAllObjects]; [_faceOf removeAllObjects]; _stick[0]
+-- (CGFloat)menuDistance:(CGPoint)p { return dist(p, self.menuCenter) / MAX(K_MENU_R * self.u * 1.6, 22); }
++- (CGFloat)menuDistance:(CGPoint)p { return dist(p, self.menuCenter) / MAX(self.geo->swapR * 1.6, 22); }
+ - (BOOL)menuTakes:(CGPoint)p {   // the menu button takes a touch in its hit circle unless a locked key's target is nearer (the drawn keys are hidden in Tap and with a controller)
+     CGFloat d = [self menuDistance:p]; if (d > 1) return NO;
+     if (_tap || _padOff || (_layout.separated && !CGRectContainsPoint(_layout.controls, p))) return YES;
+@@ -466,7 +440,7 @@ - (void)reset { [_owner removeAllObjects]; [_faceOf removeAllObjects]; _stick[0]
  // ---- Shapes ----
  static CGPathRef circlePath(CGPoint c, CGFloat r) { return CGPathCreateWithEllipseInRect(CGRectMake(c.x - r, c.y - r, 2 * r, 2 * r), NULL); }
  static CGPathRef dropPath(CGPoint c, CGFloat r, CGFloat tipAngle, CGFloat round) {   // teardrop: circle + two tangents meeting at the tip, tip slightly rounded
@@ -222,7 +222,7 @@ index 9f51749..3ea60b6 100644
      CGPoint tip = CGPointMake(c.x + d * cos(tipAngle), c.y + d * sin(tipAngle));
      CGPoint p1 = CGPointMake(c.x + r * cos(tipAngle + th), c.y + r * sin(tipAngle + th)), p2 = CGPointMake(c.x + r * cos(tipAngle - th), c.y + r * sin(tipAngle - th));
      CGMutablePathRef p = CGPathCreateMutable();
-@@ -486,17 +460,17 @@ - (void)layoutSubviews {
+@@ -509,20 +483,20 @@ - (void)layoutSubviews {
              BOOL right = b == B_ZR || b == B_R; CGPoint c = [self dropCenter:b];
              setPath(_key[b], dropPath(c, [self dropR:b], right ? -M_PI_4 : -3 * M_PI_4, 4 * u)); placeLabel(_label[b], c, 16 * u);   // tip toward the near top corner
          } else if (isClick(b)) {
@@ -235,9 +235,12 @@ index 9f51749..3ea60b6 100644
      }
      static const struct { int b; CGFloat angle; } arms[] = {{B_UP, 0}, {B_RIGHT, M_PI_2}, {B_DOWN, M_PI}, {B_LEFT, -M_PI_2}};   // the same arm in 90° steps
 -    for (int i = 0; i < 4; i++) setPath(_key[arms[i].b], armPath(self.dpadCenter, self.dpadR, K_ARM_W * u, K_ARM_IN * u, arms[i].angle, 6 * u));
--    CGPoint sc = self.swapCenter; setPath(_swap, circlePath(sc, K_SWAP_R * u)); placeLabel(_swapLabel, sc, 12 * u);
+-    CGFloat mr = K_MENU_R * u; CGPoint mc = self.menuCenter;
 +    for (int i = 0; i < 4; i++) setPath(_key[arms[i].b], armPath(self.dpadCenter, self.dpadR, self.geo->armW, self.geo->armIn, arms[i].angle, 6 * u));
-+    CGPoint sc = self.swapCenter; setPath(_swap, circlePath(sc, self.geo->swapR)); placeLabel(_swapLabel, sc, 12 * u);
++    CGFloat mr = self.geo->swapR; CGPoint mc = self.menuCenter;
+     _menu.frame = CGRectMake(mc.x - mr, mc.y - mr, 2 * mr, 2 * mr); _menu.layer.cornerRadius = mr;
+     _menu.layer.shadowPath = [UIBezierPath bezierPathWithOvalInRect:_menu.bounds].CGPath;
+     [_menu setImage:[UIImage systemImageNamed:@"gearshape.fill" withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:13 * u weight:UIImageSymbolWeightSemibold]] forState:UIControlStateNormal];
      setPath(_ring, circlePath(self.stickHome, [self stickR:0]));
 -    CGFloat k = K_KNOB_R * u; _knob.bounds = CGRectMake(0, 0, 2 * k, 2 * k);
 +    CGFloat k = self.geo->knobR; _knob.bounds = CGRectMake(0, 0, 2 * k, 2 * k);
@@ -246,7 +249,7 @@ index 9f51749..3ea60b6 100644
      in.frame = _knob.bounds; in.path = ip; CGPathRelease(ip);
 diff --git a/dm/ios/Sources/DmPadGeometry.h b/dm/ios/Sources/DmPadGeometry.h
 new file mode 100644
-index 0000000..a03f3ec
+index 0000000..92697ef
 --- /dev/null
 +++ b/dm/ios/Sources/DmPadGeometry.h
 @@ -0,0 +1,176 @@
@@ -280,7 +283,7 @@ index 0000000..a03f3ec
 +    CGPoint drop[4]; CGFloat dropR[4];                // ZL, L, ZR, R: teardrop centres and radii
 +    CGPoint click[2]; CGFloat clickR;                 // L3, R3 (3D only)
 +    CGRect pill[2];                                   // −, +
-+    CGPoint swap; CGFloat swapR;                      // the layout button
++    CGPoint swap; CGFloat swapR;                      // the menu button
 +} DmPadGeo;
 +
 +// Layout constants (in u), the values DmGamepad.m has always used.
@@ -292,7 +295,7 @@ index 0000000..a03f3ec
 +    DM_PAD_FACE_X = 81, DM_PAD_Y = 82,                        // diamond centre from the outer edge; diamond and stick centre from the bottom
 +    DM_PAD_FACE_GAP = 50, DM_PAD_FACE_R = 27,                 // diamond: key distance from the centre, key radius
 +    DM_PAD_PILL_DX = 52, DM_PAD_PILL_Y = 22, DM_PAD_PILL_W = 50, DM_PAD_PILL_H = 28,   // − / +: centre from the midline and from the top, size
-+    DM_PAD_SWAP_R = 15,                                       // layout button: top centre, level with − / +
++    DM_PAD_SWAP_R = 15,                                       // menu button: top centre, level with − / +
 +    DM_PAD_STICK_X = 81, DM_PAD_STICK_R = 77, DM_PAD_KNOB_R = 30,   // left stick: mirrors the diamond
 +    DM_PAD_LOW_X = 231, DM_PAD_LOW_Y = 64,                    // D-pad centre from the outer edge and the bottom
 +    DM_PAD_DPAD_R = 48, DM_PAD_ARM_W = 17, DM_PAD_ARM_IN = 11,

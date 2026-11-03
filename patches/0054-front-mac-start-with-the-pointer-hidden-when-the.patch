@@ -15,10 +15,10 @@ Issue: LNPANDY/NX2Apple#368
  2 files changed, 8 insertions(+), 2 deletions(-)
 
 diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
-index e3e9e11..525765e 100644
+index f558c23..c25128d 100644
 --- a/dm/host/front_mac.m
 +++ b/dm/host/front_mac.m
-@@ -1276,14 +1276,19 @@ void front_run(void (*guest)(void)) {
+@@ -1395,14 +1395,19 @@ void front_run(void (*guest)(void)) {
          const char *ch = getenv("DM_CURSOR_HIDE"); double idle = ch && *ch ? atof(ch) : 3.0;
          if (idle > 0) {
              win.acceptsMouseMovedEvents = YES;
@@ -41,7 +41,7 @@ index e3e9e11..525765e 100644
          }
          for (NSNotificationName nm in @[GCControllerDidConnectNotification, GCControllerDidDisconnectNotification])
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index 7b36162..e594a57 100644
+index 7b7fcb0..e9f4a73 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
 @@ -21,6 +21,7 @@ DM_CHEATS_WINDOW	switch	`1` opens the Mac Cheats panel beside the game from the

@@ -284,12 +284,16 @@ struct PadGeo: Equatable {
         if x.isRect { x.rect = x.rect.insetBy(dx: -gap, dy: -gap) } else { x.r += gap }
         return overlap(x, b)
     }
-    /// The engine's rule for a moved control: inside its area, and every other control at least the gap away.
+    /// The engine's rule for a moved control: inside its area, every other control at least the gap away, out of the menu button's hit circle.
     func controlFits(_ c: TouchLayout.Control) -> Bool {
         let s = shapes, gap = max(10 * u, 10)
         for i in s.indices where Self.isShape(s[i].id, of: c) {
             if !Self.inside(s[i]) { return false }
-            for j in s.indices where !Self.isShape(s[j].id, of: c) { if Self.near(s[i], s[j], gap) { return false } }
+            for j in s.indices where !Self.isShape(s[j].id, of: c) {
+                var o = s[j]
+                if o.id == Self.shapeSwap { o.r = max(o.r + gap, max(swapR * 1.6, 22)) - gap }   // the menu button: its whole hit circle
+                if Self.near(s[i], o, gap) { return false }
+            }
         }
         return true
     }
