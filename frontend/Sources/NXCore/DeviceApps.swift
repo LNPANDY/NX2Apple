@@ -37,17 +37,12 @@ extension ShellInstall {
 
     /// Why the game data could not be put into the app.
     package enum DataFailure: Equatable {
-        /// The device has no app with this bundle ID.
+        /// The device lists no app with the shared app's bundle ID.
         case appNotFound
-        /// devicectl refused: an app not signed for development (get-task-allow), no permission, or anything else it says.
+        /// The device's list of apps could not be read (locked, not connected). Nothing was tried on the app yet.
+        case noAppList
+        /// The device listed the app, but the copy into it failed. devicectl's words are in the outcome's `detail`. What we believe,
+        /// not verified on a device: an app that another tool signed does not allow it (no `get-task-allow`) (#491).
         case refused
-    }
-
-    /// What a devicectl copy error means. Only a missing app is told apart. Everything else is a refusal, shown with devicectl's words.
-    package static func dataFailure(copyError text: String) -> DataFailure {
-        let lower = text.lowercased()
-        let missing = ["not installed", "no such app", "unknown app", "could not find the app", "couldn't find the app", "application not found",
-                       "app not found", "no app with"]
-        return missing.contains { lower.contains($0) } ? .appNotFound : .refused
     }
 }
