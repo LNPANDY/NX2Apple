@@ -87,6 +87,12 @@ extension BuildStore {
     /// The game's title ID as 16 hex digits, when the inputs tell it.
     package var gameTitleID: String? { gameFolder?.titleIDHex ?? TitleID.parse(basePath).map { String(format: "%016llX", $0) } }
 
+    /// The chosen game is a Switch 2 game by its engine profile (GameFolder.profileIsSwitch2): the Builds page says how far the engine's support goes.
+    package var isSwitch2Game: Bool {
+        guard let tid = gameTitleID else { return false }
+        return GameFolder.profileIsSwitch2(tid, engineRoot: EngineLayout.root(repo.path))
+    }
+
     /// A name for the game in messages and the shared app: the profile's for a game folder (it has no control data), else the base package's file name.
     package var gameName: String {
         if let f = gameFolder {

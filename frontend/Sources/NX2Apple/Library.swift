@@ -384,6 +384,19 @@ final class GameLibrary: ObservableObject {
         while let url = e.nextObject() as? URL {
             if (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
                 let name = url.lastPathComponent.lowercased()
+                // A game folder (a Switch 2 game's base/, updates/, dlc/, GameFolder.swift) is one game: its folder is its input,
+                // and its 80,000 files are not walked.
+                if GameFolder.isCandidate(url.path) {
+                    e.skipDescendants()
+                    if case .success(let f) = GameFolder.scan(url.path), result[f.titleIDHex] == nil {
+                        var game = LibraryGame(titleID: f.titleIDHex, name: title(for: url.path, repo: repo, titleID: f.titleIDHex))
+                        game.inputs = [GameLibrary.folderInput: [url.path], "base": [f.basePath]]
+                        game.sourceFolder = url.path
+                        game.outputDirectory = url.path
+                        result[f.titleIDHex] = game
+                    }
+                    continue
+                }
                 if e.level >= 4 || name.hasSuffix(".app") || name.hasSuffix("_build") || name.hasSuffix("-work") || name.hasSuffix("_survey") || ["romfs", "extract", "tools", "venv", "archive", "harness", "runs", "shader", "node_modules"].contains(name) { e.skipDescendants() }
                 continue
             }

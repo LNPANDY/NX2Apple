@@ -131,6 +131,22 @@ final class GameFolderTests: XCTestCase {
     }
 }
 
+extension GameFolderTests {
+    /// No profile key says "Switch 2" yet: the first line of every Switch 2 profile at seedds/nxnative 641d148 does (#445).
+    func testTheProfilesFirstLineTellsASwitch2Game() {
+        let engine = root + "/engine"
+        write("engine/dm/games/040074A01BF12000/game.tsv", Data("# Donkey Kong Bananza (Switch 2, update v458752). In bring-up\ntitle_id\t040074A01BF12000\n".utf8))
+        write("engine/dm/games/0100F2C0115B6000/game.tsv", Data("# The Legend of Zelda: Tears of the Kingdom (update v1.4.2)\n# mentions (Switch 2 Edition) later\n".utf8))
+        write("engine/dm/games/0100000000010000/game.tsv", Data("title_id\t0100000000010000\n# (Switch 2\n".utf8))
+        XCTAssertTrue(GameFolder.profileIsSwitch2("040074A01BF12000", engineRoot: engine))
+        XCTAssertTrue(GameFolder.profileIsSwitch2("040074a01bf12000", engineRoot: engine))
+        XCTAssertFalse(GameFolder.profileIsSwitch2("0100F2C0115B6000", engineRoot: engine), "only the first line counts")
+        XCTAssertFalse(GameFolder.profileIsSwitch2("0100000000010000", engineRoot: engine), "only a comment line counts")
+        XCTAssertFalse(GameFolder.profileIsSwitch2("0400000000000000", engineRoot: engine), "no profile")
+        XCTAssertFalse(GameFolder.profileIsSwitch2("040074A01BF12000", engineRoot: ""))
+    }
+}
+
 extension Result {
     var failureValue: Failure? { if case .failure(let e) = self { return e }; return nil }
 }

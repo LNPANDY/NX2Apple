@@ -132,6 +132,18 @@ package enum GameFolder {
         return name.isEmpty ? nil : name
     }
 
+    /// Whether the engine's profile is a Switch 2 game's. No profile key says so yet (#445 asks upstream for one): every Switch 2
+    /// profile at seedds/nxnative 641d148 names it in its first line, "# Donkey Kong Bananza (Switch 2, update v458752)", and the
+    /// launcher reads that. The `04` start of their title IDs is not used: it is an observation, not a rule.
+    package static func profileIsSwitch2(_ titleID: String, engineRoot: String) -> Bool {
+        guard !engineRoot.isEmpty, titleID.count == 16,
+              let handle = FileHandle(forReadingAtPath: engineRoot + "/dm/games/" + titleID.uppercased() + "/game.tsv") else { return false }
+        defer { try? handle.close() }
+        let head = String(decoding: handle.readData(ofLength: 512), as: UTF8.self)
+        guard let first = head.split(separator: "\n", maxSplits: 1).first, first.hasPrefix("#") else { return false }
+        return first.contains("(Switch 2")
+    }
+
     private static func isFile(_ path: String) -> Bool {
         var d: ObjCBool = false
         return FileManager.default.fileExists(atPath: path, isDirectory: &d) && !d.boolValue

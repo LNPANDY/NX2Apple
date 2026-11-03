@@ -42,7 +42,47 @@ final class GameFolderCaptureTests: IsolatedDefaultsTestCase {
         return Data(d)
     }
 
+    /// The library folder scan finds a game folder as one game, keyed by its title ID, with the folder as its input (#512).
+    func testTheLibraryScanFindsAGameFolder() {
+        let root = NSTemporaryDirectory() + "gamefolder-library-" + UUID().uuidString
+        defer { try? FileManager.default.removeItem(atPath: root) }
+        let folders = Self.makeFolders(in: root)
+        let games = GameLibrary.sourceGames(in: URL(fileURLWithPath: root), repo: folders.engine)
+        XCTAssertEqual(games.map(\.titleID), ["040074A01BF12000"])
+        XCTAssertEqual(games.first?.name, "Donkey Kong Bananza", "the profile's name")
+        let real = { (p: String) in URL(fileURLWithPath: p).resolvingSymlinksInPath().path }   // the enumerator hands out /private/var/…
+        XCTAssertEqual(games.first?.inputs[GameLibrary.folderInput]?.map(real), [real(folders.game)])
+        XCTAssertEqual(games.first.map { real($0.sourceFolder) }, real(folders.game))
+    }
+
     // MARK: Visual QA (matched by --filter testRenderLauncherForVisualQA)
+
+    @MainActor func testRenderLauncherForVisualQAGameFolderLibrary() throws {
+        guard let directory = ProcessInfo.processInfo.environment["NX_LAUNCHER_CAPTURE_DIR"] else { throw XCTSkip("Set NX_LAUNCHER_CAPTURE_DIR to capture native views") }
+        let output = URL(fileURLWithPath: directory)
+        try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+        let root = NSTemporaryDirectory() + "gamefolder-capture-" + UUID().uuidString
+        defer { try? FileManager.default.removeItem(atPath: root) }
+        let folders = Self.makeFolders(in: root)
+        NSApplication.shared.setActivationPolicy(.accessory)
+        let stores = LauncherStores(defaults: testDefaults); let model = stores.build
+        stores.repo.path = folders.engine
+        model.lang = CaptureLanguage.current(.en)
+        let library = GameLibrary(file: URL(fileURLWithPath: root + "/preview.json"))
+        model.scan(folder: folders.game)
+        _ = library.rememberInputs(model)
+        library.selectedID = library.games.first?.id
+        let host = NSHostingView(rootView: LauncherView(stores: stores, library: library, initialPage: .library, performStartupChecks: false))
+        let window = OffscreenWindow(size: NSSize(width: 1440, height: 1024), styleMask: [.titled, .closable, .resizable])
+        window.contentView = host
+        window.orderFront(nil)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.8))
+        host.layoutSubtreeIfNeeded()
+        let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: rep)
+        try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: output.appendingPathComponent("library-game-folder.png"))
+        window.orderOut(nil)
+    }
 
     @MainActor func testRenderLauncherForVisualQAGameFolder() throws {
         guard let directory = ProcessInfo.processInfo.environment["NX_LAUNCHER_CAPTURE_DIR"] else { throw XCTSkip("Set NX_LAUNCHER_CAPTURE_DIR to capture native views") }
