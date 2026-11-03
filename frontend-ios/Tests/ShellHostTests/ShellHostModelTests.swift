@@ -30,6 +30,23 @@ final class Clock: @unchecked Sendable { var date: Date; init(_ d: Date) { date 
         try detail(model, game).sections.flatMap(\.rows).first { $0.id == setting }?.value
     }
 
+    @Test func theTouchSizeReachesEveryGameAsDMTouchSize() async throws {
+        let box = try Sandbox()
+        try box.giveAppData()
+        let shell = shellSettings()
+        let launcher = RecordingLauncher()
+        let model = ShellHostModel(config: box.config(), launcher: launcher, shellSettings: shell)
+        await model.playNow(Fixtures.orbit)
+        #expect(launcher.launched.last?.environment["DM_TOUCH_SIZE"] == nil, "medium is the engine's own size")
+        shell.storeTouchSize("large")
+        await model.playNow(Fixtures.orbit)
+        #expect(launcher.launched.last?.environment["DM_TOUCH_SIZE"] == "large")
+        #expect(try !detail(model).hasModifiedSettings, "a shell setting is not a change in this game")
+        shell.storeTouchSize("medium")
+        await model.playNow(Fixtures.orbit)
+        #expect(launcher.launched.last?.environment["DM_TOUCH_SIZE"] == nil)
+    }
+
     @Test func padOverridesPersistMergeAndReset() async throws {
         let box = try Sandbox()
         try box.giveAppData()
