@@ -242,6 +242,7 @@ struct ConsolePadSnapshot: Equatable {
                     guard let self, self.state.startingGameID == gameID else { return }
                     if let error { self.state.returnFromGame(); self.gameEnded(); self.showToast(error.localizedDescription); return }
                     self.launchedPID = pid
+                    self.launchedGame = game
                     if let pid { GameReturnWatcher.shared.didStart(pid: pid) { [weak self] in self?.gameDidTerminate(pid: pid) } }   // the launcher's one watcher and its switch (ReturnAfterPlay.swift)
                     self.state.starting = .opening
                     self.timeoutTask?.cancel()
@@ -278,6 +279,30 @@ struct ConsolePadSnapshot: Equatable {
         timeoutTask?.cancel()
         state.returnFromGame()
         gameEnded()
+        if let game = launchedGame { launchedGame = nil; offerHomeButtonHint(after: game) }
+    }
+
+    // MARK: Home button (#336)
+
+    private var launchedGame: LibraryGame?
+    /// The Home button setting the game's last session wrote to its log (HomeButtonHint), the switch "already shown", whether this
+    /// is macOS 27 and the way to the setting. Tests replace them.
+    var homeButtonReported: (LibraryGame) -> String? = { HomeButtonSettings.reported(by: $0) }
+    var homeHintDefaults: UserDefaults = .standard
+    var isMacOS27 = HomeButtonSettings.available
+    var openHomeSettings: () -> Void = { HomeButtonSettings.open() }
+
+    /// After a game quit: the hint, once, when that game found that the system keeps the Home button for itself.
+    private func offerHomeButtonHint(after game: LibraryGame) {
+        let shown = homeHintDefaults.bool(forKey: HomeButtonHint.shownKey)
+        guard HomeButtonHint.shouldShow(setting: homeButtonReported(game), shown: shown, macOS27: isMacOS27) else { return }
+        homeHintDefaults.set(true, forKey: HomeButtonHint.shownKey)
+        state.showHomeButtonHint()
+    }
+
+    func openHomeButtonSettings() {
+        state.back()
+        openHomeSettings()
     }
 
     // MARK: Options

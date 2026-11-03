@@ -1,0 +1,716 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: v0lumehi <aljic.zijad@gmail.com>
+Date: Tue, 3 Nov 2026 15:26:49 +0100
+Subject: [PATCH] Mac host: quit a game by holding the controller's Home button
+ (macOS 27)
+
+Quitting a game on the Mac needed Cmd+Q, so a keyboard had to be close.
+Holding Home (the logo button on Xbox and PlayStation pads) for 2 seconds
+now opens a quit prompt over the game. A quits through the same path as
+Cmd+Q (NSApp terminate), B or a new press of Home closes it. Letting go
+before 2 seconds does nothing, and a small indicator at the top fills up
+while Home is held. While the prompt is open the game gets no controller
+input and is told it lost the focus, as the Switch's HOME menu does.
+
+The host already claims Home with preferredSystemGestureState. macOS 27
+respects that when the Home button setting for apps lets the app decide,
+macOS 26 makes no promise, so the hold works on macOS 27 only and Cmd+Q
+stays the way on macOS 26. DM_HOME_QUIT=0 turns it off. On macOS 27 the
+log names the setting once (GCControllerHomeButtonSettingsManager), so a
+launcher can tell the player when the system keeps Home for itself.
+DM_HOME_QUIT_TEXT carries the texts in the player's language.
+
+The state machine (home_quit.h) and the views (home_quit_mac.h) are
+tested without a controller or a window (t_home_quit, t_home_quit_mac).
+
+Upstream-Status: forwarded seedds/nxnative#1084
+Reason: Quit a game with the controller's Home button on macOS 27, the launcher's console mode needs it (#336)
+Issue: LNPANDY/NX2Apple#336
+---
+ dm/host/Makefile                |   2 +-
+ dm/host/front_mac.m             | 130 ++++++++++++++++++++++++++++++--
+ dm/host/home_quit.h             |  93 +++++++++++++++++++++++
+ dm/host/home_quit_mac.h         | 110 +++++++++++++++++++++++++++
+ dm/host/tests/Makefile          |   7 ++
+ dm/host/tests/t_home_quit.c     |  87 +++++++++++++++++++++
+ dm/host/tests/t_home_quit_mac.m | 107 ++++++++++++++++++++++++++
+ docs/env_switches.tsv           |   3 +
+ 8 files changed, 533 insertions(+), 6 deletions(-)
+ create mode 100644 dm/host/home_quit.h
+ create mode 100644 dm/host/home_quit_mac.h
+ create mode 100644 dm/host/tests/t_home_quit.c
+ create mode 100644 dm/host/tests/t_home_quit_mac.m
+
+diff --git a/dm/host/Makefile b/dm/host/Makefile
+index 889c0f1..1da1eb9 100644
+--- a/dm/host/Makefile
++++ b/dm/host/Makefile
+@@ -76,7 +76,7 @@ endif
+ endif
+ .PHONY: FORCE
+ FORCE:
+-dmhost: $(SRC) $(GFX) ../third_party/stb_vorbis/stb_vorbis.c dm.h hle.h romfs_image.h save_sync.h dm_input.h pad_slots.h hle_haptics.h haptics_apple.h motion_fusion.h motion_apple.h motion_pro.h motion_pro_mac.h pad_apple.h pad_hid.h pad_hid_mac.h front.h $(GFX_H) $(GAME_H) $(GAME_STAMP) $(VPX_LIB) $(DAV1D_LIB) $(MSL_H)
++dmhost: $(SRC) $(GFX) ../third_party/stb_vorbis/stb_vorbis.c dm.h hle.h romfs_image.h save_sync.h dm_input.h pad_slots.h hle_haptics.h haptics_apple.h motion_fusion.h motion_apple.h motion_pro.h motion_pro_mac.h pad_apple.h pad_hid.h pad_hid_mac.h home_quit.h home_quit_mac.h front.h $(GFX_H) $(GAME_H) $(GAME_STAMP) $(VPX_LIB) $(DAV1D_LIB) $(MSL_H)
+ 	clang $(CFLAGS) -I../gfx/nvn/include -I$(dir $(MSL_H)) -I../third_party/vulkan-headers/include -I$(dir $(GAME_H)) -I$(VPX) -I$(DAV1D)/include -I../third_party/stb_vorbis -fobjc-arc -o $@ $(SRC) $(GFX) $(VPX_LIB) $(DAV1D_LIB) -framework Cocoa -framework QuartzCore -framework Metal -framework MetalFX -framework GameController -framework CoreHaptics -framework IOKit -framework AudioToolbox -framework VideoToolbox -framework CoreMedia -framework CoreVideo -framework ImageIO -framework UniformTypeIdentifiers
+ clean:   # the host and everything make generates for it (gen/: the profile headers, the game stamp and the libvpx and dav1d builds; dmhost_* and *.dSYM beside them, as in .gitignore)
+ 	rm -rf gen dmhost dmhost_* *.dSYM
+diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
+index 525765e..3c1ca78 100644
+--- a/dm/host/front_mac.m
++++ b/dm/host/front_mac.m
+@@ -1,6 +1,7 @@
+ // Mac front end: with DM_WINDOW=1 open a window (CAMetalLayer, for the graphics backend to present frames) + keyboard and controllers → dm_input; the guest runs on a large-stack thread instead and the main thread belongs to AppKit.
+ // Without DM_WINDOW: the guest runs directly on the current thread, behaving the same as with no front end (windowless tests use this).
+-// The window is fullscreen-capable (the green button and ⌃⌘F); DM_FULLSCREEN=1 starts it that way. ⌘Q quits; the left mouse button is the touchscreen.
++// The window is fullscreen-capable (the green button and ⌃⌘F); DM_FULLSCREEN=1 starts it that way. ⌘Q quits, and on macOS 27 so does a controller's Home button held for 2 s and
++// confirmed with A (home_quit.h); the left mouse button is the touchscreen.
+ // Cheats (hle_cheats.c): the Cheats menu's rows toggle, reload (⌘R) and open the cheats folder; its first item "Show Cheats
+ // Window" (⌘⇧C, or DM_CHEATS_WINDOW=1 at launch) opens a Cheats panel beside the game: sections, search, the master switch,
+ // safe mode, values, details and the import of cheat files (see the code below).
+@@ -24,6 +25,8 @@
+ #include "motion_pro_mac.h"
+ #include "pad_apple.h"
+ #include "pad_hid_mac.h"
++#include "home_quit.h"
++#include "home_quit_mac.h"
+ #include <signal.h>
+ #include <math.h>
+ #include <sys/stat.h>
+@@ -150,8 +153,11 @@ static void pad_set(int p, uint64_t m, int32_t lx, int32_t ly, int32_t rx, int32
+     if (m || abs(lx) > dead || abs(ly) > dead || abs(rx) > dead || abs(ry) > dead) cursor_hide_for_input();
+     dm_pad_set_player(p, m, lx, ly, rx, ry);
+ }
++static void hq_poll(void);
++static home_quit g_hq;   // the Home button's hold and quit prompt (home_quit.h): while the prompt is open the controllers' input goes to it, not to the game
+ static void pad_read(GCExtendedGamepad *g) {
+     if (!g_input_on) return;
++    hq_poll(); if (hq_blocks_input(g_hq.phase)) return;
+     int p = g_merge ? 0 : pad_slot_of(&g_slots, (__bridge const void *)g.controller); if (p < 0) return;
+     dm_haptics_apple_controller(p, g.controller);
+     uint64_t m = dm_pad_face(g);   // by position, a Nintendo pad by its labels
+@@ -162,8 +168,12 @@ static void pad_read(GCExtendedGamepad *g) {
+     #undef K
+     pad_set(p, m, pad_axis(g.leftThumbstick.xAxis.value), pad_axis(g.leftThumbstick.yAxis.value), pad_axis(g.rightThumbstick.xAxis.value), pad_axis(g.rightThumbstick.yAxis.value));
+ }
+-// Home and Capture: without this macOS takes them as system gestures (Home opens the Games app); the host gives them no function
+-static void pad_keep_system_buttons(GCController *c) { for (NSString *b in @[GCInputButtonHome, GCInputButtonShare]) c.physicalInputProfile.buttons[b].preferredSystemGestureState = GCSystemGestureStateDisabled; }
++// Home and Capture: without this macOS takes them as system gestures (Home opens the Games app). Capture has no function in the host, Home quits when it is held (hq_poll).
++// macOS 27 respects the claim when the Home button setting for apps lets the app decide (hq_log_setting names it in the log), macOS 26 does not promise it
++static void pad_keep_system_buttons(GCController *c) {
++    for (NSString *b in @[GCInputButtonHome, GCInputButtonShare]) c.physicalInputProfile.buttons[b].preferredSystemGestureState = GCSystemGestureStateDisabled;
++    c.extendedGamepad.buttonHome.pressedChangedHandler = ^(GCControllerButtonInput *b, float v, BOOL down) { (void)b; (void)v; (void)down; if (g_input_on) hq_poll(); };
++}
+ static const char *pad_name(GCController *c) { return c.vendorName.UTF8String ?: "?"; }
+ static void npad_name(int p, char *out, size_t cap) { uint32_t id = dm_player_npad(p); if (id == 0x20) snprintf(out, cap, "handheld"); else snprintf(out, cap, "%u", id); }
+ static void pro_players_changed(GCController *gone) {
+@@ -228,7 +238,9 @@ static void display_awake(int on) {
+ // stay pressed in the game. The front end releases only what it pressed itself: scripted buttons and sticks have their own path, and the touch is also DM_KEYS / DM_CTL's (hle_hid.c).
+ // Out of focus a controller's changes are ignored, so back in focus each controller is read as it is now (a button still held, a stick still deflected)
+ static int g_mouse_down;   // the mouse holds the touch (DmGameView)
++static void hq_close(void);
+ static void input_release(void) {
++    hq_close();   // the prompt or the hold indicator, if one is up: the Games app the system opens for Home takes the focus too
+     [NSCursor setHiddenUntilMouseMoves:NO];
+     display_awake(0);
+     g_input_on = 0;
+@@ -249,7 +261,7 @@ static void input_resume(void) {
+ }
+ // Raw HID gamepads (pad_hid_mac.h): a player slot each, as a GameController controller, named by the device's product name
+ static void hidpad_read(hid_pad *d) {
+-    if (!g_input_on) return;
++    if (!g_input_on || hq_blocks_input(g_hq.phase)) return;
+     int p = g_merge ? 0 : pad_slot_of(&g_slots, d); if (p < 0) return;
+     int32_t s[4]; pad_hid_sticks(&d->st, s);
+     pad_set(p, pad_hid_buttons(&d->st), s[0], s[1], s[2], s[3]);
+@@ -272,6 +284,111 @@ static void hidpad_detach(hid_pad *d) {   // d is already off g_hidpads
+     dm_pad_set_player(p, 0, 0, 0, 0, 0);   // nothing stays pressed
+     dm_pad_players(pad_slot_mask(&g_slots));
+ }
++// Quit with the Home button (home_quit.h, LNPANDY/NX2Apple#336): held for 2 s it opens the prompt (home_quit_mac.h) over the game's view, A quits through the same path as ⌘Q
++// (NSApp terminate, so the save writer and the other exit handlers run as there), B or Home closes it. While the prompt is open the game is told it lost the focus, as the
++// Switch's HOME menu does, and gets no controller input; the keyboard and ⌘Q work as always. macOS 27 only (hq_enabled), DM_HOME_QUIT=0 turns it off
++static int g_hq_on;
++static NSTimer *g_hq_timer;   // while Home is held: the time runs on without a button change
++static NSView *g_hq_hold, *g_hq_prompt; static CAShapeLayer *g_hq_ring;
++static char g_hq_text[HQ_TEXTS][256];
++static void hq_start(void) {
++    int on27 = 0;
++    if (@available(macOS 27.0, *)) on27 = 1;
++    g_hq_on = hq_enabled(on27, getenv("DM_HOME_QUIT"));
++    char title[256]; snprintf(title, sizeof title, "Quit %s?", dm_profile()->name);
++    const char *def[HQ_TEXTS] = {"Keep holding to quit", title, "Unsaved progress will be lost.", "Quit", "Cancel"};
++    const char *text = getenv("DM_HOME_QUIT_TEXT");   // the launcher's, in the player's language: one line per text, in home_quit.h's order
++    for (int i = 0; i < HQ_TEXTS; i++) hq_text_line(text, i, def[i], g_hq_text[i], sizeof g_hq_text[i]);
++    LOG("front end: hold the Home button to quit %s", g_hq_on ? "is on" : on27 ? "is off (DM_HOME_QUIT=0)" : "needs macOS 27, quit with ⌘Q");
++}
++// The Home button setting for apps, once, when the first controller is there (GameController reads it only while one is connected). The launcher reads this line from the
++// game's log and shows its hint when the system keeps Home for itself ("system")
++static void hq_log_setting(void) {
++#if defined(__MAC_27_0)
++    if (@available(macOS 27.0, *)) {
++        static int done; if (done) return;
++        int any = 0; for (GCController *c in GCController.controllers) if (c.extendedGamepad) any = 1;
++        if (!any) return;
++        done = 1;
++        GCControllerHomeButtonSettingCustomizationStatus by = GCControllerHomeButtonSettingCustomizationDefault; NSError *err = nil;
++        GCControllerHomeButtonSettingInAppAction v = [[GCControllerHomeButtonSettingsManager new] readControllerHomeButtonInAppAction:&by withError:&err];
++        LOG("front end: Home button in apps: %s (%s)%s%s", hq_in_app_name((long)v), by == GCControllerHomeButtonSettingCustomizationUser ? "set by the player" : "the system's default",
++            err ? ", " : "", err ? err.localizedDescription.UTF8String : "");
++    }
++#endif
++}
++static void hq_buttons(int *home, int *a, int *b, GCController **holder) {
++    *home = *a = *b = 0;
++    for (GCController *c in GCController.controllers) {
++        GCExtendedGamepad *g = c.extendedGamepad; if (!g) continue;
++        if (g.buttonHome.isPressed) { *home = 1; if (!*holder) *holder = c; }
++        *a |= g.buttonA.isPressed; *b |= g.buttonB.isPressed;
++    }
++}
++static void hq_fade(NSView *v, int in) {
++    if (!v) return;
++    if (in) v.alphaValue = 0;
++    [NSAnimationContext runAnimationGroup:^(NSAnimationContext *ctx) { ctx.duration = 0.18; v.animator.alphaValue = in ? 1 : 0; }
++                        completionHandler:^{ if (!in) [v removeFromSuperview]; }];
++}
++static void hq_hide_hold(void) { [g_hq_timer invalidate]; g_hq_timer = nil; [g_hq_hold removeFromSuperview]; g_hq_hold = nil; g_hq_ring = nil; }
++static void hq_hide_prompt(void) { hq_fade(g_hq_prompt, 0); g_hq_prompt = nil; }
++static void hq_changed(hq_phase was, hq_phase now, GCController *holder) {
++    if (was == HQ_HOLDING) hq_hide_hold();
++    NSView *cv = g_win.contentView;
++    switch (now) {
++    case HQ_HOLDING:
++        g_hq_timer = [NSTimer scheduledTimerWithTimeInterval:1.0 / 60 repeats:YES block:^(NSTimer *t) { (void)t; hq_poll(); }];
++        break;
++    case HQ_PROMPT: {
++        // nothing the game held stays pressed while the prompt has the controllers (as input_release)
++        if (g_merge) { if (merge_pads_left(nil)) dm_pad_set(0, 0, 0, 0, 0); }
++        else for (int p = 0; p < DM_PLAYERS; p++) if (g_held[p]) dm_pad_set_player(p, 0, 0, 0, 0, 0);
++        for (hid_pad *d = g_hidpads; d; d = d->next) { int p = g_merge ? -1 : pad_slot_of(&g_slots, d); if (p >= 0) dm_pad_set_player(p, 0, 0, 0, 0, 0); }
++        dm_focus_set(2);
++        GCExtendedGamepad *g = holder.extendedGamepad;
++        g_hq_prompt = hq_prompt_view(cv.bounds, @(g_hq_text[HQ_TEXT_TITLE]), @(g_hq_text[HQ_TEXT_NOTE]), @(g_hq_text[HQ_TEXT_QUIT]), @(g_hq_text[HQ_TEXT_CANCEL]),
++                                     g.buttonA.sfSymbolsName, g.buttonB.sfSymbolsName);
++        [cv addSubview:g_hq_prompt]; hq_fade(g_hq_prompt, 1);
++        LOG("front end: Home held, quit prompt open");
++        break;
++    }
++    case HQ_SETTLE:
++        hq_hide_prompt(); dm_focus_set(1);
++        LOG("front end: quit prompt closed, the game goes on");
++        break;
++    case HQ_IDLE:
++        if (was == HQ_SETTLE) {   // the game reads the controllers again, as they are now
++            if (g_merge) { for (GCController *c in GCController.controllers) if (c.extendedGamepad) pad_read(c.extendedGamepad); }
++            else for (int p = 0; p < DM_PLAYERS; p++) if (g_held[p].extendedGamepad) pad_read(g_held[p].extendedGamepad);
++            for (hid_pad *d = g_hidpads; d; d = d->next) hidpad_read(d);
++        }
++        break;
++    case HQ_QUIT:
++        LOG("front end: quit from the Home button prompt");
++        [NSApp terminate:nil];   // as ⌘Q
++        break;
++    }
++}
++static void hq_poll(void) {
++    static int busy; if (!g_hq_on || !g_win || busy) return;
++    busy = 1;
++    int home, a, b; GCController *holder = nil; hq_buttons(&home, &a, &b, &holder);
++    double now = CACurrentMediaTime();
++    hq_phase was = g_hq.phase, ph = hq_step(&g_hq, now, home, a, b);
++    if (ph != was) hq_changed(was, ph, holder);
++    double fill = hq_ring(&g_hq, now);
++    if (fill >= 0) {
++        if (!g_hq_hold) { NSView *cv = g_win.contentView; CAShapeLayer *ring = nil; g_hq_hold = hq_hold_view(cv.bounds, @(g_hq_text[HQ_TEXT_HOLD]), &ring); g_hq_ring = ring; [cv addSubview:g_hq_hold]; hq_fade(g_hq_hold, 1); }
++        hq_hold_set(g_hq_ring, fill);
++    }
++    busy = 0;
++}
++static void hq_close(void) {
++    if (g_hq.phase == HQ_IDLE || g_hq.phase == HQ_QUIT) return;
++    if (g_hq.phase == HQ_PROMPT) LOG("front end: quit prompt closed, the window lost the focus");
++    hq_cancel(&g_hq); hq_hide_hold(); hq_hide_prompt();
++}
+ static void pads_start(void) {
+     key_map_default(&g_keys); pad_map_default(&g_padmap);
+     const char *km = getenv("DM_KEYMAP"), *pm = getenv("DM_PAD_MAP");
+@@ -283,7 +400,9 @@ static void pads_start(void) {
+     if (g_kbd_own) pad_slot_take(&g_slots, &kbd, "keyboard");   // holds player 1 for good
+     LOG("front end: %s", g_merge ? "every controller is player 1 (DM_PAD_MERGE)" : g_kbd_own ? "the keyboard is player 1, each controller a player of its own from player 2 on (DM_KBD_PLAYER=own)"
+                                                                            : "each controller is a player of its own, the keyboard plays with player 1");
++    hq_start();
+     pads_changed(nil);
++    hq_log_setting();
+     dm_motion_pro_start(pro_devices_changed);
+     hidpad_start();
+ }
+@@ -1295,7 +1414,8 @@ void front_run(void (*guest)(void)) {
+             [NSNotificationCenter.defaultCenter addObserverForName:nm object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *n) {
+                 GCController *c = n.object; int conn = n.name == GCControllerDidConnectNotification;
+                 if (!c.extendedGamepad || g_merge) LOG("controller %s: %s%s", conn ? "connected" : "disconnected", pad_name(c), c.extendedGamepad ? "" : " (no extended gamepad profile: not used)");
+-                pads_changed(conn ? nil : c); }];
++                pads_changed(conn ? nil : c);
++                if (conn) hq_log_setting(); }];
+         dm_haptics_apple_init();
+         pads_start();
+         [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown | NSEventMaskKeyUp handler:^NSEvent *(NSEvent *e) {
+diff --git a/dm/host/home_quit.h b/dm/host/home_quit.h
+new file mode 100644
+index 0000000..9a92182
+--- /dev/null
++++ b/dm/host/home_quit.h
+@@ -0,0 +1,93 @@
++// Quit with the Home button (Mac front end, front_mac.m; LNPANDY/NX2Apple#336). Holding Home (the logo button on Xbox and PlayStation pads) for HQ_HOLD_S seconds opens a
++// "Quit?" prompt over the game: A quits (the same exit as ⌘Q), B or a new press of Home closes it. Letting go of Home before the time is up does nothing. A and B are
++// GameController's buttonA and buttonB, as the launcher's console mode reads them (by label: the bottom button on an Xbox or PlayStation pad, the one printed A on a
++// Nintendo pad), not the Switch buttons the game gets. Pure, so tests/t_home_quit.c checks it without a controller or a window.
++//
++// macOS 27 only (hq_enabled): there the system respects the game's claim on Home (preferredSystemGestureState = GCSystemGestureStateDisabled, which pad_keep_system_buttons
++// sets on every pad) when the Home button setting for apps lets the app decide. macOS 26 makes no such promise, so the hold does nothing there and ⌘Q stays the way to quit.
++// DM_HOME_QUIT=0 turns it off. The launcher passes the texts in the player's language as DM_HOME_QUIT_TEXT (hq_text_line), English otherwise.
++#pragma once
++#include <stddef.h>
++#include <stdio.h>
++#include <string.h>
++
++#define HQ_HOLD_S 2.0    // how long Home is held before the prompt opens
++#define HQ_RING_S 0.3    // the hold indicator shows only after this, so a short press shows nothing
++
++typedef enum {
++    HQ_IDLE,      // nothing shown, the game has its input
++    HQ_HOLDING,   // Home is held: the indicator fills up
++    HQ_PROMPT,    // the prompt is open: the game gets no controller input
++    HQ_SETTLE,    // the prompt was closed: the game gets controller input again once Home, A and B are all up, so the B that closed it never reaches the game
++    HQ_QUIT,      // A was pressed in the prompt: the front end quits (final)
++} hq_phase;
++
++typedef struct {
++    hq_phase phase;
++    double since;     // when the hold started (seconds, any clock that only goes forward)
++    int home;         // Home was down at the last step (a press is a change from up to down)
++    int a_up, b_up;   // A and B have been up since the prompt opened: a button already held when it opens does not count
++} home_quit;
++
++// Whether the hold does anything: on macOS 27 or later unless DM_HOME_QUIT=0 (env: its value, NULL when unset)
++static inline int hq_enabled(int macos27, const char *env) { return macos27 && !(env && !strcmp(env, "0")); }
++
++// One step with the buttons as they are now (pressed on any controller) at time now. Called on every change of a button and, while Home is held, from a timer.
++static inline hq_phase hq_step(home_quit *q, double now, int home, int a, int b) {
++    int pressed = home && !q->home;
++    q->home = home;
++    switch (q->phase) {
++    case HQ_IDLE:
++        if (pressed) { q->phase = HQ_HOLDING; q->since = now; }
++        break;
++    case HQ_HOLDING:
++        if (!home) q->phase = HQ_IDLE;   // let go too early
++        else if (now - q->since >= HQ_HOLD_S) { q->phase = HQ_PROMPT; q->a_up = !a; q->b_up = !b; }
++        break;
++    case HQ_PROMPT:
++        if (!a) q->a_up = 1;
++        if (!b) q->b_up = 1;
++        if ((b && q->b_up) || pressed) q->phase = HQ_SETTLE;   // B or Home closes it; with A and B at once the safe one wins
++        else if (a && q->a_up) q->phase = HQ_QUIT;
++        break;
++    case HQ_SETTLE:
++        if (!home && !a && !b) q->phase = HQ_IDLE;
++        break;
++    case HQ_QUIT:
++        break;
++    }
++    return q->phase;
++}
++
++// The window lost focus (another app, the Games app the system opened for Home): whatever was shown closes. A Home still held needs a new press
++static inline void hq_cancel(home_quit *q) { if (q->phase != HQ_QUIT) { q->phase = HQ_IDLE; q->home = 1; } }
++
++// The game gets no controller input in these phases
++static inline int hq_blocks_input(hq_phase p) { return p == HQ_PROMPT || p == HQ_SETTLE || p == HQ_QUIT; }
++
++// How full the hold indicator is (0 to 1), -1 while it is not shown
++static inline double hq_ring(const home_quit *q, double now) {
++    if (q->phase != HQ_HOLDING) return -1;
++    double t = (now - q->since - HQ_RING_S) / (HQ_HOLD_S - HQ_RING_S);
++    return t < 0 ? -1 : t > 1 ? 1 : t;
++}
++
++// The texts, in this order, one per line of DM_HOME_QUIT_TEXT: the hold indicator, the prompt's title, its note, the quit button, the cancel button
++enum { HQ_TEXT_HOLD, HQ_TEXT_TITLE, HQ_TEXT_NOTE, HQ_TEXT_QUIT, HQ_TEXT_CANCEL, HQ_TEXTS };
++// Line i of text into out; an empty or missing line (or no text) gives def. The title's default has the game's name: def is the caller's
++static inline void hq_text_line(const char *text, int i, const char *def, char *out, size_t cap) {
++    const char *s = text;
++    for (int k = 0; s && k < i; k++) { s = strchr(s, '\n'); if (s) s++; }
++    size_t n = 0;
++    if (s) { const char *e = strchr(s, '\n'); n = e ? (size_t)(e - s) : strlen(s); }
++    if (!n) { snprintf(out, cap, "%s", def); return; }
++    if (n >= cap) n = cap - 1;
++    memcpy(out, s, n); out[n] = 0;
++}
++
++// GameController's Home button setting for apps (GCControllerHomeButtonSettingInAppAction, macOS 27) as the word the log line names it by:
++// "system" (the system keeps Home whatever the app asks: the launcher shows its hint), "app" (the app decides), "off" (the system does nothing with Home in apps),
++// "unavailable" (could not be read)
++static inline const char *hq_in_app_name(long v) {
++    return v == 0 ? "system" : v == 1 ? "app" : v == -1 ? "unavailable" : v > 1 ? "off" : "unavailable";
++}
+diff --git a/dm/host/home_quit_mac.h b/dm/host/home_quit_mac.h
+new file mode 100644
+index 0000000..9904584
+--- /dev/null
++++ b/dm/host/home_quit_mac.h
+@@ -0,0 +1,110 @@
++// The views of the Home button's quit prompt (home_quit.h), drawn over the game's view by front_mac.m: AppKit views, so they draw while the game runs, and built here
++// alone so tests/t_home_quit_mac.m can build and draw them without a window or a controller. The look is the launcher's console mode: its dark surface and cream
++// accent, the primary action as a cream pill with the controller's own button glyph. Sizes follow the view's height, so the prompt reads from a couch on a TV and
++// stays in proportion in a small window.
++#pragma once
++#import <Cocoa/Cocoa.h>
++#import <QuartzCore/QuartzCore.h>
++
++static NSColor *hq_color(double r, double g, double b, double a) { return [NSColor colorWithSRGBRed:r green:g blue:b alpha:a]; }
++#define HQ_BACKGROUND hq_color(0.055, 0.055, 0.06, 1)   // LauncherPalette.background
++#define HQ_SURFACE hq_color(0.10, 0.10, 0.11, 1)        // LauncherPalette.surface
++#define HQ_CREAM hq_color(1, 0.94, 0.84, 1)             // LauncherPalette.cream
++
++// Points per point of a 720-high view, between 1 and 2
++static CGFloat hq_scale(NSSize s) { CGFloat k = s.height / 720; return k < 1 ? 1 : k > 2 ? 2 : k; }
++
++static NSTextField *hq_label(NSString *text, CGFloat size, NSFontWeight w, NSColor *c, int wrap) {
++    NSTextField *t = wrap ? [NSTextField wrappingLabelWithString:text] : [NSTextField labelWithString:text];
++    t.font = [NSFont systemFontOfSize:size weight:w]; t.textColor = c; t.alignment = NSTextAlignmentCenter;
++    t.translatesAutoresizingMaskIntoConstraints = NO;
++    return t;
++}
++// A controller button's glyph: the symbol the controller reports for it, else a plain letter in a circle
++static NSImageView *hq_glyph(NSString *symbol, NSString *fallback, CGFloat size, NSColor *c) {
++    NSImage *img = symbol ? [NSImage imageWithSystemSymbolName:symbol accessibilityDescription:nil] : nil;
++    if (!img) img = [NSImage imageWithSystemSymbolName:fallback accessibilityDescription:nil];
++    img = [img imageWithSymbolConfiguration:[NSImageSymbolConfiguration configurationWithPointSize:size weight:NSFontWeightMedium]];
++    NSImageView *v = [NSImageView imageViewWithImage:img ?: [NSImage new]];
++    v.contentTintColor = c; v.translatesAutoresizingMaskIntoConstraints = NO;
++    return v;
++}
++// Every action is this wide (points at a 720-high view), whatever its label and language: the longest of the launcher's six languages
++// ("Abbrechen", "Annuler") fits at full size, and a longer label gets a smaller font, then is cut, so the pills never change width
++#define HQ_ACTION_W 220
++// The font size that fits text into room on one line: size, or smaller down to 70 % of it
++static CGFloat hq_fit(NSString *text, CGFloat size, CGFloat room) {
++    CGFloat w = [text sizeWithAttributes:@{NSFontAttributeName: [NSFont systemFontOfSize:size weight:NSFontWeightSemibold]}].width;
++    if (w <= room) return size;
++    CGFloat s = floor(size * room / w * 10) / 10;
++    return s < size * 0.7 ? size * 0.7 : s;
++}
++// One action of the prompt: glyph and label centred in a pill of a fixed size, the primary one cream
++static NSView *hq_action(NSString *symbol, NSString *fallback, NSString *label, int primary, CGFloat k) {
++    NSColor *fg = primary ? HQ_BACKGROUND : [NSColor colorWithWhite:1 alpha:0.8];
++    CGFloat w = HQ_ACTION_W * k, glyph = 24 * k, gap = 10 * k, inset = 20 * k, room = w - 2 * inset - glyph - gap;
++    NSTextField *t = hq_label(label, hq_fit(label, 22 * k, room), NSFontWeightSemibold, fg, 0);
++    t.lineBreakMode = NSLineBreakByTruncatingTail;
++    [t setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
++    NSStackView *row = [NSStackView stackViewWithViews:@[hq_glyph(symbol, fallback, glyph, fg), t]];
++    row.spacing = gap; row.translatesAutoresizingMaskIntoConstraints = NO;
++    NSView *pill = [NSView new]; pill.translatesAutoresizingMaskIntoConstraints = NO;
++    pill.wantsLayer = YES; pill.layer.cornerRadius = 28 * k;
++    if (primary) pill.layer.backgroundColor = HQ_CREAM.CGColor;
++    [pill addSubview:row];
++    [NSLayoutConstraint activateConstraints:@[[pill.widthAnchor constraintEqualToConstant:w], [pill.heightAnchor constraintEqualToConstant:56 * k],
++        [row.centerXAnchor constraintEqualToAnchor:pill.centerXAnchor], [row.centerYAnchor constraintEqualToAnchor:pill.centerYAnchor],
++        [row.widthAnchor constraintLessThanOrEqualToConstant:w - 2 * inset]]];
++    pill.accessibilityElement = YES; pill.accessibilityRole = NSAccessibilityButtonRole; pill.accessibilityLabel = label;
++    return pill;
++}
++
++// The prompt over the whole view: a dim scrim, and in its middle the card with the title, the note and the two actions (A quits, B cancels).
++// a_symbol, b_symbol: the controller's own glyphs (GCControllerButtonInput.sfSymbolsName), nil for the plain ones
++static NSView *hq_prompt_view(NSRect bounds, NSString *title, NSString *note, NSString *quit, NSString *cancel, NSString *a_symbol, NSString *b_symbol) {
++    CGFloat k = hq_scale(bounds.size);
++    NSView *scrim = [[NSView alloc] initWithFrame:bounds]; scrim.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
++    scrim.wantsLayer = YES; scrim.layer.backgroundColor = [NSColor colorWithWhite:0 alpha:0.6].CGColor;
++    NSTextField *t = hq_label(title, 34 * k, NSFontWeightBold, NSColor.whiteColor, 1), *n = hq_label(note, 20 * k, NSFontWeightRegular, [NSColor colorWithWhite:1 alpha:0.6], 1);
++    NSStackView *actions = [NSStackView stackViewWithViews:@[hq_action(a_symbol, @"a.circle", quit, 1, k), hq_action(b_symbol, @"b.circle", cancel, 0, k)]];
++    actions.spacing = 16 * k; actions.translatesAutoresizingMaskIntoConstraints = NO;
++    NSStackView *card = [NSStackView stackViewWithViews:@[t, n, actions]];
++    card.orientation = NSUserInterfaceLayoutOrientationVertical; card.alignment = NSLayoutAttributeCenterX;
++    card.spacing = 14 * k; [card setCustomSpacing:32 * k afterView:n];
++    card.edgeInsets = NSEdgeInsetsMake(40 * k, 48 * k, 36 * k, 48 * k); card.translatesAutoresizingMaskIntoConstraints = NO;
++    card.wantsLayer = YES; card.layer.backgroundColor = HQ_SURFACE.CGColor; card.layer.cornerRadius = 28 * k;
++    card.layer.borderWidth = 1; card.layer.borderColor = [NSColor colorWithWhite:1 alpha:0.10].CGColor;
++    [scrim addSubview:card];
++    CGFloat w = 600 * k;
++    [NSLayoutConstraint activateConstraints:@[[card.centerXAnchor constraintEqualToAnchor:scrim.centerXAnchor], [card.centerYAnchor constraintEqualToAnchor:scrim.centerYAnchor],
++        [card.widthAnchor constraintEqualToConstant:w], [t.widthAnchor constraintLessThanOrEqualToConstant:w - 96 * k], [n.widthAnchor constraintLessThanOrEqualToConstant:w - 96 * k]]];
++    scrim.accessibilityElement = YES; scrim.accessibilityRole = NSAccessibilityGroupRole; scrim.accessibilityLabel = title;
++    return scrim;
++}
++
++// The hold indicator at the top of the view: a pill with a ring that fills while Home is held, and its label. hq_hold_set moves the ring
++static NSView *hq_hold_view(NSRect bounds, NSString *label, CAShapeLayer **ring_out) {
++    CGFloat k = hq_scale(bounds.size), d = 26 * k, line = 3.5 * k;
++    NSView *ringView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, d, d)]; ringView.wantsLayer = YES; ringView.translatesAutoresizingMaskIntoConstraints = NO;
++    CGPathRef circle = CGPathCreateWithEllipseInRect(CGRectInset(CGRectMake(0, 0, d, d), line / 2, line / 2), NULL);
++    CAShapeLayer *track = [CAShapeLayer layer], *ring = [CAShapeLayer layer];
++    for (CAShapeLayer *l in @[track, ring]) { l.frame = CGRectMake(0, 0, d, d); l.path = circle; l.fillColor = NSColor.clearColor.CGColor; l.lineWidth = line; [ringView.layer addSublayer:l]; }
++    CGPathRelease(circle);
++    track.strokeColor = [NSColor colorWithWhite:1 alpha:0.18].CGColor;
++    ring.strokeColor = HQ_CREAM.CGColor; ring.lineCap = kCALineCapRound; ring.strokeEnd = 0;
++    ring.transform = CATransform3DConcat(CATransform3DMakeRotation(M_PI_2, 0, 0, 1), CATransform3DMakeScale(-1, 1, 1));   // from the top, clockwise
++    [NSLayoutConstraint activateConstraints:@[[ringView.widthAnchor constraintEqualToConstant:d], [ringView.heightAnchor constraintEqualToConstant:d]]];
++    NSStackView *pill = [NSStackView stackViewWithViews:@[ringView, hq_label(label, 20 * k, NSFontWeightSemibold, [NSColor colorWithWhite:1 alpha:0.9], 0)]];
++    pill.spacing = 12 * k; pill.edgeInsets = NSEdgeInsetsMake(0, 18 * k, 0, 24 * k); pill.translatesAutoresizingMaskIntoConstraints = NO;
++    pill.wantsLayer = YES; pill.layer.backgroundColor = [HQ_BACKGROUND colorWithAlphaComponent:0.92].CGColor; pill.layer.cornerRadius = 28 * k;
++    pill.layer.borderWidth = 1; pill.layer.borderColor = [NSColor colorWithWhite:1 alpha:0.12].CGColor;
++    NSView *host = [[NSView alloc] initWithFrame:bounds]; host.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
++    [host addSubview:pill];
++    [NSLayoutConstraint activateConstraints:@[[pill.centerXAnchor constraintEqualToAnchor:host.centerXAnchor], [pill.topAnchor constraintEqualToAnchor:host.topAnchor constant:40 * k],
++        [pill.heightAnchor constraintEqualToConstant:56 * k]]];
++    *ring_out = ring;
++    return host;
++}
++static void hq_hold_set(CAShapeLayer *ring, double fill) {
++    [CATransaction begin]; [CATransaction setDisableActions:YES]; ring.strokeEnd = fill; [CATransaction commit];
++}
+diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
+index f055215..d564834 100644
+--- a/dm/host/tests/Makefile
++++ b/dm/host/tests/Makefile
+@@ -54,6 +54,8 @@ run: $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture
+ 	$(B)/t_motion
+ 	$(B)/t_motion_apple
+ 	$(B)/t_pad_apple
++	$(B)/t_home_quit
++	$(B)/t_home_quit_mac
+ 	$(B)/t_motion_pro
+ 	$(B)/t_motion_pro_mac
+ 	TMPDIR="$(abspath $(B))" $(B)/t_hid
+@@ -194,6 +196,11 @@ $(B)/t_motion_apple: t_motion_apple.m ../motion_apple.h ../dm_input.h | $(B)
+ run: $(B)/t_pad_apple
+ $(B)/t_pad_apple: t_pad_apple.m ../pad_apple.h ../dm_input.h | $(B)
+ 	$(CLANG) -O1 -g -fobjc-arc -Wall -Werror -I.. -o $@ t_pad_apple.m -framework Foundation -framework GameController
++run: $(B)/t_home_quit $(B)/t_home_quit_mac
++$(B)/t_home_quit: t_home_quit.c ../home_quit.h | $(B)
++	$(CLANG) -O1 -g -Wall -Werror -I.. -o $@ t_home_quit.c
++$(B)/t_home_quit_mac: t_home_quit_mac.m ../home_quit_mac.h | $(B)
++	$(CLANG) -O1 -g -fobjc-arc -Wall -Werror -Wno-unused-function -I.. -o $@ t_home_quit_mac.m -framework Cocoa -framework QuartzCore
+ run: $(B)/t_motion_pro $(B)/t_motion_pro_mac
+ $(B)/t_motion_pro: t_motion_pro.c ../motion_pro.h | $(B)
+ 	$(CLANG) -O1 -g -Wall -Werror -fsanitize=address,undefined -o $@ t_motion_pro.c
+diff --git a/dm/host/tests/t_home_quit.c b/dm/host/tests/t_home_quit.c
+new file mode 100644
+index 0000000..c7a84bd
+--- /dev/null
++++ b/dm/host/tests/t_home_quit.c
+@@ -0,0 +1,87 @@
++// The Home button's hold and quit prompt (home_quit.h): the hold time, letting go early, A and B in the prompt, a button already held when it opens, Home closing it,
++// the settle phase that keeps the closing B from the game, losing the focus, the hold indicator, the macOS 27 gate, the launcher's texts and the setting's log word
++#include "../home_quit.h"
++#include <stdio.h>
++
++static int checks, fails;
++#define CHECK(c, msg) do { checks++; if (!(c)) { fails++; fprintf(stderr, "FAIL: %s (line %d)\n", msg, __LINE__); } } while (0)
++
++int main(void) {
++    home_quit q = {0};
++    CHECK(hq_step(&q, 0, 0, 0, 0) == HQ_IDLE, "nothing pressed: idle");
++    CHECK(hq_step(&q, 1.0, 1, 0, 0) == HQ_HOLDING, "Home pressed: the hold starts");
++    CHECK(hq_ring(&q, 1.1) == -1, "a short press shows no indicator");
++    CHECK(hq_ring(&q, 1.0 + HQ_RING_S + (HQ_HOLD_S - HQ_RING_S) / 2) > 0.49 && hq_ring(&q, 1.0 + HQ_RING_S + (HQ_HOLD_S - HQ_RING_S) / 2) < 0.51, "half way the ring is half full");
++    CHECK(hq_step(&q, 2.9, 1, 0, 0) == HQ_HOLDING, "1.9 s: still holding");
++    CHECK(!hq_blocks_input(q.phase), "the game keeps its input while Home is held");
++    CHECK(hq_step(&q, 3.0, 1, 0, 0) == HQ_PROMPT, "2 s: the prompt opens");
++    CHECK(hq_ring(&q, 3.0) == -1, "the indicator goes when the prompt opens");
++    CHECK(hq_blocks_input(q.phase), "the prompt takes the controllers");
++    CHECK(hq_step(&q, 3.5, 0, 0, 0) == HQ_PROMPT, "letting go of Home keeps the prompt open");
++    CHECK(hq_step(&q, 4.0, 0, 1, 0) == HQ_QUIT, "A quits");
++    CHECK(hq_step(&q, 4.1, 0, 0, 0) == HQ_QUIT, "quit is final");
++    hq_cancel(&q);
++    CHECK(q.phase == HQ_QUIT, "a focus loss after quit changes nothing");
++
++    q = (home_quit){0};
++    hq_step(&q, 0, 1, 0, 0);
++    CHECK(hq_step(&q, 1.0, 0, 0, 0) == HQ_IDLE, "let go before 2 s: nothing happens");
++    CHECK(hq_step(&q, 5.0, 0, 0, 0) == HQ_IDLE, "and nothing later either");
++
++    q = (home_quit){0};
++    hq_step(&q, 0, 1, 0, 0); hq_step(&q, 2.0, 1, 0, 0);
++    CHECK(hq_step(&q, 2.5, 1, 0, 1) == HQ_SETTLE, "B closes the prompt");
++    CHECK(hq_blocks_input(q.phase), "the B that closed it does not reach the game");
++    CHECK(hq_step(&q, 2.6, 1, 0, 0) == HQ_SETTLE, "Home still down: still settling");
++    CHECK(hq_step(&q, 2.7, 0, 0, 0) == HQ_IDLE, "all up: the game has the controllers again");
++    CHECK(hq_step(&q, 2.8, 1, 0, 0) == HQ_HOLDING, "a new press starts a new hold");
++
++    q = (home_quit){0};
++    hq_step(&q, 0, 1, 1, 1);
++    CHECK(hq_step(&q, 2.0, 1, 1, 1) == HQ_PROMPT, "A and B held through the hold: the prompt opens");
++    CHECK(hq_step(&q, 2.1, 1, 1, 1) == HQ_PROMPT, "an A or B already held when it opens does not count");
++    CHECK(hq_step(&q, 2.2, 1, 0, 1) == HQ_PROMPT, "A released, B still held");
++    CHECK(hq_step(&q, 2.3, 1, 1, 1) == HQ_QUIT, "A pressed again quits");
++
++    q = (home_quit){0};
++    hq_step(&q, 0, 1, 0, 0); hq_step(&q, 2.0, 1, 0, 0);
++    CHECK(hq_step(&q, 2.1, 1, 0, 0) == HQ_PROMPT, "Home still held from the hold does not close it");
++    hq_step(&q, 2.2, 0, 0, 0);
++    CHECK(hq_step(&q, 2.3, 1, 0, 0) == HQ_SETTLE, "a new press of Home closes it");
++
++    q = (home_quit){0};
++    hq_step(&q, 0, 1, 0, 0); hq_step(&q, 2.0, 1, 0, 0);
++    CHECK(hq_step(&q, 2.1, 0, 1, 1) == HQ_SETTLE, "A and B at once: the safe one wins");
++
++    q = (home_quit){0};
++    hq_step(&q, 0, 1, 0, 0); hq_step(&q, 2.0, 1, 0, 0);
++    hq_cancel(&q);
++    CHECK(q.phase == HQ_IDLE && !hq_blocks_input(q.phase), "a focus loss closes the prompt");
++    CHECK(hq_step(&q, 3.0, 1, 0, 0) == HQ_IDLE, "a Home held through the focus change needs a new press");
++    hq_step(&q, 3.1, 0, 0, 0);
++    CHECK(hq_step(&q, 3.2, 1, 0, 0) == HQ_HOLDING, "then a press holds again");
++
++    CHECK(hq_enabled(1, NULL) && hq_enabled(1, "1") && hq_enabled(1, ""), "macOS 27: on");
++    CHECK(!hq_enabled(1, "0"), "DM_HOME_QUIT=0: off");
++    CHECK(!hq_enabled(0, NULL) && !hq_enabled(0, "1"), "macOS 26: off, whatever the switch says");
++
++    char out[64];
++    hq_text_line("Hold\nQuit Zelda?\nLost\nQuit\nCancel", HQ_TEXT_TITLE, "d", out, sizeof out);
++    CHECK(!strcmp(out, "Quit Zelda?"), "a line of the launcher's text");
++    hq_text_line("Hold\nQuit Zelda?\nLost\nQuit\nCancel", HQ_TEXT_CANCEL, "d", out, sizeof out);
++    CHECK(!strcmp(out, "Cancel"), "the last line");
++    hq_text_line("Hold\n\nLost", HQ_TEXT_TITLE, "Quit Mario?", out, sizeof out);
++    CHECK(!strcmp(out, "Quit Mario?"), "an empty line takes the default");
++    hq_text_line("Hold", HQ_TEXT_QUIT, "Quit", out, sizeof out);
++    CHECK(!strcmp(out, "Quit"), "a missing line takes the default");
++    hq_text_line(NULL, HQ_TEXT_HOLD, "Keep holding to quit", out, sizeof out);
++    CHECK(!strcmp(out, "Keep holding to quit"), "no text: the defaults");
++    char small[4]; hq_text_line("Abcdef", 0, "d", small, sizeof small);
++    CHECK(!strcmp(small, "Abc"), "a long line is cut to the buffer");
++
++    CHECK(!strcmp(hq_in_app_name(0), "system") && !strcmp(hq_in_app_name(1), "app") && !strcmp(hq_in_app_name(-1), "unavailable"), "the setting's words");
++    CHECK(!strcmp(hq_in_app_name(0x7fffffffffffffffL), "off"), "disabled is off");
++
++    printf("t_home_quit: %d checks, %d failed\n", checks, fails);
++    return fails != 0;
++}
+diff --git a/dm/host/tests/t_home_quit_mac.m b/dm/host/tests/t_home_quit_mac.m
+new file mode 100644
+index 0000000..6455250
+--- /dev/null
++++ b/dm/host/tests/t_home_quit_mac.m
+@@ -0,0 +1,107 @@
++// The views of the Home button's quit prompt (home_quit_mac.h), built without a game, a window or a controller: the texts are shown, the card stays inside a small
++// window and a TV-sized one, a long title wraps instead of widening the card, and a glyph the system does not have falls back to the plain letter.
++// DM_HOME_QUIT_CAPTURE=<folder> also draws both views over a stand-in picture into PNG files there (the pull request's screenshots), in an offscreen window.
++#import "../home_quit_mac.h"
++#include <stdio.h>
++
++static int checks, fails;
++#define CHECK(c, msg) do { checks++; if (!(c)) { fails++; fprintf(stderr, "FAIL: %s (line %d)\n", msg, __LINE__); } } while (0)
++
++static void texts(NSView *v, NSMutableArray<NSString *> *out) {
++    if ([v isKindOfClass:NSTextField.class]) [out addObject:((NSTextField *)v).stringValue];
++    for (NSView *s in v.subviews) texts(s, out);
++}
++static NSView *card_of(NSView *scrim) { return scrim.subviews.firstObject; }
++static NSImageView *first_image(NSView *v) {
++    if ([v isKindOfClass:NSImageView.class]) return (NSImageView *)v;
++    for (NSView *s in v.subviews) { NSImageView *i = first_image(s); if (i) return i; }
++    return nil;
++}
++
++// A stand-in for the game's picture, so the scrim and the card are seen over something
++@interface Backdrop : NSView @end
++@implementation Backdrop
++- (void)drawRect:(NSRect)r {
++    (void)r;
++    NSGradient *g = [[NSGradient alloc] initWithColors:@[hq_color(0.20, 0.42, 0.62, 1), hq_color(0.42, 0.62, 0.30, 1), hq_color(0.86, 0.74, 0.42, 1)]];
++    [g drawInRect:self.bounds angle:-70];
++}
++@end
++
++static void capture(NSView *overlay, NSSize size, const char *dir, const char *name) {
++    NSWindow *w = [[NSWindow alloc] initWithContentRect:NSMakeRect(-100000, -100000, size.width, size.height) styleMask:NSWindowStyleMaskBorderless backing:NSBackingStoreBuffered defer:NO];
++    Backdrop *b = [[Backdrop alloc] initWithFrame:NSMakeRect(0, 0, size.width, size.height)]; b.wantsLayer = YES;
++    w.contentView = b; overlay.frame = b.bounds; [b addSubview:overlay];
++    [b layoutSubtreeIfNeeded]; [b displayIfNeeded];
++    NSBitmapImageRep *rep = [b bitmapImageRepForCachingDisplayInRect:b.bounds];
++    [b cacheDisplayInRect:b.bounds toBitmapImageRep:rep];
++    NSString *path = [@(dir) stringByAppendingPathComponent:@(name)];
++    [[rep representationUsingType:NSBitmapImageFileTypePNG properties:@{}] writeToFile:path atomically:YES];
++    printf("t_home_quit_mac: wrote %s\n", path.UTF8String);
++    [overlay removeFromSuperview];
++}
++
++int main(void) {
++    @autoreleasepool {
++        [NSApplication sharedApplication];
++        NSRect small = NSMakeRect(0, 0, 1280, 720), tv = NSMakeRect(0, 0, 1920, 1080);
++        NSView *p = hq_prompt_view(small, @"Quit Super Mario Odyssey?", @"Unsaved progress will be lost.", @"Quit", @"Cancel", @"xmark.circle", @"circle.circle");
++        [p layoutSubtreeIfNeeded];
++        NSMutableArray<NSString *> *t = [NSMutableArray new]; texts(p, t);
++        CHECK([t containsObject:@"Quit Super Mario Odyssey?"] && [t containsObject:@"Unsaved progress will be lost."] && [t containsObject:@"Quit"] && [t containsObject:@"Cancel"], "the prompt shows its four texts");
++        CHECK(NSContainsRect(p.bounds, card_of(p).frame), "the card is inside a 1280x720 window");
++        CHECK(NSEqualPoints(NSMakePoint(NSMidX(card_of(p).frame), NSMidY(card_of(p).frame)), NSMakePoint(640, 360)), "the card is in the middle");
++        CGFloat w720 = card_of(p).frame.size.width;
++
++        NSView *ptv = hq_prompt_view(tv, @"Quit Super Mario Odyssey?", @"Unsaved progress will be lost.", @"Quit", @"Cancel", nil, nil);
++        [ptv layoutSubtreeIfNeeded];
++        CHECK(NSContainsRect(ptv.bounds, card_of(ptv).frame) && card_of(ptv).frame.size.width > w720 * 1.4, "on a 1080p screen the card is larger and still inside");
++        CHECK(first_image(ptv).image.size.width > 0, "no symbol from the controller: the plain letter glyph");
++
++        NSView *plong = hq_prompt_view(small, @"Quit The Legend of Zelda: Tears of the Kingdom and every other very long name?", @"n", @"Quit", @"Cancel", @"no.such.symbol", nil);
++        [plong layoutSubtreeIfNeeded];
++        CHECK(card_of(plong).frame.size.width == w720 && NSContainsRect(plong.bounds, card_of(plong).frame), "a long title wraps, the card keeps its width");
++        CHECK(first_image(plong).image.size.width > 0, "a symbol the system does not have falls back to the letter");
++
++        // The two actions keep one width in every language the launcher passes (DM_HOME_QUIT_TEXT: en, zh, de, sv, fr, it), and a label far longer than any
++        // of them shrinks or is cut instead of widening its pill
++        NSArray<NSArray<NSString *> *> *labels = @[@[@"Quit", @"Cancel"], @[@"退出", @"取消"], @[@"Beenden", @"Abbrechen"], @[@"Avsluta", @"Avbryt"],
++                                                  @[@"Quitter", @"Annuler"], @[@"Esci", @"Annulla"], @[@"Quit this game right now please", @"Cancel and go back to the game"]];
++        for (NSValue *size in @[[NSValue valueWithRect:small], [NSValue valueWithRect:tv]]) {
++            NSRect r = size.rectValue; CGFloat want = HQ_ACTION_W * hq_scale(r.size);
++            for (NSArray<NSString *> *l in labels) {
++                NSView *pv = hq_prompt_view(r, @"Quit Hades?", @"n", l[0], l[1], nil, nil);
++                [pv layoutSubtreeIfNeeded];
++                NSStackView *actions = (NSStackView *)((NSStackView *)card_of(pv)).arrangedSubviews.lastObject;
++                CHECK(actions.arrangedSubviews.count == 2, "two actions");
++                for (NSView *a in actions.arrangedSubviews) CHECK(fabs(a.frame.size.width - want) < 0.5 && fabs(a.frame.size.height - 56 * hq_scale(r.size)) < 0.5, l[0].UTF8String);
++                for (NSView *a in actions.arrangedSubviews) {
++                    NSStackView *row = (NSStackView *)a.subviews.firstObject;
++                    CHECK(NSContainsRect(a.bounds, row.frame), "the glyph and the label stay inside their pill");
++                }
++            }
++        }
++
++        CAShapeLayer *ring = nil;
++        NSView *h = hq_hold_view(small, @"Keep holding to quit", &ring);
++        [h layoutSubtreeIfNeeded];
++        NSMutableArray<NSString *> *ht = [NSMutableArray new]; texts(h, ht);
++        CHECK([ht containsObject:@"Keep holding to quit"], "the hold indicator has its label");
++        NSView *pill = h.subviews.firstObject;
++        CHECK(NSMaxY(pill.frame) < 720 && NSMaxY(pill.frame) > 600 && fabs(NSMidX(pill.frame) - 640) < 1, "the indicator is at the top, in the middle");
++        CHECK(ring && ring.strokeEnd == 0, "the ring starts empty");
++        hq_hold_set(ring, 0.6);
++        CHECK(fabs(ring.strokeEnd - 0.6) < 1e-6, "the ring follows the hold");
++
++        const char *dir = getenv("DM_HOME_QUIT_CAPTURE");
++        if (dir && *dir) {
++            capture(hq_prompt_view(tv, @"Quit Super Mario Odyssey?", @"Unsaved progress will be lost.", @"Quit", @"Cancel", @"a.circle", @"b.circle"), tv.size, dir, "home-quit-prompt.png");
++            CAShapeLayer *r = nil; NSView *hv = hq_hold_view(tv, @"Keep holding to quit", &r); hq_hold_set(r, 0.6);
++            capture(hv, tv.size, dir, "home-quit-hold.png");
++            capture(hq_prompt_view(tv, @"Super Mario Odyssey beenden?", @"Nicht gesicherter Fortschritt geht verloren.", @"Beenden", @"Abbrechen", @"xmark.circle", @"circle.circle"), tv.size, dir, "home-quit-prompt-de.png");
++            capture(hq_prompt_view(tv, @"退出Super Mario Odyssey？", @"未保存的进度将会丢失。", @"退出", @"取消", @"a.circle", @"b.circle"), tv.size, dir, "home-quit-prompt-zh.png");
++        }
++    }
++    printf("t_home_quit_mac: %d checks, %d failed\n", checks, fails);
++    return fails != 0;
++}
+diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
+index e594a57..44e19ab 100644
+--- a/docs/env_switches.tsv
++++ b/docs/env_switches.tsv
+@@ -69,6 +69,9 @@ DM_HID_MAP	switch	`=<map>` such as `A=1,B=2,X=4,Y=5`: which HID button usage pre
+ DM_HID_PADS	switch	`0` stops reading raw HID gamepads that GameController does not list, such as an 8BitDo in its own mode (`pad_hid_mac.h`); Mac only
+ DM_HITCH_DUMP	diagnostic	`=<ms>[:<s>]`: when no frame has been presented for that long (from s seconds on), logs every guest thread once per stall: wait, last SVC, pc, lr, frames and registers
+ DM_HLECOUNT	diagnostic	`=<file>` (`%d` = process ID) writes at exit a TSV of how many times the guest called each HLE function, zero counts included
++DM_HOME_QUIT	player	`0` turns off quitting with the controller's Home button (Mac, macOS 27 or later, on by default): held for 2 s it opens a quit prompt over the game, A quits as ⌘Q does, B or Home closes it (`home_quit.h`)
++DM_HOME_QUIT_CAPTURE	test	`=<folder>`: `tests/t_home_quit_mac.m` also draws the Home button's quit prompt and hold indicator into PNG files there
++DM_HOME_QUIT_TEXT	switch	The texts of the Home button's quit prompt in the player's language, one per line: the hold indicator, the title, the note, the quit and the cancel button; the Mac launcher sets it, an empty or missing line keeps the English text
+ DM_HUD_PER_LAYER	switch	`1`: the shell app sets it at start together with `MTL_HUD_ENABLED`, and the game view then turns Apple's Metal HUD off on its layer unless `DM_METAL_HUD` is `1`
+ DM_ICON	path	`=<image>` gives `build_ipa.sh` another app icon (default the `icon.jpg` beside the RomFS)
+ DM_IMPORTS	diagnostic	When set, logs each import the loader binds to a host function and each forced takeover

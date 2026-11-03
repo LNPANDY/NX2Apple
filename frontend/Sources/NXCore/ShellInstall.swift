@@ -83,7 +83,9 @@ package struct ShellLibrary: Codable, Equatable {
     /// root at a volume root is repaired (#492).
     package static func resolveRoot(defaults: UserDefaults = .standard, parent: String, home: String = NSHomeDirectory()) -> String {
         if let saved = defaults.string(forKey: "shellRoot"), rootIsUsable(saved) {
-            return ShellRootMigration.isLegacy(saved, home: home) ? settle(legacy: saved, defaults: defaults, home: home) : saved
+            // A cache folder the player moved there (Move cache folder, ShellRootMove) is named like an old one but stays
+            let legacy = ShellRootMigration.isLegacy(saved, home: home) && !defaults.bool(forKey: ShellRootMove.pickedKey)
+            return legacy ? settle(legacy: saved, defaults: defaults, home: home) : saved
         }
         let legacy = parentFolder(parent, home: home) + "/" + ShellRootMigration.legacyName
         if FileManager.default.fileExists(atPath: legacy) { return settle(legacy: legacy, defaults: defaults, home: home) }
