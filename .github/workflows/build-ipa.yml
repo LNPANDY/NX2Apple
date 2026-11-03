@@ -312,6 +312,12 @@ jobs:
           # The shell app itself (unsigned --build; signing and packing are the
           # steps below). Silksong is listed first: its profile is the host's
           # compiled defaults, as build_shell.sh documents.
+          # DM_SHELL_PACKAGE: build_shell.sh's default looks for frontend-ios
+          # beside dm/ (the author's single-tree layout); in this repository the
+          # engine is materialised under engine/ and the package is the outer
+          # checkout's frontend-ios, so name it explicitly (run 41691203433
+          # failed on exactly this after both frameworks had built).
+          export DM_SHELL_PACKAGE="$GITHUB_WORKSPACE/frontend-ios"
           export SHELL_DIR="$RUNNER_TEMP/shellproj"
           export DM_SHELL_FRAMEWORKS="$RUNNER_TEMP/fw/DmGame010013C00E930000.framework
           $RUNNER_TEMP/fw/DmGame0100A00019DE0000.framework"
