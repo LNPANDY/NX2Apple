@@ -92,4 +92,41 @@ import Testing
         #expect(try text("zh-Hans") != "Done")
         #expect(ShellStrings.bundle.path(forResource: "zh-Hant", ofType: "lproj") == nil, "Traditional Chinese has no catalog and falls back")
     }
+
+    // MARK: The touch layout editor speaks every language of the app
+
+    /// The layout editor showed an English Done in a German screen: `ios.ui.done` was only in en and zh. Every text the editor asks for
+    /// (read from its source, an interpolation as %@) has all six languages now, so a new text without them fails here.
+    @Test func everyTextOfTheLayoutEditorHasEveryLanguage() throws {
+        let source = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("Sources/ShellUI/TouchLayoutEditorView.swift"), encoding: .utf8)
+        let literal = try Regex(#"ShellStrings\.text\("((?:[^"\\]|\\\([^)]*\))*)"\)"#)
+        let interpolation = try Regex(#"\\\([^)]*\)"#)
+        var keys = Set(source.matches(of: literal).compactMap { $0.output[1].substring.map(String.init) }.map { $0.replacing(interpolation, with: "%@") })
+        // Passed on as LocalizationValue: the arrows' names and the two resets.
+        keys.formUnion(["Move up", "Move down", "Move left", "Move right", "Reset this control", "Reset all controls", "Moved", "In its place"])
+        #expect(keys.contains("Done") && keys.contains("Put every control of the %@ layout back in its built-in place?"), "\(keys.sorted())")
+        let strings = try table("Localizable", in: "ShellUI")
+        // Names that read the same in some languages: the language files leave them out on purpose (GermanLocalizationTests).
+        keys.subtract(["Minus", "Plus"])
+        for key in keys.sorted() {
+            let localizations = ((strings[key] as? [String: Any])?["localizations"] as? [String: Any]) ?? [:]
+            for language in ["en", "zh-Hans", "de", "sv", "fr", "it"] {
+                let value = ((localizations[language] as? [String: Any])?["stringUnit"] as? [String: Any])?["value"] as? String ?? ""
+                #expect(!value.isEmpty, "\"\(key)\" lacks \(language)")
+            }
+        }
+    }
+
+    @Test func theTwoResetsOfTheEditorReadDifferentlyInEveryLanguage() throws {
+        let strings = try table("Localizable", in: "ShellUI")
+        func value(_ key: String, _ language: String) -> String? {
+            (((strings[key] as? [String: Any])?["localizations"] as? [String: Any])?[language] as? [String: Any])
+                .flatMap { ($0["stringUnit"] as? [String: Any])?["value"] as? String }
+        }
+        for language in ["en", "zh-Hans", "de", "sv", "fr", "it"] {
+            let one = try #require(value("Reset this control", language)), all = try #require(value("Reset all controls", language))
+            #expect(one != all, "\(language)")
+        }
+    }
 }

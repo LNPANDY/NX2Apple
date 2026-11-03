@@ -2061,10 +2061,34 @@
     },
     "Done": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fertig"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Done"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fine"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klar"
           }
         },
         "zh-Hans": {
@@ -3792,7 +3816,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aufteilung"
+            "value": "Tastenlayout"
           }
         },
         "en": {
@@ -5553,42 +5577,42 @@
         }
       }
     },
-    "Put back": {
+    "Put every control of the %@ layout back in its built-in place?": {
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zurückstellen"
+            "value": "Alle Tasten des %@-Layouts an ihren Standardplatz zurücksetzen?"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Put back"
+            "value": "Put every control of the %@ layout back in its built-in place?"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Remettre"
+            "value": "Remettre toutes les commandes de l’agencement %@ à leur place par défaut ?"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rimetti"
+            "value": "Rimettere tutti i comandi dello schema %@ al loro posto predefinito?"
           }
         },
         "sv": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lägg tillbaka"
+            "value": "Flytta alla kontroller i %@-layouten tillbaka till standardplatsen?"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "放回原位"
+            "value": "把 %@ 布局的所有按键放回默认位置？"
           }
         }
       }
@@ -5761,42 +5785,82 @@
         }
       }
     },
-    "Reset this layout": {
+    "Reset all controls": {
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dieses Layout zurücksetzen"
+            "value": "Alle Tasten zurücksetzen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reset this layout"
+            "value": "Reset all controls"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Réinitialiser cet agencement"
+            "value": "Réinitialiser toutes les commandes"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ripristina questo schema"
+            "value": "Ripristina tutti i comandi"
           }
         },
         "sv": {
           "stringUnit": {
             "state": "translated",
-            "value": "Återställ den här layouten"
+            "value": "Återställ alla kontroller"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "重置此布局"
+            "value": "重置所有按键"
+          }
+        }
+      }
+    },
+    "Reset this control": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Taste zurücksetzen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset this control"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réinitialiser cette commande"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ripristina questo comando"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Återställ den här kontrollen"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重置此按键"
           }
         }
       }
@@ -6701,6 +6765,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "交换 A 和 B"
+          }
+        }
+      }
+    },
+    "Switch in the game with the button at the top centre. 3D adds the D-pad, L3 and R3.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im Spiel umschalten mit der Taste oben in der Mitte. 3D hat zusätzlich Steuerkreuz, L3 und R3."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch in the game with the button at the top centre. 3D adds the D-pad, L3 and R3."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En jeu, changez avec le bouton en haut au centre. Le 3D ajoute la croix, L3 et R3."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nel gioco si cambia con il pulsante in alto al centro. Il 3D aggiunge la croce direzionale, L3 e R3."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Byt i spelet med knappen överst i mitten. 3D har även styrkors, L3 och R3."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "游戏中用顶部中间的按钮切换。3D 另有十字键、L3 和 R3。"
           }
         }
       }
