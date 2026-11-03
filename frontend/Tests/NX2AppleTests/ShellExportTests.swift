@@ -231,6 +231,11 @@ import NXModel
         XCTAssertEqual(outcome.message, String(format: L10n.string("shell.noFramework", .en), "Test Game", "shell-framework"))
         XCTAssertTrue(outcome.message.contains("Test Game"), outcome.message)
         XCTAssertFalse(outcome.message.contains("/"), outcome.message)
+        XCTAssertTrue(outcome.message.contains("open an issue"), outcome.message)
+        for lang in Lang.all {
+            XCTAssertFalse(L10n.string("shell.noFramework", lang).contains(";"), lang.code)
+            XCTAssertTrue(L10n.string("shell.noFramework", lang).contains("%2$@"), lang.code)
+        }
         XCTAssertTrue(logged.contains(missing), logged)
         // the install path says the same
         let installed = i.install(framework: missing, titleID: titleID, name: "Test Game", archive: "")
