@@ -20,6 +20,14 @@
 # whose romfs.id must match the imported image — the Hades II Lua bake in patch 0064 keeps
 # that identity self-consistent).
 #
+# game=shell builds the project's deliverable (PROJECT.md decision 4): upstream's Route C
+# shell — both games built as frameworks (build_ipa_from_nsp.py --shell-framework), the
+# DmShell app built by dm/ios/tools/build_shell.sh --build, then ad-hoc signed in Route C's
+# order (frameworks first, the shell executable last with the Increased Memory Limit
+# entitlement) and packed as one unsigned IPA. Game data stays out of the package: each
+# game's RomFS image goes in Documents/games/<title ID>/ on the device, and romfs_img
+# uploads both games' images as separate artifacts.
+#
 # Secrets (repository settings, never printed): PROD_KEYS_B64 (prod.keys, base64 or raw)
 # and HF_TOKEN (a read token for the dataset repo). Nothing else is needed.
 name: Build IPA (NX2Apple)
@@ -28,11 +36,12 @@ on:
   workflow_dispatch:
     inputs:
       game:
-        description: "Which game to build: silksong = Hollow Knight: Silksong (silksong.zip), hades2 = Hades II (hades2.zip) from the HF dataset"
+        description: "Which game to build: silksong = Hollow Knight: Silksong (silksong.zip), hades2 = Hades II (hades2.zip) from the HF dataset, shell = both games in one Route C shell app (the project's deliverable)"
         type: choice
         options:
           - silksong
           - hades2
+          - shell
         required: true
         default: silksong
       language:
@@ -114,7 +123,7 @@ jobs:
             echo "::error::Set the repository secret HF_TOKEN first (see PROJECT.md Phase 3)."
             exit 1
           fi
-          mkdir -p "$RUNNER_TEMP/game"
+          mkdir -p "$RUNNER_TEMP/game" "$RUNNER_TEMP/games"
           # The secret may hold prod.keys either base64-encoded or as raw text;
           # accept both (raw text contains the key names in plain form).
           printf '%s' "$PROD_KEYS_B64" > "$RUNNER_TEMP/keys_secret.txt"
@@ -128,38 +137,41 @@ jobs:
           # Sanity-check the keys file shape without printing any key material.
           grep -q 'aes_kek_generation_source' "$RUNNER_TEMP/prod.keys" \
             || { echo "::error::prod.keys does not look like a prod.keys file."; exit 1; }
-          # ---- Hugging Face route: one zip from the private dataset repo
-          # Tiaoge-tou/game-archives; the token never leaves the env.
-          case "$GAME" in
-            silksong) HF_NAME="silksong.zip" ;;
-            hades2)   HF_NAME="hades2.zip" ;;
-            *) echo "::error::Unknown game: $GAME"; exit 1 ;;
-          esac
-          HF_URL="https://huggingface.co/datasets/Tiaoge-tou/game-archives/resolve/main/$HF_NAME"
-          echo "Downloading $HF_URL"
-          curl -fL --retry 3 -H "Authorization: Bearer $HF_TOKEN" -o "$RUNNER_TEMP/game.zip" "$HF_URL"
-          # Byte-size check for the two known archives (a short or wrong
-          # download must not reach the build).
-          case "$HF_NAME" in
-            hades2.zip)   HF_WANT=6728183316 ;;
-            silksong.zip) HF_WANT=2852569814 ;;
-            *)            HF_WANT="" ;;
-          esac
-          if [ -n "$HF_WANT" ]; then
-            HF_ACTUAL=$(stat -f%z "$RUNNER_TEMP/game.zip")
+          # ---- Hugging Face route: one zip per game from the private dataset
+          # repo Tiaoge-tou/game-archives; the token never leaves the env.
+          fetch_one() {
+            # $1 = the game key, $2 = the folder its archive extracts into.
+            case "$1" in
+              silksong) HF_NAME="silksong.zip"; HF_WANT=2852569814 ;;
+              hades2)   HF_NAME="hades2.zip";   HF_WANT=6728183316 ;;
+              *) echo "::error::Unknown game: $1"; exit 1 ;;
+            esac
+            HF_URL="https://huggingface.co/datasets/Tiaoge-tou/game-archives/resolve/main/$HF_NAME"
+            echo "Downloading $HF_URL"
+            curl -fL --retry 3 -H "Authorization: Bearer $HF_TOKEN" -o "$RUNNER_TEMP/dl-$1.zip" "$HF_URL"
+            # Byte-size check for the two known archives (a short or wrong
+            # download must not reach the build).
+            HF_ACTUAL=$(stat -f%z "$RUNNER_TEMP/dl-$1.zip")
             [ "$HF_ACTUAL" = "$HF_WANT" ] || { echo "::error::Size mismatch for $HF_NAME: got $HF_ACTUAL, want $HF_WANT"; exit 1; }
             echo "Size verified: $HF_NAME ($HF_ACTUAL bytes)"
-          fi
-          unzip -q "$RUNNER_TEMP/game.zip" -d "$RUNNER_TEMP/game"
-          rm -f "$RUNNER_TEMP/game.zip"
-          # Drop macOS metadata junk (._ AppleDouble files masquerade as .nsp/.nsz).
-          rm -rf "$RUNNER_TEMP/game/__MACOSX"
-          find "$RUNNER_TEMP/game" -name '._*' -delete
-          # Accept one extra nesting level (a folder inside the zip).
-          if ! find "$RUNNER_TEMP/game" -maxdepth 2 \( -iname '*.nsp' -o -iname '*.xci' -o -iname '*.nsz' \) | grep -q .; then
-            echo "::error::No .nsp/.xci/.nsz found in the fetched game files."
-            find "$RUNNER_TEMP/game" -maxdepth 2 | head -50
-            exit 1
+            mkdir -p "$2"
+            unzip -q "$RUNNER_TEMP/dl-$1.zip" -d "$2"
+            rm -f "$RUNNER_TEMP/dl-$1.zip"
+            # Drop macOS metadata junk (._ AppleDouble files masquerade as .nsp/.nsz).
+            rm -rf "$2/__MACOSX"
+            find "$2" -name '._*' -delete
+            # Accept one extra nesting level (a folder inside the zip).
+            if ! find "$2" -maxdepth 2 \( -iname '*.nsp' -o -iname '*.xci' -o -iname '*.nsz' \) | grep -q .; then
+              echo "::error::No .nsp/.xci/.nsz found in the fetched game files for $1."
+              find "$2" -maxdepth 2 | head -50
+              exit 1
+            fi
+          }
+          if [ "$GAME" = "shell" ]; then
+            fetch_one silksong "$RUNNER_TEMP/games/silksong"
+            fetch_one hades2 "$RUNNER_TEMP/games/hades2"
+          else
+            fetch_one "$GAME" "$RUNNER_TEMP/game"
           fi
           df -h / | cat
 
@@ -169,7 +181,7 @@ jobs:
           set -eu
           # nxnative only reads .nsp/.xci; an .nsz is a compressed NSP and must
           # be decompressed first (nsz tool, using the same prod.keys).
-          NSZ_LIST=$(find "$RUNNER_TEMP/game" -maxdepth 3 -iname '*.nsz')
+          NSZ_LIST=$(find "$RUNNER_TEMP/game" "$RUNNER_TEMP/games" -maxdepth 4 -iname '*.nsz')
           if [ -z "$NSZ_LIST" ]; then
             echo "No .nsz files, skipping."
             exit 0
@@ -179,10 +191,10 @@ jobs:
             "$RUNNER_TEMP/venv/bin/nsz" -D -w --keys "$RUNNER_TEMP/prod.keys" -o "$(dirname "$f")" "$f"
             rm -f "$f"
           done
-          find "$RUNNER_TEMP/game" -iname '*.nsp' -exec ls -lh {} \;
+          find "$RUNNER_TEMP/game" "$RUNNER_TEMP/games" -iname '*.nsp' -exec ls -lh {} \;
 
       - name: Build the IPA
-        if: ${{ !inputs.fetch_only }}
+        if: ${{ !inputs.fetch_only && inputs.game != 'shell' }}
         working-directory: engine
         env:
           PKG: ${{ inputs.package }}
@@ -245,8 +257,142 @@ jobs:
           test -s "$GITHUB_WORKSPACE/out/game.ipa" || { echo "::error::Build finished without producing out/game.ipa — see build.log"; exit 1; }
           ls -lh "$GITHUB_WORKSPACE/out"
 
+      - name: Build the shell package (Route C, both games in one app)
+        if: ${{ !inputs.fetch_only && inputs.game == 'shell' }}
+        working-directory: engine
+        env:
+          LANGCODE: ${{ inputs.language }}
+        run: |
+          set -eu
+          set -o pipefail
+          export DOTNET_ROOT="$HOME/.dotnet"
+          export DOTNET_ROOT_ARM64="$HOME/.dotnet"
+          # The venv's python3 runs the build scripts (BUILDING.md's route).
+          export PATH="$RUNNER_TEMP/venv/bin:$PATH"
+          # Resolve each game's folder (the zip may nest the NSPs one level).
+          game_dir() {
+            local d="$RUNNER_TEMP/games/$1"
+            if ! ls "$d"/*.nsp "$d"/*.xci >/dev/null 2>&1; then
+              local sub
+              sub=$(find "$d" -maxdepth 2 \( -iname '*.nsp' -o -iname '*.xci' \) -exec dirname {} \; | sort -u | head -1)
+              [ -n "$sub" ] && d="$sub"
+            fi
+            echo "$d"
+          }
+          SILK_DIR=$(game_dir silksong); HADES_DIR=$(game_dir hades2)
+          echo "Silksong folder: $SILK_DIR"; ls -lh "$SILK_DIR"
+          echo "Hades II folder: $HADES_DIR"; ls -lh "$HADES_DIR"
+          # The shader chain lock is registered with this runner's tools once, as
+          # in the one-game step: one chain version serves every game (dmsh_chain.h).
+          GAME_ID=$(ls "$SILK_DIR" | grep -oiE '01[0-9a-f]{14}' | tr 'a-f' 'A-F' | sort -u | head -1)
+          echo "Registering shader chain lock (profile $GAME_ID)"
+          DM_GAME="$GAME_ID" python3 dm/gfx/tools/tool_lock.py --update-lock
+          DM_GAME="$GAME_ID" python3 dm/gfx/tools/dmsh_chain.py --header
+          mkdir -p "$RUNNER_TEMP/fw"
+          : > "$GITHUB_WORKSPACE/build.log"
+          # Each game as a Route C framework (the script forces --romfs separate
+          # and keeps the extracted files, so the RomFS image stays available for
+          # the datapack artifacts). The pad env file is the same as the one-game
+          # build's: build_ipa.sh stages the game's skin art into the framework.
+          build_fw() {
+            printf '%s\n' "$3" > "$RUNNER_TEMP/dm-env-$1.txt"
+            echo "=== framework: $1 ($2) ==="
+            python3 scripts/build_ipa_from_nsp.py "$2" -k "$RUNNER_TEMP/prod.keys" \
+              -o "$RUNNER_TEMP/fw/$1-placeholder.ipa" -l "$LANGCODE" \
+              --shell-framework "$RUNNER_TEMP/fw" --env-file "$RUNNER_TEMP/dm-env-$1.txt" \
+              --progress lines 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
+          }
+          build_fw silksong "$SILK_DIR" 'DM_PAD_SKIN=1'
+          build_fw hades2 "$HADES_DIR" 'DM_PAD_HADES=1'
+          for tid in 010013C00E930000 0100A00019DE0000; do
+            [ -f "$RUNNER_TEMP/fw/DmGame$tid.framework/game.manifest.json" ] \
+              || { echo "::error::No framework built for $tid"; exit 1; }
+          done
+          ls -lh "$RUNNER_TEMP/fw"
+          # The shell app itself (unsigned --build; signing and packing are the
+          # steps below). Silksong is listed first: its profile is the host's
+          # compiled defaults, as build_shell.sh documents.
+          export SHELL_DIR="$RUNNER_TEMP/shellproj"
+          export DM_SHELL_FRAMEWORKS="$RUNNER_TEMP/fw/DmGame010013C00E930000.framework
+          $RUNNER_TEMP/fw/DmGame0100A00019DE0000.framework"
+          bash dm/ios/tools/build_shell.sh --build 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
+          APP="$RUNNER_TEMP/shellproj/dd/Build/Products/Release-iphoneos/DmShell.app"
+          [ -x "$APP/DmShell" ] || { echo "::error::build_shell.sh produced no DmShell.app"; exit 1; }
+          # Pad skin art at the shell's own dm/: DmGamepad.m loads it from the main
+          # bundle (NSBundle.mainBundle/dm/...) whichever game is picked, so both
+          # games' sets sit side by side at the shell root (their folder names
+          # never collide). The copies inside each framework stay as built.
+          for s in padskin padskin-badge padskin-metal padskin-glass hadesskin hadesskin-badge; do
+            if [ -d "dm/ios/$s" ]; then mkdir -p "$APP/dm/$s" && cp dm/ios/$s/*.png "$APP/dm/$s/"; echo "shell dm/: $s"; fi
+          done
+          # Ad-hoc signing in Route C's order (docs/launcher-c-plan.md): each
+          # framework first with no entitlements, then the shell executable with
+          # the Increased Memory Limit entitlement build_shell.sh wrote. The
+          # sideloader re-signs everything and keeps the entitlement.
+          for fw in "$APP"/Frameworks/*.framework; do
+            xattr -cr "$fw" 2>/dev/null || true
+            codesign --force --sign - "$fw"
+            codesign -vvv --verify --strict "$fw" > /dev/null
+            echo "signed framework: $fw"
+          done
+          ENT="$RUNNER_TEMP/shellproj/Gen/DmShell.entitlements"
+          [ -f "$ENT" ] || { echo "::error::No DmShell.entitlements from build_shell.sh"; exit 1; }
+          xattr -cr "$APP/DmShell" 2>/dev/null || true
+          codesign --force --sign - --entitlements "$ENT" "$APP/DmShell"
+          codesign -d --entitlements - "$APP/DmShell" > /dev/null 2>&1 \
+            || { echo "::error::The shell executable's signature has no entitlements"; exit 1; }
+          echo "shell executable signed with the Increased Memory Limit entitlement"
+          # Pack the shell IPA (game data is not in the package: it lives in
+          # Documents/games/<title ID>/ on the device).
+          STORE="$(python3 dm/games/game.py 010013C00E930000 zip_store),$(python3 dm/games/game.py 0100A00019DE0000 zip_store)"
+          mkdir -p "$GITHUB_WORKSPACE/out-shell"
+          (cd dm/ios && python3 tools/pack_ipa.py "$GITHUB_WORKSPACE/out-shell/NX2Apple-shell.ipa" \
+            --store "$STORE" \
+            --skip Payload/DmShell.app/_CodeSignature --skip Payload/DmShell.app/embedded.mobileprovision \
+            "Payload/DmShell.app=$APP")
+          cd "$GITHUB_WORKSPACE/out-shell"
+          shasum -a 256 NX2Apple-shell.ipa > NX2Apple-shell.ipa.sha256
+          ls -lh
+
+      - name: Upload the shell IPA
+        if: ${{ success() && !inputs.fetch_only && inputs.game == 'shell' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: nx2apple-shell-ipa
+          path: |
+            out-shell/NX2Apple-shell.ipa
+            out-shell/NX2Apple-shell.ipa.sha256
+          retention-days: 7
+
+      - name: Upload the shell games' RomFS images (one-time datapack imports)
+        if: ${{ success() && inputs.romfs_img && inputs.game == 'shell' }}
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/out-img-shell"
+          for g in silksong hades2; do
+            IMG=$(find "$RUNNER_TEMP/games/$g" -name RomFS.img -type f | head -1)
+            [ -n "$IMG" ] || { echo "::error::romfs_img was requested but no RomFS.img was extracted for $g"; exit 1; }
+            cp "$IMG" "$GITHUB_WORKSPACE/out-img-shell/$g-RomFS.img"
+          done
+          ls -lh "$GITHUB_WORKSPACE/out-img-shell"
+
+      - name: Upload Silksong RomFS image artifact (shell)
+        if: ${{ success() && inputs.romfs_img && inputs.game == 'shell' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: nx2apple-silksong-romfs-img
+          path: out-img-shell/silksong-RomFS.img
+          retention-days: 7
+
+      - name: Upload Hades II RomFS image artifact (shell)
+        if: ${{ success() && inputs.romfs_img && inputs.game == 'shell' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: nx2apple-hades2-romfs-img
+          path: out-img-shell/hades2-RomFS.img
+          retention-days: 7
+
       - name: Pack the app-only IPA (no bundled RomFS, for Documents/romfs)
-        if: ${{ success() && !inputs.fetch_only }}
+        if: ${{ success() && !inputs.fetch_only && inputs.game != 'shell' }}
         run: |
           # The same app without its bundled RomFS: a small single-file download.
           # The app prefers Documents/romfs over the bundled one, so anyone who
@@ -262,7 +408,7 @@ jobs:
           ls -lh
 
       - name: Upload app-only IPA
-        if: ${{ success() && !inputs.fetch_only }}
+        if: ${{ success() && !inputs.fetch_only && inputs.game != 'shell' }}
         uses: actions/upload-artifact@v4
         with:
           name: nx2apple-${{ inputs.game }}-ipa-slim
@@ -272,7 +418,7 @@ jobs:
           retention-days: 7
 
       - name: Upload the extracted RomFS image (one-time datapack import)
-        if: ${{ success() && inputs.romfs_img }}
+        if: ${{ success() && inputs.romfs_img && inputs.game != 'shell' }}
         run: |
           IMG=$(find "$RUNNER_TEMP/game" -name RomFS.img -type f | head -1)
           [ -n "$IMG" ] || { echo "::error::romfs_img was requested but no RomFS.img was extracted"; exit 1; }
@@ -281,7 +427,7 @@ jobs:
           ls -lh "$GITHUB_WORKSPACE/out-img"
 
       - name: Upload RomFS image artifact
-        if: ${{ success() && inputs.romfs_img }}
+        if: ${{ success() && inputs.romfs_img && inputs.game != 'shell' }}
         uses: actions/upload-artifact@v4
         with:
           name: nx2apple-${{ inputs.game }}-romfs-img
@@ -289,7 +435,7 @@ jobs:
           retention-days: 7
 
       - name: Split the full IPA for download
-        if: ${{ success() && inputs.full }}
+        if: ${{ success() && inputs.full && inputs.game != 'shell' }}
         run: |
           # The full IPA (app + RomFS) is several GB: split it into parts the
           # phone can reassemble byte-exactly (cat game.ipa.part-* > game.ipa).
@@ -302,7 +448,7 @@ jobs:
           ls -lh
 
       - name: Upload full IPA parts
-        if: ${{ success() && inputs.full }}
+        if: ${{ success() && inputs.full && inputs.game != 'shell' }}
         uses: actions/upload-artifact@v4
         with:
           name: nx2apple-${{ inputs.game }}-ipa-full
