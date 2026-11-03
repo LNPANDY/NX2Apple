@@ -153,6 +153,15 @@ import NXModel
         return String(decoding: data, as: UTF8.self).split(separator: "\n").map(String.init)
     }
 
+    /// Exercise the real packaging steps on a small fixture at a lowered ZIP entry limit.
+    private func pack(_ f: Fixture, games: [String]? = nil, limit: Int, using customInstaller: ShellInstaller? = nil) -> ShellInstaller.Outcome {
+        let names = games ?? [URL(fileURLWithPath: f.framework).lastPathComponent]
+        let library = ShellLibrary(games: names.map {
+            ShellLibrary.Game(titleID: ShellInstall.titleID(ofFramework: $0), name: "Test Game", framework: $0)
+        })
+        return (customInstaller ?? installer(f)).packExport(app: URL(fileURLWithPath: ShellInstall.exportAppPath(root: f.root)), library: library, entryLimit: limit)
+    }
+
     // ---- the export ----
 
     func testExportMakesAnIPAWithPayloadAndTheFrameworksAndNeedsNoDeviceOrTeam() throws {
@@ -190,6 +199,23 @@ import NXModel
         XCTAssertEqual(ShellLibrary.load(root: f.root).team, "TEAM123456")
     }
 
+    func testSmallExportKeepsLooseShadersUntilTheEntirePayloadExceedsTheLimit() throws {
+        let f = try makeFixture(entitlements: false)
+        let shader = "Frameworks/DmGame\(titleID).framework/msl/b-test/shader.json"
+        try write(ShellInstall.exportAppPath(root: f.root) + "/" + shader, "reflection")
+        let original = installer(f).export(framework: f.framework, titleID: titleID, name: "Test Game")
+        XCTAssertTrue(original.ok, original.message)
+        let names = try entries(ofZip: original.ipaPath)
+        XCTAssertTrue(names.contains("Payload/DmShell.app/" + shader))
+        XCTAssertFalse(names.contains { $0.hasSuffix(".aar") })
+        let atLimit = pack(f, limit: names.count)
+        XCTAssertTrue(atLimit.ok, atLimit.message)
+        XCTAssertEqual(Set(try entries(ofZip: atLimit.ipaPath)), Set(names))
+        let overLimit = pack(f, limit: names.count - 1)
+        XCTAssertTrue(overLimit.ok, overLimit.message)
+        XCTAssertEqual(try entries(ofZip: overLimit.ipaPath).filter { $0.hasSuffix(".aar") }.count, 1)
+    }
+
     func testExportPacksEachGamesShaderBytesAndPreservesTheBuiltFrameworks() throws {
         let f = try makeFixture(entitlements: false)
         let app = ShellInstall.exportAppPath(root: f.root)
@@ -199,8 +225,14 @@ import NXModel
             try write(chain + "/shader.json", "{\"game\":\(index)}")
             try Data([0, 255, UInt8(index)]).write(to: URL(fileURLWithPath: chain + "/shader.metallib"))
         }
+        let old = "msl-\(UUID().uuidString).aar"
+        let builtGame = app + "/Frameworks/" + games[0]
+        try write(builtGame + "/" + old, "previous packed copy")
+        try write(builtGame + "/msl-custom.aar", "unrelated resource")
+        let unrelated = "Frameworks/GraphicsSupport.framework/msl/library.bin"
+        try write(app + "/" + unrelated, "third-party resource")
 
-        let outcome = installer(f).export(framework: f.framework, titleID: titleID, name: "Test Game")
+        let outcome = pack(f, games: games, limit: 2)
         XCTAssertTrue(outcome.ok, outcome.message)
         let unpacked = path("unpacked")
         let tool = SystemProcessRunner()
@@ -209,7 +241,7 @@ import NXModel
         var names = Set<String>()
         for game in games {
             let fw = URL(fileURLWithPath: unpacked + "/Payload/DmShell.app/Frameworks/" + game)
-            let archives = try fm.contentsOfDirectory(at: fw, includingPropertiesForKeys: nil).filter { $0.pathExtension == "aar" }
+            let archives = try fm.contentsOfDirectory(at: fw, includingPropertiesForKeys: nil).filter { $0.pathExtension == "aar" && $0.lastPathComponent != "msl-custom.aar" }
             XCTAssertEqual(archives.count, 1)
             let archive = try XCTUnwrap(archives.first)
             let stem = archive.deletingPathExtension().lastPathComponent
@@ -227,6 +259,15 @@ import NXModel
             }
         }
         XCTAssertEqual(names.count, games.count)
+        XCTAssertFalse(fm.fileExists(atPath: unpacked + "/Payload/DmShell.app/Frameworks/" + games[0] + "/" + old))
+        XCTAssertEqual(try String(contentsOfFile: builtGame + "/" + old, encoding: .utf8), "previous packed copy")
+        XCTAssertEqual(try String(contentsOfFile: unpacked + "/Payload/DmShell.app/Frameworks/" + games[0] + "/msl-custom.aar", encoding: .utf8), "unrelated resource")
+        XCTAssertEqual(try String(contentsOfFile: unpacked + "/Payload/DmShell.app/" + unrelated, encoding: .utf8), "third-party resource")
+        let again = pack(f, games: games, limit: 2)
+        XCTAssertTrue(again.ok, again.message)
+        let next = try entries(ofZip: again.ipaPath).map { URL(fileURLWithPath: $0).deletingPathExtension().lastPathComponent }
+        XCTAssertTrue(names.isDisjoint(with: next))
+        XCTAssertEqual(next.filter { $0.hasPrefix("msl-") && UUID(uuidString: String($0.dropFirst(4))) != nil }.count, games.count)
     }
 
     func testFailedShaderArchiveFailsTheExportAndClearsTheStage() throws {
@@ -242,7 +283,7 @@ import NXModel
                 try? self.fm.removeItem(atPath: stage + "/Payload/DmShell.app/" + relative)
             }
         }
-        let outcome = i.export(framework: f.framework, titleID: titleID, name: "Test Game")
+        let outcome = pack(f, limit: 2, using: i)
         XCTAssertFalse(outcome.ok)
         XCTAssertFalse(fm.fileExists(atPath: ShellInstall.ipaPath(root: f.root)))
         XCTAssertFalse(fm.fileExists(atPath: stage))
@@ -265,7 +306,7 @@ import NXModel
         let originalURL = URL(fileURLWithPath: app + "/DmShell")
         let original = try Data(contentsOf: originalURL)
 
-        let outcome = installer(f).export(framework: f.framework, titleID: titleID, name: "Test Game")
+        let outcome = pack(f, limit: 2)
         XCTAssertTrue(outcome.ok, outcome.message)
         XCTAssertEqual(try Data(contentsOf: originalURL), original)
         XCTAssertFalse(fm.fileExists(atPath: app + "/_CodeSignature"))
