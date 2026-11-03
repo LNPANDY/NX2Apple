@@ -179,6 +179,7 @@ import NXModel
     func testCommandsAreExact() {
         let root = "/R/NX2Apple-shell"
         XCTAssertEqual(ShellInstall.buildArguments(workDir: "/W", team: "T"), ["--shell-framework", "/W/shell-framework", "--team-id", "T"])
+        XCTAssertEqual(ShellInstall.buildArguments(workDir: "/W", team: "T", ownHost: true), ["--shell-framework", "/W/shell-framework", "--shell-host", "--team-id", "T"])
         XCTAssertEqual(ShellInstall.frameworkPath(workDir: "/W", titleID: "01"), "/W/shell-framework/DmGame01.framework")
         XCTAssertEqual(ShellInstall.projectCommand(repo: "/repo"), ["/bin/bash", "/repo/dm/ios/tools/build_shell.sh", "--prepare-xcode"])
         let env = ShellInstall.projectEnvironment(root: root, frameworks: ["/f/a", "/f/b"], bundleID: "org.nxnative.shell", team: "T",

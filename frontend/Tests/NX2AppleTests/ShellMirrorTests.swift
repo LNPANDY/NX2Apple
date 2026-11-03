@@ -46,6 +46,42 @@ final class ShellMirrorTests: IsolatedDefaultsTestCase {
         XCTAssertEqual(try String(contentsOfFile: ShellInstall.mirroredFramework(root: tmp, titleID: id) + "/inside/f"), "changed")
     }
 
+    func testAGamesOwnHostIsMirroredBesideItsFrameworkAndGoesWhenTheGameHasNoneAnyMore() throws {
+        // build_host.sh's DmHost<title ID>.framework beside the framework that names it (a game engine file with an engine.patch)
+        let fw = try makeFramework()
+        let host = tmp + "/fw/DmHost\(id).framework"
+        try FileManager.default.createDirectory(atPath: host, withIntermediateDirectories: true)
+        try "host".write(toFile: host + "/DmHost\(id)", atomically: true, encoding: .utf8)
+        try #"{"host_framework": "DmHost\#(id).framework"}"#.write(toFile: fw + "/game.manifest.json", atomically: true, encoding: .utf8)
+        try ShellInstall.mirrorFramework(framework: fw, root: tmp)
+        let mirror = ShellInstall.mirroredFramework(root: tmp, titleID: id)
+        let mirroredHost = (mirror as NSString).deletingLastPathComponent + "/DmHost\(id).framework"
+        XCTAssertEqual(ShellInstall.hostFramework(of: mirror), mirroredHost)
+        XCTAssertEqual(try String(contentsOfFile: mirroredHost + "/DmHost\(id)"), "host")
+        // built again without a game engine file: the manifest names no host, and the mirror's goes
+        try "{}".write(toFile: fw + "/game.manifest.json", atomically: true, encoding: .utf8)
+        try ShellInstall.mirrorFramework(framework: fw, root: tmp)
+        XCTAssertNil(ShellInstall.hostFramework(of: mirror))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: mirroredHost))
+    }
+
+    func testAStaleFrameworkGoesWithItsOwnHost() throws {
+        let fw = try makeFramework()
+        let host = tmp + "/fw/DmHost\(id).framework"
+        try FileManager.default.createDirectory(atPath: host, withIntermediateDirectories: true)
+        try #"{"host_framework": "DmHost\#(id).framework"}"#.write(toFile: fw + "/game.manifest.json", atomically: true, encoding: .utf8)
+        XCTAssertEqual(StaleFrameworks.remove([.init(titleID: id, name: "Test", chain: "b-old", paths: [fw])]), [])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fw))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: host), "no host is left without its game")
+    }
+
+    func testOnlyAnEngineWithTheHostBuildScriptBuildsAGamesOwnHost() throws {
+        XCTAssertFalse(RepoLayout.supportsShellHost(engineRoot: tmp))
+        try FileManager.default.createDirectory(atPath: tmp + "/dm/ios/tools", withIntermediateDirectories: true)
+        try "#!/bin/bash".write(toFile: tmp + "/" + RepoLayout.hostBuildScript, atomically: true, encoding: .utf8)
+        XCTAssertTrue(RepoLayout.supportsShellHost(engineRoot: tmp))
+    }
+
     func testMirrorOfAMissingFrameworkThrowsAndLeavesNothing() throws {
         XCTAssertThrowsError(try ShellInstall.mirrorFramework(framework: tmp + "/none/DmGame\(id).framework", root: tmp))
         XCTAssertFalse(FileManager.default.fileExists(atPath: ShellInstall.mirroredFramework(root: tmp, titleID: id)))

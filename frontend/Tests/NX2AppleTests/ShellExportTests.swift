@@ -327,6 +327,12 @@ import NXModel
         XCTAssertNil(ShellInstall.missingFile(inFramework: fw, titleID: titleID))
         try write(fw + "/game.manifest.json", "{}")
         XCTAssertEqual(ShellInstall.missingFile(inFramework: fw, titleID: titleID), "DmGame\(titleID)")
+        // A game with a host of its own (build_host.sh): the host's executable beside the framework, too
+        try write(fw + "/game.manifest.json", #"{"framework_executable": "Other", "host_framework": "DmHost\#(titleID).framework"}"#)
+        XCTAssertEqual(ShellInstall.missingFile(inFramework: fw, titleID: titleID), "DmHost\(titleID).framework/DmHost\(titleID)")
+        try fm.createDirectory(atPath: path("check/DmHost\(titleID).framework"), withIntermediateDirectories: true)
+        try write(path("check/DmHost\(titleID).framework/DmHost\(titleID)"), "executable")
+        XCTAssertNil(ShellInstall.missingFile(inFramework: fw, titleID: titleID))
     }
 
     func testTheNewTextsNameGameAndFileInEveryLanguage() {

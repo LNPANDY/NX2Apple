@@ -27,6 +27,15 @@ package enum RepoLayout {
         return requiredTools.filter { !FileManager.default.fileExists(atPath: root + "/" + $0) }
     }
 
+    /// The script that builds a game's own host for the shared app (`--shell-host`): an engine without it cannot run a game whose
+    /// game engine file changes the engine's sources there.
+    package static let hostBuildScript = "dm/ios/tools/build_host.sh"
+
+    /// Whether the engine tree at `engineRoot` builds a game's own host for the shared app (`--shell-host`, engine patch 0061).
+    package static func supportsShellHost(engineRoot: String) -> Bool {
+        FileManager.default.fileExists(atPath: engineRoot + "/" + hostBuildScript)
+    }
+
     /// Whether the checkout's build script has this fork's `--work-dir` (issue #5): an upstream
     /// nxnative checkout, or a ZIP of an older release, stops with "unrecognized arguments" when the
     /// app passes it. Read from the script's own argparse rather than assumed — the option is the

@@ -73,7 +73,7 @@ package enum StaleFrameworks {
     /// one step that cannot stop halfway, and the files are deleted afterwards in the background (`ShellInstall.discard`).
     @discardableResult
     package static func remove(_ entries: [Entry]) -> [String] {
-        entries.flatMap(\.paths).filter { !ShellInstall.discard($0) }
+        entries.flatMap(\.paths).filter { !ShellInstall.discardFramework($0) }   // with the game's own host, when it has one
     }
 
     /// The names the prompt lists, one per line.

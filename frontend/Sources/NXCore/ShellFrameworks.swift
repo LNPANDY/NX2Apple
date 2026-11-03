@@ -24,6 +24,14 @@ extension ShellInstall {
         return true
     }
 
+    /// Takes a game's framework away with the host of its own its manifest names (build_host.sh's DmHost<title ID>.framework beside
+    /// it), the host first: a framework never stays without the host it names. True when both are gone.
+    @discardableResult
+    package static func discardFramework(_ framework: String, fm: FileManager = .default) -> Bool {
+        if let host = hostFramework(of: framework, fm: fm), !discard(host, fm: fm) { return false }
+        return discard(framework, fm: fm)
+    }
+
     /// Deletes what an earlier `discard` renamed but could not finish deleting (the launcher was quit), in the background.
     package static func sweepDiscarded(in folder: String, fm: FileManager = .default) {
         let leftovers = ((try? fm.contentsOfDirectory(atPath: folder)) ?? []).filter { $0.hasPrefix(discardPrefix) }.map { folder + "/" + $0 }
@@ -32,13 +40,17 @@ extension ShellInstall {
     }
 
     /// The file a framework lacks for build_shell.sh, nil when it is complete: its readable `game.manifest.json`, then the executable
-    /// the manifest names (`DmGame<title ID>` when it names none). The script's other checks (the shader chain, a title ID twice) stay its own.
+    /// the manifest names (`DmGame<title ID>` when it names none), then the executable of the host of its own the manifest names
+    /// (`DmHost<title ID>.framework/DmHost<title ID>` beside it). The script's other checks (the shader chain, a title ID twice) stay its own.
     package static func missingFile(inFramework framework: String, titleID: String, fm: FileManager = .default) -> String? {
         let manifest = "game.manifest.json"
         guard let data = fm.contents(atPath: framework + "/" + manifest),
               let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return manifest }
         let executable = (json["framework_executable"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "DmGame\(titleID)"
-        return fm.fileExists(atPath: framework + "/" + executable) ? nil : executable
+        guard fm.fileExists(atPath: framework + "/" + executable) else { return executable }
+        guard let host = hostFramework(of: framework, fm: fm) else { return nil }
+        let name = (host as NSString).lastPathComponent, hostExecutable = (name as NSString).deletingPathExtension
+        return fm.fileExists(atPath: host + "/" + hostExecutable) ? nil : name + "/" + hostExecutable
     }
 }
 
@@ -56,7 +68,7 @@ extension ShellInstaller {
             log("library: " + note + " (" + game.framework + ")\n")
             notes.append(note)
             gone.insert(game.titleID)
-            if game.framework == ShellInstall.mirroredFramework(root: root, titleID: game.titleID) { ShellInstall.discard(game.framework) }
+            if game.framework == ShellInstall.mirroredFramework(root: root, titleID: game.titleID) { ShellInstall.discardFramework(game.framework) }
         }
         library.games.removeAll { gone.contains($0.titleID) }
         return (notes, nil)

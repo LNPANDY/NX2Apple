@@ -159,7 +159,18 @@ extension BuildStore {
             args += ["-o", macAppPath]
         } else {
             // Only the game's framework: the one shared app is made and signed after the script (installShell)
-            args += ShellInstall.buildArguments(workDir: workDir, team: exportsShell ? "" : devices.signingTeam)
+            // A game engine file that changes the engine's sources: the game runs on a host of its own, built from the copy
+            // (the shared app's built-in host is built from the launcher's engine, without the change)
+            let ownHost = gameEngineTree != nil && gameEngine?.manifest.hasPatch == true
+            if ownHost {
+                guard RepoLayout.supportsShellHost(engineRoot: engineRoot) else {
+                    finishGameEngineTree(keep: false)
+                    fail(t("engineFile.noOwnHost"))
+                    return
+                }
+                say(t("engineFile.ownHost"))
+            }
+            args += ShellInstall.buildArguments(workDir: workDir, team: exportsShell ? "" : devices.signingTeam, ownHost: ownHost)
         }
         // The archive step packs whatever folder the build reported; without --work-dir that is the
         // script's default, which is the same workDir unless a separate output folder was chosen.

@@ -142,15 +142,38 @@ package enum ShellInstall {
         let mirror = mirroredFramework(root: root, titleID: titleID ?? Self.titleID(ofFramework: framework))
         let folder = (mirror as NSString).deletingLastPathComponent
         try fm.createDirectory(atPath: folder, withIntermediateDirectories: true)
+        // A game with a host of its own (build_host.sh) has it beside its framework, where build_shell.sh looks: the mirror's goes
+        // first, so a framework whose manifest names a host never stands in the mirror without it. A game without one has none there.
+        let mirrorHost = folder + "/" + "DmHost\(Self.titleID(ofFramework: mirror)).framework"
+        if let host = hostFramework(of: framework) {
+            try replace(mirrorHost, with: host, in: folder)
+        } else if !discard(mirrorHost) {
+            throw CocoaError(.fileWriteNoPermission, userInfo: [NSFilePathErrorKey: mirrorHost])
+        }
+        try replace(mirror, with: framework, in: folder)
+    }
+
+    /// Copies `source` to `dest` through a hidden folder renamed into place when it is whole (see mirrorFramework).
+    private static func replace(_ dest: String, with source: String, in folder: String) throws {
+        let fm = FileManager.default
         let copy = folder + "/" + discardPrefix + UUID().uuidString
         do {
-            try fm.copyItem(atPath: framework, toPath: copy)
-            guard discard(mirror) else { throw CocoaError(.fileWriteNoPermission, userInfo: [NSFilePathErrorKey: mirror]) }
-            try fm.moveItem(atPath: copy, toPath: mirror)
+            try fm.copyItem(atPath: source, toPath: copy)
+            guard discard(dest) else { throw CocoaError(.fileWriteNoPermission, userInfo: [NSFilePathErrorKey: dest]) }
+            try fm.moveItem(atPath: copy, toPath: dest)
         } catch {
             try? fm.removeItem(atPath: copy)
             throw error
         }
+    }
+
+    /// The host of its own a game's framework names (`host_framework` in its game.manifest.json: DmHost<title ID>.framework, made by
+    /// build_host.sh beside the framework, for a game whose engine differs from the shell's), as a path beside it. nil when it names none.
+    package static func hostFramework(of framework: String, fm: FileManager = .default) -> String? {
+        guard let data = fm.contents(atPath: framework + "/game.manifest.json"),
+              let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let name = json["host_framework"] as? String, !name.isEmpty, !name.contains("/") else { return nil }
+        return (framework as NSString).deletingLastPathComponent + "/" + name
     }
 
     /// The title ID a framework path carries (`DmGame0100…framework`, the build script's name).
@@ -179,8 +202,10 @@ package enum ShellInstall {
     }
 
     /// The part of the build script's argument list that makes the game's framework instead of an Xcode project.
-    package static func buildArguments(workDir: String, team: String) -> [String] {
-        ["--shell-framework", workDir + "/shell-framework"] + (team.isEmpty ? [] : ["--team-id", team])
+    /// `ownHost`: the game also gets a host of its own (`--shell-host`), built from the engine the build runs from, which the shared
+    /// app loads for this game instead of its built-in host: for a game engine file that changes the engine's sources (engine.patch).
+    package static func buildArguments(workDir: String, team: String, ownHost: Bool = false) -> [String] {
+        ["--shell-framework", workDir + "/shell-framework"] + (ownHost ? ["--shell-host"] : []) + (team.isEmpty ? [] : ["--team-id", team])
     }
 
     // ---- 4: the project ----
