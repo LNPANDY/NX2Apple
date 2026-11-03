@@ -64,6 +64,25 @@ FRAMEWORKS_BASE = [
 _IMPORT = re.compile(r'^\s*#\s*(?:import|include)\s*<(\w+)/', re.M)
 
 
+#: Paths the pack step drops from the base app (a full IPA maps its RomFS back in as `romfs` or `romfs.img`).
+PACK_SKIPS = ('Payload/DmIOS.app/msl', 'Payload/DmIOS.app/aoc',
+              'Payload/DmIOS.app/romfs', 'Payload/DmIOS.app/romfs.img')
+
+
+def romfs_has(repo, romfs, marker: str) -> bool:
+    """Whether the RomFS (a folder or an image file) holds `marker`, read through the engine's `romfs.Path`."""
+    tools = str(Path(repo) / 'dm' / 'tools')
+    if tools not in sys.path:
+        sys.path.insert(0, tools)
+    from romfs import Path as RomFSPath
+    return (RomFSPath(romfs) / marker).exists()
+
+
+def romfs_resource(romfs) -> str:
+    """The name a full IPA gives the RomFS: an image file is `romfs.img`, a folder is `romfs`."""
+    return 'romfs.img' if Path(romfs).is_file() else 'romfs'
+
+
 def t(msg: str) -> None:
     print(f'[{time.strftime("%H:%M:%S")}] {msg}', flush=True)
 
@@ -482,7 +501,7 @@ def main(argv: list[str] | None = None) -> int:
     for m in mods:
         if not ((patched / f'{m}.patched.bin').exists() and (patched / f'{m}.fixups.tsv').exists()):
             die(f'no rewritten module {patched}/{m} (the rewrite step must run first)')
-    if not (romfs / marker).exists():
+    if not romfs_has(repo, romfs, marker):
         die(f'no RomFS at {romfs} (missing {marker})')
 
     name = env.get('DM_DISPLAY_NAME') or ''
@@ -673,7 +692,8 @@ def main(argv: list[str] | None = None) -> int:
         t('add-on content: ' + ' '.join(sorted(p.name for p in aoc.iterdir())))
     full = bool(env.get('DM_FULL_ROMFS'))
     if full:
-        maps.append(f'Payload/DmIOS.app/romfs={romfs}')
+        resource = romfs_resource(romfs)
+        maps.append(f'Payload/DmIOS.app/{resource}={romfs}')
         t('packing the full IPA with the RomFS (only sensible for small games)')
     else:
         t('packing a slim IPA without the RomFS (the game files come from Documents/romfs)')
@@ -682,8 +702,9 @@ def main(argv: list[str] | None = None) -> int:
     pack = [sys.executable, str(repo / 'dm/ios/tools/pack_ipa.py'), str(out_ipa)]
     if store:
         pack += ['--store', ':'.join(store.split(':'))]
-    pack += ['--skip', 'Payload/DmIOS.app/msl', '--skip', 'Payload/DmIOS.app/aoc',
-             '--skip', 'Payload/DmIOS.app/romfs', *maps]
+    for skip in PACK_SKIPS:
+        pack += ['--skip', skip]
+    pack += maps
     r = subprocess.run(pack, capture_output=True, text=True, errors='replace')
     if r.returncode:
         print(((r.stdout or '') + (r.stderr or ''))[-3000:], file=sys.stderr)
