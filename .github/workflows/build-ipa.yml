@@ -1,5 +1,9 @@
 # Build a single-game iOS IPA in the cloud (PROJECT.md Phase 3, port group A).
 #
+# The job runs on the xcode-27 image (GitHub-hosted, macOS 27 + Xcode 27.2), the same image this
+# repository builds and tests the engine on: macos-26 jobs dispatched here were cancelled twice
+# after about 15 minutes queued with no runner ever assigned (runs 41680190453 and 41682907731).
+#
 # This is the existing project's cloud pipeline (Tiaoge-tou/nxnative's build-ipa.yml) carried
 # over: the front half is unchanged in shape — the game archive comes from the private
 # Hugging Face dataset Tiaoge-tou/game-archives, prod.keys from a secret — and the back half
@@ -64,7 +68,7 @@ permissions:
 
 jobs:
   build:
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 350
     steps:
       - name: Check out NX2Apple
