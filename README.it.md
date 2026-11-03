@@ -18,9 +18,12 @@ Follows [README.md](README.md) as of v1.0.2
 [![Giochi](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FLNPANDY%2FNX2Apple%2Fmain%2F.github%2Fbadges%2Fgames.json)](.github/badges/games.json)
 [![Verificati](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FLNPANDY%2FNX2Apple%2Fmain%2F.github%2Fbadges%2Fverified.json)](.github/badges/verified.json)
 
+[![中文](https://img.shields.io/badge/🇨🇳_中文-available-green)](README.zh-CN.md)
 [![English](https://img.shields.io/badge/🇺🇸_English-available-green)](README.md)
-[![简体中文](https://img.shields.io/badge/🇨🇳_简体中文-available-green)](README.zh-CN.md)
-[![Italiano](https://img.shields.io/badge/🇮🇹_Italiano-attuale-blue)](README.it.md)
+[![Svenska](https://img.shields.io/badge/🇸🇪_Svenska-available-green)](README.sv.md)
+[![Deutsch](https://img.shields.io/badge/🇩🇪_Deutsch-available-green)](README.de.md)
+[![Français](https://img.shields.io/badge/🇫🇷_Français-available-green)](README.fr.md)
+[![Italiano](https://img.shields.io/badge/🇮🇹_Italiano-current-blue)](README.it.md)
 
 <img src="frontend/screenshots/hero-features-en.png" width="100%" alt="NX2Apple — Giochi Switch su iPhone e Mac">
 
@@ -31,7 +34,7 @@ Follows [README.md](README.md) as of v1.0.2
 - **Primo avvio guidato** — una procedura guidata accompagna i nuovi giocatori attraverso la configurazione di Xcode, delle chiavi e dei giochi. Gli strumenti di compilazione e Python sono già inclusi nell'app, quindi nessuno deve installare Homebrew.
 - **Modalità console** — collega un controller e premi Select: la libreria passa a schermo intero ed è pensata per il controller, proprio come il menu Home di una Switch.
 
-Ogni versione è elencata nel [changelog](CHANGELOG.it.md). English readers — see the [English README](README.md). 中文用户请看这里：[简体中文 README](README.zh-CN.md)。
+Ogni versione è elencata nel [changelog](CHANGELOG.it.md).
 
 </div>
 
@@ -157,7 +160,7 @@ ancora stato provato su un telefono. Eccone alcuni:
 | <img src="https://raw.githubusercontent.com/seedds/nxnative/65501fbbaf8526f7aab0a1edd028135888590f8e/docs/images/zelda-breath-of-the-wild.jpg" width="96" alt=""> | The Legend of Zelda: Breath of the Wild | iPhone | Segnalato come giocabile upstream, 60 fps con la versione 1.9.0 |
 | <img src="https://raw.githubusercontent.com/seedds/nxnative/65501fbbaf8526f7aab0a1edd028135888590f8e/docs/images/mario-kart-8-deluxe.jpg" width="96" alt=""> | Mario Kart 8 Deluxe | iPhone | Segnalato come giocabile upstream |
 
-**[GAMES.it.md](GAMES.it.md)** (English: [GAMES.md](GAMES.md), 中文: [GAMES.zh-CN.md](GAMES.zh-CN.md)) contiene la galleria di screenshot con le dimensioni di installazione
+**[GAMES.it.md](GAMES.it.md)** contiene la galleria di screenshot con le dimensioni di installazione
 di ciascun gioco e la tabella completa con la versione dell'aggiornamento richiesta da ogni titolo: la versione visualizzata dell'NSP di aggiornamento
 deve corrispondere a quella prevista dal profilo, altrimenti il processo di compilazione lo segnalerà.
 

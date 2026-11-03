@@ -2,7 +2,7 @@ Follows [CHANGELOG.md](CHANGELOG.md) as of v1.0.2
 
 # Changelog
 
-La cronologia delle versioni di NX2Apple, dalla più recente alla meno recente. Ogni versione, corredata dal testo completo delle note di rilascio, è disponibile nella [pagina delle release](https://github.com/LNPANDY/NX2Apple/releases). English: [CHANGELOG.md](CHANGELOG.md). 中文：[CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
+La cronologia delle versioni di NX2Apple, dalla più recente alla meno recente. Ogni versione, corredata dal testo completo delle note di rilascio, è disponibile nella [pagina delle release](https://github.com/LNPANDY/NX2Apple/releases).
 
 Dalla più recente alla meno recente. Il fork segue gli aggiornamenti upstream ogni giorno, perciò l'elenco dei giochi e le correzioni all'host arrivano automaticamente.
 
