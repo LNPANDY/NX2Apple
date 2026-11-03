@@ -203,6 +203,8 @@
   "console.shaders": "Compiling shaders",
   "console.shadersProgress": "Compiling shaders · %d of %d",
   "console.simulatedShaders": "Simulated progress in this preview",
+  "console.startInConsole": "Start in console mode",
+  "console.startInConsoleNote": "Opens the console mode every time the launcher starts, with or without a controller. Leave it from the View menu.",
   "console.starting": "Starting %@…",
   "console.startingNote": "Getting your game ready",
   "console.unassigned": "Unassigned",

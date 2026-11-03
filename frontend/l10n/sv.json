@@ -114,6 +114,8 @@
   "cloud.state.waiting": "En nyare sparfil har inte skickats än. Den skickas vid nästa start.",
   "cloud.title": "Molnsparfiler",
   "cloud.turnOff": "Stäng av",
+  "console.startInConsole": "Starta i konsolläge",
+  "console.startInConsoleNote": "Öppnar konsolläget varje gång launchern startar, med eller utan handkontroll. Lämna det från menyn Visa.",
   "controls.applied": "Tillämpas nästa gång du väljer Spela här. Äldre byggen ignorerar det.",
   "controls.changes": "%d ändringar",
   "controls.clear": "Ingen tangent",

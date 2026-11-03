@@ -204,6 +204,8 @@
   "console.shaders": "Compilazione degli shader",
   "console.shadersProgress": "Compilazione degli shader · %d di %d",
   "console.simulatedShaders": "Avanzamento simulato in questa anteprima",
+  "console.startInConsole": "Avvia in modalità console",
+  "console.startInConsoleNote": "Apre la modalità console a ogni avvio del launcher, con o senza controller. Per uscire usa il menu Vista.",
   "console.starting": "Avvio di %@…",
   "console.startingNote": "Preparazione del gioco",
   "console.unassigned": "Non assegnato",

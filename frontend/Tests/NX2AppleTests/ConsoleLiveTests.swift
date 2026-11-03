@@ -276,6 +276,36 @@ import SwiftUI
         XCTAssertFalse(ConsolePrompt.shouldShow(enabled: false, shown: false))
     }
 
+    /// #336 part 1: the Settings switch "Start in console mode" enters the mode when the launcher first shows, no controller needed.
+    func testStartInConsoleEntersOnceWhenTheLauncherFirstShows() throws {
+        XCTAssertTrue(ConsolePrompt.shouldStartInConsole(setting: true, handled: false))
+        XCTAssertFalse(ConsolePrompt.shouldStartInConsole(setting: false, handled: false))
+        XCTAssertFalse(ConsolePrompt.shouldStartInConsole(setting: true, handled: true))
+
+        let window = OffscreenWindow(size: .zero)
+        let on = ConsoleCoordinator(window: { window }, setFullScreen: { _, _, done in done() }, fadeSeconds: 0.05, startInConsole: { true })
+        XCTAssertFalse(on.active, "not before the launcher shows")
+        on.available = true
+        XCTAssertTrue(on.active, "entered without any controller")
+        on.exit()
+        on.available = false   // the guided setup again, then the launcher
+        on.available = true
+        XCTAssertFalse(on.active, "leaving the mode is respected until the next start")
+
+        let off = ConsoleCoordinator(window: { window }, setFullScreen: { _, _, done in done() }, fadeSeconds: 0.05, startInConsole: { false })
+        off.available = true
+        XCTAssertFalse(off.active)
+    }
+
+    func testStartInConsoleWaitsForTheGuidedSetup() throws {
+        let window = OffscreenWindow(size: .zero)
+        let coordinator = ConsoleCoordinator(window: { window }, setFullScreen: { _, _, done in done() }, fadeSeconds: 0.05, startInConsole: { true })
+        coordinator.available = false
+        XCTAssertFalse(coordinator.active, "the setup is no place for the console")
+        coordinator.available = true
+        XCTAssertTrue(coordinator.active, "the first time the launcher shows")
+    }
+
     func testBatteryFillFraction() {
         XCTAssertEqual(BatteryIcon.fillFraction(0.76), 0.76)
         XCTAssertEqual(BatteryIcon.fillFraction(0), 0)

@@ -204,6 +204,8 @@
   "console.shaders": "Compilation des shaders",
   "console.shadersProgress": "Compilation des shaders · %d sur %d",
   "console.simulatedShaders": "Progression simulée dans cet aperçu",
+  "console.startInConsole": "Démarrer en mode console",
+  "console.startInConsoleNote": "Ouvre le mode console à chaque démarrage du lanceur, avec ou sans manette. Pour le quitter, utilisez le menu Présentation.",
   "console.starting": "Démarrage de %@…",
   "console.startingNote": "Préparation de votre jeu",
   "console.unassigned": "Non attribuée",

@@ -204,6 +204,8 @@
   "console.shaders": "正在编译着色器",
   "console.shadersProgress": "正在编译着色器 · %d / %d",
   "console.simulatedShaders": "此预览中的进度为模拟进度",
+  "console.startInConsole": "启动时进入主机模式",
+  "console.startInConsoleNote": "每次启动启动器都直接进入主机模式，不论是否连接手柄。可从「显示」菜单退出。",
   "console.starting": "正在启动 %@…",
   "console.startingNote": "正在准备游戏",
   "console.unassigned": "未分配",

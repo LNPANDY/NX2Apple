@@ -205,6 +205,8 @@
   "console.shaders": "Shader werden kompiliert",
   "console.shadersProgress": "Shader werden kompiliert · %d von %d",
   "console.simulatedShaders": "Simulierter Fortschritt in dieser Vorschau",
+  "console.startInConsole": "Im Konsolenmodus starten",
+  "console.startInConsoleNote": "Öffnet bei jedem Start des Launchers den Konsolenmodus, mit oder ohne Controller. Beenden über das Menü „Darstellung“.",
   "console.starting": "%@ startet …",
   "console.startingNote": "Dein Spiel wird vorbereitet",
   "console.unassigned": "Nicht zugewiesen",
