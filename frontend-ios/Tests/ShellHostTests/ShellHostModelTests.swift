@@ -48,6 +48,15 @@ final class Clock: @unchecked Sendable { var date: Date; init(_ d: Date) { date 
         shell.storeTouchStick("higher")
         await model.playNow(Fixtures.orbit)
         #expect(launcher.launched.last?.environment["DM_TOUCH_STICK"] == "higher")
+        #expect(launcher.launched.last?.environment["DM_TOUCH_LAYOUT"] == nil, "no arrangement: nothing is passed")
+        var layout = TouchLayout()
+        layout[.threeD, .face] = TouchLayout.Offset(dx: -2, dy: -1)
+        shell.storeTouchLayout(layout)
+        await model.playNow(Fixtures.orbit)
+        #expect(launcher.launched.last?.environment["DM_TOUCH_LAYOUT"] == "1;3d/face:-2,-1")
+        shell.resetTouchLayout(.threeD)
+        await model.playNow(Fixtures.orbit)
+        #expect(launcher.launched.last?.environment["DM_TOUCH_LAYOUT"] == nil, "reset: the engine's built-in layout")
     }
 
     /// The engine draws the right-stick hint's words as they come (patch 0067), so the shell hands them over in the player's language.

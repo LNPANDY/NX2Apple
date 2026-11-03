@@ -62,6 +62,30 @@ final class TouchControlsCaptureTests: XCTestCase {
         }
     }
 
+    /// The layout editor (#414): a phone held sideways and upright, 2D and 3D, a chosen control, a moved one, a refused spot, and an
+    /// iPad upright with the controls below the picture.
+    func testCaptureTheLayoutEditor() throws {
+        var moved = TouchLayout()
+        moved[.threeD, .face] = TouchLayout.Offset(dx: -4, dy: -3)
+        moved[.threeD, .stick] = TouchLayout.Offset(dx: 0, dy: -4)
+        moved[.threeD, .plus] = TouchLayout.Offset(dx: 2, dy: 1)
+        let store = store([ShellSettingsStore.touchLayoutKey: moved.encoded])
+        func editor(_ kind: TouchLayout.Kind, upright: PadScreen? = nil, select: TouchLayout.Control? = nil, rejected: Bool = false, held: Bool = false) -> TouchLayoutEditorModel {
+            let m = TouchLayoutEditorModel(store: store, sideways: .proMax, upright: upright, kind: kind)
+            if let select { held ? m.pickUp(select) : m.select(select) }
+            if rejected { m.nudge(dx: 40, dy: 0) }   // the stick toward the diamond: no room
+            return m
+        }
+        try capture("touch-editor-phone-sideways", width: 932, height: 430, TouchLayoutEditorView(model: editor(.threeD, select: .stick), close: {}))
+        try capture("touch-editor-phone-upright", width: 402, height: 874, TouchLayoutEditorView(model: editor(.threeD, select: .face), close: {}))
+        try capture("touch-editor-2d", width: 932, height: 430, TouchLayoutEditorView(model: editor(.twoD), close: {}))
+        try capture("touch-editor-refused", width: 932, height: 430, TouchLayoutEditorView(model: editor(.threeD, select: .stick, rejected: true), close: {}))
+        try capture("touch-editor-held", width: 932, height: 430, TouchLayoutEditorView(model: editor(.threeD, select: .plus, held: true), close: {}))
+        try capture("touch-editor-ipad-upright", width: 1032, height: 1376,
+                    TouchLayoutEditorView(model: editor(.threeDSplit, upright: .iPadUpright, select: .x), close: {}))
+        try capture("touch-settings-arranged", width: 402, height: 1400, ShellSettingsView(store: store, actions: ShellActions(), onClose: {}))
+    }
+
     private func captureGroup(_ name: String, _ values: [String: String]) throws {
         let s = store(values)
         let group = SettingsGroup(title: ShellStrings.text("Touch controls")) {
