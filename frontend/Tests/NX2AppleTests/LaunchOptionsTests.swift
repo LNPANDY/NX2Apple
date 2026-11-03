@@ -1,4 +1,5 @@
 import XCTest
+import SwiftUI
 @testable import NX2Apple
 @testable import NXCore
 @testable import NXLauncher
@@ -133,5 +134,16 @@ final class LaunchOptionsTests: IsolatedDefaultsTestCase {
         XCTAssertFalse(segmented("DM_X", ["American English", "Japanese"]), "a label that does not fit its segment")
         XCTAssertFalse(segmented("DM_X", ["One", "Two", "Seven tens"]), "three segments are narrower than two")
         XCTAssertFalse(segmented("DM_X", ["A", "B", "C", "D"]), "four or more are a menu")
+    }
+
+    func testLauncherSwitchStyleBindingAndRepresentation() {
+        var state = false
+        let binding = Binding(get: { state }, set: { state = $0 })
+        let toggle = Toggle("Game vibration", isOn: binding).toggleStyle(LauncherSwitchStyle())
+        let host = NSHostingView(rootView: toggle)
+        _ = host.fittingSize
+        XCTAssertFalse(state)
+        binding.wrappedValue = true
+        XCTAssertTrue(state)
     }
 }
