@@ -38,4 +38,5 @@
 0060-ios-shell-declare-italian-in-cfbundlelocalizatio.patch
 0061-ios-adapt-gameplay-to-duo-portrait-and-tabletop.patch
 0062-ios-apply-controller-button-mappings-to-physical.patch
-0064-ios-touch-controls-size.patch
+0063-ios-picture-fit-or-fill-for-screens-that-are-not.patch
+0065-ios-touch-controls-size.patch

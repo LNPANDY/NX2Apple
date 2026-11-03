@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Where the touch controls sit on an iPhone Pro Max held sideways (932 x 430 points, the side insets of the Dynamic Island and the home
-/// indicator), for the preview in the settings. It mirrors the engine's `DmPadGeometry.h` (patch 0064) for that one screen, in the 3D
+/// indicator), for the preview in the settings. It mirrors the engine's `DmPadGeometry.h` (patch 0065) for that one screen, in the 3D
 /// layout so every control shows: the same constants in u, the bottom corners halfway into the side insets. The engine stays the
 /// truth on the device, where a size that does not fit a screen moves toward medium.
 struct TouchPadPreviewGeometry: Equatable {

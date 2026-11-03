@@ -56,9 +56,8 @@ final class PadMappingCaptureTests: XCTestCase {
         }
     }
 
-    private func card(_ title: String, rows: [SettingRow], inherited: PadMap?, open: String? = nil,
-                      held: Set<PadElement> = []) -> some View {
-        PadMappingCard(title: title, rows: rows, inherited: inherited, openRow: open, held: held, open: { _ in }, pick: { _, _ in },
+    private func card(_ title: String, rows: [SettingRow], inherited: PadMap?, open: String? = nil) -> some View {
+        PadMappingCard(title: title, rows: rows, inherited: inherited, openRow: open, open: { _ in }, pick: { _, _ in },
                        backToList: {}, reset: {}, close: {})
             .padding(16)
             .background(Color.black.opacity(0.55))
@@ -78,8 +77,6 @@ final class PadMappingCaptureTests: XCTestCase {
 
     func testCaptureTheCardOfAGame() throws {
         try capture("pad-card-game", width: 512, card("Hades II", rows: gameRows, inherited: global))
-        // A controller's bottom face button held while the card is open: its place (B on a Switch) lights up.
-        try capture("pad-card-game-held", width: 512, card("Hades II", rows: gameRows, inherited: global, held: [.a]))
         try capture("pad-card-game-options", width: 512, card("Hades II", rows: gameRows, inherited: global, open: "pad.Y"))
         // A phone: the card at the width an iPhone gives it.
         try capture("pad-card-game-phone", width: 393, card("Hades II", rows: gameRows, inherited: global))
@@ -91,10 +88,10 @@ final class PadMappingCaptureTests: XCTestCase {
         try capture("pad-settings-row", width: 402, GameDetailView(detail: detail, showsPrimaryAction: false, showsHeader: false).padding(24))
     }
 
-    /// The drawing alone and large, to look at the shoulders: the card's (Switch names, rings on changed buttons, the left
-    /// bumper held) and the test's (Xbox names, the right trigger half pulled).
+    /// The drawing alone and large, to look at the shoulders: the card's (Switch names, rings on changed buttons, nothing
+    /// held, as the card never shows a controller's input) and the test's (Xbox names, the triggers pulled).
     func testCaptureTheDrawingUpClose() throws {
-        let card = XboxControllerDiagram(snapshot: PadSnapshot(pressed: [.leftBumper]), switchNames: true, marked: [.rightBumper, .leftTrigger, .b])
+        let card = XboxControllerDiagram(snapshot: PadSnapshot(), switchNames: true, marked: [.rightBumper, .leftTrigger, .b])
         try capture("pad-drawing-card", width: 960, card.aspectRatio(320 / 220, contentMode: .fit).padding(24))
         // The triggers at 25, 50, 75 and 100 percent, LT and RT side by side in each, a face button held.
         for (name, left, right) in [("25-50", 0.25, 0.5), ("75-100", 0.75, 1.0)] {
