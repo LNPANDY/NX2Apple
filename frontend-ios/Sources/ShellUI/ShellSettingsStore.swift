@@ -14,6 +14,9 @@ public final class ShellSettingsStore: @unchecked Sendable {
     public static let touchSizeKey = "touchSize"                 // small, medium or large: DM_TOUCH_SIZE for every game
     /// The touch controls' sizes, as the engine reads DM_TOUCH_SIZE. Medium is the built-in size and is never stored.
     public static let touchSizes = ["small", "medium", "large"]
+    public static let touchStickKey = "touchStick"               // corner, higher or inward: DM_TOUCH_STICK for every game
+    /// Where the left stick sits, as the engine reads DM_TOUCH_STICK. The corner is the built-in place and is never stored.
+    public static let touchStickPlaces = ["corner", "higher", "inward"]
 
     /// The store the app reads and writes. Tests and previews swap it.
     nonisolated(unsafe) public static var current = ShellSettingsStore()
@@ -50,6 +53,16 @@ public final class ShellSettingsStore: @unchecked Sendable {
         if size == "medium" { defaults.removeObject(forKey: Self.touchSizeKey) } else { defaults.set(size, forKey: Self.touchSizeKey) }
     }
 
+    /// Where the left stick sits in every game: in the corner (the built-in place), higher, or further in.
+    public var touchStick: String {
+        let value = defaults.string(forKey: Self.touchStickKey) ?? "corner"
+        return Self.touchStickPlaces.contains(value) ? value : "corner"
+    }
+    public func storeTouchStick(_ place: String) {
+        guard Self.touchStickPlaces.contains(place) else { return }
+        if place == "corner" { defaults.removeObject(forKey: Self.touchStickKey) } else { defaults.set(place, forKey: Self.touchStickKey) }
+    }
+
     public var padMap: PadMap { PadMap(defaults.dictionary(forKey: Self.padMapKey) as? [String: String] ?? [:]) }
     public func setPadButton(_ button: String, to output: String) {
         var map = padMap
@@ -68,6 +81,7 @@ public final class ShellSettingsStore: @unchecked Sendable {
     public var gameDefaults: [String: String] {
         var values = performanceHUD.map { ["DM_METAL_HUD": $0 ? "1" : "0"] } ?? [:]
         if touchSize != "medium" { values["DM_TOUCH_SIZE"] = touchSize }
+        if touchStick != "corner" { values["DM_TOUCH_STICK"] = touchStick }
         return values
     }
 }

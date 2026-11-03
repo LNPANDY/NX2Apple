@@ -1147,6 +1147,46 @@
         }
       }
     },
+    "Corner": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ecke"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Corner"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coin"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angolo"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hörn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "角落"
+          }
+        }
+      }
+    },
     "Custom": {
       "localizations": {
         "de": {
@@ -2107,42 +2147,42 @@
         }
       }
     },
-    "For every game. On a screen too small for a size, the controls stay smaller.": {
+    "For every game. On a screen too small for a choice, the controls stay closer to where they were.": {
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Für alle Spiele. Ist der Bildschirm für eine Größe zu klein, bleiben die Tasten kleiner."
+            "value": "Für alle Spiele. Ist der Bildschirm für eine Wahl zu klein, bleiben die Tasten näher an ihrem alten Platz."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "For every game. On a screen too small for a size, the controls stay smaller."
+            "value": "For every game. On a screen too small for a choice, the controls stay closer to where they were."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pour tous les jeux. Sur un écran trop petit pour une taille, les commandes restent plus petites."
+            "value": "Pour tous les jeux. Sur un écran trop petit pour un choix, les commandes restent plus près de leur place."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Per tutti i giochi. Su uno schermo troppo piccolo per una dimensione, i comandi restano più piccoli."
+            "value": "Per tutti i giochi. Su uno schermo troppo piccolo per una scelta, i comandi restano più vicini al loro posto."
           }
         },
         "sv": {
           "stringUnit": {
             "state": "translated",
-            "value": "För alla spel. På en skärm som är för liten för en storlek förblir kontrollerna mindre."
+            "value": "För alla spel. På en skärm som är för liten för ett val stannar kontrollerna närmare sin plats."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "适用于所有游戏。屏幕放不下所选大小时，按键会保持较小。"
+            "value": "适用于所有游戏。屏幕放不下所选设置时，按键会尽量留在原来的位置附近。"
           }
         }
       }
@@ -2667,6 +2707,46 @@
         }
       }
     },
+    "Higher": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Höher"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Higher"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plus haut"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In alto"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Högre"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "靠上"
+          }
+        }
+      }
+    },
     "Hold B to close": {
       "localizations": {
         "de": {
@@ -2823,6 +2903,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "界面"
+          }
+        }
+      }
+    },
+    "Inward": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Innen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inward"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Au centre"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Al centro"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Längre in"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "靠内"
           }
         }
       }
@@ -3223,6 +3343,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "左肩键"
+          }
+        }
+      }
+    },
+    "Left stick": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Linker Stick"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Left stick"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stick gauche"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Levetta sinistra"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vänster spak"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "左摇杆"
           }
         }
       }

@@ -2,8 +2,8 @@ import SwiftUI
 
 /// Where the touch controls sit on an iPhone Pro Max held sideways (932 x 430 points, the side insets of the Dynamic Island and the home
 /// indicator), for the preview in the settings. It mirrors the engine's `DmPadGeometry.h` (patch 0064) for that one screen, in the 3D
-/// layout so every control shows: the same constants in u, the bottom corners halfway into the side insets. The engine stays the
-/// truth on the device, where a size that does not fit a screen moves toward medium.
+/// layout so every control shows: the same constants in u, the bottom corners halfway into the side insets, the left stick's place (patch
+/// 0065). The engine stays the truth on the device, where a choice that does not fit a screen moves toward the built-in layout.
 struct TouchPadPreviewGeometry: Equatable {
     static let screen = CGSize(width: 932, height: 430)
     static let insets = (left: 59.0, right: 59.0, bottom: 21.0)
@@ -20,7 +20,9 @@ struct TouchPadPreviewGeometry: Equatable {
     static func scale(_ size: String) -> CGFloat { size == "small" ? 0.8 : size == "large" ? 1.2 : 1 }
 
     let u: CGFloat
-    init(size: String) { u = Self.scale(size) }
+    /// DM_TOUCH_STICK: corner, higher or inward.
+    let place: String
+    init(size: String, stick: String = "corner") { u = Self.scale(size); place = stick }
 
     private var safe: CGRect { CGRect(x: Self.insets.left, y: 0, width: Self.screen.width - Self.insets.left - Self.insets.right, height: Self.screen.height) }
     private var corner: CGRect {
@@ -28,9 +30,24 @@ struct TouchPadPreviewGeometry: Equatable {
     }
     private func side(_ r: CGRect, right: Bool, _ dx: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: right ? r.maxX - dx : r.minX + dx, y: y) }
 
-    var stick: CGPoint { side(corner, right: false, 81 * u, corner.maxY - 82 * u) }
+    private var cornerStick: CGPoint { side(corner, right: false, 81 * u, corner.maxY - 82 * u) }
+    /// How far the stick moves for its place: higher up to 70 u, until its ring would reach L's circle, inward 60 u (the engine
+    /// shrinks either in 2 u steps until nothing overlaps; on this screen only higher meets something, L, at the large size).
+    private var shift: CGVector {
+        switch place {
+        case "higher":
+            let l = side(safe, right: false, 44 * u, 108 * u), r = 24 * u
+            var d = 70 * u
+            while d > 0 && hypot(cornerStick.x - l.x, cornerStick.y - d - l.y) < 77 * u + r { d -= 2 * u }
+            return CGVector(dx: 0, dy: -max(d, 0))
+        case "inward": return CGVector(dx: 60 * u, dy: 0)
+        default: return .zero
+        }
+    }
+    var stick: CGPoint { CGPoint(x: cornerStick.x + shift.dx, y: cornerStick.y + shift.dy) }
     var face: CGPoint { side(corner, right: true, 81 * u, corner.maxY - 82 * u) }
-    var dpad: CGPoint { side(corner, right: false, 231 * u, corner.maxY - 64 * u) }
+    /// The D-pad sits inward of the stick and moves with it when the stick moves inward.
+    var dpad: CGPoint { side(corner, right: false, 231 * u + (place == "inward" ? shift.dx : 0), corner.maxY - 64 * u) }
 
     var shapes: [Shape] {
         var out: [Shape] = []
@@ -74,12 +91,20 @@ struct TouchControlsNote: View {
 /// It is a picture, VoiceOver reads it as one element with its size, and the rows below it change it.
 struct TouchControlsPreview: View {
     var size: String
+    var stick = "corner"
 
     var body: some View {
-        let geometry = TouchPadPreviewGeometry(size: size)
+        let geometry = TouchPadPreviewGeometry(size: size, stick: stick)
+        let home = TouchPadPreviewGeometry(size: size).stick
         Canvas { context, canvas in
             let k = canvas.width / TouchPadPreviewGeometry.screen.width
             context.scaleBy(x: k, y: k)
+            // A moved stick leaves a dashed cream outline where it sits by default, so the move reads at a glance.
+            if geometry.stick != home {
+                let r = 77 * geometry.u
+                context.stroke(Path(ellipseIn: CGRect(x: home.x - r, y: home.y - r, width: 2 * r, height: 2 * r)),
+                               with: .color(ShellPalette.cream.opacity(0.45)), style: StrokeStyle(lineWidth: 2, dash: [7, 6]))
+            }
             for shape in geometry.shapes { draw(shape, in: &context) }
         }
         .aspectRatio(TouchPadPreviewGeometry.screen.width / TouchPadPreviewGeometry.screen.height, contentMode: .fit)
@@ -88,7 +113,7 @@ struct TouchControlsPreview: View {
         )
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(.white.opacity(0.14), lineWidth: 3))
-        .animation(.smooth(duration: 0.2), value: size)
+        .animation(.smooth(duration: 0.2), value: size + stick)
         .accessibilityElement()
         .accessibilityLabel(ShellStrings.text("Preview of the touch controls"))
         .accessibilityIdentifier("touch.preview")

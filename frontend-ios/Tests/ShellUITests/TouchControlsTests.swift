@@ -44,6 +44,31 @@ import Testing
         }
     }
 
+    @Test func theStickRowOffersTheEnginePlacesAndStoresThem() {
+        let store = store()
+        let row = ShellSettingsRows.touchStickRow(store)
+        guard case .choice(let options) = row.kind else { Issue.record("not a choice"); return }
+        #expect(options.map(\.id) == ShellSettingsStore.touchStickPlaces && row.value == "corner")
+        #expect(ChoicePresentation.resolve(labels: options.map(\.label), width: 320, textScale: 1) == .segmented)
+        ShellSettingsRows.apply(row.id, value: "higher", to: store)
+        #expect(store.touchStick == "higher" && store.gameDefaults["DM_TOUCH_STICK"] == "higher")
+    }
+
+    /// The preview moves only the left stick (and for inward the D-pad with it), as the engine does (DmPadGeometry.h, patch 0065).
+    @Test(arguments: ShellSettingsStore.touchSizes)
+    func thePreviewMovesTheStickAndNothingOnTheRight(size: String) {
+        let corner = TouchPadPreviewGeometry(size: size), higher = TouchPadPreviewGeometry(size: size, stick: "higher"),
+            inward = TouchPadPreviewGeometry(size: size, stick: "inward")
+        #expect(higher.stick.x == corner.stick.x && corner.stick.y - higher.stick.y >= 30 * corner.u)
+        #expect(inward.stick.y == corner.stick.y && inward.stick.x - corner.stick.x >= 30 * corner.u)
+        #expect(abs((inward.dpad.x - corner.dpad.x) - (inward.stick.x - corner.stick.x)) < 0.001 && higher.dpad == corner.dpad)
+        #expect(higher.face == corner.face && inward.face == corner.face)
+        for g in [higher, inward] {
+            let screen = CGRect(origin: .zero, size: TouchPadPreviewGeometry.screen)
+            for box in g.shapes.map(TouchPadPreviewGeometry.bounds) { #expect(screen.contains(box)) }
+        }
+    }
+
     @Test func theSizesKeepTheirOrder() {
         #expect(TouchPadPreviewGeometry(size: "small").u < TouchPadPreviewGeometry(size: "medium").u)
         #expect(TouchPadPreviewGeometry(size: "large").u > TouchPadPreviewGeometry(size: "medium").u)

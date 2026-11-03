@@ -50,6 +50,18 @@ import ShellUI
         #expect(store.touchSize == "medium" && store.gameDefaults.isEmpty, "a stored value nobody knows reads as medium")
     }
 
+    @Test func theStickPlaceGoesToEveryGameAndTheCornerIsNotStored() {
+        let store = shell()
+        #expect(store.touchStick == "corner" && store.gameDefaults["DM_TOUCH_STICK"] == nil)
+        store.storeTouchStick("inward")
+        store.storeTouchSize("small")
+        #expect(store.gameDefaults == ["DM_TOUCH_STICK": "inward", "DM_TOUCH_SIZE": "small"])
+        store.storeTouchStick("left")
+        #expect(store.touchStick == "inward", "a place the engine does not know is not stored")
+        store.storeTouchStick("corner")
+        #expect(store.defaults.object(forKey: ShellSettingsStore.touchStickKey) == nil && store.gameDefaults == ["DM_TOUCH_SIZE": "small"])
+    }
+
     @Test func theFolderNamesAreKept() {
         let store = shell()
         store.storeDataFolderName("Switch")

@@ -45,6 +45,9 @@ final class Clock: @unchecked Sendable { var date: Date; init(_ d: Date) { date 
         shell.storeTouchSize("medium")
         await model.playNow(Fixtures.orbit)
         #expect(launcher.launched.last?.environment["DM_TOUCH_SIZE"] == nil)
+        shell.storeTouchStick("higher")
+        await model.playNow(Fixtures.orbit)
+        #expect(launcher.launched.last?.environment["DM_TOUCH_STICK"] == "higher")
     }
 
     @Test func padOverridesPersistMergeAndReset() async throws {

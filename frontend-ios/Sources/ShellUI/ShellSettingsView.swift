@@ -6,6 +6,7 @@ enum ShellSettingsRows {
     static let gameID = "shell"
     static let hud = "shell.hud"
     static let touchSize = "shell.touchSize"
+    static let touchStick = "shell.touchStick"
     static let targetPrefix = "shs.row."
 
     static func hudRow(_ store: ShellSettingsStore) -> SettingRow {
@@ -21,15 +22,24 @@ enum ShellSettingsRows {
                    value: store.touchSize)
     }
 
-    /// Under the preview: the rows are for every game, and the engine keeps a size off a screen too small for it. A note of its
-    /// own, not the row's, so the segments keep the card's width.
-    static var touchNote: String { ShellStrings.text("For every game. On a screen too small for a size, the controls stay smaller.") }
+    /// Where the left stick sits in every game. The buttons on the right keep their place.
+    static func touchStickRow(_ store: ShellSettingsStore) -> SettingRow {
+        SettingRow(id: touchStick, label: ShellStrings.text("Left stick"),
+                   kind: .choice([SettingOption("corner", ShellStrings.text("Corner")), SettingOption("higher", ShellStrings.text("Higher")),
+                                  SettingOption("inward", ShellStrings.text("Inward"))]),
+                   value: store.touchStick)
+    }
+
+    /// Under the preview: the rows are for every game, and the engine keeps the controls apart on a screen too small for a
+    /// choice. A note of its own, not the rows', so the segments keep the card's width.
+    static var touchNote: String { ShellStrings.text("For every game. On a screen too small for a choice, the controls stay closer to where they were.") }
 
     /// A change of one of the rows, from the row itself or from the list of choices.
     static func apply(_ id: String, value: String, to store: ShellSettingsStore) {
         switch id {
         case hud: store.storePerformanceHUD(value == "1")
         case touchSize: store.storeTouchSize(value)
+        case touchStick: store.storeTouchStick(value)
         default: break
         }
     }
@@ -91,12 +101,13 @@ struct ShellSettingsView: View {
                             }
                         }
                         SettingsGroup(title: ShellStrings.text("Touch controls")) {
-                            TouchControlsPreview(size: store.touchSize)
+                            TouchControlsPreview(size: store.touchSize, stick: store.touchStick)
                             TouchControlsNote()
-                            let size = ShellSettingsRows.touchSizeRow(store)
-                            SettingControl(gameID: ShellSettingsRows.gameID, row: size, targetPrefix: ShellSettingsRows.targetPrefix) {
-                                ShellSettingsRows.apply(size.id, value: $0, to: store)
-                            }.equatable()
+                            ForEach([ShellSettingsRows.touchSizeRow(store), ShellSettingsRows.touchStickRow(store)]) { row in
+                                SettingControl(gameID: ShellSettingsRows.gameID, row: row, targetPrefix: ShellSettingsRows.targetPrefix) {
+                                    ShellSettingsRows.apply(row.id, value: $0, to: store)
+                                }.equatable()
+                            }
                         }
                         SettingsGroup(title: ShellStrings.text("Interface")) {
                             let hud = ShellSettingsRows.hudRow(store)

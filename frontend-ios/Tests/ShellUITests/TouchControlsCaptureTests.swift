@@ -51,15 +51,26 @@ final class TouchControlsCaptureTests: XCTestCase {
 
     /// The group alone at each size, at a phone's width and an iPad panel's.
     func testCaptureEachSize() throws {
-        for size in ShellSettingsStore.touchSizes {
-            let s = store([ShellSettingsStore.touchSizeKey: size])
-            let group = SettingsGroup(title: ShellStrings.text("Touch controls")) {
-                TouchControlsPreview(size: s.touchSize)
-                TouchControlsNote()
-                SettingControl(gameID: ShellSettingsRows.gameID, row: ShellSettingsRows.touchSizeRow(s), change: { _ in })
-            }.padding(24)
-            try capture("touch-size-\(size)", width: 402, height: 520, group)
+        for size in ShellSettingsStore.touchSizes { try captureGroup("touch-size-\(size)", [ShellSettingsStore.touchSizeKey: size]) }
+    }
+
+    /// Each place of the left stick, at medium and with the large size.
+    func testCaptureEachStickPlace() throws {
+        for place in ShellSettingsStore.touchStickPlaces {
+            try captureGroup("touch-stick-\(place)", [ShellSettingsStore.touchStickKey: place])
+            try captureGroup("touch-stick-\(place)-large", [ShellSettingsStore.touchStickKey: place, ShellSettingsStore.touchSizeKey: "large"])
         }
+    }
+
+    private func captureGroup(_ name: String, _ values: [String: String]) throws {
+        let s = store(values)
+        let group = SettingsGroup(title: ShellStrings.text("Touch controls")) {
+            TouchControlsPreview(size: s.touchSize, stick: s.touchStick)
+            TouchControlsNote()
+            SettingControl(gameID: ShellSettingsRows.gameID, row: ShellSettingsRows.touchSizeRow(s), change: { _ in })
+            SettingControl(gameID: ShellSettingsRows.gameID, row: ShellSettingsRows.touchStickRow(s), change: { _ in })
+        }.padding(24)
+        try capture(name, width: 402, height: 640, group)
     }
 }
 #endif
