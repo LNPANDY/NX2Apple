@@ -36,3 +36,4 @@
 0058-read-pfs0-packages-missing-the-final-filename-te.patch
 0059-recognize-unframed-pointer-tail-calls-before-zer.patch
 0060-ios-shell-declare-italian-in-cfbundlelocalizatio.patch
+0061-build-ipa-sh-staging.patch
