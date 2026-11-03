@@ -38,8 +38,9 @@
 0060-ios-shell-declare-italian-in-cfbundlelocalizatio.patch
 0061-ios-adapt-gameplay-to-duo-portrait-and-tabletop.patch
 0062-ios-apply-controller-button-mappings-to-physical.patch
-0063-shader-split-scimitar-forge-archives-and-raw-con.patch
-0064-mac-app-programs-of-a-multi-program-application.patch
-0065-nvn-mtl-a-stage-keeps-its-program-s-shaders-afte.patch
-0066-nvn-mtl-write-image-buffer-textures-below-16-byt.patch
-0067-dm-ctl-shots-n-folder-captures-consecutive-frame.patch
+0063-ios-picture-fit-or-fill-for-screens-that-are-not.patch
+0064-shader-split-scimitar-forge-archives-and-raw-con.patch
+0065-mac-app-programs-of-a-multi-program-application.patch
+0066-nvn-mtl-a-stage-keeps-its-program-s-shaders-afte.patch
+0067-nvn-mtl-write-image-buffer-textures-below-16-byt.patch
+0068-dm-ctl-shots-n-folder-captures-consecutive-frame.patch

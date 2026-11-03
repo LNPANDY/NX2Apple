@@ -134,6 +134,11 @@ l’iPhone, les mêmes lignes vont dans `Documents/env.txt` (`DM_FPS_TARGET=30` 
 économiser la batterie, `DM_OPMODE=0` choisit le mode portable). Ce fichier s’applique à tous les jeux de l’app
 partagée. Pour une ligne qui concerne un seul jeu (le `DM_ROMFS_OVERLAY` d’un mod, par exemple), écrivez-la dans
 `Documents/games/<title ID>/env.txt`. Quand les deux fichiers définissent une même clé, celui du jeu l’emporte.
+Un mod est plus simple : placez son dossier dans `Documents/games/<title ID>/mods/<nom du mod>/` (les fichiers RomFS
+dans un dossier `romfs/` à l’intérieur, ou dans le dossier lui-même). La coque définit alors `DM_ROMFS_OVERLAY`
+pour ce jeu seulement. Avec plusieurs mods, celui qui vient en premier par le nom l’emporte quand ils remplacent le
+même fichier. Quand une même clé est définie plusieurs fois, l’ordre est : les réglages propres de la coque, le
+`env.txt` du jeu, le dossier `mods/` du jeu, le `Documents/env.txt` partagé.
 
 **Sauvegardes et journaux.** Un jeu Mac placé dans un dossier de bibliothèque garde ses sauvegardes et son journal
 à côté de l’app (`log/<title ID>.log`). Sinon, ils se trouvent dans `~/Library/Application Support/nxnative/<title ID>/`
