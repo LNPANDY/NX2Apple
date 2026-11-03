@@ -1,0 +1,190 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiaoge-tou <85100527+Tiaoge-tou@users.noreply.github.com>
+Date: Tue, 3 Nov 2026 21:01:05 +0800
+Subject: [PATCH] File layer: serve_patch byte slots, and the RomFS overlay on
+ any image mount
+
+hle_fs.c gains the serve_patch mechanism (patch port 0063, group K of the port inventory), carried from the Tiaoge-tou/nxnative fork.
+
+A profile's serve_patch spec (game.py, patch 0062) names byte slots in a game file whose served value depends on the operation mode: ReadFile substitutes the mode's value in the buffer it returns, only when the bytes read are one of the known values, and the file on disk is never touched. A slot may name a stock pattern first, mark its docked value computed from the render width (a * value), or serve the mode's render width as four ASCII digits (a # value). Groups may be gated to narrow or wide screens. With no serve_patch in the profile the mechanism parses an empty spec and never engages.
+
+mount_ex also takes DM_ROMFS_OVERLAY on any mount of a RomFS image now, not only the one named rom: a game may mount its files under another name (Dark Souls mounts system), and the overlay folder shadows image entries by path there too. Without the env var nothing changes.
+
+No profile in this tree sets serve_patch yet: the Silksong and Hades II rows land with their game groups later in the queue.
+
+Upstream-Status: fork-only
+Reason: Mode-dependent byte serving for Silksong and Hades II files, plus the RomFS overlay on any image mount (PROJECT.md Phase 2)
+Issue: Tiaoge-tou/NX2Apple PROJECT.md Phase 2
+
+---
+ dm/host/hle_fs.c | 122 ++++++++++++++++++++++++++++++++++++++++++++++-
+ 1 file changed, 121 insertions(+), 1 deletion(-)
+
+diff --git a/dm/host/hle_fs.c b/dm/host/hle_fs.c
+index a7e4c9c..458ac20 100644
+--- a/dm/host/hle_fs.c
++++ b/dm/host/hle_fs.c
+@@ -229,7 +229,11 @@ static Result mount_ex(const char *name, const char *dir, int ro, int txn) {
+         // first failed read (Echoes of Wisdom crashed 0.3 s after nnMain, GitHub issue #615). Add-on content and system data check their own paths before they mount
+         if (stat(dir, &ist) || !(S_ISDIR(ist.st_mode) || S_ISREG(ist.st_mode)))
+             die("the game files %s (%s:) are missing: neither a folder nor a RomFS image (the rom mount is DM_ROMFS, or $DM_ROOT/romfs when DM_ROMFS is unset)", dir, name);
+-        if (S_ISREG(ist.st_mode) && !(g_mnt[g_nmnt].img = img_open(dir))) die("the game files %s are not a complete RomFS image", dir);
++        if (S_ISREG(ist.st_mode)) {   // a RomFS image file in place of a folder
++            if (!(g_mnt[g_nmnt].img = img_open(dir))) die("the game files %s are not a complete RomFS image", dir);
++            if (getenv("DM_ROMFS_OVERLAY"))   // an overlay folder shadows image entries by path on any mount of the image, not only "rom" (a game may mount its files as "system")
++                strlcpy(g_mnt[g_nmnt].overlay, getenv("DM_ROMFS_OVERLAY"), sizeof g_mnt[0].overlay);
++        }
+     }
+     g_nmnt++;
+     pthread_mutex_unlock(&g_lock);
+@@ -724,6 +728,118 @@ HLE_FORCE("_ZN2nn2fs6CommitEPKcRKNS0_12CommitOptionE", "fsp-srv; same as Commit
+ HLE_FORCE("_ZN2nn2fs14CommitSaveDataEPKc", "fsp-srv; same as Commit (SDK 11's old name)", Result, h_fs_CommitSaveData, const char *name) { return h_fs_Commit(name); }
+ HLE_FORCE("_ZN2nn2fs7UnmountEPKc", "fsp-srv; the mount table is permanent, unmounting is a no-op", void, h_fs_Unmount, const char *name) { (void)name; }
+ 
++// ---------- Serve patches (profile serve_patch) ----------
++// A profile may declare byte slots in a game file whose served value depends on the operation mode
++// (game.tsv serve_patch → DM_GAME_SERVE_PATCH: "[n:|w:]<file>@<off>:<docked bits>><handheld bits>[@...]
++// ...", offsets and 32-bit float bit patterns in hex, groups space-separated; the n: prefix serves
++// the group on narrow screens only, the w: prefix on wide screens only, where the loader publishes
++// DM_SERVE_NARROW). A slot may name three values, "<stock bits>><docked bits>><handheld bits>", when
++// neither served value is the file's own: recognition is by the stock pattern, then. A docked value
++// prefixed with * is computed instead: the handheld value scaled by DM_RENDER_WIDTH / 1920 (the
++// front end publishes the render width, which follows the screen), the written pattern kept as the
++// fallback when no render width is published. A value prefixed with # is served as the mode's
++// render width (DM_RENDER_WIDTH docked, DM_RENDER_WIDTH_HD handheld) written as four ASCII decimal
++// digits -- a text literal a datapack patch froze to one device's size; it is served only when that
++// width has four digits, and recognition still goes by the named stock pattern. The file on disk is never touched: ReadFile
++// substitutes the mode's value in the buffer it returns, and only when the bytes read are one of
++// the known values, so a file from another build is served exactly as it lies. The decision is
++// taken per read from dm_opmode(), so it follows the mode the session runs in; a file already read
++// keeps the values it was read with (a boot scene is read once, at boot).
++// Silksong (narrow screens): the boot scene's baked HUD rig puts the silk-spool cluster at the stock
++// frame's left edge, where the handheld centre-crop of that frame cuts it, so the cluster's two
++// group roots are served shifted right in handheld mode and stock in docked mode -- the datapack
++// patch, made mode-conditional and kept off the disk. The same roots' local scale Y is served the
++// reciprocal of the docked present stretch in docked mode (pre-squashed, so the front end's
++// anisotropic scale lands it round) and stock in handheld mode, whose frame is the screen's aspect.
++typedef struct { uint32_t off, dock, hand, stock; uint8_t has_stock, computed, ascii_dock, ascii_hand; } serve_slot_t;
++typedef struct { char name[64]; serve_slot_t slot[4]; int n, narrow, wide; } serve_patch_t;
++static serve_patch_t g_serve[4]; static int g_nserve;
++static pthread_once_t g_serve_once = PTHREAD_ONCE_INIT;
++static void serve_parse(void) {
++    const char *s = DM_GAME_SERVE_PATCH;
++    while (*s && g_nserve < 4) {
++        while (*s == ' ') s++;
++        if (!*s) break;
++        serve_patch_t *p = &g_serve[g_nserve];
++        if (s[0] == 'n' && s[1] == ':') { p->narrow = 1; s += 2; }
++        else if (s[0] == 'w' && s[1] == ':') { p->wide = 1; s += 2; }
++        const char *at = strchr(s, '@'); if (!at || at == s || at - s >= (long)sizeof p->name) return;
++        memcpy(p->name, s, (size_t)(at - s)); p->name[at - s] = 0; s = at;
++        while (*s == '@' && p->n < 4) {
++            serve_slot_t *sl = &p->slot[p->n]; char *end;
++            sl->off = (uint32_t)strtoul(s + 1, &end, 16); if (end == s + 1 || *end != ':') return;
++            s = end + 1;
++            uint32_t v[3]; int star[3] = {0, 0, 0}, hash[3] = {0, 0, 0}, nv = 0;
++            while (nv < 3) {
++                if (*s == '*') { star[nv] = 1; s++; }
++                else if (*s == '#') { hash[nv] = 1; s++; }
++                v[nv] = (uint32_t)strtoul(s, &end, 16); if (end == s) return;
++                nv++; s = end;
++                if (*s != '>') break;
++                s++;
++            }
++            if (nv == 2) { sl->dock = v[0]; sl->hand = v[1]; sl->computed = (uint8_t)star[0]; sl->ascii_dock = (uint8_t)hash[0]; sl->ascii_hand = (uint8_t)hash[1]; }
++            else if (nv == 3) { sl->stock = v[0]; sl->has_stock = 1; sl->dock = v[1]; sl->hand = v[2]; sl->computed = (uint8_t)star[1]; sl->ascii_dock = (uint8_t)hash[1]; sl->ascii_hand = (uint8_t)hash[2]; }
++            else return;
++            p->n++;
++        }
++        if (p->n) g_nserve++; else return;
++    }
++}
++static int serve_narrow_env(void) { static int v = -1; if (v < 0) v = getenv("DM_SERVE_NARROW") != NULL; return v; }
++static const serve_patch_t *g_serve_fd[4096];            // per descriptor (folder files)
++static struct { uint64_t h; const serve_patch_t *p; } g_serve_img[16]; static int g_nserve_img;
++static pthread_mutex_t g_serve_lock = PTHREAD_MUTEX_INITIALIZER;
++// The registry is keyed by the host-side handle (the value a handler holds after FH_IN), so OpenFile registers the unshifted handle, not the guest's *out.
++static void serve_register(uint64_t h, const char *path) {
++    pthread_once(&g_serve_once, serve_parse);
++    if (!g_nserve) return;
++    const char *base = strrchr(path, '/'); base = base ? base + 1 : path;
++    for (int i = 0; i < g_nserve; i++) if (!strcmp(base, g_serve[i].name)) {
++        if (g_serve[i].narrow && !serve_narrow_env()) continue;
++        if (g_serve[i].wide && serve_narrow_env()) continue;
++        pthread_mutex_lock(&g_serve_lock);
++        if (IMG_H(h)) { if (g_nserve_img < 16) { g_serve_img[g_nserve_img].h = h; g_serve_img[g_nserve_img].p = &g_serve[i]; g_nserve_img++; } }
++        else if ((int)h >= 0 && (int)h < 4096) g_serve_fd[(int)h] = &g_serve[i];
++        pthread_mutex_unlock(&g_serve_lock);
++        return;
++    }
++}
++static const serve_patch_t *serve_for(uint64_t h) {
++    if (!g_nserve) return NULL;
++    if (IMG_H(h)) { for (int i = 0; i < g_nserve_img; i++) if (g_serve_img[i].h == h) return g_serve_img[i].p; return NULL; }
++    return (int)h >= 0 && (int)h < 4096 ? g_serve_fd[(int)h] : NULL;
++}
++static uint32_t serve_dock_computed(const serve_slot_t *sl) {   // a * docked value: the handheld value scaled by the render width's stretch over the stock docked frame
++    static long rw = -1;
++    if (rw < 0) { const char *e = getenv("DM_RENDER_WIDTH"); long v = e ? strtol(e, NULL, 10) : 0; rw = (v >= 320 && v <= 16384) ? v : 0; }
++    if (!rw) return sl->dock;
++    float hv, out; memcpy(&hv, &sl->hand, 4); out = hv * ((float)rw / 1920.0f);
++    uint32_t bits; memcpy(&bits, &out, 4); return bits;
++}
++static int serve_ascii_width(int hand, uint32_t *out) {   // a # value: the mode's render width as four ASCII decimal digits
++    const char *e = getenv(hand ? "DM_RENDER_WIDTH_HD" : "DM_RENDER_WIDTH");
++    long v = e ? strtol(e, NULL, 10) : 0;
++    if (v < 1000 || v > 9999) return 0;   // not a four-digit width: serve the file as it lies
++    char b[8]; snprintf(b, sizeof b, "%ld", v);
++    memcpy(out, b, 4);
++    return 1;
++}
++static void serve_apply(const serve_patch_t *sp, uint64_t h, int64_t off, void *buf, size_t got) {
++    int hand = dm_opmode() == 0;   // handheld serves the second value of each slot, docked the first
++    int applied = 0;
++    for (int i = 0; i < sp->n; i++) { const serve_slot_t *sl = &sp->slot[i];
++        if (sl->off >= (uint64_t)off && sl->off + 4 <= (uint64_t)off + got) {
++            uint32_t cur; memcpy(&cur, (const uint8_t *)buf + (sl->off - (uint64_t)off), 4);
++            if (cur == sl->dock || cur == sl->hand || (sl->has_stock && cur == sl->stock)) { uint32_t want = 0; int have = 1;
++                if (hand) { if (sl->ascii_hand) have = serve_ascii_width(1, &want); else want = sl->hand; }
++                else if (sl->ascii_dock) have = serve_ascii_width(0, &want);
++                else want = sl->computed ? serve_dock_computed(sl) : sl->dock;
++                if (have && cur != want) { memcpy((uint8_t *)buf + (sl->off - (uint64_t)off), &want, 4); applied = 1; } }
++        } }
++    if (applied) { static _Atomic int logged[2]; if (!logged[hand]++) LOG("[fs] serve patch %s: values served %s (handle %llx)", sp->name, hand ? "handheld" : "docked", (unsigned long long)h); }
++}
++
+ // ---------- Files ----------
+ HLE_FORCE("_ZN2nn2fs8OpenFileEPNS0_10FileHandleEPKci", "fsp-srv → open(2)", Result, h_fs_OpenFile, uint64_t *out, const char *path, int mode) { dm_thread_service_request();
+     int mi; int64_t k;
+@@ -735,6 +851,7 @@ HLE_FORCE("_ZN2nn2fs8OpenFileEPNS0_10FileHandleEPKci", "fsp-srv → open(2)", Re
+         if ((ent->flags & IMG_ENT_DAMAGED) && !(__atomic_fetch_or(&ent->flags, IMG_ENT_REPORTED, __ATOMIC_RELAXED) & IMG_ENT_REPORTED))
+             LOG("[RED] fs %s failed the NCA's hash check when it was extracted (a damaged NSP, --allow-damaged); its bytes may be wrong", path);
+         *out = FH_OUT(IMG_HANDLE(mi, k));
++        serve_register(IMG_HANDLE(mi, k), path);
+         if (g_flag.fs) LOG("fs open [%.2fs] %s mode=%d → image entry %lld", (now_ns() - g_t0_ns) / 1e9, path, mode, (long long)k);
+         return RES_OK;
+     }
+@@ -751,6 +868,7 @@ HLE_FORCE("_ZN2nn2fs8OpenFileEPNS0_10FileHandleEPKci", "fsp-srv → open(2)", Re
+       atomic_store(&g_ftxn[fd], token); }
+     fslog_init();
+     if (g_fslog && fd < 4096) { pthread_mutex_lock(&g_fslog_lock); free(g_fdpath[fd]); g_fdpath[fd] = strdup(path); pthread_mutex_unlock(&g_fslog_lock); }
++    serve_register((uint64_t)fd, path);
+     if (g_flag.fs) LOG("fs open [%.2fs] %s mode=%d → fd %d", (now_ns() - g_t0_ns) / 1e9, path, mode, fd);
+     return RES_OK;
+ }
+@@ -782,6 +900,7 @@ HLE_FORCE("_ZN2nn2fs8ReadFileEPmNS0_10FileHandleElPvm", "fsp-srv → pread(2)",
+         got += r;
+     }
+     *out = got;
++    { const serve_patch_t *sp = serve_for(h); if (sp && got) serve_apply(sp, h, off, buf, got); }
+     if (g_fslog) { pthread_mutex_lock(&g_fslog_lock);
+         static int hash_on = -1; if (hash_on < 0) hash_on = getenv("DM_FSLOG_HASH") != NULL;   // DM_FSLOG_HASH=1: append a column with the FNV-1a 64 of the content read (to compare whether the bytes read from two resource packs match)
+         uint64_t fh = 0xcbf29ce484222325ull; if (hash_on) for (size_t i = 0; i < got; i++) fh = (fh ^ ((uint8_t *)buf)[i]) * 0x100000001b3ull;
+@@ -835,6 +954,7 @@ HLE_FORCE("_ZN2nn2fs11SetFileSizeENS0_10FileHandleEl", "fsp-srv → ftruncate(2)
+ HLE_FORCE("_ZN2nn2fs9FlushFileENS0_10FileHandleE", "fsp-srv; host writes are already in the page cache, flushing is a no-op", Result, h_fs_FlushFile, uint64_t h) { dm_thread_service_request(); (void)h; return RES_OK; }
+ HLE_FORCE("_ZN2nn2fs9CloseFileENS0_10FileHandleE", "fsp-srv → close(2)", void, h_fs_CloseFile, uint64_t h) { dm_thread_service_request(); h = FH_IN(h);
+     if (!h || IMG_H(h)) return;   // the null handle after a failed open (see ReadFile): do not touch fd 0; an image entry holds no descriptor
++    if ((int)h >= 0 && (int)h < 4096) g_serve_fd[(int)h] = NULL;
+     g_fmode[(int)h & 0xffff] = 0; atomic_store(&g_ftxn[(int)h & 0xffff], 0);
+     close((int)h); }
+ HLE_FORCE("_ZN2nn2fs15GetFileOpenModeENS0_10FileHandleE", "fsp-srv; the open mode is recorded by the host", int, h_fs_GetFileOpenMode, uint64_t h) { h = FH_IN(h); return IMG_H(h) ? MODE_READ : g_fmode[(int)h & 0xffff]; }
