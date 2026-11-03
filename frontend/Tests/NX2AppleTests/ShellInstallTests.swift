@@ -803,7 +803,7 @@ import NXModel
 
     @MainActor func testBuildWithTheShellTargetInstallsAndResignsTheSharedApp() throws {
         let f = try makeFixture()
-        let keysSaved = ["repoPath", "buildTarget", "buildOutputDirectory", "installDevice", "signingTeam", "shellRoot"].map { ($0, UserDefaults.standard.object(forKey: $0)) }
+        let keysSaved = ["repoPath", "buildTarget", "buildOutputDirectory", "installDevice", "signingTeam", "shellRoot", DeviceStore.exportKey].map { ($0, UserDefaults.standard.object(forKey: $0)) }
         defer { for (key, value) in keysSaved { UserDefaults.standard.set(value, forKey: key) } }
         UserDefaults.standard.set(f.root, forKey: "shellRoot")
         let modelStores = LauncherStores(xcrun: f.xcrun); let model = modelStores.build
@@ -816,6 +816,7 @@ import NXModel
         modelStores.dependencies.deps = [Dep(id: "test", name: "test", hint: "", present: true, installCmd: [])]
         modelStores.deviceStore.installDevice = device
         modelStores.deviceStore.signingTeam = team
+        modelStores.deviceStore.exportIPA = false   // a value another test or worktree left in the shared preferences sends the build to the export path
         try write(f.repo + "/dm/tools/nx_extract/Program.cs", "")
         for tool in RepoLayout.requiredTools.filter({ $0 != RepoLayout.buildScript }) { try write(f.repo + "/" + tool, "") }
         // the packer stand-in writes the image from the extracted RomFS
@@ -879,6 +880,7 @@ import NXModel
         modelStores.dependencies.deps = [Dep(id: "test", name: "test", hint: "", present: true, installCmd: [])]
         modelStores.deviceStore.installDevice = device
         modelStores.deviceStore.signingTeam = team
+        modelStores.deviceStore.exportIPA = false   // a value another test or worktree left in the shared preferences sends the build to the export path
         try write(f.repo + "/dm/tools/nx_extract/Program.cs", "")
         for tool in RepoLayout.requiredTools.filter({ $0 != RepoLayout.buildScript }) { try write(f.repo + "/" + tool, "") }
         try write(f.repo + "/scripts/build_ipa_from_nsp.py", "open('\(state)/script.txt', 'w').write('ran')\n")
@@ -892,7 +894,7 @@ import NXModel
     @MainActor func testUnknownDeviceStopsTheBuildBeforeTheScriptRuns() throws {
         let f = try makeFixture()
         try writeDevices(state + "/devices-default.json", [("00008150-OTHER", "wired")])
-        let saved = ["repoPath", "buildTarget", "buildOutputDirectory", "installDevice", "signingTeam"].map { ($0, UserDefaults.standard.object(forKey: $0)) }
+        let saved = ["repoPath", "buildTarget", "buildOutputDirectory", "installDevice", "signingTeam", DeviceStore.exportKey].map { ($0, UserDefaults.standard.object(forKey: $0)) }
         defer { for (key, value) in saved { UserDefaults.standard.set(value, forKey: key) } }
         let modelStores = try makeModel(f)
         let model = modelStores.build
