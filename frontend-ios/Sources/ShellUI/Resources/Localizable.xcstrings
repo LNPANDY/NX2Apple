@@ -17,6 +17,44 @@
         }
       }
     },
+    "120 Hz": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "120 Hz"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "120 帧"
+          }
+        }
+      }
+    },
+    "120 Hz needs a screen that supports it and falls back to 60 Hz on one that does not. Sustained heavy load may throttle with heat, so use it with care.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "120 Hz braucht einen Bildschirm, der das unterstützt, und fällt sonst auf 60 Hz zurück. Dauerhaft hohe Last kann durch Hitze drosseln, also bitte mit Vorsicht nutzen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "120 Hz needs a screen that supports it and falls back to 60 Hz on one that does not. Sustained heavy load may throttle with heat, so use it with care."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "120 帧需要设备屏幕支持，若设备不支持会自动回落 60 帧，持续高负载下可能因温控而降频，请谨慎使用"
+          }
+        }
+      }
+    },
     "30 fps": {
       "localizations": {
         "de": {
@@ -53,6 +91,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "30 fps"
+          }
+        }
+      }
+    },
+    "60 Hz": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "60 Hz"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "60 帧"
           }
         }
       }
@@ -225,6 +279,22 @@
         }
       }
     },
+    "Black iron": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Black iron"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "黑铁"
+          }
+        }
+      }
+    },
     "Brazilian Portuguese": {
       "localizations": {
         "de": {
@@ -333,6 +403,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "在 Mac 上重新构建此游戏并安装到本设备。Mac 应用构建时会检查每个文件，新副本是完整的。"
+          }
+        }
+      }
+    },
+    "Button skin": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Button skin"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按键皮肤"
           }
         }
       }
@@ -1353,6 +1439,66 @@
         }
       }
     },
+    "Glass": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glass"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "默认"
+          }
+        }
+      }
+    },
+    "Glass is the glass keys, Moon is the picture skin, and Moon (badges) is the picture skin with letter badges.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glass sind die gläsernen Tasten, Moon ist die Bild-Skin, und Moon (Abzeichen) ist die Bild-Skin mit Buchstabenabzeichen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glass is the glass keys, Moon is the picture skin, and Moon (badges) is the picture skin with letter badges."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "默认 = 玻璃按键；冥月 = 图标皮肤；冥月（角标）= 带字母角标的图标皮肤"
+          }
+        }
+      }
+    },
+    "Glass is the glass keys, Thorn is the picture skin, Thorn (badges) is the picture skin with letter badges, and Black iron is the picture skin in black-iron rings.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glass sind die gläsernen Tasten, Thorn ist die Bild-Skin, Thorn (Abzeichen) ist die Bild-Skin mit Buchstabenabzeichen, und Black iron ist die Bild-Skin in Ringen aus schwarzem Eisen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glass is the glass keys, Thorn is the picture skin, Thorn (badges) is the picture skin with letter badges, and Black iron is the picture skin in black-iron rings."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "默认 = 玻璃按键；黑荆棘 = 图标皮肤；黑荆棘（角标）= 带字母角标的图标皮肤；黑铁 = 黑铁金属外框的图标皮肤"
+          }
+        }
+      }
+    },
     "Handheld": {
       "localizations": {
         "de": {
@@ -1849,6 +1995,38 @@
         }
       }
     },
+    "Moon": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moon"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "冥月"
+          }
+        }
+      }
+    },
+    "Moon (badges)": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moon (badges)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "冥月（角标）"
+          }
+        }
+      }
+    },
     "Move between controls": {
       "localizations": {
         "en": {
@@ -2281,6 +2459,22 @@
         }
       }
     },
+    "Refresh rate": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refresh rate"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "帧率"
+          }
+        }
+      }
+    },
     "Remove": {
       "localizations": {
         "en": {
@@ -2693,6 +2887,38 @@
           "stringUnit": {
             "state": "translated",
             "value": "此游戏需要本 App 的更新版本。请在 Mac 应用中更新。"
+          }
+        }
+      }
+    },
+    "Thorn": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thorn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "黑荆棘"
+          }
+        }
+      }
+    },
+    "Thorn (badges)": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thorn (badges)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "黑荆棘（角标）"
           }
         }
       }
