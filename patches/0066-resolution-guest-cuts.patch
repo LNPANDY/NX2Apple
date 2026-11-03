@@ -1,0 +1,392 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiaoge-tou <85100527+Tiaoge-tou@users.noreply.github.com>
+Date: Tue, 3 Nov 2026 21:23:00 +0800
+Subject: [PATCH] Resolution, guest side: the two games' render-size cuts,
+ HOST_FILLS in the rewriter, and their serve_patch rows
+
+The guest half of the resolution service (patch port 0066, group N of the port inventory), carried from the Tiaoge-tou/nxnative fork. It pairs with the host half in patch 0065.
+
+New patches.py for both games (neither profile had one in this tree): Silksong's render-width and display-state cuts with its HOST_FILLS display-mode template and resolution record, and Hades II's render-size stub, which reads the packed size from the frame-step state page (+0x38) the host writes. The Silksong GUI reference width is deliberately not cut, as the file itself records.
+
+dm/tools/patch_nso.py learns HOST_FILLS (the fixups rows the loader fills, patch 0065), the state page's render-size cell in its layout comment, and the FAR state page reservation rework the Hades II stub relies on. dm/tools/nso_asm.py gains the 32-bit LDRW.
+
+Both profiles' serve_patch rows land here (the mechanism is patch 0063, the key is patch 0062): Silksong's boot-scene bundle slots and Hades II's baked RunLogic literals, served per device instead of frozen to one phone's frame.
+
+Upstream-Status: fork-only
+Reason: Silksong and Hades II guest-side render-size cuts and their serve_patch rows (PROJECT.md Phase 2)
+Issue: Tiaoge-tou/NX2Apple PROJECT.md Phase 2
+
+---
+ dm/games/010013C00E930000/game.tsv   |  18 +++
+ dm/games/010013C00E930000/patches.py | 189 +++++++++++++++++++++++++++
+ dm/games/0100A00019DE0000/game.tsv   |   7 +
+ dm/games/0100A00019DE0000/patches.py |  42 ++++++
+ dm/tools/nso_asm.py                  |   1 +
+ dm/tools/patch_nso.py                |  22 +++-
+ 6 files changed, 273 insertions(+), 6 deletions(-)
+ create mode 100644 dm/games/010013C00E930000/patches.py
+ create mode 100644 dm/games/0100A00019DE0000/patches.py
+
+diff --git a/dm/games/010013C00E930000/game.tsv b/dm/games/010013C00E930000/game.tsv
+index f99d9bf..0b28cad 100644
+--- a/dm/games/010013C00E930000/game.tsv
++++ b/dm/games/010013C00E930000/game.tsv
+@@ -42,3 +42,21 @@ app_pool	0xCD500000
+ # everything is under Data/: the player's serialized files and the StreamingAssets bundles
+ shader_groups	/Data/=data
+ shader_note	Hollow Knight: Silksong shaders
++
++# ---- Graphics ----
++# Byte slots in the boot scene bundle the file layer serves by operation mode (hle_fs.c serve_patch; n: = narrow screens
++# only, where the handheld frame centre-crops the stock canvas and the docked frame is stretched by the front end). The HUD
++# rig baked into Menu_Title puts the silk-spool cluster at the stock frame's left edge: its Thread and Health group roots
++# (x 0.0 / 8.19) are served shifted +100 canvas px in handheld mode and stock in docked mode. Thread's local scale Y (stock
++# 1.0) is served 0.856603 in docked mode -- the reciprocal of the iPad mini's docked present stretch (1920x1080 onto
++# 2266x1488) -- so the spool lands round; under Thread the two offsets (+1.19 at -1.17) cancel in the scale, so the Bind Orb
++# and everything hung on it (the Hunter bars, the crest effects) keeps its stock place. Health's scale Y is NOT served: its
++# mask anchors sit +7.70 above the group origin, every state variant of every mask among them, and the first build that
++# scaled it (slim-90) pulled the whole mask row 1.1 units off its stock place in docked mode (device-checked). Bit
++# patterns from the bundle of build fc9ea4cc. On wide screens (w:) the same roots are served shifted -100 canvas px in
++# BOTH modes instead (a phone presents the two modes identically, and the stock place sits too far right in the widened
++# frame); the three-value form names the stock pattern first, since neither served value is the file's own. Thread's
++# docked scale Y in the narrow group is computed (*): the handheld value (stock 1.0) scaled by DM_RENDER_WIDTH / 1920 --
++# the reciprocal of the docked present stretch on the actual screen, the 0.856603 of the iPad mini falling out of the
++# same formula -- with the written pattern kept as the fallback when no render width is published.
++serve_patch	n:menu_title.bundle@6E3E5C:41030A3D>4129C10A@6EAA5C:00000000>401ADB34@6EAA6C:*3F5B4A53>3F800000 w:menu_title.bundle@6E3E5C:41030A3D>40B8A6E1>40B8A6E1@6EAA5C:00000000>C01ADB34>C01ADB34
+diff --git a/dm/games/010013C00E930000/patches.py b/dm/games/010013C00E930000/patches.py
+new file mode 100644
+index 0000000..ca80f33
+--- /dev/null
++++ b/dm/games/010013C00E930000/patches.py
+@@ -0,0 +1,189 @@
++# Hollow Knight: Silksong -- render wide instead of 1920x1080, at the size of the screen the build runs on.
++#
++# Unity's Switch player never asks the host for a display resolution (guest main imports no
++# nn::oe/vi resolution query at all), so the host-side display_wide switch cannot help here: the
++# size comes from the operation mode inside the guest. Two native player sites decide it:
++#   * the size getter (guest 0x124e224): docked -> 1920x1080, handheld -> 1280x720. Its result
++#     feeds the engine's current-resolution record and nvnWindowSetCrop.
++#   * the swapchain creation (guest 0x128bd60): hard-codes 1920x1080 in three
++#     nvnTextureBuilderSetSize2D calls, one per swapchain texture.
++# The two IL2CPP Screen.SetResolution(1920, 1080) call sites belong to the same set (added after
++# build #19's device test): on this stack the managed request is not a no-op -- the native player
++# stores it in its display-state object, and the apply step feeds exactly that pair to
++# nvnWindowSetCrop, so with only the six native cuts the swapchain was wide but the final crop
++# stayed 1920x1080 and the host presented the 16:9 crop stretched.
++# All eight sites materialise the width as `mov wN, #1920`, formerly cut to a baked 2344. They
++# are now routed through the frame step state page instead (FRAME_STEP below): at each site a
++# stub loads the width the host measured on the screen it runs on, so one build fills an iPhone
++# and an iPad alike; without the host variable the cell holds 2344, the width the wide builds
++# baked until now. The paired height encodings (`mov wN, #1080` beside each width, and the
++# handheld `mov w22, #720` at the getter's entry) are routed the same way, reading the packed
++# size's high word: the cells' high halves hold 1080 and 720 unless the host overrides the
++# docked height (DM_RENDER_HEIGHT, the launcher's lowered-resolution frame-rate tier), so until
++# that tier is chosen every height stub loads the value the mov materialised, unchanged.
++# The handheld path is routed the same way, through the state page's second cell (+0x40, the width
++# at the handheld height 720): the getter's handheld sizes all flow through the `mov w23, #1280`
++# at its entry -- the default it stores before the mode checks and the fallback its docked checks
++# select against -- so that one site carries the handheld width everywhere the getter is used.
++# The mode sizes the guest reports (and crops by) come from the screen-state ctor template, data
++# rather than code; HOST_FILLS below has the loader write the same two widths over them.
++# One more site materialises a size in code, found by build #52's handheld test: the display-state
++# ctor (the function that stores the state object at main+0x8343268) copies the template into the
++# object at +0xa4 and then stores a baked current size beside it -- `mov w8, #1280` at guest
++# 0xb21fb4 to +0xb4, `mov w8, #720` at guest 0xb21fd0 to +0xb8 -- and the apply step feeds exactly
++# that current pair to nvnWindowSetCrop. In docked play the managed SetResolution stores overwrite
++# the pair before it is ever cropped by; in handheld nothing overwrites it, so the guest drew its
++# first frames at the host's handheld size (the window's initial crop) and cropped to the baked
++# 1280x720 from the first apply on, which the present then stretched over the screen. The two
++# sites join the handheld lists below, so the current pair comes from the handheld cell like the
++# getter's entry default does.
++# Build #53's handheld test showed the ctor pair is not the last writer: a one-time display init
++# (guest 0x12651a0, run from the display module's init before frame 1) queries the platform's
++# reported native size, registers it as mode[0] and copies mode[0]'s pair into the same +0xb4/+0xb8
++# -- `ldr w10, [x9, #0x10]` at guest 0x12653a4 feeding the store to +0xb4, `ldr w9, [x9, #0x14]` at
++# 0x12653ac feeding +0xb8. A census of the singleton's writers finds exactly these two (the ctor,
++# then this copy); SetResolution's icall writes only the request record at +0x08, never the
++# current pair. In handheld nothing after the copy rewrites the pair, so the frame-1 crop used
++# the platform-reported 1280x720. The copy runs in docked too, where the game's later
++# SetResolution flow re-applies the docked size over it, as it did over the ctor's pair. The two
++# loads join the handheld lists below, so the copy lands the host's handheld size in the current
++# pair; the mode record itself keeps the reported size.
++from nso_asm import ADRP, B, LDRW
++
++CUTS = {
++  # Silksong main (build ID as dm/tools/patch_nso.py computes it; matches the main= value in
++  # game.tsv here because the base main is the shipped one -- no update replaces it). No baked
++  # cuts remain: the one width that used to stay baked -- the docked mode width in the
++  # screen-state ctor template -- is host-filled now (HOST_FILLS below), because it did take
++  # effect after all: the guest reports the template's per-mode sizes as its display size and
++  # crops its presents by them, so on any screen whose runtime width is not the baked 2344 the
++  # crop (2344x1080) exceeded the swapchain texture the stubs had sized (1552x1080 on an iPad)
++  # and the host dropped every present -- a black screen with the game running and audible.
++  'fc9ea4ccc955d5799f37752b2d730b31': [],
++}
++
++# Display-mode size words in the screen-state ctor template (the ctor copies the rodata block at
++# 0x6679240 into the state object +0xa4..+0xb3: handheld width at the template's +0, docked at
++# +8, the heights beside them). They are data in the writable span, not instructions, so no stub
++# can hang off them; the loader instead writes the screen's own width for each mode over the
++# baked one when the game starts (patch_nso.py HOST_FILLS, loader.c dm_fps_state_apply), the
++# same values the state page cells carry, so the reported size, the crop and the textures agree
++# on every screen: without the host variables the fills take 2344 / 1280, as baked until now.
++# With a height override (DM_RENDER_HEIGHT) the loader writes the docked height word after the
++# docked width too, in the same apply; the handheld height word keeps its baked 720.
++# A second record sits at 0x666efa0: four words {1024, 576, 1280, 720} -- a world size at a
++# 576-line reference, then the handheld size, copied with the template above into a managed
++# settings object by its initializer (main+0x253cfd4, two vector loads stored as one 32-byte
++# block). Its world pair is the world camera's reference. Two narrow-screen fills of it
++# failed on device (builds #70/#71, see the game note) and narrow screens keep the record
++# stock, served by holding the handheld sizes at stock instead. On a screen WIDER than
++# 16:9 the loader widens the record's world word to the screen's aspect at the same 576
++# reference (loader.c): the world camera projects for the frame it lands in, where the
++# stock 16:9 projection was stretched sideways into the wide frame -- sprites came out
++# fat while the HUD, composed in screen space, stayed true. The handheld pair is never
++# written (build #71: it does not drive the HUD).
++HOST_FILLS = {
++  'fc9ea4ccc955d5799f37752b2d730b31': [('H', 0x6679240), ('D', 0x6679248), ('W', 0x666efa0)],
++}
++
++# ---- Render width from the host (frame step state page +0x38, a packed u64 width | height << 32) ----
++# The host writes the cell when the game starts (loader.c dm_fps_state_apply): the width of DM_RENDER_WIDTH, which the iOS front end
++# computes from the screen (1080 x the screen's aspect, down to a multiple of 8; front_ios.m), at the docked height 1080. Without the
++# variable the host writes 2344, the width the wide builds baked until now, so a build behaves exactly as those did. The function
++# exists so the rewriter reserves the state page for this main (a FAR main: the page is appended to the image, see patch_nso.py);
++# the stubs are the game's only readers of the cell, and no frame step is installed (state +0 stays the profile's target, 0 for
++# this game). The width stubs read the cell's low word and the height stubs its high word (+0x3c docked, +0x44 handheld), each
++# with the 32-bit load the original movz wN amounted to (same register, upper half zeroed).
++# Each site below is a single `mov wN, #1920` that overwrites its register unconditionally -- an argument or a value about to be
++# stored -- so the stub writes only that register (adrp + ldr w + b back: no flags, no LR, nothing else observable). The flags
++# matter at the first site: the csel two instructions later still tests the tst before it. Sites in the order of the former cuts.
++# The handheld cell (+0x40, the width at 720 from DM_RENDER_WIDTH_HD, 1280 without the variable) is read by one more site, in
++# _WIDTH_SITES_HD: the getter's entry default, the register every handheld return of the getter flows through.
++_WIDTH_SITES = [
++  (0x124e2f8, 8, '08f08052', 'size getter, docked path (dual check)'),
++  (0x124e324, 8, '08f08052', 'size getter, docked path (single check)'),
++  (0x124e364, 8, '08f08052', 'constant size getter'),
++  (0x128bf10, 1, '01f08052', 'swapchain texture 1'),
++  (0x128bfa8, 1, '01f08052', 'swapchain texture 2'),
++  (0x128c148, 1, '01f08052', 'swapchain texture 3'),
++  (0x23f1354, 0, '00f08052', 'Screen.SetResolution request (defaults initialiser)'),
++  (0x296b530, 0, '00f08052', 'Screen.SetResolution request (settings apply)'),
++]
++_WIDTH_SITES_HD = [
++  (0x124e238, 23, '17a08052', 'size getter, handheld width (the entry default every handheld return flows through)'),
++  (0xb21fb4, 8, '08a08052', 'display-state ctor, current width (the pair the apply step crops by)'),
++  (0x12653a4, 10, '2a1140b9', 'display init: current width copied from mode[0] (platform-reported native size)'),
++]
++# The height paired with each width above: the same sites materialise it as `mov wN, #1080` (docked) and the getter's entry
++# default as `mov w22, #720` (handheld), each beside its width site. The stubs read the packed size's high word (+0x3c docked,
++# +0x44 handheld), which the host fills with 1080 / 720 -- the baked values -- unless DM_RENDER_HEIGHT overrides the docked
++# height (loader.c dm_fps_state_apply), so the lowered-resolution frame-rate tier shrinks the render target at every site at
++# once and every other build renders exactly as before. Same stub shape as the widths: the mov overwrites its register
++# unconditionally, so adrp + ldr w + b back touches nothing else (the getter's csel still tests the tst before the pair)
++_HEIGHT_SITES = [
++  (0x124e2fc, 9, '09878052', 'size getter, docked path (dual check)'),
++  (0x124e32c, 8, '08878052', 'size getter, docked path (single check)'),
++  (0x124e36c, 8, '08878052', 'constant size getter'),
++  (0x128bf04, 2, '02878052', 'swapchain texture 1'),
++  (0x128bfac, 2, '02878052', 'swapchain texture 2'),
++  (0x128c13c, 2, '02878052', 'swapchain texture 3'),
++  (0x23f134c, 1, '01878052', 'Screen.SetResolution request (defaults initialiser)'),
++  (0x296b524, 1, '01878052', 'Screen.SetResolution request (settings apply)'),
++]
++_HEIGHT_SITES_HD = [
++  (0x124e23c, 22, '165a8052', 'size getter, handheld height (the entry default beside the handheld width)'),
++  (0xb21fd0, 8, '085a8052', 'display-state ctor, current height (the pair the apply step crops by)'),
++  (0x12653ac, 9, '291540b9', 'display init: current height copied from mode[0] (platform-reported native size)'),
++]
++def render_width(ctx):
++    here, emit, site, put, state = ctx.here, ctx.emit, ctx.site, ctx.put, ctx.state
++    for off, reg, orig, what in _WIDTH_SITES:
++        site(off, orig)
++        start = here(); emit(ADRP(reg, here(), state)); emit(LDRW(reg, reg, 14))   # ldr wN, [xN, #0x38] (the width, low word of the packed render size)
++        emit(B(here(), off + 4))
++        put(off, [B(off, start)], f'{what}: render width from the host render size (state page +0x38)')
++    for off, reg, orig, what in _WIDTH_SITES_HD:
++        site(off, orig)
++        start = here(); emit(ADRP(reg, here(), state)); emit(LDRW(reg, reg, 16))   # ldr wN, [xN, #0x40] (the handheld width, low word of the packed handheld render size)
++        emit(B(here(), off + 4))
++        put(off, [B(off, start)], f'{what}: render width from the host render size (state page +0x40)')
++    for off, reg, orig, what in _HEIGHT_SITES:
++        site(off, orig)
++        start = here(); emit(ADRP(reg, here(), state)); emit(LDRW(reg, reg, 15))   # ldr wN, [xN, #0x3c] (the height, high word of the packed render size)
++        emit(B(here(), off + 4))
++        put(off, [B(off, start)], f'{what}: render height from the host render size (state page +0x3c)')
++    for off, reg, orig, what in _HEIGHT_SITES_HD:
++        site(off, orig)
++        start = here(); emit(ADRP(reg, here(), state)); emit(LDRW(reg, reg, 17))   # ldr wN, [xN, #0x44] (the handheld height, high word of the packed handheld render size)
++        emit(B(here(), off + 4))
++        put(off, [B(off, start)], f'{what}: render height from the host render size (state page +0x44)')
++    # The display-state object's width getter (its vtable's +0xb8 slot; the height getter beside it needs
++    # no help: the handheld height is 720 stored and served alike). Every consumer of the object's current
++    # size -- the apply step whose crop the host then replaces among them -- reads through this getter, but
++    # the stored pair itself is written by the managed SetResolution path with the stock handheld size,
++    # past every site above (a #65 diagnostic build read the object at the frame-1 apply: template pair
++    # 1560x720 / 2344x1080 intact, current pair 1280x720). So the getter itself answers: the stored width
++    # runs first, and only the exact stock 1280 is replaced by the host handheld width (state +0x40, 1280
++    # itself when DM_RENDER_WIDTH_HD is unset, so an unmeasured build answers exactly as before); any
++    # other stored value -- the docked pair, a real change -- passes through untouched. The stub touches
++    # only w0, x9 and the flags (all call-clobbered) and returns to the getter's caller directly.
++    off = 0xb23080
++    site(off, '00b440b9')   # ldr w0, [x0, #0xb4]
++    start = here()
++    emit(LDRW(0, 0, 0x2d))            # ldr w0, [x0, #0xb4] -- the stored width, as the getter reads it
++    emit(0x7114001f)                  # cmp w0, #1280 -- the stock handheld width
++    emit(0x54000061)                  # b.ne +12 -- to the ret below (fixed layout: three words on)
++    emit(ADRP(9, here(), state)); emit(LDRW(0, 9, 16))   # ldr w0, [x9, #0x40] -- the host handheld width
++    emit(0xd65f03c0)                  # ret
++    put(off, [B(off, start)], 'display-state width getter: the stock handheld width reads as the host handheld width (state page +0x40)')
++
++# The key is the module build ID as dm/tools/patch_nso.py computes it (module bytes 0x40..0x50; also the BUILD_ID header of
++# main.fixups.tsv) -- NOT the main= value of game.tsv's build line (which happens to agree for this game)
++FRAME_STEP = {'fc9ea4ccc955d5799f37752b2d730b31': render_width}
++
++BINDING = [
++    {'what': 'render size routed from the host: the size sites (getter, swapchain, SetResolution requests, ctor and display init) and the display-state width getter read the packed render size from the frame-step state page', 'now': 'build', 'goal': 'game', 'purpose': 'rendering',
++     'why': "Unity's Switch player never asks the host for a display resolution, so the size has to be served where the guest materialises it; a function-matched rule could carry the stubs over the game's updates"},
++    {'what': "the display-mode size words in the screen-state ctor template, and the wide-screen world record's word, written by the loader at start (HOST_FILLS)", 'now': 'build', 'goal': 'game', 'purpose': 'rendering',
++     'why': "the template is data the guest reports its mode sizes from and crops by, not code a stub can hang off; its baked size words are recognisable data, so a content match could carry the fills over the game's updates"},
++]
+diff --git a/dm/games/0100A00019DE0000/game.tsv b/dm/games/0100A00019DE0000/game.tsv
+index 03c6849..06616ed 100644
+--- a/dm/games/0100A00019DE0000/game.tsv
++++ b/dm/games/0100A00019DE0000/game.tsv
+@@ -29,6 +29,13 @@ romfs_marker	Audio/Switch/Music.bank
+ # Exact line replacements baked into the RomFS image at build time (the wide-screen Lua fix in romfs_patch.tsv:
+ # RunLogic's X/Y lookups become the phone's 2344x1080 literals, the HUD's absolute anchors move 40 out)
+ romfs_patch	romfs_patch.tsv
++# The baked RunLogic frame literals are one phone's frame (2344x1080): on another screen the engine lays its
++# UI out for a wider frame than it renders -- an iPad mini (1640x1080) got its HUD lifted and its margins
++# pushed out. Serve the two literals per device instead (the image is never touched, so its identity
++# stands): the width digits (offset 0x1782a in the baked Scripts/RunLogic.lua) become the mode's render
++# width as ASCII, the height digits (0x17846) the mode's frame height -- 1080 docked, 0720 handheld (a Lua
++# decimal literal; the leading zero is not octal). Patterns are the digits' little-endian words.
++serve_patch	RunLogic.lua@1782a:34343332>#00000000>#00000000@17846:30383031>30383031>30323730
+ zip_store	.bank:.bik:.fsb:.gpk:.nro:.pkg:.xnb:.metallib
+ 
+ # ---- Graphics ----
+diff --git a/dm/games/0100A00019DE0000/patches.py b/dm/games/0100A00019DE0000/patches.py
+new file mode 100644
+index 0000000..4b390d2
+--- /dev/null
++++ b/dm/games/0100A00019DE0000/patches.py
+@@ -0,0 +1,42 @@
++# Hades II (0100A00019DE0000): the rewriter's patches of this game's own builds. dm/tools/patch_nso.py loads every profile's patches.py and applies those of a module's NSO build ID;
++# CUTS, OBS and FRAME_STEP as described there ("Registered patches"). Patches of Nintendo SDK module builds are in dm/tools/sdk_patches.py
++from nso_asm import ADRP, B, LDRX, NOP
++
++# No plain cuts: this build's baked render size is not rewritten to another build's size but routed through the frame step state
++# page (FRAME_STEP below), so the size follows the screen the build runs on.
++# The GUI reference width at main+0x2abfbc (mov w11, #1920, the "Screen" statics design size) is deliberately NOT patched, in any
++# form: an earlier cut of it to 2344 shipped in one build and the device showed the title, save-select and end-of-run screens laid
++# out on a ~1920 canvas, offset with a black bar on the right, while the in-run HUD stayed correct -- the menu-class screens lay out
++# against that design size together with the script's centring math, so 1920 is its correct value at any render width. Do not
++# re-add it (the render pair below plus the script-side canvas fix in front_ios.m are the whole wide configuration).
++CUTS = {}
++
++# ---- Render size from the host (frame step state page +0x38, a packed u64 width | height << 32) ----
++# The host writes the cell when the game starts (loader.c dm_fps_state_apply): the width of DM_RENDER_WIDTH, which the iOS front end
++# computes from the screen (1080 x the screen's aspect, down to a multiple of 8; front_ios.m), at the docked height 1080. Without the
++# variable the host writes 2344 x 1080, the pair the wide builds baked until now, so a build behaves exactly as those did. The function
++# exists so the rewriter reserves the state page for this main (which also makes the loader apply run for it); the stub is the game's
++# only reader of the cell, and no frame step is installed (state +0 stays the profile's target, 0 for this game).
++# Render size: the platform initialiser (main+0x2a5ef0) materialises the display size as one packed constant and never asks the
++# host for it (no nn::oe display-resolution import, only the unsized nn::vi::CreateLayer): mov x8, #1280 | movk x8, #720, lsl #32,
++# stored to the platform singleton (+8) and copied on; the renderer takes the pair from there (getter main+0x2920f4 -> renderer
++# globals -> the render-target cache and the texture factory), so the swap chain is 1280x720 whatever the display. The stub loads
++# the cell's whole pair into x8 instead, so the renderer, the swap chain and the engine's own settings mirror all follow the host's
++# size; the movk is NOPed out (the cell already carries the height in its high half). The stub writes only x8, the register the pair
++# itself wrote -- a scratch the initialiser rewrites a few instructions earlier and stores right after the pair -- and sets no flags
++# and uses no LR, so nothing else can observe it.
++def render_width(ctx):
++    here, emit, site, put, state = ctx.here, ctx.emit, ctx.site, ctx.put, ctx.state
++    site(0x2a6080, '08a080d2085ac0f2')
++    start = here(); emit(ADRP(8, here(), state)); emit(LDRX(8, 8, 7))   # x8 = state page; ldr x8, [x8, #0x38] (the packed render size)
++    emit(B(here(), 0x2a6088))
++    put(0x2a6080, [B(0x2a6080, start), NOP], 'render size: mov x8, #1280 | movk x8, #720, lsl #32 replaced by the host render size (state page +0x38)')
++
++# The key is the module build ID as dm/tools/patch_nso.py computes it (module bytes 0x40..0x50; also the BUILD_ID header of
++# main.fixups.tsv) -- NOT the main= value of game.tsv's build line, which is a different ID and keys nothing
++FRAME_STEP = {'8ce1ac48e9fa74479051f3520e632df4': render_width}
++
++BINDING = [
++    {'what': "render size routed from the host: the platform initialiser's packed display-size constant read from the frame-step state page instead", 'now': 'build', 'goal': 'game', 'purpose': 'rendering',
++     'why': "the initialiser materialises the size as one packed constant and never asks the host for it (no display-resolution import), so the size has to be served at the site that materialises it; a function-matched rule could carry the stub over the game's updates"},
++]
+diff --git a/dm/tools/nso_asm.py b/dm/tools/nso_asm.py
+index db941fc..d08932d 100644
+--- a/dm/tools/nso_asm.py
++++ b/dm/tools/nso_asm.py
+@@ -10,6 +10,7 @@ def LDP_POST(t, t2, n, off): return 0xA8C00000 | (((off // 8) & 0x7F) << 15) | (
+ def STUR(t, n, off): return 0xF8000000 | ((off & 0x1FF) << 12) | (n << 5) | t   # stur xt,[xn,#off] (off may be negative)
+ def LDUR(t, n, off): return 0xF8400000 | ((off & 0x1FF) << 12) | (n << 5) | t   # ldur xt,[xn,#off]
+ def LDRX(t, n, imm12=0): return 0xF9400000 | (imm12 << 10) | (n << 5) | t
++def LDRW(t, n, imm12=0): return 0xB9400000 | (imm12 << 10) | (n << 5) | t   # the 32-bit load, its imm12 counting words as LDRX's counts doublewords
+ def STRX(t, n, imm12=0): return 0xF9000000 | (imm12 << 10) | (n << 5) | t
+ def MRS_TPIDRRO(t): return 0xD53BD060 | t
+ def ADRP(dd, pc, target):
+diff --git a/dm/tools/patch_nso.py b/dm/tools/patch_nso.py
+index cbae949..4740191 100644
+--- a/dm/tools/patch_nso.py
++++ b/dm/tools/patch_nso.py
+@@ -74,6 +74,7 @@ else:
+ #   OBS = {build ID: [(offset, number, original instruction word, reason)]}: observation gates. Numbers match OBS_* in the host's hle.h; the original instruction must be position
+ #     independent (no PC-relative / branch / anything involving x18 or tpidr), asserted offline; when the host has no callback attached the gate block goes in and out once and returns
+ #   FRAME_STEP = {build ID: function(ctx)}: the frame step stubs of a main ("Frame step in whole vsyncs" below)
++#   HOST_FILLS = {build ID: [('D' | 'H' | 'W', offset)]}: display-mode size words (docked / handheld) the loader fills with the screen's widths when the game starts (fixups header HOST_FILL_D / HOST_FILL_H, loader.c dm_fps_state_apply); the handheld word is filled only on a screen wider than the stock handheld frame (the loader holds it at stock below that); 'W' is a resolution record whose world word the loader widens to the screen's aspect on a wide screen (HOST_FILL_W)
+ #   MATCH_CUTS = {module name: [nso_match rule, ...]}: fallback for modules without registered CUTS. Only the profile selected by DM_GAME participates; a derived profile uses
+ #     the repository's rules, an external-only provisional profile its own. Missing or ambiguous matches are reported and skipped; known builds retain their exact CUTS.
+ #     A rule of several functions applies whole or not at all. For such a module <name>.match.tsv lists the cuts of the profile's registered builds of it and each patch's result,
+@@ -91,7 +92,7 @@ patch_paths = {}
+ for path in PATCH_FILES: patch_paths.setdefault(os.path.realpath(path), path)   # repeated roots and symlinks name the same file, not competing build claims
+ PATCH_FILES = list(patch_paths.values())
+ def load_patches():
+-    tables, where = {'CUTS': {}, 'OBS': {}, 'FRAME_STEP': {}, 'MATCH_CUTS': {}, 'SDK_MATCH_CUTS': {}, 'CAPABILITIES': {}}, {}
++    tables, where = {'CUTS': {}, 'OBS': {}, 'FRAME_STEP': {}, 'MATCH_CUTS': {}, 'HOST_FILLS': {}, 'SDK_MATCH_CUTS': {}, 'CAPABILITIES': {}}, {}
+     for n, path in enumerate(PATCH_FILES):
+         spec = importlib.util.spec_from_file_location(f'patches_{n}', path); m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+         for kind, table in tables.items():
+@@ -1357,10 +1358,12 @@ obs += region_obs
+ # nvn_fstep.h): the step is the number of vsyncs the host keeps the frame on screen (1 = 60 fps, 2 = 30 when 60 does not hold), plus one while the game is behind real time after
+ # a late frame, so motion is even and game time = real time. The steps stay values the games' own logic uses (1 to 3). Age of Calamity's updates are not held by the presents:
+ # its stubs run them at the cap, and the host only paces its presents (its patches.py).
+-# State page = the page after the key page (zero in the file, read-write in both loaders): +0 float target fps written by the loader (fps_target, DM_FPS_TARGET; 0 = every stub
++# State page = the page after the key page (zero in the file, read-write in both loaders; a FAR main's page is not in the file at all: it is appended to the
++# image, IMAGE_SIZE growing by it, and the loaders supply it like the key page — see the FRAME_STEP branch below): +0 float target fps written by the loader (fps_target, DM_FPS_TARGET; 0 = every stub
+ # runs the original instructions), +4 30 fps movie/cinematic flag, +8 double lead (TOTK), +0x10 float render scale (TOTK, BotW), +0x18 double game seconds (TOTK),
+ # +0x20 u32 step in vsyncs (host; 0 = not decided yet), +0x24 u32 a step the game fixes itself (BotW's VFR override; 0 = none), +0x28 u32 AoC's vsyncs per update, marked by
+-# its first stub (0 = off), +0x30 u64 vsyncs stepped (the stubs; logged by the host to check the game's speed). Stub bodies assembled with clang
++# its first stub (0 = off), +0x30 u64 vsyncs stepped (the stubs; logged by the host to check the game's speed), +0x38 u64 render size
++# (width | height << 32) written by the loader (DM_RENDER_WIDTH; Hades II's size stubs). Stub bodies assembled with clang
+ # A build's stubs are FRAME_STEP[build ID](ctx) in its patches.py: ctx.here() / ctx.emit(word) assemble into the patch area, ctx.site(offset, original bytes) asserts a site and that it is
+ # no rewrite site, ctx.put(offset, words, reason) writes it (listed with the cuts), ctx.state is the state page's offset, and ctx.render_scale = 1 marks a render-scale stub
+ FRAME_STEP = PATCHES['FRAME_STEP']
+@@ -1369,10 +1372,16 @@ RENDER_SCALE = 0   # 1 = the build has a render-scale stub (state +0x10): the fi
+ if BUILD_ID in FRAME_STEP and NAME == 'main':
+     FS_STATE_OFF = KEY_PAGE_OFF + 0x4000
+     if FAR:
+-        # The loader supplies zero-filled BSS/key pages for a front patch area.
+-        # Reserve the frame state after the key page there too; stubs reach it by ADRP.
++        # Patch area before the base: the page cannot be appended to the output file (the file ends at FILE_IMAGE_LEN and both loaders
++        # supply everything past it), so it is one more zero page at the end of the image instead: IMAGE_SIZE grows by it here, and the
++        # loaders reserve IMAGE_SIZE and leave the page read-write, exactly as they already do for the key page beside it (loader.c
++        # install_fps_state accepts it: the page starts where the key page ends and its first 0x40 bytes lie inside the image).
++        # The emitted file, FILE_IMAGE_LEN and the patch area do not change, and neither does any module this branch does not take:
++        # a FAR main without a FRAME_STEP entry keeps its IMAGE_SIZE, and the NEAR branch below is the assertion as it was
+         IMAGE_SIZE = FS_STATE_OFF + 0x4000
+-    assert FS_STATE_OFF % 0x1000 == 0 and (FAR or FS_STATE_OFF + 0x40 <= PATCH_OFF) and not any(IMG[FS_STATE_OFF:]), 'frame step state page'
++        assert FS_STATE_OFF % 0x1000 == 0 and FS_STATE_OFF + 0x40 <= IMAGE_SIZE, 'frame step state page'
++    else:
++        assert FS_STATE_OFF % 0x1000 == 0 and FS_STATE_OFF + 0x40 <= PATCH_OFF and not any(IMG[FS_STATE_OFF:]), 'frame step state page'
+     def fs_site(off, orig):
+         ob = bytes.fromhex(orig)
+         assert IMG[off:off + len(ob)] == ob, f'frame step original bytes mismatch {off:#x}: {bytes(IMG[off:off + len(ob)]).hex()}'
+@@ -1714,6 +1723,7 @@ with open(P('fixups.tsv'), 'w') as f:
+     if TWO: f.write(f'# BACK_OFF\t{BACK_OFF:#x}\n# BACK_LEN\t{BACK_LEN:#x}\n')   # the back patch area (TWO): its offset in the image, and its length, the last bytes of the file
+     for k in KEY_INDEX: f.write(f'# KEY_{k}_IDX\t{KEY_INDEX[k]}\n')
+     if FS_STATE_OFF: f.write(f'# FPS_STATE_OFF\t{FS_STATE_OFF:#x}\n')   # frame step state page (FRAME_STEP): the loader writes the target fps there
++    for which, off in PATCHES['HOST_FILLS'].get(BUILD_ID, []): f.write(f'# HOST_FILL_{which}\t{off:#x}\n')   # display-mode size word the loader fills with the screen's width for that mode when the game starts (HOST_FILLS)
+     if UE_CALL is not None: f.write(f'# UE_MALLOC_VT\t{UE_VT:#x}\n# UE_MALLOC_SLOT\t{UE_SLOT:#x}\n')   # Unreal's FMallocBinned3 (ue_malloc.py): its vtable and the slot of its name getter, which names the slot layout
+     for n, o in UE_CVARS.items(): f.write(f'# UE_CVAR:{n}\t{o:#x}\n')   # Unreal console variables (ue_cvar.py): the TAutoConsoleVariable registered under each name
+     if RENDER_SCALE: f.write('# RENDER_SCALE\t1\n')   # a render-scale stub reads state +0x10 (the loader ignores the key; dm/games/settings.py offers the setting by it)
