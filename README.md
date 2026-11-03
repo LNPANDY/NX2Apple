@@ -14,7 +14,6 @@
 [![Issues](https://img.shields.io/github/issues/LNPANDY/NX2Apple)](https://github.com/LNPANDY/NX2Apple/issues)
 [![License](https://img.shields.io/github/license/LNPANDY/NX2Apple)](LICENSE)
 [![Games](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FLNPANDY%2FNX2Apple%2Fmain%2F.github%2Fbadges%2Fgames.json)](.github/badges/games.json)
-[![Verified](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FLNPANDY%2FNX2Apple%2Fmain%2F.github%2Fbadges%2Fverified.json)](.github/badges/verified.json)
 
 [![中文](https://img.shields.io/badge/🇨🇳_中文-available-green)](README.zh-CN.md)
 [![English](https://img.shields.io/badge/🇺🇸_English-current-blue)](README.md)
@@ -153,9 +152,8 @@ anything extracted from a game.
 
 ## Games
 
-94 games have a profile. Three are verified end to end on this fork (built, installed and played on a
-phone), 45 more are reported playable on an iPhone upstream, and the rest have a profile that has not
-been tried on a phone yet. A few of them:
+130 games have a profile. Many are reported playable on an iPhone upstream, and most have a
+profile that has not been tried on a phone yet. A few of them:
 
 | | Game | Where it runs | Status |
 |---|---|---|---|
