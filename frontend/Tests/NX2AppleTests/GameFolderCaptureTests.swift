@@ -4,6 +4,7 @@ import XCTest
 @testable import NX2Apple
 @testable import NXCore
 @testable import NXModel
+import NXLauncher
 
 /// The Builds page with a Switch 2 game folder chosen (LNPANDY/NX2Apple#512, #445). A synthetic folder and a stand-in engine: an
 /// NPDM with only the program ID, empty RomFS folders, a profile with only its name. No game data.
@@ -74,5 +75,29 @@ final class GameFolderCaptureTests: IsolatedDefaultsTestCase {
         }
         try capture("build-game-folder-mac", target: BuildTarget.mac)
         try capture("build-game-folder-ios", target: BuildTarget.ios)
+        // The stages of a game folder's build: "-raw" shows the pack stages as the script writes them (how they looked before this
+        // change), the other in the player's language
+        model.target = BuildTarget.mac
+        for (name, localized) in [("build-game-folder-stages-raw", false), ("build-game-folder-stages", true)] {
+            let names = ["pack v458752", "pack DLC", "shader split", "Mac shaders", "Mac host", "Mac app"]
+            model.stages = names.enumerated().map { i, n in
+                Stage(id: i + 1, name: localized || !n.hasPrefix("pack ") ? Stage.localizedName(n, model.t) : n, state: i < 2 ? .done : (i == 2 ? .running : .pending))
+            }
+            let host = NSHostingView(rootView: ZStack(alignment: .top) {
+                LauncherPalette.background
+                ProgressCard(build: model).environmentObject(stores.localizer).padding(24)
+            }.frame(width: 760, height: 470))
+            let window = OffscreenWindow(size: NSSize(width: 760, height: 470))
+            window.appearance = NSAppearance(named: .darkAqua)
+            window.contentView = host
+            window.orderFront(nil)
+            RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+            host.layoutSubtreeIfNeeded()
+            let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+            host.cacheDisplay(in: host.bounds, to: rep)
+            try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: output.appendingPathComponent(name + ".png"))
+            window.orderOut(nil)
+        }
+        model.stages = []
     }
 }

@@ -93,6 +93,13 @@
   "folder": "/Users/x/Games/Zelda"
  },
  {
+  "id": "games.noProfile",
+  "kind": "noProfile",
+  "source": "scripts/build_ipa_from_nsp.py",
+  "fragment": "packs only a game with a profile",
+  "text": "[RED] a dump folder packs only a game with a profile, and 0400000000010000 has none: the survey that makes a provisional profile reads NSPs"
+ },
+ {
   "id": "disk.low",
   "kind": "diskFull",
   "source": "scripts/build_ipa_from_nsp.py",
