@@ -48,4 +48,36 @@ public struct PadMap: Equatable, Sendable {
         }
     }
     public static var options: [SettingOption] { (buttons + ["none"]).map { SettingOption($0, label($0)) } }
+
+    /// The 16 buttons in the four groups the mapping card shows, each with its heading. The D-pad reads up, down, left, right.
+    static var groups: [(title: String, buttons: [String])] {
+        [(ShellStrings.text("Face buttons"), ["A", "B", "X", "Y"]),
+         (ShellStrings.text("Shoulders and triggers"), ["L", "R", "ZL", "ZR"]),
+         (ShellStrings.text("D-pad"), ["Up", "Down", "Left", "Right"]),
+         (ShellStrings.text("More buttons"), ["LS", "RS", "Plus", "Minus"])]
+    }
+
+    /// Where a button sits on the controller, next to its glyph. The names are a Switch controller's, by position, as the
+    /// engine maps every controller: A is the right face button, B the bottom one.
+    static func place(_ button: String) -> String {
+        switch button {
+        case "A": ShellStrings.text("Right button")
+        case "B": ShellStrings.text("Bottom button")
+        case "X": ShellStrings.text("Top button")
+        case "Y": ShellStrings.text("Left button")
+        case "L": ShellStrings.text("Left shoulder")
+        case "R": ShellStrings.text("Right shoulder")
+        case "ZL": ShellStrings.text("Left trigger")
+        case "ZR": ShellStrings.text("Right trigger")
+        case "Up": ShellStrings.text("Up")
+        case "Down": ShellStrings.text("Down")
+        case "Left": ShellStrings.text("Left")
+        case "Right": ShellStrings.text("Right")
+        case "LS": ShellStrings.text("Left stick press")
+        case "RS": ShellStrings.text("Right stick press")
+        case "Plus": ShellStrings.text("Plus")
+        case "Minus": ShellStrings.text("Minus")
+        default: label(button)
+        }
+    }
 }

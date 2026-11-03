@@ -215,7 +215,8 @@ public struct LibraryView: View {
                     Color.black.opacity(0.55).ignoresSafeArea().accessibilityHidden(true)
                         .onTapGesture { closePadMapping() }
                         .transition(.opacity)
-                    PadMappingCard(title: padMappingTitle(padMapping.gameID), rows: padMappingRows(padMapping.gameID), openRow: padMapping.row,
+                    PadMappingCard(title: padMappingTitle(padMapping.gameID), rows: padMappingRows(padMapping.gameID),
+                                   inherited: padMapping.gameID == ControllersView.mappingID ? nil : globalPadMap, openRow: padMapping.row,
                                    open: openPadRow, pick: pickPadValue, backToList: closePadRow, reset: resetPadMapping, close: closePadMapping)
                         .padding(.horizontal, 16).padding(.vertical, 12)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -448,14 +449,16 @@ public struct LibraryView: View {
         return games.first { $0.id == id }.map(PadMappingRows.game) ?? []
     }
     private func padMappingTitle(_ id: String) -> String {
-        if id == ControllersView.mappingID { return ShellStrings.text("For every game") }
+        if id == ControllersView.mappingID { return ShellStrings.text("All games") }
         return games.first { $0.id == id }?.game.title ?? ""
     }
     private func openPadMapping(_ id: String) {
         noteTouch()
         returnFocus = focus.id
         padMapping = PadMappingState(gameID: id)
-        focus.id = "map.row." + (padMappingRows(id).first?.id ?? "")
+        // The swap's current segment, or the first button while a game's swap is neither on, off nor the shell's.
+        let swap = padMappingRows(id).first
+        focus.id = swap?.value == "custom" ? "map.row.pad.A" : "map.swap." + (swap?.value ?? "")
     }
     private func closePadMapping() { padMapping = nil; focus.id = returnFocus }
     private func openPadRow(_ row: String) {
@@ -477,8 +480,10 @@ public struct LibraryView: View {
     private func resetPadMapping() {
         noteTouch()
         guard let id = padMapping?.gameID else { return }
-        if id == ControllersView.mappingID { actions.onGlobalPadMapReset() } else { actions.onChange(id, PadMappingRows.resetID, "") }
-        focus.id = "map.row." + (padMappingRows(id).first?.id ?? "")
+        let global = id == ControllersView.mappingID
+        if global { actions.onGlobalPadMapReset() } else { actions.onChange(id, PadMappingRows.resetID, "") }
+        // Reset is disabled now: the focus goes to the swap, which is back at its default.
+        focus.id = "map.swap." + (global ? "0" : PadMappingRows.follow)
     }
     private func openButtonTest() { noteTouch(); buttonTestOpen = true; focus.id = "test.close"; actions.onButtonTest(true) }
     private func closeButtonTest() {

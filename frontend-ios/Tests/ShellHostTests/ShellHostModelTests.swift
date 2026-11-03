@@ -45,7 +45,9 @@ final class Clock: @unchecked Sendable { var date: Date; init(_ d: Date) { date 
         model.actions.onGlobalPadMapChange("swapAB", "1")
         #expect(model.globalPadMap.swapAB)
         #expect(try !detail(model).hasModifiedSettings)
-        if case .choice(let options) = try row("pad.A").kind { #expect(options.first?.label == "Follow global (B)") }
+        // The game's row follows: the card shows what all games send there (B), from the shell's map.
+        if case .choice(let options) = try row("pad.A").kind { #expect(options.first?.id == "follow" && options.first?.label == "Same as all games") }
+        #expect(try row("pad.A").value == "follow" && model.globalPadMap.output(for: "A") == "B")
         await model.playNow(Fixtures.orbit)
         #expect(launcher.launched.last?.environment["DM_PAD_MAP"] == "A=B,B=A")
         model.actions.onChange(Fixtures.orbit, "pad.A", "Y")
@@ -82,9 +84,10 @@ final class Clock: @unchecked Sendable { var date: Date; init(_ d: Date) { date 
         model.actions.onGlobalPadMapChange("X", "none")
         for detail in model.details where detail.sections.contains(where: { $0.id == "pad" }) {
             let row = try #require(detail.sections.flatMap(\.rows).first { $0.id == "pad.X" })
-            #expect(row.fromShell)
-            if case .choice(let options) = row.kind { #expect(options.first?.label == "Follow global (None)") }
+            #expect(row.fromShell && row.value == "follow")
+            if case .choice(let options) = row.kind { #expect(options.map(\.id) == ["follow"] + PadMap.buttons + ["none"]) }
         }
+        #expect(model.globalPadMap.output(for: "X") == "none")
         let store = GamePadMapStore(defaults: box.defaults(Fixtures.orbit))
         model.change(Fixtures.orbit, setting: "pad.unknown", value: "A")
         model.change(Fixtures.orbit, setting: "pad.A", value: "bad")

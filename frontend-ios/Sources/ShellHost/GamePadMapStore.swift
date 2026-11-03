@@ -37,20 +37,17 @@ public struct GamePadMapStore {
     }
     public func reset() { defaults.removeObject(forKey: GameDefaults.padMapKey) }
 
-    public func section(global: PadMap) -> SettingSection {
-        func follow(_ label: String) -> SettingOption { SettingOption("follow", hostText("Follow global (\(label))")) }
-        let on = hostText("On"), off = hostText("Off")
-        var swapOptions = [follow(global.swapAB ? on : off), SettingOption("on", on), SettingOption("off", off)]
-        // A single-button edit need not be a complete swap or an explicit off. Show that state truthfully.
-        if swapValue == "custom" { swapOptions.append(SettingOption("custom", hostText("Custom"))) }
-        var rows = [SettingRow(id: "pad.swapAB", label: hostText("Swap A and B"),
-                               note: hostText("Only affects physical controllers in games. Shell menus keep A to confirm and B to go back."),
-                               kind: .choice(swapOptions), value: swapValue, fromShell: swapValue == "follow")]
-        rows += PadMap.buttons.map { button in
-            SettingRow(id: "pad.\(button)", label: PadMap.label(button),
-                       kind: .choice([follow(PadMap.label(global.output(for: button)))] + PadMap.options),
-                       value: entries[button] ?? "follow", fromShell: entries[button] == nil)
-        }
+    /// The rows of the game's mapping card. A row that follows the shell's map holds "follow". The swap holds "custom" while
+    /// A and B are changed to something that is neither the swap nor explicitly off: no segment is chosen then.
+    public func section() -> SettingSection {
+        let follow = SettingOption("follow", hostText("Same as all games"))
+        let rows = [SettingRow(id: "pad.swapAB", label: hostText("Swap A and B"),
+                               kind: .choice([follow, SettingOption("on", hostText("On")), SettingOption("off", hostText("Off"))]),
+                               value: swapValue, fromShell: swapValue == "follow")]
+            + PadMap.buttons.map { button in
+                SettingRow(id: "pad.\(button)", label: PadMap.label(button), kind: .choice([follow] + PadMap.options),
+                           value: entries[button] ?? "follow", fromShell: entries[button] == nil)
+            }
         return SettingSection(id: "pad", title: hostText("Controller"), rows: rows)
     }
 }

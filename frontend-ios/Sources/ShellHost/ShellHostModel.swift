@@ -243,7 +243,7 @@ public struct ShellHostConfig: Sendable {
         let pad = GamePadMapStore(defaults: config.defaults(entry.id))
         let sections = SettingsPresenter.sections(profile: profile, values: store.values(), fromShell: fromShell)
         // A profile-provided DM_PAD_MAP row owns the mapping, so do not offer conflicting shell overrides.
-        let padSections = profile.settings.contains { $0.env == "DM_PAD_MAP" } ? [] : [pad.section(global: shellSettings.padMap)]
+        let padSections = profile.settings.contains { $0.env == "DM_PAD_MAP" } ? [] : [pad.section()]
         return GameDetail(
             game: tile, sections: sections + padSections,
             dataSource: dataSource(data), dataNote: dataNote(data, found: data.found),

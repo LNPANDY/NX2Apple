@@ -77,7 +77,7 @@ public struct ControllersView: View {
     /// The mapping and the test, each a compact row that opens a card of its own.
     private var mapping: some View {
         VStack(alignment: .leading, spacing: 14) {
-            SectionHeading(title: ShellStrings.text("Button mapping"))
+            SectionHeading(title: ShellStrings.text("Buttons"))
             PadMappingEntryRow(gameID: Self.mappingID, rows: PadMappingRows.global(padMap), targetID: "ctl.mapping").id("ctl.mapping")
             ButtonTestEntryRow().id("ctl.test")
         }
