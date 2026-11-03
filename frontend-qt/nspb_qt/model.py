@@ -185,7 +185,23 @@ class Model(QObject):
         self.repoChanged.emit()   # the window shows the status line
 
         def work() -> None:
-            ok, kind = engine.run_sync(cmd, self.repo_path, self.log, env=pu.child_env(), **pu.no_window_kwargs())
+            # The sync drives git throughout (hooks, fetch, patch, pack), and Windows may have
+            # no git at all — the same player this app installed PortableGit for during the
+            # clone. Install it here too, and put it on the child's PATH: engine.py and
+            # tools/patches.py spawn `git` by name, and a GUI launch inherits no PATH to find
+            # it on (the sync failed with WinError 2 before either step ran).
+            extra: dict[str, str] | None = None
+            if pu.IS_WIN:
+                git = self._ensure_windows_git()
+                if not git:
+                    self._engine_syncing = False
+                    self.engine_syncing = False
+                    self.engine_failure = bf.Failure(engine.ENGINE_SYNC)
+                    self.repoChanged.emit()
+                    if then: then(False)
+                    return
+                extra = {'PATH': str(Path(git).parent) + os.pathsep + pu.child_env()['PATH']}
+            ok, kind = engine.run_sync(cmd, self.repo_path, self.log, env=pu.child_env(extra), **pu.no_window_kwargs())
             self._engine_syncing = False
             self.engine_syncing = False
             self.engine_failure = None if ok else bf.Failure(kind or engine.ENGINE_SYNC)
@@ -518,6 +534,24 @@ class Model(QObject):
             found = wtc.git_exe()
             return str(found) if found else None
         return pu._which('git')
+
+    def _ensure_windows_git(self) -> str | None:
+        """The git for engine.py's sync on Windows: the app's own PortableGit, installed here
+        when the player has none (the same one clone_repo installs). None when the install
+        failed, with the reason logged. engine.py and tools/patches.py spawn `git` by name, so
+        the caller also puts its folder on the child's PATH."""
+        git = self.git_binary()
+        if git:
+            return git
+        try:
+            from .win import fetch as wf
+            self.log(self.t('repo.gitInstalling') + '\n')
+            self.repoChanged.emit()
+            wf.install_git(log=lambda s: self.log(str(s) + '\n'))
+        except Exception as e:
+            self.log(f'git install failed: {e}\n')
+            return None
+        return self.git_binary()
 
     def clone_repo(self, dest: str | None = None) -> None:
         """Shallow-clone the project into ~/NX2Apple (or `dest`) and select it.
