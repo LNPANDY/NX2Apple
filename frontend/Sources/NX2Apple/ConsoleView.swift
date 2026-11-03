@@ -361,13 +361,17 @@ enum ConsoleInput {
             Text(t("console.homeHint.body")).font(.manrope(compact ? 20 : 26)).fixedSize(horizontal: false, vertical: true)
             Text(t("console.homeHint.how")).font(.manrope(compact ? 17 : 21)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 24)
+            // Both buttons take the sheet's full width, so their width never follows the label or the language (ConsoleButtonWidths)
             VStack(spacing: 14) {
                 primaryButton(t("console.homeHint.open"), id: "console.homeHint.open", scope: "console.homeHint") { driver.openHomeButtonSettings() }
+                    .background(ConsoleButtonWidths.reader("console.homeHint.open"))
                 Button { driver.back() } label: {
                     Text(t("console.homeHint.later")).font(.manrope(21, .semibold)).foregroundStyle(.white.opacity(0.85))
+                        .multilineTextAlignment(.center).lineLimit(2).minimumScaleFactor(0.8).padding(.horizontal, 20)
                         .frame(maxWidth: .infinity, minHeight: 60).background(.white.opacity(0.08), in: Capsule()).contentShape(Capsule())
                 }
                 .buttonStyle(.plain).padTarget("console.homeHint.later", scope: "console.homeHint", radius: 32, activate: { driver.back() })
+                .background(ConsoleButtonWidths.reader("console.homeHint.later"))
             }
         }
         .padding(compact ? 24 : 40)
@@ -423,6 +427,7 @@ enum ConsoleInput {
     private func primaryButton(_ label: String, id: String, scope: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(label).font(.manrope(21, .bold)).foregroundStyle(LauncherPalette.background)
+                .multilineTextAlignment(.center).lineLimit(2).minimumScaleFactor(0.8).padding(.horizontal, 20)   // a long label wraps or shrinks, the button keeps its width
                 .frame(maxWidth: .infinity, minHeight: 60).background(LauncherPalette.cream, in: Capsule()).contentShape(Capsule())
         }
         .buttonStyle(.plain).padTarget(id, scope: scope, radius: 32, activate: action)
@@ -498,6 +503,13 @@ struct ConsoleArtwork: View {
             }
         }
     }
+}
+
+/// The width each button of the Home button hint was drawn at, by its pad id: ConsoleTests checks that it is the same in every language.
+struct ConsoleButtonWidths: PreferenceKey {
+    static var defaultValue: [String: CGFloat] = [:]
+    static func reduce(value: inout [String: CGFloat], nextValue: () -> [String: CGFloat]) { value.merge(nextValue()) { _, new in new } }
+    static func reader(_ id: String) -> some View { GeometryReader { g in Color.clear.preference(key: ConsoleButtonWidths.self, value: [id: g.size.width]) } }
 }
 
 private struct ConsoleTileFramesKey: PreferenceKey {

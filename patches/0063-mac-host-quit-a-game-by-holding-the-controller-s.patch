@@ -26,17 +26,16 @@ tested without a controller or a window (t_home_quit, t_home_quit_mac).
 Upstream-Status: forwarded seedds/nxnative#1084
 Reason: Quit a game with the controller's Home button on macOS 27, the launcher's console mode needs it (#336)
 Issue: LNPANDY/NX2Apple#336
-
 ---
  dm/host/Makefile                |   2 +-
  dm/host/front_mac.m             | 130 ++++++++++++++++++++++++++++++--
  dm/host/home_quit.h             |  93 +++++++++++++++++++++++
- dm/host/home_quit_mac.h         |  91 ++++++++++++++++++++++
+ dm/host/home_quit_mac.h         | 110 +++++++++++++++++++++++++++
  dm/host/tests/Makefile          |   7 ++
  dm/host/tests/t_home_quit.c     |  87 +++++++++++++++++++++
- dm/host/tests/t_home_quit_mac.m |  87 +++++++++++++++++++++
+ dm/host/tests/t_home_quit_mac.m | 107 ++++++++++++++++++++++++++
  docs/env_switches.tsv           |   3 +
- 8 files changed, 494 insertions(+), 6 deletions(-)
+ 8 files changed, 533 insertions(+), 6 deletions(-)
  create mode 100644 dm/host/home_quit.h
  create mode 100644 dm/host/home_quit_mac.h
  create mode 100644 dm/host/tests/t_home_quit.c
@@ -356,10 +355,10 @@ index 0000000..9a92182
 +}
 diff --git a/dm/host/home_quit_mac.h b/dm/host/home_quit_mac.h
 new file mode 100644
-index 0000000..dd6c613
+index 0000000..9904584
 --- /dev/null
 +++ b/dm/host/home_quit_mac.h
-@@ -0,0 +1,91 @@
+@@ -0,0 +1,110 @@
 +// The views of the Home button's quit prompt (home_quit.h), drawn over the game's view by front_mac.m: AppKit views, so they draw while the game runs, and built here
 +// alone so tests/t_home_quit_mac.m can build and draw them without a window or a controller. The look is the launcher's console mode: its dark surface and cream
 +// accent, the primary action as a cream pill with the controller's own button glyph. Sizes follow the view's height, so the prompt reads from a couch on a TV and
@@ -391,15 +390,34 @@ index 0000000..dd6c613
 +    v.contentTintColor = c; v.translatesAutoresizingMaskIntoConstraints = NO;
 +    return v;
 +}
-+// One action of the prompt: glyph and label, the primary one on a cream pill
++// Every action is this wide (points at a 720-high view), whatever its label and language: the longest of the launcher's six languages
++// ("Abbrechen", "Annuler") fits at full size, and a longer label gets a smaller font, then is cut, so the pills never change width
++#define HQ_ACTION_W 220
++// The font size that fits text into room on one line: size, or smaller down to 70 % of it
++static CGFloat hq_fit(NSString *text, CGFloat size, CGFloat room) {
++    CGFloat w = [text sizeWithAttributes:@{NSFontAttributeName: [NSFont systemFontOfSize:size weight:NSFontWeightSemibold]}].width;
++    if (w <= room) return size;
++    CGFloat s = floor(size * room / w * 10) / 10;
++    return s < size * 0.7 ? size * 0.7 : s;
++}
++// One action of the prompt: glyph and label centred in a pill of a fixed size, the primary one cream
 +static NSView *hq_action(NSString *symbol, NSString *fallback, NSString *label, int primary, CGFloat k) {
 +    NSColor *fg = primary ? HQ_BACKGROUND : [NSColor colorWithWhite:1 alpha:0.8];
-+    NSStackView *row = [NSStackView stackViewWithViews:@[hq_glyph(symbol, fallback, 24 * k, fg), hq_label(label, 22 * k, NSFontWeightSemibold, fg, 0)]];
-+    row.spacing = 10 * k; row.edgeInsets = NSEdgeInsetsMake(0, 24 * k, 0, 24 * k); row.translatesAutoresizingMaskIntoConstraints = NO;
-+    row.wantsLayer = YES; row.layer.cornerRadius = 28 * k;
-+    if (primary) row.layer.backgroundColor = HQ_CREAM.CGColor;
-+    [row.heightAnchor constraintEqualToConstant:56 * k].active = YES;
-+    return row;
++    CGFloat w = HQ_ACTION_W * k, glyph = 24 * k, gap = 10 * k, inset = 20 * k, room = w - 2 * inset - glyph - gap;
++    NSTextField *t = hq_label(label, hq_fit(label, 22 * k, room), NSFontWeightSemibold, fg, 0);
++    t.lineBreakMode = NSLineBreakByTruncatingTail;
++    [t setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
++    NSStackView *row = [NSStackView stackViewWithViews:@[hq_glyph(symbol, fallback, glyph, fg), t]];
++    row.spacing = gap; row.translatesAutoresizingMaskIntoConstraints = NO;
++    NSView *pill = [NSView new]; pill.translatesAutoresizingMaskIntoConstraints = NO;
++    pill.wantsLayer = YES; pill.layer.cornerRadius = 28 * k;
++    if (primary) pill.layer.backgroundColor = HQ_CREAM.CGColor;
++    [pill addSubview:row];
++    [NSLayoutConstraint activateConstraints:@[[pill.widthAnchor constraintEqualToConstant:w], [pill.heightAnchor constraintEqualToConstant:56 * k],
++        [row.centerXAnchor constraintEqualToAnchor:pill.centerXAnchor], [row.centerYAnchor constraintEqualToAnchor:pill.centerYAnchor],
++        [row.widthAnchor constraintLessThanOrEqualToConstant:w - 2 * inset]]];
++    pill.accessibilityElement = YES; pill.accessibilityRole = NSAccessibilityButtonRole; pill.accessibilityLabel = label;
++    return pill;
 +}
 +
 +// The prompt over the whole view: a dim scrim, and in its middle the card with the title, the note and the two actions (A quits, B cancels).
@@ -571,10 +589,10 @@ index 0000000..c7a84bd
 +}
 diff --git a/dm/host/tests/t_home_quit_mac.m b/dm/host/tests/t_home_quit_mac.m
 new file mode 100644
-index 0000000..2713b98
+index 0000000..6455250
 --- /dev/null
 +++ b/dm/host/tests/t_home_quit_mac.m
-@@ -0,0 +1,87 @@
+@@ -0,0 +1,107 @@
 +// The views of the Home button's quit prompt (home_quit_mac.h), built without a game, a window or a controller: the texts are shown, the card stays inside a small
 +// window and a TV-sized one, a long title wraps instead of widening the card, and a glyph the system does not have falls back to the plain letter.
 +// DM_HOME_QUIT_CAPTURE=<folder> also draws both views over a stand-in picture into PNG files there (the pull request's screenshots), in an offscreen window.
@@ -640,6 +658,25 @@ index 0000000..2713b98
 +        CHECK(card_of(plong).frame.size.width == w720 && NSContainsRect(plong.bounds, card_of(plong).frame), "a long title wraps, the card keeps its width");
 +        CHECK(first_image(plong).image.size.width > 0, "a symbol the system does not have falls back to the letter");
 +
++        // The two actions keep one width in every language the launcher passes (DM_HOME_QUIT_TEXT: en, zh, de, sv, fr, it), and a label far longer than any
++        // of them shrinks or is cut instead of widening its pill
++        NSArray<NSArray<NSString *> *> *labels = @[@[@"Quit", @"Cancel"], @[@"退出", @"取消"], @[@"Beenden", @"Abbrechen"], @[@"Avsluta", @"Avbryt"],
++                                                  @[@"Quitter", @"Annuler"], @[@"Esci", @"Annulla"], @[@"Quit this game right now please", @"Cancel and go back to the game"]];
++        for (NSValue *size in @[[NSValue valueWithRect:small], [NSValue valueWithRect:tv]]) {
++            NSRect r = size.rectValue; CGFloat want = HQ_ACTION_W * hq_scale(r.size);
++            for (NSArray<NSString *> *l in labels) {
++                NSView *pv = hq_prompt_view(r, @"Quit Hades?", @"n", l[0], l[1], nil, nil);
++                [pv layoutSubtreeIfNeeded];
++                NSStackView *actions = (NSStackView *)((NSStackView *)card_of(pv)).arrangedSubviews.lastObject;
++                CHECK(actions.arrangedSubviews.count == 2, "two actions");
++                for (NSView *a in actions.arrangedSubviews) CHECK(fabs(a.frame.size.width - want) < 0.5 && fabs(a.frame.size.height - 56 * hq_scale(r.size)) < 0.5, l[0].UTF8String);
++                for (NSView *a in actions.arrangedSubviews) {
++                    NSStackView *row = (NSStackView *)a.subviews.firstObject;
++                    CHECK(NSContainsRect(a.bounds, row.frame), "the glyph and the label stay inside their pill");
++                }
++            }
++        }
++
 +        CAShapeLayer *ring = nil;
 +        NSView *h = hq_hold_view(small, @"Keep holding to quit", &ring);
 +        [h layoutSubtreeIfNeeded];
@@ -657,6 +694,7 @@ index 0000000..2713b98
 +            CAShapeLayer *r = nil; NSView *hv = hq_hold_view(tv, @"Keep holding to quit", &r); hq_hold_set(r, 0.6);
 +            capture(hv, tv.size, dir, "home-quit-hold.png");
 +            capture(hq_prompt_view(tv, @"Super Mario Odyssey beenden?", @"Nicht gesicherter Fortschritt geht verloren.", @"Beenden", @"Abbrechen", @"xmark.circle", @"circle.circle"), tv.size, dir, "home-quit-prompt-de.png");
++            capture(hq_prompt_view(tv, @"退出Super Mario Odyssey？", @"未保存的进度将会丢失。", @"退出", @"取消", @"a.circle", @"b.circle"), tv.size, dir, "home-quit-prompt-zh.png");
 +        }
 +    }
 +    printf("t_home_quit_mac: %d checks, %d failed\n", checks, fails);
