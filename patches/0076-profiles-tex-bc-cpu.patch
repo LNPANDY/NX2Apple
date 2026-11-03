@@ -1,0 +1,41 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiaoge-tou <85100527+Tiaoge-tou@users.noreply.github.com>
+Date: Tue, 3 Nov 2026 21:53:12 +0800
+Subject: [PATCH] Both games decode BC on the CPU: tex_bc_cpu on in their
+ profiles
+
+Silksong and Hades II opt into patch 0008's CPU BC decode (patch port 0076, closing the port queue), so a GPU without BC texture support (an iPhone 13 Pro's A15, any A15/A16 device) runs them: the device check in main.m refuses only a game whose profile does not decode on the CPU. Without the row both games would be turned away at start on exactly the device class PROJECT.md's Phase 4 verifies on. The row is this tree's own key (game.py), not one of the ported ones; nothing else changes.
+
+Upstream-Status: fork-only
+Reason: Silksong and Hades II run on GPUs without BC support, through patch 0008's CPU decode (PROJECT.md Phase 4)
+Issue: Tiaoge-tou/NX2Apple PROJECT.md Phase 2
+
+---
+ dm/games/010013C00E930000/game.tsv | 2 ++
+ dm/games/0100A00019DE0000/game.tsv | 3 +++
+ 2 files changed, 5 insertions(+)
+
+diff --git a/dm/games/010013C00E930000/game.tsv b/dm/games/010013C00E930000/game.tsv
+index 3c4a829..fd22f3c 100644
+--- a/dm/games/010013C00E930000/game.tsv
++++ b/dm/games/010013C00E930000/game.tsv
+@@ -66,3 +66,5 @@ serve_patch	n:menu_title.bundle@6E3E5C:41030A3D>4129C10A@6EAA5C:00000000>401ADB3
+ display_hz	120
+ # The launcher's button-skin toggle for this game (settings.tsv DM_SILK_SKIN): the pad's image skin, or its glass controls
+ pad_skin_toggle	on
++# BC textures are decoded on the CPU (patch 0008's route), so a GPU without BC support (an A15 or A16 iPhone, an older iPad) runs this game: the device check in main.m lets a tex_bc_cpu game through
++tex_bc_cpu	on
+diff --git a/dm/games/0100A00019DE0000/game.tsv b/dm/games/0100A00019DE0000/game.tsv
+index de78df6..2240f7a 100644
+--- a/dm/games/0100A00019DE0000/game.tsv
++++ b/dm/games/0100A00019DE0000/game.tsv
+@@ -49,6 +49,9 @@ display_wide	on
+ # Whether this engine follows past 60 is unmeasured (it has no hle_fpslock row for its build yet): an experiment, 2026-10-27.
+ display_hz	120
+ 
++# BC textures are decoded on the CPU (patch 0008's route), so a GPU without BC support (an A15 or A16 iPhone, an older iPad) runs this game: the device check in main.m lets a tex_bc_cpu game through
++tex_bc_cpu	on
++
+ # ---- Memory ----
+ # The NPDM declares no system resource (META +0x14 = 0): the game uses SetHeapSize. It asks for 3.10 GB (pool − used memory), which the 3.25 GB heap region of
+ # the 4 GB layout holds. main carries an 82 MB bss: the rewritten modules take more than the default 64 MB of used memory, so SetHeapSize(pool − 64 MB) would not fit
