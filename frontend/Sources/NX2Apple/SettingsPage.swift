@@ -32,7 +32,7 @@ struct SettingsPage: View {
         ControlsCard(controlChanges: controlChanges, padMerge: padMerge, consolePrompt: $consolePromptOn,
                      startInConsole: $startInConsole, onOpenControls: onOpenControls, onOpenControllers: onOpenControllers)
         ToolsCard(repo: repo, engine: engine, dependencies: dependencies, buildRunning: build.running,
-                  shellCachePath: build.shellCachePath, revealFolder: { build.revealFolder($0) }) {
+                  shellCache: { ShellCacheRow(build: build) }) {
             DiagnosticsButton(report: diagnostics, game: library.selected)
         }
         AppCard(updates: updates, buildRunning: build.running, notify: $notifyBuilds, notifyAvailable: BuildNotice.hasBundleID,
