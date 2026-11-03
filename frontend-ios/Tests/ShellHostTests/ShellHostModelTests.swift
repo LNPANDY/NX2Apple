@@ -50,6 +50,29 @@ final class Clock: @unchecked Sendable { var date: Date; init(_ d: Date) { date 
         #expect(launcher.launched.last?.environment["DM_TOUCH_STICK"] == "higher")
     }
 
+    /// The engine draws the right-stick hint's words as they come (patch 0066), so the shell hands them over in the player's language.
+    @Test func everyGameGetsTheRightStickHintInThePlayersLanguage() async throws {
+        let box = try Sandbox()
+        try box.giveAppData()
+        let launcher = RecordingLauncher()
+        let model = ShellHostModel(config: box.config(), launcher: launcher, shellSettings: shellSettings())
+        await model.playNow(Fixtures.orbit)
+        let hint = try #require(launcher.launched.last?.environment["DM_TOUCH_HINT"])
+        #expect(hint == ShellHostModel.touchHint && !hint.isEmpty)
+    }
+
+    /// Every language's words fit the right third of a small phone (the engine's test gives them about 30 characters) and follow
+    /// the text rules: no semicolon, no line break.
+    @Test func theRightStickHintIsShortInEveryLanguage() throws {
+        let l10n = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("frontend/l10n")
+        for file in try FileManager.default.contentsOfDirectory(at: l10n, includingPropertiesForKeys: nil) where file.pathExtension == "json" {
+            let strings = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any]
+            guard let hint = strings?["ios.host.touchHint"] as? String else { continue }
+            #expect(hint.count <= 30 && !hint.contains(";") && !hint.contains("；") && !hint.contains("\n"), "\(file.lastPathComponent): \(hint)")
+        }
+    }
+
     @Test func padOverridesPersistMergeAndReset() async throws {
         let box = try Sandbox()
         try box.giveAppData()

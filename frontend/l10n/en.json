@@ -649,6 +649,7 @@
   "ios.host.shellName": "Shell",
   "ios.host.subjectManifest": "The game's manifest",
   "ios.host.subjectSettings": "The settings list",
+  "ios.host.touchHint": "Right stick: drag here",
   "ios.host.unknownGame": "Unknown game",
   "ios.host.unknownKind": "%@ has the unknown kind \"%@\".",
   "ios.host.valueFromSettings": "%@ (from Settings)",

@@ -650,6 +650,7 @@
   "ios.host.shellName": "壳",
   "ios.host.subjectManifest": "游戏清单",
   "ios.host.subjectSettings": "设置列表",
+  "ios.host.touchHint": "右摇杆：在此拖动",
   "ios.host.unknownGame": "未知游戏",
   "ios.host.unknownKind": "%@ 的类型 \"%@\" 未知。",
   "ios.host.valueFromSettings": "%@（来自设置）",

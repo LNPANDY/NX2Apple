@@ -595,6 +595,7 @@
   "ios.host.padOn": "Activé",
   "ios.host.padSameAsAllGames": "Comme tous les jeux",
   "ios.host.padSwapAB": "Inverser A et B",
+  "ios.host.touchHint": "Stick droit : glissez ici",
   "ios.setting.DM_PSO_MTL4.note": "Conserve une archive de pipelines et utilise plus de mémoire.",
   "ios.ui.cancel": "Annuler",
   "ios.ui.close": "Fermer",
