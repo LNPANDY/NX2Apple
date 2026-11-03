@@ -1041,7 +1041,7 @@
   "shell.modeInstall": "Installer sur l’appareil",
   "shell.modeTitle": "Installer ou exporter",
   "shell.needsDevice": "L’app partagée a besoin d’un appareil et d’une équipe de signature. Choisissez-les d’abord sous Installer sur.",
-  "shell.noFramework": "Le framework du jeu est introuvable : %@",
+  "shell.noFramework": "La compilation de %1$@ est terminée, mais son framework n'est pas dans le dossier %2$@. Reconstruisez le jeu.",
   "shell.noSpace": "Pas assez d’espace sur %@ : les données du jeu demandent %.1f Go et l’appareil en a %.1f Go de libres. Libérez de l’espace, puis réinstallez",
   "shell.notPaired": "%@ n’est pas associé à ce Mac. Branchez-le avec un câble, touchez Se fier sur l’appareil et saisissez son code. Puis recommencez.",
   "shell.oneGameDone": "%@, non signé. Les données du jeu sont incluses.",

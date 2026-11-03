@@ -101,7 +101,7 @@ extension ShellInstaller {
     /// The export: the library and the project, the unsigned build, the entitlements, the IPA. Needs no device and no team.
     package func export(framework: String, titleID: String, name: String) -> Outcome {
         let fm = FileManager.default
-        guard fm.fileExists(atPath: framework) else { return Outcome(ok: false, message: fmt("shell.noFramework", framework)) }
+        guard fm.fileExists(atPath: framework) else { return missingFramework(framework, name: name) }
         let prepared = prepareShell(framework: framework, titleID: titleID, name: name)
         guard let library = prepared.library else { return prepared.failure! }
 

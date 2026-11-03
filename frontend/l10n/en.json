@@ -1166,7 +1166,7 @@
   "shell.modeInstall": "Install on device",
   "shell.modeTitle": "Install or export",
   "shell.needsDevice": "The shared app needs a device and a signing team. Choose them under Install on first.",
-  "shell.noFramework": "The game's framework was not found: %@",
+  "shell.noFramework": "The build of %1$@ finished, but its framework is not in the %2$@ folder. Build the game again.",
   "shell.noSpace": "Not enough space on %@: the game data needs %.1f GB and the device has %.1f GB free. Free up space, then install again",
   "shell.notPaired": "%@ is not paired with this Mac. Connect it with a cable, tap Trust on the device and enter its passcode. Then start again.",
   "shell.oneGameDone": "%@, unsigned. The game data is inside.",
