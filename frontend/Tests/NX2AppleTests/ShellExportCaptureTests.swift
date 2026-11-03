@@ -72,6 +72,8 @@ final class ShellExportCaptureTests: XCTestCase {
         try shot("5-app-not-found", card())
         model.send = .refused(detail: "ERROR: Failed to copy: the app does not allow access to its data container (get-task-allow). (com.apple.dt.CoreDeviceError error 7)")
         try shot("6-refused", card())
+        model.finderShown = true   // after Copy with Finder (#491)
+        try shot("6a-refused-finder", card())
         model.send = .chooseApp([InstalledApp(bundle: "org.nxnative.shell.ABCDE12345", name: "NX2Apple"),
                                  InstalledApp(bundle: "org.nxnative.shell", name: "NX2Apple")])
         try shot("6b-choose-app", card())
