@@ -16,7 +16,6 @@ Follows [README.md](README.md) as of v1.0.2
 [![Issues](https://img.shields.io/github/issues/LNPANDY/NX2Apple)](https://github.com/LNPANDY/NX2Apple/issues)
 [![License](https://img.shields.io/github/license/LNPANDY/NX2Apple)](LICENSE)
 [![Giochi](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FLNPANDY%2FNX2Apple%2Fmain%2F.github%2Fbadges%2Fgames.json)](.github/badges/games.json)
-[![Verificati](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FLNPANDY%2FNX2Apple%2Fmain%2F.github%2Fbadges%2Fverified.json)](.github/badges/verified.json)
 
 [![中文](https://img.shields.io/badge/🇨🇳_中文-available-green)](README.zh-CN.md)
 [![English](https://img.shields.io/badge/🇺🇸_English-available-green)](README.md)
@@ -147,9 +146,8 @@ qualsiasi elemento estratto da un gioco.
 
 ## Giochi
 
-94 giochi dispongono di un profilo. Tre sono verificati dall'inizio alla fine su questo fork (compilati, installati e giocati su un
-telefono), altri 45 sono segnalati come giocabili su iPhone nel progetto upstream e i restanti hanno un profilo che non è
-ancora stato provato su un telefono. Eccone alcuni:
+130 giochi dispongono di un profilo. Diversi sono segnalati come giocabili su iPhone nel progetto upstream e la maggior
+parte ha un profilo che non è ancora stato provato su un telefono. Eccone alcuni:
 
 | | Gioco | Dove gira | Stato |
 |---|---|---|---|

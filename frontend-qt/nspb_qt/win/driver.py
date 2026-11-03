@@ -230,18 +230,24 @@ def patch(mod: ModuleType, repo: Path, *, j: int | None = None) -> None:
     mod.heap_check = heap_check
 
     # ---------------------------------------------------------------- the shader cache key
-    def toolchain_probe():
+    def toolchain_probe(repo_=None, env=None):
         """What the shader-stage cache keys record as "the compilers".
 
-        Upstream records `xcodebuild -version` and `spirv-cross --revision`. Here the Metal
-        compiler's own version is what actually changes the output, so it is recorded instead;
-        a Metal Tools upgrade then invalidates the cache, which is the behaviour we want.
+        Upstream records `xcodebuild -version` and fingerprints the SPIRV-Cross
+        executable returned by `spirv_cross(repo, env)`. Here the Metal compiler's
+        own version is what actually changes the output, so it is recorded instead;
+        a Metal Tools upgrade then invalidates the cache, which is the behaviour
+        we want. The SPIRV-Cross entry uses the upstream resolver as well, so the
+        cache follows `SPIRV_CROSS` (an explicit path or an executable on PATH),
+        not whichever `spirv-cross` happens to be found by a separate lookup.
         """
         xc = [sys.executable, str(Path(__file__).resolve().parent / 'xcrun_shim.py')]
         probes = [('cmd', [*xc, '-sdk', 'iphoneos', 'metal', '--version'])]
         if os.environ.get('NSPB_MAC_METAL'):
             probes.append(('cmd', [*xc, '-sdk', 'macosx', 'metal', '--version']))
-        probes.append(('cmd', ['spirv-cross', '--revision']))
+        if repo_ is None:
+            repo_ = Path(__file__).resolve().parents[3]
+        probes.append(('files', [mod.spirv_cross(repo_, env)]))
         return tuple(probes)
     mod.toolchain = toolchain_probe
 
