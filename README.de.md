@@ -138,6 +138,11 @@ dieselben Zeilen in `Documents/env.txt` (`DM_FPS_TARGET=30` begrenzt die Bildrat
 wählt den Handheld-Modus). Diese Datei gilt für jedes Spiel in der gemeinsamen App. Für eine Zeile, die zu einem
 einzelnen Spiel gehört (zum Beispiel das `DM_ROMFS_OVERLAY` einer Mod), schreibe sie in
 `Documents/games/<title ID>/env.txt`. Setzen beide Dateien denselben Schlüssel, gewinnt die Datei des Spiels.
+Eine Mod geht einfacher: Lege ihren Ordner in `Documents/games/<title ID>/mods/<Modname>/` ab (die RomFS-Dateien in
+einem Ordner `romfs/` darin oder im Ordner selbst). Die Shell setzt dann `DM_ROMFS_OVERLAY` nur für dieses Spiel.
+Bei mehreren Mods gewinnt die nach Namen erste, wo sie dieselbe Datei ersetzen. Ist derselbe Schlüssel mehrfach
+gesetzt, gilt diese Reihenfolge: die eigenen Einstellungen der Shell, die `env.txt` des Spiels, der Ordner `mods/`
+des Spiels, die gemeinsame `Documents/env.txt`.
 
 **Spielstände und Logs.** Ein Mac-Spiel in einem Bibliotheksordner legt seine Spielstände und sein Log neben
 der App ab (`log/<title ID>.log`). Sonst liegen sie in `~/Library/Application Support/nxnative/<title ID>/` und
