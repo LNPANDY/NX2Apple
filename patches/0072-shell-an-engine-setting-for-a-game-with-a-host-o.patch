@@ -1,0 +1,168 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: AmperageOverspend <no@email.com>
+Date: Tue, 3 Nov 2026 21:03:57 +0100
+Subject: [PATCH] Shell: an Engine setting for a game with a host of its own
+
+A game the shared app runs on its own host (DmHost<title ID>.framework) gets
+a setting in its launcher.json: Engine, this game's engine (own, the default)
+or the shared app's engine (shared), for comparing the two. ShellMain.m keeps
+the built-in host when DM_SHELL_HOST=shared.
+
+- settings.tsv: the DM_SHELL_HOST row, shown under the new condition own-host
+  (the build sets DM_HOST_FRAMEWORK: build_ipa.sh, build_host.sh).
+- docs/settings.md: the setting and its variable.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+Upstream-Status: pending
+Reason: lets the player run a game with a host of its own on the shared app's host instead, to compare the two
+Issue: LNPANDY/NX2Apple#626
+---
+ dm/games/settings.py                     |  1 +
+ dm/games/settings.tsv                    |  4 +++-
+ dm/ios/Shell/ShellMain.m                 |  7 +++++++
+ dm/ios/tests/test_shell_build.py         |  8 ++++++++
+ dm/tools/tests/test_launcher_settings.py | 10 ++++++++--
+ docs/settings.md                         |  7 ++++++-
+ 6 files changed, 33 insertions(+), 4 deletions(-)
+
+diff --git a/dm/games/settings.py b/dm/games/settings.py
+index d16b9cb..1a9b373 100644
+--- a/dm/games/settings.py
++++ b/dm/games/settings.py
+@@ -74,6 +74,7 @@ def build(gid, patched, control):
+         if cond.startswith('fixups:'): return cond[7:] in keys
+         if cond.startswith('gfxapi:'): return os.environ.get('GFXAPI', '') == cond[7:]
+         if cond.startswith('platform:'): return platform == cond[9:]
++        if cond == 'own-host': return bool(os.environ.get('DM_HOST_FRAMEWORK'))   # the shared app's game with a host of its own (build_host.sh)
+         m = re.fullmatch(r'(DM_GAME_\w+)(!=|==)(.*)', cond)
+         if m: return (macro(m[1], n) == m[3]) == (m[2] == '==')
+         sys.exit(f'settings.tsv:{n}: unknown condition {cond}')
+diff --git a/dm/games/settings.tsv b/dm/games/settings.tsv
+index 0057d50..09b4f11 100644
+--- a/dm/games/settings.tsv
++++ b/dm/games/settings.tsv
+@@ -8,7 +8,8 @@
+ #   default   a value (a toggle's: 1 on, 0 off); DM_GAME_<NAME>: the host's own default from the game profile (game_profile.h, game.py); build:<VAR>: the IPA build's setting (build_ipa.sh)
+ #             <ios>|<mac> selects the platform's default before resolving a profile macro or build variable
+ #   shown     always; DM_GAME_<NAME>!=<value> or ==<value>; fixups:<KEY>: main's rewriter table has that key (a stub in the game's build, patch_nso.py); languages>1; gfxapi:<API>: the packer's GFXAPI;
+-#             platform:<ios | mac>: the app's platform (SETTINGS_PLATFORM, ios when unset), for a switch only that platform's front end reads
++#             platform:<ios | mac>: the app's platform (SETTINGS_PLATFORM, ios when unset), for a switch only that platform's front end reads;
++#             own-host: the game has a host of its own in the shared iPhone app (build_ipa.sh DM_HOST_FRAMEWORK, dm/ios/tools/build_host.sh)
+ #   section   Game, Controls or Performance: a heading on the single settings screen. Rows appear in table order within each section
+ #             Reset to tested defaults clears all launcher choices; values fixed by an env file stay
+ #   label, note  the setting's name and the line under it (may be empty; only for a setting with a cost: latency, memory, heat)
+@@ -24,6 +25,7 @@ DM_LANG	choice	languages	build:DM_LANG	languages>1	Game	Game language		level=bas
+ DM_FULLSCREEN	choice	0=Window,1=Fullscreen	0	platform:mac	Game	Display mode		level=basic
+ DM_PICTURE_FIT	choice	fit=Fit,fill=Fill	fit	platform:ios	Game	Picture	Fill crops the game's 16:9 picture to cover the screen. Health bars, subtitles or maps near the edges can be cut off. A full-screen picture without cropping needs a patch for each game.
+ DM_SHOW_FPS	toggle	-	build:DM_SHOW_FPS	platform:ios	Game	Frame-rate counter
++DM_SHELL_HOST	choice	own=This game's engine,shared=The shared app's engine	own	own-host	Game	Engine	The shared app's engine does not have this game's engine changes: the game may not start with it.
+ DM_TOUCH_HAPTICS	toggle	-	1	platform:ios	Controls	Touch feedback
+ DM_RUMBLE	toggle	-	1	always	Controls	Game rumble		level=basic
+ DM_RUMBLE_GAIN	range	0:3:0.1	1.0	always	Controls	Rumble strength		needs=DM_RUMBLE=1
+diff --git a/dm/ios/Shell/ShellMain.m b/dm/ios/Shell/ShellMain.m
+index efd48ff..3599d1a 100644
+--- a/dm/ios/Shell/ShellMain.m
++++ b/dm/ios/Shell/ShellMain.m
+@@ -6,6 +6,7 @@
+ #import <UIKit/UIKit.h>
+ #include <dlfcn.h>
+ #include <stdio.h>
++#include <string.h>
+ #include "front.h"
+ #include "ShellEngine.h"
+ #include "ShellGlue.h"
+@@ -35,6 +36,12 @@
+                                 const char *executable, const char *marker, const char *log_path, const char *cwd) {
+     static char err[512];
+     NSString *host = executable ? own_host(executable) : nil;
++    // The game's Engine setting (DM_SHELL_HOST, settings.tsv): shared keeps the built-in host, to compare the two
++    for (int i = 0; host && i < n; i++)
++        if (!strcmp(keys[i], "DM_SHELL_HOST") && !strcmp(values[i], "shared")) {
++            fprintf(stderr, "shell: the game has its own host %s, and its Engine setting chose the shared app's\n", host.UTF8String);
++            host = nil;
++        }
+     if (host) {
+         // RTLD_NOW: a host that cannot bind fails here, with dyld's reason, and not in the middle of the game
+         void *h = dlopen(host.fileSystemRepresentation, RTLD_NOW | RTLD_LOCAL);
+diff --git a/dm/ios/tests/test_shell_build.py b/dm/ios/tests/test_shell_build.py
+index f9de543..3a91575 100644
+--- a/dm/ios/tests/test_shell_build.py
++++ b/dm/ios/tests/test_shell_build.py
+@@ -164,6 +164,14 @@ class ShellGlueProvidesWhatFrontIosTakes(unittest.TestCase):
+         missing = [n for n in dict.fromkeys(wanted) if not re.search(r'^[A-Za-z_][\w \t\*]*?\b' + n + r'\([^)]*\)[ \t]*\{', shell, re.M)]
+         self.assertEqual(missing, [], 'ShellGlue.m does not define what front_ios.m takes from main.m')
+ 
++    def test_the_engine_setting_is_the_one_shell_main_reads(self):
++        # settings.tsv's DM_SHELL_HOST offers shared, the value with which ShellMain.m keeps the built-in host
++        row = next(line.split('\t') for line in (REPO / 'dm/games/settings.tsv').read_text().splitlines() if line.startswith('DM_SHELL_HOST\t'))
++        self.assertIn('shared', [o.split('=', 1)[0] for o in row[2].split(',')])
++        main = (REPO / 'dm/ios/Shell/ShellMain.m').read_text()
++        self.assertIn('"DM_SHELL_HOST"', main)
++        self.assertIn('"shared"', main)
++
+     def test_the_glue_does_not_use_the_app(self):
+         # A game's own host is linked without the app's code: the Swift side (DmShell-Swift.h, ShellLibrary) stays in ShellMain.m
+         glue = (REPO / 'dm/ios/Shell/ShellGlue.m').read_text()
+diff --git a/dm/tools/tests/test_launcher_settings.py b/dm/tools/tests/test_launcher_settings.py
+index 12ec722..9b0e0cb 100644
+--- a/dm/tools/tests/test_launcher_settings.py
++++ b/dm/tools/tests/test_launcher_settings.py
+@@ -18,10 +18,11 @@ BOTW, WONDER = '01007EF00011E000', '010015100B514000'
+ PERFORMANCE_NVN = ['DM_PRESENT_SNAP', 'DM_PSO_MTL4', 'DM_PSO_PREBUILD', 'DM_NVN_ENC_THREAD', 'DM_FPS_HOLD', 'DM_METAL_HUD']
+ 
+ 
+-def build(gid, api, platform=None):
+-    env = {'GFXAPI': api, **({'SETTINGS_PLATFORM': platform} if platform else {})}
++def build(gid, api, platform=None, own_host=False):
++    env = {'GFXAPI': api, **({'SETTINGS_PLATFORM': platform} if platform else {}), **({'DM_HOST_FRAMEWORK': f'DmHost{gid}.framework'} if own_host else {})}
+     with tempfile.TemporaryDirectory() as tmp, patch.object(settings.nacp, 'languages', return_value=['en-US']), patch.dict(os.environ, env):
+         if not platform: os.environ.pop('SETTINGS_PLATFORM', None)
++        if not own_host: os.environ.pop('DM_HOST_FRAMEWORK', None)
+         return {s['env']: s for s in settings.build(gid, tmp, Path(tmp) / 'control.nacp')['settings']}
+ 
+ 
+@@ -68,6 +69,11 @@ class LauncherSettingsTests(unittest.TestCase):
+         s = mac['DM_FULLSCREEN']
+         self.assertEqual((s['kind'], s['default'], s['options'], s['level']), ('choice', '0', [['0', 'Window'], ['1', 'Fullscreen']], 'basic'))
+ 
++    def test_engine_choice_only_for_a_game_with_its_own_host(self):   # the shared app's Engine setting (ShellMain.m reads DM_SHELL_HOST)
++        self.assertNotIn('DM_SHELL_HOST', build(BOTW, 'nvn'))
++        s = build(BOTW, 'nvn', own_host=True)['DM_SHELL_HOST']
++        self.assertEqual((s['kind'], s['default'], [o[0] for o in s['options']], s['section']), ('choice', 'own', ['own', 'shared'], 'Game'))
++
+     def test_defaults_follow_each_platform_host(self):
+         # nvn_mtl.m pso4_on: Mac defaults on, iOS follows the profile. nvn_rec.h rec_on: iOS on, Mac off.
+         for gid, ios_pso in ((BOTW, '1'), (WONDER, '0')):
+diff --git a/docs/settings.md b/docs/settings.md
+index 1b3bfaf..0b8eeac 100644
+--- a/docs/settings.md
++++ b/docs/settings.md
+@@ -3,7 +3,7 @@
+ The screen before the game starts shows the settings the game supports. A setting that only matters while another is on appears under it and disappears when that one is turned off. Tap **Play** to start; the app remembers your choices for the next start. All settings are on one scrollable screen, under **Game**, **Controls** and **Performance**. Tap a menu or move a slider there; no settings page needs opening. **Upscaling** is in **Game**, beside **Console mode**. A Mac app shows the same settings in a [window of its own](#the-mac-settings-window).
+ 
+ - [Tested defaults](#tested-defaults)
+-- [Game](#game): [Frame rate](#frame-rate), [Render scale](#render-scale), [Console mode](#console-mode), [Upscaling](#upscaling), [Game's upscaler](#games-upscaler), [Game language](#game-language), [Picture](#picture), [Frame-rate counter](#frame-rate-counter)
++- [Game](#game): [Frame rate](#frame-rate), [Render scale](#render-scale), [Console mode](#console-mode), [Upscaling](#upscaling), [Game's upscaler](#games-upscaler), [Game language](#game-language), [Picture](#picture), [Frame-rate counter](#frame-rate-counter), [Engine](#engine)
+ - [Controls](#controls): [Touch feedback](#touch-feedback), [Game rumble](#game-rumble), [Rumble strength](#rumble-strength), [Rumble cutoff](#rumble-cutoff)
+ - [Performance](#performance): [Frame buffering](#frame-buffering), [Metal 4 pipelines](#metal-4-pipelines), [Pipeline prebuild](#pipeline-prebuild), [Encode thread](#encode-thread), [Hold frames when late](#hold-frames-when-late), [Performance HUD](#performance-hud), [Reset to tested defaults](#reset-to-tested-defaults)
+ - [The Mac settings window](#the-mac-settings-window): [Display mode](#display-mode)
+@@ -81,6 +81,10 @@ iPhone and iPad. **Fit**, the default, shows the game's 16:9 picture as large as
+ 
+ Shows the frames per second at the top left.
+ 
++### Engine
++
++Only in the shared iPhone app, for a game built with an engine of its own (a Mac launcher game engine file that changes the engine). **This game's engine**, the default, runs the game on the engine it was built with. **The shared app's engine** runs it on the engine every other game of the app uses, which does not have this game's changes: the game may not start. It is there to compare the two.
++
+ ## Controls
+ 
+ ### Touch feedback
+@@ -254,6 +258,7 @@ A line like `DM_PRESENT_SNAP=0` in `Documents/env.txt` (in the Files app, under
+ | Picture (iPhone and iPad) | `DM_PICTURE_FIT` | `fit` 16:9 with black bars, `fill` covers the screen, cropped |
+ | Frame-rate counter | `DM_SHOW_FPS` | `1`, `0` |
+ | Touch feedback | `DM_TOUCH_HAPTICS` | `1`, `0` |
++| Engine (shared app) | `DM_SHELL_HOST` | `own`, `shared` |
+ | Game rumble | `DM_RUMBLE` | `1`, `0` |
+ | Rumble strength | `DM_RUMBLE_GAIN` | `0` to `3` |
+ | Rumble cutoff | `DM_RUMBLE_MIN` | `0` to `0.9` |

@@ -12,6 +12,7 @@ Docked
 Dutch
 Dynamic resolution
 Encode thread
+Engine
 Fill
 Fill crops the game's 16:9 picture to cover the screen. Health bars, subtitles or maps near the edges can be cut off. A full-screen picture without cropping needs a patch for each game.
 Fit
@@ -48,6 +49,9 @@ Simplified Chinese
 Spanish
 Standard
 The first start waits a few minutes for it, once.
+The shared app's engine
+The shared app's engine does not have this game's engine changes: the game may not start with it.
+This game's engine
 Touch feedback
 Traditional Chinese
 Up to one frame more display latency.

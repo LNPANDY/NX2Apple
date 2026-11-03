@@ -2291,6 +2291,46 @@
         }
       }
     },
+    "Engine": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Engine"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Engine"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moteur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Motore"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Motor"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "引擎"
+          }
+        }
+      }
+    },
     "Every button does what it does by default.": {
       "localizations": {
         "de": {
@@ -6865,6 +6905,86 @@
         }
       }
     },
+    "The shared app's engine": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Engine der gemeinsamen App"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The shared app's engine"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moteur de l’app partagée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Motore dell’app condivisa"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den delade appens motor"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共享应用的引擎"
+          }
+        }
+      }
+    },
+    "The shared app's engine does not have this game's engine changes: the game may not start with it.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Engine der gemeinsamen App hat die Engine-Änderungen dieses Spiels nicht: Das Spiel startet damit eventuell nicht."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The shared app's engine does not have this game's engine changes: the game may not start with it."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le moteur de l’app partagée n’a pas les modifications de moteur de ce jeu : le jeu risque de ne pas démarrer avec lui."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il motore dell’app condivisa non ha le modifiche al motore di questo gioco: il gioco potrebbe non avviarsi."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den delade appens motor saknar det här spelets motorändringar: spelet kanske inte startar med den."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共享应用的引擎没有此游戏的引擎修改：使用它时游戏可能无法启动。"
+          }
+        }
+      }
+    },
     "This game needs a newer version of this app. Update it with the Mac app on your Mac, then install it on this device again.": {
       "localizations": {
         "en": {
@@ -6877,6 +6997,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "此游戏需要本 App 的更新版本。请在 Mac 应用中更新。"
+          }
+        }
+      }
+    },
+    "This game's engine": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Engine dieses Spiels"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This game's engine"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moteur de ce jeu"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Motore di questo gioco"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Det här spelets motor"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此游戏的引擎"
           }
         }
       }
