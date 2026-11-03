@@ -79,7 +79,7 @@ import XCTest
         let engine = root + "/engine", game = root + "/Bananza"
         write(engine + "/" + EngineLayout.marker)
         for tool in RepoLayout.requiredTools { write(engine + "/" + tool, Data("ap.add_argument('--work-dir')".utf8)) }
-        if packer { write(engine + "/scripts/pack_dump.py") }
+        if packer { write(engine + "/scripts/pack_dump.py"); write(engine + "/scripts/pack_nup.py") }
         if profile { write(engine + "/dm/games/040074A01BF12000/game.tsv", Data("name\tDonkey Kong Bananza\n".utf8)) }
         write(game + "/base/exefs/main.npdm", npdm(0x040074A01BF12000)); mkdir(game + "/base/romfs")
         mkdir(game + "/updates/458752/romfs"); mkdir(game + "/updates/65536/romfs")
@@ -160,6 +160,52 @@ import XCTest
         store.clear("base")
         XCTAssertNil(store.gameFolder)
         XCTAssertTrue(store.slots.allSatisfy(\.paths.isEmpty))
+    }
+
+    /// A NUP file (seedds/nxnative 423a674): one game, no keys, the file is the script's input, the build folder beside it.
+    func testANUPFileIsOneGameAndTheScriptGetsTheFile() throws {
+        let (store, _) = makeStore()
+        let nup = root + "/Games/Bananza.nup"
+        write(nup, nupData())
+        store.take(picked: [nup], kind: .base)
+        XCTAssertEqual(store.gameFolder?.nup, nup)
+        XCTAssertEqual(store.gameFolderRowText("base"), String(format: store.t("folder.nupBase"), "040074A01BF12000"))
+        XCTAssertEqual(store.gameFolderRowText("update"), String(format: store.t("folder.update"), 458752))
+        XCTAssertEqual(store.gameDir, root + "/Games")
+        XCTAssertTrue(store.canBuild)
+        store.startBuild()
+        let args = store.lastBuildCommand
+        XCTAssertEqual(args.dropFirst(2).first, nup)
+        XCTAssertFalse(args.contains("-k"))
+        XCTAssertEqual(args.firstIndex(of: "--work-dir").map { args[$0 + 1] }, root + "/Games/040074A01BF12000_build")
+        // dropped, and its folder chosen, it is the same game
+        store.running = false
+        store.leaveGameFolder()
+        store.take(dropped: [nup])
+        XCTAssertEqual(store.gameFolder?.nup, nup)
+        store.scan(folder: root + "/Games")
+        XCTAssertEqual(store.gameFolder?.nup, nup)
+    }
+
+    func testAnEngineWithoutTheNUPPackerSaysToUpdateIt() throws {
+        let (store, _) = makeStore()
+        try FileManager.default.removeItem(atPath: root + "/engine/scripts/pack_nup.py")
+        let nup = root + "/Bananza.nup"
+        write(nup, nupData())
+        store.scan(folder: nup)
+        XCTAssertEqual(store.slot("base").problem, store.t("folder.engineOldNUP"))
+    }
+
+    /// A NUP's header and package table: base, one update, no data (as syntheticNUP in NXCoreTests).
+    private func nupData() -> Data {
+        func put(_ d: inout [UInt8], _ o: Int, _ v: UInt64, _ n: Int) { for i in 0..<n { d[o + i] = UInt8(v >> (8 * UInt64(i)) & 0xFF) } }
+        var d = [UInt8](repeating: 0, count: 0x80 + 0x30 + 2 * 0x40)
+        d.replaceSubrange(0..<4, with: [0x4E, 0x55, 0x50, 0x01])
+        put(&d, 0x08, 0x80, 8); put(&d, 0x40, UInt64(d.count), 8); put(&d, 0x48, 2, 4)
+        d.replaceSubrange(0x80..<0x84, with: [0x54, 0x4F, 0x43, 0x01])
+        put(&d, 0xB0, 0x040074A01BF12000, 8)
+        put(&d, 0xF0, 0x040074A01BF12800, 8); put(&d, 0xF0 + 20, 458752, 4); d[0xF0 + 24] = 1
+        return Data(d)
     }
 
     func testAFolderOfPackagesIsScannedAsBefore() {

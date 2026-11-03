@@ -12,6 +12,10 @@ import Foundation
 /// The rules here are pack_dump.py's `is_dump` and `scan`, and build_ipa_from_nsp.py's `dump_folder`, so the launcher refuses
 /// what the script would refuse, and names the missing piece instead of "no NSP in this folder". Reads only names, and the
 /// first bytes of main.npdm: never the game's data.
+///
+/// The same game can come as one NUP container (a `.nup` file, https://github.com/a55uka/nup, SPEC v1): base, updates and DLC
+/// as the same trees in one file, not encrypted either. The engine reads one from seedds/nxnative 423a674 (`scripts/pack_nup.py`),
+/// given the file or a folder that holds it. The launcher reads only its header and package table (`readNUP`).
 package enum GameFolder {
     /// What a game folder holds.
     package struct Contents: Equatable {
@@ -22,14 +26,20 @@ package enum GameFolder {
         package let updates: [(version: Int, path: String)]
         /// The DLC folders (dlc/<title ID>) with their title IDs, sorted by title ID.
         package let dlc: [(titleID: UInt64, path: String)]
+        /// The NUP file the game is in, nil for a folder of files.
+        package var nup: String? = nil
 
         package var titleIDHex: String { String(format: "%016llX", titleID) }
-        package var basePath: String { folder + "/base" }
+        package var basePath: String { nup ?? folder + "/base" }
+        /// What the script is given: the NUP file, else the folder.
+        package var scriptInput: String { nup ?? folder }
+        /// The title ID is known (a NUP whose package table names none leaves it to the script, from the code in the container).
+        package var hasTitleID: Bool { titleID != 0 }
         /// The script packs the newest update (the version to pack defaults to the newest in the folder).
         package var newestUpdate: (version: Int, path: String)? { updates.last }
 
         package static func == (a: Self, b: Self) -> Bool {
-            a.folder == b.folder && a.titleID == b.titleID
+            a.folder == b.folder && a.titleID == b.titleID && a.nup == b.nup
                 && a.updates.map(\.version) == b.updates.map(\.version) && a.updates.map(\.path) == b.updates.map(\.path)
                 && a.dlc.map(\.titleID) == b.dlc.map(\.titleID) && a.dlc.map(\.path) == b.dlc.map(\.path)
         }
@@ -53,21 +63,37 @@ package enum GameFolder {
         case notDLC(String, UInt64)
         /// A DLC folder without exactly one `<n>/romfs` (or `romfs`) folder: the name and how many there were.
         case dlcRomFS(String, Int)
+        /// The file is not a NUP of format version 1: its name.
+        case notNUP(String)
+        /// The NUP is shorter or longer than its header says (copied or downloaded in part): its name.
+        case nupPartial(String)
+        /// More than one NUP in the folder: how many. The script takes one game per folder.
+        case severalNUPs(Int)
     }
 
-    /// Packages that make the script take the folder as a folder of packages. A `.nup` (a newer engine reads one) is taken first too.
-    private static let packages: Set<String> = ["nsp", "xci", "nsz", "xcz", "nup"]
+    /// Packages that make the script take the folder as a folder of packages.
+    private static let packages: Set<String> = ["nsp", "xci", "nsz", "xcz"]
 
-    /// Whether the folder is meant as a game folder: it has `base/exefs/main.npdm`, or `exefs/main.npdm` with no `base/` (the
-    /// files one level too high). Cheap: the folder picker asks this before it walks a folder that may hold 80,000 files.
-    package static func isCandidate(_ folder: String) -> Bool {
+    /// The NUP files at the top of a folder (build_ipa_from_nsp.py `nup_file` looks there only), by name.
+    package static func nupFiles(in folder: String) -> [String] {
+        ((try? FileManager.default.contentsOfDirectory(atPath: folder)) ?? []).filter {
+            !$0.hasPrefix("._") && ($0 as NSString).pathExtension.lowercased() == "nup" && isFile(folder + "/" + $0)
+        }.sorted()
+    }
+
+    /// Whether the path is meant as a game folder or a NUP: a `.nup` file, a folder with a `.nup` at its top, a folder with
+    /// `base/exefs/main.npdm`, or `exefs/main.npdm` with no `base/` (the files one level too high). Cheap: the folder picker asks
+    /// this before it walks a folder that may hold 80,000 files.
+    package static func isCandidate(_ path: String) -> Bool {
         let fm = FileManager.default
-        if isFile(folder + "/base/exefs/main.npdm") { return true }
-        return isFile(folder + "/exefs/main.npdm") && !fm.fileExists(atPath: folder + "/base")
+        if (path as NSString).pathExtension.lowercased() == "nup" && isFile(path) { return true }
+        if isFile(path + "/base/exefs/main.npdm") || !nupFiles(in: path).isEmpty { return true }
+        return isFile(path + "/exefs/main.npdm") && !fm.fileExists(atPath: path + "/base")
     }
 
     /// What the folder holds, or the first reason it cannot be built, in the order the script finds them.
     package static func scan(_ folder: String) -> Result<Contents, Problem> {
+        if (folder as NSString).pathExtension.lowercased() == "nup" && isFile(folder) { return readNUP(folder) }
         let fm = FileManager.default
         func isDir(_ p: String) -> Bool { var d: ObjCBool = false; return fm.fileExists(atPath: p, isDirectory: &d) && d.boolValue }
         func dirs(_ p: String) -> [String] {
@@ -77,6 +103,10 @@ package enum GameFolder {
         if let pkg = top.first(where: { !$0.hasPrefix("._") && packages.contains(($0 as NSString).pathExtension.lowercased()) && isFile(folder + "/" + $0) }) {
             return .failure(.packageBeside(pkg))
         }
+        // A NUP in the folder is what the script builds, before any folders beside it
+        let nups = nupFiles(in: folder)
+        if nups.count > 1 { return .failure(.severalNUPs(nups.count)) }
+        if let nup = nups.first { return readNUP(folder + "/" + nup) }
         let npdm = folder + "/base/exefs/main.npdm"
         if !isFile(npdm) {
             if isFile(folder + "/exefs/main.npdm") && !fm.fileExists(atPath: folder + "/base") { return .failure(.noBaseFolder) }
@@ -103,6 +133,39 @@ package enum GameFolder {
         return .success(Contents(folder: folder, titleID: app, updates: updates, dlc: dlc.sorted { $0.titleID < $1.titleID }))
     }
 
+    /// A NUP's title ID, updates and DLC from its header and package table (SPEC v1, pack_nup.py `Nup` and `scan`). The title ID
+    /// is the base package's, else an update's with the low 12 bits cleared (a base may be an empty placeholder, Pokémon Pokopia),
+    /// else 0: the script then reads it from the code. Checks the magic, the version and the file size, not the SHA-256s (the
+    /// script checks every file it reads).
+    package static func readNUP(_ path: String) -> Result<Contents, Problem> {
+        let name = (path as NSString).lastPathComponent
+        guard let h = FileHandle(forReadingAtPath: path) else { return .failure(.notNUP(name)) }
+        defer { try? h.close() }
+        func u(_ b: [UInt8], _ o: Int, _ n: Int) -> UInt64 { (0..<n).reduce(UInt64(0)) { $0 | UInt64(b[o + $1]) << (8 * UInt64($1)) } }
+        let head = [UInt8](h.readData(ofLength: 0x80))
+        guard head.count == 0x80, head[0..<3].elementsEqual("NUP".utf8), head[3] == 1 else { return .failure(.notNUP(name)) }
+        let size = (try? FileManager.default.attributesOfItem(atPath: path))?[.size] as? UInt64 ?? 0
+        if u(head, 0x40, 8) != size { return .failure(.nupPartial(name)) }
+        let toc = u(head, 0x08, 8), count = Int(u(head, 0x48, 4))
+        guard count > 0, count < 100_000, toc + 0x30 + UInt64(count) * 0x40 <= size else { return .failure(.notNUP(name)) }
+        try? h.seek(toOffset: toc)
+        let table = [UInt8](h.readData(ofLength: 0x30 + count * 0x40))
+        guard table.count == 0x30 + count * 0x40, table[0..<4].elementsEqual([0x54, 0x4F, 0x43, 0x01]) else { return .failure(.notNUP(name)) }
+        var base: UInt64 = 0, updates: [(version: Int, path: String)] = [], addons: [UInt64] = [], updateTitle: UInt64 = 0
+        for i in 0..<count {
+            let o = 0x30 + i * 0x40, tid = u(table, o, 8), version = Int(u(table, o + 20, 4))
+            switch table[o + 24] {
+            case 0: base = tid
+            case 1: updates.append((version: version, path: path)); if updateTitle == 0 { updateTitle = tid & ~0xFFF }
+            case 2: addons.append(tid)
+            default: break
+            }
+        }
+        let app = base != 0 && base & 0xFFF == 0 ? base : updateTitle
+        return .success(Contents(folder: (path as NSString).deletingLastPathComponent, titleID: app,
+                                 updates: updates.sorted { $0.version < $1.version }, dlc: addons.sorted().map { (titleID: $0, path: path) }, nup: path))
+    }
+
     /// The ACI0 program ID of an NPDM (pack_dump.py `program_id`): the ACI0 offset and size at 0x70, the ID at ACI0 + 0x10.
     package static func programID(npdm d: Data) -> UInt64? {
         let b = [UInt8](d)
@@ -115,6 +178,11 @@ package enum GameFolder {
     /// Whether the engine builds game folders: it has `scripts/pack_dump.py` (seedds/nxnative 99947471, in the pin since v1.0.1).
     package static func engineBuildsFolders(_ engineRoot: String) -> Bool {
         !engineRoot.isEmpty && FileManager.default.fileExists(atPath: engineRoot + "/scripts/pack_dump.py")
+    }
+
+    /// Whether the engine builds NUP files: it has `scripts/pack_nup.py` (seedds/nxnative 423a674, in the pin from 641d148).
+    package static func engineBuildsNUPs(_ engineRoot: String) -> Bool {
+        !engineRoot.isEmpty && FileManager.default.fileExists(atPath: engineRoot + "/scripts/pack_nup.py")
     }
 
     /// Whether the engine has a profile for the game. The script packs a game folder only for a game with a profile: the survey

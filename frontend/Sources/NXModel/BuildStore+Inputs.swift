@@ -59,6 +59,7 @@ extension BuildStore {
     /// Files chosen for one row: those that fit it are taken, the first that does not is named on the row
     /// and left out (it is not moved to another row: the row the user chose stays as they set it).
     package func take(picked: [String], kind: InputKind) {
+        if kind == .base, picked.count == 1, GameFolder.isCandidate(picked[0]) { scan(folder: picked[0]); return }   // a .nup file is one game
         leaveGameFolder()   // a package picked for a row ends a game folder: the two never mix
         let id = kind == .base ? "base" : kind == .update ? "update" : kind == .dlc ? "dlc" : "keys"
         let baseName = kind == .base ? nil : (basePath as NSString).lastPathComponent

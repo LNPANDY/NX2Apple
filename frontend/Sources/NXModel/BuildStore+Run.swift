@@ -87,7 +87,7 @@ extension BuildStore {
         // The shared app's own folder is decided before the long steps too: one on a read-only volume (a saved
         // /NX2Apple-shell, a DMG chosen as Save to) failed at the last step after the whole build (#492).
         if target != BuildTarget.mac, !exportsOneGame, let why = shellRootProblem() { fail(why); return }
-        var inputDir = baseDir
+        var inputDir = folder?.scriptInput ?? baseDir   // a NUP goes to the script as the file
         if dirs.count > 1 || !unpicked.isEmpty {
             // A stable folder per game (#132): the script's fingerprints name its files and its profile path.
             let tmp = InputStaging.folder(workDir: workDir)

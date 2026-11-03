@@ -400,6 +400,15 @@ final class GameLibrary: ObservableObject {
                 if e.level >= 4 || name.hasSuffix(".app") || name.hasSuffix("_build") || name.hasSuffix("-work") || name.hasSuffix("_survey") || ["romfs", "extract", "tools", "venv", "archive", "harness", "runs", "shader", "node_modules"].contains(name) { e.skipDescendants() }
                 continue
             }
+            // A NUP file is one game with its updates and DLC (GameFolder.readNUP): a folder that holds one was taken above
+            if url.pathExtension.lowercased() == "nup", case .success(let f) = GameFolder.readNUP(url.path), f.hasTitleID, result[f.titleIDHex] == nil {
+                var game = LibraryGame(titleID: f.titleIDHex, name: title(for: url.path, repo: repo, titleID: f.titleIDHex))
+                game.inputs = [GameLibrary.folderInput: [url.path], "base": [url.path]]
+                game.sourceFolder = f.folder
+                game.outputDirectory = f.folder
+                result[f.titleIDHex] = game
+                continue
+            }
             guard packages.contains(url.pathExtension.lowercased()),
                   let id = TitleID.parse(url.lastPathComponent), id & 0xfff == 0 else { continue }
             let tid = String(format: "%016llX", id)
@@ -510,7 +519,7 @@ final class GameLibrary: ObservableObject {
         var game = games.first { $0.titleID == titleID } ?? LibraryGame(titleID: titleID, name: Self.title(for: model.gameFolder?.folder ?? model.basePath, repo: model.repo.path, titleID: titleID))
         game.inputs = Dictionary(uniqueKeysWithValues: model.slots.map { ($0.id, $0.paths) })
         // A game folder is kept as the folder: Build again reads it anew (LauncherView.configureBuild).
-        if let folder = model.gameFolder { game.inputs[GameLibrary.folderInput] = [folder.folder] }
+        if let folder = model.gameFolder { game.inputs[GameLibrary.folderInput] = [folder.scriptInput] }
         game.outputDirectory = model.outDir
         if !model.gameDir.isEmpty { game.sourceFolder = model.gameDir }
         game.lastTarget = model.target

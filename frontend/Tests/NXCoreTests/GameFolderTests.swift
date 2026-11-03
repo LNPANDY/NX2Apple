@@ -147,6 +147,68 @@ extension GameFolderTests {
     }
 }
 
+/// A NUP's header and package table (SPEC v1), as pack_nup.py reads them: enough for `readNUP`, no folders, files or data.
+/// packages: (kind 0 base / 1 update / 2 add-on, title ID, version).
+func syntheticNUP(_ packages: [(kind: UInt8, titleID: UInt64, version: UInt32)], size: Int? = nil) -> Data {
+    func put(_ d: inout [UInt8], _ o: Int, _ v: UInt64, _ n: Int) { for i in 0..<n { d[o + i] = UInt8(v >> (8 * UInt64(i)) & 0xFF) } }
+    let total = 0x80 + 0x30 + packages.count * 0x40
+    var d = [UInt8](repeating: 0, count: total)
+    d.replaceSubrange(0..<4, with: [0x4E, 0x55, 0x50, 0x01])   // "NUP" version 1
+    put(&d, 0x04, 0x80, 2); put(&d, 0x08, 0x80, 8); put(&d, 0x10, UInt64(0x30 + packages.count * 0x40), 8)
+    put(&d, 0x40, UInt64(size ?? total), 8); put(&d, 0x48, UInt64(packages.count), 4)
+    d.replaceSubrange(0x80..<0x84, with: [0x54, 0x4F, 0x43, 0x01])   // "TOC" 1
+    put(&d, 0x84, UInt64(packages.count), 4)
+    for (i, p) in packages.enumerated() {
+        let o = 0x80 + 0x30 + i * 0x40
+        put(&d, o, p.titleID, 8); put(&d, o + 20, UInt64(p.version), 4); d[o + 24] = p.kind
+    }
+    return Data(d)
+}
+
+extension GameFolderTests {
+    /// seedds/nxnative 423a674: a game in one NUP file (Hyrule Warriors: Age of Imprisonment is played this way). The launcher
+    /// reads its title ID, updates and DLC from the package table.
+    func testANUPFileIsReadFromItsPackageTable() throws {
+        write("Bananza.nup", syntheticNUP([(0, 0x040074A01BF12000, 0), (1, 0x040074A01BF12800, 458752), (1, 0x040074A01BF12800, 65536), (2, 0x040074A01BF13001, 0)]))
+        let path = root + "/Bananza.nup"
+        XCTAssertTrue(GameFolder.isCandidate(path))
+        XCTAssertTrue(GameFolder.isCandidate(root), "a folder that holds one")
+        let c = try GameFolder.scan(path).get()
+        XCTAssertEqual(c.titleIDHex, "040074A01BF12000")
+        XCTAssertEqual(c.updates.map(\.version), [65536, 458752])
+        XCTAssertEqual(c.dlc.map(\.titleID), [0x040074A01BF13001])
+        XCTAssertEqual(c.scriptInput, path, "the script is given the file")
+        XCTAssertEqual(c.folder, root)
+        XCTAssertEqual(try GameFolder.scan(root).get(), c, "the folder that holds it reads the same")
+    }
+
+    /// pack_nup.py: a base may be an empty placeholder with title ID 0 when an update holds the whole game (Pokémon Pokopia).
+    func testAPlaceholderBaseTakesTheUpdatesTitleID() throws {
+        write("Pokopia.nup", syntheticNUP([(0, 0, 0), (1, 0x0400A3A01EE4C800, 655360)]))
+        XCTAssertEqual(try GameFolder.scan(root + "/Pokopia.nup").get().titleIDHex, "0400A3A01EE4C000")
+        write("None.nup", syntheticNUP([(0, 0, 0)]))
+        let none = try GameFolder.readNUP(root + "/None.nup").get()
+        XCTAssertFalse(none.hasTitleID, "left to the script, which reads it from the code")
+    }
+
+    func testABrokenNUPIsNamed() {
+        write("Other.nup", Data("not a nup at all, just some bytes".utf8))
+        XCTAssertEqual(GameFolder.scan(root + "/Other.nup").failureValue, .notNUP("Other.nup"))
+        write("Half.nup", syntheticNUP([(0, 0x040074A01BF12000, 0)], size: 1 << 30))
+        XCTAssertEqual(GameFolder.scan(root + "/Half.nup").failureValue, .nupPartial("Half.nup"))
+        XCTAssertEqual(GameFolder.scan(root).failureValue, .severalNUPs(2))
+    }
+
+    /// build_ipa_from_nsp.py `nup_file`: a NUP in the folder is built before any game folders beside it, a package beside it is not.
+    func testANUPBesideTheFoldersIsWhatTheScriptBuilds() throws {
+        makeGame()
+        write("Bananza.nup", syntheticNUP([(0, 0x040074A01BF12000, 0)]))
+        XCTAssertEqual(try GameFolder.scan(root).get().nup, root + "/Bananza.nup")
+        write("Game.nsp")
+        XCTAssertEqual(GameFolder.scan(root).failureValue, .packageBeside("Game.nsp"))
+    }
+}
+
 extension Result {
     var failureValue: Failure? { if case .failure(let e) = self { return e }; return nil }
 }

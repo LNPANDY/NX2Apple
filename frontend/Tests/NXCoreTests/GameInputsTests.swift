@@ -24,8 +24,8 @@ final class GameInputsTests: XCTestCase {
 
     /// The per-row Choose… dialog must not grey out compressed dumps (issue #236).
     func testChooseDialogOffersCompressedDumps() {
-        XCTAssertEqual(Set(GameInputs.allowedFileTypes(for: .base)), ["nsp", "xci", "nsz", "xcz"])
-        XCTAssertEqual(GameInputs.allowedFileTypes(for: .update), GameInputs.allowedFileTypes(for: .base))
+        XCTAssertEqual(Set(GameInputs.allowedFileTypes(for: .base)), ["nsp", "xci", "nsz", "xcz", "nup"], "a NUP holds a whole game (#445)")
+        XCTAssertEqual(Set(GameInputs.allowedFileTypes(for: .update)), ["nsp", "xci", "nsz", "xcz"])
         XCTAssertEqual(Set(GameInputs.allowedFileTypes(for: .dlc)), ["nsp", "nsz"])
         XCTAssertEqual(GameInputs.allowedFileTypes(for: .keys), ["keys"])
     }

@@ -18,7 +18,16 @@ final class GameFolderCaptureTests: IsolatedDefaultsTestCase {
         }
         let engine = root + "/engine", game = root + "/Donkey Kong Bananza"
         write(engine + "/" + EngineLayout.marker)
-        if packer { write(engine + "/scripts/pack_dump.py") }
+        if packer { write(engine + "/scripts/pack_dump.py"); write(engine + "/scripts/pack_nup.py") }
+        // The same game as one NUP file in a folder of its own: its header and package table only (SPEC v1), base, update, DLC
+        var nup = [UInt8](repeating: 0, count: 0x80 + 0x30 + 3 * 0x40)
+        func put(_ o: Int, _ v: UInt64, _ n: Int) { for i in 0..<n { nup[o + i] = UInt8(v >> (8 * UInt64(i)) & 0xFF) } }
+        nup.replaceSubrange(0..<4, with: [0x4E, 0x55, 0x50, 0x01]); put(0x08, 0x80, 8); put(0x40, UInt64(nup.count), 8); put(0x48, 3, 4)
+        nup.replaceSubrange(0x80..<0x84, with: [0x54, 0x4F, 0x43, 0x01])
+        put(0xB0, 0x040074A01BF12000, 8)
+        put(0xF0, 0x040074A01BF12800, 8); put(0xF0 + 20, 458752, 4); nup[0xF0 + 24] = 1
+        put(0x130, 0x040074A01BF13001, 8); nup[0x130 + 24] = 2
+        write(root + "/NUP/Donkey Kong Bananza.nup", Data(nup))
         if profile {
             write(engine + "/dm/games/040074A01BF12000/game.tsv",
                   Data("# Donkey Kong Bananza (Switch 2, update v458752). In bring-up\ntitle_id\t040074A01BF12000\nname\tDonkey Kong Bananza\n".utf8))
@@ -51,8 +60,13 @@ final class GameFolderCaptureTests: IsolatedDefaultsTestCase {
         XCTAssertEqual(games.map(\.titleID), ["040074A01BF12000"])
         XCTAssertEqual(games.first?.name, "Donkey Kong Bananza", "the profile's name")
         let real = { (p: String) in URL(fileURLWithPath: p).resolvingSymlinksInPath().path }   // the enumerator hands out /private/var/…
-        XCTAssertEqual(games.first?.inputs[GameLibrary.folderInput]?.map(real), [real(folders.game)])
-        XCTAssertEqual(games.first.map { real($0.sourceFolder) }, real(folders.game))
+        // the folder of files and the NUP beside it are the same game: one entry, from whichever the scan meets first
+        let found = games.first?.inputs[GameLibrary.folderInput]?.map(real) ?? []
+        XCTAssertTrue(found == [real(folders.game)] || found == [real(root + "/NUP")], "\(found)")
+        try? FileManager.default.removeItem(atPath: root + "/NUP")
+        let again = GameLibrary.sourceGames(in: URL(fileURLWithPath: root), repo: folders.engine)
+        XCTAssertEqual(again.first?.inputs[GameLibrary.folderInput]?.map(real), [real(folders.game)])
+        XCTAssertEqual(again.first.map { real($0.sourceFolder) }, real(folders.game))
     }
 
     // MARK: Visual QA (matched by --filter testRenderLauncherForVisualQA)
@@ -99,9 +113,10 @@ final class GameFolderCaptureTests: IsolatedDefaultsTestCase {
         MainActor.assumeIsolated { stores.dependencies.checked = true }
         MainActor.assumeIsolated { stores.dependencies.deps = [Dep(id: "test", name: "Xcode", hint: "", present: true, installCmd: [])] }
         let library = GameLibrary(file: URL(fileURLWithPath: root + "/preview.json"))
+        var folderToScan = folders.game
         func capture(_ name: String, target: String) throws {
             model.target = target
-            model.scan(folder: folders.game)
+            model.scan(folder: folderToScan)
             let host = NSHostingView(rootView: LauncherView(stores: stores, library: library, initialPage: .builds, performStartupChecks: false))
             let window = OffscreenWindow(size: NSSize(width: 1440, height: 1024), styleMask: [.titled, .closable, .resizable])
             window.contentView = host
@@ -115,6 +130,9 @@ final class GameFolderCaptureTests: IsolatedDefaultsTestCase {
         }
         try capture("build-game-folder-mac", target: BuildTarget.mac)
         try capture("build-game-folder-ios", target: BuildTarget.ios)
+        folderToScan = root + "/NUP/Donkey Kong Bananza.nup"
+        try capture("build-nup-mac", target: BuildTarget.mac)
+        folderToScan = folders.game
         // The stages of a game folder's build: "-raw" shows the pack stages as the script writes them (how they looked before this
         // change), the other in the player's language
         model.target = BuildTarget.mac

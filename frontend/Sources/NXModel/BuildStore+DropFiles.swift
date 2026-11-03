@@ -13,7 +13,7 @@ extension BuildStore {
             var d: ObjCBool = false
             return FileManager.default.fileExists(atPath: p, isDirectory: &d) && d.boolValue
         }
-        if paths.count == 1, isFolder(paths[0]) { scan(folder: paths[0]); return }
+        if paths.count == 1, isFolder(paths[0]) || GameFolder.isCandidate(paths[0]) { scan(folder: paths[0]); return }   // a folder, or one .nup file
         leaveGameFolder()   // packages dropped after a game folder start over: the two never mix
         var found = GameInputs.classify(paths.flatMap { isFolder($0) ? GameInputs.inputFiles(in: $0) : [$0] })
         // update and add-on files of another game than the base (the dropped one, else the one already chosen)
