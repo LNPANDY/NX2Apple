@@ -12,7 +12,7 @@ final class FrenchLocalizationTests: XCTestCase {
         "onboarding.background.dotnet", "onboarding.games.version", "onboarding.demo.mario",
         "console.platform.mac", "console.platform.iphone", "console.version",
         "saves.toDevice", "saves.toMac", "section.app", "app.version", "library.ok",
-        "build.ios", "data.keys", "dep.tool.xcodegen",
+        "build.ios", "data.keys", "delete.part.ipa", "dep.tool.xcodegen",
         "dep.tool.zstd", "dep.tool.spirv-cross", "dep.tool.glslangValidator", "diag.title", "dep.brew",
         "dep.spirv.win", "dep.zstd.win", "dep.python.hint", "controls.mode.auto", "controls.fn.A",
         "controls.fn.B", "controls.fn.X", "controls.fn.Y", "controls.fn.L", "controls.fn.R",

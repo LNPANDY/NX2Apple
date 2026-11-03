@@ -13,7 +13,9 @@ public enum ShellPalette {
 }
 
 enum ShellStrings {
-    static var bundle: Bundle { .module }
+    /// Visual QA renders one language's `.lproj` whatever the Mac's language is. Nil in the app.
+    nonisolated(unsafe) static var captureBundle: Bundle?
+    static var bundle: Bundle { captureBundle ?? .module }
     static func text(_ key: String.LocalizationValue) -> String { String(localized: key, bundle: bundle) }
 
     /// A text of a game's `launcher.json` (section, label, note, option label) in the player's language. The file is English and
@@ -125,11 +127,13 @@ struct SectionHeading: View {
 struct ShellButtonStyle: ButtonStyle {
     /// Take all the width offered, as the buttons inside a settings card do.
     var fills = false
+    /// Red type for an action that removes something.
+    var destructive = false
     @Environment(\.isEnabled) private var enabled
     func makeBody(configuration: Configuration) -> some View {
         configuration.label.shellType(ShellType.button).lineLimit(1)
             .padding(.horizontal, 14).frame(maxWidth: fills ? .infinity : nil, minHeight: 44)
-            .foregroundStyle(.white.opacity(0.92))
+            .foregroundStyle(destructive ? DeleteStyle.red : .white.opacity(0.92))
             .background(.white.opacity(configuration.isPressed ? 0.13 : 0.055), in: RoundedRectangle(cornerRadius: 9))
             .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(.white.opacity(0.10)))
             .opacity(enabled ? 1 : 0.4)

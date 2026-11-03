@@ -125,6 +125,10 @@ struct PortraitLibrary: View, Equatable {
                     guard !rowSelecting else { rowSelecting = false; return }
                     withAnimation(reduceMotion ? nil : .smooth(duration: 0.3)) { rowID = id }
                 }
+                // A scroll view draws under the safe-area insets, but the covers are sized for the width inside them.
+                // Where the system keeps a strip at the side (the iPhone Duo's outer screen, #511) the next card would
+                // show there, cut at the screen edge. Clipped to its frame the edge falls between cards again.
+                .clipped()
                 .padding(.vertical, -6)
             }
         }

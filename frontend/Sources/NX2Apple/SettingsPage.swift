@@ -21,6 +21,7 @@ struct SettingsPage: View {
     var controlChanges = 0
     var padMerge: Binding<Bool> = .constant(false)   // "All controllers are player 1" (ControlLayout.padMerge)
     @AppStorage(ConsolePrompt.defaultsKey) private var consolePromptOn = true   // ConsoleCoordinator.swift
+    @AppStorage(ConsolePrompt.startKey) private var startInConsole = false   // ConsoleCoordinator.swift (#336)
     @AppStorage(BuildNotice.defaultsKey) private var notifyBuilds = true   // BuildNotifications.swift
     @AppStorage(ReturnAfterPlay.defaultsKey) private var returnAfterPlay = true   // ReturnAfterPlay.swift
     @EnvironmentObject var loc: Localizer
@@ -29,7 +30,7 @@ struct SettingsPage: View {
         CardPageHeading(loc.t("settings.heading"), note: loc.t("settings.note"))
         LibraryCard(library: library, onChooseFolder: onChooseLibraryFolder)
         ControlsCard(controlChanges: controlChanges, padMerge: padMerge, consolePrompt: $consolePromptOn,
-                     onOpenControls: onOpenControls, onOpenControllers: onOpenControllers)
+                     startInConsole: $startInConsole, onOpenControls: onOpenControls, onOpenControllers: onOpenControllers)
         ToolsCard(repo: repo, engine: engine, dependencies: dependencies, buildRunning: build.running,
                   shellCachePath: build.shellCachePath, revealFolder: { build.revealFolder($0) }) {
             DiagnosticsButton(report: diagnostics, game: library.selected)

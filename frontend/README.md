@@ -74,7 +74,13 @@ Xcode, a development certificate (sign in to Xcode with your Apple ID under Sett
 and a device paired with this Mac. Choose the device under **Install on** and the **Signing team**
 next to it before the build. The build script makes only the game's framework
 (`--shell-framework`), and the shared app holds the games. The launcher keeps the list of games in
-`shell.json` in the `NX2Apple-shell` folder (next to the output folder, saved as `shellRoot`),
+`shell.json` in the shell folder, `~/Library/Application Support/NX2Apple/shell` (saved as
+`shellRoot`, it holds the games' frameworks, the project, derived data and the banner cache). Older
+versions made it as `NX2Apple-shell` inside the output folder. The launcher moves such a folder
+there once at start (a rename on the same volume, shell.json's paths are rewritten), and only when
+it is the folder the launcher made, shell.json can be read and the new place is free. On any doubt
+the old folder stays where it is and keeps being used, and nothing is deleted. Uninstalling the
+launcher leaves this folder alone. The launcher
 generates the app's project with `dm/ios/tools/build_shell.sh --prepare-xcode`, signs it with
 `xcodebuild -allowProvisioningUpdates` and installs it over the one already there with
 `xcrun devicectl device install app`, which keeps the app's Documents. The game files are packed

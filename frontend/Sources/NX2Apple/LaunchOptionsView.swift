@@ -55,6 +55,7 @@ struct LaunchOptionsView: View {
                         groups(settings.filter(\.isBasic), game, all: settings)
                         modsSection(game)
                         frameTimesSection(game)
+                        CloudSavesCard(game: game)
                         let advanced = settings.filter { !$0.isBasic }
                         if !advanced.isEmpty {
                             card {
