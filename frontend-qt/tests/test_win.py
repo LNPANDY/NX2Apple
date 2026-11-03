@@ -304,6 +304,16 @@ class MetalArgsTest(unittest.TestCase):
         got = xcrun_shim.metal_args('iphoneos', ['-target', 'air64-apple-ios26.0', '-c'])
         self.assertEqual(got.count('-target'), 1)
 
+    def test_link_probe_reports_a_linker_failure(self) -> None:
+        # An unavailable linker should be reported by the doctor, not crash its probe.
+        with tempfile.TemporaryDirectory() as td, \
+             mock.patch.object(tc, 'llvm_tool', return_value=Path(td) / 'clang.exe'), \
+             mock.patch.object(tc, 'ensure_ld64_lld', return_value=(Path(td) / 'ld64.lld.exe', '')), \
+             mock.patch.object(tc.subprocess, 'run', side_effect=OSError('linker unavailable')):
+            ok, detail = tc.probe_link(Path(td))
+        self.assertFalse(ok)
+        self.assertIn('linker unavailable', detail)
+
     def test_metal_tt_has_no_windows_tool(self) -> None:
         # the pipeline archive is disabled here, and the caller relies on this being None
         self.assertIsNone(tc.metal_tool('metal-tt'))
@@ -432,6 +442,58 @@ class InfoPlistTest(unittest.TestCase):
         self.assertNotIn('CFBundleIcons', p)
 
 
+class RomfsPackTest(unittest.TestCase):
+    """The RomFS can be a folder or an image file: marker check, resource name and pack skips."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+        tools = self.root / 'repo' / 'dm' / 'tools'
+        tools.mkdir(parents=True)
+        # A stand-in for the engine's dm/tools/romfs.py: an image file is a text list of its entries.
+        (tools / 'romfs.py').write_text(
+            'from pathlib import Path as _P\n'
+            'class Path:\n'
+            '    def __init__(self, p):\n'
+            '        self.p = _P(p); self.rel = ""\n'
+            '    def __truediv__(self, n):\n'
+            '        o = Path(self.p); o.rel = n; return o\n'
+            '    def exists(self):\n'
+            '        if self.p.is_file():\n'
+            '            return self.rel in self.p.read_text().split()\n'
+            '        return (self.p / self.rel).exists()\n', encoding='utf-8')
+        self.repo = self.root / 'repo'
+        self._path = list(sys.path)
+        self.addCleanup(lambda: (sys.path.__setitem__(slice(None), self._path), sys.modules.pop('romfs', None)))
+        sys.modules.pop('romfs', None)
+
+    def test_marker_in_image_file(self):
+        img = self.root / 'RomFS.img'
+        img.write_text('graph/a.bin')
+        self.assertTrue(build_app.romfs_has(self.repo, img, 'graph/a.bin'))
+        self.assertFalse(build_app.romfs_has(self.repo, img, 'graph/b.bin'))
+
+    def test_marker_in_folder(self):
+        d = self.root / 'RomFS'
+        (d / 'graph').mkdir(parents=True)
+        (d / 'graph' / 'a.bin').write_bytes(b'')
+        self.assertTrue(build_app.romfs_has(self.repo, d, 'graph/a.bin'))
+        self.assertFalse(build_app.romfs_has(self.repo, d, 'graph/b.bin'))
+
+    def test_resource_name(self):
+        img = self.root / 'RomFS.img'
+        img.write_text('x')
+        d = self.root / 'RomFS'
+        d.mkdir()
+        self.assertEqual(build_app.romfs_resource(img), 'romfs.img')
+        self.assertEqual(build_app.romfs_resource(d), 'romfs')
+
+    def test_pack_skips_both_names(self):
+        self.assertIn('Payload/DmIOS.app/romfs', build_app.PACK_SKIPS)
+        self.assertIn('Payload/DmIOS.app/romfs.img', build_app.PACK_SKIPS)
+
+
 class IpaModesTest(unittest.TestCase):
     """The zip mode fixer, which stands in for `pack_ipa.py --exec` (an upstream file we
     must not edit)."""
@@ -549,6 +611,45 @@ class ShimTest(unittest.TestCase):
             self.assertTrue(env['PYTHONPATH'].startswith(td))
             self.assertEqual(env['PYTHONUTF8'], '1')
 
+    def test_build_env_passes_portable_dotnet_and_spirv_cross_to_children(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            dotnet = root / 'dotnet'
+            spirv = root / 'cross' / 'spirv-cross.exe'
+            def find(name):
+                return spirv if name == 'spirv-cross' else None
+            with mock.patch.object(shim, 'shim_dir', return_value=root / 'shim'), \
+                 mock.patch.object(tc, 'dotnet_dir', return_value=dotnet), \
+                 mock.patch.object(tc, 'find_exe', side_effect=find):
+                env = shim.build_env({'PATH': '', 'PYTHONPATH': ''}, python_exe=sys.executable)
+        self.assertEqual(env['DOTNET_ROOT'], str(dotnet))
+        self.assertEqual(env['DOTNET_ROOT_X64'], str(dotnet))
+        self.assertEqual(env['SPIRV_CROSS'], str(spirv))
+
+    def test_build_env_preserves_an_explicit_spirv_cross(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            with mock.patch.object(shim, 'shim_dir', return_value=Path(td)), \
+                 mock.patch.object(tc, 'find_exe', return_value=Path('detected-cross')):
+                env = shim.build_env({'PATH': '', 'SPIRV_CROSS': 'chosen-cross'},
+                                     python_exe=sys.executable)
+        self.assertEqual(env['SPIRV_CROSS'], 'chosen-cross')
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows subprocess shim')
+    def test_translator_mapping_can_find_the_dotnet_module(self) -> None:
+        # The generated sitecustomize runs in child interpreters and must resolve dotnet there.
+        with tempfile.TemporaryDirectory() as td:
+            shim.install(Path(td), python_exe=sys.executable)
+            env = dict(os.environ, PYTHONPATH=td, NSPB_SHIM_OFF='')
+            script = ("import sitecustomize as s, toolchain\n"
+                      "from pathlib import Path\n"
+                      "toolchain.dotnet_dir = lambda: Path('portable-dotnet')\n"
+                      "got = s._map(['x/dmsh_xlate_bin/dmsh_xlate', '--source-sha'])\n"
+                      "assert got[0] == str(Path('portable-dotnet') / 'dotnet.exe'), got\n"
+                      "assert got[1:] == ['x/dmsh_xlate_bin/dmsh_xlate.dll', '--source-sha'], got\n")
+            r = subprocess.run([sys.executable, '-c', script], env=env,
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
 
 class DriverCliTest(unittest.TestCase):
     """Mac-only options are refused before any work starts."""
@@ -637,12 +738,35 @@ class DriverPatchTest(unittest.TestCase):
         self.assertIn('need a Mac', str(ctx.exception))
 
     def test_toolchain_probe_uses_the_windows_metal(self) -> None:
-        probes = self.mod.toolchain()
+        probes = self.mod.toolchain(self.repo, {})
         self.assertTrue(probes)
         joined = ' '.join(' '.join(p[1]) for p in probes if p[0] == 'cmd')
         self.assertIn('xcrun_shim.py', joined)
         self.assertIn('metal', joined)
         self.assertNotIn('xcodebuild', joined)
+
+    def test_stage_key_fingerprints_the_selected_spirv_cross(self) -> None:
+        """Switching SPIRV_CROSS must invalidate the shader-stage key."""
+        with tempfile.TemporaryDirectory() as td:
+            a = Path(td) / 'cross-a.exe'
+            b = Path(td) / 'cross-b.exe'
+            a.write_bytes(b'first')
+            b.write_bytes(b'second')
+
+            def files(probes):
+                return [p for kind, values in probes if kind == 'files' for p in values]
+
+            first = self.mod.toolchain(self.repo, {'SPIRV_CROSS': str(a), 'PATH': ''})
+            second = self.mod.toolchain(self.repo, {'SPIRV_CROSS': str(b), 'PATH': ''})
+            self.assertIn(a, files(first))
+            self.assertIn(b, files(second))
+            self.assertNotEqual(self.mod.fingerprint(('files', [a])),
+                                self.mod.fingerprint(('files', [b])))
+            # The same selected path with changed executable contents must also
+            # change the key, or a rebuilt compiler would reuse the old library.
+            before = self.mod.fingerprint(('files', [a]))
+            a.write_bytes(b'changed')
+            self.assertNotEqual(before, self.mod.fingerprint(('files', [a])))
 
     def test_tool_paths_are_replaced_not_extended(self) -> None:
         """On Windows the upstream macOS list must be gone.
@@ -1229,7 +1353,8 @@ class PythonInstallTest(unittest.TestCase):
             shim.parent.mkdir(parents=True)
             shim.write_text('#!/bin/sh\n')
             with mock.patch.object(pu, 'IS_WIN', False), \
-                    mock.patch.dict(os.environ, {'UV_PYTHON_INSTALL_DIR': str(store), 'HOME': td}):
+                    mock.patch.dict(os.environ, {'UV_PYTHON_INSTALL_DIR': str(store), 'HOME': td,
+                                                 'USERPROFILE': td}):
                 cands = pu.uv_pythons()
             self.assertIn(str(exe), cands, "uv's store holds the real interpreter")
             self.assertIn(str(shim), cands, "uv links a python3 shim in ~/.local/bin")
@@ -1752,7 +1877,7 @@ class LinkProbeStrategyTest(unittest.TestCase):
     """
 
     def test_the_strategy_order_is_build_style_first(self) -> None:
-        src = (QT / 'nspb_qt' / 'win' / 'toolchain.py').read_text()
+        src = (QT / 'nspb_qt' / 'win' / 'toolchain.py').read_text(encoding='utf-8')
         body = src[src.index('def probe_link'):]
         self.assertLess(body.index("'-fuse-ld=lld'"), body.index('f\'--ld-path={lld}\''),
                         'the build\'s own invocation must be tried before --ld-path')
@@ -1904,7 +2029,7 @@ class InstallFailureHintTest(unittest.TestCase):
             classify = M.Model._classify_install_failure
         except ImportError:
             import ast
-            src = (HERE.parent / 'nspb_qt' / 'model.py').read_text()
+            src = (HERE.parent / 'nspb_qt' / 'model.py').read_text(encoding='utf-8')
             tree = ast.parse(src)
             fn = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)
                       and n.name == '_classify_install_failure')
