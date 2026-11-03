@@ -27,6 +27,13 @@ Only two games are in scope:
 Dark Souls Remastered is not followed in this project for now; it stays
 with the existing project only.
 
+The deliverable's shape is one app, not one app per game: upstream's
+Route C shell (engine `docs/launcher-c-plan.md`) — a single DmShell app
+embedding each game as its own framework, the player picking the game
+in the shell's library, each game's data kept outside the app in
+`Documents/games/<title ID>/`. That single-app multi-game form is the
+reason this project exists (decision 4).
+
 ## Settled decisions (2026-11-03)
 
 1. **BC route: upstream NX2Apple's own patch 0008** (full CPU decode of
@@ -56,6 +63,13 @@ with the existing project only.
    servo, and the Silksong row must carry an explicit display-rate
    eligibility flag, so a 60/target step field is never written 120.
 
+4. **One app for both games (2026-11-04, the owner's decision).** The
+   project's end form is the Route C shell package holding both games;
+   single-game IPAs are not deliverables of this project (the workflow
+   keeps building them only as a diagnostic route). Phase 4 therefore
+   builds the shell package, and the 13 Pro BC verification of
+   decision 1 runs inside the shell, once per game.
+
 ## Phases
 
 - **Phase 1 — Skeleton & secrets list.** This charter; the list of
@@ -67,7 +81,10 @@ with the existing project only.
 - **Phase 3 — Cloud workflow for the two games.** Repository-level
   GitHub Actions workflow (group A) building Silksong and Hades II only,
   slim IPA delivery, game sources fetched the same way as the existing
-  project.
-- **Phase 4 — First builds & acceptance.** First packages for both
-  games, including the mandatory iPhone 13 Pro BC verification from
-  decision 1, before this line is considered usable.
+  project. The workflow also builds the Route C shell package
+  (both games' frameworks plus the shell app, packed unsigned).
+- **Phase 4 — First builds & acceptance.** The first shell package
+  (both games in one app, decision 4) plus each game's one-time RomFS
+  datapack, including the mandatory iPhone 13 Pro BC verification from
+  decision 1 — run inside the shell, once per game — before this line
+  is considered usable.
