@@ -1822,6 +1822,35 @@ class SymlinkMaterializeTest(unittest.TestCase):
 
 
 
+class TbdStubRepairTest(unittest.TestCase):
+    """The cached SDK of a broken clone: `.tbd` files that are text stubs of their targets get
+    the target's bytes copied over them; real TBD files and dangling stubs are left alone."""
+
+    def setUp(self) -> None:
+        base = Path(tempfile.mkdtemp(prefix='nspb-tbd-'))
+        self.addCleanup(shutil.rmtree, base, ignore_errors=True)
+        self.sdk = base / 'iPhoneOS26.0.sdk' / 'usr' / 'lib'
+        self.sdk.mkdir(parents=True)
+        self.good = '--- !tapi-tbd-v3\narchs: [arm64]\ninstall-name: /usr/lib/libSystem.B.dylib\n'
+        (self.sdk / 'libSystem.B.tbd').write_text(self.good)
+        (self.sdk / 'libSystem.tbd').write_text('libSystem.B.tbd')          # a broken stub
+        (self.sdk / 'libz.1.tbd').write_text('libz.tbd')                    # a dangling stub
+        (self.sdk / 'libreal.tbd').write_text(self.good)                    # a real TBD file
+
+    def test_broken_stubs_are_repaired_and_real_files_untouched(self) -> None:
+        log: list[str] = []
+        fixed = sdk_fetch.repair_tbd_stubs(self.sdk.parent.parent, log.append)
+        self.assertEqual(fixed, 1)                                   # libSystem.tbd only:
+        self.assertTrue((self.sdk / 'libSystem.tbd').read_text().startswith('--- !tapi-tbd'))
+        self.assertEqual((self.sdk / 'libz.1.tbd').read_text(), 'libz.tbd')      # dangling: left
+        self.assertEqual((self.sdk / 'libreal.tbd').read_text(), self.good)     # real: untouched
+        self.assertTrue(any('repaired 1' in l for l in log))
+
+    def test_the_call_is_idempotent(self) -> None:
+        sdk_fetch.repair_tbd_stubs(self.sdk.parent.parent, lambda l: None)
+        self.assertEqual(sdk_fetch.repair_tbd_stubs(self.sdk.parent.parent, lambda l: None), 0)
+
+
 class SaveConfigTest(unittest.TestCase):
     """The Choose-a-folder path writes toolchain.json and reads it back through setting()."""
 

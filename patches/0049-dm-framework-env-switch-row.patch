@@ -16,7 +16,7 @@ Issue: LNPANDY/NX2Apple#144
  1 file changed, 8 insertions(+)
 
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index 5335a6c..7b36162 100644
+index 4837ea5..7b7fcb0 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
 @@ -36,9 +36,12 @@ DM_FD_LOG	diagnostic	`=<seconds>` logs, every that many seconds, the number and
@@ -32,15 +32,15 @@ index 5335a6c..7b36162 100644
  DM_FS	diagnostic	When set, logs file opens, paths not found or not mounted, and a read summary every 64 MiB or 1000 reads
  DM_FSLOG	diagnostic	`=<file>` writes one TSV line per ReadFile: seconds since boot, guest path, offset, length and guest buffer address
  DM_FSLOG_HASH	diagnostic	With `DM_FSLOG`, adds a column with the FNV-1a 64 hash of the bytes read
-@@ -65,6 +68,7 @@ DM_HID_MAP	switch	`=<map>` such as `A=1,B=2,X=4,Y=5`: which HID button usage pre
- DM_HID_PADS	switch	`0` stops reading raw HID gamepads that GameController does not list, such as an 8BitDo in its own mode (`pad_hid_mac.h`); Mac only
- DM_HITCH_DUMP	diagnostic	`=<ms>[:<s>]`: when no frame has been presented for that long (from s seconds on), logs every guest thread once per stall: wait, last SVC, pc, lr, frames and registers
- DM_HLECOUNT	diagnostic	`=<file>` (`%d` = process ID) writes at exit a TSV of how many times the guest called each HLE function, zero counts included
+@@ -68,6 +71,7 @@ DM_HLECOUNT	diagnostic	`=<file>` (`%d` = process ID) writes at exit a TSV of how
+ DM_HOME_QUIT	player	`0` turns off quitting with the controller's Home button (Mac, on by default): held for 2 s it opens a quit prompt over the game, A quits as ⌘Q does, B or Home closes it (`home_quit.h`)
+ DM_HOME_QUIT_CAPTURE	test	`=<folder>`: `tests/t_home_quit_mac.m` also draws the Home button's quit prompt and hold indicator into PNG files there
+ DM_HOME_QUIT_TEXT	switch	The texts of the Home button's quit prompt in the player's language, one per line: the hold indicator, the title, the note, the quit and the cancel button; a front end such as NX2Apple sets it ([Starting a game](frontends.md#starting-a-game)), an empty or missing line keeps the English text
 +DM_HUD_PER_LAYER	switch	`1`: the shell app sets it at start together with `MTL_HUD_ENABLED`, and the game view then turns Apple's Metal HUD off on its layer unless `DM_METAL_HUD` is `1`
  DM_ICON	path	`=<image>` gives `build_ipa.sh` another app icon (default the `icon.jpg` beside the RomFS)
  DM_IMPORTS	diagnostic	When set, logs each import the loader binds to a host function and each forced takeover
  DM_KBD	switch	`=<text>`: the system keyboard returns that text as OK without showing an input box; unset with no window, it returns cancel
-@@ -284,6 +288,10 @@ DM_SF_TRACE	diagnostic	`=1` logs every request on the game's own HIPC client ses
+@@ -290,6 +294,10 @@ DM_SF_TRACE	diagnostic	`=1` logs every request on the game's own HIPC client ses
  DM_SHAKE_G	switch	`=<G>`: on iOS, the acceleration beyond gravity above which a flick of the phone shakes the controller's six-axis sensor (default 1.5)
  DM_SHARED_FONT	path	Font file served for every shared-font type except the Nintendo extension (default `$DM_FONT_DIR/standard.ttf`, then macOS's Arial Unicode)
  DM_SHARED_FONT_EXT	path	Font file served for shared-font type 5, the Nintendo extension with the button icons (default `$DM_FONT_DIR/nintendo_ext.ttf`, made by `make_ext_font.py`)

@@ -23,6 +23,8 @@ Fullscreen
 Game
 Game language
 Game rumble
+Game's own
+Game's upscaler
 German
 Handheld
 Hold frames when late

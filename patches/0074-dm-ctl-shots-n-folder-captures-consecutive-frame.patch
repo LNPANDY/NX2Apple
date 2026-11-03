@@ -16,17 +16,16 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Upstream-Status: pending
 Reason: Diagnostics used to find the Ezio Collection's one-frame flicker: consecutive-frame capture and a run-time DM_NVN_VIS_ALL
 Issue: LNPANDY/NX2Apple#483
-
 ---
  dm/gfx/nvn/nvn_mtl.m | 6 +++++-
  dm/host/hle_hid.c    | 8 +++++++-
  2 files changed, 12 insertions(+), 2 deletions(-)
 
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index 1271731..e243b36 100644
+index 56e473e..f8c29ab 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
-@@ -1507,11 +1507,15 @@ static void post_run(post_rec *r, uint64_t c0, uint64_t c1) {
+@@ -1562,11 +1562,15 @@ static void post_run(post_rec *r, uint64_t c0, uint64_t c1) {
      // MTLBuffer.contents may autorelease its receiver; keep that lifetime inside the completed copy.
      @autoreleasepool {
      int n = r->n; post_op *ops = r->ops; seg_clk *sc = r->sc; uint32_t seg_last = r->seg_last;
@@ -42,7 +41,7 @@ index 1271731..e243b36 100644
              free(l); uint64_t rec[2] = {sum, gpu_ticks()}; memcpy((void *)ops[i].addr, rec, sizeof rec);
          }
          else if (ops[i].kind == 4) mirror_rb_land(ops[i].vis);
-@@ -11249,7 +11253,7 @@ void mtl_res_counts(uint32_t tick, const char *why) {
+@@ -11684,7 +11688,7 @@ void mtl_res_counts(uint32_t tick, const char *why) {
          c.pools, (unsigned long long)c.pool_adds, c.sview_nonnull, dl, (unsigned long long)da, c.c1_bufs, (unsigned long long)c.c1_alloc, (unsigned long long)c.c1_data);
  }
  // Screenshot on request (used by DM_NVN_SHOT_UI): dm_gfx_shot_at(k, path) = take a screenshot at the kth frame after the current present frame; due requests are checked at every frame's present
@@ -52,7 +51,7 @@ index 1271731..e243b36 100644
  static pthread_mutex_t g_shotq_mu = PTHREAD_MUTEX_INITIALIZER;
  static int present_encode(id<MTLCommandBuffer> cb, id<MTLTexture> src, id<MTLTexture> dst, const int crop[4]);
 diff --git a/dm/host/hle_hid.c b/dm/host/hle_hid.c
-index 6084ae7..666dedd 100644
+index 53919b6..f9aac22 100644
 --- a/dm/host/hle_hid.c
 +++ b/dm/host/hle_hid.c
 @@ -198,7 +198,8 @@ void hid_keys_init(void) {

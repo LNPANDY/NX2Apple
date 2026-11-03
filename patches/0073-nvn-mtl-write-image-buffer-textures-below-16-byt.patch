@@ -22,25 +22,24 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Upstream-Status: pending
 Reason: Shader writes to image buffer textures below Metal's 16-byte alignment landed early (Assassin's Creed II's occlusion culling hid visible geometry)
 Issue: LNPANDY/NX2Apple#483
-
 ---
  dm/gfx/nvn/nvn_mtl.m          | 63 +++++++++++++++++++++++++++++++++--
  docs/reference/nvn-objects.md |  8 +++++
  2 files changed, 68 insertions(+), 3 deletions(-)
 
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index a6761a0..1271731 100644
+index 087599a..56e473e 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
-@@ -843,6 +843,7 @@ void mtl_sub_begin(void) {
- }
+@@ -853,6 +853,7 @@ void mtl_sub_begin(void) {
  
  static void rp_end(void);
+ static void geo_mesh_flush_pass(void);   // a waiting run of mesh draws is drawn before its pass ends (nvn_geometry.inc)
 +static int g_nibs; static void ibs_flush(void);   // image buffer textures written through aligned shadows (see ibs_begin)
  // DM_NVN_PASSGPU_SERIAL=1 (for measurement): before creating each encoder on the main command buffer, encode 'signal n+1 → wait for signal n+1' - the signal is only raised once all prior work has completed,
  // so the following encoder starts only after the previous one has fully finished; on TBDR passes no longer overlap in the pipeline, and the per-pass start-to-end span of DM_NVN_PASSGPU is that pass's exclusive time (the whole-frame total is inflated; look only at relative cost)
  static void ser_gate(void) {
-@@ -2766,10 +2767,10 @@ static void sparse_view(NvPkg *pk, const tex_t *t) {
+@@ -2839,10 +2840,10 @@ static void sparse_view(NvPkg *pk, const tex_t *t) {
          // Metal requires 16-byte alignment for texture buffer views (minimumTextureBufferAlignmentForPixelFormat), and an Apple GPU addresses such a view from the 16-byte boundary below its
          // offset (measured on an M4 Pro: R32Float views at offsets 4, 8 and 12 read elements 0, 0 and 0 instead of 1, 2 and 3, shared and private buffers, bound directly or in an argument
          // buffer). Unreal puts buffer textures at 4-, 8- and 12-byte offsets in its pools (Octopath Traveler 0: offset 0x168; FINAL FANTASY RESONANCE's particle data), so the view is created
@@ -53,7 +52,7 @@ index a6761a0..1271731 100644
              static int once; if (!once++) MLOG("buffer texture at pool offset %#llx, below Metal's %lu-byte alignment: created there, read through an aligned copy (tbuf_shadow)", (unsigned long long)mo, (unsigned long)al);
          }
          MTLTextureDescriptor *d = [MTLTextureDescriptor textureBufferDescriptorWithPixelFormat:(MTLPixelFormat)pf width:t->d.width resourceOptions:b.resourceOptions
-@@ -3311,6 +3312,7 @@ static void rt_mirror_flush(void) {
+@@ -3390,6 +3391,7 @@ static void rt_mirror_flush(void) {
      if (g_nubd && g_nubd >= ubd_lazy()) ubd_flush();   // the inline updates deferred in this pass, in order (see mtl_sub_update); across passes they wait for the next copy or dispatch (blit_raw)
      if (g_nbcrt) bcrt_flush();   // blocks drawn into shadows go back into their compressed textures
      if (g_nrtm) rt_mirror_flush();
@@ -61,7 +60,7 @@ index a6761a0..1271731 100644
  #ifdef NVN_RT_RANGE_TEST
      rr_finish(ranged);
  #endif
-@@ -7079,6 +7081,59 @@ static uint64_t pool_gpu(int samp, int dtt, int dpf, int base, __unsafe_unretain
+@@ -7240,6 +7242,59 @@ static uint64_t pool_gpu(int samp, int dtt, int dpf, int base, __unsafe_unretain
      if (!t) { t = dummy_img(b->dtt, b->dpf); *rid = g_dummy_img_rid[b->dtt & 7][b->dpf & 3]; }
      return t;
  }
@@ -121,7 +120,7 @@ index a6761a0..1271731 100644
  // Resolve shader image writes before an encoder is opened. Snowdrop's cf5ba107e29b51f4 writes a COMPRESSIBLE-only R16F texture registered with RegisterTexture, not RegisterImage.
  // An image bind may follow rendering into a texture created without IMAGE; upgrading it inside encode_args would
  // copy out of an attachment while its render pass was still open. Close that pass first, then replace the shared backing (all registered sampled views follow g_ser_gen).
-@@ -7097,7 +7152,7 @@ static void image_prepare(NvProg *pr, unsigned stages) {
+@@ -7258,7 +7313,7 @@ static void image_prepare(NvProg *pr, unsigned stages) {
              id<MTLTexture> base = tex_mtl(&image); while (base.parentTexture) base = base.parentTexture;
              int upgrade = base && !(base.usage & MTLTextureUsageShaderWrite);
              os_unfair_lock_unlock(&g_rmu);
@@ -130,15 +129,15 @@ index a6761a0..1271731 100644
              rp_end();
              os_unfair_lock_lock(&g_rmu);
              // A guest registration can change while the pass ends; resolve its current snapshot again under the descriptor lock.
-@@ -7421,6 +7476,7 @@ static int encode_args_(id<MTLCommandEncoder> en, NvShader *sh, int nvn_stage, i
-             int tid = reg < 32 ? (int)(S.img[nvn_stage][reg] & 0xfffff) : 0;
-             uint64_t trid; int real;
+@@ -7597,6 +7652,7 @@ static int encode_args_(id<MTLCommandEncoder> en, NvShader *sh, int nvn_stage, i
              id<MTLTexture> t = img_binding(tid, b, &trid, &real);
-+            if (real) t = ibs_view(t, &trid);   // see ibs_begin
+             int snap = real && g_fb_n && !b->rw && !b->atom && fb_image_view(tid, b, t) ? fb_snapshot_slot(nvn_stage, t) : -1;
+             if (snap >= 0) { t = g_fb_use[snap]; trid = g_fb_rid[snap]; }
++            else if (real) t = ibs_view(t, &trid);   // see ibs_begin (a framebuffer snapshot is never an image buffer texture)
              if (b->atom && !img_atomic_ok(t, b)) {   // see dummy_img_atomic; an unbound slot's write sink is not atomic-capable either
                  if (real) { id<MTLTexture> base = t.parentTexture ? t.parentTexture : t;
                      RED_ONCE(93, "image atomics on a texture Metal cannot run them on (shader %s stage %d slot %d texture ID %d: Metal format %lu of base format %lu, type %lu for %u, %s): they go to a write sink",
-@@ -10256,6 +10312,7 @@ static void dispatch(const p_dispatch *dp) {
+@@ -10590,6 +10646,7 @@ static void dispatch(const p_dispatch *dp) {
          enc_c_dispatch_indirect(ce, ig, MTLSizeMake(tg[0], tg[1], tg[2]));
      } else enc_c_dispatch(ce, MTLSizeMake(dp->x, dp->y, dp->z), MTLSizeMake(tg[0], tg[1], tg[2]));
      if (own) enc_c_end(ce);
@@ -147,10 +146,10 @@ index a6761a0..1271731 100644
  // GPU: texture -> buffer (row stride taken from SetCopyRowStride, layer stride from SetCopyImageStride, 0 = tightly packed)
  // A copy at a level the host texture lacks (more levels declared than its size holds, tex_desc) is skipped: Metal does not check the level of a blit
 diff --git a/docs/reference/nvn-objects.md b/docs/reference/nvn-objects.md
-index 2987863..ffe7f48 100644
+index f1181f3..cbfc58b 100644
 --- a/docs/reference/nvn-objects.md
 +++ b/docs/reference/nvn-objects.md
-@@ -605,6 +605,14 @@ Games read this count as a position in their own command memory and size their h
+@@ -630,6 +630,14 @@ Games read this count as a position in their own command memory and size their h
  - **Fix:** before a draw or dispatch uses a writable image, `image_prepare` resolves it with image intent and ensures its backing allows shader writes. `RegisterImage` also keeps this intent in its host snapshot; neither path changes the guest texture. A texture already rendered into is upgraded through `tex_upgrade`: end its render pass first, copy every mip / slice, replace all shared serials and invalidate cached sampled views. Load-only image slots accept read-only storage without upgrading, and ordinary render targets retain their original usage. `t_image_usage.m` exercises both registration entry points, a late registration while a render pass is open, the clear and other mip surviving the upgrade, and a GPU image write read through a sampled alias.
  - **Found on:** [Mario + Rabbids Sparks of Hope](../../dm/games/0100317013770000/README.md) (SDK 13.3.5, Snowdrop).
  

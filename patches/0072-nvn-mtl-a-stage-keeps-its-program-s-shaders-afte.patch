@@ -19,17 +19,16 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Upstream-Status: pending
 Reason: Assassin's Creed II crashed in keys_hash after finalizing a program another stage still held
 Issue: LNPANDY/NX2Apple#483
-
 ---
  dm/gfx/nvn/nvn_mtl.m          | 34 +++++++++++++++++++++++++++++++---
  docs/reference/nvn-objects.md |  7 +++++++
  2 files changed, 38 insertions(+), 3 deletions(-)
 
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index f3feaf1..a6761a0 100644
+index 5b2de33..087599a 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
-@@ -4176,6 +4176,12 @@ static void draw_gs_check(NvProg *pr) {
+@@ -4265,6 +4265,12 @@ static void draw_gs_check(NvProg *pr) {
      static const prog_t *lp; static uint64_t lser, lgen; static NvProg *lpr;   // Last result: same object, same serial and unchanged serial table means it is used directly
      uint64_t gen = g_ser_gen;
      if (p == lp && p->serial == lser && gen == lgen && lpr) return lpr;
@@ -42,7 +41,7 @@ index f3feaf1..a6761a0 100644
      __unsafe_unretained NvProg *have = p->serial ? serial_get(p->serial) : nil;
      if (have) { lp = p; lser = p->serial; lgen = gen; lpr = have; return have; }
      shmap_load();
-@@ -4780,6 +4786,7 @@ static size_t arena_alloc(size_t n, __strong id<MTLBuffer> *buf) {
+@@ -4891,6 +4897,7 @@ static size_t arena_alloc(size_t n, __strong id<MTLBuffer> *buf) {
      const prog_t *cprog;       // compute program: NVN binds it apart from the graphics stages (see OP_BIND_PROGRAM in state_op)
      p_prim_restart restart;
      const prog_t *bst[5];      // program bound per stage (NVN stage bits 1 vertex 2 fragment 4 geometry 8 / 16 tessellation, indices as in NvProg.sh), see bind_stages
@@ -50,7 +49,7 @@ index f3feaf1..a6761a0 100644
      blend_st blend[8]; color_st color; chmask_st chmask; ms_st ms; poly_st poly; ds_st ds;
      va_st attr[16]; int nattr; vs_st stream[16]; int nstream;
      NVNbufferRange vbuf[16];
-@@ -5019,8 +5026,29 @@ static void udc_note_draw(NvProg *pr, uint32_t raster_mask) {
+@@ -5130,8 +5137,29 @@ static void udc_note_draw(NvProg *pr, uint32_t raster_mask) {
  // Metroid Dread's depth prepass calls BindProgram(program, vertex | fragment), then BindProgram(null, fragment): only the vertex shader remains and depth is drawn.
  // Every bind used to replace S.prog as a whole, a null program meant "no program bound", and the prepass's ~140 draws per frame were all dropped: depth stayed empty, the G-buffer's depth EQUAL test passed no pixel, and scenes and characters were black.
  // When every stage comes from the same program, that program is the effective one (all of Mario's and Engage's binds are like this, so nothing changes for them); otherwise a composite is made: a host-made prog_t carrying only a serial, whose NvProg in the serial table takes each stage from its source program (a null fragment = a vertex-only pipeline)
@@ -81,7 +80,7 @@ index f3feaf1..a6761a0 100644
      const prog_t *v = S.bst[0];
      if (!v) return NULL;
      int same = 1; for (int st = 1; st < 5; st++) if (S.bst[st] && S.bst[st] != v) same = 0;
-@@ -5028,13 +5056,13 @@ static void udc_note_draw(NvProg *pr, uint32_t raster_mask) {
+@@ -5139,13 +5167,13 @@ static void udc_note_draw(NvProg *pr, uint32_t raster_mask) {
      enum { NCMP = 64 };
      static prog_t cp[NCMP]; static const prog_t *ck[NCMP][5]; static uint64_t cs[NCMP][5]; static int ncp, next;
      for (int i = 0; i < ncp; i++) {
@@ -98,7 +97,7 @@ index f3feaf1..a6761a0 100644
      memset(&cp[i], 0, sizeof cp[i]); cp[i].magic = MAGIC('P', 'R', 'O', 'G'); cp[i].serial = nvn_new_serial(); serial_put(cp[i].serial, o);
      { static int once; if (!once++) MLOG("per-stage program binding: first combined program (vertex %s fragment %s)", o->sh[0] ? o->sh[0]->key : "-", o->sh[1] ? o->sh[1]->key : "-"); }
 diff --git a/docs/reference/nvn-objects.md b/docs/reference/nvn-objects.md
-index f08873c..2987863 100644
+index b0aa32d..f1181f3 100644
 --- a/docs/reference/nvn-objects.md
 +++ b/docs/reference/nvn-objects.md
 @@ -131,6 +131,13 @@ The game may also write into an NVN object directly, without an NVN call, throug

@@ -23,7 +23,6 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Upstream-Status: pending
 Reason: The Ezio Collection's menu starts each game with ExecuteProgram, which was a stub: multi-program applications switch programs in one window
 Issue: LNPANDY/NX2Apple#483
-
 ---
  dm/gfx/nvn/nvn_mtl.m               |  2 +
  dm/host/front_mac.m                | 57 ++++++++++++++++++++--
@@ -37,10 +36,10 @@ Issue: LNPANDY/NX2Apple#483
  9 files changed, 293 insertions(+), 22 deletions(-)
 
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index be4a638..f3feaf1 100644
+index 682a330..5b2de33 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
-@@ -11685,10 +11685,12 @@ static void present_gpu_note(double s, int fx) {
+@@ -12239,10 +12239,12 @@ static void present_gpu_note(double s, int fx) {
      MLOG("present command buffer GPU time over 600 presents %s: p50 %.3f ms, p95 %.3f ms, max %.3f ms", fx ? "through MetalFX" : "through the bilinear pass", a[299], a[569], a[599]);
      n[fx] = 0;
  }
@@ -54,10 +53,10 @@ index be4a638..f3feaf1 100644
          if (g_present_n == 1) g_bp_first_present = bp_now() - g_bp_t0;
          MLOG("[bootprof] t=%.3f s present #%llu: metallibs loaded %llu / %.1f ms; pipelines created %llu / %.1f ms (all synchronous on the submit thread); prewarmed and used: shaders %llu / render pipelines %llu / compute pipelines %llu; "
 diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
-index 525765e..fb6d5b1 100644
+index c25128d..f76cdc5 100644
 --- a/dm/host/front_mac.m
 +++ b/dm/host/front_mac.m
-@@ -1178,13 +1178,60 @@ - (BOOL)windowShouldClose:(NSWindow *)w {
+@@ -1297,13 +1297,60 @@ - (BOOL)windowShouldClose:(NSWindow *)w {
  }
  @end
  
@@ -119,7 +118,7 @@ index 525765e..fb6d5b1 100644
          NSRect r = NSMakeRect(0, 0, 1280, 720);
          NSWindow *win = [[NSWindow alloc] initWithContentRect:r
                                                      styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskResizable
-@@ -1215,10 +1262,14 @@ void front_run(void (*guest)(void)) {
+@@ -1334,10 +1381,14 @@ void front_run(void (*guest)(void)) {
                  LOG("front end: window on screen %lu '%s' (DM_SCREEN)", id, on.localizedName.UTF8String);
              } else LOG("front end: DM_SCREEN=%s ignored, no connected screen has that number", want_scr);
          }
@@ -137,7 +136,7 @@ index 525765e..fb6d5b1 100644
          // another app's window macOS fires its display link about once a second: Breath of the Wild stepped up to 3 vsyncs at boot and never came back (20 fps runs).
          // DM_WINDOW_TOP=1 orders it in front without activation and keeps it above other apps' windows; the log names every change of the window's visibility either way
 diff --git a/dm/host/hle_oe.c b/dm/host/hle_oe.c
-index 1e97a64..88c61f1 100644
+index 1b70f37..cda558d 100644
 --- a/dm/host/hle_oe.c
 +++ b/dm/host/hle_oe.c
 @@ -2,6 +2,8 @@
@@ -271,10 +270,10 @@ index aafb831..c977abf 100644
      // DM_SAVE as the host had it: an env file or the launch environment may have set another folder than this app's own
      if (!save_sync_after_exit(getenv("DM_SAVE"), id)) fprintf(stderr, "launcher: the save did not reach the cloud; it goes at the next start\n");
 diff --git a/dm/mac/pack_app.py b/dm/mac/pack_app.py
-index 48f2ac9..5a015a5 100755
+index f974315..2fd9e37 100755
 --- a/dm/mac/pack_app.py
 +++ b/dm/mac/pack_app.py
-@@ -194,7 +194,14 @@ def selected_inputs(a):
+@@ -212,7 +212,14 @@ def selected_inputs(a):
      files += [Path(p) for p in (a.env_file, a.settings, a.icon) if p]
      for p in files:
          if not p.is_file(): raise SystemExit(f'no input file at {p}')
@@ -290,7 +289,7 @@ index 48f2ac9..5a015a5 100755
  
  
  def replace_app(tmp, out):
-@@ -220,7 +227,8 @@ def pack(a):
+@@ -238,7 +245,8 @@ def pack(a):
          a = argparse.Namespace(**vars(a))
          for name in ('out', 'host', 'patched', 'romfs', 'msl', 'tables', 'font', 'aoc', 'pso', 'pso_pairs', 'env_file', 'settings', 'icon'):
              if getattr(a, name): setattr(a, name, str(Path(getattr(a, name)).resolve()))
@@ -300,7 +299,7 @@ index 48f2ac9..5a015a5 100755
          clang = Path(run(['xcrun', '--find', 'clang']).strip()).resolve()
          swiftc = Path(run(['xcrun', '--find', 'swiftc']).strip())   # not resolved: the driver is a link to swift-frontend, which acts by its name
          sdk = Path(run(['xcrun', '--sdk', 'macosx', '--show-sdk-path']).strip()).resolve()
-@@ -268,10 +276,16 @@ def pack(a):
+@@ -286,10 +294,16 @@ def pack(a):
      if aoc: step('add-on content'); copy([aoc], res / 'aoc', clone['aoc'])
      if pso: step('pipeline archive'); (res / 'pso').mkdir(); copy(pso, res / 'pso', clone['pso'])
      step('game files'); copy([romfs], res / ('romfs.img' if romfs.is_file() else 'romfs'), clone['romfs'])
@@ -317,7 +316,7 @@ index 48f2ac9..5a015a5 100755
      commit = source_commit()
      if commit: info['DMCommit'] = commit
      if msl_dst.name.startswith('b-'): info['DMChain'] = msl_dst.name[2:]   # the library chain the app carries (a Vulkan or GL game's vk / gl has none)
-@@ -313,6 +327,8 @@ def parse(argv):
+@@ -331,6 +345,8 @@ def parse(argv):
      ap.add_argument('--version'); ap.add_argument('--bundle-id'); ap.add_argument('--category'); ap.add_argument('--lang'); ap.add_argument('--marker', help='the profile\'s romfs_marker')
      ap.add_argument('--icon', help='the game icon (icon.jpg from the control data)')
      ap.add_argument('--sign', default='-', help='codesign identity (default: - = ad-hoc)')
@@ -327,19 +326,19 @@ index 48f2ac9..5a015a5 100755
  
  
 diff --git a/dm/tools/nx_extract/Program.cs b/dm/tools/nx_extract/Program.cs
-index f5beaa1..de9e79b 100644
+index 96964ff..d1ec2ee 100644
 --- a/dm/tools/nx_extract/Program.cs
 +++ b/dm/tools/nx_extract/Program.cs
-@@ -9,6 +9,8 @@
- // Add-on content: nx_extract <prod.keys> --aoc <DLC NSP> <output dir> writes the RomFS of the DLC's data NCA to <output dir> (the packing script puts it at aoc/<index>/, the host mounts it through DM_AOC_DIR).
- // Title ID of a package: nx_extract <prod.keys> --title <NSP, NSZ, XCI or XCZ> prints "title <16 hex digits>", the lowest title ID of the package's meta NCAs (the base game's, before its update's or a DLC's),
- //   read from the meta NCA's header with the keys' header_key. For a package without a ticket and without a [title ID] in its name (the NSP script's title_of); exit code 5 when it has no meta NCA.
+@@ -12,6 +12,8 @@
+ // Keys of a package: nx_extract <prod.keys> --keys <NSP, NSZ, XCI or XCZ>... checks that the keys open every NCA (an NCZ by its header, which nsz keeps as it was) without extracting anything.
+ //   Keys older than a game (a prod.keys dumped from a console on older firmware) lack the newer master key and every key derived from it; the newest key missing is named with the firmware
+ //   it came with, exit code 6. Extraction, --aoc and --contents run the same check before reading the NCAs it covers (LibHac would stop on the first such NCA with an unhandled MissingKeyException).
 +// A multi-program application (Assassin's Creed: The Ezio Collection: the menu and AC2 at index 0, the other games at 1-3) has a Program NCA per index, title ID of index 0 + the index:
 +//   --program <index> extracts that one (its update's NCA of the same title ID over it), nx_extract <prod.keys> --programs <base NSP> prints "programs <count>".
  // Title keys come from the common tickets (.tik) inside the NSPs, so only prod.keys is needed; key values are never printed.
  // The base game may also be a cartridge dump (.xci, Monster Hunter Rise): its secure partition holds the NCAs, which carry their keys in the key area (no ticket).
  //   When the cartridge also carries an update (1G+1U), only the base game's NCAs (those its Application content meta lists) are read; the update comes from the update NSP.
-@@ -41,18 +43,27 @@ static class P {
+@@ -50,10 +52,16 @@ static class P {
          // always names the one it packs. Without it every Application content meta's NCAs are kept and the lowest Program NCA is the game
          ulong? app = null; int ai = Array.IndexOf(a, "--app");
          if (ai >= 0 && ai + 1 < a.Length) { app = Convert.ToUInt64(a[ai + 1], 16); var rest = new List<string>(a); rest.RemoveRange(ai, 2); a = rest.ToArray(); }
@@ -347,17 +346,19 @@ index f5beaa1..de9e79b 100644
 +        if (pi >= 0) { if (pi + 1 >= a.Length || !int.TryParse(a[pi + 1], out program) || program < 0 || program > 15) { Console.Error.WriteLine("--program takes a program index 0-15"); return 2; } var l = new List<string>(a); l.RemoveRange(pi, 2); a = l.ToArray(); }
          if (a.Length == 3 && a[1] == "--title") return Title(ExternalKeyReader.ReadKeyFile(a[0]), a[2]);
          if (a.Length == 3 && a[1] == "--contents") return Contents(ExternalKeyReader.ReadKeyFile(a[0]), a[2]);
--        if (a.Length < 4) { Console.Error.WriteLine("usage: nx_extract <prod.keys> <base.nsp> <update.nsp|-> <out dir> [base RomFS dir] [--app <title ID>] [--romfs-image|--manifest] [--allow-damaged]\n       nx_extract <prod.keys> --aoc <dlc.nsp> <out dir or image> [<DLC title ID>] [--romfs-image]\n       nx_extract <prod.keys> --title <nsp|nsz|xci|xcz>\n       nx_extract <prod.keys> --contents <nsp|nsz|xci|xcz>"); return 2; }
+         if (a.Length >= 3 && a[1] == "--keys") return Keys(ExternalKeyReader.ReadKeyFile(a[0]), a[2..]);
+-        if (a.Length < 4) { Console.Error.WriteLine("usage: nx_extract <prod.keys> <base.nsp> <update.nsp|-> <out dir> [base RomFS dir] [--app <title ID>] [--romfs-image|--manifest] [--allow-damaged]\n       nx_extract <prod.keys> --aoc <dlc.nsp> <out dir or image> [<DLC title ID>] [--romfs-image]\n       nx_extract <prod.keys> --title <nsp|nsz|xci|xcz>\n       nx_extract <prod.keys> --contents <nsp|nsz|xci|xcz>\n       nx_extract <prod.keys> --keys <nsp|nsz|xci|xcz>..."); return 2; }
 +        if (a.Length == 3 && a[1] == "--programs") {   // the program count of a base game package ("programs N"; 1 for most games)
 +            int c = OpenNsp(ExternalKeyReader.ReadKeyFile(a[0]), a[2], ContentMetaType.Application).FindAll(n => n.Header.ContentType == NcaContentType.Program).Count;
 +            Console.WriteLine($"programs {c}"); return c > 0 ? 0 : 5;
 +        }
-+        if (a.Length < 4) { Console.Error.WriteLine("usage: nx_extract <prod.keys> <base.nsp> <update.nsp|-> <out dir> [base RomFS dir] [--app <title ID>] [--romfs-image|--manifest] [--allow-damaged] [--program <index>]\n       nx_extract <prod.keys> --aoc <dlc.nsp> <out dir or image> [<DLC title ID>] [--romfs-image]\n       nx_extract <prod.keys> --title <nsp|nsz|xci|xcz>\n       nx_extract <prod.keys> --contents <nsp|nsz|xci|xcz>\n       nx_extract <prod.keys> --programs <base.nsp>"); return 2; }
++        if (a.Length < 4) { Console.Error.WriteLine("usage: nx_extract <prod.keys> <base.nsp> <update.nsp|-> <out dir> [base RomFS dir] [--app <title ID>] [--romfs-image|--manifest] [--allow-damaged] [--program <index>]\n       nx_extract <prod.keys> --aoc <dlc.nsp> <out dir or image> [<DLC title ID>] [--romfs-image]\n       nx_extract <prod.keys> --title <nsp|nsz|xci|xcz>\n       nx_extract <prod.keys> --contents <nsp|nsz|xci|xcz>\n       nx_extract <prod.keys> --keys <nsp|nsz|xci|xcz>...\n       nx_extract <prod.keys> --programs <base.nsp>"); return 2; }
          KeySet ks = ExternalKeyReader.ReadKeyFile(a[0]);
          if (a[1] == "--aoc") return Aoc(ks, a[2], a[3], image, a.Length > 4 ? Convert.ToUInt64(a[4], 16) : null);
          // each by its own content meta: a merged package (base game + update + DLC in one NSP, a cartridge dump with its update) is given as both the base game and the update,
-         // and the base game's Program NCA and the update's have the same title ID, so without the filter the update would be layered on itself or on the wrong base
+@@ -61,9 +69,12 @@ static class P {
          var basePkg = OpenNsp(ks, a[1], ContentMetaType.Application, app); var updPkg = a[2] == "-" ? null : OpenNsp(ks, a[2], ContentMetaType.Patch, app | 0x800);
+         Fit(new[] { MissingKey(ks, basePkg, a[1]), updPkg == null ? null : MissingKey(ks, updPkg, a[2]) });
          Nca baseProg = Pick(basePkg, NcaContentType.Program) ?? throw new Exception("no Program NCA in the base NSP");
 +        if (program > 0) baseProg = Pick(basePkg, NcaContentType.Program, baseProg.Header.TitleId + (ulong)program) ?? throw new Exception($"no Program NCA of program index {program} in the base NSP");
          Nca updProg = updPkg == null ? null : Pick(updPkg, NcaContentType.Program, baseProg.Header.TitleId) ?? throw new Exception("no Program NCA of the base game's program in the update NSP");
@@ -369,10 +370,10 @@ index f5beaa1..de9e79b 100644
          if (ctrl != null) {   // control data (NACP): display version and game name; a raw copy goes to <output dir>/control.nacp for naming the app
              byte[] nacp = Nacp(ctrl);
 diff --git a/dm/tools/tests/test_nsp_mac_app.py b/dm/tools/tests/test_nsp_mac_app.py
-index 958926b..8a4d029 100644
+index 0fdd6e4..563abbb 100644
 --- a/dm/tools/tests/test_nsp_mac_app.py
 +++ b/dm/tools/tests/test_nsp_mac_app.py
-@@ -653,6 +653,83 @@ class App(unittest.TestCase):
+@@ -669,6 +669,83 @@ class App(unittest.TestCase):
          self.assertFalse((self.tmp / 'Copy.app/Contents/stale').exists()); self.assertFalse((self.tmp / 'Copy.app/Contents/Resources/AppIcon.icns').exists())
  
  
@@ -457,10 +458,10 @@ index 958926b..8a4d029 100644
      def test_options(self):
          a = nsp.parse_args(['--platform', 'mac-app', '--mac-sign', 'Developer ID Application: X (T)', '-o', '/tmp/x.app'])
 diff --git a/docs/reference/services.md b/docs/reference/services.md
-index 5837cba..e4f0825 100644
+index 4faea53..1ba265c 100644
 --- a/docs/reference/services.md
 +++ b/docs/reference/services.md
-@@ -443,6 +443,7 @@ Most service calls can be found before they crash, before the first boot or the
+@@ -465,6 +465,7 @@ Most service calls can be found before they crash, before the first boot or the
  - **Cause:** the game makes three textures of `swkbd::InlineKeyboard::GetWindowSize`, and the host answered 0 × 0 (its creation function returns null for a size of 0, `main+0x77112b8`).
  - **Fix:** it is 1280 × 720 as on hardware now. SDK 11 adds keyboard setters (window mode, key top alpha / scale / position, touch, hardware keyboard, user words, dictionaries; ignored) and two callbacks the applet makes from `Calc`: finished-initialize after `Initialize` and released-user-words after `UnsetUserWordInfo`. The host makes them on the next `Calc`.
  - **Found on:** [Monster Hunter Rise](../../dm/games/0100B04011742000/README.md).
@@ -469,10 +470,10 @@ index 5837cba..e4f0825 100644
  ### Inline keyboard text callbacks and `Calc` states
  
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index 15b5b71..c9d5d33 100755
+index 700929e..2a66de8 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
-@@ -1107,6 +1107,26 @@ def extract_dump(ex, name, src, app):   # one version of a dump folder (src: bas
+@@ -1180,6 +1180,26 @@ def extract_dump(ex, name, src, app):   # one version of a dump folder (src: bas
      try: pack_dump.pack_version(src, app, dst, say=lambda s: None)
      except pack_dump.Error as e: raise BuildError(str(e)) from e
      PROG.end(amount((dst / 'RomFS.img').stat().st_size, 'B'))
@@ -499,7 +500,7 @@ index 15b5b71..c9d5d33 100755
      return dst
  
  
-@@ -1548,8 +1568,9 @@ def chain_tables(py, repo, sh, env, logs, g, chain):
+@@ -1649,8 +1669,9 @@ def chain_tables(py, repo, sh, env, logs, g, chain):
      return True
  
  
@@ -511,7 +512,7 @@ index 15b5b71..c9d5d33 100755
      for profile in (reg, g) if reg else (g,):
          section, reason = '', ''
          for line in (profile.dir / 'game.tsv').read_text(encoding='utf-8').splitlines():
-@@ -1559,7 +1580,7 @@ def refine_after_rewrite(g, ex_dir, patched, reg=None):
+@@ -1660,7 +1681,7 @@ def refine_after_rewrite(g, ex_dir, patched, reg=None):
                  if not computed: return g
              reason = line
      if pg.npdm(ex_dir / 'ExeFS/main.npdm')[0]: return g
@@ -520,7 +521,7 @@ index 15b5b71..c9d5d33 100755
      if int(g.get('mem_used', '0x4000000'), 0) == used: return g
      say(f'mem_used {used:#x}: from the current rewritten modules (64 MB when the default covers them)')
      return set_keys(g, {'mem_used': (f'{used:#x}', 'used memory for the current rewritten modules, at least the default 64 MB')}, 'After the rewrite')
-@@ -2251,11 +2272,12 @@ def mac_app_name(name):   # the app's file name: the game name with the characte
+@@ -2391,11 +2412,12 @@ def mac_app_name(name):   # the app's file name: the game name with the characte
      return re.sub(r'\s*[:/]\s*', ' - ', name).strip(' .-') or 'nxnative'
  
  
@@ -535,7 +536,7 @@ index 15b5b71..c9d5d33 100755
      lib = msl / (f'b-{chain_of(repo)}' if gfx == 'nvn' else 'vk' if gfx == 'vulkan' else 'gl')
      pso = mac_pso(py, repo, work, lib, g, gpus, env, logs) if gfx == 'nvn' and g.table('shader_pairs.tsv').is_file() else None   # a stage of its own, before the app's
      PROG.stage('Mac app', step='starting')
-@@ -2269,6 +2291,7 @@ def mac_app(py, repo, out, app, work, game, patched, host, font, msl, aoc, gfx,
+@@ -2409,6 +2431,7 @@ def mac_app(py, repo, out, app, work, game, patched, host, font, msl, aoc, gfx,
                     ('--pso', pso), ('--pso-pairs', split_pairs if gfx == 'nvn' and not g.table('pso_pairs.tsv').is_file() and split_pairs.is_file() else None),
                     ('--env-file', Path(os.path.expanduser(env_file)).resolve() if env_file else None), ('--settings', settings)):
          if v: cmd += [opt, v]
@@ -543,10 +544,10 @@ index 15b5b71..c9d5d33 100755
      unchanged = False
      def line(ln):
          nonlocal unchanged
-@@ -2568,6 +2591,13 @@ def main(args=None):
+@@ -2715,6 +2738,13 @@ def main(args=None):
      for ver in versions:   # each merged version streams directly into its own image
          b, u = picks[ver]
-         dirs[ver] = extract_dump(ex, ver, u or b, app) if dump else extract(nx, keys, ex, ver, b, u, None, logs, g, app)
+         dirs[ver] = extract_nup(ex, ver, u or b, b, app, fam['nup']) if nup else extract_dump(ex, ver, u or b, app) if dump else extract(nx, keys, ex, ver, b, u, None, logs, g, app)
 +    # a multi-program application: the other programs of the packed version, which its programs start with oe::ExecuteProgram. Only the Mac app carries them (its launcher starts each in a host of its own)
 +    nprog = 1 if dump else program_count(nx, keys, picks[pkg_ver][0], logs)
 +    pdirs = {}
@@ -557,7 +558,7 @@ index 15b5b71..c9d5d33 100755
      check_versions_aarch64(dirs, logs, g, nacp.name(dirs[versions[0]] / 'control.nacp') or f'{app:016X}')   # before build_mismatch, derive_profile and build_sources read the modules
      bad = [] if derived else [f'{v}: {x}' for v in versions for x in build_mismatch(dirs[v], v, g)]   # every module's build ID must be the one the profile registers for its version
      if bad and provisional: raise BuildError(f'not the builds provisional game profile {g.id} registers: {"; ".join(bad)}')
-@@ -2621,10 +2651,15 @@ def main(args=None):
+@@ -2768,10 +2798,15 @@ def main(args=None):
  
      patched = work / f'patched_{pkg_ver}'
      g = rewrite(py, repo, game / 'ExeFS', patched, env, logs, g, provisional)
@@ -574,7 +575,7 @@ index 15b5b71..c9d5d33 100755
          if provisional and heapck and pg.heap_check_needed(game / 'ExeFS'):
              if apple_silicon(): PROG.add(1); g = heap_check(repo, game, patched, work, env, logs, g)
              else: say('no heap check: it boots the game in the Mac host, which needs a Mac with Apple silicon; the profile keeps its guessed heap keys')
-@@ -2656,7 +2691,8 @@ def main(args=None):
+@@ -2803,7 +2838,8 @@ def main(args=None):
              return g
          derive_dlc = (lambda: derive_shader_tables('the installed DLC shader content differs from the registered tables')) if not own else None
          derive_compute = (lambda: derive_shader_tables('the reader decoded additional compute kernels from this registered build')) if not own else None
@@ -584,9 +585,9 @@ index 15b5b71..c9d5d33 100755
          ios = build_shaders(py, repo, sh, xlate, env, logs, g, pkey, mac)
      icon = next((d / 'icon.jpg' for d in (game, base) if (d / 'icon.jpg').exists()), None)   # the game icon nx_extract saved from the control data (English, icon.jpg); the packed version's first, then the base game's
      motion = MOTION if args.motion is None else args.motion
-@@ -2666,7 +2702,7 @@ def main(args=None):
+@@ -2813,7 +2849,7 @@ def main(args=None):
          host, font = mac_host(py, repo, work, env, logs, g)
-         if not icon: say('no game icon: a dump folder has no control data; the app\'s icon will be blank' if dump else '[RED] no game icon in the extraction (an older extraction did not save it: delete extract/ and run again); the app\'s icon will be blank')
+         if not icon: say(('no game icon: the NUP carries none' if nup else 'no game icon: a dump folder has no control data') + '; the app\'s icon will be blank' if dump else '[RED] no game icon in the extraction (an older extraction did not save it: delete extract/ and run again); the app\'s icon will be blank')
          mac_app(py, repo, out_ipa, app, work, game, patched, host, font, ios, aoc, gfx, lang, g, app_name, app_version, bundle_id, icon, args.mac_sign or MAC_SIGN, env, logs, env_file,
 -                (args.gpu or PSO_GPUS).strip())
 +                (args.gpu or PSO_GPUS).strip(), {i: (ppatched[i], d / 'RomFS.img') for i, d in pdirs.items()})
