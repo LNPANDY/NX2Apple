@@ -13,8 +13,18 @@ public enum ShellPalette {
 }
 
 enum ShellStrings {
-    static var bundle: Bundle { .module }
-    static func text(_ key: String.LocalizationValue) -> String { String(localized: key, bundle: ShellLanguage.bundle(bundle)) }
+    /// Visual QA renders one language's `.lproj` whatever the Mac's language is. Nil in the app.
+    nonisolated(unsafe) static var captureBundle: Bundle?
+    static var bundle: Bundle { captureBundle ?? .module }
+    static func text(_ key: String.LocalizationValue) -> String { String(localized: key, bundle: bundle) }
+
+    /// A text of a game's `launcher.json` (section, label, note, option label) in the player's language. The file is English and
+    /// not ours to change, so the catalog is keyed by that English text. The key is used as it is (a `%` in a note is not a format).
+    /// A text with no entry, and an empty one, stays as it is: the player reads English, never a key. `bundle` is a language's
+    /// `.lproj` in tests.
+    static func setting(_ text: String, bundle: Bundle = ShellStrings.bundle) -> String {
+        text.isEmpty ? text : bundle.localizedString(forKey: text, value: text, table: nil)
+    }
 }
 
 @MainActor public enum ShellFonts {
@@ -57,7 +67,7 @@ struct TypeRole {
     var tracking: CGFloat = 0
 }
 
-/// The type scale, derived from the Mac launcher's (frontend/Sources/NSPortBuilder): the same face from the same file,
+/// The type scale, derived from the Mac launcher's (frontend/Sources): the same face from the same file,
 /// the same weight for the same role, the same tracking for capitals, sizes adapted to iOS. Every role scales with
 /// Dynamic Type through its text style.
 ///
@@ -117,11 +127,13 @@ struct SectionHeading: View {
 struct ShellButtonStyle: ButtonStyle {
     /// Take all the width offered, as the buttons inside a settings card do.
     var fills = false
+    /// Red type for an action that removes something.
+    var destructive = false
     @Environment(\.isEnabled) private var enabled
     func makeBody(configuration: Configuration) -> some View {
         configuration.label.shellType(ShellType.button).lineLimit(1)
             .padding(.horizontal, 14).frame(maxWidth: fills ? .infinity : nil, minHeight: 44)
-            .foregroundStyle(.white.opacity(0.92))
+            .foregroundStyle(destructive ? DeleteStyle.red : .white.opacity(0.92))
             .background(.white.opacity(configuration.isPressed ? 0.13 : 0.055), in: RoundedRectangle(cornerRadius: 9))
             .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(.white.opacity(0.10)))
             .opacity(enabled ? 1 : 0.4)

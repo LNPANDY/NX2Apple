@@ -13,15 +13,15 @@ The sheet now sits on the button that sets the flag, so one tap presents one
 picker. In the iOS 27 simulator Open then dismisses the picker and stores the
 bookmark ("launcher: cloud-save folder set to ...").
 
-Upstream-Status: forwarded seedds/nxnative#800
-Reason: One tap on Choose a folder in iCloud Drive presented a document picker per Section row. The pickers invalidated each other and Open did nothing. The Game data hunk is fork-only, because that section comes from patch 0003
+Upstream-Status: fork-only (the Cloud saves hunk landed upstream in seedds/nxnative#800)
+Reason: One tap on Choose a folder in iCloud Drive presented a document picker per Section row. The pickers invalidated each other and Open did nothing. Upstream has the Cloud saves hunk (seedds/nxnative#800). What is left is the Game data hunk, which is fork-only because that section comes from patch 0003
 Issue: LNPANDY/NX2Apple#315
 ---
- dm/ios/Sources/Launcher.swift | 46 ++++++++++++++++++-----------------
- 1 file changed, 24 insertions(+), 22 deletions(-)
+ dm/ios/Sources/Launcher.swift | 23 ++++++++++++-----------
+ 1 file changed, 12 insertions(+), 11 deletions(-)
 
 diff --git a/dm/ios/Sources/Launcher.swift b/dm/ios/Sources/Launcher.swift
-index 44af3cc..f20e403 100644
+index ebaa055..f20e403 100644
 --- a/dm/ios/Sources/Launcher.swift
 +++ b/dm/ios/Sources/Launcher.swift
 @@ -30,6 +30,18 @@ private struct GameDataSection: View {
@@ -55,43 +55,6 @@ index 44af3cc..f20e403 100644
 -                    refresh()
 -                } else {
 -                    note = "That location could not be remembered — try a different one."
--                }
--            } onCancel: { picking = false }
--        }
-         .onAppear(perform: refresh)
-     }
- 
-@@ -85,6 +86,18 @@ private struct CloudSavesSection: View {
-                     .foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-             }
-             Button(folder.isEmpty ? "Choose a folder in iCloud Drive…" : "Choose a different folder…") { picking = true }
-+                // The sheet sits on the button, not on the Section: SwiftUI hands a Section's modifiers to every row, so one tap presented a picker per row and they invalidated each other (LNPANDY/NX2Apple#315).
-+                .sheet(isPresented: $picking) {
-+                    DocumentPicker(types: [.folder]) { url in
-+                        picking = false
-+                        if dm_store_cloud_saves(url) {
-+                            note = "Saved. The game uses this folder when you press Play."
-+                            refresh()
-+                        } else {
-+                            note = "That folder could not be remembered — try a different one."
-+                        }
-+                    } onCancel: { picking = false }
-+                }
-             if !folder.isEmpty {
-                 Button("Turn off cloud saves", role: .destructive) {
-                     dm_clear_cloud_saves(); refresh(); note = ""
-@@ -95,17 +108,6 @@ private struct CloudSavesSection: View {
-                  ? "Choose a folder in iCloud Drive, and the same one in the Mac app's Cloud saves. The save comes in when the game starts and goes out after each save; a save that is replaced is kept in save-backups."
-                  : note)
-         }
--        .sheet(isPresented: $picking) {
--            DocumentPicker(types: [.folder]) { url in
--                picking = false
--                if dm_store_cloud_saves(url) {
--                    note = "Saved. The game uses this folder when you press Play."
--                    refresh()
--                } else {
--                    note = "That folder could not be remembered — try a different one."
 -                }
 -            } onCancel: { picking = false }
 -        }

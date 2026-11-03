@@ -1,9 +1,10 @@
 import Foundation
 import ShellUI
 
-/// The host layer's own words, from `Resources/Localizable.xcstrings` (English source, like ShellUI).
+/// The host layer's own words, from `Resources/Localizable.xcstrings` (English source, like ShellUI). The catalog is generated from
+/// `frontend/l10n/*.json` (`ios.host.*`) by `tools/l10n_shell_catalogs.py`: change a text there, not in the catalog.
 func hostText(_ key: String.LocalizationValue) -> String {
-    String(localized: key, bundle: ShellLanguage.bundle(.module))
+    String(localized: key, bundle: .module)
 }
 
 /// What is wrong with a bundle that cannot run at all. Each cause has one plain sentence for the player.

@@ -1,0 +1,2434 @@
+{
+ "old": "bbc3b73784751d2a706932dc69fd67627e3445d4",
+ "new": "cd859c38a8f8890ddbb57a23d6f45e23ba9e6651",
+ "ctx": {
+  "patch_paths": {
+   "dm/games/game.py": [
+    "0001",
+    "0008",
+    "0053"
+   ],
+   "dm/host/dm.h": [
+    "0001"
+   ],
+   "dm/host/hle_fpslock.c": [
+    "0001"
+   ],
+   "dm/host/hle_fs.c": [
+    "0001",
+    "0053"
+   ],
+   "dm/host/hle_os.c": [
+    "0001"
+   ],
+   "dm/host/hle_svc.c": [
+    "0001",
+    "0053"
+   ],
+   "dm/host/loader.c": [
+    "0001",
+    "0045"
+   ],
+   "dm/ios/Sources/Launcher.swift": [
+    "0003",
+    "0042"
+   ],
+   "dm/ios/Sources/front_ios.m": [
+    "0003",
+    "0050",
+    "0052"
+   ],
+   "dm/ios/Sources/main.m": [
+    "0003",
+    "0008",
+    "0017",
+    "0046"
+   ],
+   "dm/ios/tools/build_ipa.sh": [
+    "0004",
+    "0017",
+    "0041",
+    "0047",
+    "0050"
+   ],
+   "scripts/build_ipa_from_nsp.py": [
+    "0005",
+    "0006",
+    "0018",
+    "0041",
+    "0047",
+    "0051"
+   ],
+   "dm/gfx/nvn/nvn_mtl.m": [
+    "0008",
+    "0053"
+   ],
+   "dm/host/front_mac.m": [
+    "0009",
+    "0031",
+    "0032",
+    "0052",
+    "0053",
+    "0054"
+   ],
+   "dm/gfx/tools/own_compilers.py": [
+    "0034"
+   ],
+   "dm/host/hle_sdk16.c": [
+    "0041",
+    "0053"
+   ],
+   "dm/host/front.h": [
+    "0052"
+   ],
+   "dm/gfx/nvn/hle_nvn.c": [
+    "0053"
+   ],
+   "dm/host/hle_oe.c": [
+    "0053"
+   ],
+   "dm/host/hle_thread.c": [
+    "0053"
+   ]
+  },
+  "launch_vars": [
+   "DM_DYNAMIC_RESOLUTION",
+   "DM_FPS_HOLD",
+   "DM_FPS_TARGET",
+   "DM_FULLSCREEN",
+   "DM_LANG",
+   "DM_METAL_HUD",
+   "DM_NVN_ENC_THREAD",
+   "DM_OPMODE",
+   "DM_PRESENT_SNAP",
+   "DM_PRESENT_UPSCALE",
+   "DM_PSO_MTL4",
+   "DM_PSO_PREBUILD",
+   "DM_RENDER_SCALE",
+   "DM_RUMBLE",
+   "DM_RUMBLE_GAIN",
+   "DM_RUMBLE_MIN",
+   "DM_SHOW_FPS",
+   "DM_TOUCH_HAPTICS"
+  ],
+  "fragments": [
+   "is an Intel one running under Rosetta",
+   "the shader translator does not run",
+   "the shader translator does not start",
+   "need the zbic package",
+   "the iOS SDK is not installed",
+   "the selected developer folder is the Command Line Tools",
+   "Metal compiler is not the one the shaders were tested with",
+   "a change to the translation chain broke them",
+   "files fail the NCA's hash check",
+   "is a 32-bit ARM program",
+   "(?m)^\\[RED\\] no such file: ",
+   "more than one game in the folder",
+   "no NSP with a readable title ID in ",
+   "less than [0-9]+ GB free on the volume of ",
+   "No space left on device",
+   "resource fork, Finder information, or similar detritus not allowed"
+  ]
+ },
+ "commits": [
+  {
+   "sha": "105f417ba851447e9cd527a262d877e82fa77f46",
+   "message": "Select iOS pipeline archive GPUs from the game profile (#653)\n\nThe iOS archive default targeted only g18p, so another GPU family needed\nan explicit build override. Read optional pso_gpu targets in both packers\nbehind the existing pso_mtl4 opt-in gate, retaining explicit overrides\nand the previous de",
+   "files": [
+    {
+     "filename": "dm/games/010015100B514000/README.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/games/README.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/games/game.py",
+     "patch": "+        sys.exit(f\"{g.id}: pso_gpu takes 1-4 whitespace-separated GPU architectures such as 'g18p applegpu_g19p' (each an optional applegpu_ prefix then an alphanumeric token; there is no none: omit the key for g18p with pso_mtl4 on, or no archive with pso_mtl4 off): {pg}\")"
+    },
+    {
+     "filename": "dm/ios/tools/build_ipa.sh",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/tools/tests/test_game_profile.py",
+     "patch": "+REPO = Path(__file__).resolve().parents[3]\n+GAME = REPO / 'dm/games/game.py'\n+ID = '0100000000F0F000'\n+TSV = ('title_id\\t' + ID + '\\nname\\tTest\\nprogram_id\\t' + ID + '\\nmodules\\tmain\\nromfs_marker\\tromfs.img\\n'   # what a header needs beside the keys under test"
+    },
+    {
+     "filename": "dm/tools/tests/test_pso_offline.py",
+     "patch": "+        return 'die() { echo \"FAIL: $*\"; exit 1; }\\nt() { echo \"$*\" >&2; }\\n' + '\\n'.join(lines[i:i + 4])   # the P4 / pso_gpu reads, the key's shell guard and the GPUS chain\n-                r = subprocess.run(['bash', '-c', 'die() { echo \"FAIL: $*\"; exit 1; }\\n' + '\\n'.join(sh[i:i + 2]) + '\\necho \"$P4 $GPUS\"'], env=dict(e, GAME=gid),\n+                             're': re, 'BuildError': RuntimeError}"
+    },
+    {
+     "filename": "docs/agents/symptoms.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/development.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/env_switches.tsv",
+     "patch": "-DM_PSO_GPUS\tswitch\t`build_ipa.sh`: the GPU architectures, comma-separated, to build the offline pipeline archive for (`none` builds none); unset, `g18p` for a profile with `pso_mtl4 on`, else none\n+DM_PSO_GPUS\tswitch\t`build_ipa.sh`: the GPU architectures, comma-separated, to build the offline pipeline archive for (`none` builds none); unset, a profile with `pso_mtl4 on` gets its `pso_gpu` list or `g18p` when absent; profiles with `pso_mtl4 off` get none"
+    },
+    {
+     "filename": "docs/reference/shaders.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "scripts/build_ipa_from_nsp.py",
+     "patch": "@@ lines that match nothing left out @@"
+    }
+   ]
+  },
+  {
+   "sha": "ecc41fa8b356e03bcdc41333914160fdfce262c4",
+   "message": "Restore Well Dweller's required GL profile tables (#825)\n\nThe GL packaging path copies shader_map.tsv and pso_manifest.tsv, but\nWell Dweller's profile omitted both and --prepare-xcode failed at the\ncopy step. Add empty tables matching the established GL profile format.\n\nVerified the packaging failur",
+   "files": [
+    {
+     "filename": "dm/games/0100217023F6C000/pso_manifest.tsv",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/games/0100217023F6C000/shader_map.tsv",
+     "patch": "@@ lines that match nothing left out @@"
+    }
+   ]
+  },
+  {
+   "sha": "c87bb116a043d87c38f31165ca0ca189df6f7834",
+   "message": "Drain GPU completion temporaries on guest waiters (#818)\n\nA guest SyncWait can run post_run on a long-lived thread whose outer\nautorelease pool never drains. ARC can retain and autorelease the\nreceiver of MTLBuffer.contents even though explicit readback ownership\nis balanced, keeping completed buffe",
+   "files": [
+    {
+     "filename": "dm/games/0100F2C0115B6000/README.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/nvn/nvn_mtl.m",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/tests/Makefile",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/tests/t_readback.m",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/agents/symptoms.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/reference/memory.md",
+     "patch": "@@ lines that match nothing left out @@"
+    }
+   ]
+  },
+  {
+   "sha": "b8ffaf8be8cee25d015210ee45b5d1964fc26732",
+   "message": "audren: validate command lists before capture diagnostics (#802)\n\nValidate the complete command list before histogram discovery or PCM\noutput. Initialize the histogram and stop appends before snprintf's\nuntruncated length can advance beyond the buffer.\n\nThe regression fixture covers malformed-list r",
+   "files": [
+    {
+     "filename": "dm/host/hle_audren.c",
+     "patch": "+        if (!cmd_ok(c, cend)) { if (!logged++) LOG(\"[RED] audren: command %u in the command list is malformed (offset %#zx, list %#zx bytes)\", i, (size_t)(c - cl), len); return 0; }\n-        if (!cmd_ok(c, cend)) { if (!logged++) LOG(\"[RED] audren: command %u in the command list is malformed (offset %#zx, list %#zx bytes)\", i, (size_t)(c - cl), len); return 0; }"
+    },
+    {
+     "filename": "dm/host/tests/t_audren_layout.c",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/agents/symptoms.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/reference/audio.md",
+     "patch": "@@ lines that match nothing left out @@"
+    }
+   ]
+  },
+  {
+   "sha": "f9eb12e139da9bcb0db926a075b85ccf8c92fdd8",
+   "message": "save sync: close metadata streams after write failures (#830)\n\nAlways close an opened metadata stream, preserve the first error across\nclose and cleanup, and rename only after writing and closing succeed.\n\nThe production-writer failure-injection fixture fails eight assertions\nbefore the fix and pass",
+   "files": [
+    {
+     "filename": "dm/host/save_sync.c",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/host/tests/Makefile",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/host/tests/t_save_sync_metadata.c",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/agents/symptoms.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/reference/services.md",
+     "patch": "@@ lines that match nothing left out @@"
+    }
+   ]
+  },
+  {
+   "sha": "4a1f68301877d0556237e7570eea04667d1b21b2",
+   "message": "fs: close directories when handle allocation fails (#801)\n\nCheck the folder-backed directory handle allocation before dereferencing\nit. On failure, close the opened DIR, preserve errno and return through\nthe existing filesystem error path without publishing a handle.\n\nThe real-handler fixture reprod",
+   "files": [
+    {
+     "filename": "dm/host/hle_fs.c",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/host/tests/Makefile",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/host/tests/t_fs_directory.c",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/agents/symptoms.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/reference/services.md",
+     "patch": "@@ lines that match nothing left out @@"
+    }
+   ]
+  },
+  {
+   "sha": "d76c45f7352b8f67274e340f8076cb3413e30af4",
+   "message": "Pin the supported toolchain to Xcode 27.2\n\nRecord Metal 32023.922.4 for both platforms and keep CI, compiler checks,\nplayer instructions and the generated shader chain in agreement.\n\nExclude only sleeping zero-CPU orphan MSBuild reuse workers from the\nregression busy-machine check, with active/paren",
+   "files": [
+    {
+     "filename": ".github/workflows/lint-c.yml",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": ".github/workflows/tests.yml",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "README.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/nvn/dmsh_chain.h",
+     "patch": "-#define DMSH_CHAIN \"e65a4ebd3322\"\n+#define DMSH_CHAIN \"a7dbbce711c3\""
+    },
+    {
+     "filename": "dm/gfx/tools/dmsh_chain.lock",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/tools/own_compilers.py",
+     "patch": "-XCODE_VERSION = '27.1'   # the Xcode whose Metal compiler dmsh_chain.lock records; README.md names it too\n+XCODE_VERSION = '27.2'   # the Xcode whose Metal compiler dmsh_chain.lock records; README.md names it too"
+    },
+    {
+     "filename": "dm/tools/tests/test_own_compilers.py",
+     "patch": "-        self.assertIn('Xcode 27.1', text); self.assertIn('ALLOW_OTHER_METAL = True (--allow-other-metal)', text); self.assertFalse(text.startswith('[RED]'))\n+        self.assertIn('Xcode 27.2', text); self.assertIn('ALLOW_OTHER_METAL = True (--allow-other-metal)', text); self.assertFalse(text.startswith('[RED]'))"
+    },
+    {
+     "filename": "dm/tools/tests/test_regress.py",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/agents/symptoms.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/development.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/reference/shaders.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "scripts/build_ipa_from_nsp.py",
+     "patch": "-ALLOW_OTHER_METAL = False               # an NVN game's shaders are built only with the Metal compiler they were tested with (dm/gfx/tools/dmsh_chain.lock: Xcode 27.1); another one stops the build,\n+ALLOW_OTHER_METAL = False               # an NVN game's shaders are built only with the Metal compiler they were tested with (dm/gfx/tools/dmsh_chain.lock: Xcode 27.2); another one stops the build,"
+    },
+    {
+     "filename": "scripts/regress.py",
+     "patch": "@@ lines that match nothing left out @@"
+    }
+   ]
+  },
+  {
+   "sha": "aea257b990db4443f861baf357b4020eb31ba74a",
+   "message": "nvn: preserve shader image writes from attachment stores (#730)\n\nSeparate possible image writes from raster writes in attachment tracking.\nSuppress the tile store for loaded color attachments written only through\nimages, while preserving raster/clear and depth/stencil store decisions.\nCapture physic",
+   "files": [
+    {
+     "filename": "dm/games/01004AB00A260000/README.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/nvn/nvn_geometry.inc",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/nvn/nvn_mtl.m",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/tests/Makefile",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/tests/t_image_attachment_store.m",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/tests/t_unwritten_store.m",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/agents/symptoms.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/env_switches.tsv",
+     "patch": "-DM_NVN_UNWRITTEN_DC\tswitch\t`0` turns off storing attachments a render pass did not write as DontCare (on by default; part of the TBDR store lookahead), for equivalence comparisons\n+DM_NVN_UNWRITTEN_DC\tswitch\t`0` disables optional stores elided for loaded, unchanged attachments (on by default, independent of TBDR lookahead), for equivalence comparisons; mandatory image-write preservation stays active"
+    },
+    {
+     "filename": "docs/reference/rendering.md",
+     "patch": "@@ lines that match nothing left out @@"
+    }
+   ]
+  },
+  {
+   "sha": "d2a86b05ccced1d27c2731035a90d39c223381d5",
+   "message": "tests: declare extracted AST functions as statements\n\nMatch ast.Module.body's list[ast.stmt] type on Python 3.15. The selected\nfunction nodes and fixture execution are unchanged; this avoids the list\ninvariance diagnostic without widening the Python lint baseline.\n\nThe 19 shader-cache tests pass and",
+   "files": [
+    {
+     "filename": "dm/tools/tests/test_shader_toolchain_cache.py",
+     "patch": "@@ lines that match nothing left out @@"
+    }
+   ]
+  },
+  {
+   "sha": "ffdf67de29886de054f3daa3db87117e36faeaa3",
+   "message": "nvn: clear every layer of bound render targets (#808)\n\nNVN clears all layers of the bound render-target view. A load-action\nclear in a non-layered Metal pass covered only its first layer, leaving\nthe remaining shadow-cube faces and array layers unchanged.\n\nExtend the existing standalone clear pass t",
+   "files": [
+    {
+     "filename": "dm/games/01007EF00011E000/README.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/games/01007EF00011E000/validated.tsv",
+     "patch": "+# mode <TAB> chain=<DMSH_CHAIN> commit=<short SHA>[+dirty] date=<UTC day> machine=<model> macos=<version>. No game data."
+    },
+    {
+     "filename": "dm/games/0100F2C0115B6000/README.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/nvn/nvn_mtl.m",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/tests/Makefile",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/tests/t_clear_layers.m",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/tests/t_image_attachment_store.m",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/host/hle_hid.c",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/agents/05-debugging.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/agents/symptoms.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/reference/rendering.md",
+     "patch": "@@ lines that match nothing left out @@"
+    }
+   ]
+  },
+  {
+   "sha": "ba10db3d80d1cf4e6a71782f86dd7066d4182c9d",
+   "message": "ci: install the selected Xcode's Metal toolchain\n\nThe xcode-27 runner includes Xcode 27.2 without its separate Metal\nToolchain component. This stops the build preflight and shader compiler\ntests even though the AST fixture change and Python lint pass.\n\nInstall the component in both jobs that compile",
+   "files": [
+    {
+     "filename": ".github/workflows/tests.yml",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/development.md",
+     "patch": "@@ lines that match nothing left out @@"
+    }
+   ]
+  },
+  {
+   "sha": "cadd4be6ac7284d2a9ac69fab117d8a3e2cb0f06",
+   "message": "Display link: limit fullscreen latency 2 to variable-refresh screens (#822)\n\nThe fullscreen latency policy applied the ProMotion workaround to every\nscreen. Classify the current NSScreen mode by its refresh interval range:\nrequest latency 2 only in variable-refresh fullscreen, and latency 1 for\nfixe",
+   "files": [
+    {
+     "filename": "dm/gfx/nvn/nvn_mtl.m",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/tests/t_present_rescue.m",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/tests/t_present_rescue_focus.c",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/host/front.h",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/host/front_mac.m",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/agents/symptoms.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/env_switches.tsv",
+     "patch": "-DM_PRESENT_LATENCY\tswitch\t`=<n>` (above 0): the display link's preferred frame latency in a window and in fullscreen (default 1 in a window, 2 in fullscreen)\n+DM_PRESENT_LATENCY\tswitch\t`=<n>` (above 0): overrides the display link's preferred frame latency for every screen and window mode (default 2 in variable-refresh fullscreen, 1 otherwise)"
+    },
+    {
+     "filename": "docs/reference/frame-rate.md",
+     "patch": "@@ lines that match nothing left out @@"
+    }
+   ]
+  },
+  {
+   "sha": "28035370a7d512fc10b76fdf56b57f431f22d64e",
+   "message": "build_ipa_from_nsp: a derived profile without frame step stubs keeps the game's own step (#794)\n\nTears of the Kingdom 1.4.2 ran at double speed. The profile registers only 1.4.3, so a derived profile packs 1.4.2. The profile's patches.py has FRAME_STEP stubs for the 1.4.3 main only, so the 1.4.2 mai",
+   "files": [
+    {
+     "filename": "dm/games/0100F2C0115B6000/README.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/games/README.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/tools/tests/test_nsp_incremental.py",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/agents/symptoms.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/reference/frame-rate.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "scripts/build_ipa_from_nsp.py",
+     "patch": "@@ lines that match nothing left out @@"
+    }
+   ]
+  },
+  {
+   "sha": "70ca61647ec650cb1494645b39f1f35c111a77e2",
+   "message": "nvn: apply a present cap only with a frame step or an engine limit the host writes\n\nWithout a frame step state page, fps_present_cap() took DM_FPS_TARGET or the profile's fps_target as the present cap for any game, assuming an engine limiter in hle_fpslock.c makes the game run at that rate. Those li",
+   "files": [
+    {
+     "filename": "dm/games/0100F2C0115B6000/README.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/games/README.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/nvn/hle_nvn.c",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/tests/t_nvn.c",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/host/hle_fpslock.c",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/host/tests/t_fpslock.c",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/agents/symptoms.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/reference/frame-rate.md",
+     "patch": "@@ lines that match nothing left out @@"
+    }
+   ]
+  },
+  {
+   "sha": "07fc83d44ea9781329cfa834dde49917b72db8c7",
+   "message": "audren: the renderer keeps its own event; the game's gets a copied read end\n\nWith the DSP service (what the game asks for), no SDK's OpenAudioRenderer\nkeeps a pointer to the game's SystemEventType: it stores NULL in the\nhandle's event slot (handle[1] in SDK 3 to 12, *handle[1] in SDK 18) and\nattache",
+   "files": [
+    {
+     "filename": "dm/host/dm.h",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/host/hle_audren.c",
+     "patch": "-    if (r) { free(owned); LOG(\"[RED] audren: SDK OpenAudioRenderer failed %#x\", r); return r; }\n+    if (ev && *(int32_t *)(param + P_DEVICE) == 0 && !sev) LOG(\"[RED] audren: all renderer events in use: the SDK keeps the game's event, which must then outlive the renderer\");\n+    if (r) { free(owned); rev_set(sev, NULL); LOG(\"[RED] audren: SDK OpenAudioRenderer failed %#x\", r); return r; }"
+    },
+    {
+     "filename": "dm/host/hle_thread.c",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/host/tests/t_audren_layout.c",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/host/tests/t_audren_work.c",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/host/tests/t_system_event.c",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/agents/symptoms.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/reference/audio.md",
+     "patch": "@@ lines that match nothing left out @@"
+    }
+   ]
+  },
+  {
+   "sha": "8ef752a28826a1aa642280075b1b4a8332b11f3d",
+   "message": "NSP script: merged NSPs and XCIs count as each title they hold; --title-id picks one game of several (#842, #701)\n\nA merged package (base game, update and DLC in one NSP, or a cartridge dump with its update) counted as the one\ntitle its first ticket named, so the update and DLC were left out or the ",
+   "files": [
+    {
+     "filename": "dm/games/0100FD8022DAA000/README.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/tools/nx_extract/Program.cs",
+     "patch": "+        if (n == 0) { Console.WriteLine($\"[RED] no content meta in {Path.GetFileName(path)}\"); return 5; }"
+    },
+    {
+     "filename": "dm/tools/tests/test_nsp_scan.py",
+     "patch": "+        with self.assertRaisesRegex(nsp.BuildError, r'more than one game .*--title-id'): nsp.scan_nsps(self.tmp, None, contents)\n+        with self.assertRaisesRegex(nsp.BuildError, r'no game 0100FD8022DAB000 .* which holds'): nsp.scan_nsps(self.tmp, None, contents, GAME2 + 0x1000)\n+        self.assertEqual(app, APP); self.assertTrue(any(s.startswith('[RED]') and 'could not be read' in s for s in self.said))"
+    },
+    {
+     "filename": "docs/agents/symptoms.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/development.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/reference/packing.md",
+     "patch": "+- **Fix:** a package whose file table (an NSP's PFS0, an XCI's secure HFS0 partition) holds more than one `*.cnmt.nca` is asked for its content metas, `nx_extract <prod.keys> --contents <package>` (one `content <type> <title ID> <version>` line each), and counts as each Application, Patch and AddOnContent it lists, with the versions from the metas. The one file is then given to `nx_extract` as both the base game and the update: `OpenNsp` keeps the NCAs that the Application content meta lists for the base and the Patch content meta's for the update, both of the application being packed (`--app`), and `--aoc <package> <out> <DLC title ID>` takes one DLC's data NCA by its title ID. The extraction estimate, the progress total and the NSZ conversion count the file once. When the content metas cannot be read, a `[RED]` line says so and the package counts by its ticket as before. A DLC NSP that bundles several DLC is read the same way.\n-- **Fix:** `dm/tools/nx_extract/Program.cs` `OpenNsp` reads the base package's content metas (`*.cnmt` in its Meta NCAs) and keeps only the NCAs that its Application content meta lists, and prints how many it left out. When none of them is a Program NCA (NCA files renamed, so their names are not content IDs), it prints a `[RED]` line and reads every NCA as before. An NSP or a base-only XCI keeps every NCA but its meta NCA, so it extracts as before (Balatro's NSPs and Monster Hunter Rise's XCI give identical manifests). The update is still taken from the update NSP in the folder; the one on the cartridge is not used, so an XCI alone packs the base game's version.\n+- **Fix:** `dm/tools/nx_extract/Program.cs` `OpenNsp` reads the base package's content metas (`*.cnmt` in its Meta NCAs) and keeps only the NCAs that its Application content meta lists, and prints how many it left out. When none of them is a Program NCA (NCA files renamed, so their names are not content IDs), it prints a `[RED]` line and reads every NCA as before. An NSP or a base-only XCI keeps every NCA but its meta NCA, so it extracts as before (Balatro's NSPs and Monster Hunter Rise's XCI give identical manifests). The update on the cartridge is packed too since [a merged package counts as each title it holds](#a-merged-nsp-base-game-update-and-dlc-in-one-file-packs-as-one-title).\n+- **Fix:** the XCI's content metas make it [count as each title it holds](#a-merged-nsp-base-game-update-and-dlc-in-one-file-packs-as-one-title), so the scan finds two games and stops with `more than one game in the folder`, naming both. `--title-id <title ID>` (`TITLE_ID` in Spyder) picks the game to pack from them; the script passes its title ID to every base extraction (`nx_extract \u2026 --app <title ID>`), and `OpenNsp` keeps only that title's Application and Patch content metas' NCAs (an `--app` the package has no content meta of stops with the ones it has). Each game gets its own `<title ID>_build/` folder and app."
+    },
+    {
+     "filename": "scripts/build_ipa_from_nsp.py",
+     "patch": "+TITLE_ID = ''                           # the game to pack when the folder holds several, e.g. a cartridge dump with two games: '0100FD8022DAA000' (empty = the folder's one game)\n+                if not shutil.which('dotnet', path=env.get('PATH')): raise BuildError(f'{path.name} holds several titles (base game, update, DLC in one file): reading them needs dotnet (.NET SDK 10)')\n+            except BuildError: return None\n+            say(f'[RED] {p.name} holds several content metas, which could not be read (logs/contents.log of the title probe): it counts as the one title its ticket or name gives')\n-    if len(fams) > 1: raise BuildError('more than one game in the folder, keep one game per folder: ' + ', '.join(f'{t:016X}' for t in fams))\n+    if want is not None and want not in fams: raise BuildError(f'no game {want:016X} (--title-id / TITLE_ID) in {nsp_dir}, which holds {games}')\n+    if want is None and len(fams) > 1: raise BuildError(f'more than one game in the folder: {games}; keep one game per folder, or name the one to pack with --title-id / TITLE_ID (a cartridge dump that holds two games)')\n+    ap.add_argument('--title-id', help='the game to pack when the folder holds several (a cartridge dump with two games): its title ID, 16 hex digits (default: the TITLE_ID setting)')\n+    if want and not re.fullmatch(r'[0-9A-Fa-f]{16}', want): raise BuildError(f'--title-id / TITLE_ID takes a title ID, 16 hex digits: {want}')"
+    }
+   ]
+  },
+  {
+   "sha": "9f74a1d60912b4f8f277ba9600fb644e683da22e",
+   "message": "iOS: the BC device check runs at Play, so the launcher's Performance HUD shows (GitHub issue #840)\n\nMetal reads MTL_HUD_ENABLED when the process makes its first device. Since 6d880d23 (#704) boot_env\nmade that device for the supportsBCTextureCompression check, before UIApplicationMain and so before\n",
+   "files": [
+    {
+     "filename": "dm/ios/Sources/front_ios.m",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/ios/Sources/main.m",
+     "patch": "+    fprintf(stderr, \"[RED] boot: %s\\n\", msg);\n-        fprintf(stderr, \"[RED] boot: %s\\n\", g_device_message); return 0;"
+    },
+    {
+     "filename": "docs/reference/rendering.md",
+     "patch": "-- **Fix:** the device is checked before anything runs. The iOS app (`boot_env` in `dm/ios/Sources/main.m`) does not start the host or the launcher on such a GPU: the screen says the device is not supported and names the GPU and the devices that are (iPhone 15 Pro or newer, M1 iPads or newer), and the log has a `[RED] boot:` line. `mtl_init` (`nvn_mtl.m`) stops every other route the same way, with a `FATAL \u2026 has no BC texture formats` line, for the NVN, Vulkan and GL layers alike; the classic-only path of a device without Metal 4 (a virtual Mac's shader capture) is left as it was.\n+- **Fix:** the device is checked before the game starts. The iOS app checks it when Play is pressed (`front_ios_device_check` in `dm/ios/Sources/main.m`, called by `startGame` in `front_ios.m`, or at once in an app without a launcher) and does not start the host on such a GPU: the screen says the device is not supported and names the GPU and the devices that are (iPhone 15 Pro or newer, M1 iPads or newer), and the log has a `[RED] boot:` line. The check makes the process's first Metal device, and Metal reads `MTL_HUD_ENABLED` then, so it runs after the launcher has applied its settings; at launch (`boot_env`, before the launcher), it kept the launcher's **Performance HUD** switch from working ([GitHub issue #840](https://github.com/seedds/nxnative/issues/840)). The host's early loading, which makes no device, still starts at launch on such a GPU and is left unused. `mtl_init` (`nvn_mtl.m`) stops every other route the same way, with a `FATAL \u2026 has no BC texture formats` line, for the NVN, Vulkan and GL layers alike; the classic-only path of a device without Metal 4 (a virtual Mac's shader capture) is left as it was."
+    }
+   ]
+  },
+  {
+   "sha": "d138ee878104b027925e80b8a0b2d88efd72ef98",
+   "message": "nvn: report a command buffer's control memory as free (#660)\n\nAddControlMemory now keeps the size of the block the game gives;\nGetControlMemoryFree and GetControlMemorySize return it and\nGetControlMemoryUsed stays 0, since the host writes its records only to\ncommand memory and uses none of the game'",
+   "files": [
+    {
+     "filename": "dm/gfx/nvn/hle_nvn.c",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/nvn/nvn_obj.h",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/tests/t_nvn.c",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/agents/symptoms.md",
+     "patch": "+- `[RED] NVN unimplemented function called: nvnCommandBufferGetControlMemoryFree` (or `\u2026GetControlMemorySize`) once, after the game gives a command buffer control memory. \u2192 [Control memory capacity queries](../reference/nvn-objects.md#control-memory-capacity-queries)"
+    },
+    {
+     "filename": "docs/reference/nvn-objects.md",
+     "patch": "+- **Symptom:** `[RED] NVN unimplemented function called: nvnCommandBufferGetControlMemoryFree` (or `\u2026GetControlMemorySize`) once, after the game gives a command buffer control memory."
+    }
+   ]
+  },
+  {
+   "sha": "5fd06dd19eace86795eecf8d14692cd72c6ca30e",
+   "message": "fs: a save folder that cannot clone says it needs APFS; recursive deletes never enter symlinks (#661)\n\nA save transaction clones the committed folder (clonefile) and commits by\nrenamex_np(RENAME_SWAP). On HFS+ and exFAT both fail with ENOTSUP (checked\non disk images; neither advertises the capabilit",
+   "files": [
+    {
+     "filename": "dm/host/hle_fs.c",
+     "patch": "-    if (clonefile(g_mnt[i].dir, neu, 0)) { LOG(\"[RED] save commit: clonefile %s failed errno=%d (committed version unchanged)\", neu, errno); r = RES_FAIL; }\n+    if (!access(neu, F_OK) && rm_tree(neu)) { LOG(\"[RED] save commit: cannot clear the %s left over errno=%d (committed version unchanged)\", neu, errno); r = RES_FAIL; }\n+    else if (clonefile(g_mnt[i].dir, neu, 0)) { LOG(\"[RED] save commit: clonefile %s failed errno=%d (committed version unchanged)\", neu, errno); r = RES_FAIL; }"
+    },
+    {
+     "filename": "dm/host/tests/t_fs.c",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/agents/symptoms.md",
+     "patch": "+- `[RED] save transaction: cloning the work directory failed (\u2026, errno=45)` when the save folder (`DM_SAVE`) is on an external drive, then a read-only save mount and every save write failing (South Park: `profile.sys`); now the line reads `the save folder's filesystem cannot clone directories (save transactions need APFS \u2026)`. \u2192 [A save folder that cannot clone directories](../reference/services.md#a-save-folder-that-cannot-clone-directories)"
+    },
+    {
+     "filename": "docs/reference/services.md",
+     "patch": "+- **Symptom:** `[RED] save transaction: cloning the work directory failed (\u2026, errno=45)` when the save folder (`DM_SAVE`) is on an external drive, then a read-only save mount and every save write failing (South Park: `profile.sys`); now the line reads `the save folder's filesystem cannot clone directories (save transactions need APFS \u2026)`."
+    }
+   ]
+  },
+  {
+   "sha": "95dc61e2dd38a07abf16141bdf0a4ae031948081",
+   "message": "nfc: Initialize, Finalize, GetState and IsNfcEnabled answered without nfc:user; NFC reads as switched off (#711)\n\nHyrule Warriors: Definitive Edition calls nn::nfc itself beside nn::nfp when\namiibo is entered from the title screen. nfp is taken over, but\nnfc::Initialize stayed in the SDK, connected ",
+   "files": [
+    {
+     "filename": "dm/games/0100AE00096EA000/README.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/host/hle_sdk16.c",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/host/tests/Makefile",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/host/tests/t_nfc.c",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/agents/symptoms.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/reference/services.md",
+     "patch": "@@ lines that match nothing left out @@"
+    }
+   ]
+  },
+  {
+   "sha": "a5281d01796a283852229f103d36c93bc9ed04fd",
+   "message": "Mac: HID gamepads that GameController does not list get a player slot (#669, #637)\n\nAn 8BitDo in its own mode pairs as a Bluetooth HID gamepad that GameController never\nlists, so it got no input. pad_hid_mac.h reads such pads with IOHIDManager and gives each\na player slot like a GameController contr",
+   "files": [
+    {
+     "filename": "dm/host/Makefile",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/host/front_mac.m",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/host/pad_hid.h",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/host/pad_hid_mac.h",
+     "patch": "+    hid_pad *d = calloc(1, sizeof *d); if (!d) { LOG(\"[RED] HID gamepad: cannot allocate device state\"); return; }\n+        LOG(\"[RED] HID gamepads: cannot open HID (0x%x); only GameController controllers are read\", r);"
+    },
+    {
+     "filename": "dm/host/tests/Makefile",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/host/tests/t_pad_hid.c",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/env_switches.tsv",
+     "patch": "+DM_HID_LOG\tdiagnostic\t`1` logs the HID button usage number of each button pressed on a raw HID gamepad (`pad_hid_mac.h`), to write a `DM_HID_MAP`\n+DM_HID_MAP\tswitch\t`=<map>` such as `A=1,B=2,X=4,Y=5`: which HID button usage presses each Switch button on a raw HID gamepad (names A B X Y LS RS L R ZL ZR PLUS MINUS LEFT UP RIGHT DOWN; default 8BitDo's D-input numbering by position, `pad_hid.h`); Mac only\n+DM_HID_PADS\tswitch\t`0` stops reading raw HID gamepads that GameController does not list, such as an 8BitDo in its own mode (`pad_hid_mac.h`); Mac only"
+    },
+    {
+     "filename": "docs/playing.md",
+     "patch": "@@ lines that match nothing left out @@"
+    }
+   ]
+  },
+  {
+   "sha": "0c6c55df3f59d8740086fd269de644e4514f3b11",
+   "message": "nvn: shorter state and single texture bind records keep Super Mario Odyssey's display lists in their heap (#838)\n\nAfter about 11 minutes Super Mario Odyssey 1.4.1 aborted with \"FATAL NVN\ncommand memory: ... host-lent segments reached 1024 MB\". Its \"DisplayList\"\nGPU heap (62 MB, a bump allocator) siz",
+   "files": [
+    {
+     "filename": "dm/games/0100000000010000/README.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/nvn/hle_nvn.c",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/nvn/nvn_capture.c",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/nvn/nvn_obj.h",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/tests/t_nvn.c",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/agents/symptoms.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/reference/memory.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/reference/nvn-objects.md",
+     "patch": "@@ lines that match nothing left out @@"
+    }
+   ]
+  },
+  {
+   "sha": "c1df4ddaaedc3c18228065ea5b909688b79884e2",
+   "message": "Mac: game input hides the pointer over the picture until the mouse moves (#584, fixes #675)\n\nA key the game takes, a controller button or a stick past 15% (GameController\nand raw HID pads) asks AppKit to hide the pointer, setHiddenUntilMouseMoves,\nwhile the game window is key, the app is active and ",
+   "files": [
+    {
+     "filename": "dm/host/front_mac.m",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/agents/symptoms.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/playing.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/reference/services.md",
+     "patch": "@@ lines that match nothing left out @@"
+    }
+   ]
+  },
+  {
+   "sha": "c0f341335b56ee61af5827b51349e68bddb65c61",
+   "message": "Mac: the display stays awake while the game window is key (#741)\n\nmacOS counts keyboard and mouse input as user activity, not a controller's,\nso in controller-only play the display dimmed and locked; the latency\nactivity keeps only the system awake. The focused game window now holds an\nNSActivityIdl",
+   "files": [
+    {
+     "filename": "dm/games/0100152000022000/README.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/host/front_mac.m",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/agents/symptoms.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/reference/services.md",
+     "patch": "@@ lines that match nothing left out @@"
+    }
+   ]
+  },
+  {
+   "sha": "338e2ad5ca13affcc3b1a1764485518206344117",
+   "message": "docs: Xenoblade Chronicles 3 2.2.0 shares the 2.2.1 main build ID (#849)\n\nIssue #847 reports update 2.2.0 (v655360) with main build ID\n82d187fe9ef9be921b8e1b1cddf7bd28 and the original bytes at all six\nallocator cut sites, so the existing build-ID gate already covers it.\nThe game note records that, ",
+   "files": [
+    {
+     "filename": "dm/games/010074F013262000/README.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/games/010074F013262000/patches.py",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/agents/game-patches.md",
+     "patch": "@@ lines that match nothing left out @@"
+    }
+   ]
+  },
+  {
+   "sha": "792df9fb76d9131b474b992b5c63dd2c82c16693",
+   "message": "os: the game environment copy is freed when it holds no assignment (#831)\n\ngame_env_init duplicates the environment input for strtok. When no\ntoken contains '=' (an empty game_env, the usual case), no g_env_kv\nentry points into the copy, and it was never freed: a one-time leak\nper process. Accepted ",
+   "files": [
+    {
+     "filename": "dm/host/hle_os.c",
+     "patch": "@@ lines that match nothing left out @@"
+    }
+   ]
+  },
+  {
+   "sha": "f4bfc015dfea57e3d784cef21069904e620a515f",
+   "message": "present: DM_PRESENT_LATENCY above 2 asks the display link for 2 (#697)\n\nCAMetalDisplayLink takes a preferred frame latency of 1 or 2 and reads\nback 2 after a larger request. link_sync compared that readback with\nthe unbounded override, so DM_PRESENT_LATENCY=3 set the property again\nand logged \"displ",
+   "files": [
+    {
+     "filename": "dm/gfx/nvn/nvn_mtl.m",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/tests/t_present_rescue.m",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/env_switches.tsv",
+     "patch": "-DM_PRESENT_LATENCY\tswitch\t`=<n>` (above 0): overrides the display link's preferred frame latency for every screen and window mode (default 2 in variable-refresh fullscreen, 1 otherwise)\n+DM_PRESENT_LATENCY\tswitch\t`=1` or `2`: overrides the display link's preferred frame latency for every screen and window mode; larger positive values use 2 (default 2 in variable-refresh fullscreen, 1 otherwise)"
+    },
+    {
+     "filename": "docs/reference/frame-rate.md",
+     "patch": "@@ lines that match nothing left out @@"
+    }
+   ]
+  },
+  {
+   "sha": "8482873b170b34b8b83362f97bdf8555346d5261",
+   "message": "Mac: the Metal HUD menu's Hide HUD hides the overlay (#692)\n\nWith DM_METAL_HUD=1, front_hud_env already sets MTL_HUD_ENABLED before\nthe first Metal device. The game layer also set developerHUDProperties\nto mode=default, which forces that layer's HUD on: Apple's Hide HUD menu\nchanged its label but le",
+   "files": [
+    {
+     "filename": "dm/host/front_mac.m",
+     "patch": "@@ lines that match nothing left out @@"
+    }
+   ]
+  },
+  {
+   "sha": "944842124cb5bd0902c480ff7312ebdd8a303265",
+   "message": "nvn: DM_NVN_SHDUMP makes its directory; DM_NVN_PASSDUMP prints the viewports a pass sets (#745)\n\nDM_NVN_SHDUMP=<dir> wrote nothing, and said nothing, when the directory\ndid not exist: every fopen failed. The host now makes it where the\nswitch is read.\n\nDM_NVN_PASSDUMP's D lines gave the viewport a d",
+   "files": [
+    {
+     "filename": "dm/gfx/nvn/nvn_mtl.m",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/agents/04-graphics.md",
+     "patch": "@@ lines that match nothing left out @@"
+    }
+   ]
+  },
+  {
+   "sha": "5ce955ada8b7b2a1369461aa1e2c89bbd093e52a",
+   "message": "nvn: concurrent warm tasks prepare each shader key once (#820)\n\nAn S task and an R task, or two shader pairs, could miss the same key in\nthe warm dictionary and each load its library, reflection and functions,\nreserve constants and prepare its pulling entry before one result won\npublication. The los",
+   "files": [
+    {
+     "filename": "dm/games/01007EF00011E000/README.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/games/0100F2C0115B6000/README.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/README.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/nvn/nvn_mtl.m",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/tests/t_pso_warm.m",
+     "patch": "+    NSDictionary *reflection = @{@\"chain\": @DMSH_CHAIN, @\"gs_slice\": @{@\"loc\": @0, @\"comp\": @\"x\"}};"
+    },
+    {
+     "filename": "docs/agents/symptoms.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/reference/shaders.md",
+     "patch": "@@ lines that match nothing left out @@"
+    }
+   ]
+  },
+  {
+   "sha": "d56b83ab95e92f1b4232dac3b878b1ccd58f8c20",
+   "message": "NSP script: GLSL source files in the RomFS schedule the GLSLC capture (#767)\n\nTurrican Anthology Vol. I and II keep their shaders as .vert / .frag\nfiles in the RomFS and compile them with their own GLSLC; main holds no\nGLSL string. shader_sources scheduled the capture only for GLSL in main,\nso the s",
+   "files": [
+    {
+     "filename": "dm/games/README.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/games/profile_guess.py",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/development.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/reference/shaders.md",
+     "patch": "@@ lines that match nothing left out @@"
+    }
+   ]
+  },
+  {
+   "sha": "088429f489d9eb562a08c554540e2b229a7b9dc8",
+   "message": "ngc: the China-region profanity check and mask are answered on the host (#789)\n\nCruis'n Blast stops at the name entry after a race: the free functions\nCheckProfanityWordsInTextForPlatformRegionChina and\nMaskProfanityWordsInTextForPlatformRegionChina reach the ngct:u service\nthrough nn::ngc::t::Match",
+   "files": [
+    {
+     "filename": "dm/host/hle_offline.c",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/agents/symptoms.md",
+     "patch": "+- `[RED] sf: the game connects to service ngct:u itself, which the host does not serve`, then `Break#1 reason=0 Result=0xe15` from the SDK when the player name is entered after a race (Cruis'n Blast). \u2192 [`nn::ngc` China-region profanity check and mask](../reference/services.md#nnngc-china-region-profanity-check-and-mask)"
+    },
+    {
+     "filename": "docs/reference/services.md",
+     "patch": "+- **Symptom:** `[RED] sf: the game connects to service ngct:u itself, which the host does not serve`, then `Break#1 reason=0 Result=0xe15` from the SDK when the player name is entered after a race (Cruis'n Blast)."
+    }
+   ]
+  },
+  {
+   "sha": "68e8dc23587ccae209e0dbcaee34f0677e81aac5",
+   "message": "pso_offline: free disk space is checked before metal-tt and a full disk is named when it fails (#790)\n\nmetal-tt says only \"applegpu-nt command failed\" when its volume fills:\nCruis'n Blast's 33,858 bases failed that way with 366 MB free, after\nminutes of work, and left its temporary files in the work",
+   "files": [
+    {
+     "filename": "dm/gfx/tools/pso_offline.py",
+     "patch": "+        if free < need: sys.exit(f'[RED] pso_offline: {free / 2**30:.1f} GB free on the volume of {work}, metal-tt needs about {need / 2**30:.0f} GB for {len(bases)} bases: free some space and run again')\n-            sys.exit(f'[RED] pso_offline: metal-tt failed for {arch} (exit {r.returncode}): {(work / f\"metal-tt.{arch}.log\").read_text()[-2000:]}')\n+            sys.exit(f'[RED] pso_offline: metal-tt failed for {arch} (exit {r.returncode}){full}: {(work / f\"metal-tt.{arch}.log\").read_text()[-2000:]}')"
+    },
+    {
+     "filename": "dm/tools/lint_python_baseline.tsv",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/tools/tests/test_pso_offline.py",
+     "patch": "+        with mock.patch.object(po.shutil, 'disk_usage', return_value=shutil._ntuple_diskusage(1 << 40, 1 << 40, 300 << 20)), self.assertRaises(SystemExit) as e: self.main()\n+                mock.patch.dict(os.environ, DM_GAMES_DIR=str(self.prof.parent)), contextlib.redirect_stdout(io.StringIO()), self.assertRaises(SystemExit) as e:"
+    },
+    {
+     "filename": "docs/agents/symptoms.md",
+     "patch": "+- `[RED] pso_offline: metal-tt failed for applegpu_<gpu> (exit 1)` with only `applegpu-nt command failed` in `metal-tt.<arch>.log`. \u2192 [Offline pipeline archive on a full disk](../reference/shaders.md#offline-pipeline-archive-on-a-full-disk)"
+    },
+    {
+     "filename": "docs/reference/shaders.md",
+     "patch": "+- **Symptom:** `[RED] pso_offline: metal-tt failed for applegpu_<gpu> (exit 1)` with only `applegpu-nt command failed` in `metal-tt.<arch>.log`."
+    }
+   ]
+  },
+  {
+   "sha": "dad38db62ef549404b617a73aa18d31aa8117c8e",
+   "message": "iOS launcher: one tap presents one cloud-save folder picker (#800)\n\nCloudSavesSection put its .sheet on the Section, and SwiftUI hands a\nSection's modifiers to each row: one tap presented a picker per row, and\nthey invalidated each other, so the launcher only dimmed or Open did\nnothing. The .sheet n",
+   "files": [
+    {
+     "filename": "dm/ios/Sources/Launcher.swift",
+     "patch": "@@ lines that match nothing left out @@"
+    }
+   ]
+  },
+  {
+   "sha": "0e16e0e0bca480aded95a4ee35830f06330de1ab",
+   "message": "rewriter: a br x18 with code after it is a tail call when its frame is provably gone (#773)\n\nOri and the Blind Forest's IL2CPP methods load a method pointer into x18, restore a frame of N bytes and execute br x18, with more code after the br, so the rewrite stopped at `jump table 108bb70`. The recog",
+   "files": [
+    {
+     "filename": "dm/tools/patch_nso.py",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/tools/tests/test_tail_call.py",
+     "patch": "+GUARDS = [0xa9bf7bfd,  # 0x00: stp x29, x30, [sp, #-0x10]!\n+FRAME = [0xd10083ff,  # 0x00: sub sp, sp, #0x20"
+    },
+    {
+     "filename": "docs/agents/symptoms.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/reference/rewriter.md",
+     "patch": "@@ lines that match nothing left out @@"
+    }
+   ]
+  },
+  {
+   "sha": "742c9fb83c3719674720ede99da6c1bc997904da",
+   "message": "Dead Cells: profile, and the split reads the GLSLC outputs in Heaps' shader cache\n\nDead Cells (update 1.25.0, Heaps / HashLink, SDK 13.3.5) keeps its shaders in shaders.cache.nx inside res1.pak: each program's GLSL ends with its GLSLC output in base64, so the split found none and the NSP script stop",
+   "files": [
+    {
+     "filename": "README.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/games/0100646009FBE000/README.md",
+     "patch": "+- **Numbers:** no `[RED]` line from the game or the host and no crash in four runs, the longest 28,200 frames (about 8 minutes); frames at 60 Hz (the median window's p99 is 18.6 ms, the worst 111 ms, at a load). A 326 s audio dump has sound in 317 of those seconds, and 101 of 103 reports of 2,000 callbacks show no underrun (the others 1 and 7)."
+    },
+    {
+     "filename": "dm/games/0100646009FBE000/bf_want.tsv",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/games/0100646009FBE000/game.tsv",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/games/0100646009FBE000/pso_manifest.tsv",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/games/0100646009FBE000/shader_facts.tsv",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/games/0100646009FBE000/shader_map.tsv",
+     "patch": ""
+    },
+    {
+     "filename": "dm/games/0100646009FBE000/shader_map.tsv.conflicts.tsv",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/games/0100646009FBE000/shader_pairs.tsv",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/games/README.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/tools/shader_split.py",
+     "patch": "-UE_TAG = {'SV': 'vs', 'SH': 'hs', 'SD': 'ds', 'SG': 'gs', 'SP': 'ps', 'SC': 'cs'}\n+HEAPS_CACHE = 'shaders.cache.nx'"
+    },
+    {
+     "filename": "dm/tools/tests/test_split_heaps.py",
+     "patch": "+REPO = Path(__file__).resolve().parents[3]\n+        with self.assertRaises(SystemExit) as e: ss.heaps_shaders(b'#version 140\\nvoid main() {}\\n', '/x.pak/shaders.cache.nx')"
+    },
+    {
+     "filename": "docs/agents/symptoms.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/images/dead-cells.jpg",
+     "patch": ""
+    },
+    {
+     "filename": "docs/images/gallery.tsv",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/reference/shaders.md",
+     "patch": "@@ lines that match nothing left out @@"
+    }
+   ]
+  },
+  {
+   "sha": "8dd0c98a5645e6a54efa11075ffc5ec31a463b6d",
+   "message": "Donkey Kong Bananza (Switch 2) boots into its frame loop on the Mac; scripts/pack_dump.py packs a dumped game\n\nThe first Switch 2 title (040074A01BF12000, SDK 20.5.19 Ounce, NVN2). It runs its frame loop with audio but draws\nnothing yet: its shaders are Ampere code, which the chain does not translat",
+   "files": [
+    {
+     "filename": "dm/games/040074A01BF12000/README.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/games/040074A01BF12000/game.tsv",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/games/README.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/hle_vi.c",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/nvn/hle_nvn.c",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/nvn/names.txt",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/nvn/nvn_count.h",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/nvn/nvn_protos.h",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/nvn/nvn_thunks.S",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/host/dm.h",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/host/hle_audren.c",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/host/hle_hid.c",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/host/hle_misc.c",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/host/hle_oe.c",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/host/hle_svc.c",
+     "patch": "+        default: { static uint8_t seen[64]; if (id < 64 && !seen[id]) { seen[id] = 1; LOG(\"[RED] svc GetInfo: unknown info type %llu (answered 0)\", (unsigned long long)id); } v = 0; break; }"
+    },
+    {
+     "filename": "dm/host/loader.c",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "scripts/pack_dump.py",
+     "patch": "+def die(msg):\n+    sys.exit(f'[RED] {msg}')\n+    if d[:4] != b'META': die(f'{npdm}: not an NPDM')\n+    if d[off:off + 4] != b'ACI0' or size < 0x18: die(f'{npdm}: no ACI0 section')\n+    ap.add_argument('dump', type=Path, help='the dump folder (holds base/exefs and base/romfs)')\n+    ap.add_argument('--version', type=int, help='the update version to pack (default: the newest in updates/; 0 = the base game)')\n+    ap.add_argument('--work-dir', type=Path, help='the build folder (default: <dump>/<title ID>_build)')\n+    if not (base / 'exefs/main.npdm').is_file() or not (base / 'romfs').is_dir(): die(f'{dump}: no base/exefs/main.npdm and base/romfs')\n+    if app & 0xFFF: die(f'{dump}: base program ID {app:016X} is not a base title ID')\n+    if ver and ver not in vers: die(f'no updates/{ver} (have: {\", \".join(map(str, sorted(vers))) or \"none\"})')\n+    if not (src / 'exefs/main').is_file() or not (src / 'romfs').is_dir(): die(f'{src}: no exefs/main and romfs')\n+    if (pid := program_id(src / 'exefs/main.npdm')) != app: die(f'{src}: program ID {pid:016X}, the base is {app:016X}')\n+        except ValueError: die(f'{d}: not a DLC title ID')\n+        if not 0 < idx <= 2000: die(f'{d}: {tid:016X} is not a DLC of {app:016X}')\n+        if len(roms) != 1: die(f'{d}: expected one <n>/romfs folder, found {len(roms)}')"
+    }
+   ]
+  },
+  {
+   "sha": "d3995ca47cfc6b85af8dea1b6fe78457248e09d9",
+   "message": "Translate Switch 2 (Ampere) shaders natively; Donkey Kong Bananza's menu renders on the Mac; supported Xcode is 27.2\n\n- Translator: an Ampere (sm_86) frontend beside the Maxwell one (TranslationFlags.Ampere, job arch sm86): Decoders/DecoderAmpere.cs (128-bit instructions, 0x80-byte SPH, CALL targets",
+   "files": [
+    {
+     "filename": "dm/games/040074A01BF12000/README.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/games/040074A01BF12000/pso_pairs.tsv",
+     "patch": ""
+    },
+    {
+     "filename": "dm/games/040074A01BF12000/shader_facts.tsv",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/games/040074A01BF12000/shader_map.tsv",
+     "patch": ""
+    },
+    {
+     "filename": "dm/games/040074A01BF12000/shader_map.tsv.conflicts.tsv",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/games/040074A01BF12000/shader_pairs.tsv",
+     "patch": ""
+    },
+    {
+     "filename": "dm/gfx/nvn/dmsh_chain.h",
+     "patch": "-#define DMSH_CHAIN \"a7dbbce711c3\"\n+#define DMSH_CHAIN \"a04dd83b4c5e\""
+    },
+    {
+     "filename": "dm/gfx/nvn/hle_nvn.c",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/nvn/nvn_mtl.m",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/nvn/nvn_obj.h",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/tools/dmsh_ampere.py",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/tools/dmsh_build.py",
+     "patch": "+NVN2_C0_SSBO_CS = 0x10\n-        if any(code[0x30:0x100]): sys.exit(f'[RED] {key}: compute code area +0x30..+0x100 is not all zero, so the instructions do not start at +0x100')\n+            if any(code[0x30:0x100]): sys.exit(f'[RED] {key}: compute code area +0x30..+0x100 is not all zero, so the instructions do not start at +0x100')"
+    },
+    {
+     "filename": "dm/gfx/tools/dmsh_chain.lock",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/tools/dmsh_chain.py",
+     "patch": "-FILES = ['tools/dmsh_chain.py', 'tools/dmsh_build.py', 'tools/dmsh_atomic.py', 'tools/dmsh_fetch.py', 'tools/dmsh_vin.py', 'tools/dmsh_pull.py', 'tools/dmsh_pull.metal', 'tools/dmsh_alpha.py', 'tools/dmsh_logic.py', 'tools/dmsh_geometry.py', 'tools/dmsh_mesh.py', 'tools/dmsh_facts.py', 'nvn/dmsh_abi.h', 'tools/dmsh_abi.py', 'tools/dmsh_xlate/Program.cs', 'tools/dmsh_xlate/dmsh_xlate.csproj', '../ios/tools/ios_metal.py', 'tools/dmsh_chain.lock']\n+FILES = ['tools/dmsh_chain.py', 'tools/dmsh_build.py', 'tools/dmsh_atomic.py', 'tools/dmsh_fetch.py', 'tools/dmsh_vin.py', 'tools/dmsh_pull.py', 'tools/dmsh_pull.metal', 'tools/dmsh_alpha.py', 'tools/dmsh_logic.py', 'tools/dmsh_geometry.py', 'tools/dmsh_mesh.py', 'tools/dmsh_facts.py', 'tools/dmsh_ampere.py', 'nvn/dmsh_abi.h', 'tools/dmsh_abi.py', 'tools/dmsh_xlate/Program.cs', 'tools/dmsh_xlate/dmsh_xlate.csproj', '../ios/tools/ios_metal.py', 'tools/dmsh_chain.lock']"
+    },
+    {
+     "filename": "dm/gfx/tools/dmsh_xlate/Program.cs",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/tools/dmsh_xlate_bin/Ryujinx.Common.dll",
+     "patch": ""
+    },
+    {
+     "filename": "dm/gfx/tools/dmsh_xlate_bin/Ryujinx.Graphics.Shader.dll",
+     "patch": ""
+    },
+    {
+     "filename": "dm/gfx/tools/dmsh_xlate_bin/Spv.Generator.dll",
+     "patch": ""
+    },
+    {
+     "filename": "dm/gfx/tools/dmsh_xlate_bin/dmsh_xlate.dll",
+     "patch": ""
+    },
+    {
+     "filename": "dm/gfx/tools/dmsh_xlate_bin/dmsh_xlate.pdb",
+     "patch": ""
+    },
+    {
+     "filename": "dm/gfx/tools/own_compilers.py",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/tools/shader_split.py",
+     "patch": "+NVN2_KEY_CTL = 0x48"
+    },
+    {
+     "filename": "dm/third_party/ryujinx/src/Ryujinx.Graphics.Shader/Decoders/AmpereOp.cs",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/third_party/ryujinx/src/Ryujinx.Graphics.Shader/Decoders/Decoder.cs",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/third_party/ryujinx/src/Ryujinx.Graphics.Shader/Decoders/DecoderAmpere.cs",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/third_party/ryujinx/src/Ryujinx.Graphics.Shader/Decoders/InstOp.cs",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/third_party/ryujinx/src/Ryujinx.Graphics.Shader/Decoders/Register.cs",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/third_party/ryujinx/src/Ryujinx.Graphics.Shader/Decoders/RegisterConsts.cs",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/third_party/ryujinx/src/Ryujinx.Graphics.Shader/Decoders/RegisterType.cs",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/third_party/ryujinx/src/Ryujinx.Graphics.Shader/IGpuAccessor.cs",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/third_party/ryujinx/src/Ryujinx.Graphics.Shader/Instructions/InstEmitAmpere.cs",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/third_party/ryujinx/src/Ryujinx.Graphics.Shader/Instructions/InstEmitAmpereAlu.cs",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/third_party/ryujinx/src/Ryujinx.Graphics.Shader/Instructions/InstEmitAmpereMem.cs",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/third_party/ryujinx/src/Ryujinx.Graphics.Shader/Instructions/InstEmitAttribute.cs",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/third_party/ryujinx/src/Ryujinx.Graphics.Shader/Instructions/InstEmitMove.cs",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/third_party/ryujinx/src/Ryujinx.Graphics.Shader/Instructions/InstEmitSurface.cs",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/third_party/ryujinx/src/Ryujinx.Graphics.Shader/IntermediateRepresentation/OperandHelper.cs",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/third_party/ryujinx/src/Ryujinx.Graphics.Shader/Translation/EmitterContext.cs",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/third_party/ryujinx/src/Ryujinx.Graphics.Shader/Translation/RegisterUsage.cs",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/third_party/ryujinx/src/Ryujinx.Graphics.Shader/Translation/Ssa.cs",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/third_party/ryujinx/src/Ryujinx.Graphics.Shader/Translation/TranslationFlags.cs",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/third_party/ryujinx/src/Ryujinx.Graphics.Shader/Translation/Translator.cs",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/tools/tests/test_own_compilers.py",
+     "patch": "-        self.assertIn('Xcode 27.2', text); self.assertIn('ALLOW_OTHER_METAL = True (--allow-other-metal)', text); self.assertFalse(text.startswith('[RED]'))\n+        self.assertIn(f'Xcode {own_compilers.XCODE_VERSION}', text); self.assertIn('ALLOW_OTHER_METAL = True (--allow-other-metal)', text); self.assertFalse(text.startswith('[RED]'))"
+    },
+    {
+     "filename": "docs/agents/game-patches.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/agents/symptoms.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/reference/shaders.md",
+     "patch": "@@ lines that match nothing left out @@"
+    }
+   ]
+  },
+  {
+   "sha": "a7bd05f4fbd7bce495045b9c2357167f58c4005c",
+   "message": "Donkey Kong Bananza renders its first gameplay scene on the Mac: tensor instructions for agl's upscaler, NVN2 compute c0 and push constants, mip-chain sampling without the attached level\n\n- Translator (Ampere frontend): HMMA, LDSM and MOVM run per thread with subgroup shuffles in NVIDIA's documented",
+   "files": [
+    {
+     "filename": "dm/games/040074A01BF12000/README.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/games/040074A01BF12000/game.tsv",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/games/040074A01BF12000/shader_facts.tsv",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/games/040074A01BF12000/shader_map.tsv",
+     "patch": ""
+    },
+    {
+     "filename": "dm/games/040074A01BF12000/shader_pairs.tsv",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/nvn/dmsh_abi.h",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/nvn/dmsh_chain.h",
+     "patch": "-#define DMSH_CHAIN \"a04dd83b4c5e\"\n+#define DMSH_CHAIN \"7c03ff9e58ee\""
+    },
+    {
+     "filename": "dm/gfx/nvn/hle_nvn.c",
+     "patch": "+    if (i >= 16) { static int n; if (n++ < 8) LOG(\"[RED] storage buffer bound at slot %d of stage %d: the host keeps 16 a stage, the bind is dropped\", i, st); }\n+    if (w) { static int once; if (!once++) LOG(\"[RED] push constants with the word before the offset %#llx: its meaning is not known\", (unsigned long long)w); }\n+    if (off + n > DMSH_PUSH_SIZE || !data) { static int k; if (k++ < 8) LOG(\"[RED] push constants at %#llx + %#llx: beyond the host's %#x-byte block, dropped\", (unsigned long long)off, (unsigned long long)n, DMSH_PUSH_SIZE); return; }"
+    },
+    {
+     "filename": "dm/gfx/nvn/nvn_capture.c",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/nvn/nvn_mtl.m",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/nvn/nvn_obj.h",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/nvn/nvn_refl.h",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/nvn/nvn_refl.m",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/tools/dmsh_build.py",
+     "patch": "-NVN2_C0_SSBO_CS = 0x10"
+    },
+    {
+     "filename": "dm/gfx/tools/dmsh_chain.lock",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/tools/dmsh_xlate/Program.cs",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/tools/dmsh_xlate_bin/Ryujinx.Common.dll",
+     "patch": ""
+    },
+    {
+     "filename": "dm/gfx/tools/dmsh_xlate_bin/Ryujinx.Graphics.Shader.dll",
+     "patch": ""
+    },
+    {
+     "filename": "dm/gfx/tools/dmsh_xlate_bin/Spv.Generator.dll",
+     "patch": ""
+    },
+    {
+     "filename": "dm/gfx/tools/dmsh_xlate_bin/dmsh_xlate.dll",
+     "patch": ""
+    },
+    {
+     "filename": "dm/gfx/tools/dmsh_xlate_bin/dmsh_xlate.pdb",
+     "patch": ""
+    },
+    {
+     "filename": "dm/gfx/tools/shader_split.py",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/third_party/ryujinx/src/Ryujinx.Graphics.Shader/IGpuAccessor.cs",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/third_party/ryujinx/src/Ryujinx.Graphics.Shader/Instructions/InstEmitAmpere.cs",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/third_party/ryujinx/src/Ryujinx.Graphics.Shader/Instructions/InstEmitAmpereAlu.cs",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/third_party/ryujinx/src/Ryujinx.Graphics.Shader/Instructions/InstEmitAmpereMem.cs",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/third_party/ryujinx/src/Ryujinx.Graphics.Shader/Instructions/InstEmitAmpereTensor.cs",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/third_party/ryujinx/src/Ryujinx.Graphics.Shader/Translation/Optimizations/GlobalToStorage.cs",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/third_party/ryujinx/src/Ryujinx.Graphics.Shader/Translation/ResourceManager.cs",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/tools/tests/test_dmsh_abi.py",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/agents/game-patches.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/agents/symptoms.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/reference/rendering.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/reference/shaders.md",
+     "patch": "@@ lines that match nothing left out @@"
+    }
+   ]
+  },
+  {
+   "sha": "fdb3710d461ec8d45146c58260a5dbc4676e2a89",
+   "message": "Switch 2 textures untile in the Switch 2's GOB order; Donkey Kong Bananza's rock textures render clean, all of its first gameplay minute's shaders translate\n\n- Textures: the Switch 2 orders a GOB's 16-byte pieces x5 y2 x4 y1 y0 (the Tegra X1: x5 y2 y1 x4 y0; offset bits 5 and 6 exchanged), measured ",
+   "files": [
+    {
+     "filename": "dm/games/040074A01BF12000/README.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/hle_nv.c",
+     "patch": "+    if (!g_nv_pool.inited) die(\"nv::InitCheck: graphics not initialised (nv::InitializeGraphics was not called)\");"
+    },
+    {
+     "filename": "dm/gfx/msl/deswz.metal",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/nvn/dmsh_chain.h",
+     "patch": "-#define DMSH_CHAIN \"7c03ff9e58ee\"\n+#define DMSH_CHAIN \"e68addf45840\""
+    },
+    {
+     "filename": "dm/gfx/nvn/hle_nvn.c",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/tests/t_deswz_gpu.m",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/tex/nvn_deswizzle.c",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/tex/nvn_deswizzle.h",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/tex/nvn_deswizzle_gpu.m",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/tex/tests/t_tex.c",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/tools/dmsh_chain.lock",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/tools/dmsh_xlate_bin/Ryujinx.Common.dll",
+     "patch": ""
+    },
+    {
+     "filename": "dm/gfx/tools/dmsh_xlate_bin/Ryujinx.Graphics.Shader.dll",
+     "patch": ""
+    },
+    {
+     "filename": "dm/gfx/tools/dmsh_xlate_bin/Spv.Generator.dll",
+     "patch": ""
+    },
+    {
+     "filename": "dm/gfx/tools/dmsh_xlate_bin/dmsh_xlate.dll",
+     "patch": ""
+    },
+    {
+     "filename": "dm/gfx/tools/dmsh_xlate_bin/dmsh_xlate.pdb",
+     "patch": ""
+    },
+    {
+     "filename": "dm/third_party/ryujinx/src/Ryujinx.Graphics.Shader/Instructions/InstEmitAmpere.cs",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/third_party/ryujinx/src/Ryujinx.Graphics.Shader/Instructions/InstEmitAmpereMem.cs",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/third_party/ryujinx/src/Ryujinx.Graphics.Shader/Instructions/InstEmitAmpereTensor.cs",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/agents/symptoms.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/reference/nvn-objects.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/reference/shaders.md",
+     "patch": "@@ lines that match nothing left out @@"
+    }
+   ]
+  },
+  {
+   "sha": "5b2d46060d05c734d898f4f186ffe56810d55fcd",
+   "message": "Serve the Switch 2's nn::codec video decoder and sync point events on the host; Donkey Kong Bananza plays its first level's opening with its guide movies\n\n- dm/host/hle_codec_video.c: the nn::codec VP9 decoder API over libvpx, following the SDK's own protocol (sdk 20.5.19 Ounce): one image pool per ",
+   "files": [
+    {
+     "filename": "dm/games/040074A01BF12000/README.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/host/hle_codec_video.c",
+     "patch": "+    (void)t; (void)i; static int once; if (!once++) LOG(\"[RED] nn::codec::GetDecoderImagePoolNativeImageHandle: the GPU route of decoded pictures is not served (0)\");\n+    if (x || y || stride != (uint64_t)w * 4 || size < (uint64_t)w * h * 4) { static int once; if (!once++) LOG(\"[RED] nn::codec::ReadDecoderOutputImageRgba: region %u,%u stride %llu: only whole tight pictures are served\", x, y, (unsigned long long)stride); return 0; }\n+    if (x || y || ystride != w || uvstride != w || ysize < (uint64_t)w * h || uvsize < (uint64_t)w * h / 2) { static int once; if (!once++) LOG(\"[RED] nn::codec::ReadDecoderOutputImageNv12: region %u,%u strides %llu / %llu: only whole tight pictures are served\", x, y, (unsigned long long)ystride, (unsigned long long)uvstride); return 0; }\n+    if (!d->vpx_ok) LOG(\"[RED] nn::codec VP9 decoder: libvpx init failed\");\n+    if (!d->id) die(\"nn::codec: more than 16 video decoders\");\n+    cv_dec *d = cv_of(t); if (!d || i >= CV_BUFS) { LOG(\"[RED] nn::codec::RegisterVp9DecoderBuffer index %u\", i); return CV_R(2004); }\n+    if (d->fcount < 8) { d->fifo[(d->fhead + d->fcount) % 8] = i; d->fcount++; } else LOG(\"[RED] nn::codec: acquirable queue full at register %u\", i);\n+        if (vpx_codec_decode(&d->vpx, data, (unsigned)size, NULL, 0) != VPX_CODEC_OK) { static int n; if (n++ < 4) LOG(\"[RED] nn::codec VP9: %s (%s)\", vpx_codec_error(&d->vpx), vpx_codec_error_detail(&d->vpx) ? vpx_codec_error_detail(&d->vpx) : \"\"); }\n+            if (d->nheld >= CV_HOLD) { static int n; if (n++ < 4) LOG(\"[RED] nn::codec VP9: a packet gave more pictures than the host holds: one dropped\"); continue; }\n+    (void)sync; cv_dec *d = cv_of(t); if (!d || i >= CV_BUFS || !d->buf[i].reg) { LOG(\"[RED] nn::codec::ReleaseVp9DecoderOutputBuffer index %u\", i); return; }\n+    if (d->fcount < 8) { d->fifo[(d->fhead + d->fcount) % 8] = i; d->fcount++; } else LOG(\"[RED] nn::codec: acquirable queue full at release %u\", i);\n+    if (s->magic != CV_SYNC) { static int once; if (!once++ && (s->magic || s->dec)) LOG(\"[RED] nn::codec: a sync handle the host did not make (%#x): signalled\", s->magic); return true; }\n+    static void (*init)(void *, void *); if (!init && !(init = guest_sym(\"_ZN2nn2os25InitializeMultiWaitHolderEPNS0_19MultiWaitHolderTypeEPNS0_15SystemEventTypeE\"))) die(\"nn::os::InitializeMultiWaitHolder(SystemEventType) missing\");\n+    if (k == 64) { LOG(\"[RED] nn::syncpt: more than 64 armed events: signalled at once\"); hle_signal_system_event(e); return 0; }\n+    static void (*destroy)(void *); if (!destroy && !(destroy = guest_sym(\"_ZN2nn2os18DestroySystemEventEPNS0_15SystemEventTypeE\"))) die(\"nn::os::DestroySystemEvent missing\");"
+    },
+    {
+     "filename": "dm/host/hle_movie.c",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/host/hle_movie_yuv.h",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/host/tests/Makefile",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/host/tests/t_codec_video.c",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/agents/symptoms.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/reference/movies.md",
+     "patch": "@@ lines that match nothing left out @@"
+    }
+   ]
+  },
+  {
+   "sha": "5251763d1052f0ce79d293f03d5e75313cd6e263",
+   "message": "Ampere jump tables end at the next table; BRXU and REDUX translate; Donkey Kong Bananza builds 22,850 of 22,852 shaders\n\n- DecoderAmpere: a BRX table is read up to the next table another BRX of the program reads. The compiler lays a shader's switch tables back to back in c1 and their entries are all",
+   "files": [
+    {
+     "filename": "dm/games/040074A01BF12000/README.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/nvn/dmsh_chain.h",
+     "patch": "-#define DMSH_CHAIN \"e68addf45840\"\n+#define DMSH_CHAIN \"2e793ae7a284\""
+    },
+    {
+     "filename": "dm/gfx/tools/dmsh_chain.lock",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/tools/dmsh_xlate_bin/Ryujinx.Common.dll",
+     "patch": ""
+    },
+    {
+     "filename": "dm/gfx/tools/dmsh_xlate_bin/Ryujinx.Graphics.Shader.dll",
+     "patch": ""
+    },
+    {
+     "filename": "dm/gfx/tools/dmsh_xlate_bin/Spv.Generator.dll",
+     "patch": ""
+    },
+    {
+     "filename": "dm/gfx/tools/dmsh_xlate_bin/dmsh_xlate.dll",
+     "patch": ""
+    },
+    {
+     "filename": "dm/gfx/tools/dmsh_xlate_bin/dmsh_xlate.pdb",
+     "patch": ""
+    },
+    {
+     "filename": "dm/third_party/ryujinx/src/Ryujinx.Graphics.Shader/Decoders/DecoderAmpere.cs",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/third_party/ryujinx/src/Ryujinx.Graphics.Shader/Instructions/InstEmitAmpere.cs",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/third_party/ryujinx/src/Ryujinx.Graphics.Shader/Instructions/InstEmitAmpereTensor.cs",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/reference/shaders.md",
+     "patch": "@@ lines that match nothing left out @@"
+    }
+   ]
+  },
+  {
+   "sha": "c4b0618c34014defeee0ca72cfe0537889e8259e",
+   "message": "Donkey Kong Bananza plays on the Mac: terrain through loaded pointers, Switch 2 device values, decoders, prewarm without a seed list\n\nChain 3c66991eb439: global memory at an address loaded from memory goes through the memory pool table\n(physical storage buffer pointers, guest address + delta) instea",
+   "files": [
+    {
+     "filename": "README.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/games/040074A01BF12000/README.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/games/040074A01BF12000/pso_manifest.tsv",
+     "patch": ""
+    },
+    {
+     "filename": "dm/games/README.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/nvn/dmsh_abi.h",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/nvn/dmsh_chain.h",
+     "patch": "-#define DMSH_CHAIN \"2e793ae7a284\"\n+#define DMSH_CHAIN \"826206e471c2\""
+    },
+    {
+     "filename": "dm/gfx/nvn/hle_nvn.c",
+     "patch": "+        if (g_devinfo2[w] == DEVINFO_RT) { LOG(\"[RED] nvnDeviceGetInteger item %#x: NVN2 reads it from the GPU at run time, not known here; returning 0\", w); *out = 0; return; }"
+    },
+    {
+     "filename": "dm/gfx/nvn/nvn_mtl.m",
+     "patch": "+        else MLOG(\"[RED] pipeline prewarm: seed list does not exist: %s\", seed.UTF8String);\n-        if (![NSFileManager.defaultManager fileExistsAtPath:seed]) { MLOG(\"[RED] pipeline prewarm: seed list does not exist: %s\", seed.UTF8String); return; }\n+// had used the prediction, the shadows that relied on it are checked against the pages it missed (g_gsr): [RED] only when one covers such a page. The missed pools are old ones\n+    if (full) { static int lines; if (lines++ < 4) MLOG(\"[RED] raw global memory: a write log ran out of slots (%llu of %llu logs so far): its stores count as a write anywhere until the pages are learned\", (unsigned long long)fulls, (unsigned long long)logs); }\n+            \"%d page(s) outside the prediction, %d of them under the %d uniform shadows taken from that submission on%s\", bad ? \"[RED] \" : \"\", added, (unsigned long long)logs,"
+    },
+    {
+     "filename": "dm/gfx/nvn/nvn_refl.h",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/nvn/nvn_refl.m",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/tests/t_gl_imports.m",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/tests/t_nvn.c",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/tests/test_dmsh_reflect.py",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/tools/dmsh_build.py",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/tools/dmsh_chain.lock",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/tools/dmsh_chain.py",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/tools/dmsh_xlate_bin/Ryujinx.Common.dll",
+     "patch": ""
+    },
+    {
+     "filename": "dm/gfx/tools/dmsh_xlate_bin/Ryujinx.Graphics.Shader.dll",
+     "patch": ""
+    },
+    {
+     "filename": "dm/gfx/tools/dmsh_xlate_bin/Spv.Generator.dll",
+     "patch": ""
+    },
+    {
+     "filename": "dm/gfx/tools/dmsh_xlate_bin/dmsh_xlate.dll",
+     "patch": ""
+    },
+    {
+     "filename": "dm/gfx/tools/dmsh_xlate_bin/dmsh_xlate.pdb",
+     "patch": ""
+    },
+    {
+     "filename": "dm/host/dm.h",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/host/hle.c",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/host/hle_codec_video.c",
+     "patch": "+    if (!d->vpx_ok) LOG(\"[RED] nn::codec %s decoder: libvpx init failed\", k_cv_name[d->codec]);\n-    if (!d->vpx_ok) LOG(\"[RED] nn::codec VP9 decoder: libvpx init failed\");\n+    static void (*destroy)(void *); if (!destroy && !(destroy = guest_sym(\"_ZN2nn2os18DestroySystemEventEPNS0_15SystemEventTypeE\"))) die(\"nn::os::DestroySystemEvent missing\");\n-    cv_dec *d = cv_of(t); if (!d || i >= CV_BUFS) { LOG(\"[RED] nn::codec::RegisterVp9DecoderBuffer index %u\", i); return CV_R(2004); }\n+    cv_dec *d = cv_of(t); if (!d || i >= CV_BUFS) { LOG(\"[RED] nn::codec::Register\u2026DecoderBuffer index %u\", i); return CV_R(2004); }\n+    if (d->nheld >= CV_HOLD) { static int n; if (n++ < 4) LOG(\"[RED] nn::codec %s: a packet gave more pictures than the host holds: one dropped\", k_cv_name[d->codec]); vpx_img_free(c); return 0; }\n-        if (vpx_codec_decode(&d->vpx, data, (unsigned)size, NULL, 0) != VPX_CODEC_OK) { static int n; if (n++ < 4) LOG(\"[RED] nn::codec VP9: %s (%s)\", vpx_codec_error(&d->vpx), vpx_codec_error_detail(&d->vpx) ? vpx_codec_error_detail(&d->vpx) : \"\"); }\n+        if (size && mavc_decode(d->avc, data, (int)size, ts / 1000) < 0) { static int n; if (n++ < 4) LOG(\"[RED] nn::codec H.264: VideoToolbox could not decode a packet\"); }\n+        if (vpx_codec_decode(&d->vpx, data, (unsigned)size, NULL, 0) != VPX_CODEC_OK) { static int n; if (n++ < 4) LOG(\"[RED] nn::codec %s: %s (%s)\", k_cv_name[d->codec], vpx_codec_error(&d->vpx), vpx_codec_error_detail(&d->vpx) ? vpx_codec_error_detail(&d->vpx) : \"\"); }\n-            if (d->nheld >= CV_HOLD) { static int n; if (n++ < 4) LOG(\"[RED] nn::codec VP9: a packet gave more pictures than the host holds: one dropped\"); continue; }\n-    (void)sync; cv_dec *d = cv_of(t); if (!d || i >= CV_BUFS || !d->buf[i].reg) { LOG(\"[RED] nn::codec::ReleaseVp9DecoderOutputBuffer index %u\", i); return; }\n+    (void)sync; cv_dec *d = cv_of(t); if (!d || i >= CV_BUFS || !d->buf[i].reg) { LOG(\"[RED] nn::codec::Release\u2026DecoderOutputBuffer index %u\", i); return; }\n+static Result cv_dec_encrypted(void) { static int once; if (!once++) LOG(\"[RED] nn::codec: an encrypted input buffer: protected streams are not served\"); return CV_R(2004); }\n+static Result cv_av1(void) { static int once; if (!once++) LOG(\"[RED] nn::codec AV1 decoder: no AV1 decoder on the host, Initialize fails\"); return CV_R(2004); }"
+    },
+    {
+     "filename": "dm/host/hle_oe.c",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/host/hle_os.c",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/host/hle_svc.c",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/host/tests/Makefile",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/host/tests/t_cheats.c",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/host/tests/t_codec_video.c",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/host/tests/t_heap_size.c",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/host/tests/t_svc_memory.c",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/host/tests/t_symbols.c",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/third_party/ryujinx/src/Ryujinx.Graphics.Shader/CodeGen/Spirv/Instructions.cs",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/third_party/ryujinx/src/Ryujinx.Graphics.Shader/CodeGen/Spirv/SpirvGenerator.cs",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/third_party/ryujinx/src/Ryujinx.Graphics.Shader/StructuredIr/ShaderProperties.cs",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/third_party/ryujinx/src/Ryujinx.Graphics.Shader/Translation/Optimizations/GlobalToStorage.cs",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/tools/tests/test_dmsh_abi.py",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/agents/04-graphics.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/agents/symptoms.md",
+     "patch": "+- `[RED] pipeline prewarm: seed list does not exist: \u2026/pso_manifest.tsv` at every start, no `pipeline prewarm list \u2026/pso_user.tsv` line, and the same compile stalls every session in places already visited, while `pso_user.tsv` keeps growing; the pipeline archive gains files every start and is never compacted (Donkey Kong Bananza: 88 files, 7 s to open them). \u2192 [The device's prewarm list unread without a seed list](../reference/shaders.md#the-devices-prewarm-list-unread-without-a-seed-list)"
+    },
+    {
+     "filename": "docs/development.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/env_switches.tsv",
+     "patch": "+DM_NVN_INDLOG\tdiagnostic\t`=<n>`: the first n indirect draws (and those of pass-dumped frames) log their arguments at encode and as the GPU left them once the submission completed, with the first indices"
+    },
+    {
+     "filename": "docs/images/donkey-kong-bananza.jpg",
+     "patch": ""
+    },
+    {
+     "filename": "docs/images/gallery.tsv",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/reference/frame-rate.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/reference/movies.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/reference/nvn-objects.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/reference/shaders.md",
+     "patch": "+  - **Learned pools:** the host maps each logged page to the memory pool holding it. The stores count as a write anywhere until the learned pools have stayed the same over 8 logs, then as writes over those pools. A later log that shows a page in another pool adds that pool, without going back to a write anywhere (only a log that ran out of slots starts the learning again): a write anywhere makes every later geometry draw of the submission wait for the GPU (`geo_cpu_hazard`), and going back for 8 logs after each miss gave Donkey Kong Bananza streaks of 300-2,000 ms frames (38 such frames in 5,400, 6 after the change, the geometry wait in one 25 s sample 3,490 \u2192 264 ms). The host then checks whether the miss could have mattered: every uniform shadow taken from that submission on (its own and those of the later submissions encoded while it ran, each recorded with its fence) is compared with the pages the stores wrote outside the prediction. Only an overlap, or a record that has wrapped before the check, prints a `[RED]` line; a miss no shadow saw is logged with the pools' ages.\n+- **Open:** the prediction is checked, not proven: a miss that does reach a shadow is reported (`[RED]`) after the frame, not prevented. The records' pointers come from memory, so the pools they will reach are not known ahead of the draw.\n+- **Symptom:** `[RED] pipeline prewarm: seed list does not exist: \u2026/pso_manifest.tsv` at every start, no `pipeline prewarm list \u2026/pso_user.tsv` line, and the same compile stalls every session in places already visited, while `pso_user.tsv` keeps growing; the pipeline archive gains files every start and is never compacted (Donkey Kong Bananza: 88 files, 7 s to open them)."
+    }
+   ]
+  },
+  {
+   "sha": "4de40e62dded977fbe1b34e9e4cfb31f60feb382",
+   "message": "Donkey Kong Bananza holds 60 fps on the Mac: HMMA on the matrix hardware, mesh geometry, linear run checks, drains only for later writes, SUATOM\n\n- Ampere HMMA.16816 (F16 accumulator) in compute shaders goes through simdgroup_matrix: the translator emits a helper call\n  (TensorPass, HelperFunctionMa",
+   "files": [
+    {
+     "filename": "README.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/games/040074A01BF12000/README.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/games/040074A01BF12000/geo_mesh.tsv",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/nvn/dmsh_chain.h",
+     "patch": "-#define DMSH_CHAIN \"826206e471c2\"\n+#define DMSH_CHAIN \"d0e99bd4b2fe\""
+    },
+    {
+     "filename": "dm/gfx/nvn/hle_nvn.c",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/nvn/nvn_geometry.inc",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/nvn/nvn_mtl.m",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/nvn/nvn_obj.h",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/tests/t_geometry_hazards.m",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/tests/t_nvn.c",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/tests/test_dmsh_ampere_mem.py",
+     "patch": "+TOOLS = Path(__file__).resolve().parents[1] / 'tools'\n+EXIT = (0x000fea0003800000, 0x000000000000794d)   # hi, lo: EXIT\n+SUATOM = (0x002ea200001ee000, 0x00000c0c030c7593)"
+    },
+    {
+     "filename": "dm/gfx/tests/test_dmsh_geometry.py",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/tests/test_dmsh_hmma.py",
+     "patch": "+TOOLS = Path(__file__).resolve().parents[1] / 'tools'\n+HEAD = '''#include <metal_stdlib>\n+HELPER = '''\n+KERNEL = '''\n+RUNNER = r'''#import <Foundation/Foundation.h>"
+    },
+    {
+     "filename": "dm/gfx/tools/dmsh_build.py",
+     "patch": "+HMMA_BODY = '''{"
+    },
+    {
+     "filename": "dm/gfx/tools/dmsh_chain.lock",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/tools/dmsh_mesh.py",
+     "patch": "-PRIMS = 32\n+PRIMS = 32   # triangles a threadgroup takes, fewer when their vertices exceed the mesh output limit (prims_for); the entry names any other count (dm_mesh_p16)\n+MESH_BYTES = 32768   # Metal's limit on a mesh threadgroup's output: vertices and primitives"
+    },
+    {
+     "filename": "dm/gfx/tools/dmsh_xlate_bin/Ryujinx.Common.dll",
+     "patch": ""
+    },
+    {
+     "filename": "dm/gfx/tools/dmsh_xlate_bin/Ryujinx.Graphics.Shader.dll",
+     "patch": ""
+    },
+    {
+     "filename": "dm/gfx/tools/dmsh_xlate_bin/Spv.Generator.dll",
+     "patch": ""
+    },
+    {
+     "filename": "dm/gfx/tools/dmsh_xlate_bin/dmsh_xlate.dll",
+     "patch": ""
+    },
+    {
+     "filename": "dm/gfx/tools/dmsh_xlate_bin/dmsh_xlate.pdb",
+     "patch": ""
+    },
+    {
+     "filename": "dm/host/front_mac.m",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/host/probe.c",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/third_party/ryujinx/src/Ryujinx.Graphics.Shader/CodeGen/Glsl/Instructions/InstGenHelper.cs",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/third_party/ryujinx/src/Ryujinx.Graphics.Shader/CodeGen/Spirv/Instructions.cs",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/third_party/ryujinx/src/Ryujinx.Graphics.Shader/CodeGen/Spirv/SpirvGenerator.cs",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/third_party/ryujinx/src/Ryujinx.Graphics.Shader/Instructions/InstEmitAmpereMem.cs",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/third_party/ryujinx/src/Ryujinx.Graphics.Shader/Instructions/InstEmitAmpereTensor.cs",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/third_party/ryujinx/src/Ryujinx.Graphics.Shader/IntermediateRepresentation/Instruction.cs",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/third_party/ryujinx/src/Ryujinx.Graphics.Shader/Translation/EmitterContextInsts.cs",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/third_party/ryujinx/src/Ryujinx.Graphics.Shader/Translation/HelperFunctionManager.cs",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/third_party/ryujinx/src/Ryujinx.Graphics.Shader/Translation/HelperFunctionName.cs",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/third_party/ryujinx/src/Ryujinx.Graphics.Shader/Translation/ResourceManager.cs",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/third_party/ryujinx/src/Ryujinx.Graphics.Shader/Translation/Transforms/TensorPass.cs",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/third_party/ryujinx/src/Ryujinx.Graphics.Shader/Translation/Transforms/TransformPasses.cs",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/tools/tests/test_dmsh_abi.py",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/agents/symptoms.md",
+     "patch": "+- after a pair is added to `geo_mesh.tsv`, `[RED] geometry mesh pipeline: ... Total mesh size (37248) exceeds the maximum mesh size allowed (32768)`, and the frames that draw the pair get much slower than on the compute path (Donkey Kong Bananza: translation from about 10 to 22\u201331 ms a frame). \u2192 [Mesh geometry groups sized to the vertex output](../reference/shaders.md#mesh-geometry-groups-sized-to-the-vertex-output)"
+    },
+    {
+     "filename": "docs/development.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/env_switches.tsv",
+     "patch": "+DM_NVN_PREFETCH\tswitch\t`0` turns off loading a program's shader libraries in the background when the game makes it (`nvnProgramSetShaders`); they load at its first draw instead\n-DM_PROBE_ALL\tdiagnostic\tSet: probe hits (`DM_PROBE`) also print x9\u2013x18\n+DM_PROBE_ALL\tdiagnostic\tSet: probe hits (`DM_PROBE`) also print x8\u2013x18"
+    },
+    {
+     "filename": "docs/images/gallery.tsv",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/reference/rendering.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/reference/shaders.md",
+     "patch": "+- **Symptom:** after a pair is added to `geo_mesh.tsv`, `[RED] geometry mesh pipeline: ... Total mesh size (37248) exceeds the maximum mesh size allowed (32768)`, and the frames that draw the pair get much slower than on the compute path (Donkey Kong Bananza: translation from about 10 to 22\u201331 ms a frame)."
+    }
+   ]
+  },
+  {
+   "sha": "0e8503e707f11ee826d4e8e5306b705777a80ebb",
+   "message": "CI lint: the HMMA rewrite's matches are checked, the geometry colour cache compares a byte key, and two tests guard their indices\n\n- dmsh_build.py hmma_msl: a signature that does not match raises ValueError instead of calling .group on None (pyright).\n- nvn_geometry.inc geo_color_omit: the cache key",
+   "files": [
+    {
+     "filename": "dm/gfx/nvn/dmsh_chain.h",
+     "patch": "-#define DMSH_CHAIN \"d0e99bd4b2fe\"\n+#define DMSH_CHAIN \"b7cd656abd7c\""
+    },
+    {
+     "filename": "dm/gfx/nvn/nvn_geometry.inc",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/tools/dmsh_build.py",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/host/tests/t_cheats.c",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/tools/tests/test_split_heaps.py",
+     "patch": "@@ lines that match nothing left out @@"
+    }
+   ]
+  },
+  {
+   "sha": "b99fca2090a54cdb06c89b76fd1acf8d8e67d4b2",
+   "message": "README: acknowledgements before How to play, a Switch 2 line in the intro, Switch 2 games first in the gallery",
+   "files": [
+    {
+     "filename": "README.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/images/gallery.tsv",
+     "patch": "@@ lines that match nothing left out @@"
+    }
+   ]
+  },
+  {
+   "sha": "caac52fb33ccd1d16bb8e2752f2a9ea388493ba3",
+   "message": "README: acknowledgements as one item per project, with MacNativeGames; the folder a Switch 2 game is packed from",
+   "files": [
+    {
+     "filename": "README.md",
+     "patch": "@@ lines that match nothing left out @@"
+    }
+   ]
+  },
+  {
+   "sha": "a1b9a2ae23cf3e17a659f10191846cd4c7e89cea",
+   "message": "Boot no longer aborts in dispatch_once: the shader map is read once from any thread, the prewarm starts once outside it\n\nThe background shader-library loading (mtl_prog_prefetch) made shmap_load a dispatch_once around the whole load, including\nwarm_start at its end. pso_prebuild, which warm_start ru",
+   "files": [
+    {
+     "filename": "dm/gfx/nvn/nvn_mtl.m",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/reference/shaders.md",
+     "patch": "@@ lines that match nothing left out @@"
+    }
+   ]
+  },
+  {
+   "sha": "97f1514a46858b5f48c648022c081b536fbc6ad5",
+   "message": "C lint: t_image_attachment_store checks its DontCare-load program resolved before using it\n\nThe boot fix (a1b9a2ae) changed how clang's analyzer walks prog_get -> shmap_load in this test (it compiles nvn_mtl.m in), and two\nfindings appeared in it: a null dereference of the program's fragment stage (",
+   "files": [
+    {
+     "filename": "dm/gfx/tests/t_image_attachment_store.m",
+     "patch": "@@ lines that match nothing left out @@"
+    }
+   ]
+  },
+  {
+   "sha": "588e01a5f72a860a694e25a334e187b30215bdb4",
+   "message": "README: acknowledgements keep the projects with a GitHub link, and Ryujinx",
+   "files": [
+    {
+     "filename": "README.md",
+     "patch": "@@ lines that match nothing left out @@"
+    }
+   ]
+  },
+  {
+   "sha": "99947471326118e63c76084b0f549d202821d90e",
+   "message": "The NSP script builds a game from a folder of its files, with no prod.keys\n\nbuild_ipa_from_nsp.py takes a dump folder (base/, updates/<version>/, dlc/) in place of NSPs and calls pack_dump.py for the step extraction does, then goes on with its other steps. A dump's files are not encrypted, so it nee",
+   "files": [
+    {
+     "filename": "README.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/games/040074A01BF12000/README.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/tools/tests/test_nsp_dump.py",
+     "patch": "+REPO = Path(__file__).resolve().parents[3]\n+TID = 0x040074A01BF12000   # a game with a profile in dm/games, whose registered version is an update\n+VER = 458752\n+        with mock.patch.object(nsp, 'find_repo', return_value=REPO), mock.patch.object(nsp, 'configure_dotnet'), self.assertRaisesRegex(nsp.BuildError, 'which holds'):\n+        with mock.patch.object(nsp, 'find_repo', return_value=REPO), mock.patch.object(nsp, 'configure_dotnet'), self.assertRaisesRegex(nsp.BuildError, 'has none'):"
+    },
+    {
+     "filename": "docs/development.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "scripts/build_ipa_from_nsp.py",
+     "patch": "+    except pack_dump.Error as e: raise BuildError(str(e)) from e\n+    if want is not None and want != app: raise BuildError(f'no game {want:016X} (--title-id / TITLE_ID) in {dump}, which holds {app:016X}')\n+    except pack_dump.Error as e: raise BuildError(str(e)) from e\n+        except pack_dump.Error as e: raise BuildError(str(e)) from e\n-    ap.add_argument('nsp_dir', nargs='?', help='folder holding one game\\'s NSPs (default: the NSP_DIR setting, else asked)')\n-    ap.add_argument('-k', '--keys', help='path of prod.keys (default: the PROD_KEYS setting, else asked)')\n+    ap.add_argument('nsp_dir', nargs='?', help='folder holding one game\\'s NSPs, or its files as a dump (scripts/pack_dump.py lists the layout) (default: the NSP_DIR setting, else asked)')\n+    ap.add_argument('-k', '--keys', help='path of prod.keys, not needed for a dump folder (default: the PROD_KEYS setting, else asked)')\n-    if not keys.is_file(): raise BuildError(f'no such file: {keys}')\n+    if keys and not keys.is_file(): raise BuildError(f'no such file: {keys}')\n+    if dump and (force or g is None): raise BuildError(f'a dump folder packs only a game with a profile, and {app:016X} ' + ('asked for a provisional one (--provisional)' if g else 'has none') + ': the survey that makes a provisional profile reads NSPs')\n-        if not icon: say('[RED] no game icon in the extraction (an older extraction did not save it: delete extract/ and run again); the app\\'s icon will be blank')\n+        if not icon: say('no game icon: a dump folder has no control data; the app\\'s icon will be blank' if dump else '[RED] no game icon in the extraction (an older extraction did not save it: delete extract/ and run again); the app\\'s icon will be blank')\n-    else: say('[RED] no game icon in the extraction (an older extraction did not save it: delete extract/ and run again); the home-screen icon will be blank')\n+    else: say('no game icon: a dump folder has no control data; the home-screen icon will be blank' if dump else '[RED] no game icon in the extraction (an older extraction did not save it: delete extract/ and run again); the home-screen icon will be blank')"
+    },
+    {
+     "filename": "scripts/pack_dump.py",
+     "patch": "-def die(msg):\n-    sys.exit(f'[RED] {msg}')\n-    if d[:4] != b'META': die(f'{npdm}: not an NPDM')\n-    if d[off:off + 4] != b'ACI0' or size < 0x18: die(f'{npdm}: no ACI0 section')\n-    if not (base / 'exefs/main.npdm').is_file() or not (base / 'romfs').is_dir(): die(f'{dump}: no base/exefs/main.npdm and base/romfs')\n-    if app & 0xFFF: die(f'{dump}: base program ID {app:016X} is not a base title ID')\n-    if ver and ver not in vers: die(f'no updates/{ver} (have: {\", \".join(map(str, sorted(vers))) or \"none\"})')\n-    if not (src / 'exefs/main').is_file() or not (src / 'romfs').is_dir(): die(f'{src}: no exefs/main and romfs')\n-    if (pid := program_id(src / 'exefs/main.npdm')) != app: die(f'{src}: program ID {pid:016X}, the base is {app:016X}')\n-        except ValueError: die(f'{d}: not a DLC title ID')\n-        if not 0 < idx <= 2000: die(f'{d}: {tid:016X} is not a DLC of {app:016X}')\n-        if len(roms) != 1: die(f'{d}: expected one <n>/romfs folder, found {len(roms)}')\n+    except Error as e: sys.exit(f'[RED] {e}')"
+    }
+   ]
+  },
+  {
+   "sha": "f634de70ae1e900a67008fa1b33b5ee478f1cf46",
+   "message": "Hollow Knight plays on the Mac; libraries prefetched before the prewarm starts are kept\n\nHollow Knight (0100633007D48000, update 1.5.12620, SDK 20.5.21, Unity 6000.0.61f1 IL2CPP with FMOD on NVN): a profile\nwith its note, games table row and gallery screenshot, and no game-specific rewriter cut or h",
+   "files": [
+    {
+     "filename": "README.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/games/0100633007D48000/README.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/games/0100633007D48000/bf_want.tsv",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/games/0100633007D48000/game.tsv",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/games/0100633007D48000/pso_manifest.tsv",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/games/0100633007D48000/pso_pairs.tsv",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/games/0100633007D48000/shader_facts.tsv",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/games/0100633007D48000/shader_map.tsv",
+     "patch": ""
+    },
+    {
+     "filename": "dm/games/0100633007D48000/shader_map.tsv.conflicts.tsv",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/games/0100633007D48000/shader_pairs.tsv",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/games/README.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/nvn/nvn_mtl.m",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/tests/Makefile",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/gfx/tests/t_shmap_warm.m",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/agents/symptoms.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/images/gallery.tsv",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/images/hollow-knight.jpg",
+     "patch": ""
+    },
+    {
+     "filename": "docs/reference/shaders.md",
+     "patch": "@@ lines that match nothing left out @@"
+    }
+   ]
+  },
+  {
+   "sha": "cd859c38a8f8890ddbb57a23d6f45e23ba9e6651",
+   "message": "A damaged NSP lists all its files instead of crashing nx_extract; the image marks them and the host names them (#810)\n\nIssue #810's crash in nn::util::RelocationTable::Relocate came from the reporter's own files: their Event/Demo154_2.sbeventpack has our length but another SHA-256, from a base NSP t",
+   "files": [
+    {
+     "filename": "dm/games/01007EF00011E000/README.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/host/hle_fs.c",
+     "patch": "+    if (m && m->damaged) LOG(\"[RED] fs RomFS image %s: damaged files %llu: they failed the NCA's hash check when it was extracted (a damaged NSP, --allow-damaged); a crash or a wrong picture may come from their bytes\", path, (unsigned long long)m->damaged);\n+            LOG(\"[RED] fs %s failed the NCA's hash check when it was extracted (a damaged NSP, --allow-damaged); its bytes may be wrong\", path);"
+    },
+    {
+     "filename": "dm/host/romfs_image.h",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/host/tests/t_fs.c",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/tools/nx_extract/Program.cs",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/tools/romfs.py",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/tools/romfs_image.py",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "dm/tools/tests/test_romfs_read.py",
+     "patch": "+DAMAGED_FIXTURE = r'''\n+            self.assertEqual(result.stdout.count('[RED] hash check failed: /bad0.nro'), 5)   # the list itself, on each of the five paths"
+    },
+    {
+     "filename": "docs/agents/01-extract.md",
+     "patch": "@@ lines that match nothing left out @@"
+    },
+    {
+     "filename": "docs/agents/symptoms.md",
+     "patch": "+- `nx_extract` stops with exit code 134 and `Unhandled exception. System.InvalidOperationException: The LinkedList is empty.` from `LibHac.Tools.FsSystem.CachedStorage.GetBlock`, with no `[RED] hash check failed` list, with or without `--allow-damaged`. \u2192 [Extraction of a damaged NSP ends in \"The LinkedList is empty\"](../reference/packing.md#extraction-of-a-damaged-nsp-ends-in-the-linkedlist-is-empty)"
+    },
+    {
+     "filename": "docs/reference/packing.md",
+     "patch": "+- **Symptom:** `nx_extract` stops with exit code 134 and `Unhandled exception. System.InvalidOperationException: The LinkedList is empty.` from `LibHac.Tools.FsSystem.CachedStorage.GetBlock`, with no `[RED] hash check failed` list, with or without `--allow-damaged`.\n+- **Fix:** the entry's last byte in a `DMROMFS1` index ([format](../../dm/tools/romfs_image.py)) is 1 on a file that failed the check (`img_ent.flags`, `romfs_image.h`; `nx_extract` sets it, and every reader refuses another value, or a flag on a directory). The mark stays with the image in an IPA, a Mac app or a hand-copied `romfs.img`. The host logs `[RED] fs RomFS image <path>: damaged files <N>: ...` at the mount and `[RED] fs rom:/<file> failed the NCA's hash check ...` at each damaged file's first open. A clean image is byte-identical to one from before this mark (checked on SteamWorld Dig), so its identity does not change. Not marked: an image extracted before this change, and folder extraction, which has no index (the NSP script writes images). Search a crash's log for `hash check` before looking for a cause in the host."
+    }
+   ]
+  }
+ ],
+ "table1": [
+  [
+   "105f417b"
+  ],
+  [
+   "d76c45f7"
+  ],
+  [
+   "aea257b9"
+  ],
+  [
+   "cadd4be6"
+  ],
+  [
+   "8ef752a2"
+  ],
+  [
+   "f4bfc015"
+  ],
+  [
+   "68e8dc23"
+  ],
+  [
+   "8dd0c98a"
+  ],
+  [
+   "d3995ca4",
+   "a7bd05f4",
+   "fdb3710d",
+   "5251763d",
+   "c4b0618c",
+   "4de40e62",
+   "0e8503e7"
+  ],
+  [
+   "99947471"
+  ],
+  [
+   "cd859c38"
+  ]
+ ],
+ "table2": [
+  "c87bb116",
+  "4a1f6830",
+  "ffdf67de",
+  "28035370",
+  "70ca6164",
+  "07fc83d4",
+  "9f74a1d6",
+  "d138ee87",
+  "5fd06dd1",
+  "95dc61e2",
+  "a5281d01",
+  "0c6c55df",
+  "c1df4dda",
+  "c0f34133",
+  "792df9fb",
+  "8482873b",
+  "94484212",
+  "5ce955ad",
+  "dad38db6",
+  "a1b9a2ae",
+  "f634de70"
+ ],
+ "not_listed": [
+  "ecc41fa8",
+  "b8ffaf8b",
+  "f9eb12e1",
+  "d2a86b05",
+  "ba10db3d",
+  "338e2ad5",
+  "d56b83ab",
+  "088429f4",
+  "0e16e0e0",
+  "742c9fb8",
+  "5b2d4606",
+  "b99fca20",
+  "caac52fb",
+  "97f1514a",
+  "588e01a5"
+ ]
+}

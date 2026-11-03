@@ -13,11 +13,14 @@ written once and runs everywhere Python and Qt do.
 |---|---|---|
 | Platforms | macOS 13+ | Windows 10+, macOS 11+ |
 | Language | Swift | Python 3.9+ |
-| Strings | `Localization.swift` | generated from that same file |
+| Strings | `l10n/*.json`, read by `LocalizationFiles.swift` | the same files, read by `nspb_qt/l10n.py` |
 | Build logic | runs the Python scripts | runs the same scripts |
 
-The strings are **generated** from the SwiftUI table (`gen_localization.py`), so the two front
-ends cannot drift apart: edit `Localization.swift`, run the generator.
+The strings are **read** from `../frontend/l10n/<code>.json`, one file per language, so the two front
+ends cannot drift apart: a new string is a line in `en.json` and in `zh.json`. The language list comes
+from the files too (`Lang.all()`, each language's own name and the locale names that select it,
+Windows ones such as `german` included, are in its `_language` entry), so a new language is one new file
+and no change here. A frozen build carries the folder as `l10n` (`build-qt.yml` adds it with `--add-data`).
 
 ## Run it
 
@@ -51,8 +54,8 @@ the bundle's `fonts` folder (`build-qt.yml`). If the file is missing the system 
   the RomFS archive and reports where the IPA and archive landed.
 - `--work-dir` is passed only when the checkout's script declares it (an upstream checkout has
   no such option — issue #5).
-- Languages: Chinese, Swedish, German or French on devices in those languages, English elsewhere, and the
-  header button switches.
+- Languages: every language that has a file in `frontend/l10n` (today Chinese, Swedish, German and French)
+  on devices in that language, English elsewhere, and the header button cycles through them.
 
 ## What is not there yet
 
@@ -79,9 +82,8 @@ nspb_qt/
   ui.py             the window
   platform_util.py  per-OS paths, tool discovery, child environment
   i18n.py           language choice
-  localization.py   generated from ../frontend/Sources/NSPortBuilder/Localization.swift
+  l10n.py           the texts, read from ../frontend/l10n/*.json (the SwiftUI app reads the same files)
   win/              the Windows build path; imported only when sys.platform is win32
-gen_localization.py regenerates localization.py
 tests/test_win.py   the Windows-path tests that can run on macOS
 ```
 

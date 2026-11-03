@@ -58,6 +58,10 @@ public struct ShellHostConfig: Sendable {
     /// The log the host view shows in a read-only sheet.
     public var log: LogPresentation?
 
+    public private(set) var globalPadMap = PadMap()
+    /// The last controller state, sent only while the button test is open.
+    public private(set) var padSnapshot: PadSnapshot?
+
     @ObservationIgnored private let config: ShellHostConfig
     @ObservationIgnored private let launcher: any GameLauncher
     @ObservationIgnored private let picker: any FolderPicker
@@ -70,6 +74,10 @@ public struct ShellHostConfig: Sendable {
     @ObservationIgnored private let shellData: BookmarkStore
     @ObservationIgnored private let shellCloud: BookmarkStore
     @ObservationIgnored private var shellChoices: [String]
+    /// The shell data folder the games were matched in by identity, each game's matched folder by title ID, and the scan in flight.
+    @ObservationIgnored private var scannedShellFolder: String?
+    @ObservationIgnored private var shellMatches: [String: URL] = [:]
+    @ObservationIgnored private var shellScan: Task<Void, Never>?
     @ObservationIgnored nonisolated(unsafe) private var defaultsObserver: (any NSObjectProtocol)?
 
     public init(config: ShellHostConfig, launcher: any GameLauncher = StubGameLauncher(), picker: any FolderPicker = NoFolderPicker(),
@@ -81,6 +89,7 @@ public struct ShellHostConfig: Sendable {
         shellData = BookmarkStore(defaults: shellSettings.defaults, key: ShellSettingsStore.dataFolderKey)
         shellCloud = BookmarkStore(defaults: shellSettings.defaults, key: ShellSettingsStore.cloudSavesKey)
         shellChoices = Self.choices(of: shellSettings)
+        globalPadMap = shellSettings.padMap
         reload()
         defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.defaultsDidChange() }
@@ -89,17 +98,51 @@ public struct ShellHostConfig: Sendable {
 
     deinit { defaultsObserver.map(NotificationCenter.default.removeObserver) }
 
-    /// What the details show of the shell settings besides the folders: the interface language and the overlay default.
+    /// Shell choices that change the displayed game defaults.
     private static func choices(of settings: ShellSettingsStore) -> [String] {
-        [settings.language, settings.gameDefaults.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: ",")]
+        [settings.gameDefaults.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: ","), settings.padMap.envValue ?? ""]
     }
 
-    /// Builds the details again, in the same order. The texts the host writes follow the interface language, so a
-    /// change of it comes through here, and so does a change of a shell folder or of the performance overlay.
+    /// Rebuilds the details in place after a shell folder, overlay or controller mapping changes.
     public func refreshAll() {
+        globalPadMap = shellSettings.padMap
         shellChoices = Self.choices(of: shellSettings)
+        startShellScan()
         details = entries.map(detail(for:))
     }
+
+    /// Looks for every game's image by identity in the shell data folder. The drive is read off the main actor: until the scan is
+    /// done the games show what the by-name paths give (usually "Needs game data"), then the details are built again. A new
+    /// folder starts a new scan and drops the old matches, the same folder keeps its matches unless `force`.
+    private func startShellScan(force: Bool = false) {
+        guard case .url(let folder) = shellData.resolve() else {
+            shellScan?.cancel(); scannedShellFolder = nil; shellMatches = [:]; return
+        }
+        if !force && scannedShellFolder == folder.path { return }
+        shellScan?.cancel()
+        scannedShellFolder = folder.path
+        shellMatches = [:]
+        let wanted = entries.compactMap { e in
+            e.problem == nil ? e.manifest.flatMap { m in RomfsIdentity.parse(m.romfsIdentity).map { (m.titleID, $0) } } : nil
+        }
+        guard !wanted.isEmpty else { return }
+        // `shellData.resolve()` above opened the bookmark's security scope and `BookmarkStore` keeps it open while this folder is
+        // chosen (until another is stored or it is cleared), so the detached scan and its header reads run inside it.
+        shellScan = Task { [weak self] in
+            let found = await Task.detached(priority: .utility) { () -> [String: URL] in
+                let index = ShellDataIndex(folder: folder)
+                var found: [String: URL] = [:]
+                for (titleID, identity) in wanted where !Task.isCancelled { if let dir = index.folder(matching: identity) { found[titleID] = dir } }
+                return found
+            }.value
+            guard let self, !Task.isCancelled, self.scannedShellFolder == folder.path else { return }
+            self.shellMatches = found
+            if !found.isEmpty { self.details = self.entries.map(self.detail(for:)) }
+        }
+    }
+
+    /// For tests: returns when the scan of the shell data folder is done.
+    func waitForShellScan() async { await shellScan?.value }
 
     private func defaultsDidChange() {
         if Self.choices(of: shellSettings) != shellChoices { refreshAll() }
@@ -110,13 +153,14 @@ public struct ShellHostConfig: Sendable {
     /// Reads the games folder again and sorts the library (see `LibraryOrder`). Only this and the first load re-sort:
     /// a change to one game updates it in place.
     public func reload() {
-        let scanned = GameCatalogue.scan(root: config.gamesRoot)
+        let scanned = GameCatalogue.scan(root: config.gamesRoot).filter { !isDeleted($0) }
         let built = scanned.map(detail(for:))
         let order = LibraryOrder.ids(of: built.map(\.game), lastPlayed: Dictionary(uniqueKeysWithValues: scanned.compactMap { e in
             lastPlayed(e.id).map { (e.id, $0) } }))
         let position = Dictionary(uniqueKeysWithValues: order.enumerated().map { ($1, $0) })
         entries = scanned.sorted { position[$0.id] ?? 0 < position[$1.id] ?? 0 }
         details = built.sorted { position[$0.id] ?? 0 < position[$1.id] ?? 0 }
+        startShellScan(force: true)
     }
 
     private func lastPlayed(_ id: String) -> Date? { LastPlayedStore(defaults: config.defaults(id)).date }
@@ -162,7 +206,7 @@ public struct ShellHostConfig: Sendable {
     private func data(for entry: CatalogueEntry) -> DataResolution {
         guard let manifest = entry.manifest, entry.problem == nil else { return .missing }
         return DataLocator.locate(manifest: manifest, picked: dataStore(entry.id).resolve(), appFolder: appFolder(for: entry.id),
-                                  global: shellData.resolve())
+                                  global: shellData.resolve(), shellMatch: shellMatches[manifest.titleID])
     }
 
     private func image(_ url: URL?) -> Artwork? {
@@ -196,10 +240,14 @@ public struct ShellHostConfig: Sendable {
         var shellFolder = false
         if case .url = shellCloud.resolve() { shellFolder = true }
         let fromShell = Set(profile.settings.filter(store.isFromShell).map(\.env))
+        let pad = GamePadMapStore(defaults: config.defaults(entry.id))
+        let sections = SettingsPresenter.sections(profile: profile, values: store.values(), fromShell: fromShell)
+        // A profile-provided DM_PAD_MAP row owns the mapping, so do not offer conflicting shell overrides.
+        let padSections = profile.settings.contains { $0.env == "DM_PAD_MAP" } ? [] : [pad.section()]
         return GameDetail(
-            game: tile, sections: SettingsPresenter.sections(profile: profile, values: store.values(), fromShell: fromShell),
+            game: tile, sections: sections + padSections,
             dataSource: dataSource(data), dataNote: dataNote(data, found: data.found),
-            cloudSaves: cloud, cloudNote: cloudNote, dlc: dlc(data), hasModifiedSettings: store.hasModifiedSettings,
+            cloudSaves: cloud, cloudNote: cloudNote, dlc: dlc(data), hasModifiedSettings: store.hasModifiedSettings || !pad.entries.isEmpty,
             dataFromShell: data.source == .shell, cloudFromShell: cloudFromShell,
             cloudCanUseShell: shellFolder && !cloudFromShell)
     }
@@ -246,18 +294,32 @@ public struct ShellHostConfig: Sendable {
             onPickShellCloud: { [weak self] in self.map { model in Task { await model.pickShellCloudNow() } } },
             onUseShellCloud: { [weak self] id in self?.useShellCloudSaves(id) },
             onClearShellData: { [weak self] in self?.clearShellData() },
-            onClearShellCloud: { [weak self] in self?.clearShellCloud() })
+            onClearShellCloud: { [weak self] in self?.clearShellCloud() },
+            onGlobalPadMapChange: { [weak self] setting, value in
+                guard let self else { return }
+                if setting == "swapAB" { self.shellSettings.setPadSwapAB(value == "1") }
+                else { self.shellSettings.setPadButton(setting, to: value) }
+                self.refreshAll()
+            },
+            onGlobalPadMapReset: { [weak self] in self?.shellSettings.resetPadMap(); self?.refreshAll() },
+            onButtonTest: { [weak self] open in self?.buttonTest(open) },
+            onDeleteGame: { [weak self] id, saves in self?.deleteGame(id, saves: saves) })
     }
 
     public func change(_ id: String, setting: String, value: String) {
         guard let profile = entry(id)?.profile else { return }
-        GameSettingsStore(profile: profile, defaults: config.defaults(id), shell: shellSettings.gameDefaults).set(setting, to: value)
+        if setting.hasPrefix("pad.") {
+            GamePadMapStore(defaults: config.defaults(id)).change(setting, value: value)
+        } else {
+            GameSettingsStore(profile: profile, defaults: config.defaults(id), shell: shellSettings.gameDefaults).set(setting, to: value)
+        }
         refresh(id)
     }
 
     public func resetDefaults(_ id: String) {
         guard let profile = entry(id)?.profile else { return }
         GameSettingsStore(profile: profile, defaults: config.defaults(id)).reset()
+        GamePadMapStore(defaults: config.defaults(id)).reset()
         refresh(id)
     }
 
@@ -346,6 +408,33 @@ public struct ShellHostConfig: Sendable {
         log = LogPresentation(gameID: id, title: entry.title, text: found?.text, truncated: found?.truncated ?? false)
     }
 
+    // MARK: Delete
+
+    /// Deletes the game's folder in this app (its saves only when `saves`), forgets the folder the player picked for its data
+    /// (that folder is the player's and is not touched) and when it was played, and takes the game off the list. The game's
+    /// framework inside the app stays: see `GameDeletion`.
+    public func deleteGame(_ id: String, saves: Bool) {
+        guard let entry = entry(id) else { return }
+        let failed = GameDeletion.delete(in: appFolder(for: id), saves: saves)
+        dataStore(id).clear()
+        let defaults = config.defaults(id)
+        defaults.removeObject(forKey: LastPlayedStore.key)
+        defaults.set(GameDeletion.stamp(entry), forKey: GameDeletion.deletedKey)
+        reload()
+        if !failed.isEmpty { notice = hostText("Some files of \(entry.title) could not be deleted.") }
+    }
+
+    /// Deleted, and still the same build with no game data in its folder. A new build or game data in the folder brings the
+    /// game back, and the mark is dropped.
+    private func isDeleted(_ entry: CatalogueEntry) -> Bool {
+        let defaults = config.defaults(entry.id)
+        guard let deleted = defaults.string(forKey: GameDeletion.deletedKey) else { return false }
+        let hasData = entry.manifest.map { DataLocator.holder(of: appFolder(for: entry.id), manifest: $0, .default) != nil } ?? false
+        if deleted == GameDeletion.stamp(entry) && !hasData { return true }
+        defaults.removeObject(forKey: GameDeletion.deletedKey)
+        return false
+    }
+
     public func appUpdate() {
         guard let url = config.updateURL else { notice = hostText("No update address is set up for this app."); return }
         config.openURL(url)
@@ -378,6 +467,11 @@ public struct ShellHostConfig: Sendable {
     func launchEnvironment(profile: LauncherProfile, id: String) -> [String: String] {
         var env = GameSettingsStore(profile: profile, defaults: config.defaults(id), shell: shellSettings.gameDefaults).values()
         for (key, value) in shellSettings.gameDefaults where env[key] == nil { env[key] = value }
+        // A launcher.json DM_PAD_MAP row is authoritative, including an empty value.
+        if !profile.settings.contains(where: { $0.env == "DM_PAD_MAP" }) {
+            env["DM_PAD_MAP"] = PadMap.merged(global: shellSettings.padMap,
+                                            game: GamePadMapStore(defaults: config.defaults(id)).entries).envValue
+        }
         return env
     }
 
@@ -396,6 +490,12 @@ public struct ShellHostConfig: Sendable {
     }
 
     public func stopControllers() { adapter.stop() }
+
+    /// The button test opened or closed: the adapter reports every controller state in between.
+    public func buttonTest(_ open: Bool) {
+        adapter.onSnapshot = open ? { [weak self] in self?.padSnapshot = $0 } : nil
+        if !open { padSnapshot = nil }
+    }
 
     static func info(for c: ConnectedController) -> ControllerInfo {
         ControllerInfo(id: c.id, name: c.name, player: hostText("Player \(c.player)"), batteryPercent: c.batteryPercent, charging: c.charging)

@@ -1,0 +1,45 @@
+# When the child of a stacked PR is closed, merged or retargeted, its parent may be the tip of the stack now. When a child is opened or reopened,
+# its parent is no longer the tip, and its Stack job is re-run so that heavy jobs started earlier are skipped (only if the parent's runs finished). The parent's heavy jobs were skipped
+# while it had a child, and nothing re-triggers them. This workflow re-runs the `Stack` job of the parent's latest runs (tests, the app build),
+# which decides again, live, and starts the heavy jobs that depend on it. See .github/scripts/stack_rerun.py and CONTRIBUTING.md, "CI on stacks".
+#
+# pull_request_target, so that the token can write to Actions for a child from a fork too. It is safe here because no code of the pull request is
+# checked out or run: the checkout is the base branch (only .github/scripts), and the event data goes into environment variables and from there
+# into arguments of `gh`, never into a shell command. This workflow reports no required check, so a run that does not start blocks no merge.
+# Residual risk: a parent whose run is still in progress when the child closes keeps its skipped jobs. Re-run it by hand (CONTRIBUTING.md).
+name: Stack parent re-run
+
+on:
+  pull_request_target:
+    types: [opened, reopened, closed, edited]
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  rerun:
+    name: Re-run the parent of an opened, closed or retargeted PR
+    # A title or body edit has no `changes.base`.
+    if: ${{ github.event.action != 'edited' || github.event.changes.base != null }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ACTION: ${{ github.event.action }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          OLD_BASE_REF: ${{ github.event.changes.base.ref.from }}
+        run: python3 .github/scripts/stack_rerun.py

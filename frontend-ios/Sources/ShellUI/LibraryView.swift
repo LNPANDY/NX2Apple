@@ -31,18 +31,25 @@ enum ShellLayout: Equatable {
 public struct LibraryView: View {
     public let games: [GameDetail]
     public let controllers: [ControllerInfo]
+    public let globalPadMap: PadMap
+    /// The controller's state while the button test is open, from the host.
+    public let padSnapshot: PadSnapshot?
     public var actions: ShellActions
     public var input: ShellInput?
     @State private var selectedID: String?
     @State private var settingsOpen: Bool
     @State private var shellSettingsOpen: Bool
-    /// The interface language in force. A change rebuilds the views, so every text is read again in the new language.
-    @State private var shellLanguage = ShellSettingsStore.current.language
     @State private var controllersOpen: Bool
     /// The game whose How to fix or How to update explanation is open.
     @State private var helpGameID: String?
+    /// The game whose Delete question is open, and whether its saves go too.
+    @State private var deleteGameID: String?
+    @State private var deleteSaves = false
     /// The choice whose option list is open.
     @State private var choice: ChoiceRequest?
+    /// The button-mapping card, while open.
+    @State private var padMapping: PadMappingState?
+    @State private var buttonTestOpen: Bool
     @State private var focus: FocusAppearance
     @State private var targets = FocusTargetBuffer()
     @State private var settingsPosition = ScrollPosition()
@@ -62,9 +69,15 @@ public struct LibraryView: View {
 
     public init(games: [GameDetail], controllers: [ControllerInfo] = [], actions: ShellActions = ShellActions(),
                 input: ShellInput? = nil, initialSelection: String? = nil, initialDetailOpen: Bool = false,
-                initialControllersOpen: Bool = false, initialShellSettingsOpen: Bool = false, initialFocusVisible: Bool = false) {
+                initialControllersOpen: Bool = false, initialShellSettingsOpen: Bool = false, initialFocusVisible: Bool = false,
+                globalPadMap: PadMap = PadMap(), padSnapshot: PadSnapshot? = nil,
+                initialPadMapping: String? = nil, initialButtonTestOpen: Bool = false) {
         self.games = games
         self.controllers = controllers
+        self.globalPadMap = globalPadMap
+        self.padSnapshot = padSnapshot
+        _padMapping = State(initialValue: initialPadMapping.map { PadMappingState(gameID: $0) })
+        _buttonTestOpen = State(initialValue: initialButtonTestOpen)
         self.actions = actions
         self.input = input
         let first = initialSelection ?? games.first?.id
@@ -105,7 +118,7 @@ public struct LibraryView: View {
                         .frame(width: width, height: geometry.size.height)
                         .opacity(paneCovers && edgeDrag == 0 ? 0 : 1)
                         .allowsHitTesting(!settingsOpen)
-                        .accessibilityHidden(settingsOpen || helpGameID != nil)
+                        .accessibilityHidden(settingsOpen || helpGameID != nil || deleteGameID != nil)
                         .transformPreference(FocusTargets.self) { if settingsOpen { $0.removeAll() } }
                     if panelOverLibrary {
                         // The same dimming and dismissal as the Controllers overlay.
@@ -130,7 +143,7 @@ public struct LibraryView: View {
                         .opacity(settingsOpen ? 1 : 0)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
                         .allowsHitTesting(settingsOpen)
-                        .accessibilityHidden(!settingsOpen || choice != nil)
+                        .accessibilityHidden(!settingsOpen || choice != nil || padMapping != nil || deleteGameID != nil)
                         .accessibilityAddTraits(settingsOpen ? .isModal : [])
                         .transformPreference(FocusTargets.self) { if !settingsOpen { $0.removeAll() } }
                 }
@@ -148,19 +161,25 @@ public struct LibraryView: View {
                         .accessibilityAddTraits(.isModal)
                         .transition(.opacity.combined(with: .scale(scale: 0.96)))
                 }
-                if let choice {
+                if let id = deleteGameID, let game = games.first(where: { $0.id == id })?.game {
                     Color.black.opacity(0.55).ignoresSafeArea().accessibilityHidden(true)
-                        .onTapGesture { closeChoice() }
+                        .onTapGesture { closeDelete() }
                         .transition(.opacity)
-                    ChoicePickerView(request: choice, pick: pickChoice, close: closeChoice)
-                        .padding(.horizontal, 16).padding(.vertical, 12)
+                    DeleteGameView(game: game, saves: $deleteSaves, delete: { confirmDelete(id) }, cancel: closeDelete)
+                        .frame(maxWidth: 460)
+                        .background(Color(red: 0.075, green: 0.075, blue: 0.082), in: RoundedRectangle(cornerRadius: 26))
+                        .overlay(RoundedRectangle(cornerRadius: 26).strokeBorder(.white.opacity(0.10)))
+                        .shadow(color: .black.opacity(0.5), radius: 40)
+                        .padding(16)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .accessibilityAddTraits(.isModal)
                         .transition(.opacity.combined(with: .scale(scale: 0.96)))
                 }
                 if controllersOpen {
                     Color.black.opacity(0.55 * (1 - min(1, edgeDrag / min(width, 520)))).ignoresSafeArea().accessibilityHidden(true)
                         .onTapGesture { back() }
-                    ControllersView(controllers: controllers, onBack: back)
+                    ControllersView(controllers: controllers, onBack: back, padMap: globalPadMap)
+                        .accessibilityHidden(choice != nil || padMapping != nil || buttonTestOpen)
                         .frame(width: min(width, 520))
                         .frame(maxHeight: .infinity)
                         .background { ShellPalette.background.ignoresSafeArea() }
@@ -183,19 +202,53 @@ public struct LibraryView: View {
                         .accessibilityAddTraits(.isModal)
                         .transition(.move(edge: .trailing).combined(with: .opacity))
                 }
+                if let choice {
+                    Color.black.opacity(0.55).ignoresSafeArea().accessibilityHidden(true)
+                        .onTapGesture { closeChoice() }
+                        .transition(.opacity)
+                    ChoicePickerView(request: choice, pick: pickChoice, close: closeChoice)
+                        .padding(.horizontal, 16).padding(.vertical, 12)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                }
+                if let padMapping {
+                    Color.black.opacity(0.55).ignoresSafeArea().accessibilityHidden(true)
+                        .onTapGesture { closePadMapping() }
+                        .transition(.opacity)
+                    PadMappingCard(title: padMappingTitle(padMapping.gameID), rows: padMappingRows(padMapping.gameID),
+                                   inherited: padMapping.gameID == ControllersView.mappingID ? nil : globalPadMap, openRow: padMapping.row,
+                                   held: padSnapshot?.pressed ?? [],
+                                   open: openPadRow, pick: pickPadValue, backToList: closePadRow, reset: resetPadMapping, close: closePadMapping)
+                        .padding(.horizontal, 16).padding(.vertical, 12)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                }
+                if buttonTestOpen {
+                    Color.black.opacity(0.7).ignoresSafeArea().accessibilityHidden(true)
+                        .onTapGesture { closeButtonTest() }
+                        .transition(.opacity)
+                    ButtonTestView(snapshot: padSnapshot, close: closeButtonTest)
+                        .padding(.horizontal, 16).padding(.vertical, 12)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                }
             }
             .transformPreference(FocusTargets.self) { values in
                 values = values.filter { target in
+                    if buttonTestOpen { return target.id.hasPrefix("test.") }
+                    if padMapping != nil { return target.id.hasPrefix("map.") }
+                    if choice != nil { return target.id.hasPrefix("pick.") }
                     if controllersOpen { return target.id.hasPrefix("ctl.") }
                     if shellSettingsOpen { return target.id.hasPrefix("shs.") }
                     if helpGameID != nil { return target.id.hasPrefix("help.") }
-                    if choice != nil { return target.id.hasPrefix("pick.") }
-                    return !target.id.hasPrefix("ctl.") && !target.id.hasPrefix("help.") && !target.id.hasPrefix("pick.") && !target.id.hasPrefix("shs.")
+                    if deleteGameID != nil { return target.id.hasPrefix("del.") }
+                    return !["ctl.", "help.", "pick.", "shs.", "del.", "map.", "test."].contains { target.id.hasPrefix($0) }
                 }
             }
             .coordinateSpace(name: "shell")
             .background {
-                EdgeSwipeBack(enabled: (settingsOpen || controllersOpen || shellSettingsOpen) && choice == nil && helpGameID == nil,
+                EdgeSwipeBack(enabled: (settingsOpen || controllersOpen || shellSettingsOpen) && choice == nil && helpGameID == nil && deleteGameID == nil
+                                  && padMapping == nil && !buttonTestOpen,
                               changed: { edgeDrag = $0 },
                               ended: { finishEdgeSwipe(travel: $0, velocity: $1, span: controllersOpen || shellSettingsOpen ? min(width, 520) : pane) },
                               cancelled: cancelEdgeSwipe)
@@ -204,15 +257,20 @@ public struct LibraryView: View {
             .onAppear { self.layout = layout }
             .onChange(of: layout) { _, new in self.layout = new }
         }
-        .id(shellLanguage)
         .animation(reduceMotion ? nil : .smooth(duration: 0.35), value: layout)
         .animation(reduceMotion ? nil : .smooth(duration: 0.3), value: settingsOpen)
         .animation(reduceMotion ? nil : .smooth(duration: 0.3), value: controllersOpen)
         .animation(reduceMotion ? nil : .smooth(duration: 0.3), value: shellSettingsOpen)
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: helpGameID)
+        .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: deleteGameID)
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: choice)
+        .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: padMapping)
+        .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: buttonTestOpen)
         .environment(\.shellPickChoice, { request in openChoice(request) })
+        .environment(\.shellOpenPadMapping, { id in openPadMapping(id) })
+        .environment(\.shellOpenButtonTest, { openButtonTest() })
         .environment(\.shellShowHelp, { game in openHelp(game.id) })
+        .environment(\.shellAskDelete, { game in openDelete(game.id) })
         .environment(\.shellFocus, focus)
         .environment(\.shellInputDevice, device)
         .foregroundStyle(.white)
@@ -233,10 +291,6 @@ public struct LibraryView: View {
         .onDisappear { targets.values.removeAll() }
         .onChange(of: games.map(\.id)) { _, ids in
             if !ids.contains(selectedID ?? "") { selectedID = ids.first; settingsOpen = false }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
-            let language = ShellSettingsStore.current.language
-            if language != shellLanguage { shellLanguage = language }
         }
     }
 
@@ -360,11 +414,21 @@ public struct LibraryView: View {
     private func closeShellSettings() { shellSettingsOpen = false; focus.id = "lib.shellSettings" }
     private func openHelp(_ id: String) { returnFocus = focus.id; helpGameID = id; focus.id = "help.done" }
     private func closeHelp() { helpGameID = nil; focus.id = returnFocus }
+    /// The question starts on Cancel, with the saves kept.
+    private func openDelete(_ id: String) { noteTouch(); returnFocus = focus.id; deleteSaves = false; deleteGameID = id; focus.id = "del.cancel" }
+    private func closeDelete() { deleteGameID = nil; focus.id = returnFocus }
+    private func confirmDelete(_ id: String) {
+        let saves = deleteSaves
+        deleteGameID = nil
+        settingsOpen = false
+        focus.id = nil
+        actions.onDeleteGame(id, saves)
+    }
     private func openChoice(_ request: ChoiceRequest) {
         noteTouch()
         returnFocus = focus.id
         choice = request
-        focus.id = "pick.\(request.row.value)"
+        focus.id = "pick." + request.row.value
     }
     private func closeChoice() {
         guard let request = choice else { return }
@@ -380,9 +444,69 @@ public struct LibraryView: View {
         }
         closeChoice()
     }
+    // The mapping card: the shell's map or a game's, a row's options in place of the rows once one is picked.
+    private func padMappingRows(_ id: String) -> [SettingRow] {
+        if id == ControllersView.mappingID { return PadMappingRows.global(globalPadMap) }
+        return games.first { $0.id == id }.map(PadMappingRows.game) ?? []
+    }
+    private func padMappingTitle(_ id: String) -> String {
+        if id == ControllersView.mappingID { return ShellStrings.text("All games") }
+        return games.first { $0.id == id }?.game.title ?? ""
+    }
+    private func openPadMapping(_ id: String) {
+        noteTouch()
+        returnFocus = focus.id
+        padMapping = PadMappingState(gameID: id)
+        // A button held on a controller lights its place on the card's drawing, as in the button test.
+        actions.onButtonTest(true)
+        // The swap's current segment, or the first button while a game's swap is neither on, off nor the shell's.
+        let swap = padMappingRows(id).first
+        focus.id = swap?.value == "custom" ? "map.row.pad.A" : "map.swap." + (swap?.value ?? "")
+    }
+    private func closePadMapping() {
+        guard padMapping != nil else { return }
+        padMapping = nil
+        actions.onButtonTest(false)
+        focus.id = returnFocus
+    }
+    private func openPadRow(_ row: String) {
+        noteTouch()
+        padMapping?.row = row
+        focus.id = "map.opt." + (padMappingRows(padMapping?.gameID ?? "").first { $0.id == row }?.value ?? "")
+    }
+    private func closePadRow() {
+        guard let row = padMapping?.row else { return }
+        padMapping?.row = nil
+        focus.id = "map.row." + row
+    }
+    private func pickPadValue(_ row: String, _ value: String) {
+        noteTouch()
+        guard let id = padMapping?.gameID else { return }
+        if id == ControllersView.mappingID { actions.onGlobalPadMapChange(row, value) } else { actions.onChange(id, row, value) }
+        closePadRow()
+    }
+    private func resetPadMapping() {
+        noteTouch()
+        guard let id = padMapping?.gameID else { return }
+        let global = id == ControllersView.mappingID
+        if global { actions.onGlobalPadMapReset() } else { actions.onChange(id, PadMappingRows.resetID, "") }
+        // Reset is disabled now: the focus goes to the swap, which is back at its default.
+        focus.id = "map.swap." + (global ? "0" : PadMappingRows.follow)
+    }
+    private func openButtonTest() { noteTouch(); buttonTestOpen = true; focus.id = "test.close"; actions.onButtonTest(true) }
+    private func closeButtonTest() {
+        guard buttonTestOpen else { return }
+        buttonTestOpen = false
+        actions.onButtonTest(false)
+        focus.id = "ctl.test"
+    }
     private func back() {
-        if choice != nil { closeChoice() }
+        if buttonTestOpen { closeButtonTest() }
+        else if padMapping?.row != nil { closePadRow() }
+        else if padMapping != nil { closePadMapping() }
+        else if choice != nil { closeChoice() }
         else if helpGameID != nil { closeHelp() }
+        else if deleteGameID != nil { closeDelete() }
         else if controllersOpen { controllersOpen = false; focus.id = "lib.controllers" }
         else if shellSettingsOpen { closeShellSettings() }
         else if settingsOpen { closeSettings() }
@@ -391,6 +515,8 @@ public struct LibraryView: View {
     private func handle(_ action: ShellInput.Action, from source: InputDevice) {
         gate.handling = true
         defer { gate.handling = false }
+        // Every controller button belongs to the button test while it is open: it closes on B held, touch or Escape.
+        if buttonTestOpen, case .controller = source { return }
         if device != source { device = source }
         if touchMode { touchMode = false }
         focus.visible = true
@@ -423,8 +549,11 @@ public struct LibraryView: View {
         if let id = focus.id, id.hasPrefix("lib.tile.") { select(String(id.dropFirst("lib.tile.".count))) }
     }
     private var defaultFocus: String? {
-        if let choice { return "pick.\(choice.row.value)" }
+        if buttonTestOpen { return "test.close" }
+        if let padMapping { return padMapping.row == nil ? "map.close" : "map.back" }
+        if let choice { return "pick." + choice.row.value }
         if helpGameID != nil { return "help.done" }
+        if deleteGameID != nil { return "del.cancel" }
         if controllersOpen { return "ctl.close" }
         if shellSettingsOpen { return "shs.close" }
         if settingsOpen { return "set.back" }

@@ -6,21 +6,39 @@ import ShellUI
 @Suite struct ShellSettingsStoreTests {
     private func shell() -> ShellSettingsStore { ShellSettingsStore(defaults: UserDefaults(suiteName: "t-shell-\(UUID().uuidString)")!) }
 
+    @Test func padMapPersistsAndResetsWithoutChangingOtherSettings() {
+        let store = shell()
+        #expect(store.padMap.envValue == nil)
+        store.storePerformanceHUD(true)
+        store.setPadSwapAB(true)
+        store.setPadButton("X", to: "none")
+        let again = ShellSettingsStore(defaults: store.defaults)
+        #expect(again.padMap.envValue == "A=B,B=A,X=none")
+        #expect(again.gameDefaults["DM_PAD_MAP"] == nil)
+        store.setPadSwapAB(false)
+        #expect(again.padMap.envValue == "X=none")
+        store.setPadButton("X", to: "X")
+        #expect(again.padMap.envValue == nil)
+        store.setPadButton("A", to: "Y")
+        store.resetPadMap()
+        #expect(again.padMap.entries.isEmpty && again.performanceHUD == true)
+        #expect(store.defaults.object(forKey: ShellSettingsStore.padMapKey) == nil)
+    }
+
     @Test func theOverlayChoiceIsNilUntilThePlayerMakesOne() {
         let store = shell()
-        #expect(store.performanceHUD == nil && store.gameDefaults.isEmpty && store.language == "")
+        #expect(store.performanceHUD == nil && store.gameDefaults.isEmpty)
         store.storePerformanceHUD(true)
         #expect(store.performanceHUD == true && store.gameDefaults == ["DM_METAL_HUD": "1"])
         store.storePerformanceHUD(false)
         #expect(store.gameDefaults == ["DM_METAL_HUD": "0"])
     }
 
-    @Test func theFolderNamesAndTheLanguageAreKept() {
+    @Test func theFolderNamesAreKept() {
         let store = shell()
         store.storeDataFolderName("Switch")
         store.storeCloudSavesFolderName("Game Saves")
-        store.storeLanguage("zh-Hans")
-        #expect(store.dataFolderName == "Switch" && store.cloudSavesFolderName == "Game Saves" && store.language == "zh-Hans")
+        #expect(store.dataFolderName == "Switch" && store.cloudSavesFolderName == "Game Saves")
     }
 
     @Test func aGameChoiceWinsTheShellDefaultWinsTheBuiltInOne() throws {

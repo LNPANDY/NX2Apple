@@ -19,7 +19,7 @@
 # Time: the first run builds zstd, glslang, spirv-cross and downloads Python and xcodegen (the slow part). They are cached in
 # ~/Library/Caches/NX2Apple-try-local, keyed by the hash of bundle_tools.sh and bundled-python/requirements.txt (its pins). The next
 # run copies them. The icon is cached the same way, by AppIcon.icon and the Xcode version. The icon needs an Xcode whose actool reads
-# AppIcon.icon (the workflow uses Xcode 27.1). If actool fails here, the app gets the generic icon and the script says so.
+# AppIcon.icon (the workflow uses Xcode 27.2). If actool fails here, the app gets the generic icon and the script says so.
 # The elapsed time of each step and the total are printed.
 #
 # Needs an Apple silicon Mac with Xcode (swift, actool), cmake and python3. The test app has the bundle id of the installed app
@@ -40,8 +40,8 @@ cache_key() {   # the bundled tools depend on the script, its pins file and the 
 }
 app_version() {
     local src
-    src=$(sed -n 's/.*static let appVersion = "\(.*\)".*/\1/p' "$ROOT/frontend/Sources/NSPortBuilder/ContentView.swift")
-    [ -n "$src" ] || die "no appVersion in ContentView.swift"
+    src=$(sed -n 's/.*static let appVersion = "\(.*\)".*/\1/p' "$ROOT/frontend/Sources/NXModel/AppUpdateStore.swift")
+    [ -n "$src" ] || die "no appVersion in AppUpdateStore.swift"
     echo "$src-local"
 }
 
@@ -124,7 +124,7 @@ else
         && [ -f "$out/Assets.car" ] && [ -f "$out/AppIcon.icns" ]; then
         mkdir -p "$icon_cache"; cp "$out/Assets.car" "$out/AppIcon.icns" "$icon_cache/"; have_icon=1
     else
-        note "actool ($xcodev) could not compile AppIcon.icon, the app gets the generic icon. The workflow uses Xcode 27.1. Last lines:"
+        note "actool ($xcodev) could not compile AppIcon.icon, the app gets the generic icon. The workflow uses Xcode 27.2. Last lines:"
         tail -5 "$work/actool.log" | sed 's/^/    /' >&2
     fi
 fi
@@ -132,13 +132,14 @@ done_step
 
 step "assemble the bundle (mirrors the step 'Assemble the bundle' of build-mac-app.yml)"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
-cp frontend/.build/release/NSPortBuilder "$app/Contents/MacOS/NSPortBuilder"
+cp frontend/.build/release/NX2Apple "$app/Contents/MacOS/NSPortBuilder"
 if [ "$have_icon" = 1 ]; then cp "$icon_cache/Assets.car" "$icon_cache/AppIcon.icns" "$app/Contents/Resources/"; fi
 ditto "$tools_cache/res/tools" "$app/Contents/Resources/tools"
 ditto "$tools_cache/res/python" "$app/Contents/Resources/python"
 ditto "$work/engine-tree" "$app/Contents/Resources/engine"
 frontend/tools/sign_engine_tree.sh "$app/Contents/Resources/engine" "$work/engine-tree"
 rsync -a --exclude .build --exclude .swiftpm frontend-ios/ "$app/Contents/Resources/frontend-ios/"
+rsync -a frontend/l10n/ "$app/Contents/Resources/l10n/"
 cat > "$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -154,7 +155,7 @@ cat > "$app/Contents/Info.plist" <<PLIST
   <key>CFBundleShortVersionString</key><string>$V</string>
   <key>CFBundleVersion</key><string>$V</string>
   <key>CFBundleDevelopmentRegion</key><string>en</string>
-  <key>CFBundleLocalizations</key><array><string>en</string><string>zh-Hans</string><string>sv</string><string>de</string><string>fr</string></array>
+  <key>CFBundleLocalizations</key><array><string>en</string><string>zh-Hans</string><string>sv</string><string>de</string><string>fr</string><string>it</string></array>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
   <key>NSHighResolutionCapable</key><true/>
 </dict>
@@ -173,6 +174,7 @@ cmp "$E/.engine-id" "$work/engine-tree/.engine-id"
 cmp "$E/.upstream-ref" .upstream-ref
 test -f "$E/scripts/build_ipa_from_nsp.py" && test -f "$E/dm/tools/romfs_image.py" && test -f "$E/dm/fork_patches.txt"
 test -f "$app/Contents/Resources/frontend-ios/Package.swift" && test -d "$app/Contents/Resources/frontend-ios/AppIcon.icon"
+diff -r frontend/l10n "$app/Contents/Resources/l10n"
 test ! -e "$E/.git"
 frontend/tools/sign_engine_tree.sh --check "$E" "$work/engine-tree"
 done_step
