@@ -323,7 +323,8 @@ def build_env(base: dict[str, str] | None = None, python_exe: str | None = None)
         p = tc.find_exe(name)
         if p:
             parts.append(str(p.parent))
-            if name == 'spirv-cross': env.setdefault('SPIRV_CROSS', str(p))
+            if name == 'spirv-cross':
+                env.setdefault('SPIRV_CROSS', str(p))
     # tc.dotnet_dir() first: it knows about the SDK the app installed for itself, which is not on
     # PATH and not in Program Files. `which` alone missed it, so `dotnet build` and the shader
     # translator failed on a machine that had just installed .NET through this app.

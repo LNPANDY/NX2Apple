@@ -441,6 +441,58 @@ class InfoPlistTest(unittest.TestCase):
         self.assertNotIn('CFBundleIcons', p)
 
 
+class RomfsPackTest(unittest.TestCase):
+    """The RomFS can be a folder or an image file: marker check, resource name and pack skips."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+        tools = self.root / 'repo' / 'dm' / 'tools'
+        tools.mkdir(parents=True)
+        # A stand-in for the engine's dm/tools/romfs.py: an image file is a text list of its entries.
+        (tools / 'romfs.py').write_text(
+            'from pathlib import Path as _P\n'
+            'class Path:\n'
+            '    def __init__(self, p):\n'
+            '        self.p = _P(p); self.rel = ""\n'
+            '    def __truediv__(self, n):\n'
+            '        o = Path(self.p); o.rel = n; return o\n'
+            '    def exists(self):\n'
+            '        if self.p.is_file():\n'
+            '            return self.rel in self.p.read_text().split()\n'
+            '        return (self.p / self.rel).exists()\n', encoding='utf-8')
+        self.repo = self.root / 'repo'
+        self._path = list(sys.path)
+        self.addCleanup(lambda: (sys.path.__setitem__(slice(None), self._path), sys.modules.pop('romfs', None)))
+        sys.modules.pop('romfs', None)
+
+    def test_marker_in_image_file(self):
+        img = self.root / 'RomFS.img'
+        img.write_text('graph/a.bin')
+        self.assertTrue(build_app.romfs_has(self.repo, img, 'graph/a.bin'))
+        self.assertFalse(build_app.romfs_has(self.repo, img, 'graph/b.bin'))
+
+    def test_marker_in_folder(self):
+        d = self.root / 'RomFS'
+        (d / 'graph').mkdir(parents=True)
+        (d / 'graph' / 'a.bin').write_bytes(b'')
+        self.assertTrue(build_app.romfs_has(self.repo, d, 'graph/a.bin'))
+        self.assertFalse(build_app.romfs_has(self.repo, d, 'graph/b.bin'))
+
+    def test_resource_name(self):
+        img = self.root / 'RomFS.img'
+        img.write_text('x')
+        d = self.root / 'RomFS'
+        d.mkdir()
+        self.assertEqual(build_app.romfs_resource(img), 'romfs.img')
+        self.assertEqual(build_app.romfs_resource(d), 'romfs')
+
+    def test_pack_skips_both_names(self):
+        self.assertIn('Payload/DmIOS.app/romfs', build_app.PACK_SKIPS)
+        self.assertIn('Payload/DmIOS.app/romfs.img', build_app.PACK_SKIPS)
+
+
 class IpaModesTest(unittest.TestCase):
     """The zip mode fixer, which stands in for `pack_ipa.py --exec` (an upstream file we
     must not edit)."""
