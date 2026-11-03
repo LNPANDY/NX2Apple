@@ -134,4 +134,14 @@ final class LaunchOptionsTests: IsolatedDefaultsTestCase {
         XCTAssertFalse(segmented("DM_X", ["One", "Two", "Seven tens"]), "three segments are narrower than two")
         XCTAssertFalse(segmented("DM_X", ["A", "B", "C", "D"]), "four or more are a menu")
     }
+
+    @MainActor func testRowResetButtonAccessibilityLabelIncludesSettingName() {
+        let loc = LauncherStores(defaults: testDefaults).localizer
+        let prefix = loc.t("launch.rowReset")
+        let settingLabel = "Render scale"
+        let fullLabel = prefix + ": " + settingLabel
+        XCTAssertTrue(fullLabel.contains(prefix))
+        XCTAssertTrue(fullLabel.contains(settingLabel))
+        XCTAssertFalse(prefix.isEmpty)
+    }
 }

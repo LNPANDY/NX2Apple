@@ -246,7 +246,7 @@ struct LaunchOptionsView: View {
                         }
                         .buttonStyle(.plain)
                         .help(loc.t("launch.rowReset"))
-                        .accessibilityLabel(loc.t("launch.rowReset"))
+                        .accessibilityLabel(loc.t("launch.rowReset") + ": " + label(s))
                     }
                 }
                 .frame(width: 16)
