@@ -62,6 +62,51 @@ def rmtree(path: Path) -> None:
 
 # ---------------------------------------------------------------- git route
 
+def materialize_symlinks(repo: Path, sub: str, log: Callable[[str], None]) -> int:
+    """Copy the targets of the SDK's git symlinks over their checked-out text stubs.
+
+    The repository stores the SDK's internal aliases as git symlinks (`usr/lib/libSystem.tbd` →
+    `libSystem.B.tbd`; about 300 `.tbd` files). macOS and Linux check those out as symlinks;
+    Windows checks each one out as a small text file holding the target's path (real symlinks
+    need Developer Mode). `ld64.lld` then opens `libSystem.tbd`, finds no `--- !tapi-tbd` in it,
+    and refuses: "libSystem.tbd: unhandled file type", which fails the link probe four ways and
+    no build starts. Copying each target over its stub makes the SDK link; the files are small.
+
+    `repo` is the clone (its `.git` still exists at this point), `sub` the SDK folder inside it
+    ("" = the whole repo). Returns how many stubs were replaced. Real symlinks are left alone.
+    """
+    args = ['ls-files', '-s', '-z']
+    if sub:
+        args += ['--', sub]
+    try:
+        r = subprocess.run(['git', '-C', str(repo), *args], capture_output=True, **tc.no_window())
+    except OSError:
+        return 0
+    if r.returncode:
+        return 0
+    fixed = 0
+    for entry in r.stdout.split(b'\x00'):
+        if not entry:
+            continue
+        meta, _, rel = entry.partition(b'\t')
+        if meta.split(b' ')[0] != b'120000':
+            continue
+        p = repo / os.fsdecode(rel)
+        if not p.is_file() or p.is_symlink():
+            continue
+        target = p.read_text(encoding='utf-8', errors='replace').strip()
+        real = (p.parent / target).resolve()
+        if not real.is_file():
+            log(f'    {rel.decode("utf-8", "replace")}: its target {target!r} is missing, left as it is')
+            continue
+        p.write_bytes(real.read_bytes())
+        fixed += 1
+    if fixed:
+        log(f'    materialized {fixed} symlink stubs into real files (Windows checkout of git symlinks)')
+    return fixed
+
+
+
 def clone_sdk(version: str = tc.SDK_PINNED, dest: Path | None = None,
               log: Callable[[str], None] | None = None) -> Path:
     """Sparse-clone one SDK out of `xybp888/iOS-SDKs` and return the folder.
@@ -148,6 +193,9 @@ def clone_sdk(version: str = tc.SDK_PINNED, dest: Path | None = None,
     src = work / version
     if not tc.is_sdk_dir(src):
         raise SdkError(f'{tc.SDK_REPO} has no usable {version}: pick another version, or use a .xip')
+    # The .git folder is deleted with `work` after the move, so this has to happen here, while
+    # the index can still tell symlinks from the text files a Windows checkout left behind.
+    materialize_symlinks(work, version, log=log)
     if target.exists():
         shutil.rmtree(target, ignore_errors=True)
     shutil.move(str(src), str(target))
