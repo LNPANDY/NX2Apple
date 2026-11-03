@@ -7,7 +7,7 @@ import NXModel
 @testable import NXLauncher
 
 /// Visual QA of LNPANDY/NX2Apple#416 (matched by --filter testRenderExportStatesForVisualQA).
-final class ShellExportCaptureTests: XCTestCase {
+final class ShellExportCaptureTests: IsolatedDefaultsTestCase {
     /// The Install card in every state of the export, for the pull request's screenshots: ready, exported, sending, done, app not found,
     /// refused, several apps, drive, copying, copied, FAT32 and the drive before an export. Also the card with the install flow, which the segmented switch changed.
     @MainActor func testRenderExportStatesForVisualQA() throws {
@@ -16,8 +16,6 @@ final class ShellExportCaptureTests: XCTestCase {
         let fm = FileManager.default
         try fm.createDirectory(at: output, withIntermediateDirectories: true)
         let lang = ProcessInfo.processInfo.environment["NX_CAPTURE_LANG"].flatMap { Lang.find($0) } ?? .en
-        let saved = ["buildTarget", "installDevice", "exportIPA", "exportOneGame", "sendWhere", "driveFolder", "shellRoot"].map { ($0, UserDefaults.standard.object(forKey: $0)) }
-        defer { for (key, value) in saved { UserDefaults.standard.set(value, forKey: key) } }
         let shellFolder = fm.temporaryDirectory.appendingPathComponent("NX2Apple-capture-\(UUID().uuidString)")
         try fm.createDirectory(at: shellFolder, withIntermediateDirectories: true)
         let ipa = shellFolder.appendingPathComponent("NX2Apple.ipa")   // the name an export writes
@@ -27,7 +25,7 @@ final class ShellExportCaptureTests: XCTestCase {
         try handle.close()
         defer { try? fm.removeItem(at: shellFolder) }
 
-        let stores = LauncherStores(); let model = stores.build
+        let stores = LauncherStores(defaults: testDefaults); let model = stores.build
         stores.localizer.lang = lang
         model.target = "ios"
         model.slots[0].paths = ["/Games/Super Mario Odyssey [0100000000010000].nsp"]
@@ -72,6 +70,8 @@ final class ShellExportCaptureTests: XCTestCase {
         try shot("5-app-not-found", card())
         model.send = .refused(detail: "ERROR: Failed to copy: the app does not allow access to its data container (get-task-allow). (com.apple.dt.CoreDeviceError error 7)")
         try shot("6-refused", card())
+        model.finderShown = true   // after Copy with Finder (#491)
+        try shot("6a-refused-finder", card())
         model.send = .chooseApp([InstalledApp(bundle: "org.nxnative.shell.ABCDE12345", name: "NX2Apple"),
                                  InstalledApp(bundle: "org.nxnative.shell", name: "NX2Apple")])
         try shot("6b-choose-app", card())

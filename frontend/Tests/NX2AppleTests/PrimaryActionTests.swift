@@ -3,7 +3,7 @@ import XCTest
 @testable import NXCore
 @testable import NXLauncher
 
-final class PrimaryActionTests: XCTestCase {
+final class PrimaryActionTests: IsolatedDefaultsTestCase {
     private var temporary: URL!
     private let titleID = "0100535012974000"
 

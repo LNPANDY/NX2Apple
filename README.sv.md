@@ -134,6 +134,10 @@ språkraden fanns behöver ett ombygge för att få den. På iPhone läggs samma
 Den filen gäller alla spel i den delade appen. För en rad som hör till ett enda spel (till exempel en
 mods `DM_ROMFS_OVERLAY`), skriv den i `Documents/games/<title ID>/env.txt`. Där båda filerna sätter samma
 nyckel gäller spelets fil.
+En mod är enklare: lägg dess mapp i `Documents/games/<title ID>/mods/<modnamn>/` (RomFS-filerna i en mapp `romfs/`
+i den, eller i mappen själv). Skalet sätter då `DM_ROMFS_OVERLAY` bara för det spelet. Med flera mods gäller den
+som kommer först efter namn där de ersätter samma fil. Är samma nyckel satt flera gånger är ordningen: skalets egna
+inställningar, spelets `env.txt`, spelets mapp `mods/`, den delade `Documents/env.txt`.
 
 **Sparfiler och loggar.** Ett Mac-spel i en biblioteksmapp har sina sparfiler och sin logg bredvid appen
 (`log/<title ID>.log`). Annars ligger de i `~/Library/Application Support/nxnative/<title ID>/` och

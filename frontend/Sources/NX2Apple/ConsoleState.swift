@@ -99,12 +99,14 @@ enum ConsoleStarting: Equatable {
 }
 
 enum ConsoleSheet: Equatable {
-    case options(String), controllers, explanation(String)
+    /// homeButtonHint: the system keeps the controller's Home button, so a game cannot be quit with it (#336, shown once)
+    case options(String), controllers, explanation(String), homeButtonHint
     var scope: String {
         switch self {
         case .options: return "console.options"
         case .controllers: return "console.controllers"
         case .explanation: return "console.explanation"
+        case .homeButtonHint: return "console.homeHint"
         }
     }
 }
@@ -150,6 +152,11 @@ struct ConsoleState {
     mutating func openControllers() {
         guard !exited, startingGameID == nil, presentedSheet != .controllers else { return }
         sheets.append(.controllers)
+    }
+    /// The Home button hint (HomeButtonHint.swift), over the home screen after a game quit.
+    mutating func showHomeButtonHint() {
+        guard !exited, startingGameID == nil, presentedSheet != .homeButtonHint else { return }
+        sheets.append(.homeButtonHint)
     }
     mutating func back() {
         guard !exited else { return }
@@ -197,9 +204,14 @@ struct ConsoleState {
     func returnFromGame()
     /// A press from a controller: true when the driver used it (player assignment), so it does not also navigate.
     func consumePress(controllerID: String, isBack: Bool) -> Bool
+    /// The Home button hint's button: opens the system's Home button settings and closes the hint.
+    func openHomeButtonSettings()
 }
 
-extension ConsoleDriver { func consumePress(controllerID: String, isBack: Bool) -> Bool { false } }
+extension ConsoleDriver {
+    func consumePress(controllerID: String, isBack: Bool) -> Bool { false }
+    func openHomeButtonSettings() { back() }
+}
 
 /// Shared choice/range/toggle stepping for mouse, d-pad and keyboard. No settings store is touched.
 enum ConsoleOption {

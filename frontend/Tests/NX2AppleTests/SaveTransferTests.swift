@@ -5,7 +5,7 @@ import XCTest
 
 /// Issue #66: the save copied between the Mac and a device. devicectl is a stand-in that serves a folder as the app's data
 /// container, so no test reaches a device, and the Mac side is a temporary folder, never the real Application Support.
-final class SaveTransferTests: XCTestCase {
+final class SaveTransferTests: IsolatedDefaultsTestCase {
     private var temporary: URL!
     private let titleID = "0100535012974000"
     private let fm = FileManager.default

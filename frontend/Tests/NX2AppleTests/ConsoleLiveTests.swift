@@ -5,7 +5,7 @@ import SwiftUI
 @testable import NXLauncher
 
 /// The live console driver over a real GameLibrary in a temporary folder, with fake controllers and a fake launch call.
-@MainActor final class ConsoleLiveTests: XCTestCase {
+@MainActor final class ConsoleLiveTests: IsolatedDefaultsTestCase {
     private var temporary: URL!
     private let titleID = "01001A9012345000"
     private let bundleID = "org.nxnative.consolelivetests"
@@ -82,7 +82,7 @@ import SwiftUI
         if let main = NSScreen.main { XCTAssertEqual(launches.first?.environment["DM_SCREEN"], GameStart.displayID(of: main).map(String.init), "the game opens on the launcher's display") }
         XCTAssertEqual(launches.first?.environment["DM_FULLSCREEN"], "1", "console mode plays fullscreen whatever Display says")
         XCTAssertEqual(launches.first?.game.titleID, titleID)
-        let expected = launches.first.map { GameStart.environment(for: $0.game, library: GameLibrary(file: temporary.appendingPathComponent("other.json")), controls: layout, repo: "", labels: { $0 }, fullscreen: true) }
+        let expected = launches.first.map { GameStart.environment(for: $0.game, library: GameLibrary(file: temporary.appendingPathComponent("other.json")), controls: layout, repo: "", labels: { L10n.string($0, .en) }, fullscreen: true) }
         XCTAssertEqual(launches.first?.environment, expected, "the same function the desktop Play uses, with the console's fullscreen")
     }
 
@@ -126,6 +126,51 @@ import SwiftUI
         XCTAssertNil(driver.state.startingGameID)
         XCTAssertFalse(driver.state.exited)
         XCTAssertEqual(driver.state.focusedGameID, id, "the selected game is kept")
+    }
+
+    /// #336: a game that found the system keeping the Home button for itself gets the hint once, after it quit, in console mode.
+    func testHomeButtonHintShowsOnceWhenTheSystemKeepsHome() async throws {
+        let (driver, _, _) = try makeDriver()
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "ConsoleLiveTests-home-" + UUID().uuidString))
+        var reported: String? = "system", opened = 0
+        driver.homeButtonReported = { _ in reported }
+        driver.homeHintDefaults = defaults
+        driver.isMacOS27 = true
+        driver.openHomeSettings = { opened += 1 }
+        let id = try XCTUnwrap(driver.state.games.first?.id)
+        func playAndQuit() async throws {
+            driver.play(id)
+            for _ in 0..<50 where driver.state.starting != .opening { try await Task.sleep(nanoseconds: 20_000_000) }
+            driver.gameDidTerminate(pid: 4242)
+        }
+        try await playAndQuit()
+        XCTAssertEqual(driver.state.presentedSheet, .homeButtonHint)
+        XCTAssertTrue(defaults.bool(forKey: HomeButtonHint.shownKey))
+        driver.openHomeButtonSettings()
+        XCTAssertEqual(opened, 1, "the button opens the setting")
+        XCTAssertNil(driver.state.presentedSheet, "and closes the hint")
+        try await playAndQuit()
+        XCTAssertNil(driver.state.presentedSheet, "once only")
+
+        defaults.removeObject(forKey: HomeButtonHint.shownKey)
+        reported = "app"
+        try await playAndQuit()
+        XCTAssertNil(driver.state.presentedSheet, "the app decides: no hint")
+        reported = nil
+        try await playAndQuit()
+        XCTAssertNil(driver.state.presentedSheet, "an older game or macOS 26 wrote nothing: no hint")
+        reported = "system"; driver.isMacOS27 = false
+        try await playAndQuit()
+        XCTAssertNil(driver.state.presentedSheet, "before macOS 27 the Home button does not quit, so there is nothing to explain")
+    }
+
+    /// #336: the game's quit prompt gets its texts in the launcher's language, with the game's name.
+    func testPlayPassesTheHomeQuitTexts() throws {
+        var launches: [Launch] = []
+        let (driver, _, _) = try makeDriver { launches.append($0) }
+        driver.play(try XCTUnwrap(driver.state.games.first?.id))
+        let text = try XCTUnwrap(launches.first?.environment["DM_HOME_QUIT_TEXT"])
+        XCTAssertEqual(text.components(separatedBy: "\n"), ["Keep holding to quit", "Quit Hades?", "Unsaved progress will be lost.", "Quit", "Cancel"])
     }
 
     func testOptionsRoundTripThroughSavedChoices() throws {

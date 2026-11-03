@@ -6,7 +6,7 @@ import NXModel
 @testable import NXLauncher
 
 /// Files dropped on the Builds page (issue #68), sorted by the same classification as Choose game folder.
-@MainActor final class DropFilesTests: XCTestCase {
+@MainActor final class DropFilesTests: IsolatedDefaultsTestCase {
     private var temporary: URL!
 
     override func setUpWithError() throws {
@@ -26,7 +26,7 @@ import NXModel
     }
 
     func testPickedFilesThatDoNotFitTheRowAreNotTaken() throws {
-        let mStores = LauncherStores(); let m = mStores.build
+        let mStores = LauncherStores(defaults: testDefaults); let m = mStores.build
         let base = try file("01007EF00011E000_v0_420d1c5034ab.nsp")
         let update = try file("01007EF00011E800_v1114112_038ff9df0888.nsp")
         let dlc1 = try file("01007EF00011F001_v196608_8a46aae731b8.nsp")
@@ -63,7 +63,7 @@ import NXModel
         let new = try file("01007EF00011E800_v1114112_038ff9df0888.nsp", in: "reporter")
         _ = try file("01007EF00011F001_v196608_8a46aae731b8.nsp", in: "reporter")
         _ = try file("01007EF00011F002_v196608_193e5731baf2.nsp", in: "reporter")
-        let mStores = LauncherStores(); let m = mStores.build
+        let mStores = LauncherStores(defaults: testDefaults); let m = mStores.build
         m.lang = .en
         m.scan(folder: folder.path)
         XCTAssertEqual(m.updatePath, new)
@@ -72,11 +72,11 @@ import NXModel
         XCTAssertTrue(m.slot("update").summary(m.t).contains("the newest of 2"))
         XCTAssertFalse(m.slot("update").note.contains(";"))
         XCTAssertTrue(m.slot("dlc").summary(m.t).hasPrefix("2 files"))
-        XCTAssertTrue(LauncherStores().build.slot("dlc").summary(m.t).contains("several files"))
+        XCTAssertTrue(LauncherStores(defaults: testDefaults).build.slot("dlc").summary(m.t).contains("several files"))
     }
 
     func testDroppedFilesJoinWhatIsAlreadyChosen() throws {
-        let mStores = LauncherStores(); let m = mStores.build
+        let mStores = LauncherStores(defaults: testDefaults); let m = mStores.build
         let base = try file("Game [0100000000010000].nsp", in: "base")
         let dlc1 = try file("Game DLC [0100000000011001].nsp", in: "dlc")
         m.take(dropped: [base, dlc1])
@@ -96,7 +96,7 @@ import NXModel
         m.take(dropped: [try file("cover.jpg")])
         XCTAssertEqual(m.basePath, base)
         XCTAssertEqual(m.slot("base").problem, "")
-        let emptyStores = LauncherStores(); let empty = emptyStores.build
+        let emptyStores = LauncherStores(defaults: testDefaults); let empty = emptyStores.build
         empty.take(dropped: [try file("notes.txt")])
         XCTAssertEqual(empty.slot("base").problem, "data.noNsp")
     }
@@ -107,7 +107,7 @@ import NXModel
         let keys = try file("prod.keys", in: "Game")
         try file("Game [0100000000010800][v999999].nsp", in: "Game/0100000000010000_build")   // the pipeline's own folder is pruned
         let folder = temporary.appendingPathComponent("Game").path
-        let mStores = LauncherStores(); let m = mStores.build
+        let mStores = LauncherStores(defaults: testDefaults); let m = mStores.build
         m.take(dropped: [folder])
         XCTAssertEqual(m.gameDir, folder)
         XCTAssertEqual(m.basePath, base)
@@ -115,7 +115,7 @@ import NXModel
         XCTAssertEqual(m.keysPath, keys)
 
         // a folder with a file beside it: the folder's files and the file, added to what is chosen
-        let otherStores = LauncherStores(); let other = otherStores.build
+        let otherStores = LauncherStores(defaults: testDefaults); let other = otherStores.build
         let dlc = try file("Game DLC [0100000000011001].nsp", in: "elsewhere")
         other.take(dropped: [folder, dlc])
         XCTAssertEqual(other.basePath, base)
@@ -130,9 +130,7 @@ import NXModel
         let output = URL(fileURLWithPath: directory)
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         NSApplication.shared.setActivationPolicy(.accessory)
-        let oldOutput = UserDefaults.standard.object(forKey: "buildOutputDirectory")
-        defer { UserDefaults.standard.set(oldOutput, forKey: "buildOutputDirectory") }
-        let modelStores = LauncherStores(); let model = modelStores.build
+        let modelStores = LauncherStores(defaults: testDefaults); let model = modelStores.build
         model.lang = CaptureLanguage.current(.en)
         model.outDir = temporary.path
         MainActor.assumeIsolated { modelStores.dependencies.checked = true }

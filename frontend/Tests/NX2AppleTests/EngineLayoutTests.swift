@@ -7,7 +7,7 @@ import NXModel
 /// #214: which engine the launcher builds from. A checkout of this repository builds from its engine/ (synced first when it is stale or
 /// missing, there is no committed tree), a folder that is an engine tree itself (an installed release's engine) from that folder.
 /// The stamp key matches tools/engine.py's.
-@MainActor final class EngineLayoutTests: XCTestCase {
+@MainActor final class EngineLayoutTests: IsolatedDefaultsTestCase {
     private var root: URL!
     private var repo: String { root.path }
     private let pin = String(repeating: "a", count: 40)
@@ -111,7 +111,7 @@ import NXModel
     private func model(engineScript script: String) throws -> LauncherStores {
         try newLayout()
         try touch("tools/engine.py", script)
-        let mStores = LauncherStores()
+        let mStores = LauncherStores(defaults: testDefaults)
         mStores.repo.path = repo
         mStores.dependencies.pythonPath = "/usr/bin/python3"
         return mStores

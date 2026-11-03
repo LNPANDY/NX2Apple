@@ -6,7 +6,7 @@ import Combine
 import NXModel
 @testable import NXLauncher
 
-@MainActor final class ConsoleTests: XCTestCase {
+@MainActor final class ConsoleTests: IsolatedDefaultsTestCase {
     /// The games ready on this Mac come first. The rest follow in their own order, each with its status.
     func testReadyGamesComeFirst() {
         func game(_ id: String, _ status: ConsoleGame.Status) -> ConsoleGame {
@@ -207,7 +207,7 @@ import NXModel
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         for lang in CaptureLanguage.all([.en, .zh]) {
             for width: CGFloat in [900, 1280] {
-                let modelStores = LauncherStores(); let model = modelStores.build
+                let modelStores = LauncherStores(defaults: testDefaults); let model = modelStores.build
                 model.lang = lang
                 let library = GameLibrary(file: output.appendingPathComponent("unused-library.json"))
                 let driver = MockConsoleDriver(scenario: .controllersMixed, lang: lang, animated: false)
@@ -240,7 +240,7 @@ import NXModel
         let sizes: [(String, CGFloat, CGFloat)] = [("tv", 1920, 1080), ("mac", 1280, 800), ("compact", 390, 844)]
         for lang in CaptureLanguage.all([.en, .zh]) {
             for (name, width, height) in sizes {
-                for screen in ["full", "few", "empty", "controllers", "controllersMixed", "mixedHome", "controllerDesktop", "connectedToast", "starting", "options", "needsBuild", "needsData", "broken", "desktop", "prompt"] {
+                for screen in ["full", "few", "empty", "controllers", "controllersMixed", "mixedHome", "controllerDesktop", "connectedToast", "starting", "options", "needsBuild", "needsData", "broken", "desktop", "prompt", "homeHint"] {
                     let driver = MockConsoleDriver(scenario: MockConsoleDriver.Scenario(rawValue: screen) ?? (screen == "mixedHome" || screen == "controllerDesktop" || screen == "connectedToast" ? .controllersMixed : .full), lang: lang, animated: false)
                     switch screen {
                     case "mixedHome": driver.back()
@@ -250,6 +250,7 @@ import NXModel
                     case "needsData": driver.focus("demo.5"); driver.play("demo.5")
                     case "broken": driver.focus("demo.7"); driver.play("demo.7")
                     case "desktop": driver.exitToDesktop()
+                    case "homeHint": driver.state.showHomeButtonHint()
                     default: break
                     }
                     let view: AnyView

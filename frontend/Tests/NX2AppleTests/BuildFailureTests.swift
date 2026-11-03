@@ -7,7 +7,7 @@ import NXModel
 
 /// The script's early stops, turned into hints. The fixture holds the real message of every pattern, copied from the script
 /// (Tests/Fixtures/build_failures.json, shared with the Qt front end's test).
-@MainActor final class BuildFailureTests: XCTestCase {
+@MainActor final class BuildFailureTests: IsolatedDefaultsTestCase {
     struct Fixture: Decodable {
         let id: String, kind: String, source: String, fragment: String, text: String
         let game: String?, folder: String?, gb: String?
@@ -135,7 +135,7 @@ import NXModel
     }
 
     func testNothingIsArmedUntilTheConfirmation() {
-        let mStores = LauncherStores(); let m = mStores.build
+        let mStores = LauncherStores(defaults: testDefaults); let m = mStores.build
         m.failure = BuildFailure(kind: .otherMetal, gameName: nil)
         m.requestBuildAnyway()
         XCTAssertEqual(m.confirmingOverride, .otherMetal)
@@ -147,7 +147,7 @@ import NXModel
     }
 
     func testAConfirmedOverrideServesOneBuildOnly() {
-        let mStores = LauncherStores(); let m = mStores.build
+        let mStores = LauncherStores(defaults: testDefaults); let m = mStores.build
         m.target = BuildTarget.mac   // the iPhone / iPad target stops first, at the device check
         m.failure = BuildFailure(kind: .damagedNSP, gameName: nil)
         m.requestBuildAnyway()
@@ -159,7 +159,7 @@ import NXModel
     }
 
     func testAStopWithoutAnOverrideCannotBeBuiltAnyway() {
-        let mStores = LauncherStores(); let m = mStores.build
+        let mStores = LauncherStores(defaults: testDefaults); let m = mStores.build
         for k in BuildFailureKind.allCases where k.overrideFlag == nil {
             m.failure = BuildFailure(kind: k, gameName: nil)
             m.requestBuildAnyway()
@@ -168,7 +168,7 @@ import NXModel
     }
 
     func testAFailedBuildShowsTheHintInsteadOfTheLastLine() {
-        let mStores = LauncherStores(); let m = mStores.build
+        let mStores = LauncherStores(defaults: testDefaults); let m = mStores.build
         m.logTail = "[RED] the iOS SDK is not installed: install the iOS platform in Xcode\n"
         m.noteFailure()
         XCTAssertEqual(m.failure?.kind, .iosSDK)
@@ -254,7 +254,7 @@ import NXModel
     }
 
     @MainActor func testTheMetalRowsDetailReadsInTheLauncher() {
-        let mStores = LauncherStores(); let m = mStores.build
+        let mStores = LauncherStores(defaults: testDefaults); let m = mStores.build
         let dep = DependencyCheck.metalDep(runs: true, lock: Self.lock, now: ["macosx": Self.other], needsIOS: false)
         XCTAssertTrue(mStores.dependencies.detail(of: dep).contains(Self.other), mStores.dependencies.detail(of: dep))
         XCTAssertTrue(mStores.dependencies.detail(of: dep).contains(Self.pinned), mStores.dependencies.detail(of: dep))
@@ -284,7 +284,7 @@ import NXModel
                                    ("hint-other-metal-zh", .otherMetal, .zh)]
                                   + [BuildFailureKind.keys, .severalGames, .noTitleID, .driveMissing, .diskFull, .teamTaken, .noSigningAccount, .deviceTransfer].flatMap { k in
                                       [("row-\(k.rawValue)", k, Lang.en), ("row-\(k.rawValue)-zh", k, Lang.zh)] } {
-            let mStores = LauncherStores(); let m = mStores.build
+            let mStores = LauncherStores(defaults: testDefaults); let m = mStores.build
             m.lang = CaptureLanguage.current(lang)
             m.failure = BuildFailure(kind: kind, gameName: nil, detail: kind == .diskFull ? "40" : kind == .driveMissing ? "Games" : nil)
             m.doneNote = m.failureWhat(m.failure!)
@@ -293,7 +293,7 @@ import NXModel
                 BuildFailureCard(m: m).environmentObject(mStores.localizer).padding(24)
             })
         }
-        let mStores = LauncherStores(); let m = mStores.build
+        let mStores = LauncherStores(defaults: testDefaults); let m = mStores.build
         m.lang = .en
         MainActor.assumeIsolated { mStores.dependencies.checked = true }
         MainActor.assumeIsolated { mStores.dependencies.deps = [Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint", present: true, installCmd: []),

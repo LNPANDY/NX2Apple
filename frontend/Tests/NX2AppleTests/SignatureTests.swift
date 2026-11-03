@@ -5,7 +5,7 @@ import XCTest
 
 /// The provisioning-profile expiry a free Apple ID's install has to show (7 days), and the re-sign command that renews
 /// it: parsing, the day count, the wording, and the xcodebuild parameters (the install's, plus the app's own bundle ID).
-final class SignatureTests: XCTestCase {
+final class SignatureTests: IsolatedDefaultsTestCase {
     private func profile(expires: Date?) throws -> Data {
         var plist: [String: Any] = ["Name": "iOS Team Provisioning Profile: org.nxnative.test", "TeamIdentifier": ["TEAM123456"]]
         if let expires { plist["ExpirationDate"] = expires }

@@ -6,7 +6,7 @@ import NXModel
 @testable import NXLauncher
 
 /// When a build notification is posted and what it says (issue #64). Nothing here touches the notification center.
-@MainActor final class BuildNotificationsTests: XCTestCase {
+@MainActor final class BuildNotificationsTests: IsolatedDefaultsTestCase {
     private func en(_ key: String) -> String { L10n.string(key, .en) }
 
     func testOnlyAFinishedOrFailedBuildIsNotified() {
@@ -58,7 +58,7 @@ import NXModel
         let temporary = FileManager.default.temporaryDirectory.appendingPathComponent("nxnative-notify-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: temporary) }
-        let modelStores = LauncherStores(); let model = modelStores.build
+        let modelStores = LauncherStores(defaults: testDefaults); let model = modelStores.build
         model.lang = CaptureLanguage.current(.en)
         MainActor.assumeIsolated { modelStores.dependencies.checked = true }
         MainActor.assumeIsolated { modelStores.dependencies.deps = [Dep(id: "test", name: "Xcode", hint: "", present: true, installCmd: [])] }

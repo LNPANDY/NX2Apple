@@ -12,6 +12,9 @@ Docked
 Dutch
 Dynamic resolution
 Encode thread
+Fill
+Fill crops the game's 16:9 picture to cover the screen. Health bars, subtitles or maps near the edges can be cut off. A full-screen picture without cropping needs a patch for each game.
+Fit
 Frame buffering
 Frame rate
 Frame-rate counter
@@ -32,6 +35,7 @@ Metal 4 pipelines
 MetalFX
 Performance
 Performance HUD
+Picture
 Pipeline prebuild
 Portuguese
 Render scale

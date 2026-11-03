@@ -5,7 +5,7 @@ import XCTest
 
 /// LNPANDY/NX2Apple#387, step 2: the language and the strings live in `Localizer`, which needs no SwiftUI. The choice is stored under the
 /// UserDefaults key `appLanguage`, as before, so the tests put the player's own value back.
-@MainActor final class LocalizerTests: XCTestCase {
+@MainActor final class LocalizerTests: IsolatedDefaultsTestCase {
     private var stored: String?
 
     override func setUp() {
