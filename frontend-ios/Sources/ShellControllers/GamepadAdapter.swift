@@ -22,12 +22,14 @@ public struct ConnectedController: Equatable, Sendable {
     public var onInput: (ShellInput.Action, InputDevice) -> Void = { _, _ in }
     public var onControllersChange: ([ConnectedController]) -> Void = { _ in }
     /// Every state of any controller, for the button test. Nil (the default) reports none. Set, it reports the state of
-    /// the first controller at once, then each change of whichever controller moved.
-    public var onSnapshot: ((PadSnapshot) -> Void)? {
-        didSet {
-            guard let onSnapshot, let pad = GCController.controllers().first else { return }
-            onSnapshot(Self.snapshot(of: pad.physicalInputProfile, name: Self.name(of: pad)))
-        }
+    /// the first controller at once, then each change of whichever controller moved, and again the first controller's
+    /// (nil with none left) when one connects or disconnects, so a controller that went away leaves nothing held.
+    public var onSnapshot: ((PadSnapshot?) -> Void)? {
+        didSet { reportFirstSnapshot() }
+    }
+    private func reportFirstSnapshot() {
+        guard let onSnapshot else { return }
+        onSnapshot(GCController.controllers().first.map { Self.snapshot(of: $0.physicalInputProfile, name: Self.name(of: $0)) })
     }
 
     private var mapper = PadMapper()
@@ -94,6 +96,7 @@ public struct ConnectedController: Equatable, Sendable {
             }
         }
         publish()
+        reportFirstSnapshot()
     }
 
     private nonisolated static func state(of pad: GCPhysicalInputProfile) -> PadState {
