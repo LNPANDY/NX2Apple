@@ -56,8 +56,9 @@ final class PadMappingCaptureTests: XCTestCase {
         }
     }
 
-    private func card(_ title: String, rows: [SettingRow], inherited: PadMap?, open: String? = nil) -> some View {
-        PadMappingCard(title: title, rows: rows, inherited: inherited, openRow: open, open: { _ in }, pick: { _, _ in },
+    private func card(_ title: String, rows: [SettingRow], inherited: PadMap?, open: String? = nil,
+                      held: Set<PadElement> = []) -> some View {
+        PadMappingCard(title: title, rows: rows, inherited: inherited, openRow: open, held: held, open: { _ in }, pick: { _, _ in },
                        backToList: {}, reset: {}, close: {})
             .padding(16)
             .background(Color.black.opacity(0.55))
@@ -77,6 +78,8 @@ final class PadMappingCaptureTests: XCTestCase {
 
     func testCaptureTheCardOfAGame() throws {
         try capture("pad-card-game", width: 512, card("Hades II", rows: gameRows, inherited: global))
+        // A controller's bottom face button held while the card is open: its place (B on a Switch) lights up.
+        try capture("pad-card-game-held", width: 512, card("Hades II", rows: gameRows, inherited: global, held: [.a]))
         try capture("pad-card-game-options", width: 512, card("Hades II", rows: gameRows, inherited: global, open: "pad.Y"))
         // A phone: the card at the width an iPhone gives it.
         try capture("pad-card-game-phone", width: 393, card("Hades II", rows: gameRows, inherited: global))

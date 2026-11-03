@@ -90,6 +90,15 @@ struct ButtonTestView: View {
 /// buttons in their own colours, everything else in cream.
 struct XboxControllerDiagram: View {
     let snapshot: PadSnapshot
+    /// The mapping card's drawing: the buttons carry the Switch names of their places and one quiet colour. False: the
+    /// button test, with Xbox's names and colours.
+    var switchNames = false
+    /// Buttons drawn with a cream ring: the ones the mapping changed.
+    var marked: Set<PadElement> = []
+    /// A tap on a button, which also makes each button a VoiceOver element. Nil: the drawing is a picture (the button test).
+    var tap: ((PadElement) -> Void)? = nil
+    /// What VoiceOver says a button sends, on the mapping card.
+    var value: (PadElement) -> String = { _ in "" }
     static let design = CGSize(width: 320, height: 220)
 
     static func name(_ element: PadElement) -> String {
@@ -114,10 +123,101 @@ struct XboxControllerDiagram: View {
         }
     }
 
+    /// Where each element sits in the design space and how large it is, shared by the drawing, the rings and the hotspots.
+    nonisolated static func frame(_ e: PadElement) -> (center: CGPoint, size: CGSize) {
+        switch e {
+        case .leftTrigger: (CGPoint(x: 83, y: 13), CGSize(width: 42, height: 22))
+        case .rightTrigger: (CGPoint(x: 237, y: 13), CGSize(width: 42, height: 22))
+        case .leftBumper: (CGPoint(x: 88, y: 32), CGSize(width: 72, height: 12))
+        case .rightBumper: (CGPoint(x: 232, y: 32), CGSize(width: 72, height: 12))
+        case .leftStick: (CGPoint(x: 88, y: 92), CGSize(width: 46, height: 46))
+        case .rightStick: (CGPoint(x: 202, y: 140), CGSize(width: 46, height: 46))
+        case .up: (CGPoint(x: 118, y: 128), CGSize(width: 12, height: 12))
+        case .down: (CGPoint(x: 118, y: 152), CGSize(width: 12, height: 12))
+        case .left: (CGPoint(x: 106, y: 140), CGSize(width: 12, height: 12))
+        case .right: (CGPoint(x: 130, y: 140), CGSize(width: 12, height: 12))
+        case .y: (CGPoint(x: 240, y: 70), CGSize(width: 20, height: 20))
+        case .x: (CGPoint(x: 219, y: 92), CGSize(width: 20, height: 20))
+        case .b: (CGPoint(x: 261, y: 92), CGSize(width: 20, height: 20))
+        case .a: (CGPoint(x: 240, y: 114), CGSize(width: 20, height: 20))
+        case .view: (CGPoint(x: 138, y: 92), CGSize(width: 14, height: 14))
+        case .menu: (CGPoint(x: 182, y: 92), CGSize(width: 14, height: 14))
+        case .home: (CGPoint(x: 160, y: 60), CGSize(width: 22, height: 22))
+        }
+    }
+
+    /// The text on an element: Xbox's names for the test, the Switch names by position on the mapping card.
+    private func label(_ e: PadElement) -> String {
+        guard switchNames, let button = PadMap.button(at: e) else { return Self.name(e) }
+        return button
+    }
+
     var body: some View {
         GeometryReader { geometry in
             let s = min(geometry.size.width / Self.design.width, geometry.size.height / Self.design.height)
             ZStack(alignment: .topLeading) {
+                drawing(s: s)
+                ForEach(PadElement.allCases.filter(marked.contains), id: \.self) { ring($0, s: s) }
+                if let tap { hotspots(s: s, tap: tap) }
+            }
+            .frame(width: Self.design.width * s, height: Self.design.height * s)
+            .contentShape(Rectangle())
+            .onTapGesture(coordinateSpace: .local) { point in
+                // The nearest button to the touch, so the close face buttons each get the most room a finger can have.
+                guard let tap, let e = Self.nearest(to: CGPoint(x: point.x / s, y: point.y / s)) else { return }
+                tap(e)
+            }
+            .allowsHitTesting(tap != nil)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    /// The mappable element nearest a point of the design space, within a finger's reach (nil for the body or the Xbox button).
+    nonisolated static func nearest(to point: CGPoint) -> PadElement? {
+        let candidates = PadElement.allCases.filter { PadMap.button(at: $0) != nil }
+        let distances = candidates.map { e -> (PadElement, CGFloat) in
+            let f = frame(e)
+            // To the element's edge, so a wide bumper is as easy to hit at its end as at its middle.
+            let dx = max(0, abs(point.x - f.center.x) - f.size.width / 2), dy = max(0, abs(point.y - f.center.y) - f.size.height / 2)
+            return (e, hypot(dx, dy))
+        }
+        guard let best = distances.min(by: { $0.1 < $1.1 }), best.1 <= 18 else { return nil }
+        return best.0
+    }
+
+    /// One VoiceOver button per mappable element, at least 44 points, over the drawing. Touch goes through the nearest-button tap.
+    private func hotspots(s: CGFloat, tap: @escaping (PadElement) -> Void) -> some View {
+        ForEach(PadElement.allCases.filter { PadMap.button(at: $0) != nil }, id: \.self) { e in
+            let f = Self.frame(e)
+            let button = PadMap.button(at: e) ?? ""
+            Color.clear
+                .frame(width: max(44, f.size.width * s), height: max(44, f.size.height * s))
+                .position(x: f.center.x * s, y: f.center.y * s)
+                .accessibilityElement()
+                .accessibilityLabel(PadMap.label(button) + ", " + PadMap.place(button))
+                .accessibilityValue(value(e))
+                .accessibilityAddTraits(.isButton)
+                .accessibilityAction { tap(e) }
+                .accessibilityIdentifier("padMapping.drawing.\(button)")
+        }
+    }
+
+    /// A cream ring around a button the mapping changed, in the button's own shape.
+    @ViewBuilder private func ring(_ e: PadElement, s: CGFloat) -> some View {
+        let f = Self.frame(e)
+        let line = max(1.5, 2 * s)
+        let size = CGSize(width: f.size.width + 7, height: f.size.height + 7)
+        switch e {
+        case .leftBumper, .rightBumper:
+            place(Capsule().stroke(ShellPalette.cream, lineWidth: line), center: f.center, size: size, s: s)
+        case .leftTrigger, .rightTrigger, .up, .down, .left, .right:
+            place(RoundedRectangle(cornerRadius: 6 * s).stroke(ShellPalette.cream, lineWidth: line), center: f.center, size: size, s: s)
+        default:
+            place(Circle().stroke(ShellPalette.cream, lineWidth: line), center: f.center, size: size, s: s)
+        }
+    }
+
+    @ViewBuilder private func drawing(s: CGFloat) -> some View {
                 trigger(.leftTrigger, value: snapshot.leftTrigger, x: 62, s: s)
                 trigger(.rightTrigger, value: snapshot.rightTrigger, x: 216, s: s)
                 bumper(.leftBumper, x: 52, s: s)
@@ -129,18 +229,16 @@ struct XboxControllerDiagram: View {
                 stick(.leftStick, at: CGPoint(x: 88, y: 92), offset: snapshot.leftStick, s: s)
                 stick(.rightStick, at: CGPoint(x: 202, y: 140), offset: snapshot.rightStick, s: s)
                 dpad(center: CGPoint(x: 118, y: 140), s: s)
-                face(.y, at: CGPoint(x: 240, y: 70), color: Color(red: 0.98, green: 0.80, blue: 0.20), s: s)
-                face(.x, at: CGPoint(x: 219, y: 92), color: Color(red: 0.25, green: 0.55, blue: 1.0), s: s)
-                face(.b, at: CGPoint(x: 261, y: 92), color: Color(red: 0.95, green: 0.30, blue: 0.28), s: s)
-                face(.a, at: CGPoint(x: 240, y: 114), color: Color(red: 0.35, green: 0.80, blue: 0.30), s: s)
-                small(.view, symbol: "rectangle.on.rectangle", at: CGPoint(x: 138, y: 92), s: s)
-                small(.menu, symbol: "line.3.horizontal", at: CGPoint(x: 182, y: 92), s: s)
+                // Xbox's colours in the test. On the mapping card the letters are the Switch's, at other places, so one quiet colour.
+                face(.y, at: CGPoint(x: 240, y: 70), color: switchNames ? Self.neutral : Color(red: 0.98, green: 0.80, blue: 0.20), s: s)
+                face(.x, at: CGPoint(x: 219, y: 92), color: switchNames ? Self.neutral : Color(red: 0.25, green: 0.55, blue: 1.0), s: s)
+                face(.b, at: CGPoint(x: 261, y: 92), color: switchNames ? Self.neutral : Color(red: 0.95, green: 0.30, blue: 0.28), s: s)
+                face(.a, at: CGPoint(x: 240, y: 114), color: switchNames ? Self.neutral : Color(red: 0.35, green: 0.80, blue: 0.30), s: s)
+                small(.view, symbol: switchNames ? "minus" : "rectangle.on.rectangle", at: CGPoint(x: 138, y: 92), s: s)
+                small(.menu, symbol: switchNames ? "plus" : "line.3.horizontal", at: CGPoint(x: 182, y: 92), s: s)
                 home(at: CGPoint(x: 160, y: 60), s: s)
-            }
-            .frame(width: Self.design.width * s, height: Self.design.height * s)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
     }
+    private static let neutral = Color(white: 0.82)
 
     private func held(_ e: PadElement) -> Bool { snapshot.pressed.contains(e) }
 
@@ -157,7 +255,7 @@ struct XboxControllerDiagram: View {
                 shape.fill(Color.white.opacity(0.06))
                 shape.fill(ShellPalette.cream.opacity(0.9)).scaleEffect(x: 1, y: max(0, min(1, held(e) && value < 0.05 ? 1 : value)), anchor: .bottom)
                 shape.stroke(Color.white.opacity(on ? 0.9 : 0.35), lineWidth: max(1, 1.4 * s))
-                Text(Self.name(e)).font(ShellFonts.fixed(9 * s, weight: .bold)).foregroundStyle(on ? .black : .white.opacity(0.7))
+                Text(label(e)).font(ShellFonts.fixed(9 * s, weight: .bold)).foregroundStyle(on ? .black : .white.opacity(0.7))
                     .frame(maxHeight: .infinity)
             },
             center: CGPoint(x: x + 21, y: 13), size: CGSize(width: 42, height: 22), s: s)
@@ -169,7 +267,7 @@ struct XboxControllerDiagram: View {
             ZStack {
                 Capsule().fill(on ? ShellPalette.cream : Color.white.opacity(0.06))
                 Capsule().stroke(Color.white.opacity(on ? 0.9 : 0.35), lineWidth: max(1, 1.4 * s))
-                Text(Self.name(e)).font(ShellFonts.fixed(8 * s, weight: .bold)).foregroundStyle(on ? .black : .white.opacity(0.7))
+                Text(label(e)).font(ShellFonts.fixed(8 * s, weight: .bold)).foregroundStyle(on ? .black : .white.opacity(0.7))
             },
             center: CGPoint(x: x + 36, y: 32), size: CGSize(width: 72, height: 12), s: s)
     }
@@ -204,7 +302,7 @@ struct XboxControllerDiagram: View {
             ZStack {
                 Circle().fill(on ? color : Color.black.opacity(0.35))
                 Circle().stroke(on ? Color.white : color.opacity(0.8), lineWidth: max(1, 1.5 * s))
-                Text(Self.name(e)).font(ShellFonts.fixed(11 * s, weight: .heavy)).foregroundStyle(on ? .black : color)
+                Text(label(e)).font(ShellFonts.fixed(11 * s, weight: .heavy)).foregroundStyle(on ? .black : color)
             }
             .shadow(color: on ? color.opacity(0.8) : .clear, radius: 8 * s),
             center: c, size: CGSize(width: 20, height: 20), s: s)

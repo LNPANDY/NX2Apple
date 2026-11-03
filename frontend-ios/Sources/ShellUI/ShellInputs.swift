@@ -214,7 +214,7 @@ public struct ShellActions {
     public var onClearShellCloud: () -> Void
     public var onGlobalPadMapChange: (String, String) -> Void
     public var onGlobalPadMapReset: () -> Void
-    /// The button test opened (true) or closed: the host sends `PadSnapshot`s only in between.
+    /// The button test or the mapping card opened (true) or closed: the host sends `PadSnapshot`s only in between.
     public var onButtonTest: (Bool) -> Void
     /// Deletes the game's data on this device and takes it off the list. `saves`: its saves go too.
     public var onDeleteGame: (_ gameID: String, _ saves: Bool) -> Void

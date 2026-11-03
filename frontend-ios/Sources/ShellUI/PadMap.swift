@@ -49,6 +49,33 @@ public struct PadMap: Equatable, Sendable {
     }
     public static var options: [SettingOption] { (buttons + ["none"]).map { SettingOption($0, label($0)) } }
 
+    /// The Switch button at an element's place on the drawn controller, by position as the engine maps a controller: the
+    /// right face button (Xbox's B) is A, the bottom one B, the top one X, the left one Y, View is − and Menu is +.
+    /// Nil for the Xbox button, which no game sees.
+    static func button(at element: PadElement) -> String? {
+        switch element {
+        case .b: "A"
+        case .a: "B"
+        case .y: "X"
+        case .x: "Y"
+        case .leftBumper: "L"
+        case .rightBumper: "R"
+        case .leftTrigger: "ZL"
+        case .rightTrigger: "ZR"
+        case .leftStick: "LS"
+        case .rightStick: "RS"
+        case .menu: "Plus"
+        case .view: "Minus"
+        case .up: "Up"
+        case .down: "Down"
+        case .left: "Left"
+        case .right: "Right"
+        case .home: nil
+        }
+    }
+    /// The element a Switch button sits at on the drawing.
+    static func element(of button: String) -> PadElement? { PadElement.allCases.first { self.button(at: $0) == button } }
+
     /// The 16 buttons in the four groups the mapping card shows, each with its heading. The D-pad reads up, down, left, right.
     static var groups: [(title: String, buttons: [String])] {
         [(ShellStrings.text("Face buttons"), ["A", "B", "X", "Y"]),

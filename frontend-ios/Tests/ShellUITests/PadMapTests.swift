@@ -71,6 +71,26 @@ import Testing
         let shellRow = PadMappingRows.global(global)[1]
         #expect(PadMappingRows.button(of: shellRow) == "A" && PadMappingRows.output(of: shellRow, inherited: nil) == "B")
     }
+    @Test func everyButtonHasItsPlaceOnTheDrawing() {
+        for button in PadMap.buttons {
+            let element = PadMap.element(of: button)
+            #expect(element != nil && element.flatMap(PadMap.button(at:)) == button, "\(button)")
+        }
+        // By position, as the engine maps a controller: Xbox's B (right) is A, its A (bottom) is B.
+        #expect(PadMap.button(at: .b) == "A" && PadMap.button(at: .a) == "B" && PadMap.button(at: .y) == "X" && PadMap.button(at: .x) == "Y")
+        #expect(PadMap.button(at: .home) == nil)
+    }
+    @Test func aTouchPicksTheNearestButton() {
+        for element in PadElement.allCases where element != .home {
+            #expect(XboxControllerDiagram.nearest(to: XboxControllerDiagram.frame(element).center) == element, "\(element)")
+        }
+        // Between the right and the bottom face button, nearer the right one.
+        #expect(XboxControllerDiagram.nearest(to: CGPoint(x: 256, y: 99)) == .b)
+        // The end of a bumper, the controller's body and the Xbox button pick nothing else.
+        #expect(XboxControllerDiagram.nearest(to: CGPoint(x: 56, y: 32)) == .leftBumper)
+        #expect(XboxControllerDiagram.nearest(to: CGPoint(x: 160, y: 200)) == nil)
+        #expect(XboxControllerDiagram.nearest(to: XboxControllerDiagram.frame(.home).center) == nil)
+    }
     @Test func theCardGroupsEveryButtonOnce() {
         let grouped = PadMap.groups.flatMap(\.buttons)
         #expect(grouped.count == PadMap.buttons.count && Set(grouped) == Set(PadMap.buttons))
