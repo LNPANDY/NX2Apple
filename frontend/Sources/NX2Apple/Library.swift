@@ -266,6 +266,8 @@ struct MacGameBundle {
 }
 
 final class GameLibrary: ObservableObject {
+    /// The key of `LibraryGame.inputs` that holds a game folder (a Switch 2 game's base/, updates/, dlc/), read again on Build.
+    static let folderInput = "folder"
     @Published private(set) var games: [LibraryGame] = []
     @Published var selectedID: UUID?
     @Published var error: String?
@@ -491,15 +493,16 @@ final class GameLibrary: ObservableObject {
 
     @MainActor @discardableResult func rememberInputs(_ model: BuildStore) -> UUID? {
         guard !model.basePath.isEmpty else { return nil }
-        let titleID = TitleID.parse(model.basePath).map { String(format: "%016llX", $0) }
-            ?? URL(fileURLWithPath: model.basePath).standardizedFileURL.path
-        var game = games.first { $0.titleID == titleID } ?? LibraryGame(titleID: titleID, name: Self.title(for: model.basePath, repo: model.repo.path, titleID: titleID))
+        let titleID = model.gameTitleID ?? URL(fileURLWithPath: model.basePath).standardizedFileURL.path
+        var game = games.first { $0.titleID == titleID } ?? LibraryGame(titleID: titleID, name: Self.title(for: model.gameFolder?.folder ?? model.basePath, repo: model.repo.path, titleID: titleID))
         game.inputs = Dictionary(uniqueKeysWithValues: model.slots.map { ($0.id, $0.paths) })
+        // A game folder is kept as the folder: Build again reads it anew (LauncherView.configureBuild).
+        if let folder = model.gameFolder { game.inputs[GameLibrary.folderInput] = [folder.folder] }
         game.outputDirectory = model.outDir
         if !model.gameDir.isEmpty { game.sourceFolder = model.gameDir }
         game.lastTarget = model.target
         // An existing output is linked only after validating its metadata and executables.
-        let dir = model.outDir.isEmpty ? URL(fileURLWithPath: model.basePath).deletingLastPathComponent().path : model.outDir
+        let dir = model.outDir.isEmpty ? model.inputFolder : model.outDir
         let expected = URL(fileURLWithPath: dir).appendingPathComponent(titleID + ".app")
         if let app = try? MacGameBundle.read(expected), app.titleID == titleID { game.appPath = expected.path }
         upsert(game)

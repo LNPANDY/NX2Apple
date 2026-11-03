@@ -14,6 +14,7 @@ extension BuildStore {
             return FileManager.default.fileExists(atPath: p, isDirectory: &d) && d.boolValue
         }
         if paths.count == 1, isFolder(paths[0]) { scan(folder: paths[0]); return }
+        leaveGameFolder()   // packages dropped after a game folder start over: the two never mix
         var found = GameInputs.classify(paths.flatMap { isFolder($0) ? GameInputs.inputFiles(in: $0) : [$0] })
         // update and add-on files of another game than the base (the dropped one, else the one already chosen)
         let baseName = (found.base ?? (basePath.isEmpty ? nil : basePath)).map { ($0 as NSString).lastPathComponent }

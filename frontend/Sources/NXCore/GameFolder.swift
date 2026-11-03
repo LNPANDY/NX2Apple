@@ -123,6 +123,15 @@ package enum GameFolder {
         !engineRoot.isEmpty && FileManager.default.fileExists(atPath: engineRoot + "/dm/games/" + String(format: "%016llX", titleID) + "/game.tsv")
     }
 
+    /// The `name` row of the game's profile: a game folder has no control data, so the script names the app after it too.
+    package static func profileName(_ titleID: UInt64, engineRoot: String) -> String? {
+        guard !engineRoot.isEmpty,
+              let text = try? String(contentsOfFile: engineRoot + "/dm/games/" + String(format: "%016llX", titleID) + "/game.tsv", encoding: .utf8),
+              let row = text.split(separator: "\n").first(where: { $0.hasPrefix("name\t") }) else { return nil }
+        let name = row.dropFirst(5).trimmingCharacters(in: .whitespaces)
+        return name.isEmpty ? nil : name
+    }
+
     private static func isFile(_ path: String) -> Bool {
         var d: ObjCBool = false
         return FileManager.default.fileExists(atPath: path, isDirectory: &d) && !d.boolValue

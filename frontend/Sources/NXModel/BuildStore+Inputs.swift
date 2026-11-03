@@ -9,7 +9,10 @@ extension BuildStore {
     /// …800 update, anything above base+0x1000 add-on content), plus prod.keys.
     /// Subfolders are scanned too — a dump usually arrives as 本体/ 更新/ DLC/ folders —
     /// pruning the build folders this pipeline itself writes so a rescan is not slow.
+    /// A folder of the game's files (base/, updates/, dlc/: a Switch 2 game) is read as one game instead (BuildStore+GameFolder.swift).
     package func scan(folder: String) {
+        if GameFolder.isCandidate(folder) { takeGameFolder(folder); return }
+        leaveGameFolder()
         gameDir = folder
         let found = GameInputs.classify(GameInputs.inputFiles(in: folder))
         updateSlot("base") { $0.paths = found.base.map { [$0] } ?? []; $0.problem = found.base == nil ? "data.noBase" : "" }
@@ -56,6 +59,7 @@ extension BuildStore {
     /// Files chosen for one row: those that fit it are taken, the first that does not is named on the row
     /// and left out (it is not moved to another row: the row the user chose stays as they set it).
     package func take(picked: [String], kind: InputKind) {
+        leaveGameFolder()   // a package picked for a row ends a game folder: the two never mix
         let id = kind == .base ? "base" : kind == .update ? "update" : kind == .dlc ? "dlc" : "keys"
         let baseName = kind == .base ? nil : (basePath as NSString).lastPathComponent
         var fitting: [String] = [], problem = ""
@@ -75,5 +79,9 @@ extension BuildStore {
         if kind == .base, let first = fitting.first { gameDir = (first as NSString).deletingLastPathComponent }
     }
 
-    package func clear(_ id: String) { updateSlot(id) { $0.paths = []; $0.problem = "" } }
+    /// Clearing a row of a game folder clears the folder: its rows are one game.
+    package func clear(_ id: String) {
+        if gameFolder != nil || gameFolderRefused { leaveGameFolder(); return }
+        updateSlot(id) { $0.paths = []; $0.problem = "" }
+    }
 }
