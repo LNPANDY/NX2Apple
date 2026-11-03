@@ -14,7 +14,6 @@
 [![Issues](https://img.shields.io/github/issues/LNPANDY/NX2Apple)](https://github.com/LNPANDY/NX2Apple/issues)
 [![License](https://img.shields.io/github/license/LNPANDY/NX2Apple)](LICENSE)
 [![Spel](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FLNPANDY%2FNX2Apple%2Fmain%2F.github%2Fbadges%2Fgames.json)](.github/badges/games.json)
-[![Verifierade](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FLNPANDY%2FNX2Apple%2Fmain%2F.github%2Fbadges%2Fverified.json)](.github/badges/verified.json)
 
 [![中文](https://img.shields.io/badge/🇨🇳_中文-available-green)](README.zh-CN.md)
 [![English](https://img.shields.io/badge/🇺🇸_English-available-green)](README.md)
@@ -152,9 +151,8 @@ Bifoga aldrig nycklar, spelfiler eller något som extraherats ur ett spel.
 
 ## Spel
 
-94 spel har en profil. Tre är verifierade från början till slut i den här forken (byggda, installerade och
-spelade på en telefon), 45 till rapporteras som spelbara på en iPhone uppströms, och resten har en profil som
-ännu inte har prövats på en telefon. Några av dem:
+130 spel har en profil. Flera rapporteras som spelbara på en iPhone uppströms, och de flesta har en
+profil som ännu inte har prövats på en telefon. Några av dem:
 
 | | Spel | Var det körs | Status |
 |---|---|---|---|
