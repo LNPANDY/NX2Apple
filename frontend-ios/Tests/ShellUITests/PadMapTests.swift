@@ -116,6 +116,40 @@ import Testing
         // The other elements have no outline of their own.
         #expect(XboxControllerDiagram.shoulder(.a) == nil)
     }
+    /// The pulled part of a trigger is cut along the paddle's own tilted axis and bounded by its outline: 0 fills nothing,
+    /// 1 fills every point of the paddle, a half pull about half (a little more, the paddle is rounder on top), and every
+    /// point of the paddle is either pulled or rest, never both and never neither.
+    @Test func aTriggerFillsItsOwnOutline() throws {
+        for trigger in [PadElement.leftTrigger, .rightTrigger] {
+            let outline = try #require(XboxControllerDiagram.shoulder(trigger))
+            let box = outline.boundingRect
+            let inside = stride(from: box.minX, through: box.maxX, by: 0.5).flatMap { x in
+                stride(from: box.minY, through: box.maxY, by: 0.5).map { CGPoint(x: x, y: $0) }
+            }.filter { outline.contains($0) }
+            #expect(inside.count > 1000)
+            func share(_ level: Double) -> Double {
+                let fill = XboxControllerDiagram.triggerFill(trigger, level: level)
+                return Double(inside.filter { fill.contains($0) }.count) / Double(inside.count)
+            }
+            #expect(share(0) == 0)
+            #expect(share(1) == 1)
+            let half = share(0.5), quarter = share(0.25), most = share(0.75)
+            #expect(half > 0.48 && half < 0.66, "\(half)")
+            #expect(quarter > 0.2 && quarter < half && most > half && most < 1, "\(quarter) \(most)")
+            let fill = XboxControllerDiagram.triggerFill(trigger, level: 0.5), rest = XboxControllerDiagram.triggerRest(trigger, level: 0.5)
+            let both = inside.filter { fill.contains($0) && rest.contains($0) }.count
+            let neither = inside.filter { !fill.contains($0) && !rest.contains($0) }.count
+            // A point on the cut itself may count either way: allow a sliver, nothing more.
+            #expect(Double(both + neither) / Double(inside.count) < 0.02, "\(both) \(neither)")
+            // The cut tilts with the paddle: its outer end (where the shoulder slopes down) sits lower in the drawing than
+            // its inner end, never a flat line across.
+            let pulled = inside.filter { fill.contains($0) }
+            let leftTop = pulled.filter { $0.x < box.minX + box.width * 0.3 }.map(\.y).min() ?? 0
+            let rightTop = pulled.filter { $0.x > box.maxX - box.width * 0.3 }.map(\.y).min() ?? 0
+            let outerTop = trigger == .leftTrigger ? leftTop : rightTop, innerTop = trigger == .leftTrigger ? rightTop : leftTop
+            #expect(outerTop > innerTop + 2, "\(outerTop) \(innerTop)")
+        }
+    }
     @Test func theCardGroupsEveryButtonOnce() {
         let grouped = PadMap.groups.flatMap(\.buttons)
         #expect(grouped.count == PadMap.buttons.count && Set(grouped) == Set(PadMap.buttons))

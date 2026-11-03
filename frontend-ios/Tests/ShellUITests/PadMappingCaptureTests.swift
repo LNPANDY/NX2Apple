@@ -96,8 +96,11 @@ final class PadMappingCaptureTests: XCTestCase {
     func testCaptureTheDrawingUpClose() throws {
         let card = XboxControllerDiagram(snapshot: PadSnapshot(pressed: [.leftBumper]), switchNames: true, marked: [.rightBumper, .leftTrigger, .b])
         try capture("pad-drawing-card", width: 960, card.aspectRatio(320 / 220, contentMode: .fit).padding(24))
-        let test = XboxControllerDiagram(snapshot: PadSnapshot(pressed: [.rightBumper], rightTrigger: 0.5))
-        try capture("pad-drawing-test", width: 960, test.aspectRatio(320 / 220, contentMode: .fit).padding(24))
+        // The triggers at 25, 50, 75 and 100 percent, LT and RT side by side in each, a face button held.
+        for (name, left, right) in [("25-50", 0.25, 0.5), ("75-100", 0.75, 1.0)] {
+            let test = XboxControllerDiagram(snapshot: PadSnapshot(pressed: [.rightBumper, .a], leftTrigger: left, rightTrigger: right))
+            try capture("pad-drawing-test-\(name)", width: 960, test.aspectRatio(320 / 220, contentMode: .fit).padding(24))
+        }
     }
 
     func testCaptureTheButtonTest() throws {

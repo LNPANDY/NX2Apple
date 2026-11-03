@@ -174,17 +174,46 @@ struct XboxControllerDiagram: View {
             spine.addQuadCurve(to: mirrored(bumperEnd, right), control: mirrored(bumperControl, right))
             return spine.strokedPath(StrokeStyle(lineWidth: bumperThickness + 2 * grow, lineCap: .round))
         case .leftTrigger, .rightTrigger:
-            let size = CGSize(width: triggerSize.width + 2 * grow, height: triggerSize.height + 2 * grow)
-            let local = UnevenRoundedRectangle(topLeadingRadius: triggerRadii.top + grow, bottomLeadingRadius: triggerRadii.bottom + grow,
-                                               bottomTrailingRadius: triggerRadii.bottom + grow, topTrailingRadius: triggerRadii.top + grow,
-                                               style: .continuous)
-                .path(in: CGRect(x: -size.width / 2, y: -size.height / 2, width: size.width, height: size.height))
-            let center = mirrored(triggerCenter, right)
-            let turn = CGAffineTransform(rotationAngle: (right ? -triggerTilt : triggerTilt) * .pi / 180)
-            return local.applying(turn.concatenating(CGAffineTransform(translationX: center.x, y: center.y)))
+            return paddle(grow: grow).applying(triggerPlacement(e))
         default:
             return nil
         }
+    }
+
+    /// A trigger's paddle in its own frame: centred on the origin, upright, its base (the edge a pull fills from) at the
+    /// bottom, y = +height / 2.
+    private nonisolated static func paddle(grow: CGFloat = 0) -> Path {
+        let size = CGSize(width: triggerSize.width + 2 * grow, height: triggerSize.height + 2 * grow)
+        return UnevenRoundedRectangle(topLeadingRadius: triggerRadii.top + grow, bottomLeadingRadius: triggerRadii.bottom + grow,
+                                      bottomTrailingRadius: triggerRadii.bottom + grow, topTrailingRadius: triggerRadii.top + grow,
+                                      style: .continuous)
+            .path(in: CGRect(x: -size.width / 2, y: -size.height / 2, width: size.width, height: size.height))
+    }
+
+    /// Turns a paddle's own frame into the drawing's: tilted out with the shoulder, then moved to its place.
+    private nonisolated static func triggerPlacement(_ e: PadElement) -> CGAffineTransform {
+        let right = isRight(e)
+        let center = mirrored(triggerCenter, right)
+        return CGAffineTransform(rotationAngle: (right ? -triggerTilt : triggerTilt) * .pi / 180)
+            .concatenating(CGAffineTransform(translationX: center.x, y: center.y))
+    }
+
+    /// The pulled part of a trigger, `level` from 0 to 1, in the drawing's space: the paddle cut across its own axis at
+    /// that height from its base, so it tilts with the paddle and meets its outline exactly. 0 is empty, 1 the whole paddle.
+    nonisolated static func triggerFill(_ e: PadElement, level: Double) -> Path {
+        guard e == .leftTrigger || e == .rightTrigger, level > 0 else { return Path() }
+        let outline = paddle()
+        guard level < 1 else { return outline.applying(triggerPlacement(e)) }
+        let h = triggerSize.height, w = triggerSize.width
+        // Wider and deeper than the paddle below the cut, so only the cut itself comes from this rectangle.
+        let below = Path(CGRect(x: -w, y: h / 2 - h * level, width: 2 * w, height: h * level + h))
+        return outline.intersection(below).applying(triggerPlacement(e))
+    }
+
+    /// The rest of a trigger, the part of the paddle a pull has not reached.
+    nonisolated static func triggerRest(_ e: PadElement, level: Double) -> Path {
+        guard let outline = shoulder(e) else { return Path() }
+        return level > 0 ? outline.subtracting(triggerFill(e, level: level)) : outline
     }
 
     /// Where a shoulder's name sits and how it turns: on the bumper's spine, following its slope, in the trigger's middle.
@@ -292,11 +321,11 @@ struct XboxControllerDiagram: View {
                 stick(.leftStick, at: CGPoint(x: 88, y: 92), offset: snapshot.leftStick, s: s)
                 stick(.rightStick, at: CGPoint(x: 202, y: 140), offset: snapshot.rightStick, s: s)
                 dpad(center: CGPoint(x: 118, y: 140), s: s)
-                // Xbox's colours in the test. On the mapping card the letters are the Switch's, at other places, so one quiet colour.
-                face(.y, at: CGPoint(x: 240, y: 70), color: switchNames ? Self.neutral : Color(red: 0.98, green: 0.80, blue: 0.20), s: s)
-                face(.x, at: CGPoint(x: 219, y: 92), color: switchNames ? Self.neutral : Color(red: 0.25, green: 0.55, blue: 1.0), s: s)
-                face(.b, at: CGPoint(x: 261, y: 92), color: switchNames ? Self.neutral : Color(red: 0.95, green: 0.30, blue: 0.28), s: s)
-                face(.a, at: CGPoint(x: 240, y: 114), color: switchNames ? Self.neutral : Color(red: 0.35, green: 0.80, blue: 0.30), s: s)
+                // One quiet colour for the face buttons, in the test as on the card: held, they turn cream like every other button.
+                face(.y, at: CGPoint(x: 240, y: 70), s: s)
+                face(.x, at: CGPoint(x: 219, y: 92), s: s)
+                face(.b, at: CGPoint(x: 261, y: 92), s: s)
+                face(.a, at: CGPoint(x: 240, y: 114), s: s)
                 small(.view, symbol: switchNames ? "minus" : "rectangle.on.rectangle", at: CGPoint(x: 138, y: 92), s: s)
                 small(.menu, symbol: switchNames ? "plus" : "line.3.horizontal", at: CGPoint(x: 182, y: 92), s: s)
                 home(at: CGPoint(x: 160, y: 60), s: s)
@@ -318,23 +347,21 @@ struct XboxControllerDiagram: View {
         let outline = DesignShape(path: Self.shoulder(e) ?? Path())
         let level = max(0, min(1, held(e) && value < 0.05 ? 1 : value))
         let on = level > 0.05
-        let bounds = Self.frame(e)
         let nameAt = Self.shoulderLabel(e)
-        // The pulled part: everything below the level, measured up the trigger's bounds from its base.
-        let pulled = Rectangle().frame(width: Self.design.width * s, height: bounds.size.height * level * s)
-            .position(x: Self.design.width * s / 2, y: (bounds.center.y + bounds.size.height / 2 - bounds.size.height * level / 2) * s)
+        // The pulled part and the rest, cut along the paddle's own axis and bounded by its outline (Self.triggerFill).
+        let pulled = DesignShape(path: Self.triggerFill(e, level: level)), rest = DesignShape(path: Self.triggerRest(e, level: level))
         func name(_ color: Color) -> some View {
             Text(label(e)).font(ShellFonts.fixed(10.5 * s, weight: .heavy)).foregroundStyle(color)
                 .rotationEffect(.degrees(nameAt.angle))
                 .position(x: nameAt.point.x * s, y: nameAt.point.y * s)
         }
         return ZStack(alignment: .topLeading) {
-            outline.fill(Self.shoulderIdle)
-            outline.fill(ShellPalette.cream).mask { pulled }
+            rest.fill(Self.shoulderIdle)
+            pulled.fill(ShellPalette.cream)
+            // The name in white over the rest and in black over the pulled part, split by the same tilted cut.
+            name(.white.opacity(0.75)).mask { rest.fill() }
+            name(.black).mask { pulled.fill() }
             outline.stroke(Color.white.opacity(on ? 0.9 : 0.4), lineWidth: max(1, 1.4 * s))
-            // The name in white over the rest and in black over the pulled part, so it reads at any pull.
-            name(.white.opacity(0.75))
-            name(.black).mask { pulled }
         }
         .frame(width: Self.design.width * s, height: Self.design.height * s)
     }
@@ -378,15 +405,15 @@ struct XboxControllerDiagram: View {
         }
     }
 
-    private func face(_ e: PadElement, at c: CGPoint, color: Color, s: CGFloat) -> some View {
+    private func face(_ e: PadElement, at c: CGPoint, s: CGFloat) -> some View {
         let on = held(e)
         return place(
             ZStack {
-                Circle().fill(on ? color : Color.black.opacity(0.35))
-                Circle().stroke(on ? Color.white : color.opacity(0.8), lineWidth: max(1, 1.5 * s))
-                Text(label(e)).font(ShellFonts.fixed(11 * s, weight: .heavy)).foregroundStyle(on ? .black : color)
+                Circle().fill(on ? ShellPalette.cream : Color.black.opacity(0.35))
+                Circle().stroke(on ? Color.white.opacity(0.9) : Self.neutral.opacity(0.8), lineWidth: max(1, 1.5 * s))
+                Text(label(e)).font(ShellFonts.fixed(11 * s, weight: .heavy)).foregroundStyle(on ? .black : Self.neutral)
             }
-            .shadow(color: on ? color.opacity(0.8) : .clear, radius: 8 * s),
+            .shadow(color: on ? ShellPalette.cream.opacity(0.6) : .clear, radius: 8 * s),
             center: c, size: CGSize(width: 20, height: 20), s: s)
     }
 
