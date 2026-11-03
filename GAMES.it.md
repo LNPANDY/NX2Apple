@@ -216,6 +216,20 @@ Screenshot accompagnati da una nota quando un gioco presenta indicazioni specifi
 </tr>
 </table>
 
+## Giochi Switch 2
+
+Il motore esegue i giochi Switch 2 come profili normali, senza un'opzione Switch 2. Un gioco Switch 2 si compila da una cartella dei suoi file o da un contenitore NUP (un file `.nup`), mai da NSP o XCI, e non serve `prod.keys`. Si compila solo se il motore ha un profilo per il gioco. Il launcher accetta entrambe le forme nella pagina Build e segna il gioco come **Switch 2** nella libreria.
+
+| Gioco | ID titolo | Secondo upstream | In questo fork |
+|---|---|---|---|
+| Donkey Kong Bananza | `040074A01BF12000` | Gira sul Mac (aggiornamento v458752), provato fino all'inizio del primo livello | Giocato una volta su un iPhone 17 Pro Max con iOS 27.0.1, compilato da riga di comando (#445). Non ancora compilato con il launcher |
+| Splatoon Raiders | `0400380020056000` | Gira sul Mac (aggiornamento v65536). Nessuna IPA: la sua memoria supera per ora il limite di iOS | Non provato |
+| Fire Emblem Fortune's Weave | `04007EF01F8AE000` | Gira sul Mac (v131072), 60 fps. Nessuna IPA | Non provato |
+| Pokémon Pokopia | `0400A3A01EE4C000` | Gira sul Mac (aggiornamento v655360). Nessuna IPA | Non provato |
+| Hyrule Warriors: Age of Imprisonment | `04003F40232DE000` | Arriva al primo campo sul Mac (aggiornamento v196608), da un NUP. Nessuna IPA | Non provato |
+
+La struttura della cartella e i dettagli sono nella [pagina inglese](GAMES.md#switch-2-games). Questa pagina e il launcher non dicono come ottenere i file: vengono dalla tua console.
+
 ## Giochi verificati
 
 **3 verificati dall'inizio alla fine su questo fork** (compilazione → installazione → partita su un iPhone reale), **45 segnalati

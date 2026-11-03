@@ -221,6 +221,30 @@ Screenshots, with a note where a game has one (a frame rate, a limit). The block
 </table>
 <!-- end of gallery -->
 
+## Switch 2 games
+
+The engine runs Switch 2 games as ordinary profiles. There is no Switch 2 switch or setting. A Switch 2 game is built from a folder of its files or from one NUP container (a `.nup` file), never from NSP or XCI, and needs no `prod.keys`. It builds only when the engine has a profile for it. The launcher takes both forms on the Builds page (pick the folder, the `.nup` file, or a folder that holds the `.nup`) and marks the game **Switch 2** in the library.
+
+| Game | Title ID | Upstream says | On this fork |
+|---|---|---|---|
+| Donkey Kong Bananza | `040074A01BF12000` | Plays on the Mac (update v458752), tested through the first level's opening areas | Played once on an iPhone 17 Pro Max with iOS 27.0.1, built from the command line (#445). Not built through the launcher yet |
+| Splatoon Raiders | `0400380020056000` | Plays on the Mac (update v65536). No IPA built: its memory layout is over iOS's limit for now | Not tried |
+| Fire Emblem Fortune's Weave | `04007EF01F8AE000` | Plays on the Mac (v131072), 60 fps. No IPA built | Not tried |
+| Pokémon Pokopia | `0400A3A01EE4C000` | Plays on the Mac (update v655360). No IPA built | Not tried |
+| Hyrule Warriors: Age of Imprisonment | `04003F40232DE000` | Reaches the first field on the Mac (update v196608), from a NUP. No IPA built | Not tried |
+
+The folder layout the engine reads (`updates` and `dlc` are optional):
+
+```
+<game folder>/
+  base/exefs/                     main, main.npdm, sdk, rtld
+  base/romfs/
+  updates/458752/exefs/, romfs/   the update's version as a decimal number, the patched RomFS
+  dlc/040074a01bf13001/0/romfs/   the DLC's title ID
+```
+
+A folder of files has no control data, so the app gets no icon and takes its name from the profile. A NUP may carry both. The first build of a Switch 2 game takes long (Donkey Kong Bananza builds about 23,000 shaders) and needs free space for the RomFS images plus about 6 GB. This page and the launcher do not say how to get the files: they come from your own console.
+
 ## Verified games
 
 **3 verified end to end on this fork** (build → install → play on a real iPhone), **45 reported
