@@ -91,6 +91,15 @@ final class PadMappingCaptureTests: XCTestCase {
         try capture("pad-settings-row", width: 402, GameDetailView(detail: detail, showsPrimaryAction: false, showsHeader: false).padding(24))
     }
 
+    /// The drawing alone and large, to look at the shoulders: the card's (Switch names, rings on changed buttons, the left
+    /// bumper held) and the test's (Xbox names, the right trigger half pulled).
+    func testCaptureTheDrawingUpClose() throws {
+        let card = XboxControllerDiagram(snapshot: PadSnapshot(pressed: [.leftBumper]), switchNames: true, marked: [.rightBumper, .leftTrigger, .b])
+        try capture("pad-drawing-card", width: 960, card.aspectRatio(320 / 220, contentMode: .fit).padding(24))
+        let test = XboxControllerDiagram(snapshot: PadSnapshot(pressed: [.rightBumper], rightTrigger: 0.5))
+        try capture("pad-drawing-test", width: 960, test.aspectRatio(320 / 220, contentMode: .fit).padding(24))
+    }
+
     func testCaptureTheButtonTest() throws {
         let held = PadSnapshot(name: "Xbox Wireless Controller", pressed: [.a, .leftBumper, .up], leftStick: CGPoint(x: 0.6, y: 0.5),
                                rightTrigger: 0.7)

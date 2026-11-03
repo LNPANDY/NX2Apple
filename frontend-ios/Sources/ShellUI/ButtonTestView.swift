@@ -124,12 +124,14 @@ struct XboxControllerDiagram: View {
     }
 
     /// Where each element sits in the design space and how large it is, shared by the drawing, the rings and the hotspots.
+    /// The shoulders' frames are their outlines' bounds (`shoulder`).
     nonisolated static func frame(_ e: PadElement) -> (center: CGPoint, size: CGSize) {
-        switch e {
-        case .leftTrigger: (CGPoint(x: 83, y: 13), CGSize(width: 42, height: 22))
-        case .rightTrigger: (CGPoint(x: 237, y: 13), CGSize(width: 42, height: 22))
-        case .leftBumper: (CGPoint(x: 88, y: 32), CGSize(width: 72, height: 12))
-        case .rightBumper: (CGPoint(x: 232, y: 32), CGSize(width: 72, height: 12))
+        if let outline = shoulder(e) {
+            let r = outline.boundingRect
+            return (CGPoint(x: r.midX, y: r.midY), r.size)
+        }
+        return switch e {
+        case .leftTrigger, .rightTrigger, .leftBumper, .rightBumper: (.zero, .zero)
         case .leftStick: (CGPoint(x: 88, y: 92), CGSize(width: 46, height: 46))
         case .rightStick: (CGPoint(x: 202, y: 140), CGSize(width: 46, height: 46))
         case .up: (CGPoint(x: 118, y: 128), CGSize(width: 12, height: 12))
@@ -144,6 +146,59 @@ struct XboxControllerDiagram: View {
         case .menu: (CGPoint(x: 182, y: 92), CGSize(width: 14, height: 14))
         case .home: (CGPoint(x: 160, y: 60), CGSize(width: 22, height: 22))
         }
+    }
+
+    // MARK: The shoulders
+
+    /// A bumper's spine: it runs along the body's upper corner and top edge, a little outside them, so the slab drawn
+    /// round it overhangs the body as a real bumper does. The left side, the right one mirrors it.
+    private nonisolated static let bumperStart = CGPoint(x: 40, y: 55), bumperControl = CGPoint(x: 58, y: 35), bumperEnd = CGPoint(x: 116, y: 41)
+    private nonisolated static let bumperThickness: CGFloat = 13
+    /// A trigger: a paddle above and behind the bumper's outer half, tilted out, rounder on top. The left side.
+    private nonisolated static let triggerCenter = CGPoint(x: 64, y: 14)
+    private nonisolated static let triggerSize = CGSize(width: 34, height: 22)
+    nonisolated static let triggerTilt: CGFloat = -10
+    private nonisolated static let triggerRadii = (top: CGFloat(11), bottom: CGFloat(5))
+
+    nonisolated static func isRight(_ e: PadElement) -> Bool { e == .rightBumper || e == .rightTrigger }
+    private nonisolated static func mirrored(_ p: CGPoint, _ right: Bool) -> CGPoint { right ? CGPoint(x: design.width - p.x, y: p.y) : p }
+
+    /// A shoulder button's outline in the design space, `grow` points wider all round (for the ring and the hit test), nil
+    /// for every other element. The one source of the shoulders' drawing, ring, hotspot and hit test.
+    nonisolated static func shoulder(_ e: PadElement, grow: CGFloat = 0) -> Path? {
+        let right = isRight(e)
+        switch e {
+        case .leftBumper, .rightBumper:
+            var spine = Path()
+            spine.move(to: mirrored(bumperStart, right))
+            spine.addQuadCurve(to: mirrored(bumperEnd, right), control: mirrored(bumperControl, right))
+            return spine.strokedPath(StrokeStyle(lineWidth: bumperThickness + 2 * grow, lineCap: .round))
+        case .leftTrigger, .rightTrigger:
+            let size = CGSize(width: triggerSize.width + 2 * grow, height: triggerSize.height + 2 * grow)
+            let local = UnevenRoundedRectangle(topLeadingRadius: triggerRadii.top + grow, bottomLeadingRadius: triggerRadii.bottom + grow,
+                                               bottomTrailingRadius: triggerRadii.bottom + grow, topTrailingRadius: triggerRadii.top + grow,
+                                               style: .continuous)
+                .path(in: CGRect(x: -size.width / 2, y: -size.height / 2, width: size.width, height: size.height))
+            let center = mirrored(triggerCenter, right)
+            let turn = CGAffineTransform(rotationAngle: (right ? -triggerTilt : triggerTilt) * .pi / 180)
+            return local.applying(turn.concatenating(CGAffineTransform(translationX: center.x, y: center.y)))
+        default:
+            return nil
+        }
+    }
+
+    /// Where a shoulder's name sits and how it turns: on the bumper's spine, following its slope, in the trigger's middle.
+    nonisolated static func shoulderLabel(_ e: PadElement) -> (point: CGPoint, angle: CGFloat) {
+        let right = isRight(e)
+        if e == .leftTrigger || e == .rightTrigger { return (mirrored(triggerCenter, right), right ? -triggerTilt : triggerTilt) }
+        // The spine at t = 0.55, and its slope there.
+        let t: CGFloat = 0.55
+        let a = bumperStart, c = bumperControl, b = bumperEnd
+        let p = CGPoint(x: (1 - t) * (1 - t) * a.x + 2 * t * (1 - t) * c.x + t * t * b.x,
+                        y: (1 - t) * (1 - t) * a.y + 2 * t * (1 - t) * c.y + t * t * b.y)
+        let dx = 2 * (1 - t) * (c.x - a.x) + 2 * t * (b.x - c.x), dy = 2 * (1 - t) * (c.y - a.y) + 2 * t * (b.y - c.y)
+        let angle = atan2(dy, dx) * 180 / .pi
+        return (mirrored(p, right), right ? -angle : angle)
     }
 
     /// The text on an element: Xbox's names for the test, the Switch names by position on the mapping card.
@@ -176,6 +231,11 @@ struct XboxControllerDiagram: View {
     nonisolated static func nearest(to point: CGPoint) -> PadElement? {
         let candidates = PadElement.allCases.filter { PadMap.button(at: $0) != nil }
         let distances = candidates.map { e -> (PadElement, CGFloat) in
+            // A shoulder by its outline, not its bounds: the bumper's bounds would cover the body under its curve.
+            if shoulder(e) != nil {
+                let reach = stride(from: 0, through: 20, by: 2).first { shoulder(e, grow: CGFloat($0))?.contains(point) == true }
+                return (e, reach.map(CGFloat.init) ?? .infinity)
+            }
             let f = frame(e)
             // To the element's edge, so a wide bumper is as easy to hit at its end as at its middle.
             let dx = max(0, abs(point.x - f.center.x) - f.size.width / 2), dy = max(0, abs(point.y - f.center.y) - f.size.height / 2)
@@ -208,9 +268,11 @@ struct XboxControllerDiagram: View {
         let line = max(1.5, 2 * s)
         let size = CGSize(width: f.size.width + 7, height: f.size.height + 7)
         switch e {
-        case .leftBumper, .rightBumper:
-            place(Capsule().stroke(ShellPalette.cream, lineWidth: line), center: f.center, size: size, s: s)
-        case .leftTrigger, .rightTrigger, .up, .down, .left, .right:
+        case .leftBumper, .rightBumper, .leftTrigger, .rightTrigger:
+            // The shoulder's own outline, 3.5 points out, as far as the other rings sit from their buttons.
+            DesignShape(path: Self.shoulder(e, grow: 3.5) ?? Path()).stroke(ShellPalette.cream, lineWidth: line)
+                .frame(width: Self.design.width * s, height: Self.design.height * s)
+        case .up, .down, .left, .right:
             place(RoundedRectangle(cornerRadius: 6 * s).stroke(ShellPalette.cream, lineWidth: line), center: f.center, size: size, s: s)
         default:
             place(Circle().stroke(ShellPalette.cream, lineWidth: line), center: f.center, size: size, s: s)
@@ -218,14 +280,15 @@ struct XboxControllerDiagram: View {
     }
 
     @ViewBuilder private func drawing(s: CGFloat) -> some View {
-                trigger(.leftTrigger, value: snapshot.leftTrigger, x: 62, s: s)
-                trigger(.rightTrigger, value: snapshot.rightTrigger, x: 216, s: s)
-                bumper(.leftBumper, x: 52, s: s)
-                bumper(.rightBumper, x: 196, s: s)
+                // Back to front: the triggers behind, the body, the bumpers over the body's edge.
+                trigger(.leftTrigger, value: snapshot.leftTrigger, s: s)
+                trigger(.rightTrigger, value: snapshot.rightTrigger, s: s)
                 ControllerBody()
-                    .fill(Color.white.opacity(0.06))
+                    .fill(Color(red: 0.11, green: 0.11, blue: 0.12))
                     .overlay(ControllerBody().stroke(Color.white.opacity(0.35), lineWidth: max(1, 1.6 * s)))
                     .frame(width: Self.design.width * s, height: Self.design.height * s)
+                bumper(.leftBumper, s: s)
+                bumper(.rightBumper, s: s)
                 stick(.leftStick, at: CGPoint(x: 88, y: 92), offset: snapshot.leftStick, s: s)
                 stick(.rightStick, at: CGPoint(x: 202, y: 140), offset: snapshot.rightStick, s: s)
                 dpad(center: CGPoint(x: 118, y: 140), s: s)
@@ -247,29 +310,48 @@ struct XboxControllerDiagram: View {
             .position(x: center.x * s, y: center.y * s)
     }
 
-    private func trigger(_ e: PadElement, value: Double, x: CGFloat, s: CGFloat) -> some View {
-        let on = held(e) || value > 0.05
-        let shape = UnevenRoundedRectangle(topLeadingRadius: 10 * s, bottomLeadingRadius: 3 * s, bottomTrailingRadius: 3 * s, topTrailingRadius: 10 * s)
-        return place(
-            ZStack(alignment: .bottom) {
-                shape.fill(Color.white.opacity(0.06))
-                shape.fill(ShellPalette.cream.opacity(0.9)).scaleEffect(x: 1, y: max(0, min(1, held(e) && value < 0.05 ? 1 : value)), anchor: .bottom)
-                shape.stroke(Color.white.opacity(on ? 0.9 : 0.35), lineWidth: max(1, 1.4 * s))
-                Text(label(e)).font(ShellFonts.fixed(9 * s, weight: .bold)).foregroundStyle(on ? .black : .white.opacity(0.7))
-                    .frame(maxHeight: .infinity)
-            },
-            center: CGPoint(x: x + 21, y: 13), size: CGSize(width: 42, height: 22), s: s)
+    /// The colour of a shoulder at rest: opaque, a step lighter than the body, so a bumper reads in front of the body's edge.
+    private static let shoulderIdle = Color(red: 0.17, green: 0.17, blue: 0.18)
+
+    /// A trigger fills from its base as far as it is pulled, and wholly while it is held as a button.
+    private func trigger(_ e: PadElement, value: Double, s: CGFloat) -> some View {
+        let outline = DesignShape(path: Self.shoulder(e) ?? Path())
+        let level = max(0, min(1, held(e) && value < 0.05 ? 1 : value))
+        let on = level > 0.05
+        let bounds = Self.frame(e)
+        let nameAt = Self.shoulderLabel(e)
+        // The pulled part: everything below the level, measured up the trigger's bounds from its base.
+        let pulled = Rectangle().frame(width: Self.design.width * s, height: bounds.size.height * level * s)
+            .position(x: Self.design.width * s / 2, y: (bounds.center.y + bounds.size.height / 2 - bounds.size.height * level / 2) * s)
+        func name(_ color: Color) -> some View {
+            Text(label(e)).font(ShellFonts.fixed(10.5 * s, weight: .heavy)).foregroundStyle(color)
+                .rotationEffect(.degrees(nameAt.angle))
+                .position(x: nameAt.point.x * s, y: nameAt.point.y * s)
+        }
+        return ZStack(alignment: .topLeading) {
+            outline.fill(Self.shoulderIdle)
+            outline.fill(ShellPalette.cream).mask { pulled }
+            outline.stroke(Color.white.opacity(on ? 0.9 : 0.4), lineWidth: max(1, 1.4 * s))
+            // The name in white over the rest and in black over the pulled part, so it reads at any pull.
+            name(.white.opacity(0.75))
+            name(.black).mask { pulled }
+        }
+        .frame(width: Self.design.width * s, height: Self.design.height * s)
     }
 
-    private func bumper(_ e: PadElement, x: CGFloat, s: CGFloat) -> some View {
+    /// A bumper: a slab along the body's top edge, over it. Cream while held.
+    private func bumper(_ e: PadElement, s: CGFloat) -> some View {
         let on = held(e)
-        return place(
-            ZStack {
-                Capsule().fill(on ? ShellPalette.cream : Color.white.opacity(0.06))
-                Capsule().stroke(Color.white.opacity(on ? 0.9 : 0.35), lineWidth: max(1, 1.4 * s))
-                Text(label(e)).font(ShellFonts.fixed(8 * s, weight: .bold)).foregroundStyle(on ? .black : .white.opacity(0.7))
-            },
-            center: CGPoint(x: x + 36, y: 32), size: CGSize(width: 72, height: 12), s: s)
+        let outline = DesignShape(path: Self.shoulder(e) ?? Path())
+        let name = Self.shoulderLabel(e)
+        return ZStack(alignment: .topLeading) {
+            outline.fill(on ? ShellPalette.cream : Self.shoulderIdle)
+            outline.stroke(Color.white.opacity(on ? 0.9 : 0.4), lineWidth: max(1, 1.4 * s))
+            Text(label(e)).font(ShellFonts.fixed(9.5 * s, weight: .heavy)).foregroundStyle(on ? .black : .white.opacity(0.75))
+                .rotationEffect(.degrees(name.angle))
+                .position(x: name.point.x * s, y: name.point.y * s)
+        }
+        .frame(width: Self.design.width * s, height: Self.design.height * s)
     }
 
     private func stick(_ e: PadElement, at c: CGPoint, offset: CGPoint, s: CGFloat) -> some View {
@@ -328,6 +410,15 @@ struct XboxControllerDiagram: View {
                 Image(systemName: "xmark").font(.system(size: 8 * s, weight: .heavy)).foregroundStyle(on ? .black : .white.opacity(0.75))
             },
             center: c, size: CGSize(width: 22, height: 22), s: s)
+    }
+}
+
+/// A path of the drawing's design space, scaled to the rect it is drawn in (the whole drawing).
+private struct DesignShape: Shape {
+    let path: Path
+    func path(in rect: CGRect) -> Path {
+        let sx = rect.width / XboxControllerDiagram.design.width, sy = rect.height / XboxControllerDiagram.design.height
+        return path.applying(CGAffineTransform(scaleX: sx, y: sy).concatenating(CGAffineTransform(translationX: rect.minX, y: rect.minY)))
     }
 }
 

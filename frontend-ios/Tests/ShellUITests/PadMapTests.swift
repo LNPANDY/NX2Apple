@@ -86,10 +86,35 @@ import Testing
         }
         // Between the right and the bottom face button, nearer the right one.
         #expect(XboxControllerDiagram.nearest(to: CGPoint(x: 256, y: 99)) == .b)
-        // The end of a bumper, the controller's body and the Xbox button pick nothing else.
-        #expect(XboxControllerDiagram.nearest(to: CGPoint(x: 56, y: 32)) == .leftBumper)
+        // The outer end of a bumper, where it wraps the body's corner, is the bumper, the paddle above it the trigger.
+        #expect(XboxControllerDiagram.nearest(to: CGPoint(x: 40, y: 55)) == .leftBumper)
+        #expect(XboxControllerDiagram.nearest(to: CGPoint(x: 280, y: 55)) == .rightBumper)
+        #expect(XboxControllerDiagram.nearest(to: CGPoint(x: 64, y: 8)) == .leftTrigger)
+        // The controller's body, away from every button, and the Xbox button pick nothing.
         #expect(XboxControllerDiagram.nearest(to: CGPoint(x: 160, y: 200)) == nil)
+        #expect(XboxControllerDiagram.nearest(to: CGPoint(x: 50, y: 150)) == nil)
         #expect(XboxControllerDiagram.nearest(to: XboxControllerDiagram.frame(.home).center) == nil)
+    }
+    @Test func theShouldersAreFourShapesApartAndMirrored() throws {
+        let shoulders: [PadElement] = [.leftBumper, .rightBumper, .leftTrigger, .rightTrigger]
+        for e in shoulders {
+            let outline = try #require(XboxControllerDiagram.shoulder(e))
+            // The frame the hotspot and the ring use is the outline's bounds, inside the drawing.
+            let f = XboxControllerDiagram.frame(e)
+            #expect(abs(f.center.x - outline.boundingRect.midX) < 0.01 && abs(f.size.width - outline.boundingRect.width) < 0.01)
+            #expect(outline.boundingRect.minY >= 0 && outline.boundingRect.maxX <= XboxControllerDiagram.design.width)
+        }
+        // A trigger and its bumper do not touch: there is a gap between the paddle and the slab.
+        for (trigger, bumper) in [(PadElement.leftTrigger, PadElement.leftBumper), (.rightTrigger, .rightBumper)] {
+            let paddle = try #require(XboxControllerDiagram.shoulder(trigger)), slab = try #require(XboxControllerDiagram.shoulder(bumper))
+            // Even the bounds keep apart: the paddle ends above the slab's highest point.
+            #expect(paddle.boundingRect.maxY + 3 < slab.boundingRect.minY, "\(paddle.boundingRect) \(slab.boundingRect)")
+        }
+        // The right side mirrors the left.
+        let left = XboxControllerDiagram.frame(.leftBumper), right = XboxControllerDiagram.frame(.rightBumper)
+        #expect(abs(left.center.x + right.center.x - XboxControllerDiagram.design.width) < 0.01 && abs(left.center.y - right.center.y) < 0.01)
+        // The other elements have no outline of their own.
+        #expect(XboxControllerDiagram.shoulder(.a) == nil)
     }
     @Test func theCardGroupsEveryButtonOnce() {
         let grouped = PadMap.groups.flatMap(\.buttons)
