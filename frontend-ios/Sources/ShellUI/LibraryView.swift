@@ -217,7 +217,6 @@ public struct LibraryView: View {
                         .transition(.opacity)
                     PadMappingCard(title: padMappingTitle(padMapping.gameID), rows: padMappingRows(padMapping.gameID),
                                    inherited: padMapping.gameID == ControllersView.mappingID ? nil : globalPadMap, openRow: padMapping.row,
-                                   held: padSnapshot?.pressed ?? [],
                                    open: openPadRow, pick: pickPadValue, backToList: closePadRow, reset: resetPadMapping, close: closePadMapping)
                         .padding(.horizontal, 16).padding(.vertical, 12)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -457,18 +456,11 @@ public struct LibraryView: View {
         noteTouch()
         returnFocus = focus.id
         padMapping = PadMappingState(gameID: id)
-        // A button held on a controller lights its place on the card's drawing, as in the button test.
-        actions.onButtonTest(true)
         // The swap's current segment, or the first button while a game's swap is neither on, off nor the shell's.
         let swap = padMappingRows(id).first
         focus.id = swap?.value == "custom" ? "map.row.pad.A" : "map.swap." + (swap?.value ?? "")
     }
-    private func closePadMapping() {
-        guard padMapping != nil else { return }
-        padMapping = nil
-        actions.onButtonTest(false)
-        focus.id = returnFocus
-    }
+    private func closePadMapping() { padMapping = nil; focus.id = returnFocus }
     private func openPadRow(_ row: String) {
         noteTouch()
         padMapping?.row = row

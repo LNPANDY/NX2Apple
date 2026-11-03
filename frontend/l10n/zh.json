@@ -759,7 +759,6 @@
   "ios.ui.padSwapAB": "交换 A 和 B",
   "ios.ui.padSwapNote": "把 A 放到下方按键，与 Xbox 和 PlayStation 手柄的确认键位置一致。",
   "ios.ui.padSwapped": "已交换 A 和 B",
-  "ios.ui.padTapDrawing": "点按某个按键即可更改它对应的键。",
   "ios.ui.padTestNote": "按下按键时，对应的位置会亮起。",
   "ios.ui.padTopButton": "上方按键",
   "ios.ui.padUp": "上",
