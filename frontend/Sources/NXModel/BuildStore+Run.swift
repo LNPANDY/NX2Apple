@@ -219,10 +219,14 @@ extension BuildStore {
                         self.cleanupStaging()
                     } else {
                         // The game's archive, then its framework into the one shared app on the device
-                        let tid = TitleID.buildKey(self.basePath)
+                        // The framework the build wrote, and the title ID in its name: the script names it after the game
+                        // data's title ID, which the build key lacks when the file name has none (#515)
+                        let key = TitleID.buildKey(self.basePath)
                         let name = ((self.basePath as NSString).lastPathComponent as NSString).deletingPathExtension
-                        let fw = ShellInstall.frameworkPath(workDir: self.effectiveWorkDir, titleID: tid)
-                        self.packArchive(workDir: self.effectiveWorkDir) {
+                        let fw = ShellInstall.builtFramework(workDir: self.effectiveWorkDir)
+                            ?? ShellInstall.frameworkPath(workDir: self.effectiveWorkDir, titleID: key)
+                        let tid = ShellInstall.titleID(ofFramework: fw)
+                        self.packArchive(workDir: self.effectiveWorkDir, titleID: tid) {
                             if self.exportsShell { self.exportShell(framework: fw, titleID: tid, name: name) }
                             else { self.installShell(framework: fw, titleID: tid, name: name, archive: $0) }
                         }

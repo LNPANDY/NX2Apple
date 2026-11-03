@@ -20,7 +20,8 @@ extension BuildStore {
     /// <work>/extract/v<N>/RomFS where N is the profile's package version, so take
     /// the highest v* that actually has a RomFS instead of hardcoding one game.
     /// `then` continues the build with the archive's folder (installing on a device).
-    package func packArchive(workDir: String, then: @escaping (String) -> Void) {
+    /// `titleID` names the folder (the framework's title ID); the build key when it is not given.
+    package func packArchive(workDir: String, titleID: String? = nil, then: @escaping (String) -> Void) {
         running = true
         let fm = FileManager.default
         let extract = workDir + "/extract"
@@ -42,7 +43,7 @@ extension BuildStore {
         // exposes on an external drive) then needs no renaming, and several games' folders can sit
         // side by side in one app.
         let gamesRoot = (outDir.isEmpty ? (basePath as NSString).deletingLastPathComponent : outDir) + "/games"
-        let tid = TitleID.buildKey(basePath)
+        let tid = titleID.flatMap { $0.isEmpty ? nil : $0 } ?? TitleID.buildKey(basePath)
         // games/<id>/ holds romfs.img and aoc/ side by side: main.m's per-game lookup takes the
         // image, and the host mounts DLC from aoc/<index>.img (hle_fs.c aoc_dir). One folder, which
         // the user copies to the phone or keeps on an external drive as a whole.
