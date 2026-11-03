@@ -948,13 +948,16 @@ import NXModel
     }
 
     @MainActor func testShellTargetWithoutDeviceStopsBeforeBuilding() throws {
-        let saved = ["repoPath", "buildTarget", "installDevice", "signingTeam"].map { ($0, UserDefaults.standard.object(forKey: $0)) }
+        let saved = ["repoPath", "buildTarget", "installDevice", "signingTeam", DeviceStore.exportKey].map { ($0, UserDefaults.standard.object(forKey: $0)) }
         defer { for (key, value) in saved { UserDefaults.standard.set(value, forKey: key) } }
         let modelStores = LauncherStores(); let model = modelStores.build
         modelStores.repo.path = temporary.path
         try write(temporary.path + "/dm/tools/nx_extract/Program.cs", "")
         model.target = "ios"
         modelStores.deviceStore.installDevice = ""
+        // "Export the IPA" is read from the shared preferences of the test process, so a value left there (a killed run, a run in
+        // another worktree at the same time) skipped the device check and the test saw the stale-tools note instead.
+        modelStores.deviceStore.exportIPA = false
         model.startBuild()
         XCTAssertFalse(model.running)
         XCTAssertEqual(model.doneNote, model.t("shell.needsDevice"))
