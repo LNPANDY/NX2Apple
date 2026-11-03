@@ -21,7 +21,7 @@ Issue: LNPANDY/NX2Apple#315
  1 file changed, 12 insertions(+), 11 deletions(-)
 
 diff --git a/dm/ios/Sources/Launcher.swift b/dm/ios/Sources/Launcher.swift
-index ebaa055..f20e403 100644
+index d8ceac0..8e4bdf7 100644
 --- a/dm/ios/Sources/Launcher.swift
 +++ b/dm/ios/Sources/Launcher.swift
 @@ -30,6 +30,18 @@ private struct GameDataSection: View {

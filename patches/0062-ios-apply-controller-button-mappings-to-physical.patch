@@ -6,24 +6,23 @@ Subject: [PATCH] ios: apply controller button mappings to physical gamepads
 Upstream-Status: forwarded seedds/nxnative#955 (on #386, patch 0009)
 Reason: the iOS host ignores DM_PAD_MAP, so the shell's button mapping (global and per game) never reaches physical controllers. The Mac host applies it already
 Issue: LNPANDY/NX2Apple#494
-
 ---
  dm/ios/Sources/DmGamepad.m | 6 ++++++
  1 file changed, 6 insertions(+)
 
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index 3747fc9..f607c0e 100644
+index b6a2c3f..8a9f009 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
-@@ -27,6 +27,7 @@
+@@ -28,6 +28,7 @@
  #include "motion_fusion.h"
  #include "pad_apple.h"
  #include "pad_slots.h"
 +#include "input_map.h"
  #include <stdatomic.h>
- 
- enum { B_A = 0, B_B, B_X, B_Y, B_LS, B_RS, B_L, B_R, B_ZL, B_ZR, B_PLUS, B_MINUS, B_LEFT, B_UP, B_RIGHT, B_DOWN, B_N };
-@@ -462,6 +463,7 @@ - (void)refresh {   // pressed state → fill, sticks → knob position
+ #import "DmLayout.h"
+ #import "DmGameMenu.h"
+@@ -547,6 +548,7 @@ - (void)refresh {   // pressed state → fill, sticks → knob position
  static pad_slots g_slots;
  static GCController *g_held[DM_PLAYERS];   // the controller of each slot, kept alive while it holds it (the slot table keys on its pointer)
  static int g_merge;
@@ -31,7 +30,7 @@ index 3747fc9..f607c0e 100644
  static int32_t axis(float v) { return (int32_t)(fmaxf(-1.f, fminf(1.f, v)) * 32767); }
  static void read_pad(GCExtendedGamepad *g) {
      int p = g_merge ? 0 : pad_slot_of(&g_slots, (__bridge const void *)g.controller); if (p < 0) return;
-@@ -474,6 +476,7 @@ static void read_pad(GCExtendedGamepad *g) {
+@@ -559,6 +561,7 @@ static void read_pad(GCExtendedGamepad *g) {
      if (g.leftThumbstickButton) K(g.leftThumbstickButton, B_LS); if (g.rightThumbstickButton) K(g.rightThumbstickButton, B_RS);
      K(g.dpad.left, B_LEFT); K(g.dpad.up, B_UP); K(g.dpad.right, B_RIGHT); K(g.dpad.down, B_DOWN);
      #undef K
@@ -39,7 +38,7 @@ index 3747fc9..f607c0e 100644
      dm_pad_set_player(p, m, axis(g.leftThumbstick.xAxis.value), axis(g.leftThumbstick.yAxis.value), axis(g.rightThumbstick.xAxis.value), axis(g.rightThumbstick.yAxis.value));
  }
  // Home and Capture: without this iOS takes them as system gestures (Home opens the Games overlay, Capture a screenshot); the app gives them no function
-@@ -481,6 +484,9 @@ static void read_pad(GCExtendedGamepad *g) {
+@@ -566,6 +569,9 @@ static void read_pad(GCExtendedGamepad *g) {
  static const char *pad_name(GCController *c) { return c.vendorName.UTF8String ?: "?"; }
  static void npad_name(int p, char *out, size_t cap) { uint32_t id = dm_player_npad(p); if (id == 0x20) snprintf(out, cap, "handheld"); else snprintf(out, cap, "%u", id); }
  static void pads_start(void) {
