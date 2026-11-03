@@ -18,6 +18,7 @@ package enum BuildFailureClassifier {
         ("nsp.damaged", .damagedNSP, "files fail the NCA's hash check"),
         ("arm32.program", .a32Program, "is a 32-bit ARM program"),
         ("keys.missing", .keys, "(?m)^\\[RED\\] no such file: "),
+        ("keys.old", .keysOld, "the keys are older than the game"),
         ("games.several", .severalGames, "more than one game in the folder"),
         ("games.noTitleID", .noTitleID, "no NSP with a readable title ID in "),
         ("games.noProfile", .noProfile, "packs only a game with a profile"),

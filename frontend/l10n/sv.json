@@ -393,6 +393,8 @@
   "fail.keys.button": "Välj nyckelfil",
   "fail.keys.next": "Välj din prod.keys igen. Ligger den på en extern disk ansluter du disken först. Bygg sedan igen.",
   "fail.keys.what": "Nyckelfilen hittades inte eller går inte att läsa.",
+  "fail.keysOld.next": "Spelet behöver en nyckel som kom med en nyare systemversion för Switch. Uppdatera din egen Switch, hämta prod.keys från den igen, välj den nya filen och bygg sedan igen. Loggen anger nyckeln och systemversionen.",
+  "fail.keysOld.what": "Din prod.keys-fil är äldre än spelet.",
   "fail.noProfile.next": "Switch 2-spel går bara att bygga när motorn känner till dem. Uppdatera motorn eller vänta tills den har en profil för det här spelet.",
   "fail.noProfile.what": "Motorn har ingen profil för det här spelet, och en spelmapp bygger bara ett spel med profil.",
   "fail.noSigningAccount.next": "Öppna Xcode > Inställningar > Konton, logga in med ditt Apple-ID och kontrollera att teamet finns i listan. Bygg sedan igen. Ett gratis Apple-ID räcker och Xcode skapar certifikatet själv.",

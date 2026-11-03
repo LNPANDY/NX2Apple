@@ -537,6 +537,8 @@
   "fail.keys.button": "Choose keys file",
   "fail.keys.next": "Choose your prod.keys again. If it is on an external drive, connect the drive first. Then build again.",
   "fail.keys.what": "The keys file was not found or can't be read.",
+  "fail.keysOld.next": "The game needs a key that came with a newer Switch system version. Update your own Switch, take prod.keys from it again, choose the new file and build again. The log names the key and the system version.",
+  "fail.keysOld.what": "Your prod.keys file is older than the game.",
   "fail.noProfile.next": "Switch 2 games build only when the engine knows them. Update the engine, or wait until the engine has a profile for this game.",
   "fail.noProfile.what": "The engine has no profile for this game, and a game folder builds only a game with one.",
   "fail.noSigningAccount.next": "Open Xcode > Settings > Accounts, sign in with your Apple ID and make sure the team is listed, then build again. A free Apple ID is enough and Xcode creates the certificate itself.",

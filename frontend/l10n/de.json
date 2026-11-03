@@ -539,6 +539,8 @@
   "fail.keys.button": "Schlüsseldatei wählen",
   "fail.keys.next": "Wähle deine prod.keys erneut. Liegt sie auf einem externen Laufwerk, verbinde zuerst das Laufwerk. Baue dann erneut.",
   "fail.keys.what": "Die Schlüsseldatei wurde nicht gefunden oder lässt sich nicht lesen.",
+  "fail.keysOld.next": "Das Spiel braucht einen Schlüssel, der mit einer neueren Switch-Systemversion kam. Aktualisiere deine eigene Switch, hole prod.keys erneut von ihr, wähle die neue Datei und baue dann erneut. Das Protokoll nennt den Schlüssel und die Systemversion.",
+  "fail.keysOld.what": "Deine prod.keys-Datei ist älter als das Spiel.",
   "fail.noProfile.next": "Switch 2-Spiele lassen sich nur bauen, wenn die Engine sie kennt. Aktualisiere die Engine oder warte, bis sie ein Profil für dieses Spiel hat.",
   "fail.noProfile.what": "Die Engine hat kein Profil für dieses Spiel, und ein Spielordner baut nur ein Spiel mit Profil.",
   "fail.noSigningAccount.next": "Öffne in Xcode „Settings → Accounts“, melde dich mit deiner Apple-ID an und stelle sicher, dass das Team aufgeführt ist. Baue dann erneut. Eine kostenlose Apple-ID genügt, und Xcode erstellt das Zertifikat selbst.",

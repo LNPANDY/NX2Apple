@@ -381,7 +381,7 @@ class MainWindow(QMainWindow):
         outer.addWidget(self.failure_box)
 
     _FIX_BUTTONS = {'translator': 'fail.translator.button', 'zbic': 'fail.zbic.button', 'iosSDK': 'fail.iosSDK.button',
-                    'keys': 'fail.keys.button', 'severalGames': 'fail.showFolder', 'noTitleID': 'fail.showFolder',
+                    'keys': 'fail.keys.button', 'keysOld': 'fail.keys.button', 'severalGames': 'fail.showFolder', 'noTitleID': 'fail.showFolder',
                     'diskFull': 'fail.showFolder'}
 
     def _show_failure(self) -> None:
@@ -403,7 +403,7 @@ class MainWindow(QMainWindow):
         f = self.m.failure
         if f is None:
             return
-        if f.kind == 'keys':
+        if f.kind in ('keys', 'keysOld'):
             self._choose_input('keys')   # the same picker as the keys row
         elif f.kind in ('severalGames', 'noTitleID', 'diskFull'):
             folder = self.m.failure_folder(f)
