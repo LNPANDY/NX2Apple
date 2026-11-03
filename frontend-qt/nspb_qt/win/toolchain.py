@@ -986,8 +986,11 @@ def probe_link(sdk: Path, t=None) -> tuple[bool, str]:
     # Step 0: run the linker by itself. A silent clang failure (the report: exit 1, no output on
     # either stream) cannot say whether the linker is broken or clang's drive of it is, and the
     # two have different fixes. lld --version is the smallest probe that separates them.
-    v = subprocess.run([str(lld), '--version'], capture_output=True, text=True, timeout=60,
-                       **no_window())
+    try:
+        v = subprocess.run([str(lld), '--version'], capture_output=True, text=True, timeout=60,
+                           **no_window())
+    except OSError as e:
+        return False, f'cannot run {lld.name}: {e}'
     lld_self = (v.stdout or v.stderr or '').strip().splitlines()
     lld_line = lld_self[0] if lld_self else f'exit {v.returncode}, no output'
     if v.returncode != 0:

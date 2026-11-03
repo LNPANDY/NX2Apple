@@ -9,6 +9,7 @@ PingFang SC, which macOS ships. The numbers are read from the tree on every run,
 the README cannot disagree.
 """
 import html
+import re
 import subprocess
 import sys
 import tempfile
@@ -19,15 +20,10 @@ REPO = HERE.parents[1]
 CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 
 
-def repo_numbers() -> tuple[int, int]:
-    """(game profiles, verified on an iPhone): the dm/games/0100… folders, and GAMES.md's games
-    table rows that say they were verified."""
-    games = sum(1 for d in (REPO / 'engine/dm/games').iterdir() if d.is_dir() and d.name.startswith('0100'))
-    readme = (REPO / 'GAMES.md').read_text(encoding='utf-8')
-    verified = sum(1 for ln in readme.splitlines()
-                   if ln.startswith('| ') and ln.count('`') >= 2
-                   and ('**Verified here**' in ln or 'Verified —' in ln))
-    return games, verified
+def repo_numbers() -> int:
+    """The game profiles: every dm/games/<16 hex digits> folder."""
+    return sum(1 for d in (REPO / 'engine/dm/games').iterdir()
+               if d.is_dir() and re.fullmatch(r'[0-9A-F]{16}', d.name))
 
 
 TEXT = {
@@ -35,10 +31,10 @@ TEXT = {
         'out': 'hero-features-en.png',
         'title': ('Switch games,', 'on iPhone and Mac.'),
         'lead': 'Not an emulator. No terminal.<br>A Mac app does the whole build in a few clicks.',
-        'stats': ['game profiles', 'verified on iPhone', 'files → 127 shards'],
+        'stats': ['game profiles', 'files → 1 img'],
         'cards': [
             ('One-click build', 'Pick your files, press Build. No terminal.'),
-            ('RomFS archive', '300k files in 127 shards: a 16 GB game installs.'),
+            ('RomFS archive', '300k files in one image: a 16 GB game installs.'),
             ('Resumable builds', 'A stopped build continues where it left off.'),
             ('Self-installing', 'Fetches the build tools and updates itself.'),
         ],
@@ -47,10 +43,10 @@ TEXT = {
         'out': 'hero-features.png',
         'title': ('Switch 游戏，', '装进 iPhone 和 Mac。'),
         'lead': '不是模拟器 · 不用命令行<br>一个 macOS App 点几下就完成构建',
-        'stats': ['款游戏 profile', '款 iPhone 实测', '文件 → 127 分片'],
+        'stats': ['款游戏 profile', '文件 → 1 个镜像'],
         'cards': [
             ('一键构建', '选好文件按构建，全程无命令行'),
-            ('RomFS 归档', '30 万文件压成 127 片，16 GB 也能装'),
+            ('RomFS 归档', '30 万文件压成 1 个镜像，16 GB 也能装'),
             ('断点续传', '中断接着跑，没变的部分直接复用'),
             ('自助安装', '自动下载仓库，App 自己也能更新'),
         ],
@@ -139,11 +135,11 @@ def main() -> int:
     if not Path(CHROME).exists():
         sys.exit('needs Google Chrome in /Applications (it renders the HTML)')
     common = {'font': (REPO / 'frontend/fonts/Manrope.ttf').as_uri(), 'icon': app_icon().as_uri()}
-    games, verified = repo_numbers()
+    games = repo_numbers()
     w, h = 1050, 350   # 2100x700 at 2x, the banner's old size
     for lang in TEXT.values():
         style = STYLE % {**common, 'w': w, 'h': h}
-        nums = [(str(games), '#40d678'), (str(verified), '#ffc73d'), ('300k', '#fff0d6')]
+        nums = [(str(games), '#40d678'), ('300k', '#fff0d6')]
         stats = ''.join(f'<div class="stat" style="--dot:{c}"><b>{n}</b><span>{html.escape(l)}</span></div>'
                         for (n, c), l in zip(nums, lang['stats']))
         cards = ''.join(f'<div class="card"><span class="num">0{i + 1}</span><h2>{html.escape(t)}</h2><p>{html.escape(d)}</p></div>'
