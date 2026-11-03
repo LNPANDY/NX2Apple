@@ -219,6 +219,16 @@ ID → image and kept with the images in
 `~/Library/Application Support/NS Port Builder/artwork/`. Custom images stay at
 their chosen path.
 
+The list can hold several shop products under one title ID: the game, its Nintendo
+Switch 2 Edition, or a bundle with a membership or an expansion pass. The launcher
+takes the game's own product. A product whose name marks an edition, a bundle, a pass
+or a demo loses, and of two equal ones the first in the shop wins. `sources.json` in
+the same folder records where each image came from. An image saved by an older
+launcher is checked once against this rule and replaced when it belongs to another
+product. A banner with a promotion painted in (for example "Demo Available") cannot be
+told from the list. Change artwork covers it. A game the list does not know, as most
+Switch 2 games today, falls back to the screenshot, the app icon or the placeholder.
+
 ## Type
 
 The interface is set in Manrope (SIL Open Font License, with its license in `fonts/`):
