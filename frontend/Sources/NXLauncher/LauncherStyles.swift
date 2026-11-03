@@ -298,25 +298,10 @@ package struct LauncherSlider: View {
     package let step: Double
     package let change: (Double) -> Void
     package var body: some View {
-        GeometryReader { g in
-            let span = range.upperBound - range.lowerBound
-            let fraction = span > 0 ? (min(max(value, range.lowerBound), range.upperBound) - range.lowerBound) / span : 0
-            let knob: CGFloat = 16, track = g.size.width - knob
-            ZStack(alignment: .leading) {
-                Capsule().fill(Color.white.opacity(0.14)).frame(height: 4).padding(.horizontal, knob / 2)
-                Capsule().fill(LauncherPalette.cream).frame(width: track * fraction + knob / 2, height: 4).padding(.leading, knob / 2)
-                Circle().fill(LauncherPalette.cream).frame(width: knob, height: knob)
-                    .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
-                    .offset(x: track * fraction)
-            }
-            .frame(maxHeight: .infinity)
-            .contentShape(Rectangle())
-            .gesture(DragGesture(minimumDistance: 0).onChanged { drag in
-                let raw = range.lowerBound + Double(min(max(drag.location.x - knob / 2, 0), track) / max(track, 1)) * span
-                let snapped = step > 0 ? (raw / step).rounded() * step : raw
-                change(min(max(snapped, range.lowerBound), range.upperBound))
-            })
-        }
-        .frame(height: 22)
+        // Native control retains arrow-key adjustment, focus, bounds and VoiceOver's slider role.
+        Slider(value: Binding(get: { value }, set: change), in: range, step: step > 0 ? step : 0.01)
+            .labelsHidden()
+            .tint(LauncherPalette.cream)
+            .frame(height: 22)
     }
 }

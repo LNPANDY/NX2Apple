@@ -235,6 +235,8 @@ struct LaunchOptionsView: View {
                 LauncherSlider(value: Double(value) ?? Double(s.def) ?? lo, range: lo...hi, step: s.step ?? 0.05) {
                     set(s, String(format: "%.2f", $0))
                 }
+                .accessibilityLabel(label(s))
+                .accessibilityValue(pixels ?? "\(Int(((Double(value) ?? 0) * 100).rounded()))%")
                 Text(pixels ?? "\(Int(((Double(value) ?? 0) * 100).rounded()))%")
                     .font(.manrope(13, .semibold)).monospacedDigit().foregroundStyle(.secondary)
                     .frame(width: LaunchControl.valueWidth, alignment: .trailing)
