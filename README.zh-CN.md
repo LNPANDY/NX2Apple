@@ -107,7 +107,8 @@ App 会为它编译一次图形并记住。游戏数据（`romfs.img`）可以�
 `~/Library/Application Support/nxnative/<title ID>/env.txt` 优先，重新构建后仍在；
 `<App>.app/Contents/Resources/dm/env.txt` 是 App 自带的。在加入语言选项之前构建的 Mac App 需要重新构建
 一次才有该项。iPhone 上同样的行写在 `Documents/env.txt` 里（`DM_FPS_TARGET=30` 限帧省电，
-`DM_OPMODE=0` 选掌机模式）。
+`DM_OPMODE=0` 选掌机模式）。该文件对共享 App 里的每个游戏都生效。只属于某一个游戏的行（例如 mod 的
+`DM_ROMFS_OVERLAY`）写在 `Documents/games/<title ID>/env.txt` 里。两个文件设置了同一个键时，以该游戏的文件为准。
 
 **存档和日志。** 放在游戏库文件夹里的 Mac 游戏，存档和日志在 App 旁边（`log/<title ID>.log`）；否则在
 `~/Library/Application Support/nxnative/<title ID>/` 和 `~/Library/Logs/nxnative/<title ID>.log`。

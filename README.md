@@ -127,7 +127,9 @@ options. For anything the sheet lacks, write an `env.txt` of `KEY=VALUE` lines (
 wins and survives rebuilds; `<App>.app/Contents/Resources/dm/env.txt` is the app's own. A Mac app
 built before the language row existed needs one rebuild to get it. On the iPhone, the same lines go
 in `Documents/env.txt` (`DM_FPS_TARGET=30` caps the frame rate to save battery, `DM_OPMODE=0` picks
-handheld mode).
+handheld mode). That file applies to every game in the shared app. For a line that belongs to one game
+(a mod's `DM_ROMFS_OVERLAY`, for example), write it in `Documents/games/<title ID>/env.txt`. Where both
+files set a key, the game's file wins.
 
 **Saves and logs.** A Mac game in a library folder keeps its saves and its log beside the app
 (`log/<title ID>.log`); otherwise they are in `~/Library/Application Support/nxnative/<title ID>/` and

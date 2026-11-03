@@ -112,6 +112,36 @@ import Testing
         #expect(env["DM_ENV_FILE_KEYS"] == "DM_TRACE DM_OTHER")
     }
 
+    /// #557: a mod's `DM_ROMFS_OVERLAY` in the shared file reached every game. The game's own file stays with the game.
+    @Test func gameEnvFileWinsOverTheSharedOneAndIsReadFromTheGamesFolder() throws {
+        let rig = try Rig(environment: ["DM_LANG": "de"])
+        try FileManager.default.createDirectory(at: rig.gdir, withIntermediateDirectories: true)
+        try "# this game\nDM_ROMFS_OVERLAY=/mods/orbit\nDM_TRACE=9\nDM_LANG=fr\nDM_SAVE=/elsewhere\n".write(to: rig.gdir.appendingPathComponent("env.txt"), atomically: true, encoding: .utf8)
+        let env = rig.plan(envFile: "DM_ROMFS_OVERLAY=/mods/other\nDM_TRACE=1\nDM_OTHER=3\n").environment
+        #expect(env["DM_ROMFS_OVERLAY"] == "/mods/orbit")
+        #expect(env["DM_TRACE"] == "9")
+        #expect(env["DM_OTHER"] == "3", "the shared file still applies to what the game's file does not set")
+        #expect(env["DM_LANG"] == "de" && env["DM_SAVE"] == rig.gdir.path + "/save", "the launch environment wins over both files")
+        #expect(env["DM_ENV_FILE_KEYS"] == "DM_ROMFS_OVERLAY DM_TRACE DM_OTHER")
+    }
+
+    @Test func anotherGameDoesNotSeeTheFirstGamesEnvFile() throws {
+        let rig = try Rig()
+        try FileManager.default.createDirectory(at: rig.gdir, withIntermediateDirectories: true)
+        try "DM_ROMFS_OVERLAY=/mods/orbit\n".write(to: rig.gdir.appendingPathComponent("env.txt"), atomically: true, encoding: .utf8)
+        var other = rig.game
+        other.appFolder = rig.box.documents.appendingPathComponent("games/0100000000000000", isDirectory: true)
+        let env = EngineLaunchPlan.make(game: other, appResources: rig.box.resources, documents: rig.box.documents, envFileText: nil).environment
+        #expect(env["DM_ROMFS_OVERLAY"] == nil)
+        #expect(env["DM_ENV_FILE_KEYS"] == "")
+    }
+
+    @Test func withoutAGameEnvFileOnlyTheSharedOneApplies() throws {
+        let rig = try Rig()
+        let env = rig.plan(envFile: "DM_TRACE=1\n").environment
+        #expect(env["DM_TRACE"] == "1" && env["DM_ENV_FILE_KEYS"] == "DM_TRACE")
+    }
+
     @Test func argumentsExecutableAndLocations() throws {
         let rig = try Rig()
         let plan = rig.plan()
