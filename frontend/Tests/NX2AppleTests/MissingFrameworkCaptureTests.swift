@@ -8,13 +8,13 @@ import NXModel
 
 /// Visual QA of the missing-framework message (LNPANDY/NX2Apple#491, matched by --filter testRenderMissingFrameworkForVisualQA).
 /// The Builds page's action card with the note a handoff leaves when the game's framework is not in the build folder.
-final class MissingFrameworkCaptureTests: XCTestCase {
+final class MissingFrameworkCaptureTests: IsolatedDefaultsTestCase {
     @MainActor func testRenderMissingFrameworkForVisualQA() throws {
         guard let directory = ProcessInfo.processInfo.environment["NX_LAUNCHER_CAPTURE_DIR"] else { throw XCTSkip("Set NX_LAUNCHER_CAPTURE_DIR to capture native views") }
         let output = URL(fileURLWithPath: directory)
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         let lang = ProcessInfo.processInfo.environment["NX_CAPTURE_LANG"].flatMap { Lang.find($0) } ?? .en
-        let stores = LauncherStores(); let model = stores.build
+        let stores = LauncherStores(defaults: testDefaults); let model = stores.build
         stores.localizer.lang = lang
         var installer = ShellInstaller(xcrun: "/usr/bin/xcrun", repo: "/nonexistent", python: "/usr/bin/python3", root: "/nonexistent",
                                        device: "", team: "")

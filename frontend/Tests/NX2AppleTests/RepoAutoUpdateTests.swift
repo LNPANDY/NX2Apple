@@ -6,19 +6,16 @@ import NXModel
 
 /// The automatic update when the app opens (RepoStore.autoPull): a clean checkout on main fast-forwards to origin/main,
 /// one with local changes is left as it is. A local bare repository stands in for GitHub.
-@MainActor final class RepoAutoUpdateTests: XCTestCase {
+@MainActor final class RepoAutoUpdateTests: IsolatedDefaultsTestCase {
     private var temporary: URL!
-    private var saved: [(String, Any?)] = []
 
     override func setUpWithError() throws {
         guard FileManager.default.isExecutableFile(atPath: "/usr/bin/git") else { throw XCTSkip("git is required for the fixture") }
         temporary = FileManager.default.temporaryDirectory.appendingPathComponent("nxnative-repo-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
-        saved = ["repoPath", "autoUpdateRepo"].map { ($0, UserDefaults.standard.object(forKey: $0)) }
     }
 
     override func tearDownWithError() throws {
-        for (key, value) in saved { UserDefaults.standard.set(value, forKey: key) }
         try? FileManager.default.removeItem(at: temporary)
     }
 
@@ -48,7 +45,7 @@ import NXModel
     }
 
     @MainActor private func open(_ checkout: URL) -> LauncherStores {
-        let mStores = LauncherStores(); let m = mStores.build
+        let mStores = LauncherStores(defaults: testDefaults); let m = mStores.build
         mStores.repo.path = checkout.path
         mStores.repo.autoUpdate = true
         mStores.repo.checkForUpdates(silent: true)   // what the library does when the app opens

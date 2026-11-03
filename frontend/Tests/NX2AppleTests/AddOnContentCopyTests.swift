@@ -6,7 +6,7 @@ import NXModel
 
 /// The slim default leaves DLC images in the work folder, and the archive step copies them into the game folder
 /// whichever way it ends (issue #202). The copy is one helper, so this drives it with a stale destination.
-final class AddOnContentCopyTests: XCTestCase {
+final class AddOnContentCopyTests: IsolatedDefaultsTestCase {
     func testCopiesTheImagesAndReplacesAStaleFolder() throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory.appendingPathComponent("nxnative-aoc-" + UUID().uuidString)

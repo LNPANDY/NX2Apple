@@ -4,7 +4,7 @@ import XCTest
 @testable import NXLauncher
 
 /// Issue #69: Copy diagnostics. Every input is a stand-in; nothing reads this Mac's checkout, tools or keys.
-final class DiagnosticsTests: XCTestCase {
+final class DiagnosticsTests: IsolatedDefaultsTestCase {
     private let home = "/Users/jo"
 
     private func inputs() -> Diagnostics.Inputs {

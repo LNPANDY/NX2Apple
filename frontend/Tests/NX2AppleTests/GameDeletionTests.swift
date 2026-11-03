@@ -9,7 +9,7 @@ import XCTest
 /// #559: Delete game on the Mac. What goes (the Mac app, the IPA, the game data for the shared app, the game's place in the
 /// shared app, the build folder, the log) and what stays (the files it was built from, other games, and the saves unless the
 /// player chose them too).
-final class GameDeletionTests: XCTestCase {
+final class GameDeletionTests: IsolatedDefaultsTestCase {
     private var root: URL!
     private let titleID = "0100535012974000", other = "0100000000010000"
     private var path: String { root.path }
@@ -125,7 +125,7 @@ final class GameDeletionTests: XCTestCase {
         let output = URL(fileURLWithPath: directory)
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         NSApplication.shared.setActivationPolicy(.accessory)
-        let localizer = LauncherStores().localizer
+        let localizer = LauncherStores(defaults: testDefaults).localizer
         localizer.lang = CaptureLanguage.current(.en)
         let game = LibraryGame(titleID: titleID, name: "Hades")
         let out = "/Volumes/Games/Hades"
