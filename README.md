@@ -134,6 +134,11 @@ in `Documents/env.txt` (`DM_FPS_TARGET=30` caps the frame rate to save battery, 
 handheld mode). That file applies to every game in the shared app. For a line that belongs to one game
 (a mod's `DM_ROMFS_OVERLAY`, for example), write it in `Documents/games/<title ID>/env.txt`. Where both
 files set a key, the game's file wins.
+A mod is easier: put its folder in `Documents/games/<title ID>/mods/<mod name>/` (the RomFS files in a `romfs/`
+folder inside it, or in the folder itself). The shell then sets `DM_ROMFS_OVERLAY` for that game only. If there
+are several mods, the one first by name wins where they replace the same file. Where the same key is set twice,
+the order is: the shell's own settings, the game's `env.txt`, the game's `mods/` folder, the shared
+`Documents/env.txt`.
 
 **Saves and logs.** A Mac game in a library folder keeps its saves and its log beside the app
 (`log/<title ID>.log`); otherwise they are in `~/Library/Application Support/nxnative/<title ID>/` and
