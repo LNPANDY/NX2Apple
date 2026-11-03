@@ -208,6 +208,10 @@ extension BuildStore {
                         // already carries one, and a second multi-GB file was pure duplication.
                         let made = !self.macAppPath.isEmpty &&
                                    FileManager.default.fileExists(atPath: self.macAppPath)
+                        if made && (!self.offlineSaveFolder.isEmpty || !self.offlineCacheFolder.isEmpty) {
+                            self.finishOfflineApp()
+                            return
+                        }
                         self.done = made
                         self.doneNote = self.t(made ? "msg.macAppDone" : "msg.macAppMissing")
                         if made {
