@@ -518,7 +518,9 @@ public struct LibraryView: View {
         else if padMapping?.row != nil { closePadRow() }
         else if padMapping != nil { closePadMapping() }
         else if choice != nil { closeChoice() }
-        else if let touchLayout { if touchLayout.held { touchLayout.putDown() } else { closeTouchLayout() } }
+        else if let touchLayout {
+            if touchLayout.held { touchLayout.putDown() } else if touchLayout.confirmingReset { touchLayout.cancelReset() } else { closeTouchLayout() }
+        }
         else if helpGameID != nil { closeHelp() }
         else if deleteGameID != nil { closeDelete() }
         else if controllersOpen { controllersOpen = false; focus.id = "lib.controllers" }

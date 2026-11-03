@@ -4,11 +4,14 @@ import SwiftUI
 /// this device's screen at its own proportions. Drag a control and it snaps to steps of a quarter key. Where it would cover another
 /// control or leave its area it turns red and goes back when let go. The area it may use shows while it is chosen. A chosen control also
 /// moves step by step with the arrows, a controller (A picks it up, the D-pad moves it, A or B puts it down) or VoiceOver's actions.
-/// Put back and Reset return one control or the whole layout to the built-in places. The engine places every control again on the
+/// Reset this control and Reset all controls return one control or the whole shown layout to the built-in places, Reset all after
+/// a question. The engine places every control again on the
 /// device, so nothing the editor stores can break a game's layout.
 struct TouchLayoutEditorView: View {
     @Bindable var model: TouchLayoutEditorModel
     var close: () -> Void
+    /// Where the column beside the preview starts scrolled: the top, or the end for the captures of what lies below.
+    var columnAnchor: UnitPoint = .top
     @Environment(\.shellFocus) private var focus
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// The drag in progress: the control, where its offset started, and the spot drawn under the finger when the engine refuses it.
@@ -22,31 +25,29 @@ struct TouchLayoutEditorView: View {
         var travelled: CGFloat = 0
     }
 
-    /// The width of each button role, the same in every language (the longest label fits at the type's size).
+    /// The width of the Arrange button in the shell settings, the same in every language (the longest label fits at the type's size).
     static let buttonWidth: CGFloat = 148
-    static let arrowSize: CGFloat = 52
+    static let arrowSize: CGFloat = 48
 
     var body: some View {
         GeometryReader { proxy in
             // Held sideways the preview takes the room the column beside it leaves: on a phone it is then nearly as large as the game.
-            let wide = proxy.size.width > proxy.size.height * 1.1 && proxy.size.width >= 640
+            let wide = proxy.size.width > proxy.size.height * 1.1 && proxy.size.width >= 600
             if wide {
-                let column: CGFloat = 340, aspect = screen.size.width / screen.size.height
-                let w = max(200, min(proxy.size.width - column - 22 - 40, (proxy.size.height - 32 - 70) * aspect))
-                HStack(alignment: .top, spacing: 22) {
-                    // The preview, and under it what is chosen with the buttons that act on it.
-                    VStack(alignment: .leading, spacing: 14) {
-                        canvas.frame(width: w, height: w / aspect)
-                        HStack(alignment: .center, spacing: 10) { status; buttons }
-                    }
-                    .padding(.vertical, 16)
+                let column = Self.column(width: proxy.size.width), aspect = screen.size.width / screen.size.height
+                let w = max(200, min(proxy.size.width - column - 20 - 32, (proxy.size.height - 24) * aspect))
+                HStack(alignment: .top, spacing: 20) {
+                    canvas.frame(width: w, height: w / aspect)
+                        .frame(maxHeight: .infinity)
+                    // Everything else scrolls in the column: on the smallest phone it is taller than the screen.
                     ScrollView {
-                        VStack(alignment: .leading, spacing: 16) { header; pickers; panel(compact: true) }.padding(.vertical, 16)
+                        VStack(alignment: .leading, spacing: 14) { header; pickers; panel(compact: true) }.padding(.vertical, 12)
                     }
-                    .scrollIndicators(.hidden)
+                    .scrollIndicators(.automatic)
+                    .defaultScrollAnchor(columnAnchor)
                     .frame(width: column)
                 }
-                .padding(.horizontal, 20)
+                .padding(.horizontal, 16)
                 .frame(maxWidth: .infinity)
             } else {
                 ScrollView {
@@ -72,6 +73,9 @@ struct TouchLayoutEditorView: View {
         .sensoryFeedback(.warning, trigger: model.rejectCount)
     }
 
+    /// The column beside the preview held sideways: about a third of the width, never narrower than the buttons need.
+    static func column(width: CGFloat) -> CGFloat { min(340, max(250, (width * 0.34).rounded())) }
+
     // MARK: Header and pickers
 
     private var header: some View {
@@ -93,6 +97,7 @@ struct TouchLayoutEditorView: View {
     private var pickers: some View {
         VStack(alignment: .leading, spacing: 12) {
             let layoutRow = SettingRow(id: Self.layoutRow, label: ShellStrings.text("Layout"),
+                                       note: ShellStrings.text("Switch in the game with the button at the top centre. 3D adds the D-pad, L3 and R3."),
                                        kind: .choice([SettingOption("2d", "2D"), SettingOption("3d", "3D")]),
                                        value: model.kind.full ? "3d" : "2d")
             SettingControl(gameID: Self.gameID, row: layoutRow, targetPrefix: "lay.row.") { value in
@@ -124,12 +129,12 @@ struct TouchLayoutEditorView: View {
                     context.scaleBy(x: k, y: k)
                     drawBackdrop(g, in: &context)
                     if let active { drawGuides(for: active, g, k: k, in: &context) }
-                    for c in g.drawnControls where !isActive(c, active) { draw(c, g, in: &context) }
+                    for c in g.drawnControls where !isActive(c, active) { draw(c, g, k: k, in: &context) }
                 }
                 if let active {
                     Canvas { context, _ in
                         context.scaleBy(x: k, y: k)
-                        for c in g.drawnControls where isActive(c, active) { draw(c, g, highlight: drag?.refused == nil ? .chosen : .refused, in: &context) }
+                        for c in g.drawnControls where isActive(c, active) { draw(c, g, k: k, highlight: drag?.refused == nil ? .chosen : .refused, in: &context) }
                     }
                     .offset(x: activeOffset(g).width * k, y: activeOffset(g).height * k)
                     .allowsHitTesting(false)
@@ -195,16 +200,27 @@ struct TouchLayoutEditorView: View {
 
     private enum Highlight { case none, chosen, refused }
 
-    private func draw(_ c: TouchLayout.Control, _ g: PadGeo, highlight: Highlight = .none, in context: inout GraphicsContext) {
-        var style = PadDrawing.Style()
+    /// The keys in the editor: brighter than in the settings' small preview, with lines of the same width at every preview size. The
+    /// chosen control is filled cream with dark type and a soft halo, a refused spot red, so it reads at a glance.
+    private func draw(_ c: TouchLayout.Control, _ g: PadGeo, k: CGFloat, highlight: Highlight = .none, in context: inout GraphicsContext) {
+        var style = PadDrawing.Style(fill: .white.opacity(0.17), line: .white.opacity(0.62), text: .white.opacity(0.9), ring: .white.opacity(0.07),
+                                     lineWidth: 1.5 / k)
+        var halo: Color?
         switch highlight {
         case .none: break
         case .chosen:
-            style.fill = ShellPalette.cream.opacity(model.held ? 0.42 : 0.26); style.line = ShellPalette.cream; style.text = .white; style.lineWidth = 2.5
+            style.fill = ShellPalette.cream.opacity(model.held ? 1 : 0.9); style.line = ShellPalette.cream; style.text = .black.opacity(0.85)
+            style.ring = ShellPalette.cream.opacity(0.22); style.lineWidth = 2.5 / k
+            halo = ShellPalette.cream.opacity(model.held ? 0.5 : 0.32)
         case .refused:
-            style.fill = DeleteStyle.red.opacity(0.32); style.line = DeleteStyle.red; style.text = .white; style.lineWidth = 2.5
+            style.fill = DeleteStyle.red.opacity(0.9); style.line = DeleteStyle.red; style.text = .white
+            style.ring = DeleteStyle.red.opacity(0.25); style.lineWidth = 2.5 / k
+            halo = DeleteStyle.red.opacity(0.4)
         }
-        for shape in Self.shapes(c, g) { PadDrawing.draw(shape, in: &context, style: style) }
+        for shape in Self.shapes(c, g) {
+            if let halo { context.stroke(PadDrawing.outline(shape), with: .color(halo), lineWidth: (model.held ? 12 : 9) / k) }
+            PadDrawing.draw(shape, in: &context, style: style)
+        }
     }
 
     /// The drawn shapes of one control, in the gamepad's look.
@@ -283,7 +299,7 @@ struct TouchLayoutEditorView: View {
                 .accessibilityAction(named: ShellStrings.text("Move down")) { voiceOverMove(c, 0, 1) }
                 .accessibilityAction(named: ShellStrings.text("Move left")) { voiceOverMove(c, -1, 0) }
                 .accessibilityAction(named: ShellStrings.text("Move right")) { voiceOverMove(c, 1, 0) }
-                .accessibilityAction(named: ShellStrings.text("Put back")) { model.select(c); model.putBack() }
+                .accessibilityAction(named: ShellStrings.text("Reset this control")) { model.select(c); model.putBack() }
                 .shellTarget("lay.ctl.\(c.rawValue)", radius: max(box.width, box.height) * k / 2) { model.pickUp(c) }
                 .allowsHitTesting(false)
         }
@@ -298,76 +314,128 @@ struct TouchLayoutEditorView: View {
 
     // MARK: The panel
 
-    /// The arrows, the diamond's switch and the note. compact: the status and the buttons sit under the preview instead.
+    /// What is chosen, the arrows, the diamond's switch, the two resets and the note. compact: the column beside the preview, with the
+    /// arrows in one row. Otherwise the arrows in a cross with the resets beside them, or under them where the width is short.
     private func panel(compact: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
-            if compact {
-                arrows.frame(maxWidth: .infinity)
-            } else {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 14) {
                 status
-                // The arrows with the two buttons beside them, or below them side by side, or below them stacked: whatever the width holds.
-                ViewThatFits(in: .horizontal) {
-                    HStack(alignment: .center, spacing: 18) { arrows; VStack(alignment: .leading, spacing: 10) { buttons } }
-                    VStack(alignment: .leading, spacing: 14) { arrows; HStack(spacing: 10) { buttons } }
-                    VStack(alignment: .leading, spacing: 14) { arrows; VStack(alignment: .leading, spacing: 10) { buttons } }
+                if compact {
+                    arrowRow.frame(maxWidth: .infinity)
+                } else {
+                    ViewThatFits(in: .horizontal) {
+                        HStack(alignment: .center, spacing: 18) { arrowCross; resets.frame(width: Self.resetWidth) }
+                        VStack(alignment: .leading, spacing: 14) { arrowCross.frame(maxWidth: .infinity); resets }
+                    }
                 }
+                let together = SettingRow(id: Self.togetherRow, label: ShellStrings.text("Move A B X Y together"),
+                                          kind: .toggle(on: "1", off: "0"), value: model.together ? "1" : "0")
+                SettingControl(gameID: Self.gameID, row: together, targetPrefix: "lay.row.") { model.setTogether($0 == "1") }
+                    .equatable()
             }
-            let together = SettingRow(id: Self.togetherRow, label: ShellStrings.text("Move A B X Y together"),
-                                      kind: .toggle(on: "1", off: "0"), value: model.together ? "1" : "0")
-            SettingControl(gameID: Self.gameID, row: together, targetPrefix: "lay.row.") { model.setTogether($0 == "1") }
-                .equatable()
+            .shellCard(padding: compact ? 14 : 18)
+            if compact { resets }
             Text(ShellStrings.text("Drag a control to move it. Tap one to choose it, then move it step by step with the arrows. Where a control would cover another or leave the screen, it goes back. For every game."))
                 .shellType(ShellType.note).foregroundStyle(.white.opacity(0.5)).fixedSize(horizontal: false, vertical: true)
         }
-        .shellCard()
     }
 
-    /// Put back (the chosen control) and Reset (the shown layout), each of the same fixed width in every language.
-    @ViewBuilder private var buttons: some View {
-        Button(ShellStrings.text("Put back")) { model.putBack() }
-            .buttonStyle(ShellButtonStyle(fills: true)).frame(width: Self.buttonWidth)
-            .disabled(model.selected.map { !model.editing.isMoved($0) } ?? true)
-            .accessibilityIdentifier("touchLayout.putBack")
-            .shellTarget("lay.putBack", enabled: model.selected.map { model.editing.isMoved($0) } ?? false) { model.putBack() }
-        Button(ShellStrings.text("Reset")) { model.reset() }
-            .buttonStyle(ShellButtonStyle(fills: true, destructive: true)).frame(width: Self.buttonWidth)
-            .disabled(model.layoutIsBuiltIn)
-            .accessibilityLabel(ShellStrings.text("Reset this layout"))
-            .accessibilityIdentifier("touchLayout.reset")
-            .shellTarget("lay.reset", enabled: !model.layoutIsBuiltIn) { model.reset() }
-    }
+    /// The width of the two resets beside the arrows on an upright screen, the same in every language.
+    static let resetWidth: CGFloat = 236
 
-    /// The chosen control and what to do next, or why it went back.
-    private var status: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            if let c = model.selected {
-                let m = model.editing.mover(c)
-                Text(m.title).shellType(ShellType.cardTitle)
-                Text(model.rejected ? ShellStrings.text("No room there. It went back to where it was.")
-                     : model.held ? ShellStrings.text("Move it with the D-pad. A or B puts it down.")
-                     : ShellStrings.text(model.editing.isMoved(m) ? "Moved" : "In its place"))
-                    .shellType(ShellType.note)
-                    .foregroundStyle(model.rejected ? DeleteStyle.red : .white.opacity(0.6))
+    /// Reset this control (the chosen one) and Reset all controls (the shown layout), one above the other and as wide as each other.
+    /// Reset all asks first, in place, and the question starts on Cancel: it takes the button's place in the focus.
+    private var resets: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            let canPutBack = model.selected.map { model.editing.isMoved($0) } ?? false
+            Button { model.putBack() } label: { resetLabel("Reset this control", "arrow.uturn.backward") }
+                .buttonStyle(ShellButtonStyle(fills: true))
+                .disabled(!canPutBack)
+                .accessibilityIdentifier("touchLayout.putBack")
+                .shellTarget("lay.putBack", enabled: canPutBack) { model.putBack() }
+            if model.confirmingReset {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(ShellStrings.text("Put every control of the \(model.kind.full ? "3D" : "2D") layout back in its built-in place?"))
+                        .shellType(ShellType.note).foregroundStyle(.white.opacity(0.85)).fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("touchLayout.resetQuestion")
+                    Button { model.reset() } label: { resetLabel("Reset all controls", "arrow.counterclockwise") }
+                        .buttonStyle(ShellButtonStyle(fills: true, destructive: true))
+                        .accessibilityIdentifier("touchLayout.resetConfirm")
+                        .shellTarget("lay.resetConfirm") { model.reset() }
+                    Button { model.cancelReset() } label: { Text(ShellStrings.text("Cancel")).lineLimit(1).minimumScaleFactor(0.8) }
+                        .buttonStyle(ShellButtonStyle(fills: true))
+                        .accessibilityIdentifier("touchLayout.resetCancel")
+                        .shellTarget("lay.reset") { model.cancelReset() }
+                }
+                .padding(10)
+                .background(DeleteStyle.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+                .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(DeleteStyle.red.opacity(0.35)))
             } else {
-                Text(ShellStrings.text("Choose a control")).shellType(ShellType.cardTitle)
-                Text(model.rejected ? ShellStrings.text("No room there. It went back to where it was.") : ShellStrings.text("Tap a control in the picture."))
-                    .shellType(ShellType.note).foregroundStyle(model.rejected ? DeleteStyle.red : .white.opacity(0.6))
+                Button { model.askReset() } label: { resetLabel("Reset all controls", "arrow.counterclockwise") }
+                    .buttonStyle(ShellButtonStyle(fills: true, destructive: true))
+                    .disabled(model.layoutIsBuiltIn)
+                    .accessibilityIdentifier("touchLayout.reset")
+                    .shellTarget("lay.reset", enabled: !model.layoutIsBuiltIn) { model.askReset() }
             }
         }
-        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+    }
+
+    private func resetLabel(_ text: String.LocalizationValue, _ symbol: String) -> some View {
+        Label { Text(ShellStrings.text(text)).lineLimit(1).minimumScaleFactor(0.75) } icon: { Image(systemName: symbol) }
+    }
+
+    /// The chosen control and what to do next, or why it went back. It takes the card's whole width, so the words never wrap word by word.
+    private var status: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Image(systemName: model.selected == nil ? "hand.tap" : model.held ? "hand.draw" : "scope")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(model.rejected ? DeleteStyle.red : ShellPalette.cream)
+                .frame(width: 36, height: 36)
+                .background((model.rejected ? DeleteStyle.red : ShellPalette.cream).opacity(0.14), in: Circle())
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 3) {
+                if let c = model.selected {
+                    let m = model.editing.mover(c)
+                    Text(m.title).shellType(ShellType.cardTitle)
+                    Text(model.rejected ? ShellStrings.text("No room there. It went back to where it was.")
+                         : model.held ? ShellStrings.text("Move it with the D-pad. A or B puts it down.")
+                         : ShellStrings.text(model.editing.isMoved(m) ? "Moved" : "In its place"))
+                        .shellType(ShellType.note)
+                        .foregroundStyle(model.rejected ? DeleteStyle.red : .white.opacity(0.65))
+                } else {
+                    Text(ShellStrings.text("Choose a control")).shellType(ShellType.cardTitle)
+                    Text(model.rejected ? ShellStrings.text("No room there. It went back to where it was.") : ShellStrings.text("Tap a control in the picture."))
+                        .shellType(ShellType.note).foregroundStyle(model.rejected ? DeleteStyle.red : .white.opacity(0.65))
+                }
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(minHeight: 44)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("touchLayout.status")
     }
 
-    /// Four arrows in a cross: one step of the chosen control each.
-    private var arrows: some View {
-        let enabled = model.selected != nil
-        return Grid(horizontalSpacing: 6, verticalSpacing: 6) {
-            GridRow { Color.clear.frame(width: Self.arrowSize, height: Self.arrowSize); arrow("chevron.up", "Move up", "up", 0, -1); Color.clear.frame(width: Self.arrowSize, height: Self.arrowSize) }
-            GridRow { arrow("chevron.left", "Move left", "left", -1, 0); Color.clear.frame(width: Self.arrowSize, height: Self.arrowSize); arrow("chevron.right", "Move right", "right", 1, 0) }
-            GridRow { Color.clear.frame(width: Self.arrowSize, height: Self.arrowSize); arrow("chevron.down", "Move down", "down", 0, 1); Color.clear.frame(width: Self.arrowSize, height: Self.arrowSize) }
+    /// The four arrows in one row, held sideways where height is short: one step of the chosen control each.
+    private var arrowRow: some View {
+        HStack(spacing: 8) {
+            arrow("chevron.left", "Move left", "left", -1, 0)
+            arrow("chevron.up", "Move up", "up", 0, -1)
+            arrow("chevron.down", "Move down", "down", 0, 1)
+            arrow("chevron.right", "Move right", "right", 1, 0)
         }
-        .disabled(!enabled)
+        .disabled(model.selected == nil)
+    }
+
+    /// Four arrows in a cross, on an upright screen.
+    private var arrowCross: some View {
+        let gap = Color.clear.frame(width: Self.arrowSize, height: Self.arrowSize)
+        return Grid(horizontalSpacing: 6, verticalSpacing: 6) {
+            GridRow { gap; arrow("chevron.up", "Move up", "up", 0, -1); gap }
+            GridRow { arrow("chevron.left", "Move left", "left", -1, 0); gap; arrow("chevron.right", "Move right", "right", 1, 0) }
+            GridRow { gap; arrow("chevron.down", "Move down", "down", 0, 1); gap }
+        }
+        .disabled(model.selected == nil)
     }
 
     private func arrow(_ symbol: String, _ label: String.LocalizationValue, _ id: String, _ dx: Int, _ dy: Int) -> some View {
