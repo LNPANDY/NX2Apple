@@ -44,8 +44,9 @@ import NXModel
         // no team, no device, no provisioning
         XCTAssertFalse(build.contains { $0.hasPrefix("DEVELOPMENT_TEAM") || $0 == "-allowProvisioningUpdates" || $0.hasPrefix("id=") })
         XCTAssertEqual(ShellInstall.entitlementsPath(root: root), root + "/project/Gen/DmShell.entitlements")
-        XCTAssertEqual(ShellInstall.entitlementsCommand(app: "/a/DmShell.app", entitlements: "/e.plist"),
-                       ["/usr/bin/codesign", "--force", "--sign", "-", "--entitlements", "/e.plist", "/a/DmShell.app/DmShell"])
+        let stagedApp = root + "/export/stage/Payload/DmShell.app"
+        XCTAssertEqual(ShellInstall.entitlementsCommand(app: stagedApp, entitlements: "/e.plist"),
+                       ["/usr/bin/codesign", "--force", "--sign", "-", "--entitlements", "/e.plist", stagedApp + "/DmShell"])
         XCTAssertEqual(ShellInstall.zipCommand(root: root),
                        ["/usr/bin/ditto", "-c", "-k", "--norsrc", "--keepParent", root + "/export/stage/Payload", root + "/export/NX2Apple.ipa"])
     }
@@ -73,8 +74,9 @@ import NXModel
                 sys.exit(65)
             app = val('-derivedDataPath') + '/Build/Products/Release-iphoneos/DmShell.app'
             os.makedirs(app + '/Frameworks/DmGame\(titleID).framework', exist_ok=True)
-            open(app + '/DmShell', 'w').write('not a real executable')
-            open(app + '/Info.plist', 'w').write('plist')
+            if not os.path.exists(app + '/DmShell'):
+                open(app + '/DmShell', 'w').write('not a real executable')
+                open(app + '/Info.plist', 'w').write('plist')
             open(app + '/Frameworks/DmGame\(titleID).framework/DmGame\(titleID)', 'w').write('framework')
             print('Build succeeded', flush=True)
         elif a[:3] == ['devicectl', 'list', 'devices']:
@@ -186,6 +188,134 @@ import NXModel
         try library.save(root: f.root)
         XCTAssertTrue(installer(f).export(framework: f.framework, titleID: titleID, name: "Test Game").ok)
         XCTAssertEqual(ShellLibrary.load(root: f.root).team, "TEAM123456")
+    }
+
+    func testExportPacksEachGamesShaderBytesAndPreservesTheBuiltFrameworks() throws {
+        let f = try makeFixture(entitlements: false)
+        let app = ShellInstall.exportAppPath(root: f.root)
+        let games = ["DmGame\(titleID).framework", "DmGame0100000000000002.framework"]
+        for (index, game) in games.enumerated() {
+            let chain = app + "/Frameworks/\(game)/msl/b-test"
+            try write(chain + "/shader.json", "{\"game\":\(index)}")
+            try Data([0, 255, UInt8(index)]).write(to: URL(fileURLWithPath: chain + "/shader.metallib"))
+        }
+
+        let outcome = installer(f).export(framework: f.framework, titleID: titleID, name: "Test Game")
+        XCTAssertTrue(outcome.ok, outcome.message)
+        let unpacked = path("unpacked")
+        let tool = SystemProcessRunner()
+        let unzip = tool.capture(ProcessLaunch(["/usr/bin/ditto", "-x", "-k", outcome.ipaPath, unpacked], mergesErrors: true))
+        XCTAssertTrue(unzip.ok, unzip.out)
+        var names = Set<String>()
+        for game in games {
+            let fw = URL(fileURLWithPath: unpacked + "/Payload/DmShell.app/Frameworks/" + game)
+            let archives = try fm.contentsOfDirectory(at: fw, includingPropertiesForKeys: nil).filter { $0.pathExtension == "aar" }
+            XCTAssertEqual(archives.count, 1)
+            let archive = try XCTUnwrap(archives.first)
+            let stem = archive.deletingPathExtension().lastPathComponent
+            XCTAssertTrue(stem.hasPrefix("msl-"))
+            XCTAssertNotNil(UUID(uuidString: String(stem.dropFirst(4))))
+            names.insert(stem)
+            XCTAssertFalse(fm.fileExists(atPath: fw.appendingPathComponent("msl").path))
+            let restored = URL(fileURLWithPath: path("restored", game))
+            try fm.createDirectory(at: restored, withIntermediateDirectories: true)
+            let extract = tool.capture(ProcessLaunch(["/usr/bin/aa", "extract", "-i", archive.path, "-d", restored.path], mergesErrors: true))
+            XCTAssertTrue(extract.ok, extract.out)
+            for file in ["shader.json", "shader.metallib"] {
+                let original = URL(fileURLWithPath: app + "/Frameworks/\(game)/msl/b-test/" + file)
+                XCTAssertEqual(try Data(contentsOf: restored.appendingPathComponent("b-test/" + file)), try Data(contentsOf: original))
+            }
+        }
+        XCTAssertEqual(names.count, games.count)
+    }
+
+    func testFailedShaderArchiveFailsTheExportAndClearsTheStage() throws {
+        let f = try makeFixture(entitlements: false)
+        let relative = "Frameworks/DmGame\(titleID).framework/msl"
+        let built = ShellInstall.exportAppPath(root: f.root) + "/" + relative
+        try write(built + "/shader.json", "reflection")
+        var i = installer(f)
+        let stage = ShellInstall.exportStage(root: f.root)
+        // Lose the staged input just as aa runs to exercise a real archiver error.
+        i.log = { line in
+            if line.contains("/usr/bin/aa archive ") {
+                try? self.fm.removeItem(atPath: stage + "/Payload/DmShell.app/" + relative)
+            }
+        }
+        let outcome = i.export(framework: f.framework, titleID: titleID, name: "Test Game")
+        XCTAssertFalse(outcome.ok)
+        XCTAssertFalse(fm.fileExists(atPath: ShellInstall.ipaPath(root: f.root)))
+        XCTAssertFalse(fm.fileExists(atPath: stage))
+        XCTAssertTrue(fm.fileExists(atPath: built + "/shader.json"))
+    }
+
+    func testSignatureSealsThePackedShadersWithoutSigningTheBuiltApp() throws {
+        let f = try makeFixture(entitlements: false)
+        let app = ShellInstall.exportAppPath(root: f.root)
+        let framework = "Frameworks/DmGame\(titleID).framework"
+        try write(app + "/" + framework + "/msl/b-test/shader.json", "reflection")
+        let info = ["CFBundleIdentifier": "org.nxnative.shell", "CFBundleExecutable": "DmShell", "CFBundleName": "DmShell", "CFBundlePackageType": "APPL"]
+        try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0).write(to: URL(fileURLWithPath: app + "/Info.plist"))
+        try write(ShellInstall.entitlementsPath(root: f.root),
+                  "<plist version=\"1.0\"><dict><key>com.apple.developer.kernel.increased-memory-limit</key><true/></dict></plist>")
+        try write(path("test.c"), "int main(void) { return 0; }")
+        let tool = SystemProcessRunner()
+        let compiled = tool.capture(ProcessLaunch(["/usr/bin/xcrun", "--sdk", "macosx", "clang", "-arch", "arm64", path("test.c"), "-o", app + "/DmShell"], mergesErrors: true))
+        XCTAssertTrue(compiled.ok, compiled.out)
+        let originalURL = URL(fileURLWithPath: app + "/DmShell")
+        let original = try Data(contentsOf: originalURL)
+
+        let outcome = installer(f).export(framework: f.framework, titleID: titleID, name: "Test Game")
+        XCTAssertTrue(outcome.ok, outcome.message)
+        XCTAssertEqual(try Data(contentsOf: originalURL), original)
+        XCTAssertFalse(fm.fileExists(atPath: app + "/_CodeSignature"))
+        let exported = path("unpacked", "Payload", "DmShell.app")
+        let unpack = tool.capture(ProcessLaunch(["/usr/bin/ditto", "-x", "-k", outcome.ipaPath, path("unpacked")], mergesErrors: true))
+        XCTAssertTrue(unpack.ok, unpack.out)
+        let resources = try Data(contentsOf: URL(fileURLWithPath: exported + "/_CodeSignature/CodeResources"))
+        let seal = try XCTUnwrap(PropertyListSerialization.propertyList(from: resources, format: nil) as? [String: Any])
+        let files = try XCTUnwrap(seal["files2"] as? [String: Any])
+        let archive = try XCTUnwrap(files.keys.first { $0.hasPrefix(framework + "/msl-") && $0.hasSuffix(".aar") })
+        XCTAssertTrue(fm.fileExists(atPath: exported + "/" + archive))
+        XCTAssertFalse(files.keys.contains { $0.hasPrefix(framework + "/msl/") })
+        let verified = tool.capture(ProcessLaunch(["/usr/bin/codesign", "--verify", "--strict", exported + "/DmShell"], mergesErrors: true))
+        XCTAssertTrue(verified.ok, verified.out)
+    }
+
+    func testFailedZipRemovesItsPartialIPA() throws {
+        let f = try makeFixture(entitlements: false)
+        let stage = ShellInstall.exportStage(root: f.root), ipa = ShellInstall.ipaPath(root: f.root)
+        var i = installer(f)
+        i.log = { line in
+            if line.contains("/usr/bin/ditto -c -k ") {
+                try? self.fm.removeItem(atPath: stage + "/Payload")
+                try? self.write(ipa, "partial")
+            }
+        }
+        let outcome = i.export(framework: f.framework, titleID: titleID, name: "Test Game")
+        XCTAssertFalse(outcome.ok)
+        XCTAssertFalse(fm.fileExists(atPath: ipa))
+        XCTAssertFalse(fm.fileExists(atPath: stage))
+    }
+
+    func testLargeShaderLibraryLeavesAllIPAEntriesVisibleToZIP32Readers() throws {
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["NX2APPLE_LARGE_IPA_TEST"] == "1", "Opt in to creating 65,536 shader files")
+        let f = try makeFixture(entitlements: false)
+        let chain = ShellInstall.exportAppPath(root: f.root) + "/Frameworks/DmGame\(titleID).framework/msl/b-test"
+        try fm.createDirectory(atPath: chain, withIntermediateDirectories: true)
+        for key in 0...Int(UInt16.max) {
+            guard fm.createFile(atPath: chain + "/\(key).json", contents: Data()) else { throw CocoaError(.fileWriteUnknown) }
+        }
+        let outcome = installer(f).export(framework: f.framework, titleID: titleID, name: "Test Game")
+        XCTAssertTrue(outcome.ok, outcome.message)
+        let names = try entries(ofZip: outcome.ipaPath)
+        XCTAssertEqual(names.count, 8)   // Payload/, app/, Frameworks/, framework/, two executables, Info.plist, one shader archive
+        XCTAssertTrue(names.contains("Payload/DmShell.app/Info.plist"))
+        XCTAssertEqual(names.filter { $0.hasSuffix(".aar") }.count, 1)
+        // The count a ZIP32 reader actually sees in ditto's end-of-central-directory record.
+        let end = try Data(contentsOf: URL(fileURLWithPath: outcome.ipaPath), options: .mappedIfSafe).suffix(22)
+        XCTAssertEqual(Array(end.prefix(4)), [0x50, 0x4b, 0x05, 0x06])
+        XCTAssertEqual(Array(end.dropFirst(10).prefix(2)), [8, 0])
     }
 
     func testAnExportReplacesTheIPAOfTheLastOne() throws {
