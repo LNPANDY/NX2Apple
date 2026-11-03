@@ -36,8 +36,9 @@
 0058-read-pfs0-packages-missing-the-final-filename-te.patch
 0059-recognize-unframed-pointer-tail-calls-before-zer.patch
 0060-ios-shell-declare-italian-in-cfbundlelocalizatio.patch
-0061-shader-split-scimitar-forge-archives-and-raw-con.patch
-0062-mac-app-programs-of-a-multi-program-application.patch
-0063-nvn-mtl-a-stage-keeps-its-program-s-shaders-afte.patch
-0064-nvn-mtl-write-image-buffer-textures-below-16-byt.patch
-0065-dm-ctl-shots-n-folder-captures-consecutive-frame.patch
+0061-ios-adapt-gameplay-to-duo-portrait-and-tabletop.patch
+0062-shader-split-scimitar-forge-archives-and-raw-con.patch
+0063-mac-app-programs-of-a-multi-program-application.patch
+0064-nvn-mtl-a-stage-keeps-its-program-s-shaders-afte.patch
+0065-nvn-mtl-write-image-buffer-textures-below-16-byt.patch
+0066-dm-ctl-shots-n-folder-captures-consecutive-frame.patch

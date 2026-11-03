@@ -16,8 +16,12 @@
 [![Games](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FLNPANDY%2FNX2Apple%2Fmain%2F.github%2Fbadges%2Fgames.json)](.github/badges/games.json)
 [![Verified](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FLNPANDY%2FNX2Apple%2Fmain%2F.github%2Fbadges%2Fverified.json)](.github/badges/verified.json)
 
+[![中文](https://img.shields.io/badge/🇨🇳_中文-available-green)](README.zh-CN.md)
 [![English](https://img.shields.io/badge/🇺🇸_English-current-blue)](README.md)
-[![简体中文](https://img.shields.io/badge/🇨🇳_简体中文-available-green)](README.zh-CN.md)
+[![Svenska](https://img.shields.io/badge/🇸🇪_Svenska-available-green)](README.sv.md)
+[![Deutsch](https://img.shields.io/badge/🇩🇪_Deutsch-available-green)](README.de.md)
+[![Français](https://img.shields.io/badge/🇫🇷_Français-available-green)](README.fr.md)
+[![Italiano](https://img.shields.io/badge/🇮🇹_Italiano-available-green)](README.it.md)
 
 <img src="frontend/screenshots/hero-features-en.png" width="100%" alt="NX2Apple — Switch games on iPhone and Mac">
 
@@ -28,7 +32,7 @@
 - **Guided first run** — a setup wizard walks a new player through Xcode, keys and games; the build tools and a Python ship inside the app, so nobody installs Homebrew.
 - **Console mode** — plug in a controller, press Select: the library goes full screen, controller-first, like a Switch home menu.
 
-Every release is in the [changelog](CHANGELOG.md). 中文用户请看这里：[简体中文 README](README.zh-CN.md)。
+Every release is in the [changelog](CHANGELOG.md).
 
 </div>
 
@@ -127,7 +131,9 @@ options. For anything the sheet lacks, write an `env.txt` of `KEY=VALUE` lines (
 wins and survives rebuilds; `<App>.app/Contents/Resources/dm/env.txt` is the app's own. A Mac app
 built before the language row existed needs one rebuild to get it. On the iPhone, the same lines go
 in `Documents/env.txt` (`DM_FPS_TARGET=30` caps the frame rate to save battery, `DM_OPMODE=0` picks
-handheld mode).
+handheld mode). That file applies to every game in the shared app. For a line that belongs to one game
+(a mod's `DM_ROMFS_OVERLAY`, for example), write it in `Documents/games/<title ID>/env.txt`. Where both
+files set a key, the game's file wins.
 
 **Saves and logs.** A Mac game in a library folder keeps its saves and its log beside the app
 (`log/<title ID>.log`); otherwise they are in `~/Library/Application Support/nxnative/<title ID>/` and
@@ -155,7 +161,7 @@ been tried on a phone yet. A few of them:
 | <img src="https://raw.githubusercontent.com/seedds/nxnative/65501fbbaf8526f7aab0a1edd028135888590f8e/docs/images/zelda-breath-of-the-wild.jpg" width="96" alt=""> | The Legend of Zelda: Breath of the Wild | iPhone | Reported playable upstream; 60 fps with 1.9.0 |
 | <img src="https://raw.githubusercontent.com/seedds/nxnative/65501fbbaf8526f7aab0a1edd028135888590f8e/docs/images/mario-kart-8-deluxe.jpg" width="96" alt=""> | Mario Kart 8 Deluxe | iPhone | Reported playable upstream |
 
-**[GAMES.md](GAMES.md)** (中文: [GAMES.zh-CN.md](GAMES.zh-CN.md)) has the screenshot gallery with each
+**[GAMES.md](GAMES.md)** has the screenshot gallery with each
 game's install size, and the full table with the update version each game needs: the update NSP's
 display version must match the profile's, or the build says so.
 

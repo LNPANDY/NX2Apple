@@ -14,7 +14,7 @@ extension BuildStore {
             return
         }
         shellDeviceChecked = false
-        if target != BuildTarget.mac, askAboutStaleFrameworks() { return }   // StaleFrameworksPrompt.swift (#449)
+        if target != BuildTarget.mac, !exportsOneGame, askAboutStaleFrameworks() { return }   // StaleFrameworksPrompt.swift (#449)
         stopping = false
         running = true; done = false; doneNote = ""; stages = []; log.clear(); chainNoteShown = false
         failure = nil; confirmingOverride = nil
@@ -83,7 +83,7 @@ extension BuildStore {
         }
         // The shared app's own folder is decided before the long steps too: one on a read-only volume (a saved
         // /NX2Apple-shell, a DMG chosen as Save to) failed at the last step after the whole build (#492).
-        if target != BuildTarget.mac, let why = shellRootProblem() { fail(why); return }
+        if target != BuildTarget.mac, !exportsOneGame, let why = shellRootProblem() { fail(why); return }
         var inputDir = baseDir
         if dirs.count > 1 || !unpicked.isEmpty {
             // A stable folder per game (#132): the script's fingerprints name its files and its profile path.
@@ -142,7 +142,12 @@ extension BuildStore {
         }
         if hasWorkDir { args += ["--work-dir", workDir] }
         let macApp = target == BuildTarget.mac
-        if macApp {
+        oneGameIPAPath = ""
+        if exportsOneGame {
+            // One game's own IPA with its game data inside (BuildStore+OneGame.swift, #540)
+            oneGameIPAPath = OneGameIPA.path(folder: outDir.isEmpty ? baseDir : outDir, titleID: tidHex)
+            args += OneGameIPA.arguments(ipa: oneGameIPAPath)
+        } else if macApp {
             // -o names the .app; the RomFS goes inside it, so the archive step is skipped below.
             args += ["--platform", "mac-app"]
             macAppPath = (outDir.isEmpty ? baseDir : outDir) + "/" + tidHex + ".app"
@@ -177,6 +182,7 @@ extension BuildStore {
         // The bundled Python lives inside the signed app: a .pyc written there would change what the signature seals
         // (the packages are compiled at bundle time), and a user site must not shadow its pinned packages.
         denv.merge(BundledTools.environment(for: py)) { $1 }
+        if !oneGameIPAPath.isEmpty { denv.merge(OneGameIPA.environment) { $1 } }
         let launch = ProcessLaunch(executable: py, arguments: args, environment: denv, directory: engine, groupPython: py)
         let onExit: @Sendable (Int32) -> Void = { [weak self] status in
             hop {
@@ -192,7 +198,9 @@ extension BuildStore {
                 }
                 if status == 0 {
                     self.markAllDone()
-                    if self.target == BuildTarget.mac {
+                    if !self.oneGameIPAPath.isEmpty {
+                        self.finishOneGameIPA()
+                    } else if self.target == BuildTarget.mac {
                         // The .app is self-contained (its RomFS is inside), and the marker file
                         // beside it (.nx2apple-library, a dot file the Finder hides) tells the
                         // game's launcher that this folder is a library: its saves and log live
@@ -211,10 +219,14 @@ extension BuildStore {
                         self.cleanupStaging()
                     } else {
                         // The game's archive, then its framework into the one shared app on the device
-                        let tid = TitleID.buildKey(self.basePath)
+                        // The framework the build wrote, and the title ID in its name: the script names it after the game
+                        // data's title ID, which the build key lacks when the file name has none (#515)
+                        let key = TitleID.buildKey(self.basePath)
                         let name = ((self.basePath as NSString).lastPathComponent as NSString).deletingPathExtension
-                        let fw = ShellInstall.frameworkPath(workDir: self.effectiveWorkDir, titleID: tid)
-                        self.packArchive(workDir: self.effectiveWorkDir) {
+                        let fw = ShellInstall.builtFramework(workDir: self.effectiveWorkDir)
+                            ?? ShellInstall.frameworkPath(workDir: self.effectiveWorkDir, titleID: key)
+                        let tid = ShellInstall.titleID(ofFramework: fw)
+                        self.packArchive(workDir: self.effectiveWorkDir, titleID: tid) {
                             if self.exportsShell { self.exportShell(framework: fw, titleID: tid, name: name) }
                             else { self.installShell(framework: fw, titleID: tid, name: name, archive: $0) }
                         }

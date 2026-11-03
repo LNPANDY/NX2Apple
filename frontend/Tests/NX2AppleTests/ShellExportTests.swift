@@ -124,7 +124,8 @@ import NXModel
         guard fm.isExecutableFile(atPath: "/usr/bin/python3") else { throw XCTSkip("System Python is required for the process fixture") }
         let framework = path("work/shell-framework/DmGame\(titleID).framework")
         try write(framework + "/game.manifest.json", "{}")
-        return Fixture(xcrun: try makeXcrun(), repo: try makeRepo(entitlements: entitlements), framework: framework, root: path("NX2Apple-shell"))
+        try write(framework + "/DmGame\(titleID)", "executable")
+        return Fixture(xcrun: try makeXcrun(), repo: try makeRepo(entitlements: entitlements), framework: framework, root: path("shell-root"))
     }
 
     /// No device and no team: the installer is made the way the export needs it.
@@ -216,6 +217,122 @@ import NXModel
         XCTAssertFalse(outcome.ok)
         XCTAssertTrue(calls.isEmpty)
         XCTAssertFalse(fm.fileExists(atPath: state + "/shell-env.txt"))
+    }
+
+    /// #491: the build steps were green and the Builds page ended in "The game's framework was not found: <path>", cut off.
+    func testAMissingFrameworkNamesTheGameAndKeepsThePathInTheLogOnly() throws {
+        let f = try makeFixture()
+        let missing = path("work/shell-framework/DmGame\(titleID).framework.gone")
+        var logged = ""
+        var i = installer(f)
+        i.log = { logged += $0 }
+        let outcome = i.export(framework: missing, titleID: titleID, name: "Test Game")
+        XCTAssertFalse(outcome.ok)
+        XCTAssertEqual(outcome.message, String(format: L10n.string("shell.noFramework", .en), "Test Game", "shell-framework"))
+        XCTAssertTrue(outcome.message.contains("Test Game"), outcome.message)
+        XCTAssertFalse(outcome.message.contains("/"), outcome.message)
+        XCTAssertTrue(outcome.message.contains("open an issue"), outcome.message)
+        for lang in Lang.all {
+            XCTAssertFalse(L10n.string("shell.noFramework", lang).contains(";"), lang.code)
+            XCTAssertTrue(L10n.string("shell.noFramework", lang).contains("%2$@"), lang.code)
+        }
+        XCTAssertTrue(logged.contains(missing), logged)
+        // the install path says the same
+        let installed = i.install(framework: missing, titleID: titleID, name: "Test Game", archive: "")
+        XCTAssertEqual(installed.message, outcome.message)
+    }
+
+    // ---- a framework that a cut-off delete or copy left incomplete ----
+
+    /// v1.0.2-rc1: the launcher was quit while the stale prompt deleted Breath of the Wild's framework (a minute for its shader files).
+    /// shell.json still named the half framework, and the next build of Hades failed at "Prepare the shared app" with only its path.
+    func testAnotherGamesIncompleteFrameworkIsLeftOutNamedAndNotShipped() throws {
+        let f = try makeFixture()
+        let otherID = "01007EF00011E000"
+        let half = ShellInstall.mirroredFramework(root: f.root, titleID: otherID)
+        try write(half + "/Info.plist", "plist")
+        try write(half + "/msl/b-e65a4ebd3322/0000.metallib", "shader")
+        var library = ShellLibrary()
+        library.add(.init(titleID: otherID, name: "Zelda Breath of the Wild", framework: half))
+        try library.save(root: f.root)
+        var logged = ""
+        var i = installer(f)
+        i.log = { logged += $0 }
+        i.banners = URL(fileURLWithPath: path("banners"))
+        let outcome = i.export(framework: f.framework, titleID: titleID, name: "Hades")
+        XCTAssertTrue(outcome.ok, outcome.message)
+        let env = try String(contentsOfFile: state + "/shell-env.txt", encoding: .utf8)
+        XCTAssertFalse(env.contains(otherID), "the half framework does not go into the app: " + env)
+        XCTAssertEqual(ShellLibrary.load(root: f.root).games.map(\.titleID), [titleID])
+        let note = String(format: L10n.string("shell.gameLeftOut", .en), "Zelda Breath of the Wild", "game.manifest.json")
+        XCTAssertTrue(outcome.message.hasSuffix(note), outcome.message)
+        XCTAssertTrue(logged.contains(note), logged)
+        XCTAssertFalse(fm.fileExists(atPath: half), "the half mirror is taken away")
+    }
+
+    /// Build A (Breath of the Wild) is stopped while the build script copies its framework, then build B (Hades) runs. A's framework
+    /// in its build folder is half written, and a library entry from before the mirror still points there. B's shared app leaves A out,
+    /// does not mirror the half framework and does not delete it either: the build folder belongs to A's next build.
+    func testAStoppedBuildsHalfFrameworkInItsBuildFolderIsLeftOutOfTheNextGamesSharedApp() throws {
+        let f = try makeFixture()
+        let otherID = "01007EF00011E000"
+        let half = path("botw/01007EF00011E000_build/shell-framework/DmGame\(otherID).framework")
+        try write(half + "/Info.plist", "plist")
+        try write(half + "/pso/archive.tsv", "pso")
+        var library = ShellLibrary()
+        library.add(.init(titleID: otherID, name: "Zelda Breath of the Wild", framework: half))
+        try library.save(root: f.root)
+        var i = installer(f)
+        i.banners = URL(fileURLWithPath: path("banners"))
+        let outcome = i.export(framework: f.framework, titleID: titleID, name: "Hades")
+        XCTAssertTrue(outcome.ok, outcome.message)
+        let env = try String(contentsOfFile: state + "/shell-env.txt", encoding: .utf8)
+        XCTAssertFalse(env.contains(otherID), env)
+        XCTAssertEqual(ShellLibrary.load(root: f.root).games.map(\.titleID), [titleID])
+        XCTAssertTrue(outcome.message.contains(String(format: L10n.string("shell.gameLeftOut", .en), "Zelda Breath of the Wild", "game.manifest.json")), outcome.message)
+        XCTAssertFalse(fm.fileExists(atPath: ShellInstall.mirroredFramework(root: f.root, titleID: otherID)), "the half framework is not mirrored")
+        XCTAssertTrue(fm.fileExists(atPath: half + "/Info.plist"), "the build folder is left to A's next build")
+    }
+
+    func testTheBuiltGamesOwnIncompleteFrameworkStopsWithItsNameAndTheMissingFile() throws {
+        let f = try makeFixture()
+        try fm.removeItem(atPath: f.framework + "/DmGame\(titleID)")
+        var stages: [ShellStage] = []
+        var i = installer(f)
+        i.stage = { stages.append($0) }
+        i.lang = .de
+        let outcome = i.export(framework: f.framework, titleID: titleID, name: "Hades")
+        XCTAssertFalse(outcome.ok)
+        let why = String(format: L10n.string("shell.frameworkIncomplete", .de), "Hades", "DmGame\(titleID)")
+        XCTAssertEqual(outcome.message, String(format: L10n.string("shell.projectFailed", .de), why))
+        XCTAssertEqual(stages.last?.id, ShellInstaller.projectStageID)
+        XCTAssertEqual(stages.last?.state, .failed)
+        XCTAssertEqual(stages.last?.detail, why)
+        XCTAssertFalse(fm.fileExists(atPath: state + "/shell-env.txt"), "build_shell.sh never runs")
+    }
+
+    func testTheCheckNamesTheManifestThenTheExecutableTheManifestNames() throws {
+        let fw = path("check/DmGame\(titleID).framework")
+        try fm.createDirectory(atPath: fw, withIntermediateDirectories: true)
+        XCTAssertEqual(ShellInstall.missingFile(inFramework: fw, titleID: titleID), "game.manifest.json")
+        try write(fw + "/game.manifest.json", "not json")
+        XCTAssertEqual(ShellInstall.missingFile(inFramework: fw, titleID: titleID), "game.manifest.json")
+        try write(fw + "/game.manifest.json", #"{"framework_executable": "Other"}"#)
+        XCTAssertEqual(ShellInstall.missingFile(inFramework: fw, titleID: titleID), "Other")
+        try write(fw + "/Other", "executable")
+        XCTAssertNil(ShellInstall.missingFile(inFramework: fw, titleID: titleID))
+        try write(fw + "/game.manifest.json", "{}")
+        XCTAssertEqual(ShellInstall.missingFile(inFramework: fw, titleID: titleID), "DmGame\(titleID)")
+    }
+
+    func testTheNewTextsNameGameAndFileInEveryLanguage() {
+        for lang in Lang.all {
+            for key in ["shell.frameworkIncomplete", "shell.gameLeftOut"] {
+                let text = L10n.string(key, lang)
+                XCTAssertTrue(text.contains("%1$@") && text.contains("%2$@"), "\(key) in \(lang)")
+                XCTAssertFalse(text.contains(";") || text.contains("；") || text.contains("—"), "\(key) in \(lang)")
+            }
+        }
     }
 
     // ---- step 3: the game data to the device ----
@@ -494,7 +611,7 @@ import NXModel
 
     // ---- the choice in the build ----
 
-    private let savedKeys = ["repoPath", "buildTarget", "buildOutputDirectory", "installDevice", "signingTeam", "shellRoot", "exportIPA"]
+    private let savedKeys = ["repoPath", "buildTarget", "buildOutputDirectory", "installDevice", "signingTeam", "shellRoot", "exportIPA", "exportOneGame"]
 
     /// An iPhone build with the export chosen and no device and no team runs the script without `--team-id`, then ends with the IPA
     /// instead of the "needs a device and a signing team" stop.
@@ -524,7 +641,7 @@ import NXModel
         open('\(state)/script.txt', 'w').write(' '.join(sys.argv[1:]))
         work = pathlib.Path(sys.argv[sys.argv.index('--work-dir') + 1])
         fw = pathlib.Path(sys.argv[sys.argv.index('--shell-framework') + 1]) / 'DmGame\(titleID).framework'
-        fw.mkdir(parents=True); (fw / 'game.manifest.json').write_text('{}')
+        fw.mkdir(parents=True); (fw / 'game.manifest.json').write_text('{}'); (fw / 'DmGame\(titleID)').write_text('executable')
         (work / 'extract/v0/RomFS').mkdir(parents=True); (work / 'extract/v0/RomFS/data.bin').write_bytes(b'game')
         print(json.dumps(dict(ev='stage', k=1, n=1, name='framework')), flush=True)
         print(json.dumps(dict(ev='stage_end', k=1, name='framework', ok=True, summary='', elapsed=1)), flush=True)
@@ -551,6 +668,79 @@ import NXModel
         XCTAssertFalse(calls.contains { $0.hasPrefix("devicectl") })
         XCTAssertTrue(fm.fileExists(atPath: model.archivePath + "/romfs.img"), "the game data is packed beside the IPA, not in it")
         XCTAssertFalse(try entries(ofZip: model.exportedIPAPath).contains { $0.hasSuffix("romfs.img") })
+    }
+
+    /// One game's own IPA (#540): the script runs without `--shell-framework`, packs the game data into the IPA it names, and the
+    /// build ends with that IPA. No shared app, no archive, no shell.json, no stale prompt.
+    @MainActor func testOneGameExportBuildsTheGamesOwnIPAWithItsDataInside() throws {
+        let f = try makeFixture()
+        let saved = savedKeys.map { ($0, UserDefaults.standard.object(forKey: $0)) }
+        defer { for (key, value) in saved { UserDefaults.standard.set(value, forKey: key) } }
+        UserDefaults.standard.set(f.root, forKey: "shellRoot")
+        let stores = LauncherStores(xcrun: f.xcrun); let model = stores.build
+        stores.repo.path = f.repo
+        model.target = "ios"
+        model.outDir = path("out")
+        stores.dependencies.pythonPath = "/usr/bin/python3"
+        stores.dependencies.dotnetPath = "/usr/bin/true"
+        stores.dependencies.checked = true
+        stores.dependencies.deps = [Dep(id: "test", name: "test", hint: "", present: true, installCmd: [])]
+        stores.deviceStore.installDevice = ""
+        stores.deviceStore.signingTeam = ""
+        stores.deviceStore.exportIPA = true
+        stores.deviceStore.exportOneGame = true
+        XCTAssertTrue(model.exportsOneGame)
+        try write(f.repo + "/dm/tools/nx_extract/Program.cs", "")
+        for tool in RepoLayout.requiredTools.filter({ $0 != RepoLayout.buildScript }) { try write(f.repo + "/" + tool, "") }
+        try write(f.repo + "/scripts/build_ipa_from_nsp.py", """
+        import sys, os, json, pathlib
+        open('\(state)/script.txt', 'w').write(' '.join(sys.argv[1:]))
+        open('\(state)/full-romfs.txt', 'w').write(os.environ.get('DM_FULL_ROMFS', ''))
+        ipa = pathlib.Path(sys.argv[sys.argv.index('-o') + 1]); ipa.parent.mkdir(parents=True, exist_ok=True); ipa.write_bytes(b'ipa')
+        print(json.dumps(dict(ev='stage', k=1, n=1, name='ipa')), flush=True)
+        print(json.dumps(dict(ev='stage_end', k=1, name='ipa', ok=True, summary='', elapsed=1)), flush=True)
+        """)
+        let base = temporary.appendingPathComponent("Test [\(titleID)].nsp"), keys = temporary.appendingPathComponent("prod.keys")
+        try Data([0]).write(to: base); try Data().write(to: keys)
+        model.slots[0].paths = [base.path]; model.slots[3].paths = [keys.path]
+
+        let finished = expectation(description: "Exported")
+        let token = model.$done.filter { $0 }.prefix(1).sink { _ in finished.fulfill() }
+        model.startBuild()
+        wait(for: [finished], timeout: 30)
+        withExtendedLifetime(token) {}
+
+        let script = try String(contentsOfFile: state + "/script.txt")
+        let ipa = path("out", "\(titleID).ipa")
+        XCTAssertTrue(script.contains("--platform ios --romfs bundle -o " + ipa), script)
+        XCTAssertFalse(script.contains("--shell-framework") || script.contains("--team-id"), script)
+        XCTAssertEqual(try String(contentsOfFile: state + "/full-romfs.txt"), "1", "the fork's build_ipa.sh packs the game data only with DM_FULL_ROMFS=1")
+        XCTAssertEqual(model.exportedIPAPath, ipa)
+        XCTAssertEqual(model.doneNote, String(format: model.t("shell.exportDone"), ipa))
+        XCTAssertFalse(model.running)
+        XCTAssertTrue(model.staleFrameworks.isEmpty)
+        XCTAssertFalse(fm.fileExists(atPath: ShellLibrary.stateFile(root: f.root)), "the shared app is not touched")
+        XCTAssertTrue(calls.isEmpty, "no xcodebuild for a shared app and no device")
+        XCTAssertEqual(model.archivePath, "", "the game data is inside the IPA, nothing is packed beside it")
+    }
+
+    func testOneGameChoiceIsOffAtFirstSavedAndOnlyCountsForAnExport() throws {
+        let saved = savedKeys.map { ($0, UserDefaults.standard.object(forKey: $0)) }
+        defer { for (key, value) in saved { UserDefaults.standard.set(value, forKey: key) } }
+        UserDefaults.standard.removeObject(forKey: DeviceStore.oneGameKey)
+        let stores = LauncherStores(); let model = stores.build
+        XCTAssertFalse(stores.deviceStore.exportOneGame, "the shared app stays the default")
+        model.target = "ios"
+        stores.deviceStore.exportOneGame = true
+        XCTAssertTrue(UserDefaults.standard.bool(forKey: DeviceStore.oneGameKey))
+        stores.deviceStore.exportIPA = false
+        XCTAssertFalse(model.exportsOneGame, "installing on a device is always the shared app")
+        stores.deviceStore.exportIPA = true
+        XCTAssertTrue(model.exportsOneGame)
+        model.target = BuildTarget.mac
+        XCTAssertFalse(model.exportsOneGame)
+        XCTAssertEqual(OneGameIPA.arguments(ipa: "/O/0100.ipa"), ["--platform", "ios", "--romfs", "bundle", "-o", "/O/0100.ipa"])
+        XCTAssertEqual(OneGameIPA.path(folder: "/O", titleID: "0100"), "/O/0100.ipa")
     }
 
     /// The choice is saved and a build without it still asks for a device and a team.

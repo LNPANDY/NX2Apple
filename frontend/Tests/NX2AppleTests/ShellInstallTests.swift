@@ -58,10 +58,18 @@ import NXModel
         XCTAssertEqual(Set(json?.keys.map { $0 } ?? []), ["bundleID", "team", "games"])
     }
 
-    func testShellRootIsDerivedOnceAndKept() throws {
+    /// #427: the default no longer depends on the output folder, and what is saved stays.
+    func testShellRootDefaultsToApplicationSupportAndIsKept() throws {
         let defaults = UserDefaults(suiteName: "nspb-shell-" + UUID().uuidString)!
-        XCTAssertEqual(ShellLibrary.resolveRoot(defaults: defaults, parent: "/Volumes/A"), "/Volumes/A/NX2Apple-shell")
-        XCTAssertEqual(ShellLibrary.resolveRoot(defaults: defaults, parent: "/Volumes/B"), "/Volumes/A/NX2Apple-shell")
+        let home = temporary.path + "/home"
+        XCTAssertEqual(ShellLibrary.resolveRoot(defaults: defaults, parent: "/Volumes/A", home: home),
+                       home + "/Library/Application Support/NX2Apple/shell")
+        XCTAssertEqual(ShellLibrary.resolveRoot(defaults: defaults, parent: "/Volumes/B", home: home),
+                       home + "/Library/Application Support/NX2Apple/shell")
+        XCTAssertEqual(defaults.string(forKey: "shellRoot"), home + "/Library/Application Support/NX2Apple/shell")
+        // a root the player chose themselves is not touched
+        defaults.set("/Volumes/Games/Cache/shell", forKey: "shellRoot")
+        XCTAssertEqual(ShellLibrary.resolveRoot(defaults: defaults, parent: "/Volumes/B", home: home), "/Volumes/Games/Cache/shell")
     }
 
     /// #492: the Settings page reads the path before a game is chosen; the empty parent put the shell at the root of the
@@ -69,28 +77,29 @@ import NXModel
     func testAnEmptyOrRootParentNeverSavesTheShellAtTheVolumeRoot() {
         let defaults = UserDefaults(suiteName: "nspb-shell-" + UUID().uuidString)!
         let home = "/Users/tester"
-        XCTAssertEqual(ShellLibrary.resolveRoot(defaults: defaults, parent: "", home: home), "/Users/tester/NX2Apple-shell")
-        XCTAssertEqual(defaults.string(forKey: "shellRoot"), "/Users/tester/NX2Apple-shell")
-        defaults.removeObject(forKey: "shellRoot")
-        XCTAssertEqual(ShellLibrary.resolveRoot(defaults: defaults, parent: "/", home: home), "/Users/tester/NX2Apple-shell")
-        defaults.removeObject(forKey: "shellRoot")
-        XCTAssertEqual(ShellLibrary.resolveRoot(defaults: defaults, parent: "relative/games", home: home), "/Users/tester/NX2Apple-shell")
+        let root = "/Users/tester/Library/Application Support/NX2Apple/shell"
+        for parent in ["", "/", "relative/games"] {
+            XCTAssertEqual(ShellLibrary.resolveRoot(defaults: defaults, parent: parent, home: home), root)
+            XCTAssertEqual(defaults.string(forKey: "shellRoot"), root)
+            defaults.removeObject(forKey: "shellRoot")
+        }
     }
 
     func testASavedRootAtTheVolumeRootIsRepaired() {
         let defaults = UserDefaults(suiteName: "nspb-shell-" + UUID().uuidString)!
         defaults.set("/NX2Apple-shell", forKey: "shellRoot")
-        XCTAssertEqual(ShellLibrary.resolveRoot(defaults: defaults, parent: "/Users/tester/games"),
-                       "/Users/tester/games/NX2Apple-shell")
-        XCTAssertEqual(defaults.string(forKey: "shellRoot"), "/Users/tester/games/NX2Apple-shell")   // the bad value is replaced
+        XCTAssertEqual(ShellLibrary.resolveRoot(defaults: defaults, parent: "/Users/tester/games", home: "/Users/tester"),
+                       "/Users/tester/Library/Application Support/NX2Apple/shell")
+        XCTAssertEqual(defaults.string(forKey: "shellRoot"), "/Users/tester/Library/Application Support/NX2Apple/shell")   // the bad value is replaced
     }
 
     func testThePreviewDoesNotSaveARoot() {
         let defaults = UserDefaults(suiteName: "nspb-shell-" + UUID().uuidString)!
-        XCTAssertEqual(ShellLibrary.previewRoot(defaults: defaults, parent: "/Volumes/A"), "/Volumes/A/NX2Apple-shell")
+        XCTAssertEqual(ShellLibrary.previewRoot(defaults: defaults, parent: "/Volumes/A", home: "/Users/tester"),
+                       "/Users/tester/Library/Application Support/NX2Apple/shell")
         XCTAssertNil(defaults.string(forKey: "shellRoot"))
         defaults.set("/Volumes/A/NX2Apple-shell", forKey: "shellRoot")
-        XCTAssertEqual(ShellLibrary.previewRoot(defaults: defaults, parent: "/Volumes/B"), "/Volumes/A/NX2Apple-shell")
+        XCTAssertEqual(ShellLibrary.previewRoot(defaults: defaults, parent: "/Volumes/B"), "/Volumes/A/NX2Apple-shell")   // an old root shows until it moves
     }
 
     func testRootNeedsAWritableParent() throws {
@@ -143,6 +152,28 @@ import NXModel
         XCTAssertFalse(path.hasPrefix(store))
         XCTAssertNil(ShellInstall.projectEnvironment(root: "/R", frameworks: [], bundleID: "b", team: "T", python: "/py", path: "/p",
                                                      home: "/h", user: "u")["DM_SHELL_PACKAGE"])
+    }
+
+    /// #515: a file name without a title ID gives a build key the build never names its framework after. The handoff takes the
+    /// framework the build wrote, and its title ID, not the key.
+    func testBuiltFrameworkIsTheOneTheBuildWrote() throws {
+        let name = "The_Legend_of_Zelda_Breath_of_the_Wild-7603d90e"
+        let key = TitleID.buildKey("/in/" + name + ".nsp")
+        XCTAssertFalse(key.hasPrefix("01"))
+        let work = try makeTree(["shell-framework/DmGame01007EF00011E000.framework/game.manifest.json", "shell-framework/notes.txt"])
+        let fw = try XCTUnwrap(ShellInstall.builtFramework(workDir: work))
+        XCTAssertEqual(fw, work + "/shell-framework/DmGame01007EF00011E000.framework")
+        XCTAssertNotEqual(fw, ShellInstall.frameworkPath(workDir: work, titleID: key))
+        XCTAssertEqual(ShellInstall.titleID(ofFramework: fw), "01007EF00011E000")
+
+        // An older build's framework beside it: the newest one is the build's
+        let old = work + "/shell-framework/DmGame0100000000010000.framework"
+        try FileManager.default.createDirectory(atPath: old, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSinceNow: -3600)], ofItemAtPath: old)
+        XCTAssertEqual(ShellInstall.builtFramework(workDir: work), fw)
+
+        XCTAssertNil(ShellInstall.builtFramework(workDir: try makeTree(["shell-framework/notes.txt"])))
+        XCTAssertNil(ShellInstall.builtFramework(workDir: try makeTree([])))
     }
 
     func testCommandsAreExact() {
@@ -371,11 +402,12 @@ import NXModel
         guard fm.isExecutableFile(atPath: "/usr/bin/python3") else { throw XCTSkip("System Python is required for the process fixture") }
         let framework = path("work/shell-framework/DmGame\(titleID).framework")
         try write(framework + "/game.manifest.json", "{}")
+        try write(framework + "/DmGame\(titleID)", "executable")
         let archive = path("out/games", titleID)
         try write(archive + "/romfs.img", "0123456789")
         try write(archive + "/aoc/1.img", "abcd")
         try write(archive + "/.packstamp", "stamp")
-        let made = Fixture(xcrun: try makeXcrun(), repo: try makeRepo(), framework: framework, archive: archive, root: path("NX2Apple-shell"))
+        let made = Fixture(xcrun: try makeXcrun(), repo: try makeRepo(), framework: framework, archive: archive, root: path("shell-root"))
         try writeDevices(state + "/devices-default.json", [(device, "wired")])
         return made
     }
@@ -434,7 +466,8 @@ import NXModel
         let f = try makeFixture()
         let otherID = "0100AAAA00000000"
         let other = path("work2/shell-framework/DmGame\(otherID).framework")
-        try write(other + "/game.manifest.json", "other")
+        try write(other + "/game.manifest.json", #"{"name": "other"}"#)
+        try write(other + "/DmGame\(otherID)", "executable")
         var library = ShellLibrary()
         library.add(.init(titleID: otherID, name: "Other", framework: other))   // what an install before the mirror wrote
         try library.save(root: f.root)
@@ -442,13 +475,14 @@ import NXModel
         XCTAssertEqual(r.status, 0, r.output)
         let saved = ShellLibrary.load(root: f.root)
         XCTAssertEqual(Set(saved.games.map(\.framework)), [mirrored(f.root), mirrored(f.root, otherID)])
-        XCTAssertEqual(try String(contentsOfFile: mirrored(f.root, otherID) + "/game.manifest.json"), "other")
+        XCTAssertEqual(try String(contentsOfFile: mirrored(f.root, otherID) + "/game.manifest.json"), #"{"name": "other"}"#)
     }
 
     func testGameWithoutBuildFolderPlaysFromItsMirrorAndOneWithNeitherIsDropped() throws {
         let f = try makeFixture()
         let keptID = "0100BBBB00000000", lostID = "0100CCCC00000000"
-        try write(mirrored(f.root, keptID) + "/game.manifest.json", "kept")
+        try write(mirrored(f.root, keptID) + "/game.manifest.json", #"{"name": "kept"}"#)
+        try write(mirrored(f.root, keptID) + "/DmGame\(keptID)", "executable")
         var library = ShellLibrary()
         library.add(.init(titleID: keptID, name: "Kept", framework: path("gone/DmGame\(keptID).framework")))
         library.add(.init(titleID: lostID, name: "Lost", framework: path("gone/DmGame\(lostID).framework")))
@@ -580,7 +614,7 @@ import NXModel
         output = ""
         XCTAssertEqual(ShellCLI.run(f.args(extra: ["--framework", path("missing.framework")]),
                                     defaults: UserDefaults(suiteName: "nspb-shell-" + UUID().uuidString)!) { output += $0 }, 1)
-        XCTAssertTrue(output.contains("framework was not found"), output)
+        XCTAssertTrue(output.contains("its framework is not in the"), output)
     }
 
     // ---- the lead's three: memory capability, free space, the shell's log ----
@@ -791,7 +825,7 @@ import NXModel
         open('\(state)/script.txt', 'w').write(' '.join(sys.argv[1:]))
         work = pathlib.Path(sys.argv[sys.argv.index('--work-dir') + 1])
         fw = pathlib.Path(sys.argv[sys.argv.index('--shell-framework') + 1]) / 'DmGame\(titleID).framework'
-        fw.mkdir(parents=True); (fw / 'game.manifest.json').write_text('{}')
+        fw.mkdir(parents=True); (fw / 'game.manifest.json').write_text('{}'); (fw / 'DmGame\(titleID)').write_text('executable')
         (work / 'extract/v0/RomFS').mkdir(parents=True); (work / 'extract/v0/RomFS/data.bin').write_bytes(b'game')
         print(json.dumps(dict(ev='stage', k=1, n=1, name='framework')), flush=True)
         print(json.dumps(dict(ev='stage_end', k=1, name='framework', ok=True, summary='', elapsed=1)), flush=True)

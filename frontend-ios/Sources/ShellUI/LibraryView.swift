@@ -39,6 +39,9 @@ public struct LibraryView: View {
     @State private var controllersOpen: Bool
     /// The game whose How to fix or How to update explanation is open.
     @State private var helpGameID: String?
+    /// The game whose Delete question is open, and whether its saves go too.
+    @State private var deleteGameID: String?
+    @State private var deleteSaves = false
     /// The choice whose option list is open.
     @State private var choice: ChoiceRequest?
     @State private var focus: FocusAppearance
@@ -103,7 +106,7 @@ public struct LibraryView: View {
                         .frame(width: width, height: geometry.size.height)
                         .opacity(paneCovers && edgeDrag == 0 ? 0 : 1)
                         .allowsHitTesting(!settingsOpen)
-                        .accessibilityHidden(settingsOpen || helpGameID != nil)
+                        .accessibilityHidden(settingsOpen || helpGameID != nil || deleteGameID != nil)
                         .transformPreference(FocusTargets.self) { if settingsOpen { $0.removeAll() } }
                     if panelOverLibrary {
                         // The same dimming and dismissal as the Controllers overlay.
@@ -128,7 +131,7 @@ public struct LibraryView: View {
                         .opacity(settingsOpen ? 1 : 0)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
                         .allowsHitTesting(settingsOpen)
-                        .accessibilityHidden(!settingsOpen || choice != nil)
+                        .accessibilityHidden(!settingsOpen || choice != nil || deleteGameID != nil)
                         .accessibilityAddTraits(settingsOpen ? .isModal : [])
                         .transformPreference(FocusTargets.self) { if !settingsOpen { $0.removeAll() } }
                 }
@@ -137,6 +140,20 @@ public struct LibraryView: View {
                         .onTapGesture { closeHelp() }
                         .transition(.opacity)
                     StateHelpView(game: game, actions: actions, onClose: closeHelp)
+                        .frame(maxWidth: 460)
+                        .background(Color(red: 0.075, green: 0.075, blue: 0.082), in: RoundedRectangle(cornerRadius: 26))
+                        .overlay(RoundedRectangle(cornerRadius: 26).strokeBorder(.white.opacity(0.10)))
+                        .shadow(color: .black.opacity(0.5), radius: 40)
+                        .padding(16)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .accessibilityAddTraits(.isModal)
+                        .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                }
+                if let id = deleteGameID, let game = games.first(where: { $0.id == id })?.game {
+                    Color.black.opacity(0.55).ignoresSafeArea().accessibilityHidden(true)
+                        .onTapGesture { closeDelete() }
+                        .transition(.opacity)
+                    DeleteGameView(game: game, saves: $deleteSaves, delete: { confirmDelete(id) }, cancel: closeDelete)
                         .frame(maxWidth: 460)
                         .background(Color(red: 0.075, green: 0.075, blue: 0.082), in: RoundedRectangle(cornerRadius: 26))
                         .overlay(RoundedRectangle(cornerRadius: 26).strokeBorder(.white.opacity(0.10)))
@@ -187,13 +204,14 @@ public struct LibraryView: View {
                     if controllersOpen { return target.id.hasPrefix("ctl.") }
                     if shellSettingsOpen { return target.id.hasPrefix("shs.") }
                     if helpGameID != nil { return target.id.hasPrefix("help.") }
+                    if deleteGameID != nil { return target.id.hasPrefix("del.") }
                     if choice != nil { return target.id.hasPrefix("pick.") }
-                    return !target.id.hasPrefix("ctl.") && !target.id.hasPrefix("help.") && !target.id.hasPrefix("pick.") && !target.id.hasPrefix("shs.")
+                    return !["ctl.", "help.", "pick.", "shs.", "del."].contains { target.id.hasPrefix($0) }
                 }
             }
             .coordinateSpace(name: "shell")
             .background {
-                EdgeSwipeBack(enabled: (settingsOpen || controllersOpen || shellSettingsOpen) && choice == nil && helpGameID == nil,
+                EdgeSwipeBack(enabled: (settingsOpen || controllersOpen || shellSettingsOpen) && choice == nil && helpGameID == nil && deleteGameID == nil,
                               changed: { edgeDrag = $0 },
                               ended: { finishEdgeSwipe(travel: $0, velocity: $1, span: controllersOpen || shellSettingsOpen ? min(width, 520) : pane) },
                               cancelled: cancelEdgeSwipe)
@@ -207,9 +225,11 @@ public struct LibraryView: View {
         .animation(reduceMotion ? nil : .smooth(duration: 0.3), value: controllersOpen)
         .animation(reduceMotion ? nil : .smooth(duration: 0.3), value: shellSettingsOpen)
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: helpGameID)
+        .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: deleteGameID)
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: choice)
         .environment(\.shellPickChoice, { request in openChoice(request) })
         .environment(\.shellShowHelp, { game in openHelp(game.id) })
+        .environment(\.shellAskDelete, { game in openDelete(game.id) })
         .environment(\.shellFocus, focus)
         .environment(\.shellInputDevice, device)
         .foregroundStyle(.white)
@@ -353,6 +373,16 @@ public struct LibraryView: View {
     private func closeShellSettings() { shellSettingsOpen = false; focus.id = "lib.shellSettings" }
     private func openHelp(_ id: String) { returnFocus = focus.id; helpGameID = id; focus.id = "help.done" }
     private func closeHelp() { helpGameID = nil; focus.id = returnFocus }
+    /// The question starts on Cancel, with the saves kept.
+    private func openDelete(_ id: String) { noteTouch(); returnFocus = focus.id; deleteSaves = false; deleteGameID = id; focus.id = "del.cancel" }
+    private func closeDelete() { deleteGameID = nil; focus.id = returnFocus }
+    private func confirmDelete(_ id: String) {
+        let saves = deleteSaves
+        deleteGameID = nil
+        settingsOpen = false
+        focus.id = nil
+        actions.onDeleteGame(id, saves)
+    }
     private func openChoice(_ request: ChoiceRequest) {
         noteTouch()
         returnFocus = focus.id
@@ -376,6 +406,7 @@ public struct LibraryView: View {
     private func back() {
         if choice != nil { closeChoice() }
         else if helpGameID != nil { closeHelp() }
+        else if deleteGameID != nil { closeDelete() }
         else if controllersOpen { controllersOpen = false; focus.id = "lib.controllers" }
         else if shellSettingsOpen { closeShellSettings() }
         else if settingsOpen { closeSettings() }
@@ -418,6 +449,7 @@ public struct LibraryView: View {
     private var defaultFocus: String? {
         if let choice { return "pick.\(choice.row.value)" }
         if helpGameID != nil { return "help.done" }
+        if deleteGameID != nil { return "del.cancel" }
         if controllersOpen { return "ctl.close" }
         if shellSettingsOpen { return "shs.close" }
         if settingsOpen { return "set.back" }

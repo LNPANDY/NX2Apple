@@ -69,18 +69,36 @@ package struct ShellLibrary: Codable, Equatable {
         root.hasPrefix("/") && (root as NSString).pathComponents.filter { $0 != "/" }.count >= 2
     }
 
-    /// The root the next install would use, without saving it. The Settings page shows it before any game is chosen,
-    /// and that look must not decide where builds save (#492).
+    /// The root the next install would use, without saving it or moving anything. The Settings page shows it before any game is
+    /// chosen, and that look must not decide where builds save (#492). Since #427 the default no longer depends on the output
+    /// folder: it is `ShellRootMigration.defaultRoot`. A root saved by an older version shows until `resolveRoot` moves it.
     package static func previewRoot(defaults: UserDefaults = .standard, parent: String, home: String = NSHomeDirectory()) -> String {
         if let saved = defaults.string(forKey: "shellRoot"), rootIsUsable(saved) { return saved }
-        return parentFolder(parent, home: home) + "/NX2Apple-shell"
+        return ShellRootMigration.defaultRoot(home: home)
     }
 
-    /// The shell root: the saved one (`shellRoot` in `defaults`), else `<parent>/NX2Apple-shell`, which is then saved so the shell
-    /// stays where it was first made, whatever output folder a later build uses. A saved root at a volume root is repaired.
+    /// The shell root: the saved one (`shellRoot` in `defaults`), else `~/Library/Application Support/NX2Apple/shell`, which is then
+    /// saved. A root that an older version made inside the output folder (`<folder>/NX2Apple-shell`) moves there once, when that is
+    /// safe (`ShellRootMigration`), and otherwise stays where it is. `parent` is where an older version would have made it. A saved
+    /// root at a volume root is repaired (#492).
     package static func resolveRoot(defaults: UserDefaults = .standard, parent: String, home: String = NSHomeDirectory()) -> String {
-        if let saved = defaults.string(forKey: "shellRoot"), rootIsUsable(saved) { return saved }
-        let root = parentFolder(parent, home: home) + "/NX2Apple-shell"
+        if let saved = defaults.string(forKey: "shellRoot"), rootIsUsable(saved) {
+            return ShellRootMigration.isLegacy(saved, home: home) ? settle(legacy: saved, defaults: defaults, home: home) : saved
+        }
+        let legacy = parentFolder(parent, home: home) + "/" + ShellRootMigration.legacyName
+        if FileManager.default.fileExists(atPath: legacy) { return settle(legacy: legacy, defaults: defaults, home: home) }
+        let root = ShellRootMigration.defaultRoot(home: home)
+        defaults.set(root, forKey: "shellRoot")
+        return root
+    }
+
+    /// Moves an old root to the default place and saves the answer. When the old folder has to stay, it stays the saved root.
+    private static func settle(legacy: String, defaults: UserDefaults, home: String) -> String {
+        let root: String
+        switch ShellRootMigration.migrate(from: legacy, to: ShellRootMigration.defaultRoot(home: home)) {
+        case .moved, .nothingToMove: root = ShellRootMigration.defaultRoot(home: home)
+        case .left: root = legacy
+        }
         defaults.set(root, forKey: "shellRoot")
         return root
     }
@@ -115,15 +133,20 @@ package enum ShellInstall {
 
     /// Mirrors a framework into the shell folder as a copy. On APFS the copy is a clone: it costs no space, and a later write to
     /// the build folder does not reach it. On another volume it is a real copy. It replaces the previous mirror, so a rebuilt
-    /// game's mirror follows, and a failed copy leaves no half mirror behind.
+    /// game's mirror follows. The copy goes to a hidden folder first and is renamed into place when it is whole, so a failed or
+    /// interrupted copy never leaves a half mirror where shell.json points (ShellFrameworks.swift).
     package static func mirrorFramework(framework: String, root: String, titleID: String? = nil) throws {
         let fm = FileManager.default
         let mirror = mirroredFramework(root: root, titleID: titleID ?? Self.titleID(ofFramework: framework))
-        try fm.createDirectory(atPath: (mirror as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
-        try? fm.removeItem(atPath: mirror)
-        do { try fm.copyItem(atPath: framework, toPath: mirror) }
-        catch {
-            try? fm.removeItem(atPath: mirror)
+        let folder = (mirror as NSString).deletingLastPathComponent
+        try fm.createDirectory(atPath: folder, withIntermediateDirectories: true)
+        let copy = folder + "/" + discardPrefix + UUID().uuidString
+        do {
+            try fm.copyItem(atPath: framework, toPath: copy)
+            guard discard(mirror) else { throw CocoaError(.fileWriteNoPermission, userInfo: [NSFilePathErrorKey: mirror]) }
+            try fm.moveItem(atPath: copy, toPath: mirror)
+        } catch {
+            try? fm.removeItem(atPath: copy)
             throw error
         }
     }
@@ -138,6 +161,19 @@ package enum ShellInstall {
     /// The framework the build script's `--shell-framework <folder>` writes for a game.
     package static func frameworkPath(workDir: String, titleID: String) -> String {
         workDir + "/shell-framework/DmGame\(titleID).framework"
+    }
+
+    /// The framework the build wrote in `<work>/shell-framework`. The script names it after the title ID it read from the game
+    /// data, which a file name without a title ID does not carry (the build key is then the name plus a hash, #515), so the
+    /// handoff takes the folder's own `DmGame*.framework`: the newest when an older build left a second one. nil when there is none.
+    package static func builtFramework(workDir: String, fm: FileManager = .default) -> String? {
+        let folder = workDir + "/shell-framework"
+        let names = ((try? fm.contentsOfDirectory(atPath: folder)) ?? [])
+            .filter { $0.hasPrefix("DmGame") && $0.hasSuffix(".framework") && $0.count > "DmGame.framework".count }
+        func modified(_ name: String) -> Date {
+            ((try? fm.attributesOfItem(atPath: folder + "/" + name))?[.modificationDate] as? Date) ?? .distantPast
+        }
+        return names.max { (modified($0), $0) < (modified($1), $1) }.map { folder + "/" + $0 }
     }
 
     /// The part of the build script's argument list that makes the game's framework instead of an Xcode project.
@@ -441,9 +477,18 @@ package struct ShellInstaller {
         }
     }
 
+    /// The framework the build should have written is not there: the build steps passed, but a framework deleted by hand, a
+    /// cancelled build, a moved work folder or an old build folder leaves nothing to hand off (#491). The message names the game and the
+    /// folder by its short name and says what to do. The full path goes to the log.
+    func missingFramework(_ framework: String, name: String) -> Outcome {
+        log("framework: not found at \(framework)\n")
+        let folder = ((framework as NSString).deletingLastPathComponent as NSString).lastPathComponent
+        return Outcome(ok: false, message: fmt("shell.noFramework", name, folder.isEmpty ? "shell-framework" : folder))
+    }
+
     package func install(framework: String, titleID: String, name: String, archive: String) -> Outcome {
         guard FileManager.default.fileExists(atPath: framework) else {
-            return Outcome(ok: false, message: fmt("shell.noFramework", framework))
+            return missingFramework(framework, name: name)
         }
         // A device this Mac never paired is found out now, not after the signing: nothing is built for it
         if let refused = pairingRefusal() { return refused }
@@ -507,7 +552,9 @@ package struct ShellInstaller {
         // 7: the game data, only what the device does not have yet
         var outcome = Outcome(ok: true, message: fmt("dev.installed", deviceName), appPath: app, bundleID: bundleID)
         outcome.noMemoryCapability = noMemoryCapability
-        return copyGameData(titleID: titleID, archive: archive, app: app, bundleID: bundleID, outcome: outcome)
+        var result = copyGameData(titleID: titleID, archive: archive, app: app, bundleID: bundleID, outcome: outcome)
+        if result.ok, !prepared.notes.isEmpty { result.message = ([result.message] + prepared.notes).joined(separator: "\n") }
+        return result
     }
 
     /// Step 7 on its own, for a Retry after a copy that failed midway: the listing, the diff and the copy, nothing else. The app
