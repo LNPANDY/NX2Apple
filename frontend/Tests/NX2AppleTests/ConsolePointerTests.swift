@@ -4,7 +4,7 @@ import XCTest
 @testable import NXLauncher
 
 /// When the pointer hides in console mode. Nothing here touches NSCursor.
-final class ConsolePointerTests: XCTestCase {
+final class ConsolePointerTests: IsolatedDefaultsTestCase {
     private let here = CGPoint(x: 10, y: 10)
 
     func testHidesAfterAboutOneAndAHalfIdleSecondsAndShowsOnMovement() {

@@ -5,7 +5,7 @@ import SwiftUI
 @testable import NXLauncher
 
 /// The live console driver over a real GameLibrary in a temporary folder, with fake controllers and a fake launch call.
-@MainActor final class ConsoleLiveTests: XCTestCase {
+@MainActor final class ConsoleLiveTests: IsolatedDefaultsTestCase {
     private var temporary: URL!
     private let titleID = "01001A9012345000"
     private let bundleID = "org.nxnative.consolelivetests"

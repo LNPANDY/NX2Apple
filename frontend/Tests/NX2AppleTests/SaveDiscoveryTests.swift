@@ -5,7 +5,7 @@ import XCTest
 
 /// Issue #250: the game's save found on the device itself, a choice between an iPhone and an iPad, and a device that does not
 /// answer. devicectl is the stand-in of SaveTransferTests (a folder per device), so no test reaches a device.
-final class SaveDiscoveryTests: XCTestCase {
+final class SaveDiscoveryTests: IsolatedDefaultsTestCase {
     private typealias Fake = SaveTransferTests.FakeDevice
     private var temporary: URL!
     private let titleID = "0100535012974000"

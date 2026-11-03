@@ -6,7 +6,7 @@ import NXModel
 
 /// #87: the signing teams of the Apple IDs signed in to Xcode, read from Xcode's preferences (sample plists, not this
 /// Mac's), merged with the teams of development certificates.
-@MainActor final class XcodeTeamsTests: XCTestCase {
+@MainActor final class XcodeTeamsTests: IsolatedDefaultsTestCase {
     private func plist(_ body: String) -> Data {
         Data("""
         <?xml version="1.0" encoding="UTF-8"?>
@@ -95,12 +95,12 @@ import NXModel
 
     func testTheNoTeamMessageNamesTheRealCause() {
         for lang in [Lang.en, .zh] {
-            let mStores = LauncherStores(); let m = mStores.build; m.lang = lang
+            let mStores = LauncherStores(defaults: testDefaults); let m = mStores.build; m.lang = lang
             XCTAssertFalse(m.t("dev.noTeam").isEmpty)
             XCTAssertNotEqual(m.t("dev.teamNoCert"), "dev.teamNoCert")
             XCTAssertNotEqual(m.t("dev.personalTeam"), "dev.personalTeam")
         }
-        let mStores = LauncherStores(); let m = mStores.build; m.lang = .en
+        let mStores = LauncherStores(defaults: testDefaults); let m = mStores.build; m.lang = .en
         XCTAssertTrue(m.t("dev.noTeam").contains("Settings → Apple Accounts"))
         XCTAssertTrue(m.t("dev.noTeam").contains("no development certificate"))
         XCTAssertTrue(m.t("dev.noTeam").contains("Download Manual Profiles"))

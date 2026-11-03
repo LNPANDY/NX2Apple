@@ -6,7 +6,7 @@ import XCTest
 /// The update sheet's bilingual split (ReleaseNotes.lines, read here as the displayed text of each block): the release bodies follow
 /// docs/RELEASE-NOTES-GUIDE.md — a bilingual heading, `**中文** …` / `**English** …` paragraphs, then
 /// bullets that interleave. A Chinese reader must not get the English paragraph and vice versa.
-final class UpdateSheetTests: XCTestCase {
+final class UpdateSheetTests: IsolatedDefaultsTestCase {
     /// What a reader sees: each block's text, bullets prefixed with "- ".
     static func plain(_ notes: String, for lang: Lang) -> [String] {
         ReleaseNotes.blocks(from: ReleaseNotes.markdown(notes, for: lang)).map {

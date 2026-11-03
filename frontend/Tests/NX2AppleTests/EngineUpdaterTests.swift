@@ -6,7 +6,7 @@ import XCTest
 
 /// Channels, asset URLs, the installer and the update check (EngineUpdater.swift in NXCore, EngineSyncStore in NXModel). The
 /// archive is built here with `ditto`, so the unpack path is real. Nothing touches the network.
-final class EngineUpdaterTests: XCTestCase {
+final class EngineUpdaterTests: IsolatedDefaultsTestCase {
     private var root: URL!
 
     override func setUpWithError() throws {

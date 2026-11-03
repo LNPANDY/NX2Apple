@@ -6,18 +6,15 @@ import NXModel
 
 /// #263: a build folder in iCloud Drive fails at the signing step ("resource fork, Finder information, or similar detritus not
 /// allowed"). The launcher says so before the build starts, and reads the same words from a log.
-@MainActor final class CloudFolderTests: XCTestCase {
+@MainActor final class CloudFolderTests: IsolatedDefaultsTestCase {
     private var home: URL!
-    private var saved: [(String, Any?)] = []
 
     override func setUpWithError() throws {
-        saved = ["repoPath", "buildOutputDirectory"].map { ($0, UserDefaults.standard.object(forKey: $0)) }
         home = FileManager.default.temporaryDirectory.appendingPathComponent("nspb-cloud-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
     }
 
     override func tearDownWithError() throws {
-        for (key, value) in saved { UserDefaults.standard.set(value, forKey: key) }
         try? FileManager.default.removeItem(at: home)
     }
 
@@ -114,7 +111,7 @@ import NXModel
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             try "x".write(to: url, atomically: true, encoding: .utf8)
         }
-        let mStores = LauncherStores(); let m = mStores.build
+        let mStores = LauncherStores(defaults: testDefaults); let m = mStores.build
         m.target = BuildTarget.mac   // the iPhone / iPad target stops first, at the device check
         mStores.repo.path = repo.path
         m.outDir = ""
