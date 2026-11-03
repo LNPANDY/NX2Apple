@@ -465,6 +465,15 @@ public struct ShellHostConfig: Sendable {
     /// The right-stick hint's words: a few, no semicolon, short enough for the right third of a small phone.
     static var touchHint: String { hostText("Right stick: drag here") }
 
+    /// DM_HOME_QUIT_TEXT: the game's quit prompt in the player's language, one text per line in the engine's order (home_quit.h): the hold
+    /// indicator, the title with the game's name, the note, Quit and Cancel. The engine draws it when Quit is picked in the in-game menu (the gear)
+    /// or Home is held. The menu item reads the title without its question mark.
+    static func quitPromptText(gameName: String) -> String {
+        [hostText("Keep holding to quit"), hostText("Quit \(gameName)?"),
+         hostText("Unsaved progress will be lost. The app closes and opens on your games next time."), hostText("Quit"), hostText("Cancel")]
+            .map { $0.replacingOccurrences(of: "\n", with: " ") }.joined(separator: "\n")
+    }
+
     /// A game's values for the engine: its own choices, then the shell's defaults. A game whose settings list has no
     /// performance overlay row still gets the shell's choice.
     func launchEnvironment(profile: LauncherProfile, id: String) -> [String: String] {
@@ -472,6 +481,8 @@ public struct ShellHostConfig: Sendable {
         for (key, value) in shellSettings.gameDefaults where env[key] == nil { env[key] = value }
         // The words the engine shows once per launch where the 3D layout's undrawn right stick is (patch 0067), in the player's language.
         env["DM_TOUCH_HINT"] = Self.touchHint
+        // The quit prompt's words (patch 0068), as the Mac launcher passes them for its Home button prompt.
+        env["DM_HOME_QUIT_TEXT"] = Self.quitPromptText(gameName: entry(id)?.title ?? id)
         // A launcher.json DM_PAD_MAP row is authoritative, including an empty value.
         if !profile.settings.contains(where: { $0.env == "DM_PAD_MAP" }) {
             env["DM_PAD_MAP"] = PadMap.merged(global: shellSettings.padMap,

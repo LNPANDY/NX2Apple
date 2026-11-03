@@ -6,7 +6,6 @@ Subject: [PATCH] ios shell: declare Italian in CFBundleLocalizations
 Upstream-Status: fork-only
 Reason: frontend/l10n/it.json adds Italian, and iOS offers a language to the shell's package bundles only when the app declares it, so Italian devices got English.
 Issue: LNPANDY/NX2Apple#388
-
 ---
  dm/ios/project-shell.yml | 2 +-
  1 file changed, 1 insertion(+), 1 deletion(-)

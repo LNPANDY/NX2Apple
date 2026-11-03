@@ -1,6 +1,6 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: v0lumehi <aljic.zijad@gmail.com>
-Date: Tue, 3 Nov 2026 16:15:21 +0100
+Date: Tue, 3 Nov 2026 18:24:38 +0100
 Subject: [PATCH] ios: place the left touch stick higher or further in
  (DM_TOUCH_STICK)
 
@@ -20,7 +20,6 @@ does not.
 Upstream-Status: pending (on seedds/nxnative#683)
 Reason: Players on large phones want the left touch stick higher or further in (#558)
 Issue: LNPANDY/NX2Apple#558
-
 ---
  dm/ios/Sources/DmGamepad.m                    |  7 ++++--
  dm/ios/Sources/DmPadGeometry.h                | 23 +++++++++++++++++
@@ -28,19 +27,19 @@ Issue: LNPANDY/NX2Apple#558
  3 files changed, 51 insertions(+), 4 deletions(-)
 
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index 3ea60b6..e4b6f15 100644
+index 6396f99..0b36d0a 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
-@@ -9,7 +9,7 @@
- //   Touch-down ownership: locked keys first (shoulders, − / +, the layout button, L3 / R3), then whichever of the diamond, the D-pad and the left stick has the smallest distance / grab radius (the left stick's grab circle borders the D-pad),
+@@ -10,7 +10,7 @@
+ //   Touch-down ownership: the menu button where it is nearer than a locked key (a view of its own, DmMenuButton), locked keys next (shoulders, − / +, L3 / R3), then whichever of the diamond, the D-pad and the left stick has the smallest distance / grab radius (the left stick's grab circle borders the D-pad),
  //     then in 3D the right stick for a touch in the right third.
  //   Everything hugs the edges and corners to leave the picture room; controls sit over the picture, one CAShapeLayer each: a press only swaps the fill, a stick only moves its knob, nothing redraws the whole screen.
 -//   Where each control sits is DmPadGeometry.h (pure, tested on the Mac); the player picks the size there through DM_TOUCH_SIZE (small, medium, large; a size that does not fit the screen moves toward medium).
 +//   Where each control sits is DmPadGeometry.h (pure, tested on the Mac); the player picks the size there through DM_TOUCH_SIZE (small, medium, large; a size that does not fit the screen moves toward medium) and the left stick's place through DM_TOUCH_STICK (corner, higher, inward).
  //   Touches no control takes (in 3D, those outside the right third) go to the game's touch screen when DmLayout assigns a local game viewport (pushGame; Super Mario Galaxy's pointer in handheld mode).
- //   The virtual gamepad (layout button included) hides while a physical controller is connected and comes back when it is removed; unclaimed touches go to the game only when a local game viewport exists. Physical controllers keep every button (D-pad and right stick included) and map by position: bottom = B, right = A, left = Y, top = X (same positions as on a Switch controller); a Nintendo pad maps by its labels (pad_apple.h).
+ //   The virtual gamepad (all but the menu button) hides while a physical controller is connected and comes back when it is removed; unclaimed touches go to the game only when a local game viewport exists. Physical controllers keep every button (D-pad and right stick included) and map by position: bottom = B, right = A, left = Y, top = X (same positions as on a Switch controller); a Nintendo pad maps by its labels (pad_apple.h).
  //   Each physical controller is a player of its own (local co-op), as on the Mac: the first one connected is player 1, together with the touch gamepad, the next player 2, and so on up to 8; see "Physical controllers" below.
-@@ -147,7 +147,7 @@ @implementation DmGamepad {
+@@ -157,7 +157,7 @@ @implementation DmGamepad {
      CALayer *_controls;                            // holds every control layer: hidden while a physical controller is connected (the view itself stays, for game touches)
      BOOL _padOff;                                  // a physical controller is connected: every touch goes to the game
      DmLayout _layout;
@@ -49,7 +48,7 @@ index 3ea60b6..e4b6f15 100644
      DmPadGeo _geo; CGRect _geoBounds; UIEdgeInsets _geoInsets; BOOL _geoFull, _geoValid;   // where the controls are, and what it was computed for
      UITouch *_game[16];                           // touches on the game's touch screen by finger slot
  }
-@@ -172,6 +172,9 @@ - (instancetype)initWithFrame:(CGRect)f {
+@@ -182,6 +182,9 @@ - (instancetype)initWithFrame:(CGRect)f {
          const char *size = getenv("DM_TOUCH_SIZE");
          _opts.scale = dm_pad_size_scale(size);
          if (size && *size) LOG("front end: touch controls size %s (DM_TOUCH_SIZE)", _opts.scale < 1 ? "small" : _opts.scale > 1 ? "large" : "medium");
@@ -60,7 +59,7 @@ index 3ea60b6..e4b6f15 100644
              [(UIView *)environment setNeedsLayout];
          }];
 diff --git a/dm/ios/Sources/DmPadGeometry.h b/dm/ios/Sources/DmPadGeometry.h
-index a03f3ec..18dc25e 100644
+index 92697ef..86083ad 100644
 --- a/dm/ios/Sources/DmPadGeometry.h
 +++ b/dm/ios/Sources/DmPadGeometry.h
 @@ -2,6 +2,7 @@
