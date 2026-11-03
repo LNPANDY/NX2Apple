@@ -18,6 +18,7 @@ final class FrenchLocalizationTests: IsolatedDefaultsTestCase {
         "controls.fn.B", "controls.fn.X", "controls.fn.Y", "controls.fn.L", "controls.fn.R",
         "controls.fn.ZL", "controls.fn.ZR", "controls.fn.Plus", "controls.fn.Minus", "launch.mods",
         "pad.options", "engine.channel.stable", "launch.opt.DM_PRESENT_UPSCALE.off", "launch.opt.DM_PRESENT_UPSCALE.metalfx", "launch.opt.DM_UPSCALER.metalfx", "key.tab",
+        "switch2.badge",   // the console's name
     ]
 
     func testNothingIsLeftInEnglishButTheListedNames() {

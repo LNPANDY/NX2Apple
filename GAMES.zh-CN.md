@@ -2,6 +2,30 @@
 
 本 fork 有 profile 的全部游戏，以及每款需要的更新包。玩家主页是 [README.zh-CN.md](README.zh-CN.md)。[dm/games/README.md](https://github.com/seedds/nxnative/blob/641d1480021a57840b7acc15f92cbd86ecfae611/dm/games/README.md)（英文）是引擎对每款游戏的笔记。截图和 IPA 大小在英文页的[图库](GAMES.md#gallery)里。
 
+## Switch 2 游戏
+
+引擎把 Switch 2 游戏当作普通的 profile 来运行，没有单独的 Switch 2 开关或设置。Switch 2 游戏只能从游戏文件夹或一个 NUP 容器（`.nup` 文件）构建，不能用 NSP 或 XCI，也不需要 `prod.keys`。只有引擎里有它的 profile 才能构建。启动器在构建页面接受这两种形式（选择游戏文件夹、`.nup` 文件，或放着 `.nup` 的文件夹），并在游戏库里标出 **Switch 2**。
+
+| 游戏 | 标题 ID | 上游的说法 | 本 fork |
+|---|---|---|---|
+| Donkey Kong Bananza | `040074A01BF12000` | 在 Mac 上可玩（更新 v458752），测试到第一关开头 | 用命令行构建后，在 iPhone 17 Pro Max（iOS 27.0.1）上玩过一次（#445）。还没有通过启动器构建过 |
+| Splatoon Raiders | `0400380020056000` | 在 Mac 上可玩（更新 v65536）。没有构建过 IPA：它的内存布局目前超出 iOS 的限制 | 没有试过 |
+| Fire Emblem Fortune's Weave | `04007EF01F8AE000` | 在 Mac 上可玩（v131072），60 fps。没有构建过 IPA | 没有试过 |
+| Pokémon Pokopia | `0400A3A01EE4C000` | 在 Mac 上可玩（更新 v655360）。没有构建过 IPA | 没有试过 |
+| Hyrule Warriors: Age of Imprisonment | `04003F40232DE000` | 在 Mac 上能玩到第一片原野（更新 v196608），从 NUP 构建。没有构建过 IPA | 没有试过 |
+
+引擎读取的文件夹结构（`updates` 和 `dlc` 可选）：
+
+```
+<游戏文件夹>/
+  base/exefs/                     main、main.npdm、sdk、rtld
+  base/romfs/
+  updates/458752/exefs/、romfs/   十进制的更新版本号，已打补丁的 RomFS
+  dlc/040074a01bf13001/0/romfs/   DLC 的标题 ID
+```
+
+游戏文件夹没有控制数据，所以生成的 App 没有图标，名字取自 profile。NUP 可能带有这两样。Switch 2 游戏的第一次构建很久（Donkey Kong Bananza 要构建约 23,000 个着色器），需要的空间是 RomFS 镜像加约 6 GB。本页和启动器都不说明如何获得这些文件：它们来自你自己的主机。
+
 ## Profile 列表
 
 本仓库自带 130 个游戏 profile。profile 决定了一个游戏能不能构建——build ID、内存布局、

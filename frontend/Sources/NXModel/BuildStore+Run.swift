@@ -49,11 +49,14 @@ extension BuildStore {
         // that holds other games too (a ROMs folder with one file per game) is staged as well: the
         // script takes one game per folder and refuses one with several ("more than one game in the
         // folder"), even when only the base game was picked (issue #58; ufooer's PR #31).
-        let baseDir = (basePath as NSString).deletingLastPathComponent
-        let allPaths = [basePath, updatePath] + dlcPaths
+        // A game folder (BuildStore+GameFolder.swift) goes to the script as it is: the engine must have its packer and the game's profile.
+        let folder = gameFolder
+        if let folder, let why = gameFolderEngineProblem(folder) { fail(why); return }
+        let baseDir = inputFolder
+        let allPaths = folder != nil ? [] : [basePath, updatePath] + dlcPaths
         let dirs = Set(allPaths.filter { !$0.isEmpty }.map { ($0 as NSString).deletingLastPathComponent })
         let picked = Set(allPaths.filter { !$0.isEmpty }.map { ($0 as NSString).lastPathComponent })
-        let unpicked = ((try? FileManager.default.contentsOfDirectory(atPath: baseDir)) ?? []).filter {
+        let unpicked = folder != nil ? [] : ((try? FileManager.default.contentsOfDirectory(atPath: baseDir)) ?? []).filter {
             ["nsp", "xci", "nsz", "xcz"].contains(($0 as NSString).pathExtension.lowercased()) && !picked.contains($0)
         }
         // Staged, the folder's own update and add-on content would be left behind, where the script
@@ -61,7 +64,7 @@ extension BuildStore {
         // exactly as build_ipa_from_nsp.py:445 reads it: the low 12 bits are 0x000 for a base game,
         // 0x800 for its update, and anything else is add-on content below the base.
         var staged = allPaths
-        if let base = TitleID.parse((basePath as NSString).lastPathComponent) {
+        if folder == nil, let base = TitleID.parse((basePath as NSString).lastPathComponent) {
             let app = base & ~0xFFF
             for f in unpicked {
                 guard let tid = TitleID.parse(f) else { continue }
@@ -73,7 +76,7 @@ extension BuildStore {
                 staged.append(baseDir + "/" + f)
             }
         }
-        let tidHex = TitleID.buildKey(basePath)
+        let tidHex = buildKey
         let workDir = (outDir.isEmpty ? baseDir : outDir) + "/" + tidHex + "_build"
         // The build's signing step refuses the attributes a cloud folder adds, after the long steps: stop here instead.
         if cloudFolderCheck(workDir) {
@@ -84,7 +87,7 @@ extension BuildStore {
         // The shared app's own folder is decided before the long steps too: one on a read-only volume (a saved
         // /NX2Apple-shell, a DMG chosen as Save to) failed at the last step after the whole build (#492).
         if target != BuildTarget.mac, !exportsOneGame, let why = shellRootProblem() { fail(why); return }
-        var inputDir = baseDir
+        var inputDir = folder?.scriptInput ?? baseDir   // a NUP goes to the script as the file
         if dirs.count > 1 || !unpicked.isEmpty {
             // A stable folder per game (#132): the script's fingerprints name its files and its profile path.
             let tmp = InputStaging.folder(workDir: workDir)
@@ -125,8 +128,8 @@ extension BuildStore {
             }
         }
         let engine = EngineLayout.root(repo.path)   // the checkout's engine/ (#214)
-        var args = [engine + "/" + RepoLayout.buildScript, inputDir, "-k", keysPath,
-                    "--progress", "json"]
+        // A game folder's files are not encrypted: the script ignores -k for it, and the launcher does not ask for the keys.
+        var args = [engine + "/" + RepoLayout.buildScript, inputDir] + (folder != nil ? [] : ["-k", keysPath]) + ["--progress", "json"]
         // A compatibility switch the player turned on: written to a small env file the pipeline
         // copies into the app bundle (main.m sets one variable per line at boot). Only for an iPhone or iPad build;
         // a Mac app runs on this Mac's GPU, which always has BC support.
@@ -221,8 +224,8 @@ extension BuildStore {
                         // The game's archive, then its framework into the one shared app on the device
                         // The framework the build wrote, and the title ID in its name: the script names it after the game
                         // data's title ID, which the build key lacks when the file name has none (#515)
-                        let key = TitleID.buildKey(self.basePath)
-                        let name = ((self.basePath as NSString).lastPathComponent as NSString).deletingPathExtension
+                        let key = self.buildKey
+                        let name = self.gameName
                         let fw = ShellInstall.builtFramework(workDir: self.effectiveWorkDir)
                             ?? ShellInstall.frameworkPath(workDir: self.effectiveWorkDir, titleID: key)
                         let tid = ShellInstall.titleID(ofFramework: fw)

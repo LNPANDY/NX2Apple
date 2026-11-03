@@ -168,6 +168,14 @@ profile that has not been tried on a phone yet. A few of them:
 game's install size, and the full table with the update version each game needs: the update NSP's
 display version must match the profile's, or the build says so.
 
+**Switch 2 games** are new in the engine. Five have a profile, all marked as playing on the Mac by
+upstream: Donkey Kong Bananza, Splatoon Raiders, Fire Emblem Fortune's Weave, Pokémon Pokopia and
+Hyrule Warriors: Age of Imprisonment. Choose the game's folder of files (`base/`, `updates/`, `dlc/`)
+or its `.nup` file on the Builds page. No `prod.keys` are needed for them. The library marks them
+**Switch 2**. Nobody on this fork has played one through the launcher yet, and on iPhone and iPad they
+are barely tested: one maintainer played Donkey Kong Bananza on an iPhone 17 Pro Max from the command
+line. [GAMES.md](GAMES.md#switch-2-games) has the details.
+
 ## Limitations
 
 - **Only the games with a profile.** A title outside the list needs bring-up work of its own; the

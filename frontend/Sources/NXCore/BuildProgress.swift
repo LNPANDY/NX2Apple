@@ -25,6 +25,9 @@ package struct Stage: Identifiable {
             .trimmingCharacters(in: CharacterSet(charactersIn: "_"))
         if let s = known(key) { return s }
         if name.hasPrefix("extract "), let f = known("stage.extract") { return String(format: f, String(name.dropFirst("extract ".count))) }
+        // A game folder packs each version into an image ("pack v458752", pack_dump.py), a NUP unpacks it ("unpack v196608", pack_nup.py)
+        if name.hasPrefix("pack "), let f = known("stage.pack") { return String(format: f, String(name.dropFirst("pack ".count))) }
+        if name.hasPrefix("unpack "), let f = known("stage.unpack") { return String(format: f, String(name.dropFirst("unpack ".count))) }
         if name.hasSuffix(" shader capture"), let f = known("stage.capture") { return String(format: f, String(name.dropLast(" shader capture".count))) }
         return name
     }

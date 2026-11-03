@@ -110,7 +110,8 @@ package enum GameInputs {
     /// script like their plain forms. DLC ships as NSP (or NSZ), never as a cartridge image.
     package static func allowedFileTypes(for kind: InputKind) -> [String] {
         switch kind {
-        case .base, .update: return ["nsp", "xci", "nsz", "xcz"]
+        case .base: return ["nsp", "xci", "nsz", "xcz", "nup"]   // a NUP holds the whole game (GameFolder.readNUP)
+        case .update: return ["nsp", "xci", "nsz", "xcz"]
         case .dlc: return ["nsp", "nsz"]
         case .keys: return ["keys"]
         }
