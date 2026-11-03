@@ -6,18 +6,15 @@ import NXModel
 
 /// #87: a ZIP copy of the repository is connected to git when the app opens, and a build does not start with build tools
 /// older than the app. Temporary folders and a local repository stand in for the user's copy and for GitHub.
-@MainActor final class RepoToolsTests: XCTestCase {
+@MainActor final class RepoToolsTests: IsolatedDefaultsTestCase {
     private var temporary: URL!
-    private var saved: [(String, Any?)] = []
 
     override func setUpWithError() throws {
         temporary = FileManager.default.temporaryDirectory.appendingPathComponent("nxnative-tools87-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
-        saved = ["repoPath", "autoUpdateRepo"].map { ($0, UserDefaults.standard.object(forKey: $0)) }
     }
 
     override func tearDownWithError() throws {
-        for (key, value) in saved { UserDefaults.standard.set(value, forKey: key) }
         try? FileManager.default.removeItem(at: temporary)
     }
 
@@ -57,7 +54,7 @@ import NXModel
     @MainActor func testABuildWithOldToolsRefusesToStart() throws {
         let repo = temporary.appendingPathComponent("old")
         try write(["dm/tools/nx_extract/Program.cs", RepoLayout.buildScript], in: repo)
-        let mStores = LauncherStores(); let m = mStores.build
+        let mStores = LauncherStores(defaults: testDefaults); let m = mStores.build
         mStores.repo.path = repo.path
         m.target = BuildTarget.mac
         m.startBuild()
@@ -84,7 +81,7 @@ import NXModel
     }
 
     @MainActor private func openZip(_ f: (origin: URL, zip: URL), auto: Bool, remote: String? = nil) -> LauncherStores {
-        let mStores = LauncherStores(); let m = mStores.build
+        let mStores = LauncherStores(defaults: testDefaults); let m = mStores.build
         mStores.repo.path = f.zip.path
         mStores.repo.autoUpdate = auto
         mStores.repo.adoptAtLaunch(remote: remote ?? "file://" + f.origin.path)

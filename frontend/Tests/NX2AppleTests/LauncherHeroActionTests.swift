@@ -6,7 +6,7 @@ import XCTest
 @testable import NXLauncher
 
 /// The hero's cream button has one size (LauncherHeroAction) whatever the game's state and the language.
-final class LauncherHeroActionTests: XCTestCase {
+final class LauncherHeroActionTests: IsolatedDefaultsTestCase {
     private let languages: [Lang] = [.zh, .en, .sv, .de]
 
     private func width(_ text: String) throws -> CGFloat {

@@ -3,7 +3,7 @@ import XCTest
 @testable import NXCore
 @testable import NXLauncher
 
-final class ShellMirrorTests: XCTestCase {
+final class ShellMirrorTests: IsolatedDefaultsTestCase {
     private let id = "0100A00019DE0000"
     private var tmp = ""
 

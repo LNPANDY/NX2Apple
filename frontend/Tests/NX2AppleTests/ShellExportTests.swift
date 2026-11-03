@@ -8,7 +8,7 @@ import NXModel
 /// LNPANDY/NX2Apple#416: the shared app as an unsigned IPA. The commands are checked as pure functions. The export runs headless
 /// against a stand-in `xcrun` (xcodebuild only: it makes an app folder) and a stand-in build_shell.sh, while ditto, xattr and codesign
 /// are the system's. No test builds a real app, reaches a device or needs a signing team.
-@MainActor final class ShellExportTests: XCTestCase {
+@MainActor final class ShellExportTests: IsolatedDefaultsTestCase {
     private var temporary: URL!
     private let fm = FileManager.default
     private let titleID = "0100535012974000"
@@ -494,9 +494,7 @@ import NXModel
 
     /// Copy with Finder selects the folder in Finder and opens the three steps. A new send closes them again. Before a failure it does nothing.
     func testCopyWithFinderRevealsTheFolderAndOpensTheSteps() throws {
-        let saved = savedKeys.map { ($0, UserDefaults.standard.object(forKey: $0)) }
-        defer { for (key, value) in saved { UserDefaults.standard.set(value, forKey: key) } }
-        let stores = LauncherStores(); let model = stores.build
+        let stores = LauncherStores(defaults: testDefaults); let model = stores.build
         var revealed: [URL] = []
         model.revealItem = { revealed.append($0) }
         model.archivePath = path("out/games", titleID)
@@ -530,9 +528,7 @@ import NXModel
     }
 
     func testTheSendButtonsNeedTheIPAAndTheirPlace() throws {
-        let saved = savedKeys.map { ($0, UserDefaults.standard.object(forKey: $0)) }
-        defer { for (key, value) in saved { UserDefaults.standard.set(value, forKey: key) } }
-        let stores = LauncherStores(); let model = stores.build
+        let stores = LauncherStores(defaults: testDefaults); let model = stores.build
         stores.deviceStore.installDevice = "DEV-1"
         model.archivePath = path("out/games", titleID)
         XCTAssertFalse(model.canSendGameData, "step 3 waits for step 1")
@@ -551,10 +547,8 @@ import NXModel
         let archive = try makeArchive()
         try listApps([("org.nxnative.shell.ABC123", "NX2Apple")])
         try write(state + "/devices-ok", "")
-        let saved = savedKeys.map { ($0, UserDefaults.standard.object(forKey: $0)) }
-        defer { for (key, value) in saved { UserDefaults.standard.set(value, forKey: key) } }
-        UserDefaults.standard.set(f.root, forKey: "shellRoot")
-        let stores = LauncherStores(xcrun: f.xcrun); let model = stores.build
+        testDefaults.set(f.root, forKey: "shellRoot")
+        let stores = LauncherStores(xcrun: f.xcrun, defaults: testDefaults); let model = stores.build
         stores.repo.path = f.repo
         stores.dependencies.pythonPath = "/usr/bin/python3"
         stores.deviceStore.installDevice = "DEV-1"
@@ -646,9 +640,7 @@ import NXModel
 
     @MainActor func testTheStoreCopiesToTheChosenFolderAndRefusesAFAT32Drive() throws {
         let archive = try makeArchive()
-        let saved = savedKeys.map { ($0, UserDefaults.standard.object(forKey: $0)) } + [(DeviceStore.driveFolderKey, UserDefaults.standard.object(forKey: DeviceStore.driveFolderKey))]
-        defer { for (key, value) in saved { UserDefaults.standard.set(value, forKey: key) } }
-        let stores = LauncherStores(); let model = stores.build
+        let stores = LauncherStores(defaults: testDefaults); let model = stores.build
         model.archivePath = archive
         model.exportedIPAPath = path("export/NX2Apple.ipa")
         let folder = path("drive")
@@ -709,16 +701,12 @@ import NXModel
 
     // ---- the choice in the build ----
 
-    private let savedKeys = ["repoPath", "buildTarget", "buildOutputDirectory", "installDevice", "signingTeam", "shellRoot", "exportIPA", "exportOneGame"]
-
     /// An iPhone build with the export chosen and no device and no team runs the script without `--team-id`, then ends with the IPA
     /// instead of the "needs a device and a signing team" stop.
     @MainActor func testBuildWithTheExportChoiceNeedsNoDeviceAndNoTeam() throws {
         let f = try makeFixture()
-        let saved = savedKeys.map { ($0, UserDefaults.standard.object(forKey: $0)) }
-        defer { for (key, value) in saved { UserDefaults.standard.set(value, forKey: key) } }
-        UserDefaults.standard.set(f.root, forKey: "shellRoot")
-        let stores = LauncherStores(xcrun: f.xcrun); let model = stores.build
+        testDefaults.set(f.root, forKey: "shellRoot")
+        let stores = LauncherStores(xcrun: f.xcrun, defaults: testDefaults); let model = stores.build
         stores.repo.path = f.repo
         model.target = "ios"
         model.outDir = path("out")
@@ -772,10 +760,8 @@ import NXModel
     /// build ends with that IPA. No shared app, no archive, no shell.json, no stale prompt.
     @MainActor func testOneGameExportBuildsTheGamesOwnIPAWithItsDataInside() throws {
         let f = try makeFixture()
-        let saved = savedKeys.map { ($0, UserDefaults.standard.object(forKey: $0)) }
-        defer { for (key, value) in saved { UserDefaults.standard.set(value, forKey: key) } }
-        UserDefaults.standard.set(f.root, forKey: "shellRoot")
-        let stores = LauncherStores(xcrun: f.xcrun); let model = stores.build
+        testDefaults.set(f.root, forKey: "shellRoot")
+        let stores = LauncherStores(xcrun: f.xcrun, defaults: testDefaults); let model = stores.build
         stores.repo.path = f.repo
         model.target = "ios"
         model.outDir = path("out")
@@ -823,14 +809,12 @@ import NXModel
     }
 
     func testOneGameChoiceIsOffAtFirstSavedAndOnlyCountsForAnExport() throws {
-        let saved = savedKeys.map { ($0, UserDefaults.standard.object(forKey: $0)) }
-        defer { for (key, value) in saved { UserDefaults.standard.set(value, forKey: key) } }
-        UserDefaults.standard.removeObject(forKey: DeviceStore.oneGameKey)
-        let stores = LauncherStores(); let model = stores.build
+        testDefaults.removeObject(forKey: DeviceStore.oneGameKey)
+        let stores = LauncherStores(defaults: testDefaults); let model = stores.build
         XCTAssertFalse(stores.deviceStore.exportOneGame, "the shared app stays the default")
         model.target = "ios"
         stores.deviceStore.exportOneGame = true
-        XCTAssertTrue(UserDefaults.standard.bool(forKey: DeviceStore.oneGameKey))
+        XCTAssertTrue(testDefaults.bool(forKey: DeviceStore.oneGameKey))
         stores.deviceStore.exportIPA = false
         XCTAssertFalse(model.exportsOneGame, "installing on a device is always the shared app")
         stores.deviceStore.exportIPA = true
@@ -843,17 +827,15 @@ import NXModel
 
     /// The choice is saved and a build without it still asks for a device and a team.
     @MainActor func testTheChoiceIsSavedAndWithoutItTheDeviceIsStillNeeded() throws {
-        let saved = savedKeys.map { ($0, UserDefaults.standard.object(forKey: $0)) }
-        defer { for (key, value) in saved { UserDefaults.standard.set(value, forKey: key) } }
-        let stores = LauncherStores(); let model = stores.build
+        let stores = LauncherStores(defaults: testDefaults); let model = stores.build
         stores.repo.path = temporary.path
         try write(temporary.path + "/dm/tools/nx_extract/Program.cs", "")
         model.target = "ios"
         stores.deviceStore.installDevice = ""
         stores.deviceStore.exportIPA = true
-        XCTAssertTrue(UserDefaults.standard.bool(forKey: DeviceStore.exportKey))
+        XCTAssertTrue(testDefaults.bool(forKey: DeviceStore.exportKey))
         stores.deviceStore.exportIPA = false
-        XCTAssertFalse(UserDefaults.standard.bool(forKey: DeviceStore.exportKey))
+        XCTAssertFalse(testDefaults.bool(forKey: DeviceStore.exportKey))
         XCTAssertFalse(model.exportsShell)
         model.startBuild()
         XCTAssertEqual(model.doneNote, model.t("shell.needsDevice"))

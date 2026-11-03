@@ -9,7 +9,7 @@ import NXModel
 /// after the build runs headless against a stand-in `xcrun` that models devicectl on a folder (a fake device container): an install
 /// keeps the container, a copy to a file creates the parents, and `--remove-existing-content true` wipes the destination's siblings,
 /// as it does on a real device. No test reaches a device or a real game.
-@MainActor final class ShellInstallTests: XCTestCase {
+@MainActor final class ShellInstallTests: IsolatedDefaultsTestCase {
     private var temporary: URL!
     private let fm = FileManager.default
     private let titleID = "0100535012974000"
@@ -803,10 +803,8 @@ import NXModel
 
     @MainActor func testBuildWithTheShellTargetInstallsAndResignsTheSharedApp() throws {
         let f = try makeFixture()
-        let keysSaved = ["repoPath", "buildTarget", "buildOutputDirectory", "installDevice", "signingTeam", "shellRoot", DeviceStore.exportKey].map { ($0, UserDefaults.standard.object(forKey: $0)) }
-        defer { for (key, value) in keysSaved { UserDefaults.standard.set(value, forKey: key) } }
-        UserDefaults.standard.set(f.root, forKey: "shellRoot")
-        let modelStores = LauncherStores(xcrun: f.xcrun); let model = modelStores.build
+        testDefaults.set(f.root, forKey: "shellRoot")
+        let modelStores = LauncherStores(xcrun: f.xcrun, defaults: testDefaults); let model = modelStores.build
         modelStores.repo.path = f.repo
         model.target = "ios"
         model.outDir = path("out")
@@ -816,7 +814,6 @@ import NXModel
         modelStores.dependencies.deps = [Dep(id: "test", name: "test", hint: "", present: true, installCmd: [])]
         modelStores.deviceStore.installDevice = device
         modelStores.deviceStore.signingTeam = team
-        modelStores.deviceStore.exportIPA = false   // a value another test or worktree left in the shared preferences sends the build to the export path
         try write(f.repo + "/dm/tools/nx_extract/Program.cs", "")
         for tool in RepoLayout.requiredTools.filter({ $0 != RepoLayout.buildScript }) { try write(f.repo + "/" + tool, "") }
         // the packer stand-in writes the image from the extracted RomFS
@@ -870,7 +867,7 @@ import NXModel
     }
 
     @MainActor private func makeModel(_ f: Fixture) throws -> LauncherStores {
-        let modelStores = LauncherStores(xcrun: f.xcrun); let model = modelStores.build
+        let modelStores = LauncherStores(xcrun: f.xcrun, defaults: testDefaults); let model = modelStores.build
         modelStores.repo.path = f.repo
         model.target = "ios"
         model.outDir = path("out")
@@ -880,7 +877,6 @@ import NXModel
         modelStores.dependencies.deps = [Dep(id: "test", name: "test", hint: "", present: true, installCmd: [])]
         modelStores.deviceStore.installDevice = device
         modelStores.deviceStore.signingTeam = team
-        modelStores.deviceStore.exportIPA = false   // a value another test or worktree left in the shared preferences sends the build to the export path
         try write(f.repo + "/dm/tools/nx_extract/Program.cs", "")
         for tool in RepoLayout.requiredTools.filter({ $0 != RepoLayout.buildScript }) { try write(f.repo + "/" + tool, "") }
         try write(f.repo + "/scripts/build_ipa_from_nsp.py", "open('\(state)/script.txt', 'w').write('ran')\n")
@@ -894,8 +890,6 @@ import NXModel
     @MainActor func testUnknownDeviceStopsTheBuildBeforeTheScriptRuns() throws {
         let f = try makeFixture()
         try writeDevices(state + "/devices-default.json", [("00008150-OTHER", "wired")])
-        let saved = ["repoPath", "buildTarget", "buildOutputDirectory", "installDevice", "signingTeam", DeviceStore.exportKey].map { ($0, UserDefaults.standard.object(forKey: $0)) }
-        defer { for (key, value) in saved { UserDefaults.standard.set(value, forKey: key) } }
         let modelStores = try makeModel(f)
         let model = modelStores.build
         model.startBuild()
@@ -911,9 +905,7 @@ import NXModel
     /// The copy card's answer and the failure row: a copy that fails midway says the data is incomplete, and Retry runs only the data step.
     @MainActor func testFailedCopyShowsTheIncompleteRowAndRetryFinishesIt() throws {
         let f = try makeFixture()
-        let saved = ["repoPath", "buildTarget", "buildOutputDirectory", "installDevice", "signingTeam", "shellRoot"].map { ($0, UserDefaults.standard.object(forKey: $0)) }
-        defer { for (key, value) in saved { UserDefaults.standard.set(value, forKey: key) } }
-        UserDefaults.standard.set(f.root, forKey: "shellRoot")
+        testDefaults.set(f.root, forKey: "shellRoot")
         let modelStores = try makeModel(f)
         let model = modelStores.build
         try write(state + "/fail-on", "romfs.img")
@@ -950,9 +942,7 @@ import NXModel
     }
 
     @MainActor func testShellTargetWithoutDeviceStopsBeforeBuilding() throws {
-        let saved = ["repoPath", "buildTarget", "installDevice", "signingTeam", DeviceStore.exportKey].map { ($0, UserDefaults.standard.object(forKey: $0)) }
-        defer { for (key, value) in saved { UserDefaults.standard.set(value, forKey: key) } }
-        let modelStores = LauncherStores(); let model = modelStores.build
+        let modelStores = LauncherStores(defaults: testDefaults); let model = modelStores.build
         modelStores.repo.path = temporary.path
         try write(temporary.path + "/dm/tools/nx_extract/Program.cs", "")
         model.target = "ios"

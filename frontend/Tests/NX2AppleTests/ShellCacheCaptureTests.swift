@@ -9,17 +9,15 @@ import AppKit
 /// Visual QA of Move cache folder, LNPANDY/NX2Apple#427 (matched by --filter testRenderShellCacheForVisualQA). The Tools card of the
 /// release app in every state of the move. The states are set on the store, so nothing is moved and no folder is touched: the
 /// cache row only reads the saved place, which the test restores.
-final class ShellCacheCaptureTests: XCTestCase {
+final class ShellCacheCaptureTests: IsolatedDefaultsTestCase {
     @MainActor func testRenderShellCacheForVisualQA() throws {
         guard let directory = ProcessInfo.processInfo.environment["NX_LAUNCHER_CAPTURE_DIR"] else { throw XCTSkip("Set NX_LAUNCHER_CAPTURE_DIR to capture native views") }
         let output = URL(fileURLWithPath: directory)
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         let lang = CaptureLanguage.current(.en)
-        let saved = ["shellRoot", ShellRootMove.pickedKey].map { ($0, UserDefaults.standard.object(forKey: $0)) }
-        defer { for (key, value) in saved { UserDefaults.standard.set(value, forKey: key) } }
-        UserDefaults.standard.removeObject(forKey: "shellRoot")
+        testDefaults.removeObject(forKey: "shellRoot")
 
-        let stores = LauncherStores(); let model = stores.build
+        let stores = LauncherStores(defaults: testDefaults); let model = stores.build
         stores.localizer.lang = lang
         stores.engineSync.bundle = URL(fileURLWithPath: "/Applications/NX2Apple.app/Contents/Resources/engine")   // the release app's rows
         stores.engineSync.status = ""
@@ -73,7 +71,7 @@ final class ShellCacheCaptureTests: XCTestCase {
         model.shellMove = .failed("The disk “T7 Shield” was ejected", stays: defaultRoot)   // the store drops the system text's full stop
         try shot("8-failed")
 
-        UserDefaults.standard.set(drive, forKey: "shellRoot")   // read only: the row shows the saved place
+        testDefaults.set(drive, forKey: "shellRoot")   // read only: the row shows the saved place
         model.shellMove = .moved(drive)
         try shot("9-moved")
         model.shellMove = .movedOldStays(drive, old: defaultRoot)

@@ -42,7 +42,7 @@ final class OffscreenWindow: NSWindow {
     }
 }
 
-final class OffscreenWindowTests: XCTestCase {
+final class OffscreenWindowTests: IsolatedDefaultsTestCase {
     /// Windows of the helper are shown (as the render tests do) and must be on no display, for AppKit and for the window server.
     @MainActor func testRenderWindowsAreNeverOnAnyDisplay() {
         NSApplication.shared.setActivationPolicy(.accessory)

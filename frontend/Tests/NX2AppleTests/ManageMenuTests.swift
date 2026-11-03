@@ -5,7 +5,7 @@ import XCTest
 
 /// The Manage menu: its rows and when they can be used, what a controller's buttons do around it, and that its rows run
 /// the actions the system menu ran.
-final class ManageMenuTests: XCTestCase {
+final class ManageMenuTests: IsolatedDefaultsTestCase {
     private var temporary: URL!
 
     override func setUpWithError() throws {
