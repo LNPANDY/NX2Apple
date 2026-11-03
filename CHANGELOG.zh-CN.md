@@ -1,6 +1,6 @@
 # 更新日志
 
-NX2Apple 的版本历史，最新在上，每个版本的完整说明见[发布页](https://github.com/LNPANDY/NX2Apple/releases)。English: [CHANGELOG.md](CHANGELOG.md).
+NX2Apple 的版本历史，最新在上，每个版本的完整说明见[发布页](https://github.com/LNPANDY/NX2Apple/releases)。
 
 最新在上。本 fork 每天跟随上游，标「同步上游」的条目是自动来的。
 

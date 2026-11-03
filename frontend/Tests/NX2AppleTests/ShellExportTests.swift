@@ -219,6 +219,29 @@ import NXModel
         XCTAssertFalse(fm.fileExists(atPath: state + "/shell-env.txt"))
     }
 
+    /// #491: the build steps were green and the Builds page ended in "The game's framework was not found: <path>", cut off.
+    func testAMissingFrameworkNamesTheGameAndKeepsThePathInTheLogOnly() throws {
+        let f = try makeFixture()
+        let missing = path("work/shell-framework/DmGame\(titleID).framework.gone")
+        var logged = ""
+        var i = installer(f)
+        i.log = { logged += $0 }
+        let outcome = i.export(framework: missing, titleID: titleID, name: "Test Game")
+        XCTAssertFalse(outcome.ok)
+        XCTAssertEqual(outcome.message, String(format: L10n.string("shell.noFramework", .en), "Test Game", "shell-framework"))
+        XCTAssertTrue(outcome.message.contains("Test Game"), outcome.message)
+        XCTAssertFalse(outcome.message.contains("/"), outcome.message)
+        XCTAssertTrue(outcome.message.contains("open an issue"), outcome.message)
+        for lang in Lang.all {
+            XCTAssertFalse(L10n.string("shell.noFramework", lang).contains(";"), lang.code)
+            XCTAssertTrue(L10n.string("shell.noFramework", lang).contains("%2$@"), lang.code)
+        }
+        XCTAssertTrue(logged.contains(missing), logged)
+        // the install path says the same
+        let installed = i.install(framework: missing, titleID: titleID, name: "Test Game", archive: "")
+        XCTAssertEqual(installed.message, outcome.message)
+    }
+
     // ---- a framework that a cut-off delete or copy left incomplete ----
 
     /// v1.0.2-rc1: the launcher was quit while the stale prompt deleted Breath of the Wild's framework (a minute for its shader files).

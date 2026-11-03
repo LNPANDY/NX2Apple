@@ -941,7 +941,7 @@
   "shell.modeInstall": "Installera på enheten",
   "shell.modeTitle": "Installera eller exportera",
   "shell.needsDevice": "Den gemensamma appen behöver en enhet och ett signeringsteam. Välj dem först under Installera på.",
-  "shell.noFramework": "Spelets ramverk hittades inte: %@",
+  "shell.noFramework": "Bygget av %1$@ är klart, men spelets ramverk finns inte i mappen %2$@. Bygg spelet igen. Om det händer igen, kopiera bygglogen och öppna ett ärende.",
   "shell.noSpace": "Inte tillräckligt med utrymme på %@: speldatan behöver %.1f GB och enheten har %.1f GB ledigt. Frigör utrymme och installera igen",
   "shell.notPaired": "%@ är inte ihopparad med den här Mac-datorn. Anslut den med kabel, tryck på Lita på i enheten och ange enhetens lösenkod. Starta sedan om.",
   "shell.oneGameDone": "%@, osignerad. Speldata finns med.",

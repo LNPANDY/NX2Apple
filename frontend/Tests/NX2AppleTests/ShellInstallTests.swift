@@ -614,7 +614,7 @@ import NXModel
         output = ""
         XCTAssertEqual(ShellCLI.run(f.args(extra: ["--framework", path("missing.framework")]),
                                     defaults: UserDefaults(suiteName: "nspb-shell-" + UUID().uuidString)!) { output += $0 }, 1)
-        XCTAssertTrue(output.contains("framework was not found"), output)
+        XCTAssertTrue(output.contains("its framework is not in the"), output)
     }
 
     // ---- the lead's three: memory capability, free space, the shell's log ----

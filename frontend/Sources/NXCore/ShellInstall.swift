@@ -477,9 +477,18 @@ package struct ShellInstaller {
         }
     }
 
+    /// The framework the build should have written is not there: the build steps passed, but a framework deleted by hand, a
+    /// cancelled build, a moved work folder or an old build folder leaves nothing to hand off (#491). The message names the game and the
+    /// folder by its short name and says what to do. The full path goes to the log.
+    func missingFramework(_ framework: String, name: String) -> Outcome {
+        log("framework: not found at \(framework)\n")
+        let folder = ((framework as NSString).deletingLastPathComponent as NSString).lastPathComponent
+        return Outcome(ok: false, message: fmt("shell.noFramework", name, folder.isEmpty ? "shell-framework" : folder))
+    }
+
     package func install(framework: String, titleID: String, name: String, archive: String) -> Outcome {
         guard FileManager.default.fileExists(atPath: framework) else {
-            return Outcome(ok: false, message: fmt("shell.noFramework", framework))
+            return missingFramework(framework, name: name)
         }
         // A device this Mac never paired is found out now, not after the signing: nothing is built for it
         if let refused = pairingRefusal() { return refused }

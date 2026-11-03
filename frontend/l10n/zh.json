@@ -1228,7 +1228,7 @@
   "shell.modeInstall": "安装到设备",
   "shell.modeTitle": "安装或导出",
   "shell.needsDevice": "共用应用需要一台设备和一个签名团队。请先在“安装到”里选择。",
-  "shell.noFramework": "没有找到游戏的框架：%@",
+  "shell.noFramework": "%1$@ 已构建完成，但它的框架不在 %2$@ 文件夹里。请重新构建这个游戏。如果再次出现，请复制构建日志并提交 issue。",
   "shell.noSpace": "%@ 上空间不足：游戏数据需要 %.1f GB，设备只剩 %.1f GB。请先释放空间再安装",
   "shell.notPaired": "这台 Mac 还没有与 %@ 配对。请用数据线连接，在设备上点「信任」并输入设备密码，然后重新开始。",
   "shell.oneGameDone": "%@，未签名。已包含游戏数据。",
