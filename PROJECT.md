@@ -63,7 +63,7 @@ with the existing project only.
   only; values are entered by the owner in repository Settings).
 - **Phase 2 — Patch port, 0061+.** Rebase the grouped changes from the
   inventory onto this tree's patch queue, one group at a time, keeping
-  each patch self-contained and re-appliable by `scripts/sync_upstream.py`.
+  each patch self-contained and re-appliable by the tree's sync machinery (`tools/engine.py`, driven by `.github/workflows/sync-upstream.yml`).
 - **Phase 3 — Cloud workflow for the two games.** Repository-level
   GitHub Actions workflow (group A) building Silksong and Hades II only,
   slim IPA delivery, game sources fetched the same way as the existing
