@@ -50,6 +50,8 @@ public struct LibraryView: View {
     /// The button-mapping card, while open.
     @State private var padMapping: PadMappingState?
     @State private var buttonTestOpen: Bool
+    /// The touch controls' layout editor, while open (over the shell settings).
+    @State private var touchLayout: TouchLayoutEditorModel?
     @State private var focus: FocusAppearance
     @State private var targets = FocusTargetBuffer()
     @State private var settingsPosition = ScrollPosition()
@@ -199,8 +201,16 @@ public struct LibraryView: View {
                         .overlay(alignment: .leading) { Rectangle().fill(ShellPalette.hairline).frame(width: 1).ignoresSafeArea() }
                         .offset(x: edgeDrag)
                         .frame(maxWidth: .infinity, alignment: .trailing)
+                        .accessibilityHidden(touchLayout != nil)
                         .accessibilityAddTraits(.isModal)
                         .transition(.move(edge: .trailing).combined(with: .opacity))
+                }
+                if let touchLayout {
+                    // The whole screen, so the preview is as large as the device allows.
+                    ShellPalette.background.ignoresSafeArea().accessibilityHidden(true)
+                    TouchLayoutEditorView(model: touchLayout, close: closeTouchLayout)
+                        .accessibilityAddTraits(.isModal)
+                        .transition(.opacity.combined(with: .scale(scale: 0.98)))
                 }
                 if let choice {
                     Color.black.opacity(0.55).ignoresSafeArea().accessibilityHidden(true)
@@ -237,17 +247,19 @@ public struct LibraryView: View {
                     if buttonTestOpen { return target.id.hasPrefix("test.") }
                     if padMapping != nil { return target.id.hasPrefix("map.") }
                     if choice != nil { return target.id.hasPrefix("pick.") }
+                    if touchLayout != nil { return target.id.hasPrefix("lay.") }
                     if controllersOpen { return target.id.hasPrefix("ctl.") }
                     if shellSettingsOpen { return target.id.hasPrefix("shs.") }
                     if helpGameID != nil { return target.id.hasPrefix("help.") }
                     if deleteGameID != nil { return target.id.hasPrefix("del.") }
-                    return !["ctl.", "help.", "pick.", "shs.", "del.", "map.", "test."].contains { target.id.hasPrefix($0) }
+                    return !["ctl.", "help.", "pick.", "shs.", "del.", "map.", "test.", "lay."].contains { target.id.hasPrefix($0) }
                 }
             }
             .coordinateSpace(name: "shell")
+            .environment(\.shellOpenTouchLayout, { openTouchLayout(whole, insets) })
             .background {
                 EdgeSwipeBack(enabled: (settingsOpen || controllersOpen || shellSettingsOpen) && choice == nil && helpGameID == nil && deleteGameID == nil
-                                  && padMapping == nil && !buttonTestOpen,
+                                  && padMapping == nil && !buttonTestOpen && touchLayout == nil,
                               changed: { edgeDrag = $0 },
                               ended: { finishEdgeSwipe(travel: $0, velocity: $1, span: controllersOpen || shellSettingsOpen ? min(width, 520) : pane) },
                               cancelled: cancelEdgeSwipe)
@@ -265,6 +277,7 @@ public struct LibraryView: View {
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: choice)
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: padMapping)
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: buttonTestOpen)
+        .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: touchLayout != nil)
         .environment(\.shellPickChoice, { request in openChoice(request) })
         .environment(\.shellOpenPadMapping, { id in openPadMapping(id) })
         .environment(\.shellOpenButtonTest, { openButtonTest() })
@@ -411,6 +424,12 @@ public struct LibraryView: View {
     private func openControllers() { guard !shellSettingsOpen else { return }; noteTouch(); controllersOpen = true; focus.id = "ctl.close" }
     private func openShellSettings() { noteTouch(); shellSettingsOpen = true; focus.id = "shs.close" }
     private func closeShellSettings() { shellSettingsOpen = false; focus.id = "lib.shellSettings" }
+    private func openTouchLayout(_ window: CGSize, _ insets: EdgeInsets) {
+        noteTouch()
+        touchLayout = TouchLayoutEditorModel.forDevice(window: window, insets: insets)
+        focus.id = "lay.done"
+    }
+    private func closeTouchLayout() { touchLayout = nil; focus.id = "shs.arrange" }
     private func openHelp(_ id: String) { returnFocus = focus.id; helpGameID = id; focus.id = "help.done" }
     private func closeHelp() { helpGameID = nil; focus.id = returnFocus }
     /// The question starts on Cancel, with the saves kept.
@@ -432,13 +451,15 @@ public struct LibraryView: View {
     private func closeChoice() {
         guard let request = choice else { return }
         choice = nil
-        focus.id = (request.gameID == ShellSettingsRows.gameID ? ShellSettingsRows.targetPrefix : "set.row.") + request.row.id
+        let prefix = request.gameID == ShellSettingsRows.gameID ? ShellSettingsRows.targetPrefix : request.gameID == TouchLayoutEditorView.gameID ? "lay.row." : "set.row."
+        focus.id = prefix + request.row.id
     }
     private func pickChoice(_ value: String) {
         noteTouch()
         guard let request = choice else { return }
         if value != request.row.value {
-            if request.gameID == ShellSettingsRows.gameID { ShellSettingsRows.apply(request.row.id, value: value, to: .current) }
+            if request.gameID == TouchLayoutEditorView.gameID { touchLayout?.apply(row: request.row.id, value: value) }
+            else if request.gameID == ShellSettingsRows.gameID { ShellSettingsRows.apply(request.row.id, value: value, to: .current) }
             else { actions.onChange(request.gameID, request.row.id, value) }
         }
         closeChoice()
@@ -497,6 +518,7 @@ public struct LibraryView: View {
         else if padMapping?.row != nil { closePadRow() }
         else if padMapping != nil { closePadMapping() }
         else if choice != nil { closeChoice() }
+        else if let touchLayout { if touchLayout.held { touchLayout.putDown() } else { closeTouchLayout() } }
         else if helpGameID != nil { closeHelp() }
         else if deleteGameID != nil { closeDelete() }
         else if controllersOpen { controllersOpen = false; focus.id = "lib.controllers" }
@@ -512,6 +534,14 @@ public struct LibraryView: View {
         if device != source { device = source }
         if touchMode { touchMode = false }
         focus.visible = true
+        // A control the editor holds: the D-pad (or the arrow keys) moves it, A or B puts it down.
+        if let touchLayout, touchLayout.held, choice == nil {
+            switch action {
+            case .left, .right, .up, .down: touchLayout.nudge(action); return
+            case .activate, .back: touchLayout.putDown(); return
+            default: break
+            }
+        }
         if focus.id == nil || !targets.values.contains(where: { $0.id == focus.id }) {
             focus.id = defaultFocus
             if action != .activate && action != .back && action != .settings && action != .controllers { return }
@@ -544,6 +574,7 @@ public struct LibraryView: View {
         if buttonTestOpen { return "test.close" }
         if let padMapping { return padMapping.row == nil ? "map.close" : "map.back" }
         if let choice { return "pick." + choice.row.value }
+        if touchLayout != nil { return "lay.done" }
         if helpGameID != nil { return "help.done" }
         if deleteGameID != nil { return "del.cancel" }
         if controllersOpen { return "ctl.close" }

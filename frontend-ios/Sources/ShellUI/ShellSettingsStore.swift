@@ -17,6 +17,7 @@ public final class ShellSettingsStore: @unchecked Sendable {
     public static let touchStickKey = "touchStick"               // corner, higher or inward: DM_TOUCH_STICK for every game
     /// Where the left stick sits, as the engine reads DM_TOUCH_STICK. The corner is the built-in place and is never stored.
     public static let touchStickPlaces = ["corner", "higher", "inward"]
+    public static let touchLayoutKey = "touchLayout"             // the player's arrangement: DM_TOUCH_LAYOUT for every game
 
     /// The store the app reads and writes. Tests and previews swap it.
     nonisolated(unsafe) public static var current = ShellSettingsStore()
@@ -63,6 +64,21 @@ public final class ShellSettingsStore: @unchecked Sendable {
         if place == "corner" { defaults.removeObject(forKey: Self.touchStickKey) } else { defaults.set(place, forKey: Self.touchStickKey) }
     }
 
+    /// The player's arrangement of the touch controls for every game (#414): stored as the value the engine reads, so what the
+    /// settings show is what a game gets. A stored value the engine would ignore reads as the built-in layout.
+    public var touchLayout: TouchLayout {
+        defaults.string(forKey: Self.touchLayoutKey).flatMap { TouchLayout(encoded: $0) } ?? TouchLayout()
+    }
+    public func storeTouchLayout(_ layout: TouchLayout) {
+        if layout.isEmpty { defaults.removeObject(forKey: Self.touchLayoutKey) } else { defaults.set(layout.encoded, forKey: Self.touchLayoutKey) }
+    }
+    /// Every control of one layout back to its built-in place.
+    public func resetTouchLayout(_ kind: TouchLayout.Kind) {
+        var layout = touchLayout
+        layout.reset(kind)
+        storeTouchLayout(layout)
+    }
+
     public var padMap: PadMap { PadMap(defaults.dictionary(forKey: Self.padMapKey) as? [String: String] ?? [:]) }
     public func setPadButton(_ button: String, to output: String) {
         var map = padMap
@@ -82,6 +98,8 @@ public final class ShellSettingsStore: @unchecked Sendable {
         var values = performanceHUD.map { ["DM_METAL_HUD": $0 ? "1" : "0"] } ?? [:]
         if touchSize != "medium" { values["DM_TOUCH_SIZE"] = touchSize }
         if touchStick != "corner" { values["DM_TOUCH_STICK"] = touchStick }
+        let layout = touchLayout.encoded
+        if !layout.isEmpty { values["DM_TOUCH_LAYOUT"] = layout }
         return values
     }
 }

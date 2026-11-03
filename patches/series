@@ -42,8 +42,9 @@
 0067-ios-touch-right-stick-hint.patch
 0068-ios-quit-a-game-from-the-in-game-menu-or-by-hold.patch
 0069-ios-shell-compile-the-in-game-menu-so-the-gear-o.patch
-0070-shader-split-scimitar-forge-archives-and-raw-con.patch
-0071-mac-app-programs-of-a-multi-program-application.patch
-0072-nvn-mtl-a-stage-keeps-its-program-s-shaders-afte.patch
-0073-nvn-mtl-write-image-buffer-textures-below-16-byt.patch
-0074-dm-ctl-shots-n-folder-captures-consecutive-frame.patch
+0070-ios-touch-layout.patch
+0071-shader-split-scimitar-forge-archives-and-raw-con.patch
+0072-mac-app-programs-of-a-multi-program-application.patch
+0073-nvn-mtl-a-stage-keeps-its-program-s-shaders-afte.patch
+0074-nvn-mtl-write-image-buffer-textures-below-16-byt.patch
+0075-dm-ctl-shots-n-folder-captures-consecutive-frame.patch
