@@ -82,6 +82,7 @@ struct DemoScreen: View {
                     actions: actions, input: input, initialSelection: initialSelection,
                     initialDetailOpen: scenario == "settings",
                     initialControllersOpen: scenario.hasPrefix("controllers"),
+                    initialShellSettingsOpen: scenario == "shell-settings",
                     initialFocusVisible: scenario == "focus")
     }
 
@@ -138,13 +139,16 @@ struct DemoScreen: View {
             for section in games[g].sections.indices {
                 if let index = games[g].sections[section].rows.firstIndex(where: { $0.id == row }) {
                     games[g].sections[section].rows[index].value = value
+                    games[g].sections[section].rows[index].fromShell = false
                     games[g].hasModifiedSettings = true
                 }
             }
         }, onPickGameData: { _ in notice = demoText("Choose game data requested. The host supplies the picker.") },
                      onUseAppData: { _ in notice = demoText("Use app data requested.") },
                      onPickCloudSaves: { _ in notice = demoText("Choose cloud folder requested. The host supplies the picker.") },
-                     onDisableCloudSaves: { id in if let i = games.firstIndex(where: { $0.id == id }) { games[i].cloudSaves = nil } },
+                     onDisableCloudSaves: { id in
+            if let i = games.firstIndex(where: { $0.id == id }) { games[i].cloudSaves = nil; games[i].cloudFromShell = false; games[i].cloudCanUseShell = true }
+        },
                      onResetDefaults: { id in
             if let i = games.firstIndex(where: { $0.id == id }), let original = SampleData.games.first(where: { $0.id == id }) {
                 games[i].sections = original.sections
@@ -152,7 +156,15 @@ struct DemoScreen: View {
             }
         }, onShowLog: { _ in notice = demoText("Show log requested. The host supplies the log.") },
                      onAppUpdate: { notice = demoText("App update requested. The host supplies update instructions.") },
-                     onBack: { notice = demoText("Back requested.") })
+                     onBack: { notice = demoText("Back requested.") },
+                     onPickShellData: { notice = demoText("Choose game data requested. The host supplies the picker.") },
+                     onPickShellCloud: { notice = demoText("Choose cloud folder requested. The host supplies the picker.") },
+                     onUseShellCloud: { id in
+            if let i = games.firstIndex(where: { $0.id == id }), let original = SampleData.games.first(where: { $0.id == id }) {
+                games[i].cloudSaves = original.cloudSaves; games[i].cloudFromShell = true; games[i].cloudCanUseShell = false
+            }
+        }, onClearShellData: { ShellSettingsStore.current.clearDataFolderName() },
+                     onClearShellCloud: { ShellSettingsStore.current.clearCloudSavesFolderName() })
     }
 }
 

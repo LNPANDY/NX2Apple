@@ -6,6 +6,8 @@
 - [ ] Fix
 - [ ] Feature
 
+Feature from outside: the issue in a milestone is linked.
+
 ## What and why
 
 <!-- The symptom or the need, the cause, and the change. Link the issue (Fixes #...). -->
@@ -14,6 +16,7 @@
 
 <!-- Delete what does not apply. Say what was not checked too. -->
 - Tests: <!-- `cd frontend && swift test`, frontend-qt tests if you changed it, `python3 tools/engine.py check` when `patches/` changed -->
+- Test for a fix: <!-- the test for the bug, or why none can exist (it needs a real device, iCloud or a real game) -->
 - Visual QA: <!-- `NX_LAUNCHER_CAPTURE_DIR=<dir> swift test` captures the views, for a UI change -->
 - Run on a device or Mac: <!-- what was built, played or installed, with title ID and version, chip and OS -->
 

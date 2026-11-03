@@ -27,6 +27,10 @@ FORK_PATCHES = 'dm/fork_patches.txt'
 # from these paths.
 GENERATED = (('docs/agents/game-patches.md', 'dm/tools/docs_patches.py'),
              ('docs/agents/symptoms.md', 'dm/tools/docs_symptoms.py'))
+# What git exports to a hook (GIT_DIR in a worktree) and what points git at a repository. Every git command here names its repository
+# with cwd, so none of these may reach it: they would send the command to the repository that runs the hook.
+REPO_ENV = ('GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_PREFIX', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY',
+            'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_QUARANTINE_PATH')
 KINDS = ('forwarded', 'pending', 'fork-only', 'backport')
 # The shader chain and the tool pins (the engine's AGENTS.md: the DMSH_CHAIN paragraph names them; chain_paths() reads it).
 # Used only when that file has no such paragraph.
@@ -38,8 +42,13 @@ class Fail(Exception):
     pass
 
 
+def clean_env(**extra):
+    """The environment without the variables that point git at a repository."""
+    return {**{k: v for k, v in os.environ.items() if k not in REPO_ENV}, **extra}
+
+
 def git(*a, cwd=None, check=True, inp=None, binary=False):
-    r = subprocess.run(['git', *a], cwd=cwd or REPO, input=inp, capture_output=True, text=not binary)
+    r = subprocess.run(['git', *a], cwd=cwd or REPO, input=inp, capture_output=True, text=not binary, env=clean_env())
     if check and r.returncode:
         raise Fail(f'git {" ".join(a)} failed: {(r.stderr if not binary else r.stderr.decode(errors="replace")).strip()[-1500:]}')
     return r

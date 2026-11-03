@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """latest.json for the engine, signed when a key is set (LNPANDY/NX2Apple#227): what the launcher reads to update the engine without an app release.
 
-The manifest has the shape of EngineManifest.Manifest (frontend/Sources/NSPortBuilder/EngineManifest.swift), plus `engine_id`:
+The manifest has the shape of EngineManifest.Manifest (frontend/Sources/NXCore/EngineManifest.swift), plus `engine_id`:
 
   {"version": "0.8.0", "pin": "<seedds commit>", "engine_id": "<pin>-<12 hex of the series digest>", "channel": "stable",
    "built": "2026-10-31T02:00:00Z",

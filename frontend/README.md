@@ -163,7 +163,7 @@ library manifest is stored at
 ## Launch options
 
 The button beside **Play** opens the game's launch options: the settings the iPhone
-launcher shows before a game starts ([docs/settings.md](https://github.com/seedds/nxnative/blob/c5fe6b5dbcb245f9116b1b380cc71ecd4c6c4f11/docs/settings.md)), read
+launcher shows before a game starts ([docs/settings.md](https://github.com/seedds/nxnative/blob/65501fbbaf8526f7aab0a1edd028135888590f8e/docs/settings.md)), read
 from the list the engine packs into the Mac app (`Contents/Resources/dm/launcher.json`,
 written by `dm/games/settings.py` from `dm/games/settings.tsv`, and the engine change that
 packs it is [seedds/nxnative#352](https://github.com/seedds/nxnative/pull/352), so a
@@ -218,11 +218,11 @@ their chosen path.
 The interface is set in Manrope (SIL Open Font License, with its license in `fonts/`):
 headings, text and a game's status line, whose capitals are the same face, tracked.
 Paths and the build log use the system's monospaced face. `python3 fonts/embed_fonts.py`
-writes the font into the binary as `Sources/NSPortBuilder/EmbeddedFonts.swift`, so the app needs no font
+writes the font into the binary as `Sources/NXLauncher/EmbeddedFonts.swift`, so the app needs no font
 installed and no resource bundle beside the executable.
 
 The app icon is `AppIcon.icon`, the Liquid Glass icon made in Icon Composer (the iOS app uses the same file).
-`build-mac-app.yml` compiles it with the `actool` of Xcode 27.1 (the one in Xcode 26.6 throws an exception on this icon) into `Assets.car` (macOS 26 and later) and `AppIcon.icns` (macOS 13 to 25),
+`build-mac-app.yml` compiles it with the `actool` of Xcode 27.2 (the one in Xcode 26.6 throws an exception on this icon) into `Assets.car` (macOS 26 and later) and `AppIcon.icns` (macOS 13 to 25),
 and `Info.plist` names both. To compile it by hand:
 
 ```sh
@@ -300,14 +300,56 @@ nothing changes: Homebrew's tools, a system Python or the launcher's venv. To tr
 
 ## Language
 
-The interface follows the system language at every launch: any Chinese variant
-(Simplified, Traditional, Hong Kong, Taiwan) gets Chinese, Swedish gets Swedish, German gets
-German, and every other language gets English. Settings > Language overrides that. Strings live in
-`Sources/NSPortBuilder/Localization.swift`: the table holds Chinese and English, and Swedish (`sv`)
-and German (`de`) are overlays below it. A string added to the table needs its German entry, and
-`GermanLocalizationTests` fails until it has one (it also checks that the format placeholders match
-the English text). Regenerate the Qt table after editing it with
-`python3 frontend-qt/gen_localization.py` from the repository root.
+The interface follows the system language at every launch: a device language that has a file in
+`l10n/` gets that language (any Chinese variant gets Chinese, Swedish gets Swedish, German gets German,
+French gets French) and every other language gets English. Settings > Language overrides
+that. The texts and the language list are not in Swift. Every language is one JSON file in `l10n/`
+(`en.json`, `zh.json`, `sv.json`, `de.json`, `fr.json`): a flat object with the keys sorted, UTF-8 text
+without escapes, and a `_language` entry. It holds the language's own name (`name`, which the picker
+shows), the lowercased locale prefixes that select it (`locales`) and optionally its place in the picker
+(`order`, languages without one come last by code).
+`Sources/NXCore/Localization.swift` keeps only `Lang` (a language is its code, and `Lang.all` is the list
+of files) and the lookup, and `LocalizationFiles.swift` reads the files once, at the first lookup. A new
+language is one new file under `l10n/`: the picker, the device detection and the lookup find it with no
+change in Swift, and the iOS shell offers it too (below). A new string is a line in
+`l10n/en.json` and one in `l10n/zh.json`: English and Chinese have every key. Swedish, German and French
+may miss a key and then show the English text, and `GermanLocalizationTests` and
+`FrenchLocalizationTests` check the entries they have (placeholders match the English text). The Windows
+launcher reads the same files, so one edit serves both.
+
+`LocalizationKeyTests` (Mac) and `test_localization_keys.py` (Qt) keep the code and `en.json` in step: a key a lookup
+names must exist, a key en.json has must be used by one of the two front ends, and a key built from a prefix and a variable
+(`"fail." + kind + ".what"`) needs a line in `frontend/Tests/l10n-key-rules.json` (`dynamicKeys`). A key that is only
+kept on purpose goes into `unusedAllowed` there, with the reason. Remove an unused key from every language file.
+
+The iOS shell's texts are in the same files, under `ios.ui.` (ShellUI) and `ios.host.` (ShellHost). The Mac and the
+Windows launcher never show them. Xcode needs a string catalog per target, so
+`python3 tools/l10n_shell_catalogs.py` writes `frontend-ios/Sources/ShellUI/Resources/Localizable.xcstrings` and
+`frontend-ios/Sources/ShellHost/Resources/Localizable.xcstrings` from the files (the catalogs are not edited by hand).
+The Swift code asks for a shell text by its English words (`ShellStrings.text("Done")`), so the catalog's key is the English
+text of the JSON key, and each language file that has the JSON key adds a localization (`zh.json` becomes `zh-Hans`, every other
+code stays as it is). A new shell text is a line in `en.json` and `zh.json` under the prefix, the same words in the Swift call
+and `python3 tools/l10n_shell_catalogs.py`. A new language file shows up in both catalogs with no change in the tool. A language
+that has no line for a key shows the English text, as in the launchers. `tools/tests/test_l10n_shell_catalogs.py` fails when a
+committed catalog differs from what the files give, and when the app's `CFBundleLocalizations` (the Demo app, `tools/try-local`
+and the shell app of the engine, patch 0056) do not list every file, because iOS offers a language to the shell only when the
+app declares it. The key checks treat the `ios.*` keys as used (`catalogKeys` in `frontend/Tests/l10n-key-rules.json`).
+
+A game's settings rows (section, label, note, option labels) are not shell texts. They come from the game's `launcher.json`,
+which is English and owned by seedds/nxnative, so its format stays. The shell looks each text up in the ShellUI catalog by its
+English words, and a text with no entry shows English. The catalog gets these texts from the lines the Mac launcher already
+translates (`launch.section.*`, `launch.set.*`, `launch.opt.*`), so there is one translation of each. `ios.setting.*` has the
+few texts upstream's `settings.tsv` words differently from the Mac's table (a semicolon in a note, for example): the English
+is upstream's, the translation is the same as the Mac's. When a pin bump adds or changes a text in `dm/games/settings.tsv` or the
+game language names in `dm/tools/nacp.py`, `tools/tests/test_launcher_texts.py` fails and names the text that has no Chinese
+entry. Add the line to `en.json` and `zh.json` (and to the other languages that have the `launch.*` lines), run
+`python3 tools/l10n_shell_catalogs.py` and `python3 tools/tests/test_launcher_texts.py --write`.
+
+The app finds the files in `Contents/Resources/l10n` (`build-mac-app.yml` and `tools/try-local` copy the
+folder there, the same way as the engine and the bundled tools, not as SwiftPM resources). `swift run` finds
+`frontend/l10n` by walking up from the executable, and `swift test` takes it from the source path.
+`NX_L10N_DIR` names another folder for a try-out. A missing or broken file does not stop the app: the
+lookup shows the English text, then the key, and one line goes to standard error.
 
 ## Verification
 

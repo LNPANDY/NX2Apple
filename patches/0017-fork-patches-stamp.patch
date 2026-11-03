@@ -23,10 +23,10 @@ Issue: LNPANDY/NX2Apple#123
  6 files changed, 16 insertions(+), 2 deletions(-)
 
 diff --git a/dm/ios/Sources/main.m b/dm/ios/Sources/main.m
-index ddfce1a..7e4d49a 100644
+index a5fe462..487a711 100644
 --- a/dm/ios/Sources/main.m
 +++ b/dm/ios/Sources/main.m
-@@ -218,6 +218,9 @@ static int boot_env(void) {
+@@ -227,6 +227,9 @@ static int boot_env(void) {
      NSString *log = [doc stringByAppendingPathComponent:@"log.txt"], *prev = [doc stringByAppendingPathComponent:@"log.prev.txt"];
      [fm removeItemAtPath:prev error:nil]; [fm moveItemAtPath:log toPath:prev error:nil];
      if (freopen(log.fileSystemRepresentation, "w", stderr)) setvbuf(stderr, NULL, _IOLBF, 0);
@@ -49,7 +49,7 @@ index 16b4165..ed0010a 100644
          GCSupportsControllerUserInteraction: true   # Physical controllers (GameController)
          GCSupportedGameControllers:
 diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index 6a33884..92fd85d 100755
+index 8f42405..783b16c 100755
 --- a/dm/ios/tools/build_ipa.sh
 +++ b/dm/ios/tools/build_ipa.sh
 @@ -38,6 +38,7 @@ VNACP=$(dirname "$ROMFS")/control.nacp; [ -f "$VNACP" ] || VNACP=$W/data/v0/cont
