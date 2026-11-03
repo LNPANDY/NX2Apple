@@ -145,6 +145,19 @@ package enum ShellInstall {
         workDir + "/shell-framework/DmGame\(titleID).framework"
     }
 
+    /// The framework the build wrote in `<work>/shell-framework`. The script names it after the title ID it read from the game
+    /// data, which a file name without a title ID does not carry (the build key is then the name plus a hash, #515), so the
+    /// handoff takes the folder's own `DmGame*.framework`: the newest when an older build left a second one. nil when there is none.
+    package static func builtFramework(workDir: String, fm: FileManager = .default) -> String? {
+        let folder = workDir + "/shell-framework"
+        let names = ((try? fm.contentsOfDirectory(atPath: folder)) ?? [])
+            .filter { $0.hasPrefix("DmGame") && $0.hasSuffix(".framework") && $0.count > "DmGame.framework".count }
+        func modified(_ name: String) -> Date {
+            ((try? fm.attributesOfItem(atPath: folder + "/" + name))?[.modificationDate] as? Date) ?? .distantPast
+        }
+        return names.max { (modified($0), $0) < (modified($1), $1) }.map { folder + "/" + $0 }
+    }
+
     /// The part of the build script's argument list that makes the game's framework instead of an Xcode project.
     package static func buildArguments(workDir: String, team: String) -> [String] {
         ["--shell-framework", workDir + "/shell-framework"] + (team.isEmpty ? [] : ["--team-id", team])
