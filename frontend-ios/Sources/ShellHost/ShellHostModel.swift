@@ -470,7 +470,7 @@ public struct ShellHostConfig: Sendable {
     func launchEnvironment(profile: LauncherProfile, id: String) -> [String: String] {
         var env = GameSettingsStore(profile: profile, defaults: config.defaults(id), shell: shellSettings.gameDefaults).values()
         for (key, value) in shellSettings.gameDefaults where env[key] == nil { env[key] = value }
-        // The words the engine shows once per launch where the 3D layout's undrawn right stick is (patch 0066), in the player's language.
+        // The words the engine shows once per launch where the 3D layout's undrawn right stick is (patch 0067), in the player's language.
         env["DM_TOUCH_HINT"] = Self.touchHint
         // A launcher.json DM_PAD_MAP row is authoritative, including an empty value.
         if !profile.settings.contains(where: { $0.env == "DM_PAD_MAP" }) {

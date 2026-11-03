@@ -50,7 +50,7 @@ final class Clock: @unchecked Sendable { var date: Date; init(_ d: Date) { date 
         #expect(launcher.launched.last?.environment["DM_TOUCH_STICK"] == "higher")
     }
 
-    /// The engine draws the right-stick hint's words as they come (patch 0066), so the shell hands them over in the player's language.
+    /// The engine draws the right-stick hint's words as they come (patch 0067), so the shell hands them over in the player's language.
     @Test func everyGameGetsTheRightStickHintInThePlayersLanguage() async throws {
         let box = try Sandbox()
         try box.giveAppData()

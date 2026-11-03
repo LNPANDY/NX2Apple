@@ -1,6 +1,6 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: v0lumehi <aljic.zijad@gmail.com>
-Date: Tue, 3 Nov 2026 15:20:07 +0100
+Date: Tue, 3 Nov 2026 16:15:21 +0100
 Subject: [PATCH] ios: place the left touch stick higher or further in
  (DM_TOUCH_STICK)
 
@@ -28,7 +28,7 @@ Issue: LNPANDY/NX2Apple#558
  3 files changed, 51 insertions(+), 4 deletions(-)
 
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index ec35bb3..ba6707d 100644
+index 3ea60b6..e4b6f15 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
 @@ -9,7 +9,7 @@
@@ -117,7 +117,7 @@ index a03f3ec..18dc25e 100644
  }
  
 diff --git a/dm/ios/tests/pad_geometry/pad_geometry_check.m b/dm/ios/tests/pad_geometry/pad_geometry_check.m
-index f5b7112..54b83b1 100644
+index f02eccc..dc17483 100644
 --- a/dm/ios/tests/pad_geometry/pad_geometry_check.m
 +++ b/dm/ios/tests/pad_geometry/pad_geometry_check.m
 @@ -76,10 +76,31 @@ int main(void) {
@@ -152,5 +152,5 @@ index f5b7112..54b83b1 100644
 +                if (!CGPointEqualToPoint(h.face, c.face) || !CGPointEqualToPoint(n.face, c.face) || !CGPointEqualToPoint(n.drop[DM_PAD_R], c.drop[DM_PAD_R])) FAIL("%s: the right side moved", screens[i].name);
 +            }
  
-     // The sizes keep their order everywhere, and on a phone in landscape large really is larger and small smaller.
-     for (int i = 0; i < nscreens; i++)
+     // Picture Fill (DM_PICTURE_FIT) only makes the game rectangle larger: the controls keep the full view and their places.
+     for (int i = 0; i < nscreens; i++) {

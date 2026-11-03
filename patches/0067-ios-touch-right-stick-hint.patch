@@ -1,6 +1,6 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: v0lumehi <aljic.zijad@gmail.com>
-Date: Tue, 3 Nov 2026 15:25:23 +0100
+Date: Tue, 3 Nov 2026 16:16:34 +0100
 Subject: [PATCH] ios: say where the 3D layout's undrawn right stick is, once
  per launch
 
@@ -32,7 +32,7 @@ Issue: LNPANDY/NX2Apple#414
  3 files changed, 87 insertions(+), 1 deletion(-)
 
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index ba6707d..f789679 100644
+index e4b6f15..7653b5a 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
 @@ -6,6 +6,7 @@
@@ -63,7 +63,7 @@ index ba6707d..f789679 100644
          NSNumber *saved = [NSUserDefaults.standardUserDefaults objectForKey:k_layout_key];
          int l = saved ? (int)saved.integerValue : dm_profile()->pad_layout;
          if (l == 2 && dm_opmode() != 0) l = 0;   // Tap only in handheld mode (env.txt's DM_OPMODE may have changed it)
-@@ -379,7 +386,7 @@ - (void)touchesBegan:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e {
+@@ -378,7 +385,7 @@ - (void)touchesBegan:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e {
          CGFloat f = dist(p, self.faceCenter) / (self.faceGap + MAX(self.faceR * 1.6, self.faceHitR)); if (f <= best) { best = f; kind = C_FACE; }
          if (_full) { CGFloat d = dist(p, self.dpadCenter) / MAX(self.dpadR * K_DPAD_GRAB, _layout.separated ? 22 : 0); if (d < best) { best = d; kind = C_DPAD; } }
          if (!_stick[0]) { CGFloat s = dist(p, self.stickHome) / MAX([self stickR:0] * K_STICK_GRAB, _layout.separated ? 22 : 0); if (s < best) { best = s; kind = C_STICK; } }
@@ -72,7 +72,7 @@ index ba6707d..f789679 100644
          if (kind == C_FACE) { [_owner setObject:@(C_FACE) forKey:t]; [_faceOf setObject:@([self faceAt:p]) forKey:t]; }
          else if (kind == C_DPAD) [_owner setObject:@(C_DPAD) forKey:t];
          else if (kind == C_STICK) { [_owner setObject:@(C_STICK | (uint64_t)idx << 8) forKey:t]; _stick[idx] = t; _stickNow[idx] = p; }
-@@ -479,8 +486,47 @@ - (void)layoutSubviews {
+@@ -478,8 +485,47 @@ - (void)layoutSubviews {
      CAShapeLayer *in = (CAShapeLayer *)_knob.sublayers.firstObject; CGPathRef ip = circlePath(CGPointMake(k, k), k * 0.62);
      in.frame = _knob.bounds; in.path = ip; CGPathRelease(ip);
      [CATransaction commit];
@@ -152,10 +152,10 @@ index 18dc25e..e6abdd0 100644
 +
  NS_ASSUME_NONNULL_END
 diff --git a/dm/ios/tests/pad_geometry/pad_geometry_check.m b/dm/ios/tests/pad_geometry/pad_geometry_check.m
-index 54b83b1..1e7d487 100644
+index dc17483..7bf7e8f 100644
 --- a/dm/ios/tests/pad_geometry/pad_geometry_check.m
 +++ b/dm/ios/tests/pad_geometry/pad_geometry_check.m
-@@ -110,6 +110,24 @@ int main(void) {
+@@ -118,6 +118,24 @@ int main(void) {
              if (i <= 4 && !(ul > um * 1.15)) FAIL("%s %s: large is not larger (%.3f vs %.3f)", screens[i].name, full ? "3D" : "2D", ul, um);
          }
  
