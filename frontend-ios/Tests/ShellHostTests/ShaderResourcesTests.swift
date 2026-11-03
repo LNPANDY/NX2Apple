@@ -96,18 +96,46 @@ import Testing
         let launcher = RecordingLauncher(), model = ShellHostModel(config: box.config(), launcher: launcher)
         let framework = box.games.appendingPathComponent(Fixtures.orbit + "/DmGame.framework")
         try box.write("bundled", to: framework.appendingPathComponent("msl/" + shader))
+        try Data([0]).write(to: framework.appendingPathComponent("msl-" + UUID().uuidString + ".aar"))
+        // A legacy framework only needs to allow traversal to its known shader path.
+        try FileManager.default.setAttributes([.posixPermissions: 0o111], ofItemAtPath: framework.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: framework.path) }
         await model.playNow(Fixtures.orbit)
         let legacy = try #require(launcher.launched.first)
         #expect(legacy.shaderResourcesURL == nil)
         #expect(try msl(legacy, in: box) == framework.appendingPathComponent("msl").path)
 
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: framework.path)
+        try FileManager.default.removeItem(at: framework.appendingPathComponent("msl"))
         let override = gameFolder.appendingPathComponent("msl")
         try box.write("custom", to: override.appendingPathComponent(shader))
-        try Data([0]).write(to: framework.appendingPathComponent("msl-" + UUID().uuidString + ".aar"))
         await model.playNow(Fixtures.orbit)
         let custom = try #require(launcher.launched.last)
         #expect(launcher.launched.count == 2 && custom.shaderResourcesURL == nil)
         #expect(try msl(custom, in: box) == override.path)
+        #expect(!FileManager.default.fileExists(atPath: gameFolder.appendingPathComponent(".shader-resources").path))
+    }
+
+    @Test func profileShaderDirectoryBypassesArchivePreparation() async throws {
+        let box = try Sandbox(), gameFolder = try box.giveAppData()
+        let gameRoot = box.games.appendingPathComponent(Fixtures.orbit)
+        let custom = box.root.appendingPathComponent("custom-msl")
+        try box.write("profile shaders", to: custom.appendingPathComponent(shader))
+        let profile: [String: Any] = [
+            "game": Fixtures.orbit, "settings": [
+                ["env": "DM_MSL_DIR", "kind": "choice", "label": "Shaders", "note": "",
+                 "default": custom.path, "options": [[custom.path, "Custom"]]]
+            ]
+        ]
+        try JSONSerialization.data(withJSONObject: profile).write(to: gameRoot.appendingPathComponent("launcher.json"))
+        let archive = gameRoot.appendingPathComponent("DmGame.framework/msl-" + UUID().uuidString + ".aar")
+        try Data([0]).write(to: archive)
+
+        let launcher = RecordingLauncher(), model = ShellHostModel(config: box.config(), launcher: launcher)
+        await model.playNow(Fixtures.orbit)
+        let game = try #require(launcher.launched.first)
+        #expect(game.shaderResourcesURL == nil && game.environment["DM_MSL_DIR"] == custom.path)
+        #expect(try msl(game, in: box) == custom.path)
         #expect(!FileManager.default.fileExists(atPath: gameFolder.appendingPathComponent(".shader-resources").path))
     }
 }
