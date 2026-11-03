@@ -86,7 +86,8 @@ struct PadMappingEntryRow: View {
     }
 }
 
-/// The button mapping in a card of its own. The list: Swap A and B as a segmented choice, then the 16 buttons in four
+/// The button mapping in a card of its own. The list: the controller drawing for touch and VoiceOver (no live input, no
+/// focus target), Swap A and B as a segmented choice, then the 16 buttons in four
 /// grouped cards (face buttons, shoulders and triggers, D-pad, more), each row the button's glyph, where it sits and what it
 /// sends, a cream dot on a row that differs. Reset stays in a footer under the scrolling list. A row picked shows the
 /// buttons it can send as a grid of glyphs, in the same groups. D-pad and keys move through `map.` targets, A picks, B goes
@@ -213,6 +214,7 @@ struct PadMappingCard: View {
             Text(ShellStrings.text(isGame ? "For this game only. A button left alone does what it does in all games."
                                           : "For controllers in games only. This app’s menus keep A to confirm and B to go back."))
                 .shellType(ShellType.note).foregroundStyle(.white.opacity(0.5)).fixedSize(horizontal: false, vertical: true)
+            drawing
             if let swapRow { swap(swapRow) }
             ForEach(PadMap.groups, id: \.title) { group in
                 VStack(alignment: .leading, spacing: 10) {
@@ -234,6 +236,35 @@ struct PadMappingCard: View {
             }
         }
         .padding(.horizontal, 20).padding(.vertical, 18)
+    }
+
+    /// The controller as the button test draws it, with the Switch names of its places, for touch and VoiceOver: a tap on a
+    /// button opens its choices, as its row does, and a cream ring marks a changed button. It never shows what a controller
+    /// presses and is no focus target. The card is a menu, so a controller moves through the rows below, A picks and B
+    /// closes. Trying buttons is the button test's job, which takes the controller's input for itself (#495).
+    private var drawing: some View {
+        func row(_ e: PadElement) -> SettingRow? {
+            PadMap.button(at: e).flatMap { button in rows.first { PadMappingRows.button(of: $0) == button } }
+        }
+        let marked = Set(rows.filter { !$0.fromShell }.compactMap { PadMap.element(of: PadMappingRows.button(of: $0)) })
+        return VStack(spacing: 10) {
+            XboxControllerDiagram(snapshot: PadSnapshot(), switchNames: true, marked: marked,
+                                  tap: { e in if let row = row(e) { open(row.id) } },
+                                  value: { e in
+                                      guard let row = row(e) else { return "" }
+                                      let sends = PadMap.label(PadMappingRows.output(of: row, inherited: inherited))
+                                      return row.fromShell ? sends : sends + ", " + ShellStrings.text("Changed")
+                                  })
+                .aspectRatio(XboxControllerDiagram.design.width / XboxControllerDiagram.design.height, contentMode: .fit)
+                .frame(maxWidth: 420)
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel(ShellStrings.text("Controller"))
+                .accessibilityIdentifier("padMapping.drawing")
+            Text(ShellStrings.text("Tap a button to change what it sends."))
+                .shellType(ShellType.note).foregroundStyle(.white.opacity(0.45)).multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity)
     }
 
     /// Swap A and B: Off and On, and for a game first the shell's choice. Equal segments, stacked when they do not fit.

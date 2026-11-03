@@ -88,10 +88,10 @@ final class PadMappingCaptureTests: XCTestCase {
         try capture("pad-settings-row", width: 402, GameDetailView(detail: detail, showsPrimaryAction: false, showsHeader: false).padding(24))
     }
 
-    /// The drawing alone and large, to look at the shoulders: the card's (Switch names, rings on changed buttons, the left
-    /// bumper held) and the test's (Xbox names, the right trigger half pulled).
+    /// The drawing alone and large, to look at the shoulders: the card's (Switch names, rings on changed buttons, nothing
+    /// held, as the card never shows a controller's input) and the test's (Xbox names, the triggers pulled).
     func testCaptureTheDrawingUpClose() throws {
-        let card = XboxControllerDiagram(snapshot: PadSnapshot(pressed: [.leftBumper]), switchNames: true, marked: [.rightBumper, .leftTrigger, .b])
+        let card = XboxControllerDiagram(snapshot: PadSnapshot(), switchNames: true, marked: [.rightBumper, .leftTrigger, .b])
         try capture("pad-drawing-card", width: 960, card.aspectRatio(320 / 220, contentMode: .fit).padding(24))
         // The triggers at 25, 50, 75 and 100 percent, LT and RT side by side in each, a face button held.
         for (name, left, right) in [("25-50", 0.25, 0.5), ("75-100", 0.75, 1.0)] {

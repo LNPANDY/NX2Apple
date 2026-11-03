@@ -5105,6 +5105,46 @@
         }
       }
     },
+    "Tap a button to change what it sends.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tippe auf eine Taste, um zu ändern, was sie auslöst."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap a button to change what it sends."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Touchez un bouton pour changer ce qu’il envoie."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tocca un tasto per cambiare cosa invia."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tryck på en knapp för att ändra vad den skickar."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "点按某个按键即可更改它对应的键。"
+          }
+        }
+      }
+    },
     "The first start waits a few minutes for it, once.": {
       "localizations": {
         "de": {
