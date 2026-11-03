@@ -21,10 +21,15 @@ public struct GameDetailView: View {
             if showsHeader || showsPrimaryAction { header }
             ForEach(detail.sections) { section in
                 group(section.title) {
-                    ForEach(section.rows) { row in
-                        // Equatable on its row: a change re-renders the changed row only, not every row of the game.
-                        SettingControl(gameID: detail.id, row: row) { actions.onChange(detail.id, row.id, $0) }.equatable()
-                        if row.id != section.rows.last?.id { divider }
+                    // The button mapping is one row here and opens a card of its own, as a long choice list does.
+                    if section.id == PadMappingRows.sectionID {
+                        PadMappingEntryRow(gameID: detail.id, rows: section.rows, targetID: "set.row.padMapping")
+                    } else {
+                        ForEach(section.rows) { row in
+                            // Equatable on its row: a change re-renders the changed row only, not every row of the game.
+                            SettingControl(gameID: detail.id, row: row) { actions.onChange(detail.id, row.id, $0) }.equatable()
+                            if row.id != section.rows.last?.id { divider }
+                        }
                     }
                 }
             }
@@ -227,31 +232,9 @@ struct SettingControl: View, Equatable {
             if row.fromShell { FromSettingsMark() }
         }
     }
-    /// The Mac's segmented choice, across the whole card: a dim track, equal segments, the chosen value in cream.
     private func segmented(_ rows: [[SettingOption]]) -> some View {
-        VStack(spacing: 2) {
-            ForEach(Array(rows.enumerated()), id: \.offset) { _, options in
-                EqualRow(spacing: 2) {
-                    ForEach(options) { option in
-                        let chosen = row.value == option.id
-                        Button { change(option.id) } label: {
-                            Text(option.label).shellText(13.5, chosen ? .bold : .medium).lineLimit(1)
-                                .padding(.horizontal, 14).frame(maxWidth: .infinity, minHeight: 40)
-                                .foregroundStyle(chosen ? .black : .white.opacity(0.75))
-                                .background(chosen ? ShellPalette.cream : .clear, in: RoundedRectangle(cornerRadius: 8))
-                                .contentShape(RoundedRectangle(cornerRadius: 8))
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(row.label + ", " + option.label)
-                        .accessibilityAddTraits(chosen ? .isSelected : [])
-                        .shellTarget("\(targetPrefix)\(row.id).\(option.id)", enabled: row.enabled, radius: 8) { change(option.id) }
-                    }
-                }
-            }
-        }
-        .padding(3)
-        .background(.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 11))
-        .overlay(RoundedRectangle(cornerRadius: 11).strokeBorder(.white.opacity(0.08)))
+        SegmentedChoice(label: row.label, rows: rows, value: row.value, targetPrefix: "\(targetPrefix)\(row.id).", enabled: row.enabled,
+                        change: change)
     }
     /// Many or long options: label and current value in one compact row that opens the list.
     private func valueRow(_ options: [SettingOption]) -> some View {
@@ -269,6 +252,42 @@ struct SettingControl: View, Equatable {
         .overlay(Circle().strokeBorder(.white.opacity(0.10)))
         .accessibilityLabel(ShellStrings.text(symbol == "minus" ? "Decrease" : "Increase") + " " + row.label)
         .shellTarget("\(targetPrefix)\(row.id).\(symbol)", enabled: row.enabled, radius: 22, action: action)
+    }
+}
+
+/// The Mac's segmented choice, across the whole card: a dim track, equal segments, the chosen value in cream. Each inner
+/// array is one line of segments. A focus target per option, `targetPrefix` plus the option's ID.
+struct SegmentedChoice: View {
+    let label: String
+    let rows: [[SettingOption]]
+    let value: String
+    let targetPrefix: String
+    var enabled = true
+    let change: (String) -> Void
+    var body: some View {
+        VStack(spacing: 2) {
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, options in
+                EqualRow(spacing: 2) {
+                    ForEach(options) { option in
+                        let chosen = value == option.id
+                        Button { change(option.id) } label: {
+                            Text(option.label).shellText(13.5, chosen ? .bold : .medium).lineLimit(1)
+                                .padding(.horizontal, 14).frame(maxWidth: .infinity, minHeight: 40)
+                                .foregroundStyle(chosen ? .black : .white.opacity(0.75))
+                                .background(chosen ? ShellPalette.cream : .clear, in: RoundedRectangle(cornerRadius: 8))
+                                .contentShape(RoundedRectangle(cornerRadius: 8))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(label + ", " + option.label)
+                        .accessibilityAddTraits(chosen ? .isSelected : [])
+                        .shellTarget(targetPrefix + option.id, enabled: enabled, radius: 8) { change(option.id) }
+                    }
+                }
+            }
+        }
+        .padding(3)
+        .background(.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 11))
+        .overlay(RoundedRectangle(cornerRadius: 11).strokeBorder(.white.opacity(0.08)))
     }
 }
 

@@ -288,10 +288,30 @@ import NXModel
         window.contentView = host
         window.orderBack(nil)
         defer { window.orderOut(nil); window.contentView = nil; window.close() }
-        func settle() { RunLoop.main.run(until: Date().addingTimeInterval(0.4)); host.layoutSubtreeIfNeeded() }
-        func snapshot(_ name: String) throws -> NSBitmapImageRep {
+        func render() throws -> NSBitmapImageRep {
             let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
             host.cacheDisplay(in: host.bounds, to: rep)
+            return rep
+        }
+        func pixels(_ rep: NSBitmapImageRep) -> Data { Data(bytes: rep.bitmapData!, count: rep.bytesPerRow * rep.pixelsHigh) }
+        /// Waits for what the row does after a focus change: it must first differ from `previous` (the focus change and its scroll have
+        /// landed) and then stop changing for two renders in a row. The scroll is a 0.2 s animation on the wall clock, so on a busy
+        /// machine a fixed pause caught it half way (the ring was then somewhere between the tiles, or not on screen).
+        func settle(after previous: NSBitmapImageRep? = nil) throws {
+            let deadline = Date().addingTimeInterval(15)
+            var last = previous.map(pixels), moved = previous == nil, stableRenders = 0
+            while Date() < deadline {
+                RunLoop.main.run(until: Date().addingTimeInterval(0.1)); host.layoutSubtreeIfNeeded()
+                let now = pixels(try render())
+                if !moved { moved = now != last; last = now; continue }
+                stableRenders = now == last ? stableRenders + 1 : 0
+                last = now
+                if stableRenders >= 2 { return }
+            }
+            XCTFail("the console did not come to rest within 15 s")
+        }
+        func snapshot(_ name: String) throws -> NSBitmapImageRep {
+            let rep = try render()
             if let directory = ProcessInfo.processInfo.environment["NX_CONSOLE_CAPTURE_DIR"] {
                 let output = URL(fileURLWithPath: directory)
                 try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
@@ -299,12 +319,12 @@ import NXModel
             }
             return rep
         }
-        settle()
+        try settle()
         let first = try XCTUnwrap(driver.state.games.first).id, last = try XCTUnwrap(driver.state.games.last).id
         let start = try snapshot("clip-1-start")
-        driver.focus(last); settle()
-        _ = try snapshot("clip-2-last")
-        driver.focus(first); settle()
+        driver.focus(last); try settle(after: start)
+        let atEnd = try snapshot("clip-2-last")
+        driver.focus(first); try settle(after: atEnd)
         let rep = try snapshot("clip-3-back")
         // the ring is a vertical cream line along the image's left edge: the leftmost column with a long run of cream pixels
         func ringColumn(_ rep: NSBitmapImageRep) -> Int? {
