@@ -113,9 +113,10 @@ import NXModel
             guard p.runModal() == .OK else { return nil }
             return p.url
         }
-        build.showNotice = { text in
+        build.showNotice = { title, text in
             let a = NSAlert()
-            a.messageText = text
+            a.messageText = title
+            a.informativeText = text
             a.alertStyle = .informational
             a.addButton(withTitle: "OK")
             a.runModal()
