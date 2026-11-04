@@ -19,6 +19,8 @@ final class FrenchLocalizationTests: IsolatedDefaultsTestCase {
         "controls.fn.ZL", "controls.fn.ZR", "controls.fn.Plus", "controls.fn.Minus", "launch.mods",
         "pad.options", "engine.channel.stable", "launch.opt.DM_PRESENT_UPSCALE.off", "launch.opt.DM_PRESENT_UPSCALE.metalfx", "launch.opt.DM_UPSCALER.metalfx", "key.tab",
         "switch2.badge",   // the console's name
+        // The iOS shell's words that French writes as English does: OK, Interface, the Switch's Plus button, Version.
+        "ios.host.ok", "ios.ui.interface", "ios.ui.padPlus", "ios.ui.version",
     ]
 
     func testNothingIsLeftInEnglishButTheListedNames() {

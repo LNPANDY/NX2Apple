@@ -21,6 +21,9 @@ final class GermanLocalizationTests: IsolatedDefaultsTestCase {
         "update.pill", "launch.opt.DM_OPMODE.0", "launch.opt.DM_PRESENT_UPSCALE.off",
         "launch.opt.DM_FPS_TARGET.30", "launch.opt.DM_FPS_TARGET.60", "launch.opt.DM_PRESENT_UPSCALE.metalfx", "launch.opt.DM_UPSCALER.metalfx",
         "switch2.badge",   // the console's name
+        // The iOS shell's words that German writes as English does: OK, the controller, the Switch's Minus and Plus buttons, Version.
+        // Every other ios.* key needs a German text that differs (ShellStringsTests in frontend-ios checks all six languages).
+        "ios.host.ok", "ios.host.padController", "ios.ui.padController", "ios.ui.padMinus", "ios.ui.padPlus", "ios.ui.version",
     ]
 
     func testGermanIsNotLeftInEnglish() {

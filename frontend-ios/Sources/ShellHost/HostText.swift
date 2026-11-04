@@ -4,7 +4,13 @@ import ShellUI
 /// The host layer's own words, from `Resources/Localizable.xcstrings` (English source, like ShellUI). The catalog is generated from
 /// `frontend/l10n/*.json` (`ios.host.*`) by `tools/l10n_shell_catalogs.py`: change a text there, not in the catalog.
 func hostText(_ key: String.LocalizationValue) -> String {
-    String(localized: key, bundle: .module)
+    String(localized: key, bundle: HostStrings.bundle)
+}
+
+enum HostStrings {
+    /// Visual QA renders one language's `.lproj` whatever the Mac's language is, as `ShellStrings.captureBundle` does. Nil in the app.
+    nonisolated(unsafe) static var captureBundle: Bundle?
+    static var bundle: Bundle { captureBundle ?? .module }
 }
 
 /// What is wrong with a bundle that cannot run at all. Each cause has one plain sentence for the player.

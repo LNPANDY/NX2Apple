@@ -15,10 +15,12 @@ differently from the Mac's table. A text with no catalog entry shows as it is, i
 The Swift code asks for a text by its English words (`ShellStrings.text("Done")`, `Text("Settings")`), which is what an Xcode
 string catalog keys on. So the catalog's key is the English text of the JSON key (`%@` and `%lld` stay as they are), and every
 language file that has the JSON key adds one localization. The languages are the files of the folder: a new `<code>.json` shows
-up here with no change in this tool. A language that lacks a key falls back to English, as in the launchers.
+up here with no change in this tool. A language that lacks a key would fall back to English, so `--check` fails when a language file
+lacks a text of a catalog: every shell text comes in every language of the folder.
 
     python3 tools/l10n_shell_catalogs.py            # write the catalogs
-    python3 tools/l10n_shell_catalogs.py --check    # exit 1 when a committed catalog differs from what the files give
+    python3 tools/l10n_shell_catalogs.py --check    # exit 1 when a committed catalog differs from what the files give,
+                                                    # or a language lacks a shell text
 """
 from __future__ import annotations
 
@@ -101,6 +103,14 @@ def build(languages: dict[str, dict[str, str]], prefix: str | tuple[str, ...]) -
     return {'sourceLanguage': SOURCE_LANGUAGE, 'strings': strings, 'version': '1.0'}
 
 
+def missing(languages: dict[str, dict[str, str]]) -> dict[str, list[str]]:
+    """The catalogs' JSON keys that a language file lacks, by language code. Empty when every shell text has every language."""
+    wanted = tuple(p for target in CATALOGS for p in prefixes(target))
+    keys = sorted(k for k in languages[SOURCE_LANGUAGE] if k.startswith(wanted))
+    out = {code: [k for k in keys if k not in texts] for code, texts in sorted(languages.items())}
+    return {code: lacking for code, lacking in out.items() if lacking}
+
+
 def render(catalog: dict) -> str:
     """The text of the file. Keys are sorted, two spaces, no final newline: what the committed catalogs have always had."""
     return json.dumps(catalog, ensure_ascii=False, indent=2, sort_keys=True)
@@ -128,7 +138,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.check and stale:
         print('out of date, run python3 tools/l10n_shell_catalogs.py: ' + ', '.join(stale), file=sys.stderr)
         return 1
-    return 0
+    lacking = missing(load_languages())
+    for code, keys in lacking.items():
+        print(f'frontend/l10n/{code}.json lacks {len(keys)} shell texts: ' + ', '.join(keys), file=sys.stderr)
+    return 1 if args.check and lacking else 0
 
 
 if __name__ == '__main__':
