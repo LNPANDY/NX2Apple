@@ -44,3 +44,5 @@
 0073-nvn-mtl-a-stage-keeps-its-program-s-shaders-afte.patch
 0074-nvn-mtl-write-image-buffer-textures-below-16-byt.patch
 0075-dm-ctl-shots-n-folder-captures-consecutive-frame.patch
+0076-nvn-nvneventgetmemorypool-and-nvneventgetmemoryo.patch
+0077-audren-merge-updates-closer-than-a-frame-for-a-r.patch
