@@ -134,12 +134,7 @@ public struct LibraryView: View {
                         .frame(width: width, height: geometry.size.height)
                         .opacity(paneCovers && edgeDrag == 0 ? 0 : 1)
                         .allowsHitTesting(!settingsOpen)
-                        // Under a panel or a dialog the library's buttons are off, not only hidden: iPadOS turns a
-                        // controller's A into a press on a button of its own choosing, and that was the game's cover, so
-                        // A in the button test started the game.
-                        .disabled(libraryCovered)
                         .accessibilityHidden(settingsOpen || helpGameID != nil || deleteGameID != nil)
-                        .transformPreference(FocusTargets.self) { if settingsOpen { $0.removeAll() } }
                     if let side {
                         Group {
                             sideChips(side.bottom, insets: insets)
@@ -152,7 +147,6 @@ public struct LibraryView: View {
                         .opacity(paneCovers && edgeDrag == 0 ? 0 : 1)
                         .allowsHitTesting(!settingsOpen)
                         .accessibilityHidden(settingsOpen || helpGameID != nil || deleteGameID != nil)
-                        .transformPreference(FocusTargets.self) { if settingsOpen { $0.removeAll() } }
                     }
                     if panelOverLibrary {
                         // The same dimming and dismissal as the Controllers overlay.
@@ -180,7 +174,6 @@ public struct LibraryView: View {
                         .allowsHitTesting(settingsOpen)
                         .accessibilityHidden(!settingsOpen || choice != nil || padMapping != nil || deleteGameID != nil)
                         .accessibilityAddTraits(settingsOpen ? .isModal : [])
-                        .transformPreference(FocusTargets.self) { if !settingsOpen { $0.removeAll() } }
                     if let top = side?.top, settingsOpen {
                         // Back at the top of the side column, where the system's bars put an app's own navigation.
                         SideBarTopChip(symbol: "chevron.left", label: ShellStrings.text("Library"), identifier: "library.back",
@@ -190,11 +183,14 @@ public struct LibraryView: View {
                             .accessibilityHidden(choice != nil || padMapping != nil || deleteGameID != nil)
                     }
                 }
-                if let id = helpGameID, let game = games.first(where: { $0.id == id })?.game {
+                // Every dialog and panel above the library keeps its place while it goes: a ZStack child that is
+                // removed loses its order, and its exit (the slide out of Controllers and the shell settings) played
+                // behind the library, so it looked cut off.
+                if let id = helpGameID, let game = games.first(where: { $0.id == id })?.game { Group {
                     Color.black.opacity(0.55).ignoresSafeArea().accessibilityHidden(true)
                         .onTapGesture { closeHelp() }
                         .transition(.opacity)
-                    StateHelpView(game: game, actions: actions, onClose: closeHelp)
+                    StateHelpView(game: game, actions: guardedActions, onClose: closeHelp)
                         .frame(maxWidth: 460)
                         .background(Color(red: 0.075, green: 0.075, blue: 0.082), in: RoundedRectangle(cornerRadius: 26))
                         .overlay(RoundedRectangle(cornerRadius: 26).strokeBorder(.white.opacity(0.10)))
@@ -203,12 +199,12 @@ public struct LibraryView: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .accessibilityAddTraits(.isModal)
                         .transition(.opacity.combined(with: .scale(scale: 0.96)))
-                }
-                if let id = deleteGameID, let game = games.first(where: { $0.id == id })?.game {
+                }.zIndex(1) }
+                if let id = deleteGameID, let game = games.first(where: { $0.id == id })?.game { Group {
                     Color.black.opacity(0.55).ignoresSafeArea().accessibilityHidden(true)
                         .onTapGesture { closeDelete() }
                         .transition(.opacity)
-                    DeleteGameView(game: game, saves: $deleteSaves, delete: { confirmDelete(id) }, cancel: closeDelete)
+                    DeleteGameView(game: game, saves: Binding(get: { deleteSaves }, set: { if !fromSystemEcho { deleteSaves = $0 } }), delete: { confirmDelete(id) }, cancel: closeDelete)
                         .frame(maxWidth: 460)
                         .background(Color(red: 0.075, green: 0.075, blue: 0.082), in: RoundedRectangle(cornerRadius: 26))
                         .overlay(RoundedRectangle(cornerRadius: 26).strokeBorder(.white.opacity(0.10)))
@@ -217,8 +213,8 @@ public struct LibraryView: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .accessibilityAddTraits(.isModal)
                         .transition(.opacity.combined(with: .scale(scale: 0.96)))
-                }
-                if controllersOpen {
+                }.zIndex(2) }
+                if controllersOpen { Group {
                     Color.black.opacity(0.55 * (1 - min(1, edgeDrag / min(width, 520)))).ignoresSafeArea().accessibilityHidden(true)
                         .onTapGesture { back() }
                     ControllersView(controllers: controllers, onBack: back, padMap: globalPadMap)
@@ -231,11 +227,11 @@ public struct LibraryView: View {
                         .frame(maxWidth: .infinity, alignment: .trailing)
                         .accessibilityAddTraits(.isModal)
                         .transition(.move(edge: .trailing).combined(with: .opacity))
-                }
-                if shellSettingsOpen {
+                }.zIndex(3) }
+                if shellSettingsOpen { Group {
                     Color.black.opacity(0.55 * (1 - min(1, edgeDrag / min(width, 520)))).ignoresSafeArea().accessibilityHidden(true)
                         .onTapGesture { back() }
-                    ShellSettingsView(actions: actions, onClose: closeShellSettings)
+                    ShellSettingsView(actions: guardedActions, onClose: closeShellSettings)
                         .frame(width: min(width, 520))
                         .frame(maxHeight: .infinity)
                         .background { ShellPalette.background.ignoresSafeArea() }
@@ -245,15 +241,15 @@ public struct LibraryView: View {
                         .accessibilityHidden(touchLayout != nil)
                         .accessibilityAddTraits(.isModal)
                         .transition(.move(edge: .trailing).combined(with: .opacity))
-                }
-                if let touchLayout {
+                }.zIndex(4) }
+                if let touchLayout { Group {
                     // The whole screen, so the preview is as large as the device allows.
                     ShellPalette.background.ignoresSafeArea().accessibilityHidden(true)
                     TouchLayoutEditorView(model: touchLayout, close: closeTouchLayout)
                         .accessibilityAddTraits(.isModal)
                         .transition(.opacity.combined(with: .scale(scale: 0.98)))
-                }
-                if let choice {
+                }.zIndex(5) }
+                if let choice { Group {
                     Color.black.opacity(0.55).ignoresSafeArea().accessibilityHidden(true)
                         .onTapGesture { closeChoice() }
                         .transition(.opacity)
@@ -261,8 +257,8 @@ public struct LibraryView: View {
                         .padding(.horizontal, 16).padding(.vertical, 12)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .transition(.opacity.combined(with: .scale(scale: 0.96)))
-                }
-                if let padMapping {
+                }.zIndex(6) }
+                if let padMapping { Group {
                     Color.black.opacity(0.55).ignoresSafeArea().accessibilityHidden(true)
                         .onTapGesture { closePadMapping() }
                         .transition(.opacity)
@@ -272,8 +268,8 @@ public struct LibraryView: View {
                         .padding(.horizontal, 16).padding(.vertical, 12)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .transition(.opacity.combined(with: .scale(scale: 0.96)))
-                }
-                if buttonTestOpen {
+                }.zIndex(7) }
+                if buttonTestOpen { Group {
                     Color.black.opacity(0.7).ignoresSafeArea().accessibilityHidden(true)
                         .onTapGesture { closeButtonTest() }
                         .transition(.opacity)
@@ -281,20 +277,7 @@ public struct LibraryView: View {
                         .padding(.horizontal, 16).padding(.vertical, 12)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .transition(.opacity.combined(with: .scale(scale: 0.96)))
-                }
-            }
-            .transformPreference(FocusTargets.self) { values in
-                values = values.filter { target in
-                    if buttonTestOpen { return target.id.hasPrefix("test.") }
-                    if padMapping != nil { return target.id.hasPrefix("map.") }
-                    if choice != nil { return target.id.hasPrefix("pick.") }
-                    if touchLayout != nil { return target.id.hasPrefix("lay.") }
-                    if controllersOpen { return target.id.hasPrefix("ctl.") }
-                    if shellSettingsOpen { return target.id.hasPrefix("shs.") }
-                    if helpGameID != nil { return target.id.hasPrefix("help.") }
-                    if deleteGameID != nil { return target.id.hasPrefix("del.") }
-                    return !["ctl.", "help.", "pick.", "shs.", "del.", "map.", "test.", "lay."].contains { target.id.hasPrefix($0) }
-                }
+                }.zIndex(8) }
             }
             .coordinateSpace(name: "shell")
             .background { SideBarProbe { probedSideBar = $0 }.ignoresSafeArea().accessibilityHidden(true) }
@@ -306,7 +289,10 @@ public struct LibraryView: View {
                               ended: { finishEdgeSwipe(travel: $0, velocity: $1, span: controllersOpen || shellSettingsOpen ? min(width, 520) : pane) },
                               cancelled: cancelEdgeSwipe)
             }
-            .onPreferenceChange(FocusTargets.self) { all in targets.values = all.filter { $0.frame.width > 1 } }
+            // Every target on screen. Which of them the D-pad reaches is decided when it is used (`isLive`), from the state
+        // at that moment: a filter here would run only when some target changes, and closing a panel changes none, so
+        // the closed panel's targets stayed and the focus on the button that opened it was taken for lost.
+        .onPreferenceChange(FocusTargets.self) { all in targets.values = all.filter { $0.frame.width > 1 } }
             .onAppear { self.layout = layout }
             .onChange(of: layout) { _, new in self.layout = new }
         }
@@ -323,6 +309,7 @@ public struct LibraryView: View {
         .environment(\.shellPickChoice, { request in openChoice(request) })
         .environment(\.shellOpenPadMapping, { id in openPadMapping(id) })
         .environment(\.shellOpenButtonTest, { openButtonTest() })
+        .environment(\.shellIgnoresPress, { [gate] in !gate.handling && gate.isSystemEcho })
         .environment(\.shellShowHelp, { game in openHelp(game.id) })
         .environment(\.shellAskDelete, { game in openDelete(game.id) })
         .environment(\.shellFocus, focus)
@@ -334,6 +321,7 @@ public struct LibraryView: View {
         // Y opens controllers.
         .focusable().focused($keyboardFocus).focusEffectDisabled()
         .onAppear { keyboardFocus = true }
+        .onAnyTouch { gate.touchAt = .now }
         .onKeyPress(.leftArrow) { handle(.left, from: .keyboard); return .handled }
         .onKeyPress(.rightArrow) { handle(.right, from: .keyboard); return .handled }
         .onKeyPress(.upArrow) { handle(.up, from: .keyboard); return .handled }
@@ -393,7 +381,7 @@ public struct LibraryView: View {
                     VStack(alignment: .leading, spacing: 0) {
                         PaneBanner(game: selected.game, width: width + insets.leading + insets.trailing,
                                    leading: insets.leading, trailing: insets.trailing, topInset: insets.top).id("set.top")
-                        GameDetailView(detail: selected, actions: actions, showsPrimaryAction: true, showsHeader: false)
+                        GameDetailView(detail: selected, actions: guardedActions, showsPrimaryAction: true, showsHeader: false)
                             .padding(.horizontal, 24).padding(.top, 18).padding(.bottom, 32 + insets.bottom)
                             // A phone on its side: a readable column, not rows stretched across the whole width.
                             .frame(maxWidth: 640, alignment: .leading)
@@ -434,10 +422,40 @@ public struct LibraryView: View {
     /// An action that did not come from a controller or key came from touch: hints and focus ring step back. False when
     /// it came from neither: iPadOS also takes a controller's A as a press on a button of its own choosing (Play in
     /// portrait, the middle cover in landscape), as the button comes up, past `handle`. Such a press, right after a
-    /// controller button, is not acted on: the shell's own focus already took that button.
+    /// controller button and with no finger down since, is not acted on: the shell's own focus already took that button.
+    /// The system's echo of a controller button (see `noteTouch`), for the actions that close or go back: they do not
+    /// change the touch mode, but the echo must not close the panel the button just opened.
+    private var fromSystemEcho: Bool { !gate.handling && gate.isSystemEcho }
+    /// `actions` for the views that change settings or data themselves (a switch, a row, a button in the settings): the
+    /// system's echo of a controller button changes nothing through them.
+    private var guardedActions: ShellActions {
+        let gate = gate
+        func echo() -> Bool { !gate.handling && gate.isSystemEcho }
+        var a = actions
+        let o = actions
+        a.onSelect = { if !echo() { o.onSelect($0) } }
+        a.onPlay = { if !echo() { o.onPlay($0) } }
+        a.onChange = { if !echo() { o.onChange($0, $1, $2) } }
+        a.onPickGameData = { if !echo() { o.onPickGameData($0) } }
+        a.onUseAppData = { if !echo() { o.onUseAppData($0) } }
+        a.onPickCloudSaves = { if !echo() { o.onPickCloudSaves($0) } }
+        a.onDisableCloudSaves = { if !echo() { o.onDisableCloudSaves($0) } }
+        a.onResetDefaults = { if !echo() { o.onResetDefaults($0) } }
+        a.onShowLog = { if !echo() { o.onShowLog($0) } }
+        a.onAppUpdate = { if !echo() { o.onAppUpdate() } }
+        a.onPickShellData = { if !echo() { o.onPickShellData() } }
+        a.onPickShellCloud = { if !echo() { o.onPickShellCloud() } }
+        a.onUseShellCloud = { if !echo() { o.onUseShellCloud($0) } }
+        a.onClearShellData = { if !echo() { o.onClearShellData() } }
+        a.onClearShellCloud = { if !echo() { o.onClearShellCloud() } }
+        a.onGlobalPadMapChange = { if !echo() { o.onGlobalPadMapChange($0, $1) } }
+        a.onGlobalPadMapReset = { if !echo() { o.onGlobalPadMapReset() } }
+        a.onDeleteGame = { if !echo() { o.onDeleteGame($0, $1) } }
+        return a
+    }
     private func noteTouch() -> Bool {
         guard !gate.handling else { return true }
-        if gate.controllerAt.map({ Date.now.timeIntervalSince($0) < InputGate.systemEcho }) == true { return false }
+        if gate.isSystemEcho { return false }
         if !touchMode { touchMode = true }
         if focus.visible { focus.visible = false }
         return true
@@ -481,24 +499,26 @@ public struct LibraryView: View {
         focus.id = "set.back"
     }
     private func closeSettings() {
+        guard !fromSystemEcho else { return }
         settingsOpen = false
         focus.id = "lib.settings"
     }
     private func openControllers() { guard !shellSettingsOpen else { return }; guard noteTouch() else { return }; controllersOpen = true; focus.id = "ctl.close" }
     private func openShellSettings() { guard noteTouch() else { return }; shellSettingsOpen = true; focus.id = "shs.close" }
-    private func closeShellSettings() { shellSettingsOpen = false; focus.id = "lib.shellSettings" }
+    private func closeShellSettings() { guard !fromSystemEcho else { return }; shellSettingsOpen = false; focus.id = "lib.shellSettings" }
     private func openTouchLayout(_ window: CGSize, _ insets: EdgeInsets) {
         guard noteTouch() else { return }
         touchLayout = TouchLayoutEditorModel.forDevice(window: window, insets: insets)
         focus.id = "lay.done"
     }
-    private func closeTouchLayout() { touchLayout = nil; focus.id = "shs.arrange" }
-    private func openHelp(_ id: String) { returnFocus = focus.id; helpGameID = id; focus.id = "help.done" }
-    private func closeHelp() { helpGameID = nil; focus.id = returnFocus }
+    private func closeTouchLayout() { guard !fromSystemEcho else { return }; touchLayout = nil; focus.id = "shs.arrange" }
+    private func openHelp(_ id: String) { guard !fromSystemEcho else { return }; returnFocus = focus.id; helpGameID = id; focus.id = "help.done" }
+    private func closeHelp() { guard !fromSystemEcho else { return }; helpGameID = nil; focus.id = returnFocus }
     /// The question starts on Cancel, with the saves kept.
     private func openDelete(_ id: String) { guard noteTouch() else { return }; returnFocus = focus.id; deleteSaves = false; deleteGameID = id; focus.id = "del.cancel" }
-    private func closeDelete() { deleteGameID = nil; focus.id = returnFocus }
+    private func closeDelete() { guard !fromSystemEcho else { return }; deleteGameID = nil; focus.id = returnFocus }
     private func confirmDelete(_ id: String) {
+        guard !fromSystemEcho else { return }
         let saves = deleteSaves
         deleteGameID = nil
         settingsOpen = false
@@ -512,6 +532,7 @@ public struct LibraryView: View {
         focus.id = "pick." + request.row.value
     }
     private func closeChoice() {
+        guard !fromSystemEcho else { return }
         guard let request = choice else { return }
         choice = nil
         let prefix = request.gameID == ShellSettingsRows.gameID ? ShellSettingsRows.targetPrefix : request.gameID == TouchLayoutEditorView.gameID ? "lay.row." : "set.row."
@@ -544,13 +565,14 @@ public struct LibraryView: View {
         let swap = padMappingRows(id).first
         focus.id = swap?.value == "custom" ? "map.row.pad.A" : "map.swap." + (swap?.value ?? "")
     }
-    private func closePadMapping() { padMapping = nil; focus.id = returnFocus }
+    private func closePadMapping() { guard !fromSystemEcho else { return }; padMapping = nil; focus.id = returnFocus }
     private func openPadRow(_ row: String) {
         guard noteTouch() else { return }
         padMapping?.row = row
         focus.id = "map.opt." + (padMappingRows(padMapping?.gameID ?? "").first { $0.id == row }?.value ?? "")
     }
     private func closePadRow() {
+        guard !fromSystemEcho else { return }
         guard let row = padMapping?.row else { return }
         padMapping?.row = nil
         focus.id = "map.row." + row
@@ -569,12 +591,6 @@ public struct LibraryView: View {
         // Reset is disabled now: the focus goes to the swap, which is back at its default.
         focus.id = "map.swap." + (global ? "0" : PadMappingRows.follow)
     }
-    /// A dialog or a panel covers the library: its own buttons must not act.
-    private var libraryCovered: Bool {
-        settingsOpen || controllersOpen || shellSettingsOpen || helpGameID != nil || deleteGameID != nil || choice != nil || padMapping != nil
-            || buttonTestOpen || touchLayout != nil
-    }
-
     private func openButtonTest() { guard noteTouch() else { return }; buttonTestOpen = true; focus.id = "test.close"; actions.onButtonTest(true) }
     private func closeButtonTest() {
         guard buttonTestOpen else { return }
@@ -583,6 +599,7 @@ public struct LibraryView: View {
         focus.id = "ctl.test"
     }
     private func back() {
+        guard !fromSystemEcho else { return }
         if buttonTestOpen { closeButtonTest() }
         else if padMapping?.row != nil { closePadRow() }
         else if padMapping != nil { closePadMapping() }
@@ -614,12 +631,13 @@ public struct LibraryView: View {
             default: break
             }
         }
-        if focus.id == nil || !targets.values.contains(where: { $0.id == focus.id }) {
+        let live = liveTargets
+        if focus.id == nil || !live.contains(where: { $0.id == focus.id }) {
             focus.id = defaultFocus
             if action != .activate && action != .back && action != .settings && action != .controllers { return }
         }
         switch action {
-        case .activate: targets.values.first { $0.id == focus.id }?.activate()
+        case .activate: live.first { $0.id == focus.id }?.activate()
         case .back: back()
         case .settings: openSettings()
         case .controllers: openControllers()
@@ -635,10 +653,25 @@ public struct LibraryView: View {
         default: move(action)
         }
     }
+    /// The targets the D-pad reaches now: the open dialog's or panel's own, else the library's.
+    private var liveTargets: [FocusTarget] { targets.values.filter { isLive($0.id) } }
+    private func isLive(_ id: String) -> Bool {
+        if buttonTestOpen { return id.hasPrefix("test.") }
+        if padMapping != nil { return id.hasPrefix("map.") }
+        if choice != nil { return id.hasPrefix("pick.") }
+        if touchLayout != nil { return id.hasPrefix("lay.") }
+        if controllersOpen { return id.hasPrefix("ctl.") }
+        if shellSettingsOpen { return id.hasPrefix("shs.") }
+        if helpGameID != nil { return id.hasPrefix("help.") }
+        if deleteGameID != nil { return id.hasPrefix("del.") }
+        if settingsOpen { return id.hasPrefix("set.") }
+        return !["ctl.", "help.", "pick.", "shs.", "del.", "map.", "test.", "lay.", "set."].contains { id.hasPrefix($0) }
+    }
     private func move(_ action: ShellInput.Action) {
+        let live = liveTargets
         let candidates = layout.isCoverFlow
-            ? targets.values.filter { !$0.id.hasPrefix("lib.tile.") || $0.id == "lib.tile.\(selected?.id ?? "")" }
-            : targets.values
+            ? live.filter { !$0.id.hasPrefix("lib.tile.") || $0.id == "lib.tile.\(selected?.id ?? "")" }
+            : live
         focus.id = FocusNavigation.next(from: focus.id, action: action, targets: candidates)
         if let id = focus.id, id.hasPrefix("lib.tile.") { select(String(id.dropFirst("lib.tile.".count))) }
     }
@@ -769,6 +802,13 @@ private struct CoverThumbnail: View {
     var handling = false
     /// When the last controller button went down.
     var controllerAt: Date?
+    /// When a finger last came down anywhere on the screen.
+    var touchAt: Date?
     /// How long after a controller button a button press is the system's echo of it: the press comes as A comes up.
     static let systemEcho: TimeInterval = 1
+    /// A button pressed now came from no finger: a controller button went down within `systemEcho` and no finger since.
+    var isSystemEcho: Bool {
+        guard let controllerAt, Date.now.timeIntervalSince(controllerAt) < Self.systemEcho else { return false }
+        return touchAt.map { $0 < controllerAt } ?? true
+    }
 }
