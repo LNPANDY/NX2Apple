@@ -1306,7 +1306,8 @@ class Model(QObject):
         work_dir = str(Path(self.out_dir or base_dir, f'{tid_hex}_build'))
 
         input_dir = folder.script_input if folder is not None else base_dir
-        if len(dirs) > 1:
+        if len(dirs) > 1 or any(input_staging.needs_lowercase_name(f) for f in all_files if f):
+            # (a .NSP or .Xci file goes through it too, under a lowercase extension: the script's glob misses it, #554)
             # files from different folders: a stable folder of links per game, so the script sees one
             # folder and its fingerprints match on the next build (#132)
             staging = input_staging.folder(work_dir)

@@ -78,6 +78,18 @@ extension BuildStore {
         }
         let tidHex = buildKey
         let workDir = (outDir.isEmpty ? baseDir : outDir) + "/" + tidHex + "_build"
+        // A Mac app over an old one needs a volume that can swap folders (APFS): on any other the build fails at its last step with error 45 (#595).
+        if target == BuildTarget.mac {
+            let outFolder = outDir.isEmpty ? baseDir : outDir
+            if appReplaceCheck(outFolder) == false {
+                if FileManager.default.fileExists(atPath: outFolder + "/" + tidHex + ".app") {
+                    failure = BuildFailure(kind: .volumeFormat, gameName: nil, detail: outFolder)
+                    fail(failureWhat(failure!))
+                    return
+                }
+                say(t("msg.volumeNotAPFS"))
+            }
+        }
         // The build's signing step refuses the attributes a cloud folder adds, after the long steps: stop here instead.
         if cloudFolderCheck(workDir) {
             failure = BuildFailure(kind: .cloudFolder, gameName: nil, detail: workDir)
@@ -88,7 +100,8 @@ extension BuildStore {
         // /NX2Apple-shell, a DMG chosen as Save to) failed at the last step after the whole build (#492).
         if target != BuildTarget.mac, !exportsOneGame, let why = shellRootProblem() { fail(why); return }
         var inputDir = folder?.scriptInput ?? baseDir   // a NUP goes to the script as the file
-        if dirs.count > 1 || !unpicked.isEmpty {
+        // A file named .NSP or .Xci is staged too, under a lowercase extension: the script's glob misses it (#554).
+        if dirs.count > 1 || !unpicked.isEmpty || staged.contains(where: InputStaging.needsLowercaseName) {
             // A stable folder per game (#132): the script's fingerprints name its files and its profile path.
             let tmp = InputStaging.folder(workDir: workDir)
             let linked = InputStaging.sync(files: staged, into: tmp)

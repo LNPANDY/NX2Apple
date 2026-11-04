@@ -28,10 +28,10 @@ Follows [README.md](README.md) as of v1.0.2
 
 #### 🆕 Ultime novità in evidenza
 
-- **Un'unica app per iPhone e iPad**: compila un gioco con la destinazione iPhone / iPad e finirà in un'unica app contenitore che ospita tutti i tuoi giochi. Una libreria basata sulle copertine ufficiali, Cover Flow quando il telefono è in orizzontale, impostazioni dedicate per ogni singolo gioco e controllo tramite controller o tastiera. Segue la lingua di sistema (inglese e cinese semplificato).
-- **Salvataggi che ti seguono** — i salvataggi Mac ⇄ iPhone si sincronizzano tramite un'unica cartella su iCloud Drive, un'app eliminata si reinstalla in pochi secondi e la firma di 7 giorni di un ID Apple gratuito si rinnova sul posto.
-- **Primo avvio guidato** — una procedura guidata accompagna i nuovi giocatori attraverso la configurazione di Xcode, delle chiavi e dei giochi. Gli strumenti di compilazione e Python sono già inclusi nell'app, quindi nessuno deve installare Homebrew.
-- **Modalità console** — collega un controller e premi Select: la libreria passa a schermo intero ed è pensata per il controller, proprio come il menu Home di una Switch.
+- **Giochi Switch 2**: scegli una cartella di gioco Switch 2 o un file `.nup` nel launcher per Mac o Windows, senza bisogno di `prod.keys`, e gioca su Mac, iPhone o iPad.
+- **Controlli touch personalizzati e mappatura dei pulsanti**: ridimensiona i pulsanti, sposta la levetta sinistra o disponi ogni comando nell'editor visivo su iPhone e iPad. I controller fisici supportano la rimappatura per singolo gioco o globale.
+- **Un'unica app per iPhone e iPad**: tutti i tuoi giochi vivono in un'unica app contenitore (o in un IPA non firmato per AltStore e SideStore), con Cover Flow in orizzontale, impostazioni e mod per gioco, eliminazione del gioco mantenendo i salvataggi e 6 lingue.
+- **Modalità console**: collega un controller e premi Select, oppure avvia direttamente in modalità console. La libreria passa a schermo intero come il menu di una Switch e tenere premuto Home per 2 secondi chiude il gioco.
 
 Ogni versione è elencata nel [changelog](CHANGELOG.it.md).
 

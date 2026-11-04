@@ -55,6 +55,9 @@ class Classifier(unittest.TestCase):
                 if f['source'] == 'errno':   # the system's own text, not the script's
                     self.assertEqual(os.strerror(errno.ENOSPC), f['fragment'])
                     continue
+                if f['source'] == 'errno45':   # the system's text for ENOTSUP, which renamex_np answers on a volume without RENAME_SWAP
+                    self.assertEqual(os.strerror(errno.ENOTSUP), f['fragment'])
+                    continue
                 if f['source'] == 'codesign':   # Apple's text, from a tool the script runs
                     continue
                 there = f['fragment'] in (ROOT / 'engine' / f['source']).read_text(encoding='utf-8')
