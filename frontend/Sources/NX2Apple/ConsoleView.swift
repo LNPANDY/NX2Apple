@@ -105,19 +105,24 @@ enum ConsoleInput {
 
     private func backdrop(size: CGSize) -> some View {
         let starting = state.startingGame != nil   // the cover fills the window, soft and darkened (a static blur: Reduce Motion changes nothing here)
+        let blur: CGFloat = starting ? 36 : 70
+        // The blur reads past the picture. Draw the cover that far past the window, then cut back after the blur,
+        // so a small or tall image still fills the glass, edges included.
+        let pad = blur * 3
         return ZStack {
             LauncherPalette.background
             if let game = state.startingGame ?? state.focusedGame {
                 Group {
                     if let image = game.artwork {
-                        image.resizable().scaledToFill().frame(width: size.width, height: size.height).clipped()
+                        image.resizable().scaledToFill()
                     } else {
                         LinearGradient(colors: ConsolePlaceholder.colors(for: game.title), startPoint: .topLeading, endPoint: .bottomTrailing)
-                            .frame(width: size.width, height: size.height)
                     }
                 }
-                .frame(width: size.width, height: size.height)
-                .blur(radius: starting ? 36 : 70).drawingGroup().opacity(starting ? 1 : 0.30).id(game.id).transition(.opacity)
+                .frame(width: size.width + pad * 2, height: size.height + pad * 2)
+                .blur(radius: blur)
+                .frame(width: size.width, height: size.height).clipped()
+                .drawingGroup().opacity(starting ? 1 : 0.30).id(game.id).transition(.opacity)
             }
             if starting { Color.black.opacity(0.32) }   // a scrim keeps the Starting text readable on any cover
             if !starting { LinearGradient(colors: [.black.opacity(0.10), LauncherPalette.background.opacity(0.95)], startPoint: .top, endPoint: .bottom) }
