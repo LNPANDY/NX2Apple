@@ -92,6 +92,9 @@ public struct ShellHostConfig: Sendable {
         shellCloud = BookmarkStore(defaults: shellSettings.defaults, key: ShellSettingsStore.cloudSavesKey)
         shellChoices = Self.choices(of: shellSettings)
         globalPadMap = shellSettings.padMap
+        // Game files stay out of the iCloud backup (#618), also what an earlier version put there. Off the main actor, it lists folders.
+        let dataRoot = config.appDataRoot
+        Task.detached(priority: .utility) { BackupExclusion.apply(appDataRoot: dataRoot) }
         reload()
         defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.defaultsDidChange() }

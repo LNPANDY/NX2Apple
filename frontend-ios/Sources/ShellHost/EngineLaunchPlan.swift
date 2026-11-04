@@ -83,9 +83,13 @@ public struct EngineLaunchPlan: Equatable, Sendable {
             foldersToCreate: [save, temp])
     }
 
-    /// Creates the save and temp folders (and their parents) when they are missing.
+    /// Creates the save and temp folders (and their parents) when they are missing. The temp folder is kept out of the backup, the
+    /// save folder stays in it (`BackupExclusion`, #618).
     public func createFolders(fileManager fm: FileManager = .default) throws {
-        for url in foldersToCreate { try fm.createDirectory(at: url, withIntermediateDirectories: true) }
+        for url in foldersToCreate {
+            try fm.createDirectory(at: url, withIntermediateDirectories: true)
+            if !GameDeletion.isSave(url.lastPathComponent) { BackupExclusion.exclude(url) }
+        }
     }
 
     /// `KEY=VALUE` lines in order: `#` starts a comment line, blank lines and lines without `=` or with an empty key
