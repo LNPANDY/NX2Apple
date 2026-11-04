@@ -232,12 +232,14 @@ Il motore esegue i giochi Switch 2 come profili normali, senza un'opzione Switch
 | Fire Emblem Fortune's Weave | `04007EF01F8AE000` | Gira sul Mac (v131072), 60 fps. Nessuna IPA | Non provato |
 | Pokémon Pokopia | `0400A3A01EE4C000` | Gira sul Mac (aggiornamento v655360). Nessuna IPA | Non provato |
 | Hyrule Warriors: Age of Imprisonment | `04003F40232DE000` | Arriva al primo campo sul Mac (aggiornamento v196608), da un NUP. Nessuna IPA | Non provato |
+| Mario Kart World | `0400C3F00006E000` | Arriva a una gara sul Mac (v0), 60 fps. Nessuna IPA | Non provato |
+| Mario Tennis Fever | `0400D4201C6EA000` | Gira sul Mac (aggiornamento v327680), 60 fps. Nessuna IPA | Non provato |
 
 La struttura della cartella e i dettagli sono nella [pagina inglese](GAMES.md#switch-2-games). Questa pagina e il launcher non dicono come ottenere i file: vengono dalla tua console.
 
 ## Profili
 
-Questo repository include 130 profili di gioco. Un profilo è ciò che rende possibile la compilazione —
+Questo repository include 140 profili di gioco. Un profilo è ciò che rende possibile la compilazione —
 i Build ID del gioco, il layout di memoria, le tabelle degli shader e le impostazioni specifiche del titolo — e questo fork vi aggiunge sopra il
 livello di archiviazione RomFS, consentendo di installare anche i giochi di grandi dimensioni.
 
@@ -268,6 +270,7 @@ l'aggiornamento si sovrappone ad essa). "Nessuno (v0)" significa che è sufficie
 | Hyrule Warriors: L'era della calamità (Age of Calamity) | `01002B00111A2000` | 1.3.0 (v327680) | Giocabile su iPhone (upstream) |
 | Celeste | `01002B30028F6000` | 1.4.1.1 (v589824) | Profilo presente, non verificato su telefono |
 | Baba Is You | `01002CD00A51C000` | 1.0.12 (v786432) | Profilo presente, non verificato su telefono |
+| The Legend of Zelda: Skyward Sword HD | `01002DA013484000` | 1.0.1 (v65536) | Profilo presente, non verificato su telefono |
 | Cult of the Lamb | `01002E7016C46000` | 1.5.28 (v1966080) | Profilo presente, non verificato su telefono |
 | Advance Wars 1+2: Re-Boot Camp | `0100300012F2A000` | Nessuno (v0) | Giocabile su iPhone (upstream) |
 | Mario + Rabbids® Sparks of Hope | `0100317013770000` | 1.6.2225577 (v393216) | Profilo presente, non verificato su telefono |
@@ -282,6 +285,7 @@ l'aggiornamento si sovrappone ad essa). "Nessuno (v0)" significa che è sufficie
 | Blasphemous 2 | `010040801A4C8000` | 1.0.8 (v524288) | Profilo presente, non verificato su telefono |
 | Subnautica | `0100429011144000` | 1.23.83358 (v458752) | Profilo presente, non verificato su telefono |
 | 13 Sentinels: Aegis Rim (Giappone) | `010045C014650000` | Nessuno (v0) | Profilo presente, non verificato su telefono |
+| Super Mario 3D All-Stars | `010049900F546000` | 1.1.4 (v393216) | Profilo presente, non verificato su telefono |
 | Bayonetta 3 | `01004A4010FEA000` | 1.2.0 (v131072) | Giocabile su iPhone (upstream) |
 | DARK SOULS: REMASTERED | `01004AB00A260000` | 1.0.3 (v196608) | Profilo presente, non verificato su telefono |
 | Kirby e la terra perduta (Kirby and the Forgotten Land) | `01004D300C5AE000` | 1.1.0 (v65536) | Profilo presente, non verificato su telefono |
@@ -307,6 +311,7 @@ l'aggiornamento si sovrappone ad essa). "Nessuno (v0)" significa che è sufficie
 | Super Smash Bros. Ultimate | `01006A800016E000` | 13.0.5 (v2031616) | Giocabile su iPhone (upstream) |
 | The Legend of Zelda: Link's Awakening | `01006BB00C6F0000` | 1.1.0 (v131072) | Giocabile su iPhone (upstream) |
 | DRAGON QUEST XI S: Echi di un'era perduta – Edizione definitiva | `01006C300E9F0000` | 1.0.4 (v262144) | Profilo presente, non verificato su telefono |
+| Mario & Luigi: Fraternauti alla carica (Brothership) | `01006D0017F7A000` | Nessuno (v0) | Profilo presente, non verificato su telefono |
 | Animal Crossing: New Horizons | `01006F8002326000` | 3.0.3 (v2228224) | **Verified here** — builds, installs and runs smoothly on an iPhone |
 | Mario Party Superstars | `01006FE013472000` | 1.1.1 (v131072) | Profilo presente, non verificato su telefono |
 | AI: THE SOMNIUM FILES - nirvanA Initiative | `0100713016CCC000` | 1.0.2 (v131072) | Giocabile su iPhone (upstream) |
@@ -314,7 +319,9 @@ l'aggiornamento si sovrappone ad essa). "Nessuno (v0)" significa che è sufficie
 | Xenoblade Chronicles 3 | `010074F013262000` | 2.2.1 (v720896) | Profilo presente, non verificato su telefono |
 | Bayonetta | `010076F0049A2000` | 1.1 (v65536) | Giocabile su iPhone (upstream) |
 | Bayonetta 2 | `01007960049A0000` | 1.2 (v131072) | Giocabile su iPhone (upstream) |
+| Princess Peach: Showtime! | `01007A3009184000` | Nessuno (v0) | Profilo presente, non verificato su telefono |
 | Portal | `01007BB017812000` | 1.0.3 (v196608) | Giocabile su iPhone (upstream) |
+| Kirby Star Allies | `01007E3006DDA000` | 4.0.0a (v393216) | Profilo presente, non verificato su telefono |
 | The Legend of Zelda: Breath of the Wild | `01007EF00011E000` | 1.9.0 (v1114112) | Giocabile su iPhone (upstream) |
 | BALL x PIT | `010086A022444000` | 1.293 (v393216) | Giocabile su iPhone (upstream) |
 | AI: THE SOMNIUM FILES | `010089B00D09C000` | 1.0.1 (v65536) | Giocabile su iPhone (upstream) |
@@ -329,6 +336,7 @@ l'aggiornamento si sovrappone ad essa). "Nessuno (v0)" significa che è sufficie
 | SteamWorld Dig | `01009320084A4000` | 1.12.0 (v65536) | Profilo presente, non verificato su telefono |
 | Metroid Dread | `010093801237C000` | 2.1.0 (v327680) | Giocabile su iPhone (upstream) |
 | Super Mario Party Jamboree | `0100965017338000` | 2.3.0 (v458752) | Profilo presente, non verificato su telefono |
+| DAVE THE DIVER | `010097F018538000` | 1.0.6.1267 (v3080192) | Profilo presente, non verificato su telefono |
 | Super Mario Galaxy | `010099C022B96000` | 1.3.1 (v327680) | Giocabile su iPhone (upstream) |
 | Captain Toad: Treasure Tracker | `01009BF0072D4000` | 1.4.2 (v393216) | Profilo presente, non verificato su telefono |
 | Donkey Kong Country Returns HD | `01009D901BC56000` | 1.1.0 (v65536) | Profilo presente, non verificato su telefono |
@@ -375,8 +383,12 @@ l'aggiornamento si sovrappone ad essa). "Nessuno (v0)" significa che è sufficie
 | Super Mario Galaxy 2 | `0100FD8022DAA000` | 1.4.0 (v393216) | Profilo presente, non verificato su telefono |
 | Xenoblade Chronicles: Definitive Edition | `0100FF500E34A000` | 1.1.2 (v196608) | Profilo presente, non verificato su telefono |
 | Splatoon Raiders (Switch 2) | `0400380020056000` | v65536 | Profilo presente, non verificato su telefono |
+| Hyrule Warriors: Age of Imprisonment (Switch 2) | `04003F40232DE000` | v196608 | Profilo presente, non verificato su telefono |
 | Donkey Kong Bananza (Switch 2) | `040074A01BF12000` | v458752 | **Verificato qui** — compila, si installa e gira su un iPhone |
 | Fire Emblem Fortune's Weave (Switch 2) | `04007EF01F8AE000` | v131072 | Profilo presente, non verificato su telefono |
+| Pokémon Pokopia (Switch 2) | `0400A3A01EE4C000` | v655360 | Profilo presente, non verificato su telefono |
+| Mario Kart World (Switch 2) | `0400C3F00006E000` | Nessuno (v0) | Profilo presente, non verificato su telefono |
+| Mario Tennis Fever (Switch 2) | `0400D4201C6EA000` | v327680 | Profilo presente, non verificato su telefono |
 
 ## Verificati su
 

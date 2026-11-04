@@ -69,7 +69,7 @@ Die Seite „Abhängigkeiten“ des Launchers prüft jede Voraussetzung und inst
 
 ## Installation
 
-1. **Lade die App herunter**: `NS-Port-Builder-macOS-arm64.zip` vom
+1. **Lade die App herunter**: `NX2Apple-macOS-arm64.zip` vom
    [neuesten Release](https://github.com/LNPANDY/NX2Apple/releases/latest). Entpacke sie.
 2. **Öffne sie einmal mit Rechtsklick und dann Öffnen.** Die App ist nicht mit einem kostenpflichtigen
    Apple-Entwicklerzertifikat signiert, daher fragt macOS vor dem ersten Start nach. Danach öffnet sie sich ganz normal.
@@ -156,7 +156,7 @@ angesehen. Hänge niemals Schlüssel, Spieldateien oder etwas aus einem Spiel Ex
 
 ## Spiele
 
-130 Spiele haben ein Profil. Einige gelten upstream auf einem iPhone als spielbar, und die meisten haben
+140 Spiele haben ein Profil. Einige gelten upstream auf einem iPhone als spielbar, und die meisten haben
 ein Profil, das noch nicht auf einem Handy ausprobiert wurde. Einige davon:
 
 | | Spiel | Wo es läuft | Status |
