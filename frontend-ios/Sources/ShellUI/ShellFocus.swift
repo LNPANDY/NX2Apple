@@ -52,6 +52,9 @@ struct ShellFocusTarget: ViewModifier {
                 if focus.visible && focus.id == id {
                     RoundedRectangle(cornerRadius: radius + 5).strokeBorder(ShellPalette.cream, lineWidth: 3)
                         .padding(-5).allowsHitTesting(false).accessibilityHidden(true)
+                        // On and off at once: a ring fading in or out stays where it was while a panel slides, apart
+                        // from its control.
+                        .transition(.identity)
                 }
             }
             .background {
