@@ -523,6 +523,7 @@
   "ios.host.padSameAsAllGames": "Som alla spel",
   "ios.host.padSwapAB": "Byt A och B",
   "ios.host.player": "Spelare %@",
+  "ios.host.preparingGame": "Förbereder spelet…",
   "ios.host.quitButton": "Avsluta",
   "ios.host.quitCancel": "Avbryt",
   "ios.host.quitHold": "Fortsätt hålla in för att avsluta",

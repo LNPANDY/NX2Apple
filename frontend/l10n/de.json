@@ -682,6 +682,7 @@
   "ios.host.padSameAsAllGames": "Wie alle Spiele",
   "ios.host.padSwapAB": "A und B tauschen",
   "ios.host.player": "Spieler %@",
+  "ios.host.preparingGame": "Spiel wird vorbereitet…",
   "ios.host.quitButton": "Beenden",
   "ios.host.quitCancel": "Abbrechen",
   "ios.host.quitHold": "Zum Beenden gedrückt halten",

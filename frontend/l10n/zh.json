@@ -681,6 +681,7 @@
   "ios.host.padSameAsAllGames": "与所有游戏相同",
   "ios.host.padSwapAB": "交换 A 和 B",
   "ios.host.player": "玩家 %@",
+  "ios.host.preparingGame": "正在准备游戏…",
   "ios.host.quitButton": "退出",
   "ios.host.quitCancel": "取消",
   "ios.host.quitHold": "继续按住即可退出",

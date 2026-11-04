@@ -744,6 +744,39 @@ import NXModel
 
     // ---- step 3: the game data to a drive or folder ----
 
+    func testDataResendIgnoresHiddenShaderCachesAndPreservesTheDestinationsOtherFiles() throws {
+        let archive = try makeArchive(), destination = path("drive", titleID)
+        let cache = ".shader-resources/msl-" + UUID().uuidString + "/b-3f9a2c/example.metallib"
+        try write(archive + "/" + cache, "not transfer data")
+        try write(destination + "/" + cache, "prepared shaders")
+        try write(destination + "/save/progress.sav", "player save")
+        try write(destination + "/romfs.img", "short")
+        try write(destination + "/aoc/1.img", "abcd")
+        let local = ShellInstall.localFiles(in: archive)
+        XCTAssertEqual(local, ["romfs.img": 10, "aoc/1.img": 4])
+
+        // A device listing may include the hidden cache. Only differing local game data is sent.
+        let listing: [[String: Any]] = [
+            ["relativePath": "romfs.img", "metadata": ["size": 5]],
+            ["relativePath": "aoc/1.img", "metadata": ["size": 4]],
+            ["relativePath": cache, "metadata": ["size": 16]],
+            ["relativePath": "save/progress.sav", "metadata": ["size": 11]]
+        ]
+        let device = ShellInstall.parseListing(try JSONSerialization.data(withJSONObject: ["result": ["files": listing]]))
+        XCTAssertEqual(ShellInstall.filesToCopy(local: local, device: device), ["romfs.img"])
+        let command = ShellInstall.copyCommand(xcrun: "/xcrun", device: "fixture", bundleID: "org.nxnative.shell",
+                                               titleID: titleID, source: archive + "/romfs.img", relativePath: "romfs.img")
+        XCTAssertFalse(command.contains("--remove-existing-content"))
+
+        // Exercise the real folder-copy path with the same transfer list, without a device or signing.
+        var progress: [(Int64, Int64)] = []
+        try DriveCopy.copy(archive: archive, files: local, to: destination) { progress.append(($0, $1)) }
+        XCTAssertEqual(progress.last?.1, 10)
+        XCTAssertEqual(try String(contentsOfFile: destination + "/romfs.img"), "0123456789")
+        XCTAssertEqual(try String(contentsOfFile: destination + "/" + cache), "prepared shaders")
+        XCTAssertEqual(try String(contentsOfFile: destination + "/save/progress.sav"), "player save")
+    }
+
     func testTheDriveGetsTheSameFilesAsTheDeviceUnderTheTitleIDFolder() throws {
         let archive = try makeArchive()
         try write(archive + "/.packstamp", "stamp")   // a dot file is not game data
