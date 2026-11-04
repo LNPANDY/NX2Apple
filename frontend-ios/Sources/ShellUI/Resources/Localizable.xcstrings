@@ -264,7 +264,7 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Regola la risoluzione tra il 70% e il 100% sotto carico. Disattivala per mantenere la risoluzione piena della modalità console scelta."
+            "value": "Riduce la risoluzione fino al 70% quando il carico aumenta. Disattivala per mantenere il 100% della risoluzione prevista dalla modalità console selezionata."
           }
         },
         "sv": {
@@ -3264,7 +3264,7 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Frequenza fotogrammi"
+            "value": "Fotogrammi al secondo"
           }
         },
         "sv": {
@@ -3304,7 +3304,7 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Contatore fotogrammi"
+            "value": "Contatore FPS"
           }
         },
         "sv": {
@@ -4384,7 +4384,7 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conserva un archivio delle pipeline e usa più memoria."
+            "value": "Mantiene un archivio delle pipeline grafiche e richiede più memoria."
           }
         },
         "sv": {
@@ -8184,7 +8184,7 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Il primo avvio la attende per qualche minuto, una volta sola."
+            "value": "Al primo avvio prepara le pipeline grafiche. L’operazione può richiedere alcuni minuti e viene eseguita una sola volta."
           }
         },
         "sv": {
@@ -8704,7 +8704,7 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fino a un fotogramma in più di latenza dello schermo."
+            "value": "Può migliorare la fluidità, aggiungendo fino a un fotogramma di ritardo nella risposta ai comandi."
           }
         },
         "sv": {
@@ -8944,7 +8944,7 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usa più tempo della GPU e può aumentare il calore."
+            "value": "Richiede più lavoro alla GPU e può far scaldare di più il dispositivo."
           }
         },
         "sv": {
