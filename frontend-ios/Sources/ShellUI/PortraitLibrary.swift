@@ -20,6 +20,8 @@ struct PortraitLibrary: View, Equatable {
     let topInset: CGFloat
     /// The home indicator's height. Without a bottom bar the library scrolls under it to the bottom edge.
     var bottomInset: CGFloat = 0
+    /// The Controllers and Settings chips sit in the side column (SideBar), not over the hero.
+    var chipsInSideBar = false
     let controllers: Int
     let select: (String) -> Void
     let primary: (GameDetail) -> Void
@@ -56,7 +58,7 @@ struct PortraitLibrary: View, Equatable {
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.games.map(\.game) == rhs.games.map(\.game) && lhs.selected.game == rhs.selected.game && lhs.wide == rhs.wide
             && lhs.size == rhs.size && lhs.topInset == rhs.topInset && lhs.bottomInset == rhs.bottomInset
-            && lhs.controllers == rhs.controllers
+            && lhs.controllers == rhs.controllers && lhs.chipsInSideBar == rhs.chipsInSideBar
     }
 
     var body: some View {
@@ -87,10 +89,12 @@ struct PortraitLibrary: View, Equatable {
             .ignoresSafeArea(edges: wide ? [.top, .bottom] : .top)
             .safeAreaInset(edge: .bottom, spacing: 0) { if !wide { bottomBar } }
             .overlay(alignment: .topTrailing) {
-                HStack(spacing: 10) {
-                    ControllerChip(count: controllers, action: openControllers)
-                    ShellSettingsChip(action: openShellSettings)
-                }.padding(.top, 6).padding(.trailing, 16)
+                if !chipsInSideBar {
+                    HStack(spacing: 10) {
+                        ControllerChip(count: controllers, action: openControllers)
+                        ShellSettingsChip(action: openShellSettings)
+                    }.padding(.top, 6).padding(.trailing, 16)
+                }
             }
             .onChange(of: focus.id) { _, id in
                 guard let id, id.hasPrefix("lib.tile.") || id.hasPrefix("lib.recent.") else { return }

@@ -68,6 +68,9 @@ public struct LibraryView: View {
     @FocusState private var keyboardFocus: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var typeSize
+    /// The side column of iPhone Duo (#622): the captures set it, otherwise the system's values from SideBarProbe.
+    @Environment(\.shellSideBar) private var sideBarOverride
+    @State private var probedSideBar = SideBar(edge: nil)
 
     public init(games: [GameDetail], controllers: [ControllerInfo] = [], actions: ShellActions = ShellActions(),
                 input: ShellInput? = nil, initialSelection: String? = nil, initialDetailOpen: Bool = false,
@@ -105,23 +108,35 @@ public struct LibraryView: View {
             let floating = layout.settingsFloat(width)
             let paneCovers = settingsOpen && !floating
             let panelOverLibrary = settingsOpen && floating
+            // The chips go into the side column where the system has one. At the accessibility text sizes they stay in the header.
+            let column = typeSize.isAccessibilitySize ? nil : (sideBarOverride ?? probedSideBar).column(screen: whole, insets: insets)
             ZStack(alignment: .topLeading) {
                 if layout.isCoverFlow, let selected { CoverFlowBackdrop(game: selected.game) } else { ShellPalette.background.ignoresSafeArea() }
                 if games.isEmpty {
                     EmptyLibraryView()
                         .overlay(alignment: .topTrailing) {
-                            HStack(spacing: 10) {
-                                ControllerChip(count: controllers.count, action: openControllers)
-                                ShellSettingsChip(action: openShellSettings)
-                            }.padding(.top, 6).padding(.trailing, 16)
+                            if column == nil {
+                                HStack(spacing: 10) {
+                                    ControllerChip(count: controllers.count, action: openControllers)
+                                    ShellSettingsChip(action: openShellSettings)
+                                }.padding(.top, 6).padding(.trailing, 16)
+                            }
                         }
+                    if let column { sideChips(column, insets: insets) }
                 } else if let selected {
-                    library(selected, layout: layout, size: geometry.size, insets: insets)
+                    library(selected, layout: layout, size: geometry.size, insets: insets, chipsInSideBar: column != nil)
                         .frame(width: width, height: geometry.size.height)
                         .opacity(paneCovers && edgeDrag == 0 ? 0 : 1)
                         .allowsHitTesting(!settingsOpen)
                         .accessibilityHidden(settingsOpen || helpGameID != nil || deleteGameID != nil)
                         .transformPreference(FocusTargets.self) { if settingsOpen { $0.removeAll() } }
+                    if let column {
+                        sideChips(column, insets: insets)
+                            .opacity(paneCovers && edgeDrag == 0 ? 0 : 1)
+                            .allowsHitTesting(!settingsOpen)
+                            .accessibilityHidden(settingsOpen || helpGameID != nil || deleteGameID != nil)
+                            .transformPreference(FocusTargets.self) { if settingsOpen { $0.removeAll() } }
+                    }
                     if panelOverLibrary {
                         // The same dimming and dismissal as the Controllers overlay.
                         Color.black.opacity(0.55 * (settingsOpen && !controllersOpen ? 1 - min(1, edgeDrag / pane) : 1)).ignoresSafeArea()
@@ -256,6 +271,7 @@ public struct LibraryView: View {
                 }
             }
             .coordinateSpace(name: "shell")
+            .background { SideBarProbe { probedSideBar = $0 }.ignoresSafeArea().accessibilityHidden(true) }
             .environment(\.shellOpenTouchLayout, { openTouchLayout(whole, insets) })
             .background {
                 EdgeSwipeBack(enabled: (settingsOpen || controllersOpen || shellSettingsOpen) && choice == nil && helpGameID == nil && deleteGameID == nil
@@ -306,15 +322,25 @@ public struct LibraryView: View {
         }
     }
 
-    @ViewBuilder private func library(_ selected: GameDetail, layout: ShellLayout, size: CGSize, insets: EdgeInsets) -> some View {
+    /// The Controllers and Settings chips in the side column, `column` in the screen's coordinates.
+    private func sideChips(_ column: CGRect, insets: EdgeInsets) -> some View {
+        SideBarChips(controllers: controllers.count, openControllers: openControllers, openShellSettings: openShellSettings)
+            .frame(width: column.width, height: column.height)
+            .offset(x: column.minX - insets.leading, y: column.minY - insets.top)
+    }
+
+    @ViewBuilder private func library(_ selected: GameDetail, layout: ShellLayout, size: CGSize, insets: EdgeInsets,
+                                      chipsInSideBar: Bool) -> some View {
         if layout.isCoverFlow {
             CoverFlowView(games: games, selected: selected, controllers: controllers.count, showsHints: !touchMode, screenInsets: insets,
+                          chipsInSideBar: chipsInSideBar,
                           select: select, primary: primary, openSettings: openSettings, openControllers: openControllers,
                           openShellSettings: openShellSettings)
                 .equatable()
                 .transition(.opacity)
         } else {
             PortraitLibrary(games: games, selected: selected, wide: layout == .grid, size: size, topInset: insets.top, bottomInset: insets.bottom,
+                            chipsInSideBar: chipsInSideBar,
                             controllers: controllers.count, select: select, primary: primary,
                             openSettings: openSettings, openControllers: openControllers, openShellSettings: openShellSettings,
                             position: $libraryPosition)
