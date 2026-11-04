@@ -1,4 +1,5 @@
 # Build a single-game iOS IPA in the cloud (PROJECT.md Phase 3, port group A).
+# (This mirror copy carries one extra comment so GitHub re-reads and registers the file for dispatch.)
 #
 # The job runs on the xcode-27 image (GitHub-hosted, macOS 27 + Xcode 27.2), the same image this
 # repository builds and tests the engine on: macos-26 jobs dispatched here were cancelled twice

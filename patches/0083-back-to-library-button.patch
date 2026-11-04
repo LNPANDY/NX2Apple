@@ -1,0 +1,74 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiaoge-tou <85100527+Tiaoge-tou@users.noreply.github.com>
+Date: Wed, 4 Nov 2026 10:50:32 +0800
+Subject: [PATCH] A way back to the shell's library: a small button at the top
+ right of the game view, only when a shell launched the game (DM_SHELL), which
+ asks and then closes the app onto the library it opens on
+
+Upstream-Status: fork-only
+Reason: A game started by the shell fills the whole process, and there was no way back to the library short of force-closing the app. The game view now shows a small library button at the top right when the shell's launch plan started the game (DM_SHELL), which asks first and then closes the app onto the library it opens on.
+Issue: Tiaoge-tou/NX2Apple PROJECT.md Phase 4
+
+---
+ dm/ios/Sources/front_ios.m | 21 +++++++++++++++++++++
+ docs/env_switches.tsv      |  1 +
+ 2 files changed, 22 insertions(+)
+
+diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
+index a3753d9..852cfc7 100644
+--- a/dm/ios/Sources/front_ios.m
++++ b/dm/ios/Sources/front_ios.m
+@@ -64,6 +64,7 @@ static void tv_attach(void);
+ @property (nonatomic, strong) DmGameView *game;
+ @property (nonatomic, strong) UIView *pad;
+ @property (nonatomic, strong) UILabel *fps;
++@property (nonatomic, strong) UIButton *library;   // the shell's way back to its game library (DM_SHELL): shown only when a shell launched the game
+ @property (nonatomic) BOOL launched;
+ @property (nonatomic, strong) id tv;   // the TV scene accessory's registration (iOS 27)
+ @property (nonatomic) BOOL hasLauncher;   // the app has a settings screen: a failed Play goes back to it (its Game data section is the way out)
+@@ -208,6 +209,16 @@ static void front_ios_hud_script_fix(int width) {
+     [self.view addSubview:self.pad];
+     self.fps = front_ios_fps_label();   // above the pad, which hides while a controller is connected
+     if (self.fps) [self.view addSubview:self.fps];
++    if (getenv("DM_SHELL") && atoi(getenv("DM_SHELL"))) {   // a shell launched this game (its launch plan sets DM_SHELL): the process is the game and there is no library under it, so the way back is a button that closes the app onto its library. It stays up while a controller is connected, when the pad is hidden and it is the only way out
++        UIButton *b = [UIButton buttonWithType:UIButtonTypeSystem];
++        b.backgroundColor = [UIColor colorWithWhite:0 alpha:0.35];
++        b.tintColor = [UIColor colorWithWhite:1 alpha:0.85];
++        b.layer.cornerRadius = 18;
++        [b setImage:[UIImage systemImageNamed:@"square.grid.2x2"] forState:UIControlStateNormal];
++        b.accessibilityLabel = @"Game library";
++        [b addTarget:self action:@selector(dm_back_to_library) forControlEvents:UIControlEventTouchUpInside];
++        self.library = b; [self.view addSubview:b];
++    }
+     [self.view setNeedsLayout]; [self.view layoutIfNeeded];
+     UIApplication.sharedApplication.idleTimerDisabled = YES;
+     if (front_ios_display_lowered()) {   // the frame-rate choice's lowered tier, unless an env file sets the size itself
+@@ -236,6 +247,16 @@ static void front_ios_hud_script_fix(int width) {
+         CGRect s = UIEdgeInsetsInsetRect(b, self.view.safeAreaInsets); CGFloat u = MIN(b.size.height / 430.0, 1.3);
+         self.fps.frame = CGRectMake(floor(CGRectGetMinX(s) + 130 * u), floor(CGRectGetMinY(s) + 22 * u - 11), 64, 22);
+     }
++    if (self.library) {   // the top row's right end, level with the fps label
++        CGRect s = UIEdgeInsetsInsetRect(b, self.view.safeAreaInsets); CGFloat u = MIN(b.size.height / 430.0, 1.3);
++        self.library.frame = CGRectMake(floor(CGRectGetMaxX(s) - 22 * u - 36), floor(CGRectGetMinY(s) + 22 * u - 18), 36, 36);
++    }
++}
++- (void)dm_back_to_library {
++    UIAlertController *a = [UIAlertController alertControllerWithTitle:@"Game library" message:@"Close the game and go back to the game library? Unsaved progress is lost." preferredStyle:UIAlertControllerStyleAlert];
++    [a addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
++    [a addAction:[UIAlertAction actionWithTitle:@"Close game" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) { exit(0); }]];   // the shell opens on its library, so closing the app is the way back to it
++    [self presentViewController:a animated:YES completion:nil];
+ }
+ - (void)viewDidAppear:(BOOL)a {
+     [super viewDidAppear:a];
+diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
+index c28c305..b6ee858 100644
+--- a/docs/env_switches.tsv
++++ b/docs/env_switches.tsv
+@@ -300,6 +300,7 @@ DM_SHAKE_G	switch	`=<G>`: on iOS, the acceleration beyond gravity above which a
+ DM_SHARED_FONT	path	Font file served for every shared-font type except the Nintendo extension (default `$DM_FONT_DIR/standard.ttf`, then macOS's Arial Unicode)
+ DM_SHARED_FONT_EXT	path	Font file served for shared-font type 5, the Nintendo extension with the button icons (default `$DM_FONT_DIR/nintendo_ext.ttf`, made by `make_ext_font.py`)
+ DM_SHARED_FONT_SMALL	diagnostic	
++DM_SHELL	switch	`1` in the environment the shell's launch plan starts a game with: a shell launched this game, so the game view shows the way back to its library (front_ios.m)
+ DM_SHELL_FRAMEWORKS	path	the game frameworks build_shell.sh embeds in the shell app, one folder per line
+ DM_SHELL_NAME	switch	the shell app's name under its icon (build_shell.sh, default NX2Apple)
+ DM_SHELL_PACKAGE	path	the frontend-ios Swift package build_shell.sh links into the shell app (default: frontend-ios in this checkout)

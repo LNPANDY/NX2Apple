@@ -110,7 +110,7 @@ final class Clock: @unchecked Sendable { var date: Date; init(_ d: Date) { date 
         // Back to the app's own folder, which has nothing yet.
         model.actions.onUseAppData(Fixtures.orbit)
         #expect(try detail(model).game.state == .needsGameData)
-        #expect(model.notice?.contains("games/\(Fixtures.orbit)") == true)
+        #expect(model.notice?.contains("games/Orbit Fixture") == true)
         #expect(box.defaults(Fixtures.orbit).data(forKey: "pickedDataBookmark") == nil)
     }
 

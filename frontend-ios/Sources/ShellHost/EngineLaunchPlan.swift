@@ -47,6 +47,8 @@ public struct EngineLaunchPlan: Equatable, Sendable {
         if let cloud = game.cloudSavesURL { env["DM_SAVE_SYNC"] = cloud.path }
         // The shell already showed its own settings, the per-game launcher screen stays out of the way.
         env["DM_LAUNCHER"] = "0"
+        // A shell launched this game: the game view shows its way back to the library only for a shell start.
+        env["DM_SHELL"] = "1"
         for (key, value) in game.environment { env[key] = value }
 
         var fromFile: [String] = []

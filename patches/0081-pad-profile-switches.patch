@@ -1,0 +1,164 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiaoge-tou <85100527+Tiaoge-tou@users.noreply.github.com>
+Date: Wed, 4 Nov 2026 10:37:19 +0800
+Subject: [PATCH] Pad switches from the game profile: pad_skin and pad_hades
+ profile fields, and the iOS front end sets DM_PAD_SKIN / DM_PAD_HADES from
+ them before the pad is built, so a shell framework (which carries no env
+ file) gets the game's custom pad; an env value still wins
+
+Upstream-Status: fork-only
+Reason: The pad's master switches DM_PAD_SKIN and DM_PAD_HADES came from the per-game app's env file; a shell framework carries no env file, so in the shell both games fell back to the generic pad. The games' profiles now carry pad_skin / pad_hades, and the iOS front end sets the switches from the profile before the pad is built.
+Issue: Tiaoge-tou/NX2Apple PROJECT.md Phase 4
+
+---
+ dm/games/010013C00E930000/game.tsv | 2 ++
+ dm/games/0100A00019DE0000/game.tsv | 2 ++
+ dm/games/game.py                   | 7 ++++++-
+ dm/host/hle_profile.c              | 3 +++
+ dm/host/hle_profile.h              | 1 +
+ dm/ios/Sources/front_ios.m         | 3 +++
+ dm/tools/docs_patches.py           | 4 ++++
+ docs/env_switches.tsv              | 4 ++--
+ 8 files changed, 23 insertions(+), 3 deletions(-)
+
+diff --git a/dm/games/010013C00E930000/game.tsv b/dm/games/010013C00E930000/game.tsv
+index 7660438..d323452 100644
+--- a/dm/games/010013C00E930000/game.tsv
++++ b/dm/games/010013C00E930000/game.tsv
+@@ -68,3 +68,5 @@ display_hz	120
+ pad_skin_toggle	on
+ # BC textures are decoded on the CPU (patch 0008's route), so a GPU without BC support (an A15 or A16 iPhone, an older iPad) runs this game: the device check in main.m lets a tex_bc_cpu game through
+ tex_bc_cpu	on
++# The touch pad is the fork's skin pad: the profile tells the iOS front end to set DM_PAD_SKIN, which an env file does in the per-game app and nothing does inside a shell framework
++pad_skin	on
+diff --git a/dm/games/0100A00019DE0000/game.tsv b/dm/games/0100A00019DE0000/game.tsv
+index 032a7ec..371fb8a 100644
+--- a/dm/games/0100A00019DE0000/game.tsv
++++ b/dm/games/0100A00019DE0000/game.tsv
+@@ -51,6 +51,8 @@ display_hz	120
+ 
+ # BC textures are decoded on the CPU (patch 0008's route), so a GPU without BC support (an A15 or A16 iPhone, an older iPad) runs this game: the device check in main.m lets a tex_bc_cpu game through
+ tex_bc_cpu	on
++# The touch pad is the fork's Hades pad: the profile tells the iOS front end to set DM_PAD_HADES, which an env file does in the per-game app and nothing does inside a shell framework
++pad_hades	on
+ 
+ # ---- Memory ----
+ # The NPDM declares no system resource (META +0x14 = 0): the game uses SetHeapSize. It asks for 3.10 GB (pool − used memory), which the 3.25 GB heap region of
+diff --git a/dm/games/game.py b/dm/games/game.py
+index 11c3e5c..cda6580 100644
+--- a/dm/games/game.py
++++ b/dm/games/game.py
+@@ -142,6 +142,10 @@ def header(g):
+     if tdu not in ('on', 'off') or (tdu == 'on' and tfu != 'on'): sys.exit(f'{g.id}: tex_dirty_upload must be on or off, and needs tex_flush_upload on: {tdu}')
+     tbc = g.get('tex_bc_cpu', 'off')   # decode BC-compressed textures on the CPU when the GPU has no BC support (A15/A16 and older; nvn_mtl.m uses nvn_bcdec.c): on / off
+     if tbc not in ('on', 'off'): sys.exit(f'{g.id}: tex_bc_cpu must be on or off: {tbc}')
++    psk = g.get('pad_skin', 'off')   # the touch pad's skin layout is this game's (DM_PAD_SKIN in DmGamepad.m): the iOS front end sets the switch from the profile, so a shell framework, which carries no env file, gets the same pad: on / off
++    if psk not in ('on', 'off'): sys.exit(f'{g.id}: pad_skin must be on or off: {psk}')
++    phd = g.get('pad_hades', 'off')   # the touch pad's Hades layout is this game's (DM_PAD_HADES in DmGamepad.m): the iOS front end sets the switch from the profile, as for pad_skin: on / off
++    if phd not in ('on', 'off'): sys.exit(f'{g.id}: pad_hades must be on or off: {phd}')
+     tds = g.get('tex_dyn_slots', 'off')   # shaders whose texture handle the translator could not trace to one slot: slot indices in c2, the bound slots in the fallback arrays (nvn_mtl.m): on / off
+     if tds not in ('on', 'off'): sys.exit(f'{g.id}: tex_dyn_slots must be on or off: {tds}')
+     vcr = g.get('vconv_range', 'off')   # vertex attributes converted on the CPU only over the vertices each draw reads (nvn_mtl.m vc_draw_range): on / off
+@@ -202,6 +206,7 @@ def header(g):
+          f'#define DM_GAME_PAD_SKIN_TOGGLE {int(pst == "on")}',
+          f'#define DM_GAME_TEX_DIRTY_UPLOAD {int(tdu == "on")}',
+          f'#define DM_GAME_TEX_BC_CPU {int(tbc == "on")}',
++         f'#define DM_GAME_PAD_SKIN {int(psk == "on")}', f'#define DM_GAME_PAD_HADES {int(phd == "on")}',
+          f'#define DM_GAME_TEX_DYN_SLOTS {int(tds == "on")}',
+          f'#define DM_GAME_GPU_TS_SEGMENT {int(gts == "segment")}',
+          f'#define DM_GAME_VCONV_RANGE {int(vcr == "on")}',
+@@ -230,7 +235,7 @@ if __name__ == '__main__':
+                 ('shared_font', 'SHARED_FONT_TTF'), ('pad_layout', 'PAD_LAYOUT'), ('op_mode', 'OPMODE'), ('perf_mode', 'PERF_BOOST'),
+                 ('feedback_snap', 'FEEDBACK_SNAP'), ('tex_flush_upload', 'TEX_FLUSH_UPLOAD'), ('render_cond', 'RENDER_COND'),
+                 ('tex_dirty_upload', 'TEX_DIRTY_UPLOAD'), ('tex_dyn_slots', 'TEX_DYN_SLOTS'), ('gpu_timestamps', 'GPU_TS_SEGMENT'),
+-                ('vconv_range', 'VCONV_RANGE'), ('stdalloc_cap', 'STDALLOC_CAP'), ('tex_bc_cpu', 'TEX_BC_CPU'), ('ue_texture_pool', 'UE_TEXTURE_POOL'),
++                ('vconv_range', 'VCONV_RANGE'), ('stdalloc_cap', 'STDALLOC_CAP'), ('tex_bc_cpu', 'TEX_BC_CPU'), ('pad_skin', 'PAD_SKIN'), ('pad_hades', 'PAD_HADES'), ('ue_texture_pool', 'UE_TEXTURE_POOL'),
+                 ('enc_thread', 'ENC_THREAD'), ('game_args', 'ARGS'), ('game_env', 'ENV')]
+         def val(macro):   # the header's C spelling → the file's plain spelling
+             v = M.get('DM_GAME_' + macro)
+diff --git a/dm/host/hle_profile.c b/dm/host/hle_profile.c
+index 6b28585..0ce0861 100644
+--- a/dm/host/hle_profile.c
++++ b/dm/host/hle_profile.c
+@@ -160,6 +160,7 @@ static void defaults(void) {
+ #endif
+     P.stdalloc_cap = DM_GAME_STDALLOC_CAP; P.shader_skip_off = DM_GAME_SHADER_KEY_SKIP_OFF; P.shader_skip_len = DM_GAME_SHADER_KEY_SKIP_LEN;
+     P.tex_bc_cpu = DM_GAME_TEX_BC_CPU; P.ue_texture_pool = DM_GAME_UE_TEXTURE_POOL; P.enc_thread = DM_GAME_ENC_THREAD;
++    P.pad_skin = DM_GAME_PAD_SKIN; P.pad_hades = DM_GAME_PAD_HADES;
+     copy_str(P.args, sizeof P.args, DM_GAME_ARGS);
+     copy_str(P.genv, sizeof P.genv, DM_GAME_ENV);
+     copy_str(P.source, sizeof P.source, "compiled game_profile.h");
+@@ -227,6 +228,8 @@ static void set_kv(const char *k, const char *v) {
+         else P.shader_skip_off = P.shader_skip_len = 0;
+     }
+     else if (!strcmp(k, "tex_bc_cpu")) P.tex_bc_cpu = truthy(v);
++    else if (!strcmp(k, "pad_skin")) P.pad_skin = truthy(v);
++    else if (!strcmp(k, "pad_hades")) P.pad_hades = truthy(v);
+     else if (!strcmp(k, "ue_texture_pool")) P.ue_texture_pool = (int)num(v, (uint64_t)P.ue_texture_pool);
+     else if (!strcmp(k, "enc_thread")) P.enc_thread = truthy(v);
+     else if (!strcmp(k, "game_args")) copy_str(P.args, sizeof P.args, v);
+diff --git a/dm/host/hle_profile.h b/dm/host/hle_profile.h
+index 5afd846..588519d 100644
+--- a/dm/host/hle_profile.h
++++ b/dm/host/hle_profile.h
+@@ -33,6 +33,7 @@ struct dm_profile {
+     uint64_t stdalloc_cap;       // StandardAllocator's address space (hle_svc.c); 0 = what the alias region has room for
+     uint32_t shader_skip_off, shader_skip_len;   // shader_key_skip <offset>+<length>: control bytes the shader keys hash as zeros (len 0 = none)
+     int tex_bc_cpu, ue_texture_pool, enc_thread;   // ue_texture_pool in MB (0 = the game's own pool)
++    int pad_skin, pad_hades;   // the touch pad's custom layouts are this game's: front_ios.m turns DM_PAD_SKIN / DM_PAD_HADES on for it
+     char args[512], genv[1024];  // game_args / game_env
+     char source[512];            // DM_PROFILE, or "compiled defaults"
+ };
+diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
+index 858f78a..a3753d9 100644
+--- a/dm/ios/Sources/front_ios.m
++++ b/dm/ios/Sources/front_ios.m
+@@ -7,6 +7,7 @@
+ #import <AVFAudio/AVFAudio.h>
+ #include <errno.h>
+ #include "front.h"
++#include "hle_profile.h"   // the runtime game profile: the pad switches below read it
+ #include "hle.h"
+ #include "dm.h"
+ #include "haptics_apple.h"
+@@ -200,6 +201,8 @@ static void front_ios_hud_script_fix(int width) {
+     if (getenv("DM_METAL_HUD") && atoi(getenv("DM_METAL_HUD"))) { g_layer.developerHUDProperties = @{@"mode": @"default"}; LOG("front end: Metal performance HUD on (DM_METAL_HUD)"); }   // Apple's HUD over the game: frame rate, frame and GPU time, memory
+     else if (getenv("DM_HUD_PER_LAYER")) { g_layer.developerHUDProperties = @{@"mode": @"disabled"}; LOG("front end: Metal performance HUD off (DM_METAL_HUD)"); }   // the shell turns Metal's HUD on for every start (ShellMain.m)
+     dm_haptics_apple_init();
++    if (!getenv("DM_PAD_SKIN") && dm_profile()->pad_skin) setenv("DM_PAD_SKIN", "1", 1);   // this game's pad is the skin pad: an env file turns it on in the per-game app, the profile does it here, so a shell framework (which carries no env file) gets the same pad; an env value, the file's or the shell's, still wins
++    if (!getenv("DM_PAD_HADES") && dm_profile()->pad_hades) setenv("DM_PAD_HADES", "1", 1);   // the same for the Hades pad
+     self.pad = dm_gamepad_view(self.view.bounds);
+     self.pad.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+     [self.view addSubview:self.pad];
+diff --git a/dm/tools/docs_patches.py b/dm/tools/docs_patches.py
+index 28d9125..707c00a 100644
+--- a/dm/tools/docs_patches.py
++++ b/dm/tools/docs_patches.py
+@@ -137,6 +137,10 @@ SWITCH_BINDING = [
+      'why': "only a game whose pacing follows the display rate can offer it; a game that counts frames would run at the wrong speed"}),
+     ('tex_bc_cpu', '', {'what': 'BC1-7 textures decoded on the CPU where the Metal device has no BC support', 'now': 'game', 'goal': 'host', 'purpose': 'rendering',
+      'why': 'a device capability, not a game choice: the host could decode wherever supportsBCTextureCompression is false, for every game'}),
++    ('pad_skin', '', {'what': "the touch pad's skin layout is this game's: the front end sets DM_PAD_SKIN from the profile", 'now': 'game', 'goal': 'game', 'purpose': 'runtime',
++     'why': "the layout and its art are the game's own; the per-game app set the switch in an env file, and a shell framework carries none, so the profile carries it instead"}),
++    ('pad_hades', '', {'what': "the touch pad's Hades layout is this game's: the front end sets DM_PAD_HADES from the profile", 'now': 'game', 'goal': 'game', 'purpose': 'runtime',
++     'why': "the layout and its art are the game's own; the per-game app set the switch in an env file, and a shell framework carries none, so the profile carries it instead"}),
+ ]
+ 
+ 
+diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
+index 293e88f..c28c305 100644
+--- a/docs/env_switches.tsv
++++ b/docs/env_switches.tsv
+@@ -212,10 +212,10 @@ DM_OODLE_MODULES	path	The rewritten modules the Mac host's Oodle tool mode loads
+ DM_OODLE_SERVE	switch	`=1`: the host answers decode requests on stdin / stdout with the game's own Oodle (or LZ5) decoder from the guest main thread before the SDK starts, until stdin ends
+ DM_OPMODE	player	The operation mode the game sees: `0` handheld, `1` console (default: the profile's `op_mode`, console unless set); read once at startup
+ DM_PAD_BAG	diagnostic	`0` keeps the touch pad out of the inventory (bag) layout of DmGamepad.m; on by default
+-DM_PAD_HADES	diagnostic	`1` gives the touch pad Hades II's layout and art instead of Silksong's (DmGamepad.m); the build script sets it for a Hades II build
++DM_PAD_HADES	diagnostic	`1` gives the touch pad Hades II's layout and art instead of Silksong's (DmGamepad.m); the build script sets it for a Hades II build, and the game's pad_hades profile field makes the front end set it where no env file runs (a shell framework)
+ DM_PAD_MAP	player	Mac controllers: `<name>=<name>,…` makes the button that sends the first by default send the second (or `none`), e.g. `A=B,B=A` swaps them (`input_map.h`)
+ DM_PAD_MERGE	switch	`=1` merges every controller into player 1, as before, instead of giving each controller a player of its own (Mac and iOS)
+-DM_PAD_SKIN	diagnostic	`1` turns the touch pad's skin system on (DmGamepad.m); the host's pad watcher (hle_hid.c) runs only with it
++DM_PAD_SKIN	diagnostic	`1` turns the touch pad's skin system on (DmGamepad.m); the host's pad watcher (hle_hid.c) runs only with it; the game's pad_skin profile field makes the front end set it where no env file runs (a shell framework)
+ DM_PATCH_FRONT	switch	`=<bytes>`: the size of the patch area right before the module base for a long text (`BIG_TEXT`); set only by the rewriter's own rerun with the size it needs
+ DM_PHONE_MOTION	switch	On iOS, whether the phone's own device motion drives player 1's six-axis sensor: `auto` (default) while no controller supplies fresh motion, `1` phone only, `0` never; each source keeps its own orientation
+ DM_PREEMPT	switch	`0` / `1` overrides the profile's `core_preempt`: also check already-runnable higher-priority peers on the caller's core after every thread SVC

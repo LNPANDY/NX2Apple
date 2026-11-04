@@ -180,7 +180,27 @@ public enum DataSource: Equatable, Sendable {
 }
 
 public struct DataResolution: Equatable, Sendable {
-    /// The folder holding `romfs.img` or `romfs/<marker>`, or a picked `romfs.img`'s folder.
+    /// The folder a game's own data lives in inside the app's `games` folder: the game's name made safe for a
+/// folder name, so the Files app shows which game the folder belongs to. The engine names it the same way
+/// (dm/ios/Sources/main.m, game_folder_name). Nil when the name leaves nothing usable (the caller falls back
+/// to the title ID).
+public enum GameFolder {
+    public static func folderName(forGameName name: String?) -> String? {
+        guard let name else { return nil }
+        var safe = ""
+        for scalar in name.unicodeScalars {
+            if scalar == ":" || scalar == "/" || scalar == "\\" || CharacterSet.controlCharacters.contains(scalar) {
+                safe.append(" ")
+            } else {
+                safe.unicodeScalars.append(scalar)
+            }
+        }
+        let joined = safe.split(separator: " ").joined(separator: " ")
+        return joined.isEmpty ? nil : joined
+    }
+}
+
+/// The folder holding `romfs.img` or `romfs/<marker>`, or a picked `romfs.img`'s folder.
     public var url: URL?
     public var source: DataSource?
     /// A bookmark exists but no longer resolves (the app is signed differently now).
@@ -197,7 +217,7 @@ public struct DataResolution: Equatable, Sendable {
 /// (the layout for a single game), and last the app's folder. All shell folder cases say `.shell`.
 public enum DataLocator {
     public static func locate(manifest: GameManifest, picked: BookmarkResolution, appFolder: URL, fileManager fm: FileManager = .default,
-                              global: BookmarkResolution = .none, shellMatch: URL? = nil) -> DataResolution {
+                              global: BookmarkResolution = .none, shellMatch: URL? = nil, legacyAppFolder: URL? = nil) -> DataResolution {
         var result = DataResolution.missing
         switch picked {
         case .stale: result.pickedIsStale = true
@@ -215,7 +235,9 @@ public enum DataLocator {
             }
         case .stale, .none: break
         }
-        if let dir = holder(of: appFolder, manifest: manifest, fm) { result.url = dir; result.source = .app }
+        if let dir = holder(of: appFolder, manifest: manifest, fm) { result.url = dir; result.source = .app; return result }
+        // The folder named by title ID, from before the folders were named for their games.
+        if let legacyAppFolder, let dir = holder(of: legacyAppFolder, manifest: manifest, fm) { result.url = dir; result.source = .app }
         return result
     }
 
