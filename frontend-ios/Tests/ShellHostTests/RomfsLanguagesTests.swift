@@ -156,6 +156,32 @@ import Testing
         #expect(!RomfsLanguages.isFallbackRow(try #require(langRow(p))))
     }
 
+    /// The engine may add languages to its table later (seedds/nxnative#1231 asks for Thai and Polish). The row is still recognised, and a
+    /// language this app cannot name from a RomFS tag is kept, not dropped with the ones the RomFS lacks.
+    @Test func aLanguageTheAppDoesNotKnowIsKept() throws {
+        let extended = Self.fallbackRowJSON.replacingOccurrences(of: #"["pt-BR","Brazilian Portuguese"]]"#, with: #"["pt-BR","Brazilian Portuguese"],["th","Thai"],["pl","Polish"]]"#)
+        let p = try profile(row: extended)
+        #expect(RomfsLanguages.isFallbackRow(try #require(langRow(p))))
+        let opts = RomfsLanguages.options(in: try folder(with: Self.image(mask("JPja USen CNzh\n011\n"))))
+        let row = try #require(langRow(RomfsLanguages.applying(to: p, options: opts)))
+        #expect(row.options?.map { $0[0] } == ["en-US", "ja", "zh-Hans", "th", "pl"])
+        #expect(row.note == "")
+    }
+
+    /// A copy that is cut off, finished later or replaced is read again: only a list is kept, and by size and date.
+    @Test func anImageThatChangesIsReadAgain() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("romfs-change-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let path = dir.appendingPathComponent("romfs.img")
+        let two = Self.image(mask("USen JPja\n"))
+        try two.prefix(two.count - 10).write(to: path)
+        #expect(RomfsLanguages.options(in: dir) == [])
+        try two.write(to: path)
+        #expect(RomfsLanguages.options(in: dir).map { $0[0] } == ["en-US", "ja"])
+        try Self.image(mask("USen JPja EUfr\n")).write(to: path)
+        #expect(RomfsLanguages.options(in: dir).map { $0[0] } == ["en-US", "ja", "fr"])
+    }
+
     @Test func aRowThatIsNotAllLanguagesIsNotTheFallback() throws {
         let some = #"{"env":"DM_LANG","kind":"choice","section":"Game","label":"Game language","note":"A note","default":"en-US","options":[["en-US","American English"],["ja","Japanese"]]}"#
         let p = try profile(row: some)

@@ -46,7 +46,7 @@ enum RomfsLanguages {
         for candidate in candidates {
             var isDir: ObjCBool = false
             guard fm.fileExists(atPath: candidate.path, isDirectory: &isDir) else { continue }
-            let found = isDir.boolValue ? fromDirectory(candidate, fm: fm) : fromImage(candidate)
+            let found = isDir.boolValue ? fromDirectory(candidate, fm: fm) : cachedFromImage(candidate, fm: fm)
             if found.count > 1 { return found }
         }
         return []
@@ -57,16 +57,18 @@ enum RomfsLanguages {
     /// game. A game that really supports all of them has no note, so it is not taken for this row.
     static func isFallbackRow(_ row: LauncherSetting) -> Bool {
         guard row.env == "DM_LANG", !row.note.isEmpty, let codes = row.options?.compactMap(\.first) else { return false }
-        return Set(codes) == Set(table.map(\.code))
+        return Set(table.map(\.code)).isSubset(of: codes)   // a superset: the engine may add languages to its table later
     }
 
-    /// The fallback row's options cut to the languages the RomFS offers, in the row's own order and labels. Nil when the RomFS names
-    /// fewer than two languages, or lacks the row's default (the language the game is packed with): the row then stays as it is.
+    /// The fallback row's options cut to the languages the RomFS offers, in the row's own order and labels. An option goes only when its
+    /// code is one the RomFS tags can name (`table`) and the RomFS lacks it: a code this app does not know, a language the engine adds
+    /// later, stays. Nil when the RomFS names fewer than two languages, or the row's default (the language the game is packed with)
+    /// would go: the row then stays as it is.
     static func narrowed(_ options: [[String]], default def: String, to romfs: [[String]]) -> [[String]]? {
-        let offered = Set(romfs.compactMap(\.first))
-        guard offered.count > 1, offered.contains(def) else { return nil }
-        let kept = options.filter { offered.contains($0.first ?? "") }
-        return kept.count > 1 ? kept : nil
+        let offered = Set(romfs.compactMap(\.first)), known = Set(table.map(\.code))
+        guard offered.count > 1 else { return nil }
+        let kept = options.filter { o in o.first.map { !known.contains($0) || offered.contains($0) } ?? false }
+        return kept.count > 1 && kept.contains { $0.first == def } ? kept : nil
     }
 
     /// The profile with the game's real languages: a `DM_LANG` row added when it has none, and the all-languages row of a game with no
@@ -88,6 +90,29 @@ enum RomfsLanguages {
         let idx = updated.settings.lastIndex { $0.sectionTitle == "Game" }.map { $0 + 1 } ?? 0
         updated.settings.insert(row, at: idx)
         return updated
+    }
+
+    /// What an image gave, by path, size and modification date: the shell asks again whenever it builds a game's settings, and a copy that
+    /// is cut off, replaced or finished later is read again. Only a list is kept: a failure is read again.
+    private final class ImageCache: @unchecked Sendable {
+        private let lock = NSLock()
+        private var lists: [String: [[String]]] = [:]
+        func get(_ key: String) -> [[String]]? { lock.lock(); defer { lock.unlock() }; return lists[key] }
+        func set(_ key: String, _ value: [[String]]) {
+            lock.lock(); defer { lock.unlock() }
+            if lists.count > 64 { lists.removeAll() }
+            lists[key] = value
+        }
+    }
+    private static let imageCache = ImageCache()
+
+    private static func cachedFromImage(_ url: URL, fm: FileManager) -> [[String]] {
+        let a = try? fm.attributesOfItem(atPath: url.path)
+        let key = "\(url.path)|\((a?[.size] as? NSNumber)?.int64Value ?? -1)|\((a?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0)"
+        if let hit = imageCache.get(key) { return hit }
+        let found = fromImage(url)
+        if found.count > 1 { imageCache.set(key, found) }
+        return found
     }
 
     private static func tagsFromMask(_ text: String) -> [String] {

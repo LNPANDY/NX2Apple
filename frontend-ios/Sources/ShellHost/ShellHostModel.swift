@@ -71,7 +71,6 @@ public struct ShellHostConfig: Sendable {
     @ObservationIgnored private var dataStores: [String: BookmarkStore] = [:]
     @ObservationIgnored private var cloudStores: [String: BookmarkStore] = [:]
     @ObservationIgnored private var artwork: [URL: Artwork] = [:]
-    @ObservationIgnored private var romfsLanguages: [URL: [[String]]] = [:]
     /// The shell-level settings every game falls back to (game > shell > built-in).
     @ObservationIgnored public let shellSettings: ShellSettingsStore
     @ObservationIgnored private let shellData: BookmarkStore
@@ -221,14 +220,7 @@ public struct ShellHostConfig: Sendable {
         // fallback): the RomFS names the languages it really has (#668)
         if let row = base.settings.first(where: { $0.env == "DM_LANG" }), !RomfsLanguages.isFallbackRow(row) { return base }
         guard let url = (data ?? self.data(for: entry)).url else { return base }
-        let opts: [[String]]
-        if let cached = romfsLanguages[url] {
-            opts = cached
-        } else {
-            opts = RomfsLanguages.options(in: url)
-            romfsLanguages[url] = opts
-        }
-        return RomfsLanguages.applying(to: base, options: opts)
+        return RomfsLanguages.applying(to: base, options: RomfsLanguages.options(in: url))   // read once per image: RomfsLanguages caches by size and date
     }
 
     private func image(_ url: URL?) -> Artwork? {

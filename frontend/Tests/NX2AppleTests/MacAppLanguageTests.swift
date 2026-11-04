@@ -187,6 +187,30 @@ final class MacAppLanguageTests: IsolatedDefaultsTestCase {
         XCTAssertEqual(lang.options?.count, 16)
     }
 
+    /// The engine may add languages to its table later (seedds/nxnative#1231 asks for Thai and Polish). The row is still recognised, and a
+    /// language this launcher cannot name from a RomFS tag is kept, not dropped with the ones the RomFS lacks.
+    func testALanguageTheLauncherDoesNotKnowIsKept() throws {
+        let extended = Self.fallbackLangRow.replacingOccurrences(of: #"["pt-BR","Brazilian Portuguese"]]"#, with: #"["pt-BR","Brazilian Portuguese"],["th","Thai"],["pl","Polish"]]"#)
+        XCTAssertTrue(extended.contains(#"["th","Thai"]"#))
+        let (app, _) = try appWithLangRow(extended, mask: "JPja USen CNzh\n011\n")
+        let lang = try XCTUnwrap(LaunchSetting.forMac(app: app.path, titleID: "040074A01BF12000", repo: "", labels: { L10n.string($0, .en) })?
+            .first { $0.env == "DM_LANG" })
+        XCTAssertEqual(lang.options?.map { $0[0] }, ["en-US", "ja", "zh-Hans", "th", "pl"])
+        XCTAssertEqual(lang.note, "")
+    }
+
+    /// A copy that is cut off, finished later or replaced is read again: only a list is kept, and by size and date.
+    func testAnImageThatChangesIsReadAgain() throws {
+        let path = temporary.appendingPathComponent("changing.img")
+        let two = Self.makeDMROMFSImage(mask: "USen JPja\n")
+        try two.prefix(two.count - 10).write(to: path)   // cut off: no list
+        XCTAssertEqual(RomFSLanguages.options(in: path.path), [])
+        try two.write(to: path)   // the copy finished
+        XCTAssertEqual(RomFSLanguages.options(in: path.path).map { $0[0] }, ["en-US", "ja"])
+        try Self.makeDMROMFSImage(mask: "USen JPja EUfr\n").write(to: path)   // replaced by another version
+        XCTAssertEqual(RomFSLanguages.options(in: path.path).map { $0[0] }, ["en-US", "ja", "fr"])
+    }
+
     /// The archive step makes a newly built iOS framework's launcher.json right too.
     func testTheArchiveStepNarrowsTheAllLanguagesRowOfAFrameworkLauncherJSON() throws {
         let (app, image) = try appWithLangRow(Self.fallbackLangRow, mask: "JPja USen CNzh TWzh EUfr\n01111\n")

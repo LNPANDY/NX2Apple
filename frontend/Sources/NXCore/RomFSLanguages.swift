@@ -45,7 +45,7 @@ package enum RomFSLanguages {
         for candidate in candidates(for: path) {
             var isDir: ObjCBool = false
             guard fm.fileExists(atPath: candidate, isDirectory: &isDir) else { continue }
-            let found = isDir.boolValue ? fromDirectory(candidate, fm: fm) : fromImage(candidate)
+            let found = isDir.boolValue ? fromDirectory(candidate, fm: fm) : cachedFromImage(candidate, fm: fm)
             if found.count > 1 { return found }
         }
         return []
@@ -68,17 +68,18 @@ package enum RomFSLanguages {
     /// game. A game that really supports all of them has no note, so it is not taken for this row.
     package static func isFallbackRow(options: [[String]]?, note: String) -> Bool {
         guard !note.isEmpty, let codes = options?.compactMap(\.first) else { return false }
-        return Set(codes) == Set(table.map(\.code))
+        return Set(table.map(\.code)).isSubset(of: codes)   // a superset: the engine may add languages to its table later
     }
 
-    /// The fallback row's options cut to the languages the RomFS offers, in the row's own order and labels. Nil when the RomFS names
-    /// fewer than two languages, or lacks the row's default (the packed language, which the app starts with when nothing is chosen):
-    /// the row then stays as it is.
+    /// The fallback row's options cut to the languages the RomFS offers, in the row's own order and labels. An option goes only when its
+    /// code is one the RomFS tags can name (`table`) and the RomFS lacks it: a code this launcher does not know, a language the engine adds
+    /// later, stays. Nil when the RomFS names fewer than two languages, or the row's default (the packed language, which the app starts
+    /// with when nothing is chosen) would go: the row then stays as it is.
     package static func narrowed(_ options: [[String]], default def: String, to romfs: [[String]]) -> [[String]]? {
-        let offered = Set(romfs.compactMap(\.first))
-        guard offered.count > 1, offered.contains(def) else { return nil }
-        let kept = options.filter { offered.contains($0.first ?? "") }
-        return kept.count > 1 ? kept : nil
+        let offered = Set(romfs.compactMap(\.first)), known = Set(table.map(\.code))
+        guard offered.count > 1 else { return nil }
+        let kept = options.filter { o in o.first.map { !known.contains($0) || offered.contains($0) } ?? false }
+        return kept.count > 1 && kept.contains { $0.first == def } ? kept : nil
     }
 
     /// Makes `launcher.json` at `launcherPath` offer the game's real languages, from `romfs`: adds a `DM_LANG` row when the file has
@@ -121,6 +122,29 @@ package enum RomFSLanguages {
         let after = settings.lastIndex { ($0["section"] as? String ?? "Game") == "Game" }.map { $0 + 1 } ?? 0
         settings.insert(row, at: after)
         return write()
+    }
+
+    /// What an image gave, by path, size and modification date, so the many reads of one settings sheet (it asks again at every redraw) cost
+    /// one read of the index, and a file that is copied over or replaced is read again. Only a list is kept: a failure is read again.
+    private final class ImageCache: @unchecked Sendable {
+        private let lock = NSLock()
+        private var lists: [String: [[String]]] = [:]
+        func get(_ key: String) -> [[String]]? { lock.lock(); defer { lock.unlock() }; return lists[key] }
+        func set(_ key: String, _ value: [[String]]) {
+            lock.lock(); defer { lock.unlock() }
+            if lists.count > 64 { lists.removeAll() }
+            lists[key] = value
+        }
+    }
+    private static let imageCache = ImageCache()
+
+    private static func cachedFromImage(_ path: String, fm: FileManager) -> [[String]] {
+        let a = try? fm.attributesOfItem(atPath: path)
+        let key = "\(path)|\((a?[.size] as? NSNumber)?.int64Value ?? -1)|\((a?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0)"
+        if let hit = imageCache.get(key) { return hit }
+        let found = fromImage(path)
+        if found.count > 1 { imageCache.set(key, found) }
+        return found
     }
 
     private static func candidates(for path: String) -> [String] {
