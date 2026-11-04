@@ -829,7 +829,7 @@
   "launch.set.DM_UPSCALER": "Spelets uppskalare",
   "launch.title": "Startalternativ",
   "library.appReady": "NX2Apple %@ är klart",
-  "library.artworkHint": "Välj en bred bild för spelet. Bilden ligger kvar på sin ursprungliga plats.",
+  "library.artworkHint": "Välj en bred stillbild (PNG, JPEG, TIFF eller HEIC). Den ligger kvar på sin ursprungliga plats. GIF-bilder, videor och animerade ikoner är inte omslag.",
   "library.buildAgain": "Bygg igen …",
   "library.building": "Bygger",
   "library.changeArtwork": "Byt omslagsbild …",

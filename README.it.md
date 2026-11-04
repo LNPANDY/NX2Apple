@@ -108,8 +108,13 @@ in alto. In orizzontale diventa un Cover Flow. Su iPad mostra una griglia.
 - **Salvataggi in cloud.** Scegli una cartella su iCloud Drive per i salvataggi di un gioco in modo da mantenerli sincronizzati con il Mac.
 - **Lingua.** L'app segue la lingua di sistema, inglese o cinese semplificato.
 
-L'app richiede iOS o iPadOS 26 o successivo. Le copertine sono i banner dell'eShop che il launcher su Mac salva in cache
-per i tuoi giochi.
+L'app richiede iOS o iPadOS 26 o successivo. Le copertine sono immagini ferme. Sul Mac, **Gestisci >
+Cambia copertina** imposta un PNG, JPEG, TIFF o HEIC per un gioco. Il file resta nel percorso che
+hai scelto, e viene mostrato prima del banner eShop automatico (key art 16:9 in cache per title ID).
+Il launcher non riproduce una GIF, un video o un'icona animata, e non scarica immagini da Steam Grid
+DB. Un'immagine ferma in quello stile, impostata con Cambia copertina, è il modo per ottenere
+quell'aspetto. Un'installazione copia la tua immagine nell'app per iPhone e iPad, oppure il banner
+eShop in cache se non ne hai impostata una.
 
 ## Come giocare
 

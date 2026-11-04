@@ -107,8 +107,13 @@ sidan är det en Cover Flow. En iPad visar ett rutnät.
 - **Molnsparfiler.** Välj en mapp i iCloud Drive så hålls ett spels sparfiler i takt med Mac-datorn.
 - **Språk.** Appen följer systemspråket, engelska eller förenklad kinesiska.
 
-Appen kräver iOS eller iPadOS 26 eller senare. Omslagen är de eShop-banners som Mac-launchern cachar för
-dina egna spel.
+Appen kräver iOS eller iPadOS 26 eller senare. Omslagen är stillbilder. På Mac sätter **Hantera >
+Byt omslagsbild** en PNG, JPEG, TIFF eller HEIC för ett spel. Filen ligger kvar på den sökväg du
+valde, och den visas före den automatiska eShop-bannern (16:9-key art som cachas på titel-ID).
+Launchern spelar inte upp en GIF, en video eller en animerad ikon, och den hämtar inte bilder från
+Steam Grid DB. En stillbild i den stilen, satt med Byt omslagsbild, är vägen till det utseendet. En
+installation kopierar din bild till iPhone- och iPad-appen, eller den cachade eShop-bannern om du
+inte har valt en.
 
 ## Så spelar du
 

@@ -987,7 +987,7 @@
   "launch.set.DM_UPSCALER": "Upscaler du jeu",
   "launch.title": "Options de lancement",
   "library.appReady": "NX2Apple %@ est prête",
-  "library.artworkHint": "Choisissez une image large pour ce jeu. L’image reste à son emplacement d’origine.",
+  "library.artworkHint": "Choisissez une image large et fixe (PNG, JPEG, TIFF ou HEIC). Elle reste à son emplacement d’origine. Les GIF, les vidéos et les icônes animées ne sont pas des illustrations.",
   "library.buildAgain": "Compiler à nouveau…",
   "library.building": "Compilation",
   "library.changeArtwork": "Changer l’illustration…",
