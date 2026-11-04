@@ -14,10 +14,13 @@
 [![Issues](https://img.shields.io/github/issues/LNPANDY/NX2Apple)](https://github.com/LNPANDY/NX2Apple/issues)
 [![License](https://img.shields.io/github/license/LNPANDY/NX2Apple)](LICENSE)
 [![游戏](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FLNPANDY%2FNX2Apple%2Fmain%2F.github%2Fbadges%2Fgames.json)](.github/badges/games.json)
-[![已验证](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FLNPANDY%2FNX2Apple%2Fmain%2F.github%2Fbadges%2Fverified.json)](.github/badges/verified.json)
 
+[![中文](https://img.shields.io/badge/🇨🇳_中文-current-blue)](README.zh-CN.md)
 [![English](https://img.shields.io/badge/🇺🇸_English-available-green)](README.md)
-[![简体中文](https://img.shields.io/badge/🇨🇳_简体中文-当前-blue)](README.zh-CN.md)
+[![Svenska](https://img.shields.io/badge/🇸🇪_Svenska-available-green)](README.sv.md)
+[![Deutsch](https://img.shields.io/badge/🇩🇪_Deutsch-available-green)](README.de.md)
+[![Français](https://img.shields.io/badge/🇫🇷_Français-available-green)](README.fr.md)
+[![Italiano](https://img.shields.io/badge/🇮🇹_Italiano-available-green)](README.it.md)
 
 <img src="frontend/screenshots/hero-features.png" width="100%" alt="NX2Apple — Switch 游戏装进 iPhone 和 Mac">
 
@@ -28,7 +31,7 @@
 - **引导式首次启动**：安装向导带新玩家走完 Xcode、密钥和游戏；构建工具和 Python 直接内置在 App 里，不用装 Homebrew
 - **主机模式**：插上手柄按 Select，游戏库变全屏封面墙，手柄操作——就像 Switch 主菜单
 
-所有版本见[更新日志](CHANGELOG.zh-CN.md)。English readers — the [English README](README.md) covers everything.
+所有版本见[更新日志](CHANGELOG.zh-CN.md)。
 
 </div>
 
@@ -107,7 +110,12 @@ App 会为它编译一次图形并记住。游戏数据（`romfs.img`）可以�
 `~/Library/Application Support/nxnative/<title ID>/env.txt` 优先，重新构建后仍在；
 `<App>.app/Contents/Resources/dm/env.txt` 是 App 自带的。在加入语言选项之前构建的 Mac App 需要重新构建
 一次才有该项。iPhone 上同样的行写在 `Documents/env.txt` 里（`DM_FPS_TARGET=30` 限帧省电，
-`DM_OPMODE=0` 选掌机模式）。
+`DM_OPMODE=0` 选掌机模式）。该文件对共享 App 里的每个游戏都生效。只属于某一个游戏的行（例如 mod 的
+`DM_ROMFS_OVERLAY`）写在 `Documents/games/<title ID>/env.txt` 里。两个文件设置了同一个键时，以该游戏的文件为准。
+Mod 更简单：把它的文件夹放进 `Documents/games/<title ID>/mods/<mod 名>/`（RomFS 文件放在其中的 `romfs/`
+文件夹里，或直接放在该文件夹里）。之后 Shell 只为这个游戏设置 `DM_ROMFS_OVERLAY`。有多个 mod 时，替换同一文件的
+情况下按名称排在前面的生效。同一个键被多处设置时的优先顺序：Shell 自己的设置、该游戏的 `env.txt`、该游戏的
+`mods/` 文件夹、共享的 `Documents/env.txt`。
 
 **存档和日志。** 放在游戏库文件夹里的 Mac 游戏，存档和日志在 App 旁边（`log/<title ID>.log`）；否则在
 `~/Library/Application Support/nxnative/<title ID>/` 和 `~/Library/Logs/nxnative/<title ID>.log`。
@@ -120,8 +128,7 @@ iPhone 上在「文件」App 里该 App 名字下：`save/` 和 `log.txt`（上�
 
 ## 游戏
 
-共有 94 个游戏 profile。3 款在本 fork 完整验证（构建、安装、在手机上玩过），另有 45 款上游报告 iPhone
-可玩，其余的 profile 还没在手机上试过。其中几款：
+共有 130 个游戏 profile。部分游戏上游报告 iPhone 可玩，其余的 profile 还没在手机上试过。其中几款：
 
 | | 游戏 | 运行于 | 状态 |
 |---|---|---|---|
@@ -132,8 +139,14 @@ iPhone 上在「文件」App 里该 App 名字下：`save/` 和 `log.txt`（上�
 | <img src="https://raw.githubusercontent.com/seedds/nxnative/65501fbbaf8526f7aab0a1edd028135888590f8e/docs/images/zelda-breath-of-the-wild.jpg" width="96" alt=""> | 塞尔达传说：旷野之息 | iPhone | 上游报告可玩；1.9.0 可 60 fps |
 | <img src="https://raw.githubusercontent.com/seedds/nxnative/65501fbbaf8526f7aab0a1edd028135888590f8e/docs/images/mario-kart-8-deluxe.jpg" width="96" alt=""> | 马力欧卡丁车 8 豪华版 | iPhone | 上游报告可玩 |
 
-**[GAMES.zh-CN.md](GAMES.zh-CN.md)**（English: [GAMES.md](GAMES.md)，带截图图库和每款的安装大小）
+**[GAMES.zh-CN.md](GAMES.zh-CN.md)**（带截图图库和每款的安装大小）
 有完整表格和每款游戏需要的更新包版本：更新包 NSP 的显示版本必须与 profile 一致，否则构建会提示。
+
+**Switch 2 游戏**是引擎新加入的。目前有 5 款有 profile，上游都标为可在 Mac 上玩：Donkey Kong Bananza、
+Splatoon Raiders、Fire Emblem Fortune's Weave、Pokémon Pokopia 和 Hyrule Warriors: Age of Imprisonment。
+在构建页面选择游戏文件夹（`base/`、`updates/`、`dlc/`）或它的 `.nup` 文件即可，不需要 `prod.keys`。游戏库会把它们标为
+**Switch 2**。本 fork 还没有人通过启动器玩过 Switch 2 游戏。在 iPhone 和 iPad 上几乎没有测试过：一位维护者用命令行构建后，
+在 iPhone 17 Pro Max 上玩过 Donkey Kong Bananza。详情见 [GAMES.zh-CN.md](GAMES.zh-CN.md#switch-2-游戏)。
 
 ## 限制
 

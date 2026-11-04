@@ -42,8 +42,8 @@ extension BuildStore {
         // first. Copying the whole `games` folder onto the phone (or into a folder the Files app
         // exposes on an external drive) then needs no renaming, and several games' folders can sit
         // side by side in one app.
-        let gamesRoot = (outDir.isEmpty ? (basePath as NSString).deletingLastPathComponent : outDir) + "/games"
-        let tid = titleID.flatMap { $0.isEmpty ? nil : $0 } ?? TitleID.buildKey(basePath)
+        let gamesRoot = (outDir.isEmpty ? inputFolder : outDir) + "/games"
+        let tid = titleID.flatMap { $0.isEmpty ? nil : $0 } ?? buildKey
         // games/<id>/ holds romfs.img and aoc/ side by side: main.m's per-game lookup takes the
         // image, and the host mounts DLC from aoc/<index>.img (hle_fs.c aoc_dir). One folder, which
         // the user copies to the phone or keeps on an external drive as a whole.

@@ -30,7 +30,7 @@ package struct ExportSteps: View {
     /// Step 3 waits for step 1: until the IPA exists its controls are shown, but all of them quieter and inert.
     private var inert: Bool { !exported && !sentDone }
     private var toDrive: Bool { devices.sendWhere == SendWhere.drive }
-    private var gameName: String { ((build.basePath as NSString).lastPathComponent as NSString).deletingPathExtension }
+    private var gameName: String { build.gameName }
     private var oneGame: Bool { devices.exportOneGame }
 
     package var body: some View {
@@ -133,7 +133,7 @@ package struct ExportSteps: View {
         case .sent:
             note(.done, loc.t("shell.sendDone"))
         case .appNotFound:
-            note(.warning, loc.t("shell.sendNoApp"))
+            note(.warning, loc.t("shell.sendNoApp")) { finderWay(detail: nil) }
         case .chooseApp(let apps):
             note(.warning, loc.t("shell.sendSeveral")) {
                 ForEach(apps, id: \.bundle) { app in
@@ -142,32 +142,62 @@ package struct ExportSteps: View {
                 }
             }
         case .refused(let detail):
-            note(.warning, loc.t("shell.sendRefused")) {
-                Text(loc.t("shell.sendFinderSteps")).font(.manrope(12.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: 16) {
-                    Button(loc.t("shell.sendShowData")) { build.showGameDataInFinder() }.buttonStyle(LauncherSecondaryButtonStyle())
-                    Button { withAnimation(.easeInOut(duration: 0.18)) { detailsOpen.toggle() } } label: {
-                        HStack(spacing: 6) {
-                            Text(loc.t("shell.sendDetails")).font(.manrope(12.5, .medium))
-                            Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold)).rotationEffect(.degrees(detailsOpen ? 90 : 0))
-                        }
-                        .foregroundStyle(.secondary).contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain).accessibilityAddTraits(detailsOpen ? .isSelected : [])
-                }
-                if detailsOpen {
-                    Text(detail).font(.mono(11.5)).foregroundStyle(.secondary).textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, 12).padding(.vertical, 9)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(ExportGrid.well, in: RoundedRectangle(cornerRadius: 9))
-                }
-            }
+            note(.warning, loc.t("shell.sendRefused")) { finderWay(detail: detail) }
         case .failed(let text):
             note(.warning, text)
         case .idle, .copying, .copied:
             EmptyView()
         }
+    }
+
+    /// The second way, offered only after the copy to the device did not work (#491): one button that opens a Finder window with the
+    /// game's folder selected and then shows the three steps of the drag. devicectl's own words stay behind Details.
+    @ViewBuilder private func finderWay(detail: String?) -> some View {
+        let words = detail.flatMap { $0.isEmpty ? nil : $0 }
+        HStack(spacing: 16) {
+            Button(loc.t("shell.sendFinder")) { withAnimation(.easeInOut(duration: 0.18)) { build.copyWithFinder(oneGame: oneGame) } }
+                .buttonStyle(LauncherSecondaryButtonStyle())
+            if words != nil {
+                Button { withAnimation(.easeInOut(duration: 0.18)) { detailsOpen.toggle() } } label: {
+                    HStack(spacing: 6) {
+                        Text(loc.t("shell.sendDetails")).font(.manrope(12.5, .medium))
+                        Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold)).rotationEffect(.degrees(detailsOpen ? 90 : 0))
+                    }
+                    .foregroundStyle(.secondary).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain).accessibilityAddTraits(detailsOpen ? .isSelected : [])
+            }
+        }
+        if build.finderShown { finderSteps }
+        if detailsOpen, let words {
+            Text(words).font(.mono(11.5)).foregroundStyle(.secondary).textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 12).padding(.vertical, 9)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(ExportGrid.well, in: RoundedRectangle(cornerRadius: 9))
+        }
+    }
+
+    /// The drag in three steps, numbered as the export's own steps but smaller, in a well under the button. The folder is the one the
+    /// Finder window shows selected. Step 3 names the shell's own button, in the language the shell shows it.
+    private var finderSteps: some View {
+        let folder = (build.archivePath as NSString).lastPathComponent
+        let choose = L10n.string("ios.ui.chooseGameData", loc.lang).trimmingCharacters(in: CharacterSet(charactersIn: "….  "))
+        let lines = [loc.t("shell.sendFinderStep1"), String(format: loc.t("shell.sendFinderStep2"), folder),
+                     String(format: loc.t("shell.sendFinderStep3"), choose, folder)]
+        return VStack(alignment: .leading, spacing: 9) {
+            ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Text("\(index + 1)").font(.manrope(11, .semibold)).monospacedDigit().foregroundStyle(.secondary)
+                        .frame(width: 18, height: 18).background(Circle().fill(Color.white.opacity(0.08)))
+                    Text(line).font(.manrope(12.5)).foregroundStyle(.primary.opacity(0.85)).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .padding(.horizontal, 12).padding(.vertical, 11)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(ExportGrid.well, in: RoundedRectangle(cornerRadius: 9))
+        .accessibilityElement(children: .combine)
     }
 
     // MARK: To a drive or folder
@@ -236,7 +266,7 @@ package struct ExportSteps: View {
         case .copying: send = "copying"
         case .copied: send = "copied"
         }
-        return devices.sendWhere + send + (build.drive.map { "\($0.problem == nil)" } ?? "") + "\(detailsOpen)"
+        return devices.sendWhere + send + (build.drive.map { "\($0.problem == nil)" } ?? "") + "\(detailsOpen)\(build.finderShown)"
     }
 
     private enum NoteKind { case done, info, warning, blocked }

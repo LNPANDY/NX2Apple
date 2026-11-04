@@ -27,6 +27,7 @@ struct LauncherView: View {
     @State var launching = false
     @State private var launchError: String?
     @State private var removing: LibraryGame?
+    @State private var deleting: LibraryGame?   // the game whose Delete sheet is open (DeleteGameSheet.swift)
     @State var optionsFor: UUID?
     @State private var freeSpaceFor: UUID?   // the game whose Free space sheet is open
     @State private var controlsOpen = false
@@ -251,6 +252,7 @@ struct LauncherView: View {
             if let game = library.games.first(where: { $0.id == freeSpaceFor }) { FreeSpaceView(m: m, game: game).environmentObject(padFocus) }
         }
         .onChange(of: freeSpaceFor) { id in padFocus.scope = id != nil ? "free" : currentPadScope }
+        .deleteGameSheet($deleting, shellRoot: m.shellCachePath, library: library, loc: loc, pad: padFocus, scope: { currentPadScope })
         .sheet(isPresented: $updates.showUpdateSheet) { UpdateSheet(updates: updates) }
         .confirmationDialog(loc.t("uninstall.title"), isPresented: Binding(
             get: { updates.uninstallPlan != nil }, set: { if !$0 { updates.uninstallPlan = nil } }
@@ -468,6 +470,7 @@ struct LauncherView: View {
 
     func newBuild() {
         guard !m.running else { page = .builds; return }
+        m.leaveGameFolder()
         for index in m.slots.indices { m.slots[index].paths = []; m.slots[index].problem = "" }
         m.gameDir = ""; m.done = false; m.doneNote = ""; m.macAppPath = ""; m.stages = []
         if m.outDir.isEmpty && !library.folder.isEmpty { m.outDir = library.folder }
@@ -476,13 +479,18 @@ struct LauncherView: View {
 
     func configureBuild(_ game: LibraryGame) {
         guard !m.running else { page = .builds; return }
-        for index in m.slots.indices {
-            m.slots[index].paths = game.inputs[m.slots[index].id] ?? []
-            m.slots[index].problem = ""
+        if let folder = game.inputs[GameLibrary.folderInput]?.first {
+            m.scan(folder: folder)   // a game folder is read again: its updates and DLC may have changed since
+        } else {
+            m.leaveGameFolder()
+            for index in m.slots.indices {
+                m.slots[index].paths = game.inputs[m.slots[index].id] ?? []
+                m.slots[index].problem = ""
+            }
+            // The folder the game's files were found in (a base package may sit one level down in its own folder) — from the
+            // scan, or from the last build. Falling back to the base's folder would put the update and DLC out of reach.
+            m.gameDir = game.sourceFolder.isEmpty ? (m.basePath as NSString).deletingLastPathComponent : game.sourceFolder
         }
-        // The folder the game's files were found in (a base package may sit one level down in its own folder) — from the
-        // scan, or from the last build. Falling back to the base's folder would put the update and DLC out of reach.
-        m.gameDir = game.sourceFolder.isEmpty ? (m.basePath as NSString).deletingLastPathComponent : game.sourceFolder
         m.outDir = game.outputDirectory
         m.done = false; m.doneNote = ""; m.stages = []
         m.target = game.lastTarget
@@ -509,7 +517,7 @@ struct LauncherView: View {
             }
             return
         }
-        let sheetOpen = controllerSheet || optionsFor != nil || controlsOpen || savesFor != nil || cheatsFor != nil || freeSpaceFor != nil
+        let sheetOpen = controllerSheet || optionsFor != nil || controlsOpen || savesFor != nil || cheatsFor != nil || freeSpaceFor != nil || deleting != nil
         switch ManagePad.route(action, menuOpen: manageOpenFor != nil, sheetOpen: sheetOpen, hasGame: library.selected != nil && page == .library) {
         case .close: manageOpenFor = nil; return
         case .swallow: return
@@ -525,6 +533,7 @@ struct LauncherView: View {
         if action == .b, cheatsFor != nil { cheatsFor = nil; return }
         // The Free space sheet: B closes it, the D-pad and A work in it, X, L and R do nothing behind it
         if freeSpaceFor != nil && [.b, .x, .l, .r].contains(action) { if action == .b { freeSpaceFor = nil }; return }
+        if deleting != nil && [.b, .x, .l, .r].contains(action) { if action == .b { deleting = nil }; return }
         if action == .b {
             if optionsFor != nil { optionsFor = nil } else if controlsOpen { controlsOpen = false }
             else if searching { searching = false; search = "" } else if page != .library { page = .library }
@@ -565,14 +574,14 @@ struct LauncherView: View {
                             changeArtwork: { chooseArtwork(game) }, resetArtwork: { library.setArtwork("", for: game.id) },
                             reveal: { if let path = game.revealTarget { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) } },
                             showLog: { if let log = GameLog.latest(titleID: game.titleID, appPath: game.appPath) { GameLog.show(log) } },
-                            freeSpace: { freeSpaceFor = game.id }, remove: { removing = game }))
+                            freeSpace: { freeSpaceFor = game.id }, remove: { removing = game }, delete: { deleting = game }))
     }
 
     private func manageItems(for game: LibraryGame?) -> [ManageItem] { game.map(manageItems) ?? [] }
 
     /// The scope a controller acts in when no menu is open: the innermost sheet, else the window.
     private var currentPadScope: String {
-        controllerSheet ? "console.controllers" : savesFor != nil ? "saves" : cheatsFor != nil ? "cheats" : freeSpaceFor != nil ? "free" : optionsFor != nil ? "launch" : controlsOpen ? "controls" : "main"
+        controllerSheet ? "console.controllers" : savesFor != nil ? "saves" : cheatsFor != nil ? "cheats" : freeSpaceFor != nil ? "free" : deleting != nil ? "delete" : optionsFor != nil ? "launch" : controlsOpen ? "controls" : "main"
     }
 
     /// The space the collection row keeps around its cards for the focus ring (PadFocus draws it 4 pt outside a target).

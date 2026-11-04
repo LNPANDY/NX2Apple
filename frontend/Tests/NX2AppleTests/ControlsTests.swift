@@ -4,7 +4,7 @@ import XCTest
 @testable import NXLauncher
 
 /// The Controls page's layout and the DM_KEYMAP / DM_PAD_MAP it passes (read by dm/host/input_map.h).
-final class ControlsTests: XCTestCase {
+final class ControlsTests: IsolatedDefaultsTestCase {
     private var defaults: UserDefaults!
     private let suite = "nxnative-controls-tests"
 
@@ -70,7 +70,7 @@ final class ControlsTests: XCTestCase {
     }
 }
 
-final class StageNameTests: XCTestCase {
+final class StageNameTests: IsolatedDefaultsTestCase {
     func testTheScriptsStageNamesAreShownInTheLaunchersLanguage() {
         let zh = { (k: String) in L10n.string(k, .zh) }, sv = { (k: String) in L10n.string(k, .sv) }
         XCTAssertEqual(Stage.localizedName("Mac shaders", zh), "Mac 着色器")
@@ -80,5 +80,17 @@ final class StageNameTests: XCTestCase {
         XCTAssertEqual(Stage.localizedName("Vulkan shader capture", zh), "Vulkan 着色器捕获")
         XCTAssertEqual(Stage.localizedName("a stage added later", zh), "a stage added later", "an unknown name stays as the script wrote it")
         XCTAssertEqual(Stage.localizedName("Mac app", { $0 }), "Mac app")
+    }
+
+    /// A Switch 2 game folder packs its versions (pack_dump.py), a NUP unpacks them (pack_nup.py): build_ipa_from_nsp.py's
+    /// stages "pack v458752", "pack DLC" and "unpack v196608" were shown in English in every language (#445).
+    func testTheGameFolderStagesAreShownInTheLaunchersLanguage() {
+        let de = { (k: String) in L10n.string(k, Lang("de")) }, zh = { (k: String) in L10n.string(k, .zh) }
+        XCTAssertEqual(Stage.localizedName("pack v458752", de), "v458752 packen")
+        XCTAssertEqual(Stage.localizedName("pack DLC", zh), "打包 DLC", "the DLC stage is its own row, not pack of \"DLC\"")
+        XCTAssertEqual(Stage.localizedName("unpack v196608", zh), "解包 v196608")
+        for lang in Lang.all {
+            for key in ["stage.pack", "stage.pack_dlc", "stage.unpack"] { XCTAssertNotEqual(L10n.string(key, lang), key, "\(key) in \(lang)") }
+        }
     }
 }

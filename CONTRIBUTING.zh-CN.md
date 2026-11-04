@@ -1,6 +1,6 @@
 # 参与贡献
 
-英文版：[CONTRIBUTING.md](CONTRIBUTING.md)（提 issue 要附什么、提 pull request 的规则、补丁队列都在那里）。在终端里手动构建（工具、`prod.keys`、IPA）见 [BUILDING.zh-CN.md](BUILDING.zh-CN.md)。下面是帮忙补充游戏。
+提 issue 要附什么、提 pull request 的规则和补丁队列见 [CONTRIBUTING.md](CONTRIBUTING.md)。在终端里手动构建（工具、`prod.keys`、IPA）见 [BUILDING.zh-CN.md](BUILDING.zh-CN.md)。下面是帮忙补充游戏。
 
 ## 帮忙补充游戏
 

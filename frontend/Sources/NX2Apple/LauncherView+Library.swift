@@ -248,6 +248,13 @@ extension LauncherView {
                 .font(prominent ? .manrope(12, .bold) : .manrope(13, .medium))
                 .tracking(prominent ? 1.3 : 0)   // the eyebrow: the same face, in tracked capitals
                 .foregroundStyle(color)
+            if GameFolder.profileIsSwitch2(game.titleID, engineRoot: EngineLayout.root(m.repo.path)) {   // #445
+                Text(loc.t("switch2.badge"))
+                    .font(.manrope(prominent ? 11 : 10.5, .bold)).foregroundStyle(LauncherPalette.cream.opacity(0.85))
+                    .padding(.horizontal, 7).padding(.vertical, 2)
+                    .overlay(Capsule().strokeBorder(LauncherPalette.cream.opacity(0.35)))
+                    .help(loc.t("switch2.help"))
+            }
             if !building && toolsAge.older.contains(game.id) {   // a quiet note beside the status, not a warning
                 Text("· " + loc.t(prominent ? "library.olderTools" : "library.olderToolsShort"))
                     .font(.manrope(prominent ? 13 : 12)).foregroundStyle(.secondary).lineLimit(1)

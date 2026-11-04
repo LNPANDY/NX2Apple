@@ -29,6 +29,7 @@ import NXLauncher
     func exitToDesktop() { base.exitToDesktop() }
     func returnFromGame() { base.returnFromGame() }
     func consumePress(controllerID: String, isBack: Bool) -> Bool { base.consumePress(controllerID: controllerID, isBack: isBack) }
+    func openHomeButtonSettings() { base.openHomeButtonSettings() }
 }
 
 /// The battery drawn as the iOS status bar does: an outline with a nub and a fill exactly as wide as the level, red at 20 percent

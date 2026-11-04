@@ -6,7 +6,7 @@ import NXModel
 @testable import NXLauncher
 
 /// Frame-time recordings (DM_NVN_TSV): reading the host's timing rows and summing them up as scripts/bench.py does.
-@MainActor final class FrameTimesTests: XCTestCase {
+@MainActor final class FrameTimesTests: IsolatedDefaultsTestCase {
     /// Rows as the host writes them (dm/gfx/nvn/hle_nvn.c): frame, @metric, value; call-count rows and junk in between.
     private let tsv = """
     1\t@t_s\t0.000
@@ -177,7 +177,7 @@ import NXModel
         let saved = UserDefaults.standard.object(forKey: key)
         defer { UserDefaults.standard.set(saved, forKey: key) }
         FrameTimes.setEnabled(true, titleID: titleID)
-        let modelStores = LauncherStores(); let model = modelStores.build
+        let modelStores = LauncherStores(defaults: testDefaults); let model = modelStores.build
         model.lang = .en
         let host = NSHostingView(rootView: LaunchOptionsView(m: model, library: library, gameID: library.games[0].id).environmentObject(PadFocus()).environmentObject(modelStores.localizer))
         let window = OffscreenWindow(size: NSSize(width: 900, height: 1300), styleMask: [.titled, .closable, .resizable])

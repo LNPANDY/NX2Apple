@@ -17,6 +17,9 @@ Docked
 Dutch
 Dynamic resolution
 Encode thread
+Fill
+Fill crops the game's 16:9 picture to cover the screen. Health bars, subtitles or maps near the edges can be cut off. A full-screen picture without cropping needs a patch for each game.
+Fit
 Frame buffering
 Frame rate
 Frame-rate counter
@@ -25,6 +28,8 @@ Fullscreen
 Game
 Game language
 Game rumble
+Game's own
+Game's upscaler
 German
 Glass
 Glass is the glass keys, Moon is the picture skin, and Moon (badges) is the picture skin with letter badges.
@@ -42,6 +47,7 @@ Moon
 Moon (badges)
 Performance
 Performance HUD
+Picture
 Pipeline prebuild
 Portuguese
 Refresh rate

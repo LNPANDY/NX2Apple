@@ -80,6 +80,10 @@ func hop(_ body: @escaping @MainActor () -> Void) {
         Slot(id: "dlc", kind: .dlc, title: "data.dlc", optional: true),
         Slot(id: "keys", kind: .keys, title: "data.keys", optional: false),
     ]
+    /// The game folder the rows came from (BuildStore+GameFolder.swift), nil for packages.
+    @Published package var gameFolder: GameFolder.Contents?
+    /// A folder meant as a game folder was refused: the base row says why.
+    @Published package var gameFolderRefused = false
     @Published package var outDir: String {
         didSet { defaults.set(outDir, forKey: Self.outputKey) }
     }
@@ -136,11 +140,19 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     @Published package var installedOn = ""       // the device the last build went to (its UDID)
     @Published package var installedAppPath = ""  // the signed app that went there
     @Published package var exportedIPAPath = ""   // the unsigned IPA of an export (#416)
-    @Published package var send: DataSend = .idle  // step 3 of the export: the game data on its way (BuildStore+Send.swift)
+    @Published package var send: DataSend = .idle {  // step 3 of the export: the game data on its way (BuildStore+Send.swift)
+        didSet { if send != oldValue { finderShown = false } }
+    }
+    /// The player chose the Finder way after the copy to the device did not work: step 3 shows its three steps (#491).
+    @Published package var finderShown = false
     @Published package var drive: DriveState?      // the chosen folder's volume and what stops the copy (BuildStore+Send.swift)
     var shellRetry: (framework: String, titleID: String, name: String, archive: String)?
     var shellDeviceChecked = false
     package let driveCancel = LockedFlag()   // Stop of the copy to a drive (BuildStore+Send.swift)
+    @Published package var shellMove: ShellMove = .idle   // Move cache folder (BuildStore+ShellRoot.swift, #427)
+    package let shellMoveStop = LockedFlag()
+    /// The home folder the default shell root is in. Tests use a temporary one, so they never touch the real Application Support.
+    package var home = NSHomeDirectory()
 
     // ---- The app's side: AppKit and the wiring, as closures ----
     package var chooseKeys: (() -> Void)?          // tests stand in for the file picker
@@ -153,6 +165,8 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     /// A notice the player must see (the shader chain changed): an alert.
     package var showNotice: (String) -> Void = { _ in }
     package var revealFolder: (URL) -> Void = { _ in }
+    /// A Finder window with this file or folder selected (`activateFileViewerSelecting`).
+    package var revealItem: (URL) -> Void = { _ in }
     package var openApp: (URL) -> Void = { _ in }
     /// Whether the build folder is in a cloud folder. Tests stand in for the system's answer.
     package var cloudFolderCheck: (String) -> Bool = { CloudFolder.contains($0) }
@@ -217,8 +231,9 @@ func hop(_ body: @escaping @MainActor () -> Void) {
         if let i = slots.firstIndex(where: { $0.id == id }) { body(&slots[i]) }
     }
 
-    /// A build may start: the repository is usable, the base game and the keys are there, the tools are all present and none runs.
-    package var canBuild: Bool { repo.isRepo && slot("base").ok && slot("keys").ok && deps.allPresent && !running }
+    /// A build may start: the repository is usable, the base game and the keys are there (a game folder needs no keys), the tools
+    /// are all present and none runs.
+    package var canBuild: Bool { repo.isRepo && inputsReady && deps.allPresent && !running }
 
     /// A line for the build card's note, from a store that has no card of its own (the dependency store's failed install).
     package func note(_ text: String) { doneNote = text }
@@ -228,6 +243,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     package func fail(_ why: String) { running = false; doneNote = why; say("✗ " + why); cleanupStaging() }
 
     package func stop() {
+        if case .moving = shellMove { stopShellMove(); return }
         guard running, !stopping, let proc, proc.isRunning else { return }
         stopping = true
         ProcessGroups.endGroup(proc.processIdentifier)   // the script and every tool it started

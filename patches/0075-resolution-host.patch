@@ -1,0 +1,276 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiaoge-tou <85100527+Tiaoge-tou@users.noreply.github.com>
+Date: Tue, 3 Nov 2026 21:20:20 +0800
+Subject: [PATCH] Resolution, host side: measured render size in the state
+ page, host-filled mode sizes, nn::oe default resolution
+
+The host half of the resolution service (patch port 0075, group M of the port inventory), carried from the Tiaoge-tou/nxnative fork.
+
+loader.c: dm_fps_state_apply writes the measured render size into the frame-step state page (the docked pair at +0x38 from DM_RENDER_WIDTH, the handheld pair at +0x40 from DM_RENDER_WIDTH_HD, with the narrow-screen stock-frame rules and the serve_narrow exception for a guest with a resolution record, published as DM_SERVE_NARROW for nn::oe), and fills a guest's display-mode size words from the screen (fixups HOST_FILL_D / HOST_FILL_H / HOST_FILL_W, parsed in read_layout, the fields in dm.h). The state page range check grows to +0x48 for the handheld cell.
+
+hle_oe.c: the default display resolution answer follows the same sizes: the host's render width at the docked height for a display_wide profile with fullscreen on (the Hades II row lands with this patch), and the host's handheld size at 720p in handheld mode under the same narrow rule.
+
+dm.h also declares dm_display_hz / dm_display_set_hz here: the definition and its callers land in the 120 Hz patch, and nothing calls them yet.
+
+dm/tools/docs_patches.py classifies the four profile keys patch 0072 added (display_wide, pad_skin_toggle, serve_patch, display_hz) in SWITCH_BINDING: the generated game-patches doc refuses an unclassified key, and this patch is the first to have a profile use one.
+
+Upstream-Status: fork-only
+Reason: Measured render sizes served to Silksong and Hades II on every size channel (PROJECT.md Phase 2)
+Issue: Tiaoge-tou/NX2Apple PROJECT.md Phase 2
+
+---
+ dm/games/0100A00019DE0000/game.tsv |   4 ++
+ dm/host/dm.h                       |   8 +++
+ dm/host/hle_oe.c                   |  33 ++++++++-
+ dm/host/loader.c                   | 112 ++++++++++++++++++++++++++++-
+ dm/tools/docs_patches.py           |   8 +++
+ 5 files changed, 162 insertions(+), 3 deletions(-)
+
+diff --git a/dm/games/0100A00019DE0000/game.tsv b/dm/games/0100A00019DE0000/game.tsv
+index b0e47b7..03c6849 100644
+--- a/dm/games/0100A00019DE0000/game.tsv
++++ b/dm/games/0100A00019DE0000/game.tsv
+@@ -33,6 +33,10 @@ zip_store	.bank:.bik:.fsb:.gpk:.nro:.pkg:.xnb:.metallib
+ 
+ # ---- Graphics ----
+ 
++# With the fullscreen setting on, nn::oe reports 2344x1080 docked (the phone's 19.5:9 at docked height):
++# the engine renders the wide picture itself instead of the present stretching a 1920x1080 one
++display_wide	on
++
+ # ---- Memory ----
+ # The NPDM declares no system resource (META +0x14 = 0): the game uses SetHeapSize. It asks for 3.10 GB (pool − used memory), which the 3.25 GB heap region of
+ # the 4 GB layout holds. main carries an 82 MB bss: the rewritten modules take more than the default 64 MB of used memory, so SetHeapSize(pool − 64 MB) would not fit
+diff --git a/dm/host/dm.h b/dm/host/dm.h
+index 402a3aa..c393b29 100644
+--- a/dm/host/dm.h
++++ b/dm/host/dm.h
+@@ -55,6 +55,8 @@ typedef struct {
+     struct { char name[32]; uint64_t off; } ue_cvar[8];   // Unreal console variables found by their registered names (patch_nso.py, ue_cvar.py; UE_CVAR:<name>): each one's TAutoConsoleVariable
+     int n_ue_cvar;
+     uint64_t fps_state_off;    // frame step state page (patch_nso.py FRAME_STEP: Tears of the Kingdom 1.4.3 and Breath of the Wild 1.9.0 main); 0 = none
++    uint64_t fill_d_off, fill_h_off;   // display-mode size words (docked / handheld) the loader fills with the screen's widths when the game starts (patch_nso.py HOST_FILLS); 0 = none
++    uint64_t fill_w_off;       // a resolution record (four words: a world size at a 576-line reference, then the handheld size) whose world word the loader widens to the screen's aspect on a screen wider than the stock frame (patch_nso.py HOST_FILLS 'W'); 0 = none
+     int64_t patch_off;         // patch area relative to the base; negative = before the base (image too large, see patch_nso.py FAR), and size does not include it
+     uint64_t image_size, file_image_len, patch_len;   // only with the patch area before the base: whole image (with bss and key page), length of the image part of the file, patch area length
+     uint64_t back_off, back_len;   // a second patch area after the image (patch_nso.py TWO: a text longer than a B reaches), inside size; 0 = none
+@@ -192,6 +194,12 @@ const char *dm_cheats_source(int i);
+ void dm_cheats_exit(void);            // a clean exit (hle_lifecycle.c, atexit): removes the safe-mode flag
+ // Graphics lifecycle (hle_nvn.c): on=1 suspends (afterwards submit / present block, and in-flight GPU work is drained before returning), on=0 resumes; called by the iOS front end when entering and leaving the background
+ void dm_gfx_suspend(int on);
++// Display rate (hle_nvn.c): the rate the iOS front end measured on the screen (its display link, front_ios.m) for a game whose
++// profile offers a rate above 60 (game.tsv display_hz); the present tick, the present display link and the vi vsync event follow
++// it while it is 120. dm_display_hz is 0 while the mode is not driven (the pacing is then the game's own, as before); the front
++// end hands 60 back to release it, when the screen cannot hold 120 Hz (a 60 Hz panel, Low Power Mode, heat)
++int dm_display_hz(void);
++void dm_display_set_hz(int hz);
+ void dm_gfx_enter(void); void dm_gfx_leave(void);   // hle_nvn.c: the gate dm_gfx_suspend closes, for graphics layers other than NVN (dm/gfx/vk)
+ void dm_gfx_shot_at(long k, const char *path);
+ void dm_shot_written(const char *path, int ok);   // The graphics side finished writing a screenshot to disk (diag.c: DM_TICK_HOLD=E:SHOT unfreezes on this)
+diff --git a/dm/host/hle_oe.c b/dm/host/hle_oe.c
+index 1e97a64..ed34d6a 100644
+--- a/dm/host/hle_oe.c
++++ b/dm/host/hle_oe.c
+@@ -155,8 +155,37 @@ HLE_FORCE("_ZN2nn2oe22SetCpuOverclockEnabledEb", "CPU overclock switch (through
+ HLE_FORCE("_ZN2nn2oe23GetCurrentGraphicsScaleEv", "graphics scale (Switch 2, through am): 0 handheld, 1 console", int, h_oe_GfxScale, void) { return opmode() == 1; }
+ HLE_FORCE("_ZN2nn2oe42SetGraphicsScaleChangedNotificationEnabledEb", "graphics scale change notification (Switch 2, through am); the scale changes only with the operation mode",
+           void, h_oe_GfxScaleNotify, unsigned on) { (void)on; }
+-HLE_FORCE("_ZN2nn2oe27GetDefaultDisplayResolutionEPiS1_", "default display resolution: 1920x1080 docked, 1280x720 handheld", void, h_oe_DefRes, int *w, int *h) {
+-    int con = opmode() == 1; if (w) *w = con ? 1920 : 1280; if (h) *h = con ? 1080 : 720;
++HLE_FORCE("_ZN2nn2oe27GetDefaultDisplayResolutionEPiS1_", "default display resolution: 1920x1080 docked, the host's handheld size at 720p handheld (profile display_wide + fullscreen: the host's render size)", void, h_oe_DefRes, int *w, int *h) {
++    int con = opmode() == 1; int x = con ? 1920 : 1280, y = con ? 1080 : 720;
++    // Profile display_wide (Hades II): with the fullscreen setting on, report the host's render width
++    // (DM_RENDER_WIDTH, which the iOS front end measures on the screen it runs on; the loader's own
++    // validation, so the answer cannot disagree with the size the swap chain is built at) at the docked
++    // height instead of 1920x1080, so the game renders the wide picture itself; from 1920x1080 the
++    // present can only stretch it (front_ios.m / nvn_mtl.m DM_FULLSCREEN). The baked 2344 this replaced
++    // is one phone's measured width: on a screen that measures narrower (2336 on the 19.5:9 Pro models)
++    // the game's crop came out 8 px wider than its swap-chain texture and every present was rejected
++    // as out of bounds. Without the variable the answer keeps the baked 2344, as before
++    if (DM_GAME_DISPLAY_WIDE && con) { const char *fs = getenv("DM_FULLSCREEN"); if (fs && atoi(fs)) { const char *rw = getenv("DM_RENDER_WIDTH"); long dw = rw ? strtol(rw, NULL, 10) : 0;
++        x = (dw >= 320 && dw <= 16384 && !(dw % 8)) ? (int)dw : 2344; } }
++{}    // Handheld: the panel is this screen, so the answer is the host's render size at the handheld height
++    // (DM_RENDER_WIDTH_HD, which the iOS front end measures on the screen it runs on; the loader's own
++    // validation, so the two cannot disagree). A game can ask again after its window is up -- Silksong's
++    // Unity player does, before its first frame -- and sizes its present crop from the answer: the stock
++    // 1280x720 there undid the wide handheld size the size stubs and the display-mode template already
++    // carried, and the present stretched the 1280-wide crop over the whole screen. Without the variable
++    // (the Mac, a front end that does not measure) the answer is the stock panel size, as before.
++    // A measured width at or below the stock 1280 does not replace the answer either: a guest whose
++    // handheld composition is laid out for the stock frame (Silksong) told a narrower size lays its HUD
++    // canvas out for a wider frame than it draws and the edges fall off, so on a narrow screen every
++    // size channel holds the stock panel size -- this answer, the display-mode template's handheld
++    // word and the frame-step state's handheld cell (loader.c dm_fps_state_apply) -- and the front
++    // end's scale to the screen is the only transform. The one exception is a guest the loader serves
++    // its narrow screen's own sizes (DM_SERVE_NARROW, set there for a guest with a resolution record,
++    // whose record stays stock): this answer follows, so the channels still agree
++    if (!con) { const char *rh = getenv("DM_RENDER_WIDTH_HD"); long hw = rh ? strtol(rh, NULL, 10) : 0;
++        if (hw >= 320 && hw <= 16384 && !(hw % 8) && (hw > 1280 || getenv("DM_SERVE_NARROW"))) x = (int)hw; }
++    if (w) *w = x; if (h) *h = y;
++    static int ncalls; if (ncalls < 16) LOG("default display resolution: %dx%d (call %d)", x, y, ncalls); ncalls++;   // diagnostic: every early answer, not just the first
+ }
+ HLE_FORCE("_ZN2nn2oe38GetDefaultDisplayResolutionChangeEventEPNS_2os11SystemEventE", "default display resolution change event: bound, never signaled (the operation mode notification carries the change)",
+           void, h_oe_DefResEv, void *ev) { hle_bind_system_event(ev, 0); }
+diff --git a/dm/host/loader.c b/dm/host/loader.c
+index 2cc2900..b236f6d 100644
+--- a/dm/host/loader.c
++++ b/dm/host/loader.c
+@@ -240,6 +240,7 @@ static void force_check(void) {
+     LOG("force: %u entries hit, %u not referenced by this game", g_nforce - unused, unused);
+ }
+ 
++static module_t *g_fill_mod;   // the module whose fixups declare host-filled display-mode size words (HOST_FILL_D / HOST_FILL_H), filled in dm_fps_state_apply
+ // Read the rewriter table header (segment boundaries, slot numbers); any row beyond the header means an old-format build output (code modified at load time), which is rejected
+ static void read_layout(module_t *m, const char *dir) {
+     char path[1024]; snprintf(path, sizeof path, "%s/%s.fixups.tsv", dir, m->name);
+@@ -260,6 +261,9 @@ static void read_layout(module_t *m, const char *dir) {
+         else if (!strcmp(key, "RO_OFF")) m->ro_off = v;
+         else if (!strcmp(key, "DATA_OFF")) m->data_off = v;
+         else if (!strcmp(key, "FPS_STATE_OFF")) m->fps_state_off = v;
++        else if (!strcmp(key, "HOST_FILL_D")) { m->fill_d_off = v; g_fill_mod = m; }
++        else if (!strcmp(key, "HOST_FILL_H")) { m->fill_h_off = v; g_fill_mod = m; }
++        else if (!strcmp(key, "HOST_FILL_W")) { m->fill_w_off = v; g_fill_mod = m; }
+         else if (!strcmp(key, "UE_MALLOC_VT")) m->ue_malloc_vt = v;
+         else if (!strcmp(key, "UE_MALLOC_SLOT")) m->ue_malloc_slot = (unsigned)v;
+         else if (!strncmp(key, "UE_CVAR:", 8)) {
+@@ -290,7 +294,7 @@ static void read_layout(module_t *m, const char *dir) {
+ uint8_t *dm_fps_state;
+ static const char *g_fps_mod;   // the module holding the state page (for the log)
+ static void install_fps_state(module_t *m) {
+-    if (m->fps_state_off + 0x40 > m->size || m->fps_state_off < m->key_page_off + m->key_page_size) die("%s: frame step state page out of range", m->name);
++    if (m->fps_state_off + 0x48 > m->size || m->fps_state_off < m->key_page_off + m->key_page_size) die("%s: frame step state page out of range", m->name);
+     dm_fps_state = m->base + m->fps_state_off; g_fps_mod = m->name;
+ }
+ // The settings in the state page, written when the game starts (main.c, after host loading): on iOS the loading runs at app launch, before the launcher has set DM_FPS_TARGET and
+@@ -305,6 +309,112 @@ void dm_fps_state_apply(void) {
+     const char *rs = getenv("DM_RENDER_SCALE"); float sc = 1.0f;
+     if (rs) { char *end; sc = strtof(rs, &end); if (end == rs || *end || !(sc >= 0.5f && sc <= 1.0f)) { LOG("[RED] DM_RENDER_SCALE=%s: must be 0.5 to 1.0; keeping the game's size", rs); sc = 1.0f; } else LOG("%s: 3D views rendered at %.2f of the game's size (DM_RENDER_SCALE)", g_fps_mod, sc); }
+     memcpy(dm_fps_state + 0x10, &sc, sizeof sc);
++    // Render size (state +0x38, a packed u64 width | height << 32): the size the build's stub at its baked size constant renders at
++    // (Hades II's render pair), in place of a width baked when the IPA was made, so one build fits every screen.
++    // The front end measures the screen and sets DM_RENDER_WIDTH (front_ios.m); the height is the docked 1080 those sizes are designed
++    // around. Without the variable the cell takes 2344, the width the wide builds baked until now, so behaviour is unchanged.
++    // DM_RENDER_HEIGHT overrides the height word on its own (the launcher's lowered-resolution frame-rate tier, front_ios.m sets
++    // it beside the lowered width): the build's height stubs read the packed high word, as its width stubs read the low one
++    const char *rht = getenv("DM_RENDER_HEIGHT"); long ht = rht ? strtol(rht, NULL, 10) : 0;
++    if (rht && (ht < 240 || ht > 2160 || ht % 2)) { LOG("[RED] DM_RENDER_HEIGHT=%s: an even value between 240 and 2160 expected; using 1080", rht); ht = 0; }
++    const char *rw = getenv("DM_RENDER_WIDTH"); long w = rw ? strtol(rw, NULL, 10) : 0;
++    if (rw && (w < 320 || w > 16384 || w % 8)) { LOG("[RED] DM_RENDER_WIDTH=%s: a multiple of 8 between 320 and 16384 expected; using 2344", rw); w = 0; }
++    // On a screen narrower than 16:9 the measured docked width (an iPad's 1552 or 1640 at the 1080 height) is
++    // NOT served: a guest whose docked composition is laid out for the stock 1920x1080 (Silksong) derives a
++    // 16:10 sub-rect from the narrower width and letterboxes it inside the frame, the never-cleared strips
++    // outside it showing as coloured bands -- and a mirrored ghost strip under sprites was only ever seen on
++    // those sub-rect paths. The stock pair is served instead and the front end scales it to the screen, as
++    // it does the handheld frame on such a screen. A height override (the lowered-resolution tier) opts
++    // out: its widths are the tier's own. Build #81 tried excepting a guest with a resolution record here
++    // too (its handheld side centre-crops, build #76): served the measured docked width on every channel,
++    // the guest letterboxed its 16:9 composition inside the frame with the ghost strip back (device-checked
++    // 2026-10-27) -- its docked composition fits inside the frame rather than cropping into it, so there is
++    // no docked exception; serve_narrow below covers the handheld channels only
++    // The stock pair is a stock-frame guest's treatment, though, and the floor below is scoped to
++    // that class -- a guest whose display-mode sizes the host fills (g_fill_mod). A guest that
++    // only reads this render pair (Hades II) composes for the reported size itself: floored to
++    // 1920 on an iPad (measured 1552 or 1640) it rendered 1920x1080 and the front end scaled
++    // that wider picture onto the narrower screen, stretching it vertically (device-reported
++    // 2026-10-29). Such a guest is served the measured width on any screen, as builds before
++    // the floor did
++    const char *rh0 = getenv("DM_RENDER_WIDTH_HD"); long hw0 = rh0 ? strtol(rh0, NULL, 10) : 0;
++    if (rh0 && (hw0 < 320 || hw0 > 16384 || hw0 % 8)) hw0 = 0;
++    int serve_narrow = hw0 && hw0 < 1280 && g_fill_mod && g_fill_mod->fill_w_off;
++    long deff = (!ht && w && w < 1920 && g_fill_mod) ? 1920 : (w ? w : 2344);
++    uint64_t rpair = (uint64_t)(uint32_t)deff | (uint64_t)(uint32_t)(ht ? ht : 1080) << 32; memcpy(dm_fps_state + 0x38, &rpair, sizeof rpair);
++    if (rw || rht) LOG("%s: render size %ldx%ld (DM_RENDER_WIDTH / DM_RENDER_HEIGHT)", g_fps_mod, deff, ht ? ht : 1080);
++    // Render size at the handheld height (state +0x40, a packed u64 width | 720 << 32): the same routing for a build whose
++    // handheld sizes read a state cell too (Silksong's size getter default). The front end sets DM_RENDER_WIDTH_HD beside
++    // DM_RENDER_WIDTH; without it the cell takes 1280, the handheld width every build baked until now. On a screen
++    // narrower than the stock handheld frame the cell is held at 1280 as well: the guest's handheld composition is
++    // laid out for the stock frame and cannot shrink with the screen (told 1032 on an iPad, it lays its HUD canvas
++    // out for a wider frame and the edges fall off the picture), so it composes the stock frame and the front end
++    // scales that to the screen -- the slight stretch is the price, and it is what builds before the host fills
++    // did (build #50 on an iPad at 2360x1640). A guest with a resolution record is excepted (serve_narrow, below)
++    const char *rh = getenv("DM_RENDER_WIDTH_HD"); long hw = rh ? strtol(rh, NULL, 10) : 0;
++    if (rh && (hw < 320 || hw > 16384 || hw % 8)) { LOG("[RED] DM_RENDER_WIDTH_HD=%s: a multiple of 8 between 320 and 16384 expected; using 1280", rh); hw = 0; }
++    // A guest with a resolution record (HOST_FILL_W) is excepted from the narrow hold on the handheld
++    // channels: its composition follows the record's world pair, so it is served the screen's own handheld
++    // sizes on every channel at once and the record's world pair is set to the same aspect in the fill
++    // below -- the wide screen's arrangement, under which the display sizes and the world pair agree
++    // (build #76, device-checked; the agreement itself is load-bearing, see the fill). The decision
++    // (serve_narrow, computed at the docked size above from this same width) is published for the one
++    // size channel that lives elsewhere, nn::oe's default-resolution answer (hle_oe.c)
++    if (serve_narrow) setenv("DM_SERVE_NARROW", "1", 1);
++    long heff = (hw > 1280 || serve_narrow) ? hw : 1280;
++    uint64_t hpair = (uint64_t)(uint32_t)heff | 720ULL << 32; memcpy(dm_fps_state + 0x40, &hpair, sizeof hpair);
++    if (rh) LOG("%s: render size %ldx720 (DM_RENDER_WIDTH_HD)", g_fps_mod, heff);
++    // Host-filled display-mode size words (fixups HOST_FILL_D / HOST_FILL_H, the module is the state page's own): a guest whose
++    // mode sizes live in a data template rather than in code (Silksong's screen-state ctor template: handheld width at +0,
++    // docked at +8) takes its reported display size -- and with it the present crop -- from that template, so a width baked
++    // there outlives every stub at the code sites and disagrees with the textures on any screen but the one it was baked for.
++    // The loader writes the screen's own widths over the baked ones here, before the guest starts and copies the template.
++    // With a height override (DM_RENDER_HEIGHT) the template's docked height word follows too (the word after the docked
++    // width): the guest reads its display height from the same template, and a lowered width with the stock height would
++    // report a size nothing renders at. The handheld height stays 720, as the handheld pair does.
++    // The handheld word follows the narrow rule of the state page's handheld cell above: on a screen no wider
++    // than the stock frame it is left at the baked 1280, so the reported size, the crop and the frame the
++    // guest composes stay the stock one and the front end's scale to the screen is the only transform (the
++    // serve_narrow exception fills the screen's own width here too). The
++    // docked word is always filled: a baked docked width wider than the swapchain the stubs sized drops
++    // every present (an iPad's docked black screen)
++    if (g_fill_mod) {
++        module_t *m = g_fill_mod;
++        if (m->fill_d_off) { if (m->fill_d_off + 4 > m->size) die("%s: HOST_FILL_D out of range", m->name); uint32_t v32 = (uint32_t)deff; memcpy(m->base + m->fill_d_off, &v32, sizeof v32); }
++        if (m->fill_d_off && ht) { if (m->fill_d_off + 8 > m->size) die("%s: HOST_FILL_D height out of range", m->name); uint32_t v32 = (uint32_t)ht; memcpy(m->base + m->fill_d_off + 4, &v32, sizeof v32); }
++        if (m->fill_h_off) { if (m->fill_h_off + 4 > m->size) die("%s: HOST_FILL_H out of range", m->name); if (hw > 1280 || serve_narrow) { uint32_t v32 = (uint32_t)hw; memcpy(m->base + m->fill_h_off, &v32, sizeof v32); } }
++        if (m->fill_d_off || m->fill_h_off) LOG("%s: display-mode sizes filled from the host (docked %ld, handheld %ld)", m->name, deff, heff);
++        // A resolution record (HOST_FILL_W: four words, a world size at a 576-line reference then the handheld size,
++        // stock 1024x576 / 1280x720), copied with the display template into a managed settings object at its init
++        // (Silksong: the pair of vector loads at main+0x253cfd4). Its world pair is the world camera's reference:
++        // the camera projects for the pair's aspect, and the composite stretches that picture into the frame. Left
++        // stock on a screen wider than 16:9, the world is drawn for 16:9 and stretched sideways into the wide
++        // frame -- sprites come out fat -- while the HUD, composed in screen space, stays true, which is why the
++        // stretch went unnoticed while the picture was judged by the HUD. On a wide screen the world word takes
++        // the screen's own aspect at the same 576 reference (the handheld frame's width over its 720 height);
++        // the stock words are checked first, so a module whose record differs is left alone. The handheld pair
++        // is never written (build #71: it does not drive the HUD). On a narrow screen served its own sizes
++        // (serve_narrow, above) the same agreement is arranged the other way: the world pair keeps its 1024
++        // width and its height takes the screen's aspect, so the record agrees with the served sizes as
++        // it does on a wide screen. (Build #83 dropped this write as inert and its device check crashed
++        // at the save screen in both modes -- but the crash was traced to a corrupted datapack on the
++        // test device, not to the arrangement; the write stays because the arrangement carrying it is
++        // the one with the device-checked history, builds #76/#81.) A write to the pair's WIDTH stays
++        // the letterbox-and-ghost signature of builds #70/#71/#77 and is not made
++        if (m->fill_w_off && hw && hw != 1280) {
++            if (m->fill_w_off + 16 > m->size) die("%s: HOST_FILL_W out of range", m->name);
++            uint32_t cur[4]; memcpy(cur, m->base + m->fill_w_off, sizeof cur);
++            if (cur[0] == 1024 && cur[1] == 576 && cur[2] == 1280 && cur[3] == 720) {
++                if (hw > 1280) {
++                    uint32_t v32 = (uint32_t)((hw * 576 + 360) / 720); memcpy(m->base + m->fill_w_off, &v32, sizeof v32);
++                    LOG("%s: resolution record world pair widened to the screen (%ux576); the handheld pair stays stock", m->name, v32);
++                } else if (serve_narrow) {
++                    uint32_t v32 = (uint32_t)((1024 * 720 + hw / 2) / hw); memcpy(m->base + m->fill_w_off + 4, &v32, sizeof v32);
++                    LOG("%s: resolution record world pair set to the screen for a narrow screen (1024x%u); the handheld pair stays stock", m->name, v32);
++                }
++            }
++        }
++    }
+     char cap[32]; snprintf(cap, sizeof cap, ", capped at %d fps", t);
+     LOG("%s: frame step %s%s (%s)", g_fps_mod, !t ? "as the game sets it" : "in whole vsyncs decided by the host", t ? cap : "", e ? "DM_FPS_TARGET" : "game profile fps_target");
+ }
+diff --git a/dm/tools/docs_patches.py b/dm/tools/docs_patches.py
+index 27e718c..e35fbed 100644
+--- a/dm/tools/docs_patches.py
++++ b/dm/tools/docs_patches.py
+@@ -125,6 +125,14 @@ SWITCH_BINDING = [
+     ('ue_fps_cvar', '', {'what': "the game's own Unreal frame-limit variable", 'now': 'game', 'goal': 'game', 'purpose': 'frame rate', 'why': "the game's own variable, which its settings apply to t.MaxFPS; the rewriter finds it by name (ue_cvar.py)"}),
+     ('perf_mode', '', {'what': 'Boost whatever the operation mode', 'now': 'game', 'goal': 'game', 'purpose': 'runtime', 'why': 'a combination a Switch 1 never reports: a choice per game'}),
+     ('op_mode', '', {'what': 'the operation mode at start', 'now': 'game', 'goal': 'game', 'purpose': 'runtime', 'why': "the game's controls (handheld: the touch screen instead of a gyro pointer)"}),
++    ('display_wide', '', {'what': "nn::oe's default display resolution reported as the host's render size (with the fullscreen setting on) instead of 1920x1080", 'now': 'game', 'goal': 'game', 'purpose': 'rendering',
++     'why': "a game that asks the OS for the display size and lays out by the answer fills the screen it runs on; a game that bakes the stock size would lay out wrong, so it stays the profile's choice"}),
++    ('pad_skin_toggle', '', {'what': "the launcher's button-skin choice offered for this game's touch pad", 'now': 'game', 'goal': 'game', 'purpose': 'runtime',
++     'why': "only a game whose pad ships switchable skins (the profile's own art: image, letter-badge, glass) can offer the choice"}),
++    ('serve_patch', '', {'what': 'words of a game file rewritten by the host as the game reads it (a value per operation mode, or one computed from the render size)', 'now': 'game', 'goal': 'game', 'purpose': 'rendering',
++     'why': "the words are the game's own data baked at stock sizes; serving the running screen's values leaves the file itself untouched and the layout true on any screen, and the slots and stock values are per game and per file"}),
++    ('display_hz', '', {'what': "the launcher's frame-rate choice offered for this game (the display driven at the chosen rate, and the host's pacing follows it)", 'now': 'game', 'goal': 'game', 'purpose': 'frame rate',
++     'why': "only a game whose pacing follows the display rate can offer it; a game that counts frames would run at the wrong speed"}),
+     ('tex_bc_cpu', '', {'what': 'BC1-7 textures decoded on the CPU where the Metal device has no BC support', 'now': 'game', 'goal': 'host', 'purpose': 'rendering',
+      'why': 'a device capability, not a game choice: the host could decode wherever supportsBCTextureCompression is false, for every game'}),
+ ]

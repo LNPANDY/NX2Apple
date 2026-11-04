@@ -44,7 +44,7 @@ reason this project exists (decision 4).
    provides. **Verification on an iPhone 13 Pro (A15, no BC support) is
    a mandatory acceptance item for the first build batch** — the old
    fork's route was proven on that device, this one is not yet.
-2. **Our patches start at 0061**, appended after the upstream series
+2. **Our patches start at 0071**, appended after the upstream series
    (which currently ends at 0060). Grouping follows the patch inventory
    of the old fork's 227 own commits (193 to port, 17 groups), minus
    groups H and I above. Group Q (green-screen bisect switches) is
@@ -75,7 +75,7 @@ reason this project exists (decision 4).
 - **Phase 1 — Skeleton & secrets list.** This charter; the list of
   repository secrets the cloud workflow will need (names and purposes
   only; values are entered by the owner in repository Settings).
-- **Phase 2 — Patch port, 0061+.** Rebase the grouped changes from the
+- **Phase 2 — Patch port, 0071+.** Rebase the grouped changes from the
   inventory onto this tree's patch queue, one group at a time, keeping
   each patch self-contained and re-appliable by the tree's sync machinery (`tools/engine.py`, driven by `.github/workflows/sync-upstream.yml`).
 - **Phase 3 — Cloud workflow for the two games.** Repository-level

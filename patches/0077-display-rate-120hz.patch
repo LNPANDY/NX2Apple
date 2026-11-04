@@ -1,0 +1,430 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiaoge-tou <85100527+Tiaoge-tou@users.noreply.github.com>
+Date: Tue, 3 Nov 2026 21:27:11 +0800
+Subject: [PATCH] Display rate above 60: the measured-rate mode across present,
+ fpslock, vsync and the front end
+
+The 120 Hz display-rate mode (patch port 0077, group O of the port inventory), carried from the Tiaoge-tou/nxnative fork, with both games' display_hz rows.
+
+hle_nvn.c defines dm_display_hz / dm_display_set_hz (declared in patch 0075): the front end's measured rate drives the present tick, and the handheld stale-crop fix in nvnWindowSetCrop rides along (its DM_DIAG_STATE_OFF readback, a bisect diagnostic, is not carried: the green-screen switch group stays out of this queue). nvn_mtl.m switches the present link to 120 Hz while the mode is driven and counts intervals and vsyncs at the driven rate. hle_sdk16.c ticks the vi vsync event at the measured rate. hle_fpslock.c gains the Silksong row (Unity targetFrameRate, an int32 field) and the display-rate servo for int32 fields only: the measured rate overwrites the game's -1 sentinel while driven and the -1 goes back on release; with no fixed target the tick now continues for such rows instead of stopping, and a double field is never written without a fixed target. This tree has no dynamically scanned rows, so the kind test is the servo's eligibility test.
+
+front_ios.m completes the wiring this queue owes from earlier groups: it publishes the measured render sizes (DM_RENDER_WIDTH / DM_RENDER_WIDTH_HD, the front half of patch 0075's host service), measures the screen rate for the launcher's frame-rate choice (SS_DISPLAY_HZ, including the lowered 1912x880 tier) and hands it to the host, and carries the Hades II HUD script fix, the front-end half of patch 0074's group.
+
+Upstream-Status: fork-only
+Reason: 120 Hz display-rate mode for Silksong and Hades II, paced by the measured screen rate (PROJECT.md Phase 2)
+Issue: Tiaoge-tou/NX2Apple PROJECT.md Phase 2
+
+---
+ dm/games/010013C00E930000/game.tsv |  4 ++
+ dm/games/0100A00019DE0000/game.tsv |  5 ++
+ dm/gfx/nvn/hle_nvn.c               | 46 ++++++++++++++-
+ dm/gfx/nvn/nvn_mtl.m               | 19 ++++--
+ dm/host/hle_fpslock.c              | 44 ++++++++++----
+ dm/host/hle_sdk16.c                | 10 +++-
+ dm/ios/Sources/front_ios.m         | 93 ++++++++++++++++++++++++++++++
+ 7 files changed, 201 insertions(+), 20 deletions(-)
+
+diff --git a/dm/games/010013C00E930000/game.tsv b/dm/games/010013C00E930000/game.tsv
+index 0b28cad..13ce76a 100644
+--- a/dm/games/010013C00E930000/game.tsv
++++ b/dm/games/010013C00E930000/game.tsv
+@@ -60,3 +60,7 @@ shader_note	Hollow Knight: Silksong shaders
+ # the reciprocal of the docked present stretch on the actual screen, the 0.856603 of the iPad mini falling out of the
+ # same formula -- with the written pattern kept as the fallback when no render width is published.
+ serve_patch	n:menu_title.bundle@6E3E5C:41030A3D>4129C10A@6EAA5C:00000000>401ADB34@6EAA6C:*3F5B4A53>3F800000 w:menu_title.bundle@6E3E5C:41030A3D>40B8A6E1>40B8A6E1@6EAA5C:00000000>C01ADB34>C01ADB34
++# The launcher's frame-rate choice (settings.tsv SS_DISPLAY_HZ): 60, 120 at the full render size, or 120 at a lowered render size
++# (1916x882, the size the touch port measured on this class of screen). The front end drives the present, the present link and the
++# vi vsync event at the rate it measures on the screen, and falls back to 60 when the screen cannot hold 120 (hle_nvn.c)
++display_hz	120
+diff --git a/dm/games/0100A00019DE0000/game.tsv b/dm/games/0100A00019DE0000/game.tsv
+index 06616ed..de78df6 100644
+--- a/dm/games/0100A00019DE0000/game.tsv
++++ b/dm/games/0100A00019DE0000/game.tsv
+@@ -44,6 +44,11 @@ zip_store	.bank:.bik:.fsb:.gpk:.nro:.pkg:.xnb:.metallib
+ # the engine renders the wide picture itself instead of the present stretching a 1920x1080 one
+ display_wide	on
+ 
++# The launcher offers the frame-rate choice (SS_DISPLAY_HZ): the front end drives the present, the present link and the
++# vi vsync event at the rate it measures on the screen, and falls back to 60 when the screen cannot hold 120 (hle_nvn.c).
++# Whether this engine follows past 60 is unmeasured (it has no hle_fpslock row for its build yet): an experiment, 2026-10-27.
++display_hz	120
++
+ # ---- Memory ----
+ # The NPDM declares no system resource (META +0x14 = 0): the game uses SetHeapSize. It asks for 3.10 GB (pool − used memory), which the 3.25 GB heap region of
+ # the 4 GB layout holds. main carries an 82 MB bss: the rewritten modules take more than the default 64 MB of used memory, so SetHeapSize(pool − 64 MB) would not fit
+diff --git a/dm/gfx/nvn/hle_nvn.c b/dm/gfx/nvn/hle_nvn.c
+index 5436cc7..d29fbf3 100644
+--- a/dm/gfx/nvn/hle_nvn.c
++++ b/dm/gfx/nvn/hle_nvn.c
+@@ -1368,8 +1368,21 @@ NVN(nvnWindowSetPresentInterval, void, NVNwindow *w, int v) {
+     ((win_t *)w)->interval = v;
+ }
+ NVN(nvnWindowSetCrop, void, NVNwindow *w, int x, int y, int ww, int hh) {
+-    win_t *o = (win_t *)w; int v[4] = {x, y, ww, hh};
+-    if (memcmp(o->crop, v, sizeof v)) LOG("[nvn] WindowCrop %d,%d %dx%d", x, y, ww, hh);
++    win_t *o = (win_t *)w;
++    // Handheld: a guest that keeps its display state's current size at the stock 1280x720 (Silksong: the pair its
++    // apply step crops by is never overwritten in handheld, docked's SetResolution stores do it there) crops the
++    // wider handheld render (DM_RENDER_WIDTH_HD) down to 1280 and the present stretches it back out. The host's
++    // handheld size replaces exactly that stale full-frame crop; any other crop is the game's own and stands.
++    static int crop_note;
++    const char *om = getenv("DM_OPMODE"), *rh = getenv("DM_RENDER_WIDTH_HD");
++    long hw = rh ? strtol(rh, NULL, 10) : 0;
++    if (om && !strcmp(om, "0") && !x && !y && ww == 1280 && hh == 720 && hw > 1280 && hw <= 16384 && !(hw % 8)) {
++        if (!crop_note) { crop_note = 1; LOG("[nvn] WindowCrop 1280x720 in handheld: the guest's stale stock size; using the host handheld width %ld (guest caller %#llx)", hw, (unsigned long long)__builtin_return_address(0));
++        }
++        ww = (int)hw;
++    }
++    int v[4] = {x, y, ww, hh};
++    if (memcmp(o->crop, v, sizeof v)) LOG("[nvn] WindowCrop %d,%d %dx%d (guest caller %#llx)", x, y, ww, hh, (unsigned long long)__builtin_return_address(0));   // diagnostic: which guest call site set this crop
+     memcpy(o->crop, v, sizeof v);
+ }
+ NVN(nvnWindowGetCrop, void, const NVNwindow *w, NVNrectangle *r) {   // Bayonetta 3 reads it back every few frames; before any SetCrop it is the whole first texture, as NVN starts it
+@@ -1672,6 +1685,31 @@ static void sleep_until_ns(uint64_t dl) {   // absolute time on the monotonic cl
+ static int g_hz = -1, g_display_mode;
+ static _Atomic int g_game_itv = 1;   // when pacing by the game's interval, the interval the game currently sets (in game mode 2 = 30 fps; nvn_game_fps reports it to the graphics layer, which sets the display link from it)
+ void nvn_present_config(int hz, int display_mode) { g_hz = hz; g_display_mode = display_mode; }
++// ---- Display rate (a rate above 60 for a game whose profile offers it, game.tsv display_hz; the launcher's frame-rate choice) ----
++// The game starts at the fixed 60 Hz above, as every game does. The iOS front end asks its display link for 80-120 Hz and
++// measures the rate the screen truly runs at (front_ios.m): a rate that holds for 30 display frames is handed here, and the
++// present tick, the present display link and the vi vsync event (hle_sdk16.c, which reads dm_display_hz every tick) follow it.
++// A screen that falls back to 60 Hz (a 60 Hz panel, Low Power Mode, heat) hands 60 back, which releases the mode: every part
++// returns to its own 60 Hz behaviour. Only a measured rate is ever applied, so a game is never paced faster than its screen.
++// An explicit DM_PRESENT_HZ keeps its word over the mode (a profiling switch), and the interval mode is untouched: the game's
++// present interval still divides the tick, so a game that asks for interval 2 runs at half the rate, as at 60 Hz
++static _Atomic int g_display_hz;   // 0 = not driven; 120 while the measured rate holds
++static int g_hz_env;               // DM_PRESENT_HZ set the tick in present_cfg: the display rate does not override it
++__attribute__((weak)) void mtl_present_link_120(int on) { (void)on; }   // nvn_mtl.m: the present display link in its 120 Hz mode while on
++int dm_display_hz(void) { return atomic_load(&g_display_hz); }
++static void nvn_present_hz(int hz) {   // the present tick at the measured rate; before the first present present_cfg applies the rate itself
++    if (g_hz_env || g_hz < 0 || g_hz == hz) return;
++    g_hz = hz;
++    LOG("[nvn] present tick %d Hz (the display rate the front end measured)", hz);
++}
++void dm_display_set_hz(int hz) {
++    if (hz != 60 && hz != 120) return;
++    int want = hz == 120 ? 120 : 0;   // a measured 60 releases the mode instead of driving it
++    if (atomic_exchange(&g_display_hz, want) == want) return;
++    nvn_present_hz(hz);
++    mtl_present_link_120(hz == 120);
++    LOG("[nvn] display rate %s (the front end measured the screen at %d Hz)", hz == 120 ? "120 Hz" : "released, back to 60 Hz", hz);
++}
+ static _Atomic uint64_t g_itv2_since;   // start of the game's current run of intervals >= 2 (now_ns; 0 = it is 1 now)
+ // The frame rate the game itself asks for: 30 in game mode when the present interval has been >= 2 for a full second (the display link follows at 30 Hz, mtl_fps_target), otherwise 60; back to 60 at once when the interval returns to 1. Intervals of 3 or more (20 fps or less) have no matching display-link mode and run at 30.
+ // The one-second hold: Mario 1.2.1 picks the interval from the previous frame's time (main+0xcfd24), setting 2 for the frame after a slow one and then 1 again (123 times in two minutes on an iPhone). Following that frame by frame would flap the display-link mode;
+@@ -1746,8 +1784,10 @@ static void present_cfg(const win_t *o) {
+     if (g_hz >= 0) return;
+     // The interval mode comes from the game profile (present_interval, default game): whether frames follow the present interval the game sets depends on whether the game's logic counts frames, which differs per game. Environment variables override it, and can override the fixed 60 Hz.
+     int scr = mtl_display_hz();
+-    const char *e = getenv("DM_PRESENT_HZ"); g_hz = e ? atoi(e) : 60;
++    const char *e = getenv("DM_PRESENT_HZ"); g_hz = e ? atoi(e) : 60; g_hz_env = e != NULL;
+     if (!g_hz) LOG("[nvn] [WARNING] DM_PRESENT_HZ=0: frame rate uncapped, frame pacing unlike the device, UI logic may drift (for profiling only, not for verdicts / cross-checks)");
++    // A display rate the front end measured before the first present (dm_display_set_hz) applies from the start
++    if (!g_hz_env && g_hz > 0 && atomic_load(&g_display_hz) == 120) g_hz = 120;
+     // Cut (intentional deviation from the original game's behavior): with DM_PRESENT_INTERVAL=display the present interval set by the game is not followed and one frame is presented per display-link tick,
+     // with a fixed hard floor of 60 fps; the logic stays at 25 ticks, and the client's frame-counted UI logic is unaffected -
+     // with the same save and the same input, the UI message streams of the two modes match message by message. Proof (before character select): r9 game / display 60 ×3 / display 120 ×2, 6 groups in total, uicmp consistent
+diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
+index 80a14b4..4df6438 100644
+--- a/dm/gfx/nvn/nvn_mtl.m
++++ b/dm/gfx/nvn/nvn_mtl.m
+@@ -122,6 +122,12 @@ static uint64_t g_link_empty;   // Under g_pq_mu: ticks that found no new frame
+ static double g_link_hold_until; static uint64_t g_link_held;   // Changed only on the display-link callback thread: the time the previous frame must stay on screen until by its present interval (0 = no hold), and the ticks that took no new frame because of it
+ static int g_pq_inflight;   // Under g_pq_mu: number of presents committed to the GPU whose completion callback has not arrived yet
+ int g_dm_present_link;   // Present pacing mode (runtime value of DM_PRESENT_LINK, modified directly during same-process alternating measurement): 0 = acquire the drawable itself; 1 = display link at 60 Hz; 2 = display link at 120 Hz, the game presents a frame every other display-link tick
++static int g_link_want_120, g_link_120_auto;   // the display-rate mode (hle_nvn.c dm_display_set_hz) asked for the 120 Hz link, and whether this function set it (a mode from the user's own DM_PRESENT_LINK is not this layer's to undo)
++void mtl_present_link_120(int on) {
++    g_link_want_120 = on;
++    if (on) { if (g_dm_present_link == 1) { g_dm_present_link = 2; g_link_120_auto = 1; MLOG("present link 120 Hz (the display rate the front end measured)"); } }
++    else if (g_link_120_auto) { g_link_120_auto = 0; if (g_dm_present_link == 2) { g_dm_present_link = 1; MLOG("present link back to 60 Hz (the display rate fell back)"); } }
++}
+ static int g_present_latency;   // DM_PRESENT_LATENCY: the display link's frame latency in a window and in fullscreen alike (0 = not set: link_latency picks it)
+ static uint64_t g_pq_done;
+ static uint64_t g_pq_read;
+@@ -394,7 +400,8 @@ void mtl_init(void) {
+     if (g_dev) return;
+     const char *vbc = getenv("DM_NVN_VBUF_CACHE"); g_vbuf_cache = !(vbc && !strcmp(vbc, "0"));
+     const char *link = getenv("DM_PRESENT_LINK");
+-    g_dm_present_link = link ? atoi(link) : 1; if (g_dm_present_link < 0 || g_dm_present_link > 2) g_dm_present_link = 1;   // Default 1 (real-device same-process alternation: when load exceeds one display-link period, long frames 15% → 0 and frame intervals even out; no difference from 0 at a steady 60); DM_PRESENT_LINK=0 turns it off   // 1 = present on every tick of a 60 Hz display link; 2 = 120 Hz display link, the game presents a frame every other display-link tick (when behind, it can present on the next 8.33 ms display-link tick)
++    g_dm_present_link = link ? atoi(link) : 1; if (g_dm_present_link < 0 || g_dm_present_link > 2) g_dm_present_link = 1;   // Default 1 (real-device same-process alternation: when load exceeds one display-link period, long frames 15% → 0 and frame intervals even out; no difference from 0 at a steady 60); DM_PRESENT_LINK=0 turns it off   // 1 = present on every tick of a 60 Hz display link; 2 = display link at 120 Hz: with the display-rate mode on, a frame presents on any 8.33 ms display-link tick (the vi vsync event follows the same measured rate, hle_sdk16.c); without it, the game presents a frame every other tick (a 60 fps game on a 120 Hz screen)
++    if (g_link_want_120) mtl_present_link_120(1);   // the display rate was measured before this layer started: apply its link mode now
+     const char *latency = getenv("DM_PRESENT_LATENCY");
+     if (latency && atoi(latency) > 0) g_present_latency = atoi(latency);
+     g_res_check_on = getenv("DM_RES_CHECK") != NULL;
+@@ -12433,10 +12440,11 @@ int mtl_link_wait_tick(int vsyncs, uint64_t timeout_ns) {
+     // Wait for the display link only when running faster than the display: if a display-link tick has already passed since the previous frame started work (this frame is already behind), start immediately instead of waiting in vain for the next display-link tick --
+     // otherwise when the frame time is slightly more than one display-link period it would "miss the tick -> wait another whole tick", locking the frame rate straight to half (measured on Mac under windowed load: runs of dropped frames)
+     // How many display-link ticks one frame takes: the game's present interval (vsyncs, 60 Hz) times 1 with a 60 Hz display link, times 2 with a 120 Hz one, halved and rounded up at 30 Hz.
++    // While the display-rate mode is driven (dm_display_hz: a rate above 60 the front end measured and the profile offers), the interval counts at that rate instead -- one tick per frame at interval 1 -- as mtl_link_wait_vsync already does; without this the acquire below held a 120 Hz game to 60 fps on the 120 Hz link's every-other-tick step.
+     // A frame presented with interval N blocks the game for N vsyncs on the Switch, as the display callback holds it N ticks: games that scale their time step by the interval (BotW's VFR: interval / 2)
+     // ran at double speed while they produced interval-2 frames every 60 Hz tick (iPhone log: Link sprinting with B, the interval flapping 1 ↔ 2)
+     if (vsyncs < 1) vsyncs = 1;
+-    return mtl_link_wait_ticks(g_link_mode == 3 ? (vsyncs + 1) / 2 : vsyncs * (g_link_mode == 2 ? 2 : 1), timeout_ns);
++    return mtl_link_wait_ticks(g_link_mode == 3 ? (vsyncs + 1) / 2 : vsyncs * (g_link_mode == 2 && !dm_display_hz() ? 2 : 1), timeout_ns);
+ }
+ // The display link's rate: 120 Hz (DM_PRESENT_LINK=2), 60, or 30 in power-saving mode
+ int mtl_link_rate(void) { return g_link_mode == 3 ? 30 : g_link_mode == 2 ? 120 : 60; }
+@@ -12455,11 +12463,12 @@ int mtl_link_wait_ticks(int ticks, uint64_t timeout_ns) {
+     pthread_mutex_unlock(&g_link_mu); return 1;
+ }
+ 
+-// The display's vsync for vi::GetDisplayVsyncEvent (hle_sdk16.c): returns 1 at the first display-link tick of the next 60 Hz vsync after *seen (the tick count it last returned, updated),
+-// 0 when the link does not run, runs at 30 Hz (power saving: the 60 Hz event cannot come from it) or gives no tick within the timeout; the caller then keeps its own clock
++// The display's vsync for vi::GetDisplayVsyncEvent (hle_sdk16.c): returns 1 at the first display-link tick of the next vsync after *seen (the tick count it last returned, updated),
++// 0 when the link does not run, runs at 30 Hz (power saving: the 60 Hz event cannot come from it) or gives no tick within the timeout; the caller then keeps its own clock.
++// A vsync is one tick at 60 Hz, or every other tick at 120 Hz -- unless the display-rate mode is driven (hle_nvn.c dm_display_set_hz), when a vsync is every tick of the 120 Hz link
+ int mtl_link_wait_vsync(uint64_t *seen, uint64_t timeout_ns) {
+     if (!mtl_link_active() || g_link_mode == 3) return 0;
+-    const uint64_t step = g_link_mode == 2 ? 2 : 1;
++    const uint64_t step = g_link_mode == 2 && !dm_display_hz() ? 2 : 1;
+     pthread_mutex_lock(&g_link_mu);
+     if (*seen > g_link_tick_n || g_link_tick_n > *seen + 4 * step) *seen = g_link_tick_n;   // first call, or far behind (a stall): from the current tick on, no burst
+     struct timespec ts; clock_gettime(CLOCK_REALTIME, &ts);
+diff --git a/dm/host/hle_fpslock.c b/dm/host/hle_fpslock.c
+index 0b70203..2cb3e8a 100644
+--- a/dm/host/hle_fpslock.c
++++ b/dm/host/hle_fpslock.c
+@@ -1,5 +1,6 @@
+ // Engine frame limits kept in game memory (FPSLocker's evaluate_write entries): some engines cap their own frame rate with a value the host can raise. The target is the profile's
+-// fps_target (DM_FPS_TARGET overrides; 0 = leave the game's own limit), the same key that drives Tears of the Kingdom's frame step (loader.c install_fps_state). Called on every present
++// fps_target (DM_FPS_TARGET overrides; 0 = leave the game's own limit) -- or, for an int32 frame-rate field only, the display rate while the front end's measured
++// 120 Hz drives the pacing (dm_display_hz, hle_nvn.c), the game's own value going back when the mode releases -- the same key that drives Tears of the Kingdom's frame step (loader.c install_fps_state). Called on every present
+ // (hle_nvn.c); the game sets the values after boot and may set them again, so each is written whenever it differs. Fixed addresses: each row runs only on the main build it was found in (AGENTS.md).
+ // Unreal Engine needs no row: the rewriter finds its console variables by their registered names in any build (dm/tools/ue_cvar.py, main's fixups UE_CVAR:<name>), and the host writes
+ // the frame limit, the profile's ue_fps_cvar (t.MaxFPS, or a game's own variable its settings apply to t.MaxFPS: SHIN MEGAMI TENSEI V: Vengeance's Project.FrameRateLimit), and the
+@@ -34,6 +35,11 @@ static const lock_t k_locks[] = {
+     // started; the limiter (main+0x7a3e70) runs jobs or sleeps until 33.333 ms have passed, the float at main+0x13c94dc (read only there, at main+0x7a3ea8 and main+0x7a3f18), and the game
+     // steps by the time that really passed. The game asks for present interval 2 too, which the profile's present_interval display ignores; both are needed
+     { "79e5950ffa85acf63e28c9aec051eac2", "NLG frame limiter target", 0, 0x13c94dc, MS_F32, 1 },
++    // Hollow Knight: Silksong 1.0.30000: Unity's Application.targetFrameRate. The icall tables (names at main+0x7cf2268, functions at main+0x7cf9458) resolve
++    // get/set_targetFrameRate (entries 415/416) to main+0x1b0c080 / +0x1b0c090, three-instruction accessors of the int32 at main+0x8020db0. The field ships as
++    // -1 (pace to the display) and the game's platform code reports a 60 Hz display whatever the screen does (Screen::get_currentResolution builds its 60/1
++    // refresh from immediates), so only the display-rate target raises it: 120 while the measured rate drives the pacing, -1 back when it releases
++    { "fc9ea4ccc955d5799f37752b2d730b31", "Unity targetFrameRate", 0, 0x8020db0, FPS_I32, 1 },
+     // Need for Speed: Hot Pursuit Remastered 1.0.3: Criterion's frame timing. A uint32 in main's bss (main+0xf0043c) selects the engine's 60 fps mode, in which it takes its frame time from
+     // the timer object at [main+0xed96a8]: +0x30 the frame in system ticks (19.2 MHz, 640,000 at 30 fps) and +0x28 a tenth of it; the game's own step, at [main+0xeffc60] +0x30 (2D) and +0x50
+     // (3D), is a float of seconds per frame. Its limiter, a spin on the system tick at main+0x483588..+0x4835a4, is cut by the rewriter (patches.py). From masagrator's FPSLocker config for this
+@@ -212,7 +218,7 @@ static void lock_find(void) {
+ int dm_fps_lock_engine(void) { pthread_once(&g_found, lock_find); return nrow || nier || fb.n; }
+ void dm_fps_lock_tick(void) {
+     dynamic_resolution_tick();   // separate from the FPS cap
+-    static int state = -2, nlog[NLOCKS + 3], target; static const char *src;
++    static int state = -2, nlog[NLOCKS + 3], fixed, disp[NLOCKS + 3], target; static const char *src;
+     if (state == -1) return;
+     if (state == -2) {
+         state = -1; pthread_once(&g_found, lock_find);
+@@ -221,11 +227,17 @@ void dm_fps_lock_tick(void) {
+         if (t != 0 && t != 30 && t != 60) { LOG("[RED] DM_FPS_TARGET=%s: must be 0, 30 or 60; leaving the game's frame limit", e); t = 0; }
+         if (t && ue_missing) LOG("[RED] main: Unreal %s not found by the rewriter (ue_cvar.py NAMES; game profile ue_fps_cvar): the game's own frame limit stays", DM_GAME_UE_FPS_CVAR);
+         if (!nrow && !nier && !fb.n) return;
+-        if (!t) { for (int r = 0; r < nrow; r++) LOG("main: %s left as the game sets it (%s)", rows[r]->what, src); if (nier) LOG("main: NieR frame interval left as the game sets it (%s)", src);
+-                  if (fb.n) LOG("main: Frostbite simulation rate left as the game sets it (%s)", src); return; }
+-        target = t; state = 0;
++        if (!t) {
++            for (int r = 0; r < nrow; r++) LOG("main: %s left as the game sets it (%s)", rows[r]->what, src);
++            if (nier) LOG("main: NieR frame interval left as the game sets it (%s)", src);
++            if (fb.n) LOG("main: Frostbite simulation rate left as the game sets it (%s)", src);
++            int display_rows = 0;
++            for (int r = 0; r < nrow; r++) if (rows[r]->kind == FPS_I32) display_rows = 1;
++            if (!display_rows) return;   // no fixed target and no display-rate field to serve: the tick stops here, as upstream's no-target path does
++        }
++        fixed = t; target = t; state = 0;
+     }
+-    if (nier) {
++    if (target && nier) {
+         // NieR:Automata US/EU 1.0.3 (3c10ec35c5ef4c3686b4053afb0e58e7):
+         // - [base + 0x192be00] points to the NVN graphics device object whose +0x9c160 holds the present interval (1 = 60 FPS, 2 = 30 FPS),
+         //   and base + 0x192c304 (+0x504) holds the requested interval mode (0 = 60 FPS, 1 = 30 FPS).
+@@ -247,11 +259,16 @@ void dm_fps_lock_tick(void) {
+             }
+         }
+     }
+-    if (fb.n) fb_tick(target, src);
++    // The display rate as a target, for an int32 frame-rate field only: while the front end's measured 120 Hz drives the pacing
++    // (dm_display_hz), a field that ships as Unity's -1 (pace to the display) would pace to the 60 Hz the game's platform code
++    // reports, so the rate the host is actually pacing at is written instead; when the mode releases, the -1 goes back
++    int dtgt = dm_display_hz() == 120 ? 120 : 0;
++    if (fb.n && target) fb_tick(target, src);
+     for (int r = 0; r < nrow; r++) {
+         const lock_t *L = rows[r]; uint64_t obj = (uint64_t)(uintptr_t)base;
+         if (L->ptr_off && (!rd((uint64_t)(uintptr_t)(base + L->ptr_off), &obj, sizeof obj) || !obj)) continue;   // not created yet
+         if (L->kind == FPS_F64) {
++            if (!target) continue;   // no fixed target: the display-rate servo below serves int32 fields only; a double field keeps the game's own value (it must not be written 0)
+             for (int c = 0; c < L->copies; c++) {
+                 uint64_t a = obj + L->field + 8 * (uint64_t)c; double cur, want = target;
+                 if (!rd(a, &cur, sizeof cur)) break;
+@@ -265,6 +282,11 @@ void dm_fps_lock_tick(void) {
+         for (int c = 0; c < L->copies; c++) {
+             uint64_t a = obj + L->field + 4 * (uint64_t)c; uint32_t cur, want; char was[16];
+             if (!rd(a, &cur, sizeof cur)) break;
++            int target = L->kind == FPS_I32 && !fixed ? dtgt : fixed, tsrc = target && !fixed;   // tsrc: the target is the display rate's
++            if (!target) {   // the display rate released (or no target at all): a value it wrote goes back to the game's own -1
++                if (disp[r] && (int32_t)cur == 120) { uint32_t *p = (uint32_t *)(uintptr_t)a; dm_guest_write_prepare(p, sizeof *p); __atomic_store_n(p, 0xffffffffu, __ATOMIC_RELAXED); disp[r] = 0; LOG("main: %s 120 → -1 (the display rate released; the game's own pacing is back)", L->what); }
++                continue;
++            }
+             if (L->kind == FPS_F32 || L->kind == MS_F32) {
+                 int ms = L->kind == MS_F32; float f, w = ms ? ms_want(target) : (float)target; memcpy(&f, &cur, sizeof f); memcpy(&want, &w, sizeof want);
+                 if (cur == want || !(ms ? f >= 8 && f <= 100 : f >= 10 && f <= 120)) continue;   // already set, or not set yet (RE Engine: 6000 at boot; Unreal: 0 = no limit until the config sets it)
+@@ -284,18 +306,20 @@ void dm_fps_lock_tick(void) {
+             } else {
+                 int fps = L->kind == FPS_I32;
+                 want = fps ? (uint32_t)target : 60 / (uint32_t)target;
+-                if (cur == want || cur < (fps ? 10u : 1u) || cur > (fps ? 120u : 4u)) continue;
+-                snprintf(was, sizeof was, "%u", cur);
++                if (cur == want) continue;
++                if (fps && (int32_t)cur == -1) { if (target != 120) continue; snprintf(was, sizeof was, "-1"); }   // Unity's pace-to-display sentinel: only the display rate overwrites it
++                else { if (cur < (fps ? 10u : 1u) || cur > (fps ? 120u : 4u)) continue; snprintf(was, sizeof was, "%u", cur); }
+             }
+             uint32_t *p = (uint32_t *)(uintptr_t)a;
+             dm_guest_write_prepare(p, sizeof *p); __atomic_store_n(p, want, __ATOMIC_RELAXED);
++            if (tsrc) disp[r] = 1;
+             if (nlog[r] < 8) { nlog[r]++; char now[24];
+                 if (L->kind == MS_F32) snprintf(now, sizeof now, "%.3f ms (%d fps)", ms_want(target), target);
+                 else if (L->kind == SECS_F32) snprintf(now, sizeof now, "%.5f s (%d fps)", 1.0 / target, target);
+                 else if (L->kind == TICKS_U32) snprintf(now, sizeof now, "%u (%d fps)", want, target);
+                 else if (L->kind == MODE_U32) snprintf(now, sizeof now, "1 (%d fps)", target);
+                 else snprintf(now, sizeof now, "%u%s", L->kind == FPS_F32 ? (unsigned)target : want, L->kind == FPS_F32 || L->kind == FPS_I32 ? " fps" : " vsyncs");
+-                LOG("main: %s%s %s → %s (%s)", L->what, L->copies > 1 ? (c ? " (render thread)" : " (game thread)") : "", was, now, src); }
++                LOG("main: %s%s %s → %s (%s)", L->what, L->copies > 1 ? (c ? " (render thread)" : " (game thread)") : "", was, now, tsrc ? "display rate" : src); }
+         }
+     }
+ }
+diff --git a/dm/host/hle_sdk16.c b/dm/host/hle_sdk16.c
+index 90760af..eb20da2 100644
+--- a/dm/host/hle_sdk16.c
++++ b/dm/host/hle_sdk16.c
+@@ -296,7 +296,7 @@ HLE_FORCE("_ZN2nn3nfp29StartNicknameAndOwnerSettingsEPNS0_12DeviceHandleEPbPNS0_
+ HLE_FORCE("_ZN2nn3nfp29StartNicknameAndOwnerSettingsEPNS0_12DeviceHandleEPbPNS0_12RegisterInfoERKNS0_24AmiiboSettingsStartParamERKNS0_7TagInfoERKS4_", "amiibo nickname and owner settings applet (with the old register info): no tag", Result, h_nfp_Nick2, NfpDeviceHandle *h, uint8_t *changed, void *reg, const void *p, const void *tag, const void *old) { (void)h; (void)reg; (void)p; (void)tag; (void)old; if (changed) *changed = 0; return nfp_no_tag("StartNicknameAndOwnerSettings"); }
+ 
+ // ---------- vi: vsync event ----------
+-// The game passes a SystemEventType; after binding, a host thread fires it at 60 Hz (DM_VSYNC_HZ can change it). While the display link presents, the event follows its ticks, as a
++// The game passes a SystemEventType; after binding, a host thread fires it at 60 Hz (DM_VSYNC_HZ can change it; while the display-rate mode is driven, at the measured rate). While the display link presents, the event follows its ticks, as a
+ // Switch's follows its display: Super Mario Galaxy 2 runs the Wii's VI retrace (and with it each emulated frame) on this event, and on a clock of the host's own the frames drifted
+ // against the screen's vsyncs, two in some display-link ticks and none in others (iPhone: about one tick in seven, a stutter the frame-rate counter showed as 50 to 60).
+ // One thread per binding lifetime: repeated requests must not double its rate.
+@@ -322,7 +322,13 @@ static void *vsync_thread(void *arg) {
+     const char *e = getenv("DM_VSYNC_HZ"); double hz = e ? atof(e) : 60.0; if (hz <= 0) hz = 60.0;
+     uint64_t period = (uint64_t)(1e9 / hz), next = now_ns() + period, seen = 0;
+     for (;;) {
+-        if (!e && mtl_link_wait_vsync(&seen, 2 * period)) { if (!vsync_tick(v)) break; next = now_ns() + period; continue; }
++        // While the display-rate mode is driven (dm_display_hz, a rate the front end measured on the screen), the event ticks
++        // at that rate on this thread's own clock: the display link at 120 Hz carries the present, and the event follows it
++        // tick for tick. DM_VSYNC_HZ keeps its word over the mode, as it does over the link
++        int dhz = e ? 0 : dm_display_hz();
++        uint64_t want = dhz > 0 ? (uint64_t)(1e9 / dhz) : (uint64_t)(1e9 / hz);
++        if (want != period) { period = want; next = now_ns() + period; }
++        if (!e && !dhz && mtl_link_wait_vsync(&seen, 2 * period)) { if (!vsync_tick(v)) break; next = now_ns() + period; continue; }
+         uint64_t t = now_ns(); if (next > t) { struct timespec ts = {(time_t)((next - t) / 1000000000ull), (long)((next - t) % 1000000000ull)}; nanosleep(&ts, NULL); }
+         if (!vsync_tick(v)) break;
+         next += period; if (now_ns() > next + 4 * period) next = now_ns() + period;   // do not try to catch up when far behind
+diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
+index 57b08e9..a22786d 100644
+--- a/dm/ios/Sources/front_ios.m
++++ b/dm/ios/Sources/front_ios.m
+@@ -70,6 +70,90 @@ static void tv_attach(void);
+ @end
+ static DmRootVC *g_root;
+ static void launcher_done(void) { [g_root startGame]; }
++
++// The render size the guest renders at: the docked height 1080 at the screen's own aspect, so one build fills an iPhone and an iPad
++// alike instead of a width baked when the IPA was made. The host writes it into the frame step state page when the game starts
++// (DM_RENDER_WIDTH, loader.c dm_fps_state_apply), where the stubs at the game's baked size constants read it. The handheld
++// height 720 gets the same treatment beside it (DM_RENDER_WIDTH_HD, state +0x40 and the handheld host fill), for the builds
++// whose handheld sizes read them; the fallbacks are the widths the builds baked (2344 docked, 1280 handheld)
++static int front_ios_render_width_h(int height) {
++    CGSize n = UIScreen.mainScreen.nativeBounds.size;   // physical pixels, in portrait
++    CGFloat w = MAX(n.width, n.height), h = MIN(n.width, n.height);
++    int baked = height == 720 ? 1280 : 2344;
++    if (h <= 0) return baked;
++    int rw = (int)(height * w / h) & ~7;   // down to a multiple of 8, as every baked width was
++    return rw >= 320 ? rw : baked;
++}
++static int front_ios_render_width(void) { return front_ios_render_width_h(1080); }
++
++// The launcher's frame-rate choice (SS_DISPLAY_HZ, settings.tsv; only a game whose profile offers it, game.tsv display_hz, shows
++// the choice): 60, 120, or 120 at a lowered render size. The choice is a request, not a fact: the display link below asks the
++// screen for 80-120 Hz and measures the rate the screen truly runs at, and only a rate that holds for 30 display frames is
++// handed to the host (dm_display_set_hz, hle_nvn.c), which moves the present tick, the present display link and the vi vsync
++// event to it; a screen that falls back to 60 Hz (a 60 Hz panel, Low Power Mode, heat) hands 60 back and releases the mode.
++// The lowered tier renders at 1912x880, the touch port of Silksong's 1916x882 tier taken to a multiple of 8 (a render width
++// must be one, loader.c: 1916 was refused there and the full width used instead, which squeezed the picture): the
++// width goes through the state page's docked cell as any render width does, the height through DM_RENDER_HEIGHT (loader.c)
++static int front_ios_display_hz(void) { const char *e = getenv("SS_DISPLAY_HZ"); return e ? atoi(e) : 60; }
++static int front_ios_display_lowered(void) { const char *e = getenv("SS_DISPLAY_HZ"); return e && strchr(e, 'L') != NULL; }
++
++@interface DmRateLink : NSObject
++@property (nonatomic, strong) CADisplayLink *link;
++@property (nonatomic) int cur, ticks;
+++ (void)startIfWanted;
++- (void)tick:(CADisplayLink *)link;
++@end
++static DmRateLink *g_rate_link;
++@implementation DmRateLink
+++ (void)startIfWanted {
++    int want = front_ios_display_hz();
++    if (want <= 60 || g_rate_link) return;
++    g_rate_link = [DmRateLink new];
++    g_rate_link.link = [CADisplayLink displayLinkWithTarget:g_rate_link selector:@selector(tick:)];
++    g_rate_link.link.preferredFrameRateRange = CAFrameRateRangeMake(80, 120, 120);
++    [g_rate_link.link addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
++    LOG("front end: display rate %d Hz requested; the rate the screen holds decides (SS_DISPLAY_HZ)", want);
++}
++- (void)tick:(CADisplayLink *)link {
++    double dt = link.targetTimestamp > link.timestamp ? link.targetTimestamp - link.timestamp : 0;
++    int hz = dt > 0 && dt < 1.0 / 90 ? 120 : 60;   // a frame interval under 1/90 s is a 120 Hz screen; anything else counts as 60
++    if (hz == self.cur) { self.ticks = 0; return; }
++    if (++self.ticks < 30) return;   // the rate must hold for 30 display frames before the host follows it, either way
++    self.cur = hz; self.ticks = 0;
++    dm_display_set_hz(hz);
++@end
++
++// Hades II's HUD lays out against the size its script computes in RunLogic.lua (UpdateConfigOptionCache), which reads the engine's
++// config options X/Y -- 1920x1080 whatever the renderer does, so without this the HUD keeps the 1920 canvas at any render width (the
++// wide builds were played with the two lines below written by hand to the baked width; this writes the measured one instead). The line
++// is matched in the script's own form (a config read) and in the hand-written form (literals) alike, so the write is idempotent across
++// launches and a fresh datapack extract; exactly one match of each is required, any other shape leaves the file untouched. Only a
++// Documents RomFS can be written (the slim layout); a bundle RomFS keeps the script as shipped
++static void front_ios_hud_script_fix(int width) {
++    const char *romfs = getenv("DM_ROMFS");
++    if (!romfs) return;
++    NSString *path = [@(romfs) stringByAppendingPathComponent:@"Scripts/RunLogic.lua"];
++    if (![NSFileManager.defaultManager isWritableFileAtPath:path]) return;
++    NSString *txt = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil];
++    if (!txt) { LOG("[RED] front end: %s could not be read; HUD script left as is", path.UTF8String); return; }
++    NSMutableArray<NSString *> *lines = [[txt componentsSeparatedByString:@"\n"] mutableCopy];
++    for (NSString *s in @[@"Width", @"Height"]) {
++        NSString *pre = [NSString stringWithFormat:@"\tlocal actual%@ = ", s], *stock = [NSString stringWithFormat:@"GetConfigOptionValue({ Name = \"%@\" })", [s isEqual:@"Width"] ? @"X" : @"Y"];
++        int at = -1;
++        for (int i = 0; i < (int)lines.count; i++) {
++            NSString *ln = lines[i], *body = [ln hasSuffix:@"\r"] ? [ln substringToIndex:ln.length - 1] : ln;   // the script's lines end CRLF
++            if (![body hasPrefix:pre]) continue;
++            NSString *v = [body substringFromIndex:pre.length];
++            if ([v isEqualToString:stock] || (v.length && [v rangeOfCharacterFromSet:NSCharacterSet.decimalDigitCharacterSet.invertedSet].location == NSNotFound)) { if (at >= 0) { at = -2; break; } at = i; }
++        }
++        if (at < 0) { LOG("[RED] front end: RunLogic.lua: the actual%@ line is not in a known form; HUD script left as is", s.UTF8String); return; }
++        lines[at] = [NSString stringWithFormat:@"%@%d%@", pre, [s isEqual:@"Width"] ? width : 1080, [lines[at] hasSuffix:@"\r"] ? @"\r" : @""];
++    }
++    NSString *out = [lines componentsJoinedByString:@"\n"];
++    if ([out isEqualToString:txt] || [out writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:nil])
++        LOG("front end: HUD script at the render size %dx1080 (%s)", width, path.UTF8String);
++    else LOG("[RED] front end: %s could not be written; HUD script left as is", path.UTF8String);
++}
+ @implementation DmRootVC
+ - (void)showHint:(NSString *)text {   // why the game cannot start, centered over the black screen
+     UILabel *lb = [[UILabel alloc] initWithFrame:CGRectInset(self.view.bounds, 40, 40)];
+@@ -122,6 +206,15 @@ static void launcher_done(void) { [g_root startGame]; }
+     if (self.fps) [self.view addSubview:self.fps];
+     [self.view setNeedsLayout]; [self.view layoutIfNeeded];
+     UIApplication.sharedApplication.idleTimerDisabled = YES;
++    if (front_ios_display_lowered()) {   // the frame-rate choice's lowered tier, unless an env file sets the size itself
++        if (!getenv("DM_RENDER_WIDTH")) setenv("DM_RENDER_WIDTH", "1912", 1);
++        if (!getenv("DM_RENDER_HEIGHT")) setenv("DM_RENDER_HEIGHT", "880", 1);
++    }
++    if (!getenv("DM_RENDER_WIDTH")) setenv("DM_RENDER_WIDTH", [NSString stringWithFormat:@"%d", front_ios_render_width()].UTF8String, 1);   // the render size follows this screen (an env file's value is a diagnostic override and is kept); before the host starts, whose game-start write reads it
++    if (!getenv("DM_RENDER_WIDTH_HD")) setenv("DM_RENDER_WIDTH_HD", [NSString stringWithFormat:@"%d", front_ios_render_width_h(720)].UTF8String, 1);   // the same at the handheld height, for the builds whose handheld sizes read it
++    int rw = atoi(getenv("DM_RENDER_WIDTH")); if (rw < 320 || rw > 16384 || rw % 8) rw = 2344;   // the host's own validation (loader.c), so the script and the renderer cannot disagree
++    front_ios_hud_script_fix(rw);   // Hades II's HUD script gets the same width (a no-op for other games: no such file)
++    [DmRateLink startIfWanted];   // the frame-rate choice above 60 Hz: ask the screen for it and follow the rate it holds
+     tv_attach();   // a TV connected while the launcher showed
+     front_ios_boot();
+ }

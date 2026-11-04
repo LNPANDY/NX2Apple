@@ -5,7 +5,7 @@ import XCTest
 
 /// Show game log and the log in Copy diagnostics: where dm/mac/launcher.c puts a game's log, which file is the latest, and
 /// that only the end of a large log is read.
-final class GameLogTests: XCTestCase {
+final class GameLogTests: IsolatedDefaultsTestCase {
     private var temporary: URL!
     private let id = "0100535012974000"
 

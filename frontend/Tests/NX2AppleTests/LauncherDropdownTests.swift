@@ -4,7 +4,7 @@ import XCTest
 @testable import NXCore
 @testable import NXLauncher
 
-final class LauncherDropdownTests: XCTestCase {
+final class LauncherDropdownTests: IsolatedDefaultsTestCase {
     private let window = CGSize(width: 1000, height: 700)
 
     func testListOpensBelowTheButton() {

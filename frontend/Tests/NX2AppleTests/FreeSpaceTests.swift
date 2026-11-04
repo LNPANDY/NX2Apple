@@ -5,7 +5,7 @@ import XCTest
 
 /// Free space (#67): a synthetic <title ID>_build folder in a temporary directory, laid out as build_ipa_from_nsp.py
 /// leaves it, with the finished app, the IPA and the game data archive beside it.
-final class FreeSpaceTests: XCTestCase {
+final class FreeSpaceTests: IsolatedDefaultsTestCase {
     private var temporary: URL!
     private let titleID = "0100535012974000"
 

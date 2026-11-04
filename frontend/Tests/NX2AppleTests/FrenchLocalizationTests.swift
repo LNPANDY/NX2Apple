@@ -5,19 +5,22 @@ import XCTest
 
 /// The French overlay reads as French: nothing is left in English but the listed names. Completeness and placeholders for every
 /// language are in NXCoreTests/LocalizationRulesTests.swift.
-final class FrenchLocalizationTests: XCTestCase {
+final class FrenchLocalizationTests: IsolatedDefaultsTestCase {
     /// Keys whose French text is the English one on purpose: names, units, button letters, codes.
     static let sameAsEnglish: Set<String> = [
         "onboarding.platform.mac", "onboarding.platform.iphone", "onboarding.background.python",
         "onboarding.background.dotnet", "onboarding.games.version", "onboarding.demo.mario",
         "console.platform.mac", "console.platform.iphone", "console.version",
         "saves.toDevice", "saves.toMac", "section.app", "app.version", "library.ok",
-        "build.ios", "data.keys", "dep.tool.xcodegen",
+        "build.ios", "data.keys", "delete.part.ipa", "dep.tool.xcodegen",
         "dep.tool.zstd", "dep.tool.spirv-cross", "dep.tool.glslangValidator", "diag.title", "dep.brew",
         "dep.spirv.win", "dep.zstd.win", "dep.python.hint", "controls.mode.auto", "controls.fn.A",
         "controls.fn.B", "controls.fn.X", "controls.fn.Y", "controls.fn.L", "controls.fn.R",
         "controls.fn.ZL", "controls.fn.ZR", "controls.fn.Plus", "controls.fn.Minus", "launch.mods",
-        "pad.options", "engine.channel.stable", "launch.opt.DM_PRESENT_UPSCALE.off", "launch.opt.DM_PRESENT_UPSCALE.metalfx", "key.tab",
+        "pad.options", "engine.channel.stable", "launch.opt.DM_PRESENT_UPSCALE.off", "launch.opt.DM_PRESENT_UPSCALE.metalfx", "launch.opt.DM_UPSCALER.metalfx", "key.tab",
+        "switch2.badge",   // the console's name
+        // The iOS shell's words that French writes as English does: OK, Interface, the Switch's Plus button, Version.
+        "ios.host.ok", "ios.ui.interface", "ios.ui.padPlus", "ios.ui.version",
     ]
 
     func testNothingIsLeftInEnglishButTheListedNames() {

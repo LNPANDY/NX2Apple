@@ -1,0 +1,110 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiaoge-tou <85100527+Tiaoge-tou@users.noreply.github.com>
+Date: Tue, 3 Nov 2026 21:28:21 +0800
+Subject: [PATCH] Fullscreen present: the present fills the screen, an oversize
+ full-frame crop clamps, a narrow screen windows the stock frame
+
+The fullscreen present (patch port 0078, group J of the port inventory), carried from the Tiaoge-tou/nxnative fork.
+
+nvn_mtl.m: DM_FULLSCREEN (default on, an env file's explicit 0 asks for the native-aspect fit) makes the present viewport fill the whole target; a full-frame crop from the origin that exceeds the texture is clamped to the texture instead of dropped (a guest whose declared frame is larger than the texture it rendered into showed a black screen while running); on a narrower-than-16:9 screen a stock 720-line frame is shown as a left-anchored window at the screen's own aspect instead of stretched. A viewport diagnostic line rides along. The classic-present bisect switch of the same file is not carried (the green-screen switch group stays out of this queue), and neither are the dynamic-class hunks (the closed iOS 16-25 line).
+
+front_ios.m: the game view takes the whole screen; the compositor fits the picture inside it, so a game rendering wider than 16:9 is no longer fitted twice.
+
+Upstream-Status: fork-only
+Reason: Adaptive fullscreen present for the wide render sizes (PROJECT.md Phase 2)
+Issue: Tiaoge-tou/NX2Apple PROJECT.md Phase 2
+
+---
+ dm/gfx/nvn/nvn_mtl.m       | 31 ++++++++++++++++++++++++++++++-
+ dm/ios/Sources/front_ios.m |  8 +++++++-
+ 2 files changed, 37 insertions(+), 2 deletions(-)
+
+diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
+index 4df6438..c6c61b2 100644
+--- a/dm/gfx/nvn/nvn_mtl.m
++++ b/dm/gfx/nvn/nvn_mtl.m
+@@ -11701,6 +11701,9 @@ static id<MTLTexture> present_raw_src(id<MTLTexture> src) {
+     if (!v) { RED_ONCE(69, "present: cannot create a non-sRGB view of the sRGB swapchain texture (format %lu); presenting the decoded values", (unsigned long)src.pixelFormat); return src; }
+     return v;
+ }
++static int present_fullscreen(void) {   // fill the whole target instead of keeping the game picture's aspect ratio: the default (adaptive full-screen); only an env file's explicit DM_FULLSCREEN=0 asks for the native-aspect fit
++    static int fs = -1; if (fs < 0) { const char *e = getenv("DM_FULLSCREEN"); fs = !e || atoi(e) ? 1 : 0; } return fs;
++}
+ // The rectangle of the canvas (dw x dh) the picture (cw x ch) is drawn into: the picture's aspect ratio kept and centred, black bars in the rest (no stretching when the screen's ratio
+ // differs from the game's, e.g. iPhone about 19.5:9 against the game's 16:9); when the ratios differ by under 1 % (the remainder from a game width that is a multiple of 8 in the
+ // full-screen setup, e.g. 1952x900 against 2868x1320 differs by 0.17 %) the whole canvas, leaving no border of a few pixels
+@@ -11708,14 +11711,28 @@ static MTLViewport present_viewport(double cw, double ch, double dw, double dh)
+     double s = fmin(dw / cw, dh / ch);
+     MTLViewport vp = {floor((dw - cw * s) / 2), floor((dh - ch * s) / 2), round(cw * s), round(ch * s), 0, 1};
+     if (fabs((dw / dh) / (cw / ch) - 1) < 0.01) vp = (MTLViewport){0, 0, dw, dh, 0, 1};
++    if (present_fullscreen()) vp = (MTLViewport){0, 0, dw, dh, 0, 1};   // DM_FULLSCREEN fills the whole target instead (the picture stretches), as front_ios.m's view frame already promises on that switch
+     return vp;
+ }
+-// The valid source rectangle of a present (x, y, width, height; the crop of nvnWindowSetCrop, zero = the whole texture); 0 when it lies outside the texture
++// The valid source rectangle of a present (x, y, width, height; the crop of nvnWindowSetCrop, zero = the whole texture); 0 when it lies outside the texture.
++// One out-of-bounds shape is clamped instead of dropped: a full-frame crop from the origin that exceeds the texture. A guest can
++// declare its mode's nominal size as the crop while its swapchain textures follow the size the host actually renders at (a display
++// template baked wider than this screen's render size: Silksong's docked template says 2344 on a screen rendering 1552 wide) -- the
++// pixels in the texture are the complete frame at the texture's own size, so clamping shows the frame; dropping it showed a black
++// screen with the game running. Any other out-of-bounds shape (offset origin, empty, partially outside) still drops, as before
+ static int present_crop_rect(id<MTLTexture> src, const int crop[4], NSUInteger r[4]) {
+     r[0] = 0; r[1] = 0; r[2] = src.width; r[3] = src.height;
+     if (!crop || !(crop[2] || crop[3])) return 1;
+     if (crop[0] < 0 || crop[1] < 0 || crop[2] <= 0 || crop[3] <= 0 ||
+         (uint64_t)crop[0] + crop[2] > src.width || (uint64_t)crop[1] + crop[3] > src.height) {
++        if (!crop[0] && !crop[1] && crop[2] > 0 && crop[3] > 0 &&
++            ((uint64_t)crop[2] > src.width || (uint64_t)crop[3] > src.height)) {
++            static int noted;
++            if (!noted) { noted = 1; MLOG("present crop %dx%d exceeds the source texture %lux%lu from the origin: clamping to the texture (the guest's declared frame is larger than the texture it rendered into)", crop[2], crop[3], (unsigned long)src.width, (unsigned long)src.height); }
++            r[2] = (NSUInteger)crop[2] < src.width ? (NSUInteger)crop[2] : src.width;
++            r[3] = (NSUInteger)crop[3] < src.height ? (NSUInteger)crop[3] : src.height;
++            return 1;
++        }
+         MLOG("[RED] present crop out of bounds: %d,%d %dx%d / source texture %lux%lu", crop[0], crop[1], crop[2], crop[3], (unsigned long)src.width, (unsigned long)src.height); return 0;
+     }
+     r[0] = crop[0]; r[1] = crop[1]; r[2] = crop[2]; r[3] = crop[3]; return 1;
+@@ -11723,6 +11740,16 @@ static int present_crop_rect(id<MTLTexture> src, const int crop[4], NSUInteger r
+ static int present_encode(id<MTLCommandBuffer> cb, id<MTLTexture> src, id<MTLTexture> dst, const int crop[4]) {
+     NSUInteger r[4]; if (!present_crop_rect(src, crop, r)) return 0;
+     NSUInteger cx = r[0], cy = r[1], cw = r[2], ch = r[3];
++    // A narrower-than-16:9 screen (an iPad) under the stock handheld frame: the frame is 1280x720 and the full-screen
++    // present would stretch it sideways to the screen. Show a left-anchored window of the frame at the screen's own
++    // aspect instead -- the full height at true proportions, the left-hand HUD whole, the right edge of the world off
++    // the screen (the player's choice over the stretch). Full-frame crops of a 720-line texture only, so a docked
++    // (1080-line) present and any guest-set sub-crop are untouched, and a wider screen never satisfies the aspect test.
++    if (!cx && !cy && cw == src.width && ch == src.height && ch == 720 &&
++        (double)cw / (double)ch > (double)dst.width / (double)dst.height * 1.01) {
++        NSUInteger nw = (NSUInteger)((double)ch * (double)dst.width / (double)dst.height);
++        if (nw && nw < cw) { static int noted; if (!noted) { noted = 1; MLOG("present: the %lux%lu frame is wider than the %lux%lu target; showing its left-anchored %lux%lu window (true proportions, the right edge off-screen)", (unsigned long)cw, (unsigned long)ch, (unsigned long)dst.width, (unsigned long)dst.height, (unsigned long)nw, (unsigned long)ch); } cw = r[2] = nw; }
++    }
+     static uint64_t last_crop[8]; uint64_t meta[8] = {src.width, src.height, cx, cy, cw, ch, dst.width, dst.height};
+     if (memcmp(meta, last_crop, sizeof meta)) { memcpy(last_crop, meta, sizeof meta);
+         MLOG("present crop: source texture %lux%lu, valid %lu,%lu %lux%lu → target %lux%lu", (unsigned long)src.width, (unsigned long)src.height,
+@@ -11732,6 +11759,8 @@ static int present_encode(id<MTLCommandBuffer> cb, id<MTLTexture> src, id<MTLTex
+     double dw = dst.width, dh = dst.height;
+     MTLViewport vp = present_viewport(cw, ch, dw, dh);
+     int full = vp.originX == 0 && vp.originY == 0 && vp.width == dw && vp.height == dh;
++    { static double last_vp[4]; if (memcmp(last_vp, &vp, sizeof last_vp)) { memcpy(last_vp, &vp, sizeof last_vp);   // diagnostic: the present's crop, drawable and viewport
++        MLOG("[diag] present crop %lu,%lu %lux%lu into target %.0fx%.0f, viewport %.0f,%.0f %.0fx%.0f (fullscreen %d)", r[0], r[1], r[2], r[3], dw, dh, vp.originX, vp.originY, vp.width, vp.height, present_fullscreen()); } }
+     static double last_vp[4];   // Log one line when the viewport changes (used by the real-device screen-level acceptance screen_check.py to check the aspect ratio)
+     if (memcmp(last_vp, &vp, sizeof last_vp)) { memcpy(last_vp, &vp, sizeof last_vp);
+         MLOG("present viewport %.0f,%.0f %.0fx%.0f / canvas %.0fx%.0f (game image %lux%lu)", vp.originX, vp.originY, vp.width, vp.height, dw, dh, (unsigned long)src.width, (unsigned long)src.height); }
+diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
+index a22786d..16e2f9f 100644
+--- a/dm/ios/Sources/front_ios.m
++++ b/dm/ios/Sources/front_ios.m
+@@ -221,7 +221,13 @@ static void front_ios_hud_script_fix(int width) {
+ - (void)viewDidLayoutSubviews {
+     [super viewDidLayoutSubviews];
+     CGRect b = self.view.bounds; if (!self.game) return;
+-    if (self.game.superview == self.view) self.game.frame = fit_16_9(b);   // on a TV the TV's view lays it out
++    // The game view always takes the whole screen. The compositor (nvn_mtl's present) fits the game's
++    // actual picture inside it keeping the picture's own aspect ratio, or fills the screen under
++    // DM_FULLSCREEN. Fitting the view itself to a fixed 16:9 here shrank the picture twice for games
++    // that render wider than 16:9: once by the narrower view, then again by the compositor fitting
++    // their wider picture into that view (black bars on all four sides, height included).
++    // With a TV connected the game view sits in the TV's view instead, which lays it out there (DmTVVC).
++    if (self.game.superview == self.view) self.game.frame = b;
+     if (self.fps) {   // the top row's free stretch: right of DmGamepad.m's L3 key (102 + 17 of its units from the safe edge), level with − / + (22 units down); u is its unit
+         CGRect s = UIEdgeInsetsInsetRect(b, self.view.safeAreaInsets); CGFloat u = MIN(b.size.height / 430.0, 1.3);
+         self.fps.frame = CGRectMake(floor(CGRectGetMinX(s) + 130 * u), floor(CGRectGetMinY(s) + 22 * u - 11), 64, 22);

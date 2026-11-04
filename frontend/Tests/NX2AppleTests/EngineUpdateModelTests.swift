@@ -6,12 +6,12 @@ import NXModel
 
 /// The engine in the model: that the release app never runs git, and the engine strings. What the app does with an update check's
 /// outcome is `EngineSyncStore`, tested in NXModelTests. Nothing here touches the network or the store.
-@MainActor final class EngineUpdateModelTests: XCTestCase {
+@MainActor final class EngineUpdateModelTests: IsolatedDefaultsTestCase {
     private let root = URL(fileURLWithPath: "/nonexistent-engine-bundle")
 
     /// A launcher built from the repository keeps git, the release app never touches it.
     @MainActor func testTheReleaseAppNeverRunsGit() {
-        let mStores = LauncherStores(); let m = mStores.build
+        let mStores = LauncherStores(defaults: testDefaults); let m = mStores.build
         mStores.engineSync.bundle = root
         mStores.repo.clone()
         mStores.repo.pull()

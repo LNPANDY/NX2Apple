@@ -5,6 +5,8 @@ import SwiftUI
 enum ShellSettingsRows {
     static let gameID = "shell"
     static let hud = "shell.hud"
+    static let touchSize = "shell.touchSize"
+    static let touchStick = "shell.touchStick"
     static let targetPrefix = "shs.row."
 
     static func hudRow(_ store: ShellSettingsStore) -> SettingRow {
@@ -12,16 +14,38 @@ enum ShellSettingsRows {
                    kind: .toggle(on: "1", off: "0"), value: store.performanceHUD == true ? "1" : "0")
     }
 
+    /// The touch controls' size for every game. The preview above the row shows it.
+    static func touchSizeRow(_ store: ShellSettingsStore) -> SettingRow {
+        SettingRow(id: touchSize, label: ShellStrings.text("Size"),
+                   kind: .choice([SettingOption("small", ShellStrings.text("Small")), SettingOption("medium", ShellStrings.text("Medium")),
+                                  SettingOption("large", ShellStrings.text("Large"))]),
+                   value: store.touchSize)
+    }
+
+    /// Where the left stick sits in every game. The buttons on the right keep their place.
+    static func touchStickRow(_ store: ShellSettingsStore) -> SettingRow {
+        SettingRow(id: touchStick, label: ShellStrings.text("Left stick"),
+                   kind: .choice([SettingOption("corner", ShellStrings.text("Corner")), SettingOption("higher", ShellStrings.text("Higher")),
+                                  SettingOption("inward", ShellStrings.text("Inward"))]),
+                   value: store.touchStick)
+    }
+
+    /// Under the preview: the rows are for every game, and the engine keeps the controls apart on a screen too small for a
+    /// choice. A note of its own, not the rows', so the segments keep the card's width.
+    static var touchNote: String { ShellStrings.text("For every game. On a screen too small for a choice, the controls stay closer to where they were.") }
+
     /// A change of one of the rows, from the row itself or from the list of choices.
     static func apply(_ id: String, value: String, to store: ShellSettingsStore) {
         switch id {
         case hud: store.storePerformanceHUD(value == "1")
+        case touchSize: store.storeTouchSize(value)
+        case touchStick: store.storeTouchStick(value)
         default: break
         }
     }
 }
 
-/// The shell's own settings: the game-data folder, the cloud-saves folder and the default performance
+/// The shell's own settings: the game-data folder, the cloud-saves folder, the touch controls and the default performance
 /// overlay. A game's own choices win over these, and these win over the built-in defaults. It looks like a game's
 /// settings and takes a controller the same way, as a panel over the library.
 struct ShellSettingsView: View {
@@ -75,6 +99,16 @@ struct ShellSettingsView: View {
                                         .shellTarget("shs.cloud.off") { actions.onClearShellCloud() }
                                 }
                             }
+                        }
+                        SettingsGroup(title: ShellStrings.text("Touch controls")) {
+                            TouchControlsPreview(size: store.touchSize, stick: store.touchStick, layout: store.touchLayout)
+                            TouchControlsNote()
+                            ForEach([ShellSettingsRows.touchSizeRow(store), ShellSettingsRows.touchStickRow(store)]) { row in
+                                SettingControl(gameID: ShellSettingsRows.gameID, row: row, targetPrefix: ShellSettingsRows.targetPrefix) {
+                                    ShellSettingsRows.apply(row.id, value: $0, to: store)
+                                }.equatable()
+                            }
+                            TouchArrangeRow(arranged: !store.touchLayout.isEmpty)
                         }
                         SettingsGroup(title: ShellStrings.text("Interface")) {
                             let hud = ShellSettingsRows.hudRow(store)

@@ -5,6 +5,7 @@ import ShellUI
 /// inside are the ones the per-game app uses in its standard defaults: `launcher.<VAR>`, `pickedDataBookmark`,
 /// `cloudSavesBookmark`, so the engine can read the same names later.
 public enum GameDefaults {
+    public static let padMapKey = "padMap"
     public static let suitePrefix = "dev.nx2apple.shell.game."
     /// True when the player turned cloud saves off for this game. It wins over the shell's cloud-saves folder, and
     /// choosing a folder for the game clears it.

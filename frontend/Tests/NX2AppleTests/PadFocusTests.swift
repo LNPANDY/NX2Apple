@@ -5,7 +5,7 @@ import XCTest
 
 /// The controller focus: moves go to the nearest target in the direction and stay in their row when they can, left / right
 /// change a value where the target holds one, and the first press only shows the focus.
-final class PadFocusTests: XCTestCase {
+final class PadFocusTests: IsolatedDefaultsTestCase {
     private func grid() -> PadFocus {
         let f = PadFocus()
         // a row of three cards under a tab bar of two, and one button far right on the tab bar's line

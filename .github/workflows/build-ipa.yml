@@ -240,7 +240,7 @@ jobs:
           [ -n "$APPNAME" ] && ARGS+=(--app-name "$APPNAME")
           # Pad build: bake the env switch into the bundle's dm/env.txt (main.m
           # applies it at boot; Documents/env.txt can still override on device).
-          # DM_PAD_SKIN=1 stages the Silksong skin art in build_ipa.sh (patch 0061)
+          # DM_PAD_SKIN=1 stages the Silksong skin art in build_ipa.sh (patch 0071)
           # and runs the pad's skin system; DM_PAD_HADES=1 does the same for the
           # Hades II sets and layout.
           if [ "$GAME" = "silksong" ]; then

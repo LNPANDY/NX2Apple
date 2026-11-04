@@ -4,7 +4,7 @@ import XCTest
 @testable import NXLauncher
 
 /// Launch options beyond the app's own list: Display mode, the basic / advanced split, the render scale in pixels, and mods.
-final class LaunchOptionsTests: XCTestCase {
+final class LaunchOptionsTests: IsolatedDefaultsTestCase {
     private var temporary: URL!
 
     override func setUpWithError() throws {

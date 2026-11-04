@@ -6,7 +6,7 @@ import Combine
 import NXModel
 @testable import NXLauncher
 
-@MainActor final class ConsoleTests: XCTestCase {
+@MainActor final class ConsoleTests: IsolatedDefaultsTestCase {
     /// The games ready on this Mac come first. The rest follow in their own order, each with its status.
     func testReadyGamesComeFirst() {
         func game(_ id: String, _ status: ConsoleGame.Status) -> ConsoleGame {
@@ -207,7 +207,7 @@ import NXModel
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         for lang in CaptureLanguage.all([.en, .zh]) {
             for width: CGFloat in [900, 1280] {
-                let modelStores = LauncherStores(); let model = modelStores.build
+                let modelStores = LauncherStores(defaults: testDefaults); let model = modelStores.build
                 model.lang = lang
                 let library = GameLibrary(file: output.appendingPathComponent("unused-library.json"))
                 let driver = MockConsoleDriver(scenario: .controllersMixed, lang: lang, animated: false)
@@ -240,7 +240,7 @@ import NXModel
         let sizes: [(String, CGFloat, CGFloat)] = [("tv", 1920, 1080), ("mac", 1280, 800), ("compact", 390, 844)]
         for lang in CaptureLanguage.all([.en, .zh]) {
             for (name, width, height) in sizes {
-                for screen in ["full", "few", "empty", "controllers", "controllersMixed", "mixedHome", "controllerDesktop", "connectedToast", "starting", "options", "needsBuild", "needsData", "broken", "desktop", "prompt"] {
+                for screen in ["full", "few", "empty", "controllers", "controllersMixed", "mixedHome", "controllerDesktop", "connectedToast", "starting", "options", "needsBuild", "needsData", "broken", "desktop", "prompt", "homeHint"] {
                     let driver = MockConsoleDriver(scenario: MockConsoleDriver.Scenario(rawValue: screen) ?? (screen == "mixedHome" || screen == "controllerDesktop" || screen == "connectedToast" ? .controllersMixed : .full), lang: lang, animated: false)
                     switch screen {
                     case "mixedHome": driver.back()
@@ -250,6 +250,7 @@ import NXModel
                     case "needsData": driver.focus("demo.5"); driver.play("demo.5")
                     case "broken": driver.focus("demo.7"); driver.play("demo.7")
                     case "desktop": driver.exitToDesktop()
+                    case "homeHint": driver.state.showHomeButtonHint()
                     default: break
                     }
                     let view: AnyView
@@ -288,10 +289,30 @@ import NXModel
         window.contentView = host
         window.orderBack(nil)
         defer { window.orderOut(nil); window.contentView = nil; window.close() }
-        func settle() { RunLoop.main.run(until: Date().addingTimeInterval(0.4)); host.layoutSubtreeIfNeeded() }
-        func snapshot(_ name: String) throws -> NSBitmapImageRep {
+        func render() throws -> NSBitmapImageRep {
             let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
             host.cacheDisplay(in: host.bounds, to: rep)
+            return rep
+        }
+        func pixels(_ rep: NSBitmapImageRep) -> Data { Data(bytes: rep.bitmapData!, count: rep.bytesPerRow * rep.pixelsHigh) }
+        /// Waits for what the row does after a focus change: it must first differ from `previous` (the focus change and its scroll have
+        /// landed) and then stop changing for two renders in a row. The scroll is a 0.2 s animation on the wall clock, so on a busy
+        /// machine a fixed pause caught it half way (the ring was then somewhere between the tiles, or not on screen).
+        func settle(after previous: NSBitmapImageRep? = nil) throws {
+            let deadline = Date().addingTimeInterval(15)
+            var last = previous.map(pixels), moved = previous == nil, stableRenders = 0
+            while Date() < deadline {
+                RunLoop.main.run(until: Date().addingTimeInterval(0.1)); host.layoutSubtreeIfNeeded()
+                let now = pixels(try render())
+                if !moved { moved = now != last; last = now; continue }
+                stableRenders = now == last ? stableRenders + 1 : 0
+                last = now
+                if stableRenders >= 2 { return }
+            }
+            XCTFail("the console did not come to rest within 15 s")
+        }
+        func snapshot(_ name: String) throws -> NSBitmapImageRep {
+            let rep = try render()
             if let directory = ProcessInfo.processInfo.environment["NX_CONSOLE_CAPTURE_DIR"] {
                 let output = URL(fileURLWithPath: directory)
                 try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
@@ -299,12 +320,12 @@ import NXModel
             }
             return rep
         }
-        settle()
+        try settle()
         let first = try XCTUnwrap(driver.state.games.first).id, last = try XCTUnwrap(driver.state.games.last).id
         let start = try snapshot("clip-1-start")
-        driver.focus(last); settle()
-        _ = try snapshot("clip-2-last")
-        driver.focus(first); settle()
+        driver.focus(last); try settle(after: start)
+        let atEnd = try snapshot("clip-2-last")
+        driver.focus(first); try settle(after: atEnd)
         let rep = try snapshot("clip-3-back")
         // the ring is a vertical cream line along the image's left edge: the leftmost column with a long run of cream pixels
         func ringColumn(_ rep: NSBitmapImageRep) -> Int? {

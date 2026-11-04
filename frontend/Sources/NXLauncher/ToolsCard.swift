@@ -5,25 +5,23 @@ import NXModel
 
 /// Settings, "Tools": the repository or the release app's engine, the dependency rows and the diagnostics row.
 /// Observes the repository, engine sync and dependency stores. What it needs from the build store comes as values:
-/// whether a build runs, where the shell cache is and the closure that reveals it. The diagnostics button belongs to the app.
-package struct ToolsCard<Diagnostics: View>: View {
+/// whether a build runs. The cache row (ShellCacheRow, which observes the build store) and the diagnostics button come as views.
+package struct ToolsCard<Diagnostics: View, ShellCache: View>: View {
     @ObservedObject var repo: RepoStore
     @ObservedObject var engine: EngineSyncStore
     @ObservedObject var dependencies: DependencyStore
     let buildRunning: Bool
-    let shellCachePath: String
-    let revealFolder: (URL) -> Void
+    let shellCache: ShellCache
     let diagnostics: Diagnostics
     @EnvironmentObject var loc: Localizer
 
-    package init(repo: RepoStore, engine: EngineSyncStore, dependencies: DependencyStore, buildRunning: Bool, shellCachePath: String,
-                 revealFolder: @escaping (URL) -> Void, @ViewBuilder diagnostics: () -> Diagnostics) {
+    package init(repo: RepoStore, engine: EngineSyncStore, dependencies: DependencyStore, buildRunning: Bool,
+                 @ViewBuilder shellCache: () -> ShellCache, @ViewBuilder diagnostics: () -> Diagnostics) {
         self.repo = repo
         self.engine = engine
         self.dependencies = dependencies
         self.buildRunning = buildRunning
-        self.shellCachePath = shellCachePath
-        self.revealFolder = revealFolder
+        self.shellCache = shellCache()
         self.diagnostics = diagnostics()
     }
 
@@ -169,10 +167,7 @@ package struct ToolsCard<Diagnostics: View>: View {
             Text(engine.confirmingChannel.flatMap { engine.selection.channel.switchWarningKey(to: $0) }.map { loc.t($0) } ?? "")
         }
         CardDivider()
-        CardRow(loc.t("shellCache.row"), detail: loc.t("shellCache.note"), detail2: shellCachePath) {
-            Button(loc.t("shellCache.open")) { revealFolder(URL(fileURLWithPath: shellCachePath)) }
-                .buttonStyle(LauncherSecondaryButtonStyle())
-        }
+        shellCache
         CardDivider()
         CardRow(loc.t("repo.auto"), detail: loc.t("engine.autoNote")) {
             Toggle("", isOn: $repo.autoUpdate).labelsHidden().toggleStyle(LauncherSwitchStyle())

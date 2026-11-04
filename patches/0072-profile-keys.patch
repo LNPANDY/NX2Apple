@@ -1,0 +1,75 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiaoge-tou <85100527+Tiaoge-tou@users.noreply.github.com>
+Date: Tue, 3 Nov 2026 20:19:47 +0800
+Subject: [PATCH] Game profiles: the four keys our patches read, in
+ compile-time form
+
+game.py header() gains display_hz, serve_patch, display_wide and pad_skin_toggle (patch port 0072, group P of the port inventory), carried from the Tiaoge-tou/nxnative fork.
+
+Each key is parsed and validated in header() and emitted as a DM_GAME_ macro, exactly as the old fork had it. Defaults keep every existing profile unchanged (display_hz 0, serve_patch empty, both toggles off). The keys stay compile-time only: they are not added to the runtime profile key table, because the games build as single-game apps in this project (PROJECT.md) and the runtime form is the shell work the charter leaves out.
+
+The consumers land later in the queue: serve_patch in 0073, display_hz in the 120 Hz patch, display_wide in the resolution patches, pad_skin_toggle in the pad and launcher patches.
+
+Upstream-Status: fork-only
+Reason: The four profile keys the Silksong and Hades II patches read, in compile-time form (PROJECT.md Phase 2)
+Issue: Tiaoge-tou/NX2Apple PROJECT.md Phase 2
+
+---
+ dm/games/game.py | 13 +++++++++++++
+ 1 file changed, 13 insertions(+)
+
+diff --git a/dm/games/game.py b/dm/games/game.py
+index d5f89a3..f65017c 100644
+--- a/dm/games/game.py
++++ b/dm/games/game.py
+@@ -97,6 +97,8 @@ def header(g):
+     if pi not in ('game', 'display'): sys.exit(f'{g.id}: present_interval must be game or display: {pi}')
+     ft = g.get('fps_target', '0')   # frame rate cap of the rewriter's frame step (FRAME_STEP in the profile's patches.py: Tears of the Kingdom 1.4.3, Breath of the Wild 1.9.0) or of the engine's own frame limit (hle_fpslock.c): 0 = the game's own step, 30 / 60
+     if ft not in ('0', '30', '60'): sys.exit(f'{g.id}: fps_target must be 0, 30 or 60: {ft}')
++    dh = g.get('display_hz', '0')   # the highest display rate the launcher's frame-rate choice offers (settings.tsv SS_DISPLAY_HZ; the iOS front end drives the present, the present link and the vi vsync event at a rate it measures on the screen, hle_nvn.c): 0 = no choice, 60 Hz only; 120 = the 120 Hz tiers
++    if dh not in ('0', '120'): sys.exit(f'{g.id}: display_hz must be 0 or 120: {dh}')
+     fh = g.get('fps_hold', 'on')   # whether the frame step may hold a frame longer than the cap's vsyncs when frames come late (hle_nvn.c fstep_tick): on / off
+     if fh not in ('on', 'off'): sys.exit(f'{g.id}: fps_hold must be on or off: {fh}')
+     utp = g.get('ue_texture_pool', '0')   # Unreal's r.Streaming.PoolSize in MB, raised to this on the Mac (hle_uecvar.c; DM_UE_TEXTURE_POOL overrides, and turns it on for iOS): 0 = the game's own pool
+@@ -120,6 +122,9 @@ def header(g):
+     if sf not in ('bfttf', 'ttf'): sys.exit(f'{g.id}: shared_font must be bfttf or ttf: {sf}')
+     pl = g.get('pad_layout', 'simple')   # the virtual gamepad's first layout (DmGamepad.m; afterwards whatever the player switched to in game is kept): simple = 2D, full = 3D (D-pad, right stick, L3 / R3),
+     if pl not in ('simple', 'full', 'touch'): sys.exit(f'{g.id}: pad_layout must be simple, full or touch: {pl}')   # touch = Tap (no control: every touch goes to the game's touch screen)
++    spv = g.words('serve_patch', '')   # byte slots in a game file the file layer serves mode-dependently (hle_fs.c): "[n:|w:]<file>@<off>:<docked float bits>><handheld float bits>[@...]" per file (n: = narrow screens only, w: = wide only; a slot may name a stock pattern first, "<stock>><docked>><handheld>", a * on the docked value marks it computed from the render width, and a # on a value serves the mode's render width as four ASCII decimal digits), hex; none by default
++    for w in spv:
++        if not re.fullmatch(r'(n:|w:)?[^@\s:]+(@[0-9a-fA-F]+:([*#]?[0-9a-fA-F]{8}>){1,2}[*#]?[0-9a-fA-F]{8})+', w): sys.exit(f'{g.id}: serve_patch takes "[n:|w:]<file>@<off>:<docked>><handheld>" groups of hex offsets and float bits (a slot may name a stock pattern first, mark its docked value * for computed, or a value # for the render width as ASCII digits): {w}')
+     sks = g.get('shader_key_skip', '')   # control-section bytes the shader keys hash as zeros, <offset>+<length> (hle_nvn.c keys_hash, shader_split.py key_ctl; Batman: Arkham Knight: GLSLC's compile information, 0x770+0x78)
+     m = re.fullmatch(r'(0x[0-9a-fA-F]+|\d+)\+(0x[0-9a-fA-F]+|\d+)', sks) if sks else None
+     if sks and (not m or not 0x30 <= int(m[1], 0) or not 0 < int(m[2], 0) or int(m[1], 0) + int(m[2], 0) > 0x880 or (int(m[1], 0) < 0x760 and int(m[1], 0) + int(m[2], 0) > 0x700)):   # not over +0x700..+0x75f, the code area and compute fields the tools read
+@@ -127,6 +132,10 @@ def header(g):
+     sko, skl = (int(m[1], 0), int(m[2], 0)) if m else (0, 0)
+     rcd = g.get('render_cond', 'off')   # NVN conditional rendering evaluated at replay, timestamp reports with counter 0 (nvn_mtl.m OP_RENDER_COND): on / off
+     if rcd not in ('on', 'off'): sys.exit(f'{g.id}: render_cond must be on or off: {rcd}')
++    dwd = g.get('display_wide', 'off')   # nn::oe's default display resolution reported wide while fullscreen is on (hle_oe.c h_oe_DefRes): the game renders the phone's aspect itself instead of a stretched 1920x1080: on / off
++    if dwd not in ('on', 'off'): sys.exit(f'{g.id}: display_wide must be on or off: {dwd}')
++    pst = g.get('pad_skin_toggle', 'off')   # the launcher shows a button-skin toggle for this game (settings.tsv DM_SILK_SKIN): its pad has an image skin and glass controls under the same layout: on / off
++    if pst not in ('on', 'off'): sys.exit(f'{g.id}: pad_skin_toggle must be on or off: {pst}')
+     tfu = g.get('tex_flush_upload', 'off')   # textures written by the CPU into a pool and published with nvnMemoryPoolFlushMappedRange are uploaded like packaged ones (hle_nvn.c): on / off
+     if tfu not in ('on', 'off'): sys.exit(f'{g.id}: tex_flush_upload must be on or off: {tfu}')
+     tdu = g.get('tex_dirty_upload', 'off')   # with tex_flush_upload: a registered texture the CPU writes after init without any flush is uploaded too (dirty pages, hle_nvn.c nvn_ft_written): on / off
+@@ -174,6 +183,7 @@ def header(g):
+          f'#define DM_GAME_CORE_PREEMPT {int(cp == "on")}',
+          f'#define DM_GAME_ALLOC_BIG_ALIGN {int(aba == "on")}',
+          f'#define DM_GAME_FPS_TARGET {int(ft)}',
++         f'#define DM_GAME_DISPLAY_HZ {int(dh)}',
+          f'#define DM_GAME_FPS_HOLD {int(fh == "on")}',
+          f'#define DM_GAME_UE_TEXTURE_POOL {int(utp)}',
+          f'#define DM_GAME_UE_FPS_CVAR {q(ufc)}',
+@@ -184,9 +194,12 @@ def header(g):
+          f'#define DM_GAME_PAD_LAYOUT {("simple", "full", "touch").index(pl)}',
+          f'#define DM_GAME_OPMODE {int(om == "console")}',
+          f'#define DM_GAME_PERF_BOOST {int(pm == "boost")}',
++         f'#define DM_GAME_SERVE_PATCH {q(" ".join(spv))}',
+          f'#define DM_GAME_TEX_FLUSH_UPLOAD {int(tfu == "on")}',
+          f'#define DM_GAME_SHADER_KEY_SKIP_OFF {sko:#x}', f'#define DM_GAME_SHADER_KEY_SKIP_LEN {skl:#x}',
+          f'#define DM_GAME_RENDER_COND {int(rcd == "on")}',
++         f'#define DM_GAME_DISPLAY_WIDE {int(dwd == "on")}',
++         f'#define DM_GAME_PAD_SKIN_TOGGLE {int(pst == "on")}',
+          f'#define DM_GAME_TEX_DIRTY_UPLOAD {int(tdu == "on")}',
+          f'#define DM_GAME_TEX_BC_CPU {int(tbc == "on")}',
+          f'#define DM_GAME_TEX_DYN_SLOTS {int(tds == "on")}',
