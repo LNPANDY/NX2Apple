@@ -181,6 +181,15 @@ struct CoverFlowView: View, Equatable {
         }
         .animation(reduceMotion ? nil : .smooth(duration: 0.3), value: selected.id)
         .frame(maxWidth: .infinity)
+        .contentShape(Rectangle())
+        // A sideways swipe moves the choice one game over, as the carousel does past three games: a tap still
+        // belongs to the cards (the drag needs real travel and a mostly horizontal line), and the ends stop.
+        .simultaneousGesture(DragGesture(minimumDistance: 24).onEnded { value in
+            let dx = value.translation.width, dy = value.translation.height
+            guard games.count > 1, abs(dx) > 44, abs(dx) > abs(dy) * 1.5 else { return }
+            let target = min(games.count - 1, max(0, chosenIndex + (dx < 0 ? 1 : -1)))
+            if target != chosenIndex { select(games[target].id) }
+        })
     }
 
     private func coverButton(_ detail: GameDetail, cover: CGFloat) -> some View {
