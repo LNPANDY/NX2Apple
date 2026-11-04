@@ -16,13 +16,16 @@ enum ShellLayout: Equatable {
         return regular && !accessibilityText ? .grid : .column
     }
 
-    /// The width of the overlay Settings and Controllers share: a panel from the trailing edge over the dimmed library.
+    /// The widest the overlay Settings and Controllers get: a panel from the trailing edge over the dimmed library.
     static let overlayWidth: CGFloat = 520
+    /// A landscape panel is also capped at half the screen: at the full 520 a phone on its side gives the panel
+    /// three fifths of the screen and its rows stretch. Tablets keep the 520, phones land near 430.
+    func overlayWidth(_ width: CGFloat) -> CGFloat { isCoverFlow ? min(Self.overlayWidth, width / 2) : Self.overlayWidth }
     /// Settings drop in as that overlay wherever the library stays in view beside it (at least 120 points of it), and
     /// take the whole screen where it would not: a phone held upright, a folded foldable, a narrow window.
-    func settingsFloat(_ width: CGFloat) -> Bool { self != .column && width >= Self.overlayWidth + 120 }
+    func settingsFloat(_ width: CGFloat) -> Bool { self != .column && width >= overlayWidth(width) + 120 }
     /// The settings' width: the overlay, or the whole width.
-    func paneWidth(_ width: CGFloat) -> CGFloat { settingsFloat(width) ? min(width, Self.overlayWidth) : width }
+    func paneWidth(_ width: CGFloat) -> CGFloat { settingsFloat(width) ? min(width, overlayWidth(width)) : width }
     var isCoverFlow: Bool { if case .coverFlow = self { true } else { false } }
 }
 
@@ -156,10 +159,10 @@ public struct LibraryView: View {
                         .transition(.opacity.combined(with: .scale(scale: 0.96)))
                 }
                 if controllersOpen {
-                    Color.black.opacity(0.55 * (1 - min(1, edgeDrag / min(width, 520)))).ignoresSafeArea().accessibilityHidden(true)
+                    Color.black.opacity(0.55 * (1 - min(1, edgeDrag / pane))).ignoresSafeArea().accessibilityHidden(true)
                         .onTapGesture { back() }
                     ControllersView(controllers: controllers, onBack: back)
-                        .frame(width: min(width, 520))
+                        .frame(width: pane)
                         .frame(maxHeight: .infinity)
                         .background { ShellPalette.background.ignoresSafeArea() }
                         .overlay(alignment: .leading) { Rectangle().fill(ShellPalette.hairline).frame(width: 1).ignoresSafeArea() }
@@ -169,10 +172,10 @@ public struct LibraryView: View {
                         .transition(.move(edge: .trailing).combined(with: .opacity))
                 }
                 if shellSettingsOpen {
-                    Color.black.opacity(0.55 * (1 - min(1, edgeDrag / min(width, 520)))).ignoresSafeArea().accessibilityHidden(true)
+                    Color.black.opacity(0.55 * (1 - min(1, edgeDrag / pane))).ignoresSafeArea().accessibilityHidden(true)
                         .onTapGesture { back() }
                     ShellSettingsView(actions: actions, onClose: closeShellSettings)
-                        .frame(width: min(width, 520))
+                        .frame(width: pane)
                         .frame(maxHeight: .infinity)
                         .background { ShellPalette.background.ignoresSafeArea() }
                         .overlay(alignment: .leading) { Rectangle().fill(ShellPalette.hairline).frame(width: 1).ignoresSafeArea() }
