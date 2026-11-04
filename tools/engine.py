@@ -193,7 +193,7 @@ def fetch(eng, sha, url=None):
 def ensure_repo(eng):
     if is_repo(eng): return
     if eng.exists() and any(eng.iterdir()):
-        if not any(f.is_file() for _, _, fs in os.walk(eng) for f in fs):
+        if not any(f.is_file() for f in eng.rglob('*')):
             # An empty tree is the leftover of a failed first sync: on Windows the engine sync
             # needs git, and the failure hit right after this folder was made, so every retry
             # then stopped here forever ("move it away"). Start over instead of asking.

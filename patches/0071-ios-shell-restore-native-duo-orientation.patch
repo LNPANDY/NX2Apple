@@ -1,7 +1,8 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Jon Ochocki <24785922+jonochocki@users.noreply.github.com>
-Date: Wed, 04 Nov 2026 03:00:03 +0000
-Subject: [PATCH] iOS shell: restore native Duo rotation without portrait phone gameplay
+Date: Wed, 4 Nov 2026 03:00:03 +0000
+Subject: [PATCH] iOS shell: restore native Duo rotation without portrait phone
+ gameplay
 
 The shell retained UIRequiresFullScreen from the fixed-size game template,
 which puts Duo back into orientation compatibility behavior. Remove that

@@ -101,6 +101,103 @@ final class MacAppLanguageTests: IsolatedDefaultsTestCase {
         XCTAssertEqual(env["DM_LAUNCHER"], "0")
     }
 
+    /// A dump or NACP-less game whose launcher.json has no DM_LANG row gets one from its RomFS (System/RegionLangMask.txt or Mals/, #668).
+    func testRomFSLanguagesSupplyTheRowWhenLauncherJSONHasNone() throws {
+        let app = temporary.appendingPathComponent("Bananza.app")
+        let dm = app.appendingPathComponent("Contents/Resources/dm")
+        try FileManager.default.createDirectory(at: dm, withIntermediateDirectories: true)
+        let noLangJSON = #"{"schema": 1, "game": "040074A01BF12000", "settings": [{"env": "DM_OPMODE", "kind": "choice", "section": "Game", "label": "Console mode", "note": "", "default": "1", "level": "basic", "options": [["1", "Docked"], ["0", "Handheld"]]}]}"#
+        try Data(noLangJSON.utf8).write(to: dm.appendingPathComponent("launcher.json"))
+        let info: [String: Any] = ["CFBundleIdentifier": bundleID, "DMTitleID": "040074A01BF12000", "DMLanguage": "en-US"]
+        try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0).write(to: app.appendingPathComponent("Contents/Info.plist"))
+
+        let imgURL = app.appendingPathComponent("Contents/Resources/romfs.img")
+        try Self.makeDMROMFSImage(mask: "JPja USen CNzh TWzh EUfr\n01111\n").write(to: imgURL)
+
+        let list = try XCTUnwrap(LaunchSetting.forMac(app: app.path, titleID: "040074A01BF12000", repo: "", labels: { L10n.string($0, .en) }))
+        let lang = try XCTUnwrap(list.first { $0.env == "DM_LANG" })
+        XCTAssertFalse(lang.storeBacked, "the app's Info.plist has no DMSettings rule for DM_LANG, so the launcher keeps and passes the choice")
+        XCTAssertEqual(lang.def, "en-US")
+        XCTAssertEqual(lang.options?.map { $0[0] }, ["en-US", "ja", "fr", "zh-Hant", "zh-Hans"])
+
+        var game = LibraryGame(titleID: "040074A01BF12000", name: "Donkey Kong Bananza", appPath: app.path)
+        XCTAssertNil(game.launchEnvironment(list)["DM_LANG"], "at the default language the variable stays unset so env.txt still works")
+        game.launchOptions["DM_LANG"] = "zh-Hans"
+        XCTAssertEqual(game.launchEnvironment(list)["DM_LANG"], "zh-Hans")
+
+        // The archive step also adds the row to an iOS framework's launcher.json when it lacks one.
+        let fwLauncher = temporary.appendingPathComponent("DmGame040074A01BF12000.framework/dm/launcher.json")
+        try FileManager.default.createDirectory(at: fwLauncher.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(noLangJSON.utf8).write(to: fwLauncher)
+        XCTAssertTrue(RomFSLanguages.addToLauncherJSONIfMissing(at: fwLauncher.path, romfs: imgURL.path))
+        let parsed = try XCTUnwrap(LaunchList.parse(Data(contentsOf: fwLauncher)))
+        XCTAssertEqual(parsed.settings.first { $0.env == "DM_LANG" }?.options?.map { $0[0] }, ["en-US", "ja", "fr", "zh-Hant", "zh-Hans"])
+    }
+
+    private func writeImage(_ data: Data) throws -> String {
+        let url = temporary.appendingPathComponent("img-\(UUID().uuidString).img")
+        try data.write(to: url)
+        return url.path
+    }
+
+    func testRomFSImageWithFewerThanTwoKnownLanguagesGivesNoRow() throws {
+        XCTAssertEqual(RomFSLanguages.options(in: try writeImage(Self.makeDMROMFSImage(mask: "USen\n"))), [])
+        XCTAssertEqual(RomFSLanguages.options(in: try writeImage(Self.makeDMROMFSImage(mask: "USen ZZxx QQqq\n"))), [])
+        XCTAssertEqual(RomFSLanguages.options(in: try writeImage(Self.makeDMROMFSImage(mask: "USen JPja\n"))).map { $0[0] }, ["en-US", "ja"])
+    }
+
+    func testRomFSImageWithBadMagicOrCutOffGivesNoRow() throws {
+        var bad = Self.makeDMROMFSImage(mask: "USen JPja\n")
+        bad[0] = UInt8(ascii: "X")
+        XCTAssertEqual(RomFSLanguages.options(in: try writeImage(bad)), [])
+        let good = Self.makeDMROMFSImage(mask: "USen JPja\n")
+        XCTAssertEqual(RomFSLanguages.options(in: try writeImage(good.prefix(good.count - 10))), [], "the index must end at the end of the file")
+        XCTAssertEqual(RomFSLanguages.options(in: try writeImage(good.prefix(20))), [])
+        XCTAssertEqual(RomFSLanguages.options(in: try writeImage(Data())), [])
+    }
+
+    func testRomFSImageWithCraftedHeaderDoesNotTrap() throws {
+        func patched(at offset: Int, _ value: UInt64) -> Data {
+            var d = Self.makeDMROMFSImage(mask: "USen JPja\n")
+            for i in 0..<8 { d[offset + i] = UInt8((value >> (8 * UInt64(i))) & 0xff) }
+            return d
+        }
+        XCTAssertEqual(RomFSLanguages.options(in: try writeImage(patched(at: 24, UInt64.max))), [], "a huge entry count must not overflow count * 24")
+        XCTAssertEqual(RomFSLanguages.options(in: try writeImage(patched(at: 24, UInt64.max / 24 + 1))), [])
+        XCTAssertEqual(RomFSLanguages.options(in: try writeImage(patched(at: 8, UInt64.max))), [])
+        XCTAssertEqual(RomFSLanguages.options(in: try writeImage(patched(at: 16, UInt64.max))), [])
+        // The mask file's size field is the second u64 of entry 2, which starts 48 bytes into the index.
+        var d = Self.makeDMROMFSImage(mask: "USen JPja\n")
+        let idxOff = Int(d[8]) | Int(d[9]) << 8
+        for i in 0..<8 { d[idxOff + 48 + 8 + i] = i == 7 ? 0x7f : 0xff }
+        XCTAssertEqual(RomFSLanguages.options(in: try writeImage(d)), [])
+        // A mask offset near UInt64.max must not overflow offset + size.
+        var e = Self.makeDMROMFSImage(mask: "USen JPja\n")
+        for i in 0..<8 { e[idxOff + 48 + i] = 0xff }
+        XCTAssertEqual(RomFSLanguages.options(in: try writeImage(e)), [])
+    }
+
+    /// DMROMFS1 image with `/System/RegionLangMask.txt` containing `mask`, laid out as `dm/tools/romfs_image.py` writes it
+    /// (header, data, then 24-byte entries and one name pool, breadth-first, a directory is type 0 and a file is type 1).
+    private static func makeDMROMFSImage(mask: String) -> Data {
+        let payload = [UInt8](mask.utf8)
+        let dataOff: UInt64 = 32
+        let idxOff = dataOff + UInt64(payload.count)
+        let names = [UInt8]("SystemRegionLangMask.txt".utf8)
+        func le64(_ v: UInt64) -> [UInt8] { (0..<8).map { UInt8((v >> (8 * UInt64($0))) & 0xff) } }
+        func le32(_ v: UInt32) -> [UInt8] { (0..<4).map { UInt8((v >> (8 * UInt32($0))) & 0xff) } }
+        func le16(_ v: UInt16) -> [UInt8] { [UInt8(v & 0xff), UInt8((v >> 8) & 0xff)] }
+        func entry(_ a: UInt64, _ b: UInt64, _ nOff: UInt32, _ nLen: UInt16, _ type: UInt8) -> [UInt8] {
+            le64(a) + le64(b) + le32(nOff) + le16(nLen) + [type, 0]
+        }
+        let entries = entry(1, 1, 0, 0, 0)
+            + entry(2, 1, 0, 6, 0)
+            + entry(dataOff, UInt64(payload.count), 6, 18, 1)
+        let idx = entries + names
+        let head = [UInt8]("DMROMFS1".utf8) + le64(idxOff) + le64(UInt64(idx.count)) + le64(3)
+        return Data(head + payload + idx)
+    }
+
     /// settings.py output, as described above.
     private static let launcherJSON = ###"""
 {

@@ -12,7 +12,6 @@ the controller layouts and Quit, which opens the quit prompt.
 Upstream-Status: fork-only
 Reason: The route C shell is the fork's (0050): its gear needs GameMenu.swift, without it the shell does not link at the 641d148 pin
 Issue: LNPANDY/NX2Apple#421
-
 ---
  dm/ios/Shell/Shell-Bridging-Header.h | 1 +
  dm/ios/project-shell.yml             | 2 ++
