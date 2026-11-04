@@ -174,6 +174,7 @@ public struct ShellActions {
     public var onPlay: (String) -> Void
     public var onChange: (_ gameID: String, _ settingID: String, _ value: String) -> Void
     public var onPickGameData: (String) -> Void
+    public var onPickGameDataFile: (String) -> Void
     public var onUseAppData: (String) -> Void
     public var onPickCloudSaves: (String) -> Void
     public var onDisableCloudSaves: (String) -> Void
@@ -188,7 +189,8 @@ public struct ShellActions {
     public var onClearShellCloud: () -> Void
     public init(onSelect: @escaping (String) -> Void = { _ in }, onPlay: @escaping (String) -> Void = { _ in },
                 onChange: @escaping (String, String, String) -> Void = { _, _, _ in },
-                onPickGameData: @escaping (String) -> Void = { _ in }, onUseAppData: @escaping (String) -> Void = { _ in },
+                onPickGameData: @escaping (String) -> Void = { _ in }, onPickGameDataFile: @escaping (String) -> Void = { _ in },
+                onUseAppData: @escaping (String) -> Void = { _ in },
                 onPickCloudSaves: @escaping (String) -> Void = { _ in }, onDisableCloudSaves: @escaping (String) -> Void = { _ in },
                 onResetDefaults: @escaping (String) -> Void = { _ in }, onShowLog: @escaping (String) -> Void = { _ in },
                 onAppUpdate: @escaping () -> Void = {}, onBack: @escaping () -> Void = {},
@@ -199,6 +201,7 @@ public struct ShellActions {
         self.onPlay = onPlay
         self.onChange = onChange
         self.onPickGameData = onPickGameData
+        self.onPickGameDataFile = onPickGameDataFile
         self.onUseAppData = onUseAppData
         self.onPickCloudSaves = onPickCloudSaves
         self.onDisableCloudSaves = onDisableCloudSaves
