@@ -45,7 +45,7 @@ package enum RomFSLanguages {
         for candidate in candidates(for: path) {
             var isDir: ObjCBool = false
             guard fm.fileExists(atPath: candidate, isDirectory: &isDir) else { continue }
-            let found = isDir.boolValue ? fromDirectory(candidate, fm: fm) : fromImage(candidate)
+            let found = isDir.boolValue ? fromDirectory(candidate, fm: fm) : cachedFromImage(candidate, fm: fm)
             if found.count > 1 { return found }
         }
         return []
@@ -63,17 +63,50 @@ package enum RomFSLanguages {
         return options.first?.first ?? "en-US"
     }
 
-    /// Adds a `DM_LANG` row to `launcher.json` at `launcherPath` when the file has none and `romfs` offers more than one language.
-    /// Used after packing a game's RomFS archive so a newly built iOS framework carries the row even before upstream merges #1208.
+    /// Whether a `DM_LANG` row is the all-languages row `dm/games/settings.py` writes for a game with no language list (no control
+    /// data: a dump or a NUP, seedds/nxnative aafe01d): every language of `table`, and a note that some of them may not be in the
+    /// game. A game that really supports all of them has no note, so it is not taken for this row.
+    package static func isFallbackRow(options: [[String]]?, note: String) -> Bool {
+        guard !note.isEmpty, let codes = options?.compactMap(\.first) else { return false }
+        return Set(table.map(\.code)).isSubset(of: codes)   // a superset: the engine may add languages to its table later
+    }
+
+    /// The fallback row's options cut to the languages the RomFS offers, in the row's own order and labels. An option goes only when its
+    /// code is one the RomFS tags can name (`table`) and the RomFS lacks it: a code this launcher does not know, a language the engine adds
+    /// later, stays. Nil when the RomFS names fewer than two languages, or the row's default (the packed language, which the app starts
+    /// with when nothing is chosen) would go: the row then stays as it is.
+    package static func narrowed(_ options: [[String]], default def: String, to romfs: [[String]]) -> [[String]]? {
+        let offered = Set(romfs.compactMap(\.first)), known = Set(table.map(\.code))
+        guard offered.count > 1 else { return nil }
+        let kept = options.filter { o in o.first.map { !known.contains($0) || offered.contains($0) } ?? false }
+        return kept.count > 1 && kept.contains { $0.first == def } ? kept : nil
+    }
+
+    /// Makes `launcher.json` at `launcherPath` offer the game's real languages, from `romfs`: adds a `DM_LANG` row when the file has
+    /// none, and narrows the all-languages row of a game with no language list. Used after packing a game's RomFS archive, so a newly
+    /// built iOS framework is right before the Mac launcher and the shell read it. False when nothing changed.
     @discardableResult
-    package static func addToLauncherJSONIfMissing(at launcherPath: String, romfs: String, defaultLanguage: String = "en-US",
-                                                   fm: FileManager = .default) -> Bool {
+    package static func applyToLauncherJSON(at launcherPath: String, romfs: String, defaultLanguage: String = "en-US",
+                                            fm: FileManager = .default) -> Bool {
         guard let data = fm.contents(atPath: launcherPath),
               var root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-              var settings = root["settings"] as? [[String: Any]],
-              !settings.contains(where: { ($0["env"] as? String) == "DM_LANG" }) else { return false }
+              var settings = root["settings"] as? [[String: Any]] else { return false }
         let opts = options(in: romfs, fm: fm)
         guard opts.count > 1 else { return false }
+        func write() -> Bool {
+            root["settings"] = settings
+            guard let out = try? JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys]),
+                  (try? out.write(to: URL(fileURLWithPath: launcherPath), options: .atomic)) != nil else { return false }
+            return true
+        }
+        if let i = settings.firstIndex(where: { ($0["env"] as? String) == "DM_LANG" }) {
+            let row = settings[i]
+            guard isFallbackRow(options: row["options"] as? [[String]], note: row["note"] as? String ?? ""),
+                  let kept = narrowed(row["options"] as? [[String]] ?? [], default: row["default"] as? String ?? "", to: opts) else { return false }
+            settings[i]["options"] = kept
+            settings[i]["note"] = ""
+            return write()
+        }
         let codes = Set(opts.compactMap(\.first))
         let def = codes.contains(defaultLanguage) ? defaultLanguage : (codes.contains("en-US") ? "en-US" : opts[0][0])
         let row: [String: Any] = [
@@ -88,10 +121,30 @@ package enum RomFSLanguages {
         ]
         let after = settings.lastIndex { ($0["section"] as? String ?? "Game") == "Game" }.map { $0 + 1 } ?? 0
         settings.insert(row, at: after)
-        root["settings"] = settings
-        guard let out = try? JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys]),
-              (try? out.write(to: URL(fileURLWithPath: launcherPath), options: .atomic)) != nil else { return false }
-        return true
+        return write()
+    }
+
+    /// What an image gave, by path, size and modification date, so the many reads of one settings sheet (it asks again at every redraw) cost
+    /// one read of the index, and a file that is copied over or replaced is read again. Only a list is kept: a failure is read again.
+    private final class ImageCache: @unchecked Sendable {
+        private let lock = NSLock()
+        private var lists: [String: [[String]]] = [:]
+        func get(_ key: String) -> [[String]]? { lock.lock(); defer { lock.unlock() }; return lists[key] }
+        func set(_ key: String, _ value: [[String]]) {
+            lock.lock(); defer { lock.unlock() }
+            if lists.count > 64 { lists.removeAll() }
+            lists[key] = value
+        }
+    }
+    private static let imageCache = ImageCache()
+
+    private static func cachedFromImage(_ path: String, fm: FileManager) -> [[String]] {
+        let a = try? fm.attributesOfItem(atPath: path)
+        let key = "\(path)|\((a?[.size] as? NSNumber)?.int64Value ?? -1)|\((a?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0)"
+        if let hit = imageCache.get(key) { return hit }
+        let found = fromImage(path)
+        if found.count > 1 { imageCache.set(key, found) }
+        return found
     }
 
     private static func candidates(for path: String) -> [String] {

@@ -129,9 +129,97 @@ final class MacAppLanguageTests: IsolatedDefaultsTestCase {
         let fwLauncher = temporary.appendingPathComponent("DmGame040074A01BF12000.framework/dm/launcher.json")
         try FileManager.default.createDirectory(at: fwLauncher.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data(noLangJSON.utf8).write(to: fwLauncher)
-        XCTAssertTrue(RomFSLanguages.addToLauncherJSONIfMissing(at: fwLauncher.path, romfs: imgURL.path))
+        XCTAssertTrue(RomFSLanguages.applyToLauncherJSON(at: fwLauncher.path, romfs: imgURL.path))
         let parsed = try XCTUnwrap(LaunchList.parse(Data(contentsOf: fwLauncher)))
         XCTAssertEqual(parsed.settings.first { $0.env == "DM_LANG" }?.options?.map { $0[0] }, ["en-US", "ja", "fr", "zh-Hant", "zh-Hans"])
+    }
+
+    /// The DM_LANG row `dm/games/settings.py` of seedds/nxnative 777a5f6 (aafe01d) writes for 040074A01BF12000 over a control.nacp that does
+    /// not exist (a dump has none): every language and a note. Regenerate it with `SETTINGS_PLATFORM=mac GFXAPI=nvn DM_LANG=en-US python3
+    /// dm/games/settings.py 040074A01BF12000 <dir with an empty main.fixups.tsv> /nonexistent/control.nacp out.json`.
+    private static let fallbackLangRow = ###"{"env":"DM_LANG","kind":"choice","section":"Game","label":"Game language","note":"This game's files do not list its languages, so some of these may not be in the game. It may then show another one.","default":"en-US","level":"basic","options":[["en-US","American English"],["en-GB","British English"],["ja","Japanese"],["fr","French"],["de","German"],["es-419","Latin American Spanish"],["es","Spanish"],["it","Italian"],["nl","Dutch"],["fr-CA","Canadian French"],["pt","Portuguese"],["ru","Russian"],["ko","Korean"],["zh-Hant","Traditional Chinese"],["zh-Hans","Simplified Chinese"],["pt-BR","Brazilian Portuguese"]]}"###
+
+    /// A Mac app of 040074A01BF12000 with the given DM_LANG row (nil: none) in its launcher.json and a RomFS image naming `mask`.
+    private func appWithLangRow(_ row: String?, mask: String) throws -> (app: URL, image: URL) {
+        let app = temporary.appendingPathComponent("Game-\(UUID().uuidString).app")
+        let dm = app.appendingPathComponent("Contents/Resources/dm")
+        try FileManager.default.createDirectory(at: dm, withIntermediateDirectories: true)
+        let opmode = #"{"env": "DM_OPMODE", "kind": "choice", "section": "Game", "label": "Console mode", "note": "", "default": "1", "level": "basic", "options": [["1", "Docked"], ["0", "Handheld"]]}"#
+        try Data(#"{"schema": 1, "game": "040074A01BF12000", "settings": [\#([opmode, row].compactMap { $0 }.joined(separator: ","))]}"#.utf8)
+            .write(to: dm.appendingPathComponent("launcher.json"))
+        let info: [String: Any] = ["CFBundleIdentifier": bundleID, "DMTitleID": "040074A01BF12000", "DMLanguage": "en-US"]
+        try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0).write(to: app.appendingPathComponent("Contents/Info.plist"))
+        let image = app.appendingPathComponent("Contents/Resources/romfs.img")
+        try Self.makeDMROMFSImage(mask: mask).write(to: image)
+        return (app, image)
+    }
+
+    /// Since seedds/nxnative aafe01d a game with no language list gets every language and a note. The RomFS names the real ones (#668).
+    func testRomFSNarrowsTheAllLanguagesRowOfAGameWithNoLanguageList() throws {
+        let (app, _) = try appWithLangRow(Self.fallbackLangRow, mask: "JPja USen CNzh TWzh EUfr\n01111\n")
+        let list = try XCTUnwrap(LaunchSetting.forMac(app: app.path, titleID: "040074A01BF12000", repo: "", labels: { L10n.string($0, .en) }))
+        let lang = try XCTUnwrap(list.first { $0.env == "DM_LANG" })
+        XCTAssertEqual(list.filter { $0.env == "DM_LANG" }.count, 1)
+        XCTAssertEqual(lang.options?.map { $0[0] }, ["en-US", "ja", "fr", "zh-Hant", "zh-Hans"], "the row's own order, only what the RomFS has")
+        XCTAssertEqual(lang.options?.first { $0[0] == "zh-Hans" }, ["zh-Hans", "Simplified Chinese"])
+        XCTAssertEqual(lang.note, "", "the list is right now: nothing may be missing from the game")
+        XCTAssertEqual(lang.def, "en-US")
+        XCTAssertTrue(lang.storeBacked, "the engine's own row stays a saved choice, which the app's launcher reads")
+    }
+
+    /// The row is left alone when the RomFS cannot say: no list, one language, or the packed default is not among them.
+    func testTheAllLanguagesRowStaysWhenTheRomFSCannotNarrowIt() throws {
+        for mask in ["Hello\n", "USen\n", "JPja EUfr\n"] {   // no tag, one language, no American English (the packed default)
+            let (app, _) = try appWithLangRow(Self.fallbackLangRow, mask: mask)
+            let lang = try XCTUnwrap(LaunchSetting.forMac(app: app.path, titleID: "040074A01BF12000", repo: "", labels: { L10n.string($0, .en) })?
+                .first { $0.env == "DM_LANG" })
+            XCTAssertEqual(lang.options?.count, 16, mask)
+            XCTAssertFalse(lang.note.isEmpty, mask)
+        }
+    }
+
+    /// A game whose control data lists languages has no note and its list is the game's own: the RomFS does not touch it.
+    func testARowWithoutTheNoteIsNeverNarrowed() throws {
+        let exact = Self.fallbackLangRow.replacingOccurrences(of: #""note":"This game's files do not list its languages, so some of these may not be in the game. It may then show another one.""#, with: #""note":"""#)
+        let (app, _) = try appWithLangRow(exact, mask: "JPja USen\n01\n")
+        let lang = try XCTUnwrap(LaunchSetting.forMac(app: app.path, titleID: "040074A01BF12000", repo: "", labels: { L10n.string($0, .en) })?
+            .first { $0.env == "DM_LANG" })
+        XCTAssertEqual(lang.options?.count, 16)
+    }
+
+    /// The engine may add languages to its table later (seedds/nxnative#1231 asks for Thai and Polish). The row is still recognised, and a
+    /// language this launcher cannot name from a RomFS tag is kept, not dropped with the ones the RomFS lacks.
+    func testALanguageTheLauncherDoesNotKnowIsKept() throws {
+        let extended = Self.fallbackLangRow.replacingOccurrences(of: #"["pt-BR","Brazilian Portuguese"]]"#, with: #"["pt-BR","Brazilian Portuguese"],["th","Thai"],["pl","Polish"]]"#)
+        XCTAssertTrue(extended.contains(#"["th","Thai"]"#))
+        let (app, _) = try appWithLangRow(extended, mask: "JPja USen CNzh\n011\n")
+        let lang = try XCTUnwrap(LaunchSetting.forMac(app: app.path, titleID: "040074A01BF12000", repo: "", labels: { L10n.string($0, .en) })?
+            .first { $0.env == "DM_LANG" })
+        XCTAssertEqual(lang.options?.map { $0[0] }, ["en-US", "ja", "zh-Hans", "th", "pl"])
+        XCTAssertEqual(lang.note, "")
+    }
+
+    /// A copy that is cut off, finished later or replaced is read again: only a list is kept, and by size and date.
+    func testAnImageThatChangesIsReadAgain() throws {
+        let path = temporary.appendingPathComponent("changing.img")
+        let two = Self.makeDMROMFSImage(mask: "USen JPja\n")
+        try two.prefix(two.count - 10).write(to: path)   // cut off: no list
+        XCTAssertEqual(RomFSLanguages.options(in: path.path), [])
+        try two.write(to: path)   // the copy finished
+        XCTAssertEqual(RomFSLanguages.options(in: path.path).map { $0[0] }, ["en-US", "ja"])
+        try Self.makeDMROMFSImage(mask: "USen JPja EUfr\n").write(to: path)   // replaced by another version
+        XCTAssertEqual(RomFSLanguages.options(in: path.path).map { $0[0] }, ["en-US", "ja", "fr"])
+    }
+
+    /// The archive step makes a newly built iOS framework's launcher.json right too.
+    func testTheArchiveStepNarrowsTheAllLanguagesRowOfAFrameworkLauncherJSON() throws {
+        let (app, image) = try appWithLangRow(Self.fallbackLangRow, mask: "JPja USen CNzh TWzh EUfr\n01111\n")
+        let json = app.appendingPathComponent("Contents/Resources/dm/launcher.json")
+        XCTAssertTrue(RomFSLanguages.applyToLauncherJSON(at: json.path, romfs: image.path))
+        let lang = try XCTUnwrap(LaunchList.parse(Data(contentsOf: json))?.settings.first { $0.env == "DM_LANG" })
+        XCTAssertEqual(lang.options?.map { $0[0] }, ["en-US", "ja", "fr", "zh-Hant", "zh-Hans"])
+        XCTAssertEqual(lang.note, "")
+        XCTAssertFalse(RomFSLanguages.applyToLauncherJSON(at: json.path, romfs: image.path), "narrowed already: nothing more to change")
     }
 
     private func writeImage(_ data: Data) throws -> String {
