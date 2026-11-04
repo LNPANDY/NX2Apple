@@ -415,8 +415,9 @@ package struct ShellInstaller {
     package var pollInterval: TimeInterval = 4
     /// Where the eShop banners are cached (ArtworkStore), read only: the game's goes into its framework for the shell's library.
     package var banners: URL = BannerCache.directory
-    /// A picture the player chose for the game in the library, which wins over the cached banner (nil: none).
-    package var pickedArtwork: String? = nil
+    /// The player's own cover for a title ID (the library's Change artwork). Nil, or a file that is not there, uses the cached eShop banner.
+    /// Asked for every game in the shell, so installing one game does not put the eShop banner back over another's cover.
+    package var artworkForTitle: (String) -> String? = { _ in nil }
 
     package init(xcrun: String = "/usr/bin/xcrun", repo: String, python: String, root: String, device: String, team: String) {
         self.xcrun = xcrun; self.repo = repo; self.python = python; self.root = root; self.device = device; self.team = team

@@ -424,6 +424,14 @@ import XCTest
         XCTAssertFalse(defaults.bool(forKey: ShellRootMove.pickedKey))
     }
 
+    func testAnInstallSnapshotsTheLibraryCovers() {
+        let store = makeStore()
+        store.artworkPaths = { ["0100aaaaaaaa0000": "/covers/a.png"] }
+        let installer = store.makeInstaller()
+        XCTAssertEqual(installer.artworkForTitle("0100AAAAAAAA0000"), "/covers/a.png")
+        XCTAssertNil(installer.artworkForTitle("0100BBBBBBBB0000"))
+    }
+
     func testAMoveThatCannotStartKeepsTheSavedPlace() throws {
         let (store, cache) = try moveStore()
         store.prepareShellMove(into: cache + "/frameworks")

@@ -66,10 +66,11 @@ extension ShellInstaller {
             return (nil, nil, Outcome(ok: false, message: fmt("shell.projectFailed", why)), [])
         }
         // The 16:9 banner of the shell's library for every game in it (ShellHost reads <framework>/banner.<ext>, the square
-        // icon.png is the fallback): a game rebuilt since its last install gets its banner back too
+        // icon.png is the fallback): a game rebuilt since its last install gets its banner back too. Each game's own cover
+        // wins over the cached eShop banner, including one that is not the game being installed now.
         for game in library.games {
-            let picked = game.titleID == titleID ? pickedArtwork : nil
-            if let banner = ShellInstall.placeBanner(titleID: game.titleID, framework: game.framework, banners: banners, picked: picked) {
+            if let banner = ShellInstall.placeBanner(titleID: game.titleID, framework: game.framework, banners: banners,
+                                                     picked: artworkForTitle(game.titleID)) {
                 log("banner: \(game.titleID) \(banner)\n")
             }
         }

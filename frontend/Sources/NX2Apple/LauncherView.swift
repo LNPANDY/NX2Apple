@@ -67,7 +67,13 @@ struct LauncherView: View {
         _m = StateObject(wrappedValue: stores.build); _loc = ObservedObject(wrappedValue: stores.localizer)
         _updates = ObservedObject(wrappedValue: stores.appUpdates); _devices = ObservedObject(wrappedValue: stores.deviceStore)
         _repo = ObservedObject(wrappedValue: stores.repo); _engine = ObservedObject(wrappedValue: stores.engineSync)
-        _library = StateObject(wrappedValue: library ?? GameLibrary())
+        let lib = library ?? GameLibrary()
+        _library = StateObject(wrappedValue: lib)
+        stores.build.artworkPaths = { [lib] in
+            var covers: [String: String] = [:]
+            for game in lib.games where !game.artworkPath.isEmpty { covers[game.titleID.lowercased()] = game.artworkPath }
+            return covers
+        }
         _page = State(initialValue: initialPage); _activeBuildID = State(initialValue: activeBuildID)
         self.performStartupChecks = performStartupChecks
     }

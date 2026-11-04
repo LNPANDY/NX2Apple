@@ -33,6 +33,8 @@ extension BuildStore {
         installer.decideCopy = { plan in target.askCopy(plan) }
         installer.waiting = { on in target.setWaiting(on) }
         installer.waitCancelled = { target.waitCancelled }
+        let covers = artworkPaths()
+        installer.artworkForTitle = { covers[$0.lowercased()] }
         return installer
     }
 

@@ -247,6 +247,51 @@ import NXModel
         XCTAssertFalse(fm.fileExists(atPath: fw + "/banner.png"), "no picture: the library falls back to the icon")
     }
 
+    /// Installing one game copies every game's own cover into its framework. A game with none keeps the eShop banner.
+    /// Installing again after the cover is cleared puts that banner back.
+    func testAnInstallCopiesEachGamesOwnCover() throws {
+        let other = "0100F2C0115B6000"
+        let fwA = path("work/DmGame\(titleID).framework"), fwB = path("work/DmGame\(other).framework")
+        for (fw, id) in [(fwA, titleID), (fwB, other)] {
+            try write(fw + "/game.manifest.json", "{}")
+            try write(fw + "/DmGame\(id)", "exe")
+        }
+        let custom = path("mine.png"), cache = path("artwork"), root = path("shell"), repo = path("repo")
+        try write(custom, "png")
+        try write(cache + "/\(titleID).jpg", "eshop-a")
+        try write(cache + "/\(other).jpg", "eshop-b")
+        try write(repo + "/frontend-ios/Package.swift", "// package\n")
+        var saved = ShellLibrary()
+        saved.add(.init(titleID: other, name: "Other", framework: fwB))
+        try saved.save(root: root)
+        var installer = ShellInstaller(xcrun: "/usr/bin/true", repo: repo, python: "/usr/bin/python3", root: root, device: "", team: "")
+        installer.banners = URL(fileURLWithPath: cache)
+        installer.artworkForTitle = { id in id.caseInsensitiveCompare(self.titleID) == .orderedSame ? custom : nil }
+        _ = installer.prepareShell(framework: fwA, titleID: titleID, name: "A")
+        let mirrorA = ShellInstall.mirroredFramework(root: root, titleID: titleID)
+        let mirrorB = ShellInstall.mirroredFramework(root: root, titleID: other)
+        XCTAssertEqual(try String(contentsOfFile: mirrorA + "/banner.png", encoding: .utf8), "png")
+        XCTAssertFalse(fm.fileExists(atPath: mirrorA + "/banner.jpg"), "the cover replaces the eShop banner")
+        XCTAssertEqual(try String(contentsOfFile: mirrorB + "/banner.jpg", encoding: .utf8), "eshop-b", "the other game keeps its eShop banner")
+        installer.artworkForTitle = { _ in nil }
+        _ = installer.prepareShell(framework: fwA, titleID: titleID, name: "A")
+        XCTAssertEqual(try String(contentsOfFile: mirrorA + "/banner.jpg", encoding: .utf8), "eshop-a", "clearing the cover restores the eShop banner")
+        XCTAssertFalse(fm.fileExists(atPath: mirrorA + "/banner.png"))
+        XCTAssertEqual(try String(contentsOfFile: mirrorB + "/banner.jpg", encoding: .utf8), "eshop-b")
+    }
+
+    func testTheLauncherHandsLibraryCoversToAnInstall() throws {
+        var game = LibraryGame(titleID: titleID, name: "Hades")
+        game.artworkPath = path("cover.png")
+        let file = URL(fileURLWithPath: path("library.json"))
+        try JSONEncoder().encode([game, LibraryGame(titleID: "0100F2C0115B6000", name: "Other")]).write(to: file)
+        let library = GameLibrary(file: file)
+        let stores = LauncherStores(defaults: testDefaults)
+        _ = LauncherView(stores: stores, library: library, performStartupChecks: false)
+        XCTAssertEqual(stores.build.artworkPaths()[titleID.lowercased()], path("cover.png"))
+        XCTAssertNil(stores.build.artworkPaths()["0100f2c0115b6000"], "a game with no cover is left for the eShop banner")
+    }
+
     func testDiffByPathAndSizeSkippingDotFiles() throws {
         let archive = path("games", titleID)
         try write(archive + "/romfs.img", "0123456789")
