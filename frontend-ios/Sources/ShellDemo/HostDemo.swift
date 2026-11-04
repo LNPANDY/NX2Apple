@@ -47,7 +47,9 @@ struct HostDemoScreen: View {
 
     var body: some View {
         ShellHostView(model: model, initialSelection: ProcessInfo.processInfo.arguments.firstIndex(of: "--select")
-            .flatMap { ProcessInfo.processInfo.arguments.indices.contains($0 + 1) ? ProcessInfo.processInfo.arguments[$0 + 1] : nil })
+            .flatMap { ProcessInfo.processInfo.arguments.indices.contains($0 + 1) ? ProcessInfo.processInfo.arguments[$0 + 1] : nil },
+                       initialDetailOpen: ProcessInfo.processInfo.arguments.firstIndex(of: "--screen")
+            .flatMap { ProcessInfo.processInfo.arguments.indices.contains($0 + 1) ? ProcessInfo.processInfo.arguments[$0 + 1] : nil } == "settings")
             .background(ShellPalette.background)
     }
 }

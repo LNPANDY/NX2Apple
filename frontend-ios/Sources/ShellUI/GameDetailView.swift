@@ -9,6 +9,7 @@ public struct GameDetailView: View {
     public var showsPrimaryAction: Bool
     /// Off where the game's cover and title are already in view, as beside the library's hero.
     public var showsHeader: Bool
+    @Environment(\.shellAskDelete) private var askDelete
     public init(detail: GameDetail, actions: ShellActions = ShellActions(), showsPrimaryAction: Bool = true, showsHeader: Bool = true) {
         self.detail = detail
         self.actions = actions
@@ -20,10 +21,15 @@ public struct GameDetailView: View {
             if showsHeader || showsPrimaryAction { header }
             ForEach(detail.sections) { section in
                 group(section.title) {
-                    ForEach(section.rows) { row in
-                        // Equatable on its row: a change re-renders the changed row only, not every row of the game.
-                        SettingControl(gameID: detail.id, row: row) { actions.onChange(detail.id, row.id, $0) }.equatable()
-                        if row.id != section.rows.last?.id { divider }
+                    // The button mapping is one row here and opens a card of its own, as a long choice list does.
+                    if section.id == PadMappingRows.sectionID {
+                        PadMappingEntryRow(gameID: detail.id, rows: section.rows, targetID: "set.row.padMapping")
+                    } else {
+                        ForEach(section.rows) { row in
+                            // Equatable on its row: a change re-renders the changed row only, not every row of the game.
+                            SettingControl(gameID: detail.id, row: row) { actions.onChange(detail.id, row.id, $0) }.equatable()
+                            if row.id != section.rows.last?.id { divider }
+                        }
                     }
                 }
             }
@@ -70,6 +76,17 @@ public struct GameDetailView: View {
                     .shellTarget("set.reset", enabled: detail.hasModifiedSettings) { actions.onResetDefaults(detail.id) }
                 Text(ShellStrings.text("Brings back the settings this game was tested with."))
                     .shellText(12.5).foregroundStyle(.white.opacity(0.45)).fixedSize(horizontal: false, vertical: true)
+            }
+            if let askDelete {
+                // Last and apart from the rest: the one action here that removes something. It only asks, the question names what goes.
+                VStack(alignment: .leading, spacing: 10) {
+                    Button(ShellStrings.text("Delete game…")) { askDelete(detail.game) }
+                        .buttonStyle(ShellButtonStyle(fills: true, destructive: true))
+                        .accessibilityIdentifier("set.delete")
+                        .shellTarget("set.delete") { askDelete(detail.game) }
+                    Text(ShellStrings.text("Deletes the game’s data on this device. You choose whether its saves go too."))
+                        .shellText(12.5).foregroundStyle(.white.opacity(0.45)).fixedSize(horizontal: false, vertical: true)
+                }
             }
         }.foregroundStyle(.white)
     }
@@ -182,9 +199,13 @@ struct SettingControl: View, Equatable {
                 let scale = ChoicePresentation.textScale(typeSize)
                 switch ChoicePresentation.resolve(labels: labels, width: width, textScale: scale) {
                 case .segmented:
-                    // Equal segments across the card. If the real layout still cannot hold them, the compact row.
+                    // Equal segments across the card. If the real layout still cannot hold them, the compact row. Only the segments
+                    // decide: the label wraps to the card, so a long note (Picture, #545) does not push the row into the list.
                     ViewThatFits(in: .horizontal) {
-                        VStack(alignment: .leading, spacing: 12) { label; segmented([options]) }
+                        VStack(alignment: .leading, spacing: 12) {
+                            label.frame(minWidth: 0, idealWidth: 0, maxWidth: .infinity, alignment: .leading)
+                            segmented([options])
+                        }
                         valueRow(options)
                     }
                 case .list:
@@ -218,31 +239,9 @@ struct SettingControl: View, Equatable {
             if row.fromShell { FromSettingsMark() }
         }
     }
-    /// The Mac's segmented choice, across the whole card: a dim track, equal segments, the chosen value in cream.
     private func segmented(_ rows: [[SettingOption]]) -> some View {
-        VStack(spacing: 2) {
-            ForEach(Array(rows.enumerated()), id: \.offset) { _, options in
-                EqualRow(spacing: 2) {
-                    ForEach(options) { option in
-                        let chosen = row.value == option.id
-                        Button { change(option.id) } label: {
-                            Text(option.label).shellText(13.5, chosen ? .bold : .medium).lineLimit(1)
-                                .padding(.horizontal, 14).frame(maxWidth: .infinity, minHeight: 40)
-                                .foregroundStyle(chosen ? .black : .white.opacity(0.75))
-                                .background(chosen ? ShellPalette.cream : .clear, in: RoundedRectangle(cornerRadius: 8))
-                                .contentShape(RoundedRectangle(cornerRadius: 8))
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(row.label + ", " + option.label)
-                        .accessibilityAddTraits(chosen ? .isSelected : [])
-                        .shellTarget("\(targetPrefix)\(row.id).\(option.id)", enabled: row.enabled, radius: 8) { change(option.id) }
-                    }
-                }
-            }
-        }
-        .padding(3)
-        .background(.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 11))
-        .overlay(RoundedRectangle(cornerRadius: 11).strokeBorder(.white.opacity(0.08)))
+        SegmentedChoice(label: row.label, rows: rows, value: row.value, targetPrefix: "\(targetPrefix)\(row.id).", enabled: row.enabled,
+                        change: change)
     }
     /// Many or long options: label and current value in one compact row that opens the list.
     private func valueRow(_ options: [SettingOption]) -> some View {
@@ -260,6 +259,42 @@ struct SettingControl: View, Equatable {
         .overlay(Circle().strokeBorder(.white.opacity(0.10)))
         .accessibilityLabel(ShellStrings.text(symbol == "minus" ? "Decrease" : "Increase") + " " + row.label)
         .shellTarget("\(targetPrefix)\(row.id).\(symbol)", enabled: row.enabled, radius: 22, action: action)
+    }
+}
+
+/// The Mac's segmented choice, across the whole card: a dim track, equal segments, the chosen value in cream. Each inner
+/// array is one line of segments. A focus target per option, `targetPrefix` plus the option's ID.
+struct SegmentedChoice: View {
+    let label: String
+    let rows: [[SettingOption]]
+    let value: String
+    let targetPrefix: String
+    var enabled = true
+    let change: (String) -> Void
+    var body: some View {
+        VStack(spacing: 2) {
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, options in
+                EqualRow(spacing: 2) {
+                    ForEach(options) { option in
+                        let chosen = value == option.id
+                        Button { change(option.id) } label: {
+                            Text(option.label).shellText(13.5, chosen ? .bold : .medium).lineLimit(1)
+                                .padding(.horizontal, 14).frame(maxWidth: .infinity, minHeight: 40)
+                                .foregroundStyle(chosen ? .black : .white.opacity(0.75))
+                                .background(chosen ? ShellPalette.cream : .clear, in: RoundedRectangle(cornerRadius: 8))
+                                .contentShape(RoundedRectangle(cornerRadius: 8))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(label + ", " + option.label)
+                        .accessibilityAddTraits(chosen ? .isSelected : [])
+                        .shellTarget(targetPrefix + option.id, enabled: enabled, radius: 8) { change(option.id) }
+                    }
+                }
+            }
+        }
+        .padding(3)
+        .background(.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 11))
+        .overlay(RoundedRectangle(cornerRadius: 11).strokeBorder(.white.opacity(0.08)))
     }
 }
 

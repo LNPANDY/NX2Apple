@@ -28,7 +28,6 @@ final class UninstallTests: XCTestCase {
 
     /// Uninstall computes from NSHomeDirectory: the tests point it at the temporary folder.
     private func setHome(_ path: String) {
-        UserDefaults.standard.set(path, forKey: "NSGlobalDomain_home")   // not read by the app; the env below is
         setenv("HOME", path, 1)
     }
 
@@ -51,6 +50,21 @@ final class UninstallTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: games.appendingPathComponent("save.dat").path), "the games folder stays")
         XCTAssertTrue(FileManager.default.fileExists(atPath: home.appendingPathComponent("prod.keys").path), "the keys stay")
         XCTAssertFalse(FileManager.default.fileExists(atPath: checkout), "the launcher's own checkout goes")
+    }
+
+    /// #427: the shared app's folder lives beside the engine trees now. Its frameworks cost a full rebuild, so it stays.
+    func testTheSharedAppsFolderStaysWhenTheEngineTreesGo() throws {
+        let support = home.appendingPathComponent("Library/Application Support/NX2Apple")
+        let shell = support.appendingPathComponent("shell")
+        try FileManager.default.createDirectory(at: shell, withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: shell.appendingPathComponent("shell.json"))
+        let plan = Uninstall.plan(home: home.path, gamesFolder: games.path, checkouts: [])
+        XCTAssertFalse(plan.stateFolders.contains(support.path))
+        XCTAssertTrue(plan.stateFolders.contains(support.path + "/engine"))
+        let result = Uninstall.run(plan, movingAppToTrash: false)
+        XCTAssertTrue(result.failures.isEmpty, result.failures.joined(separator: "\n"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: shell.appendingPathComponent("shell.json").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: support.path + "/engine"))
     }
 
     /// A checkout the player picked from somewhere else is not removed: we cannot know what else it holds.

@@ -101,7 +101,7 @@ extension ShellInstaller {
     /// The export: the library and the project, the unsigned build, the entitlements, the IPA. Needs no device and no team.
     package func export(framework: String, titleID: String, name: String) -> Outcome {
         let fm = FileManager.default
-        guard fm.fileExists(atPath: framework) else { return Outcome(ok: false, message: fmt("shell.noFramework", framework)) }
+        guard fm.fileExists(atPath: framework) else { return missingFramework(framework, name: name) }
         let prepared = prepareShell(framework: framework, titleID: titleID, name: name)
         guard let library = prepared.library else { return prepared.failure! }
 
@@ -162,8 +162,9 @@ extension ShellInstaller {
     /// The game data into the shared app that is installed already and signed by another tool (LNPANDY/NX2Apple#416). The app is found
     /// on the device by its bundle ID prefix (a sideloading tool may add a team ID): none is `.appNotFound`, several come back in
     /// `apps` for the player to choose from (`bundleID` then names the one). The copy is the install's own data step (listing, diff,
-    /// free space, the wired-or-Wi-Fi question, the copy). devicectl writes into an app container only for an app signed for development
-    /// (get-task-allow), so its refusal comes back as `.refused` with its own words in `detail`.
+    /// free space, the wired-or-Wi-Fi question, the copy). A copy that fails comes back as `.refused` with devicectl's words in `detail`.
+    /// We believe devicectl writes into an app container only for an app signed for development (get-task-allow). That is not verified on
+    /// a device, so the launcher says only that the device refused, and offers the Finder way (#491).
     package func sendData(titleID: String, archive: String, bundleID: String? = nil) -> Outcome {
         if let refused = pairingRefusal() { return refused }
         var chosen = bundleID, name = ""
@@ -172,7 +173,10 @@ extension ShellInstaller {
             defer { try? FileManager.default.removeItem(atPath: json) }
             let listed = run([xcrun, "devicectl"] + InstalledApps.listArguments(device: device, json: json), env: nil, label: t("shell.sendStage"), step: { _ in nil })
             guard listed.status == 0, let apps = InstalledApps.parse(FileManager.default.contents(atPath: json) ?? Data()) else {
-                return Outcome(ok: false, message: listed.lastError ?? fmt("msg.exitCode", listed.status))
+                var unread = Outcome(ok: false, message: fmt("shell.sendListFailed", deviceName))
+                unread.detail = listed.lastError ?? fmt("msg.exitCode", listed.status)
+                unread.dataFailure = .noAppList
+                return unread
             }
             let found = ShellInstall.shellApps(in: apps)
             guard let first = found.first else {
@@ -194,8 +198,9 @@ extension ShellInstaller {
             outcome.message = t("shell.sendDone")
         }
         if !outcome.ok, outcome.failure == .shellDataIncomplete {
-            outcome.dataFailure = ShellInstall.dataFailure(copyError: outcome.detail)
-            outcome.message = outcome.dataFailure == .appNotFound ? t("shell.sendNoApp") : t("shell.sendRefused")
+            // The device listed the app, so a copy that fails is a refusal, whatever devicectl's words are (#491). Its words stay in `detail`.
+            outcome.dataFailure = .refused
+            outcome.message = t("shell.sendRefused")
             outcome.failure = nil   // the install's Retry card does not fit: nothing of the install ran
         }
         return outcome

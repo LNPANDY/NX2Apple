@@ -2,15 +2,22 @@ import SwiftUI
 
 /// Connected controllers with their player and battery, and the buttons the shell listens to.
 public struct ControllersView: View {
+    /// The ID the shell's own button mapping goes by where a game's ID would.
+    public static let mappingID = "global-pad"
+    public var padMap: PadMap
+    @Environment(\.shellFocus) private var focus
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     public var controllers: [ControllerInfo]
     public var onBack: () -> Void
-    public init(controllers: [ControllerInfo], onBack: @escaping () -> Void = {}) {
+    public init(controllers: [ControllerInfo], onBack: @escaping () -> Void = {}, padMap: PadMap = PadMap()) {
+        self.padMap = padMap
         self.controllers = controllers
         self.onBack = onBack
     }
     public var body: some View {
         // Scrolls under the home indicator to the bottom edge, with room for the last row to clear it.
         GeometryReader { geometry in
+        ScrollViewReader { proxy in
         ScrollView {
             VStack(alignment: .leading, spacing: 30) {
                 HStack(alignment: .center) {
@@ -21,7 +28,7 @@ public struct ControllersView: View {
                         .buttonStyle(RoundIconButtonStyle(size: 44))
                         .accessibilityLabel(ShellStrings.text("Close controllers"))
                         .accessibilityIdentifier("controllers.close")
-                        .shellTarget("ctl.close", radius: 22, action: onBack)
+                        .shellTarget("ctl.close", radius: 22, action: onBack).id("ctl.close")
                 }
                 if controllers.isEmpty {
                     VStack(alignment: .leading, spacing: 12) {
@@ -43,6 +50,7 @@ public struct ControllersView: View {
                         .background(ShellPalette.surface, in: RoundedRectangle(cornerRadius: 16))
                         .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(ShellPalette.hairline))
                 }
+                mapping
                 VStack(alignment: .leading, spacing: 14) {
                     SectionHeading(title: ShellStrings.text("On a controller"))
                     hint(Image(systemName: "dpad"), ShellStrings.text("Move between controls"))
@@ -56,14 +64,42 @@ public struct ControllersView: View {
         }
         .scrollIndicators(.hidden)
         .ignoresSafeArea(edges: [.bottom, .leading, .trailing])
+        .onChange(of: focus.id) { _, id in
+            guard let id, id.hasPrefix("ctl.") else { return }
+            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) {
+                proxy.scrollTo(id, anchor: id == "ctl.close" ? .top : .center)
+            }
+        }
+        }
         }
         .foregroundStyle(.white).preferredColorScheme(.dark)
     }
+    /// The mapping and the test, each a compact row that opens a card of its own.
+    private var mapping: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            SectionHeading(title: ShellStrings.text("Buttons"))
+            PadMappingEntryRow(gameID: Self.mappingID, rows: PadMappingRows.global(padMap), targetID: "ctl.mapping").id("ctl.mapping")
+            ButtonTestEntryRow().id("ctl.test")
+        }
+    }
+
     private func hint(_ icon: some View, _ label: String) -> some View {
         HStack(spacing: 14) {
             icon.frame(width: 22).foregroundStyle(.white.opacity(0.75))
             Text(label).shellText(14.5).foregroundStyle(.white.opacity(0.7))
         }.accessibilityElement(children: .combine)
+    }
+}
+
+/// The row that opens the button test.
+private struct ButtonTestEntryRow: View {
+    @Environment(\.shellOpenButtonTest) private var openTest
+    var body: some View {
+        let row = SettingRow(id: "buttonTest", label: ShellStrings.text("Button test"),
+                             note: ShellStrings.text("See each button light up as you press it."), kind: .choice([]), value: "")
+        ChoiceValueRow(row: row, valueLabel: "", hint: ShellStrings.text("Opens the button test")) { openTest?() }
+            .shellTarget("ctl.test", radius: 11) { openTest?() }
+            .accessibilityIdentifier("buttonTest.open")
     }
 }
 

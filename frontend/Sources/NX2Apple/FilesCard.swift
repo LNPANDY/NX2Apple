@@ -30,7 +30,7 @@ struct FilesCard: View {
             .buttonStyle(.plain)
             ForEach(build.slots.filter { !$0.optional }, id: \.id) { s in
                 CardDivider(); slotRow(s)
-                if s.id == "keys", let keyCheck { KeyCheckLine(outcome: keyCheck, t: loc.t) }
+                if s.id == "keys", build.gameFolder == nil, let keyCheck { KeyCheckLine(outcome: keyCheck, t: loc.t) }
             }
             CardDivider()
             CardDisclosure(loc.t("build.options"), isOpen: extrasOpen) { extrasOpen.toggle() }
@@ -49,14 +49,19 @@ struct FilesCard: View {
     }
 
     private func slotRow(_ s: Slot) -> some View {
-        // An empty prod.keys row says where the file comes from.
-        CardRow(loc.t(s.title), detail: s.id == "keys" && s.paths.isEmpty ? loc.t("build.keyHint") : s.summary(loc.t), dot: s.ok ? LauncherPalette.ready : LauncherPalette.unbuilt,
-            help: s.paths.joined(separator: "\n")) {
-            if !s.paths.isEmpty {
+        // A game folder (a Switch 2 game) fills the rows from its folders: they say what it holds, the keys row that none are
+        // needed, and only the base row can be cleared (which clears the folder). An empty prod.keys row says where the file comes from.
+        let folderText = build.gameFolderRowText(s.id)
+        let ready = folderText != nil ? (s.id == "keys" || s.ok) : s.ok
+        return CardRow(loc.t(s.title), detail: folderText ?? (s.id == "keys" && s.paths.isEmpty ? loc.t("build.keyHint") : s.summary(loc.t)),
+            dot: ready ? LauncherPalette.ready : LauncherPalette.unbuilt, help: s.paths.joined(separator: "\n")) {
+            if !s.paths.isEmpty && (folderText == nil || s.id == "base") {
                 Button(loc.t("data.clear")) { build.clear(s.id) }.buttonStyle(.plain)
                     .font(.manrope(13)).foregroundStyle(.secondary)
             }
-            Button(s.paths.isEmpty ? loc.t("data.choose") : loc.t("data.change")) { build.pickFiles(kind: s.kind) }
+            if folderText == nil {
+                Button(s.paths.isEmpty ? loc.t("data.choose") : loc.t("data.change")) { build.pickFiles(kind: s.kind) }
+            }
         }
     }
 

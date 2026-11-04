@@ -30,6 +30,179 @@ final class Clock: @unchecked Sendable { var date: Date; init(_ d: Date) { date 
         try detail(model, game).sections.flatMap(\.rows).first { $0.id == setting }?.value
     }
 
+    @Test func theTouchSizeReachesEveryGameAsDMTouchSize() async throws {
+        let box = try Sandbox()
+        try box.giveAppData()
+        let shell = shellSettings()
+        let launcher = RecordingLauncher()
+        let model = ShellHostModel(config: box.config(), launcher: launcher, shellSettings: shell)
+        await model.playNow(Fixtures.orbit)
+        #expect(launcher.launched.last?.environment["DM_TOUCH_SIZE"] == nil, "medium is the engine's own size")
+        shell.storeTouchSize("large")
+        await model.playNow(Fixtures.orbit)
+        #expect(launcher.launched.last?.environment["DM_TOUCH_SIZE"] == "large")
+        #expect(try !detail(model).hasModifiedSettings, "a shell setting is not a change in this game")
+        shell.storeTouchSize("medium")
+        await model.playNow(Fixtures.orbit)
+        #expect(launcher.launched.last?.environment["DM_TOUCH_SIZE"] == nil)
+        shell.storeTouchStick("higher")
+        await model.playNow(Fixtures.orbit)
+        #expect(launcher.launched.last?.environment["DM_TOUCH_STICK"] == "higher")
+        #expect(launcher.launched.last?.environment["DM_TOUCH_LAYOUT"] == nil, "no arrangement: nothing is passed")
+        var layout = TouchLayout()
+        layout[.threeD, .face] = TouchLayout.Offset(dx: -2, dy: -1)
+        shell.storeTouchLayout(layout)
+        await model.playNow(Fixtures.orbit)
+        #expect(launcher.launched.last?.environment["DM_TOUCH_LAYOUT"] == "1;3d/face:-2,-1")
+        shell.resetTouchLayout(.threeD)
+        await model.playNow(Fixtures.orbit)
+        #expect(launcher.launched.last?.environment["DM_TOUCH_LAYOUT"] == nil, "reset: the engine's built-in layout")
+    }
+
+    /// The engine draws the right-stick hint's words as they come (patch 0067), so the shell hands them over in the player's language.
+    @Test func everyGameGetsTheRightStickHintInThePlayersLanguage() async throws {
+        let box = try Sandbox()
+        try box.giveAppData()
+        let launcher = RecordingLauncher()
+        let model = ShellHostModel(config: box.config(), launcher: launcher, shellSettings: shellSettings())
+        await model.playNow(Fixtures.orbit)
+        let hint = try #require(launcher.launched.last?.environment["DM_TOUCH_HINT"])
+        #expect(hint == ShellHostModel.touchHint && !hint.isEmpty)
+    }
+
+    /// The quit prompt's words reach the engine with the game's name in the title, five lines in home_quit.h's order (patch 0068): the
+    /// engine draws the prompt when Quit is picked in the in-game menu or Home is held.
+    @Test func everyGameGetsTheQuitPromptInThePlayersLanguage() async throws {
+        let box = try Sandbox()
+        try box.giveAppData()
+        let launcher = RecordingLauncher()
+        let model = ShellHostModel(config: box.config(), launcher: launcher, shellSettings: shellSettings())
+        await model.playNow(Fixtures.orbit)
+        let text = try #require(launcher.launched.last?.environment["DM_HOME_QUIT_TEXT"])
+        let lines = text.components(separatedBy: "\n")
+        let name = try #require(launcher.launched.last?.name)
+        #expect(lines.count == 5 && lines.allSatisfy { !$0.isEmpty } && lines[1].contains(name))
+    }
+
+    /// The prompt's texts in every language: no semicolon, no line break (one text per line in DM_HOME_QUIT_TEXT), the title keeps the game's name.
+    @Test func theQuitPromptTextsFollowTheTextRules() throws {
+        let l10n = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("frontend/l10n")
+        let keys = ["ios.host.quitHold", "ios.host.quitTitle", "ios.host.quitNote", "ios.host.quitButton", "ios.host.quitCancel"]
+        for file in try FileManager.default.contentsOfDirectory(at: l10n, includingPropertiesForKeys: nil) where file.pathExtension == "json" {
+            let strings = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
+            for key in keys {
+                let text = try #require(strings[key] as? String, "\(file.lastPathComponent) lacks \(key)")
+                #expect(!text.contains(";") && !text.contains("；") && !text.contains("\n"), "\(file.lastPathComponent) \(key): \(text)")
+            }
+            #expect((strings["ios.host.quitTitle"] as? String)?.contains("%@") == true, "\(file.lastPathComponent): the title names the game")
+        }
+    }
+
+    /// Every language's words fit the right third of a small phone (the engine's test gives them about 30 characters) and follow
+    /// the text rules: no semicolon, no line break.
+    @Test func theRightStickHintIsShortInEveryLanguage() throws {
+        let l10n = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("frontend/l10n")
+        for file in try FileManager.default.contentsOfDirectory(at: l10n, includingPropertiesForKeys: nil) where file.pathExtension == "json" {
+            let strings = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any]
+            guard let hint = strings?["ios.host.touchHint"] as? String else { continue }
+            #expect(hint.count <= 30 && !hint.contains(";") && !hint.contains("；") && !hint.contains("\n"), "\(file.lastPathComponent): \(hint)")
+        }
+    }
+
+    @Test func padOverridesPersistMergeAndReset() async throws {
+        let box = try Sandbox()
+        try box.giveAppData()
+        let shell = shellSettings()
+        let launcher = RecordingLauncher()
+        let model = ShellHostModel(config: box.config(), launcher: launcher, shellSettings: shell)
+        func row(_ id: String) throws -> SettingRow {
+            try #require(detail(model).sections.flatMap(\.rows).first { $0.id == id })
+        }
+        #expect(try row("pad.A").fromShell && row("pad.swapAB").value == "follow")
+        await model.playNow(Fixtures.orbit)
+        #expect(launcher.launched.last?.environment["DM_PAD_MAP"] == nil)
+        model.actions.onGlobalPadMapChange("swapAB", "1")
+        #expect(model.globalPadMap.swapAB)
+        #expect(try !detail(model).hasModifiedSettings)
+        // The game's row follows: the card shows what all games send there (B), from the shell's map.
+        if case .choice(let options) = try row("pad.A").kind { #expect(options.first?.id == "follow" && options.first?.label == "Same as all games") }
+        #expect(try row("pad.A").value == "follow" && model.globalPadMap.output(for: "A") == "B")
+        await model.playNow(Fixtures.orbit)
+        #expect(launcher.launched.last?.environment["DM_PAD_MAP"] == "A=B,B=A")
+        model.actions.onChange(Fixtures.orbit, "pad.A", "Y")
+        let gameStore = GamePadMapStore(defaults: box.defaults(Fixtures.orbit))
+        #expect(gameStore.entries == ["A": "Y"] && gameStore.swapValue == "custom")
+        #expect(try !row("pad.A").fromShell && row("pad.B").fromShell && detail(model).hasModifiedSettings)
+        await model.playNow(Fixtures.orbit)
+        #expect(launcher.launched.last?.environment["DM_PAD_MAP"] == "A=Y,B=A")
+        model.actions.onChange(Fixtures.orbit, "pad.swapAB", "off")
+        #expect(gameStore.entries == ["A": "A", "B": "B"])
+        await model.playNow(Fixtures.orbit)
+        #expect(launcher.launched.last?.environment["DM_PAD_MAP"] == nil)
+        let again = ShellHostModel(config: box.config(), shellSettings: shell)
+        #expect(try detail(again).hasModifiedSettings)
+        model.actions.onChange(Fixtures.orbit, "pad.X", "none")
+        model.actions.onChange(Fixtures.orbit, "pad.swapAB", "follow")
+        #expect(gameStore.entries == ["X": "none"])
+        await model.playNow(Fixtures.orbit)
+        #expect(launcher.launched.last?.environment["DM_PAD_MAP"] == "A=B,B=A,X=none")
+        #expect(GamePadMapStore(defaults: box.defaults(Fixtures.chain)).entries.isEmpty)
+        model.actions.onResetDefaults(Fixtures.orbit)
+        #expect(gameStore.entries.isEmpty)
+        #expect(try !detail(model).hasModifiedSettings && row("pad.X").fromShell)
+        model.actions.onGlobalPadMapReset()
+        #expect(model.globalPadMap.entries.isEmpty)
+        await model.playNow(Fixtures.orbit)
+        #expect(launcher.launched.last?.environment["DM_PAD_MAP"] == nil)
+    }
+
+    @Test func padRowsFollowGlobalChangesAndRejectInvalidValues() throws {
+        let box = try Sandbox()
+        let shell = shellSettings()
+        let model = ShellHostModel(config: box.config(), shellSettings: shell)
+        model.actions.onGlobalPadMapChange("X", "none")
+        for detail in model.details where detail.sections.contains(where: { $0.id == "pad" }) {
+            let row = try #require(detail.sections.flatMap(\.rows).first { $0.id == "pad.X" })
+            #expect(row.fromShell && row.value == "follow")
+            if case .choice(let options) = row.kind { #expect(options.map(\.id) == ["follow"] + PadMap.buttons + ["none"]) }
+        }
+        #expect(model.globalPadMap.output(for: "X") == "none")
+        let store = GamePadMapStore(defaults: box.defaults(Fixtures.orbit))
+        model.change(Fixtures.orbit, setting: "pad.unknown", value: "A")
+        model.change(Fixtures.orbit, setting: "pad.A", value: "bad")
+        #expect(store.entries.isEmpty)
+        model.change(Fixtures.orbit, setting: "pad.A", value: "A")
+        #expect(store.entries == ["A": "A"])
+        model.change(Fixtures.orbit, setting: "pad.A", value: "follow")
+        #expect(store.entries.isEmpty)
+        model.change(Fixtures.orbit, setting: "pad.swapAB", value: "on")
+        #expect(store.swapValue == "on")
+        // The mapping card's reset forgets the game's mapping only, not its other settings.
+        model.change(Fixtures.orbit, setting: PadMappingRows.resetID, value: "")
+        #expect(store.entries.isEmpty && store.swapValue == "follow")
+    }
+
+    @Test func profilePadMapRowWinsShellMapping() throws {
+        let box = try Sandbox()
+        let file = box.games.appendingPathComponent(Fixtures.orbit).appendingPathComponent("launcher.json")
+        var json = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
+        var settings = try #require(json["settings"] as? [[String: Any]])
+        settings.append(["env": "DM_PAD_MAP", "kind": "choice", "label": "Buttons", "note": "", "default": "X=Y",
+                         "options": [["X=Y", "Custom"], ["", "Default"]]])
+        json["settings"] = settings
+        try JSONSerialization.data(withJSONObject: json).write(to: file)
+        let profile = try LauncherProfile.parse(Data(contentsOf: file))
+        let shell = shellSettings()
+        shell.setPadSwapAB(true)
+        let model = ShellHostModel(config: box.config(), shellSettings: shell)
+        #expect(model.launchEnvironment(profile: profile, id: Fixtures.orbit)["DM_PAD_MAP"] == "X=Y")
+        #expect(try !detail(model).sections.contains { $0.id == "pad" })
+        model.change(Fixtures.orbit, setting: "DM_PAD_MAP", value: "")
+        #expect(model.launchEnvironment(profile: profile, id: Fixtures.orbit)["DM_PAD_MAP"] == "")
+    }
+
     @Test func buildsTilesAndDetailsFromTheBundles() throws {
         let box = try Sandbox()
         let model = ShellHostModel(config: box.config())
@@ -37,7 +210,7 @@ final class Clock: @unchecked Sendable { var date: Date; init(_ d: Date) { date 
         let orbit = try detail(model)
         #expect(orbit.game.title == "Orbit Fixture" && orbit.game.subtitle == "Version 1.0.0" && orbit.game.recentlyPlayed == nil)
         #expect(orbit.game.state == .needsGameData)
-        #expect(orbit.sections.map(\.title) == ["Game", "Performance"])
+        #expect(orbit.sections.map(\.title) == ["Game", "Performance", "Controller"])
         #expect(orbit.dataSource == "" && !orbit.dataNote.isEmpty)
         #expect(orbit.cloudSaves == nil && orbit.dlc == "No additional content")
         #expect(try detail(model, Fixtures.chain).game.state == .needsAppUpdate)

@@ -20,6 +20,8 @@ import ShellControllers
 
 /// The demo owns sample values. None of this state or callback simulation is part of ShellUI.
 struct DemoScreen: View {
+    @State private var padMap = PadMap()
+    @State private var padSnapshot: PadSnapshot?
     @State private var games = SampleData.games
     @State private var notice: String?
     @State private var input: ShellInput?
@@ -83,7 +85,12 @@ struct DemoScreen: View {
                     initialDetailOpen: scenario == "settings",
                     initialControllersOpen: scenario.hasPrefix("controllers"),
                     initialShellSettingsOpen: scenario == "shell-settings",
-                    initialFocusVisible: scenario == "focus")
+                    initialFocusVisible: scenario == "focus", globalPadMap: padMap,
+                    // The test's screen shows a few buttons held until a real controller moves.
+                    padSnapshot: padSnapshot ?? (scenario == "controllers-test"
+                        ? PadSnapshot(name: "Demo", pressed: [.a, .leftBumper, .up], leftStick: CGPoint(x: 0.6, y: 0.5), rightTrigger: 0.7) : nil),
+                    initialPadMapping: scenario == "controllers-mapping" ? ControllersView.mappingID : nil,
+                    initialButtonTestOpen: scenario == "controllers-test")
     }
 
     /// A stand-in for the foldable while no Simulator runtime for it is installed: the same running shell in a frame
@@ -164,7 +171,14 @@ struct DemoScreen: View {
                 games[i].cloudSaves = original.cloudSaves; games[i].cloudFromShell = true; games[i].cloudCanUseShell = false
             }
         }, onClearShellData: { ShellSettingsStore.current.clearDataFolderName() },
-                     onClearShellCloud: { ShellSettingsStore.current.clearCloudSavesFolderName() })
+                     onClearShellCloud: { ShellSettingsStore.current.clearCloudSavesFolderName() },
+                     onGlobalPadMapChange: { button, value in
+            if button == "swapAB" { padMap.setSwapAB(value == "1") } else { padMap.set(button, to: value) }
+        }, onGlobalPadMapReset: { padMap = PadMap() },
+                     onButtonTest: { open in
+            gamepads.onSnapshot = open ? { padSnapshot = $0 } : nil
+            if !open { padSnapshot = nil }
+        })
     }
 }
 

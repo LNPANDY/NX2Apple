@@ -6,7 +6,7 @@ import NXModel
 
 /// The release app carries its build tools and a Python (BundledTools.swift): the dependency check prefers them to Homebrew's and to
 /// a system Python, and the build's PATH starts with them. A fake bundle stands in for Contents/Resources.
-final class BundledToolsTests: XCTestCase {
+final class BundledToolsTests: IsolatedDefaultsTestCase {
     private var root: URL!
 
     override func setUpWithError() throws {

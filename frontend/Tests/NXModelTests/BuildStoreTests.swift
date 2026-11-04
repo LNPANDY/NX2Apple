@@ -340,4 +340,97 @@ import XCTest
         store.stop()
         XCTAssertFalse(store.stopping)
     }
+
+    // MARK: Move cache folder (#427)
+
+    /// A store whose home is the temporary folder, so the default cache place is never the real Application Support.
+    private func moveStore() throws -> (BuildStore, cache: String) {
+        let store = makeStore()
+        store.home = temporary.path + "/home"
+        let cache = store.home + "/Library/Application Support/NX2Apple/shell"
+        try FileManager.default.createDirectory(atPath: cache + "/frameworks/DmGame0100AAAA.framework", withIntermediateDirectories: true)
+        try Data("shader".utf8).write(to: URL(fileURLWithPath: cache + "/frameworks/DmGame0100AAAA.framework/game.manifest.json"))
+        let json: [String: Any] = ["bundleID": "org.nxnative.shell.TEAM", "team": "TEAM", "games": [["titleID": "0100AAAA", "name": "A", "framework": cache + "/frameworks/DmGame0100AAAA.framework"]]]
+        try JSONSerialization.data(withJSONObject: json).write(to: URL(fileURLWithPath: cache + "/shell.json"))
+        XCTAssertEqual(store.shellCachePath, cache)
+        XCTAssertTrue(store.shellCacheIsDefault)
+        return (store, cache)
+    }
+
+    /// The build guard: no move starts while a build, an install or an export runs, and nothing on disk changes.
+    func testTheCacheDoesNotMoveWhileABuildRuns() throws {
+        let (store, cache) = try moveStore()
+        let picked = temporary.path + "/Drive"
+        try FileManager.default.createDirectory(atPath: picked, withIntermediateDirectories: true)
+        store.prepareShellMove(into: picked)
+        guard case .confirm(let plan) = store.shellMove else { return XCTFail("the confirmation shows") }
+        XCTAssertEqual(plan.destination, picked + "/NX2Apple-shell")
+        store.running = true
+        XCTAssertNil(store.confirmShellMove(), "refused while a build runs")
+        XCTAssertEqual(store.shellMove, .confirm(plan), "the confirmation stays, with its note")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: cache + "/shell.json"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: plan.destination))
+        XCTAssertNil(defaults.string(forKey: "shellRoot"), "the saved place is unchanged")
+    }
+
+    /// While the cache moves the build store's `running` flag is set, so no build can start, and the saved place, shell.json and the
+    /// way back follow the move.
+    func testAMoveSavesTheNewPlaceAndTheWayBackClearsThePick() async throws {
+        let (store, cache) = try moveStore()
+        let picked = temporary.path + "/Drive"
+        try FileManager.default.createDirectory(atPath: picked, withIntermediateDirectories: true)
+        store.prepareShellMove(into: picked)
+        let task = try XCTUnwrap(store.confirmShellMove())
+        XCTAssertTrue(store.running, "builds, installs and exports are off while the cache moves")
+        XCTAssertFalse(store.canBuild)
+        await task.value
+        let moved = picked + "/NX2Apple-shell"
+        XCTAssertEqual(store.shellMove, .moved(moved))
+        XCTAssertFalse(store.running)
+        XCTAssertEqual(defaults.string(forKey: "shellRoot"), moved)
+        XCTAssertTrue(defaults.bool(forKey: ShellRootMove.pickedKey))
+        XCTAssertEqual(store.shellCachePath, moved)
+        XCTAssertEqual(store.shellRoot, moved, "the launch migration leaves a picked folder where it is")
+        XCTAssertFalse(store.shellCacheIsDefault)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: cache))
+        XCTAssertEqual(ShellLibrary.load(root: moved).games.first?.framework, moved + "/frameworks/DmGame0100AAAA.framework")
+
+        store.dismissShellMove()
+        store.prepareShellMoveToDefault()
+        await store.confirmShellMove()?.value
+        XCTAssertEqual(store.shellMove, .moved(cache))
+        XCTAssertEqual(defaults.string(forKey: "shellRoot"), cache)
+        XCTAssertFalse(defaults.bool(forKey: ShellRootMove.pickedKey))
+        XCTAssertTrue(store.shellCacheIsDefault)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: picked), [], "the picked folder stays, empty as it was")
+    }
+
+    /// A move that fails on the disk says why and where the cache stays, keeps the old folder and the saved place.
+    func testAFailedMoveKeepsTheCacheAndTheSavedPlace() async throws {
+        let (store, cache) = try moveStore()
+        let picked = temporary.path + "/Locked"
+        try FileManager.default.createDirectory(atPath: picked, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: picked)   // nothing can be made inside it
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: picked) }
+        store.prepareShellMove(into: picked)
+        await store.confirmShellMove()?.value
+        guard case .failed(let why, let stays) = store.shellMove else { return XCTFail("expected a failure, got \(store.shellMove)") }
+        XCTAssertFalse(why.isEmpty)
+        XCTAssertFalse(why.hasSuffix("."), "the text goes on after the reason, so the system's full stop is dropped")
+        XCTAssertEqual(stays, cache)
+        XCTAssertFalse(store.running)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: cache + "/frameworks/DmGame0100AAAA.framework/game.manifest.json"))
+        XCTAssertNil(defaults.string(forKey: "shellRoot"))
+        XCTAssertFalse(defaults.bool(forKey: ShellRootMove.pickedKey))
+    }
+
+    func testAMoveThatCannotStartKeepsTheSavedPlace() throws {
+        let (store, cache) = try moveStore()
+        store.prepareShellMove(into: cache + "/frameworks")
+        guard case .confirm(let plan) = store.shellMove else { return XCTFail("the confirmation shows") }
+        XCTAssertEqual(plan.problem, .insideCache)
+        XCTAssertNil(store.confirmShellMove())
+        XCTAssertFalse(store.running)
+        XCTAssertNil(defaults.string(forKey: "shellRoot"))
+    }
 }

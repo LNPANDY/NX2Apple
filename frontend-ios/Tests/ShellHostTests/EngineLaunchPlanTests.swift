@@ -112,6 +112,86 @@ import Testing
         #expect(env["DM_ENV_FILE_KEYS"] == "DM_TRACE DM_OTHER")
     }
 
+    /// #557: a mod's `DM_ROMFS_OVERLAY` in the shared file reached every game. The game's own file stays with the game.
+    @Test func gameEnvFileWinsOverTheSharedOneAndIsReadFromTheGamesFolder() throws {
+        let rig = try Rig(environment: ["DM_LANG": "de"])
+        try FileManager.default.createDirectory(at: rig.gdir, withIntermediateDirectories: true)
+        try "# this game\nDM_ROMFS_OVERLAY=/mods/orbit\nDM_TRACE=9\nDM_LANG=fr\nDM_SAVE=/elsewhere\n".write(to: rig.gdir.appendingPathComponent("env.txt"), atomically: true, encoding: .utf8)
+        let env = rig.plan(envFile: "DM_ROMFS_OVERLAY=/mods/other\nDM_TRACE=1\nDM_OTHER=3\n").environment
+        #expect(env["DM_ROMFS_OVERLAY"] == "/mods/orbit")
+        #expect(env["DM_TRACE"] == "9")
+        #expect(env["DM_OTHER"] == "3", "the shared file still applies to what the game's file does not set")
+        #expect(env["DM_LANG"] == "de" && env["DM_SAVE"] == rig.gdir.path + "/save", "the launch environment wins over both files")
+        #expect(env["DM_ENV_FILE_KEYS"] == "DM_ROMFS_OVERLAY DM_TRACE DM_OTHER")
+    }
+
+    @Test func anotherGameDoesNotSeeTheFirstGamesEnvFile() throws {
+        let rig = try Rig()
+        try FileManager.default.createDirectory(at: rig.gdir, withIntermediateDirectories: true)
+        try "DM_ROMFS_OVERLAY=/mods/orbit\n".write(to: rig.gdir.appendingPathComponent("env.txt"), atomically: true, encoding: .utf8)
+        var other = rig.game
+        other.appFolder = rig.box.documents.appendingPathComponent("games/0100000000000000", isDirectory: true)
+        let env = EngineLaunchPlan.make(game: other, appResources: rig.box.resources, documents: rig.box.documents, envFileText: nil).environment
+        #expect(env["DM_ROMFS_OVERLAY"] == nil)
+        #expect(env["DM_ENV_FILE_KEYS"] == "")
+    }
+
+    @Test func withoutAGameEnvFileOnlyTheSharedOneApplies() throws {
+        let rig = try Rig()
+        let env = rig.plan(envFile: "DM_TRACE=1\n").environment
+        #expect(env["DM_TRACE"] == "1" && env["DM_ENV_FILE_KEYS"] == "DM_TRACE")
+    }
+
+    // MARK: the game's mods folder (#557)
+
+    @Test func modsFolderSetsTheOverlayOnlyWhenItExistsAndHoldsAUsableMod() throws {
+        let rig = try Rig()
+        #expect(rig.plan().environment["DM_ROMFS_OVERLAY"] == nil)
+        let mods = rig.gdir.appendingPathComponent("mods")
+        try rig.box.makeFolder(mods)
+        #expect(rig.plan().environment["DM_ROMFS_OVERLAY"] == nil, "an empty mods folder")
+        try rig.box.makeFolder(mods.appendingPathComponent("code/exefs"))
+        try rig.box.makeFolder(mods.appendingPathComponent(".hidden/romfs"))
+        try rig.box.write("x", to: mods.appendingPathComponent("loose-file.txt"))
+        #expect(rig.plan().environment["DM_ROMFS_OVERLAY"] == nil, "code only, hidden and plain files do not count")
+        try rig.box.makeFolder(mods.appendingPathComponent("b/romfs"))
+        try rig.box.makeFolder(mods.appendingPathComponent("a/atmosphere/contents/\(Fixtures.orbit)/romfs"))
+        try rig.box.write("x", to: mods.appendingPathComponent("c/data.bin"))
+        let env = rig.plan().environment
+        #expect(env["DM_ROMFS_OVERLAY"] == [mods.path + "/a/atmosphere/contents/\(Fixtures.orbit)/romfs", mods.path + "/b/romfs", mods.path + "/c"].joined(separator: ":"))
+        #expect(env["DM_ENV_FILE_KEYS"] == "", "the mods folder is not an env file")
+    }
+
+    @Test func modsOfOneGameDoNotReachAnother() throws {
+        let rig = try Rig()
+        try rig.box.makeFolder(rig.gdir.appendingPathComponent("mods/m/romfs"))
+        var other = rig.game
+        other.appFolder = rig.box.documents.appendingPathComponent("games/0100000000000000", isDirectory: true)
+        let env = EngineLaunchPlan.make(game: other, appResources: rig.box.resources, documents: rig.box.documents, envFileText: nil).environment
+        #expect(env["DM_ROMFS_OVERLAY"] == nil)
+        #expect(rig.plan().environment["DM_ROMFS_OVERLAY"] == rig.gdir.path + "/mods/m/romfs")
+    }
+
+    @Test func overlayPrecedenceIsLaunchEnvironmentThenGameEnvFileThenModsThenSharedFile() throws {
+        let shared = "DM_ROMFS_OVERLAY=/shared\n"
+        // mods beat the shared file
+        var rig = try Rig()
+        try rig.box.makeFolder(rig.gdir.appendingPathComponent("mods/m/romfs"))
+        #expect(rig.plan(envFile: shared).environment["DM_ROMFS_OVERLAY"] == rig.gdir.path + "/mods/m/romfs")
+        #expect(rig.plan(envFile: shared).environment["DM_ENV_FILE_KEYS"] == "")
+        // the game's env file beats the mods folder
+        try rig.box.write("DM_ROMFS_OVERLAY=/own\n", to: rig.gdir.appendingPathComponent("env.txt"))
+        #expect(rig.plan(envFile: shared).environment["DM_ROMFS_OVERLAY"] == "/own")
+        // the launch environment beats the game's env file
+        rig = try Rig(environment: ["DM_ROMFS_OVERLAY": "/launch"])
+        try rig.box.makeFolder(rig.gdir.appendingPathComponent("mods/m/romfs"))
+        try rig.box.write("DM_ROMFS_OVERLAY=/own\n", to: rig.gdir.appendingPathComponent("env.txt"))
+        #expect(rig.plan(envFile: shared).environment["DM_ROMFS_OVERLAY"] == "/launch")
+        // without a mods folder the shared file still applies
+        let plain = try Rig()
+        #expect(plain.plan(envFile: shared).environment["DM_ROMFS_OVERLAY"] == "/shared")
+    }
+
     @Test func argumentsExecutableAndLocations() throws {
         let rig = try Rig()
         let plan = rig.plan()

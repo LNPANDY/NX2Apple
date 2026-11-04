@@ -109,6 +109,8 @@ class Model(QObject):
         self.update_path = ''
         self.dlc_paths: list[str] = []
         self.keys_path = ''
+        self.game_folder: inputs.GameFolderContents | None = None   # a game chosen as a folder of files or a NUP (no keys needed)
+        self.game_folder_problem = ''   # why a chosen game folder cannot be built, shown on the base row
         self.out_dir = ''
         self.ipa_path = ''
         self.archive_path = ''
@@ -185,7 +187,23 @@ class Model(QObject):
         self.repoChanged.emit()   # the window shows the status line
 
         def work() -> None:
-            ok, kind = engine.run_sync(cmd, self.repo_path, self.log, env=pu.child_env(), **pu.no_window_kwargs())
+            # The sync drives git throughout (hooks, fetch, patch, pack), and Windows may have
+            # no git at all — the same player this app installed PortableGit for during the
+            # clone. Install it here too, and put it on the child's PATH: engine.py and
+            # tools/patches.py spawn `git` by name, and a GUI launch inherits no PATH to find
+            # it on (the sync failed with WinError 2 before either step ran).
+            extra: dict[str, str] | None = None
+            if pu.IS_WIN:
+                git = self._ensure_windows_git()
+                if not git:
+                    self._engine_syncing = False
+                    self.engine_syncing = False
+                    self.engine_failure = bf.Failure(engine.ENGINE_SYNC)
+                    self.repoChanged.emit()
+                    if then: then(False)
+                    return
+                extra = {'PATH': str(Path(git).parent) + os.pathsep + pu.child_env()['PATH']}
+            ok, kind = engine.run_sync(cmd, self.repo_path, self.log, env=pu.child_env(extra), **pu.no_window_kwargs())
             self._engine_syncing = False
             self.engine_syncing = False
             self.engine_failure = None if ok else bf.Failure(kind or engine.ENGINE_SYNC)
@@ -518,6 +536,24 @@ class Model(QObject):
             found = wtc.git_exe()
             return str(found) if found else None
         return pu._which('git')
+
+    def _ensure_windows_git(self) -> str | None:
+        """The git for engine.py's sync on Windows: the app's own PortableGit, installed here
+        when the player has none (the same one clone_repo installs). None when the install
+        failed, with the reason logged. engine.py and tools/patches.py spawn `git` by name, so
+        the caller also puts its folder on the child's PATH."""
+        git = self.git_binary()
+        if git:
+            return git
+        try:
+            from .win import fetch as wf
+            self.log(self.t('repo.gitInstalling') + '\n')
+            self.repoChanged.emit()
+            wf.install_git(log=lambda s: self.log(str(s) + '\n'))
+        except Exception as e:
+            self.log(f'git install failed: {e}\n')
+            return None
+        return self.git_binary()
 
     def clone_repo(self, dest: str | None = None) -> None:
         """Shallow-clone the project into ~/NX2Apple (or `dest`) and select it.
@@ -1140,6 +1176,10 @@ class Model(QObject):
     def scan_game_dir(self, d: str) -> None:
         """Pick the four inputs out of a folder (and its subfolders, one level): a base NSP,
         an update, DLCs and prod.keys, by the naming the dumps use."""
+        if inputs.is_game_folder_candidate(d):
+            self.take_game_folder(d)
+            return
+        self.leave_game_folder()
         self.game_dir = d
         root = Path(d)
         if not root.is_dir():
@@ -1157,10 +1197,86 @@ class Model(QObject):
         self.dlc_paths = [str(f) for f in found['dlc']]
         self.repoChanged.emit()
 
+    # ---- a game as a folder of its files or a NUP (Switch 2 games), see inputs.scan_game_folder
+
+    def take_game_folder(self, path: str) -> None:
+        """Fill the rows from a game folder or a NUP file, or show the reason it cannot be built on the base row."""
+        self.game_dir = str(Path(path).parent) if path.lower().endswith('.nup') else path
+        self.game_folder = None
+        self.game_folder_problem = ''
+        self.base_path = self.update_path = ''
+        self.dlc_paths = []
+        found = inputs.scan_game_folder(path)
+        if isinstance(found, inputs.GameFolderProblem):
+            self.game_folder_problem = self.t(found.l10n_key, *found.args)
+        else:
+            why = self.game_folder_engine_problem(found)
+            if why:
+                self.game_folder_problem = why
+            else:
+                self.game_folder = found
+                self.base_path = found.base_path
+                newest = found.newest_update
+                self.update_path = newest[1] if newest else ''
+                self.dlc_paths = [p for _, p in found.dlc]
+        self.repoChanged.emit()
+
+    def leave_game_folder(self) -> None:
+        """Back to packages: the folder's rows are emptied, so a picked package never mixes with them."""
+        if self.game_folder is None and not self.game_folder_problem:
+            return
+        self.game_folder = None
+        self.game_folder_problem = ''
+        self.base_path = self.update_path = ''
+        self.dlc_paths = []
+
+    def game_folder_engine_problem(self, found: 'inputs.GameFolderContents') -> str:
+        """What the engine lacks for this game: the packer (an older engine) or a profile for the game. '' when nothing,
+        and before the engine exists (the build asks again)."""
+        eng = self.engine_path
+        if not eng or not Path(eng, 'dm').is_dir():
+            return ''
+        builds = inputs.engine_builds_nups(eng) if found.nup else inputs.engine_builds_folders(eng)
+        if not builds:
+            return self.t('folder.engineOldNUP' if found.nup else 'folder.engineOld')
+        if found.has_title_id and not inputs.engine_has_profile(found.title_id, eng):
+            return self.t('folder.noProfile', found.title_id_hex)
+        return ''
+
+    def input_row_text(self, key: str) -> str | None:
+        """A row's text while a game folder is chosen, None otherwise (the row then shows its files as for packages)."""
+        f = self.game_folder
+        if f is None:
+            return None
+        if key == 'base':
+            if f.nup is None:
+                return self.t('folder.base', f.title_id_hex)
+            return self.t('folder.nupBase', f.title_id_hex) if f.has_title_id else self.t('folder.nupBaseNoID')
+        if key == 'update':
+            newest = f.newest_update
+            if newest is None:
+                return self.t('data.notSelectedOptional')
+            return (self.t('folder.updates', newest[0], len(f.updates)) if len(f.updates) > 1
+                    else self.t('folder.update', newest[0]))
+        if key == 'dlc':
+            return self.t('folder.dlc', len(f.dlc)) if f.dlc else self.t('data.notSelectedDlc')
+        if key == 'keys':
+            return self.t('folder.keys')
+        return None
+
+    @property
+    def build_key(self) -> str:
+        """The name of the work folder and the app (<key>_build, <key>.app): the folder's title ID, else the base package's."""
+        f = self.game_folder
+        if f is None:
+            return inputs.build_key(self.base_path)
+        return f.title_id_hex if f.has_title_id else inputs.build_key(f.script_input)
+
     @property
     def can_build(self) -> bool:
-        return (self.repo_ok and bool(self.base_path) and bool(self.keys_path)
-                and self.all_deps_ok and not self.running)
+        # a game folder needs no keys, a refused one cannot build
+        inputs_ready = self.game_folder is not None or (bool(self.base_path) and bool(self.keys_path))
+        return self.repo_ok and inputs_ready and self.all_deps_ok and not self.running
 
     # ---- build
 
@@ -1175,14 +1291,21 @@ class Model(QObject):
             self.sync_engine(lambda ok: QMetaObject.invokeMethod(self, '_build_after_sync', Qt.QueuedConnection, Q_ARG(bool, ok)))
             return
         py = self.python_path or ('python' if pu.IS_WIN else '/usr/bin/python3')
-        base_dir = str(Path(self.base_path).parent)
-        all_files = [self.base_path, self.update_path] + self.dlc_paths
+        folder = self.game_folder
+        if folder is not None:
+            why = self.game_folder_engine_problem(folder)
+            if why:
+                self.finished.emit(False, why)
+                return
+        base_dir = folder.folder if folder is not None else str(Path(self.base_path).parent)
+        # a game folder or a NUP goes to the script as it is: nothing is staged and no file is a package
+        all_files = [] if folder is not None else [self.base_path, self.update_path] + self.dlc_paths
         dirs = {str(Path(f).parent) for f in all_files if f}
 
-        tid_hex = inputs.build_key(self.base_path)
+        tid_hex = self.build_key
         work_dir = str(Path(self.out_dir or base_dir, f'{tid_hex}_build'))
 
-        input_dir = base_dir
+        input_dir = folder.script_input if folder is not None else base_dir
         if len(dirs) > 1:
             # files from different folders: a stable folder of links per game, so the script sees one
             # folder and its fingerprints match on the next build (#132)
@@ -1209,7 +1332,8 @@ class Model(QObject):
         else:
             entry = [str(Path(self.engine_path, 'scripts', 'build_ipa_from_nsp.py'))]
             cwd = self.engine_path
-        args = entry + [input_dir, '-k', self.keys_path, '--progress', 'lines']
+        # a game folder's files are not encrypted: no -k, the keys are not asked for
+        args = entry + [input_dir] + ([] if folder is not None else ['-k', self.keys_path]) + ['--progress', 'lines']
         has_work_dir = self.supports_work_dir()
         if has_work_dir:
             args += ['--work-dir', work_dir]
@@ -1226,7 +1350,7 @@ class Model(QObject):
         elif self.out_dir:
             self.ipa_path = str(Path(self.out_dir, f'{tid_hex}.ipa'))
             args += ['-o', self.ipa_path]
-        self.effective_work_dir = work_dir if has_work_dir else str(Path(input_dir, f'{tid_hex}_build'))
+        self.effective_work_dir = work_dir if has_work_dir else str(Path(base_dir if folder is not None else input_dir, f'{tid_hex}_build'))
         flag = self.override.take()   # for this build only: the next one asks again
         args = bf.arguments(args, flag)
 

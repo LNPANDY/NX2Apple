@@ -160,6 +160,7 @@ struct ChoicePickerView: View {
 struct ChoiceValueRow: View {
     let row: SettingRow
     let valueLabel: String
+    var hint = ShellStrings.text("Opens the list of choices")
     let open: () -> Void
     var body: some View {
         Button(action: open) {
@@ -185,6 +186,6 @@ struct ChoiceValueRow: View {
         .buttonStyle(.plain)
         .accessibilityLabel(row.label)
         .accessibilityValue(valueLabel)
-        .accessibilityHint(ShellStrings.text("Opens the list of choices"))
+        .accessibilityHint(hint)
     }
 }

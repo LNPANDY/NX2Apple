@@ -74,7 +74,13 @@ Xcode, a development certificate (sign in to Xcode with your Apple ID under Sett
 and a device paired with this Mac. Choose the device under **Install on** and the **Signing team**
 next to it before the build. The build script makes only the game's framework
 (`--shell-framework`), and the shared app holds the games. The launcher keeps the list of games in
-`shell.json` in the `NX2Apple-shell` folder (next to the output folder, saved as `shellRoot`),
+`shell.json` in the shell folder, `~/Library/Application Support/NX2Apple/shell` (saved as
+`shellRoot`, it holds the games' frameworks, the project, derived data and the banner cache). Older
+versions made it as `NX2Apple-shell` inside the output folder. The launcher moves such a folder
+there once at start (a rename on the same volume, shell.json's paths are rewritten), and only when
+it is the folder the launcher made, shell.json can be read and the new place is free. On any doubt
+the old folder stays where it is and keeps being used, and nothing is deleted. Uninstalling the
+launcher leaves this folder alone. The launcher
 generates the app's project with `dm/ios/tools/build_shell.sh --prepare-xcode`, signs it with
 `xcodebuild -allowProvisioningUpdates` and installs it over the one already there with
 `xcrun devicectl device install app`, which keeps the app's Documents. The game files are packed
@@ -213,6 +219,16 @@ ID → image and kept with the images in
 `~/Library/Application Support/NS Port Builder/artwork/`. Custom images stay at
 their chosen path.
 
+The list can hold several shop products under one title ID: the game, its Nintendo
+Switch 2 Edition, or a bundle with a membership or an expansion pass. The launcher
+takes the game's own product. A product whose name marks an edition, a bundle, a pass
+or a demo loses, and of two equal ones the first in the shop wins. `sources.json` in
+the same folder records where each image came from. An image saved by an older
+launcher is checked once against this rule and replaced when it belongs to another
+product. A banner with a promotion painted in (for example "Demo Available") cannot be
+told from the list. Change artwork covers it. A game the list does not know, as most
+Switch 2 games today, falls back to the screenshot, the app icon or the placeholder.
+
 ## Type
 
 The interface is set in Manrope (SIL Open Font License, with its license in `fonts/`):
@@ -328,9 +344,12 @@ Windows launcher never show them. Xcode needs a string catalog per target, so
 `frontend-ios/Sources/ShellHost/Resources/Localizable.xcstrings` from the files (the catalogs are not edited by hand).
 The Swift code asks for a shell text by its English words (`ShellStrings.text("Done")`), so the catalog's key is the English
 text of the JSON key, and each language file that has the JSON key adds a localization (`zh.json` becomes `zh-Hans`, every other
-code stays as it is). A new shell text is a line in `en.json` and `zh.json` under the prefix, the same words in the Swift call
-and `python3 tools/l10n_shell_catalogs.py`. A new language file shows up in both catalogs with no change in the tool. A language
-that has no line for a key shows the English text, as in the launchers. `tools/tests/test_l10n_shell_catalogs.py` fails when a
+code stays as it is). A new shell text is a line in every language file under the prefix, the same words in the Swift call
+and `python3 tools/l10n_shell_catalogs.py`. A new language file shows up in both catalogs with no change in the tool. Unlike the
+launchers' texts, every shell text has every language: `python3 tools/l10n_shell_catalogs.py --check` fails when a language file
+lacks one, and so do `ShellStringsTests` (each catalog entry has all six) and `ShellTextSourcesTests` (each `ShellStrings.text` and
+`hostText` literal of the sources is a catalog key) in frontend-ios. A text a language writes as English does (OK, Minus, Version)
+is listed in `ShellStringsTests.cognates` and in the German and French launcher tests. `tools/tests/test_l10n_shell_catalogs.py` fails when a
 committed catalog differs from what the files give, and when the app's `CFBundleLocalizations` (the Demo app, `tools/try-local`
 and the shell app of the engine, patch 0056) do not list every file, because iOS offers a language to the shell only when the
 app declares it. The key checks treat the `ios.*` keys as used (`catalogKeys` in `frontend/Tests/l10n-key-rules.json`).

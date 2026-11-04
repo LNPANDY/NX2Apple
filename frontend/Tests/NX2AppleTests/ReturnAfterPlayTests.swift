@@ -4,7 +4,7 @@ import XCTest
 @testable import NXLauncher
 
 /// When the launcher comes back to the front after a game it started quits. Nothing here touches NSWorkspace.
-@MainActor final class ReturnAfterPlayTests: XCTestCase {
+@MainActor final class ReturnAfterPlayTests: IsolatedDefaultsTestCase {
     func testComesBackForAGameItStarted() {
         let watcher = GameReturnWatcher(observesSystem: false)
         var forward = 0, quit = 0

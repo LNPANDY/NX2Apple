@@ -2,7 +2,7 @@ import XCTest
 
 /// LNPANDY/NX2Apple#387: no Swift file under frontend/Sources is above 800 lines. The files above it today are listed with their
 /// size, so they may only shrink. When one drops to 800 lines or fewer, its entry goes (the test says so), and nothing grows back.
-final class SourceSizeTests: XCTestCase {
+final class SourceSizeTests: IsolatedDefaultsTestCase {
     private static let limit = 800
 
     /// Path under frontend/Sources → its line count when the limit came in. Lower the number when the file shrinks.

@@ -5,7 +5,7 @@ import NXModel
 @testable import NXLauncher
 
 /// The real driver's logic over fakes: no xcodebuild, sudo, App Store, network or installs run here.
-@MainActor final class LiveOnboardingDriverTests: XCTestCase {
+@MainActor final class LiveOnboardingDriverTests: IsolatedDefaultsTestCase {
     final class Fake {
         var probe = XcodeProbe(appPath: "/Applications/Xcode.app", selectedIsXcode: true, licenseAccepted: true, firstLaunchDone: true)
         var admin: AdminResult = .ok
@@ -30,8 +30,6 @@ import NXModel
 
     override func setUp() {
         OnboardingDefaults.sessionPlatform = nil
-        let target = UserDefaults.standard.object(forKey: "buildTarget")   // choosePlatform sets the Builds page's target
-        addTeardownBlock { UserDefaults.standard.set(target, forKey: "buildTarget") }
         let suite = "onboarding.tests." + UUID().uuidString
         defaults = UserDefaults(suiteName: suite)
         addTeardownBlock { UserDefaults().removePersistentDomain(forName: suite) }
@@ -43,7 +41,7 @@ import NXModel
     func make(_ fake: Fake, deps: [Dep], step: OnboardingStep? = nil, platform: OnboardingPlatform? = nil) -> (LiveOnboardingDriver, BuildStore) {
         if let platform { defaults.set(platform.rawValue, forKey: OnboardingDefaults.platform) }
         if let step { defaults.set(step.rawValue, forKey: OnboardingDefaults.step); defaults.set(true, forKey: OnboardingDefaults.inProgress) }
-        let modelStores = LauncherStores(); let model = modelStores.build
+        let modelStores = LauncherStores(defaults: testDefaults); let model = modelStores.build
         modelStores.dependencies.deps = deps; modelStores.dependencies.checked = true
         var env = OnboardingEnvironment()
         env.defaults = defaults

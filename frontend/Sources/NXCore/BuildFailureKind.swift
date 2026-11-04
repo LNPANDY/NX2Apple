@@ -8,6 +8,10 @@ package enum BuildFailureKind: String, CaseIterable {
     case rosetta, translator, zbic, iosSDK, cltSelected, otherMetal, shaderRegression, damagedNSP, a32Program
     /// The inputs: the keys file, the game folder, a drive that is gone.
     case keys, severalGames, noTitleID, driveMissing
+    /// A game folder or NUP (a Switch 2 game, GameFolder.swift) of a game the engine has no profile for: the script packs one only with a profile.
+    case noProfile
+    /// prod.keys lacks the master key the game needs: the keys are older than the game (nx_extract's exit code 6, seedds/nxnative 3104c0a).
+    case keysOld
     /// The build's and the install's own steps.
     case diskFull, teamTaken, noSigningAccount, deviceTransfer
     /// The build folder is in iCloud Drive or another cloud folder (CloudFolder.swift): the launcher stops before the build, and the

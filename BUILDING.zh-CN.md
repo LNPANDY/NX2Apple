@@ -1,6 +1,6 @@
 # 从源码构建
 
-启动器（见 [README.zh-CN.md](README.zh-CN.md)）运行的就是终端里的这些脚本。本页是手动路线，给进阶用户、开发，或启动器用不了的时候：工具、你的 `prod.keys`，以及在终端里构建 IPA。英文版：[BUILDING.md](BUILDING.md)。贡献规则见 [CONTRIBUTING.zh-CN.md](CONTRIBUTING.zh-CN.md)。
+启动器（见 [README.zh-CN.md](README.zh-CN.md)）运行的就是终端里的这些脚本。本页是手动路线，给进阶用户、开发，或启动器用不了的时候：工具、你的 `prod.keys`，以及在终端里构建 IPA。贡献规则见 [CONTRIBUTING.zh-CN.md](CONTRIBUTING.zh-CN.md)。
 
 ## 取得工具
 

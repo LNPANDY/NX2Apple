@@ -9,7 +9,7 @@ import NXModel
 /// after the build runs headless against a stand-in `xcrun` that models devicectl on a folder (a fake device container): an install
 /// keeps the container, a copy to a file creates the parents, and `--remove-existing-content true` wipes the destination's siblings,
 /// as it does on a real device. No test reaches a device or a real game.
-@MainActor final class ShellInstallTests: XCTestCase {
+@MainActor final class ShellInstallTests: IsolatedDefaultsTestCase {
     private var temporary: URL!
     private let fm = FileManager.default
     private let titleID = "0100535012974000"
@@ -58,10 +58,18 @@ import NXModel
         XCTAssertEqual(Set(json?.keys.map { $0 } ?? []), ["bundleID", "team", "games"])
     }
 
-    func testShellRootIsDerivedOnceAndKept() throws {
+    /// #427: the default no longer depends on the output folder, and what is saved stays.
+    func testShellRootDefaultsToApplicationSupportAndIsKept() throws {
         let defaults = UserDefaults(suiteName: "nspb-shell-" + UUID().uuidString)!
-        XCTAssertEqual(ShellLibrary.resolveRoot(defaults: defaults, parent: "/Volumes/A"), "/Volumes/A/NX2Apple-shell")
-        XCTAssertEqual(ShellLibrary.resolveRoot(defaults: defaults, parent: "/Volumes/B"), "/Volumes/A/NX2Apple-shell")
+        let home = temporary.path + "/home"
+        XCTAssertEqual(ShellLibrary.resolveRoot(defaults: defaults, parent: "/Volumes/A", home: home),
+                       home + "/Library/Application Support/NX2Apple/shell")
+        XCTAssertEqual(ShellLibrary.resolveRoot(defaults: defaults, parent: "/Volumes/B", home: home),
+                       home + "/Library/Application Support/NX2Apple/shell")
+        XCTAssertEqual(defaults.string(forKey: "shellRoot"), home + "/Library/Application Support/NX2Apple/shell")
+        // a root the player chose themselves is not touched
+        defaults.set("/Volumes/Games/Cache/shell", forKey: "shellRoot")
+        XCTAssertEqual(ShellLibrary.resolveRoot(defaults: defaults, parent: "/Volumes/B", home: home), "/Volumes/Games/Cache/shell")
     }
 
     /// #492: the Settings page reads the path before a game is chosen; the empty parent put the shell at the root of the
@@ -69,28 +77,29 @@ import NXModel
     func testAnEmptyOrRootParentNeverSavesTheShellAtTheVolumeRoot() {
         let defaults = UserDefaults(suiteName: "nspb-shell-" + UUID().uuidString)!
         let home = "/Users/tester"
-        XCTAssertEqual(ShellLibrary.resolveRoot(defaults: defaults, parent: "", home: home), "/Users/tester/NX2Apple-shell")
-        XCTAssertEqual(defaults.string(forKey: "shellRoot"), "/Users/tester/NX2Apple-shell")
-        defaults.removeObject(forKey: "shellRoot")
-        XCTAssertEqual(ShellLibrary.resolveRoot(defaults: defaults, parent: "/", home: home), "/Users/tester/NX2Apple-shell")
-        defaults.removeObject(forKey: "shellRoot")
-        XCTAssertEqual(ShellLibrary.resolveRoot(defaults: defaults, parent: "relative/games", home: home), "/Users/tester/NX2Apple-shell")
+        let root = "/Users/tester/Library/Application Support/NX2Apple/shell"
+        for parent in ["", "/", "relative/games"] {
+            XCTAssertEqual(ShellLibrary.resolveRoot(defaults: defaults, parent: parent, home: home), root)
+            XCTAssertEqual(defaults.string(forKey: "shellRoot"), root)
+            defaults.removeObject(forKey: "shellRoot")
+        }
     }
 
     func testASavedRootAtTheVolumeRootIsRepaired() {
         let defaults = UserDefaults(suiteName: "nspb-shell-" + UUID().uuidString)!
         defaults.set("/NX2Apple-shell", forKey: "shellRoot")
-        XCTAssertEqual(ShellLibrary.resolveRoot(defaults: defaults, parent: "/Users/tester/games"),
-                       "/Users/tester/games/NX2Apple-shell")
-        XCTAssertEqual(defaults.string(forKey: "shellRoot"), "/Users/tester/games/NX2Apple-shell")   // the bad value is replaced
+        XCTAssertEqual(ShellLibrary.resolveRoot(defaults: defaults, parent: "/Users/tester/games", home: "/Users/tester"),
+                       "/Users/tester/Library/Application Support/NX2Apple/shell")
+        XCTAssertEqual(defaults.string(forKey: "shellRoot"), "/Users/tester/Library/Application Support/NX2Apple/shell")   // the bad value is replaced
     }
 
     func testThePreviewDoesNotSaveARoot() {
         let defaults = UserDefaults(suiteName: "nspb-shell-" + UUID().uuidString)!
-        XCTAssertEqual(ShellLibrary.previewRoot(defaults: defaults, parent: "/Volumes/A"), "/Volumes/A/NX2Apple-shell")
+        XCTAssertEqual(ShellLibrary.previewRoot(defaults: defaults, parent: "/Volumes/A", home: "/Users/tester"),
+                       "/Users/tester/Library/Application Support/NX2Apple/shell")
         XCTAssertNil(defaults.string(forKey: "shellRoot"))
         defaults.set("/Volumes/A/NX2Apple-shell", forKey: "shellRoot")
-        XCTAssertEqual(ShellLibrary.previewRoot(defaults: defaults, parent: "/Volumes/B"), "/Volumes/A/NX2Apple-shell")
+        XCTAssertEqual(ShellLibrary.previewRoot(defaults: defaults, parent: "/Volumes/B"), "/Volumes/A/NX2Apple-shell")   // an old root shows until it moves
     }
 
     func testRootNeedsAWritableParent() throws {
@@ -398,7 +407,7 @@ import NXModel
         try write(archive + "/romfs.img", "0123456789")
         try write(archive + "/aoc/1.img", "abcd")
         try write(archive + "/.packstamp", "stamp")
-        let made = Fixture(xcrun: try makeXcrun(), repo: try makeRepo(), framework: framework, archive: archive, root: path("NX2Apple-shell"))
+        let made = Fixture(xcrun: try makeXcrun(), repo: try makeRepo(), framework: framework, archive: archive, root: path("shell-root"))
         try writeDevices(state + "/devices-default.json", [(device, "wired")])
         return made
     }
@@ -605,7 +614,7 @@ import NXModel
         output = ""
         XCTAssertEqual(ShellCLI.run(f.args(extra: ["--framework", path("missing.framework")]),
                                     defaults: UserDefaults(suiteName: "nspb-shell-" + UUID().uuidString)!) { output += $0 }, 1)
-        XCTAssertTrue(output.contains("framework was not found"), output)
+        XCTAssertTrue(output.contains("its framework is not in the"), output)
     }
 
     // ---- the lead's three: memory capability, free space, the shell's log ----
@@ -794,10 +803,8 @@ import NXModel
 
     @MainActor func testBuildWithTheShellTargetInstallsAndResignsTheSharedApp() throws {
         let f = try makeFixture()
-        let keysSaved = ["repoPath", "buildTarget", "buildOutputDirectory", "installDevice", "signingTeam", "shellRoot"].map { ($0, UserDefaults.standard.object(forKey: $0)) }
-        defer { for (key, value) in keysSaved { UserDefaults.standard.set(value, forKey: key) } }
-        UserDefaults.standard.set(f.root, forKey: "shellRoot")
-        let modelStores = LauncherStores(xcrun: f.xcrun); let model = modelStores.build
+        testDefaults.set(f.root, forKey: "shellRoot")
+        let modelStores = LauncherStores(xcrun: f.xcrun, defaults: testDefaults); let model = modelStores.build
         modelStores.repo.path = f.repo
         model.target = "ios"
         model.outDir = path("out")
@@ -860,7 +867,7 @@ import NXModel
     }
 
     @MainActor private func makeModel(_ f: Fixture) throws -> LauncherStores {
-        let modelStores = LauncherStores(xcrun: f.xcrun); let model = modelStores.build
+        let modelStores = LauncherStores(xcrun: f.xcrun, defaults: testDefaults); let model = modelStores.build
         modelStores.repo.path = f.repo
         model.target = "ios"
         model.outDir = path("out")
@@ -883,8 +890,6 @@ import NXModel
     @MainActor func testUnknownDeviceStopsTheBuildBeforeTheScriptRuns() throws {
         let f = try makeFixture()
         try writeDevices(state + "/devices-default.json", [("00008150-OTHER", "wired")])
-        let saved = ["repoPath", "buildTarget", "buildOutputDirectory", "installDevice", "signingTeam"].map { ($0, UserDefaults.standard.object(forKey: $0)) }
-        defer { for (key, value) in saved { UserDefaults.standard.set(value, forKey: key) } }
         let modelStores = try makeModel(f)
         let model = modelStores.build
         model.startBuild()
@@ -900,9 +905,7 @@ import NXModel
     /// The copy card's answer and the failure row: a copy that fails midway says the data is incomplete, and Retry runs only the data step.
     @MainActor func testFailedCopyShowsTheIncompleteRowAndRetryFinishesIt() throws {
         let f = try makeFixture()
-        let saved = ["repoPath", "buildTarget", "buildOutputDirectory", "installDevice", "signingTeam", "shellRoot"].map { ($0, UserDefaults.standard.object(forKey: $0)) }
-        defer { for (key, value) in saved { UserDefaults.standard.set(value, forKey: key) } }
-        UserDefaults.standard.set(f.root, forKey: "shellRoot")
+        testDefaults.set(f.root, forKey: "shellRoot")
         let modelStores = try makeModel(f)
         let model = modelStores.build
         try write(state + "/fail-on", "romfs.img")
@@ -939,13 +942,14 @@ import NXModel
     }
 
     @MainActor func testShellTargetWithoutDeviceStopsBeforeBuilding() throws {
-        let saved = ["repoPath", "buildTarget", "installDevice", "signingTeam"].map { ($0, UserDefaults.standard.object(forKey: $0)) }
-        defer { for (key, value) in saved { UserDefaults.standard.set(value, forKey: key) } }
-        let modelStores = LauncherStores(); let model = modelStores.build
+        let modelStores = LauncherStores(defaults: testDefaults); let model = modelStores.build
         modelStores.repo.path = temporary.path
         try write(temporary.path + "/dm/tools/nx_extract/Program.cs", "")
         model.target = "ios"
         modelStores.deviceStore.installDevice = ""
+        // "Export the IPA" is read from the shared preferences of the test process, so a value left there (a killed run, a run in
+        // another worktree at the same time) skipped the device check and the test saw the stale-tools note instead.
+        modelStores.deviceStore.exportIPA = false
         model.startBuild()
         XCTAssertFalse(model.running)
         XCTAssertEqual(model.doneNote, model.t("shell.needsDevice"))

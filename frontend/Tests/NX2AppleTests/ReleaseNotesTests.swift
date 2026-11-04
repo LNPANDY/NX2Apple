@@ -8,7 +8,7 @@ import NXModel
 
 /// The update sheet's Markdown: blocks and auto-links, on v0.7.0's real body
 /// (Tests/Fixtures/release_v0.7.0.md, copied from `gh release view v0.7.0`).
-@MainActor final class ReleaseNotesTests: XCTestCase {
+@MainActor final class ReleaseNotesTests: IsolatedDefaultsTestCase {
     static let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         .deletingLastPathComponent().deletingLastPathComponent()
 
@@ -203,7 +203,7 @@ import NXModel
         for (name, lang, notes, tag) in [("update-sheet-notes-v072-en", Lang.en, body072, "v0.7.2"), ("update-sheet-notes-v072-zh", Lang.zh, body072, "v0.7.2")]
             + [("update-sheet-notes-en", Lang.en, body, "v0.7.0"), ("update-sheet-notes-zh", Lang.zh, body, "v0.7.0"),
                                     ("update-sheet-notes-middle-en", Lang.en, middle, "v0.7.0"), ("update-sheet-notes-middle-zh", Lang.zh, middle, "v0.7.0")] {
-            let mStores = LauncherStores(); let m = mStores.build
+            let mStores = LauncherStores(defaults: testDefaults); let m = mStores.build
             m.lang = lang
             mStores.appUpdates.update = AppUpdate.Release(tag: tag, url: "", digest: nil, notes: notes)
             let width: CGFloat = 560, height: CGFloat = 640

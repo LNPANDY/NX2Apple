@@ -221,23 +221,33 @@ Screenshots, with a note where a game has one (a frame rate, a limit). The block
 </table>
 <!-- end of gallery -->
 
-## Verified games
+## Switch 2 games
 
-**3 verified end to end on this fork** (build → install → play on a real iPhone), **45 reported
-playable upstream**, **94 profiles** in total. The full table with the exact update version each
-game needs is [below](#profiles).
+The engine runs Switch 2 games as ordinary profiles. There is no Switch 2 switch or setting. A Switch 2 game is built from a folder of its files or from one NUP container (a `.nup` file), never from NSP or XCI, and needs no `prod.keys`. It builds only when the engine has a profile for it. The launcher takes both forms on the Builds page (pick the folder, the `.nup` file, or a folder that holds the `.nup`) and marks the game **Switch 2** in the library.
 
-| Game | Verified here | Notes |
-|---|---|---|
-| **Tears of the Kingdom** | ✅ | 304,243 files → 127 archive shards, byte-verified |
-| **Hades II** | ✅ | 33-file archive |
-| **Animal Crossing: New Horizons** | ✅ | 103,645 files → 72 shards, runs smoothly |
+| Game | Title ID | Upstream says | On this fork |
+|---|---|---|---|
+| Donkey Kong Bananza | `040074A01BF12000` | Plays on the Mac (update v458752), tested through the first level's opening areas | Played once on an iPhone 17 Pro Max with iOS 27.0.1, built from the command line (#445). Not built through the launcher yet |
+| Splatoon Raiders | `0400380020056000` | Plays on the Mac (update v65536). No IPA built: its memory layout is over iOS's limit for now | Not tried |
+| Fire Emblem Fortune's Weave | `04007EF01F8AE000` | Plays on the Mac (v131072), 60 fps. No IPA built | Not tried |
+| Pokémon Pokopia | `0400A3A01EE4C000` | Plays on the Mac (update v655360). No IPA built | Not tried |
+| Hyrule Warriors: Age of Imprisonment | `04003F40232DE000` | Reaches the first field on the Mac (update v196608), from a NUP. No IPA built | Not tried |
 
----
+The folder layout the engine reads (`updates` and `dlc` are optional):
+
+```
+<game folder>/
+  base/exefs/                     main, main.npdm, sdk, rtld
+  base/romfs/
+  updates/458752/exefs/, romfs/   the update's version as a decimal number, the patched RomFS
+  dlc/040074a01bf13001/0/romfs/   the DLC's title ID
+```
+
+A folder of files has no control data, so the app gets no icon and takes its name from the profile. A NUP may carry both. The first build of a Switch 2 game takes long (Donkey Kong Bananza builds about 23,000 shaders) and needs free space for the RomFS images plus about 6 GB. This page and the launcher do not say how to get the files: they come from your own console.
 
 ## Profiles
 
-94 game profiles ship with this repository. A profile is what makes a build possible —
+130 game profiles ship with this repository. A profile is what makes a build possible —
 the game's build IDs, memory layout, shader tables and per-game switches — and this fork adds the
 RomFS archive layer on top, so a large game can be installed at all.
 
@@ -250,25 +260,38 @@ update layers over it). "无（v0）" = the base game alone is enough.
 | Super Mario Odyssey | `0100000000010000` | 1.4.1 (v393216) | Playable on an iPhone (upstream) |
 | Pokémon Brilliant Diamond | `0100000011D90000` | 1.3.0 (v393216) | Playable on an iPhone (upstream) |
 | Ace Attorney Investigations Collection | `010005501E68C000` | 1.0.0.2 (v131072) | Profile present, not verified on a phone |
+| Metroid Prime Remastered | `010012101468C000` | None (v0) | Profile present, not verified on a phone |
 | Hollow Knight: Silksong | `010013C00E930000` | 1.0.30000 (v655360) | Profile present, not verified on a phone |
+| Subnautica: Below Zero | `010014C011146000` | 1.23.55063 (v655360) | Profile present, not verified on a phone |
 | Digimon Story Cyber Sleuth: Complete Edition | `010014E00DB56000` | 1.0.3 (v196608) | Profile present, not verified on a phone |
 | Super Mario Bros. Wonder | `010015100B514000` | 1.2.1 (v327680) | Playable on an iPhone (upstream) |
 | Mario Kart 8 Deluxe | `0100152000022000` | 4.0.1 (v1507328) | Playable on an iPhone (upstream) |
-| Raging Loop | `010020400E1C2000` | 无（v0） | Profile present, not verified on a phone |
+| SteamWorld Heist: Ultimate Edition | `010016100A186000` | 2.2.1 (v65536) | Profile present, not verified on a phone |
+| Atelier Ryza: Ever Darkness & the Secret Hideout DX | `0100199023B2E000` | 1.2.0 (v65536) | Profile present, not verified on a phone |
+| Pokémon Legends: Arceus | `01001F5010DFA000` | 1.1.1 (v262144) | Profile present, not verified on a phone |
+| Raging Loop | `010020400E1C2000` | None (v0) | Profile present, not verified on a phone |
 | ANIMAL WELL | `010020D01AD24000` | 1.0.10 (v655360) | Playable on an iPhone (upstream) |
+| Well Dweller | `0100217023F6C000` | None (v0) | Profile present, not verified on a phone |
 | Super Mario 3D World + Bowser's Fury | `010028600EBDA000` | 1.2.2 (v262144) | Playable on an iPhone (upstream) |
-| Ghost Trick: Phantom Detective | `010029B018432000` | 无（v0） | Playable on an iPhone (upstream) |
+| Need For Speed™ Hot Pursuit Remastered | `010029B0118E8000` | 1.0.3 (v196608) | Profile present, not verified on a phone |
+| Ghost Trick: Phantom Detective | `010029B018432000` | None (v0) | Playable on an iPhone (upstream) |
 | Hyrule Warriors: Age of Calamity | `01002B00111A2000` | 1.3.0 (v327680) | Playable on an iPhone (upstream) |
 | Celeste | `01002B30028F6000` | 1.4.1.1 (v589824) | Profile present, not verified on a phone |
-| Advance Wars 1+2: Re-Boot Camp | `0100300012F2A000` | 无（v0） | Playable on an iPhone (upstream) |
+| Baba Is You | `01002CD00A51C000` | 1.0.12 (v786432) | Profile present, not verified on a phone |
+| Cult of the Lamb | `01002E7016C46000` | 1.5.28 (v1966080) | Profile present, not verified on a phone |
+| Advance Wars 1+2: Re-Boot Camp | `0100300012F2A000` | None (v0) | Playable on an iPhone (upstream) |
 | Mario + Rabbids® Sparks of Hope | `0100317013770000` | 1.6.2225577 (v393216) | Profile present, not verified on a phone |
+| Super Monkey Ball Banana Rumble | `010031F019294000` | 2.20 (v458752) | Profile present, not verified on a phone |
 | Return of the Obra Dinn | `010032E00E6E2000` | 1.0.1 (v65536) | Profile present, not verified on a phone |
 | Taiko Risshiden V DX | `0100346017304000` | 1.1.1 (v131072) | Playable on an iPhone by touch (upstream) |
-| The Great Ace Attorney Chronicles | `010036E00FB20000` | 无（v0） | Playable on an iPhone (upstream) |
+| The Great Ace Attorney Chronicles | `010036E00FB20000` | None (v0) | Playable on an iPhone (upstream) |
+| Bastion | `010038600B27E000` | None (v0) | Profile present, not verified on a phone |
 | FINAL FANTASY TACTICS - The Ivalice Chronicles | `010038B015560000` | 1.4.0 (v393216) | Profile present, not verified on a phone |
+| DRAGON QUEST III HD-2D Remake | `01003E601E324000` | 1.1.2 (v262144) | Profile present, not verified on a phone |
 | 13 Sentinels: Aegis Rim | `01003FC01670C000` | 1.10 (v65536) | Playable on an iPhone (upstream) |
 | Blasphemous 2 | `010040801A4C8000` | 1.0.8 (v524288) | Profile present, not verified on a phone |
-| 13 Sentinels: Aegis Rim (Japan) | `010045C014650000` | 无（v0） | Profile present, not verified on a phone |
+| Subnautica | `0100429011144000` | 1.23.83358 (v458752) | Profile present, not verified on a phone |
+| 13 Sentinels: Aegis Rim (Japan) | `010045C014650000` | None (v0) | Profile present, not verified on a phone |
 | Bayonetta 3 | `01004A4010FEA000` | 1.2.0 (v131072) | Playable on an iPhone (upstream) |
 | DARK SOULS: REMASTERED | `01004AB00A260000` | 1.0.3 (v196608) | Profile present, not verified on a phone |
 | Kirby and the Forgotten Land | `01004D300C5AE000` | 1.1.0 (v65536) | Profile present, not verified on a phone |
@@ -284,6 +307,9 @@ update layers over it). "无（v0）" = the base game alone is enough.
 | FINAL FANTASY RESONANCE | `0100606026F12000` | 1.0.1 (v65536) | Playable on an iPhone (upstream) |
 | Big Brain Academy: Brain vs. Brain | `0100620012D6E000` | 1.2.0 (v131072) | Profile present, not verified on a phone |
 | Persona 4 Golden | `010062B01525C000` | 1.0.2 (v131072) | Profile present, not verified on a phone |
+| Hollow Knight | `0100633007D48000` | 1.5.12620 (v589824) | Profile present, not verified on a phone |
+| SUPER ROBOT WARS Y | `010063301BD50000` | 1.4.1 (v720896) | Profile present, not verified on a phone |
+| Dead Cells | `0100646009FBE000` | 1.25.0 (v3014656) | Profile present, not verified on a phone |
 | Mario + Rabbids Kingdom Battle | `010067300059A000` | 1.9.589692 (v589824) | Profile present, not verified on a phone |
 | Unicorn Overlord | `010069401ADB8000` | 1.05 (v262144) | Profile present, not verified on a phone |
 | Blasphemous | `0100698009C6E000` | 1.0.8 (v524288) | Profile present, not verified on a phone |
@@ -291,7 +317,8 @@ update layers over it). "无（v0）" = the base game alone is enough.
 | Super Smash Bros. Ultimate | `01006A800016E000` | 13.0.5 (v2031616) | Playable on an iPhone (upstream) |
 | The Legend of Zelda: Link's Awakening | `01006BB00C6F0000` | 1.1.0 (v131072) | Playable on an iPhone (upstream) |
 | DRAGON QUEST XI S: Echoes of an Elusive Age – Definitive Edition | `01006C300E9F0000` | 1.0.4 (v262144) | Profile present, not verified on a phone |
-| Animal Crossing: New Horizons | `01006F8002326000` | 3.0.3 (v2228224) | **Verified here** — builds, installs and runs smoothly on an iPhone, 103,645 files into 72 archive shards |
+| Animal Crossing: New Horizons | `01006F8002326000` | 3.0.3 (v2228224) | **Verified here** — builds, installs and runs smoothly on an iPhone |
+| Mario Party Superstars | `01006FE013472000` | 1.1.1 (v131072) | Profile present, not verified on a phone |
 | AI: THE SOMNIUM FILES - nirvanA Initiative | `0100713016CCC000` | 1.0.2 (v131072) | Playable on an iPhone (upstream) |
 | ASTRAL CHAIN | `01007300020FA000` | 1.0.1 (v65536) | Playable on an iPhone (upstream) |
 | Xenoblade Chronicles 3 | `010074F013262000` | 2.2.1 (v720896) | Profile present, not verified on a phone |
@@ -301,46 +328,65 @@ update layers over it). "无（v0）" = the base game alone is enough.
 | The Legend of Zelda: Breath of the Wild | `01007EF00011E000` | 1.9.0 (v1114112) | Playable on an iPhone (upstream) |
 | BALL x PIT | `010086A022444000` | 1.293 (v393216) | Playable on an iPhone (upstream) |
 | AI: THE SOMNIUM FILES | `010089B00D09C000` | 1.0.1 (v65536) | Playable on an iPhone (upstream) |
+| SteamWorld Heist II | `010089C01E9CA000` | 1.5.1 (v262144) | Profile present, not verified on a phone |
 | STEINS;GATE RE:BOOT | `01008BC024FDE000` | 1.0.3 (v131072) | Profile present, not verified on a phone |
 | Sea of Stars | `01008C0016544000` | 2.0.59001 (v786432) | Playable on an iPhone (upstream) |
 | The Legend of Zelda: Echoes of Wisdom | `01008CF01BAAC000` | 1.1.0 (v196608) | Playable on an iPhone (upstream) |
-| 13 Sentinels: Aegis Rim (Asia) | `01008D7016438000` | 无（v0） | Playable on an iPhone (upstream) |
+| 13 Sentinels: Aegis Rim (Asia) | `01008D7016438000` | None (v0) | Playable on an iPhone (upstream) |
 | Pokémon Shield | `01008DB008C2C000` | 1.3.2 (v458752) | Playable on an iPhone (upstream) |
+| Pokémon Violet | `01008F6008C5E000` | None (v0) | Profile present, not verified on a phone |
+| Team Sonic Racing | `010092B0091D0000` | 1.0.3 (v131072) | Profile present, not verified on a phone |
+| SteamWorld Dig | `01009320084A4000` | 1.12.0 (v65536) | Profile present, not verified on a phone |
 | Metroid Dread | `010093801237C000` | 2.1.0 (v327680) | Playable on an iPhone (upstream) |
+| Super Mario Party Jamboree | `0100965017338000` | 2.3.0 (v458752) | Profile present, not verified on a phone |
 | Super Mario Galaxy | `010099C022B96000` | 1.3.1 (v327680) | Playable on an iPhone (upstream) |
 | Captain Toad: Treasure Tracker | `01009BF0072D4000` | 1.4.2 (v393216) | Profile present, not verified on a phone |
 | Donkey Kong Country Returns HD | `01009D901BC56000` | 1.1.0 (v65536) | Profile present, not verified on a phone |
 | Hades II | `0100A00019DE0000` | 1.0.137848 (v1) | **Verified here** — builds, installs and runs on an iPhone, 33-file archive |
 | OCTOPATH TRAVELER II | `0100A3501946E000` | 1.1.1 (v131072) | Playable on an iPhone (upstream) |
-| Pokémon Scarlet | `0100A3D008C5C000` | 无（v0） | Profile present, not verified on a phone |
+| Paper Mario: The Origami King | `0100A3900C3E2000` | 1.0.1 (v65536) | Profile present, not verified on a phone |
+| Pokémon Scarlet | `0100A3D008C5C000` | None (v0) | Profile present, not verified on a phone |
 | Cuphead | `0100A5C00D162000` | 1.3.7 (v655360) | Profile present, not verified on a phone |
 | Fire Emblem Engage | `0100A6301214E000` | 2.0.0 (v327680) | Playable on an iPhone (upstream) |
 | Absolum | `0100A83022A22000` | 1.1.2 (v458752) | Profile present, not verified on a phone |
 | DRAGON QUEST VII Reimagined | `0100A9D01C446000` | 1.2.0 (v131072) | Profile present, not verified on a phone |
+| Portal 2 | `0100ABD01785C000` | 1.0.3 (v196608) | Profile present, not verified on a phone |
 | Pokémon Sword | `0100ABF008968000` | 1.3.2 (v458752) | Playable on an iPhone (upstream) |
+| Batman: Arkham Knight | `0100ACD0163D0000` | 1.0.5 (v327680) | Profile present, not verified on a phone |
+| Hyrule Warriors: Definitive Edition | `0100AE00096EA000` | 1.0.1 (v65536) | Profile present, not verified on a phone |
 | Monster Hunter Rise | `0100B04011742000` | 16.0.2 (v2228224) | Profile present, not verified on a phone |
 | Pikmin 4 | `0100B7C00933A000` | 1.1.1 (v262144) | Playable on an iPhone (upstream) |
 | FINAL FANTASY RESONANCE (Asian release) | `0100B8A026F14000` | 1.0.1 (v65536) | Profile present, not verified on a phone |
 | NieR:Automata The End of YoRHa Edition | `0100B8E016F76000` | 1.0.3 (v131072) | Profile present, not verified on a phone |
 | Mario vs. Donkey Kong | `0100B99019412000` | 1.0.1 (v65536) | Playable on an iPhone (upstream) |
-| FINAL FANTASY X/X-2 HD Remaster | `0100BC300CB48000` | 无（v0） | Profile present, not verified on a phone |
+| Castlevania: Belmont's Curse | `0100BA4026E94000` | 1.1.0 (v65536) | Profile present, not verified on a phone |
+| Super Mario RPG | `0100BC0018138000` | 1.0.1 (v65536) | Profile present, not verified on a phone |
+| FINAL FANTASY X/X-2 HD Remaster | `0100BC300CB48000` | None (v0) | Profile present, not verified on a phone |
 | Catherine: Full Body | `0100BF00112C0000` | 1.0.1a (v131072) | Profile present, not verified on a phone |
 | Donkey Kong Country: Tropical Freeze | `0100C1F0051B6000` | 1.0.2 (v131072) | Profile present, not verified on a phone |
 | ROMANCE OF THE THREE KINGDOMS 8 REMAKE | `0100C2A01A730000` | 1.1.3 (v851968) | Playable on an iPhone with a controller (upstream) |
+| EA SPORTS FC 27 | `0100C49025D3E000` | 1.8d.310c (v393216) | Profile present, not verified on a phone |
+| SteamWorld Dig 2 | `0100CA9002322000` | 4.1.1 (v196608) | Profile present, not verified on a phone |
+| TRIANGLE STRATEGY | `0100CC80140F8000` | 1.1.1 (v262144) | Profile present, not verified on a phone |
 | Balatro | `0100CD801CE5E000` | 1.1.3 (v851968) | Playable on an iPhone (upstream) |
 | FINAL FANTASY CRYSTAL CHRONICLES Remastered Edition | `0100CE4010AAC000` | 1.0.3 (v196608) | Profile present, not verified on a phone |
-| Silver Pines | `0100D5B026844000` | 无（v0） | Profile present, not verified on a phone |
-| Rhythm Heaven Groove | `0100D9F01D474000` | 无（v0） | Profile present, not verified on a phone |
+| Silver Pines | `0100D5B026844000` | None (v0) | Profile present, not verified on a phone |
+| DRAGON QUEST I & II HD-2D Remake | `0100D7C01F254000` | 1.0.2 (v131072) | Profile present, not verified on a phone |
+| Rhythm Heaven Groove | `0100D9F01D474000` | None (v0) | Profile present, not verified on a phone |
 | Luigi's Mansion 3 | `0100DCA0064A6000` | 1.4.0 (v327680) | Playable on an iPhone (upstream) |
 | Patrick's Parabox | `0100E44016C22000` | 1.0.1 (v65536) | Profile present, not verified on a phone |
 | Stardew Valley | `0100E65002BB8000` | 1.6.15.13 (v1310720) | Playable on an iPhone (upstream) |
 | Xenoblade Chronicles 2 | `0100E95004038000` | 2.1.0 (v983040) | Profile present, not verified on a phone |
+| Streets of Rage 4 | `0100EC9010258000` | 1.0.9 (v458752) | Profile present, not verified on a phone |
 | Paper Mario: The Thousand-Year Door | `0100ECD018EBE000` | 1.0.1 (v65536) | Profile present, not verified on a phone |
-| The Legend of Zelda: Tears of the Kingdom | `0100F2C0115B6000` | 1.4.3 (v720896) | **Verified here** — builds, installs and runs on an iPhone, 304,243 files into 127 archive shards, byte-verified |
+| The Legend of Zelda: Tears of the Kingdom | `0100F2C0115B6000` | 1.4.3 (v720896) | **Verified here** — builds, installs and runs on an iPhone, byte-verified |
 | Pokémon Legends: Z-A | `0100F43008C44000` | 2.0.2 (v393216) | Profile present, not verified on a phone |
-| Brain Memory Training Academy | `0100F5D01DA3A000` | 无（v0） | Profile present, not verified on a phone |
+| Brain Memory Training Academy | `0100F5D01DA3A000` | None (v0) | Profile present, not verified on a phone |
 | Super Mario Galaxy 2 | `0100FD8022DAA000` | 1.4.0 (v393216) | Profile present, not verified on a phone |
 | Xenoblade Chronicles: Definitive Edition | `0100FF500E34A000` | 1.1.2 (v196608) | Profile present, not verified on a phone |
+| Splatoon Raiders (Switch 2) | `0400380020056000` | v65536 | Profile present, not verified on a phone |
+| Donkey Kong Bananza (Switch 2) | `040074A01BF12000` | v458752 | **Verified here** — builds, installs and runs on an iPhone |
+| Fire Emblem Fortune's Weave (Switch 2) | `04007EF01F8AE000` | v131072 | Profile present, not verified on a phone |
 
 ## Verified on
 
