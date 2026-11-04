@@ -123,7 +123,9 @@ def write_stamp(eng, root, head, key=None):
 
 
 def is_repo(eng):
-    return (eng / '.git').is_dir() and git('rev-parse', '--show-toplevel', cwd=eng, check=False).stdout.strip() == str(eng.resolve())
+    if not (eng / '.git').is_dir(): return False
+    top = git('rev-parse', '--show-toplevel', cwd=eng, check=False).stdout.strip()
+    return bool(top) and Path(top).resolve() == eng.resolve()
 
 
 def head(eng):
