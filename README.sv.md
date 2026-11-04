@@ -68,7 +68,7 @@ kontrollerar varje krav och installerar det den kan med ett klick.
 
 ## Installation
 
-1. **Ladda ned appen**: `NS-Port-Builder-macOS-arm64.zip` från den
+1. **Ladda ned appen**: `NX2Apple-macOS-arm64.zip` från den
    [senaste versionen](https://github.com/LNPANDY/NX2Apple/releases/latest). Packa upp den.
 2. **Öppna den en gång med högerklick och sedan Öppna.** Appen är inte signerad med ett betalt
    Apple-utvecklarcertifikat, så macOS frågar före första starten. Därefter öppnas den som vanligt.
@@ -151,7 +151,7 @@ Bifoga aldrig nycklar, spelfiler eller något som extraherats ur ett spel.
 
 ## Spel
 
-130 spel har en profil. Flera rapporteras som spelbara på en iPhone uppströms, och de flesta har en
+140 spel har en profil. Flera rapporteras som spelbara på en iPhone uppströms, och de flesta har en
 profil som ännu inte har prövats på en telefon. Några av dem:
 
 | | Spel | Var det körs | Status |

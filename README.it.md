@@ -70,7 +70,7 @@ installa tutto ciò che può con un solo clic.
 
 ## Installazione
 
-1. **Scarica l'app**: scarica `NS-Port-Builder-macOS-arm64.zip` dall'[ultima versione](https://github.com/LNPANDY/NX2Apple/releases/latest) ed estrailo.
+1. **Scarica l'app**: scarica `NX2Apple-macOS-arm64.zip` dall'[ultima versione](https://github.com/LNPANDY/NX2Apple/releases/latest) ed estrailo.
 2. **Aprila la prima volta facendo clic con il tasto destro e scegliendo Apri.** L'app non è firmata con un certificato
    sviluppatore Apple a pagamento, quindi macOS chiede conferma prima del primo avvio, dopodiché si aprirà normalmente.
 3. **Segui la configurazione iniziale.** Il launcher scarica il progetto con cui compila (tramite il pulsante **Scarica repository**
@@ -146,7 +146,7 @@ qualsiasi elemento estratto da un gioco.
 
 ## Giochi
 
-130 giochi dispongono di un profilo. Diversi sono segnalati come giocabili su iPhone nel progetto upstream e la maggior
+140 giochi dispongono di un profilo. Diversi sono segnalati come giocabili su iPhone nel progetto upstream e la maggior
 parte ha un profilo che non è ancora stato provato su un telefono. Eccone alcuni:
 
 | | Gioco | Dove gira | Stato |

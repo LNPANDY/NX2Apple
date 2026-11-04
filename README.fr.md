@@ -68,7 +68,7 @@ vérifie chaque prérequis et installe ce qu’elle peut en un clic.
 
 ## Installation
 
-1. **Téléchargez l’app** : `NS-Port-Builder-macOS-arm64.zip` depuis la
+1. **Téléchargez l’app** : `NX2Apple-macOS-arm64.zip` depuis la
    [dernière version](https://github.com/LNPANDY/NX2Apple/releases/latest). Décompressez-la.
 2. **Ouvrez-la une première fois par clic droit, puis Ouvrir.** L’app n’est pas signée avec un certificat
    développeur Apple payant, donc macOS demande confirmation avant le premier démarrage. Ensuite, elle s’ouvre normalement.
@@ -152,7 +152,7 @@ de jeu ni rien d’extrait d’un jeu.
 
 ## Jeux
 
-130 jeux ont un profil. Plusieurs sont signalés jouables sur un iPhone en amont, et la plupart ont un
+140 jeux ont un profil. Plusieurs sont signalés jouables sur un iPhone en amont, et la plupart ont un
 profil qui n’a pas encore été essayé sur un téléphone. En voici quelques-uns :
 
 | | Jeu | Où il tourne | Statut |

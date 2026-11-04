@@ -68,7 +68,7 @@ installs what it can with one click.
 
 ## Install
 
-1. **Download the app**: `NS-Port-Builder-macOS-arm64.zip` from the
+1. **Download the app**: `NX2Apple-macOS-arm64.zip` from the
    [latest release](https://github.com/LNPANDY/NX2Apple/releases/latest). Unzip it.
 2. **Open it once with right-click, then Open.** The app is not signed with a paid Apple developer
    certificate, so macOS asks before the first start; after that it opens normally.
@@ -152,7 +152,7 @@ anything extracted from a game.
 
 ## Games
 
-130 games have a profile. Many are reported playable on an iPhone upstream, and most have a
+140 games have a profile. Many are reported playable on an iPhone upstream, and most have a
 profile that has not been tried on a phone yet. A few of them:
 
 | | Game | Where it runs | Status |
@@ -168,9 +168,9 @@ profile that has not been tried on a phone yet. A few of them:
 game's install size, and the full table with the update version each game needs: the update NSP's
 display version must match the profile's, or the build says so.
 
-**Switch 2 games** are new in the engine. Five have a profile, all marked as playing on the Mac by
-upstream: Donkey Kong Bananza, Splatoon Raiders, Fire Emblem Fortune's Weave, Pokémon Pokopia and
-Hyrule Warriors: Age of Imprisonment. Choose the game's folder of files (`base/`, `updates/`, `dlc/`)
+**Switch 2 games** are new in the engine. Seven have a profile, all marked as playing on the Mac by
+upstream: Donkey Kong Bananza, Splatoon Raiders, Fire Emblem Fortune's Weave, Pokémon Pokopia,
+Hyrule Warriors: Age of Imprisonment, Mario Kart World and Mario Tennis Fever. Choose the game's folder of files (`base/`, `updates/`, `dlc/`)
 or its `.nup` file on the Builds page. No `prod.keys` are needed for them. The library marks them
 **Switch 2**. Only Donkey Kong Bananza was tried on this fork. The owner built and played it through the
 launcher on a Mac, an iPhone and an iPad, with no problems on the Mac and the iPhone and almost none on
