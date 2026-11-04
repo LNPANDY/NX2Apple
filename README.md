@@ -26,10 +26,10 @@
 
 #### 🆕 Latest highlights
 
-- **One app for iPhone and iPad**: build a game with the iPhone / iPad target and it lands in one shell app that holds all your games. An art-led library with the key art, Cover Flow when the phone is on its side, settings for each game, and controller or keyboard control. It follows the system language (English and Simplified Chinese).
-- **Saves that follow you** — Mac ⇄ iPhone saves sync through one iCloud Drive folder, a deleted app reinstalls in seconds, and a free Apple ID's 7-day signature renews in place.
-- **Guided first run** — a setup wizard walks a new player through Xcode, keys and games; the build tools and a Python ship inside the app, so nobody installs Homebrew.
-- **Console mode** — plug in a controller, press Select: the library goes full screen, controller-first, like a Switch home menu.
+- **Switch 2 games**: Pick a Switch 2 game folder or `.nup` file in the Mac or Windows launcher, with no `prod.keys` needed, and play on Mac, iPhone, or iPad.
+- **Custom touch controls and button mapping**: Resize buttons, move the left stick, or arrange every control in the visual layout editor on iPhone and iPad. Physical controllers support per-game or global button remapping.
+- **One app for iPhone and iPad**: All your games live inside one shell app (or export an unsigned IPA for AltStore and SideStore), with Cover Flow in landscape, per-game settings and mods, safe game deletion that keeps your saves, and 6 languages.
+- **Console mode**: Plug in a controller and press Select, or start directly in console mode. The library goes full-screen like a Switch home menu, and holding Home for 2 seconds quits a game.
 
 Every release is in the [changelog](CHANGELOG.md).
 

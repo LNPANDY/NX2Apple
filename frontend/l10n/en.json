@@ -684,7 +684,7 @@
   "ios.host.quitButton": "Quit",
   "ios.host.quitCancel": "Cancel",
   "ios.host.quitHold": "Keep holding to quit",
-  "ios.host.quitNote": "Unsaved progress will be lost. The app closes and opens on your games next time.",
+  "ios.host.quitNote": "Unsaved progress will be lost. The app closes. Open it again to get back to your games.",
   "ios.host.quitTitle": "Quit %@?",
   "ios.host.rangeWithoutLimits": "%@ is a range without min, max and step.",
   "ios.host.sameTitleId": "%@ has the same title ID %@ as %@, which is used instead.",

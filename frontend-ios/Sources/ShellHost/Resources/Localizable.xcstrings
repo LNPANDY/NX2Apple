@@ -2641,42 +2641,42 @@
         }
       }
     },
-    "Unsaved progress will be lost. The app closes and opens on your games next time.": {
+    "Unsaved progress will be lost. The app closes. Open it again to get back to your games.": {
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nicht gesicherter Fortschritt geht verloren. Die App wird geschlossen und zeigt beim nächsten Öffnen deine Spiele."
+            "value": "Nicht gesicherter Fortschritt geht verloren. Die App wird geschlossen. Öffne sie erneut, um zu deinen Spielen zurückzukehren."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unsaved progress will be lost. The app closes and opens on your games next time."
+            "value": "Unsaved progress will be lost. The app closes. Open it again to get back to your games."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "La progression non sauvegardée sera perdue. L’app se ferme et s’ouvre sur vos jeux la prochaine fois."
+            "value": "La progression non sauvegardée sera perdue. L’app se ferme. Rouvrez-la pour revenir à vos jeux."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "I progressi non salvati andranno persi. L’app si chiude e la prossima volta si apre sui tuoi giochi."
+            "value": "I progressi non salvati andranno persi. L’app si chiude. Riaprila per tornare ai tuoi giochi."
           }
         },
         "sv": {
           "stringUnit": {
             "state": "translated",
-            "value": "Osparade framsteg går förlorade. Appen stängs och öppnas med dina spel nästa gång."
+            "value": "Osparade framsteg går förlorade. Appen stängs. Öppna den igen för att komma tillbaka till dina spel."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "未保存的进度将会丢失。App 会关闭，下次打开时显示你的游戏。"
+            "value": "未保存的进度将会丢失。App 会关闭，再次打开即可回到你的游戏。"
           }
         }
       }
