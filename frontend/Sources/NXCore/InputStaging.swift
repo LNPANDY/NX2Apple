@@ -13,12 +13,27 @@ package enum InputStaging {
 
     package static func folder(workDir: String) -> String { workDir + "/" + folderName }
 
+    /// The name a file has in the staging folder: a game file keeps its name with the extension in lowercase. The script
+    /// finds packages with `*.nsp` (and `.xci`, `.nsz`, `.xcz`) and that glob is case-sensitive, so `Game [0100F2C0115B6000].NSP`
+    /// was not found ("no NSP with a readable title ID", #554).
+    package static func stagedName(_ name: String) -> String {
+        let ext = (name as NSString).pathExtension
+        guard gameExtensions.contains(ext.lowercased()), ext != ext.lowercased() else { return name }
+        return (name as NSString).deletingPathExtension + "." + ext.lowercased()
+    }
+
+    /// Whether a file's name is one the script would not find as it is: a game file with an upper or mixed case extension.
+    package static func needsLowercaseName(_ path: String) -> Bool {
+        let name = (path as NSString).lastPathComponent
+        return stagedName(name) != name
+    }
+
     /// Makes `dir` hold exactly `files`, by file name. Returns how many were linked.
     package static func sync(files: [String], into dir: String) -> Int {
         let fm = FileManager.default
         try? fm.createDirectory(atPath: dir, withIntermediateDirectories: true)
         var wanted: [String: String] = [:]
-        for f in files where !f.isEmpty { wanted[(f as NSString).lastPathComponent] = f }
+        for f in files where !f.isEmpty { wanted[stagedName((f as NSString).lastPathComponent)] = f }
         // A stale entry from an earlier selection goes. Only game files and links are touched.
         for name in (try? fm.contentsOfDirectory(atPath: dir)) ?? [] {
             let path = dir + "/" + name
