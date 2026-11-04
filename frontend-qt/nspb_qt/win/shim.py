@@ -58,11 +58,12 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
         if _p and _p not in sys.path:
             sys.path.insert(0, _p)
 
-    # ---- POSIX signal & os.execve stubs for patch_nso.py
-    # patch_nso.py's in_parallel() uses fork() + signal.pthread_sigmask when WORKERS >= 2;
-    # rewrite() already runs one patch_nso.py process per NSO in parallel, so default
-    # DM_REWRITE_J=1 on Windows and provide pthread_sigmask stubs in case it is called.
-    os.environ.setdefault('DM_REWRITE_J', '1')
+    # ---- POSIX signal, os.execve & multi-core fork Pool adapter for patch_nso.py / nro_collect.py
+    # patch_nso.py's in_parallel() uses multiprocessing.get_context('fork').Pool(WORKERS) +
+    # signal.pthread_sigmask; nro_collect.py calls multiprocessing.Pool() at top level without
+    # an `if __name__ == '__main__':` guard. On Windows there is no fork(), and Capstone's C
+    # disassembler (`cs_disasm`) releases the GIL, so a thread pool with per-thread Capstone
+    # instances gives full multi-core speedup without fork() or spawn recursion.
     import signal as _signal
     for _sig_attr, _sig_val in (('SIG_BLOCK', 1), ('SIG_UNBLOCK', 2), ('SIG_SETMASK', 3)):
         if not hasattr(_signal, _sig_attr):
@@ -75,6 +76,104 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
         os._exit(r.returncode)
 
     os.execve = _win_execve
+
+    import concurrent.futures as _cf, multiprocessing as _mp, threading as _mp_threading, types as _mp_types
+    _mp_tls = _mp_threading.local()
+
+    class _WinForkPool:
+        def __init__(self, processes=None, initializer=None, initargs=(), *a, **k):
+            self._workers = max(1, int(processes or os.cpu_count() or 4))
+            self._ex = _cf.ThreadPoolExecutor(max_workers=self._workers)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            self._ex.shutdown(wait=True)
+            return False
+
+        def close(self):
+            pass
+
+        def join(self):
+            self._ex.shutdown(wait=True)
+
+        def terminate(self):
+            self._ex.shutdown(wait=False, cancel_futures=True)
+
+        def map(self, fn, iterable, chunksize=1):
+            return list(self._ex.map(fn, iterable))
+
+        def imap_unordered(self, fn, iterable, chunksize=1):
+            return self._ex.map(fn, iterable)
+
+        def starmap(self, fn, jobs, chunksize=1):
+            g = getattr(fn, '__globals__', None)
+            fname = getattr(fn, '__name__', '')
+            if fname == 'x18_words' and isinstance(g, dict) and 'Cs' in g:
+                Cs, ARCH, MODE = g['Cs'], g['CS_ARCH_ARM64'], g['CS_MODE_ARM']
+                IMG, R18 = g['IMG'], g['R18']
+
+                def _x18_job(job):
+                    lo, hi = job
+                    md = getattr(_mp_tls, 'md_lite', None)
+                    if md is None:
+                        md = _mp_tls.md_lite = Cs(ARCH, MODE)
+                    out, a = set(), lo
+                    while a < hi:
+                        end = min(hi, a + 0x4000); last = a - 4
+                        for addr, _sz, _mn, op in md.disasm_lite(bytes(IMG[a:end]), a):
+                            last = addr
+                            if R18.search(op):
+                                out.add(addr)
+                        a = last + 4 if last + 4 >= end else last + 8
+                    return out
+
+                return list(self._ex.map(_x18_job, jobs))
+            if fname == 'spin_heads_with_region' and isinstance(g, dict) and 'Cs' in g:
+                Cs, ARCH, MODE = g['Cs'], g['CS_ARCH_ARM64'], g['CS_MODE_ARM']
+                IMG = g['IMG']
+
+                def _spin_job(job):
+                    t_fn = getattr(_mp_tls, 'spin_fn', None)
+                    if t_fn is None or getattr(_mp_tls, 'spin_src', None) is not fn:
+                        md_d = Cs(ARCH, MODE)
+                        md_d.detail = True
+                        dec = {}
+
+                        def _tls_spin_ins(a, _dec=dec, _md=md_d, _img=IMG):
+                            if a not in _dec:
+                                _dec[a] = next(_md.disasm(bytes(_img[a:a + 4]), a), None)
+                            return _dec[a]
+
+                        tg = dict(g)
+                        tg['md'] = md_d
+                        tg['spin_dec'] = dec
+                        tg['spin_ins'] = _tls_spin_ins
+                        for _k in ('spin_rw', 'spin_kind', 'spin_rmw', 'spin_lock', 'spin_store',
+                                   'spin_region1', 'spin_region', 'spin_heads_with_region'):
+                            if _k in g and isinstance(g[_k], _mp_types.FunctionType):
+                                tg[_k] = _mp_types.FunctionType(g[_k].__code__, tg, _k,
+                                                                g[_k].__defaults__, g[_k].__closure__)
+                        t_fn = _mp_tls.spin_fn = tg['spin_heads_with_region']
+                        _mp_tls.spin_src = fn
+                    return t_fn(*job)
+
+                return list(self._ex.map(_spin_job, jobs))
+            return list(self._ex.map(lambda j: fn(*j), jobs))
+
+    class _WinForkContext:
+        Pool = staticmethod(_WinForkPool)
+
+    _orig_get_context = _mp.get_context
+
+    def _win_get_context(method=None):
+        if method == 'fork':
+            return _WinForkContext()
+        return _orig_get_context(method)
+
+    _mp.get_context = _win_get_context
+    _mp.Pool = _WinForkPool
 
     # ---- text files written the way the pipeline expects them
     # The host compares lines of the pipeline's tables byte for byte; an inputs.tsv line ending
@@ -337,6 +436,8 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
             return None
         if rest[2] == 'metal' and '-c' not in rest[3:] and '-o' in rest[3:]:
             return None  # compile+link in one call (host_msl.py): handled by xcrun_shim.py
+        if any(' ' in str(a) for a in rest[3:]):
+            return None  # paths with spaces break metal.exe; xcrun_shim.py stages them via cwd
         if 'modules' not in _CACHE:
             if _PKG not in sys.path:
                 sys.path.insert(0, _PKG)
@@ -515,7 +616,6 @@ def build_env(base: dict[str, str] | None = None, python_exe: str | None = None)
         env['NSPB_PYTHON'] = str(python_exe)
     env.setdefault('DM_ALLOW_SYSTEM_SPIRV_CROSS', '1')
     env.setdefault('DM_ALLOW_OTHER_METAL', '1')
-    env.setdefault('DM_REWRITE_J', '1')
     # tc.dotnet_dir() first: it knows about the SDK the app installed for itself, which is not on
     # PATH and not in Program Files. `which` alone missed it, so `dotnet build` and the shader
     # translator failed on a machine that had just installed .NET through this app.

@@ -2106,7 +2106,7 @@ class WindowsBuildFixesTest(unittest.TestCase):
         self.assertEqual(env['NSPB_PYTHON'], 'C:\\venv\\python.exe')
         self.assertEqual(env['DM_ALLOW_SYSTEM_SPIRV_CROSS'], '1')
         self.assertEqual(env['DM_ALLOW_OTHER_METAL'], '1')
-        self.assertEqual(env['DM_REWRITE_J'], '1')
+        self.assertNotIn('DM_REWRITE_J', env)
         pkg_root = str(QT)
         self.assertIn(pkg_root, env['PYTHONPATH'].split(os.pathsep))
 
@@ -2298,7 +2298,7 @@ class WindowsBuildFixesTest(unittest.TestCase):
 
     def test_shim_patches_signal_pthread_sigmask_and_tool_lock_spirv_cross(self) -> None:
         src = shim._SITECUSTOMIZE_SRC
-        self.assertIn("os.environ.setdefault('DM_REWRITE_J', '1')", src)
+        self.assertIn("class _WinForkPool:", src)
         self.assertIn("pthread_sigmask", src)
         self.assertIn("os.execve = _win_execve", src)
 
@@ -2405,25 +2405,96 @@ class WindowsBuildFixesTest(unittest.TestCase):
         build_app_src = (QT / 'nspb_qt/win/build_app.py').read_text(encoding='utf-8')
         self.assertIn('host_msl_gen.h', build_app_src)
 
-    def test_xcrun_shim_splits_compile_and_link_for_metal_without_c_flag(self) -> None:
+    def test_xcrun_shim_splits_compile_and_link_and_stages_paths_with_spaces(self) -> None:
         from nspb_qt.win import xcrun_shim
-        calls: list[list[str]] = []
+        calls: list[tuple[list[str], str | None]] = []
 
-        def fake_run(cmd, *a, **k):
-            calls.append([str(c) for c in cmd])
-            return subprocess.CompletedProcess(cmd, 0)
+        with tempfile.TemporaryDirectory() as td:
+            src_dir = Path(td) / 'NS Port Builder' / 'engine' / 'dm' / 'gfx' / 'msl'
+            src_dir.mkdir(parents=True)
+            src_metal = src_dir / 'builtin.metal'
+            src_metal.write_text('kernel void k() {}\n', encoding='utf-8')
+            out_dir = Path(td) / 'Out Folder'
+            out_ml = out_dir / 'builtin.metallib'
 
-        with mock.patch.object(xcrun_shim, 'find', side_effect=lambda sdk, tool: Path(f'C:/metal/{tool}.exe')), \
-             mock.patch.object(subprocess, 'run', side_effect=fake_run):
-            rc = xcrun_shim.main(['-sdk', 'iphoneos', 'metal', '-mios-version-min=18.0',
-                                  '-o', 'C:/tmp/clear_depth.metallib', 'C:/src/clear_depth.metal'])
-        self.assertEqual(rc, 0)
-        self.assertEqual(len(calls), 2)
-        self.assertEqual(calls[0][0], 'C:/metal/metal.exe')
-        self.assertIn('-c', calls[0])
-        self.assertIn('C:/tmp/clear_depth.metallib.air', calls[0])
-        self.assertEqual(calls[1], ['C:/metal/metallib.exe', 'C:/tmp/clear_depth.metallib.air',
-                                    '-o', 'C:/tmp/clear_depth.metallib'])
+            def fake_run(cmd, *a, **k):
+                cwd = k.get('cwd')
+                calls.append(([str(c) for c in cmd], cwd))
+                if cwd and 'out.metallib' in cmd:
+                    (Path(cwd) / 'out.metallib').write_bytes(b'MTLB_STAGED')
+                return subprocess.CompletedProcess(cmd, 0)
+
+            with mock.patch.object(xcrun_shim, 'find', side_effect=lambda sdk, tool: Path(f'C:/metal/{tool}.exe')), \
+                 mock.patch.object(subprocess, 'run', side_effect=fake_run):
+                rc = xcrun_shim.main(['-sdk', 'iphoneos', 'metal', '-mios-version-min=18.0',
+                                      '-o', str(out_ml), str(src_metal)])
+            self.assertEqual(rc, 0)
+            self.assertEqual(len(calls), 2)
+            # Every argument after the executable must be free of spaces so metal.exe does not split it
+            for args, cwd in calls:
+                self.assertIsNotNone(cwd)
+                for arg in args[1:]:
+                    self.assertNotIn(' ', arg, f'argument passed to metal/metallib contains space: {arg!r}')
+            self.assertEqual(calls[0][0], ['C:/metal/metal.exe', '-target', 'air64-apple-ios18.0',
+                                           'in_0.metal', '-c', '-o', 'out.air'])
+            self.assertEqual(calls[1][0], ['C:/metal/metallib.exe', 'out.air', '-o', 'out.metallib'])
+            self.assertEqual(out_ml.read_bytes(), b'MTLB_STAGED')
+
+    def test_win_fork_pool_rewrites_nso_byte_identical_to_single_core(self) -> None:
+        import struct
+        try:
+            import lz4.block
+            import capstone  # noqa: F401
+        except ImportError:
+            self.skipTest('lz4 and capstone required')
+        patch_nso = QT.parent / 'engine/dm/tools/patch_nso.py'
+        if not patch_nso.is_file():
+            self.skipTest('engine/ is missing')
+
+        ins_words = [0x910003FD] * (300 * 1024)
+        ins_words[100] = 0xF9400252     # ldr x18, [x18] in chunk 0
+        ins_words[270000] = 0x91000652  # add x18, x18, #1 in chunk 1
+        ins_words[200] = 0xB9400109     # ldr w9, [x8]
+        ins_words[201] = 0x7100053F     # cmp w9, #1
+        ins_words[202] = 0x54FFFFC0     # b.eq -8 (spin wait!)
+        ins_words[203] = 0xD65F03C0     # ret
+        ins_words[0] = 0x14000010
+        ins_words[1] = 8
+        text_bytes = bytearray(struct.pack(f'<{len(ins_words)}I', *ins_words))
+        struct.pack_into('<4siiiiii', text_bytes, 8, b'MOD0', 0, 0, 0, 0x38, 0x44, 0)
+        struct.pack_into('<BBBBII', text_bytes, 0x40, 1, 0x03, 0x03, 0x03, 0, 0)
+        ro_bytes = b'\x00' * 0x1000
+        data_bytes = b'\x00' * 0x1000
+        tc_b = lz4.block.compress(bytes(text_bytes), store_size=False)
+        rc_b = lz4.block.compress(ro_bytes, store_size=False)
+        dc_b = lz4.block.compress(data_bytes, store_size=False)
+        hdr = bytearray(0x100)
+        hdr[:4] = b'NSO0'
+        struct.pack_into('<I', hdr, 0x0C, 7)
+        struct.pack_into('<III', hdr, 0x10, 0x100, 0, len(text_bytes))
+        struct.pack_into('<III', hdr, 0x20, 0x100 + len(tc_b), len(text_bytes), len(ro_bytes))
+        struct.pack_into('<III', hdr, 0x30, 0x100 + len(tc_b) + len(rc_b), len(text_bytes) + len(ro_bytes), len(data_bytes))
+        hdr[0x40:0x50] = bytes.fromhex('0123456789abcdef0123456789abcdef')
+        struct.pack_into('<III', hdr, 0x60, len(tc_b), len(rc_b), len(dc_b))
+
+        with tempfile.TemporaryDirectory() as td:
+            nso_p = Path(td) / 'main'
+            nso_p.write_bytes(bytes(hdr) + tc_b + rc_b + dc_b)
+            out1, out2 = Path(td) / 'out1', Path(td) / 'out2'
+            r1 = subprocess.run([sys.executable, str(patch_nso), str(nso_p), str(out1), 'main'],
+                                env={**os.environ, 'DM_REWRITE_J': '1'}, capture_output=True, text=True)
+            self.assertEqual(r1.returncode, 0, r1.stderr)
+            sd = Path(td) / 'shim'
+            sd.mkdir()
+            sc = shim._SITECUSTOMIZE_SRC.replace("if os.name == 'nt'", "if True")
+            (sd / 'sitecustomize.py').write_text(sc, encoding='utf-8')
+            r2 = subprocess.run([sys.executable, str(patch_nso), str(nso_p), str(out2), 'main'],
+                                env={**os.environ, 'DM_REWRITE_J': '4', 'PYTHONPATH': str(sd)},
+                                capture_output=True, text=True)
+            self.assertEqual(r2.returncode, 0, r2.stderr)
+            for ext in ('patched.bin', 'fixups.tsv', 'gates.tsv', 'sites.tsv'):
+                self.assertEqual((out1 / f'main.{ext}').read_bytes(),
+                                 (out2 / f'main.{ext}').read_bytes())
 
 
 if __name__ == '__main__':
