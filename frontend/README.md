@@ -223,9 +223,9 @@ Change artwork accepts PNG, JPEG, TIFF, HEIC, GIF, WebP, MP4 and MOV. A GIF, an 
 WebP or APNG, or a silent video loops in the tile, muted. The launcher does not download
 art from Steam Grid DB.
 
-The iPhone and iPad shell shows the same file. An install copies the custom image or video
-when one is set, otherwise the cached eShop banner, into the game's framework as
-`banner.<ext>`. The shell does not fetch art of its own.
+The iPhone and iPad shell shows the same file. An install, a re-sign or a reinstall copies the
+custom image or video when one is set, otherwise the cached eShop banner, into the game's
+framework as `banner.<ext>`. The shell does not fetch art of its own.
 
 The list can hold several shop products under one title ID: the game, its Nintendo
 Switch 2 Edition, or a bundle with a membership or an expansion pass. The launcher

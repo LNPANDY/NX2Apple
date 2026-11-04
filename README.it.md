@@ -112,8 +112,8 @@ L'app richiede iOS o iPadOS 26 o successivo. Sul Mac, **Gestisci > Cambia copert
 PNG, JPEG, TIFF, HEIC, GIF, WebP, MP4 o MOV per un gioco. Il file resta nel percorso che hai
 scelto, e viene mostrato prima del banner eShop automatico (key art 16:9 in cache per title ID).
 Una GIF o un video senza audio va in loop nella tessera. Il launcher non scarica immagini da
-Steam Grid DB. Un'installazione copia il tuo file nell'app per iPhone e iPad, oppure il banner
-eShop in cache se non ne hai impostato uno.
+Steam Grid DB. Un'installazione, una nuova firma o una reinstallazione copia il tuo file nell'app
+per iPhone e iPad, oppure il banner eShop in cache se non ne hai impostato uno.
 
 ## Come giocare
 

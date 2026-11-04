@@ -111,8 +111,8 @@ Appen kräver iOS eller iPadOS 26 eller senare. På Mac sätter **Hantera > Byt 
 JPEG, TIFF, HEIC, GIF, WebP, MP4 eller MOV för ett spel. Filen ligger kvar på den sökväg du valde,
 och den visas före den automatiska eShop-bannern (16:9-key art som cachas på titel-ID). En GIF
 eller en tyst video loopar i rutan. Launchern hämtar inte bilder från Steam Grid DB. En
-installation kopierar din fil till iPhone- och iPad-appen, eller den cachade eShop-bannern om du
-inte har valt en.
+installation, en ny signering eller en ominstallation kopierar din fil till iPhone- och iPad-appen,
+eller den cachade eShop-bannern om du inte har valt en.
 
 ## Så spelar du
 

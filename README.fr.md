@@ -110,8 +110,9 @@ L’app demande iOS ou iPadOS 26 ou plus récent. Sur le Mac, **Gérer > Changer
 choisit un PNG, JPEG, TIFF, HEIC, GIF, WebP, MP4 ou MOV pour un jeu. Le fichier reste au chemin
 choisi, et il passe devant la bannière eShop automatique (visuel 16:9 mis en cache par identifiant
 de titre). Un GIF ou une vidéo silencieuse tourne en boucle dans la tuile. Le lanceur ne charge
-pas d’images depuis Steam Grid DB. Une installation copie votre fichier dans l’app iPhone et iPad,
-ou la bannière eShop en cache si vous n’en avez pas choisi.
+pas d’images depuis Steam Grid DB. Une installation, une nouvelle signature ou une réinstallation
+copie votre fichier dans l’app iPhone et iPad, ou la bannière eShop en cache si vous n’en avez
+pas choisi.
 
 ## Comment jouer
 

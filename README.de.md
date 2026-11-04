@@ -113,8 +113,9 @@ Die App braucht iOS oder iPadOS 26 oder neuer. Auf dem Mac setzt **Verwalten > T
 ein PNG, JPEG, TIFF, HEIC, GIF, WebP, MP4 oder MOV für ein Spiel. Die Datei bleibt an dem Pfad,
 den du gewählt hast, und sie erscheint vor dem automatischen eShop-Banner (16:9-Titelbild,
 zwischengespeichert zur Title-ID). Ein GIF oder ein stummes Video läuft in der Kachel in einer
-Schleife. Der Launcher lädt keine Bilder von Steam Grid DB. Eine Installation kopiert deine Datei
-in die iPhone- und iPad-App, oder das zwischengespeicherte eShop-Banner, wenn du keins gesetzt hast.
+Schleife. Der Launcher lädt keine Bilder von Steam Grid DB. Eine Installation, eine neue Signatur
+oder eine Neuinstallation kopiert deine Datei in die iPhone- und iPad-App, oder das
+zwischengespeicherte eShop-Banner, wenn du keins gesetzt hast.
 
 ## So spielst du
 

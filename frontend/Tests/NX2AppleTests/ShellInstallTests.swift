@@ -264,6 +264,28 @@ import NXModel
         XCTAssertFalse(fm.fileExists(atPath: fw + "/banner.gif"), "the gif is replaced by the movie")
     }
 
+    /// A re-sign and a reinstall read the picture inside the app, so a new cover is written there, and a second pass with the same file changes nothing.
+    func testAChangedCoverIsWrittenIntoTheInstalledApp() throws {
+        let root = path("shell-root")
+        let mirror = ShellInstall.mirroredFramework(root: root, titleID: titleID)
+        let app = ShellInstall.appPath(root: root)
+        let embedded = app + "/Frameworks/DmGame\(titleID).framework"
+        try fm.createDirectory(atPath: mirror, withIntermediateDirectories: true)
+        try fm.createDirectory(atPath: embedded, withIntermediateDirectories: true)
+        try write(embedded + "/banner.jpg", "shop")
+        var library = ShellLibrary(games: [.init(titleID: titleID, name: "Test", framework: mirror)])
+        try library.save(root: root)
+        let gif = path("cover.gif"), banners = URL(fileURLWithPath: path("artwork"))
+        try write(gif, "GIF89a-new")
+        XCTAssertEqual(ShellInstall.refreshCovers(root: root, app: app, artwork: { $0.lowercased() == titleID.lowercased() ? gif : nil }, banners: banners), [titleID])
+        XCTAssertEqual(try String(contentsOfFile: embedded + "/banner.gif", encoding: .utf8), "GIF89a-new")
+        XCTAssertEqual(try String(contentsOfFile: mirror + "/banner.gif", encoding: .utf8), "GIF89a-new")
+        XCTAssertFalse(fm.fileExists(atPath: embedded + "/banner.jpg"), "the shop picture is replaced")
+        XCTAssertEqual(ShellInstall.refreshCovers(root: root, app: app, artwork: { _ in gif }, banners: banners), [], "the same picture does not sign the app again")
+        XCTAssertEqual(ShellInstall.refreshCovers(root: root, app: app, artwork: { _ in nil }, banners: banners), [], "no cache and no chosen file leaves the picture the phone has")
+        XCTAssertTrue(fm.fileExists(atPath: embedded + "/banner.gif"))
+    }
+
     /// Change artwork allows a TIFF. The shell reads PNG, JPEG, HEIC, WebP, GIF and a silent movie, so a TIFF is written as a JPEG.
     func testATiffCoverIsInstalledAsAJpeg() throws {
         let fw = path("DmGame\(titleID).framework"), tiff = path("cover.tiff")
@@ -386,6 +408,15 @@ import NXModel
             app = val('-derivedDataPath') + '/Build/Products/Release-iphoneos/DmShell.app'
             os.makedirs(app, exist_ok=True)
             open(app + '/bundle.txt', 'w').write(bundle)
+            derived = val('-derivedDataPath')
+            lib = os.path.join(os.path.dirname(derived), 'shell.json')
+            if os.path.exists(lib):
+                for game in json.load(open(lib)).get('games') or []:
+                    fw = game.get('framework') or ''
+                    if os.path.isdir(fw):
+                        dest = os.path.join(app, 'Frameworks', os.path.basename(fw))
+                        if os.path.exists(dest): shutil.rmtree(dest)
+                        shutil.copytree(fw, dest)
             print('CodeSign ' + app, flush=True)
         elif a[:3] == ['devicectl', 'list', 'devices']:
             n = (int(open(STATE + '/list-count').read()) if os.path.exists(STATE + '/list-count') else 0) + 1
@@ -939,6 +970,55 @@ import NXModel
         XCTAssertTrue(log.allSatisfy { !$0.contains("--remove-existing-content") })
         XCTAssertEqual(try String(contentsOfFile: container + "/org.nxnative.shell/Documents/save/slot1.bin"), "my save")
         XCTAssertEqual(model.doneNote, String(format: model.t("dev.resigned"), "iPhone"))
+    }
+
+    /// The phone shows the picture inside the signed app. A re-sign copies the new cover in before it signs. A reinstall
+    /// of the same picture does not sign again. A reinstall of a different picture signs, then installs that app.
+    @MainActor func testResignAndReinstallShipTheNewCover() throws {
+        let f = try makeFixture()
+        let mirror = ShellInstall.mirroredFramework(root: f.root, titleID: titleID)
+        try fm.createDirectory(atPath: mirror, withIntermediateDirectories: true)
+        try write(mirror + "/game.manifest.json", "{}")
+        var library = ShellLibrary(team: team, games: [.init(titleID: titleID, name: "Test", framework: mirror)])
+        try library.save(root: f.root)
+        try fm.createDirectory(atPath: ShellInstall.projectFolder(root: f.root) + "/" + ShellInstall.projectName, withIntermediateDirectories: true)
+        let app = ShellInstall.appPath(root: f.root)
+        try fm.createDirectory(atPath: app + "/Frameworks/DmGame\(titleID).framework", withIntermediateDirectories: true)
+        try write(app + "/Frameworks/DmGame\(titleID).framework/banner.jpg", "shop")
+        try write(app + "/bundle.txt", "org.nxnative.shell")
+        let gif = path("cover.gif")
+        try write(gif, "GIF89a-new")
+
+        let stores = LauncherStores(xcrun: f.xcrun, defaults: testDefaults)
+        let model = stores.build
+        stores.deviceStore.signingTeam = team
+        model.artworkPaths = { [titleID.lowercased(): gif] }
+        model.installedOn = device
+        model.installedAppPath = app
+
+        let resigned = expectation(description: "Re-signed with the new cover")
+        model.resignOnDevice(app: app, device: device) { resigned.fulfill() }
+        wait(for: [resigned], timeout: 30)
+        let shipped = app + "/Frameworks/DmGame\(titleID).framework/banner.gif"
+        XCTAssertEqual(try String(contentsOfFile: shipped, encoding: .utf8), "GIF89a-new")
+        XCTAssertFalse(fm.fileExists(atPath: app + "/Frameworks/DmGame\(titleID).framework/banner.jpg"))
+        XCTAssertTrue(calls.contains { $0.hasPrefix("xcodebuild") })
+        XCTAssertEqual(calls.filter { $0.hasPrefix("devicectl device install app") }.count, 1)
+
+        let before = calls.count
+        let same = expectation(description: "Reinstall of the same cover")
+        model.reinstallOnDevice { same.fulfill() }
+        wait(for: [same], timeout: 30)
+        let sameLog = Array(calls.dropFirst(before))
+        XCTAssertFalse(sameLog.contains { $0.hasPrefix("xcodebuild") }, sameLog.joined(separator: "\n"))
+        XCTAssertEqual(sameLog.filter { $0.hasPrefix("devicectl device install app") }.count, 1)
+
+        try write(gif, "GIF89a-newer")
+        let changed = expectation(description: "Reinstall of a changed cover")
+        model.reinstallOnDevice { changed.fulfill() }
+        wait(for: [changed], timeout: 30)
+        XCTAssertEqual(try String(contentsOfFile: shipped, encoding: .utf8), "GIF89a-newer")
+        XCTAssertTrue(calls.dropFirst(before + sameLog.count).contains { $0.hasPrefix("xcodebuild") })
     }
 
     @MainActor private func makeModel(_ f: Fixture) throws -> LauncherStores {
