@@ -1083,10 +1083,34 @@
     },
     "No game data for %@ was found in that file.": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In dieser Datei wurden keine Spieldaten für %@ gefunden."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "No game data for %@ was found in that file."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune donnée de jeu pour %@ n'a été trouvée dans ce fichier."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessun dato di gioco per %@ è stato trovato in questo file."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inga speldata för %@ hittades i den här filen."
           }
         },
         "zh-Hans": {

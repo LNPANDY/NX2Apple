@@ -43,7 +43,31 @@
     },
     "120 Hz": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "120 Hz"
+          }
+        },
         "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "120 Hz"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "120 Hz"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "120 Hz"
+          }
+        },
+        "sv": {
           "stringUnit": {
             "state": "translated",
             "value": "120 Hz"
@@ -69,6 +93,24 @@
           "stringUnit": {
             "state": "translated",
             "value": "120 Hz needs a screen that supports it and falls back to 60 Hz on one that does not. Sustained heavy load may throttle with heat, so use it with care."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "120 Hz nécessite un écran qui le prend en charge et repasse à 60 Hz sur un écran qui ne le prend pas en charge. Une charge lourde prolongée peut entraîner une limitation due à la chaleur, à utiliser avec précaution."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "120 Hz richiede uno schermo che lo supporti e torna a 60 Hz su uno che non lo supporta. Un carico pesante prolungato può causare limitazioni dovute al calore, usare con cautela."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "120 Hz kräver en skärm som stöder det och faller tillbaka till 60 Hz på en som inte gör det. Ihållande tung belastning kan strypas av värme, så använd med försiktighet."
           }
         },
         "zh-Hans": {
@@ -121,7 +163,31 @@
     },
     "60 Hz": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "60 Hz"
+          }
+        },
         "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "60 Hz"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "60 Hz"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "60 Hz"
+          }
+        },
+        "sv": {
           "stringUnit": {
             "state": "translated",
             "value": "60 Hz"
@@ -737,7 +803,31 @@
     },
     "Black iron": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Black iron"
+          }
+        },
         "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Black iron"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Black iron"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Black iron"
+          }
+        },
+        "sv": {
           "stringUnit": {
             "state": "translated",
             "value": "Black iron"
@@ -1033,10 +1123,34 @@
     },
     "Button skin": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tasten-Skin"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Button skin"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Habillage des boutons"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aspetto dei pulsanti"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Knappskal"
           }
         },
         "zh-Hans": {
@@ -1489,10 +1603,34 @@
     },
     "Choose image file…": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bilddatei wählen…"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Choose image file…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisir un fichier image…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scegli file immagine…"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Välj bildfil…"
           }
         },
         "zh-Hans": {
@@ -3945,7 +4083,31 @@
     },
     "Glass": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glass"
+          }
+        },
         "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glass"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glass"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glass"
+          }
+        },
+        "sv": {
           "stringUnit": {
             "state": "translated",
             "value": "Glass"
@@ -3973,6 +4135,24 @@
             "value": "Glass is the glass keys, Moon is the picture skin, and Moon (badges) is the picture skin with letter badges."
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glass désigne les touches en verre, Moon est l'habillage illustré, et Moon (badges) est l'habillage illustré avec badges de lettres."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glass sono i tasti in vetro, Moon è la skin illustrata e Moon (distintivi) è la skin illustrata con distintivi a lettere."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glass är glasknapparna, Moon är bildskalet och Moon (märken) är bildskalet med bokstavsmärken."
+          }
+        },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
@@ -3993,6 +4173,24 @@
           "stringUnit": {
             "state": "translated",
             "value": "Glass is the glass keys, Thorn is the picture skin, Thorn (badges) is the picture skin with letter badges, and Black iron is the picture skin in black-iron rings."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glass désigne les touches en verre, Thorn est l'habillage illustré, Thorn (badges) est l'habillage illustré avec badges de lettres, et Black iron est l'habillage illustré dans des anneaux en fer noir."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glass sono i tasti in vetro, Thorn è la skin illustrata, Thorn (distintivi) è la skin illustrata con distintivi a lettere e Black iron è la skin illustrata in anelli di ferro nero."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glass är glasknapparna, Thorn är bildskalet, Thorn (märken) är bildskalet med bokstavsmärken och Black iron är bildskalet i ringar av svart järn."
           }
         },
         "zh-Hans": {
@@ -5205,7 +5403,31 @@
     },
     "Moon": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moon"
+          }
+        },
         "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moon"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moon"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moon"
+          }
+        },
+        "sv": {
           "stringUnit": {
             "state": "translated",
             "value": "Moon"
@@ -5221,10 +5443,34 @@
     },
     "Moon (badges)": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moon (Abzeichen)"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Moon (badges)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moon (badges)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moon (distintivi)"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moon (märken)"
           }
         },
         "zh-Hans": {
@@ -7037,10 +7283,34 @@
     },
     "Refresh rate": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bildwiederholrate"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Refresh rate"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Taux de rafraîchissement"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frequenza di aggiornamento"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uppdateringsfrekvens"
           }
         },
         "zh-Hans": {
@@ -8493,7 +8763,31 @@
     },
     "Thorn": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thorn"
+          }
+        },
         "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thorn"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thorn"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thorn"
+          }
+        },
+        "sv": {
           "stringUnit": {
             "state": "translated",
             "value": "Thorn"
@@ -8509,10 +8803,34 @@
     },
     "Thorn (badges)": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thorn (Abzeichen)"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Thorn (badges)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thorn (badges)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thorn (distintivi)"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thorn (märken)"
           }
         },
         "zh-Hans": {
