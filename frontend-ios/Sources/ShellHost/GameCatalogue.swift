@@ -179,8 +179,7 @@ public enum DataSource: Equatable, Sendable {
     case shell
 }
 
-public struct DataResolution: Equatable, Sendable {
-    /// The folder a game's own data lives in inside the app's `games` folder: the game's name made safe for a
+/// The folder a game's own data lives in inside the app's `games` folder: the game's name made safe for a
 /// folder name, so the Files app shows which game the folder belongs to. The engine names it the same way
 /// (dm/ios/Sources/main.m, game_folder_name). Nil when the name leaves nothing usable (the caller falls back
 /// to the title ID).
@@ -199,6 +198,8 @@ public enum GameFolder {
         return joined.isEmpty ? nil : joined
     }
 }
+
+public struct DataResolution: Equatable, Sendable {
 
 /// The folder holding `romfs.img` or `romfs/<marker>`, or a picked `romfs.img`'s folder.
     public var url: URL?
