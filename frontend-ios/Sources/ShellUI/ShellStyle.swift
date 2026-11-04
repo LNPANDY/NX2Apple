@@ -225,7 +225,7 @@ private struct CreamSwitch: View {
 }
 
 /// A game's picture filling whatever frame it gets: the banner, else the icon whole on a blurred copy of itself,
-/// else the placeholder.
+/// else the placeholder. The frame is on the picture, so a small or tall cover still fills the tile.
 struct ArtView: View {
     let game: GameTile
     /// Draw from the small copy, for a backdrop that is blurred anyway.
@@ -234,17 +234,25 @@ struct ArtView: View {
     var lettering = true
     var body: some View {
         Color.clear.overlay {
-            if let banner = game.banner {
-                Image(decorative: backdrop ? banner.thumbnail : banner.image, scale: 1)
-                    .resizable().interpolation(backdrop ? .medium : .high).scaledToFill()
-            } else if let icon = game.icon {
-                if backdrop {
-                    Image(decorative: icon.thumbnail, scale: 1).resizable().scaledToFill()
-                } else {
-                    IconCard(icon: icon)
+            GeometryReader { geometry in
+                let w = geometry.size.width, h = geometry.size.height
+                ZStack {
+                    if let banner = game.banner {
+                        Image(decorative: backdrop ? banner.thumbnail : banner.image, scale: 1)
+                            .resizable().interpolation(backdrop ? .medium : .high).scaledToFill()
+                            .frame(width: w, height: h)
+                    } else if let icon = game.icon {
+                        if backdrop {
+                            Image(decorative: icon.thumbnail, scale: 1).resizable().scaledToFill()
+                                .frame(width: w, height: h)
+                        } else {
+                            IconCard(icon: icon)
+                        }
+                    } else {
+                        PlaceholderArt(title: game.title, seed: game.id, lettering: lettering && !backdrop)
+                    }
                 }
-            } else {
-                PlaceholderArt(title: game.title, seed: game.id, lettering: lettering && !backdrop)
+                .frame(width: w, height: h).clipped()
             }
         }.clipped()
     }

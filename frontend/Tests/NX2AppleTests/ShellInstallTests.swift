@@ -247,6 +247,19 @@ import NXModel
         XCTAssertFalse(fm.fileExists(atPath: fw + "/banner.png"), "no picture: the library falls back to the icon")
     }
 
+    /// Change artwork allows a TIFF. The shell reads PNG, JPEG, HEIC and WebP, so the install writes that picture as a JPEG.
+    func testATiffCoverIsInstalledAsAJpeg() throws {
+        let fw = path("DmGame\(titleID).framework"), tiff = path("cover.tiff")
+        try fm.createDirectory(atPath: fw, withIntermediateDirectories: true)
+        let png = try XCTUnwrap(Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="))
+        try png.write(to: URL(fileURLWithPath: tiff))
+        let banners = URL(fileURLWithPath: path("artwork"))
+        XCTAssertEqual(ShellInstall.placeBanner(titleID: titleID, framework: fw, banners: banners, picked: tiff), tiff)
+        let installed = try Data(contentsOf: URL(fileURLWithPath: fw + "/banner.jpg"))
+        XCTAssertEqual(Array(installed.prefix(2)), [0xFF, 0xD8], "the file is a JPEG, not the TIFF bytes under a .jpg name")
+        XCTAssertFalse(fm.fileExists(atPath: fw + "/banner.tiff"))
+    }
+
     /// Installing one game copies every game's own cover into its framework. A game with none keeps the eShop banner.
     /// Installing again after the cover is cleared puts that banner back.
     func testAnInstallCopiesEachGamesOwnCover() throws {
