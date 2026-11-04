@@ -27,10 +27,10 @@ Issue: LNPANDY/NX2Apple#144
 ---
  dm/ios/Sources/FrameworkBootstrap.h |  25 +++++
  dm/ios/Sources/FrameworkBootstrap.m |  47 +++++++++
- dm/ios/Sources/main.m               |  26 ++++-
+ dm/ios/Sources/main.m               |  22 +++++
  dm/ios/framework/DmGameMarker.m     |  10 ++
  dm/ios/project-framework.yml        | 144 ++++++++++++++++++++++++++++
- 5 files changed, 250 insertions(+), 2 deletions(-)
+ 5 files changed, 248 insertions(+)
  create mode 100644 dm/ios/Sources/FrameworkBootstrap.h
  create mode 100644 dm/ios/Sources/FrameworkBootstrap.m
  create mode 100644 dm/ios/framework/DmGameMarker.m
@@ -121,7 +121,7 @@ index 0000000..663ebe8
 +}
 +#endif
 diff --git a/dm/ios/Sources/main.m b/dm/ios/Sources/main.m
-index 487a711..7a44642 100644
+index c11b457..69cf022 100644
 --- a/dm/ios/Sources/main.m
 +++ b/dm/ios/Sources/main.m
 @@ -18,6 +18,14 @@
@@ -139,7 +139,7 @@ index 487a711..7a44642 100644
  
  extern char **environ;
  
-@@ -230,6 +238,14 @@ static int boot_env(void) {
+@@ -237,6 +245,14 @@ static int boot_env(void) {
      // First line of the log: the fork's patches this build carries (Info.plist DMForkPatches), so a report says whether it comes from a build beyond upstream's support
      NSString *fork_patches = [NSBundle.mainBundle objectForInfoDictionaryKey:@"DMForkPatches"];
      fprintf(stderr, "fork patches: %s\n", [fork_patches isKindOfClass:NSString.class] && fork_patches.length ? fork_patches.UTF8String : "none");
@@ -154,12 +154,10 @@ index 487a711..7a44642 100644
      // Environment switch files (for on-device diagnostics: a sideloaded app cannot be given environment variables from outside): one KEY=VALUE per line, # starts a comment; Documents/env.txt takes precedence over dm/env.txt in the bundle (put there by build_ipa.sh's DM_ENV_FILE)
      NSMutableArray<NSString *> *from_file = [NSMutableArray array], *from_launch = [NSMutableArray array];
      for (char **e = environ; *e; e++) {   // set at launch (Xcode, devicectl): before the env files, and the launcher keeps them
-@@ -272,14 +288,20 @@ static int boot_env(void) {
+@@ -282,6 +298,12 @@ static int boot_env(void) {
      BOOL per_game = [romfs hasPrefix:gdir];   // messaging nil is NO here: no data means the shared layout
      if (!set_data_env(romfs, NO)) { if (!romfs) romfs_identity_report(doc);   // a slim build says why its romfs.img was not used
          fprintf(stderr, "boot: no game data yet (Documents/romfs.img, Documents/romfs or <App>/romfs); the launcher asks for it\n"); }
--    NSString *dm = [res stringByAppendingPathComponent:@"dm"];
-+    NSString *app_dm = [res stringByAppendingPathComponent:@"dm"], *dm = app_dm;
 +#if DM_FRAMEWORK_BUILD
 +    // Route C: the modules, their rewriter tables and the shader map are the framework's. dlopen + dlsym + dladdr hand its
 +    // mach header to the loader here, after the data went to DM_ROMFS and before loading starts (the design's order).
@@ -168,15 +166,7 @@ index 487a711..7a44642 100644
 +#endif
      setenv("DM_NVN_SHMAP", [dm stringByAppendingPathComponent:@"shader_map.tsv"].fileSystemRepresentation, 0);
      // Shader libraries: a game's own <gdir>/msl first (a per-game layout may carry its own), else
-     // the app's shared <App>/msl.
-     NSString *per_game_msl = [gdir stringByAppendingPathComponent:@"msl"];
-     NSString *msl = (per_game && [fm fileExistsAtPath:per_game_msl]) ? per_game_msl : [res stringByAppendingPathComponent:@"msl"];
-     setenv("DM_MSL_DIR", msl.fileSystemRepresentation, 0);
--    setenv("DM_FONT_DIR", [dm stringByAppendingPathComponent:@"font"].fileSystemRepresentation, 0);   // Shared-font stand-ins (standard.ttf / nintendo_ext.ttf): iOS lacks the macOS font path
-+    setenv("DM_FONT_DIR", [app_dm stringByAppendingPathComponent:@"font"].fileSystemRepresentation, 0);   // Shared-font stand-ins (standard.ttf / nintendo_ext.ttf): iOS lacks the macOS font path
-     // Add-on content beside the game data: the launcher's games/<id>/aoc/ holds <index>.img (the layout hle_fs.c aoc_dir reads), because a slim IPA does not carry it. Taken before
-     // Documents/aoc and <App>/aoc (aoc_locate, seedds/nxnative#486) and never over an explicit DM_AOC_DIR: aoc_locate only fills DM_AOC_DIR when this did not.
-     NSString *per_game_aoc = [gdir stringByAppendingPathComponent:@"aoc"];
+     // the app's shared <App>/msl (the program's <App>/msl/p<N> in a game of several programs).
 diff --git a/dm/ios/framework/DmGameMarker.m b/dm/ios/framework/DmGameMarker.m
 new file mode 100644
 index 0000000..c03357d
