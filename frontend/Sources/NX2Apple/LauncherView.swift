@@ -673,8 +673,9 @@ struct LauncherView: View {
     }
 
     /// A still ImageIO can read, or a silent movie. Anything else is left unchosen.
-    /// A movie must have a picture. A renamed file with a movie extension is left unchosen.
+    /// A movie must have a picture, and nothing over 64 MB is a cover. A renamed file with a movie extension is left unchosen.
     private static func coverFileOpens(_ url: URL) -> Bool {
+        guard CoverFile.withinLimit(url.path) else { return false }
         if CoverFile.isMovie(url.path) { return MoviePoster.image(at: url.path) != nil }
         return NSImage(contentsOf: url) != nil || CoverFile.poster(at: url.path) != nil
     }
@@ -685,9 +686,10 @@ struct LauncherView: View {
         if let m4v = UTType(filenameExtension: "m4v") { types.append(m4v) }
         panel.allowedContentTypes = types
         panel.message = loc.t("library.artworkHint")
-        if panel.runModal() == .OK, let url = panel.url, Self.coverFileOpens(url) {
-            library.setArtwork(url.path, for: game.id)
-        }
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        if !CoverFile.withinLimit(url.path) { library.error = loc.t("library.artworkTooBig"); return }
+        guard Self.coverFileOpens(url) else { library.error = loc.t("library.artworkUnreadable"); return }
+        library.setArtwork(url.path, for: game.id)
     }
 
     func chooseLibraryFolder() {

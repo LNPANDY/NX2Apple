@@ -13,8 +13,10 @@ extension ShellInstall {
         var changed: [String] = []
         for game in ShellLibrary.load(root: root).games {
             let picked = artwork(game.titleID)
-            // A chosen file that is not on disk stays as it is. An unmounted drive must not be replaced by the shop banner.
-            if let picked, !picked.isEmpty, !fm.fileExists(atPath: picked) { continue }
+            // A chosen file that is not on disk, or that is too large for a tile, stays as it is.
+            if let picked, !picked.isEmpty {
+                if !fm.fileExists(atPath: picked) || !CoverFile.withinLimit(picked, fm: fm) { continue }
+            }
             let pick = (picked?.isEmpty == false) ? picked : nil
             guard pick != nil || BannerCache.cached(game.titleID, in: banners) != nil else { continue }
             if fm.fileExists(atPath: game.framework) {

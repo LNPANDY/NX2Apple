@@ -545,7 +545,7 @@ struct ConsoleGameTile: View {
     var captionVisible = true
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            ConsoleArtwork(image: game.artwork, title: game.title, motionPath: game.motionPath).aspectRatio(1.8, contentMode: .fit)
+            ConsoleArtwork(image: game.artwork, title: game.title, motionPath: selected ? game.motionPath : "").aspectRatio(1.8, contentMode: .fit)
                 .opacity(game.status == .ready ? 1 : 0.45)   // not playable on this Mac: dimmed, its status on top
                 .overlay(alignment: .bottomLeading) {
                     if game.status != .ready {

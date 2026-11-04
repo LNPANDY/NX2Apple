@@ -331,9 +331,16 @@ private struct MotionHost: UIViewRepresentable {
 
         private static func frames(_ url: URL) -> [(image: CGImage, seconds: Double)] {
             guard let src = CGImageSourceCreateWithURL(url as CFURL, nil) else { return [] }
+            let count = CGImageSourceGetCount(src)
+            let maxPixel = count > 24 ? 960 : 1280
+            let options: [CFString: Any] = [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceThumbnailMaxPixelSize: maxPixel
+            ]
             var out: [(image: CGImage, seconds: Double)] = []
-            for i in 0..<CGImageSourceGetCount(src) {
-                guard let image = CGImageSourceCreateImageAtIndex(src, i, nil) else { continue }
+            for i in 0..<count {
+                guard let image = CGImageSourceCreateThumbnailAtIndex(src, i, options as CFDictionary) else { continue }
                 out.append((image, delay(src, i)))
             }
             return out

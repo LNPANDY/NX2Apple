@@ -27,8 +27,11 @@ final class CoverFileTests: XCTestCase {
         try png.write(to: url)
         defer { try? FileManager.default.removeItem(at: url) }
         XCTAssertEqual(CoverFile.frames(at: url.path).count, 1)
+        XCTAssertLessThanOrEqual(CoverFile.frames(at: url.path).first?.image.width ?? 0, 1280)
         XCTAssertNotNil(CoverFile.poster(at: url.path))
         XCTAssertFalse(CoverFile.animates(url.path))
+        XCTAssertTrue(CoverFile.withinLimit(url.path))
+        XCTAssertFalse(CoverFile.withinLimit(url.path, max: 8))
     }
 
     func testTheShellKeepsAGifAndAMovieAsThemselves() {

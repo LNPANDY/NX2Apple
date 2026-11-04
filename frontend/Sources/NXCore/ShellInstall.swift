@@ -264,8 +264,10 @@ package enum ShellInstall {
     @discardableResult static func placeBanner(titleID: String, framework: String, banners: URL, picked: String?,
                                                fm: FileManager = .default) -> String? {
         let known = CoverFile.shellExtensions
-        // A chosen file that is not on disk is left alone, so a missing drive does not wipe the picture already in the app.
-        if let picked, !picked.isEmpty, !fm.fileExists(atPath: picked) { return nil }
+        // A chosen file that is not on disk, or that is too large for a tile, is left alone.
+        if let picked, !picked.isEmpty {
+            if !fm.fileExists(atPath: picked) || !CoverFile.withinLimit(picked, fm: fm) { return nil }
+        }
         let source = [picked, BannerCache.cached(titleID, in: banners)?.path].compactMap { $0 }.first { !$0.isEmpty && fm.fileExists(atPath: $0) }
         guard let source else {
             for ext in known { try? fm.removeItem(atPath: framework + "/banner." + ext) }

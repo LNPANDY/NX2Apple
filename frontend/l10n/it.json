@@ -993,6 +993,8 @@
   "launch.title": "Opzioni di avvio",
   "library.appReady": "NX2Apple %@ è pronto",
   "library.artworkHint": "Scegli un’immagine larga o un breve video senza audio (PNG, JPEG, TIFF, HEIC, GIF, WebP, MP4 o MOV). Resta nella sua posizione originale. Una GIF o un video va in loop nella tessera.",
+  "library.artworkTooBig": "Questo video è troppo grande per una copertina. Scegline uno sotto i 64 MB.",
+  "library.artworkUnreadable": "Questo file non può essere letto come immagine o come video.",
   "library.buildAgain": "Compila di nuovo…",
   "library.building": "Compilazione",
   "library.changeArtwork": "Cambia copertina…",

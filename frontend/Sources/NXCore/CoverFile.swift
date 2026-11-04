@@ -17,13 +17,30 @@ package enum CoverFile {
         package let seconds: Double
     }
 
+    /// A cover copied into the phone app. A larger file is a film, not a tile.
+    package static let maxBytes: Int64 = 64 * 1024 * 1024
+
+    /// False when the file is missing or larger than `max`.
+    package static func withinLimit(_ path: String, max: Int64 = maxBytes, fm: FileManager = .default) -> Bool {
+        guard let size = (try? fm.attributesOfItem(atPath: path))?[.size] as? NSNumber else { return false }
+        return size.int64Value >= 0 && size.int64Value <= max
+    }
+
     /// Empty when the path is a movie or ImageIO cannot read it.
+    /// Frames are scaled down. A tile never needs a full-size frame, and a long GIF of full-size frames will not fit in memory.
     package static func frames(at path: String) -> [Frame] {
         guard !path.isEmpty, !isMovie(path),
               let src = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil) else { return [] }
+        let count = CGImageSourceGetCount(src)
+        let maxPixel = count > 24 ? 960 : 1280
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixel
+        ]
         var out: [Frame] = []
-        for i in 0..<CGImageSourceGetCount(src) {
-            guard let image = CGImageSourceCreateImageAtIndex(src, i, nil) else { continue }
+        for i in 0..<count {
+            guard let image = CGImageSourceCreateThumbnailAtIndex(src, i, options as CFDictionary) else { continue }
             out.append(Frame(image: image, seconds: delay(src, i)))
         }
         return out
