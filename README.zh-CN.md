@@ -145,8 +145,8 @@ iPhone 上在「文件」App 里该 App 名字下：`save/` 和 `log.txt`（上�
 **Switch 2 游戏**是引擎新加入的。目前有 5 款有 profile，上游都标为可在 Mac 上玩：Donkey Kong Bananza、
 Splatoon Raiders、Fire Emblem Fortune's Weave、Pokémon Pokopia 和 Hyrule Warriors: Age of Imprisonment。
 在构建页面选择游戏文件夹（`base/`、`updates/`、`dlc/`）或它的 `.nup` 文件即可，不需要 `prod.keys`。游戏库会把它们标为
-**Switch 2**。本 fork 还没有人通过启动器玩过 Switch 2 游戏。在 iPhone 和 iPad 上几乎没有测试过：一位维护者用命令行构建后，
-在 iPhone 17 Pro Max 上玩过 Donkey Kong Bananza。详情见 [GAMES.zh-CN.md](GAMES.zh-CN.md#switch-2-游戏)。
+**Switch 2**。本 fork 只试过 Donkey Kong Bananza：所有者通过启动器构建，并在 Mac、iPhone 和 iPad 上玩过，Mac 和 iPhone 上没有发现问题，
+iPad 上基本没有问题。其他 Switch 2 游戏在本 fork 上没有试过。详情见 [GAMES.zh-CN.md](GAMES.zh-CN.md#switch-2-游戏)。
 
 ## 限制
 

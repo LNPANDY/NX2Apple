@@ -227,7 +227,7 @@ Il motore esegue i giochi Switch 2 come profili normali, senza un'opzione Switch
 
 | Gioco | ID titolo | Secondo upstream | In questo fork |
 |---|---|---|---|
-| Donkey Kong Bananza | `040074A01BF12000` | Gira sul Mac (aggiornamento v458752), provato fino all'inizio del primo livello | Giocato una volta su un iPhone 17 Pro Max con iOS 27.0.1, compilato da riga di comando (#445). Non ancora compilato con il launcher |
+| Donkey Kong Bananza | `040074A01BF12000` | Gira sul Mac (aggiornamento v458752), provato fino all'inizio del primo livello | Compilato e giocato con il launcher su un Mac, un iPhone e un iPad, senza problemi su Mac e iPhone e quasi nessuno su iPad. Prima era stato giocato una volta su un iPhone 17 Pro Max con iOS 27.0.1, compilato da riga di comando (#445) |
 | Splatoon Raiders | `0400380020056000` | Gira sul Mac (aggiornamento v65536). Nessuna IPA: la sua memoria supera per ora il limite di iOS | Non provato |
 | Fire Emblem Fortune's Weave | `04007EF01F8AE000` | Gira sul Mac (v131072), 60 fps. Nessuna IPA | Non provato |
 | Pokémon Pokopia | `0400A3A01EE4C000` | Gira sul Mac (aggiornamento v655360). Nessuna IPA | Non provato |

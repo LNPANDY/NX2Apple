@@ -242,7 +242,7 @@ The engine runs Switch 2 games as ordinary profiles. There is no Switch 2 switch
 
 | Game | Title ID | Upstream says | On this fork |
 |---|---|---|---|
-| Donkey Kong Bananza | `040074A01BF12000` | Plays on the Mac (update v458752), tested through the first level's opening areas | Played once on an iPhone 17 Pro Max with iOS 27.0.1, built from the command line (#445). Not built through the launcher yet |
+| Donkey Kong Bananza | `040074A01BF12000` | Plays on the Mac (update v458752), tested through the first level's opening areas | Built and played through the launcher on a Mac, an iPhone and an iPad, with no problems on the Mac and the iPhone and almost none on the iPad. Before that, played once on an iPhone 17 Pro Max with iOS 27.0.1, built from the command line (#445) |
 | Splatoon Raiders | `0400380020056000` | Plays on the Mac (update v65536). No IPA built: its memory layout is over iOS's limit for now | Not tried |
 | Fire Emblem Fortune's Weave | `04007EF01F8AE000` | Plays on the Mac (v131072), 60 fps. No IPA built | Not tried |
 | Pokémon Pokopia | `0400A3A01EE4C000` | Plays on the Mac (update v655360). No IPA built | Not tried |
