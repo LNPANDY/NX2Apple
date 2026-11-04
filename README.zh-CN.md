@@ -26,7 +26,7 @@
 
 #### 🆕 最近重点更新
 
-- **支持 Switch 2 游戏**：在 Mac 或 Windows 启动器中直接选择 Switch 2 游戏文件夹或 `.nup` 文件，无需 `prod.keys`，即可在 Mac 上构建和游玩
+- **支持 Switch 2 游戏**：在 Mac 或 Windows 启动器中直接选择 Switch 2 游戏文件夹或 `.nup` 文件，无需 `prod.keys`，即可在 Mac、iPhone 或 iPad 上构建和游玩
 - **虚拟手柄自定义与手柄改键**：在 iPhone 和 iPad 的可视化编辑器中自由调整触控按键大小、摇杆位置与整体布局（2D/3D 独立保存）。外接手柄支持全局或按游戏改键
 - **iPhone 和 iPad 共用一个 App**：所有游戏装进同一个壳 App（也支持导出未签名 IPA），支持横屏 Cover Flow、按游戏独立设置与 Mod、保留存档删除游戏，以及 6 种系统语言
 - **主机模式**：插上手柄按 Select 或设置开机直达，游戏库即刻变为全屏手柄界面，长按 Home 键 2 秒即可退出游戏
