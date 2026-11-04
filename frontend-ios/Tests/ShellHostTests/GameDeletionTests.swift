@@ -5,11 +5,14 @@ import Testing
 /// #559: deleting a game in the shell removes its folder in the app (the saves only when asked), never a folder the player
 /// picked, and keeps the game off the list until a new build of it or its game data comes again.
 @MainActor @Suite struct GameDeletionTests {
-    /// The orbit fixture's folder in the app with game data, add-on content, saves, a temp folder and a log.
+    /// The orbit fixture's folder with game data, add-on content, saves, shader caches, a temp folder and a log.
     private func fill(_ box: Sandbox) throws -> URL {
         let dir = try box.giveAppData()
         for file in ["aoc/0.img", "save/0/file.bin", "save_device/0/file.bin", "save.work/0/file.bin", "temp/t.bin", "log.txt"] {
             try box.write("x", to: dir.appendingPathComponent(file))
+        }
+        for prefix in ["msl-", ".partial-"] {
+            try box.write("shader", to: dir.appendingPathComponent(".shader-resources/" + prefix + UUID().uuidString + "/b-3f9a2c/example.metallib"))
         }
         return dir
     }
@@ -23,7 +26,7 @@ import Testing
         let before = model.details.count
         #expect(listed(model))
         model.deleteGame(Fixtures.orbit, saves: false)
-        #expect(names(dir) == ["save", "save.work", "save_device"], "game data, add-on content, temp and log are gone, the saves stay")
+        #expect(names(dir) == ["save", "save.work", "save_device"], "game data, shader caches, add-on content, temp and log are gone, the saves stay")
         #expect(!listed(model) && model.details.count == before - 1)
         #expect(model.notice == nil)
         #expect(!listed(ShellHostModel(config: box.config())), "still off the list when the app opens again")
@@ -78,8 +81,8 @@ import Testing
     @Test func theRemovalsListNamesEverythingButTheSaves() throws {
         let box = try Sandbox()
         let dir = try fill(box)
-        #expect(GameDeletion.removals(in: dir, saves: false).map(\.lastPathComponent) == ["aoc", "log.txt", "romfs", "temp"])
-        #expect(GameDeletion.removals(in: dir, saves: true).count == 7)
+        #expect(GameDeletion.removals(in: dir, saves: false).map(\.lastPathComponent) == [".shader-resources", "aoc", "log.txt", "romfs", "temp"])
+        #expect(GameDeletion.removals(in: dir, saves: true).count == 8)
         #expect(GameDeletion.removals(in: dir.appendingPathComponent("missing"), saves: true).isEmpty)
     }
 }

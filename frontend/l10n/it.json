@@ -683,6 +683,7 @@
   "ios.host.padSameAsAllGames": "Come tutti i giochi",
   "ios.host.padSwapAB": "Scambia A e B",
   "ios.host.player": "Giocatore %@",
+  "ios.host.preparingGame": "Preparazione del gioco…",
   "ios.host.quitButton": "Esci",
   "ios.host.quitCancel": "Annulla",
   "ios.host.quitHold": "Tieni premuto per uscire",
