@@ -158,6 +158,7 @@ public struct ShellHostConfig: Sendable {
     /// Reads the games folder again and sorts the library (see `LibraryOrder`). Only this and the first load re-sort:
     /// a change to one game updates it in place.
     public func reload() {
+        artwork = [:]   // a cover copied over the same banner.png must be read again
         let scanned = GameCatalogue.scan(root: config.gamesRoot).filter { !isDeleted($0) }
         let built = scanned.map(detail(for:))
         let order = LibraryOrder.ids(of: built.map(\.game), lastPlayed: Dictionary(uniqueKeysWithValues: scanned.compactMap { e in
@@ -226,6 +227,13 @@ public struct ShellHostConfig: Sendable {
     private func image(_ url: URL?) -> Artwork? {
         guard let url else { return nil }
         if let a = artwork[url] { return a }
+        // A movie is not loaded whole. Its first picture is enough for the still and the blurred backdrop.
+        if MotionCover.isMovie(url) {
+            guard let poster = MotionCover.poster(url) else { return nil }
+            let a = Artwork(id: url.path, image: poster)
+            artwork[url] = a
+            return a
+        }
         guard let bytes = try? Data(contentsOf: url), let a = Artwork(id: url.path, data: bytes) else { return nil }
         artwork[url] = a
         return a
@@ -237,7 +245,8 @@ public struct ShellHostConfig: Sendable {
         let played = lastPlayed(entry.id)
         let tile = GameTile(id: entry.id, title: entry.title, subtitle: entry.manifest.map { ShellFormat.version($0.displayVersion) } ?? "",
                             banner: image(entry.bannerURL), icon: image(entry.iconURL), state: state,
-                            recentlyPlayed: played.map { ShellFormat.played($0, now: config.now()) })
+                            recentlyPlayed: played.map { ShellFormat.played($0, now: config.now()) },
+                            bannerURL: entry.bannerURL.flatMap { MotionCover.plays($0) ? $0 : nil })
         guard let profile = profile(for: entry, data: data) else {
             return GameDetail(game: tile, dataNote: dataNote(data, found: false))
         }

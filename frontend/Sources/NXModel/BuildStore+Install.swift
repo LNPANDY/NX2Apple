@@ -33,6 +33,8 @@ extension BuildStore {
         installer.decideCopy = { plan in target.askCopy(plan) }
         installer.waiting = { on in target.setWaiting(on) }
         installer.waitCancelled = { target.waitCancelled }
+        let covers = artworkPaths()
+        installer.artworkForTitle = { covers[$0.lowercased()] }
         return installer
     }
 
@@ -81,15 +83,26 @@ extension BuildStore {
         cleanupStaging()
     }
 
-    /// Reinstall the signed app that is already in derived data, without unpacking, signing or packing again: the
-    /// device keeps the app's Documents (game data and saves), as the bundle ID does not change. A reinstall that
-    /// fails on an expired signature says so in devicectl's words; signing again is not this button's job.
+    /// Reinstall the signed app that is already in derived data, without unpacking or packing again. The device keeps
+    /// the app's Documents (game data and saves), as the bundle ID does not change. When a cover has changed since the
+    /// app was signed, the app is signed again first, so the phone shows that picture. An unchanged app is installed
+    /// as it is. A reinstall that fails on an expired signature says so in devicectl's words.
     package func reinstallOnDevice(then: (() -> Void)? = nil) {
         let device = installedOn, app = installedAppPath
         guard !device.isEmpty, !app.isEmpty else { then?(); return }
         guard FileManager.default.fileExists(atPath: app) else {
             doneNote = String(format: t("dev.reinstallMissing"), shortPath(app))
             then?(); return
+        }
+        // A new cover has to be inside the signed app. When the picture changed, sign again so the phone receives it.
+        // An unchanged app is installed as it is.
+        if let shell = ShellInstall.paths(ofApp: app) {
+            let covers = artworkPaths()
+            let changed = ShellInstall.refreshCovers(root: shell.root, app: app, artwork: { covers[$0.lowercased()] })
+            if !changed.isEmpty {
+                resignOnDevice(app: app, device: device, then: then)
+                return
+            }
         }
         running = true
         runTool(id: 1004, name: String(format: t("dev.reinstallStage"), devices.deviceName(device)),
@@ -124,6 +137,8 @@ extension BuildStore {
             doneNote = String(format: t("dev.resignNoProject"), shortPath(shell.project))
             then?(); return
         }
+        let covers = artworkPaths()
+        _ = ShellInstall.refreshCovers(root: shell.root, app: app, artwork: { covers[$0.lowercased()] })
         let xcrun = devices.xcrun, team = devices.signingTeam, name = devices.deviceName(device)
         let bundle = ShellLibrary.load(root: shell.root).bundleID
         running = true

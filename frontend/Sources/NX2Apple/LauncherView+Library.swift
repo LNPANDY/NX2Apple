@@ -55,8 +55,7 @@ extension LauncherView {
     func hero(_ game: LibraryGame, width: CGFloat, height: CGFloat) -> some View {
         ZStack(alignment: .bottomLeading) {
             if let image = artwork[game.id] {
-                Image(nsImage: image).resizable().scaledToFill()
-                    .frame(width: width, height: height).clipped()
+                filledCover(image, width: width, height: height, motionPath: game.artworkPath)
             } else {
                 LauncherPalette.surface
                 Image(systemName: "gamecontroller").font(.system(size: 160, weight: .ultraLight))
@@ -173,10 +172,10 @@ extension LauncherView {
                                 Button { library.selectedID = game.id } label: {
                                     VStack(alignment: .leading, spacing: 8) {
                                         ZStack {
+                                            LauncherPalette.surface
                                             if let image = artwork[game.id] {
-                                                Image(nsImage: image).resizable().scaledToFill()
+                                                filledCover(image, width: cardWidth, height: cardWidth / 1.8, motionPath: game.artworkPath)
                                             } else {
-                                                LauncherPalette.surface
                                                 Image(systemName: "gamecontroller").font(.system(size: 30, weight: .light)).foregroundStyle(.secondary)
                                             }
                                         }
@@ -220,6 +219,15 @@ extension LauncherView {
             }
         }
         .padding(.horizontal, 34).padding(.top, 8).padding(.bottom, 22)
+    }
+
+    /// A cover drawn so it covers the whole tile. The frame is on the picture: a custom image smaller than the
+    /// card, or taller than 16:9, still fills it, and the rest is cut off. The surface shows through only
+    /// where the file has no pixels.
+    func filledCover(_ image: NSImage, width: CGFloat, height: CGFloat, motionPath: String = "") -> some View {
+        FillingCover(image: image, motionPath: motionPath)
+            .frame(width: width, height: height)
+            .clipped()
     }
 
     /// A round button floating over the row's edge, centred on the artwork, shown while the row scrolls that way.

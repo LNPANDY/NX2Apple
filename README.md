@@ -107,8 +107,12 @@ at the top. On its side it is a Cover Flow. An iPad shows a grid.
 - **Cloud saves.** Pick an iCloud Drive folder for a game's saves to keep them in step with the Mac.
 - **Language.** The app follows the system language, English or Simplified Chinese.
 
-The app needs iOS or iPadOS 26 or later. The covers are the eShop banners the Mac launcher caches
-for your own games.
+The app needs iOS or iPadOS 26 or later. On the Mac, **Manage > Change artwork** sets a PNG, JPEG,
+TIFF, HEIC, GIF, WebP, MP4 or MOV for a game. The file stays at the path you chose, and it is shown
+ahead of the automatic eShop banner (16:9 key art cached by title ID). A GIF or a silent video loops
+in the tile. The launcher does not load art from Steam Grid DB. An install, a re-sign or a
+reinstall copies your file into the iPhone and iPad shell, or the cached eShop banner when you
+have not set one.
 
 ## How to play
 

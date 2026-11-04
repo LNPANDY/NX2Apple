@@ -991,7 +991,7 @@
   "launch.set.DM_UPSCALER": "Game's upscaler",
   "launch.title": "Launch options",
   "library.appReady": "NX2Apple %@ is ready",
-  "library.artworkHint": "Choose a wide image for this game. The image stays in its original location.",
+  "library.artworkHint": "Choose a wide image or a short silent video (PNG, JPEG, TIFF, HEIC, GIF, WebP, MP4 or MOV). It stays in its original location. A GIF or a video loops in the tile.",
   "library.buildAgain": "Build again…",
   "library.building": "Building",
   "library.changeArtwork": "Change artwork…",

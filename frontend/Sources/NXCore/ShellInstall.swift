@@ -1,4 +1,6 @@
 import Foundation
+import ImageIO
+import CoreGraphics
 
 // Route C: one app on the iPhone or iPad that holds several games. The build script makes only each game's framework
 // (`--shell-framework`), and this file does the rest: the shell's library file (shell.json), the shell's Xcode project
@@ -255,16 +257,43 @@ package enum ShellInstall {
     }
 
     /// Copies the game's banner into its framework as banner.<ext>, the picture the shell's library shows: the player's own pick,
-    /// else the eShop banner the launcher caches per title ID (ArtworkStore). The cache is only read. Without either, an older
-    /// banner is removed and the library shows the framework's icon.png. Returns the picture used.
+    /// else the eShop banner the launcher caches per title ID (ArtworkStore). The cache is only read. PNG, JPEG, HEIC, WebP, GIF
+    /// and a silent MP4, MOV or M4V are copied as they are. Anything else the Mac opened, such as a TIFF, is written as a JPEG.
+    /// Without either, an older banner is removed and the library shows the framework's icon.png. Returns the picture used.
     @discardableResult static func placeBanner(titleID: String, framework: String, banners: URL, picked: String?,
                                                fm: FileManager = .default) -> String? {
+        let known = CoverFile.shellExtensions
         let source = [picked, BannerCache.cached(titleID, in: banners)?.path].compactMap { $0 }.first { !$0.isEmpty && fm.fileExists(atPath: $0) }
-        for ext in ["png", "jpg", "jpeg", "heic", "webp"] { try? fm.removeItem(atPath: framework + "/banner." + ext) }
-        guard let source else { return nil }
+        guard let source else {
+            for ext in known { try? fm.removeItem(atPath: framework + "/banner." + ext) }
+            return nil
+        }
         let ext = (source as NSString).pathExtension.lowercased()
-        let dest = framework + "/banner." + (["png", "jpg", "jpeg", "heic", "webp"].contains(ext) ? ext : "jpg")
-        return (try? fm.copyItem(atPath: source, toPath: dest)) != nil ? source : nil
+        let payload: Data
+        let destExt: String
+        if known.contains(ext), let data = fm.contents(atPath: source) {
+            payload = data
+            destExt = ext
+        } else if let jpeg = jpegData(at: source) {
+            payload = jpeg
+            destExt = "jpg"
+        } else { return nil }
+        for old in known { try? fm.removeItem(atPath: framework + "/banner." + old) }
+        do {
+            try payload.write(to: URL(fileURLWithPath: framework + "/banner." + destExt))
+            return source
+        } catch { return nil }
+    }
+
+    /// A JPEG of the picture at `path`. Nil when ImageIO cannot read it.
+    private static func jpegData(at path: String) -> Data? {
+        guard let src = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil),
+              let image = CGImageSourceCreateImageAtIndex(src, 0, nil) else { return nil }
+        let data = NSMutableData()
+        guard let dest = CGImageDestinationCreateWithData(data, "public.jpeg" as CFString, 1, nil) else { return nil }
+        CGImageDestinationAddImage(dest, image, [kCGImageDestinationLossyCompressionQuality: 0.92] as CFDictionary)
+        guard CGImageDestinationFinalize(dest) else { return nil }
+        return data as Data
     }
 
     /// devicectl's recursive listing of the game's folder in the app's container, written as JSON to `json`.
@@ -415,8 +444,9 @@ package struct ShellInstaller {
     package var pollInterval: TimeInterval = 4
     /// Where the eShop banners are cached (ArtworkStore), read only: the game's goes into its framework for the shell's library.
     package var banners: URL = BannerCache.directory
-    /// A picture the player chose for the game in the library, which wins over the cached banner (nil: none).
-    package var pickedArtwork: String? = nil
+    /// The player's own cover for a title ID (the library's Change artwork). Nil, or a file that is not there, uses the cached eShop banner.
+    /// Asked for every game in the shell, so installing one game does not put the eShop banner back over another's cover.
+    package var artworkForTitle: (String) -> String? = { _ in nil }
 
     package init(xcrun: String = "/usr/bin/xcrun", repo: String, python: String, root: String, device: String, team: String) {
         self.xcrun = xcrun; self.repo = repo; self.python = python; self.root = root; self.device = device; self.team = team

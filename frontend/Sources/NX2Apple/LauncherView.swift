@@ -67,7 +67,13 @@ struct LauncherView: View {
         _m = StateObject(wrappedValue: stores.build); _loc = ObservedObject(wrappedValue: stores.localizer)
         _updates = ObservedObject(wrappedValue: stores.appUpdates); _devices = ObservedObject(wrappedValue: stores.deviceStore)
         _repo = ObservedObject(wrappedValue: stores.repo); _engine = ObservedObject(wrappedValue: stores.engineSync)
-        _library = StateObject(wrappedValue: library ?? GameLibrary())
+        let lib = library ?? GameLibrary()
+        _library = StateObject(wrappedValue: lib)
+        stores.build.artworkPaths = { [lib] in
+            var covers: [String: String] = [:]
+            for game in lib.games where !game.artworkPath.isEmpty { covers[game.titleID.lowercased()] = game.artworkPath }
+            return covers
+        }
         _page = State(initialValue: initialPage); _activeBuildID = State(initialValue: activeBuildID)
         self.performStartupChecks = performStartupChecks
     }
@@ -666,11 +672,18 @@ struct LauncherView: View {
         }
     }
 
+    /// A still ImageIO can read, or a silent movie. Anything else is left unchosen.
+    private static func coverFileOpens(_ url: URL) -> Bool {
+        CoverFile.isMovie(url.path) || NSImage(contentsOf: url) != nil || !CoverFile.frames(at: url.path).isEmpty
+    }
+
     private func chooseArtwork(_ game: LibraryGame) {
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.png, .jpeg, .tiff, .heic]
+        var types: [UTType] = [.png, .jpeg, .tiff, .heic, .gif, .webP, .mpeg4Movie, .quickTimeMovie]
+        if let m4v = UTType(filenameExtension: "m4v") { types.append(m4v) }
+        panel.allowedContentTypes = types
         panel.message = loc.t("library.artworkHint")
-        if panel.runModal() == .OK, let url = panel.url, NSImage(contentsOf: url) != nil {
+        if panel.runModal() == .OK, let url = panel.url, Self.coverFileOpens(url) {
             library.setArtwork(url.path, for: game.id)
         }
     }

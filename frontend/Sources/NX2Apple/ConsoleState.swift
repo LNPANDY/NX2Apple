@@ -35,6 +35,8 @@ struct ConsoleGame: Identifiable {
     var version: String
     var platforms: [Platform]
     var artwork: Image?
+    /// A GIF or a silent video at this path loops in the tile. Empty for a still cover. The blurred backdrop stays the still.
+    var motionPath = ""
     var status: Status
     /// The exact launcher's model, already decoded and localized by the driver.
     var settings: [LaunchSetting] = []

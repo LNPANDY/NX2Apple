@@ -392,9 +392,11 @@ import NXLauncher
                             // The collection's 1.8:1 crop, placeholder and radius, with driver-supplied artwork.
                             GeometryReader { geometry in
                                 ZStack {
-                                    if let cover = game.cover { Image(nsImage: cover).resizable().scaledToFill() }
-                                    else {
-                                        LauncherPalette.surface
+                                    LauncherPalette.surface
+                                    if let cover = game.cover {
+                                        Image(nsImage: cover).resizable().scaledToFill()
+                                            .frame(width: geometry.size.width, height: geometry.size.height)
+                                    } else {
                                         Image(systemName: "gamecontroller").font(.system(size: 30, weight: .light)).foregroundStyle(.secondary)
                                     }
                                 }

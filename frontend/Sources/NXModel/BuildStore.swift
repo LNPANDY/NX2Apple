@@ -147,6 +147,9 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     @Published package var finderShown = false
     @Published package var drive: DriveState?      // the chosen folder's volume and what stops the copy (BuildStore+Send.swift)
     var shellRetry: (framework: String, titleID: String, name: String, archive: String)?
+    /// Covers from the library, keyed by title ID in lower case. Read on the main actor when an install or export starts, and the
+    /// copy the shell gets is that snapshot.
+    package var artworkPaths: () -> [String: String] = { [:] }
     var shellDeviceChecked = false
     package let driveCancel = LockedFlag()   // Stop of the copy to a drive (BuildStore+Send.swift)
     @Published package var shellMove: ShellMove = .idle   // Move cache folder (BuildStore+ShellRoot.swift, #427)

@@ -165,6 +165,7 @@ struct ConsolePadSnapshot: Equatable {
         for s in settings { values[s.env] = s.storeBacked ? store.current(s) : game.launchValue(s) }
         return ConsoleGame(id: game.id.uuidString, title: game.name, version: version(of: game),
                            platforms: Self.platforms(of: game), artwork: cover(game),
+                           motionPath: CoverFile.animates(game.artworkPath) ? game.artworkPath : "",
                            status: Self.status(of: game, brokenMessage: t("console.broken")), settings: settings, values: values)
     }
 
