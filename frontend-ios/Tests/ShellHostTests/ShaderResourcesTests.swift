@@ -28,6 +28,10 @@ import Testing
 
     @Test func playExtractsOnceAndRetriesAnInterruptedUpdate() async throws {
         let box = try Sandbox(), gameFolder = try box.giveAppData()
+        let save = gameFolder.appendingPathComponent("save/progress.sav")
+        let otherCache = box.appData.appendingPathComponent(Fixtures.chain + "/.shader-resources/msl-" + UUID().uuidString + "/" + shader)
+        try box.write("player save", to: save)
+        try box.write("other game shaders", to: otherCache)
         let launcher = RecordingLauncher(), model = ShellHostModel(config: box.config(), launcher: launcher)
         let framework = box.games.appendingPathComponent(Fixtures.orbit + "/DmGame.framework")
         let secondShader = "b-3f9a2c/large.metallib"
@@ -55,6 +59,7 @@ import Testing
         try complete.prefix(complete.count / 2).write(to: next)   // Truncate the multi-block LZFSE stream.
         await model.playNow(Fixtures.orbit)
         #expect(model.notice != nil && launcher.launched.count == 2)
+        #expect(!model.launchingGame)
         let cache = gameFolder.appendingPathComponent(".shader-resources")
         #expect(try FileManager.default.contentsOfDirectory(atPath: cache.path) == [firstCache.lastPathComponent])
 
@@ -62,9 +67,13 @@ import Testing
         await model.playNow(Fixtures.orbit)
         let updatedGame = try #require(launcher.launched.last), updated = try #require(updatedGame.shaderResourcesURL)
         #expect(launcher.launched.count == 3 && updated != firstCache)
+        #expect(!model.launchingGame)
         #expect(try String(contentsOf: updated.appendingPathComponent(shader), encoding: .utf8) == "later")
         #expect(try String(contentsOf: updated.appendingPathComponent(secondShader), encoding: .utf8) == large)
         #expect(try FileManager.default.contentsOfDirectory(atPath: cache.path) == [updated.lastPathComponent])
+        #expect(try String(contentsOf: save, encoding: .utf8) == "player save")
+        #expect(try Data(contentsOf: gameFolder.appendingPathComponent("romfs/fixture.marker")).isEmpty)
+        #expect(try String(contentsOf: otherCache, encoding: .utf8) == "other game shaders")
     }
 
     @Test func interruptedExtractionsAreRemovedBeforeRetryOrCacheHit() async throws {
