@@ -147,8 +147,8 @@ jobs:
         run: |
           cd frontend-qt/dist
           cp -r ../wheels "NS Port Builder/wheels"
-          # The engine tree goes beside the app folder: the launcher finds it at
-          # <exe_dir>/../engine and skips the repo/sync route entirely.
+          # The engine tree goes inside the app folder: the launcher finds it at
+          # <exe_dir>/engine (and also at <exe_dir>/../engine) and skips the repo/sync route entirely.
           cp -r ../../engine-tree "NS Port Builder/engine"
           powershell -Command "Compress-Archive -Path 'NS Port Builder' -DestinationPath '../NS-Port-Builder-qt-windows-x64.zip'"
 
