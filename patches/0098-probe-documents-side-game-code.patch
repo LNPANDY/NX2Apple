@@ -1,0 +1,63 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiaoge-tou <85100527+Tiaoge-tou@users.noreply.github.com>
+Date: Wed, 4 Nov 2026 20:55:51 +0800
+Subject: [PATCH] Shell library: probe, catalogue Hades II from a
+ Documents-side copy of its framework
+
+Probe builds only (this branch is never merged): makeController stages
+the bundled Hades II framework into Documents/games-probe/<title ID>/
+as a folder-format game bundle and points the catalogue there, so Play
+dlopens game code that never sat in the app bundle. The bytes and their
+signature are the installed bundle's own; only the location changes.
+Whether the platform accepts the load is what the probe measures.
+
+Upstream-Status: fork-only
+Reason: Feasibility probe for adding games inside the shell: signed game code loaded from the app's Documents instead of the sealed bundle (PROJECT.md Phase 4)
+Issue: Tiaoge-tou/NX2Apple PROJECT.md Phase 4
+---
+ dm/ios/Shell/ShellApp.swift | 32 +++++++++++++++++++++++++++++++-
+ 1 file changed, 31 insertions(+), 1 deletion(-)
+
+diff --git a/dm/ios/Shell/ShellApp.swift b/dm/ios/Shell/ShellApp.swift
+index 8dbe45f..3f4f0e7 100644
+--- a/dm/ios/Shell/ShellApp.swift
++++ b/dm/ios/Shell/ShellApp.swift
+@@ -51,7 +51,37 @@ private func withCStrings<R>(_ strings: [String], _ body: (UnsafePointer<UnsafeP
+         // The shader chain the host was compiled with (build_shell.sh writes DMChain): a framework built for another one needs an app update
+         let chain = (info["DMChain"] as? String).map { "b-" + $0 }
+         let frameworks = Bundle.main.privateFrameworksURL ?? Bundle.main.bundleURL.appendingPathComponent("Frameworks", isDirectory: true)
+-        let config = ShellHostConfig(gamesRoot: frameworks, appDataRoot: ShellHostConfig.defaultAppDataRoot(),
++        var gamesRoot = frameworks
++        // Probe (in-shell loading, probe builds only): stage the Hades II framework as a Documents-side
++        // game bundle and catalogue the library from there instead, so Play dlopens a copy of the game's
++        // code that never sat in the app bundle's Frameworks. Only the location changes: the bytes are
++        // the bundle's own, carrying the signature the installer's signing gave them.
++        if let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
++            let fm = FileManager.default
++            let fwName = "DmGame0100A00019DE0000.framework"
++            let exeName = "DmGame0100A00019DE0000"
++            let src = frameworks.appendingPathComponent(fwName, isDirectory: true)
++            let probeRoot = docs.appendingPathComponent("games-probe", isDirectory: true)
++            let gameDir = probeRoot.appendingPathComponent("0100A00019DE0000", isDirectory: true)
++            let dst = gameDir.appendingPathComponent(fwName, isDirectory: true)
++            func modDate(_ u: URL) -> Date { ((try? fm.attributesOfItem(atPath: u.path))?[.modificationDate] as? Date) ?? .distantPast }
++            if fm.fileExists(atPath: src.path) {
++                try? fm.createDirectory(at: gameDir, withIntermediateDirectories: true)
++                if !fm.fileExists(atPath: dst.path) || modDate(src.appendingPathComponent(exeName)) > modDate(dst.appendingPathComponent(exeName)) {
++                    try? fm.removeItem(at: dst)
++                    try? fm.copyItem(at: src, to: dst)
++                }
++                for name in ["game.manifest.json", "launcher.json", "banner.jpg", "icon.png"] {
++                    let s = dst.appendingPathComponent(name), d = gameDir.appendingPathComponent(name)
++                    if fm.fileExists(atPath: s.path), !fm.fileExists(atPath: d.path) { try? fm.copyItem(at: s, to: d) }
++                }
++                if fm.fileExists(atPath: dst.path) {
++                    gamesRoot = probeRoot
++                    fputs("probe: Hades II game code staged in Documents (games-probe); the library reads it from there\n", stderr)
++                }
++            }
++        }
++        let config = ShellHostConfig(gamesRoot: gamesRoot, appDataRoot: ShellHostConfig.defaultAppDataRoot(),
+                                      environment: HostEnvironment(chain: chain),
+                                      updateURL: URL(string: "https://github.com/LNPANDY/NX2Apple/releases"))
+         let model = ShellHostModel(config: config, launcher: EngineGameLauncher(), picker: DocumentFolderPicker())
