@@ -57,6 +57,8 @@ public struct ShellHostConfig: Sendable {
     public var notice: String?
     /// The log the host view shows in a read-only sheet.
     public var log: LogPresentation?
+    /// Play is preparing the game's resources or handing over to the engine.
+    public private(set) var launchingGame = false
 
     public private(set) var globalPadMap = PadMap()
     /// The last controller state, sent only while the button test is open.
@@ -64,7 +66,6 @@ public struct ShellHostConfig: Sendable {
 
     @ObservationIgnored private let config: ShellHostConfig
     @ObservationIgnored private let launcher: any GameLauncher
-    @ObservationIgnored private var launchingGame = false
     @ObservationIgnored private let picker: any FolderPicker
     @ObservationIgnored private let adapter = GamepadAdapter()
     @ObservationIgnored private var dataStores: [String: BookmarkStore] = [:]
@@ -92,6 +93,9 @@ public struct ShellHostConfig: Sendable {
         shellCloud = BookmarkStore(defaults: shellSettings.defaults, key: ShellSettingsStore.cloudSavesKey)
         shellChoices = Self.choices(of: shellSettings)
         globalPadMap = shellSettings.padMap
+        // Game files stay out of the iCloud backup (#618), also what an earlier version put there. Off the main actor, it lists folders.
+        let dataRoot = config.appDataRoot
+        Task.detached(priority: .utility) { BackupExclusion.apply(appDataRoot: dataRoot) }
         reload()
         defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.defaultsDidChange() }
@@ -492,7 +496,7 @@ public struct ShellHostConfig: Sendable {
     /// or Home is held. The menu item reads the title without its question mark.
     static func quitPromptText(gameName: String) -> String {
         [hostText("Keep holding to quit"), hostText("Quit \(gameName)?"),
-         hostText("Unsaved progress will be lost. The app closes and opens on your games next time."), hostText("Quit"), hostText("Cancel")]
+         hostText("Unsaved progress will be lost. The app closes. Open it again to get back to your games."), hostText("Quit"), hostText("Cancel")]
             .map { $0.replacingOccurrences(of: "\n", with: " ") }.joined(separator: "\n")
     }
 
@@ -518,7 +522,7 @@ public struct ShellHostConfig: Sendable {
     /// Starts reading GameController: the connected controllers become `controllers`, their buttons `input`.
     public func startControllers() {
         adapter.onInput = { [weak self] action, device in
-            guard let self else { return }
+            guard let self, !self.launchingGame else { return }
             self.input = ShellInput(sequence: (self.input?.sequence ?? 0) + 1, action: action, device: device)
         }
         adapter.onControllersChange = { [weak self] connected in

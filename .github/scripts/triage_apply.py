@@ -39,7 +39,7 @@ REF_DEF = re.compile(r'^[ ]{0,3}\[[^\]\n]+\]:[ \t]*(\S*)', re.M)
 INLINE_TARGET = re.compile(r'\]\(\s*<?([^)\s>]*)')
 DOMAIN_LIKE = re.compile(r'(?<![\w@/-])[a-z0-9][a-z0-9_-]*(?:\.[a-z0-9][a-z0-9_-]*)+(?![\w-])', re.I)
 # A dotted word is a file name, not a host, when its last part is one of these (or a number: 0.4.9, 26.1). Anything else is rejected.
-FILE_EXT = set('txt log md py sh swift c h m mm cpp hpp tsv json yml yaml toml plist zip pdf png jpg jpeg gif ipa nsp nsz xci nso nro js ts rs cs csv ini lock metal msl'.split())
+FILE_EXT = set('txt log md py sh swift c h m mm cpp hpp tsv json yml yaml toml plist zip pdf png jpg jpeg gif ipa nsp nsz xci nso nro js ts rs cs csv ini lock metal msl metallib mtl4a img ips nca npdm xcz dmsync framework xcodeproj xcworkspace entitlements'.split())
 TRAIL = ')]>.,;:!*_\'"`'
 ISSUE_REF = re.compile(r'(?<![\w&/])#(\d+)\b')
 ISSUE_URL_NUM = re.compile(r'/(?:issues|pull|discussions)/(\d+)', re.I)
