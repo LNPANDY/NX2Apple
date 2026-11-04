@@ -1,0 +1,127 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: v0lumehi <aljic.zijad@gmail.com>
+Date: Wed, 4 Nov 2026 10:56:51 +0100
+Subject: [PATCH] NSP script: find game files whose extension is in capitals
+
+A folder with `Game [id].NSP` (a download, a card dump) was not found: the scan used
+Path.glob('*.nsp'), '*.xci', '*.nsz' and '*.xcz', which match the case of the pattern on Linux and on
+a case-sensitive volume, so the build stopped with no NSP found. The same globs decided whether a
+folder holds a package or only a dump (dump_folder) and whether a NUP is packed (nup_file), and the
+NUP lookup used '*.nup'. COMPRESSED was also looked up by the exact suffix.
+
+files_with_suffix lists a folder's entries whose extension, lowercased, is one of the wanted ones, and
+every scan of the inputs uses it. The COMPRESSED lookups lowercase the suffix too. test_nsp_scan.py
+gets a folder with .NSP, .Nsp, .XCI and .NSZ names and a NUP and package check in capitals.
+
+Upstream-Status: forwarded seedds/nxnative#1189
+Reason: A game file with an upper case extension (Game [id].NSP) was not found: the scans used case-sensitive globs
+Issue: LNPANDY/NX2Apple#554
+
+---
+ dm/tools/tests/test_nsp_scan.py | 21 +++++++++++++++++++++
+ scripts/build_ipa_from_nsp.py   | 21 +++++++++++++--------
+ 2 files changed, 34 insertions(+), 8 deletions(-)
+
+diff --git a/dm/tools/tests/test_nsp_scan.py b/dm/tools/tests/test_nsp_scan.py
+index 4ea2390..ea986a7 100644
+--- a/dm/tools/tests/test_nsp_scan.py
++++ b/dm/tools/tests/test_nsp_scan.py
+@@ -46,6 +46,27 @@ class Scan(unittest.TestCase):
+         self.assertEqual(nsp.scan_nsps(self.tmp)[1]['base'], base)
+         self.assertEqual(self.said, [])
+ 
++    def test_extension_in_any_letter_case(self):   # `Game [id].NSP` (a download, a card dump): glob('*.nsp') missed it on a case-sensitive volume (LNPANDY/NX2Apple#554)
++        base = self.tmp / f'Game [{APP:016X}][v0].NSP'; pfs0(base, [f'{APP:016x}0000000000000011.tik'])
++        upd = self.tmp / f'Update [{APP | 0x800:016X}][v65536].Nsp'; pfs0(upd, [])
++        dlc = self.tmp / f'DLC [{APP + 0x1001:016X}].XCI'; dlc.write_bytes(bytes(0x100) + b'HEAD' + bytes(0x100))
++        app, fam = nsp.scan_nsps(self.tmp)
++        self.assertEqual((app, fam['base'], [p for _, p in fam['updates']], [p for _, _, p in fam['dlc']]), (APP, base, [upd], [dlc]))
++
++    def test_compressed_extension_in_capitals_is_converted_and_skipped_like_lowercase(self):
++        nsz = self.tmp / f'Game [{APP:016X}].NSZ'; pfs0(nsz, [f'{APP:016x}0000000000000011.tik'])
++        self.assertEqual(nsp.scan_nsps(self.tmp)[1]['base'], nsz)
++        self.assertEqual(nsp.COMPRESSED[nsz.suffix.lower()], '.nsp')
++        self.assertEqual(nsp.files_with_suffix(self.tmp, '.nsz'), [nsz])
++
++    def test_package_beside_a_dump_or_nup_in_capitals(self):
++        pkg = self.tmp / 'Game.NSP'; pfs0(pkg, ['x.nca'])
++        self.assertIsNone(nsp.nup_file(self.tmp))   # a package in capitals counts as a package, so no NUP is looked for
++        pkg.unlink()
++        self.assertEqual(nsp.files_with_suffix(self.tmp, '.nup'), [])
++        nup = self.tmp / 'Game.NUP'; nup.write_bytes(b'x')
++        self.assertEqual(nsp.files_with_suffix(self.tmp, '.nup'), [nup])
++
+     def test_missing_final_name_terminator(self):
+         for extension in ('.nsp', '.nsz'):
+             with self.subTest(extension=extension):
+diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
+index 4161bec..72e5e63 100755
+--- a/scripts/build_ipa_from_nsp.py
++++ b/scripts/build_ipa_from_nsp.py
+@@ -533,6 +533,11 @@ def version_of(path):
+ 
+ 
+ COMPRESSED = {'.nsz': '.nsp', '.xcz': '.xci'}   # nsz's compressed NSP / XCI and what nsz -D makes of them
++PACKAGE_SUFFIXES = ('.nsp', '.xci', '.nsz', '.xcz')
++
++
++def files_with_suffix(folder, *suffixes):   # the entries of folder whose extension is one of suffixes in any letter case (`Game [id].NSP` from a download or a card dump): Path.glob('*.nsp') is case-sensitive on Linux and on a case-sensitive volume, so a name in capitals was not found
++    return sorted(p for p in folder.iterdir() if p.suffix.lower() in suffixes)
+ 
+ 
+ def scan_nsps(nsp_dir, from_package=None, contents_of=None, want=None):
+@@ -549,14 +554,14 @@ def scan_nsps(nsp_dir, from_package=None, contents_of=None, want=None):
+         if low == 0: f['base'] = p
+         elif low == 0x800: f['updates'].append((version, p))
+         else: f['dlc'].append((tid, version, p))
+-    for p in sorted([*nsp_dir.glob('*.nsp'), *nsp_dir.glob('*.xci'), *nsp_dir.glob('*.nsz'), *nsp_dir.glob('*.xcz')]):   # a base game may be a cartridge dump (.xci: Monster Hunter Rise); nx_extract reads its secure partition
++    for p in files_with_suffix(nsp_dir, *PACKAGE_SUFFIXES):   # a base game may be a cartridge dump (.xci: Monster Hunter Rise); nx_extract reads its secure partition
+         if p.name.startswith('._'): continue   # an AppleDouble file: on an exFAT / FAT drive macOS keeps a file's extended attributes (a download's quarantine flag) in `._<name>`, one beside each game file; is_package would skip it too, with a line for each
+         if p.stat().st_size == 0:   # an empty file left by an incomplete download (the Zelda BotW folder holds a 0-byte DLC NSP next to the complete (1).nsp)
+             say(f'skipping an empty file: {p.name}'); continue
+         if not is_package(p):   # title_of falls back to the name's [title ID]: without this, any file with a game's extension and tag counted as one of its packages
+             say(f'skipping {p.name}: neither an NSP (PFS0) nor an XCI (HEAD at 0x100)'); continue
+-        if p.suffix in COMPRESSED and p.with_suffix(COMPRESSED[p.suffix]).exists():
+-            say(f'skipping {p.name}: {p.with_suffix(COMPRESSED[p.suffix]).name} is beside it'); continue
++        if p.suffix.lower() in COMPRESSED and p.with_suffix(COMPRESSED[p.suffix.lower()]).exists():
++            say(f'skipping {p.name}: {p.with_suffix(COMPRESSED[p.suffix.lower()]).name} is beside it'); continue
+         if contents_of and is_merged(p):
+             cs = [(t, i, v) for t, i, v in contents_of(p) or () if t in ('Application', 'Patch', 'AddOnContent')]
+             if cs:
+@@ -610,7 +615,7 @@ def decompress_nsz(nsp_dir, app, fam, keys, env, work=None):
+     and the file is moved into nsp/ only when nsz exits 0, so a partial one is never taken for a whole one; a conversion is reused while its source has the same name, size and
+     modification time. nsz -D prints an NCA hash mismatch but goes on and exits 0: nx_extract's hash check catches a damaged file (ALLOW_DAMAGED)"""
+     paths = [fam['base']] + [p for _, p in fam['updates']] + [p for _, _, p in fam['dlc']]
+-    todo = list(dict.fromkeys(p for p in paths if p.suffix in COMPRESSED))   # a merged package is the base game, the update and DLC: converted once
++    todo = list(dict.fromkeys(p for p in paths if p.suffix.lower() in COMPRESSED))   # a merged package is the base game, the update and DLC: converted once
+     if not todo: return fam
+     nsz, keys_opt = nsz_command(env), []
+     if nsz[0] != sys.executable: keys_opt = ['--keys', keys.resolve()]   # a standalone nsz looks for keys beside itself, not in cwd: it takes them by --keys (nsz_command)
+@@ -618,7 +623,7 @@ def decompress_nsz(nsp_dir, app, fam, keys, env, work=None):
+     PROG.plan(1); PROG.stage('decompress NSZ', done=0, total=len(todo))
+     conv, made = {}, 0
+     for i, p in enumerate(todo):
+-        dst = out / (p.stem + COMPRESSED[p.suffix]); keyfile = dst.with_name(dst.name + '.key')
++        dst = out / (p.stem + COMPRESSED[p.suffix.lower()]); keyfile = dst.with_name(dst.name + '.key')
+         st = p.stat(); key = fingerprint(p.name, st.st_size, st.st_mtime_ns)
+         if not (dst.is_file() and reused(keyfile, key) is not None):
+             PROG.set(done=i, step=p.name)
+@@ -1136,15 +1141,15 @@ def extract(nx, keys, ex, name, base, upd, cmp_dir, logs, g, app):   # the build
+ 
+ 
+ def dump_folder(folder):   # a folder of the game's files (pack_dump.py), with no game package beside them: NSPs in the folder are what the player asked for
+-    return pack_dump.is_dump(folder) and not any(p for g in ('*.nsp', '*.xci', '*.nsz', '*.xcz') for p in folder.glob(g) if not p.name.startswith('._'))
++    return pack_dump.is_dump(folder) and not any(p for p in files_with_suffix(folder, *PACKAGE_SUFFIXES) if not p.name.startswith('._'))
+ 
+ 
+ def nup_file(path):   # the NUP to pack: path when it is a .nup file, else the one .nup in the folder when no game package is beside it; None when there is none
+     if path.is_file():
+         if not pack_nup.is_nup(path): raise BuildError(f'not a folder or a NUP file: {path}')
+         return path
+-    if any(p for g in ('*.nsp', '*.xci', '*.nsz', '*.xcz') for p in path.glob(g) if not p.name.startswith('._')): return None
+-    nups = sorted(p for p in path.glob('*.nup') if not p.name.startswith('._') and pack_nup.is_nup(p))
++    if any(p for p in files_with_suffix(path, *PACKAGE_SUFFIXES) if not p.name.startswith('._')): return None
++    nups = sorted(p for p in files_with_suffix(path, '.nup') if not p.name.startswith('._') and pack_nup.is_nup(p))
+     if len(nups) > 1: raise BuildError(f'more than one NUP in {path}: {", ".join(p.name for p in nups)}; keep one game per folder, or give the .nup file to pack in place of the folder')
+     return nups[0] if nups else None
+ 

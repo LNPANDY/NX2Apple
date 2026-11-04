@@ -26,10 +26,10 @@
 
 #### 🆕 Les nouveautés
 
-- **Une seule app pour iPhone et iPad** : compilez un jeu avec la cible iPhone / iPad et il arrive dans une app coque qui contient tous vos jeux. Une bibliothèque centrée sur les visuels des jeux, Cover Flow quand le téléphone est à l’horizontale, des réglages pour chaque jeu et une commande à la manette ou au clavier. Elle suit la langue du système (anglais et chinois simplifié).
-- **Des sauvegardes qui vous suivent** : les sauvegardes Mac ⇄ iPhone se synchronisent par un dossier iCloud Drive, une app supprimée se réinstalle en quelques secondes et la signature de 7 jours d’un identifiant Apple gratuit se renouvelle sur place.
-- **Un premier lancement guidé** : un assistant de configuration accompagne les nouveaux joueurs à travers Xcode, les clés et les jeux. Les outils de compilation et un Python sont intégrés à l’app, donc personne n’a besoin d’installer Homebrew.
-- **Mode console** : branchez une manette et appuyez sur Select. La bibliothèque passe en plein écran, pensée pour la manette, comme le menu d’accueil d’une Switch.
+- **Jeux Switch 2** : choisissez un dossier de jeu Switch 2 ou un fichier `.nup` dans le lanceur Mac ou Windows, sans `prod.keys`, et jouez sur Mac, iPhone ou iPad.
+- **Commandes tactiles personnalisées et réattribution des boutons** : redimensionnez les boutons, déplacez le stick gauche ou placez chaque commande dans l’éditeur visuel sur iPhone et iPad. Les manettes physiques prennent en charge la réattribution par jeu ou globale.
+- **Une seule app pour iPhone et iPad** : tous vos jeux sont réunis dans une seule app coque (ou exportés en IPA non signé pour AltStore et SideStore), avec Cover Flow en paysage, réglages et mods par jeu, suppression du jeu en gardant les sauvegardes et 6 langues.
+- **Mode console** : branchez une manette et appuyez sur Select, ou démarrez directement en mode console. La bibliothèque passe en plein écran comme sur une Switch, et maintenir Home 2 secondes quitte un jeu.
 
 Toutes les versions sont dans le [journal des modifications](CHANGELOG.md).
 

@@ -69,6 +69,33 @@ import Testing
         }
     }
 
+    /// Reset all controls asks first: the first press only asks, Cancel keeps every move, the answer resets the shown layout alone.
+    @MainActor @Test func resetAllAsksBeforeItActs() {
+        let store = store()
+        let m = TouchLayoutEditorModel(store: store, kind: .threeD)
+        m.askReset()
+        #expect(!m.confirmingReset, "nothing moved, nothing to ask")
+        m.setKind(.twoD); m.select(.stick); m.nudge(dx: 0, dy: -1)
+        m.setKind(.threeD); m.select(.face); m.nudge(dx: -1, dy: 0)
+        let moved = store.touchLayout
+        m.askReset()
+        #expect(m.confirmingReset && store.touchLayout == moved && !m.layoutIsBuiltIn)
+        m.cancelReset()
+        #expect(!m.confirmingReset && store.touchLayout == moved)
+        m.askReset(); m.setKind(.twoD)
+        #expect(!m.confirmingReset, "another layout drops the question")
+        m.setKind(.threeD); m.askReset(); m.reset()
+        #expect(!m.confirmingReset && m.layoutIsBuiltIn)
+        #expect(store.touchLayout.isEmpty(.threeD) && !store.touchLayout.isEmpty(.twoD), "the 2D layout keeps its move")
+    }
+
+    /// The column beside the preview held sideways fits the smallest phone and never grows past the buttons' room on an iPad.
+    @Test func theSidewaysColumnFitsEveryPhone() {
+        #expect(TouchLayoutEditorView.column(width: 667) == 250)
+        #expect(TouchLayoutEditorView.column(width: 832) == 283)
+        #expect(TouchLayoutEditorView.column(width: 1376) == 340)
+    }
+
     @Test func theSizesKeepTheirOrder() {
         #expect(TouchPadPreviewGeometry(size: "small").u < TouchPadPreviewGeometry(size: "medium").u)
         #expect(TouchPadPreviewGeometry(size: "large").u > TouchPadPreviewGeometry(size: "medium").u)
