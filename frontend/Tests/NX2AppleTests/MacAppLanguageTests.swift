@@ -134,12 +134,55 @@ final class MacAppLanguageTests: IsolatedDefaultsTestCase {
         XCTAssertEqual(parsed.settings.first { $0.env == "DM_LANG" }?.options?.map { $0[0] }, ["en-US", "ja", "fr", "zh-Hant", "zh-Hans"])
     }
 
-    /// Minimal DMROMFS1 image with `/System/RegionLangMask.txt` containing `mask`.
+    private func writeImage(_ data: Data) throws -> String {
+        let url = temporary.appendingPathComponent("img-\(UUID().uuidString).img")
+        try data.write(to: url)
+        return url.path
+    }
+
+    func testRomFSImageWithFewerThanTwoKnownLanguagesGivesNoRow() throws {
+        XCTAssertEqual(RomFSLanguages.options(in: try writeImage(Self.makeDMROMFSImage(mask: "USen\n"))), [])
+        XCTAssertEqual(RomFSLanguages.options(in: try writeImage(Self.makeDMROMFSImage(mask: "USen ZZxx QQqq\n"))), [])
+        XCTAssertEqual(RomFSLanguages.options(in: try writeImage(Self.makeDMROMFSImage(mask: "USen JPja\n"))).map { $0[0] }, ["en-US", "ja"])
+    }
+
+    func testRomFSImageWithBadMagicOrCutOffGivesNoRow() throws {
+        var bad = Self.makeDMROMFSImage(mask: "USen JPja\n")
+        bad[0] = UInt8(ascii: "X")
+        XCTAssertEqual(RomFSLanguages.options(in: try writeImage(bad)), [])
+        let good = Self.makeDMROMFSImage(mask: "USen JPja\n")
+        XCTAssertEqual(RomFSLanguages.options(in: try writeImage(good.prefix(good.count - 10))), [], "the index must end at the end of the file")
+        XCTAssertEqual(RomFSLanguages.options(in: try writeImage(good.prefix(20))), [])
+        XCTAssertEqual(RomFSLanguages.options(in: try writeImage(Data())), [])
+    }
+
+    func testRomFSImageWithCraftedHeaderDoesNotTrap() throws {
+        func patched(at offset: Int, _ value: UInt64) -> Data {
+            var d = Self.makeDMROMFSImage(mask: "USen JPja\n")
+            for i in 0..<8 { d[offset + i] = UInt8((value >> (8 * UInt64(i))) & 0xff) }
+            return d
+        }
+        XCTAssertEqual(RomFSLanguages.options(in: try writeImage(patched(at: 24, UInt64.max))), [], "a huge entry count must not overflow count * 24")
+        XCTAssertEqual(RomFSLanguages.options(in: try writeImage(patched(at: 24, UInt64.max / 24 + 1))), [])
+        XCTAssertEqual(RomFSLanguages.options(in: try writeImage(patched(at: 8, UInt64.max))), [])
+        XCTAssertEqual(RomFSLanguages.options(in: try writeImage(patched(at: 16, UInt64.max))), [])
+        // The mask file's size field is the second u64 of entry 2, which starts 48 bytes into the index.
+        var d = Self.makeDMROMFSImage(mask: "USen JPja\n")
+        let idxOff = Int(d[8]) | Int(d[9]) << 8
+        for i in 0..<8 { d[idxOff + 48 + 8 + i] = i == 7 ? 0x7f : 0xff }
+        XCTAssertEqual(RomFSLanguages.options(in: try writeImage(d)), [])
+        // A mask offset near UInt64.max must not overflow offset + size.
+        var e = Self.makeDMROMFSImage(mask: "USen JPja\n")
+        for i in 0..<8 { e[idxOff + 48 + i] = 0xff }
+        XCTAssertEqual(RomFSLanguages.options(in: try writeImage(e)), [])
+    }
+
+    /// DMROMFS1 image with `/System/RegionLangMask.txt` containing `mask`, laid out as `dm/tools/romfs_image.py` writes it
+    /// (header, data, then 24-byte entries and one name pool, breadth-first, a directory is type 0 and a file is type 1).
     private static func makeDMROMFSImage(mask: String) -> Data {
         let payload = [UInt8](mask.utf8)
         let dataOff: UInt64 = 32
-        let paddedLen = (payload.count + 7) & ~7
-        let idxOff = dataOff + UInt64(paddedLen)
+        let idxOff = dataOff + UInt64(payload.count)
         let names = [UInt8]("SystemRegionLangMask.txt".utf8)
         func le64(_ v: UInt64) -> [UInt8] { (0..<8).map { UInt8((v >> (8 * UInt64($0))) & 0xff) } }
         func le32(_ v: UInt32) -> [UInt8] { (0..<4).map { UInt8((v >> (8 * UInt32($0))) & 0xff) } }
@@ -147,12 +190,12 @@ final class MacAppLanguageTests: IsolatedDefaultsTestCase {
         func entry(_ a: UInt64, _ b: UInt64, _ nOff: UInt32, _ nLen: UInt16, _ type: UInt8) -> [UInt8] {
             le64(a) + le64(b) + le32(nOff) + le16(nLen) + [type, 0]
         }
-        let entries = entry(1, 1, 0, 0, 2)
-            + entry(2, 1, 0, 6, 2)
+        let entries = entry(1, 1, 0, 0, 0)
+            + entry(2, 1, 0, 6, 0)
             + entry(dataOff, UInt64(payload.count), 6, 18, 1)
         let idx = entries + names
         let head = [UInt8]("DMROMFS1".utf8) + le64(idxOff) + le64(UInt64(idx.count)) + le64(3)
-        return Data(head + payload + [UInt8](repeating: 0, count: paddedLen - payload.count) + idx)
+        return Data(head + payload + idx)
     }
 
     /// settings.py output, as described above.

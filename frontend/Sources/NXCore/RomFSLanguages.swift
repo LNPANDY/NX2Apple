@@ -156,7 +156,7 @@ package enum RomFSLanguages {
         guard head[0..<8].elementsEqual("DMROMFS1".utf8) else { return [] }
         let idxOff = u64(head, 8), idxSize = u64(head, 16), count = u64(head, 24)
         guard idxOff >= 32, idxOff <= fileSize, idxSize == fileSize - idxOff,
-              idxSize <= 64 * 1024 * 1024, count >= 1, count * 24 <= idxSize,
+              idxSize <= 64 * 1024 * 1024, count >= 1, count <= idxSize / 24,
               (try? handle.seek(toOffset: idxOff)) != nil,
               let idxData = try? handle.read(upToCount: Int(idxSize)), idxData.count == Int(idxSize) else { return [] }
         let idx = [UInt8](idxData)
@@ -177,7 +177,7 @@ package enum RomFSLanguages {
             return Entry(a: u64(idx, o), b: u64(idx, o + 8), name: name, type: idx[o + 22])
         }
         func children(of dirIndex: Int) -> [Int] {
-            guard let dir = entry(dirIndex), dir.type == 2,
+            guard let dir = entry(dirIndex), dir.type == 0,   // the writer (romfs_image.py) stores a directory as type 0 and a file as type 1
                   dir.a <= count, dir.b <= count - dir.a else { return [] }
             return Array(Int(dir.a)..<Int(dir.a + dir.b))
         }
@@ -188,7 +188,7 @@ package enum RomFSLanguages {
         if let sys = findChild(in: 0, named: "System"),
            let maskIdx = findChild(in: sys, named: "RegionLangMask.txt"),
            let mask = entry(maskIdx), mask.type == 1, mask.b > 0, mask.b <= 65536,
-           mask.a + mask.b <= idxOff,
+           mask.a >= 32, mask.b <= idxOff, mask.a <= idxOff - mask.b,
            (try? handle.seek(toOffset: mask.a)) != nil,
            let maskData = try? handle.read(upToCount: Int(mask.b)),
            let text = String(data: maskData, encoding: .utf8) {
