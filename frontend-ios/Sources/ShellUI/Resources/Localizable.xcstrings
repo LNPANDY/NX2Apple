@@ -527,6 +527,22 @@
         }
       }
     },
+    "Choose image file…": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose image file…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择镜像文件…"
+          }
+        }
+      }
+    },
     "Choose the same iCloud Drive folder you use on your Mac.": {
       "localizations": {
         "en": {

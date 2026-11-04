@@ -4,10 +4,18 @@ import UIKit
 import UniformTypeIdentifiers
 #endif
 
-/// Asks the player for a folder. The shell's model only knows this protocol, so tests answer without UI.
+/// Asks the player for a folder, or for one game data image file. The shell's model only knows this
+/// protocol, so tests answer without UI.
 public protocol FolderPicker: Sendable {
     /// The picked folder with the picker's security scope, or nil when the player cancelled.
     @MainActor func pickFolder() async -> URL?
+    /// A picked game data image (a romfs.img) with the picker's security scope, or nil when cancelled.
+    /// Separate from the folder pick on purpose: one document picker cannot do both (see the picker below).
+    @MainActor func pickImageFile() async -> URL?
+}
+
+public extension FolderPicker {
+    @MainActor func pickImageFile() async -> URL? { nil }
 }
 
 /// No picker: always cancelled. The default on platforms without UIKit.
@@ -17,17 +25,29 @@ public struct NoFolderPicker: FolderPicker {
 }
 
 #if canImport(UIKit)
-/// `UIDocumentPickerViewController` for a folder or a game image file, opened in place (not copied) as the
-/// per-game app does, so the bookmark keeps pointing at the player's drive or iCloud Drive location.
+/// `UIDocumentPickerViewController`s opened in place (not copied) as the per-game app does, so the
+/// bookmark keeps pointing at the player's drive or iCloud Drive location. Two single-purpose pickers,
+/// never one mixed picker: a picker opened with the folder type alongside a file type stops offering the
+/// current folder as a choice (its Open button goes inert on a folder), and an image-extension type this
+/// app never declared matches no file on device either, so the mixed picker accepted neither (field
+/// report, 2026-11-04). The folder picker is the folder type alone; the file picker takes any data file
+/// and lets the catalogue's holder check (extension and size against the game's image identity) sort out
+/// what was picked.
 public struct DocumentFolderPicker: FolderPicker {
     public init() {}
 
     @MainActor public func pickFolder() async -> URL? {
+        await pick(types: [.folder])
+    }
+
+    @MainActor public func pickImageFile() async -> URL? {
+        await pick(types: [.data])
+    }
+
+    @MainActor private func pick(types: [UTType]) async -> URL? {
         guard let presenter = Self.topViewController() else { return nil }
         return await withCheckedContinuation { continuation in
-            // A folder, or a romfs.img itself: the catalogue's holder check sorts out which was picked, so a
-            // player whose data is a loose image file can pick it directly instead of building folders by hand.
-            let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.folder, UTType(filenameExtension: "img") ?? .data], asCopy: false)
+            let picker = UIDocumentPickerViewController(forOpeningContentTypes: types, asCopy: false)
             picker.allowsMultipleSelection = false
             let delegate = Delegate(continuation: continuation)
             picker.delegate = delegate

@@ -306,6 +306,7 @@ public struct ShellHostConfig: Sendable {
             onPlay: { [weak self] id in self?.play(id) },
             onChange: { [weak self] id, setting, value in self?.change(id, setting: setting, value: value) },
             onPickGameData: { [weak self] id in self?.pickGameData(id) },
+            onPickGameDataFile: { [weak self] id in self?.pickGameDataFile(id) },
             onUseAppData: { [weak self] id in self?.useAppData(id) },
             onPickCloudSaves: { [weak self] id in self?.pickCloudSaves(id) },
             onDisableCloudSaves: { [weak self] id in self?.disableCloudSaves(id) },
@@ -344,6 +345,22 @@ public struct ShellHostConfig: Sendable {
         refresh(id)
         if let game = details.first(where: { $0.id == id })?.game, game.state == .needsGameData {
             notice = hostText("No game data for \(game.title) was found in that folder.")
+        }
+    }
+
+    public func pickGameDataFile(_ id: String) {
+        Task { await pickGameDataFileNow(id) }
+    }
+
+    func pickGameDataFileNow(_ id: String) async {
+        guard let url = await picker.pickImageFile() else { return }
+        guard dataStore(id).store(url) else {
+            notice = hostText("That location could not be remembered. Try a different one.")
+            return
+        }
+        refresh(id)
+        if let game = details.first(where: { $0.id == id })?.game, game.state == .needsGameData {
+            notice = hostText("No game data for \(game.title) was found in that file.")
         }
     }
 

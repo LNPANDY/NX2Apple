@@ -337,6 +337,22 @@
         }
       }
     },
+    "No game data for %@ was found in that file.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No game data for %@ was found in that file."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该文件中没有 %@ 的游戏数据。"
+          }
+        }
+      }
+    },
     "No game data for %@ was found in that folder.": {
       "localizations": {
         "en": {

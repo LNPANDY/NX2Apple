@@ -34,6 +34,9 @@ public struct GameDetailView: View {
                     Button(ShellStrings.text("Choose…")) { actions.onPickGameData(detail.id) }
                         .buttonStyle(ShellButtonStyle(fills: true)).accessibilityLabel(ShellStrings.text("Choose game data…"))
                         .shellTarget("set.data") { actions.onPickGameData(detail.id) }
+                    Button(ShellStrings.text("Choose image file…")) { actions.onPickGameDataFile(detail.id) }
+                        .buttonStyle(ShellButtonStyle(fills: true))
+                        .shellTarget("set.data.file") { actions.onPickGameDataFile(detail.id) }
                     if !detail.dataSource.isEmpty && !detail.dataFromShell {
                         Button(ShellStrings.text("Use app data")) { actions.onUseAppData(detail.id) }
                             .buttonStyle(ShellButtonStyle(fills: true)).shellTarget("set.appdata") { actions.onUseAppData(detail.id) }
