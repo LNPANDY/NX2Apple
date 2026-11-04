@@ -2106,6 +2106,7 @@ class WindowsBuildFixesTest(unittest.TestCase):
         self.assertEqual(env['NSPB_PYTHON'], 'C:\\venv\\python.exe')
         self.assertEqual(env['DM_ALLOW_SYSTEM_SPIRV_CROSS'], '1')
         self.assertEqual(env['DM_ALLOW_OTHER_METAL'], '1')
+        self.assertEqual(env['DM_REWRITE_J'], '1')
         pkg_root = str(QT)
         self.assertIn(pkg_root, env['PYTHONPATH'].split(os.pathsep))
 
@@ -2123,7 +2124,7 @@ class WindowsBuildFixesTest(unittest.TestCase):
         # Execute the shim's romfs patcher and _win_pread helper from _SITECUSTOMIZE_SRC
         ns: dict = {'os': os, 'sys': sys}
         src = shim._SITECUSTOMIZE_SRC
-        start = src.index('    def _patch_romfs_module(mod):')
+        start = src.index('    _relpath = os.path.relpath')
         end = src.index('    def _patch_sdk_patches_module(mod):')
         exec('\n'.join(ln[4:] for ln in src[start:end].splitlines()), ns)
         ns['_patch_romfs_module'](romfs)
@@ -2168,6 +2169,11 @@ class WindowsBuildFixesTest(unittest.TestCase):
             self.assertFalse(any('\\' in r for r, _, _ in walked))
             joined = romfs.os.path.join('Shader\\sub', 'test.bin')
             self.assertEqual(joined, 'Shader/sub/test.bin')
+            self.assertEqual(romfs.os.sep, '/')
+            self.assertEqual(romfs.os.path.sep, '/')
+            self.assertEqual(romfs.os.path.normpath('Shader\\sub\\test.bin'), 'Shader/sub/test.bin')
+            self.assertEqual(romfs.os.path.relpath(str(src_path) + '/Shader/sub/test.bin', str(src_path)),
+                             'Shader/sub/test.bin')
 
     def test_macho_sign_produces_valid_adhoc_signature_with_entitlements(self) -> None:
         from nspb_qt.win import macho_sign
@@ -2289,6 +2295,59 @@ class WindowsBuildFixesTest(unittest.TestCase):
             with mock.patch.dict(os.environ, {'NSPB_REPO': str(fake_engine)}, clear=False), \
                  mock.patch.object(tc, 'setting', return_value=None):
                 self.assertEqual(tc.find_exe('glslangValidator'), spv)
+
+    def test_shim_patches_signal_pthread_sigmask_and_tool_lock_spirv_cross(self) -> None:
+        src = shim._SITECUSTOMIZE_SRC
+        self.assertIn("os.environ.setdefault('DM_REWRITE_J', '1')", src)
+        self.assertIn("pthread_sigmask", src)
+        self.assertIn("os.execve = _win_execve", src)
+
+        # Verify _patch_tool_lock_module filters out spirv-cross hash mismatches when allowed,
+        # while still reporting missing spirv-cross or translator mismatches.
+        start = src.index('    def _patch_tool_lock_module(mod):')
+        end = src.index('    import importlib.machinery as _machinery')
+        ns: dict = {'os': os}
+        exec('\n'.join(ln[4:] for ln in src[start:end].splitlines()), ns)
+        patch_tl = ns['_patch_tool_lock_module']
+
+        import types
+        fake_tl = types.ModuleType('tool_lock')
+        fake_tl.check_tools = lambda: [
+            'spirv-cross: lock e37945d8e441d34d / actual 0123456789abcdef',
+            'dmsh_xlate.dll: lock aaaa / actual bbbb',
+        ]
+        patch_tl(fake_tl)
+        with mock.patch.dict(os.environ, {'DM_ALLOW_SYSTEM_SPIRV_CROSS': '1'}, clear=False):
+            self.assertEqual(fake_tl.check_tools(), ['dmsh_xlate.dll: lock aaaa / actual bbbb'])
+        with mock.patch.dict(os.environ, {'DM_ALLOW_SYSTEM_SPIRV_CROSS': '0'}, clear=False):
+            self.assertEqual(len(fake_tl.check_tools()), 2)
+
+        # A missing spirv-cross must still be reported even when DM_ALLOW_SYSTEM_SPIRV_CROSS=1
+        fake_tl2 = types.ModuleType('tool_lock')
+        fake_tl2.check_tools = lambda: ['spirv-cross: lock e37945d8e441d34d / actual missing']
+        patch_tl(fake_tl2)
+        with mock.patch.dict(os.environ, {'DM_ALLOW_SYSTEM_SPIRV_CROSS': '1'}, clear=False):
+            self.assertEqual(fake_tl2.check_tools(),
+                             ['spirv-cross: lock e37945d8e441d34d / actual missing'])
+
+    def test_model_on_line_parses_timestamped_stage_lines(self) -> None:
+        try:
+            from nspb_qt.model import Model
+        except ImportError:
+            self.skipTest('PySide6 is not installed')
+        with mock.patch.object(Model, 'check_deps', lambda self: None):
+            m = Model()
+        m._on_line('[04:35:01] [1/6] build nx_extract')
+        self.assertEqual([s.name for s in m.stages], ['build nx_extract'])
+        self.assertEqual(m.stages[-1].state, 'running')
+        m._on_line('[04:35:01] [1/6] build nx_extract ✓ (0s)')
+        self.assertEqual(len(m.stages), 1)
+        m._on_line('[04:35:04] [3/7] rewrite · main, sdk')
+        self.assertEqual([s.name for s in m.stages], ['build nx_extract', 'rewrite · main, sdk'])
+        self.assertEqual(m.stages[0].state, 'done')
+        self.assertEqual(m.stages[1].state, 'running')
+        m._on_line('[04:35:04] [RED] patch_nso.py failed')
+        self.assertEqual(m._last_error, '[RED] patch_nso.py failed')
 
 
 if __name__ == '__main__':

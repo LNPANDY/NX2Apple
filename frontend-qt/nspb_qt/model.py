@@ -615,7 +615,8 @@ class Model(QObject):
                 p = subprocess.Popen([git, 'clone', '--depth', '1', '--single-branch', '--progress',
                                       self.REPO_URL, target],
                                      stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                                     errors='replace', env=pu.child_env(), **pu.no_window_kwargs())
+                                     encoding='utf-8', errors='replace', env=pu.child_env(),
+                                     **pu.no_window_kwargs())
                 assert p.stdout is not None
                 for line in p.stdout:
                     self.log(line.replace('\r', '\n'))
@@ -764,7 +765,7 @@ class Model(QObject):
                 try:
                     p = subprocess.Popen(dep.install, stdout=subprocess.PIPE,
                                          stderr=subprocess.STDOUT, text=True,
-                                         errors='replace', env=pu.child_env(),
+                                         encoding='utf-8', errors='replace', env=pu.child_env(),
                                          **pu.no_window_kwargs())
                     assert p.stdout is not None
                     for line in p.stdout:
@@ -1061,8 +1062,8 @@ class Model(QObject):
                  + ('' if wheels else '  (from PyPI)') + '\n')
         try:
             p = subprocess.Popen([vpy, '-m', 'pip'] + args, stdout=subprocess.PIPE,
-                                 stderr=subprocess.STDOUT, text=True, errors='replace',
-                                 env=pu.child_env(), **pu.no_window_kwargs())
+                                 stderr=subprocess.STDOUT, text=True, encoding='utf-8',
+                                 errors='replace', env=pu.child_env(), **pu.no_window_kwargs())
             assert p.stdout is not None
             for line in p.stdout:
                 self.log(line)
@@ -1396,7 +1397,8 @@ class Model(QObject):
             try:
                 self._proc = subprocess.Popen([py] + args, cwd=cwd,
                                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                              text=True, errors='replace', bufsize=1, env=env,
+                                              text=True, encoding='utf-8', errors='replace',
+                                              bufsize=1, env=env,
                                               **pu.no_window_kwargs())
                 assert self._proc.stdout is not None
                 for line in self._proc.stdout:
@@ -1489,28 +1491,28 @@ class Model(QObject):
         else goes to the log (which is what the window shows)."""
         self.log(line + '\n')
         self.log_tail = (self.log_tail + line + '\n')[-12000:]   # what the classifier reads on a failure
+        body = re.sub(r'^\[\d\d:\d\d:\d\d\]\s*', '', line)
         # The last line that was not stage bookkeeping: a failed build's summary used to be the
         # bare exit code ("Build failed (exit code 1)"), which told the reporter nothing and sent
         # them looking for a log that a short window had below the fold (issue #52)
-        if line.strip() and not (line.startswith('[') and ']' in line and line.find(']') + 1 < len(line)):
-            self._last_error = line.strip()[:200]
-        if line.startswith('output IPA:'):
-            self.ipa_path = line.split(':', 1)[1].strip()
-        low = line.lower()
+        is_stage = (body.startswith('[') and ']' in body
+                    and '/' in body[:body.find(']') + 1]
+                    and body.find(']') + 1 < len(body))
+        if body.strip() and not is_stage:
+            self._last_error = body.strip()[:200]
+        if body.startswith('output IPA:'):
+            self.ipa_path = body.split(':', 1)[1].strip()
         for st in self.stages:
             if st.state == 'running':
-                st.detail = line[:120]
+                st.detail = body[:120]
                 break
-        if '[' in line and ']' in line:
-            head = line[:line.find(']') + 1]
-            if '/' in head:
-                name = line[line.find(']') + 1:].strip()
-                if name:
-                    if self.stages and self.stages[-1].state == 'running':
-                        self.stages[-1].state = 'done'
-                    self.stages.append(Stage(name=name, state='running'))
-                    self.stagesChanged.emit()
-        del low
+        if is_stage:
+            name = body[body.find(']') + 1:].strip()
+            if name and '✓' not in name:
+                if self.stages and self.stages[-1].state == 'running':
+                    self.stages[-1].state = 'done'
+                self.stages.append(Stage(name=name, state='running'))
+                self.stagesChanged.emit()
 
     def _flush_lines(self) -> None:
         self._line_buf = ''
@@ -1562,7 +1564,7 @@ class Model(QObject):
                             '--reuse', romfs, str(out_img)]
                     env = pu.child_env({'PYTHONPATH': str(Path(self.engine_path, 'dm', 'tools'))})
                     p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                         text=True, errors='replace', env=env,
+                                         text=True, encoding='utf-8', errors='replace', env=env,
                                          **pu.no_window_kwargs())
                     assert p.stdout is not None
                     for line in p.stdout:

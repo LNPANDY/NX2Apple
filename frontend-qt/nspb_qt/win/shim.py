@@ -58,6 +58,24 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
         if _p and _p not in sys.path:
             sys.path.insert(0, _p)
 
+    # ---- POSIX signal & os.execve stubs for patch_nso.py
+    # patch_nso.py's in_parallel() uses fork() + signal.pthread_sigmask when WORKERS >= 2;
+    # rewrite() already runs one patch_nso.py process per NSO in parallel, so default
+    # DM_REWRITE_J=1 on Windows and provide pthread_sigmask stubs in case it is called.
+    os.environ.setdefault('DM_REWRITE_J', '1')
+    import signal as _signal
+    for _sig_attr, _sig_val in (('SIG_BLOCK', 1), ('SIG_UNBLOCK', 2), ('SIG_SETMASK', 3)):
+        if not hasattr(_signal, _sig_attr):
+            setattr(_signal, _sig_attr, _sig_val)
+    if not hasattr(_signal, 'pthread_sigmask'):
+        _signal.pthread_sigmask = lambda how, mask: set()
+
+    def _win_execve(path, argv, env):
+        r = subprocess.run([os.fspath(path)] + [os.fspath(a) for a in list(argv)[1:]], env=env)
+        os._exit(r.returncode)
+
+    os.execve = _win_execve
+
     # ---- text files written the way the pipeline expects them
     # The host compares lines of the pipeline's tables byte for byte; an inputs.tsv line ending
     # in "\r" did not match on the device (found by the reference implementation the hard way).
@@ -172,13 +190,22 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
 
         mod.walk = _walk
         mod.os.walk = _walk
+        mod._OS.sep = '/'
+        mod._PathOps.sep = '/'
         _orig_join = os.path.join
+        _orig_normpath = os.path.normpath
 
         def _posix_join(*a):
             res = _orig_join(*a)
             return res.replace('\\', '/') if isinstance(res, str) else res
 
+        def _posix_normpath(path):
+            res = _orig_normpath(path)
+            return res.replace('\\', '/') if isinstance(res, str) else res.replace(b'\\', b'/')
+
         mod._PathOps.join = staticmethod(_posix_join)
+        mod._PathOps.relpath = staticmethod(_posix_relpath)
+        mod._PathOps.normpath = staticmethod(_posix_normpath)
 
     def _patch_sdk_patches_module(mod):
         jf = os.environ.get('NSPB_AUTO_SDK_CUTS')
@@ -193,6 +220,21 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
         except Exception:
             pass
 
+    def _patch_tool_lock_module(mod):
+        if getattr(mod, '_nspb_patched', False) or not hasattr(mod, 'check_tools'):
+            return
+        mod._nspb_patched = True
+        _orig_check = mod.check_tools
+
+        def _win_check_tools():
+            bad = _orig_check()
+            if os.environ.get('DM_ALLOW_SYSTEM_SPIRV_CROSS') == '1':
+                bad = [b for b in bad
+                       if not (b.startswith('spirv-cross: ') and not b.endswith(' / actual missing'))]
+            return bad
+
+        mod.check_tools = _win_check_tools
+
     import importlib.machinery as _machinery
     _exec_module = _machinery.SourceFileLoader.exec_module
 
@@ -203,6 +245,8 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
             _patch_romfs_module(module)
         elif name == 'sdk_patches' or name.endswith('.sdk_patches'):
             _patch_sdk_patches_module(module)
+        elif name == 'tool_lock' or name.endswith('.tool_lock'):
+            _patch_tool_lock_module(module)
 
     _machinery.SourceFileLoader.exec_module = _win_exec_module
 
@@ -469,6 +513,7 @@ def build_env(base: dict[str, str] | None = None, python_exe: str | None = None)
         env['NSPB_PYTHON'] = str(python_exe)
     env.setdefault('DM_ALLOW_SYSTEM_SPIRV_CROSS', '1')
     env.setdefault('DM_ALLOW_OTHER_METAL', '1')
+    env.setdefault('DM_REWRITE_J', '1')
     # tc.dotnet_dir() first: it knows about the SDK the app installed for itself, which is not on
     # PATH and not in Program Files. `which` alone missed it, so `dotnet build` and the shader
     # translator failed on a machine that had just installed .NET through this app.

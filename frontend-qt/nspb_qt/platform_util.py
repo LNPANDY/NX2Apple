@@ -357,6 +357,8 @@ def child_env(extra: dict[str, str] | None = None) -> dict[str, str]:
     # telemetry call can hang the very first run on a network that cannot reach Microsoft.
     env.setdefault('DOTNET_CLI_TELEMETRY_OPTOUT', '1')
     env.setdefault('DOTNET_NOLOGO', '1')
+    env.setdefault('PYTHONUTF8', '1')
+    env.setdefault('PYTHONIOENCODING', 'utf-8')
     if extra:
         env.update(extra)
     return env
