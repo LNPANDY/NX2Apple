@@ -64,6 +64,7 @@ public struct ShellHostConfig: Sendable {
 
     @ObservationIgnored private let config: ShellHostConfig
     @ObservationIgnored private let launcher: any GameLauncher
+    @ObservationIgnored private var launchingGame = false
     @ObservationIgnored private let picker: any FolderPicker
     @ObservationIgnored private let adapter = GamepadAdapter()
     @ObservationIgnored private var dataStores: [String: BookmarkStore] = [:]
@@ -90,6 +91,9 @@ public struct ShellHostConfig: Sendable {
         shellCloud = BookmarkStore(defaults: shellSettings.defaults, key: ShellSettingsStore.cloudSavesKey)
         shellChoices = Self.choices(of: shellSettings)
         globalPadMap = shellSettings.padMap
+        // Game files stay out of the iCloud backup (#618), also what an earlier version put there. Off the main actor, it lists folders.
+        let dataRoot = config.appDataRoot
+        Task.detached(priority: .utility) { BackupExclusion.apply(appDataRoot: dataRoot) }
         reload()
         defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.defaultsDidChange() }
@@ -445,8 +449,10 @@ public struct ShellHostConfig: Sendable {
     }
 
     func playNow(_ id: String) async {
-        guard let entry = entry(id), let manifest = entry.manifest, let profile = entry.profile, let framework = entry.frameworkURL,
+        guard !launchingGame, let entry = entry(id), let manifest = entry.manifest, let profile = entry.profile, let framework = entry.frameworkURL,
               details.first(where: { $0.id == id })?.game.state == .playable, let dataURL = data(for: entry).url else { return }
+        launchingGame = true
+        defer { launchingGame = false }
         var cloud: URL?
         switch cloudSaves(id) {
         case .own(let url), .shell(let url): cloud = url
@@ -455,11 +461,13 @@ public struct ShellHostConfig: Sendable {
         // Remembered when Play is triggered, even if the launcher then fails (the stub). The order changes at the next load.
         LastPlayedStore(defaults: config.defaults(id)).record(config.now())
         refresh(id)
-        let game = LaunchableGame(
+        var game = LaunchableGame(
             titleID: id, name: entry.title, manifest: manifest, directory: entry.directory, frameworkURL: framework, dataURL: dataURL,
             appFolder: appFolder(for: id), environment: launchEnvironment(profile: profile, id: id), cloudSavesURL: cloud)
-        do { try await launcher.launch(game) }
-        catch { notice = error.localizedDescription }
+        do {
+            game.shaderResourcesURL = try await ShaderResources.shared.prepare(game)
+            try await launcher.launch(game)
+        } catch { notice = error.localizedDescription }
     }
 
     /// The right-stick hint's words: a few, no semicolon, short enough for the right third of a small phone.
@@ -470,7 +478,7 @@ public struct ShellHostConfig: Sendable {
     /// or Home is held. The menu item reads the title without its question mark.
     static func quitPromptText(gameName: String) -> String {
         [hostText("Keep holding to quit"), hostText("Quit \(gameName)?"),
-         hostText("Unsaved progress will be lost. The app closes and opens on your games next time."), hostText("Quit"), hostText("Cancel")]
+         hostText("Unsaved progress will be lost. The app closes. Open it again to get back to your games."), hostText("Quit"), hostText("Cancel")]
             .map { $0.replacingOccurrences(of: "\n", with: " ") }.joined(separator: "\n")
     }
 

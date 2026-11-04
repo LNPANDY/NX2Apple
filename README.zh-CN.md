@@ -26,10 +26,10 @@
 
 #### 🆕 最近重点更新
 
-- **iPhone 和 iPad 共用一个 App**：用「iPhone / iPad」目标构建的游戏都装进同一个壳 App。游戏库以封面为主，手机横过来是 Cover Flow，每个游戏有自己的设置，手柄和键盘都能操作。界面跟随系统语言（英文和简体中文）
-- **存档跟着走**：Mac ⇄ iPhone 存档通过同一个 iCloud Drive 文件夹自动同步；删掉的 App 几秒重装；免费 Apple ID 的 7 天签名原地续签
-- **引导式首次启动**：安装向导带新玩家走完 Xcode、密钥和游戏；构建工具和 Python 直接内置在 App 里，不用装 Homebrew
-- **主机模式**：插上手柄按 Select，游戏库变全屏封面墙，手柄操作——就像 Switch 主菜单
+- **支持 Switch 2 游戏**：在 Mac 或 Windows 启动器中直接选择 Switch 2 游戏文件夹或 `.nup` 文件，无需 `prod.keys`，即可在 Mac、iPhone 或 iPad 上构建和游玩
+- **虚拟手柄自定义与手柄改键**：在 iPhone 和 iPad 的可视化编辑器中自由调整触控按键大小、摇杆位置与整体布局（2D/3D 独立保存）。外接手柄支持全局或按游戏改键
+- **iPhone 和 iPad 共用一个 App**：所有游戏装进同一个壳 App（也支持导出未签名 IPA），支持横屏 Cover Flow、按游戏独立设置与 Mod、保留存档删除游戏，以及 6 种系统语言
+- **主机模式**：插上手柄按 Select 或设置开机直达，游戏库即刻变为全屏手柄界面，长按 Home 键 2 秒即可退出游戏
 
 所有版本见[更新日志](CHANGELOG.zh-CN.md)。
 
@@ -141,6 +141,12 @@ iPhone 上在「文件」App 里该 App 名字下：`save/` 和 `log.txt`（上�
 
 **[GAMES.zh-CN.md](GAMES.zh-CN.md)**（带截图图库和每款的安装大小）
 有完整表格和每款游戏需要的更新包版本：更新包 NSP 的显示版本必须与 profile 一致，否则构建会提示。
+
+**Switch 2 游戏**是引擎新加入的。目前有 5 款有 profile，上游都标为可在 Mac 上玩：Donkey Kong Bananza、
+Splatoon Raiders、Fire Emblem Fortune's Weave、Pokémon Pokopia 和 Hyrule Warriors: Age of Imprisonment。
+在构建页面选择游戏文件夹（`base/`、`updates/`、`dlc/`）或它的 `.nup` 文件即可，不需要 `prod.keys`。游戏库会把它们标为
+**Switch 2**。本 fork 还没有人通过启动器玩过 Switch 2 游戏。在 iPhone 和 iPad 上几乎没有测试过：一位维护者用命令行构建后，
+在 iPhone 17 Pro Max 上玩过 Donkey Kong Bananza。详情见 [GAMES.zh-CN.md](GAMES.zh-CN.md#switch-2-游戏)。
 
 ## 限制
 

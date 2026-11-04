@@ -3,10 +3,34 @@
   "strings": {
     "\"%@\" is not a DM_ switch.": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„%@“ ist kein DM_-Schalter."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "\"%@\" is not a DM_ switch."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "« %@ » n’est pas un réglage DM_."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” non è un interruttore DM_."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "”%@” är ingen DM_-växel."
           }
         },
         "zh-Hans": {
@@ -19,10 +43,34 @@
     },
     "%@ (from Settings)": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (aus den Einstellungen)"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "%@ (from Settings)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (depuis les Réglages)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (dalle Impostazioni)"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (från Inställningar)"
           }
         },
         "zh-Hans": {
@@ -35,10 +83,34 @@
     },
     "%@ appears twice in launcher.json.": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ steht zweimal in launcher.json."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "%@ appears twice in launcher.json."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ apparaît deux fois dans launcher.json."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ compare due volte in launcher.json."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ förekommer två gånger i launcher.json."
           }
         },
         "zh-Hans": {
@@ -51,10 +123,34 @@
     },
     "%@ has a wrong or missing value at \"%@\".": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hat einen falschen oder fehlenden Wert bei „%@“."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "%@ has a wrong or missing value at \"%@\"."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ a une valeur erronée ou manquante à « %@ »."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ha un valore errato o mancante in “%@”."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ har ett felaktigt eller saknat värde vid ”%@”."
           }
         },
         "zh-Hans": {
@@ -65,28 +161,196 @@
         }
       }
     },
-    "%@ has no \"%@\"%@.": {
+    "%@ has no \"%@\" (in %@).": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hat kein „%@“ (in %@)."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ has no \"%@\"%@."
+            "value": "%@ has no \"%@\" (in %@)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ n’a pas de « %@ » (dans %@)."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ non ha “%@” (in %@)."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ saknar ”%@” (i %@)."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ 缺少 \"%@\"%@。"
+            "value": "%@ 缺少 \"%@\"（位于 %@）。"
+          }
+        }
+      }
+    },
+    "%@ has no \"%@\".": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hat kein „%@“."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ has no \"%@\"."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ n’a pas de « %@ »."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ non ha “%@”."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ saknar ”%@”."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 缺少 \"%@\"。"
+          }
+        }
+      }
+    },
+    "%@ has no game.manifest.json.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hat keine game.manifest.json."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ has no game.manifest.json."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ n’a pas de game.manifest.json."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ non ha un game.manifest.json."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ har ingen game.manifest.json."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 中没有 game.manifest.json。"
+          }
+        }
+      }
+    },
+    "%@ has the same title ID %@ as %@, which is used instead.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hat dieselbe Title-ID %@ wie %@, das stattdessen verwendet wird."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ has the same title ID %@ as %@, which is used instead."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ a le même ID de titre %@ que %@, qui est utilisé à sa place."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ha lo stesso ID titolo %@ di %@, che viene usato al suo posto."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ har samma titel-ID %@ som %@, som används i stället."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 的 title ID %@ 与 %@ 相同，已改用后者。"
           }
         }
       }
     },
     "%@ has the unknown kind \"%@\".": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hat die unbekannte Art „%@“."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "%@ has the unknown kind \"%@\"."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ a le type inconnu « %@ »."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ha il tipo sconosciuto “%@”."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ har den okända typen ”%@”."
           }
         },
         "zh-Hans": {
@@ -99,10 +363,34 @@
     },
     "%@ is a choice without [value, label] options.": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ist eine Auswahl ohne [value, label]-Optionen."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "%@ is a choice without [value, label] options."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ est un choix sans options [value, label]."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ è una scelta senza opzioni [value, label]."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ är ett val utan [value, label]-alternativ."
           }
         },
         "zh-Hans": {
@@ -115,10 +403,34 @@
     },
     "%@ is a range without min, max and step.": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ist ein Bereich ohne min, max und step."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "%@ is a range without min, max and step."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ est une plage sans min, max et step."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ è un intervallo senza min, max e step."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ är ett intervall utan min, max och step."
           }
         },
         "zh-Hans": {
@@ -131,10 +443,34 @@
     },
     "%@ is not in this game's folder. Install the game again.": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ fehlt im Ordner dieses Spiels. Installiere das Spiel erneut."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "%@ is not in this game's folder. Install the game again."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ n’est pas dans le dossier de ce jeu. Réinstallez le jeu."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ non è nella cartella di questo gioco. Installa di nuovo il gioco."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ finns inte i spelets mapp. Installera spelet igen."
           }
         },
         "zh-Hans": {
@@ -147,10 +483,34 @@
     },
     "%@ is not valid JSON.": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ist kein gültiges JSON."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "%@ is not valid JSON."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ n’est pas un JSON valide."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ non è un JSON valido."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ är inte giltig JSON."
           }
         },
         "zh-Hans": {
@@ -163,10 +523,34 @@
     },
     "%lld additional content packs": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld Zusatzinhalte"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "%lld additional content packs"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld contenus additionnels"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld contenuti aggiuntivi"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld extrainnehåll"
           }
         },
         "zh-Hans": {
@@ -179,10 +563,34 @@
     },
     "1 additional content pack": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 Zusatzinhalt"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "1 additional content pack"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 contenu additionnel"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 contenuto aggiuntivo"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 extrainnehåll"
           }
         },
         "zh-Hans": {
@@ -195,10 +603,34 @@
     },
     "Can't read this game": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spiel nicht lesbar"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Can't read this game"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jeu illisible"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gioco illeggibile"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spelet kan inte läsas"
           }
         },
         "zh-Hans": {
@@ -251,10 +683,34 @@
     },
     "Choose a RomFS folder or romfs.img on this device, an external drive, or iCloud Drive.": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wähle einen RomFS-Ordner oder eine romfs.img auf diesem Gerät, einem externen Laufwerk oder in iCloud Drive."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Choose a RomFS folder or romfs.img on this device, an external drive, or iCloud Drive."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisissez un dossier RomFS ou un fichier romfs.img sur cet appareil, un disque externe ou iCloud Drive."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scegli una cartella RomFS o un file romfs.img su questo dispositivo, su un disco esterno o su iCloud Drive."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Välj en RomFS-mapp eller en romfs.img på den här enheten, en extern enhet eller iCloud Drive."
           }
         },
         "zh-Hans": {
@@ -267,6 +723,12 @@
     },
     "Controller": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controller"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
@@ -301,10 +763,34 @@
     },
     "Done": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fertig"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Done"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fine"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klar"
           }
         },
         "zh-Hans": {
@@ -317,10 +803,34 @@
     },
     "Game code missing": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spielcode fehlt"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Game code missing"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code du jeu manquant"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codice del gioco mancante"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spelkod saknas"
           }
         },
         "zh-Hans": {
@@ -333,10 +843,34 @@
     },
     "Game files damaged": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spieldateien beschädigt"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Game files damaged"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fichiers du jeu endommagés"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "File del gioco danneggiati"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spelfilerna är skadade"
           }
         },
         "zh-Hans": {
@@ -349,10 +883,34 @@
     },
     "Game manifest missing": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spielmanifest fehlt"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Game manifest missing"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manifeste du jeu manquant"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manifest del gioco mancante"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spelmanifest saknas"
           }
         },
         "zh-Hans": {
@@ -405,10 +963,34 @@
     },
     "Launching is not available yet.": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starten ist noch nicht verfügbar."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Launching is not available yet."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le lancement n’est pas encore disponible."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’avvio non è ancora disponibile."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Det går inte att starta ännu."
           }
         },
         "zh-Hans": {
@@ -421,10 +1003,34 @@
     },
     "Manifest not supported": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manifest nicht unterstützt"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Manifest not supported"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manifeste non pris en charge"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manifest non supportato"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manifestet stöds inte"
           }
         },
         "zh-Hans": {
@@ -437,10 +1043,34 @@
     },
     "No additional content": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Zusatzinhalte"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "No additional content"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun contenu additionnel"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessun contenuto aggiuntivo"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inget extrainnehåll"
           }
         },
         "zh-Hans": {
@@ -453,10 +1083,34 @@
     },
     "No game data for %@ was found in that folder.": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In diesem Ordner wurden keine Spieldaten für %@ gefunden."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "No game data for %@ was found in that folder."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune donnée de jeu pour %@ n’a été trouvée dans ce dossier."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nella cartella non sono stati trovati dati di gioco per %@."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen speldata för %@ hittades i mappen."
           }
         },
         "zh-Hans": {
@@ -469,10 +1123,34 @@
     },
     "No update address is set up for this app.": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Für diese App ist keine Update-Adresse eingerichtet."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "No update address is set up for this app."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune adresse de mise à jour n’est configurée pour cette app."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Per questa app non è impostato alcun indirizzo di aggiornamento."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen uppdateringsadress är inställd för appen."
           }
         },
         "zh-Hans": {
@@ -485,7 +1163,31 @@
     },
     "OK": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        },
         "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        },
+        "sv": {
           "stringUnit": {
             "state": "translated",
             "value": "OK"
@@ -581,10 +1283,34 @@
     },
     "Only the end of the log is shown.": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur das Ende des Protokolls wird gezeigt."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Only the end of the log is shown."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seule la fin du journal est affichée."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viene mostrata solo la fine del log."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bara slutet av loggen visas."
           }
         },
         "zh-Hans": {
@@ -597,10 +1323,34 @@
     },
     "Player %@": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spieler %@"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Player %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Joueur %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Giocatore %@"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spelare %@"
           }
         },
         "zh-Hans": {
@@ -773,10 +1523,34 @@
     },
     "Settings list damaged": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einstellungsliste beschädigt"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Settings list damaged"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liste des réglages endommagée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elenco impostazioni danneggiato"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inställningslistan är skadad"
           }
         },
         "zh-Hans": {
@@ -789,10 +1563,34 @@
     },
     "Settings list missing": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einstellungsliste fehlt"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Settings list missing"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liste des réglages manquante"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elenco impostazioni mancante"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inställningslista saknas"
           }
         },
         "zh-Hans": {
@@ -805,10 +1603,34 @@
     },
     "Settings list not supported": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einstellungsliste nicht unterstützt"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Settings list not supported"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liste des réglages non prise en charge"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elenco impostazioni non supportato"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inställningslistan stöds inte"
           }
         },
         "zh-Hans": {
@@ -821,10 +1643,34 @@
     },
     "Shell": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hinweis"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Shell"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Information"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avviso"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Meddelande"
           }
         },
         "zh-Hans": {
@@ -917,10 +1763,34 @@
     },
     "That folder could not be remembered. Try a different one.": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Ordner konnte nicht gemerkt werden. Versuche einen anderen."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "That folder could not be remembered. Try a different one."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce dossier n’a pas pu être mémorisé. Essayez-en un autre."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non è stato possibile memorizzare la cartella. Provane un’altra."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mappen kunde inte sparas. Prova en annan."
           }
         },
         "zh-Hans": {
@@ -933,10 +1803,34 @@
     },
     "That location could not be remembered. Try a different one.": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Ort konnte nicht gemerkt werden. Versuche einen anderen."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "That location could not be remembered. Try a different one."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cet emplacement n’a pas pu être mémorisé. Essayez-en un autre."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non è stato possibile memorizzare la posizione. Provane un’altra."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Platsen kunde inte sparas. Prova en annan."
           }
         },
         "zh-Hans": {
@@ -949,10 +1843,34 @@
     },
     "The folder is named %@ but the manifest says %@.": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Ordner heißt %@, das Manifest nennt %@."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "The folder is named %@ but the manifest says %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le dossier s’appelle %@ mais le manifeste indique %@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La cartella si chiama %@ ma il manifest indica %@."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mappen heter %@ men manifestet anger %@."
           }
         },
         "zh-Hans": {
@@ -965,10 +1883,34 @@
     },
     "The folder you chose before is no longer readable. Please choose it again.": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Ordner, den du vorher gewählt hast, ist nicht mehr lesbar. Bitte wähle ihn erneut."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "The folder you chose before is no longer readable. Please choose it again."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le dossier choisi auparavant n’est plus lisible. Choisissez-le à nouveau."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La cartella scelta prima non è più leggibile. Sceglila di nuovo."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mappen du valde tidigare går inte längre att läsa. Välj den igen."
           }
         },
         "zh-Hans": {
@@ -981,10 +1923,34 @@
     },
     "The game's code is missing from this app. Rebuild and reinstall it.": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Code des Spiels fehlt in dieser App. Baue es neu und installiere es erneut."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "The game's code is missing from this app. Rebuild and reinstall it."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le code du jeu manque dans cette app. Recompilez-le et réinstallez-le."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il codice del gioco manca in questa app. Compilalo e installalo di nuovo."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spelets kod saknas i den här appen. Bygg och installera om det."
           }
         },
         "zh-Hans": {
@@ -997,10 +1963,34 @@
     },
     "The game's manifest": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Manifest des Spiels"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "The game's manifest"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le manifeste du jeu"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il manifest del gioco"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spelets manifest"
           }
         },
         "zh-Hans": {
@@ -1013,10 +2003,34 @@
     },
     "The location you picked before is no longer readable (the app was signed differently). Please choose it again.": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Ort, den du vorher gewählt hast, ist nicht mehr lesbar (die App wurde anders signiert). Bitte wähle ihn erneut."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "The location you picked before is no longer readable (the app was signed differently). Please choose it again."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’emplacement choisi auparavant n’est plus lisible (l’app a été signée autrement). Choisissez-le à nouveau."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La posizione scelta prima non è più leggibile (l’app è stata firmata in modo diverso). Sceglila di nuovo."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Platsen du valde tidigare går inte längre att läsa (appen signerades på ett annat sätt). Välj den igen."
           }
         },
         "zh-Hans": {
@@ -1029,10 +2043,34 @@
     },
     "The manifest lists no modules.": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Manifest nennt keine Module."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "The manifest lists no modules."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le manifeste ne liste aucun module."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il manifest non elenca alcun modulo."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manifestet listar inga moduler."
           }
         },
         "zh-Hans": {
@@ -1045,10 +2083,34 @@
     },
     "The settings list": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Einstellungsliste"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "The settings list"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La liste des réglages"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’elenco delle impostazioni"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inställningslistan"
           }
         },
         "zh-Hans": {
@@ -1061,10 +2123,34 @@
     },
     "This app's folder": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ordner dieser App"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "This app's folder"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dossier de cette app"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cartella di questa app"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appens mapp"
           }
         },
         "zh-Hans": {
@@ -1077,10 +2163,34 @@
     },
     "This app's folder has no data for this game yet. Copy it to games/%@ in this app's folder in Files.": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im Ordner dieser App liegen noch keine Daten für dieses Spiel. Kopiere sie in der Dateien-App nach games/%@ im Ordner dieser App."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "This app's folder has no data for this game yet. Copy it to games/%@ in this app's folder in Files."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le dossier de cette app ne contient pas encore de données pour ce jeu. Copiez-les dans games/%@ du dossier de cette app, dans Fichiers."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La cartella di questa app non ha ancora dati per questo gioco. Copiali in games/%@ nella cartella di questa app, in File."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appens mapp har ännu ingen data för det här spelet. Kopiera den till games/%@ i appens mapp i Filer."
           }
         },
         "zh-Hans": {
@@ -1093,10 +2203,34 @@
     },
     "This game has no launcher.json.": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses Spiel hat keine launcher.json."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "This game has no launcher.json."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce jeu n’a pas de launcher.json."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo gioco non ha un launcher.json."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spelet har ingen launcher.json."
           }
         },
         "zh-Hans": {
@@ -1109,10 +2243,34 @@
     },
     "This game has no log yet. It appears after the game has run.": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses Spiel hat noch kein Protokoll. Es erscheint, sobald das Spiel gelaufen ist."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "This game has no log yet. It appears after the game has run."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce jeu n’a pas encore de journal. Il apparaît une fois le jeu lancé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo gioco non ha ancora un log. Compare dopo che il gioco è stato avviato."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spelet har ingen logg ännu. Den visas när spelet har körts."
           }
         },
         "zh-Hans": {
@@ -1125,10 +2283,34 @@
     },
     "This game was built for a different version of this app. Update the app or rebuild the game in the launcher on your Mac.": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses Spiel wurde für eine andere Version dieser App gebaut. Aktualisiere die App oder baue das Spiel im Launcher auf deinem Mac neu."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "This game was built for a different version of this app. Update the app or rebuild the game in the launcher on your Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce jeu a été compilé pour une autre version de cette app. Mettez l’app à jour ou recompilez le jeu dans le lanceur sur votre Mac."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo gioco è stato compilato per un’altra versione di questa app. Aggiorna l’app o ricompila il gioco nel launcher sul Mac."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Det här spelet byggdes för en annan version av appen. Uppdatera appen eller bygg om spelet i launchern på din Mac."
           }
         },
         "zh-Hans": {
@@ -1141,10 +2323,34 @@
     },
     "This game's files are damaged. Rebuild the game in the launcher on your Mac.": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Dateien dieses Spiels sind beschädigt. Baue das Spiel im Launcher auf deinem Mac neu."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "This game's files are damaged. Rebuild the game in the launcher on your Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les fichiers de ce jeu sont endommagés. Recompilez le jeu dans le lanceur sur votre Mac."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I file di questo gioco sono danneggiati. Ricompila il gioco nel launcher sul Mac."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spelets filer är skadade. Bygg om spelet i launchern på din Mac."
           }
         },
         "zh-Hans": {
@@ -1157,10 +2363,34 @@
     },
     "This game's folder has no game.manifest.json.": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Ordner dieses Spiels hat keine game.manifest.json."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "This game's folder has no game.manifest.json."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le dossier de ce jeu n’a pas de game.manifest.json."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La cartella di questo gioco non ha un game.manifest.json."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spelets mapp har ingen game.manifest.json."
           }
         },
         "zh-Hans": {
@@ -1173,10 +2403,34 @@
     },
     "This game's manifest is damaged. Rebuild the game in the launcher on your Mac.": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Manifest dieses Spiels ist beschädigt. Baue das Spiel im Launcher auf deinem Mac neu."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "This game's manifest is damaged. Rebuild the game in the launcher on your Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le manifeste de ce jeu est endommagé. Recompilez le jeu dans le lanceur sur votre Mac."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il manifest di questo gioco è danneggiato. Ricompila il gioco nel launcher sul Mac."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spelets manifest är skadat. Bygg om spelet i launchern på din Mac."
           }
         },
         "zh-Hans": {
@@ -1189,10 +2443,34 @@
     },
     "This game's manifest is missing. Rebuild the game in the launcher on your Mac.": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Manifest dieses Spiels fehlt. Baue das Spiel im Launcher auf deinem Mac neu."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "This game's manifest is missing. Rebuild the game in the launcher on your Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le manifeste de ce jeu manque. Recompilez le jeu dans le lanceur sur votre Mac."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il manifest di questo gioco manca. Ricompila il gioco nel launcher sul Mac."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spelets manifest saknas. Bygg om spelet i launchern på din Mac."
           }
         },
         "zh-Hans": {
@@ -1205,10 +2483,34 @@
     },
     "This game's settings list is damaged. Rebuild the game in the launcher on your Mac.": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Einstellungsliste dieses Spiels ist beschädigt. Baue das Spiel im Launcher auf deinem Mac neu."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "This game's settings list is damaged. Rebuild the game in the launcher on your Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La liste des réglages de ce jeu est endommagée. Recompilez le jeu dans le lanceur sur votre Mac."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’elenco delle impostazioni di questo gioco è danneggiato. Ricompila il gioco nel launcher sul Mac."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spelets inställningslista är skadad. Bygg om spelet i launchern på din Mac."
           }
         },
         "zh-Hans": {
@@ -1221,10 +2523,34 @@
     },
     "This game's settings list is missing. Rebuild the game in the launcher on your Mac.": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Einstellungsliste dieses Spiels fehlt. Baue das Spiel im Launcher auf deinem Mac neu."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "This game's settings list is missing. Rebuild the game in the launcher on your Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La liste des réglages de ce jeu manque. Recompilez le jeu dans le lanceur sur votre Mac."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’elenco delle impostazioni di questo gioco manca. Ricompila il gioco nel launcher sul Mac."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spelets inställningslista saknas. Bygg om spelet i launchern på din Mac."
           }
         },
         "zh-Hans": {
@@ -1237,10 +2563,34 @@
     },
     "Unknown game": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unbekanntes Spiel"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Unknown game"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jeu inconnu"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gioco sconosciuto"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Okänt spel"
           }
         },
         "zh-Hans": {
@@ -1251,52 +2601,76 @@
         }
       }
     },
-    "Unsaved progress will be lost. The app closes and opens on your games next time.": {
+    "Unsaved progress will be lost. The app closes. Open it again to get back to your games.": {
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nicht gesicherter Fortschritt geht verloren. Die App wird geschlossen und zeigt beim nächsten Öffnen deine Spiele."
+            "value": "Nicht gesicherter Fortschritt geht verloren. Die App wird geschlossen. Öffne sie erneut, um zu deinen Spielen zurückzukehren."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unsaved progress will be lost. The app closes and opens on your games next time."
+            "value": "Unsaved progress will be lost. The app closes. Open it again to get back to your games."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "La progression non sauvegardée sera perdue. L’app se ferme et s’ouvre sur vos jeux la prochaine fois."
+            "value": "La progression non sauvegardée sera perdue. L’app se ferme. Rouvrez-la pour revenir à vos jeux."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "I progressi non salvati andranno persi. L’app si chiude e la prossima volta si apre sui tuoi giochi."
+            "value": "I progressi non salvati andranno persi. L’app si chiude. Riaprila per tornare ai tuoi giochi."
           }
         },
         "sv": {
           "stringUnit": {
             "state": "translated",
-            "value": "Osparade framsteg går förlorade. Appen stängs och öppnas med dina spel nästa gång."
+            "value": "Osparade framsteg går förlorade. Appen stängs. Öppna den igen för att komma tillbaka till dina spel."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "未保存的进度将会丢失。App 会关闭，下次打开时显示你的游戏。"
+            "value": "未保存的进度将会丢失。App 会关闭，再次打开即可回到你的游戏。"
           }
         }
       }
     },
     "chain \"%@\" is not of the form b-<hex>.": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "chain „%@“ hat nicht die Form b-<hex>."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "chain \"%@\" is not of the form b-<hex>."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "chain « %@ » n’a pas la forme b-<hex>."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "chain “%@” non ha la forma b-<hex>."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "chain ”%@” har inte formen b-<hex>."
           }
         },
         "zh-Hans": {
@@ -1309,10 +2683,34 @@
     },
     "framework \"%@\" is not a .framework name.": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "framework „%@“ ist kein .framework-Name."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "framework \"%@\" is not a .framework name."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "framework « %@ » n’est pas un nom de .framework."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "framework “%@” non è un nome .framework."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "framework ”%@” är inget .framework-namn."
           }
         },
         "zh-Hans": {
@@ -1325,10 +2723,34 @@
     },
     "game \"%@\" in launcher.json is not 16 hex digits.": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "game „%@“ in launcher.json hat nicht 16 Hex-Ziffern."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "game \"%@\" in launcher.json is not 16 hex digits."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "game « %@ » dans launcher.json ne compte pas 16 chiffres hexadécimaux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "game “%@” in launcher.json non ha 16 cifre esadecimali."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "game ”%@” i launcher.json har inte 16 hexsiffror."
           }
         },
         "zh-Hans": {
@@ -1341,10 +2763,34 @@
     },
     "game.manifest.json has schema %lld, this app reads schema %lld.": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "game.manifest.json hat Schema %lld, diese App liest Schema %lld."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "game.manifest.json has schema %lld, this app reads schema %lld."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "game.manifest.json a le schéma %lld, cette app lit le schéma %lld."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "game.manifest.json ha lo schema %lld, questa app legge lo schema %lld."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "game.manifest.json har schema %lld, appen läser schema %lld."
           }
         },
         "zh-Hans": {
@@ -1357,10 +2803,34 @@
     },
     "launcher.json has schema %lld, this app reads schema 1.": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "launcher.json hat Schema %lld, diese App liest Schema 1."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "launcher.json has schema %lld, this app reads schema 1."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "launcher.json a le schéma %lld, cette app lit le schéma 1."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "launcher.json ha lo schema %lld, questa app legge lo schema 1."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "launcher.json har schema %lld, appen läser schema 1."
           }
         },
         "zh-Hans": {
@@ -1373,10 +2843,34 @@
     },
     "launcher.json is for %@, the manifest for %@.": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "launcher.json gehört zu %@, das Manifest zu %@."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "launcher.json is for %@, the manifest for %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "launcher.json est pour %@, le manifeste pour %@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "launcher.json è per %@, il manifest per %@."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "launcher.json gäller %@, manifestet %@."
           }
         },
         "zh-Hans": {
@@ -1389,10 +2883,34 @@
     },
     "loader \"%@\" is neither FR nor FH.": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "loader „%@“ ist weder FR noch FH."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "loader \"%@\" is neither FR nor FH."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "loader « %@ » n’est ni FR ni FH."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "loader “%@” non è né FR né FH."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "loader ”%@” är varken FR eller FH."
           }
         },
         "zh-Hans": {
@@ -1405,10 +2923,34 @@
     },
     "title_id \"%@\" is not 16 hex digits.": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "title_id „%@“ hat nicht 16 Hex-Ziffern."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "title_id \"%@\" is not 16 hex digits."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "title_id « %@ » ne compte pas 16 chiffres hexadécimaux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "title_id “%@” non ha 16 cifre esadecimali."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "title_id ”%@” har inte 16 hexsiffror."
           }
         },
         "zh-Hans": {

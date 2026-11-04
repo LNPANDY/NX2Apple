@@ -80,6 +80,10 @@ func hop(_ body: @escaping @MainActor () -> Void) {
         Slot(id: "dlc", kind: .dlc, title: "data.dlc", optional: true),
         Slot(id: "keys", kind: .keys, title: "data.keys", optional: false),
     ]
+    /// The game folder the rows came from (BuildStore+GameFolder.swift), nil for packages.
+    @Published package var gameFolder: GameFolder.Contents?
+    /// A folder meant as a game folder was refused: the base row says why.
+    @Published package var gameFolderRefused = false
     @Published package var outDir: String {
         didSet { defaults.set(outDir, forKey: Self.outputKey) }
     }
@@ -166,6 +170,8 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     package var openApp: (URL) -> Void = { _ in }
     /// Whether the build folder is in a cloud folder. Tests stand in for the system's answer.
     package var cloudFolderCheck: (String) -> Bool = { CloudFolder.contains($0) }
+    /// Whether the volume of this folder can replace an old Mac app (APFS), nil when unknown. Tests stand in for the system's answer.
+    package var appReplaceCheck: (String) -> Bool? = { OutputVolume.supportsAppReplace(at: $0) }
     /// The target changed: the app checks the tools again when a Mac-only setup now needs, or no longer needs, the iOS SDK.
     package var targetChanged: () -> Void
 
@@ -227,8 +233,9 @@ func hop(_ body: @escaping @MainActor () -> Void) {
         if let i = slots.firstIndex(where: { $0.id == id }) { body(&slots[i]) }
     }
 
-    /// A build may start: the repository is usable, the base game and the keys are there, the tools are all present and none runs.
-    package var canBuild: Bool { repo.isRepo && slot("base").ok && slot("keys").ok && deps.allPresent && !running }
+    /// A build may start: the repository is usable, the base game and the keys are there (a game folder needs no keys), the tools
+    /// are all present and none runs.
+    package var canBuild: Bool { repo.isRepo && inputsReady && deps.allPresent && !running }
 
     /// A line for the build card's note, from a store that has no card of its own (the dependency store's failed install).
     package func note(_ text: String) { doneNote = text }

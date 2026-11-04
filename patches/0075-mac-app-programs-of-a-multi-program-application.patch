@@ -470,10 +470,10 @@ index 4faea53..1ba265c 100644
  ### Inline keyboard text callbacks and `Calc` states
  
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index 700929e..2a66de8 100755
+index c75b3b1..c5f12d5 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
-@@ -1180,6 +1180,26 @@ def extract_dump(ex, name, src, app):   # one version of a dump folder (src: bas
+@@ -1192,6 +1192,26 @@ def extract_dump(ex, name, src, app):   # one version of a dump folder (src: bas
      try: pack_dump.pack_version(src, app, dst, say=lambda s: None)
      except pack_dump.Error as e: raise BuildError(str(e)) from e
      PROG.end(amount((dst / 'RomFS.img').stat().st_size, 'B'))
@@ -500,7 +500,7 @@ index 700929e..2a66de8 100755
      return dst
  
  
-@@ -1649,8 +1669,9 @@ def chain_tables(py, repo, sh, env, logs, g, chain):
+@@ -1661,8 +1681,9 @@ def chain_tables(py, repo, sh, env, logs, g, chain):
      return True
  
  
@@ -512,7 +512,7 @@ index 700929e..2a66de8 100755
      for profile in (reg, g) if reg else (g,):
          section, reason = '', ''
          for line in (profile.dir / 'game.tsv').read_text(encoding='utf-8').splitlines():
-@@ -1660,7 +1681,7 @@ def refine_after_rewrite(g, ex_dir, patched, reg=None):
+@@ -1672,7 +1693,7 @@ def refine_after_rewrite(g, ex_dir, patched, reg=None):
                  if not computed: return g
              reason = line
      if pg.npdm(ex_dir / 'ExeFS/main.npdm')[0]: return g
@@ -521,12 +521,12 @@ index 700929e..2a66de8 100755
      if int(g.get('mem_used', '0x4000000'), 0) == used: return g
      say(f'mem_used {used:#x}: from the current rewritten modules (64 MB when the default covers them)')
      return set_keys(g, {'mem_used': (f'{used:#x}', 'used memory for the current rewritten modules, at least the default 64 MB')}, 'After the rewrite')
-@@ -2391,11 +2412,12 @@ def mac_app_name(name):   # the app's file name: the game name with the characte
+@@ -2403,11 +2424,12 @@ def mac_app_name(name):   # the app's file name: the game name with the characte
      return re.sub(r'\s*[:/]\s*', ' - ', name).strip(' .-') or 'nxnative'
  
  
--def mac_app(py, repo, out, app, work, game, patched, host, font, msl, aoc, gfx, lang, g, name, version, bundle_id, icon, sign, env, logs, env_file='', gpus=''):
-+def mac_app(py, repo, out, app, work, game, patched, host, font, msl, aoc, gfx, lang, g, name, version, bundle_id, icon, sign, env, logs, env_file='', gpus='', programs=None):
+-def mac_app(py, repo, out, app, work, game, patched, host, font, msl, aoc, gfx, lang, g, name, version, bundle_id, icon, sign, env, logs, env_file='', gpus='', control=None):
++def mac_app(py, repo, out, app, work, game, patched, host, font, msl, aoc, gfx, lang, g, name, version, bundle_id, icon, sign, env, logs, env_file='', gpus='', control=None, programs=None):
      """The last stage of PLATFORM 'mac-app': pack the Mac app (dm/mac/pack_app.py) from what a Mac-only build made: the Mac host and font (mac_host), the packed version's RomFS and rewritten
      modules, the Mac shader libraries (msl: <shader>/cache, whose b-<chain> goes in, or a Vulkan or GL game's <shader>, whose vk / gl goes in), the DLC, the profile's tables (with the shader pairs
      the pipeline prebuild reads), the pipeline archive made offline for this Mac (mac_pso; gpus: --gpu / PSO_GPUS), the launcher settings and an environment file.
@@ -536,7 +536,7 @@ index 700929e..2a66de8 100755
      lib = msl / (f'b-{chain_of(repo)}' if gfx == 'nvn' else 'vk' if gfx == 'vulkan' else 'gl')
      pso = mac_pso(py, repo, work, lib, g, gpus, env, logs) if gfx == 'nvn' and g.table('shader_pairs.tsv').is_file() else None   # a stage of its own, before the app's
      PROG.stage('Mac app', step='starting')
-@@ -2409,6 +2431,7 @@ def mac_app(py, repo, out, app, work, game, patched, host, font, msl, aoc, gfx,
+@@ -2421,6 +2443,7 @@ def mac_app(py, repo, out, app, work, game, patched, host, font, msl, aoc, gfx,
                     ('--pso', pso), ('--pso-pairs', split_pairs if gfx == 'nvn' and not g.table('pso_pairs.tsv').is_file() and split_pairs.is_file() else None),
                     ('--env-file', Path(os.path.expanduser(env_file)).resolve() if env_file else None), ('--settings', settings)):
          if v: cmd += [opt, v]
@@ -544,7 +544,7 @@ index 700929e..2a66de8 100755
      unchanged = False
      def line(ln):
          nonlocal unchanged
-@@ -2715,6 +2738,13 @@ def main(args=None):
+@@ -2727,6 +2750,13 @@ def main(args=None):
      for ver in versions:   # each merged version streams directly into its own image
          b, u = picks[ver]
          dirs[ver] = extract_nup(ex, ver, u or b, b, app, fam['nup']) if nup else extract_dump(ex, ver, u or b, app) if dump else extract(nx, keys, ex, ver, b, u, None, logs, g, app)
@@ -558,7 +558,7 @@ index 700929e..2a66de8 100755
      check_versions_aarch64(dirs, logs, g, nacp.name(dirs[versions[0]] / 'control.nacp') or f'{app:016X}')   # before build_mismatch, derive_profile and build_sources read the modules
      bad = [] if derived else [f'{v}: {x}' for v in versions for x in build_mismatch(dirs[v], v, g)]   # every module's build ID must be the one the profile registers for its version
      if bad and provisional: raise BuildError(f'not the builds provisional game profile {g.id} registers: {"; ".join(bad)}')
-@@ -2768,10 +2798,15 @@ def main(args=None):
+@@ -2781,10 +2811,15 @@ def main(args=None):
  
      patched = work / f'patched_{pkg_ver}'
      g = rewrite(py, repo, game / 'ExeFS', patched, env, logs, g, provisional)
@@ -575,7 +575,7 @@ index 700929e..2a66de8 100755
          if provisional and heapck and pg.heap_check_needed(game / 'ExeFS'):
              if apple_silicon(): PROG.add(1); g = heap_check(repo, game, patched, work, env, logs, g)
              else: say('no heap check: it boots the game in the Mac host, which needs a Mac with Apple silicon; the profile keeps its guessed heap keys')
-@@ -2803,7 +2838,8 @@ def main(args=None):
+@@ -2816,7 +2851,8 @@ def main(args=None):
              return g
          derive_dlc = (lambda: derive_shader_tables('the installed DLC shader content differs from the registered tables')) if not own else None
          derive_compute = (lambda: derive_shader_tables('the reader decoded additional compute kernels from this registered build')) if not own else None
@@ -585,12 +585,12 @@ index 700929e..2a66de8 100755
          ios = build_shaders(py, repo, sh, xlate, env, logs, g, pkey, mac)
      icon = next((d / 'icon.jpg' for d in (game, base) if (d / 'icon.jpg').exists()), None)   # the game icon nx_extract saved from the control data (English, icon.jpg); the packed version's first, then the base game's
      motion = MOTION if args.motion is None else args.motion
-@@ -2813,7 +2849,7 @@ def main(args=None):
+@@ -2826,7 +2862,7 @@ def main(args=None):
          host, font = mac_host(py, repo, work, env, logs, g)
          if not icon: say(('no game icon: the NUP carries none' if nup else 'no game icon: a dump folder has no control data') + '; the app\'s icon will be blank' if dump else '[RED] no game icon in the extraction (an older extraction did not save it: delete extract/ and run again); the app\'s icon will be blank')
          mac_app(py, repo, out_ipa, app, work, game, patched, host, font, ios, aoc, gfx, lang, g, app_name, app_version, bundle_id, icon, args.mac_sign or MAC_SIGN, env, logs, env_file,
--                (args.gpu or PSO_GPUS).strip())
-+                (args.gpu or PSO_GPUS).strip(), {i: (ppatched[i], d / 'RomFS.img') for i, d in pdirs.items()})
+-                (args.gpu or PSO_GPUS).strip(), control)
++                (args.gpu or PSO_GPUS).strip(), control, {i: (ppatched[i], d / 'RomFS.img') for i, d in pdirs.items()})
          rmtree(work / 'tmp')
          say(f'done: {out_ipa} ({tree_size(out_ipa)[1] / 2**30:.1f} GB); '
              f'open it from Finder. Its save is in ~/Library/Application Support/nxnative/{app:016X}/, its log in ~/Library/Logs/nxnative/{app:016X}.log')

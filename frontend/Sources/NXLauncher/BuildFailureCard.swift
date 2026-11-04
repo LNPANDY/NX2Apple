@@ -57,11 +57,11 @@ package struct BuildFailureCard: View {
                 fix(kind, "fail.iosSDK.button")
             case .cltSelected:
                 if Toolchain.installedXcode() != nil { fix(kind, "fail.cltSelected.button") }
-            case .keys:
+            case .keys, .keysOld:
                 fix(kind, "fail.keys.button")
             case .severalGames, .noTitleID, .diskFull:
                 fix(kind, "fail.showFolder")
-            case .cloudFolder:
+            case .cloudFolder, .volumeFormat:
                 fix(kind, "fail.cloudFolder.button")
             case .teamTaken, .noSigningAccount:
                 if Toolchain.installedXcode() != nil { fix(kind, "fail.openXcode") }

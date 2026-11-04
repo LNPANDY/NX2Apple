@@ -42,7 +42,8 @@ public struct EngineLaunchPlan: Equatable, Sendable {
         env["DM_TEMP"] = temp.path
         env["DM_NVN_SHMAP"] = fw.appendingPathComponent(manifest.shaderMap).path
         let ownMSL = gdir.appendingPathComponent("msl", isDirectory: true)
-        env["DM_MSL_DIR"] = (isDirectory(ownMSL) ? ownMSL : fw.appendingPathComponent("msl", isDirectory: true)).path
+        let bundledMSL = game.shaderResourcesURL ?? fw.appendingPathComponent("msl", isDirectory: true)
+        env["DM_MSL_DIR"] = (isDirectory(ownMSL) ? ownMSL : bundledMSL).path
         let ownPSO = gdir.appendingPathComponent("pso", isDirectory: true), fwPSO = fw.appendingPathComponent("pso", isDirectory: true)
         if isDirectory(ownPSO) { env["DM_PSO_BUNDLE"] = ownPSO.path } else if isDirectory(fwPSO) { env["DM_PSO_BUNDLE"] = fwPSO.path }
         let dataAOC = game.dataURL.appendingPathComponent("aoc", isDirectory: true), ownAOC = gdir.appendingPathComponent("aoc", isDirectory: true)
@@ -80,9 +81,13 @@ public struct EngineLaunchPlan: Equatable, Sendable {
             foldersToCreate: [save, temp])
     }
 
-    /// Creates the save and temp folders (and their parents) when they are missing.
+    /// Creates the save and temp folders (and their parents) when they are missing. The temp folder is kept out of the backup, the
+    /// save folder stays in it (`BackupExclusion`, #618).
     public func createFolders(fileManager fm: FileManager = .default) throws {
-        for url in foldersToCreate { try fm.createDirectory(at: url, withIntermediateDirectories: true) }
+        for url in foldersToCreate {
+            try fm.createDirectory(at: url, withIntermediateDirectories: true)
+            if !GameDeletion.isSave(url.lastPathComponent) { BackupExclusion.exclude(url) }
+        }
     }
 
     /// `KEY=VALUE` lines in order: `#` starts a comment line, blank lines and lines without `=` or with an empty key

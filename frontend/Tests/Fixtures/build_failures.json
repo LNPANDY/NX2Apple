@@ -93,6 +93,20 @@
   "folder": "/Users/x/Games/Zelda"
  },
  {
+  "id": "keys.old",
+  "kind": "keysOld",
+  "source": "dm/tools/nx_extract/Program.cs",
+  "fragment": "the keys are older than the game",
+  "text": "[RED] Game [0100000000010000][v0].nsp: prod.keys has no master_key_13 (master key 13, which came with firmware 19.0.0): the keys are older than the game; dump prod.keys again from a console on firmware 19.0.0 or later"
+ },
+ {
+  "id": "games.noProfile",
+  "kind": "noProfile",
+  "source": "scripts/build_ipa_from_nsp.py",
+  "fragment": "packs only a game with a profile",
+  "text": "[RED] a dump folder packs only a game with a profile, and 0400000000010000 has none: the survey that makes a provisional profile reads NSPs"
+ },
+ {
   "id": "disk.low",
   "kind": "diskFull",
   "source": "scripts/build_ipa_from_nsp.py",
@@ -113,5 +127,12 @@
   "source": "codesign",
   "fragment": "resource fork, Finder information, or similar detritus not allowed",
   "text": "CodeSign /Users/x/Library/Mobile\\ Documents/com~apple~CloudDocs/Downloads/0100152000022000_build/xcode-derived-data/Build/Products/Release-iphoneos/DmIOS.app (in target 'DmIOS' from project 'DmIOS')\n/Users/x/Library/Mobile Documents/com~apple~CloudDocs/Downloads/0100152000022000_build/xcode-derived-data/Build/Products/Release-iphoneos/DmIOS.app: resource fork, Finder information, or similar detritus not allowed\nCommand CodeSign failed with a nonzero exit code"
+ },
+ {
+  "id": "volume.swap",
+  "kind": "volumeFormat",
+  "source": "errno45",
+  "fragment": "Operation not supported",
+  "text": "Traceback (most recent call last):\n  File \"/Users/x/nxnative/engine/dm/mac/pack_app.py\", line 223, in replace_app\n    err = ctypes.get_errno(); raise OSError(err, os.strerror(err), str(out))\nOSError: [Errno 45] Operation not supported: '/Volumes/Games HFS/0100F2C0115B6000.app'"
  }
 ]

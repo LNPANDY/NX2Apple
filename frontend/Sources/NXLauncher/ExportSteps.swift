@@ -30,7 +30,7 @@ package struct ExportSteps: View {
     /// Step 3 waits for step 1: until the IPA exists its controls are shown, but all of them quieter and inert.
     private var inert: Bool { !exported && !sentDone }
     private var toDrive: Bool { devices.sendWhere == SendWhere.drive }
-    private var gameName: String { ((build.basePath as NSString).lastPathComponent as NSString).deletingPathExtension }
+    private var gameName: String { build.gameName }
     private var oneGame: Bool { devices.exportOneGame }
 
     package var body: some View {
