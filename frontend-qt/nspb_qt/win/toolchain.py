@@ -610,36 +610,71 @@ def sdk_cache_dir() -> Path:
     return base / 'NS Port Builder' / 'sdks'
 
 
-def repair_tbd_stubs(sdk: Path | str, log=None) -> int:
-    """Fix `.tbd` files that a Windows git checkout left as text stubs, without git.
+def _is_symlink_stub_bytes(raw: bytes) -> str | None:
+    """Return the relative target string if `raw` looks like a git symlink stub, else None."""
+    if not (1 <= len(raw) <= 256) or raw.startswith(b'--- !tapi-tbd'):
+        return None
+    if any(b in raw for b in (b'\n', b'\r', b'\x00', b' ', b'\t', b';', b'{', b'}', b'#')):
+        return None
+    try:
+        target = raw.decode('utf-8')
+    except UnicodeDecodeError:
+        return None
+    if not target or target in ('.', '..') or target.startswith(('/', '\\')):
+        return None
+    return target
 
-    An SDK downloaded through a git route before the symlink materialization (or copied from a
-    broken checkout) keeps every symlink `.tbd` as a small text file naming its target
-    (`libSystem.tbd` → `libSystem.B.tbd`). `ld64.lld` opens it, finds no `--- !tapi-tbd`, and
-    refuses: "unhandled file type" (LNPANDY/NX2Apple PR #596 fixed the clone route; cached SDKs
-    from before it still carry the stubs). Content-keyed repair: a `.tbd` that does not start
-    with the format's `--- !tapi-tbd` marker and names an existing sibling file gets that
-    sibling's bytes copied over it. Real TBD files and dangling stubs are never touched.
-    Returns how many were repaired.
+
+def repair_tbd_stubs(sdk: Path | str, log=None) -> int:
+    """Fix git symlink text stubs (`.tbd`, `.h`, framework dirs) in a Windows SDK checkout.
+
+    An SDK checked out on Windows without `core.symlinks=true` (or before `materialize_symlinks`
+    used `toolchain.git_exe()`) leaves every symlink as a small one-line text file naming its
+    relative target (`libSystem.tbd` → `libSystem.B.tbd`, `usr/include/pthread.h` →
+    `pthread/pthread.h`, `IOKit.framework/Versions/Current` → `A`). Running up to 4 passes
+    resolves chained symlinks (`libm.tbd` → `libSystem.tbd` → `libSystem.B.tbd` and
+    `Headers` → `Versions/Current/Headers`) without needing git or `.git`.
     """
+    sdk_root = Path(sdk).resolve()
     fixed = 0
-    for p in sorted(Path(sdk).rglob('*.tbd')):
-        if not p.is_file() or p.is_symlink():
-            continue
-        if p.read_bytes()[:13] == b'--- !tapi-tbd':
-            continue
-        target = p.read_text(encoding='utf-8', errors='replace').strip()
-        if not target or '/' in target or '\\' in target or target.startswith('.'):
-            continue
-        real = (p.parent / target).resolve()
-        if not real.is_file() or real.resolve() == p.resolve():
-            continue
-        if real.read_bytes()[:13] != b'--- !tapi-tbd':
-            continue
-        p.write_bytes(real.read_bytes())
-        fixed += 1
-        if log:
-            log(f'repaired {p.name} ← {target}')
+    for _pass in range(4):
+        round_fixed = 0
+        for p in sorted(sdk_root.rglob('*')):
+            try:
+                if p.is_symlink() or not p.is_file():
+                    continue
+                st = p.stat()
+                if not (1 <= st.st_size <= 256):
+                    continue
+                target = _is_symlink_stub_bytes(p.read_bytes())
+                if not target:
+                    continue
+                cand = p.parent / target
+                real = cand.resolve()
+                if real == p.resolve() or not str(real).startswith(str(sdk_root)):
+                    continue
+                if real.is_dir():
+                    p.unlink()
+                    shutil.copytree(real, p, dirs_exist_ok=True)
+                    round_fixed += 1
+                    fixed += 1
+                    if log:
+                        log(f'repaired dir {p.relative_to(sdk_root)} ← {target}')
+                elif real.is_file():
+                    real_bytes = real.read_bytes()
+                    if _is_symlink_stub_bytes(real_bytes) is not None:
+                        continue  # target is itself an unexpanded stub; next pass will resolve it
+                    if p.suffix == '.tbd' and real_bytes[:13] != b'--- !tapi-tbd':
+                        continue
+                    p.write_bytes(real_bytes)
+                    round_fixed += 1
+                    fixed += 1
+                    if log:
+                        log(f'repaired {p.name} ← {target}')
+            except OSError:
+                continue
+        if not round_fixed:
+            break
     return fixed
 
 

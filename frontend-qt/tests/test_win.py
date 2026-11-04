@@ -2349,6 +2349,82 @@ class WindowsBuildFixesTest(unittest.TestCase):
         m._on_line('[04:35:04] [RED] patch_nso.py failed')
         self.assertEqual(m._last_error, '[RED] patch_nso.py failed')
 
+    def test_repair_tbd_stubs_fixes_headers_chained_tbds_and_framework_dirs(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            sdk = Path(td) / 'iPhoneOS26.0.sdk'
+            # 1. usr/include/pthread.h -> pthread/pthread.h and arpa/nameser.h -> ../nameser.h
+            (sdk / 'usr/include/pthread').mkdir(parents=True)
+            (sdk / 'usr/include/arpa').mkdir(parents=True)
+            real_pthread = '#ifndef _PTHREAD_H\n#define _PTHREAD_H\ntypedef struct _opaque_pthread_t *pthread_t;\n#endif\n'
+            (sdk / 'usr/include/pthread/pthread.h').write_text(real_pthread, encoding='utf-8')
+            (sdk / 'usr/include/pthread.h').write_text('pthread/pthread.h', encoding='utf-8')
+            (sdk / 'usr/include/nameser.h').write_text('#define _NAMESER_H 1\n', encoding='utf-8')
+            (sdk / 'usr/include/arpa/nameser.h').write_text('../nameser.h', encoding='utf-8')
+
+            # 2. Chained .tbd: libm.tbd -> libSystem.tbd -> libSystem.B.tbd
+            (sdk / 'usr/lib').mkdir(parents=True)
+            tbd_body = '--- !tapi-tbd\ntbd-version: 4\ntargets: [ arm64-ios ]\n...\n'
+            (sdk / 'usr/lib/libSystem.B.tbd').write_text(tbd_body, encoding='utf-8')
+            (sdk / 'usr/lib/libSystem.tbd').write_text('libSystem.B.tbd', encoding='utf-8')
+            (sdk / 'usr/lib/libm.tbd').write_text('libSystem.tbd', encoding='utf-8')
+
+            # 3. Framework dir symlinks: Versions/Current -> A, Headers -> Versions/Current/Headers
+            fw = sdk / 'System/Library/Frameworks/IOKit.framework'
+            (fw / 'Versions/A/Headers').mkdir(parents=True)
+            (fw / 'Versions/A/Headers/IOKitLib.h').write_text('#define IOKIT 1\n', encoding='utf-8')
+            (fw / 'Versions/Current').write_text('A', encoding='utf-8')
+            (fw / 'Headers').write_text('Versions/Current/Headers', encoding='utf-8')
+
+            fixed = tc.repair_tbd_stubs(sdk)
+            self.assertEqual(fixed, 6)
+            self.assertEqual((sdk / 'usr/include/pthread.h').read_text(encoding='utf-8'), real_pthread)
+            self.assertEqual((sdk / 'usr/include/arpa/nameser.h').read_text(encoding='utf-8'), '#define _NAMESER_H 1\n')
+            self.assertEqual((sdk / 'usr/lib/libSystem.tbd').read_text(encoding='utf-8'), tbd_body)
+            self.assertEqual((sdk / 'usr/lib/libm.tbd').read_text(encoding='utf-8'), tbd_body)
+            self.assertTrue((fw / 'Headers/IOKitLib.h').is_file())
+            self.assertEqual((fw / 'Headers/IOKitLib.h').read_text(encoding='utf-8'), '#define IOKIT 1\n')
+            # Second pass is a no-op
+            self.assertEqual(tc.repair_tbd_stubs(sdk), 0)
+
+    def test_host_sources_includes_dav1d_and_launcher_defines_dm_game_menu(self) -> None:
+        from nspb_qt.win import build_app
+        repo = QT.parent / 'engine'
+        if not (repo / 'dm/host/Makefile').is_file():
+            self.skipTest('engine/ is missing')
+        with tempfile.TemporaryDirectory() as td:
+            files, incs = build_app.host_sources(repo, Path(td))
+        names = {f.name for f in files}
+        self.assertIn('lib.c', names, 'dav1d src/lib.c must be in host_sources')
+        self.assertIn('itx.S', names, 'dav1d arm64 assembly must be in host_sources')
+        inc_strs = [p.as_posix() for p in incs]
+        self.assertTrue(any(p.endswith('dm/third_party/dav1d/include') for p in inc_strs))
+        self.assertTrue(any(p.endswith('dm/third_party/dav1d/config') for p in inc_strs))
+
+        launcher_m = (QT / 'nspb_qt/win/ios/Launcher.m').read_text(encoding='utf-8')
+        self.assertIn('void *dm_game_menu(void)', launcher_m)
+        build_app_src = (QT / 'nspb_qt/win/build_app.py').read_text(encoding='utf-8')
+        self.assertIn('host_msl_gen.h', build_app_src)
+
+    def test_xcrun_shim_splits_compile_and_link_for_metal_without_c_flag(self) -> None:
+        from nspb_qt.win import xcrun_shim
+        calls: list[list[str]] = []
+
+        def fake_run(cmd, *a, **k):
+            calls.append([str(c) for c in cmd])
+            return subprocess.CompletedProcess(cmd, 0)
+
+        with mock.patch.object(xcrun_shim, 'find', side_effect=lambda sdk, tool: Path(f'C:/metal/{tool}.exe')), \
+             mock.patch.object(subprocess, 'run', side_effect=fake_run):
+            rc = xcrun_shim.main(['-sdk', 'iphoneos', 'metal', '-mios-version-min=18.0',
+                                  '-o', 'C:/tmp/clear_depth.metallib', 'C:/src/clear_depth.metal'])
+        self.assertEqual(rc, 0)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[0][0], 'C:/metal/metal.exe')
+        self.assertIn('-c', calls[0])
+        self.assertIn('C:/tmp/clear_depth.metallib.air', calls[0])
+        self.assertEqual(calls[1], ['C:/metal/metallib.exe', 'C:/tmp/clear_depth.metallib.air',
+                                    '-o', 'C:/tmp/clear_depth.metallib'])
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

@@ -335,6 +335,8 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
         process per call: a shader build makes thousands of them."""
         if len(rest) < 3 or rest[0] not in ('-sdk', '--sdk') or rest[2] not in ('metal', 'metallib'):
             return None
+        if rest[2] == 'metal' and '-c' not in rest[3:] and '-o' in rest[3:]:
+            return None  # compile+link in one call (host_msl.py): handled by xcrun_shim.py
         if 'modules' not in _CACHE:
             if _PKG not in sys.path:
                 sys.path.insert(0, _PKG)

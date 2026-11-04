@@ -157,13 +157,27 @@ def host_sources(repo: Path, game_h_dir: Path) -> tuple[list[Path], list[Path]]:
     vpx = repo / 'dm' / 'third_party' / 'libvpx'
     vpx_src = sorted(vpx.rglob('*.c'), key=lambda p: p.as_posix())
 
+    dav1d = repo / 'dm' / 'third_party' / 'dav1d'
+    dav1d_src: list[Path] = []
+    if dav1d.is_dir():
+        dav1d_src = sorted(
+            [p for p in (dav1d / 'src').glob('*.c') if not p.name.endswith('_tmpl.c')]
+            + ([dav1d / 'src' / 'arm' / 'cpu.c'] if (dav1d / 'src' / 'arm' / 'cpu.c').is_file() else [])
+            + list((dav1d / 'config' / 'tmpl').glob('*.c'))
+            + [p for p in (dav1d / 'src' / 'arm' / '64').glob('*.S')
+               if not p.name.endswith('_tmpl.S') and p.name != 'util.S'],
+            key=lambda p: p.as_posix(),
+        )
+
     incs = [repo / 'dm' / 'gfx' / 'nvn' / 'include',
             repo / 'dm' / 'third_party' / 'vulkan-headers' / 'include',
             game_h_dir, vpx, repo / 'dm' / 'third_party' / 'stb_vorbis', vpx / 'config']
+    if dav1d.is_dir():
+        incs += [dav1d / 'include', dav1d, dav1d / 'config']
 
     ios_sources = (repo / 'dm' / 'ios' / 'Sources').resolve()
     files: list[Path] = []
-    for s in src + gfx + vpx_src:
+    for s in src + gfx + vpx_src + dav1d_src:
         s = s.resolve()
         if not s.is_file():
             die(f'a source from dm/host/Makefile does not exist: {s}')
@@ -609,6 +623,11 @@ def main(argv: list[str] | None = None) -> int:
     # --- generate Gen/ (the same generators build_ipa.sh calls)
     t('generate Gen/ (profile header, embedded modules, tables)')
     py(repo / 'dm/games/game.py', 'header', game, gen / 'profile/game_profile.h')
+    msl_srcs = sorted((repo / 'dm/gfx/msl').glob('*.metal'))
+    if msl_srcs:
+        py(repo / 'dm/gfx/tools/host_msl.py', '--sdk', 'iphoneos',
+           '--min', tc.setting('metal_ios_target', '18.0'),
+           gen / 'profile/host_msl_gen.h', *msl_srcs)
     es = gen / 'embed.S'
     jit_img = romfs.parent / 'jit' / 'jit.img'
     embed_extra = [jit_img] if jit_img.is_file() else []
@@ -722,7 +741,8 @@ def main(argv: list[str] | None = None) -> int:
         if romfs.is_file():
             rid_file = base / 'romfs.id'
             r_id = subprocess.run([sys.executable, str(repo / 'dm/tools/romfs_image.py'),
-                                   '--identity', str(romfs)], capture_output=True)
+                                   '--identity', str(romfs), str(game), str(version),
+                                   str(pkg or '')], capture_output=True)
             if r_id.returncode == 0 and r_id.stdout:
                 rid_file.write_bytes(r_id.stdout)
                 maps.append(f'Payload/DmIOS.app/romfs.id={rid_file}')

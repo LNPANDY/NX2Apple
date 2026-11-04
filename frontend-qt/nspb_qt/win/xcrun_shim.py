@@ -171,6 +171,27 @@ def main(argv: list[str] | None = None) -> int:
                 ' (see the Windows build section of frontend-qt/README.md)'))
     if tool == 'metal':
         rest = metal_args(sdk, rest)
+        if '-c' not in rest and '-o' in rest:
+            idx = rest.index('-o')
+            if idx + 1 < len(rest) and rest[idx + 1].endswith('.metallib'):
+                ml_out = rest[idx + 1]
+                air_tmp = ml_out + '.air'
+                compile_rest = rest[:idx] + ['-c', '-o', air_tmp] + rest[idx + 2:]
+                ml_exe = find(sdk, 'metallib')
+                if ml_exe:
+                    try:
+                        r1 = subprocess.run([str(exe)] + compile_rest)
+                        if r1.returncode != 0:
+                            return r1.returncode
+                        r2 = subprocess.run([str(ml_exe), air_tmp, '-o', ml_out])
+                        return r2.returncode
+                    except OSError as e:
+                        _die(f'cannot start {exe}: {e}')
+                    finally:
+                        try:
+                            Path(air_tmp).unlink(missing_ok=True)
+                        except OSError:
+                            pass
     elif tool == 'clang':
         rest = clang_args(rest)
     try:

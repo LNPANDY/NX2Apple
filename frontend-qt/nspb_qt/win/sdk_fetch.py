@@ -85,29 +85,53 @@ def materialize_symlinks(repo: Path, sub: str, log: Callable[[str], None]) -> in
     args = ['ls-files', '-s', '-z']
     if sub:
         args += ['--', sub]
+    git = str(tc.git_exe() or shutil.which('git') or 'git')
     try:
-        r = subprocess.run(['git', '-C', str(repo), *args], capture_output=True, **tc.no_window())
+        r = subprocess.run([git, '-C', str(repo), *args], capture_output=True, **tc.no_window())
     except OSError:
         return 0
     if r.returncode:
         return 0
-    fixed = 0
+    symlinks: list[Path] = []
     for entry in r.stdout.split(b'\x00'):
         if not entry:
             continue
         meta, _, rel = entry.partition(b'\t')
         if meta.split(b' ')[0] != b'120000':
             continue
-        p = repo / os.fsdecode(rel)
-        if not p.is_file() or p.is_symlink():
-            continue
-        target = p.read_text(encoding='utf-8', errors='replace').strip()
-        real = (p.parent / target).resolve()
-        if not real.is_file():
-            log(f'    {rel.decode("utf-8", "replace")}: its target {target!r} is missing, left as it is')
-            continue
-        p.write_bytes(real.read_bytes())
-        fixed += 1
+        symlinks.append(repo / os.fsdecode(rel))
+    pending = set(symlinks)
+    fixed = 0
+    for _pass in range(4):
+        round_fixed = 0
+        for p in list(symlinks):
+            if p not in pending:
+                continue
+            if not p.is_file() or p.is_symlink():
+                pending.discard(p)
+                continue
+            target = p.read_text(encoding='utf-8', errors='replace').strip()
+            cand = p.parent / target
+            if cand in pending:
+                continue  # target is itself a symlink stub; resolve it first
+            real = cand.resolve()
+            if real.is_dir():
+                p.unlink()
+                shutil.copytree(real, p, dirs_exist_ok=True)
+                pending.discard(p)
+                round_fixed += 1
+                fixed += 1
+            elif real.is_file():
+                p.write_bytes(real.read_bytes())
+                pending.discard(p)
+                round_fixed += 1
+                fixed += 1
+        if not round_fixed:
+            break
+    for p in sorted(pending):
+        if p.is_file() and not p.is_symlink():
+            target = p.read_text(encoding='utf-8', errors='replace').strip()
+            log(f'    {p.relative_to(repo).as_posix()}: its target {target!r} is missing, left as it is')
     if fixed:
         log(f'    materialized {fixed} symlink stubs into real files (Windows checkout of git symlinks)')
     return fixed
@@ -209,14 +233,16 @@ def clone_sdk(version: str = tc.SDK_PINNED, dest: Path | None = None,
     if target.exists():
         shutil.rmtree(target, ignore_errors=True)
     shutil.move(str(src), str(target))
-    shutil.rmtree(work, ignore_errors=True)
+    rmtree(work)
+    repair_tbd_stubs(target, log=log)
     log(f'SDK ready: {target} ({tc.sdk_version(target)[0]})')
     return target
 
 
 def available_versions(log: Callable[[str], None] | None = None) -> list[str]:
     """The SDK versions the repository currently offers (needs network; best effort)."""
-    git = shutil.which('git')
+    found = tc.git_exe() or shutil.which('git')
+    git = str(found) if found else None
     if not git:
         return []
     try:
