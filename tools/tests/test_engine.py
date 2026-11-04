@@ -127,6 +127,14 @@ class Sync(Fixture):
         self.assertEqual(git(self.eng, 'rev-parse', '--abbrev-ref', 'HEAD'), 'nx2apple')
         self.assertEqual(git(self.eng, 'status', '--porcelain'), '')
 
+    def test_sync_succeeds_when_global_autocrlf_is_true(self):
+        # Windows sets core.autocrlf=true globally; checkout must not write CRLF and make `git am -3` fail on local changes
+        env = dict(self.env, GIT_CONFIG_COUNT='1', GIT_CONFIG_KEY_0='core.autocrlf', GIT_CONFIG_VALUE_0='true')
+        out = self.tool('sync', env=env)
+        self.assertIn('ready, 1 patches', out)
+        self.assertEqual(git(self.eng, 'config', '--local', '--get', 'core.autocrlf'), 'false')
+        self.assertNotIn(b'\r\n', (self.eng / 'dm/a.c').read_bytes())
+
     def test_a_second_sync_is_a_no_op_and_quiet_prints_nothing(self):
         self.tool('sync')
         before = git(self.eng, 'rev-parse', 'HEAD')
