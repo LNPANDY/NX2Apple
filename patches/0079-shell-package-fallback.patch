@@ -1,0 +1,32 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiaoge-tou <85100527+Tiaoge-tou@users.noreply.github.com>
+Date: Wed, 4 Nov 2026 08:16:47 +0800
+Subject: [PATCH] Shell build: find the Swift package beside a vendored engine
+ checkout
+
+DM_SHELL_PACKAGE defaults to frontend-ios under the engine root. A fork that vendors the engine under engine/ keeps the package one level up, and without the variable set the script (and with it the shell build tests) dies before doing anything. Fall back to the package beside the engine when the default names none. An explicit DM_SHELL_PACKAGE still wins, and a single-tree checkout never reaches the fallback.
+
+Upstream-Status: fork-only
+Reason: build_shell.sh cannot find the frontend-ios package in this fork's two-tree layout unless DM_SHELL_PACKAGE is set, which leaves the shell build tests dead on arrival here
+Issue: Tiaoge-tou/NX2Apple PROJECT.md Phase 4
+
+---
+ dm/ios/tools/build_shell.sh | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/dm/ios/tools/build_shell.sh b/dm/ios/tools/build_shell.sh
+index d3cc308..fd49d7e 100755
+--- a/dm/ios/tools/build_shell.sh
++++ b/dm/ios/tools/build_shell.sh
+@@ -30,6 +30,11 @@ MODE=${1:-}; case "$MODE" in --prepare-xcode|--build) ;; *) die "usage: $0 --pre
+ mkdir -p "$SHELL_DIR" || die "mkdir $SHELL_DIR"; S=$(cd "$SHELL_DIR" && pwd)
+ [ "$S" != "$IOS_SOURCE" ] || die "the shell project must be outside dm/ios"
+ export DM_SHELL_PACKAGE=${DM_SHELL_PACKAGE:-$REPO/frontend-ios}
++# A checkout that vendors the engine one level down (a fork carrying the engine under engine/) keeps the
++# package beside the engine instead: fall back to it when the default names no package.
++if [ ! -f "$DM_SHELL_PACKAGE/Package.swift" ] && [ -f "$REPO/../frontend-ios/Package.swift" ]; then
++  DM_SHELL_PACKAGE=$REPO/../frontend-ios
++fi
+ [ -f "$DM_SHELL_PACKAGE/Package.swift" ] || die "no Swift package at $DM_SHELL_PACKAGE (DM_SHELL_PACKAGE)"
+ export LC_ALL=C DM_BUNDLE_ID=${DM_BUNDLE_ID:-org.nxnative.shell} DM_TEAM_ID=${DM_TEAM_ID:-0000000000} DM_SHELL_NAME=${DM_SHELL_NAME:-NX2Apple} DM_APP_VERSION=${DM_APP_VERSION:-1.0}
+ export DM_FORK_PATCHES=$(paste -sd, "$DM/fork_patches.txt" 2>/dev/null || true)
