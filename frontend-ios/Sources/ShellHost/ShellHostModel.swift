@@ -214,6 +214,15 @@ public struct ShellHostConfig: Sendable {
                                   global: shellData.resolve(), shellMatch: shellMatches[manifest.titleID])
     }
 
+    private func profile(for entry: CatalogueEntry, data: DataResolution? = nil) -> LauncherProfile? {
+        guard let base = entry.profile, entry.problem == nil else { return nil }
+        // A DM_LANG row of the game's own list stays, except the all-languages row of a game with no language list (the engine's
+        // fallback): the RomFS names the languages it really has (#668)
+        if let row = base.settings.first(where: { $0.env == "DM_LANG" }), !RomfsLanguages.isFallbackRow(row) { return base }
+        guard let url = (data ?? self.data(for: entry)).url else { return base }
+        return RomfsLanguages.applying(to: base, options: RomfsLanguages.options(in: url))   // read once per image: RomfsLanguages caches by size and date
+    }
+
     private func image(_ url: URL?) -> Artwork? {
         guard let url else { return nil }
         if let a = artwork[url] { return a }
@@ -229,7 +238,7 @@ public struct ShellHostConfig: Sendable {
         let tile = GameTile(id: entry.id, title: entry.title, subtitle: entry.manifest.map { ShellFormat.version($0.displayVersion) } ?? "",
                             banner: image(entry.bannerURL), icon: image(entry.iconURL), state: state,
                             recentlyPlayed: played.map { ShellFormat.played($0, now: config.now()) })
-        guard let profile = entry.profile, entry.problem == nil else {
+        guard let profile = profile(for: entry, data: data) else {
             return GameDetail(game: tile, dataNote: dataNote(data, found: false))
         }
         let store = GameSettingsStore(profile: profile, defaults: config.defaults(entry.id), shell: shellSettings.gameDefaults)
@@ -312,7 +321,7 @@ public struct ShellHostConfig: Sendable {
     }
 
     public func change(_ id: String, setting: String, value: String) {
-        guard let profile = entry(id)?.profile else { return }
+        guard let entry = entry(id), let profile = profile(for: entry) else { return }
         if setting.hasPrefix("pad.") {
             GamePadMapStore(defaults: config.defaults(id)).change(setting, value: value)
         } else {
@@ -322,7 +331,7 @@ public struct ShellHostConfig: Sendable {
     }
 
     public func resetDefaults(_ id: String) {
-        guard let profile = entry(id)?.profile else { return }
+        guard let entry = entry(id), let profile = profile(for: entry) else { return }
         GameSettingsStore(profile: profile, defaults: config.defaults(id)).reset()
         GamePadMapStore(defaults: config.defaults(id)).reset()
         refresh(id)
@@ -450,8 +459,10 @@ public struct ShellHostConfig: Sendable {
     }
 
     func playNow(_ id: String) async {
-        guard !launchingGame, let entry = entry(id), let manifest = entry.manifest, let profile = entry.profile, let framework = entry.frameworkURL,
-              details.first(where: { $0.id == id })?.game.state == .playable, let dataURL = data(for: entry).url else { return }
+        guard !launchingGame, let entry = entry(id), let manifest = entry.manifest, let framework = entry.frameworkURL,
+              details.first(where: { $0.id == id })?.game.state == .playable,
+              case let resolved = data(for: entry), let dataURL = resolved.url,
+              let profile = profile(for: entry, data: resolved) else { return }
         launchingGame = true
         defer { launchingGame = false }
         var cloud: URL?

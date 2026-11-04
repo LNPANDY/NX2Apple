@@ -48,18 +48,18 @@ every screen, layout, size and stick place: every control inside its
 area and on the screen, no two overlapping, a moved one clear by the gap,
 and a touch inside any drawn control taken by that control.
 
-Upstream-Status: pending (on seedds/nxnative#683)
+Upstream-Status: pending (builds on seedds/nxnative#683, which landed as e2fadf22)
 Reason: Players arrange the touch controls themselves (#414, #347)
 Issue: LNPANDY/NX2Apple#414
 ---
- dm/ios/Sources/DmGamepad.m                    |  60 ++---
+ dm/ios/Sources/DmGamepad.m                    |  65 ++---
  dm/ios/Sources/DmPadGeometry.h                | 249 +++++++++++++++++-
  .../tests/pad_geometry/pad_geometry_check.m   | 186 ++++++++++++-
  dm/ios/tests/test_pad_geometry.py             |   7 +-
- 4 files changed, 455 insertions(+), 47 deletions(-)
+ 4 files changed, 456 insertions(+), 51 deletions(-)
 
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index 9e559df..9981005 100644
+index fc375cb..167cc49 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
 @@ -9,8 +9,9 @@
@@ -161,7 +161,19 @@ index 9e559df..9981005 100644
  }
  - (uint64_t)faceAt:(CGPoint)p {   // keys under the finger in the diamond (between two keys both count)
      uint64_t m = 0; CGFloat r = self.faceHitR;
-@@ -407,14 +399,10 @@ - (void)touchesBegan:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e {
+@@ -407,10 +399,7 @@ - (BOOL)gameBegin:(UITouch *)t {
+ - (BOOL)controlAt:(CGPoint)p {
+     if (_padOff || (_layout.separated && !CGRectContainsPoint(_layout.controls, p))) return NO;
+     if (_tap) return NO;
+-    if ([self btnAt:p] >= 0) return YES;
+-    if (dist(p, self.faceCenter) / (self.faceGap + MAX(self.faceR * 1.6, self.faceHitR)) <= 1) return YES;
+-    if (_full && dist(p, self.dpadCenter) / MAX(self.dpadR * K_DPAD_GRAB, _layout.separated ? 22 : 0) < 1) return YES;
+-    if (!_stick[0] && dist(p, self.stickHome) / MAX([self stickR:0] * K_STICK_GRAB, _layout.separated ? 22 : 0) < 1) return YES;
++    if (dm_pad_hit(self.geo, _full, _layout.separated, _tap, !_stick[0], p).kind != DM_PAD_HIT_NONE) return YES;   // the geometry touchesBegan hits with (DmPadGeometry.h)
+     return _full && !_stick[1] && [self inRightArea:p];
+ }
+ - (UIView *)hitTest:(CGPoint)p withEvent:(UIEvent *)e {
+@@ -423,14 +412,10 @@ - (void)touchesBegan:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e {
          if (_padOff) { game |= [self gameBegin:t]; continue; }
          CGPoint p = [t locationInView:self];
          if (_layout.separated && !CGRectContainsPoint(_layout.controls, p)) { game |= [self gameBegin:t]; continue; }
@@ -490,7 +502,7 @@ index a0b915b..df8eebf 100644
  // the right edge), between the top row and the diamond, inside the safe area and clear of every drawn control (a gap of 6 u around it).
  // text is the label's size including its padding. CGRectNull when there is no room: the hint is then not shown.
 diff --git a/dm/ios/tests/pad_geometry/pad_geometry_check.m b/dm/ios/tests/pad_geometry/pad_geometry_check.m
-index 7bf7e8f..e2a6e3a 100644
+index 12479ac..99925b6 100644
 --- a/dm/ios/tests/pad_geometry/pad_geometry_check.m
 +++ b/dm/ios/tests/pad_geometry/pad_geometry_check.m
 @@ -33,6 +33,187 @@ static void check_fits(const Screen *s, BOOL full, const char *size, DmPadOption
@@ -575,7 +587,7 @@ index 7bf7e8f..e2a6e3a 100644
 +// clear of every other by the gap and of the menu button's hit circle, and a touch well inside a drawn control taken by that control (the
 +// menu button's decision and the hit-test read the same geometry).
 +static void check_geo(const Screen *s, BOOL full, const DmPadGeo *g, const char *what) {
-+    DmLayout l = dm_layout(s->bounds, s->insets, s->partiallyOpen, s->division);
++    DmLayout l = dm_layout(s->bounds, s->insets, s->partiallyOpen, s->division, DM_PICTURE_16_9);
 +    DmPadShape sh[20]; int n = dm_pad_shapes(g, full, sh);
 +    for (int i = 0; i < n; i++) {
 +        if (!dm_pad_shape_inside(&sh[i])) FAIL("%s %s %s: shape %d leaves its rectangle", s->name, full ? "3D" : "2D", what, sh[i].id);
@@ -621,7 +633,7 @@ index 7bf7e8f..e2a6e3a 100644
 +    for (int i = 0; i < nscreens; i++)
 +        for (int full = 0; full < 2; full++)
 +            for (int z = 0; z < 3; z++) {
-+                DmLayout l = dm_layout(screens[i].bounds, screens[i].insets, screens[i].partiallyOpen, screens[i].division);
++                DmLayout l = dm_layout(screens[i].bounds, screens[i].insets, screens[i].partiallyOpen, screens[i].division, DM_PICTURE_16_9);
 +                DmPadOptions o = {dm_pad_size_scale(k_sizes[z]), 0, NULL};
 +                DmPadGeo none = dm_pad_geo(screens[i].bounds, screens[i].insets, l, full, o);
 +                o.layout = &zero; DmPadGeo a = dm_pad_geo(screens[i].bounds, screens[i].insets, l, full, o);
@@ -633,7 +645,7 @@ index 7bf7e8f..e2a6e3a 100644
 +            }
 +    {   // On the Pro Max: a move that fits lands where asked, a move onto another control is dropped, a move past the edge stops at it.
 +        const Screen *s = &screens[3];
-+        DmLayout l = dm_layout(s->bounds, s->insets, NO, CGRectNull);
++        DmLayout l = dm_layout(s->bounds, s->insets, NO, CGRectNull, DM_PICTURE_16_9);
 +        DmPadLayout m; dm_pad_layout_parse("1;3d/face:-4,-4/stick:0,-3/minus:-2,2/b:0,1", &m);
 +        DmPadOptions o = {1, 0, &m};
 +        DmPadGeo base = dm_pad_geo(s->bounds, s->insets, l, YES, (DmPadOptions){1}), g = dm_pad_geo(s->bounds, s->insets, l, YES, o);
@@ -670,7 +682,7 @@ index 7bf7e8f..e2a6e3a 100644
 +                            m.dx[set][c] = (signed char)((int)(rnd() % (2 * range + 1)) - range);
 +                            m.dy[set][c] = (signed char)((int)(rnd() % (2 * range + 1)) - range);
 +                        }
-+                        DmLayout l = dm_layout(screens[i].bounds, screens[i].insets, screens[i].partiallyOpen, screens[i].division);
++                        DmLayout l = dm_layout(screens[i].bounds, screens[i].insets, screens[i].partiallyOpen, screens[i].division, DM_PICTURE_16_9);
 +                        DmPadGeo g = dm_pad_geo(screens[i].bounds, screens[i].insets, l, full, (DmPadOptions){dm_pad_size_scale(k_sizes[z]), p, &m});
 +                        char what[64]; snprintf(what, sizeof what, "%s stick %d fuzz %d", k_sizes[z], p, k);
 +                        check_geo(&screens[i], full, &g, what);

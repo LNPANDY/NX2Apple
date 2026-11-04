@@ -96,4 +96,25 @@ import ShellUI
         #expect(sections[1].rows[2].kind == .range(min: 0.5, max: 1.5, step: 0.05, unit: "×"))
         #expect(sections[1].rows[2].value == "1.0")
     }
+
+    @MainActor @Test func romfsLanguagesSupplyTheGameLanguageRowWhenLauncherJSONHasNone() throws {
+        let box = try Sandbox()
+        let gameData = try box.giveAppData(Fixtures.orbit)
+        try box.write("JPja USen CNzh TWzh\n0111\n", to: gameData.appendingPathComponent("romfs/System/RegionLangMask.txt"))
+
+        let model = ShellHostModel(config: box.config())
+        let detail = try #require(model.details.first { $0.id == Fixtures.orbit })
+        let gameSection = try #require(detail.sections.first { $0.id == "Game" })
+        let langRow = try #require(gameSection.rows.first { $0.id == "DM_LANG" })
+        #expect(langRow.value == "en-US")
+        if case .choice(let opts) = langRow.kind {
+            #expect(opts.map(\.id) == ["en-US", "ja", "zh-Hant", "zh-Hans"])
+        } else {
+            Issue.record("expected DM_LANG to be a choice row")
+        }
+
+        model.change(Fixtures.orbit, setting: "DM_LANG", value: "zh-Hans")
+        let updated = try #require(model.details.first { $0.id == Fixtures.orbit })
+        #expect(updated.sections.first { $0.id == "Game" }?.rows.first { $0.id == "DM_LANG" }?.value == "zh-Hans")
+    }
 }

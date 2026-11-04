@@ -77,6 +77,106 @@ class EngineLayoutTests(unittest.TestCase):
         self.assertEqual(engine.sync_command('/c', 'py'), ['py', str(Path('/c/tools/engine.py')), 'sync'])
 
 
+class BundledEngine(unittest.TestCase):
+    """The Windows zip carries the engine tree inside the app folder: a player needs no git, repo or sync."""
+
+    def setUp(self):
+        self.r = Path(tempfile.mkdtemp(prefix='qt-engine-bundled-')).resolve()   # resolve: bundled_engine() resolves the exe path too
+        self.addCleanup(shutil.rmtree, self.r, True)
+        self.app = self.r / 'app'
+        self.app.mkdir()
+        self.exe = self.app / 'NS Port Builder.exe'
+        self.exe.write_text('x')
+        self.set_frozen(True)
+
+    def set_frozen(self, frozen: bool) -> None:
+        saved = (getattr(sys, 'frozen', None), sys.executable)
+        self.addCleanup(self.restore, *saved)
+        if frozen:
+            sys.frozen = True
+        elif hasattr(sys, 'frozen'):
+            del sys.frozen
+        sys.executable = str(self.exe)
+
+    @staticmethod
+    def restore(frozen, executable) -> None:
+        if frozen is None:
+            if hasattr(sys, 'frozen'):
+                del sys.frozen
+        else:
+            sys.frozen = frozen
+        sys.executable = executable
+
+    def tree(self, base: Path, games: bool = True, script: bool = True) -> Path:
+        eng = base / 'engine'
+        if games:
+            (eng / 'dm' / 'games').mkdir(parents=True, exist_ok=True)
+        if script:
+            (eng / 'scripts').mkdir(parents=True, exist_ok=True)
+            (eng / 'scripts' / 'build_ipa_from_nsp.py').write_text('x')
+        return eng
+
+    def checkout(self) -> Path:
+        """A repo checkout with tools/engine.py and a synced engine/ (the old route)."""
+        repo = self.r / 'repo'
+        for rel in ('tools/engine.py', '.upstream-ref'):
+            (repo / rel).parent.mkdir(parents=True, exist_ok=True)
+            (repo / rel).write_text('x')
+        (repo / 'engine' / MARKER).parent.mkdir(parents=True)
+        (repo / 'engine' / MARKER).write_text('x')
+        return repo
+
+    def test_a_complete_tree_inside_the_app_folder_is_found(self):
+        eng = self.tree(self.app)
+        self.assertEqual(engine.bundled_engine(), str(eng))
+
+    def test_a_complete_tree_beside_the_app_folder_is_found_too(self):
+        eng = self.tree(self.r)
+        self.assertEqual(engine.bundled_engine(), str(eng))
+
+    def test_an_incomplete_tree_is_not_a_bundled_engine(self):
+        eng = self.tree(self.app, script=False)
+        self.assertEqual(engine.bundled_engine(), '')
+        self.assertEqual(engine.engine_root(''), '')
+        self.assertFalse(engine.is_checkout(''))
+        shutil.rmtree(eng)
+        self.tree(self.app, games=False)
+        self.assertEqual(engine.bundled_engine(), '')
+
+    def test_an_incomplete_tree_leaves_the_repo_route_in_place(self):
+        self.tree(self.app, script=False)
+        repo = self.checkout()
+        self.assertEqual(engine.engine_root(str(repo)), str(repo / 'engine'))
+        self.assertTrue(engine.is_checkout(str(repo)))
+
+    def test_no_tree_is_no_bundled_engine(self):
+        self.assertEqual(engine.bundled_engine(), '')
+        self.assertEqual(engine.engine_root(''), '')
+
+    def test_a_run_that_is_not_frozen_ignores_a_tree_beside_it(self):
+        self.tree(self.app)
+        self.set_frozen(False)
+        self.assertEqual(engine.bundled_engine(), '')
+        self.assertEqual(engine.engine_root(''), '')
+        self.assertFalse(engine.is_checkout(''))
+
+    def test_a_bundled_tree_is_a_checkout_without_a_repo_path(self):
+        eng = self.tree(self.app)
+        self.assertTrue(engine.is_checkout(''))
+        self.assertEqual(engine.engine_root(''), str(eng))
+        self.assertFalse(engine.needs_sync_before_build(''))
+
+    def test_the_bundled_tree_wins_over_a_repo_checkout_and_is_never_stale(self):
+        eng = self.tree(self.app)
+        repo = self.checkout()   # engine/ has no stamp: without the bundle it is stale
+        self.assertEqual(engine.engine_root(str(repo)), str(eng))
+        self.assertFalse(engine.is_stale(str(repo)))
+        self.assertFalse(engine.needs_sync_before_build(str(repo)))
+        self.set_frozen(False)
+        self.assertTrue(engine.is_stale(str(repo)))
+        self.assertEqual(engine.engine_root(str(repo)), str(repo / 'engine'))
+
+
 class OnlineSync(unittest.TestCase):
     """A release carries no engine: the first start downloads it, and a failed fetch is a failure row (no Qt needed)."""
 

@@ -86,7 +86,7 @@ index 32f3965..5994375 100644
      else:
          OUT.write_text(text, encoding='utf-8')
 diff --git a/dm/tools/tests/test_docs.py b/dm/tools/tests/test_docs.py
-index af73c08..0dacd10 100644
+index 590343e..635c44e 100644
 --- a/dm/tools/tests/test_docs.py
 +++ b/dm/tools/tests/test_docs.py
 @@ -1,7 +1,7 @@
@@ -98,7 +98,7 @@ index af73c08..0dacd10 100644
  from pathlib import Path
  import re
  import subprocess
-@@ -95,7 +95,7 @@ class PatchIndex(unittest.TestCase):
+@@ -96,7 +96,7 @@ class PatchIndex(unittest.TestCase):
  
  class Gallery(unittest.TestCase):
      def test_gallery_is_current(self):
@@ -107,7 +107,7 @@ index af73c08..0dacd10 100644
  
      def test_plain_text_captions_and_no_remark(self):
          image, tid = docs_gallery.rows()[0][::3]
-@@ -105,7 +105,7 @@ class Gallery(unittest.TestCase):
+@@ -106,7 +106,7 @@ class Gallery(unittest.TestCase):
              with patch.object(docs_gallery, 'TABLE', table):
                  text = docs_gallery.gallery()
                  self.assertIn('alt="A &amp; B: &quot;Adventure&quot; &lt;2&gt;"', text)
