@@ -84,6 +84,12 @@ final class Clock: @unchecked Sendable { var date: Date; init(_ d: Date) { date 
         #expect(lines.count == 5 && lines.allSatisfy { !$0.isEmpty } && lines[1].contains(name))
     }
 
+    /// #620: Exit Game closes the app and iOS does not let it start itself again, so the prompt's note says the player opens it again to get back.
+    @Test func theQuitPromptNoteSaysTheAppClosesAndMustBeOpenedAgain() {
+        let note = ShellHostModel.quitPromptText(gameName: "Orbit").components(separatedBy: "\n")[2]
+        #expect(note.contains("The app closes.") && note.contains("Open it again"), "\(note)")
+    }
+
     /// The prompt's texts in every language: no semicolon, no line break (one text per line in DM_HOME_QUIT_TEXT), the title keeps the game's name.
     @Test func theQuitPromptTextsFollowTheTextRules() throws {
         let l10n = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()

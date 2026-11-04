@@ -685,7 +685,7 @@
   "ios.host.quitButton": "退出",
   "ios.host.quitCancel": "取消",
   "ios.host.quitHold": "继续按住即可退出",
-  "ios.host.quitNote": "未保存的进度将会丢失。App 会关闭，下次打开时显示你的游戏。",
+  "ios.host.quitNote": "未保存的进度将会丢失。App 会关闭，再次打开即可回到你的游戏。",
   "ios.host.quitTitle": "退出%@？",
   "ios.host.rangeWithoutLimits": "%@ 是缺少 min、max、step 的范围项。",
   "ios.host.sameTitleId": "%@ 的 title ID %@ 与 %@ 相同，已改用后者。",
