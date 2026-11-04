@@ -332,6 +332,17 @@ jobs:
           for s in padskin padskin-badge padskin-metal padskin-glass hadesskin hadesskin-badge; do
             if [ -d "dm/ios/$s" ]; then mkdir -p "$APP/dm/$s" && cp dm/ios/$s/*.png "$APP/dm/$s/"; echo "shell dm/: $s"; fi
           done
+          # Key art: the shell catalogue shows a framework's banner.<ext> (the 16:9
+          # eShop banner) at full size and falls back to the square NACP icon when
+          # there is none. The scripted build never writes a banner (the Mac
+          # launcher supplies it from its own banner cache), so the two banners
+          # ship with this repo and are copied in before signing.
+          for fw in "$APP"/Frameworks/*.framework; do
+            tid=$(basename "$fw" .framework); tid=${tid#DmGame}
+            if [ -f "$GITHUB_WORKSPACE/shell-banners/banner-$tid.jpg" ]; then
+              cp "$GITHUB_WORKSPACE/shell-banners/banner-$tid.jpg" "$fw/banner.jpg" && echo "banner in: $fw"
+            fi
+          done
           # Ad-hoc signing in Route C's order (docs/launcher-c-plan.md): each
           # framework first with no entitlements, then the shell executable with
           # the Increased Memory Limit entitlement build_shell.sh wrote. The
