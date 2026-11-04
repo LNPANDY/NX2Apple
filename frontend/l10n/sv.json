@@ -526,7 +526,7 @@
   "ios.host.quitButton": "Avsluta",
   "ios.host.quitCancel": "Avbryt",
   "ios.host.quitHold": "Fortsätt hålla in för att avsluta",
-  "ios.host.quitNote": "Osparade framsteg går förlorade. Appen stängs och öppnas med dina spel nästa gång.",
+  "ios.host.quitNote": "Osparade framsteg går förlorade. Appen stängs. Öppna den igen för att komma tillbaka till dina spel.",
   "ios.host.quitTitle": "Avsluta %@?",
   "ios.host.rangeWithoutLimits": "%@ är ett intervall utan min, max och step.",
   "ios.host.sameTitleId": "%@ har samma titel-ID %@ som %@, som används i stället.",
