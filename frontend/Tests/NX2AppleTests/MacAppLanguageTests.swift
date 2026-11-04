@@ -101,6 +101,60 @@ final class MacAppLanguageTests: IsolatedDefaultsTestCase {
         XCTAssertEqual(env["DM_LAUNCHER"], "0")
     }
 
+    /// A dump or NACP-less game whose launcher.json has no DM_LANG row gets one from its RomFS (System/RegionLangMask.txt or Mals/, #668).
+    func testRomFSLanguagesSupplyTheRowWhenLauncherJSONHasNone() throws {
+        let app = temporary.appendingPathComponent("Bananza.app")
+        let dm = app.appendingPathComponent("Contents/Resources/dm")
+        try FileManager.default.createDirectory(at: dm, withIntermediateDirectories: true)
+        let noLangJSON = #"{"schema": 1, "game": "040074A01BF12000", "settings": [{"env": "DM_OPMODE", "kind": "choice", "section": "Game", "label": "Console mode", "note": "", "default": "1", "level": "basic", "options": [["1", "Docked"], ["0", "Handheld"]]}]}"#
+        try Data(noLangJSON.utf8).write(to: dm.appendingPathComponent("launcher.json"))
+        let info: [String: Any] = ["CFBundleIdentifier": bundleID, "DMTitleID": "040074A01BF12000", "DMLanguage": "en-US"]
+        try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0).write(to: app.appendingPathComponent("Contents/Info.plist"))
+
+        let imgURL = app.appendingPathComponent("Contents/Resources/romfs.img")
+        try Self.makeDMROMFSImage(mask: "JPja USen CNzh TWzh EUfr\n01111\n").write(to: imgURL)
+
+        let list = try XCTUnwrap(LaunchSetting.forMac(app: app.path, titleID: "040074A01BF12000", repo: "", labels: { L10n.string($0, .en) }))
+        let lang = try XCTUnwrap(list.first { $0.env == "DM_LANG" })
+        XCTAssertFalse(lang.storeBacked, "the app's Info.plist has no DMSettings rule for DM_LANG, so the launcher keeps and passes the choice")
+        XCTAssertEqual(lang.def, "en-US")
+        XCTAssertEqual(lang.options?.map { $0[0] }, ["en-US", "ja", "fr", "zh-Hant", "zh-Hans"])
+
+        var game = LibraryGame(titleID: "040074A01BF12000", name: "Donkey Kong Bananza", appPath: app.path)
+        XCTAssertNil(game.launchEnvironment(list)["DM_LANG"], "at the default language the variable stays unset so env.txt still works")
+        game.launchOptions["DM_LANG"] = "zh-Hans"
+        XCTAssertEqual(game.launchEnvironment(list)["DM_LANG"], "zh-Hans")
+
+        // The archive step also adds the row to an iOS framework's launcher.json when it lacks one.
+        let fwLauncher = temporary.appendingPathComponent("DmGame040074A01BF12000.framework/dm/launcher.json")
+        try FileManager.default.createDirectory(at: fwLauncher.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(noLangJSON.utf8).write(to: fwLauncher)
+        XCTAssertTrue(RomFSLanguages.addToLauncherJSONIfMissing(at: fwLauncher.path, romfs: imgURL.path))
+        let parsed = try XCTUnwrap(LaunchList.parse(Data(contentsOf: fwLauncher)))
+        XCTAssertEqual(parsed.settings.first { $0.env == "DM_LANG" }?.options?.map { $0[0] }, ["en-US", "ja", "fr", "zh-Hant", "zh-Hans"])
+    }
+
+    /// Minimal DMROMFS1 image with `/System/RegionLangMask.txt` containing `mask`.
+    private static func makeDMROMFSImage(mask: String) -> Data {
+        let payload = [UInt8](mask.utf8)
+        let dataOff: UInt64 = 32
+        let paddedLen = (payload.count + 7) & ~7
+        let idxOff = dataOff + UInt64(paddedLen)
+        let names = [UInt8]("SystemRegionLangMask.txt".utf8)
+        func le64(_ v: UInt64) -> [UInt8] { (0..<8).map { UInt8((v >> (8 * UInt64($0))) & 0xff) } }
+        func le32(_ v: UInt32) -> [UInt8] { (0..<4).map { UInt8((v >> (8 * UInt32($0))) & 0xff) } }
+        func le16(_ v: UInt16) -> [UInt8] { [UInt8(v & 0xff), UInt8((v >> 8) & 0xff)] }
+        func entry(_ a: UInt64, _ b: UInt64, _ nOff: UInt32, _ nLen: UInt16, _ type: UInt8) -> [UInt8] {
+            le64(a) + le64(b) + le32(nOff) + le16(nLen) + [type, 0]
+        }
+        let entries = entry(1, 1, 0, 0, 2)
+            + entry(2, 1, 0, 6, 2)
+            + entry(dataOff, UInt64(payload.count), 6, 18, 1)
+        let idx = entries + names
+        let head = [UInt8]("DMROMFS1".utf8) + le64(idxOff) + le64(UInt64(idx.count)) + le64(3)
+        return Data(head + payload + [UInt8](repeating: 0, count: paddedLen - payload.count) + idx)
+    }
+
     /// settings.py output, as described above.
     private static let launcherJSON = ###"""
 {

@@ -70,6 +70,7 @@ public struct ShellHostConfig: Sendable {
     @ObservationIgnored private var dataStores: [String: BookmarkStore] = [:]
     @ObservationIgnored private var cloudStores: [String: BookmarkStore] = [:]
     @ObservationIgnored private var artwork: [URL: Artwork] = [:]
+    @ObservationIgnored private var romfsLanguages: [URL: [[String]]] = [:]
     /// The shell-level settings every game falls back to (game > shell > built-in).
     @ObservationIgnored public let shellSettings: ShellSettingsStore
     @ObservationIgnored private let shellData: BookmarkStore
@@ -210,6 +211,20 @@ public struct ShellHostConfig: Sendable {
                                   global: shellData.resolve(), shellMatch: shellMatches[manifest.titleID])
     }
 
+    private func profile(for entry: CatalogueEntry, data: DataResolution? = nil) -> LauncherProfile? {
+        guard let base = entry.profile, entry.problem == nil else { return nil }
+        guard !base.settings.contains(where: { $0.env == "DM_LANG" }),
+              let url = (data ?? self.data(for: entry)).url else { return base }
+        let opts: [[String]]
+        if let cached = romfsLanguages[url] {
+            opts = cached
+        } else {
+            opts = RomfsLanguages.options(in: url)
+            romfsLanguages[url] = opts
+        }
+        return RomfsLanguages.withLanguageIfMissing(base, options: opts)
+    }
+
     private func image(_ url: URL?) -> Artwork? {
         guard let url else { return nil }
         if let a = artwork[url] { return a }
@@ -225,7 +240,7 @@ public struct ShellHostConfig: Sendable {
         let tile = GameTile(id: entry.id, title: entry.title, subtitle: entry.manifest.map { ShellFormat.version($0.displayVersion) } ?? "",
                             banner: image(entry.bannerURL), icon: image(entry.iconURL), state: state,
                             recentlyPlayed: played.map { ShellFormat.played($0, now: config.now()) })
-        guard let profile = entry.profile, entry.problem == nil else {
+        guard let profile = profile(for: entry, data: data) else {
             return GameDetail(game: tile, dataNote: dataNote(data, found: false))
         }
         let store = GameSettingsStore(profile: profile, defaults: config.defaults(entry.id), shell: shellSettings.gameDefaults)
@@ -308,7 +323,7 @@ public struct ShellHostConfig: Sendable {
     }
 
     public func change(_ id: String, setting: String, value: String) {
-        guard let profile = entry(id)?.profile else { return }
+        guard let entry = entry(id), let profile = profile(for: entry) else { return }
         if setting.hasPrefix("pad.") {
             GamePadMapStore(defaults: config.defaults(id)).change(setting, value: value)
         } else {
@@ -318,7 +333,7 @@ public struct ShellHostConfig: Sendable {
     }
 
     public func resetDefaults(_ id: String) {
-        guard let profile = entry(id)?.profile else { return }
+        guard let entry = entry(id), let profile = profile(for: entry) else { return }
         GameSettingsStore(profile: profile, defaults: config.defaults(id)).reset()
         GamePadMapStore(defaults: config.defaults(id)).reset()
         refresh(id)
@@ -446,8 +461,10 @@ public struct ShellHostConfig: Sendable {
     }
 
     func playNow(_ id: String) async {
-        guard !launchingGame, let entry = entry(id), let manifest = entry.manifest, let profile = entry.profile, let framework = entry.frameworkURL,
-              details.first(where: { $0.id == id })?.game.state == .playable, let dataURL = data(for: entry).url else { return }
+        guard !launchingGame, let entry = entry(id), let manifest = entry.manifest, let framework = entry.frameworkURL,
+              details.first(where: { $0.id == id })?.game.state == .playable,
+              case let resolved = data(for: entry), let dataURL = resolved.url,
+              let profile = profile(for: entry, data: resolved) else { return }
         launchingGame = true
         defer { launchingGame = false }
         var cloud: URL?
