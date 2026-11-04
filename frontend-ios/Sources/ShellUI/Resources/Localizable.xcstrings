@@ -806,7 +806,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Black iron"
+            "value": "Schwarzes Eisen"
           }
         },
         "en": {
@@ -818,7 +818,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Black iron"
+            "value": "Fer noir"
           }
         },
         "it": {
@@ -4086,7 +4086,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Glass"
+            "value": "Glas"
           }
         },
         "en": {
@@ -4098,7 +4098,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Glass"
+            "value": "Verre"
           }
         },
         "it": {
@@ -4126,7 +4126,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Glass sind die gläsernen Tasten, Moon ist die Bild-Skin, und Moon (Abzeichen) ist die Bild-Skin mit Buchstabenabzeichen."
+            "value": "Glas sind die gläsernen Tasten, Mond ist die Bild-Skin, und Mond (Abzeichen) ist die Bild-Skin mit Buchstabenabzeichen."
           }
         },
         "en": {
@@ -4138,7 +4138,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Glass désigne les touches en verre, Moon est l'habillage illustré, et Moon (badges) est l'habillage illustré avec badges de lettres."
+            "value": "Verre désigne les touches en verre, Lune est l'habillage illustré, et Lune (badges) est l'habillage illustré avec badges de lettres."
           }
         },
         "it": {
@@ -4166,7 +4166,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Glass sind die gläsernen Tasten, Thorn ist die Bild-Skin, Thorn (Abzeichen) ist die Bild-Skin mit Buchstabenabzeichen, und Black iron ist die Bild-Skin in Ringen aus schwarzem Eisen."
+            "value": "Glas sind die gläsernen Tasten, Dornen ist die Bild-Skin, Dornen (Abzeichen) ist die Bild-Skin mit Buchstabenabzeichen, und Schwarzes Eisen ist die Bild-Skin in Ringen aus schwarzem Eisen."
           }
         },
         "en": {
@@ -4178,7 +4178,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Glass désigne les touches en verre, Thorn est l'habillage illustré, Thorn (badges) est l'habillage illustré avec badges de lettres, et Black iron est l'habillage illustré dans des anneaux en fer noir."
+            "value": "Verre désigne les touches en verre, Épines est l'habillage illustré, Épines (badges) est l'habillage illustré avec badges de lettres, et Fer noir est l'habillage illustré dans des anneaux en fer noir."
           }
         },
         "it": {
@@ -5406,7 +5406,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Moon"
+            "value": "Mond"
           }
         },
         "en": {
@@ -5418,7 +5418,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Moon"
+            "value": "Lune"
           }
         },
         "it": {
@@ -5446,7 +5446,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Moon (Abzeichen)"
+            "value": "Mond (Abzeichen)"
           }
         },
         "en": {
@@ -5458,7 +5458,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Moon (badges)"
+            "value": "Lune (badges)"
           }
         },
         "it": {
@@ -8766,7 +8766,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Thorn"
+            "value": "Dornen"
           }
         },
         "en": {
@@ -8778,7 +8778,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Thorn"
+            "value": "Épines"
           }
         },
         "it": {
@@ -8806,7 +8806,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Thorn (Abzeichen)"
+            "value": "Dornen (Abzeichen)"
           }
         },
         "en": {
@@ -8818,7 +8818,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Thorn (badges)"
+            "value": "Épines (badges)"
           }
         },
         "it": {
