@@ -1178,6 +1178,24 @@ class ToolchainProbeRobustnessTest(unittest.TestCase):
         self.assertTrue(self._all_deps_ok(good, True))
         self.assertFalse(self._all_deps_ok([Dep('a', 'k', 'h', DepState.MISSING, '')], True))
 
+    def test_a_missing_optional_row_does_not_stop_the_build(self) -> None:
+        """spirv-cross and glslangValidator are optional (only an OpenGL game uses them). With them missing and
+        every required row present the panel says "everything required is installed", and the build button
+        must be on: all_deps_ok counted them once, and the button stayed grey with no reason on the screen."""
+        try:
+            from nspb_qt.model import Dep, DepState
+        except ModuleNotFoundError as e:
+            if 'PySide6' in str(e):
+                self.skipTest('PySide6 is not installed')
+            raise
+        good = Dep('python', 'k', 'h', DepState.OK, '')
+        optional = [Dep('spirv-cross', 'k', 'h', DepState.MISSING, '', required=False),
+                    Dep('glslangValidator', 'k', 'h', DepState.MISSING, '', required=False)]
+        self.assertTrue(self._all_deps_ok([good] + optional, True))
+        self.assertFalse(self._all_deps_ok([good, Dep('zstd', 'k', 'h', DepState.MISSING, '')] + optional, True),
+                         'a required row that is missing still stops it')
+        self.assertFalse(self._all_deps_ok([good] + optional, False), 'unchecked is not ready')
+
 
 class SdkCleanupTest(unittest.TestCase):
     """A retry must start from an empty directory, even with git's read-only pack files.
