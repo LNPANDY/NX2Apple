@@ -54,12 +54,13 @@ jobs:
           python tools/engine.py tree --out engine-tree
           du -sh engine-tree
 
-      - name: Build Windows spirv-cross.exe for the bundled engine
+      - name: Build Windows shader tools for the bundled engine
         shell: bash
         run: |
           # The engine tree ships a macOS Mach-O spirv-cross binary in dm/gfx/tools/spirv_cross_bin/.
-          # Build the Windows executable from the exact commit build.sh pins so every NVN, Vulkan and
-          # OpenGL shader build works out of the box without a manual Vulkan SDK install.
+          # Build the Windows executable from the exact commit build.sh pins, and bundle Khronos's
+          # standalone glslangValidator.exe alongside it so NVN, Vulkan and OpenGL shader builds
+          # all work out of the box without a manual Vulkan SDK install.
           TAG=$(sed -n 's/^TAG=\([^ ]*\).*/\1/p' engine-tree/dm/gfx/tools/spirv_cross_bin/build.sh)
           COMMIT=$(sed -n 's/^COMMIT=\([^ ]*\).*/\1/p' engine-tree/dm/gfx/tools/spirv_cross_bin/build.sh)
           git clone --quiet --depth 1 --branch "$TAG" https://github.com/KhronosGroup/SPIRV-Cross.git spirv-cross-src
@@ -72,6 +73,16 @@ jobs:
           cp "$SPV_EXE" engine-tree/dm/gfx/tools/spirv_cross_bin/spirv-cross.exe
           engine-tree/dm/gfx/tools/spirv_cross_bin/spirv-cross.exe --revision
           rm -rf spirv-cross-src spirv-cross-build
+
+          GLSLANG_URL="https://github.com/KhronosGroup/glslang/releases/download/16.6.0/glslang-16.6.0-windows-x86_64-release.zip"
+          GLSLANG_SHA="82bf434e69b9bb4829de7e2b4bc2c5e7a7861e53d66cf75e5cc70f5f694a8d9b"
+          curl -fsSL "$GLSLANG_URL" -o glslang.zip
+          got_sha=$(sha256sum glslang.zip | awk '{print $1}')
+          [ "$got_sha" = "$GLSLANG_SHA" ] || { echo "glslang.zip sha256 is $got_sha, expected $GLSLANG_SHA" >&2; exit 1; }
+          unzip -q glslang.zip bin/glslang.exe
+          cp bin/glslang.exe engine-tree/dm/gfx/tools/spirv_cross_bin/glslangValidator.exe
+          engine-tree/dm/gfx/tools/spirv_cross_bin/glslangValidator.exe --version
+          rm -rf glslang.zip bin
 
       - name: Build
         working-directory: frontend-qt

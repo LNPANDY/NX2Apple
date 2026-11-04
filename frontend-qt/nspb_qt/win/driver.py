@@ -153,7 +153,7 @@ def patch(mod: ModuleType, repo: Path, *, j: int | None = None) -> None:
         _UPSTREAM_RUN = mod.run
 
     # ---------------------------------------------------------------- prereqs
-    def check_prereqs(env, xlate, mac=False):
+    def check_prereqs(env, xlate, mac=False, *a, **kw):
         if mac:
             raise BuildError('the Mac platforms need a Mac: only iOS builds run on Windows')
         bad = [p for p in tc.check_all(deep=True) if p.required and not p.ok]
@@ -169,7 +169,7 @@ def patch(mod: ModuleType, repo: Path, *, j: int | None = None) -> None:
     mod.check_prereqs = check_prereqs
 
     # ---------------------------------------------------------------- nx_extract
-    def build_nx_extract(repo_: Path, work: Path, logs: Path, env):
+    def build_nx_extract(repo_: Path, work: Path, logs: Path, env, *a, **kw):
         """The .NET build, but on Windows the output is `nx_extract.exe`."""
         import tempfile
         nx = work / 'tools/nx_extract/nx_extract'
@@ -191,12 +191,12 @@ def patch(mod: ModuleType, repo: Path, *, j: int | None = None) -> None:
     mod.build_nx_extract = build_nx_extract
 
     # ---------------------------------------------------------------- APFS clones
-    mod.can_clone = lambda d: False
-    mod.apple_silicon = lambda: True     # only the heap estimate below asks
-    mod.ALLOW_OTHER_METAL = True         # Windows Metal Tools version differs from Xcode's
+    mod.can_clone = lambda *a, **kw: False
+    mod.apple_silicon = lambda *a, **kw: True     # only the heap estimate below asks
+    mod.ALLOW_OTHER_METAL = True                  # Windows Metal Tools version differs from Xcode's
 
     # ---------------------------------------------------------------- the Mac host
-    def build_mac_host(repo_, out, env, logs, g):
+    def build_mac_host(repo_, out, env, logs, g, *a, **kw):
         raise BuildError(
             'this step boots the game\'s own arm64 code in a Mac host, which no Windows PC can '
             'run. It is needed only for a game whose shaders appear at run time (GLSLC / Vulkan / '
@@ -205,7 +205,7 @@ def patch(mod: ModuleType, repo: Path, *, j: int | None = None) -> None:
             'do not need it.')
     mod.build_mac_host = build_mac_host
 
-    def heap_check(repo_, d, patched, work, env, logs, g):
+    def heap_check(repo_, d, patched, work, env, logs, g, *a, **kw):
         """The heap check without the Mac host.
 
         Upstream boots the game for a few seconds to read its heap request. Without that, a game
@@ -240,7 +240,7 @@ def patch(mod: ModuleType, repo: Path, *, j: int | None = None) -> None:
         return type(g)(g.dir)
     mod.heap_check = heap_check
 
-    def region_skip(repo_, d, patched, work, env, logs, g):
+    def region_skip(repo_, d, patched, work, env, logs, g, *a, **kw):
         """The address-region check without the Mac host.
 
         Upstream boots the game in the Mac host to report where its address regions reach against
@@ -297,7 +297,7 @@ def patch(mod: ModuleType, repo: Path, *, j: int | None = None) -> None:
         _orig_rewrite = mod._nspb_orig_rewrite
         _orig_patch_files = mod._nspb_orig_patch_files
 
-        def rewrite(py_, repo_, exe_dir, out, env, logs, g, provisional=False):
+        def rewrite(py_, repo_, exe_dir, out, env, logs, g, provisional=False, *a, **kw):
             import json
             from . import sdk_auto_cuts
             sdk_nso = Path(exe_dir) / 'sdk'
@@ -331,10 +331,10 @@ def patch(mod: ModuleType, repo: Path, *, j: int | None = None) -> None:
             else:
                 os.environ.pop('NSPB_AUTO_SDK_CUTS', None)
                 env.pop('NSPB_AUTO_SDK_CUTS', None)
-            return _orig_rewrite(py_, repo_, exe_dir, out, env, logs, g, provisional)
+            return _orig_rewrite(py_, repo_, exe_dir, out, env, logs, g, provisional, *a, **kw)
 
-        def patch_files(repo_, exe_dir, mods, game_id=None):
-            f = _orig_patch_files(repo_, exe_dir, mods, game_id)
+        def patch_files(repo_, exe_dir, mods, game_id=None, *a, **kw):
+            f = _orig_patch_files(repo_, exe_dir, mods, game_id, *a, **kw)
             j = os.environ.get('NSPB_AUTO_SDK_CUTS')
             return f + ([Path(j)] if j and Path(j).exists() else [])
 
@@ -342,7 +342,7 @@ def patch(mod: ModuleType, repo: Path, *, j: int | None = None) -> None:
         mod.patch_files = patch_files
 
     # ---------------------------------------------------------------- the shader cache key
-    def toolchain_probe(repo_=None, env=None):
+    def toolchain_probe(repo_=None, env=None, *a, **kw):
         """What the shader-stage cache keys record as "the compilers".
 
         Upstream records `xcodebuild -version` and fingerprints the SPIRV-Cross
@@ -375,7 +375,7 @@ def patch(mod: ModuleType, repo: Path, *, j: int | None = None) -> None:
     mod.capture_glslc = _refuse_capture('this game')
     mod.capture_shaders = _refuse_capture('this game')
 
-    def capture_jit(py_, repo_, d, patched, work, env, logs, g):
+    def capture_jit(py_, repo_, d, patched, work, env, logs, g, *a, **kw):
         if (Path(d) / 'jit' / 'jit.img').is_file():
             say(f'reusing the captured JIT image: {Path(d) / "jit/jit.img"}')
             return
@@ -410,10 +410,11 @@ def patch(mod: ModuleType, repo: Path, *, j: int | None = None) -> None:
     mod.TOOL_PATHS = extra
 
     # ---------------------------------------------------------------- the app build
-    def run_ipa(cmd, log, env=None, cwd=None, on_line=None):
+    def run_ipa(cmd, log, *a, **kw):
         """Intercept the `bash dm/ios/tools/build_ipa.sh` call and run `build_app.py` instead.
 
-        The signature matches upstream's `run()`, so the caller's logging, progress and error
+        The signature forwards all positional and keyword arguments (`env`, `cwd`, `on_line`,
+        `ok`, `fatal`, etc.) to upstream's `run()`, so the caller's logging, progress and error
         reporting are reused unchanged; only the command is swapped.
         """
         cmd = [str(c) for c in cmd]
@@ -423,7 +424,7 @@ def patch(mod: ModuleType, repo: Path, *, j: int | None = None) -> None:
                 raise BuildError('--prepare-xcode needs Xcode and xcodegen: drop it on Windows')
             cmd = [sys.executable, str(Path(__file__).resolve().parent / 'build_app.py'),
                    *cmd[2:]]
-        return _UPSTREAM_RUN(cmd, log, env=env, cwd=cwd, on_line=on_line)
+        return _UPSTREAM_RUN(cmd, log, *a, **kw)
 
     mod.run = run_ipa
 
@@ -441,6 +442,14 @@ def main(argv: list[str] | None = None) -> int:
     env = shim.build_env(python_exe=sys.executable)
     os.environ.clear()
     os.environ.update(env)
+    sdir = str(shim.shim_dir())
+    if sdir not in sys.path:
+        sys.path.insert(0, sdir)
+    if 'sitecustomize' not in sys.modules:
+        try:
+            import sitecustomize  # noqa: F401
+        except Exception:
+            pass
 
     mod = load_upstream(repo)
     patch(mod, repo)

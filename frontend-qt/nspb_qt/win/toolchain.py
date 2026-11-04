@@ -815,9 +815,10 @@ def find_exe(name: str) -> Path | None:
     own = tools_dir() / f'zstd-{ZSTD_VERSION}' / f'{name}.exe'
     if name == 'zstd' and own.is_file():
         return own
-    if name == 'spirv-cross':
-        if env_sc := os.environ.get('NSPB_SPIRV_CROSS'):
-            p = Path(env_sc)
+    if name in ('spirv-cross', 'glslangValidator'):
+        env_key = 'NSPB_SPIRV_CROSS' if name == 'spirv-cross' else 'NSPB_GLSLANG_VALIDATOR'
+        if env_bin := os.environ.get(env_key):
+            p = Path(env_bin)
             if p.is_file():
                 return p
         here = Path(__file__).resolve()
@@ -831,7 +832,7 @@ def find_exe(name: str) -> Path | None:
             pass
         for r in roots:
             if r:
-                p = Path(r) / 'dm' / 'gfx' / 'tools' / 'spirv_cross_bin' / 'spirv-cross.exe'
+                p = Path(r) / 'dm' / 'gfx' / 'tools' / 'spirv_cross_bin' / f'{name}.exe'
                 if p.is_file():
                     return p
     for cand in (f'{name}.exe', name):

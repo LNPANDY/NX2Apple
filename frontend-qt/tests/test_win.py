@@ -2254,6 +2254,42 @@ class WindowsBuildFixesTest(unittest.TestCase):
             self.assertEqual((out / 'romfs' / 'romfs.img').read_bytes(), b'DMROMFS1_payload')
             self.assertEqual((out / 'romfs' / 'aoc' / '0.img').read_bytes(), b'dlc0')
 
+    def test_run_ipa_forwards_ok_and_fatal_kwargs(self) -> None:
+        from nspb_qt.win import driver
+        repo = QT.parent / 'engine'
+        if not (repo / 'scripts/build_ipa_from_nsp.py').is_file():
+            self.skipTest('engine/ is missing')
+        mod = driver.load_upstream(repo)
+        recorded = []
+
+        def fake_run(cmd, log, env=None, cwd=None, on_line=None, ok=(), fatal=True):
+            recorded.append((list(cmd), ok, fatal))
+            return 0
+
+        orig = driver._UPSTREAM_RUN
+        try:
+            driver._UPSTREAM_RUN = fake_run
+            driver.patch(mod, repo)
+            mod.run(['nx_extract', 'keys.txt', '--keys', 'a.nsp'], Path('k.log'),
+                    env={}, ok=(6,), fatal=False)
+        finally:
+            driver._UPSTREAM_RUN = orig
+            driver.patch(mod, repo)
+        self.assertEqual(len(recorded), 1)
+        self.assertEqual(recorded[0][1], (6,))
+        self.assertIs(recorded[0][2], False)
+
+    def test_find_exe_locates_bundled_glslang_validator(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            fake_engine = Path(td) / 'engine'
+            bin_dir = fake_engine / 'dm' / 'gfx' / 'tools' / 'spirv_cross_bin'
+            bin_dir.mkdir(parents=True)
+            spv = bin_dir / 'glslangValidator.exe'
+            spv.write_bytes(b'MZ')
+            with mock.patch.dict(os.environ, {'NSPB_REPO': str(fake_engine)}, clear=False), \
+                 mock.patch.object(tc, 'setting', return_value=None):
+                self.assertEqual(tc.find_exe('glslangValidator'), spv)
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
