@@ -59,8 +59,11 @@ class Manifest(unittest.TestCase):
         return p
 
     def publish(self, *extra, channel='stable', tag='v0.8.0', out='out', expect=0):
+        # The assertions below name the upstream repository's release URLs, so pin the repo:
+        # in CI the GITHUB_REPOSITORY default would otherwise leak the running fork's slug in.
         args = ['publish', '--engine-zip', str(self.engine), '--version', '0.8.0', '--channel', channel, '--tag', tag,
-                '--out', str(self.tmp / out), '--pub', str(self.pubfile), '--built', '2026-10-31T02:00:00Z', *extra]
+                '--out', str(self.tmp / out), '--pub', str(self.pubfile), '--built', '2026-10-31T02:00:00Z',
+                '--repo', R.GITHUB_REPO, *extra]
         self.assertEqual(R.main(args), expect)
         return self.tmp / out
 
@@ -341,8 +344,10 @@ class ReleaseCandidate(unittest.TestCase):
 
     def publish_rc(self, *extra, channel='stable', version='0.8.0', tag='v0.8.0-rc1'):
         out = self.tmp / 'rc'
+        # Same pin as Manifest.publish: the candidate assertions name the upstream release URLs.
         args = ['publish', '--engine-zip', str(self.engine), '--app-zip', str(self.app), '--version', version, '--channel', channel,
-                '--tag', tag, '--out', str(out), '--pub', str(self.pubfile), '--built', '2026-10-31T02:00:00Z', *extra]
+                '--tag', tag, '--out', str(out), '--pub', str(self.pubfile), '--built', '2026-10-31T02:00:00Z',
+                '--repo', R.GITHUB_REPO, *extra]
         self.assertEqual(self.run_main(args)[0], 0)
         return out / 'latest.json'
 
