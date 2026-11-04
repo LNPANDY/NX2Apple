@@ -41,6 +41,46 @@
         }
       }
     },
+    "16:9 (Switch)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "16:9 (Switch)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "16:9 (Switch)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "16:9 (Switch)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "16:9 (Switch)"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "16:9 (Switch)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "16:9（Switch）"
+          }
+        }
+      }
+    },
     "30 fps": {
       "localizations": {
         "de": {
@@ -6321,6 +6361,46 @@
         }
       }
     },
+    "Picture shape": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bildformat"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Picture shape"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Format de l’image"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Formato dell’immagine"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bildformat"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画面比例"
+          }
+        }
+      }
+    },
     "Pipeline prebuild": {
       "localizations": {
         "de": {
@@ -6917,6 +6997,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "渲染比例"
+          }
+        }
+      }
+    },
+    "Renders about a quarter more pixels: a little slower and warmer.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Berechnet etwa ein Viertel mehr Pixel: etwas langsamer und wärmer."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Renders about a quarter more pixels: a little slower and warmer."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Calcule environ un quart de pixels en plus : un peu plus lent et plus chaud."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Calcola circa un quarto di pixel in più: un po’ più lento e più caldo."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Renderar ungefär en fjärdedel fler pixlar: lite långsammare och varmare."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "渲染的像素约多四分之一：稍慢，发热稍多。"
           }
         }
       }
@@ -9197,6 +9317,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "自定义"
+          }
+        }
+      }
+    },
+    "iPhone Duo screen (1.43:1)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone-Duo-Bildschirm (1.43:1)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone Duo screen (1.43:1)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Écran de l’iPhone Duo (1.43:1)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schermo di iPhone Duo (1.43:1)"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone Duo-skärm (1.43:1)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone Duo 屏幕（1.43:1）"
           }
         }
       }

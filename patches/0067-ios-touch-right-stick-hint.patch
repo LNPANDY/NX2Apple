@@ -21,7 +21,7 @@ all when there is no room. test_pad_geometry.py checks that on every
 screen and size, and that every phone in landscape has room for a short
 and a long wording.
 
-Upstream-Status: pending (on seedds/nxnative#683)
+Upstream-Status: pending (builds on seedds/nxnative#683, which landed as e2fadf22)
 Reason: Players read the 3D layout as having no right stick (#414, #347)
 Issue: LNPANDY/NX2Apple#414
 ---
@@ -31,7 +31,7 @@ Issue: LNPANDY/NX2Apple#414
  3 files changed, 87 insertions(+), 1 deletion(-)
 
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index 0b36d0a..5d3d239 100644
+index 29cb19c..f935755 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
 @@ -7,6 +7,7 @@
@@ -62,7 +62,7 @@ index 0b36d0a..5d3d239 100644
          NSNumber *saved = [NSUserDefaults.standardUserDefaults objectForKey:k_layout_key];
          int l = saved ? (int)saved.integerValue : dm_profile()->pad_layout;
          if (l == 2 && dm_opmode() != 0) l = 0;   // Tap only in handheld mode (env.txt's DM_OPMODE may have changed it)
-@@ -404,7 +411,7 @@ - (void)touchesBegan:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e {
+@@ -420,7 +427,7 @@ - (void)touchesBegan:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e {
          CGFloat f = dist(p, self.faceCenter) / (self.faceGap + MAX(self.faceR * 1.6, self.faceHitR)); if (f <= best) { best = f; kind = C_FACE; }
          if (_full) { CGFloat d = dist(p, self.dpadCenter) / MAX(self.dpadR * K_DPAD_GRAB, _layout.separated ? 22 : 0); if (d < best) { best = d; kind = C_DPAD; } }
          if (!_stick[0]) { CGFloat s = dist(p, self.stickHome) / MAX([self stickR:0] * K_STICK_GRAB, _layout.separated ? 22 : 0); if (s < best) { best = s; kind = C_STICK; } }
@@ -71,7 +71,7 @@ index 0b36d0a..5d3d239 100644
          if (kind == C_FACE) { [_owner setObject:@(C_FACE) forKey:t]; [_faceOf setObject:@([self faceAt:p]) forKey:t]; }
          else if (kind == C_DPAD) [_owner setObject:@(C_DPAD) forKey:t];
          else if (kind == C_STICK) { [_owner setObject:@(C_STICK | (uint64_t)idx << 8) forKey:t]; _stick[idx] = t; _stickNow[idx] = p; }
-@@ -504,8 +511,47 @@ - (void)layoutSubviews {
+@@ -520,8 +527,47 @@ - (void)layoutSubviews {
      CAShapeLayer *in = (CAShapeLayer *)_knob.sublayers.firstObject; CGPathRef ip = circlePath(CGPointMake(k, k), k * 0.62);
      in.frame = _knob.bounds; in.path = ip; CGPathRelease(ip);
      [CATransaction commit];
@@ -151,7 +151,7 @@ index 86083ad..a0b915b 100644
 +
  NS_ASSUME_NONNULL_END
 diff --git a/dm/ios/tests/pad_geometry/pad_geometry_check.m b/dm/ios/tests/pad_geometry/pad_geometry_check.m
-index dc17483..7bf7e8f 100644
+index 8f4b4b0..12479ac 100644
 --- a/dm/ios/tests/pad_geometry/pad_geometry_check.m
 +++ b/dm/ios/tests/pad_geometry/pad_geometry_check.m
 @@ -118,6 +118,24 @@ int main(void) {
@@ -163,7 +163,7 @@ index dc17483..7bf7e8f 100644
 +    for (int i = 0; i < nscreens; i++)
 +        for (int z = 0; z < 3; z++)
 +            for (int w = 0; w < 2; w++) {
-+                DmLayout l = dm_layout(screens[i].bounds, screens[i].insets, screens[i].partiallyOpen, screens[i].division);
++                DmLayout l = dm_layout(screens[i].bounds, screens[i].insets, screens[i].partiallyOpen, screens[i].division, DM_PICTURE_16_9);
 +                DmPadGeo g = dm_pad_geo(screens[i].bounds, screens[i].insets, l, YES, (DmPadOptions){dm_pad_size_scale(k_sizes[z]), 0});
 +                CGFloat areaMinX = CGRectGetMaxX(l.controls) - l.controls.size.width / 3;
 +                CGSize text = CGSizeMake(w ? fmax(300 * g.u, 280) : 150 * g.u, fmax(30 * g.u, 28));   // the long one: about 30 characters at the label's 13 to 20 points
