@@ -1,0 +1,195 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiaoge-tou <85100527+Tiaoge-tou@users.noreply.github.com>
+Date: Wed, 4 Nov 2026 13:23:11 +0800
+Subject: [PATCH] Silksong pad catches up with the fork's slim-149 batch:
+ seats, D-pad pitch, glass glyphs, bag Y key
+
+Upstream-Status: fork-only
+Reason: Code half of the Silksong pad catch-up with the nxnative fork's slim-149 batch: Needolin and Clawline seats swapped, title D-pad centres 110 apart, glass glyphs at one height with the - / + signs at 0.525, and the backpack crest page's Y key (its art is the companion art patch)
+Issue: Tiaoge-tou/NX2Apple PROJECT.md Phase 4
+
+---
+ dm/ios/Sources/DmGamepad.m | 60 ++++++++++++++++++++------------------
+ 1 file changed, 31 insertions(+), 29 deletions(-)
+
+diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
+index d7eb9f1..4298fd0 100644
+--- a/dm/ios/Sources/DmGamepad.m
++++ b/dm/ios/Sources/DmGamepad.m
+@@ -145,10 +145,10 @@ static const struct { const char *art; int bit; int grp; CGFloat x, y, r; } k_sk
+     {"attack",   B_Y,     SK_ALWAYS, 0.7859, 0.770, 0.0374},   // needle attack: the fan's left key, level with the jump pivot
+     {"jump",     B_B,     SK_ALWAYS, 0.898, 0.770, 0.0480},   // the fan's pivot at the bottom-right corner, the largest key
+     {"dash",     B_ZR,    SK_ALWAYS, 0.8188, 0.5983, 0.0374},   // Swift Step: tap dashes, hold sprints; the fan's 45-degree key
+-    {"tool",     B_R,     SK_SKILL,  0.7103, 0.770, 0.0254},   // the equipped tool: in the attack row between Clawline and attack (swapped with Clawline's seat), a 30pt edge gap each side at the reference size; an eye-key skill key
+-    {"needolin", B_X,     SK_SKILL,  0.898, 0.3631, 0.0254},   // Needolin: above Bind in its column, a 30pt edge gap over it at the reference size, in its original round frame; an eye-key skill key (the eye hides it with the other two)
++    {"tool",     B_R,     SK_SKILL,  0.7103, 0.770, 0.0254},   // the equipped tool: in the attack row between Needolin and attack, a 30pt edge gap each side at the reference size; an eye-key skill key
++    {"needolin", B_X,     SK_SKILL,  0.6468, 0.770, 0.0254},   // Needolin: in the attack row, leftmost of the three (swapped with Clawline's seat), a 30pt edge gap to the tool at the reference size, in its original round frame; an eye-key skill key (the eye hides it with the other two)
+     {"bind",     B_A,     SK_ALWAYS, 0.898, 0.5271, 0.0374},   // Bind (heal): the fan's top key, straight above the jump pivot
+-    {"clawline", B_ZL,    SK_SKILL,  0.6468, 0.770, 0.0254},   // Clawline: in the attack row, leftmost of the three (swapped with the tool's seat), a 30pt edge gap to the tool at the reference size; an eye-key skill key
++    {"clawline", B_ZL,    SK_SKILL,  0.898, 0.3631, 0.0254},   // Clawline: above Bind in its column (swapped with the Needolin's seat), a 30pt edge gap over Bind at the reference size; an eye-key skill key
+     {"eye",      0,       SK_TOGGLE, 0.670, 0.082, 0.0224},   // show / hide the skill keys
+     {"map",      B_L,     SK_ALWAYS, 0.746, 0.082, 0.0224},   // quick map (the top row respaced evenly for four keys, shifted left so pause shares the fan's column)
+     {"bag",      B_MINUS, SK_ALWAYS, 0.822, 0.082, 0.0224},   // inventory
+@@ -240,16 +240,16 @@ static UIImage *namedPressedImage(const char *name) {   // the pressed-state art
+     char pn[64]; snprintf(pn, sizeof pn, "%s_p", name); return skinImage(pn);
+ }
+ // ---- Bag layout (pad mode 4: the inventory is open) ----
+-// While the inventory is open the combat pad gives way to nine keys of its own: a D-pad of four separate keys at the left
+-// (the stick and its disc go away), X / A / B in a column at the right, and L / R alone at the top, for the inventory's
++// While the inventory is open the combat pad gives way to ten keys of its own: a D-pad of four separate keys at the left
++// (the stick and its disc go away), X / Y / A / B in a column at the right, and L / R alone at the top, for the inventory's
+ // tabs. The layout is the measured one approved on the inventory's own screenshot (1564x720, the 19.5:9 frame): each
+ // side's keys centre in the black bar between the inventory's white frame and the screen edge, the two groups share one
+ // horizontal line (y 0.6389), and B sat at the combat bottom row's own height (the column scaling below lifts it a
+ // hair). The D-pad cross was widened after the
+ // first on-device pass: bigger keys (r 0.0248), the vertical pair spread further apart (72 in the frame) and the
+-// horizontal pair drawn closer in (52), the group centre unmoved. The X / A / B column is scaled by the combat
++// horizontal pair drawn closer in (52), the group centre unmoved. The X / Y / A / B column is scaled by the combat
+ // cluster's own factor (0.9731) about A -- A keeps the groups' shared line and B ends a hair above the combat
+-// bottom row -- so the two layouts' right-hand keys shrink together. The X key shows only on the crests tab
++// bottom row -- so the two layouts' right-hand keys shrink together. The X and Y keys show only on the crests tab
+ // (bagXShown). Centres and radii follow the k_skin
+ // convention, skinCenter's stacking included but without the Up key's disc exemption (the four D-pad keys move as one
+ // cross). The art is the bag set in dm/padskin and dm/padskin-badge, made by dm/ios/tools/make_bagskin.py; dir is
+@@ -260,6 +260,7 @@ static const struct { const char *art; int bit; int dir; CGFloat x, y, r; } k_ba
+     {"bagdleft",  B_LEFT,  0, 0.0384, 0.6389, 0.0248},
+     {"bagdright", B_RIGHT, 3, 0.1049, 0.6389, 0.0248},
+     {"bagx",       B_X,    -1, 0.9316, 0.4605, 0.0390},
++    {"bagy",       B_Y,    -1, 0.9316, 0.2827, 0.0390},   // one column pitch above X, on the crests tab's terms with it
+     {"baga",       B_A,    -1, 0.9316, 0.6390, 0.0390},
+     {"bagb",       B_B,    -1, 0.9316, 0.8172, 0.0390},
+     {"bagl",       B_L,    -1, 0.0716, 0.075,  0.023},
+@@ -267,6 +268,7 @@ static const struct { const char *art; int bit; int dir; CGFloat x, y, r; } k_ba
+ };
+ #define BAG_N (int)(sizeof k_bag / sizeof k_bag[0])
+ #define BAG_X 4   // the X key's row in k_bag: it serves the crests tab alone, so it shows only while that tab is up (bagXShown)
++#define BAG_Y 5   // the Y key's row in k_bag: the crests tab's second key, on the X key's terms (bagXShown)
+ static CGPoint bagCenter(int i, CGRect b) {   // bag key i's centre, in points (the layout and the touch hit test share it)
+     CGFloat y = k_bag[i].y;
+     if (y > 0.2) y = 0.822 + (y - 0.822) * SKIN_REF_HW * b.size.width / b.size.height;
+@@ -274,7 +276,7 @@ static CGPoint bagCenter(int i, CGRect b) {   // bag key i's centre, in points (
+ }
+ static NSString *bagGlyph(int i) {   // a bag key's glass glyph: the letter keys'; the D-pad keys carry a triangle instead
+     const char *a = k_bag[i].art;
+-    if (!strcmp(a, "bagx")) return @"X"; if (!strcmp(a, "baga")) return @"A"; if (!strcmp(a, "bagb")) return @"B";
++    if (!strcmp(a, "bagx")) return @"X"; if (!strcmp(a, "bagy")) return @"Y"; if (!strcmp(a, "baga")) return @"A"; if (!strcmp(a, "bagb")) return @"B";
+     if (!strcmp(a, "bagl")) return @"L"; if (!strcmp(a, "bagr")) return @"R";
+     return nil;
+ }
+@@ -326,15 +328,15 @@ static CGFloat letArtScale(void) {   // every letter key ships a badge version o
+ // ---- Title D-pad (pad modes 5 and 7: the menu pages' direction keys, in place of the stick) ----
+ // Four separate keys in the bag page's plus arrangement, but at equal pitch both ways (the bag
+ // page's horizontal squeeze dodges the inventory's art; the menu pages have nothing to dodge):
+-// on the reference screen each key is 125 across, the centres 120 apart in both axes (the
+-// four keys overlap by 5), the cluster centred at
++// on the reference screen each key is 125 across, the centres 110 apart in both axes (the
++// four keys overlap by 15), the cluster centred at
+ // (0.1077, 0.7222). dir is triPath's order, for the glass keys' arrows; the art is the bag
+ // set's own D-pad art (bagd*)
+ static const struct { const char *art; int bit; int dir; CGFloat x, y, r; } k_tpad[] = {
+-    {"bagdleft",  B_LEFT,  0, 0.0565, 0.7222, 0.02666},
+-    {"bagdup",    B_UP,    1, 0.1077, 0.6111, 0.02666},
+-    {"bagddown",  B_DOWN,  2, 0.1077, 0.8333, 0.02666},
+-    {"bagdright", B_RIGHT, 3, 0.1589, 0.7222, 0.02666},
++    {"bagdleft",  B_LEFT,  0, 0.0608, 0.7222, 0.02666},
++    {"bagdup",    B_UP,    1, 0.1077, 0.6204, 0.02666},
++    {"bagddown",  B_DOWN,  2, 0.1077, 0.8240, 0.02666},
++    {"bagdright", B_RIGHT, 3, 0.1546, 0.7222, 0.02666},
+ };
+ #define TPAD_N (int)(sizeof k_tpad / sizeof k_tpad[0])
+ static CGPoint tpadCenter(int j, CGRect b) {   // title D-pad key j's centre, in points (titleCenter's remap, so the cross keeps its shape on any screen)
+@@ -567,7 +569,7 @@ static void pads_start(void);   // Physical controllers, below
+     CAShapeLayer *_editRing;                       // the ring around the editor's selected key
+     CALayer *_skipKey, *_padKey;   // the cutscene keys: the skin's Skip medallion at the Bind key's place, its Pad medallion at the eye key's place (drawn in every skin mode, glass included)
+     int _padMode; BOOL _padPeek;                   // the host's pad mode (hle_hid.c dm_pad_mode) and the player's recall of the pad for the rest of the mode
+-    int _padTab;                                   // the host's inventory tab (dm_pad_tab) as last polled: a change inside the inventory only re-runs refresh (the bag X key follows the crests tab)
++    int _padTab;                                   // the host's inventory tab (dm_pad_tab) as last polled: a change inside the inventory only re-runs refresh (the bag X and Y keys follow the crests tab)
+     int _padPage;                                  // the host's current page (dm_pad_page) as last polled: a change between the controller pages only re-runs refresh
+     NSTimer *_padTimer;                            // polls the pad mode while the skin is up
+     BOOL _hades;                                   // DM_PAD_HADES: the glass controls below replace the drawn ones
+@@ -789,10 +791,10 @@ static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y);
+         if (dist(p, c) <= skinR(i) * b.size.width * 1.35) return i; }
+     return -1;
+ }
+-- (int)bagBtnAt:(CGPoint)p {   // bag mode: the bag key under the point, or -1 (the X key takes no touch while it is hidden off the crests tab)
++- (int)bagBtnAt:(CGPoint)p {   // bag mode: the bag key under the point, or -1 (the X and Y keys take no touch while they are hidden off the crests tab)
+     CGRect b = self.bounds;
+     for (int j = 0; j < BAG_N; j++) {
+-        if (j == BAG_X && ![self bagXShown]) continue;
++        if ((j == BAG_X || j == BAG_Y) && ![self bagXShown]) continue;
+         CGPoint c = bagCenter(j, b);
+         if (dist(p, c) <= k_bag[j].r * b.size.width * 1.35) return j; }
+     return -1;
+@@ -923,7 +925,7 @@ static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y);
+                 [self updateEditInfo]; [self setNeedsLayout]; continue; }
+             if ((_padMode == 2 || _padMode == 3) && !_padPeek && dist(p, skinCenter(7, self.bounds)) <= skinR(7) * self.bounds.size.width * 1.35) { _padPeek = YES; [self applyPadMode]; continue; }   // the Pad recall key: the pad comes back for the rest of the cutscene
+             if (_padMode == 3 && !_padPeek && dist(p, skinCenter(5, self.bounds)) <= skinR(5) * self.bounds.size.width * 1.35) { [_owner setObject:@(C_BTN | (uint64_t)B_A << 8) forKey:t]; continue; }   // the Skip key: A, through the usual input path
+-            if (_padMode == 4) { int bb = [self bagBtnAt:p]; if (bb >= 0) { [_owner setObject:@(C_BTN | (uint64_t)k_bag[bb].bit << 8) forKey:t]; continue; } game |= [self gameBegin:t]; continue; }   // the bag layout: its nine keys take the touch (no stick: the disc is gone); every other touch is the game's
++            if (_padMode == 4) { int bb = [self bagBtnAt:p]; if (bb >= 0) { [_owner setObject:@(C_BTN | (uint64_t)k_bag[bb].bit << 8) forKey:t]; continue; } game |= [self gameBegin:t]; continue; }   // the bag layout: its ten keys take the touch (no stick: the disc is gone); every other touch is the game's
+             if (_padMode == 5 || _padMode == 7) { int tb = [self titleBtnAt:p]; if (tb >= 0) { [_owner setObject:@(C_BTN | (uint64_t)k_title[tb].bit << 8) forKey:t]; continue; }
+                 int tp = [self tpadBtnAt:p]; if (tp >= 0) { [_owner setObject:@(C_BTN | (uint64_t)k_tpad[tp].bit << 8) forKey:t]; continue; }
+                 game |= [self gameBegin:t]; continue; }   // the menu pages (and the achievements page, B alone through titleBtnAt): the D-pad and its letter keys take the touch (no stick there: its Up key would double-fire under the D-pad's); every other touch is the game's
+@@ -998,15 +1000,15 @@ static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y);
+ // the glass controls at their places stay hidden with the rest of the glass pad while they show.
+ // Mode 4 (the inventory is open) is not a hiding: the combat pad gives way to the bag layout (k_bag) for as long as the
+ // inventory lasts — the stick disc and knob included — and closing the inventory restores the pad exactly as it was.
+-// Inside the inventory the bag's X key follows the game's own current tab (dm_pad_tab): it serves the crests tab alone,
+-// so it hides on the other tabs and comes back with the crests; while the tab reads unknown it stays shown
++// Inside the inventory the bag's X and Y keys follow the game's own current tab (dm_pad_tab): they serve the crests tab alone,
++// so they hide on the other tabs and come back with the crests; while the tab reads unknown they stay shown
+ // Modes 5 (the menu pages, and the pause with its options branch), 6 (the controller pages) and 7 (the
+ // achievements page) are not hidings either: the menu pages swap the stick for a D-pad (k_tpad) beside
+ // their two letter keys (k_title), the achievements page keeps the D-pad and B alone (k_title's second key), the controller pages keep every key at its seat with its letter in place of its icon
+ // (the let* layers, the glass skin's own labels), the skill keys' eye gate aside, so the key-binding page can be worked.
+ // Before the watcher publishes its first mode the mode reads -1 and the whole pad is hidden: the game is still loading
+ - (BOOL)padHidden { return _padMode != 0 && _padMode != 5 && _padMode != 6 && _padMode != 7 && !_padPeek; }   // play and the menu layouts show their own keys; every other mode hides the combat pad, the unpublished -1 with them
+-- (BOOL)bagXShown { int t = dm_pad_tab(); return t < 0 || t == 1; }   // the bag's X key serves the crests tab alone: shown on that tab, and while the tab is unknown (the hero unread or a value out of range) -- never hidden on a guess
++- (BOOL)bagXShown { int t = dm_pad_tab(); return t < 0 || t == 1; }   // the bag's X and Y keys serve the crests tab alone: shown on that tab, and while the tab is unknown (the hero unread or a value out of range) -- never hidden on a guess
+ - (BOOL)skinKeyHidden:(int)i {   // skin key i's icon layer in the current mode: the one rule applyPadMode and refresh share
+     if (!_sSkinMode) return YES;   // the glass choice draws its own discs; the image layers stay hidden under it
+     if (_editing) return NO;   // the layout editor shows every key, the eye's hidden skill keys included
+@@ -1073,7 +1075,7 @@ static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y);
+     for (int j = 0; j < TPAD_N; j++) _tpadBtn[j].hidden = !(_padMode == 5 || _padMode == 7) || !_sSkinMode;   // the title D-pad's art layers ride the menu pages with the letter keys
+     for (int j = 0; j < TITLE_N; j++) _tGlass[j].hidden = _tWash[j].hidden = _tLabel[j].hidden = !((_padMode == 5) || (_padMode == 7 && k_title[j].bit == B_B)) || _sSkinMode != 0;   // the glass choice's own title discs, on the title keys' terms
+     for (int j = 0; j < TPAD_N; j++) _pGlass[j].hidden = _pWash[j].hidden = _pSym[j].hidden = !(_padMode == 5 || _padMode == 7) || _sSkinMode != 0;   // the glass choice's title D-pad
+-    for (int j = 0; j < BAG_N; j++) _bagBtn[j].hidden = !bag || !_sSkinMode || (j == BAG_X && ![self bagXShown]);
++    for (int j = 0; j < BAG_N; j++) _bagBtn[j].hidden = !bag || !_sSkinMode || ((j == BAG_X || j == BAG_Y) && ![self bagXShown]);
+     _skipKey.hidden = !(_padMode == 3 && !_padPeek);   // the cutscene keys are drawn medallions in every skin mode, the glass choice included: the glass pad yields their places (its box hides below, each glass key in refresh, both with padHidden)
+     _padKey.hidden = !((_padMode == 2 || _padMode == 3) && !_padPeek);
+     if (_sGlassBox) _sGlassBox.hidden = _sSkinMode >= 1 || ([self padHidden] && !bag);   // the glass box: covered by the image skin; hidden while the pad is, except in the inventory, whose glass keys live in it
+@@ -1178,9 +1180,9 @@ static void placeLabel(CATextLayer *t, CGPoint c, CGFloat fs) {
+                 CGFloat dr = r * GLASS_BTN_F;   // the drawn disc at 0.93 of the nominal radius (GLASS_BTN_F), its glyph and wash scaled with it
+                 _sGlass[i].frame = CGRectMake(c.x - dr, c.y - dr, 2 * dr, 2 * dr); glassDiscLayout(_sGlass[i], dr);
+                 setPath(_sWash[i], circlePath(c, dr));
+-                if (_sLabel[i]) placeGlassLabel(_sLabel[i], c, silkGlyph(i).length > 1 ? dr * 0.62 : dr * 0.84);   // the restyle's glyph sizes: a single letter at 0.42 of the disc's height, a two-letter one at 0.31
+-                else if (_sSym[i]) setPath(_sSym[i], k_skin[i].grp == SK_TOGGLE ? circlePath(c, dr * 0.20) : symPath(c, dr, k_skin[i].bit == B_PLUS));
+-                if (k_skin[i].grp == SK_TOGGLE && _eyeLabel) placeGlassLabel(_eyeLabel, c, dr * 0.62); }   // the eye's state word, sized as a two-letter glyph
++                if (_sLabel[i]) placeGlassLabel(_sLabel[i], c, dr * 0.84);   // the restyle's glyph size: every letter at 0.42 of the disc's height, one letter or two
++                else if (_sSym[i]) setPath(_sSym[i], k_skin[i].grp == SK_TOGGLE ? circlePath(c, dr * 0.20) : symPath(c, dr * 0.525, k_skin[i].bit == B_PLUS));   // the - / + bars at 0.525 of the disc's radius, so a sign's height matches a letter's cap height
++                if (k_skin[i].grp == SK_TOGGLE && _eyeLabel) placeGlassLabel(_eyeLabel, c, dr * 0.84); }   // the eye's state word, at the letters' size
+             for (int j = 0; j < BAG_N; j++) if (_bGlass[j]) { CGFloat r = k_bag[j].r * b.size.width; CGPoint c = bagCenter(j, b);
+                 CGFloat dr = r * GLASS_BTN_F;
+                 _bGlass[j].frame = CGRectMake(c.x - dr, c.y - dr, 2 * dr, 2 * dr); glassDiscLayout(_bGlass[j], dr);
+@@ -1259,8 +1261,8 @@ static void placeLabel(CATextLayer *t, CGPoint c, CGFloat fs) {
+             _skinBtn[i].contents = (id)(p ? p : skinImage(k_skin[i].art)).CGImage;
+             _skinBtn[i].opacity = (_editing && _skillOff && k_skin[i].grp == SK_SKILL) ? 0.45 : 1.0;   // in the editor the eye's hidden skill keys show dimmed: shown (the editor shows every key), but marked as the hidden ones
+             _skinBtn[i].transform = on ? CATransform3DMakeScale(0.93, 0.93, 1) : CATransform3DIdentity; }
+-        if (_sSkinMode) for (int j = 0; j < BAG_N; j++) {   // the bag keys, shown only in the inventory, press like skin keys: the _p art and a dip while held (the X key only on the crests tab)
+-            _bagBtn[j].hidden = _padMode != 4 || (j == BAG_X && ![self bagXShown]);
++        if (_sSkinMode) for (int j = 0; j < BAG_N; j++) {   // the bag keys, shown only in the inventory, press like skin keys: the _p art and a dip while held (the X and Y keys only on the crests tab)
++            _bagBtn[j].hidden = _padMode != 4 || ((j == BAG_X || j == BAG_Y) && ![self bagXShown]);
+             BOOL on = (_btnBits >> k_bag[j].bit) & 1;
+             UIImage *p = on ? bagPressedImage(j) : nil;
+             _bagBtn[j].contents = (id)(p ? p : skinImage(k_bag[j].art)).CGImage;
+@@ -1305,9 +1307,9 @@ static void placeLabel(CATextLayer *t, CGPoint c, CGFloat fs) {
+             CGPoint go = o; CGFloat gm = 0.604 * sR; if (ol > gm) { go.x *= gm / ol; go.y *= gm / ol; }   // the glass knob's own reach (see the clamp above)
+             _sKnob.center = CGPointMake(h.x + go.x, h.y + go.y);
+             _sStick.hidden = _sKnob.hidden = [self padHidden] || _padMode == 4 || _padMode == 5 || _padMode == 7;   // the menu pages have the D-pad in the stick's place
+-            for (int j = 0; j < BAG_N; j++) { if (!_bWash[j]) continue;   // the bag keys as glass: shown only in the inventory, each key's wash lit while it is held (the X key only on the crests tab)
++            for (int j = 0; j < BAG_N; j++) { if (!_bWash[j]) continue;   // the bag keys as glass: shown only in the inventory, each key's wash lit while it is held (the X and Y keys only on the crests tab)
+                 _bWash[j].opacity = ((_btnBits >> k_bag[j].bit) & 1) ? 0.35 : 0;
+-                BOOL hid = _padMode != 4 || (j == BAG_X && ![self bagXShown]);
++                BOOL hid = _padMode != 4 || ((j == BAG_X || j == BAG_Y) && ![self bagXShown]);
+                 if (_bGlass[j]) _bGlass[j].hidden = hid;
+                 if (_bLabel[j]) _bLabel[j].hidden = hid;
+                 if (_bSym[j]) _bSym[j].hidden = hid;

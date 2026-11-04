@@ -1,0 +1,34 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiaoge-tou <85100527+Tiaoge-tou@users.noreply.github.com>
+Date: Wed, 4 Nov 2026 13:12:44 +0800
+Subject: [PATCH] The back-to-library alert follows the preferred language and
+ says what happens
+
+Upstream-Status: fork-only
+Reason: The shell is localised for its player, so the one game-side alert follows the preferred language (Chinese when preferred, English otherwise), and its text says plainly that the app closes and reopening it returns to the library
+Issue: Tiaoge-tou/NX2Apple PROJECT.md Phase 4
+
+---
+ dm/ios/Sources/front_ios.m | 9 ++++++---
+ 1 file changed, 6 insertions(+), 3 deletions(-)
+
+diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
+index ad02f10..5a5f70c 100644
+--- a/dm/ios/Sources/front_ios.m
++++ b/dm/ios/Sources/front_ios.m
+@@ -245,9 +245,12 @@ static void front_ios_hud_script_fix(int width) {
+ - (void)dm_back_to_library:(UILongPressGestureRecognizer *)press {
+     if (press.state != UIGestureRecognizerStateBegan) return;   // once per press, not for every change it reports
+     if (self.presentedViewController) return;   // an alert is already up (a boot message, or this one from a second press)
+-    UIAlertController *a = [UIAlertController alertControllerWithTitle:@"Game library" message:@"Close the game and go back to the game library? Unsaved progress is lost." preferredStyle:UIAlertControllerStyleAlert];
+-    [a addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+-    [a addAction:[UIAlertAction actionWithTitle:@"Close game" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) { exit(0); }]];   // the shell opens on its library, so closing the app is the way back to it
++    // The shell speaks the player's language (its catalogues carry Chinese), so this one game-side alert follows
++    // the preferred language too. The wording says what happens: the app closes, reopening it lands on the library.
++    BOOL zh = [NSLocale.preferredLanguages.firstObject hasPrefix:@"zh"];
++    UIAlertController *a = [UIAlertController alertControllerWithTitle:zh ? @"游戏库" : @"Game library" message:zh ? @"关闭游戏并退出应用？重新打开应用将回到游戏库，未保存的进度将丢失。" : @"Close the game and quit the app? Reopening the app returns to the game library. Unsaved progress is lost." preferredStyle:UIAlertControllerStyleAlert];
++    [a addAction:[UIAlertAction actionWithTitle:zh ? @"取消" : @"Cancel" style:UIAlertActionStyleCancel handler:nil]];
++    [a addAction:[UIAlertAction actionWithTitle:zh ? @"关闭游戏" : @"Close game" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) { exit(0); }]];   // the shell opens on its library, so closing the app is the way back to it
+     [self presentViewController:a animated:YES completion:nil];
+ }
+ - (void)viewDidAppear:(BOOL)a {
