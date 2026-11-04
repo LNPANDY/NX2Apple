@@ -5,10 +5,10 @@ import XCTest
 @testable import ShellUI
 @testable import ShellHost
 
-/// Visual QA of the library on iPhone Duo's outer display (#622), rendered on the Mac from the fixture games. The Mac has no Duo, so
-/// the screen is simulated: the outer display's size (466 x 678 points, from the Simulator's device profile) and a column of safe
-/// area on the trailing side where the status bar sits. The column's width is measured from the reporter's screenshots, so it is an
-/// estimate. The status bar's place in it is drawn as a light strip with a time. Set NX_SHELL_CAPTURE_DIR to write the PNGs, NX_SHELL_CAPTURE_LANG for the language.
+/// Visual QA of the library on iPhone Duo's outer display (#622), rendered on the Mac from the fixture games. The screen is
+/// simulated with the values the iPhone Duo Simulator (iOS 27.2) reported: the outer display's size, its safe area (a column of 84
+/// points on one side, 34 at the bottom) and its occluded areas (the status bar, the camera), which are drawn as light areas.
+/// Set NX_SHELL_CAPTURE_DIR to write the PNGs, NX_SHELL_CAPTURE_LANG for the language.
 @MainActor
 final class SideBarCaptureTests: XCTestCase {
     private var lang: String { ProcessInfo.processInfo.environment["NX_SHELL_CAPTURE_LANG"] ?? "en" }
@@ -24,17 +24,18 @@ final class SideBarCaptureTests: XCTestCase {
         HostStrings.captureBundle = nil
     }
 
-    /// The view inside a screen of `size` whose safe area leaves `insets` free, with the status bar's column drawn as a dim strip
-    /// along the trailing edge's top so the image shows where the system's time and Wi-Fi would be.
-    private func capture<V: View>(_ name: String, size: CGSize, insets: EdgeInsets, statusHeight: CGFloat, _ view: V) throws {
+    /// The view inside a screen of `size` whose safe area leaves `insets` free, with the occluded areas of `bar` drawn as light
+    /// shapes, so the image shows where the system's time and the camera are.
+    private func capture<V: View>(_ name: String, size: CGSize, insets: EdgeInsets, bar: SideBar, _ view: V) throws {
         let dir = try XCTUnwrap(ProcessInfo.processInfo.environment["NX_SHELL_CAPTURE_DIR"])
         NSApplication.shared.setActivationPolicy(.accessory)
-        let screen = ZStack(alignment: .topTrailing) {
-            // The system's vertical bar on the trailing edge, as `toolbarVerticalEdge` reports it on iPhone Duo.
-            view.safeAreaPadding(insets).environment(\.shellSideBar, SideBar(edge: .trailing))
-            Rectangle().fill(.white.opacity(0.18)).frame(width: insets.trailing, height: statusHeight)
-                .overlay { Text("9:41").font(.system(size: 13, weight: .semibold)).foregroundStyle(.white.opacity(0.7)) }
-                .allowsHitTesting(false)
+        let screen = ZStack(alignment: .topLeading) {
+            view.safeAreaPadding(insets).environment(\.shellSideBar, bar)
+            ForEach(Array(bar.occlusions.enumerated()), id: \.offset) { _, area in
+                RoundedRectangle(cornerRadius: min(area.width, area.height) / 2).fill(.white.opacity(0.18))
+                    .frame(width: area.width, height: area.height).offset(x: area.minX, y: area.minY)
+            }
+            .allowsHitTesting(false)
         }
         let framed = screen.frame(width: size.width, height: size.height).background(ShellPalette.background).environment(\.colorScheme, .dark)
         let host = NSHostingView(rootView: framed)
@@ -65,15 +66,20 @@ final class SideBarCaptureTests: XCTestCase {
         let box = try Sandbox()
         let model = try model(box)
         let upright = CGSize(width: 466, height: 678), sideways = CGSize(width: 678, height: 466)
-        let uprightInsets = EdgeInsets(top: 0, leading: 0, bottom: 20, trailing: 80)
-        let sidewaysInsets = EdgeInsets(top: 0, leading: 0, bottom: 20, trailing: 56)
-        try capture("duo-outer-upright", size: upright, insets: uprightInsets, statusHeight: 165,
+        let insets = EdgeInsets(top: 0, leading: 0, bottom: 34, trailing: 84)
+        let uprightBar = SideBar(edge: .trailing, occlusions: [CGRect(x: 382, y: 0, width: 84, height: 174),
+                                                               CGRect(x: 399.67, y: 29.33, width: 37, height: 37)])
+        let sidewaysBar = SideBar(edge: .trailing, occlusions: [CGRect(x: 594, y: 384, width: 84, height: 82),
+                                                                CGRect(x: 611.67, y: 399.67, width: 37, height: 37)])
+        try capture("duo-outer-upright", size: upright, insets: insets, bar: uprightBar,
                     LibraryView(games: model.details, initialSelection: Fixtures.orbit))
-        try capture("duo-outer-sideways", size: sideways, insets: sidewaysInsets, statusHeight: 80,
-                    LibraryView(games: model.details, initialSelection: Fixtures.orbit))
-        try capture("duo-outer-sideways-settings", size: sideways, insets: sidewaysInsets, statusHeight: 80,
+        try capture("duo-outer-upright-settings", size: upright, insets: insets, bar: uprightBar,
                     LibraryView(games: model.details, initialSelection: Fixtures.orbit, initialDetailOpen: true))
-        try capture("duo-outer-empty", size: upright, insets: uprightInsets, statusHeight: 165, LibraryView(games: []))
+        try capture("duo-outer-sideways", size: sideways, insets: insets, bar: sidewaysBar,
+                    LibraryView(games: model.details, initialSelection: Fixtures.orbit))
+        try capture("duo-outer-sideways-settings", size: sideways, insets: insets, bar: sidewaysBar,
+                    LibraryView(games: model.details, initialSelection: Fixtures.orbit, initialDetailOpen: true))
+        try capture("duo-outer-empty", size: upright, insets: insets, bar: uprightBar, LibraryView(games: []))
     }
 }
 #endif

@@ -22,6 +22,8 @@ struct PortraitLibrary: View, Equatable {
     var bottomInset: CGFloat = 0
     /// The Controllers and Settings chips sit in the side column (SideBar), not over the hero.
     var chipsInSideBar = false
+    /// The game settings button sits at the top of the side column, so Play has the bar to itself.
+    var settingsInSideBar = false
     let controllers: Int
     let select: (String) -> Void
     let primary: (GameDetail) -> Void
@@ -59,6 +61,7 @@ struct PortraitLibrary: View, Equatable {
         lhs.games.map(\.game) == rhs.games.map(\.game) && lhs.selected.game == rhs.selected.game && lhs.wide == rhs.wide
             && lhs.size == rhs.size && lhs.topInset == rhs.topInset && lhs.bottomInset == rhs.bottomInset
             && lhs.controllers == rhs.controllers && lhs.chipsInSideBar == rhs.chipsInSideBar
+            && lhs.settingsInSideBar == rhs.settingsInSideBar
     }
 
     var body: some View {
@@ -76,7 +79,7 @@ struct PortraitLibrary: View, Equatable {
                                 .accessibilityLabel(selected.game.state.actionTitle + ", " + selected.game.title)
                                 .accessibilityIdentifier("state.action")
                                 .shellTarget("lib.play", radius: 25) { primary(selected) }
-                                settingsButton
+                                if !settingsInSideBar { settingsButton }
                             }.padding(.top, 8)
                         }
                     }
@@ -213,7 +216,7 @@ struct PortraitLibrary: View, Equatable {
             .accessibilityLabel(selected.game.state.actionTitle + ", " + selected.game.title)
             .accessibilityIdentifier("state.action")
             .shellTarget("lib.play", radius: 25) { primary(selected) }
-            settingsButton
+            if !settingsInSideBar { settingsButton }
         }
         .padding(.horizontal, 24).padding(.top, 22).padding(.bottom, 8)
         .background {

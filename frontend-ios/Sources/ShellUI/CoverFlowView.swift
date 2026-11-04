@@ -13,6 +13,8 @@ struct CoverFlowView: View, Equatable {
     var screenInsets = EdgeInsets()
     /// The Controllers and Settings chips sit in the side column (SideBar), not in the top bar.
     var chipsInSideBar = false
+    /// The game settings button sits at the top of the side column, not in the top bar.
+    var settingsInSideBar = false
     let select: (String) -> Void
     let primary: (GameDetail) -> Void
     let openSettings: () -> Void
@@ -36,7 +38,7 @@ struct CoverFlowView: View, Equatable {
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.games.map(\.game) == rhs.games.map(\.game) && lhs.selected.game == rhs.selected.game
             && lhs.controllers == rhs.controllers && lhs.showsHints == rhs.showsHints && lhs.screenInsets == rhs.screenInsets
-            && lhs.chipsInSideBar == rhs.chipsInSideBar
+            && lhs.chipsInSideBar == rhs.chipsInSideBar && lhs.settingsInSideBar == rhs.settingsInSideBar
     }
 
     var body: some View {
@@ -104,11 +106,13 @@ struct CoverFlowView: View, Equatable {
                 hints.opacity(showsHints ? 1 : 0)
                 Spacer(minLength: 12)
             }
-            Button(action: openSettings) { Image(systemName: "slider.horizontal.3").frame(minWidth: 18) }
-                .buttonStyle(ChipButtonStyle())
-                .accessibilityLabel(ShellStrings.text("Game settings") + ", " + selected.game.title)
-                .accessibilityIdentifier("settings.open")
-                .shellTarget("lib.settings", radius: 22, action: openSettings)
+            if !settingsInSideBar {
+                Button(action: openSettings) { Image(systemName: "slider.horizontal.3").frame(minWidth: 18) }
+                    .buttonStyle(ChipButtonStyle())
+                    .accessibilityLabel(ShellStrings.text("Game settings") + ", " + selected.game.title)
+                    .accessibilityIdentifier("settings.open")
+                    .shellTarget("lib.settings", radius: 22, action: openSettings)
+            }
             if !chipsInSideBar {
                 ControllerChip(count: controllers, action: openControllers)
                 ShellSettingsChip(action: openShellSettings)
