@@ -17,6 +17,9 @@ package enum BuildFailureKind: String, CaseIterable {
     /// The build folder is in iCloud Drive or another cloud folder (CloudFolder.swift): the launcher stops before the build, and the
     /// codesign line of xcodebuild is the same stop for a build that got past that check.
     case cloudFolder
+    /// The output folder is on a disk that cannot replace the old Mac app (anything but APFS, OutputVolume.swift): the launcher stops before the
+    /// build when the app is there already, and the engine's `[Errno 45] Operation not supported` is the same stop for a build that got past that check.
+    case volumeFormat
     /// The shared app's install: a device this Mac never paired, and game data that went over only in part.
     case devicePairing, shellDataIncomplete
     /// The engine's online sync (tools/engine.py sync, EngineLayout.swift): no network or GitHub unreachable, or any other stop of it.
