@@ -110,4 +110,55 @@ import Testing
         #expect(try codes(patched(idxOff + 3 * 24, .max, in: img)) == [], "a mask offset near UInt64.max must not overflow offset + size")
         #expect(try codes(patched(idxOff + 3 * 24 + 8, .max, in: img)) == [])
     }
+
+    // MARK: The all-languages row of a game with no language list (seedds/nxnative aafe01d)
+
+    /// The row `dm/games/settings.py` of seedds/nxnative 777a5f6 writes for 040074A01BF12000 over a control.nacp that does not exist.
+    private static let fallbackRowJSON = """
+    {"env":"DM_LANG","kind":"choice","section":"Game","label":"Game language","note":"This game's files do not list its languages, so some of these may not be in the game. It may then show another one.","default":"en-US","level":"basic","options":[["en-US","American English"],["en-GB","British English"],["ja","Japanese"],["fr","French"],["de","German"],["es-419","Latin American Spanish"],["es","Spanish"],["it","Italian"],["nl","Dutch"],["fr-CA","Canadian French"],["pt","Portuguese"],["ru","Russian"],["ko","Korean"],["zh-Hant","Traditional Chinese"],["zh-Hans","Simplified Chinese"],["pt-BR","Brazilian Portuguese"]]}
+    """
+
+    private func profile(row: String?) throws -> LauncherProfile {
+        let opmode = #"{"env":"DM_OPMODE","kind":"choice","section":"Game","label":"Console mode","note":"","default":"1","options":[["1","Docked"],["0","Handheld"]]}"#
+        let rows = [opmode, row].compactMap { $0 }.joined(separator: ",")
+        return try LauncherProfile.parse(Data(#"{"schema":1,"game":"040074A01BF12000","settings":[\#(rows)]}"#.utf8))
+    }
+
+    private func langRow(_ p: LauncherProfile) -> LauncherSetting? { p.settings.first { $0.env == "DM_LANG" } }
+
+    @Test func theAllLanguagesRowIsNarrowedToTheRomFS() throws {
+        let p = try profile(row: Self.fallbackRowJSON)
+        let img = Self.image(mask("JPja USen CNzh TWzh EUfr\n01111\n"))
+        let narrowed = RomfsLanguages.applying(to: p, options: RomfsLanguages.options(in: try folder(with: img)))
+        let row = try #require(langRow(narrowed))
+        #expect(narrowed.settings.filter { $0.env == "DM_LANG" }.count == 1)
+        #expect(row.options?.map { $0[0] } == ["en-US", "ja", "fr", "zh-Hant", "zh-Hans"])
+        #expect(row.options?.first { $0[0] == "zh-Hans" } == ["zh-Hans", "Simplified Chinese"])
+        #expect(row.note == "")
+        #expect(row.def == "en-US")
+        #expect(row.accepts("zh-Hans") && !row.accepts("pt-BR"), "a saved choice the game does not have reads as the default")
+    }
+
+    @Test func theRowStaysWhenTheRomFSCannotNarrowIt() throws {
+        let p = try profile(row: Self.fallbackRowJSON)
+        for text in ["Hello\n", "USen\n", "JPja EUfr\n"] {   // no tag, one language, no American English (the packed default)
+            let opts = RomfsLanguages.options(in: try folder(with: Self.image(mask(text))))
+            #expect(RomfsLanguages.applying(to: p, options: opts) == p, "\(text)")
+        }
+    }
+
+    @Test func aRowWithoutTheNoteIsTheGamesOwnListAndStays() throws {
+        let exact = Self.fallbackRowJSON.replacingOccurrences(of: #""note":"This game's files do not list its languages, so some of these may not be in the game. It may then show another one.""#, with: #""note":"""#)
+        let p = try profile(row: exact)
+        let opts = RomfsLanguages.options(in: try folder(with: Self.image(mask("JPja USen\n01\n"))))
+        #expect(RomfsLanguages.applying(to: p, options: opts) == p)
+        #expect(RomfsLanguages.isFallbackRow(try #require(langRow(try profile(row: Self.fallbackRowJSON)))))
+        #expect(!RomfsLanguages.isFallbackRow(try #require(langRow(p))))
+    }
+
+    @Test func aRowThatIsNotAllLanguagesIsNotTheFallback() throws {
+        let some = #"{"env":"DM_LANG","kind":"choice","section":"Game","label":"Game language","note":"A note","default":"en-US","options":[["en-US","American English"],["ja","Japanese"]]}"#
+        let p = try profile(row: some)
+        #expect(!RomfsLanguages.isFallbackRow(try #require(langRow(p))))
+    }
 }

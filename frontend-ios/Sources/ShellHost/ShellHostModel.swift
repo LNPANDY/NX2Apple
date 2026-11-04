@@ -217,8 +217,10 @@ public struct ShellHostConfig: Sendable {
 
     private func profile(for entry: CatalogueEntry, data: DataResolution? = nil) -> LauncherProfile? {
         guard let base = entry.profile, entry.problem == nil else { return nil }
-        guard !base.settings.contains(where: { $0.env == "DM_LANG" }),
-              let url = (data ?? self.data(for: entry)).url else { return base }
+        // A DM_LANG row of the game's own list stays, except the all-languages row of a game with no language list (the engine's
+        // fallback): the RomFS names the languages it really has (#668)
+        if let row = base.settings.first(where: { $0.env == "DM_LANG" }), !RomfsLanguages.isFallbackRow(row) { return base }
+        guard let url = (data ?? self.data(for: entry)).url else { return base }
         let opts: [[String]]
         if let cached = romfsLanguages[url] {
             opts = cached
@@ -226,7 +228,7 @@ public struct ShellHostConfig: Sendable {
             opts = RomfsLanguages.options(in: url)
             romfsLanguages[url] = opts
         }
-        return RomfsLanguages.withLanguageIfMissing(base, options: opts)
+        return RomfsLanguages.applying(to: base, options: opts)
     }
 
     private func image(_ url: URL?) -> Artwork? {

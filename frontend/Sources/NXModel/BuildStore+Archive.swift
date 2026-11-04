@@ -15,7 +15,7 @@ extension BuildStore {
         let n = RomFSArchive.copyAddOnContent(from: workDir + "/aoc", to: dest + "/aoc")
         if n > 0 { say(String(format: t("msg.aocCopied"), n)) }
         if let fw = ShellInstall.builtFramework(workDir: workDir) {
-            RomFSLanguages.addToLauncherJSONIfMissing(at: fw + "/dm/launcher.json", romfs: dest)
+            RomFSLanguages.applyToLauncherJSON(at: fw + "/dm/launcher.json", romfs: dest)
         }
     }
 

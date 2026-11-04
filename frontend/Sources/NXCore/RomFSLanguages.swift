@@ -63,17 +63,49 @@ package enum RomFSLanguages {
         return options.first?.first ?? "en-US"
     }
 
-    /// Adds a `DM_LANG` row to `launcher.json` at `launcherPath` when the file has none and `romfs` offers more than one language.
-    /// Used after packing a game's RomFS archive so a newly built iOS framework carries the row even before upstream merges #1208.
+    /// Whether a `DM_LANG` row is the all-languages row `dm/games/settings.py` writes for a game with no language list (no control
+    /// data: a dump or a NUP, seedds/nxnative aafe01d): every language of `table`, and a note that some of them may not be in the
+    /// game. A game that really supports all of them has no note, so it is not taken for this row.
+    package static func isFallbackRow(options: [[String]]?, note: String) -> Bool {
+        guard !note.isEmpty, let codes = options?.compactMap(\.first) else { return false }
+        return Set(codes) == Set(table.map(\.code))
+    }
+
+    /// The fallback row's options cut to the languages the RomFS offers, in the row's own order and labels. Nil when the RomFS names
+    /// fewer than two languages, or lacks the row's default (the packed language, which the app starts with when nothing is chosen):
+    /// the row then stays as it is.
+    package static func narrowed(_ options: [[String]], default def: String, to romfs: [[String]]) -> [[String]]? {
+        let offered = Set(romfs.compactMap(\.first))
+        guard offered.count > 1, offered.contains(def) else { return nil }
+        let kept = options.filter { offered.contains($0.first ?? "") }
+        return kept.count > 1 ? kept : nil
+    }
+
+    /// Makes `launcher.json` at `launcherPath` offer the game's real languages, from `romfs`: adds a `DM_LANG` row when the file has
+    /// none, and narrows the all-languages row of a game with no language list. Used after packing a game's RomFS archive, so a newly
+    /// built iOS framework is right before the Mac launcher and the shell read it. False when nothing changed.
     @discardableResult
-    package static func addToLauncherJSONIfMissing(at launcherPath: String, romfs: String, defaultLanguage: String = "en-US",
-                                                   fm: FileManager = .default) -> Bool {
+    package static func applyToLauncherJSON(at launcherPath: String, romfs: String, defaultLanguage: String = "en-US",
+                                            fm: FileManager = .default) -> Bool {
         guard let data = fm.contents(atPath: launcherPath),
               var root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-              var settings = root["settings"] as? [[String: Any]],
-              !settings.contains(where: { ($0["env"] as? String) == "DM_LANG" }) else { return false }
+              var settings = root["settings"] as? [[String: Any]] else { return false }
         let opts = options(in: romfs, fm: fm)
         guard opts.count > 1 else { return false }
+        func write() -> Bool {
+            root["settings"] = settings
+            guard let out = try? JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys]),
+                  (try? out.write(to: URL(fileURLWithPath: launcherPath), options: .atomic)) != nil else { return false }
+            return true
+        }
+        if let i = settings.firstIndex(where: { ($0["env"] as? String) == "DM_LANG" }) {
+            let row = settings[i]
+            guard isFallbackRow(options: row["options"] as? [[String]], note: row["note"] as? String ?? ""),
+                  let kept = narrowed(row["options"] as? [[String]] ?? [], default: row["default"] as? String ?? "", to: opts) else { return false }
+            settings[i]["options"] = kept
+            settings[i]["note"] = ""
+            return write()
+        }
         let codes = Set(opts.compactMap(\.first))
         let def = codes.contains(defaultLanguage) ? defaultLanguage : (codes.contains("en-US") ? "en-US" : opts[0][0])
         let row: [String: Any] = [
@@ -88,10 +120,7 @@ package enum RomFSLanguages {
         ]
         let after = settings.lastIndex { ($0["section"] as? String ?? "Game") == "Game" }.map { $0 + 1 } ?? 0
         settings.insert(row, at: after)
-        root["settings"] = settings
-        guard let out = try? JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys]),
-              (try? out.write(to: URL(fileURLWithPath: launcherPath), options: .atomic)) != nil else { return false }
-        return true
+        return write()
     }
 
     private static func candidates(for path: String) -> [String] {

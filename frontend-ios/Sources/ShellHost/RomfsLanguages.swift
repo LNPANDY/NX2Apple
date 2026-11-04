@@ -52,13 +52,39 @@ enum RomfsLanguages {
         return []
     }
 
-    static func withLanguageIfMissing(_ profile: LauncherProfile, options: [[String]]) -> LauncherProfile {
-        guard options.count > 1, !profile.settings.contains(where: { $0.env == "DM_LANG" }) else { return profile }
+    /// Whether a `DM_LANG` row is the all-languages row `dm/games/settings.py` writes for a game with no language list (no control
+    /// data: a dump or a NUP, seedds/nxnative aafe01d): every language of `table`, and a note that some of them may not be in the
+    /// game. A game that really supports all of them has no note, so it is not taken for this row.
+    static func isFallbackRow(_ row: LauncherSetting) -> Bool {
+        guard row.env == "DM_LANG", !row.note.isEmpty, let codes = row.options?.compactMap(\.first) else { return false }
+        return Set(codes) == Set(table.map(\.code))
+    }
+
+    /// The fallback row's options cut to the languages the RomFS offers, in the row's own order and labels. Nil when the RomFS names
+    /// fewer than two languages, or lacks the row's default (the language the game is packed with): the row then stays as it is.
+    static func narrowed(_ options: [[String]], default def: String, to romfs: [[String]]) -> [[String]]? {
+        let offered = Set(romfs.compactMap(\.first))
+        guard offered.count > 1, offered.contains(def) else { return nil }
+        let kept = options.filter { offered.contains($0.first ?? "") }
+        return kept.count > 1 ? kept : nil
+    }
+
+    /// The profile with the game's real languages: a `DM_LANG` row added when it has none, and the all-languages row of a game with no
+    /// language list narrowed to what the RomFS has (its note is dropped, the list is right now).
+    static func applying(to profile: LauncherProfile, options: [[String]]) -> LauncherProfile {
+        guard options.count > 1 else { return profile }
+        var updated = profile
+        if let i = updated.settings.firstIndex(where: { $0.env == "DM_LANG" }) {
+            let row = updated.settings[i]
+            guard isFallbackRow(row), let kept = narrowed(row.options ?? [], default: row.def, to: options) else { return profile }
+            updated.settings[i].options = kept
+            updated.settings[i].note = ""
+            return updated
+        }
         let def = options.contains(where: { $0.first == "en-US" }) ? "en-US" : (options.first?.first ?? "en-US")
         let row = LauncherSetting(
             env: "DM_LANG", kind: "choice", section: "Game", label: "Game language", note: "", def: def,
             needs: nil, level: "basic", options: options, min: nil, max: nil, step: nil, on: nil, off: nil)
-        var updated = profile
         let idx = updated.settings.lastIndex { $0.sectionTitle == "Game" }.map { $0 + 1 } ?? 0
         updated.settings.insert(row, at: idx)
         return updated
