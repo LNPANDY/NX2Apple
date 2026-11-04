@@ -1,0 +1,108 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LNPANDY <lnp-andy@hotmail.com>
+Date: Wed, 4 Nov 2026 22:50:48 +0800
+Subject: [PATCH] nacp: read languages from the sibling RomFS when control.nacp
+ is absent
+
+A dump folder (scripts/pack_dump.py) or a NUP without control data carries no
+control.nacp, so nacp.languages() returned an empty list and settings.py left
+out the DM_LANG (Game language) row even when the game's RomFS includes full
+multi-language packs. Fall back to reading System/RegionLangMask.txt or Mals/
+in the sibling RomFS image or folder.
+
+Upstream-Status: pending
+Reason: Dump folders and NACP-less NUPs have no control.nacp, so nacp.languages() returned no languages and left out the Game language setting row
+Issue: LNPANDY/NX2Apple#668
+
+---
+ dm/tools/nacp.py                | 32 ++++++++++++++++++++++++++------
+ dm/tools/tests/test_nsp_dump.py | 18 ++++++++++++++++++
+ 2 files changed, 44 insertions(+), 6 deletions(-)
+
+diff --git a/dm/tools/nacp.py b/dm/tools/nacp.py
+index d5c4b59..3dcf791 100644
+--- a/dm/tools/nacp.py
++++ b/dm/tools/nacp.py
+@@ -5,11 +5,17 @@
+ #   each prints an empty line and exits 1 when none can be read. From Python: import nacp; nacp.name(path), nacp.version(path), nacp.languages(path)
+ import re, struct, sys, zlib
+ from pathlib import Path
++sys.path.insert(0, str(Path(__file__).resolve().parent))
++import romfs
+ 
+ # The NACP's languages in its own order (the bit order of SupportedLanguageFlag and the order of the title entries): the language code nn::oe::GetDesiredLanguage returns for each, and its name
+ LANGUAGES = [('en-US', 'American English'), ('en-GB', 'British English'), ('ja', 'Japanese'), ('fr', 'French'), ('de', 'German'), ('es-419', 'Latin American Spanish'), ('es', 'Spanish'), ('it', 'Italian'),
+              ('nl', 'Dutch'), ('fr-CA', 'Canadian French'), ('pt', 'Portuguese'), ('ru', 'Russian'), ('ko', 'Korean'), ('zh-Hant', 'Traditional Chinese'), ('zh-Hans', 'Simplified Chinese'), ('pt-BR', 'Brazilian Portuguese')]
+ 
++# Nintendo's region-language tags (System/RegionLangMask.txt, Mals/<tag>.Product.*) mapped to LANGUAGES codes, for a dump or NUP without control.nacp
++MALS_LANGUAGES = {'USen': 'en-US', 'EUen': 'en-GB', 'JPja': 'ja', 'EUfr': 'fr', 'EUde': 'de', 'USes': 'es-419', 'EUes': 'es', 'EUit': 'it',
++                  'EUnl': 'nl', 'USfr': 'fr-CA', 'EUpt': 'pt', 'EUru': 'ru', 'KRko': 'ko', 'TWzh': 'zh-Hant', 'CNzh': 'zh-Hans', 'USpt': 'pt-BR'}
++
+ 
+ def name(path):
+     """The title area holds 0x300 bytes per language (name 0x200 + publisher 0x100); take the first non-empty one (0 = American English); a missing file or no sensible name returns an empty string"""
+@@ -38,15 +44,29 @@ def version(path):
+     return m.group().decode() if m else ''
+ 
+ 
++def romfs_languages(folder):
++    """The language codes a dump's or NUP's RomFS lists when there is no control.nacp: System/RegionLangMask.txt's first line, else the Mals/<tag>.* archives, in LANGUAGES order"""
++    r = romfs.source(folder)
++    mask, mals = r / 'System/RegionLangMask.txt', r / 'Mals'
++    try:
++        if mask.is_file(): tags = set((mask.read_text(encoding='utf-8', errors='replace').splitlines() or [''])[0].split())
++        elif mals.is_dir(): tags = {e.name.partition('.')[0] for e in mals.iterdir() if not e.name.startswith('.')}
++        else: return []
++    except (OSError, ValueError, IndexError): return []
++    have = {MALS_LANGUAGES[t] for t in tags if t in MALS_LANGUAGES}
++    return [c for c, _ in LANGUAGES if c in have]
++
++
+ def languages(path):
+     """The language codes the game supports (the u32 SupportedLanguageFlag at 0x302C, one bit per language in LANGUAGES order; Horizon picks the game language among them), in that order;
+-    a missing file or no flag returns an empty list"""
++    without control.nacp (a dump folder, or a NUP without one), those its sibling RomFS lists; a missing file or no flag returns an empty list"""
+     p = Path(path)
+-    if not p.is_file(): return []
+-    b = p.read_bytes()
+-    if len(b) < 0x3030: return []
+-    f = struct.unpack_from('<I', b, 0x302C)[0]
+-    return [c for i, (c, _) in enumerate(LANGUAGES) if f >> i & 1]
++    if p.is_file():
++        b = p.read_bytes()
++        if len(b) >= 0x3030:
++            f = struct.unpack_from('<I', b, 0x302C)[0]
++            if f: return [c for i, (c, _) in enumerate(LANGUAGES) if f >> i & 1]
++    return romfs_languages(p.parent)
+ 
+ 
+ if __name__ == '__main__':
+diff --git a/dm/tools/tests/test_nsp_dump.py b/dm/tools/tests/test_nsp_dump.py
+index d1b4c34..8270a6a 100644
+--- a/dm/tools/tests/test_nsp_dump.py
++++ b/dm/tools/tests/test_nsp_dump.py
+@@ -116,6 +116,24 @@ class Pack(Base):
+         self.assertEqual(sorted(p.name for p in aoc.iterdir()), ['1.img', '1.img.inputs.json'])
+         self.assertIn('dlcfile', romfs_image.read_index(aoc / '1.img'))
+ 
++    def test_settings_read_languages_from_the_dump_romfs_when_there_is_no_nacp(self):
++        sys.path.insert(0, str(REPO / 'dm/games')); import nacp, settings
++        src = self.dump / f'updates/{VER}'
++        (src / 'romfs/System').mkdir(parents=True)
++        (src / 'romfs/System/RegionLangMask.txt').write_text('JPja USen CNzh TWzh THth EUpl\nNormal\n')
++        pack_dump.pack_version(src, TID, self.out(), say=lambda s: None)
++        self.assertFalse((self.out() / 'control.nacp').exists())
++        self.assertEqual(nacp.languages(self.out() / 'control.nacp'), ['en-US', 'ja', 'zh-Hant', 'zh-Hans'])
++        with tempfile.TemporaryDirectory() as tmp:
++            (Path(tmp) / 'main.fixups.tsv').write_text('')
++            row = [s for s in settings.build(f'{TID:016X}', tmp, str(self.out() / 'control.nacp'))['settings'] if s['env'] == 'DM_LANG']
++            self.assertEqual(row[0]['options'], [['en-US', 'American English'], ['ja', 'Japanese'], ['zh-Hant', 'Traditional Chinese'], ['zh-Hans', 'Simplified Chinese']])
++        shutil.rmtree(src / 'romfs/System')
++        (src / 'romfs/Mals').mkdir(parents=True)
++        for tag in ('USen', 'CNzh', 'JPja'): (src / f'romfs/Mals/{tag}.Product.300.sarc.zs').write_bytes(b'sarc')
++        pack_dump.pack_version(src, TID, self.out() / 'mals', say=lambda s: None)
++        self.assertEqual(nacp.languages(self.out() / 'mals/control.nacp'), ['en-US', 'ja', 'zh-Hans'])
++
+ 
+ class Stop(Exception): pass
+ 
