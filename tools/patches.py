@@ -44,11 +44,12 @@ class Fail(Exception):
 
 def clean_env(**extra):
     """The environment without the variables that point git at a repository."""
-    return {**{k: v for k, v in os.environ.items() if k not in REPO_ENV}, **extra}
+    return {**{k: v for k, v in os.environ.items() if k not in REPO_ENV}, 'PYTHONUTF8': '1', 'PYTHONIOENCODING': 'utf-8', **extra}
 
 
 def git(*a, cwd=None, check=True, inp=None, binary=False):
-    r = subprocess.run(['git', *a], cwd=cwd or REPO, input=inp, capture_output=True, text=not binary, env=clean_env())
+    kw = {'text': True, 'encoding': 'utf-8', 'errors': 'replace'} if not binary else {}
+    r = subprocess.run(['git', '-c', 'core.autocrlf=false', *a], cwd=cwd or REPO, input=inp, capture_output=True, env=clean_env(), **kw)
     if check and r.returncode:
         raise Fail(f'git {" ".join(a)} failed: {(r.stderr if not binary else r.stderr.decode(errors="replace")).strip()[-1500:]}')
     return r
@@ -115,7 +116,7 @@ def read_series(root):
     s = root / 'patches/series'
     if not s.is_file(): raise Fail(f'{s} is missing')
     out = []
-    for line in s.read_text().splitlines():
+    for line in s.read_text(encoding='utf-8').splitlines():
         line = line.split('#', 1)[0].strip()
         if line: out.append(line)
     return out
@@ -132,7 +133,7 @@ def load(root):
 
 def chain_paths(root):
     """The globs of the shader chain, read from the engine's AGENTS.md (in `root`, a tree of the engine), the chain paragraph (the one naming DMSH_CHAIN)."""
-    try: text = (root / 'AGENTS.md').read_text()
+    try: text = (root / 'AGENTS.md').read_text(encoding='utf-8')
     except OSError: return list(CHAIN_FALLBACK)
     para = next((l for l in text.splitlines() if 'DMSH_CHAIN' in l and 'dm/gfx/tools/dmsh_' in l), None)
     found = []

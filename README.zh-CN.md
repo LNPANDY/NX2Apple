@@ -64,7 +64,7 @@ App 自带构建工具和 Python，不需要装 Homebrew 和 Python；.NET SDK 1
 ## 安装
 
 1. **下载 App**：从[最新版本](https://github.com/LNPANDY/NX2Apple/releases/latest)下载
-   `NS-Port-Builder-macOS-arm64.zip`，解压。
+   `NX2Apple-macOS-arm64.zip`，解压。
 2. **首次启动：右键 → 打开。** 这个 App 没有付费的 Apple 开发者证书签名，所以 macOS 在第一次启动时会
    询问；之后就能正常打开。
 3. **按设置页走。** 启动器会取回构建用的项目（设置页上的「下载仓库」按钮，浅克隆到 `~/NX2Apple`；
@@ -128,7 +128,7 @@ iPhone 上在「文件」App 里该 App 名字下：`save/` 和 `log.txt`（上�
 
 ## 游戏
 
-共有 130 个游戏 profile。部分游戏上游报告 iPhone 可玩，其余的 profile 还没在手机上试过。其中几款：
+共有 140 个游戏 profile。部分游戏上游报告 iPhone 可玩，其余的 profile 还没在手机上试过。其中几款：
 
 | | 游戏 | 运行于 | 状态 |
 |---|---|---|---|
@@ -142,11 +142,12 @@ iPhone 上在「文件」App 里该 App 名字下：`save/` 和 `log.txt`（上�
 **[GAMES.zh-CN.md](GAMES.zh-CN.md)**（带截图图库和每款的安装大小）
 有完整表格和每款游戏需要的更新包版本：更新包 NSP 的显示版本必须与 profile 一致，否则构建会提示。
 
-**Switch 2 游戏**是引擎新加入的。目前有 5 款有 profile，上游都标为可在 Mac 上玩：Donkey Kong Bananza、
-Splatoon Raiders、Fire Emblem Fortune's Weave、Pokémon Pokopia 和 Hyrule Warriors: Age of Imprisonment。
+**Switch 2 游戏**是引擎新加入的。目前有 7 款有 profile，上游都标为可在 Mac 上玩：Donkey Kong Bananza、
+Splatoon Raiders、Fire Emblem Fortune's Weave、Pokémon Pokopia、Hyrule Warriors: Age of Imprisonment、
+Mario Kart World 和 Mario Tennis Fever。
 在构建页面选择游戏文件夹（`base/`、`updates/`、`dlc/`）或它的 `.nup` 文件即可，不需要 `prod.keys`。游戏库会把它们标为
-**Switch 2**。本 fork 还没有人通过启动器玩过 Switch 2 游戏。在 iPhone 和 iPad 上几乎没有测试过：一位维护者用命令行构建后，
-在 iPhone 17 Pro Max 上玩过 Donkey Kong Bananza。详情见 [GAMES.zh-CN.md](GAMES.zh-CN.md#switch-2-游戏)。
+**Switch 2**。本 fork 只试过 Donkey Kong Bananza：所有者通过启动器构建，并在 Mac、iPhone 和 iPad 上玩过，Mac 和 iPhone 上没有发现问题，
+iPad 上基本没有问题。其他 Switch 2 游戏在本 fork 上没有试过。详情见 [GAMES.zh-CN.md](GAMES.zh-CN.md#switch-2-游戏)。
 
 ## 限制
 

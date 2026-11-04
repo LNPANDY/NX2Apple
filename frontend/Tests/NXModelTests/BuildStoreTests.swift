@@ -197,13 +197,26 @@ import XCTest
         XCTAssertTrue(store.log.text.contains("plain line from a tool\n"), "what is not an event is log text")
     }
 
-    func testTheShaderChainNoticeShowsOncePerBuild() {
+    func testTheStaleShadersNoticeShowsOncePerBuildForEachReason() {
+        for (reason, text) in [("chain", "msg.shadersStale.chain"), ("inputs", "msg.shadersStale.inputs")] {
+            let store = makeStore()
+            var notices: [[String]] = []
+            store.showNotice = { notices.append([$0, $1]) }
+            let event = "{\"ev\":\"shaders_stale\",\"reason\":\"\(reason)\",\"old\":\"b-4e0dd2535996\",\"new\":\"b-b7cd656abd7c\",\"count\":65}\n"
+            store.ingest(event)
+            store.ingest(event)   // the next shader step of the same build
+            XCTAssertEqual(notices, [[store.t("msg.shadersStale.title"), store.t(text)]], reason)
+        }
+    }
+
+    func testTheNoteLineAndAnUnknownReasonShowNoNotice() {
         let store = makeStore()
         var notices: [String] = []
-        store.showNotice = { notices.append($0) }
-        store.ingest("{\"ev\":\"say\",\"msg\":\"[NOTE] chain-changed: recompiling\"}\n")
-        store.ingest("[NOTE] chain-changed again\n")
-        XCTAssertEqual(notices, [store.t("msg.chainChanged")])
+        store.showNotice = { title, _ in notices.append(title) }
+        store.ingest("{\"ev\":\"say\",\"msg\":\"[NOTE] cached shader libraries cannot be reused (a -> b): the translation chain changed\"}\n")
+        XCTAssertEqual(notices, [], "the event shows the notice, the note that follows it is a log line")
+        store.ingest("{\"ev\":\"shaders_stale\",\"reason\":\"newer\",\"old\":\"a\",\"new\":\"b\",\"count\":1}\n")
+        XCTAssertEqual(notices, [], "no text explains a reason a newer script adds")
     }
 
     // MARK: The failure

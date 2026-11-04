@@ -3,7 +3,6 @@
 0003-ios-game-data-folder.patch
 0004-ios-slim-ipa.patch
 0005-nsp-dotnet-home.patch
-0006-nsp-chain-changed-note.patch
 0008-bc-cpu-decode.patch
 0009-mac-keymap.patch
 0010-mac-library-folder.patch
@@ -40,9 +39,10 @@
 0069-ios-shell-compile-the-in-game-menu-so-the-gear-o.patch
 0070-ios-touch-layout.patch
 0071-ios-shell-restore-native-duo-orientation.patch
-0072-shader-split-scimitar-forge-archives-and-raw-con.patch
-0073-nvn-mtl-a-stage-keeps-its-program-s-shaders-afte.patch
-0074-nvn-mtl-write-image-buffer-textures-below-16-byt.patch
-0075-dm-ctl-shots-n-folder-captures-consecutive-frame.patch
-0076-nvn-nvneventgetmemorypool-and-nvneventgetmemoryo.patch
-0077-audren-merge-updates-closer-than-a-frame-for-a-r.patch
+0072-nsp-script-the-first-dotnet-with-an-sdk-10-goes.patch
+0073-shader-split-scimitar-forge-archives-and-raw-con.patch
+0074-nvn-mtl-a-stage-keeps-its-program-s-shaders-afte.patch
+0075-nvn-mtl-write-image-buffer-textures-below-16-byt.patch
+0076-dm-ctl-shots-n-folder-captures-consecutive-frame.patch
+0077-nvn-nvneventgetmemorypool-and-nvneventgetmemoryo.patch
+0078-audren-merge-updates-closer-than-a-frame-for-a-r.patch

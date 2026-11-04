@@ -311,19 +311,35 @@ package enum Toolchain {
         return parseDotnetRoot(out)
     }
 
-    package static func findDotnet() -> (path: String, ok: Bool) {
-        let cands = [NSHomeDirectory() + "/.dotnet/dotnet",
-                     "/usr/local/share/dotnet/dotnet",
-                     "/opt/homebrew/bin/dotnet",
-                     "/usr/local/bin/dotnet"]
-        if let d = firstExisting(cands) {
-            // the extractor targets net10.0, so an SDK (not just a runtime) is needed
-            let ok = runOK(d, ["--list-sdks"], env: ["DOTNET_ROOT": (d as NSString).deletingLastPathComponent,
-                                                      "PATH": "/usr/bin:/bin", "HOME": NSHomeDirectory(),
-                                                      "TMPDIR": NSTemporaryDirectory()])
-            return (d, ok)
+    /// Where the build looks for `dotnet`, in its order: build_ipa_from_nsp.py puts TOOL_PATHS (/opt/homebrew/bin, /usr/local/bin,
+    /// /usr/local/share/dotnet, ~/.dotnet) in front of PATH, then the first of these that lists an SDK 10 in front of the rest (the
+    /// engine patch nsp-dotnet-sdk10-first). Before that patch, every build on a Mac whose /usr/local/share/dotnet held an Intel
+    /// .NET 7 ran that one and stopped at NETSDK1045.
+    package static func dotnetCandidates(home: String = NSHomeDirectory()) -> [String] {
+        ["/opt/homebrew/bin/dotnet", "/usr/local/bin/dotnet", "/usr/local/share/dotnet/dotnet", home + "/.dotnet/dotnet"]
+    }
+
+    /// Whether `dotnet --list-sdks` names an SDK the extractor builds with (it targets net10.0, so 10 or newer).
+    package static func hasSDK10(_ listSdks: String) -> Bool {
+        listSdks.split(separator: "\n").contains { ln in
+            Int(ln.prefix { $0.isNumber }).map { $0 >= 10 } ?? false
         }
-        return ("dotnet", false)
+    }
+
+    /// Whether this dotnet runs and lists an SDK 10 (an SDK, not just a runtime: the extractor is built).
+    package static func dotnetHasSDK10(_ dotnet: String, runner: ProcessRunner = SystemProcessRunner()) -> Bool {
+        let env = ["DOTNET_ROOT": (dotnet as NSString).deletingLastPathComponent,
+                   "PATH": "/usr/bin:/bin", "HOME": NSHomeDirectory(), "TMPDIR": NSTemporaryDirectory()]
+        return runner.output(dotnet, ["--list-sdks"], env: env).map(hasSDK10) ?? false
+    }
+
+    /// The dotnet the build runs and whether it has an SDK 10: the first candidate that lists one, else the first that exists
+    /// (the row then says Install), else plain "dotnet". `exists` is injectable so a test needs no file on disk.
+    package static func findDotnet(_ cands: [String] = dotnetCandidates(), runner: ProcessRunner = SystemProcessRunner(),
+                                   exists: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }) -> (path: String, ok: Bool) {
+        let found = cands.filter(exists)
+        if let d = found.first(where: { dotnetHasSDK10($0, runner: runner) }) { return (d, true) }
+        return (found.first ?? "dotnet", false)
     }
 
     /// Whether the selected developer directory exists (`xcode-select -p`), which is the same

@@ -94,7 +94,7 @@ def engine_dir(root):
 def pin(root):
     f = root / '.upstream-ref'
     if not f.is_file(): raise Fail(f'{f} is missing: this is not an NX2Apple checkout')
-    sha = f.read_text().strip()
+    sha = f.read_text(encoding='utf-8').strip()
     if not re.fullmatch(r'[0-9a-f]{40}', sha): raise Fail(f'.upstream-ref must hold a full commit id (is: {sha!r})')
     return sha
 
@@ -113,17 +113,19 @@ def stamp_key(root):
 
 
 def read_stamp(eng):
-    try: text = (eng / '.git' / STAMP).read_text()
+    try: text = (eng / '.git' / STAMP).read_text(encoding='utf-8')
     except OSError: return {}
     return dict(l.split(' ', 1) for l in text.splitlines() if ' ' in l)
 
 
 def write_stamp(eng, root, head, key=None):
-    (eng / '.git' / STAMP).write_text(f'nx2apple-engine 1\npin {pin(root)}\nkey {key or stamp_key(root)}\nhead {head}\n')
+    (eng / '.git' / STAMP).write_text(f'nx2apple-engine 1\npin {pin(root)}\nkey {key or stamp_key(root)}\nhead {head}\n', encoding='utf-8')
 
 
 def is_repo(eng):
-    return (eng / '.git').is_dir() and git('rev-parse', '--show-toplevel', cwd=eng, check=False).stdout.strip() == str(eng.resolve())
+    if not (eng / '.git').is_dir(): return False
+    top = git('rev-parse', '--show-toplevel', cwd=eng, check=False).stdout.strip()
+    return bool(top) and Path(top).resolve() == eng.resolve()
 
 
 def head(eng):
@@ -191,7 +193,9 @@ def fetch(eng, sha, url=None):
 
 
 def ensure_repo(eng):
-    if is_repo(eng): return
+    if is_repo(eng):
+        git('config', 'core.autocrlf', 'false', cwd=eng)
+        return
     if eng.exists() and any(eng.iterdir()):
         if not any(f.is_file() for f in eng.rglob('*')):
             # An empty tree is the leftover of a failed first sync: on Windows the engine sync
@@ -203,6 +207,7 @@ def ensure_repo(eng):
     eng.mkdir(parents=True, exist_ok=True)
     git('init', '--quiet', cwd=eng)
     git('config', 'advice.detachedHead', 'false', cwd=eng)
+    git('config', 'core.autocrlf', 'false', cwd=eng)
     git('remote', 'add', 'seedds', UPSTREAM_URL, cwd=eng, check=False)   # for `git fetch seedds` and pull requests upstream
 
 
@@ -222,9 +227,9 @@ def build(root, eng, patches, sha):
         say('empty on the pin (upstream has them, `tools/engine.py bump` drops them): ' + ', '.join(p.file for p in landed))
     for out, tool in P.GENERATED:
         if (eng / tool).is_file():
-            r = subprocess.run([sys.executable, str(eng / tool)], cwd=eng, capture_output=True, text=True, check=False, env=P.clean_env())
+            r = subprocess.run([sys.executable, '-X', 'utf8', str(eng / tool)], cwd=eng, capture_output=True, text=True, encoding='utf-8', errors='replace', check=False, env=P.clean_env())
             if r.returncode: raise Fail(f'{tool} failed on the patched tree: {(r.stderr.strip().splitlines() or [str(r.returncode)])[-1]}')
-    (eng / P.FORK_PATCHES).write_text(P.fork_patch_list([p for p, _ in applied]))
+    (eng / P.FORK_PATCHES).write_text(P.fork_patch_list([p for p, _ in applied]), encoding='utf-8')
     git('add', '--force', '--', P.FORK_PATCHES, *(o for o, _ in P.GENERATED if (eng / o).exists()), cwd=eng)
     git(*IDENT, 'commit', '--quiet', '--allow-empty', '-m', GENERATED_SUBJECT, cwd=eng)
     return applied, landed
@@ -379,8 +384,8 @@ def cmd_tree(a):
     out.mkdir(parents=True, exist_ok=True)
     n = extract_tree(eng, out)
     eid = engine_id(root)
-    (out / '.upstream-ref').write_text(pin(root) + '\n')
-    (out / ENGINE_ID_FILE).write_text(eid + '\n')
+    (out / '.upstream-ref').write_text(pin(root) + '\n', encoding='utf-8')
+    (out / ENGINE_ID_FILE).write_text(eid + '\n', encoding='utf-8')
     if not (out / P.FORK_PATCHES).is_file(): raise Fail(f'{P.FORK_PATCHES} is missing from engine/: sync again')
     say(f'engine tree: {eid} ({n} files) in {out}')
     if a.zip:
