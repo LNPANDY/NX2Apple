@@ -54,7 +54,7 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
 
     # the package root goes on sys.path so `import toolchain` / `import xcrun_shim` resolve, and
     # so `import nspb_qt.win` works from a child that wants the whole package
-    for _p in (_PKG, os.path.dirname(_PKG)):
+    for _p in (_PKG, os.path.dirname(_PKG), os.path.dirname(os.path.dirname(_PKG))):
         if _p and _p not in sys.path:
             sys.path.insert(0, _p)
 
@@ -71,6 +71,140 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
         return _open(file, mode, buffering, encoding, errors, newline, closefd, opener)
 
     io.open = builtins.open = _lf_open
+
+    # ---- os.open binary mode & os.pread (POSIX-only on CPython for Windows)
+    _os_open = os.open
+
+    def _win_os_open(path, flags, mode=0o777, *, dir_fd=None):
+        if not (flags & getattr(os, 'O_TEXT', 0)):
+            flags |= getattr(os, 'O_BINARY', 0)
+        if dir_fd is not None:
+            return _os_open(path, flags, mode, dir_fd=dir_fd)
+        return _os_open(path, flags, mode)
+
+    os.open = _win_os_open
+
+    if not hasattr(os, 'pread'):
+        import threading as _threading
+        _pread_lock = _threading.Lock()
+
+        def _win_pread(fd, n, offset):
+            with _pread_lock:
+                cur = os.lseek(fd, 0, os.SEEK_CUR)
+                try:
+                    os.lseek(fd, offset, os.SEEK_SET)
+                    out = bytearray()
+                    while len(out) < n:
+                        chunk = os.read(fd, n - len(out))
+                        if not chunk:
+                            break
+                        out.extend(chunk)
+                    return bytes(out)
+                finally:
+                    try:
+                        os.lseek(fd, cur, os.SEEK_SET)
+                    except OSError:
+                        pass
+
+        os.pread = _win_pread
+
+    # ---- os.symlink fallback when Developer Mode is off (WinError 1314)
+    _os_symlink = os.symlink
+
+    def _win_symlink(src, dst, target_is_directory=False, *, dir_fd=None):
+        try:
+            if dir_fd is not None:
+                return _os_symlink(src, dst, target_is_directory=target_is_directory, dir_fd=dir_fd)
+            return _os_symlink(src, dst, target_is_directory=target_is_directory)
+        except OSError:
+            real_src = src
+            if not os.path.isabs(src):
+                real_src = os.path.normpath(os.path.join(os.path.dirname(os.fspath(dst)), src))
+            if os.path.isdir(real_src):
+                shutil.copytree(real_src, dst, dirs_exist_ok=True)
+            else:
+                shutil.copy2(real_src, dst)
+
+    os.symlink = _win_symlink
+
+    # ---- POSIX slashes in os.path.relpath and romfs.py
+    # Upstream's shader_split.py, gl_shaders.py, vk_shaders.py, uepak.py and nro_collect.py
+    # sort and record RomFS-relative paths with '/' (and compare them against shader_map.tsv).
+    _relpath = os.path.relpath
+
+    def _posix_relpath(path, start=None):
+        r = _relpath(path, start) if start is not None else _relpath(path)
+        return r.replace('\\', '/') if isinstance(r, str) else r.replace(b'\\', b'/')
+
+    os.path.relpath = _posix_relpath
+
+    def _patch_romfs_module(mod):
+        if getattr(mod, '_nspb_patched', False):
+            return
+        mod._nspb_patched = True
+        _orig_find = mod.Image.find
+        mod.Image.find = lambda self, rel: _orig_find(self, rel.replace('\\', '/'))
+
+        def _resolve(path):
+            p = os.path.abspath(os.fsdecode(path)).replace('\\', '/')
+            parts = p.split('/')
+            for i, part in enumerate(parts):
+                if not part.endswith('.img'):
+                    continue
+                image = '/'.join(parts[:i + 1])
+                try:
+                    st = os.stat(image)
+                except OSError:
+                    continue
+                if not mod._stat.S_ISREG(st.st_mode):
+                    continue
+                loaded = mod._image(image, (st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns))
+                if loaded is not None:
+                    return loaded, '/'.join(parts[i + 1:])
+            return None
+
+        mod._resolve = _resolve
+        _orig_walk = mod.walk
+
+        def _walk(top, *a, **k):
+            for root, dirs, files in _orig_walk(top, *a, **k):
+                yield (root.replace('\\', '/') if isinstance(root, str) else root), dirs, files
+
+        mod.walk = _walk
+        mod.os.walk = _walk
+        _orig_join = os.path.join
+
+        def _posix_join(*a):
+            res = _orig_join(*a)
+            return res.replace('\\', '/') if isinstance(res, str) else res
+
+        mod._PathOps.join = staticmethod(_posix_join)
+
+    def _patch_sdk_patches_module(mod):
+        jf = os.environ.get('NSPB_AUTO_SDK_CUTS')
+        if not jf or not hasattr(mod, 'CUTS') or not os.path.isfile(jf):
+            return
+        try:
+            import json
+            with open(jf, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            for bid, cuts in data.items():
+                mod.CUTS.setdefault(bid, [tuple(c) for c in cuts])
+        except Exception:
+            pass
+
+    import importlib.machinery as _machinery
+    _exec_module = _machinery.SourceFileLoader.exec_module
+
+    def _win_exec_module(self, module):
+        _exec_module(self, module)
+        name = getattr(module, '__name__', '')
+        if name == 'romfs' or name.endswith('.romfs'):
+            _patch_romfs_module(module)
+        elif name == 'sdk_patches' or name.endswith('.sdk_patches'):
+            _patch_sdk_patches_module(module)
+
+    _machinery.SourceFileLoader.exec_module = _win_exec_module
 
     # ---- os.replace as on a Mac
     # Windows refuses to replace a file another thread has open. The shader caches are
@@ -188,8 +322,13 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
             dn = tc.dotnet_dir()
             dotnet = str(dn / 'dotnet.exe') if dn else (shutil.which('dotnet') or 'dotnet')
             return [dotnet, args[0] + '.dll'] + args[1:]
-        if base in ('python3', 'python3.exe'):
-            return [sys.executable] + args[1:]
+        if base in ('python3', 'python3.exe') or base in ('python', 'python.exe'):
+            py_exe = os.environ.get('NSPB_PYTHON') or sys.executable
+            return [py_exe] + [a for a in args[1:] if a != '-I']
+        if base in ('spirv-cross', 'spirv-cross.exe'):
+            sc = os.environ.get('NSPB_SPIRV_CROSS') or os.environ.get('SPIRV_CROSS')
+            if sc and os.path.isfile(sc):
+                return [sc] + args[1:]
         if base in ('bash', 'bash.exe') and len(args) > 1 and \
                 args[1].replace('\\', '/').endswith('dm/ios/tools/build_ipa.sh'):
             return [sys.executable, _BUILD_APP] + args[2:]
@@ -325,6 +464,11 @@ def build_env(base: dict[str, str] | None = None, python_exe: str | None = None)
             parts.append(str(p.parent))
             if name == 'spirv-cross':
                 env.setdefault('SPIRV_CROSS', str(p))
+                env['NSPB_SPIRV_CROSS'] = str(p)
+    if python_exe:
+        env['NSPB_PYTHON'] = str(python_exe)
+    env.setdefault('DM_ALLOW_SYSTEM_SPIRV_CROSS', '1')
+    env.setdefault('DM_ALLOW_OTHER_METAL', '1')
     # tc.dotnet_dir() first: it knows about the SDK the app installed for itself, which is not on
     # PATH and not in Program Files. `which` alone missed it, so `dotnet build` and the shader
     # translator failed on a machine that had just installed .NET through this app.
@@ -334,9 +478,11 @@ def build_env(base: dict[str, str] | None = None, python_exe: str | None = None)
     elif dn := shutil.which('dotnet'):
         parts.append(str(Path(dn).parent))
 
+    pkg_root = str(Path(__file__).resolve().parents[2])
     env['PATH'] = os.pathsep.join(dict.fromkeys(parts + [env.get('PATH', '')]))
     env['PYTHONPATH'] = os.pathsep.join(
-        dict.fromkeys([str(sd)] + [p for p in env.get('PYTHONPATH', '').split(os.pathsep) if p]))
+        dict.fromkeys([str(sd), pkg_root]
+                      + [p for p in env.get('PYTHONPATH', '').split(os.pathsep) if p]))
     env.setdefault('PYTHONUTF8', '1')     # the pipeline reads and writes UTF-8 without naming it
     env.setdefault('PYTHONIOENCODING', 'utf-8')
 
@@ -364,7 +510,7 @@ def verify_shim(env: dict[str, str]) -> tuple[bool, str]:
     try:
         r = subprocess.run([env.get('NSPB_PYTHON') or sys.executable, '-c',
                             'import sys; sys.exit(0 if "sitecustomize" in sys.modules else 3)'],
-                           capture_output=True, text=True, env=env, timeout=60)
+                           capture_output=True, text=True, env=env, timeout=60, **tc.no_window())
     except (OSError, subprocess.SubprocessError) as e:
         return False, f'cannot run a probe interpreter: {e}'
     if r.returncode == 0:

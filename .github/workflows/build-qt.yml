@@ -54,6 +54,25 @@ jobs:
           python tools/engine.py tree --out engine-tree
           du -sh engine-tree
 
+      - name: Build Windows spirv-cross.exe for the bundled engine
+        shell: bash
+        run: |
+          # The engine tree ships a macOS Mach-O spirv-cross binary in dm/gfx/tools/spirv_cross_bin/.
+          # Build the Windows executable from the exact commit build.sh pins so every NVN, Vulkan and
+          # OpenGL shader build works out of the box without a manual Vulkan SDK install.
+          TAG=$(sed -n 's/^TAG=\([^ ]*\).*/\1/p' engine-tree/dm/gfx/tools/spirv_cross_bin/build.sh)
+          COMMIT=$(sed -n 's/^COMMIT=\([^ ]*\).*/\1/p' engine-tree/dm/gfx/tools/spirv_cross_bin/build.sh)
+          git clone --quiet --depth 1 --branch "$TAG" https://github.com/KhronosGroup/SPIRV-Cross.git spirv-cross-src
+          got=$(git -C spirv-cross-src rev-parse HEAD)
+          [ "$got" = "$COMMIT" ] || { echo "SPIRV-Cross $TAG is $got, expected $COMMIT" >&2; exit 1; }
+          cmake -S spirv-cross-src -B spirv-cross-build -DSPIRV_CROSS_ENABLE_TESTS=OFF -DSPIRV_CROSS_SKIP_INSTALL=ON
+          cmake --build spirv-cross-build --config Release --target spirv-cross --parallel
+          SPV_EXE=$(find spirv-cross-build -name "spirv-cross.exe" | head -1)
+          [ -n "$SPV_EXE" ] && [ -f "$SPV_EXE" ]
+          cp "$SPV_EXE" engine-tree/dm/gfx/tools/spirv_cross_bin/spirv-cross.exe
+          engine-tree/dm/gfx/tools/spirv_cross_bin/spirv-cross.exe --revision
+          rm -rf spirv-cross-src spirv-cross-build
+
       - name: Build
         working-directory: frontend-qt
         shell: bash
@@ -126,6 +145,7 @@ jobs:
             --add-data "../frontend/fonts/Manrope.ttf${PATHSEP}fonts" \
             --add-data "../frontend/fonts/Manrope-OFL.txt${PATHSEP}fonts" \
             --add-data "../frontend/l10n${PATHSEP}l10n" \
+            --add-data "nspb_qt${PATHSEP}nspb_qt" \
             --paths . \
             run_gui.py
 

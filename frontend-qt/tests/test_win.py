@@ -1728,7 +1728,7 @@ class PlatformIsolationTest(unittest.TestCase):
             code = (
                 'import sys; sys.path.insert(0, %r)\n'
                 'from nspb_qt.win import toolchain, sdk_fetch, shim, fix_ipa_modes, fetch, '
-                'doctor, build_app, driver, xcrun_shim\n'
+                'doctor, build_app, driver, xcrun_shim, macho_sign, sdk_auto_cuts\n'
                 'print("ok")\n'
             ) % str(QT)
             r = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True,
@@ -2091,8 +2091,168 @@ class InstallFailureHintTest(unittest.TestCase):
             classify = ns['_classify_install_failure']
         self.assertEqual(classify('DownloadError: connection reset by peer'), 'dep.fix.network')
         self.assertEqual(classify('URLError: operation timed out'), 'dep.fix.network')
-        self.assertEqual(classify('OSError: [Errno 28] No space left on device'), 'dep.fix.diskspace')
+        self.assertEqual( classify('OSError: [Errno 28] No space left on device'), 'dep.fix.diskspace')
         self.assertEqual(classify('KeyError: x'), 'dep.fix.log')
+
+
+class WindowsBuildFixesTest(unittest.TestCase):
+    """Regression tests for the Windows build pipeline fixes."""
+
+    def test_shim_puts_package_parent_on_sys_path_and_passes_nspb_python(self) -> None:
+        self.assertIn('os.path.dirname(os.path.dirname(_PKG))', shim._SITECUSTOMIZE_SRC)
+        with tempfile.TemporaryDirectory() as td:
+            with mock.patch.object(shim, 'shim_dir', return_value=Path(td)):
+                env = shim.build_env({'PATH': '', 'PYTHONPATH': ''}, python_exe='C:\\venv\\python.exe')
+        self.assertEqual(env['NSPB_PYTHON'], 'C:\\venv\\python.exe')
+        self.assertEqual(env['DM_ALLOW_SYSTEM_SPIRV_CROSS'], '1')
+        self.assertEqual(env['DM_ALLOW_OTHER_METAL'], '1')
+        pkg_root = str(QT)
+        self.assertIn(pkg_root, env['PYTHONPATH'].split(os.pathsep))
+
+    def test_romfs_backslash_paths_and_pread_with_real_image(self) -> None:
+        """Pack a real RomFS.img with romfs_image.py and verify backslash lookups and pread."""
+        tools_dir = str(QT.parent / 'engine' / 'dm' / 'tools')
+        if not Path(tools_dir, 'romfs_image.py').is_file():
+            self.skipTest('engine/ is missing')
+        if tools_dir not in sys.path:
+            sys.path.insert(0, tools_dir)
+        import importlib
+        import romfs
+        import romfs_image
+
+        # Execute the shim's romfs patcher and _win_pread helper from _SITECUSTOMIZE_SRC
+        ns: dict = {'os': os, 'sys': sys}
+        src = shim._SITECUSTOMIZE_SRC
+        start = src.index('    def _patch_romfs_module(mod):')
+        end = src.index('    def _patch_sdk_patches_module(mod):')
+        exec('\n'.join(ln[4:] for ln in src[start:end].splitlines()), ns)
+        ns['_patch_romfs_module'](romfs)
+
+        pread_start = src.index('        def _win_pread(fd, n, offset):')
+        pread_end = src.index('        os.pread = _win_pread')
+        import threading
+        ns['_threading'] = threading
+        ns['_pread_lock'] = threading.Lock()
+        exec('\n'.join(ln[8:] for ln in src[pread_start:pread_end].splitlines()), ns)
+        win_pread = ns['_win_pread']
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            v0 = root / 'v0'
+            rdir = v0 / 'RomFS'
+            (rdir / 'Shader' / 'sub').mkdir(parents=True)
+            payload = b'binary\x1a\r\ndata\x00end'
+            (rdir / 'Shader' / 'sub' / 'test.bin').write_bytes(payload)
+            img_path = v0 / 'RomFS.img'
+            romfs_image.pack(str(rdir), str(img_path))
+            shutil.rmtree(rdir)
+
+            # Test _win_pread preserves fd offset and reads exact binary bytes
+            fd = os.open(str(img_path), os.O_RDONLY | getattr(os, 'O_BINARY', 0))
+            try:
+                os.lseek(fd, 4, os.SEEK_SET)
+                magic = win_pread(fd, 8, 0)
+                self.assertEqual(magic, b'DMROMFS1')
+                self.assertEqual(os.lseek(fd, 0, os.SEEK_CUR), 4)
+            finally:
+                os.close(fd)
+
+            # Test backslash path resolution against RomFS.img
+            romfs._image.cache_clear()
+            src_path = romfs.source(v0)
+            self.assertTrue(romfs.isfile(str(img_path) + r'\Shader\sub\test.bin'))
+            with romfs.open(str(img_path) + r'\Shader\sub\test.bin', 'rb') as f:
+                self.assertEqual(f.read(), payload)
+            walked = list(romfs.walk(src_path))
+            self.assertTrue(any(r.endswith('Shader/sub') and 'test.bin' in fs for r, _, fs in walked))
+            self.assertFalse(any('\\' in r for r, _, _ in walked))
+            joined = romfs.os.path.join('Shader\\sub', 'test.bin')
+            self.assertEqual(joined, 'Shader/sub/test.bin')
+
+    def test_macho_sign_produces_valid_adhoc_signature_with_entitlements(self) -> None:
+        from nspb_qt.win import macho_sign
+        if sys.platform != 'darwin' or not shutil.which('clang') or not shutil.which('codesign'):
+            self.skipTest('macOS clang and codesign required for end-to-end verification')
+        with tempfile.TemporaryDirectory() as td:
+            c_file = Path(td) / 'main.c'
+            exe = Path(td) / 'DmIOS'
+            c_file.write_text('int main(void) { return 0; }\n', encoding='utf-8')
+            r = subprocess.run(['clang', '-arch', 'arm64', '-Wl,-adhoc_codesign',
+                                str(c_file), '-o', str(exe)], capture_output=True, text=True)
+            if r.returncode != 0:
+                self.skipTest(f'clang could not build arm64 binary: {r.stderr}')
+            ents = {'com.apple.developer.kernel.increased-memory-limit': True}
+            sig_len = macho_sign.sign(exe, 'org.nxnative.test', ents)
+            self.assertGreater(sig_len, 100)
+            v = subprocess.run(['/usr/bin/codesign', '--verify', '-vvv', str(exe)],
+                               capture_output=True, text=True)
+            self.assertEqual(v.returncode, 0, v.stderr + v.stdout)
+            d = subprocess.run(['/usr/bin/codesign', '-d', '--entitlements', ':-', str(exe)],
+                               capture_output=True, text=True)
+            self.assertEqual(d.returncode, 0, d.stderr)
+            self.assertIn('com.apple.developer.kernel.increased-memory-limit', d.stdout)
+
+    def test_driver_region_skip_stamps_rewrite_id_and_capture_jit_reuses_image(self) -> None:
+        from nspb_qt.win import driver
+        repo = QT.parent / 'engine'
+        if not (repo / 'scripts/build_ipa_from_nsp.py').is_file():
+            self.skipTest('engine/ is missing')
+        mod = driver.load_upstream(repo)
+        driver.patch(mod, repo)
+        self.assertTrue(mod.ALLOW_OTHER_METAL)
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            gdir = root / 'profile'
+            gdir.mkdir()
+            (gdir / 'game.tsv').write_text('id\ttest\npackage\tv0\n', encoding='utf-8')
+            patched = root / 'patched_v0'
+            patched.mkdir()
+            (patched / 'main.patched.bin').write_bytes(b'1234')
+
+            class FakeGame:
+                def __init__(self, d):
+                    self.dir = Path(d)
+
+            g = mod.region_check(repo, root, patched, root, {}, root, FakeGame(gdir))
+            self.assertTrue(mod.region_checked(g, patched))
+
+            # capture_jit raises when jit.img is absent, succeeds when present
+            with self.assertRaises(mod.BuildError):
+                mod.capture_jit('py', repo, root, patched, root, {}, root, g)
+            (root / 'jit').mkdir()
+            (root / 'jit' / 'jit.img').write_bytes(b'jit')
+            mod.capture_jit('py', repo, root, patched, root, {}, root, g)
+
+    def test_pack_archive_handles_romfs_img_and_copies_aoc(self) -> None:
+        import time
+        try:
+            from nspb_qt.model import Model
+        except ImportError:
+            self.skipTest('PySide6 is not installed')
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            work = root / 'work'
+            v0 = work / 'extract' / 'v0'
+            v0.mkdir(parents=True)
+            (v0 / 'RomFS.img').write_bytes(b'DMROMFS1_payload')
+            aoc = work / 'aoc'
+            aoc.mkdir(parents=True)
+            (aoc / '0.img').write_bytes(b'dlc0')
+            out = root / 'out'
+            out.mkdir()
+            with mock.patch.object(Model, 'check_deps', lambda self: None):
+                m = Model()
+            m.effective_work_dir = str(work)
+            m.out_dir = str(out)
+            m.base_path = str(root / 'game.nsp')
+            m.pack_archive()
+            for _ in range(50):
+                if m.archive_path:
+                    break
+                time.sleep(0.02)
+            self.assertEqual(m.archive_path, str(out / 'romfs'))
+            self.assertEqual((out / 'romfs' / 'romfs.img').read_bytes(), b'DMROMFS1_payload')
+            self.assertEqual((out / 'romfs' / 'aoc' / '0.img').read_bytes(), b'dlc0')
 
 
 if __name__ == '__main__':

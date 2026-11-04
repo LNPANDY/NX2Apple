@@ -56,9 +56,19 @@ REFUSED_OPTIONS = {
 
 
 def repo_dir() -> Path:
-    """The engine's folder: the checkout's engine/ (LNPANDY/NX2Apple#214, made by tools/engine.py sync)."""
+    """The engine's folder: NSPB_REPO when set, else the checkout's or bundled engine/."""
+    if env_repo := os.environ.get('NSPB_REPO'):
+        p = Path(env_repo)
+        if p.is_dir():
+            return p
     from .. import engine
-    return Path(engine.engine_root(str(Path(__file__).resolve().parents[3])))
+    here = Path(__file__).resolve()
+    for depth in (3, 4):
+        if len(here.parents) > depth:
+            cand = Path(engine.engine_root(str(here.parents[depth])))
+            if (cand / 'scripts' / 'build_ipa_from_nsp.py').is_file():
+                return cand
+    return Path(engine.engine_root(str(here.parents[3])))
 
 
 def load_upstream(repo: Path) -> ModuleType:
@@ -183,6 +193,7 @@ def patch(mod: ModuleType, repo: Path, *, j: int | None = None) -> None:
     # ---------------------------------------------------------------- APFS clones
     mod.can_clone = lambda d: False
     mod.apple_silicon = lambda: True     # only the heap estimate below asks
+    mod.ALLOW_OTHER_METAL = True         # Windows Metal Tools version differs from Xcode's
 
     # ---------------------------------------------------------------- the Mac host
     def build_mac_host(repo_, out, env, logs, g):
@@ -229,6 +240,107 @@ def patch(mod: ModuleType, repo: Path, *, j: int | None = None) -> None:
         return type(g)(g.dir)
     mod.heap_check = heap_check
 
+    def region_skip(repo_, d, patched, work, env, logs, g):
+        """The address-region check without the Mac host.
+
+        Upstream boots the game in the Mac host to report where its address regions reach against
+        the profile's alias region. Skipped on Windows and stamped with the rewrite ID so later
+        builds do not ask again.
+        """
+        mod.PROG.stage('address regions (no Mac host)')
+        say('no address region check: it boots the game in the Mac host, which needs a Mac; '
+            'the profile keeps its address-region keys')
+        p = Path(g.dir) / 'game.tsv'
+        old = [ln for ln in p.read_text(encoding='utf-8').rstrip('\n').split('\n')
+               if not ln.startswith('# address regions: ')]
+        rid = mod.rewrite_id(patched) if hasattr(mod, 'rewrite_id') else 'windows'
+        p.write_text('\n'.join(old).rstrip('\n')
+                     + f'\n\n# address regions: {time.strftime("%Y-%m-%d")}, '
+                       f'not checked (no Mac host on this PC) (rewrite {rid})\n',
+                     encoding='utf-8')
+        mod.PROG.end('skipped: needs the Mac host')
+        return type(g)(g.dir)
+    mod.region_check = region_skip
+
+    # ---------------------------------------------------------------- derived romfs_marker & auto SDK cuts
+    if not hasattr(mod, '_nspb_orig_derive_profile') and hasattr(mod, 'derive_profile'):
+        mod._nspb_orig_derive_profile = mod.derive_profile
+
+    if hasattr(mod, '_nspb_orig_derive_profile'):
+        _orig_derive = mod._nspb_orig_derive_profile
+
+        def derive_profile(g, pdir, ver, d, mods, *rest, **kw):
+            disp = _orig_derive(g, pdir, ver, d, mods, *rest, **kw)
+            tsv = Path(pdir) / 'game.tsv'
+            lines = tsv.read_text(encoding='utf-8').splitlines()
+            old = next((ln.split('\t', 1)[1] for ln in lines if ln.startswith('romfs_marker\t')), None)
+            romfs = mod.rfs.source(d)
+            if old and not (romfs / old).exists():
+                files = [p for p in romfs.rglob('*') if p.is_file()]
+                new = ('main.lua' if (romfs / 'main.lua').exists()
+                       else os.path.relpath(max(files, key=lambda p: p.stat().st_size),
+                                            romfs).replace('\\', '/') if files else None)
+                if new:
+                    tsv.write_text(
+                        '\n'.join(f'romfs_marker\t{new}' if ln.startswith('romfs_marker\t') else ln
+                                  for ln in lines) + '\n',
+                        encoding='utf-8')
+                    say(f'romfs_marker: {old} is not in {ver}\'s RomFS; the derived profile uses {new}')
+            return disp
+        mod.derive_profile = derive_profile
+
+    if not hasattr(mod, '_nspb_orig_rewrite') and hasattr(mod, 'rewrite'):
+        mod._nspb_orig_rewrite = mod.rewrite
+        mod._nspb_orig_patch_files = mod.patch_files
+
+    if hasattr(mod, '_nspb_orig_rewrite'):
+        _orig_rewrite = mod._nspb_orig_rewrite
+        _orig_patch_files = mod._nspb_orig_patch_files
+
+        def rewrite(py_, repo_, exe_dir, out, env, logs, g, provisional=False):
+            import json
+            from . import sdk_auto_cuts
+            sdk_nso = Path(exe_dir) / 'sdk'
+            jf = Path(out).with_name(Path(out).name + '.auto_sdk_cuts.json')
+            if jf.exists():
+                jf.unlink()
+            try:
+                sysres = int(g.get('sys_resource', '0') or '0', 0)
+            except ValueError:
+                sysres = 0
+            if sdk_nso.is_file() and sysres:
+                tools_dir = str(Path(repo_) / 'dm' / 'tools')
+                if tools_dir not in sys.path:
+                    sys.path.insert(0, tools_dir)
+                try:
+                    import importlib
+                    registered = importlib.import_module('sdk_patches').CUTS
+                    bid = mod.build_id(sdk_nso)
+                    if bid not in registered:
+                        _, cuts = sdk_auto_cuts.for_nso(sdk_nso, log=say, repo=repo_)
+                        if cuts:
+                            jf.parent.mkdir(parents=True, exist_ok=True)
+                            jf.write_text(json.dumps({bid: [list(c) for c in cuts]}, indent=1),
+                                          encoding='utf-8')
+                            say(f'sdk {bid[:12]} is not in dm/tools/sdk_patches.py: '
+                                f'{len(cuts)} address-region cut(s) found in its code')
+                except Exception:
+                    pass
+            if jf.exists():
+                os.environ['NSPB_AUTO_SDK_CUTS'] = env['NSPB_AUTO_SDK_CUTS'] = str(jf)
+            else:
+                os.environ.pop('NSPB_AUTO_SDK_CUTS', None)
+                env.pop('NSPB_AUTO_SDK_CUTS', None)
+            return _orig_rewrite(py_, repo_, exe_dir, out, env, logs, g, provisional)
+
+        def patch_files(repo_, exe_dir, mods, game_id=None):
+            f = _orig_patch_files(repo_, exe_dir, mods, game_id)
+            j = os.environ.get('NSPB_AUTO_SDK_CUTS')
+            return f + ([Path(j)] if j and Path(j).exists() else [])
+
+        mod.rewrite = rewrite
+        mod.patch_files = patch_files
+
     # ---------------------------------------------------------------- the shader cache key
     def toolchain_probe(repo_=None, env=None):
         """What the shader-stage cache keys record as "the compilers".
@@ -262,6 +374,13 @@ def patch(mod: ModuleType, repo: Path, *, j: int | None = None) -> None:
         return fn
     mod.capture_glslc = _refuse_capture('this game')
     mod.capture_shaders = _refuse_capture('this game')
+
+    def capture_jit(py_, repo_, d, patched, work, env, logs, g):
+        if (Path(d) / 'jit' / 'jit.img').is_file():
+            say(f'reusing the captured JIT image: {Path(d) / "jit/jit.img"}')
+            return
+        _refuse_capture('this game (nn::jit)')()
+    mod.capture_jit = capture_jit
 
     # ---------------------------------------------------------------- Mac outputs
     def mac_app(*a, **k):

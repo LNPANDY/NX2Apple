@@ -815,6 +815,25 @@ def find_exe(name: str) -> Path | None:
     own = tools_dir() / f'zstd-{ZSTD_VERSION}' / f'{name}.exe'
     if name == 'zstd' and own.is_file():
         return own
+    if name == 'spirv-cross':
+        if env_sc := os.environ.get('NSPB_SPIRV_CROSS'):
+            p = Path(env_sc)
+            if p.is_file():
+                return p
+        here = Path(__file__).resolve()
+        roots = [os.environ.get('NSPB_REPO')]
+        for anc in here.parents:
+            roots.append(str(anc / 'engine'))
+        try:
+            from .. import engine as _eng
+            roots.extend((_eng.bundled_engine(), _eng.engine_root(str(here.parents[3]))))
+        except Exception:
+            pass
+        for r in roots:
+            if r:
+                p = Path(r) / 'dm' / 'gfx' / 'tools' / 'spirv_cross_bin' / 'spirv-cross.exe'
+                if p.is_file():
+                    return p
     for cand in (f'{name}.exe', name):
         if w := shutil.which(cand):
             return Path(w)

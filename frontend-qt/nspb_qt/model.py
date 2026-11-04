@@ -1346,6 +1346,7 @@ class Model(QObject):
         # A Mac app is a different output, not a different pipeline: --platform mac-app runs the
         # same steps and then packs dm/mac/pack_app.py's result. Its -o names the .app, and the
         # RomFS is inside it, so the archive step is skipped below.
+        self.ipa_path = self.archive_path = self.mac_app_path = ''
         mac_app = self.target == 'mac-app'
         if mac_app:
             args += ['--platform', 'mac-app']
@@ -1361,7 +1362,6 @@ class Model(QObject):
         self.running = True
         self.runningChanged.emit(True)
         self.stages = []
-        self.ipa_path = self.archive_path = self.mac_app_path = ''
         self.log_tail = ''
         self._last_error = ''
         self.failure = None
@@ -1523,7 +1523,8 @@ class Model(QObject):
         versions = []
         if extract.is_dir():
             for d in sorted(extract.iterdir()):
-                if d.is_dir() and d.name.startswith('v') and (d / 'RomFS').is_dir():
+                if d.is_dir() and d.name.startswith('v') and (
+                        (d / 'RomFS').is_dir() or (d / 'RomFS.img').is_file()):
                     try:
                         versions.append((int(d.name[1:]), d))
                     except ValueError:
@@ -1531,7 +1532,9 @@ class Model(QObject):
         if not versions:
             self.finished.emit(True, self.t('msg.archiveSkipped', str(extract)))
             return
-        romfs = str(versions[-1][1] / 'RomFS')
+        ver_dir = versions[-1][1]
+        romfs_img = ver_dir / 'RomFS.img'
+        romfs = str(ver_dir / 'RomFS')
         # games/<id>/ is the per-game layout main.m looks in first, and the file inside it is
         # romfs.img — one file, which copies to a phone at full speed where 300,000 did not
         dest = str(Path(self.out_dir or Path(self.base_path).parent, 'romfs'))
@@ -1539,19 +1542,38 @@ class Model(QObject):
         self.stagesChanged.emit()
 
         def work_() -> None:
-            args = [self.python_path, str(Path(self.engine_path, 'dm', 'tools', 'romfs_image.py')),
-                    '--reuse', romfs, str(Path(dest, 'romfs.img'))]
-            env = pu.child_env({'PYTHONPATH': str(Path(self.engine_path, 'dm', 'tools'))})
             ok = True
+            out_img = Path(dest, 'romfs.img')
             try:
-                p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                     text=True, errors='replace', env=env,
-                                     **pu.no_window_kwargs())
-                assert p.stdout is not None
-                for line in p.stdout:
-                    self.log(line)
-                p.wait()
-                ok = p.returncode == 0
+                Path(dest).mkdir(parents=True, exist_ok=True)
+                if romfs_img.is_file():
+                    reused = (out_img.is_file()
+                              and out_img.stat().st_size == romfs_img.stat().st_size
+                              and abs(out_img.stat().st_mtime - romfs_img.stat().st_mtime) < 1)
+                    if not reused:
+                        out_img.unlink(missing_ok=True)
+                        try:
+                            os.link(romfs_img, out_img)
+                        except OSError:
+                            shutil.copy2(romfs_img, out_img)
+                else:
+                    args = [self.python_path,
+                            str(Path(self.engine_path, 'dm', 'tools', 'romfs_image.py')),
+                            '--reuse', romfs, str(out_img)]
+                    env = pu.child_env({'PYTHONPATH': str(Path(self.engine_path, 'dm', 'tools'))})
+                    p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                         text=True, errors='replace', env=env,
+                                         **pu.no_window_kwargs())
+                    assert p.stdout is not None
+                    for line in p.stdout:
+                        self.log(line)
+                    p.wait()
+                    ok = p.returncode == 0
+                aoc_src = Path(work, 'aoc')
+                if ok and aoc_src.is_dir() and any(aoc_src.iterdir()):
+                    aoc_dst = Path(dest, 'aoc')
+                    shutil.rmtree(aoc_dst, ignore_errors=True)
+                    shutil.copytree(aoc_src, aoc_dst)
             except OSError as e:
                 self.log(f'{e}\n')
                 ok = False
