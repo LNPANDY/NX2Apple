@@ -344,9 +344,12 @@ Windows launcher never show them. Xcode needs a string catalog per target, so
 `frontend-ios/Sources/ShellHost/Resources/Localizable.xcstrings` from the files (the catalogs are not edited by hand).
 The Swift code asks for a shell text by its English words (`ShellStrings.text("Done")`), so the catalog's key is the English
 text of the JSON key, and each language file that has the JSON key adds a localization (`zh.json` becomes `zh-Hans`, every other
-code stays as it is). A new shell text is a line in `en.json` and `zh.json` under the prefix, the same words in the Swift call
-and `python3 tools/l10n_shell_catalogs.py`. A new language file shows up in both catalogs with no change in the tool. A language
-that has no line for a key shows the English text, as in the launchers. `tools/tests/test_l10n_shell_catalogs.py` fails when a
+code stays as it is). A new shell text is a line in every language file under the prefix, the same words in the Swift call
+and `python3 tools/l10n_shell_catalogs.py`. A new language file shows up in both catalogs with no change in the tool. Unlike the
+launchers' texts, every shell text has every language: `python3 tools/l10n_shell_catalogs.py --check` fails when a language file
+lacks one, and so do `ShellStringsTests` (each catalog entry has all six) and `ShellTextSourcesTests` (each `ShellStrings.text` and
+`hostText` literal of the sources is a catalog key) in frontend-ios. A text a language writes as English does (OK, Minus, Version)
+is listed in `ShellStringsTests.cognates` and in the German and French launcher tests. `tools/tests/test_l10n_shell_catalogs.py` fails when a
 committed catalog differs from what the files give, and when the app's `CFBundleLocalizations` (the Demo app, `tools/try-local`
 and the shell app of the engine, patch 0056) do not list every file, because iOS offers a language to the shell only when the
 app declares it. The key checks treat the `ios.*` keys as used (`catalogKeys` in `frontend/Tests/l10n-key-rules.json`).

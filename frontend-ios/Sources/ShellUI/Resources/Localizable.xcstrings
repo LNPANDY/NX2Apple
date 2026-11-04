@@ -3,10 +3,34 @@
   "strings": {
     "%lld of %lld": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld von %lld"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "%lld of %lld"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld sur %lld"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld di %lld"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld av %lld"
           }
         },
         "zh-Hans": {
@@ -179,10 +203,34 @@
     },
     "A little room for adventure": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein wenig Raum für Abenteuer"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "A little room for adventure"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un peu de place pour l’aventure"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un po’ di spazio per l’avventura"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lite utrymme för äventyr"
           }
         },
         "zh-Hans": {
@@ -355,10 +403,34 @@
     },
     "App update needed": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App-Update nötig"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "App update needed"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mise à jour de l’app requise"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Serve un aggiornamento dell’app"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appen behöver uppdateras"
           }
         },
         "zh-Hans": {
@@ -531,10 +603,34 @@
     },
     "Back": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zurück"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Back"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retour"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indietro"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tillbaka"
           }
         },
         "zh-Hans": {
@@ -667,10 +763,34 @@
     },
     "Brings back the settings this game was tested with.": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stellt die Einstellungen wieder her, mit denen dieses Spiel getestet wurde."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Brings back the settings this game was tested with."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rétablit les réglages avec lesquels ce jeu a été testé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ripristina le impostazioni con cui questo gioco è stato testato."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Återställer inställningarna som spelet testades med."
           }
         },
         "zh-Hans": {
@@ -723,10 +843,34 @@
     },
     "Build this game again on your Mac and install it on this device. The Mac app checks every file while it builds, so the new copy is complete.": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Baue dieses Spiel auf deinem Mac neu und installiere es auf diesem Gerät. Die Mac-App prüft beim Bauen jede Datei, die neue Kopie ist also vollständig."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Build this game again on your Mac and install it on this device. The Mac app checks every file while it builds, so the new copy is complete."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recompilez ce jeu sur votre Mac et installez-le sur cet appareil. L’app Mac vérifie chaque fichier pendant la compilation, la nouvelle copie est donc complète."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ricompila questo gioco sul Mac e installalo su questo dispositivo. L’app per Mac controlla ogni file durante la compilazione, quindi la nuova copia è completa."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bygg spelet igen på din Mac och installera det på den här enheten. Mac-appen kontrollerar varje fil när den bygger, så den nya kopian är komplett."
           }
         },
         "zh-Hans": {
@@ -1059,10 +1203,34 @@
     },
     "Charging": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lädt"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Charging"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En charge"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In carica"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Laddar"
           }
         },
         "zh-Hans": {
@@ -1075,10 +1243,34 @@
     },
     "Choose": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auswählen"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Choose"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisir"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scegli"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Välj"
           }
         },
         "zh-Hans": {
@@ -1131,10 +1323,34 @@
     },
     "Choose folder…": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ordner wählen …"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Choose folder…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisir un dossier…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scegli cartella…"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Välj mapp …"
           }
         },
         "zh-Hans": {
@@ -1147,10 +1363,34 @@
     },
     "Choose game data…": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spieldaten wählen …"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Choose game data…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisir les données…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scegli i dati…"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Välj speldata …"
           }
         },
         "zh-Hans": {
@@ -1163,10 +1403,34 @@
     },
     "Choose the same iCloud Drive folder you use on your Mac.": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wähle denselben iCloud-Drive-Ordner wie auf deinem Mac."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Choose the same iCloud Drive folder you use on your Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisissez le même dossier iCloud Drive que sur votre Mac."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scegli la stessa cartella di iCloud Drive che usi sul Mac."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Välj samma iCloud Drive-mapp som du använder på din Mac."
           }
         },
         "zh-Hans": {
@@ -1179,10 +1443,34 @@
     },
     "Choose this game's data to get ready to play.": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wähle die Daten dieses Spiels, um es spielbereit zu machen."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Choose this game's data to get ready to play."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisissez les données de ce jeu pour pouvoir y jouer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scegli i dati di questo gioco per poterci giocare."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Välj spelets data för att göra det redo att spela."
           }
         },
         "zh-Hans": {
@@ -1195,10 +1483,34 @@
     },
     "Choose…": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auswählen …"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Choose…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisir…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scegli…"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Välj …"
           }
         },
         "zh-Hans": {
@@ -1251,10 +1563,34 @@
     },
     "Close controllers": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controller schließen"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Close controllers"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fermer les manettes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiudi i controller"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stäng handkontroller"
           }
         },
         "zh-Hans": {
@@ -1267,10 +1603,34 @@
     },
     "Cloud saves": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Spielstände"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Cloud saves"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sauvegardes dans le cloud"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salvataggi nel cloud"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Molnsparfiler"
           }
         },
         "zh-Hans": {
@@ -1283,10 +1643,34 @@
     },
     "Connect a controller in Bluetooth settings. Touch controls are always available in the library.": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbinde einen Controller in den Bluetooth-Einstellungen. Die Touch-Steuerung ist in der Bibliothek immer verfügbar."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Connect a controller in Bluetooth settings. Touch controls are always available in the library."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connectez une manette dans les réglages Bluetooth. Les commandes tactiles sont toujours disponibles dans la bibliothèque."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collega un controller nelle impostazioni Bluetooth. I comandi touch sono sempre disponibili nella libreria."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anslut en handkontroll i Bluetooth-inställningarna. Pekkontrollerna finns alltid i biblioteket."
           }
         },
         "zh-Hans": {
@@ -1339,6 +1723,12 @@
     },
     "Controller": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controller"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
@@ -1373,10 +1763,34 @@
     },
     "Controllers": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controller"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Controllers"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manettes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controller"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Handkontroller"
           }
         },
         "zh-Hans": {
@@ -1709,10 +2123,34 @@
     },
     "Decrease": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verringern"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Decrease"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diminuer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diminuisci"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minska"
           }
         },
         "zh-Hans": {
@@ -1965,10 +2403,34 @@
     },
     "Details": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einzelheiten"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Details"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Détails"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dettagli"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detaljer"
           }
         },
         "zh-Hans": {
@@ -2101,10 +2563,34 @@
     },
     "Double-tap to select": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zum Auswählen doppeltippen"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Double-tap to select"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Touchez deux fois pour sélectionner"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tocca due volte per selezionare"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dubbeltryck för att välja"
           }
         },
         "zh-Hans": {
@@ -2557,10 +3043,34 @@
     },
     "For a bug report": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Für einen Fehlerbericht"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "For a bug report"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pour un rapport de bug"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Per una segnalazione di bug"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "För en felrapport"
           }
         },
         "zh-Hans": {
@@ -2853,10 +3363,34 @@
     },
     "From Settings": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aus den Einstellungen"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "From Settings"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Depuis les Réglages"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dalle Impostazioni"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Från Inställningar"
           }
         },
         "zh-Hans": {
@@ -2949,10 +3483,34 @@
     },
     "Game data": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spieldaten"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Game data"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Données du jeu"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dati di gioco"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Speldata"
           }
         },
         "zh-Hans": {
@@ -3045,10 +3603,34 @@
     },
     "Game settings": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spieleinstellungen"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Game settings"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réglages du jeu"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impostazioni del gioco"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spelinställningar"
           }
         },
         "zh-Hans": {
@@ -3141,10 +3723,34 @@
     },
     "Games look for their data here. Keep one romfs.img per game in any folder inside. Each game is found by the image itself, so the folder names do not matter. Each game can also have a folder of its own.": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spiele suchen ihre Daten hier. Lege pro Spiel eine romfs.img in einen beliebigen Ordner darin. Jedes Spiel wird an der Datei selbst erkannt, die Ordnernamen spielen also keine Rolle. Jedes Spiel kann auch einen eigenen Ordner haben."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Games look for their data here. Keep one romfs.img per game in any folder inside. Each game is found by the image itself, so the folder names do not matter. Each game can also have a folder of its own."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les jeux cherchent leurs données ici. Placez un romfs.img par jeu dans n’importe quel dossier à l’intérieur. Chaque jeu est reconnu par le fichier lui-même, les noms des dossiers n’ont donc pas d’importance. Chaque jeu peut aussi avoir son propre dossier."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I giochi cercano qui i loro dati. Metti un romfs.img per gioco in una cartella qualsiasi al suo interno. Ogni gioco viene riconosciuto dal file stesso, quindi i nomi delle cartelle non contano. Ogni gioco può anche avere una cartella propria."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spelen letar efter sin data här. Lägg en romfs.img per spel i valfri mapp här inne. Varje spel känns igen på själva filen, så mappnamnen spelar ingen roll. Varje spel kan också ha en egen mapp."
           }
         },
         "zh-Hans": {
@@ -3157,10 +3763,34 @@
     },
     "Games without a folder of their own save here. Choose the same iCloud Drive folder you use on your Mac.": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spiele ohne eigenen Ordner sichern hier. Wähle denselben iCloud-Drive-Ordner wie auf deinem Mac."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Games without a folder of their own save here. Choose the same iCloud Drive folder you use on your Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les jeux sans dossier propre sauvegardent ici. Choisissez le même dossier iCloud Drive que sur votre Mac."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I giochi senza una cartella propria salvano qui. Scegli la stessa cartella di iCloud Drive che usi sul Mac."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spel utan egen mapp sparar här. Välj samma iCloud Drive-mapp som du använder på din Mac."
           }
         },
         "zh-Hans": {
@@ -3373,10 +4003,34 @@
     },
     "How to fix": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "So behebst du es"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "How to fix"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comment réparer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Come risolvere"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Så åtgärdar du det"
           }
         },
         "zh-Hans": {
@@ -3389,10 +4043,34 @@
     },
     "How to update": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "So aktualisierst du"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "How to update"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comment mettre à jour"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Come aggiornare"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Så uppdaterar du"
           }
         },
         "zh-Hans": {
@@ -3445,10 +4123,34 @@
     },
     "Increase": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erhöhen"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Increase"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Augmenter"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aumenta"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Öka"
           }
         },
         "zh-Hans": {
@@ -3461,10 +4163,34 @@
     },
     "Install a newer version of this app to play this game.": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installiere eine neuere Version dieser App, um dieses Spiel zu spielen."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Install a newer version of this app to play this game."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installez une version plus récente de cette app pour jouer à ce jeu."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installa una versione più recente di questa app per giocare a questo gioco."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installera en nyare version av appen för att spela det här spelet."
           }
         },
         "zh-Hans": {
@@ -3477,10 +4203,34 @@
     },
     "Interface": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oberfläche"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Interface"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interface"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interfaccia"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gränssnitt"
           }
         },
         "zh-Hans": {
@@ -4093,10 +4843,34 @@
     },
     "Library": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bibliothek"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Library"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bibliothèque"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Libreria"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bibliotek"
           }
         },
         "zh-Hans": {
@@ -4229,6 +5003,12 @@
     },
     "Minus": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minus"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
@@ -4343,10 +5123,34 @@
     },
     "Move between controls": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zwischen Elementen wechseln"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Move between controls"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passer d’une commande à l’autre"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spostati tra i comandi"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flytta mellan kontroller"
           }
         },
         "zh-Hans": {
@@ -4679,10 +5483,34 @@
     },
     "Needs game data": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spieldaten fehlen"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Needs game data"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Données du jeu requises"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Servono i dati di gioco"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Speldata behövs"
           }
         },
         "zh-Hans": {
@@ -4695,10 +5523,34 @@
     },
     "No additional content": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Zusatzinhalte"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "No additional content"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun contenu additionnel"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessun contenuto aggiuntivo"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inget extrainnehåll"
           }
         },
         "zh-Hans": {
@@ -4711,10 +5563,34 @@
     },
     "No battery level": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein Akkustand"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "No battery level"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Niveau de batterie inconnu"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Livello batteria sconosciuto"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen batterinivå"
           }
         },
         "zh-Hans": {
@@ -4767,10 +5643,34 @@
     },
     "No controllers connected": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Controller verbunden"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "No controllers connected"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune manette connectée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessun controller collegato"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inga handkontroller anslutna"
           }
         },
         "zh-Hans": {
@@ -4783,10 +5683,34 @@
     },
     "No data selected": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Daten gewählt"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "No data selected"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune donnée choisie"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessun dato scelto"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen data vald"
           }
         },
         "zh-Hans": {
@@ -4799,10 +5723,34 @@
     },
     "No folder chosen": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein Ordner gewählt"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "No folder chosen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun dossier choisi"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessuna cartella scelta"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen mapp vald"
           }
         },
         "zh-Hans": {
@@ -5015,10 +5963,34 @@
     },
     "On a controller": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf einem Controller"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "On a controller"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sur une manette"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Su un controller"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "På en handkontroll"
           }
         },
         "zh-Hans": {
@@ -5271,10 +6243,34 @@
     },
     "Performance overlay": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leistungsanzeige"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Performance overlay"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affichage des performances"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overlay prestazioni"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prestandaöversikt"
           }
         },
         "zh-Hans": {
@@ -5367,10 +6363,34 @@
     },
     "Play": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spielen"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Play"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jouer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gioca"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spela"
           }
         },
         "zh-Hans": {
@@ -5383,10 +6403,34 @@
     },
     "Played %@": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gespielt %@"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Played %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Joué %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Giocato %@"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spelat %@"
           }
         },
         "zh-Hans": {
@@ -5399,10 +6443,34 @@
     },
     "Played today": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Heute gespielt"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Played today"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Joué aujourd’hui"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Giocato oggi"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spelat i dag"
           }
         },
         "zh-Hans": {
@@ -5415,10 +6483,34 @@
     },
     "Played yesterday": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gestern gespielt"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Played yesterday"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Joué hier"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Giocato ieri"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spelat i går"
           }
         },
         "zh-Hans": {
@@ -5431,7 +6523,19 @@
     },
     "Plus": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plus"
+          }
+        },
         "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plus"
+          }
+        },
+        "fr": {
           "stringUnit": {
             "state": "translated",
             "value": "Plus"
@@ -5659,10 +6763,34 @@
     },
     "Ready to play": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spielbereit"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Ready to play"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prêt à jouer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pronto per giocare"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Redo att spela"
           }
         },
         "zh-Hans": {
@@ -5675,10 +6803,34 @@
     },
     "Recently played": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zuletzt gespielt"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Recently played"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Joué récemment"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Giocati di recente"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Senast spelat"
           }
         },
         "zh-Hans": {
@@ -5691,10 +6843,34 @@
     },
     "Remove": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entfernen"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Remove"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retirer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rimuovi"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta bort"
           }
         },
         "zh-Hans": {
@@ -5867,10 +7043,34 @@
     },
     "Reset to tested defaults": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf getestete Werte zurücksetzen"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Reset to tested defaults"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rétablir les réglages testés"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ripristina i valori testati"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Återställ testade standardvärden"
           }
         },
         "zh-Hans": {
@@ -6403,10 +7603,34 @@
     },
     "Select": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auswählen"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Select"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sélectionner"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seleziona"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Välj"
           }
         },
         "zh-Hans": {
@@ -6459,10 +7683,34 @@
     },
     "Settings": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einstellungen"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Settings"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réglages"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impostazioni"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inställningar"
           }
         },
         "zh-Hans": {
@@ -6515,10 +7763,34 @@
     },
     "Show log": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Protokoll zeigen"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Show log"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher le journal"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra log"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visa logg"
           }
         },
         "zh-Hans": {
@@ -6971,10 +8243,34 @@
     },
     "This game needs a newer version of this app. Update it with the Mac app on your Mac, then install it on this device again.": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses Spiel braucht eine neuere Version dieser App. Aktualisiere sie mit der Mac-App auf deinem Mac und installiere sie dann erneut auf diesem Gerät."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "This game needs a newer version of this app. Update it with the Mac app on your Mac, then install it on this device again."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce jeu nécessite une version plus récente de cette app. Mettez-la à jour avec l’app Mac sur votre Mac, puis réinstallez-la sur cet appareil."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo gioco richiede una versione più recente di questa app. Aggiornala con l’app per Mac sul Mac, poi installala di nuovo su questo dispositivo."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Det här spelet behöver en nyare version av appen. Uppdatera den med Mac-appen på din Mac och installera den sedan igen på den här enheten."
           }
         },
         "zh-Hans": {
@@ -6987,10 +8283,34 @@
     },
     "Title ID %@": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Title-ID %@"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Title ID %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ID de titre %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ID titolo %@"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Titel-ID %@"
           }
         },
         "zh-Hans": {
@@ -7163,10 +8483,34 @@
     },
     "Turn off": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ausschalten"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Turn off"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Désactiver"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disattiva"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stäng av"
           }
         },
         "zh-Hans": {
@@ -7179,10 +8523,34 @@
     },
     "Turn off cloud saves": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Spielstände ausschalten"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Turn off cloud saves"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Désactiver les sauvegardes dans le cloud"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disattiva i salvataggi nel cloud"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stäng av molnsparfiler"
           }
         },
         "zh-Hans": {
@@ -7235,10 +8603,34 @@
     },
     "Unavailable": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht verfügbar"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Unavailable"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indisponible"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non disponibile"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inte tillgängligt"
           }
         },
         "zh-Hans": {
@@ -7331,10 +8723,34 @@
     },
     "Update app": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App aktualisieren"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Update app"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mettre à jour l’app"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiorna l’app"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uppdatera appen"
           }
         },
         "zh-Hans": {
@@ -7387,10 +8803,34 @@
     },
     "Use Settings folder": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ordner aus Einstellungen"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Use Settings folder"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dossier des Réglages"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa la cartella delle Impostazioni"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Använd mappen i Inställningar"
           }
         },
         "zh-Hans": {
@@ -7403,10 +8843,34 @@
     },
     "Use app data": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App-Daten verwenden"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Use app data"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utiliser les données de l’app"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa i dati dell’app"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Använd appens data"
           }
         },
         "zh-Hans": {
@@ -7419,10 +8883,34 @@
     },
     "Used by games that have no choice of their own.": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Für Spiele, die keine eigene Wahl haben."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Used by games that have no choice of their own."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisé par les jeux qui n’ont pas leur propre choix."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usato dai giochi che non hanno una scelta propria."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Används av spel som inte har ett eget val."
           }
         },
         "zh-Hans": {
@@ -7475,7 +8963,31 @@
     },
     "Version %@": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Version %@"
+          }
+        },
         "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Version %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Version %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Versione %@"
+          }
+        },
+        "sv": {
           "stringUnit": {
             "state": "translated",
             "value": "Version %@"
@@ -7571,10 +9083,34 @@
     },
     "Your games": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine Spiele"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Your games"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vos jeux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I tuoi giochi"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dina spel"
           }
         },
         "zh-Hans": {
@@ -7587,10 +9123,34 @@
     },
     "Your games will appear here when they are included in this app.": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine Spiele erscheinen hier, sobald sie in dieser App enthalten sind."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Your games will appear here when they are included in this app."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vos jeux apparaîtront ici dès qu’ils seront inclus dans cette app."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I tuoi giochi compariranno qui quando saranno inclusi in questa app."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dina spel visas här när de ingår i appen."
           }
         },
         "zh-Hans": {
