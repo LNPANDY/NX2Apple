@@ -8824,7 +8824,7 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Può migliorare la fluidità, aggiungendo fino a un fotogramma di ritardo nella risposta ai comandi."
+            "value": "Fino a un fotogramma in più di latenza dello schermo."
           }
         },
         "sv": {
