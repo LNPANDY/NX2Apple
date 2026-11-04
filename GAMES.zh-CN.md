@@ -8,7 +8,7 @@
 
 | 游戏 | 标题 ID | 上游的说法 | 本 fork |
 |---|---|---|---|
-| Donkey Kong Bananza | `040074A01BF12000` | 在 Mac 上可玩（更新 v458752），测试到第一关开头 | 用命令行构建后，在 iPhone 17 Pro Max（iOS 27.0.1）上玩过一次（#445）。还没有通过启动器构建过 |
+| Donkey Kong Bananza | `040074A01BF12000` | 在 Mac 上可玩（更新 v458752），测试到第一关开头 | 通过启动器构建，并在 Mac、iPhone 和 iPad 上玩过，Mac 和 iPhone 上没有发现问题，iPad 上基本没有问题。此前用命令行构建后，在 iPhone 17 Pro Max（iOS 27.0.1）上玩过一次（#445） |
 | Splatoon Raiders | `0400380020056000` | 在 Mac 上可玩（更新 v65536）。没有构建过 IPA：它的内存布局目前超出 iOS 的限制 | 没有试过 |
 | Fire Emblem Fortune's Weave | `04007EF01F8AE000` | 在 Mac 上可玩（v131072），60 fps。没有构建过 IPA | 没有试过 |
 | Pokémon Pokopia | `0400A3A01EE4C000` | 在 Mac 上可玩（更新 v655360）。没有构建过 IPA | 没有试过 |

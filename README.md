@@ -172,9 +172,9 @@ display version must match the profile's, or the build says so.
 upstream: Donkey Kong Bananza, Splatoon Raiders, Fire Emblem Fortune's Weave, Pokémon Pokopia and
 Hyrule Warriors: Age of Imprisonment. Choose the game's folder of files (`base/`, `updates/`, `dlc/`)
 or its `.nup` file on the Builds page. No `prod.keys` are needed for them. The library marks them
-**Switch 2**. Nobody on this fork has played one through the launcher yet, and on iPhone and iPad they
-are barely tested: one maintainer played Donkey Kong Bananza on an iPhone 17 Pro Max from the command
-line. [GAMES.md](GAMES.md#switch-2-games) has the details.
+**Switch 2**. Only Donkey Kong Bananza was tried on this fork. The owner built and played it through the
+launcher on a Mac, an iPhone and an iPad, with no problems on the Mac and the iPhone and almost none on
+the iPad. The other Switch 2 games were not tried here. [GAMES.md](GAMES.md#switch-2-games) has the details.
 
 ## Limitations
 
