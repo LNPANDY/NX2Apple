@@ -14,6 +14,9 @@ extension BuildStore {
     package func placeAddOnContent(workDir: String, in dest: String) {
         let n = RomFSArchive.copyAddOnContent(from: workDir + "/aoc", to: dest + "/aoc")
         if n > 0 { say(String(format: t("msg.aocCopied"), n)) }
+        if let fw = ShellInstall.builtFramework(workDir: workDir) {
+            RomFSLanguages.addToLauncherJSONIfMissing(at: fw + "/dm/launcher.json", romfs: dest)
+        }
     }
 
     /// Pack the extracted RomFS into one romfs.img. The extracted folder is
