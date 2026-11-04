@@ -55,7 +55,7 @@ public struct ControllersView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .scrollIndicators(.hidden)
-        .ignoresSafeArea(edges: .bottom)
+        .ignoresSafeArea(edges: [.bottom, .leading, .trailing])
         }
         .foregroundStyle(.white).preferredColorScheme(.dark)
     }

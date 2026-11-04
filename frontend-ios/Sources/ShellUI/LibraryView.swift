@@ -18,9 +18,12 @@ enum ShellLayout: Equatable {
 
     /// The widest the overlay Settings and Controllers get: a panel from the trailing edge over the dimmed library.
     static let overlayWidth: CGFloat = 520
-    /// A landscape panel is also capped at half the screen: at the full 520 a phone on its side gives the panel
-    /// three fifths of the screen and its rows stretch. Tablets keep the 520, phones land near 430.
-    func overlayWidth(_ width: CGFloat) -> CGFloat { isCoverFlow ? min(Self.overlayWidth, width / 2) : Self.overlayWidth }
+    /// A landscape panel on a phone is capped well under the 520: at the full width it took three fifths of the
+    /// screen and its rows stretched, and at half it still felt wide. Tablets keep the 520.
+    func overlayWidth(_ width: CGFloat) -> CGFloat {
+        if case .coverFlow(let regular) = self, !regular { return min(Self.overlayWidth, width * 0.44) }
+        return Self.overlayWidth
+    }
     /// Settings drop in as that overlay wherever the library stays in view beside it (at least 120 points of it), and
     /// take the whole screen where it would not: a phone held upright, a folded foldable, a narrow window.
     func settingsFloat(_ width: CGFloat) -> Bool { self != .column && width >= overlayWidth(width) + 120 }
@@ -270,7 +273,6 @@ public struct LibraryView: View {
                             .padding(.horizontal, 24).padding(.top, 18).padding(.bottom, 32 + insets.bottom)
                             // A phone on its side: a readable column, not rows stretched across the whole width.
                             .frame(maxWidth: 640, alignment: .leading)
-                            .padding(.leading, insets.leading).padding(.trailing, insets.trailing)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }

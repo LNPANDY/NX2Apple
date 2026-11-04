@@ -87,7 +87,7 @@ struct ShellSettingsView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .scrollIndicators(.hidden)
-                .ignoresSafeArea(edges: .bottom)
+                .ignoresSafeArea(edges: [.bottom, .leading, .trailing])
                 .onChange(of: focus.id) { _, id in
                     guard let id, id.hasPrefix("shs.") else { return }
                     withAnimation(reduceMotion ? nil : .easeOut(duration: 0.18)) {
