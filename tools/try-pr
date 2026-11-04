@@ -1,0 +1,198 @@
+#!/usr/bin/env bash
+# Open the Mac app that CI built, without building it yourself (RELEASING.md).
+#
+#   tools/try-pr 271           the app of pull request #271 (the newest successful build of its head commit, fork pull requests too)
+#   tools/try-pr main          the app of main (the newest successful build of a push to main)
+#   tools/try-pr v0.7.6-rc1    the app of a release candidate or release, checked against the latest.json of that release
+#
+# Options:
+#   --dir DIR    put the download into DIR (empty or new). Default: a new folder under $TMPDIR
+#   --no-open    download and unpack only
+#   --own-repo   let the app choose its engine as it always does, instead of the engine tree bundled in this build
+#
+# Needs gh (signed in) on an Apple silicon Mac. The app comes from the artifact NX2Apple-macOS-arm64 of the workflow
+# build-mac-app.yml, or from the release assets for a tag. The download is unpacked into its own folder, the quarantine flag is
+# removed from that copy only, and the installed NX2Apple is not touched.
+#
+# The app opens with launch arguments that last for this run only. They make it build with the engine tree it carries
+# (Contents/Resources/engine), whatever the channels serve that day:
+#   -engineChannel stable -engineID <its engine_id>   the stable channel and the bundled engine, which the app copies into its
+#                                                     engine store (~/Library/Application Support/NX2Apple/engine) if needed
+#   -enginePreviousID <your engine_id>                the engine your installed app uses stays in the store
+#   -autoUpdateRepo '<false/>'                        no engine download and no git pull at launch
+#   -autoUpdateApp '<false/>'                         no self-update of the test copy
+# A build from before the engine store (v0.7.5 and older) gets -repoPath <DIR>/engine instead of the engine arguments: a copy
+# of its bundled tree, which it builds from instead of your checkout.
+#
+# The test app has the bundle id of the installed app (org.nxnative.NSPortBuilder). It shares its settings, and
+# ~/Library/Application Support/NS Port Builder (Python environment, game library), .../NX2Apple (engine store) and .../nxnative
+# (saves). The app has no switch to keep these apart. A setting you change in the test app stays changed for the installed app.
+# The test app also saves its engine choice (stable, its engine) and its engine folder as the repository path. The installed
+# release app goes back to its own engine at its next start. If it followed the experimental channel, pick that again in
+# Settings. A launcher built from a checkout may need its checkout picked again.
+set -euo pipefail
+
+REPO=${NX2APPLE_REPO:-LNPANDY/NX2Apple}
+WORKFLOW=build-mac-app.yml
+ARTIFACT=NX2Apple-macOS-arm64
+
+usage() { sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+die() { echo "try-pr: $*" >&2; exit 1; }
+note() { echo "try-pr: $*"; }
+
+# The network is not always there: three tries, then the error of the last one.
+retry() {
+    local n=1
+    until "$@"; do
+        [ "$n" -ge 3 ] && return 1
+        sleep $((n * 3)); n=$((n + 1))
+    done
+}
+
+target="" dir="" open_app=1 own_repo=0
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -h|--help) usage 0 ;;
+        --dir) [ $# -ge 2 ] || usage 1; dir=$2; shift ;;
+        --no-open) open_app=0 ;;
+        --own-repo) own_repo=1 ;;
+        -*) usage 1 ;;
+        *) [ -z "$target" ] || usage 1; target=$1 ;;
+    esac
+    shift
+done
+[ -n "$target" ] || usage 1
+command -v gh > /dev/null || die "needs the GitHub CLI: brew install gh, then gh auth login"
+case "$target" in '#'*) target=${target#\#} ;; esac
+case "$target" in
+    main|v[0-9]*) ;;
+    *[!0-9]*|'') die "expected a pull request number, main, or a tag like v0.7.6-rc1, not '$target'" ;;
+esac
+
+if [ -z "$dir" ]; then
+    dir=$(mktemp -d "${TMPDIR:-/tmp}/nx2apple-try.XXXXXX")
+else
+    mkdir -p "$dir"
+    [ -z "$(ls -A "$dir")" ] || die "$dir is not empty"
+fi
+dir=$(cd "$dir" && pwd)
+# Nothing to try: leave no half download behind.
+trap 'status=$?; [ "$status" = 0 ] || rm -rf "$dir"' EXIT
+mkdir -p "$dir/download"
+
+# The run whose artifact to take: "<id> <head sha>", or a message why there is none.
+pick_run() {   # $1: the head commit, $2: what it is (for messages)
+    local runs ok first
+    runs=$(retry gh api "repos/$REPO/actions/workflows/$WORKFLOW/runs?head_sha=$1&per_page=30" \
+        --jq '.workflow_runs[] | [.id, .status, (.conclusion // "-"), .html_url] | @tsv') || die "could not list the builds of $1"
+    ok=$(printf '%s\n' "$runs" | awk -F'\t' '$2 == "completed" && $3 == "success" { print $1; exit }')
+    if [ -n "$ok" ]; then echo "$ok"; return; fi
+    first=$(printf '%s\n' "$runs" | head -n 1)
+    [ -n "$first" ] || die "$2 (${1:0:12}) has no app build. CI builds the app only when a change touches frontend/, patches/, tools/engine.py,
+tools/release_manifest.py, tools/requirements-release.txt, .upstream-ref or build-mac-app.yml. tools/try-pr main has the app of main."
+    IFS=$'\t' read -r _ status conclusion url <<< "$first"
+    case "$status/$conclusion" in
+        completed/action_required) die "the build of $2 waits for a maintainer to approve the workflow run (a fork pull request): $url" ;;
+        completed/*) die "the newest build of $2 ended with '$conclusion', there is no app to try: $url" ;;
+        *) die "the build of $2 is still running ($status). Try again when it is done: $url" ;;
+    esac
+}
+
+fetch_artifact() {   # $1: run id
+    local state
+    state=$(retry gh api "repos/$REPO/actions/runs/$1/artifacts" \
+        --jq ".artifacts[] | select(.name == \"$ARTIFACT\") | if .expired then \"expired\" else \"ok\" end") || die "could not list the artifacts of run $1"
+    case "$state" in
+        ok) ;;
+        expired) die "the app of run $1 has expired (GitHub keeps artifacts for a limited time). Re-run the build, or try a newer commit" ;;
+        *) die "run $1 has no artifact $ARTIFACT" ;;
+    esac
+    note "downloading $ARTIFACT of https://github.com/$REPO/actions/runs/$1"
+    retry gh run download "$1" -R "$REPO" -n "$ARTIFACT" -D "$dir/download" || die "the download failed"
+}
+
+manifest=""
+case "$target" in
+    main)
+        head=$(retry gh api "repos/$REPO/commits/main" --jq .sha) || die "could not read main of $REPO"
+        line=$(retry gh api "repos/$REPO/actions/workflows/$WORKFLOW/runs?branch=main&event=push&status=success&per_page=1" \
+            --jq '.workflow_runs[0] | "\(.id) \(.head_sha)"') || die "could not list the builds of main"
+        [ -n "$line" ] && [ "$line" != "null null" ] || die "main has no successful app build yet"
+        run=${line% *} sha=${line#* }
+        if [ "$sha" != "$head" ]; then
+            note "the newest app of main is from ${sha:0:12}. main is at ${head:0:12}: the commits after it do not touch the app, or their build has not finished"
+        fi
+        fetch_artifact "$run"
+        what="main at ${sha:0:12}"
+        ;;
+    v[0-9]*)
+        info=$(retry gh release view "$target" -R "$REPO" --json isPrerelease,assets --jq '"\(.isPrerelease) \([.assets[].name] | join(","))"') \
+            || die "$REPO has no release $target"
+        case ",${info#* }," in *",$ARTIFACT.zip,"*) ;; *) die "$target has no $ARTIFACT.zip yet: its build is still running or failed (gh run list -R $REPO -w $WORKFLOW)" ;; esac
+        note "downloading $ARTIFACT.zip of $target"
+        retry gh release download "$target" -R "$REPO" -p "$ARTIFACT.zip" -D "$dir/download" || die "the download failed"
+        case ",${info#* }," in
+            *",latest.json,"*)
+                retry gh release download "$target" -R "$REPO" -p latest.json -D "$dir/download" || die "the download of latest.json failed"
+                manifest="$dir/download/latest.json" ;;
+            *) note "$target has no latest.json: the engine of this build cannot be checked against it" ;;
+        esac
+        what="$target"; [ "${info%% *}" = true ] && what="$target (pre-release)"
+        ;;
+    *)
+        head=$(retry gh pr view "$target" -R "$REPO" --json headRefOid --jq .headRefOid) || die "$REPO has no pull request #$target"
+        run=$(pick_run "$head" "pull request #$target")
+        fetch_artifact "$run"
+        what="pull request #$target at ${head:0:12}"
+        ;;
+esac
+
+zip="$dir/download/$ARTIFACT.zip"
+[ -f "$zip" ] || die "the download has no $ARTIFACT.zip"
+if [ -n "$manifest" ]; then
+    want=$(plutil -extract app.sha256 raw -o - "$manifest" 2> /dev/null || true)
+    got=$(shasum -a 256 "$zip" | cut -d' ' -f1)
+    [ -z "$want" ] || [ "$want" = "$got" ] || die "$ARTIFACT.zip has SHA-256 $got, latest.json names $want"
+fi
+ditto -x -k "$zip" "$dir"
+app="$dir/NX2Apple.app"
+[ -d "$app" ] || die "the zip has no NX2Apple.app"
+xattr -dr com.apple.quarantine "$app" 2> /dev/null || true
+
+version=$(plutil -extract CFBundleShortVersionString raw -o - "$app/Contents/Info.plist" 2> /dev/null || echo "?")
+bundled="$app/Contents/Resources/engine"
+engine_id=$(cat "$bundled/.engine-id" 2> /dev/null || echo "none")
+note "NX2Apple $version, $what"
+note "engine_id $engine_id (Contents/Resources/engine)"
+if [ -n "$manifest" ]; then
+    want=$(plutil -extract engine_id raw -o - "$manifest")
+    [ "$engine_id" = "$want" ] || die "the app carries engine $engine_id, latest.json of $target names $want"
+    note "the app and its engine are the ones latest.json of $target names (channel $(plutil -extract channel raw -o - "$manifest"), engine SHA-256 $(plutil -extract engine.sha256 raw -o - "$manifest"))"
+fi
+
+args=(-autoUpdateApp '<false/>')
+if [ "$own_repo" = 0 ]; then
+    [ -d "$bundled" ] || die "this build has no Contents/Resources/engine. Use --own-repo to let the app choose its engine"
+    if grep -qa engineChannel "$app/Contents/MacOS/NSPortBuilder"; then
+        args+=(-engineChannel stable -engineID "$engine_id" -autoUpdateRepo '<false/>')
+        mine=$(defaults read org.nxnative.NSPortBuilder engineID 2> /dev/null || true)
+        if [ -n "$mine" ] && [ "$mine" != "$engine_id" ]; then args+=(-enginePreviousID "$mine"); fi
+        if [ "$(defaults read org.nxnative.NSPortBuilder engineChannel 2> /dev/null || true)" = experimental ]; then
+            note "your installed app follows the experimental channel. The test app saves stable: pick experimental again in Settings afterwards"
+        fi
+    else
+        ditto "$bundled" "$dir/engine"
+        args+=(-repoPath "$dir/engine" -autoUpdateRepo '<false/>')
+    fi
+fi
+
+note "unpacked into $dir (delete it when you are done)"
+if [ "$open_app" = 0 ]; then
+    note "not opened (--no-open). To open it: open -n $(printf '%q' "$app") --args$(printf ' %q' "${args[@]}")"
+    exit 0
+fi
+if pgrep -x NSPortBuilder > /dev/null; then
+    die "NX2Apple is running. Quit it first: both copies would share one set of settings and saves"
+fi
+note "it shares settings and Application Support with an installed NX2Apple (see the top of tools/try-pr)"
+open -n "$app" --args "${args[@]}"

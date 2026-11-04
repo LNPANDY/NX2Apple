@@ -1,0 +1,60 @@
+16:9 (Switch)
+30 fps
+60 fps
+Adjusts resolution between 70% and 100% under load. Turn off to keep full resolution for the selected console mode.
+American English
+Brazilian Portuguese
+British English
+Canadian French
+Console mode
+Controls
+Display mode
+Docked
+Dutch
+Dynamic resolution
+Encode thread
+Fill
+Fill crops the game's 16:9 picture to cover the screen. Health bars, subtitles or maps near the edges can be cut off. A full-screen picture without cropping needs a patch for each game.
+Fit
+Frame buffering
+Frame rate
+Frame-rate counter
+French
+Fullscreen
+Game
+Game language
+Game rumble
+Game's own
+Game's upscaler
+German
+Handheld
+Hold frames when late
+Italian
+Japanese
+Keeps a pipeline archive; uses more memory.
+Korean
+Latin American Spanish
+Metal 4 pipelines
+MetalFX
+Performance
+Performance HUD
+Picture
+Picture shape
+Pipeline prebuild
+Portuguese
+Render scale
+Renders about a quarter more pixels: a little slower and warmer.
+Rumble cutoff
+Rumble strength
+Russian
+Simplified Chinese
+Spanish
+Standard
+The first start waits a few minutes for it, once.
+Touch feedback
+Traditional Chinese
+Up to one frame more display latency.
+Upscaling
+Uses more GPU time and can increase heat.
+Window
+iPhone Duo screen (1.43:1)

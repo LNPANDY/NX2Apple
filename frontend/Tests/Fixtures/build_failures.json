@@ -46,7 +46,7 @@
   "kind": "otherMetal",
   "source": "dm/gfx/tools/own_compilers.py",
   "fragment": "Metal compiler is not the one the shaders were tested with",
-  "text": "[RED] this Mac's Metal compiler is not the one the shaders were tested with (dm/gfx/tools/dmsh_chain.lock): metal_macosx Apple metal version 32023.883 (metalfe-32023.883.5) (tested: Apple metal version 32023.921 (metalfe-32023.921.6)). Untested compilers are unsupported (GitHub issue #242). Install Xcode 27.1 (macOS 26.6 or later) and its Metal toolchain (xcodebuild -downloadComponent MetalToolchain), or set ALLOW_OTHER_METAL = True (--allow-other-metal) to build with this one anyway"
+  "text": "[RED] this Mac's Metal compiler is not the one the shaders were tested with (dm/gfx/tools/dmsh_chain.lock): metal_macosx Apple metal version 32023.883 (metalfe-32023.883.5) (tested: Apple metal version 32023.922 (metalfe-32023.922.4)). Untested compilers are unsupported (GitHub issue #242). Install Xcode 27.2 (macOS 26.6 or later) and its Metal toolchain (xcodebuild -downloadComponent MetalToolchain), or set ALLOW_OTHER_METAL = True (--allow-other-metal) to build with this one anyway"
  },
  {
   "id": "shaders.regression",
@@ -81,8 +81,8 @@
   "id": "games.several",
   "kind": "severalGames",
   "source": "scripts/build_ipa_from_nsp.py",
-  "fragment": "more than one game in the folder, keep one game per folder",
-  "text": "[RED] more than one game in the folder, keep one game per folder: 0100000000010000, 01006F8002326000"
+  "fragment": "more than one game in the folder",
+  "text": "[RED] more than one game in the folder: 0100000000010000, 01006F8002326000; keep one game per folder, or name the one to pack with --title-id / TITLE_ID (a cartridge dump that holds two games)"
  },
  {
   "id": "games.noTitleID",
@@ -91,6 +91,20 @@
   "fragment": "no NSP with a readable title ID in",
   "text": "[RED] no NSP with a readable title ID in /Users/x/Games/Zelda",
   "folder": "/Users/x/Games/Zelda"
+ },
+ {
+  "id": "keys.old",
+  "kind": "keysOld",
+  "source": "dm/tools/nx_extract/Program.cs",
+  "fragment": "the keys are older than the game",
+  "text": "[RED] Game [0100000000010000][v0].nsp: prod.keys has no master_key_13 (master key 13, which came with firmware 19.0.0): the keys are older than the game; dump prod.keys again from a console on firmware 19.0.0 or later"
+ },
+ {
+  "id": "games.noProfile",
+  "kind": "noProfile",
+  "source": "scripts/build_ipa_from_nsp.py",
+  "fragment": "packs only a game with a profile",
+  "text": "[RED] a dump folder packs only a game with a profile, and 0400000000010000 has none: the survey that makes a provisional profile reads NSPs"
  },
  {
   "id": "disk.low",
@@ -113,5 +127,12 @@
   "source": "codesign",
   "fragment": "resource fork, Finder information, or similar detritus not allowed",
   "text": "CodeSign /Users/x/Library/Mobile\\ Documents/com~apple~CloudDocs/Downloads/0100152000022000_build/xcode-derived-data/Build/Products/Release-iphoneos/DmIOS.app (in target 'DmIOS' from project 'DmIOS')\n/Users/x/Library/Mobile Documents/com~apple~CloudDocs/Downloads/0100152000022000_build/xcode-derived-data/Build/Products/Release-iphoneos/DmIOS.app: resource fork, Finder information, or similar detritus not allowed\nCommand CodeSign failed with a nonzero exit code"
+ },
+ {
+  "id": "volume.swap",
+  "kind": "volumeFormat",
+  "source": "errno45",
+  "fragment": "Operation not supported",
+  "text": "Traceback (most recent call last):\n  File \"/Users/x/nxnative/engine/dm/mac/pack_app.py\", line 223, in replace_app\n    err = ctypes.get_errno(); raise OSError(err, os.strerror(err), str(out))\nOSError: [Errno 45] Operation not supported: '/Volumes/Games HFS/0100F2C0115B6000.app'"
  }
 ]

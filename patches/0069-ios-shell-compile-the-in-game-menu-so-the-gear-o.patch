@@ -1,0 +1,40 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: v0lumehi <aljic.zijad@gmail.com>
+Date: Tue, 3 Nov 2026 18:36:56 +0100
+Subject: [PATCH] ios shell: compile the in-game menu, so the gear opens it
+
+DmGamepad.m's gear (the in-game menu button) calls dm_game_menu,
+which only GameMenu.swift defines, and the shell did not compile it.
+The shell now compiles GameMenu.swift and LauncherSettings.swift, as
+the Duo harness does. In the shell the menu's model is nil, so it has
+the controller layouts and Quit, which opens the quit prompt.
+
+Upstream-Status: fork-only
+Reason: The route C shell is the fork's (0050): its gear needs GameMenu.swift, without it the shell does not link at the 641d148 pin
+Issue: LNPANDY/NX2Apple#421
+---
+ dm/ios/Shell/Shell-Bridging-Header.h | 1 +
+ dm/ios/project-shell.yml             | 2 ++
+ 2 files changed, 3 insertions(+)
+
+diff --git a/dm/ios/Shell/Shell-Bridging-Header.h b/dm/ios/Shell/Shell-Bridging-Header.h
+index bf778b2..d7f5196 100644
+--- a/dm/ios/Shell/Shell-Bridging-Header.h
++++ b/dm/ios/Shell/Shell-Bridging-Header.h
+@@ -1,2 +1,3 @@
+ // What ShellApp.swift calls in the engine glue (ShellMain.m).
+ #include "ShellEngine.h"
++#include "../Sources/DmGameMenu.h"   // GameMenu.swift, the in-game menu (dm/ios/Sources)
+diff --git a/dm/ios/project-shell.yml b/dm/ios/project-shell.yml
+index 7c413de..6ff2abd 100644
+--- a/dm/ios/project-shell.yml
++++ b/dm/ios/project-shell.yml
+@@ -25,6 +25,8 @@ targets:
+       - path: Shell           # the shell's main, its scene, the library and the real GameLauncher (dm/ios/Shell)
+       - path: Sources/front_ios.m   # the game view, unchanged from the one-game app; ShellMain.m provides what it takes from main.m
+       - path: Sources/DmGamepad.m
++      - path: Sources/GameMenu.swift   # the in-game menu the gamepad's gear opens: in the shell the layouts and Quit (no settings screen model)
++      - path: Sources/LauncherSettings.swift   # GameMenu.swift's model type
+       - path: Sources/CloudSaves.m
+       - path: Sources/SaveSync.m
+       - path: Sources/DataBookmark.m

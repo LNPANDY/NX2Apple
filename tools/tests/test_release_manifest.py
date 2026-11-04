@@ -308,5 +308,113 @@ class Unsigned(unittest.TestCase):
         self.assertEqual(R.main([*args, '--require-signature']), 1)
 
 
+class ReleaseCandidate(unittest.TestCase):
+    """A release candidate vX.Y.Z-rcN publishes the stable manifest of X.Y.Z on its pre-release, and the final tag ships its files only
+    when `check-rc` finds them to be exactly what its latest.json names and what the final commit builds (RELEASING.md)."""
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix='test-manifest-rc-'))
+        self.addCleanup(__import__('shutil').rmtree, self.tmp, True)
+        self.pubfile = self.tmp / 'engine-signing.pub'
+        self.pubfile.write_text('# no key yet\n')
+        self.engine = self.zip('NX2Apple-engine.zip', EID)
+        self.app = self.tmp / 'NX2Apple-macOS-arm64.zip'; self.app.write_bytes(b'app bytes')
+        self.old_env = dict(os.environ)
+        os.environ.pop(R.KEY_ENV, None); os.environ.pop('GITHUB_ACTIONS', None)
+        self.addCleanup(self.restore)
+
+    def restore(self):
+        os.environ.clear(); os.environ.update(self.old_env)
+
+    def zip(self, name, eid, extra='x', compression=zipfile.ZIP_STORED):
+        p = self.tmp / name
+        with zipfile.ZipFile(p, 'w') as z:   # fixed timestamps, like `tools/engine.py tree`: the same input gives the same bytes
+            for n, s in (('.engine-id', eid + '\n'), ('.upstream-ref', eid[:40] + '\n'), ('dm/a.c', extra * 200)):
+                i = zipfile.ZipInfo(n, (1980, 1, 1, 0, 0, 0)); i.compress_type = compression
+                z.writestr(i, s)
+        return p
+
+    def run_main(self, args):
+        import contextlib, io
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf): code = R.main(args)
+        return code, buf.getvalue()
+
+    def publish_rc(self, *extra, channel='stable', version='0.8.0', tag='v0.8.0-rc1'):
+        out = self.tmp / 'rc'
+        args = ['publish', '--engine-zip', str(self.engine), '--app-zip', str(self.app), '--version', version, '--channel', channel,
+                '--tag', tag, '--out', str(out), '--pub', str(self.pubfile), '--built', '2026-10-31T02:00:00Z', *extra]
+        self.assertEqual(self.run_main(args)[0], 0)
+        return out / 'latest.json'
+
+    def check(self, manifest, built=None, app=None, version='0.8.0'):
+        return self.run_main(['check-rc', '--manifest', str(manifest), '--version', version, '--engine-zip', str(self.engine),
+                              '--app-zip', str(app or self.app), '--built-engine-zip', str(built or self.engine)])
+
+    def test_the_candidate_manifest_is_the_stable_manifest_of_the_release_under_its_own_tag(self):
+        m = json.loads(self.publish_rc().read_text())
+        self.assertEqual((m['version'], m['channel'], m['pin'], m['engine_id']), ('0.8.0', 'stable', PIN, EID))
+        self.assertEqual(m['sources'], ['https://github.com/LNPANDY/NX2Apple/releases/download/v0.8.0-rc1/'])
+        final = self.tmp / 'final'
+        self.run_main(['publish', '--engine-zip', str(self.engine), '--app-zip', str(self.app), '--version', '0.8.0', '--channel', 'stable',
+                       '--tag', 'v0.8.0', '--out', str(final), '--pub', str(self.pubfile), '--built', '2026-10-31T02:00:00Z'])
+        f = json.loads((final / 'latest.json').read_text())
+        self.assertEqual({k: v for k, v in f.items() if k != 'sources'}, {k: v for k, v in m.items() if k != 'sources'})
+
+    def test_the_candidate_uploads_onto_its_prerelease_without_changing_it(self):
+        d = self.tmp / 'bin'; d.mkdir()
+        log = self.tmp / 'gh.log'
+        (d / 'gh').write_text(f'#!/bin/sh\necho "$@" >> "{log}"\nexit 0\n'); (d / 'gh').chmod(0o755)
+        os.environ['PATH'] = f'{d}:{os.environ["PATH"]}'
+        self.publish_rc('--upload')
+        calls = [l.split() for l in log.read_text().splitlines()]
+        self.assertFalse([c for c in calls if c[:2] in (['release', 'create'], ['release', 'edit'])])   # stays a pre-release, never latest
+        self.assertEqual({c[2] for c in calls if c[:2] == ['release', 'upload']}, {'v0.8.0-rc1'})
+        self.assertNotIn(R.EXPERIMENTAL_TAG, log.read_text())
+
+    def test_the_same_build_passes(self):
+        built = self.zip('built-engine.zip', EID)   # the engine zip is reproducible: the final commit builds the same bytes
+        self.assertEqual(self.engine.read_bytes(), built.read_bytes())
+        code, text = self.check(self.publish_rc(), built=built)
+        self.assertEqual(code, 0, text); self.assertIn(f'engine_id {EID}', text)
+
+    def test_another_engine_on_the_final_commit_fails(self):
+        other = self.zip('built-engine.zip', PIN + '-000000000000')
+        code, text = self.check(self.publish_rc(), built=other)
+        self.assertEqual(code, 1); self.assertIn('this commit builds engine', text)
+
+    def test_the_same_engine_id_with_other_files_fails(self):
+        other = self.zip('built-engine.zip', EID, extra='y')
+        code, text = self.check(self.publish_rc(), built=other)
+        self.assertEqual(code, 1); self.assertIn('other files than the candidate\'s: dm/a.c', text)
+
+    def test_the_same_files_compressed_differently_pass_with_a_note(self):
+        other = self.zip('built-engine.zip', EID, compression=zipfile.ZIP_DEFLATED)
+        self.assertNotEqual(other.read_bytes(), self.engine.read_bytes())
+        code, text = self.check(self.publish_rc(), built=other)
+        self.assertEqual(code, 0, text); self.assertIn('compressed differently', text)
+
+    def test_an_app_that_is_not_the_one_in_the_manifest_fails(self):
+        m = self.publish_rc()
+        other = self.tmp / 'other' / 'NX2Apple-macOS-arm64.zip'; other.parent.mkdir(); other.write_bytes(b'rebuilt app')
+        code, text = self.check(m, app=other)
+        self.assertEqual(code, 1); self.assertIn('app sha256', text)
+
+    def test_an_engine_zip_that_is_not_the_one_in_the_manifest_fails(self):
+        m = self.publish_rc()
+        self.engine = self.zip('NX2Apple-engine.zip', EID, extra='swapped')
+        code, text = self.check(m, built=self.engine)
+        self.assertEqual(code, 1); self.assertIn('engine sha256', text)
+
+    def test_a_manifest_for_another_version_or_channel_fails(self):
+        self.assertEqual(self.check(self.publish_rc(), version='0.8.1')[0], 1)
+        code, text = self.check(self.publish_rc(channel='experimental'))
+        self.assertEqual(code, 1); self.assertIn('not stable', text)
+
+    def test_in_ci_a_difference_is_an_error_annotation(self):
+        os.environ['GITHUB_ACTIONS'] = 'true'
+        code, text = self.check(self.publish_rc(), built=self.zip('built-engine.zip', PIN + '-000000000000'))
+        self.assertEqual(code, 1); self.assertIn('::error title=Not the tested build::', text)
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -4,7 +4,7 @@
 # the bundle, plutil the version, codesign, ditto) and uploaded by hand — and one release went
 # out without it. The native app is the one macOS users actually run, so "the release has no
 # nxnative-macOS-arm64.zip" is not a cosmetic gap: the app's own updater looks for exactly that
-# asset name (ContentView.checkAppUpdate), finds a newer tag with no such asset, and reports
+# asset name (AppUpdateStore.checkForUpdate), finds a newer tag with no such asset, and reports
 # "up to date" — a silent failure of the update path for every existing install. Copies from before
 # the app was renamed (NS Port Builder) look for NS-Port-Builder-macOS-arm64.zip, so that one goes up too.
 #
@@ -19,29 +19,113 @@
 # so a player installs neither Homebrew nor Python (frontend/tools/bundle_tools.sh builds them from pinned, checksummed sources; check_bundle.sh
 # runs each from the assembled bundle with a clean PATH, checks the load paths and the signature).
 #
-#   - push a tag vX.Y.Z  → builds and attaches the app to that release
-#   - workflow_dispatch  → artifact only
-#   - a pull request that touches frontend/ or this file → artifact only, so a change to the bundle is tested before a release needs it
-name: Build nxnative (native macOS)
+#   - push a tag vX.Y.Z-rcN → a release candidate: a pre-release that is never "latest", with the app, the engine and a signed latest.json
+#     that names the engine the release X.Y.Z will carry (RELEASING.md)
+#   - push a tag vX.Y.Z      → the release: it ships the files of the newest release candidate on the same commit, its engine checked against this build.
+#     A commit without a release candidate fails, unless a manual run on the tag sets release_without_rc
+#   - a push to main that touches the paths below → artifact only (NX2Apple-macOS-arm64), which tools/try-pr opens. Nothing is published
+#   - a pull request → the same artifact, but only on the tip of its stack and only when it changes a packaging file (.github/scripts/build_wanted.py
+#     lists them) or has the label full-build. Every other PR reports the job as skipped (CONTRIBUTING.md, "CI on stacks")
+#   - workflow_dispatch      → artifact only, or on a tag ref the same as a push of that tag
+name: Build the NX2Apple app (macOS)
 
 on:
   push:
+    branches: [main]
     tags: ['v*']
-  pull_request:
+    # GitHub does not evaluate path filters for tag pushes: every v* tag builds. On main only a change to these paths builds.
     paths: ['frontend/**', 'tools/engine.py', 'tools/release_manifest.py', 'tools/requirements-release.txt', 'patches/**', '.upstream-ref', '.github/workflows/build-mac-app.yml']
+  # No paths filter here: a workflow that does not start reports nothing. The `stack` job decides per job whether a pull request builds the app
+  # (it is the tip of its stack, and it changes a packaging file or has the label full-build), see .github/scripts/build_wanted.py.
+  # Explicit types: not `edited` or `labeled` (GitHub sends `edited` when it retargets a stack, and the second run only cancels the first).
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
+    inputs:
+      release_without_rc:
+        description: 'Run on a final tag only (Use workflow from: the tag). Publish it although its commit has no release candidate. An emergency exit, see RELEASING.md.'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
 
+# A newer run for a pull request replaces its running build and reports instead. Every commit on main and every tag keeps its own run: each main
+# commit has its app artifact, and a release is never cancelled halfway.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
+  # The app build is the second macOS job of a pull request, so it runs on the tip of a stack only (stack_tip.py), and only when the PR
+  # changes what goes into the packaging or has the label full-build (build_wanted.py). `swift test` (tests.yml) runs on every tip.
+  # Push to main, a tag and workflow_dispatch always build. A skipped job still reports, and a failed lookup builds (fail open).
+  stack:
+    name: Stack (tip, packaging)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      is_tip: ${{ steps.tip.outputs.is_tip }}
+      build: ${{ steps.wanted.outputs.build }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+      - id: tip
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          BASE_REPO: ${{ github.event.pull_request.base.repo.full_name }}
+        run: python3 .github/scripts/stack_tip.py
+      - id: wanted
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: python3 .github/scripts/build_wanted.py
+
   # The app icon is AppIcon.icon (Icon Composer). The actool of Xcode 26.6 (the default on macos-latest) throws an exception on it, the one of
-  # Xcode 27.1 compiles it. So actool runs on the xcode-27 runner, as in tests.yml, and the build job takes the two files it writes. Assets.car is
+  # Xcode 27.2 compiles it. So actool runs on the xcode-27 runner, as in tests.yml, and the build job takes the two files it writes. Assets.car is
   # the icon for macOS 26 and later (Liquid Glass), AppIcon.icns the one for macOS 13 to 25.
+  #
+  # On a pull request the icon is cached by the hash of frontend/AppIcon.icon. The icon-cache job looks the cache up on ubuntu-latest, which
+  # queues in seconds, and the icon job (the scarce xcode-27 runner) runs only on a miss. A tag (rc or final) always compiles the icon.
+  icon-cache:
+    needs: stack
+    if: ${{ !cancelled() && (needs.stack.result != 'success' || (needs.stack.outputs.is_tip == 'true' && needs.stack.outputs.build == 'true')) }}
+    runs-on: ubuntu-latest
+    outputs:
+      hit: ${{ steps.lookup.outputs.cache-hit }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: frontend/AppIcon.icon
+      - id: lookup
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          lookup-only: true
+          path: icon-cache
+          key: app-icon-${{ hashFiles('frontend/AppIcon.icon/**') }}-xcode-27.2
+
   icon:
+    needs: icon-cache
+    if: ${{ startsWith(github.ref, 'refs/tags/') || needs.icon-cache.outputs.hit != 'true' }}
     runs-on: xcode-27
     env:
-      DEVELOPER_DIR: /Applications/Xcode_27.1.app/Contents/Developer
+      DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -56,6 +140,15 @@ jobs:
           xcrun actool frontend/AppIcon.icon --compile "$OUT" --platform macosx --minimum-deployment-target 13.0 \
             --app-icon AppIcon --output-partial-info-plist "$OUT/partial.plist"
           ls -la "$OUT/Assets.car" "$OUT/AppIcon.icns"
+          mkdir -p icon-cache
+          cp "$OUT/Assets.car" "$OUT/AppIcon.icns" icon-cache/
+
+      - name: Cache the icon (pull requests and main, never a tag)
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: icon-cache
+          key: app-icon-${{ hashFiles('frontend/AppIcon.icon/**') }}-xcode-27.2
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -65,13 +158,49 @@ jobs:
             ${{ runner.temp }}/app-icon/AppIcon.icns
           if-no-files-found: error
 
+  # The notes of a final release, written by the Copilot CLI and checked (release-notes.yml, .github/release-notes/README.md). Only a final tag runs it.
+  # A problem with the notes never stops the build: the called workflow cannot fail the run, and the build job below does not read its result.
+  # contents: write is the most a job of the called workflow asks for (its manual publish job), the model job has no permissions at all.
+  notes:
+    if: ${{ github.ref_type == 'tag' && !contains(github.ref_name, '-rc') }}
+    permissions:
+      contents: write
+      pull-requests: read
+    uses: ./.github/workflows/release-notes.yml
+    with:
+      tag: ${{ github.ref_name }}
+      publish: true
+    secrets:
+      COPILOT_TOKEN: ${{ secrets.COPILOT_TOKEN }}
+
   build:
-    needs: icon
-    runs-on: macos-latest
+    needs: [stack, icon-cache, icon, notes]
+    # icon is skipped on a pull request with a cache hit, and that must not skip the build. icon-cache and icon are skipped with the stack
+    # decision (not the tip, or no packaging change), so the build is skipped then too, and reports as skipped.
+    if: ${{ !cancelled() && (needs.stack.result != 'success' || (needs.stack.outputs.is_tip == 'true' && needs.stack.outputs.build == 'true')) && needs.icon-cache.result == 'success' && (needs.icon.result == 'success' || needs.icon.result == 'skipped') }}
+    # The same runner and compiler as tests.yml: the app that is shipped is compiled by the Xcode that the tests ran with. On macos-latest (Xcode 26.6)
+    # a closure that Xcode 27.2 accepts failed only here, in #467, after the tests had passed.
+    runs-on: xcode-27
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      - name: Restore the cached icon (not on a tag)
+        id: icon-cache
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: icon-cache
+          key: app-icon-${{ hashFiles('frontend/AppIcon.icon/**') }}-xcode-27.2
+
+      - name: Take the icon from the cache
+        if: ${{ steps.icon-cache.outputs.cache-hit == 'true' }}
+        run: mkdir -p "$RUNNER_TEMP/app-icon" && cp icon-cache/Assets.car icon-cache/AppIcon.icns "$RUNNER_TEMP/app-icon/"
+
+      - name: Take the icon from the icon job (a tag, or a cache miss)
+        if: ${{ steps.icon-cache.outputs.cache-hit != 'true' }}
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: app-icon
           path: ${{ runner.temp }}/app-icon
@@ -92,7 +221,7 @@ jobs:
           # frontend/engine-signing.pub: a manifest signed with any other key would be rejected by every installed app.
           # With no secret yet the engine is published unsigned; signing becomes mandatory before any download source
           # other than GitHub is added (LNPANDY/NX2Apple#268, Cloudflare R2).
-          grep -q 'static let publicKey = "PVCqIahW5HtyZPq76zTSFBa' frontend/Sources/NSPortBuilder/EngineManifest.swift || {
+          grep -q 'static let publicKey = "PVCqIahW5HtyZPq76zTSFBa' frontend/Sources/NXCore/EngineManifest.swift || {
             echo '::error title=Signing key::EngineManifest.publicKey is empty — generate a pair (python3 tools/release_manifest.py keygen), commit the public half and put the private half in the ENGINE_SIGNING_KEY secret'
             exit 1
           }
@@ -110,22 +239,85 @@ jobs:
       - name: Version from the tag
         id: ver
         shell: bash
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          TAG: ${{ github.ref_name }}
         run: |
-          # The app reads its version from ContentView.appVersion, and the bundle plist must agree
-          # or the updater compares the wrong number. Take the tag, and fail loudly on a mismatch
-          # rather than shipping a bundle that calls itself something else.
-          tag="${{ github.ref_name }}"
-          v="${tag#v}"
-          if [ "${{ github.ref_type }}" != "tag" ]; then
-            v=$(sed -n 's/.*static let appVersion = "\(.*\)".*/\1/p' frontend/Sources/NSPortBuilder/ContentView.swift)
+          set -euo pipefail
+          # The app reads its version from AppUpdateStore.appVersion, and the bundle plist must agree or the updater compares the wrong number.
+          # Take the tag, and fail loudly on a mismatch rather than shipping a bundle that calls itself something else.
+          # A release candidate vX.Y.Z-rcN is the build of the release X.Y.Z: its bundle says X.Y.Z, because the final tag ships these
+          # exact files and the updater (AppUpdate.bundleProblem) accepts only a bundle whose version is the release's.
+          src=$(sed -n 's/.*static let appVersion = "\(.*\)".*/\1/p' frontend/Sources/NXModel/AppUpdateStore.swift)
+          kind=build rc=""
+          if [ "$REF_TYPE" != "tag" ]; then
+            v="$src"
             echo "not a tag: taking the version from the source ($v)"
+          else
+            v="${TAG#v}"
+            if [[ "$v" =~ ^(.+)-rc([1-9][0-9]*)$ ]]; then
+              kind=rc v="${BASH_REMATCH[1]}" rc="${BASH_REMATCH[2]}"
+            elif [[ "$v" == *-rc* ]]; then
+              echo "::error::$TAG is not a release candidate tag: write vX.Y.Z-rcN with N from 1 (RELEASING.md)"
+              exit 1
+            else
+              kind=final
+            fi
           fi
-          src=$(sed -n 's/.*static let appVersion = "\(.*\)".*/\1/p' frontend/Sources/NSPortBuilder/ContentView.swift)
           if [ "$v" != "$src" ]; then
-            echo "::error::tag says $v but ContentView.appVersion says $src — bump the source first"
+            echo "::error::tag says $v but AppUpdateStore.appVersion says $src: bump the source first"
             exit 1
           fi
-          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "$kind: version $v${rc:+, release candidate $rc}"
+          { echo "version=$v"; echo "kind=$kind"; echo "rc=$rc"; } >> "$GITHUB_OUTPUT"
+
+      - name: The release candidate of this commit (final tags)
+        id: rc
+        if: steps.ver.outputs.kind == 'final'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ENGINE_SIGNING_KEY: ${{ secrets.ENGINE_SIGNING_KEY }}
+          VERSION: ${{ steps.ver.outputs.version }}
+          TAG: ${{ github.ref_name }}
+          WITHOUT_RC: ${{ github.event_name == 'workflow_dispatch' && inputs.release_without_rc }}
+        run: |
+          set -euo pipefail
+          # Players get the build that was tested: the newest vX.Y.Z-rcN on this commit. Its app zips go out as they are (a rebuild
+          # is not byte for byte the same app). Its engine zip must hold the files this commit builds (the zip is reproducible, so
+          # normally the same bytes) and be the one its signed latest.json names. Any difference stops the release.
+          # Each rc tag with the commit it points at (the peeled ^{} line of an annotated tag).
+          tags=$(git ls-remote --tags origin "refs/tags/v${VERSION}-rc*" | awk '{ r = $2; sub("^refs/tags/", "", r)
+            if (r ~ /\^\{\}$/) { sub(/\^\{\}$/, "", r); peeled[r] = $1 } else direct[r] = $1 }
+            END { for (r in direct) print (r in peeled ? peeled[r] : direct[r]), r }')
+          rc=$(printf '%s\n' "$tags" | awk -v sha="$GITHUB_SHA" -v v="v${VERSION}-rc" '$1 == sha && index($2, v) == 1 {
+            n = substr($2, length(v) + 1); if (n ~ /^[1-9][0-9]*$/) print n, $2 }' | sort -n | tail -n 1 | cut -d' ' -f2)
+          if [ -z "$rc" ]; then
+            others=$(printf '%s\n' "$tags" | awk 'NF == 2 { printf "%s%s (%s)", sep, $2, substr($1, 1, 12); sep = ", " }')
+            if [ "$WITHOUT_RC" = "true" ]; then
+              echo "::warning title=No release candidate::$TAG is published without a release candidate (release_without_rc). Nobody tested this build as a whole. Say so in the release notes."
+              echo "promote=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "::error title=No release candidate::$TAG points at ${GITHUB_SHA:0:12}, which has no release candidate tag v${VERSION}-rcN.${others:+ Candidates on other commits: $others.} Tag this commit v${VERSION}-rcN, test it, then tag the final on the same commit (RELEASING.md). In an emergency: gh workflow run build-mac-app.yml --ref $TAG -f release_without_rc=true"
+            exit 1
+          fi
+          echo "release candidate of this commit: $rc"
+          dir="$RUNNER_TEMP/rc"
+          rm -rf "$dir"; mkdir -p "$dir"
+          names=$(gh release view "$rc" --json assets --jq '.assets[].name') || {
+            echo "::error title=No release candidate build::$rc has no release yet. Wait for its build to finish, then re-run this job."; exit 1; }
+          for a in NX2Apple-macOS-arm64.zip nxnative-macOS-arm64.zip NS-Port-Builder-macOS-arm64.zip NX2Apple-engine.zip latest.json; do
+            grep -qx "$a" <<< "$names" || { echo "::error title=Incomplete release candidate::$rc has no $a. Wait for its build to finish, or cut the next release candidate."; exit 1; }
+            gh release download "$rc" -p "$a" -D "$dir"
+          done
+          if grep -qx latest.json.sig <<< "$names"; then gh release download "$rc" -p latest.json.sig -D "$dir"; fi
+          # The signature the launcher checks (required while ENGINE_SIGNING_KEY is set), then the same build, file by file.
+          python tools/release_manifest.py verify --manifest "$dir/latest.json"
+          python tools/release_manifest.py check-rc --manifest "$dir/latest.json" --version "$VERSION" --engine-zip "$dir/NX2Apple-engine.zip" \
+            --app-zip "$dir/NX2Apple-macOS-arm64.zip" --built-engine-zip "$RUNNER_TEMP/engine-out/NX2Apple-engine.zip"
+          rm -f "$dir/latest.json" "$dir/latest.json.sig"   # the release gets its own manifest, with its own download URL
+          { echo "promote=true"; echo "tag=$rc"; echo "dir=$dir"; } >> "$GITHUB_OUTPUT"
 
       - name: Build
         working-directory: frontend
@@ -142,7 +334,7 @@ jobs:
           APP="NX2Apple.app"
           rm -rf "$APP"
           mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-          cp .build/release/NSPortBuilder "$APP/Contents/MacOS/NSPortBuilder"
+          cp .build/release/NX2Apple "$APP/Contents/MacOS/NSPortBuilder"
           # Assets.car and AppIcon.icns come from the icon job (AppIcon.icon compiled by actool). Info.plist names both
           # (CFBundleIconName for macOS 26 and later, CFBundleIconFile for 13 to 25).
           cp "$RUNNER_TEMP/app-icon/Assets.car" "$RUNNER_TEMP/app-icon/AppIcon.icns" "$APP/Contents/Resources/"
@@ -150,12 +342,16 @@ jobs:
           # itself: --deep below does not reach code that sits in Resources).
           tools/bundle_tools.sh "$APP/Contents/Resources" "$RUNNER_TEMP/bundle-tools-work"
           # The engine tree (Contents/ is read-only once signed: the launcher copies it to ~/Library/Application Support/NX2Apple/ on first
-          # use). Its Mach-O files (the shader translator, spirv-cross) are signed on their own like the bundled tools: --deep does not reach
-          # code in Resources. The zip asset keeps them as upstream built them.
+          # use). --deep does not reach code in Resources, but its Mach-O files (the shader translator, spirv-cross) are kept as upstream built
+          # them, already signed: re-signing rewrote spirv-cross, which dmsh_chain.lock pins by its bytes, and stopped every shader build from
+          # the bundled engine (own_compilers.py exit code 1). sign_engine_tree.sh signs only a Mach-O file without any signature and checks the rest.
           ditto "$RUNNER_TEMP/engine-tree" "$APP/Contents/Resources/engine"
-          while IFS= read -r -d '' f; do
-            if file -b "$f" | grep -q 'Mach-O'; then codesign --force --sign - "$f" 2> /dev/null; fi
-          done < <(find "$APP/Contents/Resources/engine" -type f -perm -u+x -print0)
+          tools/sign_engine_tree.sh "$APP/Contents/Resources/engine" "$RUNNER_TEMP/engine-tree"
+          # The iPhone shell's Swift package: build_shell.sh links it by DM_SHELL_PACKAGE and the launcher passes this folder (the engine has
+          # none since #214). The step runs in frontend/, the package is one level up. No .build or .swiftpm.
+          rsync -a --exclude .build --exclude .swiftpm ../frontend-ios/ "$APP/Contents/Resources/frontend-ios/"
+          # The launcher's texts, one JSON file per language (#388): L10n reads Contents/Resources/l10n, not SwiftPM resources (this step builds the bundle by hand).
+          rsync -a l10n/ "$APP/Contents/Resources/l10n/"
           V="${{ steps.ver.outputs.version }}"
           cat > "$APP/Contents/Info.plist" <<PLIST
           <?xml version="1.0" encoding="UTF-8"?>
@@ -171,6 +367,8 @@ jobs:
             <key>CFBundlePackageType</key><string>APPL</string>
             <key>CFBundleShortVersionString</key><string>$V</string>
             <key>CFBundleVersion</key><string>$V</string>
+            <key>CFBundleDevelopmentRegion</key><string>en</string>
+            <key>CFBundleLocalizations</key><array><string>en</string><string>zh-Hans</string><string>sv</string><string>de</string><string>fr</string><string>it</string></array>
             <key>LSMinimumSystemVersion</key><string>13.0</string>
             <key>NSHighResolutionCapable</key><true/>
           </dict>
@@ -197,7 +395,13 @@ jobs:
           cmp "$E/.engine-id" "$RUNNER_TEMP/engine-tree/.engine-id"
           cmp "$E/.upstream-ref" ../.upstream-ref
           test -f "$E/scripts/build_ipa_from_nsp.py" && test -f "$E/dm/tools/romfs_image.py" && test -f "$E/dm/fork_patches.txt"
+          # The iPhone shell's package (DM_SHELL_PACKAGE): the project template links it and its AppIcon.icon.
+          test -f "NX2Apple.app/Contents/Resources/frontend-ios/Package.swift" && test -d "NX2Apple.app/Contents/Resources/frontend-ios/AppIcon.icon"
+          # The language files: every one is there and identical to the checkout's (check_bundle.sh also reads them as JSON).
+          diff -r l10n NX2Apple.app/Contents/Resources/l10n
           test ! -e "$E/.git"
+          # The engine files are the zip asset's, byte for byte, and spirv-cross matches dmsh_chain.lock, so a shader build from the bundled engine starts.
+          tools/sign_engine_tree.sh --check "$E" "$RUNNER_TEMP/engine-tree"
           echo "engine in the bundle: $(cat "$E/.engine-id")"
 
       - name: Package
@@ -230,35 +434,141 @@ jobs:
           path: frontend/NX2Apple-macOS-arm64.zip
           if-no-files-found: error
 
+      # The checked text of the model, if there is one (not on a candidate and not when the notes job found nothing to use).
+      - name: Download the model's release notes
+        if: steps.ver.outputs.kind == 'final'
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-notes
+          path: ${{ runner.temp }}/model-notes
+
       - name: Attach to the release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: steps.ver.outputs.kind == 'rc' || steps.ver.outputs.kind == 'final'
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          KIND: ${{ steps.ver.outputs.kind }}
+          VERSION: ${{ steps.ver.outputs.version }}
+          RC: ${{ steps.ver.outputs.rc }}
+          PROMOTE: ${{ steps.rc.outputs.promote }}
+          RC_TAG: ${{ steps.rc.outputs.tag }}
+          RC_DIR: ${{ steps.rc.outputs.dir }}
         run: |
-          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || \
-            gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes "NX2Apple $GITHUB_REF_NAME"
-          # All three names, one build: NX2Apple is current; the older two keep self-update working
+          set -euo pipefail
+          src=frontend
+          if [ "$KIND" = rc ]; then
+            # A pre-release, never "latest": the app's update reads releases/latest, which skips it. Its files are what gets tested and
+            # what the final tag ships, so a candidate is built once. A second build would replace the tested app with other bytes.
+            if names=$(gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets[].name' 2> /dev/null); then
+              if grep -qx NX2Apple-macOS-arm64.zip <<< "$names"; then
+                echo "::error::$GITHUB_REF_NAME already has its build. Cut the next release candidate instead of building this one again."
+                exit 1
+              fi
+              gh release edit "$GITHUB_REF_NAME" --prerelease --latest=false --title "NX2Apple $VERSION release candidate $RC"
+            else
+              gh release create "$GITHUB_REF_NAME" --prerelease --latest=false --verify-tag --title "NX2Apple $VERSION release candidate $RC" \
+                --notes "Release candidate $RC of NX2Apple $VERSION. The engine is published next, then these notes name it."
+            fi
+          else
+            notes="NX2Apple $GITHUB_REF_NAME"
+            if [ "$PROMOTE" = true ]; then
+              src="$RC_DIR"
+              notes="$notes"$'\n\n'"The files of the release candidate $RC_TAG, which was tested on the same commit (${GITHUB_SHA:0:12})."
+            else
+              notes="$notes"$'\n\n'"Published without a release candidate (release_without_rc)."
+            fi
+            if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+              # The body is the reviewed release-notes/<tag>.md if there is one, else the checked text of the model (release-notes.yml), plus
+              # GitHub's generated notes (contributors, Full Changelog). With neither it is the short body above plus the generated notes. If the
+              # tool fails for any reason, the release gets the short body alone: a problem with the notes never stops a release. The release
+              # is created only when it does not exist, so notes someone edited by hand are never overwritten.
+              printf '%s\n' "$notes" > "$RUNNER_TEMP/short-notes.md"
+              body="$RUNNER_TEMP/short-notes.md"
+              notes_file="release-notes/$GITHUB_REF_NAME.md" model=""
+              if [ ! -f "$notes_file" ] && [ -s "$RUNNER_TEMP/model-notes/model.md" ]; then
+                notes_file="$RUNNER_TEMP/model-notes/model.md" model=yes
+              elif [ ! -f "$notes_file" ]; then
+                echo "::warning title=Release notes::No reviewed notes file and no checked text of the model for $GITHUB_REF_NAME (the job summary of the notes job says why), so it gets the short body."
+              fi
+              title=""
+              if previous=$(python tools/release_notes.py previous "$GITHUB_REF_NAME") && \
+                 python tools/release_notes.py build "$GITHUB_REF_NAME" --previous "$previous" --file "$notes_file" \
+                   --short-body "$RUNNER_TEMP/short-notes.md" --out "$RUNNER_TEMP/release-body.md"; then
+                body="$RUNNER_TEMP/release-body.md"
+                if [ -n "$model" ]; then
+                  title=$(python .github/scripts/notes_finish.py title "$notes_file" "$GITHUB_REF_NAME")
+                fi
+              else
+                echo "::warning title=Release notes::tools/release_notes.py failed, so $GITHUB_REF_NAME gets the short body. Fix the notes with: gh release edit $GITHUB_REF_NAME --notes-file <file> (RELEASING.md, Release notes)"
+              fi
+              gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" --notes-file "$body"
+              # The title of the model's text (vX.Y.Z: English / Chinese) when its first line can be read. A failure here leaves the tag as the title.
+              if [ -n "$title" ]; then
+                gh release edit "$GITHUB_REF_NAME" --title "$title" || echo "::warning title=Release notes::the release title could not be set"
+              fi
+            fi
+          fi
+          # All three names, one build: NX2Apple is current. The older two keep self-update working
           # for installs from before each rename (an app replaces the bundle at its own path).
           gh release upload "$GITHUB_REF_NAME" \
-            frontend/NX2Apple-macOS-arm64.zip \
-            frontend/nxnative-macOS-arm64.zip \
-            frontend/NS-Port-Builder-macOS-arm64.zip --clobber
+            "$src/NX2Apple-macOS-arm64.zip" \
+            "$src/nxnative-macOS-arm64.zip" \
+            "$src/NS-Port-Builder-macOS-arm64.zip" --clobber
 
       - name: Publish the engine (NX2Apple-engine.zip, latest.json, latest.json.sig)
-        if: startsWith(github.ref, 'refs/tags/')
+        if: steps.ver.outputs.kind == 'rc' || steps.ver.outputs.kind == 'final'
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ENGINE_SIGNING_KEY: ${{ secrets.ENGINE_SIGNING_KEY }}
+          VERSION: ${{ steps.ver.outputs.version }}
+          PROMOTE: ${{ steps.rc.outputs.promote }}
+          RC_DIR: ${{ steps.rc.outputs.dir }}
         run: |
+          set -euo pipefail
           # latest.json: version, pin, engine_id, the engine and app assets with SHA-256 and size, sources (this release's download URL),
           # built, channel stable. latest.json.sig: the Ed25519 signature over its exact bytes, made when ENGINE_SIGNING_KEY is set (without it
           # the tool prints a warning and uploads no signature). The zip goes first, the signature last.
+          # A release candidate publishes the stable manifest of the release it is a candidate for: the same version, pin and engine_id.
+          # Only its download URL (its own tag) differs. The final tag publishes the candidate's zips under its own tag.
+          engine="$RUNNER_TEMP/engine-out/NX2Apple-engine.zip" app=frontend/NX2Apple-macOS-arm64.zip
+          if [ "$PROMOTE" = true ]; then engine="$RC_DIR/NX2Apple-engine.zip" app="$RC_DIR/NX2Apple-macOS-arm64.zip"; fi
           python tools/release_manifest.py publish \
-            --engine-zip "$RUNNER_TEMP/engine-out/NX2Apple-engine.zip" --app-zip frontend/NX2Apple-macOS-arm64.zip \
-            --version "${{ steps.ver.outputs.version }}" --channel stable --tag "$GITHUB_REF_NAME" \
+            --engine-zip "$engine" --app-zip "$app" \
+            --version "$VERSION" --channel stable --tag "$GITHUB_REF_NAME" \
             --out "$RUNNER_TEMP/publish" --upload
+
+      - name: Release candidate notes (the engine build it tests)
+        if: steps.ver.outputs.kind == 'rc'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.ver.outputs.version }}
+          RC: ${{ steps.ver.outputs.rc }}
+        run: |
+          set -euo pipefail
+          # Read from the latest.json just published, so the notes name what the manifest names.
+          m="$RUNNER_TEMP/publish/latest.json"
+          signed="not signed (ENGINE_SIGNING_KEY is not set)"
+          [ -f "$RUNNER_TEMP/publish/latest.json.sig" ] && signed="signed (latest.json.sig)"
+          cat > "$RUNNER_TEMP/rc-notes.md" <<NOTES
+          Release candidate $RC of NX2Apple $VERSION, built from commit $GITHUB_SHA. A pre-release: the app's update never offers it.
+
+          The engine this build carries is the engine the release $VERSION will carry:
+
+          - version: $(jq -r .version "$m"), channel $(jq -r .channel "$m")
+          - pin: seedds/nxnative $(jq -r .pin "$m")
+          - engine_id: \`$(jq -r .engine_id "$m")\`
+          - NX2Apple-engine.zip SHA-256: \`$(jq -r .engine.sha256 "$m")\`
+          - NX2Apple-macOS-arm64.zip SHA-256: \`$(jq -r .app.sha256 "$m")\`
+          - latest.json: $signed
+
+          Test the app against this engine_id: \`tools/try-pr $GITHUB_REF_NAME\` in a checkout, or the steps in RELEASING.md.
+          When the test passes, the final tag v$VERSION goes on the same commit, and its release ships these files.
+          NOTES
+          gh release edit "$GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/rc-notes.md"
+          cat "$RUNNER_TEMP/rc-notes.md"
 
       - name: Engine publishing dry run (a throwaway key, nothing uploaded)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}

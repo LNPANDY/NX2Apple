@@ -1,5 +1,5 @@
 # The Python packages bundled into the launcher (bundle_tools.sh installs them with --only-binary into the bundled CPython).
-# The first six are what BuildModel.pipPackages names (BundledToolsTests keeps them equal); backports.zstd is for Python before 3.14 and
+# The first six are what Toolchain.pipPackages names (BundledToolsTests keeps them equal); backports.zstd is for Python before 3.14 and
 # the bundled one is 3.13. The rest are what nsz needs, pinned as resolved on 2026-10-28 (pip freeze of a clean install).
 # Every release file of each version is hashed (pip install --require-hashes --only-binary :all:), the format Dependabot updates.
 # Dependabot (.github/dependabot.yml) moves the pins and the hashes weekly in one pull request.

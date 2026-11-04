@@ -20,6 +20,23 @@ def folder(work_dir: str) -> str:
     return str(Path(work_dir, FOLDER_NAME))
 
 
+def staged_name(name: str) -> str:
+    """The name a file has in the staging folder: a game file keeps its name with the extension in lowercase. The script
+    finds packages with *.nsp (and .xci, .nsz, .xcz) and that glob is case-sensitive, so Game [0100F2C0115B6000].NSP
+    was not found ("no NSP with a readable title ID", #554)."""
+    p = Path(name)
+    suffix = p.suffix
+    if suffix.lower() in GAME_SUFFIXES and suffix != suffix.lower():
+        return p.stem + suffix.lower()
+    return name
+
+
+def needs_lowercase_name(path: str) -> bool:
+    """A game file with an upper or mixed case extension: the script would not find it as it is."""
+    name = Path(path).name
+    return staged_name(name) != name
+
+
 def _same(src: str, dst: Path) -> bool:
     """dst is already src: the same file, or a copy with its size and date."""
     try:
@@ -35,7 +52,7 @@ def sync(files: list[str], into: str, *, hard_links: bool = True) -> int:
     """Make `into` hold exactly `files` (by file name), with their dates. Returns how many were linked."""
     root = Path(into)
     root.mkdir(parents=True, exist_ok=True)
-    wanted = {Path(f).name: f for f in files if f}
+    wanted = {staged_name(Path(f).name): f for f in files if f}
     for entry in root.iterdir():   # a stale entry from an earlier selection goes: only game files and links
         if entry.is_symlink() or (entry.is_file() and entry.suffix.lower() in GAME_SUFFIXES):
             src = wanted.get(entry.name)

@@ -1,5 +1,13 @@
 import SwiftUI
 
+/// A Recently played row starts its game, or opens the same fix as Play (game data, an app update).
+enum RecentRow {
+    /// Space above and below the hairline between two rows, so a title never touches it.
+    static let separatorGap: CGFloat = 10
+    static let minHeight: CGFloat = 60
+    static func glyph(_ state: GameState) -> String { state.actionSymbol }
+}
+
 /// The library when it is taller than it is wide: the chosen game's banner as the hero with the title under it,
 /// then the collection, then recently played. In one column the primary action sits at the bottom for the thumb.
 /// With regular width (an iPad or an unfolded foldable held upright) the collection becomes a grid of wide cards and
@@ -12,11 +20,16 @@ struct PortraitLibrary: View, Equatable {
     let topInset: CGFloat
     /// The home indicator's height. Without a bottom bar the library scrolls under it to the bottom edge.
     var bottomInset: CGFloat = 0
+    /// The Controllers and Settings chips sit in the side column (SideBar), not over the hero.
+    var chipsInSideBar = false
+    /// The game settings button sits at the top of the side column, so Play has the bar to itself.
+    var settingsInSideBar = false
     let controllers: Int
     let select: (String) -> Void
     let primary: (GameDetail) -> Void
     let openSettings: () -> Void
     let openControllers: () -> Void
+    let openShellSettings: () -> Void
     @Binding var position: ScrollPosition
     @State private var rowID: String?
     /// Set while the row itself chose the game, so it does not scroll under the finger.
@@ -47,7 +60,8 @@ struct PortraitLibrary: View, Equatable {
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.games.map(\.game) == rhs.games.map(\.game) && lhs.selected.game == rhs.selected.game && lhs.wide == rhs.wide
             && lhs.size == rhs.size && lhs.topInset == rhs.topInset && lhs.bottomInset == rhs.bottomInset
-            && lhs.controllers == rhs.controllers
+            && lhs.controllers == rhs.controllers && lhs.chipsInSideBar == rhs.chipsInSideBar
+            && lhs.settingsInSideBar == rhs.settingsInSideBar
     }
 
     var body: some View {
@@ -65,7 +79,7 @@ struct PortraitLibrary: View, Equatable {
                                 .accessibilityLabel(selected.game.state.actionTitle + ", " + selected.game.title)
                                 .accessibilityIdentifier("state.action")
                                 .shellTarget("lib.play", radius: 25) { primary(selected) }
-                                settingsButton
+                                if !settingsInSideBar { settingsButton }
                             }.padding(.top, 8)
                         }
                     }
@@ -78,7 +92,12 @@ struct PortraitLibrary: View, Equatable {
             .ignoresSafeArea(edges: wide ? [.top, .bottom] : .top)
             .safeAreaInset(edge: .bottom, spacing: 0) { if !wide { bottomBar } }
             .overlay(alignment: .topTrailing) {
-                ControllerChip(count: controllers, action: openControllers).padding(.top, 6).padding(.trailing, 16)
+                if !chipsInSideBar {
+                    HStack(spacing: 10) {
+                        ControllerChip(count: controllers, action: openControllers)
+                        ShellSettingsChip(action: openShellSettings)
+                    }.padding(.top, 6).padding(.trailing, 16)
+                }
             }
             .onChange(of: focus.id) { _, id in
                 guard let id, id.hasPrefix("lib.tile.") || id.hasPrefix("lib.recent.") else { return }
@@ -113,6 +132,10 @@ struct PortraitLibrary: View, Equatable {
                     guard !rowSelecting else { rowSelecting = false; return }
                     withAnimation(reduceMotion ? nil : .smooth(duration: 0.3)) { rowID = id }
                 }
+                // A scroll view draws under the safe-area insets, but the covers are sized for the width inside them.
+                // Where the system keeps a strip at the side (the iPhone Duo's outer screen, #511) the next card would
+                // show there, cut at the screen edge. Clipped to its frame the edge falls between cards again.
+                .clipped()
                 .padding(.vertical, -6)
             }
         }
@@ -150,7 +173,7 @@ struct PortraitLibrary: View, Equatable {
             VStack(alignment: .leading, spacing: 0) {
                 SectionHeading(title: ShellStrings.text("Recently played")).padding(.bottom, 8)
                 ForEach(recent) { detail in
-                    Button { select(detail.id) } label: {
+                    Button { primary(detail) } label: {
                         HStack(spacing: 14) {
                             CoverView(game: detail.game, radius: 6).frame(width: 78, height: 44)
                             VStack(alignment: .leading, spacing: 3) {
@@ -158,14 +181,19 @@ struct PortraitLibrary: View, Equatable {
                                 Text(detail.game.recentlyPlayed ?? "").shellText(12.5).foregroundStyle(.white.opacity(0.5))
                             }
                             Spacer(minLength: 8)
-                            Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(.white.opacity(0.28)).accessibilityHidden(true)
-                        }.frame(minHeight: 60).contentShape(Rectangle())
+                            // The glyph of what the row does: the same one Play wears for this game's state.
+                            Image(systemName: RecentRow.glyph(detail.game.state)).font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(.white.opacity(0.5)).accessibilityHidden(true)
+                        }.frame(minHeight: RecentRow.minHeight).contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .shellTarget("lib.recent.\(detail.id)") { select(detail.id) }
+                    .accessibilityLabel(detail.game.state.actionTitle + ", " + detail.game.title)
+                    .shellTarget("lib.recent.\(detail.id)") { primary(detail) }
                     .id("lib.recent.\(detail.id)")
-                    if detail.id != recent.last?.id { Rectangle().fill(ShellPalette.hairline).frame(height: 1).padding(.leading, 92) }
+                    if detail.id != recent.last?.id {
+                        Rectangle().fill(ShellPalette.hairline).frame(height: 1).padding(.leading, 92)
+                            .padding(.vertical, RecentRow.separatorGap)
+                    }
                 }
             }.padding(.horizontal, 24)
         }
@@ -188,7 +216,7 @@ struct PortraitLibrary: View, Equatable {
             .accessibilityLabel(selected.game.state.actionTitle + ", " + selected.game.title)
             .accessibilityIdentifier("state.action")
             .shellTarget("lib.play", radius: 25) { primary(selected) }
-            settingsButton
+            if !settingsInSideBar { settingsButton }
         }
         .padding(.horizontal, 24).padding(.top, 22).padding(.bottom, 8)
         .background {

@@ -5,11 +5,6 @@
   <img src="frontend/screenshots/logo-light.png" width="360" alt="NX2Apple, by nxnative">
 </picture>
 
-> [!IMPORTANT]
-> **请更新到 0.7.4 —— 否则无法继续构建游戏。 Update to 0.7.4**
-> 从 0.7.4 起引擎不再随仓库提供：0.7.3 及更早版本无法下载或更新仓库（提示 *Repository: not found*），也无法再构建游戏。请在 App 内「设置 → 检查更新」或到[发布页](https://github.com/LNPANDY/NX2Apple/releases/latest)升级；升级后无需再下载仓库。
-> The engine is no longer stored in this repository: versions 0.7.3 and older cannot download or update their repository and can no longer build games. Update in the app or from the [releases page](https://github.com/LNPANDY/NX2Apple/releases/latest).
-
 **你的 Switch 游戏，跑在你的 iPhone 上。**
 
 **不是模拟器。不用命令行。一个 macOS App 点几下就把整个构建做完。**
@@ -19,20 +14,24 @@
 [![Issues](https://img.shields.io/github/issues/LNPANDY/NX2Apple)](https://github.com/LNPANDY/NX2Apple/issues)
 [![License](https://img.shields.io/github/license/LNPANDY/NX2Apple)](LICENSE)
 [![游戏](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FLNPANDY%2FNX2Apple%2Fmain%2F.github%2Fbadges%2Fgames.json)](.github/badges/games.json)
-[![已验证](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FLNPANDY%2FNX2Apple%2Fmain%2F.github%2Fbadges%2Fverified.json)](.github/badges/verified.json)
 
+[![中文](https://img.shields.io/badge/🇨🇳_中文-current-blue)](README.zh-CN.md)
 [![English](https://img.shields.io/badge/🇺🇸_English-available-green)](README.md)
-[![简体中文](https://img.shields.io/badge/🇨🇳_简体中文-当前-blue)](README.zh-CN.md)
+[![Svenska](https://img.shields.io/badge/🇸🇪_Svenska-available-green)](README.sv.md)
+[![Deutsch](https://img.shields.io/badge/🇩🇪_Deutsch-available-green)](README.de.md)
+[![Français](https://img.shields.io/badge/🇫🇷_Français-available-green)](README.fr.md)
+[![Italiano](https://img.shields.io/badge/🇮🇹_Italiano-available-green)](README.it.md)
 
 <img src="frontend/screenshots/hero-features.png" width="100%" alt="NX2Apple — Switch 游戏装进 iPhone 和 Mac">
 
 #### 🆕 最近重点更新
 
-- **引导式首次启动**：安装向导带新玩家走完 Xcode、密钥和游戏；构建工具和 Python 直接内置在 App 里，不用装 Homebrew
-- **存档跟着走**：Mac ⇄ iPhone 存档通过同一个 iCloud Drive 文件夹自动同步；删掉的 App 几秒重装；免费 Apple ID 的 7 天签名原地续签
-- **主机模式**：插上手柄按 Select，游戏库变全屏封面墙，手柄操作——就像 Switch 主菜单
+- **支持 Switch 2 游戏**：在 Mac 或 Windows 启动器中直接选择 Switch 2 游戏文件夹或 `.nup` 文件，无需 `prod.keys`，即可在 Mac、iPhone 或 iPad 上构建和游玩
+- **虚拟手柄自定义与手柄改键**：在 iPhone 和 iPad 的可视化编辑器中自由调整触控按键大小、摇杆位置与整体布局（2D/3D 独立保存）。外接手柄支持全局或按游戏改键
+- **iPhone 和 iPad 共用一个 App**：所有游戏装进同一个壳 App（也支持导出未签名 IPA），支持横屏 Cover Flow、按游戏独立设置与 Mod、保留存档删除游戏，以及 6 种系统语言
+- **主机模式**：插上手柄按 Select 或设置开机直达，游戏库即刻变为全屏手柄界面，长按 Home 键 2 秒即可退出游戏
 
-所有版本见[更新日志](CHANGELOG.zh-CN.md)。English readers — the [English README](README.md) covers everything.
+所有版本见[更新日志](CHANGELOG.zh-CN.md)。
 
 </div>
 
@@ -53,12 +52,12 @@ NX2Apple 用你自己导出的游戏文件，在你的 Mac 和 iPhone 上运行 
 ## 环境要求
 
 - **Apple Silicon Mac。** 启动器支持 **macOS 13 或更新**。构建需要装了 iOS SDK 的 Xcode；NVN 游戏需要
-  [Xcode](https://developer.apple.com/download/all/?q=Xcode%2027.1) 27.1（macOS 26.6 或更新），除非加 `--allow-other-metal`。
-  请从 Apple 的下载页面获取 27.1，而不是 App Store 里更新的 Xcode。如果同时装了更新的 Xcode，把 27.1 改名为
-  `Xcode-27.1.app` 并选中它：`sudo xcode-select -s /Applications/Xcode-27.1.app`。
+  [Xcode](https://developer.apple.com/download/all/?q=Xcode%2027.2) 27.2（macOS 26.6 或更新），除非加 `--allow-other-metal`。
+  请从 Apple 的下载页面获取 27.2，而不是 App Store 里更新的 Xcode。如果同时装了更新的 Xcode，把 27.2 改名为
+  `Xcode-27.2.app` 并选中它：`sudo xcode-select -s /Applications/Xcode-27.2.app`。
 - **你自己的游戏文件**（NSP 或 XCI）和**你自己主机里导出的 `prod.keys`**。本项目不自带、不下载、
   也不替你查找任何东西。一份 `prod.keys` 能解你所有的游戏；新导出的一份覆盖所有零售游戏。
-- 要装到 iPhone：iOS 26 或更新，以及较新的手机。更旧的设备未测试。
+- 要装到 iPhone 或 iPad：iOS 或 iPadOS 26 或更新，以及较新的设备。更旧的设备未测试。
 
 App 自带构建工具和 Python，不需要装 Homebrew 和 Python；.NET SDK 10 仍由 App 帮你安装。启动器的依赖页会逐项检查，能装的一键安装。
 
@@ -76,15 +75,34 @@ App 自带构建工具和 Python，不需要装 Homebrew 和 Python；.NET SDK 1
 
 在终端里手动构建见 [BUILDING.zh-CN.md](BUILDING.zh-CN.md)。
 
+## iPhone 和 iPad 上的 App
+
+「iPhone / iPad」目标会构建一个共用的外壳 App，和 Mac 启动器一样容纳你所有的游戏。游戏库用封面展示每个游戏。
+竖屏时是单列，选中的游戏在顶部。横过来是 Cover Flow。iPad 显示网格。
+
+<img src="frontend/screenshots/ios-library-zh.webp" width="100%" alt="竖屏的 iPhone App：带大图的游戏库和两个游戏封面、一个游戏的设置、一个需要游戏数据的游戏">
+
+<img src="frontend/screenshots/ios-cover-flow-zh.webp" width="100%" alt="横屏的 iPhone App：Cover Flow 里有旷野之息、Hades 和王国之泪的封面">
+
+- **从 Mac 添加游戏。** 用「iPhone / iPad」目标构建游戏，启动器会把它拷进 App。重新签名和重装 App 都会保留游戏数据和存档。
+- **游玩。** 选一个游戏，点 **Play**。缺少游戏数据或需要更新 App 的游戏，会在它的卡片上说明并给出解决办法。
+- **每个游戏的设置。** 设置按钮（手柄上按 X）打开该游戏的启动选项。**重置**会把所有选择恢复为默认。
+- **手柄或键盘。** 整个 App 都能用手柄操作：方向键和摇杆移动，A 选择，B 返回，X 打开设置，Y 列出手柄。外接键盘的用法相同。
+- **游戏数据文件夹。** 每个游戏可以从你在「文件」App 里选的文件夹（例如外置硬盘）读取数据，也可以用 App 自己的文件夹。
+- **云存档。** 为游戏选一个 iCloud Drive 文件夹，存档就和 Mac 保持同步。
+- **语言。** App 跟随系统语言，英文或简体中文。
+
+App 需要 iOS 或 iPadOS 26 或更新。封面是 Mac 启动器为你自己的游戏缓存的 eShop 横幅。
+
 ## 游玩
 
 **在 Mac 上**，构建好的游戏带着封面出现在游戏库里，点 **Play** 启动。**启动选项**（按游戏保存，重新
 构建后仍然保留）可设置帧率、主机模式（底座或掌机）、渲染缩放和超分辨率、游戏语言、操控等；每项的
-作用见 [docs/settings.md](https://github.com/seedds/nxnative/blob/c5fe6b5dbcb245f9116b1b380cc71ecd4c6c4f11/docs/settings.md)（英文）。手柄既能操作游戏，也能操作启动器。
+作用见 [docs/settings.md](https://github.com/seedds/nxnative/blob/777a5f6c618a38cd2d7f795f465466fb56920534/docs/settings.md)（英文）。手柄既能操作游戏，也能操作启动器。
 
 **在 iPhone 上**，App 在游戏开始前显示同样的设置，点 **Play** 即可。触屏操控有 2D 和 3D 两种布局
 （点顶部中央的按钮切换），连接手柄（Xbox、PlayStation、Switch Pro、MFi）后触屏控件会隐藏。
-触屏、震动和体感见 [docs/playing.md](https://github.com/seedds/nxnative/blob/c5fe6b5dbcb245f9116b1b380cc71ecd4c6c4f11/docs/playing.md)（英文）。新场景第一次出现时短促卡顿是正常的：
+触屏、震动和体感见 [docs/playing.md](https://github.com/seedds/nxnative/blob/777a5f6c618a38cd2d7f795f465466fb56920534/docs/playing.md)（英文）。新场景第一次出现时短促卡顿是正常的：
 App 会为它编译一次图形并记住。游戏数据（`romfs.img`）可以放在外置硬盘上，用「文件」App 选取。
 
 **游戏语言。** 默认英文。Mac 上用启动选项里的「游戏语言」一行。面板里没有的设置，可以写一个
@@ -92,7 +110,12 @@ App 会为它编译一次图形并记住。游戏数据（`romfs.img`）可以�
 `~/Library/Application Support/nxnative/<title ID>/env.txt` 优先，重新构建后仍在；
 `<App>.app/Contents/Resources/dm/env.txt` 是 App 自带的。在加入语言选项之前构建的 Mac App 需要重新构建
 一次才有该项。iPhone 上同样的行写在 `Documents/env.txt` 里（`DM_FPS_TARGET=30` 限帧省电，
-`DM_OPMODE=0` 选掌机模式）。
+`DM_OPMODE=0` 选掌机模式）。该文件对共享 App 里的每个游戏都生效。只属于某一个游戏的行（例如 mod 的
+`DM_ROMFS_OVERLAY`）写在 `Documents/games/<title ID>/env.txt` 里。两个文件设置了同一个键时，以该游戏的文件为准。
+Mod 更简单：把它的文件夹放进 `Documents/games/<title ID>/mods/<mod 名>/`（RomFS 文件放在其中的 `romfs/`
+文件夹里，或直接放在该文件夹里）。之后 Shell 只为这个游戏设置 `DM_ROMFS_OVERLAY`。有多个 mod 时，替换同一文件的
+情况下按名称排在前面的生效。同一个键被多处设置时的优先顺序：Shell 自己的设置、该游戏的 `env.txt`、该游戏的
+`mods/` 文件夹、共享的 `Documents/env.txt`。
 
 **存档和日志。** 放在游戏库文件夹里的 Mac 游戏，存档和日志在 App 旁边（`log/<title ID>.log`）；否则在
 `~/Library/Application Support/nxnative/<title ID>/` 和 `~/Library/Logs/nxnative/<title ID>.log`。
@@ -105,25 +128,30 @@ iPhone 上在「文件」App 里该 App 名字下：`save/` 和 `log.txt`（上�
 
 ## 游戏
 
-共有 94 个游戏 profile。3 款在本 fork 完整验证（构建、安装、在手机上玩过），另有 45 款上游报告 iPhone
-可玩，其余的 profile 还没在手机上试过。其中几款：
+共有 130 个游戏 profile。部分游戏上游报告 iPhone 可玩，其余的 profile 还没在手机上试过。其中几款：
 
 | | 游戏 | 运行于 | 状态 |
 |---|---|---|---|
-| <img src="https://raw.githubusercontent.com/seedds/nxnative/c5fe6b5dbcb245f9116b1b380cc71ecd4c6c4f11/docs/images/zelda-tears-of-the-kingdom.jpg" width="96" alt=""> | 塞尔达传说：王国之泪 | Mac 和 iPhone | **本 fork 验证**：304,243 个文件，逐字节校验；约 17 GB |
-| <img src="https://raw.githubusercontent.com/seedds/nxnative/c5fe6b5dbcb245f9116b1b380cc71ecd4c6c4f11/docs/images/hades-ii.jpg" width="96" alt=""> | Hades II | Mac 和 iPhone | **本 fork 验证** |
-| <img src="https://raw.githubusercontent.com/seedds/nxnative/c5fe6b5dbcb245f9116b1b380cc71ecd4c6c4f11/docs/images/animal-crossing-new-horizons.jpg" width="96" alt=""> | 集合啦！动物森友会 | iPhone | **本 fork 验证**：流畅运行 |
-| <img src="https://raw.githubusercontent.com/seedds/nxnative/c5fe6b5dbcb245f9116b1b380cc71ecd4c6c4f11/docs/images/super-mario-odyssey.jpg" width="96" alt=""> | 超级马力欧 奥德赛 | iPhone | 上游报告可玩 |
-| <img src="https://raw.githubusercontent.com/seedds/nxnative/c5fe6b5dbcb245f9116b1b380cc71ecd4c6c4f11/docs/images/zelda-breath-of-the-wild.jpg" width="96" alt=""> | 塞尔达传说：旷野之息 | iPhone | 上游报告可玩；1.9.0 可 60 fps |
-| <img src="https://raw.githubusercontent.com/seedds/nxnative/c5fe6b5dbcb245f9116b1b380cc71ecd4c6c4f11/docs/images/mario-kart-8-deluxe.jpg" width="96" alt=""> | 马力欧卡丁车 8 豪华版 | iPhone | 上游报告可玩 |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/777a5f6c618a38cd2d7f795f465466fb56920534/docs/images/zelda-tears-of-the-kingdom.jpg" width="96" alt=""> | 塞尔达传说：王国之泪 | Mac 和 iPhone | **本 fork 验证**：304,243 个文件，逐字节校验；约 17 GB |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/777a5f6c618a38cd2d7f795f465466fb56920534/docs/images/hades-ii.jpg" width="96" alt=""> | Hades II | Mac 和 iPhone | **本 fork 验证** |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/777a5f6c618a38cd2d7f795f465466fb56920534/docs/images/animal-crossing-new-horizons.jpg" width="96" alt=""> | 集合啦！动物森友会 | iPhone | **本 fork 验证**：流畅运行 |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/777a5f6c618a38cd2d7f795f465466fb56920534/docs/images/super-mario-odyssey.jpg" width="96" alt=""> | 超级马力欧 奥德赛 | iPhone | 上游报告可玩 |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/777a5f6c618a38cd2d7f795f465466fb56920534/docs/images/zelda-breath-of-the-wild.jpg" width="96" alt=""> | 塞尔达传说：旷野之息 | iPhone | 上游报告可玩；1.9.0 可 60 fps |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/777a5f6c618a38cd2d7f795f465466fb56920534/docs/images/mario-kart-8-deluxe.jpg" width="96" alt=""> | 马力欧卡丁车 8 豪华版 | iPhone | 上游报告可玩 |
 
-**[GAMES.zh-CN.md](GAMES.zh-CN.md)**（English: [GAMES.md](GAMES.md)，带截图图库和每款的安装大小）
+**[GAMES.zh-CN.md](GAMES.zh-CN.md)**（带截图图库和每款的安装大小）
 有完整表格和每款游戏需要的更新包版本：更新包 NSP 的显示版本必须与 profile 一致，否则构建会提示。
+
+**Switch 2 游戏**是引擎新加入的。目前有 5 款有 profile，上游都标为可在 Mac 上玩：Donkey Kong Bananza、
+Splatoon Raiders、Fire Emblem Fortune's Weave、Pokémon Pokopia 和 Hyrule Warriors: Age of Imprisonment。
+在构建页面选择游戏文件夹（`base/`、`updates/`、`dlc/`）或它的 `.nup` 文件即可，不需要 `prod.keys`。游戏库会把它们标为
+**Switch 2**。本 fork 还没有人通过启动器玩过 Switch 2 游戏。在 iPhone 和 iPad 上几乎没有测试过：一位维护者用命令行构建后，
+在 iPhone 17 Pro Max 上玩过 Donkey Kong Bananza。详情见 [GAMES.zh-CN.md](GAMES.zh-CN.md#switch-2-游戏)。
 
 ## 限制
 
 - **只支持有 profile 的游戏。** 列表之外的游戏需要单独的 bring-up 工作；起点是
-  [docs/agents](https://github.com/seedds/nxnative/blob/c5fe6b5dbcb245f9116b1b380cc71ecd4c6c4f11/docs/agents/README.md)（上游为其他 Switch 游戏写的指南，英文）。
+  [docs/agents](https://github.com/seedds/nxnative/blob/777a5f6c618a38cd2d7f795f465466fb56920534/docs/agents/README.md)（上游为其他 Switch 游戏写的指南，英文）。
 - **大体积游戏在 iPhone 上会碰到内存上限。** 没有 Increased Memory Limit entitlement 时 iOS 只给 App
   约 3.4 GB，不够《王国之泪》用。App 请求了它，AltStore Classic 2.2+、Impactor 和 Xcode + Personal Team
   会保留；SideStore 配合免费 Apple ID 需要对 App ID 做一次性修复，Sideloadly 会丢掉它
@@ -136,12 +164,13 @@ iPhone 上在「文件」App 里该 App 名字下：`save/` 和 `log.txt`（上�
 ## 给开发者
 
 - **从源码构建：** [BUILDING.zh-CN.md](BUILDING.zh-CN.md)。**报告或修复问题：** [CONTRIBUTING.zh-CN.md](CONTRIBUTING.zh-CN.md)。
+- **哪里需要帮忙：** [里程碑](https://github.com/LNPANDY/NX2Apple/milestones)就是计划，怎么从中认领一个 issue 见 [CONTRIBUTING.md](CONTRIBUTING.md#where-we-would-love-help)。
 - **本 fork 对上游改了什么：** 引擎（`dm/`、`scripts/`、`docs/`、`ref/`）不提交在本仓库里。它是 nxnative
   在固定提交（`.upstream-ref`）上的内容，加一组补丁，每个补丁写明本 fork 为什么带着它，
   `python3 tools/engine.py sync` 把它构建到 `engine/`。见 [patches/README.md](patches/README.md)。
   `python3 tools/engine.py status` 列出带着的全部补丁。每天一次的任务移动固定提交并开 pull request，
   某个补丁对不上时开一个点名该补丁的 issue。本页指向引擎文档的链接都指向 nxnative 的固定提交。
-- **其他 Switch 游戏：** [docs/agents](https://github.com/seedds/nxnative/blob/c5fe6b5dbcb245f9116b1b380cc71ecd4c6c4f11/docs/agents/README.md)（解包、二进制调查、bring-up）。
+- **其他 Switch 游戏：** [docs/agents](https://github.com/seedds/nxnative/blob/777a5f6c618a38cd2d7f795f465466fb56920534/docs/agents/README.md)（解包、二进制调查、bring-up）。
 - **版本历史：** [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md)。
 
 ## 致谢
@@ -165,7 +194,7 @@ iPhone 上在「文件」App 里该 App 名字下：`save/` 和 `log.txt`（上�
 - **[SPIRV-Cross](https://github.com/KhronosGroup/SPIRV-Cross)** —— SPIR-V 转 Metal Shading Language。
 - **yuzu**、**deko3d**、**libvpx**、**stb_vorbis**、**libdeflate** —— 各自贡献见上游致谢列表。
 
-`dm/third_party` 里随附了其他项目及其许可证（[列表](https://github.com/seedds/nxnative/blob/c5fe6b5dbcb245f9116b1b380cc71ecd4c6c4f11/dm/third_party/README.md)）。
+`dm/third_party` 里随附了其他项目及其许可证（[列表](https://github.com/seedds/nxnative/blob/777a5f6c618a38cd2d7f795f465466fb56920534/dm/third_party/README.md)）。
 
 ## 法律
 

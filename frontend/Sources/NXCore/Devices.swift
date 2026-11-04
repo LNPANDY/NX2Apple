@@ -1,0 +1,181 @@
+import Foundation
+
+/// An iPhone or iPad paired with this Mac (Xcode's `devicectl`), a target for installing a build directly.
+package struct AppleDevice: Identifiable, Equatable {
+    package init(id: String, name: String, model: String, os: String, reachable: Bool, transport: String = "") {
+    self.id = id; self.name = name; self.model = model; self.os = os; self.reachable = reachable; self.transport = transport
+}
+    package let id: String          // the UDID
+    package let name: String
+    package let model: String
+    package let os: String
+    package let reachable: Bool     // connected now, by cable or the local network
+    package var transport = ""      // devicectl's connectionProperties.transportType: "wired" (cable), "localNetwork" (Wi-Fi), "" when not connected
+
+    package var wired: Bool { transport == "wired" }
+    package var overNetwork: Bool { transport == "localNetwork" }
+}
+
+/// A team the launcher can sign for: from a development certificate in the keychain, from an account signed in to
+/// Xcode, or both (#87: signing in to Xcode alone creates no certificate; `xcodebuild -allowProvisioningUpdates` makes
+/// it at the first install).
+package struct SigningTeam: Identifiable, Equatable {
+    package init(id: String, identity: String, name: String = "", personal: Bool = false) {
+    self.id = id; self.identity = identity; self.name = name; self.personal = personal
+}
+    package let id: String          // the team ID: the certificate's organizational unit, not the code in its name
+    package let identity: String    // "Apple Development: Name (ABCDE12345)"; empty when only an Xcode account knows the team
+    package var name: String = ""   // the team's name in Xcode; empty when only a certificate knows the team
+    package var personal = false    // a free Apple ID's "Personal team"
+
+    package var hasCertificate: Bool { !identity.isEmpty }
+
+    /// The name in the team menu: the team name (or the certificate holder's), "Personal team" for a free one, and the ID.
+    package func label(personalTeam: String) -> String {
+        var holder = name
+        if holder.isEmpty {
+            holder = identity.replacingOccurrences(of: #"^(Apple Development|iPhone Developer): "#, with: "", options: .regularExpression)
+                .replacingOccurrences(of: #" \([A-Z0-9]+\)$"#, with: "", options: .regularExpression)
+        }
+        return (holder.isEmpty ? id : holder + (personal ? " (" + personalTeam + ")" : "") + " · " + id)
+    }
+}
+
+/// A team of an Apple ID signed in to Xcode, as Xcode's preferences list it.
+package struct XcodeTeam: Equatable {
+    package init(id: String, name: String, free: Bool) { self.id = id; self.name = name; self.free = free }
+    package let id: String
+    package let name: String
+    package let free: Bool
+}
+
+/// Xcode's own tools for devices and signing: `xcrun devicectl` and `security`. Nothing here signs or installs;
+/// it only reads what is paired and what can sign.
+package enum DeviceTools {
+    /// The paired physical iPhones and iPads, reachable ones first.
+    /// `timeout` ends a listing that hangs (the Saves sheet asks with one), as no devices.
+    package static func devices(xcrun: String = "/usr/bin/xcrun", timeout: TimeInterval? = nil,
+                                runner: ProcessRunner = SystemProcessRunner()) -> [AppleDevice] {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("nxnative-devices-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: file) }
+        guard run(xcrun, ["devicectl", "list", "devices", "--json-output", file.path], timeout: timeout, runner: runner) != nil,
+              let data = try? Data(contentsOf: file) else { return [] }
+        return parseDevices(data)
+    }
+
+    package static func parseDevices(_ data: Data) -> [AppleDevice] {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let result = root["result"] as? [String: Any], let list = result["devices"] as? [[String: Any]] else { return [] }
+        let devices: [AppleDevice] = list.compactMap { d in
+            // Xcode 27.2 deprecates hardwareProperties, deviceProperties and connectionProperties for `properties`
+            // (connection, hardware, software, state), and a device may carry only the new one. Read the old block, else the new.
+            let new = d["properties"] as? [String: Any] ?? [:]
+            func block(_ old: String, _ key: String) -> [String: Any] {
+                (d[old] as? [String: Any] ?? [:]).merging(new[key] as? [String: Any] ?? [:]) { old, _ in old }
+            }
+            let hardware = block("hardwareProperties", "hardware")
+            let connection = block("connectionProperties", "connection")
+            let device = d["deviceProperties"] as? [String: Any] ?? [:]
+            let software = new["software"] as? [String: Any] ?? [:]
+            let state = new["state"] as? [String: Any] ?? [:]
+            // A missing reality is physical: only a device that says "simulated" is left out.
+            guard hardware["reality"] as? String != "simulated", hardware["platform"] as? String == "iOS",
+                  connection["pairingState"] as? String == "paired",
+                  let udid = hardware["udid"] as? String, !udid.isEmpty else { return nil }
+            // osVersionNumber is a string in the old block and {"stringValue": "26.2.1", ...} in `software`.
+            let os = device["osVersionNumber"] as? String
+                ?? (software["osVersionNumber"] as? [String: Any])?["stringValue"] as? String
+                ?? software["osVersionNumber"] as? String ?? ""
+            return AppleDevice(id: udid, name: device["name"] as? String ?? state["name"] as? String ?? udid,
+                               model: hardware["marketingName"] as? String ?? "",
+                               os: os,
+                               reachable: connection["transportType"] is String,
+                               transport: connection["transportType"] as? String ?? "")
+        }
+        return devices.sorted { ($0.reachable ? 0 : 1, $0.name) < ($1.reachable ? 0 : 1, $1.name) }
+    }
+
+    /// Every team the launcher can offer: the teams of the Apple IDs signed in to Xcode plus the teams of development
+    /// certificates in the keychain, one entry per team ID. A team with a certificate comes first (it can sign at once).
+    package static func teams(runner: ProcessRunner = SystemProcessRunner()) -> [SigningTeam] {
+        merge(certificates: certificateTeams(runner: runner), xcode: xcodeTeams(runner: runner))
+    }
+
+    /// Pure: union by team ID. The certificate gives the identity, Xcode gives the team's name and whether it is a free one.
+    package static func merge(certificates: [SigningTeam], xcode: [XcodeTeam]) -> [SigningTeam] {
+        var result: [SigningTeam] = []
+        for c in certificates where !result.contains(where: { $0.id == c.id }) {
+            let known = xcode.first { $0.id == c.id }
+            result.append(SigningTeam(id: c.id, identity: c.identity, name: known?.name ?? c.name, personal: known?.free ?? c.personal))
+        }
+        for x in xcode where !result.contains(where: { $0.id == x.id }) {
+            result.append(SigningTeam(id: x.id, identity: "", name: x.name, personal: x.free))
+        }
+        return result
+    }
+
+    /// The teams of the accounts signed in to Xcode, from its preferences (read only; nothing of the account but the
+    /// teams is looked at).
+    package static func xcodeTeams(runner: ProcessRunner = SystemProcessRunner()) -> [XcodeTeam] {
+        guard let plist = run("/usr/bin/defaults", ["export", "com.apple.dt.Xcode", "-"], runner: runner) else { return [] }
+        return xcodeTeams(fromPlist: Data(plist.utf8))
+    }
+
+    /// Pure. Xcode keeps the teams under `IDEProvisioningTeamByIdentifier` (current: account identifier -> array of
+    /// teams) or `IDEProvisioningTeams` (older); every dictionary below those keys with a team ID is a team. A missing
+    /// key, an unreadable plist or another shape gives no teams.
+    package static func xcodeTeams(fromPlist data: Data) -> [XcodeTeam] {
+        guard let root = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: Any] else { return [] }
+        var found: [XcodeTeam] = []
+        func walk(_ value: Any) {
+            if let dict = value as? [String: Any] {
+                if let id = dict["teamID"] as? String, id.range(of: "^[A-Z0-9]{10}$", options: .regularExpression) != nil {
+                    let type = (dict["teamType"] as? String ?? "").lowercased()
+                    let flag = (dict["isFreeProvisioningTeam"] as? NSNumber)?.boolValue ?? false
+                    let free = flag || type.contains("free") || type.contains("personal")
+                    if !found.contains(where: { $0.id == id }) { found.append(XcodeTeam(id: id, name: dict["teamName"] as? String ?? "", free: free)) }
+                } else {
+                    for key in dict.keys.sorted() { walk(dict[key]!) }
+                }
+            } else if let array = value as? [Any] {
+                array.forEach(walk)
+            }
+        }
+        for key in ["IDEProvisioningTeamByIdentifier", "IDEProvisioningTeams"] { if let value = root[key] { walk(value) } }
+        return found
+    }
+
+    /// The development identities that can sign for a device, with their teams (one per team ID).
+    package static func certificateTeams(runner: ProcessRunner = SystemProcessRunner()) -> [SigningTeam] {
+        guard let list = run("/usr/bin/security", ["find-identity", "-v", "-p", "codesigning"], runner: runner) else { return [] }
+        var seen = Set<String>()
+        return identities(list).compactMap { identity in
+            guard let pem = run("/usr/bin/security", ["find-certificate", "-c", identity, "-p"], runner: runner),
+                  let subject = run("/usr/bin/openssl", ["x509", "-noout", "-subject"], input: pem, runner: runner),
+                  let team = team(fromSubject: subject), seen.insert(team).inserted else { return nil }
+            return SigningTeam(id: team, identity: identity)
+        }
+    }
+
+    /// The quoted names of `security find-identity` that sign for devices (development, not distribution).
+    package static func identities(_ text: String) -> [String] {
+        text.split(separator: "\n").compactMap { line in
+            guard let open = line.firstIndex(of: "\""), let close = line.lastIndex(of: "\""), open < close else { return nil }
+            let name = String(line[line.index(after: open)..<close])
+            return name.hasPrefix("Apple Development:") || name.hasPrefix("iPhone Developer:") ? name : nil
+        }
+    }
+
+    /// OU= of a certificate subject, as `openssl x509 -subject` prints it.
+    package static func team(fromSubject subject: String) -> String? {
+        guard let range = subject.range(of: #"OU\s*=\s*([A-Z0-9]{10})"#, options: .regularExpression) else { return nil }
+        return subject[range].split(separator: "=").last.map { $0.trimmingCharacters(in: .whitespaces) }
+    }
+
+    /// The tool's stdout when it exits 0 within `timeout`, nil otherwise (its errors are thrown away).
+    private static func run(_ tool: String, _ args: [String], input: String? = nil, timeout: TimeInterval? = nil,
+                            runner: ProcessRunner) -> String? {
+        let r = runner.capture(ProcessLaunch(executable: tool, arguments: args, timeout: timeout, input: input))
+        return r.ok ? r.out : nil
+    }
+}

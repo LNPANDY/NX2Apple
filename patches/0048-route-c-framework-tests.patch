@@ -23,10 +23,9 @@ build. CI runs the link test in the ios-build job, which installs XcodeGen.
 
 Route C M1, docs/launcher-c-plan.md.
 
-Upstream-Status: fork-only (waits for the runtime profile, seedds/nxnative#492)
-Reason: opt-in game framework for the launcher (route C M1): it carries profile.tsv and sets DM_PROFILE, which exist only with the runtime-profile patch (seedds/nxnative#492 is still a design note), so it goes upstream after that
+Upstream-Status: fork-only (builds on 0001 runtime-profile, declined seedds/nxnative#492)
+Reason: opt-in game framework for the launcher (route C M1): it carries profile.tsv and sets DM_PROFILE, which exist only with the runtime-profile patch (seedds/nxnative#492 was declined), so it stays a fork patch
 Issue: LNPANDY/NX2Apple#144
-
 ---
  dm/ios/tests/test_framework_build.py | 211 +++++++++++++++++++++++++++
  dm/ios/tests/test_framework_link.py  | 125 ++++++++++++++++
@@ -37,7 +36,7 @@ Issue: LNPANDY/NX2Apple#144
 
 diff --git a/dm/ios/tests/test_framework_build.py b/dm/ios/tests/test_framework_build.py
 new file mode 100644
-index 00000000..fee9e53e
+index 0000000..fee9e53
 --- /dev/null
 +++ b/dm/ios/tests/test_framework_build.py
 @@ -0,0 +1,211 @@
@@ -254,7 +253,7 @@ index 00000000..fee9e53e
 +    unittest.main()
 diff --git a/dm/ios/tests/test_framework_link.py b/dm/ios/tests/test_framework_link.py
 new file mode 100644
-index 00000000..ccbba80e
+index 0000000..ccbba80
 --- /dev/null
 +++ b/dm/ios/tests/test_framework_link.py
 @@ -0,0 +1,125 @@
@@ -384,7 +383,7 @@ index 00000000..ccbba80e
 +if __name__ == '__main__':
 +    unittest.main()
 diff --git a/dm/ios/tests/test_xcode_workflow.py b/dm/ios/tests/test_xcode_workflow.py
-index 2881f08c..98b0e62c 100644
+index db23b93..2374a8a 100644
 --- a/dm/ios/tests/test_xcode_workflow.py
 +++ b/dm/ios/tests/test_xcode_workflow.py
 @@ -29,7 +29,12 @@ class XcodePipelineTests(unittest.TestCase):
@@ -401,7 +400,7 @@ index 2881f08c..98b0e62c 100644
          with tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
              root = Path(temporary).resolve()
              (root / 'prod.keys').touch()
-@@ -75,7 +80,8 @@ class XcodePipelineTests(unittest.TestCase):
+@@ -80,7 +85,8 @@ class XcodePipelineTests(unittest.TestCase):
              try:
                  with redirect_stdout(output):
                      code = build.cli([str(root), '-k', str(root / 'prod.keys'), '--prepare-xcode',
@@ -411,7 +410,7 @@ index 2881f08c..98b0e62c 100644
              finally:
                  progress.close()
              self.assertEqual(code, 0)
-@@ -92,6 +98,7 @@ class XcodePipelineTests(unittest.TestCase):
+@@ -97,6 +103,7 @@ class XcodePipelineTests(unittest.TestCase):
              self.assertEqual(environment['GFXAPI'], graphics)
              self.assertEqual(environment['DM_BUNDLE_ID'], 'com.example.saved')
              self.assertEqual(environment['DM_TEAM_ID'], 'ABCDEFGHIJ')

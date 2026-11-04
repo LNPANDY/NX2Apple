@@ -160,6 +160,7 @@ struct ChoicePickerView: View {
 struct ChoiceValueRow: View {
     let row: SettingRow
     let valueLabel: String
+    var hint = ShellStrings.text("Opens the list of choices")
     let open: () -> Void
     var body: some View {
         Button(action: open) {
@@ -169,6 +170,7 @@ struct ChoiceValueRow: View {
                     if !row.note.isEmpty {
                         Text(row.note).shellType(ShellType.note).foregroundStyle(.white.opacity(0.5)).fixedSize(horizontal: false, vertical: true)
                     }
+                    if row.fromShell { FromSettingsMark() }
                 }
                 Spacer(minLength: 8)
                 Text(valueLabel).shellText(14.5, .semibold).foregroundStyle(ShellPalette.cream)
@@ -184,6 +186,6 @@ struct ChoiceValueRow: View {
         .buttonStyle(.plain)
         .accessibilityLabel(row.label)
         .accessibilityValue(valueLabel)
-        .accessibilityHint(ShellStrings.text("Opens the list of choices"))
+        .accessibilityHint(hint)
     }
 }

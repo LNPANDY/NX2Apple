@@ -1,0 +1,788 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: v0lumehi <aljic.zijad@gmail.com>
+Date: Tue, 3 Nov 2026 18:41:49 +0100
+Subject: [PATCH] iOS: quit a game from the in-game menu or by holding Home
+
+On the iPhone a running game had no way back to the launcher: the
+player had to close the app in the app switcher. Two ways now open a
+quit prompt over the game, the Mac's (home_quit_mac.h) in look: "Quit
+<game>?", a note, and Quit and Cancel pills of one fixed width in every
+language.
+
+- The in-game menu (the gear) ends with "Quit <game>", destructive and
+  on its own. The gear stays while a controller hides the other touch
+  controls, so this works with touch and with a controller.
+- Holding a controller's Home button for 2 s opens it too, as on the
+  Mac (home_quit.h). The host already claims Home. iOS 27 respects the
+  claim when the Home button setting for apps lets the app decide, and
+  the log names the setting once.
+
+A tap on Quit or A quits. A tap on Cancel or outside the card, B or a
+new press of Home closes it. While it is open the game is told it lost
+the focus and gets no input, as on the Mac.
+
+Quitting ends the process. One game runs per process (dm_profile() and the
+host's early loading run once), so the engine cannot hand the window back to a launcher. The cloud saves
+go out as when the app goes to the background, then the host ends as
+on SIGTERM (dm_host_shutdown). iOS cannot start an app again by itself,
+so the player opens it again from the Home Screen. DM_HOME_QUIT_TEXT
+carries the texts, as on the Mac.
+
+quit_prompt.h is Core Animation and Core Text only, so
+tests/quit_prompt checks its layout, hits and touch steps on the Mac in
+six languages and can draw it to PNGs (QP_CAPTURE_DIR).
+
+Upstream-Status: forwarded seedds/nxnative#1115
+Reason: Players on the iPhone need a way back to the launcher from a running game: Quit in the in-game menu and the Home hold (#421)
+Issue: LNPANDY/NX2Apple#421
+---
+ dm/ios/Sources/DmGameMenu.h                  |   3 +-
+ dm/ios/Sources/DmGamepad.m                   |  18 +-
+ dm/ios/Sources/GameMenu.swift                |   1 +
+ dm/ios/Sources/front_ios.m                   | 204 +++++++++++++++++-
+ dm/ios/Sources/quit_prompt.h                 | 211 +++++++++++++++++++
+ dm/ios/tests/duo/Sources/DuoRuntimeStubs.m   |   1 +
+ dm/ios/tests/quit_prompt/quit_prompt_check.m | 130 ++++++++++++
+ dm/ios/tests/test_quit_prompt.py             |  37 ++++
+ docs/env_switches.tsv                        |   2 +-
+ 9 files changed, 601 insertions(+), 6 deletions(-)
+ create mode 100644 dm/ios/Sources/quit_prompt.h
+ create mode 100644 dm/ios/tests/quit_prompt/quit_prompt_check.m
+ create mode 100644 dm/ios/tests/test_quit_prompt.py
+
+diff --git a/dm/ios/Sources/DmGameMenu.h b/dm/ios/Sources/DmGameMenu.h
+index 784727b..a7e9c69 100644
+--- a/dm/ios/Sources/DmGameMenu.h
++++ b/dm/ios/Sources/DmGameMenu.h
+@@ -11,7 +11,8 @@ int dm_pad_layout(void);   // DmGamepad.m: 0 = 2D, 1 = 3D, 2 = Tap (DM_GAME_PAD_
+ bool dm_pad_layout_offered(int layout);   // Tap only in handheld mode
+ void dm_pad_layout_set(int layout);   // releases every touch first, and is saved for the next start
+ void dm_gamepad_touch_feedback(bool on);   // DM_TOUCH_HAPTICS
+-bool dm_setting_live(const char *env, const char *value);   // front_ios.m: value NULL asks whether the running game takes env at once; otherwise applies it
++bool dm_setting_live(const char *env, const char *value);
++void *dm_quit_menu(void);   // front_ios.m: the menu's last item, Quit <game>, which opens the quit prompt (a retained UIMenu, shown inline)   // front_ios.m: value NULL asks whether the running game takes env at once; otherwise applies it
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
+index f935755..fc375cb 100644
+--- a/dm/ios/Sources/DmGamepad.m
++++ b/dm/ios/Sources/DmGamepad.m
+@@ -1,6 +1,7 @@
+ // Virtual gamepad (Nintendo button positions) + physical controllers (GameController), handed to the host through dm_input_set and dm_pad_set_player (hle_hid.c, bit layout in dm_input.h).
+ //   Two layouts, three in handheld mode, picked in the in-game menu (GameMenu.swift) that the menu button at the top centre (a gear) opens; the choice is kept in NSUserDefaults (each game is its own app, so per game); the first launch uses the game profile's pad_layout (DM_GAME_PAD_LAYOUT).
+-//   The menu button stays while a physical controller is connected, so the menu is there in every layout and with every controller.
++//   The menu button stays while a physical controller is connected, so the menu is there in every layout and with every controller. Its last item quits the game
++//     (a prompt, front_ios.m), and so does holding a controller's Home button for 2 seconds.
+ //   Tap (touch): no control but the menu button, every other touch goes to the game's local touch viewport; offered only while the game is in handheld mode, the only one in which it reads the touch screen (Balatro, played by touch).
+ //   2D (simple): top corners ZL above L (one column), ZR above R likewise, teardrops with the tip toward the screen corner; − and + side by side at the top centre; the left stick in the bottom-left corner (fixed ring, tilt measured from the ring centre, small dead zone);
+ //     the A (right) B (bottom) X (top) Y (left) diamond in the bottom-right corner, sliding a finger between keys switches keys. Each bottom corner holds a single control, so it sits close in (reaching halfway into the side safe-area inset).
+@@ -127,6 +128,9 @@ static void phone_motion_start(UIView *body) {
+ static const int k_btns[] = {B_ZL, B_L, B_ZR, B_R, B_MINUS, B_PLUS, B_LS, B_RS};   // keys locked at touch-down (L3 / R3 only in the 3D layout)
+ static NSString *const k_layout_key = @"DmPadLayout";   // NSUserDefaults: 0 = 2D, 1 = 3D, 2 = Tap (DM_GAME_PAD_LAYOUT's numbers)
+ int dm_opmode(void);   // hle_oe.c: 0 = handheld
++void front_ios_quit_poll(void);          // front_ios.m: a controller's buttons changed (the Home hold, A and B in the quit prompt)
++int front_ios_quit_blocks_input(void);   // front_ios.m: the quit prompt has the controllers, the game gets none
++void front_ios_quit_controllers(void);   // front_ios.m: the controllers changed (it reads the Home button setting once)
+ 
+ @interface DmGamepad : UIView
+ - (void)arrange:(DmLayout)layout;
+@@ -590,6 +594,7 @@ - (void)refresh {   // pressed state → fill, sticks → knob position
+ static pad_map g_padmap;   // DM_PAD_MAP affects physical controllers only
+ static int32_t axis(float v) { return (int32_t)(fmaxf(-1.f, fminf(1.f, v)) * 32767); }
+ static void read_pad(GCExtendedGamepad *g) {
++    front_ios_quit_poll(); if (front_ios_quit_blocks_input()) return;   // the quit prompt has the controllers (Home held 2 s, or Quit in the in-game menu)
+     int p = g_merge ? 0 : pad_slot_of(&g_slots, (__bridge const void *)g.controller); if (p < 0) return;
+     dm_haptics_apple_controller(p, g.controller);
+     _Static_assert(DM_BTN_A == 1u << B_A && DM_BTN_B == 1u << B_B && DM_BTN_X == 1u << B_X && DM_BTN_Y == 1u << B_Y, "face button bits");
+@@ -604,7 +609,10 @@ static void read_pad(GCExtendedGamepad *g) {
+     dm_pad_set_player(p, m, axis(g.leftThumbstick.xAxis.value), axis(g.leftThumbstick.yAxis.value), axis(g.rightThumbstick.xAxis.value), axis(g.rightThumbstick.yAxis.value));
+ }
+ // Home and Capture: without this iOS takes them as system gestures (Home opens the Games overlay, Capture a screenshot); the app gives them no function
+-static void pad_keep_system_buttons(GCController *c) { for (NSString *b in @[GCInputButtonHome, GCInputButtonShare]) c.physicalInputProfile.buttons[b].preferredSystemGestureState = GCSystemGestureStateDisabled; }
++static void pad_keep_system_buttons(GCController *c) {   // Home held for 2 s opens the quit prompt (front_ios.m): iOS 27 respects the claim when the Home button setting for apps lets the app decide
++    for (NSString *b in @[GCInputButtonHome, GCInputButtonShare]) c.physicalInputProfile.buttons[b].preferredSystemGestureState = GCSystemGestureStateDisabled;
++    c.extendedGamepad.buttonHome.pressedChangedHandler = ^(GCControllerButtonInput *b, float v, BOOL down) { (void)b; (void)v; (void)down; front_ios_quit_poll(); };
++}
+ static const char *pad_name(GCController *c) { return c.vendorName.UTF8String ?: "?"; }
+ static void npad_name(int p, char *out, size_t cap) { uint32_t id = dm_player_npad(p); if (id == 0x20) snprintf(out, cap, "handheld"); else snprintf(out, cap, "%u", id); }
+ static void pads_start(void) {
+@@ -654,7 +662,7 @@ - (void)padsChanged:(NSNotification *)note {
+     GCController *c = note.object, *gone = [note.name isEqual:GCControllerDidDisconnectNotification] ? c : nil;
+     if (c && (!c.extendedGamepad || g_merge)) LOG("controller %s: %s%s", gone ? "disconnected" : "connected", pad_name(c), c.extendedGamepad ? "" : " (no extended gamepad profile: not used)");
+     BOOL any = g_merge ? pads_merged(gone) : pads_slotted(gone);
+-    dispatch_async(dispatch_get_main_queue(), ^{ self->_padOff = any; self->_controls.hidden = any; [self reset]; });   // the touch gamepad hides while any controller is in use
++    dispatch_async(dispatch_get_main_queue(), ^{ self->_padOff = any; self->_controls.hidden = any; [self reset]; front_ios_quit_controllers(); });   // the touch gamepad hides while any controller is in use
+ }
+ @end
+ 
+@@ -665,6 +673,10 @@ - (void)padsChanged:(NSNotification *)note {
+ int dm_pad_layout(void) { return g_view ? [g_view padLayout] : 0; }
+ bool dm_pad_layout_offered(int layout) { return layout == 0 || layout == 1 || (layout == 2 && dm_opmode() == 0); }
+ void dm_pad_layout_set(int layout) { [g_view setPadLayout:layout]; }
++void dm_gamepad_pads_read(void) {   // front_ios.m: the quit prompt closed, the game reads every controller as it is now (a button held through it counts again)
++    if (g_merge) { for (GCController *c in GCController.controllers) if (c.extendedGamepad) read_pad(c.extendedGamepad); }
++    else for (int p = 0; p < DM_PLAYERS; p++) if (g_held[p].extendedGamepad) read_pad(g_held[p].extendedGamepad);
++}
+ void dm_gamepad_active(void) { dispatch_async(dispatch_get_main_queue(), ^{ for (GCController *c in GCController.controllers) dm_motion_rearm(c); }); }   // On become active: motion_apple.h
+ void dm_gamepad_reset(void) {   // On resign active: release everything (a key held while switching away and released in background gets no "release")
+     dispatch_async(dispatch_get_main_queue(), ^{ [g_view reset]; });
+diff --git a/dm/ios/Sources/GameMenu.swift b/dm/ios/Sources/GameMenu.swift
+index 1f3ad5b..f91b002 100644
+--- a/dm/ios/Sources/GameMenu.swift
++++ b/dm/ios/Sources/GameMenu.swift
+@@ -30,6 +30,7 @@ private func gameMenuItems() -> [UIMenuElement] {
+         }
+     }
+     if !placed { items.insert(UIMenu(options: .displayInline, children: [layout]), at: 0) }
++    items.append(Unmanaged<UIMenu>.fromOpaque(dm_quit_menu()).takeRetainedValue())   // Quit <game>, last and on its own: it opens the quit prompt (front_ios.m)
+     return items
+ }
+ 
+diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
+index 58077b4..fad49fd 100644
+--- a/dm/ios/Sources/front_ios.m
++++ b/dm/ios/Sources/front_ios.m
+@@ -13,9 +13,14 @@
+ #include "dm.h"
+ #include "haptics_apple.h"
+ #include "save_sync.h"
++#include "home_quit.h"
++#import <GameController/GameController.h>
+ #import "CloudSaves.h"
++#import "quit_prompt.h"
+ 
+ void dm_gamepad_active(void);
++void dm_gamepad_pads_read(void);
++static void quit_close(void);
+ #import "DmLayout.h"
+ #import "DmGameMenu.h"
+ 
+@@ -533,7 +538,7 @@ static void save_sync_background(void) {
+ void front_ios_focus_event(int ev) {
+     if (!g_layer) return;
+     switch (ev) {
+-        case 0: dm_gamepad_reset(); dm_focus_set(2); break;
++        case 0: quit_close(); dm_gamepad_reset(); dm_focus_set(2); break;
+         case 1: UIApplication.sharedApplication.idleTimerDisabled = NO; dm_focus_set(3); g_audio_bg = 1; front_ios_audio_apply(); guest_clock_freeze_for(1, 1); dm_gfx_suspend(1); save_sync_background(); break;
+         case 2: dm_gfx_suspend(0); guest_clock_freeze_for(1, 0); front_ios_audio_session(); g_audio_bg = 0; front_ios_audio_apply(); dm_focus_set(2); break;
+         case 3:   // Becoming active again also ends an interruption whose "ended" never came (not every one sends it), and retries a session that would not activate on the way back
+@@ -543,3 +548,200 @@ void front_ios_focus_event(int ev) {
+             front_ios_audio_apply(); dm_gamepad_active(); dm_focus_set(1); break;
+     }
+ }
++
++// ---- Quit to the launcher (LNPANDY/NX2Apple#421) ----
++// Two ways open the quit prompt (quit_prompt.h) over the game: Quit at the end of the in-game menu (the gear at the top centre, GameMenu.swift, which stays while
++// a controller hides the other touch controls), and holding a controller's Home button for 2 seconds (home_quit.h, as on the Mac; the indicator at the top fills
++// while it is held). A tap on Quit or A quits, a tap on Cancel or outside the card, B or a new press of Home closes it. While it is open the game is told it lost
++// the focus, as the Switch's HOME menu does, and gets no touch or controller input.
++// Quitting ends the process: one game runs per process (dm_profile() and the host's early loading run once, the shell's ShellMain.m), so the engine cannot hand
++// the window back to a launcher and start another game. It goes the way of a SIGTERM (dm_host_shutdown: audio and graphics stopped, in-flight GPU work drained,
++// _exit(0)), after the cloud saves have gone out as they do when the app goes to the background. What the game saved is on disk already (hle_fs.c writes each
++// commit), progress it did not save is lost, as the prompt says. iOS has no way for an app to start itself again: the player opens it from the Home Screen.
++// DM_HOME_QUIT=0 turns the Home hold off. DM_HOME_QUIT_TEXT carries the texts in the player's language, one per line (home_quit.h's order), English otherwise.
++@interface DmQuitView : UIView
++@property (nonatomic) qp_layout layout;
++@property (nonatomic, strong) CALayer *prompt, *actions;
++@property (nonatomic) int down;          // what the touch went down on (QP_HIT_*); a tap counts when it is released on the same thing
++@property (nonatomic) double opened;     // a touch in the first moments after the prompt opened is not taken: a second tap meant for the menu or the game
++@end
++static home_quit g_hq; static int g_hq_on = -1, g_hq_busy;
++static char g_hq_text[HQ_TEXTS][256];
++static DmQuitView *g_hq_view; static CALayer *g_hq_hold; static CAShapeLayer *g_hq_ring; static NSTimer *g_hq_timer;
++static void quit_changed(hq_phase was, hq_phase now, GCController *holder);
++static void quit_touch(int hit);
++void front_ios_quit_poll(void);
++
++@implementation DmQuitView
++- (void)touchesBegan:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e {
++    self.down = CACurrentMediaTime() - self.opened < 0.25 ? -1 : qp_hit(&_layout, [ts.anyObject locationInView:self]);
++    [self press:self.down == QP_HIT_QUIT ? 0 : self.down == QP_HIT_CANCEL ? 1 : -1];
++}
++- (void)touchesEnded:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e {
++    int hit = qp_hit(&_layout, [ts.anyObject locationInView:self]), down = self.down;
++    [self press:-1]; self.down = -1;
++    if (down >= 0 && hit == down && hit != QP_HIT_NONE) quit_touch(hit);
++}
++- (void)touchesCancelled:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e { [self press:-1]; self.down = -1; }
++- (void)press:(int)i {   // a pill held down dims a little, as a button does
++    NSArray<CALayer *> *pills = self.actions.sublayers;
++    [CATransaction begin]; [CATransaction setDisableActions:YES];
++    for (NSUInteger k = 0; k < pills.count; k++) pills[k].opacity = (int)k == i ? 0.7 : 1;
++    [CATransaction commit];
++}
++- (BOOL)isAccessibilityElement { return NO; }
++@end
++
++static NSString *quit_text(int i) { return @(g_hq_text[i]); }
++static void quit_start(void) {
++    if (g_hq_on >= 0) return;
++    g_hq_on = hq_enabled(getenv("DM_HOME_QUIT"));
++    char title[256]; snprintf(title, sizeof title, "Quit %s?", dm_profile()->name);
++    const char *def[HQ_TEXTS] = {"Keep holding to quit", title, "Unsaved progress will be lost. The app closes.", "Quit", "Cancel"};
++    const char *text = getenv("DM_HOME_QUIT_TEXT");   // the launcher's, in the player's language: one line per text, in home_quit.h's order
++    for (int i = 0; i < HQ_TEXTS; i++) hq_text_line(text, i, def[i], g_hq_text[i], sizeof g_hq_text[i]);
++    LOG("front end: hold the Home button to quit %s", g_hq_on ? "is on" : "is off (DM_HOME_QUIT=0)");
++}
++static void quit_buttons(int *home, int *a, int *b, GCController *__strong *holder) {
++    *home = *a = *b = 0;
++    for (GCController *c in GCController.controllers) {
++        GCExtendedGamepad *g = c.extendedGamepad; if (!g) continue;
++        if (g.buttonHome.isPressed) { *home = 1; if (!*holder) *holder = c; }
++        *a |= g.buttonA.isPressed; *b |= g.buttonB.isPressed;
++    }
++}
++static void quit_hide_hold(void) { [g_hq_timer invalidate]; g_hq_timer = nil; [g_hq_hold removeFromSuperlayer]; g_hq_hold = nil; g_hq_ring = nil; }
++static void quit_hide_prompt(void) {
++    DmQuitView *v = g_hq_view; g_hq_view = nil; if (!v) return;
++    [UIView animateWithDuration:0.18 animations:^{ v.alpha = 0; } completion:^(BOOL done) { (void)done; [v removeFromSuperview]; }];
++    UIAccessibilityPostNotification(UIAccessibilityScreenChangedNotification, nil);
++}
++static UIImage *quit_glyph(NSString *symbol, NSString *fallback) {
++    UIImageSymbolConfiguration *cfg = [UIImageSymbolConfiguration configurationWithPointSize:48 weight:UIImageSymbolWeightMedium];
++    return [UIImage systemImageNamed:symbol ?: fallback withConfiguration:cfg] ?: [UIImage systemImageNamed:fallback withConfiguration:cfg];
++}
++static void quit_show_prompt(GCController *holder) {
++    UIView *root = g_root.view; if (!root) return;
++    GCController *pad = holder; if (!pad) for (GCController *c in GCController.controllers) if (c.extendedGamepad) { pad = c; break; }
++    GCExtendedGamepad *g = pad.extendedGamepad;   // with a controller the pills show its own A and B, with touch alone the words only
++    DmQuitView *v = [[DmQuitView alloc] initWithFrame:root.bounds];
++    v.multipleTouchEnabled = NO; v.down = -1; v.opened = CACurrentMediaTime();
++    v.layout = qp_layout_make(root.bounds.size, quit_text(HQ_TEXT_TITLE), quit_text(HQ_TEXT_NOTE), quit_text(HQ_TEXT_QUIT), quit_text(HQ_TEXT_CANCEL), g != nil);
++    UIImage *ga = g ? quit_glyph(g.buttonA.sfSymbolsName, @"a.circle") : nil, *gb = g ? quit_glyph(g.buttonB.sfSymbolsName, @"b.circle") : nil;
++    CALayer *actions = nil; qp_layout l = v.layout;
++    v.prompt = qp_prompt_layer(root.bounds, &l, quit_text(HQ_TEXT_TITLE), quit_text(HQ_TEXT_NOTE), quit_text(HQ_TEXT_QUIT), quit_text(HQ_TEXT_CANCEL),
++                               ga.CGImage, gb.CGImage, MAX(root.traitCollection.displayScale, 1), &actions);
++    v.actions = actions;
++    [v.layer addSublayer:v.prompt];
++    // VoiceOver reads the title and the note and offers the two actions
++    UIAccessibilityElement *(^element)(NSString *, CGRect, UIAccessibilityTraits) = ^(NSString *label, CGRect frame, UIAccessibilityTraits traits) {
++        UIAccessibilityElement *x = [[UIAccessibilityElement alloc] initWithAccessibilityContainer:v];
++        x.accessibilityLabel = label; x.accessibilityFrameInContainerSpace = frame; x.accessibilityTraits = traits; return x;
++    };
++    v.accessibilityElements = @[element([NSString stringWithFormat:@"%@ %@", quit_text(HQ_TEXT_TITLE), quit_text(HQ_TEXT_NOTE)], l.card, UIAccessibilityTraitHeader),
++                                element(quit_text(HQ_TEXT_QUIT), l.quit, UIAccessibilityTraitButton), element(quit_text(HQ_TEXT_CANCEL), l.cancel, UIAccessibilityTraitButton)];
++    v.alpha = 0; [root addSubview:v];
++    [UIView animateWithDuration:0.18 animations:^{ v.alpha = 1; }];
++    g_hq_view = v;
++    UIAccessibilityPostNotification(UIAccessibilityScreenChangedNotification, v.accessibilityElements.firstObject);
++}
++// The prompt's quit: the cloud saves go out (as when the app goes to the background), then the host ends as on a SIGTERM. Off the main queue: both wait
++static void quit_now(void) {
++    LOG("front end: quit from the quit prompt, the app closes (one game per process)");
++    g_hq_view.userInteractionEnabled = NO;
++    [CATransaction begin]; [CATransaction setAnimationDuration:0.2]; g_hq_view.actions.opacity = 0.4; [CATransaction commit];
++    UIApplication.sharedApplication.idleTimerDisabled = NO;
++    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
++        if (!save_sync_flush(8000)) LOG("front end: the save did not reach the cloud before quitting, it goes at the next start");
++        dm_host_shutdown("the quit prompt");
++    });
++}
++static void quit_changed(hq_phase was, hq_phase now, GCController *holder) {
++    if (was == HQ_HOLDING) quit_hide_hold();
++    switch (now) {
++    case HQ_HOLDING:
++        g_hq_timer = [NSTimer scheduledTimerWithTimeInterval:1.0 / 60 repeats:YES block:^(NSTimer *t) { (void)t; front_ios_quit_poll(); }];
++        break;
++    case HQ_PROMPT:
++        dm_gamepad_reset();   // nothing the touch gamepad or a controller held stays pressed while the prompt is open
++        dm_focus_set(2);
++        quit_show_prompt(holder);
++        LOG("front end: quit prompt open (%s)", holder ? "Home held" : "the in-game menu");
++        break;
++    case HQ_SETTLE:
++        quit_hide_prompt(); dm_focus_set(1);
++        LOG("front end: quit prompt closed, the game goes on");
++        break;
++    case HQ_IDLE:
++        if (was == HQ_SETTLE) dm_gamepad_pads_read();   // the game reads the controllers again, as they are now
++        break;
++    case HQ_QUIT:
++        quit_now();
++        break;
++    }
++}
++void front_ios_quit_poll(void) {   // DmGamepad.m on a controller's change, and the hold's timer (main queue)
++    quit_start();
++    if (!g_hq_on || !g_root.game || g_hq_busy) return;
++    g_hq_busy = 1;
++    int home, a, b; GCController *holder = nil; quit_buttons(&home, &a, &b, &holder);
++    double now = CACurrentMediaTime();
++    hq_phase was = g_hq.phase, ph = hq_step(&g_hq, now, home, a, b);
++    if (ph != was) quit_changed(was, ph, holder);
++    double fill = hq_ring(&g_hq, now);
++    if (fill >= 0) {
++        if (!g_hq_hold) {
++            CAShapeLayer *ring = nil; UIView *root = g_root.view;
++            g_hq_hold = qp_hold_layer(root.bounds, quit_text(HQ_TEXT_HOLD), MAX(root.traitCollection.displayScale, 1), &ring); g_hq_ring = ring;
++            [root.layer addSublayer:g_hq_hold];
++        }
++        qp_hold_set(g_hq_ring, fill);
++    }
++    g_hq_busy = 0;
++}
++static void quit_open(void) {   // the in-game menu's Quit
++    quit_start();
++    if (!g_root.game) return;
++    int home, a, b; GCController *holder = nil; quit_buttons(&home, &a, &b, &holder);
++    hq_phase was = g_hq.phase;
++    if (hq_touch_open(&g_hq, home, a, b) != was) quit_changed(was, HQ_PROMPT, nil);
++}
++static void quit_touch(int hit) {   // DmQuitView: a tap on Quit, on Cancel or outside the card
++    hq_phase was = g_hq.phase, now = hit == QP_HIT_QUIT ? hq_touch_quit(&g_hq) : hq_touch_cancel(&g_hq);
++    if (now == was) return;
++    quit_changed(was, now, nil);
++    if (now == HQ_SETTLE) front_ios_quit_poll();   // with every button up the game has its input again at once
++}
++int front_ios_quit_blocks_input(void) { return hq_blocks_input(g_hq.phase); }
++static void quit_close(void) {   // the app is leaving the foreground: whatever is shown closes, a Home still held needs a new press
++    if (g_hq.phase == HQ_IDLE || g_hq.phase == HQ_QUIT) return;
++    if (g_hq.phase == HQ_PROMPT || g_hq.phase == HQ_SETTLE) LOG("front end: quit prompt closed, the app left the foreground");
++    hq_cancel(&g_hq); quit_hide_hold(); quit_hide_prompt();
++}
++// The in-game menu's last item: "Quit <game>" (the prompt's title without its question mark), destructive, opening the prompt. A retained UIMenu (DmGameMenu.h)
++void *dm_quit_menu(void) {
++    quit_start();
++    NSString *title = [quit_text(HQ_TEXT_TITLE) stringByTrimmingCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@"?？  "]];
++    UIAction *quit = [UIAction actionWithTitle:title image:[UIImage systemImageNamed:@"xmark.circle"] identifier:nil handler:^(UIAction *a) { (void)a; quit_open(); }];
++    quit.attributes = UIMenuElementAttributesDestructive;
++    return (void *)CFBridgingRetain([UIMenu menuWithTitle:@"" image:nil identifier:nil options:UIMenuOptionsDisplayInline children:@[quit]]);
++}
++// The Home button setting for apps, once, when the first controller is there (GameController reads it only while one is connected): the Home hold works when
++// the app decides ("app"). Either way the in-game menu's Quit stays, as the gear stays with a controller
++void front_ios_quit_controllers(void) {
++    quit_start();
++#if defined(__IPHONE_27_0)
++    if (@available(iOS 27.0, *)) {
++        static int done; if (done || !g_hq_on) return;
++        int any = 0; for (GCController *c in GCController.controllers) if (c.extendedGamepad) any = 1;
++        if (!any) return;
++        done = 1;
++        GCControllerHomeButtonSettingCustomizationStatus by = GCControllerHomeButtonSettingCustomizationDefault; NSError *err = nil;
++        GCControllerHomeButtonSettingInAppAction v = [[GCControllerHomeButtonSettingsManager new] readControllerHomeButtonInAppAction:&by withError:&err];
++        LOG("front end: Home button in apps: %s (%s)%s%s", hq_in_app_name((long)v),
++            by == GCControllerHomeButtonSettingCustomizationUser ? "set by the player" : "the system's default", err ? ", " : "", err ? err.localizedDescription.UTF8String : "");
++        return;
++    }
++#endif
++    static int said; if (!said++) LOG("front end: the Home button setting is read on iOS 27, the Home hold works where the system lets the press through");
++}
+diff --git a/dm/ios/Sources/quit_prompt.h b/dm/ios/Sources/quit_prompt.h
+new file mode 100644
+index 0000000..66cd904
+--- /dev/null
++++ b/dm/ios/Sources/quit_prompt.h
+@@ -0,0 +1,211 @@
++// Quit to the launcher on iOS (LNPANDY/NX2Apple#421): the quit prompt front_ios.m draws over the game, and the touch steps of home_quit.h's state machine.
++// Two ways open the prompt: Quit in the in-game menu (the gear at the top centre, GameMenu.swift), and holding a controller's Home button for 2 seconds
++// (home_quit.h, as on the Mac). The prompt is the Mac's (home_quit_mac.h): a dim scrim, a card with "Quit <game>?", a note and two pills of one fixed width
++// whatever the language, the primary one cream. A tap on Quit or the controller's A quits, a tap on Cancel or outside the card, B or a new Home press closes it.
++// Core Animation and Core Text only, no UIKit, so tests/quit_prompt/quit_prompt_check.m lays it out, hit-tests it and draws it on the Mac.
++#pragma once
++#import <Foundation/Foundation.h>
++#import <QuartzCore/QuartzCore.h>
++#import <CoreText/CoreText.h>
++#include "home_quit.h"
++
++NS_ASSUME_NONNULL_BEGIN
++
++// ---- The touch steps of the state machine (home_quit.h has the controller's) ----
++// Quit was picked in the in-game menu: the prompt opens from IDLE or from a Home hold under way. home, a, b: the controllers' buttons now, so one already held does not count.
++static inline hq_phase hq_touch_open(home_quit *q, int home, int a, int b) {
++    if (q->phase == HQ_IDLE || q->phase == HQ_HOLDING) { q->phase = HQ_PROMPT; q->home = home; q->a_up = !a; q->b_up = !b; }
++    return q->phase;
++}
++// Cancel or a tap outside the card: the prompt closes, and the controllers go back to the game once Home, A and B are up (hq_step's SETTLE).
++static inline hq_phase hq_touch_cancel(home_quit *q) { if (q->phase == HQ_PROMPT) q->phase = HQ_SETTLE; return q->phase; }
++// Quit: final, as A in the prompt.
++static inline hq_phase hq_touch_quit(home_quit *q) { if (q->phase == HQ_PROMPT) q->phase = HQ_QUIT; return q->phase; }
++
++// ---- The prompt's layout ----
++// Sizes in points of a 720-high view, as home_quit_mac.h, times k: k follows the height between 1 and 2 and shrinks so the card fits a phone held upright.
++#define QP_CARD_W 600.0
++#define QP_ACTION_W 220.0   // every action pill is this wide in every language: the longest label of the six ("Abbrechen", "Annuler") fits at full size
++#define QP_ACTION_H 56.0
++#define QP_ACTION_GAP 16.0
++#define QP_GLYPH 24.0
++enum { QP_HIT_NONE = 0, QP_HIT_QUIT, QP_HIT_CANCEL, QP_HIT_OUTSIDE };
++
++typedef struct {
++    CGFloat k;
++    CGRect card, title, note, quit, cancel;    // in the view's points, y down
++    CGFloat titleSize, noteSize, labelSize[2];  // the label sizes of Quit and Cancel, each fitted to its pill
++} qp_layout;
++
++static inline CGFloat qp_scale(CGSize s) {
++    CGFloat k = s.height / 720; k = k < 1 ? 1 : k > 2 ? 2 : k;
++    CGFloat w = (s.width - 32) / QP_CARD_W, h = (s.height - 24) / 300;
++    if (k > w) k = w;
++    if (k > h) k = h;
++    return k < 0.4 ? 0.4 : k;
++}
++
++static inline CTFontRef qp_font(CGFloat size, CGFloat weight) {   // the system font at a weight (-1 to 1, as UIFontWeight): +1 reference, the caller releases it
++    CTFontRef base = CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, size, NULL);
++    CTFontDescriptorRef d = CTFontCopyFontDescriptor(base);
++    NSDictionary *attrs = @{(__bridge id)kCTFontTraitsAttribute: @{(__bridge id)kCTFontWeightTrait: @(weight)}};
++    CTFontDescriptorRef w = CTFontDescriptorCreateCopyWithAttributes(d, (__bridge CFDictionaryRef)attrs);
++    CTFontRef f = CTFontCreateWithFontDescriptor(w, size, NULL);
++    CFRelease(w); CFRelease(d); CFRelease(base);
++    return f;
++}
++static inline NSAttributedString *qp_text(NSString *s, CTFontRef f) { return [[NSAttributedString alloc] initWithString:s attributes:@{(__bridge id)kCTFontAttributeName: (__bridge id)f}]; }
++static inline CGFloat qp_line_width(NSString *s, CGFloat size, CGFloat weight) {
++    CTFontRef f = qp_font(size, weight);
++    CTLineRef line = CTLineCreateWithAttributedString((__bridge CFAttributedStringRef)qp_text(s, f));
++    CGFloat w = CTLineGetTypographicBounds(line, NULL, NULL, NULL);
++    CFRelease(line); CFRelease(f);
++    return ceil(w);
++}
++static inline CGFloat qp_wrapped_height(NSString *s, CGFloat size, CGFloat weight, CGFloat width) {
++    if (!s.length) return 0;
++    CTFontRef f = qp_font(size, weight);
++    CTFramesetterRef fs = CTFramesetterCreateWithAttributedString((__bridge CFAttributedStringRef)qp_text(s, f));
++    CGSize z = CTFramesetterSuggestFrameSizeWithConstraints(fs, CFRangeMake(0, 0), NULL, CGSizeMake(width, CGFLOAT_MAX), NULL);
++    CFRelease(fs); CFRelease(f);
++    return ceil(z.height) + 2;
++}
++// The font size that fits text into room on one line: size, or smaller down to 70 % of it (then the label is cut), as home_quit_mac.h's hq_fit
++static inline CGFloat qp_fit(NSString *s, CGFloat size, CGFloat room) {
++    CGFloat w = qp_line_width(s, size, 0.3);
++    if (w <= room) return size;
++    CGFloat f = floor(size * room / w * 10) / 10;
++    return f < size * 0.7 ? size * 0.7 : f;
++}
++static inline CGFloat qp_label_room(CGFloat k, int glyphs) { return QP_ACTION_W * k - 2 * 20 * k - (glyphs ? (QP_GLYPH + 10) * k : 0); }
++
++static inline qp_layout qp_layout_at(CGSize bounds, CGFloat k, NSString *title, NSString *note, NSString *quit, NSString *cancel, int glyphs) {
++    qp_layout l; memset(&l, 0, sizeof l);
++    l.k = k; l.titleSize = 34 * k; l.noteSize = 20 * k;
++    CGFloat cw = QP_CARD_W * k, inner = cw - 96 * k;
++    CGFloat th = qp_wrapped_height(title, l.titleSize, 0.4, inner), nh = qp_wrapped_height(note, l.noteSize, 0, inner);
++    CGFloat ch = 40 * k + th + (nh > 0 ? 14 * k + nh : 0) + 32 * k + QP_ACTION_H * k + 36 * k;
++    l.card = CGRectMake(floor((bounds.width - cw) / 2), floor((bounds.height - ch) / 2), cw, ch);
++    l.title = CGRectMake(l.card.origin.x + 48 * k, l.card.origin.y + 40 * k, inner, th);
++    l.note = CGRectMake(l.title.origin.x, CGRectGetMaxY(l.title) + (nh > 0 ? 14 * k : 0), inner, nh);
++    CGFloat aw = QP_ACTION_W * k, x0 = CGRectGetMidX(l.card) - aw - QP_ACTION_GAP * k / 2, y = CGRectGetMaxY(l.note) + 32 * k;
++    l.quit = CGRectMake(x0, y, aw, QP_ACTION_H * k);
++    l.cancel = CGRectMake(x0 + aw + QP_ACTION_GAP * k, y, aw, QP_ACTION_H * k);
++    CGFloat room = qp_label_room(k, glyphs);
++    l.labelSize[0] = qp_fit(quit, 22 * k, room); l.labelSize[1] = qp_fit(cancel, 22 * k, room);
++    return l;
++}
++// The layout for a view of this size: a card taller than the view (a long note on a small screen) takes a smaller k
++static inline qp_layout qp_layout_make(CGSize bounds, NSString *title, NSString *note, NSString *quit, NSString *cancel, int glyphs) {
++    CGFloat k = qp_scale(bounds);
++    qp_layout l = qp_layout_at(bounds, k, title, note, quit, cancel, glyphs);
++    for (int i = 0; i < 8 && l.card.size.height > bounds.height - 16 && k > 0.4; i++) {
++        k = fmax(0.4, k * (bounds.height - 16) / l.card.size.height);
++        l = qp_layout_at(bounds, k, title, note, quit, cancel, glyphs);
++    }
++    return l;
++}
++// What a touch at p is on: a pill (with a margin of 6 points at k 1), the card (nothing), or outside it (cancels)
++static inline int qp_hit(const qp_layout *l, CGPoint p) {
++    CGFloat e = 6 * l->k;
++    if (CGRectContainsPoint(CGRectInset(l->quit, -e, -e), p)) return QP_HIT_QUIT;
++    if (CGRectContainsPoint(CGRectInset(l->cancel, -e, -e), p)) return QP_HIT_CANCEL;
++    if (CGRectContainsPoint(l->card, p)) return QP_HIT_NONE;
++    return QP_HIT_OUTSIDE;
++}
++
++// ---- The layers ----
++// The look is the launcher's console mode, as home_quit_mac.h: its background, surface and cream (LauncherPalette)
++static inline CGColorRef qp_color(CGFloat r, CGFloat g, CGFloat b, CGFloat a) {   // autoreleased: valid while the caller's pool lives
++    CGColorRef c = CGColorCreateSRGB(r, g, b, a);
++    return (__bridge CGColorRef)CFBridgingRelease(c);
++}
++#define QP_BACKGROUND qp_color(0.055, 0.055, 0.06, 1)
++#define QP_SURFACE qp_color(0.10, 0.10, 0.11, 1)
++#define QP_CREAM qp_color(1, 0.94, 0.84, 1)
++
++// Text broken into the lines Core Text lays it out in at this width, joined by line breaks: CATextLayer's own wrapping breaks at spaces only, so Chinese
++// stayed one line and was cut (qp_wrapped_height measured two)
++static inline NSString *qp_lines(NSString *s, CGFloat size, CGFloat weight, CGFloat width) {
++    CTFontRef f = qp_font(size, weight);
++    CTFramesetterRef fs = CTFramesetterCreateWithAttributedString((__bridge CFAttributedStringRef)qp_text(s, f));
++    CGPathRef path = CGPathCreateWithRect(CGRectMake(0, 0, width, 100000), NULL);
++    CTFrameRef frame = CTFramesetterCreateFrame(fs, CFRangeMake(0, 0), path, NULL);
++    NSMutableArray<NSString *> *out = [NSMutableArray array];
++    for (id line in (__bridge NSArray *)CTFrameGetLines(frame)) {
++        CFRange r = CTLineGetStringRange((__bridge CTLineRef)line);
++        [out addObject:[[s substringWithRange:NSMakeRange((NSUInteger)r.location, (NSUInteger)r.length)] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet]];
++    }
++    CFRelease(frame); CGPathRelease(path); CFRelease(fs); CFRelease(f);
++    return [out componentsJoinedByString:@"\n"];
++}
++static inline CATextLayer *qp_text_layer(NSString *s, CGFloat size, CGFloat weight, CGColorRef color, CGRect frame, int wrap, CGFloat scale) {
++    CATextLayer *t = [CATextLayer layer];
++    CTFontRef f = qp_font(size, weight);
++    t.font = f; t.fontSize = size; CFRelease(f);
++    t.string = wrap ? qp_lines(s, size, weight, frame.size.width) : s; t.foregroundColor = color; t.alignmentMode = kCAAlignmentCenter; t.contentsScale = scale;
++    t.wrapped = NO; t.truncationMode = wrap ? kCATruncationNone : kCATruncationEnd;
++    t.frame = frame;
++    return t;
++}
++// One pill: the glyph (a template image tinted fg, nil for none) and the label, centred
++static inline CALayer *qp_action_layer(CGRect frame, NSString *label, CGFloat labelSize, CGImageRef _Nullable glyph, int primary, CGFloat k, CGFloat scale) {
++    CALayer *pill = [CALayer layer];
++    pill.frame = frame; pill.cornerRadius = 28 * k;
++    if (primary) pill.backgroundColor = QP_CREAM;
++    else { pill.borderWidth = 1; pill.borderColor = qp_color(1, 1, 1, 0.16); }
++    CGColorRef fg = primary ? QP_BACKGROUND : qp_color(1, 1, 1, 0.8);
++    CGFloat g = glyph ? QP_GLYPH * k : 0, gap = glyph ? 10 * k : 0, room = frame.size.width - 40 * k - g - gap;
++    CGFloat tw = fmin(qp_line_width(label, labelSize, 0.3) + 2, room), th = ceil(labelSize * 1.3);
++    CGFloat x = (frame.size.width - g - gap - tw) / 2, mid = frame.size.height / 2;
++    if (glyph) {
++        CALayer *mask = [CALayer layer]; mask.frame = CGRectMake(0, 0, g, g); mask.contents = (__bridge id)glyph; mask.contentsGravity = kCAGravityResizeAspect;
++        CALayer *tint = [CALayer layer]; tint.frame = CGRectMake(x, mid - g / 2, g, g); tint.backgroundColor = fg; tint.mask = mask;
++        [pill addSublayer:tint];
++    }
++    [pill addSublayer:qp_text_layer(label, labelSize, 0.3, fg, CGRectMake(x + g + gap, mid - th / 2, tw, th), 0, scale)];
++    return pill;
++}
++// The prompt over the whole view: the scrim and the card. glyphs: the controller's A and B images (nil without a controller: the pills show the words only)
++static inline CALayer *qp_prompt_layer(CGRect bounds, const qp_layout *l, NSString *title, NSString *note, NSString *quit, NSString *cancel,
++                                       CGImageRef _Nullable aGlyph, CGImageRef _Nullable bGlyph, CGFloat scale, CALayer *_Nullable *_Nullable actions) {
++    CGFloat k = l->k;
++    CALayer *scrim = [CALayer layer]; scrim.frame = bounds; scrim.backgroundColor = qp_color(0, 0, 0, 0.6);
++    CALayer *card = [CALayer layer]; card.frame = l->card; card.backgroundColor = QP_SURFACE; card.cornerRadius = 28 * k;
++    card.borderWidth = 1; card.borderColor = qp_color(1, 1, 1, 0.10);
++    [scrim addSublayer:card];
++    [scrim addSublayer:qp_text_layer(title, l->titleSize, 0.4, qp_color(1, 1, 1, 1), l->title, 1, scale)];
++    if (l->note.size.height > 0) [scrim addSublayer:qp_text_layer(note, l->noteSize, 0, qp_color(1, 1, 1, 0.6), l->note, 1, scale)];
++    CALayer *row = [CALayer layer]; row.frame = bounds;
++    [row addSublayer:qp_action_layer(l->quit, quit, l->labelSize[0], aGlyph, 1, k, scale)];
++    [row addSublayer:qp_action_layer(l->cancel, cancel, l->labelSize[1], bGlyph, 0, k, scale)];
++    [scrim addSublayer:row];
++    if (actions) *actions = row;
++    return scrim;
++}
++
++// The hold indicator at the top of the view while Home is held: a pill with a ring that fills, and its words. qp_hold_set moves the ring
++static inline CALayer *qp_hold_layer(CGRect bounds, NSString *label, CGFloat scale, CAShapeLayer *_Nullable *_Nonnull ringOut) {
++    CGFloat k = qp_scale(bounds.size), d = 26 * k, line = 3.5 * k, fs = 20 * k;
++    CGFloat tw = qp_line_width(label, fs, 0.3) + 2, w = 18 * k + d + 12 * k + tw + 24 * k, h = 56 * k;
++    CALayer *pill = [CALayer layer];
++    pill.frame = CGRectMake(floor((bounds.size.width - w) / 2), 24 * k, w, h);
++    pill.backgroundColor = qp_color(0.055, 0.055, 0.06, 0.92); pill.cornerRadius = h / 2;
++    pill.borderWidth = 1; pill.borderColor = qp_color(1, 1, 1, 0.12);
++    CGPathRef circle = CGPathCreateWithEllipseInRect(CGRectInset(CGRectMake(0, 0, d, d), line / 2, line / 2), NULL);
++    CAShapeLayer *track = [CAShapeLayer layer], *ring = [CAShapeLayer layer];
++    for (CAShapeLayer *s in @[track, ring]) { s.frame = CGRectMake(18 * k, (h - d) / 2, d, d); s.path = circle; s.fillColor = NULL; s.lineWidth = line; [pill addSublayer:s]; }
++    CGPathRelease(circle);
++    track.strokeColor = qp_color(1, 1, 1, 0.18);
++    ring.strokeColor = QP_CREAM; ring.lineCap = kCALineCapRound; ring.strokeEnd = 0;
++    ring.transform = CATransform3DMakeRotation(-M_PI_2, 0, 0, 1);   // from the top, clockwise (y down)
++    CGFloat th = ceil(fs * 1.3);
++    [pill addSublayer:qp_text_layer(label, fs, 0.3, qp_color(1, 1, 1, 0.9), CGRectMake(18 * k + d + 12 * k, (h - th) / 2, tw, th), 0, scale)];
++    *ringOut = ring;
++    return pill;
++}
++static inline void qp_hold_set(CAShapeLayer *ring, double fill) {
++    [CATransaction begin]; [CATransaction setDisableActions:YES]; ring.strokeEnd = fill; [CATransaction commit];
++}
++
++NS_ASSUME_NONNULL_END
+diff --git a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
+index 84efd5d..2b64998 100644
+--- a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
++++ b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
+@@ -121,3 +121,4 @@ void dm_audio_reset(void) {}
+ const char *front_ios_device_check(void) { return NULL; }   // a supported GPU
+ void dm_cloud_saves_env(void) {}
+ int save_sync_flush(int timeout_ms) { (void)timeout_ms; return 1; }
++void dm_host_shutdown(const char *why) { (void)why; }
+diff --git a/dm/ios/tests/quit_prompt/quit_prompt_check.m b/dm/ios/tests/quit_prompt/quit_prompt_check.m
+new file mode 100644
+index 0000000..04c85b3
+--- /dev/null
++++ b/dm/ios/tests/quit_prompt/quit_prompt_check.m
+@@ -0,0 +1,130 @@
++// The iOS quit prompt (quit_prompt.h) and its touch steps, checked on the Mac: built and run by test_quit_prompt.py.
++// Every line that starts with FAIL is a broken rule; the exit status is the number of them (capped).
++// With QP_CAPTURE_DIR set it also draws the prompt over a phone screen to PNGs (quit-<screen>-<language>.png), for visual QA.
++#import <AppKit/AppKit.h>
++#import "quit_prompt.h"
++#include <stdio.h>
++
++static int g_fail;
++#define FAIL(...) do { printf("FAIL: "); printf(__VA_ARGS__); printf("\n"); g_fail++; } while (0)
++
++typedef struct { const char *name; CGSize size; } Screen;
++// The prompt's words in the launchers' six languages (frontend/l10n homeQuit.*, ios.host.quitNote): title, note, quit, cancel
++typedef struct { const char *lang, *title, *note, *quit, *cancel; } Words;
++static const Words k_words[] = {
++    {"en", "Quit Super Mario Odyssey?", "Unsaved progress will be lost. The app closes and opens on your games next time.", "Quit", "Cancel"},
++    {"de", "Super Mario Odyssey beenden?", "Nicht gesicherter Fortschritt geht verloren. Die App wird geschlossen und zeigt beim nächsten Öffnen deine Spiele.", "Beenden", "Abbrechen"},
++    {"fr", "Quitter Super Mario Odyssey ?", "La progression non sauvegardée sera perdue. L’app se ferme et s’ouvre sur vos jeux la prochaine fois.", "Quitter", "Annuler"},
++    {"it", "Uscire da Super Mario Odyssey?", "I progressi non salvati andranno persi. L’app si chiude e la prossima volta si apre sui tuoi giochi.", "Esci", "Annulla"},
++    {"sv", "Avsluta Super Mario Odyssey?", "Osparade framsteg går förlorade. Appen stängs och öppnas med dina spel nästa gång.", "Avsluta", "Avbryt"},
++    {"zh", "退出Super Mario Odyssey？", "未保存的进度将会丢失。App 会关闭，下次打开时显示你的游戏。", "退出", "取消"},
++};
++
++static void check_states(void) {
++    home_quit q = {0};
++    if (hq_touch_open(&q, 0, 0, 0) != HQ_PROMPT || !hq_blocks_input(q.phase)) FAIL("Quit in the menu opens the prompt and takes the controllers");
++    if (hq_step(&q, 1, 0, 0, 0) != HQ_PROMPT) FAIL("the prompt stays open with nothing pressed");
++    if (hq_touch_cancel(&q) != HQ_SETTLE) FAIL("Cancel closes it");
++    if (hq_step(&q, 2, 0, 0, 0) != HQ_IDLE) FAIL("with every button up the game has its input again");
++    hq_touch_open(&q, 0, 0, 0);
++    if (hq_touch_quit(&q) != HQ_QUIT || hq_touch_cancel(&q) != HQ_QUIT || hq_step(&q, 3, 0, 0, 1) != HQ_QUIT) FAIL("Quit is final");
++
++    q = (home_quit){0};
++    hq_touch_open(&q, 0, 1, 0);
++    if (hq_step(&q, 1, 0, 1, 0) != HQ_PROMPT) FAIL("an A held when the menu opened the prompt does not quit");
++    hq_step(&q, 1.1, 0, 0, 0);
++    if (hq_step(&q, 1.2, 0, 1, 0) != HQ_QUIT) FAIL("a new A quits, as in the Home prompt");
++
++    q = (home_quit){0};
++    hq_touch_open(&q, 0, 0, 1);
++    if (hq_step(&q, 1, 0, 0, 1) != HQ_PROMPT) FAIL("a B held when the menu opened the prompt does not close it");
++    hq_touch_cancel(&q);
++    if (hq_step(&q, 1.1, 0, 0, 1) != HQ_SETTLE || hq_step(&q, 1.2, 0, 0, 0) != HQ_IDLE) FAIL("after Cancel the game gets the controllers back once B is up");
++
++    q = (home_quit){0};
++    hq_step(&q, 0, 1, 0, 0);
++    if (hq_touch_open(&q, 1, 0, 0) != HQ_PROMPT) FAIL("the menu's Quit during a Home hold opens the prompt at once");
++    if (hq_step(&q, 0.5, 1, 0, 0) != HQ_PROMPT) FAIL("the Home still held does not close it");
++
++    q = (home_quit){0};
++    hq_step(&q, 0, 1, 0, 0); hq_step(&q, 2, 1, 0, 0); hq_touch_cancel(&q);
++    if (hq_touch_open(&q, 0, 0, 0) != HQ_SETTLE) FAIL("the menu's Quit while the prompt settles does not open it again");
++    if (hq_touch_cancel(&q) != HQ_SETTLE || hq_touch_quit(&q) != HQ_SETTLE) FAIL("Cancel and Quit do nothing with no prompt open");
++    q = (home_quit){0};
++    hq_touch_open(&q, 0, 0, 0); hq_cancel(&q);
++    if (q.phase != HQ_IDLE) FAIL("leaving the app closes the prompt the menu opened");
++}
++
++static void check_layout(const Screen *s, const Words *w) {
++    for (int glyphs = 0; glyphs < 2; glyphs++) {
++        NSString *title = @(w->title), *note = @(w->note), *quit = @(w->quit), *cancel = @(w->cancel);
++        qp_layout l = qp_layout_make(s->size, title, note, quit, cancel, glyphs);
++        CGRect b = {CGPointZero, s->size};
++        const char *n = s->name, *lang = w->lang;
++        if (!CGRectContainsRect(CGRectInset(b, 8, 8), l.card)) FAIL("%s %s: the card leaves the screen (%.0f x %.0f)", n, lang, l.card.size.width, l.card.size.height);
++        if (!CGRectContainsRect(l.card, l.quit) || !CGRectContainsRect(l.card, l.cancel) || !CGRectContainsRect(l.card, l.title) || !CGRectContainsRect(l.card, l.note)) FAIL("%s %s: a part leaves the card", n, lang);
++        if (l.quit.size.width != QP_ACTION_W * l.k || l.cancel.size.width != l.quit.size.width || l.cancel.size.height != l.quit.size.height) FAIL("%s %s: the pills are not one fixed width", n, lang);
++        if (CGRectIntersectsRect(l.quit, l.cancel) || CGRectGetMinY(l.quit) < CGRectGetMaxY(l.note)) FAIL("%s %s: the pills overlap", n, lang);
++        // every language's labels fit their pill at full size (the width is chosen for the longest, "Abbrechen")
++        CGFloat room = qp_label_room(l.k, glyphs);
++        if (l.labelSize[0] != 22 * l.k || l.labelSize[1] != 22 * l.k) FAIL("%s %s: a label had to shrink (%.1f %.1f, room %.0f)", n, lang, l.labelSize[0], l.labelSize[1], room);
++        if (qp_hit(&l, CGPointMake(CGRectGetMidX(l.quit), CGRectGetMidY(l.quit))) != QP_HIT_QUIT) FAIL("%s %s: a tap on Quit", n, lang);
++        if (qp_hit(&l, CGPointMake(CGRectGetMidX(l.cancel), CGRectGetMidY(l.cancel))) != QP_HIT_CANCEL) FAIL("%s %s: a tap on Cancel", n, lang);
++        if (qp_hit(&l, CGPointMake(CGRectGetMidX(l.title), CGRectGetMidY(l.title))) != QP_HIT_NONE) FAIL("%s %s: a tap on the title does something", n, lang);
++        if (qp_hit(&l, CGPointMake(4, 4)) != QP_HIT_OUTSIDE || qp_hit(&l, CGPointMake(s->size.width - 4, s->size.height - 4)) != QP_HIT_OUTSIDE) FAIL("%s %s: a tap outside the card does not cancel", n, lang);
++        if (l.k < 0.45) FAIL("%s %s: the prompt is too small to read (k %.2f)", n, lang, l.k);
++    }
++}
++
++// ---- Capture ----
++static void capture(const char *dir, const Screen *s, const Words *w, int prompt) {
++    CGFloat scale = 2; size_t W = (size_t)(s->size.width * scale), H = (size_t)(s->size.height * scale);
++    CGColorSpaceRef cs = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
++    CGContextRef c = CGBitmapContextCreate(NULL, W, H, 8, 0, cs, (CGBitmapInfo)kCGImageAlphaPremultipliedLast);
++    CGContextTranslateCTM(c, 0, H); CGContextScaleCTM(c, scale, -scale);   // y down, as UIKit
++    CGFloat comps[] = {0.20, 0.24, 0.30, 1, 0.11, 0.13, 0.12, 1}, locs[] = {0, 1};
++    CGGradientRef gr = CGGradientCreateWithColorComponents(cs, comps, locs, 2);
++    CGContextDrawLinearGradient(c, gr, CGPointZero, CGPointMake(0, s->size.height), 0); CGGradientRelease(gr);
++    CGRect b = {CGPointZero, s->size};
++    if (prompt) {
++        NSString *title = @(w->title), *note = @(w->note), *quit = @(w->quit), *cancel = @(w->cancel);
++        qp_layout l = qp_layout_make(s->size, title, note, quit, cancel, 0);
++        CALayer *root = [CALayer layer]; root.frame = b; root.geometryFlipped = YES;
++        [root addSublayer:qp_prompt_layer(b, &l, title, note, quit, cancel, NULL, NULL, scale, NULL)];
++        [root renderInContext:c];   // the context is y down: a flipped root draws its text upright in it
++    }
++    CGImageRef img = CGBitmapContextCreateImage(c);
++    NSBitmapImageRep *rep = [[NSBitmapImageRep alloc] initWithCGImage:img];
++    NSString *path = [NSString stringWithFormat:@"%s/quit-%s-%s.png", dir, s->name, w->lang];
++    [[rep representationUsingType:NSBitmapImageFileTypePNG properties:@{}] writeToFile:path atomically:YES];
++    CGImageRelease(img); CGContextRelease(c); CGColorSpaceRelease(cs);
++}
++
++int main(void) {
++    @autoreleasepool {
++        const Screen screens[] = {
++            {"iphone-se", {667, 375}},
++            {"iphone", {852, 393}},
++            {"iphone-pro-max", {932, 430}},
++            {"ipad-mini", {1133, 744}},
++            {"ipad-pro-13", {1376, 1032}},
++            {"portrait-390", {390, 844}},
++            {"portrait-320", {320, 568}},
++            {"duo-inner", {951, 669}},
++        };
++        int ns = (int)(sizeof screens / sizeof *screens), nw = (int)(sizeof k_words / sizeof *k_words);
++        check_states();
++        for (int i = 0; i < ns; i++) for (int j = 0; j < nw; j++) check_layout(&screens[i], &k_words[j]);
++        // a label longer than any language's is made smaller, never wider than its pill
++        qp_layout l = qp_layout_make(CGSizeMake(852, 393), @"Quit?", @"", @"Quit this game right now", @"Cancel", 1);
++        if (!(l.labelSize[0] < 22 * l.k) || l.labelSize[0] < 22 * l.k * 0.7 - 0.01 || l.quit.size.width != QP_ACTION_W * l.k) FAIL("a long label: %.1f", l.labelSize[0]);
++        const char *dir = getenv("QP_CAPTURE_DIR");
++        if (dir && *dir)
++            for (int j = 0; j < nw; j++) {
++                capture(dir, &screens[1], &k_words[j], 1);
++                if (j == 0) { capture(dir, &screens[0], &k_words[j], 1); capture(dir, &screens[3], &k_words[j], 1); }
++            }
++        if (!g_fail) printf("ok: %d screens, %d languages\n", ns, nw);
++    }
++    return g_fail > 100 ? 100 : g_fail;
++}
+diff --git a/dm/ios/tests/test_quit_prompt.py b/dm/ios/tests/test_quit_prompt.py
+new file mode 100644
+index 0000000..3f409e9
+--- /dev/null
++++ b/dm/ios/tests/test_quit_prompt.py
+@@ -0,0 +1,37 @@
++"""The iOS quit prompt (dm/ios/Sources/quit_prompt.h), built and run on the Mac.
++
++quit_prompt/quit_prompt_check.m runs the touch steps of the quit state machine (a tap on the quit control opens the prompt, Cancel or a
++tap outside closes it, Quit is final, a controller button already held when it opens does not count), and lays the prompt out on the
++iPhone, iPad and iPhone Duo screens in the six languages of the launchers: the card stays on the screen, the two pills keep one fixed
++width whatever the language and every label fits at full size, and a tap lands where it should. Core Animation and Core Text only, so
++no simulator is needed. QP_CAPTURE_DIR=<dir> also draws the prompt to PNGs.
++"""
++import os
++import shutil
++import subprocess
++import sys
++import tempfile
++import unittest
++from pathlib import Path
++
++IOS = Path(__file__).resolve().parents[1]
++HERE = Path(__file__).resolve().parent
++
++
++@unittest.skipUnless(sys.platform == "darwin" and shutil.which("clang"), "needs clang and the Mac's Core Animation")
++class QuitPromptTests(unittest.TestCase):
++    def test_states_layout_and_hits(self):
++        with tempfile.TemporaryDirectory() as tmp:
++            exe = Path(tmp) / "quit_prompt_check"
++            subprocess.run(["clang", "-x", "objective-c", "-fobjc-arc", "-Wall", "-Werror", "-Wno-unused-function",
++                            "-I", str(IOS / "Sources"), "-I", str(IOS.parent / "host"),
++                            str(HERE / "quit_prompt" / "quit_prompt_check.m"),
++                            "-framework", "Foundation", "-framework", "AppKit", "-framework", "QuartzCore", "-framework", "CoreText",
++                            "-o", str(exe)], check=True)
++            run = subprocess.run([str(exe)], capture_output=True, text=True, env=os.environ)
++            self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
++            self.assertIn("ok:", run.stdout)
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
+index 37cdd22..772479e 100644
+--- a/docs/env_switches.tsv
++++ b/docs/env_switches.tsv
+@@ -74,7 +74,7 @@ DM_HID_MAP	switch	`=<map>` such as `A=1,B=2,X=4,Y=5`: which HID button usage pre
+ DM_HID_PADS	switch	`0` stops reading raw HID gamepads that GameController does not list, such as an 8BitDo in its own mode (`pad_hid_mac.h`); Mac only
+ DM_HITCH_DUMP	diagnostic	`=<ms>[:<s>]`: when no frame has been presented for that long (from s seconds on), logs every guest thread once per stall: wait, last SVC, pc, lr, frames and registers
+ DM_HLECOUNT	diagnostic	`=<file>` (`%d` = process ID) writes at exit a TSV of how many times the guest called each HLE function, zero counts included
+-DM_HOME_QUIT	player	`0` turns off quitting with the controller's Home button (Mac, on by default): held for 2 s it opens a quit prompt over the game, A quits as ⌘Q does, B or Home closes it (`home_quit.h`)
++DM_HOME_QUIT	player	`0` turns off quitting with the controller's Home button (Mac and iOS, on by default): held for 2 s it opens a quit prompt over the game, A quits as ⌘Q does (on iOS the app closes after the cloud saves went out, as Quit in the in-game menu does), B or Home closes it (`home_quit.h`, `quit_prompt.h`)
+ DM_HOME_QUIT_CAPTURE	test	`=<folder>`: `tests/t_home_quit_mac.m` also draws the Home button's quit prompt and hold indicator into PNG files there
+ DM_HOME_QUIT_TEXT	switch	The texts of the Home button's quit prompt in the player's language, one per line: the hold indicator, the title, the note, the quit and the cancel button; a front end such as NX2Apple sets it ([Starting a game](frontends.md#starting-a-game)), an empty or missing line keeps the English text
+ DM_HTML	path	Folder of the offline HTML pages (default: `html` beside the RomFS)

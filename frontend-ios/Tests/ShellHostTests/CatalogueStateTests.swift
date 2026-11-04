@@ -126,6 +126,21 @@ import ShellUI
         #expect(DataLocator.locate(manifest: m, picked: .url(img), appFolder: app).url == img.deletingLastPathComponent())
     }
 
+    @Test func theShellFolderBacksTheGameAndSaysSo() throws {
+        let box = try Sandbox()
+        let m = try manifest()
+        let app = box.appData.appendingPathComponent(Fixtures.orbit)
+        let shared = box.root.appendingPathComponent("Drive/All", isDirectory: true)
+        try box.write("", to: shared.appendingPathComponent("fixture.marker"))
+        let r = DataLocator.locate(manifest: m, picked: .none, appFolder: app, global: .url(shared))
+        #expect(r.source == .shell && r.url == shared)
+        let own = box.root.appendingPathComponent("Drive/Own", isDirectory: true)
+        try box.write("", to: own.appendingPathComponent("fixture.marker"))
+        #expect(DataLocator.locate(manifest: m, picked: .url(own), appFolder: app, global: .url(shared)).source == .picked)
+        try box.giveAppData()
+        #expect(DataLocator.locate(manifest: m, picked: .none, appFolder: app, global: .stale).source == .app)
+    }
+
     @Test func staleBookmarkIsReported() throws {
         let box = try Sandbox()
         let r = DataLocator.locate(manifest: try manifest(), picked: .stale, appFolder: box.appData.appendingPathComponent(Fixtures.orbit))

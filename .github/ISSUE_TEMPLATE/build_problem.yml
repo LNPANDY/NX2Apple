@@ -40,7 +40,7 @@ body:
     id: buildlog
     attributes:
       label: Build log
-      description: In the launcher, the Builds page > Build log. Paste the whole log, or attach it as a file if it is long.
+      description: In the launcher, the Builds page > Build log. Attach the whole log as a file (drag the file into this box). Paste it only when it is short. A pasted text can hold at most 65,536 characters in total.
       render: text
     validations:
       required: true

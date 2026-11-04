@@ -13,11 +13,14 @@ written once and runs everywhere Python and Qt do.
 |---|---|---|
 | Platforms | macOS 13+ | Windows 10+, macOS 11+ |
 | Language | Swift | Python 3.9+ |
-| Strings | `Localization.swift` | generated from that same file |
+| Strings | `l10n/*.json`, read by `LocalizationFiles.swift` | the same files, read by `nspb_qt/l10n.py` |
 | Build logic | runs the Python scripts | runs the same scripts |
 
-The strings are **generated** from the SwiftUI table (`gen_localization.py`), so the two front
-ends cannot drift apart: edit `Localization.swift`, run the generator.
+The strings are **read** from `../frontend/l10n/<code>.json`, one file per language, so the two front
+ends cannot drift apart: a new string is a line in `en.json` and in `zh.json`. The language list comes
+from the files too (`Lang.all()`, each language's own name and the locale names that select it,
+Windows ones such as `german` included, are in its `_language` entry), so a new language is one new file
+and no change here. A frozen build carries the folder as `l10n` (`build-qt.yml` adds it with `--add-data`).
 
 ## Run it
 
@@ -51,15 +54,20 @@ the bundle's `fonts` folder (`build-qt.yml`). If the file is missing the system 
   the RomFS archive and reports where the IPA and archive landed.
 - `--work-dir` is passed only when the checkout's script declares it (an upstream checkout has
   no such option — issue #5).
-- Bilingual: Chinese on Chinese devices, English elsewhere, and the header button switches.
+- Languages: every language that has a file in `frontend/l10n` (today Chinese, Swedish, German and French)
+  on devices in that language, English elsewhere, and the header button cycles through them.
 
 ## What is not there yet
 
-- **The Windows build path has run on a real Windows machine** — a handheld PC, which is where the
-  bug reports came from — through repository download, git auto-install and the LLVM / SDK / .NET
-  downloads. The compile, link, `Metal` compile and the final IPA on Windows have still not been
-  exercised end to end against a genuine LLVM-MinGW + iPhoneOS SDK + Metal Developer Tools
-  install. See [Windows build → Open risks](#open-risks).
+- **The Windows build path remains experimental.** One Rhythm Heaven Groove 1.0.0 IPA built on
+  Windows installed and launched on an iPhone Air running iOS 27.0.1; Play started the game, and the
+  button mappings were correct. That IPA needed three local changes beyond this branch:
+  seedds/nxnative#591 (the Windows image reader), an updated `dmsh_chain.lock` with a regenerated
+  `DMSH_CHAIN` for this machine's SPIRV-Cross and Metal tools, and a two-line declaration of
+  `CMMotionManager.deviceMotionBody` because the Windows toolchain still ships `iPhoneOS26.0.sdk`.
+  SDK symlinks were materialized by hand. The current unmodified frontend is not yet verified end
+  to end; other games and longer-term performance remain unverified. See
+  [Windows build → Open risks](#open-risks).
 - No self-update. Repository download and update buttons do exist (`Download repository`,
   `Check for updates`, `Pull updates`), and they log what git is doing.
 - No per-stage progress bar, no cancel-with-cleanup (cancel terminates the child).
@@ -73,9 +81,8 @@ nspb_qt/
   ui.py             the window
   platform_util.py  per-OS paths, tool discovery, child environment
   i18n.py           language choice
-  localization.py   generated from ../frontend/Sources/NSPortBuilder/Localization.swift
+  l10n.py           the texts, read from ../frontend/l10n/*.json (the SwiftUI app reads the same files)
   win/              the Windows build path; imported only when sys.platform is win32
-gen_localization.py regenerates localization.py
 tests/test_win.py   the Windows-path tests that can run on macOS
 ```
 
@@ -265,9 +272,9 @@ the tool offers it. The IPA name and the RomFS archive come out where the macOS 
 
 ## Open risks
 
-The app's own toolchain discovery, downloads and repository handling have now run on a real
-Windows machine (a handheld PC). These are the parts that still have not, and that only a full
-build on Windows plus a device run can settle:
+The frontend's setup has run on Windows, and one locally patched Windows build installed, launched
+and started the game on an iPhone. That test does not settle these risks
+for other games or for an unmodified checkout:
 
 1. **Shader libraries on the device.** They come from the Windows Metal compiler, not Xcode's.
    They must load and render on iOS 26+ (`newLibraryWithURL`). `own_compilers.py` accepts a

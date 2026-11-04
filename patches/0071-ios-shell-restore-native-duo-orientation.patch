@@ -1,0 +1,107 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jon Ochocki <24785922+jonochocki@users.noreply.github.com>
+Date: Wed, 4 Nov 2026 03:00:03 +0000
+Subject: [PATCH] iOS shell: restore native Duo rotation without portrait phone
+ gameplay
+
+The shell retained UIRequiresFullScreen from the fixed-size game template,
+which puts Duo back into orientation compatibility behavior. Remove that
+opt-out and keep the library portrait-capable. Once a game has loaded, the
+shell's application (iOS 26) and scene (iOS 27+) delegates restrict phone
+gameplay to landscape. UIKit still rotates the Duo inner display natively,
+and iPad keeps all orientations and resizable windows.
+
+Cover the shell template in the existing orientation policy test and assert
+the generated app's declarations in the shell build test. Gameplay geometry,
+controls, rendering and game data are unchanged.
+
+Upstream-Status: fork-only
+Reason: the multi-game shell and its portrait browsing policy are fork-only (patch 0050)
+Issue: LNPANDY/NX2Apple#230
+---
+ dm/ios/Shell/ShellMain.m                | 11 +++++++++++
+ dm/ios/project-shell.yml                |  1 -
+ dm/ios/tests/test_orientation_policy.py |  9 +++++----
+ dm/ios/tests/test_shell_build.py        |  5 +++++
+ 4 files changed, 21 insertions(+), 5 deletions(-)
+
+diff --git a/dm/ios/Shell/ShellMain.m b/dm/ios/Shell/ShellMain.m
+index 0cb8cdd..77d7ca3 100644
+--- a/dm/ios/Shell/ShellMain.m
++++ b/dm/ios/Shell/ShellMain.m
+@@ -119,7 +119,15 @@ int dm_locate_game_data(void) {
+ 
+ @interface App : UIResponder <UIApplicationDelegate>
+ @end
++// Browsing may be portrait; phone gameplay stays landscape. UIKit manages unrestricted rotation on the Duo inner display.
++static UIInterfaceOrientationMask shell_orientations(UITraitCollection *traits) {
++    if (traits.userInterfaceIdiom != UIUserInterfaceIdiomPhone) return UIInterfaceOrientationMaskAll;
++    return g_boot_ok ? UIInterfaceOrientationMaskLandscape : UIInterfaceOrientationMaskAllButUpsideDown;
++}
+ @implementation App
++- (UIInterfaceOrientationMask)application:(UIApplication *)application supportedInterfaceOrientationsForWindow:(UIWindow *)window {
++    return shell_orientations(window.traitCollection);   // iOS 26
++}
+ - (UISceneConfiguration *)application:(UIApplication *)a configurationForConnectingSceneSession:(UISceneSession *)s options:(UISceneConnectionOptions *)o {
+     return [[UISceneConfiguration alloc] initWithName:@"Default" sessionRole:s.role];
+ }
+@@ -129,6 +137,9 @@ @interface SceneDelegate : UIResponder <UIWindowSceneDelegate>
+ @property (strong, nonatomic) UIWindow *window;
+ @end
+ @implementation SceneDelegate
++- (UIInterfaceOrientationMask)supportedInterfaceOrientationsForWindowScene:(UIWindowScene *)windowScene {
++    return shell_orientations(windowScene.traitCollection);   // iOS 27 and later
++}
+ - (void)scene:(UIScene *)scene willConnectToSession:(UISceneSession *)session options:(UISceneConnectionOptions *)o {
+     self.window = [[UIWindow alloc] initWithWindowScene:(UIWindowScene *)scene];
+     self.window.rootViewController = [ShellLibrary makeController];
+diff --git a/dm/ios/project-shell.yml b/dm/ios/project-shell.yml
+index 6ff2abd..92a36e8 100644
+--- a/dm/ios/project-shell.yml
++++ b/dm/ios/project-shell.yml
+@@ -65,7 +65,6 @@ targets:
+           - UIInterfaceOrientationPortraitUpsideDown
+           - UIInterfaceOrientationLandscapeRight
+           - UIInterfaceOrientationLandscapeLeft
+-        UIRequiresFullScreen: true
+         UIUserInterfaceStyle: Dark
+         LSApplicationCategoryType: public.app-category.games
+         DMShowFPS: false
+diff --git a/dm/ios/tests/test_orientation_policy.py b/dm/ios/tests/test_orientation_policy.py
+index b3d0652..fae5f00 100644
+--- a/dm/ios/tests/test_orientation_policy.py
++++ b/dm/ios/tests/test_orientation_policy.py
+@@ -10,12 +10,13 @@ class OrientationPolicyTests(unittest.TestCase):
+     def test_phone_landscape_and_ipad_resizing(self):
+         landscape = {"UIInterfaceOrientationLandscapeLeft", "UIInterfaceOrientationLandscapeRight"}
+         all_orientations = landscape | {"UIInterfaceOrientationPortrait", "UIInterfaceOrientationPortraitUpsideDown"}
+-        for project in (IOS / "project.yml", IOS / "tests/duo/project.yml"):
++        for project in (IOS / "project.yml", IOS / "tests/duo/project.yml", IOS / "project-shell.yml"):
+             source = project.read_text()
+-            for key, expected in (("UISupportedInterfaceOrientations", landscape),
++            phone = landscape | {"UIInterfaceOrientationPortrait"} if project.name == "project-shell.yml" else landscape
++            for key, expected in (("UISupportedInterfaceOrientations", phone),
+                                   ("UISupportedInterfaceOrientations~ipad", all_orientations)):
+-                with self.subTest(project=project.name, key=key):
+-                    match = re.search(r"^        " + re.escape(key) + r":\n((?:          - .*\n)+)", source, re.MULTILINE)
++                with self.subTest(project=str(project.relative_to(IOS)), key=key):
++                    match = re.search(r"^        " + re.escape(key) + r":[^\n]*\n((?:          - .*\n)+)", source, re.MULTILINE)
+                     assert match is not None, f"Missing orientation array: {key}"
+                     self.assertEqual(set(re.findall(r"- (\w+)", match[1])), expected)
+             self.assertNotIn("UIRequiresFullScreen:", source)
+diff --git a/dm/ios/tests/test_shell_build.py b/dm/ios/tests/test_shell_build.py
+index 042513f..a2d527c 100644
+--- a/dm/ios/tests/test_shell_build.py
++++ b/dm/ios/tests/test_shell_build.py
+@@ -154,6 +154,11 @@ class ShellBuild(unittest.TestCase):
+         info = plistlib.loads((app / 'Info.plist').read_bytes())
+         self.assertEqual(info['CFBundleDisplayName'], 'Shell Fixture')
+         self.assertEqual(info['CFBundleIdentifier'], 'org.nxnative.ci.shell')
++        self.assertNotIn('UIRequiresFullScreen', info)
++        landscape = {'UIInterfaceOrientationLandscapeLeft', 'UIInterfaceOrientationLandscapeRight'}
++        self.assertEqual(set(info['UISupportedInterfaceOrientations']), landscape | {'UIInterfaceOrientationPortrait'})
++        self.assertEqual(set(info['UISupportedInterfaceOrientations~ipad']),
++                         landscape | {'UIInterfaceOrientationPortrait', 'UIInterfaceOrientationPortraitUpsideDown'})
+         self.assertEqual('b-' + info['DMChain'], CHAIN)
+         self.assertEqual(info['CFBundleIcons']['CFBundlePrimaryIcon']['CFBundleIconName'], 'AppIcon')   # frontend-ios/AppIcon.icon
+         self.assertTrue((app / 'Assets.car').is_file())

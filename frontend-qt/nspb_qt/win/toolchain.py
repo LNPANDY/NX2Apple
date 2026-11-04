@@ -610,14 +610,56 @@ def sdk_cache_dir() -> Path:
     return base / 'NS Port Builder' / 'sdks'
 
 
+def repair_tbd_stubs(sdk: Path | str, log=None) -> int:
+    """Fix `.tbd` files that a Windows git checkout left as text stubs, without git.
+
+    An SDK downloaded through a git route before the symlink materialization (or copied from a
+    broken checkout) keeps every symlink `.tbd` as a small text file naming its target
+    (`libSystem.tbd` → `libSystem.B.tbd`). `ld64.lld` opens it, finds no `--- !tapi-tbd`, and
+    refuses: "unhandled file type" (LNPANDY/NX2Apple PR #596 fixed the clone route; cached SDKs
+    from before it still carry the stubs). Content-keyed repair: a `.tbd` that does not start
+    with the format's `--- !tapi-tbd` marker and names an existing sibling file gets that
+    sibling's bytes copied over it. Real TBD files and dangling stubs are never touched.
+    Returns how many were repaired.
+    """
+    fixed = 0
+    for p in sorted(Path(sdk).rglob('*.tbd')):
+        if not p.is_file() or p.is_symlink():
+            continue
+        if p.read_bytes()[:13] == b'--- !tapi-tbd':
+            continue
+        target = p.read_text(encoding='utf-8', errors='replace').strip()
+        if not target or '/' in target or '\\' in target or target.startswith('.'):
+            continue
+        real = (p.parent / target).resolve()
+        if not real.is_file() or real.resolve() == p.resolve():
+            continue
+        if real.read_bytes()[:13] != b'--- !tapi-tbd':
+            continue
+        p.write_bytes(real.read_bytes())
+        fixed += 1
+        if log:
+            log(f'repaired {p.name} ← {target}')
+    return fixed
+
+
+_TBD_REPAIRED = False
+
 def ios_sdk() -> Path | None:
     """The `iPhoneOS<ver>.sdk` folder: a directory with `SDKSettings.json` and stub libraries.
 
     Accepting only a folder that looks like an SDK keeps a stale or half-extracted download from
     being reported as `ok` and then failing deep inside the build.
     """
+    global _TBD_REPAIRED
     for p in _sdk_candidates():
         if is_sdk_dir(p):
+            if not _TBD_REPAIRED:
+                _TBD_REPAIRED = True
+                try:      # a cached SDK from a pre-fix git route carries text stubs; fix once
+                    repair_tbd_stubs(p)
+                except OSError:
+                    pass
             return p
     return None
 
@@ -893,7 +935,7 @@ def ascii_temp_dir(prefix: str = 'nspb-'):
         if not base or not ok(base):
             continue
         try:
-            Path(base).mkdir(parents=True, exist_ok=True)
+            os.makedirs(base, exist_ok=True)
             return _tf.TemporaryDirectory(prefix=prefix, dir=base)
         except OSError:
             continue
@@ -902,7 +944,7 @@ def ascii_temp_dir(prefix: str = 'nspb-'):
     # it says.
     default = tempfile.gettempdir()
     try:
-        Path(default).mkdir(parents=True, exist_ok=True)
+        os.makedirs(default, exist_ok=True)
     except OSError:
         pass
     return _tf.TemporaryDirectory(prefix=prefix, dir=default)
@@ -986,8 +1028,11 @@ def probe_link(sdk: Path, t=None) -> tuple[bool, str]:
     # Step 0: run the linker by itself. A silent clang failure (the report: exit 1, no output on
     # either stream) cannot say whether the linker is broken or clang's drive of it is, and the
     # two have different fixes. lld --version is the smallest probe that separates them.
-    v = subprocess.run([str(lld), '--version'], capture_output=True, text=True, timeout=60,
-                       **no_window())
+    try:
+        v = subprocess.run([str(lld), '--version'], capture_output=True, text=True, timeout=60,
+                           **no_window())
+    except OSError as e:
+        return False, f'cannot run {lld.name}: {e}'
     lld_self = (v.stdout or v.stderr or '').strip().splitlines()
     lld_line = lld_self[0] if lld_self else f'exit {v.returncode}, no output'
     if v.returncode != 0:

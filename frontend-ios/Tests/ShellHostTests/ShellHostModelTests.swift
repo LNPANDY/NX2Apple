@@ -30,6 +30,185 @@ final class Clock: @unchecked Sendable { var date: Date; init(_ d: Date) { date 
         try detail(model, game).sections.flatMap(\.rows).first { $0.id == setting }?.value
     }
 
+    @Test func theTouchSizeReachesEveryGameAsDMTouchSize() async throws {
+        let box = try Sandbox()
+        try box.giveAppData()
+        let shell = shellSettings()
+        let launcher = RecordingLauncher()
+        let model = ShellHostModel(config: box.config(), launcher: launcher, shellSettings: shell)
+        await model.playNow(Fixtures.orbit)
+        #expect(launcher.launched.last?.environment["DM_TOUCH_SIZE"] == nil, "medium is the engine's own size")
+        shell.storeTouchSize("large")
+        await model.playNow(Fixtures.orbit)
+        #expect(launcher.launched.last?.environment["DM_TOUCH_SIZE"] == "large")
+        #expect(try !detail(model).hasModifiedSettings, "a shell setting is not a change in this game")
+        shell.storeTouchSize("medium")
+        await model.playNow(Fixtures.orbit)
+        #expect(launcher.launched.last?.environment["DM_TOUCH_SIZE"] == nil)
+        shell.storeTouchStick("higher")
+        await model.playNow(Fixtures.orbit)
+        #expect(launcher.launched.last?.environment["DM_TOUCH_STICK"] == "higher")
+        #expect(launcher.launched.last?.environment["DM_TOUCH_LAYOUT"] == nil, "no arrangement: nothing is passed")
+        var layout = TouchLayout()
+        layout[.threeD, .face] = TouchLayout.Offset(dx: -2, dy: -1)
+        shell.storeTouchLayout(layout)
+        await model.playNow(Fixtures.orbit)
+        #expect(launcher.launched.last?.environment["DM_TOUCH_LAYOUT"] == "1;3d/face:-2,-1")
+        shell.resetTouchLayout(.threeD)
+        await model.playNow(Fixtures.orbit)
+        #expect(launcher.launched.last?.environment["DM_TOUCH_LAYOUT"] == nil, "reset: the engine's built-in layout")
+    }
+
+    /// The engine draws the right-stick hint's words as they come (patch 0067), so the shell hands them over in the player's language.
+    @Test func everyGameGetsTheRightStickHintInThePlayersLanguage() async throws {
+        let box = try Sandbox()
+        try box.giveAppData()
+        let launcher = RecordingLauncher()
+        let model = ShellHostModel(config: box.config(), launcher: launcher, shellSettings: shellSettings())
+        await model.playNow(Fixtures.orbit)
+        let hint = try #require(launcher.launched.last?.environment["DM_TOUCH_HINT"])
+        #expect(hint == ShellHostModel.touchHint && !hint.isEmpty)
+    }
+
+    /// The quit prompt's words reach the engine with the game's name in the title, five lines in home_quit.h's order (patch 0068): the
+    /// engine draws the prompt when Quit is picked in the in-game menu or Home is held.
+    @Test func everyGameGetsTheQuitPromptInThePlayersLanguage() async throws {
+        let box = try Sandbox()
+        try box.giveAppData()
+        let launcher = RecordingLauncher()
+        let model = ShellHostModel(config: box.config(), launcher: launcher, shellSettings: shellSettings())
+        await model.playNow(Fixtures.orbit)
+        let text = try #require(launcher.launched.last?.environment["DM_HOME_QUIT_TEXT"])
+        let lines = text.components(separatedBy: "\n")
+        let name = try #require(launcher.launched.last?.name)
+        #expect(lines.count == 5 && lines.allSatisfy { !$0.isEmpty } && lines[1].contains(name))
+    }
+
+    /// #620: Exit Game closes the app and iOS does not let it start itself again, so the prompt's note says the player opens it again to get back.
+    @Test func theQuitPromptNoteSaysTheAppClosesAndMustBeOpenedAgain() {
+        let note = ShellHostModel.quitPromptText(gameName: "Orbit").components(separatedBy: "\n")[2]
+        #expect(note.contains("The app closes.") && note.contains("Open it again"), "\(note)")
+    }
+
+    /// The prompt's texts in every language: no semicolon, no line break (one text per line in DM_HOME_QUIT_TEXT), the title keeps the game's name.
+    @Test func theQuitPromptTextsFollowTheTextRules() throws {
+        let l10n = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("frontend/l10n")
+        let keys = ["ios.host.quitHold", "ios.host.quitTitle", "ios.host.quitNote", "ios.host.quitButton", "ios.host.quitCancel"]
+        for file in try FileManager.default.contentsOfDirectory(at: l10n, includingPropertiesForKeys: nil) where file.pathExtension == "json" {
+            let strings = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
+            for key in keys {
+                let text = try #require(strings[key] as? String, "\(file.lastPathComponent) lacks \(key)")
+                #expect(!text.contains(";") && !text.contains("；") && !text.contains("\n"), "\(file.lastPathComponent) \(key): \(text)")
+            }
+            #expect((strings["ios.host.quitTitle"] as? String)?.contains("%@") == true, "\(file.lastPathComponent): the title names the game")
+        }
+    }
+
+    /// Every language's words fit the right third of a small phone (the engine's test gives them about 30 characters) and follow
+    /// the text rules: no semicolon, no line break.
+    @Test func theRightStickHintIsShortInEveryLanguage() throws {
+        let l10n = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("frontend/l10n")
+        for file in try FileManager.default.contentsOfDirectory(at: l10n, includingPropertiesForKeys: nil) where file.pathExtension == "json" {
+            let strings = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any]
+            guard let hint = strings?["ios.host.touchHint"] as? String else { continue }
+            #expect(hint.count <= 30 && !hint.contains(";") && !hint.contains("；") && !hint.contains("\n"), "\(file.lastPathComponent): \(hint)")
+        }
+    }
+
+    @Test func padOverridesPersistMergeAndReset() async throws {
+        let box = try Sandbox()
+        try box.giveAppData()
+        let shell = shellSettings()
+        let launcher = RecordingLauncher()
+        let model = ShellHostModel(config: box.config(), launcher: launcher, shellSettings: shell)
+        func row(_ id: String) throws -> SettingRow {
+            try #require(detail(model).sections.flatMap(\.rows).first { $0.id == id })
+        }
+        #expect(try row("pad.A").fromShell && row("pad.swapAB").value == "follow")
+        await model.playNow(Fixtures.orbit)
+        #expect(launcher.launched.last?.environment["DM_PAD_MAP"] == nil)
+        model.actions.onGlobalPadMapChange("swapAB", "1")
+        #expect(model.globalPadMap.swapAB)
+        #expect(try !detail(model).hasModifiedSettings)
+        // The game's row follows: the card shows what all games send there (B), from the shell's map.
+        if case .choice(let options) = try row("pad.A").kind { #expect(options.first?.id == "follow" && options.first?.label == "Same as all games") }
+        #expect(try row("pad.A").value == "follow" && model.globalPadMap.output(for: "A") == "B")
+        await model.playNow(Fixtures.orbit)
+        #expect(launcher.launched.last?.environment["DM_PAD_MAP"] == "A=B,B=A")
+        model.actions.onChange(Fixtures.orbit, "pad.A", "Y")
+        let gameStore = GamePadMapStore(defaults: box.defaults(Fixtures.orbit))
+        #expect(gameStore.entries == ["A": "Y"] && gameStore.swapValue == "custom")
+        #expect(try !row("pad.A").fromShell && row("pad.B").fromShell && detail(model).hasModifiedSettings)
+        await model.playNow(Fixtures.orbit)
+        #expect(launcher.launched.last?.environment["DM_PAD_MAP"] == "A=Y,B=A")
+        model.actions.onChange(Fixtures.orbit, "pad.swapAB", "off")
+        #expect(gameStore.entries == ["A": "A", "B": "B"])
+        await model.playNow(Fixtures.orbit)
+        #expect(launcher.launched.last?.environment["DM_PAD_MAP"] == nil)
+        let again = ShellHostModel(config: box.config(), shellSettings: shell)
+        #expect(try detail(again).hasModifiedSettings)
+        model.actions.onChange(Fixtures.orbit, "pad.X", "none")
+        model.actions.onChange(Fixtures.orbit, "pad.swapAB", "follow")
+        #expect(gameStore.entries == ["X": "none"])
+        await model.playNow(Fixtures.orbit)
+        #expect(launcher.launched.last?.environment["DM_PAD_MAP"] == "A=B,B=A,X=none")
+        #expect(GamePadMapStore(defaults: box.defaults(Fixtures.chain)).entries.isEmpty)
+        model.actions.onResetDefaults(Fixtures.orbit)
+        #expect(gameStore.entries.isEmpty)
+        #expect(try !detail(model).hasModifiedSettings && row("pad.X").fromShell)
+        model.actions.onGlobalPadMapReset()
+        #expect(model.globalPadMap.entries.isEmpty)
+        await model.playNow(Fixtures.orbit)
+        #expect(launcher.launched.last?.environment["DM_PAD_MAP"] == nil)
+    }
+
+    @Test func padRowsFollowGlobalChangesAndRejectInvalidValues() throws {
+        let box = try Sandbox()
+        let shell = shellSettings()
+        let model = ShellHostModel(config: box.config(), shellSettings: shell)
+        model.actions.onGlobalPadMapChange("X", "none")
+        for detail in model.details where detail.sections.contains(where: { $0.id == "pad" }) {
+            let row = try #require(detail.sections.flatMap(\.rows).first { $0.id == "pad.X" })
+            #expect(row.fromShell && row.value == "follow")
+            if case .choice(let options) = row.kind { #expect(options.map(\.id) == ["follow"] + PadMap.buttons + ["none"]) }
+        }
+        #expect(model.globalPadMap.output(for: "X") == "none")
+        let store = GamePadMapStore(defaults: box.defaults(Fixtures.orbit))
+        model.change(Fixtures.orbit, setting: "pad.unknown", value: "A")
+        model.change(Fixtures.orbit, setting: "pad.A", value: "bad")
+        #expect(store.entries.isEmpty)
+        model.change(Fixtures.orbit, setting: "pad.A", value: "A")
+        #expect(store.entries == ["A": "A"])
+        model.change(Fixtures.orbit, setting: "pad.A", value: "follow")
+        #expect(store.entries.isEmpty)
+        model.change(Fixtures.orbit, setting: "pad.swapAB", value: "on")
+        #expect(store.swapValue == "on")
+        // The mapping card's reset forgets the game's mapping only, not its other settings.
+        model.change(Fixtures.orbit, setting: PadMappingRows.resetID, value: "")
+        #expect(store.entries.isEmpty && store.swapValue == "follow")
+    }
+
+    @Test func profilePadMapRowWinsShellMapping() throws {
+        let box = try Sandbox()
+        let file = box.games.appendingPathComponent(Fixtures.orbit).appendingPathComponent("launcher.json")
+        var json = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
+        var settings = try #require(json["settings"] as? [[String: Any]])
+        settings.append(["env": "DM_PAD_MAP", "kind": "choice", "label": "Buttons", "note": "", "default": "X=Y",
+                         "options": [["X=Y", "Custom"], ["", "Default"]]])
+        json["settings"] = settings
+        try JSONSerialization.data(withJSONObject: json).write(to: file)
+        let profile = try LauncherProfile.parse(Data(contentsOf: file))
+        let shell = shellSettings()
+        shell.setPadSwapAB(true)
+        let model = ShellHostModel(config: box.config(), shellSettings: shell)
+        #expect(model.launchEnvironment(profile: profile, id: Fixtures.orbit)["DM_PAD_MAP"] == "X=Y")
+        #expect(try !detail(model).sections.contains { $0.id == "pad" })
+        model.change(Fixtures.orbit, setting: "DM_PAD_MAP", value: "")
+        #expect(model.launchEnvironment(profile: profile, id: Fixtures.orbit)["DM_PAD_MAP"] == "")
+    }
+
     @Test func buildsTilesAndDetailsFromTheBundles() throws {
         let box = try Sandbox()
         let model = ShellHostModel(config: box.config())
@@ -37,7 +216,7 @@ final class Clock: @unchecked Sendable { var date: Date; init(_ d: Date) { date 
         let orbit = try detail(model)
         #expect(orbit.game.title == "Orbit Fixture" && orbit.game.subtitle == "Version 1.0.0" && orbit.game.recentlyPlayed == nil)
         #expect(orbit.game.state == .needsGameData)
-        #expect(orbit.sections.map(\.title) == ["Game", "Performance"])
+        #expect(orbit.sections.map(\.title) == ["Game", "Performance", "Controller"])
         #expect(orbit.dataSource == "" && !orbit.dataNote.isEmpty)
         #expect(orbit.cloudSaves == nil && orbit.dlc == "No additional content")
         #expect(try detail(model, Fixtures.chain).game.state == .needsAppUpdate)
@@ -164,6 +343,204 @@ final class Clock: @unchecked Sendable { var date: Date; init(_ d: Date) { date 
         let orbit = try detail(ShellHostModel(config: box.config()))
         #expect(orbit.cloudSaves == nil && orbit.cloudNote.contains("choose it again"))
         #expect(orbit.dataNote.contains("no longer readable"))
+    }
+
+    private func shellSettings() -> ShellSettingsStore { ShellSettingsStore(defaults: UserDefaults(suiteName: "t-shell-\(UUID().uuidString)")!) }
+
+    /// The orbit fixture with a performance overlay row of its own, like a game whose list has `DM_METAL_HUD`.
+    private func giveOrbitAnOverlayRow(_ box: Sandbox) throws {
+        let url = box.games.appendingPathComponent(Fixtures.orbit).appendingPathComponent("launcher.json")
+        var json = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        var settings = try #require(json["settings"] as? [[String: Any]])
+        settings.append(["env": "DM_METAL_HUD", "kind": "toggle", "section": "Performance", "label": "Overlay", "note": "", "default": "0", "on": "1", "off": "0"])
+        json["settings"] = settings
+        try JSONSerialization.data(withJSONObject: json).write(to: url)
+    }
+
+    @Test func theShellOverlayChoiceReachesTheEngineUnlessTheGameChoseItself() async throws {
+        let box = try Sandbox()
+        try box.giveAppData()
+        try giveOrbitAnOverlayRow(box)
+        let shell = shellSettings()
+        shell.storePerformanceHUD(true)
+        let launcher = RecordingLauncher()
+        let model = ShellHostModel(config: box.config(), launcher: launcher, shellSettings: shell)
+        #expect(try value(model, "DM_METAL_HUD") == "1", "the page shows what the engine will get")
+        await model.playNow(Fixtures.orbit)
+        let first = try #require(launcher.launched.last)
+        #expect(first.environment["DM_METAL_HUD"] == "1")
+        let plan = EngineLaunchPlan.make(game: first, appResources: box.root, documents: box.root, envFileText: "DM_METAL_HUD=0\n")
+        #expect(plan.environment["DM_METAL_HUD"] == "1")
+        model.actions.onChange(Fixtures.orbit, "DM_METAL_HUD", "0")
+        #expect(try value(model, "DM_METAL_HUD") == "0")
+        await model.playNow(Fixtures.orbit)
+        #expect(launcher.launched.last?.environment["DM_METAL_HUD"] == "0", "the game's choice wins over the shell's")
+    }
+
+    @Test func aGameWithoutAnOverlayRowStillGetsTheShellChoice() async throws {
+        let box = try Sandbox()
+        try box.giveAppData()
+        let shell = shellSettings()
+        let launcher = RecordingLauncher()
+        let model = ShellHostModel(config: box.config(), launcher: launcher, shellSettings: shell)
+        await model.playNow(Fixtures.orbit)
+        #expect(launcher.launched.last?.environment["DM_METAL_HUD"] == nil, "no shell choice, nothing is set")
+        shell.storePerformanceHUD(false)
+        await model.playNow(Fixtures.orbit)
+        #expect(launcher.launched.last?.environment["DM_METAL_HUD"] == "0")
+    }
+
+    @Test func aChangedShellOverlayChoiceUpdatesTheDetails() throws {
+        let box = try Sandbox()
+        try giveOrbitAnOverlayRow(box)
+        let shell = shellSettings()
+        let model = ShellHostModel(config: box.config(), shellSettings: shell)
+        #expect(try value(model, "DM_METAL_HUD") == "0")
+        shell.storePerformanceHUD(true)
+        NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: nil)
+        #expect(try value(model, "DM_METAL_HUD") == "1")
+    }
+
+    @Test func theShellCloudFolderBacksAGameWithoutOne() async throws {
+        let box = try Sandbox()
+        try box.giveAppData()
+        let shared = box.root.appendingPathComponent("iCloud/Shared Saves", isDirectory: true)
+        let own = box.root.appendingPathComponent("iCloud/Own Saves", isDirectory: true)
+        for folder in [shared, own] { try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true) }
+        let shell = shellSettings()
+        let launcher = RecordingLauncher()
+        let model = ShellHostModel(config: box.config(), launcher: launcher, picker: FakePicker(url: shared), shellSettings: shell)
+        #expect(try detail(model).cloudSaves == nil)
+        await model.pickShellCloudNow()
+        #expect(shell.cloudSavesFolderName == "Shared Saves" && shell.cloudSavesBookmark != nil)
+        var orbit = try detail(model)
+        #expect(orbit.cloudSaves == "Shared Saves (from Settings)" && orbit.cloudFromShell)
+        #expect(try detail(model, Fixtures.chain).cloudSaves == "Shared Saves (from Settings)")
+        await model.playNow(Fixtures.orbit)
+        #expect(launcher.launched.last?.cloudSavesURL?.lastPathComponent == "Shared Saves")
+        // The game's own folder wins
+        let own2 = ShellHostModel(config: box.config(), launcher: launcher, picker: FakePicker(url: own), shellSettings: shell)
+        await own2.pickCloudSavesNow(Fixtures.orbit)
+        orbit = try detail(own2)
+        #expect(orbit.cloudSaves == "Own Saves" && !orbit.cloudFromShell)
+        await own2.playNow(Fixtures.orbit)
+        #expect(launcher.launched.last?.cloudSavesURL?.lastPathComponent == "Own Saves")
+        // Turning the game's folder off means off, though the shell has a folder
+        own2.actions.onDisableCloudSaves(Fixtures.orbit)
+        #expect(try detail(own2).cloudSaves == nil)
+    }
+
+    @Test func aGameCanTurnCloudSavesOffAndFollowTheShellFolderAgain() async throws {
+        let box = try Sandbox()
+        try box.giveAppData()
+        let shared = box.root.appendingPathComponent("iCloud/Shared Saves", isDirectory: true)
+        let own = box.root.appendingPathComponent("iCloud/Own Saves", isDirectory: true)
+        for folder in [shared, own] { try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true) }
+        let launcher = RecordingLauncher()
+        let shell = shellSettings()
+        let model = ShellHostModel(config: box.config(), launcher: launcher, picker: FakePicker(url: shared), shellSettings: shell)
+        #expect(try !detail(model).cloudCanUseShell, "no shell folder to follow")
+        await model.pickShellCloudNow()
+        model.actions.onDisableCloudSaves(Fixtures.orbit)
+        var orbit = try detail(model)
+        #expect(orbit.cloudSaves == nil && !orbit.cloudFromShell && orbit.cloudCanUseShell)
+        #expect(try detail(model, Fixtures.chain).cloudSaves == "Shared Saves (from Settings)", "another game is not affected")
+        await model.playNow(Fixtures.orbit)
+        #expect(launcher.launched.last?.cloudSavesURL == nil)
+        // The off choice survives a new session
+        let again = ShellHostModel(config: box.config(), launcher: launcher, shellSettings: shell)
+        #expect(try detail(again).cloudSaves == nil)
+        // Choosing a folder for the game clears it
+        let picking = ShellHostModel(config: box.config(), launcher: launcher, picker: FakePicker(url: own), shellSettings: shell)
+        await picking.pickCloudSavesNow(Fixtures.orbit)
+        orbit = try detail(picking)
+        #expect(orbit.cloudSaves == "Own Saves" && orbit.cloudCanUseShell)
+        await picking.playNow(Fixtures.orbit)
+        #expect(launcher.launched.last?.cloudSavesURL?.lastPathComponent == "Own Saves")
+        // Following the shell again
+        picking.actions.onUseShellCloud(Fixtures.orbit)
+        orbit = try detail(picking)
+        #expect(orbit.cloudSaves == "Shared Saves (from Settings)" && orbit.cloudFromShell && !orbit.cloudCanUseShell)
+        await picking.playNow(Fixtures.orbit)
+        #expect(launcher.launched.last?.cloudSavesURL?.lastPathComponent == "Shared Saves")
+        // Off with a game folder that the player picks later, and off again from the shell folder
+        picking.actions.onDisableCloudSaves(Fixtures.orbit)
+        picking.actions.onUseShellCloud(Fixtures.orbit)
+        #expect(try detail(picking).cloudFromShell)
+    }
+
+    @Test func theShellFoldersCanBeRemoved() async throws {
+        let box = try Sandbox()
+        try box.giveAppData()
+        let drive = box.root.appendingPathComponent("Drive/Switch", isDirectory: true)
+        try box.write("", to: drive.appendingPathComponent("fixture.marker"))
+        let shared = box.root.appendingPathComponent("iCloud/Shared Saves", isDirectory: true)
+        try FileManager.default.createDirectory(at: shared, withIntermediateDirectories: true)
+        let shell = shellSettings()
+        let model = ShellHostModel(config: box.config(), picker: FakePicker(url: shared), shellSettings: shell)
+        await model.pickShellCloudNow()
+        let data = ShellHostModel(config: box.config(), picker: FakePicker(url: drive), shellSettings: shell)
+        await data.pickShellDataNow()
+        #expect(shell.cloudSavesFolderName != nil && shell.cloudSavesBookmark != nil && shell.dataFolderName != nil && shell.dataBookmark != nil)
+        model.actions.onClearShellCloud()
+        #expect(shell.cloudSavesFolderName == nil && shell.cloudSavesBookmark == nil)
+        #expect(try detail(model).cloudSaves == nil && !detail(model).cloudCanUseShell)
+        #expect(shell.dataFolderName != nil, "the other folder stays")
+        model.actions.onClearShellData()
+        #expect(shell.dataFolderName == nil && shell.dataBookmark == nil)
+        #expect(try detail(model).game.state == .playable, "the app folder has the data")
+        #expect(try !detail(model).dataFromShell)
+    }
+
+    @Test func aRowShowsThatItsValueComesFromTheShellUntilTheGameChoosesItself() throws {
+        let box = try Sandbox()
+        try box.giveAppData()
+        try giveOrbitAnOverlayRow(box)
+        let shell = shellSettings()
+        let model = ShellHostModel(config: box.config(), shellSettings: shell)
+        func row() throws -> SettingRow { try #require(detail(model).sections.flatMap(\.rows).first { $0.id == "DM_METAL_HUD" }) }
+        #expect(try !row().fromShell, "the shell has no choice")
+        shell.storePerformanceHUD(true)
+        model.refreshAll()
+        #expect(try row().fromShell && row().value == "1")
+        #expect(try !detail(model).hasModifiedSettings)
+        model.actions.onChange(Fixtures.orbit, "DM_METAL_HUD", "0")
+        #expect(try !row().fromShell && row().value == "0", "the game's own choice")
+        #expect(try detail(model).hasModifiedSettings, "the explicit off can be reset")
+        model.actions.onResetDefaults(Fixtures.orbit)
+        #expect(try row().fromShell && row().value == "1" && !detail(model).hasModifiedSettings)
+    }
+
+    @Test func theShellDataFolderIsNotPresentedAsThePlayersPickForTheGame() async throws {
+        let box = try Sandbox()
+        let drive = box.root.appendingPathComponent("Drive/Switch", isDirectory: true)
+        try box.write("", to: drive.appendingPathComponent("fixture.marker"))
+        let shell = shellSettings()
+        let model = ShellHostModel(config: box.config(), picker: FakePicker(url: drive), shellSettings: shell)
+        #expect(try detail(model).game.state == .needsGameData)
+        await model.pickShellDataNow()
+        #expect(shell.dataFolderName == "Switch")
+        let orbit = try detail(model)
+        #expect(orbit.game.state == .playable && orbit.dataFromShell)
+        #expect(orbit.dataSource == "Switch (from Settings)")
+        #expect(box.defaults(Fixtures.orbit).data(forKey: "pickedDataBookmark") == nil, "nothing is stored for the game")
+        // A folder the player picks for the game takes over
+        let own = box.root.appendingPathComponent("Own/Orbit", isDirectory: true)
+        try box.write("", to: own.appendingPathComponent("fixture.marker"))
+        await ShellHostModel(config: box.config(), picker: FakePicker(url: own), shellSettings: shell).pickGameDataNow(Fixtures.orbit)
+        let again = try detail(ShellHostModel(config: box.config(), shellSettings: shell))
+        #expect(again.dataSource == "Orbit" && !again.dataFromShell)
+    }
+
+    @Test func theShellFolderPickersReportAFailureAndKeepTheOldChoice() async throws {
+        let box = try Sandbox()
+        let missing = box.root.appendingPathComponent("not-there", isDirectory: true)
+        let shell = shellSettings()
+        let model = ShellHostModel(config: box.config(), picker: FakePicker(url: missing), shellSettings: shell)
+        await model.pickShellDataNow()
+        #expect(model.notice != nil && shell.dataFolderName == nil && shell.dataBookmark == nil)
+        await ShellHostModel(config: box.config(), picker: FakePicker(url: nil), shellSettings: shell).pickShellCloudNow()
+        #expect(shell.cloudSavesFolderName == nil)
     }
 
     @Test func showLogReadsTheGamesLogOrSaysThereIsNone() throws {

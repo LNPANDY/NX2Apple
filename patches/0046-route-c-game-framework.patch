@@ -21,17 +21,16 @@ argv[1] and DM_NVN_SHMAP at <framework>/dm; DM_FONT_DIR stays the app's.
 
 Route C M1, docs/launcher-c-plan.md.
 
-Upstream-Status: fork-only (waits for the runtime profile, seedds/nxnative#492)
-Reason: opt-in game framework for the launcher (route C M1): it carries profile.tsv and sets DM_PROFILE, which exist only with the runtime-profile patch (seedds/nxnative#492 is still a design note), so it goes upstream after that
+Upstream-Status: fork-only (builds on 0001 runtime-profile, declined seedds/nxnative#492)
+Reason: opt-in game framework for the launcher (route C M1): it carries profile.tsv and sets DM_PROFILE, which exist only with the runtime-profile patch (seedds/nxnative#492 was declined), so it stays a fork patch
 Issue: LNPANDY/NX2Apple#144
-
 ---
  dm/ios/Sources/FrameworkBootstrap.h |  25 +++++
  dm/ios/Sources/FrameworkBootstrap.m |  47 +++++++++
- dm/ios/Sources/main.m               |  26 ++++-
+ dm/ios/Sources/main.m               |  22 +++++
  dm/ios/framework/DmGameMarker.m     |  10 ++
  dm/ios/project-framework.yml        | 144 ++++++++++++++++++++++++++++
- 5 files changed, 250 insertions(+), 2 deletions(-)
+ 5 files changed, 248 insertions(+)
  create mode 100644 dm/ios/Sources/FrameworkBootstrap.h
  create mode 100644 dm/ios/Sources/FrameworkBootstrap.m
  create mode 100644 dm/ios/framework/DmGameMarker.m
@@ -39,14 +38,14 @@ Issue: LNPANDY/NX2Apple#144
 
 diff --git a/dm/ios/Sources/FrameworkBootstrap.h b/dm/ios/Sources/FrameworkBootstrap.h
 new file mode 100644
-index 00000000..01f399d0
+index 0000000..a2049d4
 --- /dev/null
 +++ b/dm/ios/Sources/FrameworkBootstrap.h
 @@ -0,0 +1,25 @@
 +// Route C (docs/launcher-c-plan.md M1): the game's modules are in DmIOS.app/Frameworks/DmGame.framework, not in the
 +// executable, so the loader needs that image's mach header before it runs. dm_open_game_framework() dlopen()s the framework
 +// from the app bundle, finds its marker symbol, takes the image base with dladdr() and hands it to the loader
-+// (dm_set_game_image_header, dm/host/loader_image.h). A failure is logged as a [RED] line with the dlerror text and the boot
++// (dm_set_game_image_header, dm/host/front.h). A failure is logged as a [RED] line with the dlerror text and the boot
 +// stops: without the framework's sections there are no modules to run.
 +// Compiled only into a DM_FRAMEWORK_BUILD app (project-framework.yml). The default build calls none of this.
 +#pragma once
@@ -70,7 +69,7 @@ index 00000000..01f399d0
 +#endif
 diff --git a/dm/ios/Sources/FrameworkBootstrap.m b/dm/ios/Sources/FrameworkBootstrap.m
 new file mode 100644
-index 00000000..b354e253
+index 0000000..663ebe8
 --- /dev/null
 +++ b/dm/ios/Sources/FrameworkBootstrap.m
 @@ -0,0 +1,47 @@
@@ -80,7 +79,7 @@ index 00000000..b354e253
 +#include <dlfcn.h>
 +#include <stdio.h>
 +#include "FrameworkBootstrap.h"
-+#include "loader_image.h"
++#include "front.h"
 +
 +#ifndef DM_FRAMEWORK_BUILD
 +#define DM_FRAMEWORK_BUILD 0
@@ -122,7 +121,7 @@ index 00000000..b354e253
 +}
 +#endif
 diff --git a/dm/ios/Sources/main.m b/dm/ios/Sources/main.m
-index 7e4d49a3..58fa9691 100644
+index c11b457..69cf022 100644
 --- a/dm/ios/Sources/main.m
 +++ b/dm/ios/Sources/main.m
 @@ -18,6 +18,14 @@
@@ -140,7 +139,7 @@ index 7e4d49a3..58fa9691 100644
  
  extern char **environ;
  
-@@ -221,6 +229,14 @@ static int boot_env(void) {
+@@ -237,6 +245,14 @@ static int boot_env(void) {
      // First line of the log: the fork's patches this build carries (Info.plist DMForkPatches), so a report says whether it comes from a build beyond upstream's support
      NSString *fork_patches = [NSBundle.mainBundle objectForInfoDictionaryKey:@"DMForkPatches"];
      fprintf(stderr, "fork patches: %s\n", [fork_patches isKindOfClass:NSString.class] && fork_patches.length ? fork_patches.UTF8String : "none");
@@ -155,12 +154,10 @@ index 7e4d49a3..58fa9691 100644
      // Environment switch files (for on-device diagnostics: a sideloaded app cannot be given environment variables from outside): one KEY=VALUE per line, # starts a comment; Documents/env.txt takes precedence over dm/env.txt in the bundle (put there by build_ipa.sh's DM_ENV_FILE)
      NSMutableArray<NSString *> *from_file = [NSMutableArray array], *from_launch = [NSMutableArray array];
      for (char **e = environ; *e; e++) {   // set at launch (Xcode, devicectl): before the env files, and the launcher keeps them
-@@ -269,14 +285,20 @@ static int boot_env(void) {
+@@ -282,6 +298,12 @@ static int boot_env(void) {
      BOOL per_game = [romfs hasPrefix:gdir];   // messaging nil is NO here: no data means the shared layout
      if (!set_data_env(romfs, NO)) { if (!romfs) romfs_identity_report(doc);   // a slim build says why its romfs.img was not used
          fprintf(stderr, "boot: no game data yet (Documents/romfs.img, Documents/romfs or <App>/romfs); the launcher asks for it\n"); }
--    NSString *dm = [res stringByAppendingPathComponent:@"dm"];
-+    NSString *app_dm = [res stringByAppendingPathComponent:@"dm"], *dm = app_dm;
 +#if DM_FRAMEWORK_BUILD
 +    // Route C: the modules, their rewriter tables and the shader map are the framework's. dlopen + dlsym + dladdr hand its
 +    // mach header to the loader here, after the data went to DM_ROMFS and before loading starts (the design's order).
@@ -169,25 +166,17 @@ index 7e4d49a3..58fa9691 100644
 +#endif
      setenv("DM_NVN_SHMAP", [dm stringByAppendingPathComponent:@"shader_map.tsv"].fileSystemRepresentation, 0);
      // Shader libraries: a game's own <gdir>/msl first (a per-game layout may carry its own), else
-     // the app's shared <App>/msl.
-     NSString *per_game_msl = [gdir stringByAppendingPathComponent:@"msl"];
-     NSString *msl = (per_game && [fm fileExistsAtPath:per_game_msl]) ? per_game_msl : [res stringByAppendingPathComponent:@"msl"];
-     setenv("DM_MSL_DIR", msl.fileSystemRepresentation, 0);
--    setenv("DM_FONT_DIR", [dm stringByAppendingPathComponent:@"font"].fileSystemRepresentation, 0);   // Shared-font stand-ins (standard.ttf / nintendo_ext.ttf): iOS lacks the macOS font path
-+    setenv("DM_FONT_DIR", [app_dm stringByAppendingPathComponent:@"font"].fileSystemRepresentation, 0);   // Shared-font stand-ins (standard.ttf / nintendo_ext.ttf): iOS lacks the macOS font path
-     // Add-on content beside the game data: the launcher's games/<id>/aoc/ holds <index>.img (the layout hle_fs.c aoc_dir reads), because a slim IPA does not carry it. Taken before
-     // Documents/aoc and <App>/aoc (aoc_locate, seedds/nxnative#486) and never over an explicit DM_AOC_DIR: aoc_locate only fills DM_AOC_DIR when this did not.
-     NSString *per_game_aoc = [gdir stringByAppendingPathComponent:@"aoc"];
+     // the app's shared <App>/msl (the program's <App>/msl/p<N> in a game of several programs).
 diff --git a/dm/ios/framework/DmGameMarker.m b/dm/ios/framework/DmGameMarker.m
 new file mode 100644
-index 00000000..2f638688
+index 0000000..c03357d
 --- /dev/null
 +++ b/dm/ios/framework/DmGameMarker.m
 @@ -0,0 +1,10 @@
 +// The DmGame framework's only symbol. The framework carries the game's rewritten modules in Mach-O sections (Gen/embed.S,
 +// the same file the default build compiles into the executable) and no host code; dlopen()ing it maps and signs those
 +// sections, and dm/ios/Sources/FrameworkBootstrap.m finds this marker with dlsym() and reports the framework's mach header
-+// through dladdr(). The loader (dm/host/loader.c, loader_image.h) then reads the module sections from it.
++// through dladdr(). The loader (dm/host/loader.c, front.h) then reads the module sections from it.
 +// Its value is not read: the symbol's address alone names the image, so it must stay externally visible (default visibility,
 +// not static) and survive the linker.
 +#include <stdint.h>
@@ -196,14 +185,14 @@ index 00000000..2f638688
 +const char dmgame_image_marker[] = "DmGame";
 diff --git a/dm/ios/project-framework.yml b/dm/ios/project-framework.yml
 new file mode 100644
-index 00000000..e1191f79
+index 0000000..d5d00b3
 --- /dev/null
 +++ b/dm/ios/project-framework.yml
 @@ -0,0 +1,144 @@
 +# Route C framework project (docs/launcher-c-plan.md M1): the same app as project.yml, except that the game's rewritten
 +# modules are not compiled into the executable (no Gen/embed.S) but into DmGame.framework, which the app dlopens at launch.
 +# build_ipa.sh DM_FRAMEWORK=1 generates Gen/ and Gen/framework before xcodegen runs; the app source reads the framework's
-+# mach header before the loader starts (dm/ios/Sources/FrameworkBootstrap.m, dm/host/loader_image.h).
++# mach header before the loader starts (dm/ios/Sources/FrameworkBootstrap.m, dm/host/front.h).
 +# The default project (project.yml) is untouched: without DM_FRAMEWORK the build is what it was.
 +name: DmIOS
 +options:

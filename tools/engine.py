@@ -20,7 +20,11 @@ Subcommands (Python 3.9+, stdlib and git):
   check                        headers valid, no patch touches the shader chain or the generated files, the series applies
                                cleanly to the pin with no empty patch
   bump --to SHA|main [--dry]   move the pin: re-apply the series on the new commit, drop the patches upstream has, write
-                               patches/ and .upstream-ref
+                               patches/ and .upstream-ref, then print the candidate list (below; also with --dry)
+  candidates [--from SHA] --to SHA|main
+                               the upstream commits between two pins that probably change what the front ends and the players
+                               depend on, as a Markdown table (tools/bump_candidates.py, LNPANDY/NX2Apple#464). A list of
+                               candidates, not a verdict; needs `gh` for the commits' files, never fails the bump
   refresh WORKTREE --to SHA    after a conflicting bump was resolved by hand in WORKTREE: its commits become the series
   relink                       make the links to seedds/nxnative in the README and the other pages point at the pinned commit (bump and
                                refresh do it, check fails while a page names another commit)
@@ -50,6 +54,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 P = importlib.import_module('patches')   # tools/patches.py: the headers, apply_series, generate, the chain rule
+C = importlib.import_module('bump_candidates')   # tools/bump_candidates.py: the commits of a pin move that front ends depend on (#464)
 
 REPO = Path(__file__).resolve().parent.parent
 UPSTREAM_URL = 'https://github.com/seedds/nxnative.git'
@@ -66,6 +71,22 @@ def git(*a, cwd, check=True, binary=False):
     return P.git(*a, cwd=cwd, check=check, binary=binary)
 
 
+HOOKS = '.githooks'
+
+
+def install_hooks(root):
+    """core.hooksPath -> .githooks (the pre-push and pre-commit checks), unless it is set. A path the user chose is kept, with a warning.
+    The setting lives in the repository's config, so every worktree of it has the hooks."""
+    if not (root / HOOKS / 'pre-push').is_file(): return
+    cur = git('config', '--get', 'core.hooksPath', cwd=root, check=False).stdout.strip()
+    if cur.rstrip('/') == HOOKS: return
+    if cur:
+        say(f'WARNING: core.hooksPath is {cur!r}, not {HOOKS!r}, so the pre-push checks do not run here. '
+            f'Install them: git config core.hooksPath {HOOKS}')
+    elif git('config', '--local', 'core.hooksPath', HOOKS, cwd=root, check=False).returncode == 0:
+        say(f'git hooks: set core.hooksPath to {HOOKS} (pre-commit and pre-push checks, tools/githooks.py). Never bypass them with --no-verify.')
+
+
 def engine_dir(root):
     return root / 'engine'
 
@@ -80,7 +101,7 @@ def pin(root):
 
 def stamp_key(root):
     """The digest of what engine/ is built from: the pin, and each patch of the series by name and content, in order.
-    frontend/Sources/NSPortBuilder/Engine.swift and frontend-qt/nspb_qt/engine.py compute the same, so the launchers can
+    frontend/Sources/NXCore/EngineLayout.swift and frontend-qt/nspb_qt/engine.py compute the same, so the launchers can
     tell a stale engine/ without starting Python."""
     h = hashlib.sha256()
     h.update(b'pin ' + pin(root).encode() + b'\n')
@@ -110,12 +131,27 @@ def head(eng):
     return r.stdout.strip() if r.returncode == 0 else ''
 
 
-def local_work(eng, st):
+SYNC_COMMITTERS = ('patches@localhost', 'engine@localhost')   # `git am` in patches.py and the generated-files commit above
+
+
+def made_by_sync(eng, h, pins):
+    """True when the commits from HEAD down to a pin were all committed by sync itself: what a sync that failed halfway
+    (older versions did not roll back) leaves behind. A commit made by a person has another committer."""
+    pins = {p for p in pins if p}
+    n = 0
+    while h not in pins:
+        r = git('log', '-1', '--format=%P%n%ce', h, cwd=eng, check=False).stdout.split('\n')
+        if len(r) < 2 or len(r[0].split()) != 1 or r[1] not in SYNC_COMMITTERS: return False
+        h, n = r[0], n + 1
+    return n > 0
+
+
+def local_work(eng, st, pins=()):
     """What sync would throw away: commits after the last sync, and changes to tracked or new files (ignored build products
     such as dm/host/gen are not work and survive a sync)."""
     out = []
     h = head(eng)
-    if st.get('head') and h and h != st['head']:
+    if st.get('head') and h and h != st['head'] and not made_by_sync(eng, h, pins):
         n = git('rev-list', '--count', f'{st["head"]}..{h}', cwd=eng, check=False).stdout.strip() or '?'
         out.append(f'{n} commit(s) after the last sync (HEAD {h[:12]})')
     dirty = git('status', '--porcelain', cwd=eng, check=False).stdout.splitlines()
@@ -157,7 +193,13 @@ def fetch(eng, sha, url=None):
 def ensure_repo(eng):
     if is_repo(eng): return
     if eng.exists() and any(eng.iterdir()):
-        raise Fail(f'{eng} exists but is not a git repository made by tools/engine.py: move it away, then run sync again')
+        if not any(f.is_file() for f in eng.rglob('*')):
+            # An empty tree is the leftover of a failed first sync: on Windows the engine sync
+            # needs git, and the failure hit right after this folder was made, so every retry
+            # then stopped here forever ("move it away"). Start over instead of asking.
+            shutil.rmtree(eng, ignore_errors=True)
+        else:
+            raise Fail(f'{eng} exists but is not a git repository made by tools/engine.py: move it away, then run sync again')
     eng.mkdir(parents=True, exist_ok=True)
     git('init', '--quiet', cwd=eng)
     git('config', 'advice.detachedHead', 'false', cwd=eng)
@@ -180,7 +222,7 @@ def build(root, eng, patches, sha):
         say('empty on the pin (upstream has them, `tools/engine.py bump` drops them): ' + ', '.join(p.file for p in landed))
     for out, tool in P.GENERATED:
         if (eng / tool).is_file():
-            r = subprocess.run([sys.executable, str(eng / tool)], cwd=eng, capture_output=True, text=True, check=False)
+            r = subprocess.run([sys.executable, str(eng / tool)], cwd=eng, capture_output=True, text=True, check=False, env=P.clean_env())
             if r.returncode: raise Fail(f'{tool} failed on the patched tree: {(r.stderr.strip().splitlines() or [str(r.returncode)])[-1]}')
     (eng / P.FORK_PATCHES).write_text(P.fork_patch_list([p for p, _ in applied]))
     git('add', '--force', '--', P.FORK_PATCHES, *(o for o, _ in P.GENERATED if (eng / o).exists()), cwd=eng)
@@ -188,8 +230,15 @@ def build(root, eng, patches, sha):
     return applied, landed
 
 
+def restore(eng, rev, branch):
+    git('am', '--abort', cwd=eng, check=False)
+    git('checkout', '--quiet', '--force', '-B', BRANCH, rev, cwd=eng)
+    if branch and branch != BRANCH: git('checkout', '--quiet', '--force', branch, cwd=eng)
+
+
 def cmd_sync(a):
     root = a.root
+    install_hooks(root)
     eng = engine_dir(root)
     reason = why_stale(root)
     if not reason and not a.force:
@@ -198,7 +247,7 @@ def cmd_sync(a):
     patches = P.load(root)
     ensure_repo(eng)
     st = read_stamp(eng)
-    work = local_work(eng, st) if head(eng) else []
+    work = local_work(eng, st, (pin(root), st.get('pin'))) if head(eng) else []
     if work and st and not a.force:
         raise Fail('engine/ has work a sync would throw away: ' + '; '.join(work) + '.\n'
                    '  Turn commits into patches with `python3 tools/engine.py export`, then sync. Or keep them on a branch and '
@@ -211,7 +260,13 @@ def cmd_sync(a):
     sha = pin(root)
     got = fetch(eng, sha)
     say(f'engine: building {sha[:12]} + {len(patches)} patches ({reason or "forced"}; upstream commit {got})')
-    applied, _ = build(root, eng, patches, sha)
+    before = head(eng)
+    branch = git('symbolic-ref', '--quiet', '--short', 'HEAD', cwd=eng, check=False).stdout.strip()
+    try:
+        applied, _ = build(root, eng, patches, sha)
+    except Fail:
+        if before: restore(eng, before, branch)    # a failed sync leaves engine/ as it was: the next sync must not see commits nobody made
+        raise
     write_stamp(eng, root, head(eng))
     say(f'engine: ready, {len(applied)} patches on upstream {sha[:12]} in {eng}')
     return 0
@@ -229,6 +284,7 @@ def cmd_hook(a):
     """One line for a session's context, whatever happens: a failed sync must never block the session."""
     buf = io.StringIO()
     try:
+        install_hooks(a.root)
         reason = why_stale(a.root)
         if reason:
             with contextlib.redirect_stdout(buf):
@@ -260,7 +316,7 @@ def extract_tree(eng, out):
     import tarfile
     names = [n for n in TREE_PATHS if git('cat-file', '-e', f'HEAD:{n}', cwd=eng, check=False).returncode == 0]
     if not names: raise Fail(f'{eng} holds none of {", ".join(TREE_PATHS)}: not an engine checkout')
-    proc = subprocess.Popen(['git', 'archive', '--format=tar', 'HEAD', '--', *names], cwd=eng, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    proc = subprocess.Popen(['git', 'archive', '--format=tar', 'HEAD', '--', *names], cwd=eng, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=P.clean_env())
     count = 0
     with tarfile.open(fileobj=proc.stdout, mode='r|') as tar:
         for m in tar:
@@ -338,6 +394,7 @@ def cmd_tree(a):
 
 def cmd_export(a):
     root = a.root
+    install_hooks(root)
     eng = engine_dir(root)
     if not is_repo(eng): raise Fail('engine/ is missing: run `python3 tools/engine.py sync`, commit your change in engine/, then export')
     st = read_stamp(eng)
@@ -408,6 +465,7 @@ def scratch_root(root):
 
 def cmd_check(a):
     root = a.root
+    install_hooks(root)
     patches = P.load(root)
     bad = []
     pd = root / 'patches'
@@ -505,16 +563,25 @@ def cmd_bump(a):
                 f'  resolve it there, `git am --continue`, apply the rest with `git am -3 <patches>`, then run\n'
                 f'  tools/engine.py refresh {s.dir} --to {sha[:12]}')
             return 1
-        if a.dry: return 0
+        if a.dry: say('\n' + C.report(root, old, sha, eng)); return 0
         P.write_series(root, s.dir, applied, landed, patches)
         (root / '.upstream-ref').write_text(sha + '\n')
         s.close()
         pages = relink(root)
         say('wrote patches/ and .upstream-ref' + (f', and moved the links into seedds/nxnative to the new pin in {", ".join(p.name for p in pages)}' if pages else '') +
             '; `python3 tools/engine.py sync` builds engine/ on the new pin')
+        say('\n' + C.report(root, old, sha, eng))   # last, under a heading: the sync workflow lifts it into the pull request
         return 0
     except BaseException:
         s.close(); raise
+
+
+def cmd_candidates(a):
+    root = a.root
+    old = a.old or pin(root)
+    sha = a.to if re.fullmatch(r'[0-9a-f]{40}', a.to) else resolve_target(scratch_root(root), a.to)
+    say(C.report(root, old, sha, scratch_root(root)))
+    return 0
 
 
 def cmd_refresh(a):
@@ -554,6 +621,7 @@ def main(argv=None):
     sub.add_parser('status').set_defaults(f=cmd_status)
     sub.add_parser('check').set_defaults(f=cmd_check)
     s = sub.add_parser('bump'); s.add_argument('--to', required=True, help='the new upstream commit, or a branch such as main'); s.add_argument('--dry', action='store_true'); s.set_defaults(f=cmd_bump)
+    s = sub.add_parser('candidates'); s.add_argument('--from', dest='old', help='the old pin (default: .upstream-ref)'); s.add_argument('--to', required=True, help='the new upstream commit, or a branch such as main'); s.set_defaults(f=cmd_candidates)
     sub.add_parser('relink').set_defaults(f=cmd_relink)
     s = sub.add_parser('refresh'); s.add_argument('worktree'); s.add_argument('--to', required=True); s.set_defaults(f=cmd_refresh)
     a = ap.parse_args(argv)
