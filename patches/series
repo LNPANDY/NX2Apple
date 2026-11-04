@@ -20,7 +20,6 @@
 0033-lint-c-test-without-workflow.patch
 0034-metal-a-newer-compiler-of-the-recorded-generatio.patch
 0037-totk-1.4.2-frame-step-sites.patch
-0041-shared-fonts-a-compact-stand-in-for-a-font-engin.patch
 0042-ios-launcher-present-the-document-picker-once-pe.patch
 0046-route-c-game-framework.patch
 0047-route-c-framework-build.patch
@@ -32,9 +31,6 @@
 0054-front-mac-start-with-the-pointer-hidden-when-the.patch
 0055-ios-shell-declare-en-and-zh-hans-in-cfbundleloca.patch
 0056-ios-shell-declare-every-language-of-frontend-l10.patch
-0057-mac-app-keep-the-finder-files-of-an-exfat-volume.patch
-0058-read-pfs0-packages-missing-the-final-filename-te.patch
-0059-recognize-unframed-pointer-tail-calls-before-zer.patch
 0060-ios-shell-declare-italian-in-cfbundlelocalizatio.patch
 0062-ios-apply-controller-button-mappings-to-physical.patch
 0065-ios-touch-controls-size.patch
@@ -44,11 +40,7 @@
 0069-ios-shell-compile-the-in-game-menu-so-the-gear-o.patch
 0070-ios-touch-layout.patch
 0071-ios-shell-restore-native-duo-orientation.patch
-0072-mac-pack-the-settings-read-the-base-game-s-langu.patch
-0073-nsp-script-find-game-files-whose-extension-is-in.patch
-0074-mac-app-replace-the-old-app-by-moves-when-the-vo.patch
-0075-shader-split-scimitar-forge-archives-and-raw-con.patch
-0076-mac-app-programs-of-a-multi-program-application.patch
-0077-nvn-mtl-a-stage-keeps-its-program-s-shaders-afte.patch
-0078-nvn-mtl-write-image-buffer-textures-below-16-byt.patch
-0079-dm-ctl-shots-n-folder-captures-consecutive-frame.patch
+0072-shader-split-scimitar-forge-archives-and-raw-con.patch
+0073-nvn-mtl-a-stage-keeps-its-program-s-shaders-afte.patch
+0074-nvn-mtl-write-image-buffer-textures-below-16-byt.patch
+0075-dm-ctl-shots-n-folder-captures-consecutive-frame.patch
