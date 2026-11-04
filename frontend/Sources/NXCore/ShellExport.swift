@@ -120,43 +120,92 @@ extension ShellInstaller {
             end(Self.exportBuildStageID, buildName, ok: false, detail: app)
             return Outcome(ok: false, message: fmt("dev.noProject", app))
         }
-        // The Increased Memory Limit request rides in an ad-hoc signature of the executable. Without it the IPA still installs, and a
-        // game that needs the memory may run out of it, so a failure here is logged and does not stop the export.
-        let entitlements = ShellInstall.entitlementsPath(root: root)
-        if fm.fileExists(atPath: entitlements) {
-            _ = run(ShellInstall.cleanAttributesCommand(app: app), env: nil, label: buildName, step: { _ in nil })
-            let signed = run(ShellInstall.entitlementsCommand(app: app, entitlements: entitlements), env: nil, label: buildName, step: { _ in nil })
-            if signed.status != 0 { log("export: the entitlements could not be added to the app (a large game may run out of memory): \(signed.output)\n") }
-        } else {
-            log("export: no entitlements file at \(entitlements), the app asks for no Increased Memory Limit\n")
-        }
         end(Self.exportBuildStageID, buildName, ok: true)
+        return packExport(app: URL(fileURLWithPath: app), library: library, notes: prepared.notes)
+    }
 
-        // The IPA: Payload/<app>.app in a stage folder, zipped
+    /// Stage and zip Payload/<app>.app. Signing can add _CodeSignature/ and CodeResources, so reserve two ZIP32 entries.
+    func packExport(app: URL, library: ShellLibrary, notes: [String] = [], entryLimit: Int = Int(UInt16.max) - 2) -> Outcome {
+        let fm = FileManager.default
         let packName = t("shell.exportPackStage")
         begin(Self.exportPackStageID, packName)
         let stage = ShellInstall.exportStage(root: root), ipa = ShellInstall.ipaPath(root: root)
+        let stagedApp = URL(fileURLWithPath: stage + "/Payload/" + ShellInstall.appName)
         do {
             try? fm.removeItem(atPath: stage)
             try? fm.removeItem(atPath: ipa)
             try fm.createDirectory(atPath: stage + "/Payload", withIntermediateDirectories: true)
-            try fm.copyItem(atPath: app, toPath: stage + "/Payload/" + ShellInstall.appName)
+            try fm.copyItem(at: app, to: stagedApp)
+            if try Self.exceedsEntryLimit(in: stagedApp.deletingLastPathComponent(), limit: entryLimit) {
+                try packShaderLibraries(in: stagedApp, games: library.games, label: packName)
+            }
         } catch {
             try? fm.removeItem(atPath: stage)
             end(Self.exportPackStageID, packName, ok: false, detail: error.localizedDescription)
             return Outcome(ok: false, message: fmt("shell.exportFailed", error.localizedDescription))
         }
+        // Signing the executable also seals its bundle resources. Sign the staged app after packing the shaders.
+        // Failure only costs the Increased Memory Limit request, so it does not stop the export.
+        let entitlements = ShellInstall.entitlementsPath(root: root)
+        if fm.fileExists(atPath: entitlements) {
+            _ = run(ShellInstall.cleanAttributesCommand(app: stagedApp.path), env: nil, label: packName, step: { _ in nil })
+            let signed = run(ShellInstall.entitlementsCommand(app: stagedApp.path, entitlements: entitlements), env: nil, label: packName, step: { _ in nil })
+            if signed.status != 0 { log("export: the entitlements could not be added to the app (a large game may run out of memory): \(signed.output)\n") }
+        } else {
+            log("export: no entitlements file at \(entitlements), the app asks for no Increased Memory Limit\n")
+        }
         let zipped = run(ShellInstall.zipCommand(root: root), env: nil, label: packName, step: { _ in nil })
         try? fm.removeItem(atPath: stage)
         guard zipped.status == 0, fm.fileExists(atPath: ipa) else {
+            try? fm.removeItem(atPath: ipa)
             let why = zipped.lastError ?? fmt("msg.exitCode", zipped.status)
             end(Self.exportPackStageID, packName, ok: false, detail: why)
             return Outcome(ok: false, message: fmt("shell.exportFailed", why))
         }
         end(Self.exportPackStageID, packName, ok: true)
-        var outcome = Outcome(ok: true, message: ([fmt("shell.exportDone", ipa)] + prepared.notes).joined(separator: "\n"), bundleID: library.bundleID)
+        var outcome = Outcome(ok: true, message: ([fmt("shell.exportDone", ipa)] + notes).joined(separator: "\n"), bundleID: library.bundleID)
         outcome.ipaPath = ipa
         return outcome
+    }
+
+    private static func exceedsEntryLimit(in payload: URL, limit: Int) throws -> Bool {
+        var failure: Error?
+        guard let entries = FileManager.default.enumerator(at: payload, includingPropertiesForKeys: [], errorHandler: { _, error in
+            failure = error
+            return false
+        }) else {
+            throw failure ?? CocoaError(.fileReadUnknown, userInfo: [NSFilePathErrorKey: payload.path])
+        }
+        var count = 1   // ditto --keepParent writes Payload/ itself, then DmShell.app/ and its descendants.
+        while count <= limit, entries.nextObject() != nil { count += 1 }
+        if let failure { throw failure }
+        return count > limit
+    }
+
+    /// Keep a large IPA within the sideloader's 16-bit entry count. Only the games in the shell library
+    /// know how to unpack an archive. Leave other frameworks' resources in their original layout.
+    private func packShaderLibraries(in stagedApp: URL, games: [ShellLibrary.Game], label: String) throws {
+        let fm = FileManager.default
+        let frameworks = stagedApp.appendingPathComponent("Frameworks")
+        for game in games {
+            let framework = frameworks.appendingPathComponent(URL(fileURLWithPath: game.framework).lastPathComponent)
+            let shaders = framework.appendingPathComponent("msl")
+            var directory: ObjCBool = false
+            guard fm.fileExists(atPath: shaders.path, isDirectory: &directory), directory.boolValue else { continue }
+            // A re-used framework can already contain a packed copy. The loose tree supplies this export's contents.
+            for old in try fm.contentsOfDirectory(at: framework, includingPropertiesForKeys: nil) where old.pathExtension == "aar" {
+                let stem = old.deletingPathExtension().lastPathComponent
+                if stem.hasPrefix("msl-"), UUID(uuidString: String(stem.dropFirst(4))) != nil { try fm.removeItem(at: old) }
+            }
+            let archive = framework.appendingPathComponent("msl-\(UUID().uuidString).aar")
+            let result = run(["/usr/bin/aa", "archive", "-d", shaders.path, "-o", archive.path, "-a", "lzfse"],
+                             env: nil, label: label, step: { _ in nil })
+            guard result.status == 0, fm.fileExists(atPath: archive.path) else {
+                let reason = result.lastError ?? ShellInstall.scriptFailure(result.output) ?? fmt("msg.exitCode", result.status)
+                throw CocoaError(.fileWriteUnknown, userInfo: [NSLocalizedDescriptionKey: reason])
+            }
+            try fm.removeItem(at: shaders)
+        }
     }
 
     /// The game data into the shared app that is installed already and signed by another tool (LNPANDY/NX2Apple#416). The app is found

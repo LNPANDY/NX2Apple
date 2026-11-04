@@ -64,6 +64,7 @@ public struct ShellHostConfig: Sendable {
 
     @ObservationIgnored private let config: ShellHostConfig
     @ObservationIgnored private let launcher: any GameLauncher
+    @ObservationIgnored private var launchingGame = false
     @ObservationIgnored private let picker: any FolderPicker
     @ObservationIgnored private let adapter = GamepadAdapter()
     @ObservationIgnored private var dataStores: [String: BookmarkStore] = [:]
@@ -445,8 +446,10 @@ public struct ShellHostConfig: Sendable {
     }
 
     func playNow(_ id: String) async {
-        guard let entry = entry(id), let manifest = entry.manifest, let profile = entry.profile, let framework = entry.frameworkURL,
+        guard !launchingGame, let entry = entry(id), let manifest = entry.manifest, let profile = entry.profile, let framework = entry.frameworkURL,
               details.first(where: { $0.id == id })?.game.state == .playable, let dataURL = data(for: entry).url else { return }
+        launchingGame = true
+        defer { launchingGame = false }
         var cloud: URL?
         switch cloudSaves(id) {
         case .own(let url), .shell(let url): cloud = url
@@ -455,11 +458,13 @@ public struct ShellHostConfig: Sendable {
         // Remembered when Play is triggered, even if the launcher then fails (the stub). The order changes at the next load.
         LastPlayedStore(defaults: config.defaults(id)).record(config.now())
         refresh(id)
-        let game = LaunchableGame(
+        var game = LaunchableGame(
             titleID: id, name: entry.title, manifest: manifest, directory: entry.directory, frameworkURL: framework, dataURL: dataURL,
             appFolder: appFolder(for: id), environment: launchEnvironment(profile: profile, id: id), cloudSavesURL: cloud)
-        do { try await launcher.launch(game) }
-        catch { notice = error.localizedDescription }
+        do {
+            game.shaderResourcesURL = try await ShaderResources.shared.prepare(game)
+            try await launcher.launch(game)
+        } catch { notice = error.localizedDescription }
     }
 
     /// The right-stick hint's words: a few, no semicolon, short enough for the right third of a small phone.
