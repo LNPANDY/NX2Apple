@@ -649,8 +649,9 @@ final class GameLibrary: ObservableObject {
     }
 
     /// One still frame. A movie uses its first picture. An animation uses its first frame, so the tile does not
-    /// keep every decoded frame twice. Nil when the file cannot be read, and the caller tries the shop banner.
+    /// keep every decoded frame twice. Nil when the file cannot be read or is too large, and the caller tries the shop banner.
     private static func still(at path: String) -> NSImage? {
+        guard CoverFile.withinLimit(path) else { return nil }
         if CoverFile.isMovie(path) { return MoviePoster.image(at: path) }
         if CoverFile.animates(path), let cg = CoverFile.poster(at: path) {
             return NSImage(cgImage: cg, size: NSSize(width: CGFloat(cg.width), height: CGFloat(cg.height)))

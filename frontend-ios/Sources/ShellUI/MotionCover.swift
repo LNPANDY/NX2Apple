@@ -25,6 +25,7 @@ struct MotionCover: View {
     }
 
     static func plays(_ url: URL) -> Bool {
+        guard fits(url) else { return false }
         if Self.isMovie(url) { return true }
         guard let src = CGImageSourceCreateWithURL(url as CFURL, nil) else { return false }
         return CGImageSourceGetCount(src) > 1
@@ -34,9 +35,22 @@ struct MotionCover: View {
         ["mp4", "mov", "m4v"].contains(url.pathExtension.lowercased())
     }
 
-    /// The first picture of a movie, so the blurred backdrop has something to draw. Nil when the file has none.
+    /// The same ceiling the Mac uses when it copies a cover into the app (`CoverFile.maxBytes`).
+    static func fits(_ url: URL) -> Bool {
+        let size = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? NSNumber
+        let bytes = size?.int64Value ?? 0
+        return bytes > 0 && bytes <= 64 * 1024 * 1024
+    }
+
+    /// The first picture of a still cover. Nil when the file is missing, too large, or not a picture.
+    static func still(_ url: URL) -> CGImage? {
+        guard fits(url), !isMovie(url), let src = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        return CGImageSourceCreateImageAtIndex(src, 0, nil)
+    }
+
+    /// The first picture of a movie, so the blurred backdrop has something to draw. Nil when the file has none or is too large.
     static func poster(_ url: URL) -> CGImage? {
-        guard isMovie(url) else { return nil }
+        guard isMovie(url), fits(url) else { return nil }
         let gen = AVAssetImageGenerator(asset: AVURLAsset(url: url))
         gen.appliesPreferredTrackTransform = true
         gen.maximumSize = CGSize(width: 1280, height: 720)
@@ -286,6 +300,7 @@ private struct MotionHost: UIViewRepresentable {
             guard player == nil, let url, let box else { return }
             let item = AVPlayerItem(url: url)
             item.preferredForwardBufferDuration = 1
+            keepOtherAudio()
             status = item.observe(\.status, options: [.new]) { [weak self] item, _ in
                 guard item.status == .failed else { return }
                 DispatchQueue.main.async { self?.noteFailure() }
@@ -311,6 +326,13 @@ private struct MotionHost: UIViewRepresentable {
             player.play()
         }
 
+        /// A muted cover must not take the audio session. Leave a session the game has already claimed.
+        private static func keepOtherAudio() {
+            let session = AVAudioSession.sharedInstance()
+            guard session.category == .soloAmbient || session.category == .ambient else { return }
+            try? session.setCategory(.ambient, options: [.mixWithOthers])
+        }
+
         /// A file that will not play stays a still. Opening it again on every scroll would keep failing.
         private func noteFailure() {
             failed = true
@@ -333,17 +355,28 @@ private struct MotionHost: UIViewRepresentable {
             guard let src = CGImageSourceCreateWithURL(url as CFURL, nil) else { return [] }
             let count = CGImageSourceGetCount(src)
             let maxPixel = count > 24 ? 960 : 1280
-            let options: [CFString: Any] = [
-                kCGImageSourceCreateThumbnailFromImageAlways: true,
-                kCGImageSourceCreateThumbnailWithTransform: true,
-                kCGImageSourceThumbnailMaxPixelSize: maxPixel
-            ]
             var out: [(image: CGImage, seconds: Double)] = []
             for i in 0..<count {
-                guard let image = CGImageSourceCreateThumbnailAtIndex(src, i, options as CFDictionary) else { continue }
-                out.append((image, delay(src, i)))
+                guard let image = CGImageSourceCreateImageAtIndex(src, i, nil) else { continue }
+                out.append((image: fitted(image, maxPixel: maxPixel), delay(src, i)))
             }
             return out
+        }
+
+        /// The longer side is at most `maxPixel`. A thumbnail of a GIF is only the part that changed, so the whole frame is drawn and then scaled.
+        private static func fitted(_ image: CGImage, maxPixel: Int) -> CGImage {
+            let width = image.width, height = image.height
+            let longest = max(width, height)
+            if longest <= maxPixel || longest == 0 { return image }
+            let scale = Double(maxPixel) / Double(longest)
+            let wide = max(1, Int((Double(width) * scale).rounded()))
+            let high = max(1, Int((Double(height) * scale).rounded()))
+            guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+                  let context = CGContext(data: nil, width: wide, height: high, bitsPerComponent: 8, bytesPerRow: 0, space: space,
+                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return image }
+            context.interpolationQuality = .medium
+            context.draw(image, in: CGRect(x: 0, y: 0, width: wide, height: high))
+            return context.makeImage() ?? image
         }
 
         /// GIF, WebP and APNG delays of 0 mean "as fast as you like". 0.1s is the usual stand-in, and the floor for a missing delay.

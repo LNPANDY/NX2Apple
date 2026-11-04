@@ -27,23 +27,35 @@ package enum CoverFile {
     }
 
     /// Empty when the path is a movie or ImageIO cannot read it.
-    /// Frames are scaled down. A tile never needs a full-size frame, and a long GIF of full-size frames will not fit in memory.
+    /// Each frame is the whole picture, then scaled. A thumbnail of a GIF is only the part that changed, so it is not used.
+    /// A tile never needs a full-size frame, and a long GIF of full-size frames will not fit in memory.
     package static func frames(at path: String) -> [Frame] {
         guard !path.isEmpty, !isMovie(path),
               let src = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil) else { return [] }
         let count = CGImageSourceGetCount(src)
         let maxPixel = count > 24 ? 960 : 1280
-        let options: [CFString: Any] = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: maxPixel
-        ]
         var out: [Frame] = []
         for i in 0..<count {
-            guard let image = CGImageSourceCreateThumbnailAtIndex(src, i, options as CFDictionary) else { continue }
-            out.append(Frame(image: image, seconds: delay(src, i)))
+            guard let image = CGImageSourceCreateImageAtIndex(src, i, nil) else { continue }
+            out.append(Frame(image: fitted(image, maxPixel: maxPixel), seconds: delay(src, i)))
         }
         return out
+    }
+
+    /// The longer side is at most `maxPixel`. A picture that is already smaller is returned as it is.
+    private static func fitted(_ image: CGImage, maxPixel: Int) -> CGImage {
+        let width = image.width, height = image.height
+        let longest = max(width, height)
+        if longest <= maxPixel || longest == 0 { return image }
+        let scale = Double(maxPixel) / Double(longest)
+        let wide = max(1, Int((Double(width) * scale).rounded()))
+        let high = max(1, Int((Double(height) * scale).rounded()))
+        guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let context = CGContext(data: nil, width: wide, height: high, bitsPerComponent: 8, bytesPerRow: 0, space: space,
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return image }
+        context.interpolationQuality = .medium
+        context.draw(image, in: CGRect(x: 0, y: 0, width: wide, height: high))
+        return context.makeImage() ?? image
     }
 
     /// The first picture only. A still tile uses this, so opening a GIF does not decode every frame.
@@ -53,11 +65,11 @@ package enum CoverFile {
         return CGImageSourceCreateImageAtIndex(src, 0, nil)
     }
 
-    /// A GIF, an animated WebP or APNG, or a silent movie that is actually on disk.
-    /// A still returns false, including an empty path and a file that is not there.
+    /// A GIF, an animated WebP or APNG, or a silent movie that is on disk and small enough to be a cover.
+    /// A still returns false, including an empty path, a missing file, and a file over the size limit.
     /// JPEG, HEIC and TIFF are one picture, so they are not opened.
     package static func animates(_ path: String) -> Bool {
-        if path.isEmpty || !FileManager.default.fileExists(atPath: path) { return false }
+        if path.isEmpty || !withinLimit(path) { return false }
         if isMovie(path) { return true }
         if ["jpg", "jpeg", "heic", "tif", "tiff"].contains(ext(path)) { return false }
         guard let src = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil) else { return false }

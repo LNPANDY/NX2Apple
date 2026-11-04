@@ -56,16 +56,17 @@ enum ShellCLI {
         for game in games {
             guard let id = (game["titleID"] as? String)?.lowercased(), !id.isEmpty,
                   let path = game["artworkPath"] as? String, !path.isEmpty,
-                  fm.fileExists(atPath: path) else { continue }
+                  fm.fileExists(atPath: path), CoverFile.withinLimit(path, fm: fm) else { continue }
             out[id] = path
         }
         return out
     }
 
-    /// Saved paths, then `--artwork` flags whose files are on disk. A missing flag does not replace a saved path.
+    /// Saved paths, then `--artwork` flags whose files are on disk and small enough to be a cover.
+    /// A missing flag, or one that is too large, does not replace a saved path.
     static func mergedCovers(_ args: [String], library: URL, fm: FileManager = .default) -> [String: String] {
         var out = savedCovers(library, fm: fm)
-        for (id, path) in covers(args) where fm.fileExists(atPath: path) { out[id] = path }
+        for (id, path) in covers(args) where fm.fileExists(atPath: path) && CoverFile.withinLimit(path, fm: fm) { out[id] = path }
         return out
     }
 

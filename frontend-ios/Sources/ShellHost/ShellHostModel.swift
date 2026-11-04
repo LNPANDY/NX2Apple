@@ -233,14 +233,10 @@ public struct ShellHostConfig: Sendable {
     private func image(_ url: URL?) -> Artwork? {
         guard let url else { return nil }
         if let a = artwork[url] { return a }
-        // A movie is not loaded whole. Its first picture is enough for the still and the blurred backdrop.
-        if MotionCover.isMovie(url) {
-            guard let poster = MotionCover.poster(url) else { return nil }
-            let a = Artwork(id: url.path, image: poster)
-            artwork[url] = a
-            return a
-        }
-        guard let bytes = try? Data(contentsOf: url), let a = Artwork(id: url.path, data: bytes) else { return nil }
+        // A movie is not loaded whole. A GIF is read from the file, not copied into memory first.
+        let picture = MotionCover.isMovie(url) ? MotionCover.poster(url) : MotionCover.still(url)
+        guard let picture else { return nil }
+        let a = Artwork(id: url.path, image: picture)
         artwork[url] = a
         return a
     }
