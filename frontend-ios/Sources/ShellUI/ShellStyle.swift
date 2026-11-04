@@ -232,6 +232,8 @@ struct ArtView: View {
     var backdrop = false
     /// The placeholder's lettering. Off where the title is set beside the art already, as in the hero.
     var lettering = true
+    /// Off for a second copy of a cover that is already playing, and for a Cover Flow neighbour.
+    var motion = true
     var body: some View {
         Color.clear.overlay {
             GeometryReader { geometry in
@@ -241,10 +243,10 @@ struct ArtView: View {
                         ZStack {
                             Image(decorative: backdrop ? banner.thumbnail : banner.image, scale: 1)
                                 .resizable().interpolation(backdrop ? .medium : .high).scaledToFill()
-                            if !backdrop, let url = game.bannerURL { MotionCover(url: url) }
+                            if motion, !backdrop, let url = game.bannerURL { MotionCover(url: url) }
                         }
                         .frame(width: w, height: h)
-                    } else if !backdrop, let url = game.bannerURL, MotionCover.plays(url) {
+                    } else if motion, !backdrop, let url = game.bannerURL, MotionCover.plays(url) {
                         MotionCover(url: url).frame(width: w, height: h)
                     } else if let icon = game.icon {
                         if backdrop {
@@ -320,8 +322,10 @@ struct CoverView: View {
     let game: GameTile
     var radius: CGFloat = 10
     var showsState = false
+    /// A neighbour in Cover Flow, and the row card of the game already playing in the hero, stay still.
+    var motion = true
     var body: some View {
-        ArtView(game: game)
+        ArtView(game: game, motion: motion)
             .aspectRatio(16 / 9, contentMode: .fit)
             .clipShape(RoundedRectangle(cornerRadius: radius))
             .overlay(RoundedRectangle(cornerRadius: radius).strokeBorder(.white.opacity(0.10)))

@@ -653,11 +653,11 @@ final class GameLibrary: ObservableObject {
     private static func still(at path: String) -> NSImage? {
         if CoverFile.isMovie(path) { return MoviePoster.image(at: path) }
         if CoverFile.animates(path), let cg = CoverFile.poster(at: path) {
-            return NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
+            return NSImage(cgImage: cg, size: NSSize(width: CGFloat(cg.width), height: CGFloat(cg.height)))
         }
         if let image = NSImage(contentsOfFile: path) { return image }
         if let cg = CoverFile.poster(at: path) {
-            return NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
+            return NSImage(cgImage: cg, size: NSSize(width: CGFloat(cg.width), height: CGFloat(cg.height)))
         }
         return nil
     }

@@ -205,7 +205,7 @@ struct CoverFlowView: View, Equatable {
             withAnimation(reduceMotion ? nil : .smooth(duration: 0.3)) { centredID = detail.id }
             select(detail.id)
         } label: {
-            CoverView(game: detail.game, radius: cover * 0.03, showsState: true)
+            CoverView(game: detail.game, radius: cover * 0.03, showsState: true, motion: chosen)
                 .frame(width: cover, height: cover * 9 / 16)
                 .shadow(color: .black.opacity(0.5), radius: cover * 0.05, y: cover * 0.03)
         }

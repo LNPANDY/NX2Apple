@@ -249,10 +249,17 @@ public struct ShellHostConfig: Sendable {
         let data = data(for: entry)
         let state = GameStateResolver.state(for: entry, data: data, environment: config.environment)
         let played = lastPlayed(entry.id)
+        let banner = image(entry.bannerURL)
+        // A movie with no picture does not play over the icon. plays() is true for any movie name, including a file that will not open.
+        let motion = entry.bannerURL.flatMap { url -> URL? in
+            guard MotionCover.plays(url) else { return nil }
+            if MotionCover.isMovie(url) { return banner == nil ? nil : url }
+            return url
+        }
         let tile = GameTile(id: entry.id, title: entry.title, subtitle: entry.manifest.map { ShellFormat.version($0.displayVersion) } ?? "",
-                            banner: image(entry.bannerURL), icon: image(entry.iconURL), state: state,
+                            banner: banner, icon: image(entry.iconURL), state: state,
                             recentlyPlayed: played.map { ShellFormat.played($0, now: config.now()) },
-                            bannerURL: entry.bannerURL.flatMap { MotionCover.plays($0) ? $0 : nil })
+                            bannerURL: motion)
         guard let profile = profile(for: entry, data: data) else {
             return GameDetail(game: tile, dataNote: dataNote(data, found: false))
         }

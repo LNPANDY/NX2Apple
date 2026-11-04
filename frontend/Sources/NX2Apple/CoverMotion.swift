@@ -4,14 +4,38 @@ import SwiftUI
 import NXCore
 
 /// One frame of a movie, for the still behind a player and for the blurred console background. Nil when the file has no picture.
+/// A library refresh asks for the same files again, so a frame is kept until the file's size or date changes.
 enum MoviePoster {
+    private struct Hit { var stamp: String; var image: NSImage? }
+    private static let lock = NSLock()
+    private static var cache: [String: Hit] = [:]
+
     static func image(at path: String) -> NSImage? {
+        guard let stamp = stamp(path) else { return nil }
+        lock.lock()
+        if let hit = cache[path], hit.stamp == stamp { lock.unlock(); return hit.image }
+        lock.unlock()
+        let image = decode(path)
+        lock.lock()
+        cache[path] = Hit(stamp: stamp, image: image)
+        if cache.count > 64, let extra = cache.keys.first(where: { $0 != path }) { cache.removeValue(forKey: extra) }
+        lock.unlock()
+        return image
+    }
+
+    private static func stamp(_ path: String) -> String? {
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: path),
+              let size = attrs[.size] as? NSNumber, let modified = attrs[.modificationDate] as? Date else { return nil }
+        return "\(size.int64Value)-\(modified.timeIntervalSince1970)"
+    }
+
+    private static func decode(_ path: String) -> NSImage? {
         let asset = AVURLAsset(url: URL(fileURLWithPath: path))
         let gen = AVAssetImageGenerator(asset: asset)
         gen.appliesPreferredTrackTransform = true
         gen.maximumSize = CGSize(width: 1280, height: 720)
         guard let cg = try? gen.copyCGImage(at: .zero, actualTime: nil) else { return nil }
-        return NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
+        return NSImage(cgImage: cg, size: NSSize(width: CGFloat(cg.width), height: CGFloat(cg.height)))
     }
 }
 
@@ -80,6 +104,9 @@ struct AnimatedImageFill: NSViewRepresentable {
         private var timer: Timer?
         private var active = false
         private var failed = false
+        private var loading = false
+        private var wantsFrames = false
+        private var generation = 0
         var path = ""
         weak var canvas: AspectImageView?
 
@@ -96,6 +123,8 @@ struct AnimatedImageFill: NSViewRepresentable {
                 delays = []
                 index = 0
                 failed = false
+                loading = false
+                generation += 1
                 canvas.image = nil
             }
             setVisible(ClickThroughView.onScreen(canvas))
@@ -106,12 +135,15 @@ struct AnimatedImageFill: NSViewRepresentable {
         func setVisible(_ hostVisible: Bool) {
             guard active else { return }
             let visible = hostVisible && canvasVisible
+            wantsFrames = visible
             if visible {
-                if frames.isEmpty, !failed { load() }
+                if frames.isEmpty, !failed, !loading { load() }
                 guard !failed, frames.count > 1, timer == nil else { return }
                 show(index)
                 schedule()
-            } else if timer != nil || frames.count > 1 {
+            } else if timer != nil || frames.count > 1 || loading {
+                generation += 1
+                loading = false
                 timer?.invalidate()
                 timer = nil
                 let current = canvas?.image
@@ -121,13 +153,26 @@ struct AnimatedImageFill: NSViewRepresentable {
             }
         }
 
+        /// ImageIO runs off the main thread. A tile that leaves before the decode finishes keeps the frame it already showed.
         private func load() {
-            let decoded = CoverFile.frames(at: path)
-            frames = decoded.map { NSImage(cgImage: $0.image, size: NSSize(width: $0.image.width, height: $0.image.height)) }
-            delays = decoded.map(\.seconds)
-            if frames.isEmpty { failed = true; return }
-            if index >= frames.count { index = 0 }
-            show(index)
+            loading = true
+            let path = path
+            let generation = generation
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                let decoded = CoverFile.frames(at: path)
+                let pictures = decoded.map(\.image)
+                let delays = decoded.map(\.seconds)
+                DispatchQueue.main.async {
+                    guard let self, self.generation == generation, self.active, self.wantsFrames, self.path == path else { return }
+                    self.loading = false
+                    self.frames = pictures.map { NSImage(cgImage: $0, size: NSSize(width: CGFloat($0.width), height: CGFloat($0.height))) }
+                    self.delays = delays
+                    if self.frames.isEmpty { self.failed = true; return }
+                    if self.index >= self.frames.count { self.index = 0 }
+                    self.show(self.index)
+                    if self.frames.count > 1, self.timer == nil { self.schedule() }
+                }
+            }
         }
 
         private var canvasVisible: Bool {
@@ -157,6 +202,9 @@ struct AnimatedImageFill: NSViewRepresentable {
 
         func stop() {
             active = false
+            wantsFrames = false
+            loading = false
+            generation += 1
             timer?.invalidate()
             timer = nil
             frames = []
@@ -207,8 +255,10 @@ struct LoopingMovieFill: NSViewRepresentable {
     final class Coordinator {
         private var player: AVPlayer?
         private var loop: NSObjectProtocol?
+        private var status: NSKeyValueObservation?
         private var playing = false
         private var active = false
+        private var failed = false
         private var parked = CMTime.zero
         var url: URL?
         weak var playerView: AVPlayerView?
@@ -217,7 +267,7 @@ struct LoopingMovieFill: NSViewRepresentable {
         /// Remembers the file. The player is created only while the tile is on screen.
         func bind(_ url: URL, poster: AspectImageView, playerView: AVPlayerView) {
             let changed = self.url != url
-            if changed { releasePlayer(); parked = .zero; poster.image = nil }
+            if changed { releasePlayer(); parked = .zero; failed = false; poster.image = nil }
             active = true
             self.url = url
             posterView = poster
@@ -230,6 +280,7 @@ struct LoopingMovieFill: NSViewRepresentable {
             guard active, let url, let playerView else { return }
             let visible = hostVisible && ClickThroughView.onScreen(playerView)
             if visible {
+                guard !failed else { return }
                 if player == nil { startPlayer(url, in: playerView) }
                 else if !playing {
                     playing = true
@@ -250,6 +301,10 @@ struct LoopingMovieFill: NSViewRepresentable {
         private func startPlayer(_ url: URL, in view: AVPlayerView) {
             let item = AVPlayerItem(url: url)
             item.preferredForwardBufferDuration = 1
+            status = item.observe(\.status, options: [.new]) { [weak self] item, _ in
+                guard item.status == .failed else { return }
+                DispatchQueue.main.async { self?.noteFailure() }
+            }
             let player = AVPlayer(playerItem: item)
             player.isMuted = true
             player.volume = 0
@@ -273,8 +328,15 @@ struct LoopingMovieFill: NSViewRepresentable {
             player.play()
         }
 
+        /// A file that will not play stays a still. Opening it again on every scroll would keep failing.
+        private func noteFailure() {
+            failed = true
+            releasePlayer()
+        }
+
         /// Drops the decoder. The poster is one frame, drawn under the player view once the player is gone.
         private func releasePlayer() {
+            status = nil
             if let loop { NotificationCenter.default.removeObserver(loop) }
             loop = nil
             playing = false
@@ -325,9 +387,15 @@ final class ClickThroughView: NSView {
         RunLoop.main.add(timer, forMode: .common)
     }
 
-    /// On screen means the window is open, not hidden behind another window, and the scroll view has not clipped the tile away.
+    /// Windows that have reported themselves on screen. A window that has never reported is not treated as covered:
+    /// the occlusion value starts at zero, which is also what a fully covered window reports.
+    private static let windowsSeen: NSHashTable<NSWindow> = .weakObjects()
+
+    /// On screen means the window is open, not miniaturized, not covered after it has been seen, and the scroll view has not clipped the tile away.
     static func onScreen(_ view: NSView) -> Bool {
-        guard let window = view.window, window.isVisible, window.occlusionState.contains(.visible) else { return false }
+        guard let window = view.window, window.isVisible else { return false }
+        if window.occlusionState.contains(.visible) { windowsSeen.add(window) }
+        else if windowsSeen.contains(window) { return false }
         guard !view.bounds.isEmpty else { return false }
         return !view.visibleRect.isEmpty
     }

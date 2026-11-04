@@ -174,7 +174,7 @@ extension LauncherView {
                                         ZStack {
                                             LauncherPalette.surface
                                             if let image = artwork[game.id] {
-                                                filledCover(image, width: cardWidth, height: cardWidth / 1.8, motionPath: game.artworkPath)
+                                                filledCover(image, width: cardWidth, height: cardWidth / 1.8, motionPath: game.id == heroID ? "" : game.artworkPath)
                                             } else {
                                                 Image(systemName: "gamecontroller").font(.system(size: 30, weight: .light)).foregroundStyle(.secondary)
                                             }

@@ -92,7 +92,7 @@ public struct GameDetailView: View {
         VStack(alignment: .leading, spacing: 16) {
             if showsHeader {
             HStack(alignment: .center, spacing: 16) {
-                CoverView(game: detail.game, radius: 8).frame(width: 112, height: 63)
+                CoverView(game: detail.game, radius: 8, motion: false).frame(width: 112, height: 63)
                 VStack(alignment: .leading, spacing: 6) {
                     Text(detail.game.title).shellText(24, .heavy, relativeTo: .title).tracking(-0.6)
                         .fixedSize(horizontal: false, vertical: true)

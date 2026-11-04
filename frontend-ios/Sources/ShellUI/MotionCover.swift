@@ -133,6 +133,7 @@ private struct MotionHost: UIViewRepresentable {
         private var player: AVPlayer?
         private var playerLayer: AVPlayerLayer?
         private var loop: NSObjectProtocol?
+        private var status: NSKeyValueObservation?
         private weak var images: UIImageView?
         private weak var box: UIView?
         private var frames: [UIImage] = []
@@ -144,6 +145,8 @@ private struct MotionHost: UIViewRepresentable {
         private var active = false
         private var movie = false
         private var failed = false
+        private var loading = false
+        private var generation = 0
         private var url: URL?
         private let playing = MotionPlayGate()
 
@@ -155,6 +158,8 @@ private struct MotionHost: UIViewRepresentable {
                 index = 0
                 parked = .zero
                 failed = false
+                loading = false
+                generation += 1
                 releaseFrames()
                 releaseMovie(saving: false)
             }
@@ -189,11 +194,14 @@ private struct MotionHost: UIViewRepresentable {
             playing.allow = visible
             if visible {
                 guard !onScreen else { return }
+                guard !failed else { onScreen = true; return }
                 onScreen = true
                 if movie { startMovie() }
                 else { startFrames() }
-            } else if onScreen || player != nil || !frames.isEmpty {
+            } else if onScreen || player != nil || !frames.isEmpty || loading {
                 onScreen = false
+                generation += 1
+                loading = false
                 if movie { releaseMovie() }
                 else { releaseFrames() }
             }
@@ -207,25 +215,39 @@ private struct MotionHost: UIViewRepresentable {
             timer = nil
             frames = []
             delays = []
+            generation += 1
+            loading = false
             images?.image = nil
             releaseMovie(saving: false)
         }
 
         private func startFrames() {
-            if frames.isEmpty, !failed { loadFrames() }
+            if frames.isEmpty, !failed, !loading { loadFrames() }
             guard !failed, frames.count > 1, timer == nil else { return }
             showFrame()
             schedule()
         }
 
+        /// ImageIO runs off the main thread. A tile that leaves before the decode finishes keeps the frame it already showed.
         private func loadFrames() {
             guard let url else { return }
-            let decoded = Self.frames(url)
-            frames = decoded.map { UIImage(cgImage: $0.image) }
-            delays = decoded.map(\.seconds)
-            if frames.isEmpty { failed = true; return }
-            if index >= frames.count { index = 0 }
-            showFrame()
+            loading = true
+            let generation = generation
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                let decoded = Self.frames(url)
+                let pictures = decoded.map(\.image)
+                let delays = decoded.map(\.seconds)
+                DispatchQueue.main.async {
+                    guard let self, self.generation == generation, self.active, self.onScreen, self.url == url else { return }
+                    self.loading = false
+                    self.frames = pictures.map { UIImage(cgImage: $0) }
+                    self.delays = delays
+                    if self.frames.isEmpty { self.failed = true; return }
+                    if self.index >= self.frames.count { self.index = 0 }
+                    self.showFrame()
+                    if self.frames.count > 1, self.timer == nil { self.schedule() }
+                }
+            }
         }
 
         private func showFrame() {
@@ -264,6 +286,10 @@ private struct MotionHost: UIViewRepresentable {
             guard player == nil, let url, let box else { return }
             let item = AVPlayerItem(url: url)
             item.preferredForwardBufferDuration = 1
+            status = item.observe(\.status, options: [.new]) { [weak self] item, _ in
+                guard item.status == .failed else { return }
+                DispatchQueue.main.async { self?.noteFailure() }
+            }
             let player = AVPlayer(playerItem: item)
             player.isMuted = true
             player.volume = 0
@@ -285,8 +311,16 @@ private struct MotionHost: UIViewRepresentable {
             player.play()
         }
 
+        /// A file that will not play stays a still. Opening it again on every scroll would keep failing.
+        private func noteFailure() {
+            failed = true
+            onScreen = true
+            releaseMovie(saving: false)
+        }
+
         private func releaseMovie(saving time: Bool = true) {
             if time { parked = player?.currentTime() ?? parked }
+            status = nil
             if let loop { NotificationCenter.default.removeObserver(loop) }
             loop = nil
             player?.pause()

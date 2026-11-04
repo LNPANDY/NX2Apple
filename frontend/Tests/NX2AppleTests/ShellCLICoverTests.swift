@@ -61,15 +61,18 @@ final class ShellCLICoverTests: XCTestCase {
         XCTAssertEqual(options["repo"], "/repo")
     }
 
-    /// Saved paths fill the games a flag does not name. A flag replaces the saved path. An empty or missing path is left out.
+    /// Saved paths fill the games a flag does not name. A flag whose file is on disk replaces the saved path.
+    /// A flag whose file is missing leaves the saved path.
     func testSavedCoversFillGapsAndAFlagReplacesOne() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("covers-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
         let gif = dir.appendingPathComponent("cover.gif")
         let movie = dir.appendingPathComponent("clip.mp4")
+        let replacement = dir.appendingPathComponent("override.gif")
         try Data("gif".utf8).write(to: gif)
         try Data("mp4".utf8).write(to: movie)
+        try Data("new".utf8).write(to: replacement)
         let library = dir.appendingPathComponent("library.json")
         let body = """
         {"folder":"","games":[
@@ -80,10 +83,11 @@ final class ShellCLICoverTests: XCTestCase {
         ]}
         """
         try Data(body.utf8).write(to: library)
-        XCTAssertEqual(ShellCLI.mergedCovers(["--artwork", "0100ABCDEF000000=/override.gif"], library: library), [
-            "0100abcdef000000": "/override.gif",
+        XCTAssertEqual(ShellCLI.mergedCovers(["--artwork", "0100ABCDEF000000=\(replacement.path)"], library: library), [
+            "0100abcdef000000": replacement.path,
             "0100bbbbbb000000": movie.path,
         ])
+        XCTAssertEqual(ShellCLI.mergedCovers(["--artwork", "0100ABCDEF000000=/no/such.gif"], library: library)["0100abcdef000000"], gif.path)
         let bare = dir.appendingPathComponent("bare.json")
         try Data("""
         [{"titleID":"0100BBBBBB000000","artworkPath":"\(movie.path)"}]

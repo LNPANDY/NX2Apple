@@ -673,8 +673,10 @@ struct LauncherView: View {
     }
 
     /// A still ImageIO can read, or a silent movie. Anything else is left unchosen.
+    /// A movie must have a picture. A renamed file with a movie extension is left unchosen.
     private static func coverFileOpens(_ url: URL) -> Bool {
-        CoverFile.isMovie(url.path) || NSImage(contentsOf: url) != nil || !CoverFile.frames(at: url.path).isEmpty
+        if CoverFile.isMovie(url.path) { return MoviePoster.image(at: url.path) != nil }
+        return NSImage(contentsOf: url) != nil || CoverFile.poster(at: url.path) != nil
     }
 
     private func chooseArtwork(_ game: LibraryGame) {

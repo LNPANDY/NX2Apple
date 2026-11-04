@@ -225,7 +225,9 @@ their chosen path.
 Change artwork accepts PNG, JPEG, TIFF, HEIC, GIF, WebP, MP4 and MOV. A GIF, an animated
 WebP or APNG, or a silent video loops in the tile, muted. A cover that has scrolled away,
 or a window that is hidden, drops its decoded frames and its player and continues from
-where it stopped when it comes back. The launcher does not download art from Steam Grid DB.
+where it stopped when it comes back. The row card of the game in the hero stays still, and
+so does a Cover Flow neighbour. A movie with no picture is refused. The launcher does not
+download art from Steam Grid DB.
 
 The iPhone and iPad shell shows the same file. An install, a re-sign or a reinstall copies the
 custom image or video when one is set, otherwise the cached eShop banner, into the game's

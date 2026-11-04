@@ -145,7 +145,7 @@ struct PortraitLibrary: View, Equatable {
         let chosen = detail.id == selected.id
         return Button { rowSelecting = !chosen; select(detail.id) } label: {
             VStack(alignment: .leading, spacing: 0) {
-                CoverView(game: detail.game, showsState: true)
+                CoverView(game: detail.game, showsState: true, motion: !chosen)
                     .shellTarget("lib.tile.\(detail.id)") { primary(detail) }
                 Text(detail.game.title).shellType(ShellType.cardTitle).lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
                     .foregroundStyle(.white.opacity(chosen ? 1 : 0.86))
@@ -175,7 +175,7 @@ struct PortraitLibrary: View, Equatable {
                 ForEach(recent) { detail in
                     Button { primary(detail) } label: {
                         HStack(spacing: 14) {
-                            CoverView(game: detail.game, radius: 6).frame(width: 78, height: 44)
+                            CoverView(game: detail.game, radius: 6, motion: false).frame(width: 78, height: 44)
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(detail.game.title).shellText(15, .semibold).multilineTextAlignment(.leading)
                                 Text(detail.game.recentlyPlayed ?? "").shellText(12.5).foregroundStyle(.white.opacity(0.5))

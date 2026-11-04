@@ -62,10 +62,10 @@ enum ShellCLI {
         return out
     }
 
-    /// Saved paths, then `--artwork` flags. A flag replaces the saved path for that game.
+    /// Saved paths, then `--artwork` flags whose files are on disk. A missing flag does not replace a saved path.
     static func mergedCovers(_ args: [String], library: URL, fm: FileManager = .default) -> [String: String] {
         var out = savedCovers(library, fm: fm)
-        for (id, path) in covers(args) { out[id] = path }
+        for (id, path) in covers(args) where fm.fileExists(atPath: path) { out[id] = path }
         return out
     }
 
