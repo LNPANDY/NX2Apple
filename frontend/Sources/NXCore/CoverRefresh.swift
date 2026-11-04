@@ -3,7 +3,9 @@ import Foundation
 extension ShellInstall {
     /// Puts each game's current cover into the shell mirror and into the copy embedded in the installed app
     /// (`App.app/Frameworks`, which is what the phone shows). Returns the title IDs whose picture inside the app changed.
-    /// A reinstall signs again only for those, so an unchanged app is installed as it is.
+    /// A re-sign calls this before xcodebuild so the mirror the build copies is current, and again after xcodebuild
+    /// because that build can copy an older framework over the first write. A reinstall signs again only for a title
+    /// in this list, so an unchanged app is installed as it is.
     /// A game with no chosen file and no cached eShop banner is left alone: a missing cache must not strip the picture the phone already has.
     @discardableResult
     package static func refreshCovers(root: String, app: String, artwork: (String) -> String?, banners: URL = BannerCache.directory,

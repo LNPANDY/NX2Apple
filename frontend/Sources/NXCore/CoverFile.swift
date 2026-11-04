@@ -39,11 +39,25 @@ package enum CoverFile {
         return CGImageSourceGetCount(src) > 1
     }
 
-    /// GIF delays of 0 mean "as fast as you like". 0.1s is the usual stand-in, and the floor for a missing delay.
+    /// GIF, WebP and APNG delays of 0 mean "as fast as you like". 0.1s is the usual stand-in, and the floor for a missing delay.
     private static func delay(_ src: CGImageSource, _ index: Int) -> Double {
-        guard let props = CGImageSourceCopyPropertiesAtIndex(src, index, nil) as? [CFString: Any],
-              let gif = props[kCGImagePropertyGIFDictionary] as? [CFString: Any] else { return 0.1 }
-        let raw = (gif[kCGImagePropertyGIFUnclampedDelayTime] as? Double) ?? (gif[kCGImagePropertyGIFDelayTime] as? Double) ?? 0.1
+        guard let props = CGImageSourceCopyPropertiesAtIndex(src, index, nil) as? [CFString: Any] else { return 0.1 }
+        let raw = frameDelay(props, kCGImagePropertyGIFDictionary, kCGImagePropertyGIFUnclampedDelayTime, kCGImagePropertyGIFDelayTime)
+            ?? frameDelay(props, kCGImagePropertyWebPDictionary, kCGImagePropertyWebPUnclampedDelayTime, kCGImagePropertyWebPDelayTime)
+            ?? frameDelay(props, kCGImagePropertyPNGDictionary, kCGImagePropertyAPNGUnclampedDelayTime, kCGImagePropertyAPNGDelayTime)
+            ?? 0.1
         return raw < 0.02 ? 0.1 : raw
+    }
+
+    /// Nil when this format does not give a delay. The unclamped value wins, then the clamped one.
+    private static func frameDelay(_ props: [CFString: Any], _ dictionary: CFString, _ unclamped: CFString, _ clamped: CFString) -> Double? {
+        guard let bag = props[dictionary] as? [CFString: Any] else { return nil }
+        return seconds(bag[unclamped]) ?? seconds(bag[clamped])
+    }
+
+    private static func seconds(_ value: Any?) -> Double? {
+        if let value = value as? Double { return value }
+        if let value = value as? NSNumber { return value.doubleValue }
+        return nil
     }
 }

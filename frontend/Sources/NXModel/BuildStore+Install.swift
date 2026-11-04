@@ -120,8 +120,11 @@ extension BuildStore {
 
     /// Renew the shared app's signature (a free Apple ID's profile lasts 7 days). The same xcodebuild parameters as
     /// the install, run on the cached project and derived data: Xcode reuses the compiled products and only signs
-    /// again, then devicectl installs the app over itself. PRODUCT_BUNDLE_IDENTIFIER is the one shell.json holds, so the
-    /// device keeps the app's Documents (game data, saves).
+    /// again, then devicectl installs the app over itself. The cover is written into the shell mirror before that
+    /// build, because the build copies the mirror. It is written again into the built app afterwards, because an
+    /// incremental build can copy an older framework over the first write. When that second write changes a picture,
+    /// the app is sealed with the identity it already has so the signature matches the new bytes. PRODUCT_BUNDLE_IDENTIFIER
+    /// is the one shell.json holds, so the device keeps the app's Documents (game data, saves).
     package func resignOnDevice(app: String, device: String, then: (() -> Void)? = nil) {
         guard !device.isEmpty, !app.isEmpty else { then?(); return }
         guard !devices.signingTeam.isEmpty else {
@@ -138,17 +141,24 @@ extension BuildStore {
             then?(); return
         }
         let covers = artworkPaths()
-        _ = ShellInstall.refreshCovers(root: shell.root, app: app, artwork: { covers[$0.lowercased()] })
+        let artwork: (String) -> String? = { covers[$0.lowercased()] }
+        let root = shell.root
+        _ = ShellInstall.refreshCovers(root: root, app: app, artwork: artwork)
         let xcrun = devices.xcrun, team = devices.signingTeam, name = devices.deviceName(device)
-        let bundle = ShellLibrary.load(root: shell.root).bundleID
+        let bundle = ShellLibrary.load(root: root).bundleID
         running = true
         // The shared app is signed again under the identifier shell.json holds, so the device keeps its Documents
-        let command = ShellInstall.buildCommand(xcrun: xcrun, root: shell.root, device: device, team: team, bundleID: bundle)
+        let command = ShellInstall.buildCommand(xcrun: xcrun, root: root, device: device, team: team, bundleID: bundle)
         runTool(id: 1006, name: String(format: t("dev.resignStage"), name),
                 command, step: BuildProgress.xcodeStep) { error in
             if let error, !error.isEmpty {
                 self.running = false
                 self.doneNote = String(format: self.t("dev.resignFailed"), error)
+                then?(); return
+            }
+            if let sealError = self.refreshBuiltCover(app: app, root: root, artwork: artwork) {
+                self.running = false
+                self.doneNote = String(format: self.t("dev.resignFailed"), sealError)
                 then?(); return
             }
             self.runTool(id: 1007, name: String(format: self.t("dev.installStage"), name),
@@ -163,6 +173,17 @@ extension BuildStore {
                 }
                 then?()
             }
+        }
+    }
+
+    /// Writes the current cover into the built app after xcodebuild. When that changes a picture, seals the app.
+    /// Nil means the app can be installed. A string is why a signed app could not be sealed, and the install must not run.
+    private func refreshBuiltCover(app: String, root: String, artwork: (String) -> String?) -> String? {
+        let changed = ShellInstall.refreshCovers(root: root, app: app, artwork: artwork)
+        guard !changed.isEmpty else { return nil }
+        return CoverSeal.seal(app: app) { argv in
+            let result = self.runner.capture(ProcessLaunch(argv, mergesErrors: true))
+            return result.started ? result.status : 1
         }
     }
 

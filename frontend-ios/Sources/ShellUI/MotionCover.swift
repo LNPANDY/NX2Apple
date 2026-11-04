@@ -45,29 +45,103 @@ struct MotionCover: View {
 }
 
 #if os(iOS)
+/// The phone's rows are ordinary scroll views, so a tile that leaves the screen stays in the hierarchy.
+/// Its bounds, moved into the window, miss the window once it has scrolled away. A missing window means the same.
+private final class MotionBox: UIView {
+    var onVisibility: ((Bool) -> Void)?
+    private var timer: Timer?
+    private var reporting = false
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        arm()
+        report()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        report()
+    }
+
+    func stopWatching() {
+        onVisibility = nil
+        timer?.invalidate()
+        timer = nil
+    }
+
+    /// A tile with no size yet is not on screen. A point rectangle can still intersect the window.
+    static func onScreen(_ view: UIView) -> Bool {
+        guard let window = view.window else { return false }
+        let rect = view.convert(view.bounds, to: window)
+        return !rect.isEmpty && rect.intersects(window.bounds)
+    }
+
+    /// Scrolling does not resize the tile, so layout is not enough. Common mode keeps firing while the row is dragged.
+    private func arm() {
+        timer?.invalidate()
+        timer = nil
+        guard window != nil else { return }
+        let timer = Timer(timeInterval: 0.2, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.report() }
+        }
+        self.timer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func report() {
+        guard !reporting else { return }
+        reporting = true
+        onVisibility?(Self.onScreen(self))
+        reporting = false
+    }
+
+    deinit { timer?.invalidate() }
+}
+
+/// The movie's end loop reads this from the main queue, alongside the player.
+private final class MotionPlayGate: @unchecked Sendable {
+    var allow = false
+}
+
 private struct MotionHost: UIViewRepresentable {
     let url: URL
 
     func makeCoordinator() -> Coordinator { Coordinator() }
     func makeUIView(context: Context) -> UIView {
-        let box = UIView()
+        let box = MotionBox()
         box.clipsToBounds = true
         box.isUserInteractionEnabled = false
+        box.onVisibility = { [weak coordinator = context.coordinator] visible in
+            coordinator?.setVisible(visible)
+        }
         context.coordinator.mount(url, in: box)
         return box
     }
-    func updateUIView(_ box: UIView, context: Context) { context.coordinator.layout(in: box) }
-    static func dismantleUIView(_ box: UIView, coordinator: Coordinator) { coordinator.stop() }
+    func updateUIView(_ box: UIView, context: Context) {
+        context.coordinator.layout(in: box)
+        context.coordinator.setVisible(MotionBox.onScreen(box))
+    }
+    static func dismantleUIView(_ box: UIView, coordinator: Coordinator) {
+        (box as? MotionBox)?.stopWatching()
+        coordinator.stop()
+    }
 
     final class Coordinator {
         private var player: AVPlayer?
         private var playerLayer: AVPlayerLayer?
         private var loop: NSObjectProtocol?
         private weak var images: UIImageView?
+        private var onScreen = false
+        private var active = false
+        private let playing = MotionPlayGate()
 
         func mount(_ url: URL, in box: UIView) {
+            active = true
             if MotionCover.isMovie(url) { mountMovie(url, in: box) }
             else { mountFrames(url, in: box) }
+            let shown = MotionBox.onScreen(box)
+            if shown { onScreen = false }
+            setVisible(shown)
         }
 
         func layout(in box: UIView) {
@@ -75,7 +149,26 @@ private struct MotionHost: UIViewRepresentable {
             images?.frame = box.bounds
         }
 
+        /// Off screen the movie pauses and the frames stop. Back on screen they continue. A still frame is not started again.
+        func setVisible(_ visible: Bool) {
+            guard active else { return }
+            playing.allow = visible
+            if visible {
+                guard !onScreen else { return }
+                onScreen = true
+                if (images?.animationImages?.count ?? 0) > 1 { images?.startAnimating() }
+                player?.play()
+            } else {
+                if onScreen { images?.stopAnimating() }
+                onScreen = false
+                if let player, player.timeControlStatus != .paused { player.pause() }
+            }
+        }
+
         func stop() {
+            active = false
+            onScreen = false
+            playing.allow = false
             if let loop { NotificationCenter.default.removeObserver(loop) }
             loop = nil
             player?.pause()
@@ -89,17 +182,18 @@ private struct MotionHost: UIViewRepresentable {
             player.isMuted = true
             player.volume = 0
             player.preventsDisplaySleepDuringVideoPlayback = false
+            self.player = player
             let layer = AVPlayerLayer(player: player)
             layer.videoGravity = .resizeAspectFill
             layer.frame = box.bounds
             box.layer.addSublayer(layer)
-            self.player = player
             playerLayer = layer
+            let gate = playing
             loop = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { _ in
                 player.seek(to: .zero)
+                guard gate.allow else { return }
                 player.play()
             }
-            player.play()
         }
 
         private func mountFrames(_ url: URL, in box: UIView) {
@@ -116,7 +210,6 @@ private struct MotionHost: UIViewRepresentable {
             view.image = view.animationImages?.first
             view.animationDuration = max(0.1, frames.reduce(0) { $0 + $1.seconds })
             view.animationRepeatCount = 0
-            if frames.count > 1 { view.startAnimating() }
         }
 
         private static func frames(_ url: URL) -> [(image: CGImage, seconds: Double)] {
@@ -129,11 +222,26 @@ private struct MotionHost: UIViewRepresentable {
             return out
         }
 
+        /// GIF, WebP and APNG delays of 0 mean "as fast as you like". 0.1s is the usual stand-in, and the floor for a missing delay.
         private static func delay(_ src: CGImageSource, _ index: Int) -> Double {
-            guard let props = CGImageSourceCopyPropertiesAtIndex(src, index, nil) as? [CFString: Any],
-                  let gif = props[kCGImagePropertyGIFDictionary] as? [CFString: Any] else { return 0.1 }
-            let raw = (gif[kCGImagePropertyGIFUnclampedDelayTime] as? Double) ?? (gif[kCGImagePropertyGIFDelayTime] as? Double) ?? 0.1
+            guard let props = CGImageSourceCopyPropertiesAtIndex(src, index, nil) as? [CFString: Any] else { return 0.1 }
+            let raw = frameDelay(props, kCGImagePropertyGIFDictionary, kCGImagePropertyGIFUnclampedDelayTime, kCGImagePropertyGIFDelayTime)
+                ?? frameDelay(props, kCGImagePropertyWebPDictionary, kCGImagePropertyWebPUnclampedDelayTime, kCGImagePropertyWebPDelayTime)
+                ?? frameDelay(props, kCGImagePropertyPNGDictionary, kCGImagePropertyAPNGUnclampedDelayTime, kCGImagePropertyAPNGDelayTime)
+                ?? 0.1
             return raw < 0.02 ? 0.1 : raw
+        }
+
+        /// Nil when this format does not give a delay. The unclamped value wins, then the clamped one.
+        private static func frameDelay(_ props: [CFString: Any], _ dictionary: CFString, _ unclamped: CFString, _ clamped: CFString) -> Double? {
+            guard let bag = props[dictionary] as? [CFString: Any] else { return nil }
+            return seconds(bag[unclamped]) ?? seconds(bag[clamped])
+        }
+
+        private static func seconds(_ value: Any?) -> Double? {
+            if let value = value as? Double { return value }
+            if let value = value as? NSNumber { return value.doubleValue }
+            return nil
         }
     }
 }

@@ -417,6 +417,11 @@ import NXModel
                         dest = os.path.join(app, 'Frameworks', os.path.basename(fw))
                         if os.path.exists(dest): shutil.rmtree(dest)
                         shutil.copytree(fw, dest)
+                        if os.path.exists(STATE + '/stale-banner'):
+                            for ext in ('gif', 'png', 'webp', 'mp4', 'mov', 'm4v', 'heic', 'jpg', 'jpeg'):
+                                old = os.path.join(dest, 'banner.' + ext)
+                                if os.path.exists(old): os.remove(old)
+                            open(os.path.join(dest, 'banner.jpg'), 'wb').write(b'stale')
             print('CodeSign ' + app, flush=True)
         elif a[:3] == ['devicectl', 'list', 'devices']:
             n = (int(open(STATE + '/list-count').read()) if os.path.exists(STATE + '/list-count') else 0) + 1
@@ -972,8 +977,10 @@ import NXModel
         XCTAssertEqual(model.doneNote, String(format: model.t("dev.resigned"), "iPhone"))
     }
 
-    /// The phone shows the picture inside the signed app. A re-sign copies the new cover in before it signs. A reinstall
-    /// of the same picture does not sign again. A reinstall of a different picture signs, then installs that app.
+    /// The phone shows the picture inside the signed app. A re-sign copies the new cover in before it signs.
+    /// The stand-in xcodebuild then copies the framework again, and state/stale-banner makes that copy an old picture.
+    /// The refresh after the build puts the new cover back, so the app does not keep the old picture.
+    /// A reinstall of the same picture does not sign again. A reinstall of a different picture signs, then installs that app.
     @MainActor func testResignAndReinstallShipTheNewCover() throws {
         let f = try makeFixture()
         let mirror = ShellInstall.mirroredFramework(root: f.root, titleID: titleID)
@@ -988,6 +995,7 @@ import NXModel
         try write(app + "/bundle.txt", "org.nxnative.shell")
         let gif = path("cover.gif")
         try write(gif, "GIF89a-new")
+        try write(state + "/stale-banner", "1")
 
         let stores = LauncherStores(xcrun: f.xcrun, defaults: testDefaults)
         let model = stores.build
@@ -1000,7 +1008,7 @@ import NXModel
         model.resignOnDevice(app: app, device: device) { resigned.fulfill() }
         wait(for: [resigned], timeout: 30)
         let shipped = app + "/Frameworks/DmGame\(titleID).framework/banner.gif"
-        XCTAssertEqual(try String(contentsOfFile: shipped, encoding: .utf8), "GIF89a-new")
+        XCTAssertEqual(try String(contentsOfFile: shipped, encoding: .utf8), "GIF89a-new", "the stale picture xcodebuild copied is replaced after the build")
         XCTAssertFalse(fm.fileExists(atPath: app + "/Frameworks/DmGame\(titleID).framework/banner.jpg"))
         XCTAssertTrue(calls.contains { $0.hasPrefix("xcodebuild") })
         XCTAssertEqual(calls.filter { $0.hasPrefix("devicectl device install app") }.count, 1)

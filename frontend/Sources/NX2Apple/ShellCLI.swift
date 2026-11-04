@@ -2,9 +2,10 @@ import Foundation
 import NXCore
 
 /// `NSPortBuilder --install-shell ...`: steps 3 to 7 without a window and without questions, for a terminal or a script.
+/// Pass `--artwork <titleID>=<path>` once per game whose own cover should be used.
 enum ShellCLI {
     static let usage = "NSPortBuilder --install-shell --framework <path> --archive <games/TITLEID folder> --title-id <id> --name <name> "
-        + "--device <udid> --team <team> --repo <repo> [--shell-root <dir>] [--python <path>]"
+        + "--device <udid> --team <team> --repo <repo> [--shell-root <dir>] [--python <path>] [--artwork <titleID>=<path>]"
 
     /// The options as a dictionary, nil when an option has no value.
     static func parse(_ args: [String]) -> [String: String]? {
@@ -18,6 +19,28 @@ enum ShellCLI {
             i += 2
         }
         return options
+    }
+
+    /// Cover paths from repeated `--artwork <titleID>=<path>` flags.
+    /// The title id is stored lowercased and the path is everything after the first equals.
+    /// A value with no equals, an empty title id, or an empty path is left out.
+    static func covers(_ args: [String]) -> [String: String] {
+        var covers: [String: String] = [:]
+        var i = 0
+        while i < args.count {
+            if args[i] == "--artwork", i + 1 < args.count {
+                let value = args[i + 1]
+                if let eq = value.firstIndex(of: "=") {
+                    let id = String(value[..<eq])
+                    let path = String(value[value.index(after: eq)...])
+                    if !id.isEmpty, !path.isEmpty { covers[id.lowercased()] = path }
+                }
+                i += 2
+                continue
+            }
+            i += 1
+        }
+        return covers
     }
 
     /// Exit status: 0 installed, 1 failed (or wrong usage). `out` gets every line, stage lines and tool output alike.
@@ -45,6 +68,9 @@ enum ShellCLI {
             case .pending: break
             }
         }
+        // Each --artwork line supplies one game's cover. A title with no line returns nil and the install keeps the cached eShop banner.
+        let covers = Self.covers(args)
+        installer.artworkForTitle = { covers[$0.lowercased()] }
         let result = installer.install(framework: o["framework"]!, titleID: o["title-id"]!, name: o["name"]!, archive: archive)
         out((result.ok ? "OK: " : "FAIL: ") + result.message + "\n")
         return result.ok ? 0 : 1
