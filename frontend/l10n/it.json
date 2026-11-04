@@ -992,7 +992,7 @@
   "launch.set.DM_UPSCALER": "Upscaler del gioco",
   "launch.title": "Opzioni di avvio",
   "library.appReady": "NX2Apple %@ è pronto",
-  "library.artworkHint": "Scegli un’immagine larga e ferma (PNG, JPEG, TIFF o HEIC). Resta nella sua posizione originale. GIF, video e icone animate non sono copertine.",
+  "library.artworkHint": "Scegli un’immagine larga o un breve video senza audio (PNG, JPEG, TIFF, HEIC, GIF, WebP, MP4 o MOV). Resta nella sua posizione originale. Una GIF o un video va in loop nella tessera.",
   "library.buildAgain": "Compila di nuovo…",
   "library.building": "Compilazione",
   "library.changeArtwork": "Cambia copertina…",

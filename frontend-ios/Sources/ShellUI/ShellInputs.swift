@@ -24,8 +24,10 @@ public struct GameTile: Identifiable, Equatable, Sendable {
     public var state: GameState
     /// Already localized, such as "Played today". Nil leaves the game out of Recently played.
     public var recentlyPlayed: String?
+    /// The banner file, when it is a GIF or a silent movie the tile should play. Nil for a still.
+    public var bannerURL: URL?
     public init(id: String, title: String, subtitle: String = "", banner: Artwork? = nil, icon: Artwork? = nil,
-                state: GameState = .playable, recentlyPlayed: String? = nil) {
+                state: GameState = .playable, recentlyPlayed: String? = nil, bannerURL: URL? = nil) {
         self.id = id
         self.title = title
         self.subtitle = subtitle
@@ -33,6 +35,7 @@ public struct GameTile: Identifiable, Equatable, Sendable {
         self.icon = icon
         self.state = state
         self.recentlyPlayed = recentlyPlayed
+        self.bannerURL = bannerURL
     }
 }
 

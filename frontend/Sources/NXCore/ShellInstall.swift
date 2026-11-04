@@ -257,12 +257,12 @@ package enum ShellInstall {
     }
 
     /// Copies the game's banner into its framework as banner.<ext>, the picture the shell's library shows: the player's own pick,
-    /// else the eShop banner the launcher caches per title ID (ArtworkStore). The cache is only read. PNG, JPEG, HEIC and WebP are
-    /// copied as they are. Anything else the Mac opened, such as a TIFF, is written as a JPEG, which is what the shell decodes.
+    /// else the eShop banner the launcher caches per title ID (ArtworkStore). The cache is only read. PNG, JPEG, HEIC, WebP, GIF
+    /// and a silent MP4, MOV or M4V are copied as they are. Anything else the Mac opened, such as a TIFF, is written as a JPEG.
     /// Without either, an older banner is removed and the library shows the framework's icon.png. Returns the picture used.
     @discardableResult static func placeBanner(titleID: String, framework: String, banners: URL, picked: String?,
                                                fm: FileManager = .default) -> String? {
-        let known = ["png", "jpg", "jpeg", "heic", "webp"]
+        let known = CoverFile.shellExtensions
         let source = [picked, BannerCache.cached(titleID, in: banners)?.path].compactMap { $0 }.first { !$0.isEmpty && fm.fileExists(atPath: $0) }
         guard let source else {
             for ext in known { try? fm.removeItem(atPath: framework + "/banner." + ext) }

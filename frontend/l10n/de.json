@@ -993,7 +993,7 @@
   "launch.set.DM_UPSCALER": "Upscaler des Spiels",
   "launch.title": "Startoptionen",
   "library.appReady": "NX2Apple %@ ist bereit",
-  "library.artworkHint": "Wähle ein breites Standbild (PNG, JPEG, TIFF oder HEIC). Es bleibt an seinem ursprünglichen Ort. GIFs, Videos und animierte Symbole sind keine Titelbilder.",
+  "library.artworkHint": "Wähle ein breites Bild oder ein kurzes stummes Video (PNG, JPEG, TIFF, HEIC, GIF, WebP, MP4 oder MOV). Es bleibt an seinem ursprünglichen Ort. Ein GIF oder ein Video läuft in der Kachel in einer Schleife.",
   "library.buildAgain": "Erneut bauen …",
   "library.building": "Wird gebaut",
   "library.changeArtwork": "Titelbild ändern …",

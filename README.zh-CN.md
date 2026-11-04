@@ -92,10 +92,10 @@ App 自带构建工具和 Python，不需要装 Homebrew 和 Python；.NET SDK 1
 - **云存档。** 为游戏选一个 iCloud Drive 文件夹，存档就和 Mac 保持同步。
 - **语言。** App 跟随系统语言，英文或简体中文。
 
-App 需要 iOS 或 iPadOS 26 或更新。封面是静态图片。在 Mac 上，**管理 > 更换图片** 为一款游戏设置
-PNG、JPEG、TIFF 或 HEIC。文件留在你选择的路径，并优先于按标题 ID 缓存的 eShop 横幅（16:9）。
-启动器不播放 GIF、视频或动态图标，也不从 Steam Grid DB 拉取图片。想要那种样子，做一张静态图，再用
-更换图片设置。安装时会把你的图片拷进 iPhone 和 iPad 外壳。没设置时用缓存的 eShop 横幅。
+App 需要 iOS 或 iPadOS 26 或更新。在 Mac 上，**管理 > 更换图片** 为一款游戏设置 PNG、JPEG、TIFF、
+HEIC、GIF、WebP、MP4 或 MOV。文件留在你选择的路径，并优先于按标题 ID 缓存的 eShop 横幅（16:9）。
+GIF 或无声视频会在封面里循环播放。启动器不会从 Steam Grid DB 拉取图片。安装时会把你的文件拷进
+iPhone 和 iPad 外壳。没设置时用缓存的 eShop 横幅。
 
 ## 游玩
 

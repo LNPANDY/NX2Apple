@@ -44,7 +44,8 @@ public struct CatalogueEntry: Equatable, Sendable, Identifiable {
 /// manifest's `<name>.framework` and optional `banner.<ext>` and `icon.<ext>` pictures, or, in the shell app, the
 /// embedded `<Name>.framework` folders that hold the manifest and everything else themselves. Pure reads, no state.
 public enum GameCatalogue {
-    public static let imageExtensions = ["png", "jpg", "jpeg", "heic", "webp"]
+    /// Still pictures, then a GIF, then a silent movie. The first file that exists wins.
+    public static let imageExtensions = ["png", "jpg", "jpeg", "heic", "webp", "gif", "mp4", "mov", "m4v"]
 
     public static func scan(root: URL, fileManager fm: FileManager = .default) -> [CatalogueEntry] {
         let names = ((try? fm.contentsOfDirectory(atPath: root.path)) ?? []).filter { !$0.hasPrefix(".") }.sorted()

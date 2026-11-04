@@ -672,11 +672,18 @@ struct LauncherView: View {
         }
     }
 
+    /// A still ImageIO can read, or a silent movie. Anything else is left unchosen.
+    private static func coverFileOpens(_ url: URL) -> Bool {
+        CoverFile.isMovie(url.path) || NSImage(contentsOf: url) != nil || !CoverFile.frames(at: url.path).isEmpty
+    }
+
     private func chooseArtwork(_ game: LibraryGame) {
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.png, .jpeg, .tiff, .heic]
+        var types: [UTType] = [.png, .jpeg, .tiff, .heic, .gif, .webP, .mpeg4Movie, .quickTimeMovie]
+        if let m4v = UTType(filenameExtension: "m4v") { types.append(m4v) }
+        panel.allowedContentTypes = types
         panel.message = loc.t("library.artworkHint")
-        if panel.runModal() == .OK, let url = panel.url, NSImage(contentsOf: url) != nil {
+        if panel.runModal() == .OK, let url = panel.url, Self.coverFileOpens(url) {
             library.setArtwork(url.path, for: game.id)
         }
     }

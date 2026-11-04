@@ -497,19 +497,30 @@ enum ConsolePlaceholder {
 struct ConsoleArtwork: View {
     let image: Image?
     var title = ""
+    var motionPath = ""
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         GeometryReader { geometry in
-            if let image { image.resizable().scaledToFill().frame(width: geometry.size.width, height: geometry.size.height).clipped() }
-            else {
-                ZStack(alignment: .bottomLeading) {
-                    LinearGradient(colors: ConsolePlaceholder.colors(for: title), startPoint: .topLeading, endPoint: .bottomTrailing)
-                    if title.isEmpty { Image(systemName: "gamecontroller").font(.system(size: 50)).foregroundStyle(.secondary) }
-                    else {
-                        Text(title).font(.manrope(max(14, geometry.size.width / 11), .bold)).foregroundStyle(LauncherPalette.cream.opacity(0.9))
-                            .lineLimit(3).minimumScaleFactor(0.6).padding(geometry.size.width / 18)
+            let w = geometry.size.width, h = geometry.size.height
+            ZStack {
+                if let image { image.resizable().scaledToFill().frame(width: w, height: h) }
+                else {
+                    ZStack(alignment: .bottomLeading) {
+                        LinearGradient(colors: ConsolePlaceholder.colors(for: title), startPoint: .topLeading, endPoint: .bottomTrailing)
+                        if title.isEmpty { Image(systemName: "gamecontroller").font(.system(size: 50)).foregroundStyle(.secondary) }
+                        else {
+                            Text(title).font(.manrope(max(14, w / 11), .bold)).foregroundStyle(LauncherPalette.cream.opacity(0.9))
+                                .lineLimit(3).minimumScaleFactor(0.6).padding(w / 18)
+                        }
                     }
+                    .frame(width: w, height: h)
+                }
+                if !reduceMotion, CoverFile.animates(motionPath) {
+                    if CoverFile.isMovie(motionPath) { LoopingMovieFill(url: URL(fileURLWithPath: motionPath)).frame(width: w, height: h) }
+                    else { AnimatedImageFill(path: motionPath).frame(width: w, height: h) }
                 }
             }
+            .frame(width: w, height: h).clipped()
         }
     }
 }
@@ -534,7 +545,7 @@ struct ConsoleGameTile: View {
     var captionVisible = true
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            ConsoleArtwork(image: game.artwork, title: game.title).aspectRatio(1.8, contentMode: .fit)
+            ConsoleArtwork(image: game.artwork, title: game.title, motionPath: game.motionPath).aspectRatio(1.8, contentMode: .fit)
                 .opacity(game.status == .ready ? 1 : 0.45)   // not playable on this Mac: dimmed, its status on top
                 .overlay(alignment: .bottomLeading) {
                     if game.status != .ready {

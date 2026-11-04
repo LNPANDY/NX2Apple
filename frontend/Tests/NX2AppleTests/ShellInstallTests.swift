@@ -247,7 +247,24 @@ import NXModel
         XCTAssertFalse(fm.fileExists(atPath: fw + "/banner.png"), "no picture: the library falls back to the icon")
     }
 
-    /// Change artwork allows a TIFF. The shell reads PNG, JPEG, HEIC and WebP, so the install writes that picture as a JPEG.
+    /// A GIF and a silent movie are formats the shell plays, so the install copies the file as it is.
+    func testAGifOrAMovieIsCopiedAsItself() throws {
+        let fw = path("DmGame\(titleID).framework")
+        try fm.createDirectory(atPath: fw, withIntermediateDirectories: true)
+        let banners = URL(fileURLWithPath: path("artwork"))
+        let gif = path("cover.gif")
+        try write(gif, "GIF89a-bytes")
+        XCTAssertEqual(ShellInstall.placeBanner(titleID: titleID, framework: fw, banners: banners, picked: gif), gif)
+        XCTAssertEqual(try String(contentsOfFile: fw + "/banner.gif", encoding: .utf8), "GIF89a-bytes")
+        XCTAssertFalse(fm.fileExists(atPath: fw + "/banner.jpg"))
+        let movie = path("cover.mp4")
+        try write(movie, "movie-bytes")
+        XCTAssertEqual(ShellInstall.placeBanner(titleID: titleID, framework: fw, banners: banners, picked: movie), movie)
+        XCTAssertEqual(try String(contentsOfFile: fw + "/banner.mp4", encoding: .utf8), "movie-bytes")
+        XCTAssertFalse(fm.fileExists(atPath: fw + "/banner.gif"), "the gif is replaced by the movie")
+    }
+
+    /// Change artwork allows a TIFF. The shell reads PNG, JPEG, HEIC, WebP, GIF and a silent movie, so a TIFF is written as a JPEG.
     func testATiffCoverIsInstalledAsAJpeg() throws {
         let fw = path("DmGame\(titleID).framework"), tiff = path("cover.tiff")
         try fm.createDirectory(atPath: fw, withIntermediateDirectories: true)

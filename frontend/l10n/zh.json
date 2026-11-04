@@ -992,7 +992,7 @@
   "launch.set.DM_UPSCALER": "游戏自带超分",
   "launch.title": "启动选项",
   "library.appReady": "NX2Apple %@ 已就绪",
-  "library.artworkHint": "选择一张宽幅静态图片（PNG、JPEG、TIFF 或 HEIC）。图片留在原来的位置。GIF、视频和动态图标不能当封面。",
+  "library.artworkHint": "选择一张宽幅图片或一段无声短视频（PNG、JPEG、TIFF、HEIC、GIF、WebP、MP4 或 MOV）。文件留在原来的位置。GIF 或视频会在封面里循环播放。",
   "library.buildAgain": "重新构建…",
   "library.building": "正在构建",
   "library.changeArtwork": "更换图片…",

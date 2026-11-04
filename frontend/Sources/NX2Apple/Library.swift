@@ -646,7 +646,15 @@ final class GameLibrary: ObservableObject {
     /// Prefer a user's own image, then the game's eShop key art (ArtworkStore), then an existing repository
     /// gameplay screenshot, then the app icon.
     static func artwork(for game: LibraryGame, repo: String, banners: URL = ArtworkStore.shared.directory) -> NSImage? {
-        if !game.artworkPath.isEmpty, let image = NSImage(contentsOfFile: game.artworkPath) { return image }
+        if !game.artworkPath.isEmpty {
+            if CoverFile.isMovie(game.artworkPath) {
+                return MoviePoster.image(at: game.artworkPath) ?? NSImage(size: NSSize(width: 16, height: 9))
+            }
+            if let image = NSImage(contentsOfFile: game.artworkPath) { return image }
+            if let first = CoverFile.frames(at: game.artworkPath).first {
+                return NSImage(cgImage: first.image, size: NSSize(width: first.image.width, height: first.image.height))
+            }
+        }
         if let url = ArtworkStore.cachedBanner(game.titleID, in: banners), let image = NSImage(contentsOf: url) { return image }
         func normalized(_ s: String) -> String {
             s.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: Locale(identifier: "en_US_POSIX"))

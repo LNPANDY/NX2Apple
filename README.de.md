@@ -109,13 +109,12 @@ gewählte Spiel oben steht. Auf der Seite liegend ist es ein Cover Flow. Ein iPa
   im Gleichschritt bleiben.
 - **Sprache.** Die App folgt der Systemsprache, Englisch oder vereinfachtes Chinesisch.
 
-Die App braucht iOS oder iPadOS 26 oder neuer. Die Cover sind Standbilder. Auf dem Mac setzt
-**Verwalten > Titelbild ändern** ein PNG, JPEG, TIFF oder HEIC für ein Spiel. Die Datei bleibt an
-dem Pfad, den du gewählt hast, und sie erscheint vor dem automatischen eShop-Banner (16:9-Titelbild,
-zwischengespeichert zur Title-ID). Der Launcher spielt kein GIF, kein Video und kein animiertes
-Symbol, und er lädt keine Bilder von Steam Grid DB. Ein Standbild in diesem Stil, gesetzt mit
-Titelbild ändern, ist der Weg zu diesem Aussehen. Eine Installation kopiert dein Bild in die
-iPhone- und iPad-App, oder das zwischengespeicherte eShop-Banner, wenn du keins gesetzt hast.
+Die App braucht iOS oder iPadOS 26 oder neuer. Auf dem Mac setzt **Verwalten > Titelbild ändern**
+ein PNG, JPEG, TIFF, HEIC, GIF, WebP, MP4 oder MOV für ein Spiel. Die Datei bleibt an dem Pfad,
+den du gewählt hast, und sie erscheint vor dem automatischen eShop-Banner (16:9-Titelbild,
+zwischengespeichert zur Title-ID). Ein GIF oder ein stummes Video läuft in der Kachel in einer
+Schleife. Der Launcher lädt keine Bilder von Steam Grid DB. Eine Installation kopiert deine Datei
+in die iPhone- und iPad-App, oder das zwischengespeicherte eShop-Banner, wenn du keins gesetzt hast.
 
 ## So spielst du
 

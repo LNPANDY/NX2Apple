@@ -238,9 +238,14 @@ struct ArtView: View {
                 let w = geometry.size.width, h = geometry.size.height
                 ZStack {
                     if let banner = game.banner {
-                        Image(decorative: backdrop ? banner.thumbnail : banner.image, scale: 1)
-                            .resizable().interpolation(backdrop ? .medium : .high).scaledToFill()
-                            .frame(width: w, height: h)
+                        ZStack {
+                            Image(decorative: backdrop ? banner.thumbnail : banner.image, scale: 1)
+                                .resizable().interpolation(backdrop ? .medium : .high).scaledToFill()
+                            if !backdrop, let url = game.bannerURL { MotionCover(url: url) }
+                        }
+                        .frame(width: w, height: h)
+                    } else if !backdrop, let url = game.bannerURL, MotionCover.plays(url) {
+                        MotionCover(url: url).frame(width: w, height: h)
                     } else if let icon = game.icon {
                         if backdrop {
                             Image(decorative: icon.thumbnail, scale: 1).resizable().scaledToFill()
