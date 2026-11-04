@@ -684,7 +684,7 @@
   "ios.host.quitButton": "Esci",
   "ios.host.quitCancel": "Annulla",
   "ios.host.quitHold": "Tieni premuto per uscire",
-  "ios.host.quitNote": "I progressi non salvati andranno persi. L’app si chiude e la prossima volta si apre sui tuoi giochi.",
+  "ios.host.quitNote": "I progressi non salvati andranno persi. L’app si chiude. Riaprila per tornare ai tuoi giochi.",
   "ios.host.quitTitle": "Uscire da %@?",
   "ios.host.rangeWithoutLimits": "%@ è un intervallo senza min, max e step.",
   "ios.host.sameTitleId": "%@ ha lo stesso ID titolo %@ di %@, che viene usato al suo posto.",

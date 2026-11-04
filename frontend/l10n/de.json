@@ -685,7 +685,7 @@
   "ios.host.quitButton": "Beenden",
   "ios.host.quitCancel": "Abbrechen",
   "ios.host.quitHold": "Zum Beenden gedrückt halten",
-  "ios.host.quitNote": "Nicht gesicherter Fortschritt geht verloren. Die App wird geschlossen und zeigt beim nächsten Öffnen deine Spiele.",
+  "ios.host.quitNote": "Nicht gesicherter Fortschritt geht verloren. Die App wird geschlossen. Öffne sie erneut, um zu deinen Spielen zurückzukehren.",
   "ios.host.quitTitle": "%@ beenden?",
   "ios.host.rangeWithoutLimits": "%@ ist ein Bereich ohne min, max und step.",
   "ios.host.sameTitleId": "%@ hat dieselbe Title-ID %@ wie %@, das stattdessen verwendet wird.",

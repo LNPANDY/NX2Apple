@@ -684,7 +684,7 @@
   "ios.host.quitButton": "Quitter",
   "ios.host.quitCancel": "Annuler",
   "ios.host.quitHold": "Maintenez pour quitter",
-  "ios.host.quitNote": "La progression non sauvegardée sera perdue. L’app se ferme et s’ouvre sur vos jeux la prochaine fois.",
+  "ios.host.quitNote": "La progression non sauvegardée sera perdue. L’app se ferme. Rouvrez-la pour revenir à vos jeux.",
   "ios.host.quitTitle": "Quitter %@ ?",
   "ios.host.rangeWithoutLimits": "%@ est une plage sans min, max et step.",
   "ios.host.sameTitleId": "%@ a le même ID de titre %@ que %@, qui est utilisé à sa place.",

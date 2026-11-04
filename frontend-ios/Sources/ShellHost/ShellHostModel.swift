@@ -475,7 +475,7 @@ public struct ShellHostConfig: Sendable {
     /// or Home is held. The menu item reads the title without its question mark.
     static func quitPromptText(gameName: String) -> String {
         [hostText("Keep holding to quit"), hostText("Quit \(gameName)?"),
-         hostText("Unsaved progress will be lost. The app closes and opens on your games next time."), hostText("Quit"), hostText("Cancel")]
+         hostText("Unsaved progress will be lost. The app closes. Open it again to get back to your games."), hostText("Quit"), hostText("Cancel")]
             .map { $0.replacingOccurrences(of: "\n", with: " ") }.joined(separator: "\n")
     }
 
