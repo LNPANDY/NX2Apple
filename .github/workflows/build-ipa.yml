@@ -377,7 +377,11 @@ jobs:
           for g in silksong hades2; do
             IMG=$(find "$RUNNER_TEMP/games/$g" -name RomFS.img -type f | head -1)
             [ -n "$IMG" ] || { echo "::error::romfs_img was requested but no RomFS.img was extracted for $g"; exit 1; }
-            cp "$IMG" "$GITHUB_WORKSPACE/out-img-shell/$g-RomFS.img"
+            # A move, not a copy: the runner's disk holds both games extracted
+            # and built, and copying the second image ran it out of space in
+            # run 41740815856 (after the shell IPA itself had uploaded). The
+            # temp folder and the workspace are on the same volume.
+            mv "$IMG" "$GITHUB_WORKSPACE/out-img-shell/$g-RomFS.img"
           done
           ls -lh "$GITHUB_WORKSPACE/out-img-shell"
 
