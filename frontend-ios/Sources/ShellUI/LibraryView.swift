@@ -74,6 +74,9 @@ public struct LibraryView: View {
     @FocusState private var keyboardFocus: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var typeSize
+    /// The side column of iPhone Duo (#622): the captures set it, otherwise the system's values from SideBarProbe.
+    @Environment(\.shellSideBar) private var sideBarOverride
+    @State private var probedSideBar = SideBar(edge: nil)
 
     public init(games: [GameDetail], controllers: [ControllerInfo] = [], actions: ShellActions = ShellActions(),
                 input: ShellInput? = nil, initialSelection: String? = nil, initialDetailOpen: Bool = false,
@@ -111,23 +114,45 @@ public struct LibraryView: View {
             let floating = layout.settingsFloat(width)
             let paneCovers = settingsOpen && !floating
             let panelOverLibrary = settingsOpen && floating
+            // The chips go into the side column where the system has one. At the accessibility text sizes they stay in the header.
+            let side = typeSize.isAccessibilitySize ? nil : (sideBarOverride ?? probedSideBar)
+                .place(screen: whole, insets: insets, top: games.isEmpty ? [] : SideBar.topHeights)
+            let column = side?.bottom
             ZStack(alignment: .topLeading) {
                 if layout.isCoverFlow, let selected { CoverFlowBackdrop(game: selected.game) } else { ShellPalette.background.ignoresSafeArea() }
                 if games.isEmpty {
                     EmptyLibraryView()
                         .overlay(alignment: .topTrailing) {
-                            HStack(spacing: 10) {
-                                ControllerChip(count: controllers.count, action: openControllers)
-                                ShellSettingsChip(action: openShellSettings)
-                            }.padding(.top, 6).padding(.trailing, 16)
+                            if column == nil {
+                                HStack(spacing: 10) {
+                                    ControllerChip(count: controllers.count, action: openControllers)
+                                    ShellSettingsChip(action: openShellSettings)
+                                }.padding(.top, 6).padding(.trailing, 16)
+                            }
                         }
+                    if let column { sideChips(column, insets: insets) }
                 } else if let selected {
-                    library(selected, layout: layout, size: geometry.size, insets: insets)
+                    library(selected, layout: layout, size: geometry.size, insets: insets, chipsInSideBar: column != nil,
+                            settingsInSideBar: side?.top != nil)
                         .frame(width: width, height: geometry.size.height)
                         .opacity(paneCovers && edgeDrag == 0 ? 0 : 1)
                         .allowsHitTesting(!settingsOpen)
                         .accessibilityHidden(settingsOpen || helpGameID != nil || deleteGameID != nil)
                         .transformPreference(FocusTargets.self) { if settingsOpen { $0.removeAll() } }
+                    if let side {
+                        Group {
+                            sideChips(side.bottom, insets: insets)
+                            if let top = side.top, !settingsOpen {
+                                SideBarTopChip(symbol: "slider.horizontal.3", label: ShellStrings.text("Game settings") + ", " + selected.game.title,
+                                               identifier: "settings.open", target: "lib.settings", action: openSettings)
+                                    .sideBarFrame(top, insets: insets)
+                            }
+                        }
+                        .opacity(paneCovers && edgeDrag == 0 ? 0 : 1)
+                        .allowsHitTesting(!settingsOpen)
+                        .accessibilityHidden(settingsOpen || helpGameID != nil || deleteGameID != nil)
+                        .transformPreference(FocusTargets.self) { if settingsOpen { $0.removeAll() } }
+                    }
                     if panelOverLibrary {
                         // The same dimming and dismissal as the Controllers overlay.
                         Color.black.opacity(0.55 * (settingsOpen && !controllersOpen ? 1 - min(1, edgeDrag / pane) : 1)).ignoresSafeArea()
@@ -137,7 +162,7 @@ public struct LibraryView: View {
                     }
                     // One settings view in one place for every layout, so its state, scroll position and focus survive
                     // a fold, a rotation or a Stage Manager resize.
-                    settingsPane(selected, floating: floating, width: pane,
+                    settingsPane(selected, floating: floating, width: pane, backInSideBar: side?.top != nil,
                                  insets: floating ? EdgeInsets(top: insets.top, leading: 0, bottom: insets.bottom, trailing: insets.trailing)
                                                   : insets)
                         .frame(width: pane)
@@ -154,6 +179,14 @@ public struct LibraryView: View {
                         .accessibilityHidden(!settingsOpen || choice != nil || padMapping != nil || deleteGameID != nil)
                         .accessibilityAddTraits(settingsOpen ? .isModal : [])
                         .transformPreference(FocusTargets.self) { if !settingsOpen { $0.removeAll() } }
+                    if let top = side?.top, settingsOpen {
+                        // Back at the top of the side column, where the system's bars put an app's own navigation.
+                        SideBarTopChip(symbol: "chevron.left", label: ShellStrings.text("Library"), identifier: "library.back",
+                                       target: "set.back", action: closeSettings)
+                            .sideBarFrame(top, insets: insets)
+                            .opacity(1 - min(1, edgeDrag / pane))
+                            .accessibilityHidden(choice != nil || padMapping != nil || deleteGameID != nil)
+                    }
                 }
                 if let id = helpGameID, let game = games.first(where: { $0.id == id })?.game {
                     Color.black.opacity(0.55).ignoresSafeArea().accessibilityHidden(true)
@@ -262,6 +295,7 @@ public struct LibraryView: View {
                 }
             }
             .coordinateSpace(name: "shell")
+            .background { SideBarProbe { probedSideBar = $0 }.ignoresSafeArea().accessibilityHidden(true) }
             .environment(\.shellOpenTouchLayout, { openTouchLayout(whole, insets) })
             .background {
                 EdgeSwipeBack(enabled: (settingsOpen || controllersOpen || shellSettingsOpen) && choice == nil && helpGameID == nil && deleteGameID == nil
@@ -312,15 +346,24 @@ public struct LibraryView: View {
         }
     }
 
-    @ViewBuilder private func library(_ selected: GameDetail, layout: ShellLayout, size: CGSize, insets: EdgeInsets) -> some View {
+    /// The Controllers and Settings chips in the side column, `column` in the screen's coordinates.
+    private func sideChips(_ column: CGRect, insets: EdgeInsets) -> some View {
+        SideBarChips(controllers: controllers.count, openControllers: openControllers, openShellSettings: openShellSettings)
+            .sideBarFrame(column, insets: insets)
+    }
+
+    @ViewBuilder private func library(_ selected: GameDetail, layout: ShellLayout, size: CGSize, insets: EdgeInsets,
+                                      chipsInSideBar: Bool, settingsInSideBar: Bool) -> some View {
         if layout.isCoverFlow {
             CoverFlowView(games: games, selected: selected, controllers: controllers.count, showsHints: !touchMode, screenInsets: insets,
+                          chipsInSideBar: chipsInSideBar, settingsInSideBar: settingsInSideBar,
                           select: select, primary: primary, openSettings: openSettings, openControllers: openControllers,
                           openShellSettings: openShellSettings)
                 .equatable()
                 .transition(.opacity)
         } else {
             PortraitLibrary(games: games, selected: selected, wide: layout == .grid, size: size, topInset: insets.top, bottomInset: insets.bottom,
+                            chipsInSideBar: chipsInSideBar, settingsInSideBar: settingsInSideBar,
                             controllers: controllers.count, select: select, primary: primary,
                             openSettings: openSettings, openControllers: openControllers, openShellSettings: openShellSettings,
                             position: $libraryPosition)
@@ -335,7 +378,7 @@ public struct LibraryView: View {
     /// the primary action and the setting groups. A panel or the whole screen, the same view. The banner runs edge to
     /// edge under the status bar and the settings scroll under the home indicator, while Back, the words and the
     /// settings keep their insets.
-    private func settingsPane(_ selected: GameDetail, floating: Bool, width: CGFloat, insets: EdgeInsets) -> some View {
+    private func settingsPane(_ selected: GameDetail, floating: Bool, width: CGFloat, backInSideBar: Bool, insets: EdgeInsets) -> some View {
         return ZStack(alignment: .top) {
             ScrollViewReader { proxy in
                 ScrollView {
@@ -359,7 +402,8 @@ public struct LibraryView: View {
                     }
                 }
             }
-            HStack(spacing: 0) {
+            // In the side column (SideBar) Back sits at the column's top instead.
+            if !backInSideBar { HStack(spacing: 0) {
                 Button(action: closeSettings) {
                     if typeSize.isAccessibilitySize { Image(systemName: "chevron.left").frame(minWidth: 24) }
                     else { Label(ShellStrings.text("Library"), systemImage: "chevron.left") }
@@ -372,7 +416,7 @@ public struct LibraryView: View {
             }
             .padding(.leading, 16 + insets.leading).padding(.trailing, 16 + insets.trailing)
             .padding(.top, 6)
-            .accessibilityElement(children: .contain)
+            .accessibilityElement(children: .contain) }
         }
     }
 

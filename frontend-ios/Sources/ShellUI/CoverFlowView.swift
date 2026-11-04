@@ -11,6 +11,10 @@ struct CoverFlowView: View, Equatable {
     let showsHints: Bool
     /// The screen's safe areas around this view, so the cards can sit in the middle of the whole screen.
     var screenInsets = EdgeInsets()
+    /// The Controllers and Settings chips sit in the side column (SideBar), not in the top bar.
+    var chipsInSideBar = false
+    /// The game settings button sits at the top of the side column, not in the top bar.
+    var settingsInSideBar = false
     let select: (String) -> Void
     let primary: (GameDetail) -> Void
     let openSettings: () -> Void
@@ -34,6 +38,7 @@ struct CoverFlowView: View, Equatable {
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.games.map(\.game) == rhs.games.map(\.game) && lhs.selected.game == rhs.selected.game
             && lhs.controllers == rhs.controllers && lhs.showsHints == rhs.showsHints && lhs.screenInsets == rhs.screenInsets
+            && lhs.chipsInSideBar == rhs.chipsInSideBar && lhs.settingsInSideBar == rhs.settingsInSideBar
     }
 
     var body: some View {
@@ -101,13 +106,17 @@ struct CoverFlowView: View, Equatable {
                 hints.opacity(showsHints ? 1 : 0)
                 Spacer(minLength: 12)
             }
-            Button(action: openSettings) { Image(systemName: "slider.horizontal.3").frame(minWidth: 18) }
-                .buttonStyle(ChipButtonStyle())
-                .accessibilityLabel(ShellStrings.text("Game settings") + ", " + selected.game.title)
-                .accessibilityIdentifier("settings.open")
-                .shellTarget("lib.settings", radius: 22, action: openSettings)
-            ControllerChip(count: controllers, action: openControllers)
-            ShellSettingsChip(action: openShellSettings)
+            if !settingsInSideBar {
+                Button(action: openSettings) { Image(systemName: "slider.horizontal.3").frame(minWidth: 18) }
+                    .buttonStyle(ChipButtonStyle())
+                    .accessibilityLabel(ShellStrings.text("Game settings") + ", " + selected.game.title)
+                    .accessibilityIdentifier("settings.open")
+                    .shellTarget("lib.settings", radius: 22, action: openSettings)
+            }
+            if !chipsInSideBar {
+                ControllerChip(count: controllers, action: openControllers)
+                ShellSettingsChip(action: openShellSettings)
+            }
         }
         // On a phone on its side the hints share the row. At the largest sizes they would wrap into a tall block and the
         // title and chips, centred in it, would sink away from the top edge, so the row stops growing at xxLarge, as the
@@ -390,13 +399,17 @@ struct CoverFlowBackdrop: View {
 /// The controller count on top of art, which opens Controllers.
 struct ControllerChip: View {
     let count: Int
+    /// In the side column (SideBar): the count under the symbol, so the chip is as narrow as the gear.
+    var vertical = false
     let action: () -> Void
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 8) {
+            let layout = vertical ? AnyLayout(VStackLayout(spacing: 2)) : AnyLayout(HStackLayout(spacing: 8))
+            layout {
                 Image(systemName: count == 0 ? "gamecontroller" : "gamecontroller.fill")
                 Text("\(count)").monospacedDigit()
             }
+            .frame(width: vertical ? SideBar.chipWidth - 28 : nil, height: vertical ? SideBar.heights[0] : nil)
         }
         .buttonStyle(ChipButtonStyle())
         .accessibilityLabel(ShellStrings.text("Controllers") + ", \(count)")
@@ -407,9 +420,13 @@ struct ControllerChip: View {
 
 /// The gear at the top-right corner, which opens the shell's own settings.
 struct ShellSettingsChip: View {
+    var vertical = false
     let action: () -> Void
     var body: some View {
-        Button(action: action) { Image(systemName: "gearshape").frame(minWidth: 18) }
+        Button(action: action) {
+            Image(systemName: "gearshape").frame(minWidth: 18)
+                .frame(width: vertical ? SideBar.chipWidth - 28 : nil, height: vertical ? SideBar.heights[1] : nil)
+        }
             .buttonStyle(ChipButtonStyle())
             .accessibilityLabel(ShellStrings.text("Settings"))
             .accessibilityIdentifier("shellSettings.open")
