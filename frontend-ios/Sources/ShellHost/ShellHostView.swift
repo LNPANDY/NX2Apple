@@ -18,6 +18,18 @@ public struct ShellHostView: View {
         LibraryView(games: model.details, controllers: model.controllers, actions: model.actions, input: model.input,
                     initialSelection: initialSelection, initialDetailOpen: initialDetailOpen, globalPadMap: model.globalPadMap,
                     padSnapshot: model.padSnapshot)
+            .disabled(model.launchingGame)
+            .overlay {
+                if model.launchingGame {
+                    ZStack {
+                        Color.black.opacity(0.45).ignoresSafeArea()
+                        ProgressView { Text("Preparing game…", bundle: .module) }
+                            .padding(24)
+                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20))
+                            .accessibilityIdentifier("launch.progress")
+                    }
+                }
+            }
             .sheet(item: $model.log) { LogView(log: $0) }
             .alert(Text(verbatim: hostText("Shell")), isPresented: Binding(get: { model.notice != nil }, set: { if !$0 { model.notice = nil } })) {
                 Button(hostText("OK")) { model.notice = nil }

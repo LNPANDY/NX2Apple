@@ -46,8 +46,9 @@
 0071-ios-shell-restore-native-duo-orientation.patch
 0072-mac-pack-the-settings-read-the-base-game-s-langu.patch
 0073-nsp-script-find-game-files-whose-extension-is-in.patch
-0074-shader-split-scimitar-forge-archives-and-raw-con.patch
-0075-mac-app-programs-of-a-multi-program-application.patch
-0076-nvn-mtl-a-stage-keeps-its-program-s-shaders-afte.patch
-0077-nvn-mtl-write-image-buffer-textures-below-16-byt.patch
-0078-dm-ctl-shots-n-folder-captures-consecutive-frame.patch
+0074-mac-app-replace-the-old-app-by-moves-when-the-vo.patch
+0075-shader-split-scimitar-forge-archives-and-raw-con.patch
+0076-mac-app-programs-of-a-multi-program-application.patch
+0077-nvn-mtl-a-stage-keeps-its-program-s-shaders-afte.patch
+0078-nvn-mtl-write-image-buffer-textures-below-16-byt.patch
+0079-dm-ctl-shots-n-folder-captures-consecutive-frame.patch
