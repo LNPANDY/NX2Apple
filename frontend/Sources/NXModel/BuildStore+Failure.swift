@@ -18,7 +18,7 @@ extension BuildStore {
     package func chooseBuildFolder() {
         guard let path = chooseFolder() else { return }
         outDir = path
-        if failure?.kind == .cloudFolder { failure = nil; doneNote = "" }
+        if failure?.kind == .cloudFolder || failure?.kind == .volumeFormat { failure = nil; doneNote = "" }
     }
 
     /// What the classifier may check besides the log: the keys file and where the game files are.
@@ -83,7 +83,7 @@ extension BuildStore {
             if let chooseKeys { chooseKeys() } else { pickFiles(kind: .keys) }   // the same picker as the keys row
         case .severalGames, .noTitleID, .diskFull:
             showFailureFolder()
-        case .cloudFolder:
+        case .cloudFolder, .volumeFormat:
             chooseBuildFolder()
         case .teamTaken, .noSigningAccount:
             openXcode()

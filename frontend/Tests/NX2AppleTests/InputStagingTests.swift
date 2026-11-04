@@ -64,4 +64,32 @@ final class InputStagingTests: IsolatedDefaultsTestCase {
         _ = InputStaging.sync(files: [two], into: dir)
         XCTAssertEqual(try FileManager.default.destinationOfSymbolicLink(atPath: dir + "/base.nsp"), two)
     }
+
+    /// #554: the script finds packages with a case-sensitive `*.nsp` glob, so the staging folder names them in lowercase.
+    func testExtensionIsLowercasedInTheStagedName() {
+        XCTAssertEqual(InputStaging.stagedName("Game [0100F2C0115B6000].NSP"), "Game [0100F2C0115B6000].nsp")
+        XCTAssertEqual(InputStaging.stagedName("Game [0100F2C0115B6000].Nsz"), "Game [0100F2C0115B6000].nsz")
+        XCTAssertEqual(InputStaging.stagedName("Game [0100F2C0115B6000].XcI"), "Game [0100F2C0115B6000].xci")
+        XCTAssertEqual(InputStaging.stagedName("Game [0100F2C0115B6000].nsp"), "Game [0100F2C0115B6000].nsp")
+        XCTAssertEqual(InputStaging.stagedName("Game.NSP.XCZ"), "Game.NSP.xcz")
+        XCTAssertEqual(InputStaging.stagedName("PROD.KEYS"), "PROD.KEYS")
+        XCTAssertTrue(InputStaging.needsLowercaseName("/x/Game [0100F2C0115B6000].NSP"))
+        XCTAssertTrue(InputStaging.needsLowercaseName("/x/Game.Nsp"))
+        XCTAssertFalse(InputStaging.needsLowercaseName("/x/Game.nsp"))
+        XCTAssertFalse(InputStaging.needsLowercaseName("/x/Game.NUP"))
+    }
+
+    func testUppercaseFileIsStagedUnderALowercaseName() throws {
+        let upper = try game("Game [0100F2C0115B6000].NSP", in: a, age: 100)
+        let mixed = try game("Game [0100F2C0115B6800][v65536].Nsp", in: a, age: 100)
+        let dir = InputStaging.folder(workDir: work)
+        XCTAssertEqual(InputStaging.sync(files: [upper, mixed], into: dir), 2)
+        XCTAssertEqual(Set(try FileManager.default.contentsOfDirectory(atPath: dir)),
+                       ["Game [0100F2C0115B6000].nsp", "Game [0100F2C0115B6800][v65536].nsp"])
+        // a second run with the same selection keeps the links and leaves nothing stale
+        XCTAssertEqual(InputStaging.sync(files: [upper, mixed], into: dir), 2)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: dir).count, 2)
+        // the staged file is the original: the script sees its size and date
+        XCTAssertEqual(try FileManager.default.destinationOfSymbolicLink(atPath: dir + "/Game [0100F2C0115B6000].nsp"), upper)
+    }
 }

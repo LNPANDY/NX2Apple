@@ -49,6 +49,10 @@ import NXModel
                 XCTAssertEqual(String(cString: strerror(ENOSPC)), f.fragment, f.id)
                 continue
             }
+            if f.source == "errno45" {   // the system's text for ENOTSUP, which renamex_np answers on a volume without RENAME_SWAP (pack_app.py replace_app)
+                XCTAssertEqual(String(cString: strerror(ENOTSUP)), f.fragment, f.id)
+                continue
+            }
             if f.source == "codesign" { continue }   // Apple's text, from a tool the script runs
             let source = try String(contentsOf: Self.engine.appendingPathComponent(f.source), encoding: .utf8)
             let there = source.contains(f.fragment)
@@ -282,7 +286,7 @@ import NXModel
         }
         for (name, kind, lang) in [("hint-other-metal", BuildFailureKind.otherMetal, Lang.en), ("hint-ios-sdk", .iosSDK, .en), ("hint-damaged-nsp", .damagedNSP, .en),
                                    ("hint-other-metal-zh", .otherMetal, .zh)]
-                                  + [BuildFailureKind.keys, .keysOld, .severalGames, .noTitleID, .noProfile, .driveMissing, .diskFull, .teamTaken, .noSigningAccount, .deviceTransfer].flatMap { k in
+                                  + [BuildFailureKind.keys, .keysOld, .severalGames, .noTitleID, .noProfile, .driveMissing, .diskFull, .volumeFormat, .teamTaken, .noSigningAccount, .deviceTransfer].flatMap { k in
                                       [("row-\(k.rawValue)", k, Lang.en), ("row-\(k.rawValue)-zh", k, Lang.zh)] } {
             let mStores = LauncherStores(defaults: testDefaults); let m = mStores.build
             m.lang = CaptureLanguage.current(lang)

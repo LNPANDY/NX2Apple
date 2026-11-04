@@ -26,10 +26,10 @@
 
 #### 🆕 Die wichtigsten Neuerungen
 
-- **Eine App für iPhone und iPad**: Baust du ein Spiel mit dem Ziel iPhone / iPad, landet es in einer Shell-App, die alle deine Spiele enthält. Eine Bibliothek mit dem Key Art der Spiele, Cover Flow, wenn das Handy auf der Seite liegt, Einstellungen für jedes Spiel und Bedienung per Controller oder Tastatur. Sie folgt der Systemsprache (Englisch und vereinfachtes Chinesisch).
-- **Spielstände, die dir folgen**: Spielstände zwischen Mac ⇄ iPhone werden über einen iCloud-Drive-Ordner synchronisiert, eine gelöschte App ist in Sekunden neu installiert, und die 7-Tage-Signatur einer kostenlosen Apple-ID wird an Ort und Stelle erneuert.
-- **Geführter erster Start**: Ein Einrichtungsassistent führt neue Spieler durch Xcode, Schlüssel und Spiele. Die Build-Werkzeuge und ein Python stecken in der App, also muss niemand Homebrew installieren.
-- **Konsolenmodus**: Schließe einen Controller an und drücke Select. Die Bibliothek geht in den Vollbildmodus und ist auf den Controller ausgelegt, wie das Home-Menü einer Switch.
+- **Switch-2-Spiele**: Wähle im Mac- oder Windows-Launcher einen Switch-2-Spielordner oder eine `.nup`-Datei ohne `prod.keys` aus und spiele auf Mac, iPhone oder iPad.
+- **Eigene Touch-Steuerung und Tastenbelegung**: Ändere die Tastengröße, verschiebe den linken Stick oder platziere jede Taste im visuellen Layout-Editor auf iPhone und iPad. Physische Controller unterstützen eine Tastenbelegung pro Spiel oder für alle Spiele.
+- **Eine App für iPhone und iPad**: Alle deine Spiele landen in einer einzigen Shell-App (oder als unsignierte IPA für AltStore und SideStore), mit Cover Flow im Querformat, Einstellungen und Mods pro Spiel, Löschen unter Beibehaltung der Spielstände und 6 Sprachen.
+- **Konsolenmodus**: Schließe einen Controller an und drücke Select oder starte direkt im Konsolenmodus. Die Bibliothek wird zum Vollbild-Menü wie auf einer Switch, und 2 Sekunden Home beendet ein Spiel.
 
 Alle Versionen stehen im [Changelog](CHANGELOG.md).
 
