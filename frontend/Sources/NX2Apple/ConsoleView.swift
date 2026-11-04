@@ -109,8 +109,12 @@ enum ConsoleInput {
             LauncherPalette.background
             if let game = state.startingGame ?? state.focusedGame {
                 Group {
-                    if let image = game.artwork { image.resizable().scaledToFill() }
-                    else { LinearGradient(colors: ConsolePlaceholder.colors(for: game.title), startPoint: .topLeading, endPoint: .bottomTrailing) }
+                    if let image = game.artwork {
+                        image.resizable().scaledToFill().frame(width: size.width, height: size.height).clipped()
+                    } else {
+                        LinearGradient(colors: ConsolePlaceholder.colors(for: game.title), startPoint: .topLeading, endPoint: .bottomTrailing)
+                            .frame(width: size.width, height: size.height)
+                    }
                 }
                 .frame(width: size.width, height: size.height)
                 .blur(radius: starting ? 36 : 70).drawingGroup().opacity(starting ? 1 : 0.30).id(game.id).transition(.opacity)
