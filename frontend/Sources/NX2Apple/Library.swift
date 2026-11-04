@@ -142,6 +142,18 @@ struct LaunchSetting: Decodable, Identifiable {
                                         min: nil, max: nil, step: nil, on: nil, off: nil, unsetValue: "")
             list.insert(display, at: (list.firstIndex { $0.env == "DM_RENDER_SCALE" }).map { $0 + 1 } ?? 0)
         }
+        if !list.contains(where: { $0.env == "DM_LANG" }) {
+            let langs = RomFSLanguages.options(in: app)
+            if langs.count > 1 {
+                let def = RomFSLanguages.defaultLanguage(forApp: app, options: langs)
+                let row = LaunchSetting(env: "DM_LANG", kind: "choice", label: "Game language", note: "", def: def,
+                                        section: "Game", options: langs, min: nil, max: nil, step: nil, on: nil, off: nil,
+                                        level: "basic", unsetValue: def).localized(labels)
+                let idx = list.firstIndex { $0.env == "DM_FULLSCREEN" }
+                    ?? list.lastIndex { $0.sectionTitle == "Game" }.map { $0 + 1 } ?? 0
+                list.insert(row, at: idx)
+            }
+        }
         if let i = list.firstIndex(where: { $0.env == "DM_RENDER_SCALE" && $0.base == nil }), let base = renderBase(titleID: titleID, repo: repo) {
             list[i].base = base
         }

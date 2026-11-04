@@ -10,16 +10,16 @@ Upstream-Status: pending
 Reason: Several games in one app, game data on an external drive: Documents/games/<id>/{romfs.img,romfs,msl,save,temp} and a Files-app pick of the data folder (needs the runtime profile). iOS twin of seedds/nxnative#460, which is Mac only. Also add-on content: games/<id>/aoc/<index>.img becomes DM_AOC_DIR (a slim IPA carries none, LNPANDY/NX2Apple#202), before the Documents/aoc and <App>/aoc that seedds/nxnative#486 reads, and never over an explicit value. Also DM_CHEATS=games/<id>/cheats (never over an explicit value), where the launcher's Cheats sheet copies a game's cheat files (LNPANDY/NX2Apple#97)
 Issue: LNPANDY/NX2Apple#123
 ---
- dm/ios/Sources/DataBookmark.h          |  32 +++++++
- dm/ios/Sources/DataBookmark.m          |  79 ++++++++++++++++
+ dm/ios/Sources/DataBookmark.h          |  32 ++++++
+ dm/ios/Sources/DataBookmark.m          |  79 ++++++++++++++
  dm/ios/Sources/DmIOS-Bridging-Header.h |   7 +-
- dm/ios/Sources/Launcher.swift          |  63 ++++++++++++-
+ dm/ios/Sources/Launcher.swift          |  63 ++++++++++-
  dm/ios/Sources/front_ios.m             |  13 ++-
- dm/ios/Sources/main.m                  | 123 +++++++++++++++++++++++--
+ dm/ios/Sources/main.m                  | 140 ++++++++++++++++++++++---
  dm/ios/project.yml                     |   2 +-
- dm/ios/tests/test_aoc_layouts.py       |  92 ++++++++++++++++++
- dm/ios/tests/test_romfs_startup.py     |  49 +++++++++-
- 9 files changed, 444 insertions(+), 16 deletions(-)
+ dm/ios/tests/test_aoc_layouts.py       |  92 ++++++++++++++++
+ dm/ios/tests/test_romfs_startup.py     |  49 ++++++++-
+ 9 files changed, 454 insertions(+), 23 deletions(-)
  create mode 100644 dm/ios/Sources/DataBookmark.h
  create mode 100644 dm/ios/Sources/DataBookmark.m
  create mode 100644 dm/ios/tests/test_aoc_layouts.py
@@ -162,7 +162,7 @@ index 7ba971c..4ea3995 100644
 +// action (re-send the game data as romfs.img from the launcher), or NULL. The launcher's Game data section shows it.
 +const char *dm_old_archive_message(void);
 diff --git a/dm/ios/Sources/Launcher.swift b/dm/ios/Sources/Launcher.swift
-index d6b6eba..d8ceac0 100644
+index 517e593..6013b30 100644
 --- a/dm/ios/Sources/Launcher.swift
 +++ b/dm/ios/Sources/Launcher.swift
 @@ -10,6 +10,64 @@ import os
@@ -256,18 +256,18 @@ index d6b6eba..d8ceac0 100644
                      Section {
                          HStack {
 diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
-index aa2b581..0276e8b 100644
+index cddc294..577e6c4 100644
 --- a/dm/ios/Sources/front_ios.m
 +++ b/dm/ios/Sources/front_ios.m
-@@ -23,6 +23,7 @@
+@@ -24,6 +24,7 @@
  const char *front_ios_boot_message(void);   // main.m: why a build that keeps the game files off the IPA found none usable (NULL = the generic hint)
  const char *front_ios_device_check(void);   // main.m: why this device cannot run the games (its GPU has no BC textures; NULL = supported); makes the first Metal device
  bool dm_show_launcher(void *view_controller, void (*done)(void));   // Launcher.swift: false = no launcher (no dm/launcher.json, or DM_LAUNCHER=0)
 +int dm_locate_game_data(void);   // main.m: (re)decide where the game data is; NO when there still is none
  
  static CAMetalLayer *g_layer;
- static void front_ios_power_watch(void);
-@@ -88,6 +89,7 @@ @interface DmRootVC : UIViewController
+ static void front_ios_notify_setup(void);
+@@ -91,6 +92,7 @@ @interface DmRootVC : UIViewController
  #if __has_include(<UIKit/UIHingeInteraction.h>)
  - (void)hingeChanged:(UIHinge *)hinge API_AVAILABLE(ios(27.1));
  #endif
@@ -275,7 +275,7 @@ index aa2b581..0276e8b 100644
  - (void)startGame;
  - (void)showFPS:(BOOL)on;
  @end
-@@ -141,6 +143,14 @@ - (void)hingeChanged:(UIHinge *)hinge API_AVAILABLE(ios(27.1)) {
+@@ -146,6 +148,14 @@ - (void)hingeChanged:(UIHinge *)hinge API_AVAILABLE(ios(27.1)) {
  // The game view, the pad and the frame-rate counter are made once the launcher has set the switches they read (DM_SHOW_FPS, DM_METAL_HUD); the host's loading began at app launch (main.m)
  - (void)startGame {
      if (self.game) return;
@@ -290,18 +290,18 @@ index aa2b581..0276e8b 100644
      dm_cloud_saves_env();   // DM_SAVE_SYNC from the launcher's Cloud saves pick, before the game's first save mount reads it (CloudSaves.m, save_sync.h)
      front_hud_env();   // before the process's first Metal device, which reads MTL_HUD_ENABLED (an env file's DM_METAL_HUD sets it in main.m already; GitHub issue #840)
      const char *dev = front_ios_device_check();   // that first device: a GPU without BC textures is refused here, not at launch, so the launcher's HUD switch counts
-@@ -207,7 +217,8 @@ - (void)viewDidAppear:(BOOL)a {
+@@ -213,7 +223,8 @@ - (void)viewDidAppear:(BOOL)a {
      }
      if (self.launched || !front_ios_boot_ok()) return;
      self.launched = YES; g_root = self;
 -    if (!dm_show_launcher((__bridge void *)self, launcher_done)) [self startGame];   // the settings screen first (Launcher.swift), when the app has one
 +    self.hasLauncher = dm_show_launcher((__bridge void *)self, launcher_done);
 +    if (!self.hasLauncher) [self startGame];   // the settings screen first (Launcher.swift), when the app has one
+     front_ios_notify_ask();
  }
  - (BOOL)prefersHomeIndicatorAutoHidden { return YES; }
- - (UIRectEdge)preferredScreenEdgesDeferringSystemGestures { return UIRectEdgeAll; }   // Edge gestures need two swipes, to avoid accidental exits
 diff --git a/dm/ios/Sources/main.m b/dm/ios/Sources/main.m
-index 7afe1c3..85c068c 100644
+index b741e8a..54bcceb 100644
 --- a/dm/ios/Sources/main.m
 +++ b/dm/ios/Sources/main.m
 @@ -8,9 +8,10 @@
@@ -355,10 +355,20 @@ index 7afe1c3..85c068c 100644
  // The images in Documents: romfs.img in any letter case, romfs.img itself first. The NSP script writes the image as RomFS.img (extract/<version>/RomFS.img) and the Mac's
  // file system ignores letter case, but iOS's does not: a copy made through Finder or the Files app keeps the source's name, which an exact lookup of romfs.img never finds
  static NSArray<NSString *> *romfs_document_images(NSString *doc) {
-@@ -56,6 +89,31 @@ static int romfs_identity_accepts(NSString *img) {
- static NSString *romfs_locate(void) {
+@@ -53,14 +86,40 @@ static int romfs_identity_accepts(NSString *img) {
+     }];
+     return imgs;
+ }
++static NSString *g_prog;   // a game of several programs: the running program's folder in the app (p<N>, program_env); nil otherwise
+ static NSString *romfs_locate(NSString *prog) {   // prog: a game of several programs, the running program's folder in the app (p<N>); nil otherwise
      NSFileManager *fm = NSFileManager.defaultManager;
      NSString *doc = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES)[0];
+     if (prog) {   // the program's files are in the app (Documents holds one image, one program's)
+         NSString *p = [NSBundle.mainBundle.resourcePath stringByAppendingPathComponent:prog], *img = [p stringByAppendingPathComponent:@"romfs.img"], *d = [p stringByAppendingPathComponent:@"romfs"];
+         if (romfs_image_complete(img)) return img;
+-        return [fm fileExistsAtPath:[d stringByAppendingPathComponent:@(DM_GAME_ROMFS_MARKER)]] ? d : nil;
++        return [fm fileExistsAtPath:[d stringByAppendingPathComponent:@(dm_profile()->romfs_marker)]] ? d : nil;
+     }
 +    // What the player picked in the Files app wins over everything: it is the one path they chose
 +    // on purpose, possibly on an external drive, and it costs nothing when they never picked one
 +    // (the bookmark is absent and this falls straight through). An image or a folder both work,
@@ -387,15 +397,15 @@ index 7afe1c3..85c068c 100644
      for (NSString *img in romfs_document_images(doc)) {
          if (!romfs_image_complete(img) || !romfs_identity_accepts(img)) continue;
          // A folder copy from before images is now dead weight of up to many GB (often cut off partway). Deleting its 300,000 files here took longer than iOS allows an app to start
-@@ -71,13 +129,48 @@ static int romfs_identity_accepts(NSString *img) {
+@@ -76,13 +135,48 @@ static int romfs_identity_accepts(NSString *img) {
      }
      NSString *bundledImage = [NSBundle.mainBundle.resourcePath stringByAppendingPathComponent:@"romfs.img"];
      NSString *documentFolder = [doc stringByAppendingPathComponent:@"romfs"];
--    if ([fm fileExistsAtPath:[documentFolder stringByAppendingPathComponent:@DM_GAME_ROMFS_MARKER]]) return documentFolder;
+-    if ([fm fileExistsAtPath:[documentFolder stringByAppendingPathComponent:@(DM_GAME_ROMFS_MARKER)]]) return documentFolder;
 +    if ([fm fileExistsAtPath:[documentFolder stringByAppendingPathComponent:@(dm_profile()->romfs_marker)]]) return documentFolder;
      if (romfs_image_complete(bundledImage)) return bundledImage;
      for (NSString *d in @[[doc stringByAppendingPathComponent:@"romfs"], [NSBundle.mainBundle.resourcePath stringByAppendingPathComponent:@"romfs"]])
--        if ([fm fileExistsAtPath:[d stringByAppendingPathComponent:@DM_GAME_ROMFS_MARKER]]) return d;   // only a directory containing the game profile's romfs_marker path counts (Mario: System/Resource, the resource size table)
+-        if ([fm fileExistsAtPath:[d stringByAppendingPathComponent:@(DM_GAME_ROMFS_MARKER)]]) return d;   // only a directory containing the game profile's romfs_marker path counts (Mario: System/Resource, the resource size table)
 +        if (romfs_dir_ok(d)) return d;
      return nil;
  }
@@ -433,36 +443,45 @@ index 7afe1c3..85c068c 100644
 +// front_ios.m calls this from the launcher's Play: (re)decide where the game data is — a location
 +// picked in the launcher this session takes effect at once — and NO when there still is none, so
 +// the launcher comes back instead of the game failing inside the host.
-+int dm_locate_game_data(void) { return set_data_env(romfs_locate(), YES); }
++int dm_locate_game_data(void) { return set_data_env(romfs_locate(g_prog), YES); }
 +
  // Add-on content (DLC): each DLC's RomFS image at <dir>/<index>.img (or a legacy <index>/ folder). Like the game files, Documents/aoc comes before <App>/aoc.
  // A DM_AOC_DIR that is already set (env.txt, the launch environment) wins. The host mounts and counts the DLC from DM_AOC_DIR (hle_fs.c, hle_misc.c)
  static void aoc_locate(void) {
-@@ -168,16 +261,28 @@ static int boot_env(void) {
+@@ -124,7 +218,7 @@ static void romfs_identity_report(NSString *doc) {
+     fprintf(stderr, "[RED] boot: %s\n", g_boot_message);
+ }
+ 
+-static NSString *program_env(void);
++static NSString *program_env(NSString **msl_out);
+ static int boot_env(void) {
+     NSFileManager *fm = NSFileManager.defaultManager;
+     NSString *doc = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES)[0];
+@@ -174,11 +268,30 @@ static int boot_env(void) {
      NSString *lang = [NSBundle.mainBundle objectForInfoDictionaryKey:@"DMLanguage"];
      if (!getenv("DM_LANG") && [lang isKindOfClass:NSString.class] && lang.length) setenv("DM_LANG", lang.UTF8String, 0);
      fprintf(stderr, "boot: game language %s\n", getenv("DM_LANG") ?: "en-US");
-+    // No game data yet is not fatal: the launcher comes up all the same, and its Game data section
-+    // is where a location gets picked; dm_locate_game_data() looks again when Play is pressed.
-+    NSString *gdir = game_dir_for(dm_profile()->id);
-     NSString *romfs = romfs_locate();
--    if (!romfs) { romfs_identity_report(doc); fprintf(stderr, "boot: game files not found (Documents/romfs.img, Documents/romfs or <App>/romfs)\n"); return 0; }
--    fprintf(stderr, "boot: game files %s\n", romfs.fileSystemRepresentation);
--    setenv("DM_ROMFS", romfs.fileSystemRepresentation, 0);
+-    NSString *dm = program_env();
+-    if (!dm) { romfs_identity_report(doc); fprintf(stderr, "boot: game files not found (Documents/romfs.img, Documents/romfs or <App>/romfs)\n"); return 0; }
 -    setenv("DM_SAVE", [doc stringByAppendingPathComponent:@"save"].fileSystemRepresentation, 0);
 -    setenv("DM_TEMP", [doc stringByAppendingPathComponent:@"temp"].fileSystemRepresentation, 0);
++    // No game data yet is not fatal: the launcher comes up all the same, and its Game data section
++    // is where a location gets picked; dm_locate_game_data() looks again when Play is pressed.
++    // A game of several programs (program_env) takes the running program's files from the app.
++    NSString *msl = nil;
++    NSString *dm = program_env(&msl);
++    NSString *gdir = game_dir_for(dm_profile()->id);
++    NSString *romfs = romfs_locate(g_prog);
 +    BOOL per_game = [romfs hasPrefix:gdir];   // messaging nil is NO here: no data means the shared layout
 +    if (!set_data_env(romfs, NO)) { if (!romfs) romfs_identity_report(doc);   // a slim build says why its romfs.img was not used
 +        fprintf(stderr, "boot: no game data yet (Documents/romfs.img, Documents/romfs or <App>/romfs); the launcher asks for it\n"); }
-     NSString *dm = [res stringByAppendingPathComponent:@"dm"];
-     setenv("DM_NVN_SHMAP", [dm stringByAppendingPathComponent:@"shader_map.tsv"].fileSystemRepresentation, 0);
--    setenv("DM_MSL_DIR", [res stringByAppendingPathComponent:@"msl"].fileSystemRepresentation, 0);
++    setenv("DM_NVN_SHMAP", [dm stringByAppendingPathComponent:@"shader_map.tsv"].fileSystemRepresentation, 0);
 +    // Shader libraries: a game's own <gdir>/msl first (a per-game layout may carry its own), else
-+    // the app's shared <App>/msl.
++    // the app's shared <App>/msl (the program's <App>/msl/p<N> in a game of several programs).
 +    NSString *per_game_msl = [gdir stringByAppendingPathComponent:@"msl"];
-+    NSString *msl = (per_game && [fm fileExistsAtPath:per_game_msl]) ? per_game_msl : [res stringByAppendingPathComponent:@"msl"];
++    if (per_game && [fm fileExistsAtPath:per_game_msl]) msl = per_game_msl;
 +    setenv("DM_MSL_DIR", msl.fileSystemRepresentation, 0);
-     setenv("DM_FONT_DIR", [dm stringByAppendingPathComponent:@"font"].fileSystemRepresentation, 0);   // Shared-font stand-ins (standard.ttf / nintendo_ext.ttf): iOS lacks the macOS font path
+     setenv("DM_FONT_DIR", [[res stringByAppendingPathComponent:@"dm"] stringByAppendingPathComponent:@"font"].fileSystemRepresentation, 0);   // Shared-font stand-ins (standard.ttf / nintendo_ext.ttf): iOS lacks the macOS font path
 +    // Add-on content beside the game data: the launcher's games/<id>/aoc/ holds <index>.img (the layout hle_fs.c aoc_dir reads), because a slim IPA does not carry it. Taken before
 +    // Documents/aoc and <App>/aoc (aoc_locate, seedds/nxnative#486) and never over an explicit DM_AOC_DIR: aoc_locate only fills DM_AOC_DIR when this did not.
 +    NSString *per_game_aoc = [gdir stringByAppendingPathComponent:@"aoc"];
@@ -473,6 +492,29 @@ index 7afe1c3..85c068c 100644
      aoc_locate();   // add-on content: Documents/aoc, else <App>/aoc; an empty Documents/aoc explicitly selects no DLC
      NSString *pso = [res stringByAppendingPathComponent:@"pso"];   // the pipeline archive made offline (build_ipa.sh, dm/gfx/tools/pso_offline.py): the shader pairs' bases, which the device then does not build
      if ([fm fileExistsAtPath:pso]) setenv("DM_PSO_BUNDLE", pso.fileSystemRepresentation, 0);
+@@ -193,7 +306,7 @@ static int boot_env(void) {
+ // The host's profile is the program's (DM_PROGRAM, main.c dm_game_cur). oe::ExecuteProgram records the program and its parameters in Documents/program.bin (DM_EXEC_OUT, hle_oe.c), names it on screen, schedules a
+ // notification that opens the app (front_ios.m front_program_handoff) and ends; this start reads the record and takes it away, so a later start, after the player quit the game, is at the launcher as on the Switch.
+ // Started from the record, the settings screen stays away (DM_LAUNCHER=0): the player is on the way into a game. Returns the program's dm folder (the host's modules folder), nil when its game files are missing
+-static NSString *program_env(void) {
++static NSString *program_env(NSString **msl_out) {
+     NSFileManager *fm = NSFileManager.defaultManager;
+     NSString *doc = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES)[0], *res = NSBundle.mainBundle.resourcePath;
+     NSString *dmdir = [res stringByAppendingPathComponent:@"dm"], *msl = [res stringByAppendingPathComponent:@"msl"], *prog = nil;
+@@ -214,12 +327,7 @@ static int boot_env(void) {
+         setenv("DM_APP_DM", dmdir.fileSystemRepresentation, 1);   // the launcher's settings (Launcher.swift)
+         fprintf(stderr, "boot: program %d of %s (%zu bytes of launch parameter)\n", n, [[plist stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet] stringByReplacingOccurrencesOfString:@"\n" withString:@" "].UTF8String, d.length > 4 ? (size_t)d.length - 4 : 0);
+     }
+-    NSString *romfs = romfs_locate(prog);
+-    if (!romfs) return nil;
+-    fprintf(stderr, "boot: game files %s\n", romfs.fileSystemRepresentation);
+-    setenv("DM_ROMFS", romfs.fileSystemRepresentation, 0);
+-    setenv("DM_NVN_SHMAP", [dmdir stringByAppendingPathComponent:@"shader_map.tsv"].fileSystemRepresentation, 0);
+-    setenv("DM_MSL_DIR", msl.fileSystemRepresentation, 0);
++    g_prog = prog; *msl_out = msl;   // boot_env locates the game data (romfs_locate(g_prog)), so a game with none yet still reaches the launcher (per-game data folders)
+     return dmdir;
+ }
+ static int g_boot_ok;
 diff --git a/dm/ios/project.yml b/dm/ios/project.yml
 index 323b5f6..e542cf1 100644
 --- a/dm/ios/project.yml
@@ -585,7 +627,7 @@ index 0000000..3b042cd
 +
 +if __name__ == '__main__': unittest.main()
 diff --git a/dm/ios/tests/test_romfs_startup.py b/dm/ios/tests/test_romfs_startup.py
-index 4134a17..cc9882e 100644
+index efc36f4..4792b5e 100644
 --- a/dm/ios/tests/test_romfs_startup.py
 +++ b/dm/ios/tests/test_romfs_startup.py
 @@ -24,12 +24,19 @@ class Startup(unittest.TestCase):
@@ -603,10 +645,10 @@ index 4134a17..cc9882e 100644
 +                          'static NSString *fixture_picked;\n'
 +                          'NSString *dm_picked_data_path(BOOL *stale) { if (stale) *stale = NO; return fixture_picked; }\n' + locator +
                            '\nint main(int argc, char **argv) { @autoreleasepool { if (argc < 3) return 2;\n'
--                          'fixture_doc = @(argv[1]); fixture_tmp = @(argv[2]); fixture_bundle = argc > 3 ? @(argv[3]) : @"/nonexistent-fixture"; NSString *p = romfs_locate();\n'
+-                          'fixture_doc = @(argv[1]); fixture_tmp = @(argv[2]); fixture_bundle = argc > 3 ? @(argv[3]) : @"/nonexistent-fixture"; NSString *p = romfs_locate(nil);\n'
 +                          'fixture_doc = @(argv[1]); fixture_tmp = @(argv[2]); fixture_bundle = argc > 3 ? @(argv[3]) : @"/nonexistent-fixture";\n'
 +                          'if (argc > 4) fixture_picked = @(argv[4]);   // the location the player picked, when a test sets one\n'
-+                          'NSString *p = romfs_locate();\n'
++                          'NSString *p = romfs_locate(nil);\n'
                            'if (!p) return 1; puts(p.fileSystemRepresentation); return 0; }}\n')
          cls.locator = root / 'locator'
          subprocess.run(['clang', '-fobjc-arc', '-Wall', '-Werror', '-I', str(REPO / 'dm/host'),
