@@ -1,0 +1,53 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tiaoge-tou <85100527+Tiaoge-tou@users.noreply.github.com>
+Date: Wed, 4 Nov 2026 10:41:30 +0800
+Subject: [PATCH] Per-game folders named for the game: game_dir_for builds
+ Documents/games/<game name> from the profile name (sanitised as the shell
+ sanitises it), with the title-ID folder used while it is the one that exists
+
+Upstream-Status: fork-only
+Reason: The per-game folder under Documents/games was named by title ID, a hex string the player cannot match to a game in the Files app. It is named for the game now (the profile name, sanitised), on both sides of the shell; a title-ID folder from before is still used while it is the one that exists, and the shell moves it to the name at first scan.
+Issue: Tiaoge-tou/NX2Apple PROJECT.md Phase 4
+
+---
+ dm/ios/Sources/main.m | 25 ++++++++++++++++++++++++-
+ 1 file changed, 24 insertions(+), 1 deletion(-)
+
+diff --git a/dm/ios/Sources/main.m b/dm/ios/Sources/main.m
+index 7a44642..cb2fddb 100644
+--- a/dm/ios/Sources/main.m
++++ b/dm/ios/Sources/main.m
+@@ -78,9 +78,32 @@ static BOOL romfs_dir_ok(NSString *d) {
+ //   save/ temp/ this game's saves and scratch space
+ // The layout exists so several games can share one installed app and so the game data can sit on
+ // an external drive the Files app exposes (a folder copied there keeps this shape).
++// The per-game folder is named for the game (the profile's name, made safe for a folder name the same way the shell
++// names it), so the Files app shows which game a folder belongs to. A folder named by title ID, from before the names,
++// is used while it is the one that exists.
++static NSString *game_folder_name(void) {
++    NSString *name = @(dm_profile()->name);
++    NSMutableString *safe = [NSMutableString string];
++    for (NSUInteger i = 0; i < name.length; i++) {
++        unichar c = [name characterAtIndex:i];
++        [safe appendString:(c == ':' || c == '/' || c == '\\' || c < 0x20 || c == 0x7f) ? @" " : [NSString stringWithCharacters:&c length:1]];
++    }
++    NSMutableArray<NSString *> *kept = [NSMutableArray array];
++    for (NSString *part in [safe componentsSeparatedByString:@" "]) if (part.length) [kept addObject:part];
++    return [kept componentsJoinedByString:@" "];
++}
++
+ static NSString *game_dir_for(const char *title_id) {
+     NSString *doc = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES)[0];
+-    return [[doc stringByAppendingPathComponent:@"games"] stringByAppendingPathComponent:@(title_id)];
++    NSString *games = [doc stringByAppendingPathComponent:@"games"];
++    NSString *folder = game_folder_name();
++    if (!folder.length) return [games stringByAppendingPathComponent:@(title_id)];
++    NSString *named = [games stringByAppendingPathComponent:folder];
++    BOOL isDir = NO;
++    if ([NSFileManager.defaultManager fileExistsAtPath:named isDirectory:&isDir] && isDir) return named;
++    NSString *legacy = [games stringByAppendingPathComponent:@(title_id)];
++    if ([NSFileManager.defaultManager fileExistsAtPath:legacy isDirectory:&isDir] && isDir) return legacy;
++    return named;
+ }
+ 
+ // The images in Documents: romfs.img in any letter case, romfs.img itself first. The NSP script writes the image as RomFS.img (extract/<version>/RomFS.img) and the Mac's

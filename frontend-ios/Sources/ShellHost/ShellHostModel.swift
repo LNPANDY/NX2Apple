@@ -10,7 +10,8 @@ import UIKit
 public struct ShellHostConfig: Sendable {
     /// `Games/`: one `<title ID>/` bundle folder per game.
     public var gamesRoot: URL
-    /// The app's `Documents/games/`: `<title ID>/` holds a game's data, save, temp and log.txt (patch 0003's layout).
+    /// The app's `Documents/games/`: a folder named for each game holds its data, save and temp (patch 0003's
+    /// layout; folders were named by title ID before patch 0082).
     public var appDataRoot: URL
     public var environment: HostEnvironment
     /// Opened by "Update app". Nil: the shell says no address is configured.
@@ -148,6 +149,7 @@ public struct ShellHostConfig: Sendable {
     /// a change to one game updates it in place.
     public func reload() {
         let scanned = GameCatalogue.scan(root: config.gamesRoot)
+        for entry in scanned { prepareAppFolder(for: entry) }
         let built = scanned.map(detail(for:))
         let order = LibraryOrder.ids(of: built.map(\.game), lastPlayed: Dictionary(uniqueKeysWithValues: scanned.compactMap { e in
             lastPlayed(e.id).map { (e.id, $0) } }))
@@ -166,7 +168,35 @@ public struct ShellHostConfig: Sendable {
 
     private func entry(_ id: String) -> CatalogueEntry? { entries.first { $0.id == id } }
 
-    public func appFolder(for id: String) -> URL { config.appDataRoot.appendingPathComponent(id, isDirectory: true) }
+    public func appFolder(for id: String) -> URL { config.appDataRoot.appendingPathComponent(folderName(for: id), isDirectory: true) }
+
+    /// The game's folder inside the app's `games` folder is named for the game, not by its title ID.
+    private func folderName(for id: String) -> String {
+        GameFolder.folderName(forGameName: entries.first(where: { $0.id == id })?.manifest?.name) ?? id
+    }
+
+    private func appFolder(for entry: CatalogueEntry) -> URL {
+        config.appDataRoot.appendingPathComponent(GameFolder.folderName(forGameName: entry.manifest?.name) ?? entry.id, isDirectory: true)
+    }
+
+    /// The folder named by title ID, from before the folders were named for their games.
+    private func legacyAppFolder(for entry: CatalogueEntry) -> URL {
+        config.appDataRoot.appendingPathComponent(entry.id, isDirectory: true)
+    }
+
+    /// Names the game's own folder for the game: a title-ID folder from before the names is moved to the name
+    /// (data and saves inside move with it), and the folder is created when missing, so it is already there in
+    /// Files for the player to copy an image into.
+    private func prepareAppFolder(for entry: CatalogueEntry) {
+        let fm = FileManager.default
+        let named = appFolder(for: entry), legacy = legacyAppFolder(for: entry)
+        var isDir: ObjCBool = false
+        let namedExists = fm.fileExists(atPath: named.path, isDirectory: &isDir) && isDir.boolValue
+        if !namedExists, named != legacy, fm.fileExists(atPath: legacy.path, isDirectory: &isDir), isDir.boolValue {
+            try? fm.moveItem(at: legacy, to: named)
+        }
+        if !fm.fileExists(atPath: named.path) { try? fm.createDirectory(at: named, withIntermediateDirectories: true) }
+    }
 
     private func dataStore(_ id: String) -> BookmarkStore {
         if let s = dataStores[id] { return s }
@@ -199,8 +229,10 @@ public struct ShellHostConfig: Sendable {
 
     private func data(for entry: CatalogueEntry) -> DataResolution {
         guard let manifest = entry.manifest, entry.problem == nil else { return .missing }
-        return DataLocator.locate(manifest: manifest, picked: dataStore(entry.id).resolve(), appFolder: appFolder(for: entry.id),
-                                  global: shellData.resolve(), shellMatch: shellMatches[manifest.titleID])
+        let named = appFolder(for: entry), legacy = legacyAppFolder(for: entry)
+        return DataLocator.locate(manifest: manifest, picked: dataStore(entry.id).resolve(), appFolder: named,
+                                  global: shellData.resolve(), shellMatch: shellMatches[manifest.titleID],
+                                  legacyAppFolder: named == legacy ? nil : legacy)
     }
 
     private func image(_ url: URL?) -> Artwork? {
@@ -319,7 +351,7 @@ public struct ShellHostConfig: Sendable {
         dataStore(id).clear()
         refresh(id)
         if details.first(where: { $0.id == id })?.game.state == .needsGameData {
-            notice = hostText("This app's folder has no data for this game yet. Copy it to games/\(id) in this app's folder in Files.")
+            notice = hostText("This app's folder has no data for this game yet. Copy it to games/\(folderName(for: id)) in this app's folder in Files.")
         }
     }
 

@@ -17,15 +17,17 @@ public struct NoFolderPicker: FolderPicker {
 }
 
 #if canImport(UIKit)
-/// `UIDocumentPickerViewController` for a folder, opened in place (not copied) as the per-game app does, so the
-/// bookmark keeps pointing at the player's drive or iCloud Drive folder.
+/// `UIDocumentPickerViewController` for a folder or a game image file, opened in place (not copied) as the
+/// per-game app does, so the bookmark keeps pointing at the player's drive or iCloud Drive location.
 public struct DocumentFolderPicker: FolderPicker {
     public init() {}
 
     @MainActor public func pickFolder() async -> URL? {
         guard let presenter = Self.topViewController() else { return nil }
         return await withCheckedContinuation { continuation in
-            let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.folder], asCopy: false)
+            // A folder, or a romfs.img itself: the catalogue's holder check sorts out which was picked, so a
+            // player whose data is a loose image file can pick it directly instead of building folders by hand.
+            let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.folder, UTType(filenameExtension: "img") ?? .data], asCopy: false)
             picker.allowsMultipleSelection = false
             let delegate = Delegate(continuation: continuation)
             picker.delegate = delegate
