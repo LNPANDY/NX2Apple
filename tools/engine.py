@@ -191,9 +191,11 @@ def fetch(eng, sha, url=None):
 
 
 def ensure_repo(eng):
-    if is_repo(eng): return
+    if is_repo(eng):
+        git('config', 'core.autocrlf', 'false', cwd=eng)
+        return
     if eng.exists() and any(eng.iterdir()):
-        if not any(f.is_file() for _, _, fs in os.walk(eng) for f in fs):
+        if not any(f.is_file() for f in eng.rglob('*')):
             # An empty tree is the leftover of a failed first sync: on Windows the engine sync
             # needs git, and the failure hit right after this folder was made, so every retry
             # then stopped here forever ("move it away"). Start over instead of asking.
@@ -203,6 +205,7 @@ def ensure_repo(eng):
     eng.mkdir(parents=True, exist_ok=True)
     git('init', '--quiet', cwd=eng)
     git('config', 'advice.detachedHead', 'false', cwd=eng)
+    git('config', 'core.autocrlf', 'false', cwd=eng)
     git('remote', 'add', 'seedds', UPSTREAM_URL, cwd=eng, check=False)   # for `git fetch seedds` and pull requests upstream
 
 

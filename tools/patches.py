@@ -48,7 +48,7 @@ def clean_env(**extra):
 
 
 def git(*a, cwd=None, check=True, inp=None, binary=False):
-    r = subprocess.run(['git', *a], cwd=cwd or REPO, input=inp, capture_output=True, text=not binary, env=clean_env())
+    r = subprocess.run(['git', '-c', 'core.autocrlf=false', *a], cwd=cwd or REPO, input=inp, capture_output=True, text=not binary, env=clean_env())
     if check and r.returncode:
         raise Fail(f'git {" ".join(a)} failed: {(r.stderr if not binary else r.stderr.decode(errors="replace")).strip()[-1500:]}')
     return r
