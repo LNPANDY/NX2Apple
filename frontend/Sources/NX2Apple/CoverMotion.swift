@@ -50,21 +50,23 @@ struct AnimatedImageFill: NSViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator() }
     func makeNSView(context: Context) -> ClickThroughView {
         let box = ClickThroughView()
+        box.wantsLayer = true
+        box.layer?.backgroundColor = NSColor.clear.cgColor
         let canvas = AspectImageView()
         canvas.autoresizingMask = [.width, .height]
         box.onVisibility = { [weak coordinator = context.coordinator] visible in
             coordinator?.setVisible(visible)
         }
         box.addSubview(canvas)
-        context.coordinator.start(CoverFile.frames(at: path), canvas: canvas, path: path)
+        context.coordinator.bind(path, canvas: canvas)
         return box
     }
     func updateNSView(_ box: ClickThroughView, context: Context) {
         context.coordinator.canvas?.frame = box.bounds
         if context.coordinator.path != path, let canvas = context.coordinator.canvas {
-            context.coordinator.start(CoverFile.frames(at: path), canvas: canvas, path: path)
+            context.coordinator.bind(path, canvas: canvas)
         }
-        context.coordinator.setVisible(box.window != nil && !box.visibleRect.isEmpty)
+        context.coordinator.setVisible(ClickThroughView.onScreen(box))
     }
     static func dismantleNSView(_ box: ClickThroughView, coordinator: Coordinator) {
         box.stopWatching()
@@ -77,39 +79,60 @@ struct AnimatedImageFill: NSViewRepresentable {
         private var index = 0
         private var timer: Timer?
         private var active = false
+        private var failed = false
         var path = ""
         weak var canvas: AspectImageView?
 
-        func start(_ frames: [CoverFile.Frame], canvas: AspectImageView, path: String) {
-            timer?.invalidate()
-            timer = nil
+        /// Remembers the file. The frames are decoded only while the tile is on screen.
+        func bind(_ path: String, canvas: AspectImageView) {
+            let changed = self.path != path
             active = true
             self.path = path
             self.canvas = canvas
-            index = 0
-            self.frames = frames.map { NSImage(cgImage: $0.image, size: NSSize(width: $0.image.width, height: $0.image.height)) }
-            delays = frames.map(\.seconds)
-            show(0)
-            setVisible(canvas.window != nil && !canvas.visibleRect.isEmpty)
+            if changed {
+                timer?.invalidate()
+                timer = nil
+                frames = []
+                delays = []
+                index = 0
+                failed = false
+                canvas.image = nil
+            }
+            setVisible(ClickThroughView.onScreen(canvas))
         }
 
         /// The host view and the canvas agree before another frame is queued. One frame stays a still.
+        /// Off screen, every frame but the one on display is dropped. Coming back decodes the file again and continues.
         func setVisible(_ hostVisible: Bool) {
             guard active else { return }
             let visible = hostVisible && canvasVisible
             if visible {
-                guard frames.count > 1, timer == nil else { return }
+                if frames.isEmpty, !failed { load() }
+                guard !failed, frames.count > 1, timer == nil else { return }
                 show(index)
                 schedule()
-            } else if timer != nil {
+            } else if timer != nil || frames.count > 1 {
                 timer?.invalidate()
                 timer = nil
+                let current = canvas?.image
+                frames = []
+                delays = []
+                canvas?.image = current
             }
         }
 
+        private func load() {
+            let decoded = CoverFile.frames(at: path)
+            frames = decoded.map { NSImage(cgImage: $0.image, size: NSSize(width: $0.image.width, height: $0.image.height)) }
+            delays = decoded.map(\.seconds)
+            if frames.isEmpty { failed = true; return }
+            if index >= frames.count { index = 0 }
+            show(index)
+        }
+
         private var canvasVisible: Bool {
-            guard let canvas, canvas.window != nil else { return false }
-            return !canvas.visibleRect.isEmpty
+            guard let canvas else { return false }
+            return ClickThroughView.onScreen(canvas)
         }
 
         private func schedule() {
@@ -136,12 +159,15 @@ struct AnimatedImageFill: NSViewRepresentable {
             active = false
             timer?.invalidate()
             timer = nil
+            frames = []
+            delays = []
+            canvas?.image = nil
         }
     }
 }
 
 /// A silent movie, looped, scaled to cover. It does not keep the Mac awake.
-/// It pauses while its view is clipped away and plays again when the tile returns.
+/// Off screen the player is released. Coming back plays from where it waited.
 struct LoopingMovieFill: NSViewRepresentable {
     let url: URL
 
@@ -152,19 +178,26 @@ struct LoopingMovieFill: NSViewRepresentable {
         playerView.controlsStyle = .none
         playerView.videoGravity = .resizeAspectFill
         playerView.autoresizingMask = [.width, .height]
+        playerView.isHidden = true
+        box.wantsLayer = true
+        box.layer?.backgroundColor = NSColor.clear.cgColor
         box.onVisibility = { [weak coordinator = context.coordinator] visible in
             coordinator?.setVisible(visible)
         }
+        let poster = AspectImageView()
+        poster.autoresizingMask = [.width, .height]
+        box.addSubview(poster)
         box.addSubview(playerView)
-        context.coordinator.play(url, in: playerView)
+        context.coordinator.bind(url, poster: poster, playerView: playerView)
         return box
     }
     func updateNSView(_ box: ClickThroughView, context: Context) {
         context.coordinator.playerView?.frame = box.bounds
-        if context.coordinator.url != url, let playerView = context.coordinator.playerView {
-            context.coordinator.play(url, in: playerView)
+        context.coordinator.posterView?.frame = box.bounds
+        if context.coordinator.url != url, let playerView = context.coordinator.playerView, let poster = context.coordinator.posterView {
+            context.coordinator.bind(url, poster: poster, playerView: playerView)
         }
-        context.coordinator.setVisible(box.window != nil && !box.visibleRect.isEmpty)
+        context.coordinator.setVisible(ClickThroughView.onScreen(box))
     }
     static func dismantleNSView(_ box: ClickThroughView, coordinator: Coordinator) {
         box.stopWatching()
@@ -176,60 +209,80 @@ struct LoopingMovieFill: NSViewRepresentable {
         private var loop: NSObjectProtocol?
         private var playing = false
         private var active = false
+        private var parked = CMTime.zero
         var url: URL?
         weak var playerView: AVPlayerView?
+        weak var posterView: AspectImageView?
 
-        func play(_ url: URL, in view: AVPlayerView) {
-            teardown()
+        /// Remembers the file. The player is created only while the tile is on screen.
+        func bind(_ url: URL, poster: AspectImageView, playerView: AVPlayerView) {
+            let changed = self.url != url
+            if changed { releasePlayer(); parked = .zero; poster.image = nil }
             active = true
             self.url = url
-            playerView = view
+            posterView = poster
+            self.playerView = playerView
+            setVisible(ClickThroughView.onScreen(playerView))
+        }
+
+        /// Off screen the player is released and one still frame stays. Coming back plays from where it waited.
+        func setVisible(_ hostVisible: Bool) {
+            guard active, let url, let playerView else { return }
+            let visible = hostVisible && ClickThroughView.onScreen(playerView)
+            if visible {
+                if player == nil { startPlayer(url, in: playerView) }
+                else if !playing {
+                    playing = true
+                    player?.play()
+                }
+            } else if player != nil {
+                parked = player?.currentTime() ?? parked
+                releasePlayer()
+            }
+        }
+
+        func stop() {
+            active = false
+            releasePlayer()
+            posterView?.image = nil
+        }
+
+        private func startPlayer(_ url: URL, in view: AVPlayerView) {
             let item = AVPlayerItem(url: url)
+            item.preferredForwardBufferDuration = 1
             let player = AVPlayer(playerItem: item)
             player.isMuted = true
             player.volume = 0
             player.preventsDisplaySleepDuringVideoPlayback = false
             self.player = player
             view.player = player
+            view.isHidden = false
+            if parked.isValid, parked.seconds > 0.05 { player.seek(to: parked) }
             loop = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { [weak self] _ in
+                guard let self else { return }
+                self.parked = .zero
                 player.seek(to: .zero)
-                guard let self, self.active, self.viewVisible else {
-                    self?.playing = false
+                guard self.active, let view = self.playerView, ClickThroughView.onScreen(view) else {
+                    self.playing = false
                     return
                 }
                 self.playing = true
                 player.play()
             }
-            playing = false
-            setVisible(view.window != nil && !view.visibleRect.isEmpty)
+            playing = true
+            player.play()
         }
 
-        /// Off screen the movie is paused. Coming back plays from where it waited, which is the start after a loop.
-        func setVisible(_ hostVisible: Bool) {
-            guard active else { return }
-            let visible = hostVisible && viewVisible
-            guard visible != playing else { return }
-            playing = visible
-            if visible { player?.play() } else { player?.pause() }
-        }
-
-        private var viewVisible: Bool {
-            guard let playerView, playerView.window != nil else { return false }
-            return !playerView.visibleRect.isEmpty
-        }
-
-        func stop() {
-            active = false
-            teardown()
-        }
-
-        private func teardown() {
+        /// Drops the decoder. The poster is one frame, drawn under the player view once the player is gone.
+        private func releasePlayer() {
             if let loop { NotificationCenter.default.removeObserver(loop) }
             loop = nil
             playing = false
             player?.pause()
             playerView?.player = nil
             player = nil
+            playerView?.isHidden = true
+            if posterView?.image == nil, let url { posterView?.image = MoviePoster.image(at: url.path) }
         }
     }
 }
@@ -238,6 +291,7 @@ struct LoopingMovieFill: NSViewRepresentable {
 /// A library row is an ordinary scroll view, so a tile that slides away stays in the window and is only clipped.
 /// visibleRect is empty then. A missing window means the same. Scrolling does not resize the tile, so a short timer checks too.
 final class ClickThroughView: NSView {
+    override var isOpaque: Bool { false }
     var onVisibility: ((Bool) -> Void)?
     private var timer: Timer?
     private var reporting = false
@@ -271,10 +325,17 @@ final class ClickThroughView: NSView {
         RunLoop.main.add(timer, forMode: .common)
     }
 
+    /// On screen means the window is open, not hidden behind another window, and the scroll view has not clipped the tile away.
+    static func onScreen(_ view: NSView) -> Bool {
+        guard let window = view.window, window.isVisible, window.occlusionState.contains(.visible) else { return false }
+        guard !view.bounds.isEmpty else { return false }
+        return !view.visibleRect.isEmpty
+    }
+
     private func report() {
         guard !reporting else { return }
         reporting = true
-        onVisibility?(window != nil && !visibleRect.isEmpty)
+        onVisibility?(Self.onScreen(self))
         reporting = false
     }
 
@@ -284,6 +345,7 @@ final class ClickThroughView: NSView {
 /// Aspect-fill. The parent clips whatever hangs past the tile.
 final class AspectImageView: NSView {
     var image: NSImage? { didSet { needsDisplay = true } }
+    override var isOpaque: Bool { false }
     override func layout() { super.layout(); needsDisplay = true }
     override func draw(_ dirtyRect: NSRect) {
         guard let image, image.size.width > 0, image.size.height > 0 else { return }

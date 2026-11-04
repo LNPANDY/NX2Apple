@@ -10,7 +10,15 @@ final class CoverFileTests: XCTestCase {
         XCTAssertFalse(CoverFile.isMovie(""))
         XCTAssertFalse(CoverFile.animates(""))
         XCTAssertFalse(CoverFile.animates("/missing/cover.jpg"))
-        XCTAssertTrue(CoverFile.animates("/missing/cover.mp4"))
+        XCTAssertFalse(CoverFile.animates("/missing/cover.mp4"))
+    }
+
+    func testAMovieOnDiskAnimatesAndAMissingOneDoesNot() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("clip-\(UUID().uuidString).mp4")
+        try Data("not a movie".utf8).write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+        XCTAssertTrue(CoverFile.animates(url.path))
+        XCTAssertFalse(CoverFile.animates(url.path + ".gone"))
     }
 
     func testAPngIsOneFrame() throws {
@@ -19,6 +27,7 @@ final class CoverFileTests: XCTestCase {
         try png.write(to: url)
         defer { try? FileManager.default.removeItem(at: url) }
         XCTAssertEqual(CoverFile.frames(at: url.path).count, 1)
+        XCTAssertNotNil(CoverFile.poster(at: url.path))
         XCTAssertFalse(CoverFile.animates(url.path))
     }
 
@@ -26,5 +35,22 @@ final class CoverFileTests: XCTestCase {
         XCTAssertTrue(CoverFile.shellExtensions.contains("gif"))
         XCTAssertTrue(CoverFile.shellExtensions.contains("mp4"))
         XCTAssertFalse(CoverFile.shellExtensions.contains("tiff"))
+    }
+}
+
+final class CoverSealTests: XCTestCase {
+    func testTheCertificateNameIsTheFirstAuthority() {
+        let text = "Authority=Apple Development: Ada Lovelace (ABCDE12345)\nAuthority=Apple Worldwide Developer Relations Certification Authority\n"
+        XCTAssertEqual(CoverSeal.identity(in: text), "Apple Development: Ada Lovelace (ABCDE12345)")
+    }
+
+    func testAnAdHocSignatureSealsAsAdHoc() {
+        XCTAssertEqual(CoverSeal.identity(in: "Signature=adhoc\n"), "-")
+        XCTAssertEqual(CoverSeal.identity(in: "flags=0x2(adhoc)\n"), "-")
+    }
+
+    func testADisplayWithNoIdentitySealsNothing() {
+        XCTAssertNil(CoverSeal.identity(in: "code object is not signed at all\n"))
+        XCTAssertNil(CoverSeal.identity(in: "Authority=-\n"))
     }
 }

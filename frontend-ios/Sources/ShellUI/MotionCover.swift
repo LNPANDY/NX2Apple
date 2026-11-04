@@ -70,8 +70,9 @@ private final class MotionBox: UIView {
     }
 
     /// A tile with no size yet is not on screen. A point rectangle can still intersect the window.
+    /// The app in the background is off screen too, so a cover does not keep decoding there.
     static func onScreen(_ view: UIView) -> Bool {
-        guard let window = view.window else { return false }
+        guard let window = view.window, UIApplication.shared.applicationState == .active else { return false }
         let rect = view.convert(view.bounds, to: window)
         return !rect.isEmpty && rect.intersects(window.bounds)
     }
@@ -111,6 +112,8 @@ private struct MotionHost: UIViewRepresentable {
         let box = MotionBox()
         box.clipsToBounds = true
         box.isUserInteractionEnabled = false
+        box.isOpaque = false
+        box.backgroundColor = .clear
         box.onVisibility = { [weak coordinator = context.coordinator] visible in
             coordinator?.setVisible(visible)
         }
@@ -131,14 +134,44 @@ private struct MotionHost: UIViewRepresentable {
         private var playerLayer: AVPlayerLayer?
         private var loop: NSObjectProtocol?
         private weak var images: UIImageView?
+        private weak var box: UIView?
+        private var frames: [UIImage] = []
+        private var delays: [Double] = []
+        private var index = 0
+        private var timer: Timer?
+        private var parked = CMTime.zero
         private var onScreen = false
         private var active = false
+        private var movie = false
+        private var failed = false
+        private var url: URL?
         private let playing = MotionPlayGate()
 
+        /// Remembers the file. Frames and the player are created only while the tile is on screen.
         func mount(_ url: URL, in box: UIView) {
+            let changed = self.url != url
             active = true
-            if MotionCover.isMovie(url) { mountMovie(url, in: box) }
-            else { mountFrames(url, in: box) }
+            if changed {
+                index = 0
+                parked = .zero
+                failed = false
+                releaseFrames()
+                releaseMovie(saving: false)
+            }
+            self.url = url
+            self.box = box
+            movie = MotionCover.isMovie(url)
+            if !movie, images == nil {
+                let view = UIImageView()
+                view.contentMode = .scaleAspectFill
+                view.clipsToBounds = true
+                view.isUserInteractionEnabled = false
+                view.isOpaque = false
+                view.backgroundColor = .clear
+                view.frame = box.bounds
+                box.addSubview(view)
+                images = view
+            }
             let shown = MotionBox.onScreen(box)
             if shown { onScreen = false }
             setVisible(shown)
@@ -149,19 +182,20 @@ private struct MotionHost: UIViewRepresentable {
             images?.frame = box.bounds
         }
 
-        /// Off screen the movie pauses and the frames stop. Back on screen they continue. A still frame is not started again.
+        /// Off screen the decoded frames and the player are dropped. The frame on display stays.
+        /// Coming back continues from that frame, or from where the movie waited.
         func setVisible(_ visible: Bool) {
             guard active else { return }
             playing.allow = visible
             if visible {
                 guard !onScreen else { return }
                 onScreen = true
-                if (images?.animationImages?.count ?? 0) > 1 { images?.startAnimating() }
-                player?.play()
-            } else {
-                if onScreen { images?.stopAnimating() }
+                if movie { startMovie() }
+                else { startFrames() }
+            } else if onScreen || player != nil || !frames.isEmpty {
                 onScreen = false
-                if let player, player.timeControlStatus != .paused { player.pause() }
+                if movie { releaseMovie() }
+                else { releaseFrames() }
             }
         }
 
@@ -169,15 +203,67 @@ private struct MotionHost: UIViewRepresentable {
             active = false
             onScreen = false
             playing.allow = false
-            if let loop { NotificationCenter.default.removeObserver(loop) }
-            loop = nil
-            player?.pause()
-            player = nil
-            images?.stopAnimating()
+            timer?.invalidate()
+            timer = nil
+            frames = []
+            delays = []
+            images?.image = nil
+            releaseMovie(saving: false)
         }
 
-        private func mountMovie(_ url: URL, in box: UIView) {
+        private func startFrames() {
+            if frames.isEmpty, !failed { loadFrames() }
+            guard !failed, frames.count > 1, timer == nil else { return }
+            showFrame()
+            schedule()
+        }
+
+        private func loadFrames() {
+            guard let url else { return }
+            let decoded = Self.frames(url)
+            frames = decoded.map { UIImage(cgImage: $0.image) }
+            delays = decoded.map(\.seconds)
+            if frames.isEmpty { failed = true; return }
+            if index >= frames.count { index = 0 }
+            showFrame()
+        }
+
+        private func showFrame() {
+            guard frames.indices.contains(index) else { return }
+            images?.image = frames[index]
+        }
+
+        private func schedule() {
+            guard active, onScreen, frames.count > 1 else { return }
+            let delay = delays.isEmpty ? 0.1 : delays[index % delays.count]
+            let timer = Timer(timeInterval: delay, repeats: false) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.timer = nil
+                    guard self.active, self.onScreen else { return }
+                    self.index = (self.index + 1) % max(1, self.frames.count)
+                    self.showFrame()
+                    self.schedule()
+                }
+            }
+            self.timer = timer
+            RunLoop.main.add(timer, forMode: .common)
+        }
+
+        /// Keeps the picture on screen and drops the rest of the decoded frames.
+        private func releaseFrames() {
+            timer?.invalidate()
+            timer = nil
+            let current = images?.image
+            frames = []
+            delays = []
+            images?.image = current
+        }
+
+        private func startMovie() {
+            guard player == nil, let url, let box else { return }
             let item = AVPlayerItem(url: url)
+            item.preferredForwardBufferDuration = 1
             let player = AVPlayer(playerItem: item)
             player.isMuted = true
             player.volume = 0
@@ -188,28 +274,25 @@ private struct MotionHost: UIViewRepresentable {
             layer.frame = box.bounds
             box.layer.addSublayer(layer)
             playerLayer = layer
+            if parked.isValid, parked.seconds > 0.05 { player.seek(to: parked) }
             let gate = playing
-            loop = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { _ in
+            loop = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { [weak self] _ in
+                self?.parked = .zero
                 player.seek(to: .zero)
                 guard gate.allow else { return }
                 player.play()
             }
+            player.play()
         }
 
-        private func mountFrames(_ url: URL, in box: UIView) {
-            let view = UIImageView()
-            view.contentMode = .scaleAspectFill
-            view.clipsToBounds = true
-            view.isUserInteractionEnabled = false
-            view.frame = box.bounds
-            box.addSubview(view)
-            images = view
-            let frames = Self.frames(url)
-            guard !frames.isEmpty else { return }
-            view.animationImages = frames.map { UIImage(cgImage: $0.image) }
-            view.image = view.animationImages?.first
-            view.animationDuration = max(0.1, frames.reduce(0) { $0 + $1.seconds })
-            view.animationRepeatCount = 0
+        private func releaseMovie(saving time: Bool = true) {
+            if time { parked = player?.currentTime() ?? parked }
+            if let loop { NotificationCenter.default.removeObserver(loop) }
+            loop = nil
+            player?.pause()
+            playerLayer?.removeFromSuperlayer()
+            playerLayer = nil
+            player = nil
         }
 
         private static func frames(_ url: URL) -> [(image: CGImage, seconds: Double)] {

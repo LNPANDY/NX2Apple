@@ -249,6 +249,8 @@ import NXModel
         try XCTUnwrap(NSBitmapImageRep(data: XCTUnwrap(small.tiffRepresentation))?.representation(using: .png, properties: [:])).write(to: own)
         game.artworkPath = own.path
         XCTAssertEqual(GameLibrary.artwork(for: game, repo: temporary.path, banners: folder)?.size, NSSize(width: 8, height: 8))   // the player's own image first
+        game.artworkPath = temporary.appendingPathComponent("gone.mp4").path
+        XCTAssertEqual(GameLibrary.artwork(for: game, repo: temporary.path, banners: folder)?.size, NSSize(width: 64, height: 36), "a missing movie falls through to the shop banner")
     }
 
     /// Stop ends the build's whole process group: the script and the tools it started (here two sleeps), even

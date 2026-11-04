@@ -245,6 +245,10 @@ import NXModel
         XCTAssertFalse(fm.fileExists(atPath: fw + "/banner.jpg"), "one banner, the older one goes")
         XCTAssertNil(ShellInstall.placeBanner(titleID: "0100000000000000", framework: fw, banners: banners, picked: nil))
         XCTAssertFalse(fm.fileExists(atPath: fw + "/banner.png"), "no picture: the library falls back to the icon")
+        try write(fw + "/banner.gif", "kept")
+        XCTAssertNil(ShellInstall.placeBanner(titleID: titleID, framework: fw, banners: banners, picked: path("gone.gif")))
+        XCTAssertEqual(try String(contentsOfFile: fw + "/banner.gif", encoding: .utf8), "kept", "a missing chosen file leaves the picture already there")
+        XCTAssertFalse(fm.fileExists(atPath: fw + "/banner.jpg"))
     }
 
     /// A GIF and a silent movie are formats the shell plays, so the install copies the file as it is.
@@ -284,6 +288,10 @@ import NXModel
         XCTAssertEqual(ShellInstall.refreshCovers(root: root, app: app, artwork: { _ in gif }, banners: banners), [], "the same picture does not sign the app again")
         XCTAssertEqual(ShellInstall.refreshCovers(root: root, app: app, artwork: { _ in nil }, banners: banners), [], "no cache and no chosen file leaves the picture the phone has")
         XCTAssertTrue(fm.fileExists(atPath: embedded + "/banner.gif"))
+        try write(banners.path + "/\(titleID).jpg", "shop")
+        XCTAssertEqual(ShellInstall.refreshCovers(root: root, app: app, artwork: { _ in path("gone.gif") }, banners: banners), [], "a missing chosen file is not replaced by the shop banner")
+        XCTAssertEqual(try String(contentsOfFile: embedded + "/banner.gif", encoding: .utf8), "GIF89a-new")
+        XCTAssertFalse(fm.fileExists(atPath: embedded + "/banner.jpg"))
     }
 
     /// Change artwork allows a TIFF. The shell reads PNG, JPEG, HEIC, WebP, GIF and a silent movie, so a TIFF is written as a JPEG.

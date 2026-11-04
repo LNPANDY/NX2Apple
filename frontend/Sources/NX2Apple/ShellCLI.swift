@@ -5,7 +5,7 @@ import NXCore
 /// Pass `--artwork <titleID>=<path>` once per game whose own cover should be used.
 enum ShellCLI {
     static let usage = "NSPortBuilder --install-shell --framework <path> --archive <games/TITLEID folder> --title-id <id> --name <name> "
-        + "--device <udid> --team <team> --repo <repo> [--shell-root <dir>] [--python <path>] [--artwork <titleID>=<path>]"
+        + "--device <udid> --team <team> --repo <repo> [--shell-root <dir>] [--python <path>] [--library <path>] [--artwork <titleID>=<path>]"
 
     /// The options as a dictionary, nil when an option has no value.
     static func parse(_ args: [String]) -> [String: String]? {
@@ -43,6 +43,32 @@ enum ShellCLI {
         return covers
     }
 
+    /// Cover paths saved by Change artwork. The file is the library snapshot, or the older bare list of games.
+    /// A path that is not on disk is left out. An empty artwork path is left out.
+    static func savedCovers(_ file: URL, fm: FileManager = .default) -> [String: String] {
+        guard let data = fm.contents(atPath: file.path),
+              let json = try? JSONSerialization.jsonObject(with: data) else { return [:] }
+        let games: [[String: Any]]
+        if let list = json as? [[String: Any]] { games = list }
+        else if let object = json as? [String: Any], let list = object["games"] as? [[String: Any]] { games = list }
+        else { return [:] }
+        var out: [String: String] = [:]
+        for game in games {
+            guard let id = (game["titleID"] as? String)?.lowercased(), !id.isEmpty,
+                  let path = game["artworkPath"] as? String, !path.isEmpty,
+                  fm.fileExists(atPath: path) else { continue }
+            out[id] = path
+        }
+        return out
+    }
+
+    /// Saved paths, then `--artwork` flags. A flag replaces the saved path for that game.
+    static func mergedCovers(_ args: [String], library: URL, fm: FileManager = .default) -> [String: String] {
+        var out = savedCovers(library, fm: fm)
+        for (id, path) in covers(args) { out[id] = path }
+        return out
+    }
+
     /// Exit status: 0 installed, 1 failed (or wrong usage). `out` gets every line, stage lines and tool output alike.
     /// `--xcrun` is for the tests, which stand in for xcodebuild and devicectl.
     static func run(_ args: [String], defaults: UserDefaults = .standard, out: @escaping (String) -> Void = { fputs($0, stdout); fflush(stdout) }) -> Int32 {
@@ -68,8 +94,10 @@ enum ShellCLI {
             case .pending: break
             }
         }
-        // Each --artwork line supplies one game's cover. A title with no line returns nil and the install keeps the cached eShop banner.
-        let covers = Self.covers(args)
+        // Saved covers come from the library. A --artwork flag replaces one of them. A title with neither returns nil
+        // and the install keeps the cached eShop banner.
+        let library = o["library"].map { URL(fileURLWithPath: $0) } ?? GameLibrary.fileURL
+        let covers = Self.mergedCovers(args, library: library)
         installer.artworkForTitle = { covers[$0.lowercased()] }
         let result = installer.install(framework: o["framework"]!, titleID: o["title-id"]!, name: o["name"]!, archive: archive)
         out((result.ok ? "OK: " : "FAIL: ") + result.message + "\n")

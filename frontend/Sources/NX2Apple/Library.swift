@@ -291,9 +291,14 @@ final class GameLibrary: ObservableObject {
         let folder: String
     }
 
-    init(file: URL? = nil, volumes: String = "/Volumes") {
-        self.file = file ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+    /// Where Change artwork saves its paths. The terminal install reads the same file.
+    static var fileURL: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("NS Port Builder/library.json")
+    }
+
+    init(file: URL? = nil, volumes: String = "/Volumes") {
+        self.file = file ?? Self.fileURL
         if FileManager.default.fileExists(atPath: self.file.path) {
             do {
                 let data = try Data(contentsOf: self.file)
@@ -643,17 +648,26 @@ final class GameLibrary: ObservableObject {
         return name.isEmpty ? filename : name
     }
 
+    /// One still frame. A movie uses its first picture. An animation uses its first frame, so the tile does not
+    /// keep every decoded frame twice. Nil when the file cannot be read, and the caller tries the shop banner.
+    private static func still(at path: String) -> NSImage? {
+        if CoverFile.isMovie(path) { return MoviePoster.image(at: path) }
+        if CoverFile.animates(path), let cg = CoverFile.poster(at: path) {
+            return NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
+        }
+        if let image = NSImage(contentsOfFile: path) { return image }
+        if let cg = CoverFile.poster(at: path) {
+            return NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
+        }
+        return nil
+    }
+
     /// Prefer a user's own image, then the game's eShop key art (ArtworkStore), then an existing repository
     /// gameplay screenshot, then the app icon.
     static func artwork(for game: LibraryGame, repo: String, banners: URL = ArtworkStore.shared.directory) -> NSImage? {
-        if !game.artworkPath.isEmpty {
-            if CoverFile.isMovie(game.artworkPath) {
-                return MoviePoster.image(at: game.artworkPath) ?? NSImage(size: NSSize(width: 16, height: 9))
-            }
-            if let image = NSImage(contentsOfFile: game.artworkPath) { return image }
-            if let first = CoverFile.frames(at: game.artworkPath).first {
-                return NSImage(cgImage: first.image, size: NSSize(width: first.image.width, height: first.image.height))
-            }
+        if !game.artworkPath.isEmpty, FileManager.default.fileExists(atPath: game.artworkPath),
+           let image = still(at: game.artworkPath) {
+            return image
         }
         if let url = ArtworkStore.cachedBanner(game.titleID, in: banners), let image = NSImage(contentsOf: url) { return image }
         func normalized(_ s: String) -> String {

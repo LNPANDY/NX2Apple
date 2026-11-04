@@ -90,7 +90,10 @@ device by path and size, and only what is missing is copied to the app's
 of a large game takes a few minutes. The same steps run without the window:
 
     NSPortBuilder --install-shell --framework <path> --archive <games/TITLEID folder> --title-id <id> \
-        --name <name> --device <udid> --team <team> --repo <repo> [--shell-root <dir>] [--python <path>]
+        --name <name> --device <udid> --team <team> --repo <repo> [--shell-root <dir>] [--python <path>] [--library <path>]
+
+The terminal install reads the custom covers saved in the library (`library.json`). Repeat
+`--artwork <titleID>=<path>` to replace one game. `--library` names a different library file.
 
 The first time, turn on Developer Mode on the device and trust the developer
 under Settings → General → VPN & Device Management. With a free Apple ID the
@@ -220,8 +223,9 @@ ID → image and kept with the images in
 their chosen path.
 
 Change artwork accepts PNG, JPEG, TIFF, HEIC, GIF, WebP, MP4 and MOV. A GIF, an animated
-WebP or APNG, or a silent video loops in the tile, muted. The launcher does not download
-art from Steam Grid DB.
+WebP or APNG, or a silent video loops in the tile, muted. A cover that has scrolled away,
+or a window that is hidden, drops its decoded frames and its player and continues from
+where it stopped when it comes back. The launcher does not download art from Steam Grid DB.
 
 The iPhone and iPad shell shows the same file. An install, a re-sign or a reinstall copies the
 custom image or video when one is set, otherwise the cached eShop banner, into the game's

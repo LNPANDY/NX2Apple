@@ -29,10 +29,18 @@ package enum CoverFile {
         return out
     }
 
-    /// A GIF, an animated WebP or APNG, or a silent movie. A still returns false, including an empty path.
+    /// The first picture only. A still tile uses this, so opening a GIF does not decode every frame.
+    package static func poster(at path: String) -> CGImage? {
+        guard !path.isEmpty, !isMovie(path),
+              let src = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil) else { return nil }
+        return CGImageSourceCreateImageAtIndex(src, 0, nil)
+    }
+
+    /// A GIF, an animated WebP or APNG, or a silent movie that is actually on disk.
+    /// A still returns false, including an empty path and a file that is not there.
     /// JPEG, HEIC and TIFF are one picture, so they are not opened.
     package static func animates(_ path: String) -> Bool {
-        if path.isEmpty { return false }
+        if path.isEmpty || !FileManager.default.fileExists(atPath: path) { return false }
         if isMovie(path) { return true }
         if ["jpg", "jpeg", "heic", "tif", "tiff"].contains(ext(path)) { return false }
         guard let src = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil) else { return false }

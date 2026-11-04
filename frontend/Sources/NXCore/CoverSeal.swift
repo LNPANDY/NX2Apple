@@ -1,7 +1,7 @@
 import Foundation
 
 /// Reseals an installed app after a cover was written into it, using the identity already on the app.
-/// An unsigned folder is left alone. The new signature is never ad-hoc, because a device will not install that.
+/// An unsigned folder is left alone. An ad-hoc app is sealed as ad-hoc again. Anything else keeps its certificate.
 package enum CoverSeal {
     /// Nil when the app was resealed, or when it had nothing to reseal.
     /// A string when a signed app could not be resealed.
@@ -24,18 +24,25 @@ package enum CoverSeal {
         ["/usr/bin/codesign", "--force", "--sign", identity, "--preserve-metadata=identifier,entitlements,flags", path]
     }
 
-    /// The first Authority= value from `codesign -d`, or nil when that display fails or names no identity.
-    /// The exit status alone cannot carry the name, so this read captures the tool's output here.
-    /// An ad-hoc identity is ignored. A device will not install a signature made with `--sign -`.
+    /// The first Authority= value from `codesign -d`, or `-` when that display says the app is ad-hoc.
+    /// Nil when the display fails or names no identity. The exit status alone cannot carry the name, so this read captures the tool's output here.
     private static func signingIdentity(of app: String) -> String? {
         let shown = capture(["/usr/bin/codesign", "-d", "--verbose=2", app])
         guard shown.status == 0 else { return nil }
-        for line in shown.output.split(whereSeparator: \.isNewline) {
-            guard let range = line.range(of: "Authority=") else { continue }
-            let value = line[range.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
+        return identity(in: shown.output)
+    }
+
+    /// The certificate name, or `-` for an ad-hoc signature. Nil when the text names neither.
+    package static func identity(in output: String) -> String? {
+        var adhoc = false
+        for line in output.split(whereSeparator: \.isNewline) {
+            let text = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            if text.contains("Signature=adhoc") || text.contains("(adhoc)") { adhoc = true }
+            guard let range = text.range(of: "Authority=") else { continue }
+            let value = text[range.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
             if !value.isEmpty, value != "-" { return String(value) }
         }
-        return nil
+        return adhoc ? "-" : nil
     }
 
     /// Frameworks inside the app, deepest first, so each nested bundle is signed before the one that contains it.

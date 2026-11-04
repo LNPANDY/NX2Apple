@@ -60,4 +60,35 @@ final class ShellCLICoverTests: XCTestCase {
         XCTAssertEqual(options["team"], "TEAM123456")
         XCTAssertEqual(options["repo"], "/repo")
     }
+
+    /// Saved paths fill the games a flag does not name. A flag replaces the saved path. An empty or missing path is left out.
+    func testSavedCoversFillGapsAndAFlagReplacesOne() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("covers-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let gif = dir.appendingPathComponent("cover.gif")
+        let movie = dir.appendingPathComponent("clip.mp4")
+        try Data("gif".utf8).write(to: gif)
+        try Data("mp4".utf8).write(to: movie)
+        let library = dir.appendingPathComponent("library.json")
+        let body = """
+        {"folder":"","games":[
+          {"titleID":"0100ABCDEF000000","artworkPath":"\(gif.path)"},
+          {"titleID":"0100BBBBBB000000","artworkPath":"\(movie.path)"},
+          {"titleID":"0100CCCCCCCC000000","artworkPath":""},
+          {"titleID":"0100DDDDDD000000","artworkPath":"/no/such.png"}
+        ]}
+        """
+        try Data(body.utf8).write(to: library)
+        XCTAssertEqual(ShellCLI.mergedCovers(["--artwork", "0100ABCDEF000000=/override.gif"], library: library), [
+            "0100abcdef000000": "/override.gif",
+            "0100bbbbbb000000": movie.path,
+        ])
+        let bare = dir.appendingPathComponent("bare.json")
+        try Data("""
+        [{"titleID":"0100BBBBBB000000","artworkPath":"\(movie.path)"}]
+        """.utf8).write(to: bare)
+        XCTAssertEqual(ShellCLI.savedCovers(bare), ["0100bbbbbb000000": movie.path])
+        XCTAssertEqual(ShellCLI.savedCovers(dir.appendingPathComponent("missing.json")), [:])
+    }
 }
