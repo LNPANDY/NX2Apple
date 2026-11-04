@@ -6,7 +6,7 @@ Subject: [PATCH] The way back to the library is a gesture, not a button: a
  screen carries no extra chrome
 
 Upstream-Status: fork-only
-Reason: The library button from 0083 put permanent chrome on the game screen. The way back is a three-finger long press instead: no gameplay input makes it by accident, it works with a controller connected, and the confirmation from 0083 still guards the exit.
+Reason: The library button from 0093 put permanent chrome on the game screen. The way back is a three-finger long press instead: no gameplay input makes it by accident, it works with a controller connected, and the confirmation from 0093 still guards the exit.
 Issue: Tiaoge-tou/NX2Apple PROJECT.md Phase 4
 
 ---

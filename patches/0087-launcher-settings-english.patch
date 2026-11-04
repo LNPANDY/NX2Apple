@@ -4,10 +4,10 @@ Date: Wed, 4 Nov 2026 00:09:50 +0800
 Subject: [PATCH] Launcher settings go back to English in settings.tsv and
  nacp.py; the three new rows stay, in English
 
-Patch 0074 translated the settings table in place, which fights this repository's localisation layering: launcher.json texts are English by design, the shells translate them by their English text through the catalogues built from frontend/l10n, and the Mac launcher's tests hold settings.tsv's labels to the launch.set entries. So the table and the NACP language names return to the pin's English, and the rows 0074 added (SS_DISPLAY_HZ, DM_SILK_SKIN, DM_HADES_SKIN) stay with English texts written for the catalogues: SS_DISPLAY_HZ is 'Refresh rate' with 60 Hz / 120 Hz options (its texts must not collide with DM_FPS_TARGET's 'Frame rate' / '60 fps', whose translations differ), the skin rows are 'Button skin' with Glass / Thorn / Moon options. The Chinese texts move to frontend/l10n, in the same change on the repository side. Launcher.swift's own Chinese strings from 0074 are untouched.
+Patch 0084 translated the settings table in place, which fights this repository's localisation layering: launcher.json texts are English by design, the shells translate them by their English text through the catalogues built from frontend/l10n, and the Mac launcher's tests hold settings.tsv's labels to the launch.set entries. So the table and the NACP language names return to the pin's English, and the rows 0084 added (SS_DISPLAY_HZ, DM_SILK_SKIN, DM_HADES_SKIN) stay with English texts written for the catalogues: SS_DISPLAY_HZ is 'Refresh rate' with 60 Hz / 120 Hz options (its texts must not collide with DM_FPS_TARGET's 'Frame rate' / '60 fps', whose translations differ), the skin rows are 'Button skin' with Glass / Thorn / Moon options. The Chinese texts move to frontend/l10n, in the same change on the repository side. Launcher.swift's own Chinese strings from 0084 are untouched.
 
 Upstream-Status: fork-only
-Reason: Completes patch 0074 in this repository's localisation layering: settings texts stay English, translations live in frontend/l10n (PROJECT.md Phase 2)
+Reason: Completes patch 0084 in this repository's localisation layering: settings texts stay English, translations live in frontend/l10n (PROJECT.md Phase 2)
 Issue: Tiaoge-tou/NX2Apple PROJECT.md Phase 2
 
 ---

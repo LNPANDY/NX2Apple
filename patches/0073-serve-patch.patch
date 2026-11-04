@@ -4,9 +4,9 @@ Date: Tue, 3 Nov 2026 21:01:05 +0800
 Subject: [PATCH] File layer: serve_patch byte slots, and the RomFS overlay on
  any image mount
 
-hle_fs.c gains the serve_patch mechanism (patch port 0063, group K of the port inventory), carried from the Tiaoge-tou/nxnative fork.
+hle_fs.c gains the serve_patch mechanism (patch port 0073, group K of the port inventory), carried from the Tiaoge-tou/nxnative fork.
 
-A profile's serve_patch spec (game.py, patch 0062) names byte slots in a game file whose served value depends on the operation mode: ReadFile substitutes the mode's value in the buffer it returns, only when the bytes read are one of the known values, and the file on disk is never touched. A slot may name a stock pattern first, mark its docked value computed from the render width (a * value), or serve the mode's render width as four ASCII digits (a # value). Groups may be gated to narrow or wide screens. With no serve_patch in the profile the mechanism parses an empty spec and never engages.
+A profile's serve_patch spec (game.py, patch 0072) names byte slots in a game file whose served value depends on the operation mode: ReadFile substitutes the mode's value in the buffer it returns, only when the bytes read are one of the known values, and the file on disk is never touched. A slot may name a stock pattern first, mark its docked value computed from the render width (a * value), or serve the mode's render width as four ASCII digits (a # value). Groups may be gated to narrow or wide screens. With no serve_patch in the profile the mechanism parses an empty spec and never engages.
 
 mount_ex also takes DM_ROMFS_OVERLAY on any mount of a RomFS image now, not only the one named rom: a game may mount its files under another name (Dark Souls mounts system), and the overlay folder shadows image entries by path there too. Without the env var nothing changes.
 

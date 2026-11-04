@@ -4,7 +4,7 @@ Date: Tue, 3 Nov 2026 21:53:12 +0800
 Subject: [PATCH] Both games decode BC on the CPU: tex_bc_cpu on in their
  profiles
 
-Silksong and Hades II opt into patch 0008's CPU BC decode (patch port 0076, closing the port queue), so a GPU without BC texture support (an iPhone 13 Pro's A15, any A15/A16 device) runs them: the device check in main.m refuses only a game whose profile does not decode on the CPU. Without the row both games would be turned away at start on exactly the device class PROJECT.md's Phase 4 verifies on. The row is this tree's own key (game.py), not one of the ported ones; nothing else changes.
+Silksong and Hades II opt into patch 0008's CPU BC decode (patch port 0086, closing the port queue), so a GPU without BC texture support (an iPhone 13 Pro's A15, any A15/A16 device) runs them: the device check in main.m refuses only a game whose profile does not decode on the CPU. Without the row both games would be turned away at start on exactly the device class PROJECT.md's Phase 4 verifies on. The row is this tree's own key (game.py), not one of the ported ones; nothing else changes.
 
 Upstream-Status: fork-only
 Reason: Silksong and Hades II run on GPUs without BC support, through patch 0008's CPU decode (PROJECT.md Phase 4)

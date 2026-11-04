@@ -4,7 +4,7 @@ Date: Tue, 3 Nov 2026 21:20:20 +0800
 Subject: [PATCH] Resolution, host side: measured render size in the state
  page, host-filled mode sizes, nn::oe default resolution
 
-The host half of the resolution service (patch port 0065, group M of the port inventory), carried from the Tiaoge-tou/nxnative fork.
+The host half of the resolution service (patch port 0075, group M of the port inventory), carried from the Tiaoge-tou/nxnative fork.
 
 loader.c: dm_fps_state_apply writes the measured render size into the frame-step state page (the docked pair at +0x38 from DM_RENDER_WIDTH, the handheld pair at +0x40 from DM_RENDER_WIDTH_HD, with the narrow-screen stock-frame rules and the serve_narrow exception for a guest with a resolution record, published as DM_SERVE_NARROW for nn::oe), and fills a guest's display-mode size words from the screen (fixups HOST_FILL_D / HOST_FILL_H / HOST_FILL_W, parsed in read_layout, the fields in dm.h). The state page range check grows to +0x48 for the handheld cell.
 
@@ -12,7 +12,7 @@ hle_oe.c: the default display resolution answer follows the same sizes: the host
 
 dm.h also declares dm_display_hz / dm_display_set_hz here: the definition and its callers land in the 120 Hz patch, and nothing calls them yet.
 
-dm/tools/docs_patches.py classifies the four profile keys patch 0062 added (display_wide, pad_skin_toggle, serve_patch, display_hz) in SWITCH_BINDING: the generated game-patches doc refuses an unclassified key, and this patch is the first to have a profile use one.
+dm/tools/docs_patches.py classifies the four profile keys patch 0072 added (display_wide, pad_skin_toggle, serve_patch, display_hz) in SWITCH_BINDING: the generated game-patches doc refuses an unclassified key, and this patch is the first to have a profile use one.
 
 Upstream-Status: fork-only
 Reason: Measured render sizes served to Silksong and Hades II on every size channel (PROJECT.md Phase 2)

@@ -4,13 +4,13 @@ Date: Tue, 3 Nov 2026 21:23:00 +0800
 Subject: [PATCH] Resolution, guest side: the two games' render-size cuts,
  HOST_FILLS in the rewriter, and their serve_patch rows
 
-The guest half of the resolution service (patch port 0066, group N of the port inventory), carried from the Tiaoge-tou/nxnative fork. It pairs with the host half in patch 0065.
+The guest half of the resolution service (patch port 0076, group N of the port inventory), carried from the Tiaoge-tou/nxnative fork. It pairs with the host half in patch 0075.
 
 New patches.py for both games (neither profile had one in this tree): Silksong's render-width and display-state cuts with its HOST_FILLS display-mode template and resolution record, and Hades II's render-size stub, which reads the packed size from the frame-step state page (+0x38) the host writes. The Silksong GUI reference width is deliberately not cut, as the file itself records.
 
-dm/tools/patch_nso.py learns HOST_FILLS (the fixups rows the loader fills, patch 0065), the state page's render-size cell in its layout comment, and the FAR state page reservation rework the Hades II stub relies on. dm/tools/nso_asm.py gains the 32-bit LDRW.
+dm/tools/patch_nso.py learns HOST_FILLS (the fixups rows the loader fills, patch 0075), the state page's render-size cell in its layout comment, and the FAR state page reservation rework the Hades II stub relies on. dm/tools/nso_asm.py gains the 32-bit LDRW.
 
-Both profiles' serve_patch rows land here (the mechanism is patch 0063, the key is patch 0062): Silksong's boot-scene bundle slots and Hades II's baked RunLogic literals, served per device instead of frozen to one phone's frame.
+Both profiles' serve_patch rows land here (the mechanism is patch 0073, the key is patch 0072): Silksong's boot-scene bundle slots and Hades II's baked RunLogic literals, served per device instead of frozen to one phone's frame.
 
 Upstream-Status: fork-only
 Reason: Silksong and Hades II guest-side render-size cuts and their serve_patch rows (PROJECT.md Phase 2)

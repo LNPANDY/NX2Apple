@@ -3,7 +3,7 @@ From: Tiaoge-tou <85100527+Tiaoge-tou@users.noreply.github.com>
 Date: Tue, 3 Nov 2026 21:33:25 +0800
 Subject: [PATCH] Pad skin art, Silksong badge set: padskin-badge
 
-The Silksong touch pad's letter-badge image set (patch port 0072, group F of the port inventory, split by set), carried from the Tiaoge-tou/nxnative fork, byte-identical to its blobs.
+The Silksong touch pad's letter-badge image set (patch port 0082, group F of the port inventory, split by set), carried from the Tiaoge-tou/nxnative fork, byte-identical to its blobs.
 
 Upstream-Status: fork-only
 Reason: Touch pad skin art for Silksong and Hades II (PROJECT.md Phase 2)

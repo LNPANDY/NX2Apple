@@ -3,7 +3,7 @@ From: Tiaoge-tou <85100527+Tiaoge-tou@users.noreply.github.com>
 Date: Wed, 4 Nov 2026 08:30:10 +0800
 Subject: [PATCH] Rename the frame-rate switch SS_DISPLAY_HZ to DM_DISPLAY_HZ
 
-The shell's launcher profile parser refuses any settings row whose env is not a DM_ switch, so both games of the first shell package show a damaged settings list on device. The name came across with the 120 Hz port (0067) from a launcher that did not check. Rename the settings row, the front end's getenv, the guard test and the comments, register the switch in docs/env_switches.tsv, and rename the l10n keys with it (frontend/l10n, in the outer change).
+The shell's launcher profile parser refuses any settings row whose env is not a DM_ switch, so both games of the first shell package show a damaged settings list on device. The name came across with the 120 Hz port (0077) from a launcher that did not check. Rename the settings row, the front end's getenv, the guard test and the comments, register the switch in docs/env_switches.tsv, and rename the l10n keys with it (frontend/l10n, in the outer change).
 
 Upstream-Status: fork-only
 Reason: the shell refuses SS_DISPLAY_HZ as a settings row (not a DM_ switch), leaving both games of the shell package with a damaged settings list

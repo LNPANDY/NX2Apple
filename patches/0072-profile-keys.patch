@@ -4,11 +4,11 @@ Date: Tue, 3 Nov 2026 20:19:47 +0800
 Subject: [PATCH] Game profiles: the four keys our patches read, in
  compile-time form
 
-game.py header() gains display_hz, serve_patch, display_wide and pad_skin_toggle (patch port 0062, group P of the port inventory), carried from the Tiaoge-tou/nxnative fork.
+game.py header() gains display_hz, serve_patch, display_wide and pad_skin_toggle (patch port 0072, group P of the port inventory), carried from the Tiaoge-tou/nxnative fork.
 
 Each key is parsed and validated in header() and emitted as a DM_GAME_ macro, exactly as the old fork had it. Defaults keep every existing profile unchanged (display_hz 0, serve_patch empty, both toggles off). The keys stay compile-time only: they are not added to the runtime profile key table, because the games build as single-game apps in this project (PROJECT.md) and the runtime form is the shell work the charter leaves out.
 
-The consumers land later in the queue: serve_patch in 0063, display_hz in the 120 Hz patch, display_wide in the resolution patches, pad_skin_toggle in the pad and launcher patches.
+The consumers land later in the queue: serve_patch in 0073, display_hz in the 120 Hz patch, display_wide in the resolution patches, pad_skin_toggle in the pad and launcher patches.
 
 Upstream-Status: fork-only
 Reason: The four profile keys the Silksong and Hades II patches read, in compile-time form (PROJECT.md Phase 2)

@@ -4,7 +4,7 @@ Date: Tue, 3 Nov 2026 21:33:26 +0800
 Subject: [PATCH] Pad skin art: Silksong metal and glass sets, both Hades II
  sets, the bag-skin generator
 
-The remaining image sets (patch port 0073, group F of the port inventory, split by set): padskin-metal (the black-iron set) and padskin-glass (the glass choice's medallion art; the glass skin itself is drawn in code), hadesskin and hadesskin-badge for Hades II, plus dm/ios/tools/make_bagskin.py, the generator the bag sets were cut with. Carried from the Tiaoge-tou/nxnative fork, byte-identical to its blobs. The final bind art and the bag Y-key art from the old fork's later slim-149/150 builds were never in its main line and are not in these sets; they remain a follow-up delta if the owner wants them here.
+The remaining image sets (patch port 0083, group F of the port inventory, split by set): padskin-metal (the black-iron set) and padskin-glass (the glass choice's medallion art; the glass skin itself is drawn in code), hadesskin and hadesskin-badge for Hades II, plus dm/ios/tools/make_bagskin.py, the generator the bag sets were cut with. Carried from the Tiaoge-tou/nxnative fork, byte-identical to its blobs. The final bind art and the bag Y-key art from the old fork's later slim-149/150 builds were never in its main line and are not in these sets; they remain a follow-up delta if the owner wants them here.
 
 Upstream-Status: fork-only
 Reason: Touch pad skin art for Silksong and Hades II (PROJECT.md Phase 2)

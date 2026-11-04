@@ -4,7 +4,7 @@ Date: Tue, 3 Nov 2026 21:28:21 +0800
 Subject: [PATCH] Fullscreen present: the present fills the screen, an oversize
  full-frame crop clamps, a narrow screen windows the stock frame
 
-The fullscreen present (patch port 0068, group J of the port inventory), carried from the Tiaoge-tou/nxnative fork.
+The fullscreen present (patch port 0078, group J of the port inventory), carried from the Tiaoge-tou/nxnative fork.
 
 nvn_mtl.m: DM_FULLSCREEN (default on, an env file's explicit 0 asks for the native-aspect fit) makes the present viewport fill the whole target; a full-frame crop from the origin that exceeds the texture is clamped to the texture instead of dropped (a guest whose declared frame is larger than the texture it rendered into showed a black screen while running); on a narrower-than-16:9 screen a stock 720-line frame is shown as a left-anchored window at the screen's own aspect instead of stretched. A viewport diagnostic line rides along. The classic-present bisect switch of the same file is not carried (the green-screen switch group stays out of this queue), and neither are the dynamic-class hunks (the closed iOS 16-25 line).
 

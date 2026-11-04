@@ -4,9 +4,9 @@ Date: Tue, 3 Nov 2026 21:31:22 +0800
 Subject: [PATCH] Touch pad UI: the skin system, scene modes, bag and title
  layouts, the layout editor, and the glass skin
 
-The iOS touch pad's skin system (patch port 0070, groups D part 2 and E of the port inventory, carried together), from the Tiaoge-tou/nxnative fork.
+The iOS touch pad's skin system (patch port 0080, groups D part 2 and E of the port inventory, carried together), from the Tiaoge-tou/nxnative fork.
 
-DmGamepad.m gains the whole skin system the watcher in patch 0069 feeds: the image skins from the profile's own art (padskin / padskin-badge / padskin-metal, staged by patch 0061), the scene modes the host publishes (combat, title letters, the controller page's letter keys, the inventory's bag layout with its crest-tab X key, the cutscene medallions -- the recall medallion shows the eye key's art, the pad art itself is unchanged), the long-press layout editor (drag to move, plus/minus to size, per-key geometry in NSUserDefaults), the Hades II pad with its own art sets, and the glass skin, which is the default: drawn glass discs and letter glyphs for both games instead of image art.
+DmGamepad.m gains the whole skin system the watcher in patch 0079 feeds: the image skins from the profile's own art (padskin / padskin-badge / padskin-metal, staged by patch 0071), the scene modes the host publishes (combat, title letters, the controller page's letter keys, the inventory's bag layout with its crest-tab X key, the cutscene medallions -- the recall medallion shows the eye key's art, the pad art itself is unchanged), the long-press layout editor (drag to move, plus/minus to size, per-key geometry in NSUserDefaults), the Hades II pad with its own art sets, and the glass skin, which is the default: drawn glass discs and letter glyphs for both games instead of image art.
 
 The two inventory groups land as one patch because in this file they are one system: the glass rendering branches run through the same tables, centres and draw paths as the image skins, and neither half applies or compiles without the other.
 

@@ -4,7 +4,7 @@ Date: Tue, 3 Nov 2026 19:49:31 +0800
 Subject: [PATCH] iOS build: stage the pad skin art by env gate and stamp
  DMBuildTime
 
-build_ipa.sh wiring carried from the Tiaoge-tou/nxnative fork (patch port 0061, group B of the port inventory).
+build_ipa.sh wiring carried from the Tiaoge-tou/nxnative fork (patch port 0071, group B of the port inventory).
 
 The virtual-pad skin art sets (Silksong padskin, padskin-badge, padskin-metal and padskin-glass, Hades II hadesskin and hadesskin-badge) are copied into Gen/dm only when the game env file turns the pad on (DM_PAD_SKIN=1 or DM_PAD_HADES=1) and the art folder exists, so games without the pad carry none of it. The art itself lands with the skin-art patch later in the queue.
 

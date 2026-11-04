@@ -4,7 +4,7 @@ Date: Tue, 3 Nov 2026 21:16:54 +0800
 Subject: [PATCH] Hades II: bake the widescreen Lua fix into the RomFS at build
  time
 
-The Hades II Lua bake (patch port 0064, group L of the port inventory), carried from the Tiaoge-tou/nxnative fork.
+The Hades II Lua bake (patch port 0074, group L of the port inventory), carried from the Tiaoge-tou/nxnative fork.
 
 dm/tools/romfs_patch.py applies exact line replacements to text files inside a RomFS image or a loose RomFS folder, in place. Counts must match the spec exactly, in one of two states (wholly stock or wholly patched): a wholly patched file counts as already patched and is left alone, so extraction reuse never double-patches, and every other mismatch stops the build rather than patching another version's files.
 

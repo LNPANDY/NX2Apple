@@ -4,9 +4,9 @@ Date: Tue, 3 Nov 2026 21:43:38 +0800
 Subject: [PATCH] Launcher in Chinese, and the frame-rate and skin choices in
  the settings list
 
-The launcher's Chinese face (patch port 0074, group G of the port inventory), carried from the Tiaoge-tou/nxnative fork.
+The launcher's Chinese face (patch port 0084, group G of the port inventory), carried from the Tiaoge-tou/nxnative fork.
 
-Launcher.swift and LauncherRow.swift carry the Chinese launcher texts, including the build-time line the DMBuildTime stamp (patch 0061) feeds. dm/games/settings.tsv relabels the shared settings in Chinese and gains the rows the earlier patches made real: SS_DISPLAY_HZ (the frame-rate choice, shown only for a profile with display_hz), DM_SILK_SKIN and DM_HADES_SKIN (the button-skin choices, each shown only for its game's profile). dm/tools/nacp.py names the NACP languages in Chinese. The Silksong profile's pad_skin_toggle row lands here, with the setting it gates.
+Launcher.swift and LauncherRow.swift carry the Chinese launcher texts, including the build-time line the DMBuildTime stamp (patch 0071) feeds. dm/games/settings.tsv relabels the shared settings in Chinese and gains the rows the earlier patches made real: SS_DISPLAY_HZ (the frame-rate choice, shown only for a profile with display_hz), DM_SILK_SKIN and DM_HADES_SKIN (the button-skin choices, each shown only for its game's profile). dm/tools/nacp.py names the NACP languages in Chinese. The Silksong profile's pad_skin_toggle row lands here, with the setting it gates.
 
 Upstream-Status: fork-only
 Reason: Chinese launcher and settings for the two games (PROJECT.md Phase 2)

@@ -3,7 +3,7 @@ From: Tiaoge-tou <85100527+Tiaoge-tou@users.noreply.github.com>
 Date: Tue, 3 Nov 2026 21:33:25 +0800
 Subject: [PATCH] Pad skin art, Silksong plain set: padskin
 
-The Silksong touch pad's plain image set (patch port 0071, group F of the port inventory, split by set: a single patch for all six sets would exceed the host's per-file size limit), carried from the Tiaoge-tou/nxnative fork, byte-identical to its blobs. The build stages the set only when the pad settings ask for it (patch 0061).
+The Silksong touch pad's plain image set (patch port 0081, group F of the port inventory, split by set: a single patch for all six sets would exceed the host's per-file size limit), carried from the Tiaoge-tou/nxnative fork, byte-identical to its blobs. The build stages the set only when the pad settings ask for it (patch 0071).
 
 Upstream-Status: fork-only
 Reason: Touch pad skin art for Silksong and Hades II (PROJECT.md Phase 2)

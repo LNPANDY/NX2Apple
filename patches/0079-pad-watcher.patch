@@ -4,7 +4,7 @@ Date: Tue, 3 Nov 2026 21:29:41 +0800
 Subject: [PATCH] Pad watcher: the host reads Silksong's game state and
  publishes the pad mode, tab and page
 
-The host half of the touch pad's scene awareness (patch port 0069, group D part 1 of the port inventory), carried from the Tiaoge-tou/nxnative fork.
+The host half of the touch pad's scene awareness (patch port 0079, group D part 1 of the port inventory), carried from the Tiaoge-tou/nxnative fork.
 
 hle_hid.c gains the watcher: with the pad skin on (DM_PAD_SKIN) and a known class layout for the build (k_pad_layouts, Silksong's GameManager / UIManager / hero statics), a host thread reads the game's own state objects and publishes the pad mode (play, loading, cutscene skippable or not, inventory, title, controller page), the inventory tab and the UI page. Any doubt reads as play, so the pad never hides on a guess. dm_input.h declares dm_pad_mode / dm_pad_tab / dm_pad_page for the iOS gamepad, the only caller. dm/tools/docs_patches.py classifies the k_pad_layouts host binding the watcher relies on.
 

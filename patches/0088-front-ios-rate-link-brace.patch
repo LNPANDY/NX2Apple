@@ -4,10 +4,10 @@ Date: Wed, 4 Nov 2026 03:46:54 +0800
 Subject: [PATCH] iOS front end: close DmRateLink's tick method (a brace lost
  in the 120 Hz port)
 
-Patch 0067's DmRateLink -tick: never closed its body before @end, so front_ios.m does not parse (the shell build's xcodebuild stopped at the @end line, front_ios.m:124). The one-game CI jobs that compile the iOS sources are path-filtered and the ported queue was only ever check-applied, so the first real compile is the fork's shell build (run 41703116512). One line: the missing closing brace. A brace scan of every iOS source finds no other imbalance.
+Patch 0077's DmRateLink -tick: never closed its body before @end, so front_ios.m does not parse (the shell build's xcodebuild stopped at the @end line, front_ios.m:124). The one-game CI jobs that compile the iOS sources are path-filtered and the ported queue was only ever check-applied, so the first real compile is the fork's shell build (run 41703116512). One line: the missing closing brace. A brace scan of every iOS source finds no other imbalance.
 
 Upstream-Status: fork-only
-Reason: Fix a syntax error the 0067 port introduced: DmRateLink's tick method in front_ios.m was missing its closing brace, so the file does not compile; found by the first real iOS compile, the fork's shell build.
+Reason: Fix a syntax error the 0077 port introduced: DmRateLink's tick method in front_ios.m was missing its closing brace, so the file does not compile; found by the first real iOS compile, the fork's shell build.
 Issue: Tiaoge-tou/NX2Apple PROJECT.md Phase 4
 
 ---

@@ -4,7 +4,7 @@ Date: Tue, 3 Nov 2026 21:47:47 +0800
 Subject: [PATCH] Merge guards for the port series, and the env-switch registry
  rows filled in
 
-The regression net (patch port 0075, group R of the port inventory), adapted from the Tiaoge-tou/nxnative fork.
+The regression net (patch port 0085, group R of the port inventory), adapted from the Tiaoge-tou/nxnative fork.
 
 dm/tools/tests/test_merge_guards.py guards the port series' load-bearing pieces against a silent loss in an upstream sync: the Silksong fpslock row beside upstream's rows, the display-rate servo coexisting with the Frostbite tick (in this tree's guarded form), the settings table's skin and frame-rate rows, and the two games' profile keys. Adapted to this tree: the old fork's BC guards are dropped (BC here is the queue's own patch 0008, guarded by its own tests), the Dark Souls profile asserts are dropped (not this project's game), and the workflow guard waits for Phase 3's repository-level workflow.
 
