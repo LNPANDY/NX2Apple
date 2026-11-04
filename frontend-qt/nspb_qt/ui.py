@@ -610,20 +610,17 @@ class MainWindow(QMainWindow):
                 self.deps_summary.setText('⚠  ' + self.m.t('dep.checkFailed'))
                 self.deps_summary.setStyleSheet(f'color: {RED}; font-weight: 600;')
             elif self.m.all_deps_ok:
-                self.deps_summary.setText('●  ' + self.m.t('dep.allReady'))
+                # Every required row passed, so the build may start. An optional tool that is not installed
+                # (glslangValidator for OpenGL games, spirv-cross) is said, but it is not a problem.
+                optional = sum(1 for d in self.m.deps if not d.ok and not d.required)
+                self.deps_summary.setText(self.m.t('dep.onlyOptional', optional) if optional
+                                          else '●  ' + self.m.t('dep.allReady'))
                 self.deps_summary.setStyleSheet(f'color: {GREEN}; font-weight: 600;')
             else:
-                # Required only: an optional tool (glslangValidator for OpenGL games) or one that
-                # only some titles need (spirv-cross) was counted here, so a machine that could
-                # build the game in front of it read "缺 3 项" and looked broken.
-                n = sum(1 for d in self.m.deps if not d.ok and getattr(d, 'required', True))
-                optional = sum(1 for d in self.m.deps if not d.ok and not getattr(d, 'required', True))
-                if n == 0 and optional:
-                    # nothing is actually blocking: saying "缺 0 项（另有 2 项可选）" reads like a
-                    # problem where there is none
-                    self.deps_summary.setText(self.m.t('dep.onlyOptional', optional))
-                    self.deps_summary.setStyleSheet(f'color: {GREEN}; font-weight: 600;')
-                    return
+                # Required only: an optional tool or one that only some titles need was counted here, so a
+                # machine that could build the game in front of it read "缺 3 项" and looked broken.
+                n = sum(1 for d in self.m.deps if not d.ok and d.required)
+                optional = sum(1 for d in self.m.deps if not d.ok and not d.required)
                 self.deps_summary.setText(self.m.t('dep.missingOptional', n, optional) if optional
                                           else self.m.t('dep.missing', n))
                 self.deps_summary.setStyleSheet(f'color: {RED}; font-weight: 600;')
@@ -687,12 +684,18 @@ class MainWindow(QMainWindow):
         elif getattr(self, '_failed', False):
             pass          # a failure message stays until the next build: it was being replaced by
                           # the input reminder on the refresh that follows the failure (issue #52)
-        elif not self.m.base_path:
-            self.footer.setText(self.m.t('status.needInputs'))
+        elif not self.m.deps_checked:
+            self.footer.setText(self.m.t('status.checkingDeps'))
+        elif not self.m.all_deps_ok:
+            self.footer.setText(self.m.t('status.installFirst'))
         elif not self.m.repo_ok:
             self.footer.setText(self.m.t('status.chooseRepo'))
+        elif not (self.m.game_folder is not None or (self.m.base_path and self.m.keys_path)):
+            # what can_build asks for: a game folder, or the base package and the keys
+            self.footer.setText(self.m.t('status.needInputs'))
         elif not self.footer.text() or self.footer.text() in (
-                self.m.t('status.needInputs'), self.m.t('status.chooseRepo')):
+                self.m.t('status.needInputs'), self.m.t('status.chooseRepo'),
+                self.m.t('status.checkingDeps'), self.m.t('status.installFirst')):
             self.footer.setText('')
 
     def _append_log(self, s: str) -> None:

@@ -401,7 +401,10 @@ class Model(QObject):
         """
         if not self.deps_checked or not self.deps:
             return False
-        return all(d.ok for d in self.deps)
+        # Required rows only. An optional one (spirv-cross and glslangValidator, which only an OpenGL game
+        # uses) never stops a build: counting it kept the button grey on a machine whose panel said
+        # "everything required is installed", with nothing on screen to say why.
+        return all(d.ok for d in self.deps if d.required)
 
     # ---- Windows toolchain rows
 
