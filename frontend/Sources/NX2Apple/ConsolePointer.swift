@@ -7,6 +7,9 @@ struct PointerIdle: Equatable {
     enum Step { case none, hide, show }
     /// The timer looks every `ConsolePointer.pollSeconds`, so the pointer is gone 1.25 to 1.5 seconds after the last movement.
     var idleSeconds: TimeInterval = 1.25
+    /// A game is starting from the console: the window leaves full screen and the game takes the front, so a hidden pointer stays
+    /// hidden although it is no longer over the window. Only movement, a click or a scroll shows it then (issue #380).
+    var held = false
     private(set) var hidden = false
     private var lastLocation: CGPoint?
     private var lastActivity: TimeInterval = 0
@@ -15,7 +18,7 @@ struct PointerIdle: Equatable {
     mutating func tick(now: TimeInterval, location: CGPoint, buttonDown: Bool, over: Bool) -> Step {
         if location != lastLocation || buttonDown { lastActivity = now }
         lastLocation = location
-        if hidden { return lastActivity == now || !over ? show() : .none }
+        if hidden { return lastActivity == now || (!over && !held) ? show() : .none }
         if over, now - lastActivity >= idleSeconds { hidden = true; return .hide }
         return .none
     }
@@ -27,7 +30,7 @@ struct PointerIdle: Equatable {
     }
 
     /// Console mode ended: the pointer is shown if it was hidden.
-    mutating func reset() -> Step { hidden ? show() : .none }
+    mutating func reset() -> Step { held = false; return hidden ? show() : .none }
 
     private mutating func show() -> Step { hidden = false; return .show }
 }
@@ -51,6 +54,9 @@ struct PointerIdle: Equatable {
 
     /// The pointer is hidden right now.
     var isHidden: Bool { idle.hidden }
+
+    /// Keeps a hidden pointer hidden while a game starts from the console (PointerIdle.held).
+    func hold(_ on: Bool) { idle.held = on }
 
     func start() {
         guard timer == nil else { return }

@@ -264,9 +264,21 @@ struct ConsolePadSnapshot: Equatable {
         }
     }
 
+    /// The app to hand the front to instead of letting LaunchServices activate the game: an app LaunchServices activates shows the pointer for up to
+    /// 150 ms whatever it hid before, one that takes a yielded activation itself keeps it hidden (issue #380). Only with the pointer hidden
+    /// (DM_CURSOR_HIDDEN), as the game hides it before it activates itself then.
+    static func yieldTarget(environment: [String: String], appPath: String) -> String? {
+        guard environment["DM_CURSOR_HIDDEN"] == "1" else { return nil }
+        return Bundle(url: URL(fileURLWithPath: appPath))?.bundleIdentifier
+    }
+
     private static func openApplication(_ game: LibraryGame, _ environment: [String: String], _ done: @escaping (Int32?, Error?) -> Void) {
         let configuration = NSWorkspace.OpenConfiguration()
         if !environment.isEmpty { configuration.environment = environment }
+        if #available(macOS 14, *), let target = yieldTarget(environment: environment, appPath: game.appPath) {
+            configuration.activates = false
+            NSApp.yieldActivation(toApplicationWithBundleIdentifier: target)
+        }
         NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: game.appPath), configuration: configuration) { app, error in
             done(app?.processIdentifier, error)
         }
