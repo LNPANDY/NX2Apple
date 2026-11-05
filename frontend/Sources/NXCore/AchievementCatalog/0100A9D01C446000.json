@@ -1,0 +1,84 @@
+{
+  "titleID": "0100A9D01C446000",
+  "name": "DRAGON QUEST VII Reimagined",
+  "achievements": [
+    {
+      "id": "first-battle",
+      "name": "First Victory",
+      "detail": "Win a battle by choosing each party member's action when that character's turn arrives.",
+      "hidden": false
+    },
+    {
+      "id": "field-attack",
+      "name": "Field Attack",
+      "detail": "Strike a weaker monster on the field and defeat it before a normal battle begins.",
+      "hidden": false
+    },
+    {
+      "id": "shrine-portal",
+      "name": "Shrine Portal",
+      "detail": "Assemble stone fragments at the Shrine of Mysteries and travel through the portal they open.",
+      "hidden": false
+    },
+    {
+      "id": "island-restored",
+      "name": "Island Restored",
+      "detail": "Settle a lost land's trouble in the past so that island returns to the present ocean.",
+      "hidden": false
+    },
+    {
+      "id": "new-vocation",
+      "name": "New Vocation",
+      "detail": "Change a character into a vocation and use the perk that comes with it.",
+      "hidden": false
+    },
+    {
+      "id": "moonlighting",
+      "name": "Moonlighting",
+      "detail": "Assign one character two vocations at once and use skills drawn from both.",
+      "hidden": false
+    },
+    {
+      "id": "let-loose",
+      "name": "Let Loose",
+      "detail": "Work a character up in battle and fire that vocation's Let Loose perk.",
+      "hidden": false
+    },
+    {
+      "id": "full-company",
+      "name": "Full Company",
+      "detail": "Travel with a full party and swap the reserve member in during a battle.",
+      "hidden": false
+    },
+    {
+      "id": "mini-medal",
+      "name": "Mini Medal",
+      "detail": "Turn a Mini Medal in at the exchange and claim a prize from the counter.",
+      "hidden": false
+    },
+    {
+      "id": "arena-bout",
+      "name": "Arena Bout",
+      "detail": "Enter the battle arena and win a bout against its lineup.",
+      "hidden": false
+    },
+    {
+      "id": "metal-hunt",
+      "name": "Metal Hunt",
+      "detail": "Defeat a metal monster before it can run away.",
+      "hidden": false
+    },
+    {
+      "id": "deep-pockets",
+      "name": "Deep Pockets",
+      "detail": "Save up a fortune of 300,000 gold.",
+      "hidden": false
+    },
+    {
+      "id": "vocation-master",
+      "name": "Vocation Master",
+      "detail": "Raise every vocation to its highest rank.",
+      "hidden": true
+    }
+  ]
+}

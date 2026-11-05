@@ -1,0 +1,78 @@
+{
+  "titleID": "010036E00FB20000",
+  "name": "The Great Ace Attorney Chronicles",
+  "achievements": [
+    {
+      "id": "great-departure",
+      "name": "Great Departure",
+      "detail": "Win Ryunosuke Naruhodo's first trial in a Japanese courtroom.",
+      "hidden": false
+    },
+    {
+      "id": "speckled-band",
+      "name": "Speckled Band",
+      "detail": "Finish the investigation set aboard the steamship bound for Britain.",
+      "hidden": false
+    },
+    {
+      "id": "runaway-room",
+      "name": "Runaway Room",
+      "detail": "Win the first London trial, the one held in the Old Bailey's moving courtroom.",
+      "hidden": false
+    },
+    {
+      "id": "clouded-kokoro",
+      "name": "Clouded Kokoro",
+      "detail": "Clear the London case that begins with a woman stabbed in the back on a city street.",
+      "hidden": false
+    },
+    {
+      "id": "unspeakable-story",
+      "name": "Unspeakable Story",
+      "detail": "Win the closing trial of the first chronicle.",
+      "hidden": false
+    },
+    {
+      "id": "dance-of-deduction",
+      "name": "Dance of Deduction",
+      "detail": "During an investigation, pull Herlock Sholmes off a flawed theory and onto the conclusion the clues support.",
+      "hidden": false
+    },
+    {
+      "id": "summation-examination",
+      "name": "Summation Examination",
+      "detail": "Set two jurors' clashing views against each other so the panel lets the defense continue.",
+      "hidden": false
+    },
+    {
+      "id": "blossoming-attorney",
+      "name": "Blossoming Attorney",
+      "detail": "Clear the opening episode of the second chronicle.",
+      "hidden": false
+    },
+    {
+      "id": "clouded-memoirs",
+      "name": "Clouded Memoirs",
+      "detail": "Clear the second-chronicle episode that revisits an earlier incident in London.",
+      "hidden": false
+    },
+    {
+      "id": "departed-soul",
+      "name": "Departed Soul",
+      "detail": "Clear the third episode of the second chronicle.",
+      "hidden": false
+    },
+    {
+      "id": "twisted-karma",
+      "name": "Twisted Karma",
+      "detail": "Clear the fourth episode of the second chronicle.",
+      "hidden": false
+    },
+    {
+      "id": "final-resolve",
+      "name": "Final Resolve",
+      "detail": "Clear the final episode of the second chronicle.",
+      "hidden": true
+    }
+  ]
+}

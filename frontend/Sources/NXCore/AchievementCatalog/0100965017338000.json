@@ -1,0 +1,78 @@
+{
+  "titleID": "0100965017338000",
+  "name": "Super Mario Party Jamboree",
+  "achievements": [
+    {
+      "id": "board-win",
+      "name": "Board Win",
+      "detail": "Win a Mario Party board by holding the most Stars when the last turn ends.",
+      "hidden": false
+    },
+    {
+      "id": "jamboree-buddy",
+      "name": "Jamboree Buddy",
+      "detail": "Win the Showdown minigame that starts when you pass a Jamboree Buddy so that ally joins you.",
+      "hidden": false
+    },
+    {
+      "id": "pro-rules",
+      "name": "Pro Rules",
+      "detail": "Win a Mario Party board played under Pro Rules.",
+      "hidden": false
+    },
+    {
+      "id": "western-land",
+      "name": "Western Land",
+      "detail": "Reach Silver player rank and win a party on Western Land.",
+      "hidden": false
+    },
+    {
+      "id": "rainbow-castle",
+      "name": "Rainbow Castle",
+      "detail": "Reach Gold player rank and win a party on Mario's Rainbow Castle.",
+      "hidden": false
+    },
+    {
+      "id": "trek-stars",
+      "name": "Trek Stars",
+      "detail": "In Party-Planner Trek, earn Mini Stars by finishing requests and minigame challenges on a board.",
+      "hidden": false
+    },
+    {
+      "id": "trek-boss",
+      "name": "Trek Boss",
+      "detail": "In Party-Planner Trek, defeat the boss that takes a board's Mini Stars and win them back.",
+      "hidden": false
+    },
+    {
+      "id": "plaza-decor",
+      "name": "Plaza Decor",
+      "detail": "Unlock a decoration in Party-Planner Trek and place it in the Party Plaza.",
+      "hidden": false
+    },
+    {
+      "id": "koopathlon",
+      "name": "Koopathlon",
+      "detail": "Finish first in a Koopathlon race by winning minigames and completing the laps ahead of the field.",
+      "hidden": false
+    },
+    {
+      "id": "kaboom-squad",
+      "name": "Kaboom Squad",
+      "detail": "Win a Bowser Kaboom Squad game by loading the cannon and defeating Impostor Bowser.",
+      "hidden": false
+    },
+    {
+      "id": "rhythm-kitchen",
+      "name": "Rhythm Kitchen",
+      "detail": "Clear a Rhythm Kitchen set by cooking on the beat and earning a passing rating.",
+      "hidden": false
+    },
+    {
+      "id": "bowsers-keep",
+      "name": "Bowser's Keep",
+      "detail": "Reach Platinum player rank, or finish Party-Planner Trek and watch the credits, then win a party on King Bowser's Keep.",
+      "hidden": true
+    }
+  ]
+}

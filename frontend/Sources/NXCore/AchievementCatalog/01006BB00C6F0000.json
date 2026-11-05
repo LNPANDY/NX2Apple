@@ -1,0 +1,78 @@
+{
+  "titleID": "01006BB00C6F0000",
+  "name": "The Legend of Zelda: Link's Awakening",
+  "achievements": [
+    {
+      "id": "meet-marin",
+      "name": "Meet Marin",
+      "detail": "Wake in Mabe Village and meet Marin.",
+      "hidden": false
+    },
+    {
+      "id": "toronbo-sword",
+      "name": "Toronbo Sword",
+      "detail": "Take your shield from Tarin, then pick up your sword on Toronbo Shores.",
+      "hidden": false
+    },
+    {
+      "id": "tail-cave",
+      "name": "Tail Cave",
+      "detail": "Clear Tail Cave and take the Full Moon Cello.",
+      "hidden": false
+    },
+    {
+      "id": "power-bracelet",
+      "name": "Power Bracelet",
+      "detail": "Find the Power Bracelet in Bottle Grotto.",
+      "hidden": false
+    },
+    {
+      "id": "wind-fish-ballad",
+      "name": "Wind Fish Ballad",
+      "detail": "Learn the Ballad of the Wind Fish from Marin.",
+      "hidden": false
+    },
+    {
+      "id": "magnifying-lens",
+      "name": "Magnifying Lens",
+      "detail": "Finish the trading sequence and receive the Magnifying Lens.",
+      "hidden": false
+    },
+    {
+      "id": "koholint-sword",
+      "name": "Koholint Sword",
+      "detail": "Bring forty secret seashells to the Seashell Mansion and claim the Koholint Sword.",
+      "hidden": false
+    },
+    {
+      "id": "eight-instruments",
+      "name": "Eight Instruments",
+      "detail": "Collect all eight Instruments of the Sirens.",
+      "hidden": false
+    },
+    {
+      "id": "color-dungeon",
+      "name": "Color Dungeon",
+      "detail": "Clear the Color Dungeon and leave with the Red Mail or the Blue Mail.",
+      "hidden": false
+    },
+    {
+      "id": "chamber-dungeon",
+      "name": "Chamber Dungeon",
+      "detail": "Arrange a Chamber Dungeon at Dampé's shack and clear it.",
+      "hidden": false
+    },
+    {
+      "id": "wind-fish-egg",
+      "name": "Wind Fish's Egg",
+      "detail": "Play the Ballad of the Wind Fish and enter the Wind Fish's Egg.",
+      "hidden": false
+    },
+    {
+      "id": "last-battle",
+      "name": "Last Battle",
+      "detail": "Win the battle at the end of the Wind Fish's Egg and see the ending.",
+      "hidden": true
+    }
+  ]
+}

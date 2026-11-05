@@ -1,0 +1,78 @@
+{
+  "titleID": "0100CC80140F8000",
+  "name": "TRIANGLE STRATEGY",
+  "achievements": [
+    {
+      "id": "wolffort-stands",
+      "name": "Wolffort Stands",
+      "detail": "Win General Avlora's Assault and hold Castle Wolffort.",
+      "hidden": false
+    },
+    {
+      "id": "scales-tipped",
+      "name": "Scales Tipped",
+      "detail": "Place your votes on the Scales of Conviction to settle a party decision.",
+      "hidden": false
+    },
+    {
+      "id": "conviction-recruit",
+      "name": "Conviction Recruit",
+      "detail": "Recruit an ally who joins only after your convictions meet that character's terms.",
+      "hidden": false
+    },
+    {
+      "id": "follow-up",
+      "name": "Follow-Up",
+      "detail": "Trigger a follow-up attack from an ally beside the enemy you strike.",
+      "hidden": false
+    },
+    {
+      "id": "quietus-used",
+      "name": "Quietus Used",
+      "detail": "Use a Quietus bought from the Sundry Shop during a battle.",
+      "hidden": false
+    },
+    {
+      "id": "class-promoted",
+      "name": "Class Promoted",
+      "detail": "Promote a unit with a medal from the Sundry Shop.",
+      "hidden": false
+    },
+    {
+      "id": "smithy-upgrade",
+      "name": "Smithy Upgrade",
+      "detail": "Pay the encampment smithy to upgrade a unit's weapon.",
+      "hidden": false
+    },
+    {
+      "id": "mock-battle",
+      "name": "Mock Battle",
+      "detail": "Win a Mental Mock Battle from the tavern in the encampment.",
+      "hidden": false
+    },
+    {
+      "id": "kudos-spent",
+      "name": "Kudos Spent",
+      "detail": "Earn kudos in battle, then spend them at the encampment Sundry Shop.",
+      "hidden": false
+    },
+    {
+      "id": "no-losses",
+      "name": "No Losses",
+      "detail": "Finish a story battle without any allied unit being defeated.",
+      "hidden": false
+    },
+    {
+      "id": "exploration-find",
+      "name": "Exploration Find",
+      "detail": "Pick up an item during an exploration break between battles.",
+      "hidden": false
+    },
+    {
+      "id": "route-finished",
+      "name": "Route Finished",
+      "detail": "Clear the final chapter on the story path you are following.",
+      "hidden": true
+    }
+  ]
+}

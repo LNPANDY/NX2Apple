@@ -1,0 +1,78 @@
+{
+  "titleID": "01006FE013472000",
+  "name": "Mario Party Superstars",
+  "achievements": [
+    {
+      "id": "first-star",
+      "name": "First Star",
+      "detail": "Buy a Star from Toadette during a board party.",
+      "hidden": false
+    },
+    {
+      "id": "party-winner",
+      "name": "Party Winner",
+      "detail": "End a board with more Stars than every other player.",
+      "hidden": false
+    },
+    {
+      "id": "speed-hockey",
+      "name": "Speed Hockey",
+      "detail": "Win a game of Speed Hockey.",
+      "hidden": false
+    },
+    {
+      "id": "solo-minigame",
+      "name": "Solo Minigame",
+      "detail": "Win a one-versus-three minigame from the single-player side.",
+      "hidden": false
+    },
+    {
+      "id": "team-minigame",
+      "name": "Team Minigame",
+      "detail": "Win a two-versus-two minigame with your partner.",
+      "hidden": false
+    },
+    {
+      "id": "boo-steal",
+      "name": "Boo Steal",
+      "detail": "Pay a Boo to take coins or a Star from another player.",
+      "hidden": false
+    },
+    {
+      "id": "shop-item",
+      "name": "Shop Item",
+      "detail": "Buy an item from a shop on the board and use it on a turn.",
+      "hidden": false
+    },
+    {
+      "id": "bonus-star",
+      "name": "Bonus Star",
+      "detail": "Receive a Bonus Star when the party results are announced.",
+      "hidden": false
+    },
+    {
+      "id": "tropical-island",
+      "name": "Tropical Island",
+      "detail": "Finish a party on Yoshi's Tropical Island.",
+      "hidden": false
+    },
+    {
+      "id": "minigame-mountain",
+      "name": "Minigame Mountain",
+      "detail": "Win a minigame selected from the Mt. Minigames list.",
+      "hidden": false
+    },
+    {
+      "id": "final-five",
+      "name": "Final Five",
+      "detail": "Win the party after the final five turns have started.",
+      "hidden": false
+    },
+    {
+      "id": "every-board",
+      "name": "Every Board",
+      "detail": "Win a party on each of the five classic boards.",
+      "hidden": true
+    }
+  ]
+}

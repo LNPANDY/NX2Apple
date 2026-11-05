@@ -1,0 +1,78 @@
+{
+  "titleID": "0100E95004038000",
+  "name": "Xenoblade Chronicles 2",
+  "achievements": [
+    {
+      "id": "awaken-pyra",
+      "name": "Awaken Pyra",
+      "detail": "Resonate with Pyra so Rex fights beside her as her Driver.",
+      "hidden": false
+    },
+    {
+      "id": "reach-argentum",
+      "name": "Argentum",
+      "detail": "Complete the opening voyage and step into the Argentum Trade Guild.",
+      "hidden": false
+    },
+    {
+      "id": "land-on-gormott",
+      "name": "Gormott",
+      "detail": "Leave Argentum behind and set foot on the titan Gormott.",
+      "hidden": false
+    },
+    {
+      "id": "driver-combo",
+      "name": "Driver Combo",
+      "detail": "Chain Break, Topple, Launch, and Smash on one enemy.",
+      "hidden": false
+    },
+    {
+      "id": "blade-combo",
+      "name": "Blade Combo",
+      "detail": "Finish a Blade Combo by landing three Specials in the elemental order shown.",
+      "hidden": false
+    },
+    {
+      "id": "chain-attack",
+      "name": "Chain Attack",
+      "detail": "Fill the Party Gauge and unleash a Chain Attack in battle.",
+      "hidden": false
+    },
+    {
+      "id": "rare-blade",
+      "name": "Rare Blade",
+      "detail": "Awaken a Rare Blade from a Core Crystal.",
+      "hidden": false
+    },
+    {
+      "id": "affinity-chart",
+      "name": "Affinity Chart",
+      "detail": "Unlock a node on a Blade's Affinity Chart by fulfilling what that node asks.",
+      "hidden": false
+    },
+    {
+      "id": "merc-mission",
+      "name": "Merc Mission",
+      "detail": "Dispatch Blades on a Merc Mission and collect the reward when they report back.",
+      "hidden": false
+    },
+    {
+      "id": "tiger-tiger",
+      "name": "Tiger! Tiger!",
+      "detail": "Clear a stage of the Tiger! Tiger! game that upgrades Poppi.",
+      "hidden": false
+    },
+    {
+      "id": "unique-monster",
+      "name": "Unique Monster",
+      "detail": "Find a Unique Monster in the field and defeat it.",
+      "hidden": false
+    },
+    {
+      "id": "journeys-end",
+      "name": "Journey's End",
+      "detail": "Win the story's last battle and watch the ending through.",
+      "hidden": true
+    }
+  ]
+}

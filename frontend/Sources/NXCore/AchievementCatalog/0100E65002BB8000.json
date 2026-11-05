@@ -1,0 +1,84 @@
+{
+  "titleID": "0100E65002BB8000",
+  "name": "Stardew Valley",
+  "achievements": [
+    {
+      "id": "first-shipment",
+      "name": "First Shipment",
+      "detail": "Ship a crop you grew and collect the gold for it the next day.",
+      "hidden": false
+    },
+    {
+      "id": "skill-level-ten",
+      "name": "Level Ten",
+      "detail": "Reach level 10 in farming, mining, foraging, fishing, or combat.",
+      "hidden": false
+    },
+    {
+      "id": "mine-bottom",
+      "name": "Bottom of the Mines",
+      "detail": "Reach the lowest floor of the mines in the mountains.",
+      "hidden": false
+    },
+    {
+      "id": "community-center",
+      "name": "Community Center",
+      "detail": "Complete the community center bundles, or finish the Joja development that takes its place.",
+      "hidden": false
+    },
+    {
+      "id": "ten-hearts",
+      "name": "Ten Hearts",
+      "detail": "Fill all ten friendship hearts with one villager.",
+      "hidden": false
+    },
+    {
+      "id": "wedding-day",
+      "name": "Wedding Day",
+      "detail": "Marry a villager and hold the wedding on the farm.",
+      "hidden": false
+    },
+    {
+      "id": "house-upgraded",
+      "name": "House Upgraded",
+      "detail": "Buy every upgrade Robin offers for the farmhouse.",
+      "hidden": false
+    },
+    {
+      "id": "museum-complete",
+      "name": "Museum Complete",
+      "detail": "Donate every artifact and mineral the museum has a place for.",
+      "hidden": false
+    },
+    {
+      "id": "every-fish",
+      "name": "Every Fish",
+      "detail": "Catch each fish species that can be reeled in around Stardew Valley.",
+      "hidden": false
+    },
+    {
+      "id": "skull-cavern",
+      "name": "Skull Cavern",
+      "detail": "Reach the desert and enter Skull Cavern.",
+      "hidden": false
+    },
+    {
+      "id": "ginger-island",
+      "name": "Ginger Island",
+      "detail": "Repair Willy's boat and set foot on Ginger Island.",
+      "hidden": false
+    },
+    {
+      "id": "grandpas-evaluation",
+      "name": "Grandpa's Evaluation",
+      "detail": "Meet the standard Grandpa set for the farm when the shrine is judged at the start of year three.",
+      "hidden": false
+    },
+    {
+      "id": "perfection",
+      "name": "Perfection",
+      "detail": "Complete every remaining task on the valley's endgame checklist.",
+      "hidden": true
+    }
+  ]
+}

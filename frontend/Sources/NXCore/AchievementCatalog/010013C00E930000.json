@@ -1,0 +1,84 @@
+{
+  "titleID": "010013C00E930000",
+  "name": "Hollow Knight: Silksong",
+  "achievements": [
+    {
+      "id": "moss-mother",
+      "name": "Moss Mother",
+      "detail": "Defeat the Moss Mother in Moss Grotto.",
+      "hidden": false
+    },
+    {
+      "id": "silkspear",
+      "name": "Silkspear",
+      "detail": "Bind the Silkspear at the weaver shrine in Mosshome.",
+      "hidden": false
+    },
+    {
+      "id": "bell-beast",
+      "name": "Bell Beast",
+      "detail": "Defeat the Bell Beast in the Marrow and open travel along the bellways.",
+      "hidden": false
+    },
+    {
+      "id": "swift-step",
+      "name": "Swift Step",
+      "detail": "Bind Swift Step at the weaver shrine in Deep Docks.",
+      "hidden": false
+    },
+    {
+      "id": "lace",
+      "name": "Lace",
+      "detail": "Win the first needle duel against Lace in Deep Docks.",
+      "hidden": false
+    },
+    {
+      "id": "drifters-cloak",
+      "name": "Drifter's Cloak",
+      "detail": "Finish the Seamstress's wish in the Far Fields and take the Drifter's Cloak.",
+      "hidden": false
+    },
+    {
+      "id": "cling-grip",
+      "name": "Cling Grip",
+      "detail": "Defeat Sister Splinter in Shellwood and bind the Cling Grip.",
+      "hidden": false
+    },
+    {
+      "id": "widow",
+      "name": "Widow",
+      "detail": "Defeat Widow above Bellhart to gain the Needolin and restore the town.",
+      "hidden": false
+    },
+    {
+      "id": "last-judge",
+      "name": "Last Judge",
+      "detail": "Defeat the Last Judge on the Blasted Steps and pass the Citadel gate.",
+      "hidden": false
+    },
+    {
+      "id": "clawline",
+      "name": "Clawline",
+      "detail": "Bind the Clawline at the shrine in the Cauldron.",
+      "hidden": false
+    },
+    {
+      "id": "threefold-melody",
+      "name": "Threefold Melody",
+      "detail": "Learn the three melodies the Citadel requires and play them as one.",
+      "hidden": false
+    },
+    {
+      "id": "grand-mother-silk",
+      "name": "Grand Mother Silk",
+      "detail": "Defeat Grand Mother Silk in the Cradle.",
+      "hidden": false
+    },
+    {
+      "id": "last-path",
+      "name": "Last Path",
+      "detail": "Finish the story path that continues after the Cradle.",
+      "hidden": true
+    }
+  ]
+}

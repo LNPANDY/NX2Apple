@@ -1,0 +1,84 @@
+{
+  "titleID": "010029B018432000",
+  "name": "Ghost Trick: Phantom Detective",
+  "achievements": [
+    {
+      "id": "opening-hour",
+      "name": "Opening Hour",
+      "detail": "Clear Chapter 1, from Sissel's first moments as a ghost in the junkyard through the rescue.",
+      "hidden": false
+    },
+    {
+      "id": "curious-soul",
+      "name": "A Curious Soul",
+      "detail": "Hop from core to core until those jumps add up to four hundred forty-four.",
+      "hidden": false
+    },
+    {
+      "id": "jumping-poltergeist",
+      "name": "Jumping Poltergeist",
+      "detail": "Perform tricks on the things you possess until that tally hits four hundred forty-four.",
+      "hidden": false
+    },
+    {
+      "id": "same-same",
+      "name": "Same, Same!",
+      "detail": "After Missile can trade the places of nearby things, pull off that exchange forty-four times.",
+      "hidden": false
+    },
+    {
+      "id": "secret-room",
+      "name": "Secret Room",
+      "detail": "Once Chapter 5's last reversal is locked in, carry the scene to its end while everyone stays alive.",
+      "hidden": false
+    },
+    {
+      "id": "crimson-light",
+      "name": "Crimson Light",
+      "detail": "Lead Jowd out through Chapter 9's blackout without a red-eyed hunter spotting him.",
+      "hidden": false
+    },
+    {
+      "id": "too-much-medicine",
+      "name": "Too Much Medicine",
+      "detail": "Settle Chapter 10's last reversal and finish that rescue with no one dying again.",
+      "hidden": false
+    },
+    {
+      "id": "captive-on-the-roof",
+      "name": "Captive on the Roof",
+      "detail": "In Chapter 13, catch Emma in the chandelier on the second drop.",
+      "hidden": false
+    },
+    {
+      "id": "extraordinary-failure",
+      "name": "Extraordinary Failure",
+      "detail": "Throw Chapter 14 by steering the ball so Mino never receives it.",
+      "hidden": false
+    },
+    {
+      "id": "red-light-green-light",
+      "name": "Red Light, Green Light",
+      "detail": "Hold Chapter 15 together after its last reversal so the chapter ends with no new deaths.",
+      "hidden": false
+    },
+    {
+      "id": "shifting-shape",
+      "name": "Shifting Shape",
+      "detail": "Finish the bonus puzzle board's entire five-by-five set.",
+      "hidden": false
+    },
+    {
+      "id": "ghost-trick-master",
+      "name": "Ghost Trick Master",
+      "detail": "Tick off every optional challenge attached to the chapters.",
+      "hidden": false
+    },
+    {
+      "id": "fate-averted",
+      "name": "Fate Averted",
+      "detail": "See the final chapter through and let that long night end.",
+      "hidden": true
+    }
+  ]
+}

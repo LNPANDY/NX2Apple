@@ -1,0 +1,84 @@
+{
+  "titleID": "0100535012974000",
+  "name": "Hades",
+  "achievements": [
+    {
+      "id": "escape-the-underworld",
+      "name": "Escape the Underworld",
+      "detail": "Defeat Hades at the end of a run and reach the surface.",
+      "hidden": false
+    },
+    {
+      "id": "clear-tartarus",
+      "name": "Clear Tartarus",
+      "detail": "Defeat the Fury who guards the exit from Tartarus.",
+      "hidden": false
+    },
+    {
+      "id": "slay-the-hydra",
+      "name": "Slay the Hydra",
+      "detail": "Defeat the Bone Hydra at the end of Asphodel.",
+      "hidden": false
+    },
+    {
+      "id": "elysium-champions",
+      "name": "Elysium Champions",
+      "detail": "Win the arena fight against Theseus and Asterius.",
+      "hidden": false
+    },
+    {
+      "id": "all-infernal-arms",
+      "name": "All Infernal Arms",
+      "detail": "Unlock all six Infernal Arms in the House courtyard.",
+      "hidden": false
+    },
+    {
+      "id": "offer-nectar",
+      "name": "Offer Nectar",
+      "detail": "Give Nectar to a character in the House or along a run.",
+      "hidden": false
+    },
+    {
+      "id": "heat-clear",
+      "name": "Heat Clear",
+      "detail": "Clear a run while the Pact of Punishment adds at least one Heat.",
+      "hidden": false
+    },
+    {
+      "id": "pet-cerberus",
+      "name": "Pet Cerberus",
+      "detail": "Pet Cerberus while he is resting in the House of Hades.",
+      "hidden": false
+    },
+    {
+      "id": "minor-prophecy",
+      "name": "Minor Prophecy",
+      "detail": "Complete one objective on the Fated List of Minor Prophecies.",
+      "hidden": false
+    },
+    {
+      "id": "weapon-aspect",
+      "name": "Weapon Aspect",
+      "detail": "Unlock an Aspect for any Infernal Arm.",
+      "hidden": false
+    },
+    {
+      "id": "keepsake-equipped",
+      "name": "Keepsake Equipped",
+      "detail": "Equip a Keepsake before you leave the House on a run.",
+      "hidden": false
+    },
+    {
+      "id": "first-catch",
+      "name": "First Catch",
+      "detail": "Catch a fish from a fishing point during a run.",
+      "hidden": false
+    },
+    {
+      "id": "closing-resolution",
+      "name": "Closing Resolution",
+      "detail": "Reach the story's final resolution after enough successful escapes.",
+      "hidden": true
+    }
+  ]
+}

@@ -1,0 +1,78 @@
+{
+  "titleID": "010020D01AD24000",
+  "name": "ANIMAL WELL",
+  "achievements": [
+    {
+      "id": "firecracker",
+      "name": "Firecracker",
+      "detail": "Find the firecrackers near the start and set one off to scare a creature or light the dark.",
+      "hidden": false
+    },
+    {
+      "id": "first-flame",
+      "name": "First Flame",
+      "detail": "Light a flame in one region of the well and bring it back to the central chamber.",
+      "hidden": false
+    },
+    {
+      "id": "disc",
+      "name": "Disc",
+      "detail": "Take the disc and throw it so you can ride it across a gap or hit a distant switch.",
+      "hidden": false
+    },
+    {
+      "id": "bubble-wand",
+      "name": "Bubble Wand",
+      "detail": "Find the bubble wand and stand on a bubble to reach a ledge above you.",
+      "hidden": false
+    },
+    {
+      "id": "slink",
+      "name": "Slink",
+      "detail": "Collect the slink and send it down a staircase onto a floor switch.",
+      "hidden": false
+    },
+    {
+      "id": "yoyo",
+      "name": "Yo-yo",
+      "detail": "Pick up the yo-yo and use it to strike a switch or turn a creature around on its wheel.",
+      "hidden": false
+    },
+    {
+      "id": "first-egg",
+      "name": "First Egg",
+      "detail": "Find one egg hidden in a chest away from the route between the flames.",
+      "hidden": false
+    },
+    {
+      "id": "animal-flute",
+      "name": "Animal Flute",
+      "detail": "Collect eight eggs and claim the animal flute waiting in the egg room.",
+      "hidden": false
+    },
+    {
+      "id": "four-flames",
+      "name": "Four Flames",
+      "detail": "Return every flame to the chamber at the center of the well.",
+      "hidden": false
+    },
+    {
+      "id": "lantern",
+      "name": "Lantern",
+      "detail": "Enter the final region after the flames are restored and pick up the lantern.",
+      "hidden": false
+    },
+    {
+      "id": "the-surface",
+      "name": "The Surface",
+      "detail": "Finish the last climb and complete the journey out of the well.",
+      "hidden": false
+    },
+    {
+      "id": "every-egg",
+      "name": "Every Egg",
+      "detail": "Gather all sixty-four eggs hidden throughout the well.",
+      "hidden": true
+    }
+  ]
+}

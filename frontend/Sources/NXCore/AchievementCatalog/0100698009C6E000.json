@@ -1,0 +1,84 @@
+{
+  "titleID": "0100698009C6E000",
+  "name": "Blasphemous",
+  "achievements": [
+    {
+      "id": "the-pilgrimage",
+      "name": "The Pilgrimage",
+      "detail": "Leave the Brotherhood of the Silent Sorrow and begin the Penitent One's pilgrimage.",
+      "hidden": false
+    },
+    {
+      "id": "prie-dieu",
+      "name": "Prie Dieu",
+      "detail": "Rest at a Prie Dieu shrine so the pilgrimage is recorded.",
+      "hidden": false
+    },
+    {
+      "id": "confession",
+      "name": "Confession",
+      "detail": "Pay a Confessor to remove the guilt that is limiting your Fervour.",
+      "hidden": false
+    },
+    {
+      "id": "ten-piedad",
+      "name": "Ten Piedad",
+      "detail": "Defeat Ten Piedad in Mercy Dreams.",
+      "hidden": false
+    },
+    {
+      "id": "mea-culpa-shrine",
+      "name": "Mea Culpa Shrine",
+      "detail": "Spend Tears of Atonement at a Mea Culpa shrine to unlock a sword skill.",
+      "hidden": false
+    },
+    {
+      "id": "rosary-bead",
+      "name": "Rosary Bead",
+      "detail": "Equip a rosary bead in an open knot on the Penitent One's rosary.",
+      "hidden": false
+    },
+    {
+      "id": "first-prayer",
+      "name": "First Prayer",
+      "detail": "Learn a prayer and cast it in battle by spending Fervour.",
+      "hidden": false
+    },
+    {
+      "id": "more-flasks",
+      "name": "More Flasks",
+      "detail": "Raise the number of bile flasks the Penitent One can carry.",
+      "hidden": false
+    },
+    {
+      "id": "child-of-moonlight",
+      "name": "Child of Moonlight",
+      "detail": "Break a cage and free a Child of Moonlight.",
+      "hidden": false
+    },
+    {
+      "id": "charred-visage",
+      "name": "Charred Visage",
+      "detail": "Defeat Our Lady of the Charred Visage.",
+      "hidden": false
+    },
+    {
+      "id": "map-of-cvstodia",
+      "name": "Map of Cvstodia",
+      "detail": "Reveal every room on the map of Cvstodia.",
+      "hidden": false
+    },
+    {
+      "id": "last-ascent",
+      "name": "Last Ascent",
+      "detail": "Defeat the pilgrimage's final boss and watch an ending.",
+      "hidden": false
+    },
+    {
+      "id": "wounds-of-eventide",
+      "name": "Wounds of Eventide",
+      "detail": "Reach the ending that stays closed until you carry the Cvstodia of Sin and the Holy Wound of Abnegation.",
+      "hidden": true
+    }
+  ]
+}

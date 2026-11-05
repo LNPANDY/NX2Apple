@@ -1,0 +1,78 @@
+{
+  "titleID": "010040801A4C8000",
+  "name": "Blasphemous 2",
+  "achievements": [
+    {
+      "id": "chosen-weapon",
+      "name": "Chosen Weapon",
+      "detail": "Choose Veredicto, Ruego Al Alba, or Sarmiento & Centella where the pilgrimage begins.",
+      "hidden": false
+    },
+    {
+      "id": "prie-dieu",
+      "name": "Prie Dieu",
+      "detail": "Rest at a Prie Dieu to save, recover, and refill your Bile Flasks.",
+      "hidden": false
+    },
+    {
+      "id": "faceless-one",
+      "name": "Faceless One",
+      "detail": "Defeat the Faceless One, Chisel of Oblivion, the first boss on the road.",
+      "hidden": false
+    },
+    {
+      "id": "mark-of-martyrdom",
+      "name": "Mark of Martyrdom",
+      "detail": "Take a Mark of Martyrdom from a boss you have defeated.",
+      "hidden": false
+    },
+    {
+      "id": "blessed-name",
+      "name": "Blessed Name",
+      "detail": "Enter the City of the Blessed Name beyond the opening ravine.",
+      "hidden": false
+    },
+    {
+      "id": "freed-cherub",
+      "name": "Freed Cherub",
+      "detail": "Free a Cherub you find trapped along the pilgrimage.",
+      "hidden": false
+    },
+    {
+      "id": "altarpiece",
+      "name": "Altarpiece",
+      "detail": "Set a figure into the Altarpiece of Favours on the Penitent One's back.",
+      "hidden": false
+    },
+    {
+      "id": "answered-prayer",
+      "name": "Answered Prayer",
+      "detail": "Equip a prayer and call on it during a fight.",
+      "hidden": false
+    },
+    {
+      "id": "rosary-bead",
+      "name": "Rosary Bead",
+      "detail": "Equip a rosary bead so its blessing travels with you.",
+      "hidden": false
+    },
+    {
+      "id": "second-weapon",
+      "name": "Second Weapon",
+      "detail": "Find a weapon you did not take when the pilgrimage began.",
+      "hidden": false
+    },
+    {
+      "id": "three-weapons",
+      "name": "Three Weapons",
+      "detail": "Obtain Veredicto, Ruego Al Alba, and Sarmiento & Centella.",
+      "hidden": false
+    },
+    {
+      "id": "final-devotion",
+      "name": "Final Devotion",
+      "detail": "Win the last battle of the Penitent One's pilgrimage.",
+      "hidden": true
+    }
+  ]
+}

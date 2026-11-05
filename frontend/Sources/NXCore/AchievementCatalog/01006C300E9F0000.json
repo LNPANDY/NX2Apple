@@ -1,0 +1,84 @@
+{
+  "titleID": "01006C300E9F0000",
+  "name": "DRAGON QUEST XI S: Echoes of an Elusive Age – Definitive Edition",
+  "achievements": [
+    {
+      "id": "coming-of-age",
+      "name": "Coming of Age",
+      "detail": "Finish the coming-of-age ascent above Cobblestone and depart the village.",
+      "hidden": false
+    },
+    {
+      "id": "heliodor-escape",
+      "name": "Heliodor Escape",
+      "detail": "Break out of the Heliodor dungeon with Erik.",
+      "hidden": false
+    },
+    {
+      "id": "twin-companions",
+      "name": "Twin Companions",
+      "detail": "Bring both Veronica and Serena into the party.",
+      "hidden": false
+    },
+    {
+      "id": "sand-national",
+      "name": "Sand National",
+      "detail": "Win a horse race on the track at Gallopolis.",
+      "hidden": false
+    },
+    {
+      "id": "gondolia",
+      "name": "Clear Skies",
+      "detail": "Stop the endless rain hanging over the canals of Gondolia.",
+      "hidden": false
+    },
+    {
+      "id": "octagonia-open",
+      "name": "Octagonia Open",
+      "detail": "Win the fighting tournament held in Octagonia.",
+      "hidden": false
+    },
+    {
+      "id": "fun-size-forge",
+      "name": "Fun-Size Forge",
+      "detail": "Rework a piece of equipment on the Fun-Size Forge at camp.",
+      "hidden": false
+    },
+    {
+      "id": "pep-power",
+      "name": "Pep Power",
+      "detail": "Unleash a pep power while members of the party are pepped up.",
+      "hidden": false
+    },
+    {
+      "id": "salty-stallion",
+      "name": "Salty Stallion",
+      "detail": "Board the Salty Stallion and sail from one land to another.",
+      "hidden": false
+    },
+    {
+      "id": "classic-mode",
+      "name": "Classic Mode",
+      "detail": "Fight a battle after switching the adventure into 2D mode.",
+      "hidden": false
+    },
+    {
+      "id": "yggdrasil",
+      "name": "Yggdrasil",
+      "detail": "Reach Yggdrasil, the great tree the Luminary set out to find.",
+      "hidden": false
+    },
+    {
+      "id": "sword-of-light",
+      "name": "Sword of Light",
+      "detail": "Forge the Sword of Light with the Forging Hammer and orichalcum.",
+      "hidden": false
+    },
+    {
+      "id": "last-battle",
+      "name": "Last Battle",
+      "detail": "Defeat the foe that still remains after the credits roll.",
+      "hidden": true
+    }
+  ]
+}

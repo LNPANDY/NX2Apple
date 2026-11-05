@@ -1,0 +1,78 @@
+{
+  "titleID": "01002B00111A2000",
+  "name": "Hyrule Warriors: Age of Calamity",
+  "achievements": [
+    {
+      "id": "hyrule-field",
+      "name": "Hyrule Field",
+      "detail": "Clear the first story battle by driving the monsters off Hyrule Field.",
+      "hidden": false
+    },
+    {
+      "id": "four-champions",
+      "name": "Four Champions",
+      "detail": "Have Mipha, Daruk, Revali, and Urbosa all available to take into battle.",
+      "hidden": false
+    },
+    {
+      "id": "divine-beast",
+      "name": "Divine Beast",
+      "detail": "Finish a story battle in which one of the four Divine Beasts takes the field.",
+      "hidden": false
+    },
+    {
+      "id": "master-sword",
+      "name": "Master Sword",
+      "detail": "Obtain the Master Sword for Link by clearing the Korok Forest story battle.",
+      "hidden": false
+    },
+    {
+      "id": "guardian-broken",
+      "name": "Guardian Broken",
+      "detail": "Destroy a Guardian during a battle.",
+      "hidden": false
+    },
+    {
+      "id": "lynel-down",
+      "name": "Lynel Down",
+      "detail": "Defeat a Lynel during a battle.",
+      "hidden": false
+    },
+    {
+      "id": "korok-found",
+      "name": "Korok Found",
+      "detail": "Find a Korok hidden on a battlefield.",
+      "hidden": false
+    },
+    {
+      "id": "weapon-fused",
+      "name": "Weapon Fused",
+      "detail": "Strengthen a weapon by fusing other weapons into it at the blacksmith.",
+      "hidden": false
+    },
+    {
+      "id": "zelda-deployed",
+      "name": "Zelda Deployed",
+      "detail": "Win a battle while controlling Zelda.",
+      "hidden": false
+    },
+    {
+      "id": "timed-challenge",
+      "name": "Timed Challenge",
+      "detail": "Clear a Challenge before its timer runs out.",
+      "hidden": false
+    },
+    {
+      "id": "hinox-down",
+      "name": "Hinox Down",
+      "detail": "Defeat a Hinox during a battle.",
+      "hidden": false
+    },
+    {
+      "id": "calamity-ganon",
+      "name": "Calamity Ganon",
+      "detail": "Win the final story battle against Calamity Ganon.",
+      "hidden": true
+    }
+  ]
+}

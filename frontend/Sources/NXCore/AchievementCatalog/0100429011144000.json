@@ -1,0 +1,78 @@
+{
+  "titleID": "0100429011144000",
+  "name": "Subnautica",
+  "achievements": [
+    {
+      "id": "first-dive",
+      "name": "First Dive",
+      "detail": "Leave Lifepod 5 and swim in the open water.",
+      "hidden": false
+    },
+    {
+      "id": "radio-online",
+      "name": "Radio Online",
+      "detail": "Repair the lifepod radio so incoming signals can play.",
+      "hidden": false
+    },
+    {
+      "id": "seabase-built",
+      "name": "Seabase",
+      "detail": "Construct a habitat module and step inside through a hatch.",
+      "hidden": false
+    },
+    {
+      "id": "seamoth-pilot",
+      "name": "Seamoth",
+      "detail": "Build a Seamoth at a Mobile Vehicle Bay and pilot it.",
+      "hidden": false
+    },
+    {
+      "id": "prawn-suit",
+      "name": "Prawn Suit",
+      "detail": "Fabricate a Prawn Suit and walk it on the seafloor.",
+      "hidden": false
+    },
+    {
+      "id": "cyclops-helm",
+      "name": "Cyclops",
+      "detail": "Finish a Cyclops submarine and take the helm.",
+      "hidden": false
+    },
+    {
+      "id": "aurora-boarding",
+      "name": "Board the Aurora",
+      "detail": "Reach the crashed Aurora and explore the rooms inside its hull.",
+      "hidden": false
+    },
+    {
+      "id": "deep-dive",
+      "name": "Deep Dive",
+      "detail": "Descend to a depth of 500 meters or more.",
+      "hidden": false
+    },
+    {
+      "id": "lost-river",
+      "name": "Lost River",
+      "detail": "Find an entrance and swim into the Lost River.",
+      "hidden": false
+    },
+    {
+      "id": "lava-zone",
+      "name": "Lava Zone",
+      "detail": "Pilot a vehicle down into the Inactive Lava Zone.",
+      "hidden": false
+    },
+    {
+      "id": "alien-archive",
+      "name": "Alien Archive",
+      "detail": "Enter a Precursor facility and download the data stored there.",
+      "hidden": false
+    },
+    {
+      "id": "neptune-launch",
+      "name": "Neptune Launch",
+      "detail": "Build the Neptune escape rocket and launch it from the planet.",
+      "hidden": true
+    }
+  ]
+}

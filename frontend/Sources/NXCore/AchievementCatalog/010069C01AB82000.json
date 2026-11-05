@@ -1,0 +1,84 @@
+{
+  "titleID": "010069C01AB82000",
+  "name": "SHIN MEGAMI TENSEI V: Vengeance",
+  "achievements": [
+    {
+      "id": "nahobino",
+      "name": "Nahobino",
+      "detail": "Fuse with the Proto-fiend Aogami and fight on as a Nahobino.",
+      "hidden": false
+    },
+    {
+      "id": "silver-tongue",
+      "name": "Silver Tongue",
+      "detail": "Recruit 30 demons by negotiating with them during battle.",
+      "hidden": false
+    },
+    {
+      "id": "press-turns",
+      "name": "Press Turns",
+      "detail": "Strike an enemy weakness 100 times and take the extra press turns those hits grant.",
+      "hidden": false
+    },
+    {
+      "id": "magatsuhi-skill",
+      "name": "Magatsuhi Skill",
+      "detail": "Use Magatsuhi skills 20 times after the Magatsuhi gauge fills.",
+      "hidden": false
+    },
+    {
+      "id": "fusion-accident",
+      "name": "Fusion Accident",
+      "detail": "Come away from demon fusion with a result you did not choose when an accident occurs.",
+      "hidden": false
+    },
+    {
+      "id": "five-miracles",
+      "name": "Five Miracles",
+      "detail": "Learn five Miracles by spending Glory.",
+      "hidden": false
+    },
+    {
+      "id": "miman-seeker",
+      "name": "Miman Seeker",
+      "detail": "Find 100 Miman scattered through Da'at.",
+      "hidden": false
+    },
+    {
+      "id": "compendium-scholar",
+      "name": "Compendium Scholar",
+      "detail": "Register enough demons to fill more than 75 percent of the Demon Compendium.",
+      "hidden": false
+    },
+    {
+      "id": "essence-fusion",
+      "name": "Essence Fusion",
+      "detail": "Perform Essence Fusion 20 times so a demon takes on skills from an essence.",
+      "hidden": false
+    },
+    {
+      "id": "five-subquests",
+      "name": "Five Subquests",
+      "detail": "Complete five subquests.",
+      "hidden": false
+    },
+    {
+      "id": "haunt-gifts",
+      "name": "Haunt Gifts",
+      "detail": "Give gifts to demons in a demon haunt 20 times.",
+      "hidden": false
+    },
+    {
+      "id": "godborn",
+      "name": "Godborn",
+      "detail": "Clear the game on Godborn difficulty.",
+      "hidden": false
+    },
+    {
+      "id": "demi-fiend",
+      "name": "Demi-fiend",
+      "detail": "Defeat the Demi-fiend in the optional superboss fight.",
+      "hidden": true
+    }
+  ]
+}

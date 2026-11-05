@@ -1,0 +1,78 @@
+{
+  "titleID": "0100AE00096EA000",
+  "name": "Hyrule Warriors: Definitive Edition",
+  "achievements": [
+    {
+      "id": "armies-of-ruin",
+      "name": "Armies of Ruin",
+      "detail": "Clear The Armies of Ruin, the opening battle of Legend Mode.",
+      "hidden": false
+    },
+    {
+      "id": "adventure-map",
+      "name": "Adventure Map",
+      "detail": "Win a battle on the Adventure Map.",
+      "hidden": false
+    },
+    {
+      "id": "linkle-joins",
+      "name": "Linkle Joins",
+      "detail": "Clear The Armies of Ruin and unlock Linkle.",
+      "hidden": false
+    },
+    {
+      "id": "giant-boss",
+      "name": "Giant Boss",
+      "detail": "Defeat a giant boss such as King Dodongo during a battle.",
+      "hidden": false
+    },
+    {
+      "id": "a-rank",
+      "name": "A Rank",
+      "detail": "Finish any mission with an A rank.",
+      "hidden": false
+    },
+    {
+      "id": "gold-skulltula",
+      "name": "Gold Skulltula",
+      "detail": "Defeat a Gold Skulltula that appears during a mission.",
+      "hidden": false
+    },
+    {
+      "id": "item-card",
+      "name": "Item Card",
+      "detail": "Use an Item Card to uncover a secret on an Adventure Map square.",
+      "hidden": false
+    },
+    {
+      "id": "my-fairy",
+      "name": "My Fairy",
+      "detail": "Break jars in an Adventure Map keep and recruit a companion fairy.",
+      "hidden": false
+    },
+    {
+      "id": "weapon-tier",
+      "name": "Weapon Tier",
+      "detail": "Obtain a higher weapon tier for any warrior.",
+      "hidden": false
+    },
+    {
+      "id": "master-sword",
+      "name": "Master Sword",
+      "detail": "Acquire the Master Sword in the Temple of the Sacred Sword.",
+      "hidden": false
+    },
+    {
+      "id": "legend-complete",
+      "name": "Legend Complete",
+      "detail": "Clear Watchers of the Triforce, the last scenario of Legend Mode.",
+      "hidden": false
+    },
+    {
+      "id": "ganons-fury",
+      "name": "Ganon's Fury",
+      "detail": "Clear Ganon's Fury in Challenge Mode.",
+      "hidden": true
+    }
+  ]
+}

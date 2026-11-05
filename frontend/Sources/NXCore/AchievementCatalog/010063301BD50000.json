@@ -1,0 +1,78 @@
+{
+  "titleID": "010063301BD50000",
+  "name": "SUPER ROBOT WARS Y",
+  "achievements": [
+    {
+      "id": "first-sortie",
+      "name": "First Sortie",
+      "detail": "Clear the first story mission of a new campaign.",
+      "hidden": false
+    },
+    {
+      "id": "chapter-one",
+      "name": "Chapter One",
+      "detail": "Finish the main missions that make up Chapter 1.",
+      "hidden": false
+    },
+    {
+      "id": "getter-arc",
+      "name": "Getter Arc",
+      "detail": "Add Getter Arc to the squadron.",
+      "hidden": false
+    },
+    {
+      "id": "dynazenon",
+      "name": "Dynazenon",
+      "detail": "Have Dynazenon join and deploy it in battle.",
+      "hidden": false
+    },
+    {
+      "id": "great-mazinger",
+      "name": "Great Mazinger",
+      "detail": "Recruit Great Mazinger onto the team.",
+      "hidden": false
+    },
+    {
+      "id": "jet-jaguar",
+      "name": "Jet Jaguar",
+      "detail": "Bring Jet Jaguar into the party.",
+      "hidden": false
+    },
+    {
+      "id": "mazinkaiser",
+      "name": "Mazinkaiser",
+      "detail": "Obtain Mazinkaiser.",
+      "hidden": false
+    },
+    {
+      "id": "god-gundam",
+      "name": "God Gundam",
+      "detail": "Field God Gundam after Domon joins.",
+      "hidden": false
+    },
+    {
+      "id": "aerial",
+      "name": "Aerial",
+      "detail": "Sortie in the Aerial with Suletta Mercury.",
+      "hidden": false
+    },
+    {
+      "id": "secret-pilot",
+      "name": "Secret Pilot",
+      "detail": "Fulfill a stage's extra condition so an optional pilot joins.",
+      "hidden": false
+    },
+    {
+      "id": "godzilla-down",
+      "name": "Godzilla Down",
+      "detail": "Defeat Godzilla in a story battle.",
+      "hidden": false
+    },
+    {
+      "id": "campaign-clear",
+      "name": "Campaign Clear",
+      "detail": "Clear the final main mission of the campaign.",
+      "hidden": true
+    }
+  ]
+}

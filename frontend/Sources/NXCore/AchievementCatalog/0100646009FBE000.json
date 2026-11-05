@@ -1,0 +1,78 @@
+{
+  "titleID": "0100646009FBE000",
+  "name": "Dead Cells",
+  "achievements": [
+    {
+      "id": "out-of-prison",
+      "name": "Out of Prison",
+      "detail": "Leave the Prisoner's Quarters through any of its exits.",
+      "hidden": false
+    },
+    {
+      "id": "vine-rune",
+      "name": "Vine Rune",
+      "detail": "Collect the Vine Rune so later runs can climb ivy.",
+      "hidden": false
+    },
+    {
+      "id": "the-concierge",
+      "name": "The Concierge",
+      "detail": "Defeat the Concierge on the Black Bridge.",
+      "hidden": false
+    },
+    {
+      "id": "conjunctivius",
+      "name": "Conjunctivius",
+      "detail": "Defeat Conjunctivius in the Insufferable Crypt.",
+      "hidden": false
+    },
+    {
+      "id": "time-keeper",
+      "name": "Time Keeper",
+      "detail": "Defeat the Time Keeper in the Clock Room.",
+      "hidden": false
+    },
+    {
+      "id": "hand-of-the-king",
+      "name": "Hand of the King",
+      "detail": "Defeat the Hand of the King in the Throne Room.",
+      "hidden": false
+    },
+    {
+      "id": "boss-stem-cell",
+      "name": "Boss Stem Cell",
+      "detail": "Collect a Boss Stem Cell from the Hand of the King.",
+      "hidden": false
+    },
+    {
+      "id": "blueprint-unlocked",
+      "name": "Blueprint Unlocked",
+      "detail": "Spend cells at the Collector to unlock a blueprint permanently.",
+      "hidden": false
+    },
+    {
+      "id": "legendary-forge",
+      "name": "Legendary Forge",
+      "detail": "Invest cells in the Legendary Forge to improve the quality of dropped gear.",
+      "hidden": false
+    },
+    {
+      "id": "flawless-fight",
+      "name": "Flawless Fight",
+      "detail": "Defeat a boss without taking any damage in that fight.",
+      "hidden": false
+    },
+    {
+      "id": "the-giant",
+      "name": "The Giant",
+      "detail": "Defeat the Giant in the Guardian's Haven.",
+      "hidden": false
+    },
+    {
+      "id": "five-cell-throne",
+      "name": "Five-Cell Throne",
+      "detail": "Defeat the Hand of the King with five Boss Stem Cells active.",
+      "hidden": true
+    }
+  ]
+}

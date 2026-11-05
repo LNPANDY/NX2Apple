@@ -1,0 +1,78 @@
+{
+  "titleID": "010005501E68C000",
+  "name": "Ace Attorney Investigations Collection",
+  "achievements": [
+    {
+      "id": "turnabout-visitor",
+      "name": "Turnabout Visitor",
+      "detail": "Clear the opening episode, which begins at a crime scene in Edgeworth's office.",
+      "hidden": false
+    },
+    {
+      "id": "turnabout-airlines",
+      "name": "Turnabout Airlines",
+      "detail": "Clear the episode that takes the investigation aboard a passenger plane.",
+      "hidden": false
+    },
+    {
+      "id": "the-kidnapped-turnabout",
+      "name": "The Kidnapped Turnabout",
+      "detail": "Clear the episode set among the attractions of Gatewater Land.",
+      "hidden": false
+    },
+    {
+      "id": "turnabout-reminiscence",
+      "name": "Turnabout Reminiscence",
+      "detail": "Clear the flashback episode from Edgeworth's early days as a prosecutor.",
+      "hidden": false
+    },
+    {
+      "id": "turnabout-ablaze",
+      "name": "Turnabout Ablaze",
+      "detail": "Clear the final episode of Ace Attorney Investigations: Miles Edgeworth.",
+      "hidden": false
+    },
+    {
+      "id": "logic-link",
+      "name": "Logic Link",
+      "detail": "Connect two clues in Logic and turn them into a new lead.",
+      "hidden": false
+    },
+    {
+      "id": "confrontation",
+      "name": "Confrontation",
+      "detail": "Present the evidence that breaks a contradiction during a Confrontation.",
+      "hidden": false
+    },
+    {
+      "id": "little-thief",
+      "name": "Little Thief",
+      "detail": "Use Little Thief to rebuild a scene and correct a detail that clashes with the facts.",
+      "hidden": false
+    },
+    {
+      "id": "turnabout-trigger",
+      "name": "Turnabout Trigger",
+      "detail": "Clear the opening episode of Prosecutor's Gambit.",
+      "hidden": false
+    },
+    {
+      "id": "turnabout-legacy",
+      "name": "Turnabout Legacy",
+      "detail": "Clear the episode that returns to a case from Gregory Edgeworth's career.",
+      "hidden": false
+    },
+    {
+      "id": "mind-chess",
+      "name": "Mind Chess",
+      "detail": "Win a game of Mind Chess by driving the exchange to checkmate.",
+      "hidden": false
+    },
+    {
+      "id": "turnabout-for-the-ages",
+      "name": "Turnabout for the Ages",
+      "detail": "Clear the final episode of Prosecutor's Gambit.",
+      "hidden": true
+    }
+  ]
+}

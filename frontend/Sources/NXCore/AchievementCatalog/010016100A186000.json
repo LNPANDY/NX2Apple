@@ -1,0 +1,78 @@
+{
+  "titleID": "010016100A186000",
+  "name": "SteamWorld Heist: Ultimate Edition",
+  "achievements": [
+    {
+      "id": "opening-heist",
+      "name": "Opening Heist",
+      "detail": "Finish Piper Faraday's first raid and return the crew to Piper's ship.",
+      "hidden": false
+    },
+    {
+      "id": "bank-shot",
+      "name": "Bank Shot",
+      "detail": "Defeat an enemy with a bullet that ricochets off a wall or cover.",
+      "hidden": false
+    },
+    {
+      "id": "first-hat",
+      "name": "First Hat",
+      "detail": "Shoot a hat off an enemy and pick it up before the heist ends.",
+      "hidden": false
+    },
+    {
+      "id": "epic-swag",
+      "name": "Epic Swag",
+      "detail": "Carry a mission's Epic Swag off the ship and finish that heist.",
+      "hidden": false
+    },
+    {
+      "id": "full-stars",
+      "name": "Full Stars",
+      "detail": "Earn every reputation star a heist can award, with no crew member scrapped.",
+      "hidden": false
+    },
+    {
+      "id": "level-ten",
+      "name": "Level Ten",
+      "detail": "Raise any crew member to level 10.",
+      "hidden": false
+    },
+    {
+      "id": "shop-weapon",
+      "name": "Shop Weapon",
+      "detail": "Spend water in a shop on a weapon and equip it.",
+      "hidden": false
+    },
+    {
+      "id": "rising-reputation",
+      "name": "Rising Reputation",
+      "detail": "Earn enough reputation in one act to hire a bot who will not join without it.",
+      "hidden": false
+    },
+    {
+      "id": "full-crew",
+      "name": "Full Crew",
+      "detail": "Recruit every playable steambot in the Ultimate Edition, including Fen.",
+      "hidden": false
+    },
+    {
+      "id": "every-hat",
+      "name": "Every Hat",
+      "detail": "Complete the hat collection offered by the Ultimate Edition.",
+      "hidden": false
+    },
+    {
+      "id": "the-outsider",
+      "name": "The Outsider",
+      "detail": "Finish every extra heist included with The Outsider.",
+      "hidden": false
+    },
+    {
+      "id": "last-heist",
+      "name": "Last Heist",
+      "detail": "Clear the campaign's final mission and bring the crew home.",
+      "hidden": true
+    }
+  ]
+}

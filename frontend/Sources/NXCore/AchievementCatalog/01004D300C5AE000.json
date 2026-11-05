@@ -1,0 +1,78 @@
+{
+  "titleID": "01004D300C5AE000",
+  "name": "Kirby and the Forgotten Land",
+  "achievements": [
+    {
+      "id": "point-of-arrival",
+      "name": "Point of Arrival",
+      "detail": "Clear the opening area and reach the first world map.",
+      "hidden": false
+    },
+    {
+      "id": "copy-ability",
+      "name": "Copied Power",
+      "detail": "Inhale an enemy and swallow it to gain its copy ability.",
+      "hidden": false
+    },
+    {
+      "id": "mouthful-mode",
+      "name": "Mouthful Mode",
+      "detail": "Swallow a huge object and cross part of a stage while it fills your mouth.",
+      "hidden": false
+    },
+    {
+      "id": "dee-rescue",
+      "name": "Dee Rescue",
+      "detail": "Free a caged Waddle Dee so it can return to town.",
+      "hidden": false
+    },
+    {
+      "id": "natural-plains",
+      "name": "Natural Plains",
+      "detail": "Clear every stage in the first region.",
+      "hidden": false
+    },
+    {
+      "id": "treasure-road",
+      "name": "Treasure Road",
+      "detail": "Finish a Treasure Road challenge stage.",
+      "hidden": false
+    },
+    {
+      "id": "stage-mission",
+      "name": "Mission Clear",
+      "detail": "Complete one of the mission goals listed for a stage.",
+      "hidden": false
+    },
+    {
+      "id": "evolved-ability",
+      "name": "Evolved Ability",
+      "detail": "Upgrade a copy ability at the weapons shop in town.",
+      "hidden": false
+    },
+    {
+      "id": "gotcha-figure",
+      "name": "Gotcha Figure",
+      "detail": "Spend coins at a capsule machine and collect a figure.",
+      "hidden": false
+    },
+    {
+      "id": "colosseum-cup",
+      "name": "Colosseum Cup",
+      "detail": "Win a cup in the town colosseum.",
+      "hidden": false
+    },
+    {
+      "id": "story-clear",
+      "name": "Story Clear",
+      "detail": "Clear the last stage of the main story.",
+      "hidden": false
+    },
+    {
+      "id": "final-challenge",
+      "name": "Final Challenge",
+      "detail": "Finish the last postgame challenge that opens after the story is over.",
+      "hidden": true
+    }
+  ]
+}

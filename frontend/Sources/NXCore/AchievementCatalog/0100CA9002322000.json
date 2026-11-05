@@ -1,0 +1,84 @@
+{
+  "titleID": "0100CA9002322000",
+  "name": "SteamWorld Dig 2",
+  "achievements": [
+    {
+      "id": "guiding-light",
+      "name": "The Guiding Light",
+      "detail": "Beat the earliest boss in the Temple of Guidance.",
+      "hidden": false
+    },
+    {
+      "id": "mysterious-garden",
+      "name": "Mysterious Garden",
+      "detail": "Reach Yarrow and explore the cavern that has grown into a garden.",
+      "hidden": false
+    },
+    {
+      "id": "shining-city",
+      "name": "A Shining City",
+      "detail": "Uncover the Oasis, a glowing city waiting under the rock.",
+      "hidden": false
+    },
+    {
+      "id": "the-enlightened",
+      "name": "The Enlightened",
+      "detail": "Bring down the Great Prophet.",
+      "hidden": false
+    },
+    {
+      "id": "ghost-of-the-machine",
+      "name": "Ghost of the Machine",
+      "detail": "Fight your way out when Vectron springs its trap.",
+      "hidden": false
+    },
+    {
+      "id": "max-pickaxe",
+      "name": "Max Pickaxe",
+      "detail": "Improve the pickaxe at the bench until no stronger version remains.",
+      "hidden": false
+    },
+    {
+      "id": "master-collector",
+      "name": "Master Collector",
+      "detail": "Dig up the complete collection of forty-two artifacts.",
+      "hidden": false
+    },
+    {
+      "id": "hopeless-gearhead",
+      "name": "Hopeless Gearhead",
+      "detail": "Own every upgrade the town bench can install.",
+      "hidden": false
+    },
+    {
+      "id": "challenge-caves",
+      "name": "Challenge Caves",
+      "detail": "Clear twenty of the optional challenge caves.",
+      "hidden": false
+    },
+    {
+      "id": "yonker-brothers",
+      "name": "Yonker Brothers",
+      "detail": "Track down the whole set of lost Yonker brothers.",
+      "hidden": false
+    },
+    {
+      "id": "ultimate-trial",
+      "name": "Ultimate Trial",
+      "detail": "Come through the Ultimate Trial still standing.",
+      "hidden": false
+    },
+    {
+      "id": "impossible-dream",
+      "name": "The Impossible Dream",
+      "detail": "Earn a gold star in every score category on a single clear.",
+      "hidden": false
+    },
+    {
+      "id": "new-frontier",
+      "name": "A New Frontier",
+      "detail": "Complete the story and head out beside the miner you came to find.",
+      "hidden": true
+    }
+  ]
+}

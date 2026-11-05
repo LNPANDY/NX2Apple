@@ -1,0 +1,78 @@
+{
+  "titleID": "0100FD8022DAA000",
+  "name": "Super Mario Galaxy 2",
+  "achievements": [
+    {
+      "id": "starship-mario",
+      "name": "Starship Mario",
+      "detail": "Set off from Starship Mario toward the first galaxy on the map.",
+      "hidden": false
+    },
+    {
+      "id": "sky-station",
+      "name": "Sky Station",
+      "detail": "Collect the first Power Star at the end of Sky Station Galaxy.",
+      "hidden": false
+    },
+    {
+      "id": "saddle-up",
+      "name": "Saddle Up",
+      "detail": "Free Yoshi from his egg and ride him in Yoshi Star Galaxy.",
+      "hidden": false
+    },
+    {
+      "id": "cloud-mario",
+      "name": "Cloud Mario",
+      "detail": "Touch a Cloud Flower and create a cloud platform under your feet.",
+      "hidden": false
+    },
+    {
+      "id": "rock-mario",
+      "name": "Rock Mario",
+      "detail": "Grab a Rock Mushroom and roll through a galaxy as Rock Mario.",
+      "hidden": false
+    },
+    {
+      "id": "hungry-luma",
+      "name": "Hungry Luma",
+      "detail": "Feed Star Bits to a Hungry Luma until a new galaxy appears.",
+      "hidden": false
+    },
+    {
+      "id": "prankster-comet",
+      "name": "Prankster Comet",
+      "detail": "Complete a Prankster Comet challenge and collect its Power Star.",
+      "hidden": false
+    },
+    {
+      "id": "comet-medal",
+      "name": "Comet Medal",
+      "detail": "Find a Comet Medal hidden in a galaxy.",
+      "hidden": false
+    },
+    {
+      "id": "grand-star",
+      "name": "Grand Star",
+      "detail": "Defeat a fortress boss and claim the Grand Star that opens the next world.",
+      "hidden": false
+    },
+    {
+      "id": "green-star",
+      "name": "Green Star",
+      "detail": "Pick up a Green Star after every ordinary Power Star has been collected.",
+      "hidden": false
+    },
+    {
+      "id": "galaxy-generator",
+      "name": "Galaxy Generator",
+      "detail": "Defeat Bowser inside Bowser's Galaxy Generator and rescue Peach.",
+      "hidden": false
+    },
+    {
+      "id": "perfect-run",
+      "name": "Perfect Run",
+      "detail": "Finish Grandmaster Galaxy's hardest comet without taking a hit.",
+      "hidden": true
+    }
+  ]
+}

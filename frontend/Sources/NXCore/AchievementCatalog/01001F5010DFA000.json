@@ -1,0 +1,78 @@
+{
+  "titleID": "01001F5010DFA000",
+  "name": "Pokémon Legends: Arceus",
+  "achievements": [
+    {
+      "id": "first-catch",
+      "name": "First Catch",
+      "detail": "Catch a wild Pokémon in the Hisui region.",
+      "hidden": false
+    },
+    {
+      "id": "survey-corps",
+      "name": "Survey Corps",
+      "detail": "Join the Galaxy Team's Survey Corps in Jubilife Village.",
+      "hidden": false
+    },
+    {
+      "id": "bench-craft",
+      "name": "Bench Craft",
+      "detail": "Craft a Poké Ball or another item at a crafting bench.",
+      "hidden": false
+    },
+    {
+      "id": "quell-a-noble",
+      "name": "Quell a Noble",
+      "detail": "Calm a frenzied noble by fighting it and throwing balms.",
+      "hidden": false
+    },
+    {
+      "id": "ride-wyrdeer",
+      "name": "Ride Wyrdeer",
+      "detail": "Earn a ride on Wyrdeer after calming the noble in the Obsidian Fieldlands.",
+      "hidden": false
+    },
+    {
+      "id": "every-ride",
+      "name": "Every Ride",
+      "detail": "Unlock all five ride Pokémon: Wyrdeer, Ursaluna, Basculegion, Sneasler, and Braviary.",
+      "hidden": false
+    },
+    {
+      "id": "close-the-rift",
+      "name": "Close the Rift",
+      "detail": "Win the battle at the Temple of Sinnoh that calms the rift.",
+      "hidden": false
+    },
+    {
+      "id": "both-dragons",
+      "name": "Both Dragons",
+      "detail": "Catch both Dialga and Palkia.",
+      "hidden": false
+    },
+    {
+      "id": "forces-of-nature",
+      "name": "Forces of Nature",
+      "detail": "Catch Tornadus, Thundurus, Landorus, and Enamorus.",
+      "hidden": false
+    },
+    {
+      "id": "seek-arceus",
+      "name": "Seek Arceus",
+      "detail": "Catch Arceus at the Temple of Sinnoh after every other non-mythical Pokémon is caught.",
+      "hidden": false
+    },
+    {
+      "id": "shiny-charm",
+      "name": "Shiny Charm",
+      "detail": "Receive the Shiny Charm from Cyllene once Arceus and every non-mythical entry reach research level 10.",
+      "hidden": false
+    },
+    {
+      "id": "summit-battle",
+      "name": "Summit Battle",
+      "detail": "Win the battle at the temple after the rift has been calmed.",
+      "hidden": true
+    }
+  ]
+}

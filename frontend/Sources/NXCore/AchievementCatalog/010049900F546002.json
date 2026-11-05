@@ -1,0 +1,78 @@
+{
+  "titleID": "010049900F546002",
+  "name": "Super Mario 3D All-Stars: Super Mario Sunshine",
+  "achievements": [
+    {
+      "id": "fludd-equipped",
+      "name": "FLUDD Equipped",
+      "detail": "Wash the paint off Delfino Airstrip and finish the opening course that leaves Mario with FLUDD.",
+      "hidden": false
+    },
+    {
+      "id": "plaza-shine",
+      "name": "Plaza Shine",
+      "detail": "Scrub the goop in Delfino Plaza and collect a Shine Sprite in the hub.",
+      "hidden": false
+    },
+    {
+      "id": "extra-nozzle",
+      "name": "Extra Nozzle",
+      "detail": "Unlock a FLUDD nozzle beyond the starter spray and hover, either rocket or turbo.",
+      "hidden": false
+    },
+    {
+      "id": "yoshi-ride",
+      "name": "Yoshi Ride",
+      "detail": "Hatch Yoshi and ride him on a course that needs his juice spray.",
+      "hidden": false
+    },
+    {
+      "id": "blue-coin-trade",
+      "name": "Blue Coin Trade",
+      "detail": "Trade ten Blue Coins at the Delfino Plaza boathouse for a Shine Sprite.",
+      "hidden": false
+    },
+    {
+      "id": "hundred-coins",
+      "name": "Hundred Coins",
+      "detail": "Collect 100 coins in one visit to a course and take the Shine Sprite that appears.",
+      "hidden": false
+    },
+    {
+      "id": "shadow-chase",
+      "name": "Shadow Chase",
+      "detail": "Catch the graffiti artist in a course chase and take the Shine Sprite from that pursuit.",
+      "hidden": false
+    },
+    {
+      "id": "secret-course",
+      "name": "Secret Course",
+      "detail": "Clear a secret course after FLUDD is taken, reaching the Shine Sprite by jumping.",
+      "hidden": false
+    },
+    {
+      "id": "red-coins",
+      "name": "Red Coins",
+      "detail": "On a return to a secret course, pound the red switch and collect all eight red coins in time.",
+      "hidden": false
+    },
+    {
+      "id": "boss-shine",
+      "name": "Boss Shine",
+      "detail": "Defeat a course boss such as Petey Piranha and claim the Shine Sprite from the fight.",
+      "hidden": false
+    },
+    {
+      "id": "corona-mountain",
+      "name": "Corona Mountain",
+      "detail": "Clear the Shadow Mario episodes that open the flooded cave, then climb Corona Mountain for its Shine Sprite.",
+      "hidden": false
+    },
+    {
+      "id": "every-shine",
+      "name": "Every Shine",
+      "detail": "Collect all 120 Shine Sprites and bring the sunlight back to Isle Delfino.",
+      "hidden": true
+    }
+  ]
+}

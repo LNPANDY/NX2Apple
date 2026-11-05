@@ -1,0 +1,78 @@
+{
+  "titleID": "010056B015FE8000",
+  "name": "NieR:Automata The End of YoRHa Edition",
+  "achievements": [
+    {
+      "id": "city-ruins",
+      "name": "City Ruins",
+      "detail": "Leave the Bunker and reach the ruined city on the surface.",
+      "hidden": false
+    },
+    {
+      "id": "resistance-camp",
+      "name": "Resistance Camp",
+      "detail": "Find the Resistance camp in the city and speak with its leader.",
+      "hidden": false
+    },
+    {
+      "id": "desert-ruins",
+      "name": "Desert Ruins",
+      "detail": "Clear the desert ruins and defeat the boss waiting there.",
+      "hidden": false
+    },
+    {
+      "id": "amusement-park",
+      "name": "Amusement Park",
+      "detail": "Defeat the singing machine that rules the amusement park.",
+      "hidden": false
+    },
+    {
+      "id": "forest-castle",
+      "name": "Forest Castle",
+      "detail": "Reach the forest castle throne room and fight the android who appears there.",
+      "hidden": false
+    },
+    {
+      "id": "ending-a",
+      "name": "Ending A",
+      "detail": "Finish the first route and watch ending A.",
+      "hidden": false
+    },
+    {
+      "id": "ending-b",
+      "name": "Ending B",
+      "detail": "Finish the second route and watch ending B.",
+      "hidden": false
+    },
+    {
+      "id": "endings-c-d",
+      "name": "Endings C and D",
+      "detail": "Carry the third route through to ending C or ending D.",
+      "hidden": false
+    },
+    {
+      "id": "level-99",
+      "name": "Level 99",
+      "detail": "Raise any character to level 99.",
+      "hidden": false
+    },
+    {
+      "id": "max-weapon",
+      "name": "Max Weapon",
+      "detail": "Upgrade any weapon to its highest level.",
+      "hidden": false
+    },
+    {
+      "id": "all-side-quests",
+      "name": "All Side Quests",
+      "detail": "Complete every side quest offered across the routes.",
+      "hidden": false
+    },
+    {
+      "id": "ending-e",
+      "name": "Ending E",
+      "detail": "See the story through to its final ending.",
+      "hidden": true
+    }
+  ]
+}

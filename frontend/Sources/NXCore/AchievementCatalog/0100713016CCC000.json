@@ -1,0 +1,90 @@
+{
+  "titleID": "0100713016CCC000",
+  "name": "AI: THE SOMNIUM FILES - nirvanA Initiative",
+  "achievements": [
+    {
+      "id": "determination",
+      "name": "Determination",
+      "detail": "Finish Mizuki's prologue by bringing Ryuki's Somnium to a close.",
+      "hidden": false
+    },
+    {
+      "id": "egoism",
+      "name": "Egoism",
+      "detail": "See Chikara's Somnium through to the end in Ryuki's first chapter.",
+      "hidden": false
+    },
+    {
+      "id": "nirvana",
+      "name": "Nirvana",
+      "detail": "Complete Tokiko's Somnium before Ryuki's second chapter closes.",
+      "hidden": false
+    },
+    {
+      "id": "persona",
+      "name": "Persona",
+      "detail": "Work through Komeji's Somnium to its finish in Ryuki's third chapter.",
+      "hidden": false
+    },
+    {
+      "id": "rainbow",
+      "name": "Rainbow",
+      "detail": "Finish Kizuna's Somnium while playing Mizuki's first chapter.",
+      "hidden": false
+    },
+    {
+      "id": "nu-folk-anthem",
+      "name": "Nu-Folk Anthem",
+      "detail": "In Ryuki's first chapter, stay and hear his odd song all the way through.",
+      "hidden": false
+    },
+    {
+      "id": "destination-atami",
+      "name": "Destination Atami",
+      "detail": "In Ryuki's third chapter, leave for Atami together with the receptionist.",
+      "hidden": false
+    },
+    {
+      "id": "cornea-collector",
+      "name": "Cornea Collector",
+      "detail": "Pick up every eyeball concealed inside the Somnium stages.",
+      "hidden": false
+    },
+    {
+      "id": "dream-album",
+      "name": "Dream Album",
+      "detail": "Fill every slot in the Dream Album.",
+      "hidden": false
+    },
+    {
+      "id": "komeji-shoma-end",
+      "name": "Komeji and Shoma",
+      "detail": "Follow the Komeji and Shoma branch until that ending plays.",
+      "hidden": false
+    },
+    {
+      "id": "kizuna-lien-end",
+      "name": "Kizuna and Lien",
+      "detail": "Follow the Kizuna and Lien branch until that ending plays.",
+      "hidden": false
+    },
+    {
+      "id": "gen-amame-end",
+      "name": "Gen and Amame",
+      "detail": "Follow the Gen and Amame branch until that ending plays.",
+      "hidden": false
+    },
+    {
+      "id": "explosion-end",
+      "name": "Explosion End",
+      "detail": "Reach the branch ending titled Explosion.",
+      "hidden": false
+    },
+    {
+      "id": "resolution-end",
+      "name": "Resolution",
+      "detail": "Arrive at the Resolution ending after the investigation is fully closed.",
+      "hidden": true
+    }
+  ]
+}

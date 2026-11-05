@@ -1,0 +1,78 @@
+{
+  "titleID": "010015100B514000",
+  "name": "Super Mario Bros. Wonder",
+  "achievements": [
+    {
+      "id": "opening-course",
+      "name": "Opening Course",
+      "detail": "Clear the first course of Pipe-Rock Plateau.",
+      "hidden": false
+    },
+    {
+      "id": "wonder-flower",
+      "name": "Wonder Flower",
+      "detail": "Touch a Wonder Flower and get through the change it makes to the course.",
+      "hidden": false
+    },
+    {
+      "id": "wonder-seed",
+      "name": "Wonder Seed",
+      "detail": "Complete a course and take the Wonder Seed from its goal.",
+      "hidden": false
+    },
+    {
+      "id": "flower-coins",
+      "name": "Flower Coins",
+      "detail": "Collect all three 10-flower coins in one course.",
+      "hidden": false
+    },
+    {
+      "id": "badge-equipped",
+      "name": "Badge Equipped",
+      "detail": "Buy a badge from a Poplin and equip it for a course.",
+      "hidden": false
+    },
+    {
+      "id": "wonder-form",
+      "name": "Wonder Form",
+      "detail": "Touch a Wonder Flower and let it turn you into a Goomba or a Spike-Ball.",
+      "hidden": false
+    },
+    {
+      "id": "extra-seed",
+      "name": "Extra Seed",
+      "detail": "Earn a course's extra Wonder Seed beyond the one for simply finishing it.",
+      "hidden": false
+    },
+    {
+      "id": "standee",
+      "name": "Standee",
+      "detail": "Place a standee of your character inside a course.",
+      "hidden": false
+    },
+    {
+      "id": "pipe-rock",
+      "name": "Pipe-Rock Plateau",
+      "detail": "Finish Pipe-Rock Plateau and continue to the next world.",
+      "hidden": false
+    },
+    {
+      "id": "fluff-puff",
+      "name": "Fluff-Puff Peaks",
+      "detail": "Clear Fluff-Puff Peaks.",
+      "hidden": false
+    },
+    {
+      "id": "last-castle",
+      "name": "Last Castle",
+      "detail": "Clear the castle that ends the main adventure.",
+      "hidden": false
+    },
+    {
+      "id": "special-world",
+      "name": "Special World",
+      "detail": "Finish the secret Special World.",
+      "hidden": true
+    }
+  ]
+}

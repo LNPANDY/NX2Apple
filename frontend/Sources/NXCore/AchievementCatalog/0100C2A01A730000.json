@@ -1,0 +1,90 @@
+{
+  "titleID": "0100C2A01A730000",
+  "name": "ROMANCE OF THE THREE KINGDOMS 8 REMAKE",
+  "achievements": [
+    {
+      "id": "yellow-turbans",
+      "name": "Yellow Turban Rebellion",
+      "detail": "Win a battle in a scenario that opens during the Yellow Turban Rebellion.",
+      "hidden": false
+    },
+    {
+      "id": "against-dong-zhuo",
+      "name": "Against Dong Zhuo",
+      "detail": "Win a battle in the scenario where the lords gather to oppose Dong Zhuo.",
+      "hidden": false
+    },
+    {
+      "id": "battle-of-guandu",
+      "name": "Battle of Guandu",
+      "detail": "Win the struggle in a scenario set around the Battle of Guandu.",
+      "hidden": false
+    },
+    {
+      "id": "battle-of-red-cliffs",
+      "name": "Battle of Red Cliffs",
+      "detail": "Win the struggle in a scenario set around the Battle of Red Cliffs.",
+      "hidden": false
+    },
+    {
+      "id": "enter-service",
+      "name": "Enter Service",
+      "detail": "Offer your service in a lord's city and join that force as an officer.",
+      "hidden": false
+    },
+    {
+      "id": "free-officer",
+      "name": "Free Officer",
+      "detail": "Complete a Tale while you travel as a free officer serving no force.",
+      "hidden": false
+    },
+    {
+      "id": "sworn-siblings",
+      "name": "Sworn Siblings",
+      "detail": "Build trust with another officer until the two of you become sworn siblings.",
+      "hidden": false
+    },
+    {
+      "id": "a-spouse",
+      "name": "A Spouse",
+      "detail": "Build trust with another officer until the two of you marry.",
+      "hidden": false
+    },
+    {
+      "id": "duel-won",
+      "name": "Duel Won",
+      "detail": "Win a one-on-one duel against another officer.",
+      "hidden": false
+    },
+    {
+      "id": "debate-won",
+      "name": "Debate Won",
+      "detail": "Win a one-on-one debate against another officer.",
+      "hidden": false
+    },
+    {
+      "id": "city-governor",
+      "name": "City Governor",
+      "detail": "While governing a city, finish a mission that develops it.",
+      "hidden": false
+    },
+    {
+      "id": "officer-recruited",
+      "name": "Officer Recruited",
+      "detail": "Invite an officer from outside your force to come serve with you.",
+      "hidden": false
+    },
+    {
+      "id": "your-own-force",
+      "name": "Your Own Force",
+      "detail": "Rise from a free officer, gather a following, and claim a city as ruler of your own force.",
+      "hidden": false
+    },
+    {
+      "id": "unify-the-land",
+      "name": "Unify the Land",
+      "detail": "Eliminate every rival force until your side has unified the nation.",
+      "hidden": true
+    }
+  ]
+}

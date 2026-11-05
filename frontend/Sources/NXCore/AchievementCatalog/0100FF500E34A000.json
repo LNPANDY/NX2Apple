@@ -1,0 +1,78 @@
+{
+  "titleID": "0100FF500E34A000",
+  "name": "Xenoblade Chronicles: Definitive Edition",
+  "achievements": [
+    {
+      "id": "monado-drawn",
+      "name": "The Monado",
+      "detail": "Take up the Monado and strike an enemy with it.",
+      "hidden": false
+    },
+    {
+      "id": "leave-colony-9",
+      "name": "Beyond Colony 9",
+      "detail": "Finish the opening in Colony 9 and set out across the Bionis.",
+      "hidden": false
+    },
+    {
+      "id": "colony-6-reached",
+      "name": "Colony 6",
+      "detail": "Arrive at the ruins of Colony 6.",
+      "hidden": false
+    },
+    {
+      "id": "colony-6-rebuilt",
+      "name": "Rebuilt Colony",
+      "detail": "Raise Colony 6 reconstruction to its highest level.",
+      "hidden": false
+    },
+    {
+      "id": "alcamoth-gates",
+      "name": "Alcamoth",
+      "detail": "Enter the High Entia capital of Alcamoth.",
+      "hidden": false
+    },
+    {
+      "id": "sword-valley",
+      "name": "Sword Valley",
+      "detail": "Cross Sword Valley on the way toward the Mechonis.",
+      "hidden": false
+    },
+    {
+      "id": "fallen-arm",
+      "name": "Fallen Arm",
+      "detail": "Set foot on the Fallen Arm with the party.",
+      "hidden": false
+    },
+    {
+      "id": "unique-monster",
+      "name": "Unique Monster",
+      "detail": "Defeat a Unique Monster.",
+      "hidden": false
+    },
+    {
+      "id": "heart-to-heart",
+      "name": "Heart-to-Heart",
+      "detail": "Watch a Heart-to-Heart between two party members.",
+      "hidden": false
+    },
+    {
+      "id": "party-of-seven",
+      "name": "Full Party",
+      "detail": "Recruit all seven members of the main story party.",
+      "hidden": false
+    },
+    {
+      "id": "future-connected",
+      "name": "Gran Dell",
+      "detail": "Begin Future Connected and reach the village of Gran Dell.",
+      "hidden": false
+    },
+    {
+      "id": "final-battle",
+      "name": "Story's End",
+      "detail": "Win the final battle and finish the main story.",
+      "hidden": true
+    }
+  ]
+}

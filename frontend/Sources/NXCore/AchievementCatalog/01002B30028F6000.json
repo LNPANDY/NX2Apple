@@ -1,0 +1,78 @@
+{
+  "titleID": "01002B30028F6000",
+  "name": "Celeste",
+  "achievements": [
+    {
+      "id": "forsaken-city",
+      "name": "Forsaken City",
+      "detail": "Finish the opening chapter by crossing the ruined city and reaching the campsite above it.",
+      "hidden": false
+    },
+    {
+      "id": "first-strawberry",
+      "name": "Strawberry",
+      "detail": "Pick up a strawberry and reach the far side of that room before losing it.",
+      "hidden": false
+    },
+    {
+      "id": "old-site",
+      "name": "Old Site",
+      "detail": "Clear the second chapter and rest at the campsite beyond the old ruins.",
+      "hidden": false
+    },
+    {
+      "id": "celestial-resort",
+      "name": "Celestial Resort",
+      "detail": "Work through the dusty hotel in chapter three and exit onto the roof.",
+      "hidden": false
+    },
+    {
+      "id": "mirror-temple",
+      "name": "Mirror Temple",
+      "detail": "Escape the dark temple of chapter five and return to open air.",
+      "hidden": false
+    },
+    {
+      "id": "the-summit",
+      "name": "Summit",
+      "detail": "Pass every checkpoint of chapter seven and stand on the mountain's peak.",
+      "hidden": false
+    },
+    {
+      "id": "the-core",
+      "name": "The Core",
+      "detail": "Finish chapter eight by crossing both the hot and cold halves of the mountain's core.",
+      "hidden": false
+    },
+    {
+      "id": "crystal-heart",
+      "name": "Crystal Heart",
+      "detail": "Find a crystal heart hidden away from a chapter's main climb.",
+      "hidden": false
+    },
+    {
+      "id": "b-side",
+      "name": "B-Side",
+      "detail": "Beat the harder cassette remix of any chapter from start to finish.",
+      "hidden": false
+    },
+    {
+      "id": "c-side",
+      "name": "C-Side",
+      "detail": "Clear a three-screen remix that unlocks after the Core B-side is finished.",
+      "hidden": false
+    },
+    {
+      "id": "farewell",
+      "name": "Farewell",
+      "detail": "Enter the mountain's final extra chapter and follow it all the way to its last room.",
+      "hidden": false
+    },
+    {
+      "id": "moon-berry",
+      "name": "Moon Berry",
+      "detail": "In the final extra chapter, take the unmarked detour near the end and collect the strawberry waiting there.",
+      "hidden": true
+    }
+  ]
+}

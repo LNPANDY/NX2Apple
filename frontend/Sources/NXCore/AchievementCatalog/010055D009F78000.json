@@ -1,0 +1,78 @@
+{
+  "titleID": "010055D009F78000",
+  "name": "Fire Emblem: Three Houses",
+  "achievements": [
+    {
+      "id": "house-chosen",
+      "name": "House Chosen",
+      "detail": "Join the Black Eagles, Blue Lions, or Golden Deer and start the school year at Garreg Mach.",
+      "hidden": false
+    },
+    {
+      "id": "mock-battle",
+      "name": "Mock Battle",
+      "detail": "Win the opening practice battle that pits your house against the other two.",
+      "hidden": false
+    },
+    {
+      "id": "lesson-taught",
+      "name": "Lesson Taught",
+      "detail": "Spend weekly instruction so a student raises a skill before the next mission.",
+      "hidden": false
+    },
+    {
+      "id": "exam-passed",
+      "name": "Exam Passed",
+      "detail": "Have a unit pass a certification exam and promote into a new class.",
+      "hidden": false
+    },
+    {
+      "id": "student-recruited",
+      "name": "Student Recruited",
+      "detail": "Meet another house's conditions and bring that student into your class.",
+      "hidden": false
+    },
+    {
+      "id": "dining-hall",
+      "name": "Dining Hall",
+      "detail": "Cook a meal at the monastery and share it to lift motivation or support.",
+      "hidden": false
+    },
+    {
+      "id": "tea-time",
+      "name": "Tea Time",
+      "detail": "Invite someone to tea and choose replies that deepen that bond.",
+      "hidden": false
+    },
+    {
+      "id": "eagle-and-lion",
+      "name": "Eagle and Lion",
+      "detail": "Win the Battle of the Eagle and Lion, the grand clash between the three houses.",
+      "hidden": false
+    },
+    {
+      "id": "support-unlocked",
+      "name": "Support Unlocked",
+      "detail": "Build support between two allies until a new conversation becomes available.",
+      "hidden": false
+    },
+    {
+      "id": "paralogue-cleared",
+      "name": "Paralogue Cleared",
+      "detail": "Finish a character side battle and claim the reward waiting at the end.",
+      "hidden": false
+    },
+    {
+      "id": "professor-level",
+      "name": "Professor Level",
+      "detail": "Raise your professor level so the week offers more points to spend.",
+      "hidden": false
+    },
+    {
+      "id": "route-finished",
+      "name": "Route Finished",
+      "detail": "Carry one story path through its last chapter.",
+      "hidden": true
+    }
+  ]
+}

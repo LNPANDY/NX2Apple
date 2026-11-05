@@ -229,6 +229,14 @@ product. A banner with a promotion painted in (for example "Demo Available") can
 told from the list. Change artwork covers it. A game the list does not know, as most
 Switch 2 games today, falls back to the screenshot, the app icon or the placeholder.
 
+## Achievements
+
+**Manage > Achievements** opens the goals for that game. Search and **Still to do** narrow the list. The hero shows how many are marked. A saved list that cannot be read is left as it is.
+Every supported game has a list.
+Mark a goal when you have done it. A hidden goal shows its name only after you mark it.
+The launcher does not read the game to decide this. Your marks are kept in
+`~/Library/Application Support/NS Port Builder/achievements.json`.
+
 ## Type
 
 The interface is set in Manrope (SIL Open Font License, with its license in `fonts/`):

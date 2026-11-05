@@ -1,0 +1,90 @@
+{
+  "titleID": "01006F8002326000",
+  "name": "Animal Crossing: New Horizons",
+  "achievements": [
+    {
+      "id": "deserted-island",
+      "name": "Deserted Island",
+      "detail": "Choose a deserted island and step off the seaplane to start your life there.",
+      "hidden": false
+    },
+    {
+      "id": "first-tent",
+      "name": "First Tent",
+      "detail": "Place the tent Tom Nook gives you and spend your first night in it.",
+      "hidden": false
+    },
+    {
+      "id": "nook-miles",
+      "name": "Nook Miles",
+      "detail": "Earn Nook Miles by completing a task listed on your NookPhone.",
+      "hidden": false
+    },
+    {
+      "id": "first-house",
+      "name": "First House",
+      "detail": "Pay the Nook Miles Tom Nook asks for so your tent is replaced by a house.",
+      "hidden": false
+    },
+    {
+      "id": "nooks-cranny",
+      "name": "Nook's Cranny",
+      "detail": "Deliver the materials Timmy and Tommy need and open Nook's Cranny.",
+      "hidden": false
+    },
+    {
+      "id": "museum-opens",
+      "name": "Museum",
+      "detail": "Donate fish, bugs, or fossils until Blathers arrives and opens the museum.",
+      "hidden": false
+    },
+    {
+      "id": "resident-services",
+      "name": "Resident Services",
+      "detail": "Upgrade the Resident Services tent into the permanent building on the plaza.",
+      "hidden": false
+    },
+    {
+      "id": "able-sisters",
+      "name": "Able Sisters",
+      "detail": "Shop with Mabel until the Able Sisters open their tailor shop on the island.",
+      "hidden": false
+    },
+    {
+      "id": "public-works",
+      "name": "Public Works",
+      "detail": "Have Resident Services build either a bridge or an incline.",
+      "hidden": false
+    },
+    {
+      "id": "kk-concert",
+      "name": "K.K. Slider",
+      "detail": "Raise the island to a three-star rating so K.K. Slider comes to play.",
+      "hidden": false
+    },
+    {
+      "id": "island-designer",
+      "name": "Island Designer",
+      "detail": "Unlock the Island Designer app and change the shape of a river or a cliff.",
+      "hidden": false
+    },
+    {
+      "id": "turnip-trade",
+      "name": "Turnip Trade",
+      "detail": "Buy turnips from Daisy Mae and sell them at Nook's Cranny for more than you paid.",
+      "hidden": false
+    },
+    {
+      "id": "happy-home-paradise",
+      "name": "Happy Home Paradise",
+      "detail": "Design a vacation home for a client at Paradise Planning.",
+      "hidden": false
+    },
+    {
+      "id": "five-star-island",
+      "name": "Five-Star Island",
+      "detail": "Keep developing the island until Isabelle rates it five stars.",
+      "hidden": true
+    }
+  ]
+}

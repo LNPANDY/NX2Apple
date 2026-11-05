@@ -1,0 +1,78 @@
+{
+  "titleID": "010038600B27E000",
+  "name": "Bastion",
+  "achievements": [
+    {
+      "id": "rippling-walls",
+      "name": "Rippling Walls",
+      "detail": "Cross the opening stretch as the shattered streets knit themselves back together under the Kid.",
+      "hidden": false
+    },
+    {
+      "id": "monument-core",
+      "name": "Monument Core",
+      "detail": "Set a Core into the Monument and use it to raise one of the Bastion's buildings.",
+      "hidden": false
+    },
+    {
+      "id": "arsenal-loadout",
+      "name": "Arsenal Loadout",
+      "detail": "Raise the Arsenal and head out with a weapon chosen from its rack.",
+      "hidden": false
+    },
+    {
+      "id": "distillery-spirit",
+      "name": "Distillery Spirit",
+      "detail": "Equip a Spirit at the Distillery before leaving on the next trip.",
+      "hidden": false
+    },
+    {
+      "id": "forge-upgrade",
+      "name": "Forge Upgrade",
+      "detail": "Spend a material and Fragments at the Forge to add an upgrade to a weapon.",
+      "hidden": false
+    },
+    {
+      "id": "shrine-idol",
+      "name": "Shrine Idol",
+      "detail": "Activate an Idol at the Shrine so enemies hit harder and grant more Fragments and experience.",
+      "hidden": false
+    },
+    {
+      "id": "proving-grounds",
+      "name": "Proving Grounds",
+      "detail": "Take the top prize in a weapon's Proving Grounds challenge.",
+      "hidden": false
+    },
+    {
+      "id": "who-knows-where",
+      "name": "Who Knows Where",
+      "detail": "Clear every wave of a Who Knows Where dream opened by a recovered memento.",
+      "hidden": false
+    },
+    {
+      "id": "memorial-vigil",
+      "name": "Memorial Vigil",
+      "detail": "Finish a Vigil listed at the Memorial and collect the Fragments it pays.",
+      "hidden": false
+    },
+    {
+      "id": "skyway-trip",
+      "name": "Skyway Trip",
+      "detail": "Ride the Skyway out from the Bastion and finish the district at its far end.",
+      "hidden": false
+    },
+    {
+      "id": "story-ending",
+      "name": "Story's End",
+      "detail": "Finish the journey and choose the ending that closes this story.",
+      "hidden": false
+    },
+    {
+      "id": "new-game-plus",
+      "name": "New Game Plus",
+      "detail": "Clear the story again in New Game Plus with the Kid's levels, weapons, and upgrades still in hand.",
+      "hidden": true
+    }
+  ]
+}

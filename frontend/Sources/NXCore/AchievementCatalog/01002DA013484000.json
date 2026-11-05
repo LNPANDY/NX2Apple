@@ -1,0 +1,78 @@
+{
+  "titleID": "01002DA013484000",
+  "name": "The Legend of Zelda: Skyward Sword HD",
+  "achievements": [
+    {
+      "id": "loftwing",
+      "name": "Loftwing",
+      "detail": "Finish the Wing Ceremony, call your Loftwing, and fly a loop around Skyloft.",
+      "hidden": false
+    },
+    {
+      "id": "goddess-sword",
+      "name": "Goddess Sword",
+      "detail": "Draw the Goddess Sword from its pedestal and meet Fi, the spirit bound to the blade.",
+      "hidden": false
+    },
+    {
+      "id": "through-the-clouds",
+      "name": "Below the Clouds",
+      "detail": "Drop from Skyloft, break through the cloud barrier, and stand on the surface.",
+      "hidden": false
+    },
+    {
+      "id": "skyview-temple",
+      "name": "Skyview Temple",
+      "detail": "Clear Skyview Temple by beating the creature at its heart and opening the exit.",
+      "hidden": false
+    },
+    {
+      "id": "earth-temple",
+      "name": "Earth Temple",
+      "detail": "Cross the Eldin temple through the heat and defeat the boss in its depths.",
+      "hidden": false
+    },
+    {
+      "id": "mining-facility",
+      "name": "Mining Facility",
+      "detail": "Restore the Lanayru Mining Facility and finish the trial waiting at the end of the line.",
+      "hidden": false
+    },
+    {
+      "id": "silent-realm",
+      "name": "Silent Realm",
+      "detail": "Collect every sacred tear in a Silent Realm before the guardians reach you.",
+      "hidden": false
+    },
+    {
+      "id": "master-sword",
+      "name": "Master Sword",
+      "detail": "Temper the Goddess Sword in the three sacred flames until it becomes the Master Sword.",
+      "hidden": false
+    },
+    {
+      "id": "goddess-cube",
+      "name": "Goddess Cube",
+      "detail": "Strike a Goddess Cube on the surface, then open the chest that appears back in the sky.",
+      "hidden": false
+    },
+    {
+      "id": "the-imprisoned",
+      "name": "The Imprisoned",
+      "detail": "Halt the Imprisoned on its climb out of the pit and drive it back down.",
+      "hidden": false
+    },
+    {
+      "id": "gratitude-crystals",
+      "name": "Gratitude Crystals",
+      "detail": "Earn Gratitude Crystals by completing favors for people living on Skyloft.",
+      "hidden": false
+    },
+    {
+      "id": "hero-of-the-skies",
+      "name": "Hero of the Skies",
+      "detail": "Carry the journey from your first flight all the way through the ending credits.",
+      "hidden": true
+    }
+  ]
+}

@@ -1,0 +1,78 @@
+{
+  "titleID": "01008BC024FDE000",
+  "name": "STEINS;GATE RE:BOOT",
+  "achievements": [
+    {
+      "id": "future-gadget-lab",
+      "name": "Future Gadget Lab",
+      "detail": "Begin the tale in Rintaro Okabe's Future Gadget Laboratory in Akihabara.",
+      "hidden": false
+    },
+    {
+      "id": "hououin-kyouma",
+      "name": "Hououin Kyouma",
+      "detail": "Follow a scene in which Okabe plays his self-styled mad scientist, Hououin Kyouma.",
+      "hidden": false
+    },
+    {
+      "id": "phone-trigger",
+      "name": "Phone Trigger",
+      "detail": "Answer, reply to, or ignore a call or email when the Phone Trigger prompts Okabe.",
+      "hidden": false
+    },
+    {
+      "id": "mail-to-the-past",
+      "name": "Mail to the Past",
+      "detail": "Send an email into the past with the gadget the Future Gadget Laboratory discovered.",
+      "hidden": false
+    },
+    {
+      "id": "braun-tube-workshop",
+      "name": "Braun Tube Workshop",
+      "detail": "Stop in at the Braun Tube Workshop on the floor beneath the laboratory.",
+      "hidden": false
+    },
+    {
+      "id": "mayqueen",
+      "name": "MayQueen",
+      "detail": "Meet Faris during a scene at the MayQueen maid cafe in Akihabara.",
+      "hidden": false
+    },
+    {
+      "id": "new-companion",
+      "name": "Another Lab Mate",
+      "detail": "See a new companion enter the circle around the Future Gadget Laboratory.",
+      "hidden": false
+    },
+    {
+      "id": "nakabachi-conference",
+      "name": "Nakabachi's Conference",
+      "detail": "Attend Doctor Nakabachi's time-machine press conference in Akihabara.",
+      "hidden": false
+    },
+    {
+      "id": "yanabayashi-shrine",
+      "name": "Yanabayashi Shrine",
+      "detail": "Visit Luka at Yanabayashi Shrine while the laboratory's story passes through there.",
+      "hidden": false
+    },
+    {
+      "id": "one-ending",
+      "name": "One Ending",
+      "detail": "Reach an ending that follows from the calls and emails Okabe chose to handle.",
+      "hidden": false
+    },
+    {
+      "id": "another-ending",
+      "name": "Another Ending",
+      "detail": "Reach a different ending by handling the phone another way on a later read.",
+      "hidden": false
+    },
+    {
+      "id": "new-worldline",
+      "name": "New Worldline",
+      "detail": "Finish the new ending scenario this remake adds, on the worldline made for it.",
+      "hidden": true
+    }
+  ]
+}

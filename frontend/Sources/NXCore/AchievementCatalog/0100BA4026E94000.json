@@ -1,0 +1,78 @@
+{
+  "titleID": "0100BA4026E94000",
+  "name": "Castlevania: Belmont's Curse",
+  "achievements": [
+    {
+      "id": "whip-swing",
+      "name": "Whip Swing",
+      "detail": "Latch the Arcane Whip onto an anchor and swing across a gap.",
+      "hidden": false
+    },
+    {
+      "id": "prey-pounce",
+      "name": "Prey Pounce",
+      "detail": "Hook the whip onto an enemy and pull yourself in to strike.",
+      "hidden": false
+    },
+    {
+      "id": "arcana-spell",
+      "name": "Arcana Spell",
+      "detail": "Cast a spell from an Arcana after a defeated boss has been sealed into a tarot card.",
+      "hidden": false
+    },
+    {
+      "id": "special-action",
+      "name": "Special Action",
+      "detail": "Use the special action that belongs to an equipped Arcana.",
+      "hidden": false
+    },
+    {
+      "id": "death-sealed",
+      "name": "Death Sealed",
+      "detail": "Defeat Death and seal that boss into an Arcana card.",
+      "hidden": false
+    },
+    {
+      "id": "medusa-sealed",
+      "name": "Medusa Sealed",
+      "detail": "Defeat Medusa and add her Arcana to Rose's deck.",
+      "hidden": false
+    },
+    {
+      "id": "carmilla-sealed",
+      "name": "Carmilla Sealed",
+      "detail": "Defeat Carmilla and seal her into an Arcana card.",
+      "hidden": false
+    },
+    {
+      "id": "joan-sealed",
+      "name": "Joan Sealed",
+      "detail": "Defeat Joan of Arc and seal that boss into an Arcana card.",
+      "hidden": false
+    },
+    {
+      "id": "seven-categories",
+      "name": "Seven Categories",
+      "detail": "Equip a weapon from each of the seven weapon categories.",
+      "hidden": false
+    },
+    {
+      "id": "relic-set",
+      "name": "Relic Set",
+      "detail": "Equip relics that change Rose's offense and defense.",
+      "hidden": false
+    },
+    {
+      "id": "new-route",
+      "name": "New Route",
+      "detail": "Explore into a new stretch of the map and open a shortcut through it.",
+      "hidden": false
+    },
+    {
+      "id": "highest-tier",
+      "name": "Highest Tier",
+      "detail": "Raise one weapon family to its highest upgrade tier.",
+      "hidden": true
+    }
+  ]
+}

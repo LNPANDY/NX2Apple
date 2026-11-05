@@ -1,0 +1,84 @@
+{
+  "titleID": "0100B7C00933A000",
+  "name": "Pikmin 4",
+  "achievements": [
+    {
+      "id": "rescue-the-captain",
+      "name": "Rescue the Captain",
+      "detail": "Rescue Captain Shepherd from the Burrow of Beginnings.",
+      "hidden": false
+    },
+    {
+      "id": "red-onion",
+      "name": "Red Onion",
+      "detail": "Sprout Red Pikmin from the Red Onion.",
+      "hidden": false
+    },
+    {
+      "id": "airborne-again",
+      "name": "Airborne Again",
+      "detail": "Collect the treasures that get the S.S. Shepherd flying again.",
+      "hidden": false
+    },
+    {
+      "id": "yellow-and-blue",
+      "name": "Yellow and Blue",
+      "detail": "Raise both Yellow Pikmin and Blue Pikmin from their Onions.",
+      "hidden": false
+    },
+    {
+      "id": "oatchi-skill",
+      "name": "New Trick",
+      "detail": "Unlock a new skill for Oatchi.",
+      "hidden": false
+    },
+    {
+      "id": "night-watch",
+      "name": "Night Watch",
+      "detail": "Keep a Lumiknoll standing until dawn on a night expedition.",
+      "hidden": false
+    },
+    {
+      "id": "dandori-medal",
+      "name": "Dandori Medal",
+      "detail": "Earn a medal in a Dandori Challenge.",
+      "hidden": false
+    },
+    {
+      "id": "dandori-battle",
+      "name": "Dandori Battle",
+      "detail": "Win a Dandori Battle.",
+      "hidden": false
+    },
+    {
+      "id": "ice-pikmin",
+      "name": "Ice Pikmin",
+      "detail": "Add Ice Pikmin to your squad.",
+      "hidden": false
+    },
+    {
+      "id": "shipwreck-tale",
+      "name": "Shipwreck Tale",
+      "detail": "Finish Olimar's Shipwreck Tale.",
+      "hidden": false
+    },
+    {
+      "id": "ancient-sirehound",
+      "name": "Ancient Sirehound",
+      "detail": "Defeat the Ancient Sirehound in the Cavern for a King.",
+      "hidden": false
+    },
+    {
+      "id": "eight-onions",
+      "name": "Eight Onions",
+      "detail": "Bring all eight Onion types back to base.",
+      "hidden": false
+    },
+    {
+      "id": "treasure-catalog",
+      "name": "Treasure Catalog",
+      "detail": "Collect every treasure in the Treasure Catalog.",
+      "hidden": true
+    }
+  ]
+}

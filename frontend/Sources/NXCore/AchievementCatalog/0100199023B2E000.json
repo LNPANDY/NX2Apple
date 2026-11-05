@@ -1,0 +1,84 @@
+{
+  "titleID": "0100199023B2E000",
+  "name": "Atelier Ryza: Ever Darkness & the Secret Hideout DX",
+  "achievements": [
+    {
+      "id": "first-synthesis",
+      "name": "First Synthesis",
+      "detail": "Use the cauldron to synthesize an item from materials you gathered.",
+      "hidden": false
+    },
+    {
+      "id": "mainland",
+      "name": "Mainland",
+      "detail": "Leave Kurken Island and start exploring the mainland across the water.",
+      "hidden": false
+    },
+    {
+      "id": "secret-hideout",
+      "name": "Secret Hideout",
+      "detail": "Finish building the secret hideout that Ryza and her friends use as a base.",
+      "hidden": false
+    },
+    {
+      "id": "fishing-rod",
+      "name": "Fishing Rod",
+      "detail": "Synthesize a fishing rod so you can fish from the shore.",
+      "hidden": false
+    },
+    {
+      "id": "castle-dragon",
+      "name": "Castle Dragon",
+      "detail": "Defeat the dragon that lairs in the ruins of the old castle.",
+      "hidden": false
+    },
+    {
+      "id": "underworld-camp",
+      "name": "Underworld Camp",
+      "detail": "Spend a night at camp with the party while you are in the Underworld.",
+      "hidden": false
+    },
+    {
+      "id": "power-reactor",
+      "name": "Power Reactor",
+      "detail": "Install a Power Reactor in the hideout so the forge there can run.",
+      "hidden": false
+    },
+    {
+      "id": "rasen-pudding",
+      "name": "Rasen Pudding",
+      "detail": "Work out the synthesis for Rasen Pudding, the island's famous dessert.",
+      "hidden": false
+    },
+    {
+      "id": "fatal-drive",
+      "name": "Fatal Drive",
+      "detail": "Activate the Fatal Drive of each ally at least once.",
+      "hidden": false
+    },
+    {
+      "id": "alchemy-cap",
+      "name": "Alchemy Cap",
+      "detail": "Raise Ryza's alchemy level to 99.",
+      "hidden": false
+    },
+    {
+      "id": "crimson-stone",
+      "name": "Crimson Stone",
+      "detail": "Synthesize the Crimson Stone in the effort to save Kurken Island.",
+      "hidden": false
+    },
+    {
+      "id": "custom-combat",
+      "name": "Custom Combat",
+      "detail": "Clear a Custom Combat battle after you pick the monsters and their levels.",
+      "hidden": false
+    },
+    {
+      "id": "queen-of-shadows",
+      "name": "Queen of Shadows",
+      "detail": "Win the optional battle against the Queen of Shadows.",
+      "hidden": true
+    }
+  ]
+}

@@ -1,0 +1,84 @@
+{
+  "titleID": "010069401ADB8000",
+  "name": "Unicorn Overlord",
+  "achievements": [
+    {
+      "id": "liberation-sets-out",
+      "name": "The Liberation",
+      "detail": "Finish the opening and set out with Alain's Liberation army.",
+      "hidden": false
+    },
+    {
+      "id": "town-freed",
+      "name": "Town Freed",
+      "detail": "Liberate a settlement held by the Zenoiran army.",
+      "hidden": false
+    },
+    {
+      "id": "five-strong",
+      "name": "Five Strong",
+      "detail": "Expand a unit so it can field five members.",
+      "hidden": false
+    },
+    {
+      "id": "class-promoted",
+      "name": "Promoted",
+      "detail": "Promote a fighter into an advanced class at a fort.",
+      "hidden": false
+    },
+    {
+      "id": "beyond-cornia",
+      "name": "Beyond Cornia",
+      "detail": "Finish the Cornia main quests that let the Liberation leave for other nations.",
+      "hidden": false
+    },
+    {
+      "id": "drakenhold-freed",
+      "name": "Drakenhold Freed",
+      "detail": "Finish Drakenhold's main quests and free that nation.",
+      "hidden": false
+    },
+    {
+      "id": "elheim-freed",
+      "name": "Elheim Freed",
+      "detail": "Finish Elheim's main quests and free the elven nation.",
+      "hidden": false
+    },
+    {
+      "id": "bastorias-freed",
+      "name": "Bastorias Freed",
+      "detail": "Finish Bastorias's main quests and free the Bestral nation.",
+      "hidden": false
+    },
+    {
+      "id": "albion-freed",
+      "name": "Albion Freed",
+      "detail": "Finish Albion's main quests and free the angelic nation.",
+      "hidden": false
+    },
+    {
+      "id": "rite-of-covenant",
+      "name": "Rite of Covenant",
+      "detail": "Complete the Rite of Covenant at Palevia.",
+      "hidden": false
+    },
+    {
+      "id": "six-shrines",
+      "name": "Six Shrines",
+      "detail": "Visit all six shrines on the sanctuary quest.",
+      "hidden": false
+    },
+    {
+      "id": "coliseum-bout",
+      "name": "Coliseum Bout",
+      "detail": "Win a squad battle in the coliseum.",
+      "hidden": false
+    },
+    {
+      "id": "fullest-ending",
+      "name": "Fullest Ending",
+      "detail": "See the Liberation's war through to its fullest ending.",
+      "hidden": true
+    }
+  ]
+}

@@ -1,0 +1,84 @@
+{
+  "titleID": "0100A83022A22000",
+  "name": "Absolum",
+  "achievements": [
+    {
+      "id": "first-hearthroot",
+      "name": "First Hearthroot",
+      "detail": "Discover a Hearthroot grove and use it to recover between battles.",
+      "hidden": false
+    },
+    {
+      "id": "quest-finished",
+      "name": "Quest Finished",
+      "detail": "Complete a side quest picked up while choosing a route through Talamh.",
+      "hidden": false
+    },
+    {
+      "id": "co-op-clear",
+      "name": "Co-op Clear",
+      "detail": "Complete one full run while another player fights next to you, locally or online.",
+      "hidden": false
+    },
+    {
+      "id": "sun-king-fallen",
+      "name": "Sun King Fallen",
+      "detail": "Fight through to the tower and defeat Sun King Azra.",
+      "hidden": false
+    },
+    {
+      "id": "six-clashes",
+      "name": "Six Clashes",
+      "detail": "As Galandra, win six Clashes before the level you are fighting through ends.",
+      "hidden": false
+    },
+    {
+      "id": "pit-toss",
+      "name": "Pit Toss",
+      "detail": "Use Karl's throw so three enemies drop into a pit together.",
+      "hidden": false
+    },
+    {
+      "id": "long-airtime",
+      "name": "Long Airtime",
+      "detail": "Keep Cider airborne for a full fifteen seconds during a fight.",
+      "hidden": false
+    },
+    {
+      "id": "arcana-burst",
+      "name": "Arcana Burst",
+      "detail": "While playing Brome, unleash ten Arcana spells before the current area ends.",
+      "hidden": false
+    },
+    {
+      "id": "wild-combo",
+      "name": "Wild Combo",
+      "detail": "Chain hits until a single combo earns the game's strongest callout.",
+      "hidden": false
+    },
+    {
+      "id": "all-regions",
+      "name": "All Regions",
+      "detail": "Set foot in every region on the map of Talamh.",
+      "hidden": false
+    },
+    {
+      "id": "friendly-mounts",
+      "name": "Friendly Mounts",
+      "detail": "Stop and pet each of the four mount species found around Talamh.",
+      "hidden": false
+    },
+    {
+      "id": "full-company",
+      "name": "Full Company",
+      "detail": "Fill the party until four hired allies or summons are fighting beside you together.",
+      "hidden": false
+    },
+    {
+      "id": "no-rest",
+      "name": "No Rest",
+      "detail": "Defeat the Sun King on a journey that skips every haven and Hearthroot rest.",
+      "hidden": true
+    }
+  ]
+}

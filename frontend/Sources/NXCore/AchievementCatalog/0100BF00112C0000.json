@@ -1,0 +1,78 @@
+{
+  "titleID": "0100BF00112C0000",
+  "name": "Catherine: Full Body",
+  "achievements": [
+    {
+      "id": "first-climb",
+      "name": "First Climb",
+      "detail": "Reach the exit of the opening nightmare before the falling tower catches you.",
+      "hidden": false
+    },
+    {
+      "id": "stray-sheep",
+      "name": "Stray Sheep",
+      "detail": "Spend an evening in the Stray Sheep and talk with one of the regulars.",
+      "hidden": false
+    },
+    {
+      "id": "sheep-lesson",
+      "name": "Sheep Lesson",
+      "detail": "Learn a climbing technique from a sheep on a landing between stages.",
+      "hidden": false
+    },
+    {
+      "id": "confessional",
+      "name": "Confessional",
+      "detail": "Give an answer in the confessional during a nightmare.",
+      "hidden": false
+    },
+    {
+      "id": "text-reply",
+      "name": "Text Reply",
+      "detail": "Read a message on Vincent's phone and send a reply.",
+      "hidden": false
+    },
+    {
+      "id": "super-rapunzel",
+      "name": "Super Rapunzel",
+      "detail": "Clear a puzzle on the Super Rapunzel cabinet in the Stray Sheep.",
+      "hidden": false
+    },
+    {
+      "id": "hard-stage",
+      "name": "Hard Stage",
+      "detail": "Finish a nightmare stage with the difficulty set to Hard.",
+      "hidden": false
+    },
+    {
+      "id": "night-boss",
+      "name": "Night Boss",
+      "detail": "Survive the chase at the end of a night and wake from the nightmare.",
+      "hidden": false
+    },
+    {
+      "id": "babel",
+      "name": "Babel",
+      "detail": "Clear a Babel stage, where a single fall ends the climb and moves cannot be undone.",
+      "hidden": false
+    },
+    {
+      "id": "rin-route",
+      "name": "Rin's Route",
+      "detail": "Steer the story onto the route Full Body adds for Rin.",
+      "hidden": false
+    },
+    {
+      "id": "any-ending",
+      "name": "Any Ending",
+      "detail": "Reach the credits through one of the story's endings.",
+      "hidden": false
+    },
+    {
+      "id": "every-ending",
+      "name": "Every Ending",
+      "detail": "See every ending the story can reach.",
+      "hidden": true
+    }
+  ]
+}

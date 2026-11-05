@@ -1,0 +1,72 @@
+{
+  "titleID": "0100620012D6E000",
+  "name": "Big Brain Academy: Brain vs. Brain",
+  "achievements": [
+    {
+      "id": "practice-round",
+      "name": "Practice Round",
+      "detail": "Finish a Practice session of any activity.",
+      "hidden": false
+    },
+    {
+      "id": "all-five",
+      "name": "All Five",
+      "detail": "Clear a Practice activity in Identify, Memorize, Analyze, Compute, and Visualize.",
+      "hidden": false
+    },
+    {
+      "id": "whack-match",
+      "name": "Whack Match",
+      "detail": "Clear Whack Match, the Identify activity about striking the matching target.",
+      "hidden": false
+    },
+    {
+      "id": "lobe-medal",
+      "name": "Lobe Medal",
+      "detail": "Earn a Lobe Medal from your score on a Practice activity.",
+      "hidden": false
+    },
+    {
+      "id": "gold-medal",
+      "name": "Gold Medal",
+      "detail": "Earn a Gold Lobe Medal on any Practice activity.",
+      "hidden": false
+    },
+    {
+      "id": "platinum-medal",
+      "name": "Platinum Medal",
+      "detail": "Earn a Platinum Lobe Medal on a Practice activity.",
+      "hidden": false
+    },
+    {
+      "id": "brain-test",
+      "name": "Brain Test",
+      "detail": "Finish Test mode and compare your results across the five categories.",
+      "hidden": false
+    },
+    {
+      "id": "party-winner",
+      "name": "Party Winner",
+      "detail": "Take the highest score in a Party match.",
+      "hidden": false
+    },
+    {
+      "id": "spin-the-wheel",
+      "name": "Spin the Wheel",
+      "detail": "Play a Party round whose activity is picked by spinning the wheel.",
+      "hidden": false
+    },
+    {
+      "id": "ghost-clash",
+      "name": "Ghost Clash",
+      "detail": "Win a Ghost Clash against another player's saved record.",
+      "hidden": false
+    },
+    {
+      "id": "super-practice",
+      "name": "Super Practice",
+      "detail": "Unlock Super Practice by earning a one-star Gold Lobe Medal on every activity.",
+      "hidden": true
+    }
+  ]
+}

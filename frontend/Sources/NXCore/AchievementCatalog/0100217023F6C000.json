@@ -1,0 +1,78 @@
+{
+  "titleID": "0100217023F6C000",
+  "name": "Well Dweller",
+  "achievements": [
+    {
+      "id": "matchstick-light",
+      "name": "Matchstick",
+      "detail": "Strike a foe with Glimmer's matchstick while its flame lights the way.",
+      "hidden": false
+    },
+    {
+      "id": "slingshot-bounce",
+      "name": "Slingshot",
+      "detail": "Shoot the matchstick into a wall and bounce off the planted stick.",
+      "hidden": false
+    },
+    {
+      "id": "wall-climb",
+      "name": "Wall Climb",
+      "detail": "Scale a sheer wall with the climb before stamina gives out.",
+      "hidden": false
+    },
+    {
+      "id": "tent-save",
+      "name": "Tent Save",
+      "detail": "Rest inside a tent to heal and save your progress.",
+      "hidden": false
+    },
+    {
+      "id": "trinket-equipped",
+      "name": "Trinket",
+      "detail": "Equip a trinket so its perk changes how Glimmer plays.",
+      "hidden": false
+    },
+    {
+      "id": "spectral-rescue",
+      "name": "Spectral Bird",
+      "detail": "Find a spectral bird and bring it back home.",
+      "hidden": false
+    },
+    {
+      "id": "time-trial",
+      "name": "Time Trial",
+      "detail": "Finish a timed platforming trial hidden on the map.",
+      "hidden": false
+    },
+    {
+      "id": "combat-challenge",
+      "name": "Combat Trial",
+      "detail": "Clear a combat challenge room packed with a wave of foes.",
+      "hidden": false
+    },
+    {
+      "id": "story-page",
+      "name": "Story Page",
+      "detail": "Pick up a storybook page that adds to the kingdom's tales.",
+      "hidden": false
+    },
+    {
+      "id": "golden-feathers",
+      "name": "Golden Feathers",
+      "detail": "Collect all seven golden feathers the journey asks you to find.",
+      "hidden": false
+    },
+    {
+      "id": "sibling-reunion",
+      "name": "Sibling Found",
+      "detail": "Reunite with one of the siblings taken by the hunter.",
+      "hidden": false
+    },
+    {
+      "id": "journey-end",
+      "name": "Journey's End",
+      "detail": "Reach the queen's quarters and finish the journey to save Glimmer's family.",
+      "hidden": true
+    }
+  ]
+}

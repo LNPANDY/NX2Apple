@@ -1,0 +1,78 @@
+{
+  "titleID": "0100A5C00D162000",
+  "name": "Cuphead",
+  "achievements": [
+    {
+      "id": "first-boss",
+      "name": "First Boss",
+      "detail": "Defeat any boss on the islands.",
+      "hidden": false
+    },
+    {
+      "id": "isle-one",
+      "name": "Isle One",
+      "detail": "Defeat every boss on Inkwell Isle I.",
+      "hidden": false
+    },
+    {
+      "id": "isle-two",
+      "name": "Isle Two",
+      "detail": "Defeat every boss on Inkwell Isle II.",
+      "hidden": false
+    },
+    {
+      "id": "isle-three",
+      "name": "Isle Three",
+      "detail": "Defeat every boss on Inkwell Isle III.",
+      "hidden": false
+    },
+    {
+      "id": "run-and-gun",
+      "name": "Run and Gun",
+      "detail": "Clear any run-and-gun stage from start to finish.",
+      "hidden": false
+    },
+    {
+      "id": "pacifist",
+      "name": "Pacifist",
+      "detail": "Clear a run-and-gun stage without firing a shot.",
+      "hidden": false
+    },
+    {
+      "id": "s-rank",
+      "name": "S Rank",
+      "detail": "Earn an S rank on any boss fight.",
+      "hidden": false
+    },
+    {
+      "id": "full-shop",
+      "name": "Full Shop",
+      "detail": "Buy every weapon and charm that Porkrind sells.",
+      "hidden": false
+    },
+    {
+      "id": "super-arts",
+      "name": "Super Arts",
+      "detail": "Clear every mausoleum and unlock all three super arts.",
+      "hidden": false
+    },
+    {
+      "id": "king-dice",
+      "name": "King Dice",
+      "detail": "Defeat King Dice in his casino.",
+      "hidden": false
+    },
+    {
+      "id": "the-devil",
+      "name": "The Devil",
+      "detail": "Defeat the Devil at the end of Inkwell Hell.",
+      "hidden": false
+    },
+    {
+      "id": "last-course",
+      "name": "Last Course",
+      "detail": "Win the final boss fight in The Delicious Last Course.",
+      "hidden": true
+    }
+  ]
+}

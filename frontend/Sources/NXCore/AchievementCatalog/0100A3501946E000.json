@@ -1,0 +1,84 @@
+{
+  "titleID": "0100A3501946E000",
+  "name": "OCTOPATH TRAVELER II",
+  "achievements": [
+    {
+      "id": "opening-chapter",
+      "name": "Opening Chapter",
+      "detail": "Finish the first chapter of any traveler's story.",
+      "hidden": false
+    },
+    {
+      "id": "full-story",
+      "name": "Full Story",
+      "detail": "Complete every chapter of a single traveler's tale.",
+      "hidden": false
+    },
+    {
+      "id": "eight-travelers",
+      "name": "Eight Travelers",
+      "detail": "Recruit all eight travelers into your party.",
+      "hidden": false
+    },
+    {
+      "id": "break-and-boost",
+      "name": "Break and Boost",
+      "detail": "Break an enemy by emptying its shields, then spend Boost points on an action in that battle.",
+      "hidden": false
+    },
+    {
+      "id": "day-and-night",
+      "name": "Day and Night",
+      "detail": "Change the time of day while you are in town.",
+      "hidden": false
+    },
+    {
+      "id": "path-action",
+      "name": "Path Action",
+      "detail": "Use a traveler's path action on a person in town.",
+      "hidden": false
+    },
+    {
+      "id": "crossed-path",
+      "name": "Crossed Path",
+      "detail": "Finish a Crossed Path shared by a pair of travelers.",
+      "hidden": false
+    },
+    {
+      "id": "side-story",
+      "name": "Side Story",
+      "detail": "Complete a side story you picked up in town.",
+      "hidden": false
+    },
+    {
+      "id": "set-sail",
+      "name": "Set Sail",
+      "detail": "Take the ship from one continent of Solistia to the other.",
+      "hidden": false
+    },
+    {
+      "id": "secondary-job",
+      "name": "Secondary Job",
+      "detail": "Have a traveler learn a secondary job at a guild.",
+      "hidden": false
+    },
+    {
+      "id": "latent-power",
+      "name": "Latent Power",
+      "detail": "Unleash a traveler's Latent Power during battle.",
+      "hidden": false
+    },
+    {
+      "id": "all-stories",
+      "name": "All Stories",
+      "detail": "Finish the last chapter of all eight travelers.",
+      "hidden": false
+    },
+    {
+      "id": "extra-tale",
+      "name": "Extra Tale",
+      "detail": "Complete the further story that unlocks once every traveler has finished their own tale.",
+      "hidden": true
+    }
+  ]
+}

@@ -1,0 +1,78 @@
+{
+  "titleID": "0100152000022000",
+  "name": "Mario Kart 8 Deluxe",
+  "achievements": [
+    {
+      "id": "first-victory",
+      "name": "First Victory",
+      "detail": "Finish any race in first place.",
+      "hidden": false
+    },
+    {
+      "id": "cup-winner",
+      "name": "Cup Winner",
+      "detail": "Finish a Grand Prix cup in first place overall.",
+      "hidden": false
+    },
+    {
+      "id": "three-stars",
+      "name": "Three Stars",
+      "detail": "Earn a three-star rating on a Grand Prix cup.",
+      "hidden": false
+    },
+    {
+      "id": "special-cup",
+      "name": "Special Cup",
+      "detail": "Win the Special Cup on 150cc.",
+      "hidden": false
+    },
+    {
+      "id": "two-hundred-cc",
+      "name": "200cc Cup",
+      "detail": "Win a Grand Prix cup on 200cc.",
+      "hidden": false
+    },
+    {
+      "id": "staff-ghost",
+      "name": "Staff Ghost",
+      "detail": "Beat a staff ghost in Time Trials.",
+      "hidden": false
+    },
+    {
+      "id": "gold-mario",
+      "name": "Gold Mario",
+      "detail": "Win every base-game Grand Prix cup on 200cc.",
+      "hidden": false
+    },
+    {
+      "id": "gold-standard",
+      "name": "Gold Standard",
+      "detail": "Earn at least one star on every base-game Mirror Mode cup.",
+      "hidden": false
+    },
+    {
+      "id": "gold-tires",
+      "name": "Gold Tires",
+      "detail": "Beat all 48 base-game staff ghosts in 150cc Time Trials.",
+      "hidden": false
+    },
+    {
+      "id": "gold-glider",
+      "name": "Gold Glider",
+      "detail": "Collect 5,000 coins.",
+      "hidden": false
+    },
+    {
+      "id": "full-garage",
+      "name": "Full Garage",
+      "detail": "Collect 3,100 coins so every standard kart part is unlocked.",
+      "hidden": false
+    },
+    {
+      "id": "battle-victor",
+      "name": "Battle Victor",
+      "detail": "Win a match in Battle mode.",
+      "hidden": false
+    }
+  ]
+}

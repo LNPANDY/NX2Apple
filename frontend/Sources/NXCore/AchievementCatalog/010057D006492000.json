@@ -1,0 +1,78 @@
+{
+  "titleID": "010057D006492000",
+  "name": "OCTOPATH TRAVELER",
+  "achievements": [
+    {
+      "id": "first-chapter",
+      "name": "First Chapter",
+      "detail": "Finish the opening chapter of any traveler's story.",
+      "hidden": false
+    },
+    {
+      "id": "full-story",
+      "name": "Full Story",
+      "detail": "Complete all four chapters of a single traveler's tale.",
+      "hidden": false
+    },
+    {
+      "id": "eight-travelers",
+      "name": "Eight Travelers",
+      "detail": "Recruit all eight travelers into your party.",
+      "hidden": false
+    },
+    {
+      "id": "break-and-boost",
+      "name": "Break and Boost",
+      "detail": "Break an enemy by removing its shields, then spend Boost points on an action in that same battle.",
+      "hidden": false
+    },
+    {
+      "id": "path-actions",
+      "name": "Path Actions",
+      "detail": "Use the path actions of four different travelers.",
+      "hidden": false
+    },
+    {
+      "id": "travel-banter",
+      "name": "Travel Banter",
+      "detail": "Watch a travel banter between two party members.",
+      "hidden": false
+    },
+    {
+      "id": "side-story",
+      "name": "Side Story",
+      "detail": "Finish a side story accepted from someone in town.",
+      "hidden": false
+    },
+    {
+      "id": "secondary-job",
+      "name": "Secondary Job",
+      "detail": "Learn a secondary job at a shrine and equip it on a traveler.",
+      "hidden": false
+    },
+    {
+      "id": "advanced-jobs",
+      "name": "Advanced Jobs",
+      "detail": "Unlock the Runelord, Sorcerer, Warmaster, and Starseer jobs.",
+      "hidden": false
+    },
+    {
+      "id": "battle-tested",
+      "name": "Battle-Tested",
+      "detail": "Win a Battle-Tested weapon from the person who carries it.",
+      "hidden": false
+    },
+    {
+      "id": "all-stories",
+      "name": "All Stories",
+      "detail": "Finish the fourth chapter of every traveler.",
+      "hidden": false
+    },
+    {
+      "id": "final-gate",
+      "name": "Final Gate",
+      "detail": "Clear the optional dungeon that opens once all eight stories are finished.",
+      "hidden": true
+    }
+  ]
+}

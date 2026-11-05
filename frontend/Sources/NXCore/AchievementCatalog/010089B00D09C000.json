@@ -1,0 +1,78 @@
+{
+  "titleID": "010089B00D09C000",
+  "name": "AI: THE SOMNIUM FILES",
+  "achievements": [
+    {
+      "id": "opening-investigation",
+      "name": "Opening Investigation",
+      "detail": "Work through the first crime scene and the people tied to it.",
+      "hidden": false
+    },
+    {
+      "id": "first-psync",
+      "name": "First Psync",
+      "detail": "Enter a Somnium with the Psync machine and wake the dreamer before the six minutes end.",
+      "hidden": false
+    },
+    {
+      "id": "mental-lock",
+      "name": "Mental Lock",
+      "detail": "Open a Mental Lock and continue into a deeper layer of that dream.",
+      "hidden": false
+    },
+    {
+      "id": "time-to-spare",
+      "name": "Time to Spare",
+      "detail": "Clear any Somnium while the clock still has time remaining.",
+      "hidden": false
+    },
+    {
+      "id": "timie-spent",
+      "name": "TIMIE",
+      "detail": "Use a TIMIE so an action inside a Somnium costs less of the six minutes.",
+      "hidden": false
+    },
+    {
+      "id": "aiba-scan",
+      "name": "Aiba's Scan",
+      "detail": "Use Aiba's Zoom, Thermo, or X-ray vision on an object during an investigation.",
+      "hidden": false
+    },
+    {
+      "id": "flowchart-branch",
+      "name": "Flowchart Branch",
+      "detail": "Finish a Somnium in a way that adds a separate route on the flowchart.",
+      "hidden": false
+    },
+    {
+      "id": "polar-bear",
+      "name": "Polar Bear",
+      "detail": "Clear the Somnium where a polar bear stands in the way.",
+      "hidden": false
+    },
+    {
+      "id": "route-ending",
+      "name": "Route Ending",
+      "detail": "Follow one character route on the flowchart through to its ending.",
+      "hidden": false
+    },
+    {
+      "id": "second-route",
+      "name": "Second Route",
+      "detail": "Clear a second character route that the flowchart keeps apart from the first.",
+      "hidden": false
+    },
+    {
+      "id": "third-route",
+      "name": "Third Route",
+      "detail": "Finish the last of the three character routes.",
+      "hidden": false
+    },
+    {
+      "id": "final-ending",
+      "name": "Final Ending",
+      "detail": "Reach the ending the flowchart opens only after the other main routes are finished.",
+      "hidden": true
+    }
+  ]
+}

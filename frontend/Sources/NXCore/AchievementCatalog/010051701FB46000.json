@@ -1,0 +1,78 @@
+{
+  "titleID": "010051701FB46000",
+  "name": "Monster Train 2",
+  "achievements": [
+    {
+      "id": "clan-level",
+      "name": "Clan Level",
+      "detail": "Raise any clan by one level.",
+      "hidden": false
+    },
+    {
+      "id": "standard-win",
+      "name": "Standard Win",
+      "detail": "Win a standard run and bring the pyre through the last battle.",
+      "hidden": false
+    },
+    {
+      "id": "heavy-hit",
+      "name": "Heavy Hit",
+      "detail": "Have a monster deal 100 or more damage in a single attack.",
+      "hidden": false
+    },
+    {
+      "id": "heavy-spell",
+      "name": "Heavy Spell",
+      "detail": "Have a spell deal 175 or more damage in a single cast.",
+      "hidden": false
+    },
+    {
+      "id": "luna-coven",
+      "name": "Luna Coven",
+      "detail": "Unlock the Luna Coven so that clan can be chosen for a run.",
+      "hidden": false
+    },
+    {
+      "id": "pyre-heart",
+      "name": "Pyre Heart",
+      "detail": "Unlock a second Pyre Heart to equip on later runs.",
+      "hidden": false
+    },
+    {
+      "id": "full-rooms",
+      "name": "Full Rooms",
+      "detail": "Play a room card on every floor during one battle.",
+      "hidden": false
+    },
+    {
+      "id": "fully-equipped",
+      "name": "Fully Equipped",
+      "detail": "Attach equipment to six units in a single battle.",
+      "hidden": false
+    },
+    {
+      "id": "stewards-gone",
+      "name": "Stewards Gone",
+      "detail": "Purge every Steward card out of the deck.",
+      "hidden": false
+    },
+    {
+      "id": "covenant-four",
+      "name": "Covenant Four",
+      "detail": "Win a run while Covenant 4 is active.",
+      "hidden": false
+    },
+    {
+      "id": "seraph-down",
+      "name": "Seraph Down",
+      "detail": "Defeat Seraph Aeternus in the last battle of a run.",
+      "hidden": false
+    },
+    {
+      "id": "all-covenants",
+      "name": "All Covenants",
+      "detail": "Win a run with every Covenant challenge enabled.",
+      "hidden": true
+    }
+  ]
+}

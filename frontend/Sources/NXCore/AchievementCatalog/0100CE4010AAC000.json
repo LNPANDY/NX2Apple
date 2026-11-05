@@ -1,0 +1,78 @@
+{
+  "titleID": "0100CE4010AAC000",
+  "name": "FINAL FANTASY CRYSTAL CHRONICLES Remastered Edition",
+  "achievements": [
+    {
+      "id": "leave-tipa",
+      "name": "Leave Tipa",
+      "detail": "Choose a tribe in Tipa and set out with the crystal chalice.",
+      "hidden": false
+    },
+    {
+      "id": "river-belle",
+      "name": "River Belle Path",
+      "detail": "Clear River Belle Path, the first dungeon, and take the myrrh at its end.",
+      "hidden": false
+    },
+    {
+      "id": "mushroom-forest",
+      "name": "Mushroom Forest",
+      "detail": "Clear the Mushroom Forest and claim the myrrh from its tree.",
+      "hidden": false
+    },
+    {
+      "id": "mine-of-cathuriges",
+      "name": "Mine of Cathuriges",
+      "detail": "Clear the Mine of Cathuriges and claim the myrrh in the mine.",
+      "hidden": false
+    },
+    {
+      "id": "goblin-wall",
+      "name": "Goblin Wall",
+      "detail": "Clear Goblin Wall and claim the myrrh beyond it.",
+      "hidden": false
+    },
+    {
+      "id": "moschet-manor",
+      "name": "Moschet Manor",
+      "detail": "Clear Moschet Manor and claim the myrrh inside the house.",
+      "hidden": false
+    },
+    {
+      "id": "mount-kilanda",
+      "name": "Mount Kilanda",
+      "detail": "Clear Mount Kilanda and claim the myrrh on the island.",
+      "hidden": false
+    },
+    {
+      "id": "rebena-te-ra",
+      "name": "Rebena Te Ra",
+      "detail": "Clear Rebena Te Ra and claim the myrrh in the ruins.",
+      "hidden": false
+    },
+    {
+      "id": "chalice-element",
+      "name": "Chalice Element",
+      "detail": "Attune the crystal chalice to the element a miasma stream demands and cross that stream.",
+      "hidden": false
+    },
+    {
+      "id": "fused-spell",
+      "name": "Fused Spell",
+      "detail": "Combine two spells in battle so they fuse into a stronger spell.",
+      "hidden": false
+    },
+    {
+      "id": "myrrh-to-tipa",
+      "name": "Myrrh to Tipa",
+      "detail": "Bring a myrrh drop home to Tipa so the village crystal lasts another year.",
+      "hidden": false
+    },
+    {
+      "id": "nest-of-memories",
+      "name": "Nest of Memories",
+      "detail": "Clear the last dungeon and finish the caravan's journey.",
+      "hidden": true
+    }
+  ]
+}

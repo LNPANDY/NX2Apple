@@ -1,0 +1,84 @@
+{
+  "titleID": "010092B0091D0000",
+  "name": "Team Sonic Racing",
+  "achievements": [
+    {
+      "id": "start-boost",
+      "name": "Start Boost",
+      "detail": "Rev on every count of the countdown and leave the grid with a full start boost.",
+      "hidden": false
+    },
+    {
+      "id": "skimboost",
+      "name": "Skimboost",
+      "detail": "Drive past a slowed teammate and flick them back up to speed.",
+      "hidden": false
+    },
+    {
+      "id": "slingshot",
+      "name": "Slingshot",
+      "detail": "Ride the trail behind a leading teammate, then break out of it for a boost.",
+      "hidden": false
+    },
+    {
+      "id": "team-ultimate",
+      "name": "Team Ultimate",
+      "detail": "Fill the shared meter and fire a Team Ultimate during a race.",
+      "hidden": false
+    },
+    {
+      "id": "triple-stunt",
+      "name": "Triple Stunt",
+      "detail": "Flip three times before landing a single jump.",
+      "hidden": false
+    },
+    {
+      "id": "red-burst",
+      "name": "Red Burst",
+      "detail": "Catch a rival in a Red Burst flame trail so they spin out.",
+      "hidden": false
+    },
+    {
+      "id": "garage-part",
+      "name": "Garage Part",
+      "detail": "Buy a part from the Mod Pods and fit it on a car in the garage.",
+      "hidden": false
+    },
+    {
+      "id": "mod-credits",
+      "name": "Mod Credits",
+      "detail": "Spend 5,000 credits at the Mod Pods.",
+      "hidden": false
+    },
+    {
+      "id": "ring-haul",
+      "name": "Ring Haul",
+      "detail": "Pick up 20,000 rings across your races.",
+      "hidden": false
+    },
+    {
+      "id": "chapter-one",
+      "name": "Chapter One",
+      "detail": "Clear the opening chapter of Team Adventure.",
+      "hidden": false
+    },
+    {
+      "id": "hard-chapter",
+      "name": "Hard Chapter",
+      "detail": "Win every event in one Team Adventure chapter on Hard.",
+      "hidden": false
+    },
+    {
+      "id": "every-star",
+      "name": "Every Star",
+      "detail": "Earn every star on offer in Team Adventure.",
+      "hidden": false
+    },
+    {
+      "id": "last-chapter",
+      "name": "Last Chapter",
+      "detail": "Finish the final chapter of Team Adventure.",
+      "hidden": true
+    }
+  ]
+}

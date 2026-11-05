@@ -1,0 +1,84 @@
+{
+  "titleID": "01002CD00A51C000",
+  "name": "Baba Is You",
+  "achievements": [
+    {
+      "id": "the-lake",
+      "name": "The Lake",
+      "detail": "Clear The Lake, the first world on the overworld map.",
+      "hidden": false
+    },
+    {
+      "id": "solitary-island",
+      "name": "Solitary Island",
+      "detail": "Clear Solitary Island once the path from The Lake is open.",
+      "hidden": false
+    },
+    {
+      "id": "temple-ruins",
+      "name": "Temple Ruins",
+      "detail": "Clear Temple Ruins, the walled ruin on the map.",
+      "hidden": false
+    },
+    {
+      "id": "forest-of-fall",
+      "name": "Forest of Fall",
+      "detail": "Clear Forest of Fall, the woods of autumn trees.",
+      "hidden": false
+    },
+    {
+      "id": "deep-forest",
+      "name": "Deep Forest",
+      "detail": "Clear Deep Forest, the darker woods beyond Forest of Fall.",
+      "hidden": false
+    },
+    {
+      "id": "rocket-trip",
+      "name": "Rocket Trip",
+      "detail": "Clear Rocket Trip, the world built around a rocket.",
+      "hidden": false
+    },
+    {
+      "id": "flower-garden",
+      "name": "Flower Garden",
+      "detail": "Clear Flower Garden, the bright garden world.",
+      "hidden": false
+    },
+    {
+      "id": "volcanic-cavern",
+      "name": "Volcanic Cavern",
+      "detail": "Clear Volcanic Cavern, the world of lava and heat.",
+      "hidden": false
+    },
+    {
+      "id": "mountaintop",
+      "name": "Mountaintop",
+      "detail": "Clear Mountaintop, the highest of the main worlds on the map.",
+      "hidden": false
+    },
+    {
+      "id": "first-orb",
+      "name": "First Orb",
+      "detail": "Collect an orb inside a level.",
+      "hidden": false
+    },
+    {
+      "id": "another-you",
+      "name": "Another You",
+      "detail": "Clear a level while controlling something other than Baba.",
+      "hidden": false
+    },
+    {
+      "id": "baba-is-win",
+      "name": "Baba Is Win",
+      "detail": "Win a level by putting the rule Baba Is Win into effect.",
+      "hidden": false
+    },
+    {
+      "id": "beyond-the-map",
+      "name": "Beyond the Map",
+      "detail": "Finish the hidden world that lies past the main map.",
+      "hidden": true
+    }
+  ]
+}

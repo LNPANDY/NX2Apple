@@ -1,0 +1,78 @@
+{
+  "titleID": "010097F018538000",
+  "name": "DAVE THE DIVER",
+  "achievements": [
+    {
+      "id": "first-dive",
+      "name": "First Dive",
+      "detail": "Return from a Blue Hole dive with fish for the restaurant.",
+      "hidden": false
+    },
+    {
+      "id": "repairs-paid",
+      "name": "Repairs Paid",
+      "detail": "Earn enough gold at Bancho Sushi to pay for the earthquake repairs.",
+      "hidden": false
+    },
+    {
+      "id": "dinner-service",
+      "name": "Dinner Service",
+      "detail": "Work a full evening of pouring tea, serving plates, restocking wasabi, and clearing tables.",
+      "hidden": false
+    },
+    {
+      "id": "cooksta-rank",
+      "name": "Cooksta Rank",
+      "detail": "Raise Bancho Sushi by one rank on Cooksta.",
+      "hidden": false
+    },
+    {
+      "id": "new-hire",
+      "name": "New Hire",
+      "detail": "Hire a cook or a server and put them on a night's schedule.",
+      "hidden": false
+    },
+    {
+      "id": "new-recipe",
+      "name": "New Recipe",
+      "detail": "Spend Artisan's Flame to research a dish and add it to the menu.",
+      "hidden": false
+    },
+    {
+      "id": "enhanced-dish",
+      "name": "Enhanced Dish",
+      "detail": "Enhance a recipe so the dish rates higher than the version you first learned.",
+      "hidden": false
+    },
+    {
+      "id": "deeper-dive",
+      "name": "Deeper Dive",
+      "detail": "Upgrade your diving gear and explore past the shallows of the Blue Hole.",
+      "hidden": false
+    },
+    {
+      "id": "fish-farm",
+      "name": "Fish Farm",
+      "detail": "Catch a fish whose roe is sent to one of Otto's farm pools.",
+      "hidden": false
+    },
+    {
+      "id": "vip-night",
+      "name": "VIP Night",
+      "detail": "Serve a VIP guest the dish they came to Bancho Sushi to eat.",
+      "hidden": false
+    },
+    {
+      "id": "diamond-rank",
+      "name": "Diamond Rank",
+      "detail": "Reach Diamond rank on Cooksta.",
+      "hidden": false
+    },
+    {
+      "id": "final-chapter",
+      "name": "Final Chapter",
+      "detail": "Finish the last chapter of the main story.",
+      "hidden": true
+    }
+  ]
+}

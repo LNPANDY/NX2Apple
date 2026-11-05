@@ -1,0 +1,90 @@
+{
+  "titleID": "01008CF01BAAC000",
+  "name": "The Legend of Zelda: Echoes of Wisdom",
+  "achievements": [
+    {
+      "id": "tri-rod",
+      "name": "Tri Rod",
+      "detail": "Meet Tri and take the Tri Rod.",
+      "hidden": false
+    },
+    {
+      "id": "first-echo",
+      "name": "First Echo",
+      "detail": "Copy an object with the Tri Rod and learn its echo.",
+      "hidden": false
+    },
+    {
+      "id": "monster-echo",
+      "name": "Monster Echo",
+      "detail": "Learn a monster's echo and summon it to fight for you.",
+      "hidden": false
+    },
+    {
+      "id": "still-world",
+      "name": "Still World",
+      "detail": "Enter a rift and travel through the Still World beyond it.",
+      "hidden": false
+    },
+    {
+      "id": "suthorn-ruins",
+      "name": "Suthorn Ruins",
+      "detail": "Clear Suthorn Ruins and defeat the boss at the end.",
+      "hidden": false
+    },
+    {
+      "id": "swordfighter-form",
+      "name": "Swordfighter Form",
+      "detail": "Win a fight while Swordfighter Form is active.",
+      "hidden": false
+    },
+    {
+      "id": "jabul-waters",
+      "name": "Jabul Waters",
+      "detail": "Clear Jabul Ruins and mend the rift over Jabul Waters.",
+      "hidden": false
+    },
+    {
+      "id": "gerudo-desert",
+      "name": "Gerudo Desert",
+      "detail": "Clear the Gerudo Sanctum and mend the rift in the Gerudo Desert.",
+      "hidden": false
+    },
+    {
+      "id": "castle-rift",
+      "name": "Castle Rift",
+      "detail": "Clear the dungeon in the Hyrule Castle rift and restore the people it took.",
+      "hidden": false
+    },
+    {
+      "id": "highland-rifts",
+      "name": "Highland Rifts",
+      "detail": "Mend the rifts at Eldin Volcano, the Faron Wetlands, and Hebra Mountain.",
+      "hidden": false
+    },
+    {
+      "id": "fresh-smoothie",
+      "name": "Fresh Smoothie",
+      "detail": "Blend gathered ingredients into a smoothie.",
+      "hidden": false
+    },
+    {
+      "id": "dampe-automaton",
+      "name": "Automaton Built",
+      "detail": "Help Dampé build an automaton.",
+      "hidden": false
+    },
+    {
+      "id": "neighbors-favor",
+      "name": "Neighbor's Favor",
+      "detail": "Finish a side quest for someone living in Hyrule.",
+      "hidden": false
+    },
+    {
+      "id": "hyrule-restored",
+      "name": "Hyrule Restored",
+      "detail": "Finish the story and make the kingdom whole again.",
+      "hidden": true
+    }
+  ]
+}

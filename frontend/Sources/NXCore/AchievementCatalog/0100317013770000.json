@@ -1,0 +1,78 @@
+{
+  "titleID": "0100317013770000",
+  "name": "Mario + Rabbids® Sparks of Hope",
+  "achievements": [
+    {
+      "id": "beacon-beach",
+      "name": "Beacon Beach",
+      "detail": "Clear Beacon Beach, the first planet, by winning the battle inside its lighthouse.",
+      "hidden": false
+    },
+    {
+      "id": "edge-joins",
+      "name": "Edge Joins",
+      "detail": "Recruit Edge on Beacon Beach and bring her into the battle party.",
+      "hidden": false
+    },
+    {
+      "id": "pristine-peaks",
+      "name": "Pristine Peaks",
+      "detail": "Clear Pristine Peaks and rid the snowy planet of Darkmess.",
+      "hidden": false
+    },
+    {
+      "id": "palette-prime",
+      "name": "Palette Prime",
+      "detail": "Clear Palette Prime, the planet the Darkmess has drained of color.",
+      "hidden": false
+    },
+    {
+      "id": "terra-flora",
+      "name": "Terra Flora",
+      "detail": "Clear Terra Flora and free the forest planet from the Darkmess.",
+      "hidden": false
+    },
+    {
+      "id": "barrendale-mesa",
+      "name": "Barrendale Mesa",
+      "detail": "Clear Barrendale Mesa and sweep the Darkmess off that western planet.",
+      "hidden": false
+    },
+    {
+      "id": "melodic-gardens",
+      "name": "Melodic Gardens",
+      "detail": "Clear Melodic Gardens and drive the Darkmess out of the music planet.",
+      "hidden": false
+    },
+    {
+      "id": "spark-equipped",
+      "name": "Spark Equipped",
+      "detail": "Rescue a Spark and equip it so a hero can call on its power.",
+      "hidden": false
+    },
+    {
+      "id": "darkmess-eye",
+      "name": "Darkmess Eye",
+      "detail": "Destroy a Darkmess Eye while fighting through a corrupted battlefield.",
+      "hidden": false
+    },
+    {
+      "id": "skill-prism",
+      "name": "Skill Prism",
+      "detail": "Spend a Skill Prism to unlock a new upgrade on a hero's Skill Tree.",
+      "hidden": false
+    },
+    {
+      "id": "giant-enemy",
+      "name": "Giant Enemy",
+      "detail": "Defeat a Giant enemy and earn the Gold Prism left by that battle.",
+      "hidden": false
+    },
+    {
+      "id": "final-battle",
+      "name": "Final Battle",
+      "detail": "Win the last battle and stop the Darkmess from spreading.",
+      "hidden": true
+    }
+  ]
+}

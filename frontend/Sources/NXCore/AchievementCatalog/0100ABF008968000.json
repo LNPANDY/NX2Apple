@@ -1,0 +1,78 @@
+{
+  "titleID": "0100ABF008968000",
+  "name": "Pokémon Sword",
+  "achievements": [
+    {
+      "id": "first-partner",
+      "name": "First Partner",
+      "detail": "Choose Grookey, Scorbunny, or Sobble and set out from Postwick.",
+      "hidden": false
+    },
+    {
+      "id": "first-catch",
+      "name": "First Catch",
+      "detail": "Catch a wild Pokémon so it joins your team and appears in the Pokédex.",
+      "hidden": false
+    },
+    {
+      "id": "first-badge",
+      "name": "First Badge",
+      "detail": "Defeat Milo at Turffield Stadium and earn the Grass Badge.",
+      "hidden": false
+    },
+    {
+      "id": "eight-badges",
+      "name": "Eight Badges",
+      "detail": "Beat all eight Galar gym leaders and collect every Gym Badge.",
+      "hidden": false
+    },
+    {
+      "id": "dynamax",
+      "name": "Dynamax",
+      "detail": "Dynamax a Pokémon in battle so it towers over the field for a short time.",
+      "hidden": false
+    },
+    {
+      "id": "max-raid",
+      "name": "Max Raid",
+      "detail": "Win a Max Raid Battle against a Dynamax Pokémon in the Wild Area.",
+      "hidden": false
+    },
+    {
+      "id": "rotom-bike",
+      "name": "Rotom Bike",
+      "detail": "Ride the Rotom Bike to cross the Wild Area quickly.",
+      "hidden": false
+    },
+    {
+      "id": "camp-curry",
+      "name": "Camp Curry",
+      "detail": "Cook a curry for your team while resting at Pokémon Camp.",
+      "hidden": false
+    },
+    {
+      "id": "galar-champion",
+      "name": "Galar Champion",
+      "detail": "Win the Champion Cup by defeating Leon.",
+      "hidden": false
+    },
+    {
+      "id": "zacian",
+      "name": "Zacian",
+      "detail": "Catch Zacian, the legendary Pokémon of the sword.",
+      "hidden": false
+    },
+    {
+      "id": "galar-dex",
+      "name": "Galar Pokédex",
+      "detail": "Register every Pokémon listed in the Galar Pokédex.",
+      "hidden": false
+    },
+    {
+      "id": "crisis-caught",
+      "name": "Crisis Caught",
+      "detail": "Catch the legendary fought during the story's last crisis.",
+      "hidden": true
+    }
+  ]
+}

@@ -1,0 +1,78 @@
+{
+  "titleID": "0100B8A026F14000",
+  "name": "FINAL FANTASY RESONANCE (Asian release)",
+  "achievements": [
+    {
+      "id": "companions",
+      "name": "Bound Companions",
+      "detail": "Leave on the journey with the companions who join your party.",
+      "hidden": false
+    },
+    {
+      "id": "vision-called",
+      "name": "Vision Called",
+      "detail": "Bring a Vision into battle, an echo of a hero from an earlier tale.",
+      "hidden": false
+    },
+    {
+      "id": "enemy-staggered",
+      "name": "Stagger",
+      "detail": "Strike an enemy's weakness until it staggers. The character who did it gains a bonus action.",
+      "hidden": false
+    },
+    {
+      "id": "resonance-attack",
+      "name": "Resonance",
+      "detail": "Stagger every foe in one turn, then use the Vision Resonance that follows.",
+      "hidden": false
+    },
+    {
+      "id": "vision-party",
+      "name": "Vision Party",
+      "detail": "Enter a fight with your companions and at least two Visions together.",
+      "hidden": false
+    },
+    {
+      "id": "esper-met",
+      "name": "Esper",
+      "detail": "Gain an esper's aid and carry that summon with you.",
+      "hidden": false
+    },
+    {
+      "id": "sanctum-of-light",
+      "name": "Sanctum of Light",
+      "detail": "Visit a Sanctum of Light and take a vision crystal from it.",
+      "hidden": false
+    },
+    {
+      "id": "airship",
+      "name": "Airship",
+      "detail": "Fly an airship from one part of the map to another.",
+      "hidden": false
+    },
+    {
+      "id": "limit-burst",
+      "name": "Limit Burst",
+      "detail": "Fill a limit gauge and unleash that character's Limit Burst.",
+      "hidden": false
+    },
+    {
+      "id": "vision-awakened",
+      "name": "Vision Awakened",
+      "detail": "Spend magicite to awaken a Vision and draw out a stronger ability.",
+      "hidden": false
+    },
+    {
+      "id": "mighty-foe",
+      "name": "Mighty Foe",
+      "detail": "Defeat a cavern's powerful monster and take the magicite it leaves.",
+      "hidden": false
+    },
+    {
+      "id": "secret-dungeon",
+      "name": "Secret Dungeon",
+      "detail": "Clear an optional dungeon that sits apart from the main story.",
+      "hidden": true
+    }
+  ]
+}

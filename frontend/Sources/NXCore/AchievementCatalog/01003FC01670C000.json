@@ -1,0 +1,84 @@
+{
+  "titleID": "01003FC01670C000",
+  "name": "13 Sentinels: Aegis Rim",
+  "achievements": [
+    {
+      "id": "prologue-cleared",
+      "name": "Prologue cleared",
+      "detail": "Finish the opening Remembrance chapter for one of the thirteen pilots.",
+      "hidden": false
+    },
+    {
+      "id": "one-route",
+      "name": "One route finished",
+      "detail": "Play one pilot's Remembrance scenes through to the end of that character's story.",
+      "hidden": false
+    },
+    {
+      "id": "all-stories",
+      "name": "All stories cleared",
+      "detail": "Finish the Remembrance story of every one of the thirteen pilots.",
+      "hidden": false
+    },
+    {
+      "id": "first-area",
+      "name": "First area held",
+      "detail": "Win every Destruction battle in the first defense area.",
+      "hidden": false
+    },
+    {
+      "id": "outer-areas",
+      "name": "Outer areas held",
+      "detail": "Clear the Destruction battles in the defense areas after the first.",
+      "hidden": false
+    },
+    {
+      "id": "s-rank",
+      "name": "S rank",
+      "detail": "Earn an S rank on a Destruction battle.",
+      "hidden": false
+    },
+    {
+      "id": "wide-strike",
+      "name": "Wide strike",
+      "detail": "Destroy a dense cluster of enemies with a single Sentinel attack.",
+      "hidden": false
+    },
+    {
+      "id": "all-objectives",
+      "name": "All objectives",
+      "detail": "Complete every optional objective across the Destruction battles.",
+      "hidden": false
+    },
+    {
+      "id": "full-armory",
+      "name": "Full armory",
+      "detail": "Unlock every armament and raise each terminal function as far as it will go.",
+      "hidden": false
+    },
+    {
+      "id": "mystery-files",
+      "name": "Mystery files",
+      "detail": "Unlock a set of Mystery Files in the archive.",
+      "hidden": false
+    },
+    {
+      "id": "full-archive",
+      "name": "Full archive",
+      "detail": "Unlock every Mystery File so nothing in the archive stays locked.",
+      "hidden": false
+    },
+    {
+      "id": "every-snack",
+      "name": "Every snack",
+      "detail": "Eat each food that can be bought on the walks home.",
+      "hidden": false
+    },
+    {
+      "id": "final-record",
+      "name": "Final record",
+      "detail": "Reach the last story sequence after the pilots' routes are finished.",
+      "hidden": true
+    }
+  ]
+}

@@ -1,0 +1,78 @@
+{
+  "titleID": "01009320084A4000",
+  "name": "SteamWorld Dig",
+  "achievements": [
+    {
+      "id": "old-pickaxe",
+      "name": "Old Pickaxe",
+      "detail": "Take the old pickaxe in the mine under Tumbleton and break the first blocks with it.",
+      "hidden": false
+    },
+    {
+      "id": "ore-sale",
+      "name": "Ore Sale",
+      "detail": "Carry ore back to Tumbleton and sell it for money.",
+      "hidden": false
+    },
+    {
+      "id": "better-pickaxe",
+      "name": "Better Pickaxe",
+      "detail": "Buy a stronger pickaxe in Tumbleton so harder soil can be dug.",
+      "hidden": false
+    },
+    {
+      "id": "steam-jump",
+      "name": "Steam Jump",
+      "detail": "Reach the steam jump upgrade in an Archaea cave and spend water on a leap higher than an ordinary jump.",
+      "hidden": false
+    },
+    {
+      "id": "the-drill",
+      "name": "Drill",
+      "detail": "Take the drill from a cave in Archaea and bore through rock the pickaxe cannot break.",
+      "hidden": false
+    },
+    {
+      "id": "mine-teleporter",
+      "name": "Teleporter",
+      "detail": "Ride a mine teleporter back to Tumbleton instead of climbing the whole shaft.",
+      "hidden": false
+    },
+    {
+      "id": "old-world",
+      "name": "Old World",
+      "detail": "Dig to the bottom of Archaea and enter the Old World.",
+      "hidden": false
+    },
+    {
+      "id": "dynamite",
+      "name": "Dynamite",
+      "detail": "Take the dynamite upgrade in an Old World cave and throw a stick to blow open a blockage.",
+      "hidden": false
+    },
+    {
+      "id": "steam-punch",
+      "name": "Steam Punch",
+      "detail": "Take the steam punch in an Old World cave and spend water on a charged hit that smashes blocks.",
+      "hidden": false
+    },
+    {
+      "id": "larger-pouch",
+      "name": "Larger Pouch",
+      "detail": "Buy a larger pouch in Tumbleton so more ore can be carried before the next trip up.",
+      "hidden": false
+    },
+    {
+      "id": "vectron",
+      "name": "Vectron",
+      "detail": "Leave the Old World through its lowest door and enter Vectron.",
+      "hidden": false
+    },
+    {
+      "id": "voltbot",
+      "name": "Voltbot",
+      "detail": "Defeat Voltbot in the lowest chamber of Vectron.",
+      "hidden": true
+    }
+  ]
+}

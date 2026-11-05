@@ -1,0 +1,78 @@
+{
+  "titleID": "010031F019294000",
+  "name": "Super Monkey Ball Banana Rumble",
+  "achievements": [
+    {
+      "id": "tutorial-island",
+      "name": "Tutorial Island",
+      "detail": "Finish the lessons on Tutorial Island, Spin Dash included.",
+      "hidden": false
+    },
+    {
+      "id": "banana-farm",
+      "name": "Banana Farm",
+      "detail": "Clear all ten stages of Banana Farm so the next world opens.",
+      "hidden": false
+    },
+    {
+      "id": "stage-mission",
+      "name": "Stage Mission",
+      "detail": "Complete a stage mission by beating its time or collecting enough bananas.",
+      "hidden": false
+    },
+    {
+      "id": "golden-banana",
+      "name": "Golden Banana",
+      "detail": "Collect the golden banana tucked into a stage.",
+      "hidden": false
+    },
+    {
+      "id": "story-complete",
+      "name": "Story Complete",
+      "detail": "Clear every stage in the ten story worlds, through Astrum.",
+      "hidden": false
+    },
+    {
+      "id": "ex-world",
+      "name": "EX World",
+      "detail": "Clear all ten stages in one EX world.",
+      "hidden": false
+    },
+    {
+      "id": "battle-win",
+      "name": "Battle Win",
+      "detail": "Win a match in Battle mode.",
+      "hidden": false
+    },
+    {
+      "id": "shop-style",
+      "name": "New Look",
+      "detail": "Buy a style item from the Shop and equip it.",
+      "hidden": false
+    },
+    {
+      "id": "time-attack",
+      "name": "Time Attack",
+      "detail": "Finish a Time Attack set and record a clear time.",
+      "hidden": false
+    },
+    {
+      "id": "no-miss",
+      "name": "No Miss",
+      "detail": "Get past more than one stage in a single No Miss Challenge life.",
+      "hidden": false
+    },
+    {
+      "id": "party-roll",
+      "name": "Rolling Together",
+      "detail": "Clear a story stage in a multiplayer Adventure session.",
+      "hidden": false
+    },
+    {
+      "id": "ultimate-ex",
+      "name": "Ultimate EX",
+      "detail": "Clear a stage in an Ultimate EX world.",
+      "hidden": true
+    }
+  ]
+}

@@ -1,0 +1,78 @@
+{
+  "titleID": "0100606026F12000",
+  "name": "FINAL FANTASY RESONANCE",
+  "achievements": [
+    {
+      "id": "companions",
+      "name": "Companions",
+      "detail": "Set out across the world with the companions who join your party.",
+      "hidden": false
+    },
+    {
+      "id": "vision-called",
+      "name": "Vision Called",
+      "detail": "Call a Vision, an echo of a classic hero, into battle alongside your party.",
+      "hidden": false
+    },
+    {
+      "id": "enemy-staggered",
+      "name": "Enemy Staggered",
+      "detail": "Hit an enemy weakness until that foe staggers. The character who did it gains a bonus action.",
+      "hidden": false
+    },
+    {
+      "id": "resonance-attack",
+      "name": "Resonance Attack",
+      "detail": "Stagger every enemy in one turn, then spend the Vision Resonance that follows.",
+      "hidden": false
+    },
+    {
+      "id": "vision-party",
+      "name": "Vision Party",
+      "detail": "Field a party that mixes your companions with more than one Vision.",
+      "hidden": false
+    },
+    {
+      "id": "esper-met",
+      "name": "Esper",
+      "detail": "Meet an esper and have it take part in your travels.",
+      "hidden": false
+    },
+    {
+      "id": "sanctum-of-light",
+      "name": "Sanctum of Light",
+      "detail": "Visit a Sanctum of Light and obtain a vision crystal.",
+      "hidden": false
+    },
+    {
+      "id": "airship",
+      "name": "Airship",
+      "detail": "Board an airship and fly to another reach of the map.",
+      "hidden": false
+    },
+    {
+      "id": "limit-burst",
+      "name": "Limit Burst",
+      "detail": "Fill a limit gauge by staggering a foe or taking damage, then unleash that character's Limit Burst.",
+      "hidden": false
+    },
+    {
+      "id": "vision-awakened",
+      "name": "Vision Awakened",
+      "detail": "Spend magicite to awaken a Vision and unlock a stronger ability.",
+      "hidden": false
+    },
+    {
+      "id": "mighty-foe",
+      "name": "Mighty Foe",
+      "detail": "Defeat a powerful monster that watches over a cavern and collect its magicite.",
+      "hidden": false
+    },
+    {
+      "id": "secret-dungeon",
+      "name": "Secret Dungeon",
+      "detail": "Clear an optional high-difficulty dungeon that is not part of the main story.",
+      "hidden": true
+    }
+  ]
+}

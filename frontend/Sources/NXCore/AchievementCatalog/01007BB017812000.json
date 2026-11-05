@@ -1,0 +1,84 @@
+{
+  "titleID": "01007BB017812000",
+  "name": "Portal",
+  "achievements": [
+    {
+      "id": "portal-device",
+      "name": "Portal Device",
+      "detail": "Pick up the portal device and open a portal on a white surface in a test chamber.",
+      "hidden": false
+    },
+    {
+      "id": "dual-portals",
+      "name": "Two Colors",
+      "detail": "Receive the upgrade that fires both colors and link an orange portal to a blue one.",
+      "hidden": false
+    },
+    {
+      "id": "chamber-clear",
+      "name": "Chamber Clear",
+      "detail": "Finish a numbered test chamber and ride the elevator to the next one.",
+      "hidden": false
+    },
+    {
+      "id": "energy-pellet",
+      "name": "Pellet Catch",
+      "detail": "Steer a high-energy pellet into its catcher by moving a portal into the pellet's path.",
+      "hidden": false
+    },
+    {
+      "id": "companion-cube",
+      "name": "Companion Cube",
+      "detail": "Carry the Weighted Companion Cube through Test Chamber 17 and finish that chamber.",
+      "hidden": false
+    },
+    {
+      "id": "camera-down",
+      "name": "Camera Off",
+      "detail": "Place a portal so a security camera is pulled off its wall mount.",
+      "hidden": false
+    },
+    {
+      "id": "turret-tip",
+      "name": "Turret Tip",
+      "detail": "Knock a turret over by dropping a second turret onto it.",
+      "hidden": false
+    },
+    {
+      "id": "long-fling",
+      "name": "Long Fling",
+      "detail": "Fall into a portal and come out fast enough to cross a gap you could not jump.",
+      "hidden": false
+    },
+    {
+      "id": "deep-fall",
+      "name": "Long Drop",
+      "detail": "Keep falling through linked portals for a huge drop and still walk out of the exit.",
+      "hidden": false
+    },
+    {
+      "id": "advanced-one",
+      "name": "Advanced Map",
+      "detail": "Clear one of the six chambers on the advanced course.",
+      "hidden": false
+    },
+    {
+      "id": "advanced-all",
+      "name": "All Advanced",
+      "detail": "Clear all six chambers on the advanced course.",
+      "hidden": false
+    },
+    {
+      "id": "gold-medals",
+      "name": "Gold Medals",
+      "detail": "Earn a gold medal for time, portals, and steps on every challenge chamber.",
+      "hidden": false
+    },
+    {
+      "id": "course-done",
+      "name": "Course Done",
+      "detail": "Finish the final chamber and leave the test course.",
+      "hidden": true
+    }
+  ]
+}

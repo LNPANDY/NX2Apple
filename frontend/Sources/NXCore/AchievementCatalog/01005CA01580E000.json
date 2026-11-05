@@ -1,0 +1,84 @@
+{
+  "titleID": "01005CA01580E000",
+  "name": "Persona 5 Royal",
+  "achievements": [
+    {
+      "id": "spirit-of-rebellion",
+      "name": "Spirit of Rebellion",
+      "detail": "Awaken your first Persona when the castle drags you into the Metaverse.",
+      "hidden": false
+    },
+    {
+      "id": "thieves-assembled",
+      "name": "Thieves Assembled",
+      "detail": "Form the starting crew of Phantom Thieves and leave the castle as a team.",
+      "hidden": false
+    },
+    {
+      "id": "castle-of-lust",
+      "name": "Castle of Lust",
+      "detail": "Steal the castle Palace's Treasure and force a change of heart in its ruler.",
+      "hidden": false
+    },
+    {
+      "id": "museum-of-vanity",
+      "name": "Museum of Vanity",
+      "detail": "Clear the museum Palace and carry its Treasure out of the exhibit halls.",
+      "hidden": false
+    },
+    {
+      "id": "bank-of-gluttony",
+      "name": "Bank of Gluttony",
+      "detail": "Break into the bank Palace and take the Treasure from its vault.",
+      "hidden": false
+    },
+    {
+      "id": "pyramid-of-wrath",
+      "name": "Pyramid of Wrath",
+      "detail": "Cross the pyramid Palace and secure the Treasure waiting in the tomb.",
+      "hidden": false
+    },
+    {
+      "id": "spaceport-of-greed",
+      "name": "Spaceport of Greed",
+      "detail": "Shut down the spaceport Palace and steal the Treasure from its launch complex.",
+      "hidden": false
+    },
+    {
+      "id": "casino-of-jealousy",
+      "name": "Casino of Jealousy",
+      "detail": "Win through the casino Palace and defeat its ruler in the last bout.",
+      "hidden": false
+    },
+    {
+      "id": "cruiser-of-pride",
+      "name": "Cruiser of Pride",
+      "detail": "Board the cruise-ship Palace and steal the Treasure that holds it together.",
+      "hidden": false
+    },
+    {
+      "id": "mementos-cleared",
+      "name": "Mementos Cleared",
+      "detail": "Ride the train of the public unconscious down to the deepest floor of Mementos.",
+      "hidden": false
+    },
+    {
+      "id": "confidant-maxed",
+      "name": "Confidant Maxed",
+      "detail": "Spend time with one Confidant until that bond reaches its final rank.",
+      "hidden": false
+    },
+    {
+      "id": "stats-maxed",
+      "name": "Stats Maxed",
+      "detail": "Raise Knowledge, Guts, Proficiency, Kindness, and Charm to their highest rank.",
+      "hidden": false
+    },
+    {
+      "id": "take-back-the-future",
+      "name": "Take Back the Future",
+      "detail": "Finish the final Palace and see the Phantom Thieves' story through to its true end.",
+      "hidden": true
+    }
+  ]
+}
