@@ -52,6 +52,20 @@ final class ConsolePointerTests: IsolatedDefaultsTestCase {
         XCTAssertEqual(idle.tick(now: 12, location: here, buttonDown: false, over: false), .show, "the launcher lost the pointer or the focus")
     }
 
+    func testAHeldPointerStaysHiddenOutsideTheWindowUntilItMoves() {
+        var idle = PointerIdle()
+        _ = idle.tick(now: 0, location: here, buttonDown: false, over: true)
+        XCTAssertEqual(idle.tick(now: 1.5, location: here, buttonDown: false, over: true), .hide)
+        idle.held = true
+        XCTAssertEqual(idle.tick(now: 2, location: here, buttonDown: false, over: false), .none, "the window left full screen for a game")
+        XCTAssertEqual(idle.tick(now: 2.25, location: CGPoint(x: 11, y: 10), buttonDown: false, over: false), .show, "the player moved it")
+        idle.held = true
+        _ = idle.tick(now: 3, location: CGPoint(x: 11, y: 10), buttonDown: false, over: true)
+        _ = idle.tick(now: 4.5, location: CGPoint(x: 11, y: 10), buttonDown: false, over: true)
+        XCTAssertEqual(idle.reset(), .show)
+        XCTAssertFalse(idle.held, "the console ended: the hold goes with it")
+    }
+
     func testEndingTheConsoleShowsAHiddenPointerOnce() {
         var idle = PointerIdle()
         XCTAssertEqual(idle.reset(), .none)

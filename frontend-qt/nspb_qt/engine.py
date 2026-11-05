@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import hashlib
 import subprocess
+import sys
 from pathlib import Path
 from typing import Callable
 
@@ -74,6 +75,8 @@ def _head(eng: Path) -> str:
 
 def is_stale(repo: str) -> bool:
     """True when the checkout can make engine/ and engine/ is missing or not built from the current pin and series."""
+    if bundled_engine():
+        return False   # a bundled engine never needs a sync
     if not has_engine_tool(repo):
         return False
     eng = Path(repo, 'engine')
@@ -84,8 +87,24 @@ def is_stale(repo: str) -> bool:
         return True
 
 
+def bundled_engine() -> str:
+    """The engine tree the Actions zip puts beside the app folder (`<exe_dir>/../engine/`).
+    None when it is not there or does not look like an engine tree."""
+    if not getattr(sys, 'frozen', False):
+        return ''   # a PyInstaller bundle sets sys.frozen; a python -m run never does
+    exe = Path(sys.executable).resolve()
+    for base in (exe.parent, exe.parent.parent):
+        cand = base / 'engine'
+        if cand.joinpath('dm', 'games').is_dir() and cand.joinpath('scripts', 'build_ipa_from_nsp.py').is_file():
+            return str(cand)
+    return ''
+
+
 def engine_root(repo: str) -> str:
     """The folder holding dm/ and scripts/ for this checkout (see the module's rule)."""
+    bundled = bundled_engine()
+    if bundled:
+        return bundled
     if not repo:
         return repo
     eng = Path(repo, 'engine')
@@ -97,8 +116,8 @@ def engine_root(repo: str) -> str:
 
 
 def is_checkout(d: str) -> bool:
-    """A folder the launcher can build from: a checkout with tools/engine.py to make engine/, a synced engine/, or an engine tree."""
-    return bool(d) and (Path(d, *MARKER).is_file() or Path(d, 'engine', *MARKER).is_file() or has_engine_tool(d))
+    """A folder the launcher can build from: a checkout with tools/engine.py to make engine/, a synced engine/, an engine tree, or a bundled engine beside the app."""
+    return bool(bundled_engine()) or (bool(d) and (Path(d, *MARKER).is_file() or Path(d, 'engine', *MARKER).is_file() or has_engine_tool(d)))
 
 
 def needs_sync_before_build(repo: str) -> bool:

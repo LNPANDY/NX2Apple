@@ -53,6 +53,30 @@ class InputStagingTests(unittest.TestCase):
         self.assertEqual(input_staging.sync([base], d), 1)
         self.assertEqual({p.name for p in Path(d).iterdir()}, {'base.nsp', '0100000000000000_build'})
 
+    def test_extension_is_lowercased_in_the_staged_name(self):   # #554
+        S = input_staging
+        self.assertEqual(S.staged_name('Game [0100F2C0115B6000].NSP'), 'Game [0100F2C0115B6000].nsp')
+        self.assertEqual(S.staged_name('Game [0100F2C0115B6000].Nsz'), 'Game [0100F2C0115B6000].nsz')
+        self.assertEqual(S.staged_name('Game.XcI'), 'Game.xci')
+        self.assertEqual(S.staged_name('Game.nsp'), 'Game.nsp')
+        self.assertEqual(S.staged_name('Game.NSP.XCZ'), 'Game.NSP.xcz')
+        self.assertEqual(S.staged_name('PROD.KEYS'), 'PROD.KEYS')
+        self.assertTrue(S.needs_lowercase_name('/x/Game [0100F2C0115B6000].NSP'))
+        self.assertTrue(S.needs_lowercase_name('/x/Game.Nsp'))
+        self.assertFalse(S.needs_lowercase_name('/x/Game.nsp'))
+        self.assertFalse(S.needs_lowercase_name('/x/Game.NUP'))
+
+    def test_uppercase_file_is_staged_under_a_lowercase_name(self):   # #554
+        for hard in (True, False):
+            upper = make(self.root / 'a' / 'Game [0100F2C0115B6000].NSP', 100)
+            mixed = make(self.root / 'a' / 'Game [0100F2C0115B6800][v65536].Nsp', 100)
+            d = input_staging.folder(self.work + str(hard))
+            self.assertEqual(input_staging.sync([upper, mixed], d, hard_links=hard), 2)
+            self.assertEqual(sorted(p.name for p in Path(d).iterdir()),
+                             ['Game [0100F2C0115B6000].nsp', 'Game [0100F2C0115B6800][v65536].nsp'])
+            self.assertEqual(input_staging.sync([upper, mixed], d, hard_links=hard), 2)   # again: nothing stale
+            self.assertEqual(len(list(Path(d).iterdir())), 2)
+
 
 if __name__ == '__main__':
     unittest.main()

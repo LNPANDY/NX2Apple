@@ -55,8 +55,8 @@ final class LaunchOptionsTests: IsolatedDefaultsTestCase {
             // DM_PSO_MTL4's note is written without the semicolon settings.tsv has; the table follows the text rules.
             if c.count > 7, !c[7].isEmpty, c[0] != "DM_PSO_MTL4" { XCTAssertEqual(L10n.string("launch.set.\(c[0]).note", .en), c[7], c[0]) }
             if c[1] == "choice", c[2] != "languages" {
-                for pair in c[2].split(separator: ",") {
-                    let v = pair.split(separator: "=", maxSplits: 1).map(String.init)
+                for pair in c[2].split(separator: ",") {   // an option only some games have carries ?<condition> after its label
+                    let v = pair.split(separator: "?", maxSplits: 1)[0].split(separator: "=", maxSplits: 1).map(String.init)
                     XCTAssertEqual(L10n.string("launch.opt.\(c[0]).\(v[0])", .en), v[1], c[0])
                 }
             }

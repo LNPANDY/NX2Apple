@@ -156,17 +156,38 @@ public enum InputDevice: Equatable, Sendable {
     case keyboard
 }
 
-/// An optional event supplied by the host's input adapter. Increment sequence for repeated presses.
+/// One event from the host's input adapter: a press, or a button or direction let go. `sequence` orders them.
 public struct ShellInput: Equatable, Sendable {
     public enum Action: Sendable { case up, down, left, right, activate, back, settings, controllers }
     public var sequence: Int
     public var action: Action
     public var device: InputDevice
-    public init(sequence: Int, action: Action, device: InputDevice = .controller(.neutral)) {
+    /// The button or direction of `action` came up. Nothing acts on it; it only restarts the window for the system's
+    /// echo of a controller button (`SystemEchoWindow`).
+    public var released: Bool
+    public init(sequence: Int, action: Action, device: InputDevice = .controller(.neutral), released: Bool = false) {
         self.sequence = sequence
         self.action = action
         self.device = device
+        self.released = released
     }
+}
+
+/// The host's input events in order, the last `kept` of them. The host appends each press and release; the library acts
+/// on every event it has not seen yet. One value would keep only the last event written between two view updates, so a
+/// press could be lost, or a release, which left a button counted as held (`SystemEchoWindow`).
+public struct ShellInputLog: Equatable, Sendable {
+    public static let kept = 64
+    public private(set) var events: [ShellInput] = []
+    public init() {}
+    /// The sequence of the last event, 0 with none yet.
+    public var last: Int { events.last?.sequence ?? 0 }
+    public mutating func append(_ action: ShellInput.Action, device: InputDevice = .controller(.neutral), released: Bool = false) {
+        events.append(ShellInput(sequence: last + 1, action: action, device: device, released: released))
+        if events.count > Self.kept { events.removeFirst(events.count - Self.kept) }
+    }
+    /// The events after `sequence`, oldest first.
+    public func since(_ sequence: Int) -> [ShellInput] { events.filter { $0.sequence > sequence } }
 }
 
 /// A controller element the button test lights up, named by its place on an Xbox controller (GameController's names).

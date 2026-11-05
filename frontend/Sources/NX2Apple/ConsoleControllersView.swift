@@ -24,6 +24,7 @@ import NXLauncher
     func identify(controllerID: String) { base.identify(controllerID: controllerID) }
     func disconnect(controllerID: String) { base.disconnect(controllerID: controllerID) }
     func setPadMerge(_ enabled: Bool) { base.setPadMerge(enabled) }
+    func setJoyconSplit(_ enabled: Bool) { base.setJoyconSplit(enabled) }
     func dismissToast() { base.dismissToast() }
     func back() { base.back() }
     func exitToDesktop() { base.exitToDesktop() }
@@ -221,6 +222,7 @@ struct ConsoleToastView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
                     mergeToggle
+                    joyconSplitToggle
                     Text(t("console.controllerNote")).font(.manrope(compact ? 17 : 22)).foregroundStyle(.secondary)
                     HStack(spacing: 12) {
                         ForEach(1...4, id: \.self) { player in
@@ -266,6 +268,26 @@ struct ConsoleToastView: View {
         .buttonStyle(.plain)
         .padTarget("console.controller.merge", scope: scope, radius: 10, activate: flip, adjust: { _ in flip() })
         .accessibilityLabel(t("console.mergeAll")).accessibilityValue(t(state.padMerge ? "console.on" : "console.off"))
+    }
+
+    /// "Split Joy-Con pair into two controllers" (#740) as a switch with its state spelled out.
+    private var joyconSplitToggle: some View {
+        let flip = { driver.setJoyconSplit(!state.joyconSplit) }
+        return Button(action: flip) {
+            HStack(spacing: 14) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Label(t("console.joyconSplit"), systemImage: "rectangle.split.2x1").font(.manrope(compact ? 16 : 18, .semibold))
+                    Text(t(state.joyconSplit ? "console.on" : "console.off")).font(.manrope(compact ? 16 : 20)).foregroundStyle(state.joyconSplit ? LauncherPalette.cream : .secondary)
+                }
+                Spacer(minLength: 8)
+                Toggle("", isOn: Binding(get: { state.joyconSplit }, set: { _ in flip() })).labelsHidden().toggleStyle(LauncherSwitchStyle()).allowsHitTesting(false)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading).padding(14)
+            .background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 10)).contentShape(RoundedRectangle(cornerRadius: 10))
+        }
+        .buttonStyle(.plain)
+        .padTarget("console.controller.joyconSplit", scope: scope, radius: 10, activate: flip, adjust: { _ in flip() })
+        .accessibilityLabel(t("console.joyconSplit")).accessibilityValue(t(state.joyconSplit ? "console.on" : "console.off"))
     }
 
     private func row(_ controller: ConsoleController) -> some View {

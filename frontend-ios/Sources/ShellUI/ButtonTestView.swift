@@ -11,6 +11,7 @@ struct ButtonTestView: View {
     @State private var holding = false
     @State private var holdTask: Task<Void, Never>?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.shellIgnoresPress) private var ignoresPress
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -22,7 +23,9 @@ struct ButtonTestView: View {
                         .shellType(ShellType.note).foregroundStyle(.white.opacity(0.5)).lineLimit(1)
                 }
                 Spacer(minLength: 8)
-                Button(action: close) {
+                // The system's echo of a controller button does not close the test. Holding B, which goes past this
+                // button, still does.
+                Button { if !ignoresPress() { close() } } label: {
                     Image(systemName: "xmark").font(.system(size: 14, weight: .semibold)).frame(width: 44, height: 44)
                         .background(.white.opacity(0.08), in: Circle()).contentShape(Circle())
                 }

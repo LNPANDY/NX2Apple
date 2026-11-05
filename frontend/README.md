@@ -169,7 +169,7 @@ library manifest is stored at
 ## Launch options
 
 The button beside **Play** opens the game's launch options: the settings the iPhone
-launcher shows before a game starts ([docs/settings.md](https://github.com/seedds/nxnative/blob/641d1480021a57840b7acc15f92cbd86ecfae611/docs/settings.md)), read
+launcher shows before a game starts ([docs/settings.md](https://github.com/seedds/nxnative/blob/7249ee9f95ed728aff9a86395330d10d4c91fb5c/docs/settings.md)), read
 from the list the engine packs into the Mac app (`Contents/Resources/dm/launcher.json`,
 written by `dm/games/settings.py` from `dm/games/settings.tsv`, and the engine change that
 packs it is [seedds/nxnative#352](https://github.com/seedds/nxnative/pull/352), so a
@@ -219,6 +219,16 @@ ID → image and kept with the images in
 `~/Library/Application Support/NS Port Builder/artwork/`. Custom images stay at
 their chosen path.
 
+The list can hold several shop products under one title ID: the game, its Nintendo
+Switch 2 Edition, or a bundle with a membership or an expansion pass. The launcher
+takes the game's own product. A product whose name marks an edition, a bundle, a pass
+or a demo loses, and of two equal ones the first in the shop wins. `sources.json` in
+the same folder records where each image came from. An image saved by an older
+launcher is checked once against this rule and replaced when it belongs to another
+product. A banner with a promotion painted in (for example "Demo Available") cannot be
+told from the list. Change artwork covers it. A game the list does not know, as most
+Switch 2 games today, falls back to the screenshot, the app icon or the placeholder.
+
 ## Type
 
 The interface is set in Manrope (SIL Open Font License, with its license in `fonts/`):
@@ -255,6 +265,40 @@ A launcher built from this repository never replaces itself: `swift run` (no
 bundle), a bundle under `.build/` or `DerivedData/`, a bundle beside
 `Package.swift` (the `NX2Apple.app` made here), or one whose Info.plist version
 is not this binary's release number. `AppUpdate.swift` holds these rules.
+
+## Experimental builder
+
+Settings, Build tools, **Use experimental builder** (off by default, LNPANDY/NX2Apple#749). nxbuild is a build tool in Rust that reproduces stages of the NSP script byte for byte, and faster. With the switch on, the build gets `DM_EXPERIMENTAL_BUILDER=1` and `NXB_BIN` (the path of the `nxb` binary). The script stays the driver. It runs the extraction (`nxb-extract`) and the shader split (`nxb-split`) through nxbuild where nxbuild supports the case, with the same outputs, stages and events. Everything else runs the standard way:
+
+- an XCI, an NSZ, a merged package, `--program`, `--allow-damaged`, DLC, run-time captures, NROs, a game decoder, a provisional or derived profile
+- an nxbuild exit code other than 0 (4 means "not supported yet")
+- an output that fails the checks: for an extraction the title, `ExeFS/main`, `RomFS.img` and the profile's marker, for the split the data rows of the profile's shader tables
+
+The build log says which stage nxbuild ran and why a stage fell back. nxbuild's own log is `logs/nxb_extract_<version>.log` or `logs/nxb_split.log` in the build folder. The shader step, the pipeline archive and the Mac app are not handed over yet. The NSP script needs the engine patch that reads the two variables. An engine without it ignores them.
+
+Where `nxb` comes from (`ExperimentalBuilder` in `NXCore`):
+
+1. The path chosen in the row under the switch, the `nxb` binary or the folder that holds it. A chosen path that does not work is reported, never replaced by another binary.
+2. Otherwise the app's own copy, `Contents/Resources/nxbuild/nxb`. `frontend/nxbuild.pin` names the nxbuild release (version, SHA-256, URL pattern). `build-mac-app.yml` and `tools/try-local` run `frontend/tools/nxbuild.py fetch`: it downloads the zip, checks its SHA-256 against the pin before anything is unpacked, puts `nxb` into Resources and signs it ad hoc. A zip whose digest differs fails the app build. A pin with `PLACEHOLDER` as its digest bundles nothing. `frontend/tools/nxbuild.py bump <version>` pins a new release with the digest from its `SHA256SUMS`. Players download nothing at run time.
+
+With neither, the switch only writes a note in the build log and the standard builder runs.
+
+To try a local nxbuild:
+
+```bash
+cd <nxbuild checkout> && cargo build --release      # the binaries land in its target folder, release/
+codesign --force --sign - <target>/release/nxb*     # ad hoc, as the app's copy
+```
+
+Then turn the switch on and choose `release/nxb` (or the folder). From a terminal, the same works without the launcher:
+
+```bash
+DM_EXPERIMENTAL_BUILDER=1 NXB_BIN=<target>/release/nxb python3 engine/scripts/build_ipa_from_nsp.py <NSP folder> -k <prod.keys> --platform mac-app
+```
+
+The script takes a stage binary beside `nxb` (`nxb-extract`, `nxb-split`) when there is one, else the subcommand of `nxb` (`nxb extract`, `nxb split`).
+
+The Qt front end has no switch for it: nxbuild is built for macOS on Apple silicon only, and on a Mac the launcher above is the one to use.
 
 ## Run
 
@@ -334,9 +378,12 @@ Windows launcher never show them. Xcode needs a string catalog per target, so
 `frontend-ios/Sources/ShellHost/Resources/Localizable.xcstrings` from the files (the catalogs are not edited by hand).
 The Swift code asks for a shell text by its English words (`ShellStrings.text("Done")`), so the catalog's key is the English
 text of the JSON key, and each language file that has the JSON key adds a localization (`zh.json` becomes `zh-Hans`, every other
-code stays as it is). A new shell text is a line in `en.json` and `zh.json` under the prefix, the same words in the Swift call
-and `python3 tools/l10n_shell_catalogs.py`. A new language file shows up in both catalogs with no change in the tool. A language
-that has no line for a key shows the English text, as in the launchers. `tools/tests/test_l10n_shell_catalogs.py` fails when a
+code stays as it is). A new shell text is a line in every language file under the prefix, the same words in the Swift call
+and `python3 tools/l10n_shell_catalogs.py`. A new language file shows up in both catalogs with no change in the tool. Unlike the
+launchers' texts, every shell text has every language: `python3 tools/l10n_shell_catalogs.py --check` fails when a language file
+lacks one, and so do `ShellStringsTests` (each catalog entry has all six) and `ShellTextSourcesTests` (each `ShellStrings.text` and
+`hostText` literal of the sources is a catalog key) in frontend-ios. A text a language writes as English does (OK, Minus, Version)
+is listed in `ShellStringsTests.cognates` and in the German and French launcher tests. `tools/tests/test_l10n_shell_catalogs.py` fails when a
 committed catalog differs from what the files give, and when the app's `CFBundleLocalizations` (the Demo app, `tools/try-local`
 and the shell app of the engine, patch 0056) do not list every file, because iOS offers a language to the shell only when the
 app declares it. The key checks treat the `ios.*` keys as used (`catalogKeys` in `frontend/Tests/l10n-key-rules.json`).

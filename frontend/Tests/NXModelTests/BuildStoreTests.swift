@@ -145,6 +145,39 @@ import XCTest
         XCTAssertEqual(makeStore().outDir, "/out", "a new store starts from what was saved")
     }
 
+    // MARK: The experimental builder (#749)
+
+    func testTheExperimentalBuilderIsOffByDefaultAndItsSettingIsSaved() {
+        let store = makeStore()
+        XCTAssertFalse(store.experimentalBuilder)
+        XCTAssertEqual(store.builderEnvironment(), [:], "off: the build gets nothing")
+        XCTAssertFalse(store.log.text.contains(store.t("msg.builderMissing")), "and the log says nothing")
+        store.experimentalBuilder = true; store.experimentalBuilderPath = "/opt/nxbuild"
+        XCTAssertTrue(defaults.bool(forKey: BuildStore.experimentalBuilderKey))
+        XCTAssertEqual(defaults.string(forKey: BuildStore.experimentalBuilderPathKey), "/opt/nxbuild")
+        let again = makeStore()
+        XCTAssertTrue(again.experimentalBuilder)
+        XCTAssertEqual(again.experimentalBuilderPath, "/opt/nxbuild")
+    }
+
+    func testTheBuildGetsTheChosenNxbOrANoteThatTheStandardBuilderRuns() throws {
+        let store = makeStore()
+        store.bundledBuilder = nil
+        store.experimentalBuilder = true
+        store.experimentalBuilderPath = temporary.path + "/gone/nxb"
+        XCTAssertNil(store.experimentalBuilderBinary)
+        XCTAssertEqual(store.builderEnvironment(), [:])
+        XCTAssertTrue(store.log.text.contains(store.t("msg.builderMissing")))
+        let nxb = try file("nxb")
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: nxb)
+        store.experimentalBuilderPath = temporary.path   // the folder that holds it
+        XCTAssertEqual(store.experimentalBuilderBinary, nxb)
+        XCTAssertEqual(store.builderEnvironment(), ["DM_EXPERIMENTAL_BUILDER": "1", "NXB_BIN": nxb])
+        XCTAssertTrue(store.log.text.contains(String(format: store.t("msg.builderOn"), nxb)))
+        store.experimentalBuilder = false
+        XCTAssertEqual(store.builderEnvironment(), [:], "off again: nothing, whatever the path")
+    }
+
     func testTakingFilesFillsTheRowAndNamesTheFirstFileThatDoesNotFit() {
         let store = makeStore()
         store.take(picked: ["/g/Game [0100000000001000].nsp"], kind: .base)
@@ -197,13 +230,26 @@ import XCTest
         XCTAssertTrue(store.log.text.contains("plain line from a tool\n"), "what is not an event is log text")
     }
 
-    func testTheShaderChainNoticeShowsOncePerBuild() {
+    func testTheStaleShadersNoticeShowsOncePerBuildForEachReason() {
+        for (reason, text) in [("chain", "msg.shadersStale.chain"), ("inputs", "msg.shadersStale.inputs")] {
+            let store = makeStore()
+            var notices: [[String]] = []
+            store.showNotice = { notices.append([$0, $1]) }
+            let event = "{\"ev\":\"shaders_stale\",\"reason\":\"\(reason)\",\"old\":\"b-4e0dd2535996\",\"new\":\"b-b7cd656abd7c\",\"count\":65}\n"
+            store.ingest(event)
+            store.ingest(event)   // the next shader step of the same build
+            XCTAssertEqual(notices, [[store.t("msg.shadersStale.title"), store.t(text)]], reason)
+        }
+    }
+
+    func testTheNoteLineAndAnUnknownReasonShowNoNotice() {
         let store = makeStore()
         var notices: [String] = []
-        store.showNotice = { notices.append($0) }
-        store.ingest("{\"ev\":\"say\",\"msg\":\"[NOTE] chain-changed: recompiling\"}\n")
-        store.ingest("[NOTE] chain-changed again\n")
-        XCTAssertEqual(notices, [store.t("msg.chainChanged")])
+        store.showNotice = { title, _ in notices.append(title) }
+        store.ingest("{\"ev\":\"say\",\"msg\":\"[NOTE] cached shader libraries cannot be reused (a -> b): the translation chain changed\"}\n")
+        XCTAssertEqual(notices, [], "the event shows the notice, the note that follows it is a log line")
+        store.ingest("{\"ev\":\"shaders_stale\",\"reason\":\"newer\",\"old\":\"a\",\"new\":\"b\",\"count\":1}\n")
+        XCTAssertEqual(notices, [], "no text explains a reason a newer script adds")
     }
 
     // MARK: The failure
