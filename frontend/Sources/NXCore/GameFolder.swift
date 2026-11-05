@@ -185,10 +185,18 @@ package enum GameFolder {
         !engineRoot.isEmpty && FileManager.default.fileExists(atPath: engineRoot + "/scripts/pack_nup.py")
     }
 
-    /// Whether the engine has a profile for the game. The script packs a game folder only for a game with a profile: the survey
-    /// that makes a provisional one reads NSPs.
+    /// Whether the engine has a profile for the game: `dm/games/<title ID>/game.tsv`. An engine that surveys a game without one
+    /// (`engineSurveysWithoutProfile`) does not need it to build a NUP or a game folder.
     package static func engineHasProfile(_ titleID: UInt64, engineRoot: String) -> Bool {
         !engineRoot.isEmpty && FileManager.default.fileExists(atPath: engineRoot + "/dm/games/" + String(format: "%016llX", titleID) + "/game.tsv")
+    }
+
+    /// Whether the engine builds a NUP or a game folder of a game with no profile, from a provisional profile it makes by a survey:
+    /// `scripts/build_ipa_from_nsp.py` has `survey_nup` and `survey_dump` (seedds/nxnative 056e41fe, PR #1295). An older engine packs
+    /// a game folder only for a game with a profile.
+    package static func engineSurveysWithoutProfile(_ engineRoot: String) -> Bool {
+        guard !engineRoot.isEmpty, let data = FileManager.default.contents(atPath: engineRoot + "/scripts/build_ipa_from_nsp.py") else { return false }
+        return data.range(of: Data("def survey_nup".utf8)) != nil
     }
 
     /// The `name` row of the game's profile: a game folder has no control data, so the script names the app after it too.
