@@ -83,7 +83,9 @@ import AppKit
     func toggle() { active ? exit() : enter() }
 
     /// Takes the window out of full screen and then calls `launch`, which starts the game. A window that is not full screen calls it at once.
+    /// A hidden pointer stays hidden until the game has quit, as the smaller window no longer covers it (ConsolePointer.hold).
     func leaveFullScreenForGame(then launch: @escaping () -> Void) {
+        pointer.hold(true)
         guard active, let w = window(), w.styleMask.contains(.fullScreen) else { launch(); return }
         leftForGame = true
         setFullScreen(w, false) { launch() }
@@ -92,6 +94,7 @@ import AppKit
     /// The game has quit or did not start: the window goes back to full screen if it left for the game and the console is still showing.
     /// A launcher that is not the active app waits until it is, so it does not pull the player into a Space from behind another app.
     func resumeFullScreenAfterGame() {
+        pointer.hold(false)
         guard leftForGame else { return }
         leftForGame = false
         guard active else { return }
