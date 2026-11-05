@@ -162,10 +162,14 @@ public struct ShellInput: Equatable, Sendable {
     public var sequence: Int
     public var action: Action
     public var device: InputDevice
-    public init(sequence: Int, action: Action, device: InputDevice = .controller(.neutral)) {
+    /// The button or direction of `action` came up. Nothing acts on it; it only restarts the window for the system's
+    /// echo of a controller button (`SystemEchoWindow`).
+    public var released: Bool
+    public init(sequence: Int, action: Action, device: InputDevice = .controller(.neutral), released: Bool = false) {
         self.sequence = sequence
         self.action = action
         self.device = device
+        self.released = released
     }
 }
 

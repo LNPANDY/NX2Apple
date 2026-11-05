@@ -25,7 +25,7 @@ public struct PadMapper: Sendable {
     /// How far the stick or D-pad must move before it counts as a direction.
     public static let deadzone: Float = 0.5
 
-    private var held: [String: Set<String>] = [:]
+    private var held: [String: [String: ShellInput.Action]] = [:]
     public init() {}
 
     /// The action of each button: A activates, B goes back, X and Menu open the game's settings, Y opens Controllers.
@@ -51,36 +51,22 @@ public struct PadMapper: Sendable {
         return nil
     }
 
-    /// What changed for `controller`: the actions newly pressed and released.
+    /// What changed for `controller`: the actions of the buttons and directions newly pressed, and of those let go.
     public mutating func changes(controller: String, state: PadState) -> (pressed: [ShellInput.Action], released: [ShellInput.Action]) {
         var now: [String: ShellInput.Action] = [:]
         if let direction = Self.direction(x: state.x, y: state.y) { now["dir.\(direction)"] = direction }
         for button in state.buttons {
             if let action = Self.action(for: button) { now["btn.\(button)"] = action }
         }
-        let before = held[controller] ?? []
-        let pressed = now.filter { !before.contains($0.key) }.sorted { $0.key < $1.key }.map(\.value)
-        let releasedKeys = before.subtracting(now.keys)
-        let released = releasedKeys.compactMap { key -> ShellInput.Action? in
-            guard key.hasPrefix("dir.") else { return nil }
-            return Self.directionAction(key)
-        }
-        held[controller] = Set(now.keys)
+        let before = held[controller] ?? [:]
+        let pressed = now.filter { before[$0.key] == nil }.sorted { $0.key < $1.key }.map(\.value)
+        let released = before.filter { now[$0.key] == nil }.sorted { $0.key < $1.key }.map(\.value)
+        held[controller] = now
         return (pressed, released)
     }
 
     /// Forget a controller, after it disconnects.
     public mutating func reset(controller: String) { held[controller] = nil }
-
-    private static func directionAction(_ key: String) -> ShellInput.Action? {
-        switch key {
-        case "dir.left": .left
-        case "dir.right": .right
-        case "dir.up": .up
-        case "dir.down": .down
-        default: nil
-        }
-    }
 
     static func isDirection(_ action: ShellInput.Action) -> Bool {
         switch action {

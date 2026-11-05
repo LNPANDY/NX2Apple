@@ -289,10 +289,10 @@ public struct LibraryView: View {
                               ended: { finishEdgeSwipe(travel: $0, velocity: $1, span: controllersOpen || shellSettingsOpen ? min(width, 520) : pane) },
                               cancelled: cancelEdgeSwipe)
             }
-            // Every target on screen. Which of them the D-pad reaches is decided when it is used (`isLive`), from the state
-        // at that moment: a filter here would run only when some target changes, and closing a panel changes none, so
-        // the closed panel's targets stayed and the focus on the button that opened it was taken for lost.
-        .onPreferenceChange(FocusTargets.self) { all in targets.values = all.filter { $0.frame.width > 1 } }
+            // Every target on screen. Which of them the D-pad reaches is decided when it is used (`isLive`), from the
+            // state at that moment: a filter here would run only when some target changes, and closing a panel changes
+            // none, so the closed panel's targets stayed and the focus on the button that opened it was taken for lost.
+            .onPreferenceChange(FocusTargets.self) { all in targets.values = all.filter { $0.frame.width > 1 } }
             .onAppear { self.layout = layout }
             .onChange(of: layout) { _, new in self.layout = new }
         }
@@ -309,19 +309,24 @@ public struct LibraryView: View {
         .environment(\.shellPickChoice, { request in openChoice(request) })
         .environment(\.shellOpenPadMapping, { id in openPadMapping(id) })
         .environment(\.shellOpenButtonTest, { openButtonTest() })
-        .environment(\.shellIgnoresPress, { [gate] in !gate.handling && gate.isSystemEcho })
+        .environment(\.shellIgnoresPress, { [gate] in gate.isSystemEcho })
         .environment(\.shellShowHelp, { game in openHelp(game.id) })
         .environment(\.shellAskDelete, { game in openDelete(game.id) })
         .environment(\.shellFocus, focus)
         .environment(\.shellInputDevice, device)
         .foregroundStyle(.white)
         .font(ShellFonts.font(15)).tint(ShellPalette.cream).preferredColorScheme(.dark)
-        .onChange(of: input) { _, event in if let event { handle(event.action, from: event.device) } }
+        .onChange(of: input) { _, event in
+            guard let event else { return }
+            // A button let go only restarts the window for the system's echo, which comes as the button comes up.
+            if event.released { if case .controller = event.device { gate.controllerUp(event.action) }; return }
+            handle(event.action, from: event.device)
+        }
         // A hardware keyboard, as on the Mac: arrows move, Return activates, Escape goes back, O opens game settings,
         // Y opens controllers.
         .focusable().focused($keyboardFocus).focusEffectDisabled()
         .onAppear { keyboardFocus = true }
-        .onAnyTouch { gate.touchAt = .now }
+        .onAnyTouch { gate.touch() }
         .onKeyPress(.leftArrow) { handle(.left, from: .keyboard); return .handled }
         .onKeyPress(.rightArrow) { handle(.right, from: .keyboard); return .handled }
         .onKeyPress(.upArrow) { handle(.up, from: .keyboard); return .handled }
@@ -419,18 +424,14 @@ public struct LibraryView: View {
 
     // MARK: Actions and focus
 
-    /// An action that did not come from a controller or key came from touch: hints and focus ring step back. False when
-    /// it came from neither: iPadOS also takes a controller's A as a press on a button of its own choosing (Play in
-    /// portrait, the middle cover in landscape), as the button comes up, past `handle`. Such a press, right after a
-    /// controller button and with no finger down since, is not acted on: the shell's own focus already took that button.
-    /// The system's echo of a controller button (see `noteTouch`), for the actions that close or go back: they do not
-    /// change the touch mode, but the echo must not close the panel the button just opened.
-    private var fromSystemEcho: Bool { !gate.handling && gate.isSystemEcho }
+    /// The system's echo of a controller button (see `SystemEchoWindow`), for the actions that close or go back: they
+    /// do not change the touch mode, but the echo must not close the panel the button just opened.
+    private var fromSystemEcho: Bool { gate.isSystemEcho }
     /// `actions` for the views that change settings or data themselves (a switch, a row, a button in the settings): the
     /// system's echo of a controller button changes nothing through them.
     private var guardedActions: ShellActions {
         let gate = gate
-        func echo() -> Bool { !gate.handling && gate.isSystemEcho }
+        func echo() -> Bool { gate.isSystemEcho }
         var a = actions
         let o = actions
         a.onSelect = { if !echo() { o.onSelect($0) } }
@@ -453,6 +454,9 @@ public struct LibraryView: View {
         a.onDeleteGame = { if !echo() { o.onDeleteGame($0, $1) } }
         return a
     }
+    /// An action that did not come from a controller or key came from touch: hints and focus ring step back. False when
+    /// it came from neither but is the system's echo of a controller button (see `SystemEchoWindow`): the shell's own
+    /// focus already took that button, so the press is not acted on.
     private func noteTouch() -> Bool {
         guard !gate.handling else { return true }
         if gate.isSystemEcho { return false }
@@ -460,8 +464,13 @@ public struct LibraryView: View {
         if focus.visible { focus.visible = false }
         return true
     }
+    /// A press on the library's own buttons that the shell may act on: from `handle`, or with nothing over the library.
+    /// Under a dialog or a panel no finger reaches the library (it takes no hits there), so a press on its buttons is the
+    /// system's echo of a controller button, whatever the window says: a finger that came down elsewhere just before the
+    /// echo (a tap in the settings pane right after A) ends the window, and Play behind the pane started the game.
+    private var libraryPressAllowed: Bool { FocusLayer.libraryTakesPress(fromShell: gate.handling, under: topLayer) }
     private func primary(_ detail: GameDetail) {
-        guard noteTouch() else { return }
+        guard libraryPressAllowed, noteTouch() else { return }
         if detail.game.state.needsHelp { openHelp(detail.id); return }
         switch detail.game.state {
         case .playable: actions.onPlay(detail.id)
@@ -471,7 +480,7 @@ public struct LibraryView: View {
         }
     }
     private func select(_ id: String) {
-        guard noteTouch() else { return }
+        guard libraryPressAllowed, noteTouch() else { return }
         guard id != selectedID else { return }
         selectedID = id
         actions.onSelect(id)
@@ -617,8 +626,8 @@ public struct LibraryView: View {
     private func handle(_ action: ShellInput.Action, from source: InputDevice) {
         gate.handling = true
         defer { gate.handling = false }
+        if case .controller = source { gate.controller(action) }
         // Every controller button belongs to the button test while it is open: it closes on B held, touch or Escape.
-        if case .controller = source { gate.controllerAt = .now }
         if buttonTestOpen, case .controller = source { return }
         if device != source { device = source }
         if touchMode { touchMode = false }
@@ -655,17 +664,19 @@ public struct LibraryView: View {
     }
     /// The targets the D-pad reaches now: the open dialog's or panel's own, else the library's.
     private var liveTargets: [FocusTarget] { targets.values.filter { isLive($0.id) } }
-    private func isLive(_ id: String) -> Bool {
-        if buttonTestOpen { return id.hasPrefix("test.") }
-        if padMapping != nil { return id.hasPrefix("map.") }
-        if choice != nil { return id.hasPrefix("pick.") }
-        if touchLayout != nil { return id.hasPrefix("lay.") }
-        if controllersOpen { return id.hasPrefix("ctl.") }
-        if shellSettingsOpen { return id.hasPrefix("shs.") }
-        if helpGameID != nil { return id.hasPrefix("help.") }
-        if deleteGameID != nil { return id.hasPrefix("del.") }
-        if settingsOpen { return id.hasPrefix("set.") }
-        return !["ctl.", "help.", "pick.", "shs.", "del.", "map.", "test.", "lay.", "set."].contains { id.hasPrefix($0) }
+    private func isLive(_ id: String) -> Bool { FocusLayer.isLive(id, under: topLayer) }
+    /// The dialog or panel on top, in the order of `FocusLayer`.
+    private var topLayer: FocusLayer? {
+        if buttonTestOpen { return .buttonTest }
+        if padMapping != nil { return .padMapping }
+        if choice != nil { return .choice }
+        if touchLayout != nil { return .touchLayout }
+        if controllersOpen { return .controllers }
+        if shellSettingsOpen { return .shellSettings }
+        if helpGameID != nil { return .help }
+        if deleteGameID != nil { return .delete }
+        if settingsOpen { return .settings }
+        return nil
     }
     private func move(_ action: ShellInput.Action) {
         let live = liveTargets
@@ -794,21 +805,5 @@ private struct CoverThumbnail: View {
         .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(.white.opacity(0.14)))
         .shadow(color: .black.opacity(0.4), radius: 16, y: 6)
         .accessibilityHidden(true)
-    }
-}
-
-/// Marks the actions a controller or key press causes, so they are not taken for touch. Not observed.
-@MainActor final class InputGate {
-    var handling = false
-    /// When the last controller button went down.
-    var controllerAt: Date?
-    /// When a finger last came down anywhere on the screen.
-    var touchAt: Date?
-    /// How long after a controller button a button press is the system's echo of it: the press comes as A comes up.
-    static let systemEcho: TimeInterval = 1
-    /// A button pressed now came from no finger: a controller button went down within `systemEcho` and no finger since.
-    var isSystemEcho: Bool {
-        guard let controllerAt, Date.now.timeIntervalSince(controllerAt) < Self.systemEcho else { return false }
-        return touchAt.map { $0 < controllerAt } ?? true
     }
 }

@@ -507,6 +507,10 @@ public struct ShellHostConfig: Sendable {
             guard let self else { return }
             self.input = ShellInput(sequence: (self.input?.sequence ?? 0) + 1, action: action, device: device)
         }
+        adapter.onRelease = { [weak self] action, device in
+            guard let self else { return }
+            self.input = ShellInput(sequence: (self.input?.sequence ?? 0) + 1, action: action, device: device, released: true)
+        }
         adapter.onControllersChange = { [weak self] connected in
             self?.controllers = connected.map(Self.info(for:))
         }
