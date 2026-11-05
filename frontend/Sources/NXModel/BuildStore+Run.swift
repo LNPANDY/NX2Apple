@@ -137,7 +137,7 @@ extension BuildStore {
         if bcOnCPU && target != BuildTarget.mac {
             let envPath = NSTemporaryDirectory() + "nspb-env-\(UUID().uuidString.prefix(8)).txt"
             do {
-                try "DM_TEX_BC_CPU=1\n".write(toFile: envPath, atomically: true, encoding: .utf8)
+                try "DM_PROF_TEX_BC_CPU=1\n".write(toFile: envPath, atomically: true, encoding: .utf8)
                 args += ["--env-file", envPath]
                 say(t("msg.bcOn"))
             } catch {
