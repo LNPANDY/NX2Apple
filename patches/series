@@ -46,4 +46,5 @@
 0076-host-read-embedded-sections-from-the-image-that.patch
 0077-ios-shell-link-the-host-into-each-game-s-framewo.patch
 0078-document-the-fork-touch-controls-so-environment.patch
-0079-ios-shell-copy-a-game-s-packed-shader-image-into.patch
+0079-ios-carry-cpu-bc-compatibility-through-game-pack.patch
+0080-ios-shell-copy-a-game-s-packed-shader-image-into.patch
