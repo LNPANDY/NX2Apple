@@ -73,7 +73,40 @@ _IMPORT = re.compile(r'^\s*#\s*(?:import|include)\s*<(\w+)/', re.M)
 
 #: Paths the pack step drops from the base app (a full IPA maps its RomFS back in as `romfs` or `romfs.img`).
 PACK_SKIPS = ('Payload/DmIOS.app/msl', 'Payload/DmIOS.app/aoc',
-              'Payload/DmIOS.app/romfs', 'Payload/DmIOS.app/romfs.img')
+              'Payload/DmIOS.app/romfs', 'Payload/DmIOS.app/romfs.img',
+              'Payload/DmIOS.app/romfs.id', 'Payload/DmIOS.app/html',
+              'Payload/DmIOS.app/jit')
+
+
+def _shader_lib_module(repo: Path):
+    """Load `dm/tools/shader_lib.py` when present (engine >= 1.2 packs `b-<chain>/` into `b-<chain>.img`)."""
+    tools = Path(repo) / 'dm' / 'tools'
+    if not (tools / 'shader_lib.py').is_file():
+        return None
+    if str(tools) not in sys.path:
+        sys.path.insert(0, str(tools))
+    import shader_lib
+    return shader_lib
+
+
+def shader_lib_has(repo: Path, lib: Path) -> bool:
+    """Whether `lib` (`b-<chain>` folder or `b-<chain>.img` image) holds compiled `*_b.metallib` files."""
+    slib = _shader_lib_module(repo)
+    if slib is not None:
+        return bool(slib.has_library(lib))
+    return bool(list(Path(lib).glob('*_b.metallib')))
+
+
+def shader_lib_stamp_lines(repo: Path, lib: Path) -> list[str]:
+    """Lines of `inputs.tsv` from `b-<chain>` (folder or `.img`), or `[]` when absent."""
+    slib = _shader_lib_module(repo)
+    if slib is not None:
+        try:
+            return (slib.view(lib) / 'inputs.tsv').read_text(encoding='utf-8').splitlines()
+        except OSError:
+            return []
+    stamp = Path(lib) / 'inputs.tsv'
+    return stamp.read_text(encoding='utf-8').splitlines() if stamp.exists() else []
 
 
 def romfs_has(repo, romfs, marker: str) -> bool:
@@ -562,7 +595,7 @@ def main(argv: list[str] | None = None) -> int:
     v = m.group(1)
     gfx = env.get('GFXAPI') or ''
     if gfx not in ('nvn', 'vulkan', 'gl'):
-        if list((msl_ios / f'b-{v}').glob('*_b.metallib')):
+        if shader_lib_has(repo, msl_ios / f'b-{v}'):
             gfx = 'nvn'
         elif (msl_ios / 'vk/vk_shaders.metallib').exists():
             gfx = 'vulkan'
@@ -580,16 +613,15 @@ def main(argv: list[str] | None = None) -> int:
         msldir = 'gl'
     else:
         msldir = f'b-{v}'
-        if not list((msl_ios / msldir).glob('*_b.metallib')):
+        if not shader_lib_has(repo, msl_ios / msldir):
             die(f'no iOS shader libraries at {msl_ios}/{msldir} (the shader step must run first)')
         # The stamp `dmsh_build.py` writes names the game and the digest of its profile's
         # shader inputs. `build_ipa.sh` compares both and refuses libraries from another
         # profile state; without the comparison a stale library set would be packed silently.
         inputs = py(repo / 'dm/gfx/tools/dmsh_chain.py', '--inputs',
                     env=dict(env, DM_GAME=game))
-        stamp = msl_ios / msldir / 'inputs.tsv'
         if inputs:
-            lines = stamp.read_text(encoding='utf-8').splitlines() if stamp.exists() else []
+            lines = shader_lib_stamp_lines(repo, msl_ios / msldir)
             if f'game\t{game}' not in lines or f'inputs\t{inputs}' not in lines:
                 die(f'the iOS shader libraries at {msl_ios}/{msldir} are not a full build from '
                     f'this profile\'s current tables (inputs {inputs}): build them again')
@@ -663,18 +695,17 @@ def main(argv: list[str] | None = None) -> int:
     es = gen / 'embed.S'
     es_tmp = gen / 'embed.S.tmp'
     jit_img = romfs.parent / 'jit' / 'jit.img'
-    embed_extra = [jit_img] if jit_img.is_file() else []
-    flags = py(repo / 'dm/ios/tools/gen_embed.py', patched, es_tmp, *mods, *embed_extra)
+    jit_args = ['--jit', jit_img] if jit_img.is_file() else []
+    flags = py(repo / 'dm/ios/tools/gen_embed.py', *jit_args, patched, es_tmp, *mods)
     bin_meta = []
     for m_name in mods:
         bp = patched / f'{m_name}.patched.bin'
         if bp.is_file():
             st = bp.stat()
             bin_meta.append(f'{m_name}:{st.st_size}:{st.st_mtime_ns}')
-    for ep in embed_extra:
-        if ep.is_file():
-            st = ep.stat()
-            bin_meta.append(f'{ep.name}:{st.st_size}:{st.st_mtime_ns}')
+    if jit_img.is_file():
+        st = jit_img.stat()
+        bin_meta.append(f'{jit_img.name}:{st.st_size}:{st.st_mtime_ns}')
     # the assembler treats '\' as an escape in .incbin paths
     es_body = re.sub(r'\.incbin "([^"]*)"',
                      lambda mm: '.incbin "' + mm.group(1).replace('\\', '/') + '"',
@@ -774,6 +805,10 @@ def main(argv: list[str] | None = None) -> int:
 
     # --- pack
     maps = [f'Payload/DmIOS.app={app}', f'Payload/DmIOS.app/msl/{msldir}={msl_ios / msldir}']
+    if (romfs.parent / 'html').is_dir():
+        maps.append(f'Payload/DmIOS.app/html={romfs.parent / "html"}')
+    if (romfs.parent / 'jit').is_dir():
+        maps.append(f'Payload/DmIOS.app/jit={romfs.parent / "jit"}')
     if aoc and aoc.is_dir() and any(aoc.iterdir()):
         maps.append(f'Payload/DmIOS.app/aoc={aoc}')
         t('add-on content: ' + ' '.join(sorted(p.name for p in aoc.iterdir())))

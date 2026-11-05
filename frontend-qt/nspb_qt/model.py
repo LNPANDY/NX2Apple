@@ -499,8 +499,8 @@ class Model(QObject):
                 # three placeholders, three args: a mismatch makes t() fall back to the raw
                 # "dependency %@: [%@] %@" line (the report's log had it six times)
                 name = d.title_key.replace('dep.', '').replace('.hint', '')
-                self.log(self.t('dep.row.log', name, d.state.value,
-                                d.detail.replace('\n', ' | ')) + '\n')
+                detail_text = self.format_dep_detail(d.detail).replace('\n', ' | ')
+                self.log(self.t('dep.row.log', name, d.state.value, detail_text) + '\n')
         if not pu.IS_WIN:
             # On Windows `_windows_deps` already set python_path (the interpreter the app
             # installed, which find_python without its candidates cannot see) and dotnet_path
@@ -906,8 +906,30 @@ class Model(QObject):
                 self.log(self.t('dep.install.fail', '-') + '\n')
             self._clear_installing(dep)
             self.depsChanged.emit()
+            self.check_deps()
 
         threading.Thread(target=work, daemon=True).start()
+
+    def format_dep_detail(self, detail: str) -> str:
+        """Translate internal `dep.*` detail markers into localized text for the UI and log."""
+        if detail == 'dep.xcode.noSDK':
+            return self.t('dep.xcode.noSDK')
+        if detail.startswith('dep.python.old:'):
+            ver = detail.split(':', 1)[1]
+            return self.t('dep.python.old', ver, f'{pu.MIN_PYTHON[0]}.{pu.MIN_PYTHON[1]}')
+        if detail.startswith('dep.python.missing:'):
+            py = detail.split(':', 1)[1]
+            return self.t('dep.python.missing', py)
+        if detail.startswith('dep.python.notFound:'):
+            need = detail.split(':', 1)[1]
+            return self.t('dep.python.notFound', need, need)
+        if detail.startswith('dep.python.none:'):
+            found = detail.split(':', 1)[1]
+            return self.t('dep.python.none', found)
+        if detail.startswith('dep.metal.other:'):
+            _, got, tested = detail.split(':', 2)
+            return self.t('dep.metal.other', got, tested)
+        return detail
 
     def _clear_installing(self, dep: Dep) -> None:
         """Drop `installing` on every row with this id, wherever it currently lives.
@@ -955,7 +977,12 @@ class Model(QObject):
                         log=lambda s: self.log(str(s) + '\n'),
                         progress=progress_logger(self.t('dep.phase.download')))
                     self.log(self.t('dep.python.done', str(path)) + '\n')
-                    ok = True
+                    self.python_path = str(path)
+                    ok = self._make_venv(str(path))
+                    if not ok:
+                        detail = 'venv / package install failed'
+                        self.log(self.t('dep.install.fail', detail) + '\n')
+                        self._record_install_failure(dep, detail)
                 elif what == 'llvm':
                     self.log(self.t('dep.llvm.downloading') + '\n')
                     path = wf.install_llvm(
@@ -1132,9 +1159,17 @@ class Model(QObject):
         and no PyPI — the same "the app carries it" promise the Mac's bundled CPython makes.
         Source runs have no such folder and fall back to PyPI.
         """
-        base = getattr(sys, '_MEIPASS', None) or Path(sys.executable).parent
-        w = Path(base) / 'wheels'
-        return w if w.is_dir() and any(w.glob('*.whl')) else None
+        cands: list[Path] = []
+        meipass = getattr(sys, '_MEIPASS', None)
+        if meipass:
+            cands.append(Path(meipass))
+            cands.append(Path(meipass).parent)
+        cands.append(Path(sys.executable).parent)
+        for base in cands:
+            w = Path(base) / 'wheels'
+            if w.is_dir() and any(w.glob('*.whl')):
+                return w
+        return None
 
     @staticmethod
     def _pip_args(pkgs: list[str], wheels: Path | None) -> list[str]:
@@ -1184,21 +1219,24 @@ class Model(QObject):
         if ver < (3, 14):
             pkgs.insert(4, 'backports.zstd')
         wheels = self.bundled_wheels()
-        args = self._pip_args(pkgs, wheels)
-        self.log(f'$ {vpy} -m pip {" ".join(args)}'
-                 + ('' if wheels else '  (from PyPI)') + '\n')
-        try:
-            p = subprocess.Popen([vpy, '-m', 'pip'] + args, stdout=subprocess.PIPE,
-                                 stderr=subprocess.STDOUT, text=True, encoding='utf-8',
-                                 errors='replace', env=pu.child_env(), **pu.no_window_kwargs())
-            assert p.stdout is not None
-            for line in p.stdout:
-                self.log(line)
-            p.wait()
-            return p.returncode == 0
-        except OSError as e:
-            self.log(f'{e}\n')
-            return False
+        for attempt_wheels in ([wheels, None] if wheels else [None]):
+            args = self._pip_args(pkgs, attempt_wheels)
+            self.log(f'$ {vpy} -m pip {" ".join(args)}'
+                     + ('' if attempt_wheels else '  (from PyPI)') + '\n')
+            try:
+                p = subprocess.Popen([vpy, '-m', 'pip'] + args, stdout=subprocess.PIPE,
+                                     stderr=subprocess.STDOUT, text=True, encoding='utf-8',
+                                     errors='replace', env=pu.child_env(), **pu.no_window_kwargs())
+                assert p.stdout is not None
+                for line in p.stdout:
+                    self.log(line)
+                p.wait()
+                if p.returncode == 0:
+                    return True
+            except OSError as e:
+                self.log(f'{e}\n')
+                return False
+        return False
 
     def install_all_missing(self) -> None:
         """Install every missing dependency, one at a time, in order — and re-scan between passes.

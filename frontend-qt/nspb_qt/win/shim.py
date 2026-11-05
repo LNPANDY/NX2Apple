@@ -430,9 +430,19 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
             if os.environ.get('DM_ALLOW_SYSTEM_SPIRV_CROSS') == '1':
                 bad = [b for b in bad
                        if not (b.startswith('spirv-cross: ') and not b.endswith(' / actual missing'))]
+            if os.environ.get('DM_ALLOW_OTHER_METAL') == '1':
+                bad = [b for b in bad if not b.startswith('metal_macosx: ')]
             return bad
 
         mod.check_tools = _win_check_tools
+
+    def _patch_tree_tar_module(mod):
+        if getattr(mod, '_nspb_patched', False):
+            return
+        mod._nspb_patched = True
+        # Windows cannot os.open(directory, O_RDONLY) for flock(); a single build runs per work dir.
+        mod._lock = lambda folder, say=None: True
+        mod._unlock = lambda folder: None
 
     import importlib.machinery as _machinery
     _exec_module = _machinery.SourceFileLoader.exec_module
@@ -446,6 +456,8 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
             _patch_sdk_patches_module(module)
         elif name == 'tool_lock' or name.endswith('.tool_lock'):
             _patch_tool_lock_module(module)
+        elif name == 'tree_tar' or name.endswith('.tree_tar'):
+            _patch_tree_tar_module(module)
 
     _machinery.SourceFileLoader.exec_module = _win_exec_module
 
@@ -640,6 +652,30 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
         _pwd.getpwuid = getpwuid
         _pwd.getpwnam = lambda name: getpwuid(0)
         sys.modules['pwd'] = _pwd
+
+    if not hasattr(os, 'getuid'):
+        os.getuid = lambda: 0
+
+    # ---- fcntl
+    # dm/tools/tree_tar.py (imported at top level by scripts/build_ipa_from_nsp.py) imports fcntl
+    # for advisory directory locking. Register a Windows stand-in so the import succeeds.
+    if 'fcntl' not in sys.modules:
+        import types as _types
+        _fcntl = _types.ModuleType('fcntl')
+        _fcntl.LOCK_SH = 1
+        _fcntl.LOCK_EX = 2
+        _fcntl.LOCK_NB = 4
+        _fcntl.LOCK_UN = 8
+        _fcntl.F_GETFD = 1
+        _fcntl.F_SETFD = 2
+        _fcntl.F_GETFL = 3
+        _fcntl.F_SETFL = 4
+        _fcntl.FD_CLOEXEC = 1
+        _fcntl.flock = lambda fd, op: None
+        _fcntl.lockf = lambda fd, cmd, len=0, start=0, whence=0: None
+        _fcntl.fcntl = lambda fd, cmd, arg=0: 0
+        _fcntl.ioctl = lambda fd, req, arg=0, mutate_flag=True: 0
+        sys.modules['fcntl'] = _fcntl
 '''
 
 
