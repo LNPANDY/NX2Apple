@@ -113,6 +113,20 @@ class Rows(unittest.TestCase):
         log = 'skipping an empty file: a.nsp\n' + fixture('games.noTitleID')['text'] + '\n'
         self.assertEqual(bf.classify(log).detail, fixture('games.noTitleID')['folder'])
 
+    def test_offline_pipelines_explain_low_space_and_keep_the_engine_estimate(self):
+        for pid, gb in (('pso.low', '3'), ('pso.merge', '2.5'), ('pso.failed', None)):
+            with self.subTest(pattern=pid):
+                failure = bf.classify(fixture(pid)['text'])
+                self.assertEqual(failure.kind, 'psoDiskFull')
+                self.assertEqual(failure.detail, gb)
+                self.assertIsNone(failure.flag)
+        for code in ('en', 'zh', 'sv', 'de', 'fr', 'it'):
+            for suffix in ('what', 'whatNeeds', 'next'):
+                self.assertTrue(TABLE[f'fail.psoDiskFull.{suffix}'][code], code)
+            self.assertIn('%@', TABLE['fail.psoDiskFull.whatNeeds'][code])
+        self.assertEqual(bf.classify('[RED] pso_offline: metal-tt failed for applegpu_g18p (exit 1): compiler error').kind, bf.UNKNOWN)
+        self.assertEqual(bf.classify('pso_offline: applegpu_g18p: batch 1/2: ready (compiled)').kind, bf.UNKNOWN)
+
     def test_a_keys_file_that_cannot_be_read_is_known_from_the_file(self):
         log = '[RED] nx_extract exit code 1 (full output: /w/extract.log)'
         self.assertEqual(bf.classify(log, keys_readable=False).kind, bf.KEYS)
