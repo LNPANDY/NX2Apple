@@ -11,6 +11,7 @@ import Testing
     /// the same in that language. Anything else equal to English is a text nobody translated. Reviewed with each new entry.
     private static let cognates: [String: Set<String>] = [
         "30 fps": ["de", "sv", "it"], "60 fps": ["de", "sv", "it"],   // a unit
+        "16:9 (Switch)": ["de", "sv", "fr", "it"],                 // aspect ratio and console name
         "MetalFX": ["de", "sv", "fr", "it"],                          // a name
         "Standard": ["de", "sv", "fr", "it"],                         // launch.opt: the game's standard mode, a word in each
         "Controller": ["de", "it"],
