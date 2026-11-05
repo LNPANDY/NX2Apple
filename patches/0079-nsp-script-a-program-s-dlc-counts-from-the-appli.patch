@@ -1,0 +1,61 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Faris Benhaddou <farisbenhaddou@gmail.com>
+Date: Thu, 5 Nov 2026 16:59:11 +0300
+Subject: [PATCH] NSP script: a program's DLC counts from the application, and
+ DLC .forge files get the decoder
+
+A program of a multi-program application has the application's title ID
+plus its index, and The Ezio Collection's Brotherhood and Revelations
+(programs 1 and 3) keep their game files in DLC. Two things went wrong for
+them:
+- extract_aoc counted each DLC's index from the program's title ID, so
+  program 1 numbered the collection's DLC 0-2 and programs 2 and 3 got
+  negative indices. It now gets the application's title ID, as the NUP and
+  dump paths in it already assume.
+- The Mac host that decodes Oodle archives for the shader split was built
+  only when the program's own RomFS held such files. A program whose
+  .forge files are all in its DLC split none of them (105 files left out);
+  the DLC's images are now looked at too.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+Upstream-Status: pending
+Reason: The Ezio Collection's Brotherhood and Revelations keep their game files in DLC: a program numbered its DLC from its own title ID and split none of the DLC's .forge files
+Issue: LNPANDY/NX2Apple#483
+
+---
+ scripts/build_ipa_from_nsp.py | 7 +++++--
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+
+diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
+index ef37754..30d94f7 100755
+--- a/scripts/build_ipa_from_nsp.py
++++ b/scripts/build_ipa_from_nsp.py
+@@ -37,6 +37,7 @@ import ast, collections, contextlib, ctypes, errno, getpass, pwd, hashlib, impor
+ from pathlib import Path
+ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "dm/tools"))
+ import romfs as rfs
++import romfs_image   # the file lists of the DLC's RomFS images (dlc_forge)
+ import nso   # the code module loader: nso.Error is a damaged module (its file cut short or not what its header says)
+ sys.path.insert(0, str(Path(__file__).resolve().parent))
+ import pack_dump   # a folder of a game's files instead of NSPs
+@@ -3051,7 +3052,7 @@ def main(args=None):
+     for on, k in ((glslc, 'glslc_capture'), (vkcap, 'vk_capture'), (glcap, 'gl_capture'), (uedec, 'ue_decode'), (gfx == 'nvn' and src['oodle_packs'][0], 'oodle_packs'), (gfx == 'nvn' and src['ue_legacy'][0], 'ue_legacy')):
+         if on: say(src[k][1])
+     PROG.add(glslc + vkcap + glcap + uedec + (gfx == 'nvn'))
+-    aoc = extract_aoc(nx, keys, repo, work, app, fam, logs)
++    aoc = extract_aoc(nx, keys, repo, work, app - PROGRAM_INDEX, fam, logs)   # a DLC's index counts from the application's title ID, which a program's is + its index (The Ezio Collection's games read theirs as DLC)
+     dlc_roms = sorted(p for p in aoc.iterdir() if p.is_dir() or p.suffix == '.img') if aoc else []
+     base = next((dirs[v] for v in versions if picks[v][1] is None), dirs[versions[0]])   # the folder the base game was extracted to alone
+     # the app name and bundle ID both come from the base NSP: the game name in its control data, and a bundle ID from its title ID; a setting / the command line overrides them
+@@ -3096,7 +3097,9 @@ def main(args=None):
+         ios = build_gl_shaders(py, repo, [rfs.source(game), game / 'ExeFS/main'] + dlc_roms + ([cap] if cap else []), sh, env, logs, g, reuse=not ALLOW_DAMAGED, mac=mac, provisional=bool(provisional or derived))
+     else:
+         # Trinity packs and legacy Unreal paks: the split decodes them with the packed version's own decoder (Oodle, LZ5), in the Mac host built for the profile
+-        oodle = (lambda: {'DM_OODLE_HOST': str(build_mac_host(repo, work / 'tools/dmhost', env, logs, g)), 'DM_OODLE_MODULES': str(patched)}) if src['oodle_packs'][0] or src['ue_legacy'][0] else None
++        # and Scimitar .forge files in the DLC alone: The Ezio Collection's Brotherhood and Revelations (programs 1 and 3) keep their game files in DLC, their own RomFS holds a placeholder
++        dlc_forge = any(n.endswith('.forge') for r in dlc_roms if r.suffix == '.img' for n in romfs_image.read_index(r))
++        oodle = (lambda: {'DM_OODLE_HOST': str(build_mac_host(repo, work / 'tools/dmhost', env, logs, g)), 'DM_OODLE_MODULES': str(patched)}) if src['oodle_packs'][0] or src['ue_legacy'][0] or dlc_forge else None
+         own = bool(provisional or derived)   # the shader tables come from this build's split (the profile's are checked otherwise)
+         def derive_shader_tables(reason):   # called only after the strict DLC-only or additive-compute comparison passed
+             nonlocal g, derived
