@@ -35,7 +35,7 @@ from . import platform_util as pu
 from . import style
 from .build_notes import TEXT, TITLE, stale_reason
 
-APP_VERSION = '1.1.1'
+APP_VERSION = '1.2.0'
 from .i18n import Lang
 from .model import Dep, DepState, Model
 from .sheets import CheatsDialog, DeleteGameDialog, FreeSpaceDialog, OnboardingDialog
