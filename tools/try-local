@@ -136,6 +136,7 @@ cp frontend/.build/release/NX2Apple "$app/Contents/MacOS/NSPortBuilder"
 if [ "$have_icon" = 1 ]; then cp "$icon_cache/Assets.car" "$icon_cache/AppIcon.icns" "$app/Contents/Resources/"; fi
 ditto "$tools_cache/res/tools" "$app/Contents/Resources/tools"
 ditto "$tools_cache/res/python" "$app/Contents/Resources/python"
+python3 frontend/tools/nxbuild.py fetch "$app/Contents/Resources" "$work/nxbuild"   # the pinned experimental builder (#749), nothing without a digest
 ditto "$work/engine-tree" "$app/Contents/Resources/engine"
 frontend/tools/sign_engine_tree.sh "$app/Contents/Resources/engine" "$work/engine-tree"
 rsync -a --exclude .build --exclude .swiftpm frontend-ios/ "$app/Contents/Resources/frontend-ios/"

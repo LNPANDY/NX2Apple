@@ -100,6 +100,14 @@ import SwiftUI
         XCTAssertNil(launches.last?.environment["DM_CURSOR_HIDDEN"], "a visible pointer stays the game's default")
     }
 
+    func testAGameStartedWithThePointerHiddenGetsTheFrontYielded() throws {
+        let app = try makeApp().path
+        XCTAssertEqual(LiveConsoleDriver.yieldTarget(environment: ["DM_CURSOR_HIDDEN": "1"], appPath: app), bundleID,
+                       "LaunchServices activating the game shows the pointer for a moment")
+        XCTAssertNil(LiveConsoleDriver.yieldTarget(environment: [:], appPath: app), "with the pointer visible LaunchServices activates the game as before")
+        XCTAssertNil(LiveConsoleDriver.yieldTarget(environment: ["DM_CURSOR_HIDDEN": "1"], appPath: temporary.appendingPathComponent("Missing.app").path))
+    }
+
     func testConsoleLaunchesFullscreenOverTheSavedDisplayChoice() throws {
         var launches: [Launch] = []
         let (driver, library, _) = try makeDriver { launches.append($0) }
@@ -211,6 +219,25 @@ import SwiftUI
         XCTAssertTrue(driver.state.padMerge)
         driver.disconnect(controllerID: "a")
         XCTAssertNotNil(driver.state.toast, "a Bluetooth controller cannot be dropped by an app: the toast says where")
+    }
+
+    func testJoyconSplitExpandsPairedJoyConIntoTwoSidewaysPlayers() throws {
+        let pads = [ConsolePadSnapshot(id: "jc", name: "Joy-Con (L/R)", category: "Nintendo Switch Joy-Con (L/R)", playerIndex: 1, battery: 0.75, charging: true)]
+        let (driver, _, layout) = try makeDriver(pads: pads)
+        XCTAssertEqual(driver.state.controllers.map(\.name), ["Joy-Con (L/R)"])
+        XCTAssertEqual(driver.state.controllers.map(\.kind), [.paired])
+        driver.setJoyconSplit(true)
+        XCTAssertTrue(layout.joyconSplit)
+        XCTAssertTrue(driver.state.joyconSplit)
+        XCTAssertEqual(driver.state.controllers.map(\.id), ["jc.L", "jc.R"])
+        XCTAssertEqual(driver.state.controllers.map(\.name), ["Joy-Con (L)", "Joy-Con (R)"])
+        XCTAssertEqual(driver.state.controllers.map(\.kind), [.gamepad, .gamepad])
+        XCTAssertEqual(driver.state.controllers.map(\.player), [1, 2])
+        XCTAssertEqual(driver.state.controllers.map(\.batteryPercent), [75, 75])
+        driver.setJoyconSplit(false)
+        XCTAssertFalse(layout.joyconSplit)
+        XCTAssertEqual(driver.state.controllers.map(\.name), ["Joy-Con (L/R)"])
+        XCTAssertEqual(driver.state.controllers.map(\.player), [1])
     }
 
     func testEnteringAndLeavingConsoleModeRestoresTheWindowInOrder() async throws {

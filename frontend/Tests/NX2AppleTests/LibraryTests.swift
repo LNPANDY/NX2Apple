@@ -533,6 +533,47 @@ import NXModel
         XCTAssertEqual(zelda.inputs["dlc"], [])
     }
 
+    /// The base sits in "<game>/nsz本体/", the update in "<game>/升级档v1.1.3/" and the DLC in "<game>/DLC/" (sibling
+    /// subfolders under the game's folder, with no package directly in "<game>/"): the climb must still reach "<game>/"
+    /// and a rescan must lift a previously recorded subfolder sourceFolder to it.
+    func testAScanFindsTheUpdateAndDLCInSiblingSubfolders() throws {
+        let fm = FileManager.default
+        let game = temporary.appendingPathComponent("小丑牌")
+        let baseDir = game.appendingPathComponent("nsz本体")
+        let updDir = game.appendingPathComponent("升级档v1.1.3")
+        let dlcDir = game.appendingPathComponent("DLC")
+        for d in [baseDir, updDir, dlcDir] { try fm.createDirectory(at: d, withIntermediateDirectories: true) }
+        let baseNSZ = baseDir.appendingPathComponent("小丑牌[0100CD801CE5E000][US][v0].nsz")
+        let updNSZ = updDir.appendingPathComponent("小丑牌[0100CD801CE5E800][US][v393216].nsz")
+        let dlcNSZ = dlcDir.appendingPathComponent("小丑牌[0100CD801CE5F001][v65536].nsz")
+        for f in [baseNSZ, updNSZ, dlcNSZ] { try Data([0]).write(to: f) }
+
+        let games = GameLibrary.sourceGames(in: temporary, repo: "")
+        let balatro = try XCTUnwrap(games.first { $0.titleID == "0100CD801CE5E000" })
+        XCTAssertEqual(Self.canon(balatro.sourceFolder), Self.canon(game.path), "climbs out of nsz本体 when a sibling subfolder holds the update")
+        XCTAssertEqual(balatro.inputs["base"]?.map(Self.canon), [Self.canon(baseNSZ.path)])
+        XCTAssertEqual(balatro.inputs["update"]?.map(Self.canon), [Self.canon(updNSZ.path)])
+        XCTAssertEqual(balatro.inputs["dlc"]?.map(Self.canon), [Self.canon(dlcNSZ.path)])
+
+        // An earlier scan recorded the base subfolder as sourceFolder and missed the sibling update: discover() repairs both.
+        let state = temporary.appendingPathComponent("library.json")
+        var stale = LibraryGame(titleID: "0100CD801CE5E000", name: "Balatro")
+        stale.inputs = ["base": [baseNSZ.path], "update": [], "dlc": [], "keys": []]
+        stale.sourceFolder = baseDir.path
+        try JSONEncoder().encode([stale]).write(to: state)
+        let library = GameLibrary(file: state)
+        library.applicationFolders = []
+        let finished = expectation(description: "Rescan repairs sibling update and sourceFolder")
+        let token = library.$scanning.dropFirst().filter { !$0 }.sink { _ in finished.fulfill() }
+        library.setFolder(temporary)
+        wait(for: [finished], timeout: 3)
+        withExtendedLifetime(token) {}
+        let repaired = try XCTUnwrap(library.games.first { $0.titleID == "0100CD801CE5E000" })
+        XCTAssertEqual(Self.canon(repaired.sourceFolder), Self.canon(game.path))
+        XCTAssertEqual(repaired.inputs["update"]?.map(Self.canon), [Self.canon(updNSZ.path)])
+        XCTAssertEqual(repaired.inputs["dlc"]?.map(Self.canon), [Self.canon(dlcNSZ.path)])
+    }
+
     /// Base, update and DLC in one folder: the folder is its own game folder and the climb goes no further.
     func testAScanOfAFlatGameFolderStopsAtThatFolder() throws {
         let flat = temporary.appendingPathComponent("Hades")

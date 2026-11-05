@@ -774,7 +774,7 @@ index 0000000..3f409e9
 +if __name__ == "__main__":
 +    unittest.main()
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index 37cdd22..772479e 100644
+index ca7b535..83e5942 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
 @@ -74,7 +74,7 @@ DM_HID_MAP	switch	`=<map>` such as `A=1,B=2,X=4,Y=5`: which HID button usage pre

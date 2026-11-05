@@ -1,0 +1,182 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LNPANDY <lnp-andy@hotmail.com>
+Date: Thu, 5 Nov 2026 23:02:30 +0800
+Subject: [PATCH] host: read embedded sections from the image that holds the
+ host (DM_HOST_IMAGE)
+
+Define DM_HOST_IMAGE as &__dso_handle in dm/host/host_image.h and pass it to getsectiondata and loader image checks in hle.c, loader.c, hle_jit.c, hle_nvn.c, hle_vk.m and hle_gl.m. In the main executable __dso_handle aliases _mh_execute_header; in a dynamic framework it resolves to that framework's Mach-O header so the HLE registration tables (__DATA,swhle, __DATA,swforce, __DATA,swnvn, __DATA,swvk and __DATA,swgl) are found in the image that holds the host.
+
+Upstream-Status: pending
+Reason: Let the host read its Mach-O sections when linked into a dynamic framework as well as the main executable
+Issue: LNPANDY/NX2Apple#451
+---
+ dm/gfx/gl/hle_gl.m   | 5 ++---
+ dm/gfx/nvn/hle_nvn.c | 5 ++---
+ dm/gfx/vk/hle_vk.m   | 5 ++---
+ dm/host/hle.c        | 5 ++---
+ dm/host/hle_jit.c    | 5 ++---
+ dm/host/host_image.h | 8 ++++++++
+ dm/host/loader.c     | 7 +++----
+ 7 files changed, 21 insertions(+), 19 deletions(-)
+ create mode 100644 dm/host/host_image.h
+
+diff --git a/dm/gfx/gl/hle_gl.m b/dm/gfx/gl/hle_gl.m
+index f3e38a1..dc6edac 100644
+--- a/dm/gfx/gl/hle_gl.m
++++ b/dm/gfx/gl/hle_gl.m
+@@ -23,8 +23,7 @@
+ #import <Metal/Metal.h>
+ #include <CommonCrypto/CommonDigest.h>
+ #include <mach/mach.h>
+-#include <mach-o/getsect.h>
+-#include <mach-o/ldsyms.h>
++#include "../../host/host_image.h"
+ #include <math.h>
+ #include <stdatomic.h>
+ #include <time.h>
+@@ -2025,7 +2024,7 @@ static void frame_end(void) {
+ // eglGetProcAddress: GL names from the same table as direct imports; anything else is null (the game's loader asks for every GL name it knows)
+ static void *gl_lookup(const char *name) {
+     static const hle_ent *sec; static unsigned long sz;
+-    if (!sec) sec = (const hle_ent *)getsectiondata(&_mh_execute_header, "__DATA", "swhle", &sz);
++    if (!sec) sec = (const hle_ent *)getsectiondata(DM_HOST_IMAGE, "__DATA", "swhle", &sz);
+     for (unsigned long i = 0; i < sz / sizeof *sec; i++) if (!strcmp(sec[i].name, name)) return sec[i].fn;
+     return NULL;
+ }
+diff --git a/dm/gfx/nvn/hle_nvn.c b/dm/gfx/nvn/hle_nvn.c
+index 381c3c8..6e4a638 100644
+--- a/dm/gfx/nvn/hle_nvn.c
++++ b/dm/gfx/nvn/hle_nvn.c
+@@ -38,8 +38,7 @@
+ #include <mach/thread_policy.h>
+ #include <assert.h>
+ #include <stdatomic.h>
+-#include <mach-o/getsect.h>
+-#include <mach-o/ldsyms.h>
++#include "../../host/host_image.h"
+ 
+ // ---------- Slot table, thunks, unimplemented stubs ----------
+ typedef struct { _Atomic uint64_t cnt; void *fn; } nvn_slot_t;
+@@ -95,7 +94,7 @@ static void nvn_init_slots(void) {
+     static int done; if (done) return; done = 1;
+     g_log = getenv("DM_NVN_LOG") != NULL;
+     unsigned long sz;
+-    const nvn_impl *im = (const nvn_impl *)getsectiondata(&_mh_execute_header, "__DATA", "swnvn", &sz);
++    const nvn_impl *im = (const nvn_impl *)getsectiondata(DM_HOST_IMAGE, "__DATA", "swnvn", &sz);
+     unsigned nim = im ? (unsigned)(sz / sizeof *im) : 0, hit = 0;
+     for (unsigned i = 0; i < NVN_NFUNC; i++) nvn_slot[i].fn = (void *)nvn_unimpl_entry;
+     for (unsigned k = 0; k < nim; k++) {
+diff --git a/dm/gfx/vk/hle_vk.m b/dm/gfx/vk/hle_vk.m
+index 3728dff..bbe5bba 100644
+--- a/dm/gfx/vk/hle_vk.m
++++ b/dm/gfx/vk/hle_vk.m
+@@ -21,8 +21,7 @@
+ #import <Metal/Metal.h>
+ #include <CommonCrypto/CommonDigest.h>
+ #include <CoreFoundation/CoreFoundation.h>
+-#include <mach-o/getsect.h>
+-#include <mach-o/ldsyms.h>
++#include "../../host/host_image.h"
+ #include <math.h>
+ #include <stdatomic.h>
+ #include <time.h>
+@@ -1743,7 +1742,7 @@ static void frame_end(void) {
+ static void *vk_lookup(const char *name) {
+     static const hle_ent *sec; static unsigned long sz;
+     if (!name || strncmp(name, "vk", 2)) return NULL;
+-    if (!sec) sec = (const hle_ent *)getsectiondata(&_mh_execute_header, "__DATA", "swhle", &sz);
++    if (!sec) sec = (const hle_ent *)getsectiondata(DM_HOST_IMAGE, "__DATA", "swhle", &sz);
+     void *fn = NULL; size_t n = strlen(name);
+     for (int pass = 0; pass < 2 && !fn; pass++) {
+         size_t len = pass ? n - 3 : n;
+diff --git a/dm/host/hle.c b/dm/host/hle.c
+index 672c16a..50bd6e6 100644
+--- a/dm/host/hle.c
++++ b/dm/host/hle.c
+@@ -1,7 +1,6 @@
+ // Import resolution (implemented ones go to the host, the rest go to named stubs) and host gate dispatch.
+ #include "hle.h"
+-#include <mach-o/getsect.h>
+-#include <mach-o/ldsyms.h>
++#include "host_image.h"
+ #include <dlfcn.h>
+ #include <time.h>
+ 
+@@ -32,7 +31,7 @@ static unsigned *g_hle_idx, g_hle_mask; static const hle_ent *g_hle_sec;
+ static const hle_ent *hle_find(const char *name) {
+     if (!g_hle_mask) {
+         unsigned long secsz;
+-        g_hle_sec = (const hle_ent *)getsectiondata(&_mh_execute_header, "__DATA", "swhle", &secsz);
++        g_hle_sec = (const hle_ent *)getsectiondata(DM_HOST_IMAGE, "__DATA", "swhle", &secsz);
+         unsigned n = g_hle_sec ? (unsigned)(secsz / sizeof *g_hle_sec) : 0;
+         unsigned cap = 16; while (cap < n * 2) cap <<= 1;
+         g_hle_idx = calloc(cap, sizeof *g_hle_idx); g_hle_mask = cap - 1;
+diff --git a/dm/host/hle_jit.c b/dm/host/hle_jit.c
+index 6e1d614..aa99f11 100644
+--- a/dm/host/hle_jit.c
++++ b/dm/host/hle_jit.c
+@@ -145,15 +145,14 @@ static const jit_req *jit_find(const char *key) { for (int i = 0; i < g_nreq; i+
+ // The image at the layout's base: the Mac maps jit.img read + execute, iOS remaps the executable's signed __TEXT,__dm<tag>_jit pages there (as loader.c remaps the modules)
+ #if TARGET_OS_IPHONE
+ #include <mach/mach.h>
+-#include <mach-o/getsect.h>
+-#include <mach-o/ldsyms.h>
++#include "host_image.h"
+ #endif
+ static void jit_map_image(uint8_t *at, const char *dir) {
+     if (!g_img_size) return;
+ #if TARGET_OS_IPHONE
+     (void)dir; unsigned long z = 0; char sn[17]; const char *tg = getenv("DM_EMBED_TAG");   // an app of several programs tags each one's sections (gen_embed.py --tag)
+     snprintf(sn, sizeof sn, "__dm%s_jit", tg ? tg : "");
+-    const uint8_t *sec = getsectiondata(&_mh_execute_header, "__TEXT", sn, &z);
++    const uint8_t *sec = getsectiondata(DM_HOST_IMAGE, "__TEXT", sn, &z);
+     if (!sec || z < g_img_size || ((uintptr_t)sec & 0x3fff)) die("jit: the image is not in the executable (__TEXT,%s), or smaller than jit.tsv says", sn);
+     vm_address_t a = (vm_address_t)at; vm_prot_t cur = 0, max = 0;
+     if (vm_remap(mach_task_self(), &a, g_img_size, 0, VM_FLAGS_FIXED | VM_FLAGS_OVERWRITE, mach_task_self(), (vm_address_t)sec, FALSE, &cur, &max, VM_INHERIT_NONE) != KERN_SUCCESS || a != (vm_address_t)at || !(cur & VM_PROT_EXECUTE))
+diff --git a/dm/host/host_image.h b/dm/host/host_image.h
+new file mode 100644
+index 0000000..9dde850
+--- /dev/null
++++ b/dm/host/host_image.h
+@@ -0,0 +1,8 @@
++// The Mach-O header of the image that holds the host: the executable in a normal build, the framework's dylib when the host is
++// linked as a framework. The linker defines __dso_handle at the start of every image, executable and dylib alike, and
++// getsectiondata() takes it as the mach_header_64 *.
++#pragma once
++#include <mach-o/getsect.h>
++
++extern const struct mach_header_64 __dso_handle;
++#define DM_HOST_IMAGE (&__dso_handle)
+diff --git a/dm/host/loader.c b/dm/host/loader.c
+index 5bc0117..1187658 100644
+--- a/dm/host/loader.c
++++ b/dm/host/loader.c
+@@ -8,9 +8,8 @@
+ #include <sys/stat.h>
+ #include <unistd.h>
+ #include <limits.h>
+-#include <mach-o/getsect.h>
+-#include <mach-o/ldsyms.h>
+ #include "hle.h"
++#include "host_image.h"
+ #if TARGET_OS_IPHONE
+ #include <mach/mach.h>
+ #endif
+@@ -214,7 +213,7 @@ static uint64_t resolve_sym(module_t *m, const char *name) {
+ static const hle_force_ent *g_force; static unsigned g_nforce; static unsigned *g_force_hits;
+ static unsigned *g_fidx, g_fmask;   // name hash over the table: force_lookup runs for every named relocation, and each lookup used to strcmp its way through all 722 entries (the swhle table's scan is hashed the same way, hle.c)
+ static void force_init(void) {
+-    unsigned long sz; g_force = (const hle_force_ent *)getsectiondata(&_mh_execute_header, "__DATA", "swforce", &sz);
++    unsigned long sz; g_force = (const hle_force_ent *)getsectiondata(DM_HOST_IMAGE, "__DATA", "swforce", &sz);
+     g_nforce = g_force ? (unsigned)(sz / sizeof *g_force) : 0;
+     g_force_hits = calloc(g_nforce + 1, sizeof *g_force_hits);
+     unsigned cap = 16; while (cap < g_nforce * 2) cap <<= 1;
+@@ -707,7 +706,7 @@ static void remap_at(module_t *m, vm_address_t to, const void *from, unsigned lo
+ }
+ // The image the module sections are read from (front.h dm_set_game_image_header). getsectiondata takes any loaded image's header and applies its slide
+ #include "front.h"
+-static const struct mach_header_64 *g_game_image = &_mh_execute_header;
++static const struct mach_header_64 *g_game_image = DM_HOST_IMAGE;
+ void dm_set_game_image_header(const void *mh) { g_game_image = mh; }
+ #define IMAGE_MH g_game_image
+ // The NRO modules (loader.c "NRO modules") are packed instead of getting sections of their own: a Mach-O file has at most 255 sections, and Super Smash Bros. Ultimate's 98 NROs would
