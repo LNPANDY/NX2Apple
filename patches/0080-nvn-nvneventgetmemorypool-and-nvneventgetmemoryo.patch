@@ -8,8 +8,6 @@ for its storage pool and maps that pool at start-up. Both getters were
 missing, so it got a null pool and crashed in MemoryPoolMap. The event now
 keeps its builder's pool and offset and the getters return them.
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
-
 Upstream-Status: pending
 Reason: Assassin's Creed Revelations (The Ezio Collection) maps an event's storage pool at start-up: without nvnEventGetMemoryPool / Offset it crashed in MemoryPoolMap
 Issue: LNPANDY/NX2Apple#483

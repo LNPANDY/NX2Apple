@@ -17,8 +17,6 @@ them:
   .forge files are all in its DLC split none of them (105 files left out);
   the DLC's images are now looked at too.
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
-
 Upstream-Status: pending
 Reason: The Ezio Collection's Brotherhood and Revelations keep their game files in DLC: a program numbered its DLC from its own title ID and split none of the DLC's .forge files
 Issue: LNPANDY/NX2Apple#483
