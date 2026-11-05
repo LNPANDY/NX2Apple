@@ -214,7 +214,10 @@ class LibraryAndSpaceTests(unittest.TestCase):
 class ParityWindowTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        from PySide6.QtWidgets import QApplication
+        try:
+            from PySide6.QtWidgets import QApplication
+        except ImportError as e:
+            raise unittest.SkipTest(f'PySide6 not installed: {e}')
         cls.app = QApplication.instance() or QApplication([])
 
     def _delete(self, m, w) -> None:
