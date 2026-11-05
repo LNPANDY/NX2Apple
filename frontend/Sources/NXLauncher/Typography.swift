@@ -82,7 +82,7 @@ package struct LauncherProgressBar: View {
             if let value {
                 GeometryReader { g in
                     Capsule().fill(tint).frame(width: max(height, g.size.width * min(max(value, 0), 1)))
-                        .animation(reduceMotion ? nil : .easeOut(duration: 0.3), value: value)
+                        .animation(LauncherMotion.animation(.easeOut(duration: 0.3), reduceMotion: reduceMotion), value: value)
                 }
             } else {
                 Capsule().fill(tint.opacity(0.16))   // an amber-tinted track under soft stripes

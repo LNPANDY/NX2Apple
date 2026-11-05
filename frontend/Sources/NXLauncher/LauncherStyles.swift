@@ -186,13 +186,20 @@ package struct LauncherSecondaryButtonStyle: ButtonStyle {
     }
 }
 
+/// A control's animation under the system's Reduce Motion setting: with it on, the control changes at once.
+package enum LauncherMotion {
+    package static func animation(_ animation: Animation, reduceMotion: Bool) -> Animation? {
+        reduceMotion ? nil : animation
+    }
+}
+
 /// The launcher's switch: a cream track when on, a dim one when off.
 package struct LauncherSwitchStyle: ToggleStyle {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     package init() {}
     @Environment(\.isEnabled) private var enabled
     package func makeBody(configuration: Configuration) -> some View {
-        Button { withAnimation(reduceMotion ? nil : .spring(response: 0.25, dampingFraction: 0.8)) { configuration.isOn.toggle() } } label: {
+        Button { withAnimation(LauncherMotion.animation(.spring(response: 0.25, dampingFraction: 0.8), reduceMotion: reduceMotion)) { configuration.isOn.toggle() } } label: {
             ZStack(alignment: configuration.isOn ? .trailing : .leading) {
                 Capsule().fill(configuration.isOn ? LauncherPalette.cream : Color.white.opacity(0.14))
                 Circle().fill(configuration.isOn ? LauncherPalette.background : Color.white.opacity(0.85))
@@ -271,7 +278,7 @@ package struct LauncherSegmented: View {
         HStack(spacing: 2) {
             ForEach(options, id: \.value) { o in
                 let on = o.value == selection
-                Button { withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) { choose(o.value) } } label: {
+                Button { withAnimation(LauncherMotion.animation(.easeOut(duration: 0.15), reduceMotion: reduceMotion)) { choose(o.value) } } label: {
                     Text(o.label).font(.manrope(12.5, on ? .bold : .medium))
                         .foregroundStyle(on ? Color.black : Color.white.opacity(0.75))
                         .lineLimit(1).minimumScaleFactor(0.85)
