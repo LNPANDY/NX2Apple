@@ -741,4 +741,38 @@ import SwiftUI
         XCTAssertEqual(driver.state.toast, gone, "no second disconnect toast")
         XCTAssertTrue(driver.state.controllers.isEmpty)
     }
+
+    /// Regression test (#740): a paired Joy-Con is a single GCController instance with one shared `playerIndex` property.
+    /// Writing `.R`'s assigned player back to that shared hardware slot used to overwrite `.L`'s playerIndex, causing P1 and P2
+    /// to ping-pong on every reread and spawning an exponential storm of reread Tasks.
+    func testSplitJoyConPairDoesNotPingPongSharedHardwarePlayerIndex() {
+        var hardwarePlayerIndex: Int? = 1
+        var writes: [(String, Int)] = []
+        let layout = ControlLayout(defaults: UserDefaults(suiteName: "ConsoleLiveTests-" + UUID().uuidString)!)
+        let driver = LiveConsoleDriver(
+            library: GameLibrary(file: temporary.appendingPathComponent("library.json")),
+            controls: layout, repo: { "" }, lang: { .en }, labels: { $0 },
+            pads: {
+                [ConsolePadSnapshot(id: "jc", name: "Joy-Con (L/R)", category: "Nintendo Switch Joy-Con (L/R)", playerIndex: hardwarePlayerIndex)]
+            },
+            artwork: { _, _ in nil }, observeSystem: false,
+            playerOutput: { id, player in
+                writes.append((id, player))
+                hardwarePlayerIndex = player   // shared GCController.playerIndex
+            })
+        XCTAssertEqual(driver.state.controllers.map(\.id), ["jc"])
+        XCTAssertEqual(driver.state.controllers.map(\.player), [1])
+
+        driver.setJoyconSplit(true)
+        XCTAssertEqual(driver.state.controllers.map(\.id), ["jc.L", "jc.R"])
+        XCTAssertEqual(driver.state.controllers.map(\.player), [1, 2])
+        let countAfterSplit = writes.count
+
+        // Subsequent rereads (e.g. from primeOutputs or battery KVO) must keep L=1, R=2 stable and emit no new hardware writes.
+        for _ in 0..<5 {
+            driver.refreshControllers(announce: false)
+            XCTAssertEqual(driver.state.controllers.map(\.player), [1, 2], "P1 and P2 must not ping-pong across rereads")
+            XCTAssertEqual(writes.count, countAfterSplit, "no new player output writes when nothing changed")
+        }
+    }
 }
