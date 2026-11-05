@@ -16,7 +16,7 @@ extension BuildStore {
         shellDeviceChecked = false
         if target != BuildTarget.mac, !exportsOneGame, askAboutStaleFrameworks() { return }   // StaleFrameworksPrompt.swift (#449)
         stopping = false
-        running = true; done = false; doneNote = ""; stages = []; log.clear(); chainNoteShown = false
+        running = true; done = false; doneNote = ""; stages = []; log.clear(); staleShadersShown = false
         failure = nil; confirmingOverride = nil
         let override = takeOverrideFlag()   // for this build only: the next one asks again
         installedOn = ""; installedAppPath = ""; exportedIPAPath = ""; send = .idle
@@ -88,7 +88,8 @@ extension BuildStore {
         // /NX2Apple-shell, a DMG chosen as Save to) failed at the last step after the whole build (#492).
         if target != BuildTarget.mac, !exportsOneGame, let why = shellRootProblem() { fail(why); return }
         var inputDir = folder?.scriptInput ?? baseDir   // a NUP goes to the script as the file
-        if dirs.count > 1 || !unpicked.isEmpty {
+        // A file named .NSP or .Xci is staged too, under a lowercase extension: the script's glob misses it (#554).
+        if dirs.count > 1 || !unpicked.isEmpty || staged.contains(where: InputStaging.needsLowercaseName) {
             // A stable folder per game (#132): the script's fingerprints name its files and its profile path.
             let tmp = InputStaging.folder(workDir: workDir)
             let linked = InputStaging.sync(files: staged, into: tmp)
@@ -186,6 +187,7 @@ extension BuildStore {
         // (the packages are compiled at bundle time), and a user site must not shadow its pinned packages.
         denv.merge(BundledTools.environment(for: py)) { $1 }
         if !oneGameIPAPath.isEmpty { denv.merge(OneGameIPA.environment) { $1 } }
+        denv.merge(builderEnvironment()) { $1 }   // the experimental builder, when it is on (BuildStore+Builder.swift, #749)
         let launch = ProcessLaunch(executable: py, arguments: args, environment: denv, directory: engine, groupPython: py)
         let onExit: @Sendable (Int32) -> Void = { [weak self] status in
             hop {

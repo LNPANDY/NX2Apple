@@ -142,6 +142,26 @@ struct LaunchSetting: Decodable, Identifiable {
                                         min: nil, max: nil, step: nil, on: nil, off: nil, unsetValue: "")
             list.insert(display, at: (list.firstIndex { $0.env == "DM_RENDER_SCALE" }).map { $0 + 1 } ?? 0)
         }
+        if let i = list.firstIndex(where: { $0.env == "DM_LANG" }) {
+            // A game with no language list gets every language and a note from the engine (seedds/nxnative aafe01d, #668): the
+            // RomFS names the ones it really has
+            if RomFSLanguages.isFallbackRow(options: list[i].options, note: list[i].note),
+               let kept = RomFSLanguages.narrowed(list[i].options ?? [], default: list[i].def, to: RomFSLanguages.options(in: app)) {
+                list[i].options = kept
+                list[i].note = ""
+            }
+        } else {
+            let langs = RomFSLanguages.options(in: app)
+            if langs.count > 1 {
+                let def = RomFSLanguages.defaultLanguage(forApp: app, options: langs)
+                let row = LaunchSetting(env: "DM_LANG", kind: "choice", label: "Game language", note: "", def: def,
+                                        section: "Game", options: langs, min: nil, max: nil, step: nil, on: nil, off: nil,
+                                        level: "basic", unsetValue: def).localized(labels)
+                let idx = list.firstIndex { $0.env == "DM_FULLSCREEN" }
+                    ?? list.lastIndex { $0.sectionTitle == "Game" }.map { $0 + 1 } ?? 0
+                list.insert(row, at: idx)
+            }
+        }
         if let i = list.firstIndex(where: { $0.env == "DM_RENDER_SCALE" && $0.base == nil }), let base = renderBase(titleID: titleID, repo: repo) {
             list[i].base = base
         }
@@ -427,11 +447,22 @@ final class GameLibrary: ObservableObject {
             // The enumerator hands out resolved paths (/private/var/…) while the library folder may not be, so compare resolved.
             let rootReal = root.resolvingSymlinksInPath().path
             func inside(_ u: URL) -> String { u.resolvingSymlinksInPath().path }
+            let skipDirs: Set<String> = ["romfs", "extract", "tools", "venv", "archive", "harness", "runs", "shader", "xcode"]
+            func holdsFamily(_ folder: URL, except child: String) -> Bool {
+                guard let names = try? FileManager.default.contentsOfDirectory(atPath: folder.path) else { return false }
+                if names.contains(where: family) { return true }
+                for name in names where name != child && !name.hasPrefix(".") {
+                    let low = name.lowercased()
+                    if skipDirs.contains(low) || low.hasSuffix("_build") || low.hasSuffix("_survey") { continue }
+                    if let sub = try? FileManager.default.contentsOfDirectory(atPath: folder.appendingPathComponent(name).path),
+                       sub.contains(where: family) { return true }
+                }
+                return false
+            }
             while inside(gameRoot) != rootReal, inside(gameRoot).hasPrefix(rootReal) {
                 let parent = gameRoot.deletingLastPathComponent()
                 guard inside(parent).hasPrefix(rootReal),
-                      let names = try? FileManager.default.contentsOfDirectory(atPath: parent.path),
-                      names.contains(where: family) else { break }
+                      holdsFamily(parent, except: gameRoot.lastPathComponent) else { break }
                 gameRoot = parent
             }
             // Packages of this game anywhere in that folder, a few levels at most (what the build script itself scans).
@@ -485,7 +516,9 @@ final class GameLibrary: ObservableObject {
                             for slot in ["update", "dlc", "keys"] where existing.inputs[slot, default: []].isEmpty {
                                 existing.inputs[slot] = source.inputs[slot] ?? []
                             }
-                            if existing.sourceFolder.isEmpty { existing.sourceFolder = source.sourceFolder }
+                            if existing.sourceFolder.isEmpty || (!source.sourceFolder.isEmpty && URL(fileURLWithPath: existing.sourceFolder).resolvingSymlinksInPath().path.hasPrefix(URL(fileURLWithPath: source.sourceFolder).resolvingSymlinksInPath().path + "/")) {
+                                existing.sourceFolder = source.sourceFolder
+                            }
                         }
                         if existing.ipaPath.isEmpty { existing.ipaPath = source.ipaPath }
                         self.upsert(existing)

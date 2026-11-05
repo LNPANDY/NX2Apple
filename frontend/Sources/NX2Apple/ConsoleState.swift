@@ -119,6 +119,7 @@ struct ConsoleState {
     var controllers: [ConsoleController] = []
     var isPreview = false
     var padMerge = false
+    var joyconSplit = false
     var toast: ConsoleToast?
     var identifyingControllerID: String?
     var assigningControllerID: String?
@@ -196,6 +197,7 @@ struct ConsoleState {
     func disconnect(controllerID: String)
     func requestAssignment(controllerID: String)
     func setPadMerge(_ enabled: Bool)
+    func setJoyconSplit(_ enabled: Bool)
     func dismissToast()
     func requestPlayer(_ player: Int)
     func assignPlayer(controllerID: String, player: Int)
@@ -209,6 +211,7 @@ struct ConsoleState {
 }
 
 extension ConsoleDriver {
+    func setJoyconSplit(_ enabled: Bool) {}
     func consumePress(controllerID: String, isBack: Bool) -> Bool { false }
     func openHomeButtonSettings() { back() }
 }

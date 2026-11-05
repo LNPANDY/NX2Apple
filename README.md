@@ -26,10 +26,10 @@
 
 #### 🆕 Latest highlights
 
-- **One app for iPhone and iPad**: build a game with the iPhone / iPad target and it lands in one shell app that holds all your games. An art-led library with the key art, Cover Flow when the phone is on its side, settings for each game, and controller or keyboard control. It follows the system language (English and Simplified Chinese).
-- **Saves that follow you** — Mac ⇄ iPhone saves sync through one iCloud Drive folder, a deleted app reinstalls in seconds, and a free Apple ID's 7-day signature renews in place.
-- **Guided first run** — a setup wizard walks a new player through Xcode, keys and games; the build tools and a Python ship inside the app, so nobody installs Homebrew.
-- **Console mode** — plug in a controller, press Select: the library goes full screen, controller-first, like a Switch home menu.
+- **Switch 2 games**: Pick a Switch 2 game folder or `.nup` file in the Mac or Windows launcher, with no `prod.keys` needed, and play on Mac, iPhone, or iPad.
+- **Custom touch controls and button mapping**: Resize buttons, move the left stick, or arrange every control in the visual layout editor on iPhone and iPad. Physical controllers support per-game or global button remapping.
+- **One app for iPhone and iPad**: All your games live inside one shell app (or export an unsigned IPA for AltStore and SideStore), with Cover Flow in landscape, per-game settings and mods, safe game deletion that keeps your saves, and 6 languages.
+- **Console mode**: Plug in a controller and press Select, or start directly in console mode. The library goes full-screen like a Switch home menu, and holding Home for 2 seconds quits a game.
 
 Every release is in the [changelog](CHANGELOG.md).
 
@@ -68,7 +68,7 @@ installs what it can with one click.
 
 ## Install
 
-1. **Download the app**: `NS-Port-Builder-macOS-arm64.zip` from the
+1. **Download the app**: `NX2Apple-macOS-arm64.zip` from the
    [latest release](https://github.com/LNPANDY/NX2Apple/releases/latest). Unzip it.
 2. **Open it once with right-click, then Open.** The app is not signed with a paid Apple developer
    certificate, so macOS asks before the first start; after that it opens normally.
@@ -115,11 +115,11 @@ for your own games.
 **On the Mac**, a finished game appears in the library with its key art. **Play** starts it.
 **Launch options** (per game, kept across rebuilds) set the frame rate, console mode (docked or
 handheld), render scale and upscaling, game language, controls and more; what each does is in
-[docs/settings.md](https://github.com/seedds/nxnative/blob/641d1480021a57840b7acc15f92cbd86ecfae611/docs/settings.md). A controller drives the launcher as well as the games.
+[docs/settings.md](https://github.com/seedds/nxnative/blob/7249ee9f95ed728aff9a86395330d10d4c91fb5c/docs/settings.md). A controller drives the launcher as well as the games.
 
 **On the iPhone**, the app shows the same settings before the game starts; tap **Play**. Touch
 controls come in a 2D and a 3D layout (tap the button at the top centre), and a connected controller
-(Xbox, PlayStation, Switch Pro, MFi) replaces them. [docs/playing.md](https://github.com/seedds/nxnative/blob/641d1480021a57840b7acc15f92cbd86ecfae611/docs/playing.md) covers touch,
+(Xbox, PlayStation, Switch Pro, MFi) replaces them. [docs/playing.md](https://github.com/seedds/nxnative/blob/7249ee9f95ed728aff9a86395330d10d4c91fb5c/docs/playing.md) covers touch,
 rumble and motion. Short stutters the first time a scene appears are normal: the app compiles
 graphics for it once and remembers them. The game's data (`romfs.img`) can live on an external drive
 that the Files app picks.
@@ -152,34 +152,34 @@ anything extracted from a game.
 
 ## Games
 
-130 games have a profile. Many are reported playable on an iPhone upstream, and most have a
+140 games have a profile. Many are reported playable on an iPhone upstream, and most have a
 profile that has not been tried on a phone yet. A few of them:
 
 | | Game | Where it runs | Status |
 |---|---|---|---|
-| <img src="https://raw.githubusercontent.com/seedds/nxnative/641d1480021a57840b7acc15f92cbd86ecfae611/docs/images/zelda-tears-of-the-kingdom.jpg" width="96" alt=""> | The Legend of Zelda: Tears of the Kingdom | Mac and iPhone | **Verified here**: 304,243 files, byte-checked; ~17 GB |
-| <img src="https://raw.githubusercontent.com/seedds/nxnative/641d1480021a57840b7acc15f92cbd86ecfae611/docs/images/hades-ii.jpg" width="96" alt=""> | Hades II | Mac and iPhone | **Verified here** |
-| <img src="https://raw.githubusercontent.com/seedds/nxnative/641d1480021a57840b7acc15f92cbd86ecfae611/docs/images/animal-crossing-new-horizons.jpg" width="96" alt=""> | Animal Crossing: New Horizons | iPhone | **Verified here**: runs smoothly |
-| <img src="https://raw.githubusercontent.com/seedds/nxnative/641d1480021a57840b7acc15f92cbd86ecfae611/docs/images/super-mario-odyssey.jpg" width="96" alt=""> | Super Mario Odyssey | iPhone | Reported playable upstream |
-| <img src="https://raw.githubusercontent.com/seedds/nxnative/641d1480021a57840b7acc15f92cbd86ecfae611/docs/images/zelda-breath-of-the-wild.jpg" width="96" alt=""> | The Legend of Zelda: Breath of the Wild | iPhone | Reported playable upstream; 60 fps with 1.9.0 |
-| <img src="https://raw.githubusercontent.com/seedds/nxnative/641d1480021a57840b7acc15f92cbd86ecfae611/docs/images/mario-kart-8-deluxe.jpg" width="96" alt=""> | Mario Kart 8 Deluxe | iPhone | Reported playable upstream |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/7249ee9f95ed728aff9a86395330d10d4c91fb5c/docs/images/zelda-tears-of-the-kingdom.jpg" width="96" alt=""> | The Legend of Zelda: Tears of the Kingdom | Mac and iPhone | **Verified here**: 304,243 files, byte-checked; ~17 GB |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/7249ee9f95ed728aff9a86395330d10d4c91fb5c/docs/images/hades-ii.jpg" width="96" alt=""> | Hades II | Mac and iPhone | **Verified here** |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/7249ee9f95ed728aff9a86395330d10d4c91fb5c/docs/images/animal-crossing-new-horizons.jpg" width="96" alt=""> | Animal Crossing: New Horizons | iPhone | **Verified here**: runs smoothly |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/7249ee9f95ed728aff9a86395330d10d4c91fb5c/docs/images/super-mario-odyssey.jpg" width="96" alt=""> | Super Mario Odyssey | iPhone | Reported playable upstream |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/7249ee9f95ed728aff9a86395330d10d4c91fb5c/docs/images/zelda-breath-of-the-wild.jpg" width="96" alt=""> | The Legend of Zelda: Breath of the Wild | iPhone | Reported playable upstream; 60 fps with 1.9.0 |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/7249ee9f95ed728aff9a86395330d10d4c91fb5c/docs/images/mario-kart-8-deluxe.jpg" width="96" alt=""> | Mario Kart 8 Deluxe | iPhone | Reported playable upstream |
 
 **[GAMES.md](GAMES.md)** has the screenshot gallery with each
 game's install size, and the full table with the update version each game needs: the update NSP's
 display version must match the profile's, or the build says so.
 
-**Switch 2 games** are new in the engine. Five have a profile, all marked as playing on the Mac by
-upstream: Donkey Kong Bananza, Splatoon Raiders, Fire Emblem Fortune's Weave, Pokémon Pokopia and
-Hyrule Warriors: Age of Imprisonment. Choose the game's folder of files (`base/`, `updates/`, `dlc/`)
+**Switch 2 games** are new in the engine. Seven have a profile, all marked as playing on the Mac by
+upstream: Donkey Kong Bananza, Splatoon Raiders, Fire Emblem Fortune's Weave, Pokémon Pokopia,
+Hyrule Warriors: Age of Imprisonment, Mario Kart World and Mario Tennis Fever. Choose the game's folder of files (`base/`, `updates/`, `dlc/`)
 or its `.nup` file on the Builds page. No `prod.keys` are needed for them. The library marks them
-**Switch 2**. Nobody on this fork has played one through the launcher yet, and on iPhone and iPad they
-are barely tested: one maintainer played Donkey Kong Bananza on an iPhone 17 Pro Max from the command
-line. [GAMES.md](GAMES.md#switch-2-games) has the details.
+**Switch 2**. Only Donkey Kong Bananza was tried on this fork. The owner built and played it through the
+launcher on a Mac, an iPhone and an iPad, with no problems on the Mac and the iPhone and almost none on
+the iPad. The other Switch 2 games were not tried here. [GAMES.md](GAMES.md#switch-2-games) has the details.
 
 ## Limitations
 
 - **Only the games with a profile.** A title outside the list needs bring-up work of its own; the
-  place to start is [docs/agents](https://github.com/seedds/nxnative/blob/641d1480021a57840b7acc15f92cbd86ecfae611/docs/agents/README.md), upstream's guide for another Switch title.
+  place to start is [docs/agents](https://github.com/seedds/nxnative/blob/7249ee9f95ed728aff9a86395330d10d4c91fb5c/docs/agents/README.md), upstream's guide for another Switch title.
 - **Big games on an iPhone hit a memory limit.** Without the Increased Memory Limit entitlement iOS
   gives the app about 3.4 GB, which is not enough for Tears of the Kingdom. The app requests it, and
   AltStore Classic 2.2+, Impactor and Xcode with a Personal Team keep it; SideStore with a free Apple
@@ -202,7 +202,7 @@ line. [GAMES.md](GAMES.md#switch-2-games) has the details.
   [patches/README.md](patches/README.md) explains it, and `python3 tools/engine.py status` lists what
   is carried. A daily job moves the pin and opens a pull request, or an issue naming the patch that no
   longer fits. The links to the engine's documents in this README point at nxnative at the pinned commit.
-- **Another Switch game:** [docs/agents](https://github.com/seedds/nxnative/blob/641d1480021a57840b7acc15f92cbd86ecfae611/docs/agents/README.md) (extraction, binary survey, bring-up).
+- **Another Switch game:** [docs/agents](https://github.com/seedds/nxnative/blob/7249ee9f95ed728aff9a86395330d10d4c91fb5c/docs/agents/README.md) (extraction, binary survey, bring-up).
 - **Release history:** [CHANGELOG.md](CHANGELOG.md).
 
 ## Credits
@@ -234,7 +234,7 @@ All of the engine work is other people's. This repository adds the launcher and 
 - **yuzu**, **deko3d**, **libvpx**, **stb_vorbis**, **libdeflate** — see upstream's acknowledgement
   list for what each contributes.
 
-`dm/third_party` ships other projects with their licenses ([list](https://github.com/seedds/nxnative/blob/641d1480021a57840b7acc15f92cbd86ecfae611/dm/third_party/README.md)).
+`dm/third_party` ships other projects with their licenses ([list](https://github.com/seedds/nxnative/blob/7249ee9f95ed728aff9a86395330d10d4c91fb5c/dm/third_party/README.md)).
 
 ## Legal
 

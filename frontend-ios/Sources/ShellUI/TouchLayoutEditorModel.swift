@@ -24,6 +24,8 @@ import UIKit
     private(set) var rejectCount = 0
     /// The last move had no room: the line under the preview says so until the next move.
     private(set) var rejected = false
+    /// Reset all was asked for and waits for its answer: the editor asks before it puts every control of the shown layout back.
+    private(set) var confirmingReset = false
 
     init(store: ShellSettingsStore = .current, sideways: PadScreen = .proMax, upright: PadScreen? = nil, kind: TouchLayout.Kind = .threeD) {
         self.store = store
@@ -44,7 +46,7 @@ import UIKit
         editing.kind = kind
         editing.screen = kind.split ? (upright ?? sideways) : sideways
         if let s = selected, !s.drawn(full: kind.full) { selected = nil }
-        held = false; rejected = false
+        held = false; rejected = false; confirmingReset = false
     }
     func setTogether(_ on: Bool) {
         editing.together = on
@@ -102,10 +104,14 @@ import UIKit
         rejected = false
         save()
     }
-    /// Every control of the shown layout back to its built-in place.
+    /// Reset all: ask first. Nothing to reset asks nothing.
+    func askReset() { if !layoutIsBuiltIn { confirmingReset = true } }
+    func cancelReset() { confirmingReset = false }
+    /// Every control of the shown layout back to its built-in place (the answer to askReset).
     func reset() {
         editing.reset()
         rejected = false
+        confirmingReset = false
         save()
     }
 

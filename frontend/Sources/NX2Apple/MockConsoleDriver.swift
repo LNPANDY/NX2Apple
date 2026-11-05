@@ -106,6 +106,37 @@ import NXLauncher
         state.assigningPlayer = state.assigningPlayer ?? controller.player ?? 1
     }
     func setPadMerge(_ enabled: Bool) { state.padMerge = enabled }
+    func setJoyconSplit(_ enabled: Bool) {
+        guard state.joyconSplit != enabled else { return }
+        state.joyconSplit = enabled
+        if enabled {
+            var next: [ConsoleController] = []
+            for c in state.controllers {
+                if c.kind == .paired {
+                    next.append(ConsoleController(id: c.id + ".L", name: "Joy-Con (L)", player: c.player, kind: .gamepad, battery: c.battery, charging: c.charging, canIdentify: c.canIdentify))
+                    let free = (1...4).first { p in p != c.player && !state.controllers.contains(where: { $0.player == p }) && !next.contains(where: { $0.player == p }) }
+                    next.append(ConsoleController(id: c.id + ".R", name: "Joy-Con (R)", player: free, kind: .gamepad, battery: c.battery, charging: c.charging, canIdentify: c.canIdentify))
+                } else {
+                    next.append(c)
+                }
+            }
+            state.controllers = next
+        } else {
+            var next: [ConsoleController] = []
+            var skippedR = Set<String>()
+            for c in state.controllers {
+                if skippedR.contains(c.id) { continue }
+                if c.id.hasSuffix(".L") {
+                    let base = String(c.id.dropLast(2))
+                    skippedR.insert(base + ".R")
+                    next.append(ConsoleController(id: base, name: L10n.string("console.demoPaired", lang), player: c.player, kind: .paired, battery: c.battery, charging: c.charging, canIdentify: c.canIdentify))
+                } else {
+                    next.append(c)
+                }
+            }
+            state.controllers = next
+        }
+    }
     func dismissToast() { toastTask?.cancel(); state.toast = nil; state.identifyingControllerID = nil }
     /// A transport event simulated by tests or a preview coordinator, without hardware discovery.
     func connect(_ controller: ConsoleController) {
