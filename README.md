@@ -196,6 +196,7 @@ the iPad. The other Switch 2 games were not tried here. [GAMES.md](GAMES.md#swit
 
 - **Build from source:** [BUILDING.md](BUILDING.md). **Report or fix something:** [CONTRIBUTING.md](CONTRIBUTING.md).
 - **Where help is wanted:** the [milestones](https://github.com/LNPANDY/NX2Apple/milestones) are the plan, and [CONTRIBUTING.md](CONTRIBUTING.md#where-we-would-love-help) says how to take an issue from one.
+- **We are looking for one or two more developers.** There is a lot to do. If you want to join us, take an open issue from a milestone and send a well made pull request. People who deliver good work, again and again, are asked to help with reviews and triage.
 - **What this fork changes in upstream:** the engine (`dm/`, `scripts/`, `docs/`, `ref/`) is not
   committed here. It is nxnative at a pinned commit (`.upstream-ref`) plus a queue of patches, each
   saying why the fork carries it, and `python3 tools/engine.py sync` builds it into `engine/`.
