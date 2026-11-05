@@ -60,8 +60,9 @@ launcher e una breve serie di patch, seguendo gli aggiornamenti di nxnative ogni
   Xcode presente sull'App Store. Se hai installato anche una versione più recente di Xcode, rinomina la 27.2 in `Xcode-27.2.app` e selezionala con:
   `sudo xcode-select -s /Applications/Xcode-27.2.app`.
 - **I dump dei tuoi giochi** (NSP o XCI) e **il tuo file `prod.keys`** estratto dalla tua console. Nulla è
-  incluso, scaricato o cercato automaticamente per te. Lo stesso file `prod.keys` apre tutti i tuoi giochi e un
-  dump recente copre tutti i titoli commerciali.
+  incluso, scaricato o cercato automaticamente per te. Lo stesso file `prod.keys` apre tutti i tuoi giochi
+  Switch. Un dump recente copre tutti i titoli commerciali. I giochi Switch 2 (una cartella di gioco o un file
+  `.nup`) non hanno bisogno di `prod.keys`.
 - Per iPhone o iPad: iOS o iPadOS 26 o successivo e un dispositivo recente. I dispositivi più datati non sono stati testati.
 
 L'app include al suo interno gli strumenti di compilazione e Python, per cui non serve installare né Homebrew né Python. Il .NET SDK 10

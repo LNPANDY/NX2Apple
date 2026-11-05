@@ -58,8 +58,9 @@ et une courte liste de correctifs, et suit nxnative chaque jour.
   d’Apple, pas le Xcode plus récent de l’App Store. Si un Xcode plus récent est aussi installé, renommez 27.2 en `Xcode-27.2.app` et sélectionnez-le :
   `sudo xcode-select -s /Applications/Xcode-27.2.app`.
 - **Vos propres dumps de jeux** (NSP ou XCI) et **votre propre `prod.keys`**, issu de votre propre console. Rien
-  n’est fourni, téléchargé ou recherché pour vous. Le même `prod.keys` ouvre tous vos jeux, un dump récent
-  couvre tous les titres du commerce.
+  n’est fourni, téléchargé ou recherché pour vous. Le même `prod.keys` ouvre tous vos jeux Switch. Un dump
+  récent couvre tous les titres du commerce. Les jeux Switch 2 (un dossier de jeu ou un fichier `.nup`)
+  n’ont pas besoin de `prod.keys`.
 - Pour un iPhone ou un iPad : iOS ou iPadOS 26 ou plus récent et un appareil récent. Les appareils plus anciens ne sont pas testés.
 
 L’app embarque ses propres outils de compilation et son propre Python, donc pas besoin de Homebrew ni d’installer

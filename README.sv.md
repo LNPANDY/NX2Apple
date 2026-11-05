@@ -58,8 +58,8 @@ launchern och en kort lista med patchar och följer nxnative varje dag.
   nyare Xcode från App Store. Om du också har ett nyare Xcode installerat, döp om 27.2 till `Xcode-27.2.app` och välj det:
   `sudo xcode-select -s /Applications/Xcode-27.2.app`.
 - **Dina egna spelavbilder** (NSP eller XCI) och **din egen `prod.keys`** från din egen konsol. Inget
-  medföljer, laddas ned eller slås upp åt dig. Samma `prod.keys` öppnar alla dina spel, en aktuell avbild
-  täcker alla titlar i handeln.
+  medföljer, laddas ned eller slås upp åt dig. Samma `prod.keys` öppnar alla dina Switch-spel. En aktuell
+  avbild täcker alla titlar i handeln. Switch 2-spel (en spelmapp eller en `.nup`-fil) behöver ingen `prod.keys`.
 - För en iPhone eller iPad: iOS eller iPadOS 26 eller senare och en ny enhet. Äldre enheter är otestade.
 
 Appen har egna byggverktyg och en egen Python, så du behöver varken Homebrew eller någon Python-installation.
