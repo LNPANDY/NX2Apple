@@ -1,0 +1,175 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Vincent Keyan <vincent.keyan@gmail.com>
+Date: Wed, 4 Nov 2026 21:04:23 -0600
+Subject: [PATCH] cra: a cut NARC or member is a red line naming its layout
+
+fuzz_shader_split.py found an 8-byte file starting with NARC: narc_members
+read its header at 0xc and failed with a struct.error, which names no
+layout. The BTAF's count and table, and in undo the MMMM table and chunks,
+an LZ token cut at the end, and lz4 and zstd errors, failed the same way.
+An LZ4 member's size came from its header unchecked, so 12 bytes could
+ask for a 4 GB buffer: a size beyond LZ4's 255:1 is now rejected first.
+
+Each of these is a cra.Error naming what is cut, and scan_blob's NARC
+members and cra_shaders' CRA entries turn it into a [RED] line. The
+fuzzer's input is in the corpus as narc-cut.bin.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+Upstream-Status: forwarded seedds/nxnative#1278
+Reason: A cut NARC or CRA member made the shader split fail with a struct.error naming no layout, and a 12-byte LZ4 member could ask for a 4 GB buffer (a fuzz finding)
+Issue: none (found by dm/tools/fuzz/fuzz_shader_split.py)
+
+---
+ dm/gfx/tests/test_cra.py                      |  21 +++++++++++++
+ dm/gfx/tools/cra.py                           |  28 ++++++++++++++++--
+ dm/gfx/tools/shader_split.py                  |  11 +++++--
+ .../fuzz/corpus/shader_split/narc-cut.bin     | Bin 0 -> 8 bytes
+ 4 files changed, 55 insertions(+), 5 deletions(-)
+ create mode 100644 dm/tools/fuzz/corpus/shader_split/narc-cut.bin
+
+diff --git a/dm/gfx/tests/test_cra.py b/dm/gfx/tests/test_cra.py
+index f4e0721..7fb468d 100644
+--- a/dm/gfx/tests/test_cra.py
++++ b/dm/gfx/tests/test_cra.py
+@@ -109,6 +109,27 @@ class Members(unittest.TestCase):
+         with self.assertRaises(cra.Error): cra.narc_members(b'SARC' + bytes(32))
+         with self.assertRaises(cra.Error): cra.narc_members(narc([b'abc'])[:40])
+ 
++    def test_a_cut_narc_names_its_layout(self):   # each was a struct.error, which names no layout (the fuzzer: an 8-byte NARC)
++        with self.assertRaisesRegex(cra.Error, 'header cut at 8 of 16'): cra.narc_members(b'NARCRC\x14\0')
++        whole = narc([b'abc', b'def'])
++        fat = whole.index(b'BTAF')
++        short = bytearray(whole); struct.pack_into('<I', short, fat + 8, 1000)   # more members than the table holds
++        with self.assertRaisesRegex(cra.Error, 'BTAF of 1000 members past the end'): cra.narc_members(bytes(short))
++        bare = whole[:16] + b'GMIF' + struct.pack('<I', 8) + b'BTAF' + struct.pack('<I', 8)   # the file ends before the BTAF's count
++        bare = bare[:8] + struct.pack('<IHH', len(bare), 16, 2) + bare[16:]
++        with self.assertRaisesRegex(cra.Error, 'BTAF header past the end'): cra.narc_members(bare)
++
++    def test_a_cut_member_names_its_layout(self):
++        text = b'BNSH\0\0\0\0 shaders shaders shaders shaders ' * 40
++        lz4d = b'\x94\0\0\0' + struct.pack('<I', len(text)) + lz4.block.compress(text, store_size=False)
++        with self.assertRaisesRegex(cra.Error, 'an LZ4 member'): cra.undo(lz4d[:-5])
++        with self.assertRaisesRegex(cra.Error, 'would expand to 4294967295'): cra.undo(b'\x94\0\0\0\xff\xff\xff\xff\0\0\0\0')   # not a 4 GB allocation
++        with self.assertRaisesRegex(cra.Error, 'a zstd member'): cra.undo(b'Z\0\0\0' + bytes(4) + cra.zstd_mod().compress(text)[:-4])
++        with self.assertRaisesRegex(cra.Error, 'MMMM header cut'): cra.undo(b'MMMM\0\0')
++        with self.assertRaisesRegex(cra.Error, 'MMMM table of 9 chunks'): cra.undo(b'MMMM' + struct.pack('<II', 0, 9))
++        with self.assertRaisesRegex(cra.Error, 'MMMM chunk 0 past the end'): cra.undo(b'MMMM' + struct.pack('<III', 0, 1, 64) + bytes(4))
++        with self.assertRaisesRegex(cra.Error, 'LZ stream cut inside a token'): cra.undo(b'\x60\0\0\0\x01')   # a flag byte with a match, and no match bytes
++
+     def test_kinds(self):
+         text = b'BNSH\0\0\0\0 shaders shaders shaders shaders ' * 40
+         lz4d = b'\x94\0\0\0' + struct.pack('<I', len(text)) + lz4.block.compress(text, store_size=False)
+diff --git a/dm/gfx/tools/cra.py b/dm/gfx/tools/cra.py
+index c18bdc7..a341b42 100644
+--- a/dm/gfx/tools/cra.py
++++ b/dm/gfx/tools/cra.py
+@@ -174,14 +174,18 @@ def head(f, entry):   # the first block of a file, unscrambled: its magic, to le
+ 
+ def narc_members(d, where='NARC'):
+     if d[:4] != b'NARC': raise Error(f'{where}: not a NARC')
++    if len(d) < 0x10: raise Error(f'{where}: a NARC header cut at {len(d)} of 16 bytes')
+     o, n = struct.unpack_from('<HH', d, 0xc); secs = {}
+     for _ in range(n):
+         if o + 8 > len(d): raise Error(f'{where}: a section past the end')
+         s = struct.unpack_from('<I', d, o + 4)[0]; secs[d[o:o + 4]] = o; o += s
+     if b'BTAF' not in secs or b'GMIF' not in secs: raise Error(f'{where}: no BTAF or GMIF')
+     fat = secs[b'BTAF']; data = secs[b'GMIF'] + 8
++    if fat + 12 > len(d): raise Error(f'{where}: the BTAF header past the end')
++    count = struct.unpack_from('<I', d, fat + 8)[0]
++    if fat + 12 + 8 * count > len(d): raise Error(f'{where}: a BTAF of {count} members past the end')
+     out = []
+-    for i in range(struct.unpack_from('<I', d, fat + 8)[0]):
++    for i in range(count):
+         a, b = struct.unpack_from('<II', d, fat + 12 + 8 * i)
+         if not data + a <= data + b <= len(d): raise Error(f'{where}: member {i} past the end')
+         out.append(d[data + a:data + b])
+@@ -189,6 +193,11 @@ def narc_members(d, where='NARC'):
+ 
+ 
+ def lz_undo(d, at):   # kinds 0x50 and 0x60 (nro0+0x1237f04): flag bytes, each negated and read from its high bit (1 a match, 0 a literal); a flag byte 0 is 8 literals; a distance 0 ends
++    try: return lz_steps(d, at)
++    except IndexError: raise Error('an LZ stream cut inside a token') from None
++
++
++def lz_steps(d, at):
+     out = bytearray(); n = len(d)
+     while at < n:
+         f = d[at]; at += 1
+@@ -211,6 +220,9 @@ def lz_undo(d, at):   # kinds 0x50 and 0x60 (nro0+0x1237f04): flag bytes, each n
+     return bytes(out)
+ 
+ 
++LZ4_RATIO = 255   # an LZ4 block expands at most about 255 times (a match's length bytes add 255 each)
++
++
+ def zstd_mod():
+     try: from compression import zstd
+     except ImportError: from backports import zstd   # pyright: ignore[reportMissingImports]  # an optional package, only Python before 3.14 needs it
+@@ -222,15 +234,25 @@ def undo(d):
+     if not d: return d
+     k = d[0]
+     if k == 0x4d and d[:4] == b'MMMM':   # chunks of any kind: u32 total, u32 count, u32 length of each, 16-aligned
++        if len(d) < 12: raise Error(f'an MMMM header cut at {len(d)} of 12 bytes')
+         total, n = struct.unpack_from('<II', d, 4)
++        if 12 + 4 * n > len(d): raise Error(f'an MMMM table of {n} chunks past the end')
+         at = (12 + 4 * n + 15) & ~15
+         out = []
+         for i in range(n):
+             s = struct.unpack_from('<I', d, 12 + 4 * i)[0]
++            if at + s > len(d): raise Error(f'MMMM chunk {i} past the end')
+             out.append(undo(d[at:at + s])); at += (s + 15) & ~15
+         return b''.join(out)
+-    if k == 0x94 and len(d) >= 8: return lz4.block.decompress(d[8:], uncompressed_size=struct.unpack_from('<I', d, 4)[0])
+-    if k == 0x5a and d[:4] == b'Z\0\0\0': return zstd_mod().decompress(d[8:])
++    if k == 0x94 and len(d) >= 8:
++        size = struct.unpack_from('<I', d, 4)[0]
++        if size > LZ4_RATIO * (len(d) - 8): raise Error(f'an LZ4 member of {len(d) - 8} bytes that would expand to {size}')   # more than LZ4 can encode: not an allocation to make
++        try: return lz4.block.decompress(d[8:], uncompressed_size=size)
++        except lz4.block.LZ4BlockError as e: raise Error(f'an LZ4 member: {e}') from None
++    if k == 0x5a and d[:4] == b'Z\0\0\0':
++        zstd = zstd_mod()
++        try: return zstd.decompress(d[8:])
++        except zstd.ZstdError as e: raise Error(f'a zstd member: {e}') from None
+     if k == 0x50 and len(d) >= 8: return lz_undo(d, 8)
+     if k == 0x60 and len(d) >= 4: return lz_undo(d, 4)
+     if k in (0x70, 0x80) and len(d) >= 0x10: return d[0x10:]
+diff --git a/dm/gfx/tools/shader_split.py b/dm/gfx/tools/shader_split.py
+index d48d083..8681c21 100644
+--- a/dm/gfx/tools/shader_split.py
++++ b/dm/gfx/tools/shader_split.py
+@@ -739,7 +739,9 @@ def cra_shaders(path, rel, ents, out):
+     with open(path, 'rb') as f:
+         for e in ents:
+             if cra.head(f, e)[:4] in (b'FSTM', b'\x1aE\xdf\xa3'): continue
+-            scan_blob(cra.undo(cra.read(f, e)), f'/{rel}/{e[1]}', out)
++            try: d = cra.undo(cra.read(f, e))
++            except cra.Error as x: red(f'/{rel}/{e[1]}: {x}')
++            scan_blob(d, f'/{rel}/{e[1]}', out)
+ 
+ ZIP = b'PK\x03\x04'
+ def zip_jobs(files, parts=64):
+@@ -2456,7 +2458,12 @@ def scan_blob(d, label, out, depth=0, left=None):
+         return
+     if d[:4] == b'NARC':   # Camelot's containers (cra.py): each member packed by its first byte, so its size says nothing about the budget above
+         import cra
+-        for i, m in enumerate(cra.narc_members(d, label)): scan_blob(cra.undo(m), f'{label}/{i}', out, depth + 1)
++        try: members = cra.narc_members(d, label)
++        except cra.Error as e: red(str(e))
++        for i, m in enumerate(members):
++            try: m = cra.undo(m)
++            except cra.Error as e: red(f'{label}/{i}: {e}')
++            scan_blob(m, f'{label}/{i}', out, depth + 1)
+         return
+     if d[:4] == b'BAHS': out.extend(bahs_shaders(d, label)); return
+     if d[:4] == b'NDSR': out.extend(ndsr_shaders(d, label)); return
+diff --git a/dm/tools/fuzz/corpus/shader_split/narc-cut.bin b/dm/tools/fuzz/corpus/shader_split/narc-cut.bin
+new file mode 100644
+index 0000000000000000000000000000000000000000..f8699041dd7d69f83192e43f5722f94870cceb2c
+GIT binary patch
+literal 8
+PcmeZs3~~-~7GVGY39|vt
+
+literal 0
+HcmV?d00001
+
