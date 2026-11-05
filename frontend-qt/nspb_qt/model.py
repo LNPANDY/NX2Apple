@@ -25,7 +25,13 @@ from .i18n import Lang
 from .l10n import t
 
 
+# The env file line of the "Older devices" switch, as the Mac launcher writes it (BuildStore.bcOnCPUEnvText): the host reads a profile key from the
+# environment as DM_PROF_<KEY> (hle_profile.c read_env), so tex_bc_cpu is DM_PROF_TEX_BC_CPU. The DM_TEX_BC_CPU written before is read by nothing.
+BC_ON_CPU_ENV_TEXT = 'DM_PROF_TEX_BC_CPU=1\n'
+
+
 # ---------------------------------------------------------------- dependency rows
+
 
 class DepState(Enum):
     OK = 'ok'
@@ -1529,7 +1535,7 @@ class Model(QObject):
             try:
                 Path(self.effective_work_dir).mkdir(parents=True, exist_ok=True)
                 env_file = Path(self.effective_work_dir, '_env.txt')
-                env_file.write_text('DM_TEX_BC_CPU=1\n', encoding='utf-8')
+                env_file.write_text(BC_ON_CPU_ENV_TEXT, encoding='utf-8')
                 args += ['--env-file', str(env_file)]
                 self.log(self.t('msg.bcOn') + '\n')
             except OSError as e:

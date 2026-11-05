@@ -72,6 +72,10 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     nonisolated package static let outputKey = "buildOutputDirectory"
     nonisolated package static let targetKey = "buildTarget"
     nonisolated package static let bcOnCPUKey = "bcOnCPU"
+    /// The env file line of the "Older devices" switch. The host reads a profile key from the environment as DM_PROF_<KEY>
+    /// (hle_profile.c read_env), so tex_bc_cpu is DM_PROF_TEX_BC_CPU; the DM_TEX_BC_CPU this used to write is read by nothing,
+    /// and the switch did nothing (an iPhone 13 Pro, A15: Super Mario Bros. Wonder still aborted on its first BC texture).
+    nonisolated package static let bcOnCPUEnvText = "DM_PROF_TEX_BC_CPU=1\n"
     nonisolated package static let experimentalBuilderKey = "experimentalBuilder"
     nonisolated package static let experimentalBuilderPathKey = "experimentalBuilderPath"
 
@@ -123,7 +127,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     }
     /// Decode BC-compressed textures on the CPU. Only relevant for GPUs without BC support
     /// (A15/A16 and older): on a device that has it the GPU path is always better, so the switch
-    /// is a compatibility option and defaults off. Passed as DM_TEX_BC_CPU through --env-file,
+    /// is a compatibility option and defaults off. Passed through --env-file as bcOnCPUEnvText,
     /// which the host reads at start-up — no rebuild of the host needed.
     @Published package var bcOnCPU: Bool {
         didSet { defaults.set(bcOnCPU, forKey: Self.bcOnCPUKey) }

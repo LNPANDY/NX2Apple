@@ -145,6 +145,14 @@ import XCTest
         XCTAssertEqual(makeStore().outDir, "/out", "a new store starts from what was saved")
     }
 
+    func testTheCompatibilitySwitchWritesTheProfileKeyTheHostReads() {
+        // The host takes a profile key from the environment as DM_PROF_<KEY> (hle_profile.c read_env): tex_bc_cpu is DM_PROF_TEX_BC_CPU
+        XCTAssertEqual(BuildStore.bcOnCPUEnvText, "DM_PROF_TEX_BC_CPU=1\n")
+        let host = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../../engine/dm/host/hle_profile.c").standardized
+        guard let source = try? String(contentsOf: host, encoding: .utf8) else { return }   // engine/ is synced (CI syncs it before the tests)
+        XCTAssertTrue(source.contains("\"DM_PROF_%s\"") && source.contains("\"TEX_BC_CPU\""), "hle_profile.c still reads DM_PROF_TEX_BC_CPU")
+    }
+
     // MARK: The experimental builder (#749)
 
     func testTheExperimentalBuilderIsOffByDefaultAndItsSettingIsSaved() {
