@@ -1,7 +1,7 @@
 import Foundation
 
 package enum BuildFailureClassifier {
-    /// One row per message of the script. The pattern is a stable part of the text in scripts/build_ipa_from_nsp.py,
+    /// One row per message of the script. The pattern is a stable part of the text in scripts/build_ipa_from_nsp.py, dm/gfx/tools/pso_offline.py,
     /// dm/gfx/tools/own_compilers.py or dm/tools/nx_extract/Program.cs (regular expressions, searched in the log).
     /// Frontend/Tests/Fixtures/build_failures.json holds the real message for every row, and a test checks that each
     /// fragment is still in the engine's script, so a sync that rewords a message fails there instead of turning a
@@ -22,6 +22,9 @@ package enum BuildFailureClassifier {
         ("games.several", .severalGames, "more than one game in the folder"),
         ("games.noTitleID", .noTitleID, "no NSP with a readable title ID in "),
         ("disk.low", .diskFull, "less than [0-9]+ GB free on the volume of "),
+        ("pso.low", .psoDiskFull, "pso_offline: [0-9.]+ GB free on the volume of [^\\n]+, metal-tt needs about [0-9.]+ GB for [0-9]+ bases:"),
+        ("pso.merge", .psoDiskFull, "pso_offline: [0-9.]+ GB free before merging; need at least [0-9.]+ GB"),
+        ("pso.failed", .psoDiskFull, "pso_offline: metal-tt failed[^\\n]+when it failed: likely out of disk space"),
         ("disk.full", .diskFull, "No space left on device"),
         ("icloud.detritus", .cloudFolder, "resource fork, Finder information, or similar detritus not allowed"),
         ("volume.swap", .volumeFormat, "\\[Errno 45\\] Operation not supported: '[^']*\\.app'"),
@@ -61,6 +64,9 @@ package enum BuildFailureClassifier {
         case .diskFull:   // "less than 40 GB free on the volume of /Volumes/X/..."
             guard let r = log.range(of: #"less than [0-9]+ GB free"#, options: .regularExpression) else { return nil }
             return log[r].split(separator: " ").dropFirst(2).first.map(String.init)
+        case .psoDiskFull:
+            guard let r = log.range(of: #"pso_offline: [^\n]+(?:metal-tt needs about|before merging; need at least) [0-9.]+ GB"#, options: .regularExpression) else { return nil }
+            return log[r].split(separator: " ").dropLast().last.map(String.init)
         case .noTitleID:   // "no NSP with a readable title ID in /path"
             guard let r = log.range(of: #"(?m)no NSP with a readable title ID in (.+)$"#, options: .regularExpression),
                   let at = log[r].range(of: " in ") else { return nil }

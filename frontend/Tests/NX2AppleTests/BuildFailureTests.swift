@@ -297,6 +297,22 @@ import NXModel
                 BuildFailureCard(m: m).environmentObject(mStores.localizer).padding(24)
             })
         }
+        // Replay the real low-space stop through the classifier, including the raw-note fallback before a hint exists.
+        for lang in Lang.all {
+            let stores = LauncherStores(defaults: testDefaults)
+            let build = stores.build
+            build.lang = lang
+            build.doneNote = try XCTUnwrap(fixtures().first { $0.id == "pso.low" }).text
+            build.logTail = build.doneNote
+            build.noteFailure()
+            try capture("pso-low-\(lang.code)", width: 760, height: 360, ZStack(alignment: .top) {
+                LauncherPalette.background
+                VStack(alignment: .leading, spacing: 20) {
+                    ActionCard(build: build, dependencies: stores.dependencies, repo: stores.repo)
+                    BuildFailureCard(m: build)
+                }.environmentObject(stores.localizer).padding(24)
+            })
+        }
         let mStores = LauncherStores(defaults: testDefaults); let m = mStores.build
         m.lang = .en
         MainActor.assumeIsolated { mStores.dependencies.checked = true }
