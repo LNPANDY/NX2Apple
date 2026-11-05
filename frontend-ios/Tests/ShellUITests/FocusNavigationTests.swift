@@ -15,3 +15,30 @@ final class FocusNavigationTests: XCTestCase {
         XCTAssertNil(FocusNavigation.next(from: nil, action: .down, targets: []))
     }
 }
+
+@MainActor final class NativeToolbarFocusTests: XCTestCase {
+    func testClosingANativeSheetRestoresLibraryTargetsWithoutNewGeometry() {
+        let targets = FocusTargetBuffer()
+        let frame = CGRect(x: 20, y: 80, width: 44, height: 44)
+        targets.libraryValues = [FocusTarget(id: "lib.tile.orbit", frame: frame, activate: {})]
+        targets.values = [FocusTarget(id: "set.row.mode", frame: frame, activate: {})]
+        XCTAssertEqual(targets.active(prefix: "set.", toolbarIDs: []).map(\.id), ["set.row.mode"])
+        XCTAssertEqual(targets.active(prefix: "lib.", toolbarIDs: []).map(\.id), ["lib.tile.orbit"])
+    }
+
+    func testToolbarReplacesDuplicatePreferencesAndDropsInactiveScreenActions() {
+        let targets = FocusTargetBuffer()
+        var activations = 0
+        let frame = CGRect(x: 20, y: 80, width: 44, height: 44)
+        targets.values = [FocusTarget(id: "lib.settings", frame: frame, activate: {}),
+                          FocusTarget(id: "set.play", frame: frame, activate: {})]
+        targets.toolbarValues = [
+            "lib.settings": FocusTarget(id: "lib.settings", frame: frame, activate: {}),
+            "set.back": FocusTarget(id: "set.back", frame: frame, activate: { activations += 1 })]
+        let active = targets.active(prefix: "set.", toolbarIDs: ["set.back"])
+        XCTAssertEqual(Set(active.map(\.id)), ["set.back", "set.play"])
+        active.first { $0.id == "set.back" }?.activate()
+        XCTAssertEqual(activations, 1)
+        XCTAssertEqual(targets.active(prefix: "lib.", toolbarIDs: ["lib.settings"]).count, 1)
+    }
+}

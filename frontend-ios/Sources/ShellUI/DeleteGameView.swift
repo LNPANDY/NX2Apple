@@ -57,7 +57,7 @@ enum DeleteStyle {
 struct DeletePillStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label.shellType(ShellType.primaryButton)
-            .lineLimit(1).minimumScaleFactor(0.8)
+            .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, 26).frame(minHeight: 50)
             .foregroundStyle(.white)
             .background(Color(red: 0.86, green: 0.25, blue: 0.24), in: Capsule())

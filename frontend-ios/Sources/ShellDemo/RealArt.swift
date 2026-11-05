@@ -55,8 +55,8 @@ extension SampleArt {
                      recentlyPlayed: String? = nil) -> GameTile {
         let subtitle = ShellFormat.version(version)
         if let real, let banner = RealArt.banner(for: real) {
-            return GameTile(id: id, title: real.title, subtitle: subtitle, banner: banner, state: state, recentlyPlayed: recentlyPlayed)
+            return GameTile(id: id, title: real.title, subtitle: subtitle, banner: banner, state: state, recentlyPlayed: recentlyPlayed, version: version)
         }
-        return GameTile(id: id, title: title, subtitle: subtitle, icon: icon(id), state: state, recentlyPlayed: recentlyPlayed)
+        return GameTile(id: id, title: title, subtitle: subtitle, icon: icon(id), state: state, recentlyPlayed: recentlyPlayed, version: version)
     }
 }

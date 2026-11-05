@@ -63,6 +63,22 @@ final class PadMappingCaptureTests: XCTestCase {
             .background(Color.black.opacity(0.55))
     }
 
+    func testCaptureConstrainedMenuContent() throws {
+        let pads = [ControllerInfo(id: "1", name: "Xbox Wireless Controller", player: "Player 1", batteryPercent: 80)]
+        for width: CGFloat in [320, 375, 560] {
+            for large in [false, true] {
+                let type: DynamicTypeSize = large ? .accessibility3 : .large
+                let suffix = "\(Int(width))-\(large ? "large" : "default")"
+                try capture("menu-controllers-\(suffix)", width: width, height: 560,
+                            ControllersView(controllers: pads, padMap: global).environment(\.shellNativeBars, true).environment(\.dynamicTypeSize, type))
+                try capture("menu-mapping-\(suffix)", width: width, height: 560,
+                            card("All games", rows: PadMappingRows.global(global), inherited: nil).environment(\.shellNativeBars, true).environment(\.dynamicTypeSize, type))
+                try capture("menu-button-test-\(suffix)", width: width, height: 400,
+                            ButtonTestView(snapshot: PadSnapshot(name: "Xbox Wireless Controller"), close: {}).padding(16).environment(\.shellNativeBars, true).environment(\.dynamicTypeSize, type))
+            }
+        }
+    }
+
     func testCaptureTheControllersPage() throws {
         let pads = [ControllerInfo(id: "1", name: "Xbox Wireless Controller", player: "Player 1", batteryPercent: 80)]
         try capture("pad-controllers", width: 402, height: 820, ControllersView(controllers: pads, padMap: global))
