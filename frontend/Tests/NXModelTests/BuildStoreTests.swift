@@ -145,6 +145,39 @@ import XCTest
         XCTAssertEqual(makeStore().outDir, "/out", "a new store starts from what was saved")
     }
 
+    // MARK: The experimental builder (#749)
+
+    func testTheExperimentalBuilderIsOffByDefaultAndItsSettingIsSaved() {
+        let store = makeStore()
+        XCTAssertFalse(store.experimentalBuilder)
+        XCTAssertEqual(store.builderEnvironment(), [:], "off: the build gets nothing")
+        XCTAssertFalse(store.log.text.contains(store.t("msg.builderMissing")), "and the log says nothing")
+        store.experimentalBuilder = true; store.experimentalBuilderPath = "/opt/nxbuild"
+        XCTAssertTrue(defaults.bool(forKey: BuildStore.experimentalBuilderKey))
+        XCTAssertEqual(defaults.string(forKey: BuildStore.experimentalBuilderPathKey), "/opt/nxbuild")
+        let again = makeStore()
+        XCTAssertTrue(again.experimentalBuilder)
+        XCTAssertEqual(again.experimentalBuilderPath, "/opt/nxbuild")
+    }
+
+    func testTheBuildGetsTheChosenNxbOrANoteThatTheStandardBuilderRuns() throws {
+        let store = makeStore()
+        store.bundledBuilder = nil
+        store.experimentalBuilder = true
+        store.experimentalBuilderPath = temporary.path + "/gone/nxb"
+        XCTAssertNil(store.experimentalBuilderBinary)
+        XCTAssertEqual(store.builderEnvironment(), [:])
+        XCTAssertTrue(store.log.text.contains(store.t("msg.builderMissing")))
+        let nxb = try file("nxb")
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: nxb)
+        store.experimentalBuilderPath = temporary.path   // the folder that holds it
+        XCTAssertEqual(store.experimentalBuilderBinary, nxb)
+        XCTAssertEqual(store.builderEnvironment(), ["DM_EXPERIMENTAL_BUILDER": "1", "NXB_BIN": nxb])
+        XCTAssertTrue(store.log.text.contains(String(format: store.t("msg.builderOn"), nxb)))
+        store.experimentalBuilder = false
+        XCTAssertEqual(store.builderEnvironment(), [:], "off again: nothing, whatever the path")
+    }
+
     func testTakingFilesFillsTheRowAndNamesTheFirstFileThatDoesNotFit() {
         let store = makeStore()
         store.take(picked: ["/g/Game [0100000000001000].nsp"], kind: .base)
