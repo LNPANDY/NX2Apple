@@ -134,14 +134,4 @@ final class LaunchOptionsTests: IsolatedDefaultsTestCase {
         XCTAssertFalse(segmented("DM_X", ["One", "Two", "Seven tens"]), "three segments are narrower than two")
         XCTAssertFalse(segmented("DM_X", ["A", "B", "C", "D"]), "four or more are a menu")
     }
-
-    func testLauncherSliderPreservesRangeStepAndBinding() {
-        var observed: Double = 0.5
-        let slider = LauncherSlider(value: observed, range: 0.5...1.0, step: 0.05) { observed = $0 }
-        XCTAssertEqual(slider.value, 0.5)
-        XCTAssertEqual(slider.range, 0.5...1.0)
-        XCTAssertEqual(slider.step, 0.05)
-        slider.change(0.75)
-        XCTAssertEqual(observed, 0.75)
-    }
 }

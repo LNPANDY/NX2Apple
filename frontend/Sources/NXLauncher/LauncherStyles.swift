@@ -298,10 +298,48 @@ package struct LauncherSlider: View {
     package let step: Double
     package let change: (Double) -> Void
     package var body: some View {
-        // Native control retains arrow-key adjustment, focus, bounds and VoiceOver's slider role.
-        Slider(value: Binding(get: { value }, set: change), in: range, step: step > 0 ? step : 0.01)
-            .labelsHidden()
-            .tint(LauncherPalette.cream)
-            .frame(height: 22)
+        GeometryReader { g in
+            let span = range.upperBound - range.lowerBound
+            let fraction = span > 0 ? (min(max(value, range.lowerBound), range.upperBound) - range.lowerBound) / span : 0
+            let knob: CGFloat = 16, track = g.size.width - knob
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.white.opacity(0.14)).frame(height: 4).padding(.horizontal, knob / 2)
+                Capsule().fill(LauncherPalette.cream).frame(width: track * fraction + knob / 2, height: 4).padding(.leading, knob / 2)
+                Circle().fill(LauncherPalette.cream).frame(width: knob, height: knob)
+                    .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
+                    .offset(x: track * fraction)
+            }
+            .frame(maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .gesture(DragGesture(minimumDistance: 0).onChanged { drag in
+                let raw = range.lowerBound + Double(min(max(drag.location.x - knob / 2, 0), track) / max(track, 1)) * span
+                change(Self.snapped(raw, range: range, step: step))
+            })
+        }
+        .frame(height: 22)
+        .focusable()
+        .onMoveCommand { direction in
+            switch direction {
+            case .left: change(Self.moved(value, by: -1, range: range, step: step))
+            case .right: change(Self.moved(value, by: 1, range: range, step: step))
+            default: break
+            }
+        }
+        .accessibilityRepresentation {
+            Slider(value: Binding(get: { value }, set: change), in: range,
+                   step: step > 0 ? step : (range.upperBound - range.lowerBound) / 20)
+        }
+    }
+
+    /// A raw value on the slider's steps, inside its range.
+    package static func snapped(_ raw: Double, range: ClosedRange<Double>, step: Double) -> Double {
+        let snapped = step > 0 ? (raw / step).rounded() * step : raw
+        return min(max(snapped, range.lowerBound), range.upperBound)
+    }
+
+    /// The value one arrow key press away. Without a step it moves a twentieth of the range.
+    package static func moved(_ value: Double, by presses: Int, range: ClosedRange<Double>, step: Double) -> Double {
+        let unit = step > 0 ? step : (range.upperBound - range.lowerBound) / 20
+        return snapped(value + Double(presses) * unit, range: range, step: step)
     }
 }
