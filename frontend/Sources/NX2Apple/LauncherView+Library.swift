@@ -54,8 +54,8 @@ extension LauncherView {
 
     func hero(_ game: LibraryGame, width: CGFloat, height: CGFloat) -> some View {
         ZStack(alignment: .bottomLeading) {
-            if let image = artwork[game.id] {
-                Image(nsImage: image).resizable().scaledToFill()
+            if let image = heroArtwork?.id == game.id ? heroArtwork?.image : artwork[game.id] {
+                ArtworkFill(image: image, focus: game.artwork.focus(for: .hero))
                     .frame(width: width, height: height).clipped()
             } else {
                 LauncherPalette.surface
@@ -174,7 +174,7 @@ extension LauncherView {
                                     VStack(alignment: .leading, spacing: 8) {
                                         ZStack {
                                             if let image = artwork[game.id] {
-                                                Image(nsImage: image).resizable().scaledToFill()
+                                                ArtworkFill(image: image, focus: game.artwork.focus(for: .thumbnail))
                                             } else {
                                                 LauncherPalette.surface
                                                 Image(systemName: "gamecontroller").font(.system(size: 30, weight: .light)).foregroundStyle(.secondary)

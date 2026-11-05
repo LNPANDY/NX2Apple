@@ -22,7 +22,8 @@ struct LauncherView: View {
     @StateObject private var consoleDriver: AnyConsoleDriver
     @State private var controllerSheet = false
     @FocusState private var searchFocused: Bool
-    @State var artwork: [UUID: NSImage] = [:]
+    @State var artwork: [UUID: NSImage] = [:]   // card size
+    @State var heroArtwork: (id: UUID, image: NSImage)?   // the hero game's, at the size the hero needs
     @State var activeBuildID: UUID?
     @State var launching = false
     @State private var launchError: String?
@@ -174,7 +175,7 @@ struct LauncherView: View {
         .onAppear {
             gamepad.perform = padAction
             gamepad.capture = { [consoleDriver] id, action in consoleDriver.consumePress(controllerID: id, isBack: action == .b) }
-            if performStartupChecks { library.migrateLaunchOptions(); CloudSavesMigration.run() }
+            if performStartupChecks { library.migrateLaunchOptions(); library.migrateArtwork(); CloudSavesMigration.run() }
             if qaManage.open {
                 if qaManage.ring { padFocus.show(default: nil) }
                 manageOpenFor = library.selected?.id
@@ -207,6 +208,7 @@ struct LauncherView: View {
         .onReceive(repo.$busy.removeDuplicates().dropFirst()) { busy in if !busy && performStartupChecks { checkTools() } }
         .onReceive(engine.$syncing.removeDuplicates().dropFirst()) { syncing in if !syncing && performStartupChecks { checkTools() } }   // a sync made or moved the engine (its HEAD is what ToolsAge compares)
         .onChange(of: library.selectedID) { _ in resignNote = nil }   // the last re-sign's note belongs to its game
+        .onChange(of: heroGame?.id) { _ in refreshHeroArtwork() }
         .onChange(of: buildProgress) { progress in if m.running { DockProgress.update(progress) } }
         .onReceive(m.$running.removeDuplicates()) { running in
             if !running { DockProgress.update(nil) }
@@ -586,7 +588,7 @@ struct LauncherView: View {
                         deviceName: devices.deviceName(game.installedDevice), launching: launching,
                         actions: ManageActions(
                             rebuild: { configureBuild(game) }, openOnDevice: { openOnDevice(game) }, options: { optionsFor = game.id }, saves: { savesFor = game.id }, cheats: { cheatsFor = game.id },
-                            changeArtwork: { chooseArtwork(game) }, resetArtwork: { library.setArtwork("", for: game.id) },
+                            changeArtwork: { chooseArtwork(game) }, resetArtwork: { library.setArtwork(GameArtwork(), for: game.id) },
                             reveal: { if let path = game.revealTarget { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) } },
                             showLog: { if let log = GameLog.latest(titleID: game.titleID, appPath: game.appPath) { GameLog.show(log) } },
                             freeSpace: { freeSpaceFor = game.id }, remove: { removing = game }, delete: { deleting = game }))
@@ -670,8 +672,15 @@ struct LauncherView: View {
 
     private func refreshArtwork() {
         artwork = Dictionary(uniqueKeysWithValues: library.games.compactMap { game in
-            GameLibrary.artwork(for: game, repo: stores.repo.path).map { (game.id, $0) }
+            GameLibrary.artwork(for: game, slot: .thumbnail, repo: stores.repo.path, banners: library.artworkDirectory, maxPixel: ArtworkImages.cardPixels).map { (game.id, $0) }
         })
+        refreshHeroArtwork()
+    }
+
+    private func refreshHeroArtwork() {
+        heroArtwork = heroGame.flatMap { game in
+            GameLibrary.artwork(for: game, repo: stores.repo.path, banners: library.artworkDirectory).map { (game.id, $0) }
+        }
     }
 
     /// The eShop key art of the games that have none yet; the cards and the hero redraw as it arrives.
@@ -687,8 +696,12 @@ struct LauncherView: View {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.png, .jpeg, .tiff, .heic]
         panel.message = loc.t("library.artworkHint")
-        if panel.runModal() == .OK, let url = panel.url, NSImage(contentsOf: url) != nil {
-            library.setArtwork(url.path, for: game.id)
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let directory = ArtworkStore.customDirectory(for: game.id, in: library.artworkDirectory)
+        if let copy = try? ArtworkImport.prepare(url, kind: .hero, into: directory) {
+            var artwork = game.artwork
+            artwork.hero = ArtworkChoice(source: .imported(copy.url.lastPathComponent))
+            library.setArtwork(artwork, for: game.id)
         }
     }
 

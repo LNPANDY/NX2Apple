@@ -145,10 +145,12 @@ import NXModel
         let id = try library.addApp(app)
         let image = temporary.appendingPathComponent("my-picture.png")
         try Data("not game data".utf8).write(to: image)
-        library.setArtwork(image.path, for: id)
+        library.setArtwork(GameArtwork(hero: ArtworkChoice(source: .imported(image.lastPathComponent))), for: id)
         let restored = GameLibrary(file: file)
+        XCTAssertEqual(restored.artworkDirectory, temporary.appendingPathComponent("state/artwork", isDirectory: true),
+                       "a library kept elsewhere never touches the player's artwork folder")
         XCTAssertEqual(restored.games.count, 1)
-        XCTAssertEqual(restored.games.first?.artworkPath, image.path)
+        XCTAssertEqual(restored.games.first?.artwork.hero?.source, .imported("my-picture.png"))
         XCTAssertEqual(restored.games.first?.appPath, app.path)
         XCTAssertTrue(restored.games[0].isReady)
         restored.remove(id)
@@ -194,14 +196,34 @@ import NXModel
         XCTAssertEqual(library.selectedID, library.games[0].id)
     }
 
+    func testBuildOfPathKeyedEntryTakesTheOldEntrysImagesAlong() throws {
+        let app = try makeApp(titleID)
+        let file = temporary.appendingPathComponent("library.json")
+        var existing = LibraryGame(titleID: titleID, name: "Hades")
+        existing.appPath = app.path
+        existing.artwork.hero = ArtworkChoice(source: .imported("mine.jpg"), focus: ArtworkFocus(x: 0.2, y: 0.5))
+        var pending = LibraryGame(titleID: "/games/Hades.nsp", name: "Hades")
+        pending.inputs = ["base": ["/games/Hades.nsp"]]
+        try JSONEncoder().encode([existing, pending]).write(to: file)
+        let library = GameLibrary(file: file)
+        let from = ArtworkStore.customDirectory(for: existing.id, in: library.artworkDirectory)
+        try FileManager.default.createDirectory(at: from, withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: from.appendingPathComponent("mine.jpg"))
+        library.recordCompletedApp(path: app.path, for: pending.id)
+        XCTAssertEqual(library.games[0].artwork.hero, existing.artwork.hero)
+        let to = ArtworkStore.customDirectory(for: pending.id, in: library.artworkDirectory)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: to.appendingPathComponent("mine.jpg").path), "the image goes to the entry that stays")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: from.path))
+    }
+
     func testRebuildingSameGameKeepsOneEntryAndCustomArtwork() throws {
         let app = try makeApp(titleID)
         let library = GameLibrary(file: temporary.appendingPathComponent("library.json"))
         let first = try library.addApp(app)
-        library.setArtwork("/some/external/artwork.jpg", for: first)
+        library.setArtwork(GameArtwork(hero: ArtworkChoice(source: .imported("artwork.jpg"))), for: first)
         XCTAssertEqual(try library.addApp(app), first)
         XCTAssertEqual(library.games.count, 1)
-        XCTAssertEqual(library.games[0].artworkPath, "/some/external/artwork.jpg")
+        XCTAssertEqual(library.games[0].artwork.hero?.source, .imported("artwork.jpg"))
     }
 
     private func writeSettings(_ app: URL) throws {
