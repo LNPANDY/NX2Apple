@@ -5,7 +5,7 @@
     {
       "id": "guiding-light",
       "name": "The Guiding Light",
-      "detail": "Beat the earliest boss waiting in the tunnels below town.",
+      "detail": "Beat the earliest boss in the Temple of Guidance.",
       "hidden": false
     },
     {
@@ -77,7 +77,7 @@
     {
       "id": "new-frontier",
       "name": "A New Frontier",
-      "detail": "Complete the story and head out beside the friend who dug with you.",
+      "detail": "Complete the story and head out beside the miner you came to find.",
       "hidden": true
     }
   ]
