@@ -3,9 +3,9 @@
   "name": "Hyrule Warriors: Age of Calamity",
   "achievements": [
     {
-      "id": "castle-battle",
-      "name": "Castle Battle",
-      "detail": "Clear the first story battle as the fighting spreads through Hyrule Castle.",
+      "id": "hyrule-field",
+      "name": "Hyrule Field",
+      "detail": "Clear the first story battle by driving the monsters off Hyrule Field.",
       "hidden": false
     },
     {
@@ -57,21 +57,21 @@
       "hidden": false
     },
     {
-      "id": "optional-battle",
-      "name": "Optional Battle",
-      "detail": "Clear a battle that is not one of the main story chapters.",
+      "id": "timed-challenge",
+      "name": "Timed Challenge",
+      "detail": "Clear a Challenge before its timer runs out.",
       "hidden": false
     },
     {
-      "id": "hard-clear",
-      "name": "Hard Clear",
-      "detail": "Clear any battle on Hard difficulty.",
+      "id": "hinox-down",
+      "name": "Hinox Down",
+      "detail": "Defeat a Hinox during a battle.",
       "hidden": false
     },
     {
-      "id": "final-chapter",
-      "name": "Final Chapter",
-      "detail": "Clear the last chapter of the story.",
+      "id": "calamity-ganon",
+      "name": "Calamity Ganon",
+      "detail": "Win the final story battle against Calamity Ganon.",
       "hidden": true
     }
   ]
